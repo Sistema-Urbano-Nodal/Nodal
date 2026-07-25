@@ -782,6 +782,7 @@
     'y.notConfigured': 'Live checkout is not configured in this environment.',
     'y.perMonth': '/ month',
     'y.perYear': '/ year',
+    'mem.priceSoon': 'Soon!',
   };
 
   const DASH_ES = {
@@ -1249,6 +1250,7 @@
     'y.notConfigured': 'El pago en vivo no está configurado en este entorno.',
     'y.perMonth': '/ mes',
     'y.perYear': '/ año',
+    'mem.priceSoon': '¡Pronto!',
   };
 
   const DASH_PT = {
@@ -1716,6 +1718,7 @@
     'y.notConfigured': 'O pagamento ao vivo não está configurado neste ambiente.',
     'y.perMonth': '/ mês',
     'y.perYear': '/ ano',
+    'mem.priceSoon': 'Em breve!',
   };
 
   Object.assign(ES, DASH_ES);

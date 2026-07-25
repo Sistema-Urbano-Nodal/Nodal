@@ -10,22 +10,43 @@
   'use strict';
   const NS = 'http://www.w3.org/2000/svg';
 
-  async function loadLandingBillingConfig() {
+  /* The membership price slot. Until a launch price is configured the server
+     answers with its "unannounced" sentinel, and the landing says so in the
+     reader's language instead of showing a number. A configured amount is
+     printed exactly as the operator set it — only the period suffix and the
+     sentinel are copy. */
+  const I18N = window.nodalI18n;
+  const t = (key) => (I18N ? I18N.t(key) : key);
+  const PRICE_COPY = new Map([
+    ['Soon', 'mem.priceSoon'],
+    ['/ month', 'y.perMonth'], ['/month', 'y.perMonth'], ['/ mo', 'y.perMonth'],
+    ['/ year', 'y.perYear'], ['/year', 'y.perYear'], ['/ yr', 'y.perYear'],
+  ]);
+  const localisePrice = (value) => (PRICE_COPY.has(value) ? t(PRICE_COPY.get(value)) : value);
+
+  let monthlyBilling = null;
+  function renderLandingPrice() {
     const price = document.querySelector('[data-billing-price]');
     if (!price) return;
+    if (!monthlyBilling?.amount) { price.textContent = t('mem.priceSoon'); return; }
+    const amount = localisePrice(monthlyBilling.amount);
+    const per = monthlyBilling.per ? ` ${localisePrice(monthlyBilling.per)}` : '';
+    price.textContent = `${amount}${per}`;
+  }
+
+  async function loadLandingBillingConfig() {
+    if (!document.querySelector('[data-billing-price]')) return;
     try {
       const res = await fetch('/api/billing/config', { headers: { Accept: 'application/json' } });
-      if (!res.ok) return;
-      const data = await res.json();
-      const monthly = data.cycles?.monthly;
-      if (!monthly?.amount) return;
-      price.textContent = `${monthly.amount}${monthly.per ? ` ${monthly.per}` : ''}`;
+      if (res.ok) monthlyBilling = (await res.json()).cycles?.monthly ?? null;
     } catch {
-      // Static previews keep the neutral fallback copy.
+      // static previews have no API; the translated fallback still applies
     }
+    renderLandingPrice();
   }
 
   loadLandingBillingConfig();
+  I18N?.onChange(renderLandingPrice);
 
   /* ---------- section tabs ---------- */
   const tabs = [...document.querySelectorAll('.plat-tab')];
