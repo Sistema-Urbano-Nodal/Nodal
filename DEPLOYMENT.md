@@ -123,9 +123,28 @@ npm start
 - Supabase secret/service-role key exists only in Vercel server env.
 - RLS remains enabled on all Supabase tables.
 - Public directory data is served only from intentional fields.
+- Member directory visibility is opt-in: only members whose Part C `consent` is
+  true appear in `GET /api/users`, `GET /api/users/search` and `GET /api/users/:id`.
+  A member who never consented returns 404 from the card endpoint, so it cannot be
+  used to confirm that an account exists.
+- `GET /api/users/search` matches name, role and city on substring but requires a
+  full registration email to match by address, and never returns an email. It is
+  rate limited per session (`MEMBER_SEARCH_RATE_LIMIT`, default 40/min).
 - Auth cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` in production.
 - Stripe webhook signature verification is configured before live billing.
 - Production logs do not include passwords, access tokens, service keys, or raw profile payloads.
+
+## Interface Language
+
+- Members pick EN / ES / PT at sign-in; the choice persists in `localStorage`
+  under `nodal.lang` and carries into the console, the member profile and the
+  membership page. `?lang=en|es|pt` overrides it for a direct link.
+- Subscription **amounts** are shown exactly as configured in
+  `SUBSCRIPTION_PRICE_*_LABEL`, in every language. The wording around the amount
+  (cycle name, period suffix, renewal and cancellation notes) is translated when
+  it matches the English default; set `SUBSCRIPTION_MONTHLY_*` /
+  `SUBSCRIPTION_ANNUAL_*` to anything else and that text is shown verbatim, so
+  write it in the language members should read.
 
 ## Manual External Configuration Still Required
 

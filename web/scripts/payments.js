@@ -2,6 +2,29 @@
    Stripe checkout is created server-side. The local fallback only appears
    when the current environment is intentionally not configured for payments. */
 (() => {
+  const I18N = window.nodalI18n;
+  const t = (key) => (I18N ? I18N.t(key) : key);
+
+  /* /api/billing/config ships the operator's wording and the server's English
+     defaults through the same fields. A value we recognise as a default gets
+     translated; anything else is wording the operator set on purpose and is
+     shown verbatim, in whatever language they wrote it. Money is never
+     translated — only the "no price announced yet" sentinel is copy. */
+  const BILLING_COPY = new Map([
+    ['Monthly', 'y.cycleMonthly'],
+    ['Annual', 'y.cycleAnnual'],
+    ['Free', 'y.free'],
+    ['Soon', 'y.soon'],
+    ['Cancel anytime.', 'y.cancelAnytime'],
+    ['Every month, until you cancel', 'y.renewsMonthly'],
+    ['Every 12 months, until you cancel', 'y.renewsAnnual'],
+    // the period suffix the deploy template suggests; any other wording is the
+    // operator's own and is shown exactly as they wrote it
+    ['/ month', 'y.perMonth'], ['/month', 'y.perMonth'], ['/ mo', 'y.perMonth'],
+    ['/ year', 'y.perYear'], ['/year', 'y.perYear'], ['/ yr', 'y.perYear'],
+  ]);
+  const localise = (value) => (BILLING_COPY.has(value) ? t(BILLING_COPY.get(value)) : value);
+
   let pricing = {
     monthly: {
       label: 'Monthly',
@@ -40,12 +63,14 @@
   function setCycle(key) {
     currentCycle = key;
     const p = pricing[key];
-    els.amount.textContent = p.amount;
-    els.per.textContent = p.per;
-    els.note.textContent = p.note;
-    els.cycle.textContent = p.label;
-    els.price.textContent = [p.amount, p.per].filter(Boolean).join(' ');
-    els.renews.textContent = p.renews;
+    const amount = localise(p.amount);
+    els.amount.textContent = amount;
+    const per = localise(p.per);
+    els.per.textContent = per;
+    els.note.textContent = localise(p.note);
+    els.cycle.textContent = localise(p.label);
+    els.price.textContent = [amount, per].filter(Boolean).join(' ');
+    els.renews.textContent = localise(p.renews);
 
     const on = key === 'monthly';
     els.monthly.classList.toggle('is-on', on);
@@ -143,14 +168,14 @@
       if (!res.ok) throw new Error('status unavailable');
       const data = await res.json();
       if (data.subscription?.active) {
-        setNote('Support confirmed by the payment provider. Thank you for sustaining NODAL.');
+        setNote(t('y.confirmed'));
       } else if (data.subscription?.status && data.subscription.status !== 'none') {
-        setNote(`Checkout returned. Provider confirmation is still ${data.subscription.status}.`);
+        setNote(`${t('y.returned')} ${t('y.pending')} ${data.subscription.status}.`);
       } else {
-        setNote('Checkout returned. Provider confirmation can take a moment; refresh this page if the status does not update.');
+        setNote(t('y.returnedWait'));
       }
     } catch {
-      setNote('Checkout returned. We could not verify the payment provider status yet.');
+      setNote(t('y.returnedUnknown'));
     }
   }
 
@@ -158,7 +183,7 @@
   const backFrom = new URLSearchParams(location.search).get('checkout');
   if (payNote && (backFrom === 'success' || backFrom === 'cancelled')) {
     if (backFrom === 'success') refreshBillingStatus();
-    else setNote('Checkout cancelled — nothing was charged.');
+    else setNote(t('y.cancelled'));
   }
 
   async function startCheckout() {
@@ -173,9 +198,10 @@
       if (result.status === 'local-fallback') break;
     }
     setBusy(false);
-    setNote('Live checkout is not configured in this environment.');
+    setNote(t('y.notConfigured'));
     summary?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
   selectPro?.addEventListener('click', () => { startCheckout(); });
   summaryCheckout?.addEventListener('click', () => { startCheckout(); });
+  I18N?.onChange(() => setCycle(currentCycle));
 })();

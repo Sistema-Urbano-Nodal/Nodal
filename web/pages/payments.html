@@ -8,7 +8,7 @@
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <meta name="description" content="NODAL supporting membership: help sustain the community while keeping access open." />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cline x1='20' y1='22' x2='44' y2='42' stroke='%2359bc53' stroke-width='5'/%3E%3Ccircle cx='20' cy='22' r='11' fill='%233d5c38'/%3E%3Ccircle cx='44' cy='42' r='8' fill='%2359bc53'/%3E%3C/svg%3E" />
-  <title>NODAL · Supporting membership</title>
+  <title data-i18n="y.title">NODAL · Supporting membership</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500;1,600&display=swap" rel="stylesheet" />
@@ -23,16 +23,16 @@
     </a>
 
     <nav class="nav-main">
-      <a href="index.html#membership">Programs</a>
-      <a href="index.html#knowledge">Community</a>
-      <a href="index.html#resources">Resources</a>
+      <a href="index.html#membership" data-i18n="nav.opportunities">Programs</a>
+      <a href="index.html#knowledge" data-i18n="nav.knowledge">Community</a>
+      <a href="index.html#resources" data-i18n="nav.resources">Resources</a>
     </nav>
 
     <nav class="nav-account">
-      <a href="dashboard.html">Profile</a>
-      <a href="index.html#platform">Community</a>
+      <a href="dashboard.html" data-i18n="nav.profile">Profile</a>
+      <a href="index.html#platform" data-i18n="nav.network">Community</a>
       <a href="https://sistemaurbano.org/nodal/" target="_blank" rel="noopener noreferrer">Sistema Urbano ↗</a>
-      <a class="btn btn-pill btn-nav" href="login.html?next=/dashboard.html">Join NODAL</a>
+      <a class="btn btn-pill btn-nav" href="login.html?next=/dashboard.html" data-i18n="nav.join">Join NODAL</a>
     </nav>
 
     <button type="button" class="nav-toggle" id="navToggle" aria-label="Menu">
@@ -43,10 +43,10 @@
   <main>
     <section class="pay-hero">
       <div class="wrap">
-        <p class="eyebrow">Supporting membership</p>
-        <h1 class="pay-title">Keep access open.<br/><em>Support the community.</em></h1>
-        <p class="pay-sub">NODAL starts free. Supporting membership helps sustain the shared civic work behind courses, community circles and regional opportunities.</p>
-        <span class="pay-flag">Secure checkout</span>
+        <p class="eyebrow" data-i18n="y.eyebrow">Supporting membership</p>
+        <h1 class="pay-title"><span data-i18n="y.titleA">Keep access open.</span><br/><em data-i18n="y.titleB">Support the community.</em></h1>
+        <p class="pay-sub" data-i18n="y.sub">NODAL starts free. Supporting membership helps sustain the shared civic work behind courses, community circles and regional opportunities.</p>
+        <span class="pay-flag" data-i18n="y.secure">Secure checkout</span>
       </div>
     </section>
 
@@ -55,28 +55,28 @@
 
         <div class="pay-plans">
           <div class="cycle" role="group" aria-label="Billing cycle">
-            <button type="button" class="cycle-btn is-on" id="cycleMonthly" aria-pressed="true">Monthly</button>
-            <button type="button" class="cycle-btn" id="cycleAnnual" aria-pressed="false">Annual <span class="cycle-save" id="cycleAnnualBadge" hidden></span></button>
+            <button type="button" class="cycle-btn is-on" id="cycleMonthly" aria-pressed="true" data-i18n="y.cycleMonthly">Monthly</button>
+            <button type="button" class="cycle-btn" id="cycleAnnual" aria-pressed="false"><span data-i18n="y.cycleAnnual">Annual</span> <span class="cycle-save" id="cycleAnnualBadge" hidden></span></button>
           </div>
 
           <article class="pay-plan">
             <header>
-              <h2>Community access</h2>
-              <p class="pay-price"><span class="pay-amount">Free</span></p>
+              <h2 data-i18n="y.freeName">Community access</h2>
+              <p class="pay-price"><span class="pay-amount" data-i18n="y.free">Free</span></p>
             </header>
             <ul>
-              <li>Open courses and community sessions</li>
-              <li>Library resources and shared reading circles</li>
-              <li>Learning and opportunity updates</li>
-              <li>Calls and opportunities in your region</li>
+              <li data-i18n="y.f1">Open courses and community sessions</li>
+              <li data-i18n="y.f2">Library resources and shared reading circles</li>
+              <li data-i18n="y.f3">Learning and opportunity updates</li>
+              <li data-i18n="y.f4">Calls and opportunities in your region</li>
             </ul>
-            <a class="btn btn-ghost" href="login.html?next=/dashboard.html">Join free</a>
+            <a class="btn btn-ghost" href="login.html?next=/dashboard.html" data-i18n="y.joinFree">Join free</a>
           </article>
 
           <article class="pay-plan pay-plan-pro">
-            <div class="plan-flag">Supporter</div>
+            <div class="plan-flag" data-i18n="y.supporter">Supporter</div>
             <header>
-              <h2>Supporting membership</h2>
+              <h2 data-i18n="y.proName">Supporting membership</h2>
               <p class="pay-price">
                 <span class="pay-amount" id="proPrice">Soon</span>
                 <span class="pay-per" id="proPer"></span>
@@ -84,29 +84,29 @@
               <p class="pay-price-note" id="proNote">Cancel anytime.</p>
             </header>
             <ul>
-              <li>Everything in Free, plus:</li>
-              <li>Programs and opportunities curated for your interests</li>
-              <li>Guided discovery of people, projects &amp; knowledge</li>
-              <li>Member directory and deeper community profile</li>
-              <li>Early access to labs, circles and co-creation formats</li>
+              <li data-i18n="y.p1">Everything in Free, plus:</li>
+              <li data-i18n="y.p2">Programs and opportunities curated for your interests</li>
+              <li data-i18n="y.p3">Guided discovery of people, projects &amp; knowledge</li>
+              <li data-i18n="y.p4">Member directory and deeper community profile</li>
+              <li data-i18n="y.p5">Early access to labs, circles and co-creation formats</li>
             </ul>
-            <button type="button" class="btn btn-primary" id="selectPro">Support the community</button>
+            <button type="button" class="btn btn-primary" id="selectPro" data-i18n="y.support">Support the community</button>
           </article>
         </div>
 
         <aside class="pay-summary" aria-label="Order summary">
-          <p class="pay-summary-kicker">Support summary</p>
-          <h2>Supporting membership</h2>
+          <p class="pay-summary-kicker" data-i18n="y.summary">Support summary</p>
+          <h2 data-i18n="y.proName">Supporting membership</h2>
           <dl>
-            <div><dt>Billing cycle</dt><dd id="sumCycle">Monthly</dd></div>
-            <div><dt>Price</dt><dd id="sumPrice">Soon</dd></div>
-            <div><dt>Renews</dt><dd id="sumRenews">Every month, until you cancel</dd></div>
+            <div><dt data-i18n="y.dtCycle">Billing cycle</dt><dd id="sumCycle">Monthly</dd></div>
+            <div><dt data-i18n="y.dtPrice">Price</dt><dd id="sumPrice">Soon</dd></div>
+            <div><dt data-i18n="y.dtRenews">Renews</dt><dd id="sumRenews">Every month, until you cancel</dd></div>
           </dl>
           <div class="pay-methods">
-            <p>Pay with</p>
-            <span>Card via Stripe</span>
+            <p data-i18n="y.payWith">Pay with</p>
+            <span data-i18n="y.card">Card via Stripe</span>
           </div>
-          <button type="button" class="btn btn-primary btn-block" id="summaryCheckout">Continue to secure checkout</button>
+          <button type="button" class="btn btn-primary btn-block" id="summaryCheckout" data-i18n="y.checkout">Continue to secure checkout</button>
           <p class="pay-checkout-note" id="payCheckoutNote" hidden>Checkout is handled by Stripe. NODAL never sees or stores card numbers.</p>
         </aside>
       </div>
@@ -114,27 +114,27 @@
 
     <section class="pay-faq">
       <div class="wrap">
-        <p class="eyebrow">FAQ</p>
-        <h2 class="section-title">Membership questions</h2>
+        <p class="eyebrow" data-i18n="y.faq">FAQ</p>
+        <h2 class="section-title" data-i18n="y.faqTitle">Membership questions</h2>
         <details>
-          <summary>Can I cancel anytime?</summary>
-          <p>Yes. Monthly plans stop at the end of the paid month; annual plans at the end of the paid year. Your free community account stays active either way.</p>
+          <summary data-i18n="y.q1">Can I cancel anytime?</summary>
+          <p data-i18n="y.a1">Yes. Monthly plans stop at the end of the paid month; annual plans at the end of the paid year. Your free community account stays active either way.</p>
         </details>
         <details>
-          <summary>What currency will I be charged in?</summary>
-          <p>The checkout provider shows the final charge before payment.</p>
+          <summary data-i18n="y.q2">What currency will I be charged in?</summary>
+          <p data-i18n="y.a2">The checkout provider shows the final charge before payment.</p>
         </details>
         <details>
-          <summary>Will I get a receipt?</summary>
-          <p>Every charge comes with an emailed receipt, and organization invoices are available on request.</p>
+          <summary data-i18n="y.q3">Will I get a receipt?</summary>
+          <p data-i18n="y.a3">Every charge comes with an emailed receipt, and organization invoices are available on request.</p>
         </details>
         <details>
-          <summary>Is this pricing final?</summary>
-          <p>No. This is founding-member pricing. Early supporters will keep the launch price they choose.</p>
+          <summary data-i18n="y.q4">Is this pricing final?</summary>
+          <p data-i18n="y.a4">No. This is founding-member pricing. Early supporters will keep the launch price they choose.</p>
         </details>
         <details>
-          <summary>How will payments be processed?</summary>
-          <p>Through a certified checkout provider. You pay on their secure page and come straight back; NODAL never sees or stores card numbers.</p>
+          <summary data-i18n="y.q5">How will payments be processed?</summary>
+          <p data-i18n="y.a5">Through a certified checkout provider. You pay on their secure page and come straight back; NODAL never sees or stores card numbers.</p>
         </details>
       </div>
     </section>
@@ -143,15 +143,16 @@
   <footer class="footer pay-footer" id="contact">
     <div class="footer-bottom">
       <div class="wrap">
-        <h2>Let's talk</h2>
-        <p class="footer-rights">2026 All Rights Reserved</p>
+        <h2 data-i18n="p.talk">Let's talk</h2>
+        <p class="footer-rights" data-i18n="p.rights">2026 All Rights Reserved</p>
         <a class="footer-email" href="mailto:fmuro@sistemaurbano.org,malegre@sistemaurbano.org">Email: fmuro@sistemaurbano.org, malegre@sistemaurbano.org</a>
         <a class="footer-old" href="https://sistemaurbano.org/nodal/" target="_blank" rel="noopener noreferrer">NODAL at Sistema Urbano ↗</a>
       </div>
     </div>
   </footer>
 
+  <script src="i18n.js?v=26"></script>
   <script src="nav.js?v=13"></script>
-  <script src="payments.js?v=15"></script>
+  <script src="payments.js?v=17"></script>
 </body>
 </html>
