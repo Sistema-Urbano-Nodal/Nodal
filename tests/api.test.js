@@ -1204,3 +1204,89 @@ test('static assets bypass session resolution and carry reusable cache headers',
   assert.equal(privatePage.status, 302);
   assert.equal(sessionResolutions, 1);
 });
+
+const consentingMember = async (base, { name, email, city = 'Lima', title = 'Transport planner', consent = true }) => {
+  const signup = await postJson(base, '/api/auth/signup', { fullName: name, email, password: 'corridor-2026' });
+  assert.equal(signup.status, 201);
+  const cookie = cookiePair(signup);
+  const user = (await signup.clone().json()).user;
+  await patchJson(base, '/api/me', {
+    fullName: name,
+    title,
+    city,
+    partC: { bio: `${name} works on bus corridors.`, linkedin: '', portfolio: 'https://example.test/folio', references: 'Ref One · ref@example.test', availability: '4 h / month', consent },
+  }, { Cookie: cookie });
+  return { cookie, id: user.id };
+};
+const getJson = async (base, path, cookie) => {
+  const res = await fetch(`${base}${path}`, cookie ? { headers: { Cookie: cookie } } : undefined);
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+};
+
+test('member search needs a session, skips you and anyone who never consented, and never returns an email', async (t) => {
+  const base = await bootDb(t);
+  const ana = await consentingMember(base, { name: 'Ana Pereira', email: 'ana@example.test' });
+  const bruno = await consentingMember(base, { name: 'Bruno Dias', email: 'bruno@example.test', city: 'Recife', consent: false });
+
+  assert.equal((await getJson(base, '/api/users/search?q=ana')).status, 401);
+
+  const byName = await getJson(base, '/api/users/search?q=ana', bruno.cookie);
+  assert.equal(byName.status, 200);
+  assert.deepEqual(byName.body.users.map((u) => u.name), ['Ana Pereira']);
+  assert.deepEqual(Object.keys(byName.body.users[0]).sort(), ['city', 'id', 'name', 'role']);
+
+  // a full registration address resolves; a fragment of one must not
+  const exact = await getJson(base, `/api/users/search?q=${encodeURIComponent('ana@example.test')}`, bruno.cookie);
+  assert.deepEqual(exact.body.users.map((u) => u.id), [ana.id]);
+  const fragment = await getJson(base, '/api/users/search?q=%40example.test', bruno.cookie);
+  assert.deepEqual(fragment.body.users, []);
+
+  // you never find yourself, and an unlisted member is never found
+  assert.deepEqual((await getJson(base, '/api/users/search?q=ana', ana.cookie)).body.users, []);
+  assert.deepEqual((await getJson(base, '/api/users/search?q=bruno', ana.cookie)).body.users, []);
+
+  // below the minimum query length nothing is scanned
+  assert.deepEqual((await getJson(base, '/api/users/search?q=a', bruno.cookie)).body.users, []);
+});
+
+test('a member card shows directory fields only, and hides members who never consented', async (t) => {
+  const base = await bootDb(t);
+  const ana = await consentingMember(base, { name: 'Ana Pereira', email: 'ana@example.test' });
+  const bruno = await consentingMember(base, { name: 'Bruno Dias', email: 'bruno@example.test', consent: false });
+
+  assert.equal((await getJson(base, `/api/users/${ana.id}`)).status, 401);
+  assert.equal((await getJson(base, '/api/users/not a valid id', ana.cookie)).status, 400);
+  assert.equal((await getJson(base, '/api/users/11111111-1111-1111-1111-111111111111', ana.cookie)).status, 404);
+
+  const card = await getJson(base, `/api/users/${ana.id}`, bruno.cookie);
+  assert.equal(card.status, 200);
+  assert.equal(card.body.self, false);
+  assert.equal(card.body.user.fullName, 'Ana Pereira');
+  assert.equal(card.body.user.email, undefined, 'a member card must never carry an email');
+  assert.equal(card.body.user.partC.portfolio, '', 'portfolio stays private');
+  assert.equal(card.body.user.partC.references, '', 'reference contacts stay private');
+  assert.ok(card.body.user.partC.bio.includes('bus corridors'));
+
+  // your own record still comes back whole
+  const own = await getJson(base, `/api/users/${ana.id}`, ana.cookie);
+  assert.equal(own.body.self, true);
+  assert.equal(own.body.user.email, 'ana@example.test');
+  assert.equal(own.body.user.partC.references, 'Ref One · ref@example.test');
+
+  // an unlisted member is indistinguishable from one that does not exist
+  assert.equal((await getJson(base, `/api/users/${bruno.id}`, ana.cookie)).status, 404);
+});
+
+test('member search is rate limited per session', async (t) => {
+  const base = await bootDb(t);
+  const ana = await consentingMember(base, { name: 'Ana Pereira', email: 'ana@example.test' });
+  let limited = null;
+  for (let i = 0; i < 60 && !limited; i += 1) {
+    const res = await fetch(`${base}/api/users/search?q=ana`, { headers: { Cookie: ana.cookie } });
+    if (res.status === 429) limited = res;
+    else await res.arrayBuffer();
+  }
+  assert.ok(limited, 'expected the search endpoint to start refusing');
+  assert.ok(Number(limited.headers.get('retry-after')) > 0);
+  await limited.arrayBuffer();
+});

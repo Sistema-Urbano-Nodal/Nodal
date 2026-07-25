@@ -36,6 +36,10 @@ const AUTH_RATE_LIMIT = envInt('AUTH_RATE_LIMIT', 10);
 const INTERACTION_RATE_WINDOW_MS = 60 * 1000;
 const INTERACTION_RATE_LIMIT = envInt('INTERACTION_RATE_LIMIT', 60);
 const CITY_SEARCH_MIN_QUERY = 2;
+const MEMBER_SEARCH_MIN_QUERY = 2;
+const MEMBER_SEARCH_LIMIT = 8;
+const MEMBER_SEARCH_WINDOW_MS = 60 * 1000;
+const MEMBER_SEARCH_RATE_LIMIT = envInt('MEMBER_SEARCH_RATE_LIMIT', 40);
 const CITY_SEARCH_MAX_QUERY = 80;
 const CITY_SEARCH_LIMIT = envInt('CITY_SEARCH_LIMIT', 8);
 const CITY_SEARCH_CACHE_MS = 24 * 60 * 60 * 1000;
@@ -546,6 +550,8 @@ export function createApp({
   const useDb = Boolean(repository);
   const authLimiter = createWindowRateLimiter({ windowMs: AUTH_RATE_WINDOW_MS, limit: AUTH_RATE_LIMIT });
   const interactionLimiter = createWindowRateLimiter({ windowMs: INTERACTION_RATE_WINDOW_MS, limit: INTERACTION_RATE_LIMIT });
+  // each search walks the whole directory, so it is bounded per member
+  const searchLimiter = createWindowRateLimiter({ windowMs: MEMBER_SEARCH_WINDOW_MS, limit: MEMBER_SEARCH_RATE_LIMIT });
   const cacheKey = (id, graph) => `rec:v2:${id}:${graphFingerprint(graph)}`;
   if (repository?.cleanupExpiredSessions) repository.cleanupExpiredSessions();
 
@@ -717,7 +723,66 @@ export function createApp({
         return;
       }
 
-      let m = pathname.match(/^\/api\/recommendations\/([^/]+)$/);
+      /* Directory search. Members opt in through Part C consent; everyone else
+         stays unlisted. Name, role and city match on substring; email must match
+         in full — so you can reach someone whose address you already know
+         without the endpoint ever disclosing an address. */
+      if (useDb && req.method === 'GET' && pathname === '/api/users/search') {
+        if (!requireAuth(res, sessionUser)) return;
+        const rate = searchLimiter.take(sessionUser.id);
+        if (!rate.ok) {
+          send(res, 429, { error: 'too many searches' }, { 'Retry-After': String(rate.retryAfter) });
+          return;
+        }
+        const raw = String(url.searchParams.get('q') || '').trim().slice(0, CITY_SEARCH_MAX_QUERY);
+        const q = raw.toLowerCase();
+        if (q.length < MEMBER_SEARCH_MIN_QUERY) { send(res, 200, { users: [] }); return; }
+        const rows = await repository.listDirectoryUsers();
+        const users = rows
+          .filter((row) => row.id !== sessionUser.id)
+          .map((row) => ({ row, user: repository.toApiUser(row) }))
+          .filter(({ row, user }) => {
+            const haystack = `${user.fullName} ${user.title} ${user.city}`.toLowerCase();
+            return haystack.includes(q) || String(row.email || '').toLowerCase() === q;
+          })
+          .slice(0, MEMBER_SEARCH_LIMIT)
+          .map(({ user }) => ({ id: user.id, name: user.fullName, role: user.title, city: user.city }));
+        send(res, 200, { users });
+        return;
+      }
+
+      let m = pathname.match(/^\/api\/users\/([^/]+)$/);
+      if (useDb && m && req.method === 'GET') {
+        if (!requireAuth(res, sessionUser)) return;
+        const id = m[1];
+        if (!ID_RE.test(id)) { send(res, 400, { error: 'invalid user id' }); return; }
+        const row = await repository.getUserById(id);
+        if (!row) { send(res, 404, { error: 'unknown user' }); return; }
+        const user = repository.toApiUser(row);
+        const self = id === sessionUser.id;
+        // same rule as listDirectoryUsers, without reading every profile to answer it
+        const inDirectory = user?.partC?.consent === true && user?.accountStatus === 'active';
+        if (!self && !inDirectory) { send(res, 404, { error: 'unknown user' }); return; }
+        // a member card carries only what the directory is meant to show
+        send(res, 200, {
+          user: self ? user : {
+            id: user.id,
+            fullName: user.fullName,
+            title: user.title,
+            city: user.city,
+            interests: user.interests,
+            topics: user.topics,
+            assessed: user.assessed,
+            linkedin: user.linkedin,
+            createdAt: user.createdAt,
+            partC: { bio: user.partC?.bio || '', linkedin: user.linkedin, availability: user.partC?.availability || '', consent: true, portfolio: '', references: '' },
+          },
+          self,
+        });
+        return;
+      }
+
+      m = pathname.match(/^\/api\/recommendations\/([^/]+)$/);
       if (m && req.method === 'GET') {
         if (useDb && !requireAuth(res, sessionUser)) return;
         const userId = resolveUserId(m[1], sessionUser, useDb);

@@ -74,7 +74,9 @@
         password: $('signupPassword').value,
       });
       if (data.requiresEmailConfirmation) {
-        setError(error, 'Check your email to confirm your account. If you already confirmed it, sign in.');
+        setError(error, window.nodalI18n
+          ? window.nodalI18n.t('a.confirm')
+          : 'Check your email to confirm your account. If you already confirmed it, sign in.');
         submit.disabled = false;
         return;
       }

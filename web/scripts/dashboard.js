@@ -1,9 +1,16 @@
-/* member dashboard with a real user layer.
-   The authenticated API user drives every card: identity, role stack, trust
-   ladder, growth branches, badges, completeness, timeline. State persists in
-   the server database. All DOM is createElement/textContent · no HTML injection. */
+/* NODAL member console.
+   The authenticated API user drives every field: identity, roles, trust ladder,
+   route spine, paths, recognition, completeness, timeline. State persists in the
+   server database. Every user-facing string goes through t() so the language
+   chosen at sign-in carries through. All DOM is createElement/textContent —
+   no HTML injection. */
 (() => {
   'use strict';
+
+  /* ================= i18n ================= */
+  const I18N = window.nodalI18n;
+  const t = (key, vars) => (I18N ? I18N.t(key, vars) : key);
+  const localeTag = () => ({ en: 'en-GB', es: 'es-ES', pt: 'pt-BR' }[I18N?.lang] ?? 'en-GB');
 
   /* ================= persisted state ================= */
   const DEFAULT_PART_C = { bio: '', linkedin: '', portfolio: '', references: '', availability: '', consent: false };
@@ -49,7 +56,7 @@
       fullName: user.name,
       title: user.role,
       city: user.city,
-      interests: user.topics.map((t) => String(t.name || t).toLowerCase()).filter(Boolean),
+      interests: user.topics.map((t2) => String(t2.name || t2).toLowerCase()).filter(Boolean),
       active: user.active,
       topics: user.topics,
       skills: user.skills,
@@ -63,10 +70,20 @@
   }
 
   /* ================= model ================= */
-  const LEVELS = ['Exploring', 'Practicing', 'Proficient', 'Reference'];
-  const TAXONOMY = ['Mobility', 'Public space', 'Housing', 'Climate & resilience', 'Care & gender',
-    'Governance & participation', 'Safety', 'Informality', 'Heritage', 'Urban data & tech',
-    'Land use & planning', 'Environment & nature'];
+  const LEVEL_KEYS = ['d.level.1', 'd.level.2', 'd.level.3', 'd.level.4'];
+  const levelName = (level) => t(LEVEL_KEYS[Math.min(Math.max(level, 1), 4) - 1]);
+  /* The stored topic name is the canonical English one — it is the join key for
+     interests, matching and saved levels. Only the label is translated. */
+  const TOPIC_KEYS = new Map([
+    ['Mobility', 'mobility'], ['Public space', 'publicSpace'], ['Housing', 'housing'],
+    ['Climate & resilience', 'climate'], ['Care & gender', 'care'],
+    ['Governance & participation', 'governance'], ['Safety', 'safety'],
+    ['Informality', 'informality'], ['Heritage', 'heritage'],
+    ['Urban data & tech', 'urbanData'], ['Land use & planning', 'landUse'],
+    ['Environment & nature', 'environment'],
+  ]);
+  const TAXONOMY = [...TOPIC_KEYS.keys()];
+  const topicLabel = (name) => (TOPIC_KEYS.has(name) ? t(`d.topic.${TOPIC_KEYS.get(name)}`) : name);
   const blankPartC = () => ({ bio: '', linkedin: '', portfolio: '', references: '', availability: '', consent: false });
   const makeTopic = (name, level = 1) => ({ name, level, validatedAt: 0, endorsedAt: 0 });
   const cleanCity = (value) => String(value || '').trim().replace(/\s+/g, ' ').slice(0, 60);
@@ -86,7 +103,8 @@
   }
 
   let U = null;
-  const maxLevel = () => Math.max(0, ...U.topics.map((t) => t.level));
+  const maxLevel = () => Math.max(0, ...U.topics.map((x) => x.level));
+  const cityLabel = () => U.city || t('d.sheet.cityPending');
 
   function setUser(user, persist = true) {
     U = user;
@@ -100,38 +118,54 @@
     state.user = U;
     state.notifRead = U.notifRead;
   }
+  /* A failed PATCH used to be swallowed: the change stayed on screen and never
+     reached the server, which reads exactly like success. Now it says so. */
+  function reportSave(ok, retrying) {
+    const box = document.getElementById('saveAlert');
+    if (!box) return;
+    if (ok) { box.hidden = true; return; }
+    setText('saveAlertText', t(retrying ? 'd.save.stillFailing' : 'd.save.failed'));
+    setText('saveRetry', t('d.save.retry'));
+    box.hidden = false;
+  }
   function touchUser() {
     if (state.user) state.user = U;
-    saveProfile().catch(() => {});
+    saveProfile().then(() => reportSave(true)).catch(() => reportSave(false));
   }
 
-  const stageOf = (t) => (t.validatedAt >= t.level ? 'validated' : t.endorsedAt >= t.level ? 'endorsed' : 'self');
-  const stageLabel = { validated: 'NODAL-validated', endorsed: 'peer-endorsed', self: 'self-declared' };
+  const stageOf = (x) => (x.validatedAt >= x.level ? 'validated' : x.endorsedAt >= x.level ? 'endorsed' : 'self');
+  const stageName = (stage) => t(`d.stage.${stage}`);
 
-  /* ================= greeting + identity ================= */
+  const el = (tag, cls, text) => {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+  const byId = (id) => document.getElementById(id);
+  const setText = (id, text) => { const node = byId(id); if (node) node.textContent = text; };
+
+  /* ================= identity + title block ================= */
+  function initials(name) {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '·';
+    return (parts[0][0] + (parts[1]?.[0] ?? '')).toUpperCase();
+  }
+
   function renderIdentity() {
-    const greetWord = document.getElementById('greetWord');
-    if (greetWord) {
-      const h = new Date().getHours();
-      greetWord.textContent = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
-    }
-    const nameEl = document.getElementById('userName');
-    if (nameEl) nameEl.textContent = U.name;
-    const avatar = document.getElementById('userBtn');
-    if (avatar) {
-      const parts = U.name.trim().split(/\s+/);
-      avatar.textContent = (parts[0][0] + (parts[1]?.[0] ?? '')).toUpperCase();
-    }
-    const place = document.getElementById('userPlace');
-    if (place) place.textContent = U.city || 'Complete your city';
-    const sub = document.getElementById('greetSub');
-    if (sub) {
-      sub.textContent = U.assessed
-        ? 'Your profile is live and your self-assessment is in. Your suggested path and open community routes are below.'
-        : 'Your profile is live. Four minutes of self-assessment helps the community understand what you care about and where you want to grow.';
-    }
-    const liChip = document.getElementById('userLinkedIn');
-    const liText = document.getElementById('userLinkedInText');
+    const hour = new Date().getHours();
+    setText('greetWord', t(hour < 12 ? 'd.greet.morning' : hour < 18 ? 'd.greet.afternoon' : 'd.greet.evening'));
+    setText('userName', U.name);
+    setText('sheetCity', cityLabel());
+    setText('sheetRole', U.role);
+    setText('metaTopics', String(U.topics.length));
+    setText('metaLevel', U.assessed && maxLevel() > 0 ? levelName(maxLevel()) : t('d.meta.levelNone'));
+    const avatar = byId('userBtn');
+    if (avatar) avatar.textContent = initials(U.name);
+    setText('greetSub', t(U.assessed ? 'd.greet.subAssessed' : 'd.greet.subNew'));
+
+    const liChip = byId('userLinkedIn');
+    const liText = byId('userLinkedInText');
     if (liChip && liText) {
       const url = U.partC?.linkedin ?? '';
       liChip.hidden = url === '';
@@ -143,168 +177,314 @@
     }
   }
 
-  /* ================= role stack ================= */
+  /* ================= route spine =================
+     The member's actual sequence through the network. Every stop is a control
+     that opens the work it describes. */
+  function spineStops() {
+    const partCount = partCCount();
+    const mentorReady = U.assessed && maxLevel() >= 3 && U.indicators.transmission !== 'No';
+    // the API returns every branch key, most of them false — count real ones
+    const roleRequested = Object.values(U.requests).some(Boolean) || U.mentorApplied;
+    return [
+      {
+        label: t('d.spine.profile'),
+        meta: t('d.spine.profileMeta'),
+        done: true,
+        go: () => openUserDialog(),
+      },
+      {
+        label: t('d.spine.assess'),
+        meta: t(U.assessed ? 'd.spine.assessDone' : 'd.spine.assessTodo'),
+        done: U.assessed,
+        go: () => goTo('assessment'),
+      },
+      {
+        label: t('d.spine.depth'),
+        meta: partCDone() ? t('d.spine.depthDone') : t('d.spine.depthCount', { n: partCount, total: partCTotal }),
+        done: partCDone(),
+        go: () => openPartC(),
+      },
+      {
+        label: t('d.spine.contribution'),
+        meta: t('d.spine.contributionMeta'),
+        done: false,
+        go: () => goTo('badges'),
+      },
+      {
+        label: t('d.spine.role'),
+        meta: t(roleRequested ? 'd.spine.roleReview' : mentorReady ? 'd.spine.roleOpen' : 'd.spine.roleLocked'),
+        done: false,
+        go: () => goTo('growth'),
+      },
+    ];
+  }
+
+  function renderSpine() {
+    const host = byId('spineStops');
+    const fill = byId('spineFill');
+    if (!host) return;
+    const stops = spineStops();
+    // you are at the first stop that is not done yet
+    const at = stops.findIndex((s) => !s.done);
+    const now = at === -1 ? stops.length - 1 : at;
+
+    host.replaceChildren(...stops.map((stop, i) => {
+      const li = document.createElement('li');
+      const btn = el('button', 'stop');
+      btn.type = 'button';
+      if (stop.done) btn.classList.add('is-done');
+      if (i === now) btn.classList.add('is-now');
+      const mark = el('span', 'stop-mark');
+      mark.setAttribute('aria-hidden', 'true');
+      const text = el('span', 'stop-text');
+      text.append(el('b', null, stop.label), el('em', null, stop.meta));
+      btn.append(mark, text);
+      btn.addEventListener('click', stop.go);
+      li.appendChild(btn);
+      return li;
+    }));
+
+    // the drawn line runs from the first stop to where you are now
+    if (fill) {
+      const span = Math.max(stops.length - 1, 1);
+      fill.style.setProperty('--spine-pct', `${Math.round((now / span) * 100)}%`);
+    }
+    host.setAttribute('aria-label', t('d.spine.aria', { n: now + 1, total: stops.length }));
+  }
+
+  const calmly = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function goTo(id) {
+    const target = byId(id);
+    // scrollIntoView's behavior option wins over the stylesheet's opt-out
+    if (target) target.scrollIntoView({ behavior: calmly() ? 'auto' : 'smooth', block: 'start' });
+  }
+
+  /* ================= roles ================= */
   function userRoles() {
-    const roles = [{ label: 'Community Member', scope: 'since today', cls: 'r-validated' }];
-    roles.push({ label: 'Active Contributor', scope: 'next · 3 actions in 90 days', cls: 'r-path' });
+    const roles = [{ label: t('d.role.member'), scope: t('d.role.memberScope'), cls: 'r-validated' }];
+    roles.push({ label: t('d.role.contributor'), scope: t('d.role.contributorScope'), cls: 'r-path' });
     if (U.assessed && maxLevel() >= 3 && U.indicators.transmission !== 'No') {
-      roles.push({ label: 'Mentor', scope: 'fast-track open', cls: 'r-path' });
+      roles.push({ label: t('d.role.mentor'), scope: t('d.role.mentorScope'), cls: 'r-path' });
     } else if (U.assessed && maxLevel() >= 2) {
-      const top = U.topics.find((t) => t.level === maxLevel());
-      roles.push({ label: 'Skilled Practitioner', scope: `path open · ${top.name}`, cls: 'r-path' });
+      const top = U.topics.find((x) => x.level === maxLevel());
+      roles.push({ label: t('d.role.practitioner'), scope: t('d.role.practitionerScope', { topic: topicLabel(top.name) }), cls: 'r-path' });
     }
     return roles;
   }
 
   function renderRoles() {
-    const list = document.getElementById('roleList');
+    const list = byId('roleList');
     if (!list) return;
-    list.replaceChildren(...userRoles().map((r) => {
+    const roles = userRoles();
+    list.replaceChildren(...roles.map((r) => {
       const li = document.createElement('li');
-      const pill = document.createElement('span');
-      pill.className = `role-pill ${r.cls}`;
-      pill.textContent = r.label;
-      const scope = document.createElement('span');
-      scope.className = 'role-scope';
-      scope.textContent = r.scope;
-      li.append(pill, scope);
+      li.append(el('span', `role-pill ${r.cls}`, r.label), el('span', 'role-scope', r.scope));
       return li;
     }));
-    const mix = document.getElementById('roleMix');
-    const legend = document.getElementById('roleMixLegend');
-    if (mix && legend) {
-      mix.style.display = 'none';
-      legend.textContent = 'Your activity mix appears here once you start participating.';
-    }
-  }
-
-  /* ================= mentoring card ================= */
-  function renderMentorCard() {
-    const hours = document.getElementById('mentorHours');
-    const mentees = document.getElementById('mentorMentees');
-    const note = document.getElementById('mentorNote');
-    const cta = document.getElementById('mentorCta');
-    if (!hours || !mentees || !note || !cta) return;
-    const em = document.createElement('em');
-    em.textContent = 'h';
-    hours.replaceChildren('00:00', em);
-    mentees.textContent = '0';
-    const qualifies = U.assessed && maxLevel() >= 3 && U.indicators.transmission !== 'No';
-    note.textContent = qualifies
-      ? 'You may be ready to mentor. Validation starts with a light review and a conversation.'
-      : 'Not mentoring yet. Every member can learn from others and, in time, support someone else.';
-    cta.textContent = U.assessed ? 'Review your assessment' : 'Start the self-assessment';
-    cta.setAttribute('href', '#assessment');
+    setText('standingEyebrow', t('d.eyebrow.standing', { n: roles.length }));
   }
 
   /* ================= trust ladder ================= */
   function renderTrust() {
-    const list = document.getElementById('trustList');
+    const list = byId('trustList');
     if (!list) return;
-    const groups = [['Topics · what', U.topics]];
-    if (U.skills.length) groups.push(['Skills · how', U.skills]);
+    const groups = [[t('d.trust.topics'), U.topics]];
+    if (U.skills.length) groups.push([t('d.trust.skills'), U.skills]);
     const items = [];
     groups.forEach(([title, entries]) => {
       const cap = document.createElement('li');
-      const span = document.createElement('span');
-      span.className = 't-group';
-      span.textContent = title;
-      cap.appendChild(span);
+      cap.className = 't-group';
+      cap.textContent = title;
       items.push(cap);
-      entries.forEach((t) => {
+      entries.forEach((topic) => {
         const row = document.createElement('li');
-        const name = document.createElement('span');
-        name.className = 't-name';
-        name.textContent = t.name;
-        const stage = stageOf(t);
-        const dots = document.createElement('span');
-        dots.className = 't-dots';
-        dots.setAttribute('aria-label', `Level ${t.level} of 4, ${stageLabel[stage]}`);
+        const stage = stageOf(topic);
+        const dots = el('span', 't-dots');
+        dots.setAttribute('aria-label', t('d.trust.aria', { n: topic.level, stage: stageName(stage) }));
         for (let i = 1; i <= 4; i += 1) {
           const dot = document.createElement('i');
-          dot.className = i <= t.validatedAt ? 'f' : i <= t.endorsedAt ? 'h' : i <= t.level ? 'd' : 'o';
+          dot.className = i <= topic.validatedAt ? 'f' : i <= topic.endorsedAt ? 'h' : i <= topic.level ? 'd' : 'o';
           dots.appendChild(dot);
         }
-        const tag = document.createElement('span');
-        tag.className = `t-tag tag-${stage}`;
-        tag.textContent = `${LEVELS[t.level - 1]} · ${stageLabel[stage]}${stage === 'endorsed' && t.note ? ` ${t.note}` : ''}`;
-        row.append(name, dots, tag);
+        row.append(
+          el('span', 't-name', topicLabel(topic.name)),
+          dots,
+          el('span', `t-level tag-${stage}`, `${levelName(topic.level)} · ${stageName(stage)}`),
+        );
         items.push(row);
       });
     });
     list.replaceChildren(...items);
   }
 
-  /* ================= growth branches ================= */
+  /* ================= activity =================
+     The API has no contribution feed yet, so the plot shows what is true:
+     six empty slots waiting for a first action. */
+  const CONTRIBUTIONS = [0, 0, 0, 0, 0, 0];
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  // palette lives in the stylesheet; the plot reads it rather than repeating it
+  const brand = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#3d5c38';
+  const svgEl = (tag, attrs) => {
+    const node = document.createElementNS(SVGNS, tag);
+    Object.entries(attrs).forEach(([k, v]) => node.setAttribute(k, v));
+    return node;
+  };
+
+  function renderActivity() {
+    const stats = byId('activityStats');
+    if (stats) {
+      const rows = [
+        { n: '0', label: t('d.activity.actions') },
+        { n: '0', label: t('d.activity.resources') },
+        { n: '0', label: t('d.activity.streak') },
+      ];
+      stats.replaceChildren(...rows.map((row) => {
+        const wrap = el('div', `stat${row.n === '0' ? ' is-zero' : ''}`);
+        wrap.append(el('span', 'stat-n', row.n), el('span', 'stat-l', row.label));
+        return wrap;
+      }));
+    }
+
+    const plot = byId('activityPlot');
+    if (plot) {
+      const W = 280;
+      const H = 74;
+      const base = H - 2;
+      const peak = Math.max(1, ...CONTRIBUTIONS);
+      const slot = W / CONTRIBUTIONS.length;
+      const ink = brand('--forest');
+      const accent = brand('--green');
+      const nodes = [svgEl('line', {
+        x1: 0, y1: base, x2: W, y2: base, stroke: ink, 'stroke-width': 1.5, opacity: '.45',
+      })];
+      CONTRIBUTIONS.forEach((value, i) => {
+        const height = value === 0 ? 3 : Math.round((value / peak) * (H - 14));
+        nodes.push(svgEl('rect', {
+          x: (i * slot + slot * 0.28).toFixed(1),
+          y: (base - height).toFixed(1),
+          width: (slot * 0.44).toFixed(1),
+          height: String(height),
+          fill: value === 0 ? ink : accent,
+          opacity: value === 0 ? '.22' : '1',
+        }));
+      });
+      plot.replaceChildren(...nodes);
+      plot.setAttribute('aria-label', t('d.activity.aria'));
+    }
+
+    const axis = byId('plotAxis');
+    if (axis) {
+      const fmt = new Intl.DateTimeFormat(localeTag(), { month: 'short' });
+      const now = new Date();
+      const months = [];
+      for (let i = CONTRIBUTIONS.length - 1; i >= 0; i -= 1) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        months.push(el('span', null, fmt.format(d).replace('.', '')));
+      }
+      axis.replaceChildren(...months);
+    }
+
+    const note = byId('plotNote');
+    if (note) {
+      const link = el('a', null, t('d.activity.emptyCta'));
+      link.href = '#badges';
+      note.replaceChildren(`${t('d.activity.empty')} `, link);
+    }
+  }
+
+  /* ================= mentoring ================= */
+  function renderMentorCard() {
+    setText('mentorHours', '00:00');
+    setText('mentorMentees', '0');
+    const qualifies = U.assessed && maxLevel() >= 3 && U.indicators.transmission !== 'No';
+    setText('mentorNote', t(qualifies ? 'd.mentor.ready' : 'd.mentor.notYet'));
+    const cta = byId('mentorCta');
+    if (cta) cta.textContent = t(U.assessed ? 'd.mentor.ctaReview' : 'd.mentor.ctaStart');
+  }
+
+  /* ================= community paths ================= */
   function branchDefs() {
     const teaches = U.indicators.transmission !== 'No';
-    const top = U.topics.find((t) => t.level === maxLevel());
+    const top = U.topics.find((x) => x.level === maxLevel());
+    const city = cityLabel();
+    const mentorReady = U.assessed && maxLevel() >= 3 && teaches;
     return {
       knowledge: {
-        route: 'Member → Mentor', stateLabel: U.assessed && maxLevel() >= 3 && teaches ? 'Mentor review open' : 'Open path', stateCls: U.assessed && maxLevel() >= 3 && teaches ? 'st-ready' : 'st-next',
-        kicker: 'Knowledge path', title: 'Community Member → Mentor',
-        now: 'You hold: Community Member',
+        route: t('d.br.knowledge.route'),
+        stateLabel: t(mentorReady ? 'd.br.knowledge.stateReady' : 'd.br.knowledge.stateOpen'),
+        stateCls: mentorReady ? 'st-ready' : 'st-next',
+        kicker: t('d.br.knowledge.kicker'),
+        title: t('d.br.knowledge.title'),
+        now: t('d.br.now', { role: t('d.role.member') }),
         criteria: [
-          { label: 'Level 3+ (Proficient) in at least one topic', done: U.assessed && maxLevel() >= 3 },
-          { label: 'Transmission experience (taught or mentored before)', done: U.assessed && teaches },
-          { label: 'Availability declared (2+ h / month)', done: U.partC.availability !== '' },
-          { label: 'Two references on file', done: U.partC.references !== '' },
+          { label: t('d.br.knowledge.c1'), done: U.assessed && maxLevel() >= 3 },
+          { label: t('d.br.knowledge.c2'), done: U.assessed && teaches },
+          { label: t('d.br.knowledge.c3'), done: U.partC.availability !== '' },
+          { label: t('d.br.knowledge.c4'), done: U.partC.references !== '' },
         ],
-        unlock: 'Opens: the mentor directory, a validation conversation and one trial session.',
-        cta: 'Start mentor application', requested: 'Application started ✓',
+        unlock: t('d.br.knowledge.unlock'),
+        cta: t('d.br.knowledge.cta'),
+        requested: t('d.br.knowledge.sent'),
       },
       project: {
-        route: 'Member → Skilled Practitioner', stateLabel: null, stateCls: null,
-        kicker: 'Practice path', title: 'Community Member → Skilled Practitioner',
-        now: 'You hold: Community Member',
+        route: t('d.br.project.route'),
+        stateLabel: null, stateCls: null,
+        kicker: t('d.br.project.kicker'),
+        title: t('d.br.project.title'),
+        now: t('d.br.now', { role: t('d.role.member') }),
         criteria: [
-          { label: 'Level 2+ (Practicing) in at least one topic', done: U.assessed && maxLevel() >= 2 },
-          { label: 'Portfolio or LinkedIn on your profile', done: U.partC.portfolio !== '' || U.partC.linkedin !== '' },
-          { label: 'Part C of your profile complete', done: partCDone() },
-          { label: 'Peer endorsements after a first collaboration', done: false },
+          { label: t('d.br.project.c1'), done: U.assessed && maxLevel() >= 2 },
+          { label: t('d.br.project.c2'), done: U.partC.portfolio !== '' || U.partC.linkedin !== '' },
+          { label: t('d.br.project.c3'), done: partCDone() },
+          { label: t('d.br.project.c4'), done: false },
         ],
-        unlock: `Opens: project conversations${top ? ` in ${top.name}` : ''} and a practitioner pathway.`,
-        cta: 'Submit for review', requested: 'Submitted for review ✓',
+        unlock: top ? t('d.br.project.unlockTopic', { topic: topicLabel(top.name) }) : t('d.br.project.unlock'),
+        cta: t('d.br.project.cta'),
+        requested: t('d.br.project.sent'),
       },
       territory: {
-        route: 'Member → Local Connector', stateLabel: 'Open path', stateCls: 'st-next',
-        kicker: 'Territory path', title: `Community Member → Local Connector (${U.city})`,
-        now: 'You hold: Community Member',
+        route: t('d.br.territory.route'),
+        stateLabel: t('d.br.territory.state'), stateCls: 'st-next',
+        kicker: t('d.br.territory.kicker'),
+        title: t('d.br.territory.title', { city }),
+        now: t('d.br.now', { role: t('d.role.member') }),
         criteria: [
-          { label: `Territorial knowledge declared (${U.city})`, done: true },
-          { label: 'Maps or convenes local actors', done: false },
-          { label: 'Validated by the NODAL team', done: false },
+          { label: t('d.br.territory.c1', { city }), done: U.city !== '' },
+          { label: t('d.br.territory.c2'), done: false },
+          { label: t('d.br.territory.c3'), done: false },
         ],
-        unlock: 'Opens: local convening, territorial referrals and a path toward community hosting.',
-        cta: 'Express interest', requested: 'Interest registered ✓',
+        unlock: t('d.br.territory.unlock'),
+        cta: t('d.br.territory.cta'),
+        requested: t('d.br.territory.sent'),
       },
       community: {
-        route: 'Member → Active Contributor', stateLabel: '0 of 3 actions', stateCls: 'st-next',
-        kicker: 'Community path', title: 'Community Member → Active Contributor',
-        now: 'You hold: Community Member',
+        route: t('d.br.community.route'),
+        stateLabel: t('d.br.community.state', { n: 0 }), stateCls: 'st-next',
+        kicker: t('d.br.community.kicker'),
+        title: t('d.br.community.title'),
+        now: t('d.br.now', { role: t('d.role.member') }),
         criteria: [
-          { label: '3+ meaningful actions in 90 days · 0 of 3', done: false },
-          { label: 'Active 6 consecutive months · 0 of 6', done: false },
+          { label: t('d.br.community.c1', { n: 0 }), done: false },
+          { label: t('d.br.community.c2', { n: 0 }), done: false },
         ],
-        unlock: 'Opens: recognition and invitations to take part in other community paths.',
-        cta: 'See open contribution prompts',
+        unlock: t('d.br.community.unlock'),
+        cta: t('d.br.community.cta'),
       },
     };
   }
 
   let currentBranch = 'knowledge';
   const pd = {
-    kicker: document.getElementById('pdKicker'),
-    title: document.getElementById('pdTitle'),
-    now: document.getElementById('pdNow'),
-    criteria: document.getElementById('pdCriteria'),
-    unlock: document.getElementById('pdUnlock'),
-    cta: document.getElementById('pdCta'),
+    kicker: byId('pdKicker'),
+    title: byId('pdTitle'),
+    now: byId('pdNow'),
+    criteria: byId('pdCriteria'),
+    unlock: byId('pdUnlock'),
+    cta: byId('pdCta'),
   };
 
   function showBranch(key) {
-    const defs = branchDefs();
-    const b = defs[key];
+    const b = branchDefs()[key];
     if (!b || !pd.criteria) return;
     currentBranch = key;
     pd.kicker.textContent = b.kicker;
@@ -312,9 +492,7 @@
     pd.now.textContent = b.now;
     pd.unlock.textContent = b.unlock;
     pd.criteria.replaceChildren(...b.criteria.map((c) => {
-      const li = document.createElement('li');
-      li.textContent = c.label;
-      if (c.done) li.classList.add('done');
+      const li = el('li', c.done ? 'done' : null, c.label);
       return li;
     }));
     pd.cta.disabled = false;
@@ -322,11 +500,11 @@
     if (U.requests[key]) {
       // an already-submitted request stays acknowledged, even if Part C later
       // gains new fields and drops below "complete"
-      pd.cta.textContent = b.requested ?? 'Done ✓';
+      pd.cta.textContent = b.requested ?? t('d.common.done');
       pd.cta.classList.add('is-sent');
       pd.cta.disabled = true;
     } else if (key === 'project' && !partCDone()) {
-      pd.cta.textContent = 'Complete Part C first';
+      pd.cta.textContent = t('d.path.completeFirst');
     } else {
       pd.cta.textContent = b.cta;
     }
@@ -334,6 +512,7 @@
 
   function renderPaths() {
     const defs = branchDefs();
+    let open = 0;
     document.querySelectorAll('#pathList .path-row').forEach((row) => {
       const def = defs[row.dataset.branch];
       if (!def) return;
@@ -343,19 +522,23 @@
       if (pill) {
         let label = def.stateLabel;
         let cls = def.stateCls;
-        if (label === null) {           // project: derived from remaining steps
+        if (label === null) {           // practice: derived from remaining steps
           const remaining = def.criteria.filter((c) => !c.done).length;
-          label = remaining === 0 ? 'Ready for review' : `${remaining} step${remaining > 1 ? 's' : ''} left`;
+          label = remaining === 0 ? t('d.path.ready')
+            : remaining === 1 ? t('d.path.stepLeft')
+              : t('d.path.stepsLeft', { n: remaining });
           cls = remaining === 0 ? 'st-ready' : 'st-next';
         }
+        if (cls === 'st-ready') open += 1;
         pill.textContent = label;
         pill.className = `path-state ${cls}`;
       }
     });
+    setText('pathsEyebrow', t('d.eyebrow.paths', { n: Object.keys(defs).length, ready: open }));
     showBranch(currentBranch);
   }
 
-  const pathList = document.getElementById('pathList');
+  const pathList = byId('pathList');
   if (pathList && pd.criteria && pd.cta) {
     pathList.querySelectorAll('.path-row').forEach((row) => {
       row.addEventListener('click', () => {
@@ -365,115 +548,96 @@
     });
     pd.cta.addEventListener('click', () => {
       if (currentBranch === 'project' && !partCDone()) { openPartC(); return; }
-      if (currentBranch === 'community') {
-        document.getElementById('badges')?.scrollIntoView({ behavior: 'smooth' });
-        return;
-      }
+      if (currentBranch === 'community') { goTo('badges'); return; }
       U.requests[currentBranch] = true;
       touchUser();
       showBranch(currentBranch);
+      renderSpine();
     });
   }
 
-  /* ================= badges ================= */
-  const SVGNS = 'http://www.w3.org/2000/svg';
+  /* ================= recognition ================= */
   function familyMark(fam) {
-    const svg = document.createElementNS(SVGNS, 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('aria-hidden', 'true');
-    const el = (tag, attrs) => {
-      const node = document.createElementNS(SVGNS, tag);
-      Object.entries(attrs).forEach(([k, v]) => node.setAttribute(k, v));
-      svg.appendChild(node);
-    };
-    if (fam === 'Role') {
-      el('line', { x1: 12.5, y1: 10.6, x2: 16, y2: 8.6, stroke: 'currentColor', 'stroke-width': 1.8 });
-      el('circle', { cx: 9, cy: 12.5, r: 4.5, fill: 'currentColor' });
-      el('circle', { cx: 17.5, cy: 7.8, r: 2.6, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8 });
-    } else if (fam === 'Recognition') {
-      el('circle', { cx: 12, cy: 12, r: 3.6, fill: 'currentColor' });
+    const svg = svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' });
+    const add = (tag, attrs) => svg.appendChild(svgEl(tag, attrs));
+    if (fam === 'role') {
+      add('line', { x1: 12.5, y1: 10.6, x2: 16, y2: 8.6, stroke: 'currentColor', 'stroke-width': 1.8 });
+      add('circle', { cx: 9, cy: 12.5, r: 4.5, fill: 'currentColor' });
+      add('circle', { cx: 17.5, cy: 7.8, r: 2.6, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8 });
+    } else if (fam === 'recognition') {
+      add('circle', { cx: 12, cy: 12, r: 3.6, fill: 'currentColor' });
       [[12, 4.5, 12, 7.5], [12, 16.5, 12, 19.5], [4.5, 12, 7.5, 12], [16.5, 12, 19.5, 12]].forEach(([x1, y1, x2, y2]) =>
-        el('line', { x1, y1, x2, y2, stroke: 'currentColor', 'stroke-width': 1.8, 'stroke-linecap': 'round' }));
+        add('line', { x1, y1, x2, y2, stroke: 'currentColor', 'stroke-width': 1.8, 'stroke-linecap': 'round' }));
     } else {
-      el('line', { x1: 9, y1: 14.2, x2: 14.8, y2: 9.8, stroke: 'currentColor', 'stroke-width': 1.8 });
-      el('circle', { cx: 7.2, cy: 15.8, r: 3, fill: 'currentColor' });
-      el('circle', { cx: 16.8, cy: 8.2, r: 3, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8 });
+      add('line', { x1: 9, y1: 14.2, x2: 14.8, y2: 9.8, stroke: 'currentColor', 'stroke-width': 1.8 });
+      add('circle', { cx: 7.2, cy: 15.8, r: 3, fill: 'currentColor' });
+      add('circle', { cx: 16.8, cy: 8.2, r: 3, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8 });
     }
     return svg;
   }
 
   function badgeData() {
     const mentorReady = U.assessed && maxLevel() >= 3 && U.indicators.transmission !== 'No';
+    const B = (fam, id, scope, state2) => ({
+      fam,
+      name: t(`d.badge.${id}.name`),
+      scope,
+      unlock: t(`d.badge.${id}.unlock`),
+      state: state2,
+    });
     return [
-      { fam: 'Contribution', name: 'Profile Pioneer', scope: U.assessed ? 'Self-assessment done' : 'Complete the self-assessment', unlock: 'suggested path · better connections', state: U.assessed ? 'earned' : 'progress' },
-      { fam: 'Contribution', name: 'First Contribution', scope: 'Share your first resource or post', unlock: 'starts your Active Contributor path', state: 'locked' },
-      { fam: 'Contribution', name: 'Knowledge Sharer', scope: '0 of 5 resources shared', unlock: 'community visibility · facilitation shortlist', state: 'locked' },
-      { fam: 'Contribution', name: 'Event Host', scope: 'Host or co-host a community event', unlock: 'facilitation and connector pathways', state: 'locked' },
-      { fam: 'Contribution', name: 'Connector', scope: '0 of 5 introductions', unlock: 'local connector pathway', state: 'locked' },
-      { fam: 'Contribution', name: 'Course Graduate', scope: 'Complete a NODAL course', unlock: 'supports your topic levels', state: 'locked' },
-      { fam: 'Contribution', name: 'Consistent Member', scope: '0 of 6 active months', unlock: 'priority access to small-group programs', state: 'locked' },
-      { fam: 'Role', name: 'Skilled Practitioner', scope: 'Level 2–3 + endorsements', unlock: 'community profile · project conversations', state: 'locked' },
-      { fam: 'Role', name: 'Mentor', scope: mentorReady ? 'Mentor review open · apply below' : 'Level 3+ + transmission + validation', unlock: 'mentor directory · learning circles', state: mentorReady ? 'progress' : 'locked' },
-      { fam: 'Role', name: 'Local Connector', scope: U.city, unlock: 'local convening · territorial referrals', state: 'locked' },
-      { fam: 'Recognition', name: 'Founding Member', scope: 'First cohort · by invitation', unlock: 'founding price · early community formats', state: 'locked' },
+      B('contribution', 'pioneer', t(U.assessed ? 'd.badge.pioneer.scopeDone' : 'd.badge.pioneer.scopeTodo'), U.assessed ? 'earned' : 'progress'),
+      B('contribution', 'first', t('d.badge.first.scope'), 'locked'),
+      B('contribution', 'sharer', t('d.badge.sharer.scope', { n: 0 }), 'locked'),
+      B('contribution', 'host', t('d.badge.host.scope'), 'locked'),
+      B('contribution', 'connector', t('d.badge.connector.scope', { n: 0 }), 'locked'),
+      B('contribution', 'graduate', t('d.badge.graduate.scope'), 'locked'),
+      B('contribution', 'consistent', t('d.badge.consistent.scope', { n: 0 }), 'locked'),
+      B('role', 'practitioner', t('d.badge.practitioner.scope'), 'locked'),
+      B('role', 'mentor', t(mentorReady ? 'd.badge.mentor.scopeReady' : 'd.badge.mentor.scopeTodo'), mentorReady ? 'progress' : 'locked'),
+      B('role', 'local', cityLabel(), 'locked'),
+      B('recognition', 'founding', t('d.badge.founding.scope'), 'locked'),
     ];
   }
 
   function renderBadges() {
-    const grid = document.getElementById('badgeGrid');
+    const grid = byId('badgeGrid');
     if (!grid) return;
-    grid.replaceChildren(...badgeData().map((b) => {
-      const tile = document.createElement('article');
-      tile.className = `badge is-${b.state}`;
-      const top = document.createElement('div');
-      top.className = 'badge-top';
-      const ico = document.createElement('span');
-      ico.className = 'badge-ico';
+    const badges = badgeData();
+    grid.replaceChildren(...badges.map((b) => {
+      const tile = el('article', `badge is-${b.state}`);
+      const top = el('div', 'badge-top');
+      const ico = el('span', 'badge-ico');
       ico.appendChild(familyMark(b.fam));
-      const fam = document.createElement('span');
-      fam.className = 'badge-fam';
-      fam.textContent = b.state === 'locked' ? `${b.fam} · locked` : b.state === 'progress' ? `${b.fam} · in progress` : b.fam;
+      const famName = t(`d.badge.fam.${b.fam}`);
+      const fam = el('span', 'badge-fam', b.state === 'locked' ? `${famName} · ${t('d.badge.locked')}`
+        : b.state === 'progress' ? `${famName} · ${t('d.badge.progress')}` : famName);
       top.append(ico, fam);
-      const name = document.createElement('h3');
-      name.className = 'badge-name';
-      name.textContent = b.name;
-      const scope = document.createElement('small');
-      scope.textContent = b.scope;
-      name.appendChild(scope);
-      const unlock = document.createElement('p');
-      unlock.className = 'badge-unlock';
-      const strong = document.createElement('strong');
-      strong.textContent = 'Opens: ';
-      unlock.append(strong, b.unlock);
+      const name = el('h3', 'badge-name', b.name);
+      name.appendChild(el('small', null, b.scope));
+      const unlock = el('p', 'badge-unlock');
+      unlock.append(el('strong', null, t('d.badge.opens')), b.unlock);
       tile.append(top, name, unlock);
       return tile;
     }));
+    const earned = badges.filter((b) => b.state === 'earned').length;
+    setText('badgesEyebrow', t('d.eyebrow.recognition', { n: earned, total: badges.length }));
   }
 
   /* ================= self-assessment ================= */
-  const TRACKS = {
-    leader: { name: 'Leader / Mentor potential', why: 'Level 3+ in a topic, transmission experience, and your intent says you can offer mentoring.' },
-    specialist: { name: 'Specialist', why: 'Level 3–4 and you lead work. Practitioner review and expert sessions are your fastest routes.' },
-    practitioner: { name: 'Practitioner', why: 'Level 2–3 with project experience. Contribution prompts and endorsements will move you fastest.' },
-    learner: { name: 'Learner', why: 'You are exploring. Courses, open events and find-a-mentor are the right starting doors.' },
-  };
-
   function evaluateTrack() {
-    const trackName = document.getElementById('trackName');
-    const trackWhy = document.getElementById('trackWhy');
-    const fastTrack = document.getElementById('fastTrack');
-    if (!trackName) return;
     const teaches = U.indicators.transmission !== 'No';
     const leads = U.indicators.leadership !== 'No';
-    let track;
-    if (!U.assessed) track = { name: 'Pending', why: 'Rate your topics and answer the two questions. Your track appears instantly.' };
-    else if (maxLevel() >= 3 && teaches) track = TRACKS.leader;
-    else if (maxLevel() >= 3 && leads) track = TRACKS.specialist;
-    else if (maxLevel() >= 2) track = TRACKS.practitioner;
-    else track = TRACKS.learner;
-    trackName.textContent = track.name;
-    trackWhy.textContent = track.why;
-    if (fastTrack) fastTrack.hidden = track !== TRACKS.leader;
+    let key;
+    if (!U.assessed) key = 'pending';
+    else if (maxLevel() >= 3 && teaches) key = 'leader';
+    else if (maxLevel() >= 3 && leads) key = 'specialist';
+    else if (maxLevel() >= 2) key = 'practitioner';
+    else key = 'learner';
+    setText('trackName', t(`d.track.${key}.name`));
+    setText('trackWhy', t(`d.track.${key}.why`));
+    const fastTrack = byId('fastTrack');
+    if (fastTrack) fastTrack.hidden = key !== 'leader';
   }
 
   function markAssessed() {
@@ -482,29 +646,26 @@
   }
 
   function renderAssessment() {
-    const host = document.getElementById('assessTopics');
+    const host = byId('assessTopics');
     if (!host) return;
     host.replaceChildren(...U.topics.map((topic) => {
-      const wrap = document.createElement('div');
-      wrap.className = 'assess-topic';
-      const head = document.createElement('div');
-      head.className = 'assess-head';
-      const label = document.createElement('strong');
-      label.textContent = topic.name;
-      const status = document.createElement('span');
-      status.textContent = `${LEVELS[topic.level - 1]} · ${stageLabel[stageOf(topic)]}`;
-      head.append(label, status);
-      const seg = document.createElement('div');
-      seg.className = 'seg';
-      LEVELS.forEach((name, i) => {
+      const wrap = el('div', 'assess-topic');
+      const head = el('div', 'assess-head');
+      head.append(
+        el('strong', null, topicLabel(topic.name)),
+        el('span', null, `${levelName(topic.level)} · ${stageName(stageOf(topic))}`),
+      );
+      const seg = el('div', 'seg');
+      seg.setAttribute('role', 'group');
+      seg.setAttribute('aria-label', topicLabel(topic.name));
+      LEVEL_KEYS.forEach((levelKey, i) => {
         const level = i + 1;
-        const btn = document.createElement('button');
+        const btn = el('button', level === topic.level ? 'is-on' : null, t(levelKey));
         btn.type = 'button';
-        btn.textContent = name;
-        if (level === topic.level) btn.classList.add('is-on');
+        btn.setAttribute('aria-pressed', String(level === topic.level));
         if (level === 4 && topic.validatedAt < 4) {
           btn.disabled = true;
-          btn.title = 'Reference is granted through NODAL validation';
+          btn.title = t('d.assess.referenceLocked');
         }
         btn.addEventListener('click', () => {
           topic.level = level;
@@ -514,29 +675,37 @@
           evaluateTrack();
           renderCompleteness();
           renderRoles();
+          renderIdentity();
           renderMentorCard();
           renderBadges();
           renderPaths();
+          renderSpine();
         });
         seg.appendChild(btn);
       });
       wrap.append(head, seg);
       return wrap;
     }));
-    // sync the two indicator rows to the active user
+    // reflect the stored indicator answers
     document.querySelectorAll('.seg[data-ind]').forEach((seg) => {
       const saved = U.indicators[seg.dataset.ind];
       seg.querySelectorAll('button').forEach((btn) => {
-        btn.classList.toggle('is-on', btn.textContent === saved);
+        const on = btn.dataset.val === saved;
+        btn.classList.toggle('is-on', on);
+        btn.setAttribute('aria-pressed', String(on));
       });
     });
+    setText('assessEyebrow', t('d.eyebrow.assessment', { n: U.topics.length }));
   }
 
   document.querySelectorAll('.seg[data-ind]').forEach((seg) => {
     seg.querySelectorAll('button').forEach((btn) => {
       btn.addEventListener('click', () => {
-        seg.querySelectorAll('button').forEach((b) => b.classList.toggle('is-on', b === btn));
-        U.indicators[seg.dataset.ind] = btn.textContent;
+        seg.querySelectorAll('button').forEach((b) => {
+          b.classList.toggle('is-on', b === btn);
+          b.setAttribute('aria-pressed', String(b === btn));
+        });
+        U.indicators[seg.dataset.ind] = btn.dataset.val;
         markAssessed();
         evaluateTrack();
         renderRoles();
@@ -544,21 +713,23 @@
         renderBadges();
         renderPaths();
         renderCompleteness();
+        renderSpine();
       });
     });
   });
 
-  const fastBtn = document.getElementById('fastTrackBtn');
+  const fastBtn = byId('fastTrackBtn');
   function renderFastBtn() {
     if (!fastBtn) return;
     fastBtn.disabled = U.mentorApplied;
     fastBtn.classList.toggle('is-sent', U.mentorApplied);
-    fastBtn.textContent = U.mentorApplied ? 'Application started ✓' : 'Start mentor application';
+    fastBtn.textContent = t(U.mentorApplied ? 'd.fast.sent' : 'd.fast.start');
   }
   fastBtn?.addEventListener('click', () => {
     U.mentorApplied = true;
     touchUser();
     renderFastBtn();
+    renderSpine();
   });
 
   /* ================= Part C + completeness ================= */
@@ -569,46 +740,44 @@
 
   function renderCompleteness() {
     const pct = 30 + (U.assessed ? 30 : 0) + Math.round(40 * (partCCount() / partCTotal));
-    const ringVal = document.getElementById('ringVal');
+    const ringVal = byId('ringVal');
     if (ringVal) {
       const C = 2 * Math.PI * 34;
       const on = (C * pct) / 100;
       ringVal.setAttribute('stroke-dasharray', `${on.toFixed(1)} ${(C - on).toFixed(1)}`);
     }
-    const ringText = document.getElementById('ringText');
-    if (ringText) ringText.textContent = `${pct}%`;
-    document.getElementById('ringSvg')?.setAttribute('aria-label', `Profile ${pct} percent complete`);
-    const parts = document.querySelectorAll('.parts li');
-    if (parts.length === 3) {
-      parts[1].classList.toggle('done', U.assessed);
-      parts[1].textContent = U.assessed ? 'Part B · Self-assessment' : 'Part B · Self-assessment · pending';
-      parts[2].classList.toggle('done', partCDone());
-      parts[2].textContent = partCDone() ? 'Part C · Depth' : `Part C · Depth · ${partCCount()} of ${partCTotal}`;
+    setText('ringText', `${pct}%`);
+    byId('ringSvg')?.setAttribute('aria-label', t('d.ring.aria', { n: pct }));
+
+    const partB = byId('partBStatus');
+    if (partB) {
+      partB.classList.toggle('done', U.assessed);
+      partB.textContent = t(U.assessed ? 'd.parts.b' : 'd.parts.bPending');
     }
-    const note = document.getElementById('partCNote');
-    if (note) {
-      note.textContent = partCDone()
-        ? 'Part C complete. Mentor and practitioner validation can enter review.'
-        : 'Completing Part C opens mentor and practitioner validation.';
+    const partC = byId('partCStatus');
+    if (partC) {
+      partC.classList.toggle('done', partCDone());
+      partC.textContent = partCDone() ? t('d.parts.c') : t('d.parts.cCount', { n: partCCount(), total: partCTotal });
     }
-    const btn = document.getElementById('partCBtn');
-    if (btn) btn.textContent = partCDone() ? 'Edit Part C' : 'Complete Part C';
+    setText('partCNote', t(partCDone() ? 'd.ctx.noteDone' : 'd.ctx.noteTodo'));
+    const btn = byId('partCBtn');
+    if (btn) btn.textContent = t(partCDone() ? 'd.ctx.btnEdit' : 'd.ctx.btnDo');
   }
 
-  const pcDialog = document.getElementById('partCDialog');
-  const pcForm = document.getElementById('partCForm');
+  const pcDialog = byId('partCDialog');
+  const pcForm = byId('partCForm');
   const pc = {
-    bio: document.getElementById('pcBio'),
-    linkedin: document.getElementById('pcLinkedin'),
-    portfolio: document.getElementById('pcPortfolio'),
-    references: document.getElementById('pcRefs'),
-    availability: document.getElementById('pcAvail'),
-    consent: document.getElementById('pcConsent'),
-    error: document.getElementById('pcError'),
+    bio: byId('pcBio'),
+    linkedin: byId('pcLinkedin'),
+    portfolio: byId('pcPortfolio'),
+    references: byId('pcRefs'),
+    availability: byId('pcAvail'),
+    consent: byId('pcConsent'),
+    error: byId('pcError'),
   };
   const LINKEDIN_RE = /^https:\/\/(www\.)?linkedin\.com\/(in|company)\/[A-Za-z0-9_-]+/;
   function openPartC() {
-    if (!pcDialog || !pcForm) return;
+    if (!pcDialog || !pcForm || !U) return;
     pc.bio.value = U.partC.bio;
     pc.linkedin.value = U.partC.linkedin;
     pc.portfolio.value = U.partC.portfolio;
@@ -619,20 +788,20 @@
     if (typeof pcDialog.showModal === 'function') pcDialog.showModal();
   }
   if (pcDialog && pcForm) {
-    document.getElementById('partCBtn')?.addEventListener('click', openPartC);
-    document.getElementById('pcCancel')?.addEventListener('click', () => pcDialog.close());
+    byId('partCBtn')?.addEventListener('click', openPartC);
+    byId('pcCancel')?.addEventListener('click', () => pcDialog.close());
     pcForm.addEventListener('submit', (e) => {
       const url = pc.portfolio.value.trim();
       if (url && !/^https?:\/\/\S+\.\S+/.test(url)) {
         e.preventDefault();
-        pc.error.textContent = 'Portfolio link must start with http:// or https://';
+        pc.error.textContent = t('d.pc.errPortfolio');
         pc.error.hidden = false;
         return;
       }
       const li = pc.linkedin.value.trim();
       if (li && !LINKEDIN_RE.test(li)) {
         e.preventDefault();
-        pc.error.textContent = 'LinkedIn link must look like https://www.linkedin.com/in/your-name';
+        pc.error.textContent = t('d.pc.errLinkedin');
         pc.error.hidden = false;
         return;
       }
@@ -648,23 +817,24 @@
       renderIdentity();
       renderCompleteness();
       renderPaths();
+      renderSpine();
     });
   }
 
-  /* ================= user dialog ================= */
-  const userDialog = document.getElementById('userDialog');
-  const userForm = document.getElementById('userForm');
+  /* ================= profile dialog ================= */
+  const userDialog = byId('userDialog');
+  const userForm = byId('userForm');
   let openUserDialog = () => {};
   const uc = {
-    name: document.getElementById('ucName'),
-    city: document.getElementById('ucCity'),
-    cityOptions: document.getElementById('ucCityOptions'),
-    role: document.getElementById('ucRole'),
-    topics: document.getElementById('ucTopics'),
-    error: document.getElementById('ucError'),
-    dataControls: document.getElementById('ucDataControls'),
-    exportData: document.getElementById('ucExport'),
-    deleteAccount: document.getElementById('ucDelete'),
+    name: byId('ucName'),
+    city: byId('ucCity'),
+    cityOptions: byId('ucCityOptions'),
+    role: byId('ucRole'),
+    topics: byId('ucTopics'),
+    error: byId('ucError'),
+    dataControls: byId('ucDataControls'),
+    exportData: byId('ucExport'),
+    deleteAccount: byId('ucDelete'),
   };
   if (userDialog && userForm) {
     let cityTimer = null;
@@ -697,43 +867,47 @@
       }, 280);
     };
     uc.city?.addEventListener('input', scheduleCitySearch);
-    TAXONOMY.forEach((t) => {
+    TAXONOMY.forEach((topic) => {
       const label = document.createElement('label');
       const input = document.createElement('input');
       input.type = 'checkbox';
-      input.value = t;
+      input.value = topic;
       input.addEventListener('change', () => {
         const checked = uc.topics.querySelectorAll('input:checked');
-        if (checked.length > 3) input.checked = false;
+        if (checked.length > 3) {
+          input.checked = false;
+          uc.error.textContent = t('d.uc.errTopicMax');
+          uc.error.hidden = false;
+        } else if (checked.length) {
+          uc.error.hidden = true;
+        }
       });
-      label.append(input, t);
+      label.append(input, topicLabel(topic));
       uc.topics.appendChild(label);
     });
 
-    const ucTitle = document.getElementById('ucTitle');
-    const ucSub = document.getElementById('ucSub');
-    const ucSubmit = document.getElementById('ucSubmit');
+    const ucTitle = byId('ucTitle');
+    const ucSub = byId('ucSub');
+    const ucSubmit = byId('ucSubmit');
     openUserDialog = () => {
+      if (!U) return;
       uc.error.hidden = true;
-      // members edit in place; first visits complete the account profile
-      const editing = U.kind === 'member';
-      if (ucTitle) ucTitle.textContent = editing ? 'Edit your profile' : 'Who’s exploring today?';
-      if (ucSub) {
-        ucSub.textContent = editing
-          ? 'Update your identity! Your profile is the heart of your dashboard experience, so keep it fresh as you grow.'
-          : 'Complete your profile so connections, paths and member tools can use real data.';
-      }
-      if (ucSubmit) ucSubmit.textContent = editing ? 'Save changes' : 'Create profile';
+      // members edit in place; a fresh account completes its profile first
+      const editing = Boolean(U.city && U.role && U.topics.length);
+      if (ucTitle) ucTitle.textContent = t(editing ? 'd.uc.titleEdit' : 'd.uc.titleNew');
+      if (ucSub) ucSub.textContent = t(editing ? 'd.uc.subEdit' : 'd.uc.subNew');
+      if (ucSubmit) ucSubmit.textContent = t(editing ? 'd.uc.submitSave' : 'd.uc.submitCreate');
       if (uc.dataControls) uc.dataControls.hidden = !editing;
-      uc.name.value = editing ? U.name : '';
-      uc.city.value = editing ? U.city : '';
-      uc.role.value = editing ? U.role : '';
-      setCityOptions(editing && U.city ? [{ name: U.city, label: U.city }] : []);
-      const current = new Set(editing ? U.topics.map((t) => t.name) : []);
+      uc.name.value = U.name;
+      uc.city.value = U.city;
+      uc.role.value = U.kind === 'member' && U.role !== 'Member' ? U.role : '';
+      setCityOptions(U.city ? [{ name: U.city, label: U.city }] : []);
+      const current = new Set(U.topics.map((x) => x.name));
       uc.topics.querySelectorAll('input').forEach((i) => { i.checked = current.has(i.value); });
       if (typeof userDialog.showModal === 'function' && !userDialog.open) userDialog.showModal();
     };
-    document.getElementById('userBtn')?.addEventListener('click', openUserDialog);
+    byId('userBtn')?.addEventListener('click', openUserDialog);
+    byId('ucCancel')?.addEventListener('click', () => userDialog.close());
 
     userForm.addEventListener('submit', (e) => {
       const name = uc.name.value.trim();
@@ -742,13 +916,10 @@
       const topics = [...uc.topics.querySelectorAll('input:checked')].map((i) => i.value);
       if (!name || !city || !role || topics.length === 0) {
         e.preventDefault();
-        uc.error.textContent = !name
-          ? 'Add your name to create the profile.'
-          : !city
-            ? 'Add your city to place your profile in the community.'
-            : !role
-              ? 'Add your current role.'
-              : 'Pick at least one topic.';
+        uc.error.textContent = !name ? t('d.uc.errName')
+          : !city ? t('d.uc.errCity')
+            : !role ? t('d.uc.errRole')
+              : t('d.uc.errTopic');
         uc.error.hidden = false;
         return;
       }
@@ -757,7 +928,7 @@
         U.name = name;
         U.city = city;
         U.role = role;
-        const byName = new Map(U.topics.map((t) => [t.name, t]));
+        const byName = new Map(U.topics.map((x) => [x.name, x]));
         U.topics = topics.map((n) => byName.get(n) ?? makeTopic(n));
         setUser(U);
       } else {
@@ -778,25 +949,25 @@
         link.remove();
         URL.revokeObjectURL(url);
       } catch (err) {
-        uc.error.textContent = err.message || 'Could not export your data.';
+        uc.error.textContent = err.message || t('d.uc.exportFail');
         uc.error.hidden = false;
       }
     });
 
     uc.deleteAccount?.addEventListener('click', async () => {
-      const email = prompt('Type your account email to delete your NODAL account.');
+      const email = prompt(t('d.uc.deletePrompt'));
       if (!email) return;
       try {
         await api('/api/me', { method: 'DELETE', body: JSON.stringify({ confirmEmail: email }) });
         location.assign('/login.html');
       } catch (err) {
-        uc.error.textContent = err.message || 'Could not delete this account.';
+        uc.error.textContent = err.message || t('d.uc.deleteFail');
         uc.error.hidden = false;
       }
     });
   }
 
-  document.getElementById('logoutBtn')?.addEventListener('click', async (e) => {
+  byId('logoutBtn')?.addEventListener('click', async (e) => {
     e.preventDefault();
     try {
       await api('/api/auth/logout', { method: 'POST', body: JSON.stringify({}) });
@@ -805,132 +976,167 @@
     }
   });
 
-  /* ================= timeline + week strip ================= */
+  /* ================= this week + timeline ================= */
   function timelineData() {
-    const first = U.topics[0]?.name ?? 'your topic';
+    const first = U.topics[0] ? topicLabel(U.topics[0].name) : t('d.tl.yourTopic');
     return [
-      { time: 'Today', name: 'Profile created · Part A complete', sub: 'Badge progress: Profile Pioneer', cls: 'tl-strong' },
-      { time: 'Next', name: U.assessed ? 'Track suggested · explore your branches' : 'Complete your self-assessment', sub: 'Takes about 4 minutes' },
-      { time: 'Suggested', name: `Browse the ${first} feed`, sub: 'Courses and open calls in your topics' },
-      { time: 'Suggested', name: `Join the next knowledge circle · ${U.city}`, sub: 'Your city chapter', cls: 'tl-soft' },
-      { time: 'Later', name: 'Mentorship session', sub: 'Available after first community connection', cls: 'tl-soft', extra: true },
-      { time: 'Locked', name: 'First introduction', sub: 'Counts toward the Connector badge', extra: true },
+      { time: t('d.tl.today'), name: t('d.tl.createdName'), sub: t('d.tl.createdSub'), cls: 'tl-strong' },
+      { time: t('d.tl.next'), name: t(U.assessed ? 'd.tl.assessedName' : 'd.tl.assessName'), sub: t('d.tl.assessSub') },
+      { time: t('d.tl.suggested'), name: t('d.tl.feedName', { topic: first }), sub: t('d.tl.feedSub') },
+      { time: t('d.tl.suggested'), name: t('d.tl.circleName', { city: cityLabel() }), sub: t('d.tl.circleSub'), cls: 'tl-soft' },
+      { time: t('d.tl.later'), name: t('d.tl.mentorName'), sub: t('d.tl.mentorSub'), cls: 'tl-soft', extra: true },
+      { time: t('d.tl.locked'), name: t('d.tl.introName'), sub: t('d.tl.introSub'), cls: 'tl-soft', extra: true },
     ];
   }
 
   function renderTimeline() {
-    const tline = document.getElementById('tline');
-    const tlMore = document.getElementById('tlMore');
+    const tline = byId('tline');
+    const more = byId('tlMore');
     if (!tline) return;
-    const expanded = tlMore?.getAttribute('aria-expanded') === 'true';
+    const expanded = more?.getAttribute('aria-expanded') === 'true';
     tline.replaceChildren(...timelineData().map((item) => {
-      const li = document.createElement('li');
-      if (item.cls) li.className = item.cls;
+      const li = el('li', item.cls);
       if (item.extra) { li.classList.add('tl-extra'); li.hidden = !expanded; }
-      const time = document.createElement('span');
-      time.className = 'tl-time';
-      time.textContent = item.time;
-      const name = document.createElement('p');
-      name.className = 'tl-name';
-      name.textContent = item.name;
-      const sub = document.createElement('p');
-      sub.className = 'tl-sub';
-      sub.textContent = item.sub;
-      li.append(time, name, sub);
+      li.append(
+        el('span', 'tl-time', item.time),
+        el('p', 'tl-name', item.name),
+        el('p', 'tl-sub', item.sub),
+      );
       return li;
     }));
+    if (more) more.textContent = t(expanded ? 'd.tl.less' : 'd.tl.more');
   }
 
-  const tlMore = document.getElementById('tlMore');
-  if (tlMore) {
-    tlMore.addEventListener('click', () => {
-      const expand = tlMore.getAttribute('aria-expanded') !== 'true';
-      document.querySelectorAll('.tl-extra').forEach((li) => { li.hidden = !expand; });
-      tlMore.setAttribute('aria-expanded', String(expand));
-      tlMore.textContent = expand ? 'Show less' : 'View all activity';
-    });
-  }
+  const tlMore = byId('tlMore');
+  tlMore?.addEventListener('click', () => {
+    const expand = tlMore.getAttribute('aria-expanded') !== 'true';
+    document.querySelectorAll('.tl-extra').forEach((li) => { li.hidden = !expand; });
+    tlMore.setAttribute('aria-expanded', String(expand));
+    tlMore.textContent = t(expand ? 'd.tl.less' : 'd.tl.more');
+  });
 
-  const strip = document.getElementById('weekStrip');
-  if (strip) {
-    const names = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+  function renderWeek() {
+    const strip = byId('weekStrip');
+    if (!strip) return;
+    const fmt = new Intl.DateTimeFormat(localeTag(), { weekday: 'short' });
     const today = new Date();
     const monday = new Date(today);
     monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+    const days = [];
     for (let i = 0; i < 7; i += 1) {
       const d = new Date(monday);
       d.setDate(monday.getDate() + i);
       const li = document.createElement('li');
       if (d.toDateString() === today.toDateString()) li.classList.add('is-today');
-      const day = document.createElement('span');
-      day.className = 'w-day';
-      day.textContent = names[i];
-      const num = document.createElement('span');
-      num.className = 'w-num';
-      num.textContent = String(d.getDate());
-      li.append(day, num);
-      strip.appendChild(li);
+      li.append(
+        el('span', 'w-day', fmt.format(d).replace('.', '').slice(0, 3)),
+        el('span', 'w-num', String(d.getDate())),
+      );
+      days.push(li);
     }
+    strip.replaceChildren(...days);
   }
 
-  /* ================= search ================= */
-  const currentCity = (fallback = 'Your city') => U?.city || fallback;
-  const SEARCH_DATA = {
-    People: [],
-    Projects: [
-      { label: 'Community engagement project', meta: `${currentCity()} · active`, href: 'index.html#platform' },
-      { label: 'Cycling network audit', meta: `${currentCity('Regional')} · open`, href: 'index.html#platform' },
-      { label: 'Corridor housing study', meta: 'Regional · forming team', href: 'index.html#platform' },
-    ],
-    Knowledge: [
-      { label: 'Urban data basics', meta: 'Course · module 3 of 8', href: 'index.html#resources' },
-      { label: 'Participatory design toolkit', meta: 'Library', href: 'index.html#resources' },
-      { label: 'Mobility evidence briefs', meta: 'Library · 12 entries', href: 'index.html#resources' },
-    ],
-    Opportunities: [
-      { label: 'Community engagement lead', meta: `${currentCity()} · paid`, href: 'index.html#membership' },
-      { label: 'GIS volunteer · flood mapping', meta: 'Regional', href: 'index.html#membership' },
-      { label: 'Open call: public space fellows', meta: 'Regional · closes Jul 15', href: 'index.html#membership' },
-    ],
-  };
-  fetch('/api/users').then((r) => (r.ok ? r.json() : null)).then((data) => {
-    if (!data || !Array.isArray(data.users)) return;
-    const people = data.users
-      .filter((u) => u && typeof u.name === 'string' && u.id !== U?.id)
-      .map((u) => ({ label: u.name, meta: `${u.role} · ${u.city}`, href: 'profile.html' }));
-    if (people.length) SEARCH_DATA.People = people;
-  }).catch(() => { /* static hosting */ });
+  /* ================= search =================
+     People are looked up live against the member directory: name, role and
+     city match on substring, a full registration email matches exactly. Only
+     members who opted into the directory in Part C are findable. */
+  function catalogue() {
+    const city = cityLabel();
+    const regional = t('d.search.regional');
+    return {
+      Projects: [
+        { label: t('d.find.p1'), meta: t('d.find.p1m', { city }), href: 'index.html#platform' },
+        { label: t('d.find.p2'), meta: t('d.find.p2m', { city }), href: 'index.html#platform' },
+        { label: t('d.find.p3'), meta: t('d.find.p3m', { regional }), href: 'index.html#platform' },
+      ],
+      Knowledge: [
+        { label: t('d.find.k1'), meta: t('d.find.k1m'), href: 'index.html#resources' },
+        { label: t('d.find.k2'), meta: t('d.find.k2m'), href: 'index.html#resources' },
+        { label: t('d.find.k3'), meta: t('d.find.k3m'), href: 'index.html#resources' },
+      ],
+      Opportunities: [
+        { label: t('d.find.o1'), meta: t('d.find.o1m', { city }), href: 'index.html#membership' },
+        { label: t('d.find.o2'), meta: t('d.find.o2m', { regional }), href: 'index.html#membership' },
+        { label: t('d.find.o3'), meta: t('d.find.o3m', { regional }), href: 'index.html#membership' },
+      ],
+    };
+  }
 
-  const searchInput = document.getElementById('searchInput');
-  const searchPop = document.getElementById('searchPop');
-  const chipHost = document.getElementById('searchChips');
-  const activeScope = () => chipHost?.querySelector('.chip.is-on')?.textContent ?? 'People';
-  function runSearch() {
-    if (!searchInput || !searchPop) return;
-    const q = searchInput.value.trim().toLowerCase();
-    if (q.length < 2) { searchPop.hidden = true; return; }
-    const scope = activeScope();
-    const hits = (SEARCH_DATA[scope] ?? [])
-      .filter((item) => `${item.label} ${item.meta}`.toLowerCase().includes(q))
-      .slice(0, 6);
-    searchPop.replaceChildren(...(hits.length ? hits.map((item) => {
-      const a = document.createElement('a');
-      a.className = 'search-hit';
+  const searchInput = byId('searchInput');
+  const searchPop = byId('searchPop');
+  const chipHost = byId('searchChips');
+  const activeScope = () => chipHost?.querySelector('.chip.is-on')?.dataset.scope ?? 'People';
+  const scopeLabel = () => chipHost?.querySelector('.chip.is-on')?.textContent ?? 'People';
+
+  let peopleQuery = '';
+  let peopleHits = [];
+  let peopleTimer = null;
+  let peopleAbort = null;
+
+  function lookUpPeople(query) {
+    clearTimeout(peopleTimer);
+    peopleTimer = setTimeout(async () => {
+      if (peopleAbort) peopleAbort.abort();
+      peopleAbort = new AbortController();
+      try {
+        const data = await api(`/api/users/search?q=${encodeURIComponent(query)}`, { signal: peopleAbort.signal });
+        peopleHits = (Array.isArray(data.users) ? data.users : []).map((u) => ({
+          label: u.name,
+          meta: [u.role, u.city].filter(Boolean).join(' · '),
+          href: `profile.html?id=${encodeURIComponent(u.id)}`,
+        }));
+        peopleQuery = query.toLowerCase();
+        if (searchInput.value.trim().toLowerCase() === peopleQuery) paint(peopleHits);
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+        peopleQuery = query.toLowerCase();
+        peopleHits = [];
+        paint([]);                       // static hosting has no directory
+      }
+    }, 220);
+  }
+
+  function paint(hits) {
+    if (!searchPop) return;
+    const typed = searchInput.value.trim();
+    if (hits === null) {
+      searchPop.replaceChildren(el('p', 'search-empty', t('d.search.searching')));
+      searchPop.hidden = false;
+      return;
+    }
+    if (!hits.length) {
+      const empty = el('p', 'search-empty', t('d.search.noMatch', { q: typed, scope: scopeLabel() }));
+      if (activeScope() === 'People') empty.append(el('small', null, t('d.search.directoryNote')));
+      searchPop.replaceChildren(empty);
+      searchPop.hidden = false;
+      return;
+    }
+    searchPop.replaceChildren(...hits.map((item) => {
+      const a = el('a', 'search-hit');
       a.href = item.href;
-      const label = document.createElement('strong');
-      label.textContent = item.label;
-      const meta = document.createElement('span');
-      meta.textContent = item.meta;
-      a.append(label, meta);
+      a.append(el('strong', null, item.label), el('span', null, item.meta));
       return a;
-    }) : [(() => {
-      const p = document.createElement('p');
-      p.className = 'search-empty';
-      p.textContent = `No matches for “${searchInput.value.trim()}” in ${scope}.`;
-      return p;
-    })()]));
+    }));
     searchPop.hidden = false;
   }
+
+  function runSearch() {
+    if (!searchInput || !searchPop) return;
+    const typed = searchInput.value.trim();
+    const q = typed.toLowerCase();
+    if (q.length < 2) { searchPop.hidden = true; return; }
+    if (activeScope() === 'People') {
+      if (peopleQuery === q) { paint(peopleHits); return; }
+      lookUpPeople(typed);
+      paint(null);
+      return;
+    }
+    paint((catalogue()[activeScope()] ?? [])
+      .filter((item) => `${item.label} ${item.meta}`.toLowerCase().includes(q))
+      .slice(0, 6));
+  }
+
   if (searchInput && searchPop && chipHost) {
     searchInput.addEventListener('input', runSearch);
     searchInput.addEventListener('keydown', (e) => { if (e.key === 'Escape') searchPop.hidden = true; });
@@ -946,31 +1152,30 @@
   /* ================= notifications ================= */
   function notifData() {
     return [
-      { title: 'Welcome to NODAL', sub: 'Say hello in the community space' },
-      { title: U.assessed ? 'Your path is ready' : 'Complete your self-assessment', sub: U.assessed ? 'See your community paths' : 'Opens your suggested path' },
-      { title: 'Community host cohort opens Q3', sub: 'Territory path · applications soon' },
+      { title: t('d.notif.welcome.t'), sub: t('d.notif.welcome.s') },
+      {
+        title: t(U.assessed ? 'd.notif.path.tDone' : 'd.notif.path.tTodo'),
+        sub: t(U.assessed ? 'd.notif.path.sDone' : 'd.notif.path.sTodo'),
+      },
+      { title: t('d.notif.cohort.t'), sub: t('d.notif.cohort.s') },
     ];
   }
-  const notifBtn = document.getElementById('notifBtn');
-  const notifPop = document.getElementById('notifPop');
-  const notifDot = document.getElementById('notifDot');
-  const notifList = document.getElementById('notifList');
-  const notifClear = document.getElementById('notifClear');
+  const notifBtn = byId('notifBtn');
+  const notifPop = byId('notifPop');
+  const notifDot = byId('notifDot');
+  const notifList = byId('notifList');
+  const notifClear = byId('notifClear');
   function renderNotifs() {
     if (!notifList) return;
     notifList.replaceChildren(...notifData().map((n) => {
       const li = document.createElement('li');
-      const t = document.createElement('strong');
-      t.textContent = n.title;
-      const s = document.createElement('span');
-      s.textContent = n.sub;
-      li.append(t, s);
+      li.append(el('strong', null, n.title), el('span', null, n.sub));
       return li;
     }));
     if (notifDot) notifDot.hidden = state.notifRead;
     if (notifClear) {
       notifClear.disabled = state.notifRead;
-      notifClear.textContent = state.notifRead ? 'All read ✓' : 'Mark all as read';
+      notifClear.textContent = t(state.notifRead ? 'd.notif.clearDone' : 'd.notif.clear');
     }
   }
   if (notifBtn && notifPop) {
@@ -999,7 +1204,7 @@
 
   /* ================= scroll spy ================= */
   const sections = ['overview', 'growth', 'badges', 'assessment']
-    .map((id) => document.getElementById(id)).filter(Boolean);
+    .map((id) => byId(id)).filter(Boolean);
   const links = new Map(
     [...document.querySelectorAll('.side-link[href^="#"]')].map((a) => [a.getAttribute('href').slice(1), a]),
   );
@@ -1009,26 +1214,60 @@
         if (!entry.isIntersecting) return;
         links.forEach((a, id) => a.classList.toggle('is-active', id === entry.target.id));
       });
-    }, { rootMargin: '-30% 0px -55% 0px' });
+    }, { rootMargin: '-25% 0px -60% 0px' });
     sections.forEach((s) => spy.observe(s));
   }
 
   /* ================= apply everything ================= */
+  function relabelTopicChips() {
+    uc.topics?.querySelectorAll('label').forEach((label) => {
+      const input = label.querySelector('input');
+      if (input) label.replaceChildren(input, topicLabel(input.value));
+    });
+  }
+
   function applyAll() {
     if (!U) return;
+    relabelTopicChips();
     renderIdentity();
+    renderSpine();
     renderRoles();
-    renderMentorCard();
     renderTrust();
+    renderActivity();
+    renderMentorCard();
     renderAssessment();
     evaluateTrack();
     renderFastBtn();
     renderCompleteness();
     renderBadges();
     renderPaths();
+    renderWeek();
     renderTimeline();
     renderNotifs();
   }
+  const saveRetry = byId('saveRetry');
+  saveRetry?.addEventListener('click', () => {
+    saveRetry.disabled = true;
+    saveProfile()
+      .then(() => { reportSave(true); applyAll(); })
+      .catch(() => reportSave(false, true))
+      .finally(() => { saveRetry.disabled = false; });
+  });
+
+  document.querySelectorAll('.side-link, .side-out').forEach((btn) => {
+    btn.addEventListener('pointerdown', (e) => {
+      const r = btn.getBoundingClientRect();
+      btn.style.setProperty('--gx', `${e.clientX - r.left}px`);
+      btn.style.setProperty('--gy', `${e.clientY - r.top}px`);
+      btn.classList.remove('glint');
+      void btn.offsetWidth;              // restart the animation
+      btn.classList.add('glint');
+    });
+    btn.addEventListener('animationend', () => btn.classList.remove('glint'));
+  });
+
+  I18N?.onChange(() => applyAll());
+
   async function init() {
     try {
       const data = await api('/api/auth/me');
