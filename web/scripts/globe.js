@@ -98,13 +98,17 @@
     CX = W / 2; CY = H / 2;
   }
 
+  /* The rotation only changes once a frame, but it is applied to every one of
+     several thousand coastline points — so the four trig calls are hoisted out
+     of the inner loop and refreshed once per draw. */
+  let cy = 1; let sy = 0; let ct = 1; let st = 0;
+  function syncRotation() {
+    cy = Math.cos(state.yaw); sy = Math.sin(state.yaw);
+    ct = Math.cos(state.tilt); st = Math.sin(state.tilt);
+  }
   function rotate(v) {
-    const cy = Math.cos(state.yaw);
-    const sy = Math.sin(state.yaw);
     const x = v[0] * cy + v[2] * sy;
     const z1 = -v[0] * sy + v[2] * cy;
-    const ct = Math.cos(state.tilt);
-    const st = Math.sin(state.tilt);
     return [x, v[1] * ct - z1 * st, v[1] * st + z1 * ct];
   }
   const screenOf = (r) => [CX + R * r[0], CY - R * r[1]];
@@ -273,6 +277,7 @@
     if (state.visible) {
       ctx.clearRect(0, 0, W, H);
       if (!state.drag && !calm()) state.yaw += 0.0014;
+      syncRotation();
       limb();
       land();
       connections();
@@ -298,6 +303,7 @@
   }
 
   function pick(ev) {
+    syncRotation();
     const rect = canvas.getBoundingClientRect();
     const mx = ev.clientX - rect.left;
     const my = ev.clientY - rect.top;

@@ -7,19 +7,21 @@
 
      node scripts/build-coastline.js
 
-   It simplifies with Douglas–Peucker, drops islands too small to read at globe
-   scale, and rounds to a tenth of a degree (~11 km, far below one pixel on a
-   500px sphere). The result is written as a compact string that globe.js
-   expands at load. */
+   It simplifies with Douglas–Peucker and drops islands too small to read at
+   globe scale. The result is written as a compact string that globe.js expands
+   at load. */
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const SOURCE = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_land.geojson';
+const SOURCE = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_land.geojson';
 const OUT = path.resolve(import.meta.dirname, '..', 'web', 'scripts', 'coastline.js');
 
-const TOLERANCE = 0.55;   // degrees — keeps continent silhouettes, drops noise
-const MIN_SPAN = 3.2;     // degrees — an island smaller than this is a dot at globe scale
-const PRECISION = 1;      // decimal places
+/* A 500px sphere resolves about 0.36° per pixel at its centre, so half a pixel
+   is 0.18°: simplifying any harder than that is visible as angular coastline,
+   and any softer is detail nobody can see. */
+const TOLERANCE = 0.18;
+const MIN_SPAN = 0.8;     // degrees — below this an island is smaller than a node dot
+const PRECISION = 1;      // 0.1° is 0.28px on a 500px sphere — under the stroke width
 
 /* perpendicular distance from p to the segment a-b, in degrees */
 function far(p, a, b) {
@@ -30,19 +32,28 @@ function far(p, a, b) {
   return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
 }
 
+/* iterative Douglas–Peucker: some 50m rings are long enough that recursion
+   would overflow the stack */
 function simplify(points, tolerance) {
   if (points.length < 3) return points;
-  let worst = 0;
-  let index = 0;
-  for (let i = 1; i < points.length - 1; i += 1) {
-    const d = far(points[i], points[0], points[points.length - 1]);
-    if (d > worst) { worst = d; index = i; }
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
+  const stack = [[0, points.length - 1]];
+  while (stack.length) {
+    const [lo, hi] = stack.pop();
+    let worst = 0;
+    let index = -1;
+    for (let i = lo + 1; i < hi; i += 1) {
+      const d = far(points[i], points[lo], points[hi]);
+      if (d > worst) { worst = d; index = i; }
+    }
+    if (index >= 0 && worst > tolerance) {
+      keep[index] = 1;
+      stack.push([lo, index], [index, hi]);
+    }
   }
-  if (worst <= tolerance) return [points[0], points[points.length - 1]];
-  return [
-    ...simplify(points.slice(0, index + 1), tolerance).slice(0, -1),
-    ...simplify(points.slice(index), tolerance),
-  ];
+  return points.filter((_, i) => keep[i]);
 }
 
 const span = (ring) => {
