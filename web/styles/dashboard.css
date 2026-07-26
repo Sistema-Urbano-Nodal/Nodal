@@ -490,38 +490,40 @@ select:focus-visible, textarea:focus-visible {
 .field-note strong { color: var(--forest); }
 
 /* ============================ global network ============================ */
-/* the one dark field on the work surface: the globe is drawn in light, so it
-   needs night behind it */
-.band-globe {
-  background:
-    radial-gradient(58% 62% at 32% 46%, rgba(89, 188, 83, .16), transparent 70%),
-    var(--ink);
-  color: rgba(255, 255, 255, .8);
-}
-.band-globe .band-title { color: #fff; }
-.band-globe .band-sub { color: rgba(255, 255, 255, .6); }
-.band-globe .eyebrow { color: var(--pastel); }
-
+/* no panel and no backdrop: the canvas is transparent, so the globe sits on
+   the work surface like a cut-out */
 .globe { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: clamp(20px, 3vw, 44px); align-items: center; }
-.globe-stage { position: relative; aspect-ratio: 1 / 1; max-height: 62vh; margin-inline: auto; width: 100%; }
-#globeCanvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; border-radius: 50%; }
-#globeCanvas:focus-visible { outline: 2px solid var(--green); outline-offset: 6px; }
+.globe-stage { position: relative; aspect-ratio: 1 / 1; max-height: 66vh; margin-inline: auto; width: 100%; }
+#globeCanvas { display: block; width: 100%; height: 100%; background: none; touch-action: none; cursor: grab; }
+#globeCanvas:focus-visible { outline: 2px solid var(--forest); outline-offset: 6px; border-radius: 50%; }
 
 .globe-side { align-self: center; }
-.globe-hint { font-size: 13px; line-height: 1.55; color: rgba(255, 255, 255, .5); }
+.globe-hint { font-size: 13px; line-height: 1.55; color: var(--muted); }
 .globe-hint[hidden] { display: none; }
 .globe-kicker {
   font-size: 10.5px; font-weight: 600; letter-spacing: .16em;
   text-transform: uppercase; color: var(--green);
 }
-.globe-side h3 { font-size: 22px; font-weight: 800; color: #fff; margin-top: 9px; }
-.globe-count { font-size: 12.5px; color: var(--pastel); margin-top: 4px; }
+.globe-side h3 { font-size: 22px; font-weight: 800; margin-top: 9px; }
+.globe-count { font-size: 12.5px; font-weight: 700; color: var(--forest); margin-top: 4px; }
 .globe-label {
   font-size: 9.5px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase;
-  color: rgba(255, 255, 255, .42); margin-top: 18px;
+  color: var(--muted); margin-top: 18px;
 }
-.globe-topics, .globe-links { font-size: 12.5px; line-height: 1.5; margin-top: 5px; }
-.globe-links { color: rgba(255, 255, 255, .66); }
+.globe-roles, .globe-links { font-size: 12.5px; line-height: 1.5; margin-top: 5px; color: var(--text-2); }
+
+/* arrivals: who joined the directory while you were looking */
+.globe-feed-label { margin-top: 22px; }
+.globe-feed-label[hidden] { display: none; }
+.globe-feed { list-style: none; margin-top: 8px; display: grid; gap: 8px; }
+.globe-feed[hidden] { display: none; }
+.globe-feed li {
+  border-left: 2px solid var(--green); padding-left: 10px;
+  animation: globe-arrive .5s cubic-bezier(.16, 1, .3, 1) both;
+}
+.globe-feed strong { display: block; font-size: 13px; font-weight: 700; }
+.globe-feed span { font-size: 11.5px; color: var(--muted); }
+@keyframes globe-arrive { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 
 /* ============================ paths ============================ */
 .paths {

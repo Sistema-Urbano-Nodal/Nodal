@@ -7,6 +7,7 @@ const OUTPUT = path.join(ROOT, 'public');
 const STATIC_SCRIPTS = [
   'app.js',
   'auth.js',
+  'coastline.js',
   'dashboard.js',
   'globe.js',
   'i18n.js',

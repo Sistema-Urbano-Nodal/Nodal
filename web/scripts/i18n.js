@@ -786,6 +786,7 @@
     'd.globe.eyebrow': 'Global network · {n} of {total} cities active',
     'd.globe.members': '{n} in the member directory',
     'd.globe.noMembers': 'No members in the directory yet',
+    'd.globe.noRoles': 'No roles listed yet',
   };
 
   const DASH_ES = {
@@ -1264,6 +1265,9 @@
     'd.globe.eyebrow': 'Red global · {n} de {total} ciudades activas',
     'd.globe.members': '{n} en el directorio de miembros',
     'd.globe.noMembers': 'Todavía sin miembros en el directorio',
+    'd.globe.roles': 'Roles ahí',
+    'd.globe.noRoles': 'Aún sin roles registrados',
+    'd.globe.arrivals': 'Acaba de entrar',
   };
 
   const DASH_PT = {
@@ -1742,6 +1746,9 @@
     'd.globe.eyebrow': 'Rede global · {n} de {total} cidades ativas',
     'd.globe.members': '{n} no diretório de membros',
     'd.globe.noMembers': 'Ainda sem membros no diretório',
+    'd.globe.roles': 'Papéis por lá',
+    'd.globe.noRoles': 'Ainda sem papéis registrados',
+    'd.globe.arrivals': 'Acabou de entrar',
   };
 
   Object.assign(ES, DASH_ES);

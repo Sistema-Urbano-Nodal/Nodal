@@ -1,15 +1,15 @@
-/* NODAL global network — an orthographic sphere drawn from nodes and the
-   great-circle connections between them. There is no graticule: the sphere
-   exists because the network describes it.
+/* NODAL global network — a real globe: Natural Earth coastlines under the
+   live network of members, drawn on a transparent canvas so it sits on the
+   page like a cut-out rather than inside a panel.
 
-   No libraries — the projection is trigonometry, so it runs under
-   script-src 'self'. Canvas rather than SVG because every frame redraws.
+   No libraries. The orthographic projection is trigonometry and the coastline
+   ships as data (see scripts/build-coastline.js), so nothing is fetched at
+   runtime except the directory itself.
 
-   City coordinates are real. Member counts come from the directory
-   (/api/users) and are matched by city name; a city the directory has not
-   reached yet still shows as a node, dimmer, with an honest zero. Following
-   the rule the landing graph already sets, a node names a place and a kind of
-   work — never an invented person. */
+   New members appear while you watch: the directory is polled, and a city
+   that gains someone pulses. Only members who opted into the directory in
+   Part C are counted — the same promise Part C makes. A node names a place
+   and a count, never a person. */
 (() => {
   'use strict';
 
@@ -21,79 +21,40 @@
   const RAD = Math.PI / 180;
   const calm = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  /* Where NODAL is organising. Latitude, longitude, and the topics that work
-     in each place is grouped under. */
+  const toXYZ = (lat, lon) => [
+    Math.cos(lat * RAD) * Math.cos(lon * RAD),
+    Math.sin(lat * RAD),
+    Math.cos(lat * RAD) * Math.sin(lon * RAD),
+  ];
+
+  /* ---------- the land ---------- */
+  const LAND = (window.NODAL_COASTLINE || '').split(';').filter(Boolean).map((ring) => ring
+    .split(' ')
+    .map((pair) => {
+      const [lon, lat] = pair.split(',');
+      return toXYZ(Number(lat), Number(lon));
+    }));
+
+  /* ---------- where NODAL organises ---------- */
   const PLACES = [
-    ['Lima', -12.05, -77.04, ['Mobility', 'Public space']],
-    ['São Paulo', -23.55, -46.63, ['Housing', 'Urban data & tech']],
-    ['Bogotá', 4.71, -74.07, ['Mobility', 'Governance & participation']],
-    ['Ciudad de México', 19.43, -99.13, ['Public space', 'Climate & resilience']],
-    ['Buenos Aires', -34.60, -58.38, ['Housing', 'Heritage']],
-    ['Santiago', -33.45, -70.67, ['Climate & resilience', 'Urban data & tech']],
-    ['Quito', -0.18, -78.47, ['Governance & participation', 'Informality']],
-    ['Recife', -8.05, -34.88, ['Climate & resilience', 'Housing']],
-    ['Medellín', 6.24, -75.58, ['Mobility', 'Safety']],
-    ['Montevideo', -34.90, -56.16, ['Public space']],
-    ['Guadalajara', 20.67, -103.35, ['Mobility']],
-    ['Belo Horizonte', -19.92, -43.94, ['Urban data & tech']],
-    ['San José', 9.93, -84.08, ['Environment & nature']],
-    ['Ciudad de Panamá', 8.98, -79.52, ['Land use & planning']],
-    ['La Paz', -16.50, -68.15, ['Informality', 'Mobility']],
-    ['Asunción', -25.28, -57.63, ['Land use & planning']],
-    ['Ciudad de Guatemala', 14.63, -90.51, ['Safety']],
-    ['La Habana', 23.11, -82.37, ['Heritage']],
-    ['Porto Alegre', -30.03, -51.23, ['Governance & participation']],
-    ['Curitiba', -25.43, -49.27, ['Mobility', 'Environment & nature']],
-    ['Salvador', -12.97, -38.51, ['Heritage', 'Care & gender']],
-    ['Fortaleza', -3.73, -38.53, ['Climate & resilience']],
-    ['Cali', 3.44, -76.52, ['Safety', 'Public space']],
-    ['Rosario', -32.95, -60.64, ['Land use & planning']],
-    ['Tegucigalpa', 14.07, -87.19, ['Informality']],
-    ['Madrid', 40.42, -3.70, ['Governance & participation']],
-    ['Lisboa', 38.72, -9.14, ['Heritage']],
-    ['Barcelona', 41.39, 2.17, ['Public space']],
-    ['New York', 40.71, -74.01, ['Urban data & tech']],
-    ['Toronto', 43.65, -79.38, ['Housing']],
-    ['London', 51.51, -0.13, ['Urban data & tech']],
-    ['Paris', 48.86, 2.35, ['Mobility']],
-    ['Berlin', 52.52, 13.40, ['Climate & resilience']],
-    ['Nairobi', -1.29, 36.82, ['Informality', 'Climate & resilience']],
-    ['Lagos', 6.52, 3.38, ['Housing']],
-    ['Cape Town', -33.92, 18.42, ['Governance & participation']],
-    ['Accra', 5.60, -0.19, ['Public space']],
-    ['Cairo', 30.04, 31.24, ['Heritage']],
-    ['Mumbai', 19.08, 72.88, ['Informality']],
-    ['Delhi', 28.61, 77.21, ['Climate & resilience']],
-    ['Bangkok', 13.76, 100.50, ['Mobility']],
-    ['Jakarta', -6.21, 106.85, ['Climate & resilience', 'Housing']],
-    ['Manila', 14.60, 120.98, ['Safety']],
-    ['Singapore', 1.35, 103.82, ['Land use & planning']],
-    ['Seoul', 37.57, 126.98, ['Urban data & tech']],
-    ['Tokyo', 35.68, 139.65, ['Public space']],
-    ['Sydney', -33.87, 151.21, ['Environment & nature']],
-    ['Auckland', -36.85, 174.76, ['Environment & nature']],
-  ].map(([name, lat, lon, topics], i) => ({
-    i, name, topics, members: 0,
-    v: [
-      Math.cos(lat * RAD) * Math.cos(lon * RAD),
-      Math.sin(lat * RAD),
-      Math.cos(lat * RAD) * Math.sin(lon * RAD),
-    ],
-  }));
+    ['Lima', -12.05, -77.04], ['São Paulo', -23.55, -46.63], ['Bogotá', 4.71, -74.07],
+    ['Ciudad de México', 19.43, -99.13], ['Buenos Aires', -34.60, -58.38], ['Santiago', -33.45, -70.67],
+    ['Quito', -0.18, -78.47], ['Recife', -8.05, -34.88], ['Medellín', 6.24, -75.58],
+    ['Montevideo', -34.90, -56.16], ['Guadalajara', 20.67, -103.35], ['Belo Horizonte', -19.92, -43.94],
+    ['San José', 9.93, -84.08], ['Ciudad de Panamá', 8.98, -79.52], ['La Paz', -16.50, -68.15],
+    ['Asunción', -25.28, -57.63], ['Ciudad de Guatemala', 14.63, -90.51], ['La Habana', 23.11, -82.37],
+    ['Porto Alegre', -30.03, -51.23], ['Curitiba', -25.43, -49.27], ['Salvador', -12.97, -38.51],
+    ['Fortaleza', -3.73, -38.53], ['Cali', 3.44, -76.52], ['Rosario', -32.95, -60.64],
+    ['Tegucigalpa', 14.07, -87.19], ['Madrid', 40.42, -3.70], ['Lisboa', 38.72, -9.14],
+    ['Barcelona', 41.39, 2.17], ['New York', 40.71, -74.01], ['Toronto', 43.65, -79.38],
+    ['London', 51.51, -0.13], ['Paris', 48.86, 2.35], ['Berlin', 52.52, 13.40],
+    ['Nairobi', -1.29, 36.82], ['Lagos', 6.52, 3.38], ['Cape Town', -33.92, 18.42],
+    ['Accra', 5.60, -0.19], ['Cairo', 30.04, 31.24], ['Mumbai', 19.08, 72.88],
+    ['Delhi', 28.61, 77.21], ['Bangkok', 13.76, 100.50], ['Jakarta', -6.21, 106.85],
+    ['Manila', 14.60, 120.98], ['Singapore', 1.35, 103.82], ['Seoul', 37.57, 126.98],
+    ['Tokyo', 35.68, 139.65], ['Sydney', -33.87, 151.21], ['Auckland', -36.85, 174.76],
+  ].map(([name, lat, lon], i) => ({ i, name, members: 0, roles: [], arrived: 0, v: toXYZ(lat, lon) }));
 
-  const TOPIC_KEYS = new Map([
-    ['Mobility', 'mobility'], ['Public space', 'publicSpace'], ['Housing', 'housing'],
-    ['Climate & resilience', 'climate'], ['Care & gender', 'care'],
-    ['Governance & participation', 'governance'], ['Safety', 'safety'],
-    ['Informality', 'informality'], ['Heritage', 'heritage'],
-    ['Urban data & tech', 'urbanData'], ['Land use & planning', 'landUse'],
-    ['Environment & nature', 'environment'],
-  ]);
-  const topicLabel = (name) => (TOPIC_KEYS.has(name) ? t(`d.topic.${TOPIC_KEYS.get(name)}`) : name);
-
-  /* Connections: each place reaches its nearest peers, plus a handful of
-     deliberate long hauls so the sphere reads as one network rather than
-     separate clusters. */
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const EDGES = [];
   const seen = new Set();
@@ -109,8 +70,7 @@
   });
   [[0, 25], [1, 28], [3, 30], [2, 26], [4, 31], [33, 1], [38, 0], [45, 5], [34, 8]]
     .forEach(([a, b]) => link(a, b));
-  const neighbours = (i) => EDGES
-    .filter(([a, b]) => a === i || b === i)
+  const neighbours = (i) => EDGES.filter(([a, b]) => a === i || b === i)
     .map(([a, b]) => PLACES[a === i ? b : a]);
 
   const slerp = (a, b, s) => {
@@ -123,7 +83,7 @@
 
   const ctx = canvas.getContext('2d');
   // the meridian facing the viewer is yaw + 90°, so this opens on the Americas
-  const state = { yaw: (-75 - 90) * RAD, tilt: -18 * RAD, hover: -1, picked: -1, drag: false, visible: true };
+  const state = { yaw: (-75 - 90) * RAD, tilt: -12 * RAD, hover: -1, picked: -1, drag: false, visible: true };
   let W = 0; let H = 0; let R = 0; let CX = 0; let CY = 0;
 
   function resize() {
@@ -134,31 +94,79 @@
     canvas.width = Math.round(W * dpr);
     canvas.height = Math.round(H * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    R = Math.min(W, H) * 0.44;
+    R = Math.min(W, H) * 0.45;
     CX = W / 2; CY = H / 2;
   }
 
-  function project(v) {
+  function rotate(v) {
     const cy = Math.cos(state.yaw);
     const sy = Math.sin(state.yaw);
     const x = v[0] * cy + v[2] * sy;
     const z1 = -v[0] * sy + v[2] * cy;
     const ct = Math.cos(state.tilt);
     const st = Math.sin(state.tilt);
-    const y = v[1] * ct - z1 * st;
-    const z = v[1] * st + z1 * ct;
-    return [CX + R * x, CY - R * y, z];
+    return [x, v[1] * ct - z1 * st, v[1] * st + z1 * ct];
+  }
+  const screenOf = (r) => [CX + R * r[0], CY - R * r[1]];
+  function project(v) {
+    const r = rotate(v);
+    return [CX + R * r[0], CY - R * r[1], r[2]];
   }
 
-  function body() {
-    const g = ctx.createRadialGradient(CX - R * 0.3, CY - R * 0.35, R * 0.1, CX, CY, R);
-    g.addColorStop(0, 'rgba(61,92,56,.55)');
-    g.addColorStop(1, 'rgba(21,32,17,.8)');
+  /* Clip a ring against the visible hemisphere. Where an edge crosses the
+     horizon the crossing point is interpolated and pushed back onto the unit
+     sphere, so the landmass ends exactly on the limb instead of being smeared
+     around it. A ring wholly on the far side simply disappears. */
+  function clipToFront(ring) {
+    const view = ring.map(rotate);
+    const runs = [];
+    let run = null;
+    const cross = (a, b) => {
+      const k = a[2] / (a[2] - b[2]);
+      const p = [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, 0];
+      const m = Math.hypot(p[0], p[1]) || 1;
+      return [p[0] / m, p[1] / m, 0];
+    };
+    for (let i = 0; i < view.length; i += 1) {
+      const a = view[i];
+      const b = view[(i + 1) % view.length];
+      if (a[2] >= 0) {
+        if (!run) { run = []; runs.push(run); }
+        run.push(a);
+        if (b[2] < 0) { run.push(cross(a, b)); run = null; }
+      } else if (b[2] >= 0) {
+        run = [cross(a, b)];
+        runs.push(run);
+      }
+    }
+    return runs.filter((r) => r.length > 1);
+  }
+
+  /* Coastlines are drawn as open lines, never closed polygons. Closing a
+     clipped ring would need a chord across the sphere, and on a landmass as
+     wide as Eurasia that chord cuts straight through the visible face. Lines
+     have no such seam at any rotation — and a globe drawn in outline is the
+     same engraved language the rest of the console speaks. */
+  function land() {
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    LAND.forEach((ring) => {
+      clipToFront(ring).forEach((run) => {
+        const pts = run.map(screenOf);
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i][0], pts[i][1]);
+        ctx.strokeStyle = 'rgba(61,92,56,.8)';
+        ctx.lineWidth = 1.15;
+        ctx.stroke();
+      });
+    });
+  }
+
+  function limb() {
     ctx.beginPath();
     ctx.arc(CX, CY, R, 0, Math.PI * 2);
-    ctx.fillStyle = g;
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(173,222,168,.4)';
+    ctx.strokeStyle = 'rgba(61,92,56,.38)';
     ctx.lineWidth = 1.2;
     ctx.stroke();
   }
@@ -193,7 +201,7 @@
       const lit = active >= 0 && (ai === active || bi === active);
       if (active >= 0 && !lit) return;
       const span = Math.acos(Math.min(1, Math.max(-1, dot(PLACES[ai].v, PLACES[bi].v))));
-      const bow = 0.05 * (1 - span / Math.PI);          // long hauls hug the surface
+      const bow = 0.05 * (1 - span / Math.PI);      // long hauls hug the surface
       const pts = [];
       for (let s = 0; s <= 26; s += 1) {
         const k = s / 26;
@@ -201,64 +209,91 @@
         const lift = 1 + bow * Math.sin(Math.PI * k);
         pts.push(project([p[0] * lift, p[1] * lift, p[2] * lift]));
       }
-      strokeArc(pts, lit ? 'rgba(120,224,112,1)' : 'rgba(89,188,83,.5)', 'rgba(89,188,83,.1)', lit ? 2 : 1.1);
+      strokeArc(pts, lit ? 'rgba(47,130,42,1)' : 'rgba(89,188,83,.75)', 'rgba(89,188,83,.16)', lit ? 2 : 1.1);
     });
   }
 
   const screen = [];
-  function nodes() {
+  function nodes(time) {
     screen.length = 0;
     PLACES.forEach((n) => {
       const [x, y, z] = project(n.v);
       screen.push({ i: n.i, x, y, z });
       if (z < 0) return;
       const active = n.i === state.picked || n.i === state.hover;
-      const r = 3.4 + Math.sqrt(n.members) * 1.1;
-      const fade = (n.members ? 0.72 : 0.5) + 0.28 * z;
-      if (active) {
+      const has = n.members > 0;
+      const r = (has ? 3.6 : 2.2) + Math.sqrt(n.members) * 1.1;
+
+      // a place that just gained a member rings out for a few seconds
+      if (n.arrived && !calm()) {
+        const age = (time - n.arrived) / 2600;
+        if (age < 1) {
+          ctx.beginPath();
+          ctx.arc(x, y, r + age * 26, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(89,188,83,${(0.75 * (1 - age)).toFixed(3)})`;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        } else { n.arrived = 0; }
+      }
+      if (has) {
+        const glow = ctx.createRadialGradient(x, y, 0, x, y, r + 9);
+        glow.addColorStop(0, 'rgba(89,188,83,.5)');
+        glow.addColorStop(1, 'rgba(89,188,83,0)');
         ctx.beginPath();
-        ctx.arc(x, y, r + 7, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(89,188,83,.18)';
+        ctx.arc(x, y, r + 9, 0, Math.PI * 2);
+        ctx.fillStyle = glow;
         ctx.fill();
       }
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = active ? '#59bc53' : `rgba(173,222,168,${fade.toFixed(3)})`;
+      ctx.fillStyle = active ? '#25341f' : has ? '#59bc53' : 'rgba(255,255,255,.9)';
       ctx.fill();
+      if (!has) {
+        ctx.strokeStyle = 'rgba(61,92,56,.75)';
+        ctx.lineWidth = 1.3;
+        ctx.stroke();
+      }
+      if (has) {
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,255,255,.85)';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+      }
       if (active) {
         ctx.font = '700 12px Montserrat, system-ui, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillStyle = '#fff';
-        ctx.fillText(n.name, x, y - r - 12);
+        ctx.fillStyle = '#25341f';
+        ctx.fillText(n.name, x, y - r - 11);
       }
     });
   }
 
-  function frame() {
+  function frame(time) {
     if (state.visible) {
       ctx.clearRect(0, 0, W, H);
-      if (!state.drag && !calm()) state.yaw += 0.0016;
-      body();
+      if (!state.drag && !calm()) state.yaw += 0.0014;
+      limb();
+      land();
       connections();
-      nodes();
+      nodes(time);
     }
     requestAnimationFrame(frame);
   }
 
-  /* ---------- the card ---------- */
+  /* ---------- the panel ---------- */
   const card = document.getElementById('globeCard');
-  const empty = document.getElementById('globeHint');
+  const hint = document.getElementById('globeHint');
+  const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+
   function showPlace(place) {
-    if (!card || !empty) return;
-    if (!place) { card.hidden = true; empty.hidden = false; return; }
-    empty.hidden = true;
+    if (!card || !hint) return;
+    if (!place) { card.hidden = true; hint.hidden = false; return; }
+    hint.hidden = true;
     card.hidden = false;
-    const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
     set('globeCity', place.name);
-    set('globeCount', place.members
-      ? t('d.globe.members', { n: place.members })
-      : t('d.globe.noMembers'));
-    set('globeTopics', place.topics.map(topicLabel).join(' · '));
+    set('globeCount', place.members ? t('d.globe.members', { n: place.members }) : t('d.globe.noMembers'));
+    set('globeRoles', place.roles.length ? [...new Set(place.roles)].slice(0, 4).join(' · ') : t('d.globe.noRoles'));
     set('globeLinks', neighbours(place.i).map((o) => o.name).join(', '));
   }
 
@@ -293,38 +328,74 @@
     showPlace(state.picked >= 0 ? PLACES[state.picked] : null);
   });
   canvas.addEventListener('pointerleave', () => { state.drag = false; state.hover = -1; });
-
-  // keyboard: step through the places without a pointer
   canvas.addEventListener('keydown', (ev) => {
-    if (!['ArrowRight', 'ArrowLeft', 'Enter', ' '].includes(ev.key)) return;
+    if (!['ArrowRight', 'ArrowLeft'].includes(ev.key)) return;
     ev.preventDefault();
-    if (ev.key === 'ArrowRight' || ev.key === 'ArrowLeft') {
-      const step = ev.key === 'ArrowRight' ? 1 : -1;
-      state.picked = (state.picked + step + PLACES.length) % PLACES.length;
-      // bring the chosen place round to the front
-      const p = PLACES[state.picked];
-      state.yaw = -Math.atan2(p.v[2], p.v[0]) - Math.PI / 2;
-    }
-    showPlace(state.picked >= 0 ? PLACES[state.picked] : null);
+    state.picked = (state.picked + (ev.key === 'ArrowRight' ? 1 : -1) + PLACES.length) % PLACES.length;
+    const p = PLACES[state.picked];
+    state.yaw = Math.atan2(p.v[2], p.v[0]) - Math.PI / 2;   // centre = yaw + 90°
+    showPlace(p);
   });
 
-  /* ---------- real member counts, matched by city ---------- */
+  /* ---------- the directory, live ---------- */
   const normalise = (s) => String(s || '').trim().toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g, '');
   const byCity = new Map(PLACES.map((p) => [normalise(p.name), p]));
-  fetch('/api/users', { headers: { Accept: 'application/json' } })
-    .then((r) => (r.ok ? r.json() : null))
-    .then((data) => {
-      if (!data || !Array.isArray(data.users)) return;
-      data.users.forEach((u) => {
-        const place = byCity.get(normalise(u.city));
-        if (place) place.members += 1;
-      });
-      const reached = PLACES.filter((p) => p.members > 0).length;
-      const eyebrow = document.getElementById('globeEyebrow');
-      if (eyebrow) eyebrow.textContent = t('d.globe.eyebrow', { n: reached, total: PLACES.length });
-    })
-    .catch(() => { /* static hosting: the scaffold still draws */ });
+  const known = new Set();
+  let started = false;
+
+  function spinTo(place) {
+    state.picked = place.i;
+    state.yaw = Math.atan2(place.v[2], place.v[0]) - Math.PI / 2;
+    showPlace(place);
+  }
+
+  async function poll() {
+    let users;
+    try {
+      const res = await fetch('/api/users', { headers: { Accept: 'application/json' } });
+      if (!res.ok) return;
+      users = (await res.json()).users;
+      if (!Array.isArray(users)) return;
+    } catch { return; }               // static hosting: the map still draws
+
+    const arrivals = [];
+    PLACES.forEach((p) => { p.members = 0; p.roles = []; });
+    users.forEach((u) => {
+      const place = byCity.get(normalise(u.city));
+      if (!place) return;
+      place.members += 1;
+      if (u.role) place.roles.push(u.role);
+      if (started && !known.has(u.id)) arrivals.push({ user: u, place });
+      known.add(u.id);
+    });
+    if (!started) users.forEach((u) => known.add(u.id));
+    started = true;
+
+    const reached = PLACES.filter((p) => p.members > 0).length;
+    set('globeEyebrow', t('d.globe.eyebrow', { n: reached, total: PLACES.length }));
+
+    arrivals.forEach(({ user, place }) => {
+      place.arrived = performance.now();
+      announce(user, place);
+    });
+    if (arrivals.length && state.picked < 0) spinTo(arrivals[arrivals.length - 1].place);
+  }
+
+  const feed = document.getElementById('globeFeed');
+  function announce(user, place) {
+    if (!feed) return;
+    const row = document.createElement('li');
+    const name = document.createElement('strong');
+    name.textContent = user.name;
+    const where = document.createElement('span');
+    where.textContent = `${user.role ? `${user.role} · ` : ''}${place.name}`;
+    row.append(name, where);
+    feed.prepend(row);
+    while (feed.children.length > 4) feed.lastElementChild.remove();
+    feed.hidden = false;
+    document.getElementById('globeFeedLabel')?.removeAttribute('hidden');
+  }
 
   const io = new IntersectionObserver((entries) => {
     entries.forEach((e) => { state.visible = e.isIntersecting; });
@@ -335,4 +406,7 @@
   I18N?.onChange(() => showPlace(state.picked >= 0 ? PLACES[state.picked] : null));
   resize();
   requestAnimationFrame(frame);
+  poll();
+  setInterval(poll, 20000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
 })();
