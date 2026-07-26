@@ -501,13 +501,13 @@ function resolveUserId(param, sessionUser, useDb) {
   return sessionUser?.id === param ? param : null;
 }
 
-async function serveStatic(req, res, pathname) {
+/* Takes the canonical path — already decoded and normalised by
+   canonicalPathname — so the private-page check and the file lookup can never
+   disagree, and nothing is decoded a second time. */
+async function serveStatic(req, res, canonical) {
   if (req.method !== 'GET' && req.method !== 'HEAD') { send(res, 405, { error: 'method not allowed' }); return; }
-  let decoded;
-  try { decoded = decodeURIComponent(pathname); } catch { send(res, 400, { error: 'bad path' }); return; }
-  if (decoded.includes('\0')) { send(res, 400, { error: 'bad path' }); return; }
 
-  const filePath = staticSourcePath(decoded);
+  const filePath = staticSourcePath(canonical);
   if (!filePath) { send(res, 404, { error: 'not found' }); return; }
 
   const type = MIME[path.extname(filePath).toLowerCase()];
@@ -557,7 +557,12 @@ export function createApp({
 
   const server = http.createServer(async (req, res) => {
     try {
-      const url = new URL(req.url, 'http://127.0.0.1');
+      /* A request target starting with // parses as an absolute URL and throws
+         the base away: "//" throws outright (a 500 on a trivially reachable
+         path) and "//host/x" resolves to host with pathname /x. Concatenating
+         keeps the base authoritative, so these become ordinary paths that
+         canonicalPathname normalises or rejects. */
+      const url = new URL(`http://127.0.0.1${req.url.startsWith('/') ? '' : '/'}${req.url}`);
       const { pathname } = url;
       const canonical = canonicalPathname(pathname);
       const isApiRequest = pathname.startsWith('/api/');
@@ -571,7 +576,8 @@ export function createApp({
       if (session.cookies?.length) res.setHeader('Set-Cookie', session.cookies);
 
       if (!pathname.startsWith('/api/')) {
-        if (useDb && canonical && PRIVATE_PAGES.has(canonical) && !sessionUser) {
+        if (!canonical) { send(res, 400, { error: 'bad path' }); return; }
+        if (useDb && PRIVATE_PAGES.has(canonical) && !sessionUser) {
           redirect(res, `/login.html?next=${encodeURIComponent(canonical)}`);
           return;
         }
@@ -579,7 +585,7 @@ export function createApp({
           redirect(res, safeNext(url.searchParams.get('next')));
           return;
         }
-        await serveStatic(req, res, pathname);
+        await serveStatic(req, res, canonical);
         return;
       }
 

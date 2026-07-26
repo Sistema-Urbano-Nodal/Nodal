@@ -1290,3 +1290,24 @@ test('member search is rate limited per session', async (t) => {
   assert.ok(Number(limited.headers.get('retry-after')) > 0);
   await limited.arrayBuffer();
 });
+
+test('a request target starting with // is a path, not another origin', async (t) => {
+  const base = await bootDb(t);
+  // "//" used to throw inside URL parsing and surface as a 500
+  const root = await fetch(`${base}//`);
+  assert.equal(root.status, 200);
+  assert.match(await root.text(), /<title/);
+
+  // the host in "//host/path" must not win over the server's own base
+  const spoof = await fetch(`${base}//evil.example/dashboard.html`, { redirect: 'manual' });
+  assert.equal(spoof.status, 404, 'should resolve to /evil.example/dashboard.html and miss');
+
+  const deep = await fetch(`${base}///`);
+  assert.ok(deep.status < 500, `expected no server error, got ${deep.status}`);
+
+  // the routing decision and the file lookup must read the same path
+  const encoded = await fetch(`${base}/%2f%2fdashboard.html`, { redirect: 'manual' });
+  assert.ok([302, 400, 404].includes(encoded.status), `unexpected ${encoded.status}`);
+  const traversal = await fetch(`${base}/assets/%252e%252e/%252e%252e/server/db.js`);
+  assert.equal(traversal.status, 404, 'a double-encoded traversal must not resolve');
+});
