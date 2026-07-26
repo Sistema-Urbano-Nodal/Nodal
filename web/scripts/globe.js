@@ -81,6 +81,7 @@
     return [a[0] * k1 + b[0] * k2, a[1] * k1 + b[1] * k2, a[2] * k1 + b[2] * k2];
   };
 
+  const SPIN = 0.036;    // radians per SECOND — a full turn takes about three minutes
   const ctx = canvas.getContext('2d');
   // the meridian facing the viewer is yaw + 90°, so this opens on the Americas
   const state = { yaw: (-75 - 90) * RAD, tilt: -12 * RAD, hover: -1, picked: -1, drag: false, visible: true };
@@ -94,7 +95,7 @@
     canvas.width = Math.round(W * dpr);
     canvas.height = Math.round(H * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    R = Math.min(W, H) * 0.45;
+    R = Math.min(W, H) * 0.48;
     CX = W / 2; CY = H / 2;
   }
 
@@ -107,7 +108,10 @@
     ct = Math.cos(state.tilt); st = Math.sin(state.tilt);
   }
   function rotate(v) {
-    const x = v[0] * cy + v[2] * sy;
+    // negated: the face points at longitude yaw + 90°, which makes
+    // (v.x·cos + v.z·sin) the negative of sin(lon − centre). Without this the
+    // whole world is a mirror image and east falls on the left.
+    const x = -(v[0] * cy + v[2] * sy);
     const z1 = -v[0] * sy + v[2] * cy;
     return [x, v[1] * ct - z1 * st, v[1] * st + z1 * ct];
   }
@@ -273,10 +277,15 @@
     });
   }
 
+  let lastFrame = 0;
   function frame(time) {
+    // tied to elapsed time, not to frame count: a 120Hz display must not spin
+    // the world twice as fast as a 60Hz one
+    const dt = lastFrame ? Math.min((time - lastFrame) / 1000, 0.1) : 0;
+    lastFrame = time;
     if (state.visible) {
       ctx.clearRect(0, 0, W, H);
-      if (!state.drag && !calm()) state.yaw += 0.0014;
+      if (!state.drag && !calm()) state.yaw -= SPIN * dt;
       syncRotation();
       limb();
       land();
@@ -319,7 +328,7 @@
 
   canvas.addEventListener('pointermove', (ev) => {
     if (state.drag) {
-      state.yaw += ev.movementX * 0.005;
+      state.yaw -= ev.movementX * 0.005;
       state.tilt = Math.max(-1.1, Math.min(1.1, state.tilt - ev.movementY * 0.004));
       return;
     }
