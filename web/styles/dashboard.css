@@ -489,6 +489,40 @@ select:focus-visible, textarea:focus-visible {
 .field-note { margin-top: 16px; font-size: 12.5px; line-height: 1.55; color: var(--text-2); }
 .field-note strong { color: var(--forest); }
 
+/* ============================ global network ============================ */
+/* the one dark field on the work surface: the globe is drawn in light, so it
+   needs night behind it */
+.band-globe {
+  background:
+    radial-gradient(58% 62% at 32% 46%, rgba(89, 188, 83, .16), transparent 70%),
+    var(--ink);
+  color: rgba(255, 255, 255, .8);
+}
+.band-globe .band-title { color: #fff; }
+.band-globe .band-sub { color: rgba(255, 255, 255, .6); }
+.band-globe .eyebrow { color: var(--pastel); }
+
+.globe { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: clamp(20px, 3vw, 44px); align-items: center; }
+.globe-stage { position: relative; aspect-ratio: 1 / 1; max-height: 62vh; margin-inline: auto; width: 100%; }
+#globeCanvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; border-radius: 50%; }
+#globeCanvas:focus-visible { outline: 2px solid var(--green); outline-offset: 6px; }
+
+.globe-side { align-self: center; }
+.globe-hint { font-size: 13px; line-height: 1.55; color: rgba(255, 255, 255, .5); }
+.globe-hint[hidden] { display: none; }
+.globe-kicker {
+  font-size: 10.5px; font-weight: 600; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--green);
+}
+.globe-side h3 { font-size: 22px; font-weight: 800; color: #fff; margin-top: 9px; }
+.globe-count { font-size: 12.5px; color: var(--pastel); margin-top: 4px; }
+.globe-label {
+  font-size: 9.5px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase;
+  color: rgba(255, 255, 255, .42); margin-top: 18px;
+}
+.globe-topics, .globe-links { font-size: 12.5px; line-height: 1.5; margin-top: 5px; }
+.globe-links { color: rgba(255, 255, 255, .66); }
+
 /* ============================ paths ============================ */
 .paths {
   display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr);
@@ -811,7 +845,8 @@ select:focus-visible, textarea:focus-visible {
   .side-link { padding: 7px 13px; font-size: 12.5px; white-space: nowrap; flex-shrink: 0; }
   .side-foot { margin: 0 0 0 auto; padding: 0; border: 0; display: flex; align-items: center; gap: 12px; }
   .lang-set { margin-bottom: 0; }
-  .paths, .assess { grid-template-columns: minmax(0, 1fr); }
+  .paths, .assess, .globe { grid-template-columns: minmax(0, 1fr); }
+  .globe-stage { max-height: none; max-width: 460px; }
 }
 @media (max-width: 760px) {
   .spine-track { display: none; }

@@ -1203,7 +1203,7 @@
   });
 
   /* ================= scroll spy ================= */
-  const sections = ['overview', 'growth', 'badges', 'assessment']
+  const sections = ['overview', 'network', 'growth', 'badges', 'assessment']
     .map((id) => byId(id)).filter(Boolean);
   const links = new Map(
     [...document.querySelectorAll('.side-link[href^="#"]')].map((a) => [a.getAttribute('href').slice(1), a]),

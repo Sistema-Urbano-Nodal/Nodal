@@ -783,6 +783,9 @@
     'y.perMonth': '/ month',
     'y.perYear': '/ year',
     'mem.priceSoon': 'Soon!',
+    'd.globe.eyebrow': 'Global network · {n} of {total} cities active',
+    'd.globe.members': '{n} in the member directory',
+    'd.globe.noMembers': 'No members in the directory yet',
   };
 
   const DASH_ES = {
@@ -1251,6 +1254,16 @@
     'y.perMonth': '/ mes',
     'y.perYear': '/ año',
     'mem.priceSoon': '¡Pronto!',
+    'd.nav.network': 'Red global',
+    'd.globe.title': 'Hasta dónde llega la red',
+    'd.globe.sub': 'Cada punto es una ciudad donde NODAL se organiza. Arrastra para girar el globo, o elige un nodo para ver quién está ahí y en qué trabaja.',
+    'd.globe.hint': 'Elige un nodo del globo para abrirlo.',
+    'd.globe.kicker': 'Nodo de la red',
+    'd.globe.working': 'Trabaja en',
+    'd.globe.connects': 'Conecta con',
+    'd.globe.eyebrow': 'Red global · {n} de {total} ciudades activas',
+    'd.globe.members': '{n} en el directorio de miembros',
+    'd.globe.noMembers': 'Todavía sin miembros en el directorio',
   };
 
   const DASH_PT = {
@@ -1719,6 +1732,16 @@
     'y.perMonth': '/ mês',
     'y.perYear': '/ ano',
     'mem.priceSoon': 'Em breve!',
+    'd.nav.network': 'Rede global',
+    'd.globe.title': 'Até onde a rede chega',
+    'd.globe.sub': 'Cada ponto é uma cidade onde a NODAL se organiza. Arraste para girar o globo, ou escolha um nó para ver quem está lá e no que trabalha.',
+    'd.globe.hint': 'Escolha um nó no globo para abri-lo.',
+    'd.globe.kicker': 'Nó da rede',
+    'd.globe.working': 'Trabalha em',
+    'd.globe.connects': 'Conecta com',
+    'd.globe.eyebrow': 'Rede global · {n} de {total} cidades ativas',
+    'd.globe.members': '{n} no diretório de membros',
+    'd.globe.noMembers': 'Ainda sem membros no diretório',
   };
 
   Object.assign(ES, DASH_ES);

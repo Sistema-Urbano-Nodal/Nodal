@@ -8,6 +8,7 @@ const STATIC_SCRIPTS = [
   'app.js',
   'auth.js',
   'dashboard.js',
+  'globe.js',
   'i18n.js',
   'nav.js',
   'payments.js',

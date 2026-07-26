@@ -20,7 +20,7 @@
       ]
     },
     {
-      "source": "/(app|auth|dashboard|i18n|nav|payments|profile|recs|script).js",
+      "source": "/(app|auth|dashboard|globe|i18n|nav|payments|profile|recs|script).js",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=3600, stale-while-revalidate=86400" },
         { "key": "Cross-Origin-Resource-Policy", "value": "same-origin" },
