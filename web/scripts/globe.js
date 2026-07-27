@@ -20,6 +20,16 @@
   const t = (key, vars) => (I18N ? I18N.t(key, vars) : key);
   const RAD = Math.PI / 180;
   const calm = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const TOPIC_KEYS = new Map([
+    ['Mobility', 'mobility'], ['Public space', 'publicSpace'], ['Housing', 'housing'],
+    ['Climate & resilience', 'climate'], ['Care & gender', 'care'],
+    ['Governance & participation', 'governance'], ['Safety', 'safety'],
+    ['Informality', 'informality'], ['Heritage', 'heritage'],
+    ['Urban data & tech', 'urbanData'], ['Land use & planning', 'landUse'],
+    ['Environment & nature', 'environment'],
+  ]);
+  const topicLabel = (name) => (TOPIC_KEYS.has(name) ? t(`d.topic.${TOPIC_KEYS.get(name)}`) : name);
+  const localeTag = () => ({ en: 'en-GB', es: 'es-ES', pt: 'pt-BR' }[I18N?.lang] ?? 'en-GB');
   const SAFE_LINKEDIN = /^https:\/\/(www\.)?linkedin\.com\/(in|company)\/[A-Za-z0-9_-]+/;
 
   const toXYZ = (lat, lon) => [
@@ -92,30 +102,21 @@
   })();
 
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  /* Edges are relationships, not geometry: each one is at least one member in
+     A following a member in B. Two places with nobody between them are drawn
+     apart, which is the truth about them. */
   let EDGES = [];
-  function rebuildEdges() {
+  let WEIGHT = new Map();
+  function setEdges(links) {
     EDGES = [];
-    const seen = new Set();
-    const link = (a, b) => {
-      const key = a < b ? `${a}:${b}` : `${b}:${a}`;
-      if (a !== b && !seen.has(key)) { seen.add(key); EDGES.push([a, b]); }
-    };
-    PLACES.forEach((n) => {
-      PLACES.filter((o) => o !== n)
-        .sort((x, y) => dot(n.v, y.v) - dot(n.v, x.v))
-        .slice(0, 3)
-        .forEach((o) => link(n.i, o.i));
-    });
-    /* Then one long reach per place, to the node furthest from it. Nearest
-       neighbours alone would draw clusters; this is what makes the map read as
-       one network. No city names appear here — the set is whatever the
-       directory happens to contain. */
-    PLACES.forEach((n) => {
-      const farthest = PLACES.reduce(
-        (worst, o) => (o !== n && (!worst || dot(n.v, o.v) < dot(n.v, worst.v)) ? o : worst), null);
-      if (farthest) link(n.i, farthest.i);
+    WEIGHT = new Map();
+    (links || []).forEach(({ a, b, weight }) => {
+      if (a === b || !PLACES[a] || !PLACES[b]) return;
+      EDGES.push([a, b]);
+      WEIGHT.set(`${Math.min(a, b)}:${Math.max(a, b)}`, weight || 1);
     });
   }
+
   const neighbours = (i) => EDGES.filter(([a, b]) => a === i || b === i)
     .map(([a, b]) => PLACES[a === i ? b : a]);
 
@@ -130,7 +131,7 @@
   const SPIN = 0.036;    // radians per SECOND — a full turn takes about three minutes
   const ctx = canvas.getContext('2d');
   // the meridian facing the viewer is yaw + 90°, so this opens on the Americas
-  const state = { yaw: (-75 - 90) * RAD, tilt: -12 * RAD, hover: -1, picked: -1, drag: false, visible: true };
+  const state = { topic: '', yaw: (-75 - 90) * RAD, tilt: -12 * RAD, hover: -1, picked: -1, drag: false, visible: true };
   let W = 0; let H = 0; let R = 0; let CX = 0; let CY = 0;
 
   function resize() {
@@ -281,7 +282,9 @@
         const lift = 1 + bow * Math.sin(Math.PI * k);
         pts.push(project([p[0] * lift, p[1] * lift, p[2] * lift]));
       }
-      strokeArc(pts, lit ? 'rgba(47,130,42,1)' : 'rgba(89,188,83,.75)', 'rgba(89,188,83,.16)', lit ? 2 : 1.1);
+      const weight = WEIGHT.get(`${Math.min(ai, bi)}:${Math.max(ai, bi)}`) || 1;
+      const width = Math.min(1 + Math.log2(weight + 1) * 0.9, 4);
+      strokeArc(pts, lit ? 'rgba(47,130,42,1)' : 'rgba(89,188,83,.75)', 'rgba(89,188,83,.16)', lit ? width + 0.9 : width);
     });
   }
 
@@ -361,7 +364,10 @@
     card.hidden = false;
     set('globeCity', place.name);
     set('globeLabel', place.label && place.label !== place.name ? place.label : '');
-    set('globeCount', t('d.globe.members', { n: place.members }));
+    const quiet = (place.named !== undefined && place.members > place.named) ? place.members - place.named : 0;
+    set('globeCount', quiet
+      ? `${t('d.globe.members', { n: place.members })} · ${t('d.globe.unnamed', { n: quiet })}`
+      : t('d.globe.members', { n: place.members }));
 
     const list = document.getElementById('globePeople');
     if (list) {
@@ -472,19 +478,57 @@
     showPlace(place);
   }
 
-  function mergePlaces(live) {
-    const kept = new Map(PLACES.map((p) => [normalise(p.name), p.arrived]));
-    PLACES = live.map((L, i) => ({
-      i,
-      name: L.city,
-      label: L.label || L.city,
-      members: L.members,
-      people: L.people || [],
-      arrived: kept.get(normalise(L.city)) || 0,
-      v: toXYZ(L.lat, L.lon),
+  let FULL = { places: [], links: [], topics: [] };
+  let sinceCut = null;              // null = the whole network
+
+  /* Describes whatever is on screen right now, so it has to be recomputed when
+     the time scrub moves, not only when the directory is fetched. */
+  function showCount() {
+    const people = PLACES.reduce((n, p) => n + p.members, 0);
+    const count = (n, key) => (n === 1 ? t(`${key}One`) : t(key, { n }));
+    set('globeEyebrow', t('d.globe.eyebrow', {
+      members: count(people, 'd.globe.memberCount'),
+      cities: count(PLACES.length, 'd.globe.cityCount'),
     }));
-    rebuildEdges();
+  }
+
+  function applyView() {
+    const kept = new Map(PLACES.map((p) => [normalise(p.name), p.arrived]));
+    const keepPerson = (m) => !sinceCut || !m.joinedAt || m.joinedAt <= sinceCut;
+    const index = [];
+    PLACES = FULL.places
+      .map((L, original) => {
+        const people = (L.people || []).filter(keepPerson);
+        // a place that nobody had joined yet simply was not there then
+        const members = sinceCut
+          ? people.length + Math.max(0, (L.members - (L.people || []).length)) * 0
+          : L.members;
+        return { L, original, people, members };
+      })
+      .filter((row) => (sinceCut ? row.people.length > 0 : row.members > 0))
+      .map(({ L, original, people, members }, i) => {
+        index[original] = i;
+        return {
+          i,
+          name: L.city,
+          label: L.label || L.city,
+          members,
+          named: L.named,
+          people,
+          arrived: kept.get(normalise(L.city)) || 0,
+          v: toXYZ(L.lat, L.lon),
+        };
+      });
+    setEdges((FULL.links || [])
+      .filter((l) => index[l.a] !== undefined && index[l.b] !== undefined)
+      .map((l) => ({ a: index[l.a], b: index[l.b], weight: l.weight })));
     if (state.picked >= PLACES.length) state.picked = -1;
+    showCount();
+  }
+
+  function mergePlaces(data) {
+    FULL = { places: data.places || [], links: data.links || [], topics: data.topics || [] };
+    applyView();
   }
 
   function sayWhereYouStand(you) {
@@ -505,13 +549,16 @@
   async function poll() {
     let data;
     try {
-      const res = await fetch('/api/network/places', { headers: { Accept: 'application/json' } });
+      const query = state.topic ? `?topic=${encodeURIComponent(state.topic)}` : '';
+      const res = await fetch(`/api/network/places${query}`, { headers: { Accept: 'application/json' } });
       if (!res.ok) return;
       data = await res.json();
       if (!Array.isArray(data.places)) return;
     } catch { return; }          // static hosting: the backdrop still draws
 
-    mergePlaces(data.places);
+    mergePlaces(data);
+    renderTopics(FULL.topics);
+    renderTimeline();
     sayWhereYouStand(data.you);
 
     const arrivals = [];
@@ -521,7 +568,7 @@
     });
     started = true;
 
-    set('globeEyebrow', t('d.globe.eyebrow', { cities: PLACES.length, members: data.members ?? 0 }));
+    showCount();
     const empty = document.getElementById('globeEmpty');
     if (empty) empty.hidden = PLACES.length > 0;
 
@@ -547,6 +594,89 @@
     feed.hidden = false;
     document.getElementById('globeFeedLabel')?.removeAttribute('hidden');
   }
+
+  /* ---------- filter by topic ---------- */
+  const topicBar = document.getElementById('globeTopics');
+  let topicsDrawn = '';
+  function renderTopics(list) {
+    if (!topicBar) return;
+    const signature = list.map((x) => `${x.name}:${x.members}`).join('|');
+    if (signature === topicsDrawn) return;
+    topicsDrawn = signature;
+    const chip = (name, label, count) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `globe-chip${state.topic === name ? ' is-on' : ''}`;
+      b.textContent = count === null ? label : `${label} · ${count}`;
+      b.addEventListener('click', () => {
+        state.topic = state.topic === name ? '' : name;
+        topicsDrawn = '';
+        poll();
+      });
+      return b;
+    };
+    topicBar.replaceChildren(
+      chip('', t('d.globe.allTopics'), null),
+      ...list.slice(0, 8).map((x) => chip(x.name, topicLabel(x.name), x.members)),
+    );
+  }
+
+  /* ---------- the network over time ---------- */
+  const scrub = document.getElementById('globeSince');
+  const scrubLabel = document.getElementById('globeSinceLabel');
+  const playBtn = document.getElementById('globePlay');
+  let sweep = null;
+
+  const joinDates = () => FULL.places
+    .flatMap((p) => (p.people || []).map((m) => m.joinedAt))
+    .filter(Boolean)
+    .sort();
+
+  function renderTimeline() {
+    if (!scrub) return;
+    const dates = joinDates();
+    const has = dates.length > 1;
+    scrub.hidden = !has;
+    if (playBtn) playBtn.hidden = !has;
+    if (!has) { if (scrubLabel) scrubLabel.hidden = true; return; }
+    scrub.min = '0';
+    scrub.max = String(dates.length - 1);
+    if (sinceCut === null) scrub.value = scrub.max;
+    showCut();
+  }
+
+  function showCut() {
+    if (!scrubLabel) return;
+    const dates = joinDates();
+    const at = dates[Number(scrub.value)] || dates[dates.length - 1];
+    scrubLabel.hidden = false;
+    scrubLabel.textContent = sinceCut
+      ? t('d.globe.asOf', { date: new Date(at).toLocaleDateString(localeTag(), { day: 'numeric', month: 'short', year: 'numeric' }) })
+      : t('d.globe.today');
+  }
+
+  scrub?.addEventListener('input', () => {
+    const dates = joinDates();
+    sinceCut = Number(scrub.value) >= dates.length - 1 ? null : dates[Number(scrub.value)];
+    applyView();
+    showCut();
+    if (state.picked >= 0) showPlace(PLACES[state.picked]);
+  });
+
+  playBtn?.addEventListener('click', () => {
+    if (sweep) { clearInterval(sweep); sweep = null; playBtn.classList.remove('is-on'); return; }
+    const dates = joinDates();
+    if (dates.length < 2) return;
+    playBtn.classList.add('is-on');
+    scrub.value = '0';
+    scrub.dispatchEvent(new Event('input'));
+    sweep = setInterval(() => {
+      const next = Number(scrub.value) + 1;
+      if (next > Number(scrub.max)) { clearInterval(sweep); sweep = null; playBtn.classList.remove('is-on'); return; }
+      scrub.value = String(next);
+      scrub.dispatchEvent(new Event('input'));
+    }, 900);
+  });
 
   document.getElementById('globeYouCta')?.addEventListener('click', () => {
     document.getElementById('partCBtn')?.click();

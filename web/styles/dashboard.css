@@ -490,6 +490,28 @@ select:focus-visible, textarea:focus-visible {
 .field-note strong { color: var(--forest); }
 
 /* ============================ global network ============================ */
+.globe-controls { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
+.globe-chip {
+  border: 1px solid var(--rule-2); background: transparent; border-radius: var(--r-pill);
+  padding: 5px 12px; font-size: 11.5px; font-weight: 600; color: var(--text-2);
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+.globe-chip:hover { border-color: var(--green); }
+.globe-chip.is-on { background: var(--forest); border-color: var(--forest); color: #fff; }
+
+/* the network over time */
+.globe-time { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+.globe-play {
+  border: 1px solid var(--rule-2); background: transparent; border-radius: var(--r-pill);
+  padding: 5px 13px; font-size: 11.5px; font-weight: 600; color: var(--forest);
+  transition: background-color .15s ease, color .15s ease;
+}
+.globe-play:hover { border-color: var(--green); }
+.globe-play.is-on { background: var(--green); border-color: var(--green); color: #fff; }
+.globe-play[hidden], .globe-scrub[hidden], .globe-since[hidden] { display: none; }
+.globe-scrub { flex: 1; min-width: 140px; accent-color: var(--green); }
+.globe-since { font-size: 11.5px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+
 /* no panel and no backdrop: the canvas is transparent, so the globe sits on
    the work surface like a cut-out */
 .globe { display: grid; grid-template-columns: minmax(0, 1fr) 264px; gap: clamp(18px, 2.4vw, 36px); align-items: center; }

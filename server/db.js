@@ -157,6 +157,18 @@ const MIGRATIONS = [
         ADD COLUMN stripe_latest_event_id TEXT NOT NULL DEFAULT '';
     `,
   },
+  {
+    /* Where a member's city actually is. Resolved by the server when the city
+       changes and stored with the profile, so drawing the map needs no
+       geocoder at read time. Never written from a request body: a client that
+       could set these could drop its pin on any address it liked. */
+    version: 5,
+    sql: `
+      ALTER TABLE users ADD COLUMN city_lat REAL;
+      ALTER TABLE users ADD COLUMN city_lon REAL;
+      ALTER TABLE users ADD COLUMN city_label TEXT NOT NULL DEFAULT '';
+    `,
+  },
 ];
 
 function runMigrations(db) {
@@ -233,6 +245,9 @@ export function toApiUser(row) {
     assessed: Boolean(row.assessed),
     notifRead: Boolean(row.notif_read),
     createdAt: row.created_at,
+    location: Number.isFinite(row.city_lat) && Number.isFinite(row.city_lon)
+      ? { lat: row.city_lat, lon: row.city_lon, label: row.city_label || row.city }
+      : null,
     updatedAt: row.updated_at,
   };
 }
@@ -325,6 +340,14 @@ export function updateUserProfile(db, id, patch) {
 
 function listActiveUsers(db) {
   return db.prepare("SELECT * FROM users WHERE account_status = 'active' ORDER BY created_at ASC").all();
+}
+
+/* Deliberately separate from updateUserProfile, whose allow-list is driven by
+   the request body. Only server-resolved coordinates ever land here. */
+export function setUserLocation(db, id, point) {
+  db.prepare('UPDATE users SET city_lat = ?, city_lon = ?, city_label = ? WHERE id = ?')
+    .run(point?.lat ?? null, point?.lon ?? null, point?.label ?? '', id);
+  return getUserById(db, id);
 }
 
 export function listDirectoryUsers(db) {

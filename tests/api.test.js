@@ -1444,3 +1444,84 @@ test('a cross-origin write is refused even with a valid session', async (t) => {
   await sneaky.arrayBuffer();
   assert.equal(sneaky.status, 403);
 });
+
+test('a member pin is resolved by the server when the city changes, never sent by the client', async (t) => {
+  let asked = 0;
+  const citySearch = {
+    async search(query) {
+      asked += 1;
+      if (String(query).toLowerCase() === 'mococa') return { cities: [{ label: 'Mococa, São Paulo, Brazil', lat: -21.47, lon: -47.0 }] };
+      if (String(query).toLowerCase() === 'lima') return { cities: [{ label: 'Lima, Peru', lat: -12.04, lon: -77.03 }] };
+      return { cities: [] };
+    },
+  };
+  const { base } = await bootDbHandle(t, { citySearch });
+  const me = await consentingMember(base, { name: 'João Lucas', email: 'joao@example.test', city: 'Mococa' });
+
+  const saved = await getJson(base, '/api/auth/me', me.cookie);
+  assert.deepEqual(saved.body.user.location, { lat: -21.47, lon: -47.0, label: 'Mococa, São Paulo, Brazil' });
+
+  // a body that tries to place its own pin is ignored
+  const forged = await patchJson(base, '/api/me', {
+    city: 'Mococa', location: { lat: 0, lon: 0, label: 'Null Island' }, city_lat: 0, city_lon: 0,
+  }, { Cookie: me.cookie });
+  const after = (await forged.json()).user;
+  assert.deepEqual(after.location, { lat: -21.47, lon: -47.0, label: 'Mococa, São Paulo, Brazil' });
+
+  // drawing the map does not call the geocoder again: the pin is stored
+  const before = asked;
+  await getJson(base, '/api/network/places', me.cookie);
+  assert.equal(asked, before, 'the globe must read stored coordinates');
+
+  // and moving city moves the pin
+  await patchJson(base, '/api/me', { city: 'Lima' }, { Cookie: me.cookie });
+  const moved = await getJson(base, '/api/auth/me', me.cookie);
+  assert.equal(moved.body.user.location.lat, -12.04);
+});
+
+test('the globe draws real relationships, filters by topic, and honours a member who declines to be named', async (t) => {
+  const citySearch = {
+    async search(query) {
+      const known = { mococa: [-21.47, -47.0], lima: [-12.04, -77.03], osaka: [34.69, 135.5] };
+      const hit = known[String(query).toLowerCase()];
+      return { cities: hit ? [{ label: String(query), lat: hit[0], lon: hit[1] }] : [] };
+    },
+  };
+  const { base } = await bootDbHandle(t, { citySearch });
+  const withTopic = async (who, city, topic, listName) => {
+    const m = await consentingMember(base, { name: who, email: `${who.replace(/\W/g, '')}@example.test`, city });
+    await patchJson(base, '/api/me', {
+      topics: [{ name: topic, level: 3 }], assessed: true,
+      partC: { bio: '', linkedin: '', portfolio: '', references: '', availability: '', consent: true, listName },
+    }, { Cookie: m.cookie });
+    const me = await getJson(base, '/api/auth/me', m.cookie);
+    return { ...m, id: me.body.user.id };
+  };
+  const joao = await withTopic('Joao', 'Mococa', 'Mobility', true);
+  const ana = await withTopic('Ana', 'Lima', 'Mobility', true);
+  const kenji = await withTopic('Kenji', 'Osaka', 'Housing', false);
+
+  await postJson(base, `/api/users/${joao.id}/follow`, { targetId: ana.id }, { Cookie: joao.cookie });
+
+  const all = await getJson(base, '/api/network/places', joao.cookie);
+  const cityAt = (i) => all.body.places[i].city;
+  assert.deepEqual(all.body.links.map((l) => [cityAt(l.a), cityAt(l.b), l.weight].sort()), [['Lima', 'Mococa', 1].sort()]);
+  assert.equal(JSON.stringify(all.body.links).includes(joao.id), false, 'a link names two places, never two people');
+
+  // Kenji is counted in Osaka but not named there
+  const osaka = all.body.places.find((p) => p.city === 'Osaka');
+  assert.equal(osaka.members, 1);
+  assert.equal(osaka.named, 0);
+  assert.deepEqual(osaka.people, []);
+  assert.equal(JSON.stringify(all.body).includes('Kenji'), false, 'a member who declined naming is never named');
+
+  // the topic filter narrows who is counted
+  const mobility = await getJson(base, '/api/network/places?topic=Mobility', joao.cookie);
+  assert.deepEqual(mobility.body.places.map((p) => p.city).sort(), ['Lima', 'Mococa']);
+  const housing = await getJson(base, '/api/network/places?topic=Housing', joao.cookie);
+  assert.deepEqual(housing.body.places.map((p) => p.city), ['Osaka']);
+
+  // and every place carries when its first member joined, for the timeline
+  assert.ok(all.body.places.every((p) => typeof p.since === 'string'));
+  assert.ok(all.body.topics.some((x) => x.name === 'Mobility' && x.members === 2));
+});

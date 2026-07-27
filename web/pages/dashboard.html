@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500;1,600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="dashboard.css?v=28" />
+  <link rel="stylesheet" href="dashboard.css?v=29" />
 </head>
 <body class="dash-page">
 
@@ -134,10 +134,16 @@
         <h2 class="band-title" data-i18n="d.globe.title">Where the network reaches</h2>
         <p class="band-sub" data-i18n="d.globe.sub">Every point is a city NODAL is organising in. Drag to turn the globe, or pick a node to see who is there and what they work on.</p>
       </div>
+      <div class="globe-controls" id="globeTopics" role="group" aria-label="Filter by topic"></div>
       <div class="globe">
         <div class="globe-stage">
           <canvas id="globeCanvas" tabindex="0" role="img"
                   aria-label="Globe of the NODAL network. Use the left and right arrow keys to step through cities."></canvas>
+          <div class="globe-time">
+            <button type="button" class="globe-play" id="globePlay" data-i18n="d.globe.play" hidden>Play the network growing</button>
+            <input type="range" class="globe-scrub" id="globeSince" aria-label="Network as of" hidden />
+            <p class="globe-since" id="globeSinceLabel" hidden></p>
+          </div>
         </div>
         <aside class="globe-side" aria-live="polite">
           <p class="globe-hint" id="globeHint" data-i18n="d.globe.hint">Pick a node on the globe to open it.</p>
@@ -415,6 +421,10 @@
       <input type="checkbox" id="pcConsent" />
       <span data-i18n="d.pc.consent">Show my profile in the member directory. Nothing is public without consent.</span>
     </label>
+    <label class="pc-consent">
+      <input type="checkbox" id="pcListName" />
+      <span data-i18n="d.pc.listName">Show my name on the network map. Leave this off to be counted in your city without being named.</span>
+    </label>
     <p class="pc-error" id="pcError" role="alert" hidden></p>
     <div class="partc-actions">
       <button type="button" class="pc-cancel" id="pcCancel" data-i18n="d.common.cancel">Cancel</button>
@@ -423,9 +433,9 @@
   </form>
 </dialog>
 
-<script src="i18n.js?v=32"></script>
+<script src="i18n.js?v=34"></script>
 <script src="coastline.js?v=2"></script>
-<script src="globe.js?v=17"></script>
-<script src="dashboard.js?v=22"></script>
+<script src="globe.js?v=20"></script>
+<script src="dashboard.js?v=23"></script>
 </body>
 </html>

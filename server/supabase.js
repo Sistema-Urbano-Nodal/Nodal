@@ -233,6 +233,9 @@ function toApiUserFromSupabase({ profile, preferences, onboarding }) {
     mentorApplied: Boolean(raw.mentorApplied),
     assessed: Boolean(raw.assessed),
     notifRead: Boolean(notifications.dashboardRead ?? raw.notifRead),
+    location: Number.isFinite(profile.city_lat) && Number.isFinite(profile.city_lon)
+      ? { lat: profile.city_lat, lon: profile.city_lon, label: profile.city_label || cleanString(profile.city_region, 120) }
+      : null,
     createdAt: profile.created_at,
     updatedAt: profile.updated_at,
   };
@@ -471,6 +474,19 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     async updateUserProfile(id, patch) {
       const current = await apiUser(id);
       return upsertProfileState(id, patch, current);
+    },
+    /* Separate from updateUserProfile on purpose: its allow-list is fed by the
+       request body, and a coordinate must only ever come from the server. */
+    async setUserLocation(id, point) {
+      await admin.rest(`profiles?id=eq.${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: {
+          city_lat: point?.lat ?? null,
+          city_lon: point?.lon ?? null,
+          city_label: point?.label ?? '',
+        },
+      });
+      return apiUser(id);
     },
     async listDirectoryUsers() {
       const [profiles, prefsRows, onboardingRows] = await Promise.all([

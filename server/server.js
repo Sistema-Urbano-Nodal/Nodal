@@ -583,6 +583,23 @@ export function createApp({
   const costlyLimiter = createWindowRateLimiter({ windowMs: COSTLY_RATE_WINDOW_MS, limit: COSTLY_RATE_LIMIT });
   /* Keyed by session when there is one, by address otherwise, so a limit
      follows the account rather than a shared office IP. */
+  /* City names change hands rarely and cities never move, so a resolved point
+     is cached for a month. Returns null when the provider cannot place it —
+     the member is told, rather than being dropped somewhere wrong. */
+  async function resolveCity(city, acceptLanguage) {
+    const key = `place:v1:${String(city).trim().toLowerCase()}`;
+    const remembered = await cache.get(key);
+    if (remembered) { try { return JSON.parse(remembered); } catch { /* refetch */ } }
+    try {
+      const found = await citySearch.search(city, acceptLanguage);
+      const best = (found.cities || []).find((c) => Number.isFinite(c.lat) && Number.isFinite(c.lon));
+      if (!best) return null;
+      const point = { lat: best.lat, lon: best.lon, label: best.label || city };
+      await cache.set(key, JSON.stringify(point), PLACE_TTL_MS);
+      return point;
+    } catch { return null; }
+  }
+
   const throttle = (limiter, res2, req2, user, scope) => {
     const rate = limiter.take(`${scope}:${user?.id || clientIp(req2)}`);
     if (rate.ok) return true;
@@ -749,8 +766,21 @@ export function createApp({
         if (!throttle(writeLimiter, res, req, sessionUser, 'profile')) return;
         if (!sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
         const patch = sanitizeProfilePatch(await readJsonBody(req));
-        const user = await repository.updateUserProfile(sessionUser.id, patch);
-        send(res, 200, { user: repository.toApiUser(user) });
+        const before = repository.toApiUser(await repository.getUserById(sessionUser.id));
+        let user = await repository.updateUserProfile(sessionUser.id, patch);
+        let saved = repository.toApiUser(user);
+
+        /* The pin follows the city, and only the city. Coordinates are resolved
+           here rather than accepted from the body, so nobody can drop their own
+           pin on an arbitrary address, and the map never needs a geocoder when
+           it is being drawn. */
+        const cityChanged = String(saved.city || '') !== String(before?.city || '');
+        if (repository.setUserLocation && (cityChanged || (saved.city && !saved.location))) {
+          const point = saved.city ? await resolveCity(saved.city, req.headers['accept-language']) : null;
+          user = await repository.setUserLocation(sessionUser.id, point);
+          saved = repository.toApiUser(user);
+        }
+        send(res, 200, { user: saved });
         return;
       }
 
@@ -779,66 +809,95 @@ export function createApp({
       if (useDb && req.method === 'GET' && pathname === '/api/network/places') {
         if (!requireAuth(res, sessionUser)) return;
         if (!throttle(readLimiter, res, req, sessionUser, 'places')) return;
-        const cached = await cache.get(`network:places:v1:${sessionUser.id}`);
+        const topic = String(url.searchParams.get('topic') || '').trim().slice(0, 80);
+        const cacheKey = `network:places:v2:${sessionUser.id}:${topic.toLowerCase()}`;
+        const cached = await cache.get(cacheKey);
         if (cached) {
           send(res, 200, cached, { 'X-Cache': 'HIT', 'Content-Type': 'application/json; charset=utf-8' });
           return;
         }
         const rows = await repository.listDirectoryUsers();
         const groups = new Map();
+        const cityOf = new Map();
+        const topics = new Map();
         let viewerCity = '';
         let viewerListed = false;
         for (const row of rows) {
           const user = repository.toApiUser(row);
           if (user.id === sessionUser.id) { viewerListed = true; viewerCity = String(user.city || '').trim(); }
+          (user.topics || []).forEach((entry) => {
+            const name = String(entry?.name || entry || '').trim();
+            if (name) topics.set(name, (topics.get(name) || 0) + 1);
+          });
+          // the filter narrows who is counted, never who exists
+          if (topic && !(user.topics || []).some((entry) => String(entry?.name || entry || '').trim().toLowerCase() === topic.toLowerCase())) continue;
           const city = String(user.city || '').trim();
           if (!city) continue;
           const key = city.toLowerCase();
-          if (!groups.has(key)) groups.set(key, { city, members: [] });
+          if (!groups.has(key)) groups.set(key, { city, point: user.location || null, members: [] });
+          if (!groups.get(key).point && user.location) groups.get(key).point = user.location;
+          cityOf.set(user.id, key);
           groups.get(key).members.push({
-            id: user.id, name: user.fullName, role: user.title, linkedin: user.linkedin || '',
+            id: user.id,
+            name: user.fullName,
+            role: user.title,
+            linkedin: user.linkedin || '',
+            /* A member can be in the directory and still choose not to be named
+               on a map. Absent on older profiles, which means named. */
+            named: user.partC?.listName !== false,
+            joinedAt: user.createdAt || null,
           });
         }
 
         const places = [];
         for (const group of groups.values()) {
-          const cacheKey = `place:v1:${group.city.toLowerCase()}`;
-          let point = null;
-          const remembered = await cache.get(cacheKey);
-          if (remembered) {
-            try { point = JSON.parse(remembered); } catch { point = null; }
-          }
-          if (!point) {
-            try {
-              const found = await citySearch.search(group.city, req.headers['accept-language']);
-              const best = (found.cities || []).find((c) => Number.isFinite(c.lat) && Number.isFinite(c.lon));
-              if (best) point = { lat: best.lat, lon: best.lon, label: best.label || group.city };
-            } catch { /* provider down: the city simply has no pin this round */ }
-            if (point) await cache.set(cacheKey, JSON.stringify(point), PLACE_TTL_MS);
-          }
+          let point = group.point;
+          if (!point) point = await resolveCity(group.city, req.headers['accept-language']);
           if (!point) continue;
+          const named = group.members.filter((m) => m.named);
           places.push({
             city: group.city,
             label: point.label,
             lat: point.lat,
             lon: point.lon,
             members: group.members.length,
-            /* Name, role, a link to the member card and LinkedIn if they added
-               one — every field the directory already publishes to signed-in
-               members. Email is never here: knowing an address is how you find
-               someone, not something the map hands out. */
-            people: group.members.slice(0, 12).map((m) => ({
-              id: m.id, name: m.name, role: m.role, linkedin: m.linkedin,
+            named: named.length,
+            since: group.members.reduce((first, m) => (m.joinedAt && (!first || m.joinedAt < first) ? m.joinedAt : first), null),
+            people: named.slice(0, 12).map((m) => ({
+              id: m.id, name: m.name, role: m.role, linkedin: m.linkedin, joinedAt: m.joinedAt,
             })),
           });
         }
-        /* Three different situations, three different things to tell someone:
-           not in the directory at all, in it but with no city, or in it with a
-           city the provider could not place. */
+
+        /* Real links, not geometry: who follows whom, rolled up to the pair of
+           cities they sit in. Aggregated on purpose — the map says two places
+           are connected and how strongly, never which two people. */
+        const placeIndex = new Map(places.map((p, i) => [p.city.toLowerCase(), i]));
+        const pairs = new Map();
+        try {
+          const graph = await repository.loadGraphStore({ viewerId: sessionUser.id });
+          for (const [from, targets] of graph.follows) {
+            const a = placeIndex.get(cityOf.get(from));
+            if (a === undefined) continue;
+            for (const to of targets) {
+              const b = placeIndex.get(cityOf.get(to));
+              if (b === undefined || a === b) continue;
+              const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+              pairs.set(key, (pairs.get(key) || 0) + 1);
+            }
+          }
+        } catch { /* graph unavailable: the map still draws its places */ }
+        const links = [...pairs].map(([key, weight]) => {
+          const [a, b] = key.split(':').map(Number);
+          return { a, b, weight };
+        });
+
         const placed = new Set(places.map((p) => p.city.toLowerCase()));
         const payload = {
           members: places.reduce((n, p) => n + p.members, 0),
           places,
+          links,
+          topics: [...topics].sort((x, y) => y[1] - x[1]).map(([name, n]) => ({ name, members: n })),
           you: {
             listed: viewerListed,
             hasCity: viewerCity !== '',
@@ -846,7 +905,7 @@ export function createApp({
             city: viewerCity,
           },
         };
-        await cache.set(`network:places:v1:${sessionUser.id}`, JSON.stringify(payload), NETWORK_TTL_MS);
+        await cache.set(cacheKey, JSON.stringify(payload), NETWORK_TTL_MS);
         send(res, 200, payload, { 'X-Cache': 'MISS' });
         return;
       }

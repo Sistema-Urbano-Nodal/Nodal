@@ -10,6 +10,7 @@ import {
   getUserByEmail,
   getUserById,
   listDirectoryUsers,
+  setUserLocation,
   loadGraphStore,
   recordInteractionDb,
   toApiUser,
@@ -61,6 +62,9 @@ function createSqliteRepository(db, { ownsDb = false } = {}) {
     },
     async updateUserProfile(id, patch) {
       return updateUserProfile(db, id, patch);
+    },
+    async setUserLocation(id, point) {
+      return setUserLocation(db, id, point);
     },
     async listDirectoryUsers() {
       return listDirectoryUsers(db);

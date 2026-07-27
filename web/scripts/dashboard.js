@@ -774,6 +774,7 @@
     references: byId('pcRefs'),
     availability: byId('pcAvail'),
     consent: byId('pcConsent'),
+    listName: byId('pcListName'),
     error: byId('pcError'),
   };
   const LINKEDIN_RE = /^https:\/\/(www\.)?linkedin\.com\/(in|company)\/[A-Za-z0-9_-]+/;
@@ -785,6 +786,8 @@
     pc.references.value = U.partC.references;
     pc.availability.value = U.partC.availability;
     pc.consent.checked = U.partC.consent;
+    // absent on older profiles, which means named
+    pc.listName.checked = U.partC.listName !== false;
     pc.error.hidden = true;
     if (typeof pcDialog.showModal === 'function') pcDialog.showModal();
   }
@@ -813,6 +816,7 @@
         references: pc.references.value.trim(),
         availability: pc.availability.value,
         consent: pc.consent.checked,
+        listName: pc.listName.checked,
       };
       touchUser();
       renderIdentity();

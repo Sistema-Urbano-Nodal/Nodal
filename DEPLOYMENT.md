@@ -30,6 +30,11 @@ Confirm after applying:
 - `public.public_profiles` exposes only intentional directory-safe profile fields.
 - No card data, Stripe secrets, passwords, or raw payment details are stored.
 - `profile_preferences`, `onboarding_responses`, and `stripe_customers` have `user_id` indexes.
+- `users` has `city_lat`, `city_lon` and `city_label`
+  (`20260727000000_member_location.sql`). The server writes them when a member
+  saves a city and never accepts them from a request body; existing rows fill in
+  the first time each member saves their profile, and any row still missing
+  coordinates is geocoded on read, so no backfill is required.
 
 ## Vercel Environment Variables
 
@@ -135,6 +140,16 @@ npm start
   there is no browser geolocation anywhere in the client, and there must not be.
   A card names the member, their role, a link to their member page and their
   LinkedIn if they added one; an email address is never in the payload.
+- A member's pin is resolved server-side at save time and stored in
+  `city_lat`/`city_lon`/`city_label`. `PATCH /api/me` ignores those fields in the
+  request body - they are not in the profile allow-list - so a member cannot
+  place their own pin anywhere except by naming a city the geocoder recognises.
+- Appearing on the globe by name is a second opt-in on top of directory consent:
+  Part C's "list my name" box (`partC.listName`). Clearing it keeps the member in
+  the city count but drops their name, role and links from the payload entirely.
+- The lines between cities are aggregate. They come from the follow graph reduced
+  to city-pair counts, so a line says two cities are connected and how strongly,
+  never which two members.
 - Updates are polled, not pushed: serverless functions cannot hold an SSE
   connection open. The client polls every 8s and the roll-up caches 3s, so a
   change appears within roughly eleven seconds.
@@ -144,6 +159,8 @@ npm start
   month (cities do not move); the roll-up is cached five seconds and keyed per
   viewer, because it carries that viewer's own listing status. Member ids are
   never included, only names and roles the directory already publishes.
+  `?topic=` filters the roll-up to one area of work; the value is compared
+  against the member's own topics and is never interpolated into a query.
 - Auth cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` in production.
 - Stripe webhook signature verification is configured before live billing.
 - Production logs do not include passwords, access tokens, service keys, or raw profile payloads.
