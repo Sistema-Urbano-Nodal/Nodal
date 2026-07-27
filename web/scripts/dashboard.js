@@ -168,8 +168,9 @@
     const liText = byId('userLinkedInText');
     if (liChip && liText) {
       const url = U.partC?.linkedin ?? '';
-      liChip.hidden = url === '';
-      if (url) {
+      const safe = /^https:\/\/(www\.)?linkedin\.com\/(in|company)\/[A-Za-z0-9_-]+/.test(url);
+      liChip.hidden = !safe;
+      if (safe) {
         liChip.href = url;
         const m = url.match(/linkedin\.com\/((?:in|company)\/[A-Za-z0-9_-]+)/);
         liText.textContent = m ? m[1] : 'LinkedIn';

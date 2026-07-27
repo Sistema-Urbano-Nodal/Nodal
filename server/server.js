@@ -40,6 +40,13 @@ const MEMBER_SEARCH_MIN_QUERY = 2;
 const MEMBER_SEARCH_LIMIT = 8;
 const MEMBER_SEARCH_WINDOW_MS = 60 * 1000;
 const MEMBER_SEARCH_RATE_LIMIT = envInt('MEMBER_SEARCH_RATE_LIMIT', 40);
+/* Anything below either leaves the building (an external geocoder, Stripe) or
+   reads the whole directory. Unlimited, one signed-in account could burn a
+   third-party quota or hold the database busy for everyone else. */
+const READ_RATE_LIMIT = envInt('READ_RATE_LIMIT', 60);          // per minute
+const WRITE_RATE_LIMIT = envInt('WRITE_RATE_LIMIT', 60);        // per minute
+const COSTLY_RATE_WINDOW_MS = 10 * 60 * 1000;
+const COSTLY_RATE_LIMIT = envInt('COSTLY_RATE_LIMIT', 10);      // per ten minutes
 const PLACE_TTL_MS = 30 * 24 * 60 * 60 * 1000;   // a city does not move
 /* Only the geocoding is expensive, and that is cached for a month. The roll-up
    is cached just long enough to absorb a burst of polls without putting an
@@ -135,8 +142,15 @@ function canonicalPathname(pathname) {
 
 function createWindowRateLimiter({ windowMs, limit }) {
   const buckets = new Map();
+  let sweptAt = 0;
   return {
     take(key, now = Date.now()) {
+      // buckets are only ever added, so an attacker rotating keys would grow
+      // this map without bound; drop the expired ones as we go
+      if (now - sweptAt > windowMs) {
+        sweptAt = now;
+        for (const [k, b] of buckets) if (now >= b.resetAt) buckets.delete(k);
+      }
       const bucket = buckets.get(key);
       if (!bucket || now >= bucket.resetAt) {
         buckets.set(key, { count: 1, resetAt: now + windowMs });
@@ -151,10 +165,17 @@ function createWindowRateLimiter({ windowMs, limit }) {
   };
 }
 
+/* Behind a proxy the leftmost X-Forwarded-For entry is whatever the client
+   claimed, so keying a rate limit on it lets anyone reset their own bucket by
+   rotating a header. Prefer X-Real-IP, which the proxy sets and a client cannot
+   forge through it; otherwise take the rightmost hop, which is the address the
+   nearest trusted proxy observed. */
 function clientIp(req) {
   if (process.env.TRUST_PROXY === 'true') {
-    const forwarded = String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim();
-    if (forwarded) return forwarded.slice(0, 80);
+    const real = String(req.headers['x-real-ip'] ?? '').trim();
+    if (real) return real.slice(0, 80);
+    const chain = String(req.headers['x-forwarded-for'] ?? '').split(',').map((v) => v.trim()).filter(Boolean);
+    if (chain.length) return chain[chain.length - 1].slice(0, 80);
   }
   return req.socket.remoteAddress || 'unknown';
 }
@@ -557,6 +578,17 @@ export function createApp({
   const interactionLimiter = createWindowRateLimiter({ windowMs: INTERACTION_RATE_WINDOW_MS, limit: INTERACTION_RATE_LIMIT });
   // each search walks the whole directory, so it is bounded per member
   const searchLimiter = createWindowRateLimiter({ windowMs: MEMBER_SEARCH_WINDOW_MS, limit: MEMBER_SEARCH_RATE_LIMIT });
+  const readLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: READ_RATE_LIMIT });
+  const writeLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: WRITE_RATE_LIMIT });
+  const costlyLimiter = createWindowRateLimiter({ windowMs: COSTLY_RATE_WINDOW_MS, limit: COSTLY_RATE_LIMIT });
+  /* Keyed by session when there is one, by address otherwise, so a limit
+     follows the account rather than a shared office IP. */
+  const throttle = (limiter, res2, req2, user, scope) => {
+    const rate = limiter.take(`${scope}:${user?.id || clientIp(req2)}`);
+    if (rate.ok) return true;
+    send(res2, 429, { error: 'too many requests' }, { 'Retry-After': String(rate.retryAfter) });
+    return false;
+  };
   const cacheKey = (id, graph) => `rec:v2:${id}:${graphFingerprint(graph)}`;
   if (repository?.cleanupExpiredSessions) repository.cleanupExpiredSessions();
 
@@ -603,6 +635,7 @@ export function createApp({
 
       if (req.method === 'GET' && pathname === '/api/cities') {
         if (useDb && !requireAuth(res, sessionUser)) return;
+        if (!throttle(readLimiter, res, req, sessionUser, 'cities')) return;
         try {
           send(res, 200, await citySearch.search(url.searchParams.get('q'), req.headers['accept-language']));
         } catch {
@@ -686,6 +719,7 @@ export function createApp({
 
       if (useDb && req.method === 'GET' && pathname === '/api/me/export') {
         if (!requireAuth(res, sessionUser)) return;
+        if (!throttle(costlyLimiter, res, req, sessionUser, 'export')) return;
         send(res, 200, { data: await repository.exportUserData(sessionUser.id) });
         return;
       }
@@ -712,6 +746,7 @@ export function createApp({
 
       if (useDb && req.method === 'PATCH' && pathname === '/api/me') {
         if (!requireAuth(res, sessionUser)) return;
+        if (!throttle(writeLimiter, res, req, sessionUser, 'profile')) return;
         if (!sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
         const patch = sanitizeProfilePatch(await readJsonBody(req));
         const user = await repository.updateUserProfile(sessionUser.id, patch);
@@ -722,6 +757,7 @@ export function createApp({
       if (req.method === 'GET' && pathname === '/api/users') {
         if (useDb) {
           if (!requireAuth(res, sessionUser)) return;
+          if (!throttle(readLimiter, res, req, sessionUser, 'directory')) return;
           send(res, 200, {
             users: (await repository.listDirectoryUsers()).map((row) => {
               const user = repository.toApiUser(row);
@@ -742,6 +778,7 @@ export function createApp({
          seconds so a new member still shows up while you are watching. */
       if (useDb && req.method === 'GET' && pathname === '/api/network/places') {
         if (!requireAuth(res, sessionUser)) return;
+        if (!throttle(readLimiter, res, req, sessionUser, 'places')) return;
         const cached = await cache.get(`network:places:v1:${sessionUser.id}`);
         if (cached) {
           send(res, 200, cached, { 'X-Cache': 'HIT', 'Content-Type': 'application/json; charset=utf-8' });
@@ -936,6 +973,7 @@ export function createApp({
       if (req.method === 'POST' && pathname === '/api/checkout') {
         if (useDb && !requireAuth(res, sessionUser)) return;
         if (!sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
+        if (!throttle(costlyLimiter, res, req, sessionUser, 'checkout')) return;
         const body = await readJsonBody(req);
         if (body.plan !== 'membership' || !CYCLES.has(body.cycle)) {
           send(res, 400, { error: 'invalid plan or cycle' });

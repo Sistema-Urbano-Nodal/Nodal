@@ -147,6 +147,16 @@ npm start
 - Auth cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` in production.
 - Stripe webhook signature verification is configured before live billing.
 - Production logs do not include passwords, access tokens, service keys, or raw profile payloads.
+- Every endpoint that leaves the building or reads the whole directory is rate
+  limited per session: the geocoder proxy, the globe roll-up, the member
+  directory, profile saves, data export and Stripe checkout. Limits are keyed by
+  account when there is one, by address otherwise.
+- Rate limits are keyed on `X-Real-IP`, or the rightmost `X-Forwarded-For` hop -
+  never the leftmost, which the caller controls. `TRUST_PROXY=true` is required
+  behind Vercel for this to read the real address.
+- **Serverless caveat:** rate-limit buckets live in the function instance's
+  memory, so limits apply per warm instance rather than globally. Configure
+  `REDIS_URL` if you need them enforced across instances.
 
 ## Interface Language
 

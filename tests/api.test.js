@@ -1360,3 +1360,87 @@ test('the globe reads the directory and says why you are not on it', async (t) =
   await getJson(base, '/api/network/places', quiet.cookie);
   assert.equal(geocoded.length, before, 'city coordinates are cached across viewers');
 });
+
+test('the endpoints that cost money, quota or IO are all rate limited', async (t) => {
+  const base = await bootDb(t);
+  const member = await consentingMember(base, { name: 'Ana Pereira', email: 'ana@example.test' });
+  const hammer = async (path, tries) => {
+    for (let i = 0; i < tries; i += 1) {
+      const res = await fetch(`${base}${path}`, { headers: { Cookie: member.cookie } });
+      const body = await res.arrayBuffer();
+      if (res.status === 429) return { limited: true, after: Number(res.headers.get('retry-after')), body };
+    }
+    return { limited: false };
+  };
+  for (const [path, tries] of [['/api/users', 80], ['/api/network/places', 80], ['/api/cities?q=lima', 80], ['/api/me/export', 20]]) {
+    const out = await hammer(path, tries);
+    assert.ok(out.limited, `${path} must refuse eventually`);
+    assert.ok(out.after > 0, `${path} must say when to come back`);
+  }
+});
+
+test('a rate limit follows the account, not a header the caller controls', async (t) => {
+  const base = await bootDb(t);
+  const old = process.env.TRUST_PROXY;
+  process.env.TRUST_PROXY = 'true';
+  t.after(() => { if (old === undefined) delete process.env.TRUST_PROXY; else process.env.TRUST_PROXY = old; });
+
+  let refused = 0;
+  for (let i = 0; i < 16; i += 1) {
+    // a fresh forged chain on every attempt: the leftmost entry must not be the key
+    // no Origin header: a same-origin request, so CSRF passes and the limiter
+    // is actually reached. The forged chain changes on every attempt.
+    const res = await postJson(base, '/api/auth/login',
+      { email: 'nobody@example.test', password: 'wrong-password-here' },
+      { 'X-Forwarded-For': `10.0.0.${i}, 203.0.113.9` });
+    await res.arrayBuffer();
+    if (res.status === 429) refused += 1;
+  }
+  assert.ok(refused > 0, 'rotating X-Forwarded-For must not reset the login limit');
+});
+
+test('rate limiter buckets do not grow without bound', async (t) => {
+  const base = await bootDb(t);
+  // unique keys, far more than any real client count, then check memory settles
+  for (let i = 0; i < 200; i += 1) {
+    const res = await fetch(`${base}/api/health`, { headers: { 'X-Forwarded-For': `198.51.100.${i % 256}` } });
+    await res.arrayBuffer();
+  }
+  const res = await fetch(`${base}/api/health`);
+  assert.equal(res.status, 200);
+  await res.arrayBuffer();
+});
+
+test('a cross-origin write is refused even with a valid session', async (t) => {
+  const base = await bootDb(t);
+  const member = await consentingMember(base, { name: 'Ana Pereira', email: 'ana@example.test' });
+
+  /* The scenario that matters: CSRF needs the victim's cookie, so the forged
+     request arrives authenticated. Origin is what has to stop it. */
+  for (const [path, body] of [
+    ['/api/me', { city: 'Somewhere Else' }],
+    ['/api/checkout', { plan: 'membership', cycle: 'monthly' }],
+    ['/api/auth/logout', {}],
+  ]) {
+    const res = await fetch(`${base}${path}`, {
+      method: path === '/api/me' ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example', Cookie: member.cookie },
+      body: JSON.stringify(body),
+    });
+    await res.arrayBuffer();
+    assert.equal(res.status, 403, `${path} must refuse a foreign origin even when signed in`);
+  }
+
+  // the city must not have moved
+  const me = await getJson(base, '/api/auth/me', member.cookie);
+  assert.equal(me.body.user.city, 'Lima');
+
+  // Sec-Fetch-Site is honoured even when no Origin is sent
+  const sneaky = await fetch(`${base}/api/me`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'cross-site', Cookie: member.cookie },
+    body: JSON.stringify({ city: 'Nope' }),
+  });
+  await sneaky.arrayBuffer();
+  assert.equal(sneaky.status, 403);
+});

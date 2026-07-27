@@ -20,6 +20,7 @@
   const t = (key, vars) => (I18N ? I18N.t(key, vars) : key);
   const RAD = Math.PI / 180;
   const calm = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const SAFE_LINKEDIN = /^https:\/\/(www\.)?linkedin\.com\/(in|company)\/[A-Za-z0-9_-]+/;
 
   const toXYZ = (lat, lon) => [
     Math.cos(lat * RAD) * Math.cos(lon * RAD),
@@ -376,7 +377,10 @@
           role.textContent = m.role;
           row.appendChild(role);
         }
-        if (m.linkedin) {
+        /* The server already rejects anything that is not an https LinkedIn
+           profile, but this is another member's input rendered in my browser,
+           so it is checked again on the way into an href. */
+        if (SAFE_LINKEDIN.test(m.linkedin || '')) {
           const li = document.createElement('a');
           li.className = 'globe-contact';
           li.href = m.linkedin;
