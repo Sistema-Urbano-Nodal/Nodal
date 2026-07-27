@@ -3,7 +3,6 @@ import { defaultProfilePreferences } from './domain.js';
 import { recordInteraction } from './store.js';
 import {
   DEFAULT_INDICATORS,
-  DEFAULT_PART_C,
   canApplyForMentor,
   cleanIndicators,
   cleanRequests,
@@ -94,9 +93,17 @@ function encodeQuery(query = {}) {
   return out ? `?${out}` : '';
 }
 
+/* `expose: false` marks this as somebody else's error text. PostgREST and
+   GoTrue answer with column names, constraint names and internal hints, and the
+   request handler echoes any sub-500 message straight to the caller — so these
+   are carried for our own logs and branching, never for the response body. */
 function responseError(status, payload, fallback) {
   const message = payload?.msg || payload?.message || payload?.error_description || payload?.error || fallback;
-  return Object.assign(new Error(message), { status });
+  return Object.assign(new Error(message), {
+    status,
+    expose: false,
+    code: String(payload?.error_code || payload?.code || ''),
+  });
 }
 
 function createRestClient({ url, key, fetchImpl = fetch, authToken = key }) {
@@ -200,9 +207,10 @@ function toApiUserFromSupabase({ profile, preferences, onboarding }) {
   const notifications = preferences?.notification_preferences && typeof preferences.notification_preferences === 'object'
     ? preferences.notification_preferences
     : {};
+  // through the same allow-list the write path uses, so anything a profile
+  // picked up before that existed stops being served
   const partC = {
-    ...DEFAULT_PART_C,
-    ...rawPartC,
+    ...normalizePartC(rawPartC),
     bio: cleanString(profile.bio || rawPartC.bio || '', 2000),
     availability: cleanString(onboarding?.availability || rawPartC.availability || '', 120),
     consent: dataConsent.directoryPublic === true || (dataConsent.directoryPublic === undefined && rawPartC.consent === true),
@@ -448,12 +456,26 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         requiresEmailConfirmation: !session?.access_token,
       };
     },
+    /* Answers in the same shape the sqlite backend does. Letting a rejected
+       sign-in throw sent GoTrue's own wording — and its status — to the browser
+       instead of the one message the login form is meant to show. */
     async login({ email, password }) {
-      const data = await browser.auth('/token', {
-        method: 'POST',
-        query: { grant_type: 'password' },
-        body: { email, password },
-      });
+      let data;
+      try {
+        data = await browser.auth('/token', {
+          method: 'POST',
+          query: { grant_type: 'password' },
+          body: { email, password },
+        });
+      } catch (err) {
+        if (err?.code === 'email_not_confirmed') {
+          return { status: 403, error: 'Confirm your email before signing in.', cookies: [] };
+        }
+        if ([400, 401, 403, 422].includes(err?.status)) {
+          return { status: 401, error: 'invalid email or password', cookies: [] };
+        }
+        throw err;
+      }
       const authUser = data.user;
       const user = await ensureProfile(authUser);
       return { status: 200, user, cookies: sessionCookies(data, env) };

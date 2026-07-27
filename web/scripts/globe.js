@@ -435,6 +435,8 @@
   canvas.addEventListener('pointerleave', () => { state.drag = false; state.hover = -1; });
   canvas.addEventListener('keydown', (ev) => {
     if (!['ArrowRight', 'ArrowLeft'].includes(ev.key)) return;
+    // the canvas is focusable, and an empty globe has nothing to step through
+    if (!PLACES.length) return;
     ev.preventDefault();
     state.picked = (state.picked + (ev.key === 'ArrowRight' ? 1 : -1) + PLACES.length) % PLACES.length;
     const p = PLACES[state.picked];

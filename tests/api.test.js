@@ -1525,3 +1525,147 @@ test('the globe draws real relationships, filters by topic, and honours a member
   assert.ok(all.body.places.every((p) => typeof p.since === 'string'));
   assert.ok(all.body.topics.some((x) => x.name === 'Mobility' && x.members === 2));
 });
+
+test('billing config still answers "Soon" in production while payments are not live', async (t) => {
+  /* The documented pre-launch deployment is NODE_ENV=production with
+     PAYMENTS_MODE=preview and no SUBSCRIPTION_* set. That combination used to
+     throw out of publicBillingConfig and return 500 on every call. */
+  const keys = ['NODE_ENV', 'PAYMENTS_MODE', 'SUBSCRIPTION_PRICE_MONTHLY_LABEL', 'SUBSCRIPTION_PRICE_ANNUAL_LABEL'];
+  const old = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  process.env.NODE_ENV = 'production';
+  process.env.PAYMENTS_MODE = 'preview';
+  delete process.env.SUBSCRIPTION_PRICE_MONTHLY_LABEL;
+  delete process.env.SUBSCRIPTION_PRICE_ANNUAL_LABEL;
+  t.after(() => {
+    for (const key of keys) {
+      if (old[key] === undefined) delete process.env[key];
+      else process.env[key] = old[key];
+    }
+  });
+  const base = await boot(t);
+  const res = await fetch(`${base}/api/billing/config`);
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.cycles.monthly.amount, 'Soon');
+  assert.equal(body.cycles.annual.amount, 'Soon');
+});
+
+test('a live payments deployment must still name a price', () => {
+  assert.throws(() => validateRuntimeConfig({
+    NODE_ENV: 'production',
+    DATABASE_PATH: '/tmp/nodal-test.sqlite',
+    PUBLIC_BASE_URL: 'https://nodal.example',
+    COOKIE_SECURE: 'true',
+    PAYMENTS_MODE: 'live',
+    STRIPE_SECRET_KEY: LIVE_STRIPE_SECRET,
+    STRIPE_PRICE_MONTHLY: 'price_monthly123',
+    STRIPE_PRICE_ANNUAL: 'price_annual123',
+    STRIPE_WEBHOOK_SECRET: LIVE_STRIPE_WEBHOOK_SECRET,
+  }), /SUBSCRIPTION_PRICE_MONTHLY_LABEL/);
+});
+
+test('a LinkedIn link is validated wherever it arrives, not only inside partC', async (t) => {
+  const base = await bootDb(t);
+  const signup = await postJson(base, '/api/auth/signup', {
+    fullName: 'Nina Costa',
+    email: 'nina@example.com',
+    password: 'correct-horse',
+  });
+  const cookie = cookiePair(signup);
+
+  /* An empty partC.linkedin is not null, so `??` never fell through to the
+     top-level field — a javascript: URL went straight into the directory. */
+  const sneaky = await patchJson(base, '/api/me', {
+    linkedin: 'javascript:alert(document.domain)',
+    partC: { linkedin: '', consent: true },
+  }, { Cookie: cookie });
+  assert.equal(sneaky.status, 400);
+
+  const direct = await patchJson(base, '/api/me', {
+    partC: { linkedin: 'javascript:alert(1)' },
+  }, { Cookie: cookie });
+  assert.equal(direct.status, 400);
+
+  const good = await patchJson(base, '/api/me', {
+    linkedin: 'https://www.linkedin.com/in/nina-costa',
+    partC: { linkedin: '', consent: true },
+  }, { Cookie: cookie });
+  assert.equal(good.status, 200);
+
+  const list = await fetch(`${base}/api/users`, { headers: { Cookie: cookie } });
+  const { users } = await list.json();
+  assert.ok(users.every((u) => !String(u.linkedin).startsWith('javascript:')));
+});
+
+test('part C keeps only the fields the form has, at the lengths it allows', async (t) => {
+  const base = await bootDb(t);
+  const signup = await postJson(base, '/api/auth/signup', {
+    fullName: 'Otto Reis',
+    email: 'otto@example.com',
+    password: 'correct-horse',
+  });
+  const cookie = cookiePair(signup);
+  const res = await patchJson(base, '/api/me', {
+    partC: {
+      bio: 'x'.repeat(5000),
+      availability: '2 h / month',
+      consent: true,
+      listName: false,
+      smuggled: '<img src=x onerror=alert(1)>',
+      __proto__: { polluted: true },
+    },
+  }, { Cookie: cookie });
+  assert.equal(res.status, 200);
+  const { partC } = (await res.json()).user;
+  assert.equal(partC.smuggled, undefined, 'unknown keys are dropped');
+  assert.equal(partC.bio.length, 2000, 'text is capped');
+  assert.equal(partC.availability, '2 h / month');
+  assert.equal(partC.consent, true);
+  assert.equal(partC.listName, false, 'the map opt-out survives');
+  assert.equal({}.polluted, undefined);
+});
+
+test('GET and HEAD both report health', async (t) => {
+  const base = await boot(t);
+  assert.equal((await fetch(`${base}/api/health`)).status, 200);
+  assert.equal((await fetch(`${base}/api/health`, { method: 'HEAD' })).status, 200);
+});
+
+test('a backend error never reaches the caller, on any route', async (t) => {
+  /* Signup and login wrap their own provider errors. Every other route lets a
+     4xx fall through to the request handler, which used to echo err.message —
+     and a PostgREST message names columns, constraints and hints. */
+  const backendError = Object.assign(
+    new Error('column profiles.city_lat does not exist'),
+    { status: 400, expose: false },
+  );
+  const repository = {
+    async resolveSession() { return { user: { id: 'u1', email: 'm@example.com' }, cookies: [] }; },
+    toApiUser(user) { return user; },
+    async listDirectoryUsers() { throw backendError; },
+    close() {},
+  };
+  const base = await bootApp(t, createApp({ repository }));
+  const res = await fetch(`${base}/api/users`, { headers: { Cookie: 'nodal_session=x' } });
+  assert.equal(res.status, 400);
+  const body = await res.json();
+  assert.equal(body.error, 'request failed');
+  assert.doesNotMatch(body.error, /profiles|city_lat|column/i);
+});
+
+test('our own 4xx messages still say what went wrong', async (t) => {
+  const base = await bootDb(t);
+  const signup = await postJson(base, '/api/auth/signup', {
+    fullName: 'Vera Pinto',
+    email: 'vera@example.com',
+    password: 'correct-horse',
+  });
+  const cookie = cookiePair(signup);
+  const res = await fetch(`${base}/api/me`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'text/plain', Cookie: cookie },
+    body: 'not json',
+  });
+  assert.equal(res.status, 415);
+  assert.equal((await res.json()).error, 'expected application/json');
+});

@@ -92,7 +92,13 @@ function parseStripeSignature(header = '') {
     const [key, value] = part.split('=');
     if (key && value) parts.set(key.trim(), value.trim());
   }
-  return { timestamp: parts.get('t'), signatures: String(header).split(',').filter((p) => p.startsWith('v1=')).map((p) => p.slice(3)) };
+  // trimmed: a single space after a comma would drop every signature and
+  // reject the delivery as unsigned
+  const signatures = String(header).split(',')
+    .map((p) => p.trim())
+    .filter((p) => p.startsWith('v1='))
+    .map((p) => p.slice(3));
+  return { timestamp: parts.get('t'), signatures };
 }
 
 function safeEqualHex(a, b) {

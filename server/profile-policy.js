@@ -15,9 +15,31 @@ const INDICATOR_VALUES = {
 };
 const REQUEST_KEYS = new Set(['knowledge', 'project', 'territory', 'community']);
 
+/* Part C is stored as one JSON blob, so whatever the body puts in it is what
+   gets written. Spreading the request wholesale meant a member could park
+   arbitrary keys and arbitrary-length strings in their own row and have them
+   served back to every other member through the directory. Only the fields the
+   form actually has are kept, each capped at the length its column expects. */
+const PART_C_TEXT_LIMITS = {
+  bio: 2000,
+  linkedin: 220,
+  portfolio: 500,
+  references: 500,
+  availability: 120,
+};
+
 export function normalizePartC(value, current = DEFAULT_PART_C) {
   const incoming = value && typeof value === 'object' ? value : {};
-  return { ...DEFAULT_PART_C, ...current, ...incoming };
+  const merged = { ...DEFAULT_PART_C, ...current, ...incoming };
+  const out = {};
+  for (const [key, max] of Object.entries(PART_C_TEXT_LIMITS)) {
+    out[key] = String(merged[key] ?? '').slice(0, max);
+  }
+  out.consent = merged.consent === true;
+  /* absent means named — an older profile predates the opt-out and never
+     asked to be hidden, so the key is only carried once it has been set */
+  if ('listName' in merged) out.listName = merged.listName !== false;
+  return out;
 }
 
 export function normalizeIndicators(value) {

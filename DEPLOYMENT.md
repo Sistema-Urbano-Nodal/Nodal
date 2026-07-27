@@ -53,7 +53,7 @@ SUPABASE_SECRET_KEY=<server-only Supabase secret key>
 PAYMENTS_MODE=preview
 ```
 
-Leave the `SUBSCRIPTION_*` price variables unset while launch pricing is not announced: the UI then shows `Soon` in every price slot. Setting them is what publishes a real amount:
+Leave the `SUBSCRIPTION_*` price variables unset while launch pricing is not announced: the UI then shows `Soon` in every price slot. Setting them is what publishes a real amount. Switching to `PAYMENTS_MODE=live` is what makes a price mandatory — the deployment then refuses to boot until both `*_LABEL` variables are set, so a paid tier can never go live nameless:
 
 ```text
 SUBSCRIPTION_PRICE_MONTHLY_LABEL=US$10

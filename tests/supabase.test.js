@@ -391,3 +391,47 @@ test('Supabase applies a Stripe event through one database RPC', async () => {
   assert.equal(calls[0].body.p_event_id, 'evt_rpc');
   assert.equal(calls[0].body.p_event_rank, 10);
 });
+
+test('Supabase rejects a bad sign-in in our own words, not the provider\'s', async () => {
+  const repository = createSupabaseRepository({
+    env: testEnv(),
+    fetchImpl: async () => response({
+      code: 400,
+      error_code: 'invalid_credentials',
+      msg: 'Invalid login credentials',
+    }, 400),
+  });
+  const result = await repository.login({ email: 'someone@example.com', password: 'nope' });
+  assert.equal(result.status, 401);
+  assert.equal(result.error, 'invalid email or password');
+  assert.deepEqual(result.cookies, []);
+});
+
+test('Supabase says plainly when the email was never confirmed', async () => {
+  const repository = createSupabaseRepository({
+    env: testEnv(),
+    fetchImpl: async () => response({ error_code: 'email_not_confirmed', msg: 'Email not confirmed' }, 400),
+  });
+  const result = await repository.login({ email: 'someone@example.com', password: 'correct-horse' });
+  assert.equal(result.status, 403);
+  assert.match(result.error, /confirm your email/i);
+});
+
+test('a PostgREST error carries its detail for the log but never for the caller', async () => {
+  const repository = createSupabaseRepository({
+    env: testEnv(),
+    fetchImpl: async () => response({
+      message: 'duplicate key value violates unique constraint "profiles_pkey"',
+      hint: 'check the id column',
+    }, 409),
+  });
+  await assert.rejects(
+    () => repository.getUserById(TEST_USER_ID),
+    (err) => {
+      assert.equal(err.status, 409);
+      assert.equal(err.expose, false, 'the request handler must not echo this');
+      assert.match(err.message, /profiles_pkey/, 'the detail is kept for the log');
+      return true;
+    },
+  );
+});

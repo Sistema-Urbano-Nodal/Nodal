@@ -35,6 +35,7 @@ const AUTH_RATE_WINDOW_MS = 5 * 60 * 1000;
 const AUTH_RATE_LIMIT = envInt('AUTH_RATE_LIMIT', 10);
 const INTERACTION_RATE_WINDOW_MS = 60 * 1000;
 const INTERACTION_RATE_LIMIT = envInt('INTERACTION_RATE_LIMIT', 60);
+const LINKEDIN_RE = /^https:\/\/(www\.)?linkedin\.com\/(in|company)\/[A-Za-z0-9_-]+/;
 const CITY_SEARCH_MIN_QUERY = 2;
 const MEMBER_SEARCH_MIN_QUERY = 2;
 const MEMBER_SEARCH_LIMIT = 8;
@@ -52,6 +53,7 @@ const PLACE_TTL_MS = 30 * 24 * 60 * 60 * 1000;   // a city does not move
    is cached just long enough to absorb a burst of polls without putting an
    arrival behind a wall — a new member must not wait half a minute to appear. */
 const NETWORK_TTL_MS = 3 * 1000;
+const NETWORK_GEOCODE_PER_REQUEST = envInt('NETWORK_GEOCODE_PER_REQUEST', 4);
 const CITY_SEARCH_MAX_QUERY = 80;
 const CITY_SEARCH_LIMIT = envInt('CITY_SEARCH_LIMIT', 8);
 const CITY_SEARCH_CACHE_MS = 24 * 60 * 60 * 1000;
@@ -210,7 +212,11 @@ function readRequiredEnv(env, key, { productionRequired = false } = {}) {
 const PRICE_UNANNOUNCED = 'Soon';
 
 export function publicBillingConfig(env = process.env) {
-  const productionRequired = env.NODE_ENV === 'production';
+  /* Only a live payments deployment must name a price. Requiring one of every
+     production deployment made the "Soon" state above unreachable there — the
+     documented pre-launch setup (NODE_ENV=production, PAYMENTS_MODE=preview,
+     no SUBSCRIPTION_* set) turned this endpoint into a 500 on every call. */
+  const productionRequired = env.NODE_ENV === 'production' && env.PAYMENTS_MODE === 'live';
   const monthlyAmount = readRequiredEnv(env, 'SUBSCRIPTION_PRICE_MONTHLY_LABEL', { productionRequired });
   const annualAmount = readRequiredEnv(env, 'SUBSCRIPTION_PRICE_ANNUAL_LABEL', { productionRequired });
   return {
@@ -504,9 +510,14 @@ function sanitizeProfilePatch(body) {
   if ('fullName' in body && String(body.fullName).trim().length < 2) {
     throw Object.assign(new Error('full name is required'), { status: 400 });
   }
-  const li = body.partC?.linkedin ?? body.linkedin ?? '';
-  if (li && !/^https:\/\/(www\.)?linkedin\.com\/(in|company)\/[A-Za-z0-9_-]+/.test(String(li))) {
-    throw Object.assign(new Error('LinkedIn link must use https://linkedin.com/in/...'), { status: 400 });
+  /* Both places a LinkedIn URL can arrive are checked, and each on its own:
+     `??` only falls through on null/undefined, so an empty partC.linkedin used
+     to skip the check entirely and let an arbitrary top-level `linkedin` — a
+     javascript: URL among them — be stored and served to other members. */
+  for (const li of [body.partC?.linkedin, body.linkedin]) {
+    if (li && !LINKEDIN_RE.test(String(li))) {
+      throw Object.assign(new Error('LinkedIn link must use https://linkedin.com/in/...'), { status: 400 });
+    }
   }
   const portfolio = body.partC?.portfolio ?? '';
   if (portfolio && !/^https?:\/\/\S+\.\S+/.test(String(portfolio))) {
@@ -643,7 +654,8 @@ export function createApp({
         return;
       }
 
-      if (req.method === 'GET' && pathname === '/api/health') { send(res, 200, { ok: true }); return; }
+      // HEAD too: uptime probes default to it, and a 404 there reads as an outage
+      if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/api/health') { send(res, 200, { ok: true }); return; }
 
       if (req.method === 'GET' && pathname === '/api/billing/config') {
         send(res, 200, publicBillingConfig());
@@ -849,10 +861,21 @@ export function createApp({
           });
         }
 
+        /* Almost every city arrives already placed — the coordinate is resolved
+           and stored when the member saves their profile. The rest are looked
+           up here, one at a time behind the provider's minimum interval, so a
+           backlog of them would hold the request open for a second each and run
+           the function past its timeout. A few per request is enough: the
+           answer is cached for a month, so the backlog drains over a handful of
+           polls and every city lands within a minute. */
+        let geocodeBudget = NETWORK_GEOCODE_PER_REQUEST;
         const places = [];
         for (const group of groups.values()) {
           let point = group.point;
-          if (!point) point = await resolveCity(group.city, req.headers['accept-language']);
+          if (!point && geocodeBudget > 0) {
+            geocodeBudget -= 1;
+            point = await resolveCity(group.city, req.headers['accept-language']);
+          }
           if (!point) continue;
           const named = group.members.filter((m) => m.named);
           places.push({
@@ -1073,8 +1096,12 @@ export function createApp({
       send(res, 404, { error: 'not found' });
     } catch (err) {
       const status = err.status ?? 500;
-      if (status >= 500) console.error('request error:', safeErrorMessage(err));
-      if (!res.headersSent) send(res, status, { error: status >= 500 ? 'internal error' : safeErrorMessage(err) });
+      /* Only our own wording goes back. A backend's message (marked
+         expose: false where it is raised) names columns, constraints and
+         internal state, and this is the one place it would reach a caller. */
+      if (status >= 500 || err?.expose === false) console.error('request error:', safeErrorMessage(err));
+      const body = status >= 500 ? 'internal error' : (err?.expose === false ? 'request failed' : safeErrorMessage(err));
+      if (!res.headersSent) send(res, status, { error: body });
       else res.end();
     }
   });
