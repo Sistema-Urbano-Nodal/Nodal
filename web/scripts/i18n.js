@@ -783,13 +783,12 @@
     'y.perMonth': '/ month',
     'y.perYear': '/ year',
     'mem.priceSoon': 'Soon!',
-    'd.globe.eyebrow': 'Global network · {n} of {total} cities active',
+    'd.globe.eyebrow': 'Global network · {members} members in {cities} cities',
     'd.globe.members': '{n} in the member directory',
-    'd.globe.noMembers': 'No members in the directory yet',
-    'd.globe.noRoles': 'No roles listed yet',
     'd.globe.youNotListed': 'You are not on the map yet. Your profile joins it once you tick the directory consent in Part C.',
     'd.globe.youNoCity': 'Add your city to your profile and your node appears here.',
     'd.globe.youUnplaced': 'We could not place {city} on the map yet. Try the city name as it appears in the profile suggestions.',
+    'd.globe.empty': 'No member has a city on their profile yet. The first one to add theirs opens the map.',
   };
 
   const DASH_ES = {
@@ -1265,17 +1264,16 @@
     'd.globe.kicker': 'Nodo de la red',
     'd.globe.working': 'Trabaja en',
     'd.globe.connects': 'Conecta con',
-    'd.globe.eyebrow': 'Red global · {n} de {total} ciudades activas',
+    'd.globe.eyebrow': 'Red global · {members} miembros en {cities} ciudades',
     'd.globe.members': '{n} en el directorio de miembros',
-    'd.globe.noMembers': 'Todavía sin miembros en el directorio',
     'd.globe.roles': 'Roles ahí',
-    'd.globe.noRoles': 'Aún sin roles registrados',
     'd.globe.arrivals': 'Acaba de entrar',
     'd.globe.people': 'Quién está ahí',
     'd.globe.openPartC': 'Completar la Parte C',
     'd.globe.youNotListed': 'Todavía no estás en el mapa. Tu perfil entra cuando marques el consentimiento del directorio en la Parte C.',
     'd.globe.youNoCity': 'Agrega tu ciudad al perfil y tu nodo aparece aquí.',
     'd.globe.youUnplaced': 'Aún no pudimos ubicar {city} en el mapa. Prueba el nombre de la ciudad como aparece en las sugerencias del perfil.',
+    'd.globe.empty': 'Todavía nadie puso una ciudad en su perfil. Quien agregue la suya primero abre el mapa.',
   };
 
   const DASH_PT = {
@@ -1751,17 +1749,16 @@
     'd.globe.kicker': 'Nó da rede',
     'd.globe.working': 'Trabalha em',
     'd.globe.connects': 'Conecta com',
-    'd.globe.eyebrow': 'Rede global · {n} de {total} cidades ativas',
+    'd.globe.eyebrow': 'Rede global · {members} membros em {cities} cidades',
     'd.globe.members': '{n} no diretório de membros',
-    'd.globe.noMembers': 'Ainda sem membros no diretório',
     'd.globe.roles': 'Papéis por lá',
-    'd.globe.noRoles': 'Ainda sem papéis registrados',
     'd.globe.arrivals': 'Acabou de entrar',
     'd.globe.people': 'Quem está lá',
     'd.globe.openPartC': 'Completar a Parte C',
     'd.globe.youNotListed': 'Você ainda não está no mapa. Seu perfil entra quando marcar o consentimento do diretório na Parte C.',
     'd.globe.youNoCity': 'Adicione sua cidade ao perfil e seu nó aparece aqui.',
     'd.globe.youUnplaced': 'Ainda não conseguimos localizar {city} no mapa. Tente o nome da cidade como aparece nas sugestões do perfil.',
+    'd.globe.empty': 'Ninguém colocou uma cidade no perfil ainda. Quem adicionar a sua primeiro abre o mapa.',
   };
 
   Object.assign(ES, DASH_ES);

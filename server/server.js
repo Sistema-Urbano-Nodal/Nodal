@@ -44,7 +44,7 @@ const PLACE_TTL_MS = 30 * 24 * 60 * 60 * 1000;   // a city does not move
 /* Only the geocoding is expensive, and that is cached for a month. The roll-up
    is cached just long enough to absorb a burst of polls without putting an
    arrival behind a wall — a new member must not wait half a minute to appear. */
-const NETWORK_TTL_MS = 5 * 1000;
+const NETWORK_TTL_MS = 3 * 1000;
 const CITY_SEARCH_MAX_QUERY = 80;
 const CITY_SEARCH_LIMIT = envInt('CITY_SEARCH_LIMIT', 8);
 const CITY_SEARCH_CACHE_MS = 24 * 60 * 60 * 1000;
@@ -758,7 +758,9 @@ export function createApp({
           if (!city) continue;
           const key = city.toLowerCase();
           if (!groups.has(key)) groups.set(key, { city, members: [] });
-          groups.get(key).members.push({ id: user.id, name: user.fullName, role: user.title });
+          groups.get(key).members.push({
+            id: user.id, name: user.fullName, role: user.title, linkedin: user.linkedin || '',
+          });
         }
 
         const places = [];
@@ -784,7 +786,13 @@ export function createApp({
             lat: point.lat,
             lon: point.lon,
             members: group.members.length,
-            people: group.members.slice(0, 8).map((m) => ({ name: m.name, role: m.role })),
+            /* Name, role, a link to the member card and LinkedIn if they added
+               one — every field the directory already publishes to signed-in
+               members. Email is never here: knowing an address is how you find
+               someone, not something the map hands out. */
+            people: group.members.slice(0, 12).map((m) => ({
+              id: m.id, name: m.name, role: m.role, linkedin: m.linkedin,
+            })),
           });
         }
         /* Three different situations, three different things to tell someone:
@@ -792,6 +800,7 @@ export function createApp({
            city the provider could not place. */
         const placed = new Set(places.map((p) => p.city.toLowerCase()));
         const payload = {
+          members: places.reduce((n, p) => n + p.members, 0),
           places,
           you: {
             listed: viewerListed,

@@ -130,6 +130,14 @@ npm start
 - `GET /api/users/search` matches name, role and city on substring but requires a
   full registration email to match by address, and never returns an email. It is
   rate limited per session (`MEMBER_SEARCH_RATE_LIMIT`, default 40/min).
+- The globe shows nothing invented: every node is a city a member entered in
+  their own profile. A node moves only when that member edits their city -
+  there is no browser geolocation anywhere in the client, and there must not be.
+  A card names the member, their role, a link to their member page and their
+  LinkedIn if they added one; an email address is never in the payload.
+- Updates are polled, not pushed: serverless functions cannot hold an SSE
+  connection open. The client polls every 8s and the roll-up caches 3s, so a
+  change appears within roughly eleven seconds.
 - `GET /api/network/places` feeds the globe. It groups consenting members by city
   and resolves each city through the same provider the profile form uses, so any
   city on Earth can appear - not a hardcoded list. Coordinates are cached for a

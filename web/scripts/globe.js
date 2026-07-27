@@ -35,29 +35,11 @@
       return toXYZ(Number(lat), Number(lon));
     }));
 
-  /* Backdrop: cities NODAL is organising in. These are context, not data —
-     the live network arrives from /api/network/places and any city a member
-     actually typed is added to this set with real coordinates. */
-  const SCAFFOLD = [
-    ['Lima', -12.05, -77.04], ['São Paulo', -23.55, -46.63], ['Bogotá', 4.71, -74.07],
-    ['Ciudad de México', 19.43, -99.13], ['Buenos Aires', -34.60, -58.38], ['Santiago', -33.45, -70.67],
-    ['Quito', -0.18, -78.47], ['Recife', -8.05, -34.88], ['Medellín', 6.24, -75.58],
-    ['Montevideo', -34.90, -56.16], ['Guadalajara', 20.67, -103.35], ['Belo Horizonte', -19.92, -43.94],
-    ['San José', 9.93, -84.08], ['Ciudad de Panamá', 8.98, -79.52], ['La Paz', -16.50, -68.15],
-    ['Asunción', -25.28, -57.63], ['Ciudad de Guatemala', 14.63, -90.51], ['La Habana', 23.11, -82.37],
-    ['Porto Alegre', -30.03, -51.23], ['Curitiba', -25.43, -49.27], ['Salvador', -12.97, -38.51],
-    ['Fortaleza', -3.73, -38.53], ['Cali', 3.44, -76.52], ['Rosario', -32.95, -60.64],
-    ['Tegucigalpa', 14.07, -87.19], ['Madrid', 40.42, -3.70], ['Lisboa', 38.72, -9.14],
-    ['Barcelona', 41.39, 2.17], ['New York', 40.71, -74.01], ['Toronto', 43.65, -79.38],
-    ['London', 51.51, -0.13], ['Paris', 48.86, 2.35], ['Berlin', 52.52, 13.40],
-    ['Nairobi', -1.29, 36.82], ['Lagos', 6.52, 3.38], ['Cape Town', -33.92, 18.42],
-    ['Accra', 5.60, -0.19], ['Cairo', 30.04, 31.24], ['Mumbai', 19.08, 72.88],
-    ['Delhi', 28.61, 77.21], ['Bangkok', 13.76, 100.50], ['Jakarta', -6.21, 106.85],
-    ['Manila', 14.60, 120.98], ['Singapore', 1.35, 103.82], ['Seoul', 37.57, 126.98],
-    ['Tokyo', 35.68, 139.65], ['Sydney', -33.87, 151.21], ['Auckland', -36.85, 174.76],
-  ].map(([name, lat, lon]) => ({ name, lat, lon, members: 0, people: [], arrived: 0, v: toXYZ(lat, lon) }));
-
-  let PLACES = SCAFFOLD.map((p, i) => ({ ...p, i }));
+  /* Nothing on this globe is invented. Every node is a city a member typed
+     into their own profile, resolved to real coordinates by the server. A node
+     moves only when that member changes their city — there is no browser
+     geolocation here and there never should be. */
+  let PLACES = [];
 
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   let EDGES = [];
@@ -74,15 +56,16 @@
         .slice(0, 3)
         .forEach((o) => link(n.i, o.i));
     });
-    // a few long hauls so the sphere reads as one network, not clusters
-    const far = ['Madrid', 'New York', 'London', 'Lisboa', 'Paris', 'Nairobi', 'Mumbai', 'Tokyo'];
-    ['Lima', 'São Paulo', 'Ciudad de México', 'Bogotá', 'Buenos Aires'].forEach((from, k) => {
-      const a = PLACES.find((p) => p.name === from);
-      const b = PLACES.find((p) => p.name === far[k % far.length]);
-      if (a && b) link(a.i, b.i);
+    /* Then one long reach per place, to the node furthest from it. Nearest
+       neighbours alone would draw clusters; this is what makes the map read as
+       one network. No city names appear here — the set is whatever the
+       directory happens to contain. */
+    PLACES.forEach((n) => {
+      const farthest = PLACES.reduce(
+        (worst, o) => (o !== n && (!worst || dot(n.v, o.v) < dot(n.v, worst.v)) ? o : worst), null);
+      if (farthest) link(n.i, farthest.i);
     });
   }
-  rebuildEdges();
   const neighbours = (i) => EDGES.filter(([a, b]) => a === i || b === i)
     .map(([a, b]) => PLACES[a === i ? b : a]);
 
@@ -319,11 +302,35 @@
     hint.hidden = true;
     card.hidden = false;
     set('globeCity', place.name);
-    set('globeCount', place.members ? t('d.globe.members', { n: place.members }) : t('d.globe.noMembers'));
-    const people = place.people || [];
-    set('globeRoles', people.length
-      ? people.map((m) => (m.role ? `${m.name} · ${m.role}` : m.name)).join('\n')
-      : t('d.globe.noRoles'));
+    set('globeLabel', place.label && place.label !== place.name ? place.label : '');
+    set('globeCount', t('d.globe.members', { n: place.members }));
+
+    const list = document.getElementById('globePeople');
+    if (list) {
+      list.replaceChildren(...(place.people || []).map((m) => {
+        const row = document.createElement('li');
+        const who = document.createElement('a');
+        who.className = 'globe-person';
+        who.href = `profile.html?id=${encodeURIComponent(m.id)}`;
+        who.textContent = m.name;
+        row.appendChild(who);
+        if (m.role) {
+          const role = document.createElement('span');
+          role.textContent = m.role;
+          row.appendChild(role);
+        }
+        if (m.linkedin) {
+          const li = document.createElement('a');
+          li.className = 'globe-contact';
+          li.href = m.linkedin;
+          li.target = '_blank';
+          li.rel = 'noopener noreferrer';
+          li.textContent = 'LinkedIn';
+          row.appendChild(li);
+        }
+        return row;
+      }));
+    }
     set('globeLinks', neighbours(place.i).map((o) => o.name).join(', '));
   }
 
@@ -405,27 +412,18 @@
   }
 
   function mergePlaces(live) {
-    const byName = new Map(PLACES.map((p) => [normalise(p.name), p]));
-    const merged = PLACES.map((p) => ({ ...p, members: 0, people: [] }));
-    const index = new Map(merged.map((p) => [normalise(p.name), p]));
-    live.forEach((L) => {
-      const key = normalise(L.city);
-      const existing = index.get(key);
-      if (existing) {
-        existing.members = L.members;
-        existing.people = L.people || [];
-        return;
-      }
-      // a city nobody hardcoded: it joins the map at its real coordinates
-      merged.push({
-        name: L.city, lat: L.lat, lon: L.lon, members: L.members,
-        people: L.people || [], arrived: 0, v: toXYZ(L.lat, L.lon),
-      });
-    });
-    const keptArrivals = new Map(PLACES.map((p) => [normalise(p.name), p.arrived]));
-    PLACES = merged.map((p, i) => ({ ...p, i, arrived: keptArrivals.get(normalise(p.name)) || 0 }));
-    byName.clear();
+    const kept = new Map(PLACES.map((p) => [normalise(p.name), p.arrived]));
+    PLACES = live.map((L, i) => ({
+      i,
+      name: L.city,
+      label: L.label || L.city,
+      members: L.members,
+      people: L.people || [],
+      arrived: kept.get(normalise(L.city)) || 0,
+      v: toXYZ(L.lat, L.lon),
+    }));
     rebuildEdges();
+    if (state.picked >= PLACES.length) state.picked = -1;
   }
 
   function sayWhereYouStand(you) {
@@ -462,8 +460,9 @@
     });
     started = true;
 
-    const reached = PLACES.filter((p) => p.members > 0).length;
-    set('globeEyebrow', t('d.globe.eyebrow', { n: reached, total: PLACES.length }));
+    set('globeEyebrow', t('d.globe.eyebrow', { cities: PLACES.length, members: data.members ?? 0 }));
+    const empty = document.getElementById('globeEmpty');
+    if (empty) empty.hidden = PLACES.length > 0;
 
     arrivals.forEach(({ person, place }) => {
       place.arrived = performance.now();
@@ -502,6 +501,6 @@
   resize();
   requestAnimationFrame(frame);
   poll();
-  setInterval(poll, 15000);   // an arrival shows within one poll
+  setInterval(poll, 8000);    // the server caches 3s, so a change lands within ~11s
   document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
 })();

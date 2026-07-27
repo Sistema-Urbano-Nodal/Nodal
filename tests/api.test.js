@@ -1335,7 +1335,17 @@ test('the globe reads the directory and says why you are not on it', async (t) =
   const mococa = seen.body.places.find((p) => p.city === 'Mococa');
   assert.ok(mococa, 'a city nobody hardcoded still reaches the map');
   assert.equal(mococa.lat, -21.47);
-  assert.deepEqual(mococa.people, [{ name: 'João Lucas', role: 'Urbanista' }]);
+  /* The map has to name a person and give a way to reach them, so the card
+     carries the member id (which links to their profile) and LinkedIn if they
+     added one. Email stays out: knowing an address is how you find someone,
+     not something a map should hand over. */
+  assert.equal(mococa.people.length, 1);
+  assert.equal(mococa.people[0].name, 'João Lucas');
+  assert.equal(mococa.people[0].role, 'Urbanista');
+  assert.ok(mococa.people[0].id, 'a member card must be reachable');
+  assert.equal('email' in mococa.people[0], false, 'and must never carry an email');
+  assert.equal(JSON.stringify(seen.body).includes('joao@example.test'), false);
+  assert.equal(typeof seen.body.members, 'number');
   assert.deepEqual(seen.body.you, { listed: true, hasCity: true, onMap: true, city: 'Mococa' });
   // nobody who withheld consent leaks onto the map
   assert.equal(seen.body.places.some((p) => p.city === 'Recife'), false);
