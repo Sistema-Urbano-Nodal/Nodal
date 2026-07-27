@@ -511,6 +511,14 @@ select:focus-visible, textarea:focus-visible {
   color: var(--muted); margin-top: 18px;
 }
 .globe-roles, .globe-links { font-size: 12.5px; line-height: 1.5; margin-top: 5px; color: var(--text-2); }
+.globe-roles { white-space: pre-line; }
+/* why you are or are not on the map, and the one control that fixes it */
+.globe-you {
+  margin-top: 18px; padding-left: 11px; border-left: 2px solid var(--green);
+  font-size: 12.5px; line-height: 1.5; color: var(--text-2);
+}
+.globe-you[hidden], .globe-you-cta[hidden] { display: none; }
+.globe-you-cta { margin-top: 10px; }
 
 /* arrivals: who joined the directory while you were looking */
 .globe-feed-label { margin-top: 22px; }

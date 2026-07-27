@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500;1,600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="dashboard.css?v=26" />
+  <link rel="stylesheet" href="dashboard.css?v=27" />
 </head>
 <body class="dash-page">
 
@@ -145,11 +145,13 @@
             <p class="globe-kicker" data-i18n="d.globe.kicker">Network node</p>
             <h3 id="globeCity">—</h3>
             <p class="globe-count" id="globeCount">—</p>
-            <p class="globe-label" data-i18n="d.globe.roles">Roles there</p>
+            <p class="globe-label" data-i18n="d.globe.people">Who is there</p>
             <p class="globe-roles" id="globeRoles">—</p>
             <p class="globe-label" data-i18n="d.globe.connects">Connects with</p>
             <p class="globe-links" id="globeLinks">—</p>
           </div>
+          <p class="globe-you" id="globeYou" hidden></p>
+          <button type="button" class="btn-ghost globe-you-cta" id="globeYouCta" data-i18n="d.globe.openPartC" hidden>Complete Part C</button>
           <p class="globe-label globe-feed-label" id="globeFeedLabel" data-i18n="d.globe.arrivals" hidden>Just joined</p>
           <ul class="globe-feed" id="globeFeed" hidden></ul>
         </aside>
@@ -419,9 +421,9 @@
   </form>
 </dialog>
 
-<script src="i18n.js?v=29"></script>
+<script src="i18n.js?v=30"></script>
 <script src="coastline.js?v=2"></script>
-<script src="globe.js?v=9"></script>
+<script src="globe.js?v=12"></script>
 <script src="dashboard.js?v=21"></script>
 </body>
 </html>

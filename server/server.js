@@ -40,6 +40,11 @@ const MEMBER_SEARCH_MIN_QUERY = 2;
 const MEMBER_SEARCH_LIMIT = 8;
 const MEMBER_SEARCH_WINDOW_MS = 60 * 1000;
 const MEMBER_SEARCH_RATE_LIMIT = envInt('MEMBER_SEARCH_RATE_LIMIT', 40);
+const PLACE_TTL_MS = 30 * 24 * 60 * 60 * 1000;   // a city does not move
+/* Only the geocoding is expensive, and that is cached for a month. The roll-up
+   is cached just long enough to absorb a burst of polls without putting an
+   arrival behind a wall — a new member must not wait half a minute to appear. */
+const NETWORK_TTL_MS = 5 * 1000;
 const CITY_SEARCH_MAX_QUERY = 80;
 const CITY_SEARCH_LIMIT = envInt('CITY_SEARCH_LIMIT', 8);
 const CITY_SEARCH_CACHE_MS = 24 * 60 * 60 * 1000;
@@ -726,6 +731,77 @@ export function createApp({
           return;
         }
         send(res, 200, { users: [...store.users.values()].map(({ id, name, role, city, interests }) => ({ id, name, role, city, interests })) });
+        return;
+      }
+
+      /* The globe's data. Groups the directory by city and resolves each city
+         to real coordinates through the same provider the profile form uses,
+         so a member in any city on Earth lands in the right place — not only
+         the ones someone thought to hardcode. Coordinates are cached for a
+         month because cities do not move; the roll-up is cached for thirty
+         seconds so a new member still shows up while you are watching. */
+      if (useDb && req.method === 'GET' && pathname === '/api/network/places') {
+        if (!requireAuth(res, sessionUser)) return;
+        const cached = await cache.get(`network:places:v1:${sessionUser.id}`);
+        if (cached) {
+          send(res, 200, cached, { 'X-Cache': 'HIT', 'Content-Type': 'application/json; charset=utf-8' });
+          return;
+        }
+        const rows = await repository.listDirectoryUsers();
+        const groups = new Map();
+        let viewerCity = '';
+        let viewerListed = false;
+        for (const row of rows) {
+          const user = repository.toApiUser(row);
+          if (user.id === sessionUser.id) { viewerListed = true; viewerCity = String(user.city || '').trim(); }
+          const city = String(user.city || '').trim();
+          if (!city) continue;
+          const key = city.toLowerCase();
+          if (!groups.has(key)) groups.set(key, { city, members: [] });
+          groups.get(key).members.push({ id: user.id, name: user.fullName, role: user.title });
+        }
+
+        const places = [];
+        for (const group of groups.values()) {
+          const cacheKey = `place:v1:${group.city.toLowerCase()}`;
+          let point = null;
+          const remembered = await cache.get(cacheKey);
+          if (remembered) {
+            try { point = JSON.parse(remembered); } catch { point = null; }
+          }
+          if (!point) {
+            try {
+              const found = await citySearch.search(group.city, req.headers['accept-language']);
+              const best = (found.cities || []).find((c) => Number.isFinite(c.lat) && Number.isFinite(c.lon));
+              if (best) point = { lat: best.lat, lon: best.lon, label: best.label || group.city };
+            } catch { /* provider down: the city simply has no pin this round */ }
+            if (point) await cache.set(cacheKey, JSON.stringify(point), PLACE_TTL_MS);
+          }
+          if (!point) continue;
+          places.push({
+            city: group.city,
+            label: point.label,
+            lat: point.lat,
+            lon: point.lon,
+            members: group.members.length,
+            people: group.members.slice(0, 8).map((m) => ({ name: m.name, role: m.role })),
+          });
+        }
+        /* Three different situations, three different things to tell someone:
+           not in the directory at all, in it but with no city, or in it with a
+           city the provider could not place. */
+        const placed = new Set(places.map((p) => p.city.toLowerCase()));
+        const payload = {
+          places,
+          you: {
+            listed: viewerListed,
+            hasCity: viewerCity !== '',
+            onMap: viewerListed && viewerCity !== '' && placed.has(viewerCity.toLowerCase()),
+            city: viewerCity,
+          },
+        };
+        await cache.set(`network:places:v1:${sessionUser.id}`, JSON.stringify(payload), NETWORK_TTL_MS);
+        send(res, 200, payload, { 'X-Cache': 'MISS' });
         return;
       }
 

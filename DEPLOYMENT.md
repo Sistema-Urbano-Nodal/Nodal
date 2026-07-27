@@ -130,6 +130,12 @@ npm start
 - `GET /api/users/search` matches name, role and city on substring but requires a
   full registration email to match by address, and never returns an email. It is
   rate limited per session (`MEMBER_SEARCH_RATE_LIMIT`, default 40/min).
+- `GET /api/network/places` feeds the globe. It groups consenting members by city
+  and resolves each city through the same provider the profile form uses, so any
+  city on Earth can appear - not a hardcoded list. Coordinates are cached for a
+  month (cities do not move); the roll-up is cached five seconds and keyed per
+  viewer, because it carries that viewer's own listing status. Member ids are
+  never included, only names and roles the directory already publishes.
 - Auth cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` in production.
 - Stripe webhook signature verification is configured before live billing.
 - Production logs do not include passwords, access tokens, service keys, or raw profile payloads.

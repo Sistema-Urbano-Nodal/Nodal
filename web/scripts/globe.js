@@ -35,8 +35,10 @@
       return toXYZ(Number(lat), Number(lon));
     }));
 
-  /* ---------- where NODAL organises ---------- */
-  const PLACES = [
+  /* Backdrop: cities NODAL is organising in. These are context, not data —
+     the live network arrives from /api/network/places and any city a member
+     actually typed is added to this set with real coordinates. */
+  const SCAFFOLD = [
     ['Lima', -12.05, -77.04], ['São Paulo', -23.55, -46.63], ['Bogotá', 4.71, -74.07],
     ['Ciudad de México', 19.43, -99.13], ['Buenos Aires', -34.60, -58.38], ['Santiago', -33.45, -70.67],
     ['Quito', -0.18, -78.47], ['Recife', -8.05, -34.88], ['Medellín', 6.24, -75.58],
@@ -53,23 +55,34 @@
     ['Delhi', 28.61, 77.21], ['Bangkok', 13.76, 100.50], ['Jakarta', -6.21, 106.85],
     ['Manila', 14.60, 120.98], ['Singapore', 1.35, 103.82], ['Seoul', 37.57, 126.98],
     ['Tokyo', 35.68, 139.65], ['Sydney', -33.87, 151.21], ['Auckland', -36.85, 174.76],
-  ].map(([name, lat, lon], i) => ({ i, name, members: 0, roles: [], arrived: 0, v: toXYZ(lat, lon) }));
+  ].map(([name, lat, lon]) => ({ name, lat, lon, members: 0, people: [], arrived: 0, v: toXYZ(lat, lon) }));
+
+  let PLACES = SCAFFOLD.map((p, i) => ({ ...p, i }));
 
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-  const EDGES = [];
-  const seen = new Set();
-  const link = (a, b) => {
-    const key = a < b ? `${a}:${b}` : `${b}:${a}`;
-    if (a !== b && !seen.has(key)) { seen.add(key); EDGES.push([a, b]); }
-  };
-  PLACES.forEach((n) => {
-    PLACES.filter((o) => o !== n)
-      .sort((x, y) => dot(n.v, y.v) - dot(n.v, x.v))
-      .slice(0, 3)
-      .forEach((o) => link(n.i, o.i));
-  });
-  [[0, 25], [1, 28], [3, 30], [2, 26], [4, 31], [33, 1], [38, 0], [45, 5], [34, 8]]
-    .forEach(([a, b]) => link(a, b));
+  let EDGES = [];
+  function rebuildEdges() {
+    EDGES = [];
+    const seen = new Set();
+    const link = (a, b) => {
+      const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+      if (a !== b && !seen.has(key)) { seen.add(key); EDGES.push([a, b]); }
+    };
+    PLACES.forEach((n) => {
+      PLACES.filter((o) => o !== n)
+        .sort((x, y) => dot(n.v, y.v) - dot(n.v, x.v))
+        .slice(0, 3)
+        .forEach((o) => link(n.i, o.i));
+    });
+    // a few long hauls so the sphere reads as one network, not clusters
+    const far = ['Madrid', 'New York', 'London', 'Lisboa', 'Paris', 'Nairobi', 'Mumbai', 'Tokyo'];
+    ['Lima', 'São Paulo', 'Ciudad de México', 'Bogotá', 'Buenos Aires'].forEach((from, k) => {
+      const a = PLACES.find((p) => p.name === from);
+      const b = PLACES.find((p) => p.name === far[k % far.length]);
+      if (a && b) link(a.i, b.i);
+    });
+  }
+  rebuildEdges();
   const neighbours = (i) => EDGES.filter(([a, b]) => a === i || b === i)
     .map(([a, b]) => PLACES[a === i ? b : a]);
 
@@ -307,7 +320,10 @@
     card.hidden = false;
     set('globeCity', place.name);
     set('globeCount', place.members ? t('d.globe.members', { n: place.members }) : t('d.globe.noMembers'));
-    set('globeRoles', place.roles.length ? [...new Set(place.roles)].slice(0, 4).join(' · ') : t('d.globe.noRoles'));
+    const people = place.people || [];
+    set('globeRoles', people.length
+      ? people.map((m) => (m.role ? `${m.name} · ${m.role}` : m.name)).join('\n')
+      : t('d.globe.noRoles'));
     set('globeLinks', neighbours(place.i).map((o) => o.name).join(', '));
   }
 
@@ -353,11 +369,34 @@
   });
 
   /* ---------- the directory, live ---------- */
-  const normalise = (s) => String(s || '').trim().toLowerCase()
-    .normalize('NFD').replace(/[̀-ͯ]/g, '');
-  const byCity = new Map(PLACES.map((p) => [normalise(p.name), p]));
-  const known = new Set();
+  const normalise = (s2) => String(s2 || '').trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  /* Arrivals are detected by comparing each city's roster as a multiset, not
+     by name alone: two members can share a name in the same city, and the
+     endpoint deliberately withholds member ids. */
+  const roster = new Map();
   let started = false;
+  const bag = (people) => {
+    const counts = new Map();
+    people.forEach((m) => {
+      const key = `${normalise(m.name)}|${normalise(m.role)}`;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return counts;
+  };
+  function newcomers(city, people) {
+    const before = roster.get(city) || new Map();
+    const after = bag(people);
+    const added = [];
+    after.forEach((n, key) => {
+      const gained = n - (before.get(key) || 0);
+      for (let k = 0; k < gained; k += 1) {
+        added.push(people.find((m) => `${normalise(m.name)}|${normalise(m.role)}` === key));
+      }
+    });
+    roster.set(city, after);
+    return added;
+  }
 
   function spinTo(place) {
     state.picked = place.i;
@@ -365,52 +404,93 @@
     showPlace(place);
   }
 
+  function mergePlaces(live) {
+    const byName = new Map(PLACES.map((p) => [normalise(p.name), p]));
+    const merged = PLACES.map((p) => ({ ...p, members: 0, people: [] }));
+    const index = new Map(merged.map((p) => [normalise(p.name), p]));
+    live.forEach((L) => {
+      const key = normalise(L.city);
+      const existing = index.get(key);
+      if (existing) {
+        existing.members = L.members;
+        existing.people = L.people || [];
+        return;
+      }
+      // a city nobody hardcoded: it joins the map at its real coordinates
+      merged.push({
+        name: L.city, lat: L.lat, lon: L.lon, members: L.members,
+        people: L.people || [], arrived: 0, v: toXYZ(L.lat, L.lon),
+      });
+    });
+    const keptArrivals = new Map(PLACES.map((p) => [normalise(p.name), p.arrived]));
+    PLACES = merged.map((p, i) => ({ ...p, i, arrived: keptArrivals.get(normalise(p.name)) || 0 }));
+    byName.clear();
+    rebuildEdges();
+  }
+
+  function sayWhereYouStand(you) {
+    const note = document.getElementById('globeYou');
+    const cta = document.getElementById('globeYouCta');
+    if (!note || !cta) return;
+    let key = null;
+    if (!you) { note.hidden = true; cta.hidden = true; return; }
+    if (!you.listed) key = 'd.globe.youNotListed';
+    else if (!you.hasCity) key = 'd.globe.youNoCity';
+    else if (!you.onMap) key = 'd.globe.youUnplaced';
+    if (!key) { note.hidden = true; cta.hidden = true; return; }
+    note.textContent = key === 'd.globe.youUnplaced' ? t(key, { city: you.city }) : t(key);
+    note.hidden = false;
+    cta.hidden = you.listed && you.hasCity;
+  }
+
   async function poll() {
-    let users;
+    let data;
     try {
-      const res = await fetch('/api/users', { headers: { Accept: 'application/json' } });
+      const res = await fetch('/api/network/places', { headers: { Accept: 'application/json' } });
       if (!res.ok) return;
-      users = (await res.json()).users;
-      if (!Array.isArray(users)) return;
-    } catch { return; }               // static hosting: the map still draws
+      data = await res.json();
+      if (!Array.isArray(data.places)) return;
+    } catch { return; }          // static hosting: the backdrop still draws
+
+    mergePlaces(data.places);
+    sayWhereYouStand(data.you);
 
     const arrivals = [];
-    PLACES.forEach((p) => { p.members = 0; p.roles = []; });
-    users.forEach((u) => {
-      const place = byCity.get(normalise(u.city));
-      if (!place) return;
-      place.members += 1;
-      if (u.role) place.roles.push(u.role);
-      if (started && !known.has(u.id)) arrivals.push({ user: u, place });
-      known.add(u.id);
+    PLACES.forEach((place) => {
+      const added = newcomers(normalise(place.name), place.people || []);
+      if (started) added.forEach((person) => arrivals.push({ person, place }));
     });
-    if (!started) users.forEach((u) => known.add(u.id));
     started = true;
 
     const reached = PLACES.filter((p) => p.members > 0).length;
     set('globeEyebrow', t('d.globe.eyebrow', { n: reached, total: PLACES.length }));
 
-    arrivals.forEach(({ user, place }) => {
+    arrivals.forEach(({ person, place }) => {
       place.arrived = performance.now();
-      announce(user, place);
+      announce(person, place);
     });
     if (arrivals.length && state.picked < 0) spinTo(arrivals[arrivals.length - 1].place);
+    else if (state.picked >= 0) showPlace(PLACES[state.picked]);
   }
 
   const feed = document.getElementById('globeFeed');
-  function announce(user, place) {
+  function announce(person, place) {
     if (!feed) return;
     const row = document.createElement('li');
     const name = document.createElement('strong');
-    name.textContent = user.name;
+    name.textContent = person.name;
     const where = document.createElement('span');
-    where.textContent = `${user.role ? `${user.role} · ` : ''}${place.name}`;
+    where.textContent = `${person.role ? `${person.role} · ` : ''}${place.name}`;
     row.append(name, where);
     feed.prepend(row);
     while (feed.children.length > 4) feed.lastElementChild.remove();
     feed.hidden = false;
     document.getElementById('globeFeedLabel')?.removeAttribute('hidden');
   }
+
+  document.getElementById('globeYouCta')?.addEventListener('click', () => {
+    document.getElementById('partCBtn')?.click();
+  });
 
   const io = new IntersectionObserver((entries) => {
     entries.forEach((e) => { state.visible = e.isIntersecting; });
@@ -422,6 +502,6 @@
   resize();
   requestAnimationFrame(frame);
   poll();
-  setInterval(poll, 20000);
+  setInterval(poll, 15000);   // an arrival shows within one poll
   document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
 })();

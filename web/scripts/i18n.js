@@ -787,6 +787,9 @@
     'd.globe.members': '{n} in the member directory',
     'd.globe.noMembers': 'No members in the directory yet',
     'd.globe.noRoles': 'No roles listed yet',
+    'd.globe.youNotListed': 'You are not on the map yet. Your profile joins it once you tick the directory consent in Part C.',
+    'd.globe.youNoCity': 'Add your city to your profile and your node appears here.',
+    'd.globe.youUnplaced': 'We could not place {city} on the map yet. Try the city name as it appears in the profile suggestions.',
   };
 
   const DASH_ES = {
@@ -1268,6 +1271,11 @@
     'd.globe.roles': 'Roles ahí',
     'd.globe.noRoles': 'Aún sin roles registrados',
     'd.globe.arrivals': 'Acaba de entrar',
+    'd.globe.people': 'Quién está ahí',
+    'd.globe.openPartC': 'Completar la Parte C',
+    'd.globe.youNotListed': 'Todavía no estás en el mapa. Tu perfil entra cuando marques el consentimiento del directorio en la Parte C.',
+    'd.globe.youNoCity': 'Agrega tu ciudad al perfil y tu nodo aparece aquí.',
+    'd.globe.youUnplaced': 'Aún no pudimos ubicar {city} en el mapa. Prueba el nombre de la ciudad como aparece en las sugerencias del perfil.',
   };
 
   const DASH_PT = {
@@ -1749,6 +1757,11 @@
     'd.globe.roles': 'Papéis por lá',
     'd.globe.noRoles': 'Ainda sem papéis registrados',
     'd.globe.arrivals': 'Acabou de entrar',
+    'd.globe.people': 'Quem está lá',
+    'd.globe.openPartC': 'Completar a Parte C',
+    'd.globe.youNotListed': 'Você ainda não está no mapa. Seu perfil entra quando marcar o consentimento do diretório na Parte C.',
+    'd.globe.youNoCity': 'Adicione sua cidade ao perfil e seu nó aparece aqui.',
+    'd.globe.youUnplaced': 'Ainda não conseguimos localizar {city} no mapa. Tente o nome da cidade como aparece nas sugestões do perfil.',
   };
 
   Object.assign(ES, DASH_ES);

@@ -1311,3 +1311,42 @@ test('a request target starting with // is a path, not another origin', async (t
   const traversal = await fetch(`${base}/assets/%252e%252e/%252e%252e/server/db.js`);
   assert.equal(traversal.status, 404, 'a double-encoded traversal must not resolve');
 });
+
+test('the globe reads the directory and says why you are not on it', async (t) => {
+  const geocoded = [];
+  const citySearch = {
+    async search(query) {
+      geocoded.push(query);
+      if (String(query).toLowerCase() === 'mococa') {
+        return { cities: [{ label: 'Mococa, São Paulo, Brazil', lat: -21.47, lon: -47.0 }] };
+      }
+      return { cities: [] };            // a city the provider cannot place
+    },
+  };
+  const { base } = await bootDbHandle(t, { citySearch });
+
+  const listed = await consentingMember(base, { name: 'João Lucas', email: 'joao@example.test', city: 'Mococa', title: 'Urbanista' });
+  const quiet = await consentingMember(base, { name: 'Sem Consentimento', email: 'quiet@example.test', city: 'Recife', consent: false });
+
+  assert.equal((await getJson(base, '/api/network/places')).status, 401);
+
+  const seen = await getJson(base, '/api/network/places', listed.cookie);
+  assert.equal(seen.status, 200);
+  const mococa = seen.body.places.find((p) => p.city === 'Mococa');
+  assert.ok(mococa, 'a city nobody hardcoded still reaches the map');
+  assert.equal(mococa.lat, -21.47);
+  assert.deepEqual(mococa.people, [{ name: 'João Lucas', role: 'Urbanista' }]);
+  assert.deepEqual(seen.body.you, { listed: true, hasCity: true, onMap: true, city: 'Mococa' });
+  // nobody who withheld consent leaks onto the map
+  assert.equal(seen.body.places.some((p) => p.city === 'Recife'), false);
+
+  const hidden = await getJson(base, '/api/network/places', quiet.cookie);
+  assert.equal(hidden.body.you.listed, false, 'and they are told they are not listed');
+
+  /* Coordinates are cached per city, independently of the per-viewer roll-up:
+     read it as a DIFFERENT member so the roll-up cache misses and only the
+     city cache can keep the geocoder from being called again. */
+  const before = geocoded.length;
+  await getJson(base, '/api/network/places', quiet.cookie);
+  assert.equal(geocoded.length, before, 'city coordinates are cached across viewers');
+});
