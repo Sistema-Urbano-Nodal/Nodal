@@ -41,6 +41,55 @@
      geolocation here and there never should be. */
   let PLACES = [];
 
+  /* ---------- the cage ----------
+     A geodesic shell sitting just outside the sphere: the structure the globe
+     is drawn on, not data. Deliberately a hairline with pinprick vertices so
+     it can never be mistaken for a member — members are the filled green nodes
+     and nothing else. Built from an icosahedron subdivided once: 42 vertices,
+     120 struts, generated rather than stored. */
+  const CAGE_R = 1.075;
+  const CAGE = (() => {
+    const t = (1 + Math.sqrt(5)) / 2;
+    const unit = (v) => { const m = Math.hypot(...v); return [v[0] / m, v[1] / m, v[2] / m]; };
+    let verts = [
+      [-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0],
+      [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t],
+      [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1],
+    ].map(unit);
+    let faces = [
+      [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
+      [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
+      [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
+      [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1],
+    ];
+    const mid = new Map();
+    const midpoint = (a, b) => {
+      const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+      if (mid.has(key)) return mid.get(key);
+      const i = verts.push(unit([
+        (verts[a][0] + verts[b][0]) / 2,
+        (verts[a][1] + verts[b][1]) / 2,
+        (verts[a][2] + verts[b][2]) / 2,
+      ])) - 1;
+      mid.set(key, i);
+      return i;
+    };
+    faces = faces.flatMap(([a, b, c]) => {
+      const ab = midpoint(a, b);
+      const bc = midpoint(b, c);
+      const ca = midpoint(c, a);
+      return [[a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]];
+    });
+    const struts = new Set();
+    faces.forEach(([a, b, c]) => [[a, b], [b, c], [c, a]].forEach(([x, y]) => {
+      struts.add(x < y ? `${x}:${y}` : `${y}:${x}`);
+    }));
+    return {
+      verts,
+      struts: [...struts].map((k) => k.split(':').map(Number)),
+    };
+  })();
+
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   let EDGES = [];
   function rebuildEdges() {
@@ -91,7 +140,7 @@
     canvas.width = Math.round(W * dpr);
     canvas.height = Math.round(H * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    R = Math.min(W, H) * 0.48;
+    R = Math.min(W, H) * 0.445;   // leaves room for the cage at 1.075
     CX = W / 2; CY = H / 2;
   }
 
@@ -167,6 +216,24 @@
     });
   }
 
+  function cage() {
+    const scale = (v) => [v[0] * CAGE_R, v[1] * CAGE_R, v[2] * CAGE_R];
+    CAGE.struts.forEach(([ai, bi]) => {
+      const a = CAGE.verts[ai];
+      const b = CAGE.verts[bi];
+      const pts = [];
+      for (let k = 0; k <= 6; k += 1) pts.push(project(scale(slerp(a, b, k / 6))));
+      strokeArc(pts, 'rgba(61,92,56,.3)', 'rgba(61,92,56,.09)', 0.7);
+    });
+    CAGE.verts.forEach((v) => {
+      const [x, y, z] = project(scale(v));
+      ctx.beginPath();
+      ctx.arc(x, y, z >= 0 ? 1.5 : 1, 0, Math.PI * 2);
+      ctx.fillStyle = z >= 0 ? 'rgba(61,92,56,.45)' : 'rgba(61,92,56,.13)';
+      ctx.fill();
+    });
+  }
+
   function limb() {
     ctx.beginPath();
     ctx.arc(CX, CY, R, 0, Math.PI * 2);
@@ -225,8 +292,8 @@
       screen.push({ i: n.i, x, y, z });
       if (z < 0) return;
       const active = n.i === state.picked || n.i === state.hover;
-      const has = n.members > 0;
-      const r = (has ? 3.6 : 2.2) + Math.sqrt(n.members) * 1.1;
+      // a place exists only because someone is there, so every node is a member node
+      const r = 3.6 + Math.sqrt(n.members) * 1.1;
 
       // a place that just gained a member rings out for a few seconds
       if (n.arrived && !calm()) {
@@ -239,31 +306,20 @@
           ctx.stroke();
         } else { n.arrived = 0; }
       }
-      if (has) {
-        const glow = ctx.createRadialGradient(x, y, 0, x, y, r + 9);
-        glow.addColorStop(0, 'rgba(89,188,83,.5)');
-        glow.addColorStop(1, 'rgba(89,188,83,0)');
-        ctx.beginPath();
-        ctx.arc(x, y, r + 9, 0, Math.PI * 2);
-        ctx.fillStyle = glow;
-        ctx.fill();
-      }
+      const glow = ctx.createRadialGradient(x, y, 0, x, y, r + 9);
+      glow.addColorStop(0, 'rgba(89,188,83,.5)');
+      glow.addColorStop(1, 'rgba(89,188,83,0)');
+      ctx.beginPath();
+      ctx.arc(x, y, r + 9, 0, Math.PI * 2);
+      ctx.fillStyle = glow;
+      ctx.fill();
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = active ? '#25341f' : has ? '#59bc53' : 'rgba(255,255,255,.9)';
+      ctx.fillStyle = active ? '#25341f' : '#59bc53';
       ctx.fill();
-      if (!has) {
-        ctx.strokeStyle = 'rgba(61,92,56,.75)';
-        ctx.lineWidth = 1.3;
-        ctx.stroke();
-      }
-      if (has) {
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(255,255,255,.85)';
-        ctx.lineWidth = 1.2;
-        ctx.stroke();
-      }
+      ctx.strokeStyle = 'rgba(255,255,255,.85)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
       if (active) {
         ctx.font = '700 12px Montserrat, system-ui, sans-serif';
         ctx.textAlign = 'center';
@@ -283,6 +339,7 @@
       ctx.clearRect(0, 0, W, H);
       if (!state.drag && !calm()) state.yaw -= SPIN * dt;
       syncRotation();
+      cage();
       limb();
       land();
       connections();
