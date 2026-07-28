@@ -111,9 +111,18 @@
     if (persist) { state.user = user; touchUser(); }
     applyAll();
   }
+  /* Every edit fires its own PATCH without waiting for the last one, so two
+     quick changes are in flight together and the answers can land in either
+     order. Only the newest save is allowed to write its answer back — an
+     earlier, slower one would otherwise put the pre-edit state on screen while
+     the server holds the newer one, and the two would disagree until reload. */
+  let saveSeq = 0;
   async function saveProfile() {
     if (!U) return;
+    const seq = saveSeq + 1;
+    saveSeq = seq;
     const data = await api('/api/me', { method: 'PATCH', body: JSON.stringify(serializeUser(U)) });
+    if (seq !== saveSeq) return;
     U = normalizeApiUser(data.user);
     state.user = U;
     state.notifRead = U.notifRead;
