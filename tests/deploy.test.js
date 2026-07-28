@@ -171,3 +171,77 @@ test('release tree excludes internal process artifacts and unused integration pl
   assert.doesNotMatch(publicDocs, /NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY/);
   assert.doesNotMatch(publicDocs, /LINKEDIN_CLIENT_(ID|SECRET)/);
 });
+
+/* A page and the script that drives it are edited independently, and a removed
+   element leaves no trace in the JS. Deleting one <p> in 15916ec took the whole
+   globe detail panel down, because its guard demanded an element that no longer
+   existed and showPlace() became a silent no-op. */
+test('every element a script looks up exists on a page that loads the script', () => {
+  const pagesDir = path.join(ROOT, 'web', 'pages');
+  const idsOnPage = new Map();
+  const pagesForScript = new Map();
+  for (const page of readdirSync(pagesDir).filter((f) => f.endsWith('.html'))) {
+    const html = readFileSync(path.join(pagesDir, page), 'utf8');
+    idsOnPage.set(page, new Set([...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1])));
+    for (const m of html.matchAll(/<script[^>]+src="([^"?]+)/g)) {
+      const script = m[1].replace(/^\.?\//, '');
+      if (!pagesForScript.has(script)) pagesForScript.set(script, []);
+      pagesForScript.get(script).push(page);
+    }
+  }
+  assert.ok(pagesForScript.size >= 10, 'expected every page to declare its scripts');
+
+  const dangling = [];
+  for (const [script, pages] of pagesForScript) {
+    const js = readFileSync(path.join(ROOT, 'web', 'scripts', script), 'utf8');
+    const referenced = new Set([
+      ...[...js.matchAll(/getElementById\(\s*'([^']+)'/g)].map((m) => m[1]),
+      ...[...js.matchAll(/\bbyId\(\s*'([^']+)'/g)].map((m) => m[1]),
+      ...[...js.matchAll(/querySelector\(\s*'#([A-Za-z0-9_-]+)'/g)].map((m) => m[1]),
+    ]);
+    for (const id of referenced) {
+      if (!pages.some((page) => idsOnPage.get(page).has(id))) dangling.push(`${script} -> #${id}`);
+    }
+  }
+  assert.deepEqual(dangling, [], `scripts reference ids no page they load on defines:\n${dangling.join('\n')}`);
+});
+
+test('every translation key a script asks for resolves in all three languages', () => {
+  const src = readFileSync(path.join(ROOT, 'web', 'scripts', 'i18n.js'), 'utf8');
+  const dictionary = (name) => {
+    const start = src.indexOf(`const ${name} = {`);
+    assert.notEqual(start, -1, `${name} dictionary is missing`);
+    let depth = 0;
+    let end = start;
+    for (let i = src.indexOf('{', start); i < src.length; i += 1) {
+      if (src[i] === '{') depth += 1;
+      else if (src[i] === '}') { depth -= 1; if (!depth) { end = i; break; } }
+    }
+    const body = src.slice(start, end + 1);
+    return new Set([
+      ...[...body.matchAll(/^\s*'([^']+)':/gm)].map((m) => m[1]),
+      ...[...body.matchAll(/^\s*([A-Za-z_$][\w$]*):/gm)].map((m) => m[1]),
+    ]);
+  };
+  // English is DASH_EN plus whatever the pages carry in data-i18n
+  const english = dictionary('DASH_EN');
+  for (const page of readdirSync(path.join(ROOT, 'web', 'pages')).filter((f) => f.endsWith('.html'))) {
+    const html = readFileSync(path.join(ROOT, 'web', 'pages', page), 'utf8');
+    for (const m of html.matchAll(/data-i18n(?:-placeholder)?="([^"]+)"/g)) english.add(m[1]);
+  }
+  const spanish = new Set([...dictionary('ES'), ...dictionary('DASH_ES')]);
+  const portuguese = new Set([...dictionary('PT'), ...dictionary('DASH_PT')]);
+
+  const missing = [];
+  for (const file of readdirSync(path.join(ROOT, 'web', 'scripts')).filter((f) => f.endsWith('.js'))) {
+    const js = readFileSync(path.join(ROOT, 'web', 'scripts', file), 'utf8');
+    for (const m of js.matchAll(/\bt\(\s*'([^']+)'/g)) {
+      const key = m[1];
+      // a key absent from English renders as the raw key; the others fall back
+      if (!english.has(key)) missing.push(`${file}: '${key}' has no English text`);
+      if (!spanish.has(key)) missing.push(`${file}: '${key}' is missing from Spanish`);
+      if (!portuguese.has(key)) missing.push(`${file}: '${key}' is missing from Portuguese`);
+    }
+  }
+  assert.deepEqual(missing, [], `untranslated keys:\n${missing.join('\n')}`);
+});

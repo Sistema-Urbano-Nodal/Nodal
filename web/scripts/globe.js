@@ -354,13 +354,14 @@
 
   /* ---------- the panel ---------- */
   const card = document.getElementById('globeCard');
-  const hint = document.getElementById('globeHint');
   const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
 
+  /* Guards only on the card it fills. It used to also demand a hint paragraph
+     that sat above it; when that line was deleted from the page this whole
+     function became a no-op, and picking a node on the globe opened nothing. */
   function showPlace(place) {
-    if (!card || !hint) return;
-    if (!place) { card.hidden = true; hint.hidden = false; return; }
-    hint.hidden = true;
+    if (!card) return;
+    if (!place) { card.hidden = true; return; }
     card.hidden = false;
     set('globeCity', place.name);
     set('globeLabel', place.label && place.label !== place.name ? place.label : '');
