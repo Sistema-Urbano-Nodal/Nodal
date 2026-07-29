@@ -32,19 +32,10 @@
   const localeTag = () => ({ en: 'en-GB', es: 'es-ES', pt: 'pt-BR' }[I18N?.lang] ?? 'en-GB');
   const SAFE_LINKEDIN = /^https:\/\/(www\.)?linkedin\.com\/(in|company)\/[A-Za-z0-9_-]+/;
 
-  const toXYZ = (lat, lon) => [
-    Math.cos(lat * RAD) * Math.cos(lon * RAD),
-    Math.sin(lat * RAD),
-    Math.cos(lat * RAD) * Math.sin(lon * RAD),
-  ];
-
-  /* ---------- the land ---------- */
-  const LAND = (window.NODAL_COASTLINE || '').split(';').filter(Boolean).map((ring) => ring
-    .split(' ')
-    .map((pair) => {
-      const [lon, lat] = pair.split(',');
-      return toXYZ(Number(lat), Number(lon));
-    }));
+  const GEO = window.NodalGeo;
+  const toXYZ = GEO.toXYZ;
+  const LAND = GEO.parse(window.NODAL_COASTLINE || '');
+  const GRATICULE = GEO.graticule(30);
 
   /* Nothing on this globe is invented. Every node is a city a member typed
      into their own profile, resolved to real coordinates by the server. A node
@@ -101,7 +92,6 @@
     };
   })();
 
-  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   /* Edges are relationships, not geometry: each one is at least one member in
      A following a member in B. Two places with nobody between them are drawn
      apart, which is the truth about them. */
@@ -121,7 +111,7 @@
     .map(([a, b]) => PLACES[a === i ? b : a]);
 
   const slerp = (a, b, s) => {
-    const om = Math.acos(Math.min(1, Math.max(-1, dot(a, b))));
+    const om = Math.acos(Math.min(1, Math.max(-1, GEO.dot(a, b))));
     if (om < 1e-6) return a;
     const k1 = Math.sin((1 - s) * om) / Math.sin(om);
     const k2 = Math.sin(s * om) / Math.sin(om);
@@ -168,54 +158,55 @@
     return [CX + R * r[0], CY - R * r[1], r[2]];
   }
 
-  /* Clip a ring against the visible hemisphere. Where an edge crosses the
-     horizon the crossing point is interpolated and pushed back onto the unit
-     sphere, so the landmass ends exactly on the limb instead of being smeared
-     around it. A ring wholly on the far side simply disappears. */
-  function clipToFront(ring) {
-    const view = ring.map(rotate);
-    const runs = [];
-    let run = null;
-    const cross = (a, b) => {
-      const k = a[2] / (a[2] - b[2]);
-      const p = [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, 0];
-      const m = Math.hypot(p[0], p[1]) || 1;
-      return [p[0] / m, p[1] / m, 0];
-    };
-    for (let i = 0; i < view.length; i += 1) {
-      const a = view[i];
-      const b = view[(i + 1) % view.length];
-      if (a[2] >= 0) {
-        if (!run) { run = []; runs.push(run); }
-        run.push(a);
-        if (b[2] < 0) { run.push(cross(a, b)); run = null; }
-      } else if (b[2] >= 0) {
-        run = [cross(a, b)];
-        runs.push(run);
-      }
-    }
-    return runs.filter((r) => r.length > 1);
-  }
-
-  /* Coastlines are drawn as open lines, never closed polygons. Closing a
-     clipped ring would need a chord across the sphere, and on a landmass as
-     wide as Eurasia that chord cuts straight through the visible face. Lines
-     have no such seam at any rotation — and a globe drawn in outline is the
-     same engraved language the rest of the console speaks. */
+  /* Land is filled, not merely outlined, so a continent reads as a continent.
+     The fill is deliberately faint: members are the loudest marks on this globe
+     and nothing else may compete with them. Lakes are holes in the same path,
+     so the Caspian and the Great Lakes are not painted as ground. */
   function land() {
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
-    LAND.forEach((ring) => {
-      clipToFront(ring).forEach((run) => {
+    for (const polygon of LAND) {
+      if (!GEO.isVisible(polygon, rotate)) continue;
+      const path = new Path2D();
+      const outlines = [];
+      for (const ring of polygon.rings) {
+        const { fill, stroke } = GEO.clip(ring, rotate);
+        for (const region of fill) {
+          const pts = region.map(screenOf);
+          path.moveTo(pts[0][0], pts[0][1]);
+          for (let i = 1; i < pts.length; i += 1) path.lineTo(pts[i][0], pts[i][1]);
+          path.closePath();
+        }
+        outlines.push(...stroke);
+      }
+      ctx.fillStyle = 'rgba(61,92,56,.10)';
+      ctx.fill(path, 'evenodd');
+      ctx.strokeStyle = 'rgba(61,92,56,.8)';
+      ctx.lineWidth = 1.15;
+      for (const run of outlines) {
         const pts = run.map(screenOf);
         ctx.beginPath();
         ctx.moveTo(pts[0][0], pts[0][1]);
         for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i][0], pts[i][1]);
-        ctx.strokeStyle = 'rgba(61,92,56,.8)';
-        ctx.lineWidth = 1.15;
         ctx.stroke();
-      });
-    });
+      }
+    }
+  }
+
+  /* Meridians and parallels, under everything. Faint enough to read as a grid
+     you measure against rather than as content. */
+  function graticule() {
+    ctx.strokeStyle = 'rgba(61,92,56,.13)';
+    ctx.lineWidth = 0.6;
+    for (const ring of GRATICULE) {
+      for (const run of GEO.clipLine(ring, rotate)) {
+        const pts = run.map(screenOf);
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i][0], pts[i][1]);
+        ctx.stroke();
+      }
+    }
   }
 
   function cage() {
@@ -273,7 +264,7 @@
     EDGES.forEach(([ai, bi]) => {
       const lit = active >= 0 && (ai === active || bi === active);
       if (active >= 0 && !lit) return;
-      const span = Math.acos(Math.min(1, Math.max(-1, dot(PLACES[ai].v, PLACES[bi].v))));
+      const span = Math.acos(Math.min(1, Math.max(-1, GEO.dot(PLACES[ai].v, PLACES[bi].v))));
       const bow = 0.05 * (1 - span / Math.PI);      // long hauls hug the surface
       const pts = [];
       for (let s = 0; s <= 26; s += 1) {
@@ -296,10 +287,12 @@
       screen.push({ i: n.i, x, y, z });
       if (z < 0) return;
       const active = n.i === state.picked || n.i === state.hover;
-      // a place exists only because someone is there, so every node is a member node
+      /* Two marks with two jobs. The dot is the city and nothing else, so it
+         stays small and two neighbouring cities never merge into one blob. The
+         ring around it carries the member count, on the same scale the single
+         dot used to use so the globe reads at the same weight as before. */
       const r = 3.6 + Math.sqrt(n.members) * 1.1;
 
-      // a place that just gained a member rings out for a few seconds
       if (n.arrived && !calm()) {
         const age = (time - n.arrived) / 2600;
         if (age < 1) {
@@ -317,12 +310,19 @@
       ctx.arc(x, y, r + 9, 0, Math.PI * 2);
       ctx.fillStyle = glow;
       ctx.fill();
+
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.strokeStyle = active ? '#25341f' : 'rgba(89,188,83,.9)';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(x, y, 2.2, 0, Math.PI * 2);
       ctx.fillStyle = active ? '#25341f' : '#59bc53';
       ctx.fill();
       ctx.strokeStyle = 'rgba(255,255,255,.85)';
-      ctx.lineWidth = 1.2;
+      ctx.lineWidth = 1;
       ctx.stroke();
       if (active) {
         ctx.font = '700 12px Montserrat, system-ui, sans-serif';
@@ -344,8 +344,9 @@
       if (!state.drag && !calm()) state.yaw -= SPIN * dt;
       syncRotation();
       cage();
-      limb();
+      graticule();
       land();
+      limb();
       connections();
       nodes(time);
     }
