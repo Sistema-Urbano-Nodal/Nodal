@@ -10,6 +10,7 @@ const STATIC_SCRIPTS = [
   'coastline.js',
   'dashboard.js',
   'globe.js',
+  'globe-geo.js',
   'i18n.js',
   'nav.js',
   'payments.js',

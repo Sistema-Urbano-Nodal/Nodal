@@ -269,3 +269,33 @@ test('the committed coastline carries islands, lakes and usable precision', () =
     }
   }
 });
+
+/* A new client script has to be listed in four places or it 404s in
+   production while working perfectly in dev. Nothing caught that before. */
+test('every script a page loads is registered everywhere it must be', () => {
+  const serverSource = readFileSync(path.join(ROOT, 'server', 'server.js'), 'utf8');
+  const buildSource = readFileSync(path.join(ROOT, 'scripts', 'build-static.js'), 'utf8');
+  const vercel = JSON.parse(readFileSync(path.join(ROOT, 'vercel.json'), 'utf8'));
+  const scriptHeader = vercel.headers.find((h) => h.source.endsWith('.js'));
+  assert.ok(scriptHeader, 'vercel.json must set caching headers for scripts');
+
+  const allowList = serverSource.slice(
+    serverSource.indexOf('const STATIC_SCRIPTS'),
+    serverSource.indexOf('const STATIC_STYLES'),
+  );
+
+  const loaded = new Set();
+  for (const page of readdirSync(path.join(ROOT, 'web', 'pages')).filter((f) => f.endsWith('.html'))) {
+    const html = readFileSync(path.join(ROOT, 'web', 'pages', page), 'utf8');
+    for (const m of html.matchAll(/<script[^>]+src="([^"?]+)/g)) loaded.add(m[1].replace(/^\.?\//, ''));
+  }
+  assert.ok(loaded.size >= 11);
+
+  const missing = [];
+  for (const script of loaded) {
+    if (!allowList.includes(`'${script}'`)) missing.push(`${script}: server.js STATIC_SCRIPTS`);
+    if (!buildSource.includes(`'${script}'`)) missing.push(`${script}: build-static.js`);
+    if (!new RegExp(scriptHeader.source).test(`/${script}`)) missing.push(`${script}: vercel.json headers`);
+  }
+  assert.deepEqual(missing, [], `scripts missing from a registration list:\n${missing.join('\n')}`);
+});
