@@ -511,8 +511,12 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       return apiUser(id);
     },
     async listDirectoryUsers() {
+      /* Postgres gives no row-order guarantee without ORDER BY, and this row
+         order becomes the order of `places`/`topics` in the globe payload —
+         the ETag hashes the bytes that order produces. created_at alone can
+         tie, so id breaks the tie and makes the order total. */
       const [profiles, prefsRows, onboardingRows] = await Promise.all([
-        admin.rest('profiles', { query: { select: '*' } }),
+        admin.rest('profiles', { query: { select: '*', order: 'created_at.asc,id.asc' } }),
         admin.rest('profile_preferences', { query: { select: '*' } }),
         admin.rest('onboarding_responses', { query: { select: '*' } }),
       ]);
@@ -533,7 +537,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       for (const user of [...visible, viewer].filter(Boolean)) users.set(user.id, toGraphUser(user));
       const follows = new Map([...users.keys()].map((id) => [id, new Set()]));
       const [followRows, interactionRows] = await Promise.all([
-        admin.rest('member_follows', { query: { select: '*' } }),
+        admin.rest('member_follows', { query: { select: '*', order: 'user_id.asc,target_user_id.asc' } }),
         admin.rest('member_interactions', { query: { select: '*', order: 'created_at.asc' } }),
       ]);
       for (const row of followRows) {
