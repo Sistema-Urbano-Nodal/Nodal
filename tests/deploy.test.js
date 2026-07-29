@@ -245,3 +245,27 @@ test('every translation key a script asks for resolves in all three languages', 
   }
   assert.deepEqual(missing, [], `untranslated keys:\n${missing.join('\n')}`);
 });
+
+test('the committed coastline carries islands, lakes and usable precision', () => {
+  const source = readFileSync(path.join(ROOT, 'web', 'scripts', 'coastline.js'), 'utf8');
+  const match = source.match(/window\.NODAL_COASTLINE = '([^']*)'/);
+  assert.ok(match, 'coastline.js must assign a single quoted string');
+  const polygons = match[1].split(';').filter(Boolean);
+
+  assert.ok(polygons.length > 600, `expected the finer set to keep far more land, got ${polygons.length}`);
+  assert.ok(polygons.some((p) => p.includes('|')), 'at least one polygon must carry a lake as an interior ring');
+
+  const coords = match[1].split(/[;| ]/).filter(Boolean);
+  assert.ok(coords.every((pair) => /^-?\d+(\.\d{1,2})?,-?\d+(\.\d{1,2})?$/.test(pair)),
+    'every point is lon,lat with at most 2 decimals');
+  // 1 decimal is an 11km grid — coarser than the 0.08 tolerance, which would
+  // round the finer simplification straight back off
+  assert.ok(coords.some((pair) => /\.\d{2},|,-?\d+\.\d{2}/.test(pair)),
+    'coordinates must actually use the second decimal');
+
+  for (const polygon of polygons) {
+    for (const ring of polygon.split('|')) {
+      assert.ok(ring.split(' ').length >= 4, 'every ring keeps at least 4 points');
+    }
+  }
+});
