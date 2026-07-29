@@ -1669,3 +1669,63 @@ test('our own 4xx messages still say what went wrong', async (t) => {
   assert.equal(res.status, 415);
   assert.equal((await res.json()).error, 'expected application/json');
 });
+
+const stubCities = () => ({
+  async search(query) {
+    const known = { lima: [-12.04, -77.03], bogota: [4.71, -74.07] };
+    const hit = known[String(query).toLowerCase()];
+    return { cities: hit ? [{ label: String(query), lat: hit[0], lon: hit[1] }] : [] };
+  },
+});
+
+test('the globe payload carries an ETag and answers 304 when it has not changed', async (t) => {
+  const { base } = await bootDbHandle(t, { citySearch: stubCities() });
+  const member = await consentingMember(base, { name: 'Etag Member', email: 'etag@example.test', city: 'Lima' });
+
+  const first = await fetch(`${base}/api/network/places`, { headers: { Cookie: member.cookie } });
+  assert.equal(first.status, 200);
+  const etag = first.headers.get('etag');
+  assert.match(etag, /^"[A-Za-z0-9_-]{24}"$/, 'a strong validator, not a weak one');
+
+  const second = await fetch(`${base}/api/network/places`, {
+    headers: { Cookie: member.cookie, 'If-None-Match': etag },
+  });
+  assert.equal(second.status, 304);
+  assert.equal(second.headers.get('etag'), etag, '304 repeats the validator');
+  assert.equal(await second.text(), '', '304 carries no body');
+
+  // a conditional request must still be an authenticated one
+  const anon = await fetch(`${base}/api/network/places`, { headers: { 'If-None-Match': etag } });
+  assert.equal(anon.status, 401);
+});
+
+test('the globe ETag changes when the network does', async (t) => {
+  const { base } = await bootDbHandle(t, { citySearch: stubCities() });
+  const first = await consentingMember(base, { name: 'First Member', email: 'first@example.test', city: 'Lima' });
+  const before = (await fetch(`${base}/api/network/places`, { headers: { Cookie: first.cookie } })).headers.get('etag');
+
+  await consentingMember(base, { name: 'Second Member', email: 'second@example.test', city: 'Bogota' });
+
+  // NETWORK_TTL_MS caches the roll-up briefly; wait it out so this tests the
+  // validator and not the cache
+  await new Promise((resolve) => setTimeout(resolve, 1700));
+  const after = (await fetch(`${base}/api/network/places`, { headers: { Cookie: first.cookie } })).headers.get('etag');
+  assert.notEqual(after, before, 'a new city must invalidate the validator');
+});
+
+test('the globe has its own rate limit, separate from the directory', async (t) => {
+  const old = process.env.NETWORK_RATE_LIMIT;
+  process.env.NETWORK_RATE_LIMIT = '3';
+  t.after(() => { if (old === undefined) delete process.env.NETWORK_RATE_LIMIT; else process.env.NETWORK_RATE_LIMIT = old; });
+  const { base } = await bootDbHandle(t, { citySearch: stubCities() });
+  const member = await consentingMember(base, { name: 'Busy Member', email: 'busy@example.test', city: 'Lima' });
+
+  let last;
+  for (let i = 0; i < 4; i += 1) {
+    last = await fetch(`${base}/api/network/places`, { headers: { Cookie: member.cookie } });
+  }
+  assert.equal(last.status, 429, 'the globe exhausts its own budget');
+  // the directory draws on readLimiter and must be untouched
+  const directory = await fetch(`${base}/api/users`, { headers: { Cookie: member.cookie } });
+  assert.equal(directory.status, 200, 'a busy globe must not starve the directory');
+});

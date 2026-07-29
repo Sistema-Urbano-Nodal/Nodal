@@ -52,7 +52,7 @@ const PLACE_TTL_MS = 30 * 24 * 60 * 60 * 1000;   // a city does not move
 /* Only the geocoding is expensive, and that is cached for a month. The roll-up
    is cached just long enough to absorb a burst of polls without putting an
    arrival behind a wall — a new member must not wait half a minute to appear. */
-const NETWORK_TTL_MS = 3 * 1000;
+const NETWORK_TTL_MS = 1500;
 const NETWORK_GEOCODE_PER_REQUEST = envInt('NETWORK_GEOCODE_PER_REQUEST', 4);
 const CITY_SEARCH_MAX_QUERY = 80;
 const CITY_SEARCH_LIMIT = envInt('CITY_SEARCH_LIMIT', 8);
@@ -505,6 +505,20 @@ function graphFingerprint(graph) {
   return createHash('sha256').update(JSON.stringify(state)).digest('base64url').slice(0, 24);
 }
 
+/* A strong validator over the exact bytes the caller would receive. The globe
+   polls often and usually nothing has changed, so this turns almost every poll
+   into an empty 304 instead of a full roll-up. */
+function entityTag(serialized) {
+  return `"${createHash('sha256').update(serialized).digest('base64url').slice(0, 24)}"`;
+}
+
+/* 304 carries no body and no content type — and stays no-store, because this
+   payload is built for one viewer and must never sit in a shared cache. */
+function sendNotModified(res, etag) {
+  res.writeHead(304, securityHeaders({ ETag: etag, 'Cache-Control': 'no-store' }));
+  res.end();
+}
+
 function sanitizeProfilePatch(body) {
   if (!body || typeof body !== 'object') throw Object.assign(new Error('invalid profile payload'), { status: 400 });
   if ('fullName' in body && String(body.fullName).trim().length < 2) {
@@ -590,6 +604,12 @@ export function createApp({
   // each search walks the whole directory, so it is bounded per member
   const searchLimiter = createWindowRateLimiter({ windowMs: MEMBER_SEARCH_WINDOW_MS, limit: MEMBER_SEARCH_RATE_LIMIT });
   const readLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: READ_RATE_LIMIT });
+  /* The globe polls every couple of seconds so an arrival lands while you are
+     watching. That is ~24 requests a minute on its own, and READ_RATE_LIMIT is
+     shared with the directory and city search — one budget for both would let a
+     member with the console open lock themselves out of search. Read per app
+     instance, not at module load, so tests can dial it down. */
+  const networkLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: envInt('NETWORK_RATE_LIMIT', 40) });
   const writeLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: WRITE_RATE_LIMIT });
   const costlyLimiter = createWindowRateLimiter({ windowMs: COSTLY_RATE_WINDOW_MS, limit: COSTLY_RATE_LIMIT });
   /* Keyed by session when there is one, by address otherwise, so a limit
@@ -816,16 +836,18 @@ export function createApp({
          to real coordinates through the same provider the profile form uses,
          so a member in any city on Earth lands in the right place — not only
          the ones someone thought to hardcode. Coordinates are cached for a
-         month because cities do not move; the roll-up is cached for thirty
-         seconds so a new member still shows up while you are watching. */
+         month because cities do not move; the roll-up is cached for 1.5s
+         so a new member still shows up while you are watching. */
       if (useDb && req.method === 'GET' && pathname === '/api/network/places') {
         if (!requireAuth(res, sessionUser)) return;
-        if (!throttle(readLimiter, res, req, sessionUser, 'places')) return;
+        if (!throttle(networkLimiter, res, req, sessionUser, 'places')) return;
         const topic = String(url.searchParams.get('topic') || '').trim().slice(0, 80);
         const cacheKey = `network:places:v2:${sessionUser.id}:${topic.toLowerCase()}`;
         const cached = await cache.get(cacheKey);
         if (cached) {
-          send(res, 200, cached, { 'X-Cache': 'HIT', 'Content-Type': 'application/json; charset=utf-8' });
+          const etag = entityTag(cached);
+          if (req.headers['if-none-match'] === etag) { sendNotModified(res, etag); return; }
+          send(res, 200, cached, { 'X-Cache': 'HIT', ETag: etag, 'Content-Type': 'application/json; charset=utf-8' });
           return;
         }
         const rows = await repository.listDirectoryUsers();
@@ -928,8 +950,11 @@ export function createApp({
             city: viewerCity,
           },
         };
-        await cache.set(cacheKey, JSON.stringify(payload), NETWORK_TTL_MS);
-        send(res, 200, payload, { 'X-Cache': 'MISS' });
+        const serialized = JSON.stringify(payload);
+        await cache.set(cacheKey, serialized, NETWORK_TTL_MS);
+        const etag = entityTag(serialized);
+        if (req.headers['if-none-match'] === etag) { sendNotModified(res, etag); return; }
+        send(res, 200, serialized, { 'X-Cache': 'MISS', ETag: etag, 'Content-Type': 'application/json; charset=utf-8' });
         return;
       }
 
