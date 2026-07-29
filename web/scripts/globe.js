@@ -544,15 +544,41 @@
     cta.hidden = you.listed && you.hasCity;
   }
 
+  /* The globe polls often enough that an arrival lands while you are watching.
+     Three things keep that honest: only one request is ever in flight, a 304
+     costs nothing to handle, and a tab nobody is looking at stops asking. */
+  const POLL_MS = 2500;
+  const POLL_MAX_MS = 30000;
+  let pollTimer = null;
+  let inFlight = false;
+  let backoff = POLL_MS;
+  let etag = '';
+
   async function poll() {
+    if (inFlight || document.hidden) return;
+    inFlight = true;
     let data;
     try {
       const query = state.topic ? `?topic=${encodeURIComponent(state.topic)}` : '';
-      const res = await fetch(`/api/network/places${query}`, { headers: { Accept: 'application/json' } });
-      if (!res.ok) return;
+      const headers = { Accept: 'application/json' };
+      if (etag) headers['If-None-Match'] = etag;
+      const res = await fetch(`/api/network/places${query}`, { headers });
+      // nothing has changed: no parse, no re-render, no arrival scan
+      if (res.status === 304) { backoff = POLL_MS; return; }
+      if (!res.ok) {
+        // a throttled or failing server must not be hammered
+        backoff = Math.min(backoff * 2, POLL_MAX_MS);
+        return;
+      }
+      backoff = POLL_MS;
+      etag = res.headers.get('etag') || '';
       data = await res.json();
       if (!Array.isArray(data.places)) return;
     } catch { return; }          // static hosting: the backdrop still draws
+    finally {
+      inFlight = false;
+      schedule();
+    }
 
     mergePlaces(data);
     renderTopics(FULL.topics);
@@ -609,6 +635,7 @@
       b.addEventListener('click', () => {
         state.topic = state.topic === name ? '' : name;
         topicsDrawn = '';
+        etag = '';
         poll();
       });
       return b;
@@ -689,7 +716,16 @@
   I18N?.onChange(() => showPlace(state.picked >= 0 ? PLACES[state.picked] : null));
   resize();
   requestAnimationFrame(frame);
+  function schedule() {
+    clearTimeout(pollTimer);
+    if (document.hidden) return;
+    pollTimer = setTimeout(poll, backoff);
+  }
+
   poll();
-  setInterval(poll, 8000);    // the server caches 3s, so a change lands within ~11s
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { clearTimeout(pollTimer); return; }
+    backoff = POLL_MS;
+    poll();
+  });
 })();
