@@ -158,37 +158,31 @@
     return [CX + R * r[0], CY - R * r[1], r[2]];
   }
 
-  /* Land is filled, not merely outlined, so a continent reads as a continent.
-     The fill is deliberately faint: members are the loudest marks on this globe
-     and nothing else may compete with them. Lakes are holes in the same path,
-     so the Caspian and the Great Lakes are not painted as ground. */
+  /* Coastlines are drawn as open runs, never filled.
+
+     Filling needs each clipped ring closed along the limb, and clip()'s closure
+     is not right yet: swept across 520 orientations it paints the whole visible
+     disc — ocean and all — at about 7% of them. Three attempts at the closing
+     rule got it wrong in three different ways, so the fill stays off until the
+     real thing is built (proper circle clipping with sorted entry/exit
+     alternation), rather than shipping a globe that is wrong one spin in
+     fourteen. clip()'s `stroke` output is unaffected: the runs come from the
+     front-hemisphere walk and never touch the closure. */
   function land() {
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(61,92,56,.8)';
+    ctx.lineWidth = 1.15;
     for (const polygon of LAND) {
       if (!GEO.isVisible(polygon, rotate)) continue;
-      const path = new Path2D();
-      const outlines = [];
       for (const ring of polygon.rings) {
-        const { fill, stroke } = GEO.clip(ring, rotate);
-        for (const region of fill) {
-          const pts = region.map(screenOf);
-          path.moveTo(pts[0][0], pts[0][1]);
-          for (let i = 1; i < pts.length; i += 1) path.lineTo(pts[i][0], pts[i][1]);
-          path.closePath();
+        for (const run of GEO.clip(ring, rotate).stroke) {
+          const pts = run.map(screenOf);
+          ctx.beginPath();
+          ctx.moveTo(pts[0][0], pts[0][1]);
+          for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i][0], pts[i][1]);
+          ctx.stroke();
         }
-        outlines.push(...stroke);
-      }
-      ctx.fillStyle = 'rgba(61,92,56,.10)';
-      ctx.fill(path, 'evenodd');
-      ctx.strokeStyle = 'rgba(61,92,56,.8)';
-      ctx.lineWidth = 1.15;
-      for (const run of outlines) {
-        const pts = run.map(screenOf);
-        ctx.beginPath();
-        ctx.moveTo(pts[0][0], pts[0][1]);
-        for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i][0], pts[i][1]);
-        ctx.stroke();
       }
     }
   }

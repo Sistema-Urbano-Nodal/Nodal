@@ -166,7 +166,17 @@ function area(points) {
   return Math.abs(sum) / 2;
 }
 
-test('clip() never fills more of the disc than the real coastline actually covers', () => {
+/* KNOWN INCOMPLETE — read before trusting this test.
+
+   It checks five orientations. A 520-orientation sweep shows clip()'s fill
+   still covers the entire visible disc at about 7% of them, so this passing
+   does NOT mean the closure is correct. The renderer does not use `fill` for
+   that reason; only `stroke` is drawn today.
+
+   It is kept because it pins the five known-good orientations and will fail
+   loudly on any change that makes them worse. Whoever builds the real circle
+   clipping should replace it with the dense sweep. */
+test('clip() fill stays bounded at the orientations it is known to handle', () => {
   /* This is the test that would have caught the regression the other clip()
      tests could not: a wrongly-chosen closing arc still only emits points on
      the limb (z === 0), which every "nothing is behind the sphere" assertion
