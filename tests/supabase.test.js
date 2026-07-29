@@ -435,3 +435,25 @@ test('a PostgREST error carries its detail for the log but never for the caller'
     },
   );
 });
+
+test('the globe reads request a deterministic order, so the same network hashes to the same ETag', async () => {
+  // Postgres gives no row-order guarantee without ORDER BY. The globe route
+  // hashes the serialized response for its ETag, so an unordered read would
+  // make the ETag change on every poll even when nothing changed.
+  const calls = [];
+  const fetchImpl = async (rawUrl, options) => {
+    calls.push({ url: new URL(rawUrl), options });
+    return response([]);
+  };
+  const repo = createSupabaseRepository({ env: testEnv(), fetchImpl });
+
+  await repo.listDirectoryUsers();
+  await repo.loadGraphStore();
+
+  const profiles = calls.find((c) => c.url.pathname === '/rest/v1/profiles');
+  assert.equal(profiles.url.searchParams.get('order'), 'created_at.asc,id.asc',
+    'created_at alone can tie; id breaks the tie so the order is total');
+
+  const follows = calls.find((c) => c.url.pathname === '/rest/v1/member_follows');
+  assert.equal(follows.url.searchParams.get('order'), 'user_id.asc,target_user_id.asc');
+});
