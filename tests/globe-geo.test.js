@@ -16,6 +16,15 @@ function loadGeo() {
   return context.window.NodalGeo;
 }
 
+// same trick, for the generated coastline data file — only its string payload
+// is used, so there's no realm-identity concern here at all.
+function loadCoastline() {
+  const context = { window: {} };
+  vm.createContext(context);
+  vm.runInContext(readFileSync(path.join(ROOT, 'web', 'scripts', 'coastline.js'), 'utf8'), context);
+  return context.window.NODAL_COASTLINE;
+}
+
 const G = loadGeo();
 const near = (a, b, tol = 1e-9) => Math.abs(a - b) < tol;
 const identity = (v) => v;
@@ -86,28 +95,6 @@ test('a clipped ring is closed on the limb but only stroked where there is coast
   assert.ok(strokePoints < fill[0].length, 'the stroke is shorter than the closed fill');
 });
 
-test('clip() closes along the arc the ring actually travelled, not the shorter one', () => {
-  /* Two visible bumps near lon 90-100 -- one at lat 85 (near the north pole),
-     one at lat -85 (near the south pole) -- joined by hidden stretches that
-     loop through lat +/-80 on the far side. Latitude is varied deliberately:
-     an all-lat-0 fixture degenerates because every limb point then has y = 0
-     and every azimuth collapses to 0 or PI, so "shorter" and "via" can never
-     disagree. Here they do: for each run the direct arc back to the next run
-     is only marginally shorter than the true one (~177 degrees vs ~183), but
-     they go opposite ways around the limb. The real, via-chosen arc swings
-     past longitude 0 (screen x > 0); the naive shorter arc swings past
-     longitude 180 (screen x < 0) instead -- exactly the "painted ocean as
-     land" failure the brief warns about, just barely past the halfway mark. */
-  const [poly] = G.parse('260,80 280,80 90,85 100,85 260,-80 280,-80 90,-85 100,-85');
-  const { fill, stroke } = G.clip(poly.rings[0], identity);
-  assert.equal(fill.length, 1, 'one closed region');
-  assert.equal(stroke.length, 2, 'two separate coastline runs');
-  assert.ok(fill[0].some((p) => p[0] > 0.9),
-    'the closing arc swings past longitude 0, the side the ring actually went behind');
-  assert.ok(!fill[0].some((p) => p[0] < -0.9),
-    'it must not instead swing past longitude 180, which is what the shorter arc would do');
-});
-
 test('a run spanning index 0 is never split, because the walk starts behind', () => {
   // front, front, back, back — the first and last points are one piece of coast
   const [poly] = G.parse('90,0 170,0 260,0 350,0');
@@ -141,17 +128,75 @@ test('clipLine never joins the end of an open line back to its start', () => {
     'the run ends at the final visible point, not wrapped back toward the hidden start');
 });
 
-test('limbSweep picks the arc the ring actually went behind', () => {
-  // from 0 to PI: the positive way passes through PI/2, the negative through -PI/2
-  assert.equal(G.limbSweep(0, Math.PI, Math.PI / 2), false);
-  assert.equal(G.limbSweep(0, Math.PI, -Math.PI / 2), true);
-  assert.equal(G.limbSweep(3, -3, 3.14), false, 'wrapping the +/-PI seam');
-});
-
 test('graticule generates meridians and parallels on the unit sphere', () => {
   const rings = G.graticule(30);
   assert.ok(rings.length >= 12 + 5, 'meridians every 30 plus parallels every 30');
   assert.ok(rings.every((ring) => ring.length > 8), 'each line is sampled, not a chord');
   assert.ok(rings.every((ring) => ring.every((p) => near(Math.hypot(...p), 1, 1e-6))),
     'every graticule point sits on the sphere');
+});
+
+/* rotate(), copied verbatim from web/scripts/globe.js, not reimplemented —
+   a toy fixture can hide a bug that only the real viewing transform and real
+   coastline data expose (that's exactly how the whole-ocean-filled regression
+   got past every other test here). yaw/tilt are in degrees to match how the
+   renderer's own state and this bug were described, then converted. */
+function makeRotate(yawDeg, tiltDeg) {
+  const yaw = yawDeg * Math.PI / 180;
+  const tilt = tiltDeg * Math.PI / 180;
+  const cy = Math.cos(yaw); const sy = Math.sin(yaw);
+  const ct = Math.cos(tilt); const st = Math.sin(tilt);
+  return (v) => {
+    // negated: the face points at longitude yaw + 90 degrees -- see globe.js's rotate()
+    const x = -(v[0] * cy + v[2] * sy);
+    const z1 = -v[0] * sy + v[2] * cy;
+    return [x, v[1] * ct - z1 * st, v[1] * st + z1 * ct];
+  };
+}
+
+// shoelace formula: absolute area of a closed polygon given as [x, y, z] points
+// (z is ignored -- every point clip() emits already lies in the visible half).
+function area(points) {
+  let sum = 0;
+  for (let i = 0; i < points.length; i += 1) {
+    const [x1, y1] = points[i];
+    const [x2, y2] = points[(i + 1) % points.length];
+    sum += x1 * y2 - x2 * y1;
+  }
+  return Math.abs(sum) / 2;
+}
+
+test('clip() never fills more of the disc than the real coastline actually covers', () => {
+  /* This is the test that would have caught the regression the other clip()
+     tests could not: a wrongly-chosen closing arc still only emits points on
+     the limb (z === 0), which every "nothing is behind the sphere" assertion
+     accepts trivially. Only measuring the filled AREA against the disc itself
+     (radius 1, area PI) tells the difference between a coastline and an ocean
+     painted as land. Several real orientations are used because the bug was
+     orientation-dependent: it showed up at some yaw/tilt pairs and not others. */
+  const COASTLINE = loadCoastline();
+  const polygons = G.parse(COASTLINE);
+  assert.ok(polygons.length > 900, 'the real coastline loaded');
+
+  const DISC = Math.PI;
+  const rotations = [[-165, -12], [0, -12], [100, -12], [-165, 60], [-20, 10]];
+
+  for (const [yawDeg, tiltDeg] of rotations) {
+    const rotate = makeRotate(yawDeg, tiltDeg);
+    let total = 0;
+    let worst = 0;
+    for (const polygon of polygons) {
+      if (!G.isVisible(polygon, rotate)) continue;
+      const { fill } = G.clip(polygon.rings[0], rotate);
+      for (const region of fill) {
+        const a = area(region);
+        total += a;
+        if (a > worst) worst = a;
+      }
+    }
+    assert.ok(worst < 1.6,
+      `yaw ${yawDeg}/tilt ${tiltDeg}: no single region should approach the disc (PI = ${DISC.toFixed(3)}); worst was ${worst.toFixed(3)}`);
+    assert.ok(total < 2.0,
+      `yaw ${yawDeg}/tilt ${tiltDeg}: total filled area should stay well under the disc; Earth is ~29% land; total was ${total.toFixed(3)}`);
+  }
 });

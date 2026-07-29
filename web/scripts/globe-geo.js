@@ -80,25 +80,13 @@
 
   const angleOf = (p) => Math.atan2(p[1], p[0]);
 
-  /* True when sweeping from `from` to `to` passes through `via` going the
-     negative way round. The caller knows `via` because it is the azimuth of the
-     stretch the ring travelled while it was behind the sphere — so this picks
-     the arc the coastline actually took, not merely the shorter one. */
-  function limbSweep(from, to, via) {
-    const forward = (to - from + TAU) % TAU;
-    const toVia = (via - from + TAU) % TAU;
-    return toVia > forward;
-  }
-
   /* Splits a closed ring at the limb. Returns the closed regions to fill and,
      kept separate, only the runs that are real coastline — closing a region
      along the limb must never be stroked as if it were a shore.
 
      The walk starts from a point that is BEHIND the sphere. That is not a
      detail: it means no run is ever split across index 0, so there is nothing
-     to stitch back together afterwards, and every run is followed by exactly
-     one hidden stretch whose azimuth tells us which way round the limb to
-     close. */
+     to stitch back together afterwards. */
   function clip(ring, rotate) {
     const view = ring.map(rotate);
     if (view.every((p) => p[2] < 0)) return { fill: [], stroke: [] };
@@ -129,30 +117,43 @@
     }
     if (!runs.length) return { fill: [], stroke: [] };
 
-    /* The gap AFTER runs[i] is the stretch before the next run, wrapping to
-       hiddens[0] for the last one. Its midpoint says where the coastline went
-       while it was out of sight, which is the arc we close along. */
-    const viaAngle = (i) => {
-      const gap = hiddens[(i + 1) % hiddens.length];
-      return angleOf(gap[Math.floor(gap.length / 2)]);
-    };
-
-    const region = [];
-    for (let i = 0; i < runs.length; i += 1) {
-      const piece = runs[i];
-      const next = runs[(i + 1) % runs.length];
-      region.push(...piece);
-      const from = angleOf(piece[piece.length - 1]);
-      const to = angleOf(next[0]);
-      const forward = (to - from + TAU) % TAU;
-      const sweep = limbSweep(from, to, viaAngle(i)) ? forward - TAU : forward;
-      const steps = Math.max(2, Math.ceil(Math.abs(sweep) / 0.15));
-      for (let s = 1; s <= steps; s += 1) {
-        const angle = from + (sweep * s) / steps;
-        region.push([Math.cos(angle), Math.sin(angle), 0]);
+    const entry = runs.map((r) => angleOf(r[0]));
+    /* Every land ring is clockwise in view space, so the limb is always swept
+       clockwise. From an exit, the boundary continues at whichever entry is
+       nearest that way — which is not always the next run along the ring, and
+       when it is not, the visible land is genuinely two separate shapes. */
+    const nextOf = runs.map((r) => {
+      const exit = angleOf(r[r.length - 1]);
+      let best = -1;
+      let nearest = Infinity;
+      for (let j = 0; j < runs.length; j += 1) {
+        const gap = (exit - entry[j] + TAU) % TAU;
+        if (gap < nearest) { nearest = gap; best = j; }
       }
+      return best;
+    });
+    const fill = [];
+    const seen = new Array(runs.length).fill(false);
+    for (let i = 0; i < runs.length; i += 1) {
+      if (seen[i]) continue;
+      const region = [];
+      let j = i;
+      while (!seen[j]) {
+        seen[j] = true;
+        region.push(...runs[j]);
+        const from = angleOf(runs[j][runs[j].length - 1]);
+        const k = nextOf[j];
+        const sweep = ((entry[k] - from + TAU) % TAU) - TAU;
+        const steps = Math.max(2, Math.ceil(Math.abs(sweep) / 0.15));
+        for (let n = 1; n <= steps; n += 1) {
+          const angle = from + (sweep * n) / steps;
+          region.push([Math.cos(angle), Math.sin(angle), 0]);
+        }
+        j = k;
+      }
+      if (region.length > 2) fill.push(region);
     }
-    return { fill: [region], stroke: runs.map((r) => r.slice()) };
+    return { fill, stroke: runs.map((r) => r.slice()) };
   }
 
   /* An open polyline — a graticule line, not a coastline. Split at the limb and
@@ -196,5 +197,5 @@
     return rings;
   }
 
-  window.NodalGeo = { toXYZ, parse, isVisible, clip, clipLine, graticule, limbSweep, dot };
+  window.NodalGeo = { toXYZ, parse, isVisible, clip, clipLine, graticule, dot };
 })();
