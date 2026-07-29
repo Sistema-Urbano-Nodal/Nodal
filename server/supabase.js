@@ -30,6 +30,15 @@ const asArray = (value) => (Array.isArray(value) ? value : []);
 const cleanString = (value, max = 220) => String(value ?? '').trim().slice(0, max);
 const cleanStatus = (value) => (SUBSCRIPTION_STATUSES.has(String(value)) ? String(value) : 'pending');
 
+const ACCOUNT_STATUSES = new Set(['active', 'disabled', 'pending']);
+/* Anything unrecognised counts as not active. A column that has been tampered
+   with, or a row written before the column existed, must fail closed. */
+const cleanAccountStatus = (value) => {
+  if (value === undefined || value === null || value === '') return 'active';
+  return ACCOUNT_STATUSES.has(String(value)) ? String(value) : 'disabled';
+};
+const isActive = (user) => user?.accountStatus === 'active';
+
 export function dataBackend(env = process.env) {
   const value = String(env.DATA_BACKEND || (env.VERCEL ? 'supabase' : 'sqlite')).trim().toLowerCase();
   if (!['sqlite', 'supabase'].includes(value)) {
@@ -224,7 +233,7 @@ function toApiUserFromSupabase({ profile, preferences, onboarding }) {
     name: profileName(profile),
     email: cleanString(profile.email, 320),
     permission: 'member',
-    accountStatus: 'active',
+    accountStatus: cleanAccountStatus(profile.account_status),
     role: title,
     title,
     city: cleanString(profile.city_region, 120),
@@ -412,7 +421,13 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         try {
           const authUser = await authUserFromToken(accessToken);
           if (!authUser?.id) return { user: null, cookies: clearSessionCookies(env) };
-          return { user: await existingOrEnsureProfile(authUser), cookies: [] };
+          const user = await existingOrEnsureProfile(authUser);
+          /* A suspended member's token is still valid as far as the auth
+             provider is concerned, so this is the only thing standing between
+             them and every authenticated route. Their cookies go too, or the
+             browser keeps replaying a session the server will not honour. */
+          if (!isActive(user)) return { user: null, cookies: clearSessionCookies(env) };
+          return { user, cookies: [] };
         } catch (err) {
           if (!refreshToken || ![401, 403].includes(err?.status)) {
             return { user: null, cookies: err?.status === 401 ? clearSessionCookies(env) : [] };
@@ -428,7 +443,10 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         });
         const authUser = session?.user || await authUserFromToken(session?.access_token);
         if (!authUser?.id) return { user: null, cookies: clearSessionCookies(env) };
-        return { user: await existingOrEnsureProfile(authUser), cookies: sessionCookies(session, env) };
+        const user = await existingOrEnsureProfile(authUser);
+        // a refresh must not hand a suspended member a fresh pair of cookies
+        if (!isActive(user)) return { user: null, cookies: clearSessionCookies(env) };
+        return { user, cookies: sessionCookies(session, env) };
       } catch {
         return { user: null, cookies: clearSessionCookies(env) };
       }
@@ -478,6 +496,10 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       }
       const authUser = data.user;
       const user = await ensureProfile(authUser);
+      /* Same answer a wrong password gets, and the same one the sqlite backend
+         gives: telling a caller that this particular address is suspended would
+         confirm the account exists to anyone who guessed it. */
+      if (!isActive(user)) return { status: 401, error: 'invalid email or password', cookies: [] };
       return { status: 200, user, cookies: sessionCookies(data, env) };
     },
     async logout(req) {
@@ -528,7 +550,8 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
           preferences: prefsByUser.get(profile.id),
           onboarding: onboardingByUser.get(profile.id),
         }))
-        .filter((user) => user?.partC?.consent === true);
+        // consent puts you in the directory; being active keeps you there
+        .filter((user) => user?.partC?.consent === true && isActive(user));
     },
     async loadGraphStore({ viewerId } = {}) {
       const visible = await this.listDirectoryUsers();

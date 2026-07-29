@@ -92,6 +92,14 @@ function statefulFetch(state, calls, { expireAccessToken = false, signupResponse
       }
       return response({ user: { id: TEST_USER_ID, email: state.profile.email, user_metadata: {} } });
     }
+    if (url.pathname === '/auth/v1/token' && url.searchParams.get('grant_type') === 'password') {
+      return response({
+        access_token: 'signed-in-access',
+        refresh_token: 'signed-in-refresh',
+        expires_in: 3600,
+        user: { id: TEST_USER_ID, email: state.profile.email, user_metadata: {} },
+      });
+    }
     if (url.pathname === '/auth/v1/token' && url.searchParams.get('grant_type') === 'refresh_token') {
       return response({
         access_token: 'refreshed-access',
@@ -456,4 +464,94 @@ test('the globe reads request a deterministic order, so the same network hashes 
 
   const follows = calls.find((c) => c.url.pathname === '/rest/v1/member_follows');
   assert.equal(follows.url.searchParams.get('order'), 'user_id.asc,target_user_id.asc');
+});
+
+/* The Supabase backend reported every member as 'active' from a hardcoded
+   literal, so suspension did nothing on the backend production actually runs.
+   These cover the four places the sqlite backend has always enforced it. */
+const suspended = (status) => {
+  const state = profileState();
+  state.profile.account_status = status;
+  return state;
+};
+const repoFor = (state) => createSupabaseRepository({
+  env: testEnv(),
+  fetchImpl: statefulFetch(state, []),
+});
+const clearsSession = (cookies) => cookies.some((c) => c.startsWith('nodal_session=;'));
+
+test('a suspended member cannot resolve a session, and the stale cookie is cleared', async () => {
+  for (const status of ['disabled', 'pending']) {
+    const resolved = await repoFor(suspended(status))
+      .resolveSession({ headers: { cookie: 'nodal_session=token-abc' } });
+    assert.equal(resolved.user, null, `${status} must not resolve a session`);
+    assert.ok(clearsSession(resolved.cookies),
+      'the browser must stop replaying a session the server will not honour');
+  }
+});
+
+test('a refresh does not hand a suspended member fresh cookies', async () => {
+  const repository = createSupabaseRepository({
+    env: testEnv(),
+    fetchImpl: statefulFetch(suspended('disabled'), [], { expireAccessToken: true }),
+  });
+  const resolved = await repository.resolveSession({
+    headers: { cookie: 'nodal_session=stale; nodal_refresh=refresh-abc' },
+  });
+  assert.equal(resolved.user, null);
+  assert.ok(clearsSession(resolved.cookies));
+  assert.ok(!resolved.cookies.some((c) => c.includes('refreshed-access')),
+    'a refreshed access token must not be issued to a suspended member');
+});
+
+test('an active member still resolves a session', async () => {
+  const resolved = await repoFor(suspended('active'))
+    .resolveSession({ headers: { cookie: 'nodal_session=token-abc' } });
+  assert.equal(resolved.user?.id, TEST_USER_ID);
+  assert.equal(resolved.user.accountStatus, 'active');
+});
+
+test('a row written before the column existed is still active', async () => {
+  const state = profileState();          // no account_status at all
+  const resolved = await repoFor(state)
+    .resolveSession({ headers: { cookie: 'nodal_session=token-abc' } });
+  assert.equal(resolved.user?.accountStatus, 'active');
+});
+
+test('an unrecognised account_status fails closed', async () => {
+  const resolved = await repoFor(suspended('banana'))
+    .resolveSession({ headers: { cookie: 'nodal_session=token-abc' } });
+  assert.equal(resolved.user, null, 'anything not on the allow-list is not active');
+});
+
+test('a suspended member cannot sign in, and is not told why', async () => {
+  const result = await repoFor(suspended('disabled'))
+    .login({ email: 'persisted@example.com', password: 'correct-horse' });
+  assert.equal(result.status, 401);
+  assert.equal(result.error, 'invalid email or password',
+    'naming the suspension would confirm the account exists to anyone guessing');
+  assert.deepEqual(result.cookies, []);
+});
+
+test('a suspended member drops out of the directory despite consenting', async () => {
+  const listed = await repoFor(suspended('disabled')).listDirectoryUsers();
+  assert.equal(listed.length, 0);
+  const active = await repoFor(suspended('active')).listDirectoryUsers();
+  assert.equal(active.length, 1, 'and an active consenting member stays listed');
+});
+
+test('a member cannot lift their own suspension through the profile API', async () => {
+  const state = suspended('disabled');
+  const calls = [];
+  const repository = createSupabaseRepository({ env: testEnv(), fetchImpl: statefulFetch(state, calls) });
+  await repository.updateUserProfile(TEST_USER_ID, {
+    fullName: 'Persisted Member',
+    account_status: 'active',
+    accountStatus: 'active',
+  });
+  assert.equal(state.profile.account_status, 'disabled', 'the column is untouched');
+  const patches = calls.filter((c) => c.options.method === 'PATCH' && c.url.pathname.endsWith('/profiles'));
+  assert.ok(patches.length > 0, 'the profile was actually patched');
+  assert.ok(patches.every((c) => !('account_status' in (c.body || {}))),
+    'account_status is never part of a profile write');
 });
