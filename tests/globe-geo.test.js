@@ -86,6 +86,28 @@ test('a clipped ring is closed on the limb but only stroked where there is coast
   assert.ok(strokePoints < fill[0].length, 'the stroke is shorter than the closed fill');
 });
 
+test('clip() closes along the arc the ring actually travelled, not the shorter one', () => {
+  /* Two visible bumps near lon 90-100 -- one at lat 85 (near the north pole),
+     one at lat -85 (near the south pole) -- joined by hidden stretches that
+     loop through lat +/-80 on the far side. Latitude is varied deliberately:
+     an all-lat-0 fixture degenerates because every limb point then has y = 0
+     and every azimuth collapses to 0 or PI, so "shorter" and "via" can never
+     disagree. Here they do: for each run the direct arc back to the next run
+     is only marginally shorter than the true one (~177 degrees vs ~183), but
+     they go opposite ways around the limb. The real, via-chosen arc swings
+     past longitude 0 (screen x > 0); the naive shorter arc swings past
+     longitude 180 (screen x < 0) instead -- exactly the "painted ocean as
+     land" failure the brief warns about, just barely past the halfway mark. */
+  const [poly] = G.parse('260,80 280,80 90,85 100,85 260,-80 280,-80 90,-85 100,-85');
+  const { fill, stroke } = G.clip(poly.rings[0], identity);
+  assert.equal(fill.length, 1, 'one closed region');
+  assert.equal(stroke.length, 2, 'two separate coastline runs');
+  assert.ok(fill[0].some((p) => p[0] > 0.9),
+    'the closing arc swings past longitude 0, the side the ring actually went behind');
+  assert.ok(!fill[0].some((p) => p[0] < -0.9),
+    'it must not instead swing past longitude 180, which is what the shorter arc would do');
+});
+
 test('a run spanning index 0 is never split, because the walk starts behind', () => {
   // front, front, back, back — the first and last points are one piece of coast
   const [poly] = G.parse('90,0 170,0 260,0 350,0');
@@ -104,6 +126,19 @@ test('an open line is split at the limb and never wrapped', () => {
   const meridian = G.graticule(30).find((line) => G.clipLine(line, identity).length);
   const kept = G.clipLine(meridian, identity).reduce((n, run) => n + run.length, 0);
   assert.ok(kept <= meridian.length + 4, 'no wrap-around segment was added');
+});
+
+test('clipLine never joins the end of an open line back to its start', () => {
+  // hidden -> visible -> visible: the line ends inside the visible face and
+  // must not be extended by a spurious crossing back toward the hidden start
+  // the way a closed ring's clip() would close a gap along the limb.
+  const line = [G.toXYZ(0, 260), G.toXYZ(0, 120), G.toXYZ(0, 90)];
+  const runs = G.clipLine(line, identity);
+  assert.equal(runs.length, 1, 'one continuous visible run');
+  assert.equal(runs[0].length, 3, 'crossing-in plus the two visible points, nothing appended after the last one');
+  const last = runs[0][runs[0].length - 1];
+  assert.ok(near(last[0], 0) && near(last[2], 1),
+    'the run ends at the final visible point, not wrapped back toward the hidden start');
 });
 
 test('limbSweep picks the arc the ring actually went behind', () => {
