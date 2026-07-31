@@ -5,11 +5,7 @@
   const I18N = window.nodalI18n;
   const t = (key) => (I18N ? I18N.t(key) : key);
 
-  /* /api/billing/config ships the operator's wording and the server's English
-     defaults through the same fields. A value we recognise as a default gets
-     translated; anything else is wording the operator set on purpose and is
-     shown verbatim, in whatever language they wrote it. Money is never
-     translated — only the "no price announced yet" sentinel is copy. */
+  
   const BILLING_COPY = new Map([
     ['Monthly', 'y.cycleMonthly'],
     ['Annual', 'y.cycleAnnual'],
