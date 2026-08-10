@@ -257,38 +257,46 @@ test('detail language changes survive abort-ignoring stale success and failure',
   }
 });
 
-test('My interests language refetch aborts the older language render', async () => {
-  let english;
-  const harness = catalogHarness((url, options = {}) => {
-    if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
-    if (url.includes('/api/me/catalog-interests?lang=en')) {
-      english = deferredResponse(options.signal);
-      return english.promise;
-    }
-    if (url.includes('/api/me/catalog-interests?lang=pt')) {
-      return Promise.resolve(response({ interests: [{ itemId: 'pt', status: 'new', message: '' }] }));
-    }
-    if (url.includes('/api/catalog/pt?lang=pt')) {
-      return Promise.resolve(response({ item: catalogItem('pt', { title: 'Português' }) }));
-    }
-    if (url.includes('/api/catalog/en?lang=en')) {
-      return Promise.resolve(response({ item: catalogItem('en', { title: 'English' }) }));
-    }
-    throw new Error(`unexpected request ${url}`);
-  });
+test('My interests language refetch survives abort-ignoring stale success and failure', async (t) => {
+  for (const outcome of ['success', 'failure']) {
+    await t.test(`Portuguese interests survive late English ${outcome}`, async () => {
+      let english;
+      let englishDetailRequested = false;
+      const harness = catalogHarness((url, options = {}) => {
+        if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+        if (url.includes('/api/me/catalog-interests?lang=en')) {
+          english = deferredResponse(options.signal, { honorAbort: false });
+          return english.promise;
+        }
+        if (url.includes('/api/me/catalog-interests?lang=pt')) {
+          return Promise.resolve(response({ interests: [{ itemId: 'pt', status: 'new', message: '' }] }));
+        }
+        if (url.includes('/api/catalog/pt?lang=pt')) {
+          return Promise.resolve(response({ item: catalogItem('pt', { title: 'Português' }) }));
+        }
+        if (url.includes('/api/catalog/en?lang=en')) {
+          englishDetailRequested = true;
+          return Promise.resolve(response({ item: catalogItem('en', { title: 'English' }) }));
+        }
+        throw new Error(`unexpected request ${url}`);
+      });
 
-  const oldRender = harness.api.loadMyInterests();
-  harness.i18nState.lang = 'pt';
-  const currentRender = harness.api.loadMyInterests();
-  await currentRender;
-  english.resolve(response({ interests: [{ itemId: 'en', status: 'new', message: '' }] }));
-  await oldRender;
+      const oldRender = harness.api.loadMyInterests();
+      harness.i18nState.lang = 'pt';
+      await harness.api.loadMyInterests();
+      if (outcome === 'success') {
+        english.resolve(response({ interests: [{ itemId: 'en', status: 'new', message: '' }] }));
+      } else english.reject(new Error('late English interests failure'));
+      await oldRender;
 
-  const titles = harness.ids.get('catalogMyInterestsList').children
-    .map((article) => article.children.find((node) => node.id === 'h3')?.textContent)
-    .filter(Boolean);
-  assert.deepEqual(titles, ['Português']);
-  assert.equal(harness.ids.get('catalogMyInterestsStatus').textContent, '');
+      const titles = harness.ids.get('catalogMyInterestsList').children
+        .map((article) => article.children.find((node) => node.id === 'h3')?.textContent)
+        .filter(Boolean);
+      assert.deepEqual(titles, ['Português']);
+      assert.equal(harness.ids.get('catalogMyInterestsStatus').textContent, '');
+      assert.equal(englishDetailRequested, outcome === 'success');
+    });
+  }
 });
 
 test('interest writes report transport failures and preserve successful feedback', async (t) => {
