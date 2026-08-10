@@ -114,6 +114,7 @@
 .kind-fieldset input { position: absolute; opacity: 0; }
 .kind-fieldset label span { display: block; margin: 0; padding: 0.7rem 0.9rem; border: 1px solid var(--catalog-rule); color: var(--catalog-map); cursor: pointer; }
 .kind-fieldset input:checked + span { border-color: var(--catalog-map); background: var(--catalog-map); color: #fff; }
+.kind-fieldset input:focus-visible + span { outline: 3px solid var(--catalog-green); outline-offset: 3px; }
 .filter-fields { display: grid; grid-template-columns: 1.5fr 1fr 1fr 0.75fr; gap: 1rem; margin: 1.5rem 0; }
 .filter-fields label { display: flex; flex-direction: column; }
 .filter-fields input, .filter-fields select, #catalogInterestMessage { min-height: 3rem; border: 1px solid var(--catalog-rule); border-radius: 0; padding: 0.75rem; background: #fff; color: var(--catalog-ink); font: inherit; }

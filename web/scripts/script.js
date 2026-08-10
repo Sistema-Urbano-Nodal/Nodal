@@ -113,12 +113,14 @@
   // kick off node animation + headline, allow replay on click
   function start() {
     play();
-    document.querySelector('.headline').classList.add('in');
+    document.querySelector('.headline')?.classList.add('in');
   }
   if (document.readyState !== 'loading') start();
   else document.addEventListener('DOMContentLoaded', start);
 
-  document.getElementById('brand').addEventListener('click', (e) => {
+  document.getElementById('brand')?.addEventListener('click', (e) => {
+    const href = e.currentTarget?.getAttribute('href');
+    if (href && href !== '#top' && href !== '#') return;
     e.preventDefault();
     play();
   });

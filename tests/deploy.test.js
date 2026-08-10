@@ -28,6 +28,9 @@ test('Vercel serves generated frontend assets before the Node serverless adapter
   assert.ok(vercel.headers.some((route) => route.source === '/assets/(.*)'));
   assert.ok(vercel.headers.some((route) => route.source.endsWith('.js')));
   assert.ok(vercel.headers.some((route) => route.source.endsWith('.css')));
+  const catalogPageHeaders = vercel.headers.find((route) => route.source === '/opportunities.html');
+  assert.ok(catalogPageHeaders, 'opportunities.html needs an explicit page cache policy');
+  assert.ok(catalogPageHeaders.headers.some(({ key, value }) => key === 'Cache-Control' && /max-age=/.test(value)));
 });
 
 test('repository layout separates deployable code, source assets, operations, and tests', () => {

@@ -175,7 +175,7 @@
     form: byId('catalogForm'), results: byId('catalogResults'), status: byId('catalogStatus'),
     detail: byId('catalogDetail'), detailStatus: byId('catalogDetailStatus'),
     more: byId('catalogMore'), selectedId: null, nextCursor: null,
-    listController: null, detailController: null, debounce: null,
+    listController: null, detailController: null, interestsController: null, debounce: null,
   };
 
   function filterParams({ cursor = false } = {}) {
@@ -284,20 +284,27 @@
     page.selectedId = id;
     updateBrowserQuery();
     page.detailController?.abort();
-    page.detailController = new AbortController();
+    const controller = new AbortController();
+    page.detailController = controller;
     page.detail.hidden = true;
     page.detailStatus.textContent = t('catalog.detailLoading');
     try {
-      const response = await jsonRequest(`/api/catalog/${encodeURIComponent(id)}?lang=${encodeURIComponent(I18N?.lang || 'en')}`, { signal: page.detailController.signal });
+      const response = await jsonRequest(`/api/catalog/${encodeURIComponent(id)}?lang=${encodeURIComponent(I18N?.lang || 'en')}`, { signal: controller.signal });
       if (!response.ok) throw new Error('detail unavailable');
-      renderDetail((await response.json()).item);
+      const item = (await response.json()).item;
+      if (controller.signal.aborted || page.detailController !== controller || page.selectedId !== id) return;
+      renderDetail(item);
       page.detail.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     } catch (error) {
       if (error.name !== 'AbortError') page.detailStatus.textContent = t('catalog.detailUnavailable');
+    } finally {
+      if (page.detailController === controller) page.detailController = null;
     }
   }
 
   function closeDetail() {
+    page.detailController?.abort();
+    page.detailController = null;
     page.selectedId = null;
     page.detail.hidden = true;
     page.detailStatus.textContent = t('catalog.selectDetail');
@@ -312,21 +319,30 @@
     const status = byId('catalogInterestStatus');
     if (!authenticated) { redirectToLogin(); return; }
     status.textContent = t('catalog.interestSending');
-    const response = await jsonRequest(`/api/catalog/${encodeURIComponent(itemId)}/interest`, { method: 'PUT', body: JSON.stringify({ message }) });
-    if (response.status === 401) { redirectToLogin(); return; }
-    if (!response.ok) { status.textContent = t('catalog.interestError'); return; }
-    status.textContent = t('catalog.interestSuccess');
-    await selectDetail(itemId);
+    try {
+      const response = await jsonRequest(`/api/catalog/${encodeURIComponent(itemId)}/interest`, { method: 'PUT', body: JSON.stringify({ message }) });
+      if (response.status === 401) { redirectToLogin(); return; }
+      if (!response.ok) throw new Error('interest write failed');
+      await selectDetail(itemId);
+      const feedback = t('catalog.interestSuccess');
+      status.textContent = feedback;
+      page.detailStatus.textContent = feedback;
+    } catch { status.textContent = t('catalog.interestError'); }
   }
 
   async function withdrawInterest() {
     const itemId = byId('catalogInterestForm').dataset.itemId;
     const status = byId('catalogInterestStatus');
-    const response = await jsonRequest(`/api/catalog/${encodeURIComponent(itemId)}/interest`, { method: 'DELETE' });
-    if (response.status === 401) { redirectToLogin(); return; }
-    if (!response.ok) { status.textContent = t('catalog.interestError'); return; }
-    status.textContent = t('catalog.interestWithdrawn');
-    await selectDetail(itemId);
+    status.textContent = t('catalog.interestSending');
+    try {
+      const response = await jsonRequest(`/api/catalog/${encodeURIComponent(itemId)}/interest`, { method: 'DELETE' });
+      if (response.status === 401) { redirectToLogin(); return; }
+      if (!response.ok) throw new Error('interest withdrawal failed');
+      await selectDetail(itemId);
+      const feedback = t('catalog.interestWithdrawn');
+      status.textContent = feedback;
+      page.detailStatus.textContent = feedback;
+    } catch { status.textContent = t('catalog.interestError'); }
   }
 
   async function loadMyInterests() {
@@ -334,18 +350,23 @@
     const status = byId('catalogMyInterestsStatus');
     const list = byId('catalogMyInterestsList');
     if (!section || !status || !list) return;
+    page.interestsController?.abort();
+    const controller = new AbortController();
+    page.interestsController = controller;
+    const lang = I18N?.lang || 'en';
     section.hidden = false;
     status.textContent = t('catalog.loadingInterests');
     clear(list);
     try {
-      const response = await jsonRequest(`/api/me/catalog-interests?lang=${encodeURIComponent(I18N?.lang || 'en')}&limit=24`);
+      const response = await jsonRequest(`/api/me/catalog-interests?lang=${encodeURIComponent(lang)}&limit=24`, { signal: controller.signal });
       if (response.status === 401) { redirectToLogin(); return; }
       if (!response.ok) throw new Error('interests failed');
       const interests = (await response.json()).interests;
       const detailed = await Promise.all(interests.map(async (interest) => {
-        const detail = await jsonRequest(`/api/catalog/${encodeURIComponent(interest.itemId)}?lang=${encodeURIComponent(I18N?.lang || 'en')}`);
+        const detail = await jsonRequest(`/api/catalog/${encodeURIComponent(interest.itemId)}?lang=${encodeURIComponent(lang)}`, { signal: controller.signal });
         return detail.ok ? { interest, item: (await detail.json()).item } : { interest, item: null };
       }));
+      if (controller.signal.aborted || page.interestsController !== controller) return;
       detailed.forEach(({ interest, item }) => {
         const article = create('article', 'interest-record');
         article.append(create('span', `interest-status status-${interest.status}`, t(statusKey(interest.status))),
@@ -360,7 +381,11 @@
         list.append(article);
       });
       status.textContent = interests.length ? '' : t('catalog.interestsEmpty');
-    } catch { status.textContent = t('catalog.interestsError'); }
+    } catch (error) {
+      if (error.name !== 'AbortError' && page.interestsController === controller) status.textContent = t('catalog.interestsError');
+    } finally {
+      if (page.interestsController === controller) page.interestsController = null;
+    }
   }
 
   function runFilters() {
@@ -386,7 +411,11 @@
     byId('catalogInterestForm').addEventListener('submit', submitInterest);
     byId('catalogWithdrawInterest').addEventListener('click', withdrawInterest);
     byId('catalogMyInterestsToggle').addEventListener('click', loadMyInterests);
-    byId('catalogMyInterestsClose').addEventListener('click', () => { byId('catalogMyInterests').hidden = true; });
+    byId('catalogMyInterestsClose').addEventListener('click', () => {
+      page.interestsController?.abort();
+      page.interestsController = null;
+      byId('catalogMyInterests').hidden = true;
+    });
     loadResults();
     if (page.selectedId) selectDetail(page.selectedId);
     if (new URLSearchParams(window.location.search).get('view') === 'interests') loadMyInterests();

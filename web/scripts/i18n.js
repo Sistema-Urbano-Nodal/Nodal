@@ -449,6 +449,10 @@
   const DASH_EN = {
     'a.confirm': 'Check your email to confirm your account. If you already confirmed it, sign in.',
 
+    'nav.mainLabel': 'Main navigation',
+    'nav.accountLabel': 'Account and language',
+    'nav.languageLabel': 'Language',
+    'nav.menuLabel': 'Menu',
     'hero.browse': 'Browse open work',
     'catalog.loading': 'Loading verified open work…',
     'catalog.loadingCases': 'Loading published case studies…',
@@ -838,6 +842,10 @@
     'a.createBtn': 'Crear cuenta',
     'a.confirm': 'Revisa tu correo para confirmar la cuenta. Si ya la confirmaste, inicia sesión.',
 
+    'nav.mainLabel': 'Navegación principal',
+    'nav.accountLabel': 'Cuenta e idioma',
+    'nav.languageLabel': 'Idioma',
+    'nav.menuLabel': 'Menú',
     'd.title': 'NODAL · Panel de miembro',
     'd.nav.general': 'General',
     'd.nav.overview': 'Panel',
@@ -1333,6 +1341,10 @@
     'a.createBtn': 'Criar conta',
     'a.confirm': 'Confira seu e-mail para confirmar a conta. Se já confirmou, faça login.',
 
+    'nav.mainLabel': 'Navegação principal',
+    'nav.accountLabel': 'Conta e idioma',
+    'nav.languageLabel': 'Idioma',
+    'nav.menuLabel': 'Menu',
     'd.title': 'NODAL · Painel do membro',
     'd.nav.general': 'Geral',
     'd.nav.overview': 'Painel',
@@ -1857,6 +1869,12 @@
       if (!(k in EN)) EN[k] = el.getAttribute('placeholder') ?? '';
       const value = d[k] ?? EN[k];
       if (value !== undefined) el.setAttribute('placeholder', value);
+    });
+    document.querySelectorAll('[data-i18n-aria-label]').forEach((el) => {
+      const k = el.dataset.i18nAriaLabel;
+      if (!(k in EN)) EN[k] = el.getAttribute('aria-label') ?? '';
+      const value = d[k] ?? EN[k];
+      if (value !== undefined) el.setAttribute('aria-label', value);
     });
     document.querySelectorAll('.lang-btn').forEach((btn) => {
       btn.classList.toggle('is-on', btn.dataset.lang === current);
