@@ -9,6 +9,8 @@ import {
   exportUserData,
   getSubscriptionStatus,
   getCatalogItem,
+  getCatalogInterest,
+  getCatalogInterestById,
   getUserByEmail,
   getUserById,
   listDirectoryUsers,
@@ -116,6 +118,12 @@ function createSqliteRepository(db, { ownsDb = false } = {}) {
     },
     async withdrawCatalogInterest(itemId, userId) {
       return withdrawCatalogInterest(db, itemId, userId);
+    },
+    async getCatalogInterest(itemId, userId) {
+      return getCatalogInterest(db, itemId, userId);
+    },
+    async getCatalogInterestById(id) {
+      return getCatalogInterestById(db, id);
     },
     async listCatalogInterestsForUser(userId, query) {
       return listCatalogInterestsForUser(db, userId, query);

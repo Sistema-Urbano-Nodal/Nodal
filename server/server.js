@@ -15,6 +15,14 @@ import {
 import { validateEmail, validatePassword } from './auth.js';
 import { createRepository } from './repository.js';
 import { dataBackend, resolveSupabaseEnv } from './supabase.js';
+import {
+  decodeCatalogCursor,
+  isCatalogItemClosed,
+  localizeCatalogItem,
+  validateCatalogDraft,
+  validateCatalogInterestMessage,
+  validateCatalogPublication,
+} from './catalog.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const WEB_ROOT = path.join(ROOT, 'web');
@@ -26,7 +34,7 @@ const REC_TTL_MS = 5 * 60 * 1000;                 // 5-minute cache, per spec
 const ID_RE = /^[a-z0-9-]{1,40}$/;
 const API_INTERACTION_TYPES = new Set(['skip']);
 const MAX_BODY = 32 * 1024;
-const PRIVATE_PAGES = new Set(['/dashboard.html', '/profile.html', '/payments.html']);
+const PRIVATE_PAGES = new Set(['/dashboard.html', '/profile.html', '/payments.html', '/admin.html']);
 const STATIC_PAGES = new Set(['index.html', 'login.html', 'dashboard.html', 'profile.html', 'payments.html']);
 const STATIC_SCRIPTS = new Set(['app.js', 'auth.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js']);
 const STATIC_STYLES = new Set(['styles.css', 'dashboard.css']);
@@ -41,6 +49,12 @@ const MEMBER_SEARCH_MIN_QUERY = 2;
 const MEMBER_SEARCH_LIMIT = 8;
 const MEMBER_SEARCH_WINDOW_MS = 60 * 1000;
 const MEMBER_SEARCH_RATE_LIMIT = envInt('MEMBER_SEARCH_RATE_LIMIT', 40);
+const CATALOG_READ_RATE_LIMIT = envInt('CATALOG_READ_RATE_LIMIT', 60);
+const CATALOG_WRITE_RATE_LIMIT = envInt('CATALOG_WRITE_RATE_LIMIT', 20);
+const CATALOG_PUBLIC_CACHE_CONTROL = 'public, max-age=60, stale-while-revalidate=60';
+const CATALOG_KINDS = new Set(['opportunity', 'project', 'learning_circle', 'resource', 'case_study']);
+const CATALOG_SUBTYPES = new Set(['job', 'consulting', 'grant', 'open_call', 'fellowship', 'other']);
+const CATALOG_STATUSES = new Set(['draft', 'published', 'archived']);
 /* Anything below either leaves the building (an external geocoder, Stripe) or
    reads the whole directory. Unlimited, one signed-in account could burn a
    third-party quota or hold the database busy for everyone else. */
@@ -521,6 +535,9 @@ function sendNotModified(res, etag) {
 
 function sanitizeProfilePatch(body) {
   if (!body || typeof body !== 'object') throw Object.assign(new Error('invalid profile payload'), { status: 400 });
+  if ('app_role' in body || 'appRole' in body || 'role' in body || 'permission' in body) {
+    throw Object.assign(new Error('app_role cannot be changed through profile updates'), { status: 400 });
+  }
   if ('fullName' in body && String(body.fullName).trim().length < 2) {
     throw Object.assign(new Error('full name is required'), { status: 400 });
   }
@@ -544,6 +561,132 @@ function requireAuth(res, user) {
   if (user) return true;
   send(res, 401, { error: 'authentication required' });
   return false;
+}
+
+function requireAdmin(res, user) {
+  if (!requireAuth(res, user)) return false;
+  if ((user.permission || user.role) === 'admin') return true;
+  send(res, 403, { error: 'administrator access required' });
+  return false;
+}
+
+function badRequest(message) {
+  return Object.assign(new Error(message), { status: 400 });
+}
+
+function oneQueryValue(params, name) {
+  const values = params.getAll(name);
+  if (values.length > 1) throw badRequest(`${name} is invalid`);
+  return values[0];
+}
+
+function boundedQueryText(params, name, max) {
+  const value = oneQueryValue(params, name);
+  if (value === undefined) return undefined;
+  const text = value.trim();
+  if (!text || text.length > max) throw badRequest(`${name} is invalid`);
+  return text;
+}
+
+function catalogQueryFromUrl(params, { admin = false } = {}) {
+  const allowed = new Set(['lang', 'kind', 'subtype', 'q', 'topic', 'location', 'featured', 'state', 'cursor', 'limit', ...(admin ? ['status'] : [])]);
+  if ([...params.keys()].some((key) => !allowed.has(key))) throw badRequest('catalog query is invalid');
+  const lang = oneQueryValue(params, 'lang') || 'en';
+  if (!['en', 'es', 'pt'].includes(lang)) throw badRequest('lang is invalid');
+  const query = { lang };
+  const kind = boundedQueryText(params, 'kind', 160);
+  if (kind !== undefined) {
+    const kinds = kind.split(',').map((part) => part.trim());
+    if (!kinds.length || kinds.some((part) => !part || !CATALOG_KINDS.has(part))) throw badRequest('kind is invalid');
+    query.kind = kinds.join(',');
+  }
+  const subtype = boundedQueryText(params, 'subtype', 40);
+  if (subtype !== undefined) {
+    if (!CATALOG_SUBTYPES.has(subtype)) throw badRequest('subtype is invalid');
+    query.subtype = subtype;
+  }
+  for (const [name, max] of [['q', 320], ['topic', 60], ['location', 180]]) {
+    const value = boundedQueryText(params, name, max);
+    if (value !== undefined) query[name] = value;
+  }
+  const featured = oneQueryValue(params, 'featured');
+  if (featured !== undefined) {
+    if (featured !== 'true' && featured !== 'false') throw badRequest('featured is invalid');
+    query.featured = featured;
+  }
+  const state = oneQueryValue(params, 'state') || (admin ? 'all' : 'open');
+  if (!['open', 'all'].includes(state)) throw badRequest('state is invalid');
+  query.state = state;
+  const cursor = oneQueryValue(params, 'cursor');
+  if (cursor !== undefined) {
+    try { decodeCatalogCursor(cursor); } catch { throw badRequest('catalog cursor is invalid'); }
+    query.cursor = cursor;
+  }
+  const limit = oneQueryValue(params, 'limit');
+  if (limit !== undefined) {
+    if (!/^[1-9]\d*$/.test(limit) || Number(limit) > 24) throw badRequest('limit is invalid');
+    query.limit = Number(limit);
+  }
+  if (admin) {
+    const status = oneQueryValue(params, 'status');
+    if (status !== undefined) {
+      if (!CATALOG_STATUSES.has(status)) throw badRequest('status is invalid');
+      query.status = status;
+    }
+  } else if (params.has('status')) {
+    throw badRequest('status is invalid');
+  }
+  return query;
+}
+
+function catalogViewer(user) {
+  return user ? { id: user.id, permission: user.permission || user.role } : null;
+}
+
+function catalogPublicProjection(item, lang, { interestStatus } = {}) {
+  const localized = localizeCatalogItem(item, lang);
+  return {
+    ...localized,
+    organization: item.organization,
+    location: item.location,
+    topics: item.topics,
+    startsAt: item.startsAt,
+    deadlineAt: item.deadlineAt,
+    endDate: item.endDate,
+    sourceUrl: item.sourceUrl,
+    sourceVerifiedAt: item.sourceVerifiedAt,
+    actionMode: item.actionMode,
+    actionUrl: item.actionUrl,
+    featured: Boolean(item.featured),
+    isClosed: isCatalogItemClosed(item),
+    ...(interestStatus === undefined ? {} : { interestStatus }),
+  };
+}
+
+function catalogAdminInput(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw badRequest('catalog item is invalid');
+  try {
+    return body.status === 'published' ? validateCatalogPublication(body) : validateCatalogDraft(body);
+  } catch (err) {
+    throw badRequest(safeErrorMessage(err));
+  }
+}
+
+function requiredVersion(value) {
+  if (!Number.isInteger(value) || value < 1) throw badRequest('version is invalid');
+  return value;
+}
+
+async function adminInterestProjection(repository, interest) {
+  if (!interest) return null;
+  const user = repository.toApiUser(await repository.getUserById(interest.userId));
+  return {
+    id: interest.id,
+    version: interest.version,
+    member: { name: user?.fullName || '', email: user?.email || '' },
+    message: interest.message,
+    status: interest.status,
+  };
 }
 
 function resolveUserId(param, sessionUser, useDb) {
@@ -604,6 +747,8 @@ export function createApp({
   // each search walks the whole directory, so it is bounded per member
   const searchLimiter = createWindowRateLimiter({ windowMs: MEMBER_SEARCH_WINDOW_MS, limit: MEMBER_SEARCH_RATE_LIMIT });
   const readLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: READ_RATE_LIMIT });
+  const catalogReadLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: CATALOG_READ_RATE_LIMIT });
+  const catalogWriteLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: CATALOG_WRITE_RATE_LIMIT });
   /* The globe polls every couple of seconds so an arrival lands while you are
      watching. That is ~24 requests a minute on its own, and READ_RATE_LIMIT is
      shared with the directory and city search — one budget for both would let a
@@ -666,6 +811,10 @@ export function createApp({
           redirect(res, `/login.html?next=${encodeURIComponent(canonical)}`);
           return;
         }
+        if (useDb && canonical === '/admin.html' && (sessionUser?.permission || sessionUser?.role) !== 'admin') {
+          send(res, 403, { error: 'administrator access required' });
+          return;
+        }
         if (useDb && canonical === '/login.html' && sessionUser) {
           redirect(res, safeNext(url.searchParams.get('next')));
           return;
@@ -676,6 +825,162 @@ export function createApp({
 
       // HEAD too: uptime probes default to it, and a 404 there reads as an outage
       if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/api/health') { send(res, 200, { ok: true }); return; }
+
+      if (useDb && req.method === 'GET' && pathname === '/api/catalog') {
+        const query = catalogQueryFromUrl(url.searchParams);
+        if (!throttle(catalogReadLimiter, res, req, sessionUser, 'catalog-read')) return;
+        const result = await repository.listCatalogItems(query, catalogViewer(sessionUser));
+        const payload = {
+          items: result.items.map((item) => catalogPublicProjection(item, query.lang)),
+          nextCursor: result.nextCursor,
+        };
+        if (sessionUser) { send(res, 200, payload); return; }
+        const serialized = JSON.stringify(payload);
+        const etag = entityTag(serialized);
+        if (req.headers['if-none-match'] === etag) {
+          res.writeHead(304, securityHeaders({ ETag: etag, 'Cache-Control': CATALOG_PUBLIC_CACHE_CONTROL }));
+          res.end();
+          return;
+        }
+        send(res, 200, serialized, { ETag: etag, 'Cache-Control': CATALOG_PUBLIC_CACHE_CONTROL, 'Content-Type': 'application/json; charset=utf-8' });
+        return;
+      }
+
+      let catalogMatch = pathname.match(/^\/api\/catalog\/([a-z0-9-]{1,40})$/);
+      if (useDb && req.method === 'GET' && catalogMatch) {
+        const lang = oneQueryValue(url.searchParams, 'lang') || 'en';
+        if (!['en', 'es', 'pt'].includes(lang) || [...url.searchParams.keys()].some((key) => key !== 'lang')) throw badRequest('catalog detail query is invalid');
+        const item = await repository.getCatalogItem(catalogMatch[1], catalogViewer(sessionUser));
+        if (!item) { send(res, 404, { error: 'catalog item not found' }); return; }
+        let interestStatus;
+        if (sessionUser) {
+          interestStatus = (await repository.getCatalogInterest(item.id, sessionUser.id))?.status ?? null;
+        }
+        const payload = { item: catalogPublicProjection(item, lang, sessionUser ? { interestStatus } : {}) };
+        if (sessionUser) { send(res, 200, payload); return; }
+        const serialized = JSON.stringify(payload);
+        const etag = entityTag(serialized);
+        if (req.headers['if-none-match'] === etag) {
+          res.writeHead(304, securityHeaders({ ETag: etag, 'Cache-Control': CATALOG_PUBLIC_CACHE_CONTROL }));
+          res.end();
+          return;
+        }
+        send(res, 200, serialized, { ETag: etag, 'Cache-Control': CATALOG_PUBLIC_CACHE_CONTROL, 'Content-Type': 'application/json; charset=utf-8' });
+        return;
+      }
+
+      catalogMatch = pathname.match(/^\/api\/catalog\/([a-z0-9-]{1,40})\/interest$/);
+      if (useDb && catalogMatch && (req.method === 'PUT' || req.method === 'DELETE')) {
+        if (!requireAuth(res, sessionUser)) return;
+        if (!sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
+        if (!throttle(catalogWriteLimiter, res, req, sessionUser, 'catalog-interest')) return;
+        const itemId = catalogMatch[1];
+        if (req.method === 'PUT') {
+          const item = await repository.getCatalogItem(itemId, catalogViewer(sessionUser));
+          if (!item || item.actionMode !== 'interest' || isCatalogItemClosed(item)) {
+            send(res, 404, { error: 'catalog item does not accept interest' });
+            return;
+          }
+          const body = await readJsonBody(req);
+          let message;
+          try { message = validateCatalogInterestMessage(body.message); } catch (err) { throw badRequest(safeErrorMessage(err)); }
+          const interest = await repository.upsertCatalogInterest(itemId, sessionUser.id, message);
+          send(res, 200, { interest: { itemId: interest.itemId, status: interest.status, message: interest.message } });
+          return;
+        }
+        const existing = await repository.getCatalogInterest(itemId, sessionUser.id);
+        await repository.withdrawCatalogInterest(itemId, sessionUser.id);
+        send(res, 200, { interest: {
+          itemId,
+          status: 'withdrawn',
+          message: existing?.message || '',
+        } });
+        return;
+      }
+
+      if (useDb && req.method === 'GET' && pathname === '/api/me/catalog-interests') {
+        if (!requireAuth(res, sessionUser)) return;
+        const lang = oneQueryValue(url.searchParams, 'lang') || 'en';
+        const limit = oneQueryValue(url.searchParams, 'limit');
+        if (!['en', 'es', 'pt'].includes(lang) || [...url.searchParams.keys()].some((key) => key !== 'lang' && key !== 'limit')) throw badRequest('catalog interests query is invalid');
+        if (limit !== undefined && (!/^[1-9]\d*$/.test(limit) || Number(limit) > 24)) throw badRequest('limit is invalid');
+        const result = await repository.listCatalogInterestsForUser(sessionUser.id, { limit: limit === undefined ? undefined : Number(limit) });
+        send(res, 200, {
+          interests: result.interests.map((interest) => ({ itemId: interest.itemId, status: interest.status, message: interest.message })),
+          nextCursor: result.nextCursor,
+        });
+        return;
+      }
+
+      if (useDb && req.method === 'GET' && pathname === '/api/admin/catalog') {
+        if (!requireAdmin(res, sessionUser)) return;
+        const query = catalogQueryFromUrl(url.searchParams, { admin: true });
+        const result = await repository.listCatalogItems(query, catalogViewer(sessionUser));
+        send(res, 200, result);
+        return;
+      }
+
+      if (useDb && req.method === 'POST' && pathname === '/api/admin/catalog') {
+        if (!requireAdmin(res, sessionUser)) return;
+        if (!sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
+        if (!throttle(catalogWriteLimiter, res, req, sessionUser, 'admin-catalog')) return;
+        const item = await repository.createCatalogItem(catalogAdminInput(await readJsonBody(req)), sessionUser.id);
+        send(res, 201, { item });
+        return;
+      }
+
+      let adminMatch = pathname.match(/^\/api\/admin\/catalog\/([a-z0-9-]{1,40})$/);
+      if (useDb && req.method === 'PATCH' && adminMatch) {
+        if (!requireAdmin(res, sessionUser)) return;
+        if (!sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
+        if (!throttle(catalogWriteLimiter, res, req, sessionUser, 'admin-catalog')) return;
+        const body = await readJsonBody(req);
+        const version = requiredVersion(body.version);
+        const input = catalogAdminInput(body);
+        try {
+          const item = await repository.updateCatalogItem(adminMatch[1], input, version, sessionUser.id);
+          if (!item) { send(res, 404, { error: 'catalog item not found' }); return; }
+          send(res, 200, { item });
+        } catch (err) {
+          if (err?.code !== 'CATALOG_VERSION_CONFLICT') throw err;
+          const current = await repository.getCatalogItem(adminMatch[1], catalogViewer(sessionUser));
+          send(res, 409, { error: 'catalog item changed by another editor', current });
+        }
+        return;
+      }
+
+      if (useDb && req.method === 'GET' && pathname === '/api/admin/interests') {
+        if (!requireAdmin(res, sessionUser)) return;
+        const status = oneQueryValue(url.searchParams, 'status');
+        const limit = oneQueryValue(url.searchParams, 'limit');
+        if ([...url.searchParams.keys()].some((key) => key !== 'status' && key !== 'limit')) throw badRequest('admin interests query is invalid');
+        if (status !== undefined && !['new', 'contacted', 'closed', 'withdrawn'].includes(status)) throw badRequest('interest status is invalid');
+        if (limit !== undefined && (!/^[1-9]\d*$/.test(limit) || Number(limit) > 24)) throw badRequest('limit is invalid');
+        const result = await repository.listAdminInterests({ status, limit: limit === undefined ? undefined : Number(limit) });
+        const interests = await Promise.all(result.interests.map((interest) => adminInterestProjection(repository, interest)));
+        send(res, 200, { interests, nextCursor: result.nextCursor });
+        return;
+      }
+
+      adminMatch = pathname.match(/^\/api\/admin\/interests\/([a-z0-9-]{1,40})$/);
+      if (useDb && req.method === 'PATCH' && adminMatch) {
+        if (!requireAdmin(res, sessionUser)) return;
+        if (!sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
+        if (!throttle(catalogWriteLimiter, res, req, sessionUser, 'admin-interest')) return;
+        const body = await readJsonBody(req);
+        const version = requiredVersion(body.version);
+        if (!['new', 'contacted', 'closed', 'withdrawn'].includes(body.status)) throw badRequest('interest status is invalid');
+        try {
+          const interest = await repository.updateCatalogInterest(adminMatch[1], { status: body.status }, version, sessionUser.id);
+          if (!interest) { send(res, 404, { error: 'catalog interest not found' }); return; }
+          send(res, 200, { interest: { id: interest.id, version: interest.version, status: interest.status } });
+        } catch (err) {
+          if (err?.code !== 'CATALOG_VERSION_CONFLICT') throw err;
+          const current = await repository.getCatalogInterestById(adminMatch[1]);
+          send(res, 409, { error: 'catalog interest changed by another editor', current: await adminInterestProjection(repository, current) });
+        }
+        return;
+      }
 
       if (req.method === 'GET' && pathname === '/api/billing/config') {
         send(res, 200, publicBillingConfig());

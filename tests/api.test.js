@@ -848,6 +848,17 @@ test('auth: login, profile persistence and logout', async (t) => {
   assert.equal(me.status, 401);
 });
 
+test('profile PATCH rejects attempts to set the server-owned app_role', async (t) => {
+  // If the profile endpoint ever accepts role metadata, a member could become an administrator.
+  const base = await bootDb(t);
+  const signup = await postJson(base, '/api/auth/signup', {
+    fullName: 'Role Boundary Member', email: 'role-boundary@example.com', password: 'correct-horse',
+  });
+  const response = await patchJson(base, '/api/me', { app_role: 'admin' }, { Cookie: cookiePair(signup) });
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).error, 'app_role cannot be changed through profile updates');
+});
+
 test('privacy: member can export personal data and delete their account', async (t) => {
   const base = await bootDb(t);
   const signup = await postJson(base, '/api/auth/signup', {

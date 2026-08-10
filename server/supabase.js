@@ -884,6 +884,16 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       if (!row) throw catalogConflict();
       return true;
     },
+    async getCatalogInterest(itemId, userId) {
+      return catalogInterestFromSupabase(await first(admin.rest('catalog_interests', {
+        query: { item_id: `eq.${itemId}`, user_id: `eq.${userId}`, select: '*' },
+      })));
+    },
+    async getCatalogInterestById(id) {
+      return catalogInterestFromSupabase(await first(admin.rest('catalog_interests', {
+        query: { id: `eq.${id}`, select: '*' },
+      })));
+    },
     async listCatalogInterestsForUser(userId, query = {}) {
       const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
       const rows = await admin.rest('catalog_interests', {

@@ -692,6 +692,14 @@ export function withdrawCatalogInterest(db, itemId, userId) {
   return result.changes > 0;
 }
 
+export function getCatalogInterest(db, itemId, userId) {
+  return catalogInterestFromRow(db.prepare('SELECT * FROM catalog_interests WHERE item_id = ? AND user_id = ?').get(itemId, userId));
+}
+
+export function getCatalogInterestById(db, id) {
+  return catalogInterestFromRow(db.prepare('SELECT * FROM catalog_interests WHERE id = ?').get(id));
+}
+
 export function listCatalogInterestsForUser(db, userId, query = {}) {
   const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
   const interests = db.prepare('SELECT * FROM catalog_interests WHERE user_id = ? ORDER BY updated_at DESC, id ASC LIMIT ?').all(userId, limit).map(catalogInterestFromRow);
