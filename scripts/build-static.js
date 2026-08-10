@@ -4,9 +4,11 @@ import path from 'node:path';
 const ROOT = path.resolve(import.meta.dirname, '..');
 const WEB_ROOT = path.join(ROOT, 'web');
 const OUTPUT = path.join(ROOT, 'public');
+const STATIC_PAGES = ['opportunities.html'];
 const STATIC_SCRIPTS = [
   'app.js',
   'auth.js',
+  'catalog.js',
   'coastline.js',
   'dashboard.js',
   'globe.js',
@@ -18,7 +20,7 @@ const STATIC_SCRIPTS = [
   'recs.js',
   'script.js',
 ];
-const STATIC_STYLES = ['dashboard.css', 'styles.css'];
+const STATIC_STYLES = ['catalog.css', 'dashboard.css', 'styles.css'];
 const STATIC_ASSETS = [
   'latam-map.webp',
   'nodal-community.webp',
@@ -26,6 +28,10 @@ const STATIC_ASSETS = [
 ];
 
 await mkdir(OUTPUT, { recursive: true });
+await Promise.all(STATIC_PAGES.map((file) => copyFile(
+  path.join(WEB_ROOT, 'pages', file),
+  path.join(OUTPUT, file),
+)));
 await Promise.all(STATIC_SCRIPTS.map((file) => copyFile(
   path.join(WEB_ROOT, 'scripts', file),
   path.join(OUTPUT, file),

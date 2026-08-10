@@ -321,3 +321,19 @@ test('every script a page loads is registered everywhere it must be', () => {
   }
   assert.deepEqual(missing, [], `scripts missing from a registration list:\n${missing.join('\n')}`);
 });
+
+test('public catalog assets are served, built, cached, and deployment-covered', () => {
+  const serverSource = readFileSync(path.join(ROOT, 'server', 'server.js'), 'utf8');
+  const buildSource = readFileSync(path.join(ROOT, 'scripts', 'build-static.js'), 'utf8');
+  const vercel = JSON.parse(readFileSync(path.join(ROOT, 'vercel.json'), 'utf8'));
+
+  assert.ok(existsSync(path.join(ROOT, 'web', 'pages', 'opportunities.html')));
+  assert.match(serverSource, /STATIC_PAGES[^\n]*'opportunities\.html'/);
+  assert.match(serverSource, /STATIC_SCRIPTS[^\n]*'catalog\.js'/);
+  assert.match(serverSource, /STATIC_STYLES[^\n]*'catalog\.css'/);
+  assert.match(buildSource, /'opportunities\.html'/);
+  assert.match(buildSource, /'catalog\.js'/);
+  assert.match(buildSource, /'catalog\.css'/);
+  assert.ok(vercel.headers.some((route) => new RegExp(route.source).test('/catalog.js')));
+  assert.ok(vercel.headers.some((route) => new RegExp(route.source).test('/catalog.css')));
+});

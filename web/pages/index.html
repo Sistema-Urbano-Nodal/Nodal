@@ -3,527 +3,130 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
-  <meta name="description" content="NODAL is a living network for Latin American urban transformation, connecting people, knowledge, data and institutions to activate collaborative city work." />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cline x1='20' y1='22' x2='44' y2='42' stroke='%2359bc53' stroke-width='5'/%3E%3Ccircle cx='20' cy='22' r='11' fill='%233d5c38'/%3E%3Ccircle cx='44' cy='42' r='8' fill='%2359bc53'/%3E%3C/svg%3E" />
-  <title>NODAL · Nodos Urbanos de América Latina</title>
+  <meta name="description" content="Find verified urban opportunities, projects, learning circles, resources and case studies across Latin America." />
+  <title>NODAL · Urban knowledge into action</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500;1,600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=19" />
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500;1,600&amp;display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css?v=20" />
+  <link rel="stylesheet" href="catalog.css?v=1" />
 </head>
 <body>
-
-  <!-- header -->
   <header class="navbar" id="top">
-    <a class="brand" href="#top" id="brand" title="Click logo to replay">
+    <a class="brand" href="#top" id="brand" title="NODAL">
       <svg id="net" class="brand-mark" viewBox="0 0 120 130" aria-label="NODAL network mark"></svg>
-      <img class="brand-wordmark" src="assets/nodal-wordmark.webp"
-           alt="NODAL · Nodos Urbanos de América Latina" />
+      <img class="brand-wordmark" src="assets/nodal-wordmark.webp" alt="NODAL · Nodos Urbanos de América Latina" />
     </a>
-
-    <nav class="nav-main">
-      <a href="#membership" data-i18n="nav.opportunities">Programs</a>
-      <a href="#knowledge" data-i18n="nav.knowledge">Community</a>
+    <nav class="nav-main" aria-label="Main navigation">
+      <a href="opportunities.html" data-i18n="nav.opportunities">Open work</a>
+      <a href="#how" data-i18n="nav.network">How it works</a>
       <a href="#resources" data-i18n="nav.resources">Resources</a>
     </nav>
-
-    <nav class="nav-account">
+    <nav class="nav-account" aria-label="Account and language">
       <a href="dashboard.html" data-i18n="nav.profile">Profile</a>
-      <a href="#platform" data-i18n="nav.network">Community</a>
-      <a href="https://sistemaurbano.org/nodal/" target="_blank" rel="noopener noreferrer">Sistema Urbano ↗</a>
       <div class="lang-switch" role="group" aria-label="Language">
         <button type="button" class="lang-btn is-on" data-lang="en" aria-label="English">EN</button>
         <button type="button" class="lang-btn" data-lang="es" aria-label="Español">ES</button>
         <button type="button" class="lang-btn" data-lang="pt" aria-label="Português">PT</button>
       </div>
-      <a class="btn btn-pill btn-nav" href="login.html?next=/dashboard.html" data-i18n="nav.join">Join NODAL</a>
+      <a class="btn btn-pill btn-nav" id="navJoin" href="login.html?next=/dashboard.html" data-i18n="nav.join">Join NODAL</a>
     </nav>
-
-    <button type="button" class="nav-toggle" id="navToggle" aria-label="Menu">
-      <span></span><span></span><span></span>
-    </button>
+    <button type="button" class="nav-toggle" id="navToggle" aria-label="Menu"><span></span><span></span><span></span></button>
   </header>
 
-  <img class="map-outline" src="assets/latam-map.webp" alt="" aria-hidden="true" />
-
-  <svg class="hero-net" viewBox="0 0 320 420" aria-hidden="true" preserveAspectRatio="xMidYMid meet">
-    <g class="hn-edges" stroke-linecap="round" fill="none">
-      <line x1="88"  y1="64"  x2="172" y2="118"/>
-      <line x1="172" y1="118" x2="118" y2="206"/>
-      <line x1="172" y1="118" x2="238" y2="172"/>
-      <line x1="118" y1="206" x2="190" y2="272"/>
-      <line x1="238" y1="172" x2="190" y2="272"/>
-      <line x1="190" y1="272" x2="146" y2="352"/>
-    </g>
-    <g class="hn-nodes">
-      <circle cx="88"  cy="64"  r="5"/>
-      <circle cx="172" cy="118" r="8.5" class="hn-hub"/>
-      <circle cx="238" cy="172" r="5"/>
-      <circle cx="118" cy="206" r="6"/>
-      <circle cx="190" cy="272" r="7" class="hn-active"/>
-      <circle cx="146" cy="352" r="5"/>
-    </g>
-  </svg>
-
-  <!-- hero -->
-  <section class="hero" id="home">
-    <div class="hero-atmos" aria-hidden="true"></div>
-
-
-    <div class="hero-content">
-      <p class="hero-kicker">Nodos Urbanos de América Latina</p>
-      <h1 class="headline">
-        <span class="word-building" data-i18n="hero.building">A living network</span>
-        <span class="word-infra" data-i18n="hero.infra">for Latin America's</span>
-        <span class="word-collab"><span data-i18n="hero.collabPre"></span><mark data-i18n="hero.collabMark">urban transformation</mark><span data-i18n="hero.collabPost">.</span></span>
-      </h1>
-      <p class="hero-sub" data-i18n="hero.sub">
-        NODAL connects people, knowledge, data and institutions so urban talent across the region can learn, co-create and activate real projects in their cities, strengthening public goods, the civic commons, and democratic life through collaborative urbanism.
-      </p>
-      <div class="hero-cta">
-        <a class="btn btn-primary" href="login.html?next=/dashboard.html" data-i18n="hero.cta1">Join NODAL</a>
-        <a class="btn btn-ghost" href="#platform" data-i18n="hero.cta2">Explore the community</a>
-      </div>
-    </div>
-
-    <a class="scroll-cue" href="#about" aria-label="Scroll down">
-      <span class="scroll-cue-line"></span>scroll
-    </a>
-  </section>
-
-  <!-- ticker -->
-  <div class="ticker" aria-hidden="true">
-    <div class="ticker-track">
-      <span class="ticker-seq"><span data-i18n="ticker.t1">Map&nbsp;· </span><mark data-i18n="ticker.t2">Connect</mark><span data-i18n="ticker.t3">&nbsp;· Learn&nbsp;· </span><mark data-i18n="ticker.t4">Activate</mark><span data-i18n="ticker.t5">&nbsp;· Collaborate across cities&nbsp;·&nbsp;</span></span>
-      <span class="ticker-seq"><span data-i18n="ticker.t1">Map&nbsp;· </span><mark data-i18n="ticker.t2">Connect</mark><span data-i18n="ticker.t3">&nbsp;· Learn&nbsp;· </span><mark data-i18n="ticker.t4">Activate</mark><span data-i18n="ticker.t5">&nbsp;· Collaborate across cities&nbsp;·&nbsp;</span></span>
-    </div>
-  </div>
-
-  <!-- about -->
-  <section class="section about" id="about">
-    <div class="wrap">
-      <p class="eyebrow" data-i18n="about.eyebrow">What is NODAL</p>
-      <h2 class="section-lead"><span data-i18n="about.lead1">NODAL turns scattered urban knowledge into a </span><span class="hl" data-i18n="about.leadHl">living network of people, data, support and collaboration</span><span data-i18n="about.lead2">.</span></h2>
-      <div class="about-grid">
-        <p data-i18n="about.p1">It is a community, platform and ecosystem where people do more than learn: they grow, find collaborators and activate work rooted in their territories.</p>
-        <p data-i18n="about.p2">NODAL builds on Sistema Urbano's field-tested work with communities, local governments and civic initiatives, turning that accumulated knowledge into regional infrastructure.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- problem -->
-  <section class="section problem" id="problem">
-    <div class="wrap">
-      <p class="eyebrow light" data-i18n="problem.eyebrow">Why it matters</p>
-      <h2 class="section-title light" data-i18n="problem.title">The region has urban talent, but disconnection keeps it from acting as an ecosystem.</h2>
-      <div class="cards-3">
-        <article class="card-flat">
-          <span class="card-num" aria-hidden="true">01</span>
-          <h3 data-i18n="problem.c1t">Fragmented actors</h3>
-          <p data-i18n="problem.c1p">People and institutions working on the same challenges often do not know one another.</p>
-        </article>
-        <article class="card-flat">
-          <span class="card-num" aria-hidden="true">02</span>
-          <h3 data-i18n="problem.c2t">Disconnected knowledge</h3>
-          <p data-i18n="problem.c2p">Courses, data, field experience and opportunities exist, but they rarely become one shared growth infrastructure.</p>
-        </article>
-        <article class="card-flat">
-          <span class="card-num" aria-hidden="true">03</span>
-          <h3 data-i18n="problem.c3t">No clear pathway</h3>
-          <p data-i18n="problem.c3p">It is still hard to move from learning, to contributing, to leading projects with territorial impact.</p>
-        </article>
-      </div>
-      <p class="problem-foot"><strong data-i18n="problem.foot1">NODAL reduces those frictions</strong><span data-i18n="problem.foot2"> so civic energy can become durable collaboration instead of isolated effort.</span></p>
-    </div>
-  </section>
-
-  <!-- community paths -->
-  <section class="section insight" id="insight">
-    <div class="wrap">
-      <p class="eyebrow" data-i18n="insight.eyebrow">Community paths</p>
-      <h2 class="section-title" data-i18n="insight.title">A trajectory that grows with every step.</h2>
-      <div class="stats">
-        <div class="stat"><span class="stat-num">01</span><span class="stat-label" data-i18n="insight.s1">Join and map your interests, skills, city and goals</span></div>
-        <div class="stat"><span class="stat-num">02</span><span class="stat-label" data-i18n="insight.s2">Learn through courses, labs, mentorship and community activity</span></div>
-        <div class="stat"><span class="stat-num">03</span><span class="stat-label" data-i18n="insight.s3">Contribute cases, resources, questions and local knowledge</span></div>
-        <div class="stat"><span class="stat-num">04</span><span class="stat-label" data-i18n="insight.s4">Activate collaborations, roles and projects with real impact</span></div>
-      </div>
-      <p class="insight-foot"><span data-i18n="insight.foot1">Stories like this already exist across the region. </span><strong data-i18n="insight.footHl">NODAL gives them infrastructure</strong><span data-i18n="insight.foot2"> so individual effort can become shared capacity.</span></p>
-    </div>
-  </section>
-
-  <!-- platform -->
-  <section class="section platform" id="platform">
-    <div class="wrap">
-      <div class="platform-head">
-        <div>
-          <p class="eyebrow" data-i18n="platform.eyebrow">How it works</p>
-          <h2 class="section-title" data-i18n="platform.title">A platform that helps the network remember, match and grow.</h2>
-        </div>
-        <p class="platform-intro">
-          <span data-i18n="platform.i1">Every member profile becomes a </span><strong data-i18n="platform.node">node</strong><span data-i18n="platform.i2">; every useful introduction becomes a </span><strong data-i18n="platform.edge">connection</strong><span data-i18n="platform.i3">. Together they form a practical infrastructure for learning paths, opportunities, mentoring and projects.</span>
-        </p>
-      </div>
-
-      <div class="plat-tabs" role="tablist" aria-label="How NODAL works">
-        <button type="button" class="plat-tab is-on" role="tab" id="platTab0" aria-controls="platPanel0" aria-selected="true" data-i18n="plat.tab1">The community</button>
-        <button type="button" class="plat-tab" role="tab" id="platTab1" aria-controls="platPanel1" aria-selected="false" tabindex="-1" data-i18n="plat.tab2">How connections happen</button>
-        <button type="button" class="plat-tab" role="tab" id="platTab2" aria-controls="platPanel2" aria-selected="false" tabindex="-1" data-i18n="plat.tab3">First steps</button>
-      </div>
-
-      <div class="plat-panel" id="platPanel0" role="tabpanel" aria-labelledby="platTab0">
-        <div class="graph-panel">
-          <svg id="graph" viewBox="0 0 900 520" aria-label="Interactive network of actors"></svg>
-          <div class="graph-card" id="graphCard" hidden></div>
-            <p class="graph-hint" data-i18n="graph.hint">Click a node to meet that part of the community.</p>
-        </div>
-
-        <div class="gc-pool" hidden aria-hidden="true">
-          <span class="gc-ui">
-            <span data-i18n="graph.tabContacts">Contacts</span>
-            <span data-i18n="graph.tabConnects">Connects with</span>
-            <span data-i18n="graph.tabAsks">Typical asks</span>
-          </span>
-          <article data-node="project">
-            <h3 data-i18n="graph.n.project.t">Your city question</h3>
-            <p class="gc-count" data-i18n="graph.n.project.c">The starting point — every path begins with listening</p>
-            <ul>
-              <li data-i18n="graph.n.project.k1">Share what you want to learn, build or improve</li>
-              <li data-i18n="graph.n.project.k2">Start from real needs and lived experience</li>
-              <li data-i18n="graph.n.project.k3">Find people who can think and act with you</li>
-            </ul>
-            <p class="gc-ask" data-i18n="graph.n.project.ask">“We want to improve our street and need the right people in the room early.”</p>
-          </article>
-          <article data-node="citygov">
-            <h3 data-i18n="graph.n.citygov.t">City Government</h3>
-            <p class="gc-count" data-i18n="graph.n.citygov.c">9 active nodes</p>
-            <ul>
-              <li data-i18n="graph.n.citygov.k1">Mobility departments · 4</li>
-              <li data-i18n="graph.n.citygov.k2">Public-space teams · 3</li>
-              <li data-i18n="graph.n.citygov.k3">Procurement offices · 2</li>
-            </ul>
-            <p class="gc-ask" data-i18n="graph.n.citygov.ask">“We need evidence to take a corridor redesign to council.”</p>
-          </article>
-          <article data-node="investor">
-            <h3 data-i18n="graph.n.investor.t">Investor</h3>
-            <p class="gc-count" data-i18n="graph.n.investor.c">6 active nodes</p>
-            <ul>
-              <li data-i18n="graph.n.investor.k1">Impact funds · 3</li>
-              <li data-i18n="graph.n.investor.k2">Development banks · 2</li>
-              <li data-i18n="graph.n.investor.k3">Corporate foundations · 1</li>
-            </ul>
-            <p class="gc-ask" data-i18n="graph.n.investor.ask">“Show us a project with a community that actually wants it.”</p>
-          </article>
-          <article data-node="ngo">
-            <h3 data-i18n="graph.n.ngo.t">NGO / Foundation</h3>
-            <p class="gc-count" data-i18n="graph.n.ngo.c">11 active nodes</p>
-            <ul>
-              <li data-i18n="graph.n.ngo.k1">Housing &amp; habitat orgs · 5</li>
-              <li data-i18n="graph.n.ngo.k2">Climate &amp; resilience funds · 4</li>
-              <li data-i18n="graph.n.ngo.k3">Open-data collectives · 2</li>
-            </ul>
-            <p class="gc-ask" data-i18n="graph.n.ngo.ask">“We fund pilots — we're missing teams who can run them.”</p>
-          </article>
-          <article data-node="architect">
-            <h3 data-i18n="graph.n.architect.t">Architect</h3>
-            <p class="gc-count" data-i18n="graph.n.architect.c">23 active nodes</p>
-            <ul>
-              <li data-i18n="graph.n.architect.k1">Public-space studios · 9</li>
-              <li data-i18n="graph.n.architect.k2">Housing specialists · 8</li>
-              <li data-i18n="graph.n.architect.k3">Heritage &amp; retrofit teams · 6</li>
-            </ul>
-            <p class="gc-ask" data-i18n="graph.n.architect.ask">“We design better when the community is in the room early.”</p>
-          </article>
-          <article data-node="researcher">
-            <h3 data-i18n="graph.n.researcher.t">Researcher</h3>
-            <p class="gc-count" data-i18n="graph.n.researcher.c">14 active nodes</p>
-            <ul>
-              <li data-i18n="graph.n.researcher.k1">Transit-data analysts · 5</li>
-              <li data-i18n="graph.n.researcher.k2">Field-survey teams · 5</li>
-              <li data-i18n="graph.n.researcher.k3">Policy-evaluation labs · 4</li>
-            </ul>
-            <p class="gc-ask" data-i18n="graph.n.researcher.ask">“Our findings die in PDFs — we want a city that uses them.”</p>
-          </article>
-          <article data-node="mobility">
-            <h3 data-i18n="graph.n.mobility.t">Mobility Engineer</h3>
-            <p class="gc-count" data-i18n="graph.n.mobility.c">8 active nodes</p>
-            <ul>
-              <li data-i18n="graph.n.mobility.k1">BRT &amp; transit planners · 3</li>
-              <li data-i18n="graph.n.mobility.k2">Cycling-network designers · 3</li>
-              <li data-i18n="graph.n.mobility.k3">Road-safety auditors · 2</li>
-            </ul>
-            <p class="gc-ask" data-i18n="graph.n.mobility.ask">“Give us one neighbourhood that wants to pilot, and data to match.”</p>
-          </article>
-          <article data-node="economist">
-            <h3 data-i18n="graph.n.economist.t">Urban Economist</h3>
-            <p class="gc-count" data-i18n="graph.n.economist.c">5 active nodes</p>
-            <ul>
-              <li data-i18n="graph.n.economist.k1">Land-value researchers · 2</li>
-              <li data-i18n="graph.n.economist.k2">Municipal-finance advisors · 2</li>
-              <li data-i18n="graph.n.economist.k3">Informal-economy specialists · 1</li>
-            </ul>
-            <p class="gc-ask" data-i18n="graph.n.economist.ask">“The numbers exist — they're just never in the same spreadsheet.”</p>
-          </article>
-          <article data-node="community">
-            <h3 data-i18n="graph.n.community.t">Community Leader</h3>
-            <p class="gc-count" data-i18n="graph.n.community.c">31 active nodes</p>
-            <ul>
-              <li data-i18n="graph.n.community.k1">Neighbourhood assemblies · 14</li>
-              <li data-i18n="graph.n.community.k2">Civic collectives · 11</li>
-              <li data-i18n="graph.n.community.k3">Local chambers &amp; markets · 6</li>
-            </ul>
-            <p class="gc-ask" data-i18n="graph.n.community.ask">“Stop consulting us at the end. Start with us.”</p>
-          </article>
-          <article data-node="civil">
-            <h3 data-i18n="graph.n.civil.t">Civil Engineer</h3>
-            <p class="gc-count" data-i18n="graph.n.civil.c">12 active nodes</p>
-            <ul>
-              <li data-i18n="graph.n.civil.k1">Public works &amp; drainage · 5</li>
-              <li data-i18n="graph.n.civil.k2">Construction supervision · 4</li>
-              <li data-i18n="graph.n.civil.k3">Structural assessment · 3</li>
-            </ul>
-            <p class="gc-ask" data-i18n="graph.n.civil.ask">“We can build it — tell us early what the street actually needs.”</p>
-          </article>
-          <article data-node="academia">
-            <h3 data-i18n="graph.n.academia.t">Academia / University</h3>
-            <p class="gc-count" data-i18n="graph.n.academia.c">17 active nodes</p>
-            <ul>
-              <li data-i18n="graph.n.academia.k1">Urban-planning faculties · 6</li>
-              <li data-i18n="graph.n.academia.k2">Research labs · 7</li>
-              <li data-i18n="graph.n.academia.k3">Student collectives · 4</li>
-            </ul>
-            <p class="gc-ask" data-i18n="graph.n.academia.ask">“Our students need real corridors to study, not hypothetical ones.”</p>
-          </article>
-          <article data-node="media">
-            <h3 data-i18n="graph.n.media.t">Media / Journalist</h3>
-            <p class="gc-count" data-i18n="graph.n.media.c">10 active nodes</p>
-            <ul>
-              <li data-i18n="graph.n.media.k1">City desks · 4</li>
-              <li data-i18n="graph.n.media.k2">Civic &amp; data journalists · 4</li>
-              <li data-i18n="graph.n.media.k3">Community radios · 2</li>
-            </ul>
-            <p class="gc-ask" data-i18n="graph.n.media.ask">“Give us the data and the people — the story writes itself.”</p>
-          </article>
-          <article data-node="business">
-            <h3 data-i18n="graph.n.business.t">Local Business</h3>
-            <p class="gc-count" data-i18n="graph.n.business.c">26 active nodes</p>
-            <ul>
-              <li data-i18n="graph.n.business.k1">Street markets &amp; merchants · 12</li>
-              <li data-i18n="graph.n.business.k2">Neighbourhood SMEs · 10</li>
-              <li data-i18n="graph.n.business.k3">Chambers of commerce · 4</li>
-            </ul>
-            <p class="gc-ask" data-i18n="graph.n.business.ask">“A better street is better business — count us in early.”</p>
-          </article>
+  <main>
+    <section class="hero catalog-hero" id="home" data-landing-section="hero">
+      <img class="map-outline" src="assets/latam-map.webp" alt="" aria-hidden="true" />
+      <svg class="hero-net" viewBox="0 0 320 420" aria-hidden="true">
+        <g class="hn-edges"><line x1="78" y1="72" x2="170" y2="122"/><line x1="170" y1="122" x2="116" y2="214"/><line x1="170" y1="122" x2="246" y2="184"/><line x1="116" y1="214" x2="198" y2="286"/><line x1="246" y1="184" x2="198" y2="286"/><line x1="198" y1="286" x2="140" y2="360"/></g>
+        <g class="hn-nodes"><circle cx="78" cy="72" r="5"/><circle cx="170" cy="122" r="9" class="hn-hub"/><circle cx="246" cy="184" r="5"/><circle cx="116" cy="214" r="6"/><circle cx="198" cy="286" r="7" class="hn-active"/><circle cx="140" cy="360" r="5"/></g>
+      </svg>
+      <div class="hero-content">
+        <p class="hero-kicker">Nodos Urbanos de América Latina</p>
+        <h1 class="headline" data-i18n="hero.promise">Find the people and opportunities to turn urban knowledge into action.</h1>
+        <p class="hero-sub" data-i18n="hero.sub">Browse verified work across Latin America, find people with shared urban questions, and move from knowledge to a concrete next step.</p>
+        <div class="hero-cta" id="heroActions">
+          <a class="btn btn-primary" id="heroPrimary" href="opportunities.html" data-i18n="hero.browse">Browse open work</a>
+          <a class="btn btn-ghost" id="heroSecondary" href="login.html?next=/dashboard.html" data-i18n="hero.join">Join NODAL</a>
         </div>
       </div>
+    </section>
 
-      <div class="plat-panel" id="platPanel1" role="tabpanel" aria-labelledby="platTab1" hidden>
-        <div class="match-how">
-          <p class="match-how-lead"><span data-i18n="how.lead1">Connections begin with </span><strong data-i18n="how.lead2">shared context</strong><span data-i18n="how.lead3">: interests, skills, trajectory, territory, goals and the kinds of collaboration a member is ready for.</span></p>
-          <ul class="sig-bars">
-            <li><span class="sig-name" data-i18n="how.s1">Shared interests</span><span class="sig-bar"><i class="w30"></i></span><span class="sig-pct">30%</span></li>
-            <li><span class="sig-name" data-i18n="how.s2">Mutual connections</span><span class="sig-bar"><i class="w20"></i></span><span class="sig-pct">20%</span></li>
-            <li><span class="sig-name" data-i18n="how.s3">Engagement history</span><span class="sig-bar"><i class="w20"></i></span><span class="sig-pct">20%</span></li>
-            <li><span class="sig-name" data-i18n="how.s4">Shared activity</span><span class="sig-bar"><i class="w10"></i></span><span class="sig-pct">10%</span></li>
-            <li><span class="sig-name" data-i18n="how.s5">Same city or territory</span><span class="sig-bar"><i class="w10"></i></span><span class="sig-pct">10%</span></li>
-            <li><span class="sig-name" data-i18n="how.s6">Complementary roles</span><span class="sig-bar"><i class="w10"></i></span><span class="sig-pct">10%</span></li>
-          </ul>
-        </div>
-      </div>
-
-      <div class="plat-panel" id="platPanel2" role="tabpanel" aria-labelledby="platTab2" hidden>
-        <ol class="steps">
-          <li class="step"><span class="step-n">01</span><h3 data-i18n="step.t1">Map the profile</h3><p data-i18n="step.p1">NODAL organizes interests, skills, city, trajectory and objectives into a useful member profile.</p></li>
-          <li class="step"><span class="step-n">02</span><h3 data-i18n="step.t2">Recommend next connections</h3><p data-i18n="step.p2">The network suggests people, courses, mentors, opportunities and institutions that fit the member's context.</p></li>
-          <li class="step"><span class="step-n">03</span><h3 data-i18n="step.t3">Activate shared work</h3><p data-i18n="step.p3">Members contribute knowledge, join projects and grow into roles such as mentor, facilitator or local connector.</p></li>
-        </ol>
-      </div>
-    </div>
-  </section>
-
-  <!-- profile -->
-  <section class="section profile" id="profile">
-    <div class="wrap profile-wrap">
-      <div class="profile-copy">
-        <p class="eyebrow" data-i18n="profile.eyebrow">Your role</p>
-        <h2 class="section-title" data-i18n="profile.title">Your profile is the starting infrastructure.</h2>
-        <p data-i18n="profile.p">It maps your city, interests, skills, trajectory and goals so NODAL can connect you with people and opportunities that make sense.</p>
-        <ul class="bullets">
-          <li><strong data-i18n="profile.b1s">Public intro:</strong><span data-i18n="profile.b1t"> name, role, city, topics and the urban questions you care about.</span></li>
-          <li><strong data-i18n="profile.b2s">Member space:</strong><span data-i18n="profile.b2t"> skills, projects, availability, community signals and paths for growth.</span></li>
-        </ul>
-        <a class="btn btn-primary" href="login.html?next=/dashboard.html" data-i18n="profile.cta">Create your community profile</a>
-      </div>
-
-      <div class="match-stack" id="matchStack">
-        <article class="match-card">
-          <div class="match-avatar"><span class="leader-initial">N</span></div>
-          <div class="match-body">
-            <h3>Sign in to connect
-              <span class="lock" title="Members only">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                  <rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>
-                </svg>
-              </span>
-            </h3>
-            <p class="match-role" data-i18n="match.role">Community suggestions load from your profile</p>
-            <div class="tags"><span data-i18n="match.tag1">Community</span><span data-i18n="match.tag2">Learning</span><span data-i18n="match.tag3">Action</span></div>
-            <p class="match-why"><span data-i18n="match.why">Create an account to meet members with shared interests.</span><em data-i18n="match.proj"></em></p>
-          </div>
-          <div class="match-actions">
-            <button type="button" class="m-skip" aria-label="Skip">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
-            </button>
-            <button type="button" class="m-like" aria-label="Connect">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>
-            </button>
-          </div>
-        </article>
-      </div>
-    </div>
-  </section>
-
-
-  <!-- membership -->
-  <section class="section membership" id="membership">
-    <div class="wrap">
-      <p class="eyebrow light" data-i18n="mem.eyebrow">NODAL</p>
-      <h2 class="section-title light" data-i18n="mem.title">Start free. Help sustain the infrastructure that lets the network grow.</h2>
-
-      <div class="plans">
-        <article class="plan">
-          <header><h3 data-i18n="mem.freeName">Community access</h3><p class="price" data-i18n="mem.freePrice">Free, always</p></header>
-          <ul>
-            <li data-i18n="mem.f1">Open courses, labs and community sessions</li>
-            <li data-i18n="mem.f2">Shared resources, cases and reading circles</li>
-            <li data-i18n="mem.f3">Learning paths, calls and opportunity updates</li>
-            <li data-i18n="mem.f4">Community connections and experience exchange</li>
-            <li><span data-i18n="mem.f5a">Calls and opportunities </span><strong data-i18n="mem.f5b">in your region</strong></li>
-          </ul>
-          <a class="btn btn-ghost-dark" href="login.html?next=/dashboard.html" data-i18n="mem.freeCta">Join free</a>
-        </article>
-
-        <article class="plan plan-pro">
-          <div class="plan-flag" data-i18n="mem.flag">Supporter</div>
-          <header><h3 data-i18n="mem.proName">Supporting membership</h3><p class="price" data-billing-price>Soon!</p></header>
-          <ul>
-            <li data-i18n="mem.p1">Everything in Free, plus:</li>
-            <li><span data-i18n="mem.p2a">Programs and opportunities </span><strong data-i18n="mem.p2b">curated for your interests</strong></li>
-            <li data-i18n="mem.p3">Guided discovery of people, projects, mentors and practical knowledge</li>
-            <li data-i18n="mem.p4">Member directory and deeper profile for better matching</li>
-            <li data-i18n="mem.p5">Early access to labs, thematic routes and co-creation formats</li>
-            <li data-i18n="mem.p6">Help sustain the care, data and coordination behind the regional network</li>
-          </ul>
-          <a class="btn btn-primary" href="payments.html" data-i18n="mem.proCta">See supporting membership</a>
-        </article>
-      </div>
-    </div>
-  </section>
-
-  <!-- leaders -->
-  <section class="section leaders" id="knowledge">
-    <div class="wrap">
-      <p class="eyebrow" data-i18n="lead.eyebrow">Community across LATAM</p>
-      <h2 class="section-title" data-i18n="lead.title">Meet people turning local knowledge into shared urban capacity.</h2>
-    </div>
-    <div class="leader-row" id="leaderRow">
-      <article class="leader-card"><div class="leader-photo"><span class="leader-initial">U</span></div><div class="leader-meta"><h3>Urban researcher</h3><p data-i18n="lead.r1">Member profile · research circle</p></div></article>
-      <article class="leader-card"><div class="leader-photo"><span class="leader-initial">M</span></div><div class="leader-meta"><h3>Mobility engineer</h3><p data-i18n="lead.r2">Member profile · mobility circle</p></div></article>
-      <article class="leader-card"><div class="leader-photo"><span class="leader-initial">P</span></div><div class="leader-meta"><h3>City planner</h3><p data-i18n="lead.r3">Member profile · planning circle</p></div></article>
-      <article class="leader-card"><div class="leader-photo"><span class="leader-initial">C</span></div><div class="leader-meta"><h3>Civic organizer</h3><p data-i18n="lead.r4">Member profile · community circle</p></div></article>
-      <article class="leader-card"><div class="leader-photo"><span class="leader-initial">E</span></div><div class="leader-meta"><h3>Urban economist</h3><p data-i18n="lead.r5">Member profile · policy circle</p></div></article>
-      <article class="leader-card leader-more"><div class="leader-meta"><h3 data-i18n="lead.more">Join NODAL</h3><p data-i18n="lead.moreP">Help shape the first community circle</p></div></article>
-    </div>
-  </section>
-
-  <!-- knowledge & resources -->
-  <section class="section resources" id="resources">
-    <div class="wrap">
-      <p class="eyebrow" data-i18n="res.eyebrow">Learn and share</p>
-      <h2 class="section-title" data-i18n="res.title">Knowledge becomes useful when it moves through people, data and action.</h2>
-      <div class="res-grid">
-        <article class="res-card">
-          <span class="res-num">R.01</span>
-          <h3 data-i18n="res.r1t">Courses</h3>
-          <p data-i18n="res.r1p">Live and self-paced sessions, masterclasses and learning routes led by people working with real urban questions.</p>
-        </article>
-        <article class="res-card">
-          <span class="res-num">R.02</span>
-          <h3 data-i18n="res.r2t">Library</h3>
-          <p data-i18n="res.r2p">Cases, tools, datasets, books and shared resources that travel through the community.</p>
-        </article>
-        <article class="res-card">
-          <span class="res-num">R.03</span>
-          <h3 data-i18n="res.r3t">Opportunities feed</h3>
-          <p data-i18n="res.r3p">Projects, grants, labs, jobs and open calls curated by region, interest and civic purpose.</p>
-        </article>
-      </div>
-      <a class="link-arrow" href="#membership" data-i18n="res.link">Explore membership</a>
-    </div>
-  </section>
-
-  <!-- partners -->
-  <section class="section partners" id="partners">
-    <div class="wrap">
-      <p class="eyebrow light" data-i18n="part.eyebrow">Community lab</p>
-      <h2 class="section-title light" data-i18n="part.title">Our first community laboratory validates the network through real participation.</h2>
-      <div class="logos">
-        <span>Learn</span><span>Meet</span><span>Map</span><span>Co-create</span><span>Share</span><span>Act</span>
-      </div>
-      <div class="traction">
-        <div><span class="t-num">NODAL</span><span class="t-label" data-i18n="part.t1">a founding phase to test content, matching, formats and community dynamics with care</span></div>
-        <div><span class="t-num">Open</span><span class="t-label" data-i18n="part.t2">a profile helps us understand how you learn, what you need and what you can contribute</span></div>
-        <div><span class="t-num">LATAM</span><span class="t-label" data-i18n="part.t3">a regional network connected through public life, local knowledge, data and action</span></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- CTA band -->
-  <section class="cta-band">
-    <div class="wrap">
-      <h2 data-i18n="cta.title">The next urban generation in Latin America is already connecting.</h2>
-      <p data-i18n="cta.p">Join the living network for learning, trust and collaborative urban transformation.</p>
-      <a class="btn btn-primary btn-lg" href="login.html?next=/dashboard.html" data-i18n="cta.btn">Join NODAL</a>
-    </div>
-  </section>
-
-  <!-- footer -->
-  <footer class="footer" id="contact">
-    <div class="footer-blob" aria-hidden="true"></div>
-    <div class="footer-top"></div>
-
-    <div class="footer-bottom">
+    <section class="landing-actions" data-landing-section="actions" aria-labelledby="actionsTitle">
       <div class="wrap">
-        <h2 data-i18n="foot.touch">Let's talk</h2>
-        <p class="footer-rights" data-i18n="foot.rights">2026 All Rights Reserved</p>
-<a class="footer-email" href="mailto:fmuro@sistemaurbano.org">
-  fmuro@sistemaurbano.org
-</a>
-<span> | </span>
-<a class="footer-email" href="mailto:malegre@sistemaurbano.org">
-  malegre@sistemaurbano.org
-</a>        <a class="footer-old" href="https://sistemaurbano.org/nodal/" target="_blank" rel="noopener noreferrer" data-i18n="foot.old">NODAL at Sistema Urbano ↗</a>
-        <div class="footer-divider"></div>
-        <div class="socials" aria-label="Social links">
-          <span aria-label="Facebook" aria-disabled="true"><svg viewBox="0 0 24 24"><path d="M13 22v-9h3l.5-4H13V6.5c0-1.1.3-1.9 1.9-1.9H17V1.1C16.6 1 15.4.9 14 .9 11.2.9 9.3 2.6 9.3 5.7V9H6v4h3.3v9H13z"/></svg></span>
-          <span aria-label="Instagram" aria-disabled="true"><svg viewBox="0 0 24 24"><path d="M12 2.2c3.2 0 3.6 0 4.9.1 1.2.1 1.8.3 2.2.4.6.2 1 .5 1.4.9.4.4.7.8.9 1.4.1.4.3 1 .4 2.2.1 1.3.1 1.7.1 4.9s0 3.6-.1 4.9c-.1 1.2-.3 1.8-.4 2.2-.2.6-.5 1-.9 1.4-.4.4-.8.7-1.4.9-.4.1-1 .3-2.2.4-1.3.1-1.7.1-4.9.1s-3.6 0-4.9-.1c-1.2-.1-1.8-.3-2.2-.4-.6-.2-1-.5-1.4-.9-.4-.4-.7-.8-.9-1.4-.1-.4-.3-1-.4-2.2C2.2 15.6 2.2 15.2 2.2 12s0-3.6.1-4.9c.1-1.2.3-1.8.4-2.2.2-.6.5-1 .9-1.4.4-.4.8-.7 1.4-.9.4-.1 1-.3 2.2-.4C8.4 2.2 8.8 2.2 12 2.2m0 1.9c-3.1 0-3.5 0-4.7.1-.9 0-1.4.2-1.7.3-.4.2-.7.4-1 .6-.3.3-.5.6-.6 1-.1.3-.3.8-.3 1.7C3.3 8.5 3.3 8.9 3.3 12s0 3.5.1 4.7c0 .9.2 1.4.3 1.7.2.4.4.7.6 1 .3.3.6.5 1 .6.3.1.8.3 1.7.3 1.2.1 1.6.1 4.7.1s3.5 0 4.7-.1c.9 0 1.4-.2 1.7-.3.4-.2.7-.4 1-.6.3-.3.5-.6.6-1 .1-.3.3-.8.3-1.7.1-1.2.1-1.6.1-4.7s0-3.5-.1-4.7c0-.9-.2-1.4-.3-1.7-.2-.4-.4-.7-.6-1-.3-.3-.6-.5-1-.6-.3-.1-.8-.3-1.7-.3-1.2-.1-1.6-.1-4.7-.1m0 3.3a4.6 4.6 0 1 0 0 9.2 4.6 4.6 0 0 0 0-9.2m0 7.6a3 3 0 1 1 0-6 3 3 0 0 1 0 6m5.8-7.8a1.1 1.1 0 1 1-2.2 0 1.1 1.1 0 0 1 2.2 0"/></svg></span>
-          <span aria-label="TikTok" aria-disabled="true"><svg viewBox="0 0 24 24"><path d="M16.6 5.8a4.3 4.3 0 0 1-1-2.8h-3.2v12.7a2.3 2.3 0 1 1-2.3-2.3c.2 0 .5 0 .7.1V8.2a5.6 5.6 0 0 0-.7 0 5.5 5.5 0 1 0 5.5 5.5V8.6a7.3 7.3 0 0 0 4.3 1.4V6.8a4.3 4.3 0 0 1-3.3-1"/></svg></span>
-          <span aria-label="YouTube" aria-disabled="true"><svg viewBox="0 0 24 24"><path d="M23 7.5a3 3 0 0 0-2.1-2.1C19 4.9 12 4.9 12 4.9s-7 0-8.9.5A3 3 0 0 0 1 7.5 31 31 0 0 0 .5 12 31 31 0 0 0 1 16.5a3 3 0 0 0 2.1 2.1c1.9.5 8.9.5 8.9.5s7 0 8.9-.5a3 3 0 0 0 2.1-2.1A31 31 0 0 0 23.5 12 31 31 0 0 0 23 7.5M9.8 15.3V8.7l5.7 3.3z"/></svg></span>
+        <h2 id="actionsTitle" class="sr-only" data-i18n="actions.title">What you can do in NODAL</h2>
+        <div class="action-grid">
+          <article><p class="action-verb" data-i18n="actions.profileVerb">Build</p><h3 data-i18n="actions.profileTitle">Build a useful profile</h3><p data-i18n="actions.profileBody">Show your city, practice, skills and the urban questions you want to work on.</p></article>
+          <article><p class="action-verb" data-i18n="actions.peopleVerb">Find</p><h3 data-i18n="actions.peopleTitle">Find relevant people</h3><p data-i18n="actions.peopleBody">Discover practitioners and institutions with shared context and complementary roles.</p></article>
+          <article><p class="action-verb" data-i18n="actions.workVerb">Act</p><h3 data-i18n="actions.workTitle">Act on open work</h3><p data-i18n="actions.workBody">Browse verified calls, projects, learning circles, resources and cases.</p></article>
         </div>
       </div>
-    </div>
+    </section>
 
-    <img class="footer-illu" src="assets/nodal-community.webp" loading="lazy"
-         alt="Three members of the NODAL community standing together" />
-  </footer>
+    <section class="section catalog-proof" id="open-work" data-landing-section="open-work" aria-labelledby="openWorkTitle">
+      <div class="wrap">
+        <div class="section-heading-row"><div><p class="eyebrow" data-i18n="landing.openEyebrow">Verified dispatch</p><h2 id="openWorkTitle" class="section-title" data-i18n="landing.openTitle">Open work you can act on now</h2></div><a class="link-arrow" href="opportunities.html" data-i18n="landing.openAll">Browse all open work</a></div>
+        <p class="catalog-live-status" id="landingOpenWorkStatus" role="status" aria-live="polite" data-i18n="catalog.loading">Loading verified open work…</p>
+        <div class="dispatch-ledger" id="landingOpenWork" aria-busy="true"></div>
+      </div>
+    </section>
+
+    <section class="section case-proof" id="cases" data-landing-section="cases" aria-labelledby="casesTitle">
+      <div class="wrap">
+        <p class="eyebrow" data-i18n="landing.casesEyebrow">Published evidence</p>
+        <h2 id="casesTitle" class="section-title" data-i18n="landing.casesTitle">Verified case studies</h2>
+        <p class="catalog-live-status" id="landingCasesStatus" role="status" aria-live="polite" data-i18n="catalog.loadingCases">Loading published case studies…</p>
+        <div class="case-ledger" id="landingCases" aria-busy="true"></div>
+      </div>
+    </section>
+
+    <section class="section problem" id="problem" data-landing-section="problem">
+      <div class="wrap"><p class="eyebrow light" data-i18n="problem.eyebrow">Why it matters</p><h2 class="section-title light" data-i18n="problem.title">Urban talent exists across the region. Shared context and a clear next step are harder to find.</h2><div class="cards-3"><article class="card-flat"><h3 data-i18n="problem.c1t">Scattered people</h3><p data-i18n="problem.c1p">Practitioners working on related challenges often cannot see where their experience connects.</p></article><article class="card-flat"><h3 data-i18n="problem.c2t">Scattered knowledge</h3><p data-i18n="problem.c2p">Useful evidence and field practice are difficult to carry from one territory to another.</p></article><article class="card-flat"><h3 data-i18n="problem.c3t">Scattered opportunities</h3><p data-i18n="problem.c3p">Calls and projects appear in many places, without one verified path to act.</p></article></div></div>
+    </section>
+
+    <section class="section platform" id="how" data-landing-section="how">
+      <div class="wrap">
+        <div class="platform-head"><div><p class="eyebrow light" data-i18n="platform.eyebrow">How it works</p><h2 class="section-title light" data-i18n="platform.title">Start with context. Find a role. Take a verified next step.</h2></div><p class="platform-intro" data-i18n="platform.intro">Profiles describe real practice and territory; the catalog points to sourced work; member interest creates a private handoff to NODAL staff.</p></div>
+        <div class="illustrative-label" data-i18n="graph.illustrative">Illustrative role map · not a count of members</div>
+        <div class="graph-panel graph-panel-static" aria-labelledby="graphTitle">
+          <h3 id="graphTitle" class="sr-only" data-i18n="graph.title">Illustrative roles in an urban collaboration</h3>
+          <svg id="graph" viewBox="0 0 900 520" role="img" aria-label="Illustrative role graph"></svg>
+          <div class="graph-card" id="graphCard" hidden></div>
+        </div>
+        <div class="gc-pool" hidden aria-hidden="true">
+          <span class="gc-ui"><span data-i18n="graph.tabContacts">Role</span><span data-i18n="graph.tabConnects">Connects with</span><span data-i18n="graph.tabAsks">Contribution</span></span>
+          <article data-node="project"><h3 data-i18n="graph.n.project.t">A shared city question</h3><p class="gc-count" data-i18n="graph.n.project.c">The collaboration starts with territory and lived experience</p><ul><li data-i18n="graph.n.project.k1">Frames the need and desired public outcome</li></ul></article>
+          <article data-node="citygov"><h3 data-i18n="graph.n.citygov.t">City government</h3><p class="gc-count" data-i18n="graph.n.citygov.c">Public implementation and stewardship</p><ul><li data-i18n="graph.n.citygov.k1">Connects policy, services and public accountability</li></ul></article>
+          <article data-node="investor"><h3 data-i18n="graph.n.investor.t">Funder</h3><p class="gc-count" data-i18n="graph.n.investor.c">Patient capital and enabling support</p><ul><li data-i18n="graph.n.investor.k1">Supports credible teams and public outcomes</li></ul></article>
+          <article data-node="ngo"><h3 data-i18n="graph.n.ngo.t">Civil society</h3><p class="gc-count" data-i18n="graph.n.ngo.c">Community practice and continuity</p><ul><li data-i18n="graph.n.ngo.k1">Carries relationships, advocacy and field knowledge</li></ul></article>
+          <article data-node="architect"><h3 data-i18n="graph.n.architect.t">Designer</h3><p class="gc-count" data-i18n="graph.n.architect.c">Spatial practice and prototyping</p><ul><li data-i18n="graph.n.architect.k1">Translates needs into testable spatial choices</li></ul></article>
+          <article data-node="researcher"><h3 data-i18n="graph.n.researcher.t">Researcher</h3><p class="gc-count" data-i18n="graph.n.researcher.c">Evidence and learning</p><ul><li data-i18n="graph.n.researcher.k1">Makes questions, methods and findings usable</li></ul></article>
+          <article data-node="mobility"><h3 data-i18n="graph.n.mobility.t">Urban practitioner</h3><p class="gc-count" data-i18n="graph.n.mobility.c">Technical and territorial delivery</p><ul><li data-i18n="graph.n.mobility.k1">Tests solutions against local constraints</li></ul></article>
+          <article data-node="economist"><h3 data-i18n="graph.n.economist.t">Urban economist</h3><p class="gc-count" data-i18n="graph.n.economist.c">Feasibility and distribution</p><ul><li data-i18n="graph.n.economist.k1">Connects resources, incentives and equity</li></ul></article>
+          <article data-node="community"><h3 data-i18n="graph.n.community.t">Community organizer</h3><p class="gc-count" data-i18n="graph.n.community.c">Lived expertise and collective agency</p><ul><li data-i18n="graph.n.community.k1">Keeps priorities accountable to the territory</li></ul></article>
+          <article data-node="civil"><h3 data-i18n="graph.n.civil.t">Engineer</h3><p class="gc-count" data-i18n="graph.n.civil.c">Constructability and systems</p><ul><li data-i18n="graph.n.civil.k1">Connects design intent with safe delivery</li></ul></article>
+          <article data-node="academia"><h3 data-i18n="graph.n.academia.t">University</h3><p class="gc-count" data-i18n="graph.n.academia.c">Teaching, research and reflection</p><ul><li data-i18n="graph.n.academia.k1">Builds knowledge through real questions</li></ul></article>
+          <article data-node="media"><h3 data-i18n="graph.n.media.t">Journalist</h3><p class="gc-count" data-i18n="graph.n.media.c">Public understanding and scrutiny</p><ul><li data-i18n="graph.n.media.k1">Makes evidence legible beyond the project</li></ul></article>
+          <article data-node="business"><h3 data-i18n="graph.n.business.t">Local business</h3><p class="gc-count" data-i18n="graph.n.business.c">Local economy and everyday operations</p><ul><li data-i18n="graph.n.business.k1">Shows how change affects daily activity</li></ul></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section membership" id="membership" data-landing-section="membership">
+      <div class="wrap membership-resources"><div><p class="eyebrow light" data-i18n="mem.eyebrow">Membership</p><h2 class="section-title light" data-i18n="mem.title">Build your profile and keep your interests in one place.</h2><p data-i18n="mem.body">Membership is free. Sign in only when you want to express internal interest or manage your profile.</p><p class="membership-support"><span data-i18n="mem.proName">Supporting membership</span> · <strong data-billing-price data-i18n="mem.priceSoon">Soon!</strong></p><a class="btn btn-primary" href="login.html?next=/dashboard.html" data-i18n="mem.freeCta">Join free</a></div><div id="resources"><p class="eyebrow light" data-i18n="res.eyebrow">Resources</p><h3 data-i18n="res.title">Learn from published cases and field resources.</h3><p data-i18n="res.body">Use the same verified catalog to find resources, learning circles and documented urban practice.</p><a class="link-arrow light" href="opportunities.html?kind=resource%2Clearning_circle%2Ccase_study" data-i18n="res.link">Browse resources</a></div></div>
+    </section>
+
+    <section class="cta-band" data-landing-section="final-cta"><div class="wrap"><h2 data-i18n="cta.title">Find one verified next step for your urban practice.</h2><p data-i18n="cta.p">Browse first. Join when you are ready to build a profile or express interest.</p><a class="btn btn-primary btn-lg" href="opportunities.html" data-i18n="hero.browse">Browse open work</a></div></section>
+  </main>
+
+  <footer class="footer" id="contact"><div class="footer-bottom"><div class="wrap"><h2 data-i18n="foot.touch">Let's talk</h2><p class="footer-rights" data-i18n="foot.rights">2026 All Rights Reserved</p><a class="footer-email" href="mailto:fmuro@sistemaurbano.org">fmuro@sistemaurbano.org</a><span> · </span><a class="footer-email" href="mailto:malegre@sistemaurbano.org">malegre@sistemaurbano.org</a></div></div></footer>
 
   <script src="nav.js?v=13"></script>
-  <script src="i18n.js?v=34"></script>
+  <script src="i18n.js?v=35"></script>
   <script src="script.js?v=13"></script>
   <script src="app.js?v=17"></script>
-  <script src="recs.js?v=13"></script>
+  <script src="catalog.js?v=1"></script>
 </body>
 </html>
