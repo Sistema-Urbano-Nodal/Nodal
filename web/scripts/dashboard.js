@@ -1070,6 +1070,7 @@
   let peopleHits = [];
   let peopleTimer = null;
   let peopleAbort = null;
+  let peopleSequence = 0;
   let catalogQuery = '';
   let catalogScope = '';
   let catalogHits = [];
@@ -1078,25 +1079,44 @@
   let catalogAbort = null;
   let catalogSequence = 0;
 
-  function lookUpPeople(query) {
+  function cancelPeopleLookup() {
     clearTimeout(peopleTimer);
+    peopleTimer = null;
+    if (peopleAbort) peopleAbort.abort();
+    peopleAbort = null;
+    peopleSequence += 1;
+  }
+
+  function lookUpPeople(query) {
+    cancelPeopleLookup();
+    const normalizedQuery = query.toLowerCase();
+    const sequence = peopleSequence;
     peopleTimer = setTimeout(async () => {
-      if (peopleAbort) peopleAbort.abort();
-      peopleAbort = new AbortController();
+      peopleTimer = null;
+      if (sequence !== peopleSequence || activeScope() !== 'People') return;
+      const controller = new AbortController();
+      peopleAbort = controller;
       try {
-        const data = await api(`/api/users/search?q=${encodeURIComponent(query)}`, { signal: peopleAbort.signal });
-        peopleHits = (Array.isArray(data.users) ? data.users : []).map((u) => ({
+        const data = await api(`/api/users/search?q=${encodeURIComponent(query)}`, { signal: controller.signal });
+        if (sequence !== peopleSequence || activeScope() !== 'People'
+          || searchInput.value.trim().toLowerCase() !== normalizedQuery) return;
+        const hits = (Array.isArray(data.users) ? data.users : []).map((u) => ({
           label: u.name,
           meta: [u.role, u.city].filter(Boolean).join(' · '),
           href: `profile.html?id=${encodeURIComponent(u.id)}`,
         }));
-        peopleQuery = query.toLowerCase();
-        if (searchInput.value.trim().toLowerCase() === peopleQuery) paint(peopleHits);
+        peopleHits = hits;
+        peopleQuery = normalizedQuery;
+        paint(peopleHits);
       } catch (err) {
-        if (err.name === 'AbortError') return;
-        peopleQuery = query.toLowerCase();
+        if (err.name === 'AbortError' || sequence !== peopleSequence
+          || activeScope() !== 'People'
+          || searchInput.value.trim().toLowerCase() !== normalizedQuery) return;
+        peopleQuery = normalizedQuery;
         peopleHits = [];
         paint([]);                       // static hosting has no directory
+      } finally {
+        if (peopleAbort === controller) peopleAbort = null;
       }
     }, 220);
   }
@@ -1174,17 +1194,17 @@
     if (!searchInput || !searchPop) return;
     const typed = searchInput.value.trim();
     const q = typed.toLowerCase();
+    const scope = activeScope();
+    if (scope !== 'People') cancelPeopleLookup();
     if (q.length < 2) { searchPop.hidden = true; return; }
-    if (activeScope() === 'People') {
+    if (scope === 'People') {
       if (catalogAbort) catalogAbort.abort();
       catalogSequence += 1;
-      if (peopleQuery === q) { paint(peopleHits); return; }
+      if (peopleQuery === q) { cancelPeopleLookup(); paint(peopleHits); return; }
       lookUpPeople(typed);
       paint(null);
       return;
     }
-    if (peopleAbort) peopleAbort.abort();
-    const scope = activeScope();
     if (catalogReady && catalogScope === scope && catalogQuery === q) { paint(catalogHits); return; }
     lookUpCatalog(scope, typed);
     paint(null);

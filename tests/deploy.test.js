@@ -47,6 +47,12 @@ test('Vercel serves generated frontend assets before the Node serverless adapter
   const catalogPageHeaders = vercel.headers.find((route) => route.source === '/opportunities.html');
   assert.ok(catalogPageHeaders, 'opportunities.html needs an explicit page cache policy');
   assert.ok(catalogPageHeaders.headers.some(({ key, value }) => key === 'Cache-Control' && /max-age=/.test(value)));
+  assert.ok(catalogPageHeaders.headers.some(({ key, value }) =>
+    key.toLowerCase() === 'content-security-policy' && /(?:^|;)\s*frame-ancestors\s+'none'\s*(?:;|$)/i.test(value)),
+  'the static opportunities page must deny framing through a response header');
+  assert.ok(catalogPageHeaders.headers.some(({ key, value }) =>
+    key.toLowerCase() === 'x-frame-options' && value.toUpperCase() === 'DENY'),
+  'legacy framing protection must match the frame-ancestors policy');
 });
 
 test('repository layout separates deployable code, source assets, operations, and tests', () => {
@@ -306,7 +312,7 @@ test('changed one-hour-cached catalog clients use new URLs on every consuming pa
   const required = {
     'index.html': { 'catalog.css': '4', 'i18n.js': '38', 'app.js': '18', 'recs.js': '2', 'catalog.js': '4' },
     'opportunities.html': { 'catalog.css': '4', 'i18n.js': '38', 'catalog.js': '4' },
-    'dashboard.html': { 'i18n.js': '38', 'dashboard.js': '25' },
+    'dashboard.html': { 'i18n.js': '38', 'dashboard.js': '26' },
     'login.html': { 'i18n.js': '38' },
     'payments.html': { 'i18n.js': '38' },
     'profile.html': { 'i18n.js': '38' },

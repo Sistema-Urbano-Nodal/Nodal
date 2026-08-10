@@ -38,6 +38,7 @@ class FakeNode {
   querySelectorAll() { return []; }
   querySelector() { return null; }
   scrollIntoView() {}
+  focus() {}
   getBoundingClientRect() { return {}; }
 }
 
@@ -178,6 +179,97 @@ function adminHarness(fetchImpl = () => Promise.reject(new Error('network must n
   assert.notEqual(instrumented, source, 'admin test hook must replace bootstrap without changing production source');
   vm.runInNewContext(instrumented, context, { filename: 'admin.js' });
   return { api: context.window.__adminTest, ids, location: context.location };
+}
+
+function dashboardSearchHarness(apiImpl) {
+  let nextTimerId = 1;
+  const timers = new Map();
+  const setTimer = (callback) => {
+    const id = nextTimerId;
+    nextTimerId += 1;
+    timers.set(id, callback);
+    return id;
+  };
+  const clearTimer = (id) => timers.delete(id);
+  const runNextTimer = () => {
+    const entry = timers.entries().next().value;
+    assert.ok(entry, 'expected a pending dashboard search timer');
+    const [id, callback] = entry;
+    timers.delete(id);
+    return callback();
+  };
+
+  class SearchChip extends FakeNode {
+    constructor(scope, active = false) {
+      super(scope);
+      this.dataset.scope = scope;
+      this.textContent = scope;
+      this.classes = new Set(active ? ['chip', 'is-on'] : ['chip']);
+      this.classList = {
+        contains: (name) => this.classes.has(name),
+        toggle: (name, force) => {
+          const enabled = force === undefined ? !this.classes.has(name) : Boolean(force);
+          if (enabled) this.classes.add(name); else this.classes.delete(name);
+          return enabled;
+        },
+      };
+    }
+  }
+
+  const searchInput = new FakeNode('searchInput');
+  const searchPop = new FakeNode('searchPop');
+  searchPop.hidden = true;
+  const chips = [
+    new SearchChip('People', true),
+    new SearchChip('Projects'),
+    new SearchChip('Knowledge'),
+    new SearchChip('Opportunities'),
+  ];
+  const chipHost = new FakeNode('searchChips');
+  chipHost.querySelectorAll = (selector) => (selector === '.chip' ? chips : []);
+  chipHost.querySelector = (selector) => (selector === '.chip.is-on'
+    ? chips.find((chip) => chip.classList.contains('is-on')) || null
+    : null);
+
+  const byId = (id) => ({ searchInput, searchPop, searchChips: chipHost }[id] || null);
+  const el = (tag, cls, text) => {
+    const node = new FakeNode(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = String(text);
+    return node;
+  };
+  const source = read('web', 'scripts', 'dashboard.js');
+  const start = source.indexOf('  const CATALOG_SCOPE_KINDS');
+  const end = source.indexOf('  /* ================= notifications', start);
+  assert.ok(start >= 0 && end > start, 'dashboard search block must remain discoverable');
+  const block = source.slice(start, end);
+  const context = {
+    AbortController,
+    URLSearchParams,
+    api: apiImpl,
+    byId,
+    clearTimeout: clearTimer,
+    el,
+    encodeURIComponent,
+    I18N: { lang: 'en' },
+    setTimeout: setTimer,
+    t: (key) => key,
+  };
+  context.globalThis = context;
+  vm.runInNewContext(`${block}\n;globalThis.__dashboardSearchTest = { runSearch };`, context, { filename: 'dashboard-search.js' });
+
+  return {
+    api: context.__dashboardSearchTest,
+    input: searchInput,
+    pop: searchPop,
+    pendingTimers: () => timers.size,
+    runNextTimer,
+    activate(scope) {
+      const chip = chips.find((candidate) => candidate.dataset.scope === scope);
+      assert.ok(chip, `unknown dashboard scope ${scope}`);
+      return chip.listeners.get('click')();
+    },
+  };
 }
 
 function i18nHarness({ titleKey, titleText, descriptionKey, descriptionText }) {
@@ -1213,6 +1305,67 @@ test('successful interest update preserves the honest error from a failed filter
   await update.listeners.get('click')();
   assert.equal(harness.ids.get('adminInterestStatus').textContent, 'queue refresh unavailable');
   assert.doesNotMatch(harness.ids.get('adminInterestStatus').textContent, /reapplied|updated\./i);
+});
+
+test('dashboard cancels a pending People debounce before entering a catalog scope', async () => {
+  const calls = [];
+  const harness = dashboardSearchHarness(async (url) => {
+    calls.push(url);
+    if (url.startsWith('/api/users/search?')) return { users: [{ id: 'person-1', name: 'Late person' }] };
+    if (url.startsWith('/api/catalog?')) return { items: [{ id: 'project-1', title: 'Current project', kind: 'project' }] };
+    throw new Error(`unexpected request ${url}`);
+  });
+  harness.input.value = 'housing';
+  harness.api.runSearch();
+  assert.equal(harness.pendingTimers(), 1);
+
+  harness.activate('Projects');
+  assert.equal(harness.pendingTimers(), 1, 'switching scope must replace, not retain, the People timer');
+  await harness.runNextTimer();
+
+  assert.equal(calls.some((url) => url.startsWith('/api/users/search?')), false);
+  const catalogCalls = calls.filter((url) => url.startsWith('/api/catalog?'));
+  assert.equal(catalogCalls.length, 1);
+  assert.equal(new URL(catalogCalls[0], 'https://nodal.test').searchParams.get('kind'), 'project');
+  assert.match(renderedText(harness.pop), /Current project/);
+  assert.equal(harness.pop.children[0].href, 'opportunities.html?id=project-1');
+});
+
+test('dashboard ignores an abort-insensitive People response after entering a catalog scope', async (t) => {
+  for (const outcome of ['success', 'failure']) await t.test(`late People ${outcome}`, async () => {
+    let resolvePeople;
+    let rejectPeople;
+    let peopleSignal;
+    const peopleResponse = new Promise((resolve, reject) => {
+      resolvePeople = resolve;
+      rejectPeople = reject;
+    });
+    const harness = dashboardSearchHarness((url, options = {}) => {
+      if (url.startsWith('/api/users/search?')) {
+        peopleSignal = options.signal;
+        return peopleResponse;
+      }
+      if (url.startsWith('/api/catalog?')) {
+        return Promise.resolve({ items: [{ id: 'project-1', title: 'Current project', kind: 'project' }] });
+      }
+      throw new Error(`unexpected request ${url}`);
+    });
+    harness.input.value = 'housing';
+    harness.api.runSearch();
+    const pendingPeople = harness.runNextTimer();
+
+    harness.activate('Projects');
+    assert.equal(peopleSignal.aborted, true, 'scope change must abort the active People request');
+    await harness.runNextTimer();
+    assert.match(renderedText(harness.pop), /Current project/);
+
+    if (outcome === 'success') resolvePeople({ users: [{ id: 'person-1', name: 'Late person' }] });
+    else rejectPeople(new Error('late directory unavailable'));
+    await pendingPeople;
+    assert.match(renderedText(harness.pop), /Current project/, 'late People completion must not repaint catalog truth');
+    assert.doesNotMatch(renderedText(harness.pop), /Late person|d\.search\.catalogEmpty/);
+    assert.equal(harness.pop.children[0].href, 'opportunities.html?id=project-1');
+  });
 });
 
 test('dashboard catalog scopes use the public API while People remains consent-gated', () => {
