@@ -571,6 +571,7 @@ function visibleCatalogItem(item, viewer) {
 }
 
 function matchesCatalogQuery(item, query = {}) {
+  if (query.status && item.status !== String(query.status).trim()) return false;
   const kinds = String(query.kind || '').split(',').map((part) => part.trim()).filter(Boolean);
   if (kinds.length && !kinds.includes(item.kind)) return false;
   if (query.subtype && item.subtype !== query.subtype) return false;

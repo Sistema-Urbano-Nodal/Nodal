@@ -611,10 +611,62 @@ test('Supabase catalog adapter sends equivalent filters, ordering, cursor, and v
   assert.equal(read.url.searchParams.get('kind'), 'eq.opportunity');
   assert.equal(read.url.searchParams.get('featured'), 'eq.true');
   assert.equal(read.url.searchParams.get('order'), 'featured.desc,deadline_at.asc.nullslast,published_at.desc,id.asc');
-  assert.match(read.url.searchParams.get('or'), /catalog-0/);
+  assert.equal(read.url.searchParams.has('or'), false, 'cursor continuation is applied after complete ordered scan');
+  assert.equal(read.url.searchParams.get('offset'), '0');
   const updated = await repo.updateCatalogItem(item.id, { ...item, featured: false }, 1, TEST_USER_ID);
   assert.equal(updated.version, 2);
   const write = calls.find((call) => call.options.method === 'PATCH');
   assert.equal(write.url.searchParams.get('id'), 'eq.catalog-1');
   assert.equal(write.url.searchParams.get('version'), 'eq.1');
+});
+
+test('Supabase scans beyond a raw fetch window before applying open-state and text filtering', async () => {
+  const closedOrUnmatched = Array.from({ length: 25 }, (_, index) => ({
+    id: `catalog-${index}`, kind: 'resource', subtype: null, status: 'published', visibility: 'public',
+    translations: { en: { title: index === 0 ? 'Target but closed' : 'Unrelated', summary: '', body: '', cta: '' } },
+    organization: 'NODAL', location: '', topics: [], action_mode: 'none', action_url: '', featured: false, version: 1,
+    deadline_at: index === 0 ? '2000-01-01T00:00:00.000Z' : '2030-05-20T00:00:00.000Z', published_at: '2030-05-01T00:00:00.000Z',
+  }));
+  const matching = [{
+    id: 'catalog-target', kind: 'resource', subtype: null, status: 'published', visibility: 'public',
+    translations: { en: { title: 'Target opportunity', summary: '', body: '', cta: '' } },
+    organization: 'NODAL', location: '', topics: [], action_mode: 'none', action_url: '', featured: false, version: 1,
+    deadline_at: '2030-05-21T00:00:00.000Z', published_at: '2030-05-01T00:00:00.000Z',
+  }];
+  const calls = [];
+  const repo = createSupabaseRepository({
+    env: testEnv(),
+    fetchImpl: async (rawUrl, options) => {
+      const url = new URL(rawUrl);
+      calls.push({ url, options });
+      if (url.pathname.endsWith('/catalog_items') && options.method === 'GET') {
+        return response(Number(url.searchParams.get('offset') || 0) === 0 ? closedOrUnmatched : matching);
+      }
+      throw new Error(`unexpected request ${options.method} ${url.pathname}`);
+    },
+  });
+  const result = await repo.listCatalogItems({ q: 'target', limit: 1 }, null);
+  assert.deepEqual(result.items.map((item) => item.id), ['catalog-target']);
+  assert.equal(calls.some((call) => call.url.searchParams.get('offset') === '25'), true);
+});
+
+test('Supabase null-deadline cursors continue locally without constructing invalid timestamp filters', async () => {
+  const cursor = Buffer.from(JSON.stringify([0, '\uffff', '2030-05-01T00:00:00.000Z', 'catalog-0']), 'utf8').toString('base64url');
+  const repo = createSupabaseRepository({
+    env: testEnv(),
+    fetchImpl: async (rawUrl, options) => {
+      const url = new URL(rawUrl);
+      if (url.pathname.endsWith('/catalog_items') && options.method === 'GET') {
+        if (url.searchParams.has('or')) throw new Error('Postgres cannot compare a timestamptz to the cursor sentinel');
+        return response([{
+          id: 'catalog-1', kind: 'resource', subtype: null, status: 'published', visibility: 'public',
+          translations: { en: { title: 'No deadline', summary: '', body: '', cta: '' } }, organization: 'NODAL', location: '', topics: [],
+          action_mode: 'none', action_url: '', featured: false, version: 1, deadline_at: null, published_at: '2030-05-01T00:00:00.000Z',
+        }]);
+      }
+      throw new Error(`unexpected request ${options.method} ${url.pathname}`);
+    },
+  });
+  const result = await repo.listCatalogItems({ cursor, limit: 1, state: 'all' }, null);
+  assert.deepEqual(result.items.map((item) => item.id), ['catalog-1']);
 });

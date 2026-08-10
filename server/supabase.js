@@ -339,24 +339,23 @@ function catalogSortTuple(item) {
   return [item.featured ? 1 : 0, item.deadlineAt || '\uffff', item.publishedAt || '', item.id];
 }
 
-function catalogCursorFilter(tuple) {
-  const [featured, deadlineAt, publishedAt, id] = tuple;
-  const featuredValue = featured ? 'true' : 'false';
-  const clauses = [
-    featured ? 'featured.eq.false' : null,
-    `and(featured.eq.${featuredValue},deadline_at.gt.${deadlineAt})`,
-    `and(featured.eq.${featuredValue},deadline_at.eq.${deadlineAt},published_at.lt.${publishedAt})`,
-    `and(featured.eq.${featuredValue},deadline_at.eq.${deadlineAt},published_at.eq.${publishedAt},id.gt.${id})`,
-  ].filter(Boolean);
-  return `(${clauses.join(',')})`;
+function compareCatalogTuples(left, right) {
+  if (left[0] !== right[0]) return right[0] - left[0];
+  for (let index = 1; index < left.length; index += 1) {
+    if (left[index] === right[index]) continue;
+    if (index === 2) return left[index] > right[index] ? -1 : 1;
+    return left[index] < right[index] ? -1 : 1;
+  }
+  return 0;
 }
 
-function catalogListQuery(query = {}, viewer = null) {
+function catalogListQuery(query = {}, viewer = null, { offset = 0, batchSize = 25 } = {}) {
   const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
   const out = {
     select: '*',
     order: 'featured.desc,deadline_at.asc.nullslast,published_at.desc,id.asc',
-    limit: limit + 1,
+    limit: batchSize,
+    offset,
   };
   if (viewer?.permission !== 'admin') {
     out.status = 'eq.published';
@@ -371,7 +370,6 @@ function catalogListQuery(query = {}, viewer = null) {
   if (query.topic) out.topics = `cs.{${String(query.topic).trim()}}`;
   if (query.location) out.location = `ilike.*${String(query.location).trim()}*`;
   if (query.featured !== undefined) out.featured = `eq.${String(query.featured) === 'true'}`;
-  if (query.cursor) out.or = catalogCursorFilter(decodeCatalogCursor(query.cursor));
   return { query: out, limit };
 }
 
@@ -785,23 +783,36 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       return subscriptionToApi(row);
     },
     async listCatalogItems(query = {}, viewer = null) {
-      const options = catalogListQuery(query, viewer);
-      let rows = await admin.rest('catalog_items', { query: options.query });
-      let items = rows.map(catalogItemFromSupabase);
+      const batchSize = 25;
+      let offset = 0;
+      let rows;
+      let items = [];
+      let limit;
+      do {
+        const options = catalogListQuery(query, viewer, { offset, batchSize });
+        limit = options.limit;
+        rows = await admin.rest('catalog_items', { query: options.query });
+        items.push(...rows.map(catalogItemFromSupabase));
+        offset += rows.length;
+      } while (rows.length === batchSize);
       if (query.state !== 'all') items = items.filter((item) => !isCatalogItemClosed(item));
       if (query.q) {
         const term = String(query.q).trim().toLowerCase();
         if (term) items = items.filter((item) => Object.values(item.translations)
           .some((translation) => [translation.title, translation.summary, translation.body].join(' ').toLowerCase().includes(term)));
       }
-      const page = items.slice(0, options.limit);
+      const cursor = query.cursor ? decodeCatalogCursor(query.cursor) : null;
+      items = items
+        .sort((left, right) => compareCatalogTuples(catalogSortTuple(left), catalogSortTuple(right)))
+        .filter((item) => !cursor || compareCatalogTuples(catalogSortTuple(item), cursor) > 0);
+      const page = items.slice(0, limit);
       return {
         items: page,
         nextCursor: items.length > page.length ? encodeCatalogCursor(catalogSortTuple(page.at(-1))) : null,
       };
     },
     async getCatalogItem(id, viewer = null) {
-      const options = catalogListQuery({ limit: 1 }, viewer);
+      const options = catalogListQuery({ limit: 1 }, viewer, { batchSize: 1 });
       options.query.id = `eq.${id}`;
       const item = catalogItemFromSupabase(await first(admin.rest('catalog_items', { query: options.query })));
       if (!item || (viewer?.permission !== 'admin' && (item.status !== 'published' || (item.visibility === 'members' && !viewer?.id)))) return null;

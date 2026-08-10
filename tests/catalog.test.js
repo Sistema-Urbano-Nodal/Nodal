@@ -71,6 +71,8 @@ test('invalid JSON catalog data and cursor values fail closed', () => {
   assert.throws(() => validateCatalogDraft({ translations: '{bad json' }), /translations/i);
   assert.throws(() => decodeCatalogCursor('not-a-cursor'), /cursor/i);
   assert.throws(() => decodeCatalogCursor(Buffer.from('{"featured":true}', 'utf8').toString('base64url')), /cursor/i);
+  assert.throws(() => decodeCatalogCursor(Buffer.from(JSON.stringify([1, 'not-a-date', '2030-05-01T00:00:00.000Z', 'item-1']), 'utf8').toString('base64url')), /cursor/i);
+  assert.throws(() => decodeCatalogCursor(Buffer.from(JSON.stringify([1, '2030-05-20T00:00:00.000Z', '2030-05-01T00:00:00.000Z', 'item/1']), 'utf8').toString('base64url')), /cursor/i);
   assert.deepEqual(decodeCatalogCursor(encodeCatalogCursor([1, '2030-05-20T00:00:00.000Z', '2030-05-01T00:00:00.000Z', 'item-1'])), [1, '2030-05-20T00:00:00.000Z', '2030-05-01T00:00:00.000Z', 'item-1']);
 });
 
@@ -112,6 +114,14 @@ test('SQLite forward migration creates catalog tables and versioned item writes 
   );
 });
 
+test('SQLite rejects values outside the member/admin role invariant', (t) => {
+  const { db } = sqliteCatalogRepo(t);
+  assert.throws(
+    () => createUser(db, { fullName: 'Invalid Role', email: 'invalid-role@example.test', passwordHash: 'hash', role: 'owner' }),
+    /CHECK constraint/i,
+  );
+});
+
 test('SQLite catalog listing is deterministic, paginates without duplicates, and keeps member content private from visitors', async (t) => {
   const { repo, admin, member } = sqliteCatalogRepo(t);
   const common = { actionMode: 'none', actionUrl: '', sourceVerifiedAt: '2030-05-01T00:00:00.000Z' };
@@ -127,6 +137,15 @@ test('SQLite catalog listing is deterministic, paginates without duplicates, and
   const memberList = await repo.listCatalogItems({ limit: 10, state: 'all' }, { id: member.id, permission: 'member' });
   assert.ok(memberList.items.some((item) => item.id === membersOnly.id));
   assert.equal(await repo.getCatalogItem(membersOnly.id, null), null);
+});
+
+test('SQLite administrator listing honours the requested catalog status', async (t) => {
+  const { repo, admin } = sqliteCatalogRepo(t);
+  const draft = await repo.createCatalogItem({ kind: 'resource', status: 'draft', translations: { en: { title: 'Draft only' } } }, admin.id);
+  const published = await repo.createCatalogItem(completeCatalogInput({ actionMode: 'none', actionUrl: '' }), admin.id);
+  const result = await repo.listCatalogItems({ status: 'draft', state: 'all' }, { id: admin.id, permission: 'admin' });
+  assert.deepEqual(result.items.map((item) => item.id), [draft.id]);
+  assert.notEqual(draft.id, published.id);
 });
 
 test('SQLite interests reopen idempotently, withdraw historically, and admin changes are version guarded', async (t) => {

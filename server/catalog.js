@@ -141,7 +141,11 @@ export function decodeCatalogCursor(value) {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error('catalog cursor is invalid');
   try {
     const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
-    if (!Array.isArray(parsed) || parsed.length !== 4 || ![0, 1].includes(parsed[0]) || parsed.slice(1).some((part) => typeof part !== 'string' || !part)) {
+    const [featured, deadlineAt, publishedAt, id] = parsed;
+    const validDate = (part) => typeof part === 'string' && part && Number.isFinite(Date.parse(part));
+    const validId = typeof id === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id);
+    if (!Array.isArray(parsed) || parsed.length !== 4 || ![0, 1].includes(featured)
+      || !(deadlineAt === '\uffff' || validDate(deadlineAt)) || !validDate(publishedAt) || !validId) {
       throw new Error('catalog cursor is invalid');
     }
     return parsed;
