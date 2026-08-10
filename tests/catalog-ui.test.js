@@ -914,43 +914,50 @@ test('My interests drains cursor pages from enriched responses without public de
   assert.equal(calls.some((url) => url.includes('/api/catalog/')), false);
 });
 
-test('My interests withdraws archived active history without requiring public detail access', async () => {
-  const calls = [];
-  let interestsRead = 0;
-  const harness = catalogHarness((url, options = {}) => {
-    if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
-    calls.push({ url, method: options.method || 'GET' });
-    if (url.includes('/api/me/catalog-interests?lang=en')) {
-      interestsRead += 1;
-      const active = interestsRead === 1;
-      return Promise.resolve(response({
-        interests: [{
-          itemId: 'archived-item',
-          status: active ? 'new' : 'withdrawn',
-          message: 'Keep my history.',
-          item: catalogItem('archived-item', { status: 'archived', actionMode: 'none' }),
-        }],
-        nextCursor: null,
-      }));
-    }
-    if (url === '/api/catalog/archived-item/interest' && options.method === 'DELETE') {
-      return Promise.resolve(response({ interest: { itemId: 'archived-item', status: 'withdrawn', message: 'Keep my history.' } }));
-    }
-    throw new Error(`unexpected request ${options.method || 'GET'} ${url}`);
-  });
+test('My interests keeps active unpublished tombstones withdrawable without public detail access', async (t) => {
+  for (const activeStatus of ['new', 'contacted']) {
+    await t.test(activeStatus, async () => {
+      const calls = [];
+      let interestsRead = 0;
+      const harness = catalogHarness((url, options = {}) => {
+        if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+        calls.push({ url, method: options.method || 'GET' });
+        if (url.includes('/api/me/catalog-interests?lang=en')) {
+          interestsRead += 1;
+          const active = interestsRead === 1;
+          return Promise.resolve(response({
+            interests: [{
+              itemId: 'unpublished-item',
+              status: active ? activeStatus : 'withdrawn',
+              message: 'Keep my history.',
+              item: null,
+            }],
+            nextCursor: null,
+          }));
+        }
+        if (url === '/api/catalog/unpublished-item/interest' && options.method === 'DELETE') {
+          return Promise.resolve(response({ interest: { itemId: 'unpublished-item', status: 'withdrawn', message: 'Keep my history.' } }));
+        }
+        throw new Error(`unexpected request ${options.method || 'GET'} ${url}`);
+      });
 
-  await harness.api.loadMyInterests();
-  const firstCard = harness.ids.get('catalogMyInterestsList').children[0];
-  const withdraw = descendants(firstCard).find((node) => node.textContent === 'catalog.withdraw');
-  assert.ok(withdraw, 'active archived history needs a direct withdrawal action');
-  await withdraw.listeners.get('click')({ currentTarget: withdraw });
+      await harness.api.loadMyInterests();
+      const firstCard = harness.ids.get('catalogMyInterestsList').children[0];
+      assert.equal(firstCard.children[0].textContent, `catalog.status.${activeStatus}`);
+      assert.equal(firstCard.children[1].textContent, 'catalog.detailUnavailable');
+      assert.equal(firstCard.children[2].textContent, 'Keep my history.');
+      const withdraw = descendants(firstCard).find((node) => node.textContent === 'catalog.withdraw');
+      assert.ok(withdraw, 'an active tombstone needs a direct withdrawal action');
+      await withdraw.listeners.get('click')({ currentTarget: withdraw });
 
-  assert.ok(calls.some((call) => call.url === '/api/catalog/archived-item/interest' && call.method === 'DELETE'));
-  assert.equal(calls.some((call) => call.url.includes('/api/catalog/archived-item?')), false, 'archived detail must not be requested');
-  assert.equal(harness.ids.get('catalogMyInterestsStatus').textContent, 'catalog.interestWithdrawn');
-  const updatedWithdraw = descendants(harness.ids.get('catalogMyInterestsList').children[0])
-    .find((node) => node.textContent === 'catalog.withdraw');
-  assert.equal(updatedWithdraw.hidden, true);
+      assert.ok(calls.some((call) => call.url === '/api/catalog/unpublished-item/interest' && call.method === 'DELETE'));
+      assert.equal(calls.some((call) => call.url.includes('/api/catalog/unpublished-item?')), false, 'unpublished detail must not be requested');
+      assert.equal(harness.ids.get('catalogMyInterestsStatus').textContent, 'catalog.interestWithdrawn');
+      const updatedWithdraw = descendants(harness.ids.get('catalogMyInterestsList').children[0])
+        .find((node) => node.textContent === 'catalog.withdraw');
+      assert.equal(updatedWithdraw.hidden, true);
+    });
+  }
 });
 
 test('interest writes report transport failures and preserve successful feedback', async (t) => {

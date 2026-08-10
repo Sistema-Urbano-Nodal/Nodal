@@ -938,7 +938,7 @@ export function createApp({
             itemId: interest.itemId,
             status: interest.status,
             message: interest.message,
-            item: interest.item && interest.item.status !== 'draft'
+            item: interest.item?.status === 'published'
               ? { ...catalogPublicProjection(interest.item, lang, { historical: true }), status: interest.item.status }
               : null,
           })),

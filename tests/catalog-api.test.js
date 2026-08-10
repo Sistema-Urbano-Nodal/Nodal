@@ -260,8 +260,8 @@ test('owned and administrator interest endpoints validate cursors, localize hist
   const second = await (await fetch(`${base}/api/me/catalog-interests?lang=pt&limit=2&cursor=${encodeURIComponent(first.nextCursor)}`, { headers: { Cookie: member.cookie } })).json();
   const owned = [...first.interests, ...second.interests];
   assert.deepEqual(owned.map((entry) => entry.itemId), created.map((entry) => entry.item.id).reverse());
-  assert.deepEqual(owned.map((entry) => entry.item.title), ['Português 2', 'English 1', 'Português 0']);
-  assert.equal(owned[1].item.status, 'archived');
+  assert.deepEqual(owned.map((entry) => entry.item?.title || null), ['Português 2', null, 'Português 0']);
+  assert.equal(owned[1].item, null);
   assert.equal(second.nextCursor, null);
   assert.deepEqual((await (await fetch(`${base}/api/me/catalog-interests?lang=pt`, { headers: { Cookie: other.cookie } })).json()).interests, []);
   assert.equal((await fetch(`${base}/api/me/catalog-interests?lang=pt`)).status, 401);
@@ -310,6 +310,45 @@ test('owned interest history never exposes unpublished draft edits', async (t) =
 
   assert.equal(response.status, 200);
   assert.equal(serialized.includes('UNPUBLISHED EDITORIAL SECRET'), false);
+  assert.equal(JSON.parse(serialized).interests[0].item, null);
+});
+
+test('owned interest history remains readable when the archived catalog item is incomplete', async (t) => {
+  const { db, repo, base } = await bootCatalogApp(t);
+  const admin = createUser(db, { fullName: 'Catalog Admin', email: 'admin@example.test', passwordHash: 'hash', role: 'admin' });
+  const member = await signup(base);
+  const item = await repo.createCatalogItem(completeItem({ actionMode: 'interest', actionUrl: '' }), admin.id);
+  await repo.upsertCatalogInterest(item.id, member.user.id, 'Keep this archived history.');
+  await repo.updateCatalogItem(item.id, {
+    kind: 'resource', status: 'archived', visibility: 'public', translations: {}, actionMode: 'none', actionUrl: '',
+  }, item.version, admin.id);
+
+  const response = await fetch(`${base}/api/me/catalog-interests?lang=es`, { headers: { Cookie: member.cookie } });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    interests: [{ itemId: item.id, status: 'new', message: 'Keep this archived history.', item: null }],
+    nextCursor: null,
+  });
+});
+
+test('owned interest history never exposes unpublished archived edits', async (t) => {
+  const { db, repo, base } = await bootCatalogApp(t);
+  const admin = createUser(db, { fullName: 'Catalog Admin', email: 'admin@example.test', passwordHash: 'hash', role: 'admin' });
+  const member = await signup(base);
+  const item = await repo.createCatalogItem(completeItem({ actionMode: 'interest', actionUrl: '' }), admin.id);
+  await repo.upsertCatalogInterest(item.id, member.user.id, 'Keep the public item I selected.');
+  await repo.updateCatalogItem(item.id, {
+    kind: 'resource', status: 'archived', visibility: 'public',
+    translations: { en: { title: 'ARCHIVED EDITORIAL SECRET', summary: '', body: '', cta: '' } },
+    organization: 'Internal archive', sourceLabel: 'Not verified', actionMode: 'none', actionUrl: '',
+  }, item.version, admin.id);
+
+  const response = await fetch(`${base}/api/me/catalog-interests?lang=en`, { headers: { Cookie: member.cookie } });
+  const serialized = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.equal(serialized.includes('ARCHIVED EDITORIAL SECRET'), false);
   assert.equal(JSON.parse(serialized).interests[0].item, null);
 });
 
