@@ -9,6 +9,8 @@ const read = (...parts) => readFileSync(path.join(ROOT, ...parts), 'utf8');
 const index = () => read('web', 'pages', 'index.html');
 const catalogPage = () => read('web', 'pages', 'opportunities.html');
 const catalogScript = () => read('web', 'scripts', 'catalog.js');
+const adminPage = () => read('web', 'pages', 'admin.html');
+const adminScript = () => read('web', 'scripts', 'admin.js');
 const i18n = () => read('web', 'scripts', 'i18n.js');
 
 class FakeNode {
@@ -104,6 +106,36 @@ function catalogHarness(fetchImpl) {
   vm.runInNewContext(instrumented, context, { filename: 'catalog.js' });
   context.window.__catalogTest.setAuthenticated(true);
   return { api: context.window.__catalogTest, ids, i18nState };
+}
+
+function adminHarness() {
+  const ids = new Map([...adminPage().matchAll(/\bid="([^"]+)"/g)].map((match) => [match[1], new FakeNode(match[1])]));
+  const document = {
+    getElementById: (id) => ids.get(id) ?? null,
+    createElement: (tag) => new FakeNode(tag),
+  };
+  const context = {
+    AbortController,
+    Date,
+    URL,
+    URLSearchParams,
+    clearTimeout,
+    document,
+    encodeURIComponent,
+    fetch: () => Promise.reject(new Error('network must not run in the editor unit test')),
+    location: { assign() {} },
+    matchMedia: () => ({ matches: true }),
+    setTimeout,
+  };
+  context.window = context;
+  const source = adminScript();
+  const instrumented = source.replace(
+    /\n  bootstrap\(\);\s*\n\}\)\(\);\s*$/,
+    `\n  window.__adminTest = { serializeEditor, showCatalogConflict, conflict: () => state.conflictCurrent };\n})();`,
+  );
+  assert.notEqual(instrumented, source, 'admin test hook must replace bootstrap without changing production source');
+  vm.runInNewContext(instrumented, context, { filename: 'admin.js' });
+  return { api: context.window.__adminTest, ids };
 }
 
 function catalogItem(id = 'item-1', overrides = {}) {
@@ -391,6 +423,138 @@ test('catalog dynamic and visible states resolve in EN, ES, and PT', () => {
   ];
   requiredStates.forEach((key) => used.add(key));
   for (const key of used) {
+    assert.ok(english.has(key), `${key} missing in English`);
+    assert.ok(spanish.has(key), `${key} missing in Spanish`);
+    assert.ok(portuguese.has(key), `${key} missing in Portuguese`);
+  }
+});
+
+test('admin workspace exposes a complete trilingual editor without destructive controls', () => {
+  const html = adminPage();
+  for (const id of [
+    'adminCatalogFilters', 'adminCatalogQuery', 'adminCatalogKind', 'adminCatalogStatus',
+    'adminCatalogList', 'adminCatalogListStatus', 'adminCatalogEditor', 'adminCatalogId',
+    'adminCatalogVersion', 'adminKind', 'adminSubtype', 'adminVisibility',
+    'adminOrganization', 'adminLocation', 'adminTopics', 'adminStartsAt', 'adminDeadlineAt',
+    'adminEndDate', 'adminSourceUrl', 'adminSourceVerifiedAt', 'adminActionMode',
+    'adminActionUrl', 'adminFeatured', 'adminSaveDraft', 'adminPublish', 'adminArchive',
+    'adminPreview', 'adminConflictReload', 'adminEditorStatus', 'adminPreviewPanel',
+    'adminInterestFilter', 'adminInterestList', 'adminInterestStatus',
+  ]) assert.match(html, new RegExp(`id="${id}"`), `${id} must be present`);
+
+  for (const lang of ['En', 'Es', 'Pt']) {
+    for (const field of ['Title', 'Summary', 'Body', 'Cta']) {
+      assert.match(html, new RegExp(`id="admin${field}${lang}"`), `${field} ${lang} input is missing`);
+    }
+  }
+  assert.doesNotMatch(html, /hard[- ]?delete|delete catalog|id="adminDelete"/i);
+  assert.match(html, /<script[^>]+src="admin\.js/);
+  assert.match(html, /<link[^>]+href="admin\.css/);
+});
+
+test('admin client serializes translations atomically and preserves edits on stale versions', () => {
+  const source = adminScript();
+  assert.doesNotMatch(source, /\.innerHTML\s*=/);
+  assert.match(source, /credentials:\s*'same-origin'/);
+  assert.match(source, /\/api\/admin\/catalog/);
+  assert.match(source, /\/api\/admin\/interests/);
+  assert.match(source, /status\s*===\s*409/);
+  assert.match(source, /new URLSearchParams/);
+  assert.doesNotMatch(source, /method:\s*'DELETE'/);
+
+  for (const lang of ['en', 'es', 'pt']) {
+    const upper = `${lang.charAt(0).toUpperCase()}${lang.slice(1)}`;
+    assert.match(source, new RegExp(`${lang}:\\s*readTranslation\\('${upper}'\\)`));
+  }
+  assert.match(source, /showCatalogConflict\(data\.current/);
+  assert.match(source, /adminConflictReload/);
+  assert.match(source, /replaceChildren/);
+  assert.match(source, /textContent/);
+
+  const harness = adminHarness();
+  const set = (id, value) => { harness.ids.get(id).value = value; };
+  set('adminKind', 'opportunity');
+  set('adminSubtype', 'grant');
+  set('adminVisibility', 'members');
+  set('adminOrganization', 'Operator-entered organization');
+  set('adminLocation', 'Operator-entered place');
+  set('adminTopics', 'mobility, housing');
+  set('adminStartsAt', '2026-09-01T09:00');
+  set('adminDeadlineAt', '2026-09-30T18:00');
+  set('adminEndDate', '2026-12-31');
+  set('adminSourceUrl', 'https://source.example/item');
+  set('adminSourceVerifiedAt', '2026-08-10');
+  set('adminActionMode', 'external');
+  set('adminActionUrl', 'https://action.example/apply');
+  harness.ids.get('adminFeatured').checked = true;
+  for (const lang of ['En', 'Es', 'Pt']) {
+    set(`adminTitle${lang}`, `Title ${lang}`);
+    set(`adminSummary${lang}`, `Summary ${lang}`);
+    set(`adminBody${lang}`, `Body ${lang}`);
+    set(`adminCta${lang}`, `CTA ${lang}`);
+  }
+
+  const payload = JSON.parse(JSON.stringify(harness.api.serializeEditor('published')));
+  assert.deepEqual(Object.keys(payload.translations), ['en', 'es', 'pt']);
+  assert.deepEqual(payload.translations.pt, { title: 'Title Pt', summary: 'Summary Pt', body: 'Body Pt', cta: 'CTA Pt' });
+  assert.equal(payload.status, 'published');
+  assert.equal(payload.actionUrl, 'https://action.example/apply');
+  assert.deepEqual(payload.topics, ['mobility', 'housing']);
+
+  set('adminTitleEn', 'Unsaved operator wording');
+  harness.ids.get('adminConflictPanel').hidden = true;
+  const current = { id: 'record-1', version: 8, translations: { en: { title: 'Server wording' } } };
+  harness.api.showCatalogConflict(current);
+  assert.equal(harness.ids.get('adminTitleEn').value, 'Unsaved operator wording');
+  assert.equal(harness.ids.get('adminConflictPanel').hidden, false);
+  assert.equal(harness.api.conflict().version, 8);
+  assert.ok(harness.ids.get('adminConflictReload').listeners.has('click'), 'explicit reload control must own conflict replacement');
+});
+
+test('dashboard catalog scopes use the public API while People remains consent-gated', () => {
+  const source = read('web', 'scripts', 'dashboard.js');
+  assert.doesNotMatch(source, /function catalogue\(|d\.find\.[pko]\d/);
+  assert.match(source, /Projects:\s*'project'/);
+  assert.match(source, /Knowledge:\s*'learning_circle,resource,case_study'/);
+  assert.match(source, /Opportunities:\s*'opportunity'/);
+  assert.match(source, /\/api\/catalog\?/);
+  assert.match(source, /new URLSearchParams\(\{\s*id:\s*item\.id\s*\}\)/);
+  assert.match(source, /new AbortController\(\)/);
+  assert.match(source, /catalogTimer\s*=\s*setTimeout\([\s\S]*?\},\s*220\);/);
+  assert.match(source, /\/api\/users\/search\?q=/, 'People must keep the consent-filtered directory API');
+  assert.match(source, /d\.search\.catalogSearching/);
+  assert.match(source, /d\.search\.catalogUnavailable/);
+  assert.match(source, /d\.search\.catalogEmpty/);
+});
+
+test('recommendation asynchronous states are translated and never synthesize records', () => {
+  const source = read('web', 'scripts', 'recs.js');
+  for (const key of [
+    'recs.loading.title', 'recs.loading.role', 'recs.loading.why',
+    'recs.empty.title', 'recs.empty.role', 'recs.empty.why',
+    'recs.auth.title', 'recs.auth.role', 'recs.auth.why',
+    'recs.unavailable.title', 'recs.unavailable.role', 'recs.unavailable.why',
+    'recs.retry',
+  ]) assert.match(source, new RegExp(`t\\('${key.replaceAll('.', '\\.')}'`), `${key} must be translated at render time`);
+  assert.doesNotMatch(source, /title:\s*'(?:No matches yet|Sign in to match)'/);
+  assert.doesNotMatch(source, /demo|fallbackRecommendation|sampleRecommendation|mockRecommendation/i);
+});
+
+test('dashboard catalog and recommendation states resolve in EN, ES, and PT', () => {
+  const source = i18n();
+  const english = dictionaryKeys(source, 'DASH_EN');
+  const spanish = dictionaryKeys(source, 'DASH_ES');
+  const portuguese = dictionaryKeys(source, 'DASH_PT');
+  const required = [
+    'd.search.catalogSearching', 'd.search.catalogUnavailable', 'd.search.catalogEmpty',
+    'recs.loading.title', 'recs.loading.role', 'recs.loading.why',
+    'recs.empty.title', 'recs.empty.role', 'recs.empty.why',
+    'recs.auth.title', 'recs.auth.role', 'recs.auth.why',
+    'recs.unavailable.title', 'recs.unavailable.role', 'recs.unavailable.why',
+    'recs.retry', 'recs.match', 'recs.mutual.one', 'recs.mutual.many',
+    'recs.sameCity', 'recs.complementaryRole',
+  ];
+  for (const key of required) {
     assert.ok(english.has(key), `${key} missing in English`);
     assert.ok(spanish.has(key), `${key} missing in Spanish`);
     assert.ok(portuguese.has(key), `${key} missing in Portuguese`);

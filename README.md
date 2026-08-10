@@ -89,6 +89,60 @@ Core flows:
 - Logout: dashboard sidebar
 - Export personal data or delete account: dashboard profile dialog
 
+## Catalog Operations
+
+`/admin.html` is the protected staff workspace for opportunities, projects,
+learning circles, resources, case studies, and member interest review. The page
+and every `/api/admin/*` request independently require a server-owned `admin`
+role. Catalog records are archived rather than deleted.
+
+For a local SQLite-only administrator, use a dedicated development database and
+set a password explicitly:
+
+```sh
+DATA_BACKEND=sqlite DATABASE_PATH=./data/nodal.sqlite \
+SEED_ADMIN_EMAIL=<staff-email> SEED_ADMIN_PASSWORD=<local-password> \
+npm run seed:dev
+```
+
+`seed:dev` is development-only and must never run against production. It does
+not create catalog records. In Supabase, first create the staff account through
+the normal Auth flow, then have a privileged database operator set that
+profile's `app_role` to `admin` in the SQL Editor:
+
+```sql
+update public.profiles
+set app_role = 'admin'
+where id = (
+  select id from auth.users where lower(email) = lower('<staff-email>')
+);
+```
+
+Confirm that exactly one intended profile changed. There is intentionally no
+browser or profile API for changing `app_role`.
+
+Link and apply the forward-only Supabase migrations before opening the staff
+workspace against a preview project:
+
+```sh
+npx supabase link --project-ref <preview-project-ref>
+npx supabase migration list
+npx supabase db push
+```
+
+Drafts may be incomplete. Publishing requires all of the following in one save:
+
+- complete title, summary, body, and CTA in EN, ES, and PT;
+- organization and a verified HTTPS source with its verification date;
+- a valid catalog kind, visibility, dates, and opportunity subtype when relevant;
+- a valid action mode, including an HTTPS action URL for external actions;
+- plain text within the editor limits and no more than eight topics.
+
+Before a production release, staff must publish real, sourced, trilingual
+records covering at least one case study, one open opportunity, one project,
+and one learning circle or resource. Do not use fabricated records or fallback
+content to satisfy this release gate.
+
 ## Production
 
 Vercel serves generated JavaScript, CSS, and optimized images from `public/` before routing HTML pages and API requests through `api/index.js`. The adapter forwards those requests to the existing Node app, preserving protected-route redirects, API auth checks, security headers, and explicit static-file allowlisting.

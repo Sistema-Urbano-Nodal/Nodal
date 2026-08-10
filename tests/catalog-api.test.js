@@ -234,7 +234,9 @@ test('admin catalog APIs are server-authorized, versioned, and keep the interest
 
   assert.equal((await fetch(`${base}/admin.html`, { redirect: 'manual' })).status, 302);
   assert.equal((await fetch(`${base}/admin.html`, { headers: { Cookie: member.cookie } })).status, 403);
-  assert.equal((await fetch(`${base}/admin.html`, { headers: { Cookie: admin.cookie } })).status, 404);
+  const adminPage = await fetch(`${base}/admin.html`, { headers: { Cookie: admin.cookie } });
+  assert.equal(adminPage.status, 200);
+  assert.match(await adminPage.text(), /Catalog operations/);
   assert.equal((await fetch(`${base}/api/admin/catalog`)).status, 401);
   assert.equal((await fetch(`${base}/api/admin/catalog`, { headers: { Cookie: member.cookie } })).status, 403);
 

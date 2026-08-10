@@ -1052,30 +1052,13 @@
   }
 
   /* ================= search =================
-     People are looked up live against the member directory: name, role and
-     city match on substring, a full registration email matches exactly. Only
-     members who opted into the directory in Part C are findable. */
-  function catalogue() {
-    const city = cityLabel();
-    const regional = t('d.search.regional');
-    return {
-      Projects: [
-        { label: t('d.find.p1'), meta: t('d.find.p1m', { city }), href: 'index.html#platform' },
-        { label: t('d.find.p2'), meta: t('d.find.p2m', { city }), href: 'index.html#platform' },
-        { label: t('d.find.p3'), meta: t('d.find.p3m', { regional }), href: 'index.html#platform' },
-      ],
-      Knowledge: [
-        { label: t('d.find.k1'), meta: t('d.find.k1m'), href: 'index.html#resources' },
-        { label: t('d.find.k2'), meta: t('d.find.k2m'), href: 'index.html#resources' },
-        { label: t('d.find.k3'), meta: t('d.find.k3m'), href: 'index.html#resources' },
-      ],
-      Opportunities: [
-        { label: t('d.find.o1'), meta: t('d.find.o1m', { city }), href: 'index.html#membership' },
-        { label: t('d.find.o2'), meta: t('d.find.o2m', { regional }), href: 'index.html#membership' },
-        { label: t('d.find.o3'), meta: t('d.find.o3m', { regional }), href: 'index.html#membership' },
-      ],
-    };
-  }
+     People keep using the consent-gated member directory. Every other scope
+     uses the same published catalog API as the public open-work page. */
+  const CATALOG_SCOPE_KINDS = Object.freeze({
+    Projects: 'project',
+    Knowledge: 'learning_circle,resource,case_study',
+    Opportunities: 'opportunity',
+  });
 
   const searchInput = byId('searchInput');
   const searchPop = byId('searchPop');
@@ -1087,6 +1070,12 @@
   let peopleHits = [];
   let peopleTimer = null;
   let peopleAbort = null;
+  let catalogQuery = '';
+  let catalogScope = '';
+  let catalogHits = [];
+  let catalogTimer = null;
+  let catalogAbort = null;
+  let catalogSequence = 0;
 
   function lookUpPeople(query) {
     clearTimeout(peopleTimer);
@@ -1111,17 +1100,60 @@
     }, 220);
   }
 
-  function paint(hits) {
+  function lookUpCatalog(scope, query) {
+    clearTimeout(catalogTimer);
+    catalogTimer = setTimeout(async () => {
+      if (catalogAbort) catalogAbort.abort();
+      catalogAbort = new AbortController();
+      const sequence = catalogSequence + 1;
+      catalogSequence = sequence;
+      const params = new URLSearchParams({
+        lang: I18N?.lang || 'en',
+        kind: CATALOG_SCOPE_KINDS[scope],
+        q: query,
+        state: 'open',
+        limit: '6',
+      });
+      try {
+        const data = await api(`/api/catalog?${params}`, { signal: catalogAbort.signal });
+        if (sequence !== catalogSequence) return;
+        catalogHits = (Array.isArray(data.items) ? data.items : []).map((item) => ({
+          label: item.title,
+          meta: [item.organization, item.location, t(`catalog.kind.${item.kind}`)].filter(Boolean).join(' · '),
+          href: `opportunities.html?${new URLSearchParams({ id: item.id })}`,
+        }));
+        catalogQuery = query.toLowerCase();
+        catalogScope = scope;
+        if (activeScope() === scope && searchInput.value.trim().toLowerCase() === catalogQuery) paint(catalogHits);
+      } catch (err) {
+        if (err.name === 'AbortError' || sequence !== catalogSequence) return;
+        catalogQuery = query.toLowerCase();
+        catalogScope = scope;
+        catalogHits = [];
+        if (activeScope() === scope && searchInput.value.trim().toLowerCase() === catalogQuery) paint([], 'catalog-error');
+      }
+    }, 220);
+  }
+
+  function paint(hits, mode = 'ready') {
     if (!searchPop) return;
     const typed = searchInput.value.trim();
     if (hits === null) {
-      searchPop.replaceChildren(el('p', 'search-empty', t('d.search.searching')));
+      const key = activeScope() === 'People' ? 'd.search.searching' : 'd.search.catalogSearching';
+      searchPop.replaceChildren(el('p', 'search-empty', t(key)));
+      searchPop.hidden = false;
+      return;
+    }
+    if (mode === 'catalog-error') {
+      searchPop.replaceChildren(el('p', 'search-empty', t('d.search.catalogUnavailable')));
       searchPop.hidden = false;
       return;
     }
     if (!hits.length) {
-      const empty = el('p', 'search-empty', t('d.search.noMatch', { q: typed, scope: scopeLabel() }));
-      if (activeScope() === 'People') empty.append(el('small', null, t('d.search.directoryNote')));
+      const people = activeScope() === 'People';
+      const key = people ? 'd.search.noMatch' : 'd.search.catalogEmpty';
+      const empty = el('p', 'search-empty', t(key, { q: typed, scope: scopeLabel() }));
+      if (people) empty.append(el('small', null, t('d.search.directoryNote')));
       searchPop.replaceChildren(empty);
       searchPop.hidden = false;
       return;
@@ -1141,14 +1173,18 @@
     const q = typed.toLowerCase();
     if (q.length < 2) { searchPop.hidden = true; return; }
     if (activeScope() === 'People') {
+      if (catalogAbort) catalogAbort.abort();
+      catalogSequence += 1;
       if (peopleQuery === q) { paint(peopleHits); return; }
       lookUpPeople(typed);
       paint(null);
       return;
     }
-    paint((catalogue()[activeScope()] ?? [])
-      .filter((item) => `${item.label} ${item.meta}`.toLowerCase().includes(q))
-      .slice(0, 6));
+    if (peopleAbort) peopleAbort.abort();
+    const scope = activeScope();
+    if (catalogScope === scope && catalogQuery === q) { paint(catalogHits); return; }
+    lookUpCatalog(scope, typed);
+    paint(null);
   }
 
   if (searchInput && searchPop && chipHost) {
@@ -1280,7 +1316,11 @@
     btn.addEventListener('animationend', () => btn.classList.remove('glint'));
   });
 
-  I18N?.onChange(() => applyAll());
+  I18N?.onChange(() => {
+    applyAll();
+    catalogQuery = '';
+    if (searchInput?.value.trim().length >= 2 && activeScope() !== 'People') runSearch();
+  });
 
   async function init() {
     try {

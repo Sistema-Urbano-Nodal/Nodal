@@ -1,6 +1,10 @@
 /* match deck: live ranked profiles for the authenticated user.
    Like → follow (server invalidates both caches); skip → recorded interaction. */
 (() => {
+  'use strict';
+
+  const I18N = window.nodalI18n;
+  const t = (key, vars) => (I18N ? I18N.t(key, vars) : key);
   const stack = document.getElementById('matchStack');
   const card = stack && stack.querySelector('.match-card');
   if (!card) return;
@@ -20,6 +24,8 @@
   let idx = 0;
   let live = false;
   let needsAuth = false;
+  let needsRetry = false;
+  let messageMode = '';
 
   const fling = (dir, after) => {
     card.style.transform = `translateX(${dir * 120}%) rotate(${dir * 12}deg)`;
@@ -39,6 +45,7 @@
   const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
   function show(p) {
+    messageMode = '';
     els.initial.textContent = p.name.charAt(0).toUpperCase();
     // the h3 holds "name" as its first text node, then the members-only lock icon
     els.name.childNodes[0].nodeValue = `${p.name} `;
@@ -48,20 +55,23 @@
       span.textContent = cap(i);
       return span;
     }));
-    const shared = p.reasons.sharedInterests.slice(0, 2).map(cap).join(' · ');
-    const mutuals = p.reasons.mutualConnections;
+    const shared = (p.reasons?.sharedInterests || []).slice(0, 2).map(cap).join(' · ');
+    const mutuals = Number(p.reasons?.mutualConnections || 0);
     const extras = [];
-    if (p.reasons.sameCity) extras.push('same city');
-    if (p.reasons.complementaryRole) extras.push('complementary role');
-    els.why.textContent = `${p.matchPct}% match` +
+    if (p.reasons?.sameCity) extras.push(t('recs.sameCity'));
+    if (p.reasons?.complementaryRole) extras.push(t('recs.complementaryRole'));
+    els.why.textContent = t('recs.match', { pct: p.matchPct }) +
       (shared ? ` · ${shared}` : '') +
-      (mutuals ? ` · ${mutuals} mutual connection${mutuals > 1 ? 's' : ''}` : '') +
+      (mutuals ? ` · ${t(mutuals === 1 ? 'recs.mutual.one' : 'recs.mutual.many', { n: mutuals })}` : '') +
       (extras.length ? ` · ${extras.join(' · ')}` : '');
+    els.skip.setAttribute('aria-label', t('recs.skip'));
+    els.like.setAttribute('aria-label', t('recs.connect'));
   }
 
-  function showMessage({ title, role, tags = [], why, auth = false }) {
+  function showMessage({ title, role, tags = [], why, auth = false, retry = false }) {
     live = false;
     needsAuth = auth;
+    needsRetry = retry;
     els.initial.textContent = title.charAt(0).toUpperCase();
     els.name.childNodes[0].nodeValue = `${title} `;
     els.role.textContent = role;
@@ -71,8 +81,34 @@
       return span;
     }));
     els.why.textContent = why;
-    els.skip.disabled = !auth;
-    els.like.disabled = !auth;
+    els.skip.disabled = true;
+    els.like.disabled = !(auth || retry);
+    els.skip.setAttribute('aria-label', t('recs.skip'));
+    els.like.setAttribute('aria-label', auth ? t('recs.signIn') : retry ? t('recs.retry') : t('recs.connect'));
+  }
+
+  function showState(mode) {
+    messageMode = mode;
+    const states = {
+      loading: {
+        title: t('recs.loading.title'), role: t('recs.loading.role'), why: t('recs.loading.why'),
+        tags: [t('recs.tag.profile'), t('recs.tag.network'), t('recs.tag.live')],
+      },
+      empty: {
+        title: t('recs.empty.title'), role: t('recs.empty.role'), why: t('recs.empty.why'),
+        tags: [t('recs.tag.profile'), t('recs.tag.network'), t('recs.tag.soon')],
+      },
+      auth: {
+        title: t('recs.auth.title'), role: t('recs.auth.role'), why: t('recs.auth.why'), auth: true,
+        tags: [t('recs.tag.account'), t('recs.tag.profile'), t('recs.tag.matches')],
+      },
+      unavailable: {
+        title: t('recs.unavailable.title'), role: t('recs.unavailable.role'), why: t('recs.unavailable.why'), retry: true,
+        tags: [t('recs.tag.live'), t('recs.tag.retry')],
+      },
+    };
+    showMessage(states[mode]);
+    messageMode = mode;
   }
 
   async function api(path, body) {
@@ -91,18 +127,14 @@
     if (!state.authenticated) throw Object.assign(new Error('auth required'), { code: 'auth' });
     const data = await api('/api/recommendations/me');
     if (!Array.isArray(data.recommendations) || data.recommendations.length === 0) {
-      showMessage({
-        title: 'No matches yet',
-        role: 'Your network will grow as more members join.',
-        tags: ['Profile', 'Network', 'Soon'],
-        why: 'Complete your dashboard profile and invite peers to improve matching.',
-      });
+      showState('empty');
       return;
     }
     deck = data.recommendations;
     idx = 0;
     live = true;
     needsAuth = false;
+    needsRetry = false;
     els.skip.disabled = false;
     els.like.disabled = false;
     show(deck[idx]);
@@ -111,11 +143,12 @@
   function advance() {
     idx += 1;
     if (idx < deck.length) show(deck[idx]);
-    else load().catch(() => {});   // deck spent — caches were invalidated, re-rank
+    else startLoad();   // deck spent — caches were invalidated, re-rank
   }
 
   function act(kind) {
     if (needsAuth) { location.assign('/login.html?next=/dashboard.html'); return; }
+    if (needsRetry) { startLoad(); return; }
     if (!live || !deck[idx]) return;
     const target = deck[idx].id;
     const req = kind === 'like'
@@ -128,16 +161,15 @@
   els.skip.addEventListener('click', () => fling(-1, () => act('skip')));
   els.like.addEventListener('click', () => fling(1, () => act('like')));
 
-  load().catch((err) => {
-    if (err.code === 'auth') {
-      showMessage({
-        title: 'Sign in to match',
-        role: 'Recommendations use your real profile.',
-        tags: ['Account', 'Profile', 'Matches'],
-        why: 'Create an account or sign in to see your ranked member deck.',
-        auth: true,
-      });
-      return;
-    }
+  function startLoad() {
+    showState('loading');
+    load().catch((err) => showState(err.code === 'auth' ? 'auth' : 'unavailable'));
+  }
+
+  I18N?.onChange(() => {
+    if (live && deck[idx]) show(deck[idx]);
+    else if (messageMode) showState(messageMode);
   });
+
+  startLoad();
 })();

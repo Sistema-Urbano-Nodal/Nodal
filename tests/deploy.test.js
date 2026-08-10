@@ -340,3 +340,31 @@ test('public catalog assets are served, built, cached, and deployment-covered', 
   assert.ok(vercel.headers.some((route) => new RegExp(route.source).test('/catalog.js')));
   assert.ok(vercel.headers.some((route) => new RegExp(route.source).test('/catalog.css')));
 });
+
+test('protected catalog administration crosses every serving and build boundary', () => {
+  const serverSource = readFileSync(path.join(ROOT, 'server', 'server.js'), 'utf8');
+  const buildSource = readFileSync(path.join(ROOT, 'scripts', 'build-static.js'), 'utf8');
+  const vercel = JSON.parse(readFileSync(path.join(ROOT, 'vercel.json'), 'utf8'));
+
+  for (const relative of [
+    ['pages', 'admin.html'],
+    ['scripts', 'admin.js'],
+    ['styles', 'admin.css'],
+  ]) assert.ok(existsSync(path.join(ROOT, 'web', ...relative)), `${relative.at(-1)} is missing`);
+
+  assert.match(serverSource, /STATIC_PAGES[^\n]*'admin\.html'/);
+  assert.match(serverSource, /STATIC_SCRIPTS[^\n]*'admin\.js'/);
+  assert.match(serverSource, /STATIC_STYLES[^\n]*'admin\.css'/);
+  assert.match(buildSource, /PROTECTED_PAGES[^\n]*'admin\.html'/);
+  assert.match(buildSource, /PROTECTED_PAGES\.map\(\(file\) => rm\(path\.join\(OUTPUT, file\), \{ force: true \}\)\)/);
+  assert.doesNotMatch(buildSource, /STATIC_PAGES[^\n]*'admin\.html'/,
+    'copying protected HTML to public would let Vercel filesystem routing bypass server authorization');
+  assert.match(buildSource, /STATIC_SCRIPTS[\s\S]*'admin\.js'/);
+  assert.match(buildSource, /STATIC_STYLES[^\n]*'admin\.css'/);
+  assert.ok(vercel.headers.some((route) => new RegExp(route.source).test('/admin.js')));
+  assert.ok(vercel.headers.some((route) => new RegExp(route.source).test('/admin.css')));
+  const page = vercel.headers.find((route) => route.source === '/admin.html');
+  assert.ok(page, 'admin page needs an explicit cache and security policy');
+  assert.ok(page.headers.some((header) => header.key === 'Cache-Control' && header.value === 'no-store'));
+  assert.match(serverSource, /canonical === '\/admin\.html'[\s\S]*administrator access required/);
+});

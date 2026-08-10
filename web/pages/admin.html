@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>NODAL · Catalog operations</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="admin.css?v=1" />
+</head>
+<body class="admin-page">
+  <header class="admin-topbar">
+    <a class="admin-brand" href="index.html" aria-label="NODAL home">
+      <img src="assets/nodal-wordmark.webp" alt="NODAL · Nodos Urbanos de América Latina" />
+      <span>Operations</span>
+    </a>
+    <nav aria-label="Staff navigation">
+      <a href="opportunities.html">Public catalog</a>
+      <a href="dashboard.html">Member dashboard</a>
+      <a href="login.html">Sign out</a>
+    </nav>
+  </header>
+
+  <main class="admin-shell">
+    <header class="admin-mast">
+      <div>
+        <p class="admin-kicker">Operator-curated · verified sources only</p>
+        <h1>Catalog operations</h1>
+        <p>Prepare one complete EN/ES/PT record, verify its official source, preview the plain text, then publish it.</p>
+      </div>
+      <div class="admin-rule" role="note">
+        <strong>Publication gate</strong>
+        <span>All three translations, organization, verified HTTPS source, verification date and a valid action are required.</span>
+      </div>
+    </header>
+
+    <div class="admin-workspace">
+      <aside class="admin-index" aria-labelledby="catalogIndexTitle">
+        <div class="admin-section-head">
+          <div>
+            <p class="admin-kicker">Editorial queue</p>
+            <h2 id="catalogIndexTitle">Catalog records</h2>
+          </div>
+          <button class="admin-button admin-button-accent" id="adminNewItem" type="button">New record</button>
+        </div>
+        <form id="adminCatalogFilters" class="admin-filters" role="search">
+          <label><span>Search</span><input id="adminCatalogQuery" type="search" maxlength="320" autocomplete="off" placeholder="Title, organization, topic" /></label>
+          <div class="admin-filter-row">
+            <label><span>Kind</span><select id="adminCatalogKind"><option value="">All kinds</option><option value="opportunity">Opportunity</option><option value="project">Project</option><option value="learning_circle">Learning circle</option><option value="resource">Resource</option><option value="case_study">Case study</option></select></label>
+            <label><span>Status</span><select id="adminCatalogStatus"><option value="">All statuses</option><option value="draft">Draft</option><option value="published">Published</option><option value="archived">Archived</option></select></label>
+          </div>
+          <button class="admin-button admin-button-quiet" type="submit">Apply filters</button>
+        </form>
+        <p class="admin-live" id="adminCatalogListStatus" role="status" aria-live="polite">Loading catalog records…</p>
+        <div class="admin-record-list" id="adminCatalogList" aria-busy="true"></div>
+      </aside>
+
+      <section class="admin-editor-pane" aria-labelledby="editorTitle">
+        <div class="admin-section-head admin-editor-head">
+          <div>
+            <p class="admin-kicker">Atomic EN / ES / PT editor</p>
+            <h2 id="editorTitle">Record editor</h2>
+          </div>
+          <div class="admin-version-block">
+            <span id="adminRecordState">New draft</span>
+            <span>Version <strong id="adminCatalogVersion">—</strong></span>
+          </div>
+        </div>
+
+        <form id="adminCatalogEditor" class="admin-editor" novalidate>
+          <input id="adminCatalogId" type="hidden" />
+          <fieldset>
+            <legend>Classification</legend>
+            <div class="admin-grid admin-grid-4">
+              <label><span>Kind</span><select id="adminKind" required><option value="opportunity">Opportunity</option><option value="project">Project</option><option value="learning_circle">Learning circle</option><option value="resource" selected>Resource</option><option value="case_study">Case study</option></select></label>
+              <label><span>Opportunity subtype</span><select id="adminSubtype"><option value="">Not applicable</option><option value="job">Job</option><option value="consulting">Consulting</option><option value="grant">Grant</option><option value="open_call">Open call</option><option value="fellowship">Fellowship</option><option value="other">Other</option></select></label>
+              <label><span>Visibility</span><select id="adminVisibility"><option value="public">Public</option><option value="members">Members</option></select></label>
+              <label class="admin-check"><input id="adminFeatured" type="checkbox" /><span>Feature this record</span></label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Translations</legend>
+            <p class="admin-field-note">Every field remains plain text. Publishing is atomic: English, Spanish and Portuguese must all be complete.</p>
+            <div class="admin-locale-grid">
+              <section class="admin-locale" aria-labelledby="localeEn"><h3 id="localeEn"><span>EN</span> English</h3><label><span>Title</span><input id="adminTitleEn" maxlength="120" /></label><label><span>Summary</span><textarea id="adminSummaryEn" maxlength="320" rows="4"></textarea></label><label><span>Body</span><textarea id="adminBodyEn" maxlength="5000" rows="9"></textarea></label><label><span>CTA label</span><input id="adminCtaEn" maxlength="60" /></label></section>
+              <section class="admin-locale" aria-labelledby="localeEs"><h3 id="localeEs"><span>ES</span> Spanish</h3><label><span>Title</span><input id="adminTitleEs" maxlength="120" /></label><label><span>Summary</span><textarea id="adminSummaryEs" maxlength="320" rows="4"></textarea></label><label><span>Body</span><textarea id="adminBodyEs" maxlength="5000" rows="9"></textarea></label><label><span>CTA label</span><input id="adminCtaEs" maxlength="60" /></label></section>
+              <section class="admin-locale" aria-labelledby="localePt"><h3 id="localePt"><span>PT</span> Portuguese</h3><label><span>Title</span><input id="adminTitlePt" maxlength="120" /></label><label><span>Summary</span><textarea id="adminSummaryPt" maxlength="320" rows="4"></textarea></label><label><span>Body</span><textarea id="adminBodyPt" maxlength="5000" rows="9"></textarea></label><label><span>CTA label</span><input id="adminCtaPt" maxlength="60" /></label></section>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Ownership and timing</legend>
+            <div class="admin-grid admin-grid-3">
+              <label><span>Organization</span><input id="adminOrganization" maxlength="180" /></label>
+              <label><span>Location</span><input id="adminLocation" maxlength="180" /></label>
+              <label><span>Topics</span><input id="adminTopics" maxlength="487" placeholder="Up to 8, separated by commas" /></label>
+              <label><span>Starts at</span><input id="adminStartsAt" type="datetime-local" /></label>
+              <label><span>Deadline</span><input id="adminDeadlineAt" type="datetime-local" /></label>
+              <label><span>End date</span><input id="adminEndDate" type="date" /></label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Verification and action</legend>
+            <div class="admin-grid admin-grid-2">
+              <label><span>Verified source URL</span><input id="adminSourceUrl" type="url" inputmode="url" maxlength="2000" placeholder="https://…" /></label>
+              <label><span>Verified on</span><input id="adminSourceVerifiedAt" type="date" /></label>
+              <label><span>Action mode</span><select id="adminActionMode"><option value="none">Information only</option><option value="external">Official external action</option><option value="interest">Internal expression of interest</option></select></label>
+              <label><span>External action URL</span><input id="adminActionUrl" type="url" inputmode="url" maxlength="2000" placeholder="https://…" /></label>
+            </div>
+          </fieldset>
+
+          <div class="admin-conflict" id="adminConflictPanel" hidden role="alert">
+            <div><strong>This record changed on the server.</strong><span>Your unsaved fields are still here. Reload the current server version only when you are ready to discard them.</span></div>
+            <button class="admin-button admin-button-quiet" id="adminConflictReload" type="button">Reload server version</button>
+          </div>
+
+          <div class="admin-actions">
+            <button class="admin-button admin-button-quiet" id="adminPreview" type="button">Preview plain text</button>
+            <button class="admin-button" id="adminSaveDraft" type="button">Save as draft</button>
+            <button class="admin-button admin-button-accent" id="adminPublish" type="button">Publish</button>
+            <button class="admin-button admin-button-warning" id="adminArchive" type="button">Archive</button>
+            <button class="admin-button admin-button-quiet" id="adminSaveFeature" type="button">Save feature setting</button>
+          </div>
+          <p class="admin-live" id="adminEditorStatus" role="status" aria-live="polite"></p>
+        </form>
+
+        <section class="admin-preview" id="adminPreviewPanel" hidden aria-labelledby="previewTitle">
+          <div class="admin-section-head"><div><p class="admin-kicker">Escaped visitor copy</p><h2 id="previewTitle">Plain-text preview</h2></div><button class="admin-button admin-button-quiet" id="adminPreviewClose" type="button">Close preview</button></div>
+          <div id="adminPreviewContent" class="admin-preview-grid"></div>
+        </section>
+      </section>
+    </div>
+
+    <section class="admin-interests" aria-labelledby="interestTitle">
+      <div class="admin-section-head">
+        <div><p class="admin-kicker">Member follow-through</p><h2 id="interestTitle">Interest review queue</h2></div>
+        <label class="admin-inline-filter"><span>Show</span><select id="adminInterestFilter"><option value="">All statuses</option><option value="new">New</option><option value="contacted">Contacted</option><option value="closed">Closed</option><option value="withdrawn">Withdrawn</option></select></label>
+      </div>
+      <p class="admin-field-note">NODAL records queue status only. Staff contact members outside the platform.</p>
+      <p class="admin-live" id="adminInterestStatus" role="status" aria-live="polite">Loading member interests…</p>
+      <div class="admin-interest-list" id="adminInterestList" aria-busy="true"></div>
+    </section>
+  </main>
+
+  <script src="admin.js?v=1"></script>
+</body>
+</html>
