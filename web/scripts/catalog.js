@@ -296,7 +296,8 @@
       renderDetail(item);
       page.detail.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     } catch (error) {
-      if (error.name !== 'AbortError') page.detailStatus.textContent = t('catalog.detailUnavailable');
+      const isCurrent = page.detailController === controller && page.selectedId === id;
+      if (error.name !== 'AbortError' && isCurrent) page.detailStatus.textContent = t('catalog.detailUnavailable');
     } finally {
       if (page.detailController === controller) page.detailController = null;
     }

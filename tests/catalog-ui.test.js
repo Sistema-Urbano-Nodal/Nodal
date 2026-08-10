@@ -41,15 +41,17 @@ const response = (payload, { ok = true, status = 200 } = {}) => ({
   async json() { return payload; },
 });
 
-function deferredResponse(signal) {
+function deferredResponse(signal, { honorAbort = true } = {}) {
   let resolve;
   let reject;
   const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
-  signal?.addEventListener('abort', () => {
-    const error = new Error('aborted');
-    error.name = 'AbortError';
-    reject(error);
-  }, { once: true });
+  if (honorAbort) {
+    signal?.addEventListener('abort', () => {
+      const error = new Error('aborted');
+      error.name = 'AbortError';
+      reject(error);
+    }, { once: true });
+  }
   return { promise, resolve, reject };
 }
 
@@ -174,8 +176,10 @@ test('catalog page exposes the complete public and member workflow', () => {
   assert.match(html, /<option value="open"/);
   assert.match(html, /<option value="all"/);
   assert.doesNotMatch(html, /src="script\.js/);
-  for (const key of ['nav.mainLabel', 'nav.accountLabel', 'nav.languageLabel', 'nav.menuLabel']) {
-    assert.match(html, new RegExp(`data-i18n-aria-label="${key.replace('.', '\\.')}"`));
+  for (const publicHtml of [index(), html]) {
+    for (const key of ['nav.mainLabel', 'nav.accountLabel', 'nav.languageLabel', 'nav.menuLabel']) {
+      assert.match(publicHtml, new RegExp(`data-i18n-aria-label="${key.replace('.', '\\.')}"`));
+    }
   }
 });
 
@@ -197,26 +201,60 @@ test('landing logo script tolerates pages without a headline and preserves real 
   assert.equal(prevented, false, 'a brand link to index.html must navigate normally');
 });
 
-test('closing a detail and changing filters abort stale detail responses', async () => {
-  const requests = [];
-  const harness = catalogHarness((url, options = {}) => {
-    if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
-    const pending = deferredResponse(options.signal);
-    requests.push(pending);
-    return pending.promise;
-  });
+test('close and filter state survive abort-ignoring stale detail success and failure', async (t) => {
+  for (const action of ['close', 'filter']) {
+    for (const outcome of ['success', 'failure']) {
+      await t.test(`${action} ignores late ${outcome}`, async () => {
+        let request;
+        const harness = catalogHarness((url, options = {}) => {
+          if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+          request = deferredResponse(options.signal, { honorAbort: false });
+          return request.promise;
+        });
 
-  const closing = harness.api.selectDetail('item-1');
-  harness.api.closeDetail();
-  requests[0].resolve(response({ item: catalogItem() }));
-  await closing;
-  assert.equal(harness.ids.get('catalogDetail').hidden, true);
+        const loading = harness.api.selectDetail('item-1');
+        if (action === 'close') harness.api.closeDetail();
+        else harness.api.runFilters();
+        if (outcome === 'success') request.resolve(response({ item: catalogItem() }));
+        else request.reject(new Error('late transport failure'));
+        await loading;
 
-  const filtering = harness.api.selectDetail('item-2');
-  harness.api.runFilters();
-  requests[1].resolve(response({ item: catalogItem('item-2') }));
-  await filtering;
-  assert.equal(harness.ids.get('catalogDetail').hidden, true);
+        assert.equal(harness.ids.get('catalogDetail').hidden, true);
+        assert.equal(harness.ids.get('catalogDetailStatus').textContent, 'catalog.selectDetail');
+      });
+    }
+  }
+});
+
+test('detail language changes survive abort-ignoring stale success and failure', async (t) => {
+  for (const outcome of ['success', 'failure']) {
+    await t.test(`new language survives late old-language ${outcome}`, async () => {
+      let english;
+      const harness = catalogHarness((url, options = {}) => {
+        if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+        if (url.includes('lang=en')) {
+          english = deferredResponse(options.signal, { honorAbort: false });
+          return english.promise;
+        }
+        if (url.includes('lang=pt')) {
+          return Promise.resolve(response({ item: catalogItem('item-1', { title: 'Português' }) }));
+        }
+        throw new Error(`unexpected request ${url}`);
+      });
+
+      const oldLanguage = harness.api.selectDetail('item-1');
+      harness.i18nState.lang = 'pt';
+      await harness.api.selectDetail('item-1');
+      if (outcome === 'success') {
+        english.resolve(response({ item: catalogItem('item-1', { title: 'English' }) }));
+      } else english.reject(new Error('late old-language failure'));
+      await oldLanguage;
+
+      assert.equal(harness.ids.get('detailTitle').textContent, 'Português');
+      assert.equal(harness.ids.get('catalogDetail').hidden, false);
+      assert.equal(harness.ids.get('catalogDetailStatus').textContent, '');
+    });
+  }
 });
 
 test('My interests language refetch aborts the older language render', async () => {
