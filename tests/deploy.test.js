@@ -153,6 +153,28 @@ test('Supabase advisor hardening keeps public data invoker-scoped and server led
   }
 });
 
+test('catalog migration keeps catalog and interest data behind the server service role', () => {
+  const dir = path.join(ROOT, 'supabase', 'migrations');
+  const migrationName = readdirSync(dir).find((name) => name.endsWith('_catalog_and_admin_roles.sql'));
+  assert.ok(migrationName, 'expected generated catalog migration');
+  const sql = readFileSync(path.join(dir, migrationName), 'utf8');
+  for (const table of ['catalog_items', 'catalog_interests']) {
+    assert.match(sql, new RegExp(`create table if not exists public\\.${table}\\b`, 'i'));
+    assert.match(sql, new RegExp(`alter table public\\.${table}\\s+enable row level security`, 'i'));
+    assert.match(sql, new RegExp(`revoke all on table public\\.${table} from anon, authenticated`, 'i'));
+  }
+  for (const index of [
+    'catalog_items_listing_idx', 'catalog_items_created_by_idx', 'catalog_items_updated_by_idx', 'catalog_items_published_by_idx',
+    'catalog_interests_item_id_idx', 'catalog_interests_user_id_idx', 'catalog_interests_queue_idx', 'catalog_interests_updated_by_idx',
+  ]) assert.match(sql, new RegExp(`create index if not exists ${index}`, 'i'));
+  assert.match(sql, /unique\s*\(\s*user_id\s*,\s*item_id\s*\)/i);
+  assert.match(sql, /references public\.profiles\(id\) on delete set null/i);
+  assert.match(sql, /references public\.profiles\(id\) on delete cascade/i);
+  assert.match(sql, /alter table public\.profiles\s+add column if not exists app_role text not null default 'member'/i);
+  assert.match(sql, /check \(app_role in \('member', 'admin'\)\)/i);
+  assert.doesNotMatch(sql, /grant\s+(select|insert|update|delete|all)\s+on\s+(table\s+)?public\.(catalog_items|catalog_interests)\s+to\s+(anon|authenticated)/i);
+});
+
 test('CI uses immutable action revisions and supports pre-main validation refs', () => {
   const workflow = readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
   assert.match(workflow, /actions\/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5/);

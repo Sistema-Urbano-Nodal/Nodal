@@ -1,20 +1,29 @@
 import {
   addFollowDb,
   applyStripeEvent,
+  createCatalogItem,
   createDatabase,
   createUser,
   deleteExpiredSessions,
   deleteUserById,
   exportUserData,
   getSubscriptionStatus,
+  getCatalogItem,
   getUserByEmail,
   getUserById,
   listDirectoryUsers,
+  listAdminInterests,
+  listCatalogInterestsForUser,
+  listCatalogItems,
   setUserLocation,
   loadGraphStore,
   recordInteractionDb,
   toApiUser,
   updateUserProfile,
+  updateCatalogInterest,
+  updateCatalogItem,
+  upsertCatalogInterest,
+  withdrawCatalogInterest,
 } from './db.js';
 import {
   clearSessionCookie,
@@ -89,6 +98,33 @@ function createSqliteRepository(db, { ownsDb = false } = {}) {
     },
     async applyStripeEvent(args) {
       return applyStripeEvent(db, args);
+    },
+    async listCatalogItems(query, viewer) {
+      return listCatalogItems(db, query, viewer);
+    },
+    async getCatalogItem(id, viewer) {
+      return getCatalogItem(db, id, viewer);
+    },
+    async createCatalogItem(input, actorId) {
+      return createCatalogItem(db, input, actorId);
+    },
+    async updateCatalogItem(id, input, version, actorId) {
+      return updateCatalogItem(db, id, input, version, actorId);
+    },
+    async upsertCatalogInterest(itemId, userId, message) {
+      return upsertCatalogInterest(db, itemId, userId, message);
+    },
+    async withdrawCatalogInterest(itemId, userId) {
+      return withdrawCatalogInterest(db, itemId, userId);
+    },
+    async listCatalogInterestsForUser(userId, query) {
+      return listCatalogInterestsForUser(db, userId, query);
+    },
+    async listAdminInterests(query) {
+      return listAdminInterests(db, query);
+    },
+    async updateCatalogInterest(id, patch, version, actorId) {
+      return updateCatalogInterest(db, id, patch, version, actorId);
     },
     close() {
       if (ownsDb) db.close();

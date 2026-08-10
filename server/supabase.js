@@ -2,6 +2,14 @@ import { parseCookies, sessionCookie } from './auth.js';
 import { defaultProfilePreferences } from './domain.js';
 import { recordInteraction } from './store.js';
 import {
+  decodeCatalogCursor,
+  encodeCatalogCursor,
+  isCatalogItemClosed,
+  validateCatalogInterestMessage,
+  validateCatalogDraft,
+  validateCatalogPublication,
+} from './catalog.js';
+import {
   DEFAULT_INDICATORS,
   canApplyForMentor,
   cleanIndicators,
@@ -31,6 +39,7 @@ const cleanString = (value, max = 220) => String(value ?? '').trim().slice(0, ma
 const cleanStatus = (value) => (SUBSCRIPTION_STATUSES.has(String(value)) ? String(value) : 'pending');
 
 const ACCOUNT_STATUSES = new Set(['active', 'disabled', 'pending']);
+const APP_ROLES = new Set(['member', 'admin']);
 /* Anything unrecognised counts as not active. A column that has been tampered
    with, or a row written before the column existed, must fail closed. */
 const cleanAccountStatus = (value) => {
@@ -232,7 +241,7 @@ function toApiUserFromSupabase({ profile, preferences, onboarding }) {
     fullName: profileName(profile),
     name: profileName(profile),
     email: cleanString(profile.email, 320),
-    permission: 'member',
+    permission: APP_ROLES.has(profile.app_role) ? profile.app_role : 'member',
     accountStatus: cleanAccountStatus(profile.account_status),
     role: title,
     title,
@@ -279,6 +288,123 @@ function subscriptionToApi(row) {
     currentPeriodEnd: row.current_period_end || null,
     updatedAt: row.updated_at,
   };
+}
+
+function catalogItemFromSupabase(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    kind: row.kind,
+    subtype: row.subtype ?? null,
+    status: row.status,
+    visibility: row.visibility,
+    translations: row.translations && typeof row.translations === 'object' ? row.translations : {},
+    organization: row.organization || '',
+    location: row.location || '',
+    topics: asArray(row.topics).map(String),
+    startsAt: row.starts_at || null,
+    deadlineAt: row.deadline_at || null,
+    endDate: row.end_date || null,
+    sourceUrl: row.source_url || '',
+    sourceVerifiedAt: row.source_verified_at || null,
+    actionMode: row.action_mode || 'none',
+    actionUrl: row.action_url || '',
+    featured: Boolean(row.featured),
+    version: Number(row.version) || 1,
+    createdBy: row.created_by || null,
+    updatedBy: row.updated_by || null,
+    publishedBy: row.published_by || null,
+    publishedAt: row.published_at || null,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+function catalogInterestFromSupabase(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    itemId: row.item_id,
+    userId: row.user_id,
+    message: row.message || '',
+    status: row.status,
+    version: Number(row.version) || 1,
+    updatedBy: row.updated_by || null,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+function catalogSortTuple(item) {
+  return [item.featured ? 1 : 0, item.deadlineAt || '\uffff', item.publishedAt || '', item.id];
+}
+
+function catalogCursorFilter(tuple) {
+  const [featured, deadlineAt, publishedAt, id] = tuple;
+  const featuredValue = featured ? 'true' : 'false';
+  const clauses = [
+    featured ? 'featured.eq.false' : null,
+    `and(featured.eq.${featuredValue},deadline_at.gt.${deadlineAt})`,
+    `and(featured.eq.${featuredValue},deadline_at.eq.${deadlineAt},published_at.lt.${publishedAt})`,
+    `and(featured.eq.${featuredValue},deadline_at.eq.${deadlineAt},published_at.eq.${publishedAt},id.gt.${id})`,
+  ].filter(Boolean);
+  return `(${clauses.join(',')})`;
+}
+
+function catalogListQuery(query = {}, viewer = null) {
+  const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
+  const out = {
+    select: '*',
+    order: 'featured.desc,deadline_at.asc.nullslast,published_at.desc,id.asc',
+    limit: limit + 1,
+  };
+  if (viewer?.permission !== 'admin') {
+    out.status = 'eq.published';
+    out.visibility = viewer?.id ? 'in.(public,members)' : 'eq.public';
+  } else if (query.status) out.status = `eq.${String(query.status).trim()}`;
+  if (query.kind) {
+    const kinds = String(query.kind).split(',').map((kind) => kind.trim()).filter(Boolean);
+    if (kinds.length === 1) out.kind = `eq.${kinds[0]}`;
+    else if (kinds.length > 1) out.kind = `in.(${kinds.join(',')})`;
+  }
+  if (query.subtype) out.subtype = `eq.${String(query.subtype).trim()}`;
+  if (query.topic) out.topics = `cs.{${String(query.topic).trim()}}`;
+  if (query.location) out.location = `ilike.*${String(query.location).trim()}*`;
+  if (query.featured !== undefined) out.featured = `eq.${String(query.featured) === 'true'}`;
+  if (query.cursor) out.or = catalogCursorFilter(decodeCatalogCursor(query.cursor));
+  return { query: out, limit };
+}
+
+function catalogItemPayload(input, actorId, { version, publishedAt = null, publishedBy = null } = {}) {
+  const item = input.status === 'published' ? validateCatalogPublication(input) : validateCatalogDraft(input);
+  const now = nowIso();
+  const isPublished = item.status === 'published';
+  return {
+    kind: item.kind,
+    subtype: item.subtype,
+    status: item.status,
+    visibility: item.visibility,
+    translations: item.translations,
+    organization: item.organization,
+    location: item.location,
+    topics: item.topics,
+    starts_at: item.startsAt,
+    deadline_at: item.deadlineAt,
+    end_date: item.endDate,
+    source_url: item.sourceUrl,
+    source_verified_at: item.sourceVerifiedAt,
+    action_mode: item.actionMode,
+    action_url: item.actionUrl,
+    featured: item.featured,
+    ...(version === undefined ? { created_by: actorId } : { version: Number(version) + 1 }),
+    updated_by: actorId,
+    published_by: publishedBy || (isPublished ? actorId : null),
+    published_at: publishedAt || (isPublished ? now : null),
+  };
+}
+
+function catalogConflict() {
+  return Object.assign(new Error('catalog item changed by another editor'), { code: 'CATALOG_VERSION_CONFLICT', status: 409 });
 }
 
 export function createSupabaseRepository({ env = process.env, fetchImpl = fetch } = {}) {
@@ -593,10 +719,11 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     },
     async exportUserData(userId) {
       const user = await apiUser(userId);
-      const [follows, followers, interactions, subscription] = await Promise.all([
+      const [follows, followers, interactions, catalogInterests, subscription] = await Promise.all([
         admin.rest('member_follows', { query: { user_id: `eq.${userId}`, select: 'target_user_id,created_at' } }),
         admin.rest('member_follows', { query: { target_user_id: `eq.${userId}`, select: 'user_id,created_at' } }),
         admin.rest('member_interactions', { query: { from_user_id: `eq.${userId}`, select: 'to_user_id,type,created_at' } }),
+        admin.rest('catalog_interests', { query: { user_id: `eq.${userId}`, select: '*', order: 'created_at.asc,id.asc' } }),
         this.getSubscriptionStatus(userId),
       ]);
       return {
@@ -605,6 +732,15 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         follows: follows.map((row) => ({ targetUserId: row.target_user_id, createdAt: row.created_at })),
         followers: followers.map((row) => ({ userId: row.user_id, createdAt: row.created_at })),
         interactions: interactions.map((row) => ({ toUserId: row.to_user_id, type: row.type, createdAt: row.created_at })),
+        catalogInterests: catalogInterests.map(catalogInterestFromSupabase).map((interest) => ({
+          id: interest.id,
+          itemId: interest.itemId,
+          message: interest.message,
+          status: interest.status,
+          version: interest.version,
+          createdAt: interest.createdAt,
+          updatedAt: interest.updatedAt,
+        })),
         subscription,
       };
     },
@@ -647,6 +783,117 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         },
       }));
       return subscriptionToApi(row);
+    },
+    async listCatalogItems(query = {}, viewer = null) {
+      const options = catalogListQuery(query, viewer);
+      let rows = await admin.rest('catalog_items', { query: options.query });
+      let items = rows.map(catalogItemFromSupabase);
+      if (query.state !== 'all') items = items.filter((item) => !isCatalogItemClosed(item));
+      if (query.q) {
+        const term = String(query.q).trim().toLowerCase();
+        if (term) items = items.filter((item) => Object.values(item.translations)
+          .some((translation) => [translation.title, translation.summary, translation.body].join(' ').toLowerCase().includes(term)));
+      }
+      const page = items.slice(0, options.limit);
+      return {
+        items: page,
+        nextCursor: items.length > page.length ? encodeCatalogCursor(catalogSortTuple(page.at(-1))) : null,
+      };
+    },
+    async getCatalogItem(id, viewer = null) {
+      const options = catalogListQuery({ limit: 1 }, viewer);
+      options.query.id = `eq.${id}`;
+      const item = catalogItemFromSupabase(await first(admin.rest('catalog_items', { query: options.query })));
+      if (!item || (viewer?.permission !== 'admin' && (item.status !== 'published' || (item.visibility === 'members' && !viewer?.id)))) return null;
+      return item;
+    },
+    async createCatalogItem(input, actorId) {
+      const row = await first(admin.rest('catalog_items', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: [catalogItemPayload(input, actorId)],
+      }));
+      return catalogItemFromSupabase(row);
+    },
+    async updateCatalogItem(id, input, version, actorId) {
+      const current = await this.getCatalogItem(id, { permission: 'admin' });
+      if (!current) return null;
+      if (Number(version) !== current.version) throw catalogConflict();
+      const row = await first(admin.rest('catalog_items', {
+        method: 'PATCH',
+        query: { id: `eq.${id}`, version: `eq.${current.version}` },
+        headers: { Prefer: 'return=representation' },
+        body: catalogItemPayload(input, actorId, {
+          version: current.version,
+          publishedAt: current.publishedAt,
+          publishedBy: current.publishedBy,
+        }),
+      }));
+      if (!row) throw catalogConflict();
+      return catalogItemFromSupabase(row);
+    },
+    async upsertCatalogInterest(itemId, userId, message) {
+      const cleanMessage = validateCatalogInterestMessage(message);
+      const item = await this.getCatalogItem(itemId, { id: userId, permission: 'member' });
+      if (!item || item.actionMode !== 'interest') throw Object.assign(new Error('catalog item does not accept interest'), { status: 404 });
+      const existing = catalogInterestFromSupabase(await first(admin.rest('catalog_interests', {
+        query: { item_id: `eq.${itemId}`, user_id: `eq.${userId}`, select: '*' },
+      })));
+      if (!existing) {
+        return catalogInterestFromSupabase(await first(admin.rest('catalog_interests', {
+          method: 'POST',
+          headers: { Prefer: 'return=representation' },
+          body: [{ item_id: itemId, user_id: userId, message: cleanMessage, status: 'new', updated_by: userId }],
+        })));
+      }
+      const row = await first(admin.rest('catalog_interests', {
+        method: 'PATCH',
+        query: { id: `eq.${existing.id}`, version: `eq.${existing.version}` },
+        headers: { Prefer: 'return=representation' },
+        body: { message: cleanMessage, status: 'new', version: existing.version + 1, updated_by: userId },
+      }));
+      if (!row) throw catalogConflict();
+      return catalogInterestFromSupabase(row);
+    },
+    async withdrawCatalogInterest(itemId, userId) {
+      const existing = catalogInterestFromSupabase(await first(admin.rest('catalog_interests', {
+        query: { item_id: `eq.${itemId}`, user_id: `eq.${userId}`, select: '*' },
+      })));
+      if (!existing) return false;
+      const row = await first(admin.rest('catalog_interests', {
+        method: 'PATCH',
+        query: { id: `eq.${existing.id}`, version: `eq.${existing.version}` },
+        headers: { Prefer: 'return=representation' },
+        body: { status: 'withdrawn', version: existing.version + 1, updated_by: userId },
+      }));
+      if (!row) throw catalogConflict();
+      return true;
+    },
+    async listCatalogInterestsForUser(userId, query = {}) {
+      const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
+      const rows = await admin.rest('catalog_interests', {
+        query: { user_id: `eq.${userId}`, select: '*', order: 'updated_at.desc,id.asc', limit },
+      });
+      return { interests: rows.map(catalogInterestFromSupabase), nextCursor: null };
+    },
+    async listAdminInterests(query = {}) {
+      const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
+      const rows = await admin.rest('catalog_interests', {
+        query: { ...(query.status ? { status: `eq.${query.status}` } : {}), select: '*', order: 'updated_at.asc,id.asc', limit },
+      });
+      return { interests: rows.map(catalogInterestFromSupabase), nextCursor: null };
+    },
+    async updateCatalogInterest(id, patch = {}, version, actorId) {
+      const status = String(patch.status ?? '').trim();
+      if (!['new', 'contacted', 'closed', 'withdrawn'].includes(status)) throw new Error('interest status is invalid');
+      const row = await first(admin.rest('catalog_interests', {
+        method: 'PATCH',
+        query: { id: `eq.${id}`, version: `eq.${Number(version)}` },
+        headers: { Prefer: 'return=representation' },
+        body: { status, version: Number(version) + 1, updated_by: actorId },
+      }));
+      if (!row) throw catalogConflict();
+      return catalogInterestFromSupabase(row);
     },
     close() {},
   };

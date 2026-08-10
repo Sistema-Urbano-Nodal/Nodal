@@ -4,6 +4,14 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { recordInteraction } from './store.js';
 import {
+  decodeCatalogCursor,
+  encodeCatalogCursor,
+  isCatalogItemClosed,
+  validateCatalogInterestMessage,
+  validateCatalogDraft,
+  validateCatalogPublication,
+} from './catalog.js';
+import {
   DEFAULT_INDICATORS,
   DEFAULT_PART_C,
   canApplyForMentor,
@@ -167,6 +175,68 @@ const MIGRATIONS = [
       ALTER TABLE users ADD COLUMN city_lat REAL;
       ALTER TABLE users ADD COLUMN city_lon REAL;
       ALTER TABLE users ADD COLUMN city_label TEXT NOT NULL DEFAULT '';
+    `,
+  },
+  {
+    version: 6,
+    sql: `
+      CREATE TABLE catalog_items (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        subtype TEXT,
+        status TEXT NOT NULL DEFAULT 'draft',
+        visibility TEXT NOT NULL DEFAULT 'public',
+        translations_json TEXT NOT NULL DEFAULT '{}',
+        organization TEXT NOT NULL DEFAULT '',
+        location TEXT NOT NULL DEFAULT '',
+        topics_json TEXT NOT NULL DEFAULT '[]',
+        starts_at TEXT,
+        deadline_at TEXT,
+        end_date TEXT,
+        source_url TEXT NOT NULL DEFAULT '',
+        source_verified_at TEXT,
+        action_mode TEXT NOT NULL DEFAULT 'none',
+        action_url TEXT NOT NULL DEFAULT '',
+        featured INTEGER NOT NULL DEFAULT 0,
+        version INTEGER NOT NULL DEFAULT 1,
+        created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+        updated_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+        published_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+        published_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        CHECK (kind IN ('opportunity', 'project', 'learning_circle', 'resource', 'case_study')),
+        CHECK (subtype IS NULL OR subtype IN ('job', 'consulting', 'grant', 'open_call', 'fellowship', 'other')),
+        CHECK (status IN ('draft', 'published', 'archived')),
+        CHECK (visibility IN ('public', 'members')),
+        CHECK (action_mode IN ('external', 'interest', 'none')),
+        CHECK (featured IN (0, 1)),
+        CHECK (version > 0)
+      );
+      CREATE INDEX catalog_items_listing_idx ON catalog_items(status, visibility, featured DESC, deadline_at ASC, published_at DESC, id ASC);
+      CREATE INDEX catalog_items_created_by_idx ON catalog_items(created_by);
+      CREATE INDEX catalog_items_updated_by_idx ON catalog_items(updated_by);
+      CREATE INDEX catalog_items_published_by_idx ON catalog_items(published_by);
+
+      CREATE TABLE catalog_interests (
+        id TEXT PRIMARY KEY,
+        item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        message TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'new',
+        version INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+        UNIQUE (user_id, item_id),
+        CHECK (status IN ('new', 'contacted', 'closed', 'withdrawn')),
+        CHECK (version > 0),
+        CHECK (length(message) <= 1000)
+      );
+      CREATE INDEX catalog_interests_item_id_idx ON catalog_interests(item_id);
+      CREATE INDEX catalog_interests_user_id_idx ON catalog_interests(user_id, updated_at DESC, id ASC);
+      CREATE INDEX catalog_interests_queue_idx ON catalog_interests(status, updated_at ASC, id ASC);
+      CREATE INDEX catalog_interests_updated_by_idx ON catalog_interests(updated_by);
     `,
   },
 ];
@@ -435,6 +505,220 @@ export function getSubscriptionStatus(db, userId) {
   return subscriptionToApi(getSubscriptionByUserId(db, userId));
 }
 
+function catalogItemFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    kind: row.kind,
+    subtype: row.subtype,
+    status: row.status,
+    visibility: row.visibility,
+    translations: parseJson(row.translations_json, {}),
+    organization: row.organization,
+    location: row.location,
+    topics: parseJson(row.topics_json, []),
+    startsAt: row.starts_at,
+    deadlineAt: row.deadline_at,
+    endDate: row.end_date,
+    sourceUrl: row.source_url,
+    sourceVerifiedAt: row.source_verified_at,
+    actionMode: row.action_mode,
+    actionUrl: row.action_url,
+    featured: Boolean(row.featured),
+    version: row.version,
+    createdBy: row.created_by,
+    updatedBy: row.updated_by,
+    publishedBy: row.published_by,
+    publishedAt: row.published_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function catalogInterestFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    itemId: row.item_id,
+    userId: row.user_id,
+    message: row.message,
+    status: row.status,
+    version: row.version,
+    updatedBy: row.updated_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function catalogSortTuple(item) {
+  return [item.featured ? 1 : 0, item.deadlineAt || '\uffff', item.publishedAt || '', item.id];
+}
+
+function compareCatalogTuples(left, right) {
+  if (left[0] !== right[0]) return right[0] - left[0];
+  for (let index = 1; index < left.length; index += 1) {
+    if (left[index] === right[index]) continue;
+    if (index === 2) return left[index] > right[index] ? -1 : 1;
+    return left[index] < right[index] ? -1 : 1;
+  }
+  return 0;
+}
+
+function visibleCatalogItem(item, viewer) {
+  if (viewer?.permission === 'admin') return true;
+  if (item.status !== 'published') return false;
+  return item.visibility === 'public' || Boolean(viewer?.id);
+}
+
+function matchesCatalogQuery(item, query = {}) {
+  const kinds = String(query.kind || '').split(',').map((part) => part.trim()).filter(Boolean);
+  if (kinds.length && !kinds.includes(item.kind)) return false;
+  if (query.subtype && item.subtype !== query.subtype) return false;
+  if (query.topic && !item.topics.some((topic) => topic.toLowerCase() === String(query.topic).trim().toLowerCase())) return false;
+  if (query.location && !item.location.toLowerCase().includes(String(query.location).trim().toLowerCase())) return false;
+  if (query.featured !== undefined && String(query.featured) !== String(item.featured)) return false;
+  if (query.state !== 'all' && isCatalogItemClosed(item)) return false;
+  if (query.q) {
+    const term = String(query.q).trim().toLowerCase();
+    if (term && !Object.values(item.translations).some((translation) => [translation.title, translation.summary, translation.body].join(' ').toLowerCase().includes(term))) return false;
+  }
+  return true;
+}
+
+function catalogConflict() {
+  return Object.assign(new Error('catalog item changed by another editor'), { code: 'CATALOG_VERSION_CONFLICT', status: 409 });
+}
+
+function writeCatalogItem(db, id, input, actorId, current = null) {
+  const item = input.status === 'published' ? validateCatalogPublication(input) : validateCatalogDraft(input);
+  const now = nowIso();
+  const publishing = item.status === 'published' && !current?.published_at;
+  const publishedAt = current?.published_at || (item.status === 'published' ? now : null);
+  const publishedBy = current?.published_by || (item.status === 'published' ? actorId : null);
+  if (!current) {
+    db.prepare(`
+      INSERT INTO catalog_items (
+        id, kind, subtype, status, visibility, translations_json, organization, location, topics_json,
+        starts_at, deadline_at, end_date, source_url, source_verified_at, action_mode, action_url, featured,
+        version, created_by, updated_by, published_by, published_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id, item.kind, item.subtype, item.status, item.visibility, json(item.translations), item.organization, item.location, json(item.topics),
+      item.startsAt, item.deadlineAt, item.endDate, item.sourceUrl, item.sourceVerifiedAt, item.actionMode, item.actionUrl, Number(item.featured),
+      actorId, actorId, publishedBy, publishedAt, now, now,
+    );
+    return catalogItemFromRow(db.prepare('SELECT * FROM catalog_items WHERE id = ?').get(id));
+  }
+  const result = db.prepare(`
+    UPDATE catalog_items SET
+      kind = ?, subtype = ?, status = ?, visibility = ?, translations_json = ?, organization = ?, location = ?, topics_json = ?,
+      starts_at = ?, deadline_at = ?, end_date = ?, source_url = ?, source_verified_at = ?, action_mode = ?, action_url = ?, featured = ?,
+      version = version + 1, updated_by = ?, published_by = ?, published_at = ?, updated_at = ?
+    WHERE id = ? AND version = ?
+  `).run(
+    item.kind, item.subtype, item.status, item.visibility, json(item.translations), item.organization, item.location, json(item.topics),
+    item.startsAt, item.deadlineAt, item.endDate, item.sourceUrl, item.sourceVerifiedAt, item.actionMode, item.actionUrl, Number(item.featured),
+    actorId, publishing ? actorId : current.published_by, publishedAt, now, id, current.version,
+  );
+  if (!result.changes) throw catalogConflict();
+  return catalogItemFromRow(db.prepare('SELECT * FROM catalog_items WHERE id = ?').get(id));
+}
+
+export function createCatalogItem(db, input, actorId) {
+  return writeCatalogItem(db, randomUUID(), input, actorId);
+}
+
+export function updateCatalogItem(db, id, input, version, actorId) {
+  const current = db.prepare('SELECT * FROM catalog_items WHERE id = ?').get(id);
+  if (!current) return null;
+  if (Number(version) !== current.version) throw catalogConflict();
+  db.exec('BEGIN');
+  try {
+    const updated = writeCatalogItem(db, id, input, actorId, current);
+    db.exec('COMMIT');
+    return updated;
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+export function listCatalogItems(db, query = {}, viewer = null) {
+  const cursor = query.cursor ? decodeCatalogCursor(query.cursor) : null;
+  const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
+  const items = db.prepare('SELECT * FROM catalog_items').all()
+    .map(catalogItemFromRow)
+    .filter((item) => visibleCatalogItem(item, viewer))
+    .filter((item) => matchesCatalogQuery(item, query))
+    .sort((left, right) => compareCatalogTuples(catalogSortTuple(left), catalogSortTuple(right)))
+    .filter((item) => !cursor || compareCatalogTuples(catalogSortTuple(item), cursor) > 0);
+  const page = items.slice(0, limit);
+  return { items: page, nextCursor: items.length > page.length ? encodeCatalogCursor(catalogSortTuple(page.at(-1))) : null };
+}
+
+export function getCatalogItem(db, id, viewer = null) {
+  const item = catalogItemFromRow(db.prepare('SELECT * FROM catalog_items WHERE id = ?').get(id));
+  return item && visibleCatalogItem(item, viewer) ? item : null;
+}
+
+export function upsertCatalogInterest(db, itemId, userId, message) {
+  const item = getCatalogItem(db, itemId, { id: userId, permission: 'member' });
+  if (!item || item.actionMode !== 'interest') throw Object.assign(new Error('catalog item does not accept interest'), { status: 404 });
+  const cleanMessage = validateCatalogInterestMessage(message);
+  const now = nowIso();
+  db.exec('BEGIN');
+  try {
+    const existing = db.prepare('SELECT * FROM catalog_interests WHERE item_id = ? AND user_id = ?').get(itemId, userId);
+    if (existing) {
+      db.prepare('UPDATE catalog_interests SET message = ?, status = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?')
+        .run(cleanMessage, 'new', now, userId, existing.id);
+    } else {
+      db.prepare('INSERT INTO catalog_interests (id, item_id, user_id, message, status, version, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)')
+        .run(randomUUID(), itemId, userId, cleanMessage, 'new', now, now, userId);
+    }
+    const result = catalogInterestFromRow(db.prepare('SELECT * FROM catalog_interests WHERE item_id = ? AND user_id = ?').get(itemId, userId));
+    db.exec('COMMIT');
+    return result;
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+export function withdrawCatalogInterest(db, itemId, userId) {
+  const result = db.prepare('UPDATE catalog_interests SET status = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE item_id = ? AND user_id = ?')
+    .run('withdrawn', nowIso(), userId, itemId, userId);
+  return result.changes > 0;
+}
+
+export function listCatalogInterestsForUser(db, userId, query = {}) {
+  const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
+  const interests = db.prepare('SELECT * FROM catalog_interests WHERE user_id = ? ORDER BY updated_at DESC, id ASC LIMIT ?').all(userId, limit).map(catalogInterestFromRow);
+  return { interests, nextCursor: null };
+}
+
+export function listAdminInterests(db, query = {}) {
+  const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
+  const values = [];
+  let where = '';
+  if (query.status) { where = 'WHERE status = ?'; values.push(String(query.status)); }
+  values.push(limit);
+  const interests = db.prepare(`SELECT * FROM catalog_interests ${where} ORDER BY updated_at ASC, id ASC LIMIT ?`).all(...values).map(catalogInterestFromRow);
+  return { interests, nextCursor: null };
+}
+
+export function updateCatalogInterest(db, id, patch = {}, version, actorId) {
+  const current = db.prepare('SELECT * FROM catalog_interests WHERE id = ?').get(id);
+  if (!current) return null;
+  if (Number(version) !== current.version) throw catalogConflict();
+  const status = patch.status === undefined ? current.status : String(patch.status).trim();
+  if (!['new', 'contacted', 'closed', 'withdrawn'].includes(status)) throw new Error('interest status is invalid');
+  const result = db.prepare('UPDATE catalog_interests SET status = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ? AND version = ?')
+    .run(status, nowIso(), actorId, id, current.version);
+  if (!result.changes) throw catalogConflict();
+  return catalogInterestFromRow(db.prepare('SELECT * FROM catalog_interests WHERE id = ?').get(id));
+}
+
 export function exportUserData(db, userId) {
   const row = getUserById(db, userId);
   if (!row) return null;
@@ -448,6 +732,10 @@ export function exportUserData(db, userId) {
       FROM interactions
       WHERE from_user_id = ?
       ORDER BY created_at ASC, id ASC
+    `).all(userId),
+    catalogInterests: db.prepare(`
+      SELECT id, item_id AS itemId, message, status, version, created_at AS createdAt, updated_at AS updatedAt
+      FROM catalog_interests WHERE user_id = ? ORDER BY created_at ASC, id ASC
     `).all(userId),
     subscription: getSubscriptionStatus(db, userId),
   };

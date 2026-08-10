@@ -33,6 +33,7 @@ function profileState() {
       preferred_name: 'Persisted',
       email: 'persisted@example.com',
       public_role: 'Urban Researcher',
+      app_role: 'admin',
       city_region: 'Lima',
       bio: 'Original bio',
       created_at: '2026-07-01T00:00:00.000Z',
@@ -71,6 +72,10 @@ function profileState() {
         notifRead: true,
       },
     },
+    catalogInterests: [{
+      id: 'interest-1', item_id: 'catalog-1', user_id: TEST_USER_ID, message: 'Please contact me.', status: 'new', version: 1,
+      created_at: '2030-05-01T00:00:00.000Z', updated_at: '2030-05-01T00:00:00.000Z', updated_by: TEST_USER_ID,
+    }],
   };
 }
 
@@ -114,6 +119,8 @@ function statefulFetch(state, calls, { expireAccessToken = false, signupResponse
       if (table === 'profiles') return response([state.profile]);
       if (table === 'profile_preferences') return response([state.preferences]);
       if (table === 'onboarding_responses') return response([state.onboarding]);
+      if (table === 'catalog_interests') return response(state.catalogInterests || []);
+      if (table === 'member_follows' || table === 'member_interactions' || table === 'stripe_customers') return response([]);
     }
     if (table === 'profiles' && method === 'POST') return response([state.profile]);
     if (table === 'profiles' && method === 'PATCH') {
@@ -554,4 +561,60 @@ test('a member cannot lift their own suspension through the profile API', async 
   assert.ok(patches.length > 0, 'the profile was actually patched');
   assert.ok(patches.every((c) => !('account_status' in (c.body || {}))),
     'account_status is never part of a profile write');
+});
+
+test('Supabase maps server-owned app_role and never includes it in profile writes', async () => {
+  const state = profileState();
+  const calls = [];
+  const repository = createSupabaseRepository({ env: testEnv(), fetchImpl: statefulFetch(state, calls) });
+  const user = await repository.getUserById(TEST_USER_ID);
+  assert.equal(user.permission, 'admin');
+  await repository.updateUserProfile(TEST_USER_ID, { fullName: 'Updated Admin', app_role: 'member', permission: 'member' });
+  const profilePatches = calls.filter((call) => call.options.method === 'PATCH' && call.url.pathname.endsWith('/profiles'));
+  assert.ok(profilePatches.every((call) => !('app_role' in call.body)), 'app_role must remain server-owned');
+  assert.equal(state.profile.app_role, 'admin');
+});
+
+test('Supabase account export includes the member catalog interests', async () => {
+  const state = profileState();
+  const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: statefulFetch(state, []) });
+  const exported = await repo.exportUserData(TEST_USER_ID);
+  assert.deepEqual(exported.catalogInterests, [{
+    id: 'interest-1', itemId: 'catalog-1', message: 'Please contact me.', status: 'new', version: 1,
+    createdAt: '2030-05-01T00:00:00.000Z', updatedAt: '2030-05-01T00:00:00.000Z',
+  }]);
+});
+
+test('Supabase catalog adapter sends equivalent filters, ordering, cursor, and version guard', async () => {
+  const calls = [];
+  const item = {
+    id: 'catalog-1', kind: 'opportunity', subtype: 'job', status: 'published', visibility: 'public',
+    translations: { en: { title: 'Urban role', summary: 'Summary', body: 'Body', cta: 'Apply' }, es: { title: 'Rol urbano', summary: 'Resumen', body: 'Cuerpo', cta: 'Postularse' }, pt: { title: 'Cargo urbano', summary: 'Resumo', body: 'Corpo', cta: 'Candidate-se' } },
+    organization: 'Cities', location: 'Lima', topics: ['mobility'], action_mode: 'external', action_url: 'https://cities.example.test/apply',
+    sourceUrl: 'https://cities.example.test/source', sourceVerifiedAt: '2030-05-01T00:00:00.000Z', actionMode: 'external', actionUrl: 'https://cities.example.test/apply', deadlineAt: '2030-05-20T00:00:00.000Z',
+    featured: true, version: 1, deadline_at: '2030-05-20T00:00:00.000Z', published_at: '2030-05-01T00:00:00.000Z', created_at: '2030-05-01T00:00:00.000Z', updated_at: '2030-05-01T00:00:00.000Z',
+  };
+  const fetchImpl = async (rawUrl, options) => {
+    const url = new URL(rawUrl);
+    calls.push({ url, options, body: options.body ? JSON.parse(options.body) : null });
+    if (url.pathname.endsWith('/catalog_items') && options.method === 'GET') return response([item]);
+    if (url.pathname.endsWith('/catalog_items') && options.method === 'PATCH') return response([{ ...item, featured: false, version: 2 }]);
+    throw new Error(`unexpected request ${options.method} ${url.pathname}`);
+  };
+  const repo = createSupabaseRepository({ env: testEnv(), fetchImpl });
+  const cursor = Buffer.from(JSON.stringify([1, '2030-05-20T00:00:00.000Z', '2030-05-01T00:00:00.000Z', 'catalog-0'])).toString('base64url');
+  const list = await repo.listCatalogItems({ kind: 'opportunity', featured: true, limit: 2, cursor, state: 'all' }, null);
+  assert.equal(list.items[0].translations.en.title, 'Urban role');
+  const read = calls.find((call) => call.options.method === 'GET');
+  assert.equal(read.url.searchParams.get('status'), 'eq.published');
+  assert.equal(read.url.searchParams.get('visibility'), 'eq.public');
+  assert.equal(read.url.searchParams.get('kind'), 'eq.opportunity');
+  assert.equal(read.url.searchParams.get('featured'), 'eq.true');
+  assert.equal(read.url.searchParams.get('order'), 'featured.desc,deadline_at.asc.nullslast,published_at.desc,id.asc');
+  assert.match(read.url.searchParams.get('or'), /catalog-0/);
+  const updated = await repo.updateCatalogItem(item.id, { ...item, featured: false }, 1, TEST_USER_ID);
+  assert.equal(updated.version, 2);
+  const write = calls.find((call) => call.options.method === 'PATCH');
+  assert.equal(write.url.searchParams.get('id'), 'eq.catalog-1');
+  assert.equal(write.url.searchParams.get('version'), 'eq.1');
 });
