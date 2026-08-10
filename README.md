@@ -130,6 +130,24 @@ npx supabase migration list
 npx supabase db push
 ```
 
+After applying the migrations, exercise the actual PostgREST privilege boundary
+with the project URL and service-role credential. The smoke check performs
+read and non-persisting invalid-write probes, verifies update access against
+nonexistent IDs, and confirms that catalog DELETE remains denied:
+
+```sh
+NEXT_PUBLIC_SUPABASE_URL=<project-url> \
+SUPABASE_SERVICE_ROLE_KEY=<service-role-jwt> \
+npm run smoke:supabase-data-api
+```
+
+The service role is limited to the repository's required operations: read,
+insert, and update for profiles, preferences, onboarding, and catalog data;
+read and insert for follows and interactions; and read-only access to Stripe
+customer mappings. It has no catalog hard-delete permission and no Data API
+grant for organizations, memberships, or Stripe event records. Browser roles
+remain denied direct catalog-table access.
+
 Drafts may be incomplete. Publishing requires all of the following in one save:
 
 - complete title, summary, body, and CTA in EN, ES, and PT;
@@ -140,7 +158,8 @@ Drafts may be incomplete. Publishing requires all of the following in one save:
 
 Titles are limited to 120 characters, summaries to 320, bodies to 5,000, CTA
 labels to 60, source labels to 120, and interest messages to 1,000. Dates accept
-only YYYY-MM-DD or RFC 3339 datetimes with an explicit timezone. Date-only end
+only YYYY-MM-DD or RFC 3339 datetimes with a known explicit timezone (`Z` or a
+numeric offset other than `-00:00`). Date-only end
 dates remain open through 23:59:59.999 UTC; every stored date is canonical UTC.
 When dates coexist, deadline must be on or before start and end, and start must
 be on or before end.

@@ -73,13 +73,13 @@ function deferredResponse(signal, { honorAbort = true } = {}) {
   return { promise, resolve, reject };
 }
 
-function catalogHarness(fetchImpl) {
+function catalogHarness(fetchImpl, { intl = Intl } = {}) {
   const ids = new Map();
   for (const id of [
     'catalogDetail', 'catalogDetailStatus', 'catalogDetailKind', 'detailTitle',
     'catalogDetailSummary', 'catalogDetailBody', 'catalogDetailMeta',
     'catalogDetailActions', 'catalogInterestForm', 'catalogInterestDisclosure',
-    'catalogWithdrawInterest', 'catalogInterestSubmit', 'catalogInterestMessage', 'catalogInterestStatus',
+    'catalogInterestCompose', 'catalogWithdrawInterest', 'catalogInterestSubmit', 'catalogInterestMessage', 'catalogInterestStatus',
     'catalogMyInterests', 'catalogMyInterestsStatus', 'catalogMyInterestsList',
   ]) ids.set(id, new FakeNode(id));
   ids.get('catalogDetail').hidden = true;
@@ -98,7 +98,7 @@ function catalogHarness(fetchImpl) {
   const context = {
     AbortController,
     Date,
-    Intl,
+    Intl: intl,
     URL,
     URLSearchParams,
     clearTimeout,
@@ -117,7 +117,7 @@ function catalogHarness(fetchImpl) {
 
   const instrumented = catalogScript().replace(
     /\n\}\)\(\);\s*$/,
-    `\nwindow.__catalogTest = { renderDispatch, renderDetail, selectDetail, closeDetail, runFilters, submitInterest, withdrawInterest, loadMyInterests, page, setAuthenticated(value) { authenticated = value; } };\n})();`,
+    `\nwindow.__catalogTest = { dateText, renderDispatch, renderDetail, selectDetail, closeDetail, runFilters, submitInterest, withdrawInterest, loadMyInterests, page, setAuthenticated(value) { authenticated = value; } };\n})();`,
   );
   vm.runInNewContext(instrumented, context, { filename: 'catalog.js' });
   context.window.__catalogTest.setAuthenticated(true);
@@ -147,7 +147,7 @@ function adminHarness(fetchImpl = () => Promise.reject(new Error('network must n
   const source = adminScript();
   const instrumented = source.replace(
     /\n  bootstrap\(\);\s*\n\}\)\(\);\s*$/,
-    `\n  window.__adminTest = { serializeEditor, validateEditorTopics, renderPreview, saveCatalog, loadCatalog, loadInterests, renderInterest, showCatalogConflict, state, conflict: () => state.conflictCurrent };\n})();`,
+    `\n  window.__adminTest = { localDate, serializeEditor, validateEditorTopics, renderPreview, saveCatalog, loadCatalog, loadInterests, renderInterest, showCatalogConflict, state, conflict: () => state.conflictCurrent };\n})();`,
   );
   assert.notEqual(instrumented, source, 'admin test hook must replace bootstrap without changing production source');
   vm.runInNewContext(instrumented, context, { filename: 'admin.js' });
@@ -245,6 +245,49 @@ test('landing dispatches always link safely to details and detail metadata uses 
   assert.equal(harness.ids.get('catalogInterestSubmit').textContent, 'Join this call');
 });
 
+test('catalog details keep historical withdrawal visible without offering an ineligible internal submission', () => {
+  const harness = catalogHarness((url) => {
+    if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+    throw new Error(`unexpected request ${url}`);
+  });
+  for (const item of [
+    catalogItem('changed-none', { actionMode: 'none', interestStatus: 'new', cta: 'Old internal action' }),
+    catalogItem('changed-external', { actionMode: 'external', actionUrl: 'https://example.test/apply', interestStatus: 'contacted', cta: 'Apply externally' }),
+    catalogItem('changed-closed', { actionMode: 'interest', interestStatus: 'new', isClosed: true, cta: 'Old internal action' }),
+  ]) {
+    harness.api.renderDetail(item);
+    assert.equal(harness.ids.get('catalogInterestForm').hidden, false, item.id);
+    assert.equal(harness.ids.get('catalogInterestCompose').hidden, true, item.id);
+    assert.equal(harness.ids.get('catalogInterestSubmit').disabled, true, item.id);
+    assert.equal(harness.ids.get('catalogWithdrawInterest').hidden, false, item.id);
+    assert.equal(harness.ids.get('catalogInterestStatus').textContent, `catalog.status.${item.interestStatus}`, item.id);
+  }
+});
+
+test('catalog civil dates do not shift to the previous day in São Paulo', () => {
+  const formatOptions = [];
+  class SaoPauloDateTimeFormat {
+    constructor(_lang, options) { this.options = options; formatOptions.push(options); }
+    format(value) {
+      const date = this.options.timeZone === 'UTC' ? value : new Date(value.getTime() - (3 * 60 * 60 * 1000));
+      return date.toISOString().slice(0, 10);
+    }
+  }
+  const harness = catalogHarness((url) => {
+    if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+    throw new Error(`unexpected request ${url}`);
+  }, { intl: { DateTimeFormat: SaoPauloDateTimeFormat } });
+  assert.equal(harness.api.dateText('2030-05-01T00:00:00.000Z', { civil: true }), '2030-05-01');
+  assert.equal(harness.api.dateText('2030-05-01'), '2030-05-01');
+  assert.equal(harness.api.dateText('2030-05-01T00:00:00.000Z'), '2030-05-01');
+  assert.equal(harness.api.dateText('2030-05-31T23:59:59.999Z'), '2030-05-31');
+  assert.equal(formatOptions.at(-1).timeZone, 'UTC');
+
+  const admin = adminHarness();
+  assert.equal(admin.api.localDate('2030-05-01T00:00:00.000Z'), '2030-05-01');
+  assert.equal(admin.api.localDate('2030-05-31T23:59:59.999Z'), '2030-05-31');
+});
+
 test('catalog page exposes the complete public and member workflow', () => {
   const html = catalogPage();
   for (const kind of ['opportunity', 'project', 'learning_circle', 'resource', 'case_study']) {
@@ -253,7 +296,7 @@ test('catalog page exposes the complete public and member workflow', () => {
   for (const id of [
     'catalogForm', 'catalogQuery', 'catalogTopic', 'catalogLocation', 'catalogState',
     'catalogResults', 'catalogStatus', 'catalogDetail', 'catalogDetailStatus',
-    'catalogInterestForm', 'catalogInterestMessage', 'catalogInterestDisclosure',
+    'catalogInterestForm', 'catalogInterestCompose', 'catalogInterestMessage', 'catalogInterestDisclosure',
     'catalogInterestSubmit', 'catalogMyInterests', 'catalogMyInterestsStatus',
   ]) assert.match(html, new RegExp(`id="${id}"`), `${id} must be present`);
   assert.match(html, /<option value="open"/);
@@ -644,6 +687,108 @@ test('admin workspace validates topics before preview or writes, paginates both 
   assert.equal(logout.options.method, 'POST');
   assert.equal(logout.options.credentials, 'same-origin');
   assert.equal(harness.location.assigned, '/login.html');
+});
+
+test('admin filter changes synchronously invalidate old catalog and interest cursors and late pages', async () => {
+  let catalogAppend;
+  let catalogFiltered;
+  let catalogAppendFailure = false;
+  let interestAppend;
+  let interestFiltered;
+  const requests = [];
+  const fetchImpl = (url, options = {}) => {
+    requests.push(url);
+    const parsed = new URL(url, 'https://nodal.test');
+    if (parsed.pathname === '/api/admin/catalog') {
+      if (parsed.searchParams.get('cursor') === 'catalog-old') {
+        catalogAppend = deferredResponse(options.signal, { honorAbort: false });
+        return catalogAppend.promise;
+      }
+      if (parsed.searchParams.get('cursor') === 'catalog-project') {
+        catalogAppendFailure = true;
+        return Promise.reject(new Error('append unavailable'));
+      }
+      if (parsed.searchParams.get('kind') === 'project') {
+        catalogFiltered = deferredResponse(options.signal, { honorAbort: false });
+        return catalogFiltered.promise;
+      }
+      return Promise.resolve(response({ items: [{ id: 'catalog-old-1', translations: { en: { title: 'Old catalog' } } }], nextCursor: 'catalog-old' }));
+    }
+    if (parsed.pathname === '/api/admin/interests') {
+      if (parsed.searchParams.get('cursor') === 'interest-old') {
+        interestAppend = deferredResponse(options.signal, { honorAbort: false });
+        return interestAppend.promise;
+      }
+      if (parsed.searchParams.get('status') === 'contacted') {
+        interestFiltered = deferredResponse(options.signal, { honorAbort: false });
+        return interestFiltered.promise;
+      }
+      return Promise.resolve(response({ interests: [{ id: 'interest-old-1', status: 'new', item: { title: 'Old interest' }, member: {} }], nextCursor: 'interest-old' }));
+    }
+    throw new Error(`unexpected request ${url}`);
+  };
+  const harness = adminHarness(fetchImpl);
+
+  await harness.api.loadCatalog();
+  const oldCatalogAppend = harness.ids.get('adminCatalogMore').listeners.get('click')();
+  harness.ids.get('adminCatalogKind').value = 'project';
+  const newCatalog = harness.ids.get('adminCatalogKind').listeners.get('change')();
+  assert.equal(harness.api.state.catalogCursor, null, 'a changed filter must synchronously clear the old catalog cursor');
+  assert.equal(harness.ids.get('adminCatalogMore').hidden, true);
+  catalogFiltered.resolve(response({ items: [{ id: 'catalog-project-1', translations: { en: { title: 'Project result' } } }], nextCursor: 'catalog-project' }));
+  await newCatalog;
+  catalogAppend.resolve(response({ items: [{ id: 'catalog-old-2', translations: { en: { title: 'Late old catalog page' } } }], nextCursor: null }));
+  await oldCatalogAppend;
+  assert.deepEqual(harness.api.state.items.map((item) => item.id), ['catalog-project-1']);
+  assert.ok(requests.some((url) => url.includes('kind=project') && !url.includes('cursor=catalog-old')));
+
+  await harness.ids.get('adminCatalogMore').listeners.get('click')();
+  assert.equal(catalogAppendFailure, true);
+  assert.equal(harness.ids.get('adminCatalogList').getAttribute('aria-busy'), 'false');
+
+  harness.ids.get('adminInterestFilter').value = 'new';
+  await harness.api.loadInterests();
+  const oldInterestAppend = harness.ids.get('adminInterestMore').listeners.get('click')();
+  harness.ids.get('adminInterestFilter').value = 'contacted';
+  const newInterests = harness.ids.get('adminInterestFilter').listeners.get('change')();
+  assert.equal(harness.api.state.interestCursor, null, 'a changed queue filter must synchronously clear the old interest cursor');
+  assert.equal(harness.ids.get('adminInterestMore').hidden, true);
+  interestFiltered.resolve(response({ interests: [{ id: 'interest-contacted-1', status: 'contacted', item: { title: 'Contacted result' }, member: {} }], nextCursor: null }));
+  await newInterests;
+  interestAppend.resolve(response({ interests: [{ id: 'interest-old-2', status: 'new', item: { title: 'Late old queue page' }, member: {} }], nextCursor: null }));
+  await oldInterestAppend;
+  assert.deepEqual(harness.api.state.interests.map((interest) => interest.id), ['interest-contacted-1']);
+  assert.ok(requests.some((url) => url.includes('status=contacted') && !url.includes('cursor=interest-old')));
+});
+
+test('successful interest update preserves the honest error from a failed filtered queue refresh', async () => {
+  let queueReads = 0;
+  const fetchImpl = async (url, options = {}) => {
+    if (url.startsWith('/api/admin/interests?')) {
+      queueReads += 1;
+      if (queueReads === 1) {
+        return response({ interests: [{
+          id: 'interest-1', version: 1, status: 'new', message: 'Hello', member: { name: 'Member', email: 'member@example.test' },
+          item: { itemId: 'catalog-1', title: 'Catalog item', kind: 'resource', organization: 'NODAL' },
+        }], nextCursor: null });
+      }
+      throw new Error('queue refresh unavailable');
+    }
+    if (url === '/api/admin/interests/interest-1' && options.method === 'PATCH') {
+      return response({ interest: { id: 'interest-1', version: 2, status: 'contacted' } });
+    }
+    throw new Error(`unexpected request ${url}`);
+  };
+  const harness = adminHarness(fetchImpl);
+  harness.ids.get('adminInterestFilter').value = 'new';
+  await harness.api.loadInterests();
+  const card = harness.ids.get('adminInterestList').children[0];
+  const select = descendants(card).find((node) => node.id === 'select');
+  const update = descendants(card).find((node) => node.textContent === 'Update');
+  select.value = 'contacted';
+  await update.listeners.get('click')();
+  assert.equal(harness.ids.get('adminInterestStatus').textContent, 'queue refresh unavailable');
+  assert.doesNotMatch(harness.ids.get('adminInterestStatus').textContent, /reapplied|updated\./i);
 });
 
 test('dashboard catalog scopes use the public API while People remains consent-gated', () => {

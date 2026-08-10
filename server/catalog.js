@@ -46,9 +46,10 @@ function optionalDate(value, name, { endOfDay = false } = {}) {
   }
   const timestamp = RFC3339.exec(text);
   if (!timestamp) throw new Error(`${name} must be a valid date`);
-  const [, year, month, day, hours, minutes, seconds] = timestamp;
+  const [, year, month, day, hours, minutes, seconds, , offset] = timestamp;
   if (!validCalendarDate(Number(year), Number(month), Number(day))
-    || Number(hours) > 23 || Number(minutes) > 59 || Number(seconds) > 59) {
+    || Number(hours) > 23 || Number(minutes) > 59 || Number(seconds) > 59
+    || offset === '-00:00') {
     throw new Error(`${name} must be a valid date`);
   }
   const parsed = Date.parse(text);
@@ -157,10 +158,11 @@ export function validateCatalogInterestMessage(value) {
   return plainString(value, 'interest message', LIMITS.message);
 }
 
-export function localizeCatalogItem(item, lang = 'en') {
+export function localizeCatalogItem(item, lang = 'en', { fallback = false } = {}) {
   const locale = SUPPORTED_LANGS.includes(lang) ? lang : 'en';
   const translations = readObject(item?.translations, 'translations');
-  const translation = translations[locale];
+  const translation = translations[locale]
+    || (fallback ? translations.en || SUPPORTED_LANGS.map((candidate) => translations[candidate]).find(Boolean) : null);
   if (!translation || typeof translation !== 'object') throw new Error(`${locale.toUpperCase()} translation is required`);
   return { id: item.id, kind: item.kind, subtype: item.subtype ?? null, ...translation };
 }

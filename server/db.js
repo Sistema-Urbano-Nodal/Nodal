@@ -248,7 +248,36 @@ const MIGRATIONS = [
         ADD COLUMN source_label TEXT NOT NULL DEFAULT '';
     `,
   },
+  {
+    version: 8,
+    apply(db) {
+      const rows = db.prepare('SELECT id, starts_at, deadline_at, end_date, source_verified_at FROM catalog_items').all();
+      const update = db.prepare(`
+        UPDATE catalog_items
+        SET starts_at = ?, deadline_at = ?, end_date = ?, source_verified_at = ?
+        WHERE id = ?
+      `);
+      for (const row of rows) {
+        update.run(
+          normalizeLegacyCatalogDate(row.starts_at, 'startsAt'),
+          normalizeLegacyCatalogDate(row.deadline_at, 'deadlineAt'),
+          normalizeLegacyCatalogDate(row.end_date, 'endDate'),
+          normalizeLegacyCatalogDate(row.source_verified_at, 'sourceVerifiedAt'),
+          row.id,
+        );
+      }
+    },
+  },
 ];
+
+function normalizeLegacyCatalogDate(value, field) {
+  if (value === undefined || value === null || value === '') return null;
+  try {
+    return validateCatalogDraft({ kind: 'resource', [field]: value })[field];
+  } catch {
+    return null;
+  }
+}
 
 function runMigrations(db) {
   db.exec(`
@@ -263,7 +292,8 @@ function runMigrations(db) {
     if (applied.has(migration.version)) continue;
     db.exec('BEGIN');
     try {
-      db.exec(migration.sql);
+      if (migration.sql) db.exec(migration.sql);
+      if (migration.apply) migration.apply(db);
       db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)').run(migration.version, nowIso());
       db.exec('COMMIT');
     } catch (err) {

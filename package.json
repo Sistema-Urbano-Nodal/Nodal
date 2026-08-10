@@ -11,6 +11,7 @@
     "build": "npm test && node scripts/build-static.js",
     "migrate": "node scripts/migrate.js",
     "seed:dev": "node scripts/seed-dev.js",
+    "smoke:supabase-data-api": "node scripts/smoke-supabase-data-api.js",
     "start": "node server/server.js",
     "test": "node --test tests/*.test.js"
   },

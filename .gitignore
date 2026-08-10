@@ -1,6 +1,7 @@
 # --- local tooling artifacts (do not commit) ---
 .vercel/
 supabase/.temp/
+supabase/.branches/
 
 # --- OS / editor noise ---
 .DS_Store

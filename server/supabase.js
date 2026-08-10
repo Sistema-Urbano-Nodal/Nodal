@@ -292,6 +292,12 @@ function subscriptionToApi(row) {
   };
 }
 
+function canonicalTimestamp(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
 function catalogItemFromSupabase(row) {
   if (!row) return null;
   return {
@@ -304,12 +310,12 @@ function catalogItemFromSupabase(row) {
     organization: row.organization || '',
     location: row.location || '',
     topics: asArray(row.topics).map(String),
-    startsAt: row.starts_at || null,
-    deadlineAt: row.deadline_at || null,
-    endDate: row.end_date || null,
+    startsAt: canonicalTimestamp(row.starts_at),
+    deadlineAt: canonicalTimestamp(row.deadline_at),
+    endDate: canonicalTimestamp(row.end_date),
     sourceLabel: row.source_label || '',
     sourceUrl: row.source_url || '',
-    sourceVerifiedAt: row.source_verified_at || null,
+    sourceVerifiedAt: canonicalTimestamp(row.source_verified_at),
     actionMode: row.action_mode || 'none',
     actionUrl: row.action_url || '',
     featured: Boolean(row.featured),
@@ -317,9 +323,9 @@ function catalogItemFromSupabase(row) {
     createdBy: row.created_by || null,
     updatedBy: row.updated_by || null,
     publishedBy: row.published_by || null,
-    publishedAt: row.published_at || null,
-    createdAt: row.created_at || null,
-    updatedAt: row.updated_at || null,
+    publishedAt: canonicalTimestamp(row.published_at),
+    createdAt: canonicalTimestamp(row.created_at),
+    updatedAt: canonicalTimestamp(row.updated_at),
   };
 }
 
@@ -333,8 +339,8 @@ function catalogInterestFromSupabase(row) {
     status: row.status,
     version: Number(row.version) || 1,
     updatedBy: row.updated_by || null,
-    createdAt: row.created_at || null,
-    updatedAt: row.updated_at || null,
+    createdAt: canonicalTimestamp(row.created_at),
+    updatedAt: canonicalTimestamp(row.updated_at),
   };
 }
 

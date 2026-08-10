@@ -220,17 +220,23 @@ test('owned and administrator interest endpoints validate cursors, localize hist
     created.push({ item, interest });
   }
   await repo.updateCatalogItem(created[1].item.id, { ...created[1].item, status: 'archived' }, created[1].item.version, admin.user.id);
+  db.prepare('UPDATE catalog_items SET translations_json = ? WHERE id = ?').run(JSON.stringify({
+    en: { ...completeItem().translations.en, title: 'English 1' },
+  }), created[1].item.id);
 
   for (const route of ['/api/me/catalog-interests', '/api/admin/interests']) {
     const cookie = route.includes('/admin/') ? admin.cookie : member.cookie;
     assert.equal((await fetch(`${base}${route}?cursor=invalid`, { headers: { Cookie: cookie } })).status, 400);
+  }
+  for (const suffix of ['?lang=', '?lang=fr', '?lang=pt&unknown=value']) {
+    assert.equal((await fetch(`${base}/api/me/catalog-interests${suffix}`, { headers: { Cookie: member.cookie } })).status, 400, suffix);
   }
   const firstResponse = await fetch(`${base}/api/me/catalog-interests?lang=pt&limit=2`, { headers: { Cookie: member.cookie } });
   const first = await firstResponse.json();
   const second = await (await fetch(`${base}/api/me/catalog-interests?lang=pt&limit=2&cursor=${encodeURIComponent(first.nextCursor)}`, { headers: { Cookie: member.cookie } })).json();
   const owned = [...first.interests, ...second.interests];
   assert.deepEqual(owned.map((entry) => entry.itemId), created.map((entry) => entry.item.id).reverse());
-  assert.deepEqual(owned.map((entry) => entry.item.title), ['Português 2', 'Português 1', 'Português 0']);
+  assert.deepEqual(owned.map((entry) => entry.item.title), ['Português 2', 'English 1', 'Português 0']);
   assert.equal(owned[1].item.status, 'archived');
   assert.equal(second.nextCursor, null);
   assert.deepEqual((await (await fetch(`${base}/api/me/catalog-interests?lang=pt`, { headers: { Cookie: other.cookie } })).json()).interests, []);
@@ -295,6 +301,11 @@ test('admin catalog APIs are server-authorized, versioned, and keep the interest
 
   const rejected = await fetch(`${base}/api/admin/catalog`, { method: 'POST', headers: adminHeaders, body: JSON.stringify({ kind: 'resource', status: 'published' }) });
   assert.equal(rejected.status, 400);
+  const unknownOffset = await fetch(`${base}/api/admin/catalog`, {
+    method: 'POST', headers: adminHeaders,
+    body: JSON.stringify(completeItem({ status: 'draft', deadlineAt: '2030-12-31T12:00:00-00:00' })),
+  });
+  assert.equal(unknownOffset.status, 400);
   const createdResponse = await fetch(`${base}/api/admin/catalog`, { method: 'POST', headers: adminHeaders, body: JSON.stringify(completeItem({ actionMode: 'interest', actionUrl: '', featured: true })) });
   assert.equal(createdResponse.status, 201);
   const created = (await createdResponse.json()).item;

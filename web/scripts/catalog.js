@@ -37,11 +37,15 @@
     window.location.assign(`/login.html?next=${encodeURIComponent(safeLocalNext())}`);
   }
 
-  function dateText(value) {
+  function dateText(value, { civil = false } = {}) {
     if (!value) return t('catalog.noDeadline');
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return t('catalog.noDeadline');
-    return new Intl.DateTimeFormat(I18N?.lang || 'en', { dateStyle: 'medium' }).format(date);
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
+    const utcCivilBoundary = /^\d{4}-\d{2}-\d{2}T(?:00:00:00(?:\.000)?|23:59:59\.999)Z$/.test(value);
+    return new Intl.DateTimeFormat(I18N?.lang || 'en', {
+      dateStyle: 'medium', ...(civil || dateOnly || utcCivilBoundary ? { timeZone: 'UTC' } : {}),
+    }).format(date);
   }
 
   function addMeta(container, label, value) {
@@ -103,7 +107,7 @@
 
     const source = create('div', 'dispatch-source');
     source.append(sourceAnchor(item),
-      create('span', 'source-date', dateText(item.sourceVerifiedAt)));
+      create('span', 'source-date', dateText(item.sourceVerifiedAt, { civil: true })));
     const action = item.actionMode === 'external' ? officialAnchor(item, true) : null;
     if (action && !item.isClosed) source.append(action);
     if (onSelect) {
@@ -263,6 +267,7 @@
     if (item.startsAt) addMeta(box, t('catalog.startsAt'), dateText(item.startsAt));
     if (item.deadlineAt) addMeta(box, t('catalog.deadline'), dateText(item.deadlineAt));
     if (item.endDate) addMeta(box, t('catalog.endDate'), dateText(item.endDate));
+    if (item.sourceVerifiedAt) addMeta(box, t('catalog.sourceVerified'), dateText(item.sourceVerifiedAt, { civil: true }));
     if (item.topics?.length) addMeta(box, t('catalog.topics'), item.topics.join(' · '));
     box.append(sourceAnchor(item));
   }
@@ -285,11 +290,16 @@
     if (official) actions.append(official);
 
     const form = byId('catalogInterestForm');
+    const compose = byId('catalogInterestCompose');
     const disclosure = byId('catalogInterestDisclosure');
     const withdraw = byId('catalogWithdrawInterest');
+    const submit = byId('catalogInterestSubmit');
     const canInterest = item.actionMode === 'interest' && !item.isClosed;
-    byId('catalogInterestSubmit').textContent = item.cta || t('catalog.expressInterest');
-    form.hidden = !canInterest && item.interestStatus !== 'new' && item.interestStatus !== 'contacted';
+    const hasHistory = Boolean(item.interestStatus);
+    submit.textContent = item.cta || t('catalog.expressInterest');
+    submit.disabled = !canInterest;
+    compose.hidden = !canInterest;
+    form.hidden = !canInterest && !hasHistory;
     disclosure.hidden = !canInterest;
     withdraw.hidden = !['new', 'contacted'].includes(item.interestStatus);
     form.dataset.itemId = item.id;

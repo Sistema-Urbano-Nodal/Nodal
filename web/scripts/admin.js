@@ -64,6 +64,8 @@
     interestRequest: 0,
     catalogCursor: null,
     interestCursor: null,
+    catalogFilterKey: null,
+    interestFilterKey: null,
     busy: false,
   };
 
@@ -77,6 +79,10 @@
   const text = (value) => String(value ?? '').trim();
   const localDate = (value, includeTime = false) => {
     if (!value) return '';
+    if (!includeTime) {
+      const civil = String(value).match(/^(\d{4}-\d{2}-\d{2})(?:$|T)/);
+      if (civil) return civil[1];
+    }
     const date = new Date(value);
     if (!Number.isFinite(date.getTime())) return '';
     const offset = date.getTimezoneOffset() * 60 * 1000;
@@ -253,23 +259,54 @@
     elements.list.setAttribute('aria-busy', 'false');
   }
 
-  async function loadCatalog({ append = false } = {}) {
-    if (state.catalogController) state.catalogController.abort();
+  function catalogFilterSnapshot() {
+    return {
+      query: text(elements.query.value),
+      kind: text(elements.kindFilter.value),
+      status: text(elements.statusFilter.value),
+    };
+  }
+
+  function filterKey(filters) {
+    return JSON.stringify(filters);
+  }
+
+  function invalidateCatalogPagination() {
+    state.catalogController?.abort();
+    state.catalogController = null;
+    state.catalogRequest += 1;
+    state.catalogCursor = null;
+    state.catalogFilterKey = null;
+    elements.catalogMore.hidden = true;
+    elements.list.setAttribute('aria-busy', 'false');
+  }
+
+  async function loadCatalog({ append = false, filters = catalogFilterSnapshot() } = {}) {
+    const snapshot = { ...filters };
+    const snapshotKey = filterKey(snapshot);
+    if (append && (!state.catalogCursor || state.catalogFilterKey !== snapshotKey)) return false;
+    const cursor = append ? state.catalogCursor : null;
+    if (!append) {
+      state.catalogCursor = null;
+      state.catalogFilterKey = snapshotKey;
+      elements.catalogMore.hidden = true;
+    }
+    state.catalogController?.abort();
     const controller = new AbortController();
     state.catalogController = controller;
     const sequence = state.catalogRequest + 1;
     state.catalogRequest = sequence;
     const params = new URLSearchParams({ state: 'all', limit: '24' });
-    if (append && state.catalogCursor) params.set('cursor', state.catalogCursor);
-    const query = text(elements.query.value);
-    if (query) params.set('q', query);
-    if (elements.kindFilter.value) params.set('kind', elements.kindFilter.value);
-    if (elements.statusFilter.value) params.set('status', elements.statusFilter.value);
+    if (cursor) params.set('cursor', cursor);
+    if (snapshot.query) params.set('q', snapshot.query);
+    if (snapshot.kind) params.set('kind', snapshot.kind);
+    if (snapshot.status) params.set('status', snapshot.status);
     elements.listStatus.textContent = 'Loading catalog records…';
     elements.list.setAttribute('aria-busy', 'true');
     try {
       const { response, data } = await request(`/api/admin/catalog?${params}`, { signal: controller.signal });
-      if (sequence !== state.catalogRequest) return;
+      if (sequence !== state.catalogRequest || state.catalogFilterKey !== snapshotKey
+        || filterKey(catalogFilterSnapshot()) !== snapshotKey) return false;
       if (!response.ok) throw new Error(data.error || `Catalog request failed (${response.status}).`);
       const items = Array.isArray(data.items) ? data.items : [];
       state.items = append ? [...state.items, ...items] : items;
@@ -277,8 +314,9 @@
       elements.catalogMore.hidden = !state.catalogCursor;
       renderCatalogList();
       elements.listStatus.textContent = state.items.length ? `${state.items.length} records loaded.` : 'No catalog records match these filters.';
+      return true;
     } catch (error) {
-      if (error.name === 'AbortError' || sequence !== state.catalogRequest) return;
+      if (error.name === 'AbortError' || sequence !== state.catalogRequest || state.catalogFilterKey !== snapshotKey) return false;
       if (!append) {
         state.items = [];
         state.catalogCursor = null;
@@ -286,6 +324,12 @@
         renderCatalogList();
       }
       elements.listStatus.textContent = error.message || 'Catalog records are unavailable.';
+      return false;
+    } finally {
+      if (sequence === state.catalogRequest && state.catalogFilterKey === snapshotKey) {
+        elements.list.setAttribute('aria-busy', 'false');
+        if (state.catalogController === controller) state.catalogController = null;
+      }
     }
   }
 
@@ -397,15 +441,15 @@
           method: 'PATCH', body: JSON.stringify({ status: select.value, version: interest.version }),
         });
         if (response.status === 409) {
-          elements.interestStatus.textContent = 'This interest changed on the server. The queue has been reloaded.';
+          elements.interestStatus.textContent = 'This interest changed on the server. Reloading the queue…';
           await loadInterests();
           return;
         }
         if (!response.ok) throw new Error(data.error || `Update failed (${response.status}).`);
         interest.status = data.interest.status;
         interest.version = data.interest.version;
-        await loadInterests();
-        elements.interestStatus.textContent = 'Interest status updated. The active queue filter has been reapplied.';
+        const refreshed = await loadInterests();
+        if (refreshed) elements.interestStatus.textContent = 'Interest status updated. The active queue filter has been reapplied.';
       } catch (error) {
         elements.interestStatus.textContent = error.message || 'Interest status could not be updated.';
       } finally {
@@ -422,20 +466,44 @@
     elements.interestList.setAttribute('aria-busy', 'false');
   }
 
-  async function loadInterests({ append = false } = {}) {
-    if (state.interestController) state.interestController.abort();
+  function interestFilterSnapshot() {
+    return { status: text(elements.interestFilter.value) };
+  }
+
+  function invalidateInterestPagination() {
+    state.interestController?.abort();
+    state.interestController = null;
+    state.interestRequest += 1;
+    state.interestCursor = null;
+    state.interestFilterKey = null;
+    elements.interestMore.hidden = true;
+    elements.interestList.setAttribute('aria-busy', 'false');
+  }
+
+  async function loadInterests({ append = false, filters = interestFilterSnapshot() } = {}) {
+    const snapshot = { ...filters };
+    const snapshotKey = filterKey(snapshot);
+    if (append && (!state.interestCursor || state.interestFilterKey !== snapshotKey)) return false;
+    const cursor = append ? state.interestCursor : null;
+    if (!append) {
+      state.interestCursor = null;
+      state.interestFilterKey = snapshotKey;
+      elements.interestMore.hidden = true;
+    }
+    state.interestController?.abort();
     const controller = new AbortController();
     state.interestController = controller;
     const sequence = state.interestRequest + 1;
     state.interestRequest = sequence;
     const params = new URLSearchParams({ limit: '24' });
-    if (elements.interestFilter.value) params.set('status', elements.interestFilter.value);
-    if (append && state.interestCursor) params.set('cursor', state.interestCursor);
+    if (snapshot.status) params.set('status', snapshot.status);
+    if (cursor) params.set('cursor', cursor);
     elements.interestStatus.textContent = 'Loading member interests…';
     elements.interestList.setAttribute('aria-busy', 'true');
     try {
       const { response, data } = await request(`/api/admin/interests?${params}`, { signal: controller.signal });
-      if (sequence !== state.interestRequest) return;
+      if (sequence !== state.interestRequest || state.interestFilterKey !== snapshotKey
+        || filterKey(interestFilterSnapshot()) !== snapshotKey) return false;
       if (!response.ok) throw new Error(data.error || `Interest request failed (${response.status}).`);
       const interests = Array.isArray(data.interests) ? data.interests : [];
       state.interests = append ? [...state.interests, ...interests] : interests;
@@ -443,8 +511,9 @@
       elements.interestMore.hidden = !state.interestCursor;
       renderInterestList();
       elements.interestStatus.textContent = state.interests.length ? `${state.interests.length} interests loaded.` : 'No member interests match this queue status.';
+      return true;
     } catch (error) {
-      if (error.name === 'AbortError' || sequence !== state.interestRequest) return;
+      if (error.name === 'AbortError' || sequence !== state.interestRequest || state.interestFilterKey !== snapshotKey) return false;
       if (!append) {
         state.interests = [];
         state.interestCursor = null;
@@ -452,18 +521,41 @@
         renderInterestList();
       } else elements.interestList.setAttribute('aria-busy', 'false');
       elements.interestStatus.textContent = error.message || 'Member interests are unavailable.';
+      throw error;
+    } finally {
+      if (sequence === state.interestRequest && state.interestFilterKey === snapshotKey) {
+        elements.interestList.setAttribute('aria-busy', 'false');
+        if (state.interestController === controller) state.interestController = null;
+      }
     }
   }
 
   let filterTimer = null;
-  elements.filters.addEventListener('submit', (event) => { event.preventDefault(); loadCatalog(); });
+  function refreshCatalogNow() {
+    clearTimeout(filterTimer);
+    const filters = catalogFilterSnapshot();
+    invalidateCatalogPagination();
+    return loadCatalog({ filters });
+  }
+
+  function refreshInterestsNow() {
+    const filters = interestFilterSnapshot();
+    invalidateInterestPagination();
+    const refresh = loadInterests({ filters });
+    refresh.catch(() => {});
+    return refresh;
+  }
+
+  elements.filters.addEventListener('submit', (event) => { event.preventDefault(); return refreshCatalogNow(); });
   elements.query.addEventListener('input', () => {
     clearTimeout(filterTimer);
-    filterTimer = setTimeout(loadCatalog, 250);
+    const filters = catalogFilterSnapshot();
+    invalidateCatalogPagination();
+    filterTimer = setTimeout(() => loadCatalog({ filters }), 250);
   });
-  elements.kindFilter.addEventListener('change', loadCatalog);
-  elements.statusFilter.addEventListener('change', loadCatalog);
-  elements.interestFilter.addEventListener('change', loadInterests);
+  elements.kindFilter.addEventListener('change', refreshCatalogNow);
+  elements.statusFilter.addEventListener('change', refreshCatalogNow);
+  elements.interestFilter.addEventListener('change', refreshInterestsNow);
   elements.catalogMore.addEventListener('click', () => loadCatalog({ append: true }));
   elements.interestMore.addEventListener('click', () => loadInterests({ append: true }));
   elements.kind.addEventListener('change', updateConditionalFields);
@@ -496,7 +588,7 @@
 
   async function bootstrap() {
     fillEditor(blankRecord());
-    await Promise.all([loadCatalog(), loadInterests()]);
+    await Promise.allSettled([loadCatalog(), loadInterests()]);
   }
 
   bootstrap();

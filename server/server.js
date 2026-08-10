@@ -648,8 +648,8 @@ function catalogViewer(user) {
   return user ? { id: user.id, permission: user.permission || user.role } : null;
 }
 
-function catalogPublicProjection(item, lang, { interestStatus } = {}) {
-  const localized = localizeCatalogItem(item, lang);
+function catalogPublicProjection(item, lang, { interestStatus, historical = false } = {}) {
+  const localized = localizeCatalogItem(item, lang, { fallback: historical });
   return {
     ...localized,
     organization: item.organization,
@@ -917,7 +917,8 @@ export function createApp({
 
       if (useDb && req.method === 'GET' && pathname === '/api/me/catalog-interests') {
         if (!requireAuth(res, sessionUser)) return;
-        const lang = oneQueryValue(url.searchParams, 'lang') || 'en';
+        const requestedLang = oneQueryValue(url.searchParams, 'lang');
+        const lang = requestedLang === undefined ? 'en' : requestedLang;
         const limit = oneQueryValue(url.searchParams, 'limit');
         const cursor = oneQueryValue(url.searchParams, 'cursor');
         if (!['en', 'es', 'pt'].includes(lang) || [...url.searchParams.keys()].some((key) => !['lang', 'limit', 'cursor'].includes(key))) throw badRequest('catalog interests query is invalid');
@@ -933,7 +934,7 @@ export function createApp({
             itemId: interest.itemId,
             status: interest.status,
             message: interest.message,
-            item: interest.item ? { ...catalogPublicProjection(interest.item, lang), status: interest.item.status } : null,
+            item: interest.item ? { ...catalogPublicProjection(interest.item, lang, { historical: true }), status: interest.item.status } : null,
           })),
           nextCursor: result.nextCursor,
         });

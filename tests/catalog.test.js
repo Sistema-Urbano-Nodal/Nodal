@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import {
   decodeCatalogCursor,
   decodeCatalogInterestCursor,
@@ -86,7 +89,7 @@ test('catalog dates accept only canonical dates or timezone-bearing RFC3339 and 
   assert.equal(normalized.endDate, '2030-05-22T23:59:59.999Z');
   assert.equal(normalized.sourceVerifiedAt, '2030-05-01T00:00:00.000Z');
 
-  for (const value of ['next Thursday', '05/20/2030', '2030-02-30', '2030-05-20T12:00:00', '2030-05-20 12:00:00Z']) {
+  for (const value of ['next Thursday', '05/20/2030', '2030-02-30', '2030-05-20T12:00:00', '2030-05-20 12:00:00Z', '2030-05-20T12:00:00-00:00']) {
     assert.throws(() => validateCatalogDraft(completeCatalogInput({ deadlineAt: value })), /deadlineAt.*valid/i, value);
   }
   assert.throws(() => validateCatalogDraft(completeCatalogInput({ deadlineAt: '2030-05-22', startsAt: '2030-05-21' })), /deadline.*start/i);
@@ -189,6 +192,86 @@ test('canonical offset deadlines continue through SQLite catalog cursors without
   const first = await repo.listCatalogItems({ state: 'all', limit: 1 }, null);
   const second = await repo.listCatalogItems({ state: 'all', limit: 1, cursor: first.nextCursor }, null);
   assert.deepEqual([first.items[0].id, second.items[0].id], [firstItem.id, secondItem.id]);
+});
+
+test('SQLite upgrades real v6 catalog dates to canonical UTC before ordered pagination', async (t) => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'nodal-catalog-v6-'));
+  const filename = path.join(directory, 'legacy.sqlite');
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const legacy = createDatabase({ filename, migrate: false });
+  legacy.exec(`
+    CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+    CREATE TABLE catalog_items (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      subtype TEXT,
+      status TEXT NOT NULL DEFAULT 'draft',
+      visibility TEXT NOT NULL DEFAULT 'public',
+      translations_json TEXT NOT NULL DEFAULT '{}',
+      organization TEXT NOT NULL DEFAULT '',
+      location TEXT NOT NULL DEFAULT '',
+      topics_json TEXT NOT NULL DEFAULT '[]',
+      starts_at TEXT,
+      deadline_at TEXT,
+      end_date TEXT,
+      source_url TEXT NOT NULL DEFAULT '',
+      source_verified_at TEXT,
+      action_mode TEXT NOT NULL DEFAULT 'none',
+      action_url TEXT NOT NULL DEFAULT '',
+      featured INTEGER NOT NULL DEFAULT 0,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_by TEXT,
+      updated_by TEXT,
+      published_by TEXT,
+      published_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  const recordMigration = legacy.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, '2030-01-01T00:00:00.000Z')");
+  for (let version = 1; version <= 6; version += 1) recordMigration.run(version);
+  const insert = legacy.prepare(`
+    INSERT INTO catalog_items (
+      id, kind, status, visibility, translations_json, organization, topics_json,
+      starts_at, deadline_at, end_date, source_url, source_verified_at,
+      action_mode, featured, published_at, created_at, updated_at
+    ) VALUES (?, 'resource', 'published', 'public', ?, 'NODAL', '[]', ?, ?, ?,
+      'https://example.test/source', ?, 'none', 0, '2030-01-01T00:00:00.000Z',
+      '2030-01-01T00:00:00.000Z', '2030-01-01T00:00:00.000Z')
+  `);
+  const translations = JSON.stringify({ en: { title: 'Legacy', summary: 'Summary', body: 'Body', cta: 'Read' } });
+  insert.run('legacy-first', translations, '2030-05-21T09:00:00-03:00', '2030-05-20T09:00:00-03:00', '2030-05-22', '2030-05-01');
+  insert.run('legacy-second', translations, null, '2030-05-20T12:30:00+00:00', null, '2030-05-02T08:15:30.123456+00:00');
+  insert.run(
+    'legacy-invalid',
+    translations,
+    '2030-02-30T09:00:00-03:00',
+    '2030-05-20T12:00:00-00:00',
+    '2030-02-30',
+    '2030-02-30',
+  );
+  legacy.close();
+
+  const upgraded = createDatabase({ filename });
+  t.after(() => upgraded.close());
+  assert.equal(upgraded.prepare('SELECT version FROM schema_migrations WHERE version = 8').get().version, 8);
+  const firstRow = upgraded.prepare('SELECT * FROM catalog_items WHERE id = ?').get('legacy-first');
+  assert.equal(firstRow.starts_at, '2030-05-21T12:00:00.000Z');
+  assert.equal(firstRow.deadline_at, '2030-05-20T12:00:00.000Z');
+  assert.equal(firstRow.end_date, '2030-05-22T23:59:59.999Z');
+  assert.equal(firstRow.source_verified_at, '2030-05-01T00:00:00.000Z');
+  const secondRow = upgraded.prepare('SELECT source_verified_at FROM catalog_items WHERE id = ?').get('legacy-second');
+  assert.equal(secondRow.source_verified_at, '2030-05-02T08:15:30.123Z');
+  const invalid = upgraded.prepare('SELECT starts_at, deadline_at, end_date, source_verified_at FROM catalog_items WHERE id = ?').get('legacy-invalid');
+  assert.deepEqual({ ...invalid }, { starts_at: null, deadline_at: null, end_date: null, source_verified_at: null });
+
+  const repo = createRepository({ db: upgraded });
+  const first = await repo.listCatalogItems({ state: 'all', limit: 1 }, null);
+  assert.equal(first.items[0].id, 'legacy-first');
+  assert.ok(first.nextCursor);
+  assert.doesNotThrow(() => decodeCatalogCursor(first.nextCursor));
+  const second = await repo.listCatalogItems({ state: 'all', limit: 1, cursor: first.nextCursor }, null);
+  assert.equal(second.items[0].id, 'legacy-second');
 });
 
 test('SQLite rejects values outside the member/admin role invariant', (t) => {

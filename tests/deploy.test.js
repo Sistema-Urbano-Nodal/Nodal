@@ -2,8 +2,24 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
+import { run as runSupabaseDataApiSmoke } from '../scripts/smoke-supabase-data-api.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
+
+function effectiveServicePrivileges(sql, type, object) {
+  const privileges = new Set();
+  const escaped = object.replaceAll('.', '\\.');
+  for (const statement of sql.split(';').map((part) => part.trim()).filter(Boolean)) {
+    if (new RegExp(`^revoke\\s+all\\s+on\\s+(?:${type}\\s+)?${escaped}\\s+from\\s+service_role$`, 'i').test(statement)) {
+      privileges.clear();
+      continue;
+    }
+    const grant = statement.match(new RegExp(`^grant\\s+(.+?)\\s+on\\s+(?:${type}\\s+)?${escaped}\\s+to\\s+service_role$`, 'i'));
+    if (!grant) continue;
+    for (const privilege of grant[1].split(',').map((value) => value.trim().toLowerCase())) privileges.add(privilege);
+  }
+  return [...privileges].sort();
+}
 
 test('Vercel serves generated frontend assets before the Node serverless adapter', () => {
   const vercel = JSON.parse(readFileSync(path.join(ROOT, 'vercel.json'), 'utf8'));
@@ -195,6 +211,110 @@ test('forward catalog source migration and operator documentation match the publ
   for (const endpoint of ['/api/catalog', '/api/me/catalog-interests', '/api/admin/catalog', '/api/admin/interests']) {
     assert.match(readme, new RegExp(endpoint.replaceAll('/', '\\/')));
   }
+});
+
+test('service-role Data API migration grants only the repository operations and removes catalog hard delete', () => {
+  const dir = path.join(ROOT, 'supabase', 'migrations');
+  const migrations = readdirSync(dir).sort();
+  const migrationName = migrations.find((name) => name.endsWith('_service_role_data_api_grants.sql'));
+  assert.ok(migrationName, 'expected a CLI-generated least-privilege service-role migration');
+  const sql = migrations.map((name) => readFileSync(path.join(dir, name), 'utf8')).join('\n');
+  const expectedTables = new Map([
+    ['public.profiles', ['insert', 'select', 'update']],
+    ['public.profile_preferences', ['insert', 'select', 'update']],
+    ['public.onboarding_responses', ['insert', 'select', 'update']],
+    ['public.member_follows', ['insert', 'select']],
+    ['public.member_interactions', ['insert', 'select']],
+    ['public.stripe_customers', ['select']],
+    ['public.catalog_items', ['insert', 'select', 'update']],
+    ['public.catalog_interests', ['insert', 'select', 'update']],
+  ]);
+  for (const [table, privileges] of expectedTables) {
+    assert.deepEqual(effectiveServicePrivileges(sql, 'table', table), privileges, table);
+  }
+  assert.deepEqual(effectiveServicePrivileges(sql, 'sequence', 'public.member_interactions_id_seq'), ['select', 'usage']);
+  for (const table of ['public.organizations', 'public.organization_memberships', 'public.stripe_events']) {
+    assert.deepEqual(effectiveServicePrivileges(sql, 'table', table), [], `${table} must not be exposed to service_role through PostgREST`);
+  }
+  const migration = readFileSync(path.join(dir, migrationName), 'utf8');
+  for (const role of ['anon', 'authenticated']) {
+    for (const table of expectedTables.keys()) {
+      assert.match(migration, new RegExp(`revoke all on table ${table.replace('.', '\\.')} from ${role}`, 'i'));
+      assert.doesNotMatch(migration, new RegExp(`grant[^;]+on table ${table.replace('.', '\\.')} to ${role}`, 'i'));
+    }
+  }
+  for (const table of ['catalog_items', 'catalog_interests']) {
+    assert.match(migration, new RegExp(`revoke all on table public\\.${table} from service_role`, 'i'));
+    assert.doesNotMatch(migration, new RegExp(`grant[^;]*(?:delete|truncate|references|trigger|all)[^;]*public\\.${table}`, 'i'));
+  }
+  const packageJson = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  assert.match(packageJson.scripts['smoke:supabase-data-api'] || '', /smoke-supabase-data-api\.js/);
+  assert.ok(existsSync(path.join(ROOT, 'scripts', 'smoke-supabase-data-api.js')));
+});
+
+test('Supabase Data API smoke exercises reads, constrained inserts, updates, and denied catalog deletes', async () => {
+  const calls = [];
+  const fetchImpl = async (rawUrl, options) => {
+    const url = new URL(rawUrl);
+    calls.push({ url, options });
+    if (options.method === 'GET') return { ok: true, status: 200, async text() { return '[]'; } };
+    if (options.method === 'POST') {
+      const table = url.pathname.split('/').at(-1);
+      const row = JSON.parse(options.body)[0];
+      if (['profile_preferences', 'onboarding_responses'].includes(table) && Object.keys(row).length === 0) {
+        return { ok: true, status: 201, async text() { return ''; } };
+      }
+      return { ok: false, status: 400, async text() { return '{"code":"23503"}'; } };
+    }
+    if (options.method === 'PATCH') return { ok: true, status: 204, async text() { return ''; } };
+    if (options.method === 'DELETE') return { ok: false, status: 403, async text() { return '{"code":"42501"}'; } };
+    throw new Error(`unexpected method ${options.method}`);
+  };
+  let output = '';
+  await runSupabaseDataApiSmoke({
+    env: { NEXT_PUBLIC_SUPABASE_URL: 'https://project.supabase.test', SUPABASE_SERVICE_ROLE_KEY: 'service-role-test' },
+    fetchImpl,
+    output: { write(value) { output += value; } },
+  });
+  assert.match(output, /least-privilege smoke passed/i);
+  assert.equal(calls.filter(({ options }) => options.method === 'GET').length, 8);
+  assert.equal(calls.filter(({ options }) => options.method === 'POST').length, 7);
+  assert.equal(calls.filter(({ options }) => options.method === 'PATCH').length, 5);
+  assert.equal(calls.filter(({ options }) => options.method === 'DELETE').length, 2);
+  assert.ok(calls.every(({ options }) => options.headers.apikey === 'service-role-test'));
+  assert.ok(calls.every(({ options }) => options.headers.Authorization === 'Bearer service-role-test'));
+  const inserted = new Map(calls.filter(({ options }) => options.method === 'POST')
+    .map(({ url, options }) => [url.pathname.split('/').at(-1), JSON.parse(options.body)[0]]));
+  assert.match(inserted.get('profiles').id, /^[0-9a-f-]{36}$/i);
+  assert.match(inserted.get('profile_preferences').user_id, /^[0-9a-f-]{36}$/i);
+  assert.match(inserted.get('onboarding_responses').user_id, /^[0-9a-f-]{36}$/i);
+  assert.notEqual(inserted.get('member_follows').user_id, inserted.get('member_follows').target_user_id);
+  assert.notEqual(inserted.get('member_interactions').from_user_id, inserted.get('member_interactions').to_user_id);
+  assert.match(inserted.get('catalog_items').created_by, /^[0-9a-f-]{36}$/i);
+  assert.match(inserted.get('catalog_interests').item_id, /^[0-9a-f-]{36}$/i);
+
+  await assert.rejects(runSupabaseDataApiSmoke({
+    env: { NEXT_PUBLIC_SUPABASE_URL: 'https://project.supabase.test', SUPABASE_SERVICE_ROLE_KEY: 'wrong-role' },
+    fetchImpl: async () => ({ ok: false, status: 403, async text() { return '{"code":"42501"}'; } }),
+    output: { write() {} },
+  }), /SELECT profiles.*42501/i);
+});
+
+test('changed one-hour-cached catalog clients use new URLs on every consuming page', () => {
+  const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'admin.html']
+    .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
+  const required = {
+    'index.html': { 'catalog.css': '2', 'i18n.js': '36', 'recs.js': '2', 'catalog.js': '2' },
+    'opportunities.html': { 'catalog.css': '2', 'i18n.js': '36', 'catalog.js': '2' },
+    'dashboard.html': { 'i18n.js': '36', 'dashboard.js': '25' },
+    'admin.html': { 'admin.css': '2', 'admin.js': '2' },
+  };
+  for (const [page, assets] of Object.entries(required)) {
+    for (const [asset, version] of Object.entries(assets)) {
+      assert.match(pages[page], new RegExp(`(?:src|href)="${asset.replace('.', '\\.')}\\?v=${version}"`), `${page} must load the new ${asset} cache key`);
+    }
+  }
+  assert.match(readFileSync(path.join(ROOT, '.gitignore'), 'utf8'), /^supabase\/\.branches\/$/m);
 });
 
 test('CI uses immutable action revisions and supports pre-main validation refs', () => {

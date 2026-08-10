@@ -6,6 +6,7 @@ import {
   publicSupabaseConfig,
   resolveSupabaseEnv,
 } from '../server/supabase.js';
+import { decodeCatalogCursor, decodeCatalogInterestCursor, localizeCatalogItem } from '../server/catalog.js';
 
 const TEST_USER_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -622,6 +623,44 @@ test('Supabase catalog adapter sends equivalent filters, ordering, cursor, and v
   assert.equal(JSON.parse(write.options.body).source_label, 'Cities official source');
 });
 
+test('Supabase canonicalizes real PostgREST timestamptz shapes before catalog cursor pagination', async () => {
+  const rows = [
+    {
+      id: 'catalog-first', kind: 'resource', subtype: null, status: 'published', visibility: 'public',
+      translations: { en: { title: 'First', summary: 'Summary', body: 'Body', cta: 'Read' } },
+      organization: 'NODAL', location: '', topics: [], starts_at: '2030-05-19T09:00:00.123456+00:00',
+      deadline_at: '2030-05-20T09:00:00+00:00', end_date: '2030-05-21T23:59:59.999+00:00',
+      source_label: 'Official', source_url: 'https://example.test/source', source_verified_at: '2030-05-01T00:00:00+00:00',
+      action_mode: 'none', action_url: '', featured: false, version: 1,
+      published_at: '2030-05-01T00:00:00.123456+00:00', created_at: '2030-04-01T00:00:00+00:00', updated_at: '2030-05-01T00:00:00.654321+00:00',
+    },
+    {
+      id: 'catalog-second', kind: 'resource', subtype: null, status: 'published', visibility: 'public',
+      translations: { en: { title: 'Second', summary: 'Summary', body: 'Body', cta: 'Read' } },
+      organization: 'NODAL', location: '', topics: [], deadline_at: '2030-05-20T10:00:00+00:00',
+      source_label: 'Official', source_url: 'https://example.test/source', source_verified_at: '2030-05-02T00:00:00+00:00',
+      action_mode: 'none', action_url: '', featured: false, version: 1,
+      published_at: '2030-05-01T00:00:00.123456+00:00', created_at: '2030-04-02T00:00:00+00:00', updated_at: '2030-05-02T00:00:00+00:00',
+    },
+  ];
+  const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: async (rawUrl, options) => {
+    const url = new URL(rawUrl);
+    if (url.pathname.endsWith('/catalog_items') && options.method === 'GET') return response(rows);
+    throw new Error(`unexpected request ${options.method} ${url.pathname}`);
+  } });
+  const first = await repo.listCatalogItems({ state: 'all', limit: 1 }, null);
+  assert.equal(first.items[0].startsAt, '2030-05-19T09:00:00.123Z');
+  assert.equal(first.items[0].deadlineAt, '2030-05-20T09:00:00.000Z');
+  assert.equal(first.items[0].endDate, '2030-05-21T23:59:59.999Z');
+  assert.equal(first.items[0].sourceVerifiedAt, '2030-05-01T00:00:00.000Z');
+  assert.equal(first.items[0].publishedAt, '2030-05-01T00:00:00.123Z');
+  assert.equal(first.items[0].createdAt, '2030-04-01T00:00:00.000Z');
+  assert.equal(first.items[0].updatedAt, '2030-05-01T00:00:00.654Z');
+  assert.doesNotThrow(() => decodeCatalogCursor(first.nextCursor));
+  const second = await repo.listCatalogItems({ state: 'all', limit: 1, cursor: first.nextCursor }, null);
+  assert.equal(second.items[0].id, 'catalog-second');
+});
+
 test('Supabase publication transitions refresh audit metadata while published edits preserve it', async () => {
   const rows = new Map([
     ['archived', {
@@ -800,7 +839,7 @@ test('Supabase preserves an identical active interest without issuing a PATCH', 
 test('Supabase interest adapters paginate stable cursors and batch-load private catalog context', async () => {
   const interests = Array.from({ length: 3 }, (_, index) => ({
     id: `interest-${index}`, item_id: `catalog-${index}`, user_id: TEST_USER_ID, message: `Message ${index}`, status: 'new', version: 1,
-    created_at: `2030-05-0${index + 1}T00:00:00.000Z`, updated_at: `2030-05-0${index + 1}T00:00:00.000Z`, updated_by: TEST_USER_ID,
+    created_at: `2030-05-0${index + 1}T00:00:00.123456+00:00`, updated_at: `2030-05-0${index + 1}T00:00:00.654321+00:00`, updated_by: TEST_USER_ID,
   }));
   const items = Array.from({ length: 3 }, (_, index) => ({
     id: `catalog-${index}`, kind: 'resource', subtype: null, status: index === 1 ? 'archived' : 'published', visibility: 'members',
@@ -818,9 +857,12 @@ test('Supabase interest adapters paginate stable cursors and batch-load private 
   } });
 
   const mineFirst = await repo.listCatalogInterestsForUser(TEST_USER_ID, { limit: 2 });
+  assert.equal(mineFirst.interests[0].updatedAt, '2030-05-03T00:00:00.654Z');
+  assert.doesNotThrow(() => decodeCatalogInterestCursor(mineFirst.nextCursor));
   const mineSecond = await repo.listCatalogInterestsForUser(TEST_USER_ID, { limit: 2, cursor: mineFirst.nextCursor });
   assert.deepEqual([...mineFirst.interests, ...mineSecond.interests].map((entry) => entry.id), ['interest-2', 'interest-1', 'interest-0']);
   assert.equal(mineFirst.interests[1].item.status, 'archived');
+  assert.equal(localizeCatalogItem(mineFirst.interests[1].item, 'pt', { fallback: true }).title, 'English 1');
   const adminFirst = await repo.listAdminInterests({ status: 'new', limit: 2 });
   const adminSecond = await repo.listAdminInterests({ status: 'new', limit: 2, cursor: adminFirst.nextCursor });
   assert.deepEqual([...adminFirst.interests, ...adminSecond.interests].map((entry) => entry.id), ['interest-0', 'interest-1', 'interest-2']);
