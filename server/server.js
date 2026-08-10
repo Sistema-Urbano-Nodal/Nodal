@@ -938,7 +938,9 @@ export function createApp({
             itemId: interest.itemId,
             status: interest.status,
             message: interest.message,
-            item: interest.item ? { ...catalogPublicProjection(interest.item, lang, { historical: true }), status: interest.item.status } : null,
+            item: interest.item && interest.item.status !== 'draft'
+              ? { ...catalogPublicProjection(interest.item, lang, { historical: true }), status: interest.item.status }
+              : null,
           })),
           nextCursor: result.nextCursor,
         });

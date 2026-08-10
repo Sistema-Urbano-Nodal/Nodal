@@ -42,6 +42,7 @@ const cleanStatus = (value) => (SUBSCRIPTION_STATUSES.has(String(value)) ? Strin
 
 const ACCOUNT_STATUSES = new Set(['active', 'disabled', 'pending']);
 const APP_ROLES = new Set(['member', 'admin']);
+const CATALOG_INTEREST_WRITE_ATTEMPTS = 3;
 /* Anything unrecognised counts as not active. A column that has been tampered
    with, or a row written before the column existed, must fail closed. */
 const cleanAccountStatus = (value) => {
@@ -413,7 +414,7 @@ function catalogListQuery(query = {}, viewer = null, { offset = 0, batchSize = 2
   const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
   const out = {
     select: '*',
-    order: 'featured.desc,deadline_at.asc.nullslast,published_at.desc,id.asc',
+    order: 'featured.desc,deadline_at.asc.nullslast,published_at.desc.nullslast,id.asc',
     limit: batchSize,
     offset,
   };
@@ -495,21 +496,28 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     return interests.map((interest) => ({ ...interest, item: items.get(interest.itemId) || null }));
   }
 
+  async function readOwnedCatalogInterest(itemId, userId) {
+    return catalogInterestFromSupabase(await first(admin.rest('catalog_interests', {
+      query: { item_id: `eq.${itemId}`, user_id: `eq.${userId}`, select: '*' },
+    })));
+  }
+
   async function readInterestPage(baseQuery, query, direction) {
     const cursor = query.cursor ? decodeCatalogInterestCursor(query.cursor) : null;
     const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
-    const batchSize = 25;
-    const all = [];
-    let rows;
-    let offset = 0;
-    do {
-      rows = await admin.rest('catalog_interests', {
-        query: { ...baseQuery, select: '*', order: `updated_at.${direction},id.asc`, limit: batchSize, offset },
-      });
-      all.push(...rows.map(catalogInterestFromSupabase));
-      offset += rows.length;
-    } while (rows.length === batchSize);
-    const matching = all
+    const restQuery = {
+      ...baseQuery,
+      select: '*',
+      order: `updated_at.${direction},id.asc`,
+      limit: limit + 1,
+    };
+    if (cursor) {
+      const [updatedAt, id] = cursor;
+      const comparison = direction === 'desc' ? 'lt' : 'gt';
+      restQuery.or = `(updated_at.${comparison}.${updatedAt},and(updated_at.eq.${updatedAt},id.gt.${id}))`;
+    }
+    const rows = await admin.rest('catalog_interests', { query: restQuery });
+    const matching = rows.map(catalogInterestFromSupabase)
       .sort((left, right) => compareInterestTuples(interestSortTuple(left), interestSortTuple(right), direction))
       .filter((interest) => !cursor || compareInterestTuples(interestSortTuple(interest), cursor, direction) > 0);
     const page = matching.slice(0, limit);
@@ -952,45 +960,55 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       const cleanMessage = validateCatalogInterestMessage(message);
       const item = await this.getCatalogItem(itemId, { id: userId, permission: 'member' });
       if (!item || item.actionMode !== 'interest') throw Object.assign(new Error('catalog item does not accept interest'), { status: 404 });
-      const existing = catalogInterestFromSupabase(await first(admin.rest('catalog_interests', {
-        query: { item_id: `eq.${itemId}`, user_id: `eq.${userId}`, select: '*' },
-      })));
-      if (!existing) {
-        return catalogInterestFromSupabase(await first(admin.rest('catalog_interests', {
-          method: 'POST',
+      let lastUniqueError = null;
+      for (let attempt = 0; attempt < CATALOG_INTEREST_WRITE_ATTEMPTS; attempt += 1) {
+        const existing = await readOwnedCatalogInterest(itemId, userId);
+        if (!existing) {
+          try {
+            const created = catalogInterestFromSupabase(await first(admin.rest('catalog_interests', {
+              method: 'POST',
+              headers: { Prefer: 'return=representation' },
+              body: [{ item_id: itemId, user_id: userId, message: cleanMessage, status: 'new', updated_by: userId }],
+            })));
+            if (created) return created;
+          } catch (err) {
+            if (err?.code !== '23505') throw err;
+            lastUniqueError = err;
+          }
+          continue;
+        }
+        if (existing.status === 'new' && existing.message === cleanMessage) return existing;
+        const row = await first(admin.rest('catalog_interests', {
+          method: 'PATCH',
+          query: { id: `eq.${existing.id}`, version: `eq.${existing.version}` },
           headers: { Prefer: 'return=representation' },
-          body: [{ item_id: itemId, user_id: userId, message: cleanMessage, status: 'new', updated_by: userId }],
-        })));
+          body: { message: cleanMessage, status: 'new', version: existing.version + 1, updated_by: userId },
+        }));
+        if (row) return catalogInterestFromSupabase(row);
       }
-      if (existing.status === 'new' && existing.message === cleanMessage) return existing;
-      const row = await first(admin.rest('catalog_interests', {
-        method: 'PATCH',
-        query: { id: `eq.${existing.id}`, version: `eq.${existing.version}` },
-        headers: { Prefer: 'return=representation' },
-        body: { message: cleanMessage, status: 'new', version: existing.version + 1, updated_by: userId },
-      }));
-      if (!row) throw catalogConflict();
-      return catalogInterestFromSupabase(row);
+      const settled = await readOwnedCatalogInterest(itemId, userId);
+      if (settled?.status === 'new' && settled.message === cleanMessage) return settled;
+      if (!settled && lastUniqueError) throw lastUniqueError;
+      throw catalogConflict();
     },
     async withdrawCatalogInterest(itemId, userId) {
-      const existing = catalogInterestFromSupabase(await first(admin.rest('catalog_interests', {
-        query: { item_id: `eq.${itemId}`, user_id: `eq.${userId}`, select: '*' },
-      })));
-      if (!existing) return false;
-      if (existing.status === 'withdrawn') return true;
-      const row = await first(admin.rest('catalog_interests', {
-        method: 'PATCH',
-        query: { id: `eq.${existing.id}`, version: `eq.${existing.version}` },
-        headers: { Prefer: 'return=representation' },
-        body: { status: 'withdrawn', version: existing.version + 1, updated_by: userId },
-      }));
-      if (!row) throw catalogConflict();
-      return true;
+      for (let attempt = 0; attempt < CATALOG_INTEREST_WRITE_ATTEMPTS; attempt += 1) {
+        const existing = await readOwnedCatalogInterest(itemId, userId);
+        if (!existing) return false;
+        if (existing.status === 'withdrawn') return true;
+        const row = await first(admin.rest('catalog_interests', {
+          method: 'PATCH',
+          query: { id: `eq.${existing.id}`, version: `eq.${existing.version}` },
+          headers: { Prefer: 'return=representation' },
+          body: { status: 'withdrawn', version: existing.version + 1, updated_by: userId },
+        }));
+        if (row) return true;
+      }
+      if ((await readOwnedCatalogInterest(itemId, userId))?.status === 'withdrawn') return true;
+      throw catalogConflict();
     },
     async getCatalogInterest(itemId, userId) {
-      return catalogInterestFromSupabase(await first(admin.rest('catalog_interests', {
-        query: { item_id: `eq.${itemId}`, user_id: `eq.${userId}`, select: '*' },
-      })));
+      return readOwnedCatalogInterest(itemId, userId);
     },
     async getCatalogInterestById(id) {
       return catalogInterestFromSupabase(await first(admin.rest('catalog_interests', {

@@ -628,7 +628,11 @@ test('Supabase catalog adapter sends equivalent filters, ordering, cursor, and v
   assert.equal(read.url.searchParams.get('visibility'), 'eq.public');
   assert.equal(read.url.searchParams.get('kind'), 'eq.opportunity');
   assert.equal(read.url.searchParams.get('featured'), 'eq.true');
-  assert.equal(read.url.searchParams.get('order'), 'featured.desc,deadline_at.asc.nullslast,published_at.desc,id.asc');
+  assert.equal(
+    read.url.searchParams.get('order'),
+    'featured.desc,deadline_at.asc.nullslast,published_at.desc.nullslast,id.asc',
+    'drafts with no publication timestamp must follow published records just as they do in the shared cursor tuple',
+  );
   assert.equal(read.url.searchParams.has('or'), false, 'cursor continuation is applied after complete ordered scan');
   assert.equal(read.url.searchParams.get('offset'), '0');
   const updated = await repo.updateCatalogItem(item.id, { ...list.items[0], featured: false }, 1, TEST_USER_ID);
@@ -883,6 +887,153 @@ test('Supabase preserves an identical active interest without issuing a PATCH', 
   assert.equal(patched, false);
 });
 
+test('Supabase concurrent duplicate interest writes converge idempotently', async (t) => {
+  const item = {
+    id: 'catalog-1', kind: 'resource', subtype: null, status: 'published', visibility: 'public',
+    translations: { en: { title: 'Guide', summary: 'Summary', body: 'Body', cta: 'Read' } }, organization: 'NODAL', location: '', topics: [],
+    action_mode: 'interest', action_url: '', featured: false, version: 1, deadline_at: '2030-05-20T00:00:00.000Z', published_at: '2030-05-01T00:00:00.000Z',
+  };
+
+  await t.test('two first PUTs share the row created through the unique constraint race', async () => {
+    let stored = null;
+    let initialReads = 0;
+    let releaseInitialReads;
+    const initialReadGate = new Promise((resolve) => { releaseInitialReads = resolve; });
+    const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: async (rawUrl, options) => {
+      const url = new URL(rawUrl);
+      if (url.pathname.endsWith('/catalog_items') && options.method === 'GET') return response([item]);
+      if (url.pathname.endsWith('/catalog_interests') && options.method === 'GET') {
+        initialReads += 1;
+        if (initialReads <= 2) {
+          if (initialReads === 2) releaseInitialReads();
+          await initialReadGate;
+          return response([]);
+        }
+        return response(stored ? [stored] : []);
+      }
+      if (url.pathname.endsWith('/catalog_interests') && options.method === 'POST') {
+        if (stored) return response({ code: '23505', message: 'duplicate key value violates unique constraint' }, 409);
+        const body = JSON.parse(options.body)[0];
+        stored = {
+          id: 'interest-1', item_id: body.item_id, user_id: body.user_id, message: body.message, status: body.status, version: 1,
+          created_at: '2030-05-01T00:00:00.000Z', updated_at: '2030-05-01T00:00:00.000Z', updated_by: body.updated_by,
+        };
+        return response([stored]);
+      }
+      throw new Error(`unexpected request ${options.method} ${url.pathname}`);
+    } });
+
+    const results = await Promise.all([
+      repo.upsertCatalogInterest(item.id, TEST_USER_ID, 'Same message'),
+      repo.upsertCatalogInterest(item.id, TEST_USER_ID, 'Same message'),
+    ]);
+
+    assert.deepEqual(results.map((interest) => interest.id), ['interest-1', 'interest-1']);
+    assert.deepEqual(results.map((interest) => interest.status), ['new', 'new']);
+    assert.equal(stored.version, 1);
+  });
+
+  await t.test('two reopen PUTs tolerate the losing conditional PATCH', async () => {
+    let stored = {
+      id: 'interest-1', item_id: item.id, user_id: TEST_USER_ID, message: 'Old', status: 'withdrawn', version: 1,
+      created_at: '2030-05-01T00:00:00.000Z', updated_at: '2030-05-01T00:00:00.000Z', updated_by: TEST_USER_ID,
+    };
+    let initialReads = 0;
+    let releaseInitialReads;
+    const initialReadGate = new Promise((resolve) => { releaseInitialReads = resolve; });
+    const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: async (rawUrl, options) => {
+      const url = new URL(rawUrl);
+      if (url.pathname.endsWith('/catalog_items') && options.method === 'GET') return response([item]);
+      if (url.pathname.endsWith('/catalog_interests') && options.method === 'GET') {
+        initialReads += 1;
+        const snapshot = { ...stored };
+        if (initialReads <= 2) {
+          if (initialReads === 2) releaseInitialReads();
+          await initialReadGate;
+        }
+        return response([snapshot]);
+      }
+      if (url.pathname.endsWith('/catalog_interests') && options.method === 'PATCH') {
+        const expectedVersion = Number(url.searchParams.get('version').replace('eq.', ''));
+        if (stored.version !== expectedVersion) return response([]);
+        stored = { ...stored, ...JSON.parse(options.body), updated_at: '2030-05-02T00:00:00.000Z' };
+        return response([stored]);
+      }
+      throw new Error(`unexpected request ${options.method} ${url.pathname}`);
+    } });
+
+    const results = await Promise.all([
+      repo.upsertCatalogInterest(item.id, TEST_USER_ID, 'Reopened'),
+      repo.upsertCatalogInterest(item.id, TEST_USER_ID, 'Reopened'),
+    ]);
+
+    assert.deepEqual(results.map((interest) => interest.status), ['new', 'new']);
+    assert.deepEqual(results.map((interest) => interest.version), [2, 2]);
+    assert.equal(stored.message, 'Reopened');
+  });
+
+  await t.test('two DELETEs tolerate the losing conditional PATCH', async () => {
+    let stored = {
+      id: 'interest-1', item_id: item.id, user_id: TEST_USER_ID, message: 'Active', status: 'new', version: 1,
+      created_at: '2030-05-01T00:00:00.000Z', updated_at: '2030-05-01T00:00:00.000Z', updated_by: TEST_USER_ID,
+    };
+    let initialReads = 0;
+    let releaseInitialReads;
+    const initialReadGate = new Promise((resolve) => { releaseInitialReads = resolve; });
+    const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: async (rawUrl, options) => {
+      const url = new URL(rawUrl);
+      if (url.pathname.endsWith('/catalog_interests') && options.method === 'GET') {
+        initialReads += 1;
+        const snapshot = { ...stored };
+        if (initialReads <= 2) {
+          if (initialReads === 2) releaseInitialReads();
+          await initialReadGate;
+        }
+        return response([snapshot]);
+      }
+      if (url.pathname.endsWith('/catalog_interests') && options.method === 'PATCH') {
+        const expectedVersion = Number(url.searchParams.get('version').replace('eq.', ''));
+        if (stored.version !== expectedVersion) return response([]);
+        stored = { ...stored, ...JSON.parse(options.body), updated_at: '2030-05-02T00:00:00.000Z' };
+        return response([stored]);
+      }
+      throw new Error(`unexpected request ${options.method} ${url.pathname}`);
+    } });
+
+    assert.deepEqual(await Promise.all([
+      repo.withdrawCatalogInterest(item.id, TEST_USER_ID),
+      repo.withdrawCatalogInterest(item.id, TEST_USER_ID),
+    ]), [true, true]);
+    assert.equal(stored.status, 'withdrawn');
+    assert.equal(stored.version, 2);
+  });
+});
+
+test('Supabase bounds insert-race retries without masking a non-convergent database error', async () => {
+  const item = {
+    id: 'catalog-1', kind: 'resource', subtype: null, status: 'published', visibility: 'public',
+    translations: { en: { title: 'Guide', summary: 'Summary', body: 'Body', cta: 'Read' } }, organization: 'NODAL', location: '', topics: [],
+    action_mode: 'interest', action_url: '', featured: false, version: 1, deadline_at: '2030-05-20T00:00:00.000Z', published_at: '2030-05-01T00:00:00.000Z',
+  };
+  let insertAttempts = 0;
+  const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: async (rawUrl, options) => {
+    const url = new URL(rawUrl);
+    if (url.pathname.endsWith('/catalog_items') && options.method === 'GET') return response([item]);
+    if (url.pathname.endsWith('/catalog_interests') && options.method === 'GET') return response([]);
+    if (url.pathname.endsWith('/catalog_interests') && options.method === 'POST') {
+      insertAttempts += 1;
+      return response({ code: '23505', message: 'unrelated primary key collision' }, 409);
+    }
+    throw new Error(`unexpected request ${options.method} ${url.pathname}`);
+  } });
+
+  await assert.rejects(
+    repo.upsertCatalogInterest(item.id, TEST_USER_ID, 'Same message'),
+    (err) => err.code === '23505' && err.message === 'unrelated primary key collision',
+  );
+  assert.equal(insertAttempts, 3);
+});
+
 test('Supabase interest adapters paginate stable cursors and batch-load private catalog context', async () => {
   const interests = Array.from({ length: 3 }, (_, index) => ({
     id: `interest-${index}`, item_id: `catalog-${index}`, user_id: TEST_USER_ID, message: `Message ${index}`, status: 'new', version: 1,
@@ -916,6 +1067,61 @@ test('Supabase interest adapters paginate stable cursors and batch-load private 
   assert.equal(adminFirst.interests[0].item.translations.en.title, 'English 0');
   assert.ok(calls.some((url) => url.pathname.endsWith('/catalog_items') && url.searchParams.get('id')?.startsWith('in.(')));
   await assert.rejects(repo.listCatalogInterestsForUser(TEST_USER_ID, { cursor: 'invalid' }), /cursor/i);
+});
+
+test('Supabase interest continuations use one bounded keyset read instead of offset-scanning history', async (t) => {
+  const item = {
+    id: 'catalog-next', kind: 'resource', subtype: null, status: 'published', visibility: 'members',
+    translations: { en: { title: 'Next record', summary: 'Summary', body: 'Body', cta: 'Read' } },
+    organization: 'NODAL', location: '', topics: [], source_label: 'Official', source_url: 'https://example.test/source',
+    source_verified_at: '2030-01-01T00:00:00.000Z', action_mode: 'none', action_url: '', featured: false, version: 1,
+    published_at: '2030-01-01T00:00:00.000Z', updated_at: '2030-01-01T00:00:00.000Z',
+  };
+  const cursorId = 'interest-cursor';
+  const scenarios = [
+    {
+      name: 'member descending', direction: 'desc', comparison: 'lt', cursorTime: '2030-05-02T00:00:00.123456Z',
+      rowTime: '2030-05-01T00:00:00.654321+00:00',
+      list: (repo, query) => repo.listCatalogInterestsForUser(TEST_USER_ID, query),
+    },
+    {
+      name: 'admin ascending', direction: 'asc', comparison: 'gt', cursorTime: '2030-05-01T00:00:00.123456Z',
+      rowTime: '2030-05-02T00:00:00.654321+00:00',
+      list: (repo, query) => repo.listAdminInterests({ status: 'new', ...query }),
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, async () => {
+      const interestReads = [];
+      const row = {
+        id: 'interest-next', item_id: item.id, user_id: TEST_USER_ID, message: 'Next', status: 'new', version: 1,
+        created_at: '2030-05-01T00:00:00.000Z', updated_at: scenario.rowTime, updated_by: TEST_USER_ID,
+      };
+      const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: async (rawUrl, options) => {
+        const url = new URL(rawUrl);
+        if (url.pathname.endsWith('/catalog_interests') && options.method === 'GET') {
+          interestReads.push(url);
+          return response([row]);
+        }
+        if (url.pathname.endsWith('/catalog_items') && options.method === 'GET') return response([item]);
+        throw new Error(`unexpected request ${options.method} ${url.pathname}`);
+      } });
+      const cursor = Buffer.from(JSON.stringify([scenario.cursorTime, cursorId]), 'utf8').toString('base64url');
+
+      const result = await scenario.list(repo, { limit: 2, cursor });
+
+      assert.deepEqual(result.interests.map((interest) => interest.id), ['interest-next']);
+      assert.equal(interestReads.length, 1);
+      assert.equal(interestReads[0].searchParams.get('limit'), '3');
+      assert.equal(interestReads[0].searchParams.has('offset'), false);
+      assert.equal(interestReads[0].searchParams.get('order'), `updated_at.${scenario.direction},id.asc`);
+      assert.equal(
+        interestReads[0].searchParams.get('or'),
+        `(updated_at.${scenario.comparison}.${scenario.cursorTime},and(updated_at.eq.${scenario.cursorTime},id.gt.${cursorId}))`,
+      );
+    });
+  }
 });
 
 test('Supabase member and admin interest cursors preserve PostgREST microsecond ordering', async (t) => {

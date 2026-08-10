@@ -274,6 +274,45 @@ test('owned and administrator interest endpoints validate cursors, localize hist
   assert.equal(adminSecond.nextCursor, null);
 });
 
+test('owned interest history remains readable when the current catalog item becomes an incomplete draft', async (t) => {
+  const { db, repo, base } = await bootCatalogApp(t);
+  const admin = createUser(db, { fullName: 'Catalog Admin', email: 'admin@example.test', passwordHash: 'hash', role: 'admin' });
+  const member = await signup(base);
+  const item = await repo.createCatalogItem(completeItem({ actionMode: 'interest', actionUrl: '' }), admin.id);
+  await repo.upsertCatalogInterest(item.id, member.user.id, 'Keep this private history.');
+  await repo.updateCatalogItem(item.id, {
+    kind: 'resource', status: 'draft', visibility: 'public', translations: {}, actionMode: 'none', actionUrl: '',
+  }, item.version, admin.id);
+
+  const response = await fetch(`${base}/api/me/catalog-interests?lang=pt`, { headers: { Cookie: member.cookie } });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    interests: [{ itemId: item.id, status: 'new', message: 'Keep this private history.', item: null }],
+    nextCursor: null,
+  });
+});
+
+test('owned interest history never exposes unpublished draft edits', async (t) => {
+  const { db, repo, base } = await bootCatalogApp(t);
+  const admin = createUser(db, { fullName: 'Catalog Admin', email: 'admin@example.test', passwordHash: 'hash', role: 'admin' });
+  const member = await signup(base);
+  const item = await repo.createCatalogItem(completeItem({ actionMode: 'interest', actionUrl: '' }), admin.id);
+  await repo.upsertCatalogInterest(item.id, member.user.id, 'Keep the public item I selected.');
+  await repo.updateCatalogItem(item.id, {
+    kind: 'resource', status: 'draft', visibility: 'public',
+    translations: { en: { title: 'UNPUBLISHED EDITORIAL SECRET', summary: '', body: '', cta: '' } },
+    organization: 'Internal planning', sourceLabel: 'Not verified', actionMode: 'none', actionUrl: '',
+  }, item.version, admin.id);
+
+  const response = await fetch(`${base}/api/me/catalog-interests?lang=en`, { headers: { Cookie: member.cookie } });
+  const serialized = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.equal(serialized.includes('UNPUBLISHED EDITORIAL SECRET'), false);
+  assert.equal(JSON.parse(serialized).interests[0].item, null);
+});
+
 test('DELETE interest requires existing owned history but permits withdrawal after catalog eligibility changes', async (t) => {
   // Fabricating a withdrawn result or reusing PUT eligibility for historical withdrawal must fail this test.
   const { db, repo, base } = await bootCatalogApp(t);
