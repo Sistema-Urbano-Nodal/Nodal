@@ -51,7 +51,7 @@ test('GET /api/catalog validates query values and filters localized visible reco
   const membersItem = await repo.createCatalogItem(completeItem({ visibility: 'members', location: 'Bogotá', topics: ['Water'] }), admin.id);
   const expiredItem = await repo.createCatalogItem(completeItem({ deadlineAt: '2000-01-01T00:00:00.000Z', location: 'Lima' }), admin.id);
 
-  for (const suffix of ['?kind=unknown', '?state=soon', '?limit=0', '?limit=25', '?featured=yes', '?cursor=not-a-cursor', '?unknown=value']) {
+  for (const suffix of ['?kind=unknown', '?state=soon', '?limit=0', '?limit=25', '?featured=yes', '?cursor=not-a-cursor', '?unknown=value', '?lang=', '?state=']) {
     assert.equal((await fetch(`${base}/api/catalog${suffix}`)).status, 400, suffix);
   }
 
@@ -78,6 +78,27 @@ test('GET /api/catalog validates query values and filters localized visible reco
   const memberListed = await fetch(`${base}/api/catalog?state=all`, { headers: { Cookie: cookie } });
   assert.equal(memberListed.headers.get('cache-control'), 'no-store');
   assert.ok((await memberListed.json()).items.some((item) => item.id === membersItem.id));
+});
+
+test('catalog cache headers partition anonymous reads and treat unresolved cookies as private', async (t) => {
+  // Dropping the Vary partition or treating an invalid session cookie as anonymous cacheable must fail this test.
+  const { db, repo, base } = await bootCatalogApp(t);
+  const admin = createUser(db, { fullName: 'Catalog Admin', email: 'admin@example.test', passwordHash: 'hash', role: 'admin' });
+  const item = await repo.createCatalogItem(completeItem(), admin.id);
+  const anonymous = await fetch(`${base}/api/catalog`);
+  const etag = anonymous.headers.get('etag');
+  assert.equal(anonymous.headers.get('cache-control'), 'public, max-age=60, stale-while-revalidate=60');
+  assert.equal(anonymous.headers.get('vary'), 'Cookie');
+  const unchanged = await fetch(`${base}/api/catalog`, { headers: { 'If-None-Match': etag } });
+  assert.equal(unchanged.status, 304);
+  assert.equal(unchanged.headers.get('cache-control'), 'public, max-age=60, stale-while-revalidate=60');
+  assert.equal(unchanged.headers.get('vary'), 'Cookie');
+  const staleCookie = await fetch(`${base}/api/catalog`, { headers: { Cookie: 'nodal_session=expired-or-invalid' } });
+  assert.equal(staleCookie.headers.get('cache-control'), 'no-store');
+  assert.equal(staleCookie.headers.get('etag'), null);
+  const staleCookieDetail = await fetch(`${base}/api/catalog/${item.id}`, { headers: { Cookie: 'nodal_session=expired-or-invalid' } });
+  assert.equal(staleCookieDetail.headers.get('cache-control'), 'no-store');
+  assert.equal(staleCookieDetail.headers.get('etag'), null);
 });
 
 test('GET /api/catalog/:id uses stable cursors and never discloses invisible records', async (t) => {
@@ -168,6 +189,39 @@ test('catalog interest writes are member-owned, same-origin, idempotent, and his
   const secondCookie = (await (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'member@example.test', password: 'correct-horse' }) })).headers.get('set-cookie')).split(';')[0];
   const limited = await fetch(`${base}/api/catalog/${interestItem.id}/interest`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: secondCookie }, body: JSON.stringify({ message: 'same account, new session' }) });
   assert.equal(limited.status, 429);
+});
+
+test('DELETE interest requires existing owned history but permits withdrawal after catalog eligibility changes', async (t) => {
+  // Fabricating a withdrawn result or reusing PUT eligibility for historical withdrawal must fail this test.
+  const { db, repo, base } = await bootCatalogApp(t);
+  const admin = createUser(db, { fullName: 'Catalog Admin', email: 'admin@example.test', passwordHash: 'hash', role: 'admin' });
+  const item = await repo.createCatalogItem(completeItem({ actionMode: 'interest', actionUrl: '' }), admin.id);
+  const member = await signup(base);
+  const remove = () => fetch(`${base}/api/catalog/${item.id}/interest`, { method: 'DELETE', headers: { Cookie: member.cookie } });
+  assert.equal((await remove()).status, 404);
+  await repo.upsertCatalogInterest(item.id, member.user.id, 'I am already interested.');
+  db.prepare("UPDATE catalog_items SET status = 'archived', action_mode = 'none', deadline_at = '2000-01-01T00:00:00.000Z' WHERE id = ?").run(item.id);
+  const withdrawn = await remove();
+  assert.equal(withdrawn.status, 200);
+  assert.deepEqual(await withdrawn.json(), { interest: { itemId: item.id, status: 'withdrawn', message: 'I am already interested.' } });
+  const firstWithdrawal = await repo.getCatalogInterest(item.id, member.user.id);
+  assert.equal((await remove()).status, 200);
+  const repeatedWithdrawal = await repo.getCatalogInterest(item.id, member.user.id);
+  assert.equal(repeatedWithdrawal.version, firstWithdrawal.version);
+  assert.equal(repeatedWithdrawal.updatedAt, firstWithdrawal.updatedAt);
+});
+
+test('repeating an identical SQLite interest PUT preserves the active resource version and timestamp', async (t) => {
+  // An unconditional upsert update turns transport retries into avoidable optimistic-lock conflicts.
+  const { db, repo } = await bootCatalogApp(t);
+  const admin = createUser(db, { fullName: 'Catalog Admin', email: 'admin@example.test', passwordHash: 'hash', role: 'admin' });
+  const member = createUser(db, { fullName: 'Catalog Member', email: 'member@example.test', passwordHash: 'hash' });
+  const item = await repo.createCatalogItem(completeItem({ actionMode: 'interest', actionUrl: '' }), admin.id);
+  const first = await repo.upsertCatalogInterest(item.id, member.id, 'Same message');
+  const repeated = await repo.upsertCatalogInterest(item.id, member.id, 'Same message');
+  assert.equal(repeated.id, first.id);
+  assert.equal(repeated.version, first.version);
+  assert.equal(repeated.updatedAt, first.updatedAt);
 });
 
 test('admin catalog APIs are server-authorized, versioned, and keep the interest queue private', async (t) => {

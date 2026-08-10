@@ -709,3 +709,56 @@ test('Supabase rejects invalid cursors before issuing a catalog request', async 
   await assert.rejects(repo.listCatalogItems({ cursor }, null), /cursor/i);
   assert.equal(requests, 0);
 });
+
+test('Supabase preserves an identical active interest without issuing a PATCH', async () => {
+  // A retry of the same PUT must not advance version/audit state or generate an admin conflict.
+  const item = {
+    id: 'catalog-1', kind: 'resource', subtype: null, status: 'published', visibility: 'public',
+    translations: { en: { title: 'Guide', summary: 'Summary', body: 'Body', cta: 'Read' } }, organization: 'NODAL', location: '', topics: [],
+    action_mode: 'interest', action_url: '', featured: false, version: 1, deadline_at: '2030-05-20T00:00:00.000Z', published_at: '2030-05-01T00:00:00.000Z',
+  };
+  const interest = {
+    id: 'interest-1', item_id: item.id, user_id: TEST_USER_ID, message: 'Same message', status: 'new', version: 4,
+    created_at: '2030-05-01T00:00:00.000Z', updated_at: '2030-05-02T00:00:00.000Z', updated_by: TEST_USER_ID,
+  };
+  let patched = false;
+  const repo = createSupabaseRepository({
+    env: testEnv(),
+    fetchImpl: async (rawUrl, options) => {
+      const url = new URL(rawUrl);
+      if (url.pathname.endsWith('/catalog_items') && options.method === 'GET') return response([item]);
+      if (url.pathname.endsWith('/catalog_interests') && options.method === 'GET') return response([interest]);
+      if (url.pathname.endsWith('/catalog_interests') && options.method === 'PATCH') { patched = true; return response([{ ...interest, version: 5 }]); }
+      throw new Error(`unexpected request ${options.method} ${url.pathname}`);
+    },
+  });
+  const repeated = await repo.upsertCatalogInterest(item.id, TEST_USER_ID, 'Same message');
+  assert.equal(repeated.version, 4);
+  assert.equal(repeated.updatedAt, '2030-05-02T00:00:00.000Z');
+  assert.equal(patched, false);
+});
+
+test('Supabase admin interest update distinguishes a missing ID from a stale version before PATCH', async () => {
+  // Treating both empty conditional patches as conflicts gives missing records the wrong HTTP status.
+  for (const scenario of [
+    { name: 'missing', current: [], version: 1, expectMissing: true },
+    { name: 'stale', current: [{ id: 'interest-1', item_id: 'catalog-1', user_id: TEST_USER_ID, message: 'Message', status: 'new', version: 2, created_at: '2030-05-01T00:00:00.000Z', updated_at: '2030-05-01T00:00:00.000Z' }], version: 1, expectMissing: false },
+  ]) {
+    let patched = false;
+    const repo = createSupabaseRepository({
+      env: testEnv(),
+      fetchImpl: async (rawUrl, options) => {
+        const url = new URL(rawUrl);
+        if (url.pathname.endsWith('/catalog_interests') && options.method === 'GET') return response(scenario.current);
+        if (url.pathname.endsWith('/catalog_interests') && options.method === 'PATCH') { patched = true; return response([]); }
+        throw new Error(`unexpected request ${options.method} ${url.pathname}`);
+      },
+    });
+    if (scenario.expectMissing) {
+      assert.equal(await repo.updateCatalogInterest('interest-1', { status: 'contacted' }, scenario.version, TEST_USER_ID), null);
+    } else {
+      await assert.rejects(repo.updateCatalogInterest('interest-1', { status: 'contacted' }, scenario.version, TEST_USER_ID), (err) => err.code === 'CATALOG_VERSION_CONFLICT');
+    }
+    assert.equal(patched, false, scenario.name);
+  }
+});

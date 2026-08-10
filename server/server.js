@@ -591,9 +591,11 @@ function boundedQueryText(params, name, max) {
 function catalogQueryFromUrl(params, { admin = false } = {}) {
   const allowed = new Set(['lang', 'kind', 'subtype', 'q', 'topic', 'location', 'featured', 'state', 'cursor', 'limit', ...(admin ? ['status'] : [])]);
   if ([...params.keys()].some((key) => !allowed.has(key))) throw badRequest('catalog query is invalid');
-  const lang = oneQueryValue(params, 'lang') || 'en';
-  if (!['en', 'es', 'pt'].includes(lang)) throw badRequest('lang is invalid');
-  const query = { lang };
+  const lang = oneQueryValue(params, 'lang');
+  if (lang === '') throw badRequest('lang is invalid');
+  const resolvedLang = lang || 'en';
+  if (!['en', 'es', 'pt'].includes(resolvedLang)) throw badRequest('lang is invalid');
+  const query = { lang: resolvedLang };
   const kind = boundedQueryText(params, 'kind', 160);
   if (kind !== undefined) {
     const kinds = kind.split(',').map((part) => part.trim());
@@ -614,9 +616,11 @@ function catalogQueryFromUrl(params, { admin = false } = {}) {
     if (featured !== 'true' && featured !== 'false') throw badRequest('featured is invalid');
     query.featured = featured;
   }
-  const state = oneQueryValue(params, 'state') || (admin ? 'all' : 'open');
-  if (!['open', 'all'].includes(state)) throw badRequest('state is invalid');
-  query.state = state;
+  const state = oneQueryValue(params, 'state');
+  if (state === '') throw badRequest('state is invalid');
+  const resolvedState = state || (admin ? 'all' : 'open');
+  if (!['open', 'all'].includes(resolvedState)) throw badRequest('state is invalid');
+  query.state = resolvedState;
   const cursor = oneQueryValue(params, 'cursor');
   if (cursor !== undefined) {
     try { decodeCatalogCursor(cursor); } catch { throw badRequest('catalog cursor is invalid'); }
@@ -803,6 +807,7 @@ export function createApp({
         ? await repository.resolveSession(req)
         : { user: null, cookies: [] };
       const sessionUser = session.user;
+      const catalogReadIsPrivate = Boolean(sessionUser || req.headers.cookie);
       if (session.cookies?.length) res.setHeader('Set-Cookie', session.cookies);
 
       if (!pathname.startsWith('/api/')) {
@@ -834,22 +839,23 @@ export function createApp({
           items: result.items.map((item) => catalogPublicProjection(item, query.lang)),
           nextCursor: result.nextCursor,
         };
-        if (sessionUser) { send(res, 200, payload); return; }
+        if (catalogReadIsPrivate) { send(res, 200, payload); return; }
         const serialized = JSON.stringify(payload);
         const etag = entityTag(serialized);
         if (req.headers['if-none-match'] === etag) {
-          res.writeHead(304, securityHeaders({ ETag: etag, 'Cache-Control': CATALOG_PUBLIC_CACHE_CONTROL }));
+          res.writeHead(304, securityHeaders({ ETag: etag, Vary: 'Cookie', 'Cache-Control': CATALOG_PUBLIC_CACHE_CONTROL }));
           res.end();
           return;
         }
-        send(res, 200, serialized, { ETag: etag, 'Cache-Control': CATALOG_PUBLIC_CACHE_CONTROL, 'Content-Type': 'application/json; charset=utf-8' });
+        send(res, 200, serialized, { ETag: etag, Vary: 'Cookie', 'Cache-Control': CATALOG_PUBLIC_CACHE_CONTROL, 'Content-Type': 'application/json; charset=utf-8' });
         return;
       }
 
       let catalogMatch = pathname.match(/^\/api\/catalog\/([a-z0-9-]{1,40})$/);
       if (useDb && req.method === 'GET' && catalogMatch) {
-        const lang = oneQueryValue(url.searchParams, 'lang') || 'en';
-        if (!['en', 'es', 'pt'].includes(lang) || [...url.searchParams.keys()].some((key) => key !== 'lang')) throw badRequest('catalog detail query is invalid');
+        const suppliedLang = oneQueryValue(url.searchParams, 'lang');
+        const lang = suppliedLang || 'en';
+        if (suppliedLang === '' || !['en', 'es', 'pt'].includes(lang) || [...url.searchParams.keys()].some((key) => key !== 'lang')) throw badRequest('catalog detail query is invalid');
         const item = await repository.getCatalogItem(catalogMatch[1], catalogViewer(sessionUser));
         if (!item) { send(res, 404, { error: 'catalog item not found' }); return; }
         let interestStatus;
@@ -857,15 +863,15 @@ export function createApp({
           interestStatus = (await repository.getCatalogInterest(item.id, sessionUser.id))?.status ?? null;
         }
         const payload = { item: catalogPublicProjection(item, lang, sessionUser ? { interestStatus } : {}) };
-        if (sessionUser) { send(res, 200, payload); return; }
+        if (catalogReadIsPrivate) { send(res, 200, payload); return; }
         const serialized = JSON.stringify(payload);
         const etag = entityTag(serialized);
         if (req.headers['if-none-match'] === etag) {
-          res.writeHead(304, securityHeaders({ ETag: etag, 'Cache-Control': CATALOG_PUBLIC_CACHE_CONTROL }));
+          res.writeHead(304, securityHeaders({ ETag: etag, Vary: 'Cookie', 'Cache-Control': CATALOG_PUBLIC_CACHE_CONTROL }));
           res.end();
           return;
         }
-        send(res, 200, serialized, { ETag: etag, 'Cache-Control': CATALOG_PUBLIC_CACHE_CONTROL, 'Content-Type': 'application/json; charset=utf-8' });
+        send(res, 200, serialized, { ETag: etag, Vary: 'Cookie', 'Cache-Control': CATALOG_PUBLIC_CACHE_CONTROL, 'Content-Type': 'application/json; charset=utf-8' });
         return;
       }
 
@@ -889,7 +895,9 @@ export function createApp({
           return;
         }
         const existing = await repository.getCatalogInterest(itemId, sessionUser.id);
-        await repository.withdrawCatalogInterest(itemId, sessionUser.id);
+        if (!existing) { send(res, 404, { error: 'catalog interest not found' }); return; }
+        const withdrawn = existing.status === 'withdrawn' || await repository.withdrawCatalogInterest(itemId, sessionUser.id);
+        if (!withdrawn) { send(res, 404, { error: 'catalog interest not found' }); return; }
         send(res, 200, { interest: {
           itemId,
           status: 'withdrawn',

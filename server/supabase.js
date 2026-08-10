@@ -861,6 +861,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
           body: [{ item_id: itemId, user_id: userId, message: cleanMessage, status: 'new', updated_by: userId }],
         })));
       }
+      if (existing.status === 'new' && existing.message === cleanMessage) return existing;
       const row = await first(admin.rest('catalog_interests', {
         method: 'PATCH',
         query: { id: `eq.${existing.id}`, version: `eq.${existing.version}` },
@@ -875,6 +876,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         query: { item_id: `eq.${itemId}`, user_id: `eq.${userId}`, select: '*' },
       })));
       if (!existing) return false;
+      if (existing.status === 'withdrawn') return true;
       const row = await first(admin.rest('catalog_interests', {
         method: 'PATCH',
         query: { id: `eq.${existing.id}`, version: `eq.${existing.version}` },
@@ -911,11 +913,14 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     async updateCatalogInterest(id, patch = {}, version, actorId) {
       const status = String(patch.status ?? '').trim();
       if (!['new', 'contacted', 'closed', 'withdrawn'].includes(status)) throw new Error('interest status is invalid');
+      const current = await this.getCatalogInterestById(id);
+      if (!current) return null;
+      if (Number(version) !== current.version) throw catalogConflict();
       const row = await first(admin.rest('catalog_interests', {
         method: 'PATCH',
-        query: { id: `eq.${id}`, version: `eq.${Number(version)}` },
+        query: { id: `eq.${id}`, version: `eq.${current.version}` },
         headers: { Prefer: 'return=representation' },
-        body: { status, version: Number(version) + 1, updated_by: actorId },
+        body: { status, version: current.version + 1, updated_by: actorId },
       }));
       if (!row) throw catalogConflict();
       return catalogInterestFromSupabase(row);

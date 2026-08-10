@@ -666,10 +666,11 @@ export function upsertCatalogInterest(db, itemId, userId, message) {
   const item = getCatalogItem(db, itemId, { id: userId, permission: 'member' });
   if (!item || item.actionMode !== 'interest') throw Object.assign(new Error('catalog item does not accept interest'), { status: 404 });
   const cleanMessage = validateCatalogInterestMessage(message);
+  const existing = db.prepare('SELECT * FROM catalog_interests WHERE item_id = ? AND user_id = ?').get(itemId, userId);
+  if (existing?.status === 'new' && existing.message === cleanMessage) return catalogInterestFromRow(existing);
   const now = nowIso();
   db.exec('BEGIN');
   try {
-    const existing = db.prepare('SELECT * FROM catalog_interests WHERE item_id = ? AND user_id = ?').get(itemId, userId);
     if (existing) {
       db.prepare('UPDATE catalog_interests SET message = ?, status = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?')
         .run(cleanMessage, 'new', now, userId, existing.id);
@@ -687,6 +688,9 @@ export function upsertCatalogInterest(db, itemId, userId, message) {
 }
 
 export function withdrawCatalogInterest(db, itemId, userId) {
+  const existing = db.prepare('SELECT status FROM catalog_interests WHERE item_id = ? AND user_id = ?').get(itemId, userId);
+  if (!existing) return false;
+  if (existing.status === 'withdrawn') return true;
   const result = db.prepare('UPDATE catalog_interests SET status = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE item_id = ? AND user_id = ?')
     .run('withdrawn', nowIso(), userId, itemId, userId);
   return result.changes > 0;
