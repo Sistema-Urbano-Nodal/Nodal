@@ -670,3 +670,42 @@ test('Supabase null-deadline cursors continue locally without constructing inval
   const result = await repo.listCatalogItems({ cursor, limit: 1, state: 'all' }, null);
   assert.deepEqual(result.items.map((item) => item.id), ['catalog-1']);
 });
+
+test('Supabase stops after the page boundary when no local filter needs more rows', async () => {
+  const rows = Array.from({ length: 25 }, (_, index) => ({
+    id: `catalog-${index}`, kind: 'resource', subtype: null, status: 'published', visibility: 'public',
+    translations: { en: { title: `Item ${index}`, summary: '', body: '', cta: '' } }, organization: 'NODAL', location: '', topics: [],
+    action_mode: 'none', action_url: '', featured: false, version: 1, deadline_at: '2030-05-20T00:00:00.000Z', published_at: '2030-05-01T00:00:00.000Z',
+  }));
+  let requests = 0;
+  const repo = createSupabaseRepository({
+    env: testEnv(),
+    fetchImpl: async (rawUrl, options) => {
+      const url = new URL(rawUrl);
+      if (url.pathname.endsWith('/catalog_items') && options.method === 'GET') {
+        requests += 1;
+        if (requests > 1) throw new Error('listing fetched past its limit + 1 boundary');
+        return response(rows);
+      }
+      throw new Error(`unexpected request ${options.method} ${url.pathname}`);
+    },
+  });
+  const result = await repo.listCatalogItems({ limit: 1, state: 'all' }, null);
+  assert.equal(result.items.length, 1);
+  assert.ok(result.nextCursor);
+  assert.equal(requests, 1);
+});
+
+test('Supabase rejects invalid cursors before issuing a catalog request', async () => {
+  let requests = 0;
+  const repo = createSupabaseRepository({
+    env: testEnv(),
+    fetchImpl: async () => {
+      requests += 1;
+      return response([]);
+    },
+  });
+  const cursor = Buffer.from(JSON.stringify([1, '2030-02-30T00:00:00.000Z', '2030-05-01T00:00:00.000Z', 'catalog-1']), 'utf8').toString('base64url');
+  await assert.rejects(repo.listCatalogItems({ cursor }, null), /cursor/i);
+  assert.equal(requests, 0);
+});

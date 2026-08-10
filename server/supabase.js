@@ -373,6 +373,16 @@ function catalogListQuery(query = {}, viewer = null, { offset = 0, batchSize = 2
   return { query: out, limit };
 }
 
+function matchesCatalogList(item, query, cursor) {
+  if (query.state !== 'all' && isCatalogItemClosed(item)) return false;
+  if (query.q) {
+    const term = String(query.q).trim().toLowerCase();
+    if (term && !Object.values(item.translations)
+      .some((translation) => [translation.title, translation.summary, translation.body].join(' ').toLowerCase().includes(term))) return false;
+  }
+  return !cursor || compareCatalogTuples(catalogSortTuple(item), cursor) > 0;
+}
+
 function catalogItemPayload(input, actorId, { version, publishedAt = null, publishedBy = null } = {}) {
   const item = input.status === 'published' ? validateCatalogPublication(input) : validateCatalogDraft(input);
   const now = nowIso();
@@ -784,27 +794,21 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     },
     async listCatalogItems(query = {}, viewer = null) {
       const batchSize = 25;
+      const cursor = query.cursor ? decodeCatalogCursor(query.cursor) : null;
+      const { limit } = catalogListQuery(query, viewer, { batchSize });
       let offset = 0;
       let rows;
-      let items = [];
-      let limit;
+      const items = [];
       do {
         const options = catalogListQuery(query, viewer, { offset, batchSize });
-        limit = options.limit;
         rows = await admin.rest('catalog_items', { query: options.query });
-        items.push(...rows.map(catalogItemFromSupabase));
+        for (const item of rows.map(catalogItemFromSupabase)) {
+          if (!matchesCatalogList(item, query, cursor)) continue;
+          items.push(item);
+          if (items.length >= limit + 1) break;
+        }
         offset += rows.length;
-      } while (rows.length === batchSize);
-      if (query.state !== 'all') items = items.filter((item) => !isCatalogItemClosed(item));
-      if (query.q) {
-        const term = String(query.q).trim().toLowerCase();
-        if (term) items = items.filter((item) => Object.values(item.translations)
-          .some((translation) => [translation.title, translation.summary, translation.body].join(' ').toLowerCase().includes(term)));
-      }
-      const cursor = query.cursor ? decodeCatalogCursor(query.cursor) : null;
-      items = items
-        .sort((left, right) => compareCatalogTuples(catalogSortTuple(left), catalogSortTuple(right)))
-        .filter((item) => !cursor || compareCatalogTuples(catalogSortTuple(item), cursor) > 0);
+      } while (rows.length === batchSize && items.length < limit + 1);
       const page = items.slice(0, limit);
       return {
         items: page,

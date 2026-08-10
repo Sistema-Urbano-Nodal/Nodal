@@ -72,6 +72,7 @@ test('invalid JSON catalog data and cursor values fail closed', () => {
   assert.throws(() => decodeCatalogCursor('not-a-cursor'), /cursor/i);
   assert.throws(() => decodeCatalogCursor(Buffer.from('{"featured":true}', 'utf8').toString('base64url')), /cursor/i);
   assert.throws(() => decodeCatalogCursor(Buffer.from(JSON.stringify([1, 'not-a-date', '2030-05-01T00:00:00.000Z', 'item-1']), 'utf8').toString('base64url')), /cursor/i);
+  assert.throws(() => decodeCatalogCursor(Buffer.from(JSON.stringify([1, '2030-02-30T00:00:00.000Z', '2030-05-01T00:00:00.000Z', 'item-1']), 'utf8').toString('base64url')), /cursor/i);
   assert.throws(() => decodeCatalogCursor(Buffer.from(JSON.stringify([1, '2030-05-20T00:00:00.000Z', '2030-05-01T00:00:00.000Z', 'item/1']), 'utf8').toString('base64url')), /cursor/i);
   assert.deepEqual(decodeCatalogCursor(encodeCatalogCursor([1, '2030-05-20T00:00:00.000Z', '2030-05-01T00:00:00.000Z', 'item-1'])), [1, '2030-05-20T00:00:00.000Z', '2030-05-01T00:00:00.000Z', 'item-1']);
 });
@@ -142,9 +143,14 @@ test('SQLite catalog listing is deterministic, paginates without duplicates, and
 test('SQLite administrator listing honours the requested catalog status', async (t) => {
   const { repo, admin } = sqliteCatalogRepo(t);
   const draft = await repo.createCatalogItem({ kind: 'resource', status: 'draft', translations: { en: { title: 'Draft only' } } }, admin.id);
+  const nextDraft = await repo.createCatalogItem({ kind: 'resource', status: 'draft', translations: { en: { title: 'Second draft' } } }, admin.id);
   const published = await repo.createCatalogItem(completeCatalogInput({ actionMode: 'none', actionUrl: '' }), admin.id);
-  const result = await repo.listCatalogItems({ status: 'draft', state: 'all' }, { id: admin.id, permission: 'admin' });
-  assert.deepEqual(result.items.map((item) => item.id), [draft.id]);
+  const result = await repo.listCatalogItems({ status: 'draft', state: 'all', limit: 1 }, { id: admin.id, permission: 'admin' });
+  assert.equal(result.items.length, 1);
+  assert.ok([draft.id, nextDraft.id].includes(result.items[0].id));
+  const continuation = await repo.listCatalogItems({ status: 'draft', state: 'all', limit: 1, cursor: result.nextCursor }, { id: admin.id, permission: 'admin' });
+  assert.equal(continuation.items.length, 1);
+  assert.notEqual(continuation.items[0].id, result.items[0].id);
   assert.notEqual(draft.id, published.id);
 });
 

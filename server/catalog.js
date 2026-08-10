@@ -142,10 +142,14 @@ export function decodeCatalogCursor(value) {
   try {
     const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
     const [featured, deadlineAt, publishedAt, id] = parsed;
-    const validDate = (part) => typeof part === 'string' && part && Number.isFinite(Date.parse(part));
+    const validDate = (part) => {
+      if (typeof part !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(part)) return false;
+      const parsedDate = new Date(part);
+      return Number.isFinite(parsedDate.getTime()) && parsedDate.toISOString() === part;
+    };
     const validId = typeof id === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id);
     if (!Array.isArray(parsed) || parsed.length !== 4 || ![0, 1].includes(featured)
-      || !(deadlineAt === '\uffff' || validDate(deadlineAt)) || !validDate(publishedAt) || !validId) {
+      || !(deadlineAt === '\uffff' || validDate(deadlineAt)) || !(publishedAt === '' || validDate(publishedAt)) || !validId) {
       throw new Error('catalog cursor is invalid');
     }
     return parsed;
