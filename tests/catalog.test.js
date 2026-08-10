@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   decodeCatalogCursor,
+  decodeCatalogInterestCursor,
   encodeCatalogCursor,
+  encodeCatalogInterestCursor,
   isCatalogItemClosed,
   localizeCatalogItem,
   validateCatalogDraft,
@@ -26,6 +28,7 @@ function completeCatalogInput(patch = {}) {
     location: 'São Paulo, Brazil',
     topics: ['mobility', 'safety'],
     deadlineAt: '2030-05-20T00:00:00.000Z',
+    sourceLabel: 'Cities for People careers',
     sourceUrl: 'https://cities.example.org/jobs/mobility-lead',
     sourceVerifiedAt: '2030-05-01T00:00:00.000Z',
     actionMode: 'external',
@@ -40,6 +43,7 @@ test('a complete trilingual opportunity publishes as one normalized plain-text r
   assert.equal(record.kind, 'opportunity');
   assert.equal(record.subtype, 'job');
   assert.equal(record.organization, 'Cities for People');
+  assert.equal(record.sourceLabel, 'Cities for People careers');
   assert.equal(record.translations.pt.cta, 'Candidate-se');
   assert.deepEqual(record.topics, ['mobility', 'safety']);
 });
@@ -52,19 +56,42 @@ test('an incomplete draft persists without publication-only fields', () => {
   assert.equal(draft.organization, '');
 });
 
-test('publication rejects missing locale, organization, verified HTTPS source, type field, and action URL', () => {
+test('publication rejects missing locale, organization, verified source metadata, opportunity deadline, type field, and action URL', () => {
   assert.throws(() => validateCatalogPublication(completeCatalogInput({ translations: { en: completeCatalogInput().translations.en, es: completeCatalogInput().translations.es } })), /PT/i);
   assert.throws(() => validateCatalogPublication(completeCatalogInput({ organization: '   ' })), /organization/i);
+  assert.throws(() => validateCatalogPublication(completeCatalogInput({ sourceLabel: '   ' })), /source label/i);
   assert.throws(() => validateCatalogPublication(completeCatalogInput({ sourceUrl: 'http://cities.example.org/source' })), /HTTPS/);
   assert.throws(() => validateCatalogPublication(completeCatalogInput({ sourceVerifiedAt: '' })), /verified/i);
   assert.throws(() => validateCatalogPublication(completeCatalogInput({ subtype: '' })), /subtype/i);
+  assert.throws(() => validateCatalogPublication(completeCatalogInput({ deadlineAt: '' })), /deadline/i);
   assert.throws(() => validateCatalogPublication(completeCatalogInput({ actionMode: 'external', actionUrl: 'http://example.test/apply' })), /HTTPS/);
 });
 
 test('catalog field limits and plain text requirements are enforced', () => {
   assert.throws(() => validateCatalogDraft(completeCatalogInput({ translations: { en: { title: 'x'.repeat(121) } } })), /120/);
   assert.throws(() => validateCatalogDraft(completeCatalogInput({ topics: Array.from({ length: 9 }, (_, i) => `topic-${i}`) })), /8/);
+  assert.throws(() => validateCatalogDraft(completeCatalogInput({ sourceLabel: 'x'.repeat(121) })), /120/);
   assert.throws(() => validateCatalogDraft(completeCatalogInput({ translations: { en: { title: '<b>Unsafe</b>' } } })), /plain text/i);
+});
+
+test('catalog dates accept only canonical dates or timezone-bearing RFC3339 and enforce chronology', () => {
+  const normalized = validateCatalogDraft(completeCatalogInput({
+    startsAt: '2030-05-21T09:00:00-03:00',
+    deadlineAt: '2030-05-20',
+    endDate: '2030-05-22',
+    sourceVerifiedAt: '2030-05-01',
+  }));
+  assert.equal(normalized.startsAt, '2030-05-21T12:00:00.000Z');
+  assert.equal(normalized.deadlineAt, '2030-05-20T00:00:00.000Z');
+  assert.equal(normalized.endDate, '2030-05-22T23:59:59.999Z');
+  assert.equal(normalized.sourceVerifiedAt, '2030-05-01T00:00:00.000Z');
+
+  for (const value of ['next Thursday', '05/20/2030', '2030-02-30', '2030-05-20T12:00:00', '2030-05-20 12:00:00Z']) {
+    assert.throws(() => validateCatalogDraft(completeCatalogInput({ deadlineAt: value })), /deadlineAt.*valid/i, value);
+  }
+  assert.throws(() => validateCatalogDraft(completeCatalogInput({ deadlineAt: '2030-05-22', startsAt: '2030-05-21' })), /deadline.*start/i);
+  assert.throws(() => validateCatalogDraft(completeCatalogInput({ startsAt: '2030-05-23', endDate: '2030-05-22' })), /start.*end/i);
+  assert.throws(() => validateCatalogDraft(completeCatalogInput({ deadlineAt: '2030-05-23', endDate: '2030-05-22' })), /deadline.*end/i);
 });
 
 test('invalid JSON catalog data and cursor values fail closed', () => {
@@ -75,6 +102,12 @@ test('invalid JSON catalog data and cursor values fail closed', () => {
   assert.throws(() => decodeCatalogCursor(Buffer.from(JSON.stringify([1, '2030-02-30T00:00:00.000Z', '2030-05-01T00:00:00.000Z', 'item-1']), 'utf8').toString('base64url')), /cursor/i);
   assert.throws(() => decodeCatalogCursor(Buffer.from(JSON.stringify([1, '2030-05-20T00:00:00.000Z', '2030-05-01T00:00:00.000Z', 'item/1']), 'utf8').toString('base64url')), /cursor/i);
   assert.deepEqual(decodeCatalogCursor(encodeCatalogCursor([1, '2030-05-20T00:00:00.000Z', '2030-05-01T00:00:00.000Z', 'item-1'])), [1, '2030-05-20T00:00:00.000Z', '2030-05-01T00:00:00.000Z', 'item-1']);
+  assert.throws(() => decodeCatalogInterestCursor('not-a-cursor'), /cursor/i);
+  assert.throws(() => decodeCatalogInterestCursor(Buffer.from(JSON.stringify(['2030-02-30T00:00:00.000Z', 'interest-1'])).toString('base64url')), /cursor/i);
+  assert.deepEqual(
+    decodeCatalogInterestCursor(encodeCatalogInterestCursor(['2030-05-01T00:00:00.000Z', 'interest-1'])),
+    ['2030-05-01T00:00:00.000Z', 'interest-1'],
+  );
 });
 
 test('localization exposes only the requested visitor fields', () => {
@@ -105,6 +138,7 @@ function sqliteCatalogRepo(t) {
 test('SQLite forward migration creates catalog tables and versioned item writes reject stale updates', async (t) => {
   const { db, repo, admin } = sqliteCatalogRepo(t);
   assert.equal(db.prepare('SELECT version FROM schema_migrations WHERE version = 6').get().version, 6);
+  assert.equal(db.prepare('SELECT version FROM schema_migrations WHERE version = 7').get().version, 7);
   const created = await repo.createCatalogItem(completeCatalogInput({ actionMode: 'interest', actionUrl: '', deadlineAt: '2030-05-20T00:00:00.000Z' }), admin.id);
   assert.equal(created.version, 1);
   const updated = await repo.updateCatalogItem(created.id, { ...created, featured: false }, 1, admin.id);
@@ -113,6 +147,48 @@ test('SQLite forward migration creates catalog tables and versioned item writes 
     repo.updateCatalogItem(created.id, { ...updated, featured: true }, 1, admin.id),
     (err) => err.code === 'CATALOG_VERSION_CONFLICT',
   );
+});
+
+test('SQLite refreshes publication audit metadata only when a record transitions into published', async (t) => {
+  const { db, repo, admin } = sqliteCatalogRepo(t);
+  const publisher = createUser(db, { fullName: 'Second Publisher', email: 'publisher@example.test', passwordHash: 'hash', role: 'admin' });
+  const created = await repo.createCatalogItem(completeCatalogInput({ actionMode: 'none', actionUrl: '' }), admin.id);
+  const originalPublishedAt = created.publishedAt;
+  const edited = await repo.updateCatalogItem(created.id, { ...created, featured: false }, created.version, publisher.id);
+  assert.equal(edited.publishedAt, originalPublishedAt);
+  assert.equal(edited.publishedBy, admin.id);
+
+  const archived = await repo.updateCatalogItem(edited.id, { ...edited, status: 'archived' }, edited.version, publisher.id);
+  db.prepare("UPDATE catalog_items SET published_at = '2000-01-01T00:00:00.000Z' WHERE id = ?").run(created.id);
+  const republished = await repo.updateCatalogItem(archived.id, { ...archived, status: 'published' }, archived.version, publisher.id);
+  assert.notEqual(republished.publishedAt, '2000-01-01T00:00:00.000Z');
+  assert.equal(republished.publishedBy, publisher.id);
+  const publishedEdit = await repo.updateCatalogItem(republished.id, { ...republished, featured: true }, republished.version, admin.id);
+  assert.equal(publishedEdit.publishedAt, republished.publishedAt);
+  assert.equal(publishedEdit.publishedBy, publisher.id);
+});
+
+test('SQLite catalog query searches translated and operational fields with case-insensitive topics', async (t) => {
+  const { repo, admin } = sqliteCatalogRepo(t);
+  const item = await repo.createCatalogItem(completeCatalogInput({
+    organization: 'Andean Streets Alliance', location: 'Cusco Territory', topics: ['Safe Mobility'], actionMode: 'none', actionUrl: '',
+  }), admin.id);
+  for (const query of [
+    { q: 'andean streets' }, { q: 'cusco territory' }, { q: 'safe mobility' }, { q: 'work with city partners' }, { topic: 'SAFE MOBILITY' },
+  ]) {
+    const result = await repo.listCatalogItems({ ...query, state: 'all' }, null);
+    assert.deepEqual(result.items.map((row) => row.id), [item.id], JSON.stringify(query));
+  }
+});
+
+test('canonical offset deadlines continue through SQLite catalog cursors without duplicates', async (t) => {
+  const { repo, admin } = sqliteCatalogRepo(t);
+  const firstItem = await repo.createCatalogItem(completeCatalogInput({ deadlineAt: '2030-05-20T09:00:00-03:00', actionMode: 'none', actionUrl: '' }), admin.id);
+  const secondItem = await repo.createCatalogItem(completeCatalogInput({ deadlineAt: '2030-05-20T13:00:00Z', actionMode: 'none', actionUrl: '' }), admin.id);
+  assert.equal(firstItem.deadlineAt, '2030-05-20T12:00:00.000Z');
+  const first = await repo.listCatalogItems({ state: 'all', limit: 1 }, null);
+  const second = await repo.listCatalogItems({ state: 'all', limit: 1, cursor: first.nextCursor }, null);
+  assert.deepEqual([first.items[0].id, second.items[0].id], [firstItem.id, secondItem.id]);
 });
 
 test('SQLite rejects values outside the member/admin role invariant', (t) => {
@@ -175,6 +251,36 @@ test('SQLite interests reopen idempotently, withdraw historically, and admin cha
     repo.updateCatalogInterest(reopened.id, { status: 'closed' }, reopened.version, admin.id),
     (err) => err.code === 'CATALOG_VERSION_CONFLICT',
   );
+});
+
+test('SQLite interest lists paginate deterministically and attach catalog context without public visibility checks', async (t) => {
+  const { db, repo, admin, member } = sqliteCatalogRepo(t);
+  const records = [];
+  for (let index = 0; index < 3; index += 1) {
+    const item = await repo.createCatalogItem(completeCatalogInput({
+      visibility: 'members', actionMode: 'interest', actionUrl: '',
+      translations: {
+        ...completeCatalogInput().translations,
+        en: { ...completeCatalogInput().translations.en, title: `Owned ${index}` },
+      },
+    }), admin.id);
+    const interest = await repo.upsertCatalogInterest(item.id, member.id, `Message ${index}`);
+    db.prepare('UPDATE catalog_interests SET updated_at = ? WHERE id = ?').run(`2030-05-0${index + 1}T00:00:00.000Z`, interest.id);
+    records.push({ item, interest });
+  }
+  await repo.updateCatalogItem(records[1].item.id, { ...records[1].item, status: 'archived' }, records[1].item.version, admin.id);
+
+  const mineFirst = await repo.listCatalogInterestsForUser(member.id, { limit: 2 });
+  const mineSecond = await repo.listCatalogInterestsForUser(member.id, { limit: 2, cursor: mineFirst.nextCursor });
+  assert.deepEqual([...mineFirst.interests, ...mineSecond.interests].map((entry) => entry.id), records.map((entry) => entry.interest.id).reverse());
+  assert.equal(mineFirst.interests[1].item.status, 'archived');
+  assert.equal(mineSecond.nextCursor, null);
+
+  const adminFirst = await repo.listAdminInterests({ status: 'new', limit: 2 });
+  const adminSecond = await repo.listAdminInterests({ status: 'new', limit: 2, cursor: adminFirst.nextCursor });
+  assert.deepEqual([...adminFirst.interests, ...adminSecond.interests].map((entry) => entry.id), records.map((entry) => entry.interest.id));
+  assert.equal(adminFirst.interests[0].item.translations.en.title, 'Owned 0');
+  await assert.rejects(repo.listAdminInterests({ cursor: 'invalid' }), /cursor/i);
 });
 
 test('SQLite export includes interests while account deletion cascades interests and preserves item audit history as null', async (t) => {

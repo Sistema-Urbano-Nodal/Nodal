@@ -22,7 +22,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .admin-brand img { width: 178px; height: auto; }
 .admin-brand span { padding: 6px 9px; border: 1px solid rgba(255,255,255,.55); font-size: .66rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
 .admin-topbar nav { display: flex; gap: 18px; align-items: center; }
-.admin-topbar nav a { color: #fff; font-size: .8rem; font-weight: 700; text-underline-offset: 4px; }
+.admin-topbar nav a, .admin-topbar nav button { color: #fff; font-size: .8rem; font-weight: 700; text-underline-offset: 4px; }
+.admin-topbar nav button { padding: 7px 10px; border: 1px solid rgba(255,255,255,.62); background: transparent; cursor: pointer; }
 
 .admin-shell { width: min(1760px, 100%); margin: 0 auto; padding: clamp(24px, 4vw, 64px); }
 .admin-mast { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 440px); gap: 32px; align-items: end; margin-bottom: 28px; }
@@ -66,6 +67,10 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .admin-button-warning { background: var(--coral); color: var(--ink); }
 .admin-button-quiet { background: #fff; color: var(--ink); }
 .admin-live { min-height: 1.3em; color: var(--ink-soft); font-size: .74rem; line-height: 1.5; }
+.admin-field-error { color: #8b2e18; font-weight: 800; }
+.admin-field-error[hidden] { display: none; }
+.admin-more { width: 100%; margin-top: 10px; }
+.admin-more[hidden] { display: none; }
 
 .admin-record-list { min-height: 160px; display: grid; gap: 8px; overflow: auto; padding: 2px 8px 8px 2px; }
 .admin-record { width: 100%; padding: 12px; display: grid; gap: 6px; text-align: left; border: 1.5px solid var(--line); background: #fff; cursor: pointer; }
@@ -104,8 +109,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .admin-inline-filter select { min-width: 190px; }
 .admin-interest-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .admin-interest { padding: 16px; display: grid; gap: 10px; border: 1.5px solid var(--line); background: #fff; }
-.admin-interest h3, .admin-interest p { margin: 0; }
+.admin-interest h3, .admin-interest h4, .admin-interest p { margin: 0; }
 .admin-interest h3 { font-size: .86rem; }
+.admin-interest h4 { padding-top: 8px; border-top: 1px solid var(--line); font-size: .76rem; }
 .admin-interest p, .admin-interest a { color: var(--ink-soft); font-size: .72rem; line-height: 1.55; overflow-wrap: anywhere; }
 .admin-interest-controls { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
 
@@ -118,7 +124,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 
 @media (max-width: 820px) {
   .admin-topbar { position: static; align-items: flex-start; }
-  .admin-topbar nav { display: none; }
+  .admin-topbar nav a { display: none; }
+  #adminSignOut { display: inline-flex; }
   .admin-mast, .admin-workspace { grid-template-columns: 1fr; }
   .admin-index { position: static; max-height: none; }
   .admin-record-list { max-height: 330px; }

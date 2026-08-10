@@ -17,6 +17,7 @@ import { createRepository } from './repository.js';
 import { dataBackend, resolveSupabaseEnv } from './supabase.js';
 import {
   decodeCatalogCursor,
+  decodeCatalogInterestCursor,
   isCatalogItemClosed,
   localizeCatalogItem,
   validateCatalogDraft,
@@ -657,6 +658,7 @@ function catalogPublicProjection(item, lang, { interestStatus } = {}) {
     startsAt: item.startsAt,
     deadlineAt: item.deadlineAt,
     endDate: item.endDate,
+    sourceLabel: item.sourceLabel,
     sourceUrl: item.sourceUrl,
     sourceVerifiedAt: item.sourceVerifiedAt,
     actionMode: item.actionMode,
@@ -684,10 +686,17 @@ function requiredVersion(value) {
 async function adminInterestProjection(repository, interest) {
   if (!interest) return null;
   const user = repository.toApiUser(await repository.getUserById(interest.userId));
+  const item = interest.item || await repository.getCatalogItem(interest.itemId, { permission: 'admin' });
   return {
     id: interest.id,
     version: interest.version,
     member: { name: user?.fullName || '', email: user?.email || '' },
+    item: {
+      itemId: interest.itemId,
+      title: item?.translations?.en?.title || '',
+      kind: item?.kind || '',
+      organization: item?.organization || '',
+    },
     message: interest.message,
     status: interest.status,
   };
@@ -910,11 +919,22 @@ export function createApp({
         if (!requireAuth(res, sessionUser)) return;
         const lang = oneQueryValue(url.searchParams, 'lang') || 'en';
         const limit = oneQueryValue(url.searchParams, 'limit');
-        if (!['en', 'es', 'pt'].includes(lang) || [...url.searchParams.keys()].some((key) => key !== 'lang' && key !== 'limit')) throw badRequest('catalog interests query is invalid');
+        const cursor = oneQueryValue(url.searchParams, 'cursor');
+        if (!['en', 'es', 'pt'].includes(lang) || [...url.searchParams.keys()].some((key) => !['lang', 'limit', 'cursor'].includes(key))) throw badRequest('catalog interests query is invalid');
         if (limit !== undefined && (!/^[1-9]\d*$/.test(limit) || Number(limit) > 24)) throw badRequest('limit is invalid');
-        const result = await repository.listCatalogInterestsForUser(sessionUser.id, { limit: limit === undefined ? undefined : Number(limit) });
+        if (cursor !== undefined) {
+          try { decodeCatalogInterestCursor(cursor); } catch { throw badRequest('interest cursor is invalid'); }
+        }
+        const result = await repository.listCatalogInterestsForUser(sessionUser.id, {
+          limit: limit === undefined ? undefined : Number(limit), cursor,
+        });
         send(res, 200, {
-          interests: result.interests.map((interest) => ({ itemId: interest.itemId, status: interest.status, message: interest.message })),
+          interests: result.interests.map((interest) => ({
+            itemId: interest.itemId,
+            status: interest.status,
+            message: interest.message,
+            item: interest.item ? { ...catalogPublicProjection(interest.item, lang), status: interest.item.status } : null,
+          })),
           nextCursor: result.nextCursor,
         });
         return;
@@ -961,10 +981,14 @@ export function createApp({
         if (!requireAdmin(res, sessionUser)) return;
         const status = oneQueryValue(url.searchParams, 'status');
         const limit = oneQueryValue(url.searchParams, 'limit');
-        if ([...url.searchParams.keys()].some((key) => key !== 'status' && key !== 'limit')) throw badRequest('admin interests query is invalid');
+        const cursor = oneQueryValue(url.searchParams, 'cursor');
+        if ([...url.searchParams.keys()].some((key) => !['status', 'limit', 'cursor'].includes(key))) throw badRequest('admin interests query is invalid');
         if (status !== undefined && !['new', 'contacted', 'closed', 'withdrawn'].includes(status)) throw badRequest('interest status is invalid');
         if (limit !== undefined && (!/^[1-9]\d*$/.test(limit) || Number(limit) > 24)) throw badRequest('limit is invalid');
-        const result = await repository.listAdminInterests({ status, limit: limit === undefined ? undefined : Number(limit) });
+        if (cursor !== undefined) {
+          try { decodeCatalogInterestCursor(cursor); } catch { throw badRequest('interest cursor is invalid'); }
+        }
+        const result = await repository.listAdminInterests({ status, limit: limit === undefined ? undefined : Number(limit), cursor });
         const interests = await Promise.all(result.interests.map((interest) => adminInterestProjection(repository, interest)));
         send(res, 200, { interests, nextCursor: result.nextCursor });
         return;

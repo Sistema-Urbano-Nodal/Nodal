@@ -94,9 +94,12 @@
 
 .illustrative-label { display: inline-block; margin: 1rem 0; padding: 0.45rem 0.65rem; border: 1px solid var(--catalog-green); color: var(--catalog-green); font-size: 0.72rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
 .graph-panel-static { border: 1px solid rgba(255,255,255,0.22); }
-.membership-resources { display: grid; grid-template-columns: 1.3fr 0.7fr; gap: 5rem; }
+.membership-resources { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(220px, .65fr) minmax(300px, 340px); gap: clamp(2rem, 4vw, 5rem); align-items: start; }
 .membership-resources p { color: rgba(255,255,255,0.75); line-height: 1.7; }
 .membership-resources h3 { color: #fff; font-size: 1.65rem; }
+.membership-recommendations { min-width: 0; }
+.membership-recommendations .match-card { color: var(--ink); }
+.membership-recommendations .match-card p { color: var(--ink-2); }
 .link-arrow.light { color: #fff; }
 
 .catalog-page { background: var(--catalog-paper); color: var(--catalog-ink); }

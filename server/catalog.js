@@ -5,7 +5,7 @@ const VISIBILITIES = new Set(['public', 'members']);
 const ACTION_MODES = new Set(['external', 'interest', 'none']);
 const SUPPORTED_LANGS = ['en', 'es', 'pt'];
 
-const LIMITS = { title: 120, summary: 320, body: 5000, cta: 60, organization: 180, location: 180, topic: 60, topics: 8, message: 1000 };
+const LIMITS = { title: 120, summary: 320, body: 5000, cta: 60, sourceLabel: 120, organization: 180, location: 180, topic: 60, topics: 8, message: 1000 };
 
 function plainString(value, name, max, { required = false } = {}) {
   if (value === undefined || value === null) {
@@ -26,11 +26,34 @@ function enumValue(value, name, values, fallback = '') {
   return normalized;
 }
 
-function optionalDate(value, name) {
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/;
+
+function validCalendarDate(year, month, day) {
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+  return candidate.getUTCFullYear() === year && candidate.getUTCMonth() === month - 1 && candidate.getUTCDate() === day;
+}
+
+function optionalDate(value, name, { endOfDay = false } = {}) {
   if (value === undefined || value === null || value === '') return null;
-  const text = String(value).trim();
-  if (!Number.isFinite(Date.parse(text))) throw new Error(`${name} must be a valid date`);
-  return text;
+  if (typeof value !== 'string') throw new Error(`${name} must be a valid date`);
+  const text = value.trim();
+  const dateOnly = DATE_ONLY.exec(text);
+  if (dateOnly) {
+    const [, year, month, day] = dateOnly;
+    if (!validCalendarDate(Number(year), Number(month), Number(day))) throw new Error(`${name} must be a valid date`);
+    return `${text}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}Z`;
+  }
+  const timestamp = RFC3339.exec(text);
+  if (!timestamp) throw new Error(`${name} must be a valid date`);
+  const [, year, month, day, hours, minutes, seconds] = timestamp;
+  if (!validCalendarDate(Number(year), Number(month), Number(day))
+    || Number(hours) > 23 || Number(minutes) > 59 || Number(seconds) > 59) {
+    throw new Error(`${name} must be a valid date`);
+  }
+  const parsed = Date.parse(text);
+  if (!Number.isFinite(parsed)) throw new Error(`${name} must be a valid date`);
+  return new Date(parsed).toISOString();
 }
 
 function httpsUrl(value, name, { required = false } = {}) {
@@ -81,7 +104,7 @@ export function validateCatalogDraft(input = {}) {
   const kind = enumValue(source.kind, 'kind', KINDS, 'resource');
   const subtype = source.subtype === undefined || source.subtype === null || source.subtype === '' ? null : String(source.subtype).trim();
   if (subtype !== null && (!OPPORTUNITY_SUBTYPES.has(subtype) || kind !== 'opportunity')) throw new Error('subtype is invalid');
-  return {
+  const record = {
     kind,
     subtype,
     status: enumValue(source.status, 'status', STATUSES, 'draft'),
@@ -92,13 +115,21 @@ export function validateCatalogDraft(input = {}) {
     topics: normalizeTopics(source.topics),
     startsAt: optionalDate(source.startsAt, 'startsAt'),
     deadlineAt: optionalDate(source.deadlineAt, 'deadlineAt'),
-    endDate: optionalDate(source.endDate, 'endDate'),
+    endDate: optionalDate(source.endDate, 'endDate', { endOfDay: true }),
+    sourceLabel: plainString(source.sourceLabel, 'source label', LIMITS.sourceLabel),
     sourceUrl: httpsUrl(source.sourceUrl, 'source URL'),
     sourceVerifiedAt: optionalDate(source.sourceVerifiedAt, 'source verified date'),
     actionMode: enumValue(source.actionMode, 'action mode', ACTION_MODES, 'none'),
     actionUrl: httpsUrl(source.actionUrl, 'action URL'),
     featured: Boolean(source.featured),
   };
+  const deadline = record.deadlineAt ? Date.parse(record.deadlineAt) : null;
+  const start = record.startsAt ? Date.parse(record.startsAt) : null;
+  const end = record.endDate ? Date.parse(record.endDate) : null;
+  if (deadline !== null && start !== null && deadline > start) throw new Error('deadline must be on or before start');
+  if (start !== null && end !== null && start > end) throw new Error('start must be on or before end');
+  if (deadline !== null && end !== null && deadline > end) throw new Error('deadline must be on or before end');
+  return record;
 }
 
 export function validateCatalogPublication(input = {}) {
@@ -112,9 +143,11 @@ export function validateCatalogPublication(input = {}) {
     }
   }
   if (!record.organization) throw new Error('organization is required');
+  if (!record.sourceLabel) throw new Error('source label is required');
   if (!record.sourceUrl) throw new Error('verified HTTPS source URL is required');
   if (!record.sourceVerifiedAt) throw new Error('source verified date is required');
   if (record.kind === 'opportunity' && !record.subtype) throw new Error('opportunity subtype is required');
+  if (record.kind === 'opportunity' && !record.deadlineAt) throw new Error('opportunity deadline is required');
   if (record.actionMode === 'external' && !record.actionUrl) throw new Error('external action URL is required');
   if (record.actionMode !== 'external' && record.actionUrl) throw new Error('only external actions may have an action URL');
   return record;
@@ -137,25 +170,46 @@ export function encodeCatalogCursor(sortTuple) {
   return Buffer.from(JSON.stringify(sortTuple), 'utf8').toString('base64url');
 }
 
+function validCanonicalTimestamp(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return false;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString() === value;
+}
+
 export function decodeCatalogCursor(value) {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error('catalog cursor is invalid');
   try {
     const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
     const [featured, deadlineAt, publishedAt, id] = parsed;
-    const validDate = (part) => {
-      if (typeof part !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(part)) return false;
-      const parsedDate = new Date(part);
-      return Number.isFinite(parsedDate.getTime()) && parsedDate.toISOString() === part;
-    };
     const validId = typeof id === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id);
     if (!Array.isArray(parsed) || parsed.length !== 4 || ![0, 1].includes(featured)
-      || !(deadlineAt === '\uffff' || validDate(deadlineAt)) || !(publishedAt === '' || validDate(publishedAt)) || !validId) {
+      || !(deadlineAt === '\uffff' || validCanonicalTimestamp(deadlineAt)) || !(publishedAt === '' || validCanonicalTimestamp(publishedAt)) || !validId) {
       throw new Error('catalog cursor is invalid');
     }
     return parsed;
   } catch (err) {
     if (err.message === 'catalog cursor is invalid') throw err;
     throw new Error('catalog cursor is invalid');
+  }
+}
+
+export function encodeCatalogInterestCursor(sortTuple) {
+  if (!Array.isArray(sortTuple) || sortTuple.length !== 2) throw new Error('interest cursor is invalid');
+  return Buffer.from(JSON.stringify(sortTuple), 'utf8').toString('base64url');
+}
+
+export function decodeCatalogInterestCursor(value) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error('interest cursor is invalid');
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+    if (!Array.isArray(parsed) || parsed.length !== 2 || !validCanonicalTimestamp(parsed[0])
+      || typeof parsed[1] !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(parsed[1])) {
+      throw new Error('interest cursor is invalid');
+    }
+    return parsed;
+  } catch (err) {
+    if (err.message === 'interest cursor is invalid') throw err;
+    throw new Error('interest cursor is invalid');
   }
 }
 

@@ -133,10 +133,28 @@ npx supabase db push
 Drafts may be incomplete. Publishing requires all of the following in one save:
 
 - complete title, summary, body, and CTA in EN, ES, and PT;
-- organization and a verified HTTPS source with its verification date;
-- a valid catalog kind, visibility, dates, and opportunity subtype when relevant;
+- organization, a source label, a verified HTTPS source URL, and its verification date;
+- a valid catalog kind and visibility; opportunities require a subtype and deadline;
 - a valid action mode, including an HTTPS action URL for external actions;
-- plain text within the editor limits and no more than eight topics.
+- plain text within the editor limits and no more than eight topics of at most 60 characters each.
+
+Titles are limited to 120 characters, summaries to 320, bodies to 5,000, CTA
+labels to 60, source labels to 120, and interest messages to 1,000. Dates accept
+only YYYY-MM-DD or RFC 3339 datetimes with an explicit timezone. Date-only end
+dates remain open through 23:59:59.999 UTC; every stored date is canonical UTC.
+When dates coexist, deadline must be on or before start and end, and start must
+be on or before end.
+
+A transition from draft or archived to published refreshes the publication timestamp and publisher. Editing an already-published record preserves both values. Archiving keeps the record and its interest history; there is no catalog hard delete.
+
+Catalog HTTP interfaces use same-origin credentials and return `no-store` for
+member and staff data:
+
+- `GET /api/catalog` and `GET /api/catalog/:id?lang=en` return localized published records; list filters include kind, subtype, query, topic, location, featured, state, cursor, and a limit capped at 24.
+- `GET /api/me/catalog-interests?lang=en&cursor=...` returns the signed-in member's localized owned history, including archived items, with deterministic cursor pagination.
+- `PUT|DELETE /api/catalog/:id/interest` creates, reopens, or withdraws the signed-in member's internal interest.
+- `GET|POST /api/admin/catalog` and `PATCH /api/admin/catalog/:id` provide the protected, optimistic-versioned editorial workflow.
+- `GET /api/admin/interests?status=new&cursor=...` and `PATCH /api/admin/interests/:id` provide the protected, paginated review queue.
 
 Before a production release, staff must publish real, sourced, trilingual
 records covering at least one case study, one open opportunity, one project,

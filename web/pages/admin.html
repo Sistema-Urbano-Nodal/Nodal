@@ -21,7 +21,7 @@
     <nav aria-label="Staff navigation">
       <a href="opportunities.html">Public catalog</a>
       <a href="dashboard.html">Member dashboard</a>
-      <a href="login.html">Sign out</a>
+      <button id="adminSignOut" type="button">Sign out</button>
     </nav>
   </header>
 
@@ -34,7 +34,7 @@
       </div>
       <div class="admin-rule" role="note">
         <strong>Publication gate</strong>
-        <span>All three translations, organization, verified HTTPS source, verification date and a valid action are required.</span>
+        <span>All three translations, organization, source label, verified HTTPS source, verification date and a valid action are required. Opportunities also need a deadline.</span>
       </div>
     </header>
 
@@ -57,6 +57,7 @@
         </form>
         <p class="admin-live" id="adminCatalogListStatus" role="status" aria-live="polite">Loading catalog records…</p>
         <div class="admin-record-list" id="adminCatalogList" aria-busy="true"></div>
+        <button class="admin-button admin-button-quiet admin-more" id="adminCatalogMore" type="button" hidden>Load more records</button>
       </aside>
 
       <section class="admin-editor-pane" aria-labelledby="editorTitle">
@@ -98,7 +99,7 @@
             <div class="admin-grid admin-grid-3">
               <label><span>Organization</span><input id="adminOrganization" maxlength="180" /></label>
               <label><span>Location</span><input id="adminLocation" maxlength="180" /></label>
-              <label><span>Topics</span><input id="adminTopics" maxlength="487" placeholder="Up to 8, separated by commas" /></label>
+              <label><span>Topics</span><input id="adminTopics" maxlength="487" aria-describedby="adminTopicsError" placeholder="Up to 8, separated by commas" /><span class="admin-field-error" id="adminTopicsError" role="alert" hidden></span></label>
               <label><span>Starts at</span><input id="adminStartsAt" type="datetime-local" /></label>
               <label><span>Deadline</span><input id="adminDeadlineAt" type="datetime-local" /></label>
               <label><span>End date</span><input id="adminEndDate" type="date" /></label>
@@ -108,6 +109,7 @@
           <fieldset>
             <legend>Verification and action</legend>
             <div class="admin-grid admin-grid-2">
+              <label><span>Verified source label</span><input id="adminSourceLabel" maxlength="120" placeholder="Official organization page" /></label>
               <label><span>Verified source URL</span><input id="adminSourceUrl" type="url" inputmode="url" maxlength="2000" placeholder="https://…" /></label>
               <label><span>Verified on</span><input id="adminSourceVerifiedAt" type="date" /></label>
               <label><span>Action mode</span><select id="adminActionMode"><option value="none">Information only</option><option value="external">Official external action</option><option value="interest">Internal expression of interest</option></select></label>
@@ -145,6 +147,7 @@
       <p class="admin-field-note">NODAL records queue status only. Staff contact members outside the platform.</p>
       <p class="admin-live" id="adminInterestStatus" role="status" aria-live="polite">Loading member interests…</p>
       <div class="admin-interest-list" id="adminInterestList" aria-busy="true"></div>
+      <button class="admin-button admin-button-quiet admin-more" id="adminInterestMore" type="button" hidden>Load more interests</button>
     </section>
   </main>
 

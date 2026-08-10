@@ -36,7 +36,8 @@ function completeItem(overrides = {}) {
       pt: { title: 'Vaga portuguesa', summary: 'Resumo português', body: 'Corpo português', cta: 'Participar' },
     },
     organization: 'NODAL', location: 'São Paulo', topics: ['Mobility', 'Climate'],
-    startsAt: '2030-01-02T00:00:00.000Z', deadlineAt: '2030-12-31T00:00:00.000Z', endDate: null,
+    startsAt: '2031-01-02T00:00:00.000Z', deadlineAt: '2030-12-31T00:00:00.000Z', endDate: null,
+    sourceLabel: 'NODAL official source',
     sourceUrl: 'https://example.test/source', sourceVerifiedAt: '2030-01-01T00:00:00.000Z',
     actionMode: 'external', actionUrl: 'https://example.test/apply', featured: false,
     ...overrides,
@@ -64,8 +65,8 @@ test('GET /api/catalog validates query values and filters localized visible reco
   assert.equal(payload.items.length, 1);
   assert.deepEqual(payload.items[0], {
     id: publicItem.id, kind: 'opportunity', subtype: 'job', title: 'Puesto español', summary: 'Resumen español', body: 'Cuerpo español', cta: 'Aplicar',
-    organization: 'NODAL', location: 'São Paulo', topics: ['Mobility', 'Climate'], startsAt: '2030-01-02T00:00:00.000Z', deadlineAt: '2030-12-31T00:00:00.000Z', endDate: null,
-    sourceUrl: 'https://example.test/source', sourceVerifiedAt: '2030-01-01T00:00:00.000Z', actionMode: 'external', actionUrl: 'https://example.test/apply', featured: true, isClosed: false,
+    organization: 'NODAL', location: 'São Paulo', topics: ['Mobility', 'Climate'], startsAt: '2031-01-02T00:00:00.000Z', deadlineAt: '2030-12-31T00:00:00.000Z', endDate: null,
+    sourceLabel: 'NODAL official source', sourceUrl: 'https://example.test/source', sourceVerifiedAt: '2030-01-01T00:00:00.000Z', actionMode: 'external', actionUrl: 'https://example.test/apply', featured: true, isClosed: false,
   });
   assert.equal((await fetch(`${base}/api/catalog?lang=es&kind=opportunity,resource&subtype=job&topic=Mobility&location=s%C3%A3o&q=espa%C3%B1ol&featured=true&state=all&limit=24`, { headers: { 'If-None-Match': etag } })).status, 304);
 
@@ -183,12 +184,64 @@ test('catalog interest writes are member-owned, same-origin, idempotent, and his
   const mine = await fetch(`${base}/api/me/catalog-interests?lang=pt`, { headers: { Cookie: member.cookie } });
   assert.equal(mine.status, 200);
   assert.equal(mine.headers.get('cache-control'), 'no-store');
-  assert.deepEqual(await mine.json(), { interests: [{ itemId: interestItem.id, status: 'new', message: 'Updated message' }], nextCursor: null });
+  const mineBody = await mine.json();
+  assert.equal(mineBody.interests[0].itemId, interestItem.id);
+  assert.equal(mineBody.interests[0].status, 'new');
+  assert.equal(mineBody.interests[0].message, 'Updated message');
+  assert.equal(mineBody.interests[0].item.title, 'Vaga portuguesa');
+  assert.equal(mineBody.interests[0].item.status, 'published');
+  assert.equal('createdBy' in mineBody.interests[0].item, false);
+  assert.equal(mineBody.nextCursor, null);
 
   for (let i = 0; i < 20; i += 1) await putInterest(interestItem.id, { message: `rate ${i}` });
   const secondCookie = (await (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'member@example.test', password: 'correct-horse' }) })).headers.get('set-cookie')).split(';')[0];
   const limited = await fetch(`${base}/api/catalog/${interestItem.id}/interest`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: secondCookie }, body: JSON.stringify({ message: 'same account, new session' }) });
   assert.equal(limited.status, 429);
+});
+
+test('owned and administrator interest endpoints validate cursors, localize history, and paginate without loss', async (t) => {
+  const { db, repo, base } = await bootCatalogApp(t);
+  const member = await signup(base);
+  const other = await signup(base, 'other@example.test');
+  const admin = await signup(base, 'admin@example.test');
+  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.user.id);
+  const created = [];
+  for (let index = 0; index < 3; index += 1) {
+    const item = await repo.createCatalogItem(completeItem({
+      visibility: 'members', actionMode: 'interest', actionUrl: '',
+      translations: {
+        ...completeItem().translations,
+        en: { ...completeItem().translations.en, title: `English ${index}` },
+        pt: { ...completeItem().translations.pt, title: `Português ${index}` },
+      },
+    }), admin.user.id);
+    const interest = await repo.upsertCatalogInterest(item.id, member.user.id, `Private ${index}`);
+    db.prepare('UPDATE catalog_interests SET updated_at = ? WHERE id = ?').run(`2030-06-0${index + 1}T00:00:00.000Z`, interest.id);
+    created.push({ item, interest });
+  }
+  await repo.updateCatalogItem(created[1].item.id, { ...created[1].item, status: 'archived' }, created[1].item.version, admin.user.id);
+
+  for (const route of ['/api/me/catalog-interests', '/api/admin/interests']) {
+    const cookie = route.includes('/admin/') ? admin.cookie : member.cookie;
+    assert.equal((await fetch(`${base}${route}?cursor=invalid`, { headers: { Cookie: cookie } })).status, 400);
+  }
+  const firstResponse = await fetch(`${base}/api/me/catalog-interests?lang=pt&limit=2`, { headers: { Cookie: member.cookie } });
+  const first = await firstResponse.json();
+  const second = await (await fetch(`${base}/api/me/catalog-interests?lang=pt&limit=2&cursor=${encodeURIComponent(first.nextCursor)}`, { headers: { Cookie: member.cookie } })).json();
+  const owned = [...first.interests, ...second.interests];
+  assert.deepEqual(owned.map((entry) => entry.itemId), created.map((entry) => entry.item.id).reverse());
+  assert.deepEqual(owned.map((entry) => entry.item.title), ['Português 2', 'Português 1', 'Português 0']);
+  assert.equal(owned[1].item.status, 'archived');
+  assert.equal(second.nextCursor, null);
+  assert.deepEqual((await (await fetch(`${base}/api/me/catalog-interests?lang=pt`, { headers: { Cookie: other.cookie } })).json()).interests, []);
+  assert.equal((await fetch(`${base}/api/me/catalog-interests?lang=pt`)).status, 401);
+
+  const adminFirst = await (await fetch(`${base}/api/admin/interests?status=new&limit=2`, { headers: { Cookie: admin.cookie } })).json();
+  const adminSecond = await (await fetch(`${base}/api/admin/interests?status=new&limit=2&cursor=${encodeURIComponent(adminFirst.nextCursor)}`, { headers: { Cookie: admin.cookie } })).json();
+  const queue = [...adminFirst.interests, ...adminSecond.interests];
+  assert.deepEqual(queue.map((entry) => entry.id), created.map((entry) => entry.interest.id));
+  assert.deepEqual(queue[1].item, { itemId: created[1].item.id, title: 'English 1', kind: 'opportunity', organization: 'NODAL' });
+  assert.equal(adminSecond.nextCursor, null);
 });
 
 test('DELETE interest requires existing owned history but permits withdrawal after catalog eligibility changes', async (t) => {
@@ -264,8 +317,9 @@ test('admin catalog APIs are server-authorized, versioned, and keep the interest
   const queue = await fetch(`${base}/api/admin/interests`, { headers: { Cookie: admin.cookie } });
   assert.equal(queue.status, 200);
   const queueEntry = (await queue.json()).interests.find((entry) => entry.id === interested.id);
-  assert.deepEqual(Object.keys(queueEntry).sort(), ['id', 'member', 'message', 'status', 'version']);
+  assert.deepEqual(Object.keys(queueEntry).sort(), ['id', 'item', 'member', 'message', 'status', 'version']);
   assert.deepEqual(queueEntry.member, { name: 'Catalog Member', email: 'member@example.test' });
+  assert.deepEqual(queueEntry.item, { itemId: created.id, title: 'English role', kind: 'opportunity', organization: 'NODAL' });
   assert.equal((await fetch(`${base}/api/admin/interests/${interested.id}`, { method: 'PATCH', headers: adminHeaders, body: JSON.stringify({ status: 'invalid', version: interested.version }) })).status, 400);
   const reviewed = await fetch(`${base}/api/admin/interests/${interested.id}`, { method: 'PATCH', headers: adminHeaders, body: JSON.stringify({ status: 'contacted', version: interested.version }) });
   assert.equal(reviewed.status, 200);

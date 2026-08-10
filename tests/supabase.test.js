@@ -591,7 +591,7 @@ test('Supabase catalog adapter sends equivalent filters, ordering, cursor, and v
     id: 'catalog-1', kind: 'opportunity', subtype: 'job', status: 'published', visibility: 'public',
     translations: { en: { title: 'Urban role', summary: 'Summary', body: 'Body', cta: 'Apply' }, es: { title: 'Rol urbano', summary: 'Resumen', body: 'Cuerpo', cta: 'Postularse' }, pt: { title: 'Cargo urbano', summary: 'Resumo', body: 'Corpo', cta: 'Candidate-se' } },
     organization: 'Cities', location: 'Lima', topics: ['mobility'], action_mode: 'external', action_url: 'https://cities.example.test/apply',
-    sourceUrl: 'https://cities.example.test/source', sourceVerifiedAt: '2030-05-01T00:00:00.000Z', actionMode: 'external', actionUrl: 'https://cities.example.test/apply', deadlineAt: '2030-05-20T00:00:00.000Z',
+    source_label: 'Cities official source', source_url: 'https://cities.example.test/source', source_verified_at: '2030-05-01T00:00:00.000Z',
     featured: true, version: 1, deadline_at: '2030-05-20T00:00:00.000Z', published_at: '2030-05-01T00:00:00.000Z', created_at: '2030-05-01T00:00:00.000Z', updated_at: '2030-05-01T00:00:00.000Z',
   };
   const fetchImpl = async (rawUrl, options) => {
@@ -605,6 +605,7 @@ test('Supabase catalog adapter sends equivalent filters, ordering, cursor, and v
   const cursor = Buffer.from(JSON.stringify([1, '2030-05-20T00:00:00.000Z', '2030-05-01T00:00:00.000Z', 'catalog-0'])).toString('base64url');
   const list = await repo.listCatalogItems({ kind: 'opportunity', featured: true, limit: 2, cursor, state: 'all' }, null);
   assert.equal(list.items[0].translations.en.title, 'Urban role');
+  assert.equal(list.items[0].sourceLabel, 'Cities official source');
   const read = calls.find((call) => call.options.method === 'GET');
   assert.equal(read.url.searchParams.get('status'), 'eq.published');
   assert.equal(read.url.searchParams.get('visibility'), 'eq.public');
@@ -613,11 +614,69 @@ test('Supabase catalog adapter sends equivalent filters, ordering, cursor, and v
   assert.equal(read.url.searchParams.get('order'), 'featured.desc,deadline_at.asc.nullslast,published_at.desc,id.asc');
   assert.equal(read.url.searchParams.has('or'), false, 'cursor continuation is applied after complete ordered scan');
   assert.equal(read.url.searchParams.get('offset'), '0');
-  const updated = await repo.updateCatalogItem(item.id, { ...item, featured: false }, 1, TEST_USER_ID);
+  const updated = await repo.updateCatalogItem(item.id, { ...list.items[0], featured: false }, 1, TEST_USER_ID);
   assert.equal(updated.version, 2);
   const write = calls.find((call) => call.options.method === 'PATCH');
   assert.equal(write.url.searchParams.get('id'), 'eq.catalog-1');
   assert.equal(write.url.searchParams.get('version'), 'eq.1');
+  assert.equal(JSON.parse(write.options.body).source_label, 'Cities official source');
+});
+
+test('Supabase publication transitions refresh audit metadata while published edits preserve it', async () => {
+  const rows = new Map([
+    ['archived', {
+      id: 'archived', kind: 'opportunity', subtype: 'job', status: 'archived', visibility: 'public',
+      translations: { en: { title: 'Role', summary: 'Summary', body: 'Body', cta: 'Apply' }, es: { title: 'Rol', summary: 'Resumen', body: 'Cuerpo', cta: 'Aplicar' }, pt: { title: 'Cargo', summary: 'Resumo', body: 'Corpo', cta: 'Aplicar' } },
+      organization: 'Cities', location: 'Lima', topics: ['Mobility'], starts_at: '2030-06-01T00:00:00.000Z', deadline_at: '2030-05-20T00:00:00.000Z',
+      source_label: 'Official source', source_url: 'https://cities.example.test/source', source_verified_at: '2030-05-01T00:00:00.000Z', action_mode: 'none', action_url: '', featured: false,
+      version: 2, published_by: 'old-publisher', published_at: '2029-01-01T00:00:00.000Z',
+    }],
+    ['published', {
+      id: 'published', kind: 'opportunity', subtype: 'job', status: 'published', visibility: 'public',
+      translations: { en: { title: 'Role', summary: 'Summary', body: 'Body', cta: 'Apply' }, es: { title: 'Rol', summary: 'Resumen', body: 'Cuerpo', cta: 'Aplicar' }, pt: { title: 'Cargo', summary: 'Resumo', body: 'Corpo', cta: 'Aplicar' } },
+      organization: 'Cities', location: 'Lima', topics: ['Mobility'], starts_at: '2030-06-01T00:00:00.000Z', deadline_at: '2030-05-20T00:00:00.000Z',
+      source_label: 'Official source', source_url: 'https://cities.example.test/source', source_verified_at: '2030-05-01T00:00:00.000Z', action_mode: 'none', action_url: '', featured: false,
+      version: 4, published_by: 'old-publisher', published_at: '2029-01-01T00:00:00.000Z',
+    }],
+  ]);
+  const writes = [];
+  const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: async (rawUrl, options) => {
+    const url = new URL(rawUrl);
+    const id = url.searchParams.get('id')?.replace('eq.', '');
+    if (url.pathname.endsWith('/catalog_items') && options.method === 'GET') return response([rows.get(id)]);
+    if (url.pathname.endsWith('/catalog_items') && options.method === 'PATCH') {
+      const body = JSON.parse(options.body); writes.push({ id, body }); return response([{ ...rows.get(id), ...body }]);
+    }
+    throw new Error(`unexpected request ${options.method} ${url.pathname}`);
+  } });
+  const archived = rows.get('archived');
+  await repo.updateCatalogItem('archived', { ...archived, status: 'published', sourceLabel: archived.source_label, sourceUrl: archived.source_url, sourceVerifiedAt: archived.source_verified_at, startsAt: archived.starts_at, deadlineAt: archived.deadline_at, actionMode: 'none', actionUrl: '' }, 2, TEST_USER_ID);
+  const published = rows.get('published');
+  await repo.updateCatalogItem('published', { ...published, sourceLabel: published.source_label, sourceUrl: published.source_url, sourceVerifiedAt: published.source_verified_at, startsAt: published.starts_at, deadlineAt: published.deadline_at, actionMode: 'none', actionUrl: '' }, 4, TEST_USER_ID);
+  assert.equal(writes[0].body.published_by, TEST_USER_ID);
+  assert.notEqual(writes[0].body.published_at, '2029-01-01T00:00:00.000Z');
+  assert.equal(writes[1].body.published_by, 'old-publisher');
+  assert.equal(writes[1].body.published_at, '2029-01-01T00:00:00.000Z');
+});
+
+test('Supabase applies case-insensitive topic and full operational-text search after bounded reads', async () => {
+  const item = {
+    id: 'catalog-target', kind: 'resource', subtype: null, status: 'published', visibility: 'public',
+    translations: { en: { title: 'Guide', summary: 'Summary', body: 'Body', cta: 'Read' } },
+    organization: 'Andean Streets Alliance', location: 'Cusco Territory', topics: ['Safe Mobility'], source_label: 'Official',
+    action_mode: 'none', action_url: '', featured: false, version: 1, deadline_at: null, published_at: '2030-05-01T00:00:00.000Z',
+  };
+  const calls = [];
+  const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: async (rawUrl, options) => {
+    const url = new URL(rawUrl); calls.push(url);
+    if (url.pathname.endsWith('/catalog_items') && options.method === 'GET') return response([item]);
+    throw new Error(`unexpected request ${options.method} ${url.pathname}`);
+  } });
+  for (const query of [{ q: 'andean streets' }, { q: 'cusco territory' }, { q: 'safe mobility' }, { topic: 'SAFE MOBILITY' }]) {
+    const result = await repo.listCatalogItems({ ...query, state: 'all' }, null);
+    assert.deepEqual(result.items.map((row) => row.id), ['catalog-target']);
+  }
+  assert.ok(calls.every((url) => !url.searchParams.has('topics')), 'case-sensitive array containment must not narrow topic reads');
 });
 
 test('Supabase scans beyond a raw fetch window before applying open-state and text filtering', async () => {
@@ -736,6 +795,38 @@ test('Supabase preserves an identical active interest without issuing a PATCH', 
   assert.equal(repeated.version, 4);
   assert.equal(repeated.updatedAt, '2030-05-02T00:00:00.000Z');
   assert.equal(patched, false);
+});
+
+test('Supabase interest adapters paginate stable cursors and batch-load private catalog context', async () => {
+  const interests = Array.from({ length: 3 }, (_, index) => ({
+    id: `interest-${index}`, item_id: `catalog-${index}`, user_id: TEST_USER_ID, message: `Message ${index}`, status: 'new', version: 1,
+    created_at: `2030-05-0${index + 1}T00:00:00.000Z`, updated_at: `2030-05-0${index + 1}T00:00:00.000Z`, updated_by: TEST_USER_ID,
+  }));
+  const items = Array.from({ length: 3 }, (_, index) => ({
+    id: `catalog-${index}`, kind: 'resource', subtype: null, status: index === 1 ? 'archived' : 'published', visibility: 'members',
+    translations: { en: { title: `English ${index}`, summary: 'Summary', body: 'Body', cta: 'Read' } },
+    organization: 'NODAL', location: '', topics: [], source_label: 'Official', source_url: 'https://example.test/source',
+    source_verified_at: '2030-01-01T00:00:00.000Z', action_mode: 'none', action_url: '', featured: false, version: 1,
+    published_at: '2030-01-01T00:00:00.000Z', updated_at: '2030-01-01T00:00:00.000Z',
+  }));
+  const calls = [];
+  const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: async (rawUrl, options) => {
+    const url = new URL(rawUrl); calls.push(url);
+    if (url.pathname.endsWith('/catalog_interests') && options.method === 'GET') return response(interests);
+    if (url.pathname.endsWith('/catalog_items') && options.method === 'GET') return response(items);
+    throw new Error(`unexpected request ${options.method} ${url.pathname}`);
+  } });
+
+  const mineFirst = await repo.listCatalogInterestsForUser(TEST_USER_ID, { limit: 2 });
+  const mineSecond = await repo.listCatalogInterestsForUser(TEST_USER_ID, { limit: 2, cursor: mineFirst.nextCursor });
+  assert.deepEqual([...mineFirst.interests, ...mineSecond.interests].map((entry) => entry.id), ['interest-2', 'interest-1', 'interest-0']);
+  assert.equal(mineFirst.interests[1].item.status, 'archived');
+  const adminFirst = await repo.listAdminInterests({ status: 'new', limit: 2 });
+  const adminSecond = await repo.listAdminInterests({ status: 'new', limit: 2, cursor: adminFirst.nextCursor });
+  assert.deepEqual([...adminFirst.interests, ...adminSecond.interests].map((entry) => entry.id), ['interest-0', 'interest-1', 'interest-2']);
+  assert.equal(adminFirst.interests[0].item.translations.en.title, 'English 0');
+  assert.ok(calls.some((url) => url.pathname.endsWith('/catalog_items') && url.searchParams.get('id')?.startsWith('in.(')));
+  await assert.rejects(repo.listCatalogInterestsForUser(TEST_USER_ID, { cursor: 'invalid' }), /cursor/i);
 });
 
 test('Supabase admin interest update distinguishes a missing ID from a stale version before PATCH', async () => {

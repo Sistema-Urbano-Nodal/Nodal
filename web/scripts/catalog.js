@@ -52,7 +52,7 @@
   }
 
   function officialAnchor(item, compact = false) {
-    const href = safeHttps(item.actionUrl || item.sourceUrl);
+    const href = safeHttps(item.actionUrl);
     if (!href) return null;
     const anchor = create('a', compact ? 'dispatch-action' : 'btn btn-primary', item.cta || t('catalog.externalAction'));
     anchor.href = href;
@@ -60,6 +60,24 @@
     anchor.rel = 'noopener noreferrer';
     anchor.setAttribute('aria-label', `${item.cta || t('catalog.externalAction')} · ${t('catalog.opensNewTab')}`);
     return anchor;
+  }
+
+  function sourceAnchor(item, className = 'source-stamp') {
+    const label = item.sourceLabel || t('catalog.sourceVerified');
+    const href = safeHttps(item.sourceUrl);
+    if (!href) return create('span', className, label);
+    const anchor = create('a', className, label);
+    anchor.href = href;
+    anchor.target = '_blank';
+    anchor.rel = 'noopener noreferrer';
+    anchor.setAttribute('aria-label', `${label} · ${t('catalog.opensNewTab')}`);
+    return anchor;
+  }
+
+  function detailPermalink(item, className = 'dispatch-details') {
+    const link = create('a', className, t('catalog.viewDetails'));
+    link.href = `opportunities.html?${new URLSearchParams({ id: item.id })}`;
+    return link;
   }
 
   function renderDispatch(item, onSelect) {
@@ -84,7 +102,7 @@
     main.append(meta);
 
     const source = create('div', 'dispatch-source');
-    source.append(create('span', 'source-stamp', t('catalog.sourceVerified')),
+    source.append(sourceAnchor(item),
       create('span', 'source-date', dateText(item.sourceVerifiedAt)));
     const action = item.actionMode === 'external' ? officialAnchor(item, true) : null;
     if (action && !item.isClosed) source.append(action);
@@ -93,7 +111,7 @@
       details.type = 'button';
       details.addEventListener('click', () => onSelect(item.id));
       source.append(details);
-    }
+    } else source.append(detailPermalink(item));
     row.append(rail, main, source);
     return row;
   }
@@ -105,16 +123,14 @@
     const meta = create('div', 'dispatch-meta');
     addMeta(meta, t('catalog.organization'), item.organization);
     addMeta(meta, t('catalog.location'), item.location);
-    article.append(meta, create('span', 'source-stamp', t('catalog.sourceVerified')));
+    article.append(meta, sourceAnchor(item));
     if (onSelect) {
       const button = create('button', 'catalog-text-button', t('catalog.viewDetails'));
       button.type = 'button';
       button.addEventListener('click', () => onSelect(item.id));
       article.append(button);
     } else {
-      const link = create('a', 'catalog-text-link', t('catalog.viewDetails'));
-      link.href = `opportunities.html?id=${encodeURIComponent(item.id)}`;
-      article.append(link);
+      article.append(detailPermalink(item, 'catalog-text-link'));
     }
     return article;
   }
@@ -243,9 +259,12 @@
     clear(box);
     addMeta(box, t('catalog.organization'), item.organization);
     addMeta(box, t('catalog.location'), item.location);
-    addMeta(box, t('catalog.deadline'), dateText(item.deadlineAt || item.endDate));
+    if (item.subtype) addMeta(box, t('catalog.subtype'), t(`catalog.subtype.${item.subtype}`));
+    if (item.startsAt) addMeta(box, t('catalog.startsAt'), dateText(item.startsAt));
+    if (item.deadlineAt) addMeta(box, t('catalog.deadline'), dateText(item.deadlineAt));
+    if (item.endDate) addMeta(box, t('catalog.endDate'), dateText(item.endDate));
     if (item.topics?.length) addMeta(box, t('catalog.topics'), item.topics.join(' · '));
-    box.append(create('span', 'source-stamp', t('catalog.sourceVerified')));
+    box.append(sourceAnchor(item));
   }
 
   function renderDetail(item) {
@@ -258,7 +277,7 @@
     clear(actions);
     const sourceHref = safeHttps(item.sourceUrl);
     if (sourceHref) {
-      const source = create('a', 'catalog-text-link', t('catalog.openSource'));
+      const source = create('a', 'catalog-text-link', item.sourceLabel || t('catalog.openSource'));
       source.href = sourceHref; source.target = '_blank'; source.rel = 'noopener noreferrer';
       actions.append(source);
     }
@@ -269,6 +288,7 @@
     const disclosure = byId('catalogInterestDisclosure');
     const withdraw = byId('catalogWithdrawInterest');
     const canInterest = item.actionMode === 'interest' && !item.isClosed;
+    byId('catalogInterestSubmit').textContent = item.cta || t('catalog.expressInterest');
     form.hidden = !canInterest && item.interestStatus !== 'new' && item.interestStatus !== 'contacted';
     disclosure.hidden = !canInterest;
     withdraw.hidden = !['new', 'contacted'].includes(item.interestStatus);
@@ -359,21 +379,29 @@
     status.textContent = t('catalog.loadingInterests');
     clear(list);
     try {
-      const response = await jsonRequest(`/api/me/catalog-interests?lang=${encodeURIComponent(lang)}&limit=24`, { signal: controller.signal });
-      if (response.status === 401) { redirectToLogin(); return; }
-      if (!response.ok) throw new Error('interests failed');
-      const interests = (await response.json()).interests;
-      const detailed = await Promise.all(interests.map(async (interest) => {
-        const detail = await jsonRequest(`/api/catalog/${encodeURIComponent(interest.itemId)}?lang=${encodeURIComponent(lang)}`, { signal: controller.signal });
-        return detail.ok ? { interest, item: (await detail.json()).item } : { interest, item: null };
-      }));
-      if (controller.signal.aborted || page.interestsController !== controller) return;
-      detailed.forEach(({ interest, item }) => {
+      const interests = [];
+      const cursors = new Set();
+      let cursor = null;
+      do {
+        const params = new URLSearchParams({ lang, limit: '24' });
+        if (cursor) params.set('cursor', cursor);
+        const response = await jsonRequest(`/api/me/catalog-interests?${params}`, { signal: controller.signal });
+        if (response.status === 401) { redirectToLogin(); return; }
+        if (!response.ok) throw new Error('interests failed');
+        const payload = await response.json();
+        if (controller.signal.aborted || page.interestsController !== controller) return;
+        interests.push(...(Array.isArray(payload.interests) ? payload.interests : []));
+        cursor = payload.nextCursor || null;
+        if (cursor && cursors.has(cursor)) throw new Error('interest cursor repeated');
+        if (cursor) cursors.add(cursor);
+      } while (cursor);
+      interests.forEach((interest) => {
+        const item = interest.item;
         const article = create('article', 'interest-record');
         article.append(create('span', `interest-status status-${interest.status}`, t(statusKey(interest.status))),
           create('h3', '', item?.title || t('catalog.detailUnavailable')),
           create('p', '', interest.message || ''));
-        if (item) {
+        if (item?.status === 'published') {
           const button = create('button', 'catalog-text-button', t('catalog.viewDetails'));
           button.type = 'button';
           button.addEventListener('click', () => { section.hidden = true; selectDetail(item.id); });

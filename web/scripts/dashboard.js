@@ -1073,6 +1073,7 @@
   let catalogQuery = '';
   let catalogScope = '';
   let catalogHits = [];
+  let catalogReady = false;
   let catalogTimer = null;
   let catalogAbort = null;
   let catalogSequence = 0;
@@ -1124,13 +1125,15 @@
         }));
         catalogQuery = query.toLowerCase();
         catalogScope = scope;
+        catalogReady = true;
         if (activeScope() === scope && searchInput.value.trim().toLowerCase() === catalogQuery) paint(catalogHits);
       } catch (err) {
         if (err.name === 'AbortError' || sequence !== catalogSequence) return;
-        catalogQuery = query.toLowerCase();
-        catalogScope = scope;
+        catalogReady = false;
+        catalogQuery = '';
+        catalogScope = '';
         catalogHits = [];
-        if (activeScope() === scope && searchInput.value.trim().toLowerCase() === catalogQuery) paint([], 'catalog-error');
+        if (activeScope() === scope && searchInput.value.trim().toLowerCase() === query.toLowerCase()) paint([], 'catalog-error');
       }
     }, 220);
   }
@@ -1182,7 +1185,7 @@
     }
     if (peopleAbort) peopleAbort.abort();
     const scope = activeScope();
-    if (catalogScope === scope && catalogQuery === q) { paint(catalogHits); return; }
+    if (catalogReady && catalogScope === scope && catalogQuery === q) { paint(catalogHits); return; }
     lookUpCatalog(scope, typed);
     paint(null);
   }
@@ -1318,6 +1321,7 @@
 
   I18N?.onChange(() => {
     applyAll();
+    catalogReady = false;
     catalogQuery = '';
     if (searchInput?.value.trim().length >= 2 && activeScope() !== 'People') runSearch();
   });

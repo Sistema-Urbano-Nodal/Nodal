@@ -3,7 +3,9 @@ import { defaultProfilePreferences } from './domain.js';
 import { recordInteraction } from './store.js';
 import {
   decodeCatalogCursor,
+  decodeCatalogInterestCursor,
   encodeCatalogCursor,
+  encodeCatalogInterestCursor,
   isCatalogItemClosed,
   validateCatalogInterestMessage,
   validateCatalogDraft,
@@ -305,6 +307,7 @@ function catalogItemFromSupabase(row) {
     startsAt: row.starts_at || null,
     deadlineAt: row.deadline_at || null,
     endDate: row.end_date || null,
+    sourceLabel: row.source_label || '',
     sourceUrl: row.source_url || '',
     sourceVerifiedAt: row.source_verified_at || null,
     actionMode: row.action_mode || 'none',
@@ -349,6 +352,19 @@ function compareCatalogTuples(left, right) {
   return 0;
 }
 
+function interestSortTuple(interest) {
+  return [interest.updatedAt, interest.id];
+}
+
+function compareInterestTuples(left, right, direction) {
+  if (left[0] !== right[0]) {
+    const ascending = left[0] < right[0] ? -1 : 1;
+    return direction === 'desc' ? -ascending : ascending;
+  }
+  if (left[1] === right[1]) return 0;
+  return left[1] < right[1] ? -1 : 1;
+}
+
 function catalogListQuery(query = {}, viewer = null, { offset = 0, batchSize = 25 } = {}) {
   const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
   const out = {
@@ -367,26 +383,31 @@ function catalogListQuery(query = {}, viewer = null, { offset = 0, batchSize = 2
     else if (kinds.length > 1) out.kind = `in.(${kinds.join(',')})`;
   }
   if (query.subtype) out.subtype = `eq.${String(query.subtype).trim()}`;
-  if (query.topic) out.topics = `cs.{${String(query.topic).trim()}}`;
   if (query.location) out.location = `ilike.*${String(query.location).trim()}*`;
   if (query.featured !== undefined) out.featured = `eq.${String(query.featured) === 'true'}`;
   return { query: out, limit };
 }
 
 function matchesCatalogList(item, query, cursor) {
+  if (query.topic && !item.topics.some((topic) => topic.toLowerCase() === String(query.topic).trim().toLowerCase())) return false;
   if (query.state !== 'all' && isCatalogItemClosed(item)) return false;
   if (query.q) {
     const term = String(query.q).trim().toLowerCase();
-    if (term && !Object.values(item.translations)
-      .some((translation) => [translation.title, translation.summary, translation.body].join(' ').toLowerCase().includes(term))) return false;
+    const text = [
+      ...Object.values(item.translations).flatMap((translation) => [translation.title, translation.summary, translation.body]),
+      item.organization,
+      item.location,
+      ...item.topics,
+    ].join(' ').toLowerCase();
+    if (term && !text.includes(term)) return false;
   }
   return !cursor || compareCatalogTuples(catalogSortTuple(item), cursor) > 0;
 }
 
-function catalogItemPayload(input, actorId, { version, publishedAt = null, publishedBy = null } = {}) {
+function catalogItemPayload(input, actorId, { version, currentStatus = null, publishedAt = null, publishedBy = null } = {}) {
   const item = input.status === 'published' ? validateCatalogPublication(input) : validateCatalogDraft(input);
   const now = nowIso();
-  const isPublished = item.status === 'published';
+  const publishing = item.status === 'published' && currentStatus !== 'published';
   return {
     kind: item.kind,
     subtype: item.subtype,
@@ -399,6 +420,7 @@ function catalogItemPayload(input, actorId, { version, publishedAt = null, publi
     starts_at: item.startsAt,
     deadline_at: item.deadlineAt,
     end_date: item.endDate,
+    source_label: item.sourceLabel,
     source_url: item.sourceUrl,
     source_verified_at: item.sourceVerifiedAt,
     action_mode: item.actionMode,
@@ -406,8 +428,8 @@ function catalogItemPayload(input, actorId, { version, publishedAt = null, publi
     featured: item.featured,
     ...(version === undefined ? { created_by: actorId } : { version: Number(version) + 1 }),
     updated_by: actorId,
-    published_by: publishedBy || (isPublished ? actorId : null),
-    published_at: publishedAt || (isPublished ? now : null),
+    published_by: publishing ? actorId : publishedBy,
+    published_at: publishing ? now : publishedAt,
   };
 }
 
@@ -418,6 +440,40 @@ function catalogConflict() {
 export function createSupabaseRepository({ env = process.env, fetchImpl = fetch } = {}) {
   const clients = createSupabaseClients({ env, fetchImpl });
   const { admin, browser } = clients;
+
+  async function attachCatalogItems(interests) {
+    if (!interests.length) return interests;
+    const itemIds = [...new Set(interests.map((interest) => interest.itemId))];
+    const rows = await admin.rest('catalog_items', {
+      query: { id: `in.(${itemIds.join(',')})`, select: '*' },
+    });
+    const items = new Map(rows.map(catalogItemFromSupabase).map((item) => [item.id, item]));
+    return interests.map((interest) => ({ ...interest, item: items.get(interest.itemId) || null }));
+  }
+
+  async function readInterestPage(baseQuery, query, direction) {
+    const cursor = query.cursor ? decodeCatalogInterestCursor(query.cursor) : null;
+    const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
+    const batchSize = 25;
+    const all = [];
+    let rows;
+    let offset = 0;
+    do {
+      rows = await admin.rest('catalog_interests', {
+        query: { ...baseQuery, select: '*', order: `updated_at.${direction},id.asc`, limit: batchSize, offset },
+      });
+      all.push(...rows.map(catalogInterestFromSupabase));
+      offset += rows.length;
+    } while (rows.length === batchSize);
+    const matching = all
+      .sort((left, right) => compareInterestTuples(interestSortTuple(left), interestSortTuple(right), direction))
+      .filter((interest) => !cursor || compareInterestTuples(interestSortTuple(interest), cursor, direction) > 0);
+    const page = matching.slice(0, limit);
+    return {
+      interests: await attachCatalogItems(page),
+      nextCursor: matching.length > page.length ? encodeCatalogInterestCursor(interestSortTuple(page.at(-1))) : null,
+    };
+  }
 
   async function bundleForUser(userId) {
     const [profile, preferences, onboarding] = await Promise.all([
@@ -840,6 +896,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         headers: { Prefer: 'return=representation' },
         body: catalogItemPayload(input, actorId, {
           version: current.version,
+          currentStatus: current.status,
           publishedAt: current.publishedAt,
           publishedBy: current.publishedBy,
         }),
@@ -897,18 +954,10 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       })));
     },
     async listCatalogInterestsForUser(userId, query = {}) {
-      const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
-      const rows = await admin.rest('catalog_interests', {
-        query: { user_id: `eq.${userId}`, select: '*', order: 'updated_at.desc,id.asc', limit },
-      });
-      return { interests: rows.map(catalogInterestFromSupabase), nextCursor: null };
+      return readInterestPage({ user_id: `eq.${userId}` }, query, 'desc');
     },
     async listAdminInterests(query = {}) {
-      const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
-      const rows = await admin.rest('catalog_interests', {
-        query: { ...(query.status ? { status: `eq.${query.status}` } : {}), select: '*', order: 'updated_at.asc,id.asc', limit },
-      });
-      return { interests: rows.map(catalogInterestFromSupabase), nextCursor: null };
+      return readInterestPage(query.status ? { status: `eq.${query.status}` } : {}, query, 'asc');
     },
     async updateCatalogInterest(id, patch = {}, version, actorId) {
       const status = String(patch.status ?? '').trim();

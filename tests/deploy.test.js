@@ -178,6 +178,25 @@ test('catalog migration keeps catalog and interest data behind the server servic
   assert.doesNotMatch(sql, /grant\s+(select|insert|update|delete|all)\s+on\s+(table\s+)?public\.(catalog_items|catalog_interests)\s+to\s+(anon|authenticated)/i);
 });
 
+test('forward catalog source migration and operator documentation match the publication contract', () => {
+  const dir = path.join(ROOT, 'supabase', 'migrations');
+  const migrationName = readdirSync(dir).find((name) => name.endsWith('_catalog_source_label.sql'));
+  assert.ok(migrationName, 'expected CLI-generated catalog source migration');
+  const sql = readFileSync(path.join(dir, migrationName), 'utf8');
+  assert.match(sql, /add column if not exists source_label text not null default ''/i);
+  assert.match(sql, /alter column end_date type timestamptz/i);
+  assert.match(sql, /23:59:59\.999Z/i);
+
+  const readme = readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+  assert.match(readme, /source label[^\n]*verified HTTPS source/i);
+  assert.match(readme, /YYYY-MM-DD[^\n]*RFC 3339[^\n]*timezone/i);
+  assert.match(readme, /opportunit(?:y|ies)[^\n]*deadline/i);
+  assert.match(readme, /draft or archived[^\n]*published[^\n]*publication timestamp/i);
+  for (const endpoint of ['/api/catalog', '/api/me/catalog-interests', '/api/admin/catalog', '/api/admin/interests']) {
+    assert.match(readme, new RegExp(endpoint.replaceAll('/', '\\/')));
+  }
+});
+
 test('CI uses immutable action revisions and supports pre-main validation refs', () => {
   const workflow = readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
   assert.match(workflow, /actions\/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5/);

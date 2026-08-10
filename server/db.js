@@ -5,7 +5,9 @@ import { DatabaseSync } from 'node:sqlite';
 import { recordInteraction } from './store.js';
 import {
   decodeCatalogCursor,
+  decodeCatalogInterestCursor,
   encodeCatalogCursor,
+  encodeCatalogInterestCursor,
   isCatalogItemClosed,
   validateCatalogInterestMessage,
   validateCatalogDraft,
@@ -237,6 +239,13 @@ const MIGRATIONS = [
       CREATE INDEX catalog_interests_user_id_idx ON catalog_interests(user_id, updated_at DESC, id ASC);
       CREATE INDEX catalog_interests_queue_idx ON catalog_interests(status, updated_at ASC, id ASC);
       CREATE INDEX catalog_interests_updated_by_idx ON catalog_interests(updated_by);
+    `,
+  },
+  {
+    version: 7,
+    sql: `
+      ALTER TABLE catalog_items
+        ADD COLUMN source_label TEXT NOT NULL DEFAULT '';
     `,
   },
 ];
@@ -520,6 +529,7 @@ function catalogItemFromRow(row) {
     startsAt: row.starts_at,
     deadlineAt: row.deadline_at,
     endDate: row.end_date,
+    sourceLabel: row.source_label,
     sourceUrl: row.source_url,
     sourceVerifiedAt: row.source_verified_at,
     actionMode: row.action_mode,
@@ -548,6 +558,28 @@ function catalogInterestFromRow(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function interestSortTuple(interest) {
+  return [interest.updatedAt, interest.id];
+}
+
+function compareInterestTuples(left, right, direction) {
+  if (left[0] !== right[0]) {
+    const ascending = left[0] < right[0] ? -1 : 1;
+    return direction === 'desc' ? -ascending : ascending;
+  }
+  if (left[1] === right[1]) return 0;
+  return left[1] < right[1] ? -1 : 1;
+}
+
+function attachCatalogItems(db, interests) {
+  if (!interests.length) return interests;
+  const itemIds = [...new Set(interests.map((interest) => interest.itemId))];
+  const placeholders = itemIds.map(() => '?').join(', ');
+  const items = new Map(db.prepare(`SELECT * FROM catalog_items WHERE id IN (${placeholders})`).all(...itemIds)
+    .map(catalogItemFromRow).map((item) => [item.id, item]));
+  return interests.map((interest) => ({ ...interest, item: items.get(interest.itemId) || null }));
 }
 
 function catalogSortTuple(item) {
@@ -581,7 +613,13 @@ function matchesCatalogQuery(item, query = {}) {
   if (query.state !== 'all' && isCatalogItemClosed(item)) return false;
   if (query.q) {
     const term = String(query.q).trim().toLowerCase();
-    if (term && !Object.values(item.translations).some((translation) => [translation.title, translation.summary, translation.body].join(' ').toLowerCase().includes(term))) return false;
+    const text = [
+      ...Object.values(item.translations).flatMap((translation) => [translation.title, translation.summary, translation.body]),
+      item.organization,
+      item.location,
+      ...item.topics,
+    ].join(' ').toLowerCase();
+    if (term && !text.includes(term)) return false;
   }
   return true;
 }
@@ -593,19 +631,19 @@ function catalogConflict() {
 function writeCatalogItem(db, id, input, actorId, current = null) {
   const item = input.status === 'published' ? validateCatalogPublication(input) : validateCatalogDraft(input);
   const now = nowIso();
-  const publishing = item.status === 'published' && !current?.published_at;
-  const publishedAt = current?.published_at || (item.status === 'published' ? now : null);
-  const publishedBy = current?.published_by || (item.status === 'published' ? actorId : null);
+  const publishing = item.status === 'published' && current?.status !== 'published';
+  const publishedAt = publishing ? now : (current?.published_at || null);
+  const publishedBy = publishing ? actorId : (current?.published_by || null);
   if (!current) {
     db.prepare(`
       INSERT INTO catalog_items (
         id, kind, subtype, status, visibility, translations_json, organization, location, topics_json,
-        starts_at, deadline_at, end_date, source_url, source_verified_at, action_mode, action_url, featured,
+        starts_at, deadline_at, end_date, source_label, source_url, source_verified_at, action_mode, action_url, featured,
         version, created_by, updated_by, published_by, published_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
     `).run(
       id, item.kind, item.subtype, item.status, item.visibility, json(item.translations), item.organization, item.location, json(item.topics),
-      item.startsAt, item.deadlineAt, item.endDate, item.sourceUrl, item.sourceVerifiedAt, item.actionMode, item.actionUrl, Number(item.featured),
+      item.startsAt, item.deadlineAt, item.endDate, item.sourceLabel, item.sourceUrl, item.sourceVerifiedAt, item.actionMode, item.actionUrl, Number(item.featured),
       actorId, actorId, publishedBy, publishedAt, now, now,
     );
     return catalogItemFromRow(db.prepare('SELECT * FROM catalog_items WHERE id = ?').get(id));
@@ -613,13 +651,13 @@ function writeCatalogItem(db, id, input, actorId, current = null) {
   const result = db.prepare(`
     UPDATE catalog_items SET
       kind = ?, subtype = ?, status = ?, visibility = ?, translations_json = ?, organization = ?, location = ?, topics_json = ?,
-      starts_at = ?, deadline_at = ?, end_date = ?, source_url = ?, source_verified_at = ?, action_mode = ?, action_url = ?, featured = ?,
+      starts_at = ?, deadline_at = ?, end_date = ?, source_label = ?, source_url = ?, source_verified_at = ?, action_mode = ?, action_url = ?, featured = ?,
       version = version + 1, updated_by = ?, published_by = ?, published_at = ?, updated_at = ?
     WHERE id = ? AND version = ?
   `).run(
     item.kind, item.subtype, item.status, item.visibility, json(item.translations), item.organization, item.location, json(item.topics),
-    item.startsAt, item.deadlineAt, item.endDate, item.sourceUrl, item.sourceVerifiedAt, item.actionMode, item.actionUrl, Number(item.featured),
-    actorId, publishing ? actorId : current.published_by, publishedAt, now, id, current.version,
+    item.startsAt, item.deadlineAt, item.endDate, item.sourceLabel, item.sourceUrl, item.sourceVerifiedAt, item.actionMode, item.actionUrl, Number(item.featured),
+    actorId, publishedBy, publishedAt, now, id, current.version,
   );
   if (!result.changes) throw catalogConflict();
   return catalogItemFromRow(db.prepare('SELECT * FROM catalog_items WHERE id = ?').get(id));
@@ -705,19 +743,32 @@ export function getCatalogInterestById(db, id) {
 }
 
 export function listCatalogInterestsForUser(db, userId, query = {}) {
+  const cursor = query.cursor ? decodeCatalogInterestCursor(query.cursor) : null;
   const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
-  const interests = db.prepare('SELECT * FROM catalog_interests WHERE user_id = ? ORDER BY updated_at DESC, id ASC LIMIT ?').all(userId, limit).map(catalogInterestFromRow);
-  return { interests, nextCursor: null };
+  const rows = db.prepare('SELECT * FROM catalog_interests WHERE user_id = ?').all(userId).map(catalogInterestFromRow)
+    .sort((left, right) => compareInterestTuples(interestSortTuple(left), interestSortTuple(right), 'desc'))
+    .filter((interest) => !cursor || compareInterestTuples(interestSortTuple(interest), cursor, 'desc') > 0);
+  const page = rows.slice(0, limit);
+  return {
+    interests: attachCatalogItems(db, page),
+    nextCursor: rows.length > page.length ? encodeCatalogInterestCursor(interestSortTuple(page.at(-1))) : null,
+  };
 }
 
 export function listAdminInterests(db, query = {}) {
+  const cursor = query.cursor ? decodeCatalogInterestCursor(query.cursor) : null;
   const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
   const values = [];
   let where = '';
   if (query.status) { where = 'WHERE status = ?'; values.push(String(query.status)); }
-  values.push(limit);
-  const interests = db.prepare(`SELECT * FROM catalog_interests ${where} ORDER BY updated_at ASC, id ASC LIMIT ?`).all(...values).map(catalogInterestFromRow);
-  return { interests, nextCursor: null };
+  const rows = db.prepare(`SELECT * FROM catalog_interests ${where}`).all(...values).map(catalogInterestFromRow)
+    .sort((left, right) => compareInterestTuples(interestSortTuple(left), interestSortTuple(right), 'asc'))
+    .filter((interest) => !cursor || compareInterestTuples(interestSortTuple(interest), cursor, 'asc') > 0);
+  const page = rows.slice(0, limit);
+  return {
+    interests: attachCatalogItems(db, page),
+    nextCursor: rows.length > page.length ? encodeCatalogInterestCursor(interestSortTuple(page.at(-1))) : null,
+  };
 }
 
 export function updateCatalogInterest(db, id, patch = {}, version, actorId) {

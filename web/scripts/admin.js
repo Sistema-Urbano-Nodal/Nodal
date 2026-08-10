@@ -11,6 +11,7 @@
     statusFilter: byId('adminCatalogStatus'),
     list: byId('adminCatalogList'),
     listStatus: byId('adminCatalogListStatus'),
+    catalogMore: byId('adminCatalogMore'),
     editor: byId('adminCatalogEditor'),
     id: byId('adminCatalogId'),
     version: byId('adminCatalogVersion'),
@@ -21,9 +22,11 @@
     organization: byId('adminOrganization'),
     location: byId('adminLocation'),
     topics: byId('adminTopics'),
+    topicsError: byId('adminTopicsError'),
     startsAt: byId('adminStartsAt'),
     deadlineAt: byId('adminDeadlineAt'),
     endDate: byId('adminEndDate'),
+    sourceLabel: byId('adminSourceLabel'),
     sourceUrl: byId('adminSourceUrl'),
     sourceVerifiedAt: byId('adminSourceVerifiedAt'),
     actionMode: byId('adminActionMode'),
@@ -44,18 +47,23 @@
     interestFilter: byId('adminInterestFilter'),
     interestList: byId('adminInterestList'),
     interestStatus: byId('adminInterestStatus'),
+    interestMore: byId('adminInterestMore'),
+    signOut: byId('adminSignOut'),
   };
 
   if (Object.values(elements).some((element) => !element)) return;
 
   const state = {
     items: [],
+    interests: [],
     current: null,
     conflictCurrent: null,
     catalogController: null,
     interestController: null,
     catalogRequest: 0,
     interestRequest: 0,
+    catalogCursor: null,
+    interestCursor: null,
     busy: false,
   };
 
@@ -108,7 +116,7 @@
     return {
       id: '', version: null, kind: 'resource', subtype: null, status: 'draft', visibility: 'public',
       translations: emptyTranslations(), organization: '', location: '', topics: [], startsAt: null,
-      deadlineAt: null, endDate: null, sourceUrl: '', sourceVerifiedAt: null,
+      deadlineAt: null, endDate: null, sourceLabel: '', sourceUrl: '', sourceVerifiedAt: null,
       actionMode: 'none', actionUrl: '', featured: false,
     };
   }
@@ -126,7 +134,26 @@
     };
   }
 
-  function serializeEditor(status) {
+  function readEditorTopics() {
+    return elements.topics.value.split(/[,\n]/).map(text).filter(Boolean);
+  }
+
+  function validateEditorTopics() {
+    const topics = readEditorTopics();
+    let error = '';
+    if (topics.length > 8) error = 'Enter at most 8 topics.';
+    else if (topics.some((topic) => topic.length > 60)) error = 'Each topic must contain at most 60 characters.';
+    elements.topicsError.textContent = error;
+    elements.topicsError.hidden = !error;
+    elements.topics.setAttribute('aria-invalid', String(Boolean(error)));
+    if (error) {
+      elements.editorStatus.textContent = 'Fix the topic list before previewing or saving.';
+      return null;
+    }
+    return topics;
+  }
+
+  function serializeEditor(status, topics = readEditorTopics()) {
     const actionMode = elements.actionMode.value;
     return {
       kind: elements.kind.value,
@@ -140,10 +167,11 @@
       },
       organization: text(elements.organization.value),
       location: text(elements.location.value),
-      topics: elements.topics.value.split(/[,\n]/).map(text).filter(Boolean).slice(0, 8),
+      topics,
       startsAt: apiDate(elements.startsAt.value, true),
       deadlineAt: apiDate(elements.deadlineAt.value, true),
       endDate: apiDate(elements.endDate.value),
+      sourceLabel: text(elements.sourceLabel.value),
       sourceUrl: text(elements.sourceUrl.value),
       sourceVerifiedAt: apiDate(elements.sourceVerifiedAt.value),
       actionMode,
@@ -185,11 +213,15 @@
     elements.startsAt.value = localDate(item.startsAt, true);
     elements.deadlineAt.value = localDate(item.deadlineAt, true);
     elements.endDate.value = localDate(item.endDate);
+    elements.sourceLabel.value = item.sourceLabel || '';
     elements.sourceUrl.value = item.sourceUrl || '';
     elements.sourceVerifiedAt.value = localDate(item.sourceVerifiedAt);
     elements.actionMode.value = item.actionMode || 'none';
     elements.actionUrl.value = item.actionUrl || '';
     elements.featured.checked = Boolean(item.featured);
+    elements.topicsError.hidden = true;
+    elements.topicsError.textContent = '';
+    elements.topics.setAttribute('aria-invalid', 'false');
     fillTranslation('En', item.translations.en);
     fillTranslation('Es', item.translations.es);
     fillTranslation('Pt', item.translations.pt);
@@ -221,13 +253,14 @@
     elements.list.setAttribute('aria-busy', 'false');
   }
 
-  async function loadCatalog() {
+  async function loadCatalog({ append = false } = {}) {
     if (state.catalogController) state.catalogController.abort();
     const controller = new AbortController();
     state.catalogController = controller;
     const sequence = state.catalogRequest + 1;
     state.catalogRequest = sequence;
     const params = new URLSearchParams({ state: 'all', limit: '24' });
+    if (append && state.catalogCursor) params.set('cursor', state.catalogCursor);
     const query = text(elements.query.value);
     if (query) params.set('q', query);
     if (elements.kindFilter.value) params.set('kind', elements.kindFilter.value);
@@ -238,13 +271,20 @@
       const { response, data } = await request(`/api/admin/catalog?${params}`, { signal: controller.signal });
       if (sequence !== state.catalogRequest) return;
       if (!response.ok) throw new Error(data.error || `Catalog request failed (${response.status}).`);
-      state.items = Array.isArray(data.items) ? data.items : [];
+      const items = Array.isArray(data.items) ? data.items : [];
+      state.items = append ? [...state.items, ...items] : items;
+      state.catalogCursor = data.nextCursor || null;
+      elements.catalogMore.hidden = !state.catalogCursor;
       renderCatalogList();
       elements.listStatus.textContent = state.items.length ? `${state.items.length} records loaded.` : 'No catalog records match these filters.';
     } catch (error) {
       if (error.name === 'AbortError' || sequence !== state.catalogRequest) return;
-      state.items = [];
-      renderCatalogList();
+      if (!append) {
+        state.items = [];
+        state.catalogCursor = null;
+        elements.catalogMore.hidden = true;
+        renderCatalogList();
+      }
       elements.listStatus.textContent = error.message || 'Catalog records are unavailable.';
     }
   }
@@ -262,7 +302,9 @@
 
   async function saveCatalog(status) {
     if (state.busy) return;
-    const payload = serializeEditor(status);
+    const topics = validateEditorTopics();
+    if (!topics) return;
+    const payload = serializeEditor(status, topics);
     const currentId = elements.id.value;
     const version = Number(elements.version.textContent);
     const editing = Boolean(currentId);
@@ -293,8 +335,13 @@
   }
 
   function renderPreview() {
+    const topics = validateEditorTopics();
+    if (!topics) {
+      elements.previewPanel.hidden = true;
+      return;
+    }
     const status = state.current?.status || 'draft';
-    const item = serializeEditor(status);
+    const item = serializeEditor(status, topics);
     const labels = { en: 'EN · English', es: 'ES · Spanish', pt: 'PT · Portuguese' };
     const cards = Object.entries(item.translations).map(([lang, row]) => {
       const card = create('article', 'admin-preview-card');
@@ -304,7 +351,7 @@
       card.append(create('p', null, row.body || 'No body entered.'));
       card.append(create('p', null, row.cta ? `CTA: ${row.cta}` : 'No CTA label entered.'));
       if (item.sourceUrl) {
-        const link = create('a', null, item.sourceUrl);
+        const link = create('a', null, item.sourceLabel || item.sourceUrl);
         try {
           const url = new URL(item.sourceUrl);
           if (url.protocol === 'https:') { link.href = url.toString(); link.target = '_blank'; link.rel = 'noopener noreferrer'; }
@@ -320,7 +367,11 @@
 
   function renderInterest(interest) {
     const article = create('article', 'admin-interest');
-    article.append(create('h3', null, interest.member?.name || 'Member name unavailable'));
+    const item = interest.item || {};
+    article.append(create('p', 'admin-interest-item-kind', [item.kind?.replaceAll('_', ' '), item.organization].filter(Boolean).join(' · ')));
+    article.append(create('h3', 'admin-interest-item-title', item.title || 'Catalog item unavailable'));
+    if (item.itemId) article.append(create('p', 'admin-interest-item-id', item.itemId));
+    article.append(create('h4', null, interest.member?.name || 'Member name unavailable'));
     const email = create('a', null, interest.member?.email || 'Email unavailable');
     if (interest.member?.email) email.href = `mailto:${interest.member.email}`;
     article.append(email);
@@ -353,7 +404,8 @@
         if (!response.ok) throw new Error(data.error || `Update failed (${response.status}).`);
         interest.status = data.interest.status;
         interest.version = data.interest.version;
-        elements.interestStatus.textContent = 'Interest status updated.';
+        await loadInterests();
+        elements.interestStatus.textContent = 'Interest status updated. The active queue filter has been reapplied.';
       } catch (error) {
         elements.interestStatus.textContent = error.message || 'Interest status could not be updated.';
       } finally {
@@ -365,7 +417,12 @@
     return article;
   }
 
-  async function loadInterests() {
+  function renderInterestList() {
+    elements.interestList.replaceChildren(...state.interests.map(renderInterest));
+    elements.interestList.setAttribute('aria-busy', 'false');
+  }
+
+  async function loadInterests({ append = false } = {}) {
     if (state.interestController) state.interestController.abort();
     const controller = new AbortController();
     state.interestController = controller;
@@ -373,6 +430,7 @@
     state.interestRequest = sequence;
     const params = new URLSearchParams({ limit: '24' });
     if (elements.interestFilter.value) params.set('status', elements.interestFilter.value);
+    if (append && state.interestCursor) params.set('cursor', state.interestCursor);
     elements.interestStatus.textContent = 'Loading member interests…';
     elements.interestList.setAttribute('aria-busy', 'true');
     try {
@@ -380,13 +438,19 @@
       if (sequence !== state.interestRequest) return;
       if (!response.ok) throw new Error(data.error || `Interest request failed (${response.status}).`);
       const interests = Array.isArray(data.interests) ? data.interests : [];
-      elements.interestList.replaceChildren(...interests.map(renderInterest));
-      elements.interestList.setAttribute('aria-busy', 'false');
-      elements.interestStatus.textContent = interests.length ? `${interests.length} interests loaded.` : 'No member interests match this queue status.';
+      state.interests = append ? [...state.interests, ...interests] : interests;
+      state.interestCursor = data.nextCursor || null;
+      elements.interestMore.hidden = !state.interestCursor;
+      renderInterestList();
+      elements.interestStatus.textContent = state.interests.length ? `${state.interests.length} interests loaded.` : 'No member interests match this queue status.';
     } catch (error) {
       if (error.name === 'AbortError' || sequence !== state.interestRequest) return;
-      elements.interestList.replaceChildren();
-      elements.interestList.setAttribute('aria-busy', 'false');
+      if (!append) {
+        state.interests = [];
+        state.interestCursor = null;
+        elements.interestMore.hidden = true;
+        renderInterestList();
+      } else elements.interestList.setAttribute('aria-busy', 'false');
       elements.interestStatus.textContent = error.message || 'Member interests are unavailable.';
     }
   }
@@ -400,6 +464,8 @@
   elements.kindFilter.addEventListener('change', loadCatalog);
   elements.statusFilter.addEventListener('change', loadCatalog);
   elements.interestFilter.addEventListener('change', loadInterests);
+  elements.catalogMore.addEventListener('click', () => loadCatalog({ append: true }));
+  elements.interestMore.addEventListener('click', () => loadInterests({ append: true }));
   elements.kind.addEventListener('change', updateConditionalFields);
   elements.actionMode.addEventListener('change', updateConditionalFields);
   elements.newItem.addEventListener('click', () => fillEditor(blankRecord()));
@@ -413,6 +479,20 @@
     if (state.conflictCurrent) fillEditor(state.conflictCurrent);
   });
   elements.editor.addEventListener('submit', (event) => event.preventDefault());
+  elements.signOut.addEventListener('click', async () => {
+    elements.signOut.disabled = true;
+    elements.editorStatus.textContent = 'Signing out…';
+    try {
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) throw new Error(`Sign out failed (${response.status}).`);
+      location.assign('/login.html');
+    } catch (error) {
+      elements.signOut.disabled = false;
+      elements.editorStatus.textContent = error.message || 'Sign out failed.';
+    }
+  });
 
   async function bootstrap() {
     fillEditor(blankRecord());

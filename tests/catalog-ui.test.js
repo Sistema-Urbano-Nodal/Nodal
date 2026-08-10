@@ -11,6 +11,7 @@ const catalogPage = () => read('web', 'pages', 'opportunities.html');
 const catalogScript = () => read('web', 'scripts', 'catalog.js');
 const adminPage = () => read('web', 'pages', 'admin.html');
 const adminScript = () => read('web', 'scripts', 'admin.js');
+const adminStyles = () => read('web', 'styles', 'admin.css');
 const i18n = () => read('web', 'scripts', 'i18n.js');
 
 class FakeNode {
@@ -33,8 +34,23 @@ class FakeNode {
   getAttribute(name) { return this[name] ?? null; }
   addEventListener(name, handler) { this.listeners.set(name, handler); }
   querySelectorAll() { return []; }
+  querySelector() { return null; }
   scrollIntoView() {}
   getBoundingClientRect() { return {}; }
+}
+
+function descendants(node) {
+  const result = [];
+  for (const child of node?.children || []) {
+    if (child && typeof child === 'object') {
+      result.push(child, ...descendants(child));
+    }
+  }
+  return result;
+}
+
+function renderedText(node) {
+  return [node?.textContent || '', ...(node?.children || []).map(renderedText)].join(' ');
 }
 
 const response = (payload, { ok = true, status = 200 } = {}) => ({
@@ -63,7 +79,7 @@ function catalogHarness(fetchImpl) {
     'catalogDetail', 'catalogDetailStatus', 'catalogDetailKind', 'detailTitle',
     'catalogDetailSummary', 'catalogDetailBody', 'catalogDetailMeta',
     'catalogDetailActions', 'catalogInterestForm', 'catalogInterestDisclosure',
-    'catalogWithdrawInterest', 'catalogInterestMessage', 'catalogInterestStatus',
+    'catalogWithdrawInterest', 'catalogInterestSubmit', 'catalogInterestMessage', 'catalogInterestStatus',
     'catalogMyInterests', 'catalogMyInterestsStatus', 'catalogMyInterestsList',
   ]) ids.set(id, new FakeNode(id));
   ids.get('catalogDetail').hidden = true;
@@ -101,14 +117,14 @@ function catalogHarness(fetchImpl) {
 
   const instrumented = catalogScript().replace(
     /\n\}\)\(\);\s*$/,
-    `\nwindow.__catalogTest = { selectDetail, closeDetail, runFilters, submitInterest, withdrawInterest, loadMyInterests, page, setAuthenticated(value) { authenticated = value; } };\n})();`,
+    `\nwindow.__catalogTest = { renderDispatch, renderDetail, selectDetail, closeDetail, runFilters, submitInterest, withdrawInterest, loadMyInterests, page, setAuthenticated(value) { authenticated = value; } };\n})();`,
   );
   vm.runInNewContext(instrumented, context, { filename: 'catalog.js' });
   context.window.__catalogTest.setAuthenticated(true);
   return { api: context.window.__catalogTest, ids, i18nState };
 }
 
-function adminHarness() {
+function adminHarness(fetchImpl = () => Promise.reject(new Error('network must not run in the editor unit test'))) {
   const ids = new Map([...adminPage().matchAll(/\bid="([^"]+)"/g)].map((match) => [match[1], new FakeNode(match[1])]));
   const document = {
     getElementById: (id) => ids.get(id) ?? null,
@@ -122,8 +138,8 @@ function adminHarness() {
     clearTimeout,
     document,
     encodeURIComponent,
-    fetch: () => Promise.reject(new Error('network must not run in the editor unit test')),
-    location: { assign() {} },
+    fetch: fetchImpl,
+    location: { assigned: '', assign(value) { this.assigned = value; } },
     matchMedia: () => ({ matches: true }),
     setTimeout,
   };
@@ -131,11 +147,11 @@ function adminHarness() {
   const source = adminScript();
   const instrumented = source.replace(
     /\n  bootstrap\(\);\s*\n\}\)\(\);\s*$/,
-    `\n  window.__adminTest = { serializeEditor, showCatalogConflict, conflict: () => state.conflictCurrent };\n})();`,
+    `\n  window.__adminTest = { serializeEditor, validateEditorTopics, renderPreview, saveCatalog, loadCatalog, loadInterests, renderInterest, showCatalogConflict, state, conflict: () => state.conflictCurrent };\n})();`,
   );
   assert.notEqual(instrumented, source, 'admin test hook must replace bootstrap without changing production source');
   vm.runInNewContext(instrumented, context, { filename: 'admin.js' });
-  return { api: context.window.__adminTest, ids };
+  return { api: context.window.__adminTest, ids, location: context.location };
 }
 
 function catalogItem(id = 'item-1', overrides = {}) {
@@ -194,6 +210,41 @@ test('landing proof regions are API targets and fabricated social proof is absen
   assert.doesNotMatch(translations, /active nodes|nodos activos|nós ativos|quote\.|graph\.n\.[\w]+\.ask/);
 });
 
+test('landing restores the live recommendation deck as an honest translated state', () => {
+  const html = index();
+  assert.match(html, /id="matchStack"/);
+  assert.match(html, /class="match-card/);
+  assert.match(html, /data-i18n="recs\.loading\.title"/);
+  assert.match(html, /<script[^>]+src="recs\.js/);
+  const deck = html.match(/<div[^>]+id="matchStack"[\s\S]*?<\/article>\s*<\/div>/)?.[0] || '';
+  assert.match(deck, /class="match-name"[^>]*>Finding live matches</);
+  assert.doesNotMatch(deck, /data-user|member-id|@[\w.-]+|Urban (?:planner|leader)|member since/i, 'static loading UI must not pose as a member record');
+});
+
+test('landing dispatches always link safely to details and detail metadata uses source-backed localized actions', () => {
+  const harness = catalogHarness((url) => {
+    if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+    throw new Error(`unexpected request ${url}`);
+  });
+  const internal = catalogItem('internal-item', {
+    subtype: 'grant', cta: 'Join this call', sourceLabel: 'Official call page', sourceUrl: 'https://example.test/source',
+    startsAt: '2030-05-21T00:00:00.000Z', deadlineAt: '2030-05-20T00:00:00.000Z', endDate: '2030-05-30T23:59:59.999Z',
+  });
+  const landingRow = harness.api.renderDispatch(internal);
+  assert.ok(descendants(landingRow).some((node) => node.href === 'opportunities.html?id=internal-item'));
+  const externalRow = harness.api.renderDispatch({ ...internal, id: 'external-item', actionMode: 'external', actionUrl: 'https://example.test/apply' });
+  const externalLinks = descendants(externalRow).filter((node) => node.href);
+  assert.ok(externalLinks.some((node) => node.href === 'opportunities.html?id=external-item'));
+  assert.ok(externalLinks.some((node) => node.href === 'https://example.test/apply'));
+
+  harness.api.renderDetail(internal);
+  const meta = renderedText(harness.ids.get('catalogDetailMeta'));
+  for (const key of ['catalog.subtype.grant', 'catalog.startsAt', 'catalog.deadline', 'catalog.endDate']) assert.match(meta, new RegExp(key.replaceAll('.', '\\.')));
+  const source = descendants(harness.ids.get('catalogDetailActions')).find((node) => node.href === 'https://example.test/source');
+  assert.equal(source?.textContent, 'Official call page');
+  assert.equal(harness.ids.get('catalogInterestSubmit').textContent, 'Join this call');
+});
+
 test('catalog page exposes the complete public and member workflow', () => {
   const html = catalogPage();
   for (const kind of ['opportunity', 'project', 'learning_circle', 'resource', 'case_study']) {
@@ -203,7 +254,7 @@ test('catalog page exposes the complete public and member workflow', () => {
     'catalogForm', 'catalogQuery', 'catalogTopic', 'catalogLocation', 'catalogState',
     'catalogResults', 'catalogStatus', 'catalogDetail', 'catalogDetailStatus',
     'catalogInterestForm', 'catalogInterestMessage', 'catalogInterestDisclosure',
-    'catalogMyInterests', 'catalogMyInterestsStatus',
+    'catalogInterestSubmit', 'catalogMyInterests', 'catalogMyInterestsStatus',
   ]) assert.match(html, new RegExp(`id="${id}"`), `${id} must be present`);
   assert.match(html, /<option value="open"/);
   assert.match(html, /<option value="all"/);
@@ -293,7 +344,7 @@ test('My interests language refetch survives abort-ignoring stale success and fa
   for (const outcome of ['success', 'failure']) {
     await t.test(`Portuguese interests survive late English ${outcome}`, async () => {
       let english;
-      let englishDetailRequested = false;
+      let catalogDetailRequested = false;
       const harness = catalogHarness((url, options = {}) => {
         if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
         if (url.includes('/api/me/catalog-interests?lang=en')) {
@@ -301,15 +352,9 @@ test('My interests language refetch survives abort-ignoring stale success and fa
           return english.promise;
         }
         if (url.includes('/api/me/catalog-interests?lang=pt')) {
-          return Promise.resolve(response({ interests: [{ itemId: 'pt', status: 'new', message: '' }] }));
+          return Promise.resolve(response({ interests: [{ itemId: 'pt', status: 'new', message: '', item: catalogItem('pt', { title: 'Português' }) }], nextCursor: null }));
         }
-        if (url.includes('/api/catalog/pt?lang=pt')) {
-          return Promise.resolve(response({ item: catalogItem('pt', { title: 'Português' }) }));
-        }
-        if (url.includes('/api/catalog/en?lang=en')) {
-          englishDetailRequested = true;
-          return Promise.resolve(response({ item: catalogItem('en', { title: 'English' }) }));
-        }
+        if (url.includes('/api/catalog/')) catalogDetailRequested = true;
         throw new Error(`unexpected request ${url}`);
       });
 
@@ -317,7 +362,7 @@ test('My interests language refetch survives abort-ignoring stale success and fa
       harness.i18nState.lang = 'pt';
       await harness.api.loadMyInterests();
       if (outcome === 'success') {
-        english.resolve(response({ interests: [{ itemId: 'en', status: 'new', message: '' }] }));
+        english.resolve(response({ interests: [{ itemId: 'en', status: 'new', message: '', item: catalogItem('en', { title: 'English' }) }], nextCursor: null }));
       } else english.reject(new Error('late English interests failure'));
       await oldRender;
 
@@ -326,9 +371,28 @@ test('My interests language refetch survives abort-ignoring stale success and fa
         .filter(Boolean);
       assert.deepEqual(titles, ['Português']);
       assert.equal(harness.ids.get('catalogMyInterestsStatus').textContent, '');
-      assert.equal(englishDetailRequested, outcome === 'success');
+      assert.equal(catalogDetailRequested, false);
     });
   }
+});
+
+test('My interests drains cursor pages from enriched responses without public detail N+1 reads', async () => {
+  const calls = [];
+  const harness = catalogHarness((url) => {
+    if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+    calls.push(url);
+    if (url.includes('cursor=next-owned')) {
+      return Promise.resolve(response({ interests: [{ itemId: 'two', status: 'contacted', message: '', item: catalogItem('two') }], nextCursor: null }));
+    }
+    if (url.includes('/api/me/catalog-interests?lang=en')) {
+      return Promise.resolve(response({ interests: [{ itemId: 'one', status: 'new', message: '', item: catalogItem('one') }], nextCursor: 'next-owned' }));
+    }
+    throw new Error(`unexpected request ${url}`);
+  });
+  await harness.api.loadMyInterests();
+  assert.equal(harness.ids.get('catalogMyInterestsList').children.length, 2);
+  assert.ok(calls.some((url) => url.includes('cursor=next-owned')));
+  assert.equal(calls.some((url) => url.includes('/api/catalog/')), false);
 });
 
 test('interest writes report transport failures and preserve successful feedback', async (t) => {
@@ -433,13 +497,13 @@ test('admin workspace exposes a complete trilingual editor without destructive c
   const html = adminPage();
   for (const id of [
     'adminCatalogFilters', 'adminCatalogQuery', 'adminCatalogKind', 'adminCatalogStatus',
-    'adminCatalogList', 'adminCatalogListStatus', 'adminCatalogEditor', 'adminCatalogId',
+    'adminCatalogList', 'adminCatalogListStatus', 'adminCatalogMore', 'adminCatalogEditor', 'adminCatalogId',
     'adminCatalogVersion', 'adminKind', 'adminSubtype', 'adminVisibility',
     'adminOrganization', 'adminLocation', 'adminTopics', 'adminStartsAt', 'adminDeadlineAt',
-    'adminEndDate', 'adminSourceUrl', 'adminSourceVerifiedAt', 'adminActionMode',
+    'adminTopicsError', 'adminEndDate', 'adminSourceLabel', 'adminSourceUrl', 'adminSourceVerifiedAt', 'adminActionMode',
     'adminActionUrl', 'adminFeatured', 'adminSaveDraft', 'adminPublish', 'adminArchive',
     'adminPreview', 'adminConflictReload', 'adminEditorStatus', 'adminPreviewPanel',
-    'adminInterestFilter', 'adminInterestList', 'adminInterestStatus',
+    'adminInterestFilter', 'adminInterestList', 'adminInterestStatus', 'adminInterestMore', 'adminSignOut',
   ]) assert.match(html, new RegExp(`id="${id}"`), `${id} must be present`);
 
   for (const lang of ['En', 'Es', 'Pt']) {
@@ -450,6 +514,8 @@ test('admin workspace exposes a complete trilingual editor without destructive c
   assert.doesNotMatch(html, /hard[- ]?delete|delete catalog|id="adminDelete"/i);
   assert.match(html, /<script[^>]+src="admin\.js/);
   assert.match(html, /<link[^>]+href="admin\.css/);
+  assert.match(adminStyles(), /@media \(max-width: 820px\)[\s\S]*?\.admin-topbar nav a[\s\S]*?display:\s*none/);
+  assert.match(adminStyles(), /@media \(max-width: 820px\)[\s\S]*?#adminSignOut[\s\S]*?display:/);
 });
 
 test('admin client serializes translations atomically and preserves edits on stale versions', () => {
@@ -482,6 +548,7 @@ test('admin client serializes translations atomically and preserves edits on sta
   set('adminStartsAt', '2026-09-01T09:00');
   set('adminDeadlineAt', '2026-09-30T18:00');
   set('adminEndDate', '2026-12-31');
+  set('adminSourceLabel', 'Official grant page');
   set('adminSourceUrl', 'https://source.example/item');
   set('adminSourceVerifiedAt', '2026-08-10');
   set('adminActionMode', 'external');
@@ -499,6 +566,7 @@ test('admin client serializes translations atomically and preserves edits on sta
   assert.deepEqual(payload.translations.pt, { title: 'Title Pt', summary: 'Summary Pt', body: 'Body Pt', cta: 'CTA Pt' });
   assert.equal(payload.status, 'published');
   assert.equal(payload.actionUrl, 'https://action.example/apply');
+  assert.equal(payload.sourceLabel, 'Official grant page');
   assert.deepEqual(payload.topics, ['mobility', 'housing']);
 
   set('adminTitleEn', 'Unsaved operator wording');
@@ -509,6 +577,73 @@ test('admin client serializes translations atomically and preserves edits on sta
   assert.equal(harness.ids.get('adminConflictPanel').hidden, false);
   assert.equal(harness.api.conflict().version, 8);
   assert.ok(harness.ids.get('adminConflictReload').listeners.has('click'), 'explicit reload control must own conflict replacement');
+});
+
+test('admin workspace validates topics before preview or writes, paginates both queues, reloads filtered updates, and signs out', async () => {
+  const requests = [];
+  let catalogPage = 0;
+  let interestPage = 0;
+  let interestReloaded = false;
+  const fetchImpl = async (url, options = {}) => {
+    requests.push({ url, options });
+    if (url === '/api/auth/logout') return response({ ok: true });
+    if (url.startsWith('/api/admin/catalog?')) {
+      catalogPage += 1;
+      return catalogPage === 1
+        ? response({ items: [{ id: 'record-1', kind: 'resource', status: 'draft', visibility: 'public', translations: { en: { title: 'First' } } }], nextCursor: 'catalog-next' })
+        : response({ items: [{ id: 'record-2', kind: 'project', status: 'published', visibility: 'public', translations: { en: { title: 'Second' } } }], nextCursor: null });
+    }
+    if (url.startsWith('/api/admin/interests?')) {
+      interestPage += 1;
+      if (interestReloaded) return response({ interests: [], nextCursor: null });
+      return interestPage === 1
+        ? response({ interests: [{ id: 'interest-1', version: 1, status: 'new', message: 'Hello', member: { name: 'Member', email: 'member@example.test' }, item: { itemId: 'record-1', title: 'First', kind: 'resource', organization: 'NODAL' } }], nextCursor: 'interest-next' })
+        : response({ interests: [{ id: 'interest-2', version: 1, status: 'new', message: '', member: { name: 'Other', email: 'other@example.test' }, item: { itemId: 'record-2', title: 'Second', kind: 'project', organization: 'Cities' } }], nextCursor: null });
+    }
+    if (url === '/api/admin/interests/interest-1' && options.method === 'PATCH') {
+      interestReloaded = true;
+      return response({ interest: { id: 'interest-1', version: 2, status: 'contacted' } });
+    }
+    if (url === '/api/admin/catalog' && options.method === 'POST') return response({ item: {} }, { ok: true, status: 201 });
+    throw new Error(`unexpected request ${url}`);
+  };
+  const harness = adminHarness(fetchImpl);
+
+  harness.ids.get('adminTopics').value = Array.from({ length: 9 }, (_, index) => `topic-${index}`).join(', ');
+  harness.api.renderPreview();
+  assert.equal(harness.ids.get('adminPreviewPanel').hidden, true);
+  assert.equal(harness.ids.get('adminTopicsError').hidden, false);
+  await harness.api.saveCatalog('draft');
+  assert.equal(requests.some((entry) => entry.url === '/api/admin/catalog'), false);
+  harness.ids.get('adminTopics').value = 'x'.repeat(61);
+  assert.equal(harness.api.validateEditorTopics(), null);
+
+  harness.ids.get('adminTopics').value = 'mobility';
+  await harness.api.loadCatalog();
+  await harness.ids.get('adminCatalogMore').listeners.get('click')();
+  assert.equal(harness.api.state.items.length, 2);
+  assert.equal(harness.ids.get('adminCatalogMore').hidden, true);
+  assert.ok(requests.some((entry) => entry.url.includes('cursor=catalog-next')));
+
+  harness.ids.get('adminInterestFilter').value = 'new';
+  await harness.api.loadInterests();
+  assert.match(renderedText(harness.ids.get('adminInterestList')), /First/);
+  await harness.ids.get('adminInterestMore').listeners.get('click')();
+  assert.equal(harness.ids.get('adminInterestList').children.length, 2);
+  assert.ok(requests.some((entry) => entry.url.includes('cursor=interest-next')));
+
+  const firstCard = harness.ids.get('adminInterestList').children[0];
+  const select = descendants(firstCard).find((node) => node.id === 'select');
+  const update = descendants(firstCard).find((node) => node.textContent === 'Update');
+  select.value = 'contacted';
+  await update.listeners.get('click')();
+  assert.equal(harness.ids.get('adminInterestList').children.length, 0, 'updated records must disappear when they no longer match the active filter');
+
+  await harness.ids.get('adminSignOut').listeners.get('click')();
+  const logout = requests.find((entry) => entry.url === '/api/auth/logout');
+  assert.equal(logout.options.method, 'POST');
+  assert.equal(logout.options.credentials, 'same-origin');
+  assert.equal(harness.location.assigned, '/login.html');
 });
 
 test('dashboard catalog scopes use the public API while People remains consent-gated', () => {
@@ -525,6 +660,8 @@ test('dashboard catalog scopes use the public API while People remains consent-g
   assert.match(source, /d\.search\.catalogSearching/);
   assert.match(source, /d\.search\.catalogUnavailable/);
   assert.match(source, /d\.search\.catalogEmpty/);
+  assert.match(source, /catalogReady\s*=\s*false/);
+  assert.match(source, /catalogReady\s*&&\s*catalogScope\s*===\s*scope/);
 });
 
 test('recommendation asynchronous states are translated and never synthesize records', () => {
@@ -547,6 +684,7 @@ test('dashboard catalog and recommendation states resolve in EN, ES, and PT', ()
   const portuguese = dictionaryKeys(source, 'DASH_PT');
   const required = [
     'd.search.catalogSearching', 'd.search.catalogUnavailable', 'd.search.catalogEmpty',
+    'catalog.startsAt', 'catalog.endDate', 'catalog.subtype.grant',
     'recs.loading.title', 'recs.loading.role', 'recs.loading.why',
     'recs.empty.title', 'recs.empty.role', 'recs.empty.why',
     'recs.auth.title', 'recs.auth.role', 'recs.auth.why',

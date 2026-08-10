@@ -11,7 +11,7 @@
 
   const els = {
     initial: card.querySelector('.leader-initial'),
-    name:    card.querySelector('.match-body h3'),
+    name:    card.querySelector('.match-name'),
     role:    card.querySelector('.match-role'),
     tags:    card.querySelector('.tags'),
     why:     card.querySelector('.match-why'),
@@ -47,8 +47,7 @@
   function show(p) {
     messageMode = '';
     els.initial.textContent = p.name.charAt(0).toUpperCase();
-    // the h3 holds "name" as its first text node, then the members-only lock icon
-    els.name.childNodes[0].nodeValue = `${p.name} `;
+    els.name.textContent = p.name;
     els.role.textContent = `${p.role} · ${p.city}`;
     els.tags.replaceChildren(...p.interests.slice(0, 3).map((i) => {
       const span = document.createElement('span');
@@ -73,7 +72,7 @@
     needsAuth = auth;
     needsRetry = retry;
     els.initial.textContent = title.charAt(0).toUpperCase();
-    els.name.childNodes[0].nodeValue = `${title} `;
+    els.name.textContent = title;
     els.role.textContent = role;
     els.tags.replaceChildren(...tags.map((t) => {
       const span = document.createElement('span');
