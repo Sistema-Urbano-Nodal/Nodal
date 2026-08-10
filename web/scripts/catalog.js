@@ -28,13 +28,26 @@
     } catch { return ''; }
   }
 
-  function safeLocalNext() {
-    const next = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-    return next.startsWith('/') && !next.startsWith('//') && !next.includes('\\') ? next : '/opportunities.html';
+  function safeLocalNext(itemId = '') {
+    const fallbackParams = new URLSearchParams();
+    if (itemId) fallbackParams.set('id', itemId);
+    const fallbackQuery = fallbackParams.toString();
+    const fallback = `/opportunities.html${fallbackQuery ? `?${fallbackQuery}` : ''}`;
+    const pathname = String(window.location.pathname || '');
+    if (!pathname.startsWith('/') || pathname.startsWith('//') || pathname.includes('\\')) return fallback;
+    const params = new URLSearchParams(window.location.search);
+    if (itemId) params.set('id', itemId);
+    const query = params.toString();
+    const next = `${pathname}${query ? `?${query}` : ''}${window.location.hash || ''}`;
+    return next.startsWith('/') && !next.startsWith('//') && !next.includes('\\') ? next : fallback;
   }
 
-  function redirectToLogin() {
-    window.location.assign(`/login.html?next=${encodeURIComponent(safeLocalNext())}`);
+  function loginHref(itemId = '') {
+    return `/login.html?next=${encodeURIComponent(safeLocalNext(itemId))}`;
+  }
+
+  function redirectToLogin(itemId = '') {
+    window.location.assign(loginHref(itemId));
   }
 
   function dateText(value, { civil = false } = {}) {
@@ -182,11 +195,21 @@
   }
 
   let authenticated = false;
+  let authResolved = false;
+  let authRequest = 0;
   async function loadAuthState() {
+    const requestId = ++authRequest;
+    authenticated = false;
+    authResolved = false;
+    if (page.detailItem) renderInterestControls(page.detailItem);
+    let nextAuthenticated = false;
     try {
       const response = await jsonRequest('/api/auth/state');
-      authenticated = response.ok && Boolean((await response.json()).authenticated);
-    } catch { authenticated = false; }
+      nextAuthenticated = response.ok && Boolean((await response.json()).authenticated);
+    } catch { nextAuthenticated = false; }
+    if (requestId !== authRequest) return authenticated;
+    authenticated = nextAuthenticated;
+    authResolved = true;
     const primary = byId('heroPrimary');
     const secondary = byId('heroSecondary');
     if (primary && secondary && authenticated) {
@@ -197,12 +220,14 @@
     }
     const toggle = byId('catalogMyInterestsToggle');
     if (toggle) toggle.hidden = !authenticated;
+    if (page.detailItem) renderInterestControls(page.detailItem);
+    return authenticated;
   }
 
   const page = {
     form: byId('catalogForm'), results: byId('catalogResults'), status: byId('catalogStatus'),
     detail: byId('catalogDetail'), detailStatus: byId('catalogDetailStatus'),
-    more: byId('catalogMore'), selectedId: null, nextCursor: null,
+    more: byId('catalogMore'), selectedId: null, detailItem: null, nextCursor: null,
     listController: null, listRequest: 0, detailController: null, interestsController: null, debounce: null,
   };
 
@@ -290,7 +315,32 @@
     box.append(sourceAnchor(item));
   }
 
+  function renderInterestControls(item, { resetMessage = false } = {}) {
+    const form = byId('catalogInterestForm');
+    const compose = byId('catalogInterestCompose');
+    const disclosure = byId('catalogInterestDisclosure');
+    const signIn = byId('catalogInterestSignIn');
+    const withdraw = byId('catalogWithdrawInterest');
+    const submit = byId('catalogInterestSubmit');
+    const canInterest = item.actionMode === 'interest' && !item.isClosed;
+    const hasHistory = Boolean(item.interestStatus);
+    const canCompose = canInterest && authenticated;
+    submit.textContent = item.cta || t('catalog.expressInterest');
+    submit.disabled = !canCompose;
+    compose.hidden = !canCompose;
+    form.hidden = !authenticated || (!canInterest && !hasHistory);
+    disclosure.hidden = !canInterest;
+    signIn.textContent = t('catalog.signInToExpressInterest');
+    signIn.href = loginHref(item.id);
+    signIn.hidden = !canInterest || !authResolved || authenticated;
+    withdraw.hidden = !authenticated || !['new', 'contacted'].includes(item.interestStatus);
+    form.dataset.itemId = item.id;
+    if (resetMessage) byId('catalogInterestMessage').value = '';
+    byId('catalogInterestStatus').textContent = item.interestStatus ? t(statusKey(item.interestStatus)) : (item.isClosed ? t('catalog.closed') : '');
+  }
+
   function renderDetail(item) {
+    page.detailItem = item;
     byId('catalogDetailKind').textContent = t(kindKey(item.kind));
     byId('detailTitle').textContent = item.title;
     byId('catalogDetailSummary').textContent = item.summary || '';
@@ -306,23 +356,7 @@
     }
     const official = item.actionMode === 'external' && !item.isClosed ? officialAnchor(item) : null;
     if (official) actions.append(official);
-
-    const form = byId('catalogInterestForm');
-    const compose = byId('catalogInterestCompose');
-    const disclosure = byId('catalogInterestDisclosure');
-    const withdraw = byId('catalogWithdrawInterest');
-    const submit = byId('catalogInterestSubmit');
-    const canInterest = item.actionMode === 'interest' && !item.isClosed;
-    const hasHistory = Boolean(item.interestStatus);
-    submit.textContent = item.cta || t('catalog.expressInterest');
-    submit.disabled = !canInterest;
-    compose.hidden = !canInterest;
-    form.hidden = !canInterest && !hasHistory;
-    disclosure.hidden = !canInterest;
-    withdraw.hidden = !['new', 'contacted'].includes(item.interestStatus);
-    form.dataset.itemId = item.id;
-    byId('catalogInterestMessage').value = '';
-    byId('catalogInterestStatus').textContent = item.interestStatus ? t(statusKey(item.interestStatus)) : (item.isClosed ? t('catalog.closed') : '');
+    renderInterestControls(item, { resetMessage: true });
     page.detail.hidden = false;
     page.detailStatus.textContent = '';
   }
@@ -330,6 +364,7 @@
   async function selectDetail(id) {
     if (!page.detail || !page.detailStatus) return;
     page.selectedId = id;
+    page.detailItem = null;
     updateBrowserQuery();
     page.detailController?.abort();
     const controller = new AbortController();
@@ -355,6 +390,7 @@
     page.detailController?.abort();
     page.detailController = null;
     page.selectedId = null;
+    page.detailItem = null;
     page.detail.hidden = true;
     page.detailStatus.textContent = t('catalog.selectDetail');
     updateBrowserQuery();
@@ -366,11 +402,11 @@
     const itemId = form.dataset.itemId;
     const message = byId('catalogInterestMessage').value.trim();
     const status = byId('catalogInterestStatus');
-    if (!authenticated) { redirectToLogin(); return; }
+    if (!authenticated) { redirectToLogin(itemId); return; }
     status.textContent = t('catalog.interestSending');
     try {
       const response = await jsonRequest(`/api/catalog/${encodeURIComponent(itemId)}/interest`, { method: 'PUT', body: JSON.stringify({ message }) });
-      if (response.status === 401) { redirectToLogin(); return; }
+      if (response.status === 401) { redirectToLogin(itemId); return; }
       if (!response.ok) throw new Error('interest write failed');
       await selectDetail(itemId);
       const feedback = t('catalog.interestSuccess');

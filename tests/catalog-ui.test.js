@@ -75,16 +75,17 @@ function deferredResponse(signal, { honorAbort = true } = {}) {
   return { promise, resolve, reject };
 }
 
-function catalogHarness(fetchImpl, { intl = Intl } = {}) {
+function catalogHarness(fetchImpl, { intl = Intl, assumeAuthenticated = true } = {}) {
   const ids = new Map();
   for (const id of [
     'catalogDetail', 'catalogDetailStatus', 'catalogDetailKind', 'detailTitle',
     'catalogDetailSummary', 'catalogDetailBody', 'catalogDetailMeta',
-    'catalogDetailActions', 'catalogInterestForm', 'catalogInterestDisclosure',
+    'catalogDetailActions', 'catalogInterestForm', 'catalogInterestDisclosure', 'catalogInterestSignIn',
     'catalogInterestCompose', 'catalogWithdrawInterest', 'catalogInterestSubmit', 'catalogInterestMessage', 'catalogInterestStatus',
     'catalogMyInterests', 'catalogMyInterestsStatus', 'catalogMyInterestsList',
   ]) ids.set(id, new FakeNode(id));
   ids.get('catalogDetail').hidden = true;
+  ids.get('catalogInterestSignIn').hidden = true;
   ids.get('catalogInterestForm').dataset.itemId = 'item-1';
 
   const i18nState = {
@@ -114,16 +115,20 @@ function catalogHarness(fetchImpl, { intl = Intl } = {}) {
   };
   context.window = context;
   context.window.document = document;
-  context.window.location = { pathname: '/opportunities.html', search: '', hash: '', assign() {} };
+  const location = {
+    pathname: '/opportunities.html', search: '', hash: '', assigned: '',
+    assign(value) { this.assigned = value; },
+  };
+  context.window.location = location;
   context.window.nodalI18n = i18nState;
 
   const instrumented = catalogScript().replace(
     /\n\}\)\(\);\s*$/,
-    `\nwindow.__catalogTest = { dateText, renderDispatch, renderDetail, selectDetail, closeDetail, runFilters, refetchForLanguage, loadResults, loadLanding, submitInterest, withdrawInterest, loadMyInterests, page, setAuthenticated(value) { authenticated = value; } };\n})();`,
+    `\nwindow.__catalogTest = { dateText, renderDispatch, renderDetail, selectDetail, closeDetail, runFilters, refetchForLanguage, loadAuthState, loadResults, loadLanding, submitInterest, withdrawInterest, loadMyInterests, page, setAuthenticated(value) { authenticated = value; } };\n})();`,
   );
   vm.runInNewContext(instrumented, context, { filename: 'catalog.js' });
-  context.window.__catalogTest.setAuthenticated(true);
-  return { api: context.window.__catalogTest, ids, i18nState };
+  if (assumeAuthenticated) context.window.__catalogTest.setAuthenticated(true);
+  return { api: context.window.__catalogTest, ids, i18nState, location };
 }
 
 function mountCatalogList(harness) {
@@ -191,12 +196,15 @@ function i18nHarness({ titleKey, titleText, descriptionKey, descriptionText }) {
   const close = new FakeNode('close');
   close.dataset.i18nAriaLabel = 'graph.close';
   close.setAttribute('aria-label', 'Close');
+  const interestSignIn = new FakeNode('interest-sign-in');
+  interestSignIn.dataset.i18n = 'catalog.signInToExpressInterest';
+  interestSignIn.textContent = 'Sign in to express interest';
   const documentElement = new FakeNode('html');
   const document = {
     documentElement,
     querySelectorAll(selector) {
       return {
-        '[data-i18n]': [title],
+        '[data-i18n]': [title, interestSignIn],
         '[data-i18n-placeholder]': [],
         '[data-i18n-content]': [description],
         '[data-i18n-aria-label]': [graph, node, close],
@@ -212,7 +220,7 @@ function i18nHarness({ titleKey, titleText, descriptionKey, descriptionText }) {
   };
   context.window = context;
   vm.runInNewContext(i18n(), context, { filename: 'i18n.js' });
-  return { api: context.window.nodalI18n, title, description, graph, node, close, documentElement };
+  return { api: context.window.nodalI18n, title, description, graph, node, close, interestSignIn, documentElement };
 }
 
 function catalogItem(id = 'item-1', overrides = {}) {
@@ -274,10 +282,12 @@ test('visitor page head and graph accessibility labels follow EN, ES, and PT', (
     harness.api.apply('es');
     assert.notEqual(harness.title.textContent, english.title);
     assert.notEqual(harness.description.getAttribute('content'), english.description);
+    assert.equal(harness.interestSignIn.textContent, 'Inicia sesión para expresar interés');
     assert.equal(harness.documentElement.lang, 'es');
     harness.api.apply('pt');
     assert.notEqual(harness.title.textContent, english.title);
     assert.notEqual(harness.description.getAttribute('content'), english.description);
+    assert.equal(harness.interestSignIn.textContent, 'Entre para expressar interesse');
     assert.equal(harness.documentElement.lang, 'pt');
   }
 
@@ -352,6 +362,93 @@ test('landing dispatches always link safely to details and detail metadata uses 
   const source = descendants(harness.ids.get('catalogDetailActions')).find((node) => node.href === 'https://example.test/source');
   assert.equal(source?.textContent, 'Official call page');
   assert.equal(harness.ids.get('catalogInterestSubmit').textContent, 'Join this call');
+});
+
+test('anonymous internal-interest detail requires sign-in before composing and preserves a safe item permalink', async () => {
+  const harness = catalogHarness((url) => {
+    if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: false }));
+    throw new Error(`unexpected request ${url}`);
+  }, { assumeAuthenticated: false });
+  await harness.api.loadAuthState();
+  harness.location.search = '?kind=opportunity&q=housing&topic=climate';
+  harness.location.hash = '#detail';
+  harness.api.renderDetail(catalogItem('internal-anon', { cta: 'Join this call' }));
+
+  assert.equal(harness.ids.get('catalogInterestDisclosure').hidden, false);
+  assert.equal(harness.ids.get('catalogInterestForm').hidden, true);
+  assert.equal(harness.ids.get('catalogInterestCompose').hidden, true);
+  assert.equal(harness.ids.get('catalogInterestSignIn').hidden, false);
+  assert.equal(harness.ids.get('catalogInterestSignIn').textContent, 'catalog.signInToExpressInterest');
+  const expectedNext = '/opportunities.html?kind=opportunity&q=housing&topic=climate&id=internal-anon#detail';
+  assert.equal(harness.ids.get('catalogInterestSignIn').href, `/login.html?next=${encodeURIComponent(expectedNext)}`);
+
+  harness.location.pathname = '//outside.example';
+  harness.location.search = '?next=https://outside.example';
+  harness.location.hash = '';
+  harness.api.renderDetail(catalogItem('safe-fallback'));
+  assert.equal(harness.ids.get('catalogInterestSignIn').href,
+    `/login.html?next=${encodeURIComponent('/opportunities.html?id=safe-fallback')}`);
+});
+
+test('authenticated internal-interest detail exposes the item composer and hides sign-in', async () => {
+  const harness = catalogHarness((url) => {
+    if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+    throw new Error(`unexpected request ${url}`);
+  }, { assumeAuthenticated: false });
+  await harness.api.loadAuthState();
+  harness.api.renderDetail(catalogItem('internal-member', { cta: 'Join this call' }));
+
+  assert.equal(harness.ids.get('catalogInterestForm').hidden, false);
+  assert.equal(harness.ids.get('catalogInterestCompose').hidden, false);
+  assert.equal(harness.ids.get('catalogInterestSubmit').textContent, 'Join this call');
+  assert.equal(harness.ids.get('catalogInterestSignIn').hidden, true);
+});
+
+test('detail rendered during auth lookup stays non-composable and updates when authentication resolves', async () => {
+  let authReads = 0;
+  let currentAuth;
+  const harness = catalogHarness((url, options = {}) => {
+    if (url === '/api/auth/state') {
+      authReads += 1;
+      if (authReads === 1) return new Promise(() => {});
+      currentAuth = deferredResponse(options.signal, { honorAbort: false });
+      return currentAuth.promise;
+    }
+    throw new Error(`unexpected request ${url}`);
+  }, { assumeAuthenticated: false });
+
+  const authLoad = harness.api.loadAuthState();
+  harness.api.renderDetail(catalogItem('late-auth', { cta: 'Contribute now' }));
+  assert.equal(harness.ids.get('catalogInterestForm').hidden, true);
+  assert.equal(harness.ids.get('catalogInterestCompose').hidden, true);
+  assert.equal(harness.ids.get('catalogInterestSignIn').hidden, true, 'pending auth must not guess that the visitor is anonymous');
+  assert.equal(harness.ids.get('catalogInterestMessage').value, '');
+
+  currentAuth.resolve(response({ authenticated: true }));
+  await authLoad;
+  assert.equal(harness.ids.get('catalogInterestForm').hidden, false);
+  assert.equal(harness.ids.get('catalogInterestCompose').hidden, false);
+  assert.equal(harness.ids.get('catalogInterestSubmit').textContent, 'Contribute now');
+  assert.equal(harness.ids.get('catalogInterestSignIn').hidden, true);
+});
+
+test('programmatic anonymous interest submission redirects without issuing a PUT', async () => {
+  const calls = [];
+  const harness = catalogHarness((url, options = {}) => {
+    calls.push({ url, method: options.method || 'GET' });
+    if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: false }));
+    throw new Error(`unexpected request ${options.method || 'GET'} ${url}`);
+  }, { assumeAuthenticated: false });
+  await harness.api.loadAuthState();
+  harness.location.search = '?kind=opportunity';
+  harness.api.renderDetail(catalogItem('programmatic-anon'));
+  harness.ids.get('catalogInterestMessage').value = 'A message that must not be submitted before sign-in.';
+
+  await harness.api.submitInterest({ preventDefault() {}, currentTarget: harness.ids.get('catalogInterestForm') });
+
+  assert.equal(calls.some((call) => call.method === 'PUT'), false);
+  assert.equal(harness.location.assigned,
+    `/login.html?next=${encodeURIComponent('/opportunities.html?kind=opportunity&id=programmatic-anon')}`);
 });
 
 test('catalog details keep historical withdrawal visible without offering an ineligible internal submission', () => {
@@ -433,7 +530,7 @@ test('catalog page exposes the complete public and member workflow', () => {
     'catalogForm', 'catalogQuery', 'catalogTopic', 'catalogLocation', 'catalogState',
     'catalogResults', 'catalogStatus', 'catalogDetail', 'catalogDetailStatus',
     'catalogInterestForm', 'catalogInterestCompose', 'catalogInterestMessage', 'catalogInterestDisclosure',
-    'catalogInterestSubmit', 'catalogMyInterests', 'catalogMyInterestsStatus',
+    'catalogInterestSignIn', 'catalogInterestSubmit', 'catalogMyInterests', 'catalogMyInterestsStatus',
   ]) assert.match(html, new RegExp(`id="${id}"`), `${id} must be present`);
   assert.match(html, /<option value="open"/);
   assert.match(html, /<option value="all"/);
@@ -851,6 +948,7 @@ test('catalog dynamic and visible states resolve in EN, ES, and PT', () => {
     'catalog.detailUnavailable', 'catalog.closed', 'catalog.sourceVerified',
     'catalog.externalAction', 'catalog.interestDisclosure', 'catalog.interestSuccess',
     'catalog.interestWithdrawn', 'catalog.interestsEmpty', 'catalog.interestsError',
+    'catalog.signInToExpressInterest',
     'catalog.status.new', 'catalog.status.contacted', 'catalog.status.closed', 'catalog.status.withdrawn',
     'nav.mainLabel', 'nav.accountLabel', 'nav.languageLabel', 'nav.menuLabel',
   ];

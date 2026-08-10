@@ -132,6 +132,7 @@
 .catalog-detail-body { margin: 1.5rem 0; white-space: pre-wrap; line-height: 1.75; }
 .catalog-detail-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; padding: 1rem 0; border-block: 1px solid var(--catalog-rule); }
 .interest-disclosure { margin-top: 1.5rem; padding: 1rem; border-left: 0.25rem solid var(--catalog-green); background: var(--catalog-paper); color: var(--catalog-muted); font-size: 0.8rem; line-height: 1.55; }
+.catalog-interest-sign-in { margin-top: 1rem; }
 #catalogInterestForm label { display: block; margin: 1rem 0 0.5rem; font-size: 0.76rem; font-weight: 700; }
 #catalogInterestMessage { width: 100%; resize: vertical; }
 .catalog-interest-buttons { display: flex; align-items: center; gap: 1rem; margin-top: 1rem; }

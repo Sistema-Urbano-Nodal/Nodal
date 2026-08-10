@@ -304,12 +304,12 @@ test('changed one-hour-cached catalog clients use new URLs on every consuming pa
   const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'payments.html', 'profile.html', 'admin.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
   const required = {
-    'index.html': { 'catalog.css': '3', 'i18n.js': '37', 'app.js': '18', 'recs.js': '2', 'catalog.js': '3' },
-    'opportunities.html': { 'catalog.css': '3', 'i18n.js': '37', 'catalog.js': '3' },
-    'dashboard.html': { 'i18n.js': '37', 'dashboard.js': '25' },
-    'login.html': { 'i18n.js': '37' },
-    'payments.html': { 'i18n.js': '37' },
-    'profile.html': { 'i18n.js': '37' },
+    'index.html': { 'catalog.css': '4', 'i18n.js': '38', 'app.js': '18', 'recs.js': '2', 'catalog.js': '4' },
+    'opportunities.html': { 'catalog.css': '4', 'i18n.js': '38', 'catalog.js': '4' },
+    'dashboard.html': { 'i18n.js': '38', 'dashboard.js': '25' },
+    'login.html': { 'i18n.js': '38' },
+    'payments.html': { 'i18n.js': '38' },
+    'profile.html': { 'i18n.js': '38' },
     'admin.html': { 'admin.css': '2', 'admin.js': '2' },
   };
   for (const [page, assets] of Object.entries(required)) {
