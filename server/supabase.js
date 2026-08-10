@@ -298,9 +298,29 @@ function canonicalTimestamp(value) {
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
 }
 
+const CATALOG_DEADLINE_CURSOR_TIMESTAMP = Symbol('catalogDeadlineCursorTimestamp');
+const CATALOG_PUBLISHED_CURSOR_TIMESTAMP = Symbol('catalogPublishedCursorTimestamp');
+const CATALOG_INTEREST_CURSOR_TIMESTAMP = Symbol('catalogInterestCursorTimestamp');
+
+function canonicalCursorTimestamp(value) {
+  const canonical = canonicalTimestamp(value);
+  if (!canonical) return null;
+  const fraction = String(value).match(/\.(\d{1,6})(?:Z|[+-]\d{2}:\d{2})$/i)?.[1];
+  return fraction?.length > 3
+    ? `${canonical.slice(0, 19)}.${fraction.padEnd(6, '0')}Z`
+    : canonical;
+}
+
+function comparableCursorTimestamp(value) {
+  if (typeof value !== 'string' || value === '\uffff' || value === '') return value;
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)
+    ? `${value.slice(0, -1)}000Z`
+    : value;
+}
+
 function catalogItemFromSupabase(row) {
   if (!row) return null;
-  return {
+  const item = {
     id: row.id,
     kind: row.kind,
     subtype: row.subtype ?? null,
@@ -327,11 +347,16 @@ function catalogItemFromSupabase(row) {
     createdAt: canonicalTimestamp(row.created_at),
     updatedAt: canonicalTimestamp(row.updated_at),
   };
+  Object.defineProperties(item, {
+    [CATALOG_DEADLINE_CURSOR_TIMESTAMP]: { value: canonicalCursorTimestamp(row.deadline_at) },
+    [CATALOG_PUBLISHED_CURSOR_TIMESTAMP]: { value: canonicalCursorTimestamp(row.published_at) },
+  });
+  return item;
 }
 
 function catalogInterestFromSupabase(row) {
   if (!row) return null;
-  return {
+  const interest = {
     id: row.id,
     itemId: row.item_id,
     userId: row.user_id,
@@ -342,29 +367,42 @@ function catalogInterestFromSupabase(row) {
     createdAt: canonicalTimestamp(row.created_at),
     updatedAt: canonicalTimestamp(row.updated_at),
   };
+  Object.defineProperty(interest, CATALOG_INTEREST_CURSOR_TIMESTAMP, {
+    value: canonicalCursorTimestamp(row.updated_at),
+  });
+  return interest;
 }
 
 function catalogSortTuple(item) {
-  return [item.featured ? 1 : 0, item.deadlineAt || '\uffff', item.publishedAt || '', item.id];
+  return [
+    item.featured ? 1 : 0,
+    item[CATALOG_DEADLINE_CURSOR_TIMESTAMP] || item.deadlineAt || '\uffff',
+    item[CATALOG_PUBLISHED_CURSOR_TIMESTAMP] || item.publishedAt || '',
+    item.id,
+  ];
 }
 
 function compareCatalogTuples(left, right) {
   if (left[0] !== right[0]) return right[0] - left[0];
   for (let index = 1; index < left.length; index += 1) {
-    if (left[index] === right[index]) continue;
-    if (index === 2) return left[index] > right[index] ? -1 : 1;
-    return left[index] < right[index] ? -1 : 1;
+    const leftValue = index < 3 ? comparableCursorTimestamp(left[index]) : left[index];
+    const rightValue = index < 3 ? comparableCursorTimestamp(right[index]) : right[index];
+    if (leftValue === rightValue) continue;
+    if (index === 2) return leftValue > rightValue ? -1 : 1;
+    return leftValue < rightValue ? -1 : 1;
   }
   return 0;
 }
 
 function interestSortTuple(interest) {
-  return [interest.updatedAt, interest.id];
+  return [interest[CATALOG_INTEREST_CURSOR_TIMESTAMP] || interest.updatedAt, interest.id];
 }
 
 function compareInterestTuples(left, right, direction) {
-  if (left[0] !== right[0]) {
-    const ascending = left[0] < right[0] ? -1 : 1;
+  const leftTimestamp = comparableCursorTimestamp(left[0]);
+  const rightTimestamp = comparableCursorTimestamp(right[0]);
+  if (leftTimestamp !== rightTimestamp) {
+    const ascending = leftTimestamp < rightTimestamp ? -1 : 1;
     return direction === 'desc' ? -ascending : ascending;
   }
   if (left[1] === right[1]) return 0;
@@ -903,7 +941,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         body: catalogItemPayload(input, actorId, {
           version: current.version,
           currentStatus: current.status,
-          publishedAt: current.publishedAt,
+          publishedAt: current[CATALOG_PUBLISHED_CURSOR_TIMESTAMP] || current.publishedAt,
           publishedBy: current.publishedBy,
         }),
       }));

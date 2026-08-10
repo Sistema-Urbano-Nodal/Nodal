@@ -166,7 +166,10 @@
     'problem.c3t': 'Oportunidades dispersas', 'problem.c3p': 'Las convocatorias y proyectos aparecen en muchos lugares, sin una única ruta verificada para actuar.',
     'platform.title': 'Empieza con contexto. Encuentra un rol. Da un próximo paso verificado.',
     'platform.intro': 'Los perfiles describen práctica y territorio reales; el catálogo apunta a trabajo con fuente; el interés crea un contacto privado con el equipo NODAL.',
+    'page.landing.title': 'NODAL · Conocimiento urbano en acción', 'page.landing.description': 'Encuentra oportunidades urbanas, proyectos, círculos de aprendizaje, recursos y casos verificados en América Latina.',
+    'page.catalog.title': 'NODAL · Trabajo abierto', 'page.catalog.description': 'Explora oportunidades urbanas, proyectos, círculos de aprendizaje, recursos y casos verificados en NODAL.',
     'graph.illustrative': 'Mapa ilustrativo de roles · no es un conteo de miembros', 'graph.title': 'Roles ilustrativos en una colaboración urbana',
+    'graph.close': 'Cerrar',
     'graph.tabContacts': 'Rol', 'graph.tabConnects': 'Se conecta con', 'graph.tabAsks': 'Contribución',
     'graph.n.project.t': 'Una pregunta urbana compartida', 'graph.n.project.c': 'La colaboración empieza con territorio y experiencia vivida', 'graph.n.project.k1': 'Enmarca la necesidad y el resultado público deseado',
     'graph.n.citygov.t': 'Gobierno municipal', 'graph.n.citygov.c': 'Implementación y cuidado público', 'graph.n.citygov.k1': 'Conecta política, servicios y responsabilidad pública',
@@ -190,7 +193,8 @@
     'catalog.stateLabel': 'Estado', 'catalog.stateOpen': 'Abierto', 'catalog.stateAll': 'Abierto y cerrado', 'catalog.applyFilters': 'Aplicar filtros',
     'catalog.resultsEyebrow': 'Despacho de campo', 'catalog.resultsTitle': 'Resultados verificados', 'catalog.myInterests': 'Mis intereses', 'catalog.more': 'Cargar más',
     'catalog.selectDetail': 'Elige una publicación para leer sus detalles verificados.', 'catalog.closeDetail': 'Cerrar detalles', 'catalog.interestDisclosure': 'Si expresas interés, el equipo NODAL recibe el nombre y correo de tu cuenta y este mensaje para contactarte fuera de la plataforma.',
-    'catalog.interestMessageLabel': 'Mensaje al equipo NODAL', 'catalog.interestMessagePlaceholder': 'Describe cómo podrías contribuir o qué quieres aprender.', 'catalog.expressInterest': 'Expresar interés', 'catalog.withdraw': 'Retirar interés',
+    'catalog.interestMessageLabel': 'Mensaje al equipo NODAL', 'catalog.interestMessagePlaceholder': 'Describe cómo podrías contribuir o qué quieres aprender.', 'catalog.expressInterest': 'Expresar interés',
+    'catalog.withdraw': 'Retirar interés',
     'catalog.memberEyebrow': 'Espacio de miembro', 'catalog.backResults': 'Volver a todos los resultados', 'catalog.backHome': 'Volver a NODAL',
     'catalog.loading': 'Cargando trabajo abierto verificado…', 'catalog.loadingCases': 'Cargando casos publicados…', 'catalog.empty': 'No hay trabajo abierto publicado para estos filtros. Ajusta los filtros o vuelve más tarde.', 'catalog.error': 'El catálogo no está disponible ahora. Inténtalo de nuevo.',
     'catalog.casesEmpty': 'Aún no hay casos publicados.', 'catalog.casesError': 'Los casos no están disponibles ahora.', 'catalog.detailLoading': 'Cargando detalles verificados…', 'catalog.detailUnavailable': 'Esta publicación no está disponible o ya no es visible.',
@@ -380,7 +384,10 @@
     'problem.c2t': 'Conhecimento disperso', 'problem.c2p': 'Evidência útil e prática de campo são difíceis de levar de um território a outro.',
     'problem.c3t': 'Oportunidades dispersas', 'problem.c3p': 'Chamadas e projetos aparecem em muitos lugares, sem uma única rota verificada para agir.',
     'platform.title': 'Comece com contexto. Encontre um papel. Dê um próximo passo verificado.', 'platform.intro': 'Perfis descrevem prática e território reais; o catálogo aponta para trabalhos com fonte; o interesse cria um contato privado com a equipe NODAL.',
+    'page.landing.title': 'NODAL · Conhecimento urbano em ação', 'page.landing.description': 'Encontre oportunidades urbanas, projetos, círculos de aprendizagem, recursos e casos verificados na América Latina.',
+    'page.catalog.title': 'NODAL · Trabalho aberto', 'page.catalog.description': 'Explore oportunidades urbanas, projetos, círculos de aprendizagem, recursos e casos verificados na NODAL.',
     'graph.illustrative': 'Mapa ilustrativo de papéis · não é uma contagem de membros', 'graph.title': 'Papéis ilustrativos em uma colaboração urbana',
+    'graph.close': 'Fechar',
     'graph.tabContacts': 'Papel', 'graph.tabConnects': 'Conecta com', 'graph.tabAsks': 'Contribuição',
     'graph.n.project.t': 'Uma questão urbana compartilhada', 'graph.n.project.c': 'A colaboração começa com território e experiência vivida', 'graph.n.project.k1': 'Enquadra a necessidade e o resultado público desejado',
     'graph.n.citygov.t': 'Governo municipal', 'graph.n.citygov.c': 'Implementação e cuidado público', 'graph.n.citygov.k1': 'Conecta política, serviços e responsabilidade pública',
@@ -404,7 +411,8 @@
     'catalog.stateLabel': 'Estado', 'catalog.stateOpen': 'Aberto', 'catalog.stateAll': 'Aberto e fechado', 'catalog.applyFilters': 'Aplicar filtros',
     'catalog.resultsEyebrow': 'Despacho de campo', 'catalog.resultsTitle': 'Resultados verificados', 'catalog.myInterests': 'Meus interesses', 'catalog.more': 'Carregar mais',
     'catalog.selectDetail': 'Escolha uma publicação para ler os detalhes verificados.', 'catalog.closeDetail': 'Fechar detalhes', 'catalog.interestDisclosure': 'Ao expressar interesse, a equipe NODAL recebe o nome e e-mail da sua conta e esta mensagem para entrar em contato fora da plataforma.',
-    'catalog.interestMessageLabel': 'Mensagem para a equipe NODAL', 'catalog.interestMessagePlaceholder': 'Descreva como você pode contribuir ou o que quer aprender.', 'catalog.expressInterest': 'Expressar interesse', 'catalog.withdraw': 'Retirar interesse',
+    'catalog.interestMessageLabel': 'Mensagem para a equipe NODAL', 'catalog.interestMessagePlaceholder': 'Descreva como você pode contribuir ou o que quer aprender.', 'catalog.expressInterest': 'Expressar interesse',
+    'catalog.withdraw': 'Retirar interesse',
     'catalog.memberEyebrow': 'Espaço de membro', 'catalog.backResults': 'Voltar a todos os resultados', 'catalog.backHome': 'Voltar à NODAL',
     'catalog.loading': 'Carregando trabalhos abertos verificados…', 'catalog.loadingCases': 'Carregando estudos publicados…', 'catalog.empty': 'Não há trabalho aberto publicado para estes filtros. Ajuste os filtros ou volte mais tarde.', 'catalog.error': 'O catálogo não está disponível agora. Tente novamente.',
     'catalog.casesEmpty': 'Ainda não há estudos de caso publicados.', 'catalog.casesError': 'Os estudos de caso não estão disponíveis agora.', 'catalog.detailLoading': 'Carregando detalhes verificados…', 'catalog.detailUnavailable': 'Esta publicação não está disponível ou não está mais visível.',
@@ -453,6 +461,11 @@
     'nav.accountLabel': 'Account and language',
     'nav.languageLabel': 'Language',
     'nav.menuLabel': 'Menu',
+    'page.landing.title': 'NODAL · Urban knowledge into action',
+    'page.landing.description': 'Find verified urban opportunities, projects, learning circles, resources and case studies across Latin America.',
+    'page.catalog.title': 'NODAL · Open work',
+    'page.catalog.description': 'Browse verified urban opportunities, projects, learning circles, resources and case studies in NODAL.',
+    'graph.close': 'Close',
     'hero.browse': 'Browse open work',
     'catalog.loading': 'Loading verified open work…',
     'catalog.loadingCases': 'Loading published case studies…',
@@ -1937,6 +1950,12 @@
       if (!(k in EN)) EN[k] = el.getAttribute('placeholder') ?? '';
       const value = d[k] ?? EN[k];
       if (value !== undefined) el.setAttribute('placeholder', value);
+    });
+    document.querySelectorAll('[data-i18n-content]').forEach((el) => {
+      const k = el.dataset.i18nContent;
+      if (!(k in EN)) EN[k] = el.getAttribute('content') ?? '';
+      const value = d[k] ?? EN[k];
+      if (value !== undefined) el.setAttribute('content', value);
     });
     document.querySelectorAll('[data-i18n-aria-label]').forEach((el) => {
       const k = el.dataset.i18nAriaLabel;

@@ -9,6 +9,8 @@ const read = (...parts) => readFileSync(path.join(ROOT, ...parts), 'utf8');
 const index = () => read('web', 'pages', 'index.html');
 const catalogPage = () => read('web', 'pages', 'opportunities.html');
 const catalogScript = () => read('web', 'scripts', 'catalog.js');
+const catalogStyles = () => read('web', 'styles', 'catalog.css');
+const appScript = () => read('web', 'scripts', 'app.js');
 const adminPage = () => read('web', 'pages', 'admin.html');
 const adminScript = () => read('web', 'scripts', 'admin.js');
 const adminStyles = () => read('web', 'styles', 'admin.css');
@@ -117,11 +119,30 @@ function catalogHarness(fetchImpl, { intl = Intl } = {}) {
 
   const instrumented = catalogScript().replace(
     /\n\}\)\(\);\s*$/,
-    `\nwindow.__catalogTest = { dateText, renderDispatch, renderDetail, selectDetail, closeDetail, runFilters, submitInterest, withdrawInterest, loadMyInterests, page, setAuthenticated(value) { authenticated = value; } };\n})();`,
+    `\nwindow.__catalogTest = { dateText, renderDispatch, renderDetail, selectDetail, closeDetail, runFilters, refetchForLanguage, loadResults, loadLanding, submitInterest, withdrawInterest, loadMyInterests, page, setAuthenticated(value) { authenticated = value; } };\n})();`,
   );
   vm.runInNewContext(instrumented, context, { filename: 'catalog.js' });
   context.window.__catalogTest.setAuthenticated(true);
   return { api: context.window.__catalogTest, ids, i18nState };
+}
+
+function mountCatalogList(harness) {
+  for (const id of ['catalogForm', 'catalogResults', 'catalogStatus', 'catalogMore', 'catalogQuery', 'catalogTopic', 'catalogLocation', 'catalogState']) {
+    harness.ids.set(id, new FakeNode(id));
+  }
+  harness.ids.get('catalogState').value = 'open';
+  Object.assign(harness.api.page, {
+    form: harness.ids.get('catalogForm'),
+    results: harness.ids.get('catalogResults'),
+    status: harness.ids.get('catalogStatus'),
+    more: harness.ids.get('catalogMore'),
+  });
+}
+
+function mountLandingCatalog(harness) {
+  for (const id of ['landingOpenWork', 'landingOpenWorkStatus', 'landingCases', 'landingCasesStatus']) {
+    harness.ids.set(id, new FakeNode(id));
+  }
 }
 
 function adminHarness(fetchImpl = () => Promise.reject(new Error('network must not run in the editor unit test'))) {
@@ -152,6 +173,46 @@ function adminHarness(fetchImpl = () => Promise.reject(new Error('network must n
   assert.notEqual(instrumented, source, 'admin test hook must replace bootstrap without changing production source');
   vm.runInNewContext(instrumented, context, { filename: 'admin.js' });
   return { api: context.window.__adminTest, ids, location: context.location };
+}
+
+function i18nHarness({ titleKey, titleText, descriptionKey, descriptionText }) {
+  const title = new FakeNode('title');
+  title.dataset.i18n = titleKey;
+  title.textContent = titleText;
+  const description = new FakeNode('description');
+  description.dataset.i18nContent = descriptionKey;
+  description.setAttribute('content', descriptionText);
+  const graph = new FakeNode('graph');
+  graph.dataset.i18nAriaLabel = 'graph.title';
+  graph.setAttribute('aria-label', 'Illustrative role graph');
+  const node = new FakeNode('node');
+  node.dataset.i18nAriaLabel = 'graph.n.citygov.t';
+  node.setAttribute('aria-label', 'City government');
+  const close = new FakeNode('close');
+  close.dataset.i18nAriaLabel = 'graph.close';
+  close.setAttribute('aria-label', 'Close');
+  const documentElement = new FakeNode('html');
+  const document = {
+    documentElement,
+    querySelectorAll(selector) {
+      return {
+        '[data-i18n]': [title],
+        '[data-i18n-placeholder]': [],
+        '[data-i18n-content]': [description],
+        '[data-i18n-aria-label]': [graph, node, close],
+        '.lang-btn': [],
+      }[selector] || [];
+    },
+  };
+  const context = {
+    URLSearchParams,
+    document,
+    localStorage: { getItem() { return null; }, setItem() {} },
+    location: { search: '' },
+  };
+  context.window = context;
+  vm.runInNewContext(i18n(), context, { filename: 'i18n.js' });
+  return { api: context.window.nodalI18n, title, description, graph, node, close, documentElement };
 }
 
 function catalogItem(id = 'item-1', overrides = {}) {
@@ -191,6 +252,54 @@ test('landing leads with the approved promise and evidence-first section order',
   const source = i18n();
   assert.match(source, /'hero\.promise': 'Encuentra a las personas y las oportunidades para convertir el conocimiento urbano en acción\.'/);
   assert.match(source, /'hero\.promise': 'Encontre as pessoas e as oportunidades para transformar o conhecimento urbano em ação\.'/);
+});
+
+test('visitor page head and graph accessibility labels follow EN, ES, and PT', () => {
+  for (const [html, page, english] of [
+    [index(), 'landing', {
+      title: 'NODAL · Urban knowledge into action',
+      description: 'Find verified urban opportunities, projects, learning circles, resources and case studies across Latin America.',
+    }],
+    [catalogPage(), 'catalog', {
+      title: 'NODAL · Open work',
+      description: 'Browse verified urban opportunities, projects, learning circles, resources and case studies in NODAL.',
+    }],
+  ]) {
+    assert.match(html, new RegExp(`<title data-i18n="page\\.${page}\\.title">`));
+    assert.match(html, new RegExp(`<meta[^>]+data-i18n-content="page\\.${page}\\.description"`));
+    const harness = i18nHarness({
+      titleKey: `page.${page}.title`, titleText: english.title,
+      descriptionKey: `page.${page}.description`, descriptionText: english.description,
+    });
+    harness.api.apply('es');
+    assert.notEqual(harness.title.textContent, english.title);
+    assert.notEqual(harness.description.getAttribute('content'), english.description);
+    assert.equal(harness.documentElement.lang, 'es');
+    harness.api.apply('pt');
+    assert.notEqual(harness.title.textContent, english.title);
+    assert.notEqual(harness.description.getAttribute('content'), english.description);
+    assert.equal(harness.documentElement.lang, 'pt');
+  }
+
+  const landing = index();
+  assert.match(landing, /id="graph"[^>]+data-i18n-aria-label="graph\.title"/);
+  const source = appScript();
+  assert.match(source, /g\.setAttribute\('data-i18n-aria-label',\s*`graph\.n\.\$\{n\.id\}\.t`\)/);
+  assert.match(source, /close\.setAttribute\('aria-label',\s*t\('graph\.close'\)\)/);
+  assert.doesNotMatch(source, /close\.setAttribute\('aria-label',\s*'Close'\)/);
+
+  const graphHarness = i18nHarness({
+    titleKey: 'page.landing.title', titleText: 'NODAL · Urban knowledge into action',
+    descriptionKey: 'page.landing.description', descriptionText: 'Landing description',
+  });
+  graphHarness.api.apply('es');
+  assert.equal(graphHarness.graph.getAttribute('aria-label'), 'Roles ilustrativos en una colaboración urbana');
+  assert.equal(graphHarness.node.getAttribute('aria-label'), 'Gobierno municipal');
+  assert.equal(graphHarness.close.getAttribute('aria-label'), 'Cerrar');
+  graphHarness.api.apply('pt');
+  assert.equal(graphHarness.graph.getAttribute('aria-label'), 'Papéis ilustrativos em uma colaboração urbana');
+  assert.equal(graphHarness.node.getAttribute('aria-label'), 'Governo municipal');
+  assert.equal(graphHarness.close.getAttribute('aria-label'), 'Fechar');
 });
 
 test('landing proof regions are API targets and fabricated social proof is absent', () => {
@@ -288,6 +397,33 @@ test('catalog civil dates do not shift to the previous day in São Paulo', () =>
   assert.equal(admin.api.localDate('2030-05-31T23:59:59.999Z'), '2030-05-31');
 });
 
+test('mobile detail clears the sticky header and renders metadata as readable rows', () => {
+  const css = catalogStyles();
+  const mobileStart = css.indexOf('@media (max-width: 720px)');
+  const mobileEnd = css.indexOf('@media (prefers-reduced-motion: reduce)', mobileStart);
+  const mobile = css.slice(mobileStart, mobileEnd);
+  assert.notEqual(mobileStart, -1);
+  assert.match(mobile, /#catalogDetail\s*\{[^}]*scroll-margin-top:\s*(?:calc\([^}]+\)|[\d.]+rem)/s,
+    'detail scrollIntoView needs a sticky-header offset at 390px');
+  assert.match(mobile, /\.catalog-detail-meta\s*\{[^}]*display:\s*grid[^}]*gap:/s);
+  assert.match(mobile, /\.catalog-detail-meta \.dispatch-meta-item\s*\{[^}]*display:\s*grid/s);
+
+  const harness = catalogHarness((url) => {
+    if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+    throw new Error(`unexpected request ${url}`);
+  });
+  harness.api.renderDetail(catalogItem('mobile-detail', {
+    subtype: 'grant', organization: 'Organização urbana', location: 'São Paulo',
+    startsAt: '2030-05-21T00:00:00.000Z', deadlineAt: '2030-05-20T00:00:00.000Z', endDate: '2030-05-30T23:59:59.999Z',
+  }));
+  const rows = harness.ids.get('catalogDetailMeta').children
+    .filter((node) => node.className === 'dispatch-meta-item');
+  assert.ok(rows.length >= 6);
+  for (const row of rows) {
+    assert.ok(row.children.some((node) => node.className === 'dispatch-meta-value'), 'metadata values need a layout target separate from their label');
+  }
+});
+
 test('catalog page exposes the complete public and member workflow', () => {
   const html = catalogPage();
   for (const kind of ['opportunity', 'project', 'learning_circle', 'resource', 'case_study']) {
@@ -325,6 +461,157 @@ test('landing logo script tolerates pages without a headline and preserves real 
   let prevented = false;
   brand.listeners.get('click')({ currentTarget: brand, preventDefault() { prevented = true; } });
   assert.equal(prevented, false, 'a brand link to index.html must navigate normally');
+});
+
+test('catalog filters and language ignore abort-ignoring stale success and failure', async (t) => {
+  for (const transition of ['filter', 'language']) {
+    for (const outcome of ['success', 'failure']) {
+      await t.test(`${transition} keeps the newest results after late ${outcome}`, async () => {
+        let oldRequest;
+        const harness = catalogHarness((url, options = {}) => {
+          if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+          const parsed = new URL(url, 'https://nodal.test');
+          const isOld = transition === 'filter'
+            ? parsed.searchParams.get('q') === 'old'
+            : parsed.searchParams.get('lang') === 'en';
+          if (isOld) {
+            oldRequest = deferredResponse(options.signal, { honorAbort: false });
+            return oldRequest.promise;
+          }
+          return Promise.resolve(response({ items: [catalogItem('new', { title: 'Newest result' })], nextCursor: 'new-next' }));
+        });
+        mountCatalogList(harness);
+
+        if (transition === 'filter') harness.ids.get('catalogQuery').value = 'old';
+        const stale = harness.api.loadResults();
+        if (transition === 'filter') harness.ids.get('catalogQuery').value = 'new';
+        else harness.i18nState.lang = 'pt';
+        await harness.api.loadResults();
+
+        if (outcome === 'success') {
+          oldRequest.resolve(response({ items: [catalogItem('old', { title: 'Stale result' })], nextCursor: 'old-next' }));
+        } else oldRequest.reject(new Error('late stale transport failure'));
+        await stale;
+
+        assert.match(renderedText(harness.ids.get('catalogResults')), /Newest result/);
+        assert.doesNotMatch(renderedText(harness.ids.get('catalogResults')), /Stale result/);
+        assert.equal(harness.api.page.nextCursor, 'new-next');
+        assert.notEqual(harness.ids.get('catalogStatus').textContent, 'catalog.error');
+      });
+    }
+  }
+});
+
+test('catalog filter synchronously invalidates an abort-ignoring append without clearing current busy state', async () => {
+  let appendRequest;
+  let filteredRequest;
+  const harness = catalogHarness((url, options = {}) => {
+    if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+    const parsed = new URL(url, 'https://nodal.test');
+    if (parsed.searchParams.get('cursor') === 'old-cursor') {
+      appendRequest = deferredResponse(options.signal, { honorAbort: false });
+      return appendRequest.promise;
+    }
+    if (parsed.searchParams.get('q') === 'new') {
+      filteredRequest = deferredResponse(options.signal, { honorAbort: false });
+      return filteredRequest.promise;
+    }
+    throw new Error(`unexpected request ${url}`);
+  });
+  mountCatalogList(harness);
+  harness.api.page.nextCursor = 'old-cursor';
+  harness.ids.get('catalogResults').append(harness.api.renderDispatch(catalogItem('base', { title: 'Base result' })));
+
+  const staleAppend = harness.api.loadResults({ append: true });
+  harness.ids.get('catalogQuery').value = 'new';
+  const currentFilter = harness.api.runFilters();
+  assert.equal(harness.api.page.nextCursor, null, 'filter changes must synchronously clear the old cursor');
+
+  appendRequest.resolve(response({ items: [catalogItem('old-page', { title: 'Late appended result' })], nextCursor: null }));
+  await staleAppend;
+  assert.equal(harness.ids.get('catalogResults').getAttribute('aria-busy'), 'true', 'a stale finally must not clear current busy state');
+
+  filteredRequest.resolve(response({ items: [catalogItem('filtered', { title: 'Filtered result' })], nextCursor: null }));
+  await currentFilter;
+  assert.match(renderedText(harness.ids.get('catalogResults')), /Filtered result/);
+  assert.doesNotMatch(renderedText(harness.ids.get('catalogResults')), /Late appended result|Base result/);
+  assert.equal(harness.ids.get('catalogResults').getAttribute('aria-busy'), 'false');
+});
+
+test('catalog language change synchronously invalidates the prior language cursor before an append can start', async () => {
+  let firstPage;
+  const catalogUrls = [];
+  const harness = catalogHarness((url, options = {}) => {
+    if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+    if (url.startsWith('/api/catalog?')) {
+      catalogUrls.push(url);
+      if (catalogUrls.length === 1) {
+        firstPage = deferredResponse(options.signal, { honorAbort: false });
+        return firstPage.promise;
+      }
+      return Promise.resolve(response({ items: [catalogItem('pt', { title: 'Página portuguesa' })], nextCursor: null }));
+    }
+    throw new Error(`unexpected request ${url}`);
+  });
+  mountCatalogList(harness);
+  harness.api.page.nextCursor = 'english-cursor';
+  harness.ids.get('catalogMore').hidden = false;
+  harness.i18nState.lang = 'pt';
+
+  const languageRefresh = harness.api.refetchForLanguage();
+  assert.equal(harness.api.page.nextCursor, null, 'language changes must clear the old cursor before awaiting the new first page');
+  assert.equal(harness.ids.get('catalogMore').hidden, true, 'Load More must be unavailable during a language reset');
+
+  await harness.api.loadResults({ append: true });
+  assert.equal(catalogUrls.some((url) => new URL(url, 'https://nodal.test').searchParams.has('cursor')), false,
+    'even a programmatic append during the transition must not mix the old language cursor');
+  firstPage.resolve(response({ items: [catalogItem('en', { title: 'Late English page' })], nextCursor: 'english-next' }));
+  await languageRefresh;
+  assert.match(renderedText(harness.ids.get('catalogResults')), /Página portuguesa/);
+  assert.doesNotMatch(renderedText(harness.ids.get('catalogResults')), /Late English page/);
+});
+
+test('landing catalog regions ignore abort-ignoring language races and stale finalizers', async (t) => {
+  for (const outcome of ['success', 'failure']) {
+    await t.test(`Portuguese landing survives stale English ${outcome}`, async () => {
+      const requests = new Map();
+      const harness = catalogHarness((url, options = {}) => {
+        if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+        const parsed = new URL(url, 'https://nodal.test');
+        const key = `${parsed.searchParams.get('lang')}:${parsed.searchParams.get('kind') === 'case_study' ? 'cases' : 'open'}`;
+        const request = deferredResponse(options.signal, { honorAbort: false });
+        requests.set(key, request);
+        return request.promise;
+      });
+      mountLandingCatalog(harness);
+
+      const english = harness.api.loadLanding();
+      harness.i18nState.lang = 'pt';
+      const portuguese = harness.api.loadLanding();
+
+      const oldOpen = requests.get('en:open');
+      if (outcome === 'success') oldOpen.resolve(response({ items: [catalogItem('en-open', { title: 'English open' })], nextCursor: null }));
+      else oldOpen.reject(new Error('stale English open failure'));
+      await Promise.resolve();
+      assert.equal(harness.ids.get('landingOpenWork').getAttribute('aria-busy'), 'true', 'stale landing finally must not clear current busy state');
+
+      requests.get('pt:open').resolve(response({ items: [catalogItem('pt-open', { title: 'Trabalho português' })], nextCursor: null }));
+      requests.get('pt:cases').resolve(response({ items: [catalogItem('pt-case', { kind: 'case_study', title: 'Caso português' })], nextCursor: null }));
+      await portuguese;
+
+      const oldCases = requests.get('en:cases');
+      if (outcome === 'success') oldCases.resolve(response({ items: [catalogItem('en-case', { kind: 'case_study', title: 'English case' })], nextCursor: null }));
+      else oldCases.reject(new Error('stale English cases failure'));
+      await english;
+
+      assert.match(renderedText(harness.ids.get('landingOpenWork')), /Trabalho português/);
+      assert.match(renderedText(harness.ids.get('landingCases')), /Caso português/);
+      assert.doesNotMatch(renderedText(harness.ids.get('landingOpenWork')), /English open/);
+      assert.doesNotMatch(renderedText(harness.ids.get('landingCases')), /English case/);
+      assert.equal(harness.ids.get('landingOpenWorkStatus').textContent, '');
+      assert.equal(harness.ids.get('landingCasesStatus').textContent, '');
+    });
+  }
 });
 
 test('close and filter state survive abort-ignoring stale detail success and failure', async (t) => {
@@ -436,6 +723,45 @@ test('My interests drains cursor pages from enriched responses without public de
   assert.equal(harness.ids.get('catalogMyInterestsList').children.length, 2);
   assert.ok(calls.some((url) => url.includes('cursor=next-owned')));
   assert.equal(calls.some((url) => url.includes('/api/catalog/')), false);
+});
+
+test('My interests withdraws archived active history without requiring public detail access', async () => {
+  const calls = [];
+  let interestsRead = 0;
+  const harness = catalogHarness((url, options = {}) => {
+    if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+    calls.push({ url, method: options.method || 'GET' });
+    if (url.includes('/api/me/catalog-interests?lang=en')) {
+      interestsRead += 1;
+      const active = interestsRead === 1;
+      return Promise.resolve(response({
+        interests: [{
+          itemId: 'archived-item',
+          status: active ? 'new' : 'withdrawn',
+          message: 'Keep my history.',
+          item: catalogItem('archived-item', { status: 'archived', actionMode: 'none' }),
+        }],
+        nextCursor: null,
+      }));
+    }
+    if (url === '/api/catalog/archived-item/interest' && options.method === 'DELETE') {
+      return Promise.resolve(response({ interest: { itemId: 'archived-item', status: 'withdrawn', message: 'Keep my history.' } }));
+    }
+    throw new Error(`unexpected request ${options.method || 'GET'} ${url}`);
+  });
+
+  await harness.api.loadMyInterests();
+  const firstCard = harness.ids.get('catalogMyInterestsList').children[0];
+  const withdraw = descendants(firstCard).find((node) => node.textContent === 'catalog.withdraw');
+  assert.ok(withdraw, 'active archived history needs a direct withdrawal action');
+  await withdraw.listeners.get('click')({ currentTarget: withdraw });
+
+  assert.ok(calls.some((call) => call.url === '/api/catalog/archived-item/interest' && call.method === 'DELETE'));
+  assert.equal(calls.some((call) => call.url.includes('/api/catalog/archived-item?')), false, 'archived detail must not be requested');
+  assert.equal(harness.ids.get('catalogMyInterestsStatus').textContent, 'catalog.interestWithdrawn');
+  const updatedWithdraw = descendants(harness.ids.get('catalogMyInterestsList').children[0])
+    .find((node) => node.textContent === 'catalog.withdraw');
+  assert.equal(updatedWithdraw.hidden, true);
 });
 
 test('interest writes report transport failures and preserve successful feedback', async (t) => {

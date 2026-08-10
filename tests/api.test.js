@@ -860,13 +860,15 @@ test('profile PATCH rejects attempts to set the server-owned app_role', async (t
 });
 
 test('privacy: member can export personal data and delete their account', async (t) => {
-  const base = await bootDb(t);
+  const { db, base } = await bootDbHandle(t);
   const signup = await postJson(base, '/api/auth/signup', {
     fullName: 'Privacy Member',
     email: 'privacy-member@example.com',
     password: 'correct-horse',
   });
+  const signedUpUser = (await signup.clone().json()).user;
   const cookie = cookiePair(signup);
+  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(signedUpUser.id);
   await patchJson(base, '/api/me', {
     title: 'Civic ecologist',
     city: 'Mococa, São Paulo, Brazil',
@@ -874,6 +876,25 @@ test('privacy: member can export personal data and delete their account', async 
     active: ['pm'],
     partC: { bio: 'Works with water justice.', consent: true },
   }, { Cookie: cookie });
+
+  const repository = createRepository({ db });
+  const catalogItem = await repository.createCatalogItem({
+    kind: 'resource', subtype: null, status: 'published', visibility: 'public',
+    translations: {
+      en: { title: 'Privacy guide', summary: 'Summary', body: 'Body', cta: 'Express interest' },
+      es: { title: 'Guía de privacidad', summary: 'Resumen', body: 'Cuerpo', cta: 'Expresar interés' },
+      pt: { title: 'Guia de privacidade', summary: 'Resumo', body: 'Corpo', cta: 'Expressar interesse' },
+    },
+    organization: 'NODAL', location: '', topics: ['Privacy'], startsAt: null, deadlineAt: null, endDate: null,
+    sourceLabel: 'NODAL official source', sourceUrl: 'https://example.test/privacy', sourceVerifiedAt: '2030-01-01T00:00:00.000Z',
+    actionMode: 'interest', actionUrl: '', featured: false,
+  }, signedUpUser.id);
+  const interestWrite = await fetch(`${base}/api/catalog/${catalogItem.id}/interest`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({ message: 'Include this owned interest in my export.' }),
+  });
+  assert.equal(interestWrite.status, 200);
 
   const exported = await (await fetch(`${base}/api/me/export`, { headers: { Cookie: cookie } })).json();
   assert.equal(exported.data.user.email, 'privacy-member@example.com');
@@ -883,6 +904,10 @@ test('privacy: member can export personal data and delete their account', async 
   assert.equal(exported.data.user.password_hash, undefined);
   assert.ok(Array.isArray(exported.data.follows));
   assert.ok(Array.isArray(exported.data.interactions));
+  assert.deepEqual(exported.data.catalogInterests.map((interest) => ({ itemId: interest.itemId, message: interest.message })), [{
+    itemId: catalogItem.id,
+    message: 'Include this owned interest in my export.',
+  }]);
 
   const rejected = await fetch(`${base}/api/me`, {
     method: 'DELETE',
@@ -898,6 +923,9 @@ test('privacy: member can export personal data and delete their account', async 
   });
   assert.equal(deleted.status, 200);
   assert.match(deleted.headers.get('set-cookie'), /nodal_session=;/);
+  assert.equal(db.prepare('SELECT count(*) AS count FROM catalog_interests WHERE item_id = ?').get(catalogItem.id).count, 0);
+  const retainedCatalog = db.prepare('SELECT created_by, updated_by, published_by FROM catalog_items WHERE id = ?').get(catalogItem.id);
+  assert.deepEqual({ ...retainedCatalog }, { created_by: null, updated_by: null, published_by: null });
   assert.equal((await fetch(`${base}/api/auth/me`, { headers: { Cookie: cookie } })).status, 401);
 });
 

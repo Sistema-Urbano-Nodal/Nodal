@@ -648,6 +648,10 @@ function catalogViewer(user) {
   return user ? { id: user.id, permission: user.permission || user.role } : null;
 }
 
+function catalogPublicViewer(user) {
+  return user ? { id: user.id, permission: 'member' } : null;
+}
+
 function catalogPublicProjection(item, lang, { interestStatus, historical = false } = {}) {
   const localized = localizeCatalogItem(item, lang, { fallback: historical });
   return {
@@ -843,7 +847,7 @@ export function createApp({
       if (useDb && req.method === 'GET' && pathname === '/api/catalog') {
         const query = catalogQueryFromUrl(url.searchParams);
         if (!throttle(catalogReadLimiter, res, req, sessionUser, 'catalog-read')) return;
-        const result = await repository.listCatalogItems(query, catalogViewer(sessionUser));
+        const result = await repository.listCatalogItems(query, catalogPublicViewer(sessionUser));
         const payload = {
           items: result.items.map((item) => catalogPublicProjection(item, query.lang)),
           nextCursor: result.nextCursor,
@@ -865,7 +869,7 @@ export function createApp({
         const suppliedLang = oneQueryValue(url.searchParams, 'lang');
         const lang = suppliedLang || 'en';
         if (suppliedLang === '' || !['en', 'es', 'pt'].includes(lang) || [...url.searchParams.keys()].some((key) => key !== 'lang')) throw badRequest('catalog detail query is invalid');
-        const item = await repository.getCatalogItem(catalogMatch[1], catalogViewer(sessionUser));
+        const item = await repository.getCatalogItem(catalogMatch[1], catalogPublicViewer(sessionUser));
         if (!item) { send(res, 404, { error: 'catalog item not found' }); return; }
         let interestStatus;
         if (sessionUser) {
@@ -891,7 +895,7 @@ export function createApp({
         if (!throttle(catalogWriteLimiter, res, req, sessionUser, 'catalog-interest')) return;
         const itemId = catalogMatch[1];
         if (req.method === 'PUT') {
-          const item = await repository.getCatalogItem(itemId, catalogViewer(sessionUser));
+          const item = await repository.getCatalogItem(itemId, catalogPublicViewer(sessionUser));
           if (!item || item.actionMode !== 'interest' || isCatalogItemClosed(item)) {
             send(res, 404, { error: 'catalog item does not accept interest' });
             return;

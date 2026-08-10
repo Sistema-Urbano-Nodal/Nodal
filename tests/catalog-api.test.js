@@ -128,6 +128,30 @@ test('GET /api/catalog/:id uses stable cursors and never discloses invisible rec
   assert.equal('createdBy' in body.item, false);
 });
 
+test('administrator cookies do not widen public catalog list or detail visibility', async (t) => {
+  // Passing the administrator role through the public repository boundary
+  // exposes editorial records even though only /api/admin/catalog may do so.
+  const { db, repo, base } = await bootCatalogApp(t);
+  const admin = await signup(base, 'public-boundary-admin@example.test');
+  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.user.id);
+  const published = await repo.createCatalogItem(completeItem({ visibility: 'public' }), admin.user.id);
+  const members = await repo.createCatalogItem(completeItem({ visibility: 'members' }), admin.user.id);
+  const draft = await repo.createCatalogItem(completeItem({ status: 'draft' }), admin.user.id);
+  const archived = await repo.createCatalogItem(completeItem({ status: 'archived' }), admin.user.id);
+  const headers = { Cookie: admin.cookie };
+
+  const publicList = await (await fetch(`${base}/api/catalog?state=all`, { headers })).json();
+  assert.deepEqual(new Set(publicList.items.map((item) => item.id)), new Set([published.id, members.id]));
+  assert.equal((await fetch(`${base}/api/catalog/${published.id}`, { headers })).status, 200);
+  assert.equal((await fetch(`${base}/api/catalog/${members.id}`, { headers })).status, 200);
+  assert.equal((await fetch(`${base}/api/catalog/${draft.id}`, { headers })).status, 404);
+  assert.equal((await fetch(`${base}/api/catalog/${archived.id}`, { headers })).status, 404);
+
+  const editorial = await (await fetch(`${base}/api/admin/catalog?state=all`, { headers })).json();
+  assert.ok(editorial.items.some((item) => item.id === draft.id));
+  assert.ok(editorial.items.some((item) => item.id === archived.id));
+});
+
 test('GET /api/catalog/:id reads the viewer interest directly beyond the first interest page', async (t) => {
   // Replacing the owned-interest lookup with a paged list must not hide an older interest status.
   const { db, repo, base } = await bootCatalogApp(t);

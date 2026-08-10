@@ -51,7 +51,7 @@
   function addMeta(container, label, value) {
     if (!value) return;
     const item = create('span', 'dispatch-meta-item');
-    item.append(create('strong', '', label), document.createTextNode(` ${value}`));
+    item.append(create('strong', '', label), create('span', 'dispatch-meta-value', value));
     container.append(item);
   }
 
@@ -140,24 +140,29 @@
   }
 
   let landingController;
-  async function loadLandingRegion({ container, status, params, emptyKey, cases = false }) {
+  let landingRequest = 0;
+  async function loadLandingRegion({ container, status, params, emptyKey, controller, requestId, cases = false }) {
     if (!container || !status) return;
+    const isCurrent = () => landingRequest === requestId && landingController === controller;
     status.textContent = t(cases ? 'catalog.loadingCases' : 'catalog.loading');
     container.setAttribute('aria-busy', 'true');
     try {
       const response = await jsonRequest(`/api/catalog?${params}`,
-        { signal: landingController.signal });
+        { signal: controller.signal });
       if (!response.ok) throw new Error('catalog read failed');
       const payload = await response.json();
+      if (!isCurrent()) return;
       clear(container);
       payload.items.forEach((item) => container.append(cases ? renderCase(item) : renderDispatch(item)));
       status.textContent = payload.items.length ? '' : t(emptyKey);
     } catch (error) {
-      if (error.name !== 'AbortError') {
+      if (error.name !== 'AbortError' && isCurrent()) {
         clear(container);
         status.textContent = t(cases ? 'catalog.casesError' : 'catalog.error');
       }
-    } finally { container.setAttribute('aria-busy', 'false'); }
+    } finally {
+      if (isCurrent()) container.setAttribute('aria-busy', 'false');
+    }
   }
 
   async function loadLanding() {
@@ -165,12 +170,15 @@
     const cases = byId('landingCases');
     if (!open && !cases) return;
     landingController?.abort();
-    landingController = new AbortController();
+    const controller = new AbortController();
+    const requestId = ++landingRequest;
+    landingController = controller;
     const lang = encodeURIComponent(I18N?.lang || 'en');
     await Promise.all([
-      loadLandingRegion({ container: open, status: byId('landingOpenWorkStatus'), params: `lang=${lang}&kind=opportunity%2Cproject%2Clearning_circle%2Cresource&featured=true&state=open&limit=4`, emptyKey: 'catalog.empty' }),
-      loadLandingRegion({ container: cases, status: byId('landingCasesStatus'), params: `lang=${lang}&kind=case_study&state=all&limit=3`, emptyKey: 'catalog.casesEmpty', cases: true }),
+      loadLandingRegion({ container: open, status: byId('landingOpenWorkStatus'), params: `lang=${lang}&kind=opportunity%2Cproject%2Clearning_circle%2Cresource&featured=true&state=open&limit=4`, emptyKey: 'catalog.empty', controller, requestId }),
+      loadLandingRegion({ container: cases, status: byId('landingCasesStatus'), params: `lang=${lang}&kind=case_study&state=all&limit=3`, emptyKey: 'catalog.casesEmpty', controller, requestId, cases: true }),
     ]);
+    if (landingController === controller) landingController = null;
   }
 
   let authenticated = false;
@@ -195,7 +203,7 @@
     form: byId('catalogForm'), results: byId('catalogResults'), status: byId('catalogStatus'),
     detail: byId('catalogDetail'), detailStatus: byId('catalogDetailStatus'),
     more: byId('catalogMore'), selectedId: null, nextCursor: null,
-    listController: null, detailController: null, interestsController: null, debounce: null,
+    listController: null, listRequest: 0, detailController: null, interestsController: null, debounce: null,
   };
 
   function filterParams({ cursor = false } = {}) {
@@ -238,24 +246,34 @@
   async function loadResults({ append = false } = {}) {
     if (!page.form || !page.results || !page.status) return;
     page.listController?.abort();
-    page.listController = new AbortController();
+    const controller = new AbortController();
+    const requestId = ++page.listRequest;
+    const params = filterParams({ cursor: append });
+    const isCurrent = () => page.listRequest === requestId && page.listController === controller;
+    page.listController = controller;
     page.status.textContent = t('catalog.loading');
     page.results.setAttribute('aria-busy', 'true');
     try {
-      const response = await jsonRequest(`/api/catalog?${filterParams({ cursor: append })}`, { signal: page.listController.signal });
+      const response = await jsonRequest(`/api/catalog?${params}`, { signal: controller.signal });
       if (!response.ok) throw new Error('catalog read failed');
       const payload = await response.json();
+      if (!isCurrent()) return;
       if (!append) clear(page.results);
       payload.items.forEach((item) => page.results.append(renderDispatch(item, selectDetail)));
       page.nextCursor = payload.nextCursor;
       page.more.hidden = !page.nextCursor;
       page.status.textContent = page.results.children.length ? t('catalog.resultsReady', { n: page.results.children.length }) : t('catalog.empty');
     } catch (error) {
-      if (error.name !== 'AbortError') {
+      if (error.name !== 'AbortError' && isCurrent()) {
         if (!append) clear(page.results);
         page.status.textContent = t('catalog.error');
       }
-    } finally { page.results.setAttribute('aria-busy', 'false'); }
+    } finally {
+      if (isCurrent()) {
+        page.results.setAttribute('aria-busy', 'false');
+        page.listController = null;
+      }
+    }
   }
 
   function detailMeta(item) {
@@ -408,7 +426,8 @@
       interests.forEach((interest) => {
         const item = interest.item;
         const article = create('article', 'interest-record');
-        article.append(create('span', `interest-status status-${interest.status}`, t(statusKey(interest.status))),
+        const interestState = create('span', `interest-status status-${interest.status}`, t(statusKey(interest.status)));
+        article.append(interestState,
           create('h3', '', item?.title || t('catalog.detailUnavailable')),
           create('p', '', interest.message || ''));
         if (item?.status === 'published') {
@@ -416,6 +435,29 @@
           button.type = 'button';
           button.addEventListener('click', () => { section.hidden = true; selectDetail(item.id); });
           article.append(button);
+        }
+        const itemId = interest.itemId || item?.id;
+        if (itemId && ['new', 'contacted'].includes(interest.status)) {
+          const withdraw = create('button', 'catalog-text-button', t('catalog.withdraw'));
+          withdraw.type = 'button';
+          withdraw.addEventListener('click', async () => {
+            withdraw.disabled = true;
+            status.textContent = t('catalog.interestSending');
+            try {
+              const response = await jsonRequest(`/api/catalog/${encodeURIComponent(itemId)}/interest`, { method: 'DELETE' });
+              if (response.status === 401) { redirectToLogin(); return; }
+              if (!response.ok) throw new Error('interest withdrawal failed');
+              interest.status = 'withdrawn';
+              interestState.className = 'interest-status status-withdrawn';
+              interestState.textContent = t(statusKey('withdrawn'));
+              withdraw.hidden = true;
+              status.textContent = t('catalog.interestWithdrawn');
+            } catch {
+              withdraw.disabled = false;
+              status.textContent = t('catalog.interestError');
+            }
+          });
+          article.append(withdraw);
         }
         list.append(article);
       });
@@ -430,8 +472,9 @@
   function runFilters() {
     page.selectedId = null;
     page.nextCursor = null;
+    if (page.more) page.more.hidden = true;
     closeDetail();
-    loadResults();
+    return loadResults();
   }
 
   function debounceFilters() {
@@ -461,13 +504,15 @@
   }
 
   function refetchForLanguage() {
-    loadAuthState();
-    loadLanding();
+    const requests = [loadAuthState(), loadLanding()];
     if (page.form) {
-      loadResults();
-      if (page.selectedId) selectDetail(page.selectedId);
-      if (!byId('catalogMyInterests').hidden) loadMyInterests();
+      page.nextCursor = null;
+      if (page.more) page.more.hidden = true;
+      requests.push(loadResults());
+      if (page.selectedId) requests.push(selectDetail(page.selectedId));
+      if (!byId('catalogMyInterests').hidden) requests.push(loadMyInterests());
     }
+    return Promise.all(requests);
   }
 
   window.nodalI18n.onChange(refetchForLanguage);

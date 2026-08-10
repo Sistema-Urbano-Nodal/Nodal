@@ -586,6 +586,22 @@ test('Supabase account export includes the member catalog interests', async () =
   }]);
 });
 
+test('Supabase account deletion delegates once to Auth Admin without unsafe table deletes', async () => {
+  const calls = [];
+  const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: async (rawUrl, options) => {
+    calls.push({ url: new URL(rawUrl), options });
+    return response({});
+  } });
+
+  assert.equal(await repo.deleteUserById(TEST_USER_ID), true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url.pathname, `/auth/v1/admin/users/${TEST_USER_ID}`);
+  assert.equal(calls[0].options.method, 'DELETE');
+  assert.equal(calls[0].options.headers.apikey, 'test-server-key');
+  assert.equal(calls[0].options.headers.Authorization, 'Bearer test-server-key');
+  assert.equal(calls.some((call) => call.url.pathname.startsWith('/rest/v1/')), false);
+});
+
 test('Supabase catalog adapter sends equivalent filters, ordering, cursor, and version guard', async () => {
   const calls = [];
   const item = {
@@ -659,6 +675,37 @@ test('Supabase canonicalizes real PostgREST timestamptz shapes before catalog cu
   assert.doesNotThrow(() => decodeCatalogCursor(first.nextCursor));
   const second = await repo.listCatalogItems({ state: 'all', limit: 1, cursor: first.nextCursor }, null);
   assert.equal(second.items[0].id, 'catalog-second');
+});
+
+test('Supabase catalog cursor preserves PostgREST microseconds that determine database order', async () => {
+  // Truncating the cursor timestamp to milliseconds drops `a-item` after the
+  // database correctly returns `z-item` first within the same millisecond.
+  const shared = {
+    kind: 'resource', subtype: null, status: 'published', visibility: 'public',
+    translations: { en: { title: 'Resource', summary: 'Summary', body: 'Body', cta: 'Read' } },
+    organization: 'NODAL', location: '', topics: [], deadline_at: '2030-05-20T00:00:00.000000+00:00',
+    source_label: 'Official', source_url: 'https://example.test/source', source_verified_at: '2030-05-01T00:00:00+00:00',
+    action_mode: 'none', action_url: '', featured: false, version: 1,
+    created_at: '2030-04-01T00:00:00+00:00', updated_at: '2030-05-01T00:00:00+00:00',
+  };
+  const rows = [
+    { ...shared, id: 'z-item', published_at: '2030-05-01T00:00:00.123900+00:00' },
+    { ...shared, id: 'a-item', published_at: '2030-05-01T00:00:00.123100+00:00' },
+  ];
+  const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: async (rawUrl, options) => {
+    const url = new URL(rawUrl);
+    if (url.pathname.endsWith('/catalog_items') && options.method === 'GET') return response(rows);
+    throw new Error(`unexpected request ${options.method} ${url.pathname}`);
+  } });
+
+  const first = await repo.listCatalogItems({ state: 'all', limit: 1 }, null);
+  assert.equal(first.items[0].id, 'z-item');
+  assert.equal(first.items[0].publishedAt, '2030-05-01T00:00:00.123Z', 'public/admin records stay millisecond-canonical');
+  assert.equal(decodeCatalogCursor(first.nextCursor)[2], '2030-05-01T00:00:00.123900Z');
+
+  const second = await repo.listCatalogItems({ state: 'all', limit: 1, cursor: first.nextCursor }, null);
+  assert.deepEqual(second.items.map((item) => item.id), ['a-item']);
+  assert.equal(second.nextCursor, null);
 });
 
 test('Supabase publication transitions refresh audit metadata while published edits preserve it', async () => {
@@ -869,6 +916,57 @@ test('Supabase interest adapters paginate stable cursors and batch-load private 
   assert.equal(adminFirst.interests[0].item.translations.en.title, 'English 0');
   assert.ok(calls.some((url) => url.pathname.endsWith('/catalog_items') && url.searchParams.get('id')?.startsWith('in.(')));
   await assert.rejects(repo.listCatalogInterestsForUser(TEST_USER_ID, { cursor: 'invalid' }), /cursor/i);
+});
+
+test('Supabase member and admin interest cursors preserve PostgREST microsecond ordering', async (t) => {
+  const itemFor = (id) => ({
+    id: `catalog-${id}`, kind: 'resource', subtype: null, status: 'published', visibility: 'members',
+    translations: { en: { title: id, summary: 'Summary', body: 'Body', cta: 'Read' } },
+    organization: 'NODAL', location: '', topics: [], source_label: 'Official', source_url: 'https://example.test/source',
+    source_verified_at: '2030-01-01T00:00:00.000Z', action_mode: 'none', action_url: '', featured: false, version: 1,
+    published_at: '2030-01-01T00:00:00.000Z', updated_at: '2030-01-01T00:00:00.000Z',
+  });
+  const interestFor = (id, updatedAt) => ({
+    id: `${id}-item`, item_id: `catalog-${id}`, user_id: TEST_USER_ID, message: id, status: 'new', version: 1,
+    created_at: '2030-05-01T00:00:00.000Z', updated_at: updatedAt, updated_by: TEST_USER_ID,
+  });
+  const scenarios = [
+    {
+      name: 'member descending', direction: 'desc',
+      rows: [interestFor('z', '2030-05-01T00:00:00.123900+00:00'), interestFor('a', '2030-05-01T00:00:00.123100+00:00')],
+      list: (repo, query) => repo.listCatalogInterestsForUser(TEST_USER_ID, query),
+      cursorTime: '2030-05-01T00:00:00.123900Z',
+    },
+    {
+      name: 'admin ascending', direction: 'asc',
+      rows: [interestFor('z', '2030-05-01T00:00:00.123100+00:00'), interestFor('a', '2030-05-01T00:00:00.123900+00:00')],
+      list: (repo, query) => repo.listAdminInterests({ status: 'new', ...query }),
+      cursorTime: '2030-05-01T00:00:00.123100Z',
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, async () => {
+      const items = scenario.rows.map((row) => itemFor(row.id[0]));
+      const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: async (rawUrl, options) => {
+        const url = new URL(rawUrl);
+        if (url.pathname.endsWith('/catalog_interests') && options.method === 'GET') {
+          assert.equal(url.searchParams.get('order'), `updated_at.${scenario.direction},id.asc`);
+          return response(scenario.rows);
+        }
+        if (url.pathname.endsWith('/catalog_items') && options.method === 'GET') return response(items);
+        throw new Error(`unexpected request ${options.method} ${url.pathname}`);
+      } });
+
+      const first = await scenario.list(repo, { limit: 1 });
+      assert.equal(first.interests[0].id, 'z-item');
+      assert.equal(first.interests[0].updatedAt, '2030-05-01T00:00:00.123Z');
+      assert.equal(decodeCatalogInterestCursor(first.nextCursor)[0], scenario.cursorTime);
+      const second = await scenario.list(repo, { limit: 1, cursor: first.nextCursor });
+      assert.deepEqual(second.interests.map((interest) => interest.id), ['a-item']);
+      assert.equal(second.nextCursor, null);
+    });
+  }
 });
 
 test('Supabase admin interest update distinguishes a missing ID from a stale version before PATCH', async () => {

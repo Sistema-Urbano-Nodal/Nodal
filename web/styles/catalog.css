@@ -170,6 +170,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .kind-fieldset { display: grid; grid-template-columns: 1fr 1fr; }
   .kind-fieldset legend { grid-column: 1 / -1; }
   .catalog-detail-pane, .my-interests { padding: 1.1rem; }
+  #catalogDetail { scroll-margin-top: 6.5rem; }
+  .catalog-detail-meta { display: grid; gap: 0; margin: 1.25rem 0; }
+  .catalog-detail-meta .dispatch-meta-item { display: grid; gap: 0.2rem; padding: 0.65rem 0; border-bottom: 1px solid var(--catalog-rule); line-height: 1.45; }
+  .catalog-detail-meta .dispatch-meta-value { overflow-wrap: anywhere; }
 }
 
 @media (prefers-reduced-motion: reduce) {

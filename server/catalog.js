@@ -173,9 +173,12 @@ export function encodeCatalogCursor(sortTuple) {
 }
 
 function validCanonicalTimestamp(value) {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return false;
-  const parsed = new Date(value);
-  return Number.isFinite(parsed.getTime()) && parsed.toISOString() === value;
+  if (typeof value !== 'string') return false;
+  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.(\d{3}|\d{6})Z$/.exec(value);
+  if (!match) return false;
+  const millisecondValue = `${match[1]}.${match[2].slice(0, 3)}Z`;
+  const parsed = new Date(millisecondValue);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString() === millisecondValue;
 }
 
 export function decodeCatalogCursor(value) {

@@ -127,6 +127,7 @@
     g.setAttribute('class', n.hub ? 'gnode ghub' : 'gnode');
     g.setAttribute('role', 'button');
     g.setAttribute('tabindex', '0');
+    g.setAttribute('data-i18n-aria-label', `graph.n.${n.id}.t`);
     g.setAttribute('aria-label', labelOf(n.id));
     const ring = document.createElementNS(NS, 'circle');
     ring.setAttribute('r', n.r + 4);
@@ -337,7 +338,8 @@
     if (countText) headline.append(el('span', 'gc-chip', countText));
     const close = el('button', 'gc-close', '✕');
     close.type = 'button';
-    close.setAttribute('aria-label', 'Close');
+    close.setAttribute('data-i18n-aria-label', 'graph.close');
+    close.setAttribute('aria-label', t('graph.close'));
     close.addEventListener('click', deselect);
     head.append(headline, close);
 
