@@ -490,7 +490,7 @@ function stableValue(value) {
   return value;
 }
 
-function graphFingerprint(graph) {
+export function graphFingerprint(graph) {
   const state = {
     users: [...graph.users.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
@@ -500,7 +500,13 @@ function graphFingerprint(graph) {
       .map(([id, targets]) => [id, [...targets].sort()]),
     engagement: [...graph.engagement.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([edge, events]) => [edge, [...events].map(stableValue).sort((a, b) => a.at - b.at || a.w - b.w)]),
+      /* The sort has to be a total order, or the fingerprint depends on the
+         order rows came back in. Two events on one edge can share a timestamp
+         and a weight — a follow and a like both weigh 3 — and neither store
+         orders its reads past created_at, so the type has to break the tie. */
+      .map(([edge, events]) => [edge, [...events].map(stableValue).sort(
+        (a, b) => a.at - b.at || a.w - b.w || String(a.type).localeCompare(String(b.type)),
+      )]),
   };
   return createHash('sha256').update(JSON.stringify(state)).digest('base64url').slice(0, 24);
 }

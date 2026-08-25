@@ -5,7 +5,7 @@ import http from 'node:http';
 import { createHmac } from 'node:crypto';
 import path from 'node:path';
 import {
-  createApp, createCitySearch, staticSourcePath, validateRuntimeConfig,
+  createApp, createCitySearch, graphFingerprint, staticSourcePath, validateRuntimeConfig,
 } from '../server/server.js';
 import { createStore } from '../server/store.js';
 import { createDatabase } from '../server/db.js';
@@ -118,6 +118,24 @@ test('POST interactions records engagement and invalidates', async (t) => {
   assert.equal(r.status, 200);
   const next = await fetch(`${base}/api/recommendations/you`);
   assert.equal(next.headers.get('x-cache'), 'MISS');
+});
+
+test('the recommendation cache key does not depend on event insertion order', () => {
+  /* a follow and a like weigh the same, so two events on one edge can tie on
+     both timestamp and weight — and neither store orders its reads past
+     created_at. One graph must still hash to one key. */
+  const at = 1_700_000_000_000;
+  const graph = (events) => ({
+    users: new Map([['a', { id: 'a' }], ['b', { id: 'b' }]]),
+    follows: new Map([['a', new Set(['b'])], ['b', new Set()]]),
+    engagement: new Map([['a->b', events]]),
+  });
+  const like = { w: 3, at, type: 'like' };
+  const follow = { w: 3, at, type: 'follow' };
+  assert.equal(
+    graphFingerprint(graph([like, follow])),
+    graphFingerprint(graph([follow, like])),
+  );
 });
 
 test('skipping through the API demotes the candidate in the next ranking', async (t) => {
