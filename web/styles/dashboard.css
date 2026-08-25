@@ -649,34 +649,72 @@ select:focus-visible, textarea:focus-visible {
 .btn-ghost:hover { border-color: var(--forest); color: var(--ink); }
 
 /* ============================ recognition ============================ */
-/* a specimen sheet: one continuous ruled matrix, no tiles */
-/* recognition is the one place a card is the honest form: each badge is a
-   discrete thing you either hold or don't */
-.badge-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(228px, 1fr)); gap: 12px;
+/* A registry, not a card wall: eleven near-identical tiles said nothing about
+   where you stand. One ruled ledger, grouped by family — each badge is a line
+   entry with its number, its requirement, what it opens, and (where the work
+   is countable) a tally that fills as you go. State is carried by ink weight
+   and a left accent, never by dashed outlines or shouted labels. */
+.badge-grid { display: grid; gap: 14px; }
+.bl-group { background: #fff; border: 1px solid var(--rule-2); border-radius: var(--r-card); box-shadow: var(--lift); overflow: hidden; }
+.bl-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; background: var(--well); border-bottom: 1px solid var(--rule-2);
 }
-.badge {
-  background: #fff; border: 1px solid var(--rule-2); border-radius: var(--r-card);
-  box-shadow: var(--lift); padding: 16px 18px;
-  display: flex; flex-direction: column; gap: 9px;
-  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+.bl-mark { width: 26px; height: 26px; display: grid; place-items: center; color: var(--forest); }
+.bl-mark svg { width: 16px; height: 16px; }
+.bl-fam { font-size: 10px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--forest); }
+.bl-count { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.bl-row {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: start; column-gap: 8px;
+  padding: 13px 16px 13px 0;
+  border-top: 1px dotted var(--rule-2);
+  transition: background-color .15s ease;
 }
-.badge:hover { transform: translateY(-2px); box-shadow: 3px 5px 0 rgba(37, 52, 31, .1); border-color: var(--green); }
-.badge-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.badge-ico { width: 30px; height: 30px; display: grid; place-items: center; color: var(--forest); border: 1px solid var(--rule-2); }
-.badge-ico svg { width: 17px; height: 17px; }
-.badge-fam { font-size: 9.5px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); text-align: right; }
-.badge-name { font-size: 13.5px; font-weight: 700; }
-.badge-name small { display: block; font-size: 11px; font-weight: 500; color: var(--muted); margin-top: 4px; }
-.badge-unlock { font-size: 11.5px; line-height: 1.45; color: var(--text-2); margin-top: auto; }
-.badge-unlock strong { color: var(--forest); font-weight: 600; }
-.badge.is-progress .badge-ico { border-color: var(--green); color: var(--green); }
-.badge.is-earned  .badge-ico { background: var(--forest); border-color: var(--forest); color: var(--pastel); }
-.badge.is-locked { background: transparent; border-style: dashed; box-shadow: none; }
-.badge.is-earned { border-color: var(--forest); }
-.badge.is-locked .badge-ico { color: var(--muted); }
-.badge.is-locked .badge-name, .badge.is-locked .badge-unlock { color: var(--muted); }
-.badge.is-locked .badge-unlock strong { color: var(--muted); }
+.bl-row:first-of-type { border-top: 0; }
+.bl-row:hover { background: rgba(89, 188, 83, .05); }
+.bl-idx {
+  padding-top: 2px; text-align: center;
+  font-size: 10.5px; font-weight: 600; color: var(--muted);
+  font-variant-numeric: tabular-nums; letter-spacing: .06em;
+}
+.bl-name { font-size: 13.5px; font-weight: 700; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.bl-req { font-size: 11.5px; color: var(--text-2); margin-top: 3px; }
+.bl-opens { font-size: 11px; line-height: 1.45; color: var(--muted); margin-top: 5px; }
+.bl-opens strong { color: var(--forest); font-weight: 600; }
+.bl-next {
+  font-size: 9px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--forest); background: var(--pastel); border-radius: var(--r-pill);
+  padding: 2px 8px 1px; transform: translateY(-1px);
+}
+
+/* right column: a state word, or a tally where the work is countable */
+.bl-status { display: flex; align-items: center; gap: 8px; padding-top: 3px; justify-self: end; }
+.bl-word {
+  font-size: 9.5px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--muted); display: inline-flex; align-items: center; gap: 7px;
+}
+.bl-word::before { content: ''; width: 7px; height: 7px; border: 1px solid var(--rule-2); border-radius: 1px; }
+.bl-meter { display: inline-flex; gap: 3px; align-items: center; }
+.bl-meter i { width: 5px; height: 13px; background: transparent; border: 1px solid var(--rule-2); border-radius: 1px; }
+.bl-meter i.is-on { background: var(--green); border-color: var(--green); }
+.bl-frac { font-size: 11px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.bl-row.is-earned { box-shadow: inset 3px 0 0 var(--forest); }
+.bl-row.is-earned .bl-word { color: var(--forest); }
+.bl-row.is-earned .bl-word::before { background: var(--forest); border-color: var(--forest); }
+.bl-row.is-progress { box-shadow: inset 3px 0 0 var(--green); }
+.bl-row.is-progress .bl-word { color: var(--green); }
+.bl-row.is-progress .bl-word::before { border-color: var(--green); }
+.bl-row.is-locked .bl-name { color: var(--text-2); font-weight: 600; }
+.bl-row.is-locked .bl-idx, .bl-row.is-locked .bl-req { color: var(--muted); }
+.bl-row.is-locked .bl-opens strong { color: var(--muted); }
+
+@media (max-width: 640px) {
+  .bl-row { grid-template-columns: 34px minmax(0, 1fr); row-gap: 8px; }
+  .bl-status { grid-column: 2; justify-self: start; padding-top: 0; }
+}
 
 /* ============================ self-assessment ============================ */
 .assess {
