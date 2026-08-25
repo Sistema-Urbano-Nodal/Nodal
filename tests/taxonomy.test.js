@@ -49,6 +49,28 @@ test('rolesComplement is strict about complements: peers are not complements', (
   assert.equal(rolesComplement('City Planner', 'Community Leader'), true);
 });
 
+test('a title that claims every discipline claims none', () => {
+  /* profession affinity peaks on ANY complementary pair, so a keyword salad
+     would otherwise score the maximum against the entire directory */
+  const salad = 'Data Clima Transit Econom Design Lider Govern Ambient Engenh Arquitet Urbanist';
+  assert.ok(salad.length <= 80, 'fits the title column, so it is reachable');
+  assert.equal(professionsOf(salad).size, 0);
+  const roles = ['Civil Engineer', 'City Planner', 'Community Leader', 'Urban Economist', 'Data Scientist'];
+  for (const role of roles) assert.equal(professionScore(salad, role), 0);
+  // an honest crossover keeps working
+  assert.deepEqual([...professionsOf('Ingeniero de Transporte')], ['engineering', 'mobility']);
+  assert.equal(professionScore('Ingeniero de Transporte', 'City Planner'), 1);
+});
+
+test('prototype keys typed as interests score nothing and pollute nothing', () => {
+  for (const key of ['__proto__', 'constructor', 'toString']) {
+    assert.equal(interestSimilarity([key], ['transport']), 0);
+    assert.equal(interestSimilarity([key], ['data']), 0);
+  }
+  assert.equal(interestSimilarity(['__proto__'], ['constructor']), 0);
+  assert.equal(Object.keys(Object.prototype).length, 0);
+});
+
 test('canonicalInterest collapses synonyms across languages', () => {
   assert.equal(canonicalInterest('Transporte'), 'transport');
   assert.equal(canonicalInterest('Mobilidade Urbana'), 'transport');

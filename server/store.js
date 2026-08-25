@@ -1,7 +1,14 @@
 /* in-memory user graph: nodes are members, edges are follows + engagement.
    The store is the single mutable surface — the engine only reads it. */
 
-const ENGAGEMENT_WEIGHT = { view: 1, skip: 0.5, like: 3, message: 4, follow: 3 };
+/* A skip is a rejection, not faint attention: it stays a recognised type so it
+   can be recorded and counted, but it contributes nothing to the engagement sum
+   that raises an edge's weight. Weighted like a half-view, one member's skip of
+   another read as a small endorsement to everyone traversing through them —
+   the engine expresses skips through skipPenalty instead, for the viewer who
+   actually did the skipping. Weights are recomputed whenever a store is loaded
+   from the database, so stored events pick this up with no migration. */
+const ENGAGEMENT_WEIGHT = { view: 1, skip: 0, like: 3, message: 4, follow: 3 };
 const HALF_LIFE_MS = 30 * 24 * 60 * 60 * 1000;   // engagement halves every 30 days
 
 export function seedData() {

@@ -168,6 +168,68 @@ test('skipPenalty decays back toward 1 with the engagement half-life', () => {
   assert.equal(skipPenalty(store, 'you', 'diego', t0), 1, 'no skips, no damp');
 });
 
+test('someone else skipping a candidate never promotes them', () => {
+  const mk = (id) => ({ id, name: id, role: 'Member', city: 'Lima', interests: ['data'], active: ['am'] });
+  const seed = () => ({
+    users: [mk('v'), mk('m'), mk('a'), mk('r')],
+    follows: { v: ['m'], m: ['a', 'r'], a: [], r: [] },
+    interactions: [],
+  });
+  /* scores are relative to the best candidate, so what moves is a's standing
+     against its twin r — which is what the deck actually shows */
+  const standing = (store) => {
+    const recs = recommend(store, 'v', { limit: 10 });
+    return recs.find((x) => x.id === 'a').score / recs.find((x) => x.id === 'r').score;
+  };
+  const baseline = standing(createStore(seed()));
+  assert.equal(baseline, 1, 'the twins start level');
+
+  const skipped = createStore(seed());
+  recordInteraction(skipped, 'm', 'a', 'skip');
+  assert.ok(
+    standing(skipped) <= baseline,
+    'a rejection must not push a candidate up the way a like does',
+  );
+
+  const liked = createStore(seed());
+  recordInteraction(liked, 'm', 'a', 'like');
+  assert.ok(standing(liked) > baseline, 'a like still counts');
+});
+
+test('traversal takes the strongest path, not the last one declared', () => {
+  const mk = (id, city, interests) => ({ id, name: id, role: 'M', city, interests, active: ['am'] });
+  const users = () => [
+    mk('s', 'Lima', ['data']), mk('a', 'Lima', ['data']),
+    mk('b', 'Quito', ['x']), mk('c', 'Lima', ['data']), mk('d', 'Bogota', ['y']),
+  ];
+  /* s reaches c through a (a strong edge) and through b (a weak one); d then
+     hangs off c. The same graph, declared either way round, must score alike. */
+  const viaA = createStore({ users: users(), follows: { s: ['a', 'b'], a: ['c'], b: ['c'], c: ['d'], d: [] }, interactions: [] });
+  const viaB = createStore({ users: users(), follows: { s: ['b', 'a'], a: ['c'], b: ['c'], c: ['d'], d: [] }, interactions: [] });
+  const score = (store) => traversalScores(store, buildAdjacency(store), 's').get('d');
+  assert.equal(score(viaA), score(viaB), 'follow declaration order must not change the ranking');
+});
+
+test('one call reads one clock: engagement and skips age together', () => {
+  const mk = (id) => ({ id, name: id, role: 'M', city: 'Lima', interests: ['data'], active: ['am'] });
+  const store = createStore({
+    users: [mk('v'), mk('x'), mk('y')],
+    follows: { v: [], x: [], y: [] },
+    interactions: [],
+  });
+  const t0 = 1_700_000_000_000;
+  recordInteraction(store, 'v', 'x', 'view', t0);
+  const standing = (now) => {
+    const recs = recommend(store, 'v', { now, limit: 10 });
+    return recs.find((r) => r.id === 'x').score / recs.find((r) => r.id === 'y').score;
+  };
+  assert.ok(standing(t0) > 1, 'a fresh view lifts x above its twin');
+  assert.ok(
+    standing(t0 + 365 * DAY) < standing(t0),
+    'a year-old view must not still weigh like a fresh one',
+  );
+});
+
 test('pairFeatures are profile signals in 0..1 and exclude engagement', () => {
   const store = createStore();
   const adj = buildAdjacency(store);
@@ -184,26 +246,31 @@ test('the demo seed alone does not activate learning (positives only)', () => {
   assert.equal(trainMatchModel(store, buildAdjacency(store)), null);
 });
 
-test('learned layer amplifies what the network actually likes', () => {
+/* Several members each liking someone in their own city and passing on someone
+   far away — the shape the global model is meant to pick up. */
+function cityPreferenceSeed(interactions) {
   const mk = (id, city) => ({ id, name: id, role: 'Member', city, interests: ['data'], active: ['am'] });
-  const seed = (interactions) => ({
-    users: [
-      mk('you', 'Lima'),
-      mk('l1', 'Lima'), mk('l2', 'Lima'),          // liked: same city as the viewer
-      mk('s1', 'Quito'), mk('s2', 'Bogota'),       // skipped: elsewhere
-      mk('same', 'Lima'), mk('other', 'Cusco'),    // fresh candidates
-    ],
-    follows: { you: [], l1: [], l2: [], s1: [], s2: [], same: [], other: [] },
-    interactions,
-  });
+  const voters = ['v1', 'v2', 'v3', 'v4'];
+  const users = [
+    mk('you', 'Lima'),
+    mk('same', 'Lima'), mk('other', 'Cusco'),          // the fresh candidates
+    ...voters.map((id) => mk(id, 'Lima')),
+    ...voters.flatMap((id) => [mk(`${id}near`, 'Lima'), mk(`${id}far`, 'Quito')]),
+  ];
+  return {
+    users,
+    follows: Object.fromEntries(users.map((u) => [u.id, []])),
+    interactions: interactions(voters),
+  };
+}
+
+test('learned layer amplifies what the network actually likes', () => {
   const daysAgo = (d) => Date.now() - d * 24 * 60 * 60 * 1000;
-  const trained = createStore(seed([
-    { from: 'you', to: 'l1', type: 'like', at: daysAgo(1) },
-    { from: 'you', to: 'l2', type: 'like', at: daysAgo(2) },
-    { from: 'you', to: 's1', type: 'skip', at: daysAgo(1) },
-    { from: 'you', to: 's2', type: 'skip', at: daysAgo(2) },
-  ]));
-  const cold = createStore(seed([]));
+  const trained = createStore(cityPreferenceSeed((voters) => voters.flatMap((who, i) => [
+    { from: who, to: `${who}near`, type: 'like', at: daysAgo(i + 1) },
+    { from: who, to: `${who}far`, type: 'skip', at: daysAgo(i + 1) },
+  ])));
+  const cold = createStore(cityPreferenceSeed(() => []));
 
   const ratioOf = (recs) => {
     const same = recs.find((r) => r.id === 'same');
@@ -211,11 +278,25 @@ test('learned layer amplifies what the network actually likes', () => {
     assert.ok(same && other, 'both fresh candidates surface');
     return same.score / other.score;
   };
-  const coldRatio = ratioOf(recommend(cold, 'you'));
-  const trainedRatio = ratioOf(recommend(trained, 'you'));
+  const coldRatio = ratioOf(recommend(cold, 'you', { limit: 50 }));
+  const trainedRatio = ratioOf(recommend(trained, 'you', { limit: 50 }));
   assert.ok(coldRatio > 1, 'heuristics already prefer the same-city candidate');
   assert.ok(
     trainedRatio > coldRatio,
     `feedback should widen the gap: cold ${coldRatio}, trained ${trainedRatio}`,
+  );
+});
+
+test('one account cannot train the ranking the whole network is served', () => {
+  /* the same feedback as above, all of it from a single member */
+  const daysAgo = (d) => Date.now() - d * 24 * 60 * 60 * 1000;
+  const solo = createStore(cityPreferenceSeed((voters) => voters.flatMap((who, i) => [
+    { from: 'v1', to: `${who}near`, type: 'like', at: daysAgo(i + 1) },
+    { from: 'v1', to: `${who}far`, type: 'skip', at: daysAgo(i + 1) },
+  ])));
+  assert.equal(
+    trainMatchModel(solo, buildAdjacency(solo)),
+    null,
+    'one member labelling both sides is an opinion, not the network',
   );
 });

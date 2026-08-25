@@ -65,17 +65,28 @@ function hasStem(text, stem) {
 /* roles repeat across the whole graph on every request, so parses are kept */
 const professionCache = new Map();
 const PROFESSION_CACHE_MAX = 500;
+/* A title names what you do. Two disciplines is an honest crossover ("Ingeniero
+   de Transporte" is engineering and mobility); past three it is not a title but
+   a list, and since profession affinity peaks on ANY complementary pair, a
+   member who claims ten disciplines scores the maximum against everyone. Such a
+   title is read as unstated rather than as universal. */
+const MAX_DISCIPLINES = 3;
 
 export function professionsOf(role) {
   const text = normalizeText(role);
   if (!text) return new Set();
   const cached = professionCache.get(text);
   if (cached) return cached;
-  const found = new Set();
+  let found = new Set();
   for (const [discipline, stems] of Object.entries(DISCIPLINES)) {
     if (stems.some((stem) => hasStem(text, stem))) found.add(discipline);
   }
-  if (professionCache.size >= PROFESSION_CACHE_MAX) professionCache.clear();
+  if (found.size > MAX_DISCIPLINES) found = new Set();
+  /* drop the oldest entry rather than the whole table: a directory with more
+     distinct titles than this would otherwise run permanently cold */
+  if (professionCache.size >= PROFESSION_CACHE_MAX) {
+    professionCache.delete(professionCache.keys().next().value);
+  }
   professionCache.set(text, found);
   return found;
 }
@@ -141,7 +152,9 @@ for (const [canonical, synonyms] of Object.entries(INTEREST_SYNONYMS)) {
   for (const synonym of synonyms) CANONICAL_INTEREST.set(normalizeText(synonym), canonical);
 }
 
-const INTEREST_CLUSTERS = {
+/* null-prototype: the keys are member-typed interest text, and a plain object
+   would answer to "__proto__" and "constructor" with something truthy */
+const INTEREST_CLUSTERS = Object.assign(Object.create(null), {
   transport: 'mobility',
   data: 'technology',
   'civic tech': 'technology',
@@ -156,7 +169,7 @@ const INTEREST_CLUSTERS = {
   'community engagement': 'community',
   culture: 'community',
   environment: 'environment',
-};
+});
 
 /* a related-but-different interest earns half the credit of an exact match */
 export const CLUSTER_CREDIT = 0.5;

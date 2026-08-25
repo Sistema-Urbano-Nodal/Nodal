@@ -23,7 +23,7 @@ import {
   sharedInterestLabels,
 } from './taxonomy.js';
 import {
-  blendWeight, labelledPairs, predictProbability, trainLogistic,
+  blendWeight, hasEnoughEvidence, labelledPairs, predictProbability, trainLogistic,
 } from './learn.js';
 
 /* NOTE: the "How matching works" tab on the landing page displays these
@@ -55,12 +55,14 @@ const jaccard = (a, b) => {
   return inter / (A.size + B.size - inter);
 };
 
-/* per-snapshot derived data the hot paths reuse: canonical interest sets and
-   the IDF built over the whole member base */
-function engineContext(store) {
+/* per-snapshot derived data the hot paths reuse: canonical interest sets, the
+   IDF built over the whole member base, and the one clock the whole scoring
+   pass reads — engagement decay and skip decay have to agree on "now", or a
+   single call ages its two halves differently */
+function engineContext(store, now = Date.now()) {
   const interestSets = new Map();
   for (const [id, user] of store.users) interestSets.set(id, canonicalInterestSet(user.interests));
-  return { interestSets, idf: buildInterestIdf(store.users.values()) };
+  return { interestSets, idf: buildInterestIdf(store.users.values()), now };
 }
 
 const EMPTY_SET = new Set();
@@ -95,7 +97,7 @@ function mutualScore(adj, a, b) {
 
 export function edgeWeight(store, adj, a, b, ctx = engineContext(store)) {
   const ua = store.users.get(a), ub = store.users.get(b);
-  const engagement = getEngagement(store, a, b);
+  const engagement = getEngagement(store, a, b, ctx.now);
   return (
     WEIGHTS.interests  * interestScore(ctx, a, b) +
     WEIGHTS.mutuals    * mutualScore(adj, a, b) +
@@ -120,7 +122,11 @@ export function traversalScores(store, adj, src, ctx = engineContext(store)) {
         if (v === src) continue;
         const contribution = best.get(u) * edgeWeight(store, adj, u, v, ctx) * DECAY ** (depth - 1);
         scores.set(v, (scores.get(v) ?? 0) + contribution);
-        if (!best.has(v) || contribution > best.get(v)) next.set(v, contribution);
+        /* Compare against the layer being built, not against `best` — `best`
+           has no entry for v at this depth yet, so testing it made every
+           parent overwrite the last and left whichever parent happened to be
+           declared last as v's "best" path. The strongest parent wins. */
+        if (!next.has(v) || contribution > next.get(v)) next.set(v, contribution);
       }
     }
     for (const [v, s] of next) if (!best.has(v)) best.set(v, s);
@@ -161,12 +167,14 @@ export function pairFeatures(store, adj, a, b, ctx = engineContext(store)) {
   ];
 }
 
-/* one global model over every labelled pair in the snapshot: the whole
+/* one global model over the labelled pairs in the snapshot: the whole
    network's feedback teaches which profile signals predict a like here.
-   Returns null (heuristics only) until both outcomes exist. */
+   Returns null (heuristics only) until several different members have supplied
+   enough of both outcomes — a model the entire directory is ranked by should
+   not be fittable by one account with a grudge. */
 export function trainMatchModel(store, adj, ctx = engineContext(store)) {
   const pairs = labelledPairs(store);
-  if (!pairs.length) return null;
+  if (!hasEnoughEvidence(pairs)) return null;
   return trainLogistic(pairs.map(({ from, to, label }) => ({
     features: pairFeatures(store, adj, from, to, ctx),
     label,
@@ -191,7 +199,7 @@ export function recommend(store, userId, { limit = 6, now = Date.now() } = {}) {
   const me = store.users.get(userId);
   if (!me) return null;
   const adj = buildAdjacency(store);
-  const ctx = engineContext(store);
+  const ctx = engineContext(store, now);
   const following = store.follows.get(userId);
 
   const traversal = normalize(traversalScores(store, adj, userId, ctx));
@@ -203,21 +211,36 @@ export function recommend(store, userId, { limit = 6, now = Date.now() } = {}) {
   ));
 
   const model = trainMatchModel(store, adj, ctx);
-  const blend = model ? blendWeight(model.examples) : 0;
+  const blend = model ? blendWeight(model.support) : 0;
 
-  const results = [];
+  const candidates = [];
   for (const [id, user] of store.users) {
     if (id === userId || following.has(id)) continue;
-    let score =
+    const graphScore =
       MIX.traversal * (traversal.get(id) ?? 0) +
       MIX.direct    * (direct.get(id) ?? 0) +
       MIX.cf        * (cf.get(id) ?? 0);
-    if (score <= 0) continue;
+    if (graphScore <= 0) continue;
+    candidates.push({ id, user, graphScore });
+  }
+
+  /* The graph mixture only reaches 1 for a viewer who has all three components,
+     and a member who follows nobody has neither traversal nor CF — their scores
+     top out at MIX.direct. The model's probability spans 0..1 for everyone, so
+     the two are put on one scale before they meet: otherwise `blend` hands the
+     model several times the say it names, and on a cold-start viewer it decides
+     the ranking outright. Dividing through by the best candidate keeps the
+     spread this viewer actually has. */
+  const topGraphScore = Math.max(0, ...candidates.map((c) => c.graphScore));
+
+  const results = [];
+  for (const { id, user, graphScore } of candidates) {
+    let score = topGraphScore > 0 ? graphScore / topGraphScore : 0;
     if (blend > 0) {
       const probability = predictProbability(model, pairFeatures(store, adj, userId, id, ctx));
       score = (1 - blend) * score + blend * probability;
     }
-    score *= skipPenalty(store, userId, id, now);
+    score *= skipPenalty(store, userId, id, ctx.now);
     if (user.linkedin) score *= LINKEDIN_BOOST;
 
     const shared = sharedInterestLabels(me.interests, user.interests);

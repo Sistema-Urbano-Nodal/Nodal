@@ -1064,6 +1064,16 @@ export function createApp({
         }
 
         if (action === 'follow') {
+          /* A follow is undirected in the graph, so following someone puts you
+             in their first hop and on their deck — unfollowed and unasked. The
+             skip branch below has always been bounded; this one was not, and a
+             loop through the directory bought an account a place near the top
+             of everyone's recommendations. Same budget as the other writes. */
+          const rate = interactionLimiter.take(`follow:${userId}`);
+          if (!rate.ok) {
+            send(res, 429, { error: 'too many follow requests' }, { 'Retry-After': String(rate.retryAfter) });
+            return;
+          }
           if (useDb) await repository.addFollow(userId, targetId);
           else addFollow(store, userId, targetId);
         } else {
