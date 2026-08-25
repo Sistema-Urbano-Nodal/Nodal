@@ -490,7 +490,7 @@ function stableValue(value) {
   return value;
 }
 
-function graphFingerprint(graph) {
+export function graphFingerprint(graph) {
   const state = {
     users: [...graph.users.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
@@ -500,7 +500,13 @@ function graphFingerprint(graph) {
       .map(([id, targets]) => [id, [...targets].sort()]),
     engagement: [...graph.engagement.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([edge, events]) => [edge, [...events].map(stableValue).sort((a, b) => a.at - b.at || a.w - b.w)]),
+      /* The sort has to be a total order, or the fingerprint depends on the
+         order rows came back in. Two events on one edge can share a timestamp
+         and a weight — a follow and a like both weigh 3 — and neither store
+         orders its reads past created_at, so the type has to break the tie. */
+      .map(([edge, events]) => [edge, [...events].map(stableValue).sort(
+        (a, b) => a.at - b.at || a.w - b.w || String(a.type).localeCompare(String(b.type)),
+      )]),
   };
   return createHash('sha256').update(JSON.stringify(state)).digest('base64url').slice(0, 24);
 }
@@ -637,7 +643,7 @@ export function createApp({
     send(res2, 429, { error: 'too many requests' }, { 'Retry-After': String(rate.retryAfter) });
     return false;
   };
-  const cacheKey = (id, graph) => `rec:v2:${id}:${graphFingerprint(graph)}`;
+  const cacheKey = (id, graph) => `rec:v3:${id}:${graphFingerprint(graph)}`;
   if (repository?.cleanupExpiredSessions) repository.cleanupExpiredSessions();
 
   const server = http.createServer(async (req, res) => {
@@ -1026,14 +1032,17 @@ export function createApp({
         const activeStore = useDb ? await repository.loadGraphStore({ viewerId: userId }) : store;
         if (!activeStore.users.has(userId)) { send(res, 404, { error: 'unknown user' }); return; }
 
-        const key = cacheKey(userId, activeStore);
+        const fingerprint = graphFingerprint(activeStore);
+        const key = `rec:v3:${userId}:${fingerprint}`;
         const cached = await cache.get(key);
         if (cached) {
           send(res, 200, cached, { 'X-Cache': 'HIT', 'Content-Type': 'application/json; charset=utf-8' });
           return;
         }
 
-        const recommendations = recommend(activeStore, userId) ?? [];
+        /* the learned model is one fit per graph snapshot, not per viewer —
+           the fingerprint lets the engine reuse it across members' misses */
+        const recommendations = recommend(activeStore, userId, { modelKey: fingerprint }) ?? [];
         const payload = { userId, generatedAt: new Date().toISOString(), recommendations };
         await cache.set(key, JSON.stringify(payload), REC_TTL_MS);
         send(res, 200, payload, { 'X-Cache': 'MISS' });
@@ -1058,6 +1067,16 @@ export function createApp({
         }
 
         if (action === 'follow') {
+          /* A follow is undirected in the graph, so following someone puts you
+             in their first hop and on their deck — unfollowed and unasked. The
+             skip branch below has always been bounded; this one was not, and a
+             loop through the directory bought an account a place near the top
+             of everyone's recommendations. Same budget as the other writes. */
+          const rate = interactionLimiter.take(`follow:${userId}`);
+          if (!rate.ok) {
+            send(res, 429, { error: 'too many follow requests' }, { 'Retry-After': String(rate.retryAfter) });
+            return;
+          }
           if (useDb) await repository.addFollow(userId, targetId);
           else addFollow(store, userId, targetId);
         } else {
