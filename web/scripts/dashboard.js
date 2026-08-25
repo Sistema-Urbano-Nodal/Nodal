@@ -658,16 +658,17 @@
             meter.appendChild(el('i', i < b.meter.done ? 'is-on' : null));
           }
           status.append(meter, el('span', 'bl-frac', `${b.meter.done}/${b.meter.total}`));
-        } else if (b.state === 'locked') {
-          /* a locked line recedes — the hollow mark alone says "not yet",
-             without shouting LOCKED down the whole column */
-          const quiet = el('span', 'bl-word');
-          quiet.setAttribute('role', 'img');
-          quiet.setAttribute('aria-label', t('d.badge.locked'));
-          status.appendChild(quiet);
         } else {
-          status.appendChild(el('span', 'bl-word',
-            t(b.state === 'earned' ? 'd.badge.earnedState' : 'd.badge.progress')));
+          /* the console's own completion mark — the same drawn checkbox the
+             path criteria use: hollow, outlined green while in reach, filled
+             with the tick once held. No status words down the column. */
+          const check = el('span', 'bl-check');
+          check.setAttribute('role', 'img');
+          check.setAttribute('aria-label', t(
+            b.state === 'earned' ? 'd.badge.earnedState'
+              : b.state === 'progress' ? 'd.badge.progress' : 'd.badge.locked',
+          ));
+          status.appendChild(check);
         }
 
         row.append(idx, body, status);
