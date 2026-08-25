@@ -1,12 +1,30 @@
-/* recommendation engine: weighted node graph + collaborative filtering.
-   Pure functions over a store snapshot — no mutation, fully testable.
+/* recommendation engine: weighted node graph + collaborative filtering +
+   a learned re-ranking layer. Pure functions over a store snapshot — no
+   mutation, fully testable.
 
-   Edge weight blends four signals (all normalised to 0..1):
-     shared interests · mutual connections · engagement history · activity overlap
+   Edge weight blends six signals (all normalised to 0..1):
+     shared interests (canonical across pt/es/en, IDF-weighted, with partial
+     credit for related interests) · mutual connections · engagement history ·
+     activity overlap · same city · profession affinity (complementary
+     disciplines score highest, peers score half)
    Personalised score per candidate combines:
-     BFS graph traversal with per-hop decay, direct affinity, and user-user CF. */
+     BFS graph traversal with per-hop decay, direct affinity, and user-user CF —
+     then a logistic model trained on the network's real likes and skips blends
+     in (confidence-ramped), and recent skips damp the candidate. */
 
-import { getEngagement } from './store.js';
+import { getEngagement, decayedTypeCount } from './store.js';
+import {
+  buildInterestIdf,
+  canonicalInterestSet,
+  canonicalSimilarity,
+  normalizeText,
+  professionScore,
+  rolesComplement,
+  sharedInterestLabels,
+} from './taxonomy.js';
+import {
+  blendWeight, labelledPairs, predictProbability, trainLogistic,
+} from './learn.js';
 
 /* NOTE: the "How matching works" tab on the landing page displays these
    weights — keep index.html's sig-bars in sync when changing them */
@@ -14,21 +32,8 @@ export const WEIGHTS = { interests: 0.30, mutuals: 0.20, engagement: 0.20, activ
 export const DECAY = 0.5;        // score multiplier per extra hop
 export const MAX_DEPTH = 3;
 export const LINKEDIN_BOOST = 1.05;   // verifiability prior on the final score
+export const SKIP_DAMP = 0.6;    // score multiplier per (decayed) recent skip
 const MIX = { traversal: 0.45, direct: 0.30, cf: 0.25 };
-
-/* complementary disciplines — pairs that historically need each other on projects */
-const COMPLEMENTS = [
-  ['research', 'engineer'], ['research', 'technolog'], ['research', 'designer'],
-  ['planner', 'community'], ['planner', 'economist'], ['planner', 'anthropolog'],
-  ['architect', 'community'], ['engineer', 'community'],
-];
-
-const normalizeText = (value) => String(value || '')
-  .normalize('NFD')
-  .replace(/[\u0300-\u036f]/g, '')
-  .trim()
-  .replace(/\s+/g, ' ')
-  .toLowerCase();
 
 export const cityScore = (a, b) => {
   const ca = normalizeText(a.city);
@@ -36,12 +41,10 @@ export const cityScore = (a, b) => {
   return ca && ca === cb ? 1 : 0;
 };
 
+/* binary complement flag for the "why this match" line; the graded
+   profession affinity lives in edgeWeight via professionScore */
 export function complementScore(a, b) {
-  const ra = a.role.toLowerCase(), rb = b.role.toLowerCase();
-  for (const [x, y] of COMPLEMENTS) {
-    if ((ra.includes(x) && rb.includes(y)) || (ra.includes(y) && rb.includes(x))) return 1;
-  }
-  return 0;
+  return rolesComplement(a.role, b.role) ? 1 : 0;
 }
 
 const jaccard = (a, b) => {
@@ -51,6 +54,24 @@ const jaccard = (a, b) => {
   for (const x of A) if (B.has(x)) inter += 1;
   return inter / (A.size + B.size - inter);
 };
+
+/* per-snapshot derived data the hot paths reuse: canonical interest sets and
+   the IDF built over the whole member base */
+function engineContext(store) {
+  const interestSets = new Map();
+  for (const [id, user] of store.users) interestSets.set(id, canonicalInterestSet(user.interests));
+  return { interestSets, idf: buildInterestIdf(store.users.values()) };
+}
+
+const EMPTY_SET = new Set();
+
+function interestScore(ctx, a, b) {
+  return canonicalSimilarity(
+    ctx.interestSets.get(a) ?? EMPTY_SET,
+    ctx.interestSets.get(b) ?? EMPTY_SET,
+    ctx.idf,
+  );
+}
 
 /* undirected adjacency from the directed follow edges */
 export function buildAdjacency(store) {
@@ -72,23 +93,23 @@ function mutualScore(adj, a, b) {
   return common / Math.sqrt(na.size * nb.size);
 }
 
-export function edgeWeight(store, adj, a, b) {
+export function edgeWeight(store, adj, a, b, ctx = engineContext(store)) {
   const ua = store.users.get(a), ub = store.users.get(b);
   const engagement = getEngagement(store, a, b);
   return (
-    WEIGHTS.interests  * jaccard(ua.interests, ub.interests) +
+    WEIGHTS.interests  * interestScore(ctx, a, b) +
     WEIGHTS.mutuals    * mutualScore(adj, a, b) +
     WEIGHTS.engagement * (engagement / (engagement + 3)) +   // saturating
     WEIGHTS.activity   * jaccard(ua.active, ub.active) +
     WEIGHTS.city       * cityScore(ua, ub) +
-    WEIGHTS.complement * complementScore(ua, ub)
+    WEIGHTS.complement * professionScore(ua.role, ub.role)
   );
 }
 
 /* layered BFS from src: each node reached at depth d contributes
    bestPathScore(parent) * edgeWeight(parent, node) * DECAY^(d-1),
    summed over parents so multi-path candidates rank higher */
-export function traversalScores(store, adj, src) {
+export function traversalScores(store, adj, src, ctx = engineContext(store)) {
   const scores = new Map();
   const best = new Map([[src, 1]]);
   let frontier = [src];
@@ -97,7 +118,7 @@ export function traversalScores(store, adj, src) {
     for (const u of frontier) {
       for (const v of adj.get(u) ?? []) {
         if (v === src) continue;
-        const contribution = best.get(u) * edgeWeight(store, adj, u, v) * DECAY ** (depth - 1);
+        const contribution = best.get(u) * edgeWeight(store, adj, u, v, ctx) * DECAY ** (depth - 1);
         scores.set(v, (scores.get(v) ?? 0) + contribution);
         if (!best.has(v) || contribution > best.get(v)) next.set(v, contribution);
       }
@@ -110,14 +131,13 @@ export function traversalScores(store, adj, src) {
 
 /* user-user collaborative filtering: people similar to src "vote" for
    whoever they follow, weighted by similarity */
-export function cfScores(store, src) {
-  const me = store.users.get(src);
+export function cfScores(store, src, ctx = engineContext(store)) {
   const myFollows = store.follows.get(src);
   const scores = new Map();
-  for (const [otherId, other] of store.users) {
+  for (const [otherId] of store.users) {
     if (otherId === src) continue;
     const followSim = jaccard([...myFollows], [...store.follows.get(otherId)]);
-    const sim = 0.5 * followSim + 0.5 * jaccard(me.interests, other.interests);
+    const sim = 0.5 * followSim + 0.5 * interestScore(ctx, src, otherId);
     if (sim === 0) continue;
     for (const t of store.follows.get(otherId)) {
       if (t === src || myFollows.has(t)) continue;
@@ -127,25 +147,63 @@ export function cfScores(store, src) {
   return scores;
 }
 
+/* profile-level features for the learned layer. Deliberately excludes the
+   engagement signal: a liked pair always carries its own like, so training on
+   engagement would only teach "you like whom you liked". */
+export function pairFeatures(store, adj, a, b, ctx = engineContext(store)) {
+  const ua = store.users.get(a), ub = store.users.get(b);
+  return [
+    interestScore(ctx, a, b),
+    mutualScore(adj, a, b),
+    jaccard(ua.active, ub.active),
+    cityScore(ua, ub),
+    professionScore(ua.role, ub.role),
+  ];
+}
+
+/* one global model over every labelled pair in the snapshot: the whole
+   network's feedback teaches which profile signals predict a like here.
+   Returns null (heuristics only) until both outcomes exist. */
+export function trainMatchModel(store, adj, ctx = engineContext(store)) {
+  const pairs = labelledPairs(store);
+  if (!pairs.length) return null;
+  return trainLogistic(pairs.map(({ from, to, label }) => ({
+    features: pairFeatures(store, adj, from, to, ctx),
+    label,
+  })));
+}
+
+/* skips talk: each recent skip of a candidate multiplies their score by
+   SKIP_DAMP, and the count decays with the engagement half-life so a
+   passed-over profile can resurface months later */
+export function skipPenalty(store, viewer, candidate, now = Date.now()) {
+  const skips = decayedTypeCount(store, viewer, candidate, 'skip', now);
+  return skips > 0 ? SKIP_DAMP ** skips : 1;
+}
+
 const normalize = (m) => {
   const max = Math.max(0, ...m.values());
   if (max === 0) return m;
   return new Map([...m].map(([k, v]) => [k, v / max]));
 };
 
-export function recommend(store, userId, { limit = 6 } = {}) {
+export function recommend(store, userId, { limit = 6, now = Date.now() } = {}) {
   const me = store.users.get(userId);
   if (!me) return null;
   const adj = buildAdjacency(store);
+  const ctx = engineContext(store);
   const following = store.follows.get(userId);
 
-  const traversal = normalize(traversalScores(store, adj, userId));
-  const cf = normalize(cfScores(store, userId));
+  const traversal = normalize(traversalScores(store, adj, userId, ctx));
+  const cf = normalize(cfScores(store, userId, ctx));
   const direct = normalize(new Map(
     [...store.users.keys()]
       .filter((id) => id !== userId)
-      .map((id) => [id, edgeWeight(store, adj, userId, id)]),
+      .map((id) => [id, edgeWeight(store, adj, userId, id, ctx)]),
   ));
+
+  const model = trainMatchModel(store, adj, ctx);
+  const blend = model ? blendWeight(model.examples) : 0;
 
   const results = [];
   for (const [id, user] of store.users) {
@@ -155,9 +213,14 @@ export function recommend(store, userId, { limit = 6 } = {}) {
       MIX.direct    * (direct.get(id) ?? 0) +
       MIX.cf        * (cf.get(id) ?? 0);
     if (score <= 0) continue;
+    if (blend > 0) {
+      const probability = predictProbability(model, pairFeatures(store, adj, userId, id, ctx));
+      score = (1 - blend) * score + blend * probability;
+    }
+    score *= skipPenalty(store, userId, id, now);
     if (user.linkedin) score *= LINKEDIN_BOOST;
 
-    const shared = me.interests.filter((i) => user.interests.includes(i));
+    const shared = sharedInterestLabels(me.interests, user.interests);
     let mutuals = 0;
     for (const n of adj.get(id)) if (following.has(n)) mutuals += 1;
 

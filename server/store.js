@@ -69,7 +69,9 @@ export function recordInteraction(store, from, to, type, at = Date.now()) {
   if (w === undefined) throw new Error(`unknown interaction type: ${type}`);
   const k = edgeKey(from, to);
   const events = store.engagement.get(k) ?? [];
-  events.push({ w, at });
+  /* the type rides along so the learned layer can label pairs and the engine
+     can treat a skip as a negative signal, not just faint attention */
+  events.push({ w, at, type });
   if (events.length > MAX_EVENTS_PER_PAIR) events.splice(0, events.length - MAX_EVENTS_PER_PAIR);
   store.engagement.set(k, events);
 }
@@ -80,6 +82,19 @@ export function getEngagement(store, a, b, now = Date.now()) {
   if (!events) return 0;
   let total = 0;
   for (const { w, at } of events) total += w * 2 ** (-(now - at) / HALF_LIFE_MS);
+  return total;
+}
+
+/* decayed count of one interaction type on the a→b edge: a fresh event counts
+   ~1, one from a half-life ago counts ~0.5. Lets a skip fade instead of
+   banishing someone forever. */
+export function decayedTypeCount(store, a, b, type, now = Date.now()) {
+  const events = store.engagement.get(edgeKey(a, b));
+  if (!events) return 0;
+  let total = 0;
+  for (const event of events) {
+    if (event.type === type) total += 2 ** (-(now - event.at) / HALF_LIFE_MS);
+  }
   return total;
 }
 

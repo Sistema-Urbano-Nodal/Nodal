@@ -4,6 +4,7 @@ import { createStore, addFollow, recordInteraction, getEngagement } from '../ser
 import {
   recommend, traversalScores, buildAdjacency, DECAY,
   WEIGHTS, cityScore, complementScore, LINKEDIN_BOOST,
+  pairFeatures, skipPenalty, trainMatchModel, SKIP_DAMP,
 } from '../server/engine.js';
 
 test('recommendations exclude self and already-followed users', () => {
@@ -120,4 +121,101 @@ test('reasons carry complementaryRole and sameCity', () => {
     assert.ok('complementaryRole' in r.reasons);
     assert.ok(r.reasons.complementaryRole === null || typeof r.reasons.complementaryRole === 'string');
   }
+});
+
+test('matching crosses languages: Portuguese profile meets English profile', () => {
+  const seed = {
+    users: [
+      { id: 'you', name: 'Você', role: 'Investigadora Urbana', city: 'São Paulo', interests: ['transporte', 'pesquisa'], active: ['am'] },
+      { id: 'peer', name: 'Peer', role: 'Transport Engineer', city: 'Sao Paulo', interests: ['transport', 'research'], active: ['am'] },
+      { id: 'far', name: 'Far', role: 'Chef', city: 'Quito', interests: ['gastronomia'], active: ['pm'] },
+    ],
+    follows: { you: [], peer: [], far: [] },
+    interactions: [],
+  };
+  const recs = recommend(createStore(seed), 'you');
+  const peer = recs.find((r) => r.id === 'peer');
+  assert.ok(peer, 'cross-language peer surfaces');
+  assert.equal(recs[0].id, 'peer');
+  // shared interests are reported in the viewer's own words
+  assert.deepEqual(peer.reasons.sharedInterests, ['transporte', 'pesquisa']);
+  assert.equal(peer.reasons.sameCity, true, 'accented and plain city names match');
+  assert.equal(peer.reasons.complementaryRole, 'Transport Engineer');
+});
+
+test('skipping a candidate demotes them without banishing them', () => {
+  const baseline = recommend(createStore(), 'you');
+  assert.equal(baseline[0].id, 'flavia');
+
+  const store = createStore();
+  recordInteraction(store, 'you', 'flavia', 'skip');
+  recordInteraction(store, 'you', 'flavia', 'skip');
+  const recs = recommend(store, 'you');
+  const flavia = recs.find((r) => r.id === 'flavia');
+  assert.ok(flavia, 'a skipped member can still resurface');
+  assert.notEqual(recs[0].id, 'flavia', 'two fresh skips push the old top pick down');
+  assert.ok(flavia.score < baseline[0].score);
+});
+
+test('skipPenalty decays back toward 1 with the engagement half-life', () => {
+  const store = createStore();
+  const t0 = 1_700_000_000_000;
+  recordInteraction(store, 'you', 'flavia', 'skip', t0);
+  const fresh = skipPenalty(store, 'you', 'flavia', t0);
+  assert.ok(Math.abs(fresh - SKIP_DAMP) < 1e-9, 'one fresh skip applies the full damp');
+  const later = skipPenalty(store, 'you', 'flavia', t0 + 90 * DAY);
+  assert.ok(later > fresh && later < 1, 'the damp fades but has not vanished');
+  assert.equal(skipPenalty(store, 'you', 'diego', t0), 1, 'no skips, no damp');
+});
+
+test('pairFeatures are profile signals in 0..1 and exclude engagement', () => {
+  const store = createStore();
+  const adj = buildAdjacency(store);
+  const features = pairFeatures(store, adj, 'you', 'flavia');
+  assert.equal(features.length, 5);
+  for (const f of features) assert.ok(f >= 0 && f <= 1, `feature out of range: ${f}`);
+  // engagement is excluded by design: piling on likes must not move the features
+  recordInteraction(store, 'you', 'flavia', 'like');
+  assert.deepEqual(pairFeatures(store, adj, 'you', 'flavia'), features);
+});
+
+test('the demo seed alone does not activate learning (positives only)', () => {
+  const store = createStore();
+  assert.equal(trainMatchModel(store, buildAdjacency(store)), null);
+});
+
+test('learned layer amplifies what the network actually likes', () => {
+  const mk = (id, city) => ({ id, name: id, role: 'Member', city, interests: ['data'], active: ['am'] });
+  const seed = (interactions) => ({
+    users: [
+      mk('you', 'Lima'),
+      mk('l1', 'Lima'), mk('l2', 'Lima'),          // liked: same city as the viewer
+      mk('s1', 'Quito'), mk('s2', 'Bogota'),       // skipped: elsewhere
+      mk('same', 'Lima'), mk('other', 'Cusco'),    // fresh candidates
+    ],
+    follows: { you: [], l1: [], l2: [], s1: [], s2: [], same: [], other: [] },
+    interactions,
+  });
+  const daysAgo = (d) => Date.now() - d * 24 * 60 * 60 * 1000;
+  const trained = createStore(seed([
+    { from: 'you', to: 'l1', type: 'like', at: daysAgo(1) },
+    { from: 'you', to: 'l2', type: 'like', at: daysAgo(2) },
+    { from: 'you', to: 's1', type: 'skip', at: daysAgo(1) },
+    { from: 'you', to: 's2', type: 'skip', at: daysAgo(2) },
+  ]));
+  const cold = createStore(seed([]));
+
+  const ratioOf = (recs) => {
+    const same = recs.find((r) => r.id === 'same');
+    const other = recs.find((r) => r.id === 'other');
+    assert.ok(same && other, 'both fresh candidates surface');
+    return same.score / other.score;
+  };
+  const coldRatio = ratioOf(recommend(cold, 'you'));
+  const trainedRatio = ratioOf(recommend(trained, 'you'));
+  assert.ok(coldRatio > 1, 'heuristics already prefer the same-city candidate');
+  assert.ok(
+    trainedRatio > coldRatio,
+    `feedback should widen the gap: cold ${coldRatio}, trained ${trainedRatio}`,
+  );
 });

@@ -637,7 +637,7 @@ export function createApp({
     send(res2, 429, { error: 'too many requests' }, { 'Retry-After': String(rate.retryAfter) });
     return false;
   };
-  const cacheKey = (id, graph) => `rec:v2:${id}:${graphFingerprint(graph)}`;
+  const cacheKey = (id, graph) => `rec:v3:${id}:${graphFingerprint(graph)}`;
   if (repository?.cleanupExpiredSessions) repository.cleanupExpiredSessions();
 
   const server = http.createServer(async (req, res) => {

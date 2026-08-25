@@ -120,6 +120,24 @@ test('POST interactions records engagement and invalidates', async (t) => {
   assert.equal(next.headers.get('x-cache'), 'MISS');
 });
 
+test('skipping through the API demotes the candidate in the next ranking', async (t) => {
+  const base = await boot(t);
+  const before = await (await fetch(`${base}/api/recommendations/you`)).json();
+  const top = before.recommendations[0].id;
+  for (let i = 0; i < 2; i += 1) {
+    const r = await fetch(`${base}/api/users/you/interactions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetId: top, type: 'skip' }),
+    });
+    assert.equal(r.status, 200);
+  }
+  const after = await (await fetch(`${base}/api/recommendations/you`)).json();
+  const ids = after.recommendations.map((rec) => rec.id);
+  assert.notEqual(ids[0], top, 'two skips push the old top pick off the top');
+  assert.ok(ids.includes(top), 'a skipped member is demoted, not banished');
+});
+
 test('input validation: bad ids, unknown users, bad types', async (t) => {
   const base = await boot(t);
   assert.equal((await fetch(`${base}/api/recommendations/NOPE$$`)).status, 400);
