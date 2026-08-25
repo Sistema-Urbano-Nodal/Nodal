@@ -110,15 +110,21 @@ test('IDF makes a rare shared interest count more than a ubiquitous one', () => 
 });
 
 test('canonicalSimilarity is symmetric, bounded, and empty-safe', () => {
+  /* The cluster pairing weighs a related pair by the LOWER of the two IDFs,
+     which is only observably symmetric when the two tags carry different
+     weights — build the corpus so they do, or the assertion below compares an
+     expression with itself and any asymmetry walks straight through. */
   const idf = buildInterestIdf([
+    ...Array.from({ length: 6 }, (_, i) => ({ id: `common${i}`, interests: ['data'] })),
     { id: 'x', interests: ['transport', 'data', 'housing'] },
     { id: 'y', interests: ['civic tech', 'housing'] },
   ]);
+  assert.ok(idf('civic tech') > idf('data'), 'the cluster partners must differ in weight');
   const A = canonicalInterestSet(['transport', 'data', 'housing']);
   const B = canonicalInterestSet(['civic tech', 'housing']);
   const ab = canonicalSimilarity(A, B, idf);
   const ba = canonicalSimilarity(B, A, idf);
-  assert.equal(ab, ba);
+  assert.ok(Math.abs(ab - ba) < 1e-12, `asymmetric: ${ab} vs ${ba}`);
   assert.ok(ab > 0 && ab <= 1);
   assert.equal(canonicalSimilarity(new Set(), new Set(), idf), 0);
 });

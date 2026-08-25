@@ -1032,14 +1032,17 @@ export function createApp({
         const activeStore = useDb ? await repository.loadGraphStore({ viewerId: userId }) : store;
         if (!activeStore.users.has(userId)) { send(res, 404, { error: 'unknown user' }); return; }
 
-        const key = cacheKey(userId, activeStore);
+        const fingerprint = graphFingerprint(activeStore);
+        const key = `rec:v3:${userId}:${fingerprint}`;
         const cached = await cache.get(key);
         if (cached) {
           send(res, 200, cached, { 'X-Cache': 'HIT', 'Content-Type': 'application/json; charset=utf-8' });
           return;
         }
 
-        const recommendations = recommend(activeStore, userId) ?? [];
+        /* the learned model is one fit per graph snapshot, not per viewer —
+           the fingerprint lets the engine reuse it across members' misses */
+        const recommendations = recommend(activeStore, userId, { modelKey: fingerprint }) ?? [];
         const payload = { userId, generatedAt: new Date().toISOString(), recommendations };
         await cache.set(key, JSON.stringify(payload), REC_TTL_MS);
         send(res, 200, payload, { 'X-Cache': 'MISS' });

@@ -225,14 +225,27 @@ test('every translation key a script asks for resolves in all three languages', 
   };
   // English is DASH_EN plus whatever the pages carry in data-i18n
   const english = dictionary('DASH_EN');
+  const fromMarkup = new Map();
   for (const page of readdirSync(path.join(ROOT, 'web', 'pages')).filter((f) => f.endsWith('.html'))) {
     const html = readFileSync(path.join(ROOT, 'web', 'pages', page), 'utf8');
-    for (const m of html.matchAll(/data-i18n(?:-placeholder)?="([^"]+)"/g)) english.add(m[1]);
+    for (const m of html.matchAll(/data-i18n(?:-placeholder)?="([^"]+)"/g)) {
+      english.add(m[1]);
+      if (!fromMarkup.has(m[1])) fromMarkup.set(m[1], page);
+    }
   }
   const spanish = new Set([...dictionary('ES'), ...dictionary('DASH_ES')]);
   const portuguese = new Set([...dictionary('PT'), ...dictionary('DASH_PT')]);
 
   const missing = [];
+  /* A key that only ever appears as data-i18n takes its English from the page
+     itself, so it needs no DASH_EN entry — and that is exactly what used to
+     hide it from this check. Absent from ES or PT it does not fail loudly:
+     apply() falls back to English, and the Spanish and Portuguese pages
+     silently render English text. */
+  for (const [key, page] of fromMarkup) {
+    if (!spanish.has(key)) missing.push(`${page}: '${key}' is missing from Spanish`);
+    if (!portuguese.has(key)) missing.push(`${page}: '${key}' is missing from Portuguese`);
+  }
   for (const file of readdirSync(path.join(ROOT, 'web', 'scripts')).filter((f) => f.endsWith('.js'))) {
     const js = readFileSync(path.join(ROOT, 'web', 'scripts', file), 'utf8');
     for (const m of js.matchAll(/\bt\(\s*'([^']+)'/g)) {

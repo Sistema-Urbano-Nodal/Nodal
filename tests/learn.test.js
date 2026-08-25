@@ -87,7 +87,8 @@ test('blendWeight ramps with evidence and never exceeds its cap', () => {
   assert.equal(blendWeight(0), 0);
   assert.ok(blendWeight(4) < blendWeight(40));
   assert.ok(blendWeight(10_000) < BLEND.max);
-  assert.ok(blendWeight(BLEND.confidence) - BLEND.max / 2 < 1e-12);
+  // two-sided: `x - y < eps` alone is satisfied by any x below y, zero included
+  assert.ok(Math.abs(blendWeight(BLEND.confidence) - BLEND.max / 2) < 1e-12);
 });
 
 test('one member cannot flood the training set', () => {

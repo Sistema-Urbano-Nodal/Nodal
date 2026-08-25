@@ -61,8 +61,12 @@ const jaccard = (a, b) => {
    single call ages its two halves differently */
 function engineContext(store, now = Date.now()) {
   const interestSets = new Map();
-  for (const [id, user] of store.users) interestSets.set(id, canonicalInterestSet(user.interests));
-  return { interestSets, idf: buildInterestIdf(store.users.values()), now };
+  const cities = new Map();
+  for (const [id, user] of store.users) {
+    interestSets.set(id, canonicalInterestSet(user.interests));
+    cities.set(id, normalizeText(user.city));
+  }
+  return { interestSets, cities, idf: buildInterestIdf(store.users.values()), now };
 }
 
 const EMPTY_SET = new Set();
@@ -95,6 +99,13 @@ function mutualScore(adj, a, b) {
   return common / Math.sqrt(na.size * nb.size);
 }
 
+/* same-city check on the ctx's pre-normalised names — cityScore itself
+   normalises per call, which the BFS would repeat on every edge */
+function ctxCityScore(ctx, a, b) {
+  const ca = ctx.cities.get(a);
+  return ca && ca === ctx.cities.get(b) ? 1 : 0;
+}
+
 export function edgeWeight(store, adj, a, b, ctx = engineContext(store)) {
   const ua = store.users.get(a), ub = store.users.get(b);
   const engagement = getEngagement(store, a, b, ctx.now);
@@ -103,7 +114,7 @@ export function edgeWeight(store, adj, a, b, ctx = engineContext(store)) {
     WEIGHTS.mutuals    * mutualScore(adj, a, b) +
     WEIGHTS.engagement * (engagement / (engagement + 3)) +   // saturating
     WEIGHTS.activity   * jaccard(ua.active, ub.active) +
-    WEIGHTS.city       * cityScore(ua, ub) +
+    WEIGHTS.city       * ctxCityScore(ctx, a, b) +
     WEIGHTS.complement * professionScore(ua.role, ub.role)
   );
 }
@@ -139,10 +150,11 @@ export function traversalScores(store, adj, src, ctx = engineContext(store)) {
    whoever they follow, weighted by similarity */
 export function cfScores(store, src, ctx = engineContext(store)) {
   const myFollows = store.follows.get(src);
+  const myFollowList = [...myFollows];
   const scores = new Map();
   for (const [otherId] of store.users) {
     if (otherId === src) continue;
-    const followSim = jaccard([...myFollows], [...store.follows.get(otherId)]);
+    const followSim = jaccard(myFollowList, [...store.follows.get(otherId)]);
     const sim = 0.5 * followSim + 0.5 * interestScore(ctx, src, otherId);
     if (sim === 0) continue;
     for (const t of store.follows.get(otherId)) {
@@ -162,7 +174,7 @@ export function pairFeatures(store, adj, a, b, ctx = engineContext(store)) {
     interestScore(ctx, a, b),
     mutualScore(adj, a, b),
     jaccard(ua.active, ub.active),
-    cityScore(ua, ub),
+    ctxCityScore(ctx, a, b),
     professionScore(ua.role, ub.role),
   ];
 }
@@ -181,6 +193,23 @@ export function trainMatchModel(store, adj, ctx = engineContext(store)) {
   })));
 }
 
+/* The model is global — one fit serves every viewer — but recommend() runs per
+   viewer, so without this each member's cache miss would retrain the identical
+   model. Callers that know their snapshot's identity (the server keys its
+   response cache on a graph fingerprint) pass it as modelKey; training is
+   deterministic per snapshot, so equal keys mean equal models. */
+const modelMemo = new Map();
+const MODEL_MEMO_MAX = 8;
+
+function memoizedModel(modelKey, train) {
+  if (modelKey === undefined) return train();
+  if (modelMemo.has(modelKey)) return modelMemo.get(modelKey);
+  const model = train();
+  if (modelMemo.size >= MODEL_MEMO_MAX) modelMemo.delete(modelMemo.keys().next().value);
+  modelMemo.set(modelKey, model);
+  return model;
+}
+
 /* skips talk: each recent skip of a candidate multiplies their score by
    SKIP_DAMP, and the count decays with the engagement half-life so a
    passed-over profile can resurface months later */
@@ -195,7 +224,7 @@ const normalize = (m) => {
   return new Map([...m].map(([k, v]) => [k, v / max]));
 };
 
-export function recommend(store, userId, { limit = 6, now = Date.now() } = {}) {
+export function recommend(store, userId, { limit = 6, now = Date.now(), modelKey } = {}) {
   const me = store.users.get(userId);
   if (!me) return null;
   const adj = buildAdjacency(store);
@@ -210,7 +239,7 @@ export function recommend(store, userId, { limit = 6, now = Date.now() } = {}) {
       .map((id) => [id, edgeWeight(store, adj, userId, id, ctx)]),
   ));
 
-  const model = trainMatchModel(store, adj, ctx);
+  const model = memoizedModel(modelKey, () => trainMatchModel(store, adj, ctx));
   const blend = model ? blendWeight(model.support) : 0;
 
   const candidates = [];

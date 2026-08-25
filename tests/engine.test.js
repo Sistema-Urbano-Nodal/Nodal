@@ -143,6 +143,32 @@ test('matching crosses languages: Portuguese profile meets English profile', () 
   assert.equal(peer.reasons.complementaryRole, 'Transport Engineer');
 });
 
+test('a rare shared interest outranks one everybody lists', () => {
+  /* the IDF has a unit test, but nothing checked it survives the trip into
+     recommend() — drop it from the engine and every interest weighs the same */
+  const mk = (id, interests) => ({ id, name: id, role: 'Member', city: 'Lima', interests, active: ['am'] });
+  const crowd = Array.from({ length: 8 }, (_, i) => mk(`c${i}`, ['data']));
+  const users = [
+    mk('you', ['data', 'housing']),
+    mk('common', ['data']),      // shares the interest the whole directory lists
+    mk('rare', ['housing']),     // shares the one almost nobody does
+    ...crowd,
+  ];
+  const store = createStore({
+    users,
+    follows: Object.fromEntries(users.map((u) => [u.id, []])),
+    interactions: [],
+  });
+  const recs = recommend(store, 'you', { limit: 50 });
+  const rare = recs.find((r) => r.id === 'rare');
+  const common = recs.find((r) => r.id === 'common');
+  assert.ok(rare && common, 'both candidates surface');
+  assert.ok(
+    rare.score > common.score,
+    `sharing the rare interest should rank higher: rare ${rare.score}, common ${common.score}`,
+  );
+});
+
 test('skipping a candidate demotes them without banishing them', () => {
   const baseline = recommend(createStore(), 'you');
   assert.equal(baseline[0].id, 'flavia');
@@ -285,6 +311,29 @@ test('learned layer amplifies what the network actually likes', () => {
     trainedRatio > coldRatio,
     `feedback should widen the gap: cold ${coldRatio}, trained ${trainedRatio}`,
   );
+});
+
+test('modelKey reuses one fit per snapshot instead of retraining per viewer', () => {
+  const daysAgo = (d) => Date.now() - d * 24 * 60 * 60 * 1000;
+  const feedback = (voters) => voters.flatMap((who, i) => [
+    { from: who, to: `${who}near`, type: 'like', at: daysAgo(i + 1) },
+    { from: who, to: `${who}far`, type: 'skip', at: daysAgo(i + 1) },
+  ]);
+  const trained = createStore(cityPreferenceSeed(feedback));
+  const key = `test-snapshot-${Date.now()}`;
+  const first = recommend(trained, 'you', { limit: 50, modelKey: key });
+
+  /* strip the training data but keep the same key: a fresh fit would find no
+     evidence and fall back to heuristics, so identical scores prove reuse */
+  const stripped = createStore(cityPreferenceSeed(() => []));
+  const viaMemo = recommend(stripped, 'you', { limit: 50, modelKey: key });
+  const untrained = recommend(stripped, 'you', { limit: 50 });
+  assert.notDeepEqual(
+    untrained.map((r) => r.score),
+    viaMemo.map((r) => r.score),
+    'the memoised model should still be shaping the stripped snapshot',
+  );
+  assert.deepEqual(first.map((r) => r.id), viaMemo.map((r) => r.id));
 });
 
 test('one account cannot train the ranking the whole network is served', () => {
