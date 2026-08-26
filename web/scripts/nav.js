@@ -6,6 +6,24 @@
   toggle.addEventListener('click', () => nav.classList.toggle('open'));
   nav.querySelectorAll('a').forEach(a => a.addEventListener('click', () => nav.classList.remove('open')));
 
+  /* A signed-in member should not be invited to join. The pill's link already
+     lands on the console (login.html forwards an authenticated visitor), so
+     only the label lies — swap its key and let i18n re-translate. The English
+     text is set here first: apply() captures it as the key's EN value, the
+     way it captures every other label from the page. */
+  const joinCta = nav.querySelector('[data-i18n="nav.join"]');
+  if (joinCta) {
+    fetch('/api/auth/state')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((state) => {
+        if (!state?.authenticated) return;
+        joinCta.textContent = 'My console';
+        joinCta.dataset.i18n = 'nav.panel';
+        window.nodalI18n?.apply(window.nodalI18n.lang);
+      })
+      .catch(() => { /* signed-out or static mode: the invitation stands */ });
+  }
+
   // wordmark contrast: white while a dark section is under the glass bar, black otherwise
   const darkSections = document.querySelectorAll(
     '.problem, .platform, .quote, .membership, .partners, .cta-band, .footer-bottom');

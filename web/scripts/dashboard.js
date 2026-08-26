@@ -967,7 +967,14 @@
       uc.topics.querySelectorAll('input').forEach((i) => { i.checked = current.has(i.value); });
       if (typeof userDialog.showModal === 'function' && !userDialog.open) userDialog.showModal();
     };
-    byId('userBtn')?.addEventListener('click', openUserDialog);
+    byId('userBtn')?.addEventListener('click', () => {
+      /* the avatar lives inside .top-actions, so the outside-click handler
+         never dismisses the notification popover — without this, popover and
+         dialog end up open at once, bleeding into each other */
+      const pop = byId('notifPop');
+      if (pop) { pop.hidden = true; byId('notifBtn')?.setAttribute('aria-expanded', 'false'); }
+      openUserDialog();
+    });
     byId('ucCancel')?.addEventListener('click', () => userDialog.close());
 
     userForm.addEventListener('submit', (e) => {
