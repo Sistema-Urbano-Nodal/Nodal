@@ -1,0 +1,41 @@
+{
+  "runId": "813ee44e-0ca2-45c3-8586-8842cf6ab162",
+  "site": "http://127.0.0.1:4174",
+  "supabaseHost": "nwiiqqgmikmtpdobedfz.supabase.co",
+  "startedAt": "2026-09-05T19:15:55.165Z",
+  "checks": [
+    "pilot mode enabled",
+    "member real-site session",
+    "staff real-site session",
+    "test staff role resolves from database",
+    "test member remains member",
+    "authenticated course listing",
+    "member denied staff routes",
+    "draft course private",
+    "own intake persisted",
+    "intake never appears as another viewer own intake",
+    "enrollment and intake unlock module",
+    "private file bytes round trip",
+    "assignment replay produces one post",
+    "staff reply persisted",
+    "staff can read test participant intake",
+    "staff sees four-star feedback",
+    "staff participants CSV includes test data",
+    "staff intake CSV includes test data",
+    "staff feedback CSV includes test data",
+    "staff activity CSV includes test data",
+    "member account export includes own course data",
+    "account deletion scrubs assignment identity and body",
+    "account deletion erases attachment metadata",
+    "account deletion erases private Storage bytes",
+    "both test accounts deleted through real application"
+  ],
+  "cleanup": [
+    "member account removed",
+    "staff account removed",
+    "temporary course and scoped rows removed"
+  ],
+  "passed": true,
+  "cleanupErrors": [],
+  "finishedAt": "2026-09-05T19:16:38.647Z"
+}

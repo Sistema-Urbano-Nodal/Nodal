@@ -311,7 +311,7 @@ test('changed one-hour-cached catalog clients use new URLs on every consuming pa
   const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'payments.html', 'profile.html', 'admin.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
   const required = {
-    'index.html': { 'catalog.css': '4', 'i18n.js': '40', 'app.js': '18', 'recs.js': '3', 'catalog.js': '4' },
+    'index.html': { 'catalog.css': '4', 'i18n.js': '40', 'app.js': '18', 'recs.js': '4', 'catalog.js': '4' },
     'opportunities.html': { 'catalog.css': '4', 'i18n.js': '40', 'catalog.js': '4' },
     'dashboard.html': { 'i18n.js': '40', 'dashboard.js': '27' },
     'login.html': { 'i18n.js': '40' },

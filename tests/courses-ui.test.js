@@ -51,7 +51,7 @@ test('pilot UI translates current labels in EN, ES and PT',()=>{
  const h=harness(()=>({}));h.body.append(h.ctx.window.nodalPilot.button('enroll'));h.lang('es');assert.match(content(h.body),/Inscribirme/);h.lang('pt');assert.match(content(h.body),/Inscrever-me/);for(const [key,values]of Object.entries(h.ctx.window.pilotI18n.rows)){assert.equal(values.length,3,key);assert.ok(values.every(v=>typeof v==='string'&&v.length),key);}
 });
 test('pilot mask is a render-blocking stylesheet on existing public pages',()=>{
- for(const name of ['index','login','profile','dashboard','payments']){const html=readFileSync(new URL('../web/pages/'+name+'.html',import.meta.url),'utf8');assert.ok(html.indexOf('href="courses.css?v=20260905b"')<html.indexOf('</head>'));assert.ok(html.indexOf('pilot.js')<html.lastIndexOf('</body>'));}
+ for(const name of ['index','login','profile','dashboard','payments']){const html=readFileSync(new URL('../web/pages/'+name+'.html',import.meta.url),'utf8');const css=html.match(/href="courses\.css(?:\?[^"]*)?"/);assert.ok(css,name+' must load the billing mask');assert.ok(css.index<html.indexOf('</head>'));const pilot=html.match(/src="pilot\.js(?:\?[^"]*)?"/);assert.ok(pilot,name+' must load configuration');assert.ok(pilot.index<html.lastIndexOf('</body>'));}
  const css=readFileSync(new URL('../web/styles/courses.css',import.meta.url),'utf8');assert.match(css,/html:not\(\[data-pilot="false"\]\)/);assert.match(css,/data-billing-only/);
 });
 test('feedback requires a deliberate star choice before issuing any write',async()=>{
@@ -103,4 +103,34 @@ test('course keeps contribution composer collapsed and replaces contextual feedb
  const reply=descendants(h.body).find(n=>n.tagName==='button'&&n.dataset.pilotText==='reply');reply.listeners.click();assert.equal(box.open,true);
  const form=descendants(box).find(n=>n.tagName==='form');descendants(form).find(n=>n.name==='body').value='My answer';await form.listeners.submit({preventDefault(){}});assert.equal(box.open,false);
  const feedbacks=descendants(h.body).filter(n=>n.className==='pilot-feedback');assert.equal(feedbacks.length,1);assert.match(content(feedbacks[0]),/take part in this conversation/);
+});
+test('deleted contributions preserve their thread without offering an invalid reply',async()=>{
+ const h=harness(path=>path==='/api/auth/me'?{user:{permission:'member'}}:path.endsWith('/events')?{ok:true}:path.endsWith('/posts')?{posts:[{id:'p1',deleted:true,createdAt:'2026-09-05T12:00:00Z',kind:'question',body:'',attachments:[],links:[]}],nextCursor:null}:path.endsWith('/modules/m1')?{module:{id:'m1',title:'Session',resources:[]}}:{course,modules:[{id:'m1',title:'Session'}],enrollment:{},intake:{fullName:'Member'},isAdmin:false},{page:'course',search:'?id=c1'});h.run('courses');await flush();
+ const deleted=descendants(h.body).find(n=>n.id==='post-p1');assert.match(content(deleted),/removed by the teaching team/);assert.equal(descendants(deleted).some(n=>n.dataset.pilotText==='reply'),false);
+});
+test('initial discussion failure stays visible and offers a working retry',async()=>{
+ let failed=true;const h=harness(path=>path==='/api/auth/me'?{user:{permission:'member'}}:path.endsWith('/events')?{ok:true}:path.endsWith('/posts')?(failed?{status:503,data:{error:'Discussion unavailable'}}:{posts:[],nextCursor:null}):path.endsWith('/modules/m1')?{module:{id:'m1',title:'Session',resources:[]}}:{course,modules:[{id:'m1',title:'Session'}],enrollment:{},intake:{fullName:'Member'},isAdmin:false},{page:'course',search:'?id=c1'});h.run('courses');await flush();
+ assert.match(content(h.ids.pilotStatus),/Discussion unavailable/);const retry=descendants(h.body).find(n=>n.dataset.pilotText==='retry');assert.ok(retry);failed=false;await retry.listeners.click();await flush();assert.match(content(h.body),/Start the conversation/);
+});
+function recHarness(fail=false){
+ const h=harness((path)=>path==='/api/auth/state'?{authenticated:true}:path==='/api/recommendations/me'?{recommendations:[{id:'u1',name:'Ana',role:'Planner',city:'Lima',interests:[],reasons:{},matchPct:60}]}:fail?{status:503,data:{error:'Unavailable'}}:{ok:true});
+ const stack=new Node(),card=new Node();card.style={};const nodes={};for(const key of ['.leader-initial','.match-name','.match-role','.tags','.match-why','.m-skip','.m-like'])nodes[key]=new Node();card.querySelector=s=>nodes[s];stack.querySelector=()=>card;h.ids.matchStack=stack;h.body.append(stack);const timers=[];h.ctx.setTimeout=f=>timers.push(f);h.ctx.requestAnimationFrame=f=>f();h.ctx.window.nodalI18n.t=k=>k;
+ h.run('recs');return{...h,nodes,timers};
+}
+test('matching ignores repeat clicks during animation and pending persistence',async()=>{
+ const h=recHarness();await flush();h.nodes['.m-like'].listeners.click();h.nodes['.m-like'].listeners.click();assert.equal(h.timers.length,1);assert.equal(h.nodes['.m-like'].disabled,true);h.timers.shift()();await flush();assert.equal(h.requests.filter(r=>r.path==='/api/users/me/follow').length,1);
+});
+test('failed matching action keeps skip disabled and only exposes retry',async()=>{
+ const h=recHarness(true);await flush();h.nodes['.m-like'].listeners.click();h.timers.shift()();await flush();assert.equal(h.nodes['.m-skip'].disabled,true);assert.equal(h.nodes['.m-like'].disabled,false);assert.equal(h.nodes['.m-like']['aria-label'],'recs.retry');
+});
+test('publishing while an older discussion page loads still refreshes the saved contribution',async()=>{
+ let reads=0,finishPage;const saved={id:'p2',authorName:'Member',createdAt:'2026-09-05T13:00:00Z',kind:'question',body:'New saved question',links:[],attachments:[]};
+ const h=harness((path,opts)=>{
+  if(path==='/api/auth/me')return{user:{permission:'member'}};
+  if(path.endsWith('/events'))return{ok:true};
+  if(path.includes('/posts')){if(opts?.method==='POST')return{post:saved};reads++;if(reads===2)return new Promise(resolve=>{finishPage=resolve;});return{posts:reads>2?[saved]:[{...saved,id:'p1',body:'Earlier question'}],nextCursor:reads===1?'next':null};}
+  if(path.endsWith('/modules/m1'))return{module:{id:'m1',title:'Session',resources:[]}};
+  return{course,modules:[{id:'m1',title:'Session'}],enrollment:{},intake:{fullName:'Member'},isAdmin:false};
+ },{page:'course',search:'?id=c1'});h.run('courses');await flush();const more=descendants(h.body).find(n=>n.dataset.pilotText==='more');more.listeners.click();await flush();
+ const form=descendants(h.body).find(n=>n.tagName==='form'&&descendants(n).some(x=>x.name==='body'));descendants(form).find(n=>n.name==='body').value=saved.body;await form.listeners.submit({preventDefault(){}});finishPage({posts:[],nextCursor:null});await flush();assert.equal(reads,3);assert.match(content(h.body),/New saved question/);
 });

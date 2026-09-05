@@ -1,6 +1,17 @@
 # Course pilot validation — September 5, 2026
 
-Work is on `feat/nodal-course-pilot`. This combines the previously divergent local catalog and production network/profile implementations, then adds the course pilot. No production deployment or remote database mutation was performed.
+Work is on `feat/nodal-course-pilot`. This combines the previously divergent local catalog and production network/profile implementations, then adds the course pilot. The original implementation was verified locally; the subsequent authorized release checks are recorded below.
+
+## Authorized release verification
+
+- Fresh full build after the final review: **336 tests passed**, zero failures. Five additional regression cases cover removed-post replies, discussion failure/retry, duplicate recommendation actions, recommendation error controls and saving while discussion pagination is in flight. The deployment test verifies the updated recommendation asset URL.
+- Both isolated 200-user load scenarios passed again: **2,200 requests, zero errors**. These remain local burst tests, not a production concurrency guarantee.
+- All seven pending schema migrations were applied to the intended Supabase project. Live queries verified the network revision singleton and five triggers, RLS and restricted browser grants for all eight course tables, service access, and the private 3 MB attachment bucket.
+- The production Data API privilege smoke passed. The actual Supabase integration passed **25 acceptance checks** through the reviewed local server: authentication, role isolation, draft and intake gates, enrollment/intake persistence, private file round trip, idempotent assignments, teacher replies, feedback, four staff CSV exports, personal export, and account/file erasure. Both generated accounts and the temporary course were removed, with no cleanup errors. [Sanitized evidence](validation/course-pilot/real-supabase-smoke.json).
+- Supabase Auth already has custom SMTP enabled and email confirmation required. Inbox delivery and a simultaneous cohort signup burst were not tested; the acceptance accounts were explicitly confirmed without sending email.
+- Security advisors reported no new warning/error for the schema. Informational notices about RLS without policies are expected: these tables intentionally deny direct browser access. The existing leaked-password-protection warning remains unchanged.
+
+These checks precede the production web deployment. Verify the Vercel commit and repeat authenticated acceptance on the published site before claiming release acceptance.
 
 ## Automated verification
 

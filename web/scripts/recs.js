@@ -26,6 +26,7 @@
   let needsAuth = false;
   let needsRetry = false;
   let messageMode = '';
+  let actionPending = false;
 
   const fling = (dir, after) => {
     card.style.transform = `translateX(${dir * 120}%) rotate(${dir * 12}deg)`;
@@ -166,13 +167,27 @@
       }
       advance();
     }).catch(() => showState('unavailable')).finally(() => {
-      els.skip.disabled = false;
-      els.like.disabled = false;
+      actionPending = false;
+      if (live) {
+        els.skip.disabled = false;
+        els.like.disabled = false;
+      }
     });
   }
 
-  els.skip.addEventListener('click', () => fling(-1, () => act('skip')));
-  els.like.addEventListener('click', () => fling(1, () => act('like')));
+  function choose(kind) {
+    const control = kind === 'like' ? els.like : els.skip;
+    if (actionPending || control.disabled) return;
+    if (needsAuth || needsRetry) { act(kind); return; }
+    if (!live || !deck[idx]) return;
+    actionPending = true;
+    els.skip.disabled = true;
+    els.like.disabled = true;
+    fling(kind === 'like' ? 1 : -1, () => act(kind));
+  }
+
+  els.skip.addEventListener('click', () => choose('skip'));
+  els.like.addEventListener('click', () => choose('like'));
 
   function startLoad() {
     showState('loading');
