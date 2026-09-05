@@ -27,10 +27,12 @@ async function setup(t) {
 }
 
 test('enrollment/intake gates, private answers, drafts and staff authorization',async t=>{
- const {call,course,module,enter}=await setup(t);
+ const {call,course,module,enter,store}=await setup(t);
+ await store.update('modules',{id:module.id},{translations:{pt:{title:'Sessão pública',description:'Descrição restrita',objectives:'Objetivos privados',instructions:'Instruções privadas'}}});
  assert.equal((await call('/api/courses',{actor:''})).status,401);
  assert.equal((await call('/api/admin/courses')).status,403);
  let detail=await (await call(`/api/courses/${course.id}`)).json();assert.equal(detail.enrollment,null);assert.equal(detail.modules[0].resources,undefined);
+ assert.deepEqual(detail.modules[0].translations,{pt:{title:'Sessão pública'}});
  const path=`/api/courses/${course.id}/modules/${module.id}`;
  assert.equal((await call(path)).status,403);
  assert.equal((await call(`/api/courses/${course.id}/enroll`,{method:'POST',body:{},origin:'https://evil.test'})).status,403);
@@ -39,6 +41,7 @@ test('enrollment/intake gates, private answers, drafts and staff authorization',
  assert.equal((await call(path)).status,403);
  assert.equal((await enter()).status,200);
  assert.equal((await call(path)).status,200);
+ assert.equal((await(await call(path)).json()).module.translations.pt.instructions,'Instruções privadas');
  detail=await(await call(`/api/courses/${course.id}`,{actor:'other'})).json();assert.equal(detail.intake,null);
  const draft=await(await call(`/api/admin/courses/${course.id}/modules`,{actor:'staff',method:'POST',body:{title:'Hidden'}})).json();
  assert.equal((await call(`/api/courses/${course.id}/modules/${draft.module.id}`)).status,404);

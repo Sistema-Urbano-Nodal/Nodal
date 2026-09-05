@@ -1370,7 +1370,9 @@ export function createApp({
         if (!requireAuth(res, sessionUser)) return;
         const id = m[1];
         if (!ID_RE.test(id)) { send(res, 400, { error: 'invalid user id' }); return; }
-        const row = await repository.getUserById(id);
+        // The session was freshly resolved for this request, including role
+        // and account status; do not fetch its own full profile a second time.
+        const row = id === sessionUser.id ? sessionUser : await repository.getUserById(id);
         if (!row) { send(res, 404, { error: 'unknown user' }); return; }
         const user = repository.toApiUser(row);
         const self = id === sessionUser.id;

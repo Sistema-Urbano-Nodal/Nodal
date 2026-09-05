@@ -133,7 +133,11 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     const access=await courseAccess(courseId,user);
     if(!suffix&&req.method==='GET') {
       let modules=await store.find('modules',{courseId,...(isStaff(user)?{}:{status:'published'})},{limit:100,order:['position','id']});
-      if(!isStaff(user)&&(!access.enrollment||!access.intake)) modules=modules.map(({id,title,position,sessionDate,status})=>({id,title,position,sessionDate,status}));
+      if(!isStaff(user)&&(!access.enrollment||!access.intake)) modules=modules.map(({id,title,position,sessionDate,status,translations={}})=>({
+        id,title,position,sessionDate,status,
+        // Preview only localized titles; gated teaching content stays private.
+        translations:Object.fromEntries(Object.entries(translations).map(([locale,fields])=>[locale,typeof fields.title==='string'?{title:fields.title}:{}])),
+      }));
       send(res,200,{...access,modules,isAdmin:isStaff(user)});return true;
     }
     if(adminPath&&!suffix&&req.method==='PATCH') {

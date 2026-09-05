@@ -1,7 +1,7 @@
 // Explicit domain tables; this metadata also constrains every repository query.
 export const COURSE_TABLES = {
-  courses: { table: 'pilot_courses', fields: ['id','title','description','status','startsOn','endsOn','enrollmentOpen','version','createdAt','updatedAt'], json: [], bool: ['enrollmentOpen'] },
-  modules: { table: 'course_modules', fields: ['id','courseId','title','description','objectives','instructions','sessionDate','position','status','resources','version','createdAt','updatedAt'], json: ['resources'] },
+  courses: { table: 'pilot_courses', fields: ['id','title','description','translations','status','startsOn','endsOn','enrollmentOpen','version','createdAt','updatedAt'], json: ['translations'], bool: ['enrollmentOpen'] },
+  modules: { table: 'course_modules', fields: ['id','courseId','title','description','objectives','instructions','translations','sessionDate','position','status','resources','version','createdAt','updatedAt'], json: ['resources','translations'] },
   enrollments: { table: 'course_enrollments', fields: ['id','courseId','userId','createdAt'], json: [] },
   intakes: { table: 'course_intakes', fields: ['id','courseId','userId','answers','updatedAt'], json: ['answers'] },
   posts: { table: 'course_posts', fields: ['id','courseId','moduleId','userId','authorName','staff','clientId','parentId','kind','body','links','attachmentIds','deletedAt','createdAt'], json: ['links','attachmentIds'], bool: ['staff'] },
@@ -13,14 +13,14 @@ export const snake = key => key.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`);
 
 export const COURSE_SQLITE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS pilot_courses (
- id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+ id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', translations TEXT NOT NULL DEFAULT '{}',
  status TEXT NOT NULL CHECK(status IN ('draft','published','archived')),
  starts_on TEXT NOT NULL DEFAULT '', ends_on TEXT NOT NULL DEFAULT '', enrollment_open INTEGER NOT NULL DEFAULT 1,
  version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS course_modules (
  id TEXT PRIMARY KEY, course_id TEXT NOT NULL REFERENCES pilot_courses(id) ON DELETE CASCADE,
- title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', objectives TEXT NOT NULL DEFAULT '', instructions TEXT NOT NULL DEFAULT '',
+ title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', objectives TEXT NOT NULL DEFAULT '', instructions TEXT NOT NULL DEFAULT '', translations TEXT NOT NULL DEFAULT '{}',
  session_date TEXT NOT NULL DEFAULT '', position INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('draft','published')),
  resources TEXT NOT NULL DEFAULT '[]', version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );

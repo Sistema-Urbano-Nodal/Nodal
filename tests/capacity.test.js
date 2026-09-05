@@ -211,3 +211,56 @@ test('SQLite snapshot revision detects consent withdrawal through an independent
   assert.notEqual(await repo.getNetworkRevision(),revision,'PRAGMA data_version must observe another connection commit');
   assert.deepEqual((await snapshots.read()).rows,[]);
 });
+
+test('warm graph responses use only initial and final authoritative revision reads', async () => {
+  const f=fixture();let checks=0;
+  const original=f.repo.getNetworkRevision;
+  f.repo.getNetworkRevision=async()=>{checks++;return original();};
+  const snapshots=network.createNetworkSnapshots(f.repo);
+  await snapshots.read({graph:true});checks=0;
+  assert.equal((await snapshots.run(snapshot=>snapshot.rows)).length,2);
+  assert.equal(checks,2,'an already-built graph needs no extra intermediate revision roundtrip');
+  const result=await snapshots.run(async snapshot=>{
+    if(snapshot.rows.some(row=>row.id==='b')) { await Promise.resolve();f.revoke(); }
+    return snapshot.rows;
+  });
+  assert.deepEqual(result.map(row=>row.id),['a'],'final check still catches consent withdrawal during async work');
+});
+
+test('own-profile reads reuse the fresh request session without caching across requests', async t => {
+  const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
+  const repo=createRepository({db});
+  const user=createUser(db,{fullName:'Before',email:'fresh-session@test.invalid',passwordHash:'unusable'});
+  const cookie=createSession(db,user.id).cookie.split(';')[0];
+  let ownReads=0,authReads=0;
+  const getUser=repo.getUserById.bind(repo),resolve=repo.resolveSession.bind(repo);
+  repo.getUserById=async id=>{ownReads++;return getUser(id);};
+  repo.resolveSession=async req=>{authReads++;return resolve(req);};
+  const server=createApp({repository:repo});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
+  const base=`http://127.0.0.1:${server.address().port}`;
+  const get=()=>fetch(`${base}/api/users/${user.id}`,{headers:{cookie}});
+  assert.equal((await (await get()).json()).user.fullName,'Before');
+  updateUserProfile(db,user.id,{fullName:'After'});
+  assert.equal((await (await get()).json()).user.fullName,'After','a new request resolves current profile state');
+  assert.equal(ownReads,0,'read-only own-profile requests reuse the already-authorized session');
+  const patch=await fetch(`${base}/api/me`,{method:'PATCH',headers:{cookie,Origin:base,'Content-Type':'application/json'},body:JSON.stringify({fullName:'Patched'})});
+  assert.equal(patch.status,200);assert.equal((await patch.json()).user.fullName,'Patched');
+  assert.equal(ownReads,1,'profile mutations retain their fresh pre-write read after receiving the body');
+  assert.equal(authReads,3,'each request still performs fresh authentication');
+  db.prepare("UPDATE users SET account_status='disabled' WHERE id=?").run(user.id);
+  assert.equal((await get()).status,401,'an account disabled between requests loses access immediately');
+});
+
+test('one final response revision check still retries a graph changed while loading', async () => {
+  const f=fixture();
+  const load=f.repo.loadGraphStore;
+  f.repo.loadGraphStore=async options=>{
+    const graph=await load(options);
+    await Promise.resolve();f.revoke();f.repo.loadGraphStore=load;
+    return graph;
+  };
+  const result=await network.createNetworkSnapshots(f.repo).run(snapshot=>({
+    ids:snapshot.rows.map(row=>row.id),graphIds:[...snapshot.graph.users.keys()],
+  }));
+  assert.deepEqual(result,{ids:['a'],graphIds:['a']});
+});

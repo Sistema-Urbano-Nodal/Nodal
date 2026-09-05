@@ -1,10 +1,94 @@
 (() => {
 'use strict';
-const {t,el,tr,api,status,button,field,select,date,feedback}=window.nodalPilot;
+const {t,el,tr,api,status,button,field,select,date,feedback,localized,bind,dynamic,source,setPageTitle}=window.nodalPilot;
 const root=document.getElementById('pilotRoot'),msg=document.getElementById('pilotStatus');
 let courses=[],selectedId=null,workspace,selectionVersion=0;
 const endpoint=id=>'/api/admin/courses'+(id?'/'+id:'');
-function makeEditor(record,module,courseId,onSaved){const form=el('form','pilot-form');const inputs={};const keys=module?['title','description','objectives','instructions','sessionDate','position']:['title','description','startsOn','endsOn','enrollmentOpen'];const grid=el('div','pilot-form-grid');keys.forEach(key=>{const type=['description','objectives','instructions'].includes(key)?'textarea':['startsOn','endsOn','sessionDate'].includes(key)?'date':key==='position'?'number':key==='enrollmentOpen'?'checkbox':'text';const f=field(key,record?.[key]??(key==='position'?1:key==='enrollmentOpen'?true:''),type);if(key==='title')f.input.required=true;if(type==='number'){f.input.min=1;f.input.max=100;}if(type==='text')f.input.maxLength=180;if(type==='textarea')f.input.maxLength=key==='instructions'?10000:6000;inputs[key]=f.input;(type==='textarea'?form:grid).append(f.wrap);});form.prepend(grid);const state=select('status',module?['draft','published']:['draft','published','archived'],record?.status||'draft');inputs.status=state.input;form.append(state.wrap);let resourceInputs=[];if(module){const resources=el('div');resources.append(tr('h3','resources'));const rows=el('div');function add(r={}){const row=el('div','pilot-resource-edit');const title=field('title',r.title||''),url=field('url',r.url||'','url'),kind=select('kind',['slides','reading','link','recording'],r.kind||'link');title.input.required=true;url.input.required=true;title.input.maxLength=180;url.input.maxLength=2000;const entry={title:title.input,url:url.input,kind:kind.input};resourceInputs.push(entry);row.append(title.wrap,url.wrap,kind.wrap,button('remove',()=>{row.remove();resourceInputs=resourceInputs.filter(x=>x!==entry);},true));rows.append(row);}for(const r of record?.resources||[])add(r);resources.append(rows,button('addResource',()=>add(),true));form.append(resources);}const submit=button(record?'save':module?'newModule':'newCourse');submit.type='submit';const local=el('p','pilot-status');local.setAttribute('role','status');form.append(submit,local);form.addEventListener('submit',async e=>{e.preventDefault();submit.disabled=true;try{const body=Object.fromEntries(Object.entries(inputs).map(([key,input])=>[key,input.type==='checkbox'?input.checked:input.type==='number'?Number(input.value):input.value]));if(record)body.version=record.version;if(module){body.resources=resourceInputs.map(r=>({title:r.title.value,url:r.url.value,kind:r.kind.value}));if(body.resources.some(r=>!window.nodalPilot.safeUrl(r.url)))throw new Error(t('urlError'));}const path=module?endpoint(courseId)+'/modules'+(record?'/'+record.id:''):endpoint(record?.id);const result=await api(path,body,record?'PATCH':'POST');status(local,t('saved'));await onSaved(result.course||result.module);}catch(err){status(local,err);if(err.status===409&&!form.querySelector('[data-reload]')){const reload=button('reload',()=>onSaved(record),true);reload.dataset.reload='true';form.append(reload);}}finally{submit.disabled=false;}});return form;}
+function translationEditor(record,keys){
+  const section=el('section','pilot-translation-editor');
+  const locale=select('translationLanguage',['en','es','pt'],window.nodalI18n?.lang||'en');
+  const panes={},inputs={};
+  section.append(locale.wrap,tr('p','translationHint','pilot-data-note'));
+  for(const lang of ['en','es','pt']){
+    const pane=el('div','pilot-form');inputs[lang]={};
+    for(const key of keys){
+      const f=field(key,record?.translations?.[lang]?.[key]||'',key==='title'?'text':'textarea');
+      f.input.name='translations.'+lang+'.'+key;f.input.maxLength=key==='title'?180:key==='instructions'?10000:6000;
+      f.input.dataset.pilotPlaceholder='translationPlaceholder';f.input.setAttribute('placeholder',t('translationPlaceholder'));
+      inputs[lang][key]=f.input;pane.append(f.wrap);
+    }
+    panes[lang]=pane;section.append(pane);
+  }
+  function show(){for(const [lang,pane] of Object.entries(panes))pane.hidden=lang!==locale.input.value;}
+  locale.input.addEventListener('change',show);
+  let previousLanguage;
+  bind(section,()=>{
+    const current=window.nodalI18n?.lang||'en';
+    if(current!==previousLanguage){locale.input.value=current;previousLanguage=current;}
+    show();
+  });
+  return{section,value:()=>Object.fromEntries(Object.entries(inputs).map(([lang,fields])=>[lang,Object.fromEntries(Object.entries(fields).map(([key,input])=>[key,input.value]))]))};
+}
+
+function makeEditor(record,module,courseId,onSaved){
+  const form=el('form','pilot-form'),inputs={};
+  const contentKeys=module?['title','description','objectives','instructions']:['title','description'];
+  const original=el('details','pilot-editor-original');original.open=!record;
+  original.append(tr('summary','sourceContent'));const originalFields=el('div','pilot-form');original.append(originalFields);
+  for(const key of contentKeys){
+    const f=field(key,record?.[key]||'',key==='title'?'text':'textarea');
+    f.input.required=key==='title';f.input.maxLength=key==='title'?180:key==='instructions'?10000:6000;
+    inputs[key]=f.input;originalFields.append(f.wrap);
+  }
+  const translations=translationEditor(record,contentKeys);
+  const grid=el('div','pilot-form-grid');
+  for(const key of module?['sessionDate','position']:['startsOn','endsOn','enrollmentOpen']){
+    const type=key==='position'?'number':key==='enrollmentOpen'?'checkbox':'date';
+    const f=field(key,record?.[key]??(key==='position'?1:key==='enrollmentOpen'?true:''),type);
+    if(type==='number'){f.input.min=1;f.input.max=100;}
+    inputs[key]=f.input;grid.append(f.wrap);
+  }
+  const state=select('status',module?['draft','published']:['draft','published','archived'],record?.status||'draft');inputs.status=state.input;
+  form.append(original,translations.section,grid,state.wrap);
+  let resourceInputs=[];
+  if(module){
+    const resources=el('div'),rows=el('div');resources.append(tr('h3','resources'));
+    function add(r={}){
+      const row=el('div','pilot-resource-edit'),title=field('title',r.title||''),url=field('url',r.url||'','url'),kind=select('kind',['slides','reading','link','recording'],r.kind||'link');
+      title.input.required=true;url.input.required=true;title.input.maxLength=180;url.input.maxLength=2000;
+      const translated=translationEditor(r,['title']),details=el('details');details.append(tr('summary','translations'),translated.section);
+      const entry={title:title.input,url:url.input,kind:kind.input,translations:translated.value};resourceInputs.push(entry);
+      row.append(title.wrap,url.wrap,kind.wrap,details,button('remove',()=>{row.remove();resourceInputs=resourceInputs.filter(x=>x!==entry);},true));rows.append(row);
+    }
+    for(const resource of record?.resources||[])add(resource);
+    resources.append(rows,button('addResource',()=>add(),true));form.append(resources);
+  }
+  const submit=button(record?'save':module?'newModule':'newCourse');submit.type='submit';
+  const local=el('p','pilot-status');local.setAttribute('role','status');form.append(submit,local);
+  form.addEventListener('submit',async e=>{
+    e.preventDefault();submit.disabled=true;
+    try{
+      const body=Object.fromEntries(Object.entries(inputs).map(([key,input])=>[key,input.type==='checkbox'?input.checked:input.type==='number'?Number(input.value):input.value]));
+      body.translations=translations.value();if(record)body.version=record.version;
+      if(module){body.resources=resourceInputs.map(r=>({title:r.title.value,url:r.url.value,kind:r.kind.value,translations:r.translations()}));if(body.resources.some(r=>!window.nodalPilot.safeUrl(r.url)))throw new Error(t('urlError'));}
+      const path=module?endpoint(courseId)+'/modules'+(record?'/'+record.id:''):endpoint(record?.id);
+      const result=await api(path,body,record?'PATCH':'POST'),saved=result.course||result.module;if(record)Object.assign(record,saved);else record=saved;submit.dataset.pilotText='save';submit.textContent=t('save');status(local,t('saved'));await onSaved(saved);
+    }catch(err){
+      status(local,err);
+      if(err.status===409&&!form.querySelector('[data-reload]')){
+        const reload=button('reload',async()=>{
+          reload.disabled=true;
+          try{
+            const result=await api(module?'/api/courses/'+courseId+'/modules/'+record.id:'/api/courses/'+record.id);
+            const fresh=result.module||result.course;
+            form.replaceWith(makeEditor(fresh,module,courseId,onSaved));await onSaved(fresh);
+          }catch(error){status(local,error);reload.disabled=false;}
+        },true);reload.dataset.reload='true';form.append(reload);
+      }
+    }finally{submit.disabled=false;}
+  });
+  return form;
+}
 
 function csvLink(id,type,key){
   const a=tr('a',key,'pilot-export-link');
@@ -20,7 +104,7 @@ function feedbackTable(records){
     const row=el('tr'),who=el('td','pilot-response-person'),action=el('td');
     if(f.name)who.append(el('strong',null,f.name));
     if(f.email)who.append(el('div','pilot-response-email',f.email));
-    action.append(tr('span',f.action),el('time','pilot-response-date',new Date(f.createdAt).toLocaleString(window.nodalI18n?.lang||'en')));
+    action.append(tr('span',f.action),dynamic('time',()=>new Date(f.createdAt).toLocaleString(window.nodalI18n?.lang||'en'),'pilot-response-date'));
     const rating=el('td','pilot-response-rating');rating.append(el('strong',null,String(f.rating)),el('span',null,' / 5'));
     row.append(who,action,rating,el('td','pilot-response-comment',f.comment||''));body.append(row);
   }
@@ -51,7 +135,7 @@ function participantView(data,id){
   ['participant','enrolled','intakeResponses'].forEach(k=>head.append(tr('th',k)));table.append(head);
   for(const p of data.participants){
     const row=el('tr'),who=el('td');who.append(el('strong',null,p.name||''),el('div','pilot-response-email',p.email||''));
-    row.append(who,el('td',null,new Date(p.enrolledAt).toLocaleDateString(window.nodalI18n?.lang||'en')));
+    row.append(who,dynamic('td',()=>new Date(p.enrolledAt).toLocaleDateString(window.nodalI18n?.lang||'en')));
     const intake=el('td');
     if(p.intake){
       const details=el('details','pilot-intake-response'),dl=el('dl');details.append(tr('summary','intakeResponses'));
@@ -73,18 +157,27 @@ function activityView(data,id){
   box.append(metrics,tr('p','accessNote','pilot-data-note'),csvLink(id,'activity','export'));return box;
 }
 
-function setupView(course,modules,id){
+function setupView(course,modules,id,onCourseSaved){
   const pane=el('section','pilot-setup');
   const courseDetails=el('details','pilot-editor-section');
-  courseDetails.append(tr('summary','courseSetup'),makeEditor(course,false,null,async()=>{await refreshList();await showCourse(id,'courseSetup');}));
+  courseDetails.append(tr('summary','courseSetup'),makeEditor(course,false,null,onCourseSaved));
   pane.append(courseDetails,tr('h2','sessions'));
-  for(const m of modules){
+  function moduleEditor(initial=null){
     const details=el('details','pilot-editor-section'),summary=el('summary');
-    summary.append(el('span',null,m.title),el('small',null,date(m.sessionDate)),tr('span',m.status,'pilot-tag'));
-    details.append(summary,makeEditor(m,true,id,()=>showCourse(id,'courseSetup')));pane.append(details);
+    let current=initial,created=false;
+    function updateSummary(){
+      summary.replaceChildren(source('span',current,'title'),dynamic('small',()=>date(current.sessionDate)),tr('span',current.status,'pilot-tag'));
+    }
+    if(current)updateSummary();else summary.append(tr('span','newModule'));
+    details.append(summary,makeEditor(initial,true,id,saved=>{
+      if(current)Object.assign(current,saved);else current=saved;
+      updateSummary();
+      if(!initial&&!created){created=true;pane.append(moduleEditor());}
+    }));
+    return details;
   }
-  const add=el('details','pilot-editor-section');
-  add.append(tr('summary','newModule'),makeEditor(null,true,id,()=>showCourse(id,'courseSetup')));pane.append(add);return pane;
+  for(const module of modules)pane.append(moduleEditor(module));
+  pane.append(moduleEditor());return pane;
 }
 
 async function showCourse(id,selected='responses'){
@@ -94,11 +187,17 @@ async function showCourse(id,selected='responses'){
     if(version!==selectionVersion)return;
     workspace.replaceChildren();
     const header=el('header','pilot-teaching-course');
-    const title=el('div');title.append(tr('span',course.status,'pilot-tag'),el('h2',null,course.title));
+    const title=el('div');title.append(tr('span',course.status,'pilot-tag'),source('h2',course,'title'));
     const view=tr('a','open','pilot-text-link');view.href='course.html?id='+id;header.append(title,view);workspace.append(header);
     const tabs=el('div','pilot-tabs');tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label',t('teaching'));
     tabs.dataset.pilotAria='teaching';
-    const panes={responses:responseView(data.feedback,id),participants:participantView(data,id),courseSetup:setupView(course,modules,id)};
+    const updateCourse=async saved=>{
+      Object.assign(course,saved);
+      title.replaceChildren(tr('span',course.status,'pilot-tag'),source('h2',course,'title'));
+      courses=courses.map(item=>item.id===course.id?{...item,...saved}:item);
+      await refreshList(false);
+    };
+    const panes={responses:responseView(data.feedback,id),participants:participantView(data,id),courseSetup:setupView(course,modules,id,updateCourse)};
     const buttons={};
     function activate(key){
       for(const name of Object.keys(panes)){
@@ -123,11 +222,11 @@ async function showCourse(id,selected='responses'){
   }catch(err){if(version===selectionVersion)status(msg,err);}
 }
 
-async function refreshList(){
-  ({courses}=await api(endpoint()));const list=document.getElementById('staffCourses');list.replaceChildren();
+async function refreshList(fetchLatest=true){
+  if(fetchLatest)({courses}=await api(endpoint()));const list=document.getElementById('staffCourses');list.replaceChildren();
   courses.forEach(c=>{
     const b=el('button','pilot-course-select');b.type='button';b.dataset.course=c.id;
-    b.append(el('span',null,c.title),tr('small',c.status));b.addEventListener('click',()=>showCourse(c.id));
+    b.append(source('span',c,'title'),tr('small',c.status));b.addEventListener('click',()=>showCourse(c.id));
     if(c.id===selectedId)b.setAttribute('aria-current','page');list.append(b);
   });
 }
@@ -137,6 +236,7 @@ async function allFeedback(){
   catch(err){if(version===selectionVersion)status(msg,err);}
 }
 async function start(){
+  setPageTitle('teaching');
   try{
     ({courses}=await api(endpoint()));document.getElementById('teachingLink').hidden=false;root.replaceChildren();
     const hero=el('header','pilot-hero pilot-teaching-hero');hero.append(tr('h1','teaching'),tr('p','teachingIntro'));
@@ -146,7 +246,7 @@ async function start(){
       section.append(tr('h2','newCourse'),makeEditor(null,false,null,async c=>{await refreshList();await showCourse(c.id,'courseSetup');}));workspace.append(section);
     },true);
     nav.append(tr('h2','courses'),list,button('allFeedback',allFeedback,true),create);layout.append(nav,workspace);root.append(hero,layout);
-    await refreshList();if(courses.length)await showCourse(courses[0].id);else create.click();status(msg,'');
+    await refreshList(false);if(courses.length)await showCourse(courses[0].id);else create.click();status(msg,'');
   }catch(err){status(msg,err);}
 }
 start();

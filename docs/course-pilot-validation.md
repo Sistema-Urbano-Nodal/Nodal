@@ -11,7 +11,17 @@ Work is on `feat/nodal-course-pilot`. This combines the previously divergent loc
 - Supabase Auth already has custom SMTP enabled and email confirmation required. Inbox delivery and a simultaneous cohort signup burst were not tested; the acceptance accounts were explicitly confirmed without sending email.
 - Security advisors reported no new warning/error for the schema. Informational notices about RLS without policies are expected: these tables intentionally deny direct browser access. The existing leaked-password-protection warning remains unchanged.
 
-These checks precede the production web deployment. Verify the Vercel commit and repeat authenticated acceptance on the published site before claiming release acceptance.
+Release `9512852` was subsequently verified on Vercel production with 25 authenticated acceptance checks, successful main CI and complete temporary-data cleanup.
+
+## Scroll, localization and performance follow-up
+
+- Final combined build: **354 tests passed**, no failures; dependency audit reported zero vulnerabilities.
+- The dashboard notice now belongs to the main scroll area. The sidebar paints its own background instead of a separate fixed layer. Browser checks at 1504, 1100 and 390 px verified aligned scrolling and no horizontal overflow.
+- Course, session and resource text supports persisted EN/ES/PT translations with original-content fallback. The translation migration and the supplied pilot title, description and four session titles were applied to the intended Supabase project. Existing staff edits are preserved. Restricted module previews include translated titles only.
+- Browser checks verified Portuguese course content, English/Portuguese session titles, responsive course/staff pages and contribution/editor drafts surviving language changes. Saving one staff editor now updates only that editor and its displayed metadata, preserving drafts in other open editors. Staff exports retain the original participant answers.
+- The updated server passed 40 acceptance checks against real Supabase through a local HTTP server, including translation create/update/preservation, title-only previews before intake, private uploads, feedback and all four staff CSV exports. Temporary accounts, files and course were removed with no cleanup errors.
+- Own-profile reads use the profile freshly resolved within the same request (7 to 4 backend calls). Warm map/matching responses retain their initial and final authoritative revision checks while removing one redundant intermediate read (7 to 6 backend calls). A controlled 30 ms/backend-request experiment reduced mean route latency from 97 to 64 ms for own-profile reads and approximately 160 to 127 ms for map/matching reads. This is a simulated network experiment, not measured production latency.
+- An isolated 200-session network run completed 1,200 requests with no errors and one shared directory/graph load. Revision reads fell from 2,601 to 1,801. Local bursts do not certify sustained production capacity.
 
 ## Automated verification
 
@@ -45,4 +55,4 @@ Raw capacity evidence: [network bursts](validation/course-pilot/network-load.jso
 
 ## Release boundary
 
-The deployable code, migrations and operational scripts are prepared. Production still requires applying migrations, creating the course shell in the intended Supabase project, adding real course materials, confirming email/plan configuration and testing the deployed participant/staff journey. See [operations](course-pilot-operations.md). The AI agent is excluded from this pilot.
+The pilot schema and translated course shell are present in the intended Supabase project. Teaching staff still need to add their real course materials. Each subsequent web release must verify its Vercel commit and repeat authenticated acceptance against the published site. See [operations](course-pilot-operations.md). The AI agent is excluded from this pilot.

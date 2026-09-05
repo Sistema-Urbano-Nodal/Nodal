@@ -32,10 +32,28 @@ function date(value, name) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value) fail(`invalid ${name} date`);
   return value;
 }
+// Translations replace the supplied map; omitted maps preserve existing values
+// through the normalizers' current/input merge. Empty fields mean base fallback.
+export function normalizeTranslations(value = {}, fields = {title:180,description:6000}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('translations must be an object');
+  const result = {};
+  for (const [locale, translated] of Object.entries(value)) {
+    if (!['en','es','pt'].includes(locale)) fail('unsupported translation locale');
+    if (!translated || typeof translated !== 'object' || Array.isArray(translated)) fail('locale translation must be an object');
+    result[locale] = {};
+    for (const [field, content] of Object.entries(translated)) {
+      if (!Object.hasOwn(fields, field)) fail('unsupported translation field');
+      if (typeof content !== 'string') fail('translation must be text');
+      result[locale][field] = text(content, `${locale} ${field}`, fields[field]);
+    }
+  }
+  return result;
+}
 export function normalizeCourse(input = {}, current = {}) {
   const src = { ...current, ...input };
   const out = {
     title: text(src.title, 'title', 180, true), description: text(src.description, 'description', 6000),
+    translations: normalizeTranslations(src.translations),
     status: choice(src.status, ['draft', 'published', 'archived'], 'draft', 'status'),
     startsOn: date(src.startsOn, 'start'), endsOn: date(src.endsOn, 'end'),
     enrollmentOpen: src.enrollmentOpen === undefined ? true : src.enrollmentOpen,
@@ -48,6 +66,7 @@ export function normalizeLinks(value = [], materials = false) {
   if (!Array.isArray(value) || value.length > 12) fail('up to 12 links are allowed');
   return value.map(item => ({
     title: text(item?.title, 'link title', 180, true), url: httpsUrl(item?.url),
+    ...(materials && item?.translations !== undefined ? {translations:normalizeTranslations(item.translations,{title:180})} : {}),
     ...(materials ? { kind: choice(item.kind, ['slides', 'reading', 'link', 'recording'], 'link', 'resource kind') } : {}),
   }));
 }
@@ -58,6 +77,7 @@ export function normalizeModule(input = {}, current = {}) {
   return {
     title: text(src.title, 'title', 180, true), description: text(src.description, 'description', 6000),
     objectives: text(src.objectives, 'objectives', 6000), instructions: text(src.instructions, 'instructions', 10000),
+    translations: normalizeTranslations(src.translations,{title:180,description:6000,objectives:6000,instructions:10000}),
     sessionDate: date(src.sessionDate, 'session'), position,
     status: choice(src.status, ['draft', 'published'], 'draft', 'module status'),
     resources: normalizeLinks(src.resources, true),

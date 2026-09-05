@@ -1199,3 +1199,30 @@ test('Supabase admin interest update distinguishes a missing ID from a stale ver
     assert.equal(patched, false, scenario.name);
   }
 });
+
+test('session profile components remain parallel and are freshly read after account or role changes', async () => {
+  const state=profileState(),calls=[],started=[];
+  const original=statefulFetch(state,calls);
+  let release;
+  const gate=new Promise(resolve=>{release=resolve;});
+  let gateReads=true;
+  const repo=createSupabaseRepository({env:testEnv(),fetchImpl:async(...args)=>{
+    const path=new URL(args[0]).pathname;
+    if(gateReads&&['/rest/v1/profiles','/rest/v1/profile_preferences','/rest/v1/onboarding_responses'].includes(path)) {
+      started.push(path);await gate;
+    }
+    return original(...args);
+  }});
+  const request={headers:{cookie:'nodal_session=current-access'}};
+  const pending=repo.resolveSession(request);
+  await new Promise(resolve=>setImmediate(resolve));
+  try { assert.equal(started.length,3,'all three independent profile reads must start before any finishes'); }
+  finally { gateReads=false;release(); }
+  assert.equal((await pending).user.permission,'admin');
+  state.profile.app_role='member';
+  assert.equal((await repo.resolveSession(request)).user.permission,'member','role is refreshed on the next request');
+  state.profile.account_status='disabled';
+  assert.equal((await repo.resolveSession(request)).user,null,'account suspension is refreshed on the next request');
+  assert.equal(calls.filter(call=>call.url.pathname==='/auth/v1/user').length,3);
+  for(const table of ['profiles','profile_preferences','onboarding_responses'])assert.equal(calls.filter(call=>call.url.pathname===`/rest/v1/${table}`).length,3);
+});

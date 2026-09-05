@@ -1,6 +1,23 @@
 (() => {
 'use strict';
 const rows = {
+ invalidInput:['Review the fields and try again.','Revisa los campos e inténtalo de nuevo.','Revise os campos e tente novamente.'],
+ accessDenied:['You do not have access to this action.','No tienes acceso a esta acción.','Você não tem acesso a esta ação.'],
+ notAvailable:['This content is no longer available.','Este contenido ya no está disponible.','Este conteúdo não está mais disponível.'],
+ tooManyRequests:['Please wait a moment before trying again.','Espera un momento antes de intentarlo de nuevo.','Aguarde um momento antes de tentar novamente.'],
+ connectionError:['Connection interrupted. Check your connection and try again.','Conexión interrumpida. Comprueba tu conexión e inténtalo de nuevo.','Conexão interrompida. Verifique sua conexão e tente novamente.'],
+ intakeRequired:['Enroll and complete your intake before opening the sessions.','Inscríbete y completa tu formulario antes de abrir las sesiones.','Inscreva-se e preencha seu formulário antes de abrir as sessões.'],
+ replyUnavailable:['This contribution was removed. Choose another conversation to reply to.','Esta contribución fue retirada. Elige otra conversación para responder.','Esta contribuição foi removida. Escolha outra conversa para responder.'],
+ alreadySubmitted:['This contribution already exists. Refresh the conversation before posting again.','Esta contribución ya existe. Actualiza la conversación antes de publicar de nuevo.','Esta contribuição já existe. Atualize a conversa antes de publicar novamente.'],
+ signInRequired:['Sign in to continue.','Inicia sesión para continuar.','Entre para continuar.'],
+ requiredField:['Complete: {field}.','Completa: {field}.','Preencha: {field}.'],
+ longField:['Shorten the text in: {field}.','Acorta el texto en: {field}.','Reduza o texto em: {field}.'],
+ translations:['Translations','Traducciones','Traduções'],
+ translationLanguage:['Content language','Idioma del contenido','Idioma do conteúdo'],
+ sourceContent:['Original content (fallback)','Contenido original (alternativa)','Conteúdo original (alternativa)'],
+ translationHint:['Leave a field empty to use the original content.','Deja un campo vacío para usar el contenido original.','Deixe um campo vazio para usar o conteúdo original.'],
+ translationPlaceholder:['Optional translation','Traducción opcional','Tradução opcional'],
+ en:['English','Inglés','Inglês'],es:['Spanish','Español','Espanhol'],pt:['Portuguese','Portugués','Português'],
  responses:['Responses','Respuestas','Respostas'], courseSetup:['Course setup','Configurar curso','Configurar curso'],
  teachingIntro:['Review responses, follow participants and prepare course materials.','Acompaña al grupo: revisa las respuestas, conoce a los participantes y prepara la próxima sesión.','Acompanhe a turma: leia as respostas, conheça os participantes e prepare a próxima sessão.'],
  sessions:['Sessions','Sesiones','Sessões'], learningSpace:['Course workspace','Espacio del curso','Espaço do curso'],

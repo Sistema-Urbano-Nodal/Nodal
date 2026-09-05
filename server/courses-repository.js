@@ -35,6 +35,17 @@ function optionsFor(info, options = {}) {
 export function createCourseStore({ db, env = process.env, fetchImpl = fetch, clients } = {}) {
   if (db) {
     db.exec(COURSE_SQLITE_SCHEMA);
+    // CREATE TABLE IF NOT EXISTS does not upgrade already deployed pilot tables.
+    // Transactional introspection keeps two local connections from racing ALTER.
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const table of ['pilot_courses','course_modules']) {
+        if (!db.prepare(`PRAGMA table_info(${table})`).all().some(column => column.name === 'translations')) {
+          db.exec(`ALTER TABLE ${table} ADD COLUMN translations TEXT NOT NULL DEFAULT '{}'`);
+        }
+      }
+      db.exec('COMMIT');
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
     const whereSql = (info, filters, options = {}) => {
       checkedFields(info, filters);
       const parts = [], params = [];

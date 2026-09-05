@@ -62,8 +62,12 @@ export function createNetworkSnapshots(repository, { ttlMs = 15_000, now = Date.
     /* Graph consumers also cover geocoding/cache awaits after acquisition. */
     async run(build) {
       for (let attempt = 0; attempt < 3; attempt++) {
-        const snapshot = await read({ graph: true });
+        const snapshot = await readDirectory();
+        await loadGraph(snapshot);
         const value = await build(snapshot);
+        // One final authoritative check covers both graph construction and
+        // response work; an intermediate check would add a serial round trip
+        // without strengthening the revision boundary before sending.
         if (await revision() === snapshot.revision) return value;
         cached = null;
       }
