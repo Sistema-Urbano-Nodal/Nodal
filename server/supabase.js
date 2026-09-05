@@ -134,6 +134,7 @@ function createRestClient({ url, key, fetchImpl = fetch, authToken = key }) {
     body,
     headers = {},
     auth = authToken,
+    includeRange = false,
   } = {}) {
     const fullUrl = `${url}${path}${encodeQuery(query)}`;
     const finalHeaders = {
@@ -151,7 +152,7 @@ function createRestClient({ url, key, fetchImpl = fetch, authToken = key }) {
     const text = await res.text();
     const json = text ? JSON.parse(text) : null;
     if (!res.ok) throw responseError(res.status, json, 'Supabase request failed');
-    return json;
+    return includeRange ? { rows: json, contentRange: res.headers?.get('content-range') || '' } : json;
   }
 
   return {
@@ -538,6 +539,23 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     return { profile, preferences, onboarding };
   }
 
+  // PostgREST caps single responses. Explicit ordered pages avoid silently
+  // losing members/edges above that cap; excessive graphs fail rather than
+  // serving an apparently complete but truncated directory.
+  async function readPages(table, query = {}, maxRows = 50_000) {
+    const rows = [];
+    const pageSize = 500;
+    for (;;) {
+      const { rows: page, contentRange } = await admin.rest(table, { includeRange: true, query: { ...query, limit: pageSize, offset: rows.length } });
+      if (!Array.isArray(page)) throw new Error('Invalid network page');
+      rows.push(...page);
+      if (rows.length > maxRows) throw Object.assign(new Error('Network snapshot exceeds supported size'), { status: 503 });
+      // A lower project max-rows can shorten a nonfinal page. When PostgREST
+      // supplies Content-Range, continue until an empty page proves exhaustion.
+      if (!page.length || (!contentRange && page.length < pageSize)) return rows;
+    }
+  }
+
   async function apiUser(userId) {
     return toApiUserFromSupabase(await bundleForUser(userId));
   }
@@ -774,15 +792,25 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       });
       return apiUser(id);
     },
+    async getNetworkRevision() {
+      try {
+        const row = await first(admin.rest('network_revision', { query: { id: 'eq.1', select: 'revision', limit: 1 } }));
+        return row?.revision === undefined ? null : String(row.revision);
+      } catch (error) {
+        // The snapshot layer requires this revision and fails closed if absent.
+        if (['42P01', 'PGRST205'].includes(error.code)) return null;
+        throw error;
+      }
+    },
     async listDirectoryUsers() {
       /* Postgres gives no row-order guarantee without ORDER BY, and this row
          order becomes the order of `places`/`topics` in the globe payload —
          the ETag hashes the bytes that order produces. created_at alone can
          tie, so id breaks the tie and makes the order total. */
       const [profiles, prefsRows, onboardingRows] = await Promise.all([
-        admin.rest('profiles', { query: { select: '*', order: 'created_at.asc,id.asc' } }),
-        admin.rest('profile_preferences', { query: { select: '*' } }),
-        admin.rest('onboarding_responses', { query: { select: '*' } }),
+        readPages('profiles', { select: '*', order: 'created_at.asc,id.asc' }),
+        readPages('profile_preferences', { select: '*', order: 'user_id.asc' }),
+        readPages('onboarding_responses', { select: '*', order: 'user_id.asc' }),
       ]);
       const prefsByUser = new Map(prefsRows.map((row) => [row.user_id, row]));
       const onboardingByUser = new Map(onboardingRows.map((row) => [row.user_id, row]));
@@ -795,15 +823,15 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         // consent puts you in the directory; being active keeps you there
         .filter((user) => user?.partC?.consent === true && isActive(user));
     },
-    async loadGraphStore({ viewerId } = {}) {
-      const visible = await this.listDirectoryUsers();
-      const viewer = viewerId ? await apiUser(viewerId) : null;
+    async loadGraphStore({ viewerId, directoryRows } = {}) {
+      const visible = directoryRows || await this.listDirectoryUsers();
+      const viewer = viewerId && !visible.some(user => user.id === viewerId) ? await apiUser(viewerId) : null;
       const users = new Map();
-      for (const user of [...visible, viewer].filter(Boolean)) users.set(user.id, toGraphUser(user));
+      for (const user of [...visible, viewer].filter(user => user && isActive(user))) users.set(user.id, toGraphUser(user));
       const follows = new Map([...users.keys()].map((id) => [id, new Set()]));
       const [followRows, interactionRows] = await Promise.all([
-        admin.rest('member_follows', { query: { select: '*', order: 'user_id.asc,target_user_id.asc' } }),
-        admin.rest('member_interactions', { query: { select: '*', order: 'created_at.asc' } }),
+        readPages('member_follows', { select: 'user_id,target_user_id', order: 'user_id.asc,target_user_id.asc' }, 250_000),
+        readPages('member_interactions', { select: 'id,from_user_id,to_user_id,type,created_at', order: 'created_at.asc,id.asc' }, 250_000),
       ]);
       for (const row of followRows) {
         if (follows.has(row.user_id) && users.has(row.target_user_id)) follows.get(row.user_id).add(row.target_user_id);

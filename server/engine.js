@@ -19,6 +19,7 @@ import {
   canonicalSimilarity,
   normalizeText,
   professionScore,
+  professionsOf,
   rolesComplement,
   sharedInterestLabels,
 } from './taxonomy.js';
@@ -59,14 +60,20 @@ const jaccard = (a, b) => {
    IDF built over the whole member base, and the one clock the whole scoring
    pass reads — engagement decay and skip decay have to agree on "now", or a
    single call ages its two halves differently */
+const derivedSnapshots = new WeakMap();
+
 function engineContext(store, now = Date.now()) {
+  const remembered = derivedSnapshots.get(store);
+  if (remembered?.version === (store.version || 0)) return { ...remembered.context, now };
   const interestSets = new Map();
   const cities = new Map();
   for (const [id, user] of store.users) {
     interestSets.set(id, canonicalInterestSet(user.interests));
     cities.set(id, normalizeText(user.city));
   }
-  return { interestSets, cities, idf: buildInterestIdf(store.users.values()), now };
+  const context = { interestSets, cities, idf: buildInterestIdf(store.users.values()), adj: buildAdjacency(store), now };
+  derivedSnapshots.set(store, { version: store.version || 0, context });
+  return context;
 }
 
 const EMPTY_SET = new Set();
@@ -227,8 +234,8 @@ const normalize = (m) => {
 export function recommend(store, userId, { limit = 6, now = Date.now(), modelKey } = {}) {
   const me = store.users.get(userId);
   if (!me) return null;
-  const adj = buildAdjacency(store);
   const ctx = engineContext(store, now);
+  const adj = ctx.adj;
   const following = store.follows.get(userId);
 
   const traversal = normalize(traversalScores(store, adj, userId, ctx));
@@ -289,6 +296,9 @@ export function recommend(store, userId, { limit = 6, now = Date.now(), modelKey
         sameCity: cityScore(user, me) === 1,
         complementaryRole: complementScore(me, user) ? user.role : null,
         hasLinkedin: Boolean(user.linkedin),
+        professionalPeer: professionScore(me.role, user.role) === 0.5,
+        sharedAvailability: [...new Set(me.active)].filter(slot => user.active.includes(slot)),
+        diversePerspective: false,
       },
     });
   }
@@ -296,5 +306,26 @@ export function recommend(store, userId, { limit = 6, now = Date.now(), modelKey
   // match strength is relative to the best candidate (presentation, not probability)
   const top = results[0]?.score || 1;
   for (const r of results) r.matchPct = Math.round(99 * (r.score / top));
-  return results.slice(0, limit);
+  const deck = results.slice(0, limit);
+  // Preserve strongest matches. Only the last slot may explore a discipline
+  // absent from the rest of the deck, within 10% of the original cutoff. Skips
+  // already damped scores above, and followed profiles never reach this pool.
+  if (limit >= 3 && results.length > limit) {
+    const represented = new Set(deck.slice(0, -1).flatMap(r => [...professionsOf(r.role)]));
+    const disciplineCounts = new Map();
+    for (const r of deck.slice(0, -1)) for (const p of professionsOf(r.role)) {
+      disciplineCounts.set(p, (disciplineCounts.get(p) || 0) + 1);
+    }
+    const concentrated = [...disciplineCounts.values()].some(n => n >= Math.ceil((deck.length - 1) * 0.75));
+    const isNewDiscipline = r => [...professionsOf(r.role)].some(p => !represented.has(p));
+    if (concentrated && !isNewDiscipline(deck.at(-1))) {
+      const alternative = results.slice(limit).find(r =>
+        r.score >= deck.at(-1).score * 0.9 && isNewDiscipline(r));
+      if (alternative) {
+        alternative.reasons.diversePerspective = true;
+        deck[deck.length - 1] = alternative;
+      }
+    }
+  }
+  return deck;
 }

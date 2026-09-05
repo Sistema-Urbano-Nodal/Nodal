@@ -547,8 +547,8 @@
   /* The globe polls often enough that an arrival lands while you are watching.
      Three things keep that honest: only one request is ever in flight, a 304
      costs nothing to handle, and a tab nobody is looking at stops asking. */
-  const POLL_MS = 2500;
-  const POLL_MAX_MS = 30000;
+  const POLL_MS = 15000;
+  const POLL_MAX_MS = 120000;
   let pollTimer = null;
   let inFlight = false;
   let backoff = POLL_MS;
@@ -562,7 +562,7 @@
       const query = state.topic ? `?topic=${encodeURIComponent(state.topic)}` : '';
       const headers = { Accept: 'application/json' };
       if (etag) headers['If-None-Match'] = etag;
-      const res = await fetch(`/api/network/places${query}`, { headers });
+      const res = await fetch(`/api/network/places${query}`, { headers, signal: AbortSignal.timeout(20000) });
       // nothing has changed: no parse, no re-render, no arrival scan
       if (res.status === 304) { backoff = POLL_MS; return; }
       if (!res.ok) {
@@ -574,7 +574,10 @@
       etag = res.headers.get('etag') || '';
       data = await res.json();
       if (!Array.isArray(data.places)) return;
-    } catch { return; }          // static hosting: the backdrop still draws
+    } catch {
+      backoff = Math.min(backoff * 2, POLL_MAX_MS);
+      return;
+    }
     finally {
       inFlight = false;
       schedule();
@@ -719,7 +722,7 @@
   function schedule() {
     clearTimeout(pollTimer);
     if (document.hidden) return;
-    pollTimer = setTimeout(poll, backoff);
+    pollTimer = setTimeout(poll, backoff + Math.random() * Math.min(3000, backoff * 0.2));
   }
 
   poll();

@@ -59,6 +59,9 @@
     const extras = [];
     if (p.reasons?.sameCity) extras.push(t('recs.sameCity'));
     if (p.reasons?.complementaryRole) extras.push(t('recs.complementaryRole'));
+    if (p.reasons?.professionalPeer) extras.push(t('recs.professionalPeer'));
+    if (p.reasons?.sharedAvailability?.length) extras.push(t('recs.sharedAvailability'));
+    if (p.reasons?.diversePerspective) extras.push(t('recs.diversePerspective'));
     els.why.textContent = t('recs.match', { pct: p.matchPct }) +
       (shared ? ` · ${shared}` : '') +
       (mutuals ? ` · ${t(mutuals === 1 ? 'recs.mutual.one' : 'recs.mutual.many', { n: mutuals })}` : '') +
@@ -153,8 +156,19 @@
     const req = kind === 'like'
       ? api('/api/users/me/follow', { targetId: target })
       : api('/api/users/me/interactions', { targetId: target, type: 'skip' });
-    req.catch(() => {});
-    advance();
+    els.skip.disabled = true;
+    els.like.disabled = true;
+    req.then(() => {
+      if (window.nodalPilot && !document.getElementById('matchingFeedback')) {
+        const feedback = window.nodalPilot.feedback('matching');
+        feedback.id = 'matchingFeedback';
+        stack.after(feedback);
+      }
+      advance();
+    }).catch(() => showState('unavailable')).finally(() => {
+      els.skip.disabled = false;
+      els.like.disabled = false;
+    });
   }
 
   els.skip.addEventListener('click', () => fling(-1, () => act('skip')));

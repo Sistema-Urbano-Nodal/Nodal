@@ -1,5 +1,7 @@
 # NODAL
 
+September course pilot: see [staff forms/feedback and course operations](docs/course-pilot-operations.md) and [validation evidence](docs/course-pilot-validation.md). The participant entry is `/courses.html`; internal staff use `/teaching.html`.
+
 NODAL is a deployable web app for authenticated member profiles, a private dashboard, persisted recommendations, and a Stripe-ready supporting membership flow.
 
 The app intentionally keeps the existing lightweight stack:

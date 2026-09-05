@@ -9,6 +9,10 @@ import { pathToFileURL } from 'node:url';
 import { addFollow, recordInteraction } from './store.js';
 import { recommend } from './engine.js';
 import { createCache, MemoryCache } from './cache.js';
+import { createNetworkSnapshots } from './network-cache.js';
+import { createCourseStore } from './courses-repository.js';
+import { createCourseApi } from './courses-api.js';
+import { exportCourseData, deleteCourseData } from './courses-privacy.js';
 import {
   paymentsConfig, createCheckoutSession, verifyStripeWebhook, CYCLES,
 } from './payments.js';
@@ -35,10 +39,10 @@ const REC_TTL_MS = 5 * 60 * 1000;                 // 5-minute cache, per spec
 const ID_RE = /^[a-z0-9-]{1,40}$/;
 const API_INTERACTION_TYPES = new Set(['skip']);
 const MAX_BODY = 32 * 1024;
-const PRIVATE_PAGES = new Set(['/dashboard.html', '/profile.html', '/payments.html', '/admin.html']);
-const STATIC_PAGES = new Set(['index.html', 'login.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'admin.html']);
-const STATIC_SCRIPTS = new Set(['admin.js', 'app.js', 'auth.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js']);
-const STATIC_STYLES = new Set(['styles.css', 'dashboard.css', 'catalog.css', 'admin.css']);
+const PRIVATE_PAGES = new Set(['/dashboard.html', '/profile.html', '/payments.html', '/admin.html', '/courses.html', '/course.html', '/teaching.html']);
+const STATIC_PAGES = new Set(['index.html', 'login.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html']);
+const STATIC_SCRIPTS = new Set(['admin.js', 'app.js', 'auth.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js']);
+const STATIC_STYLES = new Set(['styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css']);
 const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp']);
 const AUTH_RATE_WINDOW_MS = 5 * 60 * 1000;
 const AUTH_RATE_LIMIT = envInt('AUTH_RATE_LIMIT', 10);
@@ -64,10 +68,6 @@ const WRITE_RATE_LIMIT = envInt('WRITE_RATE_LIMIT', 60);        // per minute
 const COSTLY_RATE_WINDOW_MS = 10 * 60 * 1000;
 const COSTLY_RATE_LIMIT = envInt('COSTLY_RATE_LIMIT', 10);      // per ten minutes
 const PLACE_TTL_MS = 30 * 24 * 60 * 60 * 1000;   // a city does not move
-/* Only the geocoding is expensive, and that is cached for a month. The roll-up
-   is cached just long enough to absorb a burst of polls without putting an
-   arrival behind a wall — a new member must not wait half a minute to appear. */
-const NETWORK_TTL_MS = 1500;
 const NETWORK_GEOCODE_PER_REQUEST = envInt('NETWORK_GEOCODE_PER_REQUEST', 4);
 const CITY_SEARCH_MAX_QUERY = 80;
 const CITY_SEARCH_LIMIT = envInt('CITY_SEARCH_LIMIT', 8);
@@ -380,7 +380,7 @@ export function validateRuntimeConfig(env = process.env) {
 }
 
 function send(res, status, body, headers = {}) {
-  const isObj = typeof body === 'object';
+  const isObj = typeof body === 'object' && !Buffer.isBuffer(body);
   const payload = isObj ? JSON.stringify(body) : body;
   const responseHeaders = securityHeaders({
     'Content-Type': isObj ? 'application/json; charset=utf-8' : headers['Content-Type'] || 'text/plain; charset=utf-8',
@@ -763,8 +763,17 @@ export function createApp({
   payments = { config: paymentsConfig(), fetchImpl: fetch },
   citySearch = createCitySearch(),
   repository = createRepository({ db, store }),
+  pilotMode = process.env.PILOT_MODE !== 'false',
+  courseStore = repository?.database ? createCourseStore({db:repository.database}) : repository?.kind === 'supabase' ? createCourseStore() : null,
 } = {}) {
   const useDb = Boolean(repository);
+  const networkSnapshots = repository ? createNetworkSnapshots(repository) : null;
+  const placeSnapshots = new WeakMap();
+  const fingerprints = new WeakMap();
+  const fingerprintOf = graph => {
+    if (!fingerprints.has(graph)) fingerprints.set(graph, graphFingerprint(graph));
+    return fingerprints.get(graph);
+  };
   const authLimiter = createWindowRateLimiter({ windowMs: AUTH_RATE_WINDOW_MS, limit: AUTH_RATE_LIMIT });
   const interactionLimiter = createWindowRateLimiter({ windowMs: INTERACTION_RATE_WINDOW_MS, limit: INTERACTION_RATE_LIMIT });
   // each search walks the whole directory, so it is bounded per member
@@ -772,11 +781,8 @@ export function createApp({
   const readLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: READ_RATE_LIMIT });
   const catalogReadLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: CATALOG_READ_RATE_LIMIT });
   const catalogWriteLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: CATALOG_WRITE_RATE_LIMIT });
-  /* The globe polls every couple of seconds so an arrival lands while you are
-     watching. That is ~24 requests a minute on its own, and READ_RATE_LIMIT is
-     shared with the directory and city search — one budget for both would let a
-     member with the console open lock themselves out of search. Read per app
-     instance, not at module load, so tests can dial it down. */
+  /* Polling has its own budget so an open globe cannot starve directory
+     search. The browser refreshes every 15 seconds with jitter. */
   const networkLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: envInt('NETWORK_RATE_LIMIT', 40) });
   const writeLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: WRITE_RATE_LIMIT });
   const costlyLimiter = createWindowRateLimiter({ windowMs: COSTLY_RATE_WINDOW_MS, limit: COSTLY_RATE_LIMIT });
@@ -805,7 +811,13 @@ export function createApp({
     send(res2, 429, { error: 'too many requests' }, { 'Retry-After': String(rate.retryAfter) });
     return false;
   };
-  const cacheKey = (id, graph) => `rec:v3:${id}:${graphFingerprint(graph)}`;
+  const cacheKey = (id, graph) => `rec:v4:${id}:${graphFingerprint(graph)}`;
+  const courseReadLimiter=createWindowRateLimiter({windowMs:60000,limit:120});
+  const courseWriteLimiter=createWindowRateLimiter({windowMs:60000,limit:40});
+  const courseUploadLimiter=createWindowRateLimiter({windowMs:60000,limit:6});
+  const courseApi=courseStore?createCourseApi({store:courseStore,userRepository:repository,sameOrigin,send,
+    rateLimit:(req,res,user,pathname)=>throttle(pathname.endsWith('/attachments')?courseUploadLimiter:['GET','HEAD'].includes(req.method)?courseReadLimiter:courseWriteLimiter,res,req,user,'course'),
+  }):null;
   if (repository?.cleanupExpiredSessions) repository.cleanupExpiredSessions();
 
   const server = http.createServer(async (req, res) => {
@@ -817,6 +829,7 @@ export function createApp({
          canonicalPathname normalises or rejects. */
       const url = new URL(`http://127.0.0.1${req.url.startsWith('/') ? '' : '/'}${req.url}`);
       const { pathname } = url;
+      if(pathname==='/api/config' && req.method==='GET') { send(res,200,{pilotMode});return; }
       const canonical = canonicalPathname(pathname);
       const isApiRequest = pathname.startsWith('/api/');
       const pageNeedsSession = !isApiRequest
@@ -835,10 +848,11 @@ export function createApp({
           redirect(res, `/login.html?next=${encodeURIComponent(canonical)}`);
           return;
         }
-        if (useDb && canonical === '/admin.html' && (sessionUser?.permission || sessionUser?.role) !== 'admin') {
+        if (useDb && ['/admin.html','/teaching.html'].includes(canonical) && (sessionUser?.permission || sessionUser?.role) !== 'admin') {
           send(res, 403, { error: 'administrator access required' });
           return;
         }
+        if(pilotMode && canonical==='/payments.html') { redirect(res,'/courses.html');return; }
         if (useDb && canonical === '/login.html' && sessionUser) {
           redirect(res, safeNext(url.searchParams.get('next')));
           return;
@@ -849,6 +863,7 @@ export function createApp({
 
       // HEAD too: uptime probes default to it, and a 404 there reads as an outage
       if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/api/health') { send(res, 200, { ok: true }); return; }
+      if(courseApi && await courseApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
 
       if (useDb && req.method === 'GET' && pathname === '/api/catalog') {
         const query = catalogQueryFromUrl(url.searchParams);
@@ -1119,7 +1134,9 @@ export function createApp({
       if (useDb && req.method === 'GET' && pathname === '/api/me/export') {
         if (!requireAuth(res, sessionUser)) return;
         if (!throttle(costlyLimiter, res, req, sessionUser, 'export')) return;
-        send(res, 200, { data: await repository.exportUserData(sessionUser.id) });
+        const data=await repository.exportUserData(sessionUser.id);
+        if(courseStore)data.coursePilot=await exportCourseData(courseStore,sessionUser.id);
+        send(res, 200, { data });
         return;
       }
 
@@ -1131,6 +1148,7 @@ export function createApp({
           send(res, 400, { error: 'account deletion requires email confirmation' });
           return;
         }
+        if(courseStore)await deleteCourseData(courseStore,sessionUser.id);
         await repository.deleteUserById(sessionUser.id);
         const result = await repository.logout(req, process.env);
         send(res, 200, { ok: true }, result.cookies?.length ? { 'Set-Cookie': result.cookies } : {});
@@ -1170,8 +1188,16 @@ export function createApp({
         if (useDb) {
           if (!requireAuth(res, sessionUser)) return;
           if (!throttle(readLimiter, res, req, sessionUser, 'directory')) return;
+          const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit')) || 200));
+          const rows = (await networkSnapshots.read()).rows;
+          const cursor = url.searchParams.get('cursor');
+          const index = cursor ? rows.findIndex(row => row.id === cursor) : -1;
+          if (cursor && index < 0) { send(res, 400, { error: 'directory cursor expired; restart pagination' }); return; }
+          const page = rows.slice(index + 1, index + 1 + Math.floor(limit));
           send(res, 200, {
-            users: (await repository.listDirectoryUsers()).map((row) => {
+            total: rows.length,
+            nextCursor: index + 1 + page.length < rows.length ? page.at(-1).id : null,
+            users: page.map((row) => {
               const user = repository.toApiUser(row);
               return { id: user.id, name: user.fullName, role: user.title, city: user.city, interests: user.interests, linkedin: user.linkedin };
             }),
@@ -1186,122 +1212,125 @@ export function createApp({
          to real coordinates through the same provider the profile form uses,
          so a member in any city on Earth lands in the right place — not only
          the ones someone thought to hardcode. Coordinates are cached for a
-         month because cities do not move; the roll-up is cached for 1.5s
-         so a new member still shows up while you are watching. */
+         month because cities do not move. Snapshot revision checks make
+         committed profile and consent changes visible on the next request. */
       if (useDb && req.method === 'GET' && pathname === '/api/network/places') {
         if (!requireAuth(res, sessionUser)) return;
         if (!throttle(networkLimiter, res, req, sessionUser, 'places')) return;
         const topic = String(url.searchParams.get('topic') || '').trim().slice(0, 80);
-        const cacheKey = `network:places:v2:${sessionUser.id}:${topic.toLowerCase()}`;
-        const cached = await cache.get(cacheKey);
-        if (cached) {
-          const etag = entityTag(cached);
-          if (req.headers['if-none-match'] === etag) { sendNotModified(res, etag); return; }
-          send(res, 200, cached, { 'X-Cache': 'HIT', ETag: etag, 'Content-Type': 'application/json; charset=utf-8' });
-          return;
-        }
-        const rows = await repository.listDirectoryUsers();
-        const groups = new Map();
-        const cityOf = new Map();
-        const topics = new Map();
-        let viewerCity = '';
-        let viewerListed = false;
-        for (const row of rows) {
-          const user = repository.toApiUser(row);
-          if (user.id === sessionUser.id) { viewerListed = true; viewerCity = String(user.city || '').trim(); }
-          (user.topics || []).forEach((entry) => {
-            const name = String(entry?.name || entry || '').trim();
-            if (name) topics.set(name, (topics.get(name) || 0) + 1);
-          });
-          // the filter narrows who is counted, never who exists
-          if (topic && !(user.topics || []).some((entry) => String(entry?.name || entry || '').trim().toLowerCase() === topic.toLowerCase())) continue;
-          const city = String(user.city || '').trim();
-          if (!city) continue;
-          const key = city.toLowerCase();
-          if (!groups.has(key)) groups.set(key, { city, point: user.location || null, members: [] });
-          if (!groups.get(key).point && user.location) groups.get(key).point = user.location;
-          cityOf.set(user.id, key);
-          groups.get(key).members.push({
-            id: user.id,
-            name: user.fullName,
-            role: user.title,
-            linkedin: user.linkedin || '',
-            /* A member can be in the directory and still choose not to be named
-               on a map. Absent on older profiles, which means named. */
-            named: user.partC?.listName !== false,
-            joinedAt: user.createdAt || null,
-          });
-        }
+        const serialized = await networkSnapshots.run(async snapshot => {
+          let variants = placeSnapshots.get(snapshot);
+          if (!variants) { variants = new Map(); placeSnapshots.set(snapshot, variants); }
+          const variant = topic.toLowerCase();
+          let work = variants.get(variant);
+          if (!work) {
+            // Bound topic variants independently of the profile directory size.
+            if (variants.size >= 32) variants.delete(variants.keys().next().value);
+            work = (async () => {
+              const rows = snapshot.rows;
+              const groups = new Map();
+              const cityOf = new Map();
+              const topics = new Map();
+              for (const row of rows) {
+                const user = repository.toApiUser(row);
+                (user.topics || []).forEach((entry) => {
+                  const name = String(entry?.name || entry || '').trim();
+                  if (name) topics.set(name, (topics.get(name) || 0) + 1);
+                });
+                // the filter narrows who is counted, never who exists
+                if (topic && !(user.topics || []).some((entry) => String(entry?.name || entry || '').trim().toLowerCase() === topic.toLowerCase())) continue;
+                const city = String(user.city || '').trim();
+                if (!city) continue;
+                const key = city.toLowerCase();
+                if (!groups.has(key)) groups.set(key, { city, point: user.location || null, members: [] });
+                if (!groups.get(key).point && user.location) groups.get(key).point = user.location;
+                cityOf.set(user.id, key);
+                groups.get(key).members.push({
+                  id: user.id,
+                  name: user.fullName,
+                  role: user.title,
+                  linkedin: user.linkedin || '',
+                  /* A member can be in the directory and still choose not to be named
+                     on a map. Absent on older profiles, which means named. */
+                  named: user.partC?.listName !== false,
+                  joinedAt: user.createdAt || null,
+                });
+              }
 
-        /* Almost every city arrives already placed — the coordinate is resolved
-           and stored when the member saves their profile. The rest are looked
-           up here, one at a time behind the provider's minimum interval, so a
-           backlog of them would hold the request open for a second each and run
-           the function past its timeout. A few per request is enough: the
-           answer is cached for a month, so the backlog drains over a handful of
-           polls and every city lands within a minute. */
-        let geocodeBudget = NETWORK_GEOCODE_PER_REQUEST;
-        const places = [];
-        for (const group of groups.values()) {
-          let point = group.point;
-          if (!point && geocodeBudget > 0) {
-            geocodeBudget -= 1;
-            point = await resolveCity(group.city, req.headers['accept-language']);
-          }
-          if (!point) continue;
-          const named = group.members.filter((m) => m.named);
-          places.push({
-            city: group.city,
-            label: point.label,
-            lat: point.lat,
-            lon: point.lon,
-            members: group.members.length,
-            named: named.length,
-            since: group.members.reduce((first, m) => (m.joinedAt && (!first || m.joinedAt < first) ? m.joinedAt : first), null),
-            people: named.slice(0, 12).map((m) => ({
-              id: m.id, name: m.name, role: m.role, linkedin: m.linkedin, joinedAt: m.joinedAt,
-            })),
-          });
-        }
+              /* Almost every city arrives already placed — the coordinate is resolved
+                 and stored when the member saves their profile. The rest are looked
+                 up here, one at a time behind the provider's minimum interval, so a
+                 backlog of them would hold the request open for a second each and run
+                 the function past its timeout. A few per request is enough: the
+                 answer is cached for a month, so the backlog drains over a handful of
+                 polls and every city lands within a minute. */
+              let geocodeBudget = NETWORK_GEOCODE_PER_REQUEST;
+              const places = [];
+              for (const group of groups.values()) {
+                let point = group.point;
+                if (!point && geocodeBudget > 0) {
+                  geocodeBudget -= 1;
+                  point = await resolveCity(group.city, req.headers['accept-language']);
+                }
+                if (!point) continue;
+                const named = group.members.filter((m) => m.named);
+                places.push({
+                  city: group.city,
+                  label: point.label,
+                  lat: point.lat,
+                  lon: point.lon,
+                  members: group.members.length,
+                  named: named.length,
+                  since: group.members.reduce((first, m) => (m.joinedAt && (!first || m.joinedAt < first) ? m.joinedAt : first), null),
+                  people: named.slice(0, 12).map((m) => ({
+                    id: m.id, name: m.name, role: m.role, linkedin: m.linkedin, joinedAt: m.joinedAt,
+                  })),
+                });
+              }
 
-        /* Real links, not geometry: who follows whom, rolled up to the pair of
-           cities they sit in. Aggregated on purpose — the map says two places
-           are connected and how strongly, never which two people. */
-        const placeIndex = new Map(places.map((p, i) => [p.city.toLowerCase(), i]));
-        const pairs = new Map();
-        try {
-          const graph = await repository.loadGraphStore({ viewerId: sessionUser.id });
-          for (const [from, targets] of graph.follows) {
-            const a = placeIndex.get(cityOf.get(from));
-            if (a === undefined) continue;
-            for (const to of targets) {
-              const b = placeIndex.get(cityOf.get(to));
-              if (b === undefined || a === b) continue;
-              const key = a < b ? `${a}:${b}` : `${b}:${a}`;
-              pairs.set(key, (pairs.get(key) || 0) + 1);
-            }
+              /* Real links, not geometry: who follows whom, rolled up to the pair of
+                 cities they sit in. Aggregated on purpose — the map says two places
+                 are connected and how strongly, never which two people. */
+              const placeIndex = new Map(places.map((p, i) => [p.city.toLowerCase(), i]));
+              const pairs = new Map();
+              try {
+                const graph = snapshot.graph;
+                for (const [from, targets] of graph.follows) {
+                  const a = placeIndex.get(cityOf.get(from));
+                  if (a === undefined) continue;
+                  for (const to of targets) {
+                    const b = placeIndex.get(cityOf.get(to));
+                    if (b === undefined || a === b) continue;
+                    const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+                    pairs.set(key, (pairs.get(key) || 0) + 1);
+                  }
+                }
+              } catch { /* graph unavailable: the map still draws its places */ }
+              const links = [...pairs].map(([key, weight]) => {
+                const [a, b] = key.split(':').map(Number);
+                return { a, b, weight };
+              });
+
+              return {
+                members: places.reduce((n, p) => n + p.members, 0),
+                places,
+                links,
+                topics: [...topics].sort((x, y) => y[1] - x[1]).map(([name, n]) => ({ name, members: n })),
+              };
+            })();
+            variants.set(variant, work);
+            work.catch(() => { if (variants.get(variant) === work) variants.delete(variant); });
           }
-        } catch { /* graph unavailable: the map still draws its places */ }
-        const links = [...pairs].map(([key, weight]) => {
-          const [a, b] = key.split(':').map(Number);
-          return { a, b, weight };
+          const shared = await work;
+          const viewerRow = snapshot.rows.find(row => row.id === sessionUser.id);
+          const viewer = viewerRow ? repository.toApiUser(viewerRow) : null;
+          const city = String(viewer?.city || '').trim();
+          return JSON.stringify({ ...shared, you: {
+            listed: Boolean(viewer), hasCity: city !== '',
+            onMap: Boolean(viewer) && city !== '' && shared.places.some(p => p.city.toLowerCase() === city.toLowerCase()),
+            city,
+          } });
         });
-
-        const placed = new Set(places.map((p) => p.city.toLowerCase()));
-        const payload = {
-          members: places.reduce((n, p) => n + p.members, 0),
-          places,
-          links,
-          topics: [...topics].sort((x, y) => y[1] - x[1]).map(([name, n]) => ({ name, members: n })),
-          you: {
-            listed: viewerListed,
-            hasCity: viewerCity !== '',
-            onMap: viewerListed && viewerCity !== '' && placed.has(viewerCity.toLowerCase()),
-            city: viewerCity,
-          },
-        };
-        const serialized = JSON.stringify(payload);
-        await cache.set(cacheKey, serialized, NETWORK_TTL_MS);
         const etag = entityTag(serialized);
         if (req.headers['if-none-match'] === etag) { sendNotModified(res, etag); return; }
         send(res, 200, serialized, { 'X-Cache': 'MISS', ETag: etag, 'Content-Type': 'application/json; charset=utf-8' });
@@ -1322,7 +1351,7 @@ export function createApp({
         const raw = String(url.searchParams.get('q') || '').trim().slice(0, CITY_SEARCH_MAX_QUERY);
         const q = raw.toLowerCase();
         if (q.length < MEMBER_SEARCH_MIN_QUERY) { send(res, 200, { users: [] }); return; }
-        const rows = await repository.listDirectoryUsers();
+        const rows = (await networkSnapshots.read()).rows;
         const users = rows
           .filter((row) => row.id !== sessionUser.id)
           .map((row) => ({ row, user: repository.toApiUser(row) }))
@@ -1373,23 +1402,25 @@ export function createApp({
         const userId = resolveUserId(m[1], sessionUser, useDb);
         if (!userId) { send(res, 403, { error: 'forbidden user scope' }); return; }
         if (!ID_RE.test(userId)) { send(res, 400, { error: 'invalid user id' }); return; }
-        const activeStore = useDb ? await repository.loadGraphStore({ viewerId: userId }) : store;
-        if (!activeStore.users.has(userId)) { send(res, 404, { error: 'unknown user' }); return; }
-
-        const fingerprint = graphFingerprint(activeStore);
-        const key = `rec:v3:${userId}:${fingerprint}`;
-        const cached = await cache.get(key);
-        if (cached) {
-          send(res, 200, cached, { 'X-Cache': 'HIT', 'Content-Type': 'application/json; charset=utf-8' });
-          return;
-        }
-
-        /* the learned model is one fit per graph snapshot, not per viewer —
-           the fingerprint lets the engine reuse it across members' misses */
-        const recommendations = recommend(activeStore, userId, { modelKey: fingerprint }) ?? [];
-        const payload = { userId, generatedAt: new Date().toISOString(), recommendations };
-        await cache.set(key, JSON.stringify(payload), REC_TTL_MS);
-        send(res, 200, payload, { 'X-Cache': 'MISS' });
+        const build = async snapshot => {
+          // An unlisted viewer's own graph is private and never enters shared
+          // snapshots or shared model keys. Listed members reuse one graph.
+          const activeStore = snapshot
+            ? (snapshot.graph.users.has(userId) ? snapshot.graph : await repository.loadGraphStore({ viewerId: userId, directoryRows: snapshot.rows }))
+            : store;
+          if (!activeStore.users.has(userId)) return null;
+          const fingerprint = snapshot && activeStore === snapshot.graph ? fingerprintOf(activeStore) : graphFingerprint(activeStore);
+          const key = `rec:v4:${userId}:${fingerprint}`;
+          const cached = await cache.get(key);
+          if (cached) return { payload: cached, hit: true };
+          const recommendations = recommend(activeStore, userId, { modelKey: fingerprint }) ?? [];
+          const payload = JSON.stringify({ userId, generatedAt: new Date().toISOString(), recommendations });
+          await cache.set(key, payload, REC_TTL_MS);
+          return { payload, hit: false };
+        };
+        const result = useDb ? await networkSnapshots.run(build) : await build(null);
+        if (!result) { send(res, 404, { error: 'unknown user' }); return; }
+        send(res, 200, result.payload, { 'X-Cache': result.hit ? 'HIT' : 'MISS', 'Content-Type': 'application/json; charset=utf-8' });
         return;
       }
 
@@ -1443,6 +1474,7 @@ export function createApp({
       if (req.method === 'POST' && pathname === '/api/checkout') {
         if (useDb && !requireAuth(res, sessionUser)) return;
         if (!sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
+        if(pilotMode) { send(res,409,{error:'payments are unavailable during the prototype pilot'});return; }
         if (!throttle(costlyLimiter, res, req, sessionUser, 'checkout')) return;
         const body = await readJsonBody(req);
         if (body.plan !== 'membership' || !CYCLES.has(body.cycle)) {

@@ -1,4 +1,6 @@
 import test from 'node:test';
+// Existing billing regressions exercise the full product outside pilot mode.
+process.env.PILOT_MODE = 'false';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import http from 'node:http';
@@ -1723,6 +1725,7 @@ test('a backend error never reaches the caller, on any route', async (t) => {
   const repository = {
     async resolveSession() { return { user: { id: 'u1', email: 'm@example.com' }, cookies: [] }; },
     toApiUser(user) { return user; },
+    async getNetworkRevision() { return 'test-revision'; },
     async listDirectoryUsers() { throw backendError; },
     close() {},
   };

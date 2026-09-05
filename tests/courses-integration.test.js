@@ -1,0 +1,62 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {once} from 'node:events';
+import {randomUUID} from 'node:crypto';
+import {createDatabase,createUser} from '../server/db.js';
+import {createSession} from '../server/auth.js';
+import {createApp} from '../server/server.js';
+import {createCourseStore} from '../server/courses-repository.js';
+import {setupCoursePilot} from '../scripts/setup-course-pilot.js';
+import {deleteCourseData} from '../server/courses-privacy.js';
+
+test('real application protects pilot pages, disables checkout, exports and erases course data and bytes',async t=>{
+  const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
+  const store=createCourseStore({db});
+  const course=await setupCoursePilot(store);
+  await setupCoursePilot(store);
+  assert.equal(await store.count('modules',{courseId:course.id}),4);
+  const module=(await store.find('modules',{courseId:course.id}))[0];
+  const member=createUser(db,{fullName:'Participant',email:'participant@example.test',passwordHash:'unused'});
+  const cookie=createSession(db,member.id).cookie.split(';')[0];
+  const server=createApp({db,pilotMode:true});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
+  const base=`http://127.0.0.1:${server.address().port}`;
+  const call=(path,method='GET',body)=>fetch(base+path,{method,redirect:'manual',headers:{Cookie:cookie,Origin:base,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
+  assert.deepEqual(await(await fetch(base+'/api/config')).json(),{pilotMode:true});
+  for(const page of ['course','courses','teaching'])assert.equal((await fetch(base+`/${page}.html`,{redirect:'manual'})).status,302);
+  assert.equal((await call('/teaching.html')).status,403);
+  assert.equal((await call('/payments.html')).headers.get('location'),'/courses.html');
+  assert.equal((await call('/api/checkout','POST',{})).status,409);
+  await call(`/api/courses/${course.id}/enroll`,'POST',{});
+  await call(`/api/courses/${course.id}/intake`,'PUT',{fullName:'Participant',profession:'Planner',city:'Lima',motivation:'Learn',experience:'Some',expectations:'Practice',caseStudy:'Station',digitalFamiliarity:'Comfortable'});
+  const prefix=`/api/courses/${course.id}/modules/${module.id}`;
+  const {attachment}=await(await call(prefix+'/attachments','POST',{name:'note.txt',mime:'text/plain',data:Buffer.from('Observation').toString('base64')})).json();
+  const {post}=await(await call(prefix+'/posts','POST',{clientId:randomUUID(),kind:'assignment',body:'Observation at station',attachmentIds:[attachment.id]})).json();
+  const file=await call(`/api/course-attachments/${attachment.id}`);
+  assert.equal(await file.text(),'Observation');assert.match(file.headers.get('content-disposition'),/^attachment/);
+  await call('/api/feedback','POST',{action:'assignment',rating:5,courseId:course.id,moduleId:module.id});
+  const {data:exported}=await(await call('/api/me/export')).json();
+  assert.equal(exported.coursePilot.intakes[0].answers.city,'Lima');
+  assert.equal(exported.coursePilot.attachments[0].storagePath,undefined);
+  assert.equal((await call('/api/me','DELETE',{confirmEmail:member.email})).status,200);
+  assert.equal(await store.count('intakes',{userId:member.id}),0);
+  assert.equal(await store.count('feedback',{userId:member.id}),0);
+  assert.equal(await store.count('attachments',{userId:member.id}),0);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM course_attachment_bytes').get().n,0);
+  const removed=(await store.find('posts',{id:post.id}))[0];
+  assert.equal(removed.userId,null);assert.equal(removed.body,'');assert.equal(removed.authorName,'');
+});
+
+test('database account deletion scrubs late posts atomically and refuses unresolved private uploads',async t=>{
+ const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
+ const store=createCourseStore({db}),course=await setupCoursePilot(store),module=(await store.find('modules',{courseId:course.id}))[0];
+ const user=createUser(db,{fullName:'Departing member',email:'departing@example.test',passwordHash:'unused'});
+ await deleteCourseData(store,user.id);
+ // A previously authorized request lands after the app-level scrub.
+ const post=await store.insert('posts',{id:randomUUID(),courseId:course.id,moduleId:module.id,userId:user.id,authorName:user.full_name,staff:false,clientId:randomUUID(),parentId:null,kind:'question',body:'Late private content',links:[],attachmentIds:[],deletedAt:null,createdAt:new Date().toISOString()});
+ const attachment=await store.insert('attachments',{id:randomUUID(),courseId:course.id,moduleId:module.id,userId:user.id,name:'pending.txt',mime:'text/plain',size:5,storagePath:'test/pending',status:'pending',createdAt:new Date().toISOString()});
+ assert.throws(()=>db.prepare('DELETE FROM users WHERE id=?').run(user.id),/FOREIGN KEY/);
+ await store.remove('attachments',{id:attachment.id});
+ db.prepare('DELETE FROM users WHERE id=?').run(user.id);
+ const tombstone=(await store.find('posts',{id:post.id}))[0];
+ assert.equal(tombstone.body,'');assert.equal(tombstone.authorName,'');assert.equal(tombstone.userId,null);
+});

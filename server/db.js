@@ -463,8 +463,12 @@ export function listDirectoryUsers(db) {
   return listActiveUsers(db).filter(isDirectoryVisible);
 }
 
-export function loadGraphStore(db, { viewerId } = {}) {
-  const rows = listActiveUsers(db).filter((row) => row.id === viewerId || isDirectoryVisible(row));
+export function loadGraphStore(db, { viewerId, directoryRows } = {}) {
+  const rows = directoryRows ? [...directoryRows] : listActiveUsers(db).filter((row) => row.id === viewerId || isDirectoryVisible(row));
+  if (directoryRows && viewerId && !rows.some(row => row.id === viewerId)) {
+    const viewer = getUserById(db, viewerId);
+    if (viewer?.account_status === "active") rows.push(viewer);
+  }
   const users = new Map(rows.map((row) => [row.id, toGraphUser(row)]));
   const follows = new Map([...users.keys()].map((id) => [id, new Set()]));
   for (const row of db.prepare('SELECT user_id, target_user_id FROM follows').all()) {

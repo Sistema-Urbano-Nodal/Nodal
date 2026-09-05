@@ -126,6 +126,11 @@
     U = normalizeApiUser(data.user);
     state.user = U;
     state.notifRead = U.notifRead;
+    if (U.assessed && partCCount() === partCTotal && window.nodalPilot && !document.getElementById('profileFeedback')) {
+      const feedback = window.nodalPilot.feedback('profile');
+      feedback.id = 'profileFeedback';
+      document.getElementById('assessment')?.append(feedback);
+    }
   }
   /* A failed PATCH used to be swallowed: the change stayed on screen and never
      reached the server, which reads exactly like success. Now it says so. */

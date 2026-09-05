@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
+import {runInNewContext} from 'node:vm';
 import { run as runSupabaseDataApiSmoke } from '../scripts/smoke-supabase-data-api.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -310,12 +311,12 @@ test('changed one-hour-cached catalog clients use new URLs on every consuming pa
   const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'payments.html', 'profile.html', 'admin.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
   const required = {
-    'index.html': { 'catalog.css': '4', 'i18n.js': '39', 'app.js': '18', 'recs.js': '2', 'catalog.js': '4' },
-    'opportunities.html': { 'catalog.css': '4', 'i18n.js': '39', 'catalog.js': '4' },
-    'dashboard.html': { 'i18n.js': '39', 'dashboard.js': '26' },
-    'login.html': { 'i18n.js': '39' },
-    'payments.html': { 'i18n.js': '39' },
-    'profile.html': { 'i18n.js': '39' },
+    'index.html': { 'catalog.css': '4', 'i18n.js': '40', 'app.js': '18', 'recs.js': '3', 'catalog.js': '4' },
+    'opportunities.html': { 'catalog.css': '4', 'i18n.js': '40', 'catalog.js': '4' },
+    'dashboard.html': { 'i18n.js': '40', 'dashboard.js': '27' },
+    'login.html': { 'i18n.js': '40' },
+    'payments.html': { 'i18n.js': '40' },
+    'profile.html': { 'i18n.js': '40' },
     'admin.html': { 'admin.css': '2', 'admin.js': '2' },
   };
   for (const [page, assets] of Object.entries(required)) {
@@ -372,8 +373,9 @@ test('every element a script looks up exists on a page that loads the script', (
       ...[...js.matchAll(/\bbyId\(\s*'([^']+)'/g)].map((m) => m[1]),
       ...[...js.matchAll(/querySelector\(\s*'#([A-Za-z0-9_-]+)'/g)].map((m) => m[1]),
     ]);
+    const createdIds = new Set([...js.matchAll(/\.id\s*=\s*['"]([^'"]+)['"]/g)].map(m=>m[1]));
     for (const id of referenced) {
-      if (!pages.some((page) => idsOnPage.get(page).has(id))) dangling.push(`${script} -> #${id}`);
+      if (!createdIds.has(id) && !pages.some((page) => idsOnPage.get(page).has(id))) dangling.push(`${script} -> #${id}`);
     }
   }
   assert.deepEqual(dangling, [], `scripts reference ids no page they load on defines:\n${dangling.join('\n')}`);
@@ -410,6 +412,10 @@ test('every translation key a script asks for resolves in all three languages', 
   const portuguese = new Set([...dictionary('PT'), ...dictionary('DASH_PT')]);
 
   const missing = [];
+  const pilotContext={window:{}};
+  runInNewContext(readFileSync(path.join(ROOT,'web/scripts/pilot-i18n.js'),'utf8'),pilotContext);
+  const pilotRows=pilotContext.window.pilotI18n.rows;
+  for(const [key,values]of Object.entries(pilotRows))assert.ok(values.length===3&&values.every(v=>typeof v==='string'&&v.trim()),`pilot key ${key} must have all three languages`);
   /* A key that only ever appears as data-i18n takes its English from the page
      itself, so it needs no DASH_EN entry — and that is exactly what used to
      hide it from this check. Absent from ES or PT it does not fail loudly:
@@ -423,6 +429,10 @@ test('every translation key a script asks for resolves in all three languages', 
     const js = readFileSync(path.join(ROOT, 'web', 'scripts', file), 'utf8');
     for (const m of js.matchAll(/\bt\(\s*'([^']+)'/g)) {
       const key = m[1];
+      if(['courses.js','teaching.js','pilot.js'].includes(file)){
+        if(!pilotRows[key])missing.push(`${file}: '${key}' is missing from pilot translations`);
+        continue;
+      }
       // a key absent from English renders as the raw key; the others fall back
       if (!english.has(key)) missing.push(`${file}: '${key}' has no English text`);
       if (!spanish.has(key)) missing.push(`${file}: '${key}' is missing from Spanish`);
@@ -524,8 +534,23 @@ test('protected catalog administration crosses every serving and build boundary'
   assert.match(buildSource, /STATIC_STYLES[^\n]*'admin\.css'/);
   assert.ok(vercel.headers.some((route) => new RegExp(route.source).test('/admin.js')));
   assert.ok(vercel.headers.some((route) => new RegExp(route.source).test('/admin.css')));
-  const page = vercel.headers.find((route) => route.source === '/admin.html');
+  const page = vercel.headers.find((route) => new RegExp(`^${route.source}$`).test('/admin.html'));
   assert.ok(page, 'admin page needs an explicit cache and security policy');
   assert.ok(page.headers.some((header) => header.key === 'Cache-Control' && header.value === 'no-store'));
-  assert.match(serverSource, /canonical === '\/admin\.html'[\s\S]*administrator access required/);
+  assert.match(serverSource, /\['\/admin\.html','\/teaching\.html'\]\.includes\(canonical\)[\s\S]*administrator access required/);
+});
+
+test('pilot pages stay behind authentication while course assets are delivered statically',()=>{
+  const build=readFileSync(path.join(ROOT,'scripts/build-static.js'),'utf8');
+  const config=JSON.parse(readFileSync(path.join(ROOT,'vercel.json'),'utf8'));
+  for(const name of ['courses','course','teaching']){
+    assert.match(build,new RegExp(`PROTECTED_PAGES[^\\n]*'${name}\\.html'`));
+    assert.doesNotMatch(build,new RegExp(`const STATIC_PAGES[^\\n]*'${name}\\.html'`));
+    const route=config.headers.find(r=>new RegExp(`^${r.source}$`).test(`/${name}.html`));
+    assert.ok(route?.headers.some(h=>h.key==='Cache-Control'&&h.value==='no-store'));
+  }
+  for(const file of ['courses.js','teaching.js','pilot.js','pilot-i18n.js','courses.css']){
+    assert.ok(build.includes(`'${file}'`));
+    assert.ok(config.headers.some(r=>new RegExp(`^${r.source}$`).test('/'+file)));
+  }
 });

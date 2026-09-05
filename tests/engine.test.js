@@ -349,3 +349,28 @@ test('one account cannot train the ranking the whole network is served', () => {
     'one member labelling both sides is an opinion, not the network',
   );
 });
+
+test('professional reasons distinguish peers and actual shared availability across languages', () => {
+  const users = [
+    {id:'you',name:'You',role:'Engenheira Civil',city:'Lima',interests:['mobilidade'],active:['am','pm']},
+    {id:'peer',name:'Peer',role:'Ingeniero Civil',city:'Quito',interests:['movilidad'],active:['pm','eve']},
+  ];
+  const result = recommend(createStore({users,follows:{},interactions:[]}), 'you')[0];
+  assert.equal(result.reasons.professionalPeer,true);
+  assert.deepEqual(result.reasons.sharedAvailability,['pm']);
+  assert.equal(result.reasons.diversePerspective,false);
+});
+
+test('the final deck slot can introduce a similarly relevant profession without promoting skipped or followed members', () => {
+  const mk=(id,role='Civil Engineer')=>({id,name:id,role,city:'Lima',interests:['transport'],active:['am']});
+  const users=[mk('you','Urban Researcher'),...Array.from({length:7},(_,i)=>mk(`a${i}`)),mk('z','Civic Designer')];
+  const seed=()=>createStore({users,follows:{},interactions:[]});
+  const diverse=recommend(seed(),'you',{limit:6});
+  assert.equal(diverse.at(-1).id,'z');
+  assert.equal(diverse.at(-1).reasons.diversePerspective,true);
+  assert.equal(diverse[0].id,'a0','strongest slot is stable');
+  const skipped=seed();recordInteraction(skipped,'you','z','skip');
+  assert.ok(!recommend(skipped,'you',{limit:6}).some(r=>r.id==='z'));
+  const followed=seed();addFollow(followed,'you','z');
+  assert.ok(!recommend(followed,'you',{limit:6}).some(r=>r.id==='z'));
+});

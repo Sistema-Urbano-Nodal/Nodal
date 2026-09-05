@@ -1,0 +1,107 @@
+{
+  "timestamp": "2026-09-05T18:13:26.898Z",
+  "environment": "local HTTP / isolated file-backed SQLite",
+  "node": "v22.22.3",
+  "users": 200,
+  "members": 1000,
+  "rounds": 6,
+  "requests": 1200,
+  "errors": 0,
+  "errorTypes": [],
+  "statuses": {
+    "200": 1000,
+    "304": 200
+  },
+  "elapsedMs": 1616,
+  "latencyMs": {
+    "p50": 43.57,
+    "p95": 955.13,
+    "p99": 1246.52
+  },
+  "databaseReads": {
+    "directoryReads": 1,
+    "graphReads": 1,
+    "revisionReads": 2601
+  },
+  "waves": [
+    {
+      "round": 1,
+      "route": "/api/recommendations/me",
+      "concurrency": 200,
+      "requests": 200,
+      "errors": 0,
+      "elapsedMs": 1334,
+      "latencyMs": {
+        "p50": 703.34,
+        "p95": 1259.23,
+        "p99": 1307.11
+      }
+    },
+    {
+      "round": 2,
+      "route": "/api/network/places",
+      "concurrency": 200,
+      "requests": 200,
+      "errors": 0,
+      "elapsedMs": 52,
+      "latencyMs": {
+        "p50": 41.08,
+        "p95": 44.43,
+        "p99": 44.73
+      }
+    },
+    {
+      "round": 3,
+      "route": "/api/recommendations/me",
+      "concurrency": 200,
+      "requests": 200,
+      "errors": 0,
+      "elapsedMs": 56,
+      "latencyMs": {
+        "p50": 44.31,
+        "p95": 49.23,
+        "p99": 49.42
+      }
+    },
+    {
+      "round": 4,
+      "route": "/api/network/places",
+      "concurrency": 200,
+      "requests": 200,
+      "errors": 0,
+      "elapsedMs": 54,
+      "latencyMs": {
+        "p50": 27.78,
+        "p95": 46.04,
+        "p99": 46.64
+      }
+    },
+    {
+      "round": 5,
+      "route": "/api/users?limit=100",
+      "concurrency": 200,
+      "requests": 200,
+      "errors": 0,
+      "elapsedMs": 87,
+      "latencyMs": {
+        "p50": 75.6,
+        "p95": 81.38,
+        "p99": 81.83
+      }
+    },
+    {
+      "round": 6,
+      "route": "/api/auth/me",
+      "concurrency": 200,
+      "requests": 200,
+      "errors": 0,
+      "elapsedMs": 32,
+      "latencyMs": {
+        "p50": 23.49,
+        "p95": 25.12,
+        "p99": 25.24
+      }
+    }
+  ],
+  "limitations": "Synthetic bounded waves using existing seeded sessions. Excludes signup/login hashing, real user pacing, network RTT, Supabase and deployed infrastructure. Local results do not prove production capacity."
+}

@@ -1,5 +1,7 @@
 # NODAL Deployment Checklist
 
+For the September course pilot, follow [course pilot operations](docs/course-pilot-operations.md) and apply both September 5 migrations before deploying its server. The guide covers internal-team forms/feedback exports, course setup, upload reconciliation, and capacity acceptance.
+
 ## Supabase Setup
 
 1. Create a Supabase project.
@@ -51,6 +53,7 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 SUPABASE_SECRET_KEY=<server-only Supabase secret key>
 PAYMENTS_MODE=preview
+PILOT_MODE=true
 ```
 
 Leave the `SUBSCRIPTION_*` price variables unset while launch pricing is not announced: the UI then shows `Soon` in every price slot. Setting them is what publishes a real amount. Switching to `PAYMENTS_MODE=live` is what makes a price mandatory — the deployment then refuses to boot until both `*_LABEL` variables are set, so a paid tier can never go live nameless:

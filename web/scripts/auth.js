@@ -14,7 +14,7 @@
   }
 
   const params = new URLSearchParams(location.search);
-  const next = params.get('next') || '/dashboard.html';
+  const next = params.get('next') || '/courses.html';
   const safeNext = safeReturnPath(next);
 
   const $ = (id) => document.getElementById(id);

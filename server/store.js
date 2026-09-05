@@ -81,6 +81,7 @@ export function recordInteraction(store, from, to, type, at = Date.now()) {
   events.push({ w, at, type });
   if (events.length > MAX_EVENTS_PER_PAIR) events.splice(0, events.length - MAX_EVENTS_PER_PAIR);
   store.engagement.set(k, events);
+  store.version = (store.version || 0) + 1;
 }
 
 /* recency-weighted engagement: each event decays exponentially from `at` */

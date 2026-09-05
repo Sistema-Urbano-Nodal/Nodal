@@ -77,11 +77,16 @@ function createSqliteRepository(db, { ownsDb = false } = {}) {
     async setUserLocation(id, point) {
       return setUserLocation(db, id, point);
     },
+    async getNetworkRevision() {
+      const external = db.prepare("PRAGMA data_version").get().data_version;
+      const local = db.prepare("SELECT total_changes() AS n").get().n;
+      return `${external}:${local}`;
+    },
     async listDirectoryUsers() {
       return listDirectoryUsers(db);
     },
-    async loadGraphStore({ viewerId } = {}) {
-      return loadGraphStore(db, { viewerId });
+    async loadGraphStore(options = {}) {
+      return loadGraphStore(db, options);
     },
     async addFollow(from, to) {
       return addFollowDb(db, from, to);

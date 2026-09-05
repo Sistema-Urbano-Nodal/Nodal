@@ -8,12 +8,13 @@ const STATIC_PAGES = ['opportunities.html'];
 // Protected HTML must stay behind server authorization. Keeping it in the
 // build manifest validates the source exists, while removing any stale output
 // prevents Vercel's filesystem precedence from bypassing /admin.html checks.
-const PROTECTED_PAGES = ['admin.html'];
+const PROTECTED_PAGES = ['admin.html', 'courses.html', 'course.html', 'teaching.html'];
 const STATIC_SCRIPTS = [
   'admin.js',
   'app.js',
   'auth.js',
   'catalog.js',
+  'courses.js',
   'coastline.js',
   'dashboard.js',
   'globe.js',
@@ -21,11 +22,14 @@ const STATIC_SCRIPTS = [
   'i18n.js',
   'nav.js',
   'payments.js',
+  'pilot.js',
+  'pilot-i18n.js',
   'profile.js',
   'recs.js',
   'script.js',
+  'teaching.js',
 ];
-const STATIC_STYLES = ['admin.css', 'catalog.css', 'dashboard.css', 'styles.css'];
+const STATIC_STYLES = ['admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'styles.css'];
 const STATIC_ASSETS = [
   'latam-map.webp',
   'nodal-community.webp',

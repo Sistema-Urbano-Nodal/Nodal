@@ -12,6 +12,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500;1,600&amp;display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css?v=20" />
   <link rel="stylesheet" href="catalog.css?v=4" />
+  <link rel="stylesheet" href="courses.css?v=20260905e" />
 </head>
 <body>
   <header class="navbar" id="top">
@@ -116,7 +117,7 @@
 
     <section class="section membership" id="membership" data-landing-section="membership">
       <div class="wrap membership-resources">
-        <div><p class="eyebrow light" data-i18n="mem.eyebrow">Membership</p><h2 class="section-title light" data-i18n="mem.title">Build your profile and keep your interests in one place.</h2><p data-i18n="mem.body">Membership is free. Sign in only when you want to express internal interest or manage your profile.</p><p class="membership-support"><span data-i18n="mem.proName">Supporting membership</span> · <strong data-billing-price data-i18n="mem.priceSoon">Soon!</strong></p><a class="btn btn-primary" href="login.html?next=/dashboard.html" data-i18n="mem.freeCta">Join free</a></div>
+        <div><p class="eyebrow light" data-billing-only data-i18n="mem.eyebrow">Membership</p><h2 class="section-title light" data-i18n="mem.title">Build your profile and keep your interests in one place.</h2><p data-billing-only data-i18n="mem.body">Membership is free. Sign in only when you want to express internal interest or manage your profile.</p><p class="membership-support"><span data-i18n="mem.proName">Supporting membership</span> · <strong data-billing-price data-i18n="mem.priceSoon">Soon!</strong></p><a class="btn btn-primary" data-billing-only href="login.html?next=/dashboard.html" data-i18n="mem.freeCta">Join free</a><a class="btn btn-primary" data-pilot-only href="courses.html" data-pilot-text="courses">Courses</a></div>
         <div id="resources"><p class="eyebrow light" data-i18n="res.eyebrow">Resources</p><h3 data-i18n="res.title">Learn from published cases and field resources.</h3><p data-i18n="res.body">Use the same verified catalog to find resources, learning circles and documented urban practice.</p><a class="link-arrow light" href="opportunities.html?kind=resource%2Clearning_circle%2Ccase_study" data-i18n="res.link">Browse resources</a></div>
         <div class="membership-recommendations">
           <div class="match-stack" id="matchStack">
@@ -142,10 +143,12 @@
   <footer class="footer" id="contact"><div class="footer-bottom"><div class="wrap"><h2 data-i18n="foot.touch">Let's talk</h2><p class="footer-rights" data-i18n="foot.rights">2026 All Rights Reserved</p><a class="footer-email" href="mailto:fmuro@sistemaurbano.org">fmuro@sistemaurbano.org</a><span> · </span><a class="footer-email" href="mailto:malegre@sistemaurbano.org">malegre@sistemaurbano.org</a></div></div></footer>
 
   <script src="nav.js?v=15"></script>
-  <script src="i18n.js?v=39"></script>
+  <script src="i18n.js?v=40"></script>
+  <script src="pilot-i18n.js?v=20260905d"></script>
+  <script src="pilot.js?v=20260905b"></script>
   <script src="script.js?v=13"></script>
   <script src="app.js?v=18"></script>
-  <script src="recs.js?v=2"></script>
+  <script src="recs.js?v=3"></script>
   <script src="catalog.js?v=4"></script>
 </body>
 </html>

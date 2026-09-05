@@ -65,7 +65,7 @@ GET /api/courses/:id/modules/:moduleId -> {module}
 GET /api/courses/:id/modules/:moduleId/posts?cursor=... -> {posts,nextCursor}; limit 30; includes all kinds chronological, parentId linkage.
 POST /api/courses/:id/modules/:moduleId/posts {kind,body,links,attachmentIds:[],parentId?,clientId:uuid} -> {post}; repeated clientId same author idempotent.
 POST /api/courses/:id/modules/:moduleId/attachments {name,mime,data:base64} -> {attachment:{id,name,mime,size}}; 3 MB binary cap, HTTP envelope bounded separately; post owns attachments; private.
-GET /api/course-attachments/:id -> file with attachment disposition, nosniff; enrolled+intake or staff, pending uploads owner-only.
+GET /api/course-attachments/:id -> ready file with attachment disposition, nosniff; enrolled+intake or staff, unpublished ready files owner-only. Pending transfers are unavailable until confirmed ready.
 POST /api/courses/:id/events Event -> {ok:true}; dedupe UUID per actor.
 POST /api/feedback Feedback -> {feedback}; optional module/course validated.
 GET /api/admin/courses -> {courses}
