@@ -307,17 +307,20 @@ test('Supabase Data API smoke exercises reads, constrained inserts, updates, and
   }), /SELECT profiles.*42501/i);
 });
 
-test('changed one-hour-cached catalog clients use new URLs on every consuming page', () => {
-  const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'payments.html', 'profile.html', 'admin.html']
+test('changed one-hour-cached clients use new URLs on every consuming page', () => {
+  const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'payments.html', 'profile.html', 'admin.html', 'course.html', 'courses.html', 'teaching.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
   const required = {
-    'index.html': { 'catalog.css': '4', 'i18n.js': '40', 'app.js': '18', 'recs.js': '4', 'catalog.js': '4' },
-    'opportunities.html': { 'catalog.css': '4', 'i18n.js': '40', 'catalog.js': '4' },
-    'dashboard.html': { 'i18n.js': '40', 'dashboard.js': '27' },
-    'login.html': { 'i18n.js': '40' },
-    'payments.html': { 'i18n.js': '40' },
-    'profile.html': { 'i18n.js': '40' },
+    'index.html': { 'styles.css': '20', 'i18n.js': '42', 'app.js': '18', 'recs.js': '4', 'script.js': '14' },
+    'opportunities.html': { 'catalog.css': '4', 'i18n.js': '42', 'catalog.js': '4' },
+    'dashboard.html': { 'i18n.js': '42', 'dashboard.js': '27' },
+    'login.html': { 'i18n.js': '42' },
+    'payments.html': { 'i18n.js': '42' },
+    'profile.html': { 'i18n.js': '42' },
     'admin.html': { 'admin.css': '2', 'admin.js': '2' },
+    'course.html': { 'i18n.js': '42' },
+    'courses.html': { 'i18n.js': '42' },
+    'teaching.html': { 'i18n.js': '42' },
   };
   for (const [page, assets] of Object.entries(required)) {
     for (const [asset, version] of Object.entries(assets)) {
@@ -365,6 +368,10 @@ test('every element a script looks up exists on a page that loads the script', (
   }
   assert.ok(pagesForScript.size >= 10, 'expected every page to declare its scripts');
 
+  // Legacy landing widgets are guarded; catalog-ui.test.js exercises their absence.
+  const optionalTargets = new Map([['catalog.js', new Set([
+    'landingOpenWork', 'landingOpenWorkStatus', 'landingCases', 'landingCasesStatus', 'heroPrimary', 'heroSecondary',
+  ])]]);
   const dangling = [];
   for (const [script, pages] of pagesForScript) {
     const js = readFileSync(path.join(ROOT, 'web', 'scripts', script), 'utf8');
@@ -375,7 +382,7 @@ test('every element a script looks up exists on a page that loads the script', (
     ]);
     const createdIds = new Set([...js.matchAll(/\.id\s*=\s*['"]([^'"]+)['"]/g)].map(m=>m[1]));
     for (const id of referenced) {
-      if (!createdIds.has(id) && !pages.some((page) => idsOnPage.get(page).has(id))) dangling.push(`${script} -> #${id}`);
+      if (!createdIds.has(id) && !optionalTargets.get(script)?.has(id) && !pages.some((page) => idsOnPage.get(page).has(id))) dangling.push(`${script} -> #${id}`);
     }
   }
   assert.deepEqual(dangling, [], `scripts reference ids no page they load on defines:\n${dangling.join('\n')}`);
@@ -400,17 +407,28 @@ test('every translation key a script asks for resolves in all three languages', 
   };
   // English is DASH_EN plus whatever the pages carry in data-i18n
   const english = dictionary('DASH_EN');
-  const fromMarkup = new Map();
+  const fromMarkup = [];
+  const homePages = new Set();
+  const pagesForScript = new Map();
   for (const page of readdirSync(path.join(ROOT, 'web', 'pages')).filter((f) => f.endsWith('.html'))) {
     const html = readFileSync(path.join(ROOT, 'web', 'pages', page), 'utf8');
+    if (/<body[^>]+data-page="home"/.test(html)) homePages.add(page);
+    for (const m of html.matchAll(/<script[^>]+src="([^"?]+)/g)) {
+      const script = m[1].replace(/^\.?\//, '');
+      if (!pagesForScript.has(script)) pagesForScript.set(script, []);
+      pagesForScript.get(script).push(page);
+    }
     for (const m of html.matchAll(/data-i18n(?:-placeholder)?="([^"]+)"/g)) {
       english.add(m[1]);
-      if (!fromMarkup.has(m[1])) fromMarkup.set(m[1], page);
+      fromMarkup.push([m[1], page]);
     }
   }
   const spanish = new Set([...dictionary('ES'), ...dictionary('DASH_ES')]);
   const portuguese = new Set([...dictionary('PT'), ...dictionary('DASH_PT')]);
 
+  const homeSpanish = dictionary('HOME_ES');
+  const homePortuguese = dictionary('HOME_PT');
+  const translated = (key, page, base, home) => base.has(key) || (homePages.has(page) && home.has(key));
   const missing = [];
   const pilotContext={window:{}};
   runInNewContext(readFileSync(path.join(ROOT,'web/scripts/pilot-i18n.js'),'utf8'),pilotContext);
@@ -422,8 +440,8 @@ test('every translation key a script asks for resolves in all three languages', 
      apply() falls back to English, and the Spanish and Portuguese pages
      silently render English text. */
   for (const [key, page] of fromMarkup) {
-    if (!spanish.has(key)) missing.push(`${page}: '${key}' is missing from Spanish`);
-    if (!portuguese.has(key)) missing.push(`${page}: '${key}' is missing from Portuguese`);
+    if (!translated(key, page, spanish, homeSpanish)) missing.push(`${page}: '${key}' is missing from Spanish`);
+    if (!translated(key, page, portuguese, homePortuguese)) missing.push(`${page}: '${key}' is missing from Portuguese`);
   }
   for (const file of readdirSync(path.join(ROOT, 'web', 'scripts')).filter((f) => f.endsWith('.js'))) {
     const js = readFileSync(path.join(ROOT, 'web', 'scripts', file), 'utf8');
@@ -435,8 +453,11 @@ test('every translation key a script asks for resolves in all three languages', 
       }
       // a key absent from English renders as the raw key; the others fall back
       if (!english.has(key)) missing.push(`${file}: '${key}' has no English text`);
-      if (!spanish.has(key)) missing.push(`${file}: '${key}' is missing from Spanish`);
-      if (!portuguese.has(key)) missing.push(`${file}: '${key}' is missing from Portuguese`);
+      // A homepage override must never hide a missing translation on another consumer.
+      for (const page of pagesForScript.get(file) || [null]) {
+        if (!translated(key, page, spanish, homeSpanish)) missing.push(`${file} (${page || 'shared'}): '${key}' is missing from Spanish`);
+        if (!translated(key, page, portuguese, homePortuguese)) missing.push(`${file} (${page || 'shared'}): '${key}' is missing from Portuguese`);
+      }
     }
   }
   assert.deepEqual(missing, [], `untranslated keys:\n${missing.join('\n')}`);

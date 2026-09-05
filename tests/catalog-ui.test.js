@@ -342,24 +342,22 @@ function dictionaryKeys(source, name) {
   return new Set([...source.slice(start, end + 1).matchAll(/^\s*'([^']+)':/gm)].map((match) => match[1]));
 }
 
-test('landing leads with the approved promise and evidence-first section order', () => {
+const optionalLandingTargets = new Set([
+  'landingOpenWork', 'landingOpenWorkStatus', 'landingCases', 'landingCasesStatus', 'heroPrimary', 'heroSecondary',
+]);
+
+test('homepage preserves the original network story and section order', () => {
   const html = index();
-  assert.match(html, />Find the people and opportunities to turn urban knowledge into action\.</);
-
-  const order = [...html.matchAll(/data-landing-section="([^"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(order, ['hero', 'actions', 'open-work', 'cases', 'problem', 'how', 'membership', 'final-cta']);
-
-  const source = i18n();
-  assert.match(source, /'hero\.promise': 'Encuentra a las personas y las oportunidades para convertir el conocimiento urbano en acción\.'/);
-  assert.match(source, /'hero\.promise': 'Encontre as pessoas e as oportunidades para transformar o conhecimento urbano em ação\.'/);
+  assert.match(html, /<body data-page="home">/);
+  assert.match(html, /data-i18n="hero\.building">A living network</);
+  assert.match(html, /data-i18n="hero\.infra">for Latin America’s|data-i18n="hero\.infra">for Latin America's/);
+  const order = [...html.matchAll(/<section\b[^>]*\bid="([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(order, ['home', 'about', 'problem', 'insight', 'platform', 'profile', 'membership', 'knowledge', 'resources', 'partners']);
+  assert.doesNotMatch(html, /(?:src|href)="(?:catalog|courses|pilot(?:-i18n)?)\.(?:js|css)/);
 });
 
-test('visitor page head and graph accessibility labels follow EN, ES, and PT', () => {
+test('catalog head and shared graph accessibility labels follow EN, ES, and PT', () => {
   for (const [html, page, english] of [
-    [index(), 'landing', {
-      title: 'NODAL · Urban knowledge into action',
-      description: 'Find verified urban opportunities, projects, learning circles, resources and case studies across Latin America.',
-    }],
     [catalogPage(), 'catalog', {
       title: 'NODAL · Open work',
       description: 'Browse verified urban opportunities, projects, learning circles, resources and case studies in NODAL.',
@@ -384,7 +382,8 @@ test('visitor page head and graph accessibility labels follow EN, ES, and PT', (
   }
 
   const landing = index();
-  assert.match(landing, /id="graph"[^>]+data-i18n-aria-label="graph\.title"/);
+  assert.match(landing, /<title>NODAL · Nodos Urbanos de América Latina<\/title>/);
+  assert.match(landing, /id="graph"[^>]+aria-label="Interactive network of actors"/);
   const source = appScript();
   assert.match(source, /g\.setAttribute\('data-i18n-aria-label',\s*`graph\.n\.\$\{n\.id\}\.t`\)/);
   assert.match(source, /close\.setAttribute\('aria-label',\s*t\('graph\.close'\)\)/);
@@ -404,32 +403,36 @@ test('visitor page head and graph accessibility labels follow EN, ES, and PT', (
   assert.equal(graphHarness.close.getAttribute('aria-label'), 'Fechar');
 });
 
-test('landing proof regions are API targets and fabricated social proof is absent', () => {
-  const html = index();
-  for (const id of ['landingOpenWork', 'landingOpenWorkStatus', 'landingCases', 'landingCasesStatus']) {
-    assert.match(html, new RegExp(`id="${id}"`), `${id} must be present`);
-  }
-  assert.doesNotMatch(html, /class="leader-card|class="quote|active nodes|nodos activos|nós ativos/i);
-  assert.doesNotMatch(html.replace(/<[^>]*>/g, ''), /[“”«»][^\n]{12,}[“”«»]/);
-
-  const graph = html.match(/<div class="gc-pool"[\s\S]*?<\/div>\s*<\/div>\s*<\/section>/)?.[0] ?? '';
-  assert.ok(graph, 'illustrative graph role descriptions must remain');
-  assert.match(html, /data-i18n="graph\.illustrative"/);
-  assert.doesNotMatch(graph, /\b\d+\b|gc-ask/);
-
-  const translations = i18n();
-  assert.doesNotMatch(translations, /active nodes|nodos activos|nós ativos|quote\.|graph\.n\.[\w]+\.ask/);
+test('legacy landing catalog widgets are optional and absent widgets issue no catalog reads', async () => {
+  for (const id of optionalLandingTargets) assert.doesNotMatch(index(), new RegExp(`id="${id}"`));
+  assert.match(catalogPage(), /<script[^>]+src="catalog\.js/);
+  const requests = [];
+  const harness = catalogHarness((url) => {
+    requests.push(url);
+    assert.equal(url, '/api/auth/state');
+    return Promise.resolve(response({ authenticated: true }));
+  });
+  // Script startup checks authentication even when no landing widgets are mounted.
+  assert.deepEqual(requests, ['/api/auth/state']);
+  await harness.api.loadLanding();
+  assert.deepEqual(requests, ['/api/auth/state']);
+  assert.equal(await harness.api.loadAuthState(), true);
+  assert.deepEqual(requests, ['/api/auth/state', '/api/auth/state']);
+  const source = catalogScript();
+  assert.match(source, /if \(!open && !cases\) return/);
+  assert.match(source, /if \(!container \|\| !status\) return/);
+  assert.match(source, /if \(primary && secondary && authenticated\)/);
 });
 
 test('landing restores the live recommendation deck as an honest translated state', () => {
   const html = index();
   assert.match(html, /id="matchStack"/);
   assert.match(html, /class="match-card/);
-  assert.match(html, /data-i18n="recs\.loading\.title"/);
+  assert.match(html, /data-i18n="match\.role"/);
   assert.match(html, /<script[^>]+src="recs\.js/);
   const deck = html.match(/<div[^>]+id="matchStack"[\s\S]*?<\/article>\s*<\/div>/)?.[0] || '';
-  assert.match(deck, /class="match-name"[^>]*>Finding live matches</);
-  assert.doesNotMatch(deck, /data-user|member-id|@[\w.-]+|Urban (?:planner|leader)|member since/i, 'static loading UI must not pose as a member record');
+  assert.match(deck, /class="match-name"[^>]*>Sign in to connect</);
+  assert.doesNotMatch(deck, /data-user|member-id|@[\w.-]+|Urban (?:planner|leader)|member since/i, 'static sign-in UI must not pose as a member record');
 });
 
 test('landing dispatches always link safely to details and detail metadata uses source-backed localized actions', () => {
@@ -1023,14 +1026,15 @@ test('catalog client keeps network states honest, safe, and race-free', () => {
   assert.doesNotMatch(source, /demo|fallbackItem|sampleItem|mockItem/i);
 });
 
-test('every catalog client target exists on a page that loads it', () => {
-  const pages = [index(), catalogPage()];
+test('every required catalog client target exists on a page that loads it', () => {
+  const pages = [catalogPage()];
+  assert.doesNotMatch(index(), /<script[^>]+src="catalog\.js/);
   assert.ok(pages.every((html) => /<script[^>]+src="catalog\.js/.test(html)));
   const ids = new Set(pages.flatMap((html) => [...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1])));
   const references = new Set([
-    ...catalogScript().matchAll(/getElementById\(\s*'([^']+)'/g),
+    ...catalogScript().matchAll(/(?:getElementById|byId)\(\s*'([^']+)'/g),
   ].map((match) => match[1]));
-  for (const id of references) assert.ok(ids.has(id), `catalog.js target #${id} is absent`);
+  for (const id of references) assert.ok(ids.has(id) || optionalLandingTargets.has(id), `catalog.js target #${id} is absent`);
 });
 
 test('catalog dynamic and visible states resolve in EN, ES, and PT', () => {
@@ -1038,7 +1042,7 @@ test('catalog dynamic and visible states resolve in EN, ES, and PT', () => {
   const english = dictionaryKeys(source, 'DASH_EN');
   const spanish = new Set([...dictionaryKeys(source, 'ES'), ...dictionaryKeys(source, 'DASH_ES')]);
   const portuguese = new Set([...dictionaryKeys(source, 'PT'), ...dictionaryKeys(source, 'DASH_PT')]);
-  for (const html of [index(), catalogPage()]) {
+  for (const html of [catalogPage()]) {
     for (const match of html.matchAll(/data-i18n(?:-placeholder)?="([^"]+)"/g)) english.add(match[1]);
   }
   const used = new Set([...catalogScript().matchAll(/\bt\(\s*'([^']+)'/g)].map((match) => match[1]));

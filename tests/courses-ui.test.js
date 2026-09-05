@@ -51,8 +51,9 @@ test('safe links reject executable protocols and credentials, and authentication
 test('pilot UI translates current labels in EN, ES and PT',()=>{
  const h=harness(()=>({}));h.body.append(h.ctx.window.nodalPilot.button('enroll'));h.lang('es');assert.match(content(h.body),/Inscribirme/);h.lang('pt');assert.match(content(h.body),/Inscrever-me/);for(const [key,values]of Object.entries(h.ctx.window.pilotI18n.rows)){assert.equal(values.length,3,key);assert.ok(values.every(v=>typeof v==='string'&&v.length),key);}
 });
-test('pilot mask is a render-blocking stylesheet on existing public pages',()=>{
- for(const name of ['index','login','profile','dashboard','payments']){const html=readFileSync(new URL('../web/pages/'+name+'.html',import.meta.url),'utf8');const css=html.match(/href="courses\.css(?:\?[^"]*)?"/);assert.ok(css,name+' must load the billing mask');assert.ok(css.index<html.indexOf('</head>'));const pilot=html.match(/src="pilot\.js(?:\?[^"]*)?"/);assert.ok(pilot,name+' must load configuration');assert.ok(pilot.index<html.lastIndexOf('</body>'));}
+test('pilot mask is a render-blocking stylesheet on member and authentication pages',()=>{
+ for(const name of ['login','profile','dashboard','payments']){const html=readFileSync(new URL('../web/pages/'+name+'.html',import.meta.url),'utf8');const css=html.match(/href="courses\.css(?:\?[^"]*)?"/);assert.ok(css,name+' must load the billing mask');assert.ok(css.index<html.indexOf('</head>'));const pilot=html.match(/src="pilot\.js(?:\?[^"]*)?"/);assert.ok(pilot,name+' must load configuration');assert.ok(pilot.index<html.lastIndexOf('</body>'));}
+ const home=readFileSync(new URL('../web/pages/index.html',import.meta.url),'utf8');assert.doesNotMatch(home,/(?:src|href)="(?:courses\.css|pilot(?:-i18n)?\.js)/);
  const css=readFileSync(new URL('../web/styles/courses.css',import.meta.url),'utf8');assert.match(css,/html:not\(\[data-pilot="false"\]\)/);assert.match(css,/data-billing-only/);
 });
 test('feedback requires a deliberate star choice before issuing any write',async()=>{
