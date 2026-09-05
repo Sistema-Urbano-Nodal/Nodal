@@ -588,21 +588,22 @@
 
   function badgeData() {
     const mentorReady = U.assessed && maxLevel() >= 3 && U.indicators.transmission !== 'No';
-    const B = (fam, id, scope, state2) => ({
+    const B = (fam, id, req, state2, meter) => ({
       fam,
       name: t(`d.badge.${id}.name`),
-      scope,
+      req,
       unlock: t(`d.badge.${id}.unlock`),
       state: state2,
+      meter,
     });
     return [
       B('contribution', 'pioneer', t(U.assessed ? 'd.badge.pioneer.scopeDone' : 'd.badge.pioneer.scopeTodo'), U.assessed ? 'earned' : 'progress'),
       B('contribution', 'first', t('d.badge.first.scope'), 'locked'),
-      B('contribution', 'sharer', t('d.badge.sharer.scope', { n: 0 }), 'locked'),
+      B('contribution', 'sharer', t('d.badge.sharer.req'), 'locked', { done: 0, total: 5 }),
       B('contribution', 'host', t('d.badge.host.scope'), 'locked'),
-      B('contribution', 'connector', t('d.badge.connector.scope', { n: 0 }), 'locked'),
+      B('contribution', 'connector', t('d.badge.connector.req'), 'locked', { done: 0, total: 5 }),
       B('contribution', 'graduate', t('d.badge.graduate.scope'), 'locked'),
-      B('contribution', 'consistent', t('d.badge.consistent.scope', { n: 0 }), 'locked'),
+      B('contribution', 'consistent', t('d.badge.consistent.req'), 'locked', { done: 0, total: 6 }),
       B('role', 'practitioner', t('d.badge.practitioner.scope'), 'locked'),
       B('role', 'mentor', t(mentorReady ? 'd.badge.mentor.scopeReady' : 'd.badge.mentor.scopeTodo'), mentorReady ? 'progress' : 'locked'),
       B('role', 'local', cityLabel(), 'locked'),
@@ -610,26 +611,72 @@
     ];
   }
 
+  /* the registry: one ruled ledger, grouped by family — each badge is a line
+     entry with its requirement, what it opens, and (where countable) a tally.
+     The first badge not yet earned carries the "next" tag. */
   function renderBadges() {
     const grid = byId('badgeGrid');
     if (!grid) return;
     const badges = badgeData();
-    grid.replaceChildren(...badges.map((b) => {
-      const tile = el('article', `badge is-${b.state}`);
-      const top = el('div', 'badge-top');
-      const ico = el('span', 'badge-ico');
-      ico.appendChild(familyMark(b.fam));
-      const famName = t(`d.badge.fam.${b.fam}`);
-      const fam = el('span', 'badge-fam', b.state === 'locked' ? `${famName} · ${t('d.badge.locked')}`
-        : b.state === 'progress' ? `${famName} · ${t('d.badge.progress')}` : famName);
-      top.append(ico, fam);
-      const name = el('h3', 'badge-name', b.name);
-      name.appendChild(el('small', null, b.scope));
-      const unlock = el('p', 'badge-unlock');
-      unlock.append(el('strong', null, t('d.badge.opens')), b.unlock);
-      tile.append(top, name, unlock);
-      return tile;
+    const next = badges.find((b) => b.state !== 'earned');
+    const families = ['contribution', 'role', 'recognition'];
+    let index = 0;
+
+    grid.replaceChildren(...families.map((famKey) => {
+      const members = badges.filter((b) => b.fam === famKey);
+      const group = el('section', 'bl-group');
+
+      const head = el('header', 'bl-head');
+      const mark = el('span', 'bl-mark');
+      mark.appendChild(familyMark(famKey));
+      const earnedHere = members.filter((b) => b.state === 'earned').length;
+      head.append(
+        mark,
+        el('span', 'bl-fam', t(`d.badge.fam.${famKey}`)),
+        el('span', 'bl-count', `${earnedHere}/${members.length}`),
+      );
+      group.appendChild(head);
+
+      for (const b of members) {
+        index += 1;
+        const row = el('article', `bl-row is-${b.state}`);
+
+        const idx = el('span', 'bl-idx', String(index).padStart(2, '0'));
+
+        const body = el('div', 'bl-body');
+        const name = el('h3', 'bl-name', b.name);
+        if (b === next) name.appendChild(el('span', 'bl-next', t('d.badge.next')));
+        const req = el('p', 'bl-req', b.req);
+        const opens = el('p', 'bl-opens');
+        opens.append(el('strong', null, t('d.badge.opens')), b.unlock);
+        body.append(name, req, opens);
+
+        const status = el('div', 'bl-status');
+        if (b.meter) {
+          const meter = el('span', 'bl-meter');
+          for (let i = 0; i < b.meter.total; i += 1) {
+            meter.appendChild(el('i', i < b.meter.done ? 'is-on' : null));
+          }
+          status.append(meter, el('span', 'bl-frac', `${b.meter.done}/${b.meter.total}`));
+        } else {
+          /* the console's own completion mark — the same drawn checkbox the
+             path criteria use: hollow, outlined green while in reach, filled
+             with the tick once held. No status words down the column. */
+          const check = el('span', 'bl-check');
+          check.setAttribute('role', 'img');
+          check.setAttribute('aria-label', t(
+            b.state === 'earned' ? 'd.badge.earnedState'
+              : b.state === 'progress' ? 'd.badge.progress' : 'd.badge.locked',
+          ));
+          status.appendChild(check);
+        }
+
+        row.append(idx, body, status);
+        group.appendChild(row);
+      }
+      return group;
     }));
+
     const earned = badges.filter((b) => b.state === 'earned').length;
     setText('badgesEyebrow', t('d.eyebrow.recognition', { n: earned, total: badges.length }));
   }
@@ -920,7 +967,14 @@
       uc.topics.querySelectorAll('input').forEach((i) => { i.checked = current.has(i.value); });
       if (typeof userDialog.showModal === 'function' && !userDialog.open) userDialog.showModal();
     };
-    byId('userBtn')?.addEventListener('click', openUserDialog);
+    byId('userBtn')?.addEventListener('click', () => {
+      /* the avatar lives inside .top-actions, so the outside-click handler
+         never dismisses the notification popover — without this, popover and
+         dialog end up open at once, bleeding into each other */
+      const pop = byId('notifPop');
+      if (pop) { pop.hidden = true; byId('notifBtn')?.setAttribute('aria-expanded', 'false'); }
+      openUserDialog();
+    });
     byId('ucCancel')?.addEventListener('click', () => userDialog.close());
 
     userForm.addEventListener('submit', (e) => {

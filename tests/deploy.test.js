@@ -310,12 +310,12 @@ test('changed one-hour-cached catalog clients use new URLs on every consuming pa
   const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'payments.html', 'profile.html', 'admin.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
   const required = {
-    'index.html': { 'catalog.css': '4', 'i18n.js': '38', 'app.js': '18', 'recs.js': '2', 'catalog.js': '4' },
-    'opportunities.html': { 'catalog.css': '4', 'i18n.js': '38', 'catalog.js': '4' },
-    'dashboard.html': { 'i18n.js': '38', 'dashboard.js': '26' },
-    'login.html': { 'i18n.js': '38' },
-    'payments.html': { 'i18n.js': '38' },
-    'profile.html': { 'i18n.js': '38' },
+    'index.html': { 'catalog.css': '4', 'i18n.js': '39', 'app.js': '18', 'recs.js': '2', 'catalog.js': '4' },
+    'opportunities.html': { 'catalog.css': '4', 'i18n.js': '39', 'catalog.js': '4' },
+    'dashboard.html': { 'i18n.js': '39', 'dashboard.js': '26' },
+    'login.html': { 'i18n.js': '39' },
+    'payments.html': { 'i18n.js': '39' },
+    'profile.html': { 'i18n.js': '39' },
     'admin.html': { 'admin.css': '2', 'admin.js': '2' },
   };
   for (const [page, assets] of Object.entries(required)) {
@@ -392,20 +392,33 @@ test('every translation key a script asks for resolves in all three languages', 
     }
     const body = src.slice(start, end + 1);
     return new Set([
-      ...[...body.matchAll(/^\s*'([^']+)':/gm)].map((m) => m[1]),
-      ...[...body.matchAll(/^\s*([A-Za-z_$][\w$]*):/gm)].map((m) => m[1]),
+      ...[...body.matchAll(/(?:^|[,\n])\s*'([^']+)':/gm)].map((m) => m[1]),
+      ...[...body.matchAll(/(?:^|[,\n])\s*([A-Za-z_$][\w$]*):/gm)].map((m) => m[1]),
     ]);
   };
   // English is DASH_EN plus whatever the pages carry in data-i18n
   const english = dictionary('DASH_EN');
+  const fromMarkup = new Map();
   for (const page of readdirSync(path.join(ROOT, 'web', 'pages')).filter((f) => f.endsWith('.html'))) {
     const html = readFileSync(path.join(ROOT, 'web', 'pages', page), 'utf8');
-    for (const m of html.matchAll(/data-i18n(?:-placeholder)?="([^"]+)"/g)) english.add(m[1]);
+    for (const m of html.matchAll(/data-i18n(?:-placeholder)?="([^"]+)"/g)) {
+      english.add(m[1]);
+      if (!fromMarkup.has(m[1])) fromMarkup.set(m[1], page);
+    }
   }
   const spanish = new Set([...dictionary('ES'), ...dictionary('DASH_ES')]);
   const portuguese = new Set([...dictionary('PT'), ...dictionary('DASH_PT')]);
 
   const missing = [];
+  /* A key that only ever appears as data-i18n takes its English from the page
+     itself, so it needs no DASH_EN entry — and that is exactly what used to
+     hide it from this check. Absent from ES or PT it does not fail loudly:
+     apply() falls back to English, and the Spanish and Portuguese pages
+     silently render English text. */
+  for (const [key, page] of fromMarkup) {
+    if (!spanish.has(key)) missing.push(`${page}: '${key}' is missing from Spanish`);
+    if (!portuguese.has(key)) missing.push(`${page}: '${key}' is missing from Portuguese`);
+  }
   for (const file of readdirSync(path.join(ROOT, 'web', 'scripts')).filter((f) => f.endsWith('.js'))) {
     const js = readFileSync(path.join(ROOT, 'web', 'scripts', file), 'utf8');
     for (const m of js.matchAll(/\bt\(\s*'([^']+)'/g)) {

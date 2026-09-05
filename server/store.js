@@ -1,7 +1,14 @@
 /* in-memory user graph: nodes are members, edges are follows + engagement.
    The store is the single mutable surface — the engine only reads it. */
 
-const ENGAGEMENT_WEIGHT = { view: 1, skip: 0.5, like: 3, message: 4, follow: 3 };
+/* A skip is a rejection, not faint attention: it stays a recognised type so it
+   can be recorded and counted, but it contributes nothing to the engagement sum
+   that raises an edge's weight. Weighted like a half-view, one member's skip of
+   another read as a small endorsement to everyone traversing through them —
+   the engine expresses skips through skipPenalty instead, for the viewer who
+   actually did the skipping. Weights are recomputed whenever a store is loaded
+   from the database, so stored events pick this up with no migration. */
+const ENGAGEMENT_WEIGHT = { view: 1, skip: 0, like: 3, message: 4, follow: 3 };
 const HALF_LIFE_MS = 30 * 24 * 60 * 60 * 1000;   // engagement halves every 30 days
 
 export function seedData() {
@@ -69,7 +76,9 @@ export function recordInteraction(store, from, to, type, at = Date.now()) {
   if (w === undefined) throw new Error(`unknown interaction type: ${type}`);
   const k = edgeKey(from, to);
   const events = store.engagement.get(k) ?? [];
-  events.push({ w, at });
+  /* the type rides along so the learned layer can label pairs and the engine
+     can treat a skip as a negative signal, not just faint attention */
+  events.push({ w, at, type });
   if (events.length > MAX_EVENTS_PER_PAIR) events.splice(0, events.length - MAX_EVENTS_PER_PAIR);
   store.engagement.set(k, events);
 }
@@ -80,6 +89,19 @@ export function getEngagement(store, a, b, now = Date.now()) {
   if (!events) return 0;
   let total = 0;
   for (const { w, at } of events) total += w * 2 ** (-(now - at) / HALF_LIFE_MS);
+  return total;
+}
+
+/* decayed count of one interaction type on the a→b edge: a fresh event counts
+   ~1, one from a half-life ago counts ~0.5. Lets a skip fade instead of
+   banishing someone forever. */
+export function decayedTypeCount(store, a, b, type, now = Date.now()) {
+  const events = store.engagement.get(edgeKey(a, b));
+  if (!events) return 0;
+  let total = 0;
+  for (const event of events) {
+    if (event.type === type) total += 2 ** (-(now - event.at) / HALF_LIFE_MS);
+  }
   return total;
 }
 
