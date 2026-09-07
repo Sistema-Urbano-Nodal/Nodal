@@ -1,0 +1,67 @@
+{
+  "environment": "local HTTP / disposable file-backed SQLite",
+  "timestamp": "2026-09-07T20:38:16.499Z",
+  "users": 200,
+  "requests": 1000,
+  "errors": 0,
+  "elapsedMs": 574,
+  "persisted": {
+    "enrollments": 200,
+    "intakes": 200,
+    "posts": 200,
+    "feedback": 200
+  },
+  "results": [
+    {
+      "phase": "enrollment",
+      "requests": 200,
+      "statuses": {
+        "200": 200
+      },
+      "p50": 94.45,
+      "p95": 140.98,
+      "p99": 144.26
+    },
+    {
+      "phase": "intake",
+      "requests": 200,
+      "statuses": {
+        "200": 200
+      },
+      "p50": 89.81,
+      "p95": 90.79,
+      "p99": 90.98
+    },
+    {
+      "phase": "module",
+      "requests": 200,
+      "statuses": {
+        "200": 200
+      },
+      "p50": 46.95,
+      "p95": 47.71,
+      "p99": 47.78
+    },
+    {
+      "phase": "assignment",
+      "requests": 200,
+      "statuses": {
+        "201": 200
+      },
+      "p50": 100.23,
+      "p95": 148.38,
+      "p99": 152.63
+    },
+    {
+      "phase": "feedback",
+      "requests": 200,
+      "statuses": {
+        "201": 200
+      },
+      "p50": 92.79,
+      "p95": 94.38,
+      "p99": 94.46
+    }
+  ],
+  "limitations": "Five bounded bursts with pre-created sessions. Does not test Supabase, Vercel, email signup, attachments, or sustained real-world concurrency."
+}

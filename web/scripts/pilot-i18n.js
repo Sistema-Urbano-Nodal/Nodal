@@ -1,6 +1,7 @@
 (() => {
 'use strict';
 const rows = {
+ requestTimeout:['The request took too long. Check your connection and the latest saved information before trying again.','La solicitud tardó demasiado. Revisa tu conexión y la información guardada antes de volver a intentarlo.','A solicitação demorou demais. Confira sua conexão e as informações salvas antes de tentar novamente.'],
  participantListRefreshError:['The change was saved, but the participant list could not be refreshed. Reopen this course to see the latest list.','El cambio se guardó, pero no se pudo actualizar la lista de participantes. Abre de nuevo este curso para ver la lista actual.','A alteração foi salva, mas não foi possível atualizar a lista de participantes. Abra este curso novamente para ver a lista atual.'],
  addParticipant:["Add participant", "Agregar participante", "Adicionar participante"],
  participantEmail:["Participant email", "Correo del participante", "E-mail do participante"],

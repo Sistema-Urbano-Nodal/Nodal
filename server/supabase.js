@@ -150,7 +150,7 @@ function createRestClient({ url, key, fetchImpl = fetch, authToken = key }) {
       finalHeaders['Content-Type'] = 'application/json';
       payload = JSON.stringify(body);
     }
-    const res = await fetchImpl(fullUrl, { method, headers: finalHeaders, body: payload, ...(signal ? { signal } : {}) });
+    const res = await fetchImpl(fullUrl, { method, headers: finalHeaders, body: payload, signal: signal || AbortSignal.timeout(15000) });
     const text = await res.text();
     const json = text ? JSON.parse(text) : null;
     if (!res.ok) throw responseError(res.status, json, 'Supabase request failed');
@@ -613,9 +613,16 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     return toApiUserFromSupabase(await bundleForUser(userId));
   }
 
-  async function existingOrEnsureProfile(authUser) {
+  async function existingOrEnsureProfile(authUser, { authorizationOnly = false } = {}) {
     const userId = authUser?.id;
     if (!userId) throw Object.assign(new Error('Supabase auth did not return a user'), { status: 502 });
+    if (authorizationOnly) {
+      // Course/HTML authorization needs the current role and account status,
+      // not the member's full onboarding answers. Never cache these decisions.
+      const profile = await first(admin.rest('profiles', { query: profileQuery(userId) }));
+      if (profile) return toApiUserFromSupabase({ profile });
+      return ensureProfile(authUser);
+    }
     const bundle = await bundleForUser(userId);
     if (bundle.profile && bundle.preferences) return toApiUserFromSupabase(bundle);
     return ensureProfile(authUser);
@@ -857,7 +864,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       }
       return { status: 200, passwordChanged: true, cookies: clear };
     },
-    async resolveSession(req) {
+    async resolveSession(req, { authorizationOnly = false } = {}) {
       const cookies = parseCookies(req.headers.cookie);
       const accessToken = cookies.get(ACCESS_COOKIE);
       const refreshToken = cookies.get(REFRESH_COOKIE);
@@ -865,7 +872,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         try {
           const authUser = await authUserFromToken(accessToken);
           if (!authUser?.id) return { user: null, cookies: clearSessionCookies(env) };
-          const user = await existingOrEnsureProfile(authUser);
+          const user = await existingOrEnsureProfile(authUser, { authorizationOnly });
           /* A suspended member's token is still valid as far as the auth
              provider is concerned, so this is the only thing standing between
              them and every authenticated route. Their cookies go too, or the
@@ -873,6 +880,9 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
           if (!isActive(user)) return { user: null, cookies: clearSessionCookies(env) };
           return { user, cookies: [] };
         } catch (err) {
+          if (!err?.status || err.status >= 500 || err.status === 429) {
+            throw Object.assign(new Error('Session service temporarily unavailable'), { status: 503, expose: false });
+          }
           if (!refreshToken || ![401, 403].includes(err?.status)) {
             return { user: null, cookies: err?.status === 401 ? clearSessionCookies(env) : [] };
           }
@@ -887,11 +897,14 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         });
         const authUser = session?.user || await authUserFromToken(session?.access_token);
         if (!authUser?.id) return { user: null, cookies: clearSessionCookies(env) };
-        const user = await existingOrEnsureProfile(authUser);
+        const user = await existingOrEnsureProfile(authUser, { authorizationOnly });
         // a refresh must not hand a suspended member a fresh pair of cookies
         if (!isActive(user)) return { user: null, cookies: clearSessionCookies(env) };
         return { user, cookies: sessionCookies(session, env) };
-      } catch {
+      } catch (err) {
+        if (!err?.status || err.status >= 500 || err.status === 429) {
+          throw Object.assign(new Error('Session service temporarily unavailable'), { status: 503, expose: false });
+        }
         return { user: null, cookies: clearSessionCookies(env) };
       }
     },
@@ -939,7 +952,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         throw err;
       }
       const authUser = data.user;
-      const user = await ensureProfile(authUser);
+      const user = await existingOrEnsureProfile(authUser);
       /* Same answer a wrong password gets, and the same one the sqlite backend
          gives: telling a caller that this particular address is suspended would
          confirm the account exists to anyone who guessed it. */

@@ -1237,6 +1237,31 @@ test('malformed metadata and backslash next values fail safely', async (t) => {
   assert.equal(malformedHost.status, 200);
 });
 
+test('signing in from a course link preserves the selected course, session and discussion', async (t) => {
+  const base = await bootDb(t);
+  const destination = '/course.html?id=72e3cc56-a506-4a1b-97b5-9333e8d283ca&module=9a3e58ed-44b1-4706-8791-f375135d0661&view=discussion';
+  const page = await fetch(base + destination, { redirect: 'manual' });
+  assert.equal(page.status, 302);
+  const login = page.headers.get('location');
+  assert.equal(new URL(login, base).searchParams.get('next'), destination);
+  const signup = await postJson(base, '/api/auth/signup', { fullName: 'Course Visitor', email: 'course-visitor@example.test', password: 'course-visitor-test' });
+  const signedIn = await fetch(base + login, { redirect: 'manual', headers: { Cookie: cookiePair(signup) } });
+  assert.equal(signedIn.headers.get('location'), destination);
+});
+
+test('public authentication and health do not wait for a stale existing session', async (t) => {
+  const repository = {
+    resolveSession() { throw new Error('Existing session provider is stalled'); },
+    login: async () => ({ status: 200, user: { id: 'signed-in' }, cookies: [] }),
+  };
+  const base = await bootApp(t, createApp({ repository }));
+  const health = await fetch(base + '/api/health', { headers: { Cookie: 'nodal_session=stale' } });
+  assert.equal(health.status, 200);
+  const login = await postJson(base, '/api/auth/login', { email: 'member@example.test', password: 'test-password' }, { Cookie: 'nodal_session=stale', Origin: base });
+  assert.equal(login.status, 200);
+  assert.equal((await login.json()).user.id, 'signed-in');
+});
+
 test('static serving: pages resolve, traversal does not', async (t) => {
   const base = await boot(t);
   const index = await fetch(`${base}/`);

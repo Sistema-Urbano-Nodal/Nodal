@@ -1,0 +1,77 @@
+{
+  "timestamp": "2026-09-07T20:48:12.355274+00:00",
+  "revision": "5689b206",
+  "environment": "production; serial HTTP probes from developer machine",
+  "limitations": "Public HTML/static files and invalid-session auth check only. Not authenticated page-load times or a production concurrency test.",
+  "results": [
+    {
+      "path": "/login.html",
+      "samples": [
+        {
+          "status": 200,
+          "ttfbMs": 211.66,
+          "totalMs": 211.85,
+          "bytes": 5284
+        },
+        {
+          "status": 200,
+          "ttfbMs": 147.23,
+          "totalMs": 147.39,
+          "bytes": 5284
+        },
+        {
+          "status": 200,
+          "ttfbMs": 89.61,
+          "totalMs": 89.76,
+          "bytes": 5284
+        }
+      ]
+    },
+    {
+      "path": "/api/auth/state",
+      "samples": [
+        {
+          "status": 200,
+          "ttfbMs": 773.95,
+          "totalMs": 774.15,
+          "bytes": 23
+        },
+        {
+          "status": 200,
+          "ttfbMs": 228.76,
+          "totalMs": 228.96,
+          "bytes": 23
+        },
+        {
+          "status": 200,
+          "ttfbMs": 421.53,
+          "totalMs": 421.94,
+          "bytes": 23
+        }
+      ]
+    },
+    {
+      "path": "/styles.css",
+      "samples": [
+        {
+          "status": 200,
+          "ttfbMs": 188.43,
+          "totalMs": 214.78,
+          "bytes": 59931
+        },
+        {
+          "status": 200,
+          "ttfbMs": 100.92,
+          "totalMs": 129.61,
+          "bytes": 59931
+        },
+        {
+          "status": 200,
+          "ttfbMs": 99.11,
+          "totalMs": 126.89,
+          "bytes": 59931
+        }
+      ]
+    }
+  ]
+}

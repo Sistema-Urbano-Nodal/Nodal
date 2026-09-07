@@ -47,6 +47,9 @@ const STATIC_STYLES = new Set(['auth.css', 'styles.css', 'dashboard.css', 'catal
 const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp']);
 const AUTH_RATE_WINDOW_MS = 5 * 60 * 1000;
 const AUTH_RATE_LIMIT = envInt('AUTH_RATE_LIMIT', 10);
+// A classroom may share one public IP. Keep account guessing strict while
+// bounding aggregate signup/login work independently (1–10,000 per window).
+const AUTH_IP_RATE_LIMIT = Math.min(10000, Math.max(1, Math.floor(envInt('AUTH_IP_RATE_LIMIT', 800))));
 const INTERACTION_RATE_WINDOW_MS = 60 * 1000;
 const INTERACTION_RATE_LIMIT = envInt('INTERACTION_RATE_LIMIT', 60);
 const LINKEDIN_RE = /^https:\/\/(www\.)?linkedin\.com\/(in|company)\/[A-Za-z0-9_-]+/;
@@ -777,6 +780,15 @@ export function createApp({
     return fingerprints.get(graph);
   };
   const authLimiter = createWindowRateLimiter({ windowMs: AUTH_RATE_WINDOW_MS, limit: AUTH_RATE_LIMIT });
+  const authAccountLimiter = createWindowRateLimiter({ windowMs: AUTH_RATE_WINDOW_MS, limit: AUTH_RATE_LIMIT });
+  const authIpLimiter = createWindowRateLimiter({ windowMs: AUTH_RATE_WINDOW_MS, limit: AUTH_IP_RATE_LIMIT });
+  const authAllowed = (limiter, key, res) => {
+    const rate = limiter.take(key);
+    if (rate.ok) return true;
+    send(res, 429, { error: 'too many authentication attempts' }, { 'Retry-After': String(rate.retryAfter) });
+    return false;
+  };
+  const authAccountKey = (action, email) => `${action}:${createHash('sha256').update(email).digest('hex')}`;
   const recoveryEmailLimiter = createWindowRateLimiter({ windowMs: 15 * 60 * 1000, limit: 3 });
   const interactionLimiter = createWindowRateLimiter({ windowMs: INTERACTION_RATE_WINDOW_MS, limit: INTERACTION_RATE_LIMIT });
   // each search walks the whole directory, so it is bounded per member
@@ -840,8 +852,18 @@ export function createApp({
       const pageNeedsSession = !isApiRequest
         && canonical
         && (PRIVATE_PAGES.has(canonical) || canonical === '/login.html');
-      const session = useDb && (isApiRequest || pageNeedsSession)
-        ? await repository.resolveSession(req)
+      // These endpoints authenticate their own submitted credentials/proof.
+      // A stale browser session must not delay sign-in or password recovery.
+      const authenticatesRequest = req.method === 'POST' && [
+        '/api/auth/login', '/api/auth/signup', '/api/auth/logout',
+        '/api/auth/recovery/request', '/api/auth/recovery/complete',
+        '/api/auth/course-invitation/complete',
+      ].includes(pathname);
+      const needsSession = pageNeedsSession || (isApiRequest && !authenticatesRequest && pathname !== '/api/health');
+      const authorizationOnly = pageNeedsSession || pathname === '/api/auth/state'
+        || /^\/api\/(?:courses(?:\/|$)|admin\/courses(?:\/|$)|course-attachments\/|feedback$|admin\/feedback(?:\/|$))/.test(pathname);
+      const session = useDb && needsSession
+        ? await repository.resolveSession(req, { authorizationOnly })
         : { user: null, cookies: [] };
       const sessionUser = session.user;
       const catalogReadIsPrivate = Boolean(sessionUser || req.headers.cookie);
@@ -850,7 +872,7 @@ export function createApp({
       if (!pathname.startsWith('/api/')) {
         if (!canonical) { send(res, 400, { error: 'bad path' }); return; }
         if (useDb && PRIVATE_PAGES.has(canonical) && !sessionUser) {
-          redirect(res, `/login.html?next=${encodeURIComponent(canonical)}`);
+          redirect(res, `/login.html?next=${encodeURIComponent(safeNext(canonical + url.search))}`);
           return;
         }
         if (useDb && ['/admin.html','/teaching.html'].includes(canonical) && (sessionUser?.permission || sessionUser?.role) !== 'admin') {
@@ -1082,18 +1104,16 @@ export function createApp({
 
       if (useDb && req.method === 'POST' && pathname === '/api/auth/signup') {
         if (!sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
-        const rate = authLimiter.take(`signup:${clientIp(req)}`);
-        if (!rate.ok) {
-          send(res, 429, { error: 'too many authentication attempts' }, { 'Retry-After': String(rate.retryAfter) });
-          return;
-        }
+        if (!authAllowed(authIpLimiter, clientIp(req), res)) return;
         const body = await readJsonBody(req);
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { send(res, 400, { error: 'JSON object required' }); return; }
         const fullName = String(body.fullName ?? body.name ?? '').trim();
-        const email = String(body.email ?? '').trim().toLowerCase();
-        const password = String(body.password ?? '');
+        const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+        const password = typeof body.password === 'string' ? body.password : '';
         if (fullName.length < 2) { send(res, 400, { error: 'full name is required' }); return; }
-        if (!validateEmail(email)) { send(res, 400, { error: 'valid email is required' }); return; }
+        if (email.length > 254 || !validateEmail(email)) { send(res, 400, { error: 'valid email is required' }); return; }
         if (!validatePassword(password)) { send(res, 400, { error: 'password must be at least 8 characters' }); return; }
+        if (!authAllowed(authAccountLimiter, authAccountKey('signup', email), res)) return;
         let result;
         try {
           result = await repository.signup({ fullName, email, password, env: process.env });
@@ -1142,15 +1162,13 @@ export function createApp({
 
       if (useDb && req.method === 'POST' && pathname === '/api/auth/login') {
         if (!sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
-        const rate = authLimiter.take(`login:${clientIp(req)}`);
-        if (!rate.ok) {
-          send(res, 429, { error: 'too many authentication attempts' }, { 'Retry-After': String(rate.retryAfter) });
-          return;
-        }
+        if (!authAllowed(authIpLimiter, clientIp(req), res)) return;
         const body = await readJsonBody(req);
-        const email = String(body.email ?? '').trim().toLowerCase();
-        const password = String(body.password ?? '');
-        if (!validateEmail(email)) { send(res, 401, { error: 'invalid email or password' }); return; }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { send(res, 400, { error: 'JSON object required' }); return; }
+        const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+        const password = typeof body.password === 'string' ? body.password : '';
+        if (email.length > 254 || !validateEmail(email) || !password) { send(res, 401, { error: 'invalid email or password' }); return; }
+        if (!authAllowed(authAccountLimiter, authAccountKey('login', email), res)) return;
         const result = await repository.login({ email, password, env: process.env });
         if (result.error) { send(res, result.status, { error: result.error }); return; }
         send(res, result.status, { user: result.user }, result.cookies?.length ? { 'Set-Cookie': result.cookies } : {});

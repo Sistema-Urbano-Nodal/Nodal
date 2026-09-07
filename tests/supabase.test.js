@@ -289,6 +289,38 @@ test('Supabase session reads an existing profile without initialization writes',
   assert.equal(initializationWrites.length, 0);
 });
 
+test('course authorization avoids onboarding reads while honoring fresh roles and suspensions', async () => {
+  const state = profileState(), calls = [];
+  const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: statefulFetch(state, calls) });
+  const request = { headers: { cookie: 'nodal_session=valid-access' } };
+  const resolve = () => repo.resolveSession(request, { authorizationOnly: true });
+  assert.equal((await resolve()).user.permission, 'admin');
+  assert.equal(calls.length, 2, 'only provider identity and current profile are needed for course authorization');
+  assert.equal(calls.filter(c => c.url.pathname.endsWith('/profiles')).length, 1);
+  state.profile.app_role = 'member';
+  assert.equal((await resolve()).user.permission, 'member');
+  state.profile.account_status = 'disabled';
+  const suspended = await resolve();
+  assert.equal(suspended.user, null);
+  assert.ok(clearsSession(suspended.cookies));
+});
+
+test('signing in an existing member does not write unchanged profile rows', async () => {
+  const state = profileState(), calls = [];
+  const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: statefulFetch(state, calls) });
+  const result = await repo.login({ email: state.profile.email, password: 'test-password' });
+  assert.equal(result.status, 200);
+  assert.equal(result.user.partC.consent, true);
+  assert.equal(calls.filter(c => c.url.pathname.startsWith('/rest/') && c.options.method === 'POST').length, 0);
+});
+
+test('temporary auth outages do not turn valid sessions into signed-out users or revoke refresh cookies', async () => {
+  for (const cookie of ['nodal_session=valid-access', 'nodal_refresh=valid-refresh']) {
+    const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: async () => response({ message: 'temporarily unavailable' }, 503) });
+    await assert.rejects(repo.resolveSession({ headers: { cookie } }), error => error.status === 503);
+  }
+});
+
 test('Supabase session repairs missing preferences without overwriting profile data', async () => {
   const state = profileState();
   state.preferences = null;

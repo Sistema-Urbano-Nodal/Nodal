@@ -294,3 +294,34 @@ test('a failed latest navigation cannot activate an earlier late module response
  assert.equal(inputNamed(h.body,'body'),draft);assert.equal(draft.value,'Current session draft');assert.doesNotMatch(content(h.body),/Late stale session/);assert.equal(h.requests.some(r=>r.path.includes('/m2/posts')),false);assert.equal(descendants(h.body).find(n=>n.dataset.module==='m1')['aria-current'],'step');
  await clock.tick();assert.match(h.requests.at(-1).path,/\/m1\/posts\?kind=discussion&latest=1/);
 });
+
+test('course directory uses its authenticated role flag without a redundant profile request',async()=>{
+ for(const isAdmin of [false,true]){const h=harness(()=>({courses:[course],isAdmin}));h.run('courses');await flush();assert.equal(h.ids.teachingLink.hidden,!isAdmin);assert.deepEqual(h.requests.map(r=>r.path),['/api/courses']);}
+});
+test('reopening the visible module preserves discussion drafts and avoids duplicate reads and activity events',async()=>{
+ const h=harness(learningFixture,{page:'course',search:'?id=c1'});h.run('courses');await flush();const draft=inputNamed(h.body,'body');draft.value='Do not discard this question';const requests=h.requests.length;await descendants(h.body).find(n=>n.dataset.module==='m1').listeners.click();await flush();assert.equal(inputNamed(h.body,'body'),draft);assert.equal(draft.value,'Do not discard this question');assert.equal(h.requests.length,requests);
+});
+test('feedback blocks repeated pending submissions and recovers after a failed save',async()=>{
+ const pending=[];const h=harness(()=>new Promise(resolve=>pending.push(resolve)));const box=h.ctx.window.nodalPilot.feedback('course',{courseId:'c1'}),form=descendants(box).find(n=>n.tagName==='form');h.body.append(box);descendants(form).find(n=>n.type==='radio'&&n.value==='4').checked=true;
+ const first=form.listeners.submit({preventDefault(){},stopPropagation(){}}),second=form.listeners.submit({preventDefault(){},stopPropagation(){}});
+ try{assert.equal(h.requests.length,1);assert.equal(form['aria-busy'],'true');}finally{pending.forEach(resolve=>resolve({status:503,data:{error:'unavailable'}}));await Promise.all([first,second]);}
+ assert.equal(form['aria-busy'],'false');assert.equal(findKey(form,'sendFeedback').disabled,false);assert.equal(descendants(form).find(n=>n.type==='radio'&&n.value==='4').checked,true);
+});
+test('intake prevents duplicate writes while pending and keeps every field after a failure',async()=>{
+ const pending=[];const h=harness((path,opts)=>opts?.method==='PUT'?new Promise(resolve=>pending.push(resolve)):{course,modules:[],enrollment:{},intake:null,isAdmin:false},{page:'course',search:'?id=c1'});h.run('courses');await flush();const form=descendants(h.body).find(n=>n.tagName==='form');for(const field of descendants(form).filter(n=>n.name))field.value='My intake answer';const first=form.listeners.submit({preventDefault(){}}),second=form.listeners.submit({preventDefault(){}});
+ try{assert.equal(h.requests.filter(r=>r.method==='PUT').length,1);assert.equal(form['aria-busy'],'true');}finally{pending.forEach(resolve=>resolve({status:503,data:{error:'unavailable'}}));await Promise.all([first,second]);}
+ assert.equal(form['aria-busy'],'false');assert.equal(inputNamed(form,'expectations').value,'My intake answer');assert.equal(findKey(form,'saveIntake').disabled,false);
+});
+test('discussion composer prevents duplicate writes and preserves the draft on failure',async()=>{
+ const pending=[];const h=harness((path,opts)=>opts?.method==='POST'&&path.endsWith('/posts')?new Promise(resolve=>pending.push(resolve)):learningFixture(path,opts),{page:'course',search:'?id=c1'});h.run('courses');await flush();const form=descendants(h.body).find(n=>n.tagName==='form'&&inputNamed(n,'body'));inputNamed(form,'body').value='A deliberate contribution';const first=form.listeners.submit({preventDefault(){}}),second=form.listeners.submit({preventDefault(){}});
+ try{assert.equal(h.requests.filter(r=>r.method==='POST'&&r.path.endsWith('/posts')).length,1);assert.equal(form['aria-busy'],'true');}finally{pending.forEach(resolve=>resolve({status:503,data:{error:'unavailable'}}));await Promise.all([first,second]);}
+ assert.equal(form['aria-busy'],'false');assert.equal(inputNamed(form,'body').value,'A deliberate contribution');assert.equal(findKey(form,'post').disabled,false);
+});
+test('stalled requests have a bounded timeout and return localizable errors without overriding caller cancellation',async()=>{
+ let timeout;const h=harness(()=>{throw Object.assign(new Error('sensitive network detail'),{name:'TimeoutError'});});h.ctx.AbortSignal={timeout:ms=>{timeout=ms;return{timeout:ms};}};
+ const error=await h.ctx.window.nodalPilot.api('/api/courses/c1').catch(e=>e),node=new Node();h.body.append(node);h.ctx.window.nodalPilot.status(node,error);assert.equal(timeout,45000);assert.match(content(node),/request took too long/);assert.doesNotMatch(content(node),/sensitive/);h.lang('pt');assert.match(content(node),/solicitação demorou/);
+ const controlled={aborted:false};await h.ctx.window.nodalPilot.api('/api/courses/c1',undefined,undefined,{signal:controlled}).catch(()=>{});assert.equal(h.requests.at(-1).signal,controlled);
+});
+test('clicking the current session cancels a pending navigation without refetching or accepting its late response',async()=>{
+ let finish;const h=harness((path,opts)=>path.endsWith('/modules/m2')?new Promise(resolve=>{finish=resolve;}):path==='/api/courses/c1'?{...learningFixture(path,opts),modules:[{id:'m1',title:'Current'},{id:'m2',title:'Next'}]}:learningFixture(path,opts),{page:'course',search:'?id=c1'});const clock=fakeClock(h);h.run('courses');await flush();const draft=inputNamed(h.body,'body');draft.value='Keep this thought';const pending=descendants(h.body).find(n=>n.dataset.module==='m2').listeners.click();await flush();const count=h.requests.length;await descendants(h.body).find(n=>n.dataset.module==='m1').listeners.click();assert.equal(clock.timers.size,1);assert.equal(h.requests.length,count);finish({module:{id:'m2',title:'Late next module',resources:[]}});await pending;assert.equal(inputNamed(h.body,'body'),draft);assert.equal(draft.value,'Keep this thought');assert.doesNotMatch(content(h.body),/Late next module/);
+});

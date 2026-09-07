@@ -1,0 +1,68 @@
+{
+  "environment": "local HTTP / disposable file-backed SQLite",
+  "timestamp": "2026-09-07T20:37:25.744Z",
+  "users": 200,
+  "requests": 1000,
+  "errors": 201,
+  "elapsedMs": 405,
+  "persisted": {
+    "enrollments": 200,
+    "intakes": 200,
+    "posts": 0,
+    "feedback": 200
+  },
+  "results": [
+    {
+      "phase": "enrollment",
+      "requests": 200,
+      "statuses": {
+        "200": 200
+      },
+      "p50": 87.44,
+      "p95": 118.6,
+      "p99": 120.19
+    },
+    {
+      "phase": "intake",
+      "requests": 200,
+      "statuses": {
+        "200": 200
+      },
+      "p50": 61.84,
+      "p95": 62.93,
+      "p99": 63.05
+    },
+    {
+      "phase": "module",
+      "requests": 200,
+      "statuses": {
+        "200": 200
+      },
+      "p50": 38.21,
+      "p95": 38.86,
+      "p99": 38.94
+    },
+    {
+      "phase": "assignment",
+      "requests": 200,
+      "statuses": {
+        "400": 200
+      },
+      "p50": 52.11,
+      "p95": 79.94,
+      "p99": 81.96
+    },
+    {
+      "phase": "feedback",
+      "requests": 200,
+      "statuses": {
+        "201": 200
+      },
+      "p50": 62.37,
+      "p95": 63.25,
+      "p99": 63.32
+    }
+  ],
+  "limitations": "Five bounded bursts with pre-created sessions. Does not test Supabase, Vercel, email signup, attachments, or sustained real-world concurrency.",
+  "diagnosis": "The original harness selected the first module, now the automatic general discussion. Its 200 assignment requests were correctly rejected with400. This was a harness target-selection failure, not a capacity failure. The harness now explicitly selects the first published session; see course-load.json for the valid rerun."
+}

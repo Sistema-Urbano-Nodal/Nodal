@@ -142,7 +142,7 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
   };
   return {
     kind:'supabase',
-    async getMembers(ids) { if(!ids.length)return [];return (await readPage('profiles',{id:`in.(${ids.join(',')})`,select:'id,full_name,email',order:'id.asc',limit:500})).map(row=>({id:row.id,name:row.full_name,email:row.email})); },
+    async getMembers(ids) { if(!ids.length)return [];return (await readPage('profiles',{id:`in.(${ids.join(',')})`,select:'id,full_name,email',order:'id.asc',limit:Math.min(500,new Set(ids).size)})).map(row=>({id:row.id,name:row.full_name,email:row.email})); },
     async count(name,filters={}) {
       const info=tableInfo(name),query=queryFor(info,filters,{limit:1});query.select='id';delete query.order;
       const credentials=supa.env;

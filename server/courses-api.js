@@ -29,15 +29,21 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     let rows=[],after=null;
     while(rows.length<max) {
       const order=name==='intakes'?['id']:['createdAt','id'];
-      const page=await store.find(name,filters,{limit:Math.min(500,max-rows.length),order,...(after?{after}:{})});
-      rows.push(...page);if(!page.length)break;after={...(name==='intakes'?{}:{createdAt:page.at(-1).createdAt}),id:page.at(-1).id};
+      const limit=Math.min(500,max-rows.length);
+      const page=await store.find(name,filters,{limit,order,...(after?{after}:{})});
+      // The store already fills logical pages across smaller provider row caps.
+      rows.push(...page);if(page.length<limit)break;after={...(name==='intakes'?{}:{createdAt:page.at(-1).createdAt}),id:page.at(-1).id};
     }
     return rows;
   }
   async function courseAccess(id,user,{content=false}={}) {
-    const course=await findOne('courses',{id:identifier(id)});
+    identifier(id);
+    // Independent reads share only this request; always validate access before
+    // returning either content or the current viewer's private intake.
+    const [course,enrollment,intake]=await Promise.all([
+      findOne('courses',{id}),findOne('enrollments',{courseId:id,userId:user.id}),findOne('intakes',{courseId:id,userId:user.id}),
+    ]);
     if(!course || (!isStaff(user) && course.status!=='published'))fail('course unavailable',404);
-    const [enrollment,intake]=await Promise.all([findOne('enrollments',{courseId:id,userId:user.id}),findOne('intakes',{courseId:id,userId:user.id})]);
     if(content && !isStaff(user) && (!enrollment || !intake))fail('enroll and complete the intake before opening modules',403);
     return {course,enrollment:enrollment?{...enrollment,intakeCompleted:Boolean(intake)}:null,intake:intake?.answers??null};
   }
@@ -114,7 +120,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     }
     const root=adminPath?'/api/admin/courses':'/api/courses';
     if(path===root) {
-      if(req.method==='GET') { send(res,200,{courses:await store.find('courses',adminPath?{}:{status:'published'},{limit:100})});return true; }
+      if(req.method==='GET') { send(res,200,{courses:await store.find('courses',adminPath?{}:{status:'published'},{limit:100}),isAdmin:isStaff(user)});return true; }
       if(adminPath&&req.method==='POST') {
         const course=await store.insert('courses',{id:newId(),...normalizeCourse(await bodyJson(req)),version:1,createdAt:now(),updatedAt:now()});
         send(res,201,{course});return true;

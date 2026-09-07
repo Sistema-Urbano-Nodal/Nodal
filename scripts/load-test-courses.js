@@ -16,7 +16,8 @@ const db=createDatabase({filename:join(dir,'load.sqlite')}),store=createCourseSt
 const server=createApp({db,pilotMode:true});
 const percentile=(values,p)=>Math.round([...values].sort((a,b)=>a-b)[Math.min(values.length-1,Math.floor(values.length*p))]*100)/100;
 try{
-  const course=await setupCoursePilot(store),module=(await store.find('modules',{courseId:course.id}))[0];
+  const course=await setupCoursePilot(store),module=(await store.find('modules',{courseId:course.id,kind:'session',status:'published'},{order:['position','id'],limit:1}))[0];
+  if(!module)throw new Error('Load test requires a published session for assignments');
   const cookies=Array.from({length:users},(_,i)=>createSession(db,createUser(db,{fullName:`Load participant ${i}`,email:`load-${i}@example.test`,passwordHash:'unused'}).id).cookie.split(';')[0]);
   server.listen(0,'127.0.0.1');await once(server,'listening');
   const base=`http://127.0.0.1:${server.address().port}`,coursePath=`/api/courses/${course.id}`,modulePath=coursePath+`/modules/${module.id}`;
