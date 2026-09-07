@@ -1,5 +1,13 @@
 # Course pilot validation — September 5, 2026
 
+## Participant management — September 7, 2026
+
+- Build passed with **438 tests**, zero failures/skips. Coverage includes admin and same-origin boundaries, exact email ownership, invitation proof type, duplicate enrollments, concurrent send reservations, failed resends retaining previous valid links, partial password/setup outcomes, token removal from browser history, three-language UI and preserving unsaved course/module drafts.
+- Browser checks used an isolated in-memory SQLite app and disposable admin/student identities. Adding a student persisted an enrollment and left intake incomplete. The production course remains published with enrollment open; manual additions do not replace self-enrollment.
+- Invitation migration applied to Supabase as `20260907195013`. Live SQL verified RLS enabled, anonymous SELECT denied, member INSERT denied, and server CRUD available. A rolled-back transaction verified final Auth account deletion erases a late invitation with no saved target user ID.
+- Supabase security advisors reported the expected informational no-client-policy entries for server-only course tables. The existing [leaked-password-protection warning](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection) remains; this change does not alter paid-plan settings.
+- Native invitation authentication is covered with provider-contract tests. A real recipient's email delivery and complete invitation-to-password journey are separate acceptance checks; no invitation was sent to a staff member during automated testing.
+
 ## Access and discussions follow-up — September 7, 2026
 
 - Final reviewed build: **392 tests passed**, zero failures/skips; dependency audit reported zero vulnerabilities. Includes regression coverage for recovery-cookie renewal and retaining a working discussion/draft after a failed module navigation.

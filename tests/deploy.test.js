@@ -434,6 +434,12 @@ test('every translation key a script asks for resolves in all three languages', 
   runInNewContext(readFileSync(path.join(ROOT,'web/scripts/pilot-i18n.js'),'utf8'),pilotContext);
   const pilotRows=pilotContext.window.pilotI18n.rows;
   for(const [key,values]of Object.entries(pilotRows))assert.ok(values.length===3&&values.every(v=>typeof v==='string'&&v.trim()),`pilot key ${key} must have all three languages`);
+  const invitationContext={window:{},document:{documentElement:{},querySelectorAll:()=>[],querySelector:()=>null},localStorage:{getItem:()=>null}};
+  runInNewContext(readFileSync(path.join(ROOT,'web/scripts/invitation-i18n.js'),'utf8'),invitationContext);
+  const invitationRows=invitationContext.window.nodalInvitationI18n.rows;
+  for(const [key,values]of Object.entries(invitationRows))assert.ok(values.length===3&&values.every(v=>typeof v==='string'&&v.trim()),`invitation key ${key} must have all three languages`);
+  const invitationMarkup=readFileSync(path.join(ROOT,'web/pages/accept-invitation.html'),'utf8');
+  for(const match of invitationMarkup.matchAll(/data-invitation-text="([^"]+)"/g))assert.ok(invitationRows[match[1]],`invitation markup key ${match[1]} must resolve`);
   /* A key that only ever appears as data-i18n takes its English from the page
      itself, so it needs no DASH_EN entry — and that is exactly what used to
      hide it from this check. Absent from ES or PT it does not fail loudly:
@@ -447,6 +453,10 @@ test('every translation key a script asks for resolves in all three languages', 
     const js = readFileSync(path.join(ROOT, 'web', 'scripts', file), 'utf8');
     for (const m of js.matchAll(/\bt\(\s*'([^']+)'/g)) {
       const key = m[1];
+      if(['invitation-i18n.js','accept-invitation.js'].includes(file)){
+        if(!invitationRows[key])missing.push(`${file}: '${key}' is missing from invitation translations`);
+        continue;
+      }
       if(['courses.js','teaching.js','pilot.js'].includes(file)){
         if(!pilotRows[key])missing.push(`${file}: '${key}' is missing from pilot translations`);
         continue;

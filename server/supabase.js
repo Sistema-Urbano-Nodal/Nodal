@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { parseCookies, sessionCookie, validatePassword } from './auth.js';
+import { parseCookies, sessionCookie, validateEmail, validatePassword } from './auth.js';
 import { defaultProfilePreferences } from './domain.js';
 import { recordInteraction } from './store.js';
 import {
@@ -489,6 +489,26 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
   const clients = createSupabaseClients({ env, fetchImpl });
   const { admin, browser } = clients;
 
+  const courseEmail = value => typeof value === 'string' ? value.trim().toLowerCase() : '';
+  const courseUserId = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  const confirmedCourseUser = user => Boolean(user?.email_confirmed_at && Number.isFinite(Date.parse(user.email_confirmed_at))) && user?.is_anonymous !== true;
+  const bannedCourseUser = user => Date.parse(user?.banned_until || '') > Date.now();
+  const courseAccountConflict = () => Object.assign(new Error('Account could not be verified. Ask the participant to sign in or contact NODAL.'), { status: 409 });
+  function checkedCourseEmail(value) {
+    const email = courseEmail(value);
+    if (!validateEmail(email) || email.length > 254) throw Object.assign(new Error('A valid email is required.'), { status: 400 });
+    return email;
+  }
+  function courseInvitationRedirect() {
+    try {
+      const url = new URL(env.PUBLIC_BASE_URL || env.NEXT_PUBLIC_APP_URL || '');
+      if (url.username || url.password || (url.protocol !== 'https:' && !(env.NODE_ENV !== 'production' && url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname)))) throw new Error('invalid origin');
+      return url.origin + '/accept-invitation.html';
+    } catch {
+      throw Object.assign(new Error('Invitation delivery is unavailable.'), { status: 503 });
+    }
+  }
+
   // Recovery has its own cookie, never a NODAL login session. Standard Supabase
   // email links support PKCE without changing the provider's email template.
   const recoveryCookie = (value, maxAge = 3600) => `nodal_recovery=${value}; HttpOnly; Path=/api/auth/recovery; Max-Age=${maxAge}; SameSite=Lax${env.COOKIE_SECURE === 'true' || env.NODE_ENV === 'production' ? '; Secure' : ''}`;
@@ -706,6 +726,85 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
 
   return {
     kind: 'supabase',
+    async findCourseAccount(value) {
+      const email = checkedCourseEmail(value);
+      // Anchored, escaped regex gives case-insensitive equality. ILIKE treats
+      // '*', '_' and '%' as wildcards, even when they belong to an email address.
+      const profiles = await admin.rest('profiles', {
+        query: { email: `imatch.^${email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, select: 'id,email,full_name,preferred_name,account_status', limit: 2 },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!profiles?.length) return null;
+      if (profiles.length !== 1 || courseEmail(profiles[0].email) !== email || !courseUserId(profiles[0].id)) throw courseAccountConflict();
+      const profile = profiles[0];
+      let data;
+      try { data = await admin.auth(`/admin/users/${profile.id}`, { signal: AbortSignal.timeout(15000) }); }
+      catch (error) { if (error?.status === 404) throw courseAccountConflict(); throw error; }
+      const authUser = data?.user || data;
+      if (authUser?.id !== profile.id || courseEmail(authUser.email) !== email) throw courseAccountConflict();
+      return { id: profile.id, email, name: profileName(profile), confirmed: confirmedCourseUser(authUser), active: cleanAccountStatus(profile.account_status) === 'active' && !bannedCourseUser(authUser) };
+    },
+    async sendCourseInvitation({ email: value }) {
+      const email = checkedCourseEmail(value);
+      const data = await admin.auth('/invite', {
+        method: 'POST', query: { redirect_to: courseInvitationRedirect() }, body: { email }, signal: AbortSignal.timeout(15000),
+      });
+      const authUser = data?.user || data;
+      if (!courseUserId(authUser?.id) || courseEmail(authUser.email) !== email) throw courseAccountConflict();
+      return { id: authUser.id, email };
+    },
+    async completeCourseInvitation({ tokenHash, password, fullName, authorize, enroll } = {}) {
+      const name = typeof fullName === 'string' ? fullName.trim() : '';
+      const failure = (code = 'invitation_invalid', status = 400) => ({ status, code, cookies: clearSessionCookies(env) });
+      if (typeof tokenHash !== 'string' || !/^[A-Za-z0-9_-]{32,512}$/.test(tokenHash)
+        || !validatePassword(password) || name.length < 2 || name.length > 120 || /[\u0000-\u001f\u007f]/.test(name)
+        || typeof authorize !== 'function' || typeof enroll !== 'function') return { status: 400, code: 'invitation_invalid', cookies: [] };
+      let session;
+      try {
+        // The invite-only email template sends its one-time hash to the setup
+        // page. Neither browser bearer tokens nor user IDs are accepted here.
+        session = await browser.auth('/verify', {
+          method: 'POST', body: { type: 'invite', token_hash: tokenHash }, signal: AbortSignal.timeout(15000),
+        });
+      } catch (error) {
+        return failure(error?.status === 429 ? 'invitation_rate' : error?.status >= 400 && error?.status < 500 ? 'invitation_invalid' : 'invitation_unavailable', error?.status === 429 ? 429 : error?.status >= 400 && error?.status < 500 ? 400 : 503);
+      }
+      const discard = async (scope = 'local') => {
+        if (!session?.access_token) return false;
+        try { await browser.auth('/logout', { method: 'POST', query: { scope }, auth: session.access_token, signal: AbortSignal.timeout(5000) }); return true; }
+        catch { return false; }
+      };
+      const authUser = session?.user;
+      if (!session?.access_token || !courseUserId(authUser?.id) || !confirmedCourseUser(authUser) || bannedCourseUser(authUser)
+        || !validateEmail(courseEmail(authUser?.email)) || courseEmail(authUser?.email).length > 254) {
+        await discard(); return failure();
+      }
+      try {
+        // profiles.email alone is not proof of email ownership. Both identity
+        // and pending course invitation must match the provider's verified user.
+        const user = await ensureProfile(authUser, name);
+        if (!isActive(user) || user.id !== authUser.id || courseEmail(user.email) !== courseEmail(authUser.email)
+          || await authorize(authUser) !== true) { await discard(); return failure('invitation_invalid', 403); }
+      } catch { await discard(); return failure('invitation_unavailable', 503); }
+      try {
+        // A previously unconfirmed signup may already have a password. Always
+        // replace it with the invitee's choice; no administrative password API.
+        await browser.auth('/user', { method: 'PUT', auth: session.access_token, body: { password, data: { full_name: name } }, signal: AbortSignal.timeout(15000) });
+      } catch (error) {
+        await discard();
+        return failure(error?.status >= 400 && error?.status < 500 ? 'invitation_password_rejected' : 'invitation_uncertain', error?.status >= 400 && error?.status < 500 ? 400 : 503);
+      }
+      let courseIds = [], partial = false;
+      try {
+        await admin.rest('profiles', { method: 'PATCH', query: { id: `eq.${authUser.id}` }, body: { full_name: name, preferred_name: name.split(/\s+/)[0] }, signal: AbortSignal.timeout(15000) });
+      } catch { partial = true; }
+      try { courseIds = await enroll(authUser); if (!Array.isArray(courseIds)) { courseIds = []; partial = true; } }
+      catch { partial = true; }
+      // Password setup is complete even if enrollment or revocation fails.
+      // Sign-in is explicit, so no temporary invite session reaches the browser.
+      if (!await discard('global')) partial = true;
+      return { status: 200, passwordChanged: true, courseIds, ...(partial ? { code: 'invitation_partial' } : {}), cookies: clearSessionCookies(env) };
+    },
     async requestPasswordRecovery({ email, req }) {
       // Reuse valid browser state during provider email cooldowns. Rotating it
       // on an unsent retry would break the link already in the user's inbox.

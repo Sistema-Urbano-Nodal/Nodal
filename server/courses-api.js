@@ -1,4 +1,5 @@
 import { newId, identifier, fail, normalizeCourse, normalizeModule, normalizeIntake, normalizePost, normalizeFeedback, decodeAttachment, text, csv, INTAKE_FIELDS, decodeCursor, encodeCursor } from './courses-domain.js';
+import {createCourseParticipants} from './course-participants.js';
 
 const now = () => new Date().toISOString();
 const isStaff = user => user?.permission === 'admin';
@@ -22,6 +23,7 @@ function respond(res,status,body,headers={}) {
 }
 
 export function createCourseApi({store,userRepository,sameOrigin,send=respond,rateLimit=()=>true}={}) {
+  const participants=createCourseParticipants({store,userRepository});
   const findOne=async(name,filters)=>(await store.find(name,filters,{limit:1}))[0]??null;
   async function all(name,filters={},max=Infinity) {
     let rows=[],after=null;
@@ -79,6 +81,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     return {
       summary:Object.fromEntries(['enrolled','intakeCompleted','moduleOpens','contentOpens','recordingOpens','assignments','comments'].map((key,i)=>[key,counts[i]])),
       participants,feedback:await feedbackForStaff(feedback),events,posts:livePosts,
+      invitations:exportType?[]:await all('invitations',{courseId,acceptedAt:null},500),
       truncated:!exportType&&(counts[0]>500||counts[7]>500),
     };
   }
@@ -135,6 +138,17 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     if(!match){send(res,404,{error:'not found'});return true;}
     const courseId=identifier(match[2]),suffix=match[3];
     const access=await courseAccess(courseId,user);
+    if(adminPath&&['/participants','/invitations'].includes(suffix)&&req.method==='POST') {
+      const input=await bodyJson(req);
+      try {
+        const result=suffix==='/participants'?await participants.add(access.course,input.email):await participants.invite(access.course,input.email,user.id);
+        send(res,result.result==='invited'?202:result.result==='enrolled'?201:200,result);
+      } catch(error) {
+        const code=/^(participant|invitation)_[a-z_]+$/.test(error.code??'')?error.code:'participant_unavailable';
+        send(res,error.status??503,{error:code,code},error.status===429?{'Retry-After':'60'}:{});
+      }
+      return true;
+    }
     if(!suffix&&req.method==='GET') {
       let modules=await store.find('modules',{courseId,...(isStaff(user)?{}:{status:'published'})},{limit:101,order:['position','id']});
       if(!isStaff(user)&&(!access.enrollment||!access.intake)) modules=modules.map(({id,kind,title,position,sessionDate,status,translations={}})=>({

@@ -10,10 +10,23 @@ export async function exportCourseData(store,userId) {
     }
     result[name]=name==='attachments'?rows.map(({storagePath,...attachment})=>attachment):rows;
   }
+  const member=(await store.getMembers([userId]))[0];
+  result.invitations=[];
+  if(member?.email){
+    let after;
+    for(;;){
+      const page=await store.find('invitations',{email:member.email.toLowerCase()},{limit:500,after});
+      result.invitations.push(...page.map(({createdBy,...invitation})=>invitation));
+      if(!page.length)break;after={id:page.at(-1).id,createdAt:page.at(-1).createdAt};
+    }
+  }
   return result;
 }
 
 export async function deleteCourseData(store,userId) {
+  const member=(await store.getMembers([userId]))[0];
+  if(member?.email)await store.remove('invitations',{email:member.email.toLowerCase()});
+  await store.remove('invitations',{userId});
   // Official materials are course-owned (purpose=material, userId=null) from
   // upload time. Staff account erasure retains them; private post files still
   // belong to the person and must be removed before deleting the account.

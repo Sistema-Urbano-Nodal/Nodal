@@ -169,10 +169,59 @@ function responseView(records,courseId){
   section.append(heading,controls,results,tr('p','limitNote','pilot-data-note'));render();return section;
 }
 
-function participantView(data,id){
+function participantView(data,id,version,notice,onRefresh){
   const section=el('section'),heading=el('div','pilot-section-heading');
   heading.append(tr('h2','participants'),csvLink(id,'participants','downloadParticipants'));
   section.append(heading);
+  const add=el('details','pilot-participant-add');add.append(tr('summary','addParticipant'));
+  const form=el('form','pilot-form pilot-participant-form'),email=field('participantEmail','','email');
+  email.input.name='email';email.input.required=true;email.input.maxLength=254;email.input.autocomplete='email';email.input.setAttribute('autocapitalize','none');email.input.spellcheck=false;
+  const hint=tr('p','addParticipantHint','pilot-data-note');hint.id='participant-add-hint';email.input.setAttribute('aria-describedby',hint.id);
+  const submit=button('addParticipant');submit.type='submit';
+  const invite=button('sendInvitation',()=>mutate(true),true);invite.hidden=true;
+  const actions=el('div','pilot-participant-actions');actions.append(submit,invite);
+  const local=el('p','pilot-status');local.setAttribute('role','status');local.setAttribute('aria-live','polite');
+  if(notice)status(local,t(notice));
+  const invitationButtons=[];let busy=false;
+  const current=()=>version===selectionVersion&&selectedId===id;
+  function setBusy(value,sending){
+    busy=value;form.setAttribute('aria-busy',String(value));email.input.disabled=value;submit.disabled=value;invite.disabled=value;
+    for(const b of invitationButtons)b.disabled=value;
+    const target=sending?invite:submit;target.dataset.pilotText=value?(sending?'sendingInvitation':'addingParticipant'):(sending?'sendInvitation':'addParticipant');target.textContent=t(target.dataset.pilotText);
+  }
+  async function mutate(sending=false,address=email.input.value.trim()){
+    if(busy||!current())return;
+    email.input.value=address;
+    if(!address||!email.input.checkValidity()){email.input.reportValidity();return;}
+    setBusy(true,sending);status(local,'');
+    try{
+      const result=await api(endpoint(id)+(sending?'/invitations':'/participants'),{email:address},'POST',{signal:AbortSignal.timeout(45000)});
+      if(!current())return;
+      if(!['invited','enrolled','already_enrolled'].includes(result.result))throw new Error(t(sending?'invitationUncertain':'participantAddUncertain'));
+      const key=result.result==='invited'?'invitationSent':result.result==='already_enrolled'?'participantAlreadyEnrolled':'participantAdded';
+      status(local,t(key));
+      await onRefresh(key);
+    }catch(err){
+      if(!current())return;
+      status(local,err.name==='TimeoutError'||err.name==='AbortError'?new Error(t(sending?'invitationUncertain':'participantAddUncertain')):err);
+      if(!sending&&['participant_not_found','participant_unconfirmed'].includes(err.code))invite.hidden=false;
+    }finally{setBusy(false,sending);}
+  }
+  email.input.addEventListener('input',()=>{invite.hidden=true;status(local,'');});
+  form.addEventListener('submit',event=>{event.preventDefault();return mutate(false);});
+  form.append(hint,email.wrap,actions);add.append(form);section.append(add,local);
+  const invitations=(data.invitations||[]).filter(item=>!item.acceptedAt);
+  if(invitations.length){
+    const pending=el('section','pilot-invitations');pending.append(tr('h3','pendingInvitations'),tr('p','invitationIntakeNote','pilot-data-note'));
+    const list=el('ul','pilot-invitation-list');
+    for(const invitation of invitations){
+      const row=el('li'),details=el('div','pilot-invitation-person');
+      details.append(el('strong',null,invitation.email),tr('span',({sent:'invitationDeliverySent',failed:'invitationDeliveryFailed',uncertain:'invitationDeliveryUncertain',pending:'invitationDeliveryPending'})[invitation.deliveryStatus]||'invitationDeliveryPending','pilot-data-note'));
+      const resend=button('resendInvitation',()=>{email.input.value=invitation.email;add.open=true;return mutate(true,invitation.email);},true);invitationButtons.push(resend);
+      row.append(details,resend);list.append(row);
+    }
+    pending.append(list);section.append(pending);
+  }
   const wrap=el('div','pilot-table-wrap'),table=el('table','pilot-table'),head=el('tr');
   ['participant','enrolled','intakeResponses'].forEach(k=>head.append(tr('th',k)));table.append(head);
   for(const p of data.participants){
@@ -222,7 +271,7 @@ function setupView(course,modules,id,onCourseSaved){
   pane.append(moduleEditor());return pane;
 }
 
-async function showCourse(id,selected='responses'){
+async function showCourse(id,selected='responses',participantNotice=null){
   const version=++selectionVersion;selectedId=id;status(msg,t('loading'));
   try{
     const [{course,modules},data]=await Promise.all([api('/api/courses/'+id),api(endpoint(id)+'/report')]);
@@ -239,7 +288,19 @@ async function showCourse(id,selected='responses'){
       courses=courses.map(item=>item.id===course.id?{...item,...saved}:item);
       await refreshList(false);
     };
-    const panes={responses:responseView(data.feedback,id),participants:participantView(data,id),courseSetup:setupView(course,modules,id,updateCourse)};
+    let activity=activityView(data,id);
+    async function refreshParticipants(notice){
+      try{
+        const fresh=await api(endpoint(id)+'/report');
+        if(version!==selectionVersion||selectedId!==id)return;
+        const previous=panes.participants,next=participantView(fresh,id,version,notice,refreshParticipants);
+        next.id=previous.id;next.setAttribute('role','tabpanel');next.setAttribute('aria-labelledby','staff-tab-participants');next.hidden=previous.hidden;
+        previous.replaceWith(next);panes.participants=next;
+        const nextActivity=activityView(fresh,id);nextActivity.open=activity.open;activity.replaceWith(nextActivity);activity=nextActivity;
+        status(msg,'');
+      }catch(error){if(version===selectionVersion&&selectedId===id)status(msg,new Error(t('participantListRefreshError')));}
+    }
+    const panes={responses:responseView(data.feedback,id),participants:participantView(data,id,version,participantNotice,refreshParticipants),courseSetup:setupView(course,modules,id,updateCourse)};
     const buttons={};
     function activate(key){
       for(const name of Object.keys(panes)){
@@ -258,7 +319,7 @@ async function showCourse(id,selected='responses'){
       });
       buttons[key]=b;tabs.append(b);
     });
-    workspace.append(tabs,...Object.values(panes),activityView(data,id));activate(selected);
+    workspace.append(tabs,...Object.values(panes),activity);activate(selected);
     document.querySelectorAll('#staffCourses button').forEach(b=>{if(b.dataset.course===id)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
     status(msg,'');
   }catch(err){if(version===selectionVersion)status(msg,err);}

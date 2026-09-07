@@ -19,6 +19,8 @@ function tr(tag,key,cls){const n=el(tag,cls,t(key));n.dataset.pilotText=key;retu
 function translate(){document.querySelectorAll('[data-pilot-text]').forEach(n=>{n.textContent=t(n.dataset.pilotText);});document.querySelectorAll('[data-pilot-aria]').forEach(n=>n.setAttribute('aria-label',t(n.dataset.pilotAria)));document.querySelectorAll('[data-pilot-placeholder]').forEach(n=>n.setAttribute('placeholder',t(n.dataset.pilotPlaceholder)));document.querySelectorAll('[data-pilot-dynamic]').forEach(n=>localizedBindings.get(n)?.());if(titleSource)document.title=titleSource()+' · NODAL';}
 function translatedError(key,statusCode,fieldKey){return Object.assign(new Error(t(key)),{translationKey:key,status:statusCode,fieldKey});}
 function requestError(data,statusCode){
+  const codes={participant_not_found:'participantNotFound',participant_unconfirmed:'participantUnconfirmed',participant_unavailable:'participantUnavailable',invitation_unavailable:'invitationUnavailable',invitation_uncertain:'invitationUncertain',invitation_rate:'tooManyRequests',invitation_email:'participantEmailError'};
+  if(codes[data.code])return Object.assign(translatedError(codes[data.code],statusCode),{code:data.code});
   const detail=String(data.error||'');
   if(/enroll and complete/.test(detail))return translatedError('intakeRequired',statusCode);
   if(/enrollment is closed/.test(detail))return translatedError('closed',statusCode);
@@ -33,7 +35,7 @@ function requestError(data,statusCode){
 async function api(path,body,method,options={}){
   let res;
   try{res=await fetch(path,{...(body===undefined?{}:{method:method||'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),...(options.signal?{signal:options.signal}:{})});}
-  catch(error){if(error.name==='AbortError')throw error;throw translatedError('connectionError');}
+  catch(error){if(error.name==='AbortError'||error.name==='TimeoutError')throw error;throw translatedError('connectionError');}
   const data=await res.json().catch(()=>({}));
   if(res.status===401){if(options.redirectOnUnauthorized!==false)location.assign('/login.html?next='+encodeURIComponent(location.pathname+location.search));throw translatedError('signInRequired',401);}
   if(!res.ok)throw requestError(data,res.status);

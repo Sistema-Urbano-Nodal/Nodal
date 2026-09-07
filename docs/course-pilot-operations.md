@@ -12,6 +12,16 @@ Sign in with a NODAL administrator account and open `/teaching.html`. Members ca
 - Staff manage descriptions, objectives, assignment instructions, HTTPS material links, uploaded teaching files, recordings, session dates and publication status in **Course setup**. A version conflict preserves unsaved text and requires a reload before saving again.
 - Staff can reply to assignments and questions, or remove a contribution from the course conversation. A tombstone preserves the structure of replies.
 
+## Adding participants and sending invitations
+
+Open a published course in **Teaching workspace → Participants → Add participant**. An existing, confirmed NODAL account is enrolled by email with student access; no email is sent and its intake remains incomplete. Existing admins keep their global admin role. If the account is missing or unconfirmed, the form offers a separate **Send email invitation** button. Pending invitations show provider delivery status and a resend action. A resend cooldown and conditional database reservation protect against duplicate sends. A rejected resend preserves an older valid invitation.
+
+Self-enrollment stays available whenever **Enrollment open** is enabled. Admin enrollment also works when self-enrollment is closed. Neither path fills in a student's intake or promotes their account.
+
+Supabase custom SMTP delivers invitations. Configure **Authentication → Emails → Invite user** with [the invitation template](templates/course-invitation-email.html). The Site URL must be the canonical production origin; also allow its exact `/accept-invitation.html` callback. This template is specific to NODAL course invitations: create them from the teaching workspace so a pending course record exists. Other authentication templates are independent. The invitation hash stays in the fragment, is stripped immediately, and is verified as `type: invite` by the server only after the invitee submits their name and password. New accounts must sign in after setting their password. Used or expired links need a new invitation; after a partial password change, use sign-in/password recovery and ask an admin to finish enrollment.
+
+Invitation records are accessible only to the server. No auth token or password is stored in them. Account erasure removes invitations by verified account ID and email, including sends whose provider response was lost. The migration is `20260907193825_course_participant_invitations.sql` (production recorded as `20260907195013`). Inbox delivery is separate from provider acceptance and must be verified with a consenting recipient. Local SQLite has direct enrollment but no email provider.
+
 The administrator role is server-managed (`profiles.app_role` in Supabase). Assign it only to verified internal-team accounts through a trusted administrator/database workflow; participant registration cannot grant it. Existing Google Forms responses are not imported or synchronized by this feature.
 
 ## Password recovery

@@ -3,6 +3,7 @@ export const COURSE_TABLES = {
   courses: { table: 'pilot_courses', fields: ['id','title','description','translations','status','startsOn','endsOn','enrollmentOpen','version','createdAt','updatedAt'], json: ['translations'], bool: ['enrollmentOpen'] },
   modules: { table: 'course_modules', fields: ['id','courseId','kind','postsRevision','title','description','objectives','instructions','translations','sessionDate','position','status','resources','version','createdAt','updatedAt'], json: ['resources','translations'] },
   enrollments: { table: 'course_enrollments', fields: ['id','courseId','userId','createdAt'], json: [] },
+  invitations: { table: 'course_invitations', fields: ['id','courseId','email','userId','createdBy','deliveryStatus','acceptedAt','createdAt','updatedAt'], json: [] },
   intakes: { table: 'course_intakes', fields: ['id','courseId','userId','answers','updatedAt'], json: ['answers'] },
   posts: { table: 'course_posts', fields: ['id','courseId','moduleId','userId','authorName','staff','clientId','parentId','kind','threadKind','body','links','attachmentIds','deletedAt','createdAt'], json: ['links','attachmentIds'], bool: ['staff'] },
   attachments: { table: 'course_attachments', fields: ['id','courseId','moduleId','userId','purpose','name','mime','size','storagePath','status','createdAt'], json: [] },
@@ -33,6 +34,18 @@ CREATE TABLE IF NOT EXISTS course_intakes (
  id TEXT PRIMARY KEY, course_id TEXT NOT NULL REFERENCES pilot_courses(id) ON DELETE CASCADE,
  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, answers TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(course_id,user_id)
 );
+CREATE TABLE IF NOT EXISTS course_invitations (
+ id TEXT PRIMARY KEY, course_id TEXT NOT NULL REFERENCES pilot_courses(id) ON DELETE CASCADE,
+ email TEXT NOT NULL CHECK(email=lower(trim(email)) AND length(email) BETWEEN 3 AND 254),
+ user_id TEXT REFERENCES users(id) ON DELETE CASCADE, created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+ delivery_status TEXT NOT NULL CHECK(delivery_status IN ('pending','sent','failed','uncertain')),
+ accepted_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(course_id,email)
+);
+CREATE INDEX IF NOT EXISTS course_invitations_email ON course_invitations(email,accepted_at);
+CREATE INDEX IF NOT EXISTS course_invitations_page ON course_invitations(course_id,created_at,id);
+CREATE TRIGGER IF NOT EXISTS course_invitations_target_erasure BEFORE DELETE ON users BEGIN
+ DELETE FROM course_invitations WHERE user_id=OLD.id OR email=lower(OLD.email);
+END;
 CREATE TABLE IF NOT EXISTS course_attachments (
  id TEXT PRIMARY KEY, course_id TEXT NOT NULL REFERENCES pilot_courses(id) ON DELETE CASCADE,
  module_id TEXT NOT NULL REFERENCES course_modules(id) ON DELETE RESTRICT, user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,

@@ -232,3 +232,19 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-managed-file>.pilot-button{font-size:11px;padding:6px 0;border:0;text-decoration:underline!important;text-underline-offset:3px}
 .pilot-file-library{margin-top:18px}
 @media(max-width:760px){.pilot-course-community{margin-bottom:20px;padding:12px 0}.pilot-module-tabs{gap:22px}.pilot-module-tabs>.pilot-button{font-size:12px}.pilot-discussion>.pilot-section-heading{align-items:center}.pilot-file-manager input[type=file]{max-width:100%;font-size:12px}.pilot-managed-file>a{flex-basis:100%}}
+
+/* Course membership controls use the same quiet rules as the response ledger. */
+.pilot-participant-add{border-top:1px solid #cdd8c8;border-bottom:1px solid #cdd8c8;margin:0 0 24px;padding:16px 0}
+.pilot-participant-add>summary{cursor:pointer;font-size:13px;font-weight:600;color:#3d5c38;min-height:28px;line-height:28px}
+.pilot-participant-form{padding:16px 0 4px;max-width:560px;gap:14px}
+.pilot-participant-form .pilot-data-note{margin:0;line-height:1.7;max-width:65ch}
+.pilot-participant-actions{display:flex;flex-wrap:wrap;gap:10px}
+.pilot-invitations{margin:28px 0 36px}
+.pilot-invitations h3{font-size:14px;font-weight:600;margin:0 0 8px}
+.pilot-invitation-list{list-style:none;margin:16px 0 0;padding:0}
+.pilot-invitation-list>li{display:flex;justify-content:space-between;align-items:center;gap:18px;border-top:1px solid #e1e8dc;padding:14px 0}
+.pilot-invitation-person{display:grid;gap:4px;min-width:0;overflow-wrap:anywhere}
+.pilot-invitation-person strong{font-size:12px;font-weight:550}
+.pilot-invitation-person .pilot-data-note{margin:0}
+.pilot-invitation-list .pilot-button{flex-shrink:0;font-size:11px;padding:8px 10px}
+@media(max-width:520px){.pilot-invitation-list>li{align-items:flex-start;flex-direction:column;gap:10px}.pilot-participant-actions{align-items:stretch;flex-direction:column}.pilot-participant-actions>.pilot-button{width:100%}}

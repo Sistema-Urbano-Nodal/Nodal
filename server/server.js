@@ -12,6 +12,7 @@ import { createCache, MemoryCache } from './cache.js';
 import { createNetworkSnapshots } from './network-cache.js';
 import { createCourseStore } from './courses-repository.js';
 import { createCourseApi } from './courses-api.js';
+import { createCourseParticipants } from './course-participants.js';
 import { exportCourseData, deleteCourseData } from './courses-privacy.js';
 import {
   paymentsConfig, createCheckoutSession, verifyStripeWebhook, CYCLES,
@@ -40,8 +41,8 @@ const ID_RE = /^[a-z0-9-]{1,40}$/;
 const API_INTERACTION_TYPES = new Set(['skip']);
 const MAX_BODY = 32 * 1024;
 const PRIVATE_PAGES = new Set(['/dashboard.html', '/profile.html', '/payments.html', '/admin.html', '/courses.html', '/course.html', '/teaching.html']);
-const STATIC_PAGES = new Set(['index.html', 'login.html', 'reset-password.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html']);
-const STATIC_SCRIPTS = new Set(['admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js']);
+const STATIC_PAGES = new Set(['index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html']);
+const STATIC_SCRIPTS = new Set(['admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js']);
 const STATIC_STYLES = new Set(['auth.css', 'styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css']);
 const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp']);
 const AUTH_RATE_WINDOW_MS = 5 * 60 * 1000;
@@ -735,7 +736,7 @@ async function serveStatic(req, res, canonical) {
     const headers = type.startsWith('text/html') ? htmlSecurityHeaders() : securityHeaders();
     res.writeHead(200, {
       ...headers,
-      ...(canonical === '/reset-password.html' ? { 'Referrer-Policy': 'no-referrer' } : {}),
+      ...(['/reset-password.html','/accept-invitation.html'].includes(canonical) ? { 'Referrer-Policy': 'no-referrer' } : {}),
       'Content-Type': type,
       'Cache-Control': type.startsWith('text/html') ? 'no-store' : STATIC_CACHE_CONTROL,
     });
@@ -817,8 +818,10 @@ export function createApp({
   const courseReadLimiter=createWindowRateLimiter({windowMs:60000,limit:120});
   const courseWriteLimiter=createWindowRateLimiter({windowMs:60000,limit:40});
   const courseUploadLimiter=createWindowRateLimiter({windowMs:60000,limit:6});
+  const courseInvitationLimiter=createWindowRateLimiter({windowMs:60000,limit:6});
+  const courseParticipants=courseStore?createCourseParticipants({store:courseStore,userRepository:repository}):null;
   const courseApi=courseStore?createCourseApi({store:courseStore,userRepository:repository,sameOrigin,send,
-    rateLimit:(req,res,user,pathname)=>throttle(pathname.endsWith('/attachments')?courseUploadLimiter:['GET','HEAD'].includes(req.method)?courseReadLimiter:courseWriteLimiter,res,req,user,'course'),
+    rateLimit:(req,res,user,pathname)=>throttle(pathname.endsWith('/invitations')?courseInvitationLimiter:pathname.endsWith('/attachments')?courseUploadLimiter:['GET','HEAD'].includes(req.method)?courseReadLimiter:courseWriteLimiter,res,req,user,'course'),
   }):null;
   if (repository?.cleanupExpiredSessions) repository.cleanupExpiredSessions();
 
@@ -866,6 +869,18 @@ export function createApp({
       // HEAD too: uptime probes default to it, and a 404 there reads as an outage
       if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/api/health') { send(res, 200, { ok: true }); return; }
       if(courseApi && await courseApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
+
+      if(req.method==='POST'&&pathname==='/api/auth/course-invitation/complete') {
+        if(!sameOrigin(req)){send(res,403,{code:'invitation_forbidden'});return;}
+        const rate=authLimiter.take(`invitation:${clientIp(req)}`);
+        if(!rate.ok){send(res,429,{code:'invitation_rate'},{'Retry-After':String(rate.retryAfter)});return;}
+        if(!courseParticipants||!repository?.completeCourseInvitation){send(res,503,{code:'invitation_unavailable'});return;}
+        const input=await readJsonBody(req);
+        if(!input||typeof input!=='object'||Array.isArray(input)){send(res,400,{code:'invitation_invalid'});return;}
+        const result=await repository.completeCourseInvitation({tokenHash:input.tokenHash,password:input.password,fullName:input.fullName,authorize:courseParticipants.authorize,enroll:courseParticipants.accept});
+        send(res,result.status,{ok:result.status<400,...(result.code?{code:result.code}:{}),...(result.passwordChanged?{passwordChanged:true}:{}),...(result.courseIds?{courseIds:result.courseIds}:{})},result.cookies?.length?{'Set-Cookie':result.cookies}:{});
+        return;
+      }
 
       if (useDb && req.method === 'GET' && pathname === '/api/catalog') {
         const query = catalogQueryFromUrl(url.searchParams);

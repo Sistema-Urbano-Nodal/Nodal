@@ -15,6 +15,8 @@ const STATIC_SCRIPTS = [
   'auth.js',
   'password-recovery.js',
   'recovery-i18n.js',
+  'accept-invitation.js',
+  'invitation-i18n.js',
   'catalog.js',
   'courses.js',
   'coastline.js',

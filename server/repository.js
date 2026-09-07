@@ -71,6 +71,11 @@ function createSqliteRepository(db, { ownsDb = false } = {}) {
     async getUserById(id) {
       return getUserById(db, id);
     },
+    async findCourseAccount(value) {
+      const email = typeof value === 'string' ? value.trim().toLowerCase() : '';
+      const user = getUserByEmail(db, email);
+      return user ? { id: user.id, email: user.email.trim().toLowerCase(), name: user.full_name, confirmed: true, active: user.account_status === 'active' } : null;
+    },
     async updateUserProfile(id, patch) {
       return updateUserProfile(db, id, patch);
     },
