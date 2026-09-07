@@ -31,7 +31,7 @@ const STATIC_SCRIPTS = [
   'script.js',
   'teaching.js',
 ];
-const STATIC_STYLES = ['admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'styles.css', 'recovery.css'];
+const STATIC_STYLES = ['auth.css', 'admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'styles.css', 'recovery.css'];
 const STATIC_ASSETS = [
   'latam-map.webp',
   'nodal-community.webp',
