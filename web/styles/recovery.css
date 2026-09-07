@@ -1,0 +1,45 @@
+:root{color-scheme:light;--recovery-forest:#174b35;--recovery-ink:#23352b;--recovery-muted:#657269;--recovery-paper:#f4f6f3;--recovery-line:#d7dfd8;font-family:Montserrat,Arial,sans-serif;color:var(--recovery-ink);background:#fff;font-synthesis:none}
+*{box-sizing:border-box}
+body{margin:0;min-width:280px}
+[hidden]{display:none!important}
+button,input{font:inherit}
+button,a,input{-webkit-tap-highlight-color:transparent}
+a{color:var(--recovery-forest);text-underline-offset:5px}
+button{cursor:pointer}
+button:disabled{cursor:wait;opacity:.65}
+:focus-visible{outline:3px solid #59bc53;outline-offset:5px}
+.recovery-header{min-height:112px;padding:28px 5.5%;display:flex;align-items:center;justify-content:space-between;gap:20px}
+.recovery-brand{display:inline-flex;flex-shrink:0}
+.recovery-brand img{display:block;width:150px;height:auto;filter:brightness(0)}
+.recovery-languages{display:flex;gap:4px;align-items:center}
+.lang-btn{border:0;border-radius:4px;background:transparent;color:var(--recovery-muted);font-size:12px;font-weight:600;min-width:44px;min-height:44px;padding:10px}
+.lang-btn.is-on{color:var(--recovery-forest);background:#edf3ec}
+.lang-btn:hover{color:var(--recovery-forest);text-decoration:underline;text-underline-offset:5px}
+.recovery-layout{display:grid;grid-template-columns:minmax(240px,38%) 1fr;min-height:calc(100svh - 112px);padding:0 5.5% 44px;gap:clamp(40px,8vw,128px);max-width:1600px;margin:auto}
+.recovery-map{background:var(--recovery-paper);overflow:hidden;min-height:540px;position:relative;border-radius:3px}
+.recovery-map svg{width:100%;height:100%;position:absolute;inset:0;object-fit:cover}
+.map-blocks{fill:#fff;stroke:#e5eae4;stroke-width:1}
+.map-park{fill:#e4ecdf}
+.map-route-muted{stroke:#d5ded3;stroke-width:2}
+.map-route{stroke:var(--recovery-forest);stroke-width:3;stroke-linejoin:round}
+.map-stations{fill:#fff;stroke:var(--recovery-forest);stroke-width:3}
+.map-destination-ring{fill:var(--recovery-paper);stroke:#a1b9a0;stroke-width:1}
+.map-destination{fill:var(--recovery-forest);stroke:#fff;stroke-width:4}
+.recovery-content{display:flex;align-items:center;padding:64px 0 86px;min-width:0}
+.recovery-form-area{width:100%;max-width:430px}
+h1{font-size:clamp(28px,2.7vw,38px);line-height:1.22;letter-spacing:-1.1px;font-weight:600;margin:0 0 22px;max-width:15ch;text-wrap:balance}
+.recovery-intro{font-size:15px;line-height:1.75;color:var(--recovery-muted);margin:0 0 32px}
+label{display:block;font-size:13px;font-weight:600;line-height:1.5;margin:24px 0 9px}
+input{display:block;width:100%;min-height:52px;border:1px solid #aebcaf;border-radius:5px;background:#fff;color:var(--recovery-ink);padding:13px 14px;font-size:16px;line-height:1.5}
+input:focus{border-color:var(--recovery-forest)}
+.recovery-note{font-size:12px;line-height:1.7;color:var(--recovery-muted);margin:12px 0 0;max-width:46ch}
+.recovery-submit{width:100%;min-height:52px;margin-top:26px;padding:14px 20px;border:1px solid var(--recovery-forest);border-radius:5px;background:var(--recovery-forest);color:#fff;font-size:14px;font-weight:600;line-height:1.5}
+.recovery-submit:hover{background:#103e2a}
+#recoveryMessage{font-size:14px;line-height:1.75;margin:24px 0 0;padding-left:16px;border-left:3px solid #8eae86;overflow-wrap:anywhere}
+.recovery-actions{display:flex;flex-direction:column;align-items:flex-start;gap:12px;margin-top:30px;font-size:12px;line-height:1.7}
+.recovery-actions a,.recovery-actions button{min-height:32px;display:flex;align-items:center}
+.recovery-actions button{border:0;background:transparent;color:var(--recovery-muted);padding:0;text-decoration:underline;text-underline-offset:5px;font-size:inherit;line-height:inherit;text-align:left}
+@media(min-width:1500px){.recovery-layout{min-height:760px}}
+@media(max-width:760px){.recovery-header{min-height:96px;padding:24px}.recovery-brand img{width:122px}.recovery-layout{display:block;min-height:calc(100svh - 96px);padding:0 24px 40px}.recovery-map{display:none}.recovery-content{padding:46px 0 24px;justify-content:center}.recovery-form-area{max-width:460px}h1{font-size:32px;letter-spacing:-.9px;margin-bottom:20px}.recovery-intro{margin-bottom:28px}.recovery-actions{margin-top:26px}}
+@media(max-width:360px){.recovery-header{padding:20px 18px;gap:8px}.recovery-brand img{width:102px}.recovery-layout{padding:0 20px 32px}.lang-btn{min-width:40px;padding:8px}.recovery-content{padding-top:32px}h1{font-size:29px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}

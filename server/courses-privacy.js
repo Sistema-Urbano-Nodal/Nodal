@@ -14,6 +14,9 @@ export async function exportCourseData(store,userId) {
 }
 
 export async function deleteCourseData(store,userId) {
+  // Official materials are course-owned (purpose=material, userId=null) from
+  // upload time. Staff account erasure retains them; private post files still
+  // belong to the person and must be removed before deleting the account.
   // Remove private blobs before deleting the account so a storage failure remains retryable.
   for(;;) {
     const attachments=await store.find('attachments',{userId},{limit:100});

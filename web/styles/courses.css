@@ -207,3 +207,28 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-translation-editor>label{max-width:240px}
 .pilot-editor-original>summary{font-size:11px;font-weight:500;color:#66765e}
 .pilot-editor-original>.pilot-form{padding-top:18px}
+
+/* Course conversations use the same ruled workspace as session materials. */
+.pilot-course-community{border-top:2px solid #45623b;border-bottom:1px solid #cdd8c8;padding:16px 0;margin-bottom:28px}
+.pilot-route .pilot-course-community h2{margin:0 0 8px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#66765e}
+.pilot-route .pilot-course-community button{display:block;width:100%;padding:12px 10px;text-align:left;border:0;border-left:2px solid transparent;border-radius:0;font-size:13px;font-weight:550}
+.pilot-route .pilot-course-community button[aria-current]{border-left-color:#45623b;background:#edf2e8}
+.pilot-module-tabs{margin:8px 0 0;overflow-x:auto;gap:28px}
+.pilot-module-tabs>.pilot-button{min-height:46px;flex-shrink:0;font-size:13px}
+.pilot-content>.pilot-discussion,.pilot-content>.pilot-module-materials{padding-top:26px}
+.pilot-discussion>.pilot-section-heading{margin-bottom:6px}
+.pilot-discussion>.pilot-section-heading>.pilot-button{font-size:11px;padding:9px 0;border:0;text-decoration:underline!important;text-underline-offset:4px}
+.pilot-discussion>.pilot-data-note{margin:0 0 22px;max-width:65ch}
+.pilot-discussion>.pilot-conversation-updates{font-size:12px;line-height:1.65;padding:12px 0;color:#36562b;border-top:2px solid #7b925f;border-bottom:1px solid #d5dfce}
+.pilot-conversation-updates:empty{display:none}
+.pilot-module-materials>section{margin-bottom:30px}
+.pilot-module-materials p{white-space:pre-wrap;line-height:1.8;font-size:13px}
+.pilot-file-manager{border-top:1px solid #cdd8c8;margin-top:24px;padding:20px 0}
+.pilot-file-manager>summary{font-size:12px;font-weight:600}
+.pilot-file-manager>label{display:grid;gap:10px;margin:18px 0;font-size:11px}
+.pilot-file-manager>.pilot-button{margin:4px 16px 4px 0}
+.pilot-managed-file{display:flex;align-items:center;flex-wrap:wrap;gap:12px;border-top:1px solid #dce5d6;padding:16px 0;font-size:12px}
+.pilot-managed-file>a{flex:1 1 180px;overflow-wrap:anywhere}
+.pilot-managed-file>.pilot-button{font-size:11px;padding:6px 0;border:0;text-decoration:underline!important;text-underline-offset:3px}
+.pilot-file-library{margin-top:18px}
+@media(max-width:760px){.pilot-course-community{margin-bottom:20px;padding:12px 0}.pilot-module-tabs{gap:22px}.pilot-module-tabs>.pilot-button{font-size:12px}.pilot-discussion>.pilot-section-heading{align-items:center}.pilot-file-manager input[type=file]{max-width:100%;font-size:12px}.pilot-managed-file>a{flex-basis:100%}}

@@ -1,0 +1,23 @@
+{
+  "checks": [
+    "Provider produced recovery proof without sending email",
+    "Hosted provider proof bound to owner",
+    "Old access session rejected after password change",
+    "Recovery session rejected after global logout",
+    "Old password rejected",
+    "New password signs into correct account",
+    "Used recovery proof rejected"
+  ],
+  "cleanup": true,
+  "providerClaims": {
+    "ownerMatches": true,
+    "amr": [
+      {
+        "method": "otp",
+        "timestamp": 1788802535
+      }
+    ],
+    "issuer": "https://nwiiqqgmikmtpdobedfz.supabase.co/auth/v1",
+    "aud": "authenticated"
+  }
+}

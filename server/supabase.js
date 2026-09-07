@@ -1,4 +1,5 @@
-import { parseCookies, sessionCookie } from './auth.js';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { parseCookies, sessionCookie, validatePassword } from './auth.js';
 import { defaultProfilePreferences } from './domain.js';
 import { recordInteraction } from './store.js';
 import {
@@ -135,6 +136,7 @@ function createRestClient({ url, key, fetchImpl = fetch, authToken = key }) {
     headers = {},
     auth = authToken,
     includeRange = false,
+    signal,
   } = {}) {
     const fullUrl = `${url}${path}${encodeQuery(query)}`;
     const finalHeaders = {
@@ -148,7 +150,7 @@ function createRestClient({ url, key, fetchImpl = fetch, authToken = key }) {
       finalHeaders['Content-Type'] = 'application/json';
       payload = JSON.stringify(body);
     }
-    const res = await fetchImpl(fullUrl, { method, headers: finalHeaders, body: payload });
+    const res = await fetchImpl(fullUrl, { method, headers: finalHeaders, body: payload, ...(signal ? { signal } : {}) });
     const text = await res.text();
     const json = text ? JSON.parse(text) : null;
     if (!res.ok) throw responseError(res.status, json, 'Supabase request failed');
@@ -487,6 +489,37 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
   const clients = createSupabaseClients({ env, fetchImpl });
   const { admin, browser } = clients;
 
+  // Recovery has its own cookie, never a NODAL login session. Standard Supabase
+  // email links support PKCE without changing the provider's email template.
+  const recoveryCookie = (value, maxAge = 3600) => `nodal_recovery=${value}; HttpOnly; Path=/api/auth/recovery; Max-Age=${maxAge}; SameSite=Lax${env.COOKIE_SECURE === 'true' || env.NODE_ENV === 'production' ? '; Secure' : ''}`;
+  const signRecovery = value => createHmac('sha256', clients.env.serverKey).update('nodal-password-recovery:' + value).digest('base64url');
+  function recoveryVerifier(req) {
+    const raw = parseCookies(req?.headers?.cookie).get('nodal_recovery') || '';
+    const [verifier, issued, signature, extra] = raw.split('.');
+    if (extra || !/^[A-Za-z0-9_-]{43}$/.test(verifier || '') || !/^\d{13}$/.test(issued || '') || !/^[A-Za-z0-9_-]{43}$/.test(signature || '')) return null;
+    const age = Date.now() - Number(issued);
+    if (age < 0 || age > 3600_000 || !timingSafeEqual(Buffer.from(signature), Buffer.from(signRecovery(`${verifier}.${issued}`)))) return null;
+    return verifier;
+  }
+  const recoveryFailure = (code = 'recovery_invalid', status = 400) => ({ status, code, cookies: [recoveryCookie('', 0)] });
+  function recoveryRedirect() {
+    // Never use Host, Referer, or a caller-supplied redirect for an email link.
+    const url = new URL(env.PUBLIC_BASE_URL || env.NEXT_PUBLIC_APP_URL || '');
+    if (url.username || url.password || (url.protocol !== 'https:' && !(env.NODE_ENV !== 'production' && url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname)))) throw new Error('Recovery origin is not configured');
+    return url.origin + '/reset-password.html';
+  }
+  function isRecoverySession(session) {
+    // The token is obtained directly from GoTrue over TLS, not from the caller.
+    // Decode only that trusted response and bind its subject to the same response.
+    try {
+      const claims = JSON.parse(Buffer.from(session.access_token.split('.')[1], 'base64url').toString());
+      const now = Math.floor(Date.now() / 1000);
+      return Boolean(session.user?.id && claims.sub === session.user.id && claims.iss === clients.env.url + '/auth/v1'
+        && claims.aud === 'authenticated' && claims.exp > now
+        && claims.amr?.some(entry => entry.method === 'recovery' && entry.timestamp <= now + 60 && entry.timestamp >= now - 900));
+    } catch { return false; }
+  }
+
   async function attachCatalogItems(interests) {
     if (!interests.length) return interests;
     const itemIds = [...new Set(interests.map((interest) => interest.itemId))];
@@ -673,6 +706,58 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
 
   return {
     kind: 'supabase',
+    async requestPasswordRecovery({ email, req }) {
+      // Reuse valid browser state during provider email cooldowns. Rotating it
+      // on an unsent retry would break the link already in the user's inbox.
+      const existing = recoveryVerifier(req);
+      const verifier = existing || randomBytes(32).toString('base64url');
+      const value = `${verifier}.${Date.now()}`;
+      const cookies = [recoveryCookie(`${value}.${signRecovery(value)}`)];
+      try {
+        await browser.auth('/recover', {
+          method: 'POST', query: { redirect_to: recoveryRedirect() },
+          body: { email, code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 's256' },
+          signal: AbortSignal.timeout(15000),
+        });
+      } catch (error) {
+        // Match unknown/existing addresses, including provider email cooldowns.
+        if ([400, 404, 422, 429].includes(error?.status)) return { status: 202, cookies };
+        // An email may have been sent before its response was lost. Preserve the
+        // verifier for that link instead of leaving it impossible to redeem.
+        return { status: 503, code: 'recovery_unavailable', cookies };
+      }
+      return { status: 202, cookies };
+    },
+    async completePasswordRecovery({ req, code, password }) {
+      if (!validatePassword(password)) return { status: 400, code: 'recovery_password_length', cookies: [] };
+      const verifier = recoveryVerifier(req);
+      if (!verifier || typeof code !== 'string' || !/^[A-Za-z0-9_-]{1,512}$/.test(code)) return recoveryFailure();
+      let session;
+      try {
+        session = await browser.auth('/token', {
+          method: 'POST', query: { grant_type: 'pkce' }, body: { auth_code: code, code_verifier: verifier }, signal: AbortSignal.timeout(15000),
+        });
+      } catch { return recoveryFailure(); }
+      if (!isRecoverySession(session)) return recoveryFailure();
+      const clear = [...clearSessionCookies(env), recoveryCookie('', 0)];
+      try {
+        // GoTrue binds /user to the recovery token's subject and revokes the
+        // owner's other sessions when changing the password. No admin user ID.
+        await browser.auth('/user', { method: 'PUT', auth: session.access_token, body: { password }, signal: AbortSignal.timeout(15000) });
+      } catch (error) {
+        // The PKCE code has been consumed. A fresh email is needed to try again.
+        // A timeout can mean the update committed; never claim it did not.
+        try { await browser.auth('/logout', { method: 'POST', query: { scope: 'local' }, auth: session.access_token, signal: AbortSignal.timeout(5000) }); } catch {}
+        return { ...recoveryFailure(error?.status >= 400 && error?.status < 500 ? 'recovery_password_rejected' : 'recovery_uncertain', error?.status >= 400 && error?.status < 500 ? 400 : 503), cookies: clear };
+      }
+      try {
+        await browser.auth('/logout', { method: 'POST', query: { scope: 'global' }, auth: session.access_token, signal: AbortSignal.timeout(5000) });
+      } catch {
+        // The password is already saved; retrying this consumed link cannot help.
+        return { status: 200, code: 'recovery_changed', passwordChanged: true, cookies: clear };
+      }
+      return { status: 200, passwordChanged: true, cookies: clear };
+    },
     async resolveSession(req) {
       const cookies = parseCookies(req.headers.cookie);
       const accessToken = cookies.get(ACCESS_COOKIE);

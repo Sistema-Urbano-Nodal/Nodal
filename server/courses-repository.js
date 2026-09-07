@@ -1,5 +1,6 @@
-import { COURSE_TABLES, COURSE_SQLITE_SCHEMA, snake } from './courses-schema.js';
+import { COURSE_TABLES, COURSE_SQLITE_SCHEMA, COURSE_SQLITE_DISCUSSION_SCHEMA, snake } from './courses-schema.js';
 import { createSupabaseClients } from './supabase.js';
+import { randomUUID } from 'node:crypto';
 import { fail } from './courses-domain.js';
 
 const BUCKET = 'course-attachments';
@@ -37,15 +38,40 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
     db.exec(COURSE_SQLITE_SCHEMA);
     // CREATE TABLE IF NOT EXISTS does not upgrade already deployed pilot tables.
     // Transactional introspection keeps two local connections from racing ALTER.
-    db.exec('BEGIN IMMEDIATE');
+    // Rebuilding nullable ownership preserves bytes and restrictive personal-file FKs.
+    db.exec('PRAGMA foreign_keys=OFF');
+    let upgrading=false;
     try {
+      db.exec('BEGIN IMMEDIATE');upgrading=true;
       for (const table of ['pilot_courses','course_modules']) {
         if (!db.prepare(`PRAGMA table_info(${table})`).all().some(column => column.name === 'translations')) {
           db.exec(`ALTER TABLE ${table} ADD COLUMN translations TEXT NOT NULL DEFAULT '{}'`);
         }
       }
+      const addColumn=(table,name,definition)=>{if(!db.prepare(`PRAGMA table_info(${table})`).all().some(c=>c.name===name))db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);};
+      addColumn('course_modules','kind',"TEXT NOT NULL DEFAULT 'session' CHECK(kind IN ('session','discussion'))");
+      addColumn('course_modules','posts_revision','INTEGER NOT NULL DEFAULT 0');
+      const oldPosts=!db.prepare('PRAGMA table_info(course_posts)').all().some(c=>c.name==='thread_kind');
+      addColumn('course_posts','thread_kind',"TEXT NOT NULL DEFAULT 'discussion' CHECK(thread_kind IN ('assignment','discussion'))");
+      if(oldPosts)db.exec(`WITH RECURSIVE threads(id,thread_kind) AS (
+        SELECT id,CASE WHEN kind='assignment' THEN 'assignment' ELSE 'discussion' END FROM course_posts WHERE parent_id IS NULL
+        UNION ALL SELECT p.id,t.thread_kind FROM course_posts p JOIN threads t ON p.parent_id=t.id)
+        UPDATE course_posts SET thread_kind=coalesce((SELECT thread_kind FROM threads WHERE threads.id=course_posts.id),'discussion')`);
+      if(!db.prepare('PRAGMA table_info(course_attachments)').all().some(c=>c.name==='purpose')) {
+        const definition=COURSE_SQLITE_SCHEMA.match(/CREATE TABLE IF NOT EXISTS course_attachments \([\s\S]*?\n\);/)[0].replace('IF NOT EXISTS course_attachments','course_attachments_new');
+        db.exec(definition);
+        db.exec(`INSERT INTO course_attachments_new(id,course_id,module_id,user_id,name,mime,size,storage_path,status,created_at)
+          SELECT id,course_id,module_id,user_id,name,mime,size,storage_path,status,created_at FROM course_attachments;
+          DROP TABLE course_attachments; ALTER TABLE course_attachments_new RENAME TO course_attachments;`);
+        db.exec(COURSE_SQLITE_SCHEMA);
+      }
+      db.exec(COURSE_SQLITE_DISCUSSION_SCHEMA);
+      for(const course of db.prepare("SELECT * FROM pilot_courses WHERE id NOT IN (SELECT course_id FROM course_modules WHERE kind='discussion')").all()) {
+        db.prepare("INSERT INTO course_modules(id,course_id,kind,title,translations,status,position,created_at,updated_at) VALUES (?,?,'discussion','General discussion',?,'published',100,?,?)").run(randomUUID(),course.id,JSON.stringify({es:{title:'Conversación general'},pt:{title:'Conversa geral'}}),course.created_at,course.updated_at);
+      }
+      if(db.prepare('PRAGMA foreign_key_check').all().length)throw new Error('course migration violates foreign keys');
       db.exec('COMMIT');
-    } catch (error) { db.exec('ROLLBACK'); throw error; }
+    } catch (error) { if(upgrading)db.exec('ROLLBACK'); throw error; } finally { db.exec('PRAGMA foreign_keys=ON'); }
     const whereSql = (info, filters, options = {}) => {
       checkedFields(info, filters);
       const parts = [], params = [];
@@ -53,8 +79,8 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
         parts.push(`${snake(key)} ${val === null ? 'IS NULL' : '= ?'}`);
         if (val !== null) params.push(typeof val === 'boolean' ? Number(val) : val);
       }
-      if (options.after?.createdAt) { parts.push('(created_at > ? OR (created_at = ? AND id > ?))'); params.push(options.after.createdAt,options.after.createdAt,options.after.id); }
-      else if(options.after) { parts.push('id > ?');params.push(options.after.id); }
+      if (options.after?.createdAt) { parts.push(`(created_at ${options.desc?'<':'>'} ? OR (created_at = ? AND id ${options.desc?'<':'>'} ?))`); params.push(options.after.createdAt,options.after.createdAt,options.after.id); }
+      else if(options.after) { parts.push(`id ${options.desc?'<':'>'} ?`);params.push(options.after.id); }
       return { sql: parts.length ? ` WHERE ${parts.join(' AND ')}` : '', params };
     };
     return {
@@ -63,7 +89,7 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
       async count(name, filters = {}) { const info=tableInfo(name),where=whereSql(info,filters);return db.prepare(`SELECT count(*) AS n FROM ${info.table}${where.sql}`).get(...where.params).n; },
       async find(name, filters = {}, options = {}) {
         const info = tableInfo(name), opts = optionsFor(info,options), where = whereSql(info,filters,opts);
-        return db.prepare(`SELECT * FROM ${info.table}${where.sql} ORDER BY ${opts.order.map(snake).join(',')} LIMIT ?`).all(...where.params,opts.limit).map(row => fromRow(info,row));
+        return db.prepare(`SELECT * FROM ${info.table}${where.sql} ORDER BY ${opts.order.map(key=>`${snake(key)} ${opts.desc?'DESC':'ASC'}`).join(',')} LIMIT ?`).all(...where.params,opts.limit).map(row => fromRow(info,row));
       },
       async insert(name, record) {
         const info=tableInfo(name), row=toRow(info,record,true), keys=Object.keys(row);
@@ -73,7 +99,7 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
       async update(name, filters, patch) {
         const info=tableInfo(name), row=toRow(info,patch,true), where=whereSql(info,filters);
         if (!where.sql) throw new Error('scoped update required');
-        return fromRow(info,db.prepare(`UPDATE ${info.table} SET ${Object.keys(row).map(key=>`${key} = ?`).join(',')}${where.sql} RETURNING *`).get(...Object.values(row),...where.params));
+        try { return fromRow(info,db.prepare(`UPDATE ${info.table} SET ${Object.keys(row).map(key=>`${key} = ?`).join(',')}${where.sql} RETURNING *`).get(...Object.values(row),...where.params)); } catch(err) { if(/official resource attachment unavailable|remove the material/.test(err.message))fail(err.message,409);throw err; }
       },
       async remove(name, filters) {
         const info=tableInfo(name), where=whereSql(info,filters);
@@ -101,10 +127,10 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
   const queryFor = (info,filters,options) => {
     checkedFields(info,filters);
     const opts=optionsFor(info,options);
-    const query={select:info.fields.map(snake).join(','),order:opts.order.map(key=>`${snake(key)}.asc`).join(','),limit:opts.limit};
+    const query={select:info.fields.map(snake).join(','),order:opts.order.map(key=>`${snake(key)}.${opts.desc?'desc':'asc'}`).join(','),limit:opts.limit};
     for(const [key,value] of Object.entries(filters)) query[snake(key)] = value === null ? 'is.null' : `eq.${value}`;
-    if(opts.after?.createdAt) query.or=`(created_at.gt.${opts.after.createdAt},and(created_at.eq.${opts.after.createdAt},id.gt.${opts.after.id}))`;
-    else if(opts.after)query.id=`gt.${opts.after.id}`;
+    if(opts.after?.createdAt) query.or=`(created_at.${opts.desc?'lt':'gt'}.${opts.after.createdAt},and(created_at.eq.${opts.after.createdAt},id.${opts.desc?'lt':'gt'}.${opts.after.id}))`;
+    else if(opts.after)query.id=`${opts.desc?'lt':'gt'}.${opts.after.id}`;
     return query;
   };
   const storage = async (attachment, {method='GET',body}={}) => {
@@ -134,7 +160,7 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
     async update(name,filters,patch) {
       const info=tableInfo(name);if(!Object.keys(filters).length)throw new Error('scoped update required');
       const query=queryFor(info,filters,{});delete query.order;delete query.limit;
-      return fromRow(info,(await supa.admin.rest(info.table,{method:'PATCH',query,headers:{Prefer:'return=representation'},body:toRow(info,patch,false)}))[0]);
+      try { return fromRow(info,(await supa.admin.rest(info.table,{method:'PATCH',query,headers:{Prefer:'return=representation'},body:toRow(info,patch,false)}))[0]); } catch(err) { if(['23514','40P01','40001'].includes(err.code))fail('course material changed; reload before retrying',409);throw err; }
     },
     async remove(name,filters) {
       const info=tableInfo(name);if(!Object.keys(filters).length)throw new Error('scoped deletion required');

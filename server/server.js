@@ -40,9 +40,9 @@ const ID_RE = /^[a-z0-9-]{1,40}$/;
 const API_INTERACTION_TYPES = new Set(['skip']);
 const MAX_BODY = 32 * 1024;
 const PRIVATE_PAGES = new Set(['/dashboard.html', '/profile.html', '/payments.html', '/admin.html', '/courses.html', '/course.html', '/teaching.html']);
-const STATIC_PAGES = new Set(['index.html', 'login.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html']);
-const STATIC_SCRIPTS = new Set(['admin.js', 'app.js', 'auth.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js']);
-const STATIC_STYLES = new Set(['styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css']);
+const STATIC_PAGES = new Set(['index.html', 'login.html', 'reset-password.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html']);
+const STATIC_SCRIPTS = new Set(['admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js']);
+const STATIC_STYLES = new Set(['styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css']);
 const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp']);
 const AUTH_RATE_WINDOW_MS = 5 * 60 * 1000;
 const AUTH_RATE_LIMIT = envInt('AUTH_RATE_LIMIT', 10);
@@ -735,6 +735,7 @@ async function serveStatic(req, res, canonical) {
     const headers = type.startsWith('text/html') ? htmlSecurityHeaders() : securityHeaders();
     res.writeHead(200, {
       ...headers,
+      ...(canonical === '/reset-password.html' ? { 'Referrer-Policy': 'no-referrer' } : {}),
       'Content-Type': type,
       'Cache-Control': type.startsWith('text/html') ? 'no-store' : STATIC_CACHE_CONTROL,
     });
@@ -775,6 +776,7 @@ export function createApp({
     return fingerprints.get(graph);
   };
   const authLimiter = createWindowRateLimiter({ windowMs: AUTH_RATE_WINDOW_MS, limit: AUTH_RATE_LIMIT });
+  const recoveryEmailLimiter = createWindowRateLimiter({ windowMs: 15 * 60 * 1000, limit: 3 });
   const interactionLimiter = createWindowRateLimiter({ windowMs: INTERACTION_RATE_WINDOW_MS, limit: INTERACTION_RATE_LIMIT });
   // each search walks the whole directory, so it is bounded per member
   const searchLimiter = createWindowRateLimiter({ windowMs: MEMBER_SEARCH_WINDOW_MS, limit: MEMBER_SEARCH_RATE_LIMIT });
@@ -1098,6 +1100,28 @@ export function createApp({
           user: result.user,
           requiresEmailConfirmation: Boolean(result.requiresEmailConfirmation),
         }, result.cookies?.length ? { 'Set-Cookie': result.cookies } : {});
+        return;
+      }
+
+      if (useDb && req.method === 'POST' && ['/api/auth/recovery/request', '/api/auth/recovery/complete'].includes(pathname)) {
+        if (!sameOrigin(req)) { send(res, 403, { code: 'recovery_forbidden' }); return; }
+        const rate = authLimiter.take(`recovery:${clientIp(req)}`);
+        if (!rate.ok) { send(res, 429, { code: 'recovery_rate' }, { 'Retry-After': String(rate.retryAfter) }); return; }
+        const body = await readJsonBody(req);
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { send(res, 400, { code: 'recovery_invalid' }); return; }
+        let result;
+        if (pathname.endsWith('/request')) {
+          if (!repository.requestPasswordRecovery) { send(res, 503, { code: 'recovery_unavailable' }); return; }
+          const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+          if (email.length > 254 || !validateEmail(email)) { send(res, 400, { code: 'recovery_email' }); return; }
+          const emailKey = createHash('sha256').update(email).digest('hex');
+          if (!recoveryEmailLimiter.take(emailKey).ok) { send(res, 202, { ok: true }); return; }
+          result = await repository.requestPasswordRecovery({ email, req });
+        } else {
+          if (!repository.completePasswordRecovery) { send(res, 503, { code: 'recovery_unavailable' }); return; }
+          result = await repository.completePasswordRecovery({ req, code: body.code, password: body.password });
+        }
+        send(res, result.status, { ok: result.status < 400, ...(result.code ? { code: result.code } : {}), ...(result.passwordChanged ? { passwordChanged: true } : {}) }, result.cookies?.length ? { 'Set-Cookie': result.cookies } : {});
         return;
       }
 

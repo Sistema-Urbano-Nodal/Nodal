@@ -25,11 +25,11 @@ const content=n=>[n.textContent,...(n.children||[]).map(content)].join(' ');
 const flush=async()=>{for(let i=0;i<15;i++)await new Promise(r=>setImmediate(r));};
 function harness(respond,{page='courses',search=''}={}){
  const body=new Node('body');body.dataset.page=page;const html=new Node('html');const ids={};for(const id of ['pilotRoot','pilotStatus','teachingLink']){const n=new Node();n.id=id;ids[id]=n;body.append(n);}
- const requests=[],listeners=[];let assigned='';
- const document={body,documentElement:html,readyState:'loading',createElement:t=>new Node(t),getElementById:id=>ids[id]||descendants(body).find(n=>n.id===id),querySelector:()=>null,querySelectorAll:s=>body.querySelectorAll(s),addEventListener(){}};
- const ctx={document,console,Intl,URL,URLSearchParams,Error,Date,crypto:{randomUUID:()=> '00000000-0000-4000-8000-000000000001'},history:{replaceState(){}},location:{pathname:'/'+page+'.html',search,href:'https://nodal.test/'+page+'.html'+search,assign:s=>{assigned=s;},replace:s=>{assigned=s;}},fetch:async(path,opts)=>{requests.push({path,body:opts?.body?JSON.parse(opts.body):undefined,method:opts?.method});const result=await respond(path,opts);return{ok:result.status===undefined||result.status<400,status:result.status||200,json:async()=>result.data??result};},window:{nodalI18n:{lang:'en',onChange:f=>listeners.push(f)}}};
+ const requests=[],listeners=[],documentEvents={},windowEvents={};let assigned='';
+ const document={body,documentElement:html,readyState:'loading',createElement:t=>new Node(t),getElementById:id=>ids[id]||descendants(body).find(n=>n.id===id),querySelector:()=>null,querySelectorAll:s=>body.querySelectorAll(s),visibilityState:'visible',addEventListener(k,f){(documentEvents[k]??=new Set()).add(f);},removeEventListener(k,f){documentEvents[k]?.delete(f);}};
+ const ctx={document,console,Intl,URL,URLSearchParams,Error,Date,crypto:{randomUUID:()=> '00000000-0000-4000-8000-000000000001'},history:{replaceState(){}},location:{pathname:'/'+page+'.html',search,href:'https://nodal.test/'+page+'.html'+search,assign:s=>{assigned=s;},replace:s=>{assigned=s;}},fetch:async(path,opts)=>{requests.push({path,body:opts?.body?JSON.parse(opts.body):undefined,method:opts?.method,signal:opts?.signal});const result=await respond(path,opts);return{ok:result.status===undefined||result.status<400,status:result.status||200,json:async()=>result.data??result};},window:{addEventListener(k,f){windowEvents[k]=f;},nodalI18n:{lang:'en',onChange:f=>listeners.push(f)}}};
  vm.createContext(ctx);for(const file of ['pilot-i18n','pilot'])vm.runInContext(script(file),ctx);
- return{ctx,body,ids,requests,run:name=>vm.runInContext(script(name),ctx),assigned:()=>assigned,lang:lang=>{ctx.window.nodalI18n.lang=lang;listeners.forEach(f=>f());}};
+ return{ctx,body,ids,requests,documentEvents,windowEvents,run:name=>vm.runInContext(script(name),ctx),assigned:()=>assigned,lang:lang=>{ctx.window.nodalI18n.lang=lang;listeners.forEach(f=>f());}};
 }
 const course={id:'c1',title:'Real course <img src=x onerror=alert(1)>',description:'Author content',startsOn:'2026-09-09',endsOn:'2026-09-21',status:'published',enrollmentOpen:true};
 test('directory uses live course data as text and links to its explicit ID',async()=>{
@@ -64,10 +64,10 @@ test('reply submits parent-linked comment and resets composer only after persist
  const h=harness((path,opts)=>{
   if(path==='/api/auth/me')return{user:{permission:'member'}};
   if(path.endsWith('/events'))return{ok:true};
-  if(path.endsWith('/posts')){if(opts?.method==='POST')return{post:{id:'p2'}};return{posts,nextCursor:null};}
+  if(path.split('?')[0].endsWith('/posts')){if(opts?.method==='POST')return{post:{id:'p2'}};return{posts,nextCursor:null};}
   if(path.endsWith('/modules/m1'))return{module:{id:'m1',title:'Session',description:'Learning',resources:[]}};
   return{course,modules:[{id:'m1',title:'Session',sessionDate:'2026-09-09'}],enrollment:{},intake:{fullName:'Member'},isAdmin:false};
- },{page:'course',search:'?id=c1'});h.run('courses');await flush();const reply=descendants(h.body).find(n=>n.tagName==='button'&&n.dataset.pilotText==='reply');reply.listeners.click();const form=descendants(h.body).find(n=>n.tagName==='form'&&descendants(n).some(x=>x.name==='body'));descendants(form).find(n=>n.name==='body').value='My response';await form.listeners.submit({preventDefault(){}});const post=h.requests.find(r=>r.path.endsWith('/posts')&&r.method==='POST');assert.equal(post.body.kind,'comment');assert.equal(post.body.parentId,'p1');assert.equal(post.body.body,'My response');assert.deepEqual(post.body.attachmentIds,[]);assert.equal(descendants(form).find(n=>n.name==='body').value,'');
+ },{page:'course',search:'?id=c1'});h.run('courses');await flush();const reply=descendants(h.body).find(n=>n.tagName==='button'&&n.dataset.pilotText==='reply');reply.listeners.click();const form=descendants(h.body).find(n=>n.tagName==='form'&&descendants(n).some(x=>x.name==='body'));descendants(form).find(n=>n.name==='body').value='My response';await form.listeners.submit({preventDefault(){}});const post=h.requests.find(r=>r.path.split('?')[0].endsWith('/posts')&&r.method==='POST');assert.equal(post.body.kind,'comment');assert.equal(post.body.parentId,'p1');assert.equal(post.body.body,'My response');assert.deepEqual(post.body.attachmentIds,[]);assert.equal(descendants(form).find(n=>n.name==='body').value,'');
 });
 test('staff editor preserves unsaved values and version after a conflict',async()=>{
  const h=harness((path,opts)=>{
@@ -97,7 +97,7 @@ test('course keeps contribution composer collapsed and replaces contextual feedb
  const h=harness((path,opts)=>{
   if(path==='/api/auth/me')return{user:{permission:'member'}};
   if(path.endsWith('/events'))return{ok:true};
-  if(path.endsWith('/posts'))return opts?.method==='POST'?{post:{id:'p2'}}:{posts:[{id:'p1',authorName:'Ana',createdAt:'2026-09-05T12:00:00Z',kind:'question',body:'A question',attachments:[],links:[]}],nextCursor:null};
+  if(path.split('?')[0].endsWith('/posts'))return opts?.method==='POST'?{post:{id:'p2'}}:{posts:[{id:'p1',authorName:'Ana',createdAt:'2026-09-05T12:00:00Z',kind:'question',body:'A question',attachments:[],links:[]}],nextCursor:null};
   if(path.endsWith('/modules/m1'))return{module:{id:'m1',title:'Session',description:'Read and discuss',resources:[]}};
   return{course,modules:[{id:'m1',title:'Session'}],enrollment:{},intake:{fullName:'Member'},isAdmin:false};
  },{page:'course',search:'?id=c1'});h.run('courses');await flush();
@@ -107,11 +107,11 @@ test('course keeps contribution composer collapsed and replaces contextual feedb
  const feedbacks=descendants(h.body).filter(n=>n.className==='pilot-feedback');assert.equal(feedbacks.length,1);assert.match(content(feedbacks[0]),/take part in this conversation/);
 });
 test('deleted contributions preserve their thread without offering an invalid reply',async()=>{
- const h=harness(path=>path==='/api/auth/me'?{user:{permission:'member'}}:path.endsWith('/events')?{ok:true}:path.endsWith('/posts')?{posts:[{id:'p1',deleted:true,createdAt:'2026-09-05T12:00:00Z',kind:'question',body:'',attachments:[],links:[]}],nextCursor:null}:path.endsWith('/modules/m1')?{module:{id:'m1',title:'Session',resources:[]}}:{course,modules:[{id:'m1',title:'Session'}],enrollment:{},intake:{fullName:'Member'},isAdmin:false},{page:'course',search:'?id=c1'});h.run('courses');await flush();
+ const h=harness(path=>path==='/api/auth/me'?{user:{permission:'member'}}:path.endsWith('/events')?{ok:true}:path.split('?')[0].endsWith('/posts')?{posts:[{id:'p1',deleted:true,createdAt:'2026-09-05T12:00:00Z',kind:'question',body:'',attachments:[],links:[]}],nextCursor:null}:path.endsWith('/modules/m1')?{module:{id:'m1',title:'Session',resources:[]}}:{course,modules:[{id:'m1',title:'Session'}],enrollment:{},intake:{fullName:'Member'},isAdmin:false},{page:'course',search:'?id=c1'});h.run('courses');await flush();
  const deleted=descendants(h.body).find(n=>n.id==='post-p1');assert.match(content(deleted),/removed by the teaching team/);assert.equal(descendants(deleted).some(n=>n.dataset.pilotText==='reply'),false);
 });
 test('initial discussion failure stays visible and offers a working retry',async()=>{
- let failed=true;const h=harness(path=>path==='/api/auth/me'?{user:{permission:'member'}}:path.endsWith('/events')?{ok:true}:path.endsWith('/posts')?(failed?{status:503,data:{error:'Discussion unavailable'}}:{posts:[],nextCursor:null}):path.endsWith('/modules/m1')?{module:{id:'m1',title:'Session',resources:[]}}:{course,modules:[{id:'m1',title:'Session'}],enrollment:{},intake:{fullName:'Member'},isAdmin:false},{page:'course',search:'?id=c1'});h.run('courses');await flush();
+ let failed=true;const h=harness(path=>path==='/api/auth/me'?{user:{permission:'member'}}:path.endsWith('/events')?{ok:true}:path.split('?')[0].endsWith('/posts')?(failed?{status:503,data:{error:'Discussion unavailable'}}:{posts:[],nextCursor:null}):path.endsWith('/modules/m1')?{module:{id:'m1',title:'Session',resources:[]}}:{course,modules:[{id:'m1',title:'Session'}],enrollment:{},intake:{fullName:'Member'},isAdmin:false},{page:'course',search:'?id=c1'});h.run('courses');await flush();
  assert.match(content(h.ids.pilotStatus),/Could not complete this request/);const retry=descendants(h.body).find(n=>n.dataset.pilotText==='retry');assert.ok(retry);failed=false;await retry.listeners.click();await flush();assert.match(content(h.body),/Start the conversation/);
 });
 function recHarness(fail=false){
@@ -133,7 +133,7 @@ test('publishing while an older discussion page loads still refreshes the saved 
   if(path.includes('/posts')){if(opts?.method==='POST')return{post:saved};reads++;if(reads===2)return new Promise(resolve=>{finishPage=resolve;});return{posts:reads>2?[saved]:[{...saved,id:'p1',body:'Earlier question'}],nextCursor:reads===1?'next':null};}
   if(path.endsWith('/modules/m1'))return{module:{id:'m1',title:'Session',resources:[]}};
   return{course,modules:[{id:'m1',title:'Session'}],enrollment:{},intake:{fullName:'Member'},isAdmin:false};
- },{page:'course',search:'?id=c1'});h.run('courses');await flush();const more=descendants(h.body).find(n=>n.dataset.pilotText==='more');more.listeners.click();await flush();
+ },{page:'course',search:'?id=c1'});h.run('courses');await flush();const more=descendants(h.body).find(n=>n.dataset.pilotText==='loadOlder');more.listeners.click();await flush();
  const form=descendants(h.body).find(n=>n.tagName==='form'&&descendants(n).some(x=>x.name==='body'));descendants(form).find(n=>n.name==='body').value=saved.body;await form.listeners.submit({preventDefault(){}});finishPage({posts:[],nextCursor:null});await flush();assert.equal(reads,3);assert.match(content(h.body),/New saved question/);
 });
 const translatedCourse={...course,translations:{en:{title:'Mobility course',description:'Shared learning'},es:{title:'Curso de movilidad',description:'Aprendizaje compartido'},pt:{title:'Curso de mobilidade',description:'Aprendizagem compartilhada'}}};
@@ -145,7 +145,7 @@ test('course previews translate title and sessions before enrollment without req
  const h=harness(()=>({course:translatedCourse,modules:[{id:'m1',title:translatedModule.title,sessionDate:translatedModule.sessionDate,translations:translatedModule.translations}],enrollment:null,intake:null,isAdmin:false}),{page:'course',search:'?id=c1'});h.run('courses');await flush();const reads=h.requests.length;h.lang('pt');assert.match(content(h.body),/Curso de mobilidade/);assert.match(content(h.body),/Primeira sessão/);assert.equal(h.ctx.document.title,'Curso de mobilidade · NODAL');assert.equal(h.requests.length,reads);assert.equal(h.requests.some(r=>r.path.includes('/modules/')),false);
 });
 test('module content, resources and rail switch languages without losing a contribution draft or creating events',async()=>{
- const h=harness(path=>path.endsWith('/events')?{ok:true}:path.endsWith('/posts')?{posts:[],nextCursor:null}:path.endsWith('/modules/m1')?{module:translatedModule}:{course:translatedCourse,modules:[translatedModule],enrollment:{},intake:{fullName:'Member'},isAdmin:false},{page:'course',search:'?id=c1'});h.run('courses');await flush();const input=descendants(h.body).find(n=>n.name==='body');input.value='Draft stays exactly as typed';const reads=h.requests.length;h.lang('pt');
+ const h=harness(path=>path.endsWith('/events')?{ok:true}:path.split('?')[0].endsWith('/posts')?{posts:[],nextCursor:null}:path.endsWith('/modules/m1')?{module:translatedModule}:{course:translatedCourse,modules:[translatedModule],enrollment:{},intake:{fullName:'Member'},isAdmin:false},{page:'course',search:'?id=c1'});h.run('courses');await flush();const input=descendants(h.body).find(n=>n.name==='body');input.value='Draft stays exactly as typed';const reads=h.requests.length;h.lang('pt');
  for(const text of ['Curso de mobilidade','Primeira sessão','Descrição da sessão','Objetivos de aprendizagem','Escreva seu caso','Leitura da sessão'])assert.ok(content(h.body).includes(text),text);
  assert.equal(input.value,'Draft stays exactly as typed');assert.equal(h.requests.length,reads);h.lang('es');assert.match(content(h.body),/Primera sesión/);assert.match(content(h.body),/Lectura original/);assert.equal(h.requests.length,reads);
 });
@@ -186,4 +186,111 @@ test('creating a module keeps sibling drafts and adds exactly one fresh creation
   if(opts?.method==='PATCH')return{module:{...JSON.parse(opts.body),id:'m3',version:2}};
   if(path==='/api/admin/courses')return{courses:[translatedCourse]};if(path.endsWith('/report'))return{summary:{enrolled:0},participants:[],feedback:[]};return{course:{...translatedCourse,version:7},modules:[{...translatedModule,version:3}]};
  },{page:'teaching'});h.run('teaching');await flush();const forms=descendants(h.body).filter(n=>n.tagName==='form'),draft=descendants(forms[1]).find(n=>n.name==='instructions'),create=forms[2];draft.value='Unpublished session draft';descendants(create).find(n=>n.name==='title').value='New session';await create.listeners.submit({preventDefault(){}});assert.ok(descendants(h.body).includes(draft));assert.equal(draft.value,'Unpublished session draft');assert.equal(descendants(h.body).filter(n=>n.tagName==='form').length,4);await create.listeners.submit({preventDefault(){}});assert.equal(h.requests.filter(r=>r.method==='POST').length,1);assert.equal(h.requests.find(r=>r.method==='PATCH').path,'/api/admin/courses/c1/modules/m3');assert.equal(descendants(h.body).filter(n=>n.tagName==='form').length,4);
+});
+
+const learningFixture=(path,opts)=>{
+ if(path.endsWith('/events'))return{ok:true};
+ if(path.includes('/posts'))return opts?.method==='POST'?{post:{id:'saved'}}:{posts:[],nextCursor:null,revision:'r1'};
+ if(path.endsWith('/modules/general'))return{module:{id:'general',kind:'discussion',title:'General discussion',resources:[]}};
+ if(path.endsWith('/modules/m1'))return{module:{id:'m1',kind:'session',title:'Session',resources:[]}};
+ return{course,modules:[{id:'general',kind:'discussion',title:'General discussion'},{id:'m1',kind:'session',title:'Session'}],enrollment:{},intake:{fullName:'Member'},isAdmin:false};
+};
+const findKey=(node,key)=>descendants(node).find(n=>n.dataset.pilotText===key);
+const inputNamed=(node,name)=>descendants(node).find(n=>n.name===name);
+function fakeClock(h){
+ const timers=new Map();let next=0;h.ctx.AbortController=AbortController;
+ h.ctx.setTimeout=(fn,delay)=>{const id=++next;timers.set(id,{fn,delay});return id;};h.ctx.clearTimeout=id=>timers.delete(id);
+ return{timers,async tick(){const [id,timer]=timers.entries().next().value||[];assert.ok(timer,'expected one scheduled update check');timers.delete(id);await timer.fn();await flush();},visibility(value){h.ctx.document.visibilityState=value;h.documentEvents.visibilitychange?.forEach(fn=>fn());}};
+}
+test('session tabs lazily filter histories, retain independent drafts, and support keyboard navigation',async()=>{
+ const h=harness(learningFixture,{page:'course',search:'?id=c1'});h.run('courses');await flush();
+ const discussion=h.ctx.document.getElementById('module-pane-discussion'),assignment=h.ctx.document.getElementById('module-pane-assignment');
+ assert.equal(discussion.hidden,false);assert.equal(assignment.hidden,true);
+ assert.equal(h.requests.filter(r=>r.path.includes('/posts')).length,1);assert.match(h.requests.find(r=>r.path.includes('/posts')).path,/kind=discussion&order=desc/);
+ inputNamed(discussion,'body').value='Question draft';await h.ctx.document.getElementById('module-tab-assignment').listeners.click();
+ inputNamed(assignment,'body').value='Assignment draft';assert.equal(discussion.hidden,true);assert.equal(assignment.hidden,false);
+ assert.match(h.requests.filter(r=>r.path.includes('/posts')).at(-1).path,/kind=assignment&order=desc/);
+ await h.ctx.document.getElementById('module-tab-discussion').listeners.click();assert.equal(inputNamed(discussion,'body').value,'Question draft');
+ await h.ctx.document.getElementById('module-tab-assignment').listeners.click();assert.equal(inputNamed(assignment,'body').value,'Assignment draft');
+ assert.equal(h.requests.filter(r=>r.path.includes('/posts')).length,2,'returning to a loaded view does not refetch');
+ h.ctx.document.getElementById('module-tab-assignment').listeners.keydown({key:'Home',preventDefault(){}});assert.equal(h.ctx.document.getElementById('module-tab-materials')['aria-selected'],'true');
+ h.lang('pt');assert.equal(h.ctx.document.getElementById('module-tab-discussion').textContent,'Discussão');assert.equal(h.ctx.document.getElementById('module-tab-assignment').textContent,'Atividades');
+});
+test('general discussion sits outside the session rail and never exposes assignment publication',async()=>{
+ const h=harness(learningFixture,{page:'course',search:'?id=c1'});h.run('courses');await flush();
+ const community=descendants(h.body).find(n=>n.className==='pilot-course-community'),rail=descendants(h.body).find(n=>n.tagName==='ol');
+ assert.equal(descendants(rail).filter(n=>n.dataset.module).length,1);assert.equal(descendants(rail).some(n=>n.dataset.module==='general'),false);
+ await findKey(community,'generalDiscussion').listeners.click();await flush();assert.equal(h.ctx.document.getElementById('module-tab-assignment'),undefined);
+ const form=descendants(h.body).find(n=>n.tagName==='form'&&inputNamed(n,'body'));inputNamed(form,'body').value='A course-wide question';await form.listeners.submit({preventDefault(){}});
+ assert.equal(h.requests.find(r=>r.path.endsWith('/general/posts')&&r.method==='POST').body.kind,'question');
+ inputNamed(form,'body').value='Another question';await form.listeners.submit({preventDefault(){}});assert.equal(h.requests.filter(r=>r.path.endsWith('/general/posts')&&r.method==='POST').at(-1).body.kind,'question');
+});
+test('background checks request only the latest revision and manual refresh preserves the focused draft',async()=>{
+ let changed=false;const post={id:'p2',authorName:'Ana',createdAt:'2026-09-07T12:00:00Z',kind:'question',body:'New discussion',links:[],attachments:[]};
+ const h=harness((path,opts)=>path.includes('/posts')?{posts:changed?[post]:[],nextCursor:null,revision:changed?'r2':'r1'}:learningFixture(path,opts),{page:'course',search:'?id=c1'});const clock=fakeClock(h);h.run('courses');await flush();
+ const draft=inputNamed(h.body,'body');draft.value='Keep this draft';let focusChanges=0;draft.focus=()=>focusChanges++;
+ assert.equal(clock.timers.size,1);assert.equal([...clock.timers.values()][0].delay,30000);changed=true;await clock.tick();
+ assert.match(h.requests.at(-1).path,/kind=discussion&latest=1/);assert.match(content(h.body),/New activity is available/);assert.equal(h.ctx.document.getElementById('post-p2'),undefined);assert.equal(draft.value,'Keep this draft');assert.equal(clock.timers.size,0,'waits for the reader after detecting activity');
+ await findKey(h.ctx.document.getElementById('module-pane-discussion'),'refreshConversation').listeners.click();assert.ok(h.ctx.document.getElementById('post-p2'));assert.equal(inputNamed(h.body,'body'),draft);assert.equal(draft.value,'Keep this draft');assert.equal(focusChanges,0);assert.equal(clock.timers.size,1);
+ clock.visibility('hidden');assert.equal(clock.timers.size,0);clock.visibility('visible');assert.equal(clock.timers.size,1);
+ await h.ctx.document.getElementById('module-tab-materials').listeners.click();assert.equal(clock.timers.size,0);await h.ctx.document.getElementById('module-tab-discussion').listeners.click();assert.equal(clock.timers.size,1);
+ h.windowEvents.pagehide();assert.equal(clock.timers.size,0);h.windowEvents.pageshow();assert.equal(clock.timers.size,1,'bfcache return resumes the current view');await findKey(h.ctx.document.getElementById('module-pane-discussion'),'refreshConversation').listeners.click();assert.equal(draft.value,'Keep this draft');
+});
+test('polling aborts on module navigation and authentication expiry does not navigate away from a draft',async()=>{
+ let finish,expire=false;const h=harness((path,opts)=>path.includes('latest=1')?expire?{status:401,data:{error:'expired'}}:new Promise(resolve=>finish=resolve):learningFixture(path,opts),{page:'course',search:'?id=c1'});const clock=fakeClock(h);h.run('courses');await flush();
+ const pending=clock.tick();await flush();const signal=h.requests.at(-1).signal;assert.equal(signal.aborted,false);
+ await findKey(descendants(h.body).find(n=>n.className==='pilot-course-community'),'generalDiscussion').listeners.click();assert.equal(signal.aborted,true);finish({posts:[],revision:'r2'});await pending;
+ expire=true;inputNamed(h.body,'body').value='Unsaved question';await clock.tick();assert.equal(h.assigned(),'');assert.equal(inputNamed(h.body,'body').value,'Unsaved question');assert.match(content(h.body),/Automatic updates paused/);assert.equal(clock.timers.size,0);
+});
+test('uploaded material downloads use an authenticated attachment path and record the exact resource',async()=>{
+ const h=harness((path,opts)=>path.endsWith('/modules/m1')?{module:{id:'m1',title:'Session',resources:[{title:'Actual PDF',kind:'reading',attachmentId:'f1'}]}}:learningFixture(path,opts),{page:'course',search:'?id=c1'});h.run('courses');await flush();
+ const link=descendants(h.body).find(n=>n.href==='/api/course-attachments/f1');assert.ok(link);assert.equal(link.target,undefined);link.listeners.click();await flush();assert.equal(h.requests.find(r=>r.body?.kind==='content_open').body.resourceUrl,'/api/course-attachments/f1');
+});
+test('staff uploads a course-owned file and saves an attachment resource without losing sibling drafts',async()=>{
+ let module={id:'m1',title:'Session',kind:'session',resources:[],version:1};
+ const h=harness((path,opts)=>{
+  if(path.endsWith('/attachments'))return opts?.method==='POST'?{attachment:{id:'f1',name:'Territory.pdf',mime:'application/pdf',size:10}}:{attachments:[{id:'f1',name:'Territory.pdf',status:'ready',referenced:false}]};
+  if(opts?.method==='PATCH'){module={...module,...JSON.parse(opts.body),version:2};return{module};}
+  if(path==='/api/admin/courses')return{courses:[course]};if(path.endsWith('/report'))return{summary:{},participants:[],feedback:[]};return{course:{...course,version:1},modules:[module]};
+ },{page:'teaching'});h.ctx.FileReader=class{readAsDataURL(){this.result='data:application/pdf;base64,YWJj';this.onload();}};h.run('teaching');await flush();
+ const forms=descendants(h.body).filter(n=>n.tagName==='form'),form=forms[1];inputNamed(forms[0],'description').value='Unsaved course text';
+ const manager=descendants(form).find(n=>n.className==='pilot-file-manager');manager.open=true;manager.listeners.toggle();await flush();
+ inputNamed(form,'officialFile').files=[{name:'Territory.pdf',type:'application/pdf',size:10}];await findKey(form,'uploadFile').listeners.click();
+ assert.equal(h.requests.find(r=>r.path.endsWith('/m1/attachments')&&r.method==='POST').body.data,'YWJj');assert.match(content(form),/Save changes to make it available/);
+ await form.listeners.submit({preventDefault(){}});const patch=h.requests.find(r=>r.method==='PATCH');assert.equal(patch.body.resources[0].attachmentId,'f1');assert.equal('url' in patch.body.resources[0],false);assert.equal('kind' in patch.body,false,'fixed module kind is not patched');assert.equal(inputNamed(forms[0],'description').value,'Unsaved course text');
+});
+test('staff file validation prevents invalid uploads and an unsaved module asks to save first',async()=>{
+ const h=harness(path=>path==='/api/admin/courses'?{courses:[course]}:path.endsWith('/report')?{summary:{},participants:[],feedback:[]}:{course:{...course,version:1},modules:[{id:'m1',title:'Session',resources:[]}]},{page:'teaching'});h.run('teaching');await flush();
+ const forms=descendants(h.body).filter(n=>n.tagName==='form');inputNamed(forms[1],'officialFile').files=[{name:'large.pdf',type:'application/pdf',size:4*1024*1024}];await findKey(forms[1],'uploadFile').listeners.click();assert.match(content(forms[1]),/no larger than 3 MB/);
+ await findKey(forms[2],'uploadFile').listeners.click();assert.match(content(forms[2]),/Save this module first/);assert.equal(h.requests.some(r=>r.method==='POST'),false);
+});
+test('staff can reclaim an unlinked official upload but linked files have no delete action',async()=>{
+ let removed=false;const h=harness((path,opts)=>{
+  if(opts?.method==='DELETE'){removed=true;return{ok:true};}
+  if(path.endsWith('/attachments'))return{attachments:[{id:'linked',name:'Published.pdf',status:'ready',referenced:true},...removed?[]:[{id:'orphan',name:'Unused.pdf',status:'ready',referenced:false}]]};
+  if(path==='/api/admin/courses')return{courses:[course]};if(path.endsWith('/report'))return{summary:{},participants:[],feedback:[]};return{course:{...course,version:1},modules:[{id:'m1',title:'Session',resources:[{title:'Published PDF',attachmentId:'linked',kind:'reading'}]}]};
+ },{page:'teaching'});h.ctx.confirm=()=>true;h.run('teaching');await flush();const manager=descendants(h.body).find(n=>n.className==='pilot-file-manager');manager.open=true;await manager.listeners.toggle();await flush();
+ const rows=descendants(manager).filter(n=>n.className==='pilot-managed-file');assert.equal(findKey(rows[0],'deleteFile'),undefined);assert.ok(findKey(rows[1],'deleteFile'));await findKey(rows[1],'deleteFile').listeners.click();assert.equal(h.requests.find(r=>r.method==='DELETE').path,'/api/admin/courses/c1/modules/m1/attachments/orphan');assert.doesNotMatch(content(manager),/Unused.pdf/);assert.match(content(manager),/File deleted/);
+});
+
+test('staff module type is read-only and new modules use the backend session default',async()=>{
+ const h=harness((path,opts)=>opts?.method==='POST'?{module:{id:'m2',...JSON.parse(opts.body),kind:'session',version:1}}:path==='/api/admin/courses'?{courses:[course]}:path.endsWith('/report')?{summary:{},participants:[],feedback:[]}:{course:{...course,version:1},modules:[{id:'general',title:'General discussion',kind:'discussion',resources:[]}]},{page:'teaching'});h.run('teaching');await flush();
+ const forms=descendants(h.body).filter(n=>n.tagName==='form');assert.equal(inputNamed(forms[1],'moduleKind'),undefined);assert.equal(inputNamed(forms[2],'moduleKind'),undefined);assert.match(content(forms[1]),/Module type.*Discussion/s);
+ inputNamed(forms[2],'title').value='New session';await forms[2].listeners.submit({preventDefault(){}});const request=h.requests.find(r=>r.method==='POST');assert.equal('kind' in request.body,false);
+});
+test('failed module navigation preserves the current draft and functional refresh while loading and after failure',async()=>{
+ let finishNavigation;const h=harness((path,opts)=>path.endsWith('/modules/m2')?new Promise(resolve=>{finishNavigation=resolve;}):path==='/api/courses/c1'?{...learningFixture(path,opts),modules:[{id:'m1',title:'Session'},{id:'m2',title:'Next session'}]}:learningFixture(path,opts),{page:'course',search:'?id=c1'});const clock=fakeClock(h);h.run('courses');await flush();
+ const draft=inputNamed(h.body,'body'),refresh=findKey(h.ctx.document.getElementById('module-pane-discussion'),'refreshConversation');draft.value='Keep my current discussion draft';
+ const pending=descendants(h.body).find(n=>n.dataset.module==='m2').listeners.click();await flush();assert.equal(clock.timers.size,0,'background polling pauses during navigation');
+ const reads=h.requests.filter(r=>r.path.includes('/m1/posts')).length;await refresh.listeners.click();assert.equal(h.requests.filter(r=>r.path.includes('/m1/posts')).length,reads+1,'current visible refresh remains functional while loading');assert.equal(clock.timers.size,0);
+ finishNavigation({status:503,data:{error:'unavailable'}});await pending;assert.equal(inputNamed(h.body,'body'),draft);assert.equal(draft.value,'Keep my current discussion draft');assert.equal(clock.timers.size,1,'current conversation resumes after failure');
+ await refresh.listeners.click();assert.equal(h.requests.filter(r=>r.path.includes('/m1/posts')).length,reads+2);assert.equal(descendants(h.body).find(n=>n.dataset.module==='m1')['aria-current'],'step');
+});
+test('a failed latest navigation cannot activate an earlier late module response',async()=>{
+ let finishEarlier,finishLatest;const h=harness((path,opts)=>path.endsWith('/modules/m2')?new Promise(resolve=>{finishEarlier=resolve;}):path.endsWith('/modules/m3')?new Promise(resolve=>{finishLatest=resolve;}):path==='/api/courses/c1'?{...learningFixture(path,opts),modules:[{id:'m1',title:'Current session'},{id:'m2',title:'Earlier request'},{id:'m3',title:'Latest request'}]}:learningFixture(path,opts),{page:'course',search:'?id=c1'});const clock=fakeClock(h);h.run('courses');await flush();
+ const draft=inputNamed(h.body,'body');draft.value='Current session draft';const earlier=descendants(h.body).find(n=>n.dataset.module==='m2').listeners.click();await flush();const latest=descendants(h.body).find(n=>n.dataset.module==='m3').listeners.click();await flush();
+ finishLatest({status:503,data:{error:'unavailable'}});await latest;assert.equal(clock.timers.size,1);
+ finishEarlier({module:{id:'m2',title:'Late stale session',resources:[]}});await earlier;
+ assert.equal(inputNamed(h.body,'body'),draft);assert.equal(draft.value,'Current session draft');assert.doesNotMatch(content(h.body),/Late stale session/);assert.equal(h.requests.some(r=>r.path.includes('/m2/posts')),false);assert.equal(descendants(h.body).find(n=>n.dataset.module==='m1')['aria-current'],'step');
+ await clock.tick();assert.match(h.requests.at(-1).path,/\/m1\/posts\?kind=discussion&latest=1/);
 });

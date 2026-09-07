@@ -23,7 +23,7 @@ async function setup(t) {
  const {module}=await made.json();
  const intake={fullName:'Student',profession:'Planner',city:'Lima',motivation:'Learn',experience:'Beginner',expectations:'Practice',caseStudy:'Station',digitalFamiliarity:'Comfortable'};
  const enter=async(actor='student')=>{await call(`/api/courses/${course.id}/enroll`,{actor,method:'POST',body:{}});return call(`/api/courses/${course.id}/intake`,{actor,method:'PUT',body:intake});};
- return {call,course,module,enter,intake,store,users};
+ return {call,course,module,enter,intake,store,users,db};
 }
 
 test('enrollment/intake gates, private answers, drafts and staff authorization',async t=>{
@@ -108,4 +108,87 @@ test('staff feedback exports include all rows beyond the display limit and intak
    assert.match(exported,/response-502/);
    assert.equal((await call(path)).status,403);
  }
+});
+
+test('general discussion is unique, gated, immutable in kind and uses existing post rules',async t=>{
+ const {call,course,enter,store}=await setup(t);
+ const discussions=await store.find('modules',{courseId:course.id,kind:'discussion'});assert.equal(discussions.length,1);
+ const module=discussions[0],path=`/api/courses/${course.id}/modules/${module.id}`;
+ assert.equal((await call(path+'/posts')).status,403);await enter();
+ assert.equal((await call(path+'/posts',{method:'POST',body:{clientId:randomUUID(),kind:'question',body:'Where can we exchange ideas?'}})).status,201);
+ assert.equal((await call(path+'/posts',{method:'POST',body:{clientId:randomUUID(),kind:'assignment',body:'Wrong area'}})).status,400);
+ assert.equal((await call(`/api/admin/courses/${course.id}/modules`,{actor:'staff',method:'POST',body:{title:'Duplicate',kind:'discussion'}})).status,400);
+ assert.equal((await call(`/api/admin/courses/${course.id}/modules/${module.id}`,{actor:'staff',method:'PATCH',body:{version:module.version,kind:'session'}})).status,400);
+ assert.equal((await call(`/api/admin/courses/${course.id}/modules/${module.id}`,{method:'PATCH',body:{version:module.version,title:'Student edit'}})).status,403);
+ assert.equal((await(await call(path+'/posts?kind=discussion')).json()).posts.length,1);
+ assert.equal((await(await call(path+'/posts?kind=assignment')).json()).posts.length,0);
+});
+
+test('official material uploads are course-owned, published by versioned resources and never forged from student files',async t=>{
+ const {call,course,module,enter,store,users,db}=await setup(t);await enter();
+ const path=`/api/admin/courses/${course.id}/modules/${module.id}`,studentPath=path.replace('/admin','');
+ const file={name:'Official reading.pdf',mime:'application/pdf',data:Buffer.from('%PDF-1.4 official material').toString('base64')};
+ assert.equal((await call(path+'/attachments',{method:'POST',body:file})).status,403);
+ const uploaded=await call(path+'/attachments',{actor:'staff',method:'POST',body:file});assert.equal(uploaded.status,201);
+ const {attachment}=await uploaded.json();const [row]=await store.find('attachments',{id:attachment.id});assert.equal(row.userId,null);assert.equal(row.purpose,'material');assert.equal(attachment.storagePath,undefined);
+ const download=`/api/course-attachments/${attachment.id}`;
+ assert.equal((await call(download)).status,404);assert.equal((await call(download,{actor:''})).status,401);
+ const studentFile=await(await call(studentPath+'/attachments',{method:'POST',body:file})).json();
+ assert.equal((await call(path,{actor:'staff',method:'PATCH',body:{version:1,resources:[{title:'Forged',attachmentId:studentFile.attachment.id}]}})).status,400);
+ const resource={title:'Official reading',attachmentId:attachment.id,kind:'reading',translations:{pt:{title:'Leitura oficial'}}};
+ const results=await Promise.all([1,2].map(()=>call(path,{actor:'staff',method:'PATCH',body:{version:1,resources:[resource]}})));assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
+ assert.equal((await call(download)).status,200);assert.equal((await call(download,{actor:'other'})).status,403);
+ assert.equal((await call(studentPath+'/posts',{method:'POST',body:{clientId:randomUUID(),body:'Forged material',attachmentIds:[attachment.id]}})).status,400);
+ await deleteCourseData(store,users.staff.id);db.prepare('DELETE FROM users WHERE id=?').run(users.staff.id);assert.equal((await store.find('attachments',{id:attachment.id})).length,1);assert.equal((await call(download)).status,200);
+ assert.equal((await call(path,{actor:'staff',method:'PATCH',body:{version:2,status:'draft'}})).status,200);assert.equal((await call(download)).status,404);
+ assert.equal((await call(path,{actor:'staff',method:'PATCH',body:{version:3,status:'published',resources:[]}})).status,200);assert.equal((await call(download)).status,404);
+});
+
+test('filtered newest-first history keeps assignment replies, detects changes beyond 30 and moderation',async t=>{
+ const {call,course,module,enter,store}=await setup(t);await enter();
+ const path=`/api/courses/${course.id}/modules/${module.id}/posts`;
+ const assignment=(await(await call(path,{method:'POST',body:{clientId:randomUUID(),kind:'assignment',body:'Task'}})).json()).post;
+ const reply=(await(await call(path,{method:'POST',body:{clientId:randomUUID(),kind:'comment',parentId:assignment.id,body:'Task reply'}})).json()).post;
+ for(let i=0;i<32;i++){const made=await call(path,{method:'POST',body:{clientId:randomUUID(),kind:'question',body:`Question ${i}`}});assert.equal(made.status,201);const {post}=await made.json();await store.update('posts',{id:post.id},{createdAt:new Date(Date.UTC(2030,0,1,0,0,i)).toISOString()});}
+ const assignments=await(await call(path+'?kind=assignment')).json();assert.deepEqual(assignments.posts.map(p=>p.id).sort(),[assignment.id,reply.id].sort());
+ const first=await(await call(path+'?kind=discussion&order=desc')).json();assert.equal(first.posts.length,30);assert.equal(first.posts[0].body,'Question 31');
+ const second=await(await call(path+'?kind=discussion&order=desc&cursor='+first.nextCursor)).json();assert.equal(second.posts.length,2);assert.equal(new Set([...first.posts,...second.posts].map(p=>p.id)).size,32);
+ const latest=await(await call(path+'?latest=1&kind=discussion')).json();assert.equal(latest.posts[0].body,'Question 31');assert.equal(latest.nextCursor,null);
+ await call(`/api/admin/courses/${course.id}/posts/${latest.posts[0].id}`,{actor:'staff',method:'DELETE'});
+ const moderated=await(await call(path+'?latest=1&kind=discussion')).json();assert.ok(moderated.revision>latest.revision);assert.equal(moderated.posts[0].deleted,true);
+});
+
+test('official material erasure is explicit, retryable, and serialized against resource publication',async t=>{
+ const {call,course,module,enter,store}=await setup(t);await enter();
+ const path=`/api/admin/courses/${course.id}/modules/${module.id}`;
+ const upload=await(await call(path+'/attachments',{actor:'staff',method:'POST',body:{name:'Reading.txt',mime:'text/plain',data:Buffer.from('Teaching material').toString('base64')}})).json();
+ const id=upload.attachment.id,resource={title:'Reading',attachmentId:id};
+ const listed=await(await call(path+'/attachments',{actor:'staff'})).json();assert.equal(listed.attachments[0].id,id);assert.equal(listed.attachments[0].referenced,false);assert.equal(listed.attachments[0].storagePath,undefined);assert.equal((await call(path+'/attachments')).status,403);
+ await call(path,{actor:'staff',method:'PATCH',body:{version:1,resources:[resource]}});
+ assert.equal((await call(path+'/attachments/'+id,{actor:'staff',method:'DELETE'})).status,409);
+ await assert.rejects(store.update('attachments',{id},{status:'deleting'}),{status:409});
+ await call(path,{actor:'staff',method:'PATCH',body:{version:2,resources:[]}});
+ const deleteFile=store.deleteFile;store.deleteFile=async()=>{throw new Error('Storage unavailable');};
+ assert.equal((await call(path+'/attachments/'+id,{actor:'staff',method:'DELETE'})).status,500);
+ assert.equal((await store.find('attachments',{id}))[0].status,'deleting');
+ assert.equal((await call(`/api/course-attachments/${id}`)).status,404);
+ await assert.rejects(store.update('modules',{id:module.id},{resources:[resource]}),{status:409});
+ store.deleteFile=deleteFile;assert.equal((await call(path+'/attachments/'+id,{actor:'staff',method:'DELETE'})).status,200);
+ assert.equal((await store.find('attachments',{id})).length,0);
+});
+
+test('uncertain official uploads remain private and can be reconciled after account deletion',async t=>{
+ const {call,course,module,store,users,db}=await setup(t);
+ const {reconcileCourseUploads}=await import('../scripts/reconcile-course-uploads.js');
+ const put=store.putFile;store.putFile=async(...args)=>{await put(...args);throw new Error('lost response');};
+ const path=`/api/admin/courses/${course.id}/modules/${module.id}`;
+ assert.equal((await call(path+'/attachments',{actor:'staff',method:'POST',body:{name:'Official.txt',mime:'text/plain',data:Buffer.from('Course-owned').toString('base64')}})).status,500);
+ const [pending]=await store.find('attachments',{purpose:'material'});assert.equal(pending.status,'pending');
+ assert.equal((await call(`/api/course-attachments/${pending.id}`,{actor:'staff'})).status,404);
+ assert.equal((await call(path,{actor:'staff',method:'PATCH',body:{version:1,resources:[{title:'Unfinished',attachmentId:pending.id}]}})).status,400);
+ assert.equal((await call(path+'/attachments/'+pending.id,{actor:'staff',method:'DELETE'})).status,409);
+ await deleteCourseData(store,users.staff.id);db.prepare('DELETE FROM users WHERE id=?').run(users.staff.id);
+ assert.equal((await store.getFile(pending)).toString(),'Course-owned');
+ const result=await reconcileCourseUploads(store,{apply:true,now:Date.now()+25*60*60*1000});assert.equal(result.removed,1);
+ assert.equal((await store.find('attachments',{id:pending.id})).length,0);
 });

@@ -1,0 +1,35 @@
+{
+  "database": "nodal_capacity_proof_20260907",
+  "postgresVersion": "18.6",
+  "migration": "20260907172512_course_discussion_materials.sql",
+  "checks": [
+    "All prior migrations applied to independent synthetic database",
+    "Existing course gained exactly one general discussion",
+    "Existing session version, instructions and resources preserved",
+    "Nested assignment replies and question replies backfilled correct thread kind",
+    "Existing personal attachment owner and object locator preserved",
+    "Actual concurrent publication/deletion in both commit orders never leaves a published deleting object",
+    "Opposing row-lock order deadlock aborts exactly one transaction and preserves invariant; API maps40P01 to409"
+  ],
+  "concurrency": [
+    {
+      "ordering": "publish_first",
+      "secondBlockedOnDatabaseLock": true,
+      "secondRejected": true,
+      "finalState": "ready|1"
+    },
+    {
+      "ordering": "delete_first",
+      "secondBlockedOnDatabaseLock": true,
+      "secondRejected": true,
+      "finalState": "deleting|0"
+    },
+    {
+      "ordering": "opposing_locks",
+      "deadlockSafelyAborted": true,
+      "finalState": "ready|1"
+    }
+  ],
+  "scope": "local synthetic SQL only; no remote calls or storage objects",
+  "cleanup": true
+}

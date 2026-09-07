@@ -50,29 +50,71 @@ function makeEditor(record,module,courseId,onSaved){
   }
   const state=select('status',module?['draft','published']:['draft','published','archived'],record?.status||'draft');inputs.status=state.input;
   form.append(original,translations.section,grid,state.wrap);
-  let resourceInputs=[];
+  let resourceInputs=[],refreshFiles=()=>{},uploadBusy=false;
+  if(module&&record){const moduleKind=el('p','pilot-data-note');moduleKind.append(tr('span','moduleKind'),el('span',null,': '),tr('strong',record.kind||'session'));form.append(moduleKind);}
   if(module){
     const resources=el('div'),rows=el('div');resources.append(tr('h3','resources'));
     function add(r={}){
+      if(r.attachmentId&&resourceInputs.some(entry=>entry.attachmentId===r.attachmentId))return;
       const row=el('div','pilot-resource-edit'),title=field('title',r.title||''),url=field('url',r.url||'','url'),kind=select('kind',['slides','reading','link','recording'],r.kind||'link');
-      title.input.required=true;url.input.required=true;title.input.maxLength=180;url.input.maxLength=2000;
+      title.input.required=true;url.input.required=!r.attachmentId;title.input.maxLength=180;url.input.maxLength=2000;
       const translated=translationEditor(r,['title']),details=el('details');details.append(tr('summary','translations'),translated.section);
-      const entry={title:title.input,url:url.input,kind:kind.input,translations:translated.value};resourceInputs.push(entry);
-      row.append(title.wrap,url.wrap,kind.wrap,details,button('remove',()=>{row.remove();resourceInputs=resourceInputs.filter(x=>x!==entry);},true));rows.append(row);
+      const entry={title:title.input,url:url.input,attachmentId:r.attachmentId,kind:kind.input,translations:translated.value};resourceInputs.push(entry);
+      row.append(title.wrap);
+      if(r.attachmentId){const download=tr('a','downloadFile');download.href='/api/course-attachments/'+encodeURIComponent(r.attachmentId);row.append(download);}else row.append(url.wrap);
+      row.append(kind.wrap,details,button('remove',()=>{row.remove();resourceInputs=resourceInputs.filter(x=>x!==entry);},true));rows.append(row);
     }
     for(const resource of record?.resources||[])add(resource);
-    resources.append(rows,button('addResource',()=>add(),true));form.append(resources);
+    resources.append(rows,button('addResource',()=>add(),true));
+    const manager=el('details','pilot-file-manager');manager.append(tr('summary','manageFiles'),tr('p','officialFileNotice','pilot-data-note'));
+    const file=field('officialFile','','file');file.input.accept='image/jpeg,image/png,image/webp,application/pdf,text/plain';
+    const fileStatus=el('p','pilot-status');fileStatus.setAttribute('role','status');const library=el('div','pilot-file-library');
+    const upload=button('uploadFile',async()=>{
+      if(!record?.id){status(fileStatus,t('saveModuleFirst'));return;}
+      const chosen=file.input.files?.[0];
+      if(!chosen||chosen.size>3*1024*1024||!['image/jpeg','image/png','image/webp','application/pdf','text/plain'].includes(chosen.type)){status(fileStatus,t('officialFileError'));return;}
+      uploadBusy=true;upload.disabled=true;submit.disabled=true;
+      try{
+        const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(new Error(t('officialFileError')));reader.readAsDataURL(chosen);});
+        const {attachment}=await api(endpoint(courseId)+'/modules/'+record.id+'/attachments',{name:chosen.name,mime:chosen.type,data});
+        add({title:attachment.name,attachmentId:attachment.id,kind:'reading'});file.input.value='';status(fileStatus,t('fileReadyToSave'));await refreshFiles();
+      }catch(err){status(fileStatus,err);}finally{uploadBusy=false;upload.disabled=false;submit.disabled=false;}
+    },true);
+    const reloadFiles=button('refreshFiles',()=>refreshFiles(),true);
+    refreshFiles=async()=>{
+      if(!manager.open)return;
+      if(!record?.id){status(fileStatus,t('saveModuleFirst'));return;}
+      reloadFiles.disabled=true;
+      try{
+        const result=await api(endpoint(courseId)+'/modules/'+record.id+'/attachments');library.replaceChildren();
+        for(const attachment of result.attachments||[]){
+          const row=el('div','pilot-managed-file'),name=el('a',null,attachment.name);name.href='/api/course-attachments/'+encodeURIComponent(attachment.id);
+          const inDraft=resourceInputs.some(r=>r.attachmentId===attachment.id);
+          row.append(name,tr('span',attachment.referenced?'filePublished':'fileUnlinked','pilot-tag'));
+          if(!inDraft&&attachment.status==='ready')row.append(button('useFile',()=>{add({title:attachment.name,attachmentId:attachment.id,kind:'reading'});status(fileStatus,t('fileReadyToSave'));refreshFiles();},true));
+          if(!attachment.referenced&&!inDraft&&['ready','deleting'].includes(attachment.status))row.append(button('deleteFile',async()=>{
+            if(!confirm(t('confirmDeleteFile')))return;
+            try{await api(endpoint(courseId)+'/modules/'+record.id+'/attachments/'+attachment.id,{},'DELETE');await refreshFiles();status(fileStatus,t('fileDeleted'));}catch(err){status(fileStatus,err);}
+          },true));
+          library.append(row);
+        }
+        if(!result.attachments?.length)library.append(tr('p','noUploadedFiles','pilot-data-note'));
+      }catch(err){status(fileStatus,err);}finally{reloadFiles.disabled=false;}
+    };
+    manager.addEventListener('toggle',()=>{if(manager.open)refreshFiles();});
+    manager.append(file.wrap,upload,fileStatus,reloadFiles,library);resources.append(manager);form.append(resources);
   }
+
   const submit=button(record?'save':module?'newModule':'newCourse');submit.type='submit';
   const local=el('p','pilot-status');local.setAttribute('role','status');form.append(submit,local);
   form.addEventListener('submit',async e=>{
-    e.preventDefault();submit.disabled=true;
+    e.preventDefault();if(uploadBusy)return;submit.disabled=true;
     try{
       const body=Object.fromEntries(Object.entries(inputs).map(([key,input])=>[key,input.type==='checkbox'?input.checked:input.type==='number'?Number(input.value):input.value]));
       body.translations=translations.value();if(record)body.version=record.version;
-      if(module){body.resources=resourceInputs.map(r=>({title:r.title.value,url:r.url.value,kind:r.kind.value,translations:r.translations()}));if(body.resources.some(r=>!window.nodalPilot.safeUrl(r.url)))throw new Error(t('urlError'));}
+      if(module){body.resources=resourceInputs.map(r=>({title:r.title.value,...(r.attachmentId?{attachmentId:r.attachmentId}:{url:r.url.value}),kind:r.kind.value,translations:r.translations()}));if(body.resources.some(r=>!r.attachmentId&&!window.nodalPilot.safeUrl(r.url)))throw new Error(t('urlError'));}
       const path=module?endpoint(courseId)+'/modules'+(record?'/'+record.id:''):endpoint(record?.id);
-      const result=await api(path,body,record?'PATCH':'POST'),saved=result.course||result.module;if(record)Object.assign(record,saved);else record=saved;submit.dataset.pilotText='save';submit.textContent=t('save');status(local,t('saved'));await onSaved(saved);
+      const result=await api(path,body,record?'PATCH':'POST'),saved=result.course||result.module;if(record)Object.assign(record,saved);else record=saved;submit.dataset.pilotText='save';submit.textContent=t('save');status(local,t('saved'));await onSaved(saved);await refreshFiles();
     }catch(err){
       status(local,err);
       if(err.status===409&&!form.querySelector('[data-reload]')){

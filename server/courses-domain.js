@@ -65,7 +65,8 @@ export function normalizeCourse(input = {}, current = {}) {
 export function normalizeLinks(value = [], materials = false) {
   if (!Array.isArray(value) || value.length > 12) fail('up to 12 links are allowed');
   return value.map(item => ({
-    title: text(item?.title, 'link title', 180, true), url: httpsUrl(item?.url),
+    title: text(item?.title, 'link title', 180, true),
+    ...(materials && item?.attachmentId ? (item.url ? fail('resource must have a URL or attachment, not both') : {attachmentId:identifier(item.attachmentId)}) : {url:httpsUrl(item?.url)}),
     ...(materials && item?.translations !== undefined ? {translations:normalizeTranslations(item.translations,{title:180})} : {}),
     ...(materials ? { kind: choice(item.kind, ['slides', 'reading', 'link', 'recording'], 'link', 'resource kind') } : {}),
   }));
@@ -74,7 +75,9 @@ export function normalizeModule(input = {}, current = {}) {
   const src = { ...current, ...input };
   const position = src.position ?? 1;
   if (!Number.isInteger(position) || position < 1 || position > 100) fail('position must be between 1 and 100');
+  if(current.kind && src.kind !== current.kind) fail('module kind cannot change');
   return {
+    kind: choice(src.kind, ['session','discussion'], 'session', 'module kind'),
     title: text(src.title, 'title', 180, true), description: text(src.description, 'description', 6000),
     objectives: text(src.objectives, 'objectives', 6000), instructions: text(src.instructions, 'instructions', 10000),
     translations: normalizeTranslations(src.translations,{title:180,description:6000,objectives:6000,instructions:10000}),

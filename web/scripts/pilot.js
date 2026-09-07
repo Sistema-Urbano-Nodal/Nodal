@@ -22,18 +22,20 @@ function requestError(data,statusCode){
   const detail=String(data.error||'');
   if(/enroll and complete/.test(detail))return translatedError('intakeRequired',statusCode);
   if(/enrollment is closed/.test(detail))return translatedError('closed',statusCode);
+  if(/remove the material from module resources/.test(detail))return translatedError('fileStillLinked',statusCode);
+  if(/pending uploads must be reconciled/.test(detail))return translatedError('filePending',statusCode);
   if(/parent post unavailable/.test(detail))return translatedError('replyUnavailable',statusCode);
   if(/post identifier is already used/.test(detail))return translatedError('alreadySubmitted',statusCode);
   const field=detail.match(/^(fullName|profession|city|motivation|experience|expectations|caseStudy|digitalFamiliarity|title|description|objectives|instructions|post) (is required|is too long)/);
   if(field)return translatedError(field[2]==='is required'?'requiredField':'longField',statusCode,field[1]==='post'?'body':field[1]);
   return translatedError(({400:'invalidInput',403:'accessDenied',404:'notAvailable',409:'conflict',413:'fileError',415:'fileError',429:'tooManyRequests'})[statusCode]||'error',statusCode);
 }
-async function api(path,body,method){
+async function api(path,body,method,options={}){
   let res;
-  try{res=await fetch(path,body===undefined?undefined:{method:method||'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});}
-  catch{throw translatedError('connectionError');}
+  try{res=await fetch(path,{...(body===undefined?{}:{method:method||'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),...(options.signal?{signal:options.signal}:{})});}
+  catch(error){if(error.name==='AbortError')throw error;throw translatedError('connectionError');}
   const data=await res.json().catch(()=>({}));
-  if(res.status===401){location.assign('/login.html?next='+encodeURIComponent(location.pathname+location.search));throw translatedError('signInRequired',401);}
+  if(res.status===401){if(options.redirectOnUnauthorized!==false)location.assign('/login.html?next='+encodeURIComponent(location.pathname+location.search));throw translatedError('signInRequired',401);}
   if(!res.ok)throw requestError(data,res.status);
   return data;
 }

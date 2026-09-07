@@ -14,8 +14,8 @@ test('real application protects pilot pages, disables checkout, exports and eras
   const store=createCourseStore({db});
   const course=await setupCoursePilot(store);
   await setupCoursePilot(store);
-  assert.equal(await store.count('modules',{courseId:course.id}),4);
-  const module=(await store.find('modules',{courseId:course.id}))[0];
+  assert.equal(await store.count('modules',{courseId:course.id,kind:'session'}),4);
+  const module=(await store.find('modules',{courseId:course.id,kind:'session'}))[0];
   const member=createUser(db,{fullName:'Participant',email:'participant@example.test',passwordHash:'unused'});
   const cookie=createSession(db,member.id).cookie.split(';')[0];
   const server=createApp({db,pilotMode:true});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
@@ -48,7 +48,7 @@ test('real application protects pilot pages, disables checkout, exports and eras
 
 test('database account deletion scrubs late posts atomically and refuses unresolved private uploads',async t=>{
  const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
- const store=createCourseStore({db}),course=await setupCoursePilot(store),module=(await store.find('modules',{courseId:course.id}))[0];
+ const store=createCourseStore({db}),course=await setupCoursePilot(store),module=(await store.find('modules',{courseId:course.id,kind:'session'}))[0];
  const user=createUser(db,{fullName:'Departing member',email:'departing@example.test',passwordHash:'unused'});
  await deleteCourseData(store,user.id);
  // A previously authorized request lands after the app-level scrub.

@@ -64,3 +64,18 @@ test('Supabase totals and private storage use server credentials and preserve bi
   await assert.rejects(failing.count('enrollments'),{status:502});
   await assert.rejects(failing.deleteFile(attachment),{status:502});
 });
+
+test('Supabase descending filtered post cursor uses both timestamp and ID, and material conflicts are retryable',async()=>{
+ const calls=[];
+ const store=createCourseStore({clients:{admin:{rest:async(table,args)=>{
+  calls.push({table,...args});
+  if(args.method==='PATCH')throw Object.assign(new Error('material publication raced cleanup'),{code:'23514'});
+  return {rows:[],contentRange:'*/0'};
+ }}}});
+ const stamp='2026-09-07T12:00:00.000Z';
+ await store.find('posts',{moduleId:'module',threadKind:'assignment'},{desc:true,limit:31,after:{createdAt:stamp,id:'post'}});
+ assert.equal(calls[0].query.order,'created_at.desc,id.desc');
+ assert.equal(calls[0].query.thread_kind,'eq.assignment');
+ assert.equal(calls[0].query.or,`(created_at.lt.${stamp},and(created_at.eq.${stamp},id.lt.post))`);
+ await assert.rejects(store.update('modules',{id:'module',version:2},{resources:[]}),{status:409});
+});

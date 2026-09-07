@@ -13,6 +13,8 @@ const STATIC_SCRIPTS = [
   'admin.js',
   'app.js',
   'auth.js',
+  'password-recovery.js',
+  'recovery-i18n.js',
   'catalog.js',
   'courses.js',
   'coastline.js',
@@ -29,7 +31,7 @@ const STATIC_SCRIPTS = [
   'script.js',
   'teaching.js',
 ];
-const STATIC_STYLES = ['admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'styles.css'];
+const STATIC_STYLES = ['admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'styles.css', 'recovery.css'];
 const STATIC_ASSETS = [
   'latam-map.webp',
   'nodal-community.webp',

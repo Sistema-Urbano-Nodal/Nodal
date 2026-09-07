@@ -48,6 +48,9 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     if(!module || (!isStaff(user)&&module.status!=='published'))fail('module unavailable',404);
     return {...access,module};
   }
+  async function validateMaterials(resources,module) {
+    for(const resource of resources) if(resource.attachmentId && !await findOne('attachments',{id:resource.attachmentId,courseId:module.courseId,moduleId:module.id,purpose:'material',status:'ready'}))fail('official resource attachment unavailable');
+  }
   async function postView(post) {
     const deleted=Boolean(post.deletedAt)||!post.userId;
     const attachments=deleted?[]:(await Promise.all((post.attachmentIds??[]).map(id=>findOne('attachments',{id,moduleId:post.moduleId,userId:post.userId,status:'ready'})))).filter(Boolean).map(attachmentView);
@@ -118,8 +121,9 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     if(match&&req.method==='GET') {
       const attachment=await findOne('attachments',{id:identifier(match[1])});
       if(!attachment||attachment.status!=='ready')fail('file unavailable',404);
-      await moduleAccess(attachment.courseId,attachment.moduleId,user);
-      if(!isStaff(user)&&attachment.userId!==user.id) {
+      const {module}=await moduleAccess(attachment.courseId,attachment.moduleId,user);
+      if(attachment.purpose==='material'&&!isStaff(user)&&!module.resources.some(r=>r.attachmentId===attachment.id))fail('file unavailable',404);
+      if(attachment.purpose!=='material'&&!isStaff(user)&&attachment.userId!==user.id) {
         const posts=await all('posts',{moduleId:attachment.moduleId,userId:attachment.userId});
         if(!posts.some(post=>!post.deletedAt&&post.attachmentIds.includes(attachment.id)))fail('file unavailable',404);
       }
@@ -132,9 +136,9 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     const courseId=identifier(match[2]),suffix=match[3];
     const access=await courseAccess(courseId,user);
     if(!suffix&&req.method==='GET') {
-      let modules=await store.find('modules',{courseId,...(isStaff(user)?{}:{status:'published'})},{limit:100,order:['position','id']});
-      if(!isStaff(user)&&(!access.enrollment||!access.intake)) modules=modules.map(({id,title,position,sessionDate,status,translations={}})=>({
-        id,title,position,sessionDate,status,
+      let modules=await store.find('modules',{courseId,...(isStaff(user)?{}:{status:'published'})},{limit:101,order:['position','id']});
+      if(!isStaff(user)&&(!access.enrollment||!access.intake)) modules=modules.map(({id,kind,title,position,sessionDate,status,translations={}})=>({
+        id,kind,title,position,sessionDate,status,
         // Preview only localized titles; gated teaching content stays private.
         translations:Object.fromEntries(Object.entries(translations).map(([locale,fields])=>[locale,typeof fields.title==='string'?{title:fields.title}:{}])),
       }));
@@ -167,8 +171,10 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       send(res,200,{intake:answers,enrollment:{...access.enrollment,intakeCompleted:true}});return true;
     }
     if(adminPath&&suffix==='/modules'&&req.method==='POST') {
-      const count=await store.find('modules',{courseId},{limit:100});if(count.length>=100)fail('course module limit reached');
-      const module=await store.insert('modules',{id:newId(),courseId,...normalizeModule(await bodyJson(req)),version:1,createdAt:now(),updatedAt:now()});
+      const count=await store.find('modules',{courseId,kind:'session'},{limit:100});if(count.length>=100)fail('course module limit reached');
+      const input=normalizeModule(await bodyJson(req));if(input.kind!=='session')fail('general discussion is created automatically');
+      const record={id:newId(),courseId,...input,version:1,createdAt:now(),updatedAt:now()};await validateMaterials(input.resources,record);
+      const module=await store.insert('modules',record);
       send(res,201,{module});return true;
     }
     if(adminPath&&['/report','/export'].includes(suffix)&&req.method==='GET') {
@@ -191,28 +197,42 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       const {module}=await moduleAccess(courseId,identifier(input.moduleId),user,access);
       if(!['module_open','content_open','recording_open'].includes(input.kind))fail('invalid activity type');
       const resourceUrl=input.kind==='module_open'?'':text(input.resourceUrl,'resource URL',2000,true);
-      if(input.kind!=='module_open'&&!module.resources.some(r=>r.url===resourceUrl&&(input.kind==='recording_open'?r.kind==='recording':r.kind!=='recording')))fail('resource is not in this module');
+      if(input.kind!=='module_open'&&!module.resources.some(r=>(r.url||(r.attachmentId?`/api/course-attachments/${r.attachmentId}`:''))===resourceUrl&&(input.kind==='recording_open'?r.kind==='recording':r.kind!=='recording')))fail('resource is not in this module');
       const event={id,courseId,moduleId:module.id,userId:user.id,kind:input.kind,resourceUrl,createdAt:now()};
       try { await store.insert('events',event); }
       catch(err) { if(err.status!==409)throw err;const old=await findOne('events',{id,userId:user.id,courseId,moduleId:module.id,kind:input.kind,resourceUrl});if(!old)fail('event identifier is already used',409); }
       send(res,200,{ok:true});return true;
     }
-    const moduleMatch=suffix.match(/^\/modules\/([^/]+)(\/posts|\/attachments)?$/);
+    const moduleMatch=suffix.match(/^\/modules\/([^/]+)(\/posts|\/attachments(?:\/[^/]+)?)?$/);
     if(moduleMatch) {
       const {module}=await moduleAccess(courseId,identifier(moduleMatch[1]),user,access);
       const operation=moduleMatch[2]||'';
       if(!operation&&req.method==='GET'){send(res,200,{module});return true;}
       if(adminPath&&!operation&&req.method==='PATCH') {
         const input=await bodyJson(req);if(!Number.isInteger(input.version)||input.version<1)fail('version is required');
-        const updated=await store.update('modules',{id:module.id,courseId,version:input.version},{...normalizeModule(input,module),version:input.version+1,updatedAt:now()});
+        const normalized=normalizeModule(input,module);await validateMaterials(normalized.resources,module);
+        const updated=await store.update('modules',{id:module.id,courseId,version:input.version},{...normalized,version:input.version+1,updatedAt:now()});
         if(!updated)fail('module changed; reload before saving',409);
         send(res,200,{module:updated});return true;
       }
-      if(!adminPath&&operation==='/attachments'&&req.method==='POST') {
+      if(adminPath&&operation==='/attachments'&&req.method==='GET') {
+        const rows=await store.find('attachments',{courseId,moduleId:module.id,purpose:'material'},{limit:100});
+        send(res,200,{attachments:rows.map(a=>({...attachmentView(a),status:a.status,referenced:module.resources.some(r=>r.attachmentId===a.id)}))});return true;
+      }
+      if(adminPath&&operation.startsWith('/attachments/')&&req.method==='DELETE') {
+        const attachment=await findOne('attachments',{id:identifier(operation.split('/')[2]),courseId,moduleId:module.id,purpose:'material'});
+        if(!attachment)fail('file unavailable',404);
+        if(attachment.status==='pending')fail('pending uploads must be reconciled before deletion',409);
+        if(module.resources.some(r=>r.attachmentId===attachment.id))fail('remove the material from module resources before deleting',409);
+        if(attachment.status!=='deleting')await store.update('attachments',{id:attachment.id,status:'ready'},{status:'deleting'});
+        await store.deleteFile(attachment);await store.remove('attachments',{id:attachment.id,status:'deleting'});
+        send(res,200,{ok:true});return true;
+      }
+      if(operation==='/attachments'&&req.method==='POST') {
         const input=decodeAttachment(await bodyJson(req,4*1024*1024+4096));
-        const existing=await store.find('attachments',{userId:user.id,courseId},{limit:100});
+        const existing=await store.find('attachments',{userId:adminPath?null:user.id,courseId},{limit:100});
         if(existing.length>=100||existing.reduce((n,a)=>n+a.size,0)+input.size>30*1024*1024)fail('course upload allowance reached; use a link instead',413);
-        const id=newId();const attachment={id,courseId,moduleId:module.id,userId:user.id,name:input.name,mime:input.mime,size:input.size,storagePath:`${user.id}/${id}`,status:'pending',createdAt:now()};
+        const id=newId();const attachment={id,courseId,moduleId:module.id,userId:adminPath?null:user.id,purpose:adminPath?'material':'post',name:input.name,mime:input.mime,size:input.size,storagePath:adminPath?`courses/${courseId}/${module.id}/${id}`:`${user.id}/${id}`,status:'pending',createdAt:now()};
         await store.insert('attachments',attachment);
         // A failed response does not prove Storage rejected the object. Keep the
         // pending record for reconciliation, including when a worker terminates.
@@ -221,22 +241,27 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
         send(res,201,{attachment:attachmentView(attachment)});return true;
       }
       if(!adminPath&&operation==='/posts'&&req.method==='GET') {
-        const rows=await store.find('posts',{courseId,moduleId:module.id},{limit:31,after:decodeCursor(url.searchParams.get('cursor'))});
-        const page=rows.slice(0,30);
-        send(res,200,{posts:await Promise.all(page.map(postView)),nextCursor:rows.length>30?encodeCursor(page.at(-1)):null});return true;
+        const kind=url.searchParams.get('kind');if(kind&&!['assignment','discussion'].includes(kind))fail('invalid post filter');
+        const latest=url.searchParams.get('latest')==='1',desc=latest||url.searchParams.get('order')==='desc';
+        const filters={courseId,moduleId:module.id,...(kind?{threadKind:kind}:{})};
+        const rows=await store.find('posts',filters,{limit:latest?1:31,desc,after:latest?null:decodeCursor(url.searchParams.get('cursor'))});
+        const page=rows.slice(0,latest?1:30);
+        send(res,200,{posts:await Promise.all(page.map(postView)),nextCursor:!latest&&rows.length>30?encodeCursor(page.at(-1)):null,revision:module.postsRevision});return true;
       }
       if(!adminPath&&operation==='/posts'&&req.method==='POST') {
         const input=normalizePost(await bodyJson(req));
+        if(module.kind==='discussion'&&input.kind==='assignment')fail('assignments belong to a session');
+        let threadKind=input.kind==='assignment'?'assignment':'discussion';
         const old=await findOne('posts',{userId:user.id,clientId:input.clientId});
         if(old) {
           if(!samePost(old,input,courseId,module.id))fail('post identifier is already used',409);
           send(res,200,{post:await postView(old)});return true;
         }
         if(input.parentId) {
-          const parent=await findOne('posts',{id:input.parentId,courseId,moduleId:module.id});if(!parent||parent.deletedAt)fail('parent post unavailable');
+          const parent=await findOne('posts',{id:input.parentId,courseId,moduleId:module.id});if(!parent||parent.deletedAt)fail('parent post unavailable');threadKind=parent.threadKind;
         }
-        for(const id of input.attachmentIds) if(!await findOne('attachments',{id,userId:user.id,courseId,moduleId:module.id,status:'ready'}))fail('attachment is unavailable or belongs to another member');
-        const record={id:newId(),courseId,moduleId:module.id,userId:user.id,authorName:user.fullName,staff:isStaff(user),...input,deletedAt:null,createdAt:now()};
+        for(const id of input.attachmentIds) if(!await findOne('attachments',{id,userId:user.id,courseId,moduleId:module.id,purpose:'post',status:'ready'}))fail('attachment is unavailable or belongs to another member');
+        const record={id:newId(),courseId,moduleId:module.id,userId:user.id,authorName:user.fullName,staff:isStaff(user),...input,threadKind,deletedAt:null,createdAt:now()};
         let post;
         try {post=await store.insert('posts',record);}catch(err){if(err.status!==409)throw err;post=await findOne('posts',{userId:user.id,clientId:input.clientId});if(!samePost(post,input,courseId,module.id))throw err;}
         send(res,201,{post:await postView(post)});return true;

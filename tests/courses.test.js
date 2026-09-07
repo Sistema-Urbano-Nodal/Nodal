@@ -51,3 +51,33 @@ test('course store keyset reads never omit tied timestamps', async t => {
   const second=await store.find('courses',{}, {limit:30,after:{createdAt:first.at(-1).createdAt,id:first.at(-1).id}});
   assert.equal(new Set([...first,...second].map(x=>x.id)).size,35);
 });
+
+test('legacy SQLite upgrade preserves personal bytes, backfills discussion once and keeps ownership constraints',async t=>{
+ const {COURSE_SQLITE_SCHEMA}=await import('../server/courses-schema.js');
+ const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
+ const legacy=COURSE_SQLITE_SCHEMA.replace(/ kind TEXT NOT NULL DEFAULT 'session'.*?\n/,'').replace(/ thread_kind TEXT NOT NULL DEFAULT 'discussion'.*?\n/,'').replace(/\n purpose TEXT NOT NULL DEFAULT 'post'.*?\n/,'\n').replace('user_id TEXT REFERENCES users(id) ON DELETE RESTRICT','user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT').replace("'pending','ready','deleting'","'pending','ready'");
+ db.exec(legacy);
+ const user=createUser(db,{fullName:'Legacy',email:'legacy@example.test',passwordHash:'unused'}),courseId=randomUUID(),moduleId=randomUUID(),fileId=randomUUID(),stamp=new Date().toISOString();
+ db.prepare("INSERT INTO pilot_courses(id,title,status,created_at,updated_at)VALUES(?,'Legacy course','published',?,?)").run(courseId,stamp,stamp);
+ db.prepare("INSERT INTO course_modules(id,course_id,title,status,position,created_at,updated_at)VALUES(?,?,'Legacy session','published',1,?,?)").run(moduleId,courseId,stamp,stamp);
+ db.prepare("INSERT INTO course_attachments(id,course_id,module_id,user_id,name,mime,size,storage_path,status,created_at)VALUES(?,?,?,?,'old.txt','text/plain',3,'old/object','ready',?)").run(fileId,courseId,moduleId,user.id,stamp);
+ db.prepare('INSERT INTO course_attachment_bytes(id,bytes)VALUES(?,?)').run(fileId,Buffer.from('old'));
+ const store=createCourseStore({db});createCourseStore({db});
+ assert.equal(await store.count('modules',{courseId,kind:'discussion'}),1);
+ assert.equal((await store.find('modules',{id:moduleId}))[0].kind,'session');
+ const [file]=await store.find('attachments',{id:fileId});assert.equal(file.purpose,'post');assert.equal((await store.getFile(file)).toString(),'old');
+ assert.throws(()=>db.prepare('DELETE FROM users WHERE id=?').run(user.id),/FOREIGN KEY/);
+ assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(),[]);
+});
+
+
+test('attachment quota and course foreign-key lookups use the course-owner index',t=>{
+ const db=createDatabase({filename:':memory:'});t.after(()=>db.close());createCourseStore({db});
+ const columns=db.prepare('PRAGMA index_info(course_attachments_course_owner)').all().map(c=>c.name);
+ assert.deepEqual(columns,['course_id','user_id']);
+ for(const clause of ['course_id=? AND user_id IS NULL','course_id=? AND user_id=?','course_id=?']) {
+  const params=clause.includes('user_id=?')?['course','member']:['course'];
+  const plan=db.prepare('EXPLAIN QUERY PLAN SELECT id FROM course_attachments WHERE '+clause).all(...params);
+  assert.ok(plan.some(row=>row.detail.includes('USING INDEX course_attachments_course_owner')),JSON.stringify(plan));
+ }
+});

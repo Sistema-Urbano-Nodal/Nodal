@@ -24,6 +24,7 @@ test('SQLite upgrades existing course tables without losing staff edits and pers
   const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
   createCourseStore({db});
   // Simulate the deployed pre-localization course schema without reproducing its DDL.
+  db.exec('DROP TRIGGER course_discussion_create');
   for(const table of ['pilot_courses','course_modules'])if(db.prepare(`PRAGMA table_info(${table})`).all().some(c=>c.name==='translations'))db.exec(`ALTER TABLE ${table} DROP COLUMN translations`);
   const stamp=new Date().toISOString(),id=randomUUID();
   db.prepare("INSERT INTO pilot_courses (id,title,description,status,created_at,updated_at) VALUES (?,?,'Staff description','draft',?,?)").run(id,'Staff course',stamp,stamp);
@@ -48,7 +49,7 @@ test('pilot setup localizes the supplied shell and enriches legacy rows without 
   let course=await setupCoursePilot(store);
   assert.equal(course.translations.pt.title,'Curso de Mobilidade Nível 2');
   assert.equal(course.translations.en.title,'Mobility Level 2 Course');
-  const modules=await store.find('modules',{courseId:course.id},{order:['position','id']});
+  const modules=await store.find('modules',{courseId:course.id,kind:'session'},{order:['position','id']});
   assert.deepEqual(modules.map(m=>m.translations.pt.title),['Sessão 1','Sessão 2','Sessão 3','Sessão 4']);
   // Existing untranslated defaults can be enriched; staff changes and explicit overrides cannot.
   await store.update('courses',{id:course.id},{title:'Staff custom title',translations:{pt:{description:'Descrição da equipe'}}});
