@@ -62,7 +62,7 @@
       "destination": "/api/index.js"
     },
     {
-      "source": "/:path*",
+      "source": "/(.*)",
       "destination": "/api/index.js"
     }
   ]

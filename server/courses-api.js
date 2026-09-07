@@ -57,28 +57,37 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     return {...access,module};
   }
   async function validateMaterials(resources,module) {
-    for(const resource of resources) if(resource.attachmentId && !await findOne('attachments',{id:resource.attachmentId,courseId:module.courseId,moduleId:module.id,purpose:'material',status:'ready'}))fail('official resource attachment unavailable');
+    // Normalized resources are bounded to twelve; validate every reference before writing.
+    await Promise.all(resources.filter(resource=>resource.attachmentId).map(async resource=>{
+      if(!await findOne('attachments',{id:resource.attachmentId,courseId:module.courseId,moduleId:module.id,purpose:'material',status:'ready'}))fail('official resource attachment unavailable');
+    }));
   }
   async function postView(post) {
     const deleted=Boolean(post.deletedAt)||!post.userId;
     const attachments=deleted?[]:(await Promise.all((post.attachmentIds??[]).map(id=>findOne('attachments',{id,moduleId:post.moduleId,userId:post.userId,status:'ready'})))).filter(Boolean).map(attachmentView);
     return {id:post.id,courseId:post.courseId,moduleId:post.moduleId,userId:deleted?null:post.userId,authorName:deleted?'':post.authorName,staff:deleted?false:post.staff,parentId:post.parentId,kind:post.kind,body:deleted?'':post.body,links:deleted?[]:post.links,attachments,createdAt:post.createdAt,deleted};
   }
-  async function feedbackForStaff(rows) {
+  async function membersForRows(rows) {
     const ids=[...new Set(rows.map(row=>row.userId))],members=new Map();
     for(let offset=0;offset<ids.length;offset+=100)for(const member of await store.getMembers(ids.slice(offset,offset+100)))members.set(member.id,member);
+    return members;
+  }
+  async function feedbackForStaff(rows,members=undefined) {
+    members??=await membersForRows(rows);
     return rows.map(row=>({...row,name:members.get(row.userId)?.name??'',email:members.get(row.userId)?.email??''}));
   }
   const feedbackCsv = rows => [['date','userId','name','email','action','courseId','moduleId','rating','comment'],...rows.map(f=>[f.createdAt,f.userId,f.name,f.email,f.action,f.courseId,f.moduleId,f.rating,f.comment])];
   async function report(courseId,exportType=null) {
     const max=exportType?Infinity:500;
-    const [enrollments,intakes,events,posts,feedback,counts]=await Promise.all([
-      all('enrollments',{courseId},max),all('intakes',{courseId}),exportType==='activity'?all('events',{courseId}):[],exportType==='activity'?all('posts',{courseId}):[],all('feedback',{courseId},max),
-      Promise.all([store.count('enrollments',{courseId}),store.count('intakes',{courseId}),...['module_open','content_open','recording_open'].map(kind=>store.count('events',{courseId,kind})),...['assignment','comment'].map(kind=>store.count('posts',{courseId,kind,deletedAt:null})),store.count('feedback',{courseId})]),
+    const needsParticipants=!exportType||['participants','intake'].includes(exportType);
+    const needsFeedback=!exportType||exportType==='feedback';
+    const [enrollments,intakes,events,posts,feedback,counts,invitations]=await Promise.all([
+      needsParticipants?all('enrollments',{courseId},max):[],needsParticipants?all('intakes',{courseId}):[],exportType==='activity'?all('events',{courseId}):[],exportType==='activity'?all('posts',{courseId}):[],needsFeedback?all('feedback',{courseId},max):[],
+      exportType?[]:Promise.all([store.count('enrollments',{courseId}),store.count('intakes',{courseId}),...['module_open','content_open','recording_open'].map(kind=>store.count('events',{courseId,kind})),...['assignment','comment'].map(kind=>store.count('posts',{courseId,kind,deletedAt:null})),store.count('feedback',{courseId})]),
+      exportType?[]:all('invitations',{courseId,acceptedAt:null},500),
     ]);
     const answers=new Map(intakes.map(row=>[row.userId,row.answers]));
-    const members=new Map();
-    for(let offset=0;offset<enrollments.length;offset+=100)for(const member of await store.getMembers(enrollments.slice(offset,offset+100).map(e=>e.userId)))members.set(member.id,member);
+    const members=await membersForRows([...enrollments,...feedback]);
     const participants=enrollments.map(enrollment=>{
       const user=members.get(enrollment.userId);
       return {userId:enrollment.userId,name:user?.name??'',email:user?.email??'',enrolledAt:enrollment.createdAt,intake:answers.get(enrollment.userId)??null};
@@ -86,8 +95,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     const livePosts=posts.filter(post=>!post.deletedAt&&post.userId);
     return {
       summary:Object.fromEntries(['enrolled','intakeCompleted','moduleOpens','contentOpens','recordingOpens','assignments','comments'].map((key,i)=>[key,counts[i]])),
-      participants,feedback:await feedbackForStaff(feedback),events,posts:livePosts,
-      invitations:exportType?[]:await all('invitations',{courseId,acceptedAt:null},500),
+      participants,feedback:await feedbackForStaff(feedback,members),events,posts:livePosts,invitations,
       truncated:!exportType&&(counts[0]>500||counts[7]>500),
     };
   }
@@ -199,6 +207,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     }
     if(adminPath&&['/report','/export'].includes(suffix)&&req.method==='GET') {
       const type=url.searchParams.get('type')||'participants';
+      if(suffix==='/export'&&!['participants','intake','feedback','activity'].includes(type))fail('invalid export type');
       const result=await report(courseId,suffix==='/export'?type:null);
       if(suffix==='/report') { const {events,posts,...view}=result;send(res,200,view);return true; }
       if(type==='intake')sendCsv(res,'course-intake',[['userId','name','email',...INTAKE_FIELDS],...result.participants.map(p=>[p.userId,p.name,p.email,...INTAKE_FIELDS.map(k=>p.intake?.[k]??'')])]);

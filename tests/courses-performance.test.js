@@ -79,3 +79,46 @@ test('course directory reports the current viewer role with its existing data re
   }
   assert.deepEqual(calls,[{status:'published'},{status:'published'},{status:'published'}]);
 });
+
+test('course CSV exports read only their own data and do not depend on unrelated reports',async()=>{
+ const expected={participants:['enrollments','intakes'],intake:['enrollments','intakes'],feedback:['feedback'],activity:['events','posts']};
+ for(const [type,tables] of Object.entries(expected)){
+  const bulk=[];let memberReads=0;
+  const data={enrollments:[{id:'e',userId:MEMBER,createdAt:stamp}],intakes:[{id:'i',userId:MEMBER,answers:{city:'Lima'}}],feedback:[{id:'f',userId:MEMBER,action:'course',rating:4,comment:'Useful course',createdAt:stamp}],events:[{id:'event',userId:MEMBER,kind:'module_open',createdAt:stamp}],posts:[{id:'post',userId:MEMBER,kind:'assignment',createdAt:stamp,deletedAt:null}]};
+  const api=createCourseApi({store:{find:async(name,filter)=>{
+   if(name==='courses')return[course];if(filter.userId===STAFF)return[];
+   bulk.push(name);if(!tables.includes(name))throw new Error('Unrelated '+name+' table is unavailable');return data[name];
+  },count:async()=>{throw new Error('Unrelated counts are unavailable');},getMembers:async()=>{memberReads++;return[{id:MEMBER,name:'Member',email:'member@example.test'}];}},send:(res,status,body)=>Object.assign(res,{status,body})});
+  const res={};await api({req:{method:'GET'},res,url:new URL(`https://nodal.test/api/admin/courses/${COURSE}/export?type=${type}`),user:{id:STAFF,permission:'admin'}});
+  assert.equal(res.status,200,type);assert.deepEqual(bulk.sort(),tables.sort());assert.equal(memberReads,type==='activity'?0:1);
+  assert.match(res.body,type==='feedback'?/Useful course/:type==='intake'?/Lima/:type==='activity'?/module_open/:/Member/);
+ }
+});
+
+test('staff report resolves shared participant and feedback identities once and starts invitations with other report reads',async()=>{
+ const calls=[];let release;
+ const wait=new Promise(resolve=>{release=resolve;});
+ const api=createCourseApi({store:{find:async(name,filter)=>{
+  if(name==='courses')return[course];if(filter.userId===STAFF)return[];
+  calls.push(name);if(name==='enrollments'){await wait;return[{id:'e',userId:MEMBER,createdAt:stamp}];}
+  return name==='feedback'?[{id:'f',userId:MEMBER,rating:4,createdAt:stamp}]:[];
+ },count:async()=>1,getMembers:async ids=>{calls.push({members:ids});return[{id:MEMBER,name:'Member',email:'member@example.test'}];}}});
+ const pending=invoke(api,`/api/admin/courses/${COURSE}/report`,{id:STAFF,permission:'admin'});
+ await new Promise(resolve=>setImmediate(resolve));const initial=[...calls];release();const result=await pending;
+ assert.ok(initial.includes('invitations'));assert.equal(calls.filter(call=>call.members).length,1);
+ assert.equal(result.body.participants[0].name,'Member');assert.equal(result.body.feedback[0].name,'Member');
+});
+
+test('validating a bounded set of official materials runs concurrently before publication',async()=>{
+ let release,updated=false;const wait=new Promise(resolve=>{release=resolve;}),reads=[];
+ const resources=Array.from({length:12},(_,i)=>({title:'Material '+i,attachmentId:`20000000-0000-4000-8000-${String(i).padStart(12,'0')}`}));
+ const module={id:MEMBER,courseId:COURSE,kind:'session',title:'Module',resources:[],version:1};
+ const api=createCourseApi({store:{find:async(name,filter)=>{
+  if(name==='courses')return[course];if(name==='modules')return[module];
+  if(name==='attachments'){reads.push(filter);await wait;return[filter];}return[];
+ },update:async()=>{updated=true;return module;}},sameOrigin:()=>true});
+ const {Readable}=await import('node:stream');const req=Readable.from([Buffer.from(JSON.stringify({version:1,resources}))]);req.method='PATCH';req.headers={'content-type':'application/json'};
+ const pending=api({req,res:{writeHead(){},end(){}},url:new URL(`https://nodal.test/api/admin/courses/${COURSE}/modules/${MEMBER}`),user:{id:STAFF,permission:'admin'}});
+ await new Promise(resolve=>setImmediate(resolve));const started=reads.length;assert.equal(updated,false);release();await pending;
+ assert.equal(started,12);assert.equal(updated,true);assert.ok(reads.every(filter=>filter.courseId===COURSE&&filter.moduleId===MEMBER&&filter.purpose==='material'&&filter.status==='ready'));
+});

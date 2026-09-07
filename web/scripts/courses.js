@@ -14,7 +14,8 @@ function dates(c){return [date(c.startsOn),date(c.endsOn)].filter(Boolean).join(
 async function directory(){setPageTitle('courses');const {courses,isAdmin}=await api('/api/courses');document.getElementById('teachingLink').hidden=isAdmin!==true;root.replaceChildren();const hero=el('header','pilot-hero');hero.append(tr('p','courses','pilot-context'),tr('h1','intro'),tr('p','directory'));const list=el('div','pilot-directory');if(!courses.length)list.append(tr('p','emptyCourses','pilot-empty'));courses.forEach(c=>{const row=el('article','pilot-course-row'),meta=el('div'),content=el('div');meta.append(tr('span',c.status,'pilot-tag'),dynamic('div',()=>dates(c),'pilot-date'));content.append(source('h2',c,'title'),source('p',c,'description'));const link=tr('a','open','pilot-button');link.href='course.html?id='+encodeURIComponent(c.id);row.append(meta,content,link);list.append(row);});root.append(hero,list);status(msg,'');}
 function intakeForm(data,onClose){let busy=false;const box=el('section','pilot-intake');box.append(tr('h2','intake'),tr('p','private'));const form=el('form','pilot-form');const fields={};['fullName','profession','city','motivation','experience','expectations','caseStudy','digitalFamiliarity'].forEach((key,i)=>{const f=field(key,data?.[key]||'',i<3?'text':'textarea');f.input.maxLength=i<3?160:2000;f.input.required=true;fields[key]=f.input;form.append(f.wrap);});const save=button('saveIntake');save.type='submit';const local=el('p','pilot-status');local.setAttribute('role','status');form.append(save);if(onClose)form.append(button('cancel',()=>{if(!busy)onClose();},true));form.append(local);form.addEventListener('submit',async e=>{e.preventDefault();if(busy)return;busy=true;save.disabled=true;form.setAttribute('aria-busy','true');Object.values(fields).forEach(input=>{input.disabled=true;});try{const input=Object.fromEntries(Object.entries(fields).map(([k,n])=>[k,n.value]));await api(base()+'/intake',input,'PUT');await course();}catch(err){status(local,err);}finally{busy=false;save.disabled=false;form.setAttribute('aria-busy','false');Object.values(fields).forEach(input=>{input.disabled=false;});}});box.append(form);return box;}
 async function course(){
-  stopConversations();navigationSequence++;navigationPending=false;pendingModuleId=null;snapshot=await api(base());root.replaceChildren();
+  const fresh=await api(base());
+  stopConversations();navigationSequence++;navigationPending=false;pendingModuleId=null;snapshot=fresh;root.replaceChildren();
   document.getElementById('teachingLink').hidden=!snapshot.isAdmin;
   const c=snapshot.course;setPageTitle(()=>localized(c,'title'));
   const hero=el('header','pilot-hero pilot-course-hero'),back=tr('a','courses');back.href='courses.html';
@@ -60,7 +61,7 @@ function renderRoutePreview(){
   root.append(box);
 }
 
-async function event(kind,moduleId,resourceUrl){try{await api(base()+'/events',{id:crypto.randomUUID(),moduleId,kind,...(resourceUrl?{resourceUrl}:{})});}catch(err){status(msg,err);}}
+async function event(kind,moduleId,resourceUrl){try{await api(base()+'/events',{id:crypto.randomUUID(),moduleId,kind,...(resourceUrl?{resourceUrl}:{})},'POST',{redirectOnUnauthorized:false});}catch(err){if(moduleId===activeId)status(msg,err);}}
 async function openModule(id){
   const content=document.getElementById('moduleContent');
   // A route click on the current session must not discard its unsent drafts.

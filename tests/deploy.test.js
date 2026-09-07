@@ -41,7 +41,9 @@ test('Vercel serves generated frontend assets before the Node serverless adapter
   assert.ok(!vercel.functions['api/index.js'].includeFiles.includes('tests/**'));
   assert.ok(!vercel.functions['api/index.js'].includeFiles.includes('scripts/**'));
   assert.ok(vercel.rewrites.some((route) => route.source === '/' && route.destination === '/api/index.js'));
-  assert.ok(vercel.rewrites.some((route) => route.source === '/:path*' && route.destination === '/api/index.js'));
+  // Named captures become query parameters on Vercel, breaking the catalog's
+  // strict validation and leaking into sign-in destinations.
+  assert.ok(vercel.rewrites.some((route) => route.source === '/(.*)' && route.destination === '/api/index.js'));
   assert.ok(vercel.headers.some((route) => route.source === '/assets/(.*)'));
   assert.ok(vercel.headers.some((route) => route.source.endsWith('.js')));
   assert.ok(vercel.headers.some((route) => route.source.endsWith('.css')));

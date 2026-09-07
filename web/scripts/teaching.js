@@ -50,7 +50,7 @@ function makeEditor(record,module,courseId,onSaved){
   }
   const state=select('status',module?['draft','published']:['draft','published','archived'],record?.status||'draft');inputs.status=state.input;
   form.append(original,translations.section,grid,state.wrap);
-  let resourceInputs=[],refreshFiles=()=>{},uploadBusy=false;
+  let resourceInputs=[],refreshFiles=()=>{},uploadBusy=false,saveBusy=false;
   if(module&&record){const moduleKind=el('p','pilot-data-note');moduleKind.append(tr('span','moduleKind'),el('span',null,': '),tr('strong',record.kind||'session'));form.append(moduleKind);}
   if(module){
     const resources=el('div'),rows=el('div');resources.append(tr('h3','resources'));
@@ -70,6 +70,7 @@ function makeEditor(record,module,courseId,onSaved){
     const file=field('officialFile','','file');file.input.accept='image/jpeg,image/png,image/webp,application/pdf,text/plain';
     const fileStatus=el('p','pilot-status');fileStatus.setAttribute('role','status');const library=el('div','pilot-file-library');
     const upload=button('uploadFile',async()=>{
+      if(saveBusy||uploadBusy)return;
       if(!record?.id){status(fileStatus,t('saveModuleFirst'));return;}
       const chosen=file.input.files?.[0];
       if(!chosen||chosen.size>3*1024*1024||!['image/jpeg','image/png','image/webp','application/pdf','text/plain'].includes(chosen.type)){status(fileStatus,t('officialFileError'));return;}
@@ -108,7 +109,9 @@ function makeEditor(record,module,courseId,onSaved){
   const submit=button(record?'save':module?'newModule':'newCourse');submit.type='submit';
   const local=el('p','pilot-status');local.setAttribute('role','status');form.append(submit,local);
   form.addEventListener('submit',async e=>{
-    e.preventDefault();if(uploadBusy)return;submit.disabled=true;
+    e.preventDefault();if(uploadBusy||saveBusy)return;saveBusy=true;form.setAttribute('aria-busy','true');
+    const controls=[...form.querySelectorAll('input,textarea,select,button')].map(input=>({input,disabled:Boolean(input.disabled)}));
+    for(const {input} of controls)input.disabled=true;
     try{
       const body=Object.fromEntries(Object.entries(inputs).map(([key,input])=>[key,input.type==='checkbox'?input.checked:input.type==='number'?Number(input.value):input.value]));
       body.translations=translations.value();if(record)body.version=record.version;
@@ -127,7 +130,7 @@ function makeEditor(record,module,courseId,onSaved){
           }catch(error){status(local,error);reload.disabled=false;}
         },true);reload.dataset.reload='true';form.append(reload);
       }
-    }finally{submit.disabled=false;}
+    }finally{saveBusy=false;form.setAttribute('aria-busy','false');for(const {input,disabled} of controls)input.disabled=disabled;}
   });
   return form;
 }

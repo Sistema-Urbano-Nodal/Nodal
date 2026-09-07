@@ -37,7 +37,14 @@ async function api(path,body,method,options={}){
   const signal=options.signal||(typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function'?AbortSignal.timeout(45000):undefined);
   try{res=await fetch(path,{...(body===undefined?{}:{method:method||'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),...(signal?{signal}:{})});}
   catch(error){if(error.name==='AbortError')throw error;if(error.name==='TimeoutError')throw Object.assign(translatedError('requestTimeout'),{name:'TimeoutError'});throw translatedError('connectionError');}
-  const data=await res.json().catch(()=>({}));
+  let data;
+  try{data=await res.json();}
+  catch(error){
+    // A truncated success body cannot confirm that a write completed.
+    // Preserve HTTP error handling even when its body is an HTML error page.
+    if(res.ok){if(error.name==='AbortError')throw error;if(error.name==='TimeoutError')throw Object.assign(translatedError('requestTimeout'),{name:'TimeoutError'});throw translatedError('connectionError');}
+    data={};
+  }
   if(res.status===401){if(options.redirectOnUnauthorized!==false)location.assign('/login.html?next='+encodeURIComponent(location.pathname+location.search));throw translatedError('signInRequired',401);}
   if(!res.ok)throw requestError(data,res.status);
   return data;
