@@ -12,6 +12,7 @@ import { createCache, MemoryCache } from './cache.js';
 import { createNetworkSnapshots } from './network-cache.js';
 import { createCourseStore } from './courses-repository.js';
 import { createCourseApi } from './courses-api.js';
+import {createLocationProvider,validatePosition,validateCityId} from './location.js';
 import { createCourseParticipants } from './course-participants.js';
 import { exportCourseData, deleteCourseData } from './courses-privacy.js';
 import {
@@ -42,7 +43,7 @@ const API_INTERACTION_TYPES = new Set(['skip']);
 const MAX_BODY = 32 * 1024;
 const PRIVATE_PAGES = new Set(['/dashboard.html', '/profile.html', '/payments.html', '/admin.html', '/courses.html', '/course.html', '/teaching.html']);
 const STATIC_PAGES = new Set(['index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html']);
-const STATIC_SCRIPTS = new Set(['admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js']);
+const STATIC_SCRIPTS = new Set(['admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js']);
 const STATIC_STYLES = new Set(['auth.css', 'styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css']);
 const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp']);
 const AUTH_RATE_WINDOW_MS = 5 * 60 * 1000;
@@ -739,6 +740,7 @@ async function serveStatic(req, res, canonical) {
     const headers = type.startsWith('text/html') ? htmlSecurityHeaders() : securityHeaders();
     res.writeHead(200, {
       ...headers,
+      ...(canonical==='/dashboard.html'?{'Permissions-Policy':'camera=(), microphone=(), geolocation=(self), payment=()'}:{}),
       ...(['/reset-password.html','/accept-invitation.html'].includes(canonical) ? { 'Referrer-Policy': 'no-referrer' } : {}),
       'Content-Type': type,
       'Cache-Control': type.startsWith('text/html') ? 'no-store' : STATIC_CACHE_CONTROL,
@@ -767,6 +769,7 @@ export function createApp({
   cache = new MemoryCache(),
   payments = { config: paymentsConfig(), fetchImpl: fetch },
   citySearch = createCitySearch(),
+  locationProvider = createLocationProvider(),
   repository = createRepository({ db, store }),
   pilotMode = process.env.PILOT_MODE !== 'false',
   courseStore = repository?.database ? createCourseStore({db:repository.database}) : repository?.kind === 'supabase' ? createCourseStore() : null,
@@ -800,6 +803,7 @@ export function createApp({
      search. The browser refreshes every 15 seconds with jitter. */
   const networkLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: envInt('NETWORK_RATE_LIMIT', 40) });
   const writeLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: WRITE_RATE_LIMIT });
+  const locationLimiter = createWindowRateLimiter({windowMs:60000,limit:6});
   const costlyLimiter = createWindowRateLimiter({ windowMs: COSTLY_RATE_WINDOW_MS, limit: COSTLY_RATE_LIMIT });
   /* Keyed by session when there is one, by address otherwise, so a limit
      follows the account rather than a shared office IP. */
@@ -1218,11 +1222,31 @@ export function createApp({
         return;
       }
 
+      if(useDb&&req.method==='POST'&&['/api/me/location/suggest','/api/me/location/accept'].includes(pathname)) {
+        if(!requireAuth(res,sessionUser))return;
+        if(!sameOrigin(req)){send(res,403,{error:'cross-origin request rejected'});return;}
+        if(!throttle(locationLimiter,res,req,sessionUser,'location'))return;
+        if(url.search){send(res,400,{error:'location_invalid'});return;}
+        const input=await readJsonBody(req);
+        if(!input||typeof input!=='object'||Array.isArray(input)){send(res,400,{error:'location_invalid'});return;}
+        if(pathname.endsWith('/suggest')) {
+          const position=validatePosition(input);
+          send(res,200,await locationProvider.suggest(position));return;
+        }
+        const cityId=validateCityId(input.cityId);
+        if(typeof input.expectedCity!=='string'||input.expectedCity.length>120){send(res,400,{error:'location_invalid'});return;}
+        const city=await locationProvider.city(cityId);
+        const user=await repository.acceptUserLocation(sessionUser.id,city,input.expectedCity);
+        if(!user){send(res,409,{error:'location_conflict'});return;}
+        send(res,200,{user:repository.toApiUser(user)});return;
+      }
+
       if (useDb && req.method === 'PATCH' && pathname === '/api/me') {
         if (!requireAuth(res, sessionUser)) return;
         if (!throttle(writeLimiter, res, req, sessionUser, 'profile')) return;
         if (!sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
         const patch = sanitizeProfilePatch(await readJsonBody(req));
+        if(patch.expectedCity!==undefined&&(typeof patch.expectedCity!=='string'||patch.expectedCity.length>120)){send(res,400,{error:'location_invalid'});return;}
         const before = repository.toApiUser(await repository.getUserById(sessionUser.id));
         let user = await repository.updateUserProfile(sessionUser.id, patch);
         let saved = repository.toApiUser(user);
@@ -1234,7 +1258,7 @@ export function createApp({
         const cityChanged = String(saved.city || '') !== String(before?.city || '');
         if (repository.setUserLocation && (cityChanged || (saved.city && !saved.location))) {
           const point = saved.city ? await resolveCity(saved.city, req.headers['accept-language']) : null;
-          user = await repository.setUserLocation(sessionUser.id, point);
+          user = await repository.setUserLocation(sessionUser.id, point, saved.city);
           saved = repository.toApiUser(user);
         }
         send(res, 200, { user: saved });

@@ -16,6 +16,7 @@
   const DEFAULT_PART_C = { bio: '', linkedin: '', portfolio: '', references: '', availability: '', consent: false };
   const DEFAULT_INDICATORS = { leadership: 'No', transmission: 'No' };
   const state = { user: null, notifRead: false };
+  let confirmedCity = '';
 
   async function api(path, options = {}) {
     const res = await fetch(path, {
@@ -55,7 +56,7 @@
     return {
       fullName: user.name,
       title: user.role,
-      city: user.city,
+      ...(user.city !== confirmedCity ? { city: user.city, expectedCity: confirmedCity } : {}),
       interests: user.topics.map((t2) => String(t2.name || t2).toLowerCase()).filter(Boolean),
       active: user.active,
       topics: user.topics,
@@ -86,7 +87,7 @@
   const topicLabel = (name) => (TOPIC_KEYS.has(name) ? t(`d.topic.${TOPIC_KEYS.get(name)}`) : name);
   const blankPartC = () => ({ bio: '', linkedin: '', portfolio: '', references: '', availability: '', consent: false });
   const makeTopic = (name, level = 1) => ({ name, level, validatedAt: 0, endorsedAt: 0 });
-  const cleanCity = (value) => String(value || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+  const cleanCity = (value) => String(value || '').trim().replace(/\s+/g, ' ').slice(0, 120);
   const cleanRole = (value) => String(value || '').trim().replace(/\s+/g, ' ').slice(0, 80);
 
   function newUser(name, city, role, topicNames) {
@@ -111,25 +112,78 @@
     if (persist) { state.user = user; touchUser(); }
     applyAll();
   }
-  /* Every edit fires its own PATCH without waiting for the last one, so two
-     quick changes are in flight together and the answers can land in either
-     order. Only the newest save is allowed to write its answer back — an
-     earlier, slower one would otherwise put the pre-edit state on screen while
-     the server holds the newer one, and the two would disagree until reload. */
+  /* Profile saves are serialized so each city edit uses the last confirmed
+     city as its conflict check. Older replies update that baseline without
+     overwriting newer edits which are still waiting to be saved. */
   let saveSeq = 0;
+  let profileWrites = 0;
+  let profileQueue = Promise.resolve();
+  let locationSave = null;
+  let finishLocationSave = null;
+  const locationLockedFields = new Map();
+  window.addEventListener('nodal:location-saving', ({ detail }) => {
+    if (detail?.saving) {
+      if (!locationSave) locationSave = new Promise(resolve => { finishLocationSave = resolve; });
+      // Keep an open city editor from submitting a competing change.
+      for (const id of ['ucCity', 'ucSubmit']) {
+        const input = document.getElementById(id);
+        if (input && !locationLockedFields.has(input)) { locationLockedFields.set(input, input.disabled); input.disabled = true; }
+      }
+    } else {
+      for (const [input, disabled] of locationLockedFields) input.disabled = disabled;
+      locationLockedFields.clear();
+      const finish = finishLocationSave;
+      locationSave = null; finishLocationSave = null; finish?.();
+    }
+  });
+  window.addEventListener('nodal:location-updated', ({ detail }) => {
+    if (!U || detail?.userId !== U.id || typeof detail.city !== 'string') return;
+    const previousCity = U.city;
+    confirmedCity = detail.city;
+    U.city = detail.city;
+    const cityInput = document.getElementById('ucCity');
+    if (cityInput?.value === previousCity) cityInput.value = detail.city;
+    state.user = U;
+    applyAll();
+    window.dispatchEvent(new CustomEvent('nodal:profile-location-changed', { detail: { userId: U.id } }));
+  });
   async function saveProfile() {
     if (!U) return;
     const seq = saveSeq + 1;
     saveSeq = seq;
-    const data = await api('/api/me', { method: 'PATCH', body: JSON.stringify(serializeUser(U)) });
-    if (seq !== saveSeq) return;
-    U = normalizeApiUser(data.user);
-    state.user = U;
-    state.notifRead = U.notifRead;
-    if (U.assessed && partCCount() === partCTotal && window.nodalPilot && !document.getElementById('profileFeedback')) {
-      const feedback = window.nodalPilot.feedback('profile');
-      feedback.id = 'profileFeedback';
-      document.getElementById('assessment')?.append(feedback);
+    profileWrites += 1;
+    window.nodalLocationCheck?.setSaving(true);
+    const previousSave = profileQueue;
+    let release;
+    profileQueue = new Promise(resolve => { release = resolve; });
+    try {
+      await previousSave;
+      // Serialize after location acceptance, so other queued edits cannot
+      // inadvertently move the map back to the old city.
+      if (locationSave) await locationSave;
+      const submittedCity = U.city;
+      const data = await api('/api/me', { method: 'PATCH', body: JSON.stringify(serializeUser(U)) });
+      const previousCity = confirmedCity;
+      confirmedCity = data.user.city || '';
+      if (U.city === submittedCity) U.city = confirmedCity;
+      window.nodalLocationCheck?.setUser(data.user);
+      if (previousCity !== confirmedCity) {
+        applyAll();
+        window.dispatchEvent(new CustomEvent('nodal:profile-location-changed', { detail: { userId: U.id } }));
+      }
+      if (seq !== saveSeq) return;
+      U = normalizeApiUser(data.user);
+      state.user = U;
+      state.notifRead = U.notifRead;
+      if (U.assessed && partCCount() === partCTotal && window.nodalPilot && !document.getElementById('profileFeedback')) {
+        const feedback = window.nodalPilot.feedback('profile');
+        feedback.id = 'profileFeedback';
+        document.getElementById('assessment')?.append(feedback);
+      }
+    } finally {
+      release();
+      profileWrites -= 1;
+      window.nodalLocationCheck?.setSaving(profileWrites > 0);
     }
   }
   /* A failed PATCH used to be swallowed: the change stayed on screen and never
@@ -1409,8 +1463,10 @@
     try {
       const data = await api('/api/auth/me');
       U = normalizeApiUser(data.user);
+      confirmedCity = U.city;
       state.user = U;
       state.notifRead = U.notifRead;
+      window.nodalLocationCheck?.setUser(data.user);
       applyAll();
       if (!U.city || !U.role || U.topics.length === 0) openUserDialog();
     } catch {

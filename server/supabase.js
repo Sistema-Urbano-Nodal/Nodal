@@ -663,6 +663,10 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     return data?.user || data;
   }
 
+  const cityExpectation = expectedCity => expectedCity === ''
+    ? {or:'(city_region.is.null,city_region.eq.)'}
+    : {city_region:`eq.${expectedCity}`};
+
   async function upsertProfileState(userId, patch, current) {
     if (!current) throw Object.assign(new Error('profile not found'), { status: 404 });
     const partC = 'partC' in patch ? normalizePartC(patch.partC, current.partC) : current.partC;
@@ -687,19 +691,21 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       assessed,
       notifRead: 'notifRead' in patch ? Boolean(patch.notifRead) : current.notifRead,
     };
-    await admin.rest('profiles', {
+    const guardedCity='city' in patch&&patch.expectedCity!==undefined;
+    const profileRows=await admin.rest('profiles', {
       method: 'PATCH',
-      query: { id: `eq.${userId}` },
+      query: { id: `eq.${userId}`, ...(guardedCity?cityExpectation(patch.expectedCity):{}) },
       headers: { Prefer: 'return=representation' },
       body: {
         full_name: fullName,
         preferred_name: fullName.split(/\s+/)[0] || fullName,
-        city_region: city,
+        ...('city' in patch?{city_region:city}:{}),
         bio: cleanString(partC.bio, 2000),
         public_role: title,
         updated_at: nowIso(),
       },
     });
+    if(guardedCity&&!profileRows?.length)throw Object.assign(new Error('location_conflict'),{status:409});
     await admin.rest('profile_preferences', {
       method: 'POST',
       query: { on_conflict: 'user_id' },
@@ -978,9 +984,10 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     },
     /* Separate from updateUserProfile on purpose: its allow-list is fed by the
        request body, and a coordinate must only ever come from the server. */
-    async setUserLocation(id, point) {
-      await admin.rest(`profiles?id=eq.${encodeURIComponent(id)}`, {
+    async setUserLocation(id, point, expectedCity) {
+      await admin.rest('profiles', {
         method: 'PATCH',
+        query:{id:`eq.${id}`,...(expectedCity===undefined?{}:cityExpectation(expectedCity))},
         body: {
           city_lat: point?.lat ?? null,
           city_lon: point?.lon ?? null,
@@ -988,6 +995,10 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         },
       });
       return apiUser(id);
+    },
+    async acceptUserLocation(id,city,expectedCity) {
+      const rows=await admin.rest('profiles',{method:'PATCH',query:{id:`eq.${id}`,...cityExpectation(expectedCity),account_status:'eq.active'},headers:{Prefer:'return=representation'},body:{city_region:city.label,city_lat:city.lat,city_lon:city.lon,city_label:city.label,updated_at:nowIso()}});
+      return rows?.length?apiUser(id):null;
     },
     async getNetworkRevision() {
       try {

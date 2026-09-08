@@ -420,7 +420,7 @@ export function updateUserProfile(db, id, patch) {
   const allowed = {
     fullName: ['full_name', (v) => String(v).trim().slice(0, 80)],
     title: ['title', (v) => String(v).trim().slice(0, 80)],
-    city: ['city', (v) => String(v).trim().slice(0, 60)],
+    city: ['city', (v) => String(v).trim().slice(0, 120)],
     interests: ['interests_json', (v) => json(Array.isArray(v) ? v.map(String).slice(0, 12) : [])],
     active: ['active_json', (v) => json(Array.isArray(v) ? v.map(String).slice(0, 6) : [])],
     linkedin: ['linkedin', (v) => String(v || '').trim().slice(0, 220)],
@@ -443,7 +443,10 @@ export function updateUserProfile(db, id, patch) {
   }
   if (!assignments.length) return getUserById(db, id);
   values.push(id);
-  db.prepare(`UPDATE users SET ${assignments.join(', ')} WHERE id = ?`).run(...values);
+  const guarded='city' in patch&&patch.expectedCity!==undefined;
+  if(guarded)values.push(patch.expectedCity);
+  const changed=db.prepare(`UPDATE users SET ${assignments.join(', ')} WHERE id = ?${guarded?' AND city = ?':''}`).run(...values);
+  if(guarded&&!changed.changes)throw Object.assign(new Error('location_conflict'),{status:409});
   return getUserById(db, id);
 }
 
@@ -453,10 +456,15 @@ function listActiveUsers(db) {
 
 /* Deliberately separate from updateUserProfile, whose allow-list is driven by
    the request body. Only server-resolved coordinates ever land here. */
-export function setUserLocation(db, id, point) {
-  db.prepare('UPDATE users SET city_lat = ?, city_lon = ?, city_label = ? WHERE id = ?')
-    .run(point?.lat ?? null, point?.lon ?? null, point?.label ?? '', id);
+export function setUserLocation(db, id, point, expectedCity) {
+  db.prepare(`UPDATE users SET city_lat = ?, city_lon = ?, city_label = ? WHERE id = ?${expectedCity===undefined?'':' AND city = ?'}`)
+    .run(point?.lat ?? null, point?.lon ?? null, point?.label ?? '', id,...(expectedCity===undefined?[]:[expectedCity]));
   return getUserById(db, id);
+}
+
+export function acceptUserLocation(db,id,city,expectedCity) {
+  return db.prepare("UPDATE users SET city=?,city_lat=?,city_lon=?,city_label=? WHERE id=? AND city=? AND account_status='active' RETURNING *")
+    .get(city.label,city.lat,city.lon,city.label,id,expectedCity)??null;
 }
 
 export function listDirectoryUsers(db) {

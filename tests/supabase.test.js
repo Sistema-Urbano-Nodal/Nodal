@@ -1258,3 +1258,45 @@ test('session profile components remain parallel and are freshly read after acco
   assert.equal(calls.filter(call=>call.url.pathname==='/auth/v1/user').length,3);
   for(const table of ['profiles','profile_preferences','onboarding_responses'])assert.equal(calls.filter(call=>call.url.pathname===`/rest/v1/${table}`).length,3);
 });
+
+test('location acceptance and manual city guards use atomic owner filters without rewriting consent',async()=>{
+ const state=profileState(),calls=[];state.profile.account_status='active';
+ const originalFetch=statefulFetch(state,calls);
+ const repo=createSupabaseRepository({env:testEnv(),fetchImpl:async(url,options)=>{
+  const parsed=new URL(url);
+  if(options.method==='PATCH'&&parsed.pathname==='/rest/v1/profiles'&&parsed.searchParams.has('city_region')&&parsed.searchParams.get('city_region')!==`eq.${state.profile.city_region}`){calls.push({url:parsed,options,body:JSON.parse(options.body)});return response([]);}
+  return originalFetch(url,options);
+ }});
+ const city={label:'Cambridge, Massachusetts, United States',lat:42.375,lon:-71.106111111};
+ const accepted=await repo.acceptUserLocation(TEST_USER_ID,city,'Lima');assert.equal(accepted.city,city.label);assert.equal(accepted.location.lat,city.lat);
+ const write=calls.find(call=>call.options.method==='PATCH');assert.equal(write.url.searchParams.get('id'),`eq.${TEST_USER_ID}`);assert.equal(write.url.searchParams.get('city_region'),'eq.Lima');assert.equal(write.url.searchParams.get('account_status'),'eq.active');assert.deepEqual(Object.keys(write.body).sort(),['city_label','city_lat','city_lon','city_region','updated_at']);
+ const beforePreferences=JSON.stringify(state.preferences);
+ assert.equal(await repo.acceptUserLocation(TEST_USER_ID,city,'Lima'),null);
+ await assert.rejects(repo.updateUserProfile(TEST_USER_ID,{city:'Stale',expectedCity:'Lima',fullName:'Stale name'}),{status:409});assert.equal(state.profile.full_name,'Persisted Member');assert.equal(JSON.stringify(state.preferences),beforePreferences);
+ await repo.setUserLocation(TEST_USER_ID,{lat:1,lon:2,label:'Old'},'Lima');assert.equal(state.profile.city_lat,city.lat);
+ calls.length=0;await repo.updateUserProfile(TEST_USER_ID,{title:'New title'});
+ const profileWrite=calls.find(call=>call.options.method==='PATCH'&&call.url.pathname==='/rest/v1/profiles');assert.equal(Object.hasOwn(profileWrite.body,'city_region'),false);
+});
+
+test('fresh nullable and empty city baselines accept the first city but reject subsequent stale blank edits',async()=>{
+ for(const baseline of [null,''])for(const mode of ['accept','manual']){
+  const state=profileState(),calls=[];state.profile.city_region=baseline;state.profile.account_status='active';
+  const originalFetch=statefulFetch(state,calls);
+  const repo=createSupabaseRepository({env:testEnv(),fetchImpl:async(url,options)=>{
+   const parsed=new URL(url),q=parsed.searchParams;
+   if(options.method==='PATCH'&&parsed.pathname==='/rest/v1/profiles'){
+    const current=state.profile.city_region;
+    const matches=q.has('or')?q.get('or')==='(city_region.is.null,city_region.eq.)'&&(current===null||current===''):!q.has('city_region')||(current!==null&&q.get('city_region')===`eq.${current}`);
+    if(!matches){calls.push({url:parsed,options,body:JSON.parse(options.body)});return response([]);}
+   }
+   return originalFetch(url,options);
+  }});
+  const city={label:'Cambridge, Massachusetts, United States',lat:42.375,lon:-71.106111111};
+  const result=mode==='accept'?await repo.acceptUserLocation(TEST_USER_ID,city,''):await repo.updateUserProfile(TEST_USER_ID,{city:city.label,expectedCity:''});
+  assert.equal(result?.city,city.label,`${mode} from ${baseline}`);
+  const write=calls.find(call=>call.options.method==='PATCH');assert.equal(write.url.searchParams.get('or'),'(city_region.is.null,city_region.eq.)');assert.equal(write.url.searchParams.get('id'),`eq.${TEST_USER_ID}`);assert.equal(write.url.searchParams.has('city_region'),false);
+  if(mode==='accept')assert.equal(write.url.searchParams.get('account_status'),'eq.active');
+  assert.equal(await repo.acceptUserLocation(TEST_USER_ID,city,''),null);
+  await assert.rejects(repo.updateUserProfile(TEST_USER_ID,{city:'Stale',expectedCity:''}),{status:409});assert.equal(state.profile.city_region,city.label);
+ }
+});

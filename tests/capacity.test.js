@@ -130,9 +130,10 @@ test('globe polls after 15 seconds with jitter, pauses when hidden and backs off
   const source=readFileSync(new URL('../web/scripts/globe.js',import.meta.url),'utf8');
   const polling=source.slice(source.indexOf('  const POLL_MS ='),source.indexOf('  const feed ='));
   const scheduling=source.slice(source.indexOf('  function schedule()'),source.indexOf('\n  poll();',source.indexOf('  function schedule()')));
-  const delays=[];let calls=0;
-  const context=vm.createContext({document:{hidden:false},state:{topic:''},Math,AbortSignal,clearTimeout(){},setTimeout(fn,ms){delays.push(ms);return 1;},fetch:async()=>{calls++;return {status:304};}});
+  const delays=[],listeners=new Map();let calls=0;
+  const context=vm.createContext({window:{addEventListener(type,listener){listeners.set(type,listener);}},document:{hidden:false},state:{topic:''},Math,AbortSignal,clearTimeout(){},setTimeout(fn,ms){delays.push(ms);return 1;},fetch:async()=>{calls++;return {status:304};}});
   vm.runInContext(`${polling}\n${scheduling}\nglobalThis.runPoll=poll;globalThis.runSchedule=schedule;`,context);
+  assert.equal(typeof listeners.get('nodal:profile-location-changed'),'function');
   await context.runPoll();
   assert.ok(delays[0]>=15000&&delays[0]<=18000);
   context.document.hidden=true;await context.runPoll();context.runSchedule();assert.equal(calls,1);

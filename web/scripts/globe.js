@@ -37,10 +37,9 @@
   const LAND = GEO.parse(window.NODAL_COASTLINE || '');
   const GRATICULE = GEO.graticule(30);
 
-  /* Nothing on this globe is invented. Every node is a city a member typed
-     into their own profile, resolved to real coordinates by the server. A node
-     moves only when that member changes their city — there is no browser
-     geolocation here and there never should be. */
+  /* Every node comes from a member's saved profile city and its server-resolved
+     center. Optional location suggestions only move a node after that member
+     accepts the city; this globe never receives the device's coordinates. */
   let PLACES = [];
 
   /* ---------- the cage ----------
@@ -553,10 +552,25 @@
   let inFlight = false;
   let backoff = POLL_MS;
   let etag = '';
+  let refreshRevision = 0;
+  let refreshQueued = false;
+
+  window.addEventListener('nodal:profile-location-changed', () => {
+    refreshRevision += 1;
+    refreshQueued = true;
+    etag = '';
+    state.picked = -1;
+    showPlace(null);
+    backoff = POLL_MS;
+    clearTimeout(pollTimer);
+    poll();
+  });
 
   async function poll() {
     if (inFlight || document.hidden) return;
     inFlight = true;
+    refreshQueued = false;
+    const requestRevision = refreshRevision;
     let data;
     try {
       const query = state.topic ? `?topic=${encodeURIComponent(state.topic)}` : '';
@@ -571,16 +585,19 @@
         return;
       }
       backoff = POLL_MS;
-      etag = res.headers.get('etag') || '';
+      const responseEtag = res.headers.get('etag') || '';
       data = await res.json();
+      if (requestRevision !== refreshRevision) return;
       if (!Array.isArray(data.places)) return;
+      etag = responseEtag;
     } catch {
       backoff = Math.min(backoff * 2, POLL_MAX_MS);
       return;
     }
     finally {
       inFlight = false;
-      schedule();
+      if (refreshQueued && !document.hidden) poll();
+      else schedule();
     }
 
     mergePlaces(data);
@@ -716,7 +733,10 @@
   io.observe(canvas);
 
   window.addEventListener('resize', resize);
-  I18N?.onChange(() => showPlace(state.picked >= 0 ? PLACES[state.picked] : null));
+  I18N?.onChange(() => {
+    showCount();
+    showPlace(state.picked >= 0 ? PLACES[state.picked] : null);
+  });
   resize();
   requestAnimationFrame(frame);
   function schedule() {

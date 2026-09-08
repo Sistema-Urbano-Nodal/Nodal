@@ -18,6 +18,7 @@ import {
   listCatalogInterestsForUser,
   listCatalogItems,
   setUserLocation,
+  acceptUserLocation,
   loadGraphStore,
   recordInteractionDb,
   toApiUser,
@@ -79,9 +80,10 @@ function createSqliteRepository(db, { ownsDb = false } = {}) {
     async updateUserProfile(id, patch) {
       return updateUserProfile(db, id, patch);
     },
-    async setUserLocation(id, point) {
-      return setUserLocation(db, id, point);
+    async setUserLocation(id, point, expectedCity) {
+      return setUserLocation(db, id, point, expectedCity);
     },
+    async acceptUserLocation(id,city,expectedCity) {return acceptUserLocation(db,id,city,expectedCity);},
     async getNetworkRevision() {
       const external = db.prepare("PRAGMA data_version").get().data_version;
       const local = db.prepare("SELECT total_changes() AS n").get().n;

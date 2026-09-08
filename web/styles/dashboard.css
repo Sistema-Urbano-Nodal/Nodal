@@ -945,3 +945,26 @@ select:focus-visible, textarea:focus-visible {
   * { animation: none !important; transition: none !important; }
   .work { scroll-behavior: auto; }
 }
+
+/* An optional city check, kept separate from directory visibility. */
+.location-check { position: relative; margin: 12px 0 18px; padding: 12px 0; border-bottom: 1px solid var(--rule-2); }
+.location-check[hidden], .location-check [hidden] { display: none !important; }
+.location-check-title { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.location-check-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 18px; margin-bottom: 10px; }
+.location-check-heading p { margin: 0; font-size: 13px; }
+.location-check-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+.location-check .btn-ghost, .location-check .btn-dark { font-size: 12px; line-height: 1.4; white-space: normal; }
+.location-check button:disabled { cursor: wait; opacity: .55; }
+.location-check-preference { display: flex; align-items: flex-start; gap: 9px; font-size: 12px; line-height: 1.5; cursor: pointer; }
+.location-check-preference input { flex: 0 0 auto; margin: 2px 0 0; accent-color: var(--forest); }
+.location-check-options { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 9px 22px; }
+.location-check-details { font-size: 11px; line-height: 1.65; color: var(--muted); }
+.location-check-details[open] { flex-basis: 100%; }
+.location-check-details summary { cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.location-check-details summary:focus-visible { outline: 2px solid var(--forest); outline-offset: 4px; }
+.location-check-note { max-width: 80ch; margin: 7px 0 0; color: var(--muted); font-size: 11px; line-height: 1.65; }
+.location-suggestion { margin-top: 17px; padding-left: 14px; border-left: 3px solid var(--forest); }
+.location-suggestion strong { font-size: 14px; }
+.location-suggestion p { margin: 7px 0 12px; font-size: 12px; line-height: 1.6; }
+.location-check-status { margin: 13px 0 0; font-size: 12px; line-height: 1.65; }
+@media (max-width: 480px) { .location-check-heading { align-items: flex-start; } }
