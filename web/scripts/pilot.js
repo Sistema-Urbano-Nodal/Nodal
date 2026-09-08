@@ -152,6 +152,19 @@ function feedback(action,context={}) {
 window.nodalPilot={t,el,tr,api,status,button,field,select,safeUrl,date,feedback,localized,hasLocalized,bind,dynamic,source,setPageTitle};
 window.nodalI18n?.onChange(translate);
 async function setup(){let pilot=true;try{const config=await api('/api/config');pilot=config.pilotMode!==false;}catch{}document.documentElement.dataset.pilot=String(pilot);if(pilot){const notice=el('div','pilot-notice');notice.append(tr('strong','prototype'),tr('span','notice'));const dashboardWork=document.querySelector('.dash-page .work'),header=document.querySelector('.pilot-header,.navbar');if(dashboardWork)dashboardWork.prepend(notice);else if(header)header.after(notice);else document.body.prepend(notice);}
-const nav=document.querySelector('.pilot-header nav,.side-nav,.nav-main');if(nav&&!nav.querySelector('[href="courses.html"]')){const a=tr('a','courses',nav.classList.contains('side-nav')?'side-link':'pilot-course-link');a.href='courses.html';nav.append(a);}translate();}
+const nav=document.querySelector('.pilot-header nav,.side-nav,.nav-main');
+if(nav&&!nav.querySelector('[href="courses.html"]')){
+  const sidebar=nav.classList.contains('side-nav'),a=sidebar?el('a','side-link'):tr('a','courses','pilot-course-link');
+  if(sidebar){
+    const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');
+    icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('aria-hidden','true');icon.setAttribute('focusable','false');
+    for(const d of ['M12 3 2.5 8 12 13l9.5-5z','M6 10.5V16c0 1.7 2.7 3 6 3s6-1.3 6-3v-5.5']){
+      const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',d);icon.append(path);
+    }
+    a.append(icon,tr('span','courses'));
+  }
+  a.href='courses.html';nav.append(a);
+}
+translate();}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',setup);else setup();
 })();
