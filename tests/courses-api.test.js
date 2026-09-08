@@ -291,3 +291,13 @@ test('intake save racing deletion reports conflict rather than claiming missing 
  assert.equal((await call(`/api/courses/${course.id}/intake`,{method:'PUT',body:{...intake,city:'Updated city'}})).status,409);
  assert.equal((await store.find('intakes',{courseId:course.id})).length,0);
 });
+
+test('equal-position sessions use session date before ID while explicit positions still take precedence',async t=>{
+ const {call,course,module,store}=await setup(t);
+ await store.update('modules',{id:module.id},{id:'10000000-0000-4000-8000-000000000001',position:3,sessionDate:'2026-09-16'});module.id='10000000-0000-4000-8000-000000000001';
+ const made=async(title,position,sessionDate)=>(await(await call(`/api/admin/courses/${course.id}/modules`,{actor:'staff',method:'POST',body:{title,position,sessionDate,status:'published'}})).json()).module;
+ const earlier=await made('September 14',3,'2026-09-14'),explicit=await made('Explicit first',2,'2026-09-21');
+ await store.update('modules',{id:earlier.id},{id:'f0000000-0000-4000-8000-000000000001'});earlier.id='f0000000-0000-4000-8000-000000000001';
+ const response=await(await call(`/api/courses/${course.id}`,{actor:'staff'})).json();
+ assert.deepEqual(response.modules.filter(m=>m.kind==='session').map(m=>m.id),[explicit.id,earlier.id,module.id]);
+});

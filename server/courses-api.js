@@ -62,11 +62,18 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       if(!await findOne('attachments',{id:resource.attachmentId,courseId:module.courseId,moduleId:module.id,purpose:'material',status:'ready'}))fail('official resource attachment unavailable');
     }));
   }
-  async function postView(post,user) {
+  async function postView(post,user,knownAttachments) {
     const deleted=Boolean(post.deletedAt)||!post.userId;
     const owned=!deleted&&post.userId===user?.id;
-    const attachments=deleted?[]:(await Promise.all((post.attachmentIds??[]).map(id=>findOne('attachments',{id,moduleId:post.moduleId,userId:post.userId,status:'ready'})))).filter(Boolean).map(attachmentView);
+    const attachments=deleted?[]:(await Promise.all((post.attachmentIds??[]).map(id=>knownAttachments?knownAttachments.get(id):findOne('attachments',{id,courseId:post.courseId,moduleId:post.moduleId,userId:post.userId,status:'ready'}))))
+      .filter(file=>file&&file.courseId===post.courseId&&file.moduleId===post.moduleId&&file.userId===post.userId&&file.status==='ready').map(attachmentView);
     return {id:post.id,courseId:post.courseId,moduleId:post.moduleId,userId:deleted?null:post.userId,authorName:deleted?'':post.authorName,staff:deleted?false:post.staff,parentId:post.parentId,kind:post.kind,body:deleted?'':post.body,links:deleted?[]:post.links,attachments,createdAt:post.createdAt,deleted,canEdit:owned,canDelete:owned};
+  }
+  async function postPageView(posts,user,module) {
+    const ids=[...new Set(posts.filter(post=>!post.deletedAt&&post.userId).flatMap(post=>post.attachmentIds??[]))];
+    const files=ids.length?await store.getPostAttachments({ids,courseId:module.courseId,moduleId:module.id}):[];
+    const attachments=new Map(files.map(file=>[file.id,file]));
+    return Promise.all(posts.map(post=>postView(post,user,attachments)));
   }
   async function membersForRows(rows) {
     const ids=[...new Set(rows.map(row=>row.userId))],members=new Map();
@@ -185,7 +192,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       return true;
     }
     if(!suffix&&req.method==='GET') {
-      let modules=await store.find('modules',{courseId,...(isStaff(user)?{}:{status:'published'})},{limit:101,order:['position','id']});
+      let modules=await store.find('modules',{courseId,...(isStaff(user)?{}:{status:'published'})},{limit:101,order:['position','sessionDate','id']});
       if(!isStaff(user)&&(!access.enrollment||!access.intake)) modules=modules.map(({id,kind,title,position,sessionDate,status,translations={}})=>({
         id,kind,title,position,sessionDate,status,
         // Preview only localized titles; gated teaching content stays private.
@@ -318,7 +325,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
         const filters={courseId,moduleId:module.id,...(kind?{threadKind:kind}:{})};
         const rows=await store.find('posts',filters,{limit:latest?1:31,desc,after:latest?null:decodeCursor(url.searchParams.get('cursor'))});
         const page=rows.slice(0,latest?1:30);
-        send(res,200,{posts:await Promise.all(page.map(post=>postView(post,user))),nextCursor:!latest&&rows.length>30?encodeCursor(page.at(-1)):null,revision:module.postsRevision});return true;
+        send(res,200,{posts:await postPageView(page,user,module),nextCursor:!latest&&rows.length>30?encodeCursor(page.at(-1)):null,revision:module.postsRevision});return true;
       }
       if(!adminPath&&operation==='/posts'&&req.method==='POST') {
         const input=normalizePost(await bodyJson(req));

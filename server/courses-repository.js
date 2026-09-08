@@ -1,9 +1,14 @@
 import { COURSE_TABLES, COURSE_SQLITE_SCHEMA, COURSE_SQLITE_DISCUSSION_SCHEMA, snake } from './courses-schema.js';
 import { createSupabaseClients } from './supabase.js';
 import { randomUUID } from 'node:crypto';
-import { fail } from './courses-domain.js';
+import { fail, identifier } from './courses-domain.js';
 
 const BUCKET = 'course-attachments';
+function postAttachmentIds(ids) {
+  const unique=[...new Set(ids)];
+  if(unique.length>90)throw new Error('discussion attachment batch exceeds page limit');
+  return unique.map(identifier);
+}
 function tableInfo(name) { const info = COURSE_TABLES[name]; if (!info) throw new Error('unknown course table'); return info; }
 function checkedFields(info, record) {
   for (const field of Object.keys(record)) if (!info.fields.includes(field)) throw new Error(`unknown course field ${field}`);
@@ -85,6 +90,10 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
     };
     return {
       kind: 'sqlite',
+      async getPostAttachments({ids,courseId,moduleId}) {
+        const unique=postAttachmentIds(ids);if(!unique.length)return [];
+        return db.prepare(`SELECT * FROM course_attachments WHERE course_id=? AND module_id=? AND status='ready' AND id IN (${unique.map(()=>'?').join(',')})`).all(courseId,moduleId,...unique).map(row=>fromRow(tableInfo('attachments'),row));
+      },
       async getMembers(ids) { if(!ids.length)return [];return db.prepare(`SELECT id,full_name AS name,email FROM users WHERE id IN (${ids.map(()=>'?').join(',')})`).all(...ids); },
       async count(name, filters = {}) { const info=tableInfo(name),where=whereSql(info,filters);return db.prepare(`SELECT count(*) AS n FROM ${info.table}${where.sql}`).get(...where.params).n; },
       async find(name, filters = {}, options = {}) {
@@ -145,6 +154,12 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
   };
   return {
     kind:'supabase',
+    async getPostAttachments({ids,courseId,moduleId}) {
+      const unique=postAttachmentIds(ids);if(!unique.length)return [];
+      const info=tableInfo('attachments'),query=queryFor(info,{courseId,moduleId,status:'ready'},{limit:unique.length,order:['id']});
+      query.id=`in.(${unique.join(',')})`;
+      return (await readPage(info.table,query)).map(row=>fromRow(info,row));
+    },
     async getMembers(ids) { if(!ids.length)return [];return (await readPage('profiles',{id:`in.(${ids.join(',')})`,select:'id,full_name,email',order:'id.asc',limit:Math.min(500,new Set(ids).size)})).map(row=>({id:row.id,name:row.full_name,email:row.email})); },
     async count(name,filters={}) {
       const info=tableInfo(name),query=queryFor(info,filters,{limit:1});query.select='id';delete query.order;

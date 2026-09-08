@@ -5,6 +5,21 @@ import {createDatabase} from '../server/db.js';
 import {createCourseStore} from '../server/courses-repository.js';
 import {normalizeCourse,normalizeModule} from '../server/courses-domain.js';
 import {setupCoursePilot} from '../scripts/setup-course-pilot.js';
+import vm from 'node:vm';
+import {readFileSync} from 'node:fs';
+
+test('saved teaching content remains visible when only another language has content',()=>{
+  const nodes=[],listeners=[];
+  const ctx={window:{nodalI18n:{lang:'en',onChange:fn=>listeners.push(fn)}},document:{readyState:'loading',addEventListener(){},querySelectorAll:selector=>selector==='[data-pilot-dynamic]'?nodes:[],createElement:()=>{const node={dataset:{},textContent:''};nodes.push(node);return node;}}};
+  vm.createContext(ctx);vm.runInContext(readFileSync(new URL('../web/scripts/pilot.js',import.meta.url),'utf8'),ctx);
+  const pilot=ctx.window.nodalPilot,record={instructions:' ',translations:{es:{instructions:'Observar el entorno.'},pt:{instructions:''}}};
+  assert.equal(pilot.localized(record,'instructions'),'Observar el entorno.');
+  const node=pilot.source('p',record,'instructions');assert.equal(node.textContent,'Observar el entorno.');assert.equal(node.lang,'es');
+  ctx.window.nodalI18n.lang='pt';listeners.forEach(fn=>fn());assert.equal(node.textContent,'Observar el entorno.');assert.equal(node.lang,'es');
+  record.translations.pt.instructions='Observar o entorno.';listeners.forEach(fn=>fn());assert.equal(node.textContent,'Observar o entorno.');assert.equal(node.lang,'pt');
+  record.instructions='Original base content';assert.equal(pilot.localized(record,'instructions','en'),'Original base content');
+  assert.equal(pilot.localized({translations:{es:{instructions:' '}}},'instructions'),'');
+});
 
 test('course and module translations retain base fallbacks and validate their allowed locale fields',()=>{
   const course=normalizeCourse({title:'Base course',translations:{pt:{title:' Curso ',description:'Descrição'},en:{title:'Course'}}});

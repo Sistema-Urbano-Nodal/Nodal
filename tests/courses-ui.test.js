@@ -418,3 +418,25 @@ test('opening course material preserves new feedback drafts and history edits un
  link.listeners.click();assert.equal(mount.children[0],box);assert.equal(inputNamed(editor,'optional').value,'An unfinished correction');
  findKey(editor,'cancel').listeners.click();link.listeners.click();assert.notEqual(mount.children[0],box);
 });
+test('expired-session refresh keeps owner edits and a new contribution draft on screen',async()=>{
+ let expired=false;const h=postHarness({intercept:(path)=>expired&&path.includes('/posts?')?{status:401,data:{error:'expired'}}:undefined});h.run('courses');await flush();
+ const composer=inputNamed(h.body,'body');composer.value='Unsent question';const card=postCard(h);findKey(card,'editPost').listeners.click();const draft=inputNamed(postEditor(card),'body');draft.value='My unsaved correction';expired=true;
+ await findKey(h.ctx.document.getElementById('module-pane-discussion'),'refreshConversation').listeners.click();
+ assert.equal(h.assigned(),'');assert.equal(postCard(h),card);assert.equal(draft.value,'My unsaved correction');assert.equal(composer.value,'Unsent question');assert.match(content(h.ids.pilotStatus),/Sign in/);
+});
+test('expired-session course actions preserve drafts while initial course authentication still redirects',async()=>{
+ for(const action of ['module','contribution','intake','savedIntakeRefresh']){
+  let expired=false;const h=harness((path,opts)=>{
+   if(path==='/api/courses/c1'&&!expired)return{...learningFixture(path,opts),modules:[{id:'m1',title:'Session'},{id:'m2',title:'Next session'}]};
+   if(expired&&action==='savedIntakeRefresh'&&opts?.method==='PUT')return{intake:{fullName:'Updated Member'}};
+   if(expired&&!path.endsWith('/events'))return{status:401,data:{error:'expired'}};
+   return learningFixture(path,opts);
+  },{page:'course',search:'?id=c1'});h.run('courses');await flush();const composer=inputNamed(h.body,'body');composer.value='Draft survives '+action;
+  if(action==='intake'||action==='savedIntakeRefresh')await findKey(h.body,'editIntake').listeners.click();
+  expired=true;
+  if(action==='module')await descendants(h.body).find(n=>n.dataset.module==='m2').listeners.click();
+  else {const form=descendants(h.body).find(n=>n.tagName==='form'&&inputNamed(n,action==='contribution'?'body':'profession'));if(action!=='contribution')inputNamed(form,'expectations').value='My updated expectations';await form.listeners.submit({preventDefault(){}});if(action!=='contribution')assert.equal(inputNamed(form,'expectations').value,'My updated expectations');}
+  assert.equal(h.assigned(),'',action);assert.equal(inputNamed(h.body,'body'),composer,action);assert.equal(composer.value,'Draft survives '+action);assert.match(content(h.body),/Sign in/);
+ }
+ const initial=harness(()=>({status:401,data:{error:'expired'}}),{page:'course',search:'?id=c1&module=m1'});initial.run('courses');await flush();assert.match(initial.assigned(),/^\/login.html\?next=%2Fcourse.html%3Fid%3Dc1%26module%3Dm1$/);
+});

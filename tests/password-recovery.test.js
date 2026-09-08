@@ -160,3 +160,20 @@ test('recovery UI rejects fragment sessions and provides account-neutral triling
   const css=readFileSync(new URL('../web/styles/recovery.css',import.meta.url),'utf8');assert.match(css,/\[hidden\]\{display:none!important\}/);
   const source=readFileSync(new URL('../web/scripts/password-recovery.js',import.meta.url),'utf8');assert.doesNotMatch(source,/localStorage|sessionStorage/);
 });
+test('recovery request ignores repeated pending submissions and permits retry after failure',async()=>{
+  let finish;const h=ui(()=>new Promise(resolve=>{finish=resolve;}),{search:''});h.nodes.get('recoveryEmail').value='member@example.test';
+  const pending=h.submit('recoveryRequest'),duplicate=h.submit('recoveryRequest');assert.equal(h.calls.length,1);
+  assert.equal(h.nodes.get('recoveryRequest').attributes['aria-busy'],'true');assert.equal(h.nodes.get('recoveryEmail').disabled,true);
+  finish(response({code:'recovery_unavailable'},503));await Promise.all([pending,duplicate]);
+  assert.equal(h.nodes.get('recoveryRequestButton').disabled,false);assert.equal(h.nodes.get('recoveryEmail').disabled,false);assert.equal(h.nodes.get('recoveryEmail').value,'member@example.test');
+  const retry=h.submit('recoveryRequest');assert.equal(h.calls.length,2);finish(response({ok:true},202));await retry;assert.match(h.nodes.get('recoveryMessage').textContent,/If an account uses/);
+});
+test('pending password reset guards its one-use code and prevents switching to another-link mode',async()=>{
+  let finish;const h=ui(()=>new Promise(resolve=>{finish=resolve;}));h.nodes.get('recoveryPassword').value=h.nodes.get('recoveryConfirm').value='safe-new-password';
+  const pending=h.submit('recoveryReset'),duplicate=h.submit('recoveryReset');assert.equal(h.calls.length,1);
+  h.nodes.get('recoveryAnother').listeners.click();assert.equal(h.nodes.get('recoveryReset').hidden,false);assert.equal(h.nodes.get('recoveryAnother').disabled,true);assert.equal(h.nodes.get('recoveryPassword').disabled,true);
+  finish(response({code:'recovery_rate'},429));await Promise.all([pending,duplicate]);
+  assert.equal(h.nodes.get('recoveryReset').hidden,false);assert.equal(h.nodes.get('recoveryPassword').value,'safe-new-password');assert.equal(h.nodes.get('recoveryPassword').disabled,false);assert.equal(h.nodes.get('recoveryAnother').disabled,false);
+  const retry=h.submit('recoveryReset');assert.equal(h.calls.length,2);assert.equal(h.calls[1].body.code,'one-use-code');finish(response({passwordChanged:true}));await retry;
+  assert.equal(h.nodes.get('recoveryReset').hidden,true);assert.equal(h.nodes.get('recoveryPassword').value,'');assert.match(h.nodes.get('recoveryMessage').textContent,/Your password has been changed/);
+});

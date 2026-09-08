@@ -4,14 +4,21 @@ const t=k=>window.pilotI18n?.t(k)||k;
 const localizedBindings=new WeakMap();
 let titleSource=null;
 const language=()=>window.nodalI18n?.lang||'en';
-function localized(record,key,lang=language()){
+function localizedContent(record,key,lang=language()){
   const value=record?.translations?.[lang]?.[key];
-  return typeof value==='string'&&value.trim()?value:String(record?.[key]??'');
+  if(typeof value==='string'&&value.trim())return {value,lang};
+  const base=String(record?.[key]??'');if(base.trim())return {value:base,lang:'und'};
+  // Staff may publish content in one language before providing translations.
+  for(const [available,fields] of Object.entries(record?.translations||{})){
+    const text=fields?.[key];if(typeof text==='string'&&text.trim())return {value:text,lang:available};
+  }
+  return {value:'',lang};
 }
+function localized(record,key,lang=language()){return localizedContent(record,key,lang).value;}
 function hasLocalized(record,key){return Boolean(record?.[key]||Object.values(record?.translations||{}).some(fields=>fields?.[key]?.trim()));}
 function bind(node,update){node.dataset.pilotDynamic='true';localizedBindings.set(node,update);update();return node;}
 function dynamic(tag,text,cls){const node=el(tag,cls);return bind(node,()=>{node.textContent=text();});}
-function source(tag,record,key,cls){return dynamic(tag,()=>localized(record,key),cls);}
+function source(tag,record,key,cls){const node=el(tag,cls);return bind(node,()=>{const content=localizedContent(record,key);node.textContent=content.value;node.lang=content.lang;});}
 function setPageTitle(value){titleSource=typeof value==='function'?value:()=>t(value);document.title=titleSource()+' · NODAL';}
 
 function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}

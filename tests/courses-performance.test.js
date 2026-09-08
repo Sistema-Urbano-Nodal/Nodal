@@ -122,3 +122,24 @@ test('validating a bounded set of official materials runs concurrently before pu
  await new Promise(resolve=>setImmediate(resolve));const started=reads.length;assert.equal(updated,false);release();await pending;
  assert.equal(started,12);assert.equal(updated,true);assert.ok(reads.every(filter=>filter.courseId===COURSE&&filter.moduleId===MEMBER&&filter.purpose==='material'&&filter.status==='ready'));
 });
+
+test('attachment-heavy discussion pages use one bounded lookup and retain per-post file privacy',async()=>{
+ const MODULE='10000000-0000-4000-8000-000000000004',OTHER='10000000-0000-4000-8000-000000000005';
+ const files=Array.from({length:90},(_,i)=>({id:`20000000-0000-4000-8000-${String(i).padStart(12,'0')}`,courseId:COURSE,moduleId:MODULE,userId:MEMBER,status:'ready',name:`File ${i}`,mime:'text/plain',size:1}));
+ const posts=Array.from({length:30},(_,i)=>({id:String(i),courseId:COURSE,moduleId:MODULE,userId:MEMBER,body:'Post',attachmentIds:files.slice(i*3,i*3+3).map(f=>f.id),createdAt:stamp,deletedAt:null}));
+ // These records must never be exposed if a stale or malformed reference exists.
+ files[0].userId=OTHER;files[1].moduleId=OTHER;files[2].status='pending';files[3].courseId=OTHER;
+ let singleReads=0,batchReads=0;
+ const store={find:async(name,filter)=>{
+  if(name==='courses')return[course];if(name==='modules')return[{id:MODULE,courseId:COURSE,status:'published',postsRevision:1}];
+  if(name==='enrollments')return[{userId:MEMBER}];if(name==='intakes')return[{answers:{fullName:'Member'}}];if(name==='posts')return posts;
+  if(name==='attachments'){singleReads++;return files.filter(file=>Object.entries(filter).every(([key,value])=>file[key]===value));}return[];
+ },getPostAttachments:async({ids,courseId,moduleId})=>{batchReads++;assert.equal(ids.length,90);assert.equal(courseId,COURSE);assert.equal(moduleId,MODULE);return files;}};
+ const result=await invoke(createCourseApi({store}),`/api/courses/${COURSE}/modules/${MODULE}/posts`,{id:MEMBER,permission:'member'});
+ assert.equal(singleReads,0);assert.equal(batchReads,1);assert.equal(result.body.posts.length,30);
+ assert.deepEqual(result.body.posts[0].attachments,[]);assert.equal(result.body.posts[1].attachments.length,2);
+ assert.equal(result.body.posts[2].attachments.length,3);assert.equal(result.body.posts[2].attachments[0].userId,undefined);
+ posts.forEach(post=>{post.deletedAt=stamp;});
+ const deleted=await invoke(createCourseApi({store}),`/api/courses/${COURSE}/modules/${MODULE}/posts`,{id:MEMBER,permission:'member'});
+ assert.equal(batchReads,1);assert.ok(deleted.body.posts.every(post=>post.deleted&&!post.canEdit&&post.attachments.length===0));
+});
