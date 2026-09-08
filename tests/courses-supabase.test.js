@@ -89,10 +89,10 @@ test('Supabase owner post compare-and-update sends long Unicode text in JSON rat
 });
 
 test('Supabase discussion attachment batches stay scoped and complete across provider row caps',async()=>{
- const ids=Array.from({length:5},(_,i)=>`20000000-0000-4000-8000-${String(i).padStart(12,'0')}`),calls=[];
+ const ids=Array.from({length:5},(_,i)=>`abcdef00-0000-4000-8000-${String(i).padStart(12,'0')}`),calls=[];
  const rows=ids.map(id=>({id,course_id:'course',module_id:'module',user_id:'member',status:'ready',name:'File',mime:'text/plain',size:1}));
  const store=createCourseStore({clients:{admin:{rest:async(table,{query})=>{calls.push({table,query});return{rows:rows.slice(query.offset,query.offset+Math.min(2,query.limit)),contentRange:'*/5'};}}}});
- const attachments=await store.getPostAttachments({ids:[...ids,ids[0]],courseId:'course',moduleId:'module'});
+ const attachments=await store.getPostAttachments({ids:[...ids,ids[0].toUpperCase()],courseId:'course',moduleId:'module'});
  assert.deepEqual(attachments.map(a=>a.id),ids);assert.equal(calls.length,3);
  assert.ok(calls.every(({table,query})=>table==='course_attachments'&&query.course_id==='eq.course'&&query.module_id==='eq.module'&&query.status==='eq.ready'&&query.id===`in.(${ids.join(',')})`));
  assert.equal(calls[0].query.limit,5);assert.deepEqual(await store.getPostAttachments({ids:[],courseId:'course',moduleId:'module'}),[]);assert.equal(calls.length,3);

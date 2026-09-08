@@ -143,3 +143,13 @@ test('attachment-heavy discussion pages use one bounded lookup and retain per-po
  const deleted=await invoke(createCourseApi({store}),`/api/courses/${COURSE}/modules/${MODULE}/posts`,{id:MEMBER,permission:'member'});
  assert.equal(batchReads,1);assert.ok(deleted.body.posts.every(post=>post.deleted&&!post.canEdit&&post.attachments.length===0));
 });
+
+test('discussion batch projection resolves mixed-case UUID references without changing exact fetch IDs',async()=>{
+ const MODULE='10000000-0000-4000-8000-000000000004',id='abcdef00-0000-4000-8000-000000000001';
+ for(const returnedId of [id,id.toUpperCase()]){
+  const file={id:returnedId,courseId:COURSE,moduleId:MODULE,userId:MEMBER,status:'ready',name:'Legacy file',mime:'text/plain',size:1};
+  const store={find:async name=>name==='courses'?[course]:name==='modules'?[{id:MODULE,courseId:COURSE,status:'published'}]:name==='enrollments'?[{userId:MEMBER}]:name==='intakes'?[{answers:{}}]:[{id:'post',courseId:COURSE,moduleId:MODULE,userId:MEMBER,attachmentIds:[id.toUpperCase()],deletedAt:null}],getPostAttachments:async({ids})=>{assert.deepEqual(ids,[id.toUpperCase()]);return[file];}};
+  const result=await invoke(createCourseApi({store}),`/api/courses/${COURSE}/modules/${MODULE}/posts`,{id:MEMBER,permission:'member'});
+  assert.equal(result.body.posts[0].attachments.length,1);assert.equal(result.body.posts[0].attachments[0].id,returnedId);
+ }
+});

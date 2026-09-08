@@ -155,7 +155,7 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
   return {
     kind:'supabase',
     async getPostAttachments({ids,courseId,moduleId}) {
-      const unique=postAttachmentIds(ids);if(!unique.length)return [];
+      const unique=[...new Set(postAttachmentIds(ids).map(id=>id.toLowerCase()))];if(!unique.length)return [];
       const info=tableInfo('attachments'),query=queryFor(info,{courseId,moduleId,status:'ready'},{limit:unique.length,order:['id']});
       query.id=`in.(${unique.join(',')})`;
       return (await readPage(info.table,query)).map(row=>fromRow(info,row));

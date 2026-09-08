@@ -65,14 +65,14 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
   async function postView(post,user,knownAttachments) {
     const deleted=Boolean(post.deletedAt)||!post.userId;
     const owned=!deleted&&post.userId===user?.id;
-    const attachments=deleted?[]:(await Promise.all((post.attachmentIds??[]).map(id=>knownAttachments?knownAttachments.get(id):findOne('attachments',{id,courseId:post.courseId,moduleId:post.moduleId,userId:post.userId,status:'ready'}))))
+    const attachments=deleted?[]:(await Promise.all((post.attachmentIds??[]).map(id=>knownAttachments?knownAttachments.get(id.toLowerCase()):findOne('attachments',{id,courseId:post.courseId,moduleId:post.moduleId,userId:post.userId,status:'ready'}))))
       .filter(file=>file&&file.courseId===post.courseId&&file.moduleId===post.moduleId&&file.userId===post.userId&&file.status==='ready').map(attachmentView);
     return {id:post.id,courseId:post.courseId,moduleId:post.moduleId,userId:deleted?null:post.userId,authorName:deleted?'':post.authorName,staff:deleted?false:post.staff,parentId:post.parentId,kind:post.kind,body:deleted?'':post.body,links:deleted?[]:post.links,attachments,createdAt:post.createdAt,deleted,canEdit:owned,canDelete:owned};
   }
   async function postPageView(posts,user,module) {
     const ids=[...new Set(posts.filter(post=>!post.deletedAt&&post.userId).flatMap(post=>post.attachmentIds??[]))];
     const files=ids.length?await store.getPostAttachments({ids,courseId:module.courseId,moduleId:module.id}):[];
-    const attachments=new Map(files.map(file=>[file.id,file]));
+    const attachments=new Map(files.map(file=>[file.id.toLowerCase(),file]));
     return Promise.all(posts.map(post=>postView(post,user,attachments)));
   }
   async function membersForRows(rows) {
