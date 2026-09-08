@@ -53,9 +53,11 @@ test('location checking is opt-in and a checkbox never requests browser permissi
 
 test('manual check sends approximate coordinates only and decline makes no profile write', async () => {
   const h = harness();h.api.setUser(member);await h.suggest();
+  assert.equal(h.nodes.locationCurrent.textContent, 'Lima');assert.equal(h.nodes.locationCurrent.title, 'Lima, Peru');
   assert.deepEqual(h.requests[0].body, { latitude: 42.36, longitude: -71.06, accuracyMeters: 231 });
   assert.equal(h.positions[0].options.enableHighAccuracy, false);assert.equal(h.positions[0].options.timeout, 12000);
   assert.equal(h.nodes.locationSuggestion.hidden, false);assert.match(h.nodes.locationProposed.textContent, /Approximate city: Boston/);
+  assert.match(h.nodes.locationProposed.textContent, /Massachusetts, United States/);assert.equal(h.nodes.locationUse.textContent, 'Update');assert.equal(h.nodes.locationKeep.textContent, 'Keep current');
   h.click('locationKeep');assert.equal(h.requests.length, 1);assert.equal(h.events.length, 0);assert.match(h.nodes.locationCurrent.textContent, /Lima/);assert.equal(h.nodes.locationSuggestion.hidden, true);
   const stored = JSON.parse(h.storage.get('nodal.location-check.v1:u1'));assert.deepEqual(Object.keys(stored).sort(), ['enabled', 'lastCheckedDay']);assert.doesNotMatch(JSON.stringify([...h.storage]), /latitude|longitude|Boston|Lima|accuracy/);
 });
@@ -82,7 +84,7 @@ test('session expiry and city conflicts show local feedback without falsely chan
   for (const status of [401, 409, 429]) {
     const h = harness({ respond: path => path.endsWith('/suggest') ? { city } : { status } });h.api.setUser(member);await h.suggest();await h.click('locationUse');
     assert.equal(h.nodes.locationSuggestion.hidden, false);assert.equal(h.nodes.locationUse.disabled, status === 409);assert.equal(h.events.some(e => e.type === 'nodal:location-updated'), false);
-    h.language('pt');assert.match(h.nodes.locationStatus.textContent, status === 401 ? /Entre novamente/ : status === 409 ? /outra sessão/ : /Muitas verificações/);
+    h.language('pt');assert.match(h.nodes.locationStatus.textContent, status === 401 ? /Entre novamente/ : status === 409 ? /outra sessão/ : /Muitas consultas/);
   }
 });
 
@@ -114,23 +116,40 @@ test('late city lookup cannot restore a suggestion after profile city changes', 
 });
 
 test('browser errors, broad accuracy and empty city lookup do not create an offer or profile write', async () => {
-  for (const [code, expected] of [[1, /access is off/], [2, /unavailable/], [3, /too long/]]) { const h = harness();h.api.setUser(member);const pending = h.click('locationCheckNow');h.geoError(code);await pending;assert.match(h.nodes.locationStatus.textContent, expected);assert.equal(h.requests.length, 0); }
-  const broad = harness();broad.api.setUser(member);const pending = broad.click('locationCheckNow');broad.geo({ ...coordinates, accuracy: 10001 });await pending;assert.match(broad.nodes.locationStatus.textContent, /too broad/);assert.equal(broad.requests.length, 0);
-  const noCity = harness({ respond: () => ({ city: null }) });noCity.api.setUser(member);await noCity.suggest();assert.match(noCity.nodes.locationStatus.textContent, /could not identify/);assert.equal(noCity.nodes.locationSuggestion.hidden, true);
-  const unsupported = harness({ geolocation: false });unsupported.api.setUser(member);await unsupported.click('locationCheckNow');assert.match(unsupported.nodes.locationStatus.textContent, /cannot check/);
+  for (const [code, expected] of [[1, /Allow location/], [2, /unavailable/], [3, /timed out/]]) { const h = harness();h.api.setUser(member);const pending = h.click('locationCheckNow');h.geoError(code);await pending;assert.match(h.nodes.locationStatus.textContent, expected);assert.equal(h.requests.length, 0); }
+  const broad = harness();broad.api.setUser(member);const pending = broad.click('locationCheckNow');broad.geo({ ...coordinates, accuracy: 10001 });await pending;assert.match(broad.nodes.locationStatus.textContent, /too imprecise/);assert.equal(broad.requests.length, 0);
+  const noCity = harness({ respond: () => ({ city: null }) });noCity.api.setUser(member);await noCity.suggest();assert.match(noCity.nodes.locationStatus.textContent, /City not found/);assert.equal(noCity.nodes.locationSuggestion.hidden, true);
+  const unsupported = harness({ geolocation: false });unsupported.api.setUser(member);await unsupported.click('locationCheckNow');assert.match(unsupported.nodes.locationStatus.textContent, /unavailable in this browser/);
 });
 
 test('same-city suggestions and translated active states preserve the current profile', async () => {
-  const h = harness({ respond: () => ({ city: { ...city, name: 'Lima', label: member.city } }) });h.api.setUser(member);await h.suggest();assert.match(h.nodes.locationStatus.textContent, /matches Lima/);assert.equal(h.nodes.locationSuggestion.hidden, true);assert.equal(h.events.length, 0);
-  const q = harness();q.api.setUser(member);const pending = q.click('locationCheckNow');q.language('pt');assert.match(q.nodes.locationStatus.textContent, /Verificando/);q.geo();await pending;q.language('es');assert.match(q.nodes.locationProposed.textContent, /Ciudad aproximada/);assert.match(q.nodes.locationUse.textContent, /^Usar Boston/);assert.equal(q.requests.length, 1);
+  const h = harness({ respond: () => ({ city: { ...city, name: 'Lima', label: member.city } }) });h.api.setUser(member);await h.suggest();assert.match(h.nodes.locationStatus.textContent, /City unchanged/);assert.equal(h.nodes.locationSuggestion.hidden, true);assert.equal(h.events.length, 0);
+  const q = harness();q.api.setUser(member);const pending = q.click('locationCheckNow');q.language('pt');assert.match(q.nodes.locationStatus.textContent, /Localizando/);q.geo();await pending;q.language('es');assert.match(q.nodes.locationProposed.textContent, /Ciudad aproximada/);assert.match(q.nodes.locationUse.textContent, /^Actualizar$/);assert.equal(q.requests.length, 1);
 });
 
 test('location and API timeouts clear busy state without losing an acceptance candidate', async () => {
   const browser = harness();browser.api.setUser(member);const detection = browser.click('locationCheckNow');[...browser.timers.values()].find(timer => timer.ms === 15000).fn();await detection;
-  assert.equal(browser.nodes.locationCheck['aria-busy'], 'false');assert.equal(browser.requests.length, 0);assert.match(browser.nodes.locationStatus.textContent, /too long/);
+  assert.equal(browser.nodes.locationCheck['aria-busy'], 'false');assert.equal(browser.requests.length, 0);assert.match(browser.nodes.locationStatus.textContent, /timed out/);
   const h = harness({ respond: (path, body, options) => path.endsWith('/suggest') ? { city } : new Promise((resolve, reject) => { options.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))); }) });
   h.api.setUser(member);await h.suggest();const pending = h.click('locationUse');[...h.timers.values()].find(timer => timer.ms === 20000).fn();await pending;
-  assert.equal(h.nodes.locationSuggestion.hidden, false);assert.equal(h.nodes.locationUse.disabled, false);assert.equal(h.api.isSaving, false);assert.match(h.nodes.locationStatus.textContent, /too long/);assert.equal(h.events.some(e => e.type === 'nodal:location-updated'), false);
+  assert.equal(h.nodes.locationSuggestion.hidden, false);assert.equal(h.nodes.locationUse.disabled, false);assert.equal(h.api.isSaving, false);assert.match(h.nodes.locationStatus.textContent, /timed out/);assert.equal(h.events.some(e => e.type === 'nodal:location-updated'), false);
+});
+
+test('brief success, kept-city and same-city messages dismiss after five seconds without restarting on translation', async () => {
+  for (const outcome of ['updated', 'unchanged', 'same']) {
+    const h = harness(outcome === 'same' ? { respond: () => ({ city: { ...city, name: 'Lima', label: member.city } }) } : {});h.api.setUser(member);await h.suggest();
+    if (outcome === 'updated') await h.click('locationUse');else if (outcome === 'unchanged') h.click('locationKeep');
+    const timer = [...h.timers.entries()].find(([, value]) => value.ms === 5000);assert.ok(timer, outcome);assert.equal(h.nodes.locationStatus.hidden, false);
+    for (const language of ['en', 'es', 'pt']) { h.language(language);assert.ok(h.nodes.locationStatus.textContent.split(/\s+/).length <= 4);assert.equal([...h.timers.entries()].find(([, value]) => value.ms === 5000)[0], timer[0]); }
+    h.timers.delete(timer[0]);timer[1].fn();assert.equal(h.nodes.locationStatus.hidden, true);assert.equal(h.nodes.locationStatus.textContent, '');
+  }
+});
+
+test('stale dismissal callbacks never clear a newer error or a newer city confirmation', async () => {
+  const h = harness();h.api.setUser(member);await h.suggest();h.click('locationKeep');const oldDismissal = [...h.timers.values()].find(timer => timer.ms === 5000).fn;
+  const pending = h.click('locationCheckNow');h.geoError(1);await pending;const error = h.nodes.locationStatus.textContent;
+  assert.equal([...h.timers.values()].some(timer => timer.ms === 5000), false);oldDismissal();assert.equal(h.nodes.locationStatus.textContent, error);assert.equal(h.nodes.locationStatus.hidden, false);
+  await h.suggest();h.click('locationKeep');const latest = h.nodes.locationStatus.textContent;oldDismissal();assert.equal(h.nodes.locationStatus.textContent, latest);assert.equal(h.nodes.locationStatus.hidden, false);
 });
 
 test('location markup and dynamic copy have all EN/ES/PT translations and no background watcher', () => {

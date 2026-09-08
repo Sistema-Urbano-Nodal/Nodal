@@ -10,6 +10,7 @@
   let user = null, enabled = false, lastCheckedDay = '', phase = 'idle', statusKey = '', candidate = null, expectedCity = '';
   let externalSaving = false, accepting = false, blocked = false, visible = false, active = true, generation = 0;
   let controller = null, cancelPosition = null, permissionPending = null;
+  let statusTimer = null, statusTimerKey = '';
   const storageKey = () => 'nodal.location-check.v1:' + user.id;
   const day = () => { const now = new Date(); return [now.getFullYear(), now.getMonth() + 1, now.getDate()].join('-'); };
   const busy = () => phase !== 'idle';
@@ -30,8 +31,17 @@
   function render() {
     host.hidden = !user;
     host.querySelectorAll('[data-location-text]').forEach(element => { element.textContent = lt(element.dataset.locationText); });
+    const transientKey = user && phase === 'idle' && ['updated', 'unchanged', 'same'].includes(statusKey) ? generation + ':' + statusKey : '';
+    if (transientKey !== statusTimerKey) {
+      clearTimeout(statusTimer); statusTimer = null; statusTimerKey = transientKey;
+      if (transientKey) statusTimer = setTimeout(() => {
+        if (statusTimerKey !== transientKey) return;
+        statusTimer = null; statusTimerKey = ''; statusKey = ''; render();
+      }, 5000);
+    }
     if (!user) return;
-    current.textContent = lt('current', { city: user.city || lt('missing') });
+    current.textContent = lt('current', { city: user.city?.split(',')[0].trim() || lt('missing') });
+    current.title = user.city || '';
     preference.checked = enabled; preference.disabled = accepting;
     check.disabled = busy() || externalSaving; check.textContent = lt('check');
     host.setAttribute('aria-busy', String(busy()));
