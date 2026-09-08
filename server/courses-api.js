@@ -1,4 +1,4 @@
-import { newId, identifier, fail, normalizeCourse, normalizeModule, normalizeIntake, normalizePost, normalizeFeedback, decodeAttachment, text, csv, INTAKE_FIELDS, decodeCursor, encodeCursor } from './courses-domain.js';
+import { newId, identifier, fail, normalizeCourse, normalizeModule, normalizeIntake, normalizePost, normalizeFeedback, decodeAttachment, text, csv, INTAKE_FIELDS, FEEDBACK_ACTIONS, decodeCursor, encodeCursor } from './courses-domain.js';
 import {createCourseParticipants} from './course-participants.js';
 
 const now = () => new Date().toISOString();
@@ -62,10 +62,11 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       if(!await findOne('attachments',{id:resource.attachmentId,courseId:module.courseId,moduleId:module.id,purpose:'material',status:'ready'}))fail('official resource attachment unavailable');
     }));
   }
-  async function postView(post) {
+  async function postView(post,user) {
     const deleted=Boolean(post.deletedAt)||!post.userId;
+    const owned=!deleted&&post.userId===user?.id;
     const attachments=deleted?[]:(await Promise.all((post.attachmentIds??[]).map(id=>findOne('attachments',{id,moduleId:post.moduleId,userId:post.userId,status:'ready'})))).filter(Boolean).map(attachmentView);
-    return {id:post.id,courseId:post.courseId,moduleId:post.moduleId,userId:deleted?null:post.userId,authorName:deleted?'':post.authorName,staff:deleted?false:post.staff,parentId:post.parentId,kind:post.kind,body:deleted?'':post.body,links:deleted?[]:post.links,attachments,createdAt:post.createdAt,deleted};
+    return {id:post.id,courseId:post.courseId,moduleId:post.moduleId,userId:deleted?null:post.userId,authorName:deleted?'':post.authorName,staff:deleted?false:post.staff,parentId:post.parentId,kind:post.kind,body:deleted?'':post.body,links:deleted?[]:post.links,attachments,createdAt:post.createdAt,deleted,canEdit:owned,canDelete:owned};
   }
   async function membersForRows(rows) {
     const ids=[...new Set(rows.map(row=>row.userId))],members=new Map();
@@ -103,7 +104,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
 
   return async function handle({req,res,url,user}) {
     const path=url.pathname;
-    if(!/^\/api\/(?:courses(?:\/|$)|admin\/courses(?:\/|$)|course-attachments\/|feedback$|admin\/feedback(?:\/|$))/.test(path))return false;
+    if(!/^\/api\/(?:courses(?:\/|$)|admin\/courses(?:\/|$)|course-attachments\/|feedback(?:\/|$)|admin\/feedback(?:\/|$))/.test(path))return false;
     if(!user){send(res,401,{error:'sign in required'});return true;}
     const adminPath=path.startsWith('/api/admin/');
     if(adminPath&&!isStaff(user)){send(res,403,{error:'administrator access required'});return true;}
@@ -117,6 +118,26 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       if(input.moduleId) await moduleAccess(input.courseId,input.moduleId,user,feedbackAccess);
       const feedback=await store.insert('feedback',{id:newId(),userId:user.id,...input,createdAt:now()});
       send(res,201,{feedback});return true;
+    }
+    if(path==='/api/feedback'&&req.method==='GET') {
+      const action=url.searchParams.get('action'),filters={userId:user.id};
+      if(action!==null) {
+        if(!FEEDBACK_ACTIONS.includes(action))fail('invalid feedback action');
+        Object.assign(filters,{action,courseId:url.searchParams.has('courseId')?identifier(url.searchParams.get('courseId')):null,moduleId:url.searchParams.has('moduleId')?identifier(url.searchParams.get('moduleId')):null});
+        if(filters.moduleId&&!filters.courseId)fail('course is required for module feedback');
+      } else if(url.searchParams.has('courseId')||url.searchParams.has('moduleId'))fail('action is required for context filtering');
+      const rows=await store.find('feedback',filters,{limit:21,desc:true,after:decodeCursor(url.searchParams.get('cursor'))}),page=rows.slice(0,20);
+      send(res,200,{feedback:page,nextCursor:rows.length>20?encodeCursor(page.at(-1)):null});return true;
+    }
+    const ownFeedback=path.match(/^\/api\/feedback\/([^/]+)$/);
+    if(ownFeedback&&['PATCH','DELETE'].includes(req.method)) {
+      const filters={id:identifier(ownFeedback[1]),userId:user.id};
+      const existing=await findOne('feedback',filters);if(!existing)fail('feedback unavailable',404);
+      if(req.method==='DELETE') {await store.remove('feedback',filters);send(res,200,{ok:true});return true;}
+      const input=normalizeFeedback({...await bodyJson(req),action:existing.action,courseId:existing.courseId,moduleId:existing.moduleId});
+      const feedback=await store.update('feedback',filters,{rating:input.rating,comment:input.comment});
+      if(!feedback)fail('feedback unavailable',404);
+      send(res,200,{feedback});return true;
     }
     if(path.startsWith('/api/admin/feedback')&&req.method==='GET') {
       const exporting=path==='/api/admin/feedback/export';
@@ -191,12 +212,17 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       if(!access.enrollment)fail('enroll before completing the intake',403);
       const answers=normalizeIntake(await bodyJson(req));
       const existing=await findOne('intakes',{courseId,userId:user.id});
-      if(existing)await store.update('intakes',{id:existing.id},{answers,updatedAt:now()});
+      if(existing) {
+        if(!await store.update('intakes',{id:existing.id,courseId,userId:user.id},{answers,updatedAt:now()}))fail('intake changed; reload before saving',409);
+      }
       else {
         try { await store.insert('intakes',{id:newId(),courseId,userId:user.id,answers,updatedAt:now()}); }
-        catch(err) { if(err.status!==409)throw err;await store.update('intakes',{courseId,userId:user.id},{answers,updatedAt:now()}); }
+        catch(err) { if(err.status!==409)throw err;if(!await store.update('intakes',{courseId,userId:user.id},{answers,updatedAt:now()}))fail('intake changed; reload before saving',409); }
       }
       send(res,200,{intake:answers,enrollment:{...access.enrollment,intakeCompleted:true}});return true;
+    }
+    if(!adminPath&&suffix==='/intake'&&req.method==='DELETE') {
+      await store.remove('intakes',{courseId,userId:user.id});send(res,200,{ok:true});return true;
     }
     if(adminPath&&suffix==='/modules'&&req.method==='POST') {
       const count=await store.find('modules',{courseId,kind:'session'},{limit:100});if(count.length>=100)fail('course module limit reached');
@@ -217,6 +243,23 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       else fail('invalid export type');return true;
     }
     const moderation=suffix.match(/^\/posts\/([^/]+)$/);
+    if(!adminPath&&moderation&&['GET','PATCH','DELETE'].includes(req.method)) {
+      const filters={id:identifier(moderation[1]),courseId,userId:user.id};
+      const post=await findOne('posts',filters);if(!post||(req.method!=='GET'&&post.deletedAt))fail('post unavailable',404);
+      await moduleAccess(courseId,post.moduleId,user,access);
+      if(req.method==='GET'){send(res,200,{post:await postView(post,user)});return true;}
+      let patch;
+      if(req.method==='PATCH') {
+        const input=await bodyJson(req);
+        if(typeof input.expectedBody!=='string'||input.expectedBody.length>6000)fail('expected post text is required');
+        filters.body=input.expectedBody;patch={body:text(input.body,'post',6000,true)};
+      } else patch={body:'',links:[],attachmentIds:[],deletedAt:now()};
+      const updated=req.method==='PATCH'
+        ?await store.editPost({id:post.id,courseId,userId:user.id,expectedBody:filters.body,body:patch.body})
+        :await store.update('posts',{...filters,deletedAt:null},patch);
+      if(!updated)fail('post changed; reload before saving',409);
+      send(res,200,req.method==='DELETE'?{ok:true}:{post:await postView(updated,user)});return true;
+    }
     if(adminPath&&moderation&&req.method==='DELETE') {
       const post=await findOne('posts',{id:identifier(moderation[1]),courseId});if(!post)fail('post unavailable',404);
       await store.update('posts',{id:post.id},{body:'',links:[],attachmentIds:[],deletedAt:now()});send(res,200,{ok:true});return true;
@@ -275,7 +318,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
         const filters={courseId,moduleId:module.id,...(kind?{threadKind:kind}:{})};
         const rows=await store.find('posts',filters,{limit:latest?1:31,desc,after:latest?null:decodeCursor(url.searchParams.get('cursor'))});
         const page=rows.slice(0,latest?1:30);
-        send(res,200,{posts:await Promise.all(page.map(postView)),nextCursor:!latest&&rows.length>30?encodeCursor(page.at(-1)):null,revision:module.postsRevision});return true;
+        send(res,200,{posts:await Promise.all(page.map(post=>postView(post,user))),nextCursor:!latest&&rows.length>30?encodeCursor(page.at(-1)):null,revision:module.postsRevision});return true;
       }
       if(!adminPath&&operation==='/posts'&&req.method==='POST') {
         const input=normalizePost(await bodyJson(req));
@@ -284,7 +327,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
         const old=await findOne('posts',{userId:user.id,clientId:input.clientId});
         if(old) {
           if(!samePost(old,input,courseId,module.id))fail('post identifier is already used',409);
-          send(res,200,{post:await postView(old)});return true;
+          send(res,200,{post:await postView(old,user)});return true;
         }
         if(input.parentId) {
           const parent=await findOne('posts',{id:input.parentId,courseId,moduleId:module.id});if(!parent||parent.deletedAt)fail('parent post unavailable');threadKind=parent.threadKind;
@@ -293,7 +336,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
         const record={id:newId(),courseId,moduleId:module.id,userId:user.id,authorName:user.fullName,staff:isStaff(user),...input,threadKind,deletedAt:null,createdAt:now()};
         let post;
         try {post=await store.insert('posts',record);}catch(err){if(err.status!==409)throw err;post=await findOne('posts',{userId:user.id,clientId:input.clientId});if(!samePost(post,input,courseId,module.id))throw err;}
-        send(res,201,{post:await postView(post)});return true;
+        send(res,201,{post:await postView(post,user)});return true;
       }
     }
     send(res,404,{error:'not found'});return true;

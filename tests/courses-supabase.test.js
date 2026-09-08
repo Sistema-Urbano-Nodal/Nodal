@@ -79,3 +79,11 @@ test('Supabase descending filtered post cursor uses both timestamp and ID, and m
  assert.equal(calls[0].query.or,`(created_at.lt.${stamp},and(created_at.eq.${stamp},id.lt.post))`);
  await assert.rejects(store.update('modules',{id:'module',version:2},{resources:[]}),{status:409});
 });
+
+test('Supabase owner post compare-and-update sends long Unicode text in JSON rather than URL filters',async()=>{
+ const calls=[],oldBody='界'.repeat(6000),newBody='界'.repeat(5999)+'新';
+ const store=createCourseStore({clients:{admin:{rest:async(path,args)=>{calls.push({path,...args});return[{id:'post',course_id:'course',user_id:'owner',body:args.body.p_body,links:[],attachment_ids:[],deleted_at:null}];}}}});
+ const post=await store.editPost({id:'post',courseId:'course',userId:'owner',expectedBody:oldBody,body:newBody});
+ assert.equal(post.body,newBody);assert.equal(post.userId,'owner');assert.equal(calls[0].path,'rpc/edit_own_course_post');assert.equal(calls[0].method,'POST');assert.equal(calls[0].query,undefined);
+ assert.deepEqual(calls[0].body,{p_id:'post',p_course_id:'course',p_user_id:'owner',p_expected_body:oldBody,p_body:newBody});
+});

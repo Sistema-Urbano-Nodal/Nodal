@@ -13,8 +13,8 @@ function textSection(key,record){const section=el('section');section.append(tr('
 function dates(c){return [date(c.startsOn),date(c.endsOn)].filter(Boolean).join(' – ');}
 async function directory(){setPageTitle('courses');const {courses,isAdmin}=await api('/api/courses');document.getElementById('teachingLink').hidden=isAdmin!==true;root.replaceChildren();const hero=el('header','pilot-hero');hero.append(tr('p','courses','pilot-context'),tr('h1','intro'),tr('p','directory'));const list=el('div','pilot-directory');if(!courses.length)list.append(tr('p','emptyCourses','pilot-empty'));courses.forEach(c=>{const row=el('article','pilot-course-row'),meta=el('div'),content=el('div');meta.append(tr('span',c.status,'pilot-tag'),dynamic('div',()=>dates(c),'pilot-date'));content.append(source('h2',c,'title'),source('p',c,'description'));const link=tr('a','open','pilot-button');link.href='course.html?id='+encodeURIComponent(c.id);row.append(meta,content,link);list.append(row);});root.append(hero,list);status(msg,'');}
 function intakeForm(data,onClose){let busy=false;const box=el('section','pilot-intake');box.append(tr('h2','intake'),tr('p','private'));const form=el('form','pilot-form');const fields={};['fullName','profession','city','motivation','experience','expectations','caseStudy','digitalFamiliarity'].forEach((key,i)=>{const f=field(key,data?.[key]||'',i<3?'text':'textarea');f.input.maxLength=i<3?160:2000;f.input.required=true;fields[key]=f.input;form.append(f.wrap);});const save=button('saveIntake');save.type='submit';const local=el('p','pilot-status');local.setAttribute('role','status');form.append(save);if(onClose)form.append(button('cancel',()=>{if(!busy)onClose();},true));form.append(local);form.addEventListener('submit',async e=>{e.preventDefault();if(busy)return;busy=true;save.disabled=true;form.setAttribute('aria-busy','true');Object.values(fields).forEach(input=>{input.disabled=true;});try{const input=Object.fromEntries(Object.entries(fields).map(([k,n])=>[k,n.value]));await api(base()+'/intake',input,'PUT');await course();}catch(err){status(local,err);}finally{busy=false;save.disabled=false;form.setAttribute('aria-busy','false');Object.values(fields).forEach(input=>{input.disabled=false;});}});box.append(form);return box;}
-async function course(){
-  const fresh=await api(base());
+async function course(fresh){
+  fresh=fresh||await api(base());
   stopConversations();navigationSequence++;navigationPending=false;pendingModuleId=null;snapshot=fresh;root.replaceChildren();
   document.getElementById('teachingLink').hidden=!snapshot.isAdmin;
   const c=snapshot.course;setPageTitle(()=>localized(c,'title'));
@@ -27,10 +27,26 @@ async function course(){
   }
   if(!snapshot.intake&&!snapshot.isAdmin){root.append(intakeForm());renderRoutePreview();return;}
   const actions=el('div','pilot-actions');actions.append(tr('span',snapshot.enrollment?'enrolled':'staff','pilot-tag'));
-  if(snapshot.intake)actions.append(button('editIntake',()=>{
-    const existing=document.getElementById('editIntake');if(existing){existing.remove();return;}
-    const box=intakeForm(snapshot.intake,()=>box.remove());box.id='editIntake';hero.after(box);
-  },true));hero.append(actions);
+  if(snapshot.intake){
+    let deleting=false;
+    const edit=button('editIntake',()=>{
+      if(deleting)return;
+      const existing=document.getElementById('editIntake');
+      if(existing){if(existing.querySelector('form')?.getAttribute('aria-busy')!=='true')existing.remove();return;}
+      const box=intakeForm(snapshot.intake,()=>box.remove());box.id='editIntake';hero.after(box);
+    },true);
+    const remove=button('deleteIntake',async()=>{
+      if(deleting||document.getElementById('editIntake')?.querySelector('form')?.getAttribute('aria-busy')==='true')return;
+      if(!confirm(t('confirmDeleteIntake')))return;
+      deleting=true;edit.disabled=true;remove.disabled=true;
+      try{
+        await api(base()+'/intake',{},'DELETE',{redirectOnUnauthorized:false});
+        await course({...snapshot,intake:null});status(msg,t('intakeDeleted'));
+      }catch(err){status(msg,err);}finally{deleting=false;edit.disabled=false;remove.disabled=false;}
+    },true);
+    actions.append(edit,remove);
+  }
+  hero.append(actions);
   const workspace=el('div','pilot-workspace'),nav=el('nav','pilot-route'),content=el('div','pilot-content'),progress=el('aside','pilot-progress');
   nav.dataset.pilotAria='route';nav.setAttribute('aria-label',t('route'));content.id='moduleContent';
   const general=snapshot.modules.filter(m=>m.kind==='discussion'),sessions=snapshot.modules.filter(m=>m.kind!=='discussion');
@@ -136,14 +152,21 @@ function createConversation(moduleId,sequence,kind){
     }catch(err){if(!visible()||controller?.signal.aborted||err.name==='AbortError')return;pollErrors=Math.min(2,pollErrors+1);if(err.status===401||err.status===403){hasUpdates=true;status(updates,t('updatesPaused'));}}
     finally{if(pollController===controller)pollController=null;schedule();}
   }
-  async function loadPosts(reset){
+  async function loadPosts(reset,notice){
     if(!alive())return;if(loading){refreshPending=refreshPending||reset;return;}
     loading=true;cancelPoll();more.disabled=true;refresh.disabled=true;
     try{
       const params=new URLSearchParams({kind,order:'desc'});if(!reset&&cursor)params.set('cursor',cursor);
       const result=await api(base()+'/modules/'+moduleId+'/posts?'+params);if(!alive())return;
-      if(reset){posts.replaceChildren();known.clear();baseline=signature(result);hasUpdates=false;status(updates,'');status(msg,'');}
-      for(const post of result.posts){if(known.has(post.id))continue;known.add(post.id);posts.append(renderPost(post,composer,loadPosts));}
+      if(!Array.isArray(result.posts))throw new Error(t('error'));
+      const drafts=new Map(reset?[...posts.children].filter(card=>card.hasDraft?.()).map(card=>[card.id.slice(5),card]):[]);
+      if(reset){posts.replaceChildren();known.clear();baseline=signature(result);hasUpdates=false;status(updates,notice?t(notice):'');status(msg,'');}
+      for(const post of result.posts){
+        if(known.has(post.id))continue;known.add(post.id);
+        const existing=drafts.get(post.id);
+        if(existing){existing.updatePost(post);posts.append(existing);drafts.delete(post.id);}else posts.append(renderPost(post,composer,loadPosts,alive));
+      }
+      for(const [id,card] of drafts){posts.append(card);known.add(id);}
       if(!known.size)posts.append(tr('p',kind==='assignment'?'noAssignments':'noPosts','pilot-empty'));
       cursor=result.nextCursor;more.hidden=!cursor;loaded=true;
     }catch(err){if(!alive())return;status(msg,err);if(!known.size){const retry=button('retry',()=>{retry.remove();return loadPosts(true);},true);posts.append(retry);}}
@@ -154,8 +177,84 @@ function createConversation(moduleId,sequence,kind){
   return{element:section,suspend:cancelPoll,resume:schedule,loadInitial:()=>loaded?Promise.resolve():loadPosts(true),setActive(value){active=value;if(!active)cancelPoll();else schedule();},dispose(){disposed=true;cancelPoll();document.removeEventListener?.('visibilitychange',visibilityChanged);}};
 }
 
-function renderPost(p,composer,reload){const card=el('article','pilot-post'+(p.parentId?' reply':''));card.id='post-'+p.id;card.append(el('strong',null,p.authorName||''));if(p.staff)card.append(tr('span','staff','pilot-tag'));card.append(dynamic('small',()=>new Date(p.createdAt).toLocaleString(window.nodalI18n?.lang||'en')));if(p.parentId){const parent=tr('a','replying');parent.href='#post-'+p.parentId;card.append(el('br'),parent);}card.append(tr('div',p.kind,'pilot-date'),p.deleted?tr('p','deleted'):el('p',null,p.body));const links=el('ul');for(const l of p.links||[]){const href=safeUrl(l.url);if(href){const li=el('li'),a=el('a',null,l.title||l.url);a.href=href;a.target='_blank';a.rel='noopener noreferrer';li.append(a);links.append(li);}}for(const f of p.attachments||[]){const li=el('li'),a=el('a',null,f.name);a.href='/api/course-attachments/'+encodeURIComponent(f.id);li.append(a);links.append(li);}card.append(links);if(!p.deleted)card.append(button('reply',()=>composer.replyTo(p),true));if(snapshot.isAdmin&&!p.deleted)card.append(button('moderate',async()=>{if(!confirm(t('confirmDelete')))return;try{await api('/api/admin/courses/'+courseId+'/posts/'+p.id,{},'DELETE');await reload(true);}catch(err){status(msg,err);}},true));return card;}
-function showFeedback(action,moduleId){if(moduleId!==activeId)return;const mount=document.getElementById('courseFeedback');if(!mount)return;mount.replaceChildren(feedback(action,{courseId,moduleId}));if(action!=='course')mount.querySelector('details')?.setAttribute('open','');}
+function renderPost(initial,composer,reload,alive){
+  let p=initial,editor=null,busy=false;
+  const card=el('article','pilot-post'+(p.parentId?' reply':''));card.id='post-'+p.id;
+  const author=el('strong',null,p.authorName||''),staffTag=tr('span','staff','pilot-tag');staffTag.hidden=!p.staff;card.append(author,staffTag);
+  card.append(dynamic('small',()=>new Date(p.createdAt).toLocaleString(window.nodalI18n?.lang||'en')));
+  if(p.parentId){const parent=tr('a','replying');parent.href='#post-'+p.parentId;card.append(el('br'),parent);}
+  const body=el('p'),links=el('ul'),actions=el('div','pilot-post-actions'),local=el('p','pilot-status');local.setAttribute('role','status');
+  card.append(tr('div',p.kind,'pilot-date'),body,links,actions,local);
+  const reply=button('reply',()=>{if(!busy)composer.replyTo(p);},true);
+  const edit=button('editPost',()=>{
+    if(busy||editor||!p.canEdit||!alive())return;
+    const form=el('form','pilot-form pilot-post-editor'),text=field('body',p.body,'textarea');text.input.required=true;text.input.maxLength=6000;
+    const save=button('savePost');save.type='submit';
+    const cancel=button('cancel',()=>{if(!busy)closeEditor();},true);
+    const review=button('refreshPostVersion',async()=>{
+      if(busy||!editor||!alive())return;setBusy(true);
+      try{
+        const result=await api(base()+'/posts/'+encodeURIComponent(p.id),undefined,undefined,{redirectOnUnauthorized:false});if(!alive()||!editor)return;
+        if(!result.post||result.post.id!==p.id)throw new Error(t('error'));
+        card.updatePost(result.post);
+        if(!p.deleted&&p.canEdit){editor.expectedBody=p.body;editor.blocked=false;review.hidden=true;showCurrent();status(local,t('postEditConflict'));}
+      }catch(err){status(local,err);}finally{setBusy(false);}
+    },true);review.hidden=true;
+    const comparison=el('div','pilot-post-current'),currentText=el('p');comparison.hidden=true;comparison.append(tr('strong','postCurrentText'),currentText);
+    const controls=el('div','pilot-post-edit-actions');controls.append(save,cancel,review);
+    form.append(tr('p','postEditHint','pilot-data-note'),text.wrap,comparison,controls);card.append(form);
+    editor={form,input:text.input,save,cancel,review,comparison,currentText,expectedBody:p.body,blocked:false};edit.hidden=true;
+    form.addEventListener('submit',async event=>{
+      event.preventDefault();if(busy||!editor||editor.blocked||!alive())return;
+      if(!editor.input.value.trim()){status(local,new Error(t('postEditEmpty')));editor.input.focus();return;}
+      if(editor.input.value.length>6000){status(local,new Error(t('longField').replace('{field}',t('body'))));return;}
+      const input={body:editor.input.value,expectedBody:editor.expectedBody};setBusy(true);
+      try{
+        const result=await api(base()+'/posts/'+encodeURIComponent(p.id),input,'PATCH',{redirectOnUnauthorized:false});if(!alive())return;
+        if(!result.post||result.post.id!==p.id)throw new Error(t('error'));
+        closeEditor();card.updatePost(result.post);status(local,t('saved'));await reload(true,'saved');
+      }catch(err){
+        if(!alive())return;
+        if(err.status===409&&editor){editor.blocked=true;editor.review.hidden=false;status(local,t('postEditConflict'));}
+        else status(local,err);
+      }finally{setBusy(false);}
+    });
+    status(local,'');text.input.focus();
+  },true);
+  const remove=button('deleteOwnPost',async()=>{
+    if(busy||!p.canDelete||!alive()||!confirm(t('confirmDeleteOwnPost')))return;setBusy(true);
+    try{
+      await api(base()+'/posts/'+encodeURIComponent(p.id),{},'DELETE',{redirectOnUnauthorized:false});if(!alive())return;
+      closeEditor();card.updatePost({...p,deleted:true,body:'',links:[],attachments:[],canEdit:false,canDelete:false});status(local,t('postDeleted'));await reload(true,'postDeleted');
+    }catch(err){if(alive())status(local,err);}finally{setBusy(false);}
+  },true);
+  const moderate=button('moderate',async()=>{
+    if(busy||!alive()||!confirm(t('confirmDelete')))return;setBusy(true);
+    try{await api('/api/admin/courses/'+courseId+'/posts/'+p.id,{},'DELETE',{redirectOnUnauthorized:false});if(alive())await reload(true);}catch(err){if(alive())status(local,err);}finally{setBusy(false);}
+  },true);
+  actions.append(reply,edit,remove,moderate);
+  function showCurrent(){if(editor){editor.comparison.hidden=false;editor.currentText.textContent=p.deleted?t('deleted'):p.body;}}
+  function closeEditor(){if(editor){editor.form.remove();editor=null;}edit.hidden=!p.canEdit;}
+  function setBusy(value){
+    busy=value;card.setAttribute('aria-busy',String(value));for(const control of [reply,edit,remove,moderate])control.disabled=value;
+    if(editor){editor.form.setAttribute('aria-busy',String(value));for(const control of [editor.input,editor.cancel,editor.review])control.disabled=value;editor.save.disabled=value||editor.blocked;}
+  }
+  card.hasDraft=()=>Boolean(editor);
+  card.updatePost=next=>{
+    p=next;author.textContent=p.authorName||'';staffTag.hidden=!p.staff;body.textContent=p.deleted?t('deleted'):p.body;if(p.deleted)body.dataset.pilotText='deleted';else delete body.dataset.pilotText;
+    links.replaceChildren();
+    if(!p.deleted){
+      for(const l of p.links||[]){const href=safeUrl(l.url);if(href){const li=el('li'),a=el('a',null,l.title||l.url);a.href=href;a.target='_blank';a.rel='noopener noreferrer';li.append(a);links.append(li);}}
+      for(const f of p.attachments||[]){const li=el('li'),a=el('a',null,f.name);a.href='/api/course-attachments/'+encodeURIComponent(f.id);li.append(a);links.append(li);}
+    }
+    reply.hidden=p.deleted;edit.hidden=p.deleted||!p.canEdit||Boolean(editor);remove.hidden=p.deleted||!p.canDelete;moderate.hidden=p.deleted||!snapshot.isAdmin||p.canDelete;
+    if(editor&&(p.deleted||!p.canEdit)){editor.blocked=true;editor.review.hidden=true;showCurrent();status(local,t('postEditRemoved'));}
+    else if(editor&&p.body!==editor.expectedBody){editor.blocked=true;editor.review.hidden=false;showCurrent();status(local,t('postEditConflict'));}
+    setBusy(busy);
+  };
+  card.updatePost(p);return card;
+}
+function showFeedback(action,moduleId){if(moduleId!==activeId)return;const mount=document.getElementById('courseFeedback');if(!mount||[...mount.children].some(box=>box.hasDraft?.()))return;mount.replaceChildren(feedback(action,{courseId,moduleId}));if(action!=='course')mount.querySelector('details')?.setAttribute('open','');}
 function makeComposer(moduleId,onSaved,options={}){const box=el('details','pilot-composer');box.append(tr('summary',options.kind==='assignment'?'submitAssignment':'startDiscussion'));const form=el('form','pilot-form');const kind=select('kind',['assignment','question'],options.kind==='assignment'?'assignment':'question'),body=field('body','','textarea'),links=field('links','','textarea'),files=field('files','','file'),reply=el('div','pilot-reply-context');body.input.required=true;body.input.maxLength=6000;links.input.maxLength=5000;files.input.multiple=true;files.input.accept='image/jpeg,image/png,image/webp,application/pdf,text/plain';reply.hidden=true;if(options.kind)kind.wrap.hidden=true;const submit=button('post');submit.type='submit';const local=el('p','pilot-status');local.setAttribute('role','status');const extras=el('details','pilot-composer-extras');extras.append(tr('summary','attachExtras'),links.wrap,files.wrap);form.append(reply,kind.wrap,body.wrap,extras,submit,local);box.append(form);let parentId=null,clientId=crypto.randomUUID(),uploaded=[],fileSignature='',busy=false;box.replyTo=p=>{if(busy)return;box.open=true;parentId=p.id;kind.input.disabled=true;reply.replaceChildren(dynamic('span',()=>t('replying')+' '+p.authorName),button('cancel',()=>{if(busy)return;parentId=null;kind.input.disabled=false;reply.hidden=true;},true));reply.hidden=false;body.input.focus();};form.addEventListener('submit',async e=>{e.preventDefault();if(busy)return;busy=true;submit.disabled=true;form.setAttribute('aria-busy','true');for(const input of [body.input,links.input,files.input,kind.input])input.disabled=true;try{const chosen=[...files.input.files];if(chosen.length>3||chosen.some(f=>f.size>3*1024*1024||!['image/jpeg','image/png','image/webp','application/pdf','text/plain'].includes(f.type)))throw new Error(t('fileError'));const parsed=links.input.value.split('\n').map(s=>s.trim()).filter(Boolean).map(url=>{const safe=safeUrl(url);if(!safe)throw new Error(t('urlError'));return {title:new URL(safe).hostname,url:safe};});const signature=chosen.map(f=>[f.name,f.size,f.lastModified].join(':')).join('|');if(signature!==fileSignature){uploaded=[];fileSignature=signature;}for(let i=uploaded.length;i<chosen.length;i++){const f=chosen[i],data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(new Error(t('fileError')));reader.readAsDataURL(f);});const result=await api(base()+'/modules/'+moduleId+'/attachments',{name:f.name,mime:f.type,data});uploaded.push(result.attachment.id);}const action=!parentId&&kind.input.value==='assignment'?'assignment':'discussion';await api(base()+'/modules/'+moduleId+'/posts',{kind:parentId?'comment':kind.input.value,body:body.input.value,links:parsed,attachmentIds:uploaded,...(parentId?{parentId}:{}),clientId});form.reset();kind.input.value=options.kind==='assignment'?'assignment':'question';parentId=null;kind.input.disabled=false;reply.hidden=true;uploaded=[];fileSignature='';clientId=crypto.randomUUID();status(local,t('saved'));box.open=false;showFeedback(action,moduleId);await onSaved();}catch(err){status(local,err);}finally{busy=false;submit.disabled=false;form.setAttribute('aria-busy','false');for(const input of [body.input,links.input,files.input])input.disabled=false;kind.input.disabled=Boolean(parentId);}});return box;}
 async function start(){try{if(document.body.dataset.page==='course'){if(!courseId)location.replace('courses.html');else await course();}else await directory();}catch(err){status(msg,err);const retry=button('retry',()=>{retry.remove();start();},true);root.append(retry);}}
 window.nodalI18n?.onChange(()=>{document.documentElement.lang=window.nodalI18n.lang;});start();

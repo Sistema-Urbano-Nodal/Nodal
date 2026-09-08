@@ -248,3 +248,14 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-invitation-person .pilot-data-note{margin:0}
 .pilot-invitation-list .pilot-button{flex-shrink:0;font-size:11px;padding:8px 10px}
 @media(max-width:520px){.pilot-invitation-list>li{align-items:flex-start;flex-direction:column;gap:10px}.pilot-participant-actions{align-items:stretch;flex-direction:column}.pilot-participant-actions>.pilot-button{width:100%}}
+
+.pilot-post-editor{max-width:680px;border-left:2px solid #c8d3c2;margin:18px 0 8px;padding:4px 0 8px 18px;gap:14px}
+.pilot-post-editor .pilot-data-note{margin:0;font-size:11px}
+.pilot-post-editor textarea{min-height:140px;font-size:13px}
+.pilot-post-edit-actions{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+.pilot-post-edit-actions .pilot-button{margin:0;min-height:36px}
+.pilot-post-current{background:#f4f7f1;border-left:2px solid #c0ccba;padding:12px 14px}
+.pilot-post-current p{white-space:pre-wrap;font-size:12px;margin:6px 0 0}
+.pilot-post-actions{display:flex;gap:0 18px;flex-wrap:wrap}
+.pilot-post-actions .pilot-button{margin-right:0}
+.pilot-post .pilot-status{font-size:12px;white-space:pre-wrap}

@@ -11,6 +11,7 @@ class Node {
  after(node){const p=this.parent;if(p){node.parent=p;p.children.splice(p.children.indexOf(this)+1,0,node);}}
  replaceChildren(...nodes){this.children=[];this.append(...nodes);}
  setAttribute(k,v){this[k]=v;}
+ getAttribute(k){return this[k]??null;}
  removeAttribute(k){delete this[k];}
  addEventListener(k,f){this.listeners[k]=f;}
  querySelectorAll(selector){return descendants(this).filter(n=>selector==='input,textarea,select,button'?['input','textarea','select','button'].includes(n.tagName):selector==='button'?n.tagName==='button':selector==='[data-pilot-text]'?n.dataset.pilotText:selector==='[data-module]'?n.dataset.module:selector==='[data-pilot-dynamic]'?n.dataset.pilotDynamic:selector==='[data-pilot-placeholder]'?n.dataset.pilotPlaceholder:selector==='[data-pilot-aria]'?n.dataset.pilotAria:selector[0]==='.'?n.className?.split(' ').includes(selector.slice(1)):false);}
@@ -108,7 +109,7 @@ test('course keeps contribution composer collapsed and replaces contextual feedb
 });
 test('deleted contributions preserve their thread without offering an invalid reply',async()=>{
  const h=harness(path=>path==='/api/auth/me'?{user:{permission:'member'}}:path.endsWith('/events')?{ok:true}:path.split('?')[0].endsWith('/posts')?{posts:[{id:'p1',deleted:true,createdAt:'2026-09-05T12:00:00Z',kind:'question',body:'',attachments:[],links:[]}],nextCursor:null}:path.endsWith('/modules/m1')?{module:{id:'m1',title:'Session',resources:[]}}:{course,modules:[{id:'m1',title:'Session'}],enrollment:{},intake:{fullName:'Member'},isAdmin:false},{page:'course',search:'?id=c1'});h.run('courses');await flush();
- const deleted=descendants(h.body).find(n=>n.id==='post-p1');assert.match(content(deleted),/removed by the teaching team/);assert.equal(descendants(deleted).some(n=>n.dataset.pilotText==='reply'),false);
+ const deleted=descendants(h.body).find(n=>n.id==='post-p1');assert.match(content(deleted),/Contribution removed/);assert.equal(descendants(deleted).some(n=>n.dataset.pilotText==='reply'&&!n.hidden),false);
 });
 test('initial discussion failure stays visible and offers a working retry',async()=>{
  let failed=true;const h=harness(path=>path==='/api/auth/me'?{user:{permission:'member'}}:path.endsWith('/events')?{ok:true}:path.split('?')[0].endsWith('/posts')?(failed?{status:503,data:{error:'Discussion unavailable'}}:{posts:[],nextCursor:null}):path.endsWith('/modules/m1')?{module:{id:'m1',title:'Session',resources:[]}}:{course,modules:[{id:'m1',title:'Session'}],enrollment:{},intake:{fullName:'Member'},isAdmin:false},{page:'course',search:'?id=c1'});h.run('courses');await flush();
@@ -339,4 +340,81 @@ test('background activity authentication failure preserves the current draft ins
 });
 test('failed refresh after editing intake keeps the visible discussion draft and its refresh handlers alive',async()=>{
  let reads=0;const h=harness((path,opts)=>path==='/api/courses/c1'&&++reads>1?{status:503,data:{error:'unavailable'}}:path.endsWith('/intake')?{intake:{fullName:'Updated Member'}}:learningFixture(path,opts),{page:'course',search:'?id=c1'});const clock=fakeClock(h);h.run('courses');await flush();const draft=inputNamed(h.body,'body');draft.value='Keep my discussion draft';await findKey(h.body,'editIntake').listeners.click();const form=descendants(h.body).find(n=>n.tagName==='form'&&inputNamed(n,'profession'));await form.listeners.submit({preventDefault(){}});assert.equal(inputNamed(h.body,'body'),draft);assert.equal(draft.value,'Keep my discussion draft');const before=h.requests.filter(r=>r.path.includes('/m1/posts')).length;await findKey(h.ctx.document.getElementById('module-pane-discussion'),'refreshConversation').listeners.click();assert.equal(h.requests.filter(r=>r.path.includes('/m1/posts')).length,before+1);assert.equal(clock.timers.size,1);
+});
+
+const ownPost={id:'own',authorName:'Member',createdAt:'2026-09-08T10:00:00Z',kind:'question',body:'Original contribution',links:[{title:'Reading',url:'https://example.test/reading'}],attachments:[{id:'file1',name:'Fieldwork.pdf'}],canEdit:true,canDelete:true};
+function postHarness({posts=[{...ownPost}],intercept,isAdmin=false}={}){
+ let records=posts;const h=harness(async(path,opts)=>{
+  const response=await intercept?.(path,opts,records);if(response!==undefined)return response;
+  if(path.startsWith('/api/courses/c1/posts/')){
+   const id=path.split('/').at(-1),index=records.findIndex(p=>p.id===id);
+   if(opts?.method==='PATCH'){records=records.map(p=>p.id===id?{...p,body:JSON.parse(opts.body).body}:p);return{post:records[index]};}
+   if(opts?.method==='DELETE'){records=records.map(p=>p.id===id?{...p,body:'',links:[],attachments:[],deleted:true,canEdit:false,canDelete:false}:p);return{ok:true};}
+   return{post:records[index]};
+  }
+  if(path.includes('/modules/m1/posts'))return{posts:records,nextCursor:null,revision:JSON.stringify(records.map(p=>[p.id,p.body,p.deleted]))};
+  const data=learningFixture(path,opts);if(path==='/api/courses/c1')return{...data,isAdmin};return data;
+ },{page:'course',search:'?id=c1'});h.ctx.confirm=()=>true;return{...h,records:()=>records,setRecords:value=>{records=value;}};
+}
+const postCard=(h,id='own')=>descendants(h.body).find(n=>n.id==='post-'+id);
+const postEditor=card=>descendants(card).find(n=>n.tagName==='form');
+test('post editing and deletion controls follow server ownership flags for questions, assignments and replies',async()=>{
+ const records=[{...ownPost},{...ownPost,id:'assignment',kind:'assignment'},{...ownPost,id:'reply',parentId:'own',kind:'comment'},{...ownPost,id:'other',canEdit:false,canDelete:false},{...ownPost,id:'removed',deleted:true,canEdit:false,canDelete:false}];
+ const h=postHarness({posts:records,isAdmin:true});h.run('courses');await flush();
+ for(const id of ['own','assignment','reply']){assert.equal(findKey(postCard(h,id),'editPost').hidden,false);assert.equal(findKey(postCard(h,id),'deleteOwnPost').hidden,false);assert.equal(findKey(postCard(h,id),'moderate').hidden,true);}
+ assert.equal(findKey(postCard(h,'other'),'editPost').hidden,true);assert.equal(findKey(postCard(h,'other'),'deleteOwnPost').hidden,true);assert.equal(findKey(postCard(h,'other'),'moderate').hidden,false);assert.equal(findKey(postCard(h,'removed'),'moderate').hidden,true);
+});
+test('owner text edit sends expected saved text only and preserves links, files and the contribution composer',async()=>{
+ const h=postHarness();h.run('courses');await flush();const composer=inputNamed(h.body,'body');composer.value='Unsent new discussion';const card=postCard(h);findKey(card,'editPost').listeners.click();const form=postEditor(card);inputNamed(form,'body').value='Updated contribution';await form.listeners.submit({preventDefault(){}});
+ const request=h.requests.find(r=>r.method==='PATCH');assert.equal(request.path,'/api/courses/c1/posts/own');assert.deepEqual(request.body,{body:'Updated contribution',expectedBody:'Original contribution'});assert.match(content(postCard(h)),/Updated contribution/);assert.equal(descendants(postCard(h)).find(n=>n.href==='https://example.test/reading').textContent,'Reading');assert.equal(descendants(postCard(h)).find(n=>n.href==='/api/course-attachments/file1').textContent,'Fieldwork.pdf');assert.equal(inputNamed(h.body,'body'),composer);assert.equal(composer.value,'Unsent new discussion');
+});
+test('post edit cancel and empty input never write, and failed saves preserve the editable draft',async()=>{
+ const h=postHarness({intercept:(path,opts)=>opts?.method==='PATCH'?{status:503,data:{error:'unavailable'}}:undefined});h.run('courses');await flush();const card=postCard(h);findKey(card,'editPost').listeners.click();let form=postEditor(card);inputNamed(form,'body').value='';await form.listeners.submit({preventDefault(){}});assert.equal(h.requests.some(r=>r.method==='PATCH'),false);assert.match(content(card),/Write your contribution/);findKey(form,'cancel').listeners.click();assert.equal(postEditor(card),undefined);
+ findKey(card,'editPost').listeners.click();form=postEditor(card);inputNamed(form,'body').value='Preserved edit';await form.listeners.submit({preventDefault(){}});assert.equal(inputNamed(form,'body').value,'Preserved edit');assert.equal(findKey(form,'savePost').disabled,false);assert.equal(form['aria-busy'],'false');
+});
+test('stale post edits retain the draft, explicitly load the current version, and retry with its expectedBody',async()=>{
+ let changes=0;const h=postHarness({intercept:(path,opts)=>{
+  if(path==='/api/courses/c1/posts/own'&&opts?.method==='PATCH'&&++changes===1)return{status:409,data:{error:'changed'}};
+ }});h.run('courses');await flush();const card=postCard(h);findKey(card,'editPost').listeners.click();const form=postEditor(card);inputNamed(form,'body').value='My intended edit';await form.listeners.submit({preventDefault(){}});assert.equal(inputNamed(form,'body').value,'My intended edit');assert.equal(findKey(form,'savePost').disabled,true);assert.equal(findKey(form,'refreshPostVersion').hidden,false);
+ h.setRecords([{...ownPost,body:'Saved in another window'}]);await findKey(form,'refreshPostVersion').listeners.click();assert.equal(inputNamed(form,'body').value,'My intended edit');assert.match(content(form),/Saved in another window/);assert.equal(findKey(form,'savePost').disabled,false);await form.listeners.submit({preventDefault(){}});assert.equal(h.requests.filter(r=>r.method==='PATCH').at(-1).body.expectedBody,'Saved in another window');assert.match(content(postCard(h)),/My intended edit/);
+});
+test('conversation refresh preserves inline editors including an older draft outside the newest page',async()=>{
+ const h=postHarness({posts:[{...ownPost},{...ownPost,id:'other-own',body:'Second own post'}]});const clock=fakeClock(h);h.run('courses');await flush();const first=postCard(h),second=postCard(h,'other-own');findKey(first,'editPost').listeners.click();findKey(second,'editPost').listeners.click();const a=inputNamed(postEditor(first),'body'),b=inputNamed(postEditor(second),'body');a.value='First draft';b.value='Second draft';
+ h.setRecords([{...ownPost,body:'Changed elsewhere'}]);await clock.tick();assert.equal(inputNamed(postEditor(first),'body'),a);await findKey(h.ctx.document.getElementById('module-pane-discussion'),'refreshConversation').listeners.click();assert.equal(postCard(h),first);assert.equal(postCard(h,'other-own'),second);assert.equal(a.value,'First draft');assert.equal(b.value,'Second draft');assert.equal(findKey(postEditor(first),'savePost').disabled,true);assert.match(content(postEditor(first)),/Changed elsewhere/);
+});
+test('owner deletion requires confirmation, prevents duplicate requests and preserves replies as a thread',async()=>{
+ const h=postHarness({posts:[{...ownPost},{...ownPost,id:'reply',parentId:'own',kind:'comment',canEdit:false,canDelete:false}]});h.run('courses');await flush();h.ctx.confirm=()=>false;await findKey(postCard(h),'deleteOwnPost').listeners.click();assert.equal(h.requests.some(r=>r.method==='DELETE'),false);h.ctx.confirm=()=>true;await findKey(postCard(h),'deleteOwnPost').listeners.click();const request=h.requests.find(r=>r.method==='DELETE');assert.equal(request.path,'/api/courses/c1/posts/own');assert.ok(postCard(h,'reply'));assert.equal(findKey(postCard(h),'reply').hidden,true);assert.equal(findKey(postCard(h),'editPost').hidden,true);assert.equal(descendants(postCard(h)).some(n=>n.href==='https://example.test/reading'),false);assert.match(content(h.body),/Your contribution was deleted/);
+});
+test('post mutation errors do not force sign-in navigation and pending actions ignore repeat clicks',async()=>{
+ let finish;const h=postHarness({intercept:(path,opts)=>opts?.method==='PATCH'?new Promise(resolve=>{finish=resolve;}):undefined});h.run('courses');await flush();const card=postCard(h);findKey(card,'editPost').listeners.click();const form=postEditor(card);inputNamed(form,'body').value='Keep through expired auth';const first=form.listeners.submit({preventDefault(){}});await form.listeners.submit({preventDefault(){}});await findKey(card,'deleteOwnPost').listeners.click();assert.equal(h.requests.filter(r=>r.method==='PATCH').length,1);assert.equal(h.requests.some(r=>r.method==='DELETE'),false);finish({status:401,data:{error:'expired'}});await first;assert.equal(h.assigned(),'');assert.equal(inputNamed(form,'body').value,'Keep through expired auth');assert.equal(findKey(form,'savePost').disabled,false);
+});
+test('intake deletion clears gated module views immediately, keeps enrollment and requires a new intake',async()=>{
+ const h=harness((path,opts)=>path.endsWith('/intake')&&opts?.method==='DELETE'?{ok:true}:learningFixture(path,opts),{page:'course',search:'?id=c1'});h.ctx.confirm=()=>true;const clock=fakeClock(h);h.run('courses');await flush();const reads=h.requests.filter(r=>r.path==='/api/courses/c1').length;await findKey(h.body,'deleteIntake').listeners.click();assert.equal(h.requests.find(r=>r.method==='DELETE').path,'/api/courses/c1/intake');assert.equal(h.ctx.document.getElementById('moduleContent'),undefined);assert.equal(clock.timers.size,0);assert.ok(inputNamed(h.body,'profession'));assert.equal(findKey(h.body,'enroll'),undefined);assert.match(content(h.body),/Your intake responses were deleted/);assert.equal(h.requests.filter(r=>r.path==='/api/courses/c1').length,reads);
+});
+test('intake deletion cancellation and failures preserve the existing access and permit a retry',async()=>{
+ const h=harness((path,opts)=>path.endsWith('/intake')&&opts?.method==='DELETE'?{status:503,data:{error:'unavailable'}}:learningFixture(path,opts),{page:'course',search:'?id=c1'});h.ctx.confirm=()=>false;h.run('courses');await flush();const remove=findKey(h.body,'deleteIntake');await remove.listeners.click();assert.equal(h.requests.some(r=>r.method==='DELETE'),false);h.ctx.confirm=()=>true;await remove.listeners.click();assert.ok(h.ctx.document.getElementById('moduleContent'));assert.equal(remove.disabled,false);assert.equal(findKey(h.body,'editIntake').disabled,false);assert.doesNotMatch(content(h.body),/Your intake responses were deleted/);
+});
+test('reviewing an owner post removed elsewhere preserves the draft but disables saving and removes published identity and files',async()=>{
+ const h=postHarness({intercept:(path,opts)=>opts?.method==='PATCH'?{status:409,data:{error:'changed'}}:undefined});h.run('courses');await flush();const card=postCard(h);findKey(card,'editPost').listeners.click();const form=postEditor(card);inputNamed(form,'body').value='Draft kept for copying';await form.listeners.submit({preventDefault(){}});h.setRecords([{...ownPost,authorName:'',body:'',links:[],attachments:[],deleted:true,canEdit:false,canDelete:false}]);await findKey(form,'refreshPostVersion').listeners.click();assert.equal(inputNamed(form,'body').value,'Draft kept for copying');assert.equal(inputNamed(form,'body').disabled,false);assert.equal(findKey(form,'savePost').disabled,true);assert.equal(findKey(card,'deleteOwnPost').hidden,true);assert.equal(descendants(card).some(n=>n.href==='/api/course-attachments/file1'),false);assert.match(content(card),/no longer available/);assert.doesNotMatch(content(card),/Original contribution/);
+});
+test('pending owner deletion and intake deletion ignore duplicate requests',async()=>{
+ let finishPost;const h=postHarness({intercept:(path,opts)=>opts?.method==='DELETE'?new Promise(resolve=>{finishPost=resolve;}):undefined});h.run('courses');await flush();const remove=findKey(postCard(h),'deleteOwnPost'),first=remove.listeners.click();await remove.listeners.click();assert.equal(h.requests.filter(r=>r.method==='DELETE').length,1);finishPost({status:503,data:{error:'unavailable'}});await first;assert.equal(remove.disabled,false);assert.match(content(postCard(h)),/Original contribution/);
+ let finishIntake;const intake=harness((path,opts)=>opts?.method==='DELETE'?new Promise(resolve=>{finishIntake=resolve;}):learningFixture(path,opts),{page:'course',search:'?id=c1'});intake.ctx.confirm=()=>true;intake.run('courses');await flush();const button=findKey(intake.body,'deleteIntake'),pending=button.listeners.click();await button.listeners.click();assert.equal(intake.requests.filter(r=>r.method==='DELETE').length,1);finishIntake({status:503,data:{error:'unavailable'}});await pending;assert.equal(button.disabled,false);assert.ok(intake.ctx.document.getElementById('moduleContent'));
+});
+test('opening course material preserves new feedback drafts and history edits until they are saved or canceled',async()=>{
+ const saved={id:'f1',action:'course',courseId:'c1',moduleId:'m1',rating:3,comment:'Original feedback',createdAt:'2026-09-08T12:00:00Z'};
+ const h=harness((path,opts)=>{
+  if(path.endsWith('/modules/m1'))return{module:{id:'m1',title:'Session',resources:[{title:'Reading',kind:'reading',url:'https://example.test/reading'}]}};
+  if(path==='/api/feedback')return opts?.method==='POST'?{feedback:{...saved,id:'f2'}}:{feedback:[saved],nextCursor:null};
+  return learningFixture(path,opts);
+ },{page:'course',search:'?id=c1'});h.run('courses');await flush();
+ const mount=h.ctx.document.getElementById('courseFeedback'),link=descendants(h.body).find(n=>n.href==='https://example.test/reading');
+ const initial=mount.children[0],form=descendants(initial).find(n=>n.tagName==='form');inputNamed(form,'optional').value='Still writing my feedback';
+ link.listeners.click();assert.equal(mount.children[0],initial);assert.equal(inputNamed(form,'optional').value,'Still writing my feedback');
+ descendants(form).find(n=>n.type==='radio'&&n.value==='4').checked=true;await form.listeners.submit({preventDefault(){},stopPropagation(){}});
+ link.listeners.click();assert.notEqual(mount.children[0],initial);
+ const box=mount.children[0],history=descendants(box).find(n=>n.className==='pilot-feedback-history');history.open=true;await history.listeners.toggle();
+ findKey(history,'editFeedback').listeners.click();const editor=descendants(history).find(n=>n.tagName==='form');inputNamed(editor,'optional').value='An unfinished correction';
+ link.listeners.click();assert.equal(mount.children[0],box);assert.equal(inputNamed(editor,'optional').value,'An unfinished correction');
+ findKey(editor,'cancel').listeners.click();link.listeners.click();assert.notEqual(mount.children[0],box);
 });

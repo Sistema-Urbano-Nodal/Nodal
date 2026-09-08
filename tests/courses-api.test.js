@@ -192,3 +192,102 @@ test('uncertain official uploads remain private and can be reconciled after acco
  const result=await reconcileCourseUploads(store,{apply:true,now:Date.now()+25*60*60*1000});assert.equal(result.removed,1);
  assert.equal((await store.find('attachments',{id:pending.id})).length,0);
 });
+
+test('owners edit only post text and can delete questions, assignments and replies without erasing the thread',async t=>{
+ const {call,course,module,enter,store}=await setup(t);await enter();await enter('other');
+ const path=`/api/courses/${course.id}/modules/${module.id}/posts`,own=id=>`/api/courses/${course.id}/posts/${id}`;
+ const upload=await(await call(path.replace('/posts','/attachments'),{method:'POST',body:{name:'note.txt',mime:'text/plain',data:Buffer.from('Private note').toString('base64')}})).json();
+ const posts=[];
+ for(const kind of ['question','assignment','comment']){
+  const input={clientId:randomUUID(),kind,body:`Original ${kind}`,links:[{title:'Source',url:'https://example.test/source'}],...(kind==='question'?{attachmentIds:[upload.attachment.id]}:{}),...(kind==='comment'?{parentId:posts[0].id}:{})};
+  const {post}=await(await call(path,{method:'POST',body:input})).json();posts.push(post);
+  assert.equal(post.canEdit,true);assert.equal(post.canDelete,true);
+  const [before]=await store.find('posts',{id:post.id});
+  const edited=await call(own(post.id),{method:'PATCH',body:{body:`Edited ${kind}`,expectedBody:post.body,userId:'forged',kind:'question',links:[],attachmentIds:[]}});assert.equal(edited.status,200);
+  const [after]=await store.find('posts',{id:post.id});assert.deepEqual(after,{...before,body:`Edited ${kind}`});
+  assert.equal((await edited.json()).post.canEdit,true);
+  assert.equal((await call(own(post.id),{method:'PATCH',body:{body:'Stale',expectedBody:post.body}})).status,409);
+  assert.equal((await call(own(post.id),{method:'PATCH',body:{body:'   ',expectedBody:after.body}})).status,400);
+  assert.equal((await call(own(post.id),{method:'PATCH',body:{body:'Missing comparison'}})).status,400);
+ }
+ for(const actor of ['other','staff']){
+  const view=await(await call(path,{actor})).json();assert.ok(view.posts.every(p=>!p.canEdit&&!p.canDelete));
+  for(const method of ['PATCH','DELETE'])assert.equal((await call(own(posts[0].id),{actor,method,body:{body:'Stolen',expectedBody:'Edited question'}})).status,404);
+ }
+ const revision=(await(await call(path)).json()).revision;
+ assert.equal((await call(own(posts[0].id),{method:'DELETE',body:{}})).status,200);
+ let view=await(await call(path)).json();const deleted=view.posts.find(p=>p.id===posts[0].id),reply=view.posts.find(p=>p.id===posts[2].id);
+ assert.deepEqual((await(await call(own(deleted.id))).json()).post,deleted);assert.equal(deleted.deleted,true);assert.equal(deleted.canEdit,false);assert.equal(deleted.canDelete,false);assert.equal(deleted.body,'');assert.deepEqual(deleted.attachments,[]);assert.deepEqual(deleted.links,[]);
+ assert.equal(reply.body,'Edited comment');assert.equal(reply.parentId,deleted.id);assert.ok(view.revision>revision);
+ assert.equal((await call(`/api/course-attachments/${upload.attachment.id}`,{actor:'other'})).status,404);
+ assert.equal((await call(own(deleted.id),{method:'PATCH',body:{body:'Resurrection',expectedBody:''}})).status,404);
+ for(const post of posts.slice(1))assert.equal((await call(own(post.id),{method:'DELETE',body:{}})).status,200);
+});
+
+test('post ownership mutations retain session, origin, course, module and intake gates',async t=>{
+ const {call,course,module,enter,store,users}=await setup(t);await enter();
+ const {post}=await(await call(`/api/courses/${course.id}/modules/${module.id}/posts`,{method:'POST',body:{clientId:randomUUID(),body:'My question'}})).json();
+ const path=`/api/courses/${course.id}/posts/${post.id}`,body={body:'Edited',expectedBody:post.body};
+ assert.equal((await call(path,{actor:'',method:'PATCH',body})).status,401);
+ assert.equal((await call(path,{method:'DELETE',body:{},origin:'https://evil.test'})).status,403);
+ await store.update('modules',{id:module.id},{status:'draft'});assert.equal((await call(path,{method:'PATCH',body})).status,404);
+ await store.update('modules',{id:module.id},{status:'published'});await store.remove('intakes',{courseId:course.id,userId:users.student.id});assert.equal((await call(path,{method:'DELETE',body:{}})).status,403);
+ await enter();await store.update('courses',{id:course.id},{status:'draft'});assert.equal((await call(path,{method:'PATCH',body})).status,404);
+ assert.equal((await store.find('posts',{id:post.id}))[0].body,post.body);
+});
+
+test('post compare-and-update rejects concurrent edits and never resurrects a moderated post',async t=>{
+ const {call,course,module,enter,store}=await setup(t);await enter();
+ const {post}=await(await call(`/api/courses/${course.id}/modules/${module.id}/posts`,{method:'POST',body:{clientId:randomUUID(),body:'Original'}})).json();
+ const path=`/api/courses/${course.id}/posts/${post.id}`,update=store.update.bind(store);let release,arrived=0;
+ const barrier=new Promise(resolve=>{release=resolve;});
+ store.update=async(name,filters,patch)=>{if(name==='posts'&&!patch.deletedAt){if(++arrived===2)release();await barrier;}return update(name,filters,patch);};
+ const results=await Promise.all(['A','B'].map(body=>call(path,{method:'PATCH',body:{body,expectedBody:'Original'}})));
+ assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
+ const [current]=await store.find('posts',{id:post.id});
+ store.update=async(name,filters,patch)=>{if(name==='posts'&&!patch.deletedAt)await update('posts',{id:post.id},{body:'',links:[],attachmentIds:[],deletedAt:new Date().toISOString()});return update(name,filters,patch);};
+ assert.equal((await call(path,{method:'PATCH',body:{body:'Resurrection',expectedBody:current.body}})).status,409);
+ const [deleted]=await store.find('posts',{id:post.id});assert.equal(deleted.body,'');assert.ok(deleted.deletedAt);
+});
+
+test('deleting an intake keeps enrollment, removes only own answers and gates content until resubmission',async t=>{
+ const {call,course,module,enter,store,users}=await setup(t);await enter();await enter('other');
+ const path=`/api/courses/${course.id}/intake`;
+ assert.equal((await call(path,{method:'DELETE',body:{userId:users.other.id}})).status,200);
+ assert.equal((await store.find('intakes',{courseId:course.id,userId:users.student.id})).length,0);
+ assert.equal((await store.find('intakes',{courseId:course.id,userId:users.other.id})).length,1);
+ const detail=await(await call(`/api/courses/${course.id}`)).json();assert.ok(detail.enrollment);assert.equal(detail.enrollment.intakeCompleted,false);assert.equal(detail.intake,null);
+ assert.equal((await call(`/api/courses/${course.id}/modules/${module.id}`)).status,403);
+ assert.equal((await enter()).status,200);assert.equal((await call(`/api/courses/${course.id}/modules/${module.id}`)).status,200);
+});
+
+test('own feedback history is exactly context scoped, paginated and editable after a course closes',async t=>{
+ const {call,course,module,enter,store,users}=await setup(t);await enter();
+ const context={action:'discussion',courseId:course.id,moduleId:module.id},stamp='2026-09-07T12:00:00.000Z',ids=[];
+ for(let i=0;i<23;i++){const id=randomUUID();ids.push(id);await store.insert('feedback',{id,userId:users.student.id,...context,rating:3,comment:'Own '+i,createdAt:stamp});}
+ await store.insert('feedback',{id:randomUUID(),userId:users.other.id,...context,rating:1,comment:'Other private feedback',createdAt:stamp});
+ await store.insert('feedback',{id:randomUUID(),userId:users.student.id,...context,moduleId:null,rating:1,comment:'Other context',createdAt:stamp});
+ await store.update('courses',{id:course.id},{status:'draft'});
+ const path='/api/feedback?'+new URLSearchParams(context),firstResponse=await call(path);assert.equal(firstResponse.status,200);const first=await firstResponse.json();
+ const second=await(await call(path+'&cursor='+first.nextCursor)).json();assert.equal(first.feedback.length,20);assert.equal(second.feedback.length,3);assert.equal(second.nextCursor,null);
+ assert.deepEqual([...first.feedback,...second.feedback].map(f=>f.id),ids.sort().reverse());
+ const empty=await(await call('/api/feedback?action=discussion')).json();assert.deepEqual(empty.feedback,[]);
+ const allFirst=await(await call('/api/feedback')).json(),allSecond=await(await call('/api/feedback?cursor='+allFirst.nextCursor)).json();assert.equal(allFirst.feedback.length+allSecond.feedback.length,24);assert.ok([...allFirst.feedback,...allSecond.feedback].every(f=>f.userId===users.student.id));
+ const id=first.feedback[0].id,recordPath=`/api/feedback/${id}`;
+ for(const actor of ['other','staff'])for(const method of ['PATCH','DELETE'])assert.equal((await call(recordPath,{actor,method,body:{rating:5,comment:'Stolen'}})).status,404);
+ assert.equal((await call(recordPath,{method:'PATCH',body:{rating:9,comment:'Bad'}})).status,400);
+ const changed=await call(recordPath,{method:'PATCH',body:{rating:5,comment:'Correction',userId:users.other.id,action:'profile',courseId:null,moduleId:null}});assert.equal(changed.status,200);
+ const updated=(await changed.json()).feedback;assert.equal(updated.userId,users.student.id);assert.equal(updated.courseId,course.id);assert.equal(updated.moduleId,module.id);assert.equal(updated.action,'discussion');assert.equal(updated.rating,5);assert.equal(updated.comment,'Correction');
+ assert.equal((await call(recordPath,{method:'DELETE',body:{}})).status,200);assert.equal((await store.find('feedback',{id})).length,0);
+ assert.equal((await call(recordPath,{method:'PATCH',body:{rating:4,comment:'Gone'}})).status,404);assert.equal((await call(recordPath,{method:'DELETE',body:{}})).status,404);
+ assert.equal((await call('/api/feedback?action=not-real')).status,400);
+});
+
+
+test('intake save racing deletion reports conflict rather than claiming missing answers were saved',async t=>{
+ const {call,course,enter,store,intake}=await setup(t);await enter();
+ const update=store.update.bind(store);
+ store.update=async(name,filter,patch)=>{if(name==='intakes')await store.remove(name,filter);return update(name,filter,patch);};
+ assert.equal((await call(`/api/courses/${course.id}/intake`,{method:'PUT',body:{...intake,city:'Updated city'}})).status,409);
+ assert.equal((await store.find('intakes',{courseId:course.id})).length,0);
+});

@@ -101,6 +101,9 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
         if (!where.sql) throw new Error('scoped update required');
         try { return fromRow(info,db.prepare(`UPDATE ${info.table} SET ${Object.keys(row).map(key=>`${key} = ?`).join(',')}${where.sql} RETURNING *`).get(...Object.values(row),...where.params)); } catch(err) { if(/official resource attachment unavailable|remove the material/.test(err.message))fail(err.message,409);throw err; }
       },
+      async editPost({id,courseId,userId,expectedBody,body}) {
+        return this.update('posts',{id,courseId,userId,body:expectedBody,deletedAt:null},{body});
+      },
       async remove(name, filters) {
         const info=tableInfo(name), where=whereSql(info,filters);
         if (!where.sql) throw new Error('scoped deletion required');
@@ -161,6 +164,11 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
       const info=tableInfo(name);if(!Object.keys(filters).length)throw new Error('scoped update required');
       const query=queryFor(info,filters,{});delete query.order;delete query.limit;
       try { return fromRow(info,(await supa.admin.rest(info.table,{method:'PATCH',query,headers:{Prefer:'return=representation'},body:toRow(info,patch,false)}))[0]); } catch(err) { if(['23514','40P01','40001'].includes(err.code))fail('course material changed; reload before retrying',409);throw err; }
+    },
+    async editPost({id,courseId,userId,expectedBody,body}) {
+      // Full 6000-character Unicode comparisons exceed provider URL limits.
+      const rows=await supa.admin.rest('rpc/edit_own_course_post',{method:'POST',body:{p_id:id,p_course_id:courseId,p_user_id:userId,p_expected_body:expectedBody,p_body:body}});
+      return fromRow(tableInfo('posts'),rows[0]);
     },
     async remove(name,filters) {
       const info=tableInfo(name);if(!Object.keys(filters).length)throw new Error('scoped deletion required');

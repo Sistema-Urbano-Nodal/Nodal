@@ -861,7 +861,7 @@ export function createApp({
       ].includes(pathname);
       const needsSession = pageNeedsSession || (isApiRequest && !authenticatesRequest && pathname !== '/api/health');
       const authorizationOnly = pageNeedsSession || pathname === '/api/auth/state'
-        || /^\/api\/(?:courses(?:\/|$)|admin\/courses(?:\/|$)|course-attachments\/|feedback$|admin\/feedback(?:\/|$))/.test(pathname);
+        || /^\/api\/(?:courses(?:\/|$)|admin\/courses(?:\/|$)|course-attachments\/|feedback(?:\/|$)|admin\/feedback(?:\/|$))/.test(pathname);
       const session = useDb && needsSession
         ? await repository.resolveSession(req, { authorizationOnly })
         : { user: null, cookies: [] };

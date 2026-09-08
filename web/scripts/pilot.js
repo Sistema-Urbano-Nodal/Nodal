@@ -62,7 +62,86 @@ function field(key,value='',type='text'){const label=tr('span',key);const wrap=e
 function select(key,values,value){const wrap=el('label');wrap.append(tr('span',key));const input=el('select');input.name=key;values.forEach(v=>{const o=tr('option',v);o.value=v;input.append(o);});input.value=value||values[0];wrap.append(input);return{wrap,input};}
 function safeUrl(value){try{const u=new URL(value);return u.protocol==='https:'&&!u.username&&!u.password?u.href:null;}catch{return null;}}
 function date(value){return value?new Intl.DateTimeFormat(window.nodalI18n?.lang||'en',{dateStyle:'medium',timeZone:'UTC'}).format(new Date(value+'T12:00:00Z')):'';}
-function feedback(action,context={}){let busy=false;const box=el('details','pilot-feedback');box.append(tr('summary','feedback_'+action));const form=el('form');const score=el('fieldset','pilot-rating');score.append(tr('legend','rating'));const group='rating-'+crypto.randomUUID();const ratings=[];for(let i=1;i<=5;i++){const label=el('label'),input=el('input');input.type='radio';input.name=group;input.value=String(i);input.required=true;input.setAttribute('aria-label',String(i)+' / 5');const star=el('span',null,'★');star.setAttribute('aria-hidden','true');label.append(input,star,el('small',null,String(i)));score.append(label);ratings.push(input);}const comment=field('optional','','textarea');comment.input.maxLength=2000;const commentDetails=el('details','pilot-feedback-comment');commentDetails.append(tr('summary','addComment'),comment.wrap);const submit=button('sendFeedback');submit.type='submit';const msg=el('p','pilot-status');msg.setAttribute('role','status');form.append(score,commentDetails,submit,msg);form.addEventListener('submit',async e=>{e.preventDefault();e.stopPropagation();if(busy)return;const selected=ratings.find(input=>input.checked);if(!selected){status(msg,new Error(t('chooseRating')));return;}busy=true;submit.disabled=true;form.setAttribute('aria-busy','true');for(const input of [...ratings,comment.input])input.disabled=true;try{await api('/api/feedback',{action,...context,rating:Number(selected.value),comment:comment.input.value});form.replaceChildren(tr('p','thanks'));}catch(err){status(msg,err);}finally{busy=false;submit.disabled=false;form.setAttribute('aria-busy','false');for(const input of [...ratings,comment.input])input.disabled=false;}});box.append(form);return box;}
+function feedback(action,context={}) {
+  const box=el('details','pilot-feedback');box.append(tr('summary','feedback_'+action));
+  const history=el('details','pilot-feedback-history'),list=el('div'),historyStatus=el('p','pilot-status');
+  historyStatus.setAttribute('role','status');
+  let loaded=false,loading=false,cursor=null,revision=0,pendingMutations=0;
+  const drafts=new Set();box.hasDraft=()=>pendingMutations>0||[...drafts].some(hasDraft=>hasDraft());
+  const cards=new Map(),empty=tr('p','noOwnFeedback');
+  const more=button('moreFeedback',()=>loadHistory(true),true);more.hidden=true;
+  function updateEmpty(){empty.remove();if(!cards.size&&!cursor)list.append(empty);}
+  function formFor(record,onSaved,onCancel) {
+    let busy=false;const form=el('form'),score=el('fieldset','pilot-rating');score.append(tr('legend','rating'));
+    const group='rating-'+crypto.randomUUID(),ratings=[];
+    for(let i=1;i<=5;i++) {
+      const label=el('label'),input=el('input');input.type='radio';input.name=group;input.value=String(i);input.required=true;
+      input.checked=record?.rating===i;input.setAttribute('aria-label',String(i)+' / 5');
+      const star=el('span',null,'★');star.setAttribute('aria-hidden','true');label.append(input,star,el('small',null,String(i)));score.append(label);ratings.push(input);
+    }
+    const comment=field('optional',record?.comment||'','textarea');comment.input.maxLength=2000;comment.input.dataset.pilotAria='optional';comment.input.setAttribute('aria-label',t('optional'));
+    const commentDetails=el('details','pilot-feedback-comment');commentDetails.open=Boolean(record?.comment);commentDetails.append(tr('summary','addComment'),comment.wrap);
+    const submit=button(record?'saveFeedback':'sendFeedback');submit.type='submit';
+    const msg=el('p','pilot-status');msg.setAttribute('role','status');form.append(score,commentDetails,submit);
+    const hasDraft=()=>busy||Boolean(record)||ratings.some(input=>input.checked)||Boolean(comment.input.value.trim());drafts.add(hasDraft);
+    const cancel=onCancel?button('cancel',()=>{if(!busy){drafts.delete(hasDraft);onCancel();}},true):null;if(cancel)form.append(cancel);form.append(msg);
+    form.addEventListener('submit',async e=>{
+      e.preventDefault();e.stopPropagation();if(busy)return;
+      const selected=ratings.find(input=>input.checked);if(!selected){status(msg,new Error(t('chooseRating')));return;}
+      busy=true;form.setAttribute('aria-busy','true');const controls=[...ratings,comment.input,submit,...(cancel?[cancel]:[])];controls.forEach(input=>{input.disabled=true;});
+      try {
+        const values={rating:Number(selected.value),comment:comment.input.value};
+        const payload=record?values:{action,...context,...values};
+        const result=await api(record?'/api/feedback/'+encodeURIComponent(record.id):'/api/feedback',payload,record?'PATCH':'POST',{redirectOnUnauthorized:false});
+        if(!result.feedback?.id)throw translatedError('connectionError');
+        revision++;drafts.delete(hasDraft);onSaved({...record,...payload,createdAt:record?.createdAt||new Date().toISOString(),...result.feedback},form);
+      }catch(err){status(msg,err);}
+      finally{busy=false;form.setAttribute('aria-busy','false');controls.forEach(input=>{input.disabled=false;});}
+    });
+    return form;
+  }
+  function cardFor(record) {
+    const card=el('article','pilot-post');
+    const meta=el('div','pilot-date');meta.append(tr('strong',record.action),dynamic('small',()=>new Date(record.createdAt).toLocaleString(language())));
+    card.append(meta,dynamic('p',()=>t('rating')+': '+record.rating+' / 5'),el('p',null,record.comment||''));
+    if(record.courseId){const link=tr('a','feedbackCourseLink');link.href='course.html?'+new URLSearchParams({id:record.courseId,...(record.moduleId?{module:record.moduleId}:{})});card.append(link);}
+    const actions=el('div','pilot-actions'),message=el('p','pilot-status');message.setAttribute('role','status');let busy=false;
+    const edit=button('editFeedback',()=>{
+      if(busy)return;busy=true;actions.hidden=true;
+      const editor=formFor(record,(saved)=>replaceCard(record.id,saved),()=>{editor.remove();actions.hidden=false;busy=false;});
+      card.append(editor);editor.querySelector('textarea')?.focus();
+    },true);
+    const remove=button('deleteFeedback',async()=>{
+      if(busy||!confirm(t('confirmDeleteFeedback')))return;busy=true;pendingMutations++;edit.disabled=true;remove.disabled=true;
+      try{await api('/api/feedback/'+encodeURIComponent(record.id),{},'DELETE',{redirectOnUnauthorized:false});revision++;card.remove();cards.delete(record.id);updateEmpty();status(historyStatus,t('feedbackDeleted'));}
+      catch(err){status(message,err);}finally{busy=false;pendingMutations--;edit.disabled=false;remove.disabled=false;}
+    },true);
+    actions.append(edit,remove);card.append(actions,message);return card;
+  }
+  function replaceCard(id,record){const previous=cards.get(id),card=cardFor(record);if(previous)previous.replaceWith(card);else list.prepend(card);cards.set(id,card);updateEmpty();}
+  function newForm() {
+    return formFor(null,(record,form)=>{
+      if(loaded)replaceCard(record.id,record);
+      form.replaceChildren(tr('p','thanks'),button('anotherFeedback',()=>form.replaceWith(newForm()),true));
+    });
+  }
+  async function loadHistory(append=false) {
+    if(loading)return;loading=true;more.disabled=true;status(historyStatus,t('loading'));const startingRevision=revision;
+    try {
+      const result=await api('/api/feedback'+(append&&cursor?'?'+new URLSearchParams({cursor}):''),undefined,undefined,{redirectOnUnauthorized:false});
+      if(!Array.isArray(result.feedback))throw translatedError('connectionError');
+      // A response started before an edit/delete must not restore old data.
+      if(startingRevision!==revision){status(historyStatus,'');return;}
+      for(const record of result.feedback)if(!cards.has(record.id)){const card=cardFor(record);cards.set(record.id,card);list.append(card);}
+      loaded=true;cursor=result.nextCursor||null;more.hidden=!cursor;updateEmpty();status(historyStatus,'');
+    }catch(err){status(historyStatus,err);}
+    finally{loading=false;more.disabled=false;retry.hidden=loaded;}
+  }
+  const retry=button('retry',()=>loadHistory(Boolean(cursor)),true);retry.hidden=true;
+  history.append(tr('summary','myFeedback'),tr('p','myFeedbackHint','pilot-data-note'),list,historyStatus,more,retry);
+  history.addEventListener('toggle',()=>{if(history.open&&!loaded)return loadHistory();});
+  box.append(newForm(),history);return box;
+}
 window.nodalPilot={t,el,tr,api,status,button,field,select,safeUrl,date,feedback,localized,hasLocalized,bind,dynamic,source,setPageTitle};
 window.nodalI18n?.onChange(translate);
 async function setup(){let pilot=true;try{const config=await api('/api/config');pilot=config.pilotMode!==false;}catch{}document.documentElement.dataset.pilot=String(pilot);if(pilot){const notice=el('div','pilot-notice');notice.append(tr('strong','prototype'),tr('span','notice'));const dashboardWork=document.querySelector('.dash-page .work'),header=document.querySelector('.pilot-header,.navbar');if(dashboardWork)dashboardWork.prepend(notice);else if(header)header.after(notice);else document.body.prepend(notice);}
