@@ -1,6 +1,6 @@
 # NODAL Deployment Checklist
 
-For the September course pilot, follow [course pilot operations](docs/course-pilot-operations.md) and apply both September 5 migrations before deploying its server. The guide covers internal-team forms/feedback exports, course setup, upload reconciliation, and capacity acceptance.
+For the September course pilot, follow [course pilot operations](docs/course-pilot-operations.md) and apply all pending migrations before deploying the server. The guide covers internal-team forms/feedback exports, course setup, upload reconciliation, and capacity acceptance.
 
 ## Supabase Setup
 
@@ -29,10 +29,10 @@ supabase/migrations/
 Confirm after applying:
 
 - RLS is enabled on every app table.
-- `public.public_profiles` exposes only intentional directory-safe profile fields.
+- Browser roles cannot read `public.public_profiles` or the underlying member/course tables directly. The server returns only authorized projections.
 - No card data, Stripe secrets, passwords, or raw payment details are stored.
 - `profile_preferences`, `onboarding_responses`, and `stripe_customers` have `user_id` indexes.
-- `users` has `city_lat`, `city_lon` and `city_label`
+- Supabase `profiles` (SQLite `users`) has `city_lat`, `city_lon` and `city_label`
   (`20260727000000_member_location.sql`). The server writes them when a member
   saves a city and never accepts them from a request body; existing rows fill in
   the first time each member saves their profile, and any row still missing
@@ -65,7 +65,7 @@ SUBSCRIPTION_PRICE_ANNUAL_LABEL=US$100
 SUBSCRIPTION_ANNUAL_PERIOD=/ year
 ```
 
-Set the Supabase URL and publishable key for both Production and Preview when preview deployments need working authentication. Scope the server credential only to trusted preview branches. Production uses the configured application URL; Vercel previews fall back to their platform-provided deployment URL.
+Set the Supabase URL and publishable key for both Production and Preview when preview deployments need working authentication. Scope the server credential only to trusted preview branches. Set `PUBLIC_BASE_URL` or `NEXT_PUBLIC_APP_URL` explicitly for each environment: password recovery and invitations require that configured origin and do not fall back to `VERCEL_URL`. Add each intended callback URL to Supabase's redirect allowlist.
 
 Add these when Stripe goes live:
 
@@ -86,6 +86,8 @@ In Supabase Auth URL configuration:
   - `https://your-domain.example/login.html`
   - `https://your-domain.example/dashboard.html`
   - `https://your-domain.example/profile.html`
+  - `https://your-domain.example/reset-password.html`
+  - `https://your-domain.example/accept-invitation.html`
 
 If email confirmations are enabled, keep the Supabase confirmation template pointed at the production domain.
 
@@ -123,7 +125,7 @@ npm start
 9. Create a test account.
 10. Confirm `/dashboard.html` redirects unauthenticated users to `/login.html`.
 11. Confirm profile edits persist after refresh.
-12. Confirm Stripe checkout returns `payments not configured` while `PAYMENTS_MODE=preview`.
+12. Confirm pilot checkout is unavailable while `PILOT_MODE=true`. `PAYMENTS_MODE=preview` alone does not disable checkout when Stripe credentials are configured.
 
 ## Security Checklist
 
@@ -138,30 +140,36 @@ npm start
 - `GET /api/users/search` matches name, role and city on substring but requires a
   full registration email to match by address, and never returns an email. It is
   rate limited per session (`MEMBER_SEARCH_RATE_LIMIT`, default 40/min).
-- The globe shows nothing invented: every node is a city a member entered in
-  their own profile. A node moves only when that member edits their city -
-  there is no browser geolocation anywhere in the client, and there must not be.
+- Every globe node represents a member's saved profile city. A member can edit
+  that city manually or accept an optional location suggestion. The dashboard
+  requests browser location permission, rounds coordinates to two decimal places
+  before transmission, and sends them through NODAL to the configured GeoDB
+  provider. Precise browser position and location history are not stored by NODAL.
+  Automatic checks default off, require existing browser permission, and run at
+  most once per local day while the network view is visible. A detected city
+  changes the saved profile only after the member accepts it.
   A card names the member, their role, a link to their member page and their
   LinkedIn if they added one; an email address is never in the payload.
 - A member's pin is resolved server-side at save time and stored in
   `city_lat`/`city_lon`/`city_label`. `PATCH /api/me` ignores those fields in the
   request body - they are not in the profile allow-list - so a member cannot
   place their own pin anywhere except by naming a city the geocoder recognises.
-- Appearing on the globe by name is a second opt-in on top of directory consent:
-  Part C's "list my name" box (`partC.listName`). Clearing it keeps the member in
+- Named globe listings respect Part C's "list my name" choice (`partC.listName`)
+  in addition to directory consent. An absent legacy value defaults to named;
+  clearing the checkbox keeps the member in
   the city count but drops their name, role and links from the payload entirely.
 - The lines between cities are aggregate. They come from the follow graph reduced
   to city-pair counts, so a line says two cities are connected and how strongly,
   never which two members.
-- Updates are polled, not pushed: serverless functions cannot hold an SSE
-  connection open. The client polls every 8s and the roll-up caches 3s, so a
-  change appears within roughly eleven seconds.
+- Updates are polled while visible, roughly every 15 seconds plus jitter, with
+  backoff after provider errors. Revision checks invalidate cached snapshots
+  after committed profile, consent and graph changes.
 - `GET /api/network/places` feeds the globe. It groups consenting members by city
   and resolves each city through the same provider the profile form uses, so any
   city on Earth can appear - not a hardcoded list. Coordinates are cached for a
-  month (cities do not move); the roll-up is cached five seconds and keyed per
-  viewer, because it carries that viewer's own listing status. Member ids are
-  never included, only names and roles the directory already publishes.
+  month (city centers do not move). Responses include the viewer's listing
+  status and use private/no-store caching. Named people include member IDs,
+  names, roles, joining dates and profile links, never email addresses.
   `?topic=` filters the roll-up to one area of work; the value is compared
   against the member's own topics and is never interpolated into a query.
 - Auth cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` in production.
@@ -175,8 +183,16 @@ npm start
   never the leftmost, which the caller controls. `TRUST_PROXY=true` is required
   behind Vercel for this to read the real address.
 - **Serverless caveat:** rate-limit buckets live in the function instance's
-  memory, so limits apply per warm instance rather than globally. Configure
-  `REDIS_URL` if you need them enforced across instances.
+  memory, so limits apply per warm instance rather than globally. `REDIS_URL`
+  shares recommendation/city cache values only; it does not share request
+  budgets. Global enforcement needs an explicit shared limiter or deployment
+  firewall configuration.
+- Interaction history retains at most 50 events per directed pair. Follow
+  events are recorded only when a new edge is inserted. Apply the retention
+  migration before deploying the corresponding Supabase writer.
+- Upload allowances include pending reservations and are checked atomically
+  by course and owner: 100 files and 30 MiB. Official materials use the course's
+  separate allowance. Keep uncertain uploads reserved until reconciliation.
 
 ## Interface Language
 

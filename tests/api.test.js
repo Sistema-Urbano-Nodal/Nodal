@@ -1189,7 +1189,8 @@ test('interactions are bounded, rate limited, and cannot poison the target deck'
   assert.deepEqual(before.recommendations, []);
 
   assert.equal((await postJson(base, '/api/users/me/interactions', { targetId: victim.id, type: 'message' }, { Cookie: attackerCookie })).status, 400);
-  for (let i = 0; i < 60; i += 1) {
+  // The rejected forged event above also consumes the request budget.
+  for (let i = 0; i < 59; i += 1) {
     const res = await postJson(base, '/api/users/me/interactions', { targetId: victim.id, type: 'skip' }, { Cookie: attackerCookie });
     assert.equal(res.status, 200);
   }

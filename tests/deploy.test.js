@@ -315,7 +315,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
   const required = {
     'index.html': { 'styles.css': '20', 'i18n.js': '42', 'app.js': '18', 'recs.js': '4', 'script.js': '14' },
     'opportunities.html': { 'catalog.css': '4', 'i18n.js': '42', 'catalog.js': '4' },
-    'dashboard.html': { 'i18n.js': '42', 'dashboard.js': '28', 'globe.js': '26', 'location-check.js': '20260908b' },
+    'dashboard.html': { 'i18n.js': '42', 'dashboard.js': '28', 'globe.js': '27', 'location-check.js': '20260908b' },
     'login.html': { 'i18n.js': '42' },
     'payments.html': { 'i18n.js': '42' },
     'profile.html': { 'i18n.js': '42' },

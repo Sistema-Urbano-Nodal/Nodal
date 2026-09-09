@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { fail, identifier } from './courses-domain.js';
 
 const BUCKET = 'course-attachments';
+const uploadAllowanceReached = () => fail('course upload allowance reached; use a link instead',413);
 function postAttachmentIds(ids) {
   const unique=[...new Set(ids)];
   if(unique.length>90)throw new Error('discussion attachment batch exceeds page limit');
@@ -105,6 +106,22 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
         try { return fromRow(info,db.prepare(`INSERT INTO ${info.table} (${keys.join(',')}) VALUES (${keys.map(()=>'?').join(',')}) RETURNING *`).get(...Object.values(row))); }
         catch(err) { if (String(err.message).includes('UNIQUE constraint')) fail('record already exists',409); throw err; }
       },
+      async reserveAttachment(record) {
+        const info=tableInfo('attachments'),row=toRow(info,{...record,status:'pending'},true),keys=Object.keys(row);
+        // No await between reservation steps: the database write lock also
+        // serializes other SQLite connections, not just this application instance.
+        db.exec('BEGIN IMMEDIATE');
+        try {
+          const usage=db.prepare('SELECT count(*) AS count,coalesce(sum(size),0) AS bytes FROM course_attachments WHERE course_id=? AND user_id IS ?').get(record.courseId,record.userId);
+          if(usage.count>=100||usage.bytes+record.size>30*1024*1024)uploadAllowanceReached();
+          const saved=fromRow(info,db.prepare(`INSERT INTO ${info.table} (${keys.join(',')}) VALUES (${keys.map(()=>'?').join(',')}) RETURNING *`).get(...Object.values(row)));
+          db.exec('COMMIT');return saved;
+        } catch(error) {
+          db.exec('ROLLBACK');
+          if(String(error.message).includes('UNIQUE constraint'))fail('record already exists',409);
+          throw error;
+        }
+      },
       async update(name, filters, patch) {
         const info=tableInfo(name), row=toRow(info,patch,true), where=whereSql(info,filters);
         if (!where.sql) throw new Error('scoped update required');
@@ -174,6 +191,19 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
       const info=tableInfo(name);
       try { return fromRow(info,(await supa.admin.rest(info.table,{method:'POST',headers:{Prefer:'return=representation'},body:toRow(info,record,false)}))[0]); }
       catch(err) { if(err.code==='23505') fail('record already exists',409);throw err; }
+    },
+    async reserveAttachment(record) {
+      const info=tableInfo('attachments');
+      try {
+        const rows=await supa.admin.rest('rpc/reserve_course_attachment',{method:'POST',body:{p_attachment:toRow(info,{...record,status:'pending'},false)}});
+        if(!rows?.[0])fail('attachment reservation unavailable',502);
+        return fromRow(info,rows[0]);
+      } catch(error) {
+        if(error.code==='PCA01')uploadAllowanceReached();
+        if(error.code==='23505')fail('record already exists',409);
+        if(['40P01','40001'].includes(error.code))fail('course upload changed; retry the upload',409);
+        throw error;
+      }
     },
     async update(name,filters,patch) {
       const info=tableInfo(name);if(!Object.keys(filters).length)throw new Error('scoped update required');

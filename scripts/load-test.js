@@ -28,6 +28,19 @@ let server, db, temp, base, cookies;
 const counts={directoryReads:0,graphReads:0,revisionReads:0};
 const percentile=(values,p)=>values.length?Number(values[Math.min(values.length-1,Math.ceil(values.length*p)-1)].toFixed(2)):null;
 const summarize=values=>{const sorted=[...values].sort((a,b)=>a-b);return {p50:percentile(sorted,0.50),p95:percentile(sorted,0.95),p99:percentile(sorted,0.99)};};
+// Report transport classifications only: messages, stacks and request options
+// can contain staging URLs or credentials and must never enter load artifacts.
+const errorClassification = error => {
+  const identifier = value => typeof value === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(value) ? value : '';
+  const seen = new Set(), parts = [];
+  while (error && typeof error === 'object' && !seen.has(error) && parts.length < 5) {
+    seen.add(error);
+    const name = identifier(error.name) || 'Error', code = identifier(error.code);
+    parts.push(code ? `${name}:${code}` : name);
+    error = error.cause;
+  }
+  return parts.join(' > ') || 'Error';
+};
 try {
   if (args['staging-url']) {
     const url=new URL(args['staging-url']);
@@ -74,7 +87,7 @@ try {
   for(let round=0;round<rounds;round++) {
     const route=routes[round%routes.length];const waveStart=performance.now();
     const results=await Promise.all(cookies.map(async(cookie,i)=>{
-      const begin=performance.now();let status=0,error=null;
+      const begin=performance.now();let status=0,error=null,errorCause=null;
       try {
         const headers={cookie,Accept:'application/json'};
         if(route==='/api/network/places'&&etags.has(i)) headers['If-None-Match']=etags.get(i);
@@ -88,15 +101,15 @@ try {
           else if(route==='/api/auth/me'&&!body.user) error='invalid session response';
         }
         if(route==='/api/network/places'&&response.headers.get('etag')) etags.set(i,response.headers.get('etag'));
-      } catch(cause) {error=cause.name||'request error';}
-      return {route,status,error,ms:performance.now()-begin};
+      } catch(cause) {errorCause=errorClassification(cause);error=errorCause.split(' > ')[0].split(':')[0];}
+      return {route,status,error,errorCause,ms:performance.now()-begin};
     }));
     measurements.push(...results);
-    waves.push({round:round+1,route,concurrency:users,requests:results.length,errors:results.filter(x=>x.error).length,elapsedMs:Math.round(performance.now()-waveStart),latencyMs:summarize(results.map(x=>x.ms))});
+    waves.push({round:round+1,route,concurrency:users,requests:results.length,errors:results.filter(x=>x.error).length,errorCauses:results.filter(x=>x.errorCause).reduce((counts,item)=>{counts[item.errorCause]=(counts[item.errorCause]||0)+1;return counts;},{}),elapsedMs:Math.round(performance.now()-waveStart),latencyMs:summarize(results.map(x=>x.ms))});
   }
   for(const item of measurements) statuses[item.status]=(statuses[item.status]||0)+1;
   const errors=measurements.filter(x=>x.error);
-  const report={timestamp:new Date().toISOString(),environment:args['staging-url']?'explicit staging':'local HTTP / isolated file-backed SQLite',node:process.version,users,members:args['staging-url']?null:members,rounds,requests:measurements.length,errors:errors.length,errorTypes:[...new Set(errors.map(x=>x.error))],statuses,elapsedMs:Math.round(performance.now()-started),latencyMs:summarize(measurements.map(x=>x.ms)),databaseReads:args['staging-url']?null:counts,waves,limitations:'Synthetic bounded waves using existing seeded sessions. Excludes signup/login hashing, real user pacing, network RTT, Supabase and deployed infrastructure. Local results do not prove production capacity.'};
+  const report={timestamp:new Date().toISOString(),environment:args['staging-url']?'explicit staging':'local HTTP / isolated file-backed SQLite',node:process.version,users,members:args['staging-url']?null:members,rounds,requests:measurements.length,errors:errors.length,errorTypes:[...new Set(errors.map(x=>x.error))],errorCauses:errors.filter(x=>x.errorCause).reduce((counts,item)=>{counts[item.errorCause]=(counts[item.errorCause]||0)+1;return counts;},{}),statuses,elapsedMs:Math.round(performance.now()-started),latencyMs:summarize(measurements.map(x=>x.ms)),databaseReads:args['staging-url']?null:counts,waves,limitations:'Synthetic bounded waves using existing seeded sessions. Excludes signup/login hashing, real user pacing, network RTT, Supabase and deployed infrastructure. Local results do not prove production capacity.'};
   if(args.output) writeFileSync(path.resolve(args.output),JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify(report,null,2));
   if(errors.length) process.exitCode=1;

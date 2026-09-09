@@ -276,6 +276,9 @@ function cityNameFromAddress(address = {}, fallback = '') {
   return String(fallback || '').trim();
 }
 
+const cityCoordinate = (value, bound) => value !== null && value !== undefined && value !== ''
+  && Number.isFinite(Number(value)) && Math.abs(Number(value)) <= bound ? Number(value) : null;
+
 function cityResultFromPlace(place) {
   if (place?.city || (place?.name && place?.countryCode)) {
     const name = String(place.city || place.name || '').trim();
@@ -289,8 +292,8 @@ function cityResultFromPlace(place) {
       region,
       country,
       countryCode: String(place.countryCode || '').toUpperCase(),
-      lat: Number(place.latitude) || null,
-      lon: Number(place.longitude) || null,
+      lat: cityCoordinate(place.latitude, 90),
+      lon: cityCoordinate(place.longitude, 180),
       source: 'geodb',
     };
   }
@@ -307,8 +310,8 @@ function cityResultFromPlace(place) {
     region,
     country,
     countryCode: String(address.country_code || '').toUpperCase(),
-    lat: Number(place.lat) || null,
-    lon: Number(place.lon) || null,
+    lat: cityCoordinate(place.lat, 90),
+    lon: cityCoordinate(place.lon, 180),
     source: 'openstreetmap',
   };
 }
@@ -320,54 +323,62 @@ export function createCitySearch({
   now = Date.now,
   wait = sleep,
   env = process.env,
+  maxEntries = 256,
+  requestTimeoutMs = 4500,
 } = {}) {
-  const cache = new Map();
-  let lastRequestAt = 0;
+  const cache = new MemoryCache({ now, maxEntries });
+  const pending = new Map();
+  let nextRequestAt = 0;
   return {
     async search(query, acceptLanguage = '') {
       const q = cleanCityQuery(query);
       if (q.length < CITY_SEARCH_MIN_QUERY) return { cities: [], attribution: CITY_SEARCH_ATTRIBUTION };
       const lang = String(acceptLanguage || '').slice(0, 120);
       const cacheKey = `${q.toLowerCase()}|${lang.toLowerCase()}`;
-      const cached = cache.get(cacheKey);
-      if (cached && cached.expires > now()) return cached.value;
+      const cached = await cache.get(cacheKey);
+      if (cached) return cached;
+      if (pending.has(cacheKey)) return pending.get(cacheKey);
+      const delay = Math.max(0, nextRequestAt - now());
+      if (delay > 2000 || pending.size >= 32) throw new Error('city provider busy');
+      nextRequestAt = Math.max(now(), nextRequestAt) + Math.max(0, minIntervalMs);
+      const operation = (async () => {
+        if (delay) await wait(delay);
 
-      const elapsed = now() - lastRequestAt;
-      if (minIntervalMs > 0 && elapsed < minIntervalMs) await wait(minIntervalMs - elapsed);
-      lastRequestAt = now();
+        const url = new URL(baseUrl);
+        url.searchParams.set('limit', String(Math.min(Math.max(CITY_SEARCH_LIMIT, 1), 20)));
+        url.searchParams.set('namePrefix', q);
+        url.searchParams.set('sort', '-population');
+        url.searchParams.set('types', 'CITY');
+        if (env.CITY_SEARCH_CONTACT_EMAIL) url.searchParams.set('email', env.CITY_SEARCH_CONTACT_EMAIL);
 
-      const url = new URL(baseUrl);
-      url.searchParams.set('limit', String(Math.min(Math.max(CITY_SEARCH_LIMIT, 1), 20)));
-      url.searchParams.set('namePrefix', q);
-      url.searchParams.set('sort', '-population');
-      url.searchParams.set('types', 'CITY');
-      if (env.CITY_SEARCH_CONTACT_EMAIL) url.searchParams.set('email', env.CITY_SEARCH_CONTACT_EMAIL);
+        const headers = {
+          Accept: 'application/json',
+          'Accept-Language': lang || 'en,pt;q=0.9,es;q=0.8',
+          'User-Agent': env.CITY_SEARCH_USER_AGENT || 'NODAL city search/1.0',
+        };
+        const appUrl = env.PUBLIC_BASE_URL || env.NEXT_PUBLIC_APP_URL;
+        if (appUrl) headers.Referer = appUrl;
 
-      const headers = {
-        Accept: 'application/json',
-        'Accept-Language': lang || 'en,pt;q=0.9,es;q=0.8',
-        'User-Agent': env.CITY_SEARCH_USER_AGENT || 'NODAL city search/1.0',
-      };
-      const appUrl = env.PUBLIC_BASE_URL || env.NEXT_PUBLIC_APP_URL;
-      if (appUrl) headers.Referer = appUrl;
-
-      const res = await fetchImpl(url, { headers });
-      if (!res.ok) throw new Error(`city provider returned ${res.status}`);
-      const payload = await res.json();
-      const rows = Array.isArray(payload?.data) ? payload.data : payload;
-      const seen = new Set();
-      const cities = (Array.isArray(rows) ? rows : [])
-        .map(cityResultFromPlace)
-        .filter(Boolean)
-        .filter((city) => {
-          const key = city.label.toLowerCase();
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-      const value = { cities, attribution: CITY_SEARCH_ATTRIBUTION };
-      cache.set(cacheKey, { value, expires: now() + CITY_SEARCH_CACHE_MS });
-      return value;
+        const res = await fetchImpl(url, { headers, signal: AbortSignal.timeout(requestTimeoutMs) });
+        if (!res.ok) throw new Error(`city provider returned ${res.status}`);
+        const payload = await res.json();
+        const rows = Array.isArray(payload?.data) ? payload.data : payload;
+        const seen = new Set();
+        const cities = (Array.isArray(rows) ? rows.slice(0, 20) : [])
+          .map(cityResultFromPlace)
+          .filter(Boolean)
+          .filter((city) => {
+            const key = city.label.toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+        const value = { cities, attribution: CITY_SEARCH_ATTRIBUTION };
+        await cache.set(cacheKey, value, CITY_SEARCH_CACHE_MS);
+        return value;
+      })();
+      pending.set(cacheKey, operation);
+      try { return await operation; } finally { pending.delete(cacheKey); }
     },
   };
 }
@@ -429,7 +440,11 @@ function readJsonBody(req) {
       chunks.push(c);
     });
     req.on('end', () => {
-      try { resolve(JSON.parse(Buffer.concat(chunks).toString() || '{}')); }
+      try {
+        const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
+        if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('expected object');
+        resolve(body);
+      }
       catch { reject(Object.assign(new Error('invalid JSON'), { status: 400 })); }
     });
     req.on('error', reject);
@@ -794,6 +809,7 @@ export function createApp({
   const authAccountKey = (action, email) => `${action}:${createHash('sha256').update(email).digest('hex')}`;
   const recoveryEmailLimiter = createWindowRateLimiter({ windowMs: 15 * 60 * 1000, limit: 3 });
   const interactionLimiter = createWindowRateLimiter({ windowMs: INTERACTION_RATE_WINDOW_MS, limit: INTERACTION_RATE_LIMIT });
+  const recommendationLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: READ_RATE_LIMIT });
   // each search walks the whole directory, so it is bounded per member
   const searchLimiter = createWindowRateLimiter({ windowMs: MEMBER_SEARCH_WINDOW_MS, limit: MEMBER_SEARCH_RATE_LIMIT });
   const readLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: READ_RATE_LIMIT });
@@ -830,7 +846,6 @@ export function createApp({
     send(res2, 429, { error: 'too many requests' }, { 'Retry-After': String(rate.retryAfter) });
     return false;
   };
-  const cacheKey = (id, graph) => `rec:v4:${id}:${graphFingerprint(graph)}`;
   const courseReadLimiter=createWindowRateLimiter({windowMs:60000,limit:120});
   const courseWriteLimiter=createWindowRateLimiter({windowMs:60000,limit:40});
   const courseUploadLimiter=createWindowRateLimiter({windowMs:60000,limit:6});
@@ -1485,6 +1500,7 @@ export function createApp({
         const userId = resolveUserId(m[1], sessionUser, useDb);
         if (!userId) { send(res, 403, { error: 'forbidden user scope' }); return; }
         if (!ID_RE.test(userId)) { send(res, 400, { error: 'invalid user id' }); return; }
+        if (!throttle(recommendationLimiter, res, req, sessionUser, 'recommendations')) return;
         const build = async snapshot => {
           // An unlisted viewer's own graph is private and never enters shared
           // snapshots or shared model keys. Listed members reuse one graph.
@@ -1514,42 +1530,36 @@ export function createApp({
         const userId = resolveUserId(m[1], sessionUser, useDb);
         const action = m[2];
         if (!userId) { send(res, 403, { error: 'forbidden user scope' }); return; }
-        const activeStore = useDb ? await repository.loadGraphStore({ viewerId: userId }) : store;
-        if (!ID_RE.test(userId) || !activeStore.users.has(userId)) { send(res, 404, { error: 'unknown user' }); return; }
-
-        const body = await readJsonBody(req);
-        const targetId = body.targetId;
-        if (typeof targetId !== 'string' || !ID_RE.test(targetId) || !activeStore.users.has(targetId) || targetId === userId) {
-          send(res, 400, { error: 'invalid targetId' });
+        if (!ID_RE.test(userId) || (!useDb && !store.users.has(userId))) { send(res, 404, { error: 'unknown user' }); return; }
+        // Invalid attempts consume the budget too, before parsing or repository IO.
+        const rate = interactionLimiter.take(action === 'follow' ? `follow:${userId}` : userId);
+        if (!rate.ok) {
+          send(res, 429, { error: 'too many interaction requests' }, { 'Retry-After': String(rate.retryAfter) });
           return;
         }
 
+        const body = await readJsonBody(req);
+        const targetId = body.targetId;
+        if (typeof targetId !== 'string' || !ID_RE.test(targetId) || targetId === userId) {
+          send(res, 400, { error: 'invalid targetId' });
+          return;
+        }
+        if (action === 'interactions' && !API_INTERACTION_TYPES.has(body.type)) { send(res, 400, { error: 'invalid interaction type' }); return; }
+        const target = useDb ? repository.toApiUser(await repository.getUserById(targetId)) : store.users.get(targetId);
+        if (!target || (useDb && (target.accountStatus !== 'active' || target.partC?.consent !== true))) {
+          send(res, 400, { error: 'invalid targetId' }); return;
+        }
+
         if (action === 'follow') {
-          /* A follow is undirected in the graph, so following someone puts you
-             in their first hop and on their deck — unfollowed and unasked. The
-             skip branch below has always been bounded; this one was not, and a
-             loop through the directory bought an account a place near the top
-             of everyone's recommendations. Same budget as the other writes. */
-          const rate = interactionLimiter.take(`follow:${userId}`);
-          if (!rate.ok) {
-            send(res, 429, { error: 'too many follow requests' }, { 'Retry-After': String(rate.retryAfter) });
-            return;
-          }
           if (useDb) await repository.addFollow(userId, targetId);
           else addFollow(store, userId, targetId);
         } else {
-          if (!API_INTERACTION_TYPES.has(body.type)) { send(res, 400, { error: 'invalid interaction type' }); return; }
-          const rate = interactionLimiter.take(userId);
-          if (!rate.ok) {
-            send(res, 429, { error: 'too many interaction events' }, { 'Retry-After': String(rate.retryAfter) });
-            return;
-          }
           if (useDb) await repository.recordInteraction(userId, targetId, body.type);
           else recordInteraction(store, userId, targetId, body.type);
         }
 
-        // graph changed — both parties' recommendations are stale
-        await cache.del(cacheKey(userId, activeStore), cacheKey(targetId, activeStore));
+        // Database revisions (or the demo graph fingerprint) invalidate derived
+        // recommendations without rebuilding the whole network on each write.
         send(res, 200, { ok: true, userId, targetId, action });
         return;
       }

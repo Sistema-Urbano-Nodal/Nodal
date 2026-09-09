@@ -355,7 +355,12 @@
      function became a no-op, and picking a node on the globe opened nothing. */
   function showPlace(place) {
     if (!card) return;
-    if (!place) { card.hidden = true; return; }
+    if (!place) {
+      card.hidden = true;
+      for (const id of ['globeCity', 'globeLabel', 'globeCount', 'globeLinks']) set(id, '');
+      document.getElementById('globePeople')?.replaceChildren();
+      return;
+    }
     card.hidden = false;
     set('globeCity', place.name);
     set('globeLabel', place.label && place.label !== place.name ? place.label : '');
@@ -442,30 +447,14 @@
   /* ---------- the directory, live ---------- */
   const normalise = (s2) => String(s2 || '').trim().toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  /* Arrivals are detected by comparing each city's roster as a multiset, not
-     by name alone: two members can share a name in the same city, and the
-     endpoint deliberately withholds member ids. */
+  /* Only the current snapshot grants permission to display a member. IDs keep
+     a rename or two members sharing a name from becoming a false arrival. */
   const roster = new Map();
   let started = false;
-  const bag = (people) => {
-    const counts = new Map();
-    people.forEach((m) => {
-      const key = `${normalise(m.name)}|${normalise(m.role)}`;
-      counts.set(key, (counts.get(key) || 0) + 1);
-    });
-    return counts;
-  };
   function newcomers(city, people) {
-    const before = roster.get(city) || new Map();
-    const after = bag(people);
-    const added = [];
-    after.forEach((n, key) => {
-      const gained = n - (before.get(key) || 0);
-      for (let k = 0; k < gained; k += 1) {
-        added.push(people.find((m) => `${normalise(m.name)}|${normalise(m.role)}` === key));
-      }
-    });
-    roster.set(city, after);
+    const before = roster.get(city) || new Set();
+    const added = people.filter((person) => person.id && !before.has(person.id));
+    roster.set(city, new Set(people.map((person) => person.id).filter(Boolean)));
     return added;
   }
 
@@ -490,6 +479,7 @@
   }
 
   function applyView() {
+    const pickedCity = PLACES[state.picked]?.name;
     const kept = new Map(PLACES.map((p) => [normalise(p.name), p.arrived]));
     const keepPerson = (m) => !sinceCut || !m.joinedAt || m.joinedAt <= sinceCut;
     const index = [];
@@ -519,13 +509,41 @@
     setEdges((FULL.links || [])
       .filter((l) => index[l.a] !== undefined && index[l.b] !== undefined)
       .map((l) => ({ a: index[l.a], b: index[l.b], weight: l.weight })));
-    if (state.picked >= PLACES.length) state.picked = -1;
+    state.picked = pickedCity ? PLACES.findIndex((place) => place.name === pickedCity) : -1;
+    state.hover = -1;
+    screen.length = 0;
+    showPlace(PLACES[state.picked] || null);
+    renderFeed();
     showCount();
   }
 
   function mergePlaces(data) {
     FULL = { places: data.places || [], links: data.links || [], topics: data.topics || [] };
+    const cities = new Set(FULL.places.map((place) => normalise(place.city)));
+    for (const city of roster.keys()) if (!cities.has(city)) roster.delete(city);
     applyView();
+  }
+
+  function clearPrivateData() {
+    refreshRevision += 1;
+    refreshQueued = false;
+    etag = '';
+    sinceCut = null;
+    roster.clear();
+    started = false;
+    state.topic = '';
+    state.drag = false;
+    mergePlaces({});
+    topicsDrawn = null;
+    topicBar?.replaceChildren();
+    if (sweep) clearInterval(sweep);
+    sweep = null;
+    playBtn?.classList.remove('is-on');
+    renderTimeline();
+    sayWhereYouStand(null);
+    const empty = document.getElementById('globeEmpty');
+    if (empty) empty.hidden = false;
+    ctx.clearRect(0, 0, W, H);
   }
 
   function sayWhereYouStand(you) {
@@ -533,11 +551,11 @@
     const cta = document.getElementById('globeYouCta');
     if (!note || !cta) return;
     let key = null;
-    if (!you) { note.hidden = true; cta.hidden = true; return; }
+    if (!you) { note.textContent = ''; note.hidden = true; cta.hidden = true; return; }
     if (!you.listed) key = 'd.globe.youNotListed';
     else if (!you.hasCity) key = 'd.globe.youNoCity';
     else if (!you.onMap) key = 'd.globe.youUnplaced';
-    if (!key) { note.hidden = true; cta.hidden = true; return; }
+    if (!key) { note.textContent = ''; note.hidden = true; cta.hidden = true; return; }
     note.textContent = key === 'd.globe.youUnplaced' ? t(key, { city: you.city }) : t(key);
     note.hidden = false;
     cta.hidden = you.listed && you.hasCity;
@@ -555,7 +573,7 @@
   let refreshRevision = 0;
   let refreshQueued = false;
 
-  window.addEventListener('nodal:profile-location-changed', () => {
+  function refreshPlaces() {
     refreshRevision += 1;
     refreshQueued = true;
     etag = '';
@@ -564,7 +582,8 @@
     backoff = POLL_MS;
     clearTimeout(pollTimer);
     poll();
-  });
+  }
+  window.addEventListener('nodal:profile-location-changed', refreshPlaces);
 
   async function poll() {
     if (inFlight || document.hidden) return;
@@ -577,6 +596,12 @@
       const headers = { Accept: 'application/json' };
       if (etag) headers['If-None-Match'] = etag;
       const res = await fetch(`/api/network/places${query}`, { headers, signal: AbortSignal.timeout(20000) });
+      if (res.status === 401) {
+        clearPrivateData();
+        backoff = Math.min(backoff * 2, POLL_MAX_MS);
+        return;
+      }
+      if (requestRevision !== refreshRevision) return;
       // nothing has changed: no parse, no re-render, no arrival scan
       if (res.status === 304) { backoff = POLL_MS; return; }
       if (!res.ok) {
@@ -625,18 +650,33 @@
   }
 
   const feed = document.getElementById('globeFeed');
-  function announce(person, place) {
+  let arrivalsShown = [];
+  function renderFeed() {
+    const visible = arrivalsShown.map((entry) => {
+      const place = PLACES.find((item) => item.name === entry.city);
+      const person = place?.people.find((item) => item.id === entry.personId);
+      return { entry, place, person };
+    }).filter((item) => item.person);
+    arrivalsShown = visible.map((item) => item.entry);
     if (!feed) return;
-    const row = document.createElement('li');
-    const name = document.createElement('strong');
-    name.textContent = person.name;
-    const where = document.createElement('span');
-    where.textContent = `${person.role ? `${person.role} · ` : ''}${place.name}`;
-    row.append(name, where);
-    feed.prepend(row);
-    while (feed.children.length > 4) feed.lastElementChild.remove();
-    feed.hidden = false;
-    document.getElementById('globeFeedLabel')?.removeAttribute('hidden');
+    feed.replaceChildren(...visible.map(({ person, place }) => {
+      const row = document.createElement('li');
+      const name = document.createElement('strong');
+      name.textContent = person.name;
+      const where = document.createElement('span');
+      where.textContent = `${person.role ? `${person.role} · ` : ''}${place.name}`;
+      row.append(name, where);
+      return row;
+    }));
+    feed.hidden = visible.length === 0;
+    const label = document.getElementById('globeFeedLabel');
+    if (label) label.hidden = feed.hidden;
+  }
+  function announce(person, place) {
+    if (!person.id) return;
+    arrivalsShown.unshift({ personId: person.id, city: place.name });
+    arrivalsShown = arrivalsShown.slice(0, 4);
+    renderFeed();
   }
 
   /* ---------- filter by topic ---------- */
@@ -655,8 +695,7 @@
       b.addEventListener('click', () => {
         state.topic = state.topic === name ? '' : name;
         topicsDrawn = '';
-        etag = '';
-        poll();
+        refreshPlaces();
       });
       return b;
     };
@@ -683,7 +722,7 @@
     const has = dates.length > 1;
     scrub.hidden = !has;
     if (playBtn) playBtn.hidden = !has;
-    if (!has) { if (scrubLabel) scrubLabel.hidden = true; return; }
+    if (!has) { if (scrubLabel) { scrubLabel.textContent = ''; scrubLabel.hidden = true; } return; }
     scrub.min = '0';
     scrub.max = String(dates.length - 1);
     if (sinceCut === null) scrub.value = scrub.max;

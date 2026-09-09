@@ -1053,14 +1053,15 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       return store;
     },
     async addFollow(from, to) {
-      await admin.rest('member_follows', {
+      const rows = await admin.rest('member_follows', {
         method: 'POST',
         query: { on_conflict: 'user_id,target_user_id' },
-        headers: { Prefer: 'resolution=ignore-duplicates,return=minimal' },
+        headers: { Prefer: 'resolution=ignore-duplicates,return=representation' },
         body: [{ user_id: from, target_user_id: to }],
       });
-      await this.recordInteraction(from, to, 'follow');
-      return true;
+      // A database row trigger records only newly inserted follows, atomically
+      // with the edge. Repeated follows and lost-response retries add no event.
+      return rows.length > 0;
     },
     async recordInteraction(from, to, type) {
       await admin.rest('member_interactions', {

@@ -309,10 +309,8 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       }
       if(operation==='/attachments'&&req.method==='POST') {
         const input=decodeAttachment(await bodyJson(req,4*1024*1024+4096));
-        const existing=await store.find('attachments',{userId:adminPath?null:user.id,courseId},{limit:100});
-        if(existing.length>=100||existing.reduce((n,a)=>n+a.size,0)+input.size>30*1024*1024)fail('course upload allowance reached; use a link instead',413);
         const id=newId();const attachment={id,courseId,moduleId:module.id,userId:adminPath?null:user.id,purpose:adminPath?'material':'post',name:input.name,mime:input.mime,size:input.size,storagePath:adminPath?`courses/${courseId}/${module.id}/${id}`:`${user.id}/${id}`,status:'pending',createdAt:now()};
-        await store.insert('attachments',attachment);
+        await store.reserveAttachment(attachment);
         // A failed response does not prove Storage rejected the object. Keep the
         // pending record for reconciliation, including when a worker terminates.
         await store.putFile(attachment,input.bytes);
