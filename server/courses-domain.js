@@ -68,7 +68,7 @@ export function normalizeLinks(value = [], materials = false) {
     title: text(item?.title, 'link title', 180, true),
     ...(materials && item?.attachmentId ? (item.url ? fail('resource must have a URL or attachment, not both') : {attachmentId:identifier(item.attachmentId)}) : {url:httpsUrl(item?.url)}),
     ...(materials && item?.translations !== undefined ? {translations:normalizeTranslations(item.translations,{title:180})} : {}),
-    ...(materials ? { kind: choice(item.kind, ['slides', 'reading', 'link', 'recording'], 'link', 'resource kind') } : {}),
+    ...(materials ? { kind: choice(item.kind, ['slides', 'reading', 'link', 'recording', 'activity'], 'link', 'resource kind') } : {}),
   }));
 }
 export function normalizeModule(input = {}, current = {}) {

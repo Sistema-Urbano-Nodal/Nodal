@@ -1,6 +1,9 @@
 (() => {
 'use strict';
 const rows = {
+ watchHere:['Watch here','Ver aquí','Assistir aqui'],
+ closeRecording:['Close video','Cerrar video','Fechar vídeo'],
+ activityResources:['Activity files','Archivos de la actividad','Arquivos da atividade'],
  editPost:["Edit text", "Editar texto", "Editar texto"],
  savePost:["Save text", "Guardar texto", "Salvar texto"],
  deleteOwnPost:["Delete my contribution", "Eliminar mi contribución", "Excluir minha contribuição"],

@@ -33,6 +33,44 @@ function harness(respond,{page='courses',search=''}={}){
  return{ctx,body,ids,requests,documentEvents,windowEvents,run:name=>vm.runInContext(script(name),ctx),assigned:()=>assigned,lang:lang=>{ctx.window.nodalI18n.lang=lang;listeners.forEach(f=>f());}};
 }
 const course={id:'c1',title:'Real course <img src=x onerror=alert(1)>',description:'Author content',startsOn:'2026-09-09',endsOn:'2026-09-21',status:'published',enrollmentOpen:true};
+test('recording embeds reconstruct trusted provider URLs and reject unsafe or unsupported hosts',()=>{
+ const {recordingEmbed:embed}=harness(()=>({})).ctx.window.nodalPilot;
+ for(const url of ['https://youtu.be/abcdefghijk?t=30s','https://www.youtube.com/watch?v=abcdefghijk&start=30&autoplay=1','https://www.youtube.com/embed/abcdefghijk?start=30'])assert.equal(embed(url).src,'https://www.youtube-nocookie.com/embed/abcdefghijk?start=30');
+ assert.equal(embed('https://drive.google.com/file/d/abcdefghijk/view?usp=sharing&resourcekey=0-example').src,'https://drive.google.com/file/d/abcdefghijk/preview?resourcekey=0-example');
+ assert.equal(embed('https://drive.google.com/open?id=abcdefghijk').src,'https://drive.google.com/file/d/abcdefghijk/preview');
+ assert.equal(embed('https://vimeo.com/123456789/abcdef1234').src,'https://player.vimeo.com/video/123456789?h=abcdef1234&dnt=1');
+ assert.equal(embed('https://player.vimeo.com/video/123456789?h=abcdef1234&autoplay=1').src,'https://player.vimeo.com/video/123456789?h=abcdef1234&dnt=1');
+ for(const url of ['javascript:alert(1)','http://youtube.com/watch?v=abcdefghijk','https://user:pass@youtube.com/watch?v=abcdefghijk','https://youtube.com.evil.test/watch?v=abcdefghijk','https://evil.test/recording.mp4','https://drive.google.com:8443/file/d/abcdefghijk/view','https://youtube.com/watch?v=bad','https://vimeo.com/123456789?h=<script>'])assert.equal(embed(url),null,url);
+});
+function materialHarness(){
+ const module={id:'m1',title:'Session',objectives:'Understand the station',instructions:'Observe and photograph the station',translations:{pt:{instructions:'Observe e fotografe a estação'}},resources:[
+  {title:'Slides',kind:'slides',url:'https://example.test/slides'},
+  {title:'Practice worksheet',kind:'activity',url:'https://example.test/worksheet'},
+  {title:'Session recording',kind:'recording',url:'https://drive.google.com/file/d/abcdefghijk/view',translations:{pt:{title:'Gravação da sessão'}}},
+  {title:'Other recording',kind:'recording',url:'https://example.test/recording'}
+ ]};
+ const h=harness(path=>path==='/api/auth/me'?{user:{permission:'member'}}:path.endsWith('/events')?{ok:true}:path.includes('/posts')?{posts:[],nextCursor:null}:path.endsWith('/modules/m1')?{module}:{course,modules:[module],enrollment:{},intake:{fullName:'Member'},isAdmin:false},{page:'course',search:'?id=c1&view=materials'});
+ h.run('courses');return h;
+}
+test('activity instructions and files belong to Activity while objectives and recordings stay in Materials',async()=>{
+ const h=materialHarness();await flush();const materials=h.ctx.document.getElementById('module-pane-materials'),activity=h.ctx.document.getElementById('module-pane-assignment');
+ assert.match(content(materials),/Understand the station/);assert.doesNotMatch(content(materials),/Observe and photograph|Practice worksheet/);
+ assert.match(content(activity),/Observe and photograph the station/);assert.match(content(activity),/Practice worksheet/);assert.doesNotMatch(content(activity),/Understand the station|Session recording/);
+ assert.equal(materials.hidden,false);assert.equal(activity.hidden,true);
+ await h.ctx.document.getElementById('module-tab-assignment').listeners.click();assert.equal(activity.hidden,false);assert.equal(materials.hidden,true);
+ h.lang('pt');assert.match(content(activity),/Observe e fotografe a estação/);
+});
+test('recording player loads only on demand, logs an opening, and stops on tab change and page exit',async()=>{
+ const h=materialHarness();await flush();const nodes=()=>descendants(h.body),trigger=()=>nodes().find(n=>n.dataset.pilotText==='watchHere');
+ assert.equal(nodes().filter(n=>n.tagName==='iframe').length,0);assert.equal(nodes().filter(n=>n.dataset.pilotText==='watchHere').length,1);
+ assert.ok(nodes().some(n=>n.href==='https://example.test/recording'));assert.ok(nodes().some(n=>n.href==='https://drive.google.com/file/d/abcdefghijk/view'));
+ trigger().listeners.click();await flush();const frame=nodes().find(n=>n.tagName==='iframe');assert.equal(frame.src,'https://drive.google.com/file/d/abcdefghijk/preview');assert.equal(frame.title,'Session recording');assert.equal(frame.referrerPolicy,'strict-origin-when-cross-origin');assert.equal(frame.sandbox,'allow-scripts allow-same-origin allow-presentation');
+ assert.equal(h.requests.filter(r=>r.body?.kind==='recording_open').length,1);assert.equal(h.requests.find(r=>r.body?.kind==='recording_open').body.resourceUrl,'https://drive.google.com/file/d/abcdefghijk/view');
+ h.lang('pt');assert.equal(frame.title,'Gravação da sessão');
+ await h.ctx.document.getElementById('module-tab-assignment').listeners.click();assert.equal(nodes().filter(n=>n.tagName==='iframe').length,0);
+ await h.ctx.document.getElementById('module-tab-materials').listeners.click();trigger().listeners.click();nodes().find(n=>n.dataset.pilotText==='closeRecording').listeners.click();assert.equal(nodes().filter(n=>n.tagName==='iframe').length,0);
+ trigger().listeners.click();h.windowEvents.pagehide();assert.equal(nodes().filter(n=>n.tagName==='iframe').length,0);
+});
 test('directory uses live course data as text and links to its explicit ID',async()=>{
  const h=harness(path=>path==='/api/auth/me'?{user:{permission:'member'}}:{courses:[course]});h.run('courses');await flush();assert.match(content(h.ids.pilotRoot),/Real course <img/);assert.equal(descendants(h.body).filter(n=>n.tagName==='img').length,0);assert.equal(descendants(h.body).find(n=>n.href==='course.html?id=c1')?.textContent,'Open course');assert.equal(h.ids.teachingLink.hidden,true);
 });
@@ -107,9 +145,9 @@ test('course keeps contribution composer collapsed and replaces contextual feedb
  const form=descendants(box).find(n=>n.tagName==='form');descendants(form).find(n=>n.name==='body').value='My answer';await form.listeners.submit({preventDefault(){}});assert.equal(box.open,false);
  const feedbacks=descendants(h.body).filter(n=>n.className==='pilot-feedback');assert.equal(feedbacks.length,1);assert.match(content(feedbacks[0]),/take part in this conversation/);
 });
-test('deleted contributions preserve their thread without offering an invalid reply',async()=>{
+test('deleted contributions are absent from the conversation and offer no reply action',async()=>{
  const h=harness(path=>path==='/api/auth/me'?{user:{permission:'member'}}:path.endsWith('/events')?{ok:true}:path.split('?')[0].endsWith('/posts')?{posts:[{id:'p1',deleted:true,createdAt:'2026-09-05T12:00:00Z',kind:'question',body:'',attachments:[],links:[]}],nextCursor:null}:path.endsWith('/modules/m1')?{module:{id:'m1',title:'Session',resources:[]}}:{course,modules:[{id:'m1',title:'Session'}],enrollment:{},intake:{fullName:'Member'},isAdmin:false},{page:'course',search:'?id=c1'});h.run('courses');await flush();
- const deleted=descendants(h.body).find(n=>n.id==='post-p1');assert.match(content(deleted),/Contribution removed/);assert.equal(descendants(deleted).some(n=>n.dataset.pilotText==='reply'&&!n.hidden),false);
+ assert.equal(descendants(h.body).some(n=>n.id==='post-p1'),false);assert.doesNotMatch(content(h.body),/Contribution removed/);assert.equal(descendants(h.body).some(n=>n.dataset.pilotText==='reply'&&!n.hidden),false);
 });
 test('initial discussion failure stays visible and offers a working retry',async()=>{
  let failed=true;const h=harness(path=>path==='/api/auth/me'?{user:{permission:'member'}}:path.endsWith('/events')?{ok:true}:path.split('?')[0].endsWith('/posts')?(failed?{status:503,data:{error:'Discussion unavailable'}}:{posts:[],nextCursor:null}):path.endsWith('/modules/m1')?{module:{id:'m1',title:'Session',resources:[]}}:{course,modules:[{id:'m1',title:'Session'}],enrollment:{},intake:{fullName:'Member'},isAdmin:false},{page:'course',search:'?id=c1'});h.run('courses');await flush();
@@ -362,7 +400,7 @@ test('post editing and deletion controls follow server ownership flags for quest
  const records=[{...ownPost},{...ownPost,id:'assignment',kind:'assignment'},{...ownPost,id:'reply',parentId:'own',kind:'comment'},{...ownPost,id:'other',canEdit:false,canDelete:false},{...ownPost,id:'removed',deleted:true,canEdit:false,canDelete:false}];
  const h=postHarness({posts:records,isAdmin:true});h.run('courses');await flush();
  for(const id of ['own','assignment','reply']){assert.equal(findKey(postCard(h,id),'editPost').hidden,false);assert.equal(findKey(postCard(h,id),'deleteOwnPost').hidden,false);assert.equal(findKey(postCard(h,id),'moderate').hidden,true);}
- assert.equal(findKey(postCard(h,'other'),'editPost').hidden,true);assert.equal(findKey(postCard(h,'other'),'deleteOwnPost').hidden,true);assert.equal(findKey(postCard(h,'other'),'moderate').hidden,false);assert.equal(findKey(postCard(h,'removed'),'moderate').hidden,true);
+ assert.equal(findKey(postCard(h,'other'),'editPost').hidden,true);assert.equal(findKey(postCard(h,'other'),'deleteOwnPost').hidden,true);assert.equal(findKey(postCard(h,'other'),'moderate').hidden,false);assert.equal(postCard(h,'removed'),undefined);
 });
 test('owner text edit sends expected saved text only and preserves links, files and the contribution composer',async()=>{
  const h=postHarness();h.run('courses');await flush();const composer=inputNamed(h.body,'body');composer.value='Unsent new discussion';const card=postCard(h);findKey(card,'editPost').listeners.click();const form=postEditor(card);inputNamed(form,'body').value='Updated contribution';await form.listeners.submit({preventDefault(){}});
@@ -382,8 +420,42 @@ test('conversation refresh preserves inline editors including an older draft out
  const h=postHarness({posts:[{...ownPost},{...ownPost,id:'other-own',body:'Second own post'}]});const clock=fakeClock(h);h.run('courses');await flush();const first=postCard(h),second=postCard(h,'other-own');findKey(first,'editPost').listeners.click();findKey(second,'editPost').listeners.click();const a=inputNamed(postEditor(first),'body'),b=inputNamed(postEditor(second),'body');a.value='First draft';b.value='Second draft';
  h.setRecords([{...ownPost,body:'Changed elsewhere'}]);await clock.tick();assert.equal(inputNamed(postEditor(first),'body'),a);await findKey(h.ctx.document.getElementById('module-pane-discussion'),'refreshConversation').listeners.click();assert.equal(postCard(h),first);assert.equal(postCard(h,'other-own'),second);assert.equal(a.value,'First draft');assert.equal(b.value,'Second draft');assert.equal(findKey(postEditor(first),'savePost').disabled,true);assert.match(content(postEditor(first)),/Changed elsewhere/);
 });
-test('owner deletion requires confirmation, prevents duplicate requests and preserves replies as a thread',async()=>{
- const h=postHarness({posts:[{...ownPost},{...ownPost,id:'reply',parentId:'own',kind:'comment',canEdit:false,canDelete:false}]});h.run('courses');await flush();h.ctx.confirm=()=>false;await findKey(postCard(h),'deleteOwnPost').listeners.click();assert.equal(h.requests.some(r=>r.method==='DELETE'),false);h.ctx.confirm=()=>true;await findKey(postCard(h),'deleteOwnPost').listeners.click();const request=h.requests.find(r=>r.method==='DELETE');assert.equal(request.path,'/api/courses/c1/posts/own');assert.ok(postCard(h,'reply'));assert.equal(findKey(postCard(h),'reply').hidden,true);assert.equal(findKey(postCard(h),'editPost').hidden,true);assert.equal(descendants(postCard(h)).some(n=>n.href==='https://example.test/reading'),false);assert.match(content(h.body),/Your contribution was deleted/);
+test('refresh checks an omitted owner draft for deletion while keeping the unsaved text recoverable',async()=>{
+ let removed=false;const deleted={...ownPost,authorName:'',body:'',links:[],attachments:[],deleted:true,canEdit:false,canDelete:false};
+ const h=postHarness({intercept:path=>removed?path.includes('/modules/m1/posts')?{posts:[],nextCursor:null,revision:2}:path==='/api/courses/c1/posts/own'?{post:deleted}:undefined:undefined});h.run('courses');await flush();
+ const card=postCard(h);findKey(card,'editPost').listeners.click();const form=postEditor(card),draft=inputNamed(form,'body');draft.value='My recoverable edit';removed=true;
+ await findKey(h.ctx.document.getElementById('module-pane-discussion'),'refreshConversation').listeners.click();assert.equal(draft.value,'My recoverable edit');assert.equal(findKey(form,'savePost').disabled,true);assert.doesNotMatch(content(card),/Original contribution|Contribution removed/);assert.match(content(card),/no longer available/);
+ findKey(form,'cancel').listeners.click();assert.equal(Boolean(postCard(h)),false);
+});
+test('canceling an omitted draft during its version check does not restore a removed contribution',async()=>{
+ let removed=false,finish;const h=postHarness({intercept:path=>removed?path.includes('/modules/m1/posts')?{posts:[],nextCursor:null}:path==='/api/courses/c1/posts/own'?new Promise(resolve=>{finish=resolve;}):undefined:undefined});h.run('courses');await flush();
+ const card=postCard(h);findKey(card,'editPost').listeners.click();const form=postEditor(card);removed=true;
+ const refresh=findKey(h.ctx.document.getElementById('module-pane-discussion'),'refreshConversation').listeners.click();await flush();findKey(form,'cancel').listeners.click();finish({post:{...ownPost,deleted:true,body:'',canEdit:false,canDelete:false}});await refresh;
+ assert.equal(Boolean(postCard(h)),false);assert.ok(findKey(h.body,'noPosts'));
+});
+test('owner deletion requires confirmation, removes the contribution and preserves other members replies',async()=>{
+ const h=postHarness({posts:[{...ownPost},{...ownPost,id:'reply',parentId:'own',kind:'comment',body:'Other member reply',links:[],attachments:[],canEdit:false,canDelete:false}]});h.run('courses');await flush();h.ctx.confirm=()=>false;await findKey(postCard(h),'deleteOwnPost').listeners.click();assert.equal(h.requests.some(r=>r.method==='DELETE'),false);h.ctx.confirm=()=>true;await findKey(postCard(h),'deleteOwnPost').listeners.click();const request=h.requests.find(r=>r.method==='DELETE');assert.equal(request.path,'/api/courses/c1/posts/own');assert.ok(postCard(h,'reply'));assert.equal(postCard(h),undefined);assert.match(content(postCard(h,'reply')),/Other member reply/);assert.equal(Boolean(findKey(postCard(h,'reply'),'reply').hidden),false);assert.match(content(h.body),/Your contribution was deleted/);h.lang('es');assert.doesNotMatch(content(h.body),/Contribución retirada/);
+});
+test('removed entries from a stale page stay hidden and an empty conversation still loads older surviving replies',async()=>{
+ const removed={...ownPost,deleted:true,body:'',links:[],attachments:[],canEdit:false,canDelete:false};
+ const h=postHarness({intercept:path=>path.includes('/modules/m1/posts')?path.includes('cursor=older')?{posts:[removed,{...ownPost,id:'reply',parentId:'own',body:'Earlier reply',canEdit:false,canDelete:false}],nextCursor:null}:{posts:[removed],nextCursor:'older'}:undefined});h.run('courses');await flush();
+ assert.equal(Boolean(postCard(h)),false);assert.ok(findKey(h.body,'noPosts'));const more=findKey(h.body,'loadOlder');assert.equal(more.hidden,false);await more.listeners.click();assert.equal(Boolean(postCard(h)),false);assert.ok(postCard(h,'reply'));assert.equal(Boolean(findKey(h.body,'noPosts')),false);assert.equal(more.hidden,true);h.lang('es');assert.doesNotMatch(content(h.body),/Contribución retirada/);
+});
+test('successful owner deletion removes the card even when the following conversation refresh fails',async()=>{
+ let deleted=false;const h=postHarness({intercept:(path,opts)=>{if(opts?.method==='DELETE'){deleted=true;return{ok:true};}if(deleted&&path.includes('/modules/m1/posts'))return{status:503,data:{error:'unavailable'}};}});h.run('courses');await flush();await findKey(postCard(h),'deleteOwnPost').listeners.click();assert.equal(postCard(h),undefined);assert.match(content(h.ids.pilotStatus),/Could not complete/);
+});
+test('successful moderation removes the card even when the following conversation refresh fails',async()=>{
+ let deleted=false;const h=postHarness({posts:[{...ownPost,canEdit:false,canDelete:false}],isAdmin:true,intercept:(path,opts)=>{if(opts?.method==='DELETE'){deleted=true;return{ok:true};}if(deleted&&path.includes('/modules/m1/posts'))return{status:503,data:{error:'unavailable'}};}});h.run('courses');await flush();await findKey(postCard(h),'moderate').listeners.click();assert.equal(postCard(h),undefined);
+});
+test('reply navigation only links to a live parent present in the loaded conversation',async()=>{
+ let removed=false;const reply={...ownPost,id:'reply',parentId:'own',kind:'comment',body:'Surviving reply',canEdit:false,canDelete:false};
+ const h=postHarness({intercept:(path,opts)=>{
+  if(opts?.method==='DELETE'){removed=true;return{ok:true};}
+  if(path.includes('/modules/m1/posts'))return{posts:removed?[reply]:path.includes('cursor=older')?[ownPost]:[reply],nextCursor:removed||path.includes('cursor=older')?null:'older'};
+ }});h.run('courses');await flush();
+ const parentLink=()=>descendants(postCard(h,'reply')).find(node=>node.href==='#post-own');assert.equal(parentLink().hidden,true);
+ await findKey(h.body,'loadOlder').listeners.click();assert.equal(parentLink().hidden,false);
+ await findKey(postCard(h),'deleteOwnPost').listeners.click();assert.equal(Boolean(postCard(h)),false);assert.equal(parentLink().hidden,true);assert.match(content(postCard(h,'reply')),/Surviving reply/);
 });
 test('post mutation errors do not force sign-in navigation and pending actions ignore repeat clicks',async()=>{
  let finish;const h=postHarness({intercept:(path,opts)=>opts?.method==='PATCH'?new Promise(resolve=>{finish=resolve;}):undefined});h.run('courses');await flush();const card=postCard(h);findKey(card,'editPost').listeners.click();const form=postEditor(card);inputNamed(form,'body').value='Keep through expired auth';const first=form.listeners.submit({preventDefault(){}});await form.listeners.submit({preventDefault(){}});await findKey(card,'deleteOwnPost').listeners.click();assert.equal(h.requests.filter(r=>r.method==='PATCH').length,1);assert.equal(h.requests.some(r=>r.method==='DELETE'),false);finish({status:401,data:{error:'expired'}});await first;assert.equal(h.assigned(),'');assert.equal(inputNamed(form,'body').value,'Keep through expired auth');assert.equal(findKey(form,'savePost').disabled,false);
@@ -395,7 +467,7 @@ test('intake deletion cancellation and failures preserve the existing access and
  const h=harness((path,opts)=>path.endsWith('/intake')&&opts?.method==='DELETE'?{status:503,data:{error:'unavailable'}}:learningFixture(path,opts),{page:'course',search:'?id=c1'});h.ctx.confirm=()=>false;h.run('courses');await flush();const remove=findKey(h.body,'deleteIntake');await remove.listeners.click();assert.equal(h.requests.some(r=>r.method==='DELETE'),false);h.ctx.confirm=()=>true;await remove.listeners.click();assert.ok(h.ctx.document.getElementById('moduleContent'));assert.equal(remove.disabled,false);assert.equal(findKey(h.body,'editIntake').disabled,false);assert.doesNotMatch(content(h.body),/Your intake responses were deleted/);
 });
 test('reviewing an owner post removed elsewhere preserves the draft but disables saving and removes published identity and files',async()=>{
- const h=postHarness({intercept:(path,opts)=>opts?.method==='PATCH'?{status:409,data:{error:'changed'}}:undefined});h.run('courses');await flush();const card=postCard(h);findKey(card,'editPost').listeners.click();const form=postEditor(card);inputNamed(form,'body').value='Draft kept for copying';await form.listeners.submit({preventDefault(){}});h.setRecords([{...ownPost,authorName:'',body:'',links:[],attachments:[],deleted:true,canEdit:false,canDelete:false}]);await findKey(form,'refreshPostVersion').listeners.click();assert.equal(inputNamed(form,'body').value,'Draft kept for copying');assert.equal(inputNamed(form,'body').disabled,false);assert.equal(findKey(form,'savePost').disabled,true);assert.equal(findKey(card,'deleteOwnPost').hidden,true);assert.equal(descendants(card).some(n=>n.href==='/api/course-attachments/file1'),false);assert.match(content(card),/no longer available/);assert.doesNotMatch(content(card),/Original contribution/);
+ const h=postHarness({intercept:(path,opts)=>opts?.method==='PATCH'?{status:409,data:{error:'changed'}}:undefined});h.run('courses');await flush();const card=postCard(h);findKey(card,'editPost').listeners.click();const form=postEditor(card);inputNamed(form,'body').value='Draft kept for copying';await form.listeners.submit({preventDefault(){}});h.setRecords([{...ownPost,authorName:'',body:'',links:[],attachments:[],deleted:true,canEdit:false,canDelete:false}]);await findKey(form,'refreshPostVersion').listeners.click();assert.equal(inputNamed(form,'body').value,'Draft kept for copying');assert.equal(inputNamed(form,'body').disabled,false);assert.equal(findKey(form,'savePost').disabled,true);assert.equal(findKey(card,'deleteOwnPost').hidden,true);assert.equal(descendants(card).some(n=>n.href==='/api/course-attachments/file1'),false);assert.match(content(card),/no longer available/);assert.doesNotMatch(content(card),/Original contribution/);h.lang('es');assert.doesNotMatch(content(card),/Contribución retirada/);findKey(form,'cancel').listeners.click();assert.equal(Boolean(postCard(h)),false);
 });
 test('pending owner deletion and intake deletion ignore duplicate requests',async()=>{
  let finishPost;const h=postHarness({intercept:(path,opts)=>opts?.method==='DELETE'?new Promise(resolve=>{finishPost=resolve;}):undefined});h.run('courses');await flush();const remove=findKey(postCard(h),'deleteOwnPost'),first=remove.listeners.click();await remove.listeners.click();assert.equal(h.requests.filter(r=>r.method==='DELETE').length,1);finishPost({status:503,data:{error:'unavailable'}});await first;assert.equal(remove.disabled,false);assert.match(content(postCard(h)),/Original contribution/);

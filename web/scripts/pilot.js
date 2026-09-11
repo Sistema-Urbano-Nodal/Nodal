@@ -68,6 +68,53 @@ function button(key,fn,secondary=false){const b=tr('button',key,'pilot-button'+(
 function field(key,value='',type='text'){const label=tr('span',key);const wrap=el('label');const input=el(type==='textarea'?'textarea':'input');if(type!=='textarea')input.type=type;input.name=key;if(type==='checkbox')input.checked=!!value;else input.value=value??'';wrap.append(label,input);return {wrap,input};}
 function select(key,values,value){const wrap=el('label');wrap.append(tr('span',key));const input=el('select');input.name=key;values.forEach(v=>{const o=tr('option',v);o.value=v;input.append(o);});input.value=value||values[0];wrap.append(input);return{wrap,input};}
 function safeUrl(value){try{const u=new URL(value);return u.protocol==='https:'&&!u.username&&!u.password?u.href:null;}catch{return null;}}
+function recordingEmbed(value){
+  const safe=safeUrl(value);if(!safe)return null;
+  const url=new URL(safe);if(url.port)return null;
+  const host=url.hostname,path=url.pathname;let match,id,src;
+  if(['youtube.com','www.youtube.com','m.youtube.com','youtube-nocookie.com','www.youtube-nocookie.com','youtu.be'].includes(host)){
+    id=host==='youtu.be'?path.slice(1):path==='/watch'?url.searchParams.get('v'):path.match(/^\/(?:embed|shorts|live)\/([^/]+)\/?$/)?.[1];
+    if(!/^[\w-]{11}$/.test(id||''))return null;
+    src=new URL('https://www.youtube-nocookie.com/embed/'+id);
+    const start=url.searchParams.get('start')||url.searchParams.get('t');
+    if(start&&/^\d{1,6}s?$/.test(start))src.searchParams.set('start',String(parseInt(start,10)));
+    return {src:src.href,provider:'YouTube'};
+  }
+  if(host==='drive.google.com'){
+    id=path.match(/^\/file\/d\/([\w-]+)(?:\/(?:view|preview|edit))?\/?$/)?.[1]||(['/open','/uc'].includes(path)?url.searchParams.get('id'):null);
+    if(!/^[\w-]{10,200}$/.test(id||''))return null;
+    src=new URL('https://drive.google.com/file/d/'+id+'/preview');
+    const key=url.searchParams.get('resourcekey');if(key&&/^[\w-]{1,200}$/.test(key))src.searchParams.set('resourcekey',key);
+    return {src:src.href,provider:'Google Drive'};
+  }
+  if(['vimeo.com','www.vimeo.com','player.vimeo.com'].includes(host)){
+    match=host==='player.vimeo.com'?path.match(/^\/video\/(\d+)\/?$/):path.match(/^\/(\d+)(?:\/([a-zA-Z0-9]+))?\/?$/);
+    if(!match||match[1].length>20)return null;
+    src=new URL('https://player.vimeo.com/video/'+match[1]);
+    const hash=url.searchParams.get('h')||match[2];
+    if(hash){if(!/^[a-zA-Z0-9]{6,64}$/.test(hash))return null;src.searchParams.set('h',hash);}
+    src.searchParams.set('dnt','1');return {src:src.href,provider:'Vimeo'};
+  }
+  return null;
+}
+function recordingPreview(resource,onOpen){
+  const embed=recordingEmbed(resource.url);if(!embed)return null;
+  const element=el('div','pilot-recording'),preview=el('div','pilot-recording-preview');
+  const trigger=button('watchHere',()=>{
+    if(!closeButton.hidden)return;
+    const frame=el('iframe','pilot-recording-player');
+    bind(frame,()=>{frame.title=localized(resource,'title')||t('recording');});
+    frame.src=embed.src;frame.loading='lazy';frame.referrerPolicy='strict-origin-when-cross-origin';
+    frame.setAttribute('allow','autoplay; encrypted-media; picture-in-picture; fullscreen');
+    frame.setAttribute('allowfullscreen','');frame.setAttribute('sandbox','allow-scripts allow-same-origin allow-presentation');
+    preview.replaceChildren(frame);closeButton.hidden=false;onOpen?.();
+  });
+  trigger.className='pilot-recording-trigger';
+  function close(){preview.replaceChildren(trigger);closeButton.hidden=true;}
+  const closeButton=button('closeRecording',()=>{close();trigger.focus();},true);closeButton.hidden=true;
+  preview.append(trigger);element.append(preview,closeButton);
+  return {element,close};
+}
 function date(value){return value?new Intl.DateTimeFormat(window.nodalI18n?.lang||'en',{dateStyle:'medium',timeZone:'UTC'}).format(new Date(value+'T12:00:00Z')):'';}
 function feedback(action,context={}) {
   const box=el('details','pilot-feedback');box.append(tr('summary','feedback_'+action));
@@ -149,7 +196,7 @@ function feedback(action,context={}) {
   history.addEventListener('toggle',()=>{if(history.open&&!loaded)return loadHistory();});
   box.append(newForm(),history);return box;
 }
-window.nodalPilot={t,el,tr,api,status,button,field,select,safeUrl,date,feedback,localized,hasLocalized,bind,dynamic,source,setPageTitle};
+window.nodalPilot={t,el,tr,api,status,button,field,select,safeUrl,recordingEmbed,recordingPreview,date,feedback,localized,hasLocalized,bind,dynamic,source,setPageTitle};
 window.nodalI18n?.onChange(translate);
 async function setup(){let pilot=true;try{const config=await api('/api/config');pilot=config.pilotMode!==false;}catch{}document.documentElement.dataset.pilot=String(pilot);if(pilot){const notice=el('div','pilot-notice');notice.append(tr('strong','prototype'),tr('span','notice'));const dashboardWork=document.querySelector('.dash-page .work'),header=document.querySelector('.pilot-header,.navbar');if(dashboardWork)dashboardWork.prepend(notice);else if(header)header.after(notice);else document.body.prepend(notice);}
 const nav=document.querySelector('.pilot-header nav,.side-nav,.nav-main');

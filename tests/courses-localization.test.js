@@ -35,6 +35,23 @@ test('course and module translations retain base fallbacks and validate their al
   assert.throws(()=>normalizeModule({title:'Module',resources:[{title:'Slides',url:'https://example.test/slides',translations:{pt:{url:'https://evil.test'}}}]}));
 });
 
+test('activity resources retain their kind and localized title after saving and unrelated module edits',async t=>{
+  const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
+  const store=createCourseStore({db}),stamp=new Date().toISOString(),courseId=randomUUID(),moduleId=randomUUID();
+  await store.insert('courses',{id:courseId,...normalizeCourse({title:'Course'}),createdAt:stamp,updatedAt:stamp});
+  const resources=[{title:' Field activity ',kind:'activity',url:'https://example.test/activity',translations:{es:{title:' Actividad de campo '},pt:{title:'Atividade de campo'}}}];
+  const normalized=normalizeModule({title:'Session',resources});
+  const expected=[{title:'Field activity',kind:'activity',url:'https://example.test/activity',translations:{es:{title:'Actividad de campo'},pt:{title:'Atividade de campo'}}}];
+  assert.deepEqual(normalized.resources,expected);
+  await store.insert('modules',{id:moduleId,courseId,...normalized,version:1,createdAt:stamp,updatedAt:stamp});
+  const [saved]=await store.find('modules',{id:moduleId});
+  assert.deepEqual(saved.resources,expected);
+  await store.update('modules',{id:moduleId},normalizeModule({instructions:'Updated activity instructions'},saved));
+  const [reloaded]=await createCourseStore({db}).find('modules',{id:moduleId});
+  assert.equal(reloaded.instructions,'Updated activity instructions');
+  assert.deepEqual(reloaded.resources,expected);
+});
+
 test('SQLite upgrades existing course tables without losing staff edits and persists localized content',async t=>{
   const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
   createCourseStore({db});

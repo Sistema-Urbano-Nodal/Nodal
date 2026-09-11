@@ -127,14 +127,15 @@ function securityHeaders(headers = {}) {
   return h;
 }
 
-function contentSecurityPolicy(env = process.env) {
+function contentSecurityPolicy(env = process.env, courseRecordings = false) {
   const directives = [...BASE_CSP];
+  if (courseRecordings) directives.push('frame-src https://drive.google.com https://www.youtube-nocookie.com https://player.vimeo.com');
   if (env.NODE_ENV === 'production') directives.push('upgrade-insecure-requests');
   return directives.join('; ');
 }
 
-function htmlSecurityHeaders(headers = {}) {
-  return securityHeaders({ 'Content-Security-Policy': contentSecurityPolicy(), ...headers });
+function htmlSecurityHeaders(headers = {}, courseRecordings = false) {
+  return securityHeaders({ 'Content-Security-Policy': contentSecurityPolicy(process.env, courseRecordings), ...headers });
 }
 
 function safeNext(value) {
@@ -752,7 +753,7 @@ async function serveStatic(req, res, canonical) {
 
   try {
     const data = await fs.readFile(filePath);
-    const headers = type.startsWith('text/html') ? htmlSecurityHeaders() : securityHeaders();
+    const headers = type.startsWith('text/html') ? htmlSecurityHeaders({}, canonical === '/course.html') : securityHeaders();
     res.writeHead(200, {
       ...headers,
       ...(canonical==='/dashboard.html'?{'Permissions-Policy':'camera=(), microphone=(), geolocation=(self), payment=()'}:{}),

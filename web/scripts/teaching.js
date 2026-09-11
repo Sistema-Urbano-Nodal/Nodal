@@ -56,7 +56,7 @@ function makeEditor(record,module,courseId,onSaved){
     const resources=el('div'),rows=el('div');resources.append(tr('h3','resources'));
     function add(r={}){
       if(r.attachmentId&&resourceInputs.some(entry=>entry.attachmentId===r.attachmentId))return;
-      const row=el('div','pilot-resource-edit'),title=field('title',r.title||''),url=field('url',r.url||'','url'),kind=select('kind',['slides','reading','link','recording'],r.kind||'link');
+      const row=el('div','pilot-resource-edit'),title=field('title',r.title||''),url=field('url',r.url||'','url'),kind=select('kind',['slides','reading','link','recording','activity'],r.kind||'link');
       title.input.required=true;url.input.required=!r.attachmentId;title.input.maxLength=180;url.input.maxLength=2000;
       const translated=translationEditor(r,['title']),details=el('details');details.append(tr('summary','translations'),translated.section);
       const entry={title:title.input,url:url.input,attachmentId:r.attachmentId,kind:kind.input,translations:translated.value};resourceInputs.push(entry);

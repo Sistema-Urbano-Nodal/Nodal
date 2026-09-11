@@ -68,7 +68,7 @@ test('assignment, private upload, reply, idempotency, moderation and staff repor
  let report=await(await call(`/api/admin/courses/${course.id}/report`,{actor:'staff'})).json();assert.equal(report.summary.assignments,1);assert.equal(report.summary.comments,1);assert.equal(report.summary.contentOpens,1);assert.equal(report.feedback.length,1);
  const exported=await call(`/api/admin/courses/${course.id}/export?type=intake`,{actor:'staff'});assert.match(await exported.text(),/Lima/);
  assert.equal((await call(`/api/admin/courses/${course.id}/posts/${post.id}`,{actor:'staff',method:'DELETE'})).status,200);
- const posts=(await(await call(path+'/posts')).json()).posts;assert.equal(posts[0].body,'');assert.equal(posts[0].deleted,true);assert.equal(posts[1].parentId,post.id);
+ const posts=(await(await call(path+'/posts')).json()).posts;assert.equal(posts.length,1);assert.equal(posts[0].body,'Useful observation');assert.equal(posts[0].parentId,post.id);
  assert.equal((await call(`/api/course-attachments/${attachment.id}`,{actor:'other'})).status,404);
 });
 
@@ -155,7 +155,23 @@ test('filtered newest-first history keeps assignment replies, detects changes be
  const second=await(await call(path+'?kind=discussion&order=desc&cursor='+first.nextCursor)).json();assert.equal(second.posts.length,2);assert.equal(new Set([...first.posts,...second.posts].map(p=>p.id)).size,32);
  const latest=await(await call(path+'?latest=1&kind=discussion')).json();assert.equal(latest.posts[0].body,'Question 31');assert.equal(latest.nextCursor,null);
  await call(`/api/admin/courses/${course.id}/posts/${latest.posts[0].id}`,{actor:'staff',method:'DELETE'});
- const moderated=await(await call(path+'?latest=1&kind=discussion')).json();assert.ok(moderated.revision>latest.revision);assert.equal(moderated.posts[0].deleted,true);
+ const moderated=await(await call(path+'?latest=1&kind=discussion')).json();assert.ok(moderated.revision>latest.revision);assert.equal(moderated.posts[0].body,'Question 30');assert.equal(moderated.posts[0].deleted,false);
+});
+
+test('removed contributions do not consume history pages and surviving replies remain visible',async t=>{
+ const {call,course,module,enter,store,users}=await setup(t);await enter();await enter('other');
+ const path=`/api/courses/${course.id}/modules/${module.id}/posts`,ids=Array.from({length:64},()=>randomUUID());
+ for(let i=0;i<ids.length;i++)await store.insert('posts',{id:ids[i],courseId:course.id,moduleId:module.id,userId:i===1?users.other.id:users.student.id,authorName:i===1?'Other member':'Student',staff:false,clientId:randomUUID(),parentId:i===1?ids[0]:null,kind:i===1?'comment':'question',threadKind:'discussion',body:i%2?`Surviving ${i}`:'',links:[],attachmentIds:[],deletedAt:i%2?null:'2030-01-02T00:00:00.000Z',createdAt:new Date(Date.UTC(2030,0,1,0,0,i)).toISOString()});
+ const first=await(await call(path+'?kind=discussion&order=desc')).json();
+ assert.equal(first.posts.length,30);assert.equal(first.posts[0].id,ids[63]);assert.equal(first.posts.at(-1).id,ids[5]);assert.ok(first.nextCursor);assert.ok(first.posts.every(post=>!post.deleted));
+ const second=await(await call(path+'?kind=discussion&order=desc&cursor='+first.nextCursor)).json();
+ assert.deepEqual(second.posts.map(post=>post.id),[ids[3],ids[1]]);assert.equal(second.nextCursor,null);assert.equal(new Set([...first.posts,...second.posts].map(post=>post.id)).size,32);
+ const reply=second.posts[1];assert.equal(reply.parentId,ids[0]);assert.equal(reply.body,'Surviving 1');assert.equal(reply.canEdit,false);assert.equal(reply.canDelete,false);
+ const replyOwner=await(await call(path+'?kind=discussion&order=desc&cursor='+first.nextCursor,{actor:'other'})).json();assert.equal(replyOwner.posts[1].canEdit,true);assert.equal(replyOwner.posts[1].canDelete,true);
+ const oldest=await(await call(path+'?kind=discussion')).json();assert.equal(oldest.posts.length,30);assert.equal(oldest.posts[0].id,ids[1]);assert.ok(oldest.posts.every(post=>!post.deleted));
+ await store.update('posts',{courseId:course.id,moduleId:module.id,deletedAt:null},{body:'',deletedAt:'2030-01-03T00:00:00.000Z'});
+ for(const suffix of ['?kind=discussion&order=desc','?kind=discussion&latest=1']){const empty=await(await call(path+suffix)).json();assert.deepEqual(empty.posts,[]);assert.equal(empty.nextCursor,null);assert.ok(empty.revision>first.revision);}
+ assert.equal(await store.count('posts',{courseId:course.id,moduleId:module.id}),64,'internal tombstones preserve reply relationships');
 });
 
 test('official material erasure is explicit, retryable, and serialized against resource publication',async t=>{
@@ -216,8 +232,8 @@ test('owners edit only post text and can delete questions, assignments and repli
  }
  const revision=(await(await call(path)).json()).revision;
  assert.equal((await call(own(posts[0].id),{method:'DELETE',body:{}})).status,200);
- let view=await(await call(path)).json();const deleted=view.posts.find(p=>p.id===posts[0].id),reply=view.posts.find(p=>p.id===posts[2].id);
- assert.deepEqual((await(await call(own(deleted.id))).json()).post,deleted);assert.equal(deleted.deleted,true);assert.equal(deleted.canEdit,false);assert.equal(deleted.canDelete,false);assert.equal(deleted.body,'');assert.deepEqual(deleted.attachments,[]);assert.deepEqual(deleted.links,[]);
+ let view=await(await call(path)).json();const reply=view.posts.find(p=>p.id===posts[2].id);
+ assert.equal(view.posts.some(p=>p.id===posts[0].id),false);const deleted=(await(await call(own(posts[0].id))).json()).post;assert.equal(deleted.deleted,true);assert.equal(deleted.canEdit,false);assert.equal(deleted.canDelete,false);assert.equal(deleted.body,'');assert.deepEqual(deleted.attachments,[]);assert.deepEqual(deleted.links,[]);
  assert.equal(reply.body,'Edited comment');assert.equal(reply.parentId,deleted.id);assert.ok(view.revision>revision);
  assert.equal((await call(`/api/course-attachments/${upload.attachment.id}`,{actor:'other'})).status,404);
  assert.equal((await call(own(deleted.id),{method:'PATCH',body:{body:'Resurrection',expectedBody:''}})).status,404);

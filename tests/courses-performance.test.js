@@ -132,7 +132,7 @@ test('attachment-heavy discussion pages use one bounded lookup and retain per-po
  let singleReads=0,batchReads=0;
  const store={find:async(name,filter)=>{
   if(name==='courses')return[course];if(name==='modules')return[{id:MODULE,courseId:COURSE,status:'published',postsRevision:1}];
-  if(name==='enrollments')return[{userId:MEMBER}];if(name==='intakes')return[{answers:{fullName:'Member'}}];if(name==='posts')return posts;
+  if(name==='enrollments')return[{userId:MEMBER}];if(name==='intakes')return[{answers:{fullName:'Member'}}];if(name==='posts')return posts.filter(post=>Object.entries(filter).every(([key,value])=>post[key]===value));
   if(name==='attachments'){singleReads++;return files.filter(file=>Object.entries(filter).every(([key,value])=>file[key]===value));}return[];
  },getPostAttachments:async({ids,courseId,moduleId})=>{batchReads++;assert.equal(ids.length,90);assert.equal(courseId,COURSE);assert.equal(moduleId,MODULE);return files;}};
  const result=await invoke(createCourseApi({store}),`/api/courses/${COURSE}/modules/${MODULE}/posts`,{id:MEMBER,permission:'member'});
@@ -141,7 +141,7 @@ test('attachment-heavy discussion pages use one bounded lookup and retain per-po
  assert.equal(result.body.posts[2].attachments.length,3);assert.equal(result.body.posts[2].attachments[0].userId,undefined);
  posts.forEach(post=>{post.deletedAt=stamp;});
  const deleted=await invoke(createCourseApi({store}),`/api/courses/${COURSE}/modules/${MODULE}/posts`,{id:MEMBER,permission:'member'});
- assert.equal(batchReads,1);assert.ok(deleted.body.posts.every(post=>post.deleted&&!post.canEdit&&post.attachments.length===0));
+ assert.equal(batchReads,1);assert.deepEqual(deleted.body.posts,[]);
 });
 
 test('discussion batch projection resolves mixed-case UUID references without changing exact fetch IDs',async()=>{

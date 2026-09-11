@@ -1,12 +1,12 @@
 (() => {
 'use strict';
-const {t,el,tr,api,status,button,field,select,safeUrl,date,feedback,localized,hasLocalized,dynamic,source,setPageTitle}=window.nodalPilot;
+const {t,el,tr,api,status,button,field,select,safeUrl,recordingPreview,date,feedback,localized,hasLocalized,dynamic,source,setPageTitle}=window.nodalPilot;
 const root=document.getElementById('pilotRoot'),msg=document.getElementById('pilotStatus');
 const courseId=new URLSearchParams(location.search).get('id');
 let snapshot,activeId,loadSequence=0,navigationSequence=0,navigationPending=false;
-let conversations=[],pageActive=true,pendingModuleId=null;
-function stopConversations(){conversations.forEach(view=>view.dispose());conversations=[];}
-window.addEventListener?.('pagehide',()=>{pageActive=false;conversations.forEach(view=>view.suspend());});
+let conversations=[],recordings=[],pageActive=true,pendingModuleId=null;
+function stopConversations(){conversations.forEach(view=>view.dispose());conversations=[];recordings.forEach(view=>view.close());recordings=[];}
+window.addEventListener?.('pagehide',()=>{pageActive=false;conversations.forEach(view=>view.suspend());recordings.forEach(view=>view.close());});
 window.addEventListener?.('pageshow',()=>{pageActive=true;conversations.forEach(view=>view.resume());});
 const base=()=>'/api/courses/'+encodeURIComponent(courseId);
 function textSection(key,record){const section=el('section');section.append(tr('h3',key),source('p',record,key));return section;}
@@ -95,23 +95,34 @@ async function openModule(id){
     head.append(source('h2',m,'title'),source('p',m,'description'));content.append(head);
     const materials=el('section','pilot-module-materials');
     if(hasLocalized(m,'objectives'))materials.append(textSection('objectives',m));
-    if(hasLocalized(m,'instructions'))materials.append(textSection('instructions',m));
     materials.append(tr('h3','resources'));
-    if(!m.resources?.length)materials.append(tr('p','noResources'));
-    for(const r of m.resources||[]){
-      const href=r.attachmentId?'/api/course-attachments/'+encodeURIComponent(r.attachmentId):safeUrl(r.url);if(!href)continue;
+    const activityFiles=(m.resources||[]).filter(r=>r.kind==='activity'&&m.kind!=='discussion');
+    const materialFiles=(m.resources||[]).filter(r=>!activityFiles.includes(r));
+    if(!materialFiles.length)materials.append(tr('p','noResources'));
+    function appendResource(container,r){
+      const href=r.attachmentId?'/api/course-attachments/'+encodeURIComponent(r.attachmentId):safeUrl(r.url);if(!href)return;
       const row=el('div','pilot-resource'),link=source('a',r,'title');link.href=href;
       if(!r.attachmentId){link.target='_blank';link.rel='noopener noreferrer';}
-      link.addEventListener('click',()=>{event(r.kind==='recording'?'recording_open':'content_open',id,r.url||href);showFeedback(r.kind==='recording'?'recording':'content',id);});
-      row.append(link,tr('span',r.attachmentId?'downloadFile':r.kind,'pilot-tag'));materials.append(row);
+      const opened=()=>{event(r.kind==='recording'?'recording_open':'content_open',id,r.url||href);showFeedback(r.kind==='recording'?'recording':'content',id);};
+      link.addEventListener('click',opened);
+      row.append(link,tr('span',r.attachmentId?'downloadFile':r.kind,'pilot-tag'));container.append(row);
+      if(r.kind==='recording'&&!r.attachmentId){const preview=recordingPreview(r,opened);if(preview){container.append(preview.element);recordings.push(preview);}}
     }
+    materialFiles.forEach(r=>appendResource(materials,r));
     const discussion=createConversation(id,sequence,'discussion'),assignments=m.kind==='discussion'?null:createConversation(id,sequence,'assignment');
+    if(assignments){
+      const activity=el('div','pilot-assignment-instructions');
+      if(hasLocalized(m,'instructions'))activity.append(textSection('instructions',m));
+      if(activityFiles.length){activity.append(tr('h3','activityResources'));activityFiles.forEach(r=>appendResource(activity,r));}
+      if(activity.children.length)assignments.element.prepend(activity);
+    }else if(hasLocalized(m,'instructions'))discussion.element.prepend(textSection('instructions',m));
     conversations=[discussion,...(assignments?[assignments]:[])];
     const panes=m.kind==='discussion'?{discussion:discussion.element,materials}:{materials,discussion:discussion.element,assignment:assignments.element};
     const labels={materials:'materialsView',discussion:'discussionView',assignment:'assignmentsView'};
     const tabs=el('div','pilot-tabs pilot-module-tabs');tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label',t('moduleViews'));tabs.dataset.pilotAria='moduleViews';
     const buttons={};
     async function activate(key){
+      if(key!=='materials')recordings.forEach(view=>view.close());
       for(const [name,pane] of Object.entries(panes)){pane.hidden=name!==key;buttons[name].setAttribute('aria-selected',String(name===key));buttons[name].tabIndex=name===key?0:-1;}
       const current=new URL(location.href);current.searchParams.set('view',key);history.replaceState(null,'',current);
       discussion.setActive(key==='discussion');assignments?.setActive(key==='assignment');
@@ -140,6 +151,10 @@ function createConversation(moduleId,sequence,kind){
   const alive=()=>!disposed&&sequence===loadSequence;
   const visible=()=>!navigationPending&&pageActive&&active&&document.visibilityState!=='hidden'&&alive();
   const signature=result=>result.revision??(result.posts?.[0]?.id||'empty');
+  function syncReplyLinks(){
+    const liveIds=new Set([...posts.children].filter(card=>card.isLivePost?.()).map(card=>card.id.slice(5)));
+    for(const card of posts.children)card.showParentLink?.(liveIds.has(card.parentPostId));
+  }
   function cancelPoll(){if(timer!==null&&typeof clearTimeout==='function')clearTimeout(timer);timer=null;pollController?.abort();pollController=null;}
   function schedule(){if(!visible()||loading||!loaded||hasUpdates||timer!==null||typeof setTimeout!=='function')return;timer=setTimeout(checkUpdates,Math.min(120000,30000*2**pollErrors));}
   async function checkUpdates(){
@@ -153,20 +168,30 @@ function createConversation(moduleId,sequence,kind){
     finally{if(pollController===controller)pollController=null;schedule();}
   }
   async function loadPosts(reset,notice){
-    if(!alive())return;if(loading){refreshPending=refreshPending||reset;return;}
+    if(!alive())return;syncReplyLinks();if(loading){refreshPending=refreshPending||reset;return;}
     loading=true;cancelPoll();more.disabled=true;refresh.disabled=true;
     try{
       const params=new URLSearchParams({kind,order:'desc'});if(!reset&&cursor)params.set('cursor',cursor);
       const result=await api(base()+'/modules/'+moduleId+'/posts?'+params,undefined,undefined,{redirectOnUnauthorized:false});if(!alive())return;
       if(!Array.isArray(result.posts))throw new Error(t('error'));
       const drafts=new Map(reset?[...posts.children].filter(card=>card.hasDraft?.()).map(card=>[card.id.slice(5),card]):[]);
+      // A draft absent from this page may be older or deleted. Check its own
+      // version before preserving the editor so removed text is not republished.
+      await Promise.all([...drafts].filter(([id])=>!result.posts.some(post=>post.id===id)).map(async([id,card])=>{
+        try{const current=await api(base()+'/posts/'+encodeURIComponent(id),undefined,undefined,{redirectOnUnauthorized:false});if(alive()&&card.hasDraft()&&current.post?.id===id)card.updatePost(current.post);}catch{/* Preserve unsaved text if its current version is unavailable. */}
+      }));
+      if(!alive())return;
+      for(const [id,card] of drafts)if(!card.hasDraft())drafts.delete(id);
       if(reset){posts.replaceChildren();known.clear();baseline=signature(result);hasUpdates=false;status(updates,notice?t(notice):'');status(msg,'');}
       for(const post of result.posts){
+        if(post.deleted){drafts.get(post.id)?.updatePost(post);continue;}
         if(known.has(post.id))continue;known.add(post.id);
         const existing=drafts.get(post.id);
         if(existing){existing.updatePost(post);posts.append(existing);drafts.delete(post.id);}else posts.append(renderPost(post,composer,loadPosts,alive));
       }
       for(const [id,card] of drafts){posts.append(card);known.add(id);}
+      syncReplyLinks();
+      posts.querySelector('.pilot-empty')?.remove();
       if(!known.size)posts.append(tr('p',kind==='assignment'?'noAssignments':'noPosts','pilot-empty'));
       cursor=result.nextCursor;more.hidden=!cursor;loaded=true;
     }catch(err){if(!alive())return;status(msg,err);if(!known.size){const retry=button('retry',()=>{retry.remove();return loadPosts(true);},true);posts.append(retry);}}
@@ -180,9 +205,10 @@ function createConversation(moduleId,sequence,kind){
 function renderPost(initial,composer,reload,alive){
   let p=initial,editor=null,busy=false;
   const card=el('article','pilot-post'+(p.parentId?' reply':''));card.id='post-'+p.id;
+  card.isLivePost=()=>!p.deleted;
   const author=el('strong',null,p.authorName||''),staffTag=tr('span','staff','pilot-tag');staffTag.hidden=!p.staff;card.append(author,staffTag);
   card.append(dynamic('small',()=>new Date(p.createdAt).toLocaleString(window.nodalI18n?.lang||'en')));
-  if(p.parentId){const parent=tr('a','replying');parent.href='#post-'+p.parentId;card.append(el('br'),parent);}
+  if(p.parentId){const parent=tr('a','replying'),line=el('br');parent.href='#post-'+p.parentId;card.parentPostId=p.parentId;card.showParentLink=visible=>{parent.hidden=!visible;line.hidden=!visible;};card.append(line,parent);}
   const body=el('p'),links=el('ul'),actions=el('div','pilot-post-actions'),local=el('p','pilot-status');local.setAttribute('role','status');
   card.append(tr('div',p.kind,'pilot-date'),body,links,actions,local);
   const reply=button('reply',()=>{if(!busy)composer.replyTo(p);},true);
@@ -225,23 +251,23 @@ function renderPost(initial,composer,reload,alive){
     if(busy||!p.canDelete||!alive()||!confirm(t('confirmDeleteOwnPost')))return;setBusy(true);
     try{
       await api(base()+'/posts/'+encodeURIComponent(p.id),{},'DELETE',{redirectOnUnauthorized:false});if(!alive())return;
-      closeEditor();card.updatePost({...p,deleted:true,body:'',links:[],attachments:[],canEdit:false,canDelete:false});status(local,t('postDeleted'));await reload(true,'postDeleted');
+      closeEditor();card.remove();await reload(true,'postDeleted');
     }catch(err){if(alive())status(local,err);}finally{setBusy(false);}
   },true);
   const moderate=button('moderate',async()=>{
     if(busy||!alive()||!confirm(t('confirmDelete')))return;setBusy(true);
-    try{await api('/api/admin/courses/'+courseId+'/posts/'+p.id,{},'DELETE',{redirectOnUnauthorized:false});if(alive())await reload(true);}catch(err){if(alive())status(local,err);}finally{setBusy(false);}
+    try{await api('/api/admin/courses/'+courseId+'/posts/'+p.id,{},'DELETE',{redirectOnUnauthorized:false});if(alive()){closeEditor();card.remove();await reload(true);}}catch(err){if(alive())status(local,err);}finally{setBusy(false);}
   },true);
   actions.append(reply,edit,remove,moderate);
-  function showCurrent(){if(editor){editor.comparison.hidden=false;editor.currentText.textContent=p.deleted?t('deleted'):p.body;}}
-  function closeEditor(){if(editor){editor.form.remove();editor=null;}edit.hidden=!p.canEdit;}
+  function showCurrent(){if(editor){editor.comparison.hidden=p.deleted;editor.currentText.textContent=p.deleted?'':p.body;}}
+  function closeEditor(){if(editor){editor.form.remove();editor=null;}edit.hidden=!p.canEdit;if(p.deleted)card.remove();}
   function setBusy(value){
     busy=value;card.setAttribute('aria-busy',String(value));for(const control of [reply,edit,remove,moderate])control.disabled=value;
     if(editor){editor.form.setAttribute('aria-busy',String(value));for(const control of [editor.input,editor.cancel,editor.review])control.disabled=value;editor.save.disabled=value||editor.blocked;}
   }
   card.hasDraft=()=>Boolean(editor);
   card.updatePost=next=>{
-    p=next;author.textContent=p.authorName||'';staffTag.hidden=!p.staff;body.textContent=p.deleted?t('deleted'):p.body;if(p.deleted)body.dataset.pilotText='deleted';else delete body.dataset.pilotText;
+    p=next;author.textContent=p.deleted?'':p.authorName||'';staffTag.hidden=p.deleted||!p.staff;body.textContent=p.deleted?'':p.body;
     links.replaceChildren();
     if(!p.deleted){
       for(const l of p.links||[]){const href=safeUrl(l.url);if(href){const li=el('li'),a=el('a',null,l.title||l.url);a.href=href;a.target='_blank';a.rel='noopener noreferrer';li.append(a);links.append(li);}}

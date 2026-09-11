@@ -320,7 +320,9 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       if(!adminPath&&operation==='/posts'&&req.method==='GET') {
         const kind=url.searchParams.get('kind');if(kind&&!['assignment','discussion'].includes(kind))fail('invalid post filter');
         const latest=url.searchParams.get('latest')==='1',desc=latest||url.searchParams.get('order')==='desc';
-        const filters={courseId,moduleId:module.id,...(kind?{threadKind:kind}:{})};
+        // Keep tombstones for reply integrity and owner conflict recovery, but
+        // exclude them before pagination so history pages contain live posts.
+        const filters={courseId,moduleId:module.id,deletedAt:null,...(kind?{threadKind:kind}:{})};
         const rows=await store.find('posts',filters,{limit:latest?1:31,desc,after:latest?null:decodeCursor(url.searchParams.get('cursor'))});
         const page=rows.slice(0,latest?1:30);
         send(res,200,{posts:await postPageView(page,user,module),nextCursor:!latest&&rows.length>30?encodeCursor(page.at(-1)):null,revision:module.postsRevision});return true;

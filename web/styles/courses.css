@@ -5,7 +5,7 @@ html:not([data-pilot="false"]) [data-billing-price],
 html:not([data-pilot="false"]) .membership-support,
 html[data-pilot="false"] [data-pilot-only]{display:none!important}
 
-.pilot-page{margin:0;background:#fff;color:#293e25;font:400 14px/1.65 Montserrat,sans-serif;--line:#dde4da;--muted:#64725f;--green:#3d5c38}
+.pilot-page{margin:0;background:#fff;color:#293e25;font:400 14px/1.65 Montserrat,sans-serif;--line:#dde4da;--muted:#5f6b6e;--green:#3d5c38;--section-tone:#415e68}
 .pilot-page *{box-sizing:border-box}
 .pilot-page [hidden]{display:none!important}
 .pilot-page a{color:var(--green);text-underline-offset:4px}
@@ -13,8 +13,8 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-page :focus-visible{outline:2px solid #448337;outline-offset:4px}
 .pilot-page button:disabled{opacity:.5;cursor:wait}
 .pilot-page p{white-space:pre-wrap;max-width:72ch}
-.pilot-page h2{font-size:23px;line-height:1.35;font-weight:600;letter-spacing:-.45px;margin:0 0 16px}
-.pilot-page h3{font-size:15px;line-height:1.45;font-weight:650;margin:0 0 14px}
+.pilot-page h2{color:var(--green);font-size:23px;line-height:1.35;font-weight:600;letter-spacing:-.45px;margin:0 0 16px}
+.pilot-page h3{color:var(--section-tone);font-size:16px;line-height:1.45;font-weight:600;margin:0 0 14px}
 .pilot-page summary{cursor:pointer}
 .pilot-skip{position:absolute;left:16px;top:-100px}
 .pilot-skip:focus{top:10px;background:white;padding:8px;z-index:5}
@@ -36,9 +36,9 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-hero p{font-size:15px;color:var(--muted);line-height:1.75}
 .pilot-hero .pilot-context{font-size:12px;color:#3d5c38;font-weight:600;margin-bottom:18px}
 .pilot-course-hero{max-width:none;margin-bottom:36px;padding-bottom:26px;border-bottom:1px solid var(--line)}
-.pilot-course-hero h1{font-size:clamp(27px,3vw,38px);max-width:920px;margin:18px 0 12px}
+.pilot-course-hero h1{color:var(--green);font-size:clamp(27px,3vw,38px);font-weight:600;max-width:920px;margin:18px 0 12px}
 .pilot-course-hero>p{font-size:14px;max-width:85ch;margin:0}
-.pilot-course-meta{display:flex;align-items:center;gap:24px;font-size:12px}
+.pilot-course-meta{display:flex;align-items:center;gap:24px;font-size:12px;color:var(--muted)}
 .pilot-course-meta a{text-decoration:none;font-weight:600}
 .pilot-course-hero .pilot-actions{margin:20px 0 0;gap:20px}
 .pilot-directory{border-top:1px solid var(--line)}
@@ -56,7 +56,7 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-course-hero .pilot-actions button{padding:0;border:0;border-radius:0;font-size:11px;text-decoration:underline!important;text-underline-offset:4px}
 .pilot-workspace{display:grid;grid-template-columns:235px minmax(0,1fr);gap:64px;align-items:start}
 .pilot-route{position:sticky;top:28px}
-.pilot-route h2{font-size:13px;font-weight:650;letter-spacing:0;margin-bottom:24px}
+.pilot-route h2{color:var(--section-tone);font-size:13px;font-weight:650;letter-spacing:0;margin-bottom:24px}
 .pilot-route ol{list-style:none;padding:0;margin:0}
 .pilot-route li{position:relative;border-left:1px solid #cdd8c8;padding:0 0 10px 18px;margin-left:4px}
 .pilot-route li:last-child{padding-bottom:0}
@@ -66,7 +66,7 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-route button[aria-current="step"]{color:#293e25;background:#f2f6ef}
 .pilot-session-number{font-size:11px;padding-top:1px;font-weight:500}
 .pilot-session-title{font-size:12px;font-weight:600}
-.pilot-route small{grid-column:2;font-size:11px;font-weight:400;color:#65715e}
+.pilot-route small{grid-column:2;font-size:11px;font-weight:400;color:var(--muted)}
 .pilot-progress{font-size:11px;color:var(--muted);border-top:1px solid var(--line);padding-top:16px;margin:28px 0 0;line-height:1.7}
 .pilot-progress strong{display:block;font-size:11px;font-weight:600}
 .pilot-progress p{margin:8px 0 0}
@@ -74,11 +74,11 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-content>section{padding:26px 0;border-bottom:1px solid var(--line)}
 .pilot-content>section:first-child{padding-top:0}
 .pilot-content>section>p{font-size:14px;line-height:1.85;margin:0;color:#4e5e47}
-.pilot-module-heading .pilot-date{margin:0 0 12px}
-.pilot-module-heading h2{font-size:30px;font-weight:550;letter-spacing:-.8px;margin-bottom:18px}
+.pilot-module-heading .pilot-date{color:var(--section-tone);margin:0 0 12px}
+.pilot-module-heading h2{font-size:30px;font-weight:600;letter-spacing:-.8px;margin-bottom:18px}
 .pilot-resource{display:flex;gap:20px;justify-content:space-between;align-items:baseline;padding:12px 0;border-top:1px solid #edf0ea}
 .pilot-resource a{font-size:13px;font-weight:550;text-decoration:underline}
-.pilot-resource .pilot-tag{font-size:11px;color:#65715e}
+.pilot-resource .pilot-tag{font-size:11px;color:var(--muted)}
 .pilot-empty{padding:22px 0;color:var(--muted);font-size:13px;max-width:65ch}
 .pilot-intake{max-width:800px;border-top:2px solid #3d5c38;padding:25px 0;margin-bottom:36px}
 .pilot-intake>p{font-size:13px;color:var(--muted);margin-bottom:26px}
@@ -102,7 +102,7 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-post{padding:22px 0;border-bottom:1px solid #e5ebe1;overflow-wrap:anywhere;font-size:13px}
 .pilot-post strong{font-size:12px;font-weight:650}
 .pilot-post>.pilot-tag{margin-left:10px;padding:1px 7px;background:#f0f5ed;font-size:11px}
-.pilot-post>small{display:block;color:#65715e;font-size:11px;margin:3px 0}
+.pilot-post>small{display:block;color:var(--muted);font-size:11px;margin:3px 0}
 .pilot-post>.pilot-date{font-size:11px;color:#5e7755;margin-top:10px}
 .pilot-post p{margin:8px 0 10px;line-height:1.85;max-width:70ch}
 .pilot-post ul{padding-left:18px;margin:8px 0}
@@ -153,10 +153,10 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-teaching-course h2{font-size:26px;letter-spacing:-.6px;max-width:30ch;margin:8px 0 0}
 .pilot-teaching-course>.pilot-text-link{font-size:11px;white-space:nowrap;margin-top:5px}
 .pilot-tabs{display:flex;gap:28px;border-bottom:1px solid #becdb6;margin-bottom:30px}
-.pilot-tabs>.pilot-button{border:0;border-bottom:2px solid transparent;border-radius:0;padding:10px 0 13px;margin-bottom:-1px;background:none;color:#75826d!important;font-size:12px;font-weight:500}
+.pilot-tabs>.pilot-button{border:0;border-bottom:2px solid transparent;border-radius:0;padding:10px 0 13px;margin-bottom:-1px;background:none;color:var(--muted)!important;font-size:12px;font-weight:500}
 .pilot-tabs>.pilot-button[aria-selected="true"]{border-bottom-color:#3d5c38;color:#293e25!important;font-weight:650}
 .pilot-section-heading{display:flex;justify-content:space-between;align-items:baseline;gap:20px;margin:0 0 22px}
-.pilot-section-heading h2{font-size:18px;font-weight:600;margin:0;letter-spacing:-.2px}
+.pilot-section-heading h2{color:var(--section-tone);font-size:18px;font-weight:600;margin:0;letter-spacing:-.2px}
 .pilot-export-link{font-size:11px;font-weight:550;white-space:nowrap;text-decoration:underline;text-underline-offset:4px}
 .pilot-response-filters{display:grid;grid-template-columns:1fr 185px;gap:18px;margin-bottom:20px;max-width:690px}
 .pilot-response-filters label{display:grid;gap:7px;font-size:11px;color:#687760}
@@ -178,7 +178,7 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-table dl{max-width:500px;padding:10px 0}
 .pilot-table dd{margin:0 0 14px;white-space:pre-wrap;overflow-wrap:anywhere}
 .pilot-table dt{font-weight:600;margin-bottom:4px;font-size:11px}
-.pilot-data-note{font-size:11px;color:#65715e;line-height:1.7;margin:18px 0}
+.pilot-data-note{font-size:11px;color:var(--muted);line-height:1.7;margin:18px 0}
 .pilot-section-footer{display:flex;align-items:baseline;flex-wrap:wrap;gap:10px 25px;padding-top:10px}
 .pilot-activity-summary{border-top:1px solid #cdd8c8;padding:18px 0;margin-top:32px}
 .pilot-activity-summary>summary{font-size:11px;color:#627458}
@@ -210,7 +210,7 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 
 /* Course conversations use the same ruled workspace as session materials. */
 .pilot-course-community{border-top:2px solid #45623b;border-bottom:1px solid #cdd8c8;padding:16px 0;margin-bottom:28px}
-.pilot-route .pilot-course-community h2{margin:0 0 8px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#66765e}
+.pilot-route .pilot-course-community h2{margin:0 0 8px;font-size:13px;letter-spacing:0;color:var(--section-tone)}
 .pilot-route .pilot-course-community button{display:block;width:100%;padding:12px 10px;text-align:left;border:0;border-left:2px solid transparent;border-radius:0;font-size:13px;font-weight:550}
 .pilot-route .pilot-course-community button[aria-current]{border-left-color:#45623b;background:#edf2e8}
 .pilot-module-tabs{margin:8px 0 0;overflow-x:auto;gap:28px}
@@ -223,6 +223,16 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-conversation-updates:empty{display:none}
 .pilot-module-materials>section{margin-bottom:30px}
 .pilot-module-materials p{white-space:pre-wrap;line-height:1.8;font-size:13px}
+.pilot-assignment-instructions{margin:0 0 28px;padding:0 0 24px;border-bottom:1px solid var(--line)}
+.pilot-assignment-instructions p{white-space:pre-wrap;font-size:14px;line-height:1.8;max-width:72ch}
+.pilot-recording{margin:0 0 24px}
+.pilot-recording-preview{position:relative;aspect-ratio:16/9;width:100%;background:#f2f6ef;border:1px solid var(--line)}
+.pilot-recording-preview>.pilot-recording-trigger{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;width:100%;height:100%;padding:20px;border:0;background:transparent;color:var(--green);cursor:pointer;text-align:center;font-size:14px;font-weight:600}
+.pilot-recording-trigger:before{content:'';width:0;height:0;border-top:14px solid transparent;border-bottom:14px solid transparent;border-left:22px solid currentColor;margin-left:5px}
+.pilot-recording-trigger:hover{background:#e8eee4}
+.pilot-recording-trigger:focus-visible{outline-offset:-5px}
+.pilot-recording-player,.pilot-recording-player iframe{display:block;width:100%;height:100%;aspect-ratio:16/9;border:0}
+.pilot-recording>.pilot-button{margin-top:10px;font-size:12px}
 .pilot-file-manager{border-top:1px solid #cdd8c8;margin-top:24px;padding:20px 0}
 .pilot-file-manager>summary{font-size:12px;font-weight:600}
 .pilot-file-manager>label{display:grid;gap:10px;margin:18px 0;font-size:11px}
