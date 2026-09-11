@@ -198,7 +198,20 @@ function feedback(action,context={}) {
 }
 window.nodalPilot={t,el,tr,api,status,button,field,select,safeUrl,recordingEmbed,recordingPreview,date,feedback,localized,hasLocalized,bind,dynamic,source,setPageTitle};
 window.nodalI18n?.onChange(translate);
-async function setup(){let pilot=true;try{const config=await api('/api/config');pilot=config.pilotMode!==false;}catch{}document.documentElement.dataset.pilot=String(pilot);if(pilot){const notice=el('div','pilot-notice');notice.append(tr('strong','prototype'),tr('span','notice'));const dashboardWork=document.querySelector('.dash-page .work'),header=document.querySelector('.pilot-header,.navbar');if(dashboardWork)dashboardWork.prepend(notice);else if(header)header.after(notice);else document.body.prepend(notice);}
+function showPilot(pilot){
+  document.documentElement.dataset.pilot=String(pilot);
+  let notice=document.querySelector('[data-pilot-banner]');
+  if(!notice&&pilot){
+    notice=el('div','pilot-notice');notice.dataset.pilotBanner='';
+    notice.append(tr('strong','prototype'),tr('span','notice'));
+    const dashboardWork=document.querySelector('.dash-page .work'),header=document.querySelector('.pilot-header,.navbar');
+    if(dashboardWork)dashboardWork.prepend(notice);else if(header)header.after(notice);else document.body.prepend(notice);
+  }
+  if(notice)notice.hidden=!pilot;
+}
+function setup(){
+const configured=document.documentElement.dataset.pilot;
+showPilot(configured!=='false');
 const nav=document.querySelector('.pilot-header nav,.side-nav,.nav-main');
 if(nav&&!nav.querySelector('[href="courses.html"]')){
   const sidebar=nav.classList.contains('side-nav'),a=sidebar?el('a','side-link'):tr('a','courses','pilot-course-link');
@@ -212,6 +225,10 @@ if(nav&&!nav.querySelector('[href="courses.html"]')){
   }
   a.href='courses.html';nav.append(a);
 }
-translate();}
+translate();
+// Current pages receive this flag with their HTML. Legacy/static previews can
+// still resolve it, but navigation and localization never wait on the network.
+if(configured!=='true'&&configured!=='false')api('/api/config').then(config=>showPilot(config.pilotMode!==false)).catch(()=>{});
+}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',setup);else setup();
 })();

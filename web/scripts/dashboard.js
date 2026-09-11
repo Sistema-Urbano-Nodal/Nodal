@@ -945,6 +945,7 @@
   const userDialog = byId('userDialog');
   const userForm = byId('userForm');
   let openUserDialog = () => {};
+  let relabelUserDialog = () => {};
   const uc = {
     name: byId('ucName'),
     city: byId('ucCity'),
@@ -1009,14 +1010,18 @@
     const ucTitle = byId('ucTitle');
     const ucSub = byId('ucSub');
     const ucSubmit = byId('ucSubmit');
+    let editing = false;
+    relabelUserDialog = () => {
+      if (ucTitle) ucTitle.textContent = t(editing ? 'd.uc.titleEdit' : 'd.uc.titleNew');
+      if (ucSub) ucSub.textContent = t(editing ? 'd.uc.subEdit' : 'd.uc.subNew');
+      if (ucSubmit && !ucSubmit.disabled) ucSubmit.textContent = t(editing ? 'd.uc.submitSave' : 'd.uc.submitCreate');
+    };
     openUserDialog = () => {
       if (!U) return;
       uc.error.hidden = true;
       // members edit in place; a fresh account completes its profile first
-      const editing = Boolean(U.city && U.role && U.topics.length);
-      if (ucTitle) ucTitle.textContent = t(editing ? 'd.uc.titleEdit' : 'd.uc.titleNew');
-      if (ucSub) ucSub.textContent = t(editing ? 'd.uc.subEdit' : 'd.uc.subNew');
-      if (ucSubmit) ucSubmit.textContent = t(editing ? 'd.uc.submitSave' : 'd.uc.submitCreate');
+      editing = Boolean(U.city && U.role && U.topics.length);
+      relabelUserDialog();
       if (uc.dataControls) uc.dataControls.hidden = !editing;
       uc.name.value = U.name;
       uc.city.value = U.city;
@@ -1453,7 +1458,12 @@
   });
 
   I18N?.onChange(() => {
+    if (userDialog?.open) relabelUserDialog();
     applyAll();
+    // Invalidate the previous locale immediately, before the next debounce.
+    clearTimeout(catalogTimer);
+    catalogAbort?.abort();
+    catalogSequence += 1;
     catalogReady = false;
     catalogQuery = '';
     if (searchInput?.value.trim().length >= 2 && activeScope() !== 'People') runSearch();

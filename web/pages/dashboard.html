@@ -4,16 +4,26 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'" />
+        content="default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <meta name="description" content="NODAL member console: your standing in the network, community paths, recognition and self-assessment." />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cline x1='20' y1='22' x2='44' y2='42' stroke='%2359bc53' stroke-width='5'/%3E%3Ccircle cx='20' cy='22' r='11' fill='%233d5c38'/%3E%3Ccircle cx='44' cy='42' r='8' fill='%2359bc53'/%3E%3C/svg%3E" />
   <title data-i18n="d.title">NODAL · Member console</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500;1,600&display=swap" rel="stylesheet" />
+
+  <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="fonts.css?v=20260911b" />
   <link rel="stylesheet" href="dashboard.css?v=35" />
   <link rel="stylesheet" href="courses.css?v=20260911a" />
+
+  <script defer src="i18n.js?v=20260911b"></script>
+  <script defer src="location-i18n.js?v=20260908c"></script>
+  <script defer src="location-check.js?v=20260908b"></script>
+  <script defer src="pilot-i18n.js?v=20260911a"></script>
+  <script defer src="pilot.js?v=20260911b"></script>
+  <script defer src="dashboard.js?v=20260911b"></script>
+  <script defer src="coastline.js?v=3"></script>
+  <script defer src="globe-geo.js?v=1"></script>
+  <script defer src="globe.js?v=27"></script>
 </head>
 <body class="dash-page">
 
@@ -72,6 +82,7 @@
 
   <!-- ===================== work surface ===================== -->
   <main class="work" id="work">
+    <div class="pilot-notice" data-pilot-banner hidden><strong data-pilot-text="prototype">Course pilot · Prototype</strong><span data-pilot-text="notice">We are testing this learning space together. Share feedback as you go.</span></div>
 
     <header class="topbar">
       <div class="search" role="search">
@@ -459,14 +470,5 @@
   </form>
 </dialog>
 
-<script src="i18n.js?v=42"></script>
-<script src="location-i18n.js?v=20260908c"></script>
-<script src="location-check.js?v=20260908b"></script>
-  <script src="pilot-i18n.js?v=20260911a"></script>
-  <script src="pilot.js?v=20260911a"></script>
-<script src="coastline.js?v=3"></script>
-<script src="globe-geo.js?v=1"></script>
-<script src="globe.js?v=27"></script>
-<script src="dashboard.js?v=28"></script>
 </body>
 </html>

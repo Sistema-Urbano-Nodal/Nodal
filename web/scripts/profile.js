@@ -16,6 +16,8 @@
     ['Environment & nature', 'environment'],
   ]);
   const topicLabel = (name) => (TOPIC_KEYS.has(name) ? t(`d.topic.${TOPIC_KEYS.get(name)}`) : name);
+  let currentProfile = null, profileFailed = false, networkPeople = [];
+  let signalsHost = document.querySelector('.pf-locked');
 
   const $ = (id) => document.getElementById(id);
   const set = (id, text) => { const node = $(id); if (node) node.textContent = text; };
@@ -50,7 +52,7 @@
   }
 
   function render(user, isSelf) {
-    document.title = `${user.fullName} · NODAL member profile`;
+    document.title = `${user.fullName} · ${t('p.title')}`;
     set('pfName', user.fullName);
     set('pfKicker', t(isSelf ? 'p.kickerSelf' : 'p.kicker'));
     set('pfRole', `${user.title}${user.city ? ` · ${user.city}` : ''}`);
@@ -125,7 +127,7 @@
       projects.replaceChildren(item);
     }
 
-    const locked = document.querySelector('.pf-locked');
+    const locked = signalsHost;
     if (locked) {
       const fresh = el('article', 'pf-card');
       const num = el('span', 'pf-num', 'P.03');
@@ -150,21 +152,23 @@
       });
       fresh.append(el('p', 'pf-quote', t(isSelf ? 'p.signalsSelf' : 'p.signalsOther')));
       locked.replaceWith(fresh);
+      signalsHost = fresh;
     }
 
     set('pfActConn', '0');
     set('pfActProj', '0');
     set('pfActCourses', '0');
     set('pfActSince', new Date(user.createdAt || Date.now()).getFullYear());
-
+    renderConnections(user);
+  }
+  function renderConnections(user) {
     const list = $('pfConnList');
     if (list) {
       const empty = el('li');
           empty.append(el('span', '', t('p.noConnections')));
       list.replaceChildren(empty);
-      api('/api/users').then((data) => {
-        const people = (data.users || []).filter((u) => u.id !== user.id).slice(0, 4);
-        if (!people.length) return;
+      const people = networkPeople.filter((u) => u.id !== user.id).slice(0, 4);
+      if (people.length) {
         const head = el('li');
         head.append(el('span', '', t('p.onNetwork')));
         list.replaceChildren(head, ...people.map((u) => {
@@ -172,26 +176,43 @@
           row.append(el('span', '', `${u.name} · ${u.role}`));
           return row;
         }));
-      }).catch(() => {});
+      }
     }
   }
+
+  function renderFailure() {
+    document.title = t('p.title');
+    set('pfName', t('p.notFound'));
+    set('pfKicker', t('p.kicker'));
+    set('pfRole', t('p.notFoundWhy'));
+    set('pfAbout', t('p.notFoundBody'));
+    const btns = $('pfBtns');
+    if (btns) {
+      const back = el('a', 'btn btn-primary', t('p.back'));
+      back.href = 'dashboard.html';
+      btns.replaceChildren(back);
+    }
+  }
+  I18N?.onChange(() => {
+    if (currentProfile) render(currentProfile.user, currentProfile.isSelf);
+    else if (profileFailed) renderFailure();
+  });
 
   /* ?id=<member> opens that member's card; no id opens your own */
   const wanted = new URLSearchParams(location.search).get('id');
   const endpoint = wanted ? `/api/users/${encodeURIComponent(wanted)}` : '/api/auth/me';
   api(endpoint)
-    .then((data) => render(normalize(data.user), data.self !== false))
+    .then((data) => {
+      currentProfile = {user: normalize(data.user), isSelf: data.self !== false};
+      render(currentProfile.user, currentProfile.isSelf);
+      if ($('pfConnList')) api('/api/users').then((data) => {
+        networkPeople = Array.isArray(data.users) ? data.users : [];
+        renderConnections(currentProfile.user);
+      }).catch(() => {});
+    })
     .catch((err) => {
       if (String(err.message).includes('authentication')) return;   // redirecting
-      set('pfName', t('p.notFound'));
-      set('pfKicker', t('p.kicker'));
-      set('pfRole', t('p.notFoundWhy'));
-      set('pfAbout', t('p.notFoundBody'));
-      const btns = $('pfBtns');
-      if (btns) {
-        const back = el('a', 'btn btn-primary', t('p.back'));
-        back.href = 'dashboard.html';
-        btns.replaceChildren(back);
-      }
+      profileFailed = true;
+      renderFailure();
     });
 })();

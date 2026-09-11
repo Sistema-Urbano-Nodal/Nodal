@@ -12,6 +12,7 @@ import { createCache, MemoryCache } from './cache.js';
 import { createNetworkSnapshots } from './network-cache.js';
 import { createCourseStore } from './courses-repository.js';
 import { createCourseApi } from './courses-api.js';
+import { preparePageHtml } from './page-shell.js';
 import {createLocationProvider,validatePosition,validateCityId} from './location.js';
 import { createCourseParticipants } from './course-participants.js';
 import { exportCourseData, deleteCourseData } from './courses-privacy.js';
@@ -44,8 +45,9 @@ const MAX_BODY = 32 * 1024;
 const PRIVATE_PAGES = new Set(['/dashboard.html', '/profile.html', '/payments.html', '/admin.html', '/courses.html', '/course.html', '/teaching.html']);
 const STATIC_PAGES = new Set(['index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html']);
 const STATIC_SCRIPTS = new Set(['admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js']);
-const STATIC_STYLES = new Set(['auth.css', 'styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css']);
+const STATIC_STYLES = new Set(['auth.css', 'styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css', 'fonts.css']);
 const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp']);
+const STATIC_FONTS = new Set(['montserrat-v31-latin-normal.woff2', 'montserrat-v31-latin-ext-normal.woff2', 'montserrat-v31-latin-italic.woff2', 'montserrat-v31-latin-ext-italic.woff2', 'OFL.txt']);
 const AUTH_RATE_WINDOW_MS = 5 * 60 * 1000;
 const AUTH_RATE_LIMIT = envInt('AUTH_RATE_LIMIT', 10);
 // A classroom may share one public IP. Keep account guessing strict while
@@ -85,8 +87,8 @@ const CITY_ADDRESS_KEYS = ['city', 'town', 'village', 'municipality', 'hamlet', 
 const BASE_CSP = [
   "default-src 'self'",
   "script-src 'self'",
-  "style-src 'self' https://fonts.googleapis.com",
-  "font-src https://fonts.gstatic.com",
+  "style-src 'self'",
+  "font-src 'self'",
   "img-src 'self' data:",
   "connect-src 'self'",
   "object-src 'none'",
@@ -742,7 +744,7 @@ function resolveUserId(param, sessionUser, useDb) {
 /* Takes the canonical path — already decoded and normalised by
    canonicalPathname — so the private-page check and the file lookup can never
    disagree, and nothing is decoded a second time. */
-async function serveStatic(req, res, canonical) {
+async function serveStatic(req, res, canonical, pilotMode) {
   if (req.method !== 'GET' && req.method !== 'HEAD') { send(res, 405, { error: 'method not allowed' }); return; }
 
   const filePath = staticSourcePath(canonical);
@@ -752,7 +754,8 @@ async function serveStatic(req, res, canonical) {
   if (!type) { send(res, 404, { error: 'not found' }); return; }
 
   try {
-    const data = await fs.readFile(filePath);
+    const raw = await fs.readFile(filePath);
+    const data = type.startsWith('text/html') ? preparePageHtml(raw.toString('utf8'), { pilotMode }) : raw;
     const headers = type.startsWith('text/html') ? htmlSecurityHeaders({}, canonical === '/course.html') : securityHeaders();
     res.writeHead(200, {
       ...headers,
@@ -772,6 +775,10 @@ export function staticSourcePath(pathname) {
   if (STATIC_PAGES.has(rel)) return path.join(WEB_ROOT, 'pages', rel);
   if (STATIC_SCRIPTS.has(rel)) return path.join(WEB_ROOT, 'scripts', rel);
   if (STATIC_STYLES.has(rel)) return path.join(WEB_ROOT, 'styles', rel);
+  if (rel.startsWith('assets/fonts/')) {
+    const name = rel.slice('assets/fonts/'.length);
+    if (STATIC_FONTS.has(name)) return path.join(WEB_ROOT, 'assets', 'fonts', name);
+  }
   if (rel.startsWith('assets/')) {
     const name = rel.slice('assets/'.length);
     if (STATIC_ASSETS.has(name)) return path.join(WEB_ROOT, 'assets', 'optimized', name);
@@ -904,7 +911,7 @@ export function createApp({
           redirect(res, safeNext(url.searchParams.get('next')));
           return;
         }
-        await serveStatic(req, res, canonical);
+        await serveStatic(req, res, canonical, pilotMode);
         return;
       }
 

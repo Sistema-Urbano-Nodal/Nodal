@@ -313,16 +313,16 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
   const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'payments.html', 'profile.html', 'admin.html', 'course.html', 'courses.html', 'teaching.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
   const required = {
-    'index.html': { 'styles.css': '20', 'i18n.js': '42', 'app.js': '18', 'recs.js': '4', 'script.js': '14' },
-    'opportunities.html': { 'catalog.css': '4', 'i18n.js': '42', 'catalog.js': '4' },
-    'dashboard.html': { 'i18n.js': '42', 'dashboard.js': '28', 'globe.js': '27', 'location-check.js': '20260908b' },
-    'login.html': { 'i18n.js': '42' },
-    'payments.html': { 'i18n.js': '42' },
-    'profile.html': { 'i18n.js': '42' },
+    'index.html': { 'styles.css': '20', 'i18n.js': '20260911b', 'app.js': '18', 'recs.js': '4', 'script.js': '14' },
+    'opportunities.html': { 'catalog.css': '4', 'i18n.js': '20260911b', 'catalog.js': '4' },
+    'dashboard.html': { 'i18n.js': '20260911b', 'dashboard.js': '20260911b', 'globe.js': '27', 'location-check.js': '20260908b' },
+    'login.html': { 'i18n.js': '20260911b' },
+    'payments.html': { 'i18n.js': '20260911b' },
+    'profile.html': { 'i18n.js': '20260911b' },
     'admin.html': { 'admin.css': '2', 'admin.js': '2' },
-    'course.html': { 'i18n.js': '42' },
-    'courses.html': { 'i18n.js': '42' },
-    'teaching.html': { 'i18n.js': '42' },
+    'course.html': { 'i18n.js': '20260911b' },
+    'courses.html': { 'i18n.js': '20260911b' },
+    'teaching.html': { 'i18n.js': '20260911b' },
   };
   for (const [page, assets] of Object.entries(required)) {
     for (const [asset, version] of Object.entries(assets)) {

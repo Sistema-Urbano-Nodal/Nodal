@@ -2152,7 +2152,8 @@
   const isHome = document.body?.dataset.page === 'home';
   const DICT = { en: EN, es: isHome ? { ...ES, ...HOME_ES } : ES, pt: isHome ? { ...PT, ...HOME_PT } : PT };
   const listeners = new Set();
-  let current = 'en';
+  const supported = lang => ['en','es','pt'].includes(lang);
+  let current = null;
 
   // {name} placeholders let JavaScript-built strings carry live values
   const interpolate = (text, vars) => (vars
@@ -2164,39 +2165,61 @@
     return value === undefined ? key : interpolate(value, vars);
   }
 
-  function apply(lang) {
-    current = DICT[lang] ? lang : 'en';
+  function refresh(root = document) {
+    const nodes = selector => [...(root.matches?.(selector) ? [root] : []), ...root.querySelectorAll(selector)];
     const d = DICT[current];
-    document.documentElement.lang = current;
-    allNodes().forEach((el) => {
+    nodes('[data-i18n]').forEach((el) => {
       const k = el.dataset.i18n;
       if (!(k in EN)) EN[k] = el.textContent;   // lazy EN capture (SVG labels arrive after load)
       const value = d[k] ?? EN[k];               // an untranslated key falls back to English
       if (value !== undefined) el.textContent = value;
     });
-    document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
+    nodes('[data-i18n-placeholder]').forEach((el) => {
       const k = el.dataset.i18nPlaceholder;
       if (!(k in EN)) EN[k] = el.getAttribute('placeholder') ?? '';
       const value = d[k] ?? EN[k];
       if (value !== undefined) el.setAttribute('placeholder', value);
     });
-    document.querySelectorAll('[data-i18n-content]').forEach((el) => {
+    nodes('[data-i18n-content]').forEach((el) => {
       const k = el.dataset.i18nContent;
       if (!(k in EN)) EN[k] = el.getAttribute('content') ?? '';
       const value = d[k] ?? EN[k];
       if (value !== undefined) el.setAttribute('content', value);
     });
-    document.querySelectorAll('[data-i18n-aria-label]').forEach((el) => {
+    nodes('[data-i18n-aria-label]').forEach((el) => {
       const k = el.dataset.i18nAriaLabel;
       if (!(k in EN)) EN[k] = el.getAttribute('aria-label') ?? '';
       const value = d[k] ?? EN[k];
       if (value !== undefined) el.setAttribute('aria-label', value);
     });
+  }
+
+  function syncUrl() {
+    try {
+      if (!window.history?.replaceState || !window.location?.href) return;
+      const url = new URL(window.location.href);
+      if (!url.searchParams.has('lang') || url.searchParams.get('lang') === current) return;
+      url.searchParams.set('lang', current);
+      window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+    } catch { /* locale persistence still works when history is unavailable */ }
+  }
+
+  function apply(lang) {
+    const next = supported(lang) ? lang : 'en';
+    const changed = next !== current;
+    current = next;
+    try { localStorage.setItem(KEY, current); } catch { /* private mode */ }
+    syncUrl();
+    if (!changed) return;
+    document.documentElement.lang = current;
+    refresh();
     document.querySelectorAll('.lang-btn').forEach((btn) => {
       btn.classList.toggle('is-on', btn.dataset.lang === current);
     });
-    try { localStorage.setItem(KEY, current); } catch { /* private mode */ }
-    listeners.forEach((fn) => fn(current));
+    const report = error => console.error('A language subscriber failed to update.', error);
+    listeners.forEach((fn) => {
+      try { Promise.resolve(fn(current)).catch(report); } catch (error) { report(error); }
+    });
   }
 
   document.querySelectorAll('.lang-btn').forEach((btn) => {
@@ -2208,14 +2231,13 @@
     get lang() { return current; },
     t: translate,
     apply,
+    refresh,
     onChange(fn) { if (typeof fn === 'function') listeners.add(fn); },
   };
 
-  let saved = 'en';
-  try {
-    const requested = new URLSearchParams(window.location.search).get('lang');
-    saved = requested || localStorage.getItem(KEY) || 'en';
-  } catch { /* private mode */ }
-  if (!DICT[saved]) saved = 'en';
+  const requested = new URLSearchParams(window.location.search).get('lang');
+  let stored;
+  try { stored = localStorage.getItem(KEY); } catch { /* private mode */ }
+  const saved = supported(requested) ? requested : supported(stored) ? stored : 'en';
   apply(saved);
 })();
