@@ -11,10 +11,6 @@ const STRIPE_PRICE_RE = /^price_[A-Za-z0-9]+$/;
 const STRIPE_WEBHOOK_RE = /^whsec_[A-Za-z0-9]+$/;
 const WEBHOOK_TOLERANCE_SEC = 5 * 60;
 
-function isProduction(env = process.env) {
-  return env.NODE_ENV === 'production';
-}
-
 function wantsLivePayments(env = process.env) {
   return env.PAYMENTS_MODE === 'live';
 }
