@@ -7,8 +7,6 @@ const COOKIE = 'nodal_session';
 const SESSION_DAYS = 7;
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 
-export const AUTH_COOKIE = COOKIE;
-
 const b64 = (buf) => Buffer.from(buf).toString('base64url');
 const fromB64 = (value) => Buffer.from(value, 'base64url');
 

@@ -942,6 +942,7 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .btn:focus-visible
   font-size: 13px; font-weight: 700; color: var(--green-deep);
   border: 1px solid var(--hairline); border-radius: var(--r-pill); padding: 6px 13px;
   transition: border-color .2s ease, background-color .2s ease; }
+.pf-linkedin[hidden] { display: none; }
 .pf-linkedin:hover { border-color: var(--green-bright); background: var(--green-soft); }
 .pf-linkedin svg { width: 14px; height: 14px; fill: currentColor; }
 .pf-quote { margin-top: 18px; font-family: var(--font-display); font-style: italic; font-weight: 600;

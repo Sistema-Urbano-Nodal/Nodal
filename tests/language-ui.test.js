@@ -71,6 +71,26 @@ test('profile failure messages follow the chosen language without retrying the f
  const h=profileHarness({respond:()=>({status:404,error:'missing'})});h.run('profile');await flush();const initial=h.document.getElementById('pfRole').textContent;h.api.apply('pt');assert.notEqual(h.document.getElementById('pfRole').textContent,initial);assert.equal(h.document.getElementById('pfRole').textContent,h.api.t('p.notFoundWhy'));assert.equal(h.requests.length,1);
 });
 
+test('profile sharing identifies the displayed member even on the current-member page',async()=>{
+ for(const url of ['https://nodal.test/profile.html','https://nodal.test/profile.html?id=member&lang=pt#details']){
+  const h=profileHarness({url});let copied;
+  h.context.navigator={clipboard:{writeText:async value=>{copied=value;}}};
+  h.run('profile');await flush();
+  await h.document.getElementById('pfBtns').children[1].listeners.click();
+  assert.equal(copied,'https://nodal.test/profile.html?id=member');
+ }
+});
+test('profile sharing offers the same member URL when clipboard access fails',async()=>{
+ const h=profileHarness();h.context.navigator={clipboard:{writeText:async()=>{throw new Error('denied');}}};
+ h.run('profile');await flush();const share=h.document.getElementById('pfBtns').children[1];await share.listeners.click();
+ assert.equal(share.textContent,'https://nodal.test/profile.html?id=member');
+});
+test('expired profile access preserves the requested member and language through sign-in',async()=>{
+ const h=profileHarness({url:'https://nodal.test/profile.html?id=other&lang=pt',respond:()=>({status:401})});let destination;
+ h.location.assign=value=>{destination=value;};h.run('profile');await flush();
+ assert.equal(new URL(destination,h.location).searchParams.get('next'),'/profile.html?id=other&lang=pt');
+});
+
 test('an open dashboard profile dialog translates its labels while preserving typed fields and checked topics',async()=>{
  const ids=['userDialog','userForm','userBtn','ucName','ucCity','ucCityOptions','ucRole','ucTopics','ucError','ucTitle','ucSub','ucSubmit'];
  const nodes=ids.map(id=>node(id)),dialog=nodes[0];dialog.showModal=()=>{dialog.open=true;};

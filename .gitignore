@@ -24,6 +24,7 @@ data/
 *.sqlite-wal
 
 # --- generated/private project docs ---
+output/
 security/
 docs/nodal-member-journey/
 

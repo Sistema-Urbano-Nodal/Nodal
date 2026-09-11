@@ -22,7 +22,6 @@ class Node {
 }
 const descendants=node=>(node.children||[]).flatMap(n=>typeof n==='object'?[n,...descendants(n)]:[]);
 const content=n=>[n.textContent,...(n.children||[]).map(content)].join(' ');
-const flush=async()=>{for(let i=0;i<15;i++)await new Promise(r=>setImmediate(r));};
 function harness(respond,{page='courses',search=''}={}){
  const body=new Node('body');body.dataset.page=page;const html=new Node('html');const ids={};for(const id of ['pilotRoot','pilotStatus','teachingLink']){const n=new Node();n.id=id;ids[id]=n;body.append(n);}
  const requests=[],listeners=[],documentEvents={},windowEvents={};let assigned='';

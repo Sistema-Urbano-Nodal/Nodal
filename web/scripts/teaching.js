@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const {t,el,tr,api,status,button,field,select,date,feedback,localized,bind,dynamic,source,setPageTitle}=window.nodalPilot;
+const {t,el,tr,api,status,button,field,select,date,bind,dynamic,source,setPageTitle}=window.nodalPilot;
 const root=document.getElementById('pilotRoot'),msg=document.getElementById('pilotStatus');
 let courses=[],selectedId=null,workspace,selectionVersion=0;
 const endpoint=id=>'/api/admin/courses'+(id?'/'+id:'');

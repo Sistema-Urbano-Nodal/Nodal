@@ -62,7 +62,7 @@ The source layout is independent from the public URL layout.
 | `/*.js` | `web/scripts/` | Vercel static filesystem |
 | `/assets/*.webp` | `web/assets/optimized/` | Vercel static filesystem |
 
-`scripts/build-static.js` copies only the browser scripts, styles, and optimized images into `public/`. HTML pages are intentionally excluded from static output because private-page authorization and login redirects are enforced by the Node server.
+`scripts/build-static.js` rebuilds `public/` from the browser scripts, styles, optimized images, and local fonts. Only `opportunities.html` is copied as static HTML; the other pages stay on the Node server for authorization, recovery redirects, and runtime configuration. Source files are validated before removing old output, and `.gitkeep` is preserved. Generated documents belong in the ignored `output/` directory.
 
 For local development, the Node static handler resolves requests through an explicit allowlist that mirrors the table above. It does not expose arbitrary repository paths.
 

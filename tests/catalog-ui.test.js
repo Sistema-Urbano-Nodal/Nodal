@@ -330,16 +330,10 @@ function catalogItem(id = 'item-1', overrides = {}) {
 }
 
 function dictionaryKeys(source, name) {
-  const start = source.indexOf(`const ${name} = {`);
-  assert.notEqual(start, -1, `${name} dictionary is missing`);
-  let depth = 0;
-  let end = start;
-  for (let cursor = source.indexOf('{', start); cursor < source.length; cursor += 1) {
-    if (source[cursor] === '{') depth += 1;
-    if (source[cursor] === '}') depth -= 1;
-    if (depth === 0) { end = cursor; break; }
-  }
-  return new Set([...source.slice(start, end + 1).matchAll(/^\s*'([^']+)':/gm)].map((match) => match[1]));
+  const match = source.match(new RegExp(`const ${name} = (\\{[\\s\\S]*?^  \\});`, 'm'));
+  assert.ok(match, `${name} dictionary is missing`);
+  // Read the object itself: keys may share a line and values may contain braces.
+  return new Set(Object.keys(vm.runInNewContext(`(${match[1]})`)));
 }
 
 const optionalLandingTargets = new Set([

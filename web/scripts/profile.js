@@ -31,7 +31,7 @@
   async function api(path) {
     const res = await fetch(path);
     if (res.status === 401) {
-      location.assign(`/login.html?next=${encodeURIComponent(location.pathname)}`);
+      location.assign(`/login.html?next=${encodeURIComponent(location.pathname + location.search)}`);
       throw new Error('authentication required');
     }
     const data = await res.json().catch(() => ({}));
@@ -101,13 +101,15 @@
       const edit = el('a', 'btn btn-primary', t(isSelf ? 'p.edit' : 'p.back'));
       edit.href = 'dashboard.html';
       const share = el('button', 'btn btn-ghost', t('p.copy'));
+      const profileUrl = new URL('/profile.html', location.origin);
+      profileUrl.searchParams.set('id', user.id);
       share.type = 'button';
       share.addEventListener('click', async () => {
         try {
-          await navigator.clipboard.writeText(location.href);
+          await navigator.clipboard.writeText(profileUrl.href);
           share.textContent = t('p.copied');
         } catch {
-          share.textContent = location.href;
+          share.textContent = profileUrl.href;
         }
         setTimeout(() => { share.textContent = t('p.copy'); }, 2200);
       });

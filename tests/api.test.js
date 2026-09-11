@@ -1608,7 +1608,7 @@ test('the globe draws real relationships, filters by topic, and honours a member
   };
   const joao = await withTopic('Joao', 'Mococa', 'Mobility', true);
   const ana = await withTopic('Ana', 'Lima', 'Mobility', true);
-  const kenji = await withTopic('Kenji', 'Osaka', 'Housing', false);
+  await withTopic('Kenji', 'Osaka', 'Housing', false);
 
   await postJson(base, `/api/users/${joao.id}/follow`, { targetId: ana.id }, { Cookie: joao.cookie });
 

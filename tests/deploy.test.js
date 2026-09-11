@@ -313,16 +313,16 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
   const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'payments.html', 'profile.html', 'admin.html', 'course.html', 'courses.html', 'teaching.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
   const required = {
-    'index.html': { 'styles.css': '20', 'i18n.js': '20260911b', 'app.js': '18', 'recs.js': '4', 'script.js': '14' },
-    'opportunities.html': { 'catalog.css': '4', 'i18n.js': '20260911b', 'catalog.js': '4' },
-    'dashboard.html': { 'i18n.js': '20260911b', 'dashboard.js': '20260911b', 'globe.js': '27', 'location-check.js': '20260908b' },
-    'login.html': { 'i18n.js': '20260911b' },
-    'payments.html': { 'i18n.js': '20260911b' },
-    'profile.html': { 'i18n.js': '20260911b' },
+    'index.html': { 'styles.css': '20', 'i18n.js': '20260911c', 'app.js': '18', 'recs.js': '4', 'script.js': '14' },
+    'opportunities.html': { 'catalog.css': '4', 'i18n.js': '20260911c', 'catalog.js': '4' },
+    'dashboard.html': { 'i18n.js': '20260911c', 'dashboard.js': '20260911b', 'globe.js': '27', 'location-check.js': '20260908b' },
+    'login.html': { 'i18n.js': '20260911c' },
+    'payments.html': { 'i18n.js': '20260911c' },
+    'profile.html': { 'i18n.js': '20260911c', 'profile.js': '20260911c', 'styles.css': '21' },
     'admin.html': { 'admin.css': '2', 'admin.js': '2' },
-    'course.html': { 'i18n.js': '20260911b' },
-    'courses.html': { 'i18n.js': '20260911b' },
-    'teaching.html': { 'i18n.js': '20260911b' },
+    'course.html': { 'i18n.js': '20260911c' },
+    'courses.html': { 'i18n.js': '20260911c' },
+    'teaching.html': { 'i18n.js': '20260911c' },
   };
   for (const [page, assets] of Object.entries(required)) {
     for (const [asset, version] of Object.entries(assets)) {
@@ -559,8 +559,7 @@ test('protected catalog administration crosses every serving and build boundary'
   assert.match(serverSource, /STATIC_PAGES[^\n]*'admin\.html'/);
   assert.match(serverSource, /STATIC_SCRIPTS[^\n]*'admin\.js'/);
   assert.match(serverSource, /STATIC_STYLES[^\n]*'admin\.css'/);
-  assert.match(buildSource, /PROTECTED_PAGES[^\n]*'admin\.html'/);
-  assert.match(buildSource, /PROTECTED_PAGES\.map\(\(file\) => rm\(path\.join\(OUTPUT, file\), \{ force: true \}\)\)/);
+  assert.match(buildSource, /SERVER_PAGES[^\n]*'admin\.html'/);
   assert.doesNotMatch(buildSource, /STATIC_PAGES[^\n]*'admin\.html'/,
     'copying protected HTML to public would let Vercel filesystem routing bypass server authorization');
   assert.match(buildSource, /STATIC_SCRIPTS[\s\S]*'admin\.js'/);
@@ -577,7 +576,7 @@ test('pilot pages stay behind authentication while course assets are delivered s
   const build=readFileSync(path.join(ROOT,'scripts/build-static.js'),'utf8');
   const config=JSON.parse(readFileSync(path.join(ROOT,'vercel.json'),'utf8'));
   for(const name of ['courses','course','teaching']){
-    assert.match(build,new RegExp(`PROTECTED_PAGES[^\\n]*'${name}\\.html'`));
+    assert.match(build,new RegExp(`SERVER_PAGES[^\\n]*'${name}\\.html'`));
     assert.doesNotMatch(build,new RegExp(`const STATIC_PAGES[^\\n]*'${name}\\.html'`));
     const route=config.headers.find(r=>new RegExp(`^${r.source}$`).test(`/${name}.html`));
     assert.ok(route?.headers.some(h=>h.key==='Cache-Control'&&h.value==='no-store'));
