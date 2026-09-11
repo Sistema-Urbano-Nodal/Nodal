@@ -341,7 +341,7 @@ async function allFeedback(){
   try{const data=await api('/api/admin/feedback');if(version!==selectionVersion)return;workspace.replaceChildren(responseView(data.feedback,null));}
   catch(err){if(version===selectionVersion)status(msg,err);}
 }
-async function start(){
+async function start(){status(msg,t('loading'));
   setPageTitle('teaching');
   try{
     ({courses}=await api(endpoint()));document.getElementById('teachingLink').hidden=false;root.replaceChildren();

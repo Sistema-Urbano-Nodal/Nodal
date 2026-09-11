@@ -33,6 +33,15 @@ function harness(respond,{page='courses',search=''}={}){
  return{ctx,body,ids,requests,documentEvents,windowEvents,run:name=>vm.runInContext(script(name),ctx),assigned:()=>assigned,lang:lang=>{ctx.window.nodalI18n.lang=lang;listeners.forEach(f=>f());}};
 }
 const course={id:'c1',title:'Real course <img src=x onerror=alert(1)>',description:'Author content',startsOn:'2026-09-09',endsOn:'2026-09-21',status:'published',enrollmentOpen:true};
+test('course and teaching loading statuses follow the selected language while data is still pending',()=>{
+ for(const page of ['courses','course','teaching']){
+  const h=harness(()=>new Promise(()=>{}),{page,search:'?id=c1'});
+  h.ids.pilotStatus.textContent='Loading…';h.lang('pt');h.run(page==='teaching'?'teaching':'courses');
+  assert.equal(h.ids.pilotStatus.textContent,'Carregando…',page);
+  h.lang('es');assert.equal(h.ids.pilotStatus.textContent,'Cargando…',page);
+  h.ctx.window.nodalPilot.status(h.ids.pilotStatus,'');h.lang('en');assert.equal(h.ids.pilotStatus.textContent,'',page);
+ }
+});
 test('recording embeds reconstruct trusted provider URLs and reject unsafe or unsupported hosts',()=>{
  const {recordingEmbed:embed}=harness(()=>({})).ctx.window.nodalPilot;
  for(const url of ['https://youtu.be/abcdefghijk?t=30s','https://www.youtube.com/watch?v=abcdefghijk&start=30&autoplay=1','https://www.youtube.com/embed/abcdefghijk?start=30'])assert.equal(embed(url).src,'https://www.youtube-nocookie.com/embed/abcdefghijk?start=30');
