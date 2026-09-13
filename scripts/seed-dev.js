@@ -3,6 +3,10 @@ import { createDatabase, createUser, getUserByEmail, updateUserProfile, addFollo
 import { hashPassword } from '../server/auth.js';
 import { seedData } from '../server/store.js';
 
+if (process.env.NODE_ENV === 'production') {
+  throw new Error('seed:dev is for development only; refusing to modify a production database');
+}
+
 const db = createDatabase();
 
 const adminEmail = process.env.SEED_ADMIN_EMAIL || 'admin@nodal.local';

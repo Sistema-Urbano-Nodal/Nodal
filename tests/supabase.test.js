@@ -618,6 +618,46 @@ test('Supabase account export includes the member catalog interests', async () =
   }]);
 });
 
+test('Supabase account export includes every row when the provider caps responses below the requested page size', async () => {
+  const state = profileState();
+  const rows = Array.from({ length: 5 }, (_, i) => ({
+    ...state.catalogInterests[0], id: `interest-${i}`, target_user_id: `target-${i}`,
+    user_id: `follower-${i}`, to_user_id: `target-${i}`, type: 'follow',
+  }));
+  const fallback = statefulFetch(state, []);
+  const queries = [];
+  const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: async (rawUrl, options) => {
+    const url = new URL(rawUrl);
+    if (!['/rest/v1/member_follows', '/rest/v1/member_interactions', '/rest/v1/catalog_interests'].includes(url.pathname)) return fallback(rawUrl, options);
+    queries.push(url);
+    const offset = Number(url.searchParams.get('offset') || 0);
+    const page = rows.slice(offset, offset + 2);
+    return new Response(JSON.stringify(page), { headers: { 'Content-Range': page.length ? `${offset}-${offset + page.length - 1}/*` : '*/*' } });
+  } });
+  const exported = await repo.exportUserData(TEST_USER_ID);
+  assert.deepEqual(exported.follows.map(row => row.targetUserId), ['target-0', 'target-1', 'target-2', 'target-3', 'target-4']);
+  assert.deepEqual(exported.followers.map(row => row.userId), ['follower-0', 'follower-1', 'follower-2', 'follower-3', 'follower-4']);
+  assert.deepEqual(exported.interactions.map(row => row.toUserId), ['target-0', 'target-1', 'target-2', 'target-3', 'target-4']);
+  assert.deepEqual(exported.catalogInterests.map(row => row.id), ['interest-0', 'interest-1', 'interest-2', 'interest-3', 'interest-4']);
+  for (const url of queries) {
+    const owner = url.pathname.endsWith('/member_interactions') ? 'from_user_id' : url.searchParams.has('target_user_id') ? 'target_user_id' : 'user_id';
+    assert.equal(url.searchParams.get(owner), `eq.${TEST_USER_ID}`, 'every page remains scoped to the requesting member');
+    assert.ok(url.searchParams.get('order'), 'pagination needs stable ordering');
+  }
+});
+
+test('Supabase account export fails instead of returning a partial download when a later page fails', async () => {
+  const state = profileState();
+  const fallback = statefulFetch(state, []);
+  const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: async (rawUrl, options) => {
+    const url = new URL(rawUrl);
+    if (!url.pathname.endsWith('/catalog_interests')) return fallback(rawUrl, options);
+    if (Number(url.searchParams.get('offset')) > 0) return response({ message: 'Unavailable' }, 503);
+    return new Response(JSON.stringify(state.catalogInterests), { headers: { 'Content-Range': '0-0/*' } });
+  } });
+  await assert.rejects(repo.exportUserData(TEST_USER_ID), { status: 503 });
+});
+
 test('Supabase account deletion delegates once to Auth Admin without unsafe table deletes', async () => {
   const calls = [];
   const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: async (rawUrl, options) => {

@@ -52,6 +52,10 @@ Copy `.env.example` for local experiments, but put real production values in Ver
 cp .env.example .env
 ```
 
+`npm start` reads the environment supplied by its launcher. To load the local
+file explicitly with Node 22, use `node --env-file=.env server/server.js`.
+Keep `.env` untracked. Production reads Vercel's configured environment.
+
 Production on Vercel should use:
 
 - `DATA_BACKEND=supabase`

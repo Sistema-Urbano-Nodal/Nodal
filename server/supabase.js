@@ -1073,10 +1073,10 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     async exportUserData(userId) {
       const user = await apiUser(userId);
       const [follows, followers, interactions, catalogInterests, subscription] = await Promise.all([
-        admin.rest('member_follows', { query: { user_id: `eq.${userId}`, select: 'target_user_id,created_at' } }),
-        admin.rest('member_follows', { query: { target_user_id: `eq.${userId}`, select: 'user_id,created_at' } }),
-        admin.rest('member_interactions', { query: { from_user_id: `eq.${userId}`, select: 'to_user_id,type,created_at' } }),
-        admin.rest('catalog_interests', { query: { user_id: `eq.${userId}`, select: '*', order: 'created_at.asc,id.asc' } }),
+        readPages('member_follows', { user_id: `eq.${userId}`, select: 'target_user_id,created_at', order: 'target_user_id.asc' }),
+        readPages('member_follows', { target_user_id: `eq.${userId}`, select: 'user_id,created_at', order: 'user_id.asc' }),
+        readPages('member_interactions', { from_user_id: `eq.${userId}`, select: 'to_user_id,type,created_at', order: 'created_at.asc,id.asc' }),
+        readPages('catalog_interests', { user_id: `eq.${userId}`, select: '*', order: 'created_at.asc,id.asc' }),
         this.getSubscriptionStatus(userId),
       ]);
       return {

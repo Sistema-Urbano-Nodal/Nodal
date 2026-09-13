@@ -14,6 +14,7 @@
       .then((res) => (res.ok ? res.json() : null))
       .then((state) => {
         if (!state?.authenticated) return;
+        joinCta.href = '/dashboard.html';
         joinCta.textContent = 'My console';
         joinCta.dataset.i18n = 'nav.panel';
         window.nodalI18n?.refresh(joinCta);
