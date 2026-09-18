@@ -25,6 +25,7 @@ const STATIC_SCRIPTS = [
   'globe.js',
   'globe-geo.js',
   'i18n.js',
+  'locale.js',
   'location-i18n.js',
   'location-check.js',
   'nav.js',
@@ -36,7 +37,7 @@ const STATIC_SCRIPTS = [
   'script.js',
   'teaching.js',
 ];
-const STATIC_STYLES = ['auth.css', 'admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'styles.css', 'recovery.css', 'fonts.css'];
+const STATIC_STYLES = ['auth.css', 'admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'styles.css', 'recovery.css', 'fonts.css', 'locale.css'];
 const STATIC_ASSETS = [
   'latam-map.webp',
   'nodal-community.webp',

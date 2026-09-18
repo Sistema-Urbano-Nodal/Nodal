@@ -22,7 +22,7 @@ test('rebuild removes stale scripts and server pages, preserves .gitkeep, and co
     await assert.rejects(access(path.join(output, file)), { code: 'ENOENT' });
   }
   assert.equal(await readFile(path.join(output, '.gitkeep'), 'utf8'), 'old output');
-  for (const file of ['i18n.js', 'styles.css', 'assets/nodal-wordmark.webp', 'assets/fonts/montserrat-v31-latin-normal.woff2']) {
+  for (const file of ['i18n.js', 'locale.js', 'locale.css', 'styles.css', 'assets/nodal-wordmark.webp', 'assets/fonts/montserrat-v31-latin-normal.woff2']) {
     await access(path.join(output, file));
   }
   assert.deepEqual((await readdir(output)).filter(file => file.endsWith('.html')), ['opportunities.html']);

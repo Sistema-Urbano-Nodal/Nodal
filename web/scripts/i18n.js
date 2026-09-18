@@ -1,8 +1,8 @@
 /* landing-page language switcher (EN / ES / PT).
    English is captured from the markup at load — the HTML stays the single
    source of truth — so the dictionary only carries Spanish and Portuguese.
-   Choice persists in localStorage; ?lang=en|es|pt can override it for direct
-   previews. All swaps are textContent-only. */
+   The saved choice takes priority; ?lang=en|es|pt initializes new visitors.
+   All swaps are textContent-only. */
 (() => {
   'use strict';
   const KEY = 'nodal.lang';
@@ -2122,7 +2122,7 @@
       const k = el.dataset.i18n;
       if (!(k in EN)) EN[k] = el.textContent;   // lazy EN capture (SVG labels arrive after load)
       const value = d[k] ?? EN[k];               // an untranslated key falls back to English
-      if (value !== undefined) el.textContent = value;
+      if (value !== undefined && el.textContent !== value) el.textContent = value;
     });
     nodes('[data-i18n-placeholder]').forEach((el) => {
       const k = el.dataset.i18nPlaceholder;
@@ -2158,7 +2158,8 @@
     const next = supported(lang) ? lang : 'en';
     const changed = next !== current;
     current = next;
-    try { localStorage.setItem(KEY, current); } catch { /* private mode */ }
+    if (window.nodalLocale) window.nodalLocale.save(current);
+    else try { localStorage.setItem(KEY, current); } catch { /* private mode */ }
     syncUrl();
     if (!changed) return;
     document.documentElement.lang = current;
@@ -2188,6 +2189,6 @@
   const requested = new URLSearchParams(window.location.search).get('lang');
   let stored;
   try { stored = localStorage.getItem(KEY); } catch { /* private mode */ }
-  const saved = supported(requested) ? requested : supported(stored) ? stored : 'en';
+  const saved = window.nodalLocale?.read() || (supported(stored) ? stored : supported(requested) ? requested : 'en');
   apply(saved);
 })();

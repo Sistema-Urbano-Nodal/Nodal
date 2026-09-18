@@ -16,6 +16,8 @@ test('startup scripts are discovered in the head and execute after parsing in de
       if(name==='accept-invitation.html'&&script[2].startsWith('accept-invitation.js')){
         assert.doesNotMatch(script[1],/\b(?:defer|async)\b/,'invitation tokens must be removed before other resources');
         assert.ok(script.index<html.indexOf('<link'),'invitation capture must remain before resource links');
+      }else if(script[2].startsWith('locale.js?')){
+        assert.doesNotMatch(script[1],/\b(?:defer|async)\b/,'the language preference must be read before the body can paint');
       }else{
         assert.match(script[1],/\bdefer\b/,`${name}: ${script[2]} must wait for the parsed DOM`);
         assert.doesNotMatch(script[1],/\basync\b/,`${name}: dependencies require deterministic execution`);
@@ -23,6 +25,7 @@ test('startup scripts are discovered in the head and execute after parsing in de
     }
     const files=scripts.map(script=>script[2].split('?')[0]);
     const before=(first,second)=>{if(files.includes(second))assert.ok(files.indexOf(first)>=0&&files.indexOf(first)<files.indexOf(second),`${name}: ${first} must precede ${second}`);};
+    before('locale.js','i18n.js');before('locale.js','invitation-i18n.js');
     before('pilot-i18n.js','pilot.js');before('pilot.js','courses.js');before('pilot.js','teaching.js');
     for(const file of ['app.js','recs.js','dashboard.js','globe.js'])before('i18n.js',file);
     before('i18n.js','auth.js');before('recovery-i18n.js','password-recovery.js');

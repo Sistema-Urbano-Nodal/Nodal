@@ -1,0 +1,3 @@
+/* Preserve layout while the initial language is applied, before first paint.
+   With JavaScript disabled (or a failed bootstrap), this selector never matches. */
+html[data-locale-pending] body { visibility: hidden; }

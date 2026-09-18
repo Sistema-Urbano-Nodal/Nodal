@@ -32,10 +32,15 @@ function harness({url='https://nodal.test/profile.html',saved='en',nodes=[],resp
 function find(node,predicate){if(predicate(node))return node;for(const child of node.children||[]){if(typeof child!=='object')continue;const found=find(child,predicate);if(found)return found;}return null;}
 function node(id,key,text){const n=new Node();n.id=id;if(key)n.dataset.i18n=key;if(text)n.textContent=text;return n;}
 
-test('choosing a locale updates an explicit URL override and survives reload without losing navigation state',()=>{
- const h=harness({url:'https://nodal.test/login.html?lang=pt&next=%2Fcourse.html%3Fid%3Dc1#signin',saved:'en'});assert.equal(h.api.lang,'pt');h.api.apply('es');
+test('saved language wins over an old link and later choices survive reload without losing navigation state',()=>{
+ const h=harness({url:'https://nodal.test/login.html?lang=pt&next=%2Fcourse.html%3Fid%3Dc1#signin',saved:'en'});assert.equal(h.api.lang,'en');h.api.apply('es');
  assert.equal(h.location.searchParams.get('lang'),'es');assert.equal(h.location.searchParams.get('next'),'/course.html?id=c1');assert.equal(h.location.hash,'#signin');assert.equal(h.storage.get('nodal.lang'),'es');assert.equal(h.historyCalls.at(-1).state.keep,'navigation state');
  assert.equal(harness({url:h.location.href,storage:h.storage}).api.lang,'es');
+});
+test('a language link initializes a new visitor without overriding an existing choice',()=>{
+ const storage=new Map(),url='https://nodal.test/login.html?lang=pt';
+ assert.equal(harness({url,storage}).api.lang,'pt');
+ assert.equal(harness({url:'https://nodal.test/profile.html?lang=es',storage}).api.lang,'pt');
 });
 test('invalid and inherited URL locale names never override a supported saved preference',()=>{
  for(const lang of ['fr','constructor','__proto__',''])assert.equal(harness({url:'https://nodal.test/course.html?lang='+lang,saved:'pt'}).api.lang,'pt',lang);
@@ -86,7 +91,7 @@ test('profile sharing offers the same member URL when clipboard access fails',as
  assert.equal(share.textContent,'https://nodal.test/profile.html?id=member');
 });
 test('expired profile access preserves the requested member and language through sign-in',async()=>{
- const h=profileHarness({url:'https://nodal.test/profile.html?id=other&lang=pt',respond:()=>({status:401})});let destination;
+ const h=profileHarness({url:'https://nodal.test/profile.html?id=other&lang=pt',saved:'pt',respond:()=>({status:401})});let destination;
  h.location.assign=value=>{destination=value;};h.run('profile');await flush();
  assert.equal(new URL(destination,h.location).searchParams.get('next'),'/profile.html?id=other&lang=pt');
 });

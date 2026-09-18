@@ -29,6 +29,7 @@
   };
   let language='en';
   try{const saved=localStorage.getItem('nodal.lang');if(['en','es','pt'].includes(saved))language=saved;}catch{}
+  if(window.nodalLocale)language=window.nodalLocale.read();
   const t=key=>rows[key]?.[({en:0,es:1,pt:2})[language]]||rows[key]?.[0]||key;
   function apply(){
     document.documentElement.lang=language;document.title=t('title')+' · NODAL';
@@ -36,6 +37,12 @@
     document.querySelector('.recovery-languages')?.setAttribute('aria-label',t('language'));
     document.querySelectorAll('.lang-btn').forEach(node=>{node.classList.toggle('is-on',node.dataset.lang===language);node.setAttribute('aria-pressed',String(node.dataset.lang===language));});
   }
-  document.querySelectorAll('.lang-btn').forEach(node=>node.addEventListener('click',()=>{language=node.dataset.lang;try{localStorage.setItem('nodal.lang',language);}catch{}apply();}));
-  window.nodalInvitationI18n={t,apply,rows};apply();
+  function setLanguage(value){
+    language=['en','es','pt'].includes(value)?value:'en';
+    if(window.nodalLocale)window.nodalLocale.save(language);
+    else try{localStorage.setItem('nodal.lang',language);}catch{}
+    apply();
+  }
+  document.querySelectorAll('.lang-btn').forEach(node=>node.addEventListener('click',()=>setLanguage(node.dataset.lang)));
+  window.nodalInvitationI18n={t,apply,rows,setLanguage};apply();
 })();
