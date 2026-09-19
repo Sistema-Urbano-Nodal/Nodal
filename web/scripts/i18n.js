@@ -2191,4 +2191,5 @@
   try { stored = localStorage.getItem(KEY); } catch { /* private mode */ }
   const saved = window.nodalLocale?.read() || (supported(stored) ? stored : supported(requested) ? requested : 'en');
   apply(saved);
+  window.nodalLocale?.ready?.('i18n');
 })();

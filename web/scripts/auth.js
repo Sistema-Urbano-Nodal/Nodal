@@ -98,6 +98,7 @@
       }catch(error){show(state.error,error.key||'connection');}
       finally{if(!redirecting)setBusy(state,false);}
     });
+    state.submit.disabled=false;
   }
   setup(false);setup(true);window.nodalI18n?.onChange(render);
 })();

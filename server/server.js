@@ -893,7 +893,13 @@ export function createApp({
         ? await repository.resolveSession(req, { authorizationOnly })
         : { user: null, cookies: [] };
       const sessionUser = session.user;
-      const catalogReadIsPrivate = Boolean(sessionUser || req.headers.cookie);
+      // A locale preference does not personalize catalog data (lang is in the
+      // URL). Keep every other cookie private, including expired sessions.
+      const hasPrivateCookies = (req.headers.cookie || '').split(';').some(value => {
+        const cookie = value.trim();
+        return cookie && !/^nodal\.lang=(?:en|es|pt)$/.test(cookie);
+      });
+      const catalogReadIsPrivate = Boolean(sessionUser || hasPrivateCookies);
       if (session.cookies?.length) res.setHeader('Set-Cookie', session.cookies);
 
       if (!pathname.startsWith('/api/')) {

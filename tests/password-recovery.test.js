@@ -126,6 +126,7 @@ test('recovery API is anonymous, same-origin, rate limited by email, and ignores
 function ui(fetchImpl,{search='?code=one-use-code',hash=''}={}){
   const nodes=new Map();const node=id=>({id,attributes:{},setAttribute(k,v){this.attributes[k]=v;},value:'',dataset:{},hidden:false,disabled:false,textContent:'',listeners:{},addEventListener(k,fn){this.listeners[k]=fn;},focus(){this.focused=true;},checkValidity:()=>true,reportValidity(){},querySelector(){return nodes.get(id+'Button');}});
   for(const id of['recoveryLanguages','recoveryTitle','recoveryRequest','recoveryReset','recoveryMessage','recoveryEmail','recoveryPassword','recoveryConfirm','recoveryAnother','recoveryRequestButton','recoveryResetButton'])nodes.set(id,node(id));
+  for(const id of ['recoveryRequestButton','recoveryResetButton'])nodes.get(id).disabled=true;
   let change;const history=[];const calls=[];
   const context={URLSearchParams,AbortSignal,fetch:async(path,options)=>{calls.push({path,options,body:JSON.parse(options.body)});return fetchImpl(path,options);},location:{search,hash},history:{replaceState(...args){history.push(args);}},document:{body:{dataset:{page:'password-recovery'}},getElementById:id=>nodes.get(id),querySelector:selector=>selector==='.recovery-languages'?nodes.get('recoveryLanguages'):null,querySelectorAll:selector=>selector==='[data-recovery-text]'?[...nodes.values()].filter(n=>n.dataset.recoveryText):[]}};
   context.window=context;context.nodalI18n={lang:'en',onChange(fn){change=fn;}};
@@ -133,6 +134,14 @@ function ui(fetchImpl,{search='?code=one-use-code',hash=''}={}){
   vm.runInNewContext(readFileSync(new URL('../web/scripts/password-recovery.js',import.meta.url),'utf8'),context);
   return {nodes,calls,history,context,lang(language){context.nodalI18n.lang=language;change();},submit(id){return nodes.get(id).listeners.submit({preventDefault(){}});}};
 }
+test('recovery forms enable submission once their handlers are ready without sending a request',()=>{
+ const h=ui(async()=>response({ok:true}));
+ for(const id of ['recoveryRequest','recoveryReset']){
+  assert.equal(typeof h.nodes.get(id).listeners.submit,'function');
+  assert.equal(h.nodes.get(id+'Button').disabled,false);
+ }
+ assert.equal(h.calls.length,0);
+});
 test('reset UI removes callback code immediately, waits for explicit submit and preserves passwords across language changes',async()=>{
   const h=ui(async()=>response({ok:true,passwordChanged:true}));
   assert.equal(h.calls.length,0);assert.equal(h.history[0][2],'/reset-password.html');assert.equal(h.nodes.get('recoveryRequest').hidden,true);

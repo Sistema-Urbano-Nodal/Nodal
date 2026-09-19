@@ -24,15 +24,23 @@ class Node {
 const descendants=node=>(node.children||[]).flatMap(n=>typeof n==='object'?[n,...descendants(n)]:[]);
 const content=n=>[n.textContent,...(n.children||[]).map(content)].join(' ');
 const flush=async()=>{for(let i=0;i<15;i++)await new Promise(r=>setImmediate(r));};
-function harness(respond,{page='courses',search=''}={}){
+function harness(respond,{page='courses',search='',readyState='loading'}={}){
  const body=new Node('body');body.dataset.page=page;const html=new Node('html');const ids={};for(const id of ['pilotRoot','pilotStatus','teachingLink']){const n=new Node();n.id=id;ids[id]=n;body.append(n);}
  const requests=[],listeners=[],documentEvents={},windowEvents={};let assigned='';
- const document={body,documentElement:html,readyState:'loading',createElement:t=>new Node(t),getElementById:id=>ids[id]||descendants(body).find(n=>n.id===id),querySelector:()=>null,querySelectorAll:s=>body.querySelectorAll(s),visibilityState:'visible',addEventListener(k,f){(documentEvents[k]??=new Set()).add(f);},removeEventListener(k,f){documentEvents[k]?.delete(f);}};
+ const document={body,documentElement:html,readyState,createElement:t=>new Node(t),getElementById:id=>ids[id]||descendants(body).find(n=>n.id===id),querySelector:()=>null,querySelectorAll:s=>body.querySelectorAll(s),visibilityState:'visible',addEventListener(k,f){(documentEvents[k]??=new Set()).add(f);},removeEventListener(k,f){documentEvents[k]?.delete(f);}};
  const ctx={document,console,Intl,URL,URLSearchParams,Error,Date,crypto:{randomUUID:()=> '00000000-0000-4000-8000-000000000001'},history:{replaceState(){}},location:{pathname:'/'+page+'.html',search,href:'https://nodal.test/'+page+'.html'+search,assign:s=>{assigned=s;},replace:s=>{assigned=s;}},fetch:async(path,opts)=>{requests.push({path,body:opts?.body?JSON.parse(opts.body):undefined,method:opts?.method,signal:opts?.signal});const result=await respond(path,opts);return{ok:result.status===undefined||result.status<400,status:result.status||200,json:async()=>{if(result.jsonError)throw result.jsonError;return result.data??result;}};},window:{addEventListener(k,f){windowEvents[k]=f;},nodalI18n:{lang:'en',onChange:f=>listeners.push(f)}}};
  vm.createContext(ctx);for(const file of ['pilot-i18n','pilot'])vm.runInContext(script(file),ctx);
  return{ctx,body,ids,requests,documentEvents,windowEvents,run:name=>vm.runInContext(script(name),ctx),assigned:()=>assigned,lang:lang=>{ctx.window.nodalI18n.lang=lang;listeners.forEach(f=>f());}};
 }
 const course={id:'c1',title:'Real course <img src=x onerror=alert(1)>',description:'Author content',startsOn:'2026-09-09',endsOn:'2026-09-21',status:'published',enrollmentOpen:true};
+test('course shell localizes its loading status before the course application arrives',()=>{
+ const h=harness(()=>new Promise(()=>{}),{page:'course',search:'?id=c1',readyState:'interactive'});
+ h.lang('pt');
+ assert.equal(h.ids.pilotStatus.textContent,'Carregando…');
+ h.ctx.window.nodalPilot.status(h.ids.pilotStatus,'');
+ h.lang('es');
+ assert.equal(h.ids.pilotStatus.textContent,'');
+});
 test('course and teaching loading statuses follow the selected language while data is still pending',()=>{
  for(const page of ['courses','course','teaching']){
   const h=harness(()=>new Promise(()=>{}),{page,search:'?id=c1'});

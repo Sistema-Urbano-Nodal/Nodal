@@ -6,13 +6,21 @@ const source=readFileSync(new URL('../web/scripts/auth.js',import.meta.url),'utf
 function harness(reply=async()=>({ok:true,status:200,data:{user:{id:'u1'}}}),search=''){
  const nodes={},listeners=[],requests=[];let assigned='',timeout;
  for(const id of ['loginForm','signupForm','loginError','signupError','loginEmail','loginPassword','signupName','signupEmail','signupPassword'])nodes[id]={id,value:'',textContent:'',hidden:true,listeners:{},dataset:{},setAttribute(k,v){this[k]=v;},removeAttribute(k){delete this[k];},addEventListener(k,f){this.listeners[k]=f;},focus(){this.focused=true;}};
- for(const id of ['loginForm','signupForm']){nodes[id].button={disabled:false,textContent:'',dataset:{},setAttribute(k,v){this[k]=v;}};nodes[id].querySelector=()=>nodes[id].button;}
+ for(const id of ['loginForm','signupForm']){nodes[id].button={disabled:true,textContent:'',dataset:{},setAttribute(k,v){this[k]=v;}};nodes[id].querySelector=()=>nodes[id].button;}
  const context={document:{getElementById:id=>nodes[id]},URL,URLSearchParams,Error,window:{nodalI18n:{lang:'en',onChange:f=>listeners.push(f)}},location:{origin:'https://nodal.test',search,assign:path=>assigned=path},AbortSignal:{timeout:ms=>{timeout=ms;return{timeout:ms};}},fetch:async(path,options)=>{requests.push({path,options,body:JSON.parse(options.body)});const result=await reply(path,options);return{ok:result.ok,status:result.status,json:async()=>result.data};}};
  vm.createContext(context);vm.runInContext(source,context);
  const submit=id=>nodes[id].listeners.submit({preventDefault(){}});
  const valid=()=>{nodes.loginEmail.value='member@example.test';nodes.loginPassword.value='password123';nodes.signupName.value='Test Member';nodes.signupEmail.value='new@example.test';nodes.signupPassword.value='newpassword123';};
  return{nodes,requests,submit,valid,assigned:()=>assigned,timeout:()=>timeout,lang:value=>{context.window.nodalI18n.lang=value;nodes.loginForm.button.textContent='main i18n sign-in label';nodes.signupForm.button.textContent='main i18n create label';listeners.forEach(f=>f());}};
 }
+test('sign-in and signup become usable only after their submit handlers are installed',()=>{
+ const h=harness();
+ for(const id of ['loginForm','signupForm']){
+  assert.equal(typeof h.nodes[id].listeners.submit,'function');
+  assert.equal(h.nodes[id].button.disabled,false);
+ }
+ assert.equal(h.requests.length,0);
+});
 test('login validates email and required password locally with translated field feedback',async()=>{
  const h=harness();h.lang('pt');await h.submit('loginForm');assert.equal(h.requests.length,0);assert.match(h.nodes.loginError.textContent,/e-mail válido/);assert.equal(h.nodes.loginEmail['aria-invalid'],'true');assert.equal(h.nodes.loginEmail.focused,true);
  h.nodes.loginEmail.value='member@example.test';await h.submit('loginForm');assert.equal(h.requests.length,0);assert.match(h.nodes.loginError.textContent,/senha/);assert.equal(h.nodes.loginPassword['aria-invalid'],'true');assert.equal(h.nodes.loginEmail['aria-invalid'],undefined);

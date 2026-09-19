@@ -11,19 +11,19 @@
   <title data-i18n="a.title">NODAL · Sign in</title>
 
   <link rel="stylesheet" href="locale.css?v=20260918a" />
-  <script src="locale.js?v=20260918a"></script>
+  <script src="locale.js?v=20260918b"></script>
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="fonts.css?v=20260911b" />
   <link rel="stylesheet" href="styles.css?v=19" />
   <link rel="stylesheet" href="courses.css?v=20260911a" />
   <link rel="stylesheet" href="auth.css?v=20260907a" />
 
-  <script defer src="i18n.js?v=20260918a"></script>
-  <script defer src="recovery-i18n.js?v=20260907c"></script>
+  <script defer src="i18n.js?v=20260918b"></script>
+  <script defer src="recovery-i18n.js?v=20260918b"></script>
   <script defer src="pilot-i18n.js?v=20260911a"></script>
-  <script defer src="pilot.js?v=20260911b"></script>
+  <script defer src="pilot.js?v=20260918b"></script>
   <script defer src="nav.js?v=20260912a"></script>
-  <script defer src="auth.js?v=20260907a"></script>
+  <script defer src="auth.js?v=20260918b"></script>
 </head>
 <body class="auth-page">
   <header class="navbar" id="top">
@@ -57,7 +57,7 @@
     </section>
 
     <section class="auth-grid" aria-label="Authentication forms">
-      <form class="auth-card" id="loginForm" aria-labelledby="loginTitle" novalidate>
+      <form method="post" class="auth-card" id="loginForm" aria-labelledby="loginTitle" novalidate>
         <h2 id="loginTitle" data-i18n="a.signin">Sign in</h2>
         <label><span data-i18n="a.email">Email</span>
           <input type="email" id="loginEmail" autocomplete="email" autocapitalize="none" spellcheck="false" aria-describedby="loginError" required />
@@ -67,10 +67,10 @@
         </label>
         <a class="auth-recovery" href="reset-password.html" data-recovery-text="forgot">Forgot your password?</a>
         <p class="auth-error" id="loginError" role="status" aria-live="polite" hidden></p>
-        <button type="submit" class="btn btn-primary" data-i18n="a.signinBtn">Sign in</button>
+        <button type="submit" disabled class="btn btn-primary" data-i18n="a.signinBtn">Sign in</button>
       </form>
 
-      <form class="auth-card" id="signupForm" aria-labelledby="signupTitle" novalidate>
+      <form method="post" class="auth-card" id="signupForm" aria-labelledby="signupTitle" novalidate>
         <h2 id="signupTitle" data-i18n="a.create">Create account</h2>
         <label><span data-i18n="a.name">Full name</span>
           <input type="text" id="signupName" autocomplete="name" maxlength="80" aria-describedby="signupError" required />
@@ -83,7 +83,7 @@
         </label>
         <p class="auth-hint" id="signupHint" data-i18n="a.hint">Use at least 8 characters. Your password is protected before storage.</p>
         <p class="auth-error" id="signupError" role="status" aria-live="polite" hidden></p>
-        <button type="submit" class="btn btn-primary" data-i18n="a.createBtn">Create account</button>
+        <button type="submit" disabled class="btn btn-primary" data-i18n="a.createBtn">Create account</button>
       </form>
     </section>
   </main>

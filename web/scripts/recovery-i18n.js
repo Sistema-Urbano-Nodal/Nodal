@@ -38,4 +38,5 @@
     if(document.body.dataset.page==='password-recovery'){document.title=rt('requestTitle')+' · NODAL';document.querySelector('.recovery-languages')?.setAttribute('aria-label',rt('language'));}
   }
   window.nodalRecoveryI18n={rows,rt,apply};window.nodalI18n?.onChange(apply);apply();
+  window.nodalLocale?.ready?.('recovery-i18n');
 })();

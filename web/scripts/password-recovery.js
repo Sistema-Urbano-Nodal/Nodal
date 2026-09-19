@@ -60,4 +60,5 @@
     }catch{show('recovery_uncertain');requestMode();}
     finally{setBusy(resetForm,false);button.dataset.recoveryText='save';apply();}
   });
+  for(const form of [requestForm,resetForm])form.querySelector('button[type="submit"]').disabled=false;
 })();

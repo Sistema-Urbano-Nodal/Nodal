@@ -102,6 +102,26 @@ test('catalog cache headers partition anonymous reads and treat unresolved cooki
   assert.equal(staleCookieDetail.headers.get('etag'), null);
 });
 
+test('a saved language keeps anonymous catalog reads cacheable without caching sessions or unknown cookies', async (t) => {
+  const { db, repo, base } = await bootCatalogApp(t);
+  const admin = createUser(db, { fullName: 'Catalog Admin', email: 'admin@example.test', passwordHash: 'hash', role: 'admin' });
+  const item = await repo.createCatalogItem(completeItem(), admin.id);
+  for (const path of ['/api/catalog?lang=pt', `/api/catalog/${item.id}?lang=pt`]) {
+    const response = await fetch(base + path, { headers: { Cookie: 'nodal.lang=pt' } });
+    assert.equal(response.headers.get('cache-control'), 'public, max-age=60, stale-while-revalidate=60');
+    assert.equal(response.headers.get('vary'), 'Cookie');
+    const etag = response.headers.get('etag');
+    assert.ok(etag);
+    assert.equal((await fetch(base + path, { headers: { Cookie: 'nodal.lang=pt', 'If-None-Match': etag } })).status, 304);
+    for (const cookie of ['nodal.lang=pt; nodal_session=expired', 'nodal.lang=pt; another=unknown', 'nodal.lang=unsupported']) {
+      const privateResponse = await fetch(base + path, { headers: { Cookie: cookie, 'If-None-Match': etag } });
+      assert.equal(privateResponse.status, 200);
+      assert.equal(privateResponse.headers.get('cache-control'), 'no-store');
+      assert.equal(privateResponse.headers.get('etag'), null);
+    }
+  }
+});
+
 test('GET /api/catalog/:id uses stable cursors and never discloses invisible records', async (t) => {
   // An unstable continuation, draft disclosure, or public detail leakage must fail this test.
   const { db, repo, base } = await bootCatalogApp(t);

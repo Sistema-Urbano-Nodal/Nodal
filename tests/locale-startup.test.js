@@ -8,15 +8,18 @@ const script = name => {
   return readFileSync(file, 'utf8');
 };
 
-function browser({ saved = 'pt', cookie = '', search = '', blockedStorage = false } = {}) {
+function browser({ saved = 'pt', cookie = '', search = '', blockedStorage = false, scripts = ['i18n', 'auth'] } = {}) {
   const storage = new Map(saved ? [['nodal.lang', saved]] : []);
   const events = new Map(), windowEvents = new Map();
   const html = { lang: 'en', dataset: {}, setAttribute(key, value) { this[key] = value; }, removeAttribute(key) { if(key==='data-locale-pending')delete this.dataset.localePending; } };
   const title = { dataset: { i18n: 'a.signin' }, textContent: 'Sign in' };
   const document = {
-    documentElement: html, body: { dataset: {} }, cookie,
+    documentElement: html, body: { dataset: {} }, cookie, readyState: 'loading',
     addEventListener(name, fn) { events.set(name, [...(events.get(name) || []), fn]); },
-    querySelectorAll(selector) { return selector === '[data-i18n]' ? [title] : []; },
+    querySelectorAll(selector) {
+      if (selector === 'script[src]') return scripts.map(name => ({ getAttribute: () => `${name}.js?v=test` }));
+      return selector === '[data-i18n]' ? [title] : [];
+    },
     querySelector() { return null; },
   };
   const location = new URL('https://nodal.test/login.html' + search);
@@ -29,7 +32,10 @@ function browser({ saved = 'pt', cookie = '', search = '', blockedStorage = fals
     window: { location, addEventListener(name, fn) { windowEvents.set(name, fn); } },
   };
   vm.createContext(context);
-  const run = name => vm.runInContext(script(name), context);
+  const run = name => {
+    if (name !== 'locale') document.readyState = 'interactive';
+    return vm.runInContext(script(name), context);
+  };
   run('locale');
   return { context, document, html, title, storage, run, fire: name => events.get(name)?.forEach(fn => fn()), restore: () => windowEvents.get('pageshow')?.({ persisted: true }), leave: () => windowEvents.get('pagehide')?.({ persisted: true }) };
 }
@@ -41,8 +47,27 @@ test('saved language is established before deferred translations and the English
   assert.equal(h.title.textContent, 'Sign in');
   h.run('i18n');
   assert.equal(h.title.textContent, 'Entrar');
-  h.fire('DOMContentLoaded');
+  // Unrelated deferred application code has not finished yet.
   assert.equal(h.html.dataset.localePending, undefined);
+});
+
+test('course shell waits for its own translations but not the globe or application scripts', () => {
+  const h = browser({ scripts: ['i18n', 'pilot-i18n', 'pilot', 'dashboard', 'coastline', 'globe'] });
+  h.run('i18n');
+  assert.equal(h.html.dataset.localePending, 'true');
+  h.context.window.nodalLocale.ready('pilot');
+  assert.equal(h.html.dataset.localePending, undefined);
+});
+
+test('login waits for recovery labels and invitation pages reveal after their translations', () => {
+  const login = browser({ scripts: ['i18n', 'recovery-i18n', 'auth'] });
+  login.run('i18n');
+  assert.equal(login.html.dataset.localePending, 'true');
+  login.run('recovery-i18n');
+  assert.equal(login.html.dataset.localePending, undefined);
+  const invitation = browser({ scripts: ['accept-invitation', 'invitation-i18n'] });
+  invitation.run('invitation-i18n');
+  assert.equal(invitation.html.dataset.localePending, undefined);
 });
 
 test('language persists through a cookie when local storage is unavailable', () => {

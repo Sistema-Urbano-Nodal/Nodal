@@ -8,12 +8,12 @@
   <title>Accept your course invitation · NODAL</title>
   <script src="accept-invitation.js?v=20260907a"></script>
   <link rel="stylesheet" href="locale.css?v=20260918a" />
-  <script src="locale.js?v=20260918a"></script>
+  <script src="locale.js?v=20260918b"></script>
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="fonts.css?v=20260911b" />
   <link rel="stylesheet" href="recovery.css?v=20260907c" />
 
-  <script defer src="invitation-i18n.js?v=20260918a"></script>
+  <script defer src="invitation-i18n.js?v=20260918b"></script>
 </head>
 <body data-page="course-invitation">
   <header class="recovery-header">
@@ -41,7 +41,7 @@
     <section class="recovery-content" aria-labelledby="invitationTitle">
       <div class="recovery-form-area">
         <h1 id="invitationTitle" data-invitation-text="title">Your place in the course</h1>
-        <form id="invitationForm" novalidate hidden>
+        <form method="post" id="invitationForm" novalidate hidden>
           <p class="recovery-intro" data-invitation-text="intro">Set up your NODAL account to accept your invitation. You will complete the intake form when you enter the course.</p>
           <label for="invitationName" data-invitation-text="fullName">Full name</label>
           <input id="invitationName" name="name" type="text" autocomplete="name" minlength="2" maxlength="120" required />

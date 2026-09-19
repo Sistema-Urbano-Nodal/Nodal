@@ -29,12 +29,23 @@
   }
 
   function reveal() { delete root.dataset.localePending; }
-  window.nodalLocale = { read, save };
+  const translated = new Set();
+  const translators = new Set(['i18n', 'pilot', 'recovery-i18n', 'invitation-i18n']);
+  function ready(name) {
+    translated.add(name);
+    // Deferred translators see the complete document. Release only when every
+    // translator used by this page has applied its initial text; unrelated
+    // application scripts (including the globe) must not hold up first paint.
+    if (document.readyState === 'loading') return;
+    const required = [...document.querySelectorAll('script[src]')]
+      .map(node => node.getAttribute('src').split('?')[0].split('/').pop().replace(/\.js$/, ''))
+      .filter(file => translators.has(file));
+    if (required.every(file => translated.has(file))) reveal();
+  }
+  window.nodalLocale = { read, save, ready };
   root.lang = read();
   if (root.lang !== 'en') root.dataset.localePending = 'true';
-  // Deferred scripts and synchronous DOMContentLoaded handlers finish before
-  // the browser paints. No API, geolocation, font or image request is awaited.
-  // This also releases the shell if a translation script fails to download.
+  // Fall back to the readable shell if a translation script fails to download.
   document.addEventListener('DOMContentLoaded', reveal, { once: true });
   window.addEventListener('pagehide', () => { root.dataset.localePending = 'true'; });
   window.addEventListener('pageshow', event => {

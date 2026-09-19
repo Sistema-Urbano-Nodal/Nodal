@@ -212,6 +212,8 @@ function showPilot(pilot){
 function setup(){
 const configured=document.documentElement.dataset.pilot;
 showPilot(configured!=='false');
+const loading=document.getElementById('pilotStatus');
+if(loading)status(loading,t('loading'));
 const nav=document.querySelector('.pilot-header nav,.side-nav,.nav-main');
 if(nav&&!nav.querySelector('[href="courses.html"]')){
   const sidebar=nav.classList.contains('side-nav'),a=sidebar?el('a','side-link'):tr('a','courses','pilot-course-link');
@@ -226,6 +228,7 @@ if(nav&&!nav.querySelector('[href="courses.html"]')){
   a.href='courses.html';nav.append(a);
 }
 translate();
+window.nodalLocale?.ready?.('pilot');
 // Current pages receive this flag with their HTML. Legacy/static previews can
 // still resolve it, but navigation and localization never wait on the network.
 if(configured!=='true'&&configured!=='false')api('/api/config').then(config=>showPilot(config.pilotMode!==false)).catch(()=>{});

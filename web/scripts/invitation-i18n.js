@@ -45,4 +45,5 @@
   }
   document.querySelectorAll('.lang-btn').forEach(node=>node.addEventListener('click',()=>setLanguage(node.dataset.lang)));
   window.nodalInvitationI18n={t,apply,rows,setLanguage};apply();
+  window.nodalLocale?.ready?.('invitation-i18n');
 })();

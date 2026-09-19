@@ -7,6 +7,15 @@ import {staticSourcePath} from '../server/server.js';
 const ROOT=path.resolve(import.meta.dirname,'..');
 const pages=()=>readdirSync(path.join(ROOT,'web/pages')).filter(name=>name.endsWith('.html')).map(name=>[name,readFileSync(path.join(ROOT,'web/pages',name),'utf8')]);
 
+test('credential forms cannot submit a native GET while application scripts are pending',()=>{
+  for(const [name,html] of pages().filter(([name])=>['login.html','reset-password.html','accept-invitation.html'].includes(name))){
+    for(const form of html.matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form>/g)){
+      assert.match(form[1],/method="post"/,`${name}: credentials must never fall back to a URL query`);
+      if(name!=='accept-invitation.html')assert.match(form[2],/<button\b(?=[^>]*type="submit")(?=[^>]*\bdisabled)[^>]*>/,`${name}: wait for submit handlers before enabling the form`);
+    }
+  }
+});
+
 test('startup scripts are discovered in the head and execute after parsing in dependency order',()=>{
   for(const [name,html] of pages()){
     const headEnd=html.indexOf('</head>');
