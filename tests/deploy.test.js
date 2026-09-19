@@ -47,7 +47,7 @@ test('Vercel serves generated frontend assets before the Node serverless adapter
   assert.ok(vercel.headers.some((route) => route.source === '/assets/(.*)'));
   assert.ok(vercel.headers.some((route) => route.source.endsWith('.js')));
   assert.ok(vercel.headers.some((route) => route.source.endsWith('.css')));
-  const catalogPageHeaders = vercel.headers.find((route) => route.source === '/opportunities.html');
+  const catalogPageHeaders = vercel.headers.find((route) => new RegExp(`^${route.source}$`).test('/opportunities.html'));
   assert.ok(catalogPageHeaders, 'opportunities.html needs an explicit page cache policy');
   assert.ok(catalogPageHeaders.headers.some(({ key, value }) => key === 'Cache-Control' && /max-age=/.test(value)));
   assert.ok(catalogPageHeaders.headers.some(({ key, value }) =>
@@ -313,17 +313,17 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
   const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'course.html', 'courses.html', 'teaching.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
   const required = {
-    'index.html': { 'styles.css': '20', 'i18n.js': '20260918b', 'app.js': '18', 'recs.js': '4', 'script.js': '14' },
-    'opportunities.html': { 'catalog.css': '4', 'i18n.js': '20260918b', 'catalog.js': '4' },
-    'dashboard.html': { 'i18n.js': '20260918b', 'dashboard.js': '20260911b', 'globe.js': '27', 'location-check.js': '20260908b' },
-    'login.html': { 'i18n.js': '20260918b', 'auth.js': '20260918b' },
+    'index.html': { 'styles.css': '20', 'i18n.js': '20260919a', 'app.js': '18', 'recs.js': '4', 'script.js': '14' },
+    'opportunities.html': { 'catalog.css': '4', 'i18n.js': '20260919a', 'catalog.js': '4' },
+    'dashboard.html': { 'i18n.js': '20260919a', 'dashboard.js': '20260911b', 'globe.js': '27', 'location-check.js': '20260908b' },
+    'login.html': { 'i18n.js': '20260919a', 'auth.js': '20260918b' },
     'reset-password.html': { 'password-recovery.js': '20260918b' },
-    'payments.html': { 'i18n.js': '20260918b' },
-    'profile.html': { 'i18n.js': '20260918b', 'profile.js': '20260911c', 'styles.css': '21' },
+    'payments.html': { 'i18n.js': '20260919a' },
+    'profile.html': { 'i18n.js': '20260919a', 'profile.js': '20260911c', 'styles.css': '21' },
     'admin.html': { 'admin.css': '2', 'admin.js': '2' },
-    'course.html': { 'i18n.js': '20260918b' },
-    'courses.html': { 'i18n.js': '20260918b' },
-    'teaching.html': { 'i18n.js': '20260918b' },
+    'course.html': { 'i18n.js': '20260919a' },
+    'courses.html': { 'i18n.js': '20260919a' },
+    'teaching.html': { 'i18n.js': '20260919a' },
   };
   for (const [page, assets] of Object.entries(required)) {
     for (const [asset, version] of Object.entries(assets)) {

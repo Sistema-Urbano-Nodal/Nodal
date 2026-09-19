@@ -8,6 +8,7 @@
   const KEY = 'nodal.lang';
 
   const ES = {
+    'nav.privacy': 'Política de privacidad',
     'nav.knowledge': 'Comunidad',
     'nav.resources': 'Recursos',
     'nav.profile': 'Perfil',
@@ -208,6 +209,7 @@
   };
 
   const PT = {
+    'nav.privacy': 'Política de privacidade',
     'nav.knowledge': 'Comunidade',
     'nav.resources': 'Recursos',
     'nav.profile': 'Perfil',

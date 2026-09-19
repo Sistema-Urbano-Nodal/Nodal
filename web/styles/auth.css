@@ -118,3 +118,6 @@
 @media (prefers-reduced-motion: reduce) {
   .auth-page .auth-card .btn { transition: none; }
 }
+
+.auth-footer{width:min(960px,calc(100% - 48px));margin:0 auto 32px;border-top:1px solid #d7dfd8;padding-top:20px;font-size:12px;color:var(--auth-muted)}
+.auth-footer a{color:inherit;text-underline-offset:4px}

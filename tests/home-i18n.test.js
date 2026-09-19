@@ -263,8 +263,9 @@ for(const lang of ['es','pt']){
   test('nonhome catalog and console dictionaries remain unchanged in '+lang,()=>{
     for(const page of [undefined,'dashboard','course','opportunities']){
       const{api,dictionaries}=load(page);api.apply(lang);
-      const actual=Object.entries(dictionaries[lang]).sort(([a],[b])=>a.localeCompare(b,'en'));
+      const actual=Object.entries(dictionaries[lang]).filter(([key])=>key!=='nav.privacy').sort(([a],[b])=>a.localeCompare(b,'en'));
       assert.equal(hash(actual),SNAPSHOTS.nonhome[lang],String(page));
+      assert.equal(api.t('nav.privacy'),lang==='es'?'Política de privacidad':'Política de privacidade');
       assert.equal(api.t('nav.opportunities'),lang==='es'?'Trabajo abierto':'Trabalhos abertos');
       assert.notEqual(api.t('catalog.title'),'catalog.title');assert.notEqual(api.t('d.nav.overview'),'d.nav.overview');
     }

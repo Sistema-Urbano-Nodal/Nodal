@@ -269,3 +269,6 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-post-actions{display:flex;gap:0 18px;flex-wrap:wrap}
 .pilot-post-actions .pilot-button{margin-right:0}
 .pilot-post .pilot-status{font-size:12px;white-space:pre-wrap}
+
+.pilot-footer{max-width:1264px;margin:0 28px;padding:24px 0;border-top:1px solid var(--line);font-size:12px}
+@media(min-width:1320px){.pilot-footer{margin-left:auto;margin-right:auto}}

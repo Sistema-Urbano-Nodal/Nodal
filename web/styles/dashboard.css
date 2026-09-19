@@ -971,3 +971,7 @@ select:focus-visible, textarea:focus-visible {
 .location-attribution { display: block; margin-top: 8px; color: var(--muted); font-size: 10px; }
 .location-check-status { margin: 7px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 @media (max-width: 480px) { .location-city { max-width: 100%; } .location-toolbar { gap: 8px 14px; } }
+
+.side-privacy{display:block;margin:14px 0 0 12px;color:#e0e8db;font-size:11px;text-decoration:none}
+.side-privacy:hover{text-decoration:underline;text-underline-offset:3px}
+@media(max-width:980px){.side-privacy{margin:0;font-size:10px}}
