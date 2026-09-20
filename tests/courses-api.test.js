@@ -193,6 +193,27 @@ test('official material erasure is explicit, retryable, and serialized against r
  assert.equal((await store.find('attachments',{id})).length,0);
 });
 
+test('material references accept uppercase UUIDs and protect legacy references from deletion',async t=>{
+ const {call,course,module,enter,store}=await setup(t);await enter();
+ const path=`/api/admin/courses/${course.id}/modules/${module.id}`;
+ const upload=await call(path+'/attachments',{actor:'staff',method:'POST',body:{name:'Reading.txt',mime:'text/plain',data:Buffer.from('Teaching material').toString('base64')}});
+ assert.equal(upload.status,201);const {attachment}=await upload.json();
+ const published=await call(path,{actor:'staff',method:'PATCH',body:{version:1,resources:[{title:'Reading',attachmentId:attachment.id.toUpperCase()}]}});
+ assert.equal(published.status,200);
+ assert.equal((await published.json()).module.resources[0].attachmentId,attachment.id);
+ // Supabase UUID columns canonicalize case; older JSON resource arrays may not.
+ const find=store.find;store.find=async(name,...args)=>{
+  const rows=await find(name,...args);
+  return name==='modules'?rows.map(row=>({...row,resources:row.resources.map(resource=>({...resource,attachmentId:resource.attachmentId?.toUpperCase()}))})):rows;
+ };
+ const listed=await(await call(path+'/attachments',{actor:'staff'})).json();
+ assert.equal(listed.attachments[0].referenced,true);
+ const downloaded=await call(`/api/course-attachments/${attachment.id.toUpperCase()}`);
+ assert.equal(downloaded.status,200);assert.equal(await downloaded.text(),'Teaching material');
+ assert.equal((await call(path+'/attachments/'+attachment.id,{actor:'staff',method:'DELETE'})).status,409);
+ assert.equal((await store.find('attachments',{id:attachment.id}))[0].status,'ready');
+});
+
 test('uncertain official uploads remain private and can be reconciled after account deletion',async t=>{
  const {call,course,module,store,users,db}=await setup(t);
  const {reconcileCourseUploads}=await import('../scripts/reconcile-course-uploads.js');

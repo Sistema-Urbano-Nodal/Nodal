@@ -631,6 +631,18 @@ test('catalog page exposes the complete public and member workflow', () => {
   }
 });
 
+test('editorial email links preserve address delimiters as address text', () => {
+  const h = adminHarness();
+  const address = 'member?bcc=other%40example.test#tag@example.test';
+  const card = h.api.renderInterest({member:{name:'Member',email:address},item:{},status:'new'});
+  const link = descendants(card).find(node => node.href?.startsWith('mailto:'));
+  const uri = new URL(link.href);
+  assert.equal(uri.search, '');
+  assert.equal(uri.hash, '');
+  assert.equal(decodeURIComponent(uri.pathname), address);
+  assert.equal(link.textContent, address);
+});
+
 test('landing logo script tolerates pages without a headline and preserves real brand navigation', () => {
   const svg = new FakeNode('net');
   const brand = new FakeNode('brand');
@@ -642,7 +654,7 @@ test('landing logo script tolerates pages without a headline and preserves real 
     querySelector: () => null,
     addEventListener() {},
   };
-  const context = { document, requestAnimationFrame() {}, setTimeout() {} };
+  const context = { document, window: {}, requestAnimationFrame() {}, setTimeout() {}, clearTimeout() {} };
   assert.doesNotThrow(() => vm.runInNewContext(read('web', 'scripts', 'script.js'), context));
   let prevented = false;
   brand.listeners.get('click')({ currentTarget: brand, preventDefault() { prevented = true; } });

@@ -81,7 +81,7 @@ test('globe discards an old response and immediately refetches after a city upda
   const old=deferred(),calls=[],renders=[],window=events();
   const data=city=>({places:[{name:city,people:[]}],links:[],topics:[],you:{city}});
   const reply=city=>({ok:true,status:200,headers:{get:()=>city},json:async()=>data(city)});
-  const ctx={window,document:{hidden:false,getElementById:()=>null},state:{topic:'',picked:-1},AbortSignal,
+  const ctx={window,document:{hidden:false,getElementById:()=>null},state:{topic:'',picked:-1,visible:true},AbortSignal,
     fetch:async(path,opts)=>{calls.push({path,headers:opts.headers});return calls.length===1?old.promise:reply('Cambridge');},
     mergePlaces:d=>{renders.push(d.you.city);ctx.FULL=d;ctx.PLACES=d.places;},FULL:{},PLACES:[],started:false,
     renderTopics:()=>{},renderTimeline:()=>{},sayWhereYouStand:()=>{},showCount:()=>{},newcomers:()=>[],normalise:s=>s,

@@ -417,7 +417,7 @@
     if (item.itemId) article.append(create('p', 'admin-interest-item-id', item.itemId));
     article.append(create('h4', null, interest.member?.name || 'Member name unavailable'));
     const email = create('a', null, interest.member?.email || 'Email unavailable');
-    if (interest.member?.email) email.href = `mailto:${interest.member.email}`;
+    if (interest.member?.email) email.href = `mailto:${encodeURIComponent(interest.member.email)}`;
     article.append(email);
     article.append(create('p', null, interest.message || 'No member message.'));
     const controls = create('div', 'admin-interest-controls');

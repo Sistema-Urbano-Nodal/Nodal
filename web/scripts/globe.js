@@ -19,7 +19,8 @@
   const I18N = window.nodalI18n;
   const t = (key, vars) => (I18N ? I18N.t(key, vars) : key);
   const RAD = Math.PI / 180;
-  const calm = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const calm = () => motion.matches;
   const TOPIC_KEYS = new Map([
     ['Mobility', 'mobility'], ['Public space', 'publicSpace'], ['Housing', 'housing'],
     ['Climate & resilience', 'climate'], ['Care & gender', 'care'],
@@ -326,8 +327,10 @@
     });
   }
 
-  let lastFrame = 0;
+  let lastFrame = 0, animationFrame = null;
   function frame(time) {
+    animationFrame = null;
+    if (!state.visible || document.hidden) { lastFrame = 0; return; }
     // tied to elapsed time, not to frame count: a 120Hz display must not spin
     // the world twice as fast as a 60Hz one
     const dt = lastFrame ? Math.min((time - lastFrame) / 1000, 0.1) : 0;
@@ -343,7 +346,14 @@
       connections();
       nodes(time);
     }
-    requestAnimationFrame(frame);
+    animationFrame = requestAnimationFrame(frame);
+  }
+  function syncAnimation() {
+    if (!state.visible || document.hidden) {
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+      animationFrame = null;
+      lastFrame = 0;
+    } else if (animationFrame === null) animationFrame = requestAnimationFrame(frame);
   }
 
   /* ---------- the panel ---------- */
@@ -586,7 +596,7 @@
   window.addEventListener('nodal:profile-location-changed', refreshPlaces);
 
   async function poll() {
-    if (inFlight || document.hidden) return;
+    if (inFlight || document.hidden || !state.visible) return;
     inFlight = true;
     refreshQueued = false;
     const requestRevision = refreshRevision;
@@ -766,10 +776,16 @@
     document.getElementById('partCBtn')?.click();
   });
 
-  const io = new IntersectionObserver((entries) => {
-    entries.forEach((e) => { state.visible = e.isIntersecting; });
-  }, { rootMargin: '80px' });
-  io.observe(canvas);
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver((entries) => {
+      const wasVisible = state.visible;
+      state.visible = entries.some(entry => entry.isIntersecting);
+      syncAnimation();
+      if (!state.visible) clearTimeout(pollTimer);
+      else if (!wasVisible) { backoff = POLL_MS; poll(); }
+    }, { rootMargin: '80px' });
+    io.observe(canvas);
+  }
 
   window.addEventListener('resize', resize);
   I18N?.onChange(() => {
@@ -777,15 +793,16 @@
     showPlace(state.picked >= 0 ? PLACES[state.picked] : null);
   });
   resize();
-  requestAnimationFrame(frame);
+  syncAnimation();
   function schedule() {
     clearTimeout(pollTimer);
-    if (document.hidden) return;
+    if (document.hidden || !state.visible) return;
     pollTimer = setTimeout(poll, backoff + Math.random() * Math.min(3000, backoff * 0.2));
   }
 
   poll();
   document.addEventListener('visibilitychange', () => {
+    syncAnimation();
     if (document.hidden) { clearTimeout(pollTimer); return; }
     backoff = POLL_MS;
     poll();

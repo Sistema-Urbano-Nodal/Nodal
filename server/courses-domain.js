@@ -7,7 +7,7 @@ export const fail = (message, status = 400) => { throw Object.assign(new Error(m
 export const newId = () => randomUUID();
 export function identifier(value) {
   if (typeof value !== 'string' || !/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value)) fail('invalid identifier');
-  return value;
+  return value.toLowerCase();
 }
 export function text(value, field, max = 2000, required = false) {
   if (value !== undefined && typeof value !== 'string') fail(`${field} must be text`);

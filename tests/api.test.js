@@ -7,7 +7,7 @@ import http from 'node:http';
 import { createHmac } from 'node:crypto';
 import path from 'node:path';
 import {
-  createApp, createCitySearch, graphFingerprint, staticSourcePath, validateRuntimeConfig,
+  createApp as createProductionApp, createCitySearch, graphFingerprint, staticSourcePath, validateRuntimeConfig,
 } from '../server/server.js';
 import { createStore } from '../server/store.js';
 import { createDatabase } from '../server/db.js';
@@ -16,6 +16,10 @@ import { createRepository } from '../server/repository.js';
 
 const LIVE_STRIPE_SECRET = ['sk', 'live', 'abc123'].join('_');
 const LIVE_STRIPE_WEBHOOK_SECRET = ['whsec', 'live123'].join('_');
+
+// Ordinary API fixtures must never call the external geocoder. Provider tests
+// supply their own citySearch implementation explicitly.
+const createApp = (options) => createProductionApp({ citySearch: { search: async () => ({ cities: [] }) }, ...options });
 
 async function bootApp(t, server) {
   server.listen(0, '127.0.0.1');

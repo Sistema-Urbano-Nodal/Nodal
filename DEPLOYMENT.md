@@ -198,7 +198,8 @@ npm start
 
 - Members pick EN / ES / PT at sign-in; the choice persists in `localStorage`
   under `nodal.lang` and carries into the console, the member profile and the
-  membership page. `?lang=en|es|pt` overrides it for a direct link.
+  membership page. A saved choice takes precedence over `?lang=en|es|pt`;
+  the URL language is used when the visitor has not saved a preference.
 - Subscription **amounts** are shown exactly as configured in
   `SUBSCRIPTION_PRICE_*_LABEL`, in every language. The wording around the amount
   (cycle name, period suffix, renewal and cancellation notes) is translated when

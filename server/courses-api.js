@@ -4,6 +4,9 @@ import {createCourseParticipants} from './course-participants.js';
 const now = () => new Date().toISOString();
 const isStaff = user => user?.permission === 'admin';
 const attachmentView = ({id,name,mime,size}) => ({id,name,mime,size});
+// UUID columns are canonical, but older JSON references may retain uppercase.
+const sameIdentifier = (reference, id) => typeof reference === 'string' && reference.toLowerCase() === id.toLowerCase();
+const referencesMaterial = (module, id) => module.resources.some(resource => sameIdentifier(resource.attachmentId, id));
 const writeMethods = new Set(['POST','PUT','PATCH','DELETE']);
 function samePost(post, input, courseId, moduleId) {
   return post && post.courseId === courseId && post.moduleId === moduleId &&
@@ -167,10 +170,10 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       const attachment=await findOne('attachments',{id:identifier(match[1])});
       if(!attachment||attachment.status!=='ready')fail('file unavailable',404);
       const {module}=await moduleAccess(attachment.courseId,attachment.moduleId,user);
-      if(attachment.purpose==='material'&&!isStaff(user)&&!module.resources.some(r=>r.attachmentId===attachment.id))fail('file unavailable',404);
+      if(attachment.purpose==='material'&&!isStaff(user)&&!referencesMaterial(module,attachment.id))fail('file unavailable',404);
       if(attachment.purpose!=='material'&&!isStaff(user)&&attachment.userId!==user.id) {
         const posts=await all('posts',{moduleId:attachment.moduleId,userId:attachment.userId});
-        if(!posts.some(post=>!post.deletedAt&&post.attachmentIds.includes(attachment.id)))fail('file unavailable',404);
+        if(!posts.some(post=>!post.deletedAt&&post.attachmentIds.some(id=>sameIdentifier(id,attachment.id))))fail('file unavailable',404);
       }
       const bytes=await store.getFile(attachment);
       send(res,200,bytes,{'Content-Type':attachment.mime,'Content-Disposition':`attachment; filename="${attachment.name.replace(/[^a-zA-Z0-9._ -]/g,'_')}"; filename*=UTF-8''${encodeURIComponent(attachment.name)}`,'Content-Security-Policy':"default-src 'none'; sandbox",'Content-Length':String(bytes.length)});
@@ -296,13 +299,13 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       }
       if(adminPath&&operation==='/attachments'&&req.method==='GET') {
         const rows=await store.find('attachments',{courseId,moduleId:module.id,purpose:'material'},{limit:100});
-        send(res,200,{attachments:rows.map(a=>({...attachmentView(a),status:a.status,referenced:module.resources.some(r=>r.attachmentId===a.id)}))});return true;
+        send(res,200,{attachments:rows.map(a=>({...attachmentView(a),status:a.status,referenced:referencesMaterial(module,a.id)}))});return true;
       }
       if(adminPath&&operation.startsWith('/attachments/')&&req.method==='DELETE') {
         const attachment=await findOne('attachments',{id:identifier(operation.split('/')[2]),courseId,moduleId:module.id,purpose:'material'});
         if(!attachment)fail('file unavailable',404);
         if(attachment.status==='pending')fail('pending uploads must be reconciled before deletion',409);
-        if(module.resources.some(r=>r.attachmentId===attachment.id))fail('remove the material from module resources before deleting',409);
+        if(referencesMaterial(module,attachment.id))fail('remove the material from module resources before deleting',409);
         if(attachment.status!=='deleting')await store.update('attachments',{id:attachment.id,status:'ready'},{status:'deleting'});
         await store.deleteFile(attachment);await store.remove('attachments',{id:attachment.id,status:'deleting'});
         send(res,200,{ok:true});return true;

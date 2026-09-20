@@ -26,19 +26,19 @@ const reply=(data,status=200)=>({status,ok:status>=200&&status<300,headers:{get:
 
 function harness(initial) {
   const ids=Object.fromEntries(['globeCanvas','globeCard','globeCity','globeLabel','globeCount','globePeople','globeLinks','globeEyebrow','globeYou','globeYouCta','globeEmpty','globeFeed','globeFeedLabel','globeTopics','globeSince','globeSinceLabel','globePlay'].map(id=>[id,new Element()]));
-  const requests=[],timers=new Map(),intervals=new Map(),windowEvents={},documentEvents={},draws=[];let timerId=0,frame;
+  const requests=[],timers=new Map(),intervals=new Map(),windowEvents={},documentEvents={},draws=[];let timerId=0,frame,intersection;const frames=new Map();
   let respond=()=>reply(initial);
   const drawing=new Proxy({createRadialGradient:()=>({addColorStop(){}})}, {get(target,key){return target[key]??((...args)=>draws.push({kind:key,args}));}});
   ids.globeCanvas.getContext=()=>drawing;
-  const window={devicePixelRatio:1,matchMedia:()=>({matches:true}),addEventListener(type,listener){windowEvents[type]=listener;},nodalI18n:{lang:'en',t:(key,vars)=>key+JSON.stringify(vars||{}),onChange(){}}};
+  const window={IntersectionObserver:true,devicePixelRatio:1,matchMedia:()=>({matches:true}),addEventListener(type,listener){windowEvents[type]=listener;},nodalI18n:{lang:'en',t:(key,vars)=>key+JSON.stringify(vars||{}),onChange(){}}};
   const document={hidden:false,getElementById:id=>ids[id]||null,createElement:()=>new Element(),addEventListener(type,listener){documentEvents[type]=listener;}};
-  const context=vm.createContext({window,document,console,Event,AbortSignal,performance:{now:()=>1000},IntersectionObserver:class{observe(){}},
-    requestAnimationFrame:callback=>{frame=callback;},setTimeout:(callback,ms)=>{const id=++timerId;timers.set(id,{callback,ms});return id;},clearTimeout:id=>timers.delete(id),
+  const context=vm.createContext({window,document,console,Event,AbortSignal,performance:{now:()=>1000},IntersectionObserver:class{constructor(fn){intersection=fn;}observe(){}},
+    requestAnimationFrame:callback=>{frame=callback;const id=++timerId;frames.set(id,callback);return id;},cancelAnimationFrame:id=>frames.delete(id),setTimeout:(callback,ms)=>{const id=++timerId;timers.set(id,{callback,ms});return id;},clearTimeout:id=>timers.delete(id),
     setInterval:callback=>{const id=++timerId;intervals.set(id,callback);return id;},clearInterval:id=>intervals.delete(id),
     fetch:async(path,options)=>{requests.push({path,headers:options.headers});return respond(path,options);},
   });
   for(const file of ['globe-geo','globe'])vm.runInContext(readFileSync(new URL(`../web/scripts/${file}.js`,import.meta.url),'utf8'),context);
-  return {ids,requests,timers,intervals,draws,respond:fn=>{respond=fn;},refresh:()=>documentEvents.visibilitychange(),draw:()=>frame(1000),
+  return {ids,requests,timers,intervals,draws,frames,visible:value=>intersection([{isIntersecting:value}]),hide:value=>{document.hidden=value;documentEvents.visibilitychange();},respond:fn=>{respond=fn;},refresh:()=>documentEvents.visibilitychange(),draw:()=>frame(1000),
     key:()=>ids.globeCanvas.dispatchEvent({type:'keydown',key:'ArrowRight',preventDefault(){}}),
   };
 }
@@ -105,4 +105,26 @@ test('topic changes invalidate an in-flight snapshot and immediately fetch the s
   fresh.resolve(reply(snapshot([city('Current city',[member('current','Current name')])])));await flush();
   assert.doesNotMatch(content(h.ids.globeFeed)+content(h.ids.globePeople)+content(h.ids.globeCity),/Stale/);
   assert.match(content(h.ids.globePeople),/Current name/);
+});
+
+
+test('offscreen globe pauses frames and requests, then immediately refreshes on return',async()=>{
+ const h=harness(snapshot([city('Boston',[member('a','Ana')])]));await flush();
+ assert.equal(h.frames.size,1);assert.equal(h.timers.size,1);
+ const count=h.requests.length;h.visible(false);
+ assert.equal(h.frames.size,0);assert.equal(h.timers.size,0);
+ h.refresh();await flush();assert.equal(h.requests.length,count,'another visibility event must not fetch an offscreen globe');
+ h.visible(true);h.visible(true);await flush();
+ assert.equal(h.requests.length,count+1);assert.equal(h.frames.size,1);assert.equal(h.timers.size,1);
+ h.hide(true);assert.equal(h.frames.size,0);assert.equal(h.timers.size,0);
+ h.hide(false);await flush();assert.equal(h.requests.length,count+2);assert.equal(h.frames.size,1);
+});
+
+test('finishing a request while the globe is offscreen does not restart polling',async()=>{
+ const current=snapshot([city('Boston',[member('a','Ana')])]);
+ const h=harness(current);await flush();const pending=deferred();
+ h.respond(()=>pending.promise);h.refresh();h.visible(false);
+ pending.resolve(reply(current));await flush();
+ assert.equal(h.timers.size,0);assert.equal(h.frames.size,0);
+ h.visible(true);await flush();assert.equal(h.timers.size,1);assert.equal(h.frames.size,1);
 });

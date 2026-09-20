@@ -26,6 +26,12 @@
   };
 
   const svg = document.getElementById('net');
+  document.querySelector('.headline')?.classList.add('in');
+  if (!svg) return;
+  const motion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+  let visible = true, animationFrame = null;
+  const introTimers = new Set();
+  const active = () => visible && !document.hidden && !motion?.matches;
   const NS = 'http://www.w3.org/2000/svg';
   const { nodes, edges } = CONFIG;
 
@@ -60,13 +66,12 @@
     sp: (0.5 + (i % 4) * 0.12) * CONFIG.floatSpeed,
   }));
 
-  function loop(t) {
-    const time = t / 1000;
+  function renderPositions(time = null) {
     const pos = nodes.map((n, i) => {
       const d = drift[i];
       return {
-        x: n.x + Math.sin(time * d.sp + d.px) * d.ax,
-        y: n.y + Math.cos(time * d.sp + d.py) * d.ay,
+        x: n.x + (time === null ? 0 : Math.sin(time * d.sp + d.px) * d.ax),
+        y: n.y + (time === null ? 0 : Math.cos(time * d.sp + d.py) * d.ay),
       };
     });
     nodeEls.forEach((c, i) => { c.setAttribute('cx', pos[i].x); c.setAttribute('cy', pos[i].y); });
@@ -75,11 +80,49 @@
       l.setAttribute('x1', pos[a].x); l.setAttribute('y1', pos[a].y);
       l.setAttribute('x2', pos[b].x); l.setAttribute('y2', pos[b].y);
     });
-    requestAnimationFrame(loop);
   }
-  requestAnimationFrame(loop);
+  function clearIntro() {
+    introTimers.forEach(clearTimeout);
+    introTimers.clear();
+  }
+  function settle() {
+    clearIntro();
+    nodeEls.forEach(c => { c.style.transition = 'none'; c.style.transform = 'scale(1)'; });
+    edgeEls.forEach(l => { l.style.transition = 'none'; l.style.strokeDashoffset = 0; l.style.strokeDasharray = ''; l.style.opacity = 0.95; });
+  }
+  function loop(t) {
+    animationFrame = null;
+    if (!active()) return;
+    renderPositions(t / 1000);
+    animationFrame = requestAnimationFrame(loop);
+  }
+  function syncMotion() {
+    if (!active()) {
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+      animationFrame = null;
+      settle();
+      if (motion?.matches) renderPositions();
+    } else if (animationFrame === null) animationFrame = requestAnimationFrame(loop);
+  }
+  function later(callback, delay) {
+    const id = setTimeout(() => { introTimers.delete(id); callback(); }, delay);
+    introTimers.add(id);
+  }
+  renderPositions();
+  document.addEventListener('visibilitychange', syncMotion);
+  motion?.addEventListener('change', syncMotion);
+  if ('IntersectionObserver' in window) {
+    const observer = new IntersectionObserver(entries => {
+      visible = entries.some(entry => entry.isIntersecting);
+      syncMotion();
+    });
+    observer.observe(svg);
+  }
 
   function play() {
+    clearIntro();
+    syncMotion();
+    if (!active()) return;
     // only the node network animates — the wordmark image stays static
     nodeEls.forEach(c => { c.style.transition = 'none'; c.style.transform = 'scale(0)'; });
     edgeEls.forEach(l => {
@@ -95,13 +138,13 @@
     // 1) nodes pop in
     nodeEls.forEach((c, i) => {
       c.style.transition = `transform ${CONFIG.nodePopSpeed}ms cubic-bezier(.34,1.56,.64,1)`;
-      setTimeout(() => { c.style.transform = 'scale(1)'; }, 100 + i * CONFIG.nodePopStagger);
+      later(() => { c.style.transform = 'scale(1)'; }, 100 + i * CONFIG.nodePopStagger);
     });
 
     // 2) edges self-draw
     const edgesStart = 100 + nodes.length * CONFIG.nodePopStagger;
     edgeEls.forEach((l, i) => {
-      setTimeout(() => {
+      later(() => {
         l.style.transition =
           `stroke-dashoffset ${CONFIG.drawSpeed}ms ${CONFIG.drawEase}, opacity 400ms ease`;
         l.style.strokeDashoffset = 0;
