@@ -14,11 +14,11 @@
   <script src="locale.js?v=20260918b"></script>
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="fonts.css?v=20260911b" />
-  <link rel="stylesheet" href="styles.css?v=20" />
+  <link rel="stylesheet" href="styles.css?v=23" />
 
   <script defer src="nav.js?v=20260912a"></script>
   <script defer src="i18n.js?v=20260919a"></script>
-  <script defer src="script.js?v=14"></script>
+  <script defer src="script.js?v=15"></script>
   <script defer src="app.js?v=18"></script>
   <script defer src="recs.js?v=4"></script>
 </head>
@@ -59,20 +59,44 @@
 
   <svg class="hero-net" viewBox="0 0 320 420" aria-hidden="true" preserveAspectRatio="xMidYMid meet">
     <g class="hn-edges" stroke-linecap="round" fill="none">
-      <line x1="88"  y1="64"  x2="172" y2="118"/>
-      <line x1="172" y1="118" x2="118" y2="206"/>
-      <line x1="172" y1="118" x2="238" y2="172"/>
-      <line x1="118" y1="206" x2="190" y2="272"/>
-      <line x1="238" y1="172" x2="190" y2="272"/>
-      <line x1="190" y1="272" x2="146" y2="352"/>
+      <path class="hn-link" data-nodes="n2 n1" pathLength="1" d="M172 118 Q123 105 88 64"/>
+      <path class="hn-link" data-nodes="n2 n4" pathLength="1" d="M172 118 Q135 149 118 206"/>
+      <path class="hn-link" data-nodes="n2 n3" pathLength="1" d="M172 118 Q219 136 238 172"/>
+      <path class="hn-link" data-nodes="n4 n5" pathLength="1" d="M118 206 Q141 256 190 272"/>
+      <path class="hn-link" data-nodes="n3 n5" pathLength="1" d="M238 172 Q229 234 190 272"/>
+      <path class="hn-link" data-nodes="n5 n6" pathLength="1" d="M190 272 Q164 300 146 352"/>
     </g>
     <g class="hn-nodes">
-      <circle cx="88"  cy="64"  r="5"/>
-      <circle cx="172" cy="118" r="8.5" class="hn-hub"/>
-      <circle cx="238" cy="172" r="5"/>
-      <circle cx="118" cy="206" r="6"/>
-      <circle cx="190" cy="272" r="7" class="hn-active"/>
-      <circle cx="146" cy="352" r="5"/>
+      <g class="hn-node" data-node="n1" transform="translate(88 64)">
+        <circle class="hn-hit" r="15"/>
+        <circle class="hn-echo" r="6.5"/>
+        <g class="hn-mark"><circle class="hn-core" r="5"/></g>
+      </g>
+      <g class="hn-node hn-hub" data-node="n2" transform="translate(172 118)">
+        <circle class="hn-hit" r="15"/>
+        <circle class="hn-echo" r="10"/>
+        <g class="hn-mark"><circle class="hn-core" r="8.5"/></g>
+      </g>
+      <g class="hn-node" data-node="n3" transform="translate(238 172)">
+        <circle class="hn-hit" r="15"/>
+        <circle class="hn-echo" r="6.5"/>
+        <g class="hn-mark"><circle class="hn-core" r="5"/></g>
+      </g>
+      <g class="hn-node" data-node="n4" transform="translate(118 206)">
+        <circle class="hn-hit" r="15"/>
+        <circle class="hn-echo" r="7.5"/>
+        <g class="hn-mark"><circle class="hn-core" r="6"/></g>
+      </g>
+      <g class="hn-node hn-hub" data-node="n5" transform="translate(190 272)">
+        <circle class="hn-hit" r="15"/>
+        <circle class="hn-echo" r="9"/>
+        <g class="hn-mark"><circle class="hn-core" r="7.5"/></g>
+      </g>
+      <g class="hn-node" data-node="n6" transform="translate(146 352)">
+        <circle class="hn-hit" r="15"/>
+        <circle class="hn-echo" r="6"/>
+        <g class="hn-mark"><circle class="hn-core" r="4.5"/></g>
+      </g>
     </g>
   </svg>
 
@@ -97,9 +121,6 @@
       </div>
     </div>
 
-    <a class="scroll-cue" href="#about" aria-label="Scroll down">
-      <span class="scroll-cue-line"></span>scroll
-    </a>
   </section>
 
   <!-- ticker -->

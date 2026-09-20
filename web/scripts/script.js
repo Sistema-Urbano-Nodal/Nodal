@@ -125,3 +125,30 @@
     play();
   });
 })();
+
+/* Reveal the map network once, when it enters view. The static SVG remains
+   readable without JavaScript, and no rendering loop is added for the map. */
+(() => {
+  const network = document.querySelector('.hero-net');
+  if (!network) return;
+  const motion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+  if (motion?.matches) return;
+  let observer;
+  function reveal() {
+    network.classList.remove('is-pending');
+    if (!motion?.matches) network.classList.add('is-arriving');
+    observer?.disconnect();
+  }
+  if (!('IntersectionObserver' in window)) { reveal(); return; }
+  observer = new IntersectionObserver(entries => {
+    if (entries.some(entry => entry.isIntersecting)) reveal();
+  }, {threshold: .15});
+  network.classList.add('is-pending');
+  observer.observe(network);
+  motion?.addEventListener('change', event => {
+    if (event.matches) {
+      network.classList.remove('is-pending', 'is-arriving');
+      observer.disconnect();
+    }
+  });
+})();
