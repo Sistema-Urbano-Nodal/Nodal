@@ -78,6 +78,7 @@
 .dispatch-title-button:hover { color: var(--catalog-map); text-decoration: underline; text-decoration-thickness: 0.12em; text-underline-offset: 0.16em; }
 .dispatch-summary { margin: 0; line-height: 1.6; color: var(--catalog-muted); }
 .dispatch-meta { display: flex; flex-wrap: wrap; gap: 0.45rem 1.1rem; margin-top: 1.1rem; color: var(--catalog-muted); font-size: 0.75rem; }
+.dispatch-meta-item { display: inline-flex; flex-wrap: wrap; gap: 0.3em; }
 .dispatch-meta strong { color: var(--catalog-ink); }
 .dispatch-source { display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 1rem; border-left: 1px solid var(--catalog-rule); }
 .source-stamp { display: inline-flex; align-items: center; gap: 0.45rem; color: var(--catalog-map); }
@@ -130,6 +131,10 @@
 .catalog-detail-kind { color: var(--catalog-green); font-size: 0.7rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
 .catalog-detail-pane h2 { clear: both; margin: 0.5rem 0; font-size: 2rem; line-height: 1.08; color: var(--catalog-ink); }
 .catalog-detail-summary { color: var(--catalog-muted); font-weight: 600; line-height: 1.55; }
+#catalogDetail { scroll-margin-top: 7.5rem; }
+.catalog-detail-meta { display: grid; gap: 0; margin: 1.25rem 0; }
+.catalog-detail-meta .dispatch-meta-item { display: grid; gap: 0.2rem; padding: 0.65rem 0; border-bottom: 1px solid var(--catalog-rule); line-height: 1.45; }
+.catalog-detail-meta .dispatch-meta-value { overflow-wrap: anywhere; }
 .catalog-detail-body { margin: 1.5rem 0; white-space: pre-wrap; line-height: 1.75; }
 .catalog-detail-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; padding: 1rem 0; border-block: 1px solid var(--catalog-rule); }
 .interest-disclosure { margin-top: 1.5rem; padding: 1rem; border-left: 0.25rem solid var(--catalog-green); background: var(--catalog-paper); color: var(--catalog-muted); font-size: 0.8rem; line-height: 1.55; }
@@ -176,9 +181,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .kind-fieldset legend { grid-column: 1 / -1; }
   .catalog-detail-pane, .my-interests { padding: 1.1rem; }
   #catalogDetail { scroll-margin-top: 6.5rem; }
-  .catalog-detail-meta { display: grid; gap: 0; margin: 1.25rem 0; }
-  .catalog-detail-meta .dispatch-meta-item { display: grid; gap: 0.2rem; padding: 0.65rem 0; border-bottom: 1px solid var(--catalog-rule); line-height: 1.45; }
-  .catalog-detail-meta .dispatch-meta-value { overflow-wrap: anywhere; }
 }
 
 @media (prefers-reduced-motion: reduce) {

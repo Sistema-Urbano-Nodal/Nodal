@@ -584,7 +584,7 @@ test('catalog civil dates do not shift to the previous day in São Paulo', () =>
   assert.equal(admin.api.localDate('2030-05-31T23:59:59.999Z'), '2030-05-31');
 });
 
-test('mobile detail clears the sticky header and renders metadata as readable rows', () => {
+test('detail clears the mobile header and renders metadata as readable rows at every size', () => {
   const css = catalogStyles();
   const mobileStart = css.indexOf('@media (max-width: 720px)');
   const mobileEnd = css.indexOf('@media (prefers-reduced-motion: reduce)', mobileStart);
@@ -592,8 +592,8 @@ test('mobile detail clears the sticky header and renders metadata as readable ro
   assert.notEqual(mobileStart, -1);
   assert.match(mobile, /#catalogDetail\s*\{[^}]*scroll-margin-top:\s*(?:calc\([^}]+\)|[\d.]+rem)/s,
     'detail scrollIntoView needs a sticky-header offset at 390px');
-  assert.match(mobile, /\.catalog-detail-meta\s*\{[^}]*display:\s*grid[^}]*gap:/s);
-  assert.match(mobile, /\.catalog-detail-meta \.dispatch-meta-item\s*\{[^}]*display:\s*grid/s);
+  assert.match(css, /\.catalog-detail-meta\s*\{[^}]*display:\s*grid[^}]*gap:/s);
+  assert.match(css, /\.catalog-detail-meta \.dispatch-meta-item\s*\{[^}]*display:\s*grid/s);
 
   const harness = catalogHarness((url) => {
     if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));

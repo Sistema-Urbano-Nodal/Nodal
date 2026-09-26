@@ -399,7 +399,7 @@
       if (trigger && (!document.activeElement || document.activeElement === trigger)) {
         byId('detailTitle').focus({ preventScroll: true });
       }
-      page.detail.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+      page.detail.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     } catch (error) {
       const isCurrent = page.detailController === controller && page.selectedId === id;
       if (error.name !== 'AbortError' && isCurrent) page.detailStatus.textContent = t('catalog.detailUnavailable');

@@ -314,7 +314,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
   const required = {
     'index.html': { 'styles.css': '23', 'i18n.js': '20260926a', 'app.js': '18', 'recs.js': '4', 'script.js': '16' },
-    'opportunities.html': { 'catalog.css': '6', 'i18n.js': '20260926a', 'catalog.js': '5' },
+    'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20260926a', 'catalog.js': '6' },
     'dashboard.html': { 'i18n.js': '20260926a', 'dashboard.js': '20260911b', 'globe.js': '28', 'location-check.js': '20260908b' },
     'login.html': { 'i18n.js': '20260926a', 'auth.js': '20260918b' },
     'reset-password.html': { 'password-recovery.js': '20260918b' },
