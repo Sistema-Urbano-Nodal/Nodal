@@ -38,7 +38,7 @@ class FakeNode {
   querySelectorAll() { return []; }
   querySelector() { return null; }
   scrollIntoView() {}
-  focus() {}
+  focus() { this.focused = true; }
   getBoundingClientRect() { return {}; }
 }
 
@@ -125,7 +125,7 @@ function catalogHarness(fetchImpl, { intl = Intl, assumeAuthenticated = true } =
 
   const instrumented = catalogScript().replace(
     /\n\}\)\(\);\s*$/,
-    `\nwindow.__catalogTest = { dateText, renderDispatch, renderDetail, selectDetail, closeDetail, runFilters, refetchForLanguage, loadAuthState, loadResults, loadLanding, submitInterest, withdrawInterest, loadMyInterests, page, setAuthenticated(value) { authenticated = value; } };\n})();`,
+    `\nwindow.__catalogTest = { dateText, renderDispatch, renderDetail, selectDetail, closeDetail, runFilters, debounceFilters, refetchForLanguage, loadAuthState, loadResults, loadLanding, submitInterest, withdrawInterest, loadMyInterests, page, setAuthenticated(value) { authenticated = value; } };\n})();`,
   );
   vm.runInNewContext(instrumented, context, { filename: 'catalog.js' });
   if (assumeAuthenticated) context.window.__catalogTest.setAuthenticated(true);
@@ -133,10 +133,11 @@ function catalogHarness(fetchImpl, { intl = Intl, assumeAuthenticated = true } =
 }
 
 function mountCatalogList(harness) {
-  for (const id of ['catalogForm', 'catalogResults', 'catalogStatus', 'catalogMore', 'catalogQuery', 'catalogTopic', 'catalogLocation', 'catalogState']) {
+  for (const id of ['catalogForm', 'catalogResults', 'catalogStatus', 'catalogMore', 'catalogRetry', 'resultsTitle', 'catalogQuery', 'catalogTopic', 'catalogLocation', 'catalogState']) {
     harness.ids.set(id, new FakeNode(id));
   }
   harness.ids.get('catalogState').value = 'open';
+  harness.ids.get('catalogRetry').hidden = true;
   Object.assign(harness.api.page, {
     form: harness.ids.get('catalogForm'),
     results: harness.ids.get('catalogResults'),
@@ -763,7 +764,8 @@ test('catalog language change synchronously invalidates the prior language curso
   await harness.api.loadResults({ append: true });
   assert.equal(catalogUrls.some((url) => new URL(url, 'https://nodal.test').searchParams.has('cursor')), false,
     'even a programmatic append during the transition must not mix the old language cursor');
-  firstPage.resolve(response({ items: [catalogItem('en', { title: 'Late English page' })], nextCursor: 'english-next' }));
+  assert.equal(catalogUrls.length, 1, 'append must not restart the first page');
+  firstPage.resolve(response({ items: [catalogItem('pt', { title: 'Página portuguesa' })], nextCursor: null }));
   await languageRefresh;
   assert.match(renderedText(harness.ids.get('catalogResults')), /Página portuguesa/);
   assert.doesNotMatch(renderedText(harness.ids.get('catalogResults')), /Late English page/);
@@ -975,6 +977,8 @@ test('interest writes report transport failures and preserve successful feedback
       if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
       return Promise.reject(new Error('offline'));
     });
+    await harness.api.loadAuthState();
+    harness.api.renderDetail(catalogItem('item-1'));
     await assert.doesNotReject(harness.api.submitInterest({
       preventDefault() {},
       currentTarget: harness.ids.get('catalogInterestForm'),
@@ -987,26 +991,32 @@ test('interest writes report transport failures and preserve successful feedback
       if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
       return Promise.reject(new Error('offline'));
     });
+    await harness.api.loadAuthState();
+    harness.api.renderDetail(catalogItem('item-1'));
     await assert.doesNotReject(harness.api.withdrawInterest());
     assert.equal(harness.ids.get('catalogInterestStatus').textContent, 'catalog.interestError');
   });
 
-  await t.test('PUT success remains explicit after the detail refresh', async () => {
+  await t.test('PUT success remains explicit without a detail refresh', async () => {
     const harness = catalogHarness((url, options = {}) => {
       if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
       if (options.method === 'PUT') return Promise.resolve(response({ interest: { status: 'new' } }));
       return Promise.resolve(response({ item: catalogItem('item-1', { interestStatus: 'new' }) }));
     });
+    await harness.api.loadAuthState();
+    harness.api.renderDetail(catalogItem('item-1'));
     await harness.api.submitInterest({ preventDefault() {}, currentTarget: harness.ids.get('catalogInterestForm') });
     assert.equal(harness.ids.get('catalogInterestStatus').textContent, 'catalog.interestSuccess');
   });
 
-  await t.test('DELETE success remains explicit after the detail refresh', async () => {
+  await t.test('DELETE success remains explicit without a detail refresh', async () => {
     const harness = catalogHarness((url, options = {}) => {
       if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
       if (options.method === 'DELETE') return Promise.resolve(response({ interest: { status: 'withdrawn' } }));
       return Promise.resolve(response({ item: catalogItem('item-1', { interestStatus: 'withdrawn' }) }));
     });
+    await harness.api.loadAuthState();
+    harness.api.renderDetail(catalogItem('item-1'));
     await harness.api.withdrawInterest();
     assert.equal(harness.ids.get('catalogInterestStatus').textContent, 'catalog.interestWithdrawn');
   });
@@ -1435,5 +1445,151 @@ test('dashboard catalog and recommendation states resolve in EN, ES, and PT', ()
     assert.ok(english.has(key), `${key} missing in English`);
     assert.ok(spanish.has(key), `${key} missing in Spanish`);
     assert.ok(portuguese.has(key), `${key} missing in Portuguese`);
+  }
+});
+
+
+test('catalog pagination ignores repeat clicks and retry preserves the loaded page and cursor', async () => {
+  let pending;
+  const reads = [];
+  const h = catalogHarness((url, options = {}) => {
+    if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+    reads.push(url);
+    pending = deferredResponse(options.signal, { honorAbort: false });
+    return pending.promise;
+  });
+  mountCatalogList(h);
+  h.api.page.nextCursor = 'page-two';
+  h.ids.get('catalogResults').append(h.api.renderDispatch(catalogItem('first', { title: 'First listing' })));
+  const first = h.api.loadResults({ append: true });
+  assert.equal(h.ids.get('catalogMore').disabled, true);
+  await h.api.loadResults({ append: true });
+  assert.equal(reads.length, 1, 'repeat clicks must not restart pagination');
+  pending.reject(new Error('offline'));
+  await first;
+  assert.match(renderedText(h.ids.get('catalogResults')), /First listing/);
+  assert.equal(h.ids.get('catalogRetry').hidden, false);
+  const retry = h.ids.get('catalogRetry').onclick();
+  assert.equal(new URL(reads.at(-1), 'https://nodal.test').searchParams.get('cursor'), 'page-two');
+  pending.resolve(response({ items: [catalogItem('second', { title: 'Second listing' })], nextCursor: null }));
+  await retry;
+  assert.equal(h.ids.get('catalogResults').children.length, 2);
+  assert.match(renderedText(h.ids.get('catalogResults')), /First listing.*Second listing/);
+  assert.equal(h.ids.get('catalogRetry').hidden, true);
+  assert.equal(h.ids.get('catalogMore').hidden, true);
+});
+
+test('failed catalog searches can be retried with the same filters', async () => {
+  const reads = [];
+  const h = catalogHarness(url => {
+    if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+    reads.push(url);
+    return reads.length === 1 ? Promise.reject(new Error('offline'))
+      : Promise.resolve(response({ items: [catalogItem('found')], nextCursor: null }));
+  });
+  mountCatalogList(h);
+  h.ids.get('catalogQuery').value = 'housing';
+  h.ids.get('catalogLocation').value = 'Lima';
+  await h.api.loadResults();
+  assert.equal(h.ids.get('catalogRetry').hidden, false);
+  await h.ids.get('catalogRetry').onclick();
+  assert.equal(reads[0], reads[1]);
+  assert.equal(h.ids.get('catalogResults').children.length, 1);
+  assert.equal(h.ids.get('catalogRetry').hidden, true);
+});
+
+test('applying filters cancels the queued typing search', async () => {
+  let reads = 0;
+  const h = catalogHarness(url => {
+    if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+    reads++;
+    return Promise.resolve(response({ items: [], nextCursor: null }));
+  });
+  mountCatalogList(h);
+  h.api.debounceFilters();
+  await h.api.runFilters();
+  await new Promise(resolve => setTimeout(resolve, 350));
+  assert.equal(reads, 1);
+});
+
+test('details focus their heading and close returns to the connected listing trigger', async () => {
+  const h = catalogHarness(url => Promise.resolve(response(url === '/api/auth/state'
+    ? { authenticated: true } : { item: catalogItem('focus-item') })));
+  const trigger = new FakeNode('listing-button');
+  trigger.isConnected = true;
+  await h.api.selectDetail('focus-item', trigger);
+  assert.equal(h.ids.get('detailTitle').focused, true);
+  h.api.closeDetail({ restoreFocus: true });
+  assert.equal(trigger.focused, true);
+  assert.equal(h.ids.get('catalogDetail').hidden, true);
+});
+
+test('interest updates lock repeated writes, preserve failed drafts and avoid a follow-up detail read', async () => {
+  let pending;
+  const writes = [];
+  const h = catalogHarness((url, options = {}) => {
+    if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+    writes.push({ url, options });
+    pending = deferredResponse();
+    return pending.promise;
+  });
+  await h.api.loadAuthState();
+  h.api.renderDetail(catalogItem('item-1'));
+  const message = h.ids.get('catalogInterestMessage');
+  message.value = 'I can contribute to this project.';
+  const event = { preventDefault() {}, currentTarget: h.ids.get('catalogInterestForm') };
+  const first = h.api.submitInterest(event);
+  assert.equal(h.ids.get('catalogInterestSubmit').disabled, true);
+  assert.equal(h.ids.get('catalogWithdrawInterest').disabled, true);
+  assert.equal(message.readOnly, true);
+  await h.api.submitInterest(event);
+  await h.api.withdrawInterest();
+  assert.equal(writes.length, 1);
+  pending.reject(new Error('offline'));
+  await first;
+  assert.equal(message.value, 'I can contribute to this project.');
+  assert.equal(message.readOnly, false);
+  assert.equal(h.ids.get('catalogInterestSubmit').disabled, false);
+  const retry = h.api.submitInterest(event);
+  pending.resolve(response({ interest: { status: 'new' } }));
+  await retry;
+  assert.equal(writes.length, 2, 'successful writes must not reload details');
+  assert.equal(message.value, '');
+  assert.equal(h.ids.get('catalogInterestStatus').textContent, 'catalog.interestSuccess');
+  assert.equal(h.ids.get('catalogWithdrawInterest').hidden, false);
+});
+
+test('late interest success or failure cannot reopen a closed detail or overwrite another listing', async t => {
+  for (const transition of ['close', 'another']) for (const outcome of ['success', 'failure']) {
+    await t.test(`${transition}: ${outcome}`, async () => {
+      let write;
+      const reads = [];
+      const h = catalogHarness((url, options = {}) => {
+        if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
+        if (options.method === 'PUT') { write = deferredResponse(); return write.promise; }
+        reads.push(url);
+        return Promise.resolve(response({ item: catalogItem('other') }));
+      });
+      await h.api.loadAuthState();
+      h.api.renderDetail(catalogItem('item-1'));
+      const pending = h.api.submitInterest({ preventDefault() {}, currentTarget: h.ids.get('catalogInterestForm') });
+      if (transition === 'close') h.api.closeDetail();
+      else {
+        await h.api.selectDetail('other');
+        h.ids.get('catalogInterestMessage').value = 'New listing draft';
+      }
+      const previous = h.ids.get('catalogInterestStatus').textContent;
+      if (outcome === 'success') write.resolve(response({ interest: { status: 'new' } }));
+      else write.reject(new Error('late error'));
+      await pending;
+      assert.equal(reads.length, transition === 'close' ? 0 : 1);
+      assert.equal(h.ids.get('catalogInterestStatus').textContent, previous);
+      if (transition === 'close') assert.equal(h.ids.get('catalogDetail').hidden, true);
+      else {
+        assert.equal(h.api.page.detailItem.id, 'other');
+        assert.equal(h.ids.get('catalogInterestMessage').value, 'New listing draft');
+        assert.equal(h.ids.get('catalogInterestSubmit').disabled, false);
+      }
+    });
   }
 });

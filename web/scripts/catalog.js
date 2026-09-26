@@ -109,7 +109,7 @@
     if (onSelect) {
       const button = create('button', 'dispatch-title-button', item.title);
       button.type = 'button';
-      button.addEventListener('click', () => onSelect(item.id));
+      button.addEventListener('click', () => onSelect(item.id, button));
       title.append(button);
     } else title.textContent = item.title;
     main.append(kind, title, create('p', 'dispatch-summary', item.summary || ''));
@@ -126,7 +126,7 @@
     if (onSelect) {
       const details = create('button', 'dispatch-details', t('catalog.viewDetails'));
       details.type = 'button';
-      details.addEventListener('click', () => onSelect(item.id));
+      details.addEventListener('click', () => onSelect(item.id, details));
       source.append(details);
     } else source.append(detailPermalink(item));
     row.append(rail, main, source);
@@ -144,7 +144,7 @@
     if (onSelect) {
       const button = create('button', 'catalog-text-button', t('catalog.viewDetails'));
       button.type = 'button';
-      button.addEventListener('click', () => onSelect(item.id));
+      button.addEventListener('click', () => onSelect(item.id, button));
       article.append(button);
     } else {
       article.append(detailPermalink(item, 'catalog-text-link'));
@@ -227,6 +227,7 @@
   const page = {
     form: byId('catalogForm'), results: byId('catalogResults'), status: byId('catalogStatus'),
     detail: byId('catalogDetail'), detailStatus: byId('catalogDetailStatus'),
+    detailVersion: 0, detailTrigger: null, pendingInterests: new Set(),
     more: byId('catalogMore'), selectedId: null, detailItem: null, nextCursor: null,
     listController: null, listRequest: 0, detailController: null, interestsController: null, debounce: null,
   };
@@ -270,12 +271,17 @@
 
   async function loadResults({ append = false } = {}) {
     if (!page.form || !page.results || !page.status) return;
+    if (append && (page.listController || !page.nextCursor || page.debounce)) return;
     page.listController?.abort();
     const controller = new AbortController();
     const requestId = ++page.listRequest;
     const params = filterParams({ cursor: append });
     const isCurrent = () => page.listRequest === requestId && page.listController === controller;
     page.listController = controller;
+    const retry = byId('catalogRetry');
+    if (retry) { retry.hidden = true; retry.onclick = null; }
+    page.more.disabled = true;
+    if (!append) { page.nextCursor = null; page.more.hidden = true; }
     page.status.textContent = t('catalog.loading');
     page.results.setAttribute('aria-busy', 'true');
     try {
@@ -291,12 +297,14 @@
     } catch (error) {
       if (error.name !== 'AbortError' && isCurrent()) {
         if (!append) clear(page.results);
-        page.status.textContent = t('catalog.error');
+        page.status.textContent = t(append ? 'catalog.moreError' : 'catalog.error');
+        if (retry) { retry.hidden = false; retry.onclick = () => loadResults({ append }); }
       }
     } finally {
       if (isCurrent()) {
         page.results.setAttribute('aria-busy', 'false');
         page.listController = null;
+        page.more.disabled = false;
       }
     }
   }
@@ -313,6 +321,14 @@
     if (item.sourceVerifiedAt) addMeta(box, t('catalog.sourceVerified'), dateText(item.sourceVerifiedAt, { civil: true }));
     if (item.topics?.length) addMeta(box, t('catalog.topics'), item.topics.join(' · '));
     box.append(sourceAnchor(item));
+  }
+
+  function syncInterestBusy(item) {
+    const busy = page.pendingInterests.has(item.id);
+    byId('catalogInterestForm').setAttribute('aria-busy', String(busy));
+    byId('catalogInterestSubmit').disabled = busy || !authenticated || item.actionMode !== 'interest' || item.isClosed;
+    byId('catalogWithdrawInterest').disabled = busy;
+    byId('catalogInterestMessage').readOnly = busy;
   }
 
   function renderInterestControls(item, { resetMessage = false } = {}) {
@@ -336,6 +352,7 @@
     withdraw.hidden = !authenticated || !['new', 'contacted'].includes(item.interestStatus);
     form.dataset.itemId = item.id;
     if (resetMessage) byId('catalogInterestMessage').value = '';
+    syncInterestBusy(item);
     byId('catalogInterestStatus').textContent = item.interestStatus ? t(statusKey(item.interestStatus)) : (item.isClosed ? t('catalog.closed') : '');
   }
 
@@ -361,8 +378,10 @@
     page.detailStatus.textContent = '';
   }
 
-  async function selectDetail(id) {
+  async function selectDetail(id, trigger = null) {
     if (!page.detail || !page.detailStatus) return;
+    page.detailVersion++;
+    page.detailTrigger = trigger;
     page.selectedId = id;
     page.detailItem = null;
     updateBrowserQuery();
@@ -377,6 +396,9 @@
       const item = (await response.json()).item;
       if (controller.signal.aborted || page.detailController !== controller || page.selectedId !== id) return;
       renderDetail(item);
+      if (trigger && (!document.activeElement || document.activeElement === trigger)) {
+        byId('detailTitle').focus({ preventScroll: true });
+      }
       page.detail.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     } catch (error) {
       const isCurrent = page.detailController === controller && page.selectedId === id;
@@ -386,7 +408,8 @@
     }
   }
 
-  function closeDetail() {
+  function closeDetail({ restoreFocus = false } = {}) {
+    page.detailVersion++;
     page.detailController?.abort();
     page.detailController = null;
     page.selectedId = null;
@@ -394,40 +417,57 @@
     page.detail.hidden = true;
     page.detailStatus.textContent = t('catalog.selectDetail');
     updateBrowserQuery();
+    if (restoreFocus) {
+      const target = page.detailTrigger?.isConnected ? page.detailTrigger : byId('resultsTitle');
+      target?.focus();
+    }
+    page.detailTrigger = null;
+  }
+
+  async function updateInterest(itemId, options) {
+    if (page.pendingInterests.has(itemId)) return;
+    const version = page.detailVersion;
+    const isCurrent = () => page.detailVersion === version && page.detailItem?.id === itemId;
+    const item = page.detailItem;
+    if (!isCurrent()) return;
+    const status = byId('catalogInterestStatus');
+    const message = byId('catalogInterestMessage');
+    const submittedMessage = message.value;
+    page.pendingInterests.add(itemId);
+    syncInterestBusy(item);
+    status.textContent = t('catalog.interestSending');
+    try {
+      const response = await jsonRequest(`/api/catalog/${encodeURIComponent(itemId)}/interest`, options);
+      if (response.status === 401) { if (isCurrent()) redirectToLogin(itemId); return; }
+      if (!response.ok) throw new Error('interest write failed');
+      const payload = await response.json();
+      if (!isCurrent()) return;
+      item.interestStatus = payload.interest.status;
+      renderInterestControls(item);
+      if (options.method === 'PUT' && message.value === submittedMessage) message.value = '';
+      const feedback = t(options.method === 'PUT' ? 'catalog.interestSuccess' : 'catalog.interestWithdrawn');
+      status.textContent = feedback;
+      page.detailStatus.textContent = feedback;
+    } catch {
+      if (isCurrent()) status.textContent = t('catalog.interestError');
+    } finally {
+      page.pendingInterests.delete(itemId);
+      if (page.detailItem?.id === itemId) syncInterestBusy(page.detailItem);
+    }
   }
 
   async function submitInterest(event) {
     event.preventDefault();
-    const form = event.currentTarget;
-    const itemId = form.dataset.itemId;
-    const message = byId('catalogInterestMessage').value.trim();
-    const status = byId('catalogInterestStatus');
+    const itemId = event.currentTarget.dataset.itemId;
     if (!authenticated) { redirectToLogin(itemId); return; }
-    status.textContent = t('catalog.interestSending');
-    try {
-      const response = await jsonRequest(`/api/catalog/${encodeURIComponent(itemId)}/interest`, { method: 'PUT', body: JSON.stringify({ message }) });
-      if (response.status === 401) { redirectToLogin(itemId); return; }
-      if (!response.ok) throw new Error('interest write failed');
-      await selectDetail(itemId);
-      const feedback = t('catalog.interestSuccess');
-      status.textContent = feedback;
-      page.detailStatus.textContent = feedback;
-    } catch { status.textContent = t('catalog.interestError'); }
+    const message = byId('catalogInterestMessage').value.trim();
+    return updateInterest(itemId, { method: 'PUT', body: JSON.stringify({ message }) });
   }
 
   async function withdrawInterest() {
     const itemId = byId('catalogInterestForm').dataset.itemId;
-    const status = byId('catalogInterestStatus');
-    status.textContent = t('catalog.interestSending');
-    try {
-      const response = await jsonRequest(`/api/catalog/${encodeURIComponent(itemId)}/interest`, { method: 'DELETE' });
-      if (response.status === 401) { redirectToLogin(); return; }
-      if (!response.ok) throw new Error('interest withdrawal failed');
-      await selectDetail(itemId);
-      const feedback = t('catalog.interestWithdrawn');
-      status.textContent = feedback;
-      page.detailStatus.textContent = feedback;
-    } catch { status.textContent = t('catalog.interestError'); }
+    if (!authenticated) { redirectToLogin(itemId); return; }
+    return updateInterest(itemId, { method: 'DELETE' });
   }
 
   async function loadMyInterests() {
@@ -469,7 +509,7 @@
         if (item?.status === 'published') {
           const button = create('button', 'catalog-text-button', t('catalog.viewDetails'));
           button.type = 'button';
-          button.addEventListener('click', () => { section.hidden = true; selectDetail(item.id); });
+          button.addEventListener('click', () => { section.hidden = true; selectDetail(item.id, byId('catalogMyInterestsToggle')); });
           article.append(button);
         }
         const itemId = interest.itemId || item?.id;
@@ -506,6 +546,8 @@
   }
 
   function runFilters() {
+    clearTimeout(page.debounce);
+    page.debounce = null;
     page.selectedId = null;
     page.nextCursor = null;
     if (page.more) page.more.hidden = true;
@@ -525,7 +567,13 @@
     page.form.addEventListener('input', debounceFilters);
     page.form.addEventListener('change', debounceFilters);
     page.more.addEventListener('click', () => loadResults({ append: true }));
-    byId('catalogDetailClose').addEventListener('click', closeDetail);
+    byId('catalogDetailClose').addEventListener('click', () => closeDetail({ restoreFocus: true }));
+    page.detail.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !event.isComposing) {
+        event.preventDefault();
+        closeDetail({ restoreFocus: true });
+      }
+    });
     byId('catalogInterestForm').addEventListener('submit', submitInterest);
     byId('catalogWithdrawInterest').addEventListener('click', withdrawInterest);
     byId('catalogMyInterestsToggle').addEventListener('click', loadMyInterests);

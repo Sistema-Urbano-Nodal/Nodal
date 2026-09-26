@@ -102,6 +102,7 @@
 .membership-recommendations .match-card p { color: var(--ink-2); }
 .link-arrow.light { color: #fff; }
 
+.catalog-page [hidden] { display: none !important; }
 .catalog-page { background: var(--catalog-paper); color: var(--catalog-ink); }
 .catalog-shell { max-width: 1500px; margin: 0 auto; padding: 10rem clamp(1.25rem, 4vw, 4.5rem) 6rem; }
 .catalog-intro { max-width: 840px; padding-bottom: 3.5rem; }
@@ -137,6 +138,9 @@
 #catalogInterestMessage { width: 100%; resize: vertical; }
 .catalog-interest-buttons { display: flex; align-items: center; gap: 1rem; margin-top: 1rem; }
 .catalog-more { margin-top: 1.5rem; }
+.catalog-retry { margin-bottom: 1.5rem; }
+.catalog-page button:disabled { opacity: 0.55; cursor: wait; }
+#detailTitle:focus, #resultsTitle:focus { outline: 3px solid var(--catalog-green); outline-offset: 4px; }
 
 .my-interests { margin-top: 3rem; padding: 2rem; border: 1px solid var(--catalog-map); background: #fff; }
 .interest-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--catalog-rule); border-left: 1px solid var(--catalog-rule); }
