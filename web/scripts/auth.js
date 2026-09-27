@@ -72,7 +72,13 @@
     let res,data;
     try{
       res=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(45000)});
-      data=await res.json();
+      try{data=await res.json();}
+      catch(error){
+        // Error pages can be HTML; their HTTP status still identifies the failure.
+        // An unreadable success body cannot confirm authentication.
+        if(res.ok)throw error;
+        data={};
+      }
     }catch(error){throw {key:['AbortError','TimeoutError'].includes(error.name)?'timeout':'connection'};}
     if(!res.ok)throw {key:errorKey(res.status,String(data?.error||''),signup)};
     if(!data?.requiresEmailConfirmation&&!data?.user)throw {key:signup?'signupFailure':'unavailable'};

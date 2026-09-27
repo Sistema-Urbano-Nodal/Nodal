@@ -7,7 +7,7 @@ function harness(reply=async()=>({ok:true,status:200,data:{user:{id:'u1'}}}),sea
  const nodes={},listeners=[],requests=[];let assigned='',timeout;
  for(const id of ['loginForm','signupForm','loginError','signupError','loginEmail','loginPassword','signupName','signupEmail','signupPassword'])nodes[id]={id,value:'',textContent:'',hidden:true,listeners:{},dataset:{},setAttribute(k,v){this[k]=v;},removeAttribute(k){delete this[k];},addEventListener(k,f){this.listeners[k]=f;},focus(){this.focused=true;}};
  for(const id of ['loginForm','signupForm']){nodes[id].button={disabled:true,textContent:'',dataset:{},setAttribute(k,v){this[k]=v;}};nodes[id].querySelector=()=>nodes[id].button;}
- const context={document:{getElementById:id=>nodes[id]},URL,URLSearchParams,Error,window:{nodalI18n:{lang:'en',onChange:f=>listeners.push(f)}},location:{origin:'https://nodal.test',search,assign:path=>assigned=path},AbortSignal:{timeout:ms=>{timeout=ms;return{timeout:ms};}},fetch:async(path,options)=>{requests.push({path,options,body:JSON.parse(options.body)});const result=await reply(path,options);return{ok:result.ok,status:result.status,json:async()=>result.data};}};
+ const context={document:{getElementById:id=>nodes[id]},URL,URLSearchParams,Error,window:{nodalI18n:{lang:'en',onChange:f=>listeners.push(f)}},location:{origin:'https://nodal.test',search,assign:path=>assigned=path},AbortSignal:{timeout:ms=>{timeout=ms;return{timeout:ms};}},fetch:async(path,options)=>{requests.push({path,options,body:JSON.parse(options.body)});const result=await reply(path,options);return{ok:result.ok,status:result.status,json:async()=>{if(result.jsonError)throw result.jsonError;return result.data;}};}};
  vm.createContext(context);vm.runInContext(source,context);
  const submit=id=>nodes[id].listeners.submit({preventDefault(){}});
  const valid=()=>{nodes.loginEmail.value='member@example.test';nodes.loginPassword.value='password123';nodes.signupName.value='Test Member';nodes.signupEmail.value='new@example.test';nodes.signupPassword.value='newpassword123';};
@@ -52,6 +52,31 @@ test('return-path guards retain same-origin navigation and reject external and m
 });
 test('email-confirmation requirement maps separately from forbidden requests',async()=>{
  const h=harness(async()=>({ok:false,status:403,data:{error:'Confirm your email before signing in.'}}));h.valid();h.lang('pt');await h.submit('loginForm');assert.match(h.nodes.loginError.textContent,/Confirme seu e-mail/);assert.equal(h.assigned(),'');
+});
+
+test('HTML error responses retain HTTP-specific login and signup guidance',async()=>{
+ const cases=[
+  [429,'loginForm',/Muitas tentativas/],
+  [429,'signupForm',/Muitas tentativas/],
+  [403,'loginForm',/Recarregue esta página/],
+  [503,'loginForm',/temporariamente indisponível/],
+  [503,'signupForm',/Não foi possível criar a conta/],
+ ];
+ for(const [status,form,expected] of cases){
+  const h=harness(async()=>({ok:false,status,jsonError:new SyntaxError('Unexpected token <')}));h.valid();h.lang('pt');
+  await h.submit(form);
+  assert.match(h.nodes[form==='loginForm'?'loginError':'signupError'].textContent,expected);
+  assert.equal(h.nodes[form].button.disabled,false);assert.equal(h.assigned(),'');
+  assert.equal(h.nodes.loginPassword.value,'password123');
+ }
+});
+
+test('unreadable successful authentication responses never redirect and permit retry',async()=>{
+ for(const jsonError of [new SyntaxError('Truncated body'),Object.assign(new Error('Timeout'),{name:'TimeoutError'})]){
+  const h=harness(async()=>({ok:true,status:200,jsonError}));h.valid();h.lang('pt');await h.submit('loginForm');
+  assert.equal(h.assigned(),'');assert.equal(h.nodes.loginForm.button.disabled,false);
+  assert.match(h.nodes.loginError.textContent,jsonError.name==='TimeoutError'?/demorou demais/:/Conexão interrompida/);
+ }
 });
 
 test('real API status variants map to specific feedback and malformed success never redirects',async()=>{

@@ -3,8 +3,19 @@
   const nav = document.querySelector('.navbar');
   const toggle = document.getElementById('navToggle');
   if (!nav || !toggle) return;
-  toggle.addEventListener('click', () => nav.classList.toggle('open'));
-  nav.querySelectorAll('a').forEach(a => a.addEventListener('click', () => nav.classList.remove('open')));
+  const setOpen = (open) => {
+    nav.classList.toggle('open', open);
+    toggle.setAttribute('aria-expanded', String(open));
+  };
+  setOpen(nav.classList.contains('open'));
+  toggle.addEventListener('click', () => setOpen(!nav.classList.contains('open')));
+  nav.querySelectorAll('a').forEach(a => a.addEventListener('click', () => setOpen(false)));
+  nav.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !nav.classList.contains('open')) return;
+    event.preventDefault();
+    setOpen(false);
+    toggle.focus();
+  });
 
   /* Translate the changed link without triggering a language change or
      rerendering other views. The English text supplies its fallback. */
