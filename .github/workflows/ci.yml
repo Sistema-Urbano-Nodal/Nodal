@@ -15,6 +15,25 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: nodal_ci_test
+          POSTGRES_INITDB_ARGS: --encoding=UTF8
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      # Disposable service-container credential; never used outside this job.
+      PGPASSWORD: nodal_ci_test
     steps:
       - name: Check out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -28,7 +47,22 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Prepare disposable PostgreSQL databases
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+          psql --dbname postgres --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE anon NOLOGIN;
+          CREATE ROLE authenticated NOLOGIN;
+          CREATE ROLE service_role NOLOGIN BYPASSRLS;
+          CREATE DATABASE nodal_interaction_test_ci TEMPLATE template0 ENCODING 'UTF8';
+          CREATE DATABASE nodal_course_quota_test_ci TEMPLATE template0 ENCODING 'UTF8';
+          SQL
+
       - name: Lint, test, and build
+        env:
+          NODAL_INTERACTION_TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/nodal_interaction_test_ci
+          NODAL_COURSE_QUOTA_TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/nodal_course_quota_test_ci
         run: npm run build
 
       - name: Audit dependencies

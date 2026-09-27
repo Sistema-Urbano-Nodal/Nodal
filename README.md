@@ -44,6 +44,23 @@ unused variables, duplicate keys, and unreachable code, runs the tests, then
 rebuilds the static output. `npm run lint` runs just the source checks; CI runs
 the full build plus the dependency audit.
 
+CI also starts a disposable PostgreSQL 15 service with two empty UTF-8 databases,
+so the interaction-retention and course-upload-quota integration tests run on
+every pull request and CI push. These tests exercise migrations, database
+permissions, and concurrent writes using independent PostgreSQL sessions.
+The shared test roles are created before the suite to avoid racing during setup.
+
+Local and Vercel builds still work without PostgreSQL. To include the integrations
+locally, provide `NODAL_INTERACTION_TEST_DATABASE_URL` and
+`NODAL_COURSE_QUOTA_TEST_DATABASE_URL`, pointing respectively to **empty disposable
+local databases** named `nodal_interaction_test_<suffix>` and
+`nodal_course_quota_test_<suffix>`, then run `npm run build`. Both tests install
+fixtures and require fresh databases for each run; never use production data.
+The `psql` client must be available, and the two databases must be UTF-8. When
+sharing a PostgreSQL instance, create the `anon` and `authenticated` roles with
+`NOLOGIN` and `service_role` with `NOLOGIN BYPASSRLS` before running both tests
+together. CI destroys its service and databases automatically when the job ends.
+
 ## Environment
 
 Copy `.env.example` for local experiments, but put real production values in Vercel Project Settings:
