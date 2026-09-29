@@ -347,7 +347,7 @@ test('homepage preserves the original network story and section order', () => {
   assert.match(html, /data-i18n="hero\.building">A living network</);
   assert.match(html, /data-i18n="hero\.infra">for Latin America’s|data-i18n="hero\.infra">for Latin America's/);
   const order = [...html.matchAll(/<section\b[^>]*\bid="([^"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(order, ['home', 'about', 'problem', 'insight', 'platform', 'profile', 'membership', 'knowledge', 'resources', 'partners']);
+  assert.deepEqual(order, ['home', 'fiiu', 'about', 'problem', 'insight', 'platform', 'profile', 'membership', 'knowledge', 'resources', 'partners']);
   assert.doesNotMatch(html, /(?:src|href)="(?:catalog|courses|pilot(?:-i18n)?)\.(?:js|css)/);
 });
 

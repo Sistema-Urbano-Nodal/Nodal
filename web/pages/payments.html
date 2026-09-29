@@ -14,12 +14,12 @@
   <script src="locale.js?v=20260918b"></script>
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="fonts.css?v=20260911b" />
-  <link rel="stylesheet" href="styles.css?v=23" />
+  <link rel="stylesheet" href="styles.css?v=26" />
   <link rel="stylesheet" href="courses.css?v=20260919a" />
 
-  <script defer src="i18n.js?v=20260926a"></script>
+  <script defer src="i18n.js?v=20260928a"></script>
   <script defer src="pilot-i18n.js?v=20260911a"></script>
-  <script defer src="pilot.js?v=20260918b"></script>
+  <script defer src="pilot.js?v=20260928a"></script>
   <script defer src="nav.js?v=20260927a"></script>
   <script defer src="payments.js?v=17"></script>
 </head>
@@ -31,18 +31,9 @@
            alt="NODAL · Nodos Urbanos de América Latina" />
     </a>
 
-    <nav class="nav-main">
-      <a href="index.html#membership" data-i18n="nav.opportunities">Programs</a>
-      <a href="index.html#knowledge" data-i18n="nav.knowledge">Community</a>
-      <a href="index.html#resources" data-i18n="nav.resources">Resources</a>
-    </nav>
+    <nav class="nav-main" aria-label="Main navigation" data-i18n-aria-label="nav.mainLabel"><a href="index.html#membership" data-i18n="nav.program">Programme</a><a href="community.html" data-i18n="nav.community">Community</a><a href="resources.html" data-i18n="nav.resources">Resources</a><a href="knowledge.html" data-i18n="nav.learn">Knowledge</a></nav>
 
-    <nav class="nav-account">
-      <a href="dashboard.html" data-i18n="nav.profile">Profile</a>
-      <a href="index.html#platform" data-i18n="nav.network">Network</a>
-      <a href="https://sistemaurbano.org/nodal/" target="_blank" rel="noopener noreferrer">Sistema Urbano ↗</a>
-      <a class="btn btn-pill btn-nav" href="login.html?next=/dashboard.html" data-i18n="nav.join">Join NODAL</a>
-    </nav>
+    <nav class="nav-account" aria-label="Account and language" data-i18n-aria-label="nav.accountLabel"><div class="lang-switch" role="group" aria-label="Language" data-i18n-aria-label="nav.languageLabel"><button type="button" class="lang-btn" data-lang="en" aria-label="English">EN</button><button type="button" class="lang-btn" data-lang="es" aria-label="Español">ES</button><button type="button" class="lang-btn" data-lang="pt" aria-label="Português">PT</button></div><a class="btn btn-pill btn-nav" href="dashboard.html" data-i18n="nav.panel">My console</a></nav>
 
     <button type="button" class="nav-toggle" id="navToggle" aria-label="Menu">
       <span></span><span></span><span></span>

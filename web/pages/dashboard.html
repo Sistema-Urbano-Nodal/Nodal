@@ -17,16 +17,16 @@
   <link rel="stylesheet" href="dashboard.css?v=36" />
   <link rel="stylesheet" href="courses.css?v=20260919a" />
 
-  <script defer src="i18n.js?v=20260926a"></script>
+  <script defer src="i18n.js?v=20260928a"></script>
   <script defer src="location-i18n.js?v=20260918b"></script>
   <script defer src="location-check.js?v=20260908b"></script>
   <script defer src="pilot-i18n.js?v=20260911a"></script>
-  <script defer src="pilot.js?v=20260918b"></script>
+  <script defer src="pilot.js?v=20260928a"></script>
   <script defer src="dashboard.js?v=20260911b"></script>
   <script defer src="coastline.js?v=3"></script>
   <script defer src="globe-geo.js?v=1"></script>
   <script defer src="globe.js?v=28"></script>
-</head>
+<link rel="stylesheet" href="fiiu.css?v=20260928b"><script defer src="fiiu-ui.js?v=20260928c"></script><script defer src="fiiu-hubs.js?v=20260928b"></script></head>
 <body class="dash-page">
 
 <div class="shell">
@@ -56,6 +56,9 @@
         <span data-i18n="d.nav.assessment">Self-assessment</span></a>
 
       <p class="side-label" data-i18n="d.nav.tools">Tools</p>
+      <a class="side-link" href="fiiu.html">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/></svg>
+        <span>FIIU Fest</span></a>
       <a class="side-link" href="opportunities.html?kind=resource%2Clearning_circle%2Ccase_study">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H20"/></svg>
         <span data-i18n="d.nav.learning">Learning</span></a>
@@ -363,7 +366,7 @@
 
   <!-- ===================== context column ===================== -->
   <aside class="ctx">
-    <div class="ctx-inner">
+    <div class="ctx-inner"><section class="ctx-block f-news-widget" id="fiiuDashboard"><h2 data-fiiu-text="news">News for you</h2><div id="fiiuDashboardBody"></div></section>
       <section class="ctx-block">
         <h2 data-i18n="d.ctx.completeness">Profile completeness</h2>
         <div class="ring-row">

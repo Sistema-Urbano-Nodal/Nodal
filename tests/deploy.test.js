@@ -313,17 +313,17 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
   const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'course.html', 'courses.html', 'teaching.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
   const required = {
-    'index.html': { 'styles.css': '23', 'i18n.js': '20260926a', 'app.js': '18', 'recs.js': '4', 'script.js': '16' },
-    'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20260926a', 'catalog.js': '6' },
-    'dashboard.html': { 'i18n.js': '20260926a', 'dashboard.js': '20260911b', 'globe.js': '28', 'location-check.js': '20260908b' },
-    'login.html': { 'i18n.js': '20260926a', 'auth.js': '20260927a' },
+    'index.html': { 'styles.css': '26', 'i18n.js': '20260928a', 'app.js': '18', 'recs.js': '4', 'script.js': '16' },
+    'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20260928a', 'catalog.js': '6' },
+    'dashboard.html': { 'i18n.js': '20260928a', 'dashboard.js': '20260911b', 'globe.js': '28', 'location-check.js': '20260908b' },
+    'login.html': { 'i18n.js': '20260928a', 'auth.js': '20260927a' },
     'reset-password.html': { 'password-recovery.js': '20260918b' },
-    'payments.html': { 'i18n.js': '20260926a' },
-    'profile.html': { 'i18n.js': '20260926a', 'profile.js': '20260911c', 'styles.css': '23' },
+    'payments.html': { 'i18n.js': '20260928a' },
+    'profile.html': { 'i18n.js': '20260928a', 'profile.js': '20260911c', 'styles.css': '26' },
     'admin.html': { 'admin.css': '2', 'admin.js': '3' },
-    'course.html': { 'i18n.js': '20260926a' },
-    'courses.html': { 'i18n.js': '20260926a' },
-    'teaching.html': { 'i18n.js': '20260926a' },
+    'course.html': { 'i18n.js': '20260928a' },
+    'courses.html': { 'i18n.js': '20260928a' },
+    'teaching.html': { 'i18n.js': '20260928a' },
   };
   for (const [page, assets] of Object.entries(required)) {
     for (const [asset, version] of Object.entries(assets)) {
@@ -433,6 +433,10 @@ test('every translation key a script asks for resolves in all three languages', 
   const homePortuguese = dictionary('HOME_PT');
   const translated = (key, page, base, home) => base.has(key) || (homePages.has(page) && home.has(key));
   const missing = [];
+  const fiiuContext={window:{},document:{documentElement:{},querySelectorAll:()=>[]}};
+  runInNewContext(readFileSync(path.join(ROOT,'web/scripts/fiiu-ui.js'),'utf8'),fiiuContext);
+  const fiiuRows=fiiuContext.window.Fiiu.rows;
+  for(const [key,values]of Object.entries(fiiuRows))assert.ok(values.length===3&&values.every(v=>typeof v==='string'&&v.trim()),`festival key ${key} must have all three languages`);
   const pilotContext={window:{}};
   runInNewContext(readFileSync(path.join(ROOT,'web/scripts/pilot-i18n.js'),'utf8'),pilotContext);
   const pilotRows=pilotContext.window.pilotI18n.rows;
@@ -456,6 +460,10 @@ test('every translation key a script asks for resolves in all three languages', 
     const js = readFileSync(path.join(ROOT, 'web', 'scripts', file), 'utf8');
     for (const m of js.matchAll(/\bt\(\s*'([^']+)'/g)) {
       const key = m[1];
+      if(file.startsWith('fiiu')){
+        if(!fiiuRows[key])missing.push(`${file}: '${key}' is missing from festival translations`);
+        continue;
+      }
       if(['invitation-i18n.js','accept-invitation.js'].includes(file)){
         if(!invitationRows[key])missing.push(`${file}: '${key}' is missing from invitation translations`);
         continue;
@@ -570,7 +578,7 @@ test('protected catalog administration crosses every serving and build boundary'
   const page = vercel.headers.find((route) => new RegExp(`^${route.source}$`).test('/admin.html'));
   assert.ok(page, 'admin page needs an explicit cache and security policy');
   assert.ok(page.headers.some((header) => header.key === 'Cache-Control' && header.value === 'no-store'));
-  assert.match(serverSource, /\['\/admin\.html','\/teaching\.html'\]\.includes\(canonical\)[\s\S]*administrator access required/);
+  assert.match(serverSource, /\['\/admin\.html','\/teaching\.html','\/fiiu-admin\.html'\]\.includes\(canonical\)[\s\S]*administrator access required/);
 });
 
 test('pilot pages stay behind authentication while course assets are delivered statically',()=>{

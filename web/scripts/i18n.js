@@ -8,6 +8,7 @@
   const KEY = 'nodal.lang';
 
   const ES = {
+    'nav.program':'Programa','nav.community':'Comunidad','nav.learn':'Conocimiento','nav.fiiu':'Explorar FIIU Fest',
     'nav.privacy': 'Política de privacidad',
     'nav.knowledge': 'Comunidad',
     'nav.resources': 'Recursos',
@@ -211,6 +212,7 @@
   };
 
   const PT = {
+    'nav.program':'Programa','nav.community':'Comunidade','nav.learn':'Conhecimento','nav.fiiu':'Explorar FIIU Fest',
     'nav.privacy': 'Política de privacidade',
     'nav.knowledge': 'Comunidade',
     'nav.resources': 'Recursos',

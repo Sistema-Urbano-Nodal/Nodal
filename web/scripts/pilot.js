@@ -215,7 +215,7 @@ showPilot(configured!=='false');
 const loading=document.getElementById('pilotStatus');
 if(loading)status(loading,t('loading'));
 const nav=document.querySelector('.pilot-header nav,.side-nav,.nav-main');
-if(nav&&!nav.querySelector('[href="courses.html"]')){
+if(nav&&!nav.querySelector('[href="courses.html"]')&&!nav.querySelector('[href="knowledge.html"]')){
   const sidebar=nav.classList.contains('side-nav'),a=sidebar?el('a','side-link'):tr('a','courses','pilot-course-link');
   if(sidebar){
     const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');

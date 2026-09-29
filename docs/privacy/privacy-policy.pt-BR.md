@@ -18,6 +18,7 @@ Recebemos dados que você informa, dados fornecidos pela equipe para uma inscri�
 
 | Categoria | Exemplos e finalidade |
 | --- | --- |
+| Festival FIIU | Blocos escolhidos, localização, perfil e candidaturas ao laboratório para gestores públicos. Campos opcionais incluem documento de identidade, idade, gênero, motivações e apoio de acessibilidade. Somente você e administradores podem acessar estas respostas; elas não são adicionadas ao perfil público. Administradores registram presença verificada para emitir insígnias. A exportação da conta inclui estes registros; cancelar remove a inscrição e sua presença, e excluir a conta remove ambos. |
 | Conta e acesso | Nome, e-mail, credenciais, identificador da conta, situação da conta e sessão. Usamos para cadastro, autenticação, recuperação de senha e segurança. |
 | Perfil e autoavaliação | Cidade, profissão, interesses, competências, respostas de autoavaliação, biografia, disponibilidade e links profissionais fornecidos. Usamos para organizar seu perfil e sugerir conexões e percursos de aprendizagem. |
 | Cursos e formulário de ingresso | Inscrição, nome, profissão, cidade, motivação, experiência, expectativas, caso de estudo e familiaridade digital. Usamos para oferecer o curso e ajudar a equipe a conhecer a turma. |

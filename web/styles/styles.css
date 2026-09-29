@@ -649,11 +649,11 @@ h1, h2, h3 {
 .footer-old { display: block; margin-top: 8px; font-weight: 600; color: rgba(255,255,255,.7); transition: color .2s ease; }
 .footer-old:hover { color: var(--green-pastel); }
 .footer-divider { height: 1px; background: rgba(255,255,255,.25); margin: 40px 0 22px; max-width: 360px; }
-.socials { display: flex; gap: 22px; }
-.socials a, .socials span { color: #fff; opacity: .9; transition: opacity .2s ease, transform .2s ease; }
-.socials a:hover { opacity: 1; transform: translateY(-2px); }
-.socials span { cursor: not-allowed; opacity: .45; }
-.socials svg { width: 26px; height: 26px; fill: currentColor; }
+.socials { display: flex; flex-wrap: wrap; gap: 8px 14px; max-width: 100%; }
+.socials a { display: inline-flex; align-items: center; justify-content: center; width: 44px; min-height: 44px; color: #fff; text-decoration: none; transition: color .2s ease, transform .2s ease; }
+.socials a:hover { color: var(--green-pastel); transform: translateY(-2px); }
+.socials svg { width: 24px; height: 24px; flex-shrink: 0; fill: currentColor; }
+
 
 /* polish */
 /* sticky navbar shouldn't hide section headings when jumping via in-page nav */

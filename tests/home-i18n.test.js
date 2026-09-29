@@ -264,7 +264,7 @@ for(const lang of ['es','pt']){
     for(const page of [undefined,'dashboard','course','opportunities']){
       const{api,dictionaries}=load(page);api.apply(lang);
       // Later additions have their own translation coverage; preserve the original copy baseline.
-      const actual=Object.entries(dictionaries[lang]).filter(([key])=>!['nav.privacy','catalog.retry','catalog.moreError'].includes(key)).sort(([a],[b])=>a.localeCompare(b,'en'));
+      const actual=Object.entries(dictionaries[lang]).filter(([key])=>!['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu'].includes(key)).sort(([a],[b])=>a.localeCompare(b,'en'));
       assert.equal(hash(actual),SNAPSHOTS.nonhome[lang],String(page));
       assert.equal(api.t('nav.privacy'),lang==='es'?'Política de privacidad':'Política de privacidade');
       assert.equal(api.t('nav.opportunities'),lang==='es'?'Trabajo abierto':'Trabalhos abertos');

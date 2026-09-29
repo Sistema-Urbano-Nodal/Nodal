@@ -12,6 +12,8 @@ import { createCache, MemoryCache } from './cache.js';
 import { createNetworkSnapshots } from './network-cache.js';
 import { createCourseStore } from './courses-repository.js';
 import { createCourseApi } from './courses-api.js';
+import { createFiiuStore } from './fiiu-repository.js';
+import { createFiiuApi, exportFiiuData } from './fiiu-api.js';
 import { preparePageHtml } from './page-shell.js';
 import {createLocationProvider,validatePosition,validateCityId} from './location.js';
 import { createCourseParticipants } from './course-participants.js';
@@ -42,10 +44,10 @@ const REC_TTL_MS = 5 * 60 * 1000;                 // 5-minute cache, per spec
 const ID_RE = /^[a-z0-9-]{1,40}$/;
 const API_INTERACTION_TYPES = new Set(['skip']);
 const MAX_BODY = 32 * 1024;
-const PRIVATE_PAGES = new Set(['/dashboard.html', '/profile.html', '/payments.html', '/admin.html', '/courses.html', '/course.html', '/teaching.html']);
-const STATIC_PAGES = new Set(['index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'privacy.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html']);
-const STATIC_SCRIPTS = new Set(['admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'locale.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js', 'privacy.js']);
-const STATIC_STYLES = new Set(['auth.css', 'styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css']);
+const PRIVATE_PAGES = new Set(['/fiiu-admin.html', '/dashboard.html', '/profile.html', '/payments.html', '/admin.html', '/courses.html', '/course.html', '/teaching.html']);
+const STATIC_PAGES = new Set(['fiiu.html', 'fiiu-admin.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'privacy.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html']);
+const STATIC_SCRIPTS = new Set(['fiiu-ui.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'locale.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js', 'privacy.js']);
+const STATIC_STYLES = new Set(['fiiu.css', 'auth.css', 'styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css']);
 const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp']);
 const STATIC_FONTS = new Set(['montserrat-v31-latin-normal.woff2', 'montserrat-v31-latin-ext-normal.woff2', 'montserrat-v31-latin-italic.woff2', 'montserrat-v31-latin-ext-italic.woff2', 'OFL.txt']);
 const AUTH_RATE_WINDOW_MS = 5 * 60 * 1000;
@@ -796,6 +798,7 @@ export function createApp({
   repository = createRepository({ db, store }),
   pilotMode = process.env.PILOT_MODE !== 'false',
   courseStore = repository?.database ? createCourseStore({db:repository.database}) : repository?.kind === 'supabase' ? createCourseStore() : null,
+  fiiuStore = repository?.database ? createFiiuStore({db:repository.database}) : repository?.kind === 'supabase' ? createFiiuStore() : null,
 } = {}) {
   const useDb = Boolean(repository);
   const networkSnapshots = repository ? createNetworkSnapshots(repository) : null;
@@ -859,6 +862,11 @@ export function createApp({
   const courseUploadLimiter=createWindowRateLimiter({windowMs:60000,limit:6});
   const courseInvitationLimiter=createWindowRateLimiter({windowMs:60000,limit:6});
   const courseParticipants=courseStore?createCourseParticipants({store:courseStore,userRepository:repository}):null;
+  const fiiuReadLimiter=createWindowRateLimiter({windowMs:60000,limit:120});
+  const fiiuWriteLimiter=createWindowRateLimiter({windowMs:60000,limit:30});
+  const fiiuApi=fiiuStore?createFiiuApi({store:fiiuStore,sameOrigin,send,
+    rateLimit:(req,res,user)=>throttle(req.method==='GET'?fiiuReadLimiter:fiiuWriteLimiter,res,req,user,'fiiu'),
+  }):null;
   const courseApi=courseStore?createCourseApi({store:courseStore,userRepository:repository,sameOrigin,send,
     rateLimit:(req,res,user,pathname)=>throttle(pathname.endsWith('/invitations')?courseInvitationLimiter:pathname.endsWith('/attachments')?courseUploadLimiter:['GET','HEAD'].includes(req.method)?courseReadLimiter:courseWriteLimiter,res,req,user,'course'),
   }):null;
@@ -888,6 +896,7 @@ export function createApp({
       ].includes(pathname);
       const needsSession = pageNeedsSession || (isApiRequest && !authenticatesRequest && pathname !== '/api/health');
       const authorizationOnly = pageNeedsSession || pathname === '/api/auth/state'
+        || /^\/api\/(?:fiiu|admin\/fiiu)(?:\/|$)/.test(pathname)
         || /^\/api\/(?:courses(?:\/|$)|admin\/courses(?:\/|$)|course-attachments\/|feedback(?:\/|$)|admin\/feedback(?:\/|$))/.test(pathname);
       const session = useDb && needsSession
         ? await repository.resolveSession(req, { authorizationOnly })
@@ -908,7 +917,7 @@ export function createApp({
           redirect(res, `/login.html?next=${encodeURIComponent(safeNext(canonical + url.search))}`);
           return;
         }
-        if (useDb && ['/admin.html','/teaching.html'].includes(canonical) && (sessionUser?.permission || sessionUser?.role) !== 'admin') {
+        if (useDb && ['/admin.html','/teaching.html','/fiiu-admin.html'].includes(canonical) && (sessionUser?.permission || sessionUser?.role) !== 'admin') {
           send(res, 403, { error: 'administrator access required' });
           return;
         }
@@ -924,6 +933,7 @@ export function createApp({
       // HEAD too: uptime probes default to it, and a 404 there reads as an outage
       if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/api/health') { send(res, 200, { ok: true }); return; }
       if(courseApi && await courseApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
+      if(fiiuApi && await fiiuApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
 
       if(req.method==='POST'&&pathname==='/api/auth/course-invitation/complete') {
         if(!sameOrigin(req)){send(res,403,{code:'invitation_forbidden'});return;}
@@ -1226,6 +1236,7 @@ export function createApp({
         if (!throttle(costlyLimiter, res, req, sessionUser, 'export')) return;
         const data=await repository.exportUserData(sessionUser.id);
         if(courseStore)data.coursePilot=await exportCourseData(courseStore,sessionUser.id);
+        if(fiiuStore)data.fiiu=await exportFiiuData(fiiuStore,sessionUser.id);
         send(res, 200, { data });
         return;
       }

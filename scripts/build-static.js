@@ -9,8 +9,9 @@ const OUTPUT = path.join(ROOT, 'public');
 const STATIC_PAGES = ['opportunities.html', 'privacy.html'];
 // These pages stay on the Node server for authorization, recovery redirects,
 // and runtime configuration. Validate them without copying them to the CDN.
-const SERVER_PAGES = ['index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html'];
+const SERVER_PAGES = ['fiiu.html', 'fiiu-admin.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html'];
 const STATIC_SCRIPTS = [
+  'fiiu-ui.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js',
   'admin.js',
   'app.js',
   'auth.js',
@@ -38,7 +39,7 @@ const STATIC_SCRIPTS = [
   'script.js',
   'teaching.js',
 ];
-const STATIC_STYLES = ['auth.css', 'admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'styles.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css'];
+const STATIC_STYLES = ['fiiu.css', 'auth.css', 'admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'styles.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css'];
 const STATIC_ASSETS = [
   'latam-map.webp',
   'nodal-community.webp',
