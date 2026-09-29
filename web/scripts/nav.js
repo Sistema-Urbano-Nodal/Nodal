@@ -17,20 +17,15 @@
     toggle.focus();
   });
 
-  /* Translate the changed link without triggering a language change or
-     rerendering other views. The English text supplies its fallback. */
+  /* Keep account navigation stable while the session is loading. Current
+     pages ship nav.panel; normalize older markup synchronously as well.
+     The protected dashboard route handles sign-in when it is needed. */
   const joinCta = nav.querySelector('[data-i18n="nav.join"]');
   if (joinCta) {
-    fetch('/api/auth/state')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((state) => {
-        if (!state?.authenticated) return;
-        joinCta.href = '/dashboard.html';
-        joinCta.textContent = 'My console';
-        joinCta.dataset.i18n = 'nav.panel';
-        window.nodalI18n?.refresh(joinCta);
-      })
-      .catch(() => { /* signed-out or static mode: the invitation stands */ });
+    joinCta.href = '/dashboard.html';
+    joinCta.textContent = 'My console';
+    joinCta.dataset.i18n = 'nav.panel';
+    window.nodalI18n?.refresh(joinCta);
   }
 
   // wordmark contrast: white while a dark section is under the glass bar, black otherwise

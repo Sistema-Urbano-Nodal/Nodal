@@ -21,12 +21,12 @@ class Node {
  querySelector(selector){return this.querySelectorAll(selector)[0]??null;}
 }
 const flush=async()=>{for(let i=0;i<8;i++)await new Promise(resolve=>setImmediate(resolve));};
-function harness({url='https://nodal.test/profile.html',saved='en',nodes=[],respond=()=>({user:{fullName:'Member'}}),storage=new Map([['nodal.lang',saved]])}={}){
+function harness({url='https://nodal.test/profile.html',saved='en',nodes=[],respond=()=>({user:{fullName:'Member'}}),storage=new Map([['nodal.lang',saved]]),initializeI18n=true}={}){
  const body=new Node('body');body.append(...nodes);const location=new URL(url),requests=[],errors=[],historyCalls=[];
  const document={body,documentElement:{},addEventListener(){},querySelectorAll:s=>body.querySelectorAll(s),querySelector:s=>body.querySelector(s),getElementById:id=>find(body,node=>node.id===id),createElement:tag=>new Node(tag)};
  const history={state:{keep:'navigation state'},replaceState(state,unused,next){historyCalls.push({state,next});location.href=new URL(next,location).href;}};
  const context={document,URL,URLSearchParams,location,history,console:{error:(...args)=>errors.push(args)},localStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)},setTimeout(){},fetch:async path=>{requests.push(path);const data=await respond(path);return{ok:data.status===undefined||data.status<400,status:data.status||200,json:async()=>data};}};
- context.window={location,history,addEventListener(){}};vm.createContext(context);vm.runInContext(script('i18n'),context);
+ context.window={location,history,addEventListener(){}};vm.createContext(context);if(initializeI18n)vm.runInContext(script('i18n'),context);
  return{context,body,document,storage,location,requests,errors,historyCalls,api:context.window.nodalI18n,run:name=>vm.runInContext(script(name),context)};
 }
 function find(node,predicate){if(predicate(node))return node;for(const child of node.children||[]){if(typeof child!=='object')continue;const found=find(child,predicate);if(found)return found;}return null;}
@@ -51,10 +51,25 @@ test('reselecting the current locale leaves stateful labels alone and scoped ref
  assert.equal(notifications,0);assert.equal(button.textContent,'Entrando…');h.storage.set('nodal.lang','es');h.api.apply('pt');assert.equal(h.storage.get('nodal.lang'),'pt');assert.equal(notifications,0);
  const link=node('join','nav.panel','My console');h.body.append(link);h.api.refresh(link);assert.equal(link.textContent,'Meu painel');assert.equal(notifications,0);assert.equal(button.textContent,'Entrando…');
 });
-test('authenticated navigation translates its new label without triggering whole-page language subscribers',async()=>{
+test('account navigation settles before a slow session response and stays stable across language changes',async()=>{
  const nav=node('navbar'),toggle=node('navToggle'),link=node('join','nav.join','Join NODAL');nav.className='navbar';link.tagName='a';nav.append(link);
  const query=nav.querySelector.bind(nav);nav.querySelector=selector=>selector==='[data-i18n="nav.join"]'?link:query(selector);
- const h=harness({nodes:[nav,toggle],saved:'pt',respond:()=>({authenticated:true})});let calls=0;h.api.onChange(()=>calls++);h.run('nav');await flush();assert.equal(link.textContent,'Meu painel');assert.equal(calls,0);assert.deepEqual(h.requests,['/api/auth/state']);
+ let finishSession;
+ const h=harness({nodes:[nav,toggle],saved:'pt',respond:()=>new Promise(resolve=>{finishSession=resolve;})});
+ let calls=0;h.api.onChange(()=>calls++);h.run('nav');
+ assert.equal(link.textContent,'Meu painel');assert.equal(link.href,'/dashboard.html');assert.equal(calls,0);
+ finishSession?.({authenticated:true});await flush();assert.equal(link.textContent,'Meu painel');
+ h.api.apply('es');assert.equal(link.textContent,'Mi panel');
+ h.api.apply('en');assert.equal(link.textContent,'My console');
+ h.api.apply('pt');assert.equal(link.textContent,'Meu painel');
+ assert.deepEqual(h.requests,[]);
+});
+test('account navigation works without a session request when navigation loads before translations',()=>{
+ const nav=node('navbar'),toggle=node('navToggle'),link=node('join','nav.join','Join NODAL');nav.className='navbar';link.tagName='a';nav.append(link);
+ const query=nav.querySelector.bind(nav);nav.querySelector=selector=>selector==='[data-i18n="nav.join"]'?link:query(selector);
+ const h=harness({nodes:[nav,toggle],saved:'pt',initializeI18n:false});
+ h.run('nav');assert.equal(link.textContent,'My console');assert.equal(link.href,'/dashboard.html');
+ h.run('i18n');assert.equal(link.textContent,'Meu painel');assert.deepEqual(h.requests,[]);
 });
 test('one failing locale subscriber cannot prevent other views updating',async()=>{
  const h=harness();let translated=false;h.api.onChange(()=>{throw new Error('broken view');});h.api.onChange(()=>Promise.reject(new Error('async broken view')));h.api.onChange(()=>{translated=true;});
