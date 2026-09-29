@@ -13,6 +13,6 @@
  }
  if(widget){
   const eventLanguage=el('p');eventLanguage.append(tr('span','spanishContent','content-language'));widget.append(eventLanguage,link('registration','fiiu.html','f-button'));const registration=el('div'),newsHost=el('div','f-news');widget.append(registration,newsHost);news(newsHost);
-  api('/api/fiiu/registration').then(async me=>{if(me.registration){registration.append(tr('p','saved','f-tag'));if(me.registration.labStatus!=='none')registration.append(tr('p',me.registration.labStatus));const box=el('div');registration.append(box);const data=await api('/api/fiiu');badges(box,me.attendance,data.event);}if(me.isAdmin)registration.append(link('admin','fiiu-admin.html','f-text-link'));}).catch(()=>{registration.append(tr('p','error'),link('registration','fiiu.html','f-text-link'));});
+  api('/api/fiiu/registration').then(async me=>{if(me.isAdmin)registration.append(link('admin','fiiu-admin.html','f-button secondary f-admin-link'));if(me.registration){registration.append(tr('p','saved','f-tag'));if(me.registration.labStatus!=='none')registration.append(tr('p',me.registration.labStatus));const box=el('div');registration.append(box);const data=await api('/api/fiiu');badges(box,me.attendance,data.event);}}).catch(()=>{registration.append(tr('p','error'),link('registration','fiiu.html','f-text-link'));});
  }
 })();

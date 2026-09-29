@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {fail,identifier,csv} from './courses-domain.js';
-import {EVENT_ID,FIIU_EVENT,DEFAULT_CONFIG,normalizeRegistration,applicationStatus,version,normalizeContent,contentView,normalizeConfig} from './fiiu-domain.js';
+import {EVENT_ID,FIIU_EVENT,ALL_FIIU_ACTIVITIES,DEFAULT_CONFIG,normalizeRegistration,applicationStatus,version,normalizeContent,contentView,normalizeConfig} from './fiiu-domain.js';
 const now=()=>new Date().toISOString();
 // Bind an open browser form to the account that loaded it. Ownership is still
 // derived from the session; older clients can omit this additional guard.
@@ -65,14 +65,18 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true}){
     if(!row)fail('configuration changed; reload before saving',409);send(res,200,{config:{...row.data,version:row.version}});return true;
    }
   }
+  if(path==='/api/admin/fiiu/summary'&&req.method==='GET'){
+   send(res,200,{summary:await store.summary(EVENT_ID,ALL_FIIU_ACTIVITIES)});return true;
+  }
   if(path==='/api/admin/fiiu/registrations'&&req.method==='GET'){
    const after=url.searchParams.get('cursor');if(after)identifier(after);
    const registrations=await store.find('registrations',{eventId:EVENT_ID},{after,limit:100});
    send(res,200,{registrations,nextCursor:registrations.length===100?registrations.at(-1).id:null});return true;
   }
   if(path==='/api/admin/fiiu/export'&&req.method==='GET'){
-   const rows=[['registrationId','email','firstName','lastName','country','city','profile','publicOfficial','activities','labStatus','institution','position','nationalId','gender','age','accessibility','accessibilityOther','motivation','motivationOther','previousAttendance','registeredAt']];let after;
-   do{const page=await store.find('registrations',{eventId:EVENT_ID},{after});for(const r of page){const a=r.answers;rows.push([r.id,r.email,a.firstName,a.lastName,a.country,a.city,a.profile,a.publicOfficial,a.activities.join('; '),r.labStatus,a.institution,a.position,a.nationalId,a.gender,a.age,a.accessibility.join('; '),a.accessibilityOther,a.motivation,a.motivationOther,a.previousAttendance,r.createdAt]);}after=page.length===200?page.at(-1).id:null;}while(after);
+   const rows=[['registrationId','email','firstName','lastName','country','city','profile','publicOfficial','activities','externalActivities','labStatus','institution','position','nationalId','gender','age','accessibility','accessibilityOther','motivation','motivationOther','previousAttendance','registeredAt']];let after;
+   const list=value=>Array.isArray(value)?value.join('; '):'';
+   do{const page=await store.find('registrations',{eventId:EVENT_ID},{after});for(const r of page){const a=r.answers;rows.push([r.id,r.email,a.firstName,a.lastName,a.country,a.city,a.profile,a.publicOfficial,list(a.activities),list(a.externalActivities),r.labStatus,a.institution,a.position,a.nationalId,a.gender,a.age,list(a.accessibility),a.accessibilityOther,a.motivation,a.motivationOther,a.previousAttendance,r.createdAt]);}after=page.length===200?page.at(-1).id:null;}while(after);
    send(res,200,csv(rows),{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="fiiu-2026-registrations.csv"'});return true;
   }
   let match=path.match(/^\/api\/admin\/fiiu\/registrations\/([^/]+)(\/attendance)?$/);
@@ -86,7 +90,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true}){
     if(!updated)fail('registration changed; reload before reviewing',409);send(res,200,{registration:updated});return true;
    }
    if(match[2]&&req.method==='PUT'){
-    const input=await body(req),activity=FIIU_EVENT.activities.find(a=>a.id===input.activityId);
+    const input=await body(req),activity=ALL_FIIU_ACTIVITIES.find(a=>a.id===input.activityId);
     if(!activity||typeof input.attended!=='boolean')fail('invalid attendance');
     if(input.attended&&((activity.registration==='general'&&!registration.answers.activities.includes(activity.id))||(activity.registration==='application'&&registration.labStatus!=='accepted')))fail('participant is not registered for this activity');
     const filters={registrationId:registration.id,activityId:activity.id};

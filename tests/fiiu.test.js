@@ -5,8 +5,9 @@ import {createDatabase,createUser} from '../server/db.js';
 import {createSession} from '../server/auth.js';
 import {createApp} from '../server/server.js';
 import {createFiiuStore} from '../server/fiiu-repository.js';
+import {FIIU_EVENT} from '../server/fiiu-domain.js';
 
-const answers={firstName:'Ana',lastName:'Test',country:'Perú',city:'Lima',profile:'professional',publicOfficial:false,activities:['day1-am'],privacyAccepted:true};
+const answers={firstName:'Ana',lastName:'Test',country:'Perú',city:'Lima',profile:'professional',publicOfficial:false,activities:['day1-am'],externalActivities:[],nationalId:'TEST-ID',gender:'prefer_not',age:30,accessibility:['none'],motivation:'learn',previousAttendance:'no',privacyAccepted:true};
 async function setup(t,wrapStore=store=>store){
  const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
  const cookies={},users={};
@@ -181,4 +182,78 @@ test('news filtering happens before pagination so newer materials cannot hide pu
  assert.deepEqual(page.content.map(item=>item.title),['Post 0']);assert.equal(page.nextCursor,null);
  const materials=await(await call('/api/fiiu?kind=material')).json();assert.equal(materials.content.length,100);assert.ok(materials.content.every(item=>item.kind==='material'));
  for(const kind of ['invalid','news,material','news)'])assert.equal((await call('/api/fiiu?kind='+encodeURIComponent(kind))).status,400);
+});
+
+test('named workshops and routes accept separate interest-only registrations without claiming form completion',async t=>{
+ const {save,call}=await setup(t);
+ const externals=FIIU_EVENT.activities.filter(a=>a.registration==='external');
+ assert.equal(externals.length,14);assert.ok(externals.every(a=>/^https:\/\/forms\.gle\//.test(a.formUrl)));
+ assert.equal(FIIU_EVENT.activities.some(a=>a.id==='workshop-day1'),false);
+ const response=await save({...answers,activities:[],externalActivities:['workshop-espacios-comunidad','workshop-espacios-comunidad','route-lima-cromatica'],externalCompleted:true});
+ assert.equal(response.status,200);const {registration}=await response.json();
+ assert.deepEqual(registration.answers.activities,[]);
+ assert.deepEqual(registration.answers.externalActivities,['route-lima-cromatica','workshop-espacios-comunidad']);
+ assert.equal(Object.hasOwn(registration.answers,'externalCompleted'),false);
+ assert.deepEqual((await(await call('/api/fiiu/registration')).json()).registration.answers.externalActivities,registration.answers.externalActivities);
+ const exported=await(await call('/api/admin/fiiu/export',{actor:'admin'})).text();
+ assert.match(exported,/externalActivities/);assert.match(exported,/route-lima-cromatica; workshop-espacios-comunidad/);
+});
+
+test('required questionnaire and external interest choices are validated server-side including conditional other text',async t=>{
+ const {save}=await setup(t);
+ const invalid=[{nationalId:''},{gender:''},{age:null},{age:'30'},{accessibility:[]},{motivation:''},{previousAttendance:''},{accessibility:['other'],accessibilityOther:''},{motivation:'other',motivationOther:''},{externalActivities:['day1-am']},{externalActivities:['workshop-day1']},{externalActivities:['invented']},{externalActivities:'route-lima-cromatica'}];
+ for(const patch of invalid)assert.equal((await save({...answers,...patch})).status,400,JSON.stringify(patch));
+ const result=await save({...answers,accessibility:['other'],accessibilityOther:'Needs quiet area',motivation:'other',motivationOther:'Urban exchange'});
+ assert.equal(result.status,200);
+ const {registration}=await result.json();assert.equal(registration.answers.accessibilityOther,'Needs quiet area');
+ const updated=await save({...answers,registrationId:registration.id,version:registration.version,accessibilityOther:'stale',motivationOther:'stale'});
+ assert.equal(updated.status,200);const next=(await updated.json()).registration;
+ assert.equal(next.answers.accessibilityOther,'');assert.equal(next.answers.motivationOther,'');
+});
+
+test('historical incomplete registrations remain readable, exportable and cancellable with legacy content and attendance',async t=>{
+ const {call,db,users}=await setup(t);const store=createFiiuStore({db});
+ const old={firstName:'Legacy',lastName:'Fixture',country:'Perú',city:'Lima',profile:'professional',publicOfficial:false,activities:['day1-am'],accessibility:[],privacyAccepted:true};
+ const registration=await store.insert('registrations',{id:'10000000-0000-4000-8000-000000000001',eventId:'fiiu-2026',userId:users.member.id,email:'member@example.test',answers:old,labStatus:'none',version:1,createdAt:'2026-09-28T00:00:00Z',updatedAt:'2026-09-28T00:00:00Z'});
+ assert.equal((await(await call('/api/fiiu/registration')).json()).registration.id,registration.id);
+ assert.equal((await call('/api/admin/fiiu/export',{actor:'admin'})).status,200);
+ const draft={title:'Historical workshop materials',body:'',kind:'material',status:'published',url:'https://example.test/legacy',activityId:'workshop-day1'};
+ assert.equal((await call('/api/admin/fiiu/content',{actor:'admin',method:'POST',body:draft})).status,201);
+ assert.equal((await call(`/api/admin/fiiu/registrations/${registration.id}/attendance`,{actor:'admin',method:'PUT',body:{activityId:'workshop-day1',attended:true}})).status,200);
+ assert.equal((await call('/api/fiiu/registration',{method:'DELETE',body:{registrationId:registration.id,version:1}})).status,200);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_attendance').get().n,0);
+});
+
+test('organizer summary covers every registration, distinguishes interests and counts unique people by day without participant data',async t=>{
+ const {call,db}=await setup(t);const store=createFiiuStore({db});
+ for(let i=0;i<205;i++){
+  const user=createUser(db,{fullName:'Summary fixture',email:`summary-${i}@example.test`,passwordHash:'unused',role:'member'});
+  const r=await store.insert('registrations',{id:`20000000-0000-4000-8000-${String(i).padStart(12,'0')}`,eventId:'fiiu-2026',userId:user.id,email:user.email,answers:{...answers,activities:['day1-am','day1-pm'],externalActivities:i<10?['workshop-espacios-comunidad','route-lima-cromatica']:[],publicOfficial:i<3,applyLab:i<3,profile:i<5?'student':'professional'},labStatus:i===0?'pending':i===1?'accepted':i===2?'declined':'none',version:1,createdAt:'2026-09-29T00:00:00Z',updatedAt:'2026-09-29T00:00:00Z'});
+  if(i<2)for(const activityId of ['day1-am','workshop-espacios-comunidad'])await store.insert('attendance',{id:crypto.randomUUID(),registrationId:r.id,activityId,confirmedBy:null,createdAt:'2026-09-29T00:00:00Z'});
+ }
+ assert.equal((await call('/api/admin/fiiu/summary',{actor:'guest'})).status,401);
+ assert.equal((await call('/api/admin/fiiu/summary')).status,403);
+ const response=await call('/api/admin/fiiu/summary',{actor:'admin'});assert.equal(response.status,200);
+ const body=await response.json(),s=body.summary;
+ assert.equal(s.totalRegistrations,205);assert.equal(s.publicOfficials,3);assert.deepEqual(s.lab,{pending:1,accepted:1,declined:1});
+ assert.deepEqual(s.activities.find(a=>a.activityId==='day1-am'),{activityId:'day1-am',registrations:205,externalInterests:0,attendance:2});
+ assert.deepEqual(s.activities.find(a=>a.activityId==='workshop-espacios-comunidad'),{activityId:'workshop-espacios-comunidad',registrations:0,externalInterests:10,attendance:2});
+ assert.deepEqual(s.days.find(d=>d.date==='2026-10-21'),{date:'2026-10-21',registrations:205,attendance:2});
+ assert.deepEqual(s.days.find(d=>d.date==='2026-10-25'),{date:'2026-10-25',registrations:10,attendance:0});
+ assert.deepEqual(s.profiles,[{profile:'professional',count:200},{profile:'student',count:5}]);
+ assert.doesNotMatch(JSON.stringify(body),/summary-\d|example\.test|firstName|nationalId|TEST-ID|userId/);
+});
+
+test('summary tolerates incomplete historical answers and does not double-count duplicate choices',async t=>{
+ const {db,users}=await setup(t);const store=createFiiuStore({db});
+ const r=await store.insert('registrations',{id:'30000000-0000-4000-8000-000000000001',eventId:'fiiu-2026',userId:users.member.id,email:'fixture@example.test',answers:{activities:['day1-am','day1-am','day0-lab'],externalActivities:['workshop-day1','workshop-day1'],applyLab:'true',publicOfficial:'true',profile:{invalid:true}},labStatus:'none',version:1,createdAt:'2026-09-29T00:00:00Z',updatedAt:'2026-09-29T00:00:00Z'});
+ await store.insert('registrations',{id:'30000000-0000-4000-8000-000000000002',eventId:'fiiu-2026',userId:users.other.id,email:'other@example.test',answers:{activities:null,externalActivities:{}},labStatus:'none',version:1,createdAt:'2026-09-29T00:00:00Z',updatedAt:'2026-09-29T00:00:00Z'});
+ await store.insert('attendance',{id:crypto.randomUUID(),registrationId:r.id,activityId:'workshop-day1',confirmedBy:null,createdAt:'2026-09-29T00:00:00Z'});
+ const catalog=[...FIIU_EVENT.activities,...FIIU_EVENT.legacyActivities];
+ const summary=await store.summary('fiiu-2026',catalog);
+ assert.equal(summary.totalRegistrations,2);assert.equal(summary.publicOfficials,0);assert.deepEqual(summary.profiles,[{profile:'',count:2}]);
+ assert.equal(summary.activities.find(a=>a.activityId==='day0-lab').registrations,0);
+ assert.deepEqual(summary.activities.find(a=>a.activityId==='workshop-day1'),{activityId:'workshop-day1',registrations:0,externalInterests:1,attendance:1});
+ assert.deepEqual(summary.days.find(d=>d.date==='2026-10-21'),{date:'2026-10-21',registrations:1,attendance:1});
+ const empty=await store.summary('different-event',catalog);assert.equal(empty.totalRegistrations,0);assert.ok(empty.activities.every(a=>a.registrations+a.externalInterests+a.attendance===0));
 });

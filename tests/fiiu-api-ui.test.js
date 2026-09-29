@@ -36,3 +36,11 @@ test('an unreadable registration response cannot be mistaken for no saved regist
  const me={registration:null,user:{id:'a',email:'a@example.test'},attendance:[]};
  assert.equal((await apiFor(Response.json(me))('/api/fiiu/registration')).registration,null);
 });
+
+test('saving external interests requires the response to confirm those same interests',async()=>{
+ const body={version:0,expectedUserId:'account-a',externalActivities:['workshop-a']};
+ const registration={id:'registration-a',userId:'account-a',version:1,answers:{activities:[]}};
+ for(const externalActivities of [undefined,{},[],['workshop-b']])await assert.rejects(apiFor(Response.json({registration:{...registration,answers:{activities:[],externalActivities}}}))('/api/fiiu/registration',body,'PUT'),error=>error.key==='error');
+ const confirmed={...registration,answers:{activities:[],externalActivities:['workshop-a']}};
+ assert.equal((await apiFor(Response.json({registration:confirmed}))('/api/fiiu/registration',body,'PUT')).registration.id,'registration-a');
+});

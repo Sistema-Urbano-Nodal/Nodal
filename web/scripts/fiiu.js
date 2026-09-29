@@ -1,6 +1,6 @@
 (() => {
  'use strict';
- const {el,tr,t,source,button,link,field,check,api,status,dateNode,contentCards,badges}=window.Fiiu;
+ const {el,tr,t,source,button,link,field,check,api,status,dateNode,contentCards,badges,findActivity}=window.Fiiu;
  const root=document.getElementById('fiiuRoot'),loadStatus=document.getElementById('fiiuStatus');
  let festival,me={registration:null,attendance:[],user:null},registrationHost;
  function programme(){
@@ -8,11 +8,12 @@
   for(const day of [...new Set(festival.event.activities.map(a=>a.date))].sort()){
    const row=el('section','f-day');row.append(dateNode(day,'h3'));const blocks=el('div','f-day-blocks');
    for(const activity of festival.event.activities.filter(a=>a.date===day)){
+    if(activity.registration==='application'){const article=el('article','f-activity');article.append(source('h4',activity.title),link('apply','#registration','f-text-link'));blocks.append(article);continue;}
     const article=el('article','f-activity');article.append(tr('p',activity.period,'f-period'),source('h4',activity.title));
-    if(activity.time)article.append(el('p','f-time',activity.time));else article.append(tr('p','timePending','f-muted'));
-    if(activity.venue)article.append(source('p',activity.venue,'f-muted'));else article.append(tr('p','venuePending','f-muted'));
+    if(activity.time)article.append(el('p','f-time',activity.time));else if(activity.registration!=='external')article.append(tr('p','timePending','f-muted'));
+    if(activity.venue)article.append(source('p',activity.venue,'f-muted'));else if(activity.registration!=='external')article.append(tr('p','venuePending','f-muted'));
     if(activity.sessions.length){const details=el('details'),summary=tr('summary','details'),list=el('ul','f-session-list');for(const [time,title] of activity.sessions)list.append(source('li',`${time}  ${title}`));details.append(summary,list);article.append(details);}
-    if(activity.registration==='external')article.append(link('external',festival.config[activity.linkKey]||festival.event.website,'f-text-link'));
+    if(activity.registration==='external')article.append(link('externalForm',activity.formUrl||festival.event.website,'f-text-link'));
     else article.append(link(activity.registration==='application'?'applyLab':'register','#registration','f-text-link'));
     blocks.append(article);
    }
@@ -22,7 +23,8 @@
  }
  function savedSummary(registration){
   const box=el('section','f-saved');box.tabIndex=-1;box.append(tr('h3','saved'),el('p','',`${registration.answers.firstName} ${registration.answers.lastName} · ${registration.email}`),tr('p','savedHint'));
-  const list=el('ul');for(const id of registration.answers.activities){const a=festival.event.activities.find(x=>x.id===id);const li=el('li');li.append(dateNode(a.date,'span'),document.createTextNode(' — '),source('span',a.title));list.append(li);}box.append(list);
+  const list=el('ul');for(const id of registration.answers.activities){const a=findActivity(festival.event,id),li=el('li');if(a)li.append(dateNode(a.date,'span'),document.createTextNode(' — '),source('span',a.title));else li.append(source('span',id));list.append(li);}if(list.children.length){box.append(tr('h4','activities'),list);}
+  if(registration.answers.externalActivities?.length){const interests=el('ul');for(const id of registration.answers.externalActivities){const a=findActivity(festival.event,id),li=el('li');if(a){li.append(dateNode(a.date,'span'),source('span',a.title));if(a.formUrl)li.append(link('externalForm',a.formUrl,'f-text-link'));}else li.append(source('span',id));interests.append(li);}box.append(tr('h4','externalActivities'),tr('p','externalInterestHint','f-muted'),interests);}
   if(registration.labStatus!=='none')box.append(tr('p',registration.labStatus,'f-application-status'));
   return box;
  }
@@ -77,19 +79,29 @@
   laboratory.append(apply.wrap,tr('p','labHint','f-muted'),institution.wrap,position.wrap);choices.append(laboratory);
   const syncLab=()=>{laboratory.hidden=official.input.value!=='yes';apply.input.disabled=laboratory.hidden;if(laboratory.hidden)apply.input.checked=false;for(const f of [institution,position]){f.wrap.hidden=laboratory.hidden||!apply.input.checked;f.input.disabled=f.wrap.hidden;f.input.required=!f.wrap.hidden;}};
   official.input.addEventListener('change',syncLab);apply.input.addEventListener('change',syncLab);syncLab();
-  const optional=el('details','f-optional');optional.append(tr('summary','optionalDetails'));const optionalGrid=el('div','f-fields');
-  for(const key of ['nationalId','age']){const f=field(key,{value:a[key]??'',type:key==='age'?'number':'text',max:50});if(key==='age'){f.input.min='1';f.input.max='120';f.input.step='1';}optionalGrid.append(f.wrap);}
-  for(const [key,options] of [['gender',['female','male','other','prefer_not']],['motivation',['learn','career','network','explore','other']],['previousAttendance',['all','some','no']]])optionalGrid.append(field(key,{value:a[key],options}).wrap);
-  optional.append(optionalGrid);const access=el('fieldset');access.append(tr('legend','accessibility'));
-  for(const key of ['none','mobility','visual','hearing','communication','other']){const c=check(key,'accessibility',key,a.accessibility?.includes(key));c.input.addEventListener('change',()=>{if(c.input.checked)access.querySelectorAll('input').forEach(input=>{if(input!==c.input&&(key==='none'||input.value==='none'))input.checked=false;});});access.append(c.wrap);}
-  optional.append(access,field('accessibilityOther',{value:a.accessibilityOther,type:'textarea',max:500}).wrap,field('motivationOther',{value:a.motivationOther,type:'textarea',max:500}).wrap);
+  const externalChoices=el('fieldset','f-external-choices');externalChoices.append(tr('legend','externalActivities'),tr('p','externalInterestHint','f-muted'));
+  const externals=festival.event.activities.filter(activity=>activity.registration==='external');
+  for(const day of [...new Set(externals.map(activity=>activity.date))].sort()){
+   const group=el('div','f-external-day');group.append(dateNode(day,'h4'));
+   for(const activity of externals.filter(item=>item.date===day)){const row=el('div','f-external-choice'),label=el('label','f-check'),input=el('input');input.type='checkbox';input.name='externalActivities';input.value=activity.id;input.checked=a.externalActivities?.includes(activity.id)||false;label.append(input,source('span',activity.title));row.append(label,link('externalForm',activity.formUrl||festival.event.website,'f-text-link'));group.append(row);}
+   externalChoices.append(group);
+  }
+  const details=el('fieldset','f-questionnaire');details.append(tr('legend','questionnaire'));const detailGrid=el('div','f-fields'),questions={};
+  for(const key of ['nationalId','age']){const f=field(key,{value:a[key]??'',type:key==='age'?'number':'text',max:50,required:true});if(key==='age'){f.input.min='1';f.input.max='120';f.input.step='1';}detailGrid.append(f.wrap);}
+  for(const [key,options] of [['gender',['female','male','other','prefer_not']],['motivation',['learn','career','network','explore','other']],['previousAttendance',['all','some','no']]]){questions[key]=field(key,{value:a[key],options,required:true});detailGrid.append(questions[key].wrap);}
+  details.append(detailGrid);const access=el('fieldset');access.append(tr('legend','accessibility'),tr('p','accessibilityHint','f-muted'));
+  const accessOther=field('accessibilityOther',{value:a.accessibilityOther,type:'textarea',max:500}),motivationOther=field('motivationOther',{value:a.motivationOther,type:'textarea',max:500});
+  const syncOther=()=>{for(const [f,needed] of [[accessOther,[...access.querySelectorAll('input')].some(input=>input.value==='other'&&input.checked)],[motivationOther,questions.motivation.input.value==='other']]){f.wrap.hidden=!needed;f.input.disabled=!needed;f.input.required=needed;}};
+  const syncAccess=()=>{const inputs=[...access.querySelectorAll('input')];inputs[0].setCustomValidity(inputs.some(input=>input.checked)?'':t('accessibilityRequired'));syncOther();};
+  for(const key of ['none','mobility','visual','hearing','communication','other']){const c=check(key,'accessibility',key,a.accessibility?.includes(key));c.input.addEventListener('change',()=>{if(c.input.checked)access.querySelectorAll('input').forEach(input=>{if(input!==c.input&&(key==='none'||input.value==='none'))input.checked=false;});syncAccess();});access.append(c.wrap);}
+  questions.motivation.input.addEventListener('change',syncOther);syncAccess();details.append(access,accessOther.wrap,motivationOther.wrap);
   const privacy=check('privacyAccepted','privacyAccepted','yes',a.privacyAccepted);privacy.input.required=true;
   const submit=button('save');submit.type='submit';
-  form.append(personal,choices,optional,privacy.wrap,link('privacy','privacy.html','f-text-link'),message,conflictBox,submit);registrationHost.append(form);
+  form.append(personal,choices,externalChoices,details,privacy.wrap,link('privacy','privacy.html','f-text-link'),message,conflictBox,submit);registrationHost.append(form);
   if(existing)registrationHost.append(message,conflictBox);
   form.addEventListener('submit',async event=>{
-   event.preventDefault();if(busy||!form.reportValidity())return;const fd=new FormData(form),payload=Object.fromEntries(fd);
-   Object.assign(payload,{version:currentVersion,registrationId:currentId,expectedUserId,publicOfficial:fd.get('publicOfficial')==='yes',applyLab:fd.get('applyLab')==='yes',privacyAccepted:fd.get('privacyAccepted')==='yes',activities:fd.getAll('activities'),accessibility:fd.getAll('accessibility'),age:fd.get('age')?Number(fd.get('age')):null});
+   event.preventDefault();if(busy)return;syncAccess();if(!form.reportValidity())return;const fd=new FormData(form),payload=Object.fromEntries(fd);
+   Object.assign(payload,{version:currentVersion,registrationId:currentId,expectedUserId,publicOfficial:fd.get('publicOfficial')==='yes',applyLab:fd.get('applyLab')==='yes',privacyAccepted:fd.get('privacyAccepted')==='yes',activities:fd.getAll('activities'),externalActivities:fd.getAll('externalActivities'),accessibility:fd.getAll('accessibility'),age:fd.get('age')?Number(fd.get('age')):null});
    const unlock=lock();status(message,'saving');conflictBox.replaceChildren();
    try{const result=await api('/api/fiiu/registration',payload,'PUT');me.registration=result.registration;renderRegistration();registrationHost.querySelector('.f-saved')?.focus();}
    catch(error){status(message,error);
@@ -111,11 +123,11 @@
    const [publicData,registrationData]=await Promise.all([api('/api/fiiu'),api('/api/fiiu/registration').catch(error=>{if(error.status===401)return{registration:null,attendance:[],user:null};throw error;})]);
    festival=publicData;me=registrationData;
    const hero=el('section','f-hero'),intro=el('div','f-hero-copy');intro.append(el('p','f-festival-name','FIIU Fest 11'),tr('span','spanishContent','content-language'),source('h1',festival.event.theme),tr('p','intro'),tr('p','languageHint','f-muted'));
-   const actions=el('div','f-actions');actions.append(link('register','#registration','f-button'),link('website',festival.event.website));intro.append(actions);
+   const actions=el('div','f-actions');actions.append(link('register','#registration','f-button'));if(festival.config.programUrl)actions.append(link('officialProgram',festival.config.programUrl));actions.append(link('website',festival.event.website));intro.append(actions);
    const date=el('aside','f-date-panel'),range=el('strong','f-date-range');range.setAttribute('aria-hidden','true');range.append(el('span','','20'),el('span','f-date-separator','–'),el('span','','25'));date.append(range,tr('p','dates'),source('h2',festival.event.city));if(festival.config.programUrl)date.append(link('officialProgram',festival.config.programUrl,'f-text-link'));hero.append(intro,date);root.append(hero);
-   if(me.isAdmin)root.append(link('admin','fiiu-admin.html','f-text-link f-admin-link'));
+   if(me.isAdmin)root.append(link('admin','fiiu-admin.html','f-button secondary f-admin-link'));
    const layout=el('div','f-layout');registrationHost=el('section','f-registration');registrationHost.id='registration';layout.append(programme(),registrationHost);root.append(layout);renderRegistration();
-   const separate=el('section','f-separate');separate.append(tr('h2','external'),tr('p','externalHint'));const externalActions=el('div','f-actions');for(const [key,label] of [['workshopsUrl','workshop'],['routesUrl','route'],['partyUrl','party']])externalActions.append(link(label,festival.config[key]||festival.event.website));separate.append(externalActions);root.append(separate);
+   const separate=el('section','f-separate');separate.append(tr('h2','party'),tr('p','partyHint'));const externalActions=el('div','f-actions');externalActions.append(link('party',festival.config.partyUrl||festival.event.website));separate.append(externalActions);root.append(separate);
    const feeds=[];for(const [title,isNews,empty] of [['news',true,'noNews'],['materials',false,'noMaterials']]){const section=el('section','f-updates');section.id=title;section.append(tr('h2',title));const list=el('div','f-news');contentCards(list,festival.content.filter(x=>(x.kind==='news')===isNews),empty);section.append(list);root.append(section);feeds.push({list,isNews,empty});}
    const more=button('loadMore',async()=>{more.disabled=true;try{const page=await api('/api/fiiu?cursor='+encodeURIComponent(festival.nextCursor));festival.content.push(...page.content);festival.nextCursor=page.nextCursor;for(const feed of feeds)contentCards(feed.list,festival.content.filter(x=>(x.kind==='news')===feed.isNews),feed.empty);more.hidden=!page.nextCursor;status(loadStatus,'');}catch(err){status(loadStatus,err);}finally{more.disabled=false;}});more.hidden=!festival.nextCursor;root.append(more);
    status(loadStatus,'');if(['#registration','#news','#materials'].includes(location.hash))document.querySelector(location.hash)?.scrollIntoView({block:'start'});

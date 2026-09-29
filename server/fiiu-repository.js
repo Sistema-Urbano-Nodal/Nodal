@@ -43,6 +43,42 @@ export function createFiiuStore({db,env=process.env,clients,fetchImpl=fetch}={})
   return {sql:parts.length?' WHERE '+parts.join(' AND '):'',params};
  }
  return {
+  async summary(eventId,activities){
+   // Aggregate inside the database: the organizer never needs every private
+   // questionnaire merely to render event totals. The catalog is server-owned.
+   const catalog=activities.map(({id,date,registration})=>({id,date,registration}));
+   if(!db){
+    const result=await supa.admin.rest('rpc/fiiu_event_summary',{method:'POST',body:{p_event_id:eventId,p_activities:catalog}});
+    if(!result||typeof result!=='object'||!Number.isSafeInteger(result.totalRegistrations)||!Array.isArray(result.activities)||!Array.isArray(result.days)||!Array.isArray(result.profiles))fail('festival summary unavailable',502);
+    return result;
+   }
+   const rows=db.prepare(`WITH
+    r AS (SELECT id,answers,lab_status FROM fiiu_registrations WHERE event_id=?),
+    catalog AS (SELECT json_extract(value,'$.id') AS activity_id,json_extract(value,'$.date') AS date,json_extract(value,'$.registration') AS registration FROM json_each(?)),
+    selections AS (
+     SELECT r.id,j.value AS activity_id,'registration' AS kind,'general' AS registration FROM r,json_each(CASE WHEN json_type(r.answers,'$.activities')='array' THEN json_extract(r.answers,'$.activities') ELSE '[]' END) AS j
+     UNION ALL SELECT r.id,j.value,'interest','external' FROM r,json_each(CASE WHEN json_type(r.answers,'$.externalActivities')='array' THEN json_extract(r.answers,'$.externalActivities') ELSE '[]' END) AS j
+     UNION ALL SELECT id,'day0-lab','registration','application' FROM r WHERE json_type(answers,'$.applyLab')='true'
+    ), valid_selections AS (
+     SELECT DISTINCT s.id,s.activity_id,s.kind FROM selections s JOIN catalog c ON c.activity_id=s.activity_id
+     WHERE s.registration=c.registration
+    ), attended AS (SELECT a.registration_id AS id,a.activity_id FROM fiiu_attendance a JOIN r ON r.id=a.registration_id)
+    SELECT 'total' AS metric,'' AS key,count(*) AS n FROM r
+    UNION ALL SELECT 'official','',count(*) FROM r WHERE json_type(answers,'$.publicOfficial')='true'
+    UNION ALL SELECT 'lab',lab_status,count(*) FROM r WHERE lab_status IN ('pending','accepted','declined') GROUP BY lab_status
+    UNION ALL SELECT 'profile',CASE WHEN json_type(answers,'$.profile')='text' THEN json_extract(answers,'$.profile') ELSE '' END,count(*) FROM r GROUP BY 2
+    UNION ALL SELECT kind,activity_id,count(DISTINCT id) FROM valid_selections GROUP BY kind,activity_id
+    UNION ALL SELECT 'attendance',activity_id,count(DISTINCT id) FROM attended GROUP BY activity_id
+    UNION ALL SELECT 'day-registration',c.date,count(DISTINCT s.id) FROM valid_selections s JOIN catalog c ON c.activity_id=s.activity_id GROUP BY c.date
+    UNION ALL SELECT 'day-attendance',c.date,count(DISTINCT a.id) FROM attended a JOIN catalog c ON c.activity_id=a.activity_id GROUP BY c.date
+   `).all(eventId,JSON.stringify(catalog));
+   const count=(metric,key='')=>rows.find(row=>row.metric===metric&&row.key===key)?.n??0;
+   return {totalRegistrations:count('total'),publicOfficials:count('official'),lab:{pending:count('lab','pending'),accepted:count('lab','accepted'),declined:count('lab','declined')},
+    activities:catalog.map(({id})=>({activityId:id,registrations:count('registration',id),externalInterests:count('interest',id),attendance:count('attendance',id)})),
+    days:[...new Set(catalog.map(a=>a.date))].sort().map(date=>({date,registrations:count('day-registration',date),attendance:count('day-attendance',date)})),
+    profiles:rows.filter(row=>row.metric==='profile').map(row=>({profile:row.key,count:row.n})).sort((a,b)=>a.profile<b.profile?-1:a.profile>b.profile?1:0),
+   };
+  },
   async find(name,filters={}, {after,limit=200,newest=false,afterCreatedAt,kind}={}){
    const table=info(name);checked(table,filters);if(!Number.isInteger(limit)||limit<1||limit>200)throw Error('invalid festival limit');
    if(newest&&name!=='content')throw Error('recent order is only supported for content');

@@ -48,6 +48,21 @@ test('enrollment/intake gates, private answers, drafts and staff authorization',
  assert.equal((await call(`/api/admin/courses/${course.id}/report`)).status,403);
 });
 
+test('closing self-enrollment preserves existing students and rejects new students and stale reopening',async t=>{
+ const {call,course,module,enter,store}=await setup(t);await enter();
+ const before=(await(await call(`/api/courses/${course.id}`)).json()).enrollment;
+ const closed=await call(`/api/admin/courses/${course.id}`,{actor:'staff',method:'PATCH',body:{version:course.version,enrollmentOpen:false}});
+ assert.equal(closed.status,200);const updated=(await closed.json()).course;
+ assert.equal(updated.enrollmentOpen,false);assert.equal(updated.title,course.title);assert.equal(updated.status,'published');
+ assert.equal((await call(`/api/courses/${course.id}/enroll`,{actor:'other',method:'POST',body:{}})).status,403);
+ const current=await call(`/api/courses/${course.id}/enroll`,{method:'POST',body:{}});
+ assert.equal(current.status,200);assert.equal((await current.json()).enrollment.id,before.id);
+ assert.equal((await call(`/api/courses/${course.id}/modules/${module.id}`)).status,200);
+ assert.equal((await store.find('enrollments',{courseId:course.id})).length,1);
+ assert.equal((await call(`/api/admin/courses/${course.id}`,{actor:'staff',method:'PATCH',body:{version:course.version,enrollmentOpen:true}})).status,409);
+ assert.equal((await(await call(`/api/courses/${course.id}`,{actor:'other'})).json()).course.enrollmentOpen,false);
+});
+
 test('assignment, private upload, reply, idempotency, moderation and staff report persist',async t=>{
  const {call,course,module,enter}=await setup(t);await enter();
  const path=`/api/courses/${course.id}/modules/${module.id}`;

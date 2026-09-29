@@ -1,18 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {FIIU_EVENT} from '../server/fiiu-domain.js';
-import {createFiiuHarness,key,field} from './helpers/fiiu-ui-harness.js';
+import {createFiiuHarness,key,field,descendants,content} from './helpers/fiiu-ui-harness.js';
 
-const answers={firstName:'Ana',lastName:'Test',country:'Perú',city:'Lima',profile:'professional',publicOfficial:false,applyLab:false,activities:['day1-am'],privacyAccepted:true};
+const answers={firstName:'Ana',lastName:'Test',country:'Perú',city:'Lima',profile:'professional',publicOfficial:false,applyLab:false,activities:['day1-am'],externalActivities:[],nationalId:'TEST123',gender:'prefer_not',age:30,accessibility:['none'],motivation:'learn',previousAttendance:'no',privacyAccepted:true};
 const user={id:'00000000-0000-4000-8000-000000000001',email:'ana@example.test',name:'Ana Test',city:'Lima'};
 const saved={userId:user.id,id:'00000000-0000-4000-8000-000000000002',version:1,email:user.email,answers,labStatus:'none'};
 const self=registration=>({user,registration,attendance:[],isAdmin:false});
-const publicData={event:FIIU_EVENT,config:{registrationOpen:true},content:[],nextCursor:null};
+const publicData={event:FIIU_EVENT,config:{registrationOpen:true,programUrl:'https://canva.link/ficmkatcg9fudwk'},content:[],nextCursor:null};
 async function harness({registration=null,write=async()=>({status:503,data:{error:'unavailable'}}),read,publicRead=()=>publicData}={}){
  let registrationReads=0;
  const h=await createFiiuHarness(request=>request.method!=='GET'?write(request):request.path==='/api/fiiu'?publicRead():request.path==='/api/auth/state'?{authenticated:true}:read?read(++registrationReads):self(registration));
  const form=()=>h.root.querySelector('form');
- const fill=()=>{for(const [name,value] of Object.entries(answers)){const input=field(form(),name);if(input)input.value=String(value);}field(form(),'publicOfficial').value='no';field(form(),'activities').checked=true;field(form(),'privacyAccepted').checked=true;};
+ const fill=()=>{for(const input of descendants(form()).filter(node=>node.name)){const value=answers[input.name];if(value!==undefined){if(input.type==='checkbox')input.checked=Array.isArray(value)?value.includes(input.value):value===true;else input.value=String(value);}}field(form(),'publicOfficial').value='no';};
  return{...h,form,fill,submit:()=>form().listeners.submit({preventDefault(){}})};
 }
 
@@ -61,4 +61,49 @@ test('public programme and self-registration start together without an auth-stat
 test('only a registration 401 becomes a guest view; service failures remain retryable errors',async()=>{
  const guest=await harness({read:()=>({status:401,data:{error:'sign in required'}})});assert.ok(key(guest.root,'signin'));assert.equal(guest.form(),null);assert.ok(!key(guest.root,'retry'));assert.ok(!guest.requests.some(request=>request.path==='/api/auth/state'));
  const outage=await harness({read:()=>({status:503,data:{error:'unavailable'}})});assert.ok(key(outage.root,'retry'));assert.ok(!key(outage.root,'signin'));assert.equal(outage.form(),null);
+});
+
+test('the programme is a prominent action and the laboratory card omits unknown time and venue',async()=>{
+ const h=await harness(),actions=h.root.querySelector('.f-hero-copy').querySelector('.f-actions');
+ assert.equal(key(actions,'officialProgram').href,'https://canva.link/ficmkatcg9fudwk');
+ const lab=h.root.querySelectorAll('.f-activity').find(node=>content(node).includes('Gestión urbana en acción'));
+ assert.ok(key(lab,'apply'));assert.equal(key(lab,'timePending'),undefined);assert.equal(key(lab,'venuePending'),undefined);
+ assert.equal(lab.querySelector('.f-period'),null,'the laboratory card should contain its title and application action only');
+ for(const lang of ['en','es','pt']){h.lang(lang);assert.doesNotMatch(content(h.root),/pre-register|pre-registration|preinscri|pré-inscri/i);}
+});
+
+test('external-only interest saves separately from conferences and keeps its required Google Form link',async()=>{
+ const activity={id:'workshop-test',date:'2026-10-22',period:'workshop',registration:'external',title:'Taller de prueba',time:'',venue:'',sessions:[],formUrl:'https://forms.gle/testActivity'};
+ const event={...FIIU_EVENT,activities:[...FIIU_EVENT.activities.filter(item=>item.registration!=='external'),activity]};
+ const h=await harness({publicRead:()=>({...publicData,event}),write:request=>({registration:{...saved,answers:request.body}})});h.fill();
+ for(const input of descendants(h.form()).filter(node=>node.name==='activities'))input.checked=false;
+ const interest=field(h.form(),'externalActivities');assert.ok(interest);interest.checked=true;
+ const activityLink=h.form().querySelectorAll('a').find(node=>node.href===activity.formUrl);
+ assert.ok(activityLink);assert.equal(activityLink.target,'_blank');
+ await h.submit();
+ const body=h.requests.find(request=>request.method==='PUT').body;
+ assert.deepEqual(body.activities,[]);assert.deepEqual(body.externalActivities,['workshop-test']);assert.equal(body.externalCompleted,undefined);
+ const summary=h.root.querySelector('.f-saved');assert.ok(key(summary,'externalActivities'));assert.ok(key(summary,'externalInterestHint'));
+ assert.ok(summary.querySelectorAll('a').some(node=>node.href===activity.formUrl));
+});
+
+test('questionnaire requirements stay visible and Other text is required only when selected',async()=>{
+ const h=await harness();h.fill();
+ for(const name of ['nationalId','age','gender','motivation','previousAttendance']){const input=field(h.form(),name);assert.equal(input.required,true,name);for(let node=input;node;node=node.parent)assert.notEqual(node.tagName,'details','required questions must not be hidden in a closed disclosure');}
+ const nationalId=field(h.form(),'nationalId');nationalId.value='';await h.submit();assert.equal(h.requests.filter(request=>request.method==='PUT').length,0);nationalId.value='TEST123';
+ const accessibility=descendants(h.form()).filter(node=>node.name==='accessibility');accessibility.forEach(input=>{input.checked=false;});await h.submit();assert.equal(h.requests.filter(request=>request.method==='PUT').length,0,'accessibility requires an explicit answer');
+ const other=accessibility.find(input=>input.value==='other');other.checked=true;other.listeners.change();
+ const accessText=field(h.form(),'accessibilityOther');assert.equal(accessText.required,true);assert.equal(accessText.disabled,false);
+ await h.submit();assert.equal(h.requests.filter(request=>request.method==='PUT').length,0);accessText.value='Support requested';
+ const motivation=field(h.form(),'motivation');motivation.value='other';motivation.listeners.change();const motivationText=field(h.form(),'motivationOther');assert.equal(motivationText.required,true);
+ await h.submit();assert.equal(h.requests.filter(request=>request.method==='PUT').length,0);motivationText.value='Another reason';
+ await h.submit();assert.equal(h.requests.filter(request=>request.method==='PUT').length,1);assert.equal(h.requests.at(-1).body.accessibilityOther,'Support requested');
+ motivation.value='learn';motivation.listeners.change();assert.equal(motivationText.disabled,true);assert.equal(motivationText.required,false);
+ const none=accessibility.find(input=>input.value==='none');none.checked=true;none.listeners.change();assert.equal(other.checked,false);assert.equal(accessText.disabled,true);assert.equal(accessText.required,false);
+});
+
+test('historical incomplete registrations remain readable without silently discarding their saved state',async()=>{
+ const old={...saved,answers:{firstName:'Ana',lastName:'Test',activities:['day1-am'],privacyAccepted:true}};
+ const h=await harness({registration:old});assert.ok(h.root.querySelector('.f-saved'));assert.ok(key(h.root,'cancel'));
+ assert.equal(field(h.form(),'nationalId').value,'');assert.equal(field(h.form(),'nationalId').required,true);assert.equal(h.requests.filter(request=>request.method!=='GET').length,0);
 });

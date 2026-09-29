@@ -17,3 +17,13 @@ test('Supabase festival adapter fills capped pages and scopes versioned writes a
  await store.find('content',{status:'published'},{limit:1,newest:true,kind:'news'});
  assert.equal(calls.at(-1).query['data->>kind'],'eq.news');assert.equal(calls.at(-1).query.status,'eq.published');
 });
+
+test('Supabase organizer summary uses one restricted aggregate RPC instead of downloading questionnaires',async()=>{
+ const calls=[],summary={totalRegistrations:205,publicOfficials:3,lab:{pending:1,accepted:1,declined:1},activities:[],days:[],profiles:[]};
+ const store=createFiiuStore({clients:{admin:{async rest(path,options){calls.push({path,...options});return summary;}}}});
+ const catalog=[{id:'day1-am',date:'2026-10-21',registration:'general',title:'Ignored display text',formUrl:'https://example.test'}];
+ assert.deepEqual(await store.summary('fiiu-2026',catalog),summary);
+ assert.deepEqual(calls,[{path:'rpc/fiiu_event_summary',method:'POST',body:{p_event_id:'fiiu-2026',p_activities:[{id:'day1-am',date:'2026-10-21',registration:'general'}]}}]);
+ const broken=createFiiuStore({clients:{admin:{async rest(){return null;}}}});
+ await assert.rejects(broken.summary('fiiu-2026',catalog),error=>error.status===502);
+});

@@ -1,15 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DEFAULT_CONFIG,FIIU_EVENT} from '../server/fiiu-domain.js';
-import {createFiiuHarness,key,field,flush} from './helpers/fiiu-ui-harness.js';
+import {createFiiuHarness,key,field,flush,content} from './helpers/fiiu-ui-harness.js';
 
 const participant=(id,firstName)=>({id,eventId:'fiiu-2026',userId:'user-'+id,email:firstName.toLowerCase()+'@example.test',version:1,labStatus:'pending',createdAt:'2026-09-29T12:00:00.000Z',updatedAt:'2026-09-29T12:00:00.000Z',answers:{firstName,lastName:'Test',country:'Perú',city:'Lima',profile:'public_official',publicOfficial:true,applyLab:true,institution:'City Council',position:'Planner',activities:['day1-am'],privacyAccepted:true}});
 const copy=value=>structuredClone(value);
-async function harness(respond,{participants=[]}={}){
+const summary={totalRegistrations:237,publicOfficials:64,lab:{pending:18,accepted:12,declined:2},activities:[{activityId:'day1-am',registrations:121,externalInterests:0,attendance:0}],days:[{date:'2026-10-21',registrations:157,attendance:0}],profiles:[{profile:'student',count:48}]};
+async function harness(respond,{participants=[],summaryRead=()=>({summary:copy(summary)})}={}){
  return createFiiuHarness(request=>{
   if(request.path==='/api/fiiu')return{event:FIIU_EVENT,config:DEFAULT_CONFIG,content:[],nextCursor:null};
   if(request.path==='/api/admin/fiiu/config'&&request.method==='GET')return{config:{...DEFAULT_CONFIG,version:0}};
   if(request.path==='/api/admin/fiiu/registrations')return{registrations:copy(participants),nextCursor:null};
+  if(request.path==='/api/admin/fiiu/summary')return summaryRead(request);
   return respond(request);
  },{page:'fiiu-admin'});
 }
@@ -17,6 +19,27 @@ async function submit(form){form.listeners.submit({preventDefault(){}});await fl
 const detailTitle=h=>h.root.querySelector('.f-admin-detail').querySelector('h3')?.textContent;
 const detailButton=(h,index)=>key(h.root.querySelectorAll('.f-participant')[index],'details');
 const unavailable={status:503,data:{error:'unavailable'}};
+
+test('editing historical publications preserves only their existing legacy activity and sends it when saving',async()=>{
+ for(const legacy of FIIU_EVENT.legacyActivities){
+  const post={id:'legacy-post',version:1,title:'Existing workshop material',body:'',url:'https://example.test/material',kind:'material',status:'published',activityId:legacy.id};
+  const h=await harness(({method,body})=>method==='GET'?{content:[copy(post)],nextCursor:null}:{content:{...post,...body,version:post.version+1}});
+  await key(h.root.querySelector('.f-news-item'),'editContent').listeners.click();
+  const form=h.root.querySelector('.f-content-editor').querySelector('form'),select=field(form,'activityId');
+  // The lightweight DOM permits values without matching options; check both.
+  assert.deepEqual(select.children.filter(option=>FIIU_EVENT.legacyActivities.some(activity=>activity.id===option.value)).map(option=>option.value),[legacy.id]);
+  assert.equal(select.value,legacy.id);
+  field(form,'title').value='Corrected historical material';await submit(form);
+  const writes=h.requests.filter(request=>request.method!=='GET');assert.equal(writes.length,1);
+  assert.equal(writes[0].method,'PATCH');assert.equal(writes[0].path,'/api/admin/fiiu/content/'+post.id);
+  assert.equal(writes[0].body.activityId,legacy.id);assert.equal(writes[0].body.title,'Corrected historical material');assert.equal(writes[0].body.version,1);
+ }
+});
+
+test('new publication activity choices exclude all historical activities',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null})),select=field(h.root.querySelector('.f-content-editor'),'activityId');
+ assert.equal(select.value,'');assert.deepEqual(select.children.map(option=>option.value),['',...FIIU_EVENT.activities.map(activity=>activity.id)]);
+});
 
 test('retrying a saved publication after a failed list refresh updates that publication instead of creating a duplicate',async()=>{
  const publications=[];let listReads=0;
@@ -121,6 +144,7 @@ test('organizer participant loading does not wait for a slow public programme re
   if(path==='/api/admin/fiiu/config')return{config:DEFAULT_CONFIG};
   if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
   if(path==='/api/admin/fiiu/registrations')return{registrations:[],nextCursor:null};
+  if(path==='/api/admin/fiiu/summary')return{summary:copy(summary)};
   throw Error('Unexpected request');
  },{page:'fiiu-admin'});
  assert.ok(h.requests.some(request=>request.path==='/api/admin/fiiu/registrations'),'the independent participant read should already be in flight');
@@ -183,4 +207,48 @@ for(const failure of ['mutation','refresh'])test(`laboratory review keeps its se
  await flush();
  assert.equal(review.value,'reviewAccepted');assert.equal(review.disabled,false);assert.equal(key(form,'saveReview').disabled,false);assert.equal(form['aria-busy'],'false');
  assert.equal(h.message.dataset.fiiuText,failure==='mutation'?'error':'savedRefreshFailed');
+});
+
+test('organizer totals use the server summary instead of counting the loaded participant page',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{participants:[participant('a','Ana')]});
+ const dashboard=h.root.querySelector('.f-admin-summary');assert.ok(dashboard);
+ assert.match(content(dashboard),/237/);assert.match(content(dashboard),/157/);assert.match(content(dashboard),/121/);assert.match(content(dashboard),/48/);
+ assert.ok(key(dashboard,'publicOfficials'));assert.ok(key(dashboard,'externalActivities'));assert.ok(key(dashboard,'profiles'));
+ assert.equal(h.requests.filter(request=>request.path==='/api/admin/fiiu/summary').length,1);
+});
+
+test('summary refresh prevents overlapping requests and leaves organizer drafts intact',async()=>{
+ let reads=0,finishRefresh;
+ const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>++reads===1?{summary:copy(summary)}:new Promise(resolve=>{finishRefresh=resolve;})});
+ const form=h.root.querySelector('.f-content-editor').querySelector('form'),settings=h.root.querySelector('.f-admin-settings').querySelector('form');field(form,'title').value='Unsaved programme update';field(settings,'programUrl').value='https://example.test/unsaved';
+ const refresh=key(h.root.querySelector('.f-admin-summary'),'refreshSummary');assert.ok(refresh);
+ const pending=refresh.listeners.click(),duplicate=refresh.listeners.click();assert.equal(reads,2);assert.equal(refresh.disabled,true);
+ finishRefresh({summary:{...copy(summary),totalRegistrations:238}});await Promise.all([pending,duplicate]);
+ assert.equal(h.root.querySelector('.f-content-editor').querySelector('form'),form);assert.equal(field(form,'title').value,'Unsaved programme update');assert.equal(field(settings,'programUrl').value,'https://example.test/unsaved');
+ assert.match(content(h.root.querySelector('.f-admin-summary')),/238/);assert.equal(refresh.disabled,false);
+});
+
+test('an unavailable summary leaves participant and publication controls usable and can retry independently',async()=>{
+ let reads=0;const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>++reads===1?unavailable:{summary:copy(summary)}});
+ assert.ok(h.root.querySelector('.f-content-editor'));assert.ok(h.root.querySelector('.f-admin-settings'));
+ const dashboard=h.root.querySelector('.f-admin-summary');assert.ok(dashboard);assert.ok(key(dashboard,'error'));
+ await key(dashboard,'refreshSummary').listeners.click();assert.match(content(dashboard),/237/);assert.equal(h.requests.filter(request=>request.path==='/api/admin/fiiu/registrations').length,1);
+});
+
+test('a slow summary does not hold up the organizer editing controls',async()=>{
+ let finish;const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>new Promise(resolve=>{finish=resolve;})});
+ assert.ok(h.root.querySelector('.f-content-editor'),'the organizer can work while totals are still loading');
+ assert.ok(h.root.querySelector('.f-admin-settings'));
+ finish({summary:copy(summary)});await flush();assert.match(content(h.root.querySelector('.f-admin-summary')),/237/);
+});
+
+test('automatic totals refresh only while visible and never overlap or replace organizer drafts',async()=>{
+ let reads=0,finish;const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>++reads===1?{summary:copy(summary)}:new Promise(resolve=>{finish=resolve;})});
+ assert.equal(h.timers.length,1,'one refresh schedule should be installed');assert.equal(h.timers[0].delay,60000);
+ const form=h.root.querySelector('.f-content-editor').querySelector('form');field(form,'title').value='Unsent publication draft';
+ h.visible(false);await h.tickTimers();assert.equal(reads,1,'background tabs must not poll');
+ h.visible(true);const pending=h.tickTimers();assert.equal(reads,2);
+ await h.tickTimers();await key(h.root.querySelector('.f-admin-summary'),'refreshSummary').listeners.click();assert.equal(reads,2,'manual and timed refreshes must share the same in-flight guard');
+ finish({summary:{...copy(summary),totalRegistrations:239}});await pending;
+ assert.match(content(h.root.querySelector('.f-admin-summary')),/239/);assert.equal(h.root.querySelector('.f-content-editor').querySelector('form'),form);assert.equal(field(form,'title').value,'Unsent publication draft');
 });
