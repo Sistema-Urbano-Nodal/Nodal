@@ -1,7 +1,11 @@
 (() => {
  'use strict';
  const rows={
-  activities:['Selected activities','Actividades elegidas','Atividades selecionadas'],
+ activities:['Selected activities','Actividades elegidas','Atividades selecionadas'],
+ accountChanged:['Your signed-in account changed. Your draft is still here. Reload to continue with the current account.','Tu cuenta ha cambiado. Tu borrador sigue aquí. Recarga para continuar con la cuenta actual.','Sua conta mudou. Seu rascunho continua aqui. Recarregue para continuar com a conta atual.'],
+ reloadAccount:['Reload for current account','Recargar para la cuenta actual','Recarregar para a conta atual'],
+ reloadSaved:['Reload saved registration','Recargar inscripción guardada','Recarregar inscrição salva'],
+ savedRefreshFailed:['Saved, but the latest list could not be loaded. Your changes are safe.','Guardado, pero no se pudo cargar la lista actualizada. Tus cambios están guardados.','Salvo, mas não foi possível carregar a lista atualizada. Suas alterações estão salvas.'],
   spanishContent:['ES · Content in Spanish','ES · Contenido en español','ES · Conteúdo em espanhol'],
   languageHint:['Programme titles and session descriptions are available in Spanish. Navigation and registration follow your selected language.','Los títulos del programa y las descripciones de las sesiones están disponibles en español. La navegación y la inscripción siguen el idioma que elijas.','Os títulos da programação e as descrições das sessões estão disponíveis em espanhol. A navegação e a inscrição seguem o idioma escolhido.'],
   program:['Programme','Programa','Programa'],community:['Community','Comunidad','Comunidade'],resources:['Resources','Recursos','Recursos'],knowledge:['Knowledge','Conocimiento','Conhecimento'],panel:['My console','Mi panel','Meu painel'],
@@ -45,9 +49,18 @@
  function check(key,name,value,checked=false){const wrap=el('label','f-check'),input=el('input');input.type='checkbox';input.name=name;input.value=value;input.checked=checked;wrap.append(input,tr('span',key));return{wrap,input};}
  async function api(path,body,method){
   let response,data;
-  try{response=await fetch(path,{...(body===undefined?{}:{method:method||'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),signal:AbortSignal.timeout(20000)});data=await response.json();}
+  try{response=await fetch(path,{...(body===undefined?{}:{method:method||'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),signal:AbortSignal.timeout(20000)});
+   try{data=await response.json();}catch(error){if(response.ok)throw error;data={};}
+  }
   catch{throw Object.assign(Error(t('error')),{key:'error'});}
-  if(!response.ok){const key=path.startsWith('/api/admin/')&&response.status===400?'adminInvalid':path.startsWith('/api/admin/')&&response.status===409?'editorConflict':response.status===403&&data.error==='registration is closed'?'closed':({400:'invalid',401:'unauthorized',403:'forbidden',409:'conflict',429:'rate'})[response.status]||'error';throw Object.assign(Error(t(key)),{key,status:response.status});}
+  if(!response.ok){const key=response.status===409&&data?.error==='account changed; reload before continuing'?'accountChanged':path.startsWith('/api/admin/')&&response.status===400?'adminInvalid':path.startsWith('/api/admin/')&&response.status===409?'editorConflict':response.status===403&&data?.error==='registration is closed'?'closed':({400:'invalid',401:'unauthorized',403:'forbidden',409:'conflict',429:'rate'})[response.status]||'error';throw Object.assign(Error(t(key)),{key,status:response.status});}
+  if(!data||typeof data!=='object'||Array.isArray(data))throw Object.assign(Error(t('error')),{key:'error'});
+  if(path==='/api/fiiu/registration'){
+   const r=data.registration;
+   if(body===undefined&&(!data.user?.id||typeof data.user.email!=='string'||!Array.isArray(data.attendance)||(r!==null&&(!r?.id||!Number.isSafeInteger(r.version)||r.version<1||!r.answers||!Array.isArray(r.answers.activities)))))throw Object.assign(Error(t('error')),{key:'error'});
+   if(method==='PUT'&&(!r||typeof r.id!=='string'||!r.id||r.version!==body.version+1||!r.answers||!Array.isArray(r.answers.activities)||(body.registrationId&&r.id!==body.registrationId)||(body.expectedUserId&&r.userId!==body.expectedUserId)))throw Object.assign(Error(t('error')),{key:'error'});
+   if(method==='DELETE'&&data.ok!==true)throw Object.assign(Error(t('error')),{key:'error'});
+  }
   return data;
  }
  function status(node,error){node.textContent=t(error?.key||error||'');node.classList.toggle('is-error',error instanceof Error);node.dataset.fiiuText=error?.key||error||'';}

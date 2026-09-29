@@ -2,6 +2,9 @@ import {randomUUID} from 'node:crypto';
 import {fail,identifier,csv} from './courses-domain.js';
 import {EVENT_ID,FIIU_EVENT,DEFAULT_CONFIG,normalizeRegistration,applicationStatus,version,normalizeContent,contentView,normalizeConfig} from './fiiu-domain.js';
 const now=()=>new Date().toISOString();
+// Bind an open browser form to the account that loaded it. Ownership is still
+// derived from the session; older clients can omit this additional guard.
+function sameAccount(input,user){if(input.expectedUserId!==undefined&&input.expectedUserId!==user.id)fail('account changed; reload before continuing',409);}
 async function body(req){
  if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))fail('JSON request required',415);
  let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>24576)fail('request too large',413);chunks.push(chunk);}
@@ -36,10 +39,10 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true}){
    send(res,200,{event:FIIU_EVENT,config:settings,...page});return true;
   }
   if(path==='/api/fiiu/registration'){
-   if(req.method==='GET'){send(res,200,{...await exportFiiuData(store,user.id),user:{name:user.name,email:user.email,city:user.city},isAdmin:user.permission==='admin'});return true;}
+   if(req.method==='GET'){send(res,200,{...await exportFiiuData(store,user.id),user:{id:user.id,name:user.name,email:user.email,city:user.city},isAdmin:user.permission==='admin'});return true;}
    if(req.method==='PUT'){
     if(!(await config()).registrationOpen)fail('registration is closed',403);
-    const input=await body(req),expected=version(input.version),answers=normalizeRegistration(input);
+    const input=await body(req);sameAccount(input,user);const expected=version(input.version),answers=normalizeRegistration(input);
     const existing=await one('registrations',{eventId:EVENT_ID,userId:user.id});
     if((existing?.version??0)!==expected||(existing?.id??null)!==(input.registrationId??null))fail('registration changed; reload before saving',409);
     const patch={email:user.email,answers,labStatus:applicationStatus(answers,existing),version:expected+1,updatedAt:now()};
@@ -48,7 +51,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true}){
     send(res,200,{registration});return true;
    }
    if(req.method==='DELETE'){
-    const input=await body(req),expected=version(input.version),existing=await one('registrations',{eventId:EVENT_ID,userId:user.id});
+    const input=await body(req);sameAccount(input,user);const expected=version(input.version),existing=await one('registrations',{eventId:EVENT_ID,userId:user.id});
     if((existing?.version??0)!==expected||(existing?.id??null)!==(input.registrationId??null))fail('registration changed; reload before cancelling',409);
     if(existing&&!await store.remove('registrations',{id:existing.id,userId:user.id,version:expected}))fail('registration changed; reload before cancelling',409);
     send(res,200,{ok:true});return true;

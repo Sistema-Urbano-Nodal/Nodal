@@ -30,19 +30,36 @@
   registrationHost.replaceChildren(tr('h2','registration'));
   const message=el('p','f-status');message.setAttribute('role','status');message.setAttribute('aria-live','polite');
   if(!me.user){registrationHost.append(tr('p','signinHint'),link('signin','login.html?next='+encodeURIComponent('/fiiu.html#registration'),'f-button'));return;}
+  const expectedUserId=me.user.id,conflictBox=el('div','f-conflict');let busy=false;
+  function lock(){
+   busy=true;const controls=[...registrationHost.querySelectorAll('input,select,textarea,button')].map(control=>[control,control.disabled]),form=registrationHost.querySelector('form');
+   for(const [control] of controls)control.disabled=true;form?.setAttribute('aria-busy','true');
+   return()=>{busy=false;for(const [control,disabled] of controls)control.disabled=disabled;form?.setAttribute('aria-busy','false');};
+  }
+  function accountChanged(){status(message,Object.assign(Error(t('accountChanged')),{key:'accountChanged'}));conflictBox.replaceChildren(button('reloadAccount',()=>location.reload()));}
+  async function currentRegistration(){const latest=await api('/api/fiiu/registration');if(latest.user.id!==expectedUserId)throw Object.assign(Error(t('accountChanged')),{key:'accountChanged',status:409});return latest;}
+  function reloadSaved(){
+   conflictBox.replaceChildren(button('reloadSaved',async()=>{
+    if(busy)return;const unlock=lock();
+    try{me=await currentRegistration();renderRegistration();}
+    catch(error){if(error.key==='accountChanged')accountChanged();else status(message,error);}
+    finally{unlock();}
+   },'f-button secondary'));
+  }
   const existing=me.registration;
   if(existing){
    const summary=savedSummary(existing),actions=el('div','f-actions');
    if(festival.config.registrationOpen)actions.append(button('edit',()=>{form.hidden=false;summary.hidden=true;form.querySelector('input')?.focus();}));
    const cancel=button('cancel',async()=>{
-    if(!window.confirm(t('cancelConfirm')))return;
-    cancel.disabled=true;
-    try{await api('/api/fiiu/registration',{version:me.registration.version,registrationId:me.registration.id},'DELETE');me.registration=null;me.attendance=[];renderRegistration();}
-    catch(error){status(message,error);cancel.disabled=false;}
+    if(busy||!window.confirm(t('cancelConfirm')))return;
+    const unlock=lock();status(message,'saving');conflictBox.replaceChildren();
+    try{await api('/api/fiiu/registration',{version:me.registration.version,registrationId:me.registration.id,expectedUserId},'DELETE');me.registration=null;me.attendance=[];renderRegistration();}
+    catch(error){if(error.key==='accountChanged')accountChanged();else{status(message,error);reloadSaved();}}
+    finally{unlock();}
    },'f-button secondary');actions.append(cancel);summary.append(actions);registrationHost.append(summary);
   }
   const badgeBox=el('div','f-badges');if(existing){badges(badgeBox,me.attendance,festival.event);registrationHost.append(badgeBox);}
-  if(!festival.config.registrationOpen){registrationHost.append(tr('p','closed','f-notice'),message);return;}
+  if(!festival.config.registrationOpen){registrationHost.append(tr('p','closed','f-notice'),message,conflictBox);return;}
   const a=existing?.answers??{},form=el('form','f-form');form.hidden=!!existing;let currentVersion=existing?.version??0,currentId=existing?.id??null;
   const personal=el('fieldset');personal.append(tr('legend','personal'));
   personal.append(tr('p','privateHint','f-muted'));
@@ -67,31 +84,32 @@
   for(const key of ['none','mobility','visual','hearing','communication','other']){const c=check(key,'accessibility',key,a.accessibility?.includes(key));c.input.addEventListener('change',()=>{if(c.input.checked)access.querySelectorAll('input').forEach(input=>{if(input!==c.input&&(key==='none'||input.value==='none'))input.checked=false;});});access.append(c.wrap);}
   optional.append(access,field('accessibilityOther',{value:a.accessibilityOther,type:'textarea',max:500}).wrap,field('motivationOther',{value:a.motivationOther,type:'textarea',max:500}).wrap);
   const privacy=check('privacyAccepted','privacyAccepted','yes',a.privacyAccepted);privacy.input.required=true;
-  const conflictBox=el('div','f-conflict');
   const submit=button('save');submit.type='submit';
   form.append(personal,choices,optional,privacy.wrap,link('privacy','privacy.html','f-text-link'),message,conflictBox,submit);registrationHost.append(form);
-  if(existing)registrationHost.append(message);
+  if(existing)registrationHost.append(message,conflictBox);
   form.addEventListener('submit',async event=>{
-   event.preventDefault();if(!form.reportValidity())return;const fd=new FormData(form),payload=Object.fromEntries(fd);
-   Object.assign(payload,{version:currentVersion,registrationId:currentId,publicOfficial:fd.get('publicOfficial')==='yes',applyLab:fd.get('applyLab')==='yes',privacyAccepted:fd.get('privacyAccepted')==='yes',activities:fd.getAll('activities'),accessibility:fd.getAll('accessibility'),age:fd.get('age')?Number(fd.get('age')):null});
-   submit.disabled=true;status(message,'saving');conflictBox.replaceChildren();
+   event.preventDefault();if(busy||!form.reportValidity())return;const fd=new FormData(form),payload=Object.fromEntries(fd);
+   Object.assign(payload,{version:currentVersion,registrationId:currentId,expectedUserId,publicOfficial:fd.get('publicOfficial')==='yes',applyLab:fd.get('applyLab')==='yes',privacyAccepted:fd.get('privacyAccepted')==='yes',activities:fd.getAll('activities'),accessibility:fd.getAll('accessibility'),age:fd.get('age')?Number(fd.get('age')):null});
+   const unlock=lock();status(message,'saving');conflictBox.replaceChildren();
    try{const result=await api('/api/fiiu/registration',payload,'PUT');me.registration=result.registration;renderRegistration();registrationHost.querySelector('.f-saved')?.focus();}
    catch(error){status(message,error);
-    if(error.status===409)conflictBox.append(button('viewSaved',async()=>{
-     try{const latest=await api('/api/fiiu/registration');conflictBox.replaceChildren();if(latest.registration)conflictBox.append(savedSummary(latest.registration));
-      conflictBox.append(button('useLatest',()=>{currentVersion=latest.registration?.version??0;currentId=latest.registration?.id??null;me.registration=latest.registration;conflictBox.replaceChildren();status(message,'');}));
-     }catch(err){status(message,err);}
+    if(error.key==='accountChanged')accountChanged();
+    else if(error.status===409)conflictBox.append(button('viewSaved',async()=>{
+     if(busy)return;const release=lock();
+     try{const latest=await currentRegistration();conflictBox.replaceChildren();if(latest.registration)conflictBox.append(savedSummary(latest.registration));
+      conflictBox.append(button('useLatest',()=>{if(busy)return;currentVersion=latest.registration?.version??0;currentId=latest.registration?.id??null;me.registration=latest.registration;conflictBox.replaceChildren();status(message,'');}));
+     }catch(err){if(err.key==='accountChanged')accountChanged();else status(message,err);}
+     finally{release();}
     },'f-button secondary'));
     if(error.status===401){const signin=link('signin','login.html?next='+encodeURIComponent('/fiiu.html#registration'));signin.target='_blank';signin.rel='noopener';conflictBox.append(signin);}
-   }finally{submit.disabled=false;}
+   }finally{unlock();}
   });
  }
  async function load(){
   status(loadStatus,'loading');root.replaceChildren();
   try{
-   festival=await api('/api/fiiu');
-   const auth=await api('/api/auth/state');
-   if(auth.authenticated)me=await api('/api/fiiu/registration');
+   const [publicData,registrationData]=await Promise.all([api('/api/fiiu'),api('/api/fiiu/registration').catch(error=>{if(error.status===401)return{registration:null,attendance:[],user:null};throw error;})]);
+   festival=publicData;me=registrationData;
    const hero=el('section','f-hero'),intro=el('div','f-hero-copy');intro.append(el('p','f-festival-name','FIIU Fest 11'),tr('span','spanishContent','content-language'),source('h1',festival.event.theme),tr('p','intro'),tr('p','languageHint','f-muted'));
    const actions=el('div','f-actions');actions.append(link('register','#registration','f-button'),link('website',festival.event.website));intro.append(actions);
    const date=el('aside','f-date-panel'),range=el('strong','f-date-range');range.setAttribute('aria-hidden','true');range.append(el('span','','20'),el('span','f-date-separator','–'),el('span','','25'));date.append(range,tr('p','dates'),source('h2',festival.event.city));if(festival.config.programUrl)date.append(link('officialProgram',festival.config.programUrl,'f-text-link'));hero.append(intro,date);root.append(hero);

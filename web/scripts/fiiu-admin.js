@@ -1,10 +1,11 @@
 (() => {
  'use strict';
  const {el,tr,source,button,link,field,check,api,status,dateNode}=window.Fiiu;
- const root=document.getElementById('fiiuAdminRoot'),message=document.getElementById('fiiuStatus');let festival,config,records=[],cursor=null,publications=[],contentCursor=null;
+ const root=document.getElementById('fiiuAdminRoot'),message=document.getElementById('fiiuStatus');let festival,config,records=[],cursor=null,publications=[],contentCursor=null,selectedParticipant=null,detailRequest=0;
  const detailHost=el('section','f-admin-detail'),listHost=el('div','f-admin-list'),contentHost=el('section','f-admin-content');
  const info=(key,value)=>{const p=el('p');p.append(tr('strong',key),document.createTextNode(': '+(Array.isArray(value)?value.join(', '):value??'')));return p;};
  async function action(control,fn,feedback=message){control.disabled=true;status(feedback,'saving');try{await fn();status(feedback,'changesSaved');}catch(err){status(feedback,err);}finally{control.disabled=false;}}
+ async function refreshSaved(fn){try{await fn();}catch{throw Object.assign(new Error(),{key:'savedRefreshFailed'});}}
  async function loadContent(more=false){const page=await api('/api/admin/fiiu/content'+(more&&contentCursor?'?cursor='+encodeURIComponent(contentCursor):''));publications=more?[...publications,...page.content]:page.content;contentCursor=page.nextCursor;renderContent(more);}
  async function loadParticipants(more=false){const data=await api('/api/admin/fiiu/registrations'+(more&&cursor?'?cursor='+encodeURIComponent(cursor):''));records=more?[...records,...data.registrations]:data.registrations;cursor=data.nextCursor;renderList();}
  function renderList(){
@@ -13,12 +14,14 @@
   if(cursor){const more=button('loadMore',()=>action(more,()=>loadParticipants(true)));listHost.append(more);}
  }
  async function openParticipant(id){
-  const data=await api('/api/admin/fiiu/registrations/'+id),r=data.registration;detailHost.replaceChildren();detailHost.tabIndex=-1;
+  const request=++detailRequest;selectedParticipant=id;
+  const data=await api('/api/admin/fiiu/registrations/'+id);if(request!==detailRequest)return;
+  const r=data.registration;detailHost.replaceChildren();detailHost.tabIndex=-1;
   detailHost.append(el('h3','',`${r.answers.firstName} ${r.answers.lastName}`),info('email',r.email));
   const answers=el('details');answers.append(tr('summary','details'));for(const [key,value] of Object.entries(r.answers))if(key!=='privacyAccepted'){const row=el('p');row.append(tr('strong',key),document.createTextNode(': '));const values=Array.isArray(value)?value:[value];values.forEach((v,i)=>{if(i)row.append(document.createTextNode(', '));const activity=festival.event.activities.find(a=>a.id===v);row.append(activity?source('span',activity.title):typeof v==='boolean'?tr('span',v?'yes':'no'):['profile','gender','accessibility','motivation','previousAttendance'].includes(key)&&v?tr('span',v):el('span','',String(v??'')));});answers.append(row);}detailHost.append(answers);
   if(r.answers.applyLab){
    const review=el('form','f-form');review.append(tr('h4','review'));const state=field('review',{value:{pending:'reviewPending',accepted:'reviewAccepted',declined:'reviewDeclined'}[r.labStatus],options:['reviewPending','reviewAccepted','reviewDeclined'],required:true});review.append(state.wrap);
-   const save=button('saveReview');save.type='submit';review.append(save);review.addEventListener('submit',event=>{event.preventDefault();action(save,async()=>{await api('/api/admin/fiiu/registrations/'+id,{version:r.version,labStatus:{reviewPending:'pending',reviewAccepted:'accepted',reviewDeclined:'declined'}[state.input.value]},'PATCH');await openParticipant(id);await loadParticipants();});});detailHost.append(review);
+   const save=button('saveReview');save.type='submit';review.append(save);review.addEventListener('submit',event=>{event.preventDefault();action(save,async()=>{const result=await api('/api/admin/fiiu/registrations/'+id,{version:r.version,labStatus:{reviewPending:'pending',reviewAccepted:'accepted',reviewDeclined:'declined'}[state.input.value]},'PATCH');Object.assign(r,result.registration);await refreshSaved(async()=>{if(selectedParticipant===id)await openParticipant(id);await loadParticipants();});});});detailHost.append(review);
   }
   const attendance=el('fieldset');attendance.append(tr('legend','attendance'),tr('p','attendanceHint','f-muted'));
   for(const activity of festival.event.activities){
@@ -44,7 +47,7 @@
   const activity=field('activityId');const select=el('select');select.name='activityId';const blank=tr('option','choose');blank.value='';select.append(blank);for(const a of festival.event.activities){const option=source('option',a.date+' — '+a.title);option.value=a.id;select.append(option);}select.value=record.activityId||'';activity.input.replaceWith(select);form.append(activity.wrap);
   form.append(field('status',{value:record.status||'draft',options:['draft','published','archived'],required:true}).wrap);
   const save=button('saveContent');save.type='submit';form.append(save);
-  form.addEventListener('submit',event=>{event.preventDefault();action(save,async()=>{const fd=new FormData(form),payload={...Object.fromEntries(fd),kind:kind.input.value==='newsKind'?'news':kind.input.value,version:record.version};await api('/api/admin/fiiu/content'+(record.id?'/'+record.id:''),payload,record.id?'PATCH':'POST');await loadContent();});});return form;
+  form.addEventListener('submit',event=>{event.preventDefault();action(save,async()=>{const fd=new FormData(form),payload={...Object.fromEntries(fd),kind:kind.input.value==='newsKind'?'news':kind.input.value,version:record.version};const result=await api('/api/admin/fiiu/content'+(record.id?'/'+record.id:''),payload,record.id?'PATCH':'POST');Object.assign(record,result.content);form.querySelector('h3').replaceWith(tr('h3','editContent'));await refreshSaved(()=>loadContent());});});return form;
  }
  function renderContent(preserveEditor=false){const existing=preserveEditor?contentHost.querySelector('.f-content-editor'):null;const editor=existing||el('div','f-content-editor');if(!existing)editor.append(publicationEditor());contentHost.replaceChildren(tr('h2','content'),editor);
   for(const record of publications){const row=el('article','f-news-item');row.append(source('h3',record.title),tr('p',record.status),button('editContent',()=>{editor.replaceChildren(publicationEditor(record));editor.querySelector('input')?.focus();},'f-button secondary'));contentHost.append(row);}

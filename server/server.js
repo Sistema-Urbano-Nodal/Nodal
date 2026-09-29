@@ -863,9 +863,12 @@ export function createApp({
   const courseInvitationLimiter=createWindowRateLimiter({windowMs:60000,limit:6});
   const courseParticipants=courseStore?createCourseParticipants({store:courseStore,userRepository:repository}):null;
   const fiiuReadLimiter=createWindowRateLimiter({windowMs:60000,limit:120});
+  // Festival attendees may open the public programme from the same venue Wi-Fi.
+  // Keep that shared-IP budget separate from private per-account operations.
+  const fiiuPublicReadLimiter=createWindowRateLimiter({windowMs:60000,limit:600});
   const fiiuWriteLimiter=createWindowRateLimiter({windowMs:60000,limit:30});
   const fiiuApi=fiiuStore?createFiiuApi({store:fiiuStore,sameOrigin,send,
-    rateLimit:(req,res,user)=>throttle(req.method==='GET'?fiiuReadLimiter:fiiuWriteLimiter,res,req,user,'fiiu'),
+    rateLimit:(req,res,user)=>throttle(req.method==='GET'?(user?fiiuReadLimiter:fiiuPublicReadLimiter):fiiuWriteLimiter,res,req,user,'fiiu'),
   }):null;
   const courseApi=courseStore?createCourseApi({store:courseStore,userRepository:repository,sameOrigin,send,
     rateLimit:(req,res,user,pathname)=>throttle(pathname.endsWith('/invitations')?courseInvitationLimiter:pathname.endsWith('/attachments')?courseUploadLimiter:['GET','HEAD'].includes(req.method)?courseReadLimiter:courseWriteLimiter,res,req,user,'course'),

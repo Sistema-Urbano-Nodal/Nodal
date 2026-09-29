@@ -15,8 +15,20 @@ async function setup(t,wrapStore=store=>store){
  const base=`http://127.0.0.1:${server.address().port}`;
  const call=(path,{actor='member',method='GET',body,origin=base}={})=>fetch(base+path,{method,redirect:'manual',headers:{...(cookies[actor]?{Cookie:cookies[actor]}:{}),Origin:origin,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
  const save=(body=answers,actor='member')=>call('/api/fiiu/registration',{actor,method:'PUT',body:{version:0,...body}});
- return {db,call,save,users};
+ return {db,call,save,users,cookies};
 }
+
+test('a newly created local account can register, sign out, sign back in and recover its event registration',async t=>{
+ const {call,save,cookies}=await setup(t);
+ const credentials={email:'new-attendee@example.test',password:'LocalReadiness!2026',fullName:'New attendee'};
+ const signup=await call('/api/auth/signup',{actor:'guest',method:'POST',body:credentials});assert.equal(signup.status,201);
+ const account=await signup.json();cookies.attendee=signup.headers.getSetCookie()[0].split(';')[0];assert.ok(account.user.id);
+ const saved=await save({...answers,expectedUserId:account.user.id},'attendee');assert.equal(saved.status,200);const {registration}=await saved.json();
+ const logout=await call('/api/auth/logout',{actor:'attendee',method:'POST',body:{}});assert.equal(logout.status,200);
+ assert.equal((await call('/api/fiiu/registration',{actor:'attendee'})).status,401);
+ const login=await call('/api/auth/login',{actor:'guest',method:'POST',body:credentials});assert.equal(login.status,200);cookies.attendee=login.headers.getSetCookie()[0].split(';')[0];
+ const me=await(await call('/api/fiiu/registration',{actor:'attendee'})).json();assert.equal(me.registration.id,registration.id);assert.equal(me.registration.email,credentials.email);
+});
 
 test('festival is discoverable before login, but registrations and admin data are protected',async t=>{
  const {call}=await setup(t);
@@ -59,6 +71,41 @@ test('concurrent first registrations produce one row and a recoverable conflict'
  const {save,db}=await setup(t);
  const results=await Promise.all([save(),save()]);assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
  assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_registrations').get().n,1);
+});
+
+test('a form opened for another account cannot save or cancel after the session changes',async t=>{
+ const {call,save,users,db}=await setup(t);
+ const me=await(await call('/api/fiiu/registration')).json();assert.equal(me.user.id,users.member.id);
+ for(const actor of ['member','other']){
+  const staleId=actor==='member'?users.other.id:users.member.id;
+  const response=await save({...answers,expectedUserId:staleId},actor);
+  assert.equal(response.status,409);assert.equal((await response.json()).error,'account changed; reload before continuing');
+ }
+ assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_registrations').get().n,0);
+ const {registration}=await(await save({...answers,expectedUserId:users.member.id})).json();
+ const staleCancel=await call('/api/fiiu/registration',{method:'DELETE',body:{version:registration.version,registrationId:registration.id,expectedUserId:users.other.id}});
+ assert.equal(staleCancel.status,409);assert.equal((await(await call('/api/fiiu/registration')).json()).registration.id,registration.id);
+ assert.equal((await call('/api/fiiu/registration',{method:'DELETE',body:{version:registration.version,registrationId:registration.id,expectedUserId:users.member.id}})).status,200);
+});
+
+test('storage failures never confirm a registration and a later retry can persist once',async t=>{
+ let failing=true;
+ const {save,call,db}=await setup(t,store=>({...store,async insert(name,record){if(failing&&name==='registrations')throw Object.assign(Error('private provider details'),{status:503,expose:false});return store.insert(name,record);}}));
+ const failed=await save();assert.equal(failed.status,503);assert.doesNotMatch(await failed.text(),/private provider details/);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_registrations').get().n,0);
+ failing=false;const saved=await save();assert.equal(saved.status,200);
+ const {registration}=await saved.json();assert.equal((await(await call('/api/fiiu/registration')).json()).registration.id,registration.id);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_registrations').get().n,1);
+});
+
+test('a shared venue IP can load the public festival for 300 guests with one retry each while account budgets stay separate',async t=>{
+ const {call,save}=await setup(t);
+ for(let i=0;i<600;i++){const response=await call('/api/fiiu',{actor:'guest'});assert.equal(response.status,200,`public read ${i+1}`);await response.arrayBuffer();}
+ const limited=await call('/api/fiiu',{actor:'guest'});assert.equal(limited.status,429);assert.match(limited.headers.get('retry-after'),/^\d+$/);
+ for(let i=0;i<120;i++){const response=await call('/api/fiiu/registration');assert.equal(response.status,200);await response.arrayBuffer();}
+ assert.equal((await call('/api/fiiu/registration')).status,429);
+ assert.equal((await call('/api/fiiu/registration',{actor:'other'})).status,200);
+ assert.equal((await save()).status,200,'read budgets do not block registration writes');
 });
 
 test('only staff can confirm eligible attendance and badges are separate from pre-registration',async t=>{
