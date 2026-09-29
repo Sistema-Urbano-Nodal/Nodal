@@ -92,7 +92,7 @@
    festival=await api('/api/fiiu');
    const auth=await api('/api/auth/state');
    if(auth.authenticated)me=await api('/api/fiiu/registration');
-   const hero=el('section','f-hero'),intro=el('div','f-hero-copy');intro.append(el('p','f-festival-name','FIIU Fest 11'),source('h1',festival.event.theme),tr('p','intro'));
+   const hero=el('section','f-hero'),intro=el('div','f-hero-copy');intro.append(el('p','f-festival-name','FIIU Fest 11'),tr('span','spanishContent','content-language'),source('h1',festival.event.theme),tr('p','intro'),tr('p','languageHint','f-muted'));
    const actions=el('div','f-actions');actions.append(link('register','#registration','f-button'),link('website',festival.event.website));intro.append(actions);
    const date=el('aside','f-date-panel');date.append(el('strong','','20—25'),tr('p','dates'),source('h2',festival.event.city));if(festival.config.programUrl)date.append(link('officialProgram',festival.config.programUrl,'f-text-link'));hero.append(intro,date);root.append(hero);
    if(me.isAdmin)root.append(link('admin','fiiu-admin.html','f-text-link f-admin-link'));

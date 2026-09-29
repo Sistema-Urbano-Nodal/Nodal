@@ -1904,6 +1904,7 @@
   // Original homepage copy from 6ab93f9. Keep it page-scoped: catalog and
   // member-console pages share keys but retain their current vocabulary.
   const HOME_ES = {
+    'content.spanish': 'ES · Contenido en español',
     'cta.p': 'Súmate a la red viva para aprender, generar confianza y transformar ciudades de forma colaborativa.',
     'cta.title': 'La próxima generación urbana de América Latina ya se está conectando.',
     'graph.n.academia.ask': '«Nuestros estudiantes necesitan corredores reales para estudiar, no hipotéticos.»',
@@ -2002,6 +2003,7 @@
   };
 
   const HOME_PT = {
+    'content.spanish': 'ES · Conteúdo em espanhol',
     'cta.p': 'Entre na rede viva para aprender, criar confiança e transformar cidades de forma colaborativa.',
     'cta.title': 'A próxima geração urbana da América Latina já está se conectando.',
     'graph.n.academia.ask': '“Nossos estudantes precisam de corredores reais para estudar, não hipotéticos.”',

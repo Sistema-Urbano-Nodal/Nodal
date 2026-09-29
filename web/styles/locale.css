@@ -1,3 +1,18 @@
 /* Preserve layout while the initial language is applied, before first paint.
    With JavaScript disabled (or a failed bootstrap), this selector never matches. */
 html[data-locale-pending] body { visibility: hidden; }
+
+.content-language {
+  display: inline-flex;
+  max-width: 100%;
+  padding: .3em .7em;
+  border: 1px solid #a9bca1;
+  border-radius: 6px;
+  background: #f2f6ef;
+  color: #30482c;
+  font-size: .78rem;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: normal;
+  text-transform: none;
+}

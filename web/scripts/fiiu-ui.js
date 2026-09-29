@@ -2,6 +2,8 @@
  'use strict';
  const rows={
   activities:['Selected activities','Actividades elegidas','Atividades selecionadas'],
+  spanishContent:['ES · Content in Spanish','ES · Contenido en español','ES · Conteúdo em espanhol'],
+  languageHint:['Programme titles and session descriptions are available in Spanish. Navigation and registration follow your selected language.','Los títulos del programa y las descripciones de las sesiones están disponibles en español. La navegación y la inscripción siguen el idioma que elijas.','Os títulos da programação e as descrições das sessões estão disponíveis em espanhol. A navegação e a inscrição seguem o idioma escolhido.'],
   program:['Programme','Programa','Programa'],community:['Community','Comunidad','Comunidade'],resources:['Resources','Recursos','Recursos'],knowledge:['Knowledge','Conocimiento','Conhecimento'],panel:['My console','Mi panel','Meu painel'],
   skip:['Skip to content','Ir al contenido','Ir para o conteúdo'],loading:['Loading…','Cargando…','Carregando…'],retry:['Try again','Reintentar','Tentar novamente'],
   intro:['Connect with the people shaping our cities. Choose your conference blocks and manage your FIIU participation in NODAL.','Conecta con quienes transforman nuestras ciudades. Elige tus bloques de conferencias y gestiona tu participación en FIIU desde NODAL.','Conecte-se com quem transforma nossas cidades. Escolha seus blocos de conferências e gerencie sua participação no FIIU pela NODAL.'],
