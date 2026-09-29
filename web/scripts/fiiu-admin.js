@@ -6,7 +6,11 @@
  const info=(key,value)=>{const p=el('p');p.append(tr('strong',key),document.createTextNode(': '+(Array.isArray(value)?value.join(', '):value??'')));return p;};
  async function action(control,fn,feedback=message){control.disabled=true;status(feedback,'saving');try{await fn();status(feedback,'changesSaved');}catch(err){status(feedback,err);}finally{control.disabled=false;}}
  async function refreshSaved(fn){try{await fn();}catch{throw Object.assign(new Error(),{key:'savedRefreshFailed'});}}
- async function loadContent(more=false){const page=await api('/api/admin/fiiu/content'+(more&&contentCursor?'?cursor='+encodeURIComponent(contentCursor):''));publications=more?[...publications,...page.content]:page.content;contentCursor=page.nextCursor;renderContent(more);}
+ async function loadContent(more=false,savedForm=null){const page=await api('/api/admin/fiiu/content'+(more&&contentCursor?'?cursor='+encodeURIComponent(contentCursor):''));publications=more?[...publications,...page.content]:page.content;contentCursor=page.nextCursor;
+  // A save may finish after the organizer has started editing another post.
+  const currentEditor=contentHost.querySelector('.f-content-editor')?.querySelector('form');
+  renderContent(more||Boolean(savedForm&&currentEditor!==savedForm));
+ }
  async function loadParticipants(more=false){const data=await api('/api/admin/fiiu/registrations'+(more&&cursor?'?cursor='+encodeURIComponent(cursor):''));records=more?[...records,...data.registrations]:data.registrations;cursor=data.nextCursor;renderList();}
  function renderList(){
   listHost.replaceChildren();if(!records.length)listHost.append(tr('p','noParticipants'));
@@ -40,23 +44,30 @@
   form.addEventListener('submit',event=>{event.preventDefault();action(save,async()=>{const fd=new FormData(form),result=await api('/api/admin/fiiu/config',{...Object.fromEntries(fd),registrationOpen:open.input.checked,version:config.version},'PUT');config=result.config;});});section.append(form);return section;
  }
  function publicationEditor(record={}){
-  const form=el('form','f-form');form.append(tr('h3',record.id?'editContent':'newContent'));
+  const form=el('form','f-form');let busy=false;form.append(tr('h3',record.id?'editContent':'newContent'));
   for(const [key,type,max] of [['title','text',180],['body','textarea',5000],['url','url',2000]])form.append(field(key,{value:record[key],type,max,required:key==='title'}).wrap);
   const kind=field('kind',{value:record.kind==='news'?'newsKind':record.kind||'newsKind',options:['newsKind','recording','material'],required:true});form.append(kind.wrap);
   const syncUrl=()=>{form.elements.url.required=kind.input.value!=='newsKind';};kind.input.addEventListener('change',syncUrl);syncUrl();
   const activity=field('activityId');const select=el('select');select.name='activityId';const blank=tr('option','choose');blank.value='';select.append(blank);for(const a of festival.event.activities){const option=source('option',a.date+' — '+a.title);option.value=a.id;select.append(option);}select.value=record.activityId||'';activity.input.replaceWith(select);form.append(activity.wrap);
   form.append(field('status',{value:record.status||'draft',options:['draft','published','archived'],required:true}).wrap);
   const save=button('saveContent');save.type='submit';form.append(save);
-  form.addEventListener('submit',event=>{event.preventDefault();action(save,async()=>{const fd=new FormData(form),payload={...Object.fromEntries(fd),kind:kind.input.value==='newsKind'?'news':kind.input.value,version:record.version};const result=await api('/api/admin/fiiu/content'+(record.id?'/'+record.id:''),payload,record.id?'PATCH':'POST');Object.assign(record,result.content);form.querySelector('h3').replaceWith(tr('h3','editContent'));await refreshSaved(()=>loadContent());});});return form;
+  form.addEventListener('submit',async event=>{
+   event.preventDefault();if(busy)return;
+   const fd=new FormData(form),payload={...Object.fromEntries(fd),kind:kind.input.value==='newsKind'?'news':kind.input.value,version:record.version};
+   const controls=[...form.querySelectorAll('input,select,textarea,button')].map(control=>[control,control.disabled]);busy=true;
+   for(const [control] of controls)control.disabled=true;form.setAttribute('aria-busy','true');
+   try{await action(save,async()=>{const result=await api('/api/admin/fiiu/content'+(record.id?'/'+record.id:''),payload,record.id?'PATCH':'POST');Object.assign(record,result.content);form.querySelector('h3').replaceWith(tr('h3','editContent'));await refreshSaved(()=>loadContent(false,form));});}
+   finally{busy=false;for(const [control,disabled] of controls)control.disabled=disabled;form.setAttribute('aria-busy','false');}
+  });return form;
  }
  function renderContent(preserveEditor=false){const existing=preserveEditor?contentHost.querySelector('.f-content-editor'):null;const editor=existing||el('div','f-content-editor');if(!existing)editor.append(publicationEditor());contentHost.replaceChildren(tr('h2','content'),editor);
   for(const record of publications){const row=el('article','f-news-item');row.append(source('h3',record.title),tr('p',record.status),button('editContent',()=>{editor.replaceChildren(publicationEditor(record));editor.querySelector('input')?.focus();},'f-button secondary'));contentHost.append(row);}
   if(contentCursor){const more=button('loadMore',()=>action(more,()=>loadContent(true)));contentHost.append(more);}
  }
  async function load(){
-  status(message,'loading');try{const [publicData,settingsData,posts]=await Promise.all([api('/api/fiiu'),api('/api/admin/fiiu/config'),api('/api/admin/fiiu/content')]);festival=publicData;config=settingsData.config;publications=posts.content;contentCursor=posts.nextCursor;root.replaceChildren();
+  status(message,'loading');try{const [publicData,settingsData,posts,participantData]=await Promise.all([api('/api/fiiu'),api('/api/admin/fiiu/config'),api('/api/admin/fiiu/content'),api('/api/admin/fiiu/registrations')]);festival=publicData;config=settingsData.config;publications=posts.content;contentCursor=posts.nextCursor;records=participantData.registrations;cursor=participantData.nextCursor;root.replaceChildren();
    root.append(tr('h1','admin'),link('back','fiiu.html'),link('export','/api/admin/fiiu/export'));
-   const participants=el('section','f-admin-participants');participants.append(tr('h2','participants'));const grid=el('div','f-admin-columns');grid.append(listHost,detailHost);participants.append(grid);root.append(participants,settings(),contentHost);await loadParticipants();renderContent();status(message,'');
+   const participants=el('section','f-admin-participants');participants.append(tr('h2','participants'));const grid=el('div','f-admin-columns');grid.append(listHost,detailHost);participants.append(grid);root.append(participants,settings(),contentHost);renderList();renderContent();status(message,'');
   }catch(error){status(message,error);root.replaceChildren(button('retry',load));}
  }
  load();

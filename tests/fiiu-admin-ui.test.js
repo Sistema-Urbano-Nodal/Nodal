@@ -79,3 +79,51 @@ test('a pending review save does not reopen its participant after the organizer 
  finishSave({registration:{...copy(ana),labStatus:'accepted',version:2}});await flush();
  assert.equal(detailTitle(h),'Bruno Test','refreshing a saved review must not change the current participant selection');
 });
+
+test('publication saving locks its fields, ignores repeated submission and preserves the draft after failure',async()=>{
+ let finishSave;
+ const h=await harness(({method})=>method==='GET'?{content:[],nextCursor:null}:new Promise(resolve=>{finishSave=resolve;}));
+ const form=h.root.querySelector('.f-content-editor').querySelector('form'),title=field(form,'title'),activity=field(form,'activityId');
+ title.value='Programme correction';activity.disabled=true;
+ form.listeners.submit({preventDefault(){}});form.listeners.submit({preventDefault(){}});
+ assert.equal(h.requests.filter(request=>request.method==='POST').length,1,'one pending publication must have only one creation request');
+ assert.equal(title.disabled,true,'typing must not appear possible when successful refresh would discard it');
+ assert.ok(form.querySelectorAll('input,select,textarea,button').every(control=>control.disabled));
+ assert.equal(form['aria-busy'],'true');
+ finishSave(unavailable);await flush();
+ assert.equal(title.value,'Programme correction');assert.equal(title.disabled,false);
+ assert.equal(activity.disabled,true,'previously disabled fields must remain disabled after recovery');
+ assert.equal(key(form,'saveContent').disabled,false);assert.equal(form['aria-busy'],'false');
+});
+
+test('finishing an older publication save preserves a newer selected editor and its unsaved text',async()=>{
+ const existing={id:'published-a',version:1,title:'Existing announcement',body:'',kind:'news',status:'published',activityId:'',url:''};
+ let finishSave,finishRefresh,reads=0;
+ const h=await harness(({method,body})=>{
+  if(method==='POST')return new Promise(resolve=>{finishSave=()=>resolve({content:{...body,id:'created-b',version:1}});});
+  if(++reads===1)return{content:[copy(existing)],nextCursor:null};
+  return new Promise(resolve=>{finishRefresh=()=>resolve({content:[copy(existing)],nextCursor:null});});
+ });
+ const older=h.root.querySelector('.f-content-editor').querySelector('form');field(older,'title').value='New announcement';
+ older.listeners.submit({preventDefault(){}});finishSave();await flush();
+ await key(h.root.querySelector('.f-news-item'),'editContent').listeners.click();
+ const newer=h.root.querySelector('.f-content-editor').querySelector('form');field(newer,'title').value='Unsaved correction to existing announcement';
+ finishRefresh();await flush();
+ assert.equal(h.root.querySelector('.f-content-editor').querySelector('form'),newer,'the earlier save must not replace the editor selected during its refresh');
+ assert.equal(field(newer,'title').value,'Unsaved correction to existing announcement');
+ assert.equal(field(newer,'title').disabled,false);
+});
+
+test('organizer participant loading does not wait for a slow public programme response',async()=>{
+ let finishProgramme;
+ const h=await createFiiuHarness(({path})=>{
+  if(path==='/api/fiiu')return new Promise(resolve=>{finishProgramme=()=>resolve({event:FIIU_EVENT,config:DEFAULT_CONFIG,content:[],nextCursor:null});});
+  if(path==='/api/admin/fiiu/config')return{config:DEFAULT_CONFIG};
+  if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
+  if(path==='/api/admin/fiiu/registrations')return{registrations:[],nextCursor:null};
+  throw Error('Unexpected request');
+ },{page:'fiiu-admin'});
+ assert.ok(h.requests.some(request=>request.path==='/api/admin/fiiu/registrations'),'the independent participant read should already be in flight');
+ finishProgramme();await flush();assert.ok(key(h.root,'noParticipants'));
+ assert.equal(h.requests.filter(request=>request.path==='/api/admin/fiiu/registrations').length,1);
+});
