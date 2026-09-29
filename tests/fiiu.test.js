@@ -126,3 +126,12 @@ test('publication pages include the newest post first and expose all records wit
   assert.equal(ids.length,201);assert.equal(new Set(ids).size,201);
  }
 });
+
+test('news filtering happens before pagination so newer materials cannot hide published news',async t=>{
+ const {call,db}=await setup(t);const store=createFiiuStore({db});
+ for(let i=0;i<102;i++)await store.insert('content',{id:`00000000-0000-4000-8000-${String(i).padStart(12,'0')}`,eventId:'fiiu-2026',data:{title:'Post '+i,body:'',kind:i<2?'news':'material',url:'https://example.test/material',activityId:''},status:i===1?'draft':'published',version:1,createdAt:i<2?'2026-09-28T12:00:00.000Z':'2026-09-29T12:00:00.000Z',updatedAt:'2026-09-29T12:00:00.000Z'});
+ const page=await(await call('/api/fiiu?kind=news')).json();
+ assert.deepEqual(page.content.map(item=>item.title),['Post 0']);assert.equal(page.nextCursor,null);
+ const materials=await(await call('/api/fiiu?kind=material')).json();assert.equal(materials.content.length,100);assert.ok(materials.content.every(item=>item.kind==='material'));
+ for(const kind of ['invalid','news,material','news)'])assert.equal((await call('/api/fiiu?kind='+encodeURIComponent(kind))).status,400);
+});

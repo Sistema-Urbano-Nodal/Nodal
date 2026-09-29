@@ -32,6 +32,13 @@ function harness({url='https://nodal.test/profile.html',saved='en',nodes=[],resp
 function find(node,predicate){if(predicate(node))return node;for(const child of node.children||[]){if(typeof child!=='object')continue;const found=find(child,predicate);if(found)return found;}return null;}
 function node(id,key,text){const n=new Node();n.id=id;if(key)n.dataset.i18n=key;if(text)n.textContent=text;return n;}
 
+test('dashboard news requests the news feed instead of hiding news behind a mixed first page',async()=>{
+ const widget=node('fiiuDashboardBody');
+ const h=harness({nodes:[widget],respond:path=>path==='/api/fiiu/registration'?{registration:null}:path==='/api/fiiu?kind=news'?{content:[{kind:'news',title:'Festival announcement',body:'Published news',url:''}]}:{content:[{kind:'material',title:'Recent material',body:'',url:''}],nextCursor:'more'}});
+ h.context.AbortSignal=AbortSignal;h.run('fiiu-ui');h.run('fiiu-hubs');await flush();
+ assert.match(widget.textContent,/Festival announcement/);assert.doesNotMatch(widget.textContent,/Recent material/);
+});
+
 test('saved language wins over an old link and later choices survive reload without losing navigation state',()=>{
  const h=harness({url:'https://nodal.test/login.html?lang=pt&next=%2Fcourse.html%3Fid%3Dc1#signin',saved:'en'});assert.equal(h.api.lang,'en');h.api.apply('es');
  assert.equal(h.location.searchParams.get('lang'),'es');assert.equal(h.location.searchParams.get('next'),'/course.html?id=c1');assert.equal(h.location.hash,'#signin');assert.equal(h.storage.get('nodal.lang'),'es');assert.equal(h.historyCalls.at(-1).state.keep,'navigation state');

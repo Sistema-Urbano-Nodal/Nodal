@@ -43,13 +43,16 @@ export function createFiiuStore({db,env=process.env,clients,fetchImpl=fetch}={})
   return {sql:parts.length?' WHERE '+parts.join(' AND '):'',params};
  }
  return {
-  async find(name,filters={}, {after,limit=200,newest=false,afterCreatedAt}={}){
+  async find(name,filters={}, {after,limit=200,newest=false,afterCreatedAt,kind}={}){
    const table=info(name);checked(table,filters);if(!Number.isInteger(limit)||limit<1||limit>200)throw Error('invalid festival limit');
    if(newest&&name!=='content')throw Error('recent order is only supported for content');
+   if(kind&&(name!=='content'||!['news','recording','material'].includes(kind)))throw Error('invalid publication kind');
    if(db){const w=where(table,filters,newest?null:after);
+    if(kind){w.sql+=(w.sql?' AND ':' WHERE ')+"json_extract(data,'$.kind')=?";w.params.push(kind);}
     if(newest&&after){w.sql+=(w.sql?' AND ':' WHERE ')+'(created_at<? OR (created_at=? AND id<?))';w.params.push(afterCreatedAt,afterCreatedAt,after);}
     return db.prepare(`SELECT * FROM ${table.name}${w.sql} ORDER BY ${newest?'created_at DESC,id DESC':'id'} LIMIT ?`).all(...w.params,limit).map(row=>from(table,row));}
    const query={select:table.fields.map(snake).join(','),order:newest?'created_at.desc,id.desc':'id.asc',limit,...Object.fromEntries(Object.entries(filters).map(([k,v])=>[snake(k),`eq.${v}`]))};
+   if(kind)query['data->>kind']=`eq.${kind}`;
    if(after){if(newest)query.or=`(created_at.lt.${afterCreatedAt},and(created_at.eq.${afterCreatedAt},id.lt.${after}))`;else query.id=`gt.${after}`;}
    // Fill logical pages even when the provider has a smaller response cap.
    const rows=[];while(rows.length<limit){const page=await supa.admin.rest(table.name,{query:{...query,offset:rows.length,limit:limit-rows.length}});if(!Array.isArray(page))fail('festival data unavailable',502);rows.push(...page);if(!page.length)break;}

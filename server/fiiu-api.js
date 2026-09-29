@@ -16,9 +16,11 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true}){
  const one=async(name,filters)=>(await store.find(name,filters,{limit:1}))[0]??null;
  const config=async()=>{const row=await one('config',{id:EVENT_ID});return {...DEFAULT_CONFIG,...row?.data,version:row?.version??0};};
  const publications=async(url,onlyPublished)=>{
+  const kind=url.searchParams.get('kind')||undefined;
+  if(kind&&!['news','recording','material'].includes(kind))fail('invalid publication kind');
   const after=url.searchParams.get('cursor');let previous;
   if(after){previous=await one('content',{id:identifier(after),eventId:EVENT_ID});if(!previous)fail('invalid content cursor');}
-  const rows=await store.find('content',{eventId:EVENT_ID,...(onlyPublished?{status:'published'}:{})},{newest:true,after,afterCreatedAt:previous?.createdAt,limit:100});
+  const rows=await store.find('content',{eventId:EVENT_ID,...(onlyPublished?{status:'published'}:{})},{kind,newest:true,after,afterCreatedAt:previous?.createdAt,limit:100});
   return {content:rows.map(contentView),nextCursor:rows.length===100?rows.at(-1).id:null};
  };
  return async({req,res,url,user})=>{

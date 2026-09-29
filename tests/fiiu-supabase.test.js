@@ -14,4 +14,6 @@ test('Supabase festival adapter fills capped pages and scopes versioned writes a
  assert.equal(calls.at(-1).headers.Prefer,'return=representation');assert.equal(calls.at(-1).query.version,'eq.1');
  await store.find('content',{status:'published'},{limit:1,newest:true,after:'a',afterCreatedAt:'2026-09-28T12:00:00+00:00'});
  assert.equal(calls.at(-1).query.order,'created_at.desc,id.desc');assert.equal(calls.at(-1).query.or,'(created_at.lt.2026-09-28T12:00:00+00:00,and(created_at.eq.2026-09-28T12:00:00+00:00,id.lt.a))');
+ await store.find('content',{status:'published'},{limit:1,newest:true,kind:'news'});
+ assert.equal(calls.at(-1).query['data->>kind'],'eq.news');assert.equal(calls.at(-1).query.status,'eq.published');
 });
