@@ -5,6 +5,11 @@
  const detailHost=el('section','f-admin-detail'),listHost=el('div','f-admin-list'),contentHost=el('section','f-admin-content');
  const info=(key,value)=>{const p=el('p');p.append(tr('strong',key),document.createTextNode(': '+(Array.isArray(value)?value.join(', '):value??'')));return p;};
  async function action(control,fn,feedback=message){control.disabled=true;status(feedback,'saving');try{await fn();status(feedback,'changesSaved');}catch(err){status(feedback,err);}finally{control.disabled=false;}}
+ function lockForm(form){
+  const controls=[...form.querySelectorAll('input,select,textarea,button')].map(control=>[control,control.disabled]);
+  for(const [control] of controls)control.disabled=true;form.setAttribute('aria-busy','true');
+  return()=>{for(const [control,disabled] of controls)control.disabled=disabled;form.setAttribute('aria-busy','false');};
+ }
  async function refreshSaved(fn){try{await fn();}catch{throw Object.assign(new Error(),{key:'savedRefreshFailed'});}}
  async function loadContent(more=false,savedForm=null){const page=await api('/api/admin/fiiu/content'+(more&&contentCursor?'?cursor='+encodeURIComponent(contentCursor):''));publications=more?[...publications,...page.content]:page.content;contentCursor=page.nextCursor;
   // A save may finish after the organizer has started editing another post.
@@ -24,8 +29,13 @@
   detailHost.append(el('h3','',`${r.answers.firstName} ${r.answers.lastName}`),info('email',r.email));
   const answers=el('details');answers.append(tr('summary','details'));for(const [key,value] of Object.entries(r.answers))if(key!=='privacyAccepted'){const row=el('p');row.append(tr('strong',key),document.createTextNode(': '));const values=Array.isArray(value)?value:[value];values.forEach((v,i)=>{if(i)row.append(document.createTextNode(', '));const activity=festival.event.activities.find(a=>a.id===v);row.append(activity?source('span',activity.title):typeof v==='boolean'?tr('span',v?'yes':'no'):['profile','gender','accessibility','motivation','previousAttendance'].includes(key)&&v?tr('span',v):el('span','',String(v??'')));});answers.append(row);}detailHost.append(answers);
   if(r.answers.applyLab){
-   const review=el('form','f-form');review.append(tr('h4','review'));const state=field('review',{value:{pending:'reviewPending',accepted:'reviewAccepted',declined:'reviewDeclined'}[r.labStatus],options:['reviewPending','reviewAccepted','reviewDeclined'],required:true});review.append(state.wrap);
-   const save=button('saveReview');save.type='submit';review.append(save);review.addEventListener('submit',event=>{event.preventDefault();action(save,async()=>{const result=await api('/api/admin/fiiu/registrations/'+id,{version:r.version,labStatus:{reviewPending:'pending',reviewAccepted:'accepted',reviewDeclined:'declined'}[state.input.value]},'PATCH');Object.assign(r,result.registration);await refreshSaved(async()=>{if(selectedParticipant===id)await openParticipant(id);await loadParticipants();});});});detailHost.append(review);
+   const review=el('form','f-form');let busy=false;review.append(tr('h4','review'));const state=field('review',{value:{pending:'reviewPending',accepted:'reviewAccepted',declined:'reviewDeclined'}[r.labStatus],options:['reviewPending','reviewAccepted','reviewDeclined'],required:true});review.append(state.wrap);
+   const save=button('saveReview');save.type='submit';review.append(save);review.addEventListener('submit',async event=>{
+    event.preventDefault();if(busy)return;
+    const payload={version:r.version,labStatus:{reviewPending:'pending',reviewAccepted:'accepted',reviewDeclined:'declined'}[state.input.value]},unlock=lockForm(review);busy=true;
+    try{await action(save,async()=>{const result=await api('/api/admin/fiiu/registrations/'+id,payload,'PATCH');Object.assign(r,result.registration);await refreshSaved(async()=>{if(selectedParticipant===id)await openParticipant(id);await loadParticipants();});});}
+    finally{busy=false;unlock();}
+   });detailHost.append(review);
   }
   const attendance=el('fieldset');attendance.append(tr('legend','attendance'),tr('p','attendanceHint','f-muted'));
   for(const activity of festival.event.activities){
@@ -38,10 +48,15 @@
   detailHost.append(attendance);detailHost.focus();
  }
  function settings(){
-  const section=el('section','f-admin-settings');section.append(tr('h2','settings'));const form=el('form','f-form'),open=check('registrationOpen','registrationOpen','yes',config.registrationOpen);form.append(open.wrap);
+  const section=el('section','f-admin-settings');section.append(tr('h2','settings'));const form=el('form','f-form'),open=check('registrationOpen','registrationOpen','yes',config.registrationOpen);let busy=false;form.append(open.wrap);
   for(const key of ['programUrl','workshopsUrl','routesUrl','partyUrl'])form.append(field(key,{value:config[key],type:'url',max:2000}).wrap);
   const save=button('saveSettings');save.type='submit';form.append(save);
-  form.addEventListener('submit',event=>{event.preventDefault();action(save,async()=>{const fd=new FormData(form),result=await api('/api/admin/fiiu/config',{...Object.fromEntries(fd),registrationOpen:open.input.checked,version:config.version},'PUT');config=result.config;});});section.append(form);return section;
+  form.addEventListener('submit',async event=>{
+   event.preventDefault();if(busy)return;
+   const payload={...Object.fromEntries(new FormData(form)),registrationOpen:open.input.checked,version:config.version},unlock=lockForm(form);busy=true;
+   try{await action(save,async()=>{const result=await api('/api/admin/fiiu/config',payload,'PUT');config=result.config;});}
+   finally{busy=false;unlock();}
+  });section.append(form);return section;
  }
  function publicationEditor(record={}){
   const form=el('form','f-form');let busy=false;form.append(tr('h3',record.id?'editContent':'newContent'));

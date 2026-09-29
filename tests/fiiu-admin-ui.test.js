@@ -8,7 +8,7 @@ const copy=value=>structuredClone(value);
 async function harness(respond,{participants=[]}={}){
  return createFiiuHarness(request=>{
   if(request.path==='/api/fiiu')return{event:FIIU_EVENT,config:DEFAULT_CONFIG,content:[],nextCursor:null};
-  if(request.path==='/api/admin/fiiu/config')return{config:{...DEFAULT_CONFIG,version:0}};
+  if(request.path==='/api/admin/fiiu/config'&&request.method==='GET')return{config:{...DEFAULT_CONFIG,version:0}};
   if(request.path==='/api/admin/fiiu/registrations')return{registrations:copy(participants),nextCursor:null};
   return respond(request);
  },{page:'fiiu-admin'});
@@ -126,4 +126,61 @@ test('organizer participant loading does not wait for a slow public programme re
  assert.ok(h.requests.some(request=>request.path==='/api/admin/fiiu/registrations'),'the independent participant read should already be in flight');
  finishProgramme();await flush();assert.ok(key(h.root,'noParticipants'));
  assert.equal(h.requests.filter(request=>request.path==='/api/admin/fiiu/registrations').length,1);
+});
+
+test('settings stay locked while saving so the displayed availability matches the submitted value',async()=>{
+ let finishSave;
+ const h=await harness(({method,body})=>method==='GET'?{content:[],nextCursor:null}:new Promise(resolve=>{finishSave=()=>resolve({config:{...body,version:body.version+1}});}));
+ const form=h.root.querySelector('.f-admin-settings').querySelector('form'),open=field(form,'registrationOpen'),programme=field(form,'programUrl');
+ open.checked=false;programme.value='https://example.test/programme';
+ form.listeners.submit({preventDefault(){}});form.listeners.submit({preventDefault(){}});
+ const writes=h.requests.filter(request=>request.method==='PUT');
+ assert.equal(writes.length,1,'a pending settings save must ignore repeat submission');
+ assert.equal(writes[0].body.registrationOpen,false);assert.equal(writes[0].body.programUrl,'https://example.test/programme');
+ assert.ok(form.querySelectorAll('input,select,textarea,button').every(control=>control.disabled),'availability and links must not appear editable while their earlier values are being saved');
+ assert.equal(form['aria-busy'],'true');
+ finishSave();await flush();
+ assert.equal(open.checked,false);assert.equal(open.disabled,false);assert.equal(programme.disabled,false);
+ assert.equal(form['aria-busy'],'false');assert.equal(h.message.dataset.fiiuText,'changesSaved');
+ open.checked=true;form.listeners.submit({preventDefault(){}});
+ const next=h.requests.filter(request=>request.method==='PUT')[1];
+ assert.equal(next.body.registrationOpen,true);assert.equal(next.body.version,1,'the next edit must use the saved configuration version');
+ finishSave();await flush();
+});
+
+test('a failed settings save keeps the draft and restores each previous disabled state',async()=>{
+ let finishSave;
+ const h=await harness(({method})=>method==='GET'?{content:[],nextCursor:null}:new Promise(resolve=>{finishSave=resolve;}));
+ const form=h.root.querySelector('.f-admin-settings').querySelector('form'),open=field(form,'registrationOpen'),programme=field(form,'programUrl'),routes=field(form,'routesUrl');
+ open.checked=false;programme.value='https://example.test/corrected-programme';routes.disabled=true;
+ form.listeners.submit({preventDefault(){}});
+ assert.equal(programme.disabled,true);assert.equal(open.disabled,true);
+ finishSave(unavailable);await flush();
+ assert.equal(open.checked,false);assert.equal(programme.value,'https://example.test/corrected-programme');
+ assert.equal(open.disabled,false);assert.equal(programme.disabled,false);assert.equal(routes.disabled,true);
+ assert.equal(key(form,'saveSettings').disabled,false);assert.equal(form['aria-busy'],'false');assert.equal(h.message.dataset.fiiuText,'error');
+});
+
+for(const failure of ['mutation','refresh'])test(`laboratory review keeps its selection locked until ${failure} failure and then permits retry`,async()=>{
+ const registration=participant('participant-a','Ana');let finishSave,finishRefresh,detailReads=0;
+ const h=await harness(({path,method})=>{
+  if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
+  if(method==='PATCH')return new Promise(resolve=>{finishSave=resolve;});
+  if(++detailReads===1)return{registration:copy(registration),attendance:[]};
+  return new Promise(resolve=>{finishRefresh=resolve;});
+ },{participants:[registration]});
+ await detailButton(h,0).listeners.click();
+ const form=h.root.querySelector('.f-admin-detail').querySelector('form'),review=field(form,'review');review.value='reviewAccepted';
+ form.listeners.submit({preventDefault(){}});form.listeners.submit({preventDefault(){}});
+ assert.equal(h.requests.filter(request=>request.method==='PATCH').length,1,'one review must have only one in-flight mutation');
+ assert.equal(review.disabled,true,'a pending save must not discard a later review choice');assert.equal(form['aria-busy'],'true');
+ if(failure==='mutation')finishSave(unavailable);
+ else{
+  finishSave({registration:{...copy(registration),labStatus:'accepted',version:2}});await flush();
+  assert.equal(review.disabled,true,'the choice must remain locked during the refresh that replaces its form');
+  finishRefresh(unavailable);
+ }
+ await flush();
+ assert.equal(review.value,'reviewAccepted');assert.equal(review.disabled,false);assert.equal(key(form,'saveReview').disabled,false);assert.equal(form['aria-busy'],'false');
+ assert.equal(h.message.dataset.fiiuText,failure==='mutation'?'error':'savedRefreshFailed');
 });
