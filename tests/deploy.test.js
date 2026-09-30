@@ -315,7 +315,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
   const required = {
     'index.html': { 'styles.css': '28', 'i18n.js': '20260930a', 'app.js': '18', 'recs.js': '4', 'script.js': '18', 'hero-network.js': '2' },
     'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20260930a', 'catalog.js': '6' },
-    'dashboard.html': { 'i18n.js': '20260930a', 'fiiu.css': '20260930d', 'fiiu-ui.js': '20260930c', 'fiiu-hubs.js': '20260930c', 'dashboard.js': '20260911b', 'globe.js': '28', 'location-check.js': '20260908b' },
+    'dashboard.html': { 'i18n.js': '20260930a', 'fiiu.css': '20260930e', 'fiiu-ui.js': '20260930c', 'fiiu-hubs.js': '20260930c', 'dashboard.js': '20260911b', 'globe.js': '28', 'location-check.js': '20260908b' },
     'login.html': { 'i18n.js': '20260930a', 'auth.js': '20260930a' },
     'reset-password.html': { 'password-recovery.js': '20260930a' },
     'payments.html': { 'i18n.js': '20260930a' },
@@ -324,11 +324,11 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     'course.html': { 'i18n.js': '20260930a' },
     'courses.html': { 'i18n.js': '20260930a', 'courses.css': '20260930a' },
     'teaching.html': { 'i18n.js': '20260930a', 'courses.css': '20260930a' },
-    'fiiu.html': { 'styles.css': '28', 'i18n.js': '20260930a', 'fiiu.css': '20260930d', 'fiiu-ui.js': '20260930c', 'fiiu.js': '20260930d' },
-    'fiiu-admin.html': { 'styles.css': '28', 'i18n.js': '20260930a', 'fiiu.css': '20260930d', 'fiiu-ui.js': '20260930c', 'fiiu-admin.js': '20260930c' },
-    'community.html': { 'styles.css': '28', 'script.js': '18', 'i18n.js': '20260930a', 'fiiu.css': '20260930d', 'fiiu-ui.js': '20260930c', 'fiiu-hubs.js': '20260930c' },
-    'knowledge.html': { 'styles.css': '28', 'script.js': '18', 'i18n.js': '20260930a', 'fiiu.css': '20260930d', 'fiiu-ui.js': '20260930c', 'fiiu-hubs.js': '20260930c' },
-    'resources.html': { 'styles.css': '28', 'script.js': '18', 'i18n.js': '20260930a', 'fiiu.css': '20260930d', 'fiiu-ui.js': '20260930c', 'fiiu-hubs.js': '20260930c' },
+    'fiiu.html': { 'styles.css': '28', 'i18n.js': '20260930a', 'fiiu.css': '20260930e', 'fiiu-ui.js': '20260930c', 'fiiu.js': '20260930e' },
+    'fiiu-admin.html': { 'styles.css': '28', 'i18n.js': '20260930a', 'fiiu.css': '20260930e', 'fiiu-ui.js': '20260930c', 'fiiu-admin.js': '20260930c' },
+    'community.html': { 'styles.css': '28', 'script.js': '18', 'i18n.js': '20260930a', 'fiiu.css': '20260930e', 'fiiu-ui.js': '20260930c', 'fiiu-hubs.js': '20260930c' },
+    'knowledge.html': { 'styles.css': '28', 'script.js': '18', 'i18n.js': '20260930a', 'fiiu.css': '20260930e', 'fiiu-ui.js': '20260930c', 'fiiu-hubs.js': '20260930c' },
+    'resources.html': { 'styles.css': '28', 'script.js': '18', 'i18n.js': '20260930a', 'fiiu.css': '20260930e', 'fiiu-ui.js': '20260930c', 'fiiu-hubs.js': '20260930c' },
   };
   for (const [page, assets] of Object.entries(required)) {
     for (const [asset, version] of Object.entries(assets)) {

@@ -204,7 +204,7 @@ test('news and materials page separately: newer materials never hide the news, a
 test('a materials feed that fails leaves the programme, registration and news working, and offers Try again in place',async()=>{
  let fail=true;const recording={id:'r1',kind:'recording',title:'Opening recording',body:'',url:'https://example.test/recording',createdAt:'2026-10-21T12:00:00.000Z'};
  const h=await harness({publicRead:()=>({...publicData,content:[{id:'n1',kind:'news',title:'Festival announcement',body:'',url:''}]}),materialsRead:()=>fail?{status:503,data:{error:'unavailable'}}:{...publicData,content:[recording,{id:'n9',kind:'news',title:'Stray news',body:'',url:''}],nextCursor:null}});
- assert.ok(h.root.querySelector('.f-programme'));assert.ok(h.form());assert.equal(h.message.dataset.fiiuText,'');assert.ok(!key(h.root.querySelector('.f-layout'),'loadError'));
+ assert.ok(h.root.querySelector('.f-programme'));assert.ok(h.form());assert.equal(h.message.dataset.fiiuText,'');assert.ok(!key(h.root.querySelector('.f-programme'),'loadError'));assert.ok(!key(h.root.querySelector('.f-registration'),'loadError'));
  const library=descendants(h.root).find(node=>node.id==='materials'),news=descendants(h.root).find(node=>node.id==='news');
  assert.match(content(news),/Festival announcement/);assert.ok(key(library,'loadError'));const retry=key(library,'retry');assert.equal(retry.hidden,false);
  fail=false;await retry.listeners.click();assert.doesNotMatch(content(library),/Stray news/,'each section keeps to its own kinds');assert.equal(key(library,'retry'),undefined);assert.equal(key(library,'loadError'),undefined);assert.equal(key(library,'loadMore').hidden,true);assert.match(content(library),/Opening recording/);

@@ -348,7 +348,7 @@
    const latest=festival.content.find(item=>item.kind==='news');
    if(latest){const banner=el('a','f-latest');banner.href='#news';banner.append(tr('span','latestUpdate','f-latest-label'),source('span',latest.title,'f-latest-title'));root.append(banner);}
    const layout=el('div','f-layout');layout.append(programmeHost,registrationHost);root.append(layout);
-   const updates=el('div','f-updates-grid');updates.append(feed('news','noNews',()=>publicData),feed('materials','noMaterials',()=>materials));root.append(updates,newTabNote());
+   const updates=el('div','f-updates-grid');updates.append(feed('news','noNews',()=>publicData),feed('materials','noMaterials',()=>materials));layout.append(updates);root.append(newTabNote());
    renderRegistration();status(loadStatus,'');
    const hash=location.hash;
    if(hash==='#f-publicOfficial')jumpTo(officialInput);
