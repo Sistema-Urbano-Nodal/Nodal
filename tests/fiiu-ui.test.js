@@ -246,8 +246,8 @@ test('Edit moves focus to the first answer, and badges inside the saved summary 
 
 test('the sticky step bar uses short names while the fieldsets keep full legends, and the accessibility group says it is required',async()=>{
  const h=await harness(),form=h.form(),steps=form.querySelector('.f-steps').querySelectorAll('.f-step');
- assert.deepEqual(steps.map(step=>step.children[1].dataset.fiiuText),['personal','stepChoices','stepQuestions','stepConsent']);
- assert.deepEqual(form.querySelectorAll('fieldset').filter(set=>set.id?.startsWith('f-step-')).map(set=>set.children[0].children[1].dataset.fiiuText),['personal','choices','questionnaire','consentStep']);
+ assert.deepEqual(steps.map(step=>step.children[0].dataset.fiiuText),['personal','stepChoices','stepQuestions','stepConsent']);
+ assert.deepEqual(form.querySelectorAll('fieldset').filter(set=>set.id?.startsWith('f-step-')).map(set=>set.children[0].children[0].dataset.fiiuText),['personal','choices','questionnaire','consentStep']);
  const legend=form.querySelector('.f-access').children[0];assert.ok(key(legend,'requiredGroup'));assert.equal(key(legend,'requiredGroup').className,'f-sr-only');
  assert.equal(field(form,'gender').autocomplete,'sex');assert.equal(field(form,'institution').autocomplete,'organization');assert.equal(field(form,'position').autocomplete,'organization-title');
 });

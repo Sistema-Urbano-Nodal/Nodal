@@ -197,11 +197,11 @@
   // Each step: fieldset id, legend key, and the short name shown in the sticky step bar.
   const steps=[['f-step-personal','personal','personal'],['f-step-choices','choices','stepChoices'],['f-step-questions','questionnaire','stepQuestions'],['f-step-consent','consentStep','stepConsent']],stepsNav=el('nav','f-steps'),stepsLabel=tr('span','stepsLabel','f-sr-only'),stepList=el('ol');
   stepsLabel.id='f-steps-label';stepsNav.setAttribute('aria-labelledby',stepsLabel.id);
-  const stepLinks=steps.map(([id,,short],i)=>{const item=el('li'),step=el('a','f-step');step.href='#'+id;step.append(el('span','f-step-num',String(i+1)),tr('span',short));item.append(step);stepList.append(item);return step;});
+  const stepLinks=steps.map(([id,,short],i)=>{const item=el('li'),step=el('a','f-step');step.href='#'+id;step.append(tr('span',short));item.append(step);stepList.append(item);return step;});
   // A completed step is described as such; the tick drawn in CSS has no text.
   const stepDone=tr('span','stepDone');stepDone.id='f-step-done';stepDone.hidden=true;stepsNav.append(stepsLabel,stepList,stepDone);
-  const legend=(i,key)=>{const node=el('legend');node.append(el('span','f-step-num',String(i)),tr('span',key));return node;};
-  const [personal,choices,details,consent]=steps.map(([id],i)=>{const set=el('fieldset',i===2?'f-questionnaire':'');set.id=id;set.append(legend(i+1,steps[i][1]));return set;});
+  const legend=key=>{const node=el('legend');node.append(tr('span',key));return node;};
+  const [personal,choices,details,consent]=steps.map(([id],i)=>{const set=el('fieldset',i===2?'f-questionnaire':'');set.id=id;set.append(legend(steps[i][1]));return set;});
   personal.setAttribute('aria-describedby','f-hint-privateHint');personal.append(hint('privateHint'));
   const email=field('email',{value:me.user.email,type:'email'});email.input.readOnly=true;personal.append(email.wrap);
   const grid=el('div','f-fields');
