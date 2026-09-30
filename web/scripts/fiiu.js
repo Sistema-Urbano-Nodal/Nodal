@@ -12,15 +12,13 @@
  const panelNotice=el('p','f-status f-notice is-ok');panelNotice.setAttribute('role','status');panelNotice.setAttribute('aria-live','polite');
  const missingAnswers=a=>['country','city','profile','nationalId','gender','motivation','previousAttendance'].filter(k=>!a[k]).length+(Number.isInteger(a.age)?0:1)+(Array.isArray(a.accessibility)&&a.accessibility.length?0:1)+(typeof a.publicOfficial==='boolean'?0:1);
  function jumpTo(input,event){event?.preventDefault?.();if(!input)return;openForm?.();const fold=input.closest?.('details');if(fold)fold.open=true;input.focus();input.scrollIntoView?.({block:'center'});}
- // Each count carries the same type dot as the day navigation, so the hero doubles as its legend.
- function typeCounts(list){const counts={};for(const activity of list){const type=typeOf(activity);counts[type]=(counts[type]||0)+1;}return TYPES.filter(([type])=>counts[type]).map(([type,one,many])=>{const item=el('span','f-type-count'),dot=el('span','f-dot is-'+type);dot.setAttribute('aria-hidden','true');item.append(dot,countLabel(counts[type],one,many));return item;});}
+ function typeCounts(list){const counts={};for(const activity of list){const type=typeOf(activity);counts[type]=(counts[type]||0)+1;}return TYPES.filter(([type])=>counts[type]).map(([type,one,many])=>countLabel(counts[type],one,many,'f-count f-type-count'));}
  function renderHero(){
   const event=festival.event,config=festival.config,registration=me.registration,copy=el('div','f-hero-copy'),title=el('h1','f-hero-title'),kicker=el('span','f-kicker');
   kicker.append(el('span','',event.title),source('span',event.city));title.append(kicker,source('span',event.theme,'f-hero-theme'));
-  const facts=el('dl','f-facts'),fact=(key,cls,...nodes)=>{const box=el('div','f-fact '+cls),value=el('dd');value.append(...nodes);box.append(tr('dt',key),value);facts.append(box);},counts=el('span','f-fact-counts');
-  counts.append(...typeCounts(event.activities));
-  fact('factWhen','is-when',rangeNode(event.startsOn,event.endsOn));fact('factRegistration','is-registration',tr('span',config.registrationOpen?'registrationOpenNow':'registrationClosedNow','f-pill'+(config.registrationOpen?' is-open':'')));fact('factProgramme','is-programme',counts);
-  copy.append(title,tr('span','spanishContent','content-language'),tr('p','intro','f-hero-intro'),facts);
+  const meta=el('p','f-hero-meta'),counts=el('p','f-hero-counts');
+  meta.append(rangeNode(event.startsOn,event.endsOn),tr('span',config.registrationOpen?'registrationOpenNow':'registrationClosedNow',config.registrationOpen?'is-open':''));counts.append(...typeCounts(event.activities));
+  copy.append(title,tr('span','spanishContent','content-language'),tr('p','intro','f-hero-intro'),meta,counts);
   if(registration){
    const a=registration.answers,pills=el('p','f-hero-status'),interests=a.externalActivities?.length||0;pills.append(tr('span','statusRegistered','f-pill is-ok'));
    if(a.activities.length)pills.append(countLabel(a.activities.length,'conferenceOne','conferenceMany','f-pill'));
@@ -49,7 +47,7 @@
  // One-way feedback: a programme button whose form box is ticked says so; clicking it again only returns to that box.
  function syncProgramme(){for(const [id,{action,addKey}] of programmeActions){const input=choiceInputs.get(id),on=Boolean(input?.checked&&!input.disabled),key=on?'choiceAdded':addKey;if(action.dataset.fiiuText===key)continue;action.dataset.fiiuText=key;action.textContent=t(key);action.className='f-button secondary f-small'+(on?' is-added':'');}}
  function labCard(activity,labStatus){
-  const card=el('article','f-activity is-lab'),title=source('h4',activity.title);title.id='f-act-'+activity.id+'-title';card.append(title,tr('p','labType','f-chip f-lab-type'));
+  const card=el('article','f-activity is-lab'),title=source('h4',activity.title);title.id='f-act-'+activity.id+'-title';card.append(title,tr('p','labType','f-lab-type'));
   if(labStatus!=='none'){card.append(tr('p',labStatus+'Short','f-pill is-'+labStatus));return card;}
   if(!festival.config.registrationOpen)return card;
   const apply=describe(link('apply',officialInput?'#f-publicOfficial':'#registration','f-button secondary f-small'),title.id);
@@ -66,8 +64,8 @@
   card.append(title,rail,body);return card;
  }
  function typeGroup(type,items,interests){
-  const group=el('div','f-type-group is-'+type),head=el('div','f-type-head'),badge=el('span','f-count-badge',String(items.length)),list=el('ul','f-compact-list');badge.setAttribute('aria-hidden','true');
-  head.append(tr('h4',type),badge,tr('span','external','f-chip'));
+  const group=el('div','f-type-group is-'+type),head=el('div','f-type-head'),list=el('ul','f-compact-list');
+  head.append(tr('h4',type),tr('span','external','f-type-note'));
   for(const activity of items){
    const mine=interests.has(activity.id),row=el('li','f-compact'+(mine?' is-mine':'')),title=source('p',activity.title,'f-compact-title'),actions=el('div','f-compact-actions');title.id='f-act-'+activity.id+'-title';
    const action=choiceAction(activity,mine,'interestChip','saveInterest',title.id);if(action)actions.append(action);
@@ -84,16 +82,15 @@
  function renderProgramme(){
   const event=festival.event,registration=me.registration,mine=new Set(registration?.answers.activities||[]),interests=new Set(registration?.answers.externalActivities||[]),labStatus=registration?.labStatus||'none';
   const head=el('div','f-section-head'),nav=el('nav','f-day-nav'),navLabel=tr('span','dayNav','f-sr-only'),chips=el('ol','f-day-chips'),sections=[];
-  head.append(tr('h2','programmeTitle'),tr('p','programmeHint','f-muted'),tr('p','languageHint','f-muted'));
+  head.append(tr('h2','programmeTitle'),tr('p','programmeHint','f-muted'));
   navLabel.id='f-day-nav-label';nav.setAttribute('aria-labelledby',navLabel.id);nav.append(navLabel,chips);chips.addEventListener('focusin',event=>{const chip=event?.target?.closest?.('a');if(chip)revealInRow(chips,chip);});
   programmeHost.replaceChildren(head,nav);dayChips.clear();visibleDays.clear();programmeActions.clear();
   for(const day of [...new Set(event.activities.map(a=>a.date))].sort()){
    const list=chronological(event.activities.filter(a=>a.date===day)),of=type=>list.filter(a=>typeOf(a)===type);
-   const item=el('li'),chip=el('a','f-day-chip'),dots=el('span','f-day-dots');chip.href='#day-'+day;dots.setAttribute('aria-hidden','true');
-   for(const [type] of TYPES)if(of(type).length)dots.append(el('span','f-dot is-'+type));
-   chip.append(dateNode(day,'span','weekday','f-day-chip-weekday'),el('span','f-day-chip-num',String(Number(day.slice(8)))),dots);item.append(chip);chips.append(item);dayChips.set(day,chip);
-   const section=el('section','f-day'),header=el('header','f-day-head'),summary=el('p','f-day-summary'),blocks=el('div','f-day-blocks');section.id='day-'+day;
-   summary.append(...typeCounts(list));header.append(dateNode(day,'h3'),summary);
+   const item=el('li'),chip=el('a','f-day-chip');chip.href='#day-'+day;
+   chip.append(dateNode(day,'span','weekday','f-day-chip-weekday'),el('span','f-day-chip-num',String(Number(day.slice(8)))));item.append(chip);chips.append(item);dayChips.set(day,chip);
+   const section=el('section','f-day'),header=el('header','f-day-head'),blocks=el('div','f-day-blocks');section.id='day-'+day;
+   header.append(dateNode(day,'h3'));
    for(const activity of of('lab'))blocks.append(labCard(activity,labStatus));
    for(const activity of of('conference'))blocks.append(conferenceCard(activity,mine.has(activity.id)));
    for(const type of ['workshop','route'])if(of(type).length)blocks.append(typeGroup(type,of(type),interests));
