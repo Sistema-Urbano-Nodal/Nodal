@@ -1,15 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import {DEFAULT_CONFIG,FIIU_EVENT} from '../server/fiiu-domain.js';
 import {createFiiuHarness,key,field,flush,content} from './helpers/fiiu-ui-harness.js';
 
 const participant=(id,firstName)=>({id,eventId:'fiiu-2026',userId:'user-'+id,email:firstName.toLowerCase()+'@example.test',version:1,labStatus:'pending',createdAt:'2026-09-29T12:00:00.000Z',updatedAt:'2026-09-29T12:00:00.000Z',answers:{firstName,lastName:'Test',country:'Perú',city:'Lima',profile:'public_official',publicOfficial:true,applyLab:true,institution:'City Council',position:'Planner',activities:['day1-am'],privacyAccepted:true}});
 const copy=value=>structuredClone(value);
 const summary={totalRegistrations:237,publicOfficials:64,lab:{pending:18,accepted:12,declined:2},activities:[{activityId:'day1-am',registrations:121,externalInterests:0,attendance:0}],days:[{date:'2026-10-21',registrations:157,attendance:0}],profiles:[{profile:'student',count:48}]};
-async function harness(respond,{participants=[],summaryRead=()=>({summary:copy(summary)})}={}){
+async function harness(respond,{participants=[],summaryRead=()=>({summary:copy(summary)}),configRead=()=>({config:{...DEFAULT_CONFIG,version:0}})}={}){
  return createFiiuHarness(request=>{
   if(request.path==='/api/fiiu')return{event:FIIU_EVENT,config:DEFAULT_CONFIG,content:[],nextCursor:null};
-  if(request.path==='/api/admin/fiiu/config'&&request.method==='GET')return{config:{...DEFAULT_CONFIG,version:0}};
+  if(request.path==='/api/admin/fiiu/config'&&request.method==='GET')return configRead(request);
   if(request.path==='/api/admin/fiiu/registrations')return{registrations:copy(participants),nextCursor:null};
   if(request.path==='/api/admin/fiiu/summary')return summaryRead(request);
   return respond(request);
@@ -18,7 +19,17 @@ async function harness(respond,{participants=[],summaryRead=()=>({summary:copy(s
 async function submit(form){form.listeners.submit({preventDefault(){}});await flush();}
 const detailTitle=h=>h.root.querySelector('.f-admin-detail').querySelector('h3')?.textContent;
 const detailButton=(h,index)=>key(h.root.querySelectorAll('.f-participant')[index],'details');
+const participantNames=h=>h.root.querySelectorAll('.f-participant').map(row=>row.querySelector('strong').textContent);
+const publicationTitles=h=>h.root.querySelectorAll('.f-pub').map(row=>row.querySelector('h3').textContent);
+const editorForm=h=>h.root.querySelector('.f-content-editor').querySelector('form');
 const unavailable={status:503,data:{error:'unavailable'}};
+// The lightweight DOM has no timers: debounced work waits here until a test runs it.
+function fakeTimers(h){
+ const queue=new Map();let last=0;
+ h.ctx.setTimeout=(callback,delay)=>{queue.set(++last,{callback,delay});return last;};h.ctx.clearTimeout=id=>{queue.delete(id);};
+ return{delays:()=>[...queue.values()].map(timer=>timer.delay),run(){const due=[...queue.values()];queue.clear();for(const timer of due)timer.callback();}};
+}
+const type=(input,value)=>{input.value=value;input.listeners.input();};
 
 test('editing historical publications preserves only their existing legacy activity and sends it when saving',async()=>{
  for(const legacy of FIIU_EVENT.legacyActivities){
@@ -41,25 +52,26 @@ test('new publication activity choices exclude all historical activities',async(
  assert.equal(select.value,'');assert.deepEqual(select.children.map(option=>option.value),['',...FIIU_EVENT.activities.map(activity=>activity.id)]);
 });
 
-test('retrying a saved publication after a failed list refresh updates that publication instead of creating a duplicate',async()=>{
- const publications=[];let listReads=0;
- const h=await harness(({path,method,body})=>{
-  if(method==='GET')return ++listReads===2?unavailable:{content:copy(publications),nextCursor:null};
-  if(method==='POST'){
-   const row={...body,id:'publication-'+(publications.length+1),version:1,createdAt:'2026-09-29T12:00:00.000Z',updatedAt:'2026-09-29T12:00:00.000Z'};publications.push(row);return{content:copy(row)};
-  }
-  const row=publications.find(item=>path==='/api/admin/fiiu/content/'+item.id);
-  if(!row||row.version!==body.version)return{status:409,data:{error:'content changed'}};
-  Object.assign(row,body,{version:row.version+1});return{content:copy(row)};
+test('a new publication sends one lowercase UUID across retries, so a retry after a lost response gets the saved row instead of a duplicate',async()=>{
+ const rows=new Map();let lose=true;
+ const h=await harness(({method,body})=>{
+  if(method==='GET')return{content:[],nextCursor:null};
+  // As on the server: an id it already holds returns that row instead of inserting another.
+  if(!rows.has(body.id))rows.set(body.id,{...body,version:1,createdAt:'2026-09-29T12:00:00.000Z'});
+  if(lose){lose=false;throw Error('connection reset after the insert');}
+  return{content:copy(rows.get(body.id))};
  });
- const form=h.root.querySelector('.f-content-editor').querySelector('form');field(form,'title').value='Original announcement';
- await submit(form);assert.equal(publications.length,1);assert.equal(key(form,'saveContent').disabled,false);
- const refreshMessage=h.message.dataset.fiiuText;
- field(form,'title').value='Corrected announcement';await submit(form);
- assert.equal(publications.length,1,'retrying a successful creation must not insert a second publication');
- assert.equal(publications[0].title,'Corrected announcement');assert.equal(publications[0].version,2);
- assert.deepEqual(h.requests.filter(request=>request.method!=='GET').map(request=>request.method),['POST','PATCH']);
- assert.equal(refreshMessage,'savedRefreshFailed','a failed refresh must not imply that the save failed');
+ const form=editorForm(h);field(form,'title').value='Programme update';
+ await submit(form);assert.equal(h.message.dataset.fiiuText,'error');assert.equal(field(form,'title').value,'Programme update');
+ await submit(form);assert.equal(h.message.dataset.fiiuText,'changesSaved');
+ const [first,retry]=h.requests.filter(request=>request.method==='POST').map(request=>request.body.id);
+ assert.match(first,/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,'without crypto.randomUUID the id is still a lowercase v4 UUID');
+ assert.equal(retry,first,'the retry reuses the id');assert.equal(rows.size,1,'no duplicate publication');
+ assert.deepEqual(publicationTitles(h),['Programme update']);assert.ok(key(h.root.querySelector('.f-content-editor'),'newContent'));
+ h.ctx.crypto={randomUUID:()=>'0f8fad5b-d9cb-469f-a165-70867728950e'};
+ const next=editorForm(h);field(next,'title').value='Second update';await submit(next);
+ assert.equal(h.requests.filter(request=>request.method==='POST').at(-1).body.id,'0f8fad5b-d9cb-469f-a165-70867728950e','the next new publication gets its own id, from crypto.randomUUID when available');
+ assert.equal(rows.size,2);assert.deepEqual(publicationTitles(h),['Second update','Programme update']);
 });
 
 test('retrying a laboratory review after a failed detail refresh uses the version returned by the successful save',async()=>{
@@ -120,21 +132,17 @@ test('publication saving locks its fields, ignores repeated submission and prese
 });
 
 test('finishing an older publication save preserves a newer selected editor and its unsaved text',async()=>{
- const existing={id:'published-a',version:1,title:'Existing announcement',body:'',kind:'news',status:'published',activityId:'',url:''};
- let finishSave,finishRefresh,reads=0;
- const h=await harness(({method,body})=>{
-  if(method==='POST')return new Promise(resolve=>{finishSave=()=>resolve({content:{...body,id:'created-b',version:1}});});
-  if(++reads===1)return{content:[copy(existing)],nextCursor:null};
-  return new Promise(resolve=>{finishRefresh=()=>resolve({content:[copy(existing)],nextCursor:null});});
- });
- const older=h.root.querySelector('.f-content-editor').querySelector('form');field(older,'title').value='New announcement';
- older.listeners.submit({preventDefault(){}});finishSave();await flush();
+ const existing={id:'published-a',version:1,title:'Existing announcement',body:'',kind:'news',status:'published',activityId:'',url:''};let finishSave;
+ const h=await harness(({method,body})=>method==='POST'?new Promise(resolve=>{finishSave=()=>resolve({content:{...body,version:1}});}):{content:[copy(existing)],nextCursor:null});
+ const older=editorForm(h);field(older,'title').value='New announcement';older.listeners.submit({preventDefault(){}});
  await key(h.root.querySelector('.f-news-item'),'editContent').listeners.click();
- const newer=h.root.querySelector('.f-content-editor').querySelector('form');field(newer,'title').value='Unsaved correction to existing announcement';
- finishRefresh();await flush();
- assert.equal(h.root.querySelector('.f-content-editor').querySelector('form'),newer,'the earlier save must not replace the editor selected during its refresh');
- assert.equal(field(newer,'title').value,'Unsaved correction to existing announcement');
- assert.equal(field(newer,'title').disabled,false);
+ const newer=editorForm(h);field(newer,'title').value='Unsaved correction to existing announcement';
+ finishSave();await flush();
+ assert.equal(editorForm(h),newer,'the earlier save must not replace the editor selected while it was saving');
+ assert.equal(field(newer,'title').value,'Unsaved correction to existing announcement');assert.equal(field(newer,'title').disabled,false);
+ assert.deepEqual(publicationTitles(h),['New announcement','Existing announcement']);
+ key(h.root.querySelector('.f-content-editor'),'cancelEdit').listeners.click();
+ assert.equal(field(editorForm(h),'title').value,'','the draft saved meanwhile does not come back as a new draft');
 });
 
 test('organizer participant loading does not wait for a slow public programme response',async()=>{
@@ -175,13 +183,13 @@ test('settings stay locked while saving so the displayed availability matches th
 test('a failed settings save keeps the draft and restores each previous disabled state',async()=>{
  let finishSave;
  const h=await harness(({method})=>method==='GET'?{content:[],nextCursor:null}:new Promise(resolve=>{finishSave=resolve;}));
- const form=h.root.querySelector('.f-admin-settings').querySelector('form'),open=field(form,'registrationOpen'),programme=field(form,'programUrl'),routes=field(form,'routesUrl');
- open.checked=false;programme.value='https://example.test/corrected-programme';routes.disabled=true;
+ const form=h.root.querySelector('.f-admin-settings').querySelector('form'),open=field(form,'registrationOpen'),programme=field(form,'programUrl'),party=field(form,'partyUrl');
+ open.checked=false;programme.value='https://example.test/corrected-programme';party.disabled=true;
  form.listeners.submit({preventDefault(){}});
  assert.equal(programme.disabled,true);assert.equal(open.disabled,true);
  finishSave(unavailable);await flush();
  assert.equal(open.checked,false);assert.equal(programme.value,'https://example.test/corrected-programme');
- assert.equal(open.disabled,false);assert.equal(programme.disabled,false);assert.equal(routes.disabled,true);
+ assert.equal(open.disabled,false);assert.equal(programme.disabled,false);assert.equal(party.disabled,true);
  assert.equal(key(form,'saveSettings').disabled,false);assert.equal(form['aria-busy'],'false');assert.equal(h.message.dataset.fiiuText,'error');
 });
 
@@ -262,12 +270,12 @@ test('opening participant details reports loading, never a save',async()=>{
 test('participant search and lab filters narrow the loaded rows without new requests',async()=>{
  const ana=participant('participant-a','Ana'),bruno={...participant('participant-b','Bruno'),labStatus:'accepted'},carla={...participant('participant-c','Carla'),labStatus:'none',answers:{...participant('participant-c','Carla').answers,publicOfficial:false,applyLab:false}};
  const h=await harness(()=>({content:[],nextCursor:null}),{participants:[carla,bruno,ana]});
- const rows=()=>h.root.querySelectorAll('.f-participant').map(row=>row.querySelector('strong').textContent),reads=h.requests.length;
+ const rows=()=>participantNames(h),reads=h.requests.length,timers=fakeTimers(h);
  assert.deepEqual(rows(),['Ana Test','Bruno Test','Carla Test'],'rows are ordered by name, not by id');
- const search=field(h.root,'searchParticipants');search.value='bru';search.listeners.input();assert.deepEqual(rows(),['Bruno Test']);
- search.value='BRÚ';search.listeners.input();assert.deepEqual(rows(),['Bruno Test'],'search ignores case and accents');
- search.value='nobody';search.listeners.input();assert.equal(rows().length,0);assert.ok(key(h.root,'noMatches'));
- search.value='';search.listeners.input();
+ const search=field(h.root,'searchParticipants');type(search,'bru');timers.run();assert.deepEqual(rows(),['Bruno Test']);
+ type(search,'BRÚ');timers.run();assert.deepEqual(rows(),['Bruno Test'],'search ignores case and accents');
+ type(search,'nobody');timers.run();assert.equal(rows().length,0);assert.ok(key(h.root,'noMatches'));
+ type(search,'');timers.run();
  const pending=key(h.root,'filterLabPending');pending.listeners.click();assert.deepEqual(rows(),['Ana Test']);assert.equal(pending['aria-pressed'],'true');assert.equal(key(h.root,'filterAll')['aria-pressed'],'false');
  key(h.root,'filterLabAccepted').listeners.click();assert.deepEqual(rows(),['Bruno Test']);
  key(h.root.querySelector('.f-admin-filters'),'publicOfficials').listeners.click();assert.deepEqual(rows(),['Ana Test','Bruno Test']);
@@ -425,4 +433,220 @@ test('organiser forms show validation messages in the page language and drop the
  title.validity={valueMissing:true};form.listeners.invalid({target:title});assert.equal(title.validationMessage,h.ctx.window.Fiiu.t('requiredField'));
  url.validity={typeMismatch:true};form.listeners.invalid({target:url});assert.equal(url.validationMessage,h.ctx.window.Fiiu.t('adminInvalid'));
  form.listeners.input({target:title});assert.equal(title.validationMessage,'');assert.equal(url.validationMessage,'');
+});
+
+test('a laboratory review updates its row in place and keeps every page loaded with Load more',async()=>{
+ const people={a:participant('a','Ana'),b:participant('b','Bruno'),c:participant('c','Carla')};
+ const h=await createFiiuHarness(({path,method,body})=>{
+  if(path==='/api/fiiu')return{event:FIIU_EVENT,config:DEFAULT_CONFIG,content:[],nextCursor:null};
+  if(path==='/api/admin/fiiu/config')return{config:{...DEFAULT_CONFIG,version:0}};
+  if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
+  if(path==='/api/admin/fiiu/summary')return{summary:copy(summary)};
+  if(path==='/api/admin/fiiu/registrations')return{registrations:[copy(people.a)],nextCursor:'a'};
+  if(path==='/api/admin/fiiu/registrations?cursor=a')return{registrations:[copy(people.b),copy(people.c)],nextCursor:null};
+  const person=people[path.split('/').pop()];
+  if(method==='PATCH'){Object.assign(person,{labStatus:body.labStatus,version:person.version+1});return{registration:copy(person)};}
+  return{registration:copy(person),attendance:[]};
+ },{page:'fiiu-admin'});
+ const list=()=>h.root.querySelector('.f-admin-list'),pageReads=()=>h.requests.filter(request=>/^\/api\/admin\/fiiu\/registrations(\?|$)/.test(request.path)).length;
+ key(h.root,'filterLabPending').listeners.click();await key(list(),'loadMore').listeners.click();
+ assert.deepEqual(participantNames(h),['Ana Test','Bruno Test','Carla Test']);assert.equal(pageReads(),2);
+ await detailButton(h,1).listeners.click();const form=h.root.querySelector('.f-review-card').querySelector('form');
+ field(form,'review').value='reviewAccepted';await submit(form);assert.equal(h.message.dataset.fiiuText,'changesSaved');
+ assert.deepEqual(participantNames(h),['Ana Test','Carla Test'],'Carla, loaded with Load more and still pending, stays; accepted Bruno leaves the pending view');
+ assert.equal(pageReads(),2,'no page is read again');assert.equal(key(list(),'loadMore'),undefined);assert.equal(key(list(),'showingLoaded'),undefined);
+ assert.equal(detailTitle(h),'Bruno Test');assert.ok(key(h.root.querySelector('.f-review-card'),'acceptedShort'),'the detail shows the saved review');
+ key(h.root,'filterAll').listeners.click();const bruno=h.root.querySelectorAll('.f-participant')[1];
+ assert.ok(key(bruno,'acceptedShort'),'the list row shows the saved review');assert.equal(bruno.className,'f-participant is-selected');
+});
+
+test('saving a publication updates the list in place and keeps every page loaded with Load more',async()=>{
+ const posts={new1:{id:'new1',version:1,title:'Newest news',body:'',url:'',kind:'news',status:'published',activityId:''},old1:{id:'old1',version:1,title:'Old material',body:'',url:'https://example.test/material',kind:'material',status:'published',activityId:''}};
+ const h=await harness(({path,method,body})=>{
+  if(method==='POST')return{content:{...body,version:1}};
+  if(path==='/api/admin/fiiu/content')return{content:[copy(posts.new1)],nextCursor:'new1'};
+  if(path==='/api/admin/fiiu/content?cursor=new1')return{content:[copy(posts.old1)],nextCursor:null};
+  const post=posts[path.split('/').pop()];Object.assign(post,body,{version:post.version+1});return{content:copy(post)};
+ });
+ const section=()=>h.root.querySelector('.f-admin-content'),listReads=()=>h.requests.filter(request=>request.method==='GET'&&request.path.startsWith('/api/admin/fiiu/content')).length;
+ await key(section(),'loadMore').listeners.click();assert.deepEqual(publicationTitles(h),['Newest news','Old material']);
+ await key(h.root.querySelectorAll('.f-pub')[1],'editContent').listeners.click();
+ field(editorForm(h),'title').value='Old material (corrected)';await submit(editorForm(h));
+ assert.deepEqual(publicationTitles(h),['Newest news','Old material (corrected)'],'the older page stays and shows the saved title');
+ field(editorForm(h),'title').value='Brand new';await submit(editorForm(h));
+ assert.deepEqual(publicationTitles(h),['Brand new','Newest news','Old material (corrected)'],'a new publication joins the top of the list');
+ assert.equal(key(section(),'loadMore'),undefined);assert.equal(listReads(),2,'saving never re-reads the list');
+});
+
+test('an editor opened during a save keeps its own version, so saving it gets the conflict; reloading brings in only that publication',async()=>{
+ const server={id:'p1',version:1,title:'Venue: Hall A',body:'Opening at 9:00',kind:'news',status:'published',activityId:'',url:''};let gate=null,asked=0;
+ const h=await harness(({method,body})=>{
+  if(method==='GET')return{content:[copy(server)],nextCursor:null};
+  if(body.version!==server.version)return{status:409,data:{error:'content changed; reload before saving'}};
+  const apply=()=>{Object.assign(server,{title:body.title,body:body.body,version:server.version+1});return{content:copy(server)};};
+  if(!gate)return apply();const wait=gate;gate=null;return wait.then(apply);
+ });
+ h.ctx.window.confirm=()=>{asked++;return true;};
+ await key(h.root.querySelector('.f-pub'),'editContent').listeners.click();
+ const first=editorForm(h);field(first,'title').value='Venue CHANGED: Hall B';
+ let release;gate=new Promise(resolve=>{release=resolve;});first.listeners.submit({preventDefault(){}});await flush();
+ key(h.root.querySelector('.f-pub'),'editContent').listeners.click();
+ const second=editorForm(h);assert.equal(field(second,'title').value,'Venue: Hall A');
+ release();await flush();
+ assert.equal(server.version,2);assert.deepEqual(publicationTitles(h),['Venue CHANGED: Hall B']);assert.equal(editorForm(h),second,'the newer editor stays open');
+ field(second,'body').value='Opening at 9:00. Bring ID.';await submit(second);
+ assert.equal(h.message.dataset.fiiuText,'editorConflict');assert.equal(server.title,'Venue CHANGED: Hall B','the first save is not silently reverted');
+ assert.deepEqual(h.requests.filter(request=>request.method==='PATCH').map(request=>request.body.version),[1,1]);
+ await key(second,'reloadLatest').listeners.click();
+ const latest=editorForm(h);assert.notEqual(latest,second);assert.equal(field(latest,'title').value,'Venue CHANGED: Hall B');assert.equal(field(latest,'title').focused,true);
+ assert.equal(h.reloads(),0,'only that publication is re-read, not the page');assert.equal(h.message.dataset.fiiuText,'');
+ field(latest,'body').value='Opening at 9:00. Bring ID.';await submit(latest);
+ assert.deepEqual({title:server.title,body:server.body,version:server.version},{title:'Venue CHANGED: Hall B',body:'Opening at 9:00. Bring ID.',version:3});
+ assert.equal(asked,1,'leaving the first edit while it had unsaved changes asked first');
+});
+
+test('writes during an in-flight totals refresh get exactly one more refresh once it lands',async()=>{
+ const base=participant('participant-a','Ana'),ana={...base,labStatus:'none',answers:{...base.answers,publicOfficial:false,applyLab:false,activities:['day1-am','day2-am']}};
+ let reads=0;const pending=[];
+ const h=await harness(({path,method})=>{
+  if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
+  if(method==='PUT')return{attendance:[]};
+  return{registration:copy(ana),attendance:[]};
+ },{participants:[ana],summaryRead:()=>++reads===1?{summary:copy(summary)}:new Promise(resolve=>pending.push(resolve))});
+ await detailButton(h,0).listeners.click();
+ const boxes=h.root.querySelector('.f-admin-detail').querySelectorAll('.f-attendance-row').filter(row=>key(row,'statusRegistered')).map(row=>row.querySelector('input'));assert.equal(boxes.length,2);
+ const tick=h.tickTimers();assert.equal(reads,2,'the timed refresh is in flight');
+ for(const box of boxes){box.checked=true;await box.listeners.change();}
+ assert.equal(reads,2,'the writes wait for the refresh in flight instead of overlapping it');
+ pending[0]({summary:copy(summary)});await tick;await flush();
+ assert.equal(reads,3,'one more refresh runs after the one in flight');
+ pending[1]({summary:{...copy(summary),totalRegistrations:238}});await flush();
+ assert.match(content(h.root.querySelector('.f-admin-summary')),/238/);assert.equal(reads,3,'and only one for both writes');
+});
+
+test('reloading the latest settings after a conflict re-reads only the settings and leaves other drafts alone',async()=>{
+ let reads=0;
+ const h=await harness(({method})=>method==='GET'?{content:[],nextCursor:null}:{status:409,data:{error:'configuration changed; reload before saving'}},{configRead:()=>({config:++reads===1?{...DEFAULT_CONFIG,version:0}:{...DEFAULT_CONFIG,partyUrl:'https://example.test/party-latest',version:3}})});
+ const draft=editorForm(h);field(draft,'title').value='Unsaved room change';
+ const form=h.root.querySelector('.f-admin-settings').querySelector('form');field(form,'partyUrl').value='https://example.test/party-mine';await submit(form);
+ assert.equal(h.message.dataset.fiiuText,'editorConflict');
+ await key(form,'reloadLatest').listeners.click();
+ const fresh=h.root.querySelector('.f-admin-settings').querySelector('form');
+ assert.notEqual(fresh,form);assert.equal(field(fresh,'partyUrl').value,'https://example.test/party-latest');assert.equal(field(fresh,'registrationOpen').focused,true);
+ assert.equal(h.reloads(),0,'the page is not reloaded');assert.equal(h.message.dataset.fiiuText,'');
+ assert.equal(editorForm(h),draft);assert.equal(field(draft,'title').value,'Unsaved room change','an unrelated draft survives');
+ await submit(fresh);assert.equal(h.requests.filter(request=>request.method==='PUT').at(-1).body.version,3,'the next save uses the version just read');
+});
+
+test('reloading the latest review after a conflict re-reads only that participant',async()=>{
+ const ana=participant('participant-a','Ana');let reads=0;
+ const h=await harness(({path,method})=>{
+  if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
+  if(method==='PATCH')return{status:409,data:{error:'registration changed; reload before reviewing'}};
+  return{registration:++reads===1?copy(ana):{...copy(ana),labStatus:'declined',version:2},attendance:[]};
+ },{participants:[ana]});
+ const draft=editorForm(h);field(draft,'title').value='Unsaved announcement';
+ await detailButton(h,0).listeners.click();const form=h.root.querySelector('.f-review-card').querySelector('form');
+ field(form,'review').value='reviewAccepted';await submit(form);assert.equal(h.message.dataset.fiiuText,'editorConflict');
+ await key(form,'reloadLatest').listeners.click();
+ const fresh=h.root.querySelector('.f-review-card').querySelector('form');
+ assert.notEqual(fresh,form);assert.equal(field(fresh,'review').value,'reviewDeclined','the review shows what the other organiser saved');assert.equal(field(fresh,'review').focused,true);
+ assert.ok(key(h.root.querySelector('.f-participant'),'declinedShort'),'the list row is brought up to date too');
+ assert.equal(h.reloads(),0);assert.equal(field(draft,'title').value,'Unsaved announcement');
+ field(fresh,'review').value='reviewAccepted';await submit(fresh);
+ assert.deepEqual(h.requests.filter(request=>request.method==='PATCH').map(request=>request.body.version),[1,2],'the next save uses the version just read');
+});
+
+test('editing a publication sets an unsaved new draft aside: Cancel, or saving the edit, brings it back',async()=>{
+ const post={id:'p1',version:1,title:'Existing news',body:'',url:'',kind:'news',status:'published',activityId:''};let asked=0;
+ const h=await harness(({method,body})=>method==='GET'?{content:[copy(post)],nextCursor:null}:{content:{...post,...body,version:2}});h.ctx.window.confirm=()=>{asked++;return true;};
+ const editor=()=>h.root.querySelector('.f-content-editor'),draft={title:'Unsaved new post',body:'Two paragraphs, not saved yet',kind:'material',url:'https://example.test/slides'};
+ for(const [name,value] of Object.entries(draft))field(editor(),name).value=value;
+ key(h.root.querySelector('.f-pub'),'editContent').listeners.click();
+ assert.equal(asked,0,'a new draft is set aside, not discarded');assert.equal(field(editor(),'title').value,'Existing news');
+ key(editor(),'cancelEdit').listeners.click();
+ assert.ok(key(editor(),'newContent'));assert.equal(field(editor(),'title').focused,true);
+ for(const [name,value] of Object.entries(draft))assert.equal(field(editor(),name).value,value,name+' comes back after Cancel');
+ key(h.root.querySelector('.f-pub'),'editContent').listeners.click();field(editor(),'title').value='Existing news, corrected';await submit(editorForm(h));
+ assert.deepEqual(publicationTitles(h),['Existing news, corrected']);assert.ok(key(editor(),'newContent'));
+ for(const [name,value] of Object.entries(draft))assert.equal(field(editor(),name).value,value,name+' comes back after saving the edit');
+ assert.equal(asked,0);
+});
+
+test('replacing an edited publication that has unsaved changes asks first',async()=>{
+ const posts=[{id:'p1',version:1,title:'First',body:'',url:'',kind:'news',status:'published',activityId:''},{id:'p2',version:1,title:'Second',body:'',url:'',kind:'news',status:'draft',activityId:''}];let answer=false,asked=0;
+ const h=await harness(()=>({content:copy(posts),nextCursor:null}));h.ctx.window.confirm=message=>{asked++;assert.ok(message);return answer;};
+ const edit=index=>key(h.root.querySelectorAll('.f-pub')[index],'editContent').listeners.click(),title=()=>field(editorForm(h),'title');
+ edit(0);edit(1);assert.equal(asked,0,'an unchanged edit is replaced without asking');assert.equal(title().value,'Second');
+ title().value='Second, half corrected';edit(0);
+ assert.equal(asked,1);assert.equal(title().value,'Second, half corrected','declining keeps the unsaved edit');
+ answer=true;edit(0);assert.equal(asked,2);assert.equal(title().value,'First');
+});
+
+test('the registrations CSV downloads through fetch, and a failed export is reported without leaving the dashboard',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null})),timers=fakeTimers(h),events=[],signals=[],fetchPage=h.ctx.fetch,createElement=h.ctx.document.createElement;let reply;
+ h.ctx.URL={createObjectURL:blob=>{events.push(['object URL',blob]);return 'blob:nodal/export';},revokeObjectURL:href=>events.push(['revoked',href])};
+ // The lightweight DOM has no link clicks or node removal; record them instead.
+ h.ctx.document.createElement=tag=>{const node=createElement(tag);if(tag==='a')Object.assign(node,{click(){events.push(['download',this.href,this.download,this.parent===h.body]);},remove(){this.parent.children=this.parent.children.filter(child=>child!==this);this.parent=null;}});return node;};
+ h.ctx.fetch=async(path,options)=>{if(path!=='/api/admin/fiiu/export')return fetchPage(path,options);signals.push(options.signal);return reply();};
+ const csv=key(h.root.querySelector('.f-admin-head'),'export');
+ assert.equal(csv.tagName,'button');assert.equal(csv.href,undefined,'no link that would navigate the dashboard tab');assert.equal(csv['aria-describedby'],'f-export-note','the privacy note still describes it');
+ const failure=code=>async()=>({ok:false,status:code,headers:{get:()=>'application/json'},blob:async()=>{throw Error('not a CSV');}});
+ for(const [code,shown] of [[401,'unauthorized'],[429,'rate'],[502,'error']]){reply=failure(code);await csv.listeners.click();assert.equal(h.message.dataset.fiiuText,shown);assert.equal(csv.disabled,false);}
+ reply=async()=>{throw TypeError('Failed to fetch');};await csv.listeners.click();assert.equal(h.message.dataset.fiiuText,'error');
+ assert.equal(events.length,0,'nothing is downloaded when the export fails');assert.ok(h.root.querySelector('.f-admin-head'),'the dashboard stays');
+ const file={type:'text/csv'};reply=async()=>({ok:true,status:200,headers:{get:name=>name==='Content-Disposition'?'attachment; filename="fiiu-2026-registrations.csv"':'text/csv; charset=utf-8'},blob:async()=>file});
+ const downloading=csv.listeners.click();assert.equal(csv.disabled,true);assert.equal(h.message.dataset.fiiuText,'loading');await downloading;
+ assert.deepEqual(events,[['object URL',file],['download','blob:nodal/export','fiiu-2026-registrations.csv',true]]);
+ assert.equal(h.body.children.some(node=>node.tagName==='a'),false,'the temporary link is removed');assert.equal(h.message.dataset.fiiuText,'');
+ assert.deepEqual(timers.delays(),[60000]);timers.run();assert.deepEqual(events.at(-1),['revoked','blob:nodal/export']);
+ assert.ok(signals.every(signal=>signal instanceof AbortSignal),'each export has a time limit where the browser supports one');
+ h.ctx.AbortSignal={};await csv.listeners.click();
+ assert.equal(signals.at(-1),undefined);assert.deepEqual(events.at(-1),['download','blob:nodal/export','fiiu-2026-registrations.csv',true],'Safari before 16, without AbortSignal.timeout, still downloads');
+});
+
+test('settings edit only the links the public page shows and send the other saved links back unchanged',async()=>{
+ const saved={...DEFAULT_CONFIG,version:4,workshopsUrl:'https://example.test/workshops',routesUrl:'https://example.test/routes'};
+ const h=await harness(({method,body})=>method==='GET'?{content:[],nextCursor:null}:{config:{...body,version:body.version+1}},{configRead:()=>({config:copy(saved)})});
+ const form=h.root.querySelector('.f-admin-settings').querySelector('form');
+ assert.deepEqual(form.querySelectorAll('input').filter(input=>input.type==='url').map(input=>input.name),['programUrl','partyUrl']);
+ field(form,'partyUrl').value='https://example.test/party';await submit(form);
+ const body=h.requests.find(request=>request.method==='PUT').body;
+ assert.equal(body.partyUrl,'https://example.test/party');assert.equal(body.programUrl,saved.programUrl);assert.equal(body.version,4);
+ assert.equal(body.workshopsUrl,saved.workshopsUrl);assert.equal(body.routesUrl,saved.routesUrl);
+});
+
+test('a finished totals refresh returns focus to Refresh only when focus was lost, not after the organiser moved on',async()=>{
+ let reads=0,finish;const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>++reads===1?{summary:copy(summary)}:new Promise(resolve=>{finish=resolve;})});
+ const refresh=key(h.root.querySelector('.f-admin-summary'),'refreshSummary'),searchBox=field(h.root,'searchParticipants'),doc=h.ctx.document;
+ doc.activeElement=refresh;let running=refresh.listeners.click();doc.activeElement=searchBox;refresh.focused=false;
+ finish({summary:copy(summary)});await running;assert.notEqual(refresh.focused,true,'focus stays in the search box the organiser moved to');
+ doc.activeElement=refresh;running=h.tickTimers();doc.activeElement=searchBox;
+ finish({summary:copy(summary)});await running;assert.notEqual(refresh.focused,true,'a timed refresh does not pull focus back either');
+ doc.activeElement=refresh;running=refresh.listeners.click();doc.activeElement=doc.body;
+ finish({summary:copy(summary)});await running;assert.equal(refresh.focused,true,'focus that fell to the page body returns to Refresh');
+});
+
+test('participant search waits for a pause in typing, then shows rows already built without sorting or normalising the list again',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{participants:['Carla','Bruno','Ana'].map((name,i)=>participant('participant-'+i,name))});
+ const timers=fakeTimers(h),search=field(h.root,'searchParticipants'),rows=()=>h.root.querySelectorAll('.f-participant'),before=rows();
+ const prototype=vm.runInContext('String.prototype',h.ctx),{localeCompare,normalize}=prototype;let compared=0,normalised=0;
+ prototype.localeCompare=function(...args){compared++;return localeCompare.apply(this,args);};prototype.normalize=function(...args){normalised++;return normalize.apply(this,args);};
+ try{
+  type(search,'b');type(search,'br');type(search,'bru');
+  assert.equal(rows().length,3,'nothing is filtered while the organiser is still typing');assert.deepEqual(timers.delays(),[120]);
+  timers.run();assert.deepEqual(participantNames(h),['Bruno Test']);assert.equal(rows()[0],before[1],'the existing row is shown again, not rebuilt');
+  type(search,'');timers.run();assert.ok(rows().length===3&&rows().every((row,i)=>row===before[i]),'clearing the search re-attaches the same rows');
+  assert.equal(compared,0,'typing never sorts the list again');assert.equal(normalised,2,'only each query is normalised; record keys were computed when they loaded');
+ }finally{Object.assign(prototype,{localeCompare,normalize});}
+});
+
+test('participant search matches a capital I even where the default locale lowercases it to a dotless ı',async()=>{
+ const isabel=participant('participant-i','Isabel');isabel.answers.lastName='Díaz';
+ const h=await harness(()=>({content:[],nextCursor:null}),{participants:[isabel,participant('participant-b','Bruno')]}),timers=fakeTimers(h);
+ const prototype=vm.runInContext('String.prototype',h.ctx),{toLocaleLowerCase}=prototype;
+ // Safari with Turkish as the preferred language lowercases I to ı when no locale is given.
+ prototype.toLocaleLowerCase=function(){return String(this).replace(/I/g,'ı').toLowerCase();};
+ try{type(field(h.root,'searchParticipants'),'ISABEL DIAZ');timers.run();assert.deepEqual(participantNames(h),['Isabel Díaz']);}
+ finally{prototype.toLocaleLowerCase=toLocaleLowerCase;}
 });

@@ -4,14 +4,14 @@ import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 
 const source=readFileSync(new URL('../web/scripts/script.js',import.meta.url),'utf8');
-function logo({reduced=false,hidden=false,missing=false}={}) {
+function logo({reduced=false,hidden=false,missing=false,page}={}) {
  const frames=new Map(),timers=new Map(),events={},observers=[];let serial=0,writes=0;
  const motion={matches:reduced,addEventListener(_event,fn){this.change=fn;}};
  const element=()=>({style:{},attributes:{},children:[],listeners:{},classList:{add(){}},
   setAttribute(key,value){writes++;this.attributes[key]=value;},appendChild(node){this.children.push(node);},
   getTotalLength:()=>100,getBoundingClientRect:()=>({top:0,bottom:100}),addEventListener(name,fn){this.listeners[name]=fn;}});
  const svg=element(),brand=element();brand.getAttribute=()=> '#top';
- const document={hidden,readyState:'complete',getElementById:id=>id==='net'?(missing?null:svg):id==='brand'?brand:null,
+ const document={hidden,readyState:'complete',...(page?{body:{dataset:{page}}}:{}),getElementById:id=>id==='net'?(missing?null:svg):id==='brand'?brand:null,
   querySelector:()=>null,createElementNS:element,addEventListener(name,fn){events[name]=fn;}};
  const context={document,window:{matchMedia:()=>motion,IntersectionObserver:true},
   IntersectionObserver:class{constructor(fn){observers.push(fn);}observe(){}disconnect(){}},
@@ -45,4 +45,12 @@ test('logo pauses out of view and resumes one loop without accumulating replay t
 
 test('missing logo does not prevent other page initialization',()=>{
  assert.doesNotThrow(()=>logo({missing:true}));
+});
+
+test('only the landing keeps the logo floating; inner pages play the intro and then stop',()=>{
+ for(const page of ['fiiu','fiiu-admin','community']){
+  const h=logo({page});assert.equal(h.frames.size,0,page+' must not start a perpetual frame loop');assert.equal(h.timers.size,12,page+' still plays the intro');
+  h.visible(false);h.visible(true);h.hidden(true);h.hidden(false);assert.equal(h.frames.size,0);
+ }
+ const home=logo({page:'home'});assert.equal(home.frames.size,1);
 });

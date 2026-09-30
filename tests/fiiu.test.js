@@ -5,7 +5,7 @@ import {createDatabase,createUser} from '../server/db.js';
 import {createSession} from '../server/auth.js';
 import {createApp} from '../server/server.js';
 import {createFiiuStore} from '../server/fiiu-repository.js';
-import {FIIU_EVENT} from '../server/fiiu-domain.js';
+import {FIIU_EVENT,applicationStatus} from '../server/fiiu-domain.js';
 
 const answers={firstName:'Ana',lastName:'Test',country:'Perú',city:'Lima',profile:'professional',publicOfficial:false,activities:['day1-am'],externalActivities:[],nationalId:'TEST-ID',gender:'prefer_not',age:30,accessibility:['none'],motivation:'learn',previousAttendance:'no',privacyAccepted:true};
 async function setup(t,wrapStore=store=>store){
@@ -206,9 +206,13 @@ test('required questionnaire and external interest choices are validated server-
  const result=await save({...answers,accessibility:['other'],accessibilityOther:'Needs quiet area',motivation:'other',motivationOther:'Urban exchange'});
  assert.equal(result.status,200);
  const {registration}=await result.json();assert.equal(registration.answers.accessibilityOther,'Needs quiet area');
- const updated=await save({...answers,registrationId:registration.id,version:registration.version,accessibilityOther:'stale',motivationOther:'stale'});
+ // Support details saved by the first release (optional free text) survive a later save without 'other'.
+ const updated=await save({...answers,registrationId:registration.id,version:registration.version,accessibility:['mobility'],accessibilityOther:'  Uses a wheelchair  ',motivationOther:' Also presenting '});
  assert.equal(updated.status,200);const next=(await updated.json()).registration;
- assert.equal(next.answers.accessibilityOther,'');assert.equal(next.answers.motivationOther,'');
+ assert.equal(next.answers.accessibilityOther,'Uses a wheelchair');assert.equal(next.answers.motivationOther,'Also presenting');
+ for(const patch of [{accessibilityOther:'x'.repeat(501)},{motivationOther:'x'.repeat(501)},{accessibilityOther:42}])assert.equal((await save({...answers,registrationId:next.id,version:next.version,...patch})).status,400,JSON.stringify(patch).slice(0,40));
+ const cleared=await save({...answers,registrationId:next.id,version:next.version});assert.equal(cleared.status,200);
+ assert.equal((await cleared.json()).registration.answers.accessibilityOther,'','omitted details are saved as empty');
 });
 
 test('historical incomplete registrations remain readable, exportable and cancellable with legacy content and attendance',async t=>{
@@ -256,4 +260,113 @@ test('summary tolerates incomplete historical answers and does not double-count 
  assert.deepEqual(summary.activities.find(a=>a.activityId==='workshop-day1'),{activityId:'workshop-day1',registrations:0,externalInterests:1,attendance:1});
  assert.deepEqual(summary.days.find(d=>d.date==='2026-10-21'),{date:'2026-10-21',registrations:1,attendance:1});
  const empty=await store.summary('different-event',catalog);assert.equal(empty.totalRegistrations,0);assert.ok(empty.activities.every(a=>a.registrations+a.externalInterests+a.attendance===0));
+});
+
+test('door check-in has its own per-account budget and never locks the other festival writes',async t=>{
+ const {call,save}=await setup(t);const {registration}=await(await save()).json();
+ const route=`/api/admin/fiiu/registrations/${registration.id}/attendance`;
+ for(let i=0;i<300;i++){const response=await call(route,{actor:'admin',method:'PUT',body:{activityId:'day1-am',attended:i%2===0}});assert.equal(response.status,200,`check-in ${i+1}`);await response.arrayBuffer();}
+ assert.equal((await call(route,{actor:'admin',method:'PUT',body:{activityId:'day1-am',attended:true}})).status,429);
+ const news={title:'Doors open',body:'',status:'draft',kind:'news',url:'',activityId:''};
+ for(let i=0;i<30;i++){const response=await call('/api/admin/fiiu/content',{actor:'admin',method:'POST',body:news});assert.equal(response.status,201,`write ${i+1}`);await response.arrayBuffer();}
+ assert.equal((await call('/api/admin/fiiu/content',{actor:'admin',method:'POST',body:news})).status,429,'reviews, settings and publications keep their 30 per minute');
+});
+
+test('completing a blank national ID keeps a laboratory decision while a changed ID reopens review',async t=>{
+ const {call,save,db,users}=await setup(t);const store=createFiiuStore({db});
+ const lab={...answers,activities:[],publicOfficial:true,applyLab:true,institution:'Municipality',position:'Planner'};
+ // Shape saved by the first release, when the ID and questionnaire were optional; the organiser accepted it.
+ const old=await store.insert('registrations',{id:'40000000-0000-4000-8000-000000000001',eventId:'fiiu-2026',userId:users.member.id,email:'member@example.test',answers:{...lab,nationalId:'',gender:'',age:null,accessibility:[],motivation:'',previousAttendance:''},labStatus:'accepted',version:1,createdAt:'2026-09-28T00:00:00Z',updatedAt:'2026-09-28T00:00:00Z'});
+ const completed=await save({...lab,registrationId:old.id,version:1,nationalId:'12345678'});assert.equal(completed.status,200);
+ assert.equal((await completed.json()).registration.labStatus,'accepted','filling in the missing ID completes the application');
+ assert.equal((await call(`/api/admin/fiiu/registrations/${old.id}/attendance`,{actor:'admin',method:'PUT',body:{activityId:'day0-lab',attended:true}})).status,200);
+ const changed=await save({...lab,registrationId:old.id,version:2,nationalId:'87654321'});
+ assert.equal((await changed.json()).registration.labStatus,'pending','a different ID is an identity change');
+ const {nationalId,...withoutId}=lab;
+ assert.equal(applicationStatus(lab,{answers:withoutId,labStatus:'declined'}),'declined');
+ assert.equal(applicationStatus({...lab,lastName:'Other'},{answers:{...lab,nationalId:''},labStatus:'accepted'}),'pending');
+});
+
+test('a check-in racing the participant cancellation reports the registration as unavailable',async t=>{
+ let cancel=false;
+ const {call,save,db}=await setup(t,store=>({...store,async find(name,filters,options){
+  const rows=await store.find(name,filters,options);
+  // The participant cancels right after the organiser's "already confirmed?" lookup.
+  if(cancel&&name==='attendance'&&filters.activityId){cancel=false;await store.remove('registrations',{id:filters.registrationId});}
+  return rows;
+ }}));
+ const {registration}=await(await save()).json();cancel=true;
+ const response=await call(`/api/admin/fiiu/registrations/${registration.id}/attendance`,{actor:'admin',method:'PUT',body:{activityId:'day1-am',attended:true}});
+ assert.equal(response.status,404);assert.equal((await response.json()).error,'registration unavailable');
+ assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_attendance').get().n,0);
+});
+
+test('cursors are read case-insensitively and never repeat or skip rows',async t=>{
+ const {call,db}=await setup(t);const store=createFiiuStore({db});
+ const ids=['1aaaaaaa-0000-4000-8000-000000000000','aaaaaaaa-0000-4000-8000-000000000000','bbbbbbbb-0000-4000-8000-000000000000'],at='2026-09-29T00:00:00.000Z';
+ for(const [i,id] of ids.entries()){
+  const user=createUser(db,{fullName:'Cursor fixture',email:`cursor-${i}@example.test`,passwordHash:'unused',role:'member'});
+  await store.insert('registrations',{id,eventId:'fiiu-2026',userId:user.id,email:user.email,answers,labStatus:'none',version:1,createdAt:at,updatedAt:at});
+  await store.insert('content',{id,eventId:'fiiu-2026',data:{title:'Post '+i,body:'',kind:'news',url:'',activityId:''},status:'published',version:1,createdAt:at,updatedAt:at});
+ }
+ for(const cursor of [ids[0],ids[0].toUpperCase()])assert.deepEqual((await(await call('/api/admin/fiiu/registrations?cursor='+cursor,{actor:'admin'})).json()).registrations.map(r=>r.id),ids.slice(1),cursor);
+ for(const cursor of [ids[2],ids[2].toUpperCase()])assert.deepEqual((await(await call('/api/fiiu?cursor='+cursor,{actor:'guest'})).json()).content.map(c=>c.id),[ids[1],ids[0]],cursor);
+});
+
+test('the public programme answers HEAD like GET without spending write budgets and refuses other methods',async t=>{
+ const {call,save}=await setup(t);
+ const head=await call('/api/fiiu',{actor:'guest',method:'HEAD'});assert.equal(head.status,200);assert.match(head.headers.get('content-type'),/application\/json/);assert.equal(await head.text(),'');
+ for(let i=0;i<35;i++)assert.equal((await call('/api/fiiu',{method:'HEAD'})).status,200,`HEAD ${i+1}`);
+ assert.equal((await save()).status,200,'HEAD is charged as a read, not a write');
+ for(const [actor,method] of [['member','POST'],['member','PUT'],['member','DELETE'],['guest','POST']]){const response=await call('/api/fiiu',{actor,method,body:{}});assert.equal(response.status,405,actor+' '+method);assert.equal(response.headers.get('allow'),'GET, HEAD');}
+});
+
+test('a draft published later is listed and dated from its first publication, which later edits keep',async t=>{
+ const {call,db}=await setup(t);const store=createFiiuStore({db});
+ const base={body:'',kind:'news',url:'',activityId:''},pause=()=>new Promise(resolve=>setTimeout(resolve,10));
+ const write=async(method,path,body)=>{const response=await call(path,{actor:'admin',method,body});assert.equal(response.status,method==='POST'?201:200,`${method} ${body.title} ${body.status}`);return (await response.json()).content;};
+ const feed=async()=>(await(await call('/api/fiiu',{actor:'guest'})).json()).content.map(c=>c.title);
+ const a=await write('POST','/api/admin/fiiu/content',{...base,title:'A',status:'draft'});await pause();
+ const b=await write('POST','/api/admin/fiiu/content',{...base,title:'B',status:'published'});await pause();
+ const published=await write('PATCH',`/api/admin/fiiu/content/${a.id}`,{...base,title:'A',status:'published',version:1});
+ assert.ok(a.createdAt<b.createdAt&&b.createdAt<published.createdAt,'the publication time replaces the draft time');
+ assert.deepEqual(await feed(),['A','B']);assert.equal(Object.hasOwn(published,'publishedAt'),false);
+ await pause();await write('PATCH',`/api/admin/fiiu/content/${a.id}`,{...base,title:'A',status:'archived',version:2});
+ await pause();const again=await write('PATCH',`/api/admin/fiiu/content/${a.id}`,{...base,title:'A edited',status:'published',version:3});
+ assert.equal(again.createdAt,published.createdAt,'archiving, republishing and editing keep the first publication date');
+ assert.deepEqual(await feed(),['A edited','B']);
+ // Rows published before the marker existed keep their date as well.
+ const legacy=await store.insert('content',{id:'50000000-0000-4000-8000-000000000001',eventId:'fiiu-2026',data:{title:'Legacy',body:'',kind:'news',url:'',activityId:''},status:'published',version:1,createdAt:'2026-01-05T12:00:00.000Z',updatedAt:'2026-01-05T12:00:00.000Z'});
+ for(const [status,version] of [['archived',1],['published',2]])assert.equal((await write('PATCH',`/api/admin/fiiu/content/${legacy.id}`,{...base,title:'Legacy',status,version})).createdAt,legacy.createdAt);
+ assert.deepEqual(await feed(),['A edited','B','Legacy']);
+ assert.equal((await call(`/api/admin/fiiu/content/${a.id}`,{actor:'admin',method:'PATCH',body:{...base,title:'Stale',status:'draft',version:1}})).status,409);
+});
+
+test('a publication retried with its editor id is stored once and the retry returns the saved row',async t=>{
+ const {call,db}=await setup(t);const store=createFiiuStore({db});const id=crypto.randomUUID();
+ const post=body=>call('/api/admin/fiiu/content',{actor:'admin',method:'POST',body});
+ const news={id,title:'Doors open 09:00',body:'',status:'published',kind:'news',url:'',activityId:''};
+ const first=await post(news);assert.equal(first.status,201);const {content}=await first.json();assert.equal(content.id,id);
+ for(const retry of [news,{...news,id:id.toUpperCase(),title:'Edited before the retry'}]){const response=await post(retry);assert.equal(response.status,200);assert.deepEqual((await response.json()).content,content);}
+ const racing=crypto.randomUUID();assert.deepEqual((await Promise.all([post({...news,id:racing}),post({...news,id:racing})])).map(r=>r.status).sort(),[200,201]);
+ for(const invalid of ['not-a-uuid','',42])assert.equal((await post({...news,id:invalid})).status,400,String(invalid));
+ const foreign=await store.insert('content',{id:crypto.randomUUID(),eventId:'another-event',data:{title:'Elsewhere',body:'',kind:'news',url:'',activityId:''},status:'draft',version:1,createdAt:'2026-09-28T12:00:00.000Z',updatedAt:'2026-09-28T12:00:00.000Z'});
+ assert.equal((await post({...news,id:foreign.id})).status,409,'another event keeps its row');
+ assert.deepEqual({...db.prepare('SELECT event_id,status,version FROM fiiu_content WHERE id=?').get(foreign.id)},{event_id:'another-event',status:'draft',version:1});
+ for(const body of [{...news,id:undefined},{...news,id:null}])assert.equal((await post(body)).status,201);
+ assert.equal(db.prepare("SELECT count(*) AS n FROM fiiu_content WHERE event_id='fiiu-2026'").get().n,4);
+ assert.equal((await(await call('/api/fiiu',{actor:'guest'})).json()).content.filter(c=>c.id===id).length,1);
+});
+
+test('kind=materials pages recordings and materials together, newest first, and leaves news out',async t=>{
+ const {call,db}=await setup(t);const store=createFiiuStore({db});const rows=[];
+ for(let i=0;i<180;i++)rows.push(await store.insert('content',{id:`00000000-0000-4000-8000-${String(i).padStart(12,'0')}`,eventId:'fiiu-2026',data:{title:'Post '+i,body:'',kind:['news','recording','material'][i%3],url:'https://example.test/item',activityId:''},status:i===4?'draft':'published',version:1,createdAt:`2026-09-${10+i%7}T12:00:00.000Z`,updatedAt:'2026-09-29T12:00:00.000Z'}));
+ const newest=list=>list.sort((a,b)=>b.createdAt.localeCompare(a.createdAt)||b.id.localeCompare(a.id)).map(r=>r.id);
+ for(const [route,actor,expected] of [['/api/fiiu','guest',newest(rows.filter(r=>r.status==='published'&&r.data.kind!=='news'))],['/api/admin/fiiu/content','admin',newest(rows.filter(r=>r.data.kind!=='news'))]]){
+  const ids=[];let cursor,pages=0;
+  do{const response=await call(`${route}?kind=materials${cursor?'&cursor='+cursor:''}`,{actor});assert.equal(response.status,200);const page=await response.json();pages++;
+   assert.ok(page.content.every(c=>['recording','material'].includes(c.kind)));ids.push(...page.content.map(c=>c.id));cursor=page.nextCursor;}while(cursor);
+  assert.deepEqual(ids,expected,route);assert.equal(pages,2);
+ }
+ for(const kind of ['materials,news','Materials'])assert.equal((await call('/api/fiiu?kind='+encodeURIComponent(kind))).status,400);
 });

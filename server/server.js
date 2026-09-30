@@ -867,8 +867,14 @@ export function createApp({
   // Keep that shared-IP budget separate from private per-account operations.
   const fiiuPublicReadLimiter=createWindowRateLimiter({windowMs:60000,limit:600});
   const fiiuWriteLimiter=createWindowRateLimiter({windowMs:60000,limit:30});
+  // Door check-in: one organiser account may confirm a queue of arrivals from several
+  // devices, so attendance toggles have their own budget and never spend or exhaust
+  // the one for reviews, settings and publications.
+  const fiiuCheckInLimiter=createWindowRateLimiter({windowMs:60000,limit:300});
   const fiiuApi=fiiuStore?createFiiuApi({store:fiiuStore,sameOrigin,send,
-    rateLimit:(req,res,user)=>throttle(req.method==='GET'?(user?fiiuReadLimiter:fiiuPublicReadLimiter):fiiuWriteLimiter,res,req,user,'fiiu'),
+    rateLimit:(req,res,user,pathname)=>['GET','HEAD'].includes(req.method)?throttle(user?fiiuReadLimiter:fiiuPublicReadLimiter,res,req,user,'fiiu')
+      :req.method==='PUT'&&/^\/api\/admin\/fiiu\/registrations\/[^/]+\/attendance$/.test(pathname)?throttle(fiiuCheckInLimiter,res,req,user,'fiiu-checkin')
+      :throttle(fiiuWriteLimiter,res,req,user,'fiiu'),
   }):null;
   const courseApi=courseStore?createCourseApi({store:courseStore,userRepository:repository,sameOrigin,send,
     rateLimit:(req,res,user,pathname)=>throttle(pathname.endsWith('/invitations')?courseInvitationLimiter:pathname.endsWith('/attachments')?courseUploadLimiter:['GET','HEAD'].includes(req.method)?courseReadLimiter:courseWriteLimiter,res,req,user,'course'),

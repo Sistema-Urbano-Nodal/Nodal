@@ -33,7 +33,10 @@ const info=name=>{if(!TABLES[name])throw Error('unknown festival table');return 
 const checked=(table,record)=>{for(const k of Object.keys(record))if(!table.fields.includes(k))throw Error('unknown festival field');return record;};
 const from=(table,row)=>row?Object.fromEntries(table.fields.map(k=>[k,table.json.includes(k)&&typeof row[snake(k)]==='string'?JSON.parse(row[snake(k)]):row[snake(k)]])):null;
 const to=(table,record,sqlite)=>Object.fromEntries(Object.entries(checked(table,record)).map(([k,v])=>[snake(k),sqlite&&table.json.includes(k)?JSON.stringify(v):v]));
-const conflict=err=>{if(err.code==='23505'||/UNIQUE constraint/.test(err.message))fail('record changed; reload before saving',409);throw err;};
+// A missing parent (a registration cancelled mid-request) is a 404, not a server error or an opaque conflict.
+const conflict=err=>{if(err.code==='23505'||/UNIQUE constraint/.test(err.message))fail('record changed; reload before saving',409);if(err.code==='23503'||/FOREIGN KEY constraint/.test(err.message))fail('related record unavailable',404);throw err;};
+// 'materials' is the public page's combined list of recordings and materials.
+const KINDS={news:['news'],recording:['recording'],material:['material'],materials:['recording','material']};
 export function createFiiuStore({db,env=process.env,clients,fetchImpl=fetch}={}){
  if(db)db.exec(FIIU_SQLITE_SCHEMA);
  const supa=db?null:clients??createSupabaseClients({env,fetchImpl:(url,args)=>fetchImpl(url,{...args,signal:AbortSignal.timeout(15000)})});
@@ -82,16 +85,25 @@ export function createFiiuStore({db,env=process.env,clients,fetchImpl=fetch}={})
   async find(name,filters={}, {after,limit=200,newest=false,afterCreatedAt,kind}={}){
    const table=info(name);checked(table,filters);if(!Number.isInteger(limit)||limit<1||limit>200)throw Error('invalid festival limit');
    if(newest&&name!=='content')throw Error('recent order is only supported for content');
-   if(kind&&(name!=='content'||!['news','recording','material'].includes(kind)))throw Error('invalid publication kind');
+   if(kind&&(name!=='content'||!Object.hasOwn(KINDS,kind)))throw Error('invalid publication kind');
+   const kinds=kind?KINDS[kind]:[];
    if(db){const w=where(table,filters,newest?null:after);
-    if(kind){w.sql+=(w.sql?' AND ':' WHERE ')+"json_extract(data,'$.kind')=?";w.params.push(kind);}
+    if(kind){w.sql+=(w.sql?' AND ':' WHERE ')+`json_extract(data,'$.kind') IN (${kinds.map(()=>'?').join(',')})`;w.params.push(...kinds);}
     if(newest&&after){w.sql+=(w.sql?' AND ':' WHERE ')+'(created_at<? OR (created_at=? AND id<?))';w.params.push(afterCreatedAt,afterCreatedAt,after);}
     return db.prepare(`SELECT * FROM ${table.name}${w.sql} ORDER BY ${newest?'created_at DESC,id DESC':'id'} LIMIT ?`).all(...w.params,limit).map(row=>from(table,row));}
-   const query={select:table.fields.map(snake).join(','),order:newest?'created_at.desc,id.desc':'id.asc',limit,...Object.fromEntries(Object.entries(filters).map(([k,v])=>[snake(k),`eq.${v}`]))};
-   if(kind)query['data->>kind']=`eq.${kind}`;
-   if(after){if(newest)query.or=`(created_at.lt.${afterCreatedAt},and(created_at.eq.${afterCreatedAt},id.lt.${after}))`;else query.id=`gt.${after}`;}
-   // Fill logical pages even when the provider has a smaller response cap.
-   const rows=[];while(rows.length<limit){const page=await supa.admin.rest(table.name,{query:{...query,offset:rows.length,limit:limit-rows.length}});if(!Array.isArray(page))fail('festival data unavailable',502);rows.push(...page);if(!page.length)break;}
+   const query={select:table.fields.map(snake).join(','),order:newest?'created_at.desc,id.desc':'id.asc',...Object.fromEntries(Object.entries(filters).map(([k,v])=>[snake(k),`eq.${v}`]))};
+   if(kind)query['data->>kind']=kinds.length>1?`in.(${kinds.join(',')})`:`eq.${kind}`;
+   const keyset=(id,createdAt)=>newest?{or:`(created_at.lt.${createdAt},and(created_at.eq.${createdAt},id.lt.${id}))`}:{id:`gt.${id}`};
+   // Fill a logical page across a smaller provider row cap. Each follow-up continues from the last row (keyset, never
+   // OFFSET, so a write between requests cannot repeat or skip rows) and is only sent when the exact count says the short
+   // page was capped; one request answers the usual short page. Without a count, keep reading until an empty page.
+   const rows=[];let cursor=after?keyset(after,afterCreatedAt):{};
+   while(rows.length<limit){
+    const want=limit-rows.length,page=await supa.admin.rest(table.name,{query:{...query,...cursor,limit:want},includeRange:true,...(want>1?{headers:{Prefer:'count=exact'}}:{})});
+    if(!Array.isArray(page?.rows))fail('festival data unavailable',502);rows.push(...page.rows);
+    if(page.rows.length===want||!page.rows.length||page.rows.length>=Number(page.contentRange?.split('/')[1]))break;
+    cursor=keyset(page.rows.at(-1).id,page.rows.at(-1).created_at);
+   }
    return rows.map(row=>from(table,row));
   },
   async insert(name,record){const table=info(name),row=to(table,record,!!db),keys=Object.keys(row);try{

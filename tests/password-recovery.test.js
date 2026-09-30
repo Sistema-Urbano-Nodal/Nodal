@@ -186,3 +186,7 @@ test('pending password reset guards its one-use code and prevents switching to a
   const retry=h.submit('recoveryReset');assert.equal(h.calls.length,2);assert.equal(h.calls[1].body.code,'one-use-code');finish(response({passwordChanged:true}));await retry;
   assert.equal(h.nodes.get('recoveryReset').hidden,true);assert.equal(h.nodes.get('recoveryPassword').value,'');assert.match(h.nodes.get('recoveryMessage').textContent,/Your password has been changed/);
 });
+test('recovery requests still run where AbortSignal has no timeout (Safari before 16, every iOS 15 browser)',async()=>{
+  const h=ui(async()=>response({ok:true},202),{search:''});h.context.AbortSignal={};h.nodes.get('recoveryEmail').value='member@example.test';await h.submit('recoveryRequest');
+  assert.equal(h.calls.length,1);assert.equal(h.calls[0].options.signal,undefined);assert.match(h.nodes.get('recoveryMessage').textContent,/If an account uses this email/);
+});

@@ -13,7 +13,7 @@ function samePost(post, input, courseId, moduleId) {
     ['kind','body','parentId'].every(key => post[key] === input[key]) &&
     ['links','attachmentIds'].every(key => JSON.stringify(post[key]) === JSON.stringify(input[key]));
 }
-async function bodyJson(req, limit = 64 * 1024) {
+export async function bodyJson(req, limit = 64 * 1024) {
   if (!String(req.headers['content-type'] || '').toLowerCase().startsWith('application/json')) fail('JSON request required',415);
   let length=0;const chunks=[];
   for await(const chunk of req) { length+=chunk.length;if(length>limit) fail('request too large',413);chunks.push(chunk); }

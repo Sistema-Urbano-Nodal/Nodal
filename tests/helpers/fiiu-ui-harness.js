@@ -13,7 +13,7 @@ export class Node {
  getAttribute(key){return this[key]??null;}
  removeAttribute(key){delete this[key];}
  addEventListener(key,listener){this.listeners[key]=listener;}
- querySelectorAll(selector){return descendants(this).filter(node=>selector.split(',').some(part=>part.startsWith('.')?node.className?.split(' ').includes(part.slice(1)):part==='[data-fiiu-text]'?node.dataset.fiiuText:part==='[data-fiiu-date]'?node.dataset.fiiuDate:node.tagName===part));}
+ querySelectorAll(selector){return descendants(this).filter(node=>selector.split(',').some(part=>part.startsWith('.')?node.className?.split(' ').includes(part.slice(1)):part==='[data-fiiu-text]'?node.dataset.fiiuText:part==='[data-fiiu-date]'?node.dataset.fiiuDate:part==='[data-fiiu-range]'?node.dataset.fiiuRange:node.tagName===part));}
  querySelector(selector){return this.querySelectorAll(selector)[0]||null;}
  get elements(){return Object.fromEntries(descendants(this).filter(node=>node.name).map(node=>[node.name,node]));}
  focus(){this.focused=true;}
@@ -31,13 +31,14 @@ export const flush=async()=>{for(let i=0;i<6;i++)await new Promise(resolve=>setI
 export const key=(node,name)=>descendants(node).find(child=>child.dataset.fiiuText===name);
 export const field=(node,name)=>descendants(node).find(child=>child.name===name);
 export const content=node=>[node.textContent,...node.children.map(content)].join(' ');
-export async function createFiiuHarness(respond,{page='fiiu'}={}){
+// context adds or replaces globals of the page (for example a Date frozen at a festival hour, or a browser without AbortSignal.timeout).
+export async function createFiiuHarness(respond,{page='fiiu',context={}}={}){
  const body=new Node('body'),root=new Node(),message=new Node(),requests=[],languageListeners=[],timers=[];body.append(root,message);let reloads=0;
  const document={body,visibilityState:'visible',documentElement:{lang:'en'},getElementById:id=>['fiiuRoot','fiiuAdminRoot'].includes(id)?root:message,createElement:tag=>new Node(tag),createTextNode:value=>Object.assign(new Node('text'),{textContent:value}),querySelectorAll:selector=>body.querySelectorAll(selector),querySelector:selector=>body.querySelector(selector)};
  const ctx={document,FormData,Intl,Date,Error,AbortSignal,setInterval:(callback,delay)=>timers.push({callback,delay}),location:{hash:'',reload(){reloads++;}},window:{confirm:()=>true,nodalI18n:{lang:'en',onChange:listener=>languageListeners.push(listener)}},fetch:async(path,options)=>{
   const request={path,method:options.method||'GET',body:options.body?JSON.parse(options.body):undefined};requests.push(request);const result=await respond(request);
   return{ok:!result.status||result.status<400,status:result.status||200,json:async()=>result.data??result};
  }};
- vm.createContext(ctx);for(const name of ['fiiu-ui',page])vm.runInContext(source(name),ctx);await flush();
+ vm.createContext(Object.assign(ctx,context));for(const name of ['fiiu-ui',page])vm.runInContext(source(name),ctx);await flush();
  return{body,root,message,requests,ctx,timers,tickTimers:()=>Promise.all(timers.map(timer=>timer.callback())),visible:value=>{document.visibilityState=value?'visible':'hidden';},reloads:()=>reloads,lang:lang=>{ctx.window.nodalI18n.lang=lang;languageListeners.forEach(listener=>listener());}};
 }

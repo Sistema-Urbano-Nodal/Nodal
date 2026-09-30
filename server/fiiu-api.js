@@ -1,15 +1,12 @@
 import {randomUUID} from 'node:crypto';
 import {fail,identifier,csv} from './courses-domain.js';
+import {bodyJson} from './courses-api.js';
 import {EVENT_ID,FIIU_EVENT,ALL_FIIU_ACTIVITIES,DEFAULT_CONFIG,normalizeRegistration,applicationStatus,version,normalizeContent,contentView,normalizeConfig} from './fiiu-domain.js';
 const now=()=>new Date().toISOString();
 // Bind an open browser form to the account that loaded it. Ownership is still
 // derived from the session; older clients can omit this additional guard.
 function sameAccount(input,user){if(input.expectedUserId!==undefined&&input.expectedUserId!==user.id)fail('account changed; reload before continuing',409);}
-async function body(req){
- if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))fail('JSON request required',415);
- let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>24576)fail('request too large',413);chunks.push(chunk);}
- try{const value=JSON.parse(Buffer.concat(chunks).toString());if(!value||typeof value!=='object'||Array.isArray(value))fail('JSON object required');return value;}catch(err){if(err.status)throw err;fail('invalid JSON');}
-}
+const body=req=>bodyJson(req,24576);
 export async function exportFiiuData(store,userId){
  const registration=(await store.find('registrations',{eventId:EVENT_ID,userId},{limit:1}))[0]??null;
  const attendance=registration?await store.find('attendance',{registrationId:registration.id}):[];
@@ -19,22 +16,25 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true}){
  const one=async(name,filters)=>(await store.find(name,filters,{limit:1}))[0]??null;
  const config=async()=>{const row=await one('config',{id:EVENT_ID});return {...DEFAULT_CONFIG,...row?.data,version:row?.version??0};};
  const publications=async(url,onlyPublished)=>{
+  // kind=materials lists recordings and materials together, with the same newest-first cursor as the other kinds.
   const kind=url.searchParams.get('kind')||undefined;
-  if(kind&&!['news','recording','material'].includes(kind))fail('invalid publication kind');
-  const after=url.searchParams.get('cursor');let previous;
-  if(after){previous=await one('content',{id:identifier(after),eventId:EVENT_ID});if(!previous)fail('invalid content cursor');}
-  const rows=await store.find('content',{eventId:EVENT_ID,...(onlyPublished?{status:'published'}:{})},{kind,newest:true,after,afterCreatedAt:previous?.createdAt,limit:100});
+  if(kind&&!['news','recording','material','materials'].includes(kind))fail('invalid publication kind');
+  const cursor=url.searchParams.get('cursor'),previous=cursor?await one('content',{id:identifier(cursor),eventId:EVENT_ID}):null;
+  if(cursor&&!previous)fail('invalid content cursor');
+  const rows=await store.find('content',{eventId:EVENT_ID,...(onlyPublished?{status:'published'}:{})},{kind,newest:true,after:previous?.id,afterCreatedAt:previous?.createdAt,limit:100});
   return {content:rows.map(contentView),nextCursor:rows.length===100?rows.at(-1).id:null};
  };
  return async({req,res,url,user})=>{
   const path=url.pathname;
   if(!/^\/api\/(?:fiiu(?:\/|$)|admin\/fiiu(?:\/|$))/.test(path))return false;
-  const staff=path.startsWith('/api/admin/');
-  if(!(path==='/api/fiiu'&&req.method==='GET')&&!user){send(res,401,{error:'sign in required'});return true;}
+  const staff=path.startsWith('/api/admin/'),read=['GET','HEAD'].includes(req.method);
+  // The public programme is read-only; HEAD is answered like GET (Node sends no body for it).
+  if(path==='/api/fiiu'&&!read){send(res,405,{error:'method not allowed'},{Allow:'GET, HEAD'});return true;}
+  if(path!=='/api/fiiu'&&!user){send(res,401,{error:'sign in required'});return true;}
   if(staff&&user.permission!=='admin'){send(res,403,{error:'administrator access required'});return true;}
-  if(!['GET','HEAD'].includes(req.method)&&!sameOrigin(req)){send(res,403,{error:'cross-origin request rejected'});return true;}
-  if(!rateLimit(req,res,user))return true;
-  if(path==='/api/fiiu'&&req.method==='GET'){
+  if(!read&&!sameOrigin(req)){send(res,403,{error:'cross-origin request rejected'});return true;}
+  if(!rateLimit(req,res,user,path))return true;
+  if(path==='/api/fiiu'){
    const [settings,page]=await Promise.all([config(),publications(url,true)]);
    send(res,200,{event:FIIU_EVENT,config:settings,...page});return true;
   }
@@ -69,7 +69,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true}){
    send(res,200,{summary:await store.summary(EVENT_ID,ALL_FIIU_ACTIVITIES)});return true;
   }
   if(path==='/api/admin/fiiu/registrations'&&req.method==='GET'){
-   const after=url.searchParams.get('cursor');if(after)identifier(after);
+   const cursor=url.searchParams.get('cursor'),after=cursor?identifier(cursor):undefined;
    const registrations=await store.find('registrations',{eventId:EVENT_ID},{after,limit:100});
    send(res,200,{registrations,nextCursor:registrations.length===100?registrations.at(-1).id:null});return true;
   }
@@ -93,19 +93,34 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true}){
     const input=await body(req),activity=ALL_FIIU_ACTIVITIES.find(a=>a.id===input.activityId);
     if(!activity||typeof input.attended!=='boolean')fail('invalid attendance');
     if(input.attended&&((activity.registration==='general'&&!registration.answers.activities.includes(activity.id))||(activity.registration==='application'&&registration.labStatus!=='accepted')))fail('participant is not registered for this activity');
+    // The participant may cancel between the registration lookup and the insert; the store reports that lost parent as 404.
     const filters={registrationId:registration.id,activityId:activity.id};
     if(!input.attended)await store.remove('attendance',filters);
-    else if(!await one('attendance',filters)){try{await store.insert('attendance',{id:randomUUID(),...filters,confirmedBy:user.id,createdAt:now()});}catch(err){if(err.status!==409||!await one('attendance',filters))throw err;}}
+    else if(!await one('attendance',filters)){try{await store.insert('attendance',{id:randomUUID(),...filters,confirmedBy:user.id,createdAt:now()});}catch(err){if(err.status===404)fail('registration unavailable',404);if(err.status!==409||!await one('attendance',filters))throw err;}}
     send(res,200,{attendance:await store.find('attendance',{registrationId:registration.id})});return true;
    }
   }
   if(path==='/api/admin/fiiu/content'){
    if(req.method==='GET'){send(res,200,await publications(url,false));return true;}
-   if(req.method==='POST'){const input=normalizeContent(await body(req));const content=await store.insert('content',{id:randomUUID(),eventId:EVENT_ID,...input,version:1,createdAt:now(),updatedAt:now()});send(res,201,{content:contentView(content)});return true;}
+   if(req.method==='POST'){
+    // The editor may send a UUID made once per new publication and reuse it on retry: a save whose response was lost
+    // then returns the stored row instead of publishing twice. Ids held by another event are never reused or changed.
+    const input=await body(req),publication=normalizeContent(input),id=input.id==null?randomUUID():identifier(input.id),stamp=now();
+    let content;try{content=await store.insert('content',{id,eventId:EVENT_ID,...publication,...(publication.status==='published'?{data:{...publication.data,publishedAt:stamp}}:{}),version:1,createdAt:stamp,updatedAt:stamp});}
+    catch(err){const existing=input.id!=null&&err.status===409&&await one('content',{id,eventId:EVENT_ID});if(!existing)throw err;send(res,200,{content:contentView(existing)});return true;}
+    send(res,201,{content:contentView(content)});return true;
+   }
   }
   match=path.match(/^\/api\/admin\/fiiu\/content\/([^/]+)$/);
   if(match&&req.method==='PATCH'){
-   const input=await body(req),expected=version(input.version),content=await store.update('content',{id:identifier(match[1]),eventId:EVENT_ID,version:expected},{...normalizeContent(input),version:expected+1,updatedAt:now()});
+   const input=await body(req),expected=version(input.version),id=identifier(match[1]),next=normalizeContent(input),current=await one('content',{id,eventId:EVENT_ID});
+   if(current?.version!==expected)fail('content changed; reload before saving',409);
+   // Feeds are ordered and dated by createdAt, so a publication's first move to 'published' restamps it: a draft written
+   // earlier then appears, and is dated, where it went public. data.publishedAt remembers that moment across later edits,
+   // archiving and republishing (rows published before the marker existed keep their createdAt). No schema change needed.
+   const stamp=now(),first=next.status==='published'&&current.status!=='published'&&!current.data.publishedAt;
+   const publishedAt=first?stamp:current.data.publishedAt||(current.status==='published'?current.createdAt:undefined);
+   const content=await store.update('content',{id,eventId:EVENT_ID,version:expected},{...next,data:{...next.data,...(publishedAt?{publishedAt}:{})},...(first?{createdAt:stamp}:{}),version:expected+1,updatedAt:stamp});
    if(!content)fail('content changed; reload before saving',409);send(res,200,{content:contentView(content)});return true;
   }
   send(res,404,{error:'not found'});return true;

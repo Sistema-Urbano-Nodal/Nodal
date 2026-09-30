@@ -131,6 +131,7 @@ h1, h2, h3 {
   background: rgba(255,255,255,.6); border-color: #fff;
 }
 .nav-main a:active, .nav-account a:not(.btn):active { transform: scale(.94); }
+.nav-main a[aria-current="page"] { background: #fff; border-color: #fff; font-weight: 600; }
 .btn-pill.btn-nav { position: relative; overflow: hidden; }
 
 /* minimalist language switcher — glass pill matching the nav language */
@@ -624,9 +625,9 @@ h1, h2, h3 {
 .t-label { display: block; margin-top: 6px; color: rgba(255,255,255,.8); font-size: 15px; line-height: 1.4; }
 
 /* CTA band */
-.cta-band { background: var(--green-bright); color: #fff; text-align: center; padding: clamp(60px,9vh,110px) 0; }
+.cta-band { background: var(--green-bright); color: var(--ink); text-align: center; padding: clamp(60px,9vh,110px) 0; }
 .cta-band h2 { font-size: clamp(30px,4vw,54px); font-weight: 800; }
-.cta-band p { margin: 14px 0 30px; font-size: clamp(16px,1.8vw,20px); opacity: .92; }
+.cta-band p { margin: 14px 0 30px; font-size: clamp(16px,1.8vw,20px); }
 .cta-band .btn-primary { background: #fff; color: var(--green-deep); box-shadow: 4px 4px 0 var(--green-deep); }
 .cta-band .btn-primary:hover { background: var(--green-deep); color: #fff; box-shadow: 6px 6px 0 var(--ink); }
 .cta-band .btn-primary:active { box-shadow: 1px 1px 0 var(--ink); }

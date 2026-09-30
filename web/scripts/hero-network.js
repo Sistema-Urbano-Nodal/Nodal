@@ -501,7 +501,7 @@
     for (const e of ties) { e.r.el.classList.add('is-near'); near.push([e.r.el, 'is-near']); mark(e.A === c ? e.B : e.A, 'is-near'); }
     const deg = mode === 'still' ? c.deg : degreeNow(c.id), rim = rOf(deg) + (deg >= 4 ? 8 : 2); // halo, or the knockout ring
     const [anchor, x, y] = placeLabel(c, rOf(deg), rim);
-    label.el.textContent = c.name.toLocaleUpperCase();
+    label.el.textContent = c.name.toLocaleUpperCase(document.documentElement.lang || 'es');
     put(label, 'font-size', fx(11 * W)); put(label, 'stroke-width', fx(3 * W));
     put(label, 'x', fx(x)); put(label, 'y', fx(y)); put(label, 'text-anchor', anchor);
     label.el.classList.add('is-on');

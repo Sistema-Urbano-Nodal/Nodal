@@ -11,7 +11,7 @@ function harness(reply=async()=>({ok:true,status:200,data:{user:{id:'u1'}}}),sea
  vm.createContext(context);vm.runInContext(source,context);
  const submit=id=>nodes[id].listeners.submit({preventDefault(){}});
  const valid=()=>{nodes.loginEmail.value='member@example.test';nodes.loginPassword.value='password123';nodes.signupName.value='Test Member';nodes.signupEmail.value='new@example.test';nodes.signupPassword.value='newpassword123';};
- return{nodes,requests,submit,valid,assigned:()=>assigned,timeout:()=>timeout,lang:value=>{context.window.nodalI18n.lang=value;nodes.loginForm.button.textContent='main i18n sign-in label';nodes.signupForm.button.textContent='main i18n create label';listeners.forEach(f=>f());}};
+ return{nodes,requests,submit,valid,context,assigned:()=>assigned,timeout:()=>timeout,lang:value=>{context.window.nodalI18n.lang=value;nodes.loginForm.button.textContent='main i18n sign-in label';nodes.signupForm.button.textContent='main i18n create label';listeners.forEach(f=>f());}};
 }
 test('sign-in and signup become usable only after their submit handlers are installed',()=>{
  const h=harness();
@@ -89,4 +89,7 @@ test('real API status variants map to specific feedback and malformed success ne
  ];
  for(const [status,error,form,expected] of cases){const h=harness(async()=>({ok:false,status,data:{error}}));h.valid();h.lang('es');await h.submit(form);assert.match(h.nodes[form==='loginForm'?'loginError':'signupError'].textContent,expected);assert.equal(h.nodes[form].button.disabled,false);assert.equal(h.assigned(),'');}
  const h=harness(async()=>({ok:true,status:200,data:{}}));h.valid();await h.submit('loginForm');assert.equal(h.assigned(),'');assert.equal(h.nodes.loginForm.button.disabled,false);
+});
+test('sign-in and signup still send their request where AbortSignal has no timeout (Safari before 16, every iOS 15 browser)',async()=>{
+ for(const form of ['loginForm','signupForm']){const h=harness();h.context.AbortSignal={};h.valid();await h.submit(form);assert.equal(h.requests.length,1,form);assert.equal(h.requests[0].options.signal,undefined);assert.match(h.assigned(),/^\/[a-z]+\.html$/,'the account opens as usual');}
 });

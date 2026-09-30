@@ -6,7 +6,7 @@ const ROOT = path.resolve(import.meta.dirname, '..');
 const copy = {
   en: {
     file:'en', title:'Privacy policy', home:'Back to NODAL', contents:'On this page', skip:'Skip to policy',
-    date:'Updated 19 September 2026', status:'Draft for review',
+    date:'Updated 30 September 2026', status:'Draft for review',
     notice:'This is a public draft. The legal entity, privacy contact, retention periods and provider arrangements are still being confirmed. It has not yet been adopted as a final policy.',
     controller:'NODAL is a learning and networking platform for people interested in urban issues. The legal identity, registration and address of the entity responsible for personal data are awaiting confirmation.',
     contact:'the team’s existing contact details',
@@ -17,7 +17,7 @@ const copy = {
   },
   es: {
     file:'es', title:'Política de privacidad', home:'Volver a NODAL', contents:'En esta página', skip:'Ir a la política',
-    date:'Actualizado el 19 de septiembre de 2026', status:'Borrador en revisión',
+    date:'Actualizado el 30 de septiembre de 2026', status:'Borrador en revisión',
     notice:'Este es un borrador público. La entidad responsable, el contacto de privacidad, los plazos de conservación y los acuerdos con proveedores están pendientes de confirmación. Aún no se ha adoptado como política definitiva.',
     controller:'NODAL es una plataforma de aprendizaje y conexión entre personas interesadas en temas urbanos. La identidad legal, el registro y el domicilio de la entidad responsable de los datos están pendientes de confirmación.',
     contact:'los contactos actuales del equipo',
@@ -28,7 +28,7 @@ const copy = {
   },
   pt: {
     file:'pt-BR', title:'Política de privacidade', home:'Voltar à NODAL', contents:'Nesta página', skip:'Ir para a política',
-    date:'Atualizado em 19 de setembro de 2026', status:'Minuta em revisão',
+    date:'Atualizado em 30 de setembro de 2026', status:'Minuta em revisão',
     notice:'Esta é uma minuta pública. A entidade responsável, o contato de privacidade, os prazos de retenção e os acordos com fornecedores ainda estão em confirmação. Ela ainda não foi adotada como política definitiva.',
     controller:'A NODAL é uma plataforma de aprendizagem e conexão entre pessoas interessadas em temas urbanos. A identidade jurídica, o registro e o endereço da entidade responsável pelos dados ainda estão em confirmação.',
     contact:'os contatos atuais da equipe',

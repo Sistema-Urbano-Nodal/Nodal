@@ -32,6 +32,8 @@
   let visible = true, animationFrame = null;
   const introTimers = new Set();
   const active = () => visible && !document.hidden && !motion?.matches;
+  // Only the landing keeps the mark floating; on inner pages the sticky header never scrolls it away, so the loop would never pause.
+  const floats = (document.body?.dataset?.page ?? 'home') === 'home';
   const NS = 'http://www.w3.org/2000/svg';
   const { nodes, edges } = CONFIG;
 
@@ -102,7 +104,7 @@
       animationFrame = null;
       settle();
       if (motion?.matches) renderPositions();
-    } else if (animationFrame === null) animationFrame = requestAnimationFrame(loop);
+    } else if (animationFrame === null && floats) animationFrame = requestAnimationFrame(loop);
   }
   function later(callback, delay) {
     const id = setTimeout(() => { introTimers.delete(id); callback(); }, delay);

@@ -8,11 +8,12 @@
  // choiceInputs maps an activity id to its form checkbox, so programme actions can pre-select it.
  // programmeActions maps an activity id to its programme button, so the button can show that the box is now ticked in the form.
  const choiceInputs=new Map(),programmeActions=new Map(),dayChips=new Map(),visibleDays=new Set();
- const message=el('p','f-status');message.setAttribute('role','status');message.setAttribute('aria-live','polite');
+ // The status line can take focus, so a failed save can move there (fiiu.css keeps focused controls clear of the sticky bars).
+ const message=el('p','f-status');message.setAttribute('role','status');message.setAttribute('aria-live','polite');message.tabIndex=-1;
  const panelNotice=el('p','f-status f-notice is-ok');panelNotice.setAttribute('role','status');panelNotice.setAttribute('aria-live','polite');
  const missingAnswers=a=>['country','city','profile','nationalId','gender','motivation','previousAttendance'].filter(k=>!a[k]).length+(Number.isInteger(a.age)?0:1)+(Array.isArray(a.accessibility)&&a.accessibility.length?0:1)+(typeof a.publicOfficial==='boolean'?0:1);
  function jumpTo(input,event){event?.preventDefault?.();if(!input)return;openForm?.();const fold=input.closest?.('details');if(fold)fold.open=true;input.focus();input.scrollIntoView?.({block:'center'});}
- function typeCounts(list){const counts={};for(const activity of list){const type=typeOf(activity);counts[type]=(counts[type]||0)+1;}return TYPES.filter(([type])=>counts[type]).map(([type,one,many])=>countLabel(counts[type],one,many,'f-count f-type-count'));}
+ function typeCounts(list){const counts={};for(const activity of list){const type=typeOf(activity);counts[type]=(counts[type]||0)+1;}return TYPES.filter(([type])=>counts[type]).map(([type,one,many])=>countLabel(counts[type],one,many));}
  function renderHero(){
   const event=festival.event,config=festival.config,registration=me.registration,copy=el('div','f-hero-copy'),title=el('h1','f-hero-title'),kicker=el('span','f-kicker');
   kicker.append(el('span','',event.title),source('span',event.city));title.append(kicker,source('span',event.theme,'f-hero-theme'));
@@ -27,7 +28,8 @@
    if(missingAnswers(a))pills.append(tr('span','actionNeeded','f-pill is-pending'));
    copy.append(pills);
   }
-  const actions=el('div','f-actions');actions.append(link(registration?'viewRegistration':'register','#registration','f-button'));if(config.programUrl)actions.append(link('officialProgram',config.programUrl));actions.append(link('website',event.website,'f-text-link'));copy.append(actions);
+  // Once registration closes, people without one are pointed to the programme instead of a form they cannot send.
+  const actions=el('div','f-actions');actions.append(registration?link('viewRegistration','#registration','f-button'):config.registrationOpen?link('register','#registration','f-button'):link('viewProgramme','#programme','f-button'));if(config.programUrl)actions.append(link('officialProgram',config.programUrl));actions.append(link('website',event.website,'f-text-link'));copy.append(actions);
   // The poster repeats the facts row visually, so it is hidden from assistive technology.
   const next=nextFor(registration,event),panel=el('aside','f-date-panel'+(next?' has-next':'')),poster=el('div','f-date-poster'),range=el('strong','f-date-range');poster.setAttribute('aria-hidden','true');
   range.append(el('span','',String(Number(event.startsOn.slice(8)))),el('span','f-date-separator','–'),el('span','',String(Number(event.endsOn.slice(8)))));
@@ -55,7 +57,7 @@
   card.append(apply);return card;
  }
  function conferenceCard(activity,mine){
-  const card=el('article','f-activity is-conference'+(mine?' is-mine':'')),rail=el('div','f-time-rail'),body=el('div','f-activity-body'),title=source('h4',activity.title);title.id='f-act-'+activity.id+'-title';
+  const card=el('article','f-activity is-conference'),rail=el('div','f-time-rail'),body=el('div','f-activity-body'),title=source('h4',activity.title);title.id='f-act-'+activity.id+'-title';
   rail.append(activity.time?el('p','f-time',activity.time):tr('p','timePending','f-muted'),tr('p',activity.period,'f-period'));
   const foot=el('div','f-activity-foot'),action=choiceAction(activity,mine,'statusRegistered','addToRegistration',title.id);body.append(activity.venue?source('p',activity.venue,'f-venue'):tr('p','venuePending','f-muted f-venue'));
   if(activity.sessions.length){const details=el('details','f-sessions'),summary=el('summary'),list=el('ul','f-session-list');summary.append(countLabel(activity.sessions.length,'sessionOne','sessions'));describe(summary,title.id);for(const [time,name] of activity.sessions){const item=el('li');item.append(el('span','f-session-time',time),source('span',name));list.append(item);}details.append(summary,list);foot.append(details);}
@@ -63,13 +65,19 @@
   // The title comes first in the DOM so heading navigation lands before the time; CSS places the time rail beside it.
   card.append(title,rail,body);return card;
  }
+ // A workshop shows its venue and a route its starting point, as a quiet line under the title; an external activity without one shows nothing.
+ function venueLine(activity,cls){
+  if(!activity.venue)return null;if(typeOf(activity)!=='route')return source('p',activity.venue,cls);
+  const line=el('p',cls);line.append(tr('span','startingPoint','f-venue-label'),source('span',' '+activity.venue));return line;
+ }
  function typeGroup(type,items,interests){
-  const group=el('div','f-type-group is-'+type),head=el('div','f-type-head'),list=el('ul','f-compact-list');
+  const group=el('div','f-type-group'),head=el('div','f-type-head'),list=el('ul','f-compact-list');
   head.append(tr('h4',type),tr('span','external','f-type-note'));
   for(const activity of items){
-   const mine=interests.has(activity.id),row=el('li','f-compact'+(mine?' is-mine':'')),title=source('p',activity.title,'f-compact-title'),actions=el('div','f-compact-actions');title.id='f-act-'+activity.id+'-title';
+   const mine=interests.has(activity.id),row=el('li','f-compact'),main=el('div','f-compact-main'),title=source('p',activity.title,'f-compact-title'),where=venueLine(activity,'f-compact-venue'),actions=el('div','f-compact-actions');title.id='f-act-'+activity.id+'-title';
+   main.append(title);if(where)main.append(where);
    const action=choiceAction(activity,mine,'interestChip','saveInterest',title.id);if(action)actions.append(action);
-   actions.append(describe(link('activityForm',activity.formUrl||festival.event.website,'f-text-link'),title.id));row.append(title,actions);list.append(row);
+   actions.append(describe(link('activityForm',activity.formUrl||festival.event.website,'f-text-link'),title.id));row.append(main,actions);list.append(row);
   }
   group.append(head,list);return group;
  }
@@ -120,7 +128,7 @@
   plan.append(...unknownActivities.map(unknownRow));if(plan.children.length)box.append(tr('h4','myPlan'),plan);
   if(a.externalActivities?.length){
    const [interests,unknownInterests]=split(a.externalActivities),list=el('ol','f-itinerary');
-   for(const activity of interests){const row=itineraryRow(activity,prefix);row.append(tr('span','interestChip','f-pill'));if(activity.formUrl)row.append(describe(link('externalFormNext',activity.formUrl,'f-text-link'),prefix+activity.id));list.append(row);}
+   for(const activity of interests){const row=itineraryRow(activity,prefix),where=venueLine(activity,'f-itinerary-venue');row.append(tr('span','interestChip','f-pill'));if(where)row.append(where);if(activity.formUrl)row.append(describe(link('externalFormNext',activity.formUrl,'f-text-link'),prefix+activity.id));list.append(row);}
    list.append(...unknownInterests.map(unknownRow));box.append(tr('h4','externalActivities'),tr('p','externalInterestHint','f-muted'),list);
   }
   box.append(tr('p','savedHint','f-muted'));
@@ -132,12 +140,14 @@
   choiceInputs.clear();openForm=null;officialInput=null;syncForm=null;sizeObserver?.disconnect();stepObserver?.disconnect();status(message,'');panelBody.replaceChildren();status(panelNotice,notice);notice='';
   registrationHost.className='f-registration'+(!me.user||(!festival.config.registrationOpen&&!me.registration)?' is-compact':'');
   if(!me.user){
-   if(!festival.config.registrationOpen)panelBody.append(tr('p','closed','f-notice'));
-   panelBody.append(tr('p','signinHint'));
-   if(festival.config.registrationOpen){const list=el('ul','f-checklist');for(const key of ['canConferences','canLab','canInterests'])list.append(tr('li',key));panelBody.append(list,tr('p','formDuration','f-muted'));}
-   panelBody.append(link('signin','login.html?next='+encodeURIComponent('/fiiu.html#registration'),'f-button'),tr('p','privateHint','f-muted f-guest-privacy'));return;
+   // Once registration closes, the guest panel only leads people who already registered back to their registration.
+   const open=festival.config.registrationOpen;
+   if(!open)panelBody.append(tr('p','closed','f-notice'));
+   panelBody.append(open?tr('p','signinHint'):tr('p','signinClosedHint','f-closed-hint'));
+   if(open){const list=el('ul','f-checklist');for(const key of ['canConferences','canLab','canInterests'])list.append(tr('li',key));panelBody.append(list,tr('p','formDuration','f-muted'));}
+   panelBody.append(link('signin','login.html?next='+encodeURIComponent('/fiiu.html#registration'),'f-button'));if(open)panelBody.append(tr('p','privateHint','f-muted f-guest-privacy'));return;
   }
-  const expectedUserId=me.user.id,conflictBox=el('div','f-conflict');let busy=false;
+  const expectedUserId=me.user.id,conflictBox=el('div','f-conflict');let busy=false,saveState='';
   function lock(){
    busy=true;const active=document.activeElement,controls=[...registrationHost.querySelectorAll('input,select,textarea,button')].map(control=>[control,control.disabled]),form=registrationHost.querySelector('form');
    for(const [control] of controls)control.disabled=true;form?.setAttribute('aria-busy','true');
@@ -236,7 +246,8 @@
   access.setAttribute('aria-describedby','f-hint-accessibilityHint');access.append(accessLegend,hint('accessibilityHint'),accessGrid);
   // aria-invalid is always explicit: without it Chromium exposes empty required selects and checkboxes as invalid before any interaction.
   const valid=(control,key)=>{control.setCustomValidity(key?t(key):'');customKeys.set(control,key);if(!key)flag(control,null);};
-  const syncOther=()=>{for(const [f,needed] of [[accessOther,[...access.querySelectorAll('input')].some(input=>input.value==='other'&&input.checked)],[motivationOther,questions.motivation.input.value==='other']]){f.wrap.hidden=!needed;f.input.disabled=!needed;f.setRequired(needed);if(!needed)clearLocalised(f.input);}};
+  // Text saved without "Other" (the first release asked for it freely) stays shown and is sent again, so a later save never erases it; only "Other" makes it required.
+  const syncOther=()=>{for(const [f,needed] of [[accessOther,[...access.querySelectorAll('input')].some(input=>input.value==='other'&&input.checked)],[motivationOther,questions.motivation.input.value==='other']]){const shown=needed||Boolean(String(a[f.input.name]??'').trim());f.wrap.hidden=!shown;f.input.disabled=!shown;f.setRequired(needed);if(!needed)clearLocalised(f.input);}};
   const syncAccess=()=>{const inputs=[...access.querySelectorAll('input')];valid(inputs[0],inputs.some(input=>input.checked)?'':'accessibilityRequired');syncOther();};
   for(const key of ['none','mobility','visual','hearing','communication','other']){const c=check(key,'accessibility',key,a.accessibility?.includes(key));c.input.addEventListener('change',()=>{if(c.input.checked)access.querySelectorAll('input').forEach(input=>{if(input!==c.input&&(key==='none'||input.value==='none'))input.checked=false;});syncAccess();});accessGrid.append(c.wrap);}
   questions.motivation.input.addEventListener('change',syncOther);syncLab();syncOther();
@@ -253,11 +264,11 @@
   }
   const selection=el('p','f-selection'),submit=button('save'),bar=el('div','f-submit-bar');submit.type='submit';bar.append(selection,submit);
   const checkedCount=name=>[...form.querySelectorAll('input')].filter(input=>input.name===name&&input.checked&&!input.disabled).length;
-  // While any answer is flagged, the sticky bar says so next to Save, since the status line above it may be off-screen.
-  const syncSelection=()=>{const n=checkedCount('activities'),m=checkedCount('externalActivities'),parts=[],flagged=[...form.querySelectorAll('input,select,textarea')].some(control=>!control.disabled&&control.getAttribute?.('aria-invalid')==='true');if(n)parts.push(countLabel(n,'conferenceOne','conferenceMany'));if(m)parts.push(countLabel(m,'interestOne','interestMany'));if(checkedCount('applyLab'))parts.push(tr('span','labApplied'));selection.className='f-selection'+(flagged?' is-error':'');selection.replaceChildren(...(flagged?[tr('span','answersNeedAttention')]:parts.length?parts:[tr('span','selectionNone')]));externalCount.replaceChildren(...(m?[countLabel(m,'interestOne','interestMany','f-pill is-ok')]:[]));if(!flagged&&message.dataset.fiiuText==='reviewErrors')status(message,'');};
+  // The status line above may be off-screen, so the sticky bar says next to Save when answers are flagged, while a save runs and after one fails.
+  const syncSelection=()=>{const n=checkedCount('activities'),m=checkedCount('externalActivities'),parts=[],flagged=[...form.querySelectorAll('input,select,textarea')].some(control=>!control.disabled&&control.getAttribute?.('aria-invalid')==='true');if(n)parts.push(countLabel(n,'conferenceOne','conferenceMany'));if(m)parts.push(countLabel(m,'interestOne','interestMany'));if(checkedCount('applyLab'))parts.push(tr('span','labApplied'));const alert=flagged?'answersNeedAttention':saveState==='failed'?'saveFailed':'';selection.className='f-selection'+(alert?' is-error':'');selection.replaceChildren(...(alert?[tr('span',alert)]:saveState==='saving'?[tr('span','saving')]:parts.length?parts:[tr('span','selectionNone')]));externalCount.replaceChildren(...(m?[countLabel(m,'interestOne','interestMany','f-pill is-ok')]:[]));if(!flagged&&message.dataset.fiiuText==='reviewErrors')status(message,'');};
   const syncSteps=()=>[personal,choices,details,consent].forEach((set,i)=>{
    const controls=[...set.querySelectorAll('input,select,textarea')].filter(control=>!control.disabled);
-   let done=controls.filter(control=>control.required).every(control=>control.type==='checkbox'?control.checked:Boolean(control.value));
+   let done=controls.filter(control=>control.required).every(control=>control.type==='checkbox'?control.checked:Boolean(String(control.value).trim()));
    if(i===1)done=done&&controls.some(control=>CHOICE_NAMES.includes(control.name)&&control.checked);
    if(i===3)done=done&&controls.some(control=>control.name==='accessibility'&&control.checked);
    stepLinks[i].className='f-step'+(done?' is-done':'');if(done)stepLinks[i].setAttribute('aria-describedby',stepDone.id);else stepLinks[i].removeAttribute('aria-describedby');
@@ -280,30 +291,55 @@
   form.addEventListener('submit',async event=>{
    // Stale localised messages are dropped first, so a value set without an event (profile → public official) is re-checked natively.
    event.preventDefault();if(busy)return;for(const control of form.querySelectorAll('input,select,textarea'))clearLocalised(control);syncAccess();syncChoices();syncSelection();
+   // Spaces alone are no answer (the server rejects them), so such a field is flagged like an empty one.
+   for(const control of form.querySelectorAll('input,textarea'))if(control.required&&!control.disabled&&control.type!=='checkbox'&&control.value!==''&&!String(control.value).trim()){control.setCustomValidity(t('requiredField'));localised.set(control,'requiredField');}
    // The browser focuses the first invalid answer; centring it keeps it and its message clear of both sticky bars.
    if(!form.reportValidity()){const first=document.activeElement;if(first?.getAttribute?.('aria-invalid')==='true')first.scrollIntoView?.({block:'center'});return;}const fd=new FormData(form),payload=Object.fromEntries(fd);
    Object.assign(payload,{version:currentVersion,registrationId:currentId,expectedUserId,publicOfficial:fd.get('publicOfficial')==='yes',applyLab:fd.get('applyLab')==='yes',privacyAccepted:fd.get('privacyAccepted')==='yes',activities:fd.getAll('activities'),externalActivities:fd.getAll('externalActivities'),accessibility:fd.getAll('accessibility'),age:fd.get('age')?Number(fd.get('age')):null});
-   const unlock=lock();status(message,'saving');conflictBox.replaceChildren();
+   const unlock=lock();status(message,'saving');conflictBox.replaceChildren();saveState='saving';syncSelection();
    try{const result=await api('/api/fiiu/registration',payload,'PUT');me.registration=result.registration;renderRegistration();registrationHost.querySelector('.f-saved')?.focus();}
-   catch(error){status(message,error);
+   catch(error){status(message,error);saveState='failed';syncSelection();
     if(error.key==='accountChanged')accountChanged();
     else if(error.status===409)conflictBox.append(button('viewSaved',async()=>{
      if(busy)return;const release=lock();
      try{const latest=await currentRegistration(),saved=latest.registration&&savedSummary(latest.registration,{prefix:'f-itc-'});
       // The hero and programme follow the version kept for the next save; the form (and choiceInputs) stays as drafted.
-      const use=button('useLatest',()=>{if(busy)return;currentVersion=latest.registration?.version??0;currentId=latest.registration?.id??null;me.registration=latest.registration;me.attendance=latest.attendance;conflictBox.replaceChildren();status(message,latest.registration?'latestReplace':'latestCreate');renderHero();renderProgramme();submit.focus();});
+      const use=button('useLatest',()=>{if(busy)return;currentVersion=latest.registration?.version??0;currentId=latest.registration?.id??null;me.registration=latest.registration;me.attendance=latest.attendance;conflictBox.replaceChildren();status(message,latest.registration?'latestReplace':'latestCreate');saveState='';syncSelection();renderHero();renderProgramme();submit.focus();});
       conflictBox.replaceChildren(...(saved?[saved]:[]),use);(saved||use).focus();
      }catch(err){if(err.key==='accountChanged')accountChanged();else status(message,err);}
      finally{release();}
     },'f-button secondary'));
     if(error.status===401){const signin=link('signin','login.html?next='+encodeURIComponent('/fiiu.html#registration'));signin.target='_blank';signin.rel='noopener';conflictBox.append(describe(signin));}
+    // Save sits in the sticky bar, far from this feedback at the end of the form: focus (and with it the view) moves to the recovery action, or to the message itself.
+    (conflictBox.querySelector('button,a')||message).focus();
    }finally{unlock();}
   });
  }
+ // News and materials page separately, each on its own cursor, so a run of new materials never pushes the news off the first page.
+ // Load more stays focusable while it works (aria-disabled plus a busy guard); on the last page focus moves to the first new item, and feedback sits next to the button.
+ // A first page that fails (only materials can: the news page carries the festival itself) leaves the rest of the page working and offers Try again in place.
+ function feed(kind,empty,firstPage){
+  const section=el('section','f-updates'),list=el('div','f-news'),note=el('p','f-status f-load-more-status'),items=[],fits=item=>(item.kind==='news')===(kind==='news');let cursor=null,loaded=false,busy=false;
+  section.id=kind;note.setAttribute('role','status');note.setAttribute('aria-live','polite');
+  // Both sections have a Load more button, so each one is described by its own section heading.
+  const heading=tr('h2',kind);heading.id='f-'+kind+'-heading';
+  const more=describe(button('loadMore',()=>next(()=>api('/api/fiiu?kind='+kind+(cursor?'&cursor='+encodeURIComponent(cursor):'')),true),'f-button secondary f-load-more'),heading.id),label=key=>{more.dataset.fiiuText=key;more.textContent=t(key);};more.hidden=true;
+  async function next(read,asked){
+   if(busy)return;busy=true;more.setAttribute('aria-disabled','true');if(asked)status(note,'loading');
+   try{
+    const page=await read(),start=items.length;items.push(...page.content.filter(fits));cursor=page.nextCursor;loaded=true;contentCards(list,items,empty);status(note,'');label('loadMore');more.hidden=!cursor;
+    const first=list.children[start]?.querySelector('h3');if(asked&&more.hidden&&first){first.tabIndex=-1;first.focus();}
+   }catch(err){status(note,loaded?err:Object.assign(Error(t('loadError')),{key:'loadError'}));if(!loaded)label('retry');more.hidden=false;}
+   finally{busy=false;more.removeAttribute('aria-disabled');}
+  }
+  section.append(heading,list,more,note);next(firstPage,false);return section;
+ }
  async function load(){
   status(loadStatus,'loading');root.replaceChildren();
+  // Three requests start together: the news page (with the event and settings), the materials page and the person's registration.
+  const materials=api('/api/fiiu?kind=materials');materials.catch(()=>{});
   try{
-   const [publicData,registrationData]=await Promise.all([api('/api/fiiu'),api('/api/fiiu/registration').catch(error=>{if(error.status===401)return{registration:null,attendance:[],user:null};throw error;})]);
+   const [publicData,registrationData]=await Promise.all([api('/api/fiiu?kind=news'),api('/api/fiiu/registration').catch(error=>{if(error.status===401)return{registration:null,attendance:[],user:null};throw error;})]);
    festival=publicData;me=registrationData;
    heroHost=el('section','f-hero');programmeHost=el('section','f-programme');programmeHost.id='programme';
    registrationHost=el('section','f-registration');registrationHost.id='registration';panelHeading=tr('h2','registration');panelHeading.tabIndex=-1;panelBody=el('div','f-panel-body');registrationHost.append(panelHeading,panelNotice,panelBody);
@@ -312,19 +348,7 @@
    const latest=festival.content.find(item=>item.kind==='news');
    if(latest){const banner=el('a','f-latest');banner.href='#news';banner.append(tr('span','latestUpdate','f-latest-label'),source('span',latest.title,'f-latest-title'));root.append(banner);}
    const layout=el('div','f-layout');layout.append(programmeHost,registrationHost);root.append(layout);
-   const updates=el('div','f-updates-grid'),feeds=[];
-   for(const [title,isNews,empty] of [['news',true,'noNews'],['materials',false,'noMaterials']]){const section=el('section','f-updates');section.id=title;section.append(tr('h2',title));const list=el('div','f-news');contentCards(list,festival.content.filter(x=>(x.kind==='news')===isNews),empty);section.append(list);updates.append(section);feeds.push({list,isNews,empty});}
-   root.append(updates);
-   // Load more stays focusable while it works (aria-disabled plus a busy guard); on the last page focus moves to the first new item, and feedback sits next to the button.
-   const moreStatus=el('p','f-status f-load-more-status');moreStatus.setAttribute('role','status');moreStatus.setAttribute('aria-live','polite');let loadingMore=false;
-   const more=button('loadMore',async()=>{
-    if(loadingMore)return;loadingMore=true;more.setAttribute('aria-disabled','true');status(moreStatus,'loading');
-    try{const page=await api('/api/fiiu?cursor='+encodeURIComponent(festival.nextCursor));festival.content.push(...page.content);festival.nextCursor=page.nextCursor;for(const feed of feeds)contentCards(feed.list,festival.content.filter(x=>(x.kind==='news')===feed.isNews),feed.empty);status(moreStatus,'');more.hidden=!page.nextCursor;
-     const first=page.content[0],feed=first&&feeds.find(f=>(first.kind==='news')===f.isNews),heading=feed?.list.children[festival.content.filter(x=>(x.kind==='news')===feed.isNews).indexOf(first)]?.querySelector('h3');
-     if(more.hidden&&heading){heading.tabIndex=-1;heading.focus();}
-    }catch(err){status(moreStatus,err);}
-    finally{loadingMore=false;more.removeAttribute('aria-disabled');}
-   },'f-button secondary f-load-more');more.hidden=!festival.nextCursor;root.append(more,moreStatus,newTabNote());
+   const updates=el('div','f-updates-grid');updates.append(feed('news','noNews',()=>publicData),feed('materials','noMaterials',()=>materials));root.append(updates,newTabNote());
    renderRegistration();status(loadStatus,'');
    const hash=location.hash;
    if(hash==='#f-publicOfficial')jumpTo(officialInput);
