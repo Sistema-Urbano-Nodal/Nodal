@@ -37,6 +37,7 @@ const STATIC_SCRIPTS = [
   'privacy.js',
   'recs.js',
   'script.js',
+  'hero-network.js',
   'teaching.js',
 ];
 const STATIC_STYLES = ['fiiu.css', 'auth.css', 'admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'styles.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css'];

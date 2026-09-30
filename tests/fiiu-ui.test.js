@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {FIIU_EVENT} from '../server/fiiu-domain.js';
-import {createFiiuHarness,key,field,descendants,content} from './helpers/fiiu-ui-harness.js';
+import vm from 'node:vm';
+import {readFileSync} from 'node:fs';
+import {createFiiuHarness,key,field,descendants,content,flush,Node} from './helpers/fiiu-ui-harness.js';
 
 const answers={firstName:'Ana',lastName:'Test',country:'Perú',city:'Lima',profile:'professional',publicOfficial:false,applyLab:false,activities:['day1-am'],externalActivities:[],nationalId:'TEST123',gender:'prefer_not',age:30,accessibility:['none'],motivation:'learn',previousAttendance:'no',privacyAccepted:true};
 const user={id:'00000000-0000-4000-8000-000000000001',email:'ana@example.test',name:'Ana Test',city:'Lima'};
@@ -106,4 +108,158 @@ test('historical incomplete registrations remain readable without silently disca
  const old={...saved,answers:{firstName:'Ana',lastName:'Test',activities:['day1-am'],privacyAccepted:true}};
  const h=await harness({registration:old});assert.ok(h.root.querySelector('.f-saved'));assert.ok(key(h.root,'cancel'));
  assert.equal(field(h.form(),'nationalId').value,'');assert.equal(field(h.form(),'nationalId').required,true);assert.equal(h.requests.filter(request=>request.method!=='GET').length,0);
+});
+
+test('saved workshop and route interests are listed chronologically, not in id order',async()=>{
+ const h=await harness({registration:{...saved,answers:{...answers,externalActivities:['route-amancaes','workshop-calles-gente']}}});
+ const lists=h.root.querySelector('.f-saved').querySelectorAll('.f-itinerary');assert.equal(lists.length,2);
+ assert.deepEqual(lists[1].querySelectorAll('.f-itinerary-row').map(row=>row.querySelector('[data-fiiu-date]').dataset.fiiuDate),['2026-10-22','2026-10-24']);
+ assert.ok(lists[1].querySelectorAll('a').every(node=>node.target==='_blank'&&node['aria-describedby'].split(' ').includes('f-newtab')));
+});
+
+test('a registration without any conference, interest or laboratory choice is blocked before it reaches the server',async()=>{
+ const h=await harness();h.fill();
+ for(const input of descendants(h.form()).filter(node=>['activities','externalActivities','applyLab'].includes(node.name)))input.checked=false;
+ await h.submit();assert.equal(h.requests.filter(request=>request.method==='PUT').length,0);
+ assert.equal(field(h.form(),'activities').validationMessage,h.ctx.window.Fiiu.t('chooseActivity'));
+ field(h.form(),'externalActivities').checked=true;await h.submit();assert.equal(h.requests.filter(request=>request.method==='PUT').length,1);
+});
+
+test('a successful cancellation announces itself and returns the page to its unregistered state',async()=>{
+ const h=await harness({registration:saved,write:()=>({ok:true})});
+ assert.ok(key(h.root.querySelector('.f-hero'),'viewRegistration'));
+ await key(h.root,'cancel').listeners.click();
+ assert.ok(key(h.root,'cancelled'));assert.ok(!key(h.root,'cancel'));
+ const hero=h.root.querySelector('.f-hero');assert.ok(key(hero,'register'));assert.ok(!key(hero,'viewRegistration'));assert.ok(!key(hero,'statusRegistered'));
+});
+
+test('programme cards reflect the saved registration and pre-select a conference block in the form',async()=>{
+ const card=(h,title)=>h.root.querySelectorAll('.f-activity').find(node=>content(node).includes(title));
+ const registered=await harness({registration:{...saved,labStatus:'pending'}}),mine=card(registered,'El poder de lo local');
+ assert.ok(key(mine,'statusRegistered'));assert.ok(!key(mine,'addToRegistration'));
+ const lab=card(registered,'Gestión urbana en acción');assert.ok(key(lab,'pendingShort'));assert.ok(!key(lab,'apply'));
+ const status=registered.root.querySelector('.f-hero-status');assert.ok(key(status,'statusRegistered'));assert.ok(key(status,'pendingShort'));
+ const fresh=await harness(),other=card(fresh,'Cuidar y transformar la ciudad'),input=descendants(fresh.form()).find(node=>node.name==='activities'&&node.value==='day2-am');
+ assert.equal(input.checked,false);await key(other,'addToRegistration').listeners.click();assert.equal(input.checked,true);assert.equal(input.focused,true);
+ assert.equal(fresh.requests.filter(request=>request.method!=='GET').length,0);
+});
+
+test('external links are described as opening a new tab and the note exists once',async()=>{
+ const h=await harness(),notes=descendants(h.root).filter(node=>node.id==='f-newtab');assert.equal(notes.length,1);
+ const external=descendants(h.root).filter(node=>node.tagName==='a'&&node.target==='_blank');assert.ok(external.length>14);
+ for(const node of external)assert.ok(node['aria-describedby'].split(' ').includes('f-newtab'),node.href);
+ const forms=h.root.querySelector('.f-programme').querySelectorAll('a').filter(node=>node.dataset.fiiuText==='activityForm');
+ assert.equal(new Set(forms.map(node=>node['aria-describedby'])).size,forms.length,'each activity form link is described by its own title');
+});
+
+test('answers start explicitly valid, and an auto-answered official question drops its earlier error before saving',async()=>{
+ const h=await harness(),form=h.form(),official=field(form,'publicOfficial'),profile=field(form,'profile');
+ assert.equal(form.noValidate,true,'the submit handler validates, so every rule is reported in one pass');
+ assert.ok(descendants(form).filter(node=>['input','select','textarea'].includes(node.tagName)).every(node=>node['aria-invalid']==='false'),'nothing is announced as invalid before the person interacts');
+ official.validity={valueMissing:true};form.listeners.invalid({target:official});
+ assert.equal(official.validationMessage,h.ctx.window.Fiiu.t('requiredField'));assert.equal(official['aria-invalid'],'true');
+ h.fill();delete official.validity;official.value='';profile.value='public_official';profile.listeners.change();
+ assert.equal(official.value,'yes');assert.equal(official.validationMessage,'');assert.equal(official['aria-invalid'],'false');
+ await h.submit();const put=h.requests.filter(request=>request.method==='PUT');assert.equal(put.length,1);assert.equal(put[0].body.publicOfficial,true);
+});
+
+test('keeping the current version after a conflict updates the hero and programme and returns focus to Save',async()=>{
+ const h=await harness({registration:saved,read:count=>self(count===1?saved:null),write:()=>({status:409,data:{error:'registration changed; reload before saving'}})});
+ key(h.root,'edit').listeners.click();await h.submit();await key(h.form(),'viewSaved').listeners.click();
+ const use=key(h.form(),'useLatest');assert.equal(use.focused,true,'focus moves to the new action instead of falling to the page');use.listeners.click();
+ const hero=h.root.querySelector('.f-hero');assert.ok(key(hero,'register'));assert.ok(!key(hero,'statusRegistered'));assert.ok(!key(h.root.querySelector('.f-programme'),'statusRegistered'));
+ assert.ok(key(h.form(),'latestCreate'));assert.equal(key(h.form(),'save').focused,true);assert.equal(h.requests.filter(request=>request.method==='PUT').length,1);
+});
+
+test('only short guest panels stay pinned; saved summaries scroll with the page and are named regions',async()=>{
+ const guest=await harness({read:()=>({status:401,data:{error:'sign in required'}})});assert.equal(guest.root.querySelector('.f-registration').className,'f-registration is-compact');
+ const member=await harness({registration:saved}),summary=member.root.querySelector('.f-saved');assert.equal(member.root.querySelector('.f-registration').className,'f-registration');
+ assert.equal(summary['aria-labelledby'],descendants(summary).find(node=>node.dataset.fiiuText==='saved').id);
+});
+
+test('completed steps and session disclosures carry text for assistive technology',async()=>{
+ const h=await harness();h.fill();h.form().listeners.change({target:field(h.form(),'firstName')});
+ assert.ok(h.form().querySelectorAll('.f-step').every(step=>step['aria-describedby']==='f-step-done'));assert.ok(descendants(h.form()).find(node=>node.id==='f-step-done').hidden);
+ const summaries=h.root.querySelector('.f-programme').querySelectorAll('summary');assert.ok(summaries.length>=3);
+ assert.equal(new Set(summaries.map(node=>node['aria-describedby'])).size,summaries.length,'each sessions toggle is described by its own activity title');
+});
+
+test('loading more news stays focusable, reports failures beside the button and moves focus to the first new item on the last page',async()=>{
+ const item=id=>({id,kind:'news',title:'Item '+id,body:'',url:'',createdAt:'2026-09-29T12:00:00.000Z'});let fail=true;
+ const h=await createFiiuHarness(request=>request.path==='/api/fiiu'?{...publicData,content:[item('n1')],nextCursor:'c1'}:request.path==='/api/fiiu?cursor=c1'?(fail?{status:503,data:{error:'unavailable'}}:{content:[item('n2')],nextCursor:null}):self(null));
+ const more=key(h.root,'loadMore'),feedback=h.root.querySelector('.f-load-more-status'),pending=more.listeners.click(),duplicate=more.listeners.click();
+ assert.equal(more.disabled,false);assert.equal(more['aria-disabled'],'true');await Promise.all([pending,duplicate]);
+ assert.equal(h.requests.filter(request=>request.path==='/api/fiiu?cursor=c1').length,1);assert.equal(feedback.dataset.fiiuText,'error');assert.equal(h.message.dataset.fiiuText,'');assert.equal(more['aria-disabled'],undefined);
+ fail=false;await more.listeners.click();assert.equal(more.hidden,true);assert.equal(feedback.dataset.fiiuText,'');
+ const heading=h.root.querySelector('.f-news').querySelectorAll('h3').find(node=>node.textContent==='Item n2');assert.equal(heading.focused,true);assert.equal(heading.tabIndex,-1);
+});
+
+test('answers hidden again drop their error, so the save bar and status never report a problem the person cannot see',async()=>{
+ const h=await harness();h.fill();const form=h.form(),official=field(form,'publicOfficial'),apply=field(form,'applyLab'),institution=field(form,'institution'),motivation=field(form,'motivation'),other=field(form,'motivationOther'),selection=form.querySelector('.f-selection');
+ official.value='yes';official.listeners.change();apply.checked=true;apply.listeners.change();motivation.value='other';motivation.listeners.change();
+ for(const control of [institution,other]){control.validity={valueMissing:true};form.listeners.invalid({target:control});delete control.validity;}
+ assert.equal(institution['aria-invalid'],'true');assert.equal(institution.validationMessage,h.ctx.window.Fiiu.t('requiredField'));
+ assert.ok(key(selection,'answersNeedAttention'));assert.ok(key(form,'reviewErrors'));
+ motivation.value='learn';motivation.listeners.change();form.listeners.change({target:motivation});apply.checked=false;apply.listeners.change();form.listeners.change({target:apply});
+ for(const control of [institution,other]){assert.equal(control.disabled,true);assert.equal(control['aria-invalid'],'false');assert.equal(control.validationMessage,'');}
+ assert.ok(!key(selection,'answersNeedAttention'),'the bar no longer says answers need attention');assert.equal(key(form,'reviewErrors'),undefined,'the hidden status line clears with the last error');
+ apply.checked=true;apply.listeners.change();assert.equal(institution.disabled,false);assert.equal(institution['aria-invalid'],'false','a field shown again starts without its old error');
+});
+
+test('a programme shortcut shows that its box is ticked in the form and reverts when the box is cleared',async()=>{
+ const h=await harness(),card=h.root.querySelectorAll('.f-activity').find(node=>content(node).includes('Cuidar y transformar la ciudad')),input=descendants(h.form()).find(node=>node.name==='activities'&&node.value==='day2-am');
+ const action=key(card,'addToRegistration');await action.listeners.click();
+ assert.equal(input.checked,true);assert.equal(action.dataset.fiiuText,'choiceAdded');assert.match(action.className,/\bis-added\b/);
+ input.checked=false;h.form().listeners.change({target:input});assert.equal(action.dataset.fiiuText,'addToRegistration');assert.doesNotMatch(action.className,/is-added/);
+ assert.equal(h.requests.filter(request=>request.method!=='GET').length,0);
+});
+
+test('once registration closes, an incomplete saved registration points to the organisers instead of a missing Edit button',async()=>{
+ const old={...saved,answers:{firstName:'Ana',lastName:'Test',activities:['day1-am'],privacyAccepted:true}};
+ const h=await harness({registration:old,publicRead:()=>({...publicData,config:{...publicData.config,registrationOpen:false}})}),summary=h.root.querySelector('.f-saved');
+ assert.ok(key(summary,'incompleteClosedNotice'));assert.equal(key(summary,'incompleteNotice'),undefined);assert.equal(key(h.root,'edit'),undefined);
+ const open=await harness({registration:old});assert.ok(key(open.root.querySelector('.f-saved'),'incompleteNotice'));
+});
+
+test('Edit moves focus to the first answer, and badges inside the saved summary sit one heading level below it',async()=>{
+ const h=await harness({registration:saved,read:()=>({...self(saved),attendance:[{activityId:'day1-am'}]})});
+ key(h.root,'edit').listeners.click();assert.equal(field(h.form(),'firstName').focused,true);assert.equal(h.form().hidden,false);
+ const box=h.root.querySelector('.f-saved').querySelector('.f-badges');assert.equal(box.children[0].tagName,'h4');assert.equal(box.children[0].dataset.fiiuText,'badges');
+});
+
+test('the sticky step bar uses short names while the fieldsets keep full legends, and the accessibility group says it is required',async()=>{
+ const h=await harness(),form=h.form(),steps=form.querySelector('.f-steps').querySelectorAll('.f-step');
+ assert.deepEqual(steps.map(step=>step.children[1].dataset.fiiuText),['personal','stepChoices','stepQuestions','stepConsent']);
+ assert.deepEqual(form.querySelectorAll('fieldset').filter(set=>set.id?.startsWith('f-step-')).map(set=>set.children[0].children[1].dataset.fiiuText),['personal','choices','questionnaire','consentStep']);
+ const legend=form.querySelector('.f-access').children[0];assert.ok(key(legend,'requiredGroup'));assert.equal(key(legend,'requiredGroup').className,'f-sr-only');
+ assert.equal(field(form,'gender').autocomplete,'sex');assert.equal(field(form,'institution').autocomplete,'organization');assert.equal(field(form,'position').autocomplete,'organization-title');
+});
+
+async function widgetHarness(respond){
+ const body=new Node('body'),widget=new Node(),requests=[];body.append(widget);
+ const document={body,documentElement:{lang:'en'},getElementById:id=>id==='fiiuDashboardBody'?widget:null,createElement:tag=>new Node(tag),querySelectorAll:selector=>body.querySelectorAll(selector)};
+ const ctx={document,window:{nodalI18n:{lang:'en',onChange(){}}},Intl,Date,Error,AbortSignal,fetch:async path=>{requests.push(path);const result=await respond(path);return{ok:!result.status||result.status<400,status:result.status||200,json:async()=>result.data??result};}};
+ vm.createContext(ctx);for(const name of ['fiiu-ui','fiiu-hubs'])vm.runInContext(readFileSync(new URL('../web/scripts/'+name+'.js',import.meta.url),'utf8'),ctx);await flush();
+ return{widget,requests};
+}
+const widgetFeed=path=>path==='/api/fiiu?kind=news'?{content:[{id:'n1',kind:'news',title:'Festival announcement',body:'Published news',url:'',createdAt:'2026-09-29T12:00:00.000Z'}],nextCursor:null}:path==='/api/fiiu'?{...publicData,content:[{kind:'material',title:'Recent material',body:'',url:''}]}:null;
+
+test('dashboard widget shows registration state, the next activity and the organiser queue before festival news',async()=>{
+ const registration={...saved,labStatus:'pending',answers:{...answers,activities:['day1-am']}};
+ const {widget,requests}=await widgetHarness(path=>widgetFeed(path)||(path==='/api/fiiu/registration'?{...self(registration),isAdmin:true}:{summary:{lab:{pending:3}}}));
+ const text=content(widget),upcoming=new Intl.DateTimeFormat('en-CA',{year:'numeric',month:'2-digit',day:'2-digit',timeZone:'America/Lima'}).format(new Date())<='2026-10-21';
+ assert.equal(key(widget,'statusRegistered').className,'f-pill is-ok');assert.equal(key(widget,'pendingShort').className,'f-pill is-pending');
+ assert.equal(key(widget,'viewRegistration').href,'fiiu.html#registration');assert.equal(key(widget,'register'),undefined);
+ assert.equal(Boolean(key(widget,'nextForYou')),upcoming);if(upcoming)assert.match(text,/El poder de lo local/);
+ assert.equal(key(widget,'admin').href,'fiiu-admin.html#participants');assert.ok(key(widget,'pendingReviewMany'));assert.match(text,/\b3\b/);
+ assert.equal(key(widget,'allNews').href,'fiiu.html#news');assert.match(text,/Festival announcement/);assert.doesNotMatch(text,/Recent material/);
+ assert.ok(key(widget,'badges'));assert.ok(key(widget,'badgesHintShort'),'the widget keeps the badge hint to one short line');assert.equal(key(widget,'badgesHint'),undefined);assert.ok(requests.includes('/api/admin/fiiu/summary'));
+ const order=['dates','statusRegistered','viewRegistration','news'].map(name=>descendants(widget).indexOf(key(widget,name)));assert.deepEqual([...order].sort((a,b)=>a-b),order,'meta, state and CTA come before the news');
+});
+
+test('dashboard widget invites members without a registration to register and skips organiser requests',async()=>{
+ const {widget,requests}=await widgetHarness(path=>widgetFeed(path)||self(null));
+ assert.equal(key(widget,'statusNotRegistered').className,'f-pill');assert.equal(key(widget,'register').href,'fiiu.html#registration');
+ assert.equal(key(widget,'viewRegistration'),undefined);assert.equal(key(widget,'nextForYou'),undefined);assert.equal(key(widget,'admin'),undefined);
+ assert.deepEqual(requests.filter(path=>path!=='/api/fiiu?kind=news').sort(),['/api/fiiu/registration']);
 });

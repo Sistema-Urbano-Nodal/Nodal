@@ -10,6 +10,7 @@ export class Node {
  replaceChildren(...nodes){for(const child of this.children)child.parent=null;this.children=[];this.append(...nodes);}
  replaceWith(node){const parent=this.parent;if(parent){node.parent=parent;parent.children.splice(parent.children.indexOf(this),1,node);this.parent=null;}}
  setAttribute(key,value){this[key]=value;}
+ getAttribute(key){return this[key]??null;}
  removeAttribute(key){delete this[key];}
  addEventListener(key,listener){this.listeners[key]=listener;}
  querySelectorAll(selector){return descendants(this).filter(node=>selector.split(',').some(part=>part.startsWith('.')?node.className?.split(' ').includes(part.slice(1)):part==='[data-fiiu-text]'?node.dataset.fiiuText:part==='[data-fiiu-date]'?node.dataset.fiiuDate:node.tagName===part));}

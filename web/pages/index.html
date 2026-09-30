@@ -14,11 +14,12 @@
   <script src="locale.js?v=20260918b"></script>
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="fonts.css?v=20260911b" />
-  <link rel="stylesheet" href="styles.css?v=26" />
+  <link rel="stylesheet" href="styles.css?v=27" />
 
   <script defer src="nav.js?v=20260928a"></script>
-  <script defer src="i18n.js?v=20260929a"></script>
-  <script defer src="script.js?v=16"></script>
+  <script defer src="i18n.js?v=20260930a"></script>
+  <script defer src="script.js?v=17"></script>
+  <script defer src="hero-network.js?v=1"></script>
   <script defer src="app.js?v=18"></script>
   <script defer src="recs.js?v=4"></script>
 </head>
@@ -41,50 +42,84 @@
     </button>
   </header>
 
+  <div class="hero-map">
   <img class="map-outline" src="assets/latam-map.webp" alt="" aria-hidden="true" />
-
-  <svg class="hero-net" viewBox="0 0 320 420" aria-hidden="true" preserveAspectRatio="xMidYMid meet">
-    <g class="hn-edges" stroke-linecap="round" fill="none">
-      <path class="hn-link" data-nodes="n2 n1" pathLength="1" d="M172 118 Q123 105 88 64"/>
-      <path class="hn-link" data-nodes="n2 n4" pathLength="1" d="M172 118 Q135 149 118 206"/>
-      <path class="hn-link" data-nodes="n2 n3" pathLength="1" d="M172 118 Q219 136 238 172"/>
-      <path class="hn-link" data-nodes="n4 n5" pathLength="1" d="M118 206 Q141 256 190 272"/>
-      <path class="hn-link" data-nodes="n3 n5" pathLength="1" d="M238 172 Q229 234 190 272"/>
-      <path class="hn-link" data-nodes="n5 n6" pathLength="1" d="M190 272 Q164 300 146 352"/>
+  <svg class="hero-net" viewBox="0 0 1953 2385" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
+    <g class="hn-edges">
+      <path class="hn-edge" data-a="lim" data-b="lpb" data-role="tree" d="M967 1097Q1048.6 1175.8 1157 1209"/>
+      <path class="hn-edge" data-a="lim" data-b="uio" data-role="tree" d="M967 1097Q911.5 969.1 920 830"/>
+      <path class="hn-edge" data-a="lim" data-b="scl" data-role="tree" d="M967 1097Q967.8 1384.3 1099 1640"/>
+      <path class="hn-edge" data-a="lim" data-b="sao" data-role="tree" d="M967 1097Q1340.7 1155.9 1647 1378"/>
+      <path class="hn-edge" data-a="uio" data-b="bog" data-role="tree" d="M920 830Q957.1 761.9 1021 718"/>
+      <path class="hn-edge" data-a="bog" data-b="pty" data-role="tree" d="M1021 718Q970.3 654 896 620"/>
+      <path class="hn-edge" data-a="bog" data-b="ccs" data-role="tree" d="M1021 718Q1089.7 640.7 1186 603"/>
+      <path class="hn-edge" data-a="ccs" data-b="sdq" data-role="tree" d="M1186 603Q1164.4 483.6 1091 387"/>
+      <path class="hn-edge" data-a="pty" data-b="sjo" data-role="tree" d="M896 620Q847 595 792 595"/>
+      <path class="hn-edge" data-a="sjo" data-b="gua" data-role="tree" d="M792 595Q732.1 523 646 486"/>
+      <path class="hn-edge" data-a="gua" data-b="mex" data-role="tree" d="M646 486Q560.2 405.1 447 372"/>
+      <path class="hn-edge" data-a="scl" data-b="cor" data-role="tree" d="M1099 1640Q1179.6 1630.3 1247 1585"/>
+      <path class="hn-edge" data-a="scl" data-b="bue" data-role="tree" d="M1099 1640Q1228.6 1690.7 1367 1677"/>
+      <path class="hn-edge" data-a="bue" data-b="mvd" data-role="tree" d="M1367 1677Q1404.3 1675.9 1437 1658"/>
+      <path class="hn-edge" data-a="sao" data-b="rio" data-role="tree" d="M1647 1378Q1689.3 1369.1 1723 1342"/>
+      <path class="hn-edge" data-a="sao" data-b="bsb" data-role="tree" d="M1647 1378Q1611.7 1288.1 1621 1192"/>
+      <path class="hn-edge" data-a="sao" data-b="poa" data-role="tree" d="M1647 1378Q1615.9 1475.4 1544 1548"/>
+      <path class="hn-edge" data-a="sao" data-b="asu" data-role="tree" d="M1647 1378Q1528.5 1430.8 1399 1424"/>
+      <path class="hn-edge" data-a="bsb" data-b="mao" data-role="tree" d="M1621 1192Q1446.6 1077.9 1343 897"/>
+      <path class="hn-edge" data-a="lim" data-b="bog" data-role="closure" data-via="uio" d="M967 1097Q1039.5 914 1021 718"/>
+      <path class="hn-edge" data-a="rio" data-b="bsb" data-role="closure" data-via="sao" d="M1723 1342Q1654 1279.2 1621 1192"/>
+      <path class="hn-edge" data-a="cor" data-b="bue" data-role="closure" data-via="scl" d="M1247 1585Q1296 1645.4 1367 1677"/>
+      <path class="hn-edge is-accent" data-a="bue" data-b="sao" data-role="climax" data-via="scl lim" d="M1367 1677Q1489.1 1510.7 1647 1378"/>
+      <path class="hn-edge" data-a="asu" data-b="bue" data-role="reserve" data-via="sao" d="M1399 1424Q1413.4 1554.3 1367 1677"/>
+      <path class="hn-edge" data-a="sdq" data-b="bog" data-role="reserve" data-via="ccs" d="M1091 387Q1016.3 544.1 1021 718"/>
+      <path class="hn-edge" data-a="asu" data-b="cor" data-role="reserve" data-via="bue" d="M1399 1424Q1342.3 1522.7 1247 1585"/>
+    </g>
+    <g class="hn-halos">
+      <circle class="hn-halo" data-city="mex" cx="447" cy="372" r="0"/>
+      <circle class="hn-halo" data-city="gua" cx="646" cy="486" r="0"/>
+      <circle class="hn-halo" data-city="sjo" cx="792" cy="595" r="0"/>
+      <circle class="hn-halo" data-city="pty" cx="896" cy="620" r="0"/>
+      <circle class="hn-halo" data-city="sdq" cx="1091" cy="387" r="0"/>
+      <circle class="hn-halo" data-city="ccs" cx="1186" cy="603" r="0"/>
+      <circle class="hn-halo" data-city="bog" cx="1021" cy="718" r="43.5"/>
+      <circle class="hn-halo" data-city="uio" cx="920" cy="830" r="0"/>
+      <circle class="hn-halo" data-city="lim" cx="967" cy="1097" r="43.5"/>
+      <circle class="hn-halo" data-city="lpb" cx="1157" cy="1209" r="0"/>
+      <circle class="hn-halo" data-city="mao" cx="1343" cy="897" r="0"/>
+      <circle class="hn-halo" data-city="bsb" cx="1621" cy="1192" r="0"/>
+      <circle class="hn-halo" data-city="sao" cx="1647" cy="1378" r="46.1"/>
+      <circle class="hn-halo" data-city="rio" cx="1723" cy="1342" r="0"/>
+      <circle class="hn-halo" data-city="poa" cx="1544" cy="1548" r="0"/>
+      <circle class="hn-halo" data-city="asu" cx="1399" cy="1424" r="0"/>
+      <circle class="hn-halo" data-city="cor" cx="1247" cy="1585" r="0"/>
+      <circle class="hn-halo" data-city="bue" cx="1367" cy="1677" r="43.5"/>
+      <circle class="hn-halo" data-city="mvd" cx="1437" cy="1658" r="0"/>
+      <circle class="hn-halo" data-city="scl" cx="1099" cy="1640" r="0"/>
     </g>
     <g class="hn-nodes">
-      <g class="hn-node" data-node="n1" transform="translate(88 64)">
-        <circle class="hn-hit" r="15"/>
-        <circle class="hn-echo" r="6.5"/>
-        <g class="hn-mark"><circle class="hn-core" r="5"/></g>
-      </g>
-      <g class="hn-node hn-hub" data-node="n2" transform="translate(172 118)">
-        <circle class="hn-hit" r="15"/>
-        <circle class="hn-echo" r="10"/>
-        <g class="hn-mark"><circle class="hn-core" r="8.5"/></g>
-      </g>
-      <g class="hn-node" data-node="n3" transform="translate(238 172)">
-        <circle class="hn-hit" r="15"/>
-        <circle class="hn-echo" r="6.5"/>
-        <g class="hn-mark"><circle class="hn-core" r="5"/></g>
-      </g>
-      <g class="hn-node" data-node="n4" transform="translate(118 206)">
-        <circle class="hn-hit" r="15"/>
-        <circle class="hn-echo" r="7.5"/>
-        <g class="hn-mark"><circle class="hn-core" r="6"/></g>
-      </g>
-      <g class="hn-node hn-hub" data-node="n5" transform="translate(190 272)">
-        <circle class="hn-hit" r="15"/>
-        <circle class="hn-echo" r="9"/>
-        <g class="hn-mark"><circle class="hn-core" r="7.5"/></g>
-      </g>
-      <g class="hn-node" data-node="n6" transform="translate(146 352)">
-        <circle class="hn-hit" r="15"/>
-        <circle class="hn-echo" r="6"/>
-        <g class="hn-mark"><circle class="hn-core" r="4.5"/></g>
-      </g>
+      <circle class="hn-core" data-city="mex" data-name="Ciudad de México" cx="447" cy="372" r="10.1"/>
+      <circle class="hn-core" data-city="gua" data-name="Ciudad de Guatemala" cx="646" cy="486" r="12.7"/>
+      <circle class="hn-core" data-city="sjo" data-name="San José" cx="792" cy="595" r="12.7"/>
+      <circle class="hn-core" data-city="pty" data-name="Ciudad de Panamá" cx="896" cy="620" r="12.7"/>
+      <circle class="hn-core" data-city="sdq" data-name="Santo Domingo" cx="1091" cy="387" r="12.7"/>
+      <circle class="hn-core" data-city="ccs" data-name="Caracas" cx="1186" cy="603" r="12.7"/>
+      <circle class="hn-core" data-city="bog" data-name="Bogotá" cx="1021" cy="718" r="20.5"/>
+      <circle class="hn-core" data-city="uio" data-name="Quito" cx="920" cy="830" r="12.7"/>
+      <circle class="hn-core" data-city="lim" data-name="Lima" cx="967" cy="1097" r="20.5"/>
+      <circle class="hn-core" data-city="lpb" data-name="La Paz" cx="1157" cy="1209" r="10.1"/>
+      <circle class="hn-core" data-city="mao" data-name="Manaus" cx="1343" cy="897" r="10.1"/>
+      <circle class="hn-core" data-city="bsb" data-name="Brasília" cx="1621" cy="1192" r="15.3"/>
+      <circle class="hn-core" data-city="sao" data-name="São Paulo" cx="1647" cy="1378" r="23"/>
+      <circle class="hn-core" data-city="rio" data-name="Rio de Janeiro" cx="1723" cy="1342" r="12.7"/>
+      <circle class="hn-core" data-city="poa" data-name="Porto Alegre" cx="1544" cy="1548" r="10.1"/>
+      <circle class="hn-core" data-city="asu" data-name="Asunción" cx="1399" cy="1424" r="15.3"/>
+      <circle class="hn-core" data-city="cor" data-name="Córdoba" cx="1247" cy="1585" r="15.3"/>
+      <circle class="hn-core" data-city="bue" data-name="Buenos Aires" cx="1367" cy="1677" r="20.5"/>
+      <circle class="hn-core" data-city="mvd" data-name="Montevideo" cx="1437" cy="1658" r="10.1"/>
+      <circle class="hn-core" data-city="scl" data-name="Santiago" cx="1099" cy="1640" r="15.3"/>
     </g>
   </svg>
+  <button type="button" class="hn-toggle" aria-pressed="false" aria-label="Pause map animation" data-i18n-aria-label="hero.motionPause" hidden></button>
+  </div>
 
   <!-- hero -->
   <section class="hero" id="home">
