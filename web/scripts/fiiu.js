@@ -202,6 +202,9 @@
   const stepLinks=steps.map(([id,,short],i)=>{const item=el('li'),step=el('a','f-step');step.href='#'+id;step.append(tr('span',short));item.append(step);stepList.append(item);return step;});
   // A completed step is described as such; the tick drawn in CSS has no text.
   const stepDone=tr('span','stepDone');stepDone.id='f-step-done';stepDone.hidden=true;stepsNav.append(stepsLabel,stepList,stepDone);
+  // The step row stays on one line and scrolls sideways in a narrow panel, as the day nav does: the current or focused step is kept in view.
+  const revealStep=()=>{const step=stepLinks.find(link=>link.getAttribute('aria-current')==='step');if(step&&!stepList.contains(document.activeElement))revealInRow(stepList,step);};
+  stepList.addEventListener('focusin',event=>{const step=event?.target?.closest?.('a');if(step)revealInRow(stepList,step);});
   const legend=key=>{const node=el('legend');node.append(tr('span',key));return node;};
   const [personal,choices,details,consent]=steps.map(([id],i)=>{const set=el('fieldset',i===2?'f-questionnaire':'');set.id=id;set.append(legend(steps[i][1]));return set;});
   personal.setAttribute('aria-describedby','f-hint-privateHint');personal.append(hint('privateHint'));
@@ -276,14 +279,14 @@
    stepLinks[i].className='f-step'+(done?' is-done':'');if(done)stepLinks[i].setAttribute('aria-describedby',stepDone.id);else stepLinks[i].removeAttribute('aria-describedby');
   });
   // Re-check the choose-one rule only when a choice changes, so nothing is flagged before the person interacts.
-  syncForm=choiceChanged=>{if(choiceChanged)syncChoices();syncSelection();syncSteps();syncProgramme();};
+  syncForm=choiceChanged=>{if(choiceChanged)syncChoices();syncSelection();syncSteps();revealStep();syncProgramme();};
   // The steps and their fieldsets share one box, so the sticky step bar leaves with the last step instead of riding down to the save bar.
   const stepped=el('div','f-stepped');stepped.append(stepsNav,personal,choices,details,consent);
   feedback.append(message,conflictBox);form.append(tr('p','formIntro','f-muted f-form-intro'),stepped,feedback,bar);panelBody.append(form);
   // The sticky bars' real heights (language, zoom and the chosen items change them) set the room focused controls keep clear of them (fiiu.css).
   if(typeof ResizeObserver==='function'){sizeObserver=new ResizeObserver(()=>{form.style.setProperty('--f-bar-h',bar.offsetHeight+'px');form.style.setProperty('--f-steps-h',stepsNav.offsetHeight+'px');});sizeObserver.observe(bar);sizeObserver.observe(stepsNav);}
   // The step whose fieldset crosses a band near the top of the viewport is the current one, as in the day navigation.
-  if('IntersectionObserver' in window){const sets=[personal,choices,details,consent],inView=new Set();stepObserver=new IntersectionObserver(entries=>{for(const entry of entries){if(entry.isIntersecting)inView.add(entry.target);else inView.delete(entry.target);}const current=sets.find(set=>inView.has(set));if(!current)return;stepLinks.forEach((step,i)=>{if(sets[i]===current)step.setAttribute('aria-current','step');else step.removeAttribute('aria-current');});},{rootMargin:'-30% 0px -60% 0px'});for(const set of sets)stepObserver.observe(set);}
+  if('IntersectionObserver' in window){const sets=[personal,choices,details,consent],inView=new Set();stepObserver=new IntersectionObserver(entries=>{for(const entry of entries){if(entry.isIntersecting)inView.add(entry.target);else inView.delete(entry.target);}const current=sets.find(set=>inView.has(set));if(!current)return;stepLinks.forEach((step,i)=>{if(sets[i]===current)step.setAttribute('aria-current','step');else step.removeAttribute('aria-current');});revealStep();},{rootMargin:'-30% 0px -60% 0px'});for(const set of sets)stepObserver.observe(set);}
   for(const control of form.querySelectorAll('input,select,textarea'))control.setAttribute('aria-invalid','false');syncForm();
   if(existing)panelBody.append(message,conflictBox);
   // Form-level listeners only: controls keep their single change listener each.

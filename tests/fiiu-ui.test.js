@@ -456,8 +456,10 @@ test('festival layout rules: footer at the bottom, natural profile rows, stacked
  assert.match(css,/\.f-qr-code\{width:min\(calc\(100vh - var\(--f-header\) - 120px\),50vw,1080px\)/);
  assert.match(css,/@media\(min-width:1380px\)\{\.f-content-layout\{grid-template-columns:minmax\(0,650px\) minmax\(0,1fr\)\}\}/,'no blank strip between the editor form and the publication list');
  assert.match(css,/\.f-content-editor form\{max-width:650px\}/,'the column cap matches the form cap');
- // The dashboard widget's badges are ruled rows across the column, like the FIIU page.
- assert.match(css,/\.f-widget-status>\.f-badges\{justify-self:stretch\}/);assert.match(css,/:is\(\.f-page,\.f-news-widget\) \.f-badges>:is\(h2,h3,h4\)\+\.f-badge\{border-top:2px solid var\(--f-ink\)\}/);
+ // The dashboard widget's badges are plain rows across the column, like the FIIU page: space separates them, not rules.
+ assert.match(css,/\.f-widget-status>\.f-badges\{justify-self:stretch\}/);assert.match(css,/\.f-page \.f-badge,\.f-news-widget \.f-badge\{(?![^}]*border)[^}]*\}/,'badges carry no rule');assert.doesNotMatch(css,/\.f-badges>:is\(h2,h3,h4\)\+\.f-badge/);
+ // Fewer lines: days break on their heading and space, the step row stays on its one hairline, and the save bar keeps a single firmer hairline (not the 2px ink rule).
+ assert.doesNotMatch(css,/\.f-day\+\.f-day\{[^}]*border/);assert.match(css,/\.f-steps ol\{(?![^}]*flex-wrap:wrap)[^}]*overflow-x:auto/);assert.match(css,/\.f-submit-bar\{[^}]*border-top:1px solid #aab6a4\}/);
  // Short page headings never break mid-word at a hyphen.
  assert.match(css,/\.f-page \.f-locked h1\{[^}]*hyphens:manual/);assert.match(css,/\.f-page \.f-checkin-title\{[^}]*hyphens:manual/);
 });

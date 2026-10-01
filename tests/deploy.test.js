@@ -315,7 +315,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
   const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'course.html', 'courses.html', 'teaching.html', 'accept-invitation.html', 'fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'organisers-only.html', 'community.html', 'knowledge.html', 'resources.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
   const pilot = { 'pilot-i18n.js': '20261001a', 'pilot.js': '20261001a' };
-  const festival = { 'fiiu.css': '20261001c', 'fiiu-ui.js': '20261001c' };
+  const festival = { 'fiiu.css': '20261001d', 'fiiu-ui.js': '20261001c' };
   const required = {
     'index.html': { 'styles.css': '29', 'i18n.js': '20261001b', 'app.js': '20', 'recs.js': '4', 'script.js': '18', 'hero-network.js': '2' },
     'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20261001b', 'catalog.js': '6', ...pilot },
@@ -329,7 +329,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     'courses.html': { 'i18n.js': '20261001b', 'courses.css': '20260930a', 'courses.js': '20261001a', ...pilot },
     'teaching.html': { 'i18n.js': '20261001b', 'courses.css': '20260930a', 'teaching.js': '20261001a', ...pilot },
     'accept-invitation.html': { 'accept-invitation.js': '20261001a', 'invitation-i18n.js': '20261001a' },
-    'fiiu.html': { 'styles.css': '29', 'i18n.js': '20261001b', ...festival, 'fiiu.js': '20261001a' },
+    'fiiu.html': { 'styles.css': '29', 'i18n.js': '20261001b', ...festival, 'fiiu.js': '20261001b' },
     'fiiu-admin.html': { 'styles.css': '29', 'i18n.js': '20261001b', ...festival, 'fiiu-admin.js': '20261001c' },
     'fiiu-qr.html': { 'i18n.js': '20261001b', ...festival, 'fiiu-qr.js': '20261001b' },
     'fiiu-checkin.html': { 'i18n.js': '20261001b', ...festival, 'fiiu-checkin.js': '20261001c' },
