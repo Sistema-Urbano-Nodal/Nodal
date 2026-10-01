@@ -456,6 +456,12 @@ test('attendees check themselves in with the session QR once, only inside its Li
   clock.set(at);response=await scan(call,{activityId:'day1-am',code:code()});assert.equal(response.status,409,at);
   assert.deepEqual(await response.json(),{error:'check-in is closed for this activity',code:'outside_window',activityId:'day1-am',opensAt:'2026-10-21T13:30:00.000Z',closesAt:'2026-10-21T18:30:00.000Z',serverTime:new Date(at).toISOString()},'the server says when it judged the scan, so the page never relies on the phone clock');
  }
+ // An organiser scanning outside the window rehearses: a valid code says so and records nothing; an old code is still refused.
+ clock.set('2026-10-21T13:00:00Z');response=await scan(call,{activityId:'day1-am',code:code()},'admin');assert.equal(response.status,200);
+ assert.deepEqual(await response.json(),{result:'rehearsal',activityId:'day1-am',opensAt:'2026-10-21T13:30:00.000Z',closesAt:'2026-10-21T18:30:00.000Z',serverTime:'2026-10-21T13:00:00.000Z'});
+ response=await scan(call,{code:codes.current('day1-am').shortCode},'admin');assert.equal((await response.json()).result,'rehearsal','a typed screen code rehearses too');
+ const stale=code();clock.set('2026-10-21T13:06:00Z');assert.equal((await scan(call,{activityId:'day1-am',code:stale},'admin')).status,410);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_attendance').get().n,0);
  clock.set('2026-10-22T00:00:00Z');// 19:00 in Lima: day1-pm is not in this plan
  response=await scan(call,{activityId:'day1-pm',code:codes.current('day1-pm').code});assert.equal(response.status,403);
  assert.deepEqual(await response.json(),{error:'participant is not registered for this activity',code:'not_in_plan',activityId:'day1-pm',registrationOpen:true});

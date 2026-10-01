@@ -43,6 +43,15 @@ test('an expired code asks for a fresh scan and offers the screen code',async()=
  assert.equal(title(h).dataset.fiiuText,'codeExpired');assert.ok(key(result(h),'expiredHint'));assert.ok(field(result(h),'checkinCode'));
 });
 
+test('an organiser scanning before the session sees that the code works, with the window, and that nothing was recorded',async()=>{
+ const h=await page(()=>({status:200,data:{result:'rehearsal',activityId:'day1-am',opensAt:'2026-10-21T13:30:00.000Z',closesAt:'2026-10-21T18:30:00.000Z',serverTime:'2026-10-01T15:00:00.000Z'}}),{now:'2026-10-01T10:00:00-05:00'});
+ assert.equal(title(h).dataset.fiiuText,'rehearsalTitle');assert.ok(key(result(h),'rehearsalHint'));
+ assert.match(content(result(h).querySelector('.f-checkin-facts')),/08:30–13:30/);assert.equal(result(h).querySelector('.f-badges'),null,'a rehearsal earns no badge');
+ // After the session the code still works for the organiser, but the page says attendees can no longer check in.
+ const late=await page(()=>({status:200,data:{result:'rehearsal',activityId:'day1-am',opensAt:'2026-10-21T13:30:00.000Z',closesAt:'2026-10-21T18:30:00.000Z',serverTime:'2026-10-21T18:45:00.000Z'}}),{now:'2026-10-21T13:45:00-05:00'});
+ assert.equal(title(late).dataset.fiiuText,'rehearsalTitle');assert.ok(key(result(late),'rehearsalEndedHint'));assert.equal(key(result(late),'rehearsalHint'),undefined);
+});
+
 test('outside the window the page gives the Lima opening or closing time',async()=>{
  const window={code:'outside_window',activityId:'day1-am',opensAt:'2026-10-21T13:30:00.000Z',closesAt:'2026-10-21T18:30:00.000Z'};
  const early=await page(()=>({status:409,data:window}),{now:'2026-10-21T07:00:00-05:00'});

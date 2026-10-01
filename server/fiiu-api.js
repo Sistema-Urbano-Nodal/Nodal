@@ -95,7 +95,10 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    // left the plan, or an edited laboratory application may be back under review. The valid screen code is still required.
    if(registration&&await one('attendance',{registrationId:registration.id,activityId}))return confirmed(false,await store.find('attendance',{registrationId:registration.id}));
    // The server judges the time; serverTime tells the page which side of the window it fell on, whatever the phone's clock says.
-   if(t<Date.parse(span.opensAt)||t>Date.parse(span.closesAt))return reply(409,{error:'check-in is closed for this activity',code:'outside_window',activityId,...span,serverTime:new Date(t).toISOString()});
+   const closed=t<Date.parse(span.opensAt)||t>Date.parse(span.closesAt);
+   // An organiser rehearsing the screen outside the session: the code is proven valid and nothing is recorded.
+   if(closed&&user.permission==='admin')return reply(200,{result:'rehearsal',activityId,...span,serverTime:new Date(t).toISOString()});
+   if(closed)return reply(409,{error:'check-in is closed for this activity',code:'outside_window',activityId,...span,serverTime:new Date(t).toISOString()});
    if(!registration)return notRegistered();
    if(!canAttend(registration,activity))return reply(403,{error:'participant is not registered for this activity',code:activity.registration==='application'&&registration.answers?.applyLab===true?'lab_not_accepted':'not_in_plan',activityId,registrationOpen:await registrationOpen()});
    let result;try{result=await recordAttendance(registration,activity,{by:user.id,method:'qr',at:new Date(t).toISOString()});}catch(err){if(err.status===404)return notRegistered();throw err;}

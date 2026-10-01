@@ -36,7 +36,18 @@
   });
   return form;
  }
+ // The server has already judged the time and says when (serverTime), so a phone clock that is off, or a rehearsal clock on the server, cannot turn
+ // "closed" into "not open yet". Without serverTime the phone's clock decides which side of the window it fell on (the midpoint absorbs a small error).
+ function closedWindow(activity,data){
+  const at=value=>typeof value==='number'?value:Date.parse(value),opensAt=at(data.opensAt),closesAt=at(data.closesAt),judged=at(data.serverTime),known=Number.isFinite(opensAt)&&Number.isFinite(closesAt);
+  const early=known&&(Number.isFinite(judged)?judged<opensAt:Date.now()<(opensAt+closesAt)/2);
+  const shown=known&&{...(activity||{date:limaDate(new Date(opensAt)),time:''}),checkin:{opensAt:new Date(opensAt).toISOString(),closesAt:new Date(closesAt).toISOString()}};
+  return {early,window:shown&&facts(['checkinWindow',dd(windowNode(shown))])};
+ }
  function success(data,body){
+  // An organiser scanning outside the session: the code works and nothing was recorded.
+  // After the session the code still works, but attendees can no longer use it, so the page says so.
+  if(data.result==='rehearsal'){const activity=find(data.activityId||body.activityId),{early,window}=closedWindow(activity,data);return block('rehearsalTitle',early?'ok':'warn',about(activity),window,hintOf(early?'rehearsalHint':'rehearsalEndedHint'));}
   const id=data.activityId||body.activityId,activity=find(id),attendance=Array.isArray(data.attendance)?data.attendance:[],record=attendance.find(row=>row.activityId===id),at=Date.parse(data.checkedInAt||record?.createdAt);
   const time=Number.isFinite(at)?el('time','',limaClock(at)):null;if(time)time.dateTime=new Date(at).toISOString();
   const when=time&&dd(...(activity&&limaDate(new Date(at))!==activity.date?[dateNode(limaDate(new Date(at)),'span','short','f-when-day'),space()]:[]),time);
@@ -59,14 +70,7 @@
   if(error.status===404)return block('notRegistered','warn',about(activity),hintOf(lab?'labNotAcceptedHint':open?'notRegisteredHint':'askDesk'),open&&!lab&&actions(link('register','fiiu.html#registration','f-button')));
   if(error.code==='lab_not_accepted'||(lab&&error.code==='not_in_plan'))return block('labNotAccepted','warn',about(activity),hintOf('labNotAcceptedHint'));
   if(error.code==='not_in_plan')return block('notInPlan','warn',about(activity),hintOf(open?'notInPlanHint':'askDesk'),open&&actions(link('addToRegistration','fiiu.html#registration','f-button')));
-  if(error.code==='outside_window'){
-   // The server has already judged the time and says when (serverTime), so a phone clock that is off, or a rehearsal clock on the server, cannot turn
-   // "closed" into "not open yet". Without serverTime the phone's clock decides which side of the window it fell on (the midpoint absorbs a small error).
-   const at=value=>typeof value==='number'?value:Date.parse(value),opensAt=at(error.opensAt),closesAt=at(error.closesAt),judged=at(error.serverTime),known=Number.isFinite(opensAt)&&Number.isFinite(closesAt);
-   const early=known&&(Number.isFinite(judged)?judged<opensAt:Date.now()<(opensAt+closesAt)/2);
-   const shown=known&&{...(activity||{date:limaDate(new Date(opensAt)),time:''}),checkin:{opensAt:new Date(opensAt).toISOString(),closesAt:new Date(closesAt).toISOString()}};
-   return block(early?'checkinNotOpen':'checkinEndedTitle','warn',about(activity),shown&&facts(['checkinWindow',dd(windowNode(shown))]),hintOf(early?'checkinNotOpenHint':'askDesk'));
-  }
+  if(error.code==='outside_window'){const {early,window}=closedWindow(activity,error);return block(early?'checkinNotOpen':'checkinEndedTitle','warn',about(activity),window,hintOf(early?'checkinNotOpenHint':'askDesk'));}
   if(error.status===410)return block('codeExpired','warn',about(activity),hintOf('expiredHint'),codeForm());
   if(error.code==='invalid_activity')return block('noCheckin','warn',hintOf('noCheckinHint'),actions(link('viewProgramme','fiiu.html#programme','f-button secondary')));
   if(error.status===400)return block('invalidLink','warn',hintOf('invalidLinkHint'),codeForm());
