@@ -13,14 +13,14 @@ async function fixture(t) {
  const staff=toApiUser(createUser(db,{fullName:'Teacher',email:'teacher@example.test',passwordHash:'test',role:'admin'}));
  const student=toApiUser(createUser(db,{fullName:'Student',email:'student@example.test',passwordHash:'test'}));
  const store=createCourseStore({db}),time=new Date().toISOString();
- const course=await store.insert('courses',{id:randomUUID(),title:'Mobility',description:'',translations:{},status:'published',startsOn:'',endsOn:'',enrollmentOpen:false,version:1,createdAt:time,updatedAt:time});
+ const course=await store.insert('courses',{id:randomUUID(),title:'Mobility',description:'',translations:{},status:'published',startsOn:'',endsOn:'',enrollmentOpen:true,version:1,createdAt:time,updatedAt:time});
  const accounts=new Map([[student.email,{id:student.id,email:student.email,name:student.name,confirmed:true,active:true}]]);
- const sent=[];
- const repo={findCourseAccount:async email=>accounts.get(email)??null,sendCourseInvitation:async({email})=>{
+ const sent=[],lookups=[];
+ const repo={findCourseAccount:async email=>{lookups.push(email);return accounts.get(email)??null;},sendCourseInvitation:async({email})=>{
    sent.push(email);const user=createUser(db,{fullName:'Invitee',email,passwordHash:'test'});return {id:user.id,email};
  }};
  const participants=createCourseParticipants({store,userRepository:repo});
- return {db,staff,student,store,course,accounts,sent,repo,participants};
+ return {db,staff,student,store,course,accounts,sent,lookups,repo,participants};
 }
 
 test('admin enrollment is normalized, idempotent across races and never fabricates intake or sends email',async t=>{
@@ -45,11 +45,44 @@ test('invites remain pending until verified ownership and preserve intake gating
  const auth={id:result.invitation.userId,email:'new@example.test',email_confirmed_at:new Date().toISOString(),is_anonymous:false};
  for(const wrong of [{...auth,id:randomUUID()},{...auth,email:'other@example.test'},{...auth,email_confirmed_at:null},{...auth,is_anonymous:true}])assert.equal(await participants.authorize(wrong),false);
  assert.equal(await participants.authorize(auth),true);
- assert.deepEqual(await participants.accept(auth),[course.id]);
+ assert.deepEqual(await participants.accept(auth),{courseIds:[course.id],closedCourseIds:[]});
  assert.equal(await store.count('enrollments',{courseId:course.id,userId:auth.id}),1);
  assert.equal(await store.count('intakes',{}),0);
  assert.equal(await participants.authorize(auth),false);
  assert.equal((await store.find('invitations',{id:result.invitation.id}))[0].acceptedAt!==null,true);
+});
+
+test('a closed course rejects staff additions and invitations before any lookup, email or write',async t=>{
+ const {participants,store,course,staff,student,sent,lookups}=await fixture(t);
+ const closed=await store.update('courses',{id:course.id},{enrollmentOpen:false});
+ for(const email of [student.email,'new@example.test','not an email']) {
+   await assert.rejects(participants.add(closed,email),{code:'participant_enrollment_closed',status:409});
+   await assert.rejects(participants.invite(closed,email,staff.id),{code:'participant_enrollment_closed',status:409});
+ }
+ assert.equal(sent.length,0);assert.equal(lookups.length,0);
+ assert.equal(await store.count('invitations',{}),0);assert.equal(await store.count('enrollments',{}),0);
+ // An unpublished course keeps its own, more specific code.
+ await assert.rejects(participants.add({...closed,status:'draft'},student.email),{code:'participant_course_unavailable'});
+});
+
+test('closing a course keeps earlier invitations pending without enrolling, and reopening admits them',async t=>{
+ const {participants,store,course,staff,sent}=await fixture(t),time=new Date().toISOString();
+ const other=await store.insert('courses',{...course,id:randomUUID(),title:'Other course',createdAt:time,updatedAt:time});
+ const {invitation}=await participants.invite(course,'late@example.test',staff.id);
+ await store.insert('invitations',{id:randomUUID(),courseId:other.id,email:'late@example.test',userId:invitation.userId,createdBy:staff.id,deliveryStatus:'sent',acceptedAt:null,createdAt:time,updatedAt:time});assert.equal(sent.length,1);
+ const auth={id:invitation.userId,email:'late@example.test',email_confirmed_at:time,is_anonymous:false};
+ await store.update('courses',{id:course.id},{enrollmentOpen:false});
+ assert.equal(await participants.authorize(auth),true,'the invitee can still finish setting a password');
+ assert.deepEqual(await participants.accept(auth),{courseIds:[other.id],closedCourseIds:[course.id]});
+ assert.equal(await store.count('enrollments',{courseId:course.id}),0);assert.equal(await store.count('enrollments',{courseId:other.id,userId:auth.id}),1);
+ assert.equal((await store.find('invitations',{id:invitation.id}))[0].acceptedAt,null);
+ assert.deepEqual(await participants.accept(auth),{courseIds:[],closedCourseIds:[course.id]});
+ assert.equal(await store.count('enrollments',{courseId:course.id}),0);
+ await store.update('courses',{id:course.id},{enrollmentOpen:true});
+ assert.deepEqual(await participants.accept(auth),{courseIds:[course.id],closedCourseIds:[]});
+ assert.equal(await store.count('enrollments',{courseId:course.id,userId:auth.id}),1);
+ assert.notEqual((await store.find('invitations',{id:invitation.id}))[0].acceptedAt,null);
+ assert.equal(await participants.authorize(auth),false);
 });
 
 test('concurrent sends are reserved once and provider uncertainty stays retryable',async t=>{

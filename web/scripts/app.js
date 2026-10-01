@@ -10,11 +10,12 @@
   'use strict';
   const NS = 'http://www.w3.org/2000/svg';
 
-  /* The membership price slot. Until a launch price is configured the server
-     answers with its "unannounced" sentinel, and the landing says so in the
-     reader's language instead of showing a number. A configured amount is
-     printed exactly as the operator set it — only the period suffix and the
-     sentinel are copy. */
+  /* The membership price slot. A price is shown only while a member could
+     actually pay it: the server sets `checkout` once the pilot is off and
+     Stripe is configured. Until then (and on static hosting with no API) the
+     slot says "Soon!" in the reader's language. A configured amount is printed
+     exactly as the operator set it — only the period suffix and the sentinel
+     are copy. */
   const I18N = window.nodalI18n;
   const t = (key) => (I18N ? I18N.t(key) : key);
   const PRICE_COPY = new Map([
@@ -24,24 +25,31 @@
   ]);
   const localisePrice = (value) => (PRICE_COPY.has(value) ? t(PRICE_COPY.get(value)) : value);
 
-  let monthlyBilling = null;
+  let billing = null;
   function renderLandingPrice() {
     const price = document.querySelector('[data-billing-price]');
     if (!price) return;
-    if (!monthlyBilling?.amount) { price.textContent = t('mem.priceSoon'); return; }
-    const amount = localisePrice(monthlyBilling.amount);
-    const per = monthlyBilling.per ? ` ${localisePrice(monthlyBilling.per)}` : '';
+    const monthly = billing?.checkout === true ? billing.cycles?.monthly : null;
+    if (!monthly?.amount) { price.textContent = t('mem.priceSoon'); return; }
+    const amount = localisePrice(monthly.amount);
+    const per = monthly.per ? ` ${localisePrice(monthly.per)}` : '';
     price.textContent = `${amount}${per}`;
   }
 
   async function loadLandingBillingConfig() {
     if (!document.querySelector('[data-billing-price]')) return;
+    renderLandingPrice();   // the static fallback is English; translate it before the request returns
     try {
       const res = await fetch('/api/billing/config', { headers: { Accept: 'application/json' } });
-      if (res.ok) monthlyBilling = (await res.json()).cycles?.monthly ?? null;
+      if (res.ok) billing = await res.json();
     } catch {
       // static previews have no API; the translated fallback still applies
     }
+    // The Supporter button ships hidden (also without JavaScript, and while
+    // this request is in flight) and appears only when checkout can run.
+    // While checkout is closed it leads nowhere, so it is removed outright.
+    const cta = document.querySelector('[data-billing-cta]');
+    if (billing?.checkout === true) { if (cta) cta.hidden = false; } else cta?.remove();
     renderLandingPrice();
   }
 

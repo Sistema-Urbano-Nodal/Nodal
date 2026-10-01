@@ -4,6 +4,8 @@ const {t,el,tr,api,status,button,field,select,date,bind,dynamic,source,setPageTi
 const root=document.getElementById('pilotRoot'),msg=document.getElementById('pilotStatus');
 let courses=[],selectedId=null,workspace,selectionVersion=0;
 const endpoint=id=>'/api/admin/courses'+(id?'/'+id:'');
+// Publication status plus a closed-enrollment marker, re-read on language change.
+const courseState=(c,cls)=>dynamic(cls?'span':'small',()=>t(c.status)+(c.enrollmentOpen===false?' · '+t('closed'):''),cls);
 function translationEditor(record,keys){
   const section=el('section','pilot-translation-editor');
   const locale=select('translationLanguage',['en','es','pt'],window.nodalI18n?.lang||'en');
@@ -172,7 +174,7 @@ function responseView(records,courseId){
   section.append(heading,controls,results,tr('p','limitNote','pilot-data-note'));render();return section;
 }
 
-function participantView(data,id,version,notice,onRefresh){
+function participantView(data,id,version,notice,onRefresh,closed=false){
   const section=el('section'),heading=el('div','pilot-section-heading');
   heading.append(tr('h2','participants'),csvLink(id,'participants','downloadParticipants'));
   section.append(heading);
@@ -212,7 +214,9 @@ function participantView(data,id,version,notice,onRefresh){
   }
   email.input.addEventListener('input',()=>{invite.hidden=true;status(local,'');});
   form.addEventListener('submit',event=>{event.preventDefault();return mutate(false);});
-  form.append(hint,email.wrap,actions);add.append(form);section.append(add,local);
+  form.append(hint,email.wrap,actions);add.append(form);
+  // A closed course admits no one: staff reopen Enrollment open in Course setup.
+  section.append(closed?tr('div','participantsClosed','pilot-participant-add'):add,local);
   const invitations=(data.invitations||[]).filter(item=>!item.acceptedAt);
   if(invitations.length){
     const pending=el('section','pilot-invitations');pending.append(tr('h3','pendingInvitations'),tr('p','invitationIntakeNote','pilot-data-note'));
@@ -220,8 +224,10 @@ function participantView(data,id,version,notice,onRefresh){
     for(const invitation of invitations){
       const row=el('li'),details=el('div','pilot-invitation-person');
       details.append(el('strong',null,invitation.email),tr('span',({sent:'invitationDeliverySent',failed:'invitationDeliveryFailed',uncertain:'invitationDeliveryUncertain',pending:'invitationDeliveryPending'})[invitation.deliveryStatus]||'invitationDeliveryPending','pilot-data-note'));
+      row.append(details);list.append(row);
+      if(closed)continue;
       const resend=button('resendInvitation',()=>{email.input.value=invitation.email;add.open=true;return mutate(true,invitation.email);},true);invitationButtons.push(resend);
-      row.append(details,resend);list.append(row);
+      row.append(resend);
     }
     pending.append(list);section.append(pending);
   }
@@ -281,29 +287,32 @@ async function showCourse(id,selected='responses',participantNotice=null){
     if(version!==selectionVersion)return;
     workspace.replaceChildren();
     const header=el('header','pilot-teaching-course');
-    const title=el('div');title.append(tr('span',course.status,'pilot-tag'),source('h2',course,'title'));
+    const title=el('div');title.append(courseState(course,'pilot-tag'),source('h2',course,'title'));
     const view=tr('a','open','pilot-text-link');view.href='course.html?id='+id;header.append(title,view);workspace.append(header);
     const tabs=el('div','pilot-tabs');tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label',t('teaching'));
     tabs.dataset.pilotAria='teaching';
+    let paneClosed=course.enrollmentOpen===false;
     const updateCourse=async saved=>{
       Object.assign(course,saved);
-      title.replaceChildren(tr('span',course.status,'pilot-tag'),source('h2',course,'title'));
+      title.replaceChildren(courseState(course,'pilot-tag'),source('h2',course,'title'));
       courses=courses.map(item=>item.id===course.id?{...item,...saved}:item);
       await refreshList(false);
+      if((course.enrollmentOpen===false)!==paneClosed)await refreshParticipants();
     };
     let activity=activityView(data,id);
     async function refreshParticipants(notice){
       try{
         const fresh=await api(endpoint(id)+'/report');
         if(version!==selectionVersion||selectedId!==id)return;
-        const previous=panes.participants,next=participantView(fresh,id,version,notice,refreshParticipants);
+        paneClosed=course.enrollmentOpen===false;
+        const previous=panes.participants,next=participantView(fresh,id,version,notice,refreshParticipants,paneClosed);
         next.id=previous.id;next.setAttribute('role','tabpanel');next.setAttribute('aria-labelledby','staff-tab-participants');next.hidden=previous.hidden;
         previous.replaceWith(next);panes.participants=next;
         const nextActivity=activityView(fresh,id);nextActivity.open=activity.open;activity.replaceWith(nextActivity);activity=nextActivity;
         status(msg,'');
       }catch(error){if(version===selectionVersion&&selectedId===id)status(msg,new Error(t('participantListRefreshError')));}
     }
-    const panes={responses:responseView(data.feedback,id),participants:participantView(data,id,version,participantNotice,refreshParticipants),courseSetup:setupView(course,modules,id,updateCourse)};
+    const panes={responses:responseView(data.feedback,id),participants:participantView(data,id,version,participantNotice,refreshParticipants,paneClosed),courseSetup:setupView(course,modules,id,updateCourse)};
     const buttons={};
     function activate(key){
       for(const name of Object.keys(panes)){
@@ -332,7 +341,7 @@ async function refreshList(fetchLatest=true){
   if(fetchLatest)({courses}=await api(endpoint()));const list=document.getElementById('staffCourses');list.replaceChildren();
   courses.forEach(c=>{
     const b=el('button','pilot-course-select');b.type='button';b.dataset.course=c.id;
-    b.append(source('span',c,'title'),tr('small',c.status));b.addEventListener('click',()=>showCourse(c.id));
+    b.append(source('span',c,'title'),courseState(c));b.addEventListener('click',()=>showCourse(c.id));
     if(c.id===selectedId)b.setAttribute('aria-current','page');list.append(b);
   });
 }

@@ -20,6 +20,8 @@ export class Node {
  setCustomValidity(message){this.validationMessage=message;}
  reportValidity(){return [this,...descendants(this)].filter(node=>!node.disabled).every(node=>!node.validationMessage&&(!node.required||(node.type==='checkbox'?node.checked:Boolean(node.value))));}
  scrollIntoView(){}
+ // Full screen goes through the harness that owns the document (see createFiiuHarness).
+ requestFullscreen(){return Node.fullscreen?Node.fullscreen(this):Promise.resolve();}
 }
 class FormData {
  constructor(form){this.values=descendants(form).filter(node=>['input','select','textarea'].includes(node.tagName)&&node.name&&!node.disabled&&(node.type!=='checkbox'||node.checked)).map(node=>[node.name,node.value]);}
@@ -32,13 +34,24 @@ export const key=(node,name)=>descendants(node).find(child=>child.dataset.fiiuTe
 export const field=(node,name)=>descendants(node).find(child=>child.name===name);
 export const content=node=>[node.textContent,...node.children.map(content)].join(' ');
 // context adds or replaces globals of the page (for example a Date frozen at a festival hour, or a browser without AbortSignal.timeout).
-export async function createFiiuHarness(respond,{page='fiiu',context={}}={}){
- const body=new Node('body'),root=new Node(),message=new Node(),requests=[],languageListeners=[],timers=[];body.append(root,message);let reloads=0;
- const document={body,visibilityState:'visible',documentElement:{lang:'en'},getElementById:id=>['fiiuRoot','fiiuAdminRoot'].includes(id)?root:message,createElement:tag=>new Node(tag),createTextNode:value=>Object.assign(new Node('text'),{textContent:value}),querySelectorAll:selector=>body.querySelectorAll(selector),querySelector:selector=>body.querySelector(selector)};
- const ctx={document,FormData,Intl,Date,Error,AbortSignal,setInterval:(callback,delay)=>timers.push({callback,delay}),location:{hash:'',reload(){reloads++;}},window:{confirm:()=>true,nodalI18n:{lang:'en',onChange:listener=>languageListeners.push(listener)}},fetch:async(path,options)=>{
+// search and pathname are the page address; location.assign and history.replaceState are recorded (assigned, replaced) and the latter updates location.search.
+// document listeners (visibilitychange, fullscreenchange) run through fire(); visible() fires visibilitychange; wake-lock requests are recorded in locks.
+export async function createFiiuHarness(respond,{page='fiiu',context={},search='',pathname='/'+page+'.html'}={}){
+ const body=new Node('body'),root=new Node(),message=new Node(),requests=[],languageListeners=[],timers=[],assigned=[],replaced=[],locks=[],documentListeners={};body.append(root,message);let reloads=0;
+ const fire=type=>Promise.all((documentListeners[type]||[]).map(listener=>listener({type})));
+ const document={body,visibilityState:'visible',fullscreenEnabled:true,fullscreenElement:null,documentElement:{lang:'en'},getElementById:id=>['fiiuRoot','fiiuAdminRoot','fiiuCheckinRoot','fiiuQrRoot'].includes(id)?root:message,createElement:tag=>new Node(tag),createElementNS:(namespace,tag)=>Object.assign(new Node(tag),{namespaceURI:namespace}),createTextNode:value=>Object.assign(new Node('text'),{textContent:value}),querySelectorAll:selector=>body.querySelectorAll(selector),querySelector:selector=>body.querySelector(selector),
+  addEventListener:(type,listener)=>{(documentListeners[type]??=[]).push(listener);},exitFullscreen:async()=>{document.fullscreenElement=null;await fire('fullscreenchange');}};
+ Node.fullscreen=async node=>{document.fullscreenElement=node;await fire('fullscreenchange');};
+ const location={hash:'',search,pathname,reload(){reloads++;},assign(url){assigned.push(url);}};
+ const sentinel=()=>({released:false,release(){this.released=true;return Promise.resolve();},addEventListener(){}});
+ const ctx={document,FormData,Intl,Date,Error,AbortSignal,URL,URLSearchParams,atob,location,
+  setInterval:(callback,delay)=>timers.push({callback,delay}),clearInterval:id=>{if(timers[id-1])timers[id-1].cleared=true;},
+  history:{replaceState(state,title,url){replaced.push(url);location.search=url.includes('?')?url.slice(url.indexOf('?')):'';}},
+  navigator:{wakeLock:{request:async type=>{const lock=sentinel();locks.push({type,lock});return lock;}}},
+  window:{confirm:()=>true,nodalI18n:{lang:'en',onChange:listener=>languageListeners.push(listener)}},fetch:async(path,options={})=>{
   const request={path,method:options.method||'GET',body:options.body?JSON.parse(options.body):undefined};requests.push(request);const result=await respond(request);
   return{ok:!result.status||result.status<400,status:result.status||200,json:async()=>result.data??result};
  }};
  vm.createContext(Object.assign(ctx,context));for(const name of ['fiiu-ui',page])vm.runInContext(source(name),ctx);await flush();
- return{body,root,message,requests,ctx,timers,tickTimers:()=>Promise.all(timers.map(timer=>timer.callback())),visible:value=>{document.visibilityState=value?'visible':'hidden';},reloads:()=>reloads,lang:lang=>{ctx.window.nodalI18n.lang=lang;languageListeners.forEach(listener=>listener());}};
+ return{body,root,message,requests,ctx,timers,assigned,replaced,locks,fire,tickTimers:()=>Promise.all(timers.filter(timer=>!timer.cleared).map(timer=>timer.callback())),visible:value=>{document.visibilityState=value?'visible':'hidden';return fire('visibilitychange');},reloads:()=>reloads,lang:lang=>{ctx.window.nodalI18n.lang=lang;languageListeners.forEach(listener=>listener());}};
 }

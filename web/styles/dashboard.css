@@ -975,3 +975,13 @@ select:focus-visible, textarea:focus-visible {
 .side-privacy{display:block;margin:14px 0 0 12px;color:#e0e8db;font-size:11px;text-decoration:none}
 .side-privacy:hover{text-decoration:underline;text-underline-offset:3px}
 @media(max-width:980px){.side-privacy{margin:0;font-size:10px}}
+
+/* Staff-only rail link (dashboard.js shows it to admins) and the NODAL news
+   block, which stays hidden until news-feed.js has posts to show. .side-link
+   sets display, so [hidden] needs restating. The news block borrows the
+   festival widget's ruled rows from fiiu.css; only the pinned label and the
+   link to the full list are set here. */
+.side-link[hidden], .ctx-block[hidden] { display: none; }
+#nodalNews .f-news-pinned { color: var(--forest); font-weight: 650; }
+#nodalNews .f-news-item:first-child { padding-top: 0; }
+#nodalNews .nodal-news-all { display: inline-block; margin-top: var(--f-sp-1, 4px); }

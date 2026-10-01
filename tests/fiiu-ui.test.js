@@ -390,3 +390,74 @@ test('the dashboard widget and the community card follow the registration settin
  const open=await hubHarness('community',path=>widgetFeed(path));assert.equal(key(open.hub,'register').href,'fiiu.html');assert.deepEqual(open.requests,['/api/fiiu?kind=news']);
  const offline=await hubHarness('community',()=>({status:503,data:{error:'unavailable'}}));assert.equal(key(offline.hub,'register').href,'fiiu.html','without the settings the card keeps Register');
 });
+
+test('badge hints say badges come from the session QR code or the team, in every language',()=>{
+ const context={window:{nodalI18n:{lang:'en',onChange(){}}},document:{documentElement:{lang:'en'},querySelectorAll:()=>[]},Intl,Date,Error};
+ vm.runInNewContext(readFileSync(new URL('../web/scripts/fiiu-ui.js',import.meta.url),'utf8'),context);const {rows}=context.window.Fiiu;
+ for(const [i,word] of ['QR','QR','QR'].entries()){assert.match(rows.badgesHint[i],new RegExp(word));assert.match(rows.badgesHintShort[i],new RegExp(word));}
+ assert.match(rows.badgesHint[0],/team confirms/);assert.match(rows.attendanceHint[0],/QR check-ins/);
+});
+
+test('the saved registration shows the confirmed hours under the badges, and cancelling warns that attendance goes too',async()=>{
+ const registration={...saved,answers:{...answers,activities:['day1-am','day1-pm']}};let asked='';
+ const h=await harness({registration,read:()=>({...self(registration),attendance:[{activityId:'day1-am',createdAt:'2026-10-21T14:12:00.000Z',method:'qr'},{activityId:'day1-pm',createdAt:'2026-10-22T00:40:00.000Z',method:'staff'}]}),write:()=>({ok:true})});
+ const box=h.root.querySelector('.f-saved').querySelector('.f-badges'),hours=box.querySelector('.f-hours');
+ assert.equal(box.children.at(-1),hours,'the hours line closes the badges');assert.ok(key(hours,'hoursConfirmed'));assert.match(content(hours),/\b6\b/);assert.equal(key(hours,'labHoursPending'),undefined);
+ h.ctx.window.confirm=message=>{asked=message;return false;};await key(h.root,'cancel').listeners.click();
+ assert.equal(asked,h.ctx.window.Fiiu.t('cancelConfirm')+' '+h.ctx.window.Fiiu.t('cancelWithAttendance'));
+ const none=await harness({registration:saved,write:()=>({ok:true})});none.ctx.window.confirm=message=>{asked=message;return false;};await key(none.root,'cancel').listeners.click();
+ assert.equal(asked,none.ctx.window.Fiiu.t('cancelConfirm'),'without attendance the question stays as it was');assert.equal(none.root.querySelector('.f-hours'),null);
+});
+
+test('an accepted laboratory counts for badges but its hours are pending until its length is known',async()=>{
+ const registration={...saved,labStatus:'accepted',answers:{...answers,publicOfficial:true,applyLab:true,institution:'City',position:'Planner'}};
+ const h=await harness({registration,read:()=>({...self(registration),attendance:[{activityId:'day0-lab',createdAt:'2026-10-20T15:00:00.000Z',method:'qr'}]})});
+ const hours=h.root.querySelector('.f-saved').querySelector('.f-hours');assert.match(content(hours),/\b0\b/);assert.ok(key(hours,'labHoursPending'));
+});
+
+test('the organiser link appears only for organisers, never for a member or a guest',async()=>{
+ const member=await harness({registration:saved});assert.equal(key(member.root,'admin'),undefined);
+ const guest=await harness({read:()=>({status:401,data:{error:'sign in required'}})});assert.equal(key(guest.root,'admin'),undefined);assert.ok(key(guest.root,'signin'));
+ const organiser=await harness({read:()=>({...self(saved),isAdmin:true})});assert.equal(key(organiser.root,'admin').href,'fiiu-admin.html');
+});
+
+test('dashboard widget adds the confirmed hours under its badges once a session is confirmed',async()=>{
+ const registration={...saved,answers:{...answers,activities:['day1-am']}};
+ const {widget}=await widgetHarness(path=>widgetFeed(path)||{...self(registration),attendance:[{activityId:'day1-am',createdAt:'2026-10-21T14:12:00.000Z',method:'qr'}]});
+ const box=widget.querySelector('.f-badges');assert.match(content(box),/✓ El poder de lo local/);assert.ok(key(box.querySelector('.f-hours'),'hoursConfirmed'));assert.match(content(box.querySelector('.f-hours')),/\b4\b/);
+ const empty=await widgetHarness(path=>widgetFeed(path)||self(registration));assert.equal(empty.widget.querySelector('.f-hours'),null,'no hours line before any confirmed session');assert.ok(key(empty.widget,'badgesHintShort'));
+});
+
+test('the organisers-only page names itself in the reader language, in the tab title too',()=>{
+ const listeners=[],document={title:'NODAL · Organisers only',body:{dataset:{page:'organisers-only'}},documentElement:{lang:'en'},querySelectorAll:()=>[]};
+ const ctx={document,Intl,Date,Error,URL,URLSearchParams,window:{nodalI18n:{lang:'es',onChange:listener=>listeners.push(listener)}}};
+ vm.createContext(ctx);vm.runInContext(readFileSync(new URL('../web/scripts/fiiu-ui.js',import.meta.url),'utf8'),ctx);
+ assert.equal(document.title,'NODAL · Solo para la organización');
+ ctx.window.nodalI18n.lang='pt';listeners.forEach(listener=>listener());assert.equal(document.title,'NODAL · Apenas para a organização');
+ ctx.window.nodalI18n.lang='en';listeners.forEach(listener=>listener());assert.equal(document.title,'NODAL · Organisers only');
+ // Every other page keeps the title its own script sets.
+ const other={...document,title:'NODAL · FIIU',body:{dataset:{page:'fiiu'}}};vm.runInContext(readFileSync(new URL('../web/scripts/fiiu-ui.js',import.meta.url),'utf8'),vm.createContext({...ctx,document:other}));
+ assert.equal(other.title,'NODAL · FIIU');
+});
+
+test('festival layout rules: footer at the bottom, natural profile rows, stacked check-in rows on phones, a portrait QR that leaves the code in view',()=>{
+ const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8');
+ assert.match(css,/\.f-page\{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh\}\.f-page>\.f-shell\{flex:1 0 auto\}/,'short pages keep the footer at the bottom of the screen');
+ assert.match(css,/\.f-summary-grid\{[^}]*align-items:start\}/);assert.doesNotMatch(css,/\.f-summary-col \.f-summary-table\{height:100%\}/,'a short profiles table is not stretched into a blank band');
+ const phone=css.match(/@media\(max-width:799px\)\{\n\.f-summary-table\.is-checkin[\s\S]*?\n\}/)?.[0]||'';
+ assert.match(phone,/\.f-summary-table\.is-checkin tr\{display:grid;grid-template-columns:minmax\(0,1fr\) auto/,'check-in rows stack below 800px');
+ assert.match(phone,/td\.f-col-action\{grid-column:1\/-1/,'the screen button gets its own line instead of scrolling off');
+ assert.doesNotMatch(phone,/min-width:200px/);assert.match(phone,/\.f-cell-label\{display:inline\}/);assert.match(css,/\.f-cell-label,\.f-cell-unit\{display:none\}/);
+ assert.match(css,/@media\(max-width:900px\) and \(orientation:portrait\)\{\.f-qr-code\{width:min\(90vw,calc\(100vh - var\(--f-header\) - 27rem\)\)\}\}/);
+ assert.match(css,/\.f-qr-note\{[^}]*text-wrap:balance\}/,'the screen note never ends on a lone word');
+ assert.match(css,/@media\(min-width:1280px\)\{\.f-admin-settings form\{display:grid;grid-template-columns:minmax\(0,1fr\) minmax\(0,2fr\)/,'the settings fill the wide column');
+ // Wide screens: the capped organiser sheets sit centred, the QR may pass 820px, and the news editor column stops at its form.
+ assert.match(css,/\.f-page:is\(\[data-page="fiiu-admin"\],\[data-page="fiiu-qr"\]\) \.f-shell\{max-width:calc\(1760px \+ 2\*var\(--f-gutter\)\);margin-inline:auto\}/,'no empty band on one side past 1760px');
+ assert.match(css,/\.f-qr-code\{width:min\(calc\(100vh - var\(--f-header\) - 120px\),50vw,1080px\)/);
+ assert.match(css,/@media\(min-width:1380px\)\{\.f-content-layout\{grid-template-columns:minmax\(0,650px\) minmax\(0,1fr\)\}\}/,'no blank strip between the editor form and the publication list');
+ assert.match(css,/\.f-content-editor form\{max-width:650px\}/,'the column cap matches the form cap');
+ // The dashboard widget's badges are ruled rows across the column, like the FIIU page.
+ assert.match(css,/\.f-widget-status>\.f-badges\{justify-self:stretch\}/);assert.match(css,/:is\(\.f-page,\.f-news-widget\) \.f-badges>:is\(h2,h3,h4\)\+\.f-badge\{border-top:2px solid var\(--f-ink\)\}/);
+ // Short page headings never break mid-word at a hyphen.
+ assert.match(css,/\.f-page \.f-locked h1\{[^}]*hyphens:manual/);assert.match(css,/\.f-page \.f-checkin-title\{[^}]*hyphens:manual/);
+});

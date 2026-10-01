@@ -807,16 +807,25 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         await discard();
         return failure(error?.status >= 400 && error?.status < 500 ? 'invitation_password_rejected' : 'invitation_uncertain', error?.status >= 400 && error?.status < 500 ? 400 : 503);
       }
-      let courseIds = [], partial = false;
+      let courseIds = [], partial = false, closed = false;
       try {
         await admin.rest('profiles', { method: 'PATCH', query: { id: `eq.${authUser.id}` }, body: { full_name: name, preferred_name: name.split(/\s+/)[0] }, signal: AbortSignal.timeout(15000) });
       } catch { partial = true; }
-      try { courseIds = await enroll(authUser); if (!Array.isArray(courseIds)) { courseIds = []; partial = true; } }
-      catch { partial = true; }
+      try {
+        // accept() reports courses it could not join because enrolment closed;
+        // a bare array is the earlier contract. Anything else is unconfirmed.
+        const outcome = await enroll(authUser);
+        if (Array.isArray(outcome)) courseIds = outcome;
+        else if (Array.isArray(outcome?.courseIds) && Array.isArray(outcome.closedCourseIds)) {
+          courseIds = outcome.courseIds; closed = !courseIds.length && outcome.closedCourseIds.length > 0;
+        } else partial = true;
+      } catch { partial = true; }
       // Password setup is complete even if enrollment or revocation fails.
       // Sign-in is explicit, so no temporary invite session reaches the browser.
       if (!await discard('global')) partial = true;
-      return { status: 200, passwordChanged: true, courseIds, ...(partial ? { code: 'invitation_partial' } : {}), cookies: clearSessionCookies(env) };
+      // A closed course is settled, so it outranks the partial "ask staff to finish" outcome.
+      const code = closed ? 'invitation_enrollment_closed' : partial ? 'invitation_partial' : null;
+      return { status: 200, passwordChanged: true, courseIds, ...(code ? { code } : {}), cookies: clearSessionCookies(env) };
     },
     async requestPasswordRecovery({ email, req }) {
       // Reuse valid browser state during provider email cooldowns. Rotating it

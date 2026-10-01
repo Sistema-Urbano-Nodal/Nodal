@@ -238,3 +238,27 @@ test('profile name persistence failure is reported after password success but st
   assert.equal(result.status, 200); assert.equal(result.passwordChanged, true); assert.equal(result.code, 'invitation_partial');
   assert.deepEqual(result.courseIds, ['course-1']);
 });
+
+test('a closed-course outcome saves the password and reports enrollment closed instead of a partial setup', async () => {
+  const closed = async () => ({ courseIds: [], closedCourseIds: ['course-1'] });
+  for (const setup of [{}, { profileUpdateError: true }]) {
+    const { repo, state, calls } = provider(setup);
+    const result = await repo.completeCourseInvitation(input({ enroll: closed }));
+    assert.equal(result.status, 200); assert.equal(result.passwordChanged, true); assert.equal(result.code, 'invitation_enrollment_closed');
+    assert.deepEqual(result.courseIds, []); assert.equal(state.password, 'new-password-123'); assertNoSessionLeaks(result);
+    assert.ok(calls.some(c => c.url.pathname === '/auth/v1/logout' && c.url.searchParams.get('scope') === 'global'));
+  }
+  const mixed = await provider().repo.completeCourseInvitation(input({ enroll: async () => ({ courseIds: ['course-2'], closedCourseIds: ['course-1'] }) }));
+  assert.equal(mixed.code, undefined); assert.deepEqual(mixed.courseIds, ['course-2']);
+  const legacy = await provider().repo.completeCourseInvitation(input({ enroll: async () => ['course-1'] }));
+  assert.equal(legacy.code, undefined); assert.deepEqual(legacy.courseIds, ['course-1']);
+});
+
+test('a malformed enrollment outcome is reported as partial, never as closed or enrolled', async () => {
+  for (const outcome of [null, 'course-1', {}, { courseIds: 'course-1', closedCourseIds: [] }, { closedCourseIds: ['course-1'] }, { courseIds: [] }]) {
+    const { repo } = provider();
+    const result = await repo.completeCourseInvitation(input({ enroll: async () => outcome }));
+    assert.equal(result.status, 200); assert.equal(result.passwordChanged, true); assert.equal(result.code, 'invitation_partial', JSON.stringify(outcome));
+    assert.deepEqual(result.courseIds, []); assertNoSessionLeaks(result);
+  }
+});

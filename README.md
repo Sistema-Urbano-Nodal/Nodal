@@ -44,22 +44,25 @@ unused variables, duplicate keys, and unreachable code, runs the tests, then
 rebuilds the static output. `npm run lint` runs just the source checks; CI runs
 the full build plus the dependency audit.
 
-CI also starts a disposable PostgreSQL 15 service with two empty UTF-8 databases,
-so the interaction-retention and course-upload-quota integration tests run on
-every pull request and CI push. These tests exercise migrations, database
+CI also starts a disposable PostgreSQL 15 service with four empty UTF-8 databases,
+so the interaction-retention, course-upload-quota, FIIU and NODAL news integration
+tests run on every pull request and CI push. These tests exercise migrations, database
 permissions, and concurrent writes using independent PostgreSQL sessions.
 The shared test roles are created before the suite to avoid racing during setup.
 
 Local and Vercel builds still work without PostgreSQL. To include the integrations
-locally, provide `NODAL_INTERACTION_TEST_DATABASE_URL` and
-`NODAL_COURSE_QUOTA_TEST_DATABASE_URL`, pointing respectively to **empty disposable
-local databases** named `nodal_interaction_test_<suffix>` and
-`nodal_course_quota_test_<suffix>`, then run `npm run build`. Both tests install
-fixtures and require fresh databases for each run; never use production data.
-The `psql` client must be available, and the two databases must be UTF-8. When
-sharing a PostgreSQL instance, create the `anon` and `authenticated` roles with
-`NOLOGIN` and `service_role` with `NOLOGIN BYPASSRLS` before running both tests
-together. CI destroys its service and databases automatically when the job ends.
+locally, provide `NODAL_INTERACTION_TEST_DATABASE_URL`,
+`NODAL_COURSE_QUOTA_TEST_DATABASE_URL`, `NODAL_FIIU_TEST_DATABASE_URL` and
+`NODAL_NEWS_TEST_DATABASE_URL`, pointing respectively to **empty disposable local
+databases** named `nodal_interaction_test_<suffix>`,
+`nodal_course_quota_test_<suffix>`, `nodal_fiiu_test_<suffix>` and
+`nodal_news_test_<suffix>` on 127.0.0.1, localhost or [::1], then run
+`npm run build`. The tests install fixtures and require fresh databases for each
+run; never use production data. Each variable is optional; a suite without its
+database is skipped. The `psql` client must be available, and the databases must
+be UTF-8. When sharing a PostgreSQL instance, create the `anon` and
+`authenticated` roles with `NOLOGIN` and `service_role` with `NOLOGIN BYPASSRLS`
+before running the tests together. CI destroys its service and databases automatically when the job ends.
 
 ## Environment
 
@@ -118,12 +121,39 @@ Core flows:
 - Logout: dashboard sidebar
 - Export personal data or delete account: dashboard profile dialog
 
-## Catalog Operations
+## Publishing desk
 
-`/admin.html` is the protected staff workspace for opportunities, projects,
-learning circles, resources, case studies, and member interest review. The page
-and every `/api/admin/*` request independently require a server-owned `admin`
-role. Catalog records are archived rather than deleted.
+`/admin.html` is the protected staff "Publishing desk", in EN/ES/PT. It edits
+NODAL news; opportunities, projects, learning circles, resources and case
+studies; and the member interest review queue. It also links to the festival
+news editor (`/fiiu-admin.html#content`) and to courses (`/teaching.html`).
+Administrators reach it from the "Publishing" link in the console's Tools rail,
+which only they see. The page and every `/api/admin/*` request independently
+require a server-owned `admin` role; there is no separate publisher role.
+Catalog records are archived rather than deleted.
+
+NODAL news posts (title up to 160 characters, text up to 2,000, an optional
+https link, an optional pin, draft or published) appear on the member console
+and in the community page's news section. A post is shown to every reader
+exactly as written; it has no language versions. The feed is public:
+
+- `GET /api/news?limit=&cursor=` returns published posts, pinned first, then newest.
+- `GET|POST /api/admin/news`, `PATCH|DELETE /api/admin/news/:id` back the desk,
+  with optimistic versions (409 `version_conflict` carries the current post) and
+  client-chosen ids so a retried create is stored once.
+
+On static-only hosting there is no news API, and the news blocks stay hidden.
+
+## FIIU check-in
+
+Festival attendees check themselves in to the six NODAL blocks by scanning a
+rotating QR that an administrator projects from `/fiiu-qr.html`; the code
+fallback is `/fiiu-checkin.html`. The QR screen requires an administrator, and
+members who open an organiser page see an "Organisers only" page instead. The
+check-in page opens signed out and asks the attendee to sign in for that
+session; the check-in itself always needs an account. DEPLOYMENT.md's
+"FIIU check-in on the day" section is the operator runbook, including the
+hours rule and the local rehearsal clock (`FIIU_CHECKIN_NOW`).
 
 For a local SQLite-only administrator, use a dedicated development database and
 set a password explicitly:

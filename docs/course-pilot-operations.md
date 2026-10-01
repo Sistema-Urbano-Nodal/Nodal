@@ -16,7 +16,16 @@ Sign in with a NODAL administrator account and open `/teaching.html`. Members ca
 
 Open a published course in **Teaching workspace → Participants → Add participant**. An existing, confirmed NODAL account is enrolled by email with student access; no email is sent and its intake remains incomplete. Existing admins keep their global admin role. If the account is missing or unconfirmed, the form offers a separate **Send email invitation** button. Pending invitations show provider delivery status and a resend action. A resend cooldown and conditional database reservation protect against duplicate sends. A rejected resend preserves an older valid invitation.
 
-Self-enrollment stays available whenever **Enrollment open** is enabled. Admin enrollment also works when self-enrollment is closed. Neither path fills in a student's intake or promotes their account.
+**Enrollment open** in **Course setup** controls every way into a course. When it is off:
+
+- Self-enrollment is refused (`403`, code `enrollment_closed`). The course stays listed and its page shows the closure and the session route, with no enroll button.
+- **Add participant**, **Send email invitation** and resends are refused (`409`, code `participant_enrollment_closed`) before any account lookup, email or database write. The Participants tab replaces them with a note pointing to the toggle.
+- An invitation sent before closure still lets the invitee save their password, but it does not enroll them. The invitation stays pending and the page says enrollment has closed (`invitation_enrollment_closed`).
+- Existing participants keep full access to sessions, materials, discussions and their intake.
+
+To admit someone after closure, turn **Enrollment open** on, add or invite them, then turn it off again. While it is on, self-enrollment is open too. Do not archive a course to close it: archived courses disappear for their participants. No path fills in a student's intake or promotes their account.
+
+The first pilot course (`72e3cc56-a506-4a1b-97b5-9333e8d283ca`, *Curso Movilidad Nivel 2*) is closed by the data-only migration `20261001011348_close_mobility_pilot_enrollment.sql`. It also bumps the course version, so a Course setup form opened before closure gets a conflict instead of reopening enrollment. It does nothing if that id is absent or the toggle already closed the course. Before applying it, confirm the id with `select id,title,enrollment_open,version from pilot_courses order by created_at;`. Unticking **Enrollment open** in the teaching workspace has the same effect without a deploy. `npm run setup:course-pilot` still creates new shells open (the integration and load tests enroll into them) and never reopens an existing course.
 
 Supabase custom SMTP delivers invitations. Configure **Authentication → Emails → Invite user** with [the invitation template](templates/course-invitation-email.html). The Site URL must be the canonical production origin; also allow its exact `/accept-invitation.html` callback. This template is specific to NODAL course invitations: create them from the teaching workspace so a pending course record exists. Other authentication templates are independent. The invitation hash stays in the fragment, is stripped immediately, and is verified as `type: invite` by the server only after the invitee submits their name and password. New accounts must sign in after setting their password. Used or expired links need a new invitation; after a partial password change, use sign-in/password recovery and ask an admin to finish enrollment.
 

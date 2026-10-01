@@ -1,6 +1,6 @@
 (() => {
  'use strict';
- const {el,tr,link,button,source,api,status,dateNode,contentCards,badges,countLabel,nextFor,newTabNote}=window.Fiiu;
+ const {el,tr,link,button,source,api,status,dateNode,contentCards,badges,countLabel,nextFor,newTabNote,hoursLine}=window.Fiiu;
  const hub=document.getElementById('fiiuHub'),widget=document.getElementById('fiiuDashboardBody'),message=document.getElementById('fiiuStatus');
  // A link is given as [key, url], or as a node when the caller updates it later.
  function card(title,copy,links,featured=false){const box=el('article','f-hub-card'+(featured?' featured':''));box.append(tr('h2',title),tr('p',copy));const actions=el('div','f-actions');for(const item of links)actions.append(Array.isArray(item)?link(...item):item);box.append(actions);return box;}
@@ -37,8 +37,8 @@
     if(!data)throw Error('festival unavailable');
     const box=el('div','f-badges');state.append(box);const upcoming=nextFor(registration,data.event);
     if(upcoming){const line=el('p','f-next');line.append(tr('span','nextForYou','f-next-label'),dateNode(upcoming.date,'span','short','f-next-date'));if(upcoming.time)line.append(el('span','f-next-time',upcoming.time));line.append(source('span',upcoming.title,'f-next-title'));next.append(line);}
-    // One short line until attendance is confirmed keeps the widget compact; fiiu.html carries the full explanation.
-    badges(box,me.attendance,data.event,{hint:'badgesHintShort'});
+    // One short line until attendance is confirmed keeps the widget compact; fiiu.html carries the full explanation. Confirmed sessions add their hours.
+    badges(box,me.attendance,data.event,{hint:'badgesHintShort'});const hours=hoursLine(me.attendance,data.event);if(hours)box.append(hours);
    }
   }).catch(()=>{const failure=[tr('p','loadError'),link('registration','fiiu.html','f-text-link')];if(settled)state.append(...failure);else state.replaceChildren(...failure);});
  }

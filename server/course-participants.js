@@ -42,23 +42,29 @@ export function createCourseParticipants({store, userRepository}) {
       for(const row of page) {
         if(row.deliveryStatus==='failed' || (row.userId && row.userId!==authUser.id))continue;
         const course=await one('courses',{id:row.courseId});
-        if(course?.status==='published')rows.push(row);
+        // A closed course still authorizes password setup; accept() decides enrolment.
+        if(course?.status==='published')rows.push({...row,open:course.enrollmentOpen!==false});
       }
       if(!page.length)break;
       after={createdAt:page.at(-1).createdAt,id:page.at(-1).id};
     }
     return rows;
   }
+  function admitting(course) {
+    if(course.status!=='published')invitationError('participant_course_unavailable',409);
+    // Closing enrolment closes every way in, before any lookup, email or write.
+    if(course.enrollmentOpen===false)invitationError('participant_enrollment_closed',409);
+  }
   return {
     async add(course, rawEmail) {
-      if(course.status!=='published')invitationError('participant_course_unavailable',409);
+      admitting(course);
       const email=participantEmail(rawEmail), account=await accountFor(email);
       if(!account)invitationError('participant_not_found',404);
       if(!account.confirmed)invitationError('participant_unconfirmed',409);
       return addKnown(course.id,account);
     },
     async invite(course, rawEmail, createdBy) {
-      if(course.status!=='published')invitationError('participant_course_unavailable',409);
+      admitting(course);
       const email=participantEmail(rawEmail), account=await accountFor(email);
       if(account?.confirmed)return addKnown(course.id,account);
       if(!userRepository.sendCourseInvitation)invitationError('invitation_unavailable',503);
@@ -89,14 +95,16 @@ export function createCourseParticipants({store, userRepository}) {
     },
     async authorize(authUser) {return (await eligible(authUser)).length>0;},
     async accept(authUser) {
-      const invitations=await eligible(authUser), ids=[];
+      const invitations=await eligible(authUser), ids=[], closed=[];
       if(!invitations.length)fail('invitation_invalid',403);
       for(const invitation of invitations) {
+        // Closed-course invitations stay pending, so reopening lets staff admit them.
+        if(!invitation.open){closed.push(invitation.courseId);continue;}
         await enroll(invitation.courseId,authUser.id);
         await store.update('invitations',{id:invitation.id,acceptedAt:null},{userId:authUser.id,acceptedAt:stamp(),updatedAt:stamp()});
         ids.push(invitation.courseId);
       }
-      return [...new Set(ids)];
+      return {courseIds:[...new Set(ids)],closedCourseIds:[...new Set(closed)]};
     },
   };
 }

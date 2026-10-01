@@ -1473,6 +1473,9 @@
     try {
       const data = await api('/api/auth/me');
       U = normalizeApiUser(data.user);
+      // The publishing desk link is for staff; the server still gates admin.html itself.
+      const publish = byId('publishLink');
+      if (publish) publish.hidden = data.user?.permission !== 'admin';
       confirmedCity = U.city;
       state.user = U;
       state.notifRead = U.notifRead;

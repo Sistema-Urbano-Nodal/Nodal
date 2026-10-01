@@ -7,14 +7,14 @@ import {createFiiuHarness,key,field,flush,content} from './helpers/fiiu-ui-harne
 const participant=(id,firstName)=>({id,eventId:'fiiu-2026',userId:'user-'+id,email:firstName.toLowerCase()+'@example.test',version:1,labStatus:'pending',createdAt:'2026-09-29T12:00:00.000Z',updatedAt:'2026-09-29T12:00:00.000Z',answers:{firstName,lastName:'Test',country:'Perú',city:'Lima',profile:'public_official',publicOfficial:true,applyLab:true,institution:'City Council',position:'Planner',activities:['day1-am'],privacyAccepted:true}});
 const copy=value=>structuredClone(value);
 const summary={totalRegistrations:237,publicOfficials:64,lab:{pending:18,accepted:12,declined:2},activities:[{activityId:'day1-am',registrations:121,externalInterests:0,attendance:0}],days:[{date:'2026-10-21',registrations:157,attendance:0}],profiles:[{profile:'student',count:48}]};
-async function harness(respond,{participants=[],summaryRead=()=>({summary:copy(summary)}),configRead=()=>({config:{...DEFAULT_CONFIG,version:0}})}={}){
+async function harness(respond,{participants=[],summaryRead=()=>({summary:copy(summary)}),configRead=()=>({config:{...DEFAULT_CONFIG,version:0}}),context={}}={}){
  return createFiiuHarness(request=>{
   if(request.path==='/api/fiiu')return{event:FIIU_EVENT,config:DEFAULT_CONFIG,content:[],nextCursor:null};
   if(request.path==='/api/admin/fiiu/config'&&request.method==='GET')return configRead(request);
   if(request.path==='/api/admin/fiiu/registrations')return{registrations:copy(participants),nextCursor:null};
   if(request.path==='/api/admin/fiiu/summary')return summaryRead(request);
   return respond(request);
- },{page:'fiiu-admin'});
+ },{page:'fiiu-admin',context});
 }
 async function submit(form){form.listeners.submit({preventDefault(){}});await flush();}
 const detailTitle=h=>h.root.querySelector('.f-admin-detail').querySelector('h3')?.textContent;
@@ -649,4 +649,127 @@ test('participant search matches a capital I even where the default locale lower
  prototype.toLocaleLowerCase=function(){return String(this).replace(/I/g,'ı').toLowerCase();};
  try{type(field(h.root,'searchParticipants'),'ISABEL DIAZ');timers.run();assert.deepEqual(participantNames(h),['Isabel Díaz']);}
  finally{prototype.toLocaleLowerCase=toLocaleLowerCase;}
+});
+
+// Check-in, hours and access. The fuller summary carries the newer fields; the original fixture above lacks them, as before the migration.
+const checkinSummary={...copy(summary),attendedPeople:41,qrPeople:33,lastCheckInAt:'2026-10-21T14:40:00.000Z',
+ activities:[{activityId:'day1-am',registrations:121,externalInterests:0,attendance:30,officialAttendance:10},{activityId:'day1-pm',registrations:80,externalInterests:0,attendance:20,officialAttendance:5},{activityId:'workshop-calles-gente',registrations:0,externalInterests:9,attendance:2,officialAttendance:0}],
+ days:[{date:'2026-10-20',registrations:20,attendance:0},{date:'2026-10-21',registrations:157,attendance:35},{date:'2026-10-22',registrations:90,attendance:0}]};
+const frozen=iso=>{const at=Date.parse(iso);return class extends Date{constructor(...args){super(...(args.length?args:[at]));}static now(){return at;}};};
+const festivalDay={Date:frozen('2026-10-21T10:00:00-05:00')};
+const figures=h=>h.root.querySelector('.f-figures'),figureFor=(h,name)=>figures(h).children.find(node=>key(node,name));
+
+test('the overview is one figure strip: registrations, officials, checked in with QR scans, hours with the officials’ share, and the lab queue over two tracks',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>({summary:copy(checkinSummary)}),context:festivalDay});
+ assert.deepEqual(figures(h).children.map(node=>node.children[0].dataset.fiiuText),['totalRegistrations','publicOfficials','checkedIn','hoursTitle','labApplications']);
+ assert.match(content(figureFor(h,'publicOfficials')),/27%/);assert.ok(key(figureFor(h,'publicOfficials'),'shareOfRegistrations'));
+ assert.match(content(figureFor(h,'checkedIn')),/41/);assert.match(content(figureFor(h,'checkedIn')),/33/);assert.ok(key(figureFor(h,'checkedIn'),'byQr'));
+ const hours=figureFor(h,'hoursTitle');assert.match(content(hours),/160 h/,'30 morning check-ins × 4 h + 20 evening × 2 h; the workshop adds none');assert.ok(key(hours,'officialsHours'));assert.match(content(hours),/50 h/);
+ assert.equal(figures(h).children.at(-1).className,'f-figure f-lab-card');
+ assert.ok(key(h.root.querySelector('.f-admin-toolbar'),'lastCheckIn'));assert.match(content(h.root.querySelector('.f-admin-toolbar')),/09:40/,'the last check-in is in Lima time');
+});
+
+test('figures whose fields are absent are left out, and before the festival the check-in figure says when it opens',async()=>{
+ const old=await harness(()=>({content:[],nextCursor:null}));
+ assert.equal(figureFor(old,'checkedIn'),undefined,'no attendedPeople, no figure');assert.ok(figureFor(old,'hoursTitle'));assert.equal(key(figureFor(old,'hoursTitle'),'officialsHours'),undefined);
+ assert.equal(key(old.root.querySelector('.f-admin-toolbar'),'lastCheckIn'),undefined);
+ const early=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>({summary:{...copy(checkinSummary),attendedPeople:0,qrPeople:0}}),context:{Date:frozen('2026-09-30T10:00:00-05:00')}});
+ assert.ok(key(figureFor(early,'checkedIn'),'checkinOpensOn'));assert.equal(key(figureFor(early,'checkedIn'),'byQr'),undefined);
+});
+
+test('the day ledger has checked-in and hours columns and marks today with aria-current="date"',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>({summary:copy(checkinSummary)}),context:festivalDay});
+ const ledger=h.root.querySelector('.f-summary-body').querySelectorAll('table').find(table=>table.className.includes('is-ledger'));
+ assert.deepEqual(ledger.querySelector('thead').querySelectorAll('th').map(cell=>cell.children[0].dataset.fiiuText),['day','peopleWithPlans','attended','hours']);
+ const rows=ledger.querySelector('tbody').querySelectorAll('tr'),today=rows.filter(row=>row['aria-current']==='date');
+ assert.equal(today.length,1);assert.equal(today[0],rows[1]);assert.ok(key(today[0],'today'));assert.match(content(today[0]),/157/);assert.match(content(today[0]),/160 h/);
+ assert.equal(key(rows[0],'today'),undefined);
+ const profiles=h.root.querySelector('.f-summary-body').querySelectorAll('table').find(table=>table.className.includes('is-profiles'));
+ assert.ok(key(profiles.querySelector('thead'),'share'));assert.match(content(profiles),/20%/,'48 of 237 students');
+});
+
+test('activity tables stack, the conference table adds venue and hours, and workshops keep their interest count',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>({summary:copy(checkinSummary)})});
+ const tables=h.root.querySelector('.f-summary-stack').children.map(scroll=>scroll.children[0]),caption=table=>table.querySelector('caption').dataset.fiiuText;
+ assert.deepEqual(tables.map(caption),['conferencesAndLab','externalActivities']);
+ assert.deepEqual(tables[0].querySelector('thead').querySelectorAll('th').map(cell=>cell.children[0].dataset.fiiuText),['activity','venue','registered','attended','hours']);
+ const morning=tables[0].querySelectorAll('tr').find(row=>/El poder de lo local/.test(content(row)));assert.match(content(morning),/Auditorio MALI/);assert.match(content(morning),/120 h/);
+ assert.deepEqual(tables[1].querySelector('thead').querySelectorAll('th').map(cell=>cell.children[0].dataset.fiiuText),['activity','venue','interested','attended']);
+});
+
+test('the check-in section lists the six NODAL blocks by day with window, venue, live count and a screen link, and no workshops or routes',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>({summary:copy(checkinSummary)}),context:festivalDay});
+ const section=h.root.querySelector('.f-admin-checkin');assert.equal(section.id,'checkin');assert.ok(key(section,'checkIn'));
+ assert.ok(h.root.querySelector('.f-admin-nav').querySelectorAll('a').some(a=>a.href==='#checkin'));
+ const links=section.querySelectorAll('a').filter(a=>a.dataset.fiiuText==='openCheckinScreen');
+ assert.deepEqual(links.map(a=>a.href),['day0-lab','day1-am','day1-pm','day2-am','day2-pm','day3-am'].map(id=>'fiiu-qr.html?a='+id));
+ assert.equal(links[1].target,'_blank');assert.equal(links[1]['aria-describedby'],'f-ck-day1-am f-newtab');
+ const row=links[1].parent.parent;assert.match(content(row),/08:30–13:30/);assert.match(content(row),/Auditorio MALI/);assert.match(content(row),/\b30\b/);assert.ok(key(row,'checkinOpenNow'));
+ // Stacked on a phone the column headings are hidden, so the window and the count carry their own (otherwise hidden) labels.
+ assert.ok(key(row.querySelector('.f-window-cell'),'checkinWindow').className.includes('f-cell-label'));
+ const count=row.querySelector('.f-summary-count');assert.match(count.textContent,/^30$/);assert.equal(key(count,'checkedInMany').className,'f-cell-unit');
+ assert.doesNotMatch(content(section),/Calles para la gente/);assert.equal(key(section,'allScreens').href,'fiiu-qr.html');
+});
+
+test('participant detail shows sessions and certificate hours, and how and when each block was confirmed, recomputed after a toggle',async()=>{
+ const ana=participant('participant-a','Ana');ana.answers.activities=['day1-am','day1-pm'];
+ const recorded=[{activityId:'day1-am',createdAt:'2026-10-21T14:12:00.000Z',method:'qr'}];
+ const h=await harness(({path,method,body})=>{
+  if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
+  if(method==='PUT')return{attendance:[...recorded,{activityId:body.activityId,createdAt:'2026-10-22T00:40:00.000Z',method:'staff'}]};
+  return{registration:copy(ana),attendance:copy(recorded),hours:{minutes:240,hours:4,untimed:[]}};
+ },{participants:[ana]});
+ await detailButton(h,0).listeners.click();const fieldset=h.root.querySelector('.f-attendance'),totals=fieldset.querySelector('.f-attendance-total');
+ assert.equal(fieldset.children[1],totals,'the totals sit right under the legend');assert.ok(key(totals,'attendedOne'));assert.ok(key(totals,'certificateHourMany'));assert.match(content(totals),/\b1\b.*\b4\b/);
+ const rows=fieldset.querySelectorAll('.f-attendance-row'),morning=rows.find(row=>/El poder de lo local/.test(content(row))),evening=rows.find(row=>/Intervenir para activar/.test(content(row)));
+ assert.ok(key(morning.querySelector('.f-attendance-method'),'methodQr'));assert.match(content(morning.querySelector('.f-attendance-method')),/09:12/);
+ assert.equal(evening.querySelector('.f-attendance-method').children.length,0,'nothing is shown for a block not yet confirmed');
+ const box=evening.querySelector('input');box.checked=true;await box.listeners.change();
+ assert.ok(key(evening.querySelector('.f-attendance-method'),'methodTeam'));assert.match(content(evening.querySelector('.f-attendance-method')),/19:40/);
+ assert.ok(key(totals,'attendedMany'));assert.match(content(totals),/\b2\b.*\b6\b/,'two sessions, 4 h + 2 h');
+});
+
+test('a 403 when the dashboard loads shows the organisers-only state with no Retry and no participant data',async()=>{
+ const deny={status:403,data:{error:'administrator access required'}};
+ const h=await createFiiuHarness(({path})=>path==='/api/fiiu'?{event:FIIU_EVENT,config:DEFAULT_CONFIG,content:[],nextCursor:null}:path==='/api/admin/fiiu/registrations'?{registrations:[participant('a','Ana')],nextCursor:null}:deny,{page:'fiiu-admin'});
+ assert.ok(key(h.root,'organisersOnly'));assert.ok(key(h.root,'organisersOnlyHint'));assert.equal(key(h.root,'retry'),undefined);
+ assert.equal(key(h.root,'fiiuPage').href,'fiiu.html');assert.equal(key(h.root,'backToConsole').href,'dashboard.html');
+ assert.equal(h.root.querySelectorAll('.f-participant').length,0);assert.doesNotMatch(content(h.root),/ana@example/);
+ const before=h.requests.length;await h.tickTimers();assert.equal(h.requests.length,before,'no polling once locked');
+});
+
+test('a 401 when the dashboard loads goes to sign-in and comes back to this page',async()=>{
+ const h=await createFiiuHarness(({path})=>path==='/api/fiiu'?{event:FIIU_EVENT,config:DEFAULT_CONFIG,content:[],nextCursor:null}:{status:401,data:{error:'sign in required'}},{page:'fiiu-admin'});
+ assert.deepEqual(h.assigned,['/login.html?next=%2Ffiiu-admin.html']);assert.equal(key(h.root,'retry'),undefined);
+});
+
+test('access lost during a timed refresh clears participants and answers from the page and stops further requests',async()=>{
+ const ana=participant('participant-a','Ana');Object.assign(ana.answers,{nationalId:'12345678'});let deny=false;
+ const h=await harness(({path})=>path==='/api/admin/fiiu/content'?{content:[],nextCursor:null}:{registration:copy(ana),attendance:[]},{participants:[ana],summaryRead:()=>deny?{status:403,data:{error:'administrator access required'}}:{summary:copy(summary)}});
+ await detailButton(h,0).listeners.click();assert.ok(h.root.querySelector('.f-admin-detail'));
+ deny=true;await h.tickTimers();
+ assert.ok(key(h.root,'organisersOnly'));assert.equal(h.root.querySelectorAll('.f-participant').length,0);assert.equal(h.root.querySelector('.f-admin-detail'),null);assert.doesNotMatch(content(h.root),/Ana|5678/);
+ assert.equal(h.timers[0].cleared,true,'the refresh schedule is cleared');
+ const before=h.requests.length;h.lang('es');await h.tickTimers();assert.equal(h.requests.length,before);assert.ok(key(h.root,'organisersOnly'));
+});
+
+test('an expired session keeps every draft, shows a sign-in link in a new tab and pauses timed refreshes until a request works again',async()=>{
+ let reads=0,signedOut=false;
+ const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>{reads++;return signedOut?{status:401,data:{error:'sign in required'}}:{summary:copy(summary)};}});
+ const draft=editorForm(h);field(draft,'title').value='Unsaved announcement';const notice=h.root.querySelector('.f-session-notice');assert.equal(notice.hidden,true);
+ signedOut=true;await h.tickTimers();assert.equal(notice.hidden,false);assert.equal(reads,2);
+ const signin=key(notice,'adminSignIn');assert.equal(signin.href,'/login.html?next=%2Ffiiu-admin.html');assert.equal(signin.target,'_blank');
+ assert.equal(editorForm(h),draft);assert.equal(field(draft,'title').value,'Unsaved announcement');assert.deepEqual(h.assigned,[]);
+ await h.tickTimers();assert.equal(reads,2,'timed refreshes pause while signed out');
+ signedOut=false;await key(h.root.querySelector('.f-admin-summary'),'refreshSummary').listeners.click();assert.equal(notice.hidden,true,'a request that works again clears the notice');
+ await h.tickTimers();assert.equal(reads,4,'and timed refreshes resume');
+});
+
+test('identical totals still let a check-in window open on the next refresh',async()=>{
+ let now=Date.parse('2026-10-21T08:20:00-05:00');const Clock=class extends Date{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};
+ const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>({summary:copy(checkinSummary)}),context:{Date:Clock}});
+ const row=()=>h.root.querySelector('.f-admin-checkin').querySelectorAll('tr').find(node=>/El poder de lo local/.test(content(node)));
+ assert.equal(key(row(),'checkinOpenNow'),undefined,'08:20 is before the 08:30 opening');const table=h.root.querySelector('.f-summary-body').querySelector('table');
+ now=Date.parse('2026-10-21T08:31:00-05:00');await h.tickTimers();
+ assert.ok(key(row(),'checkinOpenNow'));assert.equal(h.root.querySelector('.f-summary-body').querySelector('table'),table,'the overview tables were not rebuilt');
 });

@@ -34,6 +34,7 @@
         const result=await response.json();
         if(result.passwordChanged===true){
           const courseId=Array.isArray(result.courseIds)?result.courseIds.find(id=>typeof id==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id)):null;
+          if(result.code==='invitation_enrollment_closed'){finish('invitation_enrollment_closed','doneTitle');return;}
           if(courseId)signIn.href='/login.html?next='+encodeURIComponent('/course.html?id='+courseId);
           finish(!courseId||['invitation_enrollment_pending','invitation_partial'].includes(result.code)?'invitation_enrollment_pending':'done','doneTitle');
         }else{

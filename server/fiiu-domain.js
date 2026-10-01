@@ -35,7 +35,38 @@ export const FIIU_EVENT={
   ...externalActivities,
  ],
 };
+// Check-in and certificate rules. Lima keeps UTC-05:00 all year (no DST), so a fixed offset is exact.
+// Only NODAL's own blocks (the lab and the five conference blocks) take a QR check-in; facilitators run the
+// workshops and routes through their Google Forms. A block's window opens 30 minutes before its start and closes
+// 30 minutes after its end; an untimed block (the lab, until its hours are known) is open its whole Lima day.
+export const LIMA_OFFSET='-05:00',CHECKIN_OPENS_BEFORE_MS=30*60000,CHECKIN_CLOSES_AFTER_MS=30*60000;
+const span=time=>{const m=/^(\d{1,2}):(\d{2})\s*[–-]\s*(\d{1,2}):(\d{2})$/.exec(String(time??'').trim());if(!m)return null;const start=m[1]*60+ +m[2],end=m[3]*60+ +m[4];return end>start&&end<=1440?[start,end]:null;};
+export const activityMinutes=activity=>{const s=span(activity?.time);return s?s[1]-s[0]:null;};
+export const isCheckinActivity=activity=>Boolean(activity)&&!activity.legacy&&['general','application'].includes(activity.registration);
+export function checkinWindow(activity){
+ const s=span(activity.time),day=Date.parse(`${activity.date}T00:00:00${LIMA_OFFSET}`);
+ const [opens,closes]=s?[day+s[0]*60000-CHECKIN_OPENS_BEFORE_MS,day+s[1]*60000+CHECKIN_CLOSES_AFTER_MS]:[day,day+1440*60000];
+ return {opensAt:new Date(opens).toISOString(),closesAt:new Date(closes).toISOString()};
+}
+// The browser never parses times: every current activity carries its certificate minutes (null when it does not count
+// or its duration is unknown) and its check-in window (null for workshops and routes). Legacy activities are untouched.
+for(const activity of FIIU_EVENT.activities)Object.assign(activity,{minutes:isCheckinActivity(activity)?activityMinutes(activity):null,checkin:isCheckinActivity(activity)?checkinWindow(activity):null});
+export const CHECKIN_ACTIVITIES=FIIU_EVENT.activities.filter(isCheckinActivity);
 export const ALL_FIIU_ACTIVITIES=[...FIIU_EVENT.activities,...LEGACY_FIIU_ACTIVITIES];
+// The organiser rule for confirming attendance, shared by the staff checkbox and the QR check-in: a conference block
+// must be in the person's plan, the lab needs an accepted application, and external activities are always allowed.
+export function canAttend(registration,activity){
+ if(activity.registration==='general')return Array.isArray(registration.answers?.activities)&&registration.answers.activities.includes(activity.id);
+ if(activity.registration==='application')return registration.labStatus==='accepted';
+ return true;
+}
+// Certificate hours: one scan or confirmation counts the whole block; only NODAL blocks count; an untimed block adds 0
+// and is listed in untimed; the person's total is rounded half up to whole hours.
+export function attendanceHours(attendance,activities=ALL_FIIU_ACTIVITIES){
+ let minutes=0;const untimed=[];
+ for(const id of new Set(attendance.map(row=>row.activityId))){const activity=activities.find(a=>a.id===id);if(!isCheckinActivity(activity))continue;const m=activityMinutes(activity);if(m===null)untimed.push(id);else minutes+=m;}
+ return {minutes,hours:Math.floor(minutes/60+0.5),untimed};
+}
 export const DEFAULT_CONFIG={registrationOpen:true,programUrl:'https://canva.link/ficmkatcg9fudwk',workshopsUrl:'',routesUrl:'',partyUrl:''};
 const choices=(value,allowed,name,optional=false)=>{if(optional&&(value===undefined||value===''))return '';if(!allowed.includes(value))fail(`invalid ${name}`);return value;};
 export function normalizeRegistration(input){

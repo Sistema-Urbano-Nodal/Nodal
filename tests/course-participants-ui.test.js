@@ -61,6 +61,47 @@ test('pending enrollment prevents duplicate submissions, and late responses neve
 test('invitation failures and cooldowns are localized and never reported as sent',async()=>{
  for(const code of ['invitation_uncertain','invitation_unavailable','invitation_rate']){const h=teachingHarness(()=>({status:code==='invitation_rate'?429:503,data:{code}}),{invitations:[{email:'person@example.test',deliveryStatus:'uncertain'}]});await flush();h.lang('pt');await findKey(h.body,'resendInvitation').listeners.click();assert.doesNotMatch(content(h.body),/Convite enviado\./);assert.match(content(h.body),/Não foi possível|Aguarde/);assert.equal(participantForm(h)['aria-busy'],'false');}
 });
+test('a closed course replaces adding and resending with a note while keeping the lists and exports',async()=>{
+ const closed={...course,enrollmentOpen:false};
+ const h=teachingHarness(()=>({result:'invited'}),{courses:[closed],invitations:[{email:'pending@example.test',deliveryStatus:'sent'}]});await flush();
+ const pane=h.ctx.document.getElementById('staff-pane-participants');
+ assert.equal(participantForm(h),undefined);assert.equal(findKey(pane,'addParticipant'),undefined);assert.equal(findKey(pane,'resendInvitation'),undefined);
+ assert.equal(findKey(pane,'participantsClosed').className,'pilot-participant-add');assert.match(content(pane),/turn on Enrollment open in Course setup/);
+ assert.match(content(pane),/pending@example.test/);assert.ok(descendants(pane).some(n=>n.href==='/api/admin/courses/c1/export?type=participants'));
+ assert.match(content(h.body),/Published · Enrollment closed/);assert.equal(descendants(h.body).find(n=>n.dataset.course==='c1').children[1].textContent,'Published · Enrollment closed');
+ h.lang('es');assert.match(content(pane),/Las inscripciones están cerradas/);assert.match(content(h.body),/Publicado · Inscripciones cerradas/);
+ h.lang('pt');assert.match(content(pane),/As inscrições estão encerradas/);
+ assert.equal(h.requests.some(r=>r.method==='POST'),false);
+});
+test('closure and unpublished-course refusals are translated, not reported as edit conflicts',async()=>{
+ for(const [code,text] of [['participant_enrollment_closed',/Enrollment for this course is closed, so no one was added or invited/],['participant_course_unavailable',/Publish this course before adding participants/]]){
+  const h=teachingHarness(()=>({status:409,data:{error:code,code}}));await flush();const form=participantForm(h);byName(form,'email').value='person@example.test';await form.listeners.submit({preventDefault(){}});
+  assert.match(content(h.body),text);assert.doesNotMatch(content(h.body),/Someone changed this record/);assert.equal(findKey(form,'sendInvitation').hidden,true);
+  h.lang('pt');assert.doesNotMatch(content(h.body),/Alguém alterou este registro/);
+ }
+});
+test('saving the Enrollment open toggle refreshes the participants pane and course labels at once',async()=>{
+ let open=true;const reports=[];
+ const h=harness((path,options)=>{
+  if(options?.method==='PATCH'){const body=JSON.parse(options.body);open=body.enrollmentOpen;return{course:{...course,enrollmentOpen:open,version:body.version+1}};}
+  if(path==='/api/admin/courses')return{courses:[course]};
+  if(path.endsWith('/report')){reports.push(open);return{summary:{enrolled:0},participants:[],feedback:[],invitations:[{email:'pending@example.test',deliveryStatus:'sent'}]};}
+  return{course:{...course},modules:[]};
+ },{page:'teaching'});h.run('teaching');await flush();
+ const pane=()=>h.ctx.document.getElementById('staff-pane-participants');
+ assert.ok(participantForm(h));assert.ok(findKey(pane(),'resendInvitation'));
+ const editor=descendants(h.body).find(n=>n.tagName==='form'&&descendants(n).some(x=>x.name==='enrollmentOpen'));
+ byName(editor,'enrollmentOpen').checked=false;await editor.listeners.submit({preventDefault(){}});await flush();
+ assert.equal(h.requests.find(r=>r.method==='PATCH').body.enrollmentOpen,false);assert.deepEqual(reports,[true,false]);
+ assert.equal(participantForm(h),undefined);assert.ok(findKey(pane(),'participantsClosed'));assert.equal(findKey(pane(),'resendInvitation'),undefined);
+ assert.equal(pane().id,'staff-pane-participants');assert.equal(pane().hidden,true);
+ assert.match(content(h.body),/Published · Enrollment closed/);
+ // A save that leaves the toggle alone does not refetch the participant report.
+ const again=descendants(h.body).find(n=>n.tagName==='form'&&descendants(n).some(x=>x.name==='enrollmentOpen'));
+ await again.listeners.submit({preventDefault(){}});await flush();assert.equal(reports.length,2);
+ byName(again,'enrollmentOpen').checked=true;await again.listeners.submit({preventDefault(){}});await flush();
+ assert.deepEqual(reports,[true,false,true]);assert.ok(participantForm(h));assert.doesNotMatch(content(h.body),/Enrollment closed/);
+});
 
 function acceptanceHarness({hash='#token_hash='+ 'a'.repeat(56),reply=async()=>({passwordChanged:true,courseIds:['00000000-0000-4000-8000-000000000001']})}={}){
  const body=new Node('body'),nodes={},listeners={},requests=[],historyCalls=[],stored=[];
@@ -82,6 +123,13 @@ test('acceptance validates names and passwords locally, preserves token for corr
 });
 test('partial success confirms the password without claiming enrollment, and hostile course IDs cannot redirect outside NODAL',async()=>{
  const h=acceptanceHarness({reply:async()=>({passwordChanged:true,code:'invitation_partial',courseIds:['//evil.test','x&next=https://evil.test']})});h.valid();await h.submit();assert.equal(h.nodes.invitationSignIn.href,undefined);assert.doesNotMatch(h.nodes.recoveryMessage.textContent,/enrollment is confirmed/);assert.match(h.nodes.recoveryMessage.textContent,/password is saved/);h.lang('es');assert.match(h.nodes.recoveryMessage.textContent,/contraseña está guardada/);
+});
+test('a closed course on acceptance confirms the account without claiming enrollment or linking to the course',async()=>{
+ const h=acceptanceHarness({reply:async()=>({passwordChanged:true,code:'invitation_enrollment_closed',courseIds:[]})});h.valid();await h.submit();
+ assert.equal(h.nodes.invitationForm.hidden,true);assert.equal(h.nodes.invitationTitle.dataset.invitationText,'doneTitle');assert.equal(h.nodes.recoveryMessage.dataset.invitationText,'invitation_enrollment_closed');
+ assert.equal(h.nodes.invitationSignIn.href,undefined);assert.match(h.nodes.recoveryMessage.textContent,/password is saved.*Enrollment for this course has closed/);assert.doesNotMatch(h.nodes.recoveryMessage.textContent,/enrollment is confirmed/);
+ assert.equal(h.nodes.invitationSubmit.disabled,false);
+ h.lang('es');assert.match(h.nodes.recoveryMessage.textContent,/inscripciones de este curso ya cerraron/);h.lang('pt');assert.match(h.nodes.recoveryMessage.textContent,/inscrições deste curso foram encerradas/);
 });
 test('consumed invitation errors and network uncertainty direct users to sign in or password recovery',async()=>{
  for(const reply of [async()=>({code:'invitation_password_rejected'}),async()=>{throw new Error('private provider internals');}]){const h=acceptanceHarness({reply});h.valid();await h.submit();assert.equal(h.nodes.invitationForm.hidden,true);assert.equal(h.nodes.invitationPassword.value,'');assert.doesNotMatch(h.nodes.recoveryMessage.textContent,/private provider internals|new invitation/);assert.match(h.nodes.recoveryMessage.textContent,/reset|password reset/);assert.equal(h.nodes.invitationSubmit.disabled,false);}

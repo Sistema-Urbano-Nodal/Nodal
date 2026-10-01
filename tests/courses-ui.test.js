@@ -94,6 +94,34 @@ test('directory uses live course data as text and links to its explicit ID',asyn
 test('unenrolled member cannot open modules; enrolling reveals intake before content',async()=>{
  let enrolled=false;const h=harness(path=>{if(path==='/api/auth/me')return{user:{permission:'member'}};if(path.endsWith('/enroll')){enrolled=true;return{enrollment:{}};}return{course,modules:[{id:'m1',title:'Published session',sessionDate:'2026-09-09'}],enrollment:enrolled?{}:null,intake:null,isAdmin:false};},{page:'course',search:'?id=c1'});h.run('courses');await flush();assert.equal(h.requests.some(r=>r.path.includes('/modules/')),false);const enroll=descendants(h.body).find(n=>n.dataset.pilotText==='enroll');await enroll.listeners.click();await flush();assert.match(content(h.body),/Your intake is private/);assert.equal(descendants(h.body).filter(n=>n.tagName==='form').length,1);assert.equal(h.requests.some(r=>r.path.includes('/modules/')),false);
 });
+test('a closed course shows its closure and route to unenrolled members without any way to enroll',async()=>{
+ const closed={...course,enrollmentOpen:false},modules=[{id:'m1',title:'Published session',sessionDate:'2026-09-09'}];
+ const h=harness(path=>path==='/api/auth/me'?{user:{permission:'member'}}:{course:closed,modules,enrollment:null,intake:null,isAdmin:false},{page:'course',search:'?id=c1'});h.run('courses');await flush();
+ const keys=descendants(h.body).map(n=>n.dataset.pilotText);
+ assert.ok(keys.includes('closed')&&keys.includes('closedNote'));assert.equal(keys.includes('enroll'),false);
+ assert.match(content(h.body),/no longer accepting new participants/);assert.match(content(h.body),/1\. Published session/);
+ assert.equal(h.requests.some(r=>r.path.endsWith('/enroll')||r.path.includes('/modules/')),false);
+ h.lang('es');assert.match(content(h.body),/Inscripciones cerradas/);assert.match(content(h.body),/ya no recibe nuevas inscripciones/);
+ h.lang('pt');assert.match(content(h.body),/Inscrições encerradas/);assert.match(content(h.body),/não recebe mais novas inscrições/);
+ // Enrolled participants keep the full course after closure.
+ const enrolled=harness(path=>path==='/api/auth/me'?{user:{permission:'member'}}:path.endsWith('/events')?{ok:true}:path.includes('/posts')?{posts:[],nextCursor:null}:path.endsWith('/modules/m1')?{module:{id:'m1',title:'Published session',resources:[]}}:{course:closed,modules,enrollment:{},intake:{fullName:'Member'},isAdmin:false},{page:'course',search:'?id=c1'});enrolled.run('courses');await flush();
+ const enrolledKeys=descendants(enrolled.body).map(n=>n.dataset.pilotText);
+ assert.equal(enrolledKeys.includes('closedNote'),false);assert.ok(enrolledKeys.includes('enrolled'));assert.ok(enrolled.requests.some(r=>r.path.endsWith('/modules/m1')));
+});
+test('an enrollment refused because the course just closed switches the page to its closed state',async()=>{
+ const h=harness((path,opts)=>path==='/api/auth/me'?{user:{permission:'member'}}:opts?.method==='POST'?{status:403,data:{error:'enrollment is closed',code:'enrollment_closed'}}:{course,modules:[],enrollment:null,intake:null,isAdmin:false},{page:'course',search:'?id=c1'});h.run('courses');await flush();
+ await descendants(h.body).find(n=>n.dataset.pilotText==='enroll').listeners.click();await flush();
+ const keys=descendants(h.body).map(n=>n.dataset.pilotText);
+ assert.equal(h.requests.filter(r=>r.path.endsWith('/enroll')).length,1);assert.equal(keys.includes('enroll'),false);assert.ok(keys.includes('closedNote'));
+});
+test('directory marks closed courses in plain text and keeps their open link',async()=>{
+ const h=harness(path=>path==='/api/auth/me'?{user:{permission:'member'}}:{courses:[course,{...course,id:'c2',title:'Finished course',enrollmentOpen:false}]});h.run('courses');await flush();
+ const rows=descendants(h.body).filter(n=>n.className==='pilot-course-row');assert.equal(rows.length,2);
+ assert.equal(descendants(rows[0]).some(n=>n.dataset.pilotText==='closed'),false);
+ const closed=descendants(rows[1]).find(n=>n.dataset.pilotText==='closed');assert.equal(closed.textContent,'Enrollment closed');assert.equal(closed.className,'pilot-date');
+ assert.equal(descendants(rows[1]).find(n=>n.href==='course.html?id=c2')?.textContent,'Open course');
+ h.lang('pt');assert.equal(closed.textContent,'Inscrições encerradas');
+});
 test('intake saves all private fields with PUT and server response gates content',async()=>{
  let saved=false;const intake={fullName:'A',profession:'B',city:'C',motivation:'D',experience:'E',expectations:'F',caseStudy:'G',digitalFamiliarity:'H'};
  const h=harness((path,opts)=>{if(path==='/api/auth/me')return{user:{permission:'member'}};if(path.endsWith('/intake')){saved=true;return{intake};}return{course,modules:[],enrollment:{},intake:saved?intake:null,isAdmin:false};},{page:'course',search:'?id=c1'});h.run('courses');await flush();const form=descendants(h.body).find(n=>n.tagName==='form');for(const n of descendants(form))if(n.name in intake)n.value=intake[n.name];await form.listeners.submit({preventDefault(){}});await flush();const put=h.requests.find(r=>r.path.endsWith('/intake'));assert.equal(put.method,'PUT');assert.deepEqual(put.body,intake);assert.match(content(h.body),/not published modules yet/);

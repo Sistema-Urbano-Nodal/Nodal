@@ -1,6 +1,6 @@
 (() => {
  'use strict';
- const {el,tr,t,source,button,link,field,check,api,status,dateNode,rangeNode,limaDate,contentCards,badges,findActivity,chronological,typeOf,countLabel,nextFor,hint,describe,newTabNote,revealInRow}=window.Fiiu;
+ const {el,tr,t,source,button,link,field,check,api,status,dateNode,rangeNode,limaDate,contentCards,badges,findActivity,chronological,typeOf,countLabel,nextFor,hint,describe,newTabNote,revealInRow,hoursLine}=window.Fiiu;
  const root=document.getElementById('fiiuRoot'),loadStatus=document.getElementById('fiiuStatus');
  const TYPES=[['conference','conferenceOne','conferenceMany'],['workshop','workshopOne','workshopMany'],['route','routeOne','routeMany'],['lab','labOne','labOne']];
  const CHOICE_NAMES=['activities','externalActivities','applyLab'];
@@ -132,7 +132,8 @@
    list.append(...unknownInterests.map(unknownRow));box.append(tr('h4','externalActivities'),tr('p','externalInterestHint','f-muted'),list);
   }
   box.append(tr('p','savedHint','f-muted'));
-  if(withBadges){if(me.attendance.length||limaDate()>=event.startsOn){const badgeBox=el('div','f-badges');badges(badgeBox,me.attendance,event,{heading:'h4'});box.append(badgeBox);}else box.append(tr('p','badgesHint','f-muted'));}
+  // Badges, then the hours they add up to for the certificate.
+  if(withBadges){if(me.attendance.length||limaDate()>=event.startsOn){const badgeBox=el('div','f-badges'),hours=hoursLine(me.attendance,event);badges(badgeBox,me.attendance,event,{heading:'h4'});if(hours)badgeBox.append(hours);box.append(badgeBox);}else box.append(tr('p','badgesHint','f-muted'));}
   return box;
  }
  function renderRegistration(){renderPanel();renderProgramme();renderHero();}
@@ -169,7 +170,8 @@
    summary=savedSummary(existing,{withBadges:true});const actions=el('div','f-actions');
    if(festival.config.registrationOpen)actions.append(button('edit',()=>{openForm();firstAnswer?.focus();}));
    const cancel=button('cancel',async()=>{
-    if(busy||!window.confirm(t('cancelConfirm')))return;
+    // Cancelling also deletes confirmed attendance, so the question says so once there is some.
+    if(busy||!window.confirm(t('cancelConfirm')+(me.attendance.length?' '+t('cancelWithAttendance'):'')))return;
     const unlock=lock();status(message,'saving');conflictBox.replaceChildren();
     try{await api('/api/fiiu/registration',{version:me.registration.version,registrationId:me.registration.id,expectedUserId},'DELETE');notice='cancelled';me.registration=null;me.attendance=[];renderRegistration();panelHeading.focus();}
     catch(error){if(error.key==='accountChanged')accountChanged();else{status(message,error);reloadSaved();}}

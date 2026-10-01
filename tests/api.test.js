@@ -7,7 +7,7 @@ import http from 'node:http';
 import { createHmac } from 'node:crypto';
 import path from 'node:path';
 import {
-  createApp as createProductionApp, createCitySearch, graphFingerprint, staticSourcePath, validateRuntimeConfig,
+  createApp as createProductionApp, createCitySearch, graphFingerprint, staticSourcePath, validateRuntimeConfig, publicBillingConfig,
 } from '../server/server.js';
 import { createStore } from '../server/store.js';
 import { createDatabase } from '../server/db.js';
@@ -631,15 +631,48 @@ test('billing config is served from environment, not frontend literals', async (
       else process.env[key] = old[key];
     }
   });
-  const base = await boot(t);
+  // Amounts are published only when checkout can run: outside pilot mode, with Stripe configured.
+  const payments = { config: { secretKey: 'sk_test_x', webhookSecret: 'whsec_x', prices: { monthly: 'price_m', annual: 'price_a' } }, fetchImpl: fetch };
+  const base = await bootApp(t, createApp({ store: createStore(), payments }));
   const res = await fetch(`${base}/api/billing/config`);
   assert.equal(res.status, 200);
   const body = await res.json();
+  assert.equal(body.checkout, true);
   assert.equal(body.cycles.monthly.amount, 'US$12');
   assert.equal(body.cycles.monthly.per, '/ month');
   assert.equal(body.cycles.annual.amount, 'US$120');
   assert.equal(body.cycles.annual.per, '/ year');
   assert.equal(body.cycles.annual.badge, 'configured annual');
+});
+
+test('configured prices stay "Soon" while checkout cannot run, so the landing page never advertises an unbuyable price', async (t) => {
+  const keys = ['SUBSCRIPTION_PRICE_MONTHLY_LABEL', 'SUBSCRIPTION_MONTHLY_PERIOD', 'SUBSCRIPTION_PRICE_ANNUAL_LABEL', 'SUBSCRIPTION_ANNUAL_PERIOD', 'SUBSCRIPTION_ANNUAL_BADGE', 'SUBSCRIPTION_MONTHLY_BADGE'];
+  const old = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  Object.assign(process.env, {
+    SUBSCRIPTION_PRICE_MONTHLY_LABEL: 'US$10', SUBSCRIPTION_MONTHLY_PERIOD: '/ month', SUBSCRIPTION_MONTHLY_BADGE: 'popular',
+    SUBSCRIPTION_PRICE_ANNUAL_LABEL: 'US$100', SUBSCRIPTION_ANNUAL_PERIOD: '/ year', SUBSCRIPTION_ANNUAL_BADGE: '2 months free',
+  });
+  t.after(() => {
+    for (const key of keys) {
+      if (old[key] === undefined) delete process.env[key];
+      else process.env[key] = old[key];
+    }
+  });
+  const stripe = { config: { secretKey: 'sk_test_x', webhookSecret: 'whsec_x', prices: { monthly: 'price_m', annual: 'price_a' } }, fetchImpl: fetch };
+  for (const [name, options] of [['pilot mode', { pilotMode: true, payments: stripe }], ['no Stripe configuration', { pilotMode: false, payments: { config: null, fetchImpl: fetch } }]]) {
+    const base = await bootApp(t, createApp({ store: createStore(), ...options }));
+    const body = await (await fetch(`${base}/api/billing/config`)).json();
+    assert.equal(body.checkout, false, name);
+    for (const cycle of ['monthly', 'annual']) {
+      assert.deepEqual([body.cycles[cycle].amount, body.cycles[cycle].per, body.cycles[cycle].badge], ['Soon', '', ''], `${name} ${cycle}`);
+    }
+    assert.equal(body.cycles.annual.label, 'Annual', 'labels and notes stay');
+    assert.doesNotMatch(JSON.stringify(body), /US\$|2 months free|popular/, name);
+  }
+  // A live deployment must still name its prices even while checkout is off.
+  assert.throws(() => publicBillingConfig({ NODE_ENV: 'production', PAYMENTS_MODE: 'live' }), /SUBSCRIPTION_PRICE_MONTHLY_LABEL/);
+  assert.equal(publicBillingConfig({ SUBSCRIPTION_PRICE_MONTHLY_LABEL: 'US$10' }, { checkout: true }).cycles.monthly.amount, 'US$10');
+  assert.equal(publicBillingConfig({ SUBSCRIPTION_PRICE_MONTHLY_LABEL: 'US$10' }).checkout, false);
 });
 
 test('billing config reports "Soon" while no launch price is configured', async (t) => {

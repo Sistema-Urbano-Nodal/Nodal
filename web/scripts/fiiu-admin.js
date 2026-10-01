@@ -1,10 +1,14 @@
 (() => {
  'use strict';
- const {rows:strings,t,el,tr,source,button,link,field,check,api,status,dateNode,rangeNode,limaDate,locale,findActivity,chronological,typeOf,countLabel,hint,describe,newTabNote,revealInRow}=window.Fiiu;
+ const {rows:strings,t,el,tr,source,button,link,field,check,api,status,dateNode,rangeNode,limaDate,locale,findActivity,chronological,typeOf,countLabel,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,checkinState,checkinActivities,limaClock,windowNode}=window.Fiiu;
  const root=document.getElementById('fiiuAdminRoot'),message=document.getElementById('fiiuStatus');
  let festival,config,records=[],cursor=null,publications=[],contentCursor=null,selectedParticipant=null,shownParticipant=null,detailRequest=0,participantFilter='all',participantQuery='',shownCount=null,updatedAt=null,search=null,searchTimer=null,setAside=null;
  const detailHost=el('section','f-admin-detail'),listHost=el('div','f-admin-list'),participantsHost=el('section','f-admin-participants'),settingsHost=el('section','f-admin-settings'),contentHost=el('section','f-admin-content'),pillHost=el('div','f-pill-host'),editorHost=el('div','f-content-editor'),pubList=el('div','f-pub-list');
- const summaryHost=el('section','f-admin-summary'),summaryBody=el('div','f-summary-body'),summaryMessage=el('p','f-status'),updated=el('span','f-updated'),resultCount=el('p','f-result-count');let summaryBusy=false,summaryRerun=false;
+ const summaryHost=el('section','f-admin-summary'),summaryBody=el('div','f-summary-body'),summaryMessage=el('p','f-status'),updated=el('span','f-updated'),lastScan=el('span','f-updated'),resultCount=el('p','f-result-count');let summaryBusy=false,summaryRerun=false;
+ const checkinHost=el('section','f-admin-checkin'),checkinBody=el('div','f-checkin-body');let lastCheckinKey='';
+ // Access: a 403 locks the page (participant data leaves the DOM and polling stops); a 401 keeps every draft, shows a sign-in link and pauses timed refreshes until a request succeeds again.
+ let locked=false,sessionLost=false,timer=null,sectionObserver=null;
+ const signInUrl=()=>'/login.html?next='+encodeURIComponent(location.pathname+location.hash),sessionNotice=el('p','f-notice is-warning f-session-notice');sessionNotice.hidden=true;sessionNotice.setAttribute('role','alert');
  for(const node of [summaryMessage,resultCount]){node.setAttribute('role','status');node.setAttribute('aria-live','polite');}
  const summaryRefresh=button('refreshSummary',()=>refreshSummary(),'f-button secondary f-small');
  // Timed refresh can be paused (WCAG 2.2.2); switching it back on catches up at once.
@@ -14,7 +18,9 @@
  // Locale-formatted numbers are rebuilt on a language switch: the latest summary and the open editor's counter.
  // lastSummaryKey lets a refresh that brings identical totals leave the tables alone, so a screen reader keeps its place.
  let lastSummary=null,lastSummaryKey='',recount=null;
- const SECTIONS=[['overview','navOverview'],['participants','participants'],['settings','settings'],['content','content']];
+ const SECTIONS=[['overview','navOverview'],['checkin','checkIn'],['participants','participants'],['settings','settings'],['content','content']];
+ // Columns that hold text rather than counts; the action column's heading is read out but not shown.
+ const TEXT_COLUMNS=new Set(['venue','checkinWindow']),HIDDEN_HEADINGS=new Set(['openCheckinScreen']);
  const KINDS={news:'newsKind',recording:'recording',material:'material'},REVIEW={pending:'reviewPending',accepted:'reviewAccepted',declined:'reviewDeclined'};
  const ADMIN_LABEL={profile:'profileAdmin',publicOfficial:'publicOfficialAdmin',applyLab:'applyLabAdmin',institution:'institutionAdmin',previousAttendance:'previousAttendanceAdmin',accessibilityOther:'accessibilityOtherAdmin',motivationOther:'motivationOtherAdmin'};
  const CHOICE_KEYS=['profile','gender','accessibility','motivation','previousAttendance'];
@@ -28,81 +34,138 @@
  const setTitle=()=>{document.title='NODAL · '+t('admin');};
  // Summary: two headline figures, the laboratory queue, today's activities during the festival, then day, activity and profile tables.
  // Each day is its own <tbody>, so the day row's scope="rowgroup" covers exactly that day's rows.
- function summaryTable({caption,labelledBy},headings,groups){
-  const scroll=el('div','f-summary-scroll'),table=el('table','f-summary-table'),head=el('thead'),heading=el('tr'),name=caption?'f-cap-'+caption:labelledBy;
+ function summaryTable({caption,labelledBy,cls=''},headings,groups){
+  const scroll=el('div','f-summary-scroll'),table=el('table','f-summary-table'+(cls?' '+cls:'')),head=el('thead'),heading=el('tr'),name=caption?'f-cap-'+caption:labelledBy,column=i=>!i?'':TEXT_COLUMNS.has(headings[i])?'f-col-text f-col-'+headings[i]:HIDDEN_HEADINGS.has(headings[i])?'f-col-action':'f-num';
   if(caption){const node=tr('caption',caption,'f-table-caption');node.id=name;table.append(node);}else table.setAttribute('aria-labelledby',name);
   scroll.id='f-scroll-'+name;scroll.tabIndex=0;scroll.setAttribute('role','region');scroll.setAttribute('aria-labelledby',name);
-  headings.forEach((key,i)=>{const cell=el('th',i?'f-num':'');cell.scope='col';if(strings[key+'Short']){const short=tr('span',key+'Short','f-th-short');short.setAttribute('aria-hidden','true');cell.append(tr('span',key,'f-th-full'),short);}else cell.append(tr('span',key));heading.append(cell);});head.append(heading);table.append(head);
+  headings.forEach((key,i)=>{const cell=el('th',column(i));cell.scope='col';if(HIDDEN_HEADINGS.has(key))cell.append(tr('span',key,'f-sr-only'));else if(strings[key+'Short']){const short=tr('span',key+'Short','f-th-short');short.setAttribute('aria-hidden','true');cell.append(tr('span',key,'f-th-full'),short);}else cell.append(tr('span',key));heading.append(cell);});head.append(heading);table.append(head);
   for(const {date,rows} of groups){
    const body=el('tbody');
    if(date){const row=el('tr','f-group'),cell=el('th');cell.colSpan=headings.length;cell.scope='rowgroup';cell.append(dateNode(date,'span','short','f-group-date'));row.append(cell);body.append(row);}
-   for(const [label,...values] of rows){const row=el('tr'),cell=el('th');cell.scope='row';cell.append(label);row.append(cell);for(const value of values){const td=el('td','f-num');td.append(value);row.append(td);}body.append(row);}
+   // A row may carry current (today's day row is aria-current="date").
+   for(const cells of rows){const [label,...values]=cells,row=el('tr'),cell=el('th');cell.scope='row';cell.append(label);row.append(cell);if(cells.current)row.setAttribute('aria-current',cells.current);values.forEach((value,i)=>{const td=el('td',column(i+1));td.append(value);row.append(td);});body.append(row);}
    table.append(body);
   }
   scroll.append(table);return scroll;
  }
  function byDate(entries){const groups=[];for(const {date,row} of entries){if(!groups.length||groups.at(-1).date!==date)groups.push({date,rows:[]});groups.at(-1).rows.push(row);}return groups;}
  function renderSummary(summary){
-  const invalid=()=>Object.assign(new Error(),{key:'error'}),number=new Intl.NumberFormat(locale());
+  const invalid=()=>Object.assign(new Error(),{key:'error'}),number=new Intl.NumberFormat(locale()),percent=new Intl.NumberFormat(locale(),{style:'percent',maximumFractionDigits:0});
   const count=value=>{if(!Number.isSafeInteger(value)||value<0)throw invalid();return el('span','f-summary-count'+(value?'':' is-zero'),number.format(value));};
+  const hours=value=>el('span','f-summary-count'+(value?'':' is-zero'),hoursText(value)),space=()=>document.createTextNode(' ');
   if(!summary||!summary.lab||!Array.isArray(summary.days)||!Array.isArray(summary.activities)||!Array.isArray(summary.profiles))throw invalid();
   // A timed refresh rebuilds these nodes; keep keyboard focus on the equivalent control.
-  const active=document.activeElement,refocus=active?.id&&summaryBody.contains?.(active)?active.id:'',event=festival.event;
-  const kpi=(key,value)=>{const box=el('div','f-kpi');box.append(tr('p',key),count(value));return box;},attention=el('div','f-attention');
-  attention.append(kpi('totalRegistrations',summary.totalRegistrations),kpi('publicOfficials',summary.publicOfficials));
-  const lab=el('div','f-lab-card'),bar=el('div','f-lab-bar'),legend=el('ul','f-lab-legend');bar.setAttribute('aria-hidden','true');
-  for(const [state,value] of [['pending',summary.lab.pending],['accepted',summary.lab.accepted],['declined',summary.lab.declined]]){const n=count(value),share=el('span','is-'+state),item=el('li','is-'+state);share.style?.setProperty?.('--share',String(value));bar.append(share);item.append(tr('span',REVIEW[state]),n);legend.append(item);}
-  lab.append(tr('h3','labApplications'),bar,legend);
-  if(summary.lab.pending>0){const review=button('reviewPendingAction',()=>showFilter('labPending'),'f-button secondary f-small');review.id='f-review-pending';lab.append(review);}
-  attention.append(lab);
-  const stats=new Map(summary.activities.map(row=>[row.activityId,row])),today=limaDate();
-  if(today>=event.startsOn&&today<=event.endsOn){
-   const box=el('div','f-today'),list=el('ul'),stat=(key,value)=>{const s=el('span','f-today-stat');s.append(tr('span',key),count(value??0));return s;};
-   for(const activity of chronological(event.activities.filter(a=>a.date===today))){const row=stats.get(activity.id)||{},item=el('li'),external=activity.registration==='external';item.append(source('span',activity.title,'f-today-title'),stat(external?'interested':'registered',external?row.externalInterests:row.registrations),stat('attended',row.attendance));list.append(item);}
-   box.append(tr('h3','todayTitle'),dateNode(today,'p','long','f-today-date'),list);attention.append(box);
+  const active=document.activeElement,refocus=active?.id&&summaryBody.contains?.(active)?active.id:'',event=festival.event,today=limaDate(),total=summary.totalRegistrations;
+  // Hours: each confirmed attendance counts its block's scheduled length. The server sends the counts, the catalogue the lengths.
+  // attendedPeople, qrPeople, lastCheckInAt and officialAttendance are newer fields: a figure or line whose field is absent is left out.
+  let minutes=0,officialMinutes=0,officials=false;const dayMinutes=new Map();
+  for(const row of summary.activities){
+   const activity=findActivity(event,row.activityId),length=minutesOf(activity);count(row.attendance);minutes+=row.attendance*length;if(activity)dayMinutes.set(activity.date,(dayMinutes.get(activity.date)||0)+row.attendance*length);
+   if(row.officialAttendance!==undefined){count(row.officialAttendance);officials=true;officialMinutes+=row.officialAttendance*length;}
   }
-  const days=summaryTable({labelledBy:'f-sum-byDay'},['day','peopleWithPlans','attended'],[{rows:summary.days.map(row=>[dateNode(row.date,'span','short','f-row-date'),count(row.registrations),count(row.attendance)])}]);
+  // One ruled strip of figures; the laboratory queue takes two tracks and the track count follows the figures shown, so no track is left empty.
+  const figures=el('div','f-figures'),note=(...nodes)=>{const p=el('p','f-figure-note');p.append(...nodes);return p;},big=node=>{node.className+=' f-figure-value';return node;};
+  const figure=(key,...nodes)=>{const box=el('div','f-figure');box.append(tr('p',key,'f-figure-label'),...nodes);figures.append(box);return box;};
+  figure('totalRegistrations',big(count(total)));
+  figure('publicOfficials',big(count(summary.publicOfficials)),...(total?[note(el('span','',percent.format(summary.publicOfficials/total)+' '),tr('span','shareOfRegistrations'))]:[]));
+  if(summary.attendedPeople!==undefined){
+   const people=big(count(summary.attendedPeople)),before=today<event.startsOn&&!summary.attendedPeople;
+   if(before)figure('checkedIn',note(tr('span','checkinOpensOn'),space(),dateNode(event.startsOn,'span','short','f-when-day')));
+   else figure('checkedIn',people,...(Number.isSafeInteger(summary.qrPeople)&&summary.qrPeople>=0?[note(countLabel(summary.qrPeople,'byQr','byQr'))]:[]));
+  }
+  figure('hoursTitle',big(hours(minutes/60)),...(officials?[note(tr('span','officialsHours'),space(),el('span','',hoursText(officialMinutes/60)))]:[]));
+  const lab=el('div','f-figure f-lab-card'),bar=el('div','f-lab-bar'),legend=el('ul','f-lab-legend');bar.setAttribute('aria-hidden','true');
+  for(const [state,value] of [['pending',summary.lab.pending],['accepted',summary.lab.accepted],['declined',summary.lab.declined]]){const n=count(value),share=el('span','is-'+state),item=el('li','is-'+state);share.style?.setProperty?.('--share',String(value));bar.append(share);item.append(tr('span',REVIEW[state]),n);legend.append(item);}
+  // The legend and the review shortcut share one line, so the queue is no taller than the figures beside it.
+  const labRow=el('div','f-lab-row');labRow.append(legend);lab.append(tr('h3','labApplications','f-figure-label'),bar,labRow);
+  if(summary.lab.pending>0){const review=button('reviewPendingAction',()=>showFilter('labPending'),'f-lab-review');review.id='f-review-pending';labRow.append(review);}
+  figures.append(lab);figures.style?.setProperty?.('--f-tracks',String(figures.children.length+1));
+  const last=Date.parse(summary.lastCheckInAt);
+  if(Number.isFinite(last)){const time=el('time','',limaClock(last));time.dateTime=new Date(last).toISOString();lastScan.replaceChildren(tr('span','lastCheckIn'),space(),...(limaDate(new Date(last))===today?[]:[dateNode(limaDate(new Date(last)),'span','short','f-when-day'),space()]),time);}else lastScan.replaceChildren();
+  // Day ledger: one row per festival day, today's marked with aria-current="date" and the word Today.
+  const days=summaryTable({labelledBy:'f-sum-byDay',cls:'is-ledger'},['day','peopleWithPlans','attended','hours'],[{rows:summary.days.map(row=>{
+   const label=el('span','f-row-day'),current=row.date===today;label.append(dateNode(row.date,'span','short','f-row-date'));if(current)label.append(tr('span','today','f-row-today'));
+   return Object.assign([label,count(row.registrations),count(row.attendance),hours((dayMinutes.get(row.date)||0)/60)],current?{current:'date'}:{});
+  })}]);
   // Split by type (lab and conferences vs workshops and routes), each in programme order; ids no longer in the catalogue go last.
   const entries=summary.activities.filter(row=>event.activities.some(a=>a.id===row.activityId)||row.registrations||row.externalInterests||row.attendance).map(row=>({row,activity:findActivity(event,row.activityId)}));
   const order=new Map(chronological(entries.filter(e=>e.activity).map(e=>e.activity)).map((a,i)=>[a.id,i])),rank=e=>e.activity?order.get(e.activity.id):order.size,conferences=[],externals=[];
   for(const {row,activity} of [...entries].sort((a,b)=>rank(a)-rank(b))){
    const [registrations,interests,attendance]=[row.registrations,row.externalInterests,row.attendance].map(count),external=Boolean(activity)&&['workshop','route'].includes(typeOf(activity)),label=el('span','f-row-label');
    if(activity){label.append(source('span',activity.title));if(activity.registration==='application')label.append(tr('span','lab','f-row-meta'));else if(activity.time&&!external)label.append(el('span','f-row-meta',activity.time));}else label.append(el('span','',row.activityId));
-   (external?externals:conferences).push({date:activity?.date,row:[label,external?interests:registrations,attendance]});
+   const venue=activity?.venue?source('span',activity.venue,'f-row-venue'):activity?tr('span','venuePending','f-muted'):el('span','');
+   (external?externals:conferences).push({date:activity?.date,row:external?[label,venue,interests,attendance]:[label,venue,registrations,attendance,hours(row.attendance*minutesOf(activity)/60)]});
   }
-  const heading=key=>{const h=tr('h3',key);h.id='f-sum-'+key;return h;},col=(...nodes)=>{const box=el('div','f-summary-col');box.append(...nodes);return box;},people=el('div','f-summary-grid'),activities=el('div','f-summary-grid is-activities');
-  const profiles=summary.profiles.length?summaryTable({labelledBy:'f-sum-profiles'},['profileAdmin','participantCount'],[{rows:summary.profiles.map(row=>[tr('span',row.profile||'unspecified'),count(row.count)])}]):tr('p','noParticipants','f-muted');
+  const heading=key=>{const h=tr('h3',key);h.id='f-sum-'+key;return h;},col=(...nodes)=>{const box=el('div','f-summary-col');box.append(...nodes);return box;},people=el('div','f-summary-grid'),activities=el('div','f-summary-stack');
+  // Largest profiles first; equal counts keep the server's alphabetical order.
+  const profiles=summary.profiles.length?summaryTable({labelledBy:'f-sum-profiles',cls:'is-profiles'},['profileAdmin','participantCount','share'],[{rows:[...summary.profiles].sort((a,b)=>b.count-a.count).map(row=>[tr('span',row.profile||'unspecified'),count(row.count),el('span','f-summary-share',total?percent.format(row.count/total):'–')])}]):tr('p','noParticipants','f-muted');
   people.append(col(heading('byDay'),days,tr('p','byDayHint','f-muted f-table-note')),col(heading('profiles'),profiles));
-  activities.append(col(summaryTable({caption:'conferencesAndLab'},['activity','registered','attended'],byDate(conferences))),col(summaryTable({caption:'externalActivities'},['activity','interested','attended'],byDate(externals))));
-  summaryBody.replaceChildren(attention,people,heading('byActivity'),activities);lastSummary=summary;lastSummaryKey=summaryKey(summary);
+  activities.append(summaryTable({caption:'conferencesAndLab'},['activity','venue','registered','attended','hours'],byDate(conferences)),summaryTable({caption:'externalActivities'},['activity','venue','interested','attended'],byDate(externals)));
+  summaryBody.replaceChildren(figures,people,heading('byActivity'),activities);lastSummary=summary;lastSummaryKey=summaryKey(summary);renderCheckin(summary);
   if(refocus)document.getElementById(refocus)?.focus({preventScroll:true});
  }
- // The date is part of the key because "Today at the festival" depends on it.
+ // The date is part of the key because the ledger marks today.
  const summaryKey=summary=>JSON.stringify(summary)+limaDate();
  function stampUpdated(value=updatedAt){if(!value)return;updatedAt=value;const time=el('time','',new Intl.DateTimeFormat(locale(),{hour:'2-digit',minute:'2-digit',hourCycle:'h23',timeZone:'America/Lima'}).format(value));time.dateTime=value.toISOString();updated.replaceChildren(tr('span','updatedAt'),document.createTextNode(' '),time);}
  // Timed refreshes run in the background: no disabled button and no "Loading…" line, so the layout never jumps; only failures are shown.
+ // Identical totals leave the tables alone; the check-in section still re-checks its windows, which open and close with the clock.
  // A refresh asked for while one is in flight (after a write, or a timer tick) runs once more when it lands, so the totals include that write.
  async function refreshSummary({pending,background=false}={}){
-  if(summaryBusy){summaryRerun=true;return;}summaryBusy=true;summaryBody.setAttribute('aria-busy','true');const hadFocus=document.activeElement===summaryRefresh;
+  if(locked)return;if(summaryBusy){summaryRerun=true;return;}summaryBusy=true;summaryBody.setAttribute('aria-busy','true');const hadFocus=document.activeElement===summaryRefresh;
   if(!background){summaryRefresh.disabled=true;status(summaryMessage,'loading');}
-  try{const result=await(pending||api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error})));if(result.error)throw result.error;const next=result.data.summary;if(summaryKey(next)!==lastSummaryKey)renderSummary(next);status(summaryMessage,'');stampUpdated(new Date());}
-  catch(error){status(summaryMessage,error);}
+  try{const result=await(pending||api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error})));if(result.error)throw result.error;const next=result.data.summary;if(summaryKey(next)!==lastSummaryKey)renderSummary(next);else renderCheckin(next);status(summaryMessage,'');stampUpdated(new Date());resume();}
+  catch(error){if(!guard(error))status(summaryMessage,error);}
   // Disabling the button drops focus to <body>; hand it back only if the organiser has not moved on meanwhile.
   finally{summaryBusy=false;summaryRefresh.disabled=false;summaryBody.setAttribute('aria-busy','false');if(hadFocus&&(!document.activeElement||document.activeElement===document.body))summaryRefresh.focus();if(summaryRerun){summaryRerun=false;refreshSummary({background:true});}}
  }
- function summaryPanel(){const bar=el('div','f-admin-toolbar');bar.append(tr('h2','summaryTitle'),updated,autoRefresh.wrap,summaryRefresh,summaryMessage);summaryHost.id='overview';summaryHost.replaceChildren(bar,summaryBody);return summaryHost;}
+ function summaryPanel(){const bar=el('div','f-admin-toolbar');bar.append(tr('h2','summaryTitle'),lastScan,updated,autoRefresh.wrap,summaryRefresh,summaryMessage);summaryHost.id='overview';summaryHost.replaceChildren(bar,summaryBody);return summaryHost;}
+ // Check-in: the NODAL blocks by day, each with its window, venue, live count and the screen to show at the door (a separate admin page without participant data).
+ // The section is rebuilt only when a count, a window state or the language changes, so a focused link keeps its place.
+ function checkedInCell(n,number){const cell=el('span','f-summary-count'+(n?'':' is-zero'),number.format(n));cell.append(document.createTextNode(' '),tr('span',n===1?'checkedInOne':'checkedInMany','f-cell-unit'));return cell;}
+ function renderCheckin(summary=lastSummary){
+  if(!festival)return;const stats=new Map((summary?.activities||[]).map(row=>[row.activityId,row])),blocks=checkinActivities(festival.event),states=blocks.map(activity=>checkinState(activity));
+  const key=JSON.stringify([blocks.map(a=>stats.get(a.id)?.attendance??null),states,locale()]);if(key===lastCheckinKey)return;lastCheckinKey=key;
+  const active=document.activeElement,refocus=active?.id&&checkinBody.contains?.(active)?active.id:'',number=new Intl.NumberFormat(locale());
+  const rows=blocks.map((activity,i)=>{
+   const label=el('span','f-row-label'),title=source('span',activity.title),when=el('span','f-window-cell'),open=link('openCheckinScreen','fiiu-qr.html?a='+encodeURIComponent(activity.id),'f-button secondary f-small'),attended=stats.get(activity.id)?.attendance;
+   title.id='f-ck-'+activity.id;label.append(title,activity.registration==='application'?tr('span','lab','f-row-meta'):el('span','f-row-meta',activity.time));
+   // The column heading is hidden when the rows stack on a phone (fiiu.css), so the window and the count carry their own label there.
+   when.append(tr('span','checkinWindow','f-window-label f-cell-label'),windowNode(activity));if(states[i]!=='upcoming')when.append(tr('span',states[i]==='open'?'checkinOpenNow':'checkinClosedNow','f-window-state is-'+states[i]));
+   open.id='f-ck-open-'+activity.id;open.target='_blank';open.rel='noopener';describe(open,title.id);
+   return {date:activity.date,row:[label,activity.venue?source('span',activity.venue,'f-row-venue'):tr('span','venuePending','f-muted'),when,Number.isSafeInteger(attended)?checkedInCell(attended,number):el('span','f-summary-count is-zero','–'),open]};
+  });
+  checkinBody.replaceChildren(summaryTable({labelledBy:'f-h-checkin',cls:'is-checkin'},['block','venue','checkinWindow','attended','openCheckinScreen'],byDate(rows)));
+  if(refocus)document.getElementById(refocus)?.focus({preventScroll:true});
+ }
+ function checkinPanel(){
+  const head=el('div','f-admin-toolbar'),heading=tr('h2','checkIn'),all=link('allScreens','fiiu-qr.html','f-text-link');heading.id='f-h-checkin';all.target='_blank';all.rel='noopener';describe(all);
+  head.append(heading,all);checkinHost.id='checkin';checkinHost.replaceChildren(head,tr('p','checkInHint','f-muted f-section-hint'),checkinBody);lastCheckinKey='';renderCheckin();return checkinHost;
+ }
+ // Losing organiser access mid-session (role removed, or another account signed in) clears every participant answer from the page and stops polling.
+ function lockOut(){
+  locked=true;if(timer!==null)clearInterval(timer);sectionObserver?.disconnect();records=[];publications=[];rowCache=new WeakMap();lastSummary=null;selectedParticipant=shownParticipant=null;
+  for(const host of [listHost,detailHost,participantsHost,summaryBody,checkinBody,settingsHost,contentHost,editorHost,pubList,resultCount])host.replaceChildren();
+  status(message,'');const box=el('section','f-locked'),actions=el('div','f-actions');actions.append(link('fiiuPage','fiiu.html','f-button'),link('backToConsole','dashboard.html'));box.append(tr('h1','organisersOnly'),tr('p','organisersOnlyHint'),actions);root.replaceChildren(box);
+ }
+ function guard(error){
+  if(locked)return true;if(error?.status===403){lockOut();return true;}
+  if(error?.status===401&&!sessionLost){sessionLost=true;sessionPanel();sessionNotice.hidden=false;}
+  return false;
+ }
+ function resume(){if(!sessionLost)return;sessionLost=false;sessionNotice.hidden=true;}
+ function sessionPanel(){const signin=link('adminSignIn',signInUrl(),'f-text-link');signin.target='_blank';signin.rel='noopener';describe(signin);sessionNotice.replaceChildren(tr('span','adminSignInAgain'),document.createTextNode(' '),signin);return sessionNotice;}
  // Feedback: #fiiuStatus is shown as a toast (fiiu.css) so saves are visible wherever the organiser is working.
  function clearLater(node,key){if(typeof setTimeout!=='function')return;clearTimeout(clearTimers.get(node));clearTimers.set(node,setTimeout(()=>{clearTimers.delete(node);if(node.dataset.fiiuText===key)status(node,'');},6000));}
  // "Reload the latest version" re-reads only the record that changed into its form; other unsaved drafts on the page stay.
  async function action(control,fn,{feedback=message,conflict=null,reload=null,done='changesSaved'}={}){
   if(control)control.disabled=true;status(feedback,'saving');conflict?.replaceChildren();
-  try{await fn();status(feedback,done);clearLater(feedback,done);}
-  catch(err){status(feedback,err);if(err.key==='editorConflict'&&conflict&&reload){const latest=button('reloadLatest',()=>fetchInto(latest,reload),'f-button secondary f-small');conflict.replaceChildren(latest);}}
+  try{await fn();status(feedback,done);clearLater(feedback,done);resume();}
+  catch(err){if(guard(err))return;status(feedback,err);if(err.key==='editorConflict'&&conflict&&reload){const latest=button('reloadLatest',()=>fetchInto(latest,reload),'f-button secondary f-small');conflict.replaceChildren(latest);}}
   finally{if(control)control.disabled=false;}
  }
  // Reads say "Loading…" and then clear; they never report "Changes saved.".
  // Disabling the focused control drops focus to <body>; a failed read hands it back.
- async function fetchInto(control,fn){control.disabled=true;status(message,'loading');try{await fn();status(message,'');}catch(err){status(message,err);}finally{control.disabled=false;if(control.isConnected&&(!document.activeElement||document.activeElement===document.body))control.focus();}}
+ async function fetchInto(control,fn){control.disabled=true;status(message,'loading');try{await fn();status(message,'');resume();}catch(err){if(!guard(err))status(message,err);}finally{control.disabled=false;if(control.isConnected&&(!document.activeElement||document.activeElement===document.body))control.focus();}}
  function lockForm(form,fallback){
   const active=document.activeElement,controls=[...form.querySelectorAll('input,select,textarea,button')].map(control=>[control,control.disabled]);
   for(const [control] of controls)control.disabled=true;form.setAttribute('aria-busy','true');
@@ -184,21 +247,32 @@
   });
   card.append(head,answerRows(el('dl','f-answers-list'),r.answers,['institution','position','publicOfficial']),review);return card;
  }
- function attendanceRow(activity,checked,id,chip){
-  const row=el('div','f-attendance-row'),label=el('label','f-check'),input=el('input'),text=el('span','f-attendance-title'),note=el('span','f-inline-status');let pending=false;
+ // Each confirmed row says how and when: "QR 09:12" for a self check-in, "Team 09:40" for one ticked here (with the date when it was not the block's own day).
+ function methodNote(activity,record){
+  if(!record)return [];const at=Date.parse(record.createdAt),day=Number.isFinite(at)?limaDate(new Date(at)):'';
+  return [tr('span',record.method==='qr'?'methodQr':'methodTeam'),...(Number.isFinite(at)?[document.createTextNode(' '),...(day!==activity.date?[dateNode(day,'span','short','f-when-day'),document.createTextNode(' ')]:[]),el('span','',limaClock(at))]:[])];
+ }
+ function attendanceRow(activity,checked,id,chip,{records,saved}={}){
+  const row=el('div','f-attendance-row'),label=el('label','f-check'),input=el('input'),text=el('span','f-attendance-title'),note=el('span','f-inline-status'),how=el('span','f-attendance-method');let pending=false;
   input.type='checkbox';input.checked=checked;note.setAttribute('role','status');text.append(source('span',activity.title));if(activity.time)text.append(el('span','f-attendance-time',activity.time));
-  label.append(input,text);row.append(label);if(chip)row.append(chip);row.append(note);
+  how.replaceChildren(...methodNote(activity,records?.get(activity.id)));row.method=()=>how.replaceChildren(...methodNote(activity,records?.get(activity.id)));
+  label.append(input,text);row.append(label,how);if(chip)row.append(chip);row.append(note);
   // Autosave keeps the checkbox focusable: a toggle while a save is pending is undone instead of disabling the control.
   input.addEventListener('change',()=>{
    if(pending){input.checked=!input.checked;return;}
    const wanted=input.checked;pending=true;input.setAttribute('aria-disabled','true');
-   return action(null,async()=>{try{await api('/api/admin/fiiu/registrations/'+id+'/attendance',{activityId:activity.id,attended:wanted},'PUT');}catch(err){input.checked=!wanted;throw err;}refreshSummary({background:true});},{feedback:note,done:'attendanceSaved'}).finally(()=>{pending=false;input.removeAttribute('aria-disabled');});
+   return action(null,async()=>{let result;try{result=await api('/api/admin/fiiu/registrations/'+id+'/attendance',{activityId:activity.id,attended:wanted},'PUT');}catch(err){input.checked=!wanted;throw err;}saved?.(activity,wanted,result?.attendance);refreshSummary({background:true});},{feedback:note,done:'attendanceSaved'}).finally(()=>{pending=false;input.removeAttribute('aria-disabled');});
   });
   return row;
  }
  function attendanceFieldset(r,attendance,id){
   const a=r.answers,box=el('fieldset','f-attendance'),note=hint('attendanceHint'),attended=new Set(attendance.map(record=>record.activityId)),interests=new Set(a.externalActivities||[]);
-  box.append(tr('legend','attendance'),note);
+  // Under the legend: sessions attended and certificate hours, recomputed from each save's response (or from the change itself when the response has no list).
+  const records=new Map(attendance.map(record=>[record.activityId,record])),totals=el('p','f-attendance-total'),rows=[];
+  const sum=()=>{const h=hoursOf([...records.values()],festival.event);totals.replaceChildren(countLabel(h.sessions,'attendedOne','attendedMany'),countLabel(h.hours,'certificateHourOne','certificateHourMany'),...(h.untimed.some(activityId=>findActivity(festival.event,activityId)?.registration==='application')?[tr('span','labHoursPending','f-muted')]:[]));};
+  const saved=(activity,wanted,list)=>{if(Array.isArray(list)){records.clear();for(const record of list)records.set(record.activityId,record);}else if(wanted)records.set(activity.id,{activityId:activity.id,method:'staff',createdAt:new Date().toISOString()});else records.delete(activity.id);sum();for(const row of rows)row.method();};
+  const rowFor=(activity,checked,chip)=>{const row=attendanceRow(activity,checked,id,chip,{records,saved});rows.push(row);return row;};
+  sum();box.append(tr('legend','attendance'),totals,note);
   // Saved workshop and route interests appear on their day below, marked as interests; say once what that means.
   if(interests.size){const interest=el('p','f-muted f-interest-note');interest.id='f-hint-interest';interest.append(tr('span','interestChip','f-pill'),tr('span','externalInterestAdminHint'));box.append(interest);box.setAttribute('aria-describedby',note.id+' '+interest.id);}else box.setAttribute('aria-describedby',note.id);
   // Interests whose activity left the catalogue are still listed by id, as on the participant's own page.
@@ -208,8 +282,8 @@
   const list=chronological([...festival.event.activities,...(festival.event.legacyActivities||[]).filter(activity=>attended.has(activity.id)||interests.has(activity.id))].filter(activity=>activity.registration==='external'||own(activity)));
   for(const date of [...new Set(list.map(activity=>activity.date))]){
    const day=list.filter(activity=>activity.date===date),others=day.filter(activity=>!own(activity)),group=el('div','f-attendance-day'),dayLabel=dateNode(date,'p','long','f-attendance-date');dayLabel.id='f-att-'+date;group.append(dayLabel);
-   for(const activity of day.filter(own))group.append(attendanceRow(activity,attended.has(activity.id),id,chip(activity)));
-   if(others.length){const more=el('details','f-other');more.append(describe(tr('summary','otherActivities'),dayLabel.id));for(const activity of others)more.append(attendanceRow(activity,false,id));group.append(more);}
+   for(const activity of day.filter(own))group.append(rowFor(activity,attended.has(activity.id),chip(activity)));
+   if(others.length){const more=el('details','f-other');more.append(describe(tr('summary','otherActivities'),dayLabel.id));for(const activity of others)more.append(rowFor(activity,false));group.append(more);}
    box.append(group);
   }
   return box;
@@ -308,7 +382,7 @@
  // Safari before 16 has no AbortSignal.timeout; there the download runs without the time limit.
  async function downloadExport(){
   const failed=key=>Object.assign(Error(t(key)),{key});let blob,name;
-  try{const response=await fetch('/api/admin/fiiu/export',{signal:globalThis.AbortSignal?.timeout?.(60000)});if(!response.ok)throw failed(({401:'unauthorized',403:'forbidden',429:'rate'})[response.status]||'error');name=/filename="([^"]+)"/.exec(response.headers.get('Content-Disposition')||'')?.[1];blob=await response.blob();}
+  try{const response=await fetch('/api/admin/fiiu/export',{signal:globalThis.AbortSignal?.timeout?.(60000)});if(!response.ok)throw Object.assign(failed(({401:'unauthorized',403:'forbidden',429:'rate'})[response.status]||'error'),{status:response.status});name=/filename="([^"]+)"/.exec(response.headers.get('Content-Disposition')||'')?.[1];blob=await response.blob();}
   catch(err){throw err?.key?err:failed('error');}
   const href=URL.createObjectURL(blob),a=el('a');a.href=href;a.download=name||'fiiu-registrations.csv';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),60000);
  }
@@ -320,22 +394,27 @@
  // The section crossing a thin band a third of the way down the viewport is the current one.
  function observeSections(){
   if(!('IntersectionObserver' in window))return;const visible=new Set();
-  const observer=new IntersectionObserver(entries=>{
+  const observer=sectionObserver=new IntersectionObserver(entries=>{
    for(const entry of entries){if(entry.isIntersecting)visible.add(entry.target.id);else visible.delete(entry.target.id);}
    const current=SECTIONS.map(([id])=>id).find(id=>visible.has(id));if(!current)return;
    for(const [id,a] of navLinks){if(id!==current){a.removeAttribute('aria-current');continue;}if(a.getAttribute('aria-current')==='true')continue;a.setAttribute('aria-current','true');const row=a.parentElement?.parentElement;if(row&&!row.contains(document.activeElement))revealInRow(row,a);}
   },{rootMargin:'-35% 0px -64% 0px'});
-  for(const section of [summaryHost,participantsHost,settingsHost,contentHost])observer.observe(section);
+  for(const section of [summaryHost,checkinHost,participantsHost,settingsHost,contentHost])observer.observe(section);
  }
  async function load(){
   status(message,'loading');const summaryRequest=api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error}));try{const [publicData,settingsData,posts,participantData]=await Promise.all([api('/api/fiiu'),api('/api/admin/fiiu/config'),api('/api/admin/fiiu/content'),api('/api/admin/fiiu/registrations')]);festival=publicData;config=settingsData.config;publications=posts.content;contentCursor=posts.nextCursor;setRecords(participantData.registrations);cursor=participantData.nextCursor;
    const grid=el('div','f-admin-columns');grid.append(listHost,detailHost);detailHost.replaceChildren(tr('p','selectParticipant','f-muted f-detail-empty'));const heading=tr('h2','participants');heading.id='f-h-participants';participantsHost.id='participants';participantsHost.replaceChildren(heading,filters(),grid);
-   root.replaceChildren(adminHead(),adminNav(),summaryPanel(),participantsHost,settings(),contentPanel(),newTabNote());renderRegistrationPill();renderList();status(message,'');refreshSummary({pending:summaryRequest});setTitle();observeSections();
+   root.replaceChildren(adminHead(),sessionNotice,adminNav(),summaryPanel(),checkinPanel(),participantsHost,settings(),contentPanel(),newTabNote());renderRegistrationPill();renderList();status(message,'');refreshSummary({pending:summaryRequest});setTitle();observeSections();
    const hash=location.hash;if(SECTIONS.some(([id])=>'#'+id===hash))document.querySelector(hash)?.scrollIntoView({block:'start'});
-  }catch(error){status(message,error.key==='error'?Object.assign(Error(t('loadError')),{key:'loadError'}):error);root.replaceChildren(button('retry',load),newTabNote());}
+  }catch(error){
+   // Signed out before the dashboard loaded: sign in and come straight back. Signed in without organiser access: the organisers-only state, with no Retry.
+   if(error.status===401){status(message,'');location.assign(signInUrl());return;}
+   if(guard(error))return;
+   status(message,error.key==='error'?Object.assign(Error(t('loadError')),{key:'loadError'}):error);root.replaceChildren(button('retry',load),newTabNote());
+  }
  }
  // Rows on screen are translated in place; rows kept for later filters are rebuilt in the new language.
- window.nodalI18n?.onChange(()=>{rowCache=new WeakMap();setTitle();stampUpdated();recount?.();if(lastSummary)renderSummary(lastSummary);});
- setInterval(()=>{if(festival&&autoRefresh.input.checked&&document.visibilityState==='visible')return refreshSummary({background:true});},60000);
+ window.nodalI18n?.onChange(()=>{if(locked)return;rowCache=new WeakMap();setTitle();stampUpdated();recount?.();if(lastSummary)renderSummary(lastSummary);else renderCheckin();});
+ timer=setInterval(()=>{if(festival&&!locked&&!sessionLost&&autoRefresh.input.checked&&document.visibilityState==='visible')return refreshSummary({background:true});},60000);
  load();
 })();

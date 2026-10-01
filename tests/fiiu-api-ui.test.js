@@ -44,3 +44,19 @@ test('saving external interests requires the response to confirm those same inte
  const confirmed={...registration,answers:{activities:[],externalActivities:['workshop-a']}};
  assert.equal((await apiFor(Response.json({registration:confirmed}))('/api/fiiu/registration',body,'PUT')).registration.id,'registration-a');
 });
+
+test('check-in refusals keep the server reason, and 410 reads as an expired code',async()=>{
+ const refusal=async(status,data)=>{try{await apiFor(Response.json(data,{status}))('/api/fiiu/checkin',{activityId:'day1-am',code:'x'});}catch(error){return error;}assert.fail('the request must fail');};
+ const window=await refusal(409,{code:'outside_window',activityId:'day1-am',opensAt:'2026-10-21T13:30:00.000Z',closesAt:'2026-10-21T18:30:00.000Z'});
+ assert.deepEqual([window.status,window.code,window.activityId,window.opensAt,window.closesAt],[409,'outside_window','day1-am','2026-10-21T13:30:00.000Z','2026-10-21T18:30:00.000Z']);
+ const missing=await refusal(404,{code:'not_registered',registrationOpen:false});assert.equal(missing.code,'not_registered');assert.equal(missing.registrationOpen,false);
+ const expired=await refusal(410,{code:'expired'});assert.equal(expired.key,'expired');assert.equal(expired.status,410);
+ const plain=await refusal(403,{error:'cross-origin request rejected'});assert.equal(plain.code,undefined);assert.equal(plain.key,'forbidden');
+});
+
+test('a check-in answer must say what happened, and a registration read accepts the extra hours and method fields',async()=>{
+ await assert.rejects(apiFor(Response.json({ok:true}))('/api/fiiu/checkin',{code:'K7M4PX'}),error=>error.key==='error');
+ for(const result of ['checked_in','already_checked_in'])assert.equal((await apiFor(Response.json({result,activityId:'day1-am',attendance:[]},{status:result==='checked_in'?201:200}))('/api/fiiu/checkin',{code:'K7M4PX'})).result,result);
+ const me={registration:null,user:{id:'a',email:'a@example.test'},attendance:[{activityId:'day1-am',createdAt:'2026-10-21T14:12:00.000Z',method:'qr'}],hours:{minutes:240,hours:4,untimed:[]}};
+ assert.equal((await apiFor(Response.json(me))('/api/fiiu/registration')).hours.hours,4);
+});

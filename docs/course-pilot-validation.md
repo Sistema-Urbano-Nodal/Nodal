@@ -1,9 +1,15 @@
 # Course pilot validation — September 5, 2026
 
+## Enrollment closure — October 1, 2026
+
+- The first course (`72e3cc56-a506-4a1b-97b5-9333e8d283ca`, *Curso Movilidad Nivel 2*) ran its four sessions on September 9, 14, 16 and 21. `20261001011348_close_mobility_pilot_enrollment.sql` closes its enrollment: data only, guarded by id and `enrollment_open`, with a version bump. On a disposable local PostgreSQL it closed only that course, kept it published, bumped its version once, and changed nothing on a rerun or when the id was absent.
+- Closing now blocks every way in: self-enrollment (`enrollment_closed`), staff add and invite (`participant_enrollment_closed`, before any lookup, email or write) and acceptance of an invitation sent before closure (password saved, invitation left pending, `invitation_enrollment_closed`). Existing students keep their intake, modules and discussions. Covered in `tests/course-participants.test.js`, `tests/courses-api.test.js`, `tests/course-invitation-auth.test.js`, `tests/courses-ui.test.js` and `tests/course-participants-ui.test.js`, including the EN/ES/PT strings.
+- Production: pending. Before applying, run `select id,title,enrollment_open,version from pilot_courses order by created_at;` and record the result and the recorded migration version here.
+
 ## Participant management — September 7, 2026
 
 - Build passed with **438 tests**, zero failures/skips. Coverage includes admin and same-origin boundaries, exact email ownership, invitation proof type, duplicate enrollments, concurrent send reservations, failed resends retaining previous valid links, partial password/setup outcomes, token removal from browser history, three-language UI and preserving unsaved course/module drafts.
-- Browser checks used an isolated in-memory SQLite app and disposable admin/student identities. Adding a student persisted an enrollment and left intake incomplete. The production course remains published with enrollment open; manual additions do not replace self-enrollment.
+- Browser checks used an isolated in-memory SQLite app and disposable admin/student identities. Adding a student persisted an enrollment and left intake incomplete. At the time, the production course remained published with enrollment open and manual additions did not replace self-enrollment (enrollment closed on October 1, 2026; see above).
 - Invitation migration applied to Supabase as `20260907195013`. Live SQL verified RLS enabled, anonymous SELECT denied, member INSERT denied, and server CRUD available. A rolled-back transaction verified final Auth account deletion erases a late invitation with no saved target user ID.
 - Supabase security advisors reported the expected informational no-client-policy entries for server-only course tables. The existing [leaked-password-protection warning](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection) remains; this change does not alter paid-plan settings.
 - Native invitation authentication is covered with provider-contract tests. A real recipient's email delivery and complete invitation-to-password journey are separate acceptance checks; no invitation was sent to a staff member during automated testing.

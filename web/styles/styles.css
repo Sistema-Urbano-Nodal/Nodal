@@ -78,6 +78,8 @@ h1, h2, h3 {
 .btn:hover { transform: translate(-2px,-2px); }
 .btn:active { transform: translate(1px,1px); transition-duration: .08s; }
 .btn:disabled, .btn[disabled], .btn[aria-disabled="true"] { opacity: .45; pointer-events: none; transform: none; }
+/* .btn sets display, which would otherwise override the hidden attribute (the landing Supporter button ships hidden). */
+.btn[hidden] { display: none; }
 .btn-primary { background: var(--green-bright); color: #fff; box-shadow: 4px 4px 0 var(--ink); }
 .btn-primary:hover { background: var(--green-hover); box-shadow: 6px 6px 0 var(--ink); }
 .btn-primary:active { box-shadow: 1px 1px 0 var(--ink); }

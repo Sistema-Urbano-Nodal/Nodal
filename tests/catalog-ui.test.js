@@ -152,34 +152,56 @@ function mountLandingCatalog(harness) {
   }
 }
 
-function adminHarness(fetchImpl = () => Promise.reject(new Error('network must not run in the editor unit test'))) {
+// The real dictionaries (non-home pages), optionally applying markup nodes on a language switch.
+function deskI18n(lang = 'en', nodes = []) {
+  const pick = (attribute) => nodes.filter((node) => node.dataset[attribute]);
+  const document = {
+    body: { dataset: {} },
+    documentElement: new FakeNode('html'),
+    querySelectorAll: (selector) => ({
+      '[data-i18n]': pick('i18n'), '[data-i18n-placeholder]': pick('i18nPlaceholder'), '[data-i18n-aria-label]': pick('i18nAriaLabel'),
+    })[selector] || [],
+  };
+  const context = { URLSearchParams, document, console, localStorage: { getItem() { return null; }, setItem() {} }, location: { search: '' } };
+  context.window = context;
+  vm.runInNewContext(i18n(), context, { filename: 'i18n.js' });
+  context.window.nodalI18n.apply(lang);
+  return context.window.nodalI18n;
+}
+
+function adminHarness(fetchImpl = () => Promise.reject(new Error('network must not run in the editor unit test')), { lang = 'en', confirm = () => true } = {}) {
   const ids = new Map([...adminPage().matchAll(/\bid="([^"]+)"/g)].map((match) => [match[1], new FakeNode(match[1])]));
   const document = {
     getElementById: (id) => ids.get(id) ?? null,
     createElement: (tag) => new FakeNode(tag),
   };
+  const confirms = [];
+  const i18nApi = deskI18n(lang);
   const context = {
     AbortController,
     Date,
     URL,
     URLSearchParams,
     clearTimeout,
+    crypto: globalThis.crypto,
     document,
     encodeURIComponent,
     fetch: fetchImpl,
     location: { assigned: '', assign(value) { this.assigned = value; } },
     matchMedia: () => ({ matches: true }),
+    nodalI18n: i18nApi,
+    confirm: (message) => { confirms.push(message); return confirm(message); },
     setTimeout,
   };
   context.window = context;
   const source = adminScript();
   const instrumented = source.replace(
     /\n  bootstrap\(\);\s*\n\}\)\(\);\s*$/,
-    `\n  window.__adminTest = { localDate, serializeEditor, validateEditorTopics, renderPreview, saveCatalog, loadCatalog, loadInterests, renderInterest, showCatalogConflict, state, conflict: () => state.conflictCurrent };\n})();`,
+    `\n  window.__adminTest = { localDate, serializeEditor, validateEditorTopics, renderPreview, saveCatalog, loadCatalog, loadInterests, renderInterest, showCatalogConflict, state, conflict: () => state.conflictCurrent, renderGate, publicationGaps, fillEditor, loadNews, saveNews, deleteNews, fillNews, news, bootstrap };\n})();`,
   );
   assert.notEqual(instrumented, source, 'admin test hook must replace bootstrap without changing production source');
   vm.runInNewContext(instrumented, context, { filename: 'admin.js' });
-  return { api: context.window.__adminTest, ids, location: context.location };
+  return { api: context.window.__adminTest, ids, location: context.location, i18n: i18nApi, confirms };
 }
 
 function dashboardSearchHarness(apiImpl) {
@@ -1102,6 +1124,8 @@ test('admin workspace exposes a complete trilingual editor without destructive c
   assert.match(html, /<link[^>]+href="admin\.css/);
   assert.match(adminStyles(), /@media \(max-width: 820px\)[\s\S]*?\.admin-topbar nav a[\s\S]*?display:\s*none/);
   assert.match(adminStyles(), /@media \(max-width: 820px\)[\s\S]*?#adminSignOut[\s\S]*?display:/);
+  // An empty record list reserves no blank band once the index stacks above the editor on phones.
+  assert.match(adminStyles(), /\.admin-record-list:empty \{ min-height: 0; \}/);
 });
 
 test('admin client serializes translations atomically and preserves edits on stale versions', () => {
@@ -1112,7 +1136,9 @@ test('admin client serializes translations atomically and preserves edits on sta
   assert.match(source, /\/api\/admin\/interests/);
   assert.match(source, /status\s*===\s*409/);
   assert.match(source, /new URLSearchParams/);
-  assert.doesNotMatch(source, /method:\s*'DELETE'/);
+  // Catalog records are archived, never deleted; only a NODAL news post can be deleted.
+  assert.deepEqual([...source.matchAll(/request\(([^,]+), \{ method: 'DELETE' \}\)/g)].map((match) => match[1]), ['`/api/admin/news/${encodeURIComponent(current.id)}`']);
+  assert.doesNotMatch(source, /\/api\/admin\/catalog[^\n]*'DELETE'/);
 
   for (const lang of ['en', 'es', 'pt']) {
     const upper = `${lang.charAt(0).toUpperCase()}${lang.slice(1)}`;
@@ -1330,7 +1356,8 @@ test('successful interest update preserves the honest error from a failed filter
   const update = descendants(card).find((node) => node.textContent === 'Update');
   select.value = 'contacted';
   await update.listeners.get('click')();
-  assert.equal(harness.ids.get('adminInterestStatus').textContent, 'queue refresh unavailable');
+  // The refresh failure is reported in the reader's language, never as a failed update.
+  assert.equal(harness.ids.get('adminInterestStatus').textContent, 'Member interests are unavailable.');
   assert.doesNotMatch(harness.ids.get('adminInterestStatus').textContent, /reapplied|updated\./i);
 });
 
@@ -1592,4 +1619,401 @@ test('late interest success or failure cannot reopen a closed detail or overwrit
       }
     });
   }
+});
+
+/* ---------------- Publishing desk ---------------- */
+
+test('publishing desk links every editor, keeps the review queue and loads the translator first', () => {
+  const html = adminPage();
+  for (const id of ['news', 'catalog', 'interests']) assert.match(html, new RegExp(`<section class="admin-band" id="${id}"`), `${id} section`);
+  for (const href of ['#news', '#catalog', 'fiiu-admin.html#content', 'teaching.html', '#interests']) {
+    assert.match(html, new RegExp(`<li><a href="${href.replace('.', '\\.')}"><strong data-i18n="ops\\.index\\.`), `${href} desk link`);
+  }
+  assert.match(html, /<title data-i18n="ops\.pageTitle">NODAL · Publishing desk<\/title>/);
+  assert.match(html, /<h1 data-i18n="ops\.title">Publishing desk<\/h1>/);
+  for (const lang of ['en', 'es', 'pt']) assert.match(html, new RegExp(`class="lang-btn" data-lang="${lang}"`));
+  // locale.js runs in the head before paint; i18n.js must precede admin.js so nodalI18n exists when the desk renders.
+  const order = ['<script src="locale.js', '<script defer src="i18n.js', '<script defer src="admin.js'].map((tag) => html.indexOf(tag));
+  assert.ok(order.every((position, index) => position > 0 && (index === 0 || position > order[index - 1])), `script order ${order}`);
+  assert.match(html, /<link rel="stylesheet" href="locale\.css/);
+  assert.doesNotMatch(html, /\sstyle="|<script>(?!<\/script>)/, 'CSP forbids inline styles and scripts');
+  for (const id of ['adminNewsList', 'adminNewsTitle', 'adminNewsBody', 'adminNewsUrl', 'adminNewsPinned', 'adminNewsPublish', 'adminNewsDraft',
+    'adminNewsDelete', 'adminNewsConflict', 'adminNewsConflictReload', 'adminNewsConflictOverwrite', 'adminGate', 'adminGateList', 'adminGateSummary']) {
+    assert.match(html, new RegExp(`id="${id}"`), `${id} must be present`);
+  }
+  assert.match(html, /id="adminNewsTitle" maxlength="160"/);
+  assert.match(html, /id="adminNewsBody" maxlength="2000"/);
+  assert.match(html, /id="adminNewsUrl" type="url" inputmode="url" maxlength="500"/);
+  // Status lines are written by admin.js; a data-i18n on them would be reset to "Loading…" on every language switch.
+  for (const id of ['adminNewsListStatus', 'adminCatalogListStatus', 'adminInterestStatus', 'adminEditorStatus', 'adminNewsStatus', 'adminRecordState', 'adminNewsState']) {
+    assert.doesNotMatch(html, new RegExp(`id="${id}"[^>]*data-i18n=`), `${id} is runtime text`);
+  }
+});
+
+test('publishing desk uses the NODAL ruled sheet: press-plate buttons, no cards, no thick left bars', () => {
+  const css = adminStyles();
+  for (const colour of ['#59bc53', '#addea8', '#3d5c38', '#f2ecec']) assert.match(css, new RegExp(colour, 'i'), `official colour ${colour}`);
+  assert.match(css, /font-family:\s*Montserrat/);
+  assert.match(css, /\.admin-button\s*\{[^}]*border-radius:\s*7px/);
+  assert.match(css, /\.admin-button-accent\s*\{[^}]*box-shadow:\s*4px 4px 0 var\(--ink\)/);
+  assert.doesNotMatch(css, /border-left:\s*(?:[3-9]|\d{2,})px/, 'no thick left accent bars');
+  assert.doesNotMatch(css, /#cbe66f|#e76f51|#497f89/i, 'the old off-brand acid, coral and teal are gone');
+  assert.doesNotMatch(css, /box-shadow:\s*7px 7px/, 'no floating card shadows');
+  assert.match(css, /--f-sp-1:\s*4px[\s\S]*--f-sp-7:\s*clamp\(32px,\s*4vw,\s*60px\)[\s\S]*--f-fs-hint:\s*\.8125rem/, 'same density scale as fiiu.css');
+  // No control below a 24px target and no body copy below the old 12.8px inputs.
+  for (const match of css.matchAll(/min-height:\s*(\d+)px/g)) assert.ok(Number(match[1]) >= 24, `min-height ${match[1]}px`);
+  assert.match(css, /input, select, textarea\s*\{[^}]*font-size:\s*(?:1rem|15px|\.9375rem)/);
+});
+
+test('publishing desk chrome switches to Spanish and Portuguese and every key resolves', () => {
+  const html = adminPage();
+  const nodes = [...html.matchAll(/<(\w+)[^>]*?data-i18n="([^"]+)"[^>]*>([^<]*)</g)].map(([, tag, key, value]) => {
+    const node = new FakeNode(tag);
+    node.dataset.i18n = key;
+    node.textContent = value.replace(/&amp;/g, '&');
+    return node;
+  });
+  const placeholders = [...html.matchAll(/placeholder="([^"]*)"[^>]*data-i18n-placeholder="([^"]+)"/g)].map(([, value, key]) => {
+    const node = new FakeNode('input');
+    node.dataset.i18nPlaceholder = key;
+    node.setAttribute('placeholder', value);
+    return node;
+  });
+  const api = deskI18n('en', [...nodes, ...placeholders]);
+  const text = (key) => nodes.find((node) => node.dataset.i18n === key).textContent;
+  api.apply('es');
+  assert.equal(text('ops.title'), 'Mesa de publicación');
+  assert.equal(text('ops.news.new'), 'Nueva publicación');
+  assert.equal(text('ops.index.festival'), 'Noticias del festival');
+  assert.equal(text('ops.kind.case_study'), 'Caso de estudio');
+  assert.equal(placeholders[0].getAttribute('placeholder'), 'Título, organización, tema');
+  api.apply('pt');
+  assert.equal(text('ops.title'), 'Mesa de publicação');
+  assert.equal(text('ops.index.courses'), 'Cursos');
+  assert.equal(text('ops.news.fieldPinned'), 'Fixar no topo');
+  api.apply('en');
+  assert.equal(text('ops.title'), 'Publishing desk');
+
+  // Every literal ops.* key admin.js asks for, plus the families it builds from record values.
+  const literal = [...new Set([...adminScript().matchAll(/'(ops\.[\w.]+\.[\w]+)'/g)].map((match) => match[1]))];
+  const families = [
+    ...['opportunity', 'project', 'learning_circle', 'resource', 'case_study'].map((kind) => `ops.kind.${kind}`),
+    ...['draft', 'published', 'archived'].map((status) => `ops.status.${status}`),
+    'ops.visibility.public', 'ops.visibility.members', 'ops.lang.en', 'ops.lang.es', 'ops.lang.pt',
+    ...['new', 'contacted', 'closed', 'withdrawn'].map((status) => `ops.interest.${status}`),
+    ...['title', 'summary', 'body', 'cta', 'organization', 'sourceLabel', 'sourceUrl', 'sourceVerifiedAt', 'subtype', 'deadlineAt', 'actionUrl'].map((field) => `ops.field.${field}`),
+  ];
+  assert.ok(literal.length > 80, `expected the desk copy to be keyed, found ${literal.length}`);
+  for (const lang of ['en', 'es', 'pt']) {
+    const dictionary = deskI18n(lang);
+    for (const key of [...literal, ...families]) assert.notEqual(dictionary.t(key), key, `${key} missing in ${lang}`);
+  }
+});
+
+function newsItem(id, overrides = {}) {
+  return { id, title: `Post ${id}`, body: 'Body', url: '', pinned: false, status: 'published', publishedAt: '2026-09-30T15:00:00.000Z', createdAt: '2026-09-30T14:00:00.000Z', updatedAt: '2026-09-30T15:00:00.000Z', version: 1, ...overrides };
+}
+
+test('desk lists NODAL news with pagination and creates a post idempotently with a client id', async () => {
+  const requests = [];
+  let failFirstPost = true;
+  const fetchImpl = async (url, options = {}) => {
+    requests.push({ url, options });
+    if (url === '/api/admin/news') {
+      if (options.method === 'POST') {
+        if (failFirstPost) { failFirstPost = false; throw new TypeError('Failed to fetch'); }
+        const body = JSON.parse(options.body);
+        return response({ item: newsItem(body.id, { ...body, version: 1, publishedAt: '2026-10-01T12:00:00.000Z' }) }, { status: 201 });
+      }
+      return response({ items: [newsItem('n1', { pinned: true, version: 3 })], nextCursor: 'news-2' });
+    }
+    if (url === '/api/admin/news?cursor=news-2') return response({ items: [newsItem('n1'), newsItem('n2', { status: 'draft', publishedAt: null })], nextCursor: null });
+    throw new Error(`unexpected request ${url}`);
+  };
+  const h = adminHarness(fetchImpl);
+  h.api.fillNews(null);
+  await h.api.loadNews();
+  assert.equal(h.ids.get('adminNewsMore').hidden, false);
+  assert.equal(h.ids.get('adminNewsListStatus').textContent, '1 post');
+  await h.ids.get('adminNewsMore').listeners.get('click')();
+  assert.deepEqual([...h.api.news.items.map((item) => item.id)], ['n1', 'n2'], 'a repeated id on the next page is not listed twice');
+  assert.equal(h.ids.get('adminNewsMore').hidden, true);
+  const rows = renderedText(h.ids.get('adminNewsList')).replace(/\s+/g, ' ');
+  const sept30 = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date('2026-09-30T15:00:00.000Z'));
+  assert.ok(rows.includes(`Post n1 Published Pinned ${sept30}`), rows);
+  assert.match(rows, /Post n2 Draft/);
+  for (const request of requests) assert.equal(request.options.credentials, 'same-origin');
+
+  const set = (id, value) => { h.ids.get(id).value = value; };
+  set('adminNewsTitle', '  Course closed  ');
+  set('adminNewsBody', 'The first course is full.\nThe next one opens in November.');
+  set('adminNewsUrl', 'https://nodal.example/courses');
+  h.ids.get('adminNewsPinned').checked = true;
+  assert.equal(await h.api.saveNews('published'), false);
+  assert.equal(h.ids.get('adminNewsStatus').textContent, 'The post could not be saved. Your text is still here.');
+  assert.equal(h.ids.get('adminNewsTitle').value, '  Course closed  ');
+  assert.equal(await h.api.saveNews('published'), true);
+  const posts = requests.filter((request) => request.options.method === 'POST');
+  assert.equal(posts.length, 2);
+  const [first, second] = posts.map((request) => JSON.parse(request.options.body));
+  assert.match(first.id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.equal(second.id, first.id, 'a retry reuses the client id so the server can answer with the stored post');
+  assert.deepEqual(second, { id: first.id, title: 'Course closed', body: 'The first course is full.\nThe next one opens in November.', url: 'https://nodal.example/courses', pinned: true, status: 'published' });
+  assert.equal(posts[1].options.headers['Content-Type'], 'application/json');
+  assert.equal(h.api.news.items[0].id, first.id, 'the new post leads the list');
+  assert.equal(h.api.news.current.id, first.id);
+  assert.equal(h.ids.get('adminNewsDelete').hidden, false);
+  assert.equal(h.ids.get('adminNewsPublish').textContent, 'Save and keep published');
+  assert.equal(h.ids.get('adminNewsDraft').textContent, 'Move to drafts');
+  assert.equal(h.ids.get('adminNewsStatus').textContent, 'Published. Members see it now.');
+  assert.equal(h.ids.get('adminNewsListStatus').textContent, '3 posts');
+
+  h.api.fillNews(null);
+  assert.notEqual(h.api.news.draftId, first.id, 'a new post gets a fresh client id');
+});
+
+test('a new post whose lost save reached the server is never reported as published from the stored draft', async () => {
+  const requests = [];
+  let reply;
+  const h = adminHarness(async (url, options = {}) => {
+    requests.push({ url, options, body: options.body ? JSON.parse(options.body) : null });
+    return reply(url, options);
+  });
+  h.api.fillNews(null);
+  const set = (id, value) => { h.ids.get(id).value = value; };
+  set('adminNewsTitle', 'Old title');
+  // The draft is stored, but its answer is lost (a 504 or a dropped connection after the write).
+  reply = () => { throw new TypeError('Failed to fetch'); };
+  assert.equal(await h.api.saveNews('draft'), false);
+  const id = requests[0].body.id;
+  const stored = newsItem(id, { title: 'Old title', status: 'draft', publishedAt: null, version: 1 });
+
+  // An identical retry gets the stored row back: the message follows what is stored.
+  reply = () => response({ item: stored });
+  assert.equal(await h.api.saveNews('draft'), true);
+  assert.equal(h.ids.get('adminNewsStatus').textContent, 'Saved as a draft. Members do not see it.');
+
+  // The same lost save, then an edit and Publish: the server answers with the stored draft as a conflict.
+  h.api.fillNews(null);
+  set('adminNewsTitle', 'Old title');
+  reply = () => { throw new TypeError('Failed to fetch'); };
+  await h.api.saveNews('draft');
+  const second = requests.at(-1).body.id;
+  set('adminNewsTitle', 'New title');
+  reply = () => response({ error: 'news item changed; reload before saving', code: 'version_conflict', item: { ...stored, id: second } }, { ok: false, status: 409 });
+  assert.equal(await h.api.saveNews('published'), false);
+  assert.equal(requests.at(-1).options.method, 'POST');
+  assert.equal(requests.at(-1).body.id, second, 'the retry reuses the client id');
+  assert.equal(h.ids.get('adminNewsConflict').hidden, false);
+  assert.equal(h.ids.get('adminNewsConflictTitle').textContent, 'An earlier save of this post already reached NODAL.');
+  assert.equal(h.ids.get('adminNewsConflictTitle').dataset.i18n, 'ops.news.earlierTitle', 'a language switch keeps this copy');
+  assert.equal(h.ids.get('adminNewsConflictReload').textContent, 'Load the saved version');
+  assert.equal(h.ids.get('adminNewsStatus').textContent, 'Not saved: an earlier save of this post is stored with other content.');
+  assert.notEqual(h.ids.get('adminNewsStatus').textContent, 'Published. Members see it now.');
+  assert.equal(h.ids.get('adminNewsTitle').value, 'New title', 'the edit is kept, not replaced by the stored title');
+
+  // Saving over it edits the stored post at its version, and only a stored publication says Published.
+  reply = (url, options) => response({ item: { ...stored, id: second, ...JSON.parse(options.body), publishedAt: '2026-10-01T12:00:00.000Z', version: 2 } });
+  await h.ids.get('adminNewsConflictOverwrite').listeners.get('click')();
+  assert.equal(requests.at(-1).options.method, 'PATCH');
+  assert.equal(requests.at(-1).url, `/api/admin/news/${second}`);
+  assert.deepEqual(requests.at(-1).body, { version: 1, title: 'New title', body: '', url: '', pinned: false, status: 'published' });
+  assert.equal(h.ids.get('adminNewsStatus').textContent, 'Published. Members see it now.');
+  assert.equal(h.api.news.current.version, 2);
+
+  // A later edit conflict uses the ordinary copy again.
+  reply = () => response({ code: 'version_conflict', item: { ...stored, id: second, version: 3, title: 'Theirs' } }, { ok: false, status: 409 });
+  await h.api.saveNews('published');
+  assert.equal(h.ids.get('adminNewsConflictTitle').textContent, 'Someone else changed this post.');
+  assert.equal(h.ids.get('adminNewsStatus').textContent, 'Not saved: someone else changed this post.');
+});
+
+test('desk news states agree in gender in Spanish and Portuguese', () => {
+  const expected = { es: ['Publicada · Fijada', 'Borrador'], pt: ['Publicada · Fixada', 'Rascunho'] };
+  for (const lang of ['es', 'pt']) {
+    const h = adminHarness(undefined, { lang });
+    h.api.news.items = [newsItem('n1', { pinned: true }), newsItem('n2', { status: 'draft', publishedAt: null })];
+    h.api.fillNews(h.api.news.items[0]);
+    assert.ok(h.ids.get('adminNewsState').textContent.startsWith(expected[lang][0]), h.ids.get('adminNewsState').textContent);
+    const rows = renderedText(h.ids.get('adminNewsList')).replace(/\s+/g, ' ');
+    assert.match(rows, new RegExp(`Post n1 ${expected[lang][0].replace(' · ', ' ')}`), rows);
+    assert.match(rows, new RegExp(`Post n2 ${expected[lang][1]}`), rows);
+  }
+});
+
+test('desk validates news before writing and shows server field errors as sent', async () => {
+  const requests = [];
+  const h = adminHarness(async (url, options = {}) => {
+    requests.push({ url, options });
+    return response({ error: 'url must be at most 500 characters', field: 'url' }, { ok: false, status: 400 });
+  });
+  h.api.fillNews(null);
+  assert.equal(await h.api.saveNews('draft'), false);
+  assert.equal(h.ids.get('adminNewsTitleError').textContent, 'Write a title.');
+  assert.equal(h.ids.get('adminNewsTitleError').hidden, false);
+  assert.equal(h.ids.get('adminNewsTitle').focused, true);
+  h.ids.get('adminNewsTitle').value = 'Title';
+  for (const bad of ['http://plain.example', 'javascript:alert(1)', `https://x.example/${'a'.repeat(500)}`]) {
+    h.ids.get('adminNewsUrl').value = bad;
+    assert.equal(await h.api.saveNews('draft'), false);
+    assert.equal(h.ids.get('adminNewsUrlError').textContent, 'Use a full https:// link of up to 500 characters, or leave it empty.');
+  }
+  h.ids.get('adminNewsBody').value = 'x'.repeat(2001);
+  h.ids.get('adminNewsUrl').value = '';
+  assert.equal(await h.api.saveNews('draft'), false);
+  assert.equal(h.ids.get('adminNewsBodyError').textContent, 'Keep the text to 2000 characters.');
+  assert.equal(h.ids.get('adminNewsUrlError').hidden, true);
+  assert.equal(requests.length, 0, 'invalid posts never reach the server');
+
+  h.ids.get('adminNewsBody').value = 'Fine';
+  h.ids.get('adminNewsUrl').value = 'https://nodal.example/ok';
+  assert.equal(await h.api.saveNews('draft'), false);
+  assert.equal(requests.length, 1);
+  assert.equal(h.ids.get('adminNewsUrlError').textContent, 'url must be at most 500 characters');
+  assert.equal(h.ids.get('adminNewsUrlError').hidden, false);
+  assert.equal(h.ids.get('adminNewsStatus').textContent, 'Check the highlighted fields.');
+});
+
+test('desk news edits send the version, survive conflicts and deletions elsewhere', async () => {
+  const requests = [];
+  let reply;
+  const h = adminHarness(async (url, options = {}) => {
+    requests.push({ url, options, body: options.body ? JSON.parse(options.body) : null });
+    return reply(url, options);
+  });
+  h.api.news.items = [newsItem('n1', { version: 4, title: 'Original' })];
+  h.api.fillNews(h.api.news.items[0]);
+  h.ids.get('adminNewsTitle').value = 'Mine';
+
+  reply = () => response({ code: 'version_conflict', item: newsItem('n1', { version: 5, title: 'Theirs' }) }, { ok: false, status: 409 });
+  assert.equal(await h.api.saveNews('published'), false);
+  assert.equal(requests[0].url, '/api/admin/news/n1');
+  assert.equal(requests[0].options.method, 'PATCH');
+  assert.deepEqual(requests[0].body, { version: 4, title: 'Mine', body: 'Body', url: '', pinned: false, status: 'published' });
+  assert.equal(h.ids.get('adminNewsConflict').hidden, false);
+  assert.equal(h.ids.get('adminNewsTitle').value, 'Mine', 'a conflict keeps the editor text');
+  assert.equal(h.ids.get('adminNewsStatus').textContent, 'Not saved: someone else changed this post.');
+
+  reply = (url, options) => response({ item: newsItem('n1', { ...JSON.parse(options.body), version: 6 }) });
+  await h.ids.get('adminNewsConflictOverwrite').listeners.get('click')();
+  assert.equal(requests[1].body.version, 5, 'overwriting uses the version the server reported');
+  assert.equal(requests[1].body.status, 'published');
+  assert.equal(h.ids.get('adminNewsConflict').hidden, true);
+  assert.equal(h.api.news.current.version, 6);
+  assert.equal(h.api.news.items[0].title, 'Mine');
+
+  h.ids.get('adminNewsTitle').value = 'Mine again';
+  reply = () => response({ code: 'version_conflict', item: newsItem('n1', { version: 7, title: 'Theirs again' }) }, { ok: false, status: 409 });
+  await h.api.saveNews('draft');
+  h.ids.get('adminNewsConflictReload').listeners.get('click')();
+  assert.equal(h.ids.get('adminNewsTitle').value, 'Theirs again');
+  assert.equal(h.api.news.current.version, 7);
+  assert.equal(h.ids.get('adminNewsConflict').hidden, true);
+
+  h.ids.get('adminNewsTitle').value = 'Rescued';
+  reply = () => response({ error: 'not found' }, { ok: false, status: 404 });
+  assert.equal(await h.api.saveNews('draft'), false);
+  assert.equal(h.api.news.current, null);
+  assert.equal(h.api.news.items.length, 0);
+  assert.equal(h.ids.get('adminNewsTitle').value, 'Rescued', 'the text survives a deletion elsewhere');
+  assert.equal(h.ids.get('adminNewsDelete').hidden, true);
+  reply = (url, options) => response({ item: newsItem(JSON.parse(options.body).id, { title: 'Rescued', status: 'draft' }) }, { status: 201 });
+  await h.api.saveNews('draft');
+  assert.equal(requests.at(-1).options.method, 'POST');
+  assert.equal(requests.at(-1).url, '/api/admin/news');
+});
+
+test('desk deletes a news post only after confirmation and guards unsaved edits', async () => {
+  const requests = [];
+  let answer = false;
+  const h = adminHarness(async (url, options = {}) => {
+    requests.push({ url, options });
+    return { ok: true, status: 204, async json() { throw new SyntaxError('no body'); } };
+  }, { confirm: () => answer });
+  h.api.news.items = [newsItem('n1', { title: 'Old news' }), newsItem('n2')];
+  h.api.fillNews(h.api.news.items[0]);
+
+  assert.equal(await h.api.deleteNews(), false);
+  assert.equal(requests.length, 0, 'a cancelled confirmation sends nothing');
+  assert.match(h.confirms[0], /Delete “Old news”\?/);
+
+  // Switching posts with unsaved text asks first.
+  h.ids.get('adminNewsBody').value = 'Unsaved change';
+  const rowButton = (index) => h.ids.get('adminNewsList').children[index].children[0];
+  rowButton(1).listeners.get('click')();
+  assert.equal(h.api.news.current.id, 'n1', 'declining keeps the unsaved edit');
+  answer = true;
+  rowButton(1).listeners.get('click')();
+  assert.equal(h.api.news.current.id, 'n2');
+  h.api.fillNews(h.api.news.items[0]);
+
+  assert.equal(await h.api.deleteNews(), true);
+  assert.equal(requests[0].url, '/api/admin/news/n1');
+  assert.equal(requests[0].options.method, 'DELETE');
+  assert.equal(requests[0].options.credentials, 'same-origin');
+  assert.deepEqual([...h.api.news.items.map((item) => item.id)], ['n2']);
+  assert.equal(h.api.news.current, null);
+  assert.equal(h.ids.get('adminNewsTitle').value, '');
+  assert.equal(h.ids.get('adminNewsStatus').textContent, 'Post deleted.');
+});
+
+test('catalog editor lists what is still missing before publishing, in the reader language', () => {
+  const h = adminHarness();
+  h.api.fillEditor(null);
+  const set = (id, value) => { h.ids.get(id).value = value; };
+  const rows = () => [...h.ids.get('adminGateList').children.map((row) => renderedText(row).trim().replace(/\s+/g, ' '))];
+  assert.equal(h.api.renderGate(), 16);
+  assert.equal(h.ids.get('adminGateSummary').textContent, '16 fields missing before publishing');
+  for (const lang of ['En', 'Es', 'Pt']) for (const field of ['Title', 'Summary', 'Body', 'Cta']) set(`admin${field}${lang}`, `${field} ${lang}`);
+  set('adminSummaryEs', '');
+  set('adminCtaPt', '  ');
+  set('adminOrganization', 'NODAL');
+  set('adminSourceLabel', 'Official page');
+  set('adminSourceUrl', 'http://insecure.example');
+  set('adminKind', 'opportunity');
+  set('adminActionMode', 'external');
+  h.api.renderGate();
+  assert.deepEqual(rows(), [
+    'English Complete',
+    'Spanish Missing: Summary',
+    'Portuguese Missing: CTA label',
+    'Record Missing: Verified source URL, Verified on, Opportunity subtype, Deadline, External action URL',
+  ]);
+  assert.equal(h.api.publicationGaps().record.length, 5);
+  set('adminSummaryEs', 'Resumen');
+  set('adminCtaPt', 'Inscrever');
+  set('adminSourceUrl', 'https://official.example');
+  set('adminSourceVerifiedAt', '2026-09-30');
+  set('adminSubtype', 'grant');
+  set('adminDeadlineAt', '2026-10-30T18:00');
+  set('adminActionUrl', 'https://official.example/apply');
+  assert.equal(h.api.renderGate(), 0);
+  assert.equal(h.ids.get('adminGateSummary').textContent, 'Ready to publish');
+  assert.equal(h.ids.get('adminGateSummary').className, 'admin-gate-summary is-ready');
+
+  set('adminSourceVerifiedAt', '');
+  h.i18n.apply('es');
+  assert.equal(h.ids.get('adminGateSummary').textContent, 'Falta 1 campo para publicar');
+  assert.match(rows().at(-1), /^Registro Falta: Verificada el$/);
+  h.i18n.apply('pt');
+  assert.equal(rows()[0], 'Inglês Completo');
+});
+
+test('desk runtime copy follows the language switch, including status lines and record rows', async () => {
+  const h = adminHarness(async (url) => {
+    if (url.startsWith('/api/admin/catalog?')) return response({ items: [{ id: 'record-1', kind: 'learning_circle', status: 'draft', visibility: 'members', featured: true, translations: { es: { title: 'Círculo' } } }], nextCursor: null });
+    throw new Error(`unexpected request ${url}`);
+  }, { lang: 'es' });
+  await h.api.loadCatalog();
+  assert.equal(h.ids.get('adminCatalogListStatus').textContent, '1 registro cargado.');
+  const listText = () => renderedText(h.ids.get('adminCatalogList')).replace(/\s+/g, ' ');
+  assert.match(listText(), /Círculo Sin organización ni lugar Círculo de aprendizaje Borrador Miembros Destacado/);
+  h.i18n.apply('pt');
+  assert.equal(h.ids.get('adminCatalogListStatus').textContent, '1 registro carregado.');
+  assert.match(listText(), /Círculo de aprendizagem Rascunho Membros Destaque/);
+  h.api.fillEditor({ id: 'record-1', version: 2, status: 'published', translations: {} });
+  assert.equal(h.ids.get('adminRecordState').textContent, 'Publicado · record-1');
+  h.i18n.apply('en');
+  assert.equal(h.ids.get('adminRecordState').textContent, 'Published · record-1');
+  assert.equal(h.ids.get('adminEditorStatus').textContent, 'Record loaded. Edits are not saved until you choose an action.');
 });

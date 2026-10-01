@@ -1,7 +1,14 @@
-/* Protected catalog operations workspace. The server validates authorization,
-   publication requirements, optimistic versions, and every persisted value. */
+/* Publishing desk: NODAL news, the verified catalog and the interest queue.
+   The server validates authorization, publication requirements, optimistic
+   versions, and every persisted value; this page only shows what is still
+   missing. Copy goes through nodalI18n (ops.* keys); server error text is shown
+   exactly as the server sent it. */
 (() => {
   'use strict';
+
+  const I18N = window.nodalI18n;
+  const t = (key, vars) => (I18N ? I18N.t(key, vars) : key);
+  const localeTag = () => ({ en: 'en-GB', es: 'es-ES', pt: 'pt-BR' }[I18N?.lang] ?? 'en-GB');
 
   const byId = (id) => document.getElementById(id);
   const elements = {
@@ -44,10 +51,36 @@
     conflictPanel: byId('adminConflictPanel'),
     conflictReload: byId('adminConflictReload'),
     editorStatus: byId('adminEditorStatus'),
+    gateList: byId('adminGateList'),
+    gateSummary: byId('adminGateSummary'),
     interestFilter: byId('adminInterestFilter'),
     interestList: byId('adminInterestList'),
     interestStatus: byId('adminInterestStatus'),
     interestMore: byId('adminInterestMore'),
+    newsNew: byId('adminNewsNew'),
+    newsList: byId('adminNewsList'),
+    newsListStatus: byId('adminNewsListStatus'),
+    newsMore: byId('adminNewsMore'),
+    newsEditor: byId('adminNewsEditor'),
+    newsEditorTitle: byId('adminNewsEditorTitle'),
+    newsState: byId('adminNewsState'),
+    newsTitle: byId('adminNewsTitle'),
+    newsTitleError: byId('adminNewsTitleError'),
+    newsBody: byId('adminNewsBody'),
+    newsBodyCount: byId('adminNewsBodyCount'),
+    newsBodyError: byId('adminNewsBodyError'),
+    newsUrl: byId('adminNewsUrl'),
+    newsUrlError: byId('adminNewsUrlError'),
+    newsPinned: byId('adminNewsPinned'),
+    newsConflict: byId('adminNewsConflict'),
+    newsConflictTitle: byId('adminNewsConflictTitle'),
+    newsConflictBody: byId('adminNewsConflictBody'),
+    newsConflictReload: byId('adminNewsConflictReload'),
+    newsConflictOverwrite: byId('adminNewsConflictOverwrite'),
+    newsPublish: byId('adminNewsPublish'),
+    newsDraft: byId('adminNewsDraft'),
+    newsDelete: byId('adminNewsDelete'),
+    newsStatus: byId('adminNewsStatus'),
     signOut: byId('adminSignOut'),
   };
 
@@ -76,7 +109,35 @@
     return node;
   };
 
+  /* Status lines remember their message so a language switch re-renders them.
+     Server error text is shown as sent and is left alone. */
+  const messages = new Map();
+  function say(node, key, vars) {
+    if (key) messages.set(node, [key, vars]);
+    else messages.delete(node);
+    node.textContent = key ? t(key, vars) : '';
+  }
+  function sayRaw(node, message) {
+    messages.delete(node);
+    node.textContent = message;
+  }
+  const apiError = (data, key, status) => Object.assign(new Error(key), { server: typeof data?.error === 'string' ? data.error : '', key, status });
+  function report(node, error, fallback) {
+    if (error?.server) sayRaw(node, error.server);
+    else if (error?.key) say(node, error.key, { status: error.status });
+    else say(node, fallback);
+  }
+
   const text = (value) => String(value ?? '').trim();
+  const isHttps = (value) => {
+    try { return new URL(value).protocol === 'https:'; } catch { return false; }
+  };
+  const label = (prefix, value) => (value ? t(`${prefix}.${value}`) : '');
+  const formatDate = (value) => {
+    const date = value ? new Date(value) : null;
+    return date && Number.isFinite(date.getTime())
+      ? new Intl.DateTimeFormat(localeTag(), { day: 'numeric', month: 'short', year: 'numeric' }).format(date) : '';
+  };
   const localDate = (value, includeTime = false) => {
     if (!value) return '';
     if (!includeTime) {
@@ -104,12 +165,13 @@
     });
     if (response.status === 401) {
       location.assign('/login.html?next=/admin.html');
-      return { response, data: { error: 'Sign in required.' } };
+      return { response, data: {} };
     }
     const data = await response.json().catch(() => ({}));
     return { response, data };
   }
 
+  /* ---------------- catalog ---------------- */
   function emptyTranslations() {
     return {
       en: { title: '', summary: '', body: '', cta: '' },
@@ -147,13 +209,13 @@
   function validateEditorTopics() {
     const topics = readEditorTopics();
     let error = '';
-    if (topics.length > 8) error = 'Enter at most 8 topics.';
-    else if (topics.some((topic) => topic.length > 60)) error = 'Each topic must contain at most 60 characters.';
-    elements.topicsError.textContent = error;
+    if (topics.length > 8) error = 'ops.err.topicsMax';
+    else if (topics.some((topic) => topic.length > 60)) error = 'ops.err.topicLength';
+    say(elements.topicsError, error);
     elements.topicsError.hidden = !error;
     elements.topics.setAttribute('aria-invalid', String(Boolean(error)));
     if (error) {
-      elements.editorStatus.textContent = 'Fix the topic list before previewing or saving.';
+      say(elements.editorStatus, 'ops.err.topics');
       return null;
     }
     return topics;
@@ -186,6 +248,45 @@
     };
   }
 
+  /* The same requirements as the server's publication gate (server/catalog.js),
+     listed per language so an editor sees what is left before pressing Publish. */
+  const TRANSLATION_FIELDS = [['Title', 'title'], ['Summary', 'summary'], ['Body', 'body'], ['Cta', 'cta']];
+  function publicationGaps() {
+    const translations = ['En', 'Es', 'Pt'].map((lang) => ({
+      lang: lang.toLowerCase(),
+      missing: TRANSLATION_FIELDS.filter(([field]) => !text(translation(lang, field).value)).map(([, key]) => key),
+    }));
+    const value = (name) => text(elements[name].value);
+    const record = [];
+    if (!value('organization')) record.push('organization');
+    if (!value('sourceLabel')) record.push('sourceLabel');
+    if (!isHttps(value('sourceUrl'))) record.push('sourceUrl');
+    if (!value('sourceVerifiedAt')) record.push('sourceVerifiedAt');
+    if (elements.kind.value === 'opportunity' && !value('subtype')) record.push('subtype');
+    if (elements.kind.value === 'opportunity' && !value('deadlineAt')) record.push('deadlineAt');
+    if (elements.actionMode.value === 'external' && !isHttps(value('actionUrl'))) record.push('actionUrl');
+    return { translations, record };
+  }
+
+  function renderGate() {
+    const { translations, record } = publicationGaps();
+    const rows = [
+      ...translations.map(({ lang, missing }) => [t(`ops.lang.${lang}`), missing]),
+      [t('ops.gate.record'), record],
+    ];
+    const total = rows.reduce((sum, [, missing]) => sum + missing.length, 0);
+    elements.gateList.replaceChildren(...rows.map(([name, missing]) => {
+      const row = create('li', missing.length ? 'is-missing' : 'is-ready');
+      row.append(create('b', null, name), create('span', null, missing.length
+        ? t('ops.gate.missing', { fields: missing.map((field) => t(`ops.field.${field}`)).join(', ') })
+        : t('ops.gate.complete')));
+      return row;
+    }));
+    elements.gateSummary.textContent = total ? t(total === 1 ? 'ops.gate.summaryOne' : 'ops.gate.summary', { n: total }) : t('ops.gate.ready');
+    elements.gateSummary.className = `admin-gate-summary ${total ? 'is-missing' : 'is-ready'}`;
+    return total;
+  }
+
   function fillTranslation(lang, row = {}) {
     translation(lang, 'Title').value = row.title || '';
     translation(lang, 'Summary').value = row.summary || '';
@@ -200,6 +301,13 @@
     const external = elements.actionMode.value === 'external';
     elements.actionUrl.disabled = !external;
     if (!external) elements.actionUrl.value = '';
+    renderGate();
+  }
+
+  function renderRecordState() {
+    const item = state.current;
+    elements.recordState.textContent = item ? `${label('ops.status', item.status)} · ${item.id}` : t('ops.record.new');
+    elements.recordState.className = `admin-state is-${item?.status || 'new'}`;
   }
 
   function fillEditor(record) {
@@ -209,7 +317,7 @@
     elements.conflictPanel.hidden = true;
     elements.id.value = item.id || '';
     elements.version.textContent = item.version ? String(item.version) : '—';
-    elements.recordState.textContent = item.id ? `${item.status} · ${item.id}` : 'New draft';
+    renderRecordState();
     elements.kind.value = item.kind;
     elements.subtype.value = item.subtype || '';
     elements.visibility.value = item.visibility;
@@ -226,18 +334,18 @@
     elements.actionUrl.value = item.actionUrl || '';
     elements.featured.checked = Boolean(item.featured);
     elements.topicsError.hidden = true;
-    elements.topicsError.textContent = '';
+    say(elements.topicsError, '');
     elements.topics.setAttribute('aria-invalid', 'false');
     fillTranslation('En', item.translations.en);
     fillTranslation('Es', item.translations.es);
     fillTranslation('Pt', item.translations.pt);
     updateConditionalFields();
     renderCatalogList();
-    elements.editorStatus.textContent = item.id ? 'Record loaded. Edits are not saved until you choose an action.' : 'New draft ready.';
+    say(elements.editorStatus, item.id ? 'ops.record.loaded' : 'ops.record.ready');
   }
 
   function catalogLabel(item) {
-    return item.translations?.en?.title || item.translations?.es?.title || item.translations?.pt?.title || 'Untitled draft';
+    return item.translations?.en?.title || item.translations?.es?.title || item.translations?.pt?.title || t('ops.record.untitled');
   }
 
   function renderCatalogList() {
@@ -246,10 +354,13 @@
       button.type = 'button';
       button.classList.toggle('is-selected', item.id === elements.id.value);
       button.append(create('strong', null, catalogLabel(item)));
-      button.append(create('span', null, [item.organization, item.location].filter(Boolean).join(' · ') || 'Organization and place not set'));
+      button.append(create('span', null, [item.organization, item.location].filter(Boolean).join(' · ') || t('ops.record.noPlace')));
       const meta = create('span', 'admin-record-meta');
-      for (const value of [item.kind?.replaceAll('_', ' '), item.status, item.visibility, item.featured ? 'featured' : '']) {
-        if (value) meta.append(create('i', null, value));
+      for (const [value, className] of [
+        [label('ops.kind', item.kind), ''], [label('ops.status', item.status), `is-${item.status}`],
+        [label('ops.visibility', item.visibility), ''], [item.featured ? t('ops.record.featured') : '', ''],
+      ]) {
+        if (value) meta.append(create('span', className || null, value));
       }
       button.append(meta);
       button.addEventListener('click', () => fillEditor(item));
@@ -301,19 +412,20 @@
     if (snapshot.query) params.set('q', snapshot.query);
     if (snapshot.kind) params.set('kind', snapshot.kind);
     if (snapshot.status) params.set('status', snapshot.status);
-    elements.listStatus.textContent = 'Loading catalog records…';
+    say(elements.listStatus, 'ops.catalog.loading');
     elements.list.setAttribute('aria-busy', 'true');
     try {
       const { response, data } = await request(`/api/admin/catalog?${params}`, { signal: controller.signal });
       if (sequence !== state.catalogRequest || state.catalogFilterKey !== snapshotKey
         || filterKey(catalogFilterSnapshot()) !== snapshotKey) return false;
-      if (!response.ok) throw new Error(data.error || `Catalog request failed (${response.status}).`);
+      if (!response.ok) throw apiError(data, 'ops.catalog.failed', response.status);
       const items = Array.isArray(data.items) ? data.items : [];
       state.items = append ? [...state.items, ...items] : items;
       state.catalogCursor = data.nextCursor || null;
       elements.catalogMore.hidden = !state.catalogCursor;
       renderCatalogList();
-      elements.listStatus.textContent = state.items.length ? `${state.items.length} records loaded.` : 'No catalog records match these filters.';
+      if (state.items.length) say(elements.listStatus, state.items.length === 1 ? 'ops.catalog.countOne' : 'ops.catalog.count', { n: state.items.length });
+      else say(elements.listStatus, 'ops.catalog.empty');
       return true;
     } catch (error) {
       if (error.name === 'AbortError' || sequence !== state.catalogRequest || state.catalogFilterKey !== snapshotKey) return false;
@@ -323,7 +435,7 @@
         elements.catalogMore.hidden = true;
         renderCatalogList();
       }
-      elements.listStatus.textContent = error.message || 'Catalog records are unavailable.';
+      report(elements.listStatus, error, 'ops.catalog.unavailable');
       return false;
     } finally {
       if (sequence === state.catalogRequest && state.catalogFilterKey === snapshotKey) {
@@ -341,7 +453,7 @@
   function showCatalogConflict(current) {
     state.conflictCurrent = current || null;
     elements.conflictPanel.hidden = false;
-    elements.editorStatus.textContent = 'Save stopped: another editor changed this record. Your unsaved content is preserved.';
+    say(elements.editorStatus, 'ops.record.conflict');
   }
 
   async function saveCatalog(status) {
@@ -353,11 +465,11 @@
     const version = Number(elements.version.textContent);
     const editing = Boolean(currentId);
     if (editing && (!Number.isInteger(version) || version < 1)) {
-      elements.editorStatus.textContent = 'Reload this record before saving because its version is missing.';
+      say(elements.editorStatus, 'ops.record.noVersion');
       return;
     }
     setBusy(true);
-    elements.editorStatus.textContent = status === 'published' ? 'Validating and publishing…' : status === 'archived' ? 'Archiving record…' : 'Saving draft…';
+    say(elements.editorStatus, status === 'published' ? 'ops.record.publishing' : status === 'archived' ? 'ops.record.archiving' : 'ops.record.saving');
     try {
       const { response, data } = await request(editing ? `/api/admin/catalog/${encodeURIComponent(currentId)}` : '/api/admin/catalog', {
         method: editing ? 'PATCH' : 'POST',
@@ -367,18 +479,18 @@
         showCatalogConflict(data.current);
         return;
       }
-      if (!response.ok) throw new Error(data.error || `Save failed (${response.status}).`);
+      if (!response.ok) throw apiError(data, 'ops.record.saveFailed', response.status);
       fillEditor(data.item);
-      elements.editorStatus.textContent = status === 'published' ? 'Published successfully.' : status === 'archived' ? 'Archived. The record remains in editorial history.' : 'Draft saved.';
+      say(elements.editorStatus, status === 'published' ? 'ops.record.publishedOk' : status === 'archived' ? 'ops.record.archivedOk' : 'ops.record.savedOk');
       await loadCatalog();
     } catch (error) {
-      elements.editorStatus.textContent = error.message || 'The record could not be saved.';
+      report(elements.editorStatus, error, 'ops.record.notSaved');
     } finally {
       setBusy(false);
     }
   }
 
-  function renderPreview() {
+  function renderPreview({ scroll = true } = {}) {
     const topics = validateEditorTopics();
     if (!topics) {
       elements.previewPanel.hidden = true;
@@ -386,14 +498,13 @@
     }
     const status = state.current?.status || 'draft';
     const item = serializeEditor(status, topics);
-    const labels = { en: 'EN · English', es: 'ES · Spanish', pt: 'PT · Portuguese' };
     const cards = Object.entries(item.translations).map(([lang, row]) => {
       const card = create('article', 'admin-preview-card');
-      card.append(create('span', 'admin-kicker', labels[lang]));
-      card.append(create('h3', null, row.title || 'Untitled'));
-      card.append(create('p', 'admin-preview-summary', row.summary || 'No summary entered.'));
-      card.append(create('p', null, row.body || 'No body entered.'));
-      card.append(create('p', null, row.cta ? `CTA: ${row.cta}` : 'No CTA label entered.'));
+      card.append(create('span', 'admin-kicker', `${lang.toUpperCase()} · ${t(`ops.lang.${lang}`)}`));
+      card.append(create('h4', null, row.title || t('ops.preview.untitled')));
+      card.append(create('p', 'admin-preview-summary', row.summary || t('ops.preview.noSummary')));
+      card.append(create('p', null, row.body || t('ops.preview.noBody')));
+      card.append(create('p', null, row.cta ? t('ops.preview.cta', { cta: row.cta }) : t('ops.preview.noCta')));
       if (item.sourceUrl) {
         const link = create('a', null, item.sourceLabel || item.sourceUrl);
         try {
@@ -406,57 +517,61 @@
     });
     elements.previewContent.replaceChildren(...cards);
     elements.previewPanel.hidden = false;
-    elements.previewPanel.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+    if (scroll) elements.previewPanel.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
   }
 
+  /* ---------------- interest queue ---------------- */
   function renderInterest(interest) {
     const article = create('article', 'admin-interest');
     const item = interest.item || {};
-    article.append(create('p', 'admin-interest-item-kind', [item.kind?.replaceAll('_', ' '), item.organization].filter(Boolean).join(' · ')));
-    article.append(create('h3', 'admin-interest-item-title', item.title || 'Catalog item unavailable'));
-    if (item.itemId) article.append(create('p', 'admin-interest-item-id', item.itemId));
-    article.append(create('h4', null, interest.member?.name || 'Member name unavailable'));
-    const email = create('a', null, interest.member?.email || 'Email unavailable');
+    const about = create('div', 'admin-interest-item');
+    about.append(create('p', 'admin-interest-item-kind', [label('ops.kind', item.kind), item.organization].filter(Boolean).join(' · ')));
+    about.append(create('h3', 'admin-interest-item-title', item.title || t('ops.interest.noItem')));
+    if (item.itemId) about.append(create('p', 'admin-interest-item-id', item.itemId));
+    const member = create('div', 'admin-interest-member');
+    member.append(create('h4', null, interest.member?.name || t('ops.interest.noName')));
+    const email = create('a', null, interest.member?.email || t('ops.interest.noEmail'));
     if (interest.member?.email) email.href = `mailto:${encodeURIComponent(interest.member.email)}`;
-    article.append(email);
-    article.append(create('p', null, interest.message || 'No member message.'));
+    member.append(email);
+    article.append(about, member, create('p', 'admin-interest-message', interest.message || t('ops.interest.noMessage')));
     const controls = create('div', 'admin-interest-controls');
-    const label = create('label');
-    label.append(create('span', null, 'Queue status'));
+    const field = create('label');
+    field.append(create('span', null, t('ops.interest.queueStatus')));
     const select = create('select');
     for (const status of ['new', 'contacted', 'closed', 'withdrawn']) {
-      const option = create('option', null, status.charAt(0).toUpperCase() + status.slice(1));
+      const option = create('option', null, t(`ops.interest.${status}`));
       option.value = status;
       option.selected = status === interest.status;
       select.append(option);
     }
-    label.append(select);
-    const save = create('button', 'admin-button admin-button-quiet', 'Update');
+    field.append(select);
+    const save = create('button', 'admin-button admin-button-quiet', t('ops.interest.update'));
     save.type = 'button';
     save.addEventListener('click', async () => {
       save.disabled = true;
-      elements.interestStatus.textContent = 'Updating interest status…';
+      say(elements.interestStatus, 'ops.interest.updating');
       try {
         const { response, data } = await request(`/api/admin/interests/${encodeURIComponent(interest.id)}`, {
           method: 'PATCH', body: JSON.stringify({ status: select.value, version: interest.version }),
         });
+        // A failed queue refresh reports itself; it must not read as a failed update.
         if (response.status === 409) {
-          elements.interestStatus.textContent = 'This interest changed on the server. Reloading the queue…';
-          await loadInterests();
+          say(elements.interestStatus, 'ops.interest.changed');
+          await loadInterests().catch(() => false);
           return;
         }
-        if (!response.ok) throw new Error(data.error || `Update failed (${response.status}).`);
+        if (!response.ok) throw apiError(data, 'ops.interest.updateFailed', response.status);
         interest.status = data.interest.status;
         interest.version = data.interest.version;
-        const refreshed = await loadInterests();
-        if (refreshed) elements.interestStatus.textContent = 'Interest status updated. The active queue filter has been reapplied.';
+        const refreshed = await loadInterests().catch(() => false);
+        if (refreshed) say(elements.interestStatus, 'ops.interest.updated');
       } catch (error) {
-        elements.interestStatus.textContent = error.message || 'Interest status could not be updated.';
+        report(elements.interestStatus, error, 'ops.interest.notUpdated');
       } finally {
         save.disabled = false;
       }
     });
-    controls.append(label, save);
+    controls.append(field, save);
     article.append(controls);
     return article;
   }
@@ -498,19 +613,20 @@
     const params = new URLSearchParams({ limit: '24' });
     if (snapshot.status) params.set('status', snapshot.status);
     if (cursor) params.set('cursor', cursor);
-    elements.interestStatus.textContent = 'Loading member interests…';
+    say(elements.interestStatus, 'ops.interest.loading');
     elements.interestList.setAttribute('aria-busy', 'true');
     try {
       const { response, data } = await request(`/api/admin/interests?${params}`, { signal: controller.signal });
       if (sequence !== state.interestRequest || state.interestFilterKey !== snapshotKey
         || filterKey(interestFilterSnapshot()) !== snapshotKey) return false;
-      if (!response.ok) throw new Error(data.error || `Interest request failed (${response.status}).`);
+      if (!response.ok) throw apiError(data, 'ops.interest.failed', response.status);
       const interests = Array.isArray(data.interests) ? data.interests : [];
       state.interests = append ? [...state.interests, ...interests] : interests;
       state.interestCursor = data.nextCursor || null;
       elements.interestMore.hidden = !state.interestCursor;
       renderInterestList();
-      elements.interestStatus.textContent = state.interests.length ? `${state.interests.length} interests loaded.` : 'No member interests match this queue status.';
+      if (state.interests.length) say(elements.interestStatus, state.interests.length === 1 ? 'ops.interest.countOne' : 'ops.interest.count', { n: state.interests.length });
+      else say(elements.interestStatus, 'ops.interest.empty');
       return true;
     } catch (error) {
       if (error.name === 'AbortError' || sequence !== state.interestRequest || state.interestFilterKey !== snapshotKey) return false;
@@ -520,7 +636,7 @@
         elements.interestMore.hidden = true;
         renderInterestList();
       } else elements.interestList.setAttribute('aria-busy', 'false');
-      elements.interestStatus.textContent = error.message || 'Member interests are unavailable.';
+      report(elements.interestStatus, error, 'ops.interest.unavailable');
       throw error;
     } finally {
       if (sequence === state.interestRequest && state.interestFilterKey === snapshotKey) {
@@ -530,6 +646,270 @@
     }
   }
 
+  /* ---------------- NODAL news ----------------
+     A new post carries a client id, so a retried POST after a lost response
+     returns the stored post instead of creating a second one. A retry with
+     other content (edited or published after the lost save) comes back as a
+     conflict, so the desk never reports a save that did not happen. */
+  // crypto.randomUUID needs a secure context; elsewhere the same lowercase v4 form is built from random bytes.
+  const uuid = () => globalThis.crypto?.randomUUID?.() || ((bytes) => {
+    bytes[6] = (bytes[6] & 15) | 64;
+    bytes[8] = (bytes[8] & 63) | 128;
+    const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+    return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
+  })(globalThis.crypto?.getRandomValues?.(new Uint8Array(16)) || Uint8Array.from({ length: 16 }, () => Math.random() * 256));
+  const NEWS_LIMITS = { title: 160, body: 2000, url: 500 };
+  const NEWS_FIELDS = { title: ['newsTitle', 'newsTitleError'], body: ['newsBody', 'newsBodyError'], url: ['newsUrl', 'newsUrlError'] };
+  const news = { items: [], cursor: null, current: null, draftId: uuid(), conflict: null, pending: 'draft', snapshot: '', controller: null, request: 0, busy: false };
+
+  function readNews(status) {
+    return {
+      title: text(elements.newsTitle.value),
+      body: text(elements.newsBody.value),
+      url: text(elements.newsUrl.value),
+      pinned: elements.newsPinned.checked,
+      status,
+    };
+  }
+  const newsDirty = () => JSON.stringify(readNews()) !== news.snapshot;
+
+  function newsFieldError(field, key, raw) {
+    const [input, error] = NEWS_FIELDS[field].map((name) => elements[name]);
+    if (raw) sayRaw(error, raw);
+    else say(error, key);
+    error.hidden = !(key || raw);
+    input.setAttribute('aria-invalid', String(Boolean(key || raw)));
+  }
+
+  function validateNews(payload) {
+    const errors = {
+      title: !payload.title ? 'ops.news.errTitle' : payload.title.length > NEWS_LIMITS.title ? 'ops.news.errTitleLong' : '',
+      body: payload.body.length > NEWS_LIMITS.body ? 'ops.news.errBodyLong' : '',
+      url: payload.url && (!isHttps(payload.url) || payload.url.length > NEWS_LIMITS.url) ? 'ops.news.errUrl' : '',
+    };
+    for (const [field, key] of Object.entries(errors)) newsFieldError(field, key);
+    const first = Object.keys(errors).find((field) => errors[field]);
+    if (first) elements[NEWS_FIELDS[first][0]].focus();
+    return !first;
+  }
+
+  // Posts are feminine in ES and PT (publicación, publicação), so the state has its own words, not the catalog's.
+  const newsStatus = (item) => t(item.status === 'published' ? 'ops.news.statusPublished' : 'ops.news.statusDraft');
+
+  function newsWhen(item) {
+    return formatDate(item.status === 'published' ? item.publishedAt : item.updatedAt || item.createdAt);
+  }
+
+  function renderNewsEditor() {
+    const item = news.current;
+    const published = item?.status === 'published';
+    elements.newsEditorTitle.textContent = t(item ? 'ops.news.editTitle' : 'ops.news.newTitle');
+    elements.newsState.textContent = item
+      ? [newsStatus(item), item.pinned ? t('ops.news.pinned') : '', newsWhen(item)].filter(Boolean).join(' · ')
+      : t('ops.news.unsaved');
+    elements.newsState.className = `admin-state is-${item?.status || 'new'}`;
+    elements.newsPublish.textContent = t(published ? 'ops.news.update' : 'ops.news.publish');
+    elements.newsDraft.textContent = t(published ? 'ops.news.unpublish' : 'ops.news.saveDraft');
+    elements.newsDelete.hidden = !item;
+    elements.newsBodyCount.textContent = `${elements.newsBody.value.length} / ${NEWS_LIMITS.body}`;
+  }
+
+  function renderNewsList() {
+    const rows = news.items.map((item) => {
+      const row = create('li');
+      const button = create('button', 'admin-news-item');
+      button.type = 'button';
+      const selected = item.id === news.current?.id;
+      button.classList.toggle('is-selected', selected);
+      button.setAttribute('aria-current', String(selected));
+      button.append(create('strong', null, item.title || t('ops.record.untitled')));
+      const meta = create('span', 'admin-record-meta');
+      meta.append(create('span', `is-${item.status}`, newsStatus(item)));
+      if (item.pinned) meta.append(create('span', null, t('ops.news.pinned')));
+      const when = newsWhen(item);
+      if (when) meta.append(create('span', null, when));
+      button.append(meta);
+      button.addEventListener('click', () => openNews(item));
+      row.append(button);
+      return row;
+    });
+    elements.newsList.replaceChildren(...rows);
+    elements.newsList.setAttribute('aria-busy', 'false');
+  }
+
+  function renderNewsCount() {
+    const n = news.items.length;
+    if (n) say(elements.newsListStatus, n === 1 ? 'ops.news.countOne' : 'ops.news.count', { n });
+    else say(elements.newsListStatus, 'ops.news.empty');
+  }
+
+  function fillNews(item = null) {
+    news.current = item?.id ? { ...item } : null;
+    if (!news.current) news.draftId = uuid();
+    news.conflict = null;
+    elements.newsConflict.hidden = true;
+    elements.newsTitle.value = item?.title || '';
+    elements.newsBody.value = item?.body || '';
+    elements.newsUrl.value = item?.url || '';
+    elements.newsPinned.checked = Boolean(item?.pinned);
+    for (const field of Object.keys(NEWS_FIELDS)) newsFieldError(field, '');
+    news.snapshot = JSON.stringify(readNews());
+    renderNewsEditor();
+    renderNewsList();
+  }
+
+  function openNews(item) {
+    if (item.id === news.current?.id) return;
+    if (newsDirty() && !window.confirm(t('ops.news.discard'))) return;
+    fillNews(item);
+    say(elements.newsStatus, 'ops.news.loaded');
+    elements.newsTitle.focus();
+  }
+
+  function upsertNews(item) {
+    const index = news.items.findIndex((entry) => entry.id === item.id);
+    if (index === -1) news.items = [item, ...news.items];
+    else news.items = news.items.map((entry, position) => (position === index ? item : entry));
+    renderNewsCount();
+  }
+
+  async function loadNews({ append = false } = {}) {
+    if (append && !news.cursor) return false;
+    news.controller?.abort();
+    const controller = new AbortController();
+    news.controller = controller;
+    news.request += 1;
+    const sequence = news.request;
+    const params = new URLSearchParams();
+    if (append) params.set('cursor', news.cursor);
+    const query = params.toString();
+    say(elements.newsListStatus, 'ops.news.loading');
+    elements.newsList.setAttribute('aria-busy', 'true');
+    try {
+      const { response, data } = await request(`/api/admin/news${query ? `?${query}` : ''}`, { signal: controller.signal });
+      if (sequence !== news.request) return false;
+      if (!response.ok) throw apiError(data, 'ops.news.failed', response.status);
+      const items = Array.isArray(data.items) ? data.items.filter((item) => item && typeof item.id === 'string') : [];
+      news.items = append ? [...news.items, ...items.filter((item) => !news.items.some((entry) => entry.id === item.id))] : items;
+      news.cursor = data.nextCursor || null;
+      elements.newsMore.hidden = !news.cursor;
+      renderNewsList();
+      renderNewsCount();
+      return true;
+    } catch (error) {
+      if (error.name === 'AbortError' || sequence !== news.request) return false;
+      report(elements.newsListStatus, error, 'ops.news.unavailable');
+      return false;
+    } finally {
+      if (sequence === news.request) {
+        elements.newsList.setAttribute('aria-busy', 'false');
+        if (news.controller === controller) news.controller = null;
+      }
+    }
+  }
+
+  function setNewsBusy(value) {
+    news.busy = value;
+    for (const button of [elements.newsPublish, elements.newsDraft, elements.newsDelete, elements.newsConflictOverwrite]) button.disabled = value;
+  }
+
+  // 'edited': someone saved this post since it was opened. 'earlier': a new post's first save reached the server
+  // although its answer was lost, and the editor has changed it since.
+  const NEWS_CONFLICT_COPY = {
+    edited: { newsConflictTitle: 'ops.news.conflictTitle', newsConflictBody: 'ops.news.conflictBody', newsConflictReload: 'ops.news.conflictReload', status: 'ops.news.conflictStatus' },
+    earlier: { newsConflictTitle: 'ops.news.earlierTitle', newsConflictBody: 'ops.news.earlierBody', newsConflictReload: 'ops.news.earlierReload', status: 'ops.news.earlierStatus' },
+  };
+  function showNewsConflict(item, kind = 'edited') {
+    news.conflict = item?.id ? item : null;
+    const { status, ...copy } = NEWS_CONFLICT_COPY[kind];
+    for (const [name, key] of Object.entries(copy)) {
+      elements[name].dataset.i18n = key;
+      say(elements[name], key);
+    }
+    elements.newsConflict.hidden = false;
+    elements.newsConflictReload.disabled = !news.conflict;
+    elements.newsConflictOverwrite.disabled = !news.conflict;
+    say(elements.newsStatus, status);
+  }
+
+  // Deleted elsewhere: the text stays, and saving creates the post again.
+  function newsGone(item) {
+    news.items = news.items.filter((entry) => entry.id !== item.id);
+    news.current = null;
+    news.draftId = uuid();
+    news.snapshot = '';
+    renderNewsEditor();
+    renderNewsList();
+    renderNewsCount();
+    say(elements.newsStatus, 'ops.news.gone');
+  }
+
+  async function saveNews(status) {
+    if (news.busy) return false;
+    const payload = readNews(status);
+    if (!validateNews(payload)) {
+      say(elements.newsStatus, 'ops.news.fix');
+      return false;
+    }
+    const current = news.current;
+    news.pending = status;
+    setNewsBusy(true);
+    say(elements.newsStatus, status === 'published' ? 'ops.news.publishing' : 'ops.news.saving');
+    try {
+      const { response, data } = await request(current ? `/api/admin/news/${encodeURIComponent(current.id)}` : '/api/admin/news', {
+        method: current ? 'PATCH' : 'POST',
+        body: JSON.stringify(current ? { version: current.version, ...payload } : { id: news.draftId, ...payload }),
+      });
+      if (response.status === 409) {
+        showNewsConflict(data.item, current ? 'edited' : 'earlier');
+        return false;
+      }
+      if (response.status === 404 && current) {
+        newsGone(current);
+        return false;
+      }
+      if (response.status === 400 && NEWS_FIELDS[data.field]) {
+        newsFieldError(data.field, 'ops.news.fix', data.error);
+        elements[NEWS_FIELDS[data.field][0]].focus();
+        say(elements.newsStatus, 'ops.news.fix');
+        return false;
+      }
+      if (!response.ok || typeof data.item?.id !== 'string') throw apiError(data, 'ops.news.saveFailed', response.status);
+      upsertNews(data.item);
+      fillNews(data.item);
+      // The stored state decides the message, not the button pressed.
+      say(elements.newsStatus, data.item.status === 'published' ? 'ops.news.publishedOk' : 'ops.news.savedOk');
+      return true;
+    } catch (error) {
+      report(elements.newsStatus, error, 'ops.news.notSaved');
+      return false;
+    } finally {
+      setNewsBusy(false);
+    }
+  }
+
+  async function deleteNews() {
+    const current = news.current;
+    if (!current || news.busy || !window.confirm(t('ops.news.confirmDelete', { title: current.title }))) return false;
+    setNewsBusy(true);
+    say(elements.newsStatus, 'ops.news.deleting');
+    try {
+      const { response, data } = await request(`/api/admin/news/${encodeURIComponent(current.id)}`, { method: 'DELETE' });
+      if (!response.ok && response.status !== 404) throw apiError(data, 'ops.news.deleteFailed', response.status);
+      news.items = news.items.filter((item) => item.id !== current.id);
+      fillNews(null);
+      renderNewsCount();
+      say(elements.newsStatus, 'ops.news.deleted');
+      return true;
+    } catch (error) {
+      report(elements.newsStatus, error, 'ops.news.notDeleted');
+      return false;
+    } finally {
+      setNewsBusy(false);
+    }
+  }
+
+  /* ---------------- wiring ---------------- */
   let filterTimer = null;
   function refreshCatalogNow() {
     clearTimeout(filterTimer);
@@ -565,30 +945,72 @@
   elements.publish.addEventListener('click', () => saveCatalog('published'));
   elements.archive.addEventListener('click', () => saveCatalog('archived'));
   elements.saveFeature.addEventListener('click', () => saveCatalog(state.current?.status || 'draft'));
-  elements.preview.addEventListener('click', renderPreview);
+  elements.preview.addEventListener('click', () => renderPreview());
   elements.previewClose.addEventListener('click', () => { elements.previewPanel.hidden = true; });
   elements.conflictReload.addEventListener('click', () => {
     if (state.conflictCurrent) fillEditor(state.conflictCurrent);
   });
   elements.editor.addEventListener('submit', (event) => event.preventDefault());
+  elements.editor.addEventListener('input', renderGate);
+  elements.editor.addEventListener('change', renderGate);
+
+  elements.newsNew.addEventListener('click', () => {
+    if (newsDirty() && !window.confirm(t('ops.news.discard'))) return;
+    fillNews(null);
+    say(elements.newsStatus, 'ops.news.ready');
+    elements.newsTitle.focus();
+  });
+  elements.newsMore.addEventListener('click', () => loadNews({ append: true }));
+  elements.newsPublish.addEventListener('click', () => saveNews('published'));
+  elements.newsDraft.addEventListener('click', () => saveNews('draft'));
+  elements.newsDelete.addEventListener('click', () => deleteNews());
+  elements.newsBody.addEventListener('input', renderNewsEditor);
+  elements.newsEditor.addEventListener('submit', (event) => event.preventDefault());
+  elements.newsConflictReload.addEventListener('click', () => {
+    if (!news.conflict) return;
+    upsertNews(news.conflict);
+    fillNews(news.conflict);
+    say(elements.newsStatus, 'ops.news.loaded');
+  });
+  elements.newsConflictOverwrite.addEventListener('click', () => {
+    if (!news.conflict) return;
+    // A new post whose earlier save is stored has no current item yet: the stored one becomes it, so this save edits it.
+    news.current = { ...(news.current || news.conflict), version: news.conflict.version };
+    news.conflict = null;
+    elements.newsConflict.hidden = true;
+    return saveNews(news.pending);
+  });
+
   elements.signOut.addEventListener('click', async () => {
     elements.signOut.disabled = true;
-    elements.editorStatus.textContent = 'Signing out…';
+    say(elements.editorStatus, 'ops.signingOut');
     try {
       const response = await fetch('/api/auth/logout', {
         method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' },
       });
-      if (!response.ok) throw new Error(`Sign out failed (${response.status}).`);
+      if (!response.ok) throw apiError({}, 'ops.signOutFailed', response.status);
       location.assign('/login.html');
     } catch (error) {
       elements.signOut.disabled = false;
-      elements.editorStatus.textContent = error.message || 'Sign out failed.';
+      report(elements.editorStatus, error, 'ops.signOutUnavailable');
     }
+  });
+
+  I18N?.onChange(() => {
+    for (const [node, [key, vars]] of messages) node.textContent = t(key, vars);
+    renderRecordState();
+    renderCatalogList();
+    renderGate();
+    renderInterestList();
+    renderNewsList();
+    renderNewsEditor();
+    if (!elements.previewPanel.hidden) renderPreview({ scroll: false });
   });
 
   async function bootstrap() {
     fillEditor(blankRecord());
-    await Promise.allSettled([loadCatalog(), loadInterests()]);
+    fillNews(null);
+    await Promise.allSettled([loadNews(), loadCatalog(), loadInterests()]);
   }
 
   bootstrap();

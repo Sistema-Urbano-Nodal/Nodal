@@ -2,6 +2,48 @@
 
 For the September course pilot, follow [course pilot operations](docs/course-pilot-operations.md) and apply all pending migrations before deploying the server. The guide covers internal-team forms/feedback exports, course setup, upload reconciliation, and capacity acceptance.
 
+## October 1 release: three migrations before `main`
+
+Merging to `main` deploys Production. Apply these three migrations to the
+production Supabase project **before** that merge, in this order (the order
+`supabase db push` uses, by timestamp). Each one is safe for the code that is
+live today, so applying them first never breaks the current site; deploying the
+code first does.
+
+1. `20261001011348_close_mobility_pilot_enrollment.sql`: data only. Closes
+   enrolment on "Curso Movilidad Nivel 2" (`72e3cc56-a506-4a1b-97b5-9333e8d283ca`)
+   and does nothing if the course is already closed or has another id. Run
+   `select id, title, enrollment_open, version from pilot_courses order by created_at;`
+   first to confirm the id. Unticking "Enrollment open" in the teaching workspace
+   has the same effect without a deploy.
+2. `20261001011356_nodal_news.sql`: the `nodal_news` table for NODAL-wide news
+   (RLS on, no browser grants, service role limited to select/insert/update/delete).
+   Without it every `/api/news` and `/api/admin/news` request fails with
+   404 `{"error":"request failed"}` (PostgREST reports the missing table as 404,
+   and the server passes that status on with a masked message).
+3. `20261001011759_fiiu_checkin.sql`: adds `fiiu_attendance.method`
+   (`'staff'` or `'qr'`, existing rows become `'staff'`), an `activity_id` index,
+   and replaces `fiiu_event_summary` with the same signature and grants plus the
+   check-in figures. The new server selects `method` on every attendance read and
+   write, so until this is applied those requests fail with 400
+   `{"error":"request failed"}` (PostgREST's answer to the unknown column): the
+   FIIU registration load for anyone who has registered, `/api/me/export`, the
+   organiser's registration detail and attendance toggle (an untick deletes the
+   row and then reports the error), self check-in and the participant CSV.
+
+Confirm after applying:
+
+```sql
+select id, enrollment_open, version from pilot_courses where id = '72e3cc56-a506-4a1b-97b5-9333e8d283ca';
+select column_name, column_default from information_schema.columns
+ where table_schema = 'public' and table_name = 'fiiu_attendance' and column_name = 'method';
+select has_table_privilege('anon', 'public.nodal_news', 'select'),
+       has_table_privilege('service_role', 'public.nodal_news', 'truncate');  -- both false
+```
+
+Record the applied versions (`npx supabase migration list`) in
+`docs/course-pilot-validation.md`. Only then merge to `main`.
+
 ## Supabase Setup
 
 1. Create a Supabase project.
@@ -56,7 +98,16 @@ PAYMENTS_MODE=preview
 PILOT_MODE=true
 ```
 
-Leave the `SUBSCRIPTION_*` price variables unset while launch pricing is not announced: the UI then shows `Soon` in every price slot. Setting them is what publishes a real amount. Switching to `PAYMENTS_MODE=live` is what makes a price mandatory — the deployment then refuses to boot until both `*_LABEL` variables are set, so a paid tier can never go live nameless:
+Amounts appear only when checkout can actually run. `GET /api/billing/config`
+returns `checkout: true` only when `PILOT_MODE=false` (exactly that value;
+unset, empty, `0` or `off` all keep the pilot on) **and** the four Stripe
+variables below are configured. Otherwise it returns `checkout: false`
+and `Soon` in every price slot, with no period or badge, even when the
+`SUBSCRIPTION_*` labels are set, and the landing page hides its Supporter button.
+So setting the labels alone never publishes a price. Switching to
+`PAYMENTS_MODE=live` is what makes a price mandatory: the deployment then refuses
+to boot until both `*_LABEL` variables are set, so a paid tier can never go live
+nameless:
 
 ```text
 SUBSCRIPTION_PRICE_MONTHLY_LABEL=US$10
@@ -66,6 +117,18 @@ SUBSCRIPTION_ANNUAL_PERIOD=/ year
 ```
 
 Set the Supabase URL and publishable key for both Production and Preview when preview deployments need working authentication. Scope the server credential only to trusted preview branches. Set `PUBLIC_BASE_URL` or `NEXT_PUBLIC_APP_URL` explicitly for each environment: password recovery and invitations require that configured origin and do not fall back to `VERCEL_URL`. Add each intended callback URL to Supabase's redirect allowlist.
+
+Optional, for festival check-in (see "FIIU check-in on the day" below):
+
+```text
+FIIU_CHECKIN_SECRET=<server-only, at least 32 random characters>
+```
+
+Without it the check-in secret is derived from the Supabase server key, which
+is fine; set it only if you want to rotate check-in codes independently. A value
+shorter than 32 characters stops the deployment from booting. Never set
+`FIIU_CHECKIN_NOW` on Vercel: it is a local rehearsal clock, and production
+refuses to boot with it.
 
 Add these when Stripe goes live:
 
@@ -115,7 +178,8 @@ npm start
 ## Production Deployment Steps
 
 1. Confirm `.env`, `.env.local`, `.env.production`, `.vercel/`, and `data/` are not committed.
-2. Apply the Supabase migration.
+2. Apply every pending Supabase migration (for this release, the three listed
+   under "October 1 release" above) and confirm them.
 3. Configure Vercel environment variables.
 4. Run `npm ci` and `npm run build`; verify generated `public/` assets exist and no source PNG files are copied there.
 5. Connect the Git repository to Vercel.
@@ -126,6 +190,60 @@ npm start
 10. Confirm `/dashboard.html` redirects unauthenticated users to `/login.html`.
 11. Confirm profile edits persist after refresh.
 12. Confirm pilot checkout is unavailable while `PILOT_MODE=true`. `PAYMENTS_MODE=preview` alone does not disable checkout when Stripe credentials are configured.
+13. Confirm `/api/billing/config` returns `"checkout": false` and `Soon` while
+    `PILOT_MODE=true`, and that the landing membership card shows "Soon!".
+14. Confirm `/api/news` returns 200, and that `/fiiu-qr.html` and
+    `/fiiu-admin.html` show "Organisers only" (status 403) to a member account
+    and the real pages to an administrator.
+
+## FIIU check-in on the day
+
+Any administrator account (`app_role = 'admin'`) runs check-in; there is no
+separate organiser role. Only the six NODAL blocks can be checked in: the
+20 October laboratory and the five conference blocks (21 Oct morning and
+evening, 22 Oct morning and evening, 23 Oct morning). Workshops and routes are
+registered with their facilitators and are never checked in here.
+
+1. On the laptop connected to the venue screen, sign in, open
+   `/fiiu-admin.html#checkin` and choose "Open check-in screen" for the block.
+   That opens `/fiiu-qr.html?a=<block>` in a new tab; choose "Full screen".
+   The screen keeps the display awake where the browser allows it, refreshes
+   every 30 seconds, and shows the QR, the address to type and a 6-character
+   code, plus a live "checked in" count. The code rotates every minute and a
+   code stays valid for about 5 minutes, so a photo of the screen soon stops
+   working.
+2. Attendees scan the QR with their phone camera. The link opens
+   `/fiiu-checkin.html`; a signed-out attendee sees "Sign in to check in" for
+   that session, signs in and comes back to the same link. Without a camera, they open `/fiiu-checkin.html` and type the
+   6-character code.
+3. A scan counts only inside the block's window, from 30 minutes before it
+   starts to 30 minutes after it ends, Lima time. The laboratory has no time yet,
+   so its window is the whole of 20 October in Lima. The person must have that
+   block in their registration (for the laboratory, an accepted application).
+   Otherwise the page says why and, while registration is open, links to the
+   registration so they can add the block and scan again. A laboratory refusal
+   sends the person to the registration desk instead, since the laboratory
+   cannot be added from the registration.
+4. Scanning twice is harmless: the first confirmation is kept, even when the
+   second scan comes after the window has closed. Reloading the confirmation
+   page shows the confirmation again.
+5. The team can still confirm or remove attendance by hand in the participant
+   detail. Each row says whether it came from the QR or the team.
+
+Certificate hours count conference blocks only: 4 h for a morning block, 2 h for
+an evening block. The laboratory counts for attendance and badges but adds 0 h
+until its length is confirmed. A person's total is rounded half up to whole
+hours. The participant CSV adds attended blocks, days, minutes, certificate
+hours, check-in methods and a Lima check-in time for each block.
+
+The QR encodes `PUBLIC_BASE_URL` (then `NEXT_PUBLIC_APP_URL`, then
+`https://VERCEL_URL`). Production sets `PUBLIC_BASE_URL`; on a Preview
+deployment without it, the QR would point at the protected per-deployment URL.
+
+To rehearse locally, start a SQLite server with a festival time, for example
+`DATA_BACKEND=sqlite FIIU_CHECKIN_NOW=2026-10-21T09:10:00-05:00 npm start`
+(the 21 October morning window is open). The clock runs on from that moment, and
+check-ins written under it carry the rehearsal time.
 
 ## Security Checklist
 
@@ -201,7 +319,8 @@ npm start
   membership page. A saved choice takes precedence over `?lang=en|es|pt`;
   the URL language is used when the visitor has not saved a preference.
 - Subscription **amounts** are shown exactly as configured in
-  `SUBSCRIPTION_PRICE_*_LABEL`, in every language. The wording around the amount
+  `SUBSCRIPTION_PRICE_*_LABEL`, in every language, and only while checkout can
+  run; otherwise every language shows its own "Soon!". The wording around the amount
   (cycle name, period suffix, renewal and cancellation notes) is translated when
   it matches the English default; set `SUBSCRIPTION_MONTHLY_*` /
   `SUBSCRIPTION_ANNUAL_*` to anything else and that text is shown verbatim, so

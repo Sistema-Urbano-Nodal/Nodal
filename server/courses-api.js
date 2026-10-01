@@ -212,7 +212,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     }
     if(!adminPath&&suffix==='/enroll'&&req.method==='POST') {
       if(access.enrollment){send(res,200,{enrollment:access.enrollment});return true;}
-      if(!access.course.enrollmentOpen)fail('enrollment is closed',403);
+      if(!access.course.enrollmentOpen){send(res,403,{error:'enrollment is closed',code:'enrollment_closed'});return true;}
       let enrollment;
       try { enrollment=await store.insert('enrollments',{id:newId(),courseId,userId:user.id,createdAt:now()}); }
       catch(err) { if(err.status!==409)throw err;enrollment=await findOne('enrollments',{courseId,userId:user.id});if(!enrollment)throw err; }

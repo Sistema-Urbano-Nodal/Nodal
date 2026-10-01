@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createFiiuStore} from '../server/fiiu-repository.js';
 import {createFiiuApi} from '../server/fiiu-api.js';
+import {createCheckinCodes} from '../server/fiiu-checkin.js';
 
 // In-memory PostgREST for the festival tables: eq/gt/lt/in filters, the store's keyset `or`, order, limit, a response
 // row cap, exact counts (Content-Range) and constraint errors shaped like server/supabase.js responseError().
@@ -115,4 +116,51 @@ test('Supabase organizer summary uses one restricted aggregate RPC instead of do
  assert.deepEqual(calls,[{path:'rpc/fiiu_event_summary',method:'POST',body:{p_event_id:'fiiu-2026',p_activities:[{id:'day1-am',date:'2026-10-21',registration:'general'}]}}]);
  const broken=createFiiuStore({clients:{admin:{async rest(){return null;}}}});
  await assert.rejects(broken.summary('fiiu-2026',catalog),error=>error.status===502);
+});
+
+test('Supabase festival counts use one exact-count request and never download rows',async()=>{
+ const pg=postgrest(),store=createFiiuStore({clients:pg.clients});
+ pg.tables.fiiu_attendance.push(...['day1-am','day1-am','day1-pm'].map((activity_id,i)=>({id:`a${i}`,registration_id:'r'+i,activity_id,confirmed_by:null,created_at:'x',method:'qr'})));
+ assert.equal(await store.count('attendance',{activityId:'day1-am'}),2);
+ assert.deepEqual(pg.calls.at(-1),{table:'fiiu_attendance',query:{select:'id',limit:1,activity_id:'eq.day1-am'},includeRange:true,headers:{Prefer:'count=exact'}});
+ assert.equal(await store.count('attendance',{activityId:'day2-am'}),0);
+ await assert.rejects(createFiiuStore({clients:postgrest({count:false}).clients}).count('attendance',{}),error=>error.status===502,'an uncounted answer is not a zero');
+ await assert.rejects(store.count('attendance',{nationalId:'x'}),/unknown festival field/);
+});
+
+test('Supabase-backed QR check-in writes one qr row for the attendee and reports a racing cancellation',async()=>{
+ const secret='fiiu-supabase-checkin-secret-012345',now=()=>Date.parse('2026-10-21T14:00:00Z');
+ let cancel=false;
+ const pg=postgrest({afterRead:({table,tables})=>{if(cancel&&table==='fiiu_attendance'){cancel=false;tables.fiiu_registrations.length=0;}}});
+ const api=createFiiuApi({store:createFiiuStore({clients:pg.clients}),sameOrigin:()=>true,send:(res,status,body)=>Object.assign(res,{status,body}),checkin:{secret,now},publicOrigin:'https://nodal.example'});
+ const member={id:'member',email:'member@example.test',permission:'member'},admin={id:'admin',email:'admin@example.test',permission:'admin'};
+ const call=async(method,path,body,user=member)=>{
+  const res={},req={method,headers:body===undefined?{}:{'content-type':'application/json'},async *[Symbol.asyncIterator](){if(body!==undefined)yield Buffer.from(JSON.stringify(body));}};
+  try{await api({req,res,url:new URL('http://nodal.test'+path),user});}catch(error){Object.assign(res,{status:error.status??500,body:{error:error.message}});}
+  return res;
+ };
+ const code=createCheckinCodes({secret,now}).current('day1-am').code;
+ pg.tables.fiiu_registrations.push({...registration(4),user_id:'member',answers:{activities:['day1-am']}});
+ const first=await call('POST','/api/fiiu/checkin',{activityId:'day1-am',code});assert.equal(first.status,201);assert.equal(first.body.result,'checked_in');
+ assert.deepEqual(pg.tables.fiiu_attendance.map(({registration_id,activity_id,confirmed_by,method,created_at})=>({registration_id,activity_id,confirmed_by,method,created_at})),[{registration_id:uuid(4),activity_id:'day1-am',confirmed_by:'member',method:'qr',created_at:'2026-10-21T14:00:00.000Z'}]);
+ const again=await call('POST','/api/fiiu/checkin',{activityId:'day1-am',code});assert.deepEqual([again.status,again.body.result],[200,'already_checked_in']);
+ assert.equal(pg.tables.fiiu_attendance.length,1);
+ const screen=await call('GET','/api/admin/fiiu/checkin?activityId=day1-am',undefined,admin);
+ assert.deepEqual([screen.status,screen.body.checkedIn,screen.body.qr,new URL(screen.body.url).origin],[200,1,null,'https://nodal.example']);
+ // A staff confirmation is recorded as such.
+ pg.tables.fiiu_registrations[0].answers.activities.push('day2-am');
+ assert.equal((await call('PUT',`/api/admin/fiiu/registrations/${uuid(4)}/attendance`,{activityId:'day2-am',attended:true},admin)).status,200);
+ assert.equal(pg.tables.fiiu_attendance.find(row=>row.activity_id==='day2-am').method,'staff');
+ pg.tables.fiiu_attendance.length=0;cancel=true;
+ const raced=await call('POST','/api/fiiu/checkin',{activityId:'day1-am',code});
+ assert.deepEqual([raced.status,raced.body.code],[404,'not_registered']);assert.equal(pg.tables.fiiu_attendance.length,0);
+});
+
+test('the Supabase summary accepts the check-in figures, tolerates their absence before the migration and rejects malformed ones',async()=>{
+ const base={totalRegistrations:2,publicOfficials:1,lab:{pending:0,accepted:0,declined:0},activities:[],days:[],profiles:[]};
+ const storeFor=result=>createFiiuStore({clients:{admin:{async rest(){return result;}}}});
+ assert.deepEqual(await storeFor(base).summary('fiiu-2026',[]),base);
+ const full={...base,attendedPeople:1,qrPeople:1,lastCheckInAt:'2026-10-21T14:00:00.000Z'};assert.deepEqual(await storeFor(full).summary('fiiu-2026',[]),full);
+ assert.deepEqual(await storeFor({...full,lastCheckInAt:null}).summary('fiiu-2026',[]),{...full,lastCheckInAt:null});
+ for(const broken of [{attendedPeople:'1'},{qrPeople:1.5},{lastCheckInAt:42}])await assert.rejects(storeFor({...base,...broken}).summary('fiiu-2026',[]),error=>error.status===502,JSON.stringify(broken));
 });

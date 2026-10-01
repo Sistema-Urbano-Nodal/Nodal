@@ -28,6 +28,9 @@ async function enrichTranslations(store,name,row,base,translations,stamp) {
 export async function setupCoursePilot(store) {
   const stamp=new Date().toISOString();
   let course=(await store.find('courses',{id:PILOT_COURSE_ID},{limit:1}))[0];
+  // New shells start open because the integration and load tests self-enrol.
+  // Production closed this course after its September 2026 cohort
+  // (20261001011348_close_mobility_pilot_enrollment.sql); reruns never reopen it.
   if(!course)course=await store.insert('courses',{id:PILOT_COURSE_ID,...normalizeCourse({...PILOT_CONTENT,translations:PILOT_TRANSLATIONS,startsOn:'2026-09-09',endsOn:'2026-09-21',status:'published',enrollmentOpen:true}),version:1,createdAt:stamp,updatedAt:stamp});
   else course=await enrichTranslations(store,'courses',course,PILOT_CONTENT,PILOT_TRANSLATIONS,stamp);
   for(const [i,date]of ['2026-09-09','2026-09-14','2026-09-16','2026-09-21'].entries()) {

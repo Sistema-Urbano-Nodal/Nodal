@@ -49,15 +49,23 @@ test('enrollment/intake gates, private answers, drafts and staff authorization',
 });
 
 test('closing self-enrollment preserves existing students and rejects new students and stale reopening',async t=>{
- const {call,course,module,enter,store}=await setup(t);await enter();
+ const {call,course,module,enter,intake,store}=await setup(t);await enter();
  const before=(await(await call(`/api/courses/${course.id}`)).json()).enrollment;
  const closed=await call(`/api/admin/courses/${course.id}`,{actor:'staff',method:'PATCH',body:{version:course.version,enrollmentOpen:false}});
  assert.equal(closed.status,200);const updated=(await closed.json()).course;
  assert.equal(updated.enrollmentOpen,false);assert.equal(updated.title,course.title);assert.equal(updated.status,'published');
- assert.equal((await call(`/api/courses/${course.id}/enroll`,{actor:'other',method:'POST',body:{}})).status,403);
+ const refused=await call(`/api/courses/${course.id}/enroll`,{actor:'other',method:'POST',body:{}});
+ assert.equal(refused.status,403);assert.deepEqual(await refused.json(),{error:'enrollment is closed',code:'enrollment_closed'});
+ // Staff paths close too, before the (absent here) account lookup or any email.
+ for(const suffix of ['/participants','/invitations']){
+  const staffAdd=await call(`/api/admin/courses/${course.id}${suffix}`,{actor:'staff',method:'POST',body:{email:'other@example.test'}});
+  assert.equal(staffAdd.status,409);assert.equal((await staffAdd.json()).code,'participant_enrollment_closed');
+ }
+ assert.equal((await(await call('/api/courses',{actor:'other'})).json()).courses.find(c=>c.id===course.id).enrollmentOpen,false);
  const current=await call(`/api/courses/${course.id}/enroll`,{method:'POST',body:{}});
  assert.equal(current.status,200);assert.equal((await current.json()).enrollment.id,before.id);
  assert.equal((await call(`/api/courses/${course.id}/modules/${module.id}`)).status,200);
+ assert.equal((await call(`/api/courses/${course.id}/intake`,{method:'PUT',body:{...intake,city:'Cusco'}})).status,200);
  assert.equal((await store.find('enrollments',{courseId:course.id})).length,1);
  assert.equal((await call(`/api/admin/courses/${course.id}`,{actor:'staff',method:'PATCH',body:{version:course.version,enrollmentOpen:true}})).status,409);
  assert.equal((await(await call(`/api/courses/${course.id}`,{actor:'other'})).json()).course.enrollmentOpen,false);

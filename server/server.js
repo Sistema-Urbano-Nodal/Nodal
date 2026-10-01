@@ -14,6 +14,10 @@ import { createCourseStore } from './courses-repository.js';
 import { createCourseApi } from './courses-api.js';
 import { createFiiuStore } from './fiiu-repository.js';
 import { createFiiuApi, exportFiiuData } from './fiiu-api.js';
+import { resolveCheckinSecret, checkinClock } from './fiiu-checkin.js';
+import { encodeQr as encodeQrCode } from './qr.js';
+import { createNewsStore } from './news-repository.js';
+import { createNewsApi } from './news-api.js';
 import { preparePageHtml } from './page-shell.js';
 import {createLocationProvider,validatePosition,validateCityId} from './location.js';
 import { createCourseParticipants } from './course-participants.js';
@@ -44,9 +48,13 @@ const REC_TTL_MS = 5 * 60 * 1000;                 // 5-minute cache, per spec
 const ID_RE = /^[a-z0-9-]{1,40}$/;
 const API_INTERACTION_TYPES = new Set(['skip']);
 const MAX_BODY = 32 * 1024;
-const PRIVATE_PAGES = new Set(['/fiiu-admin.html', '/dashboard.html', '/profile.html', '/payments.html', '/admin.html', '/courses.html', '/course.html', '/teaching.html']);
-const STATIC_PAGES = new Set(['fiiu.html', 'fiiu-admin.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'privacy.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html']);
-const STATIC_SCRIPTS = new Set(['fiiu-ui.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'locale.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'hero-network.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js', 'privacy.js']);
+// /fiiu-checkin.html is public on purpose: a signed-out scan must land on the check-in page, which says
+// "Sign in to check in" for that session and links to sign-in with the same code. It holds no data, and
+// /api/fiiu/checkin still requires a session.
+const PRIVATE_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html', '/dashboard.html', '/profile.html', '/payments.html', '/admin.html', '/courses.html', '/course.html', '/teaching.html']);
+const STATIC_PAGES = new Set(['fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'organisers-only.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'privacy.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html']);
+const STATIC_SCRIPTS = new Set(['fiiu-ui.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'fiiu-checkin.js', 'fiiu-qr.js', 'news-feed.js', 'admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'locale.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'hero-network.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js', 'privacy.js']);
+const ORGANISER_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html']);
 const STATIC_STYLES = new Set(['fiiu.css', 'auth.css', 'styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css']);
 const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp']);
 const STATIC_FONTS = new Set(['montserrat-v31-latin-normal.woff2', 'montserrat-v31-latin-ext-normal.woff2', 'montserrat-v31-latin-italic.woff2', 'montserrat-v31-latin-ext-italic.woff2', 'OFL.txt']);
@@ -231,20 +239,27 @@ function readRequiredEnv(env, key, { productionRequired = false } = {}) {
   return value;
 }
 
-/* Shown wherever a price would go while launch pricing is not announced yet.
-   A period ("/ month") is only meaningful next to a real amount, so the
-   period is suppressed until a price label is actually configured. */
+/* Shown wherever a price would go while launch pricing is not announced yet,
+   and while checkout cannot run (pilot mode, or no Stripe configuration): a
+   price next to a membership nobody can buy reads as an offer. A period
+   ("/ month") and a badge ("2 months free") are only meaningful next to a real
+   amount, so they are suppressed with it. */
 const PRICE_UNANNOUNCED = 'Soon';
 
-export function publicBillingConfig(env = process.env) {
+export function publicBillingConfig(env = process.env, { checkout = false } = {}) {
   /* Only a live payments deployment must name a price. Requiring one of every
      production deployment made the "Soon" state above unreachable there — the
      documented pre-launch setup (NODE_ENV=production, PAYMENTS_MODE=preview,
-     no SUBSCRIPTION_* set) turned this endpoint into a 500 on every call. */
+     no SUBSCRIPTION_* set) turned this endpoint into a 500 on every call.
+     The labels are still read (and required in live mode) when checkout is
+     off; they are only withheld from the response. */
   const productionRequired = env.NODE_ENV === 'production' && env.PAYMENTS_MODE === 'live';
-  const monthlyAmount = readRequiredEnv(env, 'SUBSCRIPTION_PRICE_MONTHLY_LABEL', { productionRequired });
-  const annualAmount = readRequiredEnv(env, 'SUBSCRIPTION_PRICE_ANNUAL_LABEL', { productionRequired });
+  const monthlyLabel = readRequiredEnv(env, 'SUBSCRIPTION_PRICE_MONTHLY_LABEL', { productionRequired });
+  const annualLabel = readRequiredEnv(env, 'SUBSCRIPTION_PRICE_ANNUAL_LABEL', { productionRequired });
+  const monthlyAmount = checkout ? monthlyLabel : '';
+  const annualAmount = checkout ? annualLabel : '';
   return {
+    checkout: Boolean(checkout),
     cycles: {
       monthly: {
         label: env.SUBSCRIPTION_MONTHLY_LABEL || 'Monthly',
@@ -252,7 +267,7 @@ export function publicBillingConfig(env = process.env) {
         per: monthlyAmount ? (env.SUBSCRIPTION_MONTHLY_PERIOD || '') : '',
         note: env.SUBSCRIPTION_MONTHLY_NOTE || 'Cancel anytime.',
         renews: env.SUBSCRIPTION_MONTHLY_RENEWS || 'Every month, until you cancel',
-        badge: env.SUBSCRIPTION_MONTHLY_BADGE || '',
+        badge: monthlyAmount ? (env.SUBSCRIPTION_MONTHLY_BADGE || '') : '',
       },
       annual: {
         label: env.SUBSCRIPTION_ANNUAL_LABEL || 'Annual',
@@ -260,7 +275,7 @@ export function publicBillingConfig(env = process.env) {
         per: annualAmount ? (env.SUBSCRIPTION_ANNUAL_PERIOD || '') : '',
         note: env.SUBSCRIPTION_ANNUAL_NOTE || '',
         renews: env.SUBSCRIPTION_ANNUAL_RENEWS || 'Every 12 months, until you cancel',
-        badge: env.SUBSCRIPTION_ANNUAL_BADGE || '',
+        badge: annualAmount ? (env.SUBSCRIPTION_ANNUAL_BADGE || '') : '',
       },
     },
   };
@@ -396,6 +411,10 @@ export function validateRuntimeConfig(env = process.env) {
     publicBaseUrl(env);
   }
   if (backend === 'supabase') resolveSupabaseEnv(env, { requireServer: true });
+  // The FIIU check-in secret must be strong when set; the dev clock override never reaches production.
+  if (env.FIIU_CHECKIN_SECRET) resolveCheckinSecret(env, backend);
+  if (env.NODE_ENV === 'production' && String(env.FIIU_CHECKIN_NOW ?? '').trim()) throw new Error('FIIU_CHECKIN_NOW must not be set in production');
+  checkinClock(env, backend);
   paymentsConfig(env);
   if (env.NODE_ENV === 'production' && env.PAYMENTS_MODE === 'live') publicBillingConfig(env);
 }
@@ -746,7 +765,7 @@ function resolveUserId(param, sessionUser, useDb) {
 /* Takes the canonical path — already decoded and normalised by
    canonicalPathname — so the private-page check and the file lookup can never
    disagree, and nothing is decoded a second time. */
-async function serveStatic(req, res, canonical, pilotMode) {
+async function serveStatic(req, res, canonical, pilotMode, { status = 200 } = {}) {
   if (req.method !== 'GET' && req.method !== 'HEAD') { send(res, 405, { error: 'method not allowed' }); return; }
 
   const filePath = staticSourcePath(canonical);
@@ -759,7 +778,7 @@ async function serveStatic(req, res, canonical, pilotMode) {
     const raw = await fs.readFile(filePath);
     const data = type.startsWith('text/html') ? preparePageHtml(raw.toString('utf8'), { pilotMode }) : raw;
     const headers = type.startsWith('text/html') ? htmlSecurityHeaders({}, canonical === '/course.html') : securityHeaders();
-    res.writeHead(200, {
+    res.writeHead(status, {
       ...headers,
       ...(canonical==='/dashboard.html'?{'Permissions-Policy':'camera=(), microphone=(), geolocation=(self), payment=()'}:{}),
       ...(['/reset-password.html','/accept-invitation.html'].includes(canonical) ? { 'Referrer-Policy': 'no-referrer' } : {}),
@@ -799,6 +818,15 @@ export function createApp({
   pilotMode = process.env.PILOT_MODE !== 'false',
   courseStore = repository?.database ? createCourseStore({db:repository.database}) : repository?.kind === 'supabase' ? createCourseStore() : null,
   fiiuStore = repository?.database ? createFiiuStore({db:repository.database}) : repository?.kind === 'supabase' ? createFiiuStore() : null,
+  /* {secret, now} for the rotating FIIU check-in codes: FIIU_CHECKIN_SECRET, else derived from the Supabase server
+     key, else (SQLite) random per process; the clock honours FIIU_CHECKIN_NOW only on a local SQLite server. */
+  fiiuCheckin = fiiuStore ? {
+    secret: resolveCheckinSecret(process.env, repository?.kind === 'supabase' ? 'supabase' : 'sqlite'),
+    now: checkinClock(process.env, repository?.kind === 'supabase' ? 'supabase' : 'sqlite'),
+  } : null,
+  // text => {size, modules} QR encoder for the check-in screen; null makes the API answer qr: null.
+  encodeQr = encodeQrCode,
+  newsStore = repository?.database ? createNewsStore({db:repository.database}) : repository?.kind === 'supabase' ? createNewsStore() : null,
 } = {}) {
   const useDb = Boolean(repository);
   const networkSnapshots = repository ? createNetworkSnapshots(repository) : null;
@@ -871,10 +899,25 @@ export function createApp({
   // devices, so attendance toggles have their own budget and never spend or exhaust
   // the one for reviews, settings and publications.
   const fiiuCheckInLimiter=createWindowRateLimiter({windowMs:60000,limit:300});
-  const fiiuApi=fiiuStore?createFiiuApi({store:fiiuStore,sameOrigin,send,
+  // Attendee QR check-ins: a person scans once per block, so 20 a minute leaves room for retries while making the
+  // 6-character fallback code impractical to guess. Separate, so it never spends registration or organiser budgets.
+  const fiiuSelfCheckInLimiter=createWindowRateLimiter({windowMs:60000,limit:20});
+  // Check-in links point at the configured public origin; only a server outside production falls back to its Host.
+  const fiiuPublicOrigin=req=>{try{return publicBaseUrl();}catch(err){if(process.env.NODE_ENV==='production')throw err;return new URL(`http://${req.headers.host}`).origin;}};
+  const fiiuApi=fiiuStore?createFiiuApi({store:fiiuStore,sameOrigin,send,checkin:fiiuCheckin??{},encodeQr,publicOrigin:fiiuPublicOrigin,
     rateLimit:(req,res,user,pathname)=>['GET','HEAD'].includes(req.method)?throttle(user?fiiuReadLimiter:fiiuPublicReadLimiter,res,req,user,'fiiu')
       :req.method==='PUT'&&/^\/api\/admin\/fiiu\/registrations\/[^/]+\/attendance$/.test(pathname)?throttle(fiiuCheckInLimiter,res,req,user,'fiiu-checkin')
+      :req.method==='POST'&&pathname==='/api/fiiu/checkin'?throttle(fiiuSelfCheckInLimiter,res,req,user,'fiiu-self-checkin')
       :throttle(fiiuWriteLimiter,res,req,user,'fiiu'),
+  }):null;
+  // NODAL news: guests read the public feed from shared venue or office Wi-Fi, so their budget mirrors the FIIU
+  // public read one; the desk's writes share a small per-account budget.
+  const newsReadLimiter=createWindowRateLimiter({windowMs:60000,limit:120});
+  const newsPublicReadLimiter=createWindowRateLimiter({windowMs:60000,limit:600});
+  const newsWriteLimiter=createWindowRateLimiter({windowMs:60000,limit:30});
+  const newsApi=newsStore?createNewsApi({store:newsStore,sameOrigin,send,
+    rateLimit:(req,res,user)=>['GET','HEAD'].includes(req.method)?throttle(user?newsReadLimiter:newsPublicReadLimiter,res,req,user,'news')
+      :throttle(newsWriteLimiter,res,req,user,'news-write'),
   }):null;
   const courseApi=courseStore?createCourseApi({store:courseStore,userRepository:repository,sameOrigin,send,
     rateLimit:(req,res,user,pathname)=>throttle(pathname.endsWith('/invitations')?courseInvitationLimiter:pathname.endsWith('/attachments')?courseUploadLimiter:['GET','HEAD'].includes(req.method)?courseReadLimiter:courseWriteLimiter,res,req,user,'course'),
@@ -906,6 +949,7 @@ export function createApp({
       const needsSession = pageNeedsSession || (isApiRequest && !authenticatesRequest && pathname !== '/api/health');
       const authorizationOnly = pageNeedsSession || pathname === '/api/auth/state'
         || /^\/api\/(?:fiiu|admin\/fiiu)(?:\/|$)/.test(pathname)
+        || /^\/api\/(?:admin\/)?news(?:\/|$)/.test(pathname)
         || /^\/api\/(?:courses(?:\/|$)|admin\/courses(?:\/|$)|course-attachments\/|feedback(?:\/|$)|admin\/feedback(?:\/|$))/.test(pathname);
       const session = useDb && needsSession
         ? await repository.resolveSession(req, { authorizationOnly })
@@ -926,7 +970,9 @@ export function createApp({
           redirect(res, `/login.html?next=${encodeURIComponent(safeNext(canonical + url.search))}`);
           return;
         }
-        if (useDb && ['/admin.html','/teaching.html','/fiiu-admin.html'].includes(canonical) && (sessionUser?.permission || sessionUser?.role) !== 'admin') {
+        if (useDb && ['/admin.html','/teaching.html','/fiiu-admin.html','/fiiu-qr.html'].includes(canonical) && (sessionUser?.permission || sessionUser?.role) !== 'admin') {
+          // A member who follows an organiser link gets a page that explains it, carrying no organiser data or script.
+          if (ORGANISER_PAGES.has(canonical) && ['GET','HEAD'].includes(req.method)) { await serveStatic(req, res, '/organisers-only.html', pilotMode, { status: 403 }); return; }
           send(res, 403, { error: 'administrator access required' });
           return;
         }
@@ -943,6 +989,7 @@ export function createApp({
       if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/api/health') { send(res, 200, { ok: true }); return; }
       if(courseApi && await courseApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
       if(fiiuApi && await fiiuApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
+      if(newsApi && await newsApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
 
       if(req.method==='POST'&&pathname==='/api/auth/course-invitation/complete') {
         if(!sameOrigin(req)){send(res,403,{code:'invitation_forbidden'});return;}
@@ -1134,7 +1181,8 @@ export function createApp({
       }
 
       if (req.method === 'GET' && pathname === '/api/billing/config') {
-        send(res, 200, publicBillingConfig());
+        // Amounts are published only when checkout could actually run.
+        send(res, 200, publicBillingConfig(process.env, { checkout: !pilotMode && Boolean(payments?.config) }));
         return;
       }
 

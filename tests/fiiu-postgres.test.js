@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
+import {createDatabase,createUser} from '../server/db.js';
+import {createFiiuStore} from '../server/fiiu-repository.js';
 
 const databaseUrl=process.env.NODAL_FIIU_TEST_DATABASE_URL;
 test('PostgreSQL festival migrations enforce private access, conditional writes, account erasure and complete summaries',{skip:!databaseUrl,timeout:30000},async()=>{
@@ -18,6 +20,8 @@ test('PostgreSQL festival migrations enforce private access, conditional writes,
  END $$; CREATE TABLE profiles(id uuid PRIMARY KEY); GRANT USAGE ON SCHEMA public TO anon,authenticated,service_role;`);
  await execute('psql',[...args,'-f',new URL('../supabase/migrations/20260928233515_fiiu_festival.sql',import.meta.url).pathname]);
  await execute('psql',[...args,'-f',new URL('../supabase/migrations/20260929194059_fiiu_event_summary.sql',import.meta.url).pathname]);
+ await execute('psql',[...args,'-f',new URL('../supabase/migrations/20261001011759_fiiu_checkin.sql',import.meta.url).pathname]);
+ assert.equal(await sql(`SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND indexname='fiiu_attendance_activity'`),'1');
  for(const name of ['registrations','attendance','config','content']){
   assert.equal(await sql(`SELECT relrowsecurity FROM pg_class WHERE oid='fiiu_${name}'::regclass`),'t');
   for(const role of ['anon','authenticated'])for(const privilege of ['SELECT','INSERT','UPDATE','DELETE'])assert.equal(await sql(`SELECT has_table_privilege('${role}','fiiu_${name}','${privilege}')`),'f');
@@ -32,6 +36,9 @@ test('PostgreSQL festival migrations enforce private access, conditional writes,
  await assert.rejects(sql(`SET ROLE service_role; INSERT INTO fiiu_registrations VALUES(gen_random_uuid(),'fiiu-2026','${person}','fixture@example.test','{}','none',1,now(),now());`),/duplicate key/);
  await assert.rejects(sql(`SET ROLE service_role; UPDATE fiiu_registrations SET answers='[]' WHERE id='${reg}';`),/check constraint/);
  await sql(`SET ROLE service_role; INSERT INTO fiiu_attendance VALUES(gen_random_uuid(),'${reg}','day1-am','${person}',now());`);
+ assert.equal(await sql(`SET ROLE service_role; SELECT method FROM fiiu_attendance WHERE registration_id='${reg}';`),'staff','positional inserts written before check-in methods default to staff');
+ await assert.rejects(sql(`SET ROLE service_role; INSERT INTO fiiu_attendance VALUES(gen_random_uuid(),'${reg}','day2-am','${person}',now(),'x');`),/check constraint/);
+ await assert.rejects(sql(`SET ROLE service_role; UPDATE fiiu_attendance SET method=NULL WHERE registration_id='${reg}';`),/null value/);
  await sql(`DELETE FROM profiles WHERE id='${person}';`);
  assert.equal(await sql('SELECT count(*) FROM fiiu_registrations'),'0');assert.equal(await sql('SELECT count(*) FROM fiiu_attendance'),'0');
  const summaryFunction='public.fiiu_event_summary(text,jsonb)';
@@ -53,7 +60,7 @@ test('PostgreSQL festival migrations enforce private access, conditional writes,
   {id:'route-day5',date:'2026-10-25',registration:'external'},
  ];
  const summary=async(eventId='fiiu-2026')=>JSON.parse(await sql(`SET ROLE service_role; SELECT public.fiiu_event_summary('${eventId}','${JSON.stringify(catalog)}'::jsonb);`));
- const emptySummary={totalRegistrations:0,publicOfficials:0,lab:{pending:0,accepted:0,declined:0},activities:catalog.map(a=>({activityId:a.id,registrations:0,externalInterests:0,attendance:0})),days:[...new Set(catalog.map(a=>a.date))].map(date=>({date,registrations:0,attendance:0})),profiles:[]};
+ const emptySummary={totalRegistrations:0,publicOfficials:0,attendedPeople:0,qrPeople:0,lastCheckInAt:null,lab:{pending:0,accepted:0,declined:0},activities:catalog.map(a=>({activityId:a.id,registrations:0,externalInterests:0,attendance:0,officialAttendance:0})),days:[...new Set(catalog.map(a=>a.date))].map(date=>({date,registrations:0,attendance:0})),profiles:[]};
  assert.deepEqual(await summary(),emptySummary);
  await sql(`INSERT INTO public.profiles SELECT md5('summary-person-'||n)::uuid FROM generate_series(1,205) n;
  INSERT INTO public.fiiu_registrations
@@ -70,17 +77,21 @@ test('PostgreSQL festival migrations enforce private access, conditional writes,
  FROM generate_series(1,205) n;
  INSERT INTO public.fiiu_attendance
  SELECT gen_random_uuid(),md5('summary-registration-'||n)::uuid,activity_id,NULL,now()
- FROM (VALUES (1,'day1-am'),(1,'day1-pm'),(1,'workshop-day1'),(1,'route-day4'),(2,'day1-am'),(2,'route-day4'),(204,'day1-pm')) attendance(n,activity_id);`);
- assert.deepEqual(await summary(),{
-  totalRegistrations:205,publicOfficials:3,lab:{pending:1,accepted:1,declined:1},
+ FROM (VALUES (1,'day1-am'),(1,'day1-pm'),(1,'workshop-day1'),(1,'route-day4'),(2,'day1-am'),(2,'route-day4'),(204,'day1-pm')) attendance(n,activity_id);
+ UPDATE public.fiiu_attendance SET created_at='2026-10-21T13:00:00Z';
+ UPDATE public.fiiu_attendance SET method='qr' WHERE activity_id='day1-am' OR (activity_id='day1-pm' AND registration_id=md5('summary-registration-1')::uuid);
+ UPDATE public.fiiu_attendance SET created_at='2026-10-21T14:05:09.25Z' WHERE activity_id='day1-pm' AND registration_id=md5('summary-registration-204')::uuid;
+ INSERT INTO public.fiiu_attendance VALUES(gen_random_uuid(),md5('summary-registration-3')::uuid,'not-in-catalog',NULL,'2026-10-22T00:00:00Z','qr');`);
+ const expected={
+  totalRegistrations:205,publicOfficials:3,attendedPeople:3,qrPeople:2,lastCheckInAt:'2026-10-21T14:05:09.250Z',lab:{pending:1,accepted:1,declined:1},
   activities:[
-   {activityId:'day0-lab',registrations:3,externalInterests:0,attendance:0},
-   {activityId:'day1-am',registrations:101,externalInterests:0,attendance:2},
-   {activityId:'day1-pm',registrations:101,externalInterests:0,attendance:2},
-   {activityId:'workshop-day1',registrations:0,externalInterests:3,attendance:1},
-   {activityId:'day2-am',registrations:100,externalInterests:0,attendance:0},
-   {activityId:'route-day4',registrations:0,externalInterests:2,attendance:2},
-   {activityId:'route-day5',registrations:0,externalInterests:0,attendance:0},
+   {activityId:'day0-lab',registrations:3,externalInterests:0,attendance:0,officialAttendance:0},
+   {activityId:'day1-am',registrations:101,externalInterests:0,attendance:2,officialAttendance:2},
+   {activityId:'day1-pm',registrations:101,externalInterests:0,attendance:2,officialAttendance:1},
+   {activityId:'workshop-day1',registrations:0,externalInterests:3,attendance:1,officialAttendance:1},
+   {activityId:'day2-am',registrations:100,externalInterests:0,attendance:0,officialAttendance:0},
+   {activityId:'route-day4',registrations:0,externalInterests:2,attendance:2,officialAttendance:2},
+   {activityId:'route-day5',registrations:0,externalInterests:0,attendance:0,officialAttendance:0},
   ],
   days:[
    {date:'2026-10-20',registrations:3,attendance:0},
@@ -90,7 +101,19 @@ test('PostgreSQL festival migrations enforce private access, conditional writes,
    {date:'2026-10-25',registrations:0,attendance:0},
   ],
   profiles:[{profile:'',count:3},{profile:'activist',count:1},{profile:'professional',count:100},{profile:'student',count:101}],
- });
+ };
+ assert.deepEqual(await summary(),expected);
+ // The local SQLite store computes the same figures from the same records.
+ const db=createDatabase({filename:':memory:'}),local=createFiiuStore({db});
+ try{
+  const answersFor=n=>n<=201?{profile:n%2===1?'student':'professional',publicOfficial:n<=3,applyLab:n<=3,activities:n<=101?['day1-am','day1-am','day1-pm']:['day2-am'],externalActivities:n<=2?['workshop-day1','workshop-day1','route-day4']:[]}
+   :n===202?{}:n===203?{profile:'',activities:null,externalActivities:null,publicOfficial:'true',applyLab:'true'}:n===204?{profile:{nested:'student'},activities:{},externalActivities:'workshop-day1'}:{profile:'activist',externalActivities:['workshop-day1','workshop-day1']};
+  for(let n=1;n<=205;n++){const user=createUser(db,{fullName:'Summary fixture',email:`summary-${n}@example.test`,passwordHash:'unused',role:'member'});
+   await local.insert('registrations',{id:`r${n}`,eventId:'fiiu-2026',userId:user.id,email:user.email,answers:answersFor(n),labStatus:['pending','accepted','declined'][n-1]??'none',version:1,createdAt:'2026-09-29T00:00:00Z',updatedAt:'2026-09-29T00:00:00Z'});}
+  for(const [n,activityId,method='staff',createdAt='2026-10-21T13:00:00Z'] of [[1,'day1-am','qr'],[1,'day1-pm','qr'],[1,'workshop-day1'],[1,'route-day4'],[2,'day1-am','qr'],[2,'route-day4'],[204,'day1-pm','staff','2026-10-21T14:05:09.250Z'],[3,'not-in-catalog','qr','2026-10-22T00:00:00Z']])
+   await local.insert('attendance',{id:`a${n}-${activityId}`,registrationId:`r${n}`,activityId,confirmedBy:null,createdAt,method});
+  assert.deepEqual(await local.summary('fiiu-2026',catalog),expected);
+ }finally{db.close();}
  assert.deepEqual(await summary('other-event'),emptySummary,'summary must remain scoped to the requested event');
  assert.equal(await sql(`SELECT count(*) FROM public.fiiu_registrations WHERE id=md5('summary-registration-202')::uuid AND answers='{}'::jsonb`),'1','summaries do not normalize or modify historical records');
 });

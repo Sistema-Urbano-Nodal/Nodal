@@ -1,8 +1,16 @@
 import {randomUUID} from 'node:crypto';
 import {fail,identifier,csv} from './courses-domain.js';
 import {bodyJson} from './courses-api.js';
-import {EVENT_ID,FIIU_EVENT,ALL_FIIU_ACTIVITIES,DEFAULT_CONFIG,normalizeRegistration,applicationStatus,version,normalizeContent,contentView,normalizeConfig} from './fiiu-domain.js';
+import {EVENT_ID,FIIU_EVENT,ALL_FIIU_ACTIVITIES,CHECKIN_ACTIVITIES,DEFAULT_CONFIG,normalizeRegistration,applicationStatus,version,normalizeContent,contentView,normalizeConfig,canAttend,checkinWindow,attendanceHours} from './fiiu-domain.js';
+import {createCheckinCodes} from './fiiu-checkin.js';
+import {packBits} from './qr.js';
 const now=()=>new Date().toISOString();
+const attendanceView=({activityId,createdAt,method})=>({activityId,createdAt,method});
+// CSV check-in times are Lima wall-clock time (UTC-05:00 all year), e.g. '2026-10-21 09:12'.
+const limaTime=value=>{const t=Date.parse(value??'');return Number.isFinite(t)?new Date(t-5*3600000).toISOString().slice(0,16).replace('T',' '):'';};
+// The injected encoder returns {size, modules} (row-major 0/1) or already-packed {size, bits}; the browser receives
+// base64 bits, row-major, most significant bit first.
+const qrView=qr=>typeof qr?.bits==='string'?{size:qr.size,bits:qr.bits}:{size:qr.size,bits:packBits(qr)};
 // Bind an open browser form to the account that loaded it. Ownership is still
 // derived from the session; older clients can omit this additional guard.
 function sameAccount(input,user){if(input.expectedUserId!==undefined&&input.expectedUserId!==user.id)fail('account changed; reload before continuing',409);}
@@ -10,10 +18,24 @@ const body=req=>bodyJson(req,24576);
 export async function exportFiiuData(store,userId){
  const registration=(await store.find('registrations',{eventId:EVENT_ID,userId},{limit:1}))[0]??null;
  const attendance=registration?await store.find('attendance',{registrationId:registration.id}):[];
- return {registration,attendance:attendance.map(({activityId,createdAt})=>({activityId,createdAt}))};
+ return {registration,attendance:attendance.map(attendanceView)};
 }
-export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true}){
+// checkin: {secret, now} for the rotating codes (tests freeze the clock); publicOrigin: the configured site origin (a
+// string or a function of the request) that check-in links point to, never the Host header in production.
+export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin={},encodeQr=null,publicOrigin=()=>fail('public base URL is not configured',503)}){
+ // A link the encoder cannot draw (say, an unusually long configured origin) leaves the screen its typed address and short code.
+ const qrOf=link=>{if(!encodeQr)return null;try{return qrView(encodeQr(link));}catch{return null;}};
  const one=async(name,filters)=>(await store.find(name,filters,{limit:1}))[0]??null;
+ const codes=createCheckinCodes(checkin),clock=codes.now;
+ const originFor=req=>(typeof publicOrigin==='function'?publicOrigin(req):publicOrigin)||fail('public base URL is not configured',503);
+ // One row per person and block, shared by the staff checkbox and the QR check-in. An existing row is kept as it is
+ // (its time and method stay the first confirmation's). The participant may cancel between the registration lookup
+ // and the insert; the store reports that lost parent as 404.
+ async function recordAttendance(registration,activity,{by,method,at=now()}){
+  const filters={registrationId:registration.id,activityId:activity.id};let created=false;
+  if(!await one('attendance',filters)){try{await store.insert('attendance',{id:randomUUID(),...filters,confirmedBy:by,createdAt:at,method});created=true;}catch(err){if(err.status===404)fail('registration unavailable',404);if(err.status!==409||!await one('attendance',filters))throw err;}}
+  return {created,attendance:await store.find('attendance',{registrationId:registration.id})};
+ }
  const config=async()=>{const row=await one('config',{id:EVENT_ID});return {...DEFAULT_CONFIG,...row?.data,version:row?.version??0};};
  const publications=async(url,onlyPublished)=>{
   // kind=materials lists recordings and materials together, with the same newest-first cursor as the other kinds.
@@ -39,7 +61,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true}){
    send(res,200,{event:FIIU_EVENT,config:settings,...page});return true;
   }
   if(path==='/api/fiiu/registration'){
-   if(req.method==='GET'){send(res,200,{...await exportFiiuData(store,user.id),user:{id:user.id,name:user.name,email:user.email,city:user.city},isAdmin:user.permission==='admin'});return true;}
+   if(req.method==='GET'){const data=await exportFiiuData(store,user.id);send(res,200,{...data,hours:attendanceHours(data.attendance),user:{id:user.id,name:user.name,email:user.email,city:user.city},isAdmin:user.permission==='admin'});return true;}
    if(req.method==='PUT'){
     if(!(await config()).registrationOpen)fail('registration is closed',403);
     const input=await body(req);sameAccount(input,user);const expected=version(input.version),answers=normalizeRegistration(input);
@@ -56,6 +78,39 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true}){
     if(existing&&!await store.remove('registrations',{id:existing.id,userId:user.id,version:expected}))fail('registration changed; reload before cancelling',409);
     send(res,200,{ok:true});return true;
    }
+  }
+  if(path==='/api/fiiu/checkin'&&req.method==='POST'){
+   // Self check-in from the session QR (or its 6-character code). Only the lab and the conference blocks qualify.
+   const input=await body(req),t=clock(),reply=(status,payload)=>{send(res,status,payload);return true;};
+   const expired=()=>reply(410,{error:'check-in code expired',code:'expired'});
+   let activity;
+   if(input.activityId===undefined||input.activityId===null||input.activityId===''){activity=codes.find(input.code,CHECKIN_ACTIVITIES)?.activity;if(!activity)return expired();}
+   else{activity=CHECKIN_ACTIVITIES.find(a=>a.id===input.activityId);if(!activity)return reply(400,{error:'invalid activity',code:'invalid_activity'});if(codes.verify(activity.id,input.code)===null)return expired();}
+   const span=checkinWindow(activity),activityId=activity.id;
+   const confirmed=(created,attendance)=>{const row=attendance.find(a=>a.activityId===activityId);return reply(created?201:200,{result:created?'checked_in':'already_checked_in',activityId,checkedInAt:row?.createdAt??null,method:row?.method??null,attendance:attendance.map(attendanceView),hours:attendanceHours(attendance)});};
+   const registrationOpen=async()=>(await config()).registrationOpen;
+   const notRegistered=async()=>reply(404,{error:'registration unavailable',code:'not_registered',activityId,registrationOpen:await registrationOpen()});
+   const registration=await one('registrations',{eventId:EVENT_ID,userId:user.id});
+   // A repeat scan keeps the first confirmation whatever changed since: the window may have closed, the block may have
+   // left the plan, or an edited laboratory application may be back under review. The valid screen code is still required.
+   if(registration&&await one('attendance',{registrationId:registration.id,activityId}))return confirmed(false,await store.find('attendance',{registrationId:registration.id}));
+   // The server judges the time; serverTime tells the page which side of the window it fell on, whatever the phone's clock says.
+   if(t<Date.parse(span.opensAt)||t>Date.parse(span.closesAt))return reply(409,{error:'check-in is closed for this activity',code:'outside_window',activityId,...span,serverTime:new Date(t).toISOString()});
+   if(!registration)return notRegistered();
+   if(!canAttend(registration,activity))return reply(403,{error:'participant is not registered for this activity',code:activity.registration==='application'&&registration.answers?.applyLab===true?'lab_not_accepted':'not_in_plan',activityId,registrationOpen:await registrationOpen()});
+   let result;try{result=await recordAttendance(registration,activity,{by:user.id,method:'qr',at:new Date(t).toISOString()});}catch(err){if(err.status===404)return notRegistered();throw err;}
+   return confirmed(result.created,result.attendance);
+  }
+  if(path==='/api/admin/fiiu/checkin'&&read){
+   // The presenter screen: the current code and link, never participant data. Polled every 30 seconds per screen,
+   // so the count is a single counted query rather than the full summary.
+   const activity=CHECKIN_ACTIVITIES.find(a=>a.id===url.searchParams.get('activityId'));
+   if(!activity){send(res,400,{error:'invalid activity',code:'invalid_activity'});return true;}
+   const current=codes.current(activity.id),span=checkinWindow(activity),t=clock();
+   const link=`${originFor(req)}/fiiu-checkin.html?a=${encodeURIComponent(activity.id)}&c=${current.code}`;
+   send(res,200,{activityId:activity.id,url:link,code:current.code,shortCode:current.shortCode,rotatesAt:current.rotatesAt,validUntil:current.validUntil,serverTime:new Date(t).toISOString(),
+    window:{...span,open:t>=Date.parse(span.opensAt)&&t<=Date.parse(span.closesAt)},checkedIn:await store.count('attendance',{activityId:activity.id}),qr:qrOf(link)});
+   return true;
   }
   if(path==='/api/admin/fiiu/config'){
    if(req.method==='GET'){send(res,200,{config:await config()});return true;}
@@ -74,15 +129,26 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true}){
    send(res,200,{registrations,nextCursor:registrations.length===100?registrations.at(-1).id:null});return true;
   }
   if(path==='/api/admin/fiiu/export'&&req.method==='GET'){
-   const rows=[['registrationId','email','firstName','lastName','country','city','profile','publicOfficial','activities','externalActivities','labStatus','institution','position','nationalId','gender','age','accessibility','accessibilityOther','motivation','motivationOther','previousAttendance','registeredAt']];let after;
+   // Attendance columns follow the registration columns, so existing spreadsheets keep their column positions:
+   // what each person attended, certificate minutes and rounded hours, how each block was confirmed, and one Lima
+   // check-in time per NODAL block.
+   const blocks=CHECKIN_ACTIVITIES.map(a=>a.id);
+   const rows=[['registrationId','email','firstName','lastName','country','city','profile','publicOfficial','activities','externalActivities','labStatus','institution','position','nationalId','gender','age','accessibility','accessibilityOther','motivation','motivationOther','previousAttendance','registeredAt','attendedActivities','attendedDays','attendedMinutes','certificateHours','checkInMethods',...blocks.map(id=>`checkInLima_${id}`)]];let after;
    const list=value=>Array.isArray(value)?value.join('; '):'';
-   do{const page=await store.find('registrations',{eventId:EVENT_ID},{after});for(const r of page){const a=r.answers;rows.push([r.id,r.email,a.firstName,a.lastName,a.country,a.city,a.profile,a.publicOfficial,list(a.activities),list(a.externalActivities),r.labStatus,a.institution,a.position,a.nationalId,a.gender,a.age,list(a.accessibility),a.accessibilityOther,a.motivation,a.motivationOther,a.previousAttendance,r.createdAt]);}after=page.length===200?page.at(-1).id:null;}while(after);
+   const attended=new Map(),order=id=>{const i=ALL_FIIU_ACTIVITIES.findIndex(a=>a.id===id);return i<0?ALL_FIIU_ACTIVITIES.length:i;};
+   do{const page=await store.find('attendance',{},{after});for(const row of page)attended.set(row.registrationId,[...(attended.get(row.registrationId)??[]),row]);after=page.length===200?page.at(-1).id:null;}while(after);
+   do{const page=await store.find('registrations',{eventId:EVENT_ID},{after});for(const r of page){
+    const a=r.answers,done=(attended.get(r.id)??[]).sort((x,y)=>order(x.activityId)-order(y.activityId)||(x.activityId<y.activityId?-1:1)),hours=attendanceHours(done),byId=new Map(done.map(x=>[x.activityId,x]));
+    const days=[...new Set(done.map(x=>ALL_FIIU_ACTIVITIES.find(y=>y.id===x.activityId)?.date).filter(Boolean))].sort();
+    rows.push([r.id,r.email,a.firstName,a.lastName,a.country,a.city,a.profile,a.publicOfficial,list(a.activities),list(a.externalActivities),r.labStatus,a.institution,a.position,a.nationalId,a.gender,a.age,list(a.accessibility),a.accessibilityOther,a.motivation,a.motivationOther,a.previousAttendance,r.createdAt,
+     list(done.map(x=>x.activityId)),list(days),hours.minutes,hours.hours,list(done.map(x=>`${x.activityId}:${x.method??'staff'}`)),...blocks.map(id=>limaTime(byId.get(id)?.createdAt))]);
+   }after=page.length===200?page.at(-1).id:null;}while(after);
    send(res,200,csv(rows),{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="fiiu-2026-registrations.csv"'});return true;
   }
   let match=path.match(/^\/api\/admin\/fiiu\/registrations\/([^/]+)(\/attendance)?$/);
   if(match){
    const registration=await one('registrations',{id:identifier(match[1]),eventId:EVENT_ID});if(!registration)fail('registration unavailable',404);
-   if(!match[2]&&req.method==='GET'){send(res,200,{registration,attendance:await store.find('attendance',{registrationId:registration.id})});return true;}
+   if(!match[2]&&req.method==='GET'){const attendance=await store.find('attendance',{registrationId:registration.id});send(res,200,{registration,attendance,hours:attendanceHours(attendance)});return true;}
    if(!match[2]&&req.method==='PATCH'){
     const input=await body(req),expected=version(input.version);
     if(!registration.answers.publicOfficial||!registration.answers.applyLab||!['pending','accepted','declined'].includes(input.labStatus))fail('invalid laboratory review');
@@ -92,12 +158,11 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true}){
    if(match[2]&&req.method==='PUT'){
     const input=await body(req),activity=ALL_FIIU_ACTIVITIES.find(a=>a.id===input.activityId);
     if(!activity||typeof input.attended!=='boolean')fail('invalid attendance');
-    if(input.attended&&((activity.registration==='general'&&!registration.answers.activities.includes(activity.id))||(activity.registration==='application'&&registration.labStatus!=='accepted')))fail('participant is not registered for this activity');
-    // The participant may cancel between the registration lookup and the insert; the store reports that lost parent as 404.
-    const filters={registrationId:registration.id,activityId:activity.id};
-    if(!input.attended)await store.remove('attendance',filters);
-    else if(!await one('attendance',filters)){try{await store.insert('attendance',{id:randomUUID(),...filters,confirmedBy:user.id,createdAt:now()});}catch(err){if(err.status===404)fail('registration unavailable',404);if(err.status!==409||!await one('attendance',filters))throw err;}}
-    send(res,200,{attendance:await store.find('attendance',{registrationId:registration.id})});return true;
+    if(input.attended&&!canAttend(registration,activity))fail('participant is not registered for this activity');
+    // Unticking removes the row whichever way it was recorded, so staff can correct a QR check-in.
+    if(!input.attended)await store.remove('attendance',{registrationId:registration.id,activityId:activity.id});
+    const attendance=input.attended?(await recordAttendance(registration,activity,{by:user.id,method:'staff'})).attendance:await store.find('attendance',{registrationId:registration.id});
+    send(res,200,{attendance,hours:attendanceHours(attendance)});return true;
    }
   }
   if(path==='/api/admin/fiiu/content'){

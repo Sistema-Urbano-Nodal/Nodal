@@ -12,9 +12,11 @@ CREATE INDEX IF NOT EXISTS fiiu_registration_user ON fiiu_registrations(user_id)
 CREATE INDEX IF NOT EXISTS fiiu_registration_page ON fiiu_registrations(event_id,id);
 CREATE TABLE IF NOT EXISTS fiiu_attendance (
  id TEXT PRIMARY KEY,registration_id TEXT NOT NULL REFERENCES fiiu_registrations(id) ON DELETE CASCADE,
- activity_id TEXT NOT NULL,confirmed_by TEXT REFERENCES users(id) ON DELETE SET NULL,created_at TEXT NOT NULL,UNIQUE(registration_id,activity_id)
+ activity_id TEXT NOT NULL,confirmed_by TEXT REFERENCES users(id) ON DELETE SET NULL,created_at TEXT NOT NULL,
+ method TEXT NOT NULL DEFAULT 'staff' CHECK(method IN ('staff','qr')),UNIQUE(registration_id,activity_id)
 );
 CREATE INDEX IF NOT EXISTS fiiu_attendance_confirmer ON fiiu_attendance(confirmed_by);
+CREATE INDEX IF NOT EXISTS fiiu_attendance_activity ON fiiu_attendance(activity_id);
 CREATE TABLE IF NOT EXISTS fiiu_config (id TEXT PRIMARY KEY,data TEXT NOT NULL,version INTEGER NOT NULL CHECK(version>0));
 CREATE TABLE IF NOT EXISTS fiiu_content (
  id TEXT PRIMARY KEY,event_id TEXT NOT NULL,data TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('draft','published','archived')),
@@ -25,7 +27,8 @@ CREATE INDEX IF NOT EXISTS fiiu_content_recent ON fiiu_content(event_id,created_
 `;
 const TABLES={
  registrations:{name:'fiiu_registrations',fields:['id','eventId','userId','email','answers','labStatus','version','createdAt','updatedAt'],json:['answers']},
- attendance:{name:'fiiu_attendance',fields:['id','registrationId','activityId','confirmedBy','createdAt'],json:[]},
+ // The Supabase adapter selects every listed field, so a new field ships only after its migration is applied.
+ attendance:{name:'fiiu_attendance',fields:['id','registrationId','activityId','confirmedBy','createdAt','method'],json:[]},
  config:{name:'fiiu_config',fields:['id','data','version'],json:['data']},
  content:{name:'fiiu_content',fields:['id','eventId','data','status','version','createdAt','updatedAt'],json:['data']},
 };
@@ -37,8 +40,16 @@ const to=(table,record,sqlite)=>Object.fromEntries(Object.entries(checked(table,
 const conflict=err=>{if(err.code==='23505'||/UNIQUE constraint/.test(err.message))fail('record changed; reload before saving',409);if(err.code==='23503'||/FOREIGN KEY constraint/.test(err.message))fail('related record unavailable',404);throw err;};
 // 'materials' is the public page's combined list of recordings and materials.
 const KINDS={news:['news'],recording:['recording'],material:['material'],materials:['recording','material']};
+const optionalCounts=result=>['attendedPeople','qrPeople'].every(k=>result[k]===undefined||Number.isSafeInteger(result[k]))&&(result.lastCheckInAt===undefined||result.lastCheckInAt===null||typeof result.lastCheckInAt==='string');
 export function createFiiuStore({db,env=process.env,clients,fetchImpl=fetch}={}){
- if(db)db.exec(FIIU_SQLITE_SCHEMA);
+ if(db){
+  db.exec(FIIU_SQLITE_SCHEMA);
+  // CREATE TABLE IF NOT EXISTS does not upgrade a local database made before check-in methods existed. Another local
+  // connection may add the column first; that duplicate is the only error tolerated.
+  if(!db.prepare('PRAGMA table_info(fiiu_attendance)').all().some(c=>c.name==='method')){
+   try{db.exec("ALTER TABLE fiiu_attendance ADD COLUMN method TEXT NOT NULL DEFAULT 'staff' CHECK(method IN ('staff','qr'))");}catch(err){if(!/duplicate column/i.test(err.message))throw err;}
+  }
+ }
  const supa=db?null:clients??createSupabaseClients({env,fetchImpl:(url,args)=>fetchImpl(url,{...args,signal:AbortSignal.timeout(15000)})});
  function where(table,filters,after){
   checked(table,filters);const entries=Object.entries(filters),params=entries.map(([,v])=>v);
@@ -52,7 +63,9 @@ export function createFiiuStore({db,env=process.env,clients,fetchImpl=fetch}={})
    const catalog=activities.map(({id,date,registration})=>({id,date,registration}));
    if(!db){
     const result=await supa.admin.rest('rpc/fiiu_event_summary',{method:'POST',body:{p_event_id:eventId,p_activities:catalog}});
-    if(!result||typeof result!=='object'||!Number.isSafeInteger(result.totalRegistrations)||!Array.isArray(result.activities)||!Array.isArray(result.days)||!Array.isArray(result.profiles))fail('festival summary unavailable',502);
+    // attendedPeople, qrPeople, lastCheckInAt and activities[].officialAttendance arrive with the check-in migration;
+    // until it is applied they are absent, and clients treat them as optional.
+    if(!result||typeof result!=='object'||!Number.isSafeInteger(result.totalRegistrations)||!Array.isArray(result.activities)||!Array.isArray(result.days)||!Array.isArray(result.profiles)||!optionalCounts(result))fail('festival summary unavailable',502);
     return result;
    }
    const rows=db.prepare(`WITH
@@ -65,19 +78,26 @@ export function createFiiuStore({db,env=process.env,clients,fetchImpl=fetch}={})
     ), valid_selections AS (
      SELECT DISTINCT s.id,s.activity_id,s.kind FROM selections s JOIN catalog c ON c.activity_id=s.activity_id
      WHERE s.registration=c.registration
-    ), attended AS (SELECT a.registration_id AS id,a.activity_id FROM fiiu_attendance a JOIN r ON r.id=a.registration_id)
+    ), attended AS (SELECT a.registration_id AS id,a.activity_id,a.method,json_type(r.answers,'$.publicOfficial')='true' AS official FROM fiiu_attendance a JOIN r ON r.id=a.registration_id WHERE a.activity_id IN (SELECT activity_id FROM catalog))
     SELECT 'total' AS metric,'' AS key,count(*) AS n FROM r
     UNION ALL SELECT 'official','',count(*) FROM r WHERE json_type(answers,'$.publicOfficial')='true'
     UNION ALL SELECT 'lab',lab_status,count(*) FROM r WHERE lab_status IN ('pending','accepted','declined') GROUP BY lab_status
     UNION ALL SELECT 'profile',CASE WHEN json_type(answers,'$.profile')='text' THEN json_extract(answers,'$.profile') ELSE '' END,count(*) FROM r GROUP BY 2
     UNION ALL SELECT kind,activity_id,count(DISTINCT id) FROM valid_selections GROUP BY kind,activity_id
     UNION ALL SELECT 'attendance',activity_id,count(DISTINCT id) FROM attended GROUP BY activity_id
+    UNION ALL SELECT 'official-attendance',activity_id,count(DISTINCT id) FROM attended WHERE official GROUP BY activity_id
+    UNION ALL SELECT 'attended-people','',count(DISTINCT id) FROM attended
+    UNION ALL SELECT 'qr','',count(DISTINCT id) FROM attended WHERE method='qr'
     UNION ALL SELECT 'day-registration',c.date,count(DISTINCT s.id) FROM valid_selections s JOIN catalog c ON c.activity_id=s.activity_id GROUP BY c.date
     UNION ALL SELECT 'day-attendance',c.date,count(DISTINCT a.id) FROM attended a JOIN catalog c ON c.activity_id=a.activity_id GROUP BY c.date
    `).all(eventId,JSON.stringify(catalog));
    const count=(metric,key='')=>rows.find(row=>row.metric===metric&&row.key===key)?.n??0;
-   return {totalRegistrations:count('total'),publicOfficials:count('official'),lab:{pending:count('lab','pending'),accepted:count('lab','accepted'),declined:count('lab','declined')},
-    activities:catalog.map(({id})=>({activityId:id,registrations:count('registration',id),externalInterests:count('interest',id),attendance:count('attendance',id)})),
+   const last=db.prepare(`SELECT a.created_at FROM fiiu_attendance a JOIN fiiu_registrations r ON r.id=a.registration_id
+    WHERE r.event_id=? AND a.activity_id IN (SELECT json_extract(value,'$.id') FROM json_each(?)) ORDER BY julianday(a.created_at) DESC LIMIT 1`).get(eventId,JSON.stringify(catalog))?.created_at;
+   const lastAt=Date.parse(last??'');
+   return {totalRegistrations:count('total'),publicOfficials:count('official'),attendedPeople:count('attended-people'),qrPeople:count('qr'),lastCheckInAt:Number.isFinite(lastAt)?new Date(lastAt).toISOString():null,
+    lab:{pending:count('lab','pending'),accepted:count('lab','accepted'),declined:count('lab','declined')},
+    activities:catalog.map(({id})=>({activityId:id,registrations:count('registration',id),externalInterests:count('interest',id),attendance:count('attendance',id),officialAttendance:count('official-attendance',id)})),
     days:[...new Set(catalog.map(a=>a.date))].sort().map(date=>({date,registrations:count('day-registration',date),attendance:count('day-attendance',date)})),
     profiles:rows.filter(row=>row.metric==='profile').map(row=>({profile:row.key,count:row.n})).sort((a,b)=>a.profile<b.profile?-1:a.profile>b.profile?1:0),
    };
@@ -105,6 +125,13 @@ export function createFiiuStore({db,env=process.env,clients,fetchImpl=fetch}={})
     cursor=keyset(page.rows.at(-1).id,page.rows.at(-1).created_at);
    }
    return rows.map(row=>from(table,row));
+  },
+  // A cheap total for polling screens (the check-in QR): never downloads the rows. PostgREST answers one id with the
+  // exact count in Content-Range.
+  async count(name,filters={}){const table=info(name);checked(table,filters);
+   if(db){const w=where(table,filters);return db.prepare(`SELECT count(*) AS n FROM ${table.name}${w.sql}`).get(...w.params).n;}
+   const page=await supa.admin.rest(table.name,{query:{select:'id',limit:1,...Object.fromEntries(Object.entries(filters).map(([k,v])=>[snake(k),`eq.${v}`]))},includeRange:true,headers:{Prefer:'count=exact'}});
+   const total=Number(page?.contentRange?.split('/')[1]);if(!Array.isArray(page?.rows)||!Number.isSafeInteger(total))fail('festival data unavailable',502);return total;
   },
   async insert(name,record){const table=info(name),row=to(table,record,!!db),keys=Object.keys(row);try{
    if(db)return from(table,db.prepare(`INSERT INTO ${table.name} (${keys.join(',')}) VALUES (${keys.map(()=>'?').join(',')}) RETURNING *`).get(...Object.values(row)));

@@ -242,6 +242,8 @@ test('service-role Data API migration grants only the repository operations and 
     assert.deepEqual(effectiveServicePrivileges(sql, 'table', table), privileges, table);
   }
   assert.deepEqual(effectiveServicePrivileges(sql, 'sequence', 'public.member_interactions_id_seq'), ['select', 'usage']);
+  // NODAL news is the one table the desk hard-deletes; it gets exactly the four repository operations.
+  assert.deepEqual(effectiveServicePrivileges(sql, 'table', 'public.nodal_news'), ['delete', 'insert', 'select', 'update']);
   for (const table of ['public.organizations', 'public.organization_memberships', 'public.stripe_events']) {
     assert.deepEqual(effectiveServicePrivileges(sql, 'table', table), [], `${table} must not be exposed to service_role through PostgREST`);
   }
@@ -310,25 +312,31 @@ test('Supabase Data API smoke exercises reads, constrained inserts, updates, and
 });
 
 test('changed one-hour-cached clients use new URLs on every consuming page', () => {
-  const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'course.html', 'courses.html', 'teaching.html', 'fiiu.html', 'fiiu-admin.html', 'community.html', 'knowledge.html', 'resources.html']
+  const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'course.html', 'courses.html', 'teaching.html', 'accept-invitation.html', 'fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'organisers-only.html', 'community.html', 'knowledge.html', 'resources.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
+  const pilot = { 'pilot-i18n.js': '20261001a', 'pilot.js': '20261001a' };
+  const festival = { 'fiiu.css': '20261001c', 'fiiu-ui.js': '20261001c' };
   const required = {
-    'index.html': { 'styles.css': '28', 'i18n.js': '20260930a', 'app.js': '18', 'recs.js': '4', 'script.js': '18', 'hero-network.js': '2' },
-    'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20260930a', 'catalog.js': '6' },
-    'dashboard.html': { 'i18n.js': '20260930a', 'fiiu.css': '20260930e', 'fiiu-ui.js': '20260930c', 'fiiu-hubs.js': '20260930c', 'dashboard.js': '20260911b', 'globe.js': '28', 'location-check.js': '20260908b' },
-    'login.html': { 'i18n.js': '20260930a', 'auth.js': '20260930a' },
-    'reset-password.html': { 'password-recovery.js': '20260930a' },
-    'payments.html': { 'i18n.js': '20260930a' },
-    'profile.html': { 'i18n.js': '20260930a', 'profile.js': '20260911c', 'styles.css': '28' },
-    'admin.html': { 'admin.css': '2', 'admin.js': '3' },
-    'course.html': { 'i18n.js': '20260930a' },
-    'courses.html': { 'i18n.js': '20260930a', 'courses.css': '20260930a' },
-    'teaching.html': { 'i18n.js': '20260930a', 'courses.css': '20260930a' },
-    'fiiu.html': { 'styles.css': '28', 'i18n.js': '20260930a', 'fiiu.css': '20260930e', 'fiiu-ui.js': '20260930c', 'fiiu.js': '20260930e' },
-    'fiiu-admin.html': { 'styles.css': '28', 'i18n.js': '20260930a', 'fiiu.css': '20260930e', 'fiiu-ui.js': '20260930c', 'fiiu-admin.js': '20260930c' },
-    'community.html': { 'styles.css': '28', 'script.js': '18', 'i18n.js': '20260930a', 'fiiu.css': '20260930e', 'fiiu-ui.js': '20260930c', 'fiiu-hubs.js': '20260930c' },
-    'knowledge.html': { 'styles.css': '28', 'script.js': '18', 'i18n.js': '20260930a', 'fiiu.css': '20260930e', 'fiiu-ui.js': '20260930c', 'fiiu-hubs.js': '20260930c' },
-    'resources.html': { 'styles.css': '28', 'script.js': '18', 'i18n.js': '20260930a', 'fiiu.css': '20260930e', 'fiiu-ui.js': '20260930c', 'fiiu-hubs.js': '20260930c' },
+    'index.html': { 'styles.css': '29', 'i18n.js': '20261001b', 'app.js': '20', 'recs.js': '4', 'script.js': '18', 'hero-network.js': '2' },
+    'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20261001b', 'catalog.js': '6', ...pilot },
+    'dashboard.html': { 'i18n.js': '20261001b', ...festival, 'fiiu-hubs.js': '20261001a', 'news-feed.js': '20261001b', 'dashboard.js': '20261001a', 'dashboard.css': '37', 'globe.js': '28', 'location-check.js': '20260908b', ...pilot },
+    'login.html': { 'i18n.js': '20261001b', 'auth.js': '20260930a', ...pilot },
+    'reset-password.html': { 'i18n.js': '20261001b', 'password-recovery.js': '20260930a' },
+    'payments.html': { 'i18n.js': '20261001b', ...pilot },
+    'profile.html': { 'i18n.js': '20261001b', 'profile.js': '20260911c', 'styles.css': '29', ...pilot },
+    'admin.html': { 'admin.css': '4', 'admin.js': '5', 'i18n.js': '20261001b', 'locale.css': '20260929a', 'locale.js': '20260918b', ...pilot },
+    'course.html': { 'i18n.js': '20261001b', 'courses.js': '20261001a', ...pilot },
+    'courses.html': { 'i18n.js': '20261001b', 'courses.css': '20260930a', 'courses.js': '20261001a', ...pilot },
+    'teaching.html': { 'i18n.js': '20261001b', 'courses.css': '20260930a', 'teaching.js': '20261001a', ...pilot },
+    'accept-invitation.html': { 'accept-invitation.js': '20261001a', 'invitation-i18n.js': '20261001a' },
+    'fiiu.html': { 'styles.css': '29', 'i18n.js': '20261001b', ...festival, 'fiiu.js': '20261001a' },
+    'fiiu-admin.html': { 'styles.css': '29', 'i18n.js': '20261001b', ...festival, 'fiiu-admin.js': '20261001c' },
+    'fiiu-qr.html': { 'i18n.js': '20261001b', ...festival, 'fiiu-qr.js': '20261001b' },
+    'fiiu-checkin.html': { 'i18n.js': '20261001b', ...festival, 'fiiu-checkin.js': '20261001c' },
+    'organisers-only.html': { 'i18n.js': '20261001b', ...festival },
+    'community.html': { 'styles.css': '29', 'script.js': '18', 'i18n.js': '20261001b', ...festival, 'fiiu-hubs.js': '20261001a', 'news-feed.js': '20261001b' },
+    'knowledge.html': { 'styles.css': '29', 'script.js': '18', 'i18n.js': '20261001b', ...festival, 'fiiu-hubs.js': '20261001a' },
+    'resources.html': { 'styles.css': '29', 'script.js': '18', 'i18n.js': '20261001b', ...festival, 'fiiu-hubs.js': '20261001a' },
   };
   for (const [page, assets] of Object.entries(required)) {
     for (const [asset, version] of Object.entries(assets)) {
@@ -583,7 +591,44 @@ test('protected catalog administration crosses every serving and build boundary'
   const page = vercel.headers.find((route) => new RegExp(`^${route.source}$`).test('/admin.html'));
   assert.ok(page, 'admin page needs an explicit cache and security policy');
   assert.ok(page.headers.some((header) => header.key === 'Cache-Control' && header.value === 'no-store'));
-  assert.match(serverSource, /\['\/admin\.html','\/teaching\.html','\/fiiu-admin\.html'\]\.includes\(canonical\)[\s\S]*administrator access required/);
+  assert.match(serverSource, /\['\/admin\.html','\/teaching\.html','\/fiiu-admin\.html','\/fiiu-qr\.html'\]\.includes\(canonical\)[\s\S]*administrator access required/);
+});
+
+test('festival organiser and check-in pages cross every serving and build boundary', () => {
+  const serverSource = readFileSync(path.join(ROOT, 'server', 'server.js'), 'utf8');
+  const buildSource = readFileSync(path.join(ROOT, 'scripts', 'build-static.js'), 'utf8');
+  const vercel = JSON.parse(readFileSync(path.join(ROOT, 'vercel.json'), 'utf8'));
+  const list = (source, name) => source.match(new RegExp(`const ${name} = (?:new Set\\()?\\[([^\\]]*)\\]`))?.[1] || '';
+
+  for (const page of ['fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'organisers-only.html']) {
+    assert.ok(existsSync(path.join(ROOT, 'web', 'pages', page)), `${page} is missing`);
+    assert.ok(list(serverSource, 'STATIC_PAGES').includes(`'${page}'`), `${page}: server.js STATIC_PAGES`);
+    assert.ok(list(buildSource, 'SERVER_PAGES').includes(`'${page}'`), `${page}: build-static.js SERVER_PAGES`);
+    assert.ok(!list(buildSource, 'STATIC_PAGES').includes(`'${page}'`),
+      `${page} must never be copied to public, where Vercel filesystem routing would bypass server authorization`);
+    const route = vercel.headers.find((r) => new RegExp(`^${r.source}$`).test(`/${page}`));
+    assert.ok(route?.headers.some((h) => h.key === 'Cache-Control' && h.value === 'no-store'), `${page}: no-store`);
+    assert.ok(route?.headers.some((h) => h.key === 'X-Robots-Tag' && /noindex/.test(h.value)), `${page}: noindex`);
+  }
+  // Signed-out visitors of organiser pages are sent to sign-in; members never reach organiser HTML.
+  for (const page of ['/fiiu-admin.html', '/fiiu-qr.html']) {
+    assert.ok(list(serverSource, 'PRIVATE_PAGES').includes(`'${page}'`), `${page}: PRIVATE_PAGES`);
+  }
+  // The check-in page loads signed out, so a scan explains itself before asking for sign-in (its API needs a session).
+  for (const page of ['/organisers-only.html', '/fiiu-checkin.html']) assert.ok(!list(serverSource, 'PRIVATE_PAGES').includes(`'${page}'`), page);
+  assert.match(serverSource, /const ORGANISER_PAGES = new Set\(\['\/fiiu-admin\.html', '\/fiiu-qr\.html'\]\)/);
+  assert.match(serverSource, /ORGANISER_PAGES\.has\(canonical\)[^\n]*serveStatic\(req, res, '\/organisers-only\.html', pilotMode, \{ status: 403 \}\)/);
+  assert.match(serverSource, /safeNext\(canonical \+ url\.search\)/);
+  for (const script of ['fiiu-checkin.js', 'fiiu-qr.js', 'news-feed.js']) {
+    assert.ok(existsSync(path.join(ROOT, 'web', 'scripts', script)), `${script} is missing`);
+    assert.ok(list(serverSource, 'STATIC_SCRIPTS').includes(`'${script}'`), `${script}: server.js STATIC_SCRIPTS`);
+    assert.ok(buildSource.includes(`'${script}'`), `${script}: build-static.js`);
+    assert.ok(vercel.headers.some((r) => new RegExp(`^${r.source}$`).test(`/${script}`)), `${script}: vercel.json headers`);
+  }
+  // The organisers-only page is served in place of organiser pages, so it must carry no organiser script or data.
+  const blocked = readFileSync(path.join(ROOT, 'web', 'pages', 'organisers-only.html'), 'utf8');
+  assert.match(blocked, /data-fiiu-text="organisersOnly"/);
+  assert.doesNotMatch(blocked, /fiiu-admin\.js|fiiu-qr\.js|\/api\/admin/);
 });
 
 test('pilot pages stay behind authentication while course assets are delivered statically',()=>{

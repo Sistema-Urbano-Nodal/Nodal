@@ -6,13 +6,15 @@ import {createSession} from '../server/auth.js';
 import {createApp} from '../server/server.js';
 import {createFiiuStore} from '../server/fiiu-repository.js';
 import {FIIU_EVENT,applicationStatus} from '../server/fiiu-domain.js';
+import {createCheckinCodes} from '../server/fiiu-checkin.js';
+import {encodeQr,packBits} from '../server/qr.js';
 
 const answers={firstName:'Ana',lastName:'Test',country:'Perú',city:'Lima',profile:'professional',publicOfficial:false,activities:['day1-am'],externalActivities:[],nationalId:'TEST-ID',gender:'prefer_not',age:30,accessibility:['none'],motivation:'learn',previousAttendance:'no',privacyAccepted:true};
-async function setup(t,wrapStore=store=>store){
+async function setup(t,wrapStore=store=>store,options={}){
  const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
  const cookies={},users={};
  for(const name of ['member','other','admin']){users[name]=createUser(db,{fullName:name,email:`${name}@example.test`,passwordHash:'unused',role:name==='admin'?'admin':'member'});cookies[name]=createSession(db,users[name].id).cookie.split(';')[0];}
- const server=createApp({db,fiiuStore:wrapStore(createFiiuStore({db}))});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
+ const server=createApp({db,fiiuStore:wrapStore(createFiiuStore({db})),...options});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
  const base=`http://127.0.0.1:${server.address().port}`;
  const call=(path,{actor='member',method='GET',body,origin=base}={})=>fetch(base+path,{method,redirect:'manual',headers:{...(cookies[actor]?{Cookie:cookies[actor]}:{}),Origin:origin,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
  const save=(body=answers,actor='member')=>call('/api/fiiu/registration',{actor,method:'PUT',body:{version:0,...body}});
@@ -41,6 +43,47 @@ test('festival is discoverable before login, but registrations and admin data ar
  assert.equal((await call('/fiiu-admin.html',{actor:'guest'})).status,302);
  assert.equal((await call('/fiiu-admin.html')).status,403);
  assert.equal((await call('/fiiu-admin.html',{actor:'admin'})).status,200);
+});
+
+test('organiser pages send guests to sign-in and show members an organisers-only page with no organiser data or script',async t=>{
+ const {call}=await setup(t);
+ for(const [page,next] of [['/fiiu-qr.html?a=day1-am','%2Ffiiu-qr.html%3Fa%3Dday1-am'],['/fiiu-admin.html#content','%2Ffiiu-admin.html']]){
+  const guest=await call(page,{actor:'guest'});assert.equal(guest.status,302,page);assert.equal(guest.headers.get('location'),`/login.html?next=${next}`);
+ }
+ for(const page of ['/fiiu-qr.html','/fiiu-qr.html?a=day1-am','/fiiu-admin.html']){
+  const member=await call(page);assert.equal(member.status,403,page);
+  assert.match(member.headers.get('content-type'),/^text\/html/);assert.equal(member.headers.get('cache-control'),'no-store');
+  assert.match(member.headers.get('content-security-policy')||'',/script-src 'self'/);
+  const html=await member.text();
+  assert.match(html,/data-fiiu-text="organisersOnly"/);
+  assert.doesNotMatch(html,/fiiu-admin\.js|fiiu-qr\.js|\/api\/admin|example\.test/,page);
+ }
+ const head=await call('/fiiu-qr.html',{method:'HEAD'});assert.equal(head.status,403);assert.equal(await head.text(),'');
+ // Non-page methods and the other staff pages keep the JSON refusal.
+ const post=await call('/fiiu-admin.html',{method:'POST',body:{}});assert.equal(post.status,403);assert.deepEqual(await post.json(),{error:'administrator access required'});
+ for(const page of ['/admin.html','/teaching.html']){const r=await call(page);assert.equal(r.status,403,page);assert.deepEqual(await r.json(),{error:'administrator access required'});}
+ for(const [page,script] of [['/fiiu-qr.html?a=day1-am','fiiu-qr.js'],['/fiiu-admin.html','fiiu-admin.js']]){
+  const admin=await call(page,{actor:'admin'});assert.equal(admin.status,200,page);assert.match(await admin.text(),new RegExp(`src="${script.replace('.','\\.')}\\?v=`));
+ }
+ // The explanation page itself is harmless static HTML.
+ assert.equal((await call('/organisers-only.html',{actor:'guest'})).status,200);
+});
+
+test('a scanned check-in link opens the check-in page for everyone, and its sign-in link comes back with the block and the code',async t=>{
+ const {call}=await setup(t);
+ const page='/fiiu-checkin.html?a=day1-am&c=x';
+ // Signed out, the page itself loads (it says "Sign in to check in" for this session) instead of a generic sign-in.
+ for(const actor of ['guest','member','admin']){
+  const response=await call(page,{actor});assert.equal(response.status,200,actor);assert.equal(response.headers.get('cache-control'),'no-store');
+  assert.match(await response.text(),/src="fiiu-checkin\.js\?v=/);
+ }
+ assert.equal((await call('/fiiu-checkin.html',{actor:'guest'})).status,200,'the code form loads signed out too');
+ // The page's sign-in link: login sends a signed-in visitor straight back to the same block and code.
+ const back=await call('/login.html?next='+encodeURIComponent(page));assert.equal(back.status,302,'a signed-in visitor of the login page is sent on');
+ assert.equal(back.headers.get('location'),page);
+ // The check-in itself still needs an account.
+ const anonymous=await call('/api/fiiu/checkin',{actor:'guest',method:'POST',body:{activityId:'day1-am',code:'x'.repeat(22)}});
+ assert.equal(anonymous.status,401);
 });
 
 test('registration persists privately, updates by version, and cannot grant acceptance or badges',async t=>{
@@ -115,11 +158,14 @@ test('only staff can confirm eligible attendance and badges are separate from pr
  assert.equal((await call(route,{method:'PUT',body:{activityId:'day1-am',attended:true}})).status,403);
  assert.equal((await call(route,{actor:'admin',method:'PUT',body:{activityId:'day2-am',attended:true}})).status,400);
  assert.equal((await call(route,{actor:'admin',method:'PUT',body:{activityId:'day0-lab',attended:true}})).status,400);
- assert.equal((await call(route,{actor:'admin',method:'PUT',body:{activityId:'day1-am',attended:true}})).status,200);
+ const confirmed=await call(route,{actor:'admin',method:'PUT',body:{activityId:'day1-am',attended:true}});assert.equal(confirmed.status,200);
+ assert.deepEqual((await confirmed.json()).hours,{minutes:240,hours:4,untimed:[]});
  assert.equal((await call(route,{actor:'admin',method:'PUT',body:{activityId:'day1-am',attended:true}})).status,200);
  let me=await(await call('/api/fiiu/registration')).json();assert.equal(me.attendance.length,1);assert.equal(me.attendance[0].activityId,'day1-am');
+ assert.equal(me.attendance[0].method,'staff');assert.deepEqual(me.hours,{minutes:240,hours:4,untimed:[]});
+ const detail=await(await call(`/api/admin/fiiu/registrations/${registration.id}`,{actor:'admin'})).json();assert.equal(detail.attendance[0].method,'staff');assert.equal(detail.hours.hours,4);
  assert.equal((await call(route,{actor:'admin',method:'PUT',body:{activityId:'day1-am',attended:false}})).status,200);
- me=await(await call('/api/fiiu/registration')).json();assert.deepEqual(me.attendance,[]);
+ me=await(await call('/api/fiiu/registration')).json();assert.deepEqual(me.attendance,[]);assert.deepEqual(me.hours,{minutes:0,hours:0,untimed:[]});
 });
 
 test('published news and safe external links are managed by staff; drafts stay private',async t=>{
@@ -233,15 +279,17 @@ test('organizer summary covers every registration, distinguishes interests and c
  for(let i=0;i<205;i++){
   const user=createUser(db,{fullName:'Summary fixture',email:`summary-${i}@example.test`,passwordHash:'unused',role:'member'});
   const r=await store.insert('registrations',{id:`20000000-0000-4000-8000-${String(i).padStart(12,'0')}`,eventId:'fiiu-2026',userId:user.id,email:user.email,answers:{...answers,activities:['day1-am','day1-pm'],externalActivities:i<10?['workshop-espacios-comunidad','route-lima-cromatica']:[],publicOfficial:i<3,applyLab:i<3,profile:i<5?'student':'professional'},labStatus:i===0?'pending':i===1?'accepted':i===2?'declined':'none',version:1,createdAt:'2026-09-29T00:00:00Z',updatedAt:'2026-09-29T00:00:00Z'});
-  if(i<2)for(const activityId of ['day1-am','workshop-espacios-comunidad'])await store.insert('attendance',{id:crypto.randomUUID(),registrationId:r.id,activityId,confirmedBy:null,createdAt:'2026-09-29T00:00:00Z'});
+  if(i<2)for(const activityId of ['day1-am','workshop-espacios-comunidad'])await store.insert('attendance',{id:crypto.randomUUID(),registrationId:r.id,activityId,confirmedBy:null,createdAt:i===1&&activityId==='day1-am'?'2026-10-21T14:12:30.500Z':'2026-10-21T14:00:00Z',method:i===0?'qr':'staff'});
  }
  assert.equal((await call('/api/admin/fiiu/summary',{actor:'guest'})).status,401);
  assert.equal((await call('/api/admin/fiiu/summary')).status,403);
  const response=await call('/api/admin/fiiu/summary',{actor:'admin'});assert.equal(response.status,200);
  const body=await response.json(),s=body.summary;
  assert.equal(s.totalRegistrations,205);assert.equal(s.publicOfficials,3);assert.deepEqual(s.lab,{pending:1,accepted:1,declined:1});
- assert.deepEqual(s.activities.find(a=>a.activityId==='day1-am'),{activityId:'day1-am',registrations:205,externalInterests:0,attendance:2});
- assert.deepEqual(s.activities.find(a=>a.activityId==='workshop-espacios-comunidad'),{activityId:'workshop-espacios-comunidad',registrations:0,externalInterests:10,attendance:2});
+ assert.deepEqual([s.attendedPeople,s.qrPeople,s.lastCheckInAt],[2,1,'2026-10-21T14:12:30.500Z'],'one person with two QR check-ins counts once');
+ assert.deepEqual(s.activities.find(a=>a.activityId==='day1-am'),{activityId:'day1-am',registrations:205,externalInterests:0,attendance:2,officialAttendance:2});
+ assert.deepEqual(s.activities.find(a=>a.activityId==='day1-pm'),{activityId:'day1-pm',registrations:205,externalInterests:0,attendance:0,officialAttendance:0});
+ assert.deepEqual(s.activities.find(a=>a.activityId==='workshop-espacios-comunidad'),{activityId:'workshop-espacios-comunidad',registrations:0,externalInterests:10,attendance:2,officialAttendance:2});
  assert.deepEqual(s.days.find(d=>d.date==='2026-10-21'),{date:'2026-10-21',registrations:205,attendance:2});
  assert.deepEqual(s.days.find(d=>d.date==='2026-10-25'),{date:'2026-10-25',registrations:10,attendance:0});
  assert.deepEqual(s.profiles,[{profile:'professional',count:200},{profile:'student',count:5}]);
@@ -257,9 +305,14 @@ test('summary tolerates incomplete historical answers and does not double-count 
  const summary=await store.summary('fiiu-2026',catalog);
  assert.equal(summary.totalRegistrations,2);assert.equal(summary.publicOfficials,0);assert.deepEqual(summary.profiles,[{profile:'',count:2}]);
  assert.equal(summary.activities.find(a=>a.activityId==='day0-lab').registrations,0);
- assert.deepEqual(summary.activities.find(a=>a.activityId==='workshop-day1'),{activityId:'workshop-day1',registrations:0,externalInterests:1,attendance:1});
+ assert.deepEqual(summary.activities.find(a=>a.activityId==='workshop-day1'),{activityId:'workshop-day1',registrations:0,externalInterests:1,attendance:1,officialAttendance:0},'a string "true" is not a public official');
  assert.deepEqual(summary.days.find(d=>d.date==='2026-10-21'),{date:'2026-10-21',registrations:1,attendance:1});
- const empty=await store.summary('different-event',catalog);assert.equal(empty.totalRegistrations,0);assert.ok(empty.activities.every(a=>a.registrations+a.externalInterests+a.attendance===0));
+ assert.deepEqual([summary.attendedPeople,summary.qrPeople,summary.lastCheckInAt],[1,0,'2026-09-29T00:00:00.000Z']);
+ // Attendance outside the catalogue (an activity since removed) counts nowhere.
+ await store.insert('attendance',{id:crypto.randomUUID(),registrationId:r.id,activityId:'removed-activity',confirmedBy:null,createdAt:'2026-10-30T00:00:00Z',method:'qr'});
+ const again=await store.summary('fiiu-2026',catalog);assert.deepEqual([again.attendedPeople,again.qrPeople,again.lastCheckInAt],[1,0,'2026-09-29T00:00:00.000Z']);
+ const empty=await store.summary('different-event',catalog);assert.equal(empty.totalRegistrations,0);assert.ok(empty.activities.every(a=>a.registrations+a.externalInterests+a.attendance+a.officialAttendance===0));
+ assert.deepEqual([empty.attendedPeople,empty.qrPeople,empty.lastCheckInAt],[0,0,null]);
 });
 
 test('door check-in has its own per-account budget and never locks the other festival writes',async t=>{
@@ -270,6 +323,11 @@ test('door check-in has its own per-account budget and never locks the other fes
  const news={title:'Doors open',body:'',status:'draft',kind:'news',url:'',activityId:''};
  for(let i=0;i<30;i++){const response=await call('/api/admin/fiiu/content',{actor:'admin',method:'POST',body:news});assert.equal(response.status,201,`write ${i+1}`);await response.arrayBuffer();}
  assert.equal((await call('/api/admin/fiiu/content',{actor:'admin',method:'POST',body:news})).status,429,'reviews, settings and publications keep their 30 per minute');
+ // Attendee scans: 20 a minute per account, without spending the registration or organiser budgets.
+ for(let i=0;i<20;i++){const response=await call('/api/fiiu/checkin',{method:'POST',body:{activityId:'day1-am',code:'x'.repeat(22)}});assert.equal(response.status,410,`scan ${i+1}`);await response.arrayBuffer();}
+ assert.equal((await call('/api/fiiu/checkin',{method:'POST',body:{activityId:'day1-am',code:'x'.repeat(22)}})).status,429);
+ assert.equal((await call('/api/fiiu/checkin',{actor:'other',method:'POST',body:{activityId:'day1-am',code:'x'.repeat(22)}})).status,410,'the budget is per account');
+ assert.equal((await save({...answers,registrationId:registration.id,version:1,city:'Callao'})).status,200,'scans never block a registration edit');
 });
 
 test('completing a blank national ID keeps a laboratory decision while a changed ID reopens review',async t=>{
@@ -369,4 +427,186 @@ test('kind=materials pages recordings and materials together, newest first, and 
   assert.deepEqual(ids,expected,route);assert.equal(pages,2);
  }
  for(const kind of ['materials,news','Materials'])assert.equal((await call('/api/fiiu?kind='+encodeURIComponent(kind))).status,400);
+});
+
+// Frozen festival clock and fixed secret: the codes the screen would show are computed in the test.
+const SECRET='fiiu-test-checkin-secret-0123456789';
+function festivalClock(iso){const clock={at:Date.parse(iso),set(value){clock.at=Date.parse(value);}};const codes=createCheckinCodes({secret:SECRET,now:()=>clock.at});return {clock,codes,options:{fiiuCheckin:{secret:SECRET,now:()=>clock.at}}};}
+const scan=(call,body,actor='member')=>call('/api/fiiu/checkin',{actor,method:'POST',body});
+
+test('attendees check themselves in with the session QR once, only inside its Lima window and only for blocks in their plan',async t=>{
+ const {clock,codes,options}=festivalClock('2026-10-21T14:00:00Z');// 09:00 in Lima
+ const {call,save,db,users}=await setup(t,undefined,options);
+ const code=()=>codes.current('day1-am').code;
+ assert.equal((await scan(call,{activityId:'day1-am',code:code()},'guest')).status,401);
+ assert.equal((await call('/api/fiiu/checkin',{method:'POST',body:{activityId:'day1-am',code:code()},origin:'https://elsewhere.test'})).status,403);
+ let response=await scan(call,{activityId:'day1-am',code:code()});assert.equal(response.status,404);
+ assert.deepEqual(await response.json(),{error:'registration unavailable',code:'not_registered',activityId:'day1-am',registrationOpen:true});
+ const {registration}=await(await save()).json();
+ // Input checks run before the registration lookup; a second account keeps the member's 20-a-minute scan budget.
+ for(const activityId of ['unknown','workshop-espacios-comunidad','route-lima-cromatica','workshop-day1',42]){
+  response=await scan(call,{activityId,code:code()},'other');assert.equal(response.status,400,String(activityId));assert.equal((await response.json()).code,'invalid_activity');
+ }
+ for(const wrong of ['x'.repeat(22),codes.current('day1-pm').code,'','ABCDEF',null,undefined,{}]){
+  response=await scan(call,{activityId:'day1-am',code:wrong},'other');assert.equal(response.status,410,JSON.stringify(wrong));assert.equal((await response.json()).code,'expired');
+ }
+ // A code from six minutes ago has expired; one from four minutes ago still works (checked below).
+ const old=code();clock.set('2026-10-21T14:06:00Z');assert.equal((await scan(call,{activityId:'day1-am',code:old})).status,410);
+ for(const at of ['2026-10-21T13:29:00Z','2026-10-21T18:31:00Z']){// 08:29 and 13:31 in Lima
+  clock.set(at);response=await scan(call,{activityId:'day1-am',code:code()});assert.equal(response.status,409,at);
+  assert.deepEqual(await response.json(),{error:'check-in is closed for this activity',code:'outside_window',activityId:'day1-am',opensAt:'2026-10-21T13:30:00.000Z',closesAt:'2026-10-21T18:30:00.000Z',serverTime:new Date(at).toISOString()},'the server says when it judged the scan, so the page never relies on the phone clock');
+ }
+ clock.set('2026-10-22T00:00:00Z');// 19:00 in Lima: day1-pm is not in this plan
+ response=await scan(call,{activityId:'day1-pm',code:codes.current('day1-pm').code});assert.equal(response.status,403);
+ assert.deepEqual(await response.json(),{error:'participant is not registered for this activity',code:'not_in_plan',activityId:'day1-pm',registrationOpen:true});
+ clock.set('2026-10-21T14:10:00Z');const issued=code();clock.set('2026-10-21T14:14:00Z');
+ response=await scan(call,{activityId:'day1-am',code:issued});assert.equal(response.status,201);
+ const first=await response.json();
+ assert.deepEqual(first,{result:'checked_in',activityId:'day1-am',checkedInAt:'2026-10-21T14:14:00.000Z',method:'qr',attendance:[{activityId:'day1-am',createdAt:'2026-10-21T14:14:00.000Z',method:'qr'}],hours:{minutes:240,hours:4,untimed:[]}});
+ assert.deepEqual({...db.prepare('SELECT confirmed_by,method FROM fiiu_attendance').get()},{confirmed_by:users.member.id,method:'qr'});
+ clock.set('2026-10-21T14:20:00Z');response=await scan(call,{activityId:'day1-am',code:code()});assert.equal(response.status,200);
+ const second=await response.json();assert.equal(second.result,'already_checked_in');assert.equal(second.checkedInAt,first.checkedInAt);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_attendance').get().n,1);
+ const me=await(await call('/api/fiiu/registration')).json();
+ assert.deepEqual(me.attendance,[{activityId:'day1-am',createdAt:'2026-10-21T14:14:00.000Z',method:'qr'}]);assert.deepEqual(me.hours,{minutes:240,hours:4,untimed:[]});
+ // Staff can still correct a QR check-in; the typed 6-character code then works without the activity id.
+ assert.equal((await call(`/api/admin/fiiu/registrations/${registration.id}/attendance`,{actor:'admin',method:'PUT',body:{activityId:'day1-am',attended:false}})).status,200);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_attendance').get().n,0);
+ const short=codes.current('day1-am').shortCode;
+ response=await scan(call,{code:`${short.slice(0,3).toLowerCase()}-${short.slice(3)}`});assert.equal(response.status,201);assert.equal((await response.json()).activityId,'day1-am');
+ assert.equal((await scan(call,{code:'ZZZZZZ'})).status,410);
+});
+
+test('a repeat scan keeps the first confirmation after the window closes, the block leaves the plan or a laboratory application goes back to review',async t=>{
+ const {clock,codes,options}=festivalClock('2026-10-21T14:10:00Z');// 09:10 in Lima
+ const {call,save,db}=await setup(t,undefined,options);
+ const {registration}=await(await save()).json();
+ let response=await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code});assert.equal(response.status,201);
+ const first=await response.json(),kept={result:'already_checked_in',activityId:'day1-am',checkedInAt:'2026-10-21T14:10:00.000Z',method:'qr',attendance:first.attendance,hours:{minutes:240,hours:4,untimed:[]}};
+ // 13:35 in Lima, after the 13:30 close: a fresh code from the screen, which keeps drawing one, still confirms the stored check-in.
+ clock.set('2026-10-21T18:35:00Z');response=await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code});
+ assert.equal(response.status,200);assert.deepEqual(await response.json(),kept);
+ // The typed short code names the block too.
+ response=await scan(call,{code:codes.current('day1-am').shortCode});assert.equal(response.status,200);assert.deepEqual(await response.json(),kept);
+ // An expired code is still refused: the stored row is only shown to someone holding a valid screen code.
+ const old=codes.current('day1-am').code;clock.set('2026-10-21T18:45:00Z');assert.equal((await scan(call,{activityId:'day1-am',code:old})).status,410);
+ // The block leaves the plan after the check-in.
+ clock.set('2026-10-21T14:30:00Z');
+ assert.equal((await save({...answers,activities:['day1-pm'],version:registration.version,registrationId:registration.id})).status,200);
+ response=await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code});assert.equal(response.status,200);assert.deepEqual(await response.json(),kept);
+ // Someone else, never checked in, still gets the window refusal for the same block.
+ const {registration:other}=await(await save(answers,'other')).json();clock.set('2026-10-21T18:35:00Z');assert.equal((await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code},'other')).status,409);
+ // The laboratory: accepted, checked in, then an identity edit puts the application back under review.
+ clock.set('2026-10-20T15:00:00Z');
+ const {registration:lab}=await(await save({...answers,publicOfficial:true,applyLab:true,institution:'Municipality',position:'Planner',version:other.version,registrationId:other.id},'other')).json();
+ assert.equal((await call(`/api/admin/fiiu/registrations/${lab.id}`,{actor:'admin',method:'PATCH',body:{version:lab.version,labStatus:'accepted'}})).status,200);
+ assert.equal((await scan(call,{activityId:'day0-lab',code:codes.current('day0-lab').code},'other')).status,201);
+ const accepted=(await(await call('/api/fiiu/registration',{actor:'other'})).json()).registration;
+ const edited=await(await save({...accepted.answers,institution:'Another municipality',version:accepted.version,registrationId:accepted.id},'other')).json();
+ assert.equal(edited.registration.labStatus,'pending');
+ response=await scan(call,{activityId:'day0-lab',code:codes.current('day0-lab').code},'other');assert.equal(response.status,200);
+ assert.deepEqual([(await response.json()).result],['already_checked_in']);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_attendance').get().n,2,'no repeat scan writes a row');
+});
+
+test('the laboratory check-in needs an accepted application and adds no hours until its duration is known',async t=>{
+ const {clock,codes,options}=festivalClock('2026-10-20T15:00:00Z');
+ const {call,save}=await setup(t,undefined,options);
+ const lab={...answers,activities:['day1-am'],publicOfficial:true,applyLab:true,institution:'Municipality',position:'Planner'};
+ const {registration}=await(await save(lab)).json();assert.equal(registration.labStatus,'pending');
+ const code=()=>codes.current('day0-lab').code;
+ let response=await scan(call,{activityId:'day0-lab',code:code()});assert.equal(response.status,403);assert.equal((await response.json()).code,'lab_not_accepted');
+ await save(answers,'other');response=await scan(call,{activityId:'day0-lab',code:code()},'other');assert.equal(response.status,403);assert.equal((await response.json()).code,'not_in_plan');
+ assert.equal((await call(`/api/admin/fiiu/registrations/${registration.id}`,{actor:'admin',method:'PATCH',body:{version:1,labStatus:'accepted'}})).status,200);
+ // Untimed: the whole Lima day of 20 October.
+ clock.set('2026-10-21T05:00:01Z');response=await scan(call,{activityId:'day0-lab',code:code()});assert.equal(response.status,409);
+ assert.deepEqual([(await response.json()).opensAt],['2026-10-20T05:00:00.000Z']);
+ clock.set('2026-10-20T05:00:00Z');response=await scan(call,{activityId:'day0-lab',code:code()});assert.equal(response.status,201);
+ assert.deepEqual((await response.json()).hours,{minutes:0,hours:0,untimed:['day0-lab']});
+});
+
+test('a QR check-in racing the participant cancellation answers not registered and writes nothing',async t=>{
+ let cancel=false;const {codes,options}=festivalClock('2026-10-21T14:00:00Z');
+ const {call,save,db}=await setup(t,store=>({...store,async find(name,filters,findOptions){
+  const rows=await store.find(name,filters,findOptions);
+  if(cancel&&name==='attendance'&&filters.activityId){cancel=false;await store.remove('registrations',{id:filters.registrationId});}
+  return rows;
+ }}),options);
+ await save();cancel=true;
+ const response=await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code});
+ assert.equal(response.status,404);assert.deepEqual(await response.json(),{error:'registration unavailable',code:'not_registered',activityId:'day1-am',registrationOpen:true});
+ assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_attendance').get().n,0);
+});
+
+test('the organiser check-in screen gets a rotating link on the public origin, the window and a count, never participant data',async t=>{
+ const {clock,codes,options}=festivalClock('2026-10-21T14:00:30Z');
+ const keys=['PUBLIC_BASE_URL','NEXT_PUBLIC_APP_URL','VERCEL_URL'],saved=Object.fromEntries(keys.map(k=>[k,process.env[k]]));
+ t.after(()=>{for(const k of keys){if(saved[k]===undefined)delete process.env[k];else process.env[k]=saved[k];}});
+ for(const k of keys)delete process.env[k];process.env.PUBLIC_BASE_URL='https://nodal.example';
+ const encoded=[];
+ const {call,save}=await setup(t,undefined,{...options,encodeQr:text=>{encoded.push(text);return {size:3,modules:Uint8Array.from([1,0,0,0,1,0,0,0,1])};}});
+ const route='/api/admin/fiiu/checkin?activityId=day1-am';
+ assert.equal((await call(route,{actor:'guest'})).status,401);
+ assert.equal((await call(route)).status,403);
+ for(const id of ['','unknown','workshop-espacios-comunidad','workshop-day1'])assert.equal((await call('/api/admin/fiiu/checkin?activityId='+id,{actor:'admin'})).status,400,id);
+ await save();await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code});
+ const response=await call(route,{actor:'admin'});assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'no-store');
+ const body=await response.json(),url=new URL(body.url);
+ assert.equal(url.origin,'https://nodal.example','never the request Host');assert.equal(url.pathname,'/fiiu-checkin.html');
+ assert.equal(url.searchParams.get('a'),'day1-am');assert.equal(url.searchParams.get('c'),body.code);assert.notEqual(codes.verify('day1-am',body.code),null);
+ assert.match(body.shortCode,/^[2-9A-HJ-NP-RT-Y]{6}$/);assert.notEqual(codes.verify('day1-am',body.shortCode),null);
+ assert.deepEqual({rotatesAt:body.rotatesAt,validUntil:body.validUntil,serverTime:body.serverTime,window:body.window,checkedIn:body.checkedIn,qr:body.qr},
+  {rotatesAt:'2026-10-21T14:01:00.000Z',validUntil:'2026-10-21T14:05:00.000Z',serverTime:'2026-10-21T14:00:30.000Z',window:{opensAt:'2026-10-21T13:30:00.000Z',closesAt:'2026-10-21T18:30:00.000Z',open:true},checkedIn:1,qr:{size:3,bits:'iIA='}});
+ assert.deepEqual(encoded,[body.url]);
+ assert.doesNotMatch(JSON.stringify(body),/member|example\.test|Ana|TEST-ID/);
+ clock.set('2026-10-21T14:01:00Z');const next=await(await call(route,{actor:'admin'})).json();
+ assert.notEqual(next.code,body.code,'the code rotates every minute');assert.notEqual(codes.verify('day1-am',body.code),null,'the previous code stays valid for a few minutes');
+ clock.set('2026-10-22T03:00:00Z');assert.equal((await(await call('/api/admin/fiiu/checkin?activityId=day1-pm',{actor:'admin'})).json()).window.open,false);
+ // Outside production, a server without a configured origin links to itself.
+ delete process.env.PUBLIC_BASE_URL;const local=await(await call(route,{actor:'admin'})).json();assert.match(local.url,/^http:\/\/127\.0\.0\.1:\d+\/fiiu-checkin\.html\?a=day1-am&c=/);
+});
+
+test('without an encoder the check-in screen gets qr null, and FIIU_CHECKIN_NOW moves only a local SQLite clock',async t=>{
+ const saved=process.env.FIIU_CHECKIN_NOW;t.after(()=>{if(saved===undefined)delete process.env.FIIU_CHECKIN_NOW;else process.env.FIIU_CHECKIN_NOW=saved;});
+ process.env.FIIU_CHECKIN_NOW='2026-10-21T09:15:00-05:00';
+ const {call,save}=await setup(t,undefined,{encodeQr:null});
+ const screen=await(await call('/api/admin/fiiu/checkin?activityId=day1-am',{actor:'admin'})).json();
+ assert.equal(screen.qr,null);assert.equal(screen.window.open,true);
+ assert.ok(Math.abs(Date.parse(screen.serverTime)-Date.parse('2026-10-21T14:15:00Z'))<60000,screen.serverTime);
+ await save();const response=await scan(call,{activityId:'day1-am',code:screen.code});assert.equal(response.status,201);
+ assert.ok((await response.json()).checkedInAt.startsWith('2026-10-21T14:1'),'check-in times follow the rehearsal clock');
+});
+
+test('an encoder that cannot draw the link leaves the check-in screen working with qr null',async t=>{
+ const {options}=festivalClock('2026-10-21T14:00:30Z');
+ const {call}=await setup(t,undefined,{...options,encodeQr:()=>{throw new RangeError('QR text is 300 bytes');}});
+ const response=await call('/api/admin/fiiu/checkin?activityId=day1-am',{actor:'admin'});assert.equal(response.status,200);
+ const body=await response.json();assert.equal(body.qr,null);assert.match(body.shortCode,/^[2-9A-HJ-NP-RT-Y]{6}$/);assert.ok(body.url);
+});
+
+test('by default the check-in screen carries the real QR of its link, packed row-major',async t=>{
+ const {options}=festivalClock('2026-10-21T14:00:30Z');
+ const {call}=await setup(t,undefined,options);
+ const body=await(await call('/api/admin/fiiu/checkin?activityId=day1-am',{actor:'admin'})).json();
+ const qr=encodeQr(body.url);
+ assert.equal(body.qr.size,qr.size);assert.equal((qr.size-17)%4,0);
+ assert.equal(body.qr.bits,packBits(qr));assert.equal(Buffer.from(body.qr.bits,'base64').length,Math.ceil(qr.size*qr.size/8));
+});
+
+test('the staff export appends attendance, certificate hours, methods and Lima check-in times per NODAL block',async t=>{
+ const {codes,options}=festivalClock('2026-10-21T14:12:00Z');// 09:12 in Lima
+ const {call,save}=await setup(t,undefined,options);
+ const {registration}=await(await save({...answers,activities:['day1-am','day2-am']})).json();await save(answers,'other');
+ assert.equal((await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code})).status,201);
+ assert.equal((await call(`/api/admin/fiiu/registrations/${registration.id}/attendance`,{actor:'admin',method:'PUT',body:{activityId:'day2-am',attended:true}})).status,200);
+ const text=(await(await call('/api/admin/fiiu/export',{actor:'admin'})).text()).replace(/^﻿/,'');
+ const [header,...rows]=text.split('\r\n').map(line=>line.slice(1,-1).split('","'));
+ const blocks=['day0-lab','day1-am','day1-pm','day2-am','day2-pm','day3-am'];
+ assert.deepEqual(header.slice(22),['attendedActivities','attendedDays','attendedMinutes','certificateHours','checkInMethods',...blocks.map(id=>`checkInLima_${id}`)]);
+ assert.equal(header.length,33);assert.ok(rows.every(row=>row.length===33));
+ const field=(row,name)=>row[header.indexOf(name)],mine=rows.find(row=>row[0]===registration.id),theirs=rows.find(row=>row[0]!==registration.id);
+ assert.deepEqual(['attendedActivities','attendedDays','attendedMinutes','certificateHours','checkInMethods','checkInLima_day1-am','checkInLima_day1-pm'].map(name=>field(mine,name)),
+  ['day1-am; day2-am','2026-10-21; 2026-10-22','480','8','day1-am:qr; day2-am:staff','2026-10-21 09:12','']);
+ assert.match(field(mine,'checkInLima_day2-am'),/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+ assert.deepEqual(['attendedActivities','attendedMinutes','certificateHours','checkInLima_day1-am'].map(name=>field(theirs,name)),['','0','0','']);
 });
