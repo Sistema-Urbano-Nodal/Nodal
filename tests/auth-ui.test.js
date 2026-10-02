@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 const source=readFileSync(new URL('../web/scripts/auth.js',import.meta.url),'utf8');
-function harness(reply=async()=>({ok:true,status:200,data:{user:{id:'u1'}}}),search=''){
+function harness(reply=async()=>({ok:true,status:200,data:{user:{id:'u1'}}}),search='',storage=null,hash=''){
  const nodes={},listeners=[],requests=[];let assigned='',timeout;
  for(const id of ['loginForm','signupForm','loginError','signupError','loginEmail','loginPassword','signupName','signupEmail','signupPassword'])nodes[id]={id,value:'',textContent:'',hidden:true,listeners:{},dataset:{},setAttribute(k,v){this[k]=v;},removeAttribute(k){delete this[k];},addEventListener(k,f){this.listeners[k]=f;},focus(){this.focused=true;}};
  for(const id of ['loginForm','signupForm']){nodes[id].button={disabled:true,textContent:'',dataset:{},setAttribute(k,v){this[k]=v;}};nodes[id].querySelector=()=>nodes[id].button;}
- const context={document:{getElementById:id=>nodes[id]},URL,URLSearchParams,Error,window:{nodalI18n:{lang:'en',onChange:f=>listeners.push(f)}},location:{origin:'https://nodal.test',search,assign:path=>assigned=path},AbortSignal:{timeout:ms=>{timeout=ms;return{timeout:ms};}},fetch:async(path,options)=>{requests.push({path,options,body:JSON.parse(options.body)});const result=await reply(path,options);return{ok:result.ok,status:result.status,json:async()=>{if(result.jsonError)throw result.jsonError;return result.data;}};}};
+ const context={document:{getElementById:id=>nodes[id]},URL,URLSearchParams,Error,window:{nodalI18n:{lang:'en',onChange:f=>listeners.push(f)}},location:{origin:'https://nodal.test',pathname:'/login.html',search,hash,assign:path=>assigned=path},history:{calls:[],replaceState(state,title,url){this.calls.push(url);}},...(storage?{localStorage:storage}:{}),AbortSignal:{timeout:ms=>{timeout=ms;return{timeout:ms};}},fetch:async(path,options)=>{requests.push({path,options,body:JSON.parse(options.body)});const result=await reply(path,options);return{ok:result.ok,status:result.status,json:async()=>{if(result.jsonError)throw result.jsonError;return result.data;}};}};
  vm.createContext(context);vm.runInContext(source,context);
  const submit=id=>nodes[id].listeners.submit({preventDefault(){}});
  const valid=()=>{nodes.loginEmail.value='member@example.test';nodes.loginPassword.value='password123';nodes.signupName.value='Test Member';nodes.signupEmail.value='new@example.test';nodes.signupPassword.value='newpassword123';};
@@ -48,7 +48,7 @@ test('pending submissions ignore duplicate submit and busy labels follow languag
  let resolve;const h=harness(()=>new Promise(r=>{resolve=r;}));h.valid();const first=h.submit('loginForm');await h.submit('loginForm');assert.equal(h.requests.length,1);assert.equal(h.nodes.loginForm['aria-busy'],'true');h.lang('pt');assert.equal(h.nodes.loginForm.button.textContent,'Entrando…');resolve({ok:false,status:429,data:{error:'too many authentication attempts'}});await first;assert.equal(h.nodes.loginForm.button.disabled,false);assert.equal(h.nodes.loginForm.button.textContent,'Entrar');assert.match(h.nodes.loginError.textContent,/Muitas tentativas/);
 });
 test('return-path guards retain same-origin navigation and reject external and malformed destinations',async()=>{
- for(const next of ['https://attacker.test','//attacker.test','/\\attacker.test','/\nattacker.test']){const h=harness(undefined,'?next='+encodeURIComponent(next));h.valid();await h.submit('loginForm');assert.equal(h.assigned(),'/dashboard.html');}
+ for(const next of ['https://attacker.test','//attacker.test','/\\attacker.test','/\nattacker.test','/.//attacker.test/x','/%2e//attacker.test','/x/..//attacker.test','/..//attacker.test','/./%2e/.//attacker.test']){const h=harness(undefined,'?next='+encodeURIComponent(next));h.valid();await h.submit('loginForm');assert.equal(h.assigned(),'/dashboard.html');}
 });
 test('email-confirmation requirement maps separately from forbidden requests',async()=>{
  const h=harness(async()=>({ok:false,status:403,data:{error:'Confirm your email before signing in.'}}));h.valid();h.lang('pt');await h.submit('loginForm');assert.match(h.nodes.loginError.textContent,/Confirme seu e-mail/);assert.equal(h.assigned(),'');
@@ -92,4 +92,50 @@ test('real API status variants map to specific feedback and malformed success ne
 });
 test('sign-in and signup still send their request where AbortSignal has no timeout (Safari before 16, every iOS 15 browser)',async()=>{
  for(const form of ['loginForm','signupForm']){const h=harness();h.context.AbortSignal={};h.valid();await h.submit(form);assert.equal(h.requests.length,1,form);assert.equal(h.requests[0].options.signal,undefined);assert.match(h.assigned(),/^\/[a-z]+\.html$/,'the account opens as usual');}
+});
+
+// A tiny localStorage: the login page remembers where a sign-in should return to.
+const memoryStorage=(entries={})=>({data:{...entries},getItem(k){return k in this.data?this.data[k]:null;},setItem(k,v){this.data[k]=String(v);},removeItem(k){delete this.data[k];}});
+test('a sign-in without a destination opens the member console, not the course pilot',async()=>{
+ const h=harness();h.valid();await h.submit('loginForm');assert.equal(h.assigned(),'/dashboard.html');
+});
+test('a destination survives a detour through password recovery or email confirmation on the same device',async()=>{
+ const storage=memoryStorage(),checkin='/fiiu-checkin.html?a=day0-lab&c=AbCdEfGhIjKlMnOpQrStUv';
+ // The scan opens sign-in with its own return; the person goes to "Forgot password?" instead of signing in.
+ harness(undefined,'?next='+encodeURIComponent(checkin),storage);
+ // Back from the email link, sign-in opens without a next and still returns to the check-in, once.
+ // The one-minute screen code is not kept: back at the check-in, the page shows the confirmation or asks for the code.
+ const back=harness(undefined,'',storage);back.valid();await back.submit('loginForm');assert.equal(back.assigned(),'/fiiu-checkin.html?a=day0-lab');
+ assert.equal(storage.getItem('nodal.returnTo'),null,'a used return is forgotten');
+ const later=harness(undefined,'',storage);later.valid();await later.submit('loginForm');assert.equal(later.assigned(),'/dashboard.html');
+});
+test('a remembered destination is ignored when it is old, foreign or malformed, and an explicit next always wins',async()=>{
+ const old=JSON.stringify({path:'/fiiu-checkin.html?a=day0-lab',at:Date.now()-31*60000});
+ for(const value of [old,JSON.stringify({path:'https://attacker.test/x',at:Date.now()}),JSON.stringify({path:'//attacker.test',at:Date.now()}),'not json']){
+  const h=harness(undefined,'',memoryStorage({'nodal.returnTo':value}));h.valid();await h.submit('loginForm');assert.equal(h.assigned(),'/dashboard.html',value);
+ }
+ const fresh=memoryStorage({'nodal.returnTo':JSON.stringify({path:'/fiiu-checkin.html?a=day0-lab',at:Date.now()})});
+ const h=harness(undefined,'?next=%2Fopportunities.html',fresh);h.valid();await h.submit('loginForm');assert.equal(h.assigned(),'/opportunities.html');
+ // Storage that throws (private mode, blocked site data) never blocks sign-in.
+ const broken={getItem(){throw Error('blocked');},setItem(){throw Error('blocked');},removeItem(){throw Error('blocked');}};
+ const b=harness(undefined,'?next=%2Ffiiu.html',broken);b.valid();await b.submit('loginForm');assert.equal(b.assigned(),'/fiiu.html');
+});
+test('a remembered check-in never carries its one-minute code, so a later sign-in cannot check anyone in by itself',async()=>{
+ const storage=memoryStorage(),checkin='/fiiu-checkin.html?a=day0-lab&c=AbCdEfGhIjKlMnOpQrStUv';
+ const first=harness(undefined,'?next='+encodeURIComponent(checkin),storage);first.valid();
+ assert.equal(JSON.parse(storage.getItem('nodal.returnTo')).path,'/fiiu-checkin.html?a=day0-lab');
+ await first.submit('loginForm');assert.equal(first.assigned(),checkin,'signing in straight away still finishes the scan');
+ storage.setItem('nodal.returnTo',JSON.stringify({path:checkin,at:Date.now()}));
+ const later=harness(undefined,'',storage);later.valid();await later.submit('loginForm');assert.equal(later.assigned(),'/fiiu-checkin.html?a=day0-lab');
+});
+test('a remembered destination stamped in the future is ignored, so a wrong phone clock cannot keep it alive',async()=>{
+ for(const at of [Date.now()+5*60000,'soon',null]){
+  const h=harness(undefined,'',memoryStorage({'nodal.returnTo':JSON.stringify({path:'/fiiu.html',at})}));h.valid();await h.submit('loginForm');assert.equal(h.assigned(),'/dashboard.html',String(at));
+ }
+});
+test('a confirmation link’s session tokens are removed from the address bar at once, and other pages keep their address',()=>{
+ for(const hash of ['#access_token=a.b.c&refresh_token=r&type=signup','#error=access_denied&error_code=otp_expired']){
+  const h=harness(undefined,'?next=%2Ffiiu.html',null,hash);assert.deepEqual(h.context.history.calls,['/login.html?next=%2Ffiiu.html'],hash);
+ }
+ assert.deepEqual(harness(undefined,'',null,'#signup').context.history.calls,[]);
 });

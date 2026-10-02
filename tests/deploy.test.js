@@ -320,7 +320,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     'index.html': { 'styles.css': '29', 'i18n.js': '20261001b', 'app.js': '20', 'recs.js': '4', 'script.js': '18', 'hero-network.js': '2' },
     'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20261001b', 'catalog.js': '6', ...pilot },
     'dashboard.html': { 'i18n.js': '20261001b', ...festival, 'fiiu-hubs.js': '20261001a', 'news-feed.js': '20261001b', 'dashboard.js': '20261001a', 'dashboard.css': '37', 'globe.js': '28', 'location-check.js': '20260908b', ...pilot },
-    'login.html': { 'i18n.js': '20261001b', 'auth.js': '20260930a', ...pilot },
+    'login.html': { 'i18n.js': '20261001b', 'auth.js': '20261002a', ...pilot },
     'reset-password.html': { 'i18n.js': '20261001b', 'password-recovery.js': '20260930a' },
     'payments.html': { 'i18n.js': '20261001b', ...pilot },
     'profile.html': { 'i18n.js': '20261001b', 'profile.js': '20260911c', 'styles.css': '29', ...pilot },

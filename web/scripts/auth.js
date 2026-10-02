@@ -1,21 +1,46 @@
 (() => {
   'use strict';
 
+  // A signup confirmation link lands here with the session tokens (or an error) in the fragment. Sign-in never
+  // uses them, so they leave the address bar and the history entry before anything else runs.
+  if (/(?:^#|&)(?:access_token|refresh_token|error)=/.test(location.hash || '')) history.replaceState(null, '', location.pathname + location.search);
+
   function safeReturnPath(value) {
     if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')) return '/dashboard.html';
     if (value.includes('\\') || /[\u0000-\u001f\u007f]/.test(value)) return '/dashboard.html';
     try {
       const parsed = new URL(value, location.origin);
-      if (parsed.origin !== location.origin) return '/dashboard.html';
+      // Dot segments ('/.//host', '/x/..//host') normalise into '//host', which location.assign reads as another site.
+      if (parsed.origin !== location.origin || parsed.pathname.startsWith('//')) return '/dashboard.html';
       return `${parsed.pathname}${parsed.search}${parsed.hash}`;
     } catch {
       return '/dashboard.html';
     }
   }
 
+  // A scan or a protected page opens sign-in with ?next=. People often detour first (password recovery, or a new
+  // account's confirmation email) and come back to sign-in without it, so this device remembers the return for a while.
+  // A check-in's one-minute code is not remembered: coming back later, the check-in page shows the person's own
+  // confirmation or asks for the screen code, so nobody is checked in by someone else's abandoned scan.
+  const RETURN_KEY = 'nodal.returnTo', RETURN_TTL = 30 * 60000;
+  const storage = (() => { try { return globalThis.localStorage || null; } catch { return null; } })();
+  const withoutCode = path => {
+    const url = new URL(path, location.origin);
+    if (url.pathname === '/fiiu-checkin.html') url.searchParams.delete('c');
+    return `${url.pathname}${url.search}${url.hash}`;
+  };
+  const remembered = () => {
+    try {
+      const saved = JSON.parse(storage?.getItem(RETURN_KEY) || 'null'), age = Date.now() - Number(saved?.at);
+      return typeof saved?.path === 'string' && Number.isFinite(age) && age >= 0 && age < RETURN_TTL ? withoutCode(safeReturnPath(saved.path)) : null;
+    } catch { return null; }
+  };
   const params = new URLSearchParams(location.search);
-  const next = params.get('next') || '/courses.html';
-  const safeNext = safeReturnPath(next);
+  const explicit = params.get('next');
+  if (explicit) try { storage?.setItem(RETURN_KEY, JSON.stringify({ path: withoutCode(safeReturnPath(explicit)), at: Date.now() })); } catch { /* storage blocked */ }
+  // Without a destination, a sign-in opens the member console.
+  const safeNext = safeReturnPath(explicit || remembered() || '/dashboard.html');
+  const forgetReturn = () => { try { storage?.removeItem(RETURN_KEY); } catch { /* storage blocked */ } };
 
   // These messages belong to authentication only; the public homepage dictionary
   // and its cache version do not need to change with form feedback.
@@ -102,7 +127,7 @@
       try{
         const data=await post('/api/auth/'+(signup?'signup':'login'),{email:email.value.trim(),password:password.value,...(signup?{fullName:name.value.trim()}:{})},signup);
         if(signup&&data.requiresEmailConfirmation){show(state.error,'confirmation');return;}
-        redirecting=true;location.assign(safeNext);
+        redirecting=true;forgetReturn();location.assign(safeNext);
       }catch(error){show(state.error,error.key||'connection');}
       finally{if(!redirecting)setBusy(state,false);}
     });

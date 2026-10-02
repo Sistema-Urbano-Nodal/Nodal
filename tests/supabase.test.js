@@ -263,6 +263,20 @@ test('Supabase repeated signup skips profile writes for an obfuscated user', asy
   assert.equal(calls[0].url.pathname, '/auth/v1/signup');
 });
 
+test('signup confirmation links come back to sign-in on the configured site, never on a caller-supplied origin', async () => {
+  for (const [extra, expected] of [[{ PUBLIC_BASE_URL: 'https://nodal.example/some/path' }, 'https://nodal.example/login.html'], [{}, null]]) {
+    const state = profileState();
+    const calls = [];
+    const repo = createSupabaseRepository({
+      env: { ...testEnv(), ...extra },
+      fetchImpl: statefulFetch(state, calls, { signupResponse: { id: 'f8bf7ca9-1340-4e99-a709-93c08047bb49', email: state.profile.email, user_metadata: {}, identities: [] } }),
+    });
+    await repo.signup({ fullName: state.profile.full_name, email: state.profile.email, password: 'correct-horse' });
+    // Without a configured origin, Supabase keeps its own Site URL and signup still works.
+    assert.equal(calls[0].url.searchParams.get('redirect_to'), expected);
+  }
+});
+
 test('Supabase env rejects secret-looking keys in public config', () => {
   assert.throws(() => publicSupabaseConfig({
     NEXT_PUBLIC_SUPABASE_URL: 'https://project.supabase.co',

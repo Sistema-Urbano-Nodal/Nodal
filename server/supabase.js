@@ -522,12 +522,13 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     return verifier;
   }
   const recoveryFailure = (code = 'recovery_invalid', status = 400) => ({ status, code, cookies: [recoveryCookie('', 0)] });
-  function recoveryRedirect() {
+  function emailLinkOrigin() {
     // Never use Host, Referer, or a caller-supplied redirect for an email link.
     const url = new URL(env.PUBLIC_BASE_URL || env.NEXT_PUBLIC_APP_URL || '');
-    if (url.username || url.password || (url.protocol !== 'https:' && !(env.NODE_ENV !== 'production' && url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname)))) throw new Error('Recovery origin is not configured');
-    return url.origin + '/reset-password.html';
+    if (url.username || url.password || (url.protocol !== 'https:' && !(env.NODE_ENV !== 'production' && url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname)))) throw new Error('Email link origin is not configured');
+    return url.origin;
   }
+  const recoveryRedirect = () => emailLinkOrigin() + '/reset-password.html';
   function isRecoverySession(session) {
     // The token is obtained directly from GoTrue over TLS, not from the caller.
     // Decode only that trusted response and bind its subject to the same response.
@@ -924,8 +925,13 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       }
     },
     async signup({ fullName, email, password }) {
+      // The confirmation email returns to sign-in, where the browser still remembers the page that asked for it
+      // (a check-in, say). Without a configured origin, Supabase keeps its own Site URL.
+      let confirmTo = null;
+      try { confirmTo = emailLinkOrigin() + '/login.html'; } catch { /* origin not configured */ }
       const data = await browser.auth('/signup', {
         method: 'POST',
+        ...(confirmTo ? { query: { redirect_to: confirmTo } } : {}),
         body: { email, password, data: { full_name: fullName } },
       });
       const authUser = data.user || (data.id ? data : null);
