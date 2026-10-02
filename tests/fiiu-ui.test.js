@@ -345,12 +345,16 @@ test('once registration closes, the calls to action lead to the programme and th
 
 test('workshops show their venue and routes their starting point, in the programme and in saved interests',async()=>{
  const external=(id,period,date,venue)=>({id,date,period,registration:'external',title:'Actividad '+id,time:'',venue,sessions:[],formUrl:'https://forms.gle/'+id});
- const event={...FIIU_EVENT,activities:[...FIIU_EVENT.activities.filter(activity=>activity.registration!=='external'),external('workshop-a','workshop','2026-10-22','MALI, Cercado de Lima'),external('workshop-b','workshop','2026-10-22',''),external('route-a','route','2026-10-24','Plaza San Martín, Cercado de Lima')]};
+ // A conference block whose venue is not announced yet keeps 'Venue to be confirmed' (the 23 October morning here, as a test double).
+ const pending=activity=>activity.id==='day3-am'?{...activity,venue:''}:activity;
+ const event={...FIIU_EVENT,activities:[...FIIU_EVENT.activities.filter(activity=>activity.registration!=='external').map(pending),external('workshop-a','workshop','2026-10-22','MALI, Cercado de Lima'),external('workshop-b','workshop','2026-10-22',''),external('route-a','route','2026-10-24','Plaza San Martín, Cercado de Lima')]};
  const h=await harness({publicRead:()=>({...publicData,event}),registration:{...saved,answers:{...answers,externalActivities:['workshop-a','route-a']}}});
  const rows=h.root.querySelector('.f-programme').querySelectorAll('.f-compact'),row=id=>rows.find(node=>descendants(node).some(child=>child.id==='f-act-'+id+'-title')),venue=id=>row(id).querySelector('.f-compact-venue');
  assert.equal(content(venue('workshop-a')).trim(),'MALI, Cercado de Lima');assert.equal(key(venue('workshop-a'),'startingPoint'),undefined);assert.equal(venue('workshop-a').lang,'es');
  assert.ok(key(venue('route-a'),'startingPoint'));assert.match(content(venue('route-a')),/Plaza San Martín, Cercado de Lima/);assert.equal(venue('workshop-b'),null,'no venue, no line');
- const conference=h.root.querySelectorAll('.f-activity').find(node=>content(node).includes('Intervenir para activar'));assert.ok(key(conference,'venuePending'),'conference blocks keep Venue to be confirmed');
+ const block=title=>h.root.querySelectorAll('.f-activity').find(node=>content(node).includes(title));
+ assert.ok(key(block('Territorio, resiliencia'),'venuePending'),'conference blocks keep Venue to be confirmed');
+ assert.match(content(block('Intervenir para activar')),/Auditorio Taulichusco, Museo Metropolitano de Lima, Cercado de Lima/);assert.equal(key(block('Intervenir para activar'),'venuePending'),undefined,'the 21 October evening venue is confirmed');
  const itinerary=h.root.querySelector('.f-saved').querySelectorAll('.f-itinerary-venue');assert.equal(itinerary.length,2);assert.equal(content(itinerary[0]).trim(),'MALI, Cercado de Lima');assert.ok(key(itinerary[1],'startingPoint'));
  h.lang('es');assert.equal(key(venue('route-a'),'startingPoint').textContent,'Punto de inicio:');h.lang('pt');assert.equal(key(venue('route-a'),'startingPoint').textContent,'Ponto de partida:');
 });
