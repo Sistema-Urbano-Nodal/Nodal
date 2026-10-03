@@ -164,3 +164,46 @@ test('the Supabase summary accepts the check-in figures, tolerates their absence
  assert.deepEqual(await storeFor({...full,lastCheckInAt:null}).summary('fiiu-2026',[]),{...full,lastCheckInAt:null});
  for(const broken of [{attendedPeople:'1'},{qrPeople:1.5},{lastCheckInAt:42}])await assert.rejects(storeFor({...base,...broken}).summary('fiiu-2026',[]),error=>error.status===502,JSON.stringify(broken));
 });
+
+test('Supabase: a first registration over the sending limit goes back to none for the backfill, without an email or a version bump',async()=>{
+ const pg=postgrest(),outbox=[];
+ const api=createFiiuApi({store:createFiiuStore({clients:pg.clients}),sameOrigin:()=>true,send:(res,status,body)=>Object.assign(res,{status,body}),
+  confirmation:async args=>{outbox.push(args);return {status:'sent'};},emailAllowed:()=>false});
+ const member={id:'11111111-1111-4111-8111-111111111111',email:'ana@fiiu-inbox.dev',permission:'member'};
+ const res={},body={version:0,firstName:'Ana',lastName:'Test',country:'Perú',city:'Lima',profile:'professional',publicOfficial:false,activities:['day1-am'],externalActivities:[],nationalId:'TEST-ID',gender:'prefer_not',age:30,accessibility:['none'],motivation:'learn',previousAttendance:'no',privacyAccepted:true};
+ const req={method:'PUT',headers:{'content-type':'application/json'},async *[Symbol.asyncIterator](){yield Buffer.from(JSON.stringify(body));}};
+ await api({req,res,url:new URL('http://nodal.test/api/fiiu/registration'),user:member});
+ assert.equal(res.status,200);assert.equal(res.body.confirmationEmail,'none');assert.equal(outbox.length,0);
+ const patch=pg.calls.find(c=>c.table==='fiiu_registrations'&&c.method==='PATCH');
+ assert.deepEqual([patch.query.confirmation_status,patch.body],['eq.pending',{confirmation_status:'none'}]);
+ assert.deepEqual([pg.tables.fiiu_registrations[0].confirmation_status,pg.tables.fiiu_registrations[0].version],['none',1]);
+});
+
+test('Supabase first registration stores the email as pending, then settles it by status alone without touching the version',async()=>{
+ const pg=postgrest(),outbox=[];
+ const api=createFiiuApi({store:createFiiuStore({clients:pg.clients}),sameOrigin:()=>true,send:(res,status,body)=>Object.assign(res,{status,body}),
+  confirmation:async args=>{outbox.push(args);assert.equal(pg.tables.fiiu_registrations[0].confirmation_status,'pending','stored before the send');return {status:'sent',sentAt:'2026-10-02T15:00:00.000Z'};}});
+ const member={id:'11111111-1111-4111-8111-111111111111',email:'ana@fiiu-inbox.dev',permission:'member'};
+ const call=async(method,path,body,cookie='')=>{
+  const res={},req={method,headers:{'content-type':'application/json',cookie},async *[Symbol.asyncIterator](){if(body!==undefined)yield Buffer.from(JSON.stringify(body));}};
+  try{await api({req,res,url:new URL('http://nodal.test'+path),user:member});}catch(error){Object.assign(res,{status:error.status??500,body:{error:error.message}});}
+  return res;
+ };
+ const answers={firstName:'Ana',lastName:'Test',country:'Perú',city:'Lima',profile:'professional',publicOfficial:false,activities:['day1-am'],externalActivities:['route-arcoiris'],nationalId:'TEST-ID',gender:'prefer_not',age:30,accessibility:['none'],motivation:'learn',previousAttendance:'no',privacyAccepted:true};
+ const first=await call('PUT','/api/fiiu/registration',{version:0,...answers},'nodal.lang=pt');
+ assert.equal(first.status,200);assert.equal(first.body.confirmationEmail,'sent');assert.equal(first.body.registration.version,1);assert.equal(outbox[0].language,'pt');
+ const insert=pg.calls.find(c=>c.table==='fiiu_registrations'&&c.method==='POST');
+ assert.deepEqual([insert.body.confirmation_status,insert.body.confirmation_language,insert.body.confirmation_sent_at],['pending','pt',null]);
+ const settle=pg.calls.find(c=>c.table==='fiiu_registrations'&&c.method==='PATCH');
+ assert.deepEqual(settle.query,{id:`eq.${first.body.registration.id}`,confirmation_status:'eq.pending'},'compare-and-set on the status, never on the version');
+ assert.deepEqual(settle.body,{confirmation_status:'sent',confirmation_sent_at:'2026-10-02T15:00:00.000Z'});
+ assert.deepEqual([pg.tables.fiiu_registrations[0].confirmation_status,pg.tables.fiiu_registrations[0].version],['sent',1]);
+ // Every registration read selects the new columns (so the migration must be applied before this code is deployed).
+ const read=pg.calls.find(c=>c.table==='fiiu_registrations'&&!c.method);assert.match(read.query.select,/confirmation_status,confirmation_language,confirmation_sent_at/);
+ // An edit sends nothing and leaves the email columns alone.
+ const edit=await call('PUT','/api/fiiu/registration',{version:1,registrationId:first.body.registration.id,...answers,activities:['day2-am']});
+ assert.equal(edit.status,200);assert.equal(outbox.length,1);assert.equal(edit.body.confirmationEmail,undefined);
+ const editPatch=pg.calls.filter(c=>c.table==='fiiu_registrations'&&c.method==='PATCH').at(-1);
+ assert.equal(editPatch.query.version,'eq.1');assert.ok(!Object.keys(editPatch.body).some(key=>key.startsWith('confirmation_')));
+ assert.equal(pg.tables.fiiu_registrations[0].confirmation_status,'sent');
+});

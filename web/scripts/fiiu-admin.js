@@ -288,11 +288,19 @@
   }
   return box;
  }
+ // One plain line under the address: what happened to the summary email sent after the first registration ('pending'
+ // is a send that never reported back, so it reads like 'uncertain'), with the Lima date and time once it was sent.
+ function emailStatusLine(r){
+  const state={sent:'Sent',failed:'Failed',uncertain:'Uncertain',pending:'Uncertain',skipped:'Skipped'}[r.confirmationStatus]||'None',line=el('p','f-muted f-email-status'),at=Date.parse(r.confirmationSentAt??'');
+  line.append(tr('span','emailStatus'),document.createTextNode(' '),tr('span','emailStatus'+state));
+  if(state==='Sent'&&Number.isFinite(at))line.append(document.createTextNode(' · '),dateNode(limaDate(new Date(at)),'span','short','f-email-day'),document.createTextNode(' '),el('span','',limaClock(at)));
+  return line;
+ }
  async function openParticipant(id,{focus=true}={}){
   const request=++detailRequest;selectedParticipant=id;
   const data=await api('/api/admin/fiiu/registrations/'+id);if(request!==detailRequest)return;
   const r=data.registration,a=r.answers,head=el('header','f-detail-head'),who=el('div'),name=el('h3','',`${a.firstName} ${a.lastName}`),answers=el('details','f-answers');
-  updateRecord(r);shownParticipant=id;markSelected();name.id='f-detail-name';who.append(name,el('p','f-muted',r.email));
+  updateRecord(r);shownParticipant=id;markSelected();name.id='f-detail-name';who.append(name,el('p','f-muted',r.email),emailStatusLine(r));
   head.append(who,button('backToList',()=>(rowButtons.get(id)||search?.input)?.focus(),'f-button secondary f-small f-narrow-only'));
   detailHost.replaceChildren(head);detailHost.tabIndex=-1;detailHost.setAttribute('aria-labelledby',name.id);
   if(a.applyLab)detailHost.append(reviewCard(r,id));

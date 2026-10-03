@@ -23,7 +23,7 @@ After editing any policy, regenerate the page and run `npm run build`; the tests
 | `{{CONTATO_PRIVACIDADE}}` | Working, monitored privacy email or request channel, available without signing in. Do not invent an email address. |
 | `{{ENCARREGADO}}` | Identity and contact of the designated privacy lead/DPO, or a legally reviewed explanation of any applicable exemption. |
 | `{{VIGENCIA}}` | Actual effective date after approval and publication. |
-| `{{FORNECEDORES_TRANSFERENCIAS}}` | Completed list of actual vendors, legal entities, purposes, countries, onward transfers and applicable safeguards. Include SMTP and any hosted cache. |
+| `{{FORNECEDORES_TRANSFERENCIAS}}` | Completed list of actual vendors, legal entities, purposes, countries, onward transfers and applicable safeguards. Include the SMTP service (it sends password recovery, invitations and the FIIU registration summary) and any hosted cache. |
 | `{{RETENCAO}}` | Approved retention periods and triggers, including provider backups/logs and staff CSV copies. The suggested schedule in the review is not implemented. |
 | `{{PUBLICO_ETARIO}}` | Intended age group, age-assurance approach and the response to minors already using the platform. |
 

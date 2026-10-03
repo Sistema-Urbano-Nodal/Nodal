@@ -137,8 +137,18 @@
   return box;
  }
  function renderRegistration(){renderPanel();renderProgramme();renderHero();}
+ // A notice is a string key, or {key, email} for "We emailed a summary to <address>.": the sentence follows the language, the address stays as it is.
+ // An email that failed or may not arrive is a warning, not the green confirmation.
+ function showNotice(value){
+  panelNotice.className='f-status f-notice '+(['emailNotSent','emailDelayed'].includes(value)?'is-warning':'is-ok');
+  panelNotice.replaceChildren();status(panelNotice,value?.email?'':value);if(!value?.email)return;
+  delete panelNotice.dataset.fiiuText;panelNotice.append(tr('span',value.key),el('span','f-notice-email',' '+value.email+'.'));
+ }
+ // Only the first save answers with the summary email's outcome; nothing is said when email is off, skipped or for an edit.
+ // 'failed' means the provider never had it; 'uncertain' (and a send that never reported back) usually still arrives.
+ const emailNotice=(outcome,email)=>outcome==='sent'?{key:'emailSent',email}:outcome==='failed'?'emailNotSent':['uncertain','pending'].includes(outcome)?'emailDelayed':'';
  function renderPanel(){
-  choiceInputs.clear();openForm=null;officialInput=null;syncForm=null;sizeObserver?.disconnect();stepObserver?.disconnect();status(message,'');panelBody.replaceChildren();status(panelNotice,notice);notice='';
+  choiceInputs.clear();openForm=null;officialInput=null;syncForm=null;sizeObserver?.disconnect();stepObserver?.disconnect();status(message,'');panelBody.replaceChildren();showNotice(notice);notice='';
   registrationHost.className='f-registration'+(!me.user||(!festival.config.registrationOpen&&!me.registration)?' is-compact':'');
   if(!me.user){
    // Once registration closes, the guest panel only leads people who already registered back to their registration.
@@ -300,9 +310,10 @@
    for(const control of form.querySelectorAll('input,textarea'))if(control.required&&!control.disabled&&control.type!=='checkbox'&&control.value!==''&&!String(control.value).trim()){control.setCustomValidity(t('requiredField'));localised.set(control,'requiredField');}
    // The browser focuses the first invalid answer; centring it keeps it and its message clear of both sticky bars.
    if(!form.reportValidity()){const first=document.activeElement;if(first?.getAttribute?.('aria-invalid')==='true')first.scrollIntoView?.({block:'center'});return;}const fd=new FormData(form),payload=Object.fromEntries(fd);
-   Object.assign(payload,{version:currentVersion,registrationId:currentId,expectedUserId,publicOfficial:fd.get('publicOfficial')==='yes',applyLab:fd.get('applyLab')==='yes',privacyAccepted:fd.get('privacyAccepted')==='yes',activities:fd.getAll('activities'),externalActivities:fd.getAll('externalActivities'),accessibility:fd.getAll('accessibility'),age:fd.get('age')?Number(fd.get('age')):null});
+   // language: the summary email after a first registration is written in the language the page is shown in.
+   Object.assign(payload,{version:currentVersion,registrationId:currentId,expectedUserId,language:window.nodalI18n?.lang||document.documentElement.lang||'',publicOfficial:fd.get('publicOfficial')==='yes',applyLab:fd.get('applyLab')==='yes',privacyAccepted:fd.get('privacyAccepted')==='yes',activities:fd.getAll('activities'),externalActivities:fd.getAll('externalActivities'),accessibility:fd.getAll('accessibility'),age:fd.get('age')?Number(fd.get('age')):null});
    const unlock=lock();status(message,'saving');conflictBox.replaceChildren();saveState='saving';syncSelection();
-   try{const result=await api('/api/fiiu/registration',payload,'PUT');me.registration=result.registration;renderRegistration();registrationHost.querySelector('.f-saved')?.focus();}
+   try{const result=await api('/api/fiiu/registration',payload,'PUT');me.registration=result.registration;notice=emailNotice(result.confirmationEmail,result.registration.email);renderRegistration();registrationHost.querySelector('.f-saved')?.focus();}
    catch(error){status(message,error);saveState='failed';syncSelection();
     if(error.key==='accountChanged')accountChanged();
     else if(error.status===409)conflictBox.append(button('viewSaved',async()=>{

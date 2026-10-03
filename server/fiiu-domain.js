@@ -24,6 +24,8 @@ const externalActivities=[
 ].map(([id,date,period,title,form,venue])=>({id,date,period,title,registration:'external',formUrl:`https://forms.gle/${form}`,time:'',venue,sessions:[]}));
 export const FIIU_EVENT={
  id:EVENT_ID,title:'FIIU Fest 11',theme:'El poder de lo local',city:'Lima, Perú',startsOn:'2026-10-20',endsOn:'2026-10-25',timeZone:'America/Lima',website:'https://fiiu.sistemaurbano.org/',contact:'fiiu@ocupatucalle.com',
+ // The organisers' shared Google Calendar for the festival: opening it offers to add the calendar to the reader's own.
+ calendarUrl:'https://calendar.google.com/calendar/u/0/r?cid=c_8f3c079893ebe9931c811d0153dd6877443cfea5087724e9d57d3f0b2a2d6d85%40group.calendar.google.com',
  legacyActivities:LEGACY_FIIU_ACTIVITIES,
  activities:[
   {id:'day0-lab',date:'2026-10-20',period:'lab',registration:'application',title:'Gestión urbana en acción: nuevas herramientas para la gestión local',time:'',venue:'',sessions:[]},

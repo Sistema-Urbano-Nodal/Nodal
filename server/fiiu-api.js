@@ -4,6 +4,8 @@ import {bodyJson} from './courses-api.js';
 import {EVENT_ID,FIIU_EVENT,ALL_FIIU_ACTIVITIES,CHECKIN_ACTIVITIES,DEFAULT_CONFIG,normalizeRegistration,applicationStatus,version,normalizeContent,contentView,normalizeConfig,canAttend,checkinWindow,attendanceHours} from './fiiu-domain.js';
 import {createCheckinCodes} from './fiiu-checkin.js';
 import {packBits} from './qr.js';
+import {isReservedRecipient,EMAIL_LANGUAGES} from './fiiu-email.js';
+import {parseCookies} from './auth.js';
 const now=()=>new Date().toISOString();
 const attendanceView=({activityId,createdAt,method})=>({activityId,createdAt,method});
 // CSV check-in times are Lima wall-clock time (UTC-05:00 all year), e.g. '2026-10-21 09:12'.
@@ -20,9 +22,18 @@ export async function exportFiiuData(store,userId){
  const attendance=registration?await store.find('attendance',{registrationId:registration.id}):[];
  return {registration,attendance:attendance.map(attendanceView)};
 }
+// The summary email's language: the page's own (sent with the registration), else the site language cookie, else Spanish.
+export function registrationLanguage(input,req){
+ if(EMAIL_LANGUAGES.includes(input?.language))return input.language;
+ const cookie=parseCookies(req?.headers?.cookie??'').get('nodal.lang');
+ return EMAIL_LANGUAGES.includes(cookie)?cookie:'es';
+}
 // checkin: {secret, now} for the rotating codes (tests freeze the clock); publicOrigin: the configured site origin (a
 // string or a function of the request) that check-in links point to, never the Host header in production.
-export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin={},encodeQr=null,publicOrigin=()=>fail('public base URL is not configured',503)}){
+// confirmation: async ({registration, config, language}) => {status, sentAt?}, the registration summary email (see
+// server/fiiu-email.js), or null when email is off; emailAllowed(user) spends one send from the account's hourly
+// allowance and the server-wide ceiling, and answers false when either is used up.
+export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin={},encodeQr=null,publicOrigin=()=>fail('public base URL is not configured',503),confirmation=null,emailAllowed=()=>true}){
  // A link the encoder cannot draw (say, an unusually long configured origin) leaves the screen its typed address and short code.
  const qrOf=link=>{if(!encodeQr)return null;try{return qrView(encodeQr(link));}catch{return null;}};
  const one=async(name,filters)=>(await store.find(name,filters,{limit:1}))[0]??null;
@@ -63,14 +74,41 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
   if(path==='/api/fiiu/registration'){
    if(req.method==='GET'){const data=await exportFiiuData(store,user.id);send(res,200,{...data,hours:attendanceHours(data.attendance),user:{id:user.id,name:user.name,email:user.email,city:user.city},isAdmin:user.permission==='admin'});return true;}
    if(req.method==='PUT'){
-    if(!(await config()).registrationOpen)fail('registration is closed',403);
+    const settings=await config();if(!settings.registrationOpen)fail('registration is closed',403);
     const input=await body(req);sameAccount(input,user);const expected=version(input.version),answers=normalizeRegistration(input);
     const existing=await one('registrations',{eventId:EVENT_ID,userId:user.id});
     if((existing?.version??0)!==expected||(existing?.id??null)!==(input.registrationId??null))fail('registration changed; reload before saving',409);
     const patch={email:user.email,answers,labStatus:applicationStatus(answers,existing),version:expected+1,updatedAt:now()};
-    const registration=existing?await store.update('registrations',{id:existing.id,userId:user.id,version:expected},patch):await store.insert('registrations',{id:randomUUID(),eventId:EVENT_ID,userId:user.id,...patch,createdAt:now()});
+    if(existing){
+     // Edits never email: the summary goes out once, after the first registration.
+     const registration=await store.update('registrations',{id:existing.id,userId:user.id,version:expected},patch);
+     if(!registration)fail('registration changed; reload before saving',409);
+     send(res,200,{registration});return true;
+    }
+    // A first registration is stored 'pending' when the summary will be sent, then settled by a compare-and-set on
+    // that status alone, so the version (and with it an edit saved from another tab meanwhile) is never disturbed.
+    // The send is awaited because the hosting gives no work time after the response; the mailer caps it at 8 seconds,
+    // and its outcome never fails the registration. Reserved test domains are 'skipped' for good. The sending
+    // allowance is spent only once the insert succeeded, so a failed save never uses it up; a registration over the
+    // limit goes back to 'none', which the backfill (scripts/send-fiiu-confirmations.js) can still send.
+    const language=registrationLanguage(input,req);
+    const confirmationStatus=!confirmation?'none':isReservedRecipient(user.email)?'skipped':'pending';
+    let registration=await store.insert('registrations',{id:randomUUID(),eventId:EVENT_ID,userId:user.id,...patch,createdAt:now(),confirmationStatus,confirmationLanguage:language,confirmationSentAt:null});
     if(!registration)fail('registration changed; reload before saving',409);
-    send(res,200,{registration});return true;
+    if(confirmationStatus==='pending'&&!emailAllowed(user)){
+     // No row matches when the registration was cancelled meanwhile; a failed write leaves 'pending'.
+     let status='none';try{await store.update('registrations',{id:registration.id,confirmationStatus:'pending'},{confirmationStatus:'none'});}catch{status='pending';}
+     registration={...registration,confirmationStatus:status};
+    }
+    else if(confirmationStatus==='pending'){
+     let outcome;try{outcome=await confirmation({registration,config:settings,language});}catch{outcome={status:'uncertain'};}
+     const status=['sent','failed','uncertain','skipped'].includes(outcome?.status)?outcome.status:'uncertain',sentAt=status==='sent'?outcome.sentAt??now():null;
+     // No row matches when the registration was cancelled while the email was sending; a failed write leaves 'pending'.
+     // Either way this response describes what this request saved, with the email outcome.
+     try{await store.update('registrations',{id:registration.id,confirmationStatus:'pending'},{confirmationStatus:status,confirmationSentAt:sentAt});}catch{/* reported as 'pending' to organisers */}
+     registration={...registration,confirmationStatus:status,confirmationSentAt:sentAt};
+    }
+    send(res,200,{registration,confirmationEmail:registration.confirmationStatus});return true;
    }
    if(req.method==='DELETE'){
     const input=await body(req);sameAccount(input,user);const expected=version(input.version),existing=await one('registrations',{eventId:EVENT_ID,userId:user.id});
@@ -134,9 +172,9 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
   if(path==='/api/admin/fiiu/export'&&req.method==='GET'){
    // Attendance columns follow the registration columns, so existing spreadsheets keep their column positions:
    // what each person attended, certificate minutes and rounded hours, how each block was confirmed, and one Lima
-   // check-in time per NODAL block.
+   // check-in time per NODAL block. confirmationEmail (the summary email's status) comes last for the same reason.
    const blocks=CHECKIN_ACTIVITIES.map(a=>a.id);
-   const rows=[['registrationId','email','firstName','lastName','country','city','profile','publicOfficial','activities','externalActivities','labStatus','institution','position','nationalId','gender','age','accessibility','accessibilityOther','motivation','motivationOther','previousAttendance','registeredAt','attendedActivities','attendedDays','attendedMinutes','certificateHours','checkInMethods',...blocks.map(id=>`checkInLima_${id}`)]];let after;
+   const rows=[['registrationId','email','firstName','lastName','country','city','profile','publicOfficial','activities','externalActivities','labStatus','institution','position','nationalId','gender','age','accessibility','accessibilityOther','motivation','motivationOther','previousAttendance','registeredAt','attendedActivities','attendedDays','attendedMinutes','certificateHours','checkInMethods',...blocks.map(id=>`checkInLima_${id}`),'confirmationEmail']];let after;
    const list=value=>Array.isArray(value)?value.join('; '):'';
    const attended=new Map(),order=id=>{const i=ALL_FIIU_ACTIVITIES.findIndex(a=>a.id===id);return i<0?ALL_FIIU_ACTIVITIES.length:i;};
    do{const page=await store.find('attendance',{},{after});for(const row of page)attended.set(row.registrationId,[...(attended.get(row.registrationId)??[]),row]);after=page.length===200?page.at(-1).id:null;}while(after);
@@ -144,7 +182,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
     const a=r.answers,done=(attended.get(r.id)??[]).sort((x,y)=>order(x.activityId)-order(y.activityId)||(x.activityId<y.activityId?-1:1)),hours=attendanceHours(done),byId=new Map(done.map(x=>[x.activityId,x]));
     const days=[...new Set(done.map(x=>ALL_FIIU_ACTIVITIES.find(y=>y.id===x.activityId)?.date).filter(Boolean))].sort();
     rows.push([r.id,r.email,a.firstName,a.lastName,a.country,a.city,a.profile,a.publicOfficial,list(a.activities),list(a.externalActivities),r.labStatus,a.institution,a.position,a.nationalId,a.gender,a.age,list(a.accessibility),a.accessibilityOther,a.motivation,a.motivationOther,a.previousAttendance,r.createdAt,
-     list(done.map(x=>x.activityId)),list(days),hours.minutes,hours.hours,list(done.map(x=>`${x.activityId}:${x.method??'staff'}`)),...blocks.map(id=>limaTime(byId.get(id)?.createdAt))]);
+     list(done.map(x=>x.activityId)),list(days),hours.minutes,hours.hours,list(done.map(x=>`${x.activityId}:${x.method??'staff'}`)),...blocks.map(id=>limaTime(byId.get(id)?.createdAt)),r.confirmationStatus??'none']);
    }after=page.length===200?page.at(-1).id:null;}while(after);
    send(res,200,csv(rows),{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="fiiu-2026-registrations.csv"'});return true;
   }

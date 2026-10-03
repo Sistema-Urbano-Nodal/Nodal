@@ -44,6 +44,30 @@ select has_table_privilege('anon', 'public.nodal_news', 'select'),
 Record the applied versions (`npx supabase migration list`) in
 `docs/course-pilot-validation.md`. Only then merge to `main`.
 
+## FIIU registration summary email: one migration before `main`
+
+After a person's **first** FIIU registration the server emails them a summary
+(see "FIIU registration summary email" below). Apply
+`20261003013301_fiiu_confirmation_email.sql` to the production Supabase project
+**before** merging. It only adds three columns to `fiiu_registrations`
+(`confirmation_status`, default `'none'`, `confirmation_language` and
+`confirmation_sent_at`) with CHECK constraints: existing rows become `'none'`,
+and the code live today never reads them, so applying it first is safe. The new
+server selects these columns on every registration read, so deploying the code
+first breaks the FIIU registration, `/api/me/export`, the organiser list and
+detail and the CSV with 400 `{"error":"request failed"}` until it is applied.
+
+```sql
+select column_name, column_default, is_nullable from information_schema.columns
+ where table_schema = 'public' and table_name = 'fiiu_registrations' and column_name like 'confirmation_%';
+-- confirmation_language | (null) | YES
+-- confirmation_sent_at  | (null) | YES
+-- confirmation_status   | 'none'::text | NO
+```
+
+Merging without the email variables below is fine: the email is simply off and
+registrations behave as before (status `none`).
+
 ## Supabase Setup
 
 1. Create a Supabase project.
@@ -130,6 +154,16 @@ shorter than 32 characters stops the deployment from booting. Never set
 `FIIU_CHECKIN_NOW` on Vercel: it is a local rehearsal clock, and production
 refuses to boot with it.
 
+Optional, for the FIIU registration summary email (see "FIIU registration
+summary email" below). **Production scope only, never Preview**: preview
+deployments that share the production database would email real people.
+
+```text
+EMAIL_SMTP_URL=smtps://<user>:<password>@<host>:465
+EMAIL_FROM=FIIU Fest 11 <address the provider lets you send from>
+EMAIL_REPLY_TO=fiiu@ocupatucalle.com
+```
+
 Add these when Stripe goes live:
 
 ```text
@@ -178,8 +212,9 @@ npm start
 ## Production Deployment Steps
 
 1. Confirm `.env`, `.env.local`, `.env.production`, `.vercel/`, and `data/` are not committed.
-2. Apply every pending Supabase migration (for this release, the three listed
-   under "October 1 release" above) and confirm them.
+2. Apply every pending Supabase migration (the three listed under "October 1
+   release" and the one under "FIIU registration summary email" above) and
+   confirm them.
 3. Configure Vercel environment variables.
 4. Run `npm ci` and `npm run build`; verify generated `public/` assets exist and no source PNG files are copied there.
 5. Connect the Git repository to Vercel.
@@ -244,6 +279,103 @@ To rehearse locally, start a SQLite server with a festival time, for example
 `DATA_BACKEND=sqlite FIIU_CHECKIN_NOW=2026-10-21T09:10:00-05:00 npm start`
 (the 21 October morning window is open). The clock runs on from that moment, and
 check-ins written under it carry the rehearsal time.
+
+## FIIU registration summary email
+
+What it does: after a person's first FIIU registration, NODAL emails the
+account address a summary in the language of the page they registered on
+(English, Spanish or Portuguese; Spanish when unknown): their conference blocks
+by Lima date, time and venue, the laboratory application and its status, each
+workshop and route saved as an interest with its Google Form and the reminder
+that only that form confirms the place (without any, one general line that
+workshops and routes are booked through their own Google Form, linked to the
+NODAL programme), the shared festival Google Calendar
+(`FIIU_EVENT.calendarUrl` in `server/fiiu-domain.js`), a link back to
+`/fiiu.html#registration` and a note that the live programme is the reference.
+It never contains the national ID, age, gender, accessibility or other private
+answers. Edits and later saves send nothing.
+
+How it behaves:
+
+- The save waits for the email, at most 8 seconds (Vercel gives no work time
+  after the response). The registration is saved first; an email problem never
+  fails or undoes it. The page then says "We emailed a summary to <address>",
+  "Your registration is saved. We could not send the summary email." (`failed`),
+  or "Your registration is saved. The summary email may be delayed or may not
+  arrive." (`uncertain`); the last two in the amber warning style.
+- Each registration records `confirmation_status`: `sent`, `failed` (the
+  provider refused it or could not be reached, so it cannot have the message),
+  `uncertain` (the whole message went out but no final, well-formed answer came
+  back), `skipped` (a reserved test or example address: `.test`, `.example`,
+  `.invalid`, `.localhost`, `example.com`, `example.net`, `example.org`),
+  `pending` (a send that never reported back) or `none` (no email yet:
+  registered before this existed, email was off, or over the sending limit).
+  Organisers see it as one line in the participant detail and in the
+  `confirmationEmail` column of the CSV.
+- Sending limits, counted per server instance and per hour: 3 summary emails
+  per account (cancelling and registering again sends a new one) and 60 across
+  all accounts, well under Google's daily quota. A registration over either
+  limit is saved as usual and stays `none`, so the backfill below can send it.
+- Server logs name only the registration id, the stage and the SMTP code.
+
+Configuration (Vercel, **Production scope only**; `PUBLIC_BASE_URL` must be set,
+since the links in the email use it and never `VERCEL_URL`):
+
+- `EMAIL_SMTP_URL`: `smtps://user:password@host:465`. Implicit TLS only, with
+  the certificate verified. Percent-encode reserved characters in the user and
+  password (`@` is `%40`).
+  - Google Workspace or Gmail: turn on 2-Step Verification for the sending
+    account, create an app password, and use
+    `smtps://account%40yourdomain.org:<16-letter app password, no spaces>@smtp.gmail.com:465`.
+    `EMAIL_FROM` must be that account or one of its verified "Send mail as"
+    addresses. Google limits sending to about 500 messages a day for Gmail and
+    2,000 for Workspace, well above FIIU's volume.
+  - Resend (or another SMTP relay): `smtps://resend:<API key>@smtp.resend.com:465`,
+    with `EMAIL_FROM` on a domain verified in Resend.
+- `EMAIL_FROM`: `FIIU Fest 11 <address>` or a bare address.
+- `EMAIL_REPLY_TO`: optional, defaults to `fiiu@ocupatucalle.com`, so replies
+  reach the organisers.
+
+Missing `EMAIL_SMTP_URL` or `EMAIL_FROM` turns the email off. A malformed value
+also turns it off and logs `FIIU confirmation email is off: <reason>` once at
+start-up, without the secret; registrations keep working either way. To turn the
+email off, remove `EMAIL_SMTP_URL` and redeploy. A local SQLite server only ever
+sends to a loopback mail catcher (`smtp://127.0.0.1:<port>`), never to a real
+provider, and the test suite uses an in-memory outbox.
+
+Sending a test:
+
+1. Layout and provider settings, from a trusted machine, without touching any
+   data (export the production values in that shell only; never save them to a
+   file in the repository):
+
+   ```sh
+   EMAIL_SMTP_URL='smtps://…' EMAIL_FROM='FIIU Fest 11 <…>' PUBLIC_BASE_URL=https://your-domain.example \
+   node scripts/send-fiiu-confirmations.js --test-to <an inbox you read> --language es
+   ```
+
+   It prints `sample summary (es): sent` and a sample registration arrives. Use
+   a real inbox you can open: reserved example addresses (`example.org` and the
+   like) are skipped, and anything else that cannot receive mail bounces
+   against the sending account.
+2. End to end on production after the deploy: create a fresh NODAL account with
+   an address you read, register for FIIU, check the notice under "Your FIIU
+   registration", the email, and the line in the organiser participant detail.
+   Cancel that registration afterwards.
+
+Backfill (optional; the owner decides): people who registered before the email
+existed have `confirmation_status = 'none'` and receive nothing automatically.
+With the production Supabase variables and the email variables in the shell,
+`node scripts/send-fiiu-confirmations.js` lists them (masked addresses, writes
+nothing); add `--send` to email them one at a time in the language stored with
+the registration, else Spanish. Each send claims the row first (`none` to
+`pending`), so a rerun never emails anyone twice; `--retry-failed` also retries
+`failed` rows, which the provider never received, and `--limit N` (or
+`--limit=N`) caps a run, so `--send --limit 1` is a safe first canary. The
+command stops before sending anything if it does not understand an argument: an
+unknown flag, a missing value, a `--limit` that is not a positive whole number,
+or `--test-to` together with `--send`. `uncertain` rows are never retried
+automatically.
 
 ## Security Checklist
 

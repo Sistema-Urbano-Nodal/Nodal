@@ -6,7 +6,9 @@ export const FIIU_SQLITE_SCHEMA=`
 CREATE TABLE IF NOT EXISTS fiiu_registrations (
  id TEXT PRIMARY KEY,event_id TEXT NOT NULL,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
  email TEXT NOT NULL,answers TEXT NOT NULL,lab_status TEXT NOT NULL CHECK(lab_status IN ('none','pending','accepted','declined')),
- version INTEGER NOT NULL CHECK(version>0),created_at TEXT NOT NULL,updated_at TEXT NOT NULL,UNIQUE(event_id,user_id)
+ version INTEGER NOT NULL CHECK(version>0),created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
+ confirmation_status TEXT NOT NULL DEFAULT 'none' CHECK(confirmation_status IN ('none','pending','sent','failed','uncertain','skipped')),
+ confirmation_language TEXT CHECK(confirmation_language IN ('en','es','pt')),confirmation_sent_at TEXT,UNIQUE(event_id,user_id)
 );
 CREATE INDEX IF NOT EXISTS fiiu_registration_user ON fiiu_registrations(user_id);
 CREATE INDEX IF NOT EXISTS fiiu_registration_page ON fiiu_registrations(event_id,id);
@@ -26,7 +28,7 @@ CREATE INDEX IF NOT EXISTS fiiu_content_page ON fiiu_content(event_id,status,id)
 CREATE INDEX IF NOT EXISTS fiiu_content_recent ON fiiu_content(event_id,created_at DESC,id DESC);
 `;
 const TABLES={
- registrations:{name:'fiiu_registrations',fields:['id','eventId','userId','email','answers','labStatus','version','createdAt','updatedAt'],json:['answers']},
+ registrations:{name:'fiiu_registrations',fields:['id','eventId','userId','email','answers','labStatus','version','createdAt','updatedAt','confirmationStatus','confirmationLanguage','confirmationSentAt'],json:['answers']},
  // The Supabase adapter selects every listed field, so a new field ships only after its migration is applied.
  attendance:{name:'fiiu_attendance',fields:['id','registrationId','activityId','confirmedBy','createdAt','method'],json:[]},
  config:{name:'fiiu_config',fields:['id','data','version'],json:['data']},
@@ -44,11 +46,17 @@ const optionalCounts=result=>['attendedPeople','qrPeople'].every(k=>result[k]===
 export function createFiiuStore({db,env=process.env,clients,fetchImpl=fetch}={}){
  if(db){
   db.exec(FIIU_SQLITE_SCHEMA);
-  // CREATE TABLE IF NOT EXISTS does not upgrade a local database made before check-in methods existed. Another local
-  // connection may add the column first; that duplicate is the only error tolerated.
-  if(!db.prepare('PRAGMA table_info(fiiu_attendance)').all().some(c=>c.name==='method')){
-   try{db.exec("ALTER TABLE fiiu_attendance ADD COLUMN method TEXT NOT NULL DEFAULT 'staff' CHECK(method IN ('staff','qr'))");}catch(err){if(!/duplicate column/i.test(err.message))throw err;}
-  }
+  // CREATE TABLE IF NOT EXISTS does not upgrade a local database made before check-in methods or the summary email
+  // existed. Another local connection may add a column first; that duplicate is the only error tolerated.
+  const addColumn=(table,name,definition)=>{
+   if(db.prepare(`PRAGMA table_info(${table})`).all().some(c=>c.name===name))return;
+   try{db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);}catch(err){if(!/duplicate column/i.test(err.message))throw err;}
+  };
+  addColumn('fiiu_attendance','method',"TEXT NOT NULL DEFAULT 'staff' CHECK(method IN ('staff','qr'))");
+  // The registration summary email (server/fiiu-email.js): its outcome, language and time.
+  addColumn('fiiu_registrations','confirmation_status',"TEXT NOT NULL DEFAULT 'none' CHECK(confirmation_status IN ('none','pending','sent','failed','uncertain','skipped'))");
+  addColumn('fiiu_registrations','confirmation_language',"TEXT CHECK(confirmation_language IN ('en','es','pt'))");
+  addColumn('fiiu_registrations','confirmation_sent_at','TEXT');
  }
  const supa=db?null:clients??createSupabaseClients({env,fetchImpl:(url,args)=>fetchImpl(url,{...args,signal:AbortSignal.timeout(15000)})});
  function where(table,filters,after){

@@ -773,3 +773,16 @@ test('identical totals still let a check-in window open on the next refresh',asy
  now=Date.parse('2026-10-21T08:31:00-05:00');await h.tickTimers();
  assert.ok(key(row(),'checkinOpenNow'));assert.equal(h.root.querySelector('.f-summary-body').querySelector('table'),table,'the overview tables were not rebuilt');
 });
+
+test('participant detail says in one plain line what happened to the summary email, with the Lima time once sent',async()=>{
+ const line=async record=>{
+  const h=await harness(({path})=>path==='/api/admin/fiiu/content'?{content:[],nextCursor:null}:{registration:copy(record),attendance:[]},{participants:[record]});
+  await detailButton(h,0).listeners.click();return h.root.querySelector('.f-admin-detail').querySelector('.f-email-status');
+ };
+ const ana=participant('participant-a','Ana');
+ const sent=await line({...ana,confirmationStatus:'sent',confirmationSentAt:'2026-10-02T19:32:00.000Z'});
+ assert.ok(key(sent,'emailStatus')&&key(sent,'emailStatusSent'));assert.match(content(sent),/Summary email:\s+sent\s+·\s+\S.*\s14:32/);
+ for(const [status,expected] of [['failed','emailStatusFailed'],['uncertain','emailStatusUncertain'],['pending','emailStatusUncertain'],['skipped','emailStatusSkipped'],['none','emailStatusNone'],[undefined,'emailStatusNone']]){
+  const node=await line({...ana,confirmationStatus:status});assert.ok(key(node,expected),String(status));assert.doesNotMatch(content(node),/·/,'no time unless sent');
+ }
+});

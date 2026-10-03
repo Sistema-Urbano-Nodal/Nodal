@@ -15,6 +15,7 @@ import { createCourseApi } from './courses-api.js';
 import { createFiiuStore } from './fiiu-repository.js';
 import { createFiiuApi, exportFiiuData } from './fiiu-api.js';
 import { resolveCheckinSecret, checkinClock } from './fiiu-checkin.js';
+import { createRegistrationConfirmation } from './fiiu-email.js';
 import { encodeQr as encodeQrCode } from './qr.js';
 import { createNewsStore } from './news-repository.js';
 import { createNewsApi } from './news-api.js';
@@ -826,6 +827,12 @@ export function createApp({
   } : null,
   // text => {size, modules} QR encoder for the check-in screen; null makes the API answer qr: null.
   encodeQr = encodeQrCode,
+  /* The FIIU registration summary email (server/fiiu-email.js), sent after a first registration, or null (off).
+     Supabase sends through EMAIL_SMTP_URL; a local SQLite server only to a loopback mail catcher, so local work and
+     tests never reach a real provider. Tests inject an outbox. */
+  fiiuConfirmation = fiiuStore ? createRegistrationConfirmation({ loopbackOnly: repository?.kind !== 'supabase' }) : null,
+  // Summary emails per hour: per account, and for the whole server instance (see fiiuEmailCeiling below).
+  fiiuEmailLimits = { perAccount: 3, overall: 60 },
   newsStore = repository?.database ? createNewsStore({db:repository.database}) : repository?.kind === 'supabase' ? createNewsStore() : null,
 } = {}) {
   const useDb = Boolean(repository);
@@ -902,9 +909,17 @@ export function createApp({
   // Attendee QR check-ins: a person scans once per block, so 20 a minute leaves room for retries while making the
   // 6-character fallback code impractical to guess. Separate, so it never spends registration or organiser budgets.
   const fiiuSelfCheckInLimiter=createWindowRateLimiter({windowMs:60000,limit:20});
+  // Summary emails: three per account per hour, so registering and cancelling in a loop cannot turn NODAL into a mailer,
+  // and a ceiling across all accounts (60 an hour per server instance), so a handful of accounts doing that cannot use up
+  // the sending account's daily quota (about 500 for Gmail, 2,000 for Workspace) or get it flagged. The account limit is
+  // checked first, so one account never spends the shared ceiling beyond its own three. A registration over either
+  // limit keeps confirmation_status 'none' for the backfill.
+  const fiiuEmailLimiter=createWindowRateLimiter({windowMs:60*60*1000,limit:fiiuEmailLimits.perAccount});
+  const fiiuEmailCeiling=createWindowRateLimiter({windowMs:60*60*1000,limit:fiiuEmailLimits.overall});
   // Check-in links point at the configured public origin; only a server outside production falls back to its Host.
   const fiiuPublicOrigin=req=>{try{return publicBaseUrl();}catch(err){if(process.env.NODE_ENV==='production')throw err;return new URL(`http://${req.headers.host}`).origin;}};
   const fiiuApi=fiiuStore?createFiiuApi({store:fiiuStore,sameOrigin,send,checkin:fiiuCheckin??{},encodeQr,publicOrigin:fiiuPublicOrigin,
+    confirmation:fiiuConfirmation,emailAllowed:user=>fiiuEmailLimiter.take(`fiiu-email:${user.id}`).ok&&fiiuEmailCeiling.take('fiiu-email:all').ok,
     rateLimit:(req,res,user,pathname)=>['GET','HEAD'].includes(req.method)?throttle(user?fiiuReadLimiter:fiiuPublicReadLimiter,res,req,user,'fiiu')
       :req.method==='PUT'&&/^\/api\/admin\/fiiu\/registrations\/[^/]+\/attendance$/.test(pathname)?throttle(fiiuCheckInLimiter,res,req,user,'fiiu-checkin')
       :req.method==='POST'&&pathname==='/api/fiiu/checkin'?throttle(fiiuSelfCheckInLimiter,res,req,user,'fiiu-self-checkin')

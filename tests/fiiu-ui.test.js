@@ -467,3 +467,24 @@ test('festival layout rules: footer at the bottom, natural profile rows, stacked
  // Short page headings never break mid-word at a hyphen.
  assert.match(css,/\.f-page \.f-locked h1\{[^}]*hyphens:manual/);assert.match(css,/\.f-page \.f-checkin-title\{[^}]*hyphens:manual/);
 });
+
+test('after the first save the page says where the summary went, that it could not be sent, or that it may be late; edits and an email that is off say nothing',async()=>{
+ const notice=h=>h.root.querySelector('.f-notice');
+ const sent=await harness({write:()=>({registration:saved,confirmationEmail:'sent'})});sent.fill();await sent.submit();
+ const put=sent.requests.find(request=>request.method==='PUT');assert.equal(put.body.language,'en','the email follows the page language');
+ assert.ok(key(notice(sent),'emailSent'));assert.match(notice(sent).className,/\bis-ok\b/);assert.match(content(notice(sent)),/We emailed a summary to\s+ana@example\.test\./);assert.equal(notice(sent).dataset.fiiuText,undefined,'the address is not replaced on a language change');
+ sent.lang('es');assert.match(content(notice(sent)),/Te enviamos un resumen a\s+ana@example\.test\./);
+ // 'failed': the provider never had it. 'uncertain' (or a send that never reported back) usually still arrives, so the
+ // page does not say it was not sent. Both are warnings, not the green confirmation.
+ for(const [outcome,expected,text] of [['failed','emailNotSent','Your registration is saved. We could not send the summary email.'],['uncertain','emailDelayed','Your registration is saved. The summary email may be delayed or may not arrive.'],['pending','emailDelayed','Your registration is saved. The summary email may be delayed or may not arrive.']]){
+  const h=await harness({write:()=>({registration:saved,confirmationEmail:outcome})});h.fill();await h.submit();
+  assert.equal(notice(h).dataset.fiiuText,expected,outcome);assert.equal(content(notice(h)).trim(),text);assert.match(notice(h).className,/\bis-warning\b/,outcome);assert.doesNotMatch(notice(h).className,/\bis-ok\b/,outcome);
+ }
+ for(const outcome of ['none','skipped',undefined]){const h=await harness({write:()=>({registration:saved,...(outcome?{confirmationEmail:outcome}:{})})});h.fill();await h.submit();assert.equal(content(notice(h)).trim(),'',String(outcome));}
+ // The Spanish page asks for a Spanish email.
+ const spanish=await harness({write:()=>({registration:saved,confirmationEmail:'sent'})});spanish.lang('es');spanish.fill();await spanish.submit();
+ assert.equal(spanish.requests.find(request=>request.method==='PUT').body.language,'es');
+ // An edit of a saved registration gets no confirmationEmail back, so no email notice.
+ const edit=await harness({registration:saved,write:()=>({registration:{...saved,version:2}})});key(edit.root,'edit').listeners.click();edit.fill();await edit.submit();
+ assert.ok(!key(edit.root,'emailSent'));assert.notEqual(notice(edit).dataset.fiiuText,'emailNotSent');assert.equal(content(notice(edit)).trim(),'');
+});

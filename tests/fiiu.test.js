@@ -8,6 +8,7 @@ import {createFiiuStore} from '../server/fiiu-repository.js';
 import {FIIU_EVENT,applicationStatus} from '../server/fiiu-domain.js';
 import {createCheckinCodes} from '../server/fiiu-checkin.js';
 import {encodeQr,packBits} from '../server/qr.js';
+import {sendConfirmations} from '../scripts/send-fiiu-confirmations.js';
 
 const answers={firstName:'Ana',lastName:'Test',country:'Perú',city:'Lima',profile:'professional',publicOfficial:false,activities:['day1-am'],externalActivities:[],nationalId:'TEST-ID',gender:'prefer_not',age:30,accessibility:['none'],motivation:'learn',previousAttendance:'no',privacyAccepted:true};
 async function setup(t,wrapStore=store=>store,options={}){
@@ -599,7 +600,7 @@ test('by default the check-in screen carries the real QR of its link, packed row
  assert.equal(body.qr.bits,packBits(qr));assert.equal(Buffer.from(body.qr.bits,'base64').length,Math.ceil(qr.size*qr.size/8));
 });
 
-test('the staff export appends attendance, certificate hours, methods and Lima check-in times per NODAL block',async t=>{
+test('the staff export appends attendance, certificate hours, methods, Lima check-in times per NODAL block and the summary email status',async t=>{
  const {codes,options}=festivalClock('2026-10-21T14:12:00Z');// 09:12 in Lima
  const {call,save}=await setup(t,undefined,options);
  const {registration}=await(await save({...answers,activities:['day1-am','day2-am']})).json();await save(answers,'other');
@@ -608,11 +609,138 @@ test('the staff export appends attendance, certificate hours, methods and Lima c
  const text=(await(await call('/api/admin/fiiu/export',{actor:'admin'})).text()).replace(/^﻿/,'');
  const [header,...rows]=text.split('\r\n').map(line=>line.slice(1,-1).split('","'));
  const blocks=['day0-lab','day1-am','day1-pm','day2-am','day2-pm','day3-am'];
- assert.deepEqual(header.slice(22),['attendedActivities','attendedDays','attendedMinutes','certificateHours','checkInMethods',...blocks.map(id=>`checkInLima_${id}`)]);
- assert.equal(header.length,33);assert.ok(rows.every(row=>row.length===33));
+ assert.deepEqual(header.slice(22),['attendedActivities','attendedDays','attendedMinutes','certificateHours','checkInMethods',...blocks.map(id=>`checkInLima_${id}`),'confirmationEmail']);
+ assert.equal(header.length,34);assert.ok(rows.every(row=>row.length===34));
  const field=(row,name)=>row[header.indexOf(name)],mine=rows.find(row=>row[0]===registration.id),theirs=rows.find(row=>row[0]!==registration.id);
  assert.deepEqual(['attendedActivities','attendedDays','attendedMinutes','certificateHours','checkInMethods','checkInLima_day1-am','checkInLima_day1-pm'].map(name=>field(mine,name)),
   ['day1-am; day2-am','2026-10-21; 2026-10-22','480','8','day1-am:qr; day2-am:staff','2026-10-21 09:12','']);
  assert.match(field(mine,'checkInLima_day2-am'),/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
  assert.deepEqual(['attendedActivities','attendedMinutes','certificateHours','checkInLima_day1-am'].map(name=>field(theirs,name)),['','0','0','']);
+ assert.deepEqual(rows.map(row=>field(row,'confirmationEmail')),['none','none'],'no email is sent without a configured sender');
+});
+
+// The summary email: an outbox stands in for the SMTP sender. Accounts here use fiiu-inbox.dev, a placeholder outside
+// the reserved test and example domains, so they are emailed; example.test accounts are skipped.
+async function mailSetup(t,{outcome=()=>({status:'sent',sentAt:'2026-10-02T15:00:00.000Z'}),confirmation,wrapStore,app={}}={}){
+ const outbox=[];
+ const send=confirmation===null?null:confirmation??(async args=>{outbox.push(structuredClone(args));return outcome(args);});
+ const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
+ const cookies={},users={};
+ for(const [name,email,role] of [['ana','ana@fiiu-inbox.dev','member'],['bea','bea@fiiu-inbox.dev','member'],['tester','tester@example.test','member'],['admin','admin@fiiu-inbox.dev','admin']]){users[name]=createUser(db,{fullName:name,email,passwordHash:'unused',role});cookies[name]=createSession(db,users[name].id).cookie.split(';')[0];}
+ const store=createFiiuStore({db}),server=createApp({db,fiiuStore:wrapStore?wrapStore(store):store,fiiuConfirmation:send,...app});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
+ const base=`http://127.0.0.1:${server.address().port}`;
+ const call=(path,{actor='ana',method='GET',body}={})=>fetch(base+path,{method,headers:{Cookie:cookies[actor],Origin:base,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
+ const save=(body={},actor='ana')=>call('/api/fiiu/registration',{actor,method:'PUT',body:{version:0,...answers,...body}});
+ return {db,store,call,save,outbox,users,cookies};
+}
+
+test('the first registration emails a summary once, to the account address, in the page language, and edits send nothing',async t=>{
+ const {call,save,outbox,db}=await mailSetup(t);
+ const first=await save({email:'spoof@example.org',language:'pt'});assert.equal(first.status,200);
+ const {registration,confirmationEmail}=await first.json();
+ assert.equal(confirmationEmail,'sent');assert.equal(registration.version,1,'the email outcome never bumps the version');
+ assert.deepEqual([registration.confirmationStatus,registration.confirmationLanguage,registration.confirmationSentAt],['sent','pt','2026-10-02T15:00:00.000Z']);
+ assert.equal(outbox.length,1);assert.equal(outbox[0].registration.email,'ana@fiiu-inbox.dev');assert.equal(outbox[0].registration.id,registration.id);assert.equal(outbox[0].language,'pt');
+ assert.equal(outbox[0].config.programUrl,'https://canva.link/ficmkatcg9fudwk','the sender gets the live festival settings');
+ assert.deepEqual({...db.prepare('SELECT confirmation_status s,confirmation_language l,confirmation_sent_at at,version FROM fiiu_registrations').get()},{s:'sent',l:'pt',at:'2026-10-02T15:00:00.000Z',version:1});
+ const edit=await save({registrationId:registration.id,version:1,activities:['day2-pm'],language:'en'});assert.equal(edit.status,200);
+ const edited=await edit.json();assert.equal(edited.confirmationEmail,undefined);assert.equal(edited.registration.version,2);assert.equal(edited.registration.confirmationStatus,'sent');assert.equal(outbox.length,1,'edits never email');
+ // The status travels with the person's own data and the organiser views.
+ assert.equal((await(await call('/api/fiiu/registration')).json()).registration.confirmationStatus,'sent');
+ assert.equal((await(await call('/api/me/export')).json()).data.fiiu.registration.confirmationStatus,'sent');
+ assert.equal((await(await call(`/api/admin/fiiu/registrations/${registration.id}`,{actor:'admin'})).json()).registration.confirmationSentAt,'2026-10-02T15:00:00.000Z');
+ const csvText=await(await call('/api/admin/fiiu/export',{actor:'admin'})).text();assert.match(csvText.split('\r\n')[1],/,"sent"$/);
+});
+
+test('the summary language falls back from the page to the site language cookie to Spanish',async t=>{
+ const {save,outbox,cookies,call}=await mailSetup(t);
+ cookies.ana+='; nodal.lang=en';cookies.bea+='; nodal.lang=xx';
+ assert.equal((await save({language:'fr'})).status,200);assert.equal(outbox.at(-1).language,'en');
+ assert.equal((await save({},'bea')).status,200);assert.equal(outbox.at(-1).language,'es');
+ assert.equal((await(await call('/api/fiiu/registration',{actor:'bea'})).json()).registration.confirmationLanguage,'es');
+});
+
+test('an email failure never fails the registration, and each outcome is stored as reported',async t=>{
+ for(const [outcome,expected] of [[()=>({status:'failed'}),'failed'],[()=>({status:'uncertain'}),'uncertain'],[()=>{throw Error('mailer bug');},'uncertain'],[()=>({status:'weird'}),'uncertain'],[()=>({status:'sent'}),'sent']]){
+  const {save,db}=await mailSetup(t,{outcome});const response=await save();assert.equal(response.status,200,expected);
+  const body=await response.json();assert.equal(body.confirmationEmail,expected);assert.equal(body.registration.version,1);
+  const row=db.prepare('SELECT confirmation_status s,confirmation_sent_at at FROM fiiu_registrations').get();assert.equal(row.s,expected);assert.equal(Boolean(row.at),expected==='sent','only a sent email has a time');
+ }
+});
+
+test('no sender, a reserved test address, a closed registration or a failed save send nothing',async t=>{
+ const off=await mailSetup(t,{confirmation:null});const plain=await(await off.save()).json();
+ assert.equal(plain.confirmationEmail,'none');assert.equal(plain.registration.confirmationStatus,'none');assert.equal(plain.registration.confirmationLanguage,'es');
+ const {save,outbox,call}=await mailSetup(t);
+ const reserved=await(await save({},'tester')).json();assert.equal(reserved.confirmationEmail,'skipped');assert.equal(outbox.length,0);
+ assert.equal((await call('/api/admin/fiiu/config',{actor:'admin',method:'PUT',body:{version:0,registrationOpen:false}})).status,200);
+ assert.equal((await save()).status,403);assert.equal(outbox.length,0);
+ const broken=await mailSetup(t,{wrapStore:store=>({...store,insert:async(name,record)=>{if(name==='registrations')throw Error('database unavailable');return store.insert(name,record);}})});
+ assert.equal((await broken.save()).status,500);assert.equal(broken.outbox.length,0);
+ assert.equal((await save({version:3})).status,403,'still closed');
+});
+
+test('concurrent first registrations send one email',async t=>{
+ const {save,outbox}=await mailSetup(t);
+ const results=await Promise.all([save(),save()]);assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);assert.equal(outbox.length,1);
+});
+
+test('registering again after cancelling is limited to three summary emails an hour per account, and the one over it waits for the backfill',async t=>{
+ const {save,call,outbox,db,store}=await mailSetup(t);const statuses=[];
+ for(let round=0;round<4;round++){
+  const {registration}=await(await call('/api/fiiu/registration')).json();
+  if(registration)assert.equal((await call('/api/fiiu/registration',{method:'DELETE',body:{version:registration.version,registrationId:registration.id}})).status,200);
+  const response=await save();assert.equal(response.status,200);statuses.push((await response.json()).confirmationEmail);
+ }
+ assert.deepEqual(statuses,['sent','sent','sent','none']);assert.equal(outbox.length,3);
+ assert.equal(db.prepare('SELECT confirmation_status s FROM fiiu_registrations').get().s,'none','not skipped for good');
+ const listed=[];assert.equal((await sendConfirmations({store,log:line=>listed.push(line)})).listed,1,'the backfill can still send it');
+ assert.equal((await(await save({},'bea')).json()).confirmationEmail,'sent','the limit is per account');
+});
+
+test('a ceiling across all accounts caps the summary emails an hour, and an account over its own limit never spends it',async t=>{
+ const {save,call,outbox,db}=await mailSetup(t,{app:{fiiuEmailLimits:{perAccount:1,overall:2}}});
+ const cancel=async actor=>{const {registration}=await(await call('/api/fiiu/registration',{actor})).json();assert.equal((await call('/api/fiiu/registration',{actor,method:'DELETE',body:{version:registration.version,registrationId:registration.id}})).status,200);};
+ assert.equal((await(await save()).json()).confirmationEmail,'sent');
+ // Ana is over her own limit: her second registration is not emailed and leaves the shared ceiling untouched.
+ await cancel('ana');assert.equal((await(await save()).json()).confirmationEmail,'none');
+ assert.equal((await(await save({},'bea')).json()).confirmationEmail,'sent');
+ assert.equal((await(await save({},'admin')).json()).confirmationEmail,'none','the third account meets the ceiling');
+ assert.equal(outbox.length,2);
+ assert.deepEqual(db.prepare('SELECT confirmation_status s FROM fiiu_registrations ORDER BY s').all().map(row=>row.s),['none','none','sent']);
+});
+
+test('a save that fails before the registration is stored never uses up the account’s summary emails',async t=>{
+ let failures=3;
+ const {save,outbox,db}=await mailSetup(t,{wrapStore:store=>({...store,insert:async(name,record)=>{if(name==='registrations'&&failures>0){failures--;throw Object.assign(Error('upstream unavailable'),{status:502});}return store.insert(name,record);}})});
+ for(let attempt=0;attempt<3;attempt++)assert.equal((await save()).status,502);
+ const response=await save();assert.equal(response.status,200);assert.equal((await response.json()).confirmationEmail,'sent');
+ assert.equal(outbox.length,1);assert.equal(db.prepare('SELECT confirmation_status s FROM fiiu_registrations').get().s,'sent');
+});
+
+test('a registration cancelled while its email is sending still gets an answer, and nothing is recreated',async t=>{
+ let db;const setup=await mailSetup(t,{outcome:({registration})=>{db.prepare('DELETE FROM fiiu_registrations WHERE id=?').run(registration.id);return {status:'sent',sentAt:'2026-10-02T15:00:00.000Z'};}});db=setup.db;
+ const response=await setup.save();assert.equal(response.status,200);assert.equal((await response.json()).confirmationEmail,'sent');
+ assert.equal(db.prepare('SELECT count(*) n FROM fiiu_registrations').get().n,0);
+});
+
+test('an edit saved while the email is sending keeps its version, and the email outcome still lands',async t=>{
+ let release,started;const gate=new Promise(resolve=>{release=resolve;}),begun=new Promise(resolve=>{started=resolve;});
+ const {save,call,db}=await mailSetup(t,{outcome:async()=>{started();await gate;return {status:'sent',sentAt:'2026-10-02T15:00:00.000Z'};}});
+ const first=save();await begun;
+ const {registration}=await(await call('/api/fiiu/registration')).json();assert.equal(registration.confirmationStatus,'pending');
+ assert.equal((await save({registrationId:registration.id,version:1,activities:['day2-am']})).status,200);
+ release();assert.equal((await first).status,200);
+ assert.deepEqual({...db.prepare('SELECT confirmation_status s,version FROM fiiu_registrations').get()},{s:'sent',version:2});
+});
+
+test('a local database made before the summary email gains its columns, and old rows read as none',async t=>{
+ const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
+ const user=createUser(db,{fullName:'Old',email:'old@example.com',passwordHash:'unused'});
+ db.exec(`CREATE TABLE fiiu_registrations (id TEXT PRIMARY KEY,event_id TEXT NOT NULL,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,email TEXT NOT NULL,answers TEXT NOT NULL,lab_status TEXT NOT NULL,version INTEGER NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,UNIQUE(event_id,user_id));
+  INSERT INTO fiiu_registrations VALUES('r1','fiiu-2026','${user.id}','old@example.com','{}','none',1,'2026-09-29T00:00:00Z','2026-09-29T00:00:00Z');`);
+ const store=createFiiuStore({db});createFiiuStore({db});
+ const [row]=await store.find('registrations',{id:'r1'});assert.deepEqual([row.confirmationStatus,row.confirmationLanguage,row.confirmationSentAt],['none',null,null]);
+ assert.throws(()=>db.prepare("UPDATE fiiu_registrations SET confirmation_status='queued'").run(),/CHECK constraint/);
+ assert.throws(()=>db.prepare("UPDATE fiiu_registrations SET confirmation_language='fr'").run(),/CHECK constraint/);
 });

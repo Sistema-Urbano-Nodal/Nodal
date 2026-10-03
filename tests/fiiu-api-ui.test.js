@@ -25,6 +25,9 @@ test('registration writes require a confirmed record with the expected identity 
   await assert.rejects(apiFor(Response.json(data))('/api/fiiu/registration',body,'PUT'),error=>error.key==='error');
  }
  assert.equal((await apiFor(Response.json({registration}))('/api/fiiu/registration',body,'PUT')).registration.id,'registration-a');
+ // A first registration also reports the summary email's outcome; the extra fields are accepted as they are.
+ const first=await apiFor(Response.json({registration:{...registration,confirmationStatus:'sent',confirmationSentAt:'2026-10-02T15:00:00.000Z'},confirmationEmail:'sent'}))('/api/fiiu/registration',body,'PUT');
+ assert.equal(first.confirmationEmail,'sent');assert.equal(first.registration.confirmationStatus,'sent');
  await assert.rejects(apiFor(Response.json({}))('/api/fiiu/registration',body,'DELETE'),error=>error.key==='error');
  assert.equal((await apiFor(Response.json({ok:true}))('/api/fiiu/registration',body,'DELETE')).ok,true);
 });

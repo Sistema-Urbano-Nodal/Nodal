@@ -21,6 +21,7 @@ test('PostgreSQL festival migrations enforce private access, conditional writes,
  await execute('psql',[...args,'-f',new URL('../supabase/migrations/20260928233515_fiiu_festival.sql',import.meta.url).pathname]);
  await execute('psql',[...args,'-f',new URL('../supabase/migrations/20260929194059_fiiu_event_summary.sql',import.meta.url).pathname]);
  await execute('psql',[...args,'-f',new URL('../supabase/migrations/20261001011759_fiiu_checkin.sql',import.meta.url).pathname]);
+ await execute('psql',[...args,'-f',new URL('../supabase/migrations/20261003013301_fiiu_confirmation_email.sql',import.meta.url).pathname]);
  assert.equal(await sql(`SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND indexname='fiiu_attendance_activity'`),'1');
  for(const name of ['registrations','attendance','config','content']){
   assert.equal(await sql(`SELECT relrowsecurity FROM pg_class WHERE oid='fiiu_${name}'::regclass`),'t');
@@ -29,6 +30,13 @@ test('PostgreSQL festival migrations enforce private access, conditional writes,
  const person='11111111-1111-4111-8111-111111111111',reg='22222222-2222-4222-8222-222222222222';
  await sql(`INSERT INTO profiles VALUES('${person}'); SET ROLE service_role;
  INSERT INTO fiiu_registrations VALUES('${reg}','fiiu-2026','${person}','fixture@example.test','{}','none',1,now(),now());`);
+ // The summary email columns: positional inserts written before them read as 'none', and only known values fit.
+ assert.equal(await sql(`SET ROLE service_role; SELECT confirmation_status||':'||coalesce(confirmation_language,'-')||':'||coalesce(confirmation_sent_at::text,'-') FROM fiiu_registrations WHERE id='${reg}';`),'none:-:-');
+ for(const change of ["confirmation_status='queued'","confirmation_status=NULL","confirmation_language='fr'"])await assert.rejects(sql(`SET ROLE service_role; UPDATE fiiu_registrations SET ${change} WHERE id='${reg}';`),/check constraint|null value/,change);
+ const settle=status=>sql(`SET ROLE service_role; UPDATE fiiu_registrations SET confirmation_status='${status}',confirmation_sent_at=now() WHERE id='${reg}' AND confirmation_status='pending' RETURNING version;`);
+ await sql(`SET ROLE service_role; UPDATE fiiu_registrations SET confirmation_status='pending',confirmation_language='es' WHERE id='${reg}';`);
+ assert.deepEqual((await Promise.all([settle('sent'),settle('failed')])).sort(),['','1'],'one compare-and-set wins and the version is untouched');
+ await sql(`SET ROLE service_role; UPDATE fiiu_registrations SET confirmation_status='none',confirmation_language=NULL,confirmation_sent_at=NULL WHERE id='${reg}';`);
  const update=()=>sql(`SET ROLE service_role; UPDATE fiiu_registrations SET version=version+1 WHERE id='${reg}' AND version=1 RETURNING version;`);
  const results=await Promise.all([update(),update()]);assert.deepEqual(results.sort(),['','2']);
  assert.equal(await sql(`SET ROLE service_role; DELETE FROM fiiu_registrations WHERE id='${reg}' AND version=1 RETURNING id;`),'');
