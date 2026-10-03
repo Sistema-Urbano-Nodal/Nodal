@@ -4,7 +4,7 @@ import {createFiiuStore} from '../server/fiiu-repository.js';
 import {createFiiuApi} from '../server/fiiu-api.js';
 import {createCheckinCodes} from '../server/fiiu-checkin.js';
 
-// In-memory PostgREST for the festival tables: eq/gt/lt/in filters, the store's keyset `or`, order, limit, a response
+// In-memory PostgREST for the festival tables: eq/gt/gte/lt/in filters, the store's keyset `or`, order, limit, a response
 // row cap, exact counts (Content-Range) and constraint errors shaped like server/supabase.js responseError().
 function postgrest({cap=Infinity,count=true,afterRead}={}){
  const tables={fiiu_registrations:[],fiiu_attendance:[],fiiu_config:[],fiiu_content:[]},calls=[];
@@ -13,7 +13,7 @@ function postgrest({cap=Infinity,count=true,afterRead}={}){
   if(['select','order','limit'].includes(key))return true;
   if(key==='or'){const [,lt,eq,id]=/^\(created_at\.lt\.(.+),and\(created_at\.eq\.(.+),id\.lt\.(.+)\)\)$/.exec(expr);return row.created_at<lt||(row.created_at===eq&&row.id<id);}
   const [op,...rest]=expr.split('.'),value=rest.join('.'),actual=String(key==='data->>kind'?row.data?.kind:row[key]);
-  return op==='eq'?actual===value:op==='gt'?actual>value:op==='lt'?actual<value:op==='in'?value.slice(1,-1).split(',').includes(actual):assert.fail('unsupported filter '+expr);
+  return op==='eq'?actual===value:op==='gt'?actual>value:op==='gte'?row[key]!=null&&actual>=value:op==='lt'?actual<value:op==='in'?value.slice(1,-1).split(',').includes(actual):assert.fail('unsupported filter '+expr);
  });
  const error=(code,message)=>Object.assign(Error(message),{status:409,expose:false,code});
  async function rest(table,options={}){
@@ -175,7 +175,7 @@ test('Supabase: a first registration over the sending limit goes back to none fo
  await api({req,res,url:new URL('http://nodal.test/api/fiiu/registration'),user:member});
  assert.equal(res.status,200);assert.equal(res.body.confirmationEmail,'none');assert.equal(outbox.length,0);
  const patch=pg.calls.find(c=>c.table==='fiiu_registrations'&&c.method==='PATCH');
- assert.deepEqual([patch.query.confirmation_status,patch.body],['eq.pending',{confirmation_status:'none'}]);
+ assert.deepEqual([patch.query.confirmation_status,patch.body],['eq.pending',{confirmation_status:'none',confirmation_sent_at:null}]);
  assert.deepEqual([pg.tables.fiiu_registrations[0].confirmation_status,pg.tables.fiiu_registrations[0].version],['none',1]);
 });
 
@@ -193,7 +193,8 @@ test('Supabase first registration stores the email as pending, then settles it b
  const first=await call('PUT','/api/fiiu/registration',{version:0,...answers},'nodal.lang=pt');
  assert.equal(first.status,200);assert.equal(first.body.confirmationEmail,'sent');assert.equal(first.body.registration.version,1);assert.equal(outbox[0].language,'pt');
  const insert=pg.calls.find(c=>c.table==='fiiu_registrations'&&c.method==='POST');
- assert.deepEqual([insert.body.confirmation_status,insert.body.confirmation_language,insert.body.confirmation_sent_at],['pending','pt',null]);
+ assert.deepEqual([insert.body.confirmation_status,insert.body.confirmation_language],['pending','pt']);
+ assert.equal(insert.body.confirmation_sent_at,insert.body.created_at,'the send is stamped when it starts, so the daily cap counts it');
  const settle=pg.calls.find(c=>c.table==='fiiu_registrations'&&c.method==='PATCH');
  assert.deepEqual(settle.query,{id:`eq.${first.body.registration.id}`,confirmation_status:'eq.pending'},'compare-and-set on the status, never on the version');
  assert.deepEqual(settle.body,{confirmation_status:'sent',confirmation_sent_at:'2026-10-02T15:00:00.000Z'});
@@ -206,4 +207,36 @@ test('Supabase first registration stores the email as pending, then settles it b
  const editPatch=pg.calls.filter(c=>c.table==='fiiu_registrations'&&c.method==='PATCH').at(-1);
  assert.equal(editPatch.query.version,'eq.1');assert.ok(!Object.keys(editPatch.body).some(key=>key.startsWith('confirmation_')));
  assert.equal(pg.tables.fiiu_registrations[0].confirmation_status,'sent');
+});
+
+test('Supabase: the organiser summary button counts with exact-count requests, claims by status and walks the list by keyset',async()=>{
+ const pg=postgrest({cap:2}),outbox=[],now=Date.parse('2026-10-02T18:00:00.000Z');
+ const api=createFiiuApi({store:createFiiuStore({clients:pg.clients}),sameOrigin:()=>true,send:(res,status,body)=>Object.assign(res,{status,body}),backfill:{now:()=>now,dailyCap:6},
+  confirmation:async args=>{outbox.push(args);assert.equal(pg.tables.fiiu_registrations.find(r=>r.id===args.registration.id).confirmation_status,'pending','claimed before the send');return {status:'sent',sentAt:'2026-10-02T17:00:00.000Z'};}});
+ const call=async(method,body)=>{
+  const res={},req={method,headers:{'content-type':'application/json'},async *[Symbol.asyncIterator](){if(body!==undefined)yield Buffer.from(JSON.stringify(body));}};
+  try{await api({req,res,url:new URL('http://nodal.test/api/admin/fiiu/confirmations'),user:{id:'admin',email:'admin@example.test',permission:'admin'}});}catch(error){Object.assign(res,{status:error.status??500,body:{error:error.message}});}
+  return res;
+ };
+ const row=(n,status,extra={})=>({...registration(n),email:`p${n}@fiiu-inbox.dev`,confirmation_status:status,confirmation_language:null,confirmation_sent_at:null,...extra});
+ pg.tables.fiiu_registrations.push(row(1,'none',{confirmation_language:'pt'}),row(2,'none'),row(3,'sent',{confirmation_sent_at:'2026-10-02T08:00:00+00:00'}),row(4,'none'),row(5,'sent',{confirmation_sent_at:'2026-10-01T22:00:00+00:00'}),row(6,'none'),row(7,'failed'),row(8,'none'),row(9,'none'));
+ const state=await call('GET');
+ assert.deepEqual(state.body,{configured:true,counts:{none:6,pending:0,sent:2,failed:1,uncertain:0,skipped:0},dailyCap:6,sentToday:1,resetsAt:'2026-10-03T00:00:00.000Z'});
+ const counts=pg.calls.filter(c=>c.table==='fiiu_registrations');
+ assert.ok(counts.every(c=>c.query.select==='id'&&c.query.limit===1&&c.headers.Prefer==='count=exact'),'counts never download rows');
+ assert.ok(counts.some(c=>c.query.confirmation_sent_at==='gte.2026-10-02T00:00:00.000Z'&&c.query.confirmation_status==='in.(sent,uncertain,pending)'),'today’s sends that may have reached the provider are counted in the database');
+ pg.calls.length=0;
+ const first=await call('POST',{});
+ assert.equal(first.status,200);assert.deepEqual([first.body.sent,first.body.next,first.body.remaining],[4,uuid(6),2]);
+ assert.deepEqual(outbox.map(m=>[m.registration.id,m.language]),[[uuid(1),'pt'],[uuid(2),'es'],[uuid(4),'es'],[uuid(6),'es']]);
+ const patches=pg.calls.filter(c=>c.method==='PATCH');
+ assert.deepEqual(patches.filter(c=>c.body.confirmation_status==='pending').map(c=>c.query),[1,2,4,6].map(n=>({id:`eq.${uuid(n)}`,confirmation_status:'eq.none'})),'each claim is a compare-and-set on the status');
+ assert.ok(patches.filter(c=>c.body.confirmation_status==='pending').every(c=>c.body.confirmation_sent_at==='2026-10-02T18:00:00.000Z'),'each claim stamps when its send starts');
+ assert.deepEqual(patches.find(c=>c.query.id===`eq.${uuid(1)}`&&c.body.confirmation_status==='sent'),{table:'fiiu_registrations',method:'PATCH',query:{id:`eq.${uuid(1)}`,confirmation_status:'eq.pending'},headers:{Prefer:'return=representation'},body:{confirmation_status:'sent',confirmation_sent_at:'2026-10-02T17:00:00.000Z'}});
+ assert.ok(pg.calls.some(c=>!c.method&&c.query.id===`gt.${uuid(6)}`&&c.headers?.Prefer==='count=exact'),'what is left is counted after the cursor');
+ // Two of today's six remain: the next batch sends one (the cap), then the cap answers 429.
+ const second=await call('POST',{after:first.body.next});assert.deepEqual([second.status,second.body.sent,second.body.sentToday],[200,1,6]);
+ assert.equal(pg.calls.filter(c=>!c.method&&c.query.id===`gt.${uuid(6)}`&&c.query.confirmation_status==='eq.none'&&c.query.select!=='id').length,1,'the batch reads after the cursor');
+ const capped=await call('POST',{after:second.body.next});assert.deepEqual([capped.status,capped.body.code,capped.body.counts.none],[429,'daily_cap',1]);
+ assert.equal(outbox.length,5);assert.equal(pg.tables.fiiu_registrations.find(r=>r.id===uuid(7)).confirmation_status,'failed','failed rows wait for a retry');
 });

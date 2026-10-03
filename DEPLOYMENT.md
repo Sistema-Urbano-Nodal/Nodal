@@ -315,7 +315,8 @@ How it behaves:
 - Sending limits, counted per server instance and per hour: 3 summary emails
   per account (cancelling and registering again sends a new one) and 60 across
   all accounts, well under Google's daily quota. A registration over either
-  limit is saved as usual and stays `none`, so the backfill below can send it.
+  limit is saved as usual and stays `none`, so the dashboard's "Send the
+  summary" (the backfill below) can send it.
 - Server logs name only the registration id, the stage and the SMTP code.
 
 Configuration (Vercel, **Production scope only**; `PUBLIC_BASE_URL` must be set,
@@ -364,18 +365,55 @@ Sending a test:
    Cancel that registration afterwards.
 
 Backfill (optional; the owner decides): people who registered before the email
-existed have `confirmation_status = 'none'` and receive nothing automatically.
-With the production Supabase variables and the email variables in the shell,
-`node scripts/send-fiiu-confirmations.js` lists them (masked addresses, writes
-nothing); add `--send` to email them one at a time in the language stored with
-the registration, else Spanish. Each send claims the row first (`none` to
-`pending`), so a rerun never emails anyone twice; `--retry-failed` also retries
-`failed` rows, which the provider never received, and `--limit N` (or
-`--limit=N`) caps a run, so `--send --limit 1` is a safe first canary. The
-command stops before sending anything if it does not understand an argument: an
-unknown flag, a missing value, a `--limit` that is not a positive whole number,
-or `--test-to` together with `--send`. `uncertain` rows are never retried
-automatically.
+existed, while it was off, or over the hourly limit have
+`confirmation_status = 'none'` and receive nothing automatically. Send it to
+them from the organiser dashboard, since the email credentials live only in
+Vercel:
+
+1. Open `/fiiu-admin.html#settings` as an administrator. Under "Registration
+   and links", **Summary emails** says, for example, "46 registrations have not
+   received the summary email · 31 sent · 2 failed". If it says the email is
+   off, set the variables above and redeploy first.
+2. Press **Send the summary to 46 people**, then **Confirm: send 46 emails**.
+   The page sends a small batch per request (at most 4 emails at once, each
+   capped at 8 seconds, so every request ends well inside the function time
+   limit) and shows "Sent 12 of 46…" until it ends with "Sent 44 · Failed 2".
+   **Stop** finishes the batch in flight and sends nothing more; pressing the
+   button again later continues with whoever is still waiting.
+3. **Retry failed (N)** sends again to the `failed` rows only (the provider
+   refused or never received those messages). `uncertain` rows are never
+   retried.
+
+Every row is claimed with a compare-and-set (`none` or `failed` to `pending`)
+before its email goes out, so a double click, two organisers at once, or the
+dashboard and the script together never email anyone twice. Each person gets
+the summary in the language stored with the registration, else Spanish;
+reserved test addresses end as `skipped`. A daily safety cap stops the button
+once **150 summary emails** have gone out in the current UTC day (counted from
+`confirmation_sent_at` in the database, sign-up emails included, so every server
+instance agrees); the page then says sending can continue after 19:00 Lima time.
+Every send that may have reached Gmail counts: `confirmation_sent_at` is stamped
+when a send starts and kept for `sent` and `uncertain` (only `failed` and
+`skipped` clear it), so a slow mail server cannot push the button past the cap.
+Sign-ups are never held back by it. The requests spend the organiser write
+budget (30 a minute); when it runs out the page pauses half a minute and carries
+on. API: `GET /api/admin/fiiu/confirmations` answers
+`{configured, counts, dailyCap, sentToday, resetsAt}`, and
+`POST /api/admin/fiiu/confirmations` with `{retryFailed?, after?}` sends one
+batch and answers `{sent, failed, uncertain, skipped, claimedElsewhere,
+remaining, next, counts, ...}`, 503 `email_not_configured` without a sender, or
+429 `daily_cap`. Administrators only, same-origin.
+
+The same sending is also available from a trusted machine that has the
+production Supabase and email variables in the shell:
+`node scripts/send-fiiu-confirmations.js` lists who is waiting (masked
+addresses, writes nothing); add `--send` to email them one at a time with the
+same compare-and-set (`server/fiiu-confirmations.js` is shared by both);
+`--retry-failed` also retries `failed` rows, and `--limit N` (or `--limit=N`)
+caps a run, so `--send --limit 1` is a safe first canary. The command stops
+before sending anything if it does not understand an argument: an unknown flag,
+a missing value, a `--limit` that is not a positive whole number, or
+`--test-to` together with `--send`. The script does not apply the daily cap.
 
 ## Security Checklist
 

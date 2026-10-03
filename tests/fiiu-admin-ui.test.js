@@ -7,10 +7,14 @@ import {createFiiuHarness,key,field,flush,content} from './helpers/fiiu-ui-harne
 const participant=(id,firstName)=>({id,eventId:'fiiu-2026',userId:'user-'+id,email:firstName.toLowerCase()+'@example.test',version:1,labStatus:'pending',createdAt:'2026-09-29T12:00:00.000Z',updatedAt:'2026-09-29T12:00:00.000Z',answers:{firstName,lastName:'Test',country:'Perú',city:'Lima',profile:'public_official',publicOfficial:true,applyLab:true,institution:'City Council',position:'Planner',activities:['day1-am'],privacyAccepted:true}});
 const copy=value=>structuredClone(value);
 const summary={totalRegistrations:237,publicOfficials:64,lab:{pending:18,accepted:12,declined:2},activities:[{activityId:'day1-am',registrations:121,externalInterests:0,attendance:0}],days:[{date:'2026-10-21',registrations:157,attendance:0}],profiles:[{profile:'student',count:48}]};
-async function harness(respond,{participants=[],summaryRead=()=>({summary:copy(summary)}),configRead=()=>({config:{...DEFAULT_CONFIG,version:0}}),context={}}={}){
+// The summary-email block's state (GET /api/admin/fiiu/confirmations); by default nobody is waiting.
+const emailCounts=(over={})=>({none:0,pending:0,sent:0,failed:0,uncertain:0,skipped:0,...over});
+const emailState=(over={})=>({configured:true,counts:emailCounts(),dailyCap:150,sentToday:0,resetsAt:'2026-10-03T00:00:00.000Z',...over});
+async function harness(respond,{participants=[],summaryRead=()=>({summary:copy(summary)}),configRead=()=>({config:{...DEFAULT_CONFIG,version:0}}),confirmationsRead=()=>emailState(),context={}}={}){
  return createFiiuHarness(request=>{
   if(request.path==='/api/fiiu')return{event:FIIU_EVENT,config:DEFAULT_CONFIG,content:[],nextCursor:null};
   if(request.path==='/api/admin/fiiu/config'&&request.method==='GET')return configRead(request);
+  if(request.path==='/api/admin/fiiu/confirmations'&&request.method==='GET')return confirmationsRead(request);
   if(request.path==='/api/admin/fiiu/registrations')return{registrations:copy(participants),nextCursor:null};
   if(request.path==='/api/admin/fiiu/summary')return summaryRead(request);
   return respond(request);
@@ -785,4 +789,148 @@ test('participant detail says in one plain line what happened to the summary ema
  for(const [status,expected] of [['failed','emailStatusFailed'],['uncertain','emailStatusUncertain'],['pending','emailStatusUncertain'],['skipped','emailStatusSkipped'],['none','emailStatusNone'],[undefined,'emailStatusNone']]){
   const node=await line({...ana,confirmationStatus:status});assert.ok(key(node,expected),String(status));assert.doesNotMatch(content(node),/·/,'no time unless sent');
  }
+});
+
+// Summary emails: the block under "Registration and links" that sends the summary to earlier registrations, batch by batch.
+const backfillBlock=h=>h.root.querySelector('.f-backfill');
+const backfillLine=h=>h.root.querySelector('.f-backfill-line').textContent;
+const backfillNote=h=>h.root.querySelector('.f-backfill-note').textContent;
+const backfillButtons=h=>backfillBlock(h).querySelectorAll('button');
+const backfillAction=(h,name)=>backfillButtons(h).find(b=>b.dataset.action===name);
+const press=async(h,name)=>{const b=backfillAction(h,name);assert.ok(b,`no ${name} button`);b.listeners.click();await flush();};
+const posts=h=>h.requests.filter(r=>r.path==='/api/admin/fiiu/confirmations'&&r.method==='POST');
+const batch=(over={})=>({sent:0,failed:0,uncertain:0,skipped:0,claimedElsewhere:0,remaining:0,next:null,dailyCap:150,sentToday:0,resetsAt:'2026-10-03T00:00:00.000Z',counts:emailCounts(),...over});
+// A response the test releases by hand, to look at the page while a batch is in flight.
+function deferred(){let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};}
+
+test('the summary email block says who is waiting, offers one press-plate button and a retry for failures',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{confirmationsRead:()=>emailState({counts:emailCounts({none:46,sent:31,failed:2})})});
+ const block=backfillBlock(h);assert.ok(h.root.querySelector('.f-admin-settings').children.includes(block),'inside Registration and links');
+ assert.ok(key(block,'backfillTitle'));assert.equal(key(block,'backfillHint').hidden,false);
+ assert.equal(backfillLine(h),'46 registrations have not received the summary email · 31 sent · 2 failed');assert.equal(backfillNote(h),'');
+ assert.deepEqual(backfillButtons(h).map(b=>[b.dataset.action,b.textContent,b.className]),[['send','Send the summary to 46 people','f-button'],['retry','Retry failed (2)','f-backfill-link']],'one press-plate button');
+ // The numbers follow the language switch.
+ h.lang('es');assert.equal(backfillLine(h),'46 inscripciones no han recibido el correo de resumen · 31 enviados · 2 con error');assert.equal(backfillAction(h,'send').textContent,'Enviar el resumen a 46 personas');
+ h.lang('pt');assert.equal(backfillAction(h,'retry').textContent,'Tentar de novo os com erro (2)');assert.doesNotMatch(content(block),/\{n\}/);
+});
+
+test('the summary email block: singular forms, nobody waiting, email off, the daily cap and a failed read',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{confirmationsRead:()=>emailState({counts:emailCounts({none:1,sent:1,uncertain:1,skipped:1})})});
+ assert.equal(backfillLine(h),'1 registration has not received the summary email · 1 sent · 1 may not have arrived · 1 test address skipped');
+ assert.equal(backfillAction(h,'send').textContent,'Send the summary to 1 person');assert.equal(backfillAction(h,'retry'),undefined);
+ const reload=next=>harness(()=>({content:[],nextCursor:null}),{confirmationsRead:()=>next});
+ let r=await reload(emailState({counts:emailCounts({sent:77,pending:1,uncertain:1,skipped:3})}));
+ assert.equal(backfillLine(r),'No registration is waiting for the summary email · 77 sent · 2 may not have arrived · 3 test addresses skipped');assert.equal(backfillButtons(r).length,0);
+ r=await reload(emailState({configured:false,counts:emailCounts({none:46})}));
+ assert.match(backfillLine(r),/^Summary emails are off\. To turn them on, set EMAIL_SMTP_URL and EMAIL_FROM/);assert.equal(backfillButtons(r).length,0,'no button while email is off');assert.equal(key(backfillBlock(r),'backfillHint').hidden,true,'one line');
+ r=await reload(emailState({counts:emailCounts({none:5,sent:150}),sentToday:150}));
+ assert.equal(backfillButtons(r).length,0);assert.equal(backfillNote(r),'Today’s limit of 150 summary emails is reached (sign-up emails included). Sending can continue after 19:00 Lima time.');
+ let fail=true;r=await harness(()=>({content:[],nextCursor:null}),{confirmationsRead:()=>fail?{status:503,data:{error:'unavailable'}}:emailState({counts:emailCounts({none:2})})});
+ assert.equal(backfillLine(r),'The summary email status could not be loaded.');assert.equal(content(r.message).trim(),'','the rest of the page is unaffected');
+ fail=false;await press(r,'reload');assert.equal(backfillLine(r),'2 registrations have not received the summary email · 0 sent');assert.ok(backfillAction(r,'send'));
+ // Anything malformed reads as a failed read, never as numbers.
+ r=await harness(()=>({content:[],nextCursor:null}),{confirmationsRead:()=>({configured:true,counts:{none:'46'}})});assert.equal(backfillLine(r),'The summary email status could not be loaded.');
+});
+
+test('sending asks for an in-page confirmation, then sends batch after batch with live progress and a plain summary',async()=>{
+ let state=emailState({counts:emailCounts({none:6})});const second=deferred();
+ const h=await harness(request=>{
+  if(request.path!=='/api/admin/fiiu/confirmations')return{content:[],nextCursor:null};
+  if(posts(h).length===1)return batch({sent:4,remaining:2,next:'id-4',sentToday:4,counts:emailCounts({none:2,sent:4})});
+  return second.promise;
+ },{confirmationsRead:()=>state});
+ const window=h.ctx.window;let asked=0;window.confirm=()=>{asked++;return true;};
+ await press(h,'send');
+ assert.equal(posts(h).length,0,'the first click only asks');assert.equal(asked,0,'no browser dialog');
+ assert.equal(backfillNote(h),'The summary goes out now, a few emails at a time. You can stop at any time.');
+ const confirm=backfillAction(h,'confirm');assert.equal(confirm.textContent,'Confirm: send 6 emails');assert.equal(confirm.className,'f-button');assert.equal(confirm.focused,true);assert.ok(backfillAction(h,'cancel'));assert.equal(backfillAction(h,'send'),undefined);
+ const summaries=h.requests.filter(r=>r.path==='/api/admin/fiiu/summary').length;
+ confirm.listeners.click();confirm.listeners.click();await flush();
+ assert.equal(backfillNote(h),'Sent 4 of 6…');assert.equal(backfillAction(h,'stop').focused,true);assert.equal(backfillAction(h,'send'),undefined);
+ assert.equal(backfillLine(h),'2 registrations have not received the summary email · 4 sent','the counts follow each batch');
+ assert.deepEqual(posts(h).map(r=>r.body),[{retryFailed:false},{retryFailed:false,after:'id-4'}],'one pass despite the double click, the second batch after the first one’s cursor');
+ state=emailState({counts:emailCounts({sent:5,failed:1}),sentToday:5});
+ second.resolve(batch({sent:1,failed:1,remaining:0,next:null,sentToday:5,counts:emailCounts({sent:5,failed:1})}));await flush();
+ assert.equal(posts(h).length,2);assert.equal(backfillNote(h),'Sent 5 · Failed 1 — you can retry the failed ones');
+ assert.equal(backfillLine(h),'No registration is waiting for the summary email · 5 sent · 1 failed');
+ assert.deepEqual(backfillButtons(h).map(b=>b.dataset.action),['retry']);
+ assert.ok(h.requests.filter(r=>r.path==='/api/admin/fiiu/summary').length>summaries,'the overview is refreshed');
+});
+
+test('Stop finishes the batch in flight and sends no more; Cancel sends nothing',async()=>{
+ let state=emailState({counts:emailCounts({none:10})});const first=deferred();
+ const h=await harness(request=>request.path==='/api/admin/fiiu/confirmations'?first.promise:{content:[],nextCursor:null},{confirmationsRead:()=>state});
+ await press(h,'send');await press(h,'cancel');
+ assert.equal(posts(h).length,0);assert.equal(backfillAction(h,'send').focused,true);assert.equal(backfillNote(h),'');
+ await press(h,'send');await press(h,'confirm');assert.equal(backfillNote(h),'Sent 0 of 10…');
+ await press(h,'stop');assert.equal(backfillNote(h),'Sent 0 of 10 — stopping after this batch…');
+ state=emailState({counts:emailCounts({none:6,sent:4}),sentToday:4});
+ first.resolve(batch({sent:4,remaining:6,next:'id-4',sentToday:4,counts:emailCounts({none:6,sent:4})}));await flush();
+ assert.equal(posts(h).length,1,'nothing after Stop');assert.equal(backfillNote(h),'Stopped. Sent 4 · Failed 0');
+ assert.equal(backfillAction(h,'send').textContent,'Send the summary to 6 people','the rest can be sent later');
+});
+
+test('Retry failed sends only the failed ones, after its own confirmation',async()=>{
+ let state=emailState({counts:emailCounts({sent:9,failed:2})});
+ const h=await harness(request=>{if(request.path!=='/api/admin/fiiu/confirmations')return{content:[],nextCursor:null};state=emailState({counts:emailCounts({sent:11})});return batch({sent:2,remaining:0,next:'id-2',sentToday:11,counts:emailCounts({sent:11})});},{confirmationsRead:()=>state});
+ assert.deepEqual(backfillButtons(h).map(b=>b.dataset.action),['retry']);
+ await press(h,'retry');assert.equal(backfillAction(h,'confirm').textContent,'Confirm: send 2 emails');
+ await press(h,'confirm');
+ assert.deepEqual(posts(h).map(r=>r.body),[{retryFailed:true}]);assert.equal(backfillNote(h),'Sent 2 · Failed 0');assert.equal(backfillButtons(h).length,0);
+});
+
+test('the summary run reports the daily cap, email turned off, a lost session, a failed request and a lost organiser role',async()=>{
+ // The first batch goes through; answer(state) gives the second. state.signedOut makes every later read a 401 too, as after a real sign-out.
+ const signedOut={status:401,data:{error:'sign in required'}};
+ const run=async answer=>{
+  let calls=0;const state={value:emailState({counts:emailCounts({none:8})}),signedOut:false};
+  const h=await harness(request=>{if(request.path!=='/api/admin/fiiu/confirmations')return{content:[],nextCursor:null};calls++;return calls===1?batch({sent:4,remaining:4,next:'id-4',sentToday:4,counts:emailCounts({none:4,sent:4})}):answer(state);},
+   {confirmationsRead:()=>state.signedOut?signedOut:state.value,summaryRead:()=>state.signedOut?signedOut:{summary:copy(summary)}});
+  await press(h,'send');await press(h,'confirm');return h;
+ };
+ let h=await run(state=>{state.value=emailState({counts:emailCounts({none:4,sent:150}),sentToday:150});return {status:429,data:{error:'daily summary email limit reached',code:'daily_cap'}};});
+ assert.equal(backfillNote(h),'Sent 4 · Failed 0. Today’s limit of 150 summary emails is reached (sign-up emails included). Sending can continue after 19:00 Lima time.');
+ assert.equal(backfillAction(h,'send'),undefined,'no button until tomorrow');assert.equal(posts(h).length,2);
+ h=await run(state=>{state.value=emailState({configured:false,counts:emailCounts({none:4,sent:4})});return {status:503,data:{error:'email is not configured',code:'email_not_configured'}};});
+ assert.match(backfillLine(h),/^Summary emails are off/);assert.equal(backfillButtons(h).length,0);assert.equal(backfillNote(h),'');
+ h=await run(state=>{state.signedOut=true;return signedOut;});
+ assert.equal(backfillNote(h),'Sent 4 · Failed 0. Sign in again, then press the button to continue.');assert.equal(h.root.querySelector('.f-session-notice').hidden,false,'the page’s sign-in notice');
+ h=await run(()=>({status:500,data:{error:'internal error'}}));
+ assert.equal(backfillNote(h),'Sent 4 · Failed 0. The sending stopped because a request failed. Nobody is emailed twice: press the button again to continue.');assert.ok(backfillAction(h,'send'),'press again to continue');
+ h=await run(()=>({status:200,data:{sent:'4'}}));assert.match(backfillNote(h),/The sending stopped because a request failed/,'a malformed answer stops the pass');
+ h=await run(()=>({status:403,data:{error:'administrator access required'}}));
+ assert.ok(key(h.root,'organisersOnly'),'the page locks');assert.equal(h.root.querySelector('.f-backfill'),null);
+ const before=h.requests.length;h.lang('es');await h.tickTimers();assert.equal(h.requests.length,before);
+});
+
+test('a busy write budget pauses the summary run half a minute and carries on; Stop ends the pause',async()=>{
+ let calls=0,state=emailState({counts:emailCounts({none:5})});
+ const h=await harness(request=>{
+  if(request.path!=='/api/admin/fiiu/confirmations')return{content:[],nextCursor:null};
+  calls++;if(calls===1)return {status:429,data:{error:'too many requests'}};
+  state=emailState({counts:emailCounts({sent:5}),sentToday:5});return batch({sent:5,remaining:0,next:null,sentToday:5,counts:emailCounts({sent:5})});
+ },{confirmationsRead:()=>state});
+ const timers=fakeTimers(h);
+ await press(h,'send');await press(h,'confirm');
+ assert.equal(backfillNote(h),'Sent 0 of 5 — pausing half a minute for the request limit…');assert.deepEqual(timers.delays(),[30000],'the wait the note announces');
+ h.lang('es');assert.equal(backfillNote(h),'Enviados 0 de 5 — pausa de medio minuto por el límite de solicitudes…');
+ h.lang('pt');assert.equal(backfillNote(h),'Enviados 0 de 5 — pausa de meio minuto pelo limite de solicitações…');h.lang('en');
+ timers.run();await flush();
+ assert.equal(posts(h).length,2);assert.equal(backfillNote(h),'Sent 5 · Failed 0');
+ // Stop during a pause ends the run at once.
+ const again=await harness(request=>request.path==='/api/admin/fiiu/confirmations'?{status:429,data:{error:'too many requests'}}:{content:[],nextCursor:null},{confirmationsRead:()=>emailState({counts:emailCounts({none:3})})});
+ fakeTimers(again);await press(again,'send');await press(again,'confirm');await press(again,'stop');
+ assert.equal(posts(again).length,1);assert.equal(backfillNote(again),'Stopped. Sent 0 · Failed 0');
+});
+
+test('Stop pressed while a request is out, which then meets the busy write budget, ends the run at once with no pause',async()=>{
+ const first=deferred();
+ const h=await harness(request=>request.path==='/api/admin/fiiu/confirmations'?first.promise:{content:[],nextCursor:null},{confirmationsRead:()=>emailState({counts:emailCounts({none:9})})});
+ const timers=fakeTimers(h);
+ await press(h,'send');await press(h,'confirm');await press(h,'stop');
+ assert.equal(backfillNote(h),'Sent 0 of 9 — stopping after this batch…');
+ first.resolve({status:429,data:{error:'too many requests'}});await flush();
+ assert.deepEqual(timers.delays(),[],'no half-minute pause after Stop');assert.equal(posts(h).length,1);
+ assert.equal(backfillNote(h),'Stopped. Sent 0 · Failed 0');assert.equal(backfillAction(h,'stop'),undefined);
+ assert.equal(backfillAction(h,'send').textContent,'Send the summary to 9 people','the button is back straight away');
 });

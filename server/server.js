@@ -59,6 +59,8 @@ const ORGANISER_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html']);
 const STATIC_STYLES = new Set(['fiiu.css', 'auth.css', 'styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css']);
 const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp']);
 const STATIC_FONTS = new Set(['montserrat-v31-latin-normal.woff2', 'montserrat-v31-latin-ext-normal.woff2', 'montserrat-v31-latin-italic.woff2', 'montserrat-v31-latin-ext-italic.woff2', 'OFL.txt']);
+// The FIIU summary email's logo (server/fiiu-email.js), loaded by mail clients from other origins.
+const STATIC_EMAIL_ASSETS = new Set(['nodal-lockup.png', 'nodal-lockup-dark.png']);
 const AUTH_RATE_WINDOW_MS = 5 * 60 * 1000;
 const AUTH_RATE_LIMIT = envInt('AUTH_RATE_LIMIT', 10);
 // A classroom may share one public IP. Keep account guessing strict while
@@ -778,7 +780,9 @@ async function serveStatic(req, res, canonical, pilotMode, { status = 200 } = {}
   try {
     const raw = await fs.readFile(filePath);
     const data = type.startsWith('text/html') ? preparePageHtml(raw.toString('utf8'), { pilotMode }) : raw;
-    const headers = type.startsWith('text/html') ? htmlSecurityHeaders({}, canonical === '/course.html') : securityHeaders();
+    // Mail clients load the email logo from another origin (vercel.json sends the same policy in production).
+    const headers = type.startsWith('text/html') ? htmlSecurityHeaders({}, canonical === '/course.html')
+      : securityHeaders(canonical.startsWith('/assets/email/') ? { 'Cross-Origin-Resource-Policy': 'cross-origin' } : {});
     res.writeHead(status, {
       ...headers,
       ...(canonical==='/dashboard.html'?{'Permissions-Policy':'camera=(), microphone=(), geolocation=(self), payment=()'}:{}),
@@ -800,6 +804,10 @@ export function staticSourcePath(pathname) {
   if (rel.startsWith('assets/fonts/')) {
     const name = rel.slice('assets/fonts/'.length);
     if (STATIC_FONTS.has(name)) return path.join(WEB_ROOT, 'assets', 'fonts', name);
+  }
+  if (rel.startsWith('assets/email/')) {
+    const name = rel.slice('assets/email/'.length);
+    if (STATIC_EMAIL_ASSETS.has(name)) return path.join(WEB_ROOT, 'assets', 'email', name);
   }
   if (rel.startsWith('assets/')) {
     const name = rel.slice('assets/'.length);
@@ -833,6 +841,9 @@ export function createApp({
   fiiuConfirmation = fiiuStore ? createRegistrationConfirmation({ loopbackOnly: repository?.kind !== 'supabase' }) : null,
   // Summary emails per hour: per account, and for the whole server instance (see fiiuEmailCeiling below).
   fiiuEmailLimits = { perAccount: 3, overall: 60 },
+  /* The organiser's "Send the summary" button (POST /api/admin/fiiu/confirmations): emails per request and per UTC
+     day, defaults in server/fiiu-confirmations.js. Its requests spend the FIIU write budget (fiiuWriteLimiter). */
+  fiiuBackfill = {},
   newsStore = repository?.database ? createNewsStore({db:repository.database}) : repository?.kind === 'supabase' ? createNewsStore() : null,
 } = {}) {
   const useDb = Boolean(repository);
@@ -919,7 +930,7 @@ export function createApp({
   // Check-in links point at the configured public origin; only a server outside production falls back to its Host.
   const fiiuPublicOrigin=req=>{try{return publicBaseUrl();}catch(err){if(process.env.NODE_ENV==='production')throw err;return new URL(`http://${req.headers.host}`).origin;}};
   const fiiuApi=fiiuStore?createFiiuApi({store:fiiuStore,sameOrigin,send,checkin:fiiuCheckin??{},encodeQr,publicOrigin:fiiuPublicOrigin,
-    confirmation:fiiuConfirmation,emailAllowed:user=>fiiuEmailLimiter.take(`fiiu-email:${user.id}`).ok&&fiiuEmailCeiling.take('fiiu-email:all').ok,
+    confirmation:fiiuConfirmation,emailAllowed:user=>fiiuEmailLimiter.take(`fiiu-email:${user.id}`).ok&&fiiuEmailCeiling.take('fiiu-email:all').ok,backfill:fiiuBackfill,
     rateLimit:(req,res,user,pathname)=>['GET','HEAD'].includes(req.method)?throttle(user?fiiuReadLimiter:fiiuPublicReadLimiter,res,req,user,'fiiu')
       :req.method==='PUT'&&/^\/api\/admin\/fiiu\/registrations\/[^/]+\/attendance$/.test(pathname)?throttle(fiiuCheckInLimiter,res,req,user,'fiiu-checkin')
       :req.method==='POST'&&pathname==='/api/fiiu/checkin'?throttle(fiiuSelfCheckInLimiter,res,req,user,'fiiu-self-checkin')

@@ -47,6 +47,9 @@ const STATIC_ASSETS = [
   'nodal-community.webp',
   'nodal-wordmark.webp',
 ];
+/* Images the FIIU summary email loads from the public origin (server/fiiu-email.js). Emails already sent point at
+   these URLs for good: never change a file's bytes; a new version needs a new name. */
+const STATIC_EMAIL_ASSETS = ['nodal-lockup.png', 'nodal-lockup-dark.png'];
 const STATIC_FONTS = [
   'montserrat-v31-latin-normal.woff2',
   'montserrat-v31-latin-ext-normal.woff2',
@@ -61,6 +64,7 @@ export async function buildStatic({ output = OUTPUT, webRoot = WEB_ROOT, pilotMo
     ...STATIC_STYLES.map(file => [path.join('styles', file), file]),
     ...STATIC_ASSETS.map(file => [path.join('assets', 'optimized', file), path.join('assets', file)]),
     ...STATIC_FONTS.map(file => [path.join('assets', 'fonts', file), path.join('assets', 'fonts', file)]),
+    ...STATIC_EMAIL_ASSETS.map(file => [path.join('assets', 'email', file), path.join('assets', 'email', file)]),
   ];
   // Fail on a missing source before touching the last build.
   await Promise.all([
@@ -78,6 +82,7 @@ export async function buildStatic({ output = OUTPUT, webRoot = WEB_ROOT, pilotMo
   await Promise.all((await readdir(output)).filter(file => file !== '.gitkeep')
     .map(file => rm(path.join(output, file), { recursive: true, force: true })));
   await mkdir(path.join(output, 'assets', 'fonts'), { recursive: true });
+  await mkdir(path.join(output, 'assets', 'email'), { recursive: true });
   await Promise.all([
     ...pages.map(([file, html]) => writeFile(path.join(output, file), html)),
     ...copies.map(([source, destination]) => copyFile(path.join(webRoot, source), path.join(output, destination))),

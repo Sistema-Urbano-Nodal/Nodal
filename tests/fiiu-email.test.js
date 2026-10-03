@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {once} from 'node:events';
+import {mkdtempSync,readFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -11,6 +12,9 @@ import {startFakeSmtp,parseMessage} from './helpers/fake-smtp.js';
 import {createDatabase,createUser} from '../server/db.js';
 import {createFiiuStore} from '../server/fiiu-repository.js';
 import {sendConfirmations,SAMPLE_REGISTRATION,parseCliArgs} from '../scripts/send-fiiu-confirmations.js';
+import {buildStatic} from '../scripts/build-static.js';
+import {createApp} from '../server/server.js';
+import {createStore} from '../server/store.js';
 
 const origin='https://nodal.example.org';
 // Recipients that should be emailed use a placeholder outside the reserved domains (example.com and the like are never
@@ -103,7 +107,7 @@ test('private answers never appear, and the name is escaped and stripped of line
  for(const language of ['en','es','pt']){const {subject,text,html}=render({labStatus:'pending',answers:{applyLab:true}},language);
   for(const secret of ['TEST-ID-4471','Rampa-secreta-9','Motivo-privado-3','Muni-Privada-5','Cargo-Privado-6','prefer_not','47','Quispe'])assert.ok(!`${subject}${text}${html}`.includes(secret),`${language}: ${secret}`);}
  const hostile=render({answers:{firstName:'<img src=x onerror=alert(1)>\r\nBcc: x@example.org "Ana"'}},'en');
- assert.doesNotMatch(hostile.html,/<img|onerror=alert\(1\)>/);assert.match(hostile.html,/Hi &lt;img src=x onerror=alert\(1\)&gt; Bcc: x@example\.org &quot;Ana&quot;,/);
+ assert.doesNotMatch(hostile.html,/<img src=x|onerror=alert\(1\)>/);assert.match(hostile.html,/Hi &lt;img src=x onerror=alert\(1\)&gt; Bcc: x@example\.org &quot;Ana&quot;,/);
  assert.match(hostile.text,/^Hi <img src=x onerror=alert\(1\)> Bcc: x@example\.org "Ana",\n/);assert.equal(hostile.subject,'Your FIIU Fest 11 registration');
  assert.equal(safeName('  Ana\u0000​ María\n'),'Ana María');assert.equal(safeName('x'.repeat(300)).length,100);
  assert.match(render({answers:{firstName:''}},'es').text,/^Hola:\n/);
@@ -115,7 +119,104 @@ test('the inbox preview line mentions Google Forms only when the email lists one
   assert.equal(preheader(render({answers:{externalActivities:[]}},language).html),EMAIL_ROWS.preheaderNoForms[i],language);
   assert.equal(preheader(render({labStatus:'pending',answers:{applyLab:true,activities:[],externalActivities:[]}},language).html),EMAIL_ROWS.preheaderNoForms[i],language);
   assert.doesNotMatch(EMAIL_ROWS.preheaderNoForms[i],/Google Form/);
+  // The preview line is the first thing in the body, plain text, before the filler that keeps the body out of the preview.
+  assert.match(render({},language).html,/<body[^>]*>\n<div style="display:none;[^"]*">[^<&]+<\/div>\n<div style="display:none;[^"]*">(?:&zwnj;&nbsp;)+<\/div>/,language);
  }
+});
+
+test('the HTML is the NODAL letter: the lockup, the FIIU date plate and the press plate, with no web font, rules, boxes or bars',()=>{
+ const months={en:'October 2026',es:'octubre de 2026',pt:'outubro de 2026'};
+ for(const language of ['en','es','pt'])for(const [sample,html] of [['forms',render({labStatus:'pending',answers:{applyLab:true}},language).html],['no forms',render({answers:{externalActivities:[]}},language).html]]){
+  const at=`${language}, ${sample}`;
+  // The lockup comes from the public origin, with alt text that still reads NODAL when images are blocked.
+  const logo=/<img class="logo-light"[^>]*>/.exec(html)?.[0]??'';
+  assert.match(logo,/ alt="NODAL"/,at);assert.match(logo,/ src="([^"]+)"/,at);assert.equal(/ src="([^"]+)"/.exec(logo)[1],`${origin}/assets/email/nodal-lockup.png`,at);
+  assert.ok(html.includes(`src="${origin}/assets/email/nodal-lockup-dark.png"`),at);
+  for(const img of html.match(/<img\b[^>]*>/g))assert.match(img,/ alt="NODAL"[^>]* width="\d+" height="\d+"|width="\d+" height="\d+" alt="NODAL"/,img);
+  // The FIIU page's date plate: 20–25 with a leaf dash, the month from the festival dates, Lima, Perú.
+  assert.match(html,/>20<span style="color:#59BC53;font-weight:400;">&ndash;<\/span>25</,at);
+  assert.ok(html.includes(`>${months[language]}<`)&&html.includes('>Lima, Perú<'),at);
+  // The landing page's press plate, drawn with table cells: no box-shadow and no rowspan.
+  assert.match(html,/<td class="btn-face" bgcolor="#59BC53" style="[^"]*border:2px solid #1d271b;border-radius:7px;/,at);
+  assert.doesNotMatch(html,/box-shadow|rowspan/i,at);
+  // No web font call, no dividing rules, boxes, uppercase labels or left bars; nothing a mail client strips or blocks.
+  assert.doesNotMatch(html,/fonts\.googleapis|fonts\.gstatic|<link\b/i,at);
+  assert.doesNotMatch(html,/border-(?:top|bottom|left|right)|<hr\b|text-transform|display:\s*(?:flex|grid)|background-image|url\(|<script\b|<form\b|<input\b/i,at);
+  // Inline, the only tinted block is the mint highlighter on the Google Form step, and only when there is a form to complete.
+  assert.deepEqual([...html.replace(/<style>[^<]*<\/style>/g,'').matchAll(/background(?:-color)?:(#[0-9A-Fa-f]{6})/g)].map(m=>m[1]).filter(colour=>!['#F2ECEC','#59BC53','#1d271b'].includes(colour)),sample==='forms'?['#ADDEA8']:[],at);
+  // Every text element sets its own colour and font, so a dark-mode client never meets black on transparent.
+  for(const tag of html.match(/<(?:p|h1|h2|a|strong)\b[^>]*>/g))assert.match(tag,/style="[^"]*color:#/,`${at}: ${tag}`);
+  for(const tag of html.match(/<(?:p|h1|h2)\b[^>]*>/g))assert.match(tag,/font-family:'Montserrat',Arial,Helvetica,sans-serif;font-size:\d+px;mso-line-height-rule:exactly;line-height:\d+px;/,`${at}: ${tag}`);
+  // Outlook for Windows applies mso-line-height-rule only when it precedes line-height: every inline line height that
+  // could be under the font's own (anything but 0) comes straight after it, the 4px press-plate cells included.
+  const inline=html.replace(/<style>[^<]*<\/style>/g,'');
+  assert.deepEqual([...inline.matchAll(/(.{0,30})line-height:([1-9]\d*)px/g)].filter(m=>!m[1].endsWith('mso-line-height-rule:exactly;')).map(m=>m[0]),[],at);
+  assert.equal((inline.match(/font-size:4px;mso-line-height-rule:exactly;line-height:4px;/g)||[]).length,3,at);
+  assert.match(html,/<meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark">/,at);
+  assert.match(html,/<!--\[if mso\]><style>[^<]*font-family:Arial,Helvetica,sans-serif!important[^<]*<\/style><!\[endif\]-->/,at);
+  // On a phone the time rail folds into one line through a separator hidden everywhere else.
+  if(sample==='forms')assert.match(html,/<span class="sep c-muted" style="display:none;mso-hide:all;[^"]*"> · <\/span>/,at);
+  assert.ok(Buffer.byteLength(html)<60*1024,`${at}: ${Buffer.byteLength(html)} bytes`);
+ }
+});
+
+test('the letterhead fits a phone: 360px with the inline sizes alone, 320px with the phone layout, the full plate where there is room',()=>{
+ // The lockup is a fixed image and "20–25" cannot wrap, so the letter is never narrower than both gutters, the lockup,
+ // the plate's 12px padding and the number: Arial Bold digits and the en dash are 0.556em, less 1px letter-spacing each.
+ // Clients that drop <style> (the Gmail app for other accounts) keep the inline sizes.
+ for(const language of ['en','es','pt']){
+  const html=render({},language).html,inline=html.replace(/<style>[^<]*<\/style>/g,'');
+  const lockup=Number(/<img class="logo-light"[^>]* width="(\d+)"/.exec(html)[1]),platePad=Number(/<td valign="top" align="right" style="padding:0 0 0 (\d+)px;/.exec(html)[1]);
+  const plate=/<p class="c-ink num" style="[^"]*font-size:(\d+)px;[^"]*letter-spacing:(-?\d+)px;[^"]*white-space:nowrap;/.exec(inline),[,size,spacing]=plate.map(Number);
+  const gutter=Number(/<td class="gutter"[^>]* style="padding:0 (\d+)px;/.exec(inline)[1]);
+  const phone=/@media only screen and \(max-width:520px\)\{([^\n]*)\}/.exec(html)[1],wide=/@media only screen and \(min-width:521px\)\{([^\n]*)\}/.exec(html)[1];
+  const phoneSize=Number(/\.num\{font-size:(\d+)px!important;line-height:\1px!important\}/.exec(phone)[1]),phoneGutter=Number(/\.gutter\{padding-left:(\d+)px!important;padding-right:\1px!important\}/.exec(phone)[1]);
+  const least=(g,px)=>2*g+lockup+platePad+5*(0.556*px+spacing);
+  assert.ok(least(gutter,size)<=360,`${language}: ${least(gutter,size)}px without styles`);
+  assert.ok(least(phoneGutter,phoneSize)<=320,`${language}: ${least(phoneGutter,phoneSize)}px on a 320px phone`);
+  assert.match(wide,/\.gutter\{padding-left:32px!important;padding-right:32px!important\}\.num\{font-size:52px!important;line-height:52px!important\}/,language);
+  assert.ok(least(32,52)<=521,'the wide layout starts where it fits');
+ }
+});
+
+test('the letter is signed by the NODAL team, in the HTML and just before the plain-text footer',()=>{
+ for(const [i,language] of ['en','es','pt'].entries()){
+  const {text,html}=render({},language),body=visible(html);
+  assert.ok(text.includes(`\n${EMAIL_ROWS.signoff[i]}\n${EMAIL_ROWS.team[i]}\n\n--\n${EMAIL_ROWS.footer[i]}\n`),language);
+  assert.ok(body.indexOf(`${EMAIL_ROWS.signoff[i]} ${EMAIL_ROWS.team[i]}`)>body.indexOf('fiiu@ocupatucalle.com'),language);
+  assert.ok(body.indexOf(EMAIL_ROWS.team[i])<body.indexOf(EMAIL_ROWS.footer[i]),language);
+ }
+ assert.deepEqual(EMAIL_ROWS.signoff,['See you in Lima,','Nos vemos en Lima,','Nos vemos em Lima,']);
+});
+
+test('the email logo is published on the public origin with a cross-origin resource policy, by the build and the local server',async t=>{
+ // Vercel applies every matching header rule in order, a later value winning: the email rule follows /assets/(.*).
+ const vercel=JSON.parse(readFileSync(new URL('../vercel.json',import.meta.url),'utf8'));
+ const headersFor=pathname=>Object.fromEntries(vercel.headers.filter(rule=>new RegExp(`^${rule.source}$`).test(pathname)).flatMap(rule=>rule.headers.map(({key,value})=>[key.toLowerCase(),value])));
+ for(const file of ['nodal-lockup.png','nodal-lockup-dark.png']){
+  const headers=headersFor(`/assets/email/${file}`);
+  assert.equal(headers['cross-origin-resource-policy'],'cross-origin',file);assert.match(headers['cache-control'],/immutable/,file);assert.equal(headers['x-content-type-options'],'nosniff',file);
+ }
+ assert.equal(headersFor('/assets/nodal-wordmark.webp')['cross-origin-resource-policy'],'same-origin','the site assets stay same-origin');
+ // Both PNGs reach public/assets/email/ unchanged, at least twice the 168×64 they are shown at.
+ const output=mkdtempSync(join(tmpdir(),'nodal-email-assets-'));t.after(()=>rmSync(output,{recursive:true,force:true}));
+ await buildStatic({output,pilotMode:true});
+ for(const file of ['nodal-lockup.png','nodal-lockup-dark.png']){
+  const source=readFileSync(new URL(`../web/assets/email/${file}`,import.meta.url));
+  assert.deepEqual(readFileSync(join(output,'assets','email',file)),source,file);
+  assert.equal(source.subarray(1,4).toString('latin1'),'PNG',file);
+  const [width,height]=[source.readUInt32BE(16),source.readUInt32BE(20)];
+  assert.ok(width>=2*168&&height>=2*64&&Math.abs(width/height-168/64)<0.02,`${file}: ${width}×${height}`);
+ }
+ // The local server serves the same two files, cross-origin, and nothing else from that folder.
+ const server=createApp({store:createStore(),citySearch:{search:async()=>({cities:[]})}});
+ server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
+ const base=`http://127.0.0.1:${server.address().port}`;
+ const logo=await fetch(`${base}/assets/email/nodal-lockup.png`);
+ assert.equal(logo.status,200);assert.equal(logo.headers.get('content-type'),'image/png');assert.equal(logo.headers.get('cross-origin-resource-policy'),'cross-origin');
+ assert.equal((await fetch(`${base}/assets/nodal-wordmark.webp`)).headers.get('cross-origin-resource-policy'),'same-origin');
+ for(const pathname of ['/assets/email/letter-lockup.png','/assets/email/../nodal-wordmark.webp','/web/assets/email/nodal-lockup.png'])assert.notEqual((await fetch(`${base}${pathname}`)).headers.get('cross-origin-resource-policy'),'cross-origin',pathname);
+ assert.equal((await fetch(`${base}/assets/email/letter-lockup.png`)).status,404);
 });
 
 test('a first name with $ patterns is shown exactly as typed',()=>{

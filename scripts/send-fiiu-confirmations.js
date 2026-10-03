@@ -3,9 +3,10 @@ import { parseArgs } from 'node:util';
 import { createRepository } from '../server/repository.js';
 import { dataBackend } from '../server/supabase.js';
 import { createFiiuStore } from '../server/fiiu-repository.js';
-import { EVENT_ID, DEFAULT_CONFIG } from '../server/fiiu-domain.js';
-import { createRegistrationConfirmation, isReservedRecipient, emailLanguage, EMAIL_LANGUAGES } from '../server/fiiu-email.js';
+import { DEFAULT_CONFIG } from '../server/fiiu-domain.js';
+import { createRegistrationConfirmation, emailLanguage, EMAIL_LANGUAGES } from '../server/fiiu-email.js';
 import { validAddress } from '../server/mailer.js';
+import { sendConfirmations } from '../server/fiiu-confirmations.js';
 
 /* Optional backfill for the FIIU registration summary email, for people who registered before it existed or over
    the sending limit (confirmation_status 'none'). Dry run by default: it lists who would be emailed and writes nothing.
@@ -18,45 +19,15 @@ import { validAddress } from '../server/mailer.js';
    Anything it does not understand (an unknown flag, a missing value, a --limit that is not a positive whole number,
    --test-to together with --send) stops it before any email goes out.
 
-   Each send claims the row with the same compare-and-set as the API ('none' → 'pending', or 'failed' → 'pending'
-   with --retry-failed), so a rerun, or a second copy running at the same time, never emails anyone twice. 'failed'
-   means the provider cannot have the message, so retrying it is safe; 'uncertain' is never retried automatically.
-   The email goes out in the language stored with the registration, else Spanish. Uses the same environment as the
-   server (DATA_BACKEND and the Supabase variables, EMAIL_SMTP_URL, EMAIL_FROM, EMAIL_REPLY_TO, PUBLIC_BASE_URL). */
-const maskEmail = email => { const [name, domain] = String(email).split('@'); return `${name.slice(0, 1)}***@${domain ?? ''}`; };
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-export async function sendConfirmations({ store, confirm = null, send = false, retryFailed = false, limit = Infinity, delayMs = 1000, log = console.log }) {
-  if (send && !confirm) throw new Error('Email is not configured: set EMAIL_SMTP_URL, EMAIL_FROM and PUBLIC_BASE_URL.');
-  const configRow = (await store.find('config', { id: EVENT_ID }, { limit: 1 }))[0];
-  const config = { ...DEFAULT_CONFIG, ...configRow?.data };
-  const statuses = retryFailed ? ['none', 'failed'] : ['none'];
-  const due = [];
-  for (const confirmationStatus of statuses) {
-    let after;
-    do {
-      const page = await store.find('registrations', { eventId: EVENT_ID, confirmationStatus }, { after, limit: 200 });
-      due.push(...page);
-      after = page.length === 200 ? page.at(-1).id : null;
-    } while (after);
-  }
-  const results = { listed: 0, sent: 0, failed: 0, uncertain: 0, skipped: 0, claimedElsewhere: 0 };
-  for (const registration of due.slice(0, limit)) {
-    const language = emailLanguage(registration.confirmationLanguage);
-    results.listed++;
-    if (!send) { log(`${registration.id}  ${registration.createdAt}  ${language}  ${maskEmail(registration.email)}${isReservedRecipient(registration.email) ? '  (test address: would be skipped)' : ''}`); continue; }
-    const claimed = await store.update('registrations', { id: registration.id, confirmationStatus: registration.confirmationStatus }, { confirmationStatus: 'pending', confirmationLanguage: language });
-    if (!claimed) { results.claimedElsewhere++; continue; }
-    let outcome;
-    try { outcome = await confirm({ registration: claimed, config, language }); } catch { outcome = { status: 'uncertain' }; }
-    const status = ['sent', 'failed', 'uncertain', 'skipped'].includes(outcome?.status) ? outcome.status : 'uncertain';
-    await store.update('registrations', { id: registration.id, confirmationStatus: 'pending' }, { confirmationStatus: status, confirmationSentAt: status === 'sent' ? outcome.sentAt ?? new Date().toISOString() : null });
-    results[status]++;
-    log(`${registration.id}  ${status}`);
-    if (delayMs) await pause(delayMs);
-  }
-  return results;
-}
+   Each send claims the row with the same compare-and-set as the organiser dashboard ('none' → 'pending', or
+   'failed' → 'pending' with --retry-failed), so a rerun, a second copy running at the same time, or the dashboard's
+   "Send the summary" button never emails anyone twice. 'failed' means the provider cannot have the message, so
+   retrying it is safe; 'uncertain' is never retried automatically. The email goes out in the language stored with
+   the registration, else Spanish. The sending itself lives in server/fiiu-confirmations.js, shared with the
+   dashboard. The dashboard is the usual way to send, since the email credentials stay in Vercel and it keeps a daily
+   cap; this command is for a machine that has the production variables. Uses the same environment as the server
+   (DATA_BACKEND and the Supabase variables, EMAIL_SMTP_URL, EMAIL_FROM, EMAIL_REPLY_TO, PUBLIC_BASE_URL). */
+export { sendConfirmations };
 
 // A fixed example registration, for checking the provider settings and the layout in a real inbox.
 export const SAMPLE_REGISTRATION = {

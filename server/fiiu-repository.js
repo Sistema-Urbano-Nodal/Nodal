@@ -134,11 +134,18 @@ export function createFiiuStore({db,env=process.env,clients,fetchImpl=fetch}={})
    }
    return rows.map(row=>from(table,row));
   },
-  // A cheap total for polling screens (the check-in QR): never downloads the rows. PostgREST answers one id with the
-  // exact count in Content-Range.
-  async count(name,filters={}){const table=info(name);checked(table,filters);
-   if(db){const w=where(table,filters);return db.prepare(`SELECT count(*) AS n FROM ${table.name}${w.sql}`).get(...w.params).n;}
-   const page=await supa.admin.rest(table.name,{query:{select:'id',limit:1,...Object.fromEntries(Object.entries(filters).map(([k,v])=>[snake(k),`eq.${v}`]))},includeRange:true,headers:{Prefer:'count=exact'}});
+  // A cheap total for polling screens (the check-in QR) and the summary-email counts: never downloads the rows.
+  // PostgREST answers one id with the exact count in Content-Range. after counts only ids above that one; atLeast
+  // {field: ISO time} only rows at or after that time; oneOf {field: [values]} only rows whose field is one of those
+  // plain word values (the summary emails attempted today).
+  async count(name,filters={},{after,atLeast={},oneOf={}}={}){const table=info(name);checked(table,filters);checked(table,atLeast);checked(table,oneOf);
+   const since=Object.entries(atLeast),any=Object.entries(oneOf);
+   if(any.some(([,values])=>!Array.isArray(values)||!values.length||values.some(v=>typeof v!=='string'||!/^[\w-]+$/.test(v))))throw Error('invalid festival filter');
+   if(db){const w=where(table,filters,after),and=sql=>{w.sql+=(w.sql?' AND ':' WHERE ')+sql;};
+    for(const [k,v] of since){and(`julianday(${snake(k)})>=julianday(?)`);w.params.push(v);}
+    for(const [k,values] of any){and(`${snake(k)} IN (${values.map(()=>'?').join(',')})`);w.params.push(...values);}
+    return db.prepare(`SELECT count(*) AS n FROM ${table.name}${w.sql}`).get(...w.params).n;}
+   const page=await supa.admin.rest(table.name,{query:{select:'id',limit:1,...Object.fromEntries(Object.entries(filters).map(([k,v])=>[snake(k),`eq.${v}`])),...(after?{id:`gt.${after}`}:{}),...Object.fromEntries(since.map(([k,v])=>[snake(k),`gte.${v}`])),...Object.fromEntries(any.map(([k,values])=>[snake(k),`in.(${values.join(',')})`]))},includeRange:true,headers:{Prefer:'count=exact'}});
    const total=Number(page?.contentRange?.split('/')[1]);if(!Array.isArray(page?.rows)||!Number.isSafeInteger(total))fail('festival data unavailable',502);return total;
   },
   async insert(name,record){const table=info(name),row=to(table,record,!!db),keys=Object.keys(row);try{

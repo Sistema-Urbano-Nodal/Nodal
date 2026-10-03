@@ -144,6 +144,7 @@
  // Losing organiser access mid-session (role removed, or another account signed in) clears every participant answer from the page and stops polling.
  function lockOut(){
   locked=true;if(timer!==null)clearInterval(timer);sectionObserver?.disconnect();records=[];publications=[];rowCache=new WeakMap();lastSummary=null;selectedParticipant=shownParticipant=null;
+  if(backfillRun){backfillRun.stopping=true;backfillRun.wake?.();}backfill=null;backfillAsk=backfillResult=null;backfillLine.textContent=backfillNote.textContent='';backfillActions.replaceChildren();
   for(const host of [listHost,detailHost,participantsHost,summaryBody,checkinBody,settingsHost,contentHost,editorHost,pubList,resultCount])host.replaceChildren();
   status(message,'');const box=el('section','f-locked'),actions=el('div','f-actions');actions.append(link('fiiuPage','fiiu.html','f-button'),link('backToConsole','dashboard.html'));box.append(tr('h1','organisersOnly'),tr('p','organisersOnlyHint'),actions);root.replaceChildren(box);
  }
@@ -324,9 +325,121 @@
    try{await action(save,async()=>{const result=await api('/api/admin/fiiu/config',payload,'PUT');config=result.config;renderRegistrationPill();},{conflict,reload:reloadSettings});}
    finally{busy=false;unlock();}
   });
-  settingsHost.id='settings';settingsHost.replaceChildren(tr('h2','settings'),form);return settingsHost;
+  settingsHost.id='settings';settingsHost.replaceChildren(tr('h2','settings'),form,backfillHost);return settingsHost;
  }
  async function reloadSettings(){config=(await api('/api/admin/fiiu/config')).config;renderRegistrationPill();settings();settingsHost.querySelector('input')?.focus();}
+ // Summary emails: people the first-registration email did not reach (registered before it existed, or while sending was off or over its
+ // limit) get it from here. One press sends batch after batch (the server sends a few per request and claims each row before its email
+ // goes out, so a double click or a second organiser never emails anyone twice) until the pass is done, stopped, or today's cap is reached.
+ // Plain lines and one press-plate button; Retry, Cancel and Stop are text buttons. Interpolated text carries no data-fiiu-text, so the
+ // language switch re-renders it here instead of overwriting the numbers.
+ const backfillHost=el('div','f-backfill'),backfillHeading=tr('h3','backfillTitle'),backfillHint=tr('p','backfillHint','f-muted f-section-hint'),backfillLine=el('p','f-backfill-line'),backfillNote=el('p','f-backfill-note'),backfillActions=el('div','f-backfill-actions');
+ backfillHeading.id='f-h-backfill';backfillHost.setAttribute('role','group');backfillHost.setAttribute('aria-labelledby',backfillHeading.id);backfillNote.setAttribute('role','status');backfillNote.setAttribute('aria-live','polite');
+ backfillHost.append(backfillHeading,backfillHint,backfillLine,backfillNote,backfillActions);
+ // backfill: the last GET (configured, counts, dailyCap, sentToday, resetsAt); backfillAsk: the pass waiting for its confirmation; backfillRun: the pass under way; backfillResult: how the last one ended.
+ let backfill=null,backfillLoadFailed=false,backfillAsk=null,backfillRun=null,backfillResult=null;
+ const EMAIL_STATES=['none','pending','sent','failed','uncertain','skipped'],TALLY=['sent','failed','uncertain','skipped','claimedElsewhere'];
+ const validCounts=counts=>Boolean(counts)&&EMAIL_STATES.every(k=>Number.isSafeInteger(counts[k])&&counts[k]>=0);
+ const validBatch=data=>TALLY.every(k=>Number.isSafeInteger(data[k])&&data[k]>=0)&&Number.isSafeInteger(data.remaining)&&data.remaining>=0&&(data.next===null||typeof data.next==='string')&&validCounts(data.counts);
+ const fill=(key,values={})=>t(key).replace(/\{(\w+)\}/g,(match,name)=>values[name]??match),nf=n=>new Intl.NumberFormat(locale()).format(n);
+ const plural=(base,n)=>fill(n===1?base+'One':base+'Many',{n:nf(n)});
+ // One button per action, made once and kept: a progress update leaves the focused Stop button in place instead of rebuilding it.
+ const backfillButtons=new Map(),backfillHandlers={send:()=>askBackfill('send'),retry:()=>askBackfill('retry'),confirm:()=>runBackfill(backfillAsk),cancel:()=>{const mode=backfillAsk;backfillAsk=null;renderBackfill(mode);},stop:()=>stopBackfill(),reload:()=>loadBackfill('reload')};
+ function textButton(text,action,cls='f-backfill-link'){
+  let b=backfillButtons.get(action);
+  if(!b){b=el('button');b.type='button';b.dataset.action=action;b.addEventListener('click',()=>backfillHandlers[action]());backfillButtons.set(action,b);}
+  b.className=cls;b.textContent=text;return b;
+ }
+ function askBackfill(mode){backfillAsk=mode;backfillResult=null;renderBackfill('confirm');}
+ const capReached=()=>Number.isSafeInteger(backfill?.dailyCap)&&Number.isSafeInteger(backfill?.sentToday)&&backfill.sentToday>=backfill.dailyCap;
+ const capText=()=>fill('backfillCap',{cap:nf(backfill?.dailyCap??0),time:Number.isFinite(Date.parse(backfill?.resetsAt))?limaClock(Date.parse(backfill.resetsAt)):'19:00'});
+ function tallyText({sent,failed,uncertain,skipped}){return [fill('backfillDone',{sent:nf(sent),failed:nf(failed)}),...(uncertain?[plural('backfillUncertain',uncertain)]:[]),...(skipped?[plural('backfillSkipped',skipped)]:[])].join(' · ');}
+ function resultText({end,tally}){
+  const handled=tally.sent+tally.failed+tally.uncertain+tally.skipped,base=tallyText(tally);
+  if(end==='done')return base+(tally.failed?' — '+t('backfillDoneRetry'):'');
+  if(end==='stopped')return t('backfillStopped')+' '+base;
+  const reason={cap:capText(),session:t('backfillSignIn'),error:t('backfillError')}[end]||'';
+  return handled?base+'. '+reason:reason;
+ }
+ function progressText(run){
+  const parts=[fill('backfillProgress',{sent:nf(run.tally.sent),total:nf(Math.max(run.total,run.tally.sent))}),...(run.tally.failed?[fill('backfillFailed',{n:nf(run.tally.failed)})]:[])];
+  return parts.join(' · ')+(run.stopping?' — '+t('backfillStopping'):run.waiting?' — '+t('backfillPausing'):'…');
+ }
+ // focus names the action to focus after this render; otherwise focus that was on a replaced button moves to the first action, or the heading.
+ function renderBackfill(focus){
+  if(locked)return;
+  const counts=backfill?.counts,actions=[];let line,note='',error=false;
+  backfillHint.hidden=Boolean(backfill&&!backfill.configured);
+  if(!backfill){line=t(backfillLoadFailed?'backfillLoadError':'loading');if(backfillLoadFailed)actions.push(textButton(t('retry'),'reload'));}
+  else if(!backfill.configured)line=t('backfillOff');
+  else{
+   line=[counts.none?plural('backfillWaiting',counts.none):t('backfillNoneWaiting'),plural('backfillSent',counts.sent),...(counts.failed?[fill('backfillFailed',{n:nf(counts.failed)})]:[]),...(counts.uncertain+counts.pending?[plural('backfillUncertain',counts.uncertain+counts.pending)]:[]),...(counts.skipped?[plural('backfillSkipped',counts.skipped)]:[])].join(' · ');
+   if(backfillRun){note=progressText(backfillRun);actions.push(textButton(t('backfillStop'),'stop'));}
+   else if(backfillAsk){
+    const n=backfillAsk==='retry'?counts.failed:counts.none;note=t('backfillConfirmHint');
+    actions.push(textButton(plural('backfillConfirm',n),'confirm','f-button'),textButton(t('backfillCancel'),'cancel'));
+   }
+   else{
+    if(backfillResult){note=resultText(backfillResult);error=['session','error'].includes(backfillResult.end);}
+    if(capReached()&&(counts.none||counts.failed)){if(backfillResult?.end!=='cap')note=(note?note+' ':'')+capText();}
+    else{
+     if(counts.none)actions.push(textButton(plural('backfillSend',counts.none),'send','f-button'));
+     if(counts.failed)actions.push(textButton(fill('backfillRetry',{n:nf(counts.failed)}),'retry'));
+    }
+   }
+  }
+  backfillLine.textContent=line;backfillNote.textContent=note;backfillNote.classList.toggle('is-error',error);
+  // The buttons are swapped only when the set changes; focus on one that leaves moves to the first remaining action, or the heading.
+  const current=[...backfillActions.children],changed=current.length!==actions.length||current.some((b,i)=>b!==actions[i]);
+  const hadFocus=Boolean(focus)||(changed&&Boolean(backfillActions.contains?.(document.activeElement)));
+  if(changed)backfillActions.replaceChildren(...actions);
+  if(hadFocus){const target=actions.find(b=>b.dataset.action===focus)||actions[0];if(target)target.focus();else{backfillHeading.tabIndex=-1;backfillHeading.focus();}}
+ }
+ async function loadBackfill(focus){
+  if(locked)return;
+  try{
+   const data=await api('/api/admin/fiiu/confirmations');
+   if(typeof data.configured!=='boolean'||!validCounts(data.counts))throw Object.assign(Error(t('error')),{key:'error'});
+   backfill=data;backfillLoadFailed=false;resume();
+  }catch(error){if(guard(error))return;backfillLoadFailed=true;}
+  renderBackfill(focus);
+ }
+ function stopBackfill(){const run=backfillRun;if(!run||run.stopping)return;run.stopping=true;run.wake?.();renderBackfill('stop');}
+ // One pass: POST after POST with the previous answer's cursor until nothing is left, Stop, an error or today's cap. A plain 429 (the
+ // organiser write budget) pauses half a minute and carries on, at most five times in a row.
+ async function runBackfill(mode){
+  if(backfillRun||!backfill)return;
+  const run=backfillRun={total:mode==='retry'?backfill.counts.failed:backfill.counts.none,tally:Object.fromEntries(TALLY.map(k=>[k,0])),stopping:false,waiting:false,wake:null};
+  backfillAsk=null;backfillResult=null;renderBackfill('stop');
+  let after=null,pauses=0,finished=false,end='done';
+  try{
+   while(!run.stopping&&!locked){
+    let data;
+    try{data=await api('/api/admin/fiiu/confirmations',{retryFailed:mode==='retry',...(after?{after}:{})},'POST');}
+    catch(error){
+     // Stop pressed while this request was out: a plain 429 sent nothing, so the pass ends now instead of pausing first.
+     if(error.status===429&&error.code!=='daily_cap'&&run.stopping)break;
+     if(error.status===429&&error.code!=='daily_cap'&&pauses<5&&typeof setTimeout==='function'){pauses++;run.waiting=true;renderBackfill();await new Promise(resolve=>{run.wake=resolve;setTimeout(resolve,30000);});run.waiting=false;run.wake=null;renderBackfill();continue;}
+     throw error;
+    }
+    pauses=0;if(!validBatch(data))throw Object.assign(Error(t('error')),{key:'error'});
+    for(const k of TALLY)run.tally[k]+=data[k];
+    // What this pass still has to do: its own outcomes so far plus what the server says is left after the cursor.
+    run.total=run.tally.sent+run.tally.failed+run.tally.uncertain+run.tally.skipped+data.remaining;
+    backfill={...backfill,counts:data.counts,...(Number.isSafeInteger(data.sentToday)?{sentToday:data.sentToday}:{})};resume();
+    if(!data.next||!data.remaining){finished=true;break;}
+    after=data.next;renderBackfill();
+   }
+   if(!finished&&run.stopping)end='stopped';
+  }catch(error){
+   if(guard(error)){backfillRun=null;return;}
+   end=error.code==='daily_cap'?'cap':error.code==='email_not_configured'?'off':error.status===401?'session':'error';
+   if(end==='off')backfill={...backfill,configured:false};
+  }
+  backfillRun=null;backfillResult=end==='off'?null:{end,tally:run.tally};renderBackfill();
+  // The counts behind the buttons, and the overview, from the server.
+  refreshSummary({background:true});await loadBackfill();
+ }
  // Content: one editor beside the list. Editing a publication sets an unsaved new-publication draft aside; Cancel, or saving that edit, brings it back.
  const currentEditor=()=>editors.get(editorHost.querySelector('form'));
  function showEditor(form,focus){editorHost.replaceChildren(form);if(focus)form.querySelector('input')?.focus();}
@@ -412,7 +525,7 @@
  async function load(){
   status(message,'loading');const summaryRequest=api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error}));try{const [publicData,settingsData,posts,participantData]=await Promise.all([api('/api/fiiu'),api('/api/admin/fiiu/config'),api('/api/admin/fiiu/content'),api('/api/admin/fiiu/registrations')]);festival=publicData;config=settingsData.config;publications=posts.content;contentCursor=posts.nextCursor;setRecords(participantData.registrations);cursor=participantData.nextCursor;
    const grid=el('div','f-admin-columns');grid.append(listHost,detailHost);detailHost.replaceChildren(tr('p','selectParticipant','f-muted f-detail-empty'));const heading=tr('h2','participants');heading.id='f-h-participants';participantsHost.id='participants';participantsHost.replaceChildren(heading,filters(),grid);
-   root.replaceChildren(adminHead(),sessionNotice,adminNav(),summaryPanel(),checkinPanel(),participantsHost,settings(),contentPanel(),newTabNote());renderRegistrationPill();renderList();status(message,'');refreshSummary({pending:summaryRequest});setTitle();observeSections();
+   root.replaceChildren(adminHead(),sessionNotice,adminNav(),summaryPanel(),checkinPanel(),participantsHost,settings(),contentPanel(),newTabNote());renderRegistrationPill();renderList();status(message,'');refreshSummary({pending:summaryRequest});renderBackfill();loadBackfill();setTitle();observeSections();
    const hash=location.hash;if(SECTIONS.some(([id])=>'#'+id===hash))document.querySelector(hash)?.scrollIntoView({block:'start'});
   }catch(error){
    // Signed out before the dashboard loaded: sign in and come straight back. Signed in without organiser access: the organisers-only state, with no Retry.
@@ -422,7 +535,7 @@
   }
  }
  // Rows on screen are translated in place; rows kept for later filters are rebuilt in the new language.
- window.nodalI18n?.onChange(()=>{if(locked)return;rowCache=new WeakMap();setTitle();stampUpdated();recount?.();if(lastSummary)renderSummary(lastSummary);else renderCheckin();});
+ window.nodalI18n?.onChange(()=>{if(locked)return;rowCache=new WeakMap();setTitle();stampUpdated();recount?.();renderBackfill();if(lastSummary)renderSummary(lastSummary);else renderCheckin();});
  timer=setInterval(()=>{if(festival&&!locked&&!sessionLost&&autoRefresh.input.checked&&document.visibilityState==='visible')return refreshSummary({background:true});},60000);
  load();
 })();

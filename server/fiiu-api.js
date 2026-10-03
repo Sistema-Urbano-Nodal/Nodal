@@ -6,6 +6,7 @@ import {createCheckinCodes} from './fiiu-checkin.js';
 import {packBits} from './qr.js';
 import {isReservedRecipient,EMAIL_LANGUAGES} from './fiiu-email.js';
 import {parseCookies} from './auth.js';
+import {confirmationState,confirmationCounts,sendConfirmationBatch,settledSentAt,BATCH_SIZE,DAILY_CAP} from './fiiu-confirmations.js';
 const now=()=>new Date().toISOString();
 const attendanceView=({activityId,createdAt,method})=>({activityId,createdAt,method});
 // CSV check-in times are Lima wall-clock time (UTC-05:00 all year), e.g. '2026-10-21 09:12'.
@@ -32,8 +33,10 @@ export function registrationLanguage(input,req){
 // string or a function of the request) that check-in links point to, never the Host header in production.
 // confirmation: async ({registration, config, language}) => {status, sentAt?}, the registration summary email (see
 // server/fiiu-email.js), or null when email is off; emailAllowed(user) spends one send from the account's hourly
-// allowance and the server-wide ceiling, and answers false when either is used up.
-export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin={},encodeQr=null,publicOrigin=()=>fail('public base URL is not configured',503),confirmation=null,emailAllowed=()=>true}){
+// allowance and the server-wide ceiling, and answers false when either is used up. backfill: {batchSize, dailyCap,
+// now} for the organiser's "Send the summary" button (server/fiiu-confirmations.js); tests shrink them.
+export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin={},encodeQr=null,publicOrigin=()=>fail('public base URL is not configured',503),confirmation=null,emailAllowed=()=>true,backfill={}}){
+ const {batchSize=BATCH_SIZE,dailyCap=DAILY_CAP,now:today=()=>Date.now()}=backfill;
  // A link the encoder cannot draw (say, an unusually long configured origin) leaves the screen its typed address and short code.
  const qrOf=link=>{if(!encodeQr)return null;try{return qrView(encodeQr(link));}catch{return null;}};
  const one=async(name,filters)=>(await store.find(name,filters,{limit:1}))[0]??null;
@@ -90,19 +93,21 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
     // The send is awaited because the hosting gives no work time after the response; the mailer caps it at 8 seconds,
     // and its outcome never fails the registration. Reserved test domains are 'skipped' for good. The sending
     // allowance is spent only once the insert succeeded, so a failed save never uses it up; a registration over the
-    // limit goes back to 'none', which the backfill (scripts/send-fiiu-confirmations.js) can still send.
+    // limit goes back to 'none', which the organiser dashboard's "Send the summary" button (or the backfill script)
+    // can still send. A 'pending' row carries the send's start in confirmation_sent_at, so the organisers' daily cap
+    // counts it while it is under way and, if it ends 'uncertain', afterwards (server/fiiu-confirmations.js).
     const language=registrationLanguage(input,req);
-    const confirmationStatus=!confirmation?'none':isReservedRecipient(user.email)?'skipped':'pending';
-    let registration=await store.insert('registrations',{id:randomUUID(),eventId:EVENT_ID,userId:user.id,...patch,createdAt:now(),confirmationStatus,confirmationLanguage:language,confirmationSentAt:null});
+    const confirmationStatus=!confirmation?'none':isReservedRecipient(user.email)?'skipped':'pending',createdAt=now(),attemptAt=confirmationStatus==='pending'?createdAt:null;
+    let registration=await store.insert('registrations',{id:randomUUID(),eventId:EVENT_ID,userId:user.id,...patch,createdAt,confirmationStatus,confirmationLanguage:language,confirmationSentAt:attemptAt});
     if(!registration)fail('registration changed; reload before saving',409);
     if(confirmationStatus==='pending'&&!emailAllowed(user)){
      // No row matches when the registration was cancelled meanwhile; a failed write leaves 'pending'.
-     let status='none';try{await store.update('registrations',{id:registration.id,confirmationStatus:'pending'},{confirmationStatus:'none'});}catch{status='pending';}
-     registration={...registration,confirmationStatus:status};
+     let status='none';try{await store.update('registrations',{id:registration.id,confirmationStatus:'pending'},{confirmationStatus:'none',confirmationSentAt:null});}catch{status='pending';}
+     registration={...registration,confirmationStatus:status,confirmationSentAt:status==='none'?null:attemptAt};
     }
     else if(confirmationStatus==='pending'){
      let outcome;try{outcome=await confirmation({registration,config:settings,language});}catch{outcome={status:'uncertain'};}
-     const status=['sent','failed','uncertain','skipped'].includes(outcome?.status)?outcome.status:'uncertain',sentAt=status==='sent'?outcome.sentAt??now():null;
+     const status=['sent','failed','uncertain','skipped'].includes(outcome?.status)?outcome.status:'uncertain',sentAt=settledSentAt(status,outcome,attemptAt);
      // No row matches when the registration was cancelled while the email was sending; a failed write leaves 'pending'.
      // Either way this response describes what this request saved, with the email outcome.
      try{await store.update('registrations',{id:registration.id,confirmationStatus:'pending'},{confirmationStatus:status,confirmationSentAt:sentAt});}catch{/* reported as 'pending' to organisers */}
@@ -159,6 +164,23 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
     const input=await body(req),expected=version(input.version),data=normalizeConfig(input);
     const row=expected?await store.update('config',{id:EVENT_ID,version:expected},{data,version:expected+1}):await store.insert('config',{id:EVENT_ID,data,version:1});
     if(!row)fail('configuration changed; reload before saving',409);send(res,200,{config:{...row.data,version:row.version}});return true;
+   }
+  }
+  if(path==='/api/admin/fiiu/confirmations'){
+   // The summary email for people the first-registration send did not reach, sent from the organiser dashboard one
+   // small batch per request (the page asks for the next one): each row is claimed with a compare-and-set before its
+   // email goes out, so concurrent organisers or a double click never email anyone twice. retryFailed sends the
+   // 'failed' rows instead of the 'none' ones; `after` is the previous answer's `next` cursor.
+   if(read){send(res,200,{configured:Boolean(confirmation),...await confirmationState(store,{dailyCap,now:today()})});return true;}
+   if(req.method==='POST'){
+    const input=await body(req);
+    if(input.retryFailed!==undefined&&typeof input.retryFailed!=='boolean')fail('invalid retryFailed');
+    const after=input.after===undefined||input.after===null?null:identifier(input.after);
+    if(!confirmation){send(res,503,{error:'email is not configured',code:'email_not_configured'});return true;}
+    const batch=await sendConfirmationBatch({store,confirm:confirmation,retryFailed:input.retryFailed===true,after,size:batchSize,dailyCap,now:today()});
+    const counts=await confirmationCounts(store);
+    if(batch.capped){send(res,429,{error:'daily summary email limit reached',code:'daily_cap',dailyCap:batch.dailyCap,sentToday:batch.sentToday,resetsAt:batch.resetsAt,counts});return true;}
+    send(res,200,{...batch,counts});return true;
    }
   }
   if(path==='/api/admin/fiiu/summary'&&req.method==='GET'){

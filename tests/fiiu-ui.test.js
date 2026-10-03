@@ -456,7 +456,9 @@ test('festival layout rules: footer at the bottom, natural profile rows, stacked
  assert.match(css,/\.f-qr-note\{[^}]*text-wrap:balance\}/,'the screen note never ends on a lone word');
  assert.match(css,/@media\(min-width:1280px\)\{\.f-admin-settings form\{display:grid;grid-template-columns:minmax\(0,1fr\) minmax\(0,2fr\)/,'the settings fill the wide column');
  // Wide screens: the capped organiser sheets sit centred, the QR may pass 820px, and the news editor column stops at its form.
- assert.match(css,/\.f-page:is\(\[data-page="fiiu-admin"\],\[data-page="fiiu-qr"\]\) \.f-shell\{max-width:calc\(1760px \+ 2\*var\(--f-gutter\)\);margin-inline:auto\}/,'no empty band on one side past 1760px');
+ // width:100% keeps the centred shell a full-width flex item: with auto side margins alone the column-flex body sizes it
+ // to its content, so on a phone the one-line section nav widened the dashboard past the screen, out of reach.
+ assert.match(css,/\.f-page:is\(\[data-page="fiiu-admin"\],\[data-page="fiiu-qr"\]\) \.f-shell\{width:100%;max-width:calc\(1760px \+ 2\*var\(--f-gutter\)\);margin-inline:auto\}/,'no empty band on one side past 1760px, and never wider than the screen');
  assert.match(css,/\.f-qr-code\{width:min\(calc\(100vh - var\(--f-header\) - 120px\),50vw,1080px\)/);
  assert.match(css,/@media\(min-width:1380px\)\{\.f-content-layout\{grid-template-columns:minmax\(0,650px\) minmax\(0,1fr\)\}\}/,'no blank strip between the editor form and the publication list');
  assert.match(css,/\.f-content-editor form\{max-width:650px\}/,'the column cap matches the form cap');
