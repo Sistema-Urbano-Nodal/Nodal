@@ -1,15 +1,15 @@
-/* NODAL publishing desk — a ruled plan sheet, not a page of cards.
+/* NODAL publishing desk — the organiser dashboard's layout under the site header.
    Official palette only (#59bc53 / #addea8 / #3d5c38 / #f2ecec on ink), one
-   family (Montserrat), ink rules between sections, press-plate buttons. The
+   family (Montserrat), whitespace before lines, press-plate buttons. The
    spacing scale and hint size are the ones fiiu.css uses (--f-sp-1..7,
-   --f-fs-hint), so staff pages share one density. */
+   --f-fs-hint), so staff pages share one density. The header is the site's
+   own (.navbar from styles.css), so every rule here stays inside the desk. */
 :root {
   --green: #59bc53;
   --pastel: #addea8;
   --forest: #3d5c38;
   --beige: #f2ecec;
   --ink: #25341f;
-  --paper: #fbf9f7;
   --text-2: #46543f;
   --muted: #616d5d;
   --rule: rgba(61, 92, 56, .15);
@@ -17,8 +17,12 @@
   --field: #8c9a87;
   --alert: #a23b2e;
   --alert-bg: #fbf0ec;
-  --gutter: clamp(16px, 4vw, 56px);
-  --top: 64px;
+  /* the organiser dashboard's keyboard ring (fiiu.css --f-focus): a blue that never reads as a green field border */
+  --focus: #286998;
+  --gutter: clamp(20px, 4vw, 56px);
+  /* the site header (101px, 87px on phones) and the sticky tab row under it */
+  --top: 101px;
+  --tabs: 53px;
   --f-sp-1: 4px;
   --f-sp-2: 8px;
   --f-sp-3: 12px;
@@ -30,53 +34,62 @@
 }
 
 * { box-sizing: border-box; }
-html { color-scheme: light; scroll-behavior: smooth; scroll-padding-top: calc(var(--top) + var(--f-sp-4)); }
-body { margin: 0; background: var(--paper); color: var(--ink); font-family: Montserrat, Arial, sans-serif; font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
-button, input, select, textarea { color: inherit; font: inherit; }
+/* focus moves and in-page jumps land below the sticky header and tab row, including rows and fields without an id */
+html { color-scheme: light; scroll-behavior: smooth; scroll-padding-top: calc(var(--top) + var(--tabs) + var(--f-sp-3)); }
+body { margin: 0; background: #fff; color: var(--ink); font-family: Montserrat, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+:where(.admin-shell) :is(button, input, select, textarea) { color: inherit; font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
-a { color: var(--forest); text-underline-offset: 4px; }
+:where(.admin-shell) a { color: var(--forest); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; }
+:where(.admin-shell) a:hover { text-decoration-thickness: 2px; }
 h1, h2, h3, h4, p { margin: 0; }
 [hidden] { display: none !important; }
 ::selection { background: var(--pastel); color: var(--ink); }
-input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--forest); outline-offset: 2px; }
+:where(.admin-shell) :is(input, select, textarea, button, a):focus-visible, .admin-skip:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
+/* styles.css gives sections a 104px scroll margin for the landing; here the html scroll padding already clears the header */
+.admin-shell [id] { scroll-margin-top: 0; }
 
-/* ---------- top bar ---------- */
-.admin-topbar { position: sticky; z-index: 20; top: 0; min-height: var(--top); padding: 10px var(--gutter); display: flex; align-items: center; justify-content: space-between; gap: var(--f-sp-5); background: var(--ink); color: #fff; }
-.admin-topbar :focus-visible { outline-color: var(--green); }
-.admin-brand { display: flex; align-items: center; gap: var(--f-sp-4); color: inherit; text-decoration: none; }
-.admin-brand img { width: 150px; height: auto; display: block; }
-.admin-brand span { font-size: .75rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--pastel); }
-.admin-topbar nav { display: flex; gap: var(--f-sp-5); align-items: center; }
-.admin-topbar nav a { color: #fff; font-size: .875rem; font-weight: 600; }
-.admin-langs { display: flex; border: 1px solid rgba(255, 255, 255, .35); border-radius: 7px; overflow: hidden; }
-.lang-btn { min-width: 38px; min-height: 32px; padding: 4px 9px; border: 0; background: transparent; color: rgba(255, 255, 255, .8); font-size: .78rem; font-weight: 700; cursor: pointer; }
-.lang-btn + .lang-btn { border-left: 1px solid rgba(255, 255, 255, .2); }
-.lang-btn.is-on { background: #fff; color: var(--ink); }
-#adminSignOut { min-height: 36px; padding: 6px 14px; border: 1.5px solid rgba(255, 255, 255, .7); border-radius: 7px; background: transparent; color: #fff; font-size: .875rem; font-weight: 700; cursor: pointer; }
-#adminSignOut:hover { background: #fff; color: var(--ink); }
+.admin-skip { position: fixed; z-index: 1000; top: -100px; left: 20px; padding: 12px; background: #fff; color: var(--forest); font-weight: 700; }
+.admin-skip:focus { top: 12px; }
+.admin-sr { position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
 
 /* ---------- sheet ---------- */
-.admin-shell { width: min(1760px, 100%); margin: 0 auto; padding: var(--f-sp-6) var(--gutter) var(--f-sp-7); }
-.admin-kicker { margin: 0 0 var(--f-sp-2); color: var(--forest); font-size: .75rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
-.admin-mast { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: var(--f-sp-3) var(--f-sp-7); align-items: end; }
-.admin-mast h1 { font-size: clamp(2.2rem, 4.4vw, 3.6rem); font-weight: 800; line-height: 1.02; letter-spacing: -.035em; }
-.admin-mast-lead { max-width: 60ch; padding-bottom: .35em; color: var(--text-2); font-size: 1rem; }
-/* the desk index is one ruled strip: a column per editor, divided by hairlines */
-.admin-desk-index { grid-column: 1 / -1; margin-top: var(--f-sp-4); border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink); }
-.admin-desk-index ol { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.admin-desk-index li + li { border-left: 1px solid var(--rule-2); }
-.admin-desk-index a { height: 100%; display: grid; align-content: start; gap: var(--f-sp-1); padding: var(--f-sp-3) var(--f-sp-4); text-decoration: none; }
-.admin-desk-index li:first-child a { padding-left: 0; }
-.admin-desk-index a:hover { background: rgba(173, 222, 168, .22); }
-.admin-desk-index strong { color: var(--forest); font-size: .9375rem; }
-.admin-desk-index span { color: var(--muted); font-size: var(--f-fs-hint); line-height: 1.45; }
-.admin-desk-index a:hover strong { text-decoration: underline; text-underline-offset: 4px; }
+.admin-shell { width: 100%; max-width: calc(1760px + 2 * var(--gutter)); margin: 0 auto; padding: 0 var(--gutter) var(--f-sp-7); font-size: 15px; line-height: 1.5; }
 
-.admin-band { padding: var(--f-sp-6) 0; border-bottom: 1px solid var(--rule-2); }
-.admin-band:last-child { border-bottom: 0; }
-.admin-section-head { display: flex; justify-content: space-between; gap: var(--f-sp-4); align-items: flex-end; margin-bottom: var(--f-sp-4); }
-.admin-section-head h2 { font-size: clamp(1.4rem, 2.2vw, 1.85rem); font-weight: 800; letter-spacing: -.025em; line-height: 1.15; }
+/* title block: the organiser dashboard's head */
+.admin-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: var(--f-sp-2) 32px; padding: var(--f-sp-4) 0 var(--f-sp-3); }
+.admin-head-title { min-width: 0; }
+.admin-head h1 { font-size: clamp(1.6rem, 2.6vw, 2.25rem); font-weight: 750; line-height: 1.1; letter-spacing: -.025em; }
+.admin-head-lead { max-width: 80ch; margin-top: var(--f-sp-1); color: var(--text-2); font-size: .9375rem; font-weight: 500; }
+.admin-head-side { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0 var(--f-sp-5); }
+.admin-head-side a { font-size: .9375rem; font-weight: 600; }
+.admin-textbutton { min-height: 32px; padding: 4px 0; border: 0; background: none; color: var(--forest); font-size: .9375rem; font-weight: 600; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; cursor: pointer; }
+.admin-textbutton:hover { text-decoration-thickness: 2px; }
+.admin-textbutton:disabled { opacity: .5; cursor: wait; }
+
+/* tab row: the organiser's underlined section nav, sticky under the header */
+.admin-tabs { position: sticky; z-index: 15; top: var(--top); padding: 6px 0; background: #fff; border-bottom: 1px solid var(--rule); }
+.admin-tabs ul { display: flex; gap: 6px; margin: -8px; padding: 8px; list-style: none; overflow-x: auto; scroll-snap-type: x proximity; scroll-padding-inline: 8px; scrollbar-width: none; }
+.admin-tabs ul::-webkit-scrollbar { display: none; }
+.admin-tabs li { flex: 0 0 auto; }
+.admin-tabs a { position: relative; display: inline-flex; align-items: center; min-height: 40px; padding: 6px 4px; margin-right: 12px; color: var(--ink); font-size: .88rem; font-weight: 600; text-decoration: none; white-space: nowrap; scroll-snap-align: start; }
+.admin-tabs li:last-child a { margin-right: 0; }
+.admin-tabs a:hover { box-shadow: inset 0 -2px 0 var(--rule-2); }
+.admin-tabs a[aria-current="true"] { box-shadow: inset 0 -3px 0 var(--ink); }
+/* the two editors that live on other pages sit apart, in forest, with an arrow */
+.admin-tabs .is-away { gap: .3em; color: var(--forest); }
+.admin-tabs-split { margin-left: auto; }
+/* admin.js marks the row when its labels do not fit (phones; tablets in Spanish or Portuguese): it then
+   scrolls sideways and fades at the edge that hides more tabs, never ending in a hard cut */
+.admin-tabs ul.is-overflowing { padding-inline-end: 36px; scroll-padding-inline: 8px 36px; -webkit-mask-image: linear-gradient(to left, transparent, #000 28px); mask-image: linear-gradient(to left, transparent, #000 28px); }
+.admin-tabs ul.is-overflowing.is-scrolled { -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
+
+.admin-band { padding: var(--f-sp-5) 0 var(--f-sp-6); }
+.admin-band + .admin-band { border-top: 1px solid var(--rule-2); }
+.admin-section-head { display: flex; justify-content: space-between; gap: var(--f-sp-4); align-items: flex-end; margin-bottom: var(--f-sp-5); }
+.admin-section-head h2 { font-size: clamp(1.35rem, 2vw, 1.7rem); font-weight: 700; letter-spacing: -.025em; line-height: 1.15; }
 .admin-field-note { max-width: 72ch; margin-top: var(--f-sp-1); color: var(--muted); font-size: var(--f-fs-hint); line-height: 1.5; }
+/* a section's lead is body copy, the size of the page lead; the hint size stays for field notes and status lines */
+.admin-section-head .admin-field-note { max-width: 80ch; color: var(--text-2); font-size: .9375rem; }
 .admin-live { min-height: 1.5em; margin: var(--f-sp-2) 0; color: var(--muted); font-size: var(--f-fs-hint); }
 .admin-state { color: var(--muted); font-size: var(--f-fs-hint); font-weight: 600; }
 .admin-state.is-published { color: var(--forest); }
@@ -103,70 +116,86 @@ textarea { resize: vertical; }
 .admin-button-accent { border-color: var(--ink); background: var(--green); color: var(--ink); box-shadow: 4px 4px 0 var(--ink); }
 .admin-button-accent:hover { background: #63c95c; color: var(--ink); box-shadow: 6px 6px 0 var(--ink); }
 .admin-button-accent:active { box-shadow: 1px 1px 0 var(--ink); }
-.admin-button-quiet { border-color: var(--rule-2); }
 .admin-button-warning { border-color: var(--alert); color: var(--alert); }
 .admin-button-warning:hover { background: var(--alert); color: #fff; box-shadow: 6px 6px 0 rgba(162, 59, 46, .2); }
+/* "New post" / "New record" sit inside a column head, so they are one size down */
+.admin-button-compact { flex: 0 0 auto; min-height: 36px; padding: 6px 12px; font-size: var(--f-fs-hint); white-space: nowrap; }
 .admin-button:disabled { opacity: .5; cursor: wait; transform: none; box-shadow: none; }
 .admin-more { width: 100%; margin-top: var(--f-sp-3); }
-.admin-actions { display: flex; flex-wrap: wrap; gap: var(--f-sp-3); align-items: center; }
+.admin-actions { display: flex; flex-wrap: wrap; gap: var(--f-sp-3) var(--f-sp-4); align-items: center; }
+/* one press-plate, one outline, then quiet text actions; the destructive one sits apart at the far end, in red */
+.admin-textbutton-warning { color: var(--alert); }
+.admin-actions .admin-textbutton-warning { margin-left: auto; }
 
-/* ---------- ruled record rows (news and catalog lists) ---------- */
-.admin-news-list, .admin-record-list { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--rule-2); }
-.admin-news-item, .admin-record { width: 100%; min-height: 44px; padding: var(--f-sp-3) var(--f-sp-2); display: grid; gap: var(--f-sp-1); border: 0; border-bottom: 1px solid var(--rule); background: transparent; text-align: left; cursor: pointer; }
+/* ---------- record rows (news and catalog lists): whitespace, a tint on hover, beige when open ---------- */
+.admin-news-list, .admin-record-list { margin: 0 calc(-1 * var(--f-sp-2)); padding: 0; list-style: none; scroll-snap-type: y proximity; }
+.admin-news-item, .admin-record { width: 100%; min-height: 44px; padding: var(--f-sp-2); display: grid; gap: 2px; border: 0; background: transparent; text-align: left; cursor: pointer; scroll-snap-align: start; }
+/* the list scrolls inside its column, so the ring is drawn inside the row where the scroller cannot clip it */
+.admin-news-item:focus-visible, .admin-record:focus-visible { outline-offset: -3px; }
+/* admin.js marks a list that hides rows below its edge: the last visible row fades, so a cut reads as "more below" */
+.admin-news-list.is-clipped, .admin-record-list.is-clipped { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent); }
 .admin-news-item:hover, .admin-record:hover { background: rgba(173, 222, 168, .22); }
 .admin-news-item.is-selected, .admin-record.is-selected { background: var(--beige); }
 .admin-news-item strong, .admin-record strong { font-size: .9375rem; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }
 .admin-record > span:not(.admin-record-meta) { color: var(--text-2); font-size: var(--f-fs-hint); }
 .admin-record-meta { display: flex; flex-wrap: wrap; gap: 0 .5em; color: var(--muted); font-size: var(--f-fs-hint); }
-.admin-record-meta span + span::before { content: "·"; margin-right: .5em; }
+.admin-record-meta span + span::before { content: "·"; margin-right: .5em; color: var(--muted); font-weight: 400; }
 .admin-record-meta .is-published { color: var(--forest); font-weight: 650; }
 
 /* ---------- NODAL news ---------- */
 .admin-news { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(0, 1.5fr); gap: var(--f-sp-6); align-items: start; }
-.admin-news-index { border-top: 2px solid var(--ink); }
-.admin-news-index .admin-live { margin: var(--f-sp-2) 0; }
+.admin-news-index, .admin-news-editor { min-width: 0; }
+/* the post count and "New post" share the first row, level with the editor's heading */
+.admin-list-head { min-height: 36px; display: flex; justify-content: space-between; align-items: center; gap: var(--f-sp-3); margin-bottom: var(--f-sp-2); }
+.admin-list-head .admin-live { margin: 0; }
 .admin-news-list { max-height: 34rem; overflow: auto; }
-.admin-news-editor { display: grid; gap: var(--f-sp-4); padding-top: var(--f-sp-3); border-top: 2px solid var(--ink); }
-.admin-news-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: var(--f-sp-2) var(--f-sp-4); }
-.admin-news-head h3 { font-size: 1.15rem; font-weight: 750; }
+.admin-news-list:empty { display: none; }
+.admin-news-editor { display: grid; gap: var(--f-sp-4); }
+.admin-news-head { min-height: 36px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--f-sp-2) var(--f-sp-4); }
+.admin-news-head h3, .admin-index-head h3, .admin-editor-head h3 { font-size: 1.15rem; font-weight: 700; }
 .admin-news-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--f-sp-4); align-items: end; }
 .admin-news-editor .admin-live { margin: 0; }
 
 /* ---------- catalog ---------- */
-.admin-workspace { display: grid; grid-template-columns: minmax(270px, 330px) minmax(0, 1fr); gap: var(--f-sp-6); align-items: start; }
-.admin-index { position: sticky; top: calc(var(--top) + var(--f-sp-4)); max-height: calc(100vh - var(--top) - 2 * var(--f-sp-4)); display: flex; flex-direction: column; padding-top: var(--f-sp-3); border-top: 2px solid var(--ink); }
-.admin-index-head { display: flex; justify-content: space-between; align-items: center; gap: var(--f-sp-3); }
-.admin-index-head h3 { font-size: 1.05rem; font-weight: 750; }
-.admin-index-head .admin-button { flex: 0 0 auto; white-space: nowrap; }
-.admin-filters { margin: var(--f-sp-4) 0 var(--f-sp-2); display: grid; gap: var(--f-sp-3); }
+.admin-workspace { display: grid; grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); gap: var(--f-sp-6); align-items: start; }
+.admin-index { position: sticky; top: calc(var(--top) + var(--tabs) + var(--f-sp-3)); max-height: calc(100vh - var(--top) - var(--tabs) - 2 * var(--f-sp-3)); display: flex; flex-direction: column; }
+/* a long heading ("Registros del catálogo") keeps one line; the button drops under it instead of squeezing it */
+.admin-index-head { min-height: 36px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--f-sp-2) var(--f-sp-3); }
+.admin-index-head h3 { white-space: nowrap; }
+.admin-filters { margin: var(--f-sp-3) 0 var(--f-sp-1); display: grid; gap: var(--f-sp-3); }
 .admin-filter-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--f-sp-3); }
 .admin-record-list { flex: 1 1 auto; min-height: 120px; overflow: auto; }
 /* With nothing to list (no match, or still loading) the status line says so; no blank band is reserved, which matters once the index stacks on phones. */
 .admin-record-list:empty { min-height: 0; }
-.admin-editor-pane { min-width: 0; padding-top: var(--f-sp-3); border-top: 2px solid var(--ink); }
-.admin-editor-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--f-sp-4); padding-bottom: var(--f-sp-3); border-bottom: 1px solid var(--rule-2); }
-.admin-editor-head h3 { margin-bottom: var(--f-sp-1); font-size: 1.15rem; font-weight: 750; }
+.admin-editor-pane { min-width: 0; }
+.admin-editor-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--f-sp-4); }
+.admin-editor-head h3 { margin-bottom: 2px; line-height: 36px; }
 .admin-version-block { display: grid; gap: var(--f-sp-1); justify-items: end; color: var(--muted); font-size: var(--f-fs-hint); text-align: right; }
 .admin-gate-summary { font-weight: 700; }
+/* what is left to fill reads muted; red only once a Publish attempt or a published record is incomplete */
+.admin-gate-summary.is-todo { color: var(--muted); }
 .admin-gate-summary.is-missing { color: var(--alert); }
 .admin-gate-summary.is-ready { color: var(--forest); }
-.admin-editor { display: grid; gap: var(--f-sp-5); padding-top: var(--f-sp-4); }
-.admin-editor fieldset { min-width: 0; margin: 0; padding: var(--f-sp-3) 0 0; border: 0; border-top: 1px solid var(--rule-2); }
-.admin-editor legend, .admin-gate h4 { padding: 0 var(--f-sp-2) 0 0; color: var(--forest); font-size: .78rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-.admin-editor fieldset > .admin-field-note { margin: 0 0 var(--f-sp-3); }
+/* the groups are separated by whitespace and plain sentence-case sub-heads, as on the organiser dashboard */
+.admin-editor { display: grid; gap: var(--f-sp-6); padding-top: var(--f-sp-4); }
+.admin-editor fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.admin-editor legend, .admin-gate h4 { padding: 0; color: var(--ink); font-size: 1rem; font-weight: 700; line-height: 1.3; }
+.admin-editor fieldset > .admin-field-note { margin: var(--f-sp-1) 0 var(--f-sp-3); }
 .admin-grid { display: grid; gap: var(--f-sp-3) var(--f-sp-4); margin-top: var(--f-sp-2); }
 .admin-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .admin-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .admin-span-2 { grid-column: span 2; }
 .admin-locale-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--f-sp-5); }
-.admin-locale { min-width: 0; display: grid; align-content: start; gap: var(--f-sp-3); padding-top: var(--f-sp-2); border-top: 1px solid var(--ink); }
+.admin-locale { min-width: 0; display: grid; align-content: start; gap: var(--f-sp-3); }
 .admin-locale h4 { font-size: .9375rem; font-weight: 700; }
 .admin-locale abbr { margin-right: 6px; color: var(--forest); font-weight: 800; letter-spacing: .08em; text-decoration: none; }
 
-.admin-gate { padding-top: var(--f-sp-3); border-top: 2px solid var(--ink); }
+/* the one rule left in the editor: the checklist and the actions under it close the record */
+.admin-gate { padding-top: var(--f-sp-4); border-top: 1px solid var(--rule); }
 .admin-gate-list { margin: var(--f-sp-2) 0 0; padding: 0; list-style: none; }
-.admin-gate-list li { display: grid; grid-template-columns: minmax(7rem, 10rem) minmax(0, 1fr); gap: var(--f-sp-3); padding: var(--f-sp-2) 0; border-bottom: 1px solid var(--rule); font-size: .875rem; }
+.admin-gate-list li { display: grid; grid-template-columns: minmax(7rem, 10rem) minmax(0, 1fr); gap: var(--f-sp-3); padding: var(--f-sp-1) 0; font-size: .875rem; }
 .admin-gate-list b { font-weight: 700; }
+.admin-gate-list .is-todo span { color: var(--muted); }
 .admin-gate-list .is-missing span { color: var(--alert); }
 .admin-gate-list .is-ready span { color: var(--forest); font-weight: 600; }
 
@@ -176,68 +205,68 @@ textarea { resize: vertical; }
 .admin-conflict span { color: var(--text-2); font-size: var(--f-fs-hint); }
 .admin-conflict-actions { display: flex; flex-wrap: wrap; gap: var(--f-sp-2); }
 
-.admin-preview { margin-top: var(--f-sp-5); padding-top: var(--f-sp-3); border-top: 2px solid var(--ink); }
+.admin-preview { margin-top: var(--f-sp-5); padding-top: var(--f-sp-3); border-top: 1px solid var(--rule-2); }
 .admin-preview-grid { margin-top: var(--f-sp-3); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--f-sp-5); }
 .admin-preview-card { min-width: 0; padding-top: var(--f-sp-2); display: grid; align-content: start; gap: var(--f-sp-2); border-top: 1px solid var(--rule-2); }
+.admin-preview-card .admin-kicker { color: var(--forest); font-size: var(--f-fs-hint); font-weight: 700; letter-spacing: .04em; }
 .admin-preview-card h4 { font-size: 1.05rem; }
 .admin-preview-card p { white-space: pre-wrap; color: var(--text-2); font-size: .875rem; overflow-wrap: anywhere; }
 .admin-preview-card .admin-preview-summary { color: var(--ink); font-weight: 600; }
 .admin-preview-card a { font-size: .875rem; font-weight: 700; overflow-wrap: anywhere; }
 
-/* ---------- interest queue: one ruled row per member ---------- */
+/* ---------- interest requests: one row per member, a hairline only between rows ---------- */
 .admin-inline-filter { display: flex; gap: var(--f-sp-2); align-items: center; }
 .admin-inline-filter select { min-width: 12rem; }
-.admin-interest-list { border-top: 2px solid var(--ink); }
-.admin-interest { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1.4fr) minmax(220px, auto); gap: var(--f-sp-2) var(--f-sp-5); align-items: start; padding: var(--f-sp-3) 0; border-bottom: 1px solid var(--rule); }
+.admin-interest { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1.4fr) minmax(220px, auto); gap: var(--f-sp-2) var(--f-sp-5); align-items: start; padding: var(--f-sp-3) 0; }
+.admin-interest + .admin-interest { border-top: 1px solid var(--rule); }
 .admin-interest > * { min-width: 0; }
 .admin-interest h3 { font-size: .9375rem; font-weight: 700; }
 .admin-interest h4 { font-size: .9375rem; font-weight: 600; }
 .admin-interest p, .admin-interest a { color: var(--text-2); font-size: .875rem; overflow-wrap: anywhere; }
-.admin-interest .admin-interest-item-kind, .admin-interest .admin-interest-item-id { color: var(--muted); font-size: var(--f-fs-hint); }
+.admin-interest .admin-interest-item-kind { color: var(--muted); font-size: var(--f-fs-hint); }
 .admin-interest-message { white-space: pre-wrap; }
 .admin-interest-controls { display: flex; gap: var(--f-sp-2); align-items: end; }
 .admin-interest-controls label { flex: 1 1 auto; }
 
 @media (max-width: 1180px) {
-  .admin-workspace { grid-template-columns: 290px minmax(0, 1fr); }
+  .admin-workspace { grid-template-columns: 300px minmax(0, 1fr); }
   .admin-locale-grid { grid-template-columns: 1fr; }
   .admin-grid-4, .admin-grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-interest { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .admin-desk-index ol { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .admin-desk-index li:nth-child(4) { border-left: 0; }
-  .admin-desk-index li:nth-child(4) a { padding-left: 0; }
-  .admin-desk-index li:nth-child(n+4) { border-top: 1px solid var(--rule-2); }
 }
 
 @media (max-width: 960px) {
-  .admin-mast, .admin-news { grid-template-columns: 1fr; }
+  .admin-news { grid-template-columns: 1fr; }
   .admin-news-list { max-height: 22rem; }
 }
 
 @media (max-width: 820px) {
-  .admin-topbar { position: static; flex-wrap: wrap; }
-  .admin-topbar nav a { display: none; }
-  #adminSignOut { display: inline-flex; align-items: center; }
-  html { scroll-padding-top: var(--f-sp-4); }
   .admin-workspace { grid-template-columns: 1fr; }
   .admin-index { position: static; max-height: none; }
-  .admin-record-list { max-height: 330px; }
+  /* once the index stacks, the list flows in the page ("Load more" handles long lists): no scroller inside the scroll */
+  .admin-record-list { overflow: visible; }
   .admin-preview-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 560px) {
-  .admin-shell { padding: var(--f-sp-5) 16px var(--f-sp-7); }
-  .admin-topbar { padding: 10px 16px; }
-  .admin-brand img { width: 120px; }
-  .admin-brand span { display: none; }
-  .admin-desk-index ol { grid-template-columns: 1fr; }
-  .admin-desk-index li + li { border-left: 0; border-top: 1px solid var(--rule-2); }
-  .admin-desk-index a { padding: var(--f-sp-2) 0; }
-  .admin-grid-3, .admin-grid-4, .admin-filter-row, .admin-interest, .admin-news-row, .admin-gate-list li { grid-template-columns: 1fr; }
+  :root { --top: 87px; }
+  .admin-grid-3, .admin-grid-4, .admin-interest, .admin-news-row, .admin-gate-list li { grid-template-columns: 1fr; }
+  .admin-gate-list li { gap: 0; padding: var(--f-sp-1) 0 var(--f-sp-2); }
   .admin-span-2 { grid-column: auto; }
   .admin-section-head, .admin-editor-head { align-items: stretch; flex-direction: column; }
   .admin-version-block { justify-items: start; text-align: left; }
   .admin-actions .admin-button { flex: 1 1 46%; }
+}
+
+/* on short screens nothing but the site header stays pinned */
+@media (max-height: 640px) {
+  :root { --tabs: 0px; }
+  .admin-tabs { position: static; }
+}
+
+/* forced colours drop box-shadows, so the current tab keeps a system-coloured underline */
+@media (forced-colors: active) {
+  .admin-tabs a[aria-current="true"] { text-decoration: underline 3px; text-underline-offset: 8px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

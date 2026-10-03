@@ -77,7 +77,6 @@ test('pilot pages reserve a single banner in the initial HTML without adding one
     if(!hasPilot)continue;
     assert.match(html,/<div class="pilot-notice" data-pilot-banner hidden>/,`${name}: server decides initial banner visibility`);
     if(name==='dashboard.html')assert.match(html,/<main class="work"[^>]*>\s*<div class="pilot-notice" data-pilot-banner/);
-    else if(name==='admin.html')assert.match(html,/<body[^>]*>\s*<div class="pilot-notice" data-pilot-banner/);
     else assert.match(html,/<\/header>\s*<div class="pilot-notice" data-pilot-banner/,name);
   }
 });

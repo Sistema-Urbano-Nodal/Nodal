@@ -1122,8 +1122,16 @@ test('admin workspace exposes a complete trilingual editor without destructive c
   assert.doesNotMatch(html, /hard[- ]?delete|delete catalog|id="adminDelete"/i);
   assert.match(html, /<script[^>]+src="admin\.js/);
   assert.match(html, /<link[^>]+href="admin\.css/);
-  assert.match(adminStyles(), /@media \(max-width: 820px\)[\s\S]*?\.admin-topbar nav a[\s\S]*?display:\s*none/);
-  assert.match(adminStyles(), /@media \(max-width: 820px\)[\s\S]*?#adminSignOut[\s\S]*?display:/);
+  // The desk wears the site header (network mark, main nav, language switch, console link), as the organiser dashboard does.
+  assert.match(html, /<header class="navbar">/);
+  assert.match(html, /id="net" class="brand-mark"/);
+  assert.match(html, /data-i18n="nav\.panel"/);
+  assert.match(html, /<body class="admin-page" data-page="admin">/, 'data-page keeps script.js from running the landing float loop');
+  for (const asset of ['nav.js', 'script.js']) assert.match(html, new RegExp(`<script defer src="${asset.replace('.', '\\.')}\\?v=`), `${asset} is deferred`);
+  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=[^"]+" \/>\s*<link rel="stylesheet" href="admin\.css/, 'the desk styles load after the site styles');
+  // Sign out lives in the desk head, so the header stays identical to every other page and never overflows in Spanish.
+  assert.match(html, /<div class="admin-head-side">[\s\S]*?id="adminSignOut"[\s\S]*?<\/div>/);
+  assert.doesNotMatch(adminStyles(), /\.admin-topbar|\.lang-btn/, 'no one-off header or language switch rules override the site header');
   // An empty record list reserves no blank band once the index stacks above the editor on phones.
   assert.match(adminStyles(), /\.admin-record-list:empty \{ min-height: 0; \}/);
 });
@@ -1626,9 +1634,16 @@ test('late interest success or failure cannot reopen a closed detail or overwrit
 test('publishing desk links every editor, keeps the review queue and loads the translator first', () => {
   const html = adminPage();
   for (const id of ['news', 'catalog', 'interests']) assert.match(html, new RegExp(`<section class="admin-band" id="${id}"`), `${id} section`);
-  for (const href of ['#news', '#catalog', 'fiiu-admin.html#content', 'teaching.html', '#interests']) {
-    assert.match(html, new RegExp(`<li><a href="${href.replace('.', '\\.')}"><strong data-i18n="ops\\.index\\.`), `${href} desk link`);
+  // One tab row like the organiser's: the three sections on this page, then the two editors that live elsewhere.
+  assert.match(html, /<nav class="admin-tabs" aria-label="On this desk" data-i18n-aria-label="ops\.index\.title">/);
+  assert.match(html, /<a href="#news" id="adminTabNews" aria-current="true" data-i18n="ops\.index\.news">/);
+  assert.match(html, /<a href="#catalog" id="adminTabCatalog" data-i18n="ops\.index\.catalog">/);
+  assert.match(html, /<a href="#interests" id="adminTabInterests" data-i18n="ops\.index\.interests">/);
+  for (const [href, key] of [['fiiu-admin.html#content', 'festival'], ['teaching.html', 'courses']]) {
+    assert.match(html, new RegExp(`<a href="${href.replace('.', '\\.')}" class="is-away"><span data-i18n="ops\\.index\\.${key}">[^<]+</span><span aria-hidden="true"> →</span><span class="admin-sr" data-i18n="ops\\.index\\.${key}Hint">`), `${href} desk link`);
   }
+  // The course-pilot banner and its assets belong to the course pages, not to the staff desk.
+  assert.doesNotMatch(html, /data-pilot-banner|pilot\.js|pilot-i18n\.js|courses\.css/);
   assert.match(html, /<title data-i18n="ops\.pageTitle">NODAL · Publishing desk<\/title>/);
   assert.match(html, /<h1 data-i18n="ops\.title">Publishing desk<\/h1>/);
   for (const lang of ['en', 'es', 'pt']) assert.match(html, new RegExp(`class="lang-btn" data-lang="${lang}"`));
@@ -1663,6 +1678,43 @@ test('publishing desk uses the NODAL ruled sheet: press-plate buttons, no cards,
   // No control below a 24px target and no body copy below the old 12.8px inputs.
   for (const match of css.matchAll(/min-height:\s*(\d+)px/g)) assert.ok(Number(match[1]) >= 24, `min-height ${match[1]}px`);
   assert.match(css, /input, select, textarea\s*\{[^}]*font-size:\s*(?:1rem|15px|\.9375rem)/);
+  // Few lines: no heavy ink rules; the tab row marks the current section the organiser's way, and the title is the organiser's size.
+  assert.doesNotMatch(css, /2px solid var\(--ink\)/, 'no 2px ink rules between columns');
+  assert.match(css, /\.admin-tabs a\[aria-current="true"\]\s*\{[^}]*box-shadow:\s*inset 0 -3px 0 var\(--ink\)/);
+  assert.match(css, /\.admin-head h1\s*\{[^}]*font-size:\s*clamp\(1\.6rem,\s*2\.6vw,\s*2\.25rem\)/);
+  assert.match(css, /\.admin-news-list:empty\s*\{\s*display:\s*none;/);
+  // The record editor runs on whitespace and sentence-case sub-heads: no eyebrow labels, no hairline after a heading.
+  assert.doesNotMatch(css, /text-transform:\s*uppercase/);
+  assert.doesNotMatch(css, /\.admin-gate h4::after/);
+  assert.match(css, /\.admin-editor fieldset\s*\{[^}]*border:\s*0;\s*\}/);
+  // The organiser's keyboard ring, and focus never lands under the sticky header and tab row.
+  assert.match(css, /--focus:\s*#286998/);
+  assert.match(css, /:focus-visible[^{]*\{\s*outline:\s*3px solid var\(--focus\);\s*outline-offset:\s*4px;/);
+  assert.match(css, /html\s*\{[^}]*scroll-padding-top:\s*calc\(var\(--top\) \+ var\(--tabs\)/);
+  // Once the catalog index stacks on narrow screens, its list flows in the page instead of trapping touch scrolling.
+  assert.match(css, /@media \(max-width: 820px\)[\s\S]*?\.admin-record-list \{ overflow: visible; \}/);
+});
+
+test('desk shows "New post" and the record-only actions only when an existing item is open', async () => {
+  const h = adminHarness();
+  h.api.fillNews(null);
+  assert.equal(h.ids.get('adminNewsNew').hidden, true, 'a blank post is already open');
+  h.api.fillNews(newsItem('n1'));
+  assert.equal(h.ids.get('adminNewsNew').hidden, false, 'the way back to a blank post');
+  h.api.fillNews(null);
+  assert.equal(h.ids.get('adminNewsNew').hidden, true);
+
+  h.api.fillEditor(null);
+  for (const id of ['adminNewItem', 'adminArchive', 'adminSaveFeature']) assert.equal(h.ids.get(id).hidden, true, `${id} on a new draft`);
+  for (const id of ['adminPublish', 'adminSaveDraft', 'adminPreview']) assert.equal(h.ids.get(id).hidden, false, `${id} on a new draft`);
+  h.api.fillEditor(catalogItem('item-1'));
+  for (const id of ['adminNewItem', 'adminArchive', 'adminSaveFeature']) assert.equal(h.ids.get(id).hidden, false, `${id} on a saved record`);
+  h.ids.get('adminNewItem').listeners.get('click')();
+  assert.equal(h.ids.get('adminNewItem').hidden, true);
+  assert.equal(h.ids.get('adminKind').focused, true, 'focus lands in the editor, not on the hidden button');
+  // Without IntersectionObserver (old browsers, this harness) the scrollspy stays off: bootstrap still completes and no tab is touched.
+  await h.api.bootstrap();
+  for (const id of ['adminTabNews', 'adminTabCatalog', 'adminTabInterests']) assert.equal(h.ids.get(id).getAttribute('aria-current'), null);
 });
 
 test('publishing desk chrome switches to Spanish and Portuguese and every key resolves', () => {
@@ -1957,13 +2009,15 @@ test('desk deletes a news post only after confirmation and guards unsaved edits'
   assert.equal(h.ids.get('adminNewsStatus').textContent, 'Post deleted.');
 });
 
-test('catalog editor lists what is still missing before publishing, in the reader language', () => {
+test('catalog editor lists what is still missing before publishing, in the reader language', async () => {
   const h = adminHarness();
   h.api.fillEditor(null);
   const set = (id, value) => { h.ids.get(id).value = value; };
   const rows = () => [...h.ids.get('adminGateList').children.map((row) => renderedText(row).trim().replace(/\s+/g, ' '))];
   assert.equal(h.api.renderGate(), 16);
-  assert.equal(h.ids.get('adminGateSummary').textContent, '16 fields missing before publishing');
+  // An untouched record is work left, not an error: muted "still to fill" until Publish is tried.
+  assert.equal(h.ids.get('adminGateSummary').textContent, '16 fields still to fill');
+  assert.equal(h.ids.get('adminGateSummary').className, 'admin-gate-summary is-todo');
   for (const lang of ['En', 'Es', 'Pt']) for (const field of ['Title', 'Summary', 'Body', 'Cta']) set(`admin${field}${lang}`, `${field} ${lang}`);
   set('adminSummaryEs', '');
   set('adminCtaPt', '  ');
@@ -1975,10 +2029,22 @@ test('catalog editor lists what is still missing before publishing, in the reade
   h.api.renderGate();
   assert.deepEqual(rows(), [
     'English Complete',
+    'Spanish Still to fill: Summary',
+    'Portuguese Still to fill: CTA label',
+    'Record Still to fill: Verified source URL, Verified on, Opportunity subtype, Deadline, External action URL',
+  ]);
+  assert.equal(h.ids.get('adminGateList').children[1].className, 'is-todo');
+  // A Publish attempt (here the harness network refuses it, as a rejected publication would) turns the gaps into errors.
+  await h.api.saveCatalog('published');
+  assert.deepEqual(rows(), [
+    'English Complete',
     'Spanish Missing: Summary',
     'Portuguese Missing: CTA label',
     'Record Missing: Verified source URL, Verified on, Opportunity subtype, Deadline, External action URL',
   ]);
+  assert.equal(h.ids.get('adminGateList').children[1].className, 'is-missing');
+  assert.equal(h.ids.get('adminGateSummary').textContent, '7 fields missing before publishing');
+  assert.equal(h.ids.get('adminGateSummary').className, 'admin-gate-summary is-missing');
   assert.equal(h.api.publicationGaps().record.length, 5);
   set('adminSummaryEs', 'Resumen');
   set('adminCtaPt', 'Inscrever');
@@ -1997,6 +2063,38 @@ test('catalog editor lists what is still missing before publishing, in the reade
   assert.match(rows().at(-1), /^Registro Falta: Verificada el$/);
   h.i18n.apply('pt');
   assert.equal(rows()[0], 'Inglês Completo');
+
+  // A loaded draft starts muted again; a published record that is incomplete is an error at once.
+  h.i18n.apply('en');
+  h.api.fillEditor({ id: 'draft-1', version: 1, status: 'draft', translations: {} });
+  assert.equal(h.ids.get('adminGateSummary').className, 'admin-gate-summary is-todo');
+  h.api.fillEditor({ id: 'live-1', version: 3, status: 'published', translations: {} });
+  assert.equal(h.ids.get('adminGateSummary').className, 'admin-gate-summary is-missing');
+});
+
+test('desk empty states tell an empty catalog or queue from a filter that matched nothing, and rows carry no ids', async () => {
+  const h = adminHarness(async (url) => {
+    if (url.startsWith('/api/admin/catalog?')) return response({ items: [], nextCursor: null });
+    if (url.startsWith('/api/admin/interests?')) return response({ interests: [], nextCursor: null });
+    throw new Error(`unexpected request ${url}`);
+  });
+  await h.api.loadCatalog();
+  assert.equal(h.ids.get('adminCatalogListStatus').textContent, 'No catalog records yet. Start one with the editor.');
+  h.ids.get('adminCatalogStatus').value = 'archived';
+  await h.api.loadCatalog();
+  assert.equal(h.ids.get('adminCatalogListStatus').textContent, 'No catalog records match these filters.');
+  await h.api.loadInterests();
+  assert.equal(h.ids.get('adminInterestStatus').textContent, 'No interest requests yet.');
+  h.ids.get('adminInterestFilter').value = 'closed';
+  await h.api.loadInterests();
+  assert.equal(h.ids.get('adminInterestStatus').textContent, 'No member interests match this queue status.');
+  const uuid = '5b0c9a4e-7d1f-4c2a-9e3b-2f6d8a1c4e70';
+  const card = h.api.renderInterest({ id: 'i1', status: 'new', version: 1, item: { kind: 'opportunity', title: 'Streets fund', itemId: uuid }, member: { name: 'Ana', email: 'ana@example.org' } });
+  assert.match(renderedText(card), /Streets fund/);
+  assert.doesNotMatch(renderedText(card), new RegExp(uuid), 'the item title identifies the record; its id is not page text');
+  h.api.fillEditor({ id: uuid, version: 2, status: 'published', translations: {} });
+  assert.equal(h.ids.get('adminRecordState').textContent, 'Published');
+  assert.equal(h.ids.get('adminRecordState').title, uuid, 'the id stays reachable as a tooltip');
 });
 
 test('desk runtime copy follows the language switch, including status lines and record rows', async () => {
@@ -2012,8 +2110,8 @@ test('desk runtime copy follows the language switch, including status lines and 
   assert.equal(h.ids.get('adminCatalogListStatus').textContent, '1 registro carregado.');
   assert.match(listText(), /Círculo de aprendizagem Rascunho Membros Destaque/);
   h.api.fillEditor({ id: 'record-1', version: 2, status: 'published', translations: {} });
-  assert.equal(h.ids.get('adminRecordState').textContent, 'Publicado · record-1');
+  assert.equal(h.ids.get('adminRecordState').textContent, 'Publicado');
   h.i18n.apply('en');
-  assert.equal(h.ids.get('adminRecordState').textContent, 'Published · record-1');
+  assert.equal(h.ids.get('adminRecordState').textContent, 'Published');
   assert.equal(h.ids.get('adminEditorStatus').textContent, 'Record loaded. Edits are not saved until you choose an action.');
 });

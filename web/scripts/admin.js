@@ -82,6 +82,10 @@
     newsDelete: byId('adminNewsDelete'),
     newsStatus: byId('adminNewsStatus'),
     signOut: byId('adminSignOut'),
+    tabNews: byId('adminTabNews'),
+    tabCatalog: byId('adminTabCatalog'),
+    tabInterests: byId('adminTabInterests'),
+    tabList: byId('adminTabList'),
   };
 
   if (Object.values(elements).some((element) => !element)) return;
@@ -100,6 +104,8 @@
     catalogFilterKey: null,
     interestFilterKey: null,
     busy: false,
+    // Missing fields read as "still to fill" until a Publish attempt, or on a record that is already published.
+    gateStrict: false,
   };
 
   const create = (tag, className, text) => {
@@ -121,6 +127,20 @@
     messages.delete(node);
     node.textContent = message;
   }
+  /* A button disabled while it works drops keyboard focus to the page. Once the action is over, focus goes
+     back to it, or to the fallback when the button has hidden itself. Nothing moves when the action did not
+     start from a focused control (a mouse click in Safari) or when focus has already moved on. */
+  function restoreFocus(trigger, fallback) {
+    if (!trigger || trigger === document.body) return;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    const shown = (node) => node && !node.hidden && !node.disabled && node.getClientRects?.().length !== 0;
+    (shown(trigger) ? trigger : fallback)?.focus?.();
+  }
+
+  /* An inner list that hides rows below its edge fades there, so a cut row reads as "more below". */
+  const markClipped = (list) => list.classList.toggle('is-clipped', list.scrollHeight - list.scrollTop - list.clientHeight > 2);
+
   const apiError = (data, key, status) => Object.assign(new Error(key), { server: typeof data?.error === 'string' ? data.error : '', key, status });
   function report(node, error, fallback) {
     if (error?.server) sayRaw(node, error.server);
@@ -275,15 +295,22 @@
       [t('ops.gate.record'), record],
     ];
     const total = rows.reduce((sum, [, missing]) => sum + missing.length, 0);
+    // An untouched record is not an error: until Publish is tried (or the record is live) the gaps read as work left, in muted text.
+    const strict = state.gateStrict;
+    const gap = strict ? 'is-missing' : 'is-todo';
     elements.gateList.replaceChildren(...rows.map(([name, missing]) => {
-      const row = create('li', missing.length ? 'is-missing' : 'is-ready');
+      const row = create('li', missing.length ? gap : 'is-ready');
+      const fields = missing.map((field) => t(`ops.field.${field}`)).join(', ');
       row.append(create('b', null, name), create('span', null, missing.length
-        ? t('ops.gate.missing', { fields: missing.map((field) => t(`ops.field.${field}`)).join(', ') })
+        ? t(strict ? 'ops.gate.missing' : 'ops.gate.todo', { fields })
         : t('ops.gate.complete')));
       return row;
     }));
-    elements.gateSummary.textContent = total ? t(total === 1 ? 'ops.gate.summaryOne' : 'ops.gate.summary', { n: total }) : t('ops.gate.ready');
-    elements.gateSummary.className = `admin-gate-summary ${total ? 'is-missing' : 'is-ready'}`;
+    const summary = strict
+      ? (total === 1 ? 'ops.gate.summaryOne' : 'ops.gate.summary')
+      : (total === 1 ? 'ops.gate.todoSummaryOne' : 'ops.gate.todoSummary');
+    elements.gateSummary.textContent = total ? t(summary, { n: total }) : t('ops.gate.ready');
+    elements.gateSummary.className = `admin-gate-summary ${total ? gap : 'is-ready'}`;
     return total;
   }
 
@@ -306,14 +333,21 @@
 
   function renderRecordState() {
     const item = state.current;
-    elements.recordState.textContent = item ? `${label('ops.status', item.status)} · ${item.id}` : t('ops.record.new');
+    // The status only: a record id is a UUID, kept as a tooltip for staff who need to quote it.
+    elements.recordState.textContent = item ? label('ops.status', item.status) : t('ops.record.new');
+    elements.recordState.title = item?.id || '';
     elements.recordState.className = `admin-state is-${item?.status || 'new'}`;
+    // A new draft has nothing to archive or re-feature, and it already is the blank record "New record" would open.
+    elements.newItem.hidden = !item;
+    elements.archive.hidden = !item;
+    elements.saveFeature.hidden = !item;
   }
 
   function fillEditor(record) {
     const item = { ...blankRecord(), ...(record || {}), translations: { ...emptyTranslations(), ...(record?.translations || {}) } };
     state.current = item.id ? item : null;
     state.conflictCurrent = null;
+    state.gateStrict = item.status === 'published';
     elements.conflictPanel.hidden = true;
     elements.id.value = item.id || '';
     elements.version.textContent = item.version ? String(item.version) : '—';
@@ -349,10 +383,16 @@
   }
 
   function renderCatalogList() {
+    // Choosing a record rebuilds the list; the row that held keyboard focus gets it back instead of the page.
+    const active = document.activeElement;
+    const refocus = active && elements.list.contains?.(active) ? active.dataset?.id : null;
     const nodes = state.items.map((item) => {
       const button = create('button', 'admin-record');
       button.type = 'button';
-      button.classList.toggle('is-selected', item.id === elements.id.value);
+      button.dataset.id = item.id;
+      const selected = item.id === elements.id.value;
+      button.classList.toggle('is-selected', selected);
+      button.setAttribute('aria-current', String(selected));
       button.append(create('strong', null, catalogLabel(item)));
       button.append(create('span', null, [item.organization, item.location].filter(Boolean).join(' · ') || t('ops.record.noPlace')));
       const meta = create('span', 'admin-record-meta');
@@ -368,6 +408,8 @@
     });
     elements.list.replaceChildren(...nodes);
     elements.list.setAttribute('aria-busy', 'false');
+    if (refocus) nodes.find((node) => node.dataset.id === refocus)?.focus({ preventScroll: true });
+    markClipped(elements.list);
   }
 
   function catalogFilterSnapshot() {
@@ -425,7 +467,8 @@
       elements.catalogMore.hidden = !state.catalogCursor;
       renderCatalogList();
       if (state.items.length) say(elements.listStatus, state.items.length === 1 ? 'ops.catalog.countOne' : 'ops.catalog.count', { n: state.items.length });
-      else say(elements.listStatus, 'ops.catalog.empty');
+      // With no filter set, an empty list means an empty catalog, not a filter that matched nothing.
+      else say(elements.listStatus, snapshot.query || snapshot.kind || snapshot.status ? 'ops.catalog.empty' : 'ops.catalog.none');
       return true;
     } catch (error) {
       if (error.name === 'AbortError' || sequence !== state.catalogRequest || state.catalogFilterKey !== snapshotKey) return false;
@@ -461,6 +504,10 @@
     const topics = validateEditorTopics();
     if (!topics) return;
     const payload = serializeEditor(status, topics);
+    if (status === 'published' && !state.gateStrict) {
+      state.gateStrict = true;
+      renderGate();
+    }
     const currentId = elements.id.value;
     const version = Number(elements.version.textContent);
     const editing = Boolean(currentId);
@@ -468,6 +515,7 @@
       say(elements.editorStatus, 'ops.record.noVersion');
       return;
     }
+    const trigger = document.activeElement;
     setBusy(true);
     say(elements.editorStatus, status === 'published' ? 'ops.record.publishing' : status === 'archived' ? 'ops.record.archiving' : 'ops.record.saving');
     try {
@@ -487,6 +535,7 @@
       report(elements.editorStatus, error, 'ops.record.notSaved');
     } finally {
       setBusy(false);
+      restoreFocus(trigger, elements.publish);
     }
   }
 
@@ -527,7 +576,6 @@
     const about = create('div', 'admin-interest-item');
     about.append(create('p', 'admin-interest-item-kind', [label('ops.kind', item.kind), item.organization].filter(Boolean).join(' · ')));
     about.append(create('h3', 'admin-interest-item-title', item.title || t('ops.interest.noItem')));
-    if (item.itemId) about.append(create('p', 'admin-interest-item-id', item.itemId));
     const member = create('div', 'admin-interest-member');
     member.append(create('h4', null, interest.member?.name || t('ops.interest.noName')));
     const email = create('a', null, interest.member?.email || t('ops.interest.noEmail'));
@@ -545,7 +593,7 @@
       select.append(option);
     }
     field.append(select);
-    const save = create('button', 'admin-button admin-button-quiet', t('ops.interest.update'));
+    const save = create('button', 'admin-button', t('ops.interest.update'));
     save.type = 'button';
     save.addEventListener('click', async () => {
       save.disabled = true;
@@ -626,7 +674,7 @@
       elements.interestMore.hidden = !state.interestCursor;
       renderInterestList();
       if (state.interests.length) say(elements.interestStatus, state.interests.length === 1 ? 'ops.interest.countOne' : 'ops.interest.count', { n: state.interests.length });
-      else say(elements.interestStatus, 'ops.interest.empty');
+      else say(elements.interestStatus, snapshot.status ? 'ops.interest.empty' : 'ops.interest.none');
       return true;
     } catch (error) {
       if (error.name === 'AbortError' || sequence !== state.interestRequest || state.interestFilterKey !== snapshotKey) return false;
@@ -711,6 +759,8 @@
     elements.newsPublish.textContent = t(published ? 'ops.news.update' : 'ops.news.publish');
     elements.newsDraft.textContent = t(published ? 'ops.news.unpublish' : 'ops.news.saveDraft');
     elements.newsDelete.hidden = !item;
+    // The editor opens on a blank post; "New post" only appears once an existing post is open, as the way back.
+    elements.newsNew.hidden = !item;
     elements.newsBodyCount.textContent = `${elements.newsBody.value.length} / ${NEWS_LIMITS.body}`;
   }
 
@@ -735,6 +785,7 @@
     });
     elements.newsList.replaceChildren(...rows);
     elements.newsList.setAttribute('aria-busy', 'false');
+    markClipped(elements.newsList);
   }
 
   function renderNewsCount() {
@@ -853,6 +904,7 @@
     }
     const current = news.current;
     news.pending = status;
+    const trigger = document.activeElement;
     setNewsBusy(true);
     say(elements.newsStatus, status === 'published' ? 'ops.news.publishing' : 'ops.news.saving');
     try {
@@ -885,12 +937,14 @@
       return false;
     } finally {
       setNewsBusy(false);
+      restoreFocus(trigger, elements.newsTitle);
     }
   }
 
   async function deleteNews() {
     const current = news.current;
     if (!current || news.busy || !window.confirm(t('ops.news.confirmDelete', { title: current.title }))) return false;
+    const trigger = document.activeElement;
     setNewsBusy(true);
     say(elements.newsStatus, 'ops.news.deleting');
     try {
@@ -906,6 +960,8 @@
       return false;
     } finally {
       setNewsBusy(false);
+      // After a delete the button hides itself, so focus starts the next post in the blank editor.
+      restoreFocus(trigger, elements.newsTitle);
     }
   }
 
@@ -940,7 +996,11 @@
   elements.interestMore.addEventListener('click', () => loadInterests({ append: true }));
   elements.kind.addEventListener('change', updateConditionalFields);
   elements.actionMode.addEventListener('change', updateConditionalFields);
-  elements.newItem.addEventListener('click', () => fillEditor(blankRecord()));
+  elements.newItem.addEventListener('click', () => {
+    fillEditor(blankRecord());
+    // The button hides itself on a blank record, so focus moves to the editor's first field instead of falling to the page.
+    elements.kind.focus();
+  });
   elements.saveDraft.addEventListener('click', () => saveCatalog('draft'));
   elements.publish.addEventListener('click', () => saveCatalog('published'));
   elements.archive.addEventListener('click', () => saveCatalog('archived'));
@@ -951,6 +1011,7 @@
     if (state.conflictCurrent) fillEditor(state.conflictCurrent);
   });
   elements.editor.addEventListener('submit', (event) => event.preventDefault());
+  for (const list of [elements.list, elements.newsList]) list.addEventListener('scroll', () => markClipped(list), { passive: true });
   elements.editor.addEventListener('input', renderGate);
   elements.editor.addEventListener('change', renderGate);
 
@@ -996,8 +1057,35 @@
     }
   });
 
+  /* The tab row scrolls sideways when its labels do not fit (phones; tablets in Spanish or Portuguese).
+     It is then marked, so CSS fades the edge that hides more tabs. When everything fits, the last tab
+     sits at the row's end (8px padding), so its edge tells whether the labels overflow, whatever end
+     padding the overflow state adds. */
+  let updateTabRow = () => {};
+  function watchLayout() {
+    const list = elements.tabList;
+    const last = list.lastElementChild;
+    if (!last?.getBoundingClientRect) return;
+    updateTabRow = () => {
+      const end = last.getBoundingClientRect().right - list.getBoundingClientRect().left + list.scrollLeft;
+      const overflowing = end > list.clientWidth - 8 + 1;
+      list.classList.toggle('is-overflowing', overflowing);
+      list.classList.toggle('is-scrolled', overflowing && list.scrollLeft > 1);
+    };
+    list.addEventListener('scroll', updateTabRow, { passive: true });
+    document.fonts?.ready?.then(updateTabRow);
+    updateTabRow();
+    if (!('ResizeObserver' in window)) return;
+    new ResizeObserver(updateTabRow).observe(list);
+    // The lists' heights follow the window (the catalog index is as tall as the screen), and their fades follow their heights.
+    const lists = new ResizeObserver((entries) => entries.forEach((entry) => markClipped(entry.target)));
+    lists.observe(elements.list);
+    lists.observe(elements.newsList);
+  }
+
   I18N?.onChange(() => {
     for (const [node, [key, vars]] of messages) node.textContent = t(key, vars);
+    updateTabRow();
     renderRecordState();
     renderCatalogList();
     renderGate();
@@ -1007,9 +1095,44 @@
     if (!elements.previewPanel.hidden) renderPreview({ scroll: false });
   });
 
+  /* The tab row follows the reader, as on the organiser dashboard: the section
+     crossing a thin band a third of the way down the screen is the current one.
+     The last section is short, so once it is wholly on screen the page has
+     reached its end and that tab is marked instead. */
+  function trackSections() {
+    if (!('IntersectionObserver' in window)) return;
+    const tabs = new Map([['news', elements.tabNews], ['catalog', elements.tabCatalog], ['interests', elements.tabInterests]]);
+    const sections = [...tabs.keys()].map((id) => byId(id)).filter(Boolean);
+    if (sections.length !== tabs.size) return;
+    const crossing = new Set();
+    let atEnd = false;
+    const mark = () => {
+      const current = atEnd ? sections.at(-1).id : [...tabs.keys()].find((id) => crossing.has(id));
+      if (!current) return;
+      for (const [id, tab] of tabs) {
+        if (id === current) tab.setAttribute('aria-current', 'true');
+        else tab.removeAttribute('aria-current');
+      }
+    };
+    const band = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) crossing.add(entry.target.id);
+        else crossing.delete(entry.target.id);
+      }
+      mark();
+    }, { rootMargin: '-35% 0px -64% 0px' });
+    for (const section of sections) band.observe(section);
+    new IntersectionObserver(([entry]) => {
+      atEnd = entry.intersectionRatio > 0.99;
+      mark();
+    }, { threshold: [0, 1] }).observe(sections.at(-1));
+  }
+
   async function bootstrap() {
     fillEditor(blankRecord());
     fillNews(null);
+    trackSections();
+    watchLayout();
     await Promise.allSettled([loadNews(), loadCatalog(), loadInterests()]);
   }
 

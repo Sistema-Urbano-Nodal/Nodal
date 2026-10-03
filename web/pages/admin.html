@@ -7,51 +7,59 @@
   <meta name="referrer" content="no-referrer" />
   <meta name="robots" content="noindex, nofollow" />
   <title data-i18n="ops.pageTitle">NODAL · Publishing desk</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cline x1='20' y1='22' x2='44' y2='42' stroke='%2359bc53' stroke-width='5'/%3E%3Ccircle cx='20' cy='22' r='11' fill='%233d5c38'/%3E%3Ccircle cx='44' cy='42' r='8' fill='%2359bc53'/%3E%3C/svg%3E" />
 
   <link rel="stylesheet" href="locale.css?v=20260929a" />
   <script src="locale.js?v=20260918b"></script>
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="fonts.css?v=20260911b" />
-  <link rel="stylesheet" href="admin.css?v=4" />
-  <link rel="stylesheet" href="courses.css?v=20260930a" />
+  <link rel="stylesheet" href="styles.css?v=30" />
+  <link rel="stylesheet" href="admin.css?v=5" />
 
-  <script defer src="i18n.js?v=20261001b"></script>
-  <script defer src="admin.js?v=5"></script>
-  <script defer src="pilot-i18n.js?v=20261001a"></script>
-  <script defer src="pilot.js?v=20261001a"></script>
+  <script defer src="nav.js?v=20260928a"></script>
+  <script defer src="script.js?v=18"></script>
+  <script defer src="i18n.js?v=20261003a"></script>
+  <script defer src="admin.js?v=6"></script>
 </head>
-<body class="admin-page">
-  <div class="pilot-notice" data-pilot-banner hidden><strong data-pilot-text="prototype">Course pilot · Prototype</strong><span data-pilot-text="notice">We are testing this learning space together. Share feedback as you go.</span></div>
-  <header class="admin-topbar">
-    <a class="admin-brand" href="index.html" aria-label="NODAL home" data-i18n-aria-label="ops.home">
-      <img src="assets/nodal-wordmark.webp" alt="NODAL · Nodos Urbanos de América Latina" />
-      <span data-i18n="ops.brand">Publishing desk</span>
+<body class="admin-page" data-page="admin">
+  <a class="admin-skip" href="#adminMain" data-i18n="ops.skip">Skip to content</a>
+  <header class="navbar">
+    <a class="brand" href="index.html#top" id="brand">
+      <svg id="net" class="brand-mark" viewBox="0 0 120 130" aria-hidden="true"></svg>
+      <img class="brand-wordmark" src="assets/nodal-wordmark.webp"
+           alt="NODAL · Nodos Urbanos de América Latina" />
     </a>
-    <nav aria-label="Staff navigation" data-i18n-aria-label="ops.staffNav">
-      <a href="opportunities.html" data-i18n="ops.nav.catalog">Public catalog</a>
-      <a href="dashboard.html" data-i18n="ops.nav.console">Member console</a>
-      <div class="admin-langs" role="group" aria-label="Language" data-i18n-aria-label="nav.languageLabel"><button type="button" class="lang-btn" data-lang="en" aria-label="English">EN</button><button type="button" class="lang-btn" data-lang="es" aria-label="Español">ES</button><button type="button" class="lang-btn" data-lang="pt" aria-label="Português">PT</button></div>
-      <button id="adminSignOut" type="button" data-i18n="ops.signOut">Sign out</button>
-    </nav>
+
+    <nav class="nav-main" aria-label="Main navigation" data-i18n-aria-label="nav.mainLabel"><a href="index.html#membership" data-i18n="nav.program">Programme</a><a href="community.html" data-i18n="nav.community">Community</a><a href="resources.html" data-i18n="nav.resources">Resources</a><a href="knowledge.html" data-i18n="nav.learn">Knowledge</a></nav>
+
+    <nav class="nav-account" aria-label="Account and language" data-i18n-aria-label="nav.accountLabel"><div class="lang-switch" role="group" aria-label="Language" data-i18n-aria-label="nav.languageLabel"><button type="button" class="lang-btn" data-lang="en" aria-label="English">EN</button><button type="button" class="lang-btn" data-lang="es" aria-label="Español">ES</button><button type="button" class="lang-btn" data-lang="pt" aria-label="Português">PT</button></div><a class="btn btn-pill btn-nav" href="dashboard.html" data-i18n="nav.panel">My console</a></nav>
+
+    <button type="button" class="nav-toggle" id="navToggle" aria-label="Menu" data-i18n-aria-label="nav.menuLabel">
+      <span></span><span></span><span></span>
+    </button>
   </header>
 
   <main class="admin-shell" id="adminMain">
-    <header class="admin-mast">
-      <div class="admin-mast-title">
-        <p class="admin-kicker" data-i18n="ops.kicker">NODAL · Staff</p>
+    <header class="admin-head">
+      <div class="admin-head-title">
         <h1 data-i18n="ops.title">Publishing desk</h1>
+        <p class="admin-head-lead" data-i18n="ops.lead">Publish news and opportunities for the whole network. Festival posts and courses keep their own editors, one click away.</p>
       </div>
-      <p class="admin-mast-lead" data-i18n="ops.lead">Publish news and opportunities for the whole network. Festival posts and courses keep their own editors, one click away.</p>
-      <nav class="admin-desk-index" aria-label="On this desk" data-i18n-aria-label="ops.index.title">
-        <ol>
-          <li><a href="#news"><strong data-i18n="ops.index.news">NODAL news</strong><span data-i18n="ops.index.newsHint">Short updates on every member console and the community page</span></a></li>
-          <li><a href="#catalog"><strong data-i18n="ops.index.catalog">Opportunities and catalog</strong><span data-i18n="ops.index.catalogHint">Verified records in English, Spanish and Portuguese</span></a></li>
-          <li><a href="fiiu-admin.html#content"><strong data-i18n="ops.index.festival">Festival news</strong><span data-i18n="ops.index.festivalHint">FIIU Fest posts and materials, in the organiser dashboard</span></a></li>
-          <li><a href="teaching.html"><strong data-i18n="ops.index.courses">Courses</strong><span data-i18n="ops.index.coursesHint">Sessions, participants and invitations, in the teaching workspace</span></a></li>
-          <li><a href="#interests"><strong data-i18n="ops.index.interests">Interest review queue</strong><span data-i18n="ops.index.interestsHint">Members who asked to take part in a record</span></a></li>
-        </ol>
-      </nav>
+      <div class="admin-head-side">
+        <a href="opportunities.html" data-i18n="ops.nav.catalog">View public catalog</a>
+        <button class="admin-textbutton" id="adminSignOut" type="button" data-i18n="ops.signOut">Sign out</button>
+      </div>
     </header>
+
+    <nav class="admin-tabs" aria-label="On this desk" data-i18n-aria-label="ops.index.title">
+      <ul id="adminTabList">
+        <li><a href="#news" id="adminTabNews" aria-current="true" data-i18n="ops.index.news">NODAL news</a></li>
+        <li><a href="#catalog" id="adminTabCatalog" data-i18n="ops.index.catalog">Opportunities and catalog</a></li>
+        <li><a href="#interests" id="adminTabInterests" data-i18n="ops.index.interests">Interest requests</a></li>
+        <li class="admin-tabs-split"><a href="fiiu-admin.html#content" class="is-away"><span data-i18n="ops.index.festival">Festival news</span><span aria-hidden="true"> →</span><span class="admin-sr" data-i18n="ops.index.festivalHint">FIIU Fest posts and materials, in the organiser dashboard</span></a></li>
+        <li><a href="teaching.html" class="is-away"><span data-i18n="ops.index.courses">Courses</span><span aria-hidden="true"> →</span><span class="admin-sr" data-i18n="ops.index.coursesHint">Sessions, participants and invitations, in the teaching workspace</span></a></li>
+      </ul>
+    </nav>
 
     <section class="admin-band" id="news" aria-labelledby="newsTitle">
       <div class="admin-section-head">
@@ -59,13 +67,15 @@
           <h2 id="newsTitle" data-i18n="ops.news.title">NODAL news</h2>
           <p class="admin-field-note" data-i18n="ops.news.lead">Published posts appear on every member console and on the community page, pinned first, exactly as written.</p>
         </div>
-        <button class="admin-button" id="adminNewsNew" type="button" data-i18n="ops.news.new">New post</button>
       </div>
       <div class="admin-news">
         <div class="admin-news-index">
-          <p class="admin-live" id="adminNewsListStatus" role="status" aria-live="polite">Loading posts…</p>
+          <div class="admin-list-head">
+            <p class="admin-live" id="adminNewsListStatus" role="status" aria-live="polite">Loading posts…</p>
+            <button class="admin-button admin-button-compact" id="adminNewsNew" type="button" hidden data-i18n="ops.news.new">New post</button>
+          </div>
           <ol class="admin-news-list" id="adminNewsList" aria-busy="true"></ol>
-          <button class="admin-button admin-button-quiet admin-more" id="adminNewsMore" type="button" hidden data-i18n="ops.news.more">Load more posts</button>
+          <button class="admin-button admin-more" id="adminNewsMore" type="button" hidden data-i18n="ops.news.more">Load more posts</button>
         </div>
         <form class="admin-news-editor" id="adminNewsEditor" novalidate aria-labelledby="adminNewsEditorTitle">
           <div class="admin-news-head">
@@ -85,7 +95,7 @@
           <div class="admin-actions">
             <button class="admin-button admin-button-accent" id="adminNewsPublish" type="button">Publish</button>
             <button class="admin-button" id="adminNewsDraft" type="button">Save as draft</button>
-            <button class="admin-button admin-button-warning" id="adminNewsDelete" type="button" hidden data-i18n="ops.news.delete">Delete post</button>
+            <button class="admin-textbutton admin-textbutton-warning" id="adminNewsDelete" type="button" hidden data-i18n="ops.news.delete">Delete post</button>
           </div>
           <p class="admin-live" id="adminNewsStatus" role="status" aria-live="polite"></p>
         </form>
@@ -103,7 +113,7 @@
         <aside class="admin-index" aria-labelledby="catalogIndexTitle">
           <div class="admin-index-head">
             <h3 id="catalogIndexTitle" data-i18n="ops.catalog.records">Catalog records</h3>
-            <button class="admin-button admin-button-accent" id="adminNewItem" type="button" data-i18n="ops.catalog.new">New record</button>
+            <button class="admin-button admin-button-compact" id="adminNewItem" type="button" hidden data-i18n="ops.catalog.new">New record</button>
           </div>
           <form id="adminCatalogFilters" class="admin-filters" role="search">
             <label><span data-i18n="ops.filter.search">Search</span><input id="adminCatalogQuery" type="search" maxlength="320" autocomplete="off" placeholder="Title, organization, topic" data-i18n-placeholder="ops.filter.searchHint" /></label>
@@ -111,11 +121,10 @@
               <label><span data-i18n="ops.field.kind">Kind</span><select id="adminCatalogKind"><option value="" data-i18n="ops.filter.allKinds">All kinds</option><option value="opportunity" data-i18n="ops.kind.opportunity">Opportunity</option><option value="project" data-i18n="ops.kind.project">Project</option><option value="learning_circle" data-i18n="ops.kind.learning_circle">Learning circle</option><option value="resource" data-i18n="ops.kind.resource">Resource</option><option value="case_study" data-i18n="ops.kind.case_study">Case study</option></select></label>
               <label><span data-i18n="ops.field.status">Status</span><select id="adminCatalogStatus"><option value="" data-i18n="ops.filter.allStatuses">All statuses</option><option value="draft" data-i18n="ops.status.draft">Draft</option><option value="published" data-i18n="ops.status.published">Published</option><option value="archived" data-i18n="ops.status.archived">Archived</option></select></label>
             </div>
-            <button class="admin-button admin-button-quiet" type="submit" data-i18n="ops.filter.apply">Apply filters</button>
           </form>
           <p class="admin-live" id="adminCatalogListStatus" role="status" aria-live="polite">Loading catalog records…</p>
           <div class="admin-record-list" id="adminCatalogList" aria-busy="true"></div>
-          <button class="admin-button admin-button-quiet admin-more" id="adminCatalogMore" type="button" hidden data-i18n="ops.catalog.more">Load more records</button>
+          <button class="admin-button admin-more" id="adminCatalogMore" type="button" hidden data-i18n="ops.catalog.more">Load more records</button>
         </aside>
 
         <section class="admin-editor-pane" aria-labelledby="editorTitle">
@@ -182,21 +191,21 @@
 
             <div class="admin-conflict" id="adminConflictPanel" hidden role="alert">
               <div><strong data-i18n="ops.conflict.title">This record changed on the server.</strong><span data-i18n="ops.conflict.body">Your unsaved fields are still here. Reload the current server version only when you are ready to discard them.</span></div>
-              <button class="admin-button admin-button-quiet" id="adminConflictReload" type="button" data-i18n="ops.conflict.reload">Reload server version</button>
+              <button class="admin-button" id="adminConflictReload" type="button" data-i18n="ops.conflict.reload">Reload server version</button>
             </div>
 
             <div class="admin-actions">
               <button class="admin-button admin-button-accent" id="adminPublish" type="button" data-i18n="ops.editor.publish">Publish</button>
               <button class="admin-button" id="adminSaveDraft" type="button" data-i18n="ops.editor.saveDraft">Save as draft</button>
-              <button class="admin-button admin-button-quiet" id="adminPreview" type="button" data-i18n="ops.editor.preview">Preview plain text</button>
-              <button class="admin-button admin-button-quiet" id="adminSaveFeature" type="button" data-i18n="ops.editor.saveFeature">Save feature setting</button>
-              <button class="admin-button admin-button-warning" id="adminArchive" type="button" data-i18n="ops.editor.archive">Archive</button>
+              <button class="admin-textbutton" id="adminPreview" type="button" data-i18n="ops.editor.preview">Preview plain text</button>
+              <button class="admin-textbutton" id="adminSaveFeature" type="button" hidden data-i18n="ops.editor.saveFeature">Save feature setting</button>
+              <button class="admin-textbutton admin-textbutton-warning" id="adminArchive" type="button" hidden data-i18n="ops.editor.archive">Archive</button>
             </div>
             <p class="admin-live" id="adminEditorStatus" role="status" aria-live="polite"></p>
           </form>
 
           <section class="admin-preview" id="adminPreviewPanel" hidden aria-labelledby="previewTitle">
-            <div class="admin-index-head"><h3 id="previewTitle" data-i18n="ops.preview.title">Plain-text preview</h3><button class="admin-button admin-button-quiet" id="adminPreviewClose" type="button" data-i18n="ops.preview.close">Close preview</button></div>
+            <div class="admin-index-head"><h3 id="previewTitle" data-i18n="ops.preview.title">Plain-text preview</h3><button class="admin-textbutton" id="adminPreviewClose" type="button" data-i18n="ops.preview.close">Close preview</button></div>
             <div id="adminPreviewContent" class="admin-preview-grid"></div>
           </section>
         </section>
@@ -206,14 +215,14 @@
     <section class="admin-band" id="interests" aria-labelledby="interestTitle">
       <div class="admin-section-head">
         <div>
-          <h2 id="interestTitle" data-i18n="ops.interest.title">Interest review queue</h2>
-          <p class="admin-field-note" data-i18n="ops.interest.lead">NODAL records queue status only. Staff contact members outside the platform.</p>
+          <h2 id="interestTitle" data-i18n="ops.interest.title">Interest requests</h2>
+          <p class="admin-field-note" data-i18n="ops.interest.lead">NODAL only tracks the status of each request. Staff contact members outside the platform.</p>
         </div>
         <label class="admin-inline-filter"><span data-i18n="ops.interest.show">Show</span><select id="adminInterestFilter"><option value="" data-i18n="ops.filter.allStatuses">All statuses</option><option value="new" data-i18n="ops.interest.new">New</option><option value="contacted" data-i18n="ops.interest.contacted">Contacted</option><option value="closed" data-i18n="ops.interest.closed">Closed</option><option value="withdrawn" data-i18n="ops.interest.withdrawn">Withdrawn</option></select></label>
       </div>
       <p class="admin-live" id="adminInterestStatus" role="status" aria-live="polite">Loading member interests…</p>
       <div class="admin-interest-list" id="adminInterestList" aria-busy="true"></div>
-      <button class="admin-button admin-button-quiet admin-more" id="adminInterestMore" type="button" hidden data-i18n="ops.interest.more">Load more interests</button>
+      <button class="admin-button admin-more" id="adminInterestMore" type="button" hidden data-i18n="ops.interest.more">Load more interests</button>
     </section>
   </main>
 
