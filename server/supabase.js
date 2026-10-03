@@ -16,6 +16,7 @@ import {
   DEFAULT_INDICATORS,
   canApplyForMentor,
   cleanIndicators,
+  cleanProfileList,
   cleanRequests,
   cleanTopics,
   normalizePartC,
@@ -44,6 +45,8 @@ const cleanStatus = (value) => (SUBSCRIPTION_STATUSES.has(String(value)) ? Strin
 const ACCOUNT_STATUSES = new Set(['active', 'disabled', 'pending']);
 const APP_ROLES = new Set(['member', 'admin']);
 const CATALOG_INTEREST_WRITE_ATTEMPTS = 3;
+// Bounds one public catalog request to this many sequential PostgREST reads.
+const CATALOG_SCAN_BATCHES = 8;
 /* Anything unrecognised counts as not active. A column that has been tampered
    with, or a row written before the column existed, must fail closed. */
 const cleanAccountStatus = (value) => {
@@ -240,7 +243,8 @@ function toApiUserFromSupabase({ profile, preferences, onboarding }) {
     consent: dataConsent.directoryPublic === true || (dataConsent.directoryPublic === undefined && rawPartC.consent === true),
   };
   const title = cleanString(raw.title || profile.public_role || ROOT_ROLE, 80) || ROOT_ROLE;
-  const interests = asArray(onboarding?.interests).map(String);
+  // Capped on read too, so rows written before the cap are not served whole to other members.
+  const interests = cleanProfileList(asArray(onboarding?.interests), 12);
   const rawTopics = asArray(raw.topics);
   return {
     id: profile.id,
@@ -254,11 +258,11 @@ function toApiUserFromSupabase({ profile, preferences, onboarding }) {
     city: cleanString(profile.city_region, 120),
     country: cleanString(profile.country, 80),
     interests,
-    active: asArray(raw.active).map(String),
+    active: cleanProfileList(asArray(raw.active), 6),
     linkedin: cleanString(rawPartC.linkedin || raw.linkedin || '', 220),
     topics: rawTopics,
-    skills: asArray(onboarding?.skills).map(String),
-    goals: asArray(onboarding?.goals).map(String),
+    skills: cleanProfileList(asArray(onboarding?.skills), 12),
+    goals: cleanProfileList(asArray(onboarding?.goals), 12),
     indicators: { ...DEFAULT_INDICATORS, ...(raw.indicators && typeof raw.indicators === 'object' ? raw.indicators : {}) },
     partC,
     requests: raw.requests && typeof raw.requests === 'object' ? raw.requests : {},
@@ -413,7 +417,38 @@ function compareInterestTuples(left, right, direction) {
   return left[1] < right[1] ? -1 : 1;
 }
 
-function catalogListQuery(query = {}, viewer = null, { offset = 0, batchSize = 25 } = {}) {
+const CATALOG_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/* The open-state check of isCatalogItemClosed, as a PostgREST filter: a deadline
+   decides; without one, end_date does. end_date is a date column compared by UTC
+   day, so the day an item ends is still read here and dropped by the exact check
+   in matchesCatalogList. Expired items no longer reach the server at all. */
+function catalogOpenFilter(now) {
+  const instant = now.toISOString();
+  return `(deadline_at.gte.${instant},and(deadline_at.is.null,end_date.is.null),and(deadline_at.is.null,end_date.gte.${instant.slice(0, 10)}))`;
+}
+
+/* Rows strictly after a decoded cursor in the listing order (featured.desc,
+   deadline_at.asc.nullslast, published_at.desc.nullslast, id.asc), so each page
+   starts where the last one ended instead of rescanning from the first row. The
+   cursor's null sentinels become IS NULL tests; nothing invalid reaches Postgres.
+   matchesCatalogList still applies the exact comparison afterwards. */
+function catalogAfterCursor([featured, deadlineAt, publishedAt, id]) {
+  // catalog_items.id is a uuid. Any other id cannot come from this server; it
+  // widens the filter rather than send Postgres a value it rejects.
+  const idAfter = CATALOG_UUID.test(id) ? `id.gt.${id}` : 'id.not.is.null';
+  const publishedAfter = publishedAt === ''
+    ? `and(published_at.is.null,${idAfter})`
+    : `or(published_at.lt.${publishedAt},published_at.is.null,and(published_at.eq.${publishedAt},${idAfter}))`;
+  const deadlineAfter = deadlineAt === '\uffff'
+    ? `and(deadline_at.is.null,${publishedAfter})`
+    : `or(deadline_at.gt.${deadlineAt},deadline_at.is.null,and(deadline_at.eq.${deadlineAt},${publishedAfter}))`;
+  return featured
+    ? `(or(featured.eq.false,and(featured.eq.true,${deadlineAfter})))`
+    : `(and(featured.eq.false,${deadlineAfter}))`;
+}
+
+function catalogListQuery(query = {}, viewer = null, { offset = 0, batchSize = 25, cursor = null, openAt = null } = {}) {
   const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
   const out = {
     select: '*',
@@ -421,6 +456,8 @@ function catalogListQuery(query = {}, viewer = null, { offset = 0, batchSize = 2
     limit: batchSize,
     offset,
   };
+  if (openAt) out.or = catalogOpenFilter(openAt);
+  if (cursor) out.and = catalogAfterCursor(cursor);
   if (viewer?.permission !== 'admin') {
     out.status = 'eq.published';
     out.visibility = viewer?.id ? 'in.(public,members)' : 'eq.public';
@@ -683,7 +720,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       : current.mentorApplied;
     const rawAnswers = {
       title,
-      active: 'active' in patch ? asArray(patch.active).map(String).slice(0, 6) : current.active,
+      active: 'active' in patch ? cleanProfileList(asArray(patch.active), 6) : current.active,
       topics,
       indicators,
       partC,
@@ -725,9 +762,9 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
       body: [{
         user_id: userId,
-        interests: 'interests' in patch ? asArray(patch.interests).map(String).slice(0, 12) : current.interests,
-        skills: 'skills' in patch ? asArray(patch.skills).map(String).slice(0, 12) : current.skills,
-        goals: 'goals' in patch ? asArray(patch.goals).map(String).slice(0, 12) : current.goals,
+        interests: 'interests' in patch ? cleanProfileList(asArray(patch.interests), 12) : current.interests,
+        skills: 'skills' in patch ? cleanProfileList(asArray(patch.skills), 12) : current.skills,
+        goals: 'goals' in patch ? cleanProfileList(asArray(patch.goals), 12) : current.goals,
         contribution_preferences: rawAnswers.active,
         availability: cleanString(partC.availability, 120),
         mentoring_interest: rawAnswers.mentorApplied ? 'applied' : 'none',
@@ -936,13 +973,15 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       });
       const authUser = data.user || (data.id ? data : null);
       const session = data.session || (data.access_token ? data : null);
-      if (Array.isArray(authUser?.identities) && authUser.identities.length === 0) {
-        return {
-          status: 202,
-          user: null,
-          cookies: [],
-          requiresEmailConfirmation: true,
-        };
+      /* No session means the address must be confirmed first. GoTrue answers
+         an address with a confirmed account with a stand-in user, and one with
+         an unconfirmed account with the first registrant's real user; a new
+         address gets a new user. All three get this one answer, and no profile
+         is written: anything else tells a caller which addresses are members.
+         The profile is created at the first sign-in (existingOrEnsureProfile),
+         from the confirmed account's own metadata. */
+      if (!session?.access_token) {
+        return { status: 202, user: null, cookies: [], requiresEmailConfirmation: true };
       }
       const user = await ensureProfile(authUser, fullName);
       return {
@@ -980,12 +1019,34 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       if (!isActive(user)) return { status: 401, error: 'invalid email or password', cookies: [] };
       return { status: 200, user, cookies: sessionCookies(data, env) };
     },
+    /* Revokes the session at Supabase, not only in this browser. The access
+       cookie lives about an hour, so a page left open longer signs out with
+       only the refresh token; that token stays redeemable until revoked, so it
+       is exchanged once for an access token that can sign the session out. */
     async logout(req) {
-      const accessToken = parseCookies(req.headers.cookie).get(ACCESS_COOKIE);
-      if (accessToken) {
-        try { await browser.auth('/logout', { method: 'POST', auth: accessToken }); } catch { /* best effort */ }
+      const cookies = parseCookies(req.headers.cookie);
+      const accessToken = cookies.get(ACCESS_COOKIE);
+      const refreshToken = cookies.get(REFRESH_COOKIE);
+      const revoke = async (token) => {
+        try { await browser.auth('/logout', { method: 'POST', auth: token, signal: AbortSignal.timeout(5000) }); return 'revoked'; }
+        catch (error) { return [401, 403].includes(error?.status) ? 'rejected' : 'failed'; }
+      };
+      const outcome = accessToken ? await revoke(accessToken) : 'rejected';
+      /* refreshRejected tells the caller that the provider refused the refresh token,
+         the only outcome its per-address refresh-failure budget should keep counting. */
+      let refreshRejected = false;
+      if (outcome === 'rejected' && refreshToken) {
+        try {
+          const session = await browser.auth('/token', {
+            method: 'POST', query: { grant_type: 'refresh_token' }, body: { refresh_token: refreshToken }, signal: AbortSignal.timeout(5000),
+          });
+          if (session?.access_token) await revoke(session.access_token);
+        } catch (error) {
+          // Already revoked, expired or unreachable: the cookies go regardless.
+          refreshRejected = Number.isInteger(error?.status) && error.status >= 400 && error.status < 500 && error.status !== 429;
+        }
       }
-      return { status: 200, cookies: clearSessionCookies(env) };
+      return { status: 200, cookies: clearSessionCookies(env), refreshRejected };
     },
     toApiUser(user) {
       return user;
@@ -1152,28 +1213,40 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       }));
       return subscriptionToApi(row);
     },
+    /* Open state and the cursor are filtered by PostgREST; topic and text
+       search, which need case-folding across translations, are filtered here.
+       Each request reads at most CATALOG_SCAN_BATCHES batches. When that runs
+       out before a full page matches, it returns what it found and a cursor at
+       the last row it read, so "load more" continues from there. */
     async listCatalogItems(query = {}, viewer = null) {
       const batchSize = 25;
       const cursor = query.cursor ? decodeCatalogCursor(query.cursor) : null;
+      const openAt = query.state !== 'all' ? new Date() : null;
       const { limit } = catalogListQuery(query, viewer, { batchSize });
       let offset = 0;
       let rows;
+      let batches = 0;
+      let lastRead = null;
       const items = [];
       do {
-        const options = catalogListQuery(query, viewer, { offset, batchSize });
+        const options = catalogListQuery(query, viewer, { offset, batchSize, cursor, openAt });
         rows = await admin.rest('catalog_items', { query: options.query });
+        batches += 1;
         for (const item of rows.map(catalogItemFromSupabase)) {
-          if (!matchesCatalogList(item, query, cursor)) continue;
+          const tuple = catalogSortTuple(item);
+          if (cursor && compareCatalogTuples(tuple, cursor) <= 0) continue;
+          lastRead = tuple;
+          if (!matchesCatalogList(item, query, null)) continue;
           items.push(item);
           if (items.length >= limit + 1) break;
         }
         offset += rows.length;
-      } while (rows.length === batchSize && items.length < limit + 1);
+      } while (rows.length === batchSize && items.length < limit + 1 && batches < CATALOG_SCAN_BATCHES);
       const page = items.slice(0, limit);
-      return {
-        items: page,
-        nextCursor: items.length > page.length ? encodeCatalogCursor(catalogSortTuple(page.at(-1))) : null,
-      };
+      let nextCursor = null;
+      if (items.length > page.length) nextCursor = encodeCatalogCursor(catalogSortTuple(page.at(-1)));
+      else if (rows.length === batchSize && lastRead) nextCursor = encodeCatalogCursor(lastRead);
+      return { items: page, nextCursor };
     },
     async getCatalogItem(id, viewer = null) {
       const options = catalogListQuery({ limit: 1 }, viewer, { batchSize: 1 });

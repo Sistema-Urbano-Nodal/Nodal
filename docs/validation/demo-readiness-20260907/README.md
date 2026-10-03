@@ -8,7 +8,7 @@
 - Independent course access reads run together. Short logical pages stop promptly; staff report and member lookups avoid empty follow-up reads, with complete CSV pagination preserved.
 - Course directory no longer fetches a second full user profile just to display the staff link.
 - Re-selecting the current session preserves the draft. Intake, feedback and contribution forms prevent overlapping submissions. Requests have bounded timeouts; temporary Auth outages preserve session cookies.
-- Signup/login retain 10 attempts per normalized email/action per five minutes. A separate shared-IP budget permits 800 combined attempts per five minutes, allowing a 300-person cohort to sign up and sign in with retry headroom. Limits remain per app instance; Supabase also applies its own quotas.
+- Signup/login retain 10 attempts per normalized email/action per five minutes. A separate shared-IP budget permits 800 combined attempts per five minutes, allowing a 300-person cohort to sign up and sign in with retry headroom. Limits remain per app instance; Supabase also applies its own quotas. (Changed 3 October 2026: only wrong passwords count against the per-email budget, now per email and client address, and anonymous sign-ups stop at 200 an hour per instance, `SIGNUP_EMAIL_HOURLY_LIMIT`, so a 300-person cohort should register before class or across more than one hour. See DEPLOYMENT.md.)
 - Vercel function region changed from observed `iad1` to `pdx1`, near the live Supabase database in `us-west-2`. Public homepage appearance was preserved.
 
 ## Verification

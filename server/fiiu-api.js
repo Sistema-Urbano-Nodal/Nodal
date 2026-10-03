@@ -232,10 +232,17 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    if(req.method==='GET'){send(res,200,await publications(url,false));return true;}
    if(req.method==='POST'){
     // The editor may send a UUID made once per new publication and reuse it on retry: a save whose response was lost
-    // then returns the stored row instead of publishing twice. Ids held by another event are never reused or changed.
+    // then returns the stored row instead of publishing twice. Only an identical retry is answered that way; different
+    // content or status under a stored id (edited, or published, after the lost save) is a conflict, so the editor keeps
+    // its form instead of reporting a save that did not happen (as the NODAL news desk does). Ids held by another event
+    // are never reused or changed.
     const input=await body(req),publication=normalizeContent(input),id=input.id==null?randomUUID():identifier(input.id),stamp=now();
     let content;try{content=await store.insert('content',{id,eventId:EVENT_ID,...publication,...(publication.status==='published'?{data:{...publication.data,publishedAt:stamp}}:{}),version:1,createdAt:stamp,updatedAt:stamp});}
-    catch(err){const existing=input.id!=null&&err.status===409&&await one('content',{id,eventId:EVENT_ID});if(!existing)throw err;send(res,200,{content:contentView(existing)});return true;}
+    catch(err){
+     const existing=input.id!=null&&err.status===409&&await one('content',{id,eventId:EVENT_ID});if(!existing)throw err;
+     if(existing.status!==publication.status||Object.keys(publication.data).some(k=>existing.data?.[k]!==publication.data[k])){send(res,409,{error:'content changed; reload before saving',content:contentView(existing)});return true;}
+     send(res,200,{content:contentView(existing)});return true;
+    }
     send(res,201,{content:contentView(content)});return true;
    }
   }

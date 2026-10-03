@@ -14,8 +14,13 @@ export function validateEmail(email) {
   return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
+/* Supabase Auth (GoTrue) hashes with bcrypt and rejects passwords over 72 bytes of UTF-8. Checking that here, before
+   signup, the recovery code exchange or the invitation token is used, keeps a long password from spending a
+   one-time link and only then failing: about 72 ASCII characters, fewer with accents or other scripts. */
+export const PASSWORD_MAX_BYTES = 72;
+
 export function validatePassword(password) {
-  return typeof password === 'string' && password.length >= 8 && password.length <= 160;
+  return typeof password === 'string' && password.length >= 8 && Buffer.byteLength(password, 'utf8') <= PASSWORD_MAX_BYTES;
 }
 
 export async function hashPassword(password) {

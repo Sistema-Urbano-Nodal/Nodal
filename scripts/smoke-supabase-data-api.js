@@ -1,3 +1,6 @@
+import { realpathSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+
 function required(value, name) {
   if (!String(value || '').trim()) throw new Error(`${name} is required`);
   return String(value).trim();
@@ -76,7 +79,15 @@ async function run({ env = process.env, fetchImpl = fetch, output = process.stdo
   output.write('Supabase Data API least-privilege smoke passed.\n');
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Run only when invoked as a script. import.meta.url is percent-encoded and symlink-resolved, so the comparison
+// goes through the real path of argv[1]; a raw `file://${argv[1]}` silently skipped the check (exit 0) from a
+// checkout path with a space or reached through a symlink.
+function invokedDirectly() {
+  if (!process.argv[1]) return false;
+  try { return pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url; } catch { return false; }
+}
+
+if (invokedDirectly()) {
   run().catch((error) => {
     process.stderr.write(`${error.message}\n`);
     process.exitCode = 1;

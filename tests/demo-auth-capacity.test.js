@@ -15,14 +15,18 @@ async function fixture(t,{fail=false}={}){
  return{calls,call,base};
 }
 
-test('one classroom IP supports 300 signups and logins plus retry headroom before its 801st request is blocked',async t=>{
+// Sign-ups stop at 200 an hour per instance (SIGNUP_EMAIL_HOURLY_LIMIT): each can send a confirmation email,
+// and the project's 300-an-hour email quota also carries recovery links and invitations.
+test('one classroom IP supports 200 signups, 300 sign-ins and retry headroom before its 801st request is blocked',async t=>{
  const {call,calls}=await fixture(t);
- for(let i=0;i<300;i++){
+ for(let i=0;i<200;i++){
   assert.equal((await call('signup',`student-${i}@example.test`)).status,202,`signup ${i}`);
   assert.equal((await call('login',`student-${i}@example.test`)).status,200,`login ${i}`);
  }
- // One extra attempt for 200 of those accounts fits both classroom and account budgets.
- for(let i=0;i<200;i++)assert.equal((await call('login',`student-${i}@example.test`)).status,200,`retry ${i}`);
+ // Classmates who registered before class sign in too.
+ for(let i=0;i<100;i++)assert.equal((await call('login',`registered-${i}@example.test`)).status,200,`registered ${i}`);
+ // One extra attempt for 300 of those accounts fits both classroom and account budgets.
+ for(let i=0;i<300;i++)assert.equal((await call('login',i<200?`student-${i}@example.test`:`registered-${i-200}@example.test`)).status,200,`retry ${i}`);
  assert.equal(calls.length,800);
  const limited=await call('login','new-person@example.test');assert.equal(limited.status,429);assert.match(limited.headers.get('retry-after'),/^\d+$/);assert.equal(calls.length,800);
 });
@@ -30,11 +34,16 @@ test('one classroom IP supports 300 signups and logins plus retry headroom befor
 test('failed attempts share a normalized email budget across IPs and preserve separate signup/login limits',async t=>{
  const old=process.env.TRUST_PROXY;process.env.TRUST_PROXY='true';t.after(()=>{if(old===undefined)delete process.env.TRUST_PROXY;else process.env.TRUST_PROXY=old;});
  const {call,calls}=await fixture(t,{fail:true});
- for(const action of['signup','login']){
-  for(let i=0;i<10;i++)assert.equal((await call(action,i%2?' CLASS@EXAMPLE.TEST ':'class@example.test',{'X-Real-IP':`203.0.113.${i}`})).status,action==='signup'?409:401);
-  assert.equal((await call(action,'Class@Example.Test',{'X-Real-IP':'203.0.113.99'})).status,429);
- }
- assert.equal(calls.length,20);assert.ok(calls.every(call=>call.email==='class@example.test'));
+ // Sign-up: every attempt for one address counts, from any IP, since each can email that inbox.
+ for(let i=0;i<10;i++)assert.equal((await call('signup',i%2?' CLASS@EXAMPLE.TEST ':'class@example.test',{'X-Real-IP':`203.0.113.${i}`})).status,409);
+ assert.equal((await call('signup','Class@Example.Test',{'X-Real-IP':'203.0.113.99'})).status,429);
+ // Sign-in: wrong passwords count per requester, so a stranger's guesses never lock the owner out,
+ // and across all requesters up to a looser shared ceiling (AUTH_ACCOUNT_RATE_LIMIT, 50).
+ for(let i=0;i<10;i++)assert.equal((await call('login',i%2?' CLASS@EXAMPLE.TEST ':'class@example.test',{'X-Real-IP':'198.51.100.7'})).status,401);
+ assert.equal((await call('login','Class@Example.Test',{'X-Real-IP':'198.51.100.7'})).status,429);
+ for(let i=0;i<40;i++)assert.equal((await call('login','class@example.test',{'X-Real-IP':`203.0.113.${i}`})).status,401);
+ assert.equal((await call('login','Class@Example.Test',{'X-Real-IP':'203.0.113.99'})).status,429);
+ assert.equal(calls.length,60);assert.ok(calls.every(call=>call.email==='class@example.test'));
 });
 
 test('malformed submissions spend IP budget but do not lock a valid account or reach the repository',async t=>{

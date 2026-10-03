@@ -411,7 +411,8 @@ test('a publication retried with its editor id is stored once and the retry retu
  const post=body=>call('/api/admin/fiiu/content',{actor:'admin',method:'POST',body});
  const news={id,title:'Doors open 09:00',body:'',status:'published',kind:'news',url:'',activityId:''};
  const first=await post(news);assert.equal(first.status,201);const {content}=await first.json();assert.equal(content.id,id);
- for(const retry of [news,{...news,id:id.toUpperCase(),title:'Edited before the retry'}]){const response=await post(retry);assert.equal(response.status,200);assert.deepEqual((await response.json()).content,content);}
+ for(const retry of [news,{...news,id:id.toUpperCase()}]){const response=await post(retry);assert.equal(response.status,200);assert.deepEqual((await response.json()).content,content);}
+ const edited=await post({...news,title:'Edited before the retry'});assert.equal(edited.status,409);assert.deepEqual((await edited.json()).content,content);
  const racing=crypto.randomUUID();assert.deepEqual((await Promise.all([post({...news,id:racing}),post({...news,id:racing})])).map(r=>r.status).sort(),[200,201]);
  for(const invalid of ['not-a-uuid','',42])assert.equal((await post({...news,id:invalid})).status,400,String(invalid));
  const foreign=await store.insert('content',{id:crypto.randomUUID(),eventId:'another-event',data:{title:'Elsewhere',body:'',kind:'news',url:'',activityId:''},status:'draft',version:1,createdAt:'2026-09-28T12:00:00.000Z',updatedAt:'2026-09-28T12:00:00.000Z'});

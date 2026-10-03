@@ -328,7 +328,9 @@ test('Stripe webhook must be signed before subscription status changes', async (
     data: {
       object: {
         id: 'cs_test_verified',
+        mode: 'subscription',
         client_reference_id: user.id,
+        metadata: { nodal_user_id: user.id },
         customer: 'cus_verified',
         subscription: 'sub_verified',
         payment_status: 'paid',
@@ -395,6 +397,7 @@ test('Stripe webhook retries a mutation that failed before it was committed', as
     data: {
       object: {
         id: 'cs_retryable',
+        mode: 'subscription',
         client_reference_id: user.id,
         metadata: { nodal_user_id: user.id },
         customer: 'cus_retryable',
@@ -451,7 +454,9 @@ test('Stripe webhook ignores duplicate and older subscription events', async (t)
     data: {
       object: {
         id: 'cs_ordered',
+        mode: 'subscription',
         client_reference_id: user.id,
+        metadata: { nodal_user_id: user.id },
         customer: 'cus_ordered',
         subscription: 'sub_ordered',
         payment_status: 'paid',

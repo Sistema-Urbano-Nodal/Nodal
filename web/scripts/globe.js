@@ -346,6 +346,10 @@
       connections();
       nodes(time);
     }
+    /* With reduced motion nothing on the globe moves by itself (no spin, no
+       arrival rings), so one frame shows it all. The next is only drawn when
+       something changes; requestDraw() is called wherever that happens. */
+    if (calm()) { lastFrame = 0; return; }
     animationFrame = requestAnimationFrame(frame);
   }
   function syncAnimation() {
@@ -355,6 +359,10 @@
       lastFrame = 0;
     } else if (animationFrame === null) animationFrame = requestAnimationFrame(frame);
   }
+  // One more frame, unless one is already due or the globe is out of sight.
+  function requestDraw() { syncAnimation(); }
+  // Turning reduced motion off restarts the spin; turning it on stops it after one frame.
+  motion.addEventListener?.('change', requestDraw);
 
   /* ---------- the panel ---------- */
   const card = document.getElementById('globeCard');
@@ -430,9 +438,11 @@
     if (state.drag) {
       state.yaw -= ev.movementX * 0.005;
       state.tilt = Math.max(-1.1, Math.min(1.1, state.tilt - ev.movementY * 0.004));
+      requestDraw();
       return;
     }
-    state.hover = pick(ev);
+    const hover = pick(ev);
+    if (hover !== state.hover) { state.hover = hover; requestDraw(); }
     canvas.style.cursor = state.hover >= 0 ? 'pointer' : 'grab';
   });
   canvas.addEventListener('pointerdown', (ev) => { state.drag = true; canvas.setPointerCapture(ev.pointerId); });
@@ -441,8 +451,9 @@
     const hit = pick(ev);
     state.picked = hit === state.picked ? -1 : hit;
     showPlace(state.picked >= 0 ? PLACES[state.picked] : null);
+    requestDraw();
   });
-  canvas.addEventListener('pointerleave', () => { state.drag = false; state.hover = -1; });
+  canvas.addEventListener('pointerleave', () => { state.drag = false; state.hover = -1; requestDraw(); });
   canvas.addEventListener('keydown', (ev) => {
     if (!['ArrowRight', 'ArrowLeft'].includes(ev.key)) return;
     // the canvas is focusable, and an empty globe has nothing to step through
@@ -452,6 +463,7 @@
     const p = PLACES[state.picked];
     state.yaw = Math.atan2(p.v[2], p.v[0]) - Math.PI / 2;   // centre = yaw + 90°
     showPlace(p);
+    requestDraw();
   });
 
   /* ---------- the directory, live ---------- */
@@ -472,6 +484,7 @@
     state.picked = place.i;
     state.yaw = Math.atan2(place.v[2], place.v[0]) - Math.PI / 2;
     showPlace(place);
+    requestDraw();
   }
 
   let FULL = { places: [], links: [], topics: [] };
@@ -525,6 +538,7 @@
     showPlace(PLACES[state.picked] || null);
     renderFeed();
     showCount();
+    requestDraw();
   }
 
   function mergePlaces(data) {
@@ -605,7 +619,9 @@
       const query = state.topic ? `?topic=${encodeURIComponent(state.topic)}` : '';
       const headers = { Accept: 'application/json' };
       if (etag) headers['If-None-Match'] = etag;
-      const res = await fetch(`/api/network/places${query}`, { headers, signal: AbortSignal.timeout(20000) });
+      // Safari before 16 (every iOS 15 browser) has no AbortSignal.timeout; there the poll simply runs without the time limit.
+      const signal = typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(20000) : undefined;
+      const res = await fetch(`/api/network/places${query}`, { headers, ...(signal ? { signal } : {}) });
       if (res.status === 401) {
         clearPrivateData();
         backoff = Math.min(backoff * 2, POLL_MAX_MS);
@@ -787,7 +803,7 @@
     io.observe(canvas);
   }
 
-  window.addEventListener('resize', resize);
+  window.addEventListener('resize', () => { resize(); requestDraw(); });
   I18N?.onChange(() => {
     showCount();
     showPlace(state.picked >= 0 ? PLACES[state.picked] : null);

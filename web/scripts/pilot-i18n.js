@@ -100,6 +100,7 @@ const rows = {
  accessDenied:['You do not have access to this action.','No tienes acceso a esta acción.','Você não tem acesso a esta ação.'],
  notAvailable:['This content is no longer available.','Este contenido ya no está disponible.','Este conteúdo não está mais disponível.'],
  tooManyRequests:['Please wait a moment before trying again.','Espera un momento antes de intentarlo de nuevo.','Aguarde um momento antes de tentar novamente.'],
+ feedbackLimit:['You have reached the feedback limit. Edit or delete earlier feedback to add more.','Llegaste al límite de comentarios. Edita o elimina comentarios anteriores para agregar más.','Você atingiu o limite de feedback. Edite ou exclua feedbacks anteriores para adicionar mais.'],
  connectionError:['Connection interrupted. Check your connection and try again.','Conexión interrumpida. Comprueba tu conexión e inténtalo de nuevo.','Conexão interrompida. Verifique sua conexão e tente novamente.'],
  intakeRequired:['Enroll and complete your intake before opening the sessions.','Inscríbete y completa tu formulario antes de abrir las sesiones.','Inscreva-se e preencha seu formulário antes de abrir as sessões.'],
  replyUnavailable:['This contribution was removed. Choose another conversation to reply to.','Esta contribución fue retirada. Elige otra conversación para responder.','Esta contribuição foi removida. Escolha outra conversa para responder.'],

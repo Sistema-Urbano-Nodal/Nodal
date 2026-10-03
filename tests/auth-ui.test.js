@@ -28,8 +28,10 @@ test('login validates email and required password locally with translated field 
 test('signup validates name, email and server password limits before requests',async()=>{
  const h=harness();h.valid();h.nodes.signupName.value=' A ';await h.submit('signupForm');assert.equal(h.requests.length,0);assert.match(h.nodes.signupError.textContent,/at least 2/);
  h.nodes.signupName.value='Member';h.nodes.signupEmail.value='invalid';await h.submit('signupForm');assert.equal(h.requests.length,0);
- h.nodes.signupEmail.value='new@example.test';for(const password of ['short','x'.repeat(161)]){h.nodes.signupPassword.value=password;await h.submit('signupForm');assert.equal(h.requests.length,0);assert.match(h.nodes.signupError.textContent,/8.160/);}
- h.nodes.signupPassword.value='x'.repeat(160);await h.submit('signupForm');assert.equal(h.requests.length,1);
+ // The provider counts UTF-8 bytes (at most 72): 37 accented letters are 74 bytes, a 19-emoji password is 76.
+ h.nodes.signupEmail.value='new@example.test';for(const password of ['short','x'.repeat(73),'é'.repeat(37),'\u{1F600}'.repeat(19)]){h.nodes.signupPassword.value=password;await h.submit('signupForm');assert.equal(h.requests.length,0);assert.match(h.nodes.signupError.textContent,/8.72/);}
+ h.nodes.signupPassword.value='x'.repeat(72);await h.submit('signupForm');assert.equal(h.requests.length,1);
+ const accented=harness();accented.valid();accented.nodes.signupPassword.value='é'.repeat(36);await accented.submit('signupForm');assert.equal(accented.requests.length,1);
 });
 test('login permits existing short passwords and preserves password bytes and safe return query',async()=>{
  const h=harness(undefined,'?next=%2Fcourse.html%3Fid%3Dc1%26module%3Dm1');h.valid();h.nodes.loginEmail.value=' member@example.test ';h.nodes.loginPassword.value=' a ';await h.submit('loginForm');assert.equal(h.requests[0].body.email,'member@example.test');assert.equal(h.requests[0].body.password,' a ');assert.equal(h.assigned(),'/course.html?id=c1&module=m1');

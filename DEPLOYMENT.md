@@ -5,8 +5,9 @@ For the September course pilot, follow [course pilot operations](docs/course-pil
 ## October 1 release: three migrations before `main`
 
 Merging to `main` deploys Production. Apply these three migrations to the
-production Supabase project **before** that merge, in this order (the order
-`supabase db push` uses, by timestamp). Each one is safe for the code that is
+production Supabase project **before** that merge, one file at a time in
+timestamp order (see "SQL Migration Steps": never `supabase db push` against
+production). Each one is safe for the code that is
 live today, so applying them first never breaks the current site; deploying the
 code first does.
 
@@ -68,6 +69,35 @@ select column_name, column_default, is_nullable from information_schema.columns
 Merging without the email variables below is fine: the email is simply off and
 registrations behave as before (status `none`).
 
+## October 3 full review: two migrations, applied by hand
+
+Both files are additive and idempotent and safe for the code that is live
+today: the server reaches these objects only as `service_role`, and the
+trigger change keeps what the function does. Apply them one at a time with
+`npx --no-install supabase db query --linked -f supabase/migrations/<file>.sql`
+(never `supabase db push`, see "SQL Migration Steps"), then the project owner
+records each version with `supabase migration repair --status applied <version>`.
+
+1. `20261003201144_course_posts_revision_definer.sql`: runs the
+   `course_posts_revision()` trigger as its owner (`SECURITY DEFINER`, empty
+   `search_path`). Until it is applied, deleting the account of anyone who ever
+   posted in a course fails (Supabase Auth deletes as `supabase_auth_admin`,
+   which cannot update `course_modules`), and `DELETE /api/me` answers 500 after
+   part of that member's course data is already gone.
+2. `20261003201338_close_client_grants_on_server_tables.sql`: revokes the
+   browser roles' default rights on `organizations`, `organization_memberships`
+   and `stripe_events`, `EXECUTE` on `set_updated_at()` and the sequence
+   `member_interactions_id_seq`. Revokes only.
+
+Read-only checks, before and after:
+
+```sql
+select prosecdef from pg_proc where proname = 'course_posts_revision';   -- false before, true after
+select has_table_privilege('supabase_auth_admin', 'public.course_modules', 'UPDATE');  -- false
+select has_table_privilege('anon', 'public.stripe_events', 'SELECT'),
+       has_table_privilege('authenticated', 'public.organizations', 'SELECT');        -- false, false after
+```
+
 ## Supabase Setup
 
 1. Create a Supabase project.
@@ -80,17 +110,42 @@ registrations behave as before (status `none`).
 
 ## SQL Migration Steps
 
-Apply this migration in Supabase SQL Editor or through the Supabase CLI:
-
-```sh
-supabase db push
-```
-
 Migration directory:
 
 ```text
 supabase/migrations/
 ```
+
+**Never run `supabase db push` against production.** The production project's
+migration history (`supabase_migrations.schema_migrations`) records most of the
+schema under different version numbers than the files here, because earlier
+releases applied them by other means. `npx supabase migration list --linked`
+therefore shows many already-applied files as pending; `db push` refuses, and
+"repairing" those versions as reverted to make it proceed would re-run
+already-applied migrations against the live database and fail partway through
+(`20260905175135_network_revision.sql`, for one, creates its table and
+triggers without `IF NOT EXISTS`), leaving the history half-repaired.
+
+Apply only the new files, one at a time and in timestamp order, from a machine
+whose Supabase CLI is linked to the production project:
+
+```sh
+npx --no-install supabase db query --linked -f supabase/migrations/<file>.sql
+```
+
+Before each one, check that the code live at that moment tolerates the change
+(the release sections above say so for each file). Afterwards, verify with
+read-only queries (`npx --no-install supabase db query --linked "<select ...>"`,
+such as the checks listed with each release), and then the project owner
+records the applied versions in the history table:
+
+```sh
+npx supabase migration repair --status applied <version> [<version> ...]
+```
+
+The SQL Editor in the Supabase dashboard is an alternative for a single file.
+`supabase db push` is only for a fresh preview project whose history matches
+these files from the start (see README.md).
 
 Confirm after applying:
 
@@ -109,7 +164,6 @@ Confirm after applying:
 Set these in Vercel Project Settings:
 
 ```text
-NODE_ENV=production
 DATA_BACKEND=supabase
 NEXT_PUBLIC_APP_URL=https://your-domain.example
 PUBLIC_BASE_URL=https://your-domain.example
@@ -140,6 +194,38 @@ SUBSCRIPTION_PRICE_ANNUAL_LABEL=US$100
 SUBSCRIPTION_ANNUAL_PERIOD=/ year
 ```
 
+Do not set `NODE_ENV` as a project variable: the Vercel runtime sets it for the
+functions, and a project value also reaches the build, where `npm ci` would then
+skip the devDependencies the build runs (ESLint and the tests). `vercel.json`
+installs with `npm ci --include=dev` so a stray value cannot break the build.
+
+The server refuses to boot on Vercel Production (`VERCEL_ENV=production`) unless
+`TRUST_PROXY=true` and `PUBLIC_BASE_URL` (or `NEXT_PUBLIC_APP_URL`) is an
+explicit `https` origin without credentials; `VERCEL_URL` does not count there.
+Anywhere, `TRUST_PROXY` must be `true`, `false` or unset: any other spelling
+would key every per-client limit on the platform's own address.
+
+Optional limits (defaults shown; each is per server instance):
+
+```text
+AUTH_RATE_LIMIT=10               # wrong passwords per account and client address per 5 min
+AUTH_ACCOUNT_RATE_LIMIT=50       # wrong passwords per account from all addresses per 5 min
+AUTH_IP_RATE_LIMIT=800           # sign-ups and sign-ins per address per 5 min (invitation acceptances get their own)
+SIGNUP_EMAIL_HOURLY_LIMIT=200    # anonymous sign-ups (each can send a confirmation email) per hour
+SESSION_REFRESH_FAILURE_LIMIT=30 # session refreshes Supabase rejects, per client address per 5 min
+NETWORK_GEOCODE_BUDGET_MS=2000   # time one globe poll may wait on the city geocoder
+```
+
+Only wrong passwords count against the sign-in limits; a successful sign-in
+clears that requester's count. Sign-ups stop at `SIGNUP_EMAIL_HOURLY_LIMIT` an
+hour with 429 "Confirmation email is temporarily unavailable", which keeps the
+rest of Supabase's 300 emails an hour for password recovery and course
+invitations. A class signing up together therefore gets 200 sign-ups an hour
+per instance, not the whole 800-request classroom budget. Password-recovery
+emails are limited to 3 per address and requester and 10 per address from
+everyone per 15 minutes; over that the request answers 429 `recovery_rate`
+("Too many attempts") instead of a silent "sent".
+
 Set the Supabase URL and publishable key for both Production and Preview when preview deployments need working authentication. Scope the server credential only to trusted preview branches. Set `PUBLIC_BASE_URL` or `NEXT_PUBLIC_APP_URL` explicitly for each environment: password recovery and invitations require that configured origin and do not fall back to `VERCEL_URL`. Add each intended callback URL to Supabase's redirect allowlist.
 
 Optional, for festival check-in (see "FIIU check-in on the day" below):
@@ -156,7 +242,10 @@ refuses to boot with it.
 
 Optional, for the FIIU registration summary email (see "FIIU registration
 summary email" below). **Production scope only, never Preview**: preview
-deployments that share the production database would email real people.
+deployments that share the production database would email real people. The
+code enforces this too: on any Vercel deployment whose `VERCEL_ENV` is not
+`production` the email is off even when the variables are set, and
+`GET /api/admin/fiiu/confirmations` reports `configured: false`.
 
 ```text
 EMAIL_SMTP_URL=smtps://<user>:<password>@<host>:465
@@ -213,8 +302,9 @@ npm start
 
 1. Confirm `.env`, `.env.local`, `.env.production`, `.vercel/`, and `data/` are not committed.
 2. Apply every pending Supabase migration (the three listed under "October 1
-   release" and the one under "FIIU registration summary email" above) and
-   confirm them.
+   release" and the one under "FIIU registration summary email" above) one file
+   at a time as described in "SQL Migration Steps" (never `supabase db push`
+   against production) and confirm them.
 3. Configure Vercel environment variables.
 4. Run `npm ci` and `npm run build`; verify generated `public/` assets exist and no source PNG files are copied there.
 5. Connect the Git repository to Vercel.
@@ -413,7 +503,12 @@ same compare-and-set (`server/fiiu-confirmations.js` is shared by both);
 caps a run, so `--send --limit 1` is a safe first canary. The command stops
 before sending anything if it does not understand an argument: an unknown flag,
 a missing value, a `--limit` that is not a positive whole number, or
-`--test-to` together with `--send`. The script does not apply the daily cap.
+`--test-to` together with `--send`. The script applies the same daily cap as
+the dashboard, counting today's sends again before every email (the dashboard's
+included), and stops with `"capped": true`, the cap, today's count and
+`resetsAt` once it is reached; rerun it after that time for the rest.
+`--send --ignore-cap` overrides the cap on purpose (Gmail's daily quota also
+carries sign-up and password mail); `--ignore-cap` without `--send` is refused.
 
 ## Security Checklist
 
@@ -451,7 +546,10 @@ a missing value, a `--limit` that is not a positive whole number, or
   never which two members.
 - Updates are polled while visible, roughly every 15 seconds plus jitter, with
   backoff after provider errors. Revision checks invalidate cached snapshots
-  after committed profile, consent and graph changes.
+  after committed profile, consent and graph changes. While the revision stands,
+  a server instance keeps its directory and graph (rereading them at most every
+  10 minutes as a backstop), so a poll that ends in 304 reads the revision, not
+  the five network tables.
 - `GET /api/network/places` feeds the globe. It groups consenting members by city
   and resolves each city through the same provider the profile form uses, so any
   city on Earth can appear - not a hardcoded list. Coordinates are cached for a

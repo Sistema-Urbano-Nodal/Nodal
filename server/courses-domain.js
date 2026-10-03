@@ -104,10 +104,28 @@ export function normalizeFeedback(input = {}) {
   if (!Number.isInteger(input.rating) || input.rating < 1 || input.rating > 5) fail('rating must be between 1 and 5');
   return { action: input.action, rating: input.rating, comment: text(input.comment, 'comment', 2000), courseId: input.courseId ? identifier(input.courseId) : null, moduleId: input.moduleId ? identifier(input.moduleId) : null };
 }
+// The extensions each accepted type may be saved under; the first is the one a name without it receives.
+export const ATTACHMENT_EXTENSIONS = { 'image/jpeg': ['.jpg', '.jpeg'], 'image/png': ['.png'], 'image/webp': ['.webp'], 'application/pdf': ['.pdf'], 'text/plain': ['.txt'] };
+/* The name a course file is stored and downloaded under. Peers save it from the NODAL origin, so the extension comes
+   from the checked type, never from the uploader: 'grades.hta' as text becomes 'grades.hta.txt'. Control, format
+   (bidirectional overrides such as U+202E, zero-width characters), surrogate and line/paragraph separator characters
+   and path separators become '_', so a name cannot display one extension while ending in another. Trailing dots and
+   spaces go too (Windows drops them, which could expose a hidden extension). The download applies it again, so rows
+   stored before this rule are served safely as well. */
+export function attachmentFilename(name, mime) {
+  const extensions = ATTACHMENT_EXTENSIONS[mime] ?? ['.bin'];
+  const clean = String(name ?? '').replace(/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}/\\]/gu, '_').trim().replace(/[. ]+$/, '') || 'file';
+  const lower = clean.toLowerCase();
+  if (extensions.some(ext => lower.endsWith(ext) && lower.length > ext.length)) return clean;
+  const [ext] = extensions, base = [...clean];
+  while (base.join('').length + ext.length > 160) base.pop();
+  return base.join('') + ext;
+}
 export function decodeAttachment(input = {}) {
-  const name = text(input.name, 'filename', 160, true).replace(/[\x00-\x1f\x7f/\\]/g, '_');
+  const supplied = text(input.name, 'filename', 160, true);
   const mime = input.mime;
   if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf', 'text/plain'].includes(mime)) fail('unsupported file type: use JPG, PNG, WebP, PDF or text');
+  const name = attachmentFilename(supplied, mime);
   const data = input.data;
   if (typeof data !== 'string' || data.length > Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4) fail('file exceeds 3 MB', 413);
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data)) fail('invalid file encoding');

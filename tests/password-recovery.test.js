@@ -190,3 +190,17 @@ test('recovery requests still run where AbortSignal has no timeout (Safari befor
   const h=ui(async()=>response({ok:true},202),{search:''});h.context.AbortSignal={};h.nodes.get('recoveryEmail').value='member@example.test';await h.submit('recoveryRequest');
   assert.equal(h.calls.length,1);assert.equal(h.calls[0].options.signal,undefined);assert.match(h.nodes.get('recoveryMessage').textContent,/If an account uses this email/);
 });
+test('reset UI refuses passwords over the provider limit of 72 UTF-8 bytes before spending the code',async()=>{
+  for(const password of ['x'.repeat(73),'é'.repeat(37),'\u{1F600}'.repeat(19)]){
+    const h=ui(async()=>response({ok:true,passwordChanged:true}));
+    h.nodes.get('recoveryPassword').value=h.nodes.get('recoveryConfirm').value=password;await h.submit('recoveryReset');
+    assert.equal(h.calls.length,0);assert.match(h.nodes.get('recoveryMessage').textContent,/8.72/);
+  }
+  for(const password of ['x'.repeat(72),'é'.repeat(36)]){
+    const h=ui(async()=>response({ok:true,passwordChanged:true}));
+    h.nodes.get('recoveryPassword').value=h.nodes.get('recoveryConfirm').value=password;await h.submit('recoveryReset');
+    assert.equal(h.calls.length,1);
+  }
+  const html=readFileSync(new URL('../web/pages/reset-password.html',import.meta.url),'utf8');
+  assert.doesNotMatch(html,/maxlength="160"/);assert.match(html,/id="recoveryPassword"[^>]*maxlength="72"/);
+});

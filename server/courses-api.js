@@ -1,13 +1,48 @@
-import { newId, identifier, fail, normalizeCourse, normalizeModule, normalizeIntake, normalizePost, normalizeFeedback, decodeAttachment, text, csv, INTAKE_FIELDS, FEEDBACK_ACTIONS, decodeCursor, encodeCursor } from './courses-domain.js';
+import { newId, identifier, fail, normalizeCourse, normalizeModule, normalizeIntake, normalizePost, normalizeFeedback, decodeAttachment, attachmentFilename, text, csv, INTAKE_FIELDS, FEEDBACK_ACTIONS, decodeCursor, encodeCursor } from './courses-domain.js';
 import {createCourseParticipants} from './course-participants.js';
+import {createHash} from 'node:crypto';
 
 const now = () => new Date().toISOString();
 const isStaff = user => user?.permission === 'admin';
-const attachmentView = ({id,name,mime,size}) => ({id,name,mime,size});
+// Rows stored before upload names were cleaned may still carry bidi controls or an executable extension.
+const attachmentView = ({id,name,mime,size}) => ({id,name:attachmentFilename(name,mime),mime,size});
 // UUID columns are canonical, but older JSON references may retain uppercase.
 const sameIdentifier = (reference, id) => typeof reference === 'string' && reference.toLowerCase() === id.toLowerCase();
 const referencesMaterial = (module, id) => module.resources.some(resource => sameIdentifier(resource.attachmentId, id));
 const writeMethods = new Set(['POST','PUT','PATCH','DELETE']);
+// Stored feedback per account. The form is one rating per course, session or area, so this is far above real use,
+// and it keeps one account from filling the shared database with 2,000-character comments.
+export const FEEDBACK_LIMIT = 200;
+/* Bytes of course files one member account may download, per server instance: a short window and a day (staff are
+   not budgeted; see the download route). Attachments are immutable per id and the browser keeps them, so ordinary
+   repeat views cost nothing; the budget only stops one account from turning Supabase Storage egress (5 GB a month
+   on Free) into a loop. */
+export const DOWNLOAD_LIMITS = [{windowMs:10*60*1000,bytes:64*1024*1024},{windowMs:24*60*60*1000,bytes:512*1024*1024}];
+function createByteBudget(windows) {
+  const buckets=windows.map(()=>new Map());let sweptAt=0;
+  return {
+    take(key,amount,at=Date.now()) {
+      // Buckets are only ever added; drop the expired ones as we go so rotating accounts cannot grow the maps.
+      if(at-sweptAt>60000){sweptAt=at;for(const map of buckets)for(const [k,b] of map)if(at>=b.resetAt)map.delete(k);}
+      const current=windows.map(({windowMs},i)=>{const b=buckets[i].get(key);return b&&at<b.resetAt?b:{used:0,resetAt:at+windowMs};});
+      // The first file of a window always fits, so a budget smaller than one file can never lock it out for good.
+      const wait=Math.max(0,...current.map((b,i)=>b.used>0&&b.used+amount>windows[i].bytes?Math.ceil((b.resetAt-at)/1000):0));
+      if(wait)return {ok:false,retryAfter:wait};
+      current.forEach((b,i)=>{b.used+=amount;buckets[i].set(key,b);});
+      return {ok:true,retryAfter:0};
+    },
+  };
+}
+// If-None-Match against one strong ETag; weak and listed forms match too, as RFC 9110 allows for GET.
+const matchesEtag = (header, etag) => typeof header === 'string' && header.split(',').some(tag => { const value=tag.trim().replace(/^W\//,''); return value==='*'||value===etag; });
+/* Activity events are counted, not replayed: one row per person, session, kind, resource and UTC hour. The id is
+   derived from those, so repeated opens within the hour hit the primary key and are answered as already recorded,
+   and no client can choose (or exhaust) identifiers. */
+function eventId({userId,courseId,moduleId,kind,resourceUrl,createdAt}) {
+  const hex=createHash('sha256').update(JSON.stringify(['course-event-v1',userId,courseId,moduleId,kind,resourceUrl,createdAt.slice(0,13)])).digest('hex');
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-8${hex.slice(13,16)}-${(8|parseInt(hex[16],16)&3).toString(16)}${hex.slice(17,20)}-${hex.slice(20,32)}`;
+}
+const errorText = error => error instanceof Error ? error.message : String(error ?? 'unknown error');
 function samePost(post, input, courseId, moduleId) {
   return post && post.courseId === courseId && post.moduleId === moduleId &&
     ['kind','body','parentId'].every(key => post[key] === input[key]) &&
@@ -25,8 +60,9 @@ function respond(res,status,body,headers={}) {
   res.end(typeof body==='string'||Buffer.isBuffer(body)?body:JSON.stringify(body));
 }
 
-export function createCourseApi({store,userRepository,sameOrigin,send=respond,rateLimit=()=>true}={}) {
+export function createCourseApi({store,userRepository,sameOrigin,send=respond,rateLimit=()=>true,downloadLimits=DOWNLOAD_LIMITS,log=console.error}={}) {
   const participants=createCourseParticipants({store,userRepository});
+  const downloads=createByteBudget(downloadLimits);
   const findOne=async(name,filters)=>(await store.find(name,filters,{limit:1}))[0]??null;
   async function all(name,filters={},max=Infinity) {
     let rows=[],after=null;
@@ -78,6 +114,25 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     const attachments=new Map(files.map(file=>[file.id.toLowerCase(),file]));
     return Promise.all(posts.map(post=>postView(post,user,attachments)));
   }
+  /* After a post is withdrawn (by its author or by staff), its author's files go with it, as the delete confirmation
+     promises: unless another live post of theirs still shows a file, the file is marked 'deleting', removed from
+     Storage and then from the table, which also returns it to the author's upload allowance. A Storage failure leaves
+     the row 'deleting' (never downloadable, and erased with the account) for scripts/reconcile-course-uploads.js;
+     the withdrawal itself has already succeeded, so it is reported, not undone. */
+  async function releasePostFiles(post) {
+    const ids=[...new Set((post.attachmentIds??[]).map(id=>id.toLowerCase()))];
+    if(!ids.length||!post.userId)return;
+    const live=await all('posts',{moduleId:post.moduleId,userId:post.userId,deletedAt:null});
+    for(const id of ids) {
+      if(live.some(other=>other.id!==post.id&&(other.attachmentIds??[]).some(reference=>sameIdentifier(reference,id))))continue;
+      try {
+        const attachment=await findOne('attachments',{id,courseId:post.courseId,moduleId:post.moduleId,userId:post.userId,purpose:'post'});
+        if(!attachment||attachment.status==='pending')continue;
+        if(attachment.status==='ready'&&!await store.update('attachments',{id:attachment.id,status:'ready'},{status:'deleting'}))continue;
+        await store.deleteFile(attachment);await store.remove('attachments',{id:attachment.id,status:'deleting'});
+      } catch(error) { log('course attachment cleanup failed:',id,errorText(error)); }
+    }
+  }
   async function membersForRows(rows) {
     const ids=[...new Set(rows.map(row=>row.userId))],members=new Map();
     for(let offset=0;offset<ids.length;offset+=100)for(const member of await store.getMembers(ids.slice(offset,offset+100)))members.set(member.id,member);
@@ -126,6 +181,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       if(input.moduleId&&!input.courseId)fail('course is required for module feedback');
       const feedbackAccess=input.courseId?await courseAccess(input.courseId,user,{content:true}):null;
       if(input.moduleId) await moduleAccess(input.courseId,input.moduleId,user,feedbackAccess);
+      if(await store.count('feedback',{userId:user.id})>=FEEDBACK_LIMIT){send(res,409,{error:'feedback limit reached; edit or delete earlier feedback',code:'feedback_limit'});return true;}
       const feedback=await store.insert('feedback',{id:newId(),userId:user.id,...input,createdAt:now()});
       send(res,201,{feedback});return true;
     }
@@ -172,16 +228,37 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       const {module}=await moduleAccess(attachment.courseId,attachment.moduleId,user);
       if(attachment.purpose==='material'&&!isStaff(user)&&!referencesMaterial(module,attachment.id))fail('file unavailable',404);
       if(attachment.purpose!=='material'&&!isStaff(user)&&attachment.userId!==user.id) {
-        const posts=await all('posts',{moduleId:attachment.moduleId,userId:attachment.userId});
+        const posts=await all('posts',{moduleId:attachment.moduleId,userId:attachment.userId,deletedAt:null});
         if(!posts.some(post=>!post.deletedAt&&post.attachmentIds.some(id=>sameIdentifier(id,attachment.id))))fail('file unavailable',404);
       }
+      // An id never names other bytes, so after the access checks above the browser may keep the file privately and
+      // revalidate with its id: a 304 then costs no Storage read.
+      const etag=`"${attachment.id.toLowerCase()}"`,caching={'Cache-Control':'private, max-age=86400, immutable',ETag:etag,Vary:'Cookie'};
+      if(matchesEtag(req.headers['if-none-match'],etag)){send(res,304,'',caching);return true;}
+      // The teaching team opens every participant's files, often in one sitting (a class's assignments easily pass
+      // 64 MB in ten minutes), so staff accounts are not budgeted.
+      const budget=isStaff(user)?{ok:true}:downloads.take(`download:${user.id}`,attachment.size);
+      if(!budget.ok){send(res,429,{error:'download limit reached; try again later',code:'download_rate'},{'Retry-After':String(budget.retryAfter)});return true;}
       const bytes=await store.getFile(attachment);
-      send(res,200,bytes,{'Content-Type':attachment.mime,'Content-Disposition':`attachment; filename="${attachment.name.replace(/[^a-zA-Z0-9._ -]/g,'_')}"; filename*=UTF-8''${encodeURIComponent(attachment.name)}`,'Content-Security-Policy':"default-src 'none'; sandbox",'Content-Length':String(bytes.length)});
+      const filename=attachmentFilename(attachment.name,attachment.mime);
+      send(res,200,bytes,{...caching,'Content-Type':attachment.mime,'Content-Disposition':`attachment; filename="${filename.replace(/[^a-zA-Z0-9._ -]/g,'_')}"; filename*=UTF-8''${encodeURIComponent(filename)}`,'Content-Security-Policy':"default-src 'none'; sandbox",'Content-Length':String(bytes.length)});
       return true;
     }
     match=path.match(/^\/api\/(admin\/)?courses\/([^/]+)(.*)$/);
     if(!match){send(res,404,{error:'not found'});return true;}
     const courseId=identifier(match[2]),suffix=match[3];
+    /* A person's own contribution: reading it back and withdrawing it are authorised by authorship alone, so they
+       still work after the person deletes their intake, after staff unpublish the session or archive the course
+       (the privacy policy lets members delete their contributions). Editing keeps the full content checks below. */
+    const ownPost=!adminPath&&['GET','DELETE'].includes(req.method)?suffix.match(/^\/posts\/([^/]+)$/):null;
+    if(ownPost) {
+      const filters={id:identifier(ownPost[1]),courseId,userId:user.id};
+      const post=await findOne('posts',filters);if(!post||(req.method==='DELETE'&&post.deletedAt))fail('post unavailable',404);
+      if(req.method==='GET'){send(res,200,{post:await postView(post,user)});return true;}
+      if(!await store.update('posts',{...filters,deletedAt:null},{body:'',links:[],attachmentIds:[],deletedAt:now()}))fail('post changed; reload before saving',409);
+      await releasePostFiles(post);
+      send(res,200,{ok:true});return true;
+    }
     const access=await courseAccess(courseId,user);
     if(adminPath&&['/participants','/invitations'].includes(suffix)&&req.method==='POST') {
       const input=await bodyJson(req);
@@ -189,8 +266,13 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
         const result=suffix==='/participants'?await participants.add(access.course,input.email):await participants.invite(access.course,input.email,user.id);
         send(res,result.result==='invited'?202:result.result==='enrolled'?201:200,result);
       } catch(error) {
-        const code=/^(participant|invitation)_[a-z_]+$/.test(error.code??'')?error.code:'participant_unavailable';
-        send(res,error.status??503,{error:code,code},error.status===429?{'Retry-After':'60'}:{});
+        const expected=/^(participant|invitation)_[a-z_]+$/.test(error.code??''),code=expected?error.code:'participant_unavailable',status=error.status??503;
+        // This answer replaces the global error handler, so log here what it would have: unexpected errors and every
+        // provider or server failure (an uncertain invitation, a broken account lookup), never the address.
+        // A provider message can quote the address it refused, so anything shaped like one is masked.
+        const masked=value=>errorText(value).replace(/[^\s@"'<>]+@[^\s@"'<>]+/g,'<address>');
+        if(!expected||status>=500)log('course participant request failed:',code,status,masked(error),...(error.cause?[masked(error.cause),error.cause.status??'',error.cause.code??'']:[]));
+        send(res,status,{error:code,code},status===429?{'Retry-After':'60'}:{});
       }
       return true;
     }
@@ -253,34 +335,30 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       else fail('invalid export type');return true;
     }
     const moderation=suffix.match(/^\/posts\/([^/]+)$/);
-    if(!adminPath&&moderation&&['GET','PATCH','DELETE'].includes(req.method)) {
-      const filters={id:identifier(moderation[1]),courseId,userId:user.id};
-      const post=await findOne('posts',filters);if(!post||(req.method!=='GET'&&post.deletedAt))fail('post unavailable',404);
+    if(!adminPath&&moderation&&req.method==='PATCH') {
+      const post=await findOne('posts',{id:identifier(moderation[1]),courseId,userId:user.id});if(!post||post.deletedAt)fail('post unavailable',404);
       await moduleAccess(courseId,post.moduleId,user,access);
-      if(req.method==='GET'){send(res,200,{post:await postView(post,user)});return true;}
-      let patch;
-      if(req.method==='PATCH') {
-        const input=await bodyJson(req);
-        if(typeof input.expectedBody!=='string'||input.expectedBody.length>6000)fail('expected post text is required');
-        filters.body=input.expectedBody;patch={body:text(input.body,'post',6000,true)};
-      } else patch={body:'',links:[],attachmentIds:[],deletedAt:now()};
-      const updated=req.method==='PATCH'
-        ?await store.editPost({id:post.id,courseId,userId:user.id,expectedBody:filters.body,body:patch.body})
-        :await store.update('posts',{...filters,deletedAt:null},patch);
+      const input=await bodyJson(req);
+      if(typeof input.expectedBody!=='string'||input.expectedBody.length>6000)fail('expected post text is required');
+      const updated=await store.editPost({id:post.id,courseId,userId:user.id,expectedBody:input.expectedBody,body:text(input.body,'post',6000,true)});
       if(!updated)fail('post changed; reload before saving',409);
-      send(res,200,req.method==='DELETE'?{ok:true}:{post:await postView(updated,user)});return true;
+      send(res,200,{post:await postView(updated,user)});return true;
     }
     if(adminPath&&moderation&&req.method==='DELETE') {
       const post=await findOne('posts',{id:identifier(moderation[1]),courseId});if(!post)fail('post unavailable',404);
-      await store.update('posts',{id:post.id},{body:'',links:[],attachmentIds:[],deletedAt:now()});send(res,200,{ok:true});return true;
+      await store.update('posts',{id:post.id},{body:'',links:[],attachmentIds:[],deletedAt:now()});
+      await releasePostFiles(post);
+      send(res,200,{ok:true});return true;
     }
     if(!adminPath&&suffix==='/events'&&req.method==='POST') {
-      const input=await bodyJson(req);const id=identifier(input.id);
+      // Older pages still send a random id; it is checked but no longer used (see eventId).
+      const input=await bodyJson(req);if(input.id!==undefined)identifier(input.id);
       const {module}=await moduleAccess(courseId,identifier(input.moduleId),user,access);
       if(!['module_open','content_open','recording_open'].includes(input.kind))fail('invalid activity type');
       const resourceUrl=input.kind==='module_open'?'':text(input.resourceUrl,'resource URL',2000,true);
       if(input.kind!=='module_open'&&!module.resources.some(r=>(r.url||(r.attachmentId?`/api/course-attachments/${r.attachmentId}`:''))===resourceUrl&&(input.kind==='recording_open'?r.kind==='recording':r.kind!=='recording')))fail('resource is not in this module');
-      const event={id,courseId,moduleId:module.id,userId:user.id,kind:input.kind,resourceUrl,createdAt:now()};
+      const createdAt=now(),fields={courseId,moduleId:module.id,userId:user.id,kind:input.kind,resourceUrl},id=eventId({...fields,createdAt});
+      const event={id,...fields,createdAt};
       try { await store.insert('events',event); }
       catch(err) { if(err.status!==409)throw err;const old=await findOne('events',{id,userId:user.id,courseId,moduleId:module.id,kind:input.kind,resourceUrl});if(!old)fail('event identifier is already used',409); }
       send(res,200,{ok:true});return true;
@@ -322,13 +400,16 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       }
       if(!adminPath&&operation==='/posts'&&req.method==='GET') {
         const kind=url.searchParams.get('kind');if(kind&&!['assignment','discussion'].includes(kind))fail('invalid post filter');
-        const latest=url.searchParams.get('latest')==='1',desc=latest||url.searchParams.get('order')==='desc';
+        // The open conversation polls latest=1 every 30 seconds only to learn whether anything changed: the module's
+        // post revision answers that without reading posts or their files.
+        if(url.searchParams.get('latest')==='1'){send(res,200,{revision:module.postsRevision});return true;}
+        const desc=url.searchParams.get('order')==='desc';
         // Keep tombstones for reply integrity and owner conflict recovery, but
         // exclude them before pagination so history pages contain live posts.
         const filters={courseId,moduleId:module.id,deletedAt:null,...(kind?{threadKind:kind}:{})};
-        const rows=await store.find('posts',filters,{limit:latest?1:31,desc,after:latest?null:decodeCursor(url.searchParams.get('cursor'))});
-        const page=rows.slice(0,latest?1:30);
-        send(res,200,{posts:await postPageView(page,user,module),nextCursor:!latest&&rows.length>30?encodeCursor(page.at(-1)):null,revision:module.postsRevision});return true;
+        const rows=await store.find('posts',filters,{limit:31,desc,after:decodeCursor(url.searchParams.get('cursor'))});
+        const page=rows.slice(0,30);
+        send(res,200,{posts:await postPageView(page,user,module),nextCursor:rows.length>30?encodeCursor(page.at(-1)):null,revision:module.postsRevision});return true;
       }
       if(!adminPath&&operation==='/posts'&&req.method==='POST') {
         const input=normalizePost(await bodyJson(req));

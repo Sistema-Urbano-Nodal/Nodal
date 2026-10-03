@@ -2,7 +2,8 @@ import {newId, fail} from './courses-domain.js';
 import {validateEmail} from './auth.js';
 
 const stamp = () => new Date().toISOString();
-const invitationError = (code, status) => { throw Object.assign(new Error(code), {code, status}); };
+// The provider's own error is kept as the cause, so the server log can say why an invitation failed.
+const invitationError = (code, status, cause) => { throw Object.assign(new Error(code), {code, status, ...(cause ? {cause} : {})}); };
 export function participantEmail(value) {
   const email = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (email.length > 254 || !validateEmail(email)) invitationError('participant_email', 400);
@@ -90,7 +91,7 @@ export function createCourseParticipants({store, userRepository}) {
         // A rejected resend does not revoke the older link in the inbox.
         const deliveryStatus=uncertain?'uncertain':['sent','uncertain','pending'].includes(previousDelivery)?previousDelivery:'failed';
         await store.update('invitations',{id:invitation.id,updatedAt:time,acceptedAt:null},{deliveryStatus,updatedAt:stamp()});
-        invitationError(uncertain?'invitation_uncertain':'invitation_unavailable',503);
+        invitationError(uncertain?'invitation_uncertain':'invitation_unavailable',503,error);
       }
     },
     async authorize(authUser) {return (await eligible(authUser)).length>0;},

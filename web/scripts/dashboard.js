@@ -28,7 +28,7 @@
       throw new Error('authentication required');
     }
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `api ${res.status}`);
+    if (!res.ok) throw Object.assign(new Error(data.error || `api ${res.status}`), { status: res.status, code: data.code });
     return data;
   }
 
@@ -1079,7 +1079,9 @@
         document.body.appendChild(link);
         link.click();
         link.remove();
-        URL.revokeObjectURL(url);
+        // Safari and some Firefox setups start a blob download after click() returns;
+        // revoking the URL in the same tick can cancel it, so it is released later.
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
       } catch (err) {
         uc.error.textContent = err.message || t('d.uc.exportFail');
         uc.error.hidden = false;
@@ -1093,7 +1095,8 @@
         await api('/api/me', { method: 'DELETE', body: JSON.stringify({ confirmEmail: email }) });
         location.assign('/login.html');
       } catch (err) {
-        uc.error.textContent = err.message || t('d.uc.deleteFail');
+        // The server explains a refusal in English; a known code is shown in the member's language.
+        uc.error.textContent = err.code === 'subscription_active' ? t('d.uc.deleteSubscription') : err.message || t('d.uc.deleteFail');
         uc.error.hidden = false;
       }
     });

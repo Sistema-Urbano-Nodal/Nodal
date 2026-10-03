@@ -141,15 +141,26 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
     };
   }
   const supa = clients ?? createSupabaseClients({env,fetchImpl:(url,args)=>fetchImpl(url,{...args,signal:AbortSignal.timeout(15000)})});
-  // Respect the project's PostgREST row cap without silently shortening a page.
-  const readPage = async (table, query) => {
-    const rows = [], limit = query.limit;
+  /* Fill a logical page across a smaller project row cap without silently shortening it, as the festival and news
+     stores do. The first request asks for the exact count, so the usual short page (fewer rows than the limit exist)
+     ends in one round trip instead of a second, empty one. A follow-up is sent only when the count says the provider
+     capped the page, and continues after the last row (keyset, never OFFSET, so a write between the two requests
+     cannot repeat or skip rows) when the order is the stable (created_at, id) or id order; any other order falls back
+     to OFFSET. `and` carries the keyset so it never collides with the caller's own id/or filters. */
+  const readPage = async (table, query, order = null, desc = false) => {
+    const rows = [], limit = query.limit, op = desc ? 'lt' : 'gt';
+    const keyset = row => order === 'createdAt,id' ? {and:`(or(created_at.${op}.${row.created_at},and(created_at.eq.${row.created_at},id.${op}.${row.id})))`}
+      : order === 'id' ? {and:`(id.${op}.${row.id})`} : {offset:rows.length};
+    let total = null, cursor = {}, first = true;
     while (rows.length < limit) {
-      const page = await supa.admin.rest(table, {query:{...query,offset:rows.length,limit:limit-rows.length},includeRange:true});
+      const want = limit-rows.length, counting = first && want > 1;first = false;
+      const page = await supa.admin.rest(table, {query:{...query,...cursor,limit:want},includeRange:true,...(counting?{headers:{Prefer:'count=exact'}}:{})});
       if (!Array.isArray(page.rows)) fail('course data unavailable',502);
       rows.push(...page.rows);
-      const total = page.contentRange?.split('/')[1];
-      if (!page.rows.length || (/^\d+$/.test(total ?? '') && rows.length >= Number(total))) break;
+      const counted = page.contentRange?.split('/')[1];
+      if (counting && /^\d+$/.test(counted ?? '')) total = Number(counted);
+      if (page.rows.length === want || !page.rows.length || (total !== null && rows.length >= total)) break;
+      cursor = keyset(page.rows.at(-1));
     }
     return rows.slice(0,limit);
   };
@@ -175,9 +186,9 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
       const unique=[...new Set(postAttachmentIds(ids).map(id=>id.toLowerCase()))];if(!unique.length)return [];
       const info=tableInfo('attachments'),query=queryFor(info,{courseId,moduleId,status:'ready'},{limit:unique.length,order:['id']});
       query.id=`in.(${unique.join(',')})`;
-      return (await readPage(info.table,query)).map(row=>fromRow(info,row));
+      return (await readPage(info.table,query,'id')).map(row=>fromRow(info,row));
     },
-    async getMembers(ids) { if(!ids.length)return [];return (await readPage('profiles',{id:`in.(${ids.join(',')})`,select:'id,full_name,email',order:'id.asc',limit:Math.min(500,new Set(ids).size)})).map(row=>({id:row.id,name:row.full_name,email:row.email})); },
+    async getMembers(ids) { if(!ids.length)return [];return (await readPage('profiles',{id:`in.(${ids.join(',')})`,select:'id,full_name,email',order:'id.asc',limit:Math.min(500,new Set(ids).size)},'id')).map(row=>({id:row.id,name:row.full_name,email:row.email})); },
     async count(name,filters={}) {
       const info=tableInfo(name),query=queryFor(info,filters,{limit:1});query.select='id';delete query.order;
       const credentials=supa.env;
@@ -186,7 +197,10 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
       if(!response.ok||!/^\d+$/.test(total??''))fail('course totals unavailable',502);
       return Number(total);
     },
-    async find(name,filters={},options={}) { const info=tableInfo(name);return (await readPage(info.table,queryFor(info,filters,options))).map(row=>fromRow(info,row)); },
+    async find(name,filters={},options={}) {
+      const info=tableInfo(name),opts=optionsFor(info,options);
+      return (await readPage(info.table,queryFor(info,filters,options),opts.order.join(','),Boolean(opts.desc))).map(row=>fromRow(info,row));
+    },
     async insert(name,record) {
       const info=tableInfo(name);
       try { return fromRow(info,(await supa.admin.rest(info.table,{method:'POST',headers:{Prefer:'return=representation'},body:toRow(info,record,false)}))[0]); }

@@ -3,6 +3,15 @@
 supabase/.temp/
 supabase/.branches/
 
+# --- AI and editor assistant state (do not commit: some of it holds tokens) ---
+# tests/review-fix-4-gitignore.test.js fails the build if this block goes missing.
+.neurotrace/
+.superpowers/
+.claude/
+.cursor/
+CLAUDE.local.md
+supabase/snippets/
+
 # --- OS / editor noise ---
 .DS_Store
 Thumbs.db

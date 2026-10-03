@@ -14,6 +14,7 @@ import { sendConfirmations } from '../server/fiiu-confirmations.js';
      node scripts/send-fiiu-confirmations.js                 list registrations still at 'none'
      node scripts/send-fiiu-confirmations.js --send          email them, one at a time
      node scripts/send-fiiu-confirmations.js --send --retry-failed --limit 5   (--limit=5 works too)
+     node scripts/send-fiiu-confirmations.js --send --ignore-cap              send past today's cap (deliberate)
      node scripts/send-fiiu-confirmations.js --test-to <your own inbox> --language es   one sample summary, no data touched
 
    Anything it does not understand (an unknown flag, a missing value, a --limit that is not a positive whole number,
@@ -24,8 +25,11 @@ import { sendConfirmations } from '../server/fiiu-confirmations.js';
    "Send the summary" button never emails anyone twice. 'failed' means the provider cannot have the message, so
    retrying it is safe; 'uncertain' is never retried automatically. The email goes out in the language stored with
    the registration, else Spanish. The sending itself lives in server/fiiu-confirmations.js, shared with the
-   dashboard. The dashboard is the usual way to send, since the email credentials stay in Vercel and it keeps a daily
-   cap; this command is for a machine that has the production variables. Uses the same environment as the server
+   dashboard. The dashboard is the usual way to send, since the email credentials stay in Vercel. This command applies
+   the same daily cap as the dashboard, counted again before every email: once today's sends reach it, the run stops
+   and prints "capped": true with the cap, today's count and when it resets. --ignore-cap overrides that on purpose
+   (Gmail's ~500 a day also carries sign-up and password mail). It is for a machine that has the production
+   variables. Uses the same environment as the server
    (DATA_BACKEND and the Supabase variables, EMAIL_SMTP_URL, EMAIL_FROM, EMAIL_REPLY_TO, PUBLIC_BASE_URL). */
 export { sendConfirmations };
 
@@ -39,8 +43,9 @@ export const SAMPLE_REGISTRATION = {
    mistyped canary such as `--limit=1`, `--limit 0` or `--test-to=me@…` can never turn into an unlimited send. */
 export function parseCliArgs(argv) {
   const { values } = parseArgs({ args: argv, strict: true, allowPositionals: false, options: {
-    send: { type: 'boolean' }, 'retry-failed': { type: 'boolean' }, limit: { type: 'string' }, 'test-to': { type: 'string' }, language: { type: 'string' },
+    send: { type: 'boolean' }, 'retry-failed': { type: 'boolean' }, 'ignore-cap': { type: 'boolean' }, limit: { type: 'string' }, 'test-to': { type: 'string' }, language: { type: 'string' },
   } });
+  if (values['ignore-cap'] && !values.send) throw new Error('--ignore-cap only applies to --send');
   const testTo = values['test-to'];
   if (values.limit !== undefined && !/^[1-9]\d*$/.test(values.limit)) throw new Error('--limit must be a positive whole number, for example --limit 5');
   if (testTo !== undefined) {
@@ -51,7 +56,7 @@ export function parseCliArgs(argv) {
     if (testTo === undefined) throw new Error('--language only applies to --test-to: the backfill uses the language stored with each registration');
     if (!EMAIL_LANGUAGES.includes(values.language)) throw new Error(`--language must be one of ${EMAIL_LANGUAGES.join(', ')}`);
   }
-  return { send: Boolean(values.send), retryFailed: Boolean(values['retry-failed']), limit: values.limit === undefined ? Infinity : Number(values.limit), testTo: testTo ?? null, language: emailLanguage(values.language) };
+  return { send: Boolean(values.send), retryFailed: Boolean(values['retry-failed']), ignoreCap: Boolean(values['ignore-cap']), limit: values.limit === undefined ? Infinity : Number(values.limit), testTo: testTo ?? null, language: emailLanguage(values.language) };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -69,9 +74,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const repository = backend === 'supabase' ? null : createRepository();
   try {
     const store = backend === 'supabase' ? createFiiuStore() : createFiiuStore({ db: repository.database });
-    const { send, retryFailed, limit } = options;
+    const { send, retryFailed, limit, ignoreCap } = options;
     const confirm = send ? createRegistrationConfirmation({ loopbackOnly: backend !== 'supabase' }) : null;
-    const results = await sendConfirmations({ store, confirm, send, retryFailed, limit });
+    const results = await sendConfirmations({ store, confirm, send, retryFailed, limit, ignoreCap });
     console.log(JSON.stringify({ mode: send ? 'send' : 'dry run', ...results }));
   } catch (err) {
     console.error(err.message);

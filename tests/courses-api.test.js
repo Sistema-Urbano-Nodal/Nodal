@@ -176,9 +176,11 @@ test('filtered newest-first history keeps assignment replies, detects changes be
  const assignments=await(await call(path+'?kind=assignment')).json();assert.deepEqual(assignments.posts.map(p=>p.id).sort(),[assignment.id,reply.id].sort());
  const first=await(await call(path+'?kind=discussion&order=desc')).json();assert.equal(first.posts.length,30);assert.equal(first.posts[0].body,'Question 31');
  const second=await(await call(path+'?kind=discussion&order=desc&cursor='+first.nextCursor)).json();assert.equal(second.posts.length,2);assert.equal(new Set([...first.posts,...second.posts].map(p=>p.id)).size,32);
- const latest=await(await call(path+'?latest=1&kind=discussion')).json();assert.equal(latest.posts[0].body,'Question 31');assert.equal(latest.nextCursor,null);
- await call(`/api/admin/courses/${course.id}/posts/${latest.posts[0].id}`,{actor:'staff',method:'DELETE'});
- const moderated=await(await call(path+'?latest=1&kind=discussion')).json();assert.ok(moderated.revision>latest.revision);assert.equal(moderated.posts[0].body,'Question 30');assert.equal(moderated.posts[0].deleted,false);
+ // The update poll answers only the revision; it never reads posts.
+ const latest=await(await call(path+'?latest=1&kind=discussion')).json();assert.deepEqual(Object.keys(latest),['revision']);assert.equal(latest.revision,first.revision);
+ await call(`/api/admin/courses/${course.id}/posts/${first.posts[0].id}`,{actor:'staff',method:'DELETE'});
+ const moderated=await(await call(path+'?latest=1&kind=discussion')).json();assert.ok(moderated.revision>latest.revision);
+ const newest=await(await call(path+'?kind=discussion&order=desc')).json();assert.equal(newest.posts[0].body,'Question 30');assert.equal(newest.posts[0].deleted,false);
 });
 
 test('removed contributions do not consume history pages and surviving replies remain visible',async t=>{
@@ -193,7 +195,8 @@ test('removed contributions do not consume history pages and surviving replies r
  const replyOwner=await(await call(path+'?kind=discussion&order=desc&cursor='+first.nextCursor,{actor:'other'})).json();assert.equal(replyOwner.posts[1].canEdit,true);assert.equal(replyOwner.posts[1].canDelete,true);
  const oldest=await(await call(path+'?kind=discussion')).json();assert.equal(oldest.posts.length,30);assert.equal(oldest.posts[0].id,ids[1]);assert.ok(oldest.posts.every(post=>!post.deleted));
  await store.update('posts',{courseId:course.id,moduleId:module.id,deletedAt:null},{body:'',deletedAt:'2030-01-03T00:00:00.000Z'});
- for(const suffix of ['?kind=discussion&order=desc','?kind=discussion&latest=1']){const empty=await(await call(path+suffix)).json();assert.deepEqual(empty.posts,[]);assert.equal(empty.nextCursor,null);assert.ok(empty.revision>first.revision);}
+ const empty=await(await call(path+'?kind=discussion&order=desc')).json();assert.deepEqual(empty.posts,[]);assert.equal(empty.nextCursor,null);assert.ok(empty.revision>first.revision);
+ assert.equal((await(await call(path+'?kind=discussion&latest=1')).json()).revision,empty.revision);
  assert.equal(await store.count('posts',{courseId:course.id,moduleId:module.id}),64,'internal tombstones preserve reply relationships');
 });
 
@@ -284,14 +287,14 @@ test('owners edit only post text and can delete questions, assignments and repli
  for(const post of posts.slice(1))assert.equal((await call(own(post.id),{method:'DELETE',body:{}})).status,200);
 });
 
-test('post ownership mutations retain session, origin, course, module and intake gates',async t=>{
+test('post edits retain session, origin, course, module and intake gates',async t=>{
  const {call,course,module,enter,store,users}=await setup(t);await enter();
  const {post}=await(await call(`/api/courses/${course.id}/modules/${module.id}/posts`,{method:'POST',body:{clientId:randomUUID(),body:'My question'}})).json();
  const path=`/api/courses/${course.id}/posts/${post.id}`,body={body:'Edited',expectedBody:post.body};
  assert.equal((await call(path,{actor:'',method:'PATCH',body})).status,401);
  assert.equal((await call(path,{method:'DELETE',body:{},origin:'https://evil.test'})).status,403);
  await store.update('modules',{id:module.id},{status:'draft'});assert.equal((await call(path,{method:'PATCH',body})).status,404);
- await store.update('modules',{id:module.id},{status:'published'});await store.remove('intakes',{courseId:course.id,userId:users.student.id});assert.equal((await call(path,{method:'DELETE',body:{}})).status,403);
+ await store.update('modules',{id:module.id},{status:'published'});await store.remove('intakes',{courseId:course.id,userId:users.student.id});assert.equal((await call(path,{method:'PATCH',body})).status,403);
  await enter();await store.update('courses',{id:course.id},{status:'draft'});assert.equal((await call(path,{method:'PATCH',body})).status,404);
  assert.equal((await store.find('posts',{id:post.id}))[0].body,post.body);
 });

@@ -9,6 +9,22 @@ export const DEFAULT_PART_C = {
 
 export const DEFAULT_INDICATORS = { leadership: 'No', transmission: 'No' };
 
+/* Profile word lists (interests, availability slots, skills) are served to every other member through the directory,
+   recommendations and profile tags, so, like topic names (cleanTopics below), each item is plain text of at most 80
+   characters; blank and repeated items are dropped and the list keeps its count. Applied on write and again on read,
+   so rows stored before the cap are not served whole. */
+export const PROFILE_LIST_ITEM_MAX = 80;
+export function cleanProfileList(value, count) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  for (const item of value) {
+    if (out.length === count) break;
+    const text = typeof item === 'string' || typeof item === 'number' ? String(item).trim().slice(0, PROFILE_LIST_ITEM_MAX) : '';
+    if (text && !out.includes(text)) out.push(text);
+  }
+  return out;
+}
+
 const INDICATOR_VALUES = {
   leadership: new Set(['No', 'Once or twice', 'Regularly']),
   transmission: new Set(['No', 'Informally', 'Formally']),

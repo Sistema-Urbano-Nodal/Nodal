@@ -7,6 +7,8 @@
   for(const key of [...fragment.keys()])fragment.delete(key);
   if(!/^[a-zA-Z0-9_-]{32,512}$/.test(tokenHash))tokenHash='';
   history.replaceState(null,'','/accept-invitation.html');
+  // Bytes of UTF-8 the auth provider counts (it accepts at most 72): accents take two, most emoji four.
+  const utf8Bytes=value=>{let n=0;for(const ch of value){const c=ch.codePointAt(0);n+=c<0x80?1:c<0x800?2:c<0x10000?3:4;}return n;};
   function start(){
     const {t,apply,rows}=window.nodalInvitationI18n;
     const form=document.getElementById('invitationForm'),message=document.getElementById('recoveryMessage'),title=document.getElementById('invitationTitle');
@@ -26,11 +28,13 @@
       if(!tokenHash){finish('invitation_invalid');return;}
       for(const input of [name,password,confirmation]){input.removeAttribute('aria-invalid');input.removeAttribute('aria-describedby');}
       if(name.value.trim().length<2||name.value.trim().length>120||/[\u0000-\u001f\u007f]/.test(name.value)){invalid(name,'nameLength');return;}
-      if(password.value.length<8||password.value.length>160){invalid(password,'invitation_password_length');return;}
+      if(password.value.length<8||utf8Bytes(password.value)>72){invalid(password,'invitation_password_length');return;}
       if(password.value!==confirmation.value){invalid(confirmation,'mismatch');return;}
       busy=true;form.setAttribute('aria-busy','true');submit.disabled=true;submit.dataset.invitationText='saving';message.hidden=true;apply();
       try{
-        const response=await fetch('/api/auth/course-invitation/complete',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({tokenHash,password:password.value,fullName:name.value.trim()}),signal:AbortSignal.timeout(45000)});
+        // Safari before 16 (every iOS 15 browser) has no AbortSignal.timeout; there the request simply runs without the time limit.
+        const signal=typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function'?AbortSignal.timeout(45000):undefined;
+        const response=await fetch('/api/auth/course-invitation/complete',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({tokenHash,password:password.value,fullName:name.value.trim()}),...(signal?{signal}:{})});
         const result=await response.json();
         if(result.passwordChanged===true){
           const courseId=Array.isArray(result.courseIds)?result.courseIds.find(id=>typeof id==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id)):null;

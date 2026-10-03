@@ -310,11 +310,12 @@ test('the optional backfill lists by default, then emails each waiting registrat
 
 test('the backfill command line reads --flag value and --flag=value, and refuses anything else',()=>{
  assert.equal(parseCliArgs([]).limit,Infinity);assert.equal(parseCliArgs(['--limit','5']).limit,5);assert.equal(parseCliArgs(['--limit=5']).limit,5);
- assert.deepEqual(parseCliArgs(['--send','--retry-failed','--limit=2']),{send:true,retryFailed:true,limit:2,testTo:null,language:'es'});
- assert.deepEqual(parseCliArgs(['--test-to=owner@fiiu-inbox.dev','--language','pt']),{send:false,retryFailed:false,limit:Infinity,testTo:'owner@fiiu-inbox.dev',language:'pt'});
+ assert.deepEqual(parseCliArgs(['--send','--retry-failed','--limit=2']),{send:true,retryFailed:true,ignoreCap:false,limit:2,testTo:null,language:'es'});
+ assert.deepEqual(parseCliArgs(['--test-to=owner@fiiu-inbox.dev','--language','pt']),{send:false,retryFailed:false,ignoreCap:false,limit:Infinity,testTo:'owner@fiiu-inbox.dev',language:'pt'});
+ assert.equal(parseCliArgs(['--send','--ignore-cap']).ignoreCap,true);
  for(const args of [['--limit','0'],['--limit=0'],['--limit','five'],['--limit'],['--limit','-1'],['--limit','2.5'],['--limit=1e3'],['--limit',''],['--limit','--send'],
   ['--send','--test-to=x@fiiu-inbox.dev'],['--test-to','x@fiiu-inbox.dev','--limit','1'],['--test-to','x@fiiu-inbox.dev','--retry-failed'],['--test-to'],['--test-to','not an address'],
-  ['--language','pt'],['--test-to','x@fiiu-inbox.dev','--language','fr'],['--sned'],['--send=yes'],['send'],['-s']])
+  ['--language','pt'],['--test-to','x@fiiu-inbox.dev','--language','fr'],['--sned'],['--send=yes'],['send'],['-s'],['--ignore-cap'],['--ignore-cap','--retry-failed'],['--test-to','x@fiiu-inbox.dev','--ignore-cap'],['--send','--ignore-cap=yes']])
   assert.throws(()=>parseCliArgs(args),Error,JSON.stringify(args));
 });
 

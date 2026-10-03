@@ -18,13 +18,31 @@ test('course domain validates dates, required intake, safe materials and binary 
 test('pending upload reconciliation is dry by default, waits a day, and retains records on cleanup failure',async()=>{
  const fresh={id:'fresh',createdAt:new Date().toISOString()},stale={id:'stale',createdAt:'2026-01-01T00:00:00.000Z'};
  const rows=[stale,fresh],removed=[];
- const store={find:async(_name,_filters,{after})=>after?[]:rows,deleteFile:async()=>{},remove:async(_name,{id})=>removed.push(id)};
- assert.deepEqual(await reconcileCourseUploads(store),{examined:2,stale:1,removed:0,dryRun:true});
+ const store={find:async(_name,filters,{after})=>after||filters.status!=='pending'?[]:rows,deleteFile:async()=>{},remove:async(_name,{id})=>removed.push(id)};
+ assert.deepEqual(await reconcileCourseUploads(store),{examined:2,stale:1,removed:0,deleting:0,deletingRemoved:0,orphaned:0,orphansRemoved:0,dryRun:true});
  assert.deepEqual(removed,[]);
  await reconcileCourseUploads(store,{apply:true});assert.deepEqual(removed,['stale']);
  store.deleteFile=async()=>{throw new Error('Storage unavailable');};
  await assert.rejects(reconcileCourseUploads(store,{apply:true}),/Storage unavailable/);
  assert.deepEqual(removed,['stale']);
+});
+
+test('reconciliation finishes interrupted deletions and removes post uploads no live post shows',async t=>{
+ const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
+ const author=createUser(db,{fullName:'Author',email:'author@example.test',passwordHash:'test'});
+ const store=createCourseStore({db}),old='2026-01-01T00:00:00.000Z',now=Date.parse('2026-01-03T00:00:00.000Z');
+ const course=await store.insert('courses',{id:randomUUID(),...normalizeCourse({title:'Mobility',status:'published',startsOn:'2026-09-09'}),version:1,createdAt:old,updatedAt:old});
+ const module=await store.insert('modules',{id:randomUUID(),courseId:course.id,...normalizeModule({title:'Module',status:'published'}),version:1,createdAt:old,updatedAt:old});
+ const file=async(status,purpose='post',createdAt=old)=>{const id=randomUUID();const row=await store.insert('attachments',{id,courseId:course.id,moduleId:module.id,userId:purpose==='post'?author.id:null,purpose,name:'note.txt',mime:'text/plain',size:4,storagePath:`${author.id}/${id}`,status,createdAt});await store.putFile(row,Buffer.from('note'));return row;};
+ const shown=await file('ready'),orphan=await file('ready'),recent=await file('ready','post',new Date(now-60*60*1000).toISOString()),material=await file('ready','material'),interrupted=await file('deleting');
+ await store.insert('posts',{id:randomUUID(),courseId:course.id,moduleId:module.id,userId:author.id,authorName:'Author',staff:false,kind:'question',threadKind:'discussion',parentId:null,body:'Shows a file',links:[],attachmentIds:[shown.id.toUpperCase()],clientId:randomUUID(),createdAt:old,deletedAt:null});
+ assert.deepEqual(await reconcileCourseUploads(store,{now}),{examined:0,stale:0,removed:0,deleting:1,deletingRemoved:0,orphaned:1,orphansRemoved:0,dryRun:true});
+ assert.equal((await store.find('attachments',{courseId:course.id})).length,5,'a dry run changes nothing');
+ assert.deepEqual(await reconcileCourseUploads(store,{apply:true,now}),{examined:0,stale:0,removed:0,deleting:1,deletingRemoved:1,orphaned:1,orphansRemoved:1,dryRun:false});
+ const left=new Set((await store.find('attachments',{courseId:course.id})).map(a=>a.id));
+ assert.ok([shown,recent,material].every(a=>left.has(a.id)),'shown, recent and material files stay');
+ assert.equal(left.has(orphan.id)||left.has(interrupted.id),false,'the orphan and the interrupted deletion are gone');
+ assert.equal(db.prepare('SELECT COUNT(*) AS n FROM course_attachment_bytes WHERE id IN (?,?)').get(orphan.id,interrupted.id).n,0,'and so are their bytes');
 });
 
 test('course store persists enrollment, private intake and version guarded module changes', async t => {

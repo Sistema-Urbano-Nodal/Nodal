@@ -1,6 +1,8 @@
 (() => {
   'use strict';
   const {rt,apply}=window.nodalRecoveryI18n;
+  // Bytes of UTF-8 the auth provider counts (it accepts at most 72): accents take two, most emoji four.
+  const utf8Bytes=value=>{let n=0;for(const ch of value){const c=ch.codePointAt(0);n+=c<0x80?1:c<0x800?2:c<0x10000?3:4;}return n;};
   const requestForm=document.getElementById('recoveryRequest');
   const resetForm=document.getElementById('recoveryReset');
   const message=document.getElementById('recoveryMessage');
@@ -49,7 +51,7 @@
     event.preventDefault();
     if(busy||resetForm.hidden)return;
     if(!code){show('recovery_invalid');requestMode();return;}
-    if(password.value.length<8||password.value.length>160){show('recovery_password_length');return;}
+    if(password.value.length<8||utf8Bytes(password.value)>72){show('recovery_password_length');return;}
     if(password.value!==confirm.value){show('mismatch');return;}
     const button=resetForm.querySelector('button[type="submit"]');setBusy(resetForm,true);button.dataset.recoveryText='saving';apply();
     try{

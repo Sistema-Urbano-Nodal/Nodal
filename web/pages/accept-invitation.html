@@ -6,14 +6,14 @@
   <meta name="referrer" content="no-referrer" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" />
   <title>Accept your course invitation · NODAL</title>
-  <script src="accept-invitation.js?v=20261001a"></script>
+  <script src="accept-invitation.js?v=20261003r"></script>
   <link rel="stylesheet" href="locale.css?v=20260929a" />
   <script src="locale.js?v=20260918b"></script>
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="fonts.css?v=20260911b" />
   <link rel="stylesheet" href="recovery.css?v=20260907c" />
 
-  <script defer src="invitation-i18n.js?v=20261001a"></script>
+  <script defer src="invitation-i18n.js?v=20261003r"></script>
 </head>
 <body data-page="course-invitation">
   <header class="recovery-header">
@@ -46,10 +46,10 @@
           <label for="invitationName" data-invitation-text="fullName">Full name</label>
           <input id="invitationName" name="name" type="text" autocomplete="name" minlength="2" maxlength="120" required />
           <label for="invitationPassword" data-invitation-text="password">Choose a password</label>
-          <input id="invitationPassword" name="new-password" type="password" autocomplete="new-password" minlength="8" maxlength="160" aria-describedby="invitationPasswordNote" required />
-          <p class="recovery-note" id="invitationPasswordNote" data-invitation-text="passwordNote">Use 8–160 characters. After saving, sign in with your email and this password.</p>
+          <input id="invitationPassword" name="new-password" type="password" autocomplete="new-password" minlength="8" maxlength="72" aria-describedby="invitationPasswordNote" required />
+          <p class="recovery-note" id="invitationPasswordNote" data-invitation-text="passwordNote">Use 8–72 characters (fewer with accents or emoji). After saving, sign in with your email and this password.</p>
           <label for="invitationConfirm" data-invitation-text="confirm">Confirm password</label>
-          <input id="invitationConfirm" name="confirm-password" type="password" autocomplete="new-password" minlength="8" maxlength="160" required />
+          <input id="invitationConfirm" name="confirm-password" type="password" autocomplete="new-password" minlength="8" maxlength="72" required />
           <button type="submit" id="invitationSubmit" class="recovery-submit" data-invitation-text="accept">Accept invitation</button>
         </form>
         <p id="recoveryMessage" role="status" aria-live="polite" hidden></p>

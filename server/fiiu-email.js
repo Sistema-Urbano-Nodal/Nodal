@@ -227,9 +227,12 @@ ${body}
    never throwing. 'sent' once the provider accepted the message; 'failed' when it cannot have it (a refusal, an
    unreachable server, a timeout before the message was handed over), so a later retry cannot duplicate it;
    'uncertain' when the whole message went out without a final answer; 'skipped' for reserved test domains.
-   null (the feature is off) without EMAIL_SMTP_URL/EMAIL_FROM or a configured public origin, or when a local
-   server (loopbackOnly) is pointed at anything but a loopback mail catcher. log receives one line without addresses. */
+   null (the feature is off) without EMAIL_SMTP_URL/EMAIL_FROM or a configured public origin, when a local
+   server (loopbackOnly) is pointed at anything but a loopback mail catcher, or on any Vercel deployment other than
+   Production: a Preview runs unreviewed branch code and may share the production database, so even if the mail
+   credentials are scoped to it by mistake it never emails registrants. log receives one line without addresses. */
 export function createRegistrationConfirmation({env=process.env,transport,origin=emailOrigin(env),loopbackOnly=false,log=message=>console.warn(message)}={}){
+ if(transport===undefined&&env.VERCEL&&env.VERCEL_ENV!=='production'){log('FIIU confirmation email is off outside Vercel Production');return null;}
  if(transport===undefined){try{transport=createMailTransport({env});}catch(err){log(`FIIU confirmation email is off: ${err.message}`);return null;}}
  if(!transport)return null;
  if(loopbackOnly&&!transport.loopback){log('FIIU confirmation email is off: a local SQLite server only sends to a loopback mail catcher');return null;}
@@ -242,7 +245,10 @@ export function createRegistrationConfirmation({env=process.env,transport,origin
   try{await transport.send({to:registration.email,...message,language:emailLanguage(language)});return {status:'sent',sentAt:new Date().toISOString()};}
   catch(err){
    const status=err?.delivery==='no'?'failed':'uncertain';
-   log(`FIIU confirmation email ${status} for registration ${registration.id}${err?.stage?` at ${err.stage}`:''}${Number.isInteger(err?.status)?` (SMTP ${err.status})`:''}`);
+   // The transport's error code (ENOTFOUND, ECONNREFUSED, ERR_SSL_WRONG_VERSION_NUMBER…) tells a DNS typo from a wrong
+   // port or a TLS mismatch in the logs; only a plain identifier is logged, never free text.
+   const code=typeof err?.code==='string'&&/^[A-Z][A-Z0-9_]{1,40}$/.test(err.code)?` [${err.code}]`:'';
+   log(`FIIU confirmation email ${status} for registration ${registration.id}${err?.stage?` at ${err.stage}`:''}${Number.isInteger(err?.status)?` (SMTP ${err.status})`:''}${code}`);
    return {status};
   }
  };

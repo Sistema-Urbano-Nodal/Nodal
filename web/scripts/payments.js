@@ -118,14 +118,23 @@
       async checkout({ plan, cycle }) {
         let res;
         try {
+          // A hung request must not strand the button. Safari before 16 (every iOS 15
+          // browser) has no AbortSignal.timeout; there the request runs without the limit.
+          const signal = typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+            ? AbortSignal.timeout(8000) : undefined;
           res = await fetch('/api/checkout', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ plan, cycle }),
-            signal: AbortSignal.timeout(8000),   // a hung request must not strand the button
+            ...(signal ? { signal } : {}),
           });
         } catch { return { status: 'unavailable' }; }       // static hosting / timeout
         if (res.status === 401) return { status: 'auth' };
+        if (res.status === 409) {
+          // A live membership already exists; a second checkout would bill the member twice.
+          const refusal = await res.json().catch(() => null);
+          if (refusal?.code === 'already_subscribed') return { status: 'member' };
+        }
         if (!res.ok) return { status: 'unavailable' };       // 501 = not configured
         const data = await res.json().catch(() => null);
         if (!data || typeof data.url !== 'string') return { status: 'unavailable' };
@@ -182,7 +191,29 @@
     else setNote(t('y.cancelled'));
   }
 
+  /* A member whose subscription is live (or still being set up) cannot start a
+     second one: the server refuses it, and the buttons say so before a click. */
+  const LIVE_STATUSES = new Set(['pending', 'active', 'trialing', 'past_due', 'unpaid', 'paused']);
+  let member = false;
+  const showMember = () => {
+    member = true;
+    setBusy(true);
+    if (backFrom !== 'success') setNote(t('y.alreadyMember'));
+  };
+  async function checkMembership() {
+    try {
+      const res = await fetch('/api/billing/status', { headers: { Accept: 'application/json' } });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (LIVE_STATUSES.has(data?.subscription?.status)) showMember();
+    } catch {
+      // Without an answer the buttons stay usable; the server still refuses a second checkout.
+    }
+  }
+  checkMembership();
+
   async function startCheckout() {
+    if (member) return;
     setBusy(true);
     for (const provider of PROVIDERS) {
       const result = await provider.checkout({ plan: 'membership', cycle: currentCycle });
@@ -190,6 +221,7 @@
         location.assign(`/login.html?next=${encodeURIComponent(location.pathname)}`);
         return;
       }
+      if (result.status === 'member') { showMember(); setNote(t('y.alreadyMember')); return; }
       if (result.status === 'redirect') { location.assign(result.url); return; }
       if (result.status === 'local-fallback') break;
     }
@@ -199,5 +231,8 @@
   }
   selectPro?.addEventListener('click', () => { startCheckout(); });
   summaryCheckout?.addEventListener('click', () => { startCheckout(); });
-  I18N?.onChange(() => setCycle(currentCycle));
+  I18N?.onChange(() => {
+    setCycle(currentCycle);
+    if (member && payNote && !payNote.hidden && backFrom !== 'success') setNote(t('y.alreadyMember'));
+  });
 })();

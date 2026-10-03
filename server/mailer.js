@@ -84,18 +84,25 @@ export function smtpConfig(env=process.env){
 }
 
 // Reply reader over one socket: CRLF lines, multi-line replies ("250-..." until "250 ..."), oldest reply first.
+// Everything received and not yet read (the partial line, the reply being assembled and any queued replies) is
+// held to MAX_REPLY_BYTES, so a peer streaming endless "250-" continuation lines, or replies nobody asked for, is
+// cut off instead of growing memory until the deadline.
 function replies(socket){
- let buffer='',lines=[],failure=null,waiting=null;const queue=[];
- const settle=()=>{if(!waiting||(!queue.length&&!failure))return;const {resolve,reject}=waiting;waiting=null;if(queue.length)resolve(queue.shift());else reject(failure);};
+ let buffer='',lines=[],failure=null,waiting=null,held=0,replyBytes=0;const queue=[];
+ const settle=()=>{if(!waiting||(!queue.length&&!failure))return;const {resolve,reject}=waiting;waiting=null;if(queue.length){const reply=queue.shift();held-=reply.bytes;resolve(reply);}else reject(failure);};
  const fail=err=>{failure??=err;settle();};
+ const tooLong=()=>{fail(smtpError('SMTP reply too long',{stage:'reply'}));socket.destroy();};
  socket.on('data',chunk=>{
+  if(failure)return;
   buffer+=chunk.toString('latin1');
-  if(buffer.length>MAX_REPLY_BYTES){fail(smtpError('SMTP reply too long',{stage:'reply'}));socket.destroy();return;}
+  if(held+buffer.length>MAX_REPLY_BYTES){tooLong();return;}
   for(let i=buffer.indexOf('\n');i!==-1;i=buffer.indexOf('\n')){
    const line=buffer.slice(0,i).replace(/\r$/,'');buffer=buffer.slice(i+1);
    const m=/^(\d{3})(?:([ -]).*)?$/.exec(line);
    if(!m||(lines.length&&lines[0].slice(0,3)!==m[1])){fail(smtpError('SMTP reply malformed',{stage:'reply'}));socket.destroy();return;}
-   lines.push(line);if(m[2]!=='-'){queue.push({code:Number(m[1]),lines});lines=[];}
+   held+=i+1;replyBytes+=i+1;
+   if(held>MAX_REPLY_BYTES){tooLong();return;}
+   lines.push(line);if(m[2]!=='-'){queue.push({code:Number(m[1]),lines,bytes:replyBytes});lines=[];replyBytes=0;}
   }
   settle();
  });

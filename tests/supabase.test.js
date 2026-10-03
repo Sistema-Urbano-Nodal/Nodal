@@ -230,8 +230,10 @@ test('Supabase signup accepts the direct user response used by email confirmatio
 
   assert.equal(result.status, 202);
   assert.equal(result.requiresEmailConfirmation, true);
-  assert.equal(result.user.id, TEST_USER_ID);
+  // The same answer an existing account gets; the profile waits for the first sign-in.
+  assert.equal(result.user, null);
   assert.deepEqual(result.cookies, []);
+  assert.deepEqual(calls.map((call) => call.url.pathname), ['/auth/v1/signup']);
 });
 
 test('Supabase repeated signup skips profile writes for an obfuscated user', async () => {

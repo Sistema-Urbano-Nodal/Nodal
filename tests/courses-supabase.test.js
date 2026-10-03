@@ -8,15 +8,20 @@ test('Supabase course pages honor smaller server row caps, stable cursors and JS
   const rows=Array.from({length:35},(_,i)=>({id:String(i).padStart(3,'0'),course_id:'course',created_at:'2026-09-05T00:00:00.000Z',resources:[],status:'published'}));
   const clients={admin:{rest:async(table,args)=>{
     calls.push({table,...args});
-    const filtered=rows.filter(row=>!args.query.or||row.id>args.query.or.match(/id.gt.([^)]*)/)[1]);
+    // Every row shares created_at, so both the caller's cursor (or) and the store's keyset (and) reduce to id order.
+    const filtered=rows.filter(row=>['or','and'].every(key=>!args.query[key]||row.id>args.query[key].match(/id.gt.([^)]*)/)[1]));
     const offset=args.query.offset??0;
     return {rows:filtered.slice(offset,offset+Math.min(7,args.query.limit)),contentRange:`${offset}-${Math.min(offset+6,filtered.length-1)}/*`};
   }}};
   const store=createCourseStore({clients});
   const first=await store.find('modules',{courseId:'course',status:'published'},{limit:31,order:['createdAt','id']});
   assert.equal(first.length,31);
+  assert.deepEqual(first.map(row=>row.id),rows.slice(0,31).map(row=>row.id),'no row repeated or skipped');
   assert.deepEqual(first[0].resources,[]);
-  assert.deepEqual(calls.map(call=>call.query.offset),[0,7,14,21,28]);
+  // Follow-ups continue after the last row (keyset), never by OFFSET.
+  assert.ok(calls.every(call=>call.query.offset===undefined));
+  assert.deepEqual(calls.map(call=>call.query.and?.match(/id.gt.([^)]*)\)/)[1]),[undefined,'006','013','020','027']);
+  assert.deepEqual(calls.map(call=>call.query.limit),[31,24,17,10,3]);
   const next=await store.find('modules',{courseId:'course'},{limit:31,after:{createdAt:first.at(-1).createdAt,id:first.at(-1).id}});
   assert.deepEqual(next.map(row=>row.id),['031','032','033','034']);
   assert.ok(calls.every(call=>call.includeRange&&call.query.course_id==='eq.course'));
@@ -91,9 +96,9 @@ test('Supabase owner post compare-and-update sends long Unicode text in JSON rat
 test('Supabase discussion attachment batches stay scoped and complete across provider row caps',async()=>{
  const ids=Array.from({length:5},(_,i)=>`abcdef00-0000-4000-8000-${String(i).padStart(12,'0')}`),calls=[];
  const rows=ids.map(id=>({id,course_id:'course',module_id:'module',user_id:'member',status:'ready',name:'File',mime:'text/plain',size:1}));
- const store=createCourseStore({clients:{admin:{rest:async(table,{query})=>{calls.push({table,query});return{rows:rows.slice(query.offset,query.offset+Math.min(2,query.limit)),contentRange:'*/5'};}}}});
+ const store=createCourseStore({clients:{admin:{rest:async(table,{query})=>{calls.push({table,query});const after=query.and?.match(/id.gt.([^)]*)\)/)?.[1];return{rows:rows.filter(row=>!after||row.id>after).slice(0,Math.min(2,query.limit)),contentRange:'*/5'};}}}});
  const attachments=await store.getPostAttachments({ids:[...ids,ids[0].toUpperCase()],courseId:'course',moduleId:'module'});
- assert.deepEqual(attachments.map(a=>a.id),ids);assert.equal(calls.length,3);
+ assert.deepEqual(attachments.map(a=>a.id),ids);assert.equal(calls.length,3);assert.deepEqual(calls.map(({query})=>query.and),[undefined,`(id.gt.${ids[1]})`,`(id.gt.${ids[3]})`]);
  assert.ok(calls.every(({table,query})=>table==='course_attachments'&&query.course_id==='eq.course'&&query.module_id==='eq.module'&&query.status==='eq.ready'&&query.id===`in.(${ids.join(',')})`));
  assert.equal(calls[0].query.limit,5);assert.deepEqual(await store.getPostAttachments({ids:[],courseId:'course',moduleId:'module'}),[]);assert.equal(calls.length,3);
  await assert.rejects(store.getPostAttachments({ids:Array.from({length:91},(_,i)=>String(i)),courseId:'course',moduleId:'module'}),/batch/);

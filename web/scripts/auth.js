@@ -5,6 +5,9 @@
   // uses them, so they leave the address bar and the history entry before anything else runs.
   if (/(?:^#|&)(?:access_token|refresh_token|error)=/.test(location.hash || '')) history.replaceState(null, '', location.pathname + location.search);
 
+  // Bytes of UTF-8 the auth provider counts (it accepts at most 72): accents take two, most emoji four.
+  const utf8Bytes=value=>{let n=0;for(const ch of value){const c=ch.codePointAt(0);n+=c<0x80?1:c<0x800?2:c<0x10000?3:4;}return n;};
+
   function safeReturnPath(value) {
     if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')) return '/dashboard.html';
     if (value.includes('\\') || /[\u0000-\u001f\u007f]/.test(value)) return '/dashboard.html';
@@ -48,7 +51,7 @@
     email:['Enter a valid email address.','Escribe un correo electrónico válido.','Digite um e-mail válido.'],
     name:['Enter your name using at least 2 characters.','Escribe tu nombre con al menos 2 caracteres.','Digite seu nome com pelo menos 2 caracteres.'],
     passwordRequired:['Enter your password.','Escribe tu contraseña.','Digite sua senha.'],
-    passwordLength:['Use 8–160 characters for your password.','Usa entre 8 y 160 caracteres en tu contraseña.','Use entre 8 e 160 caracteres na sua senha.'],
+    passwordLength:['Use 8–72 characters for your password (fewer with accents or emoji).','Usa entre 8 y 72 caracteres en tu contraseña (menos con tildes o emojis).','Use entre 8 e 72 caracteres na sua senha (menos com acentos ou emojis).'],
     invalidCredentials:['Email or password is incorrect.','Correo o contraseña incorrectos.','E-mail ou senha incorretos.'],
     confirmEmail:['Confirm your email before signing in.','Confirma tu correo antes de iniciar sesión.','Confirme seu e-mail antes de entrar.'],
     confirmation:['Check your email and confirm your account. If you already confirmed it, sign in.','Revisa tu correo y confirma tu cuenta. Si ya la confirmaste, inicia sesión.','Confira seu e-mail e confirme sua conta. Se já confirmou, entre.'],
@@ -122,7 +125,8 @@
       if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim())){show(state.error,'email',email);return;}
       // Existing account passwords must not be rejected by a new signup policy.
       if(!password.value){show(state.error,signup?'passwordLength':'passwordRequired',password);return;}
-      if(signup&&(password.value.length<8||password.value.length>160)){show(state.error,'passwordLength',password);return;}
+      // The auth provider accepts at most 72 bytes of UTF-8 (bcrypt); accents and emoji take two to four each.
+      if(signup&&(password.value.length<8||utf8Bytes(password.value)>72)){show(state.error,'passwordLength',password);return;}
       setBusy(state,true);let redirecting=false;
       try{
         const data=await post('/api/auth/'+(signup?'signup':'login'),{email:email.value.trim(),password:password.value,...(signup?{fullName:name.value.trim()}:{})},signup);

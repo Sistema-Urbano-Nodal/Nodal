@@ -314,29 +314,29 @@ test('Supabase Data API smoke exercises reads, constrained inserts, updates, and
 test('changed one-hour-cached clients use new URLs on every consuming page', () => {
   const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'course.html', 'courses.html', 'teaching.html', 'accept-invitation.html', 'fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'organisers-only.html', 'community.html', 'knowledge.html', 'resources.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
-  const pilot = { 'pilot-i18n.js': '20261001a', 'pilot.js': '20261001a' };
+  const pilot = { 'pilot-i18n.js': '20261003r', 'pilot.js': '20261003r' };
   const festival = { 'fiiu.css': '20261002p', 'fiiu-ui.js': '20261002p' };
   const required = {
-    'index.html': { 'styles.css': '30', 'i18n.js': '20261003a', 'app.js': '20', 'recs.js': '4', 'script.js': '18', 'hero-network.js': '2' },
-    'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20261003a', 'catalog.js': '6', ...pilot },
-    'dashboard.html': { 'i18n.js': '20261003a', ...festival, 'fiiu-hubs.js': '20261001a', 'news-feed.js': '20261001b', 'dashboard.js': '20261001a', 'dashboard.css': '37', 'globe.js': '28', 'location-check.js': '20260908b', ...pilot },
-    'login.html': { 'i18n.js': '20261003a', 'auth.js': '20261002a', ...pilot },
-    'reset-password.html': { 'i18n.js': '20261003a', 'password-recovery.js': '20260930a' },
-    'payments.html': { 'i18n.js': '20261003a', ...pilot },
-    'profile.html': { 'i18n.js': '20261003a', 'profile.js': '20260911c', 'styles.css': '30', ...pilot },
-    'admin.html': { 'styles.css': '30', 'admin.css': '5', 'admin.js': '6', 'i18n.js': '20261003a', 'locale.css': '20260929a', 'locale.js': '20260918b', 'nav.js': '20260928a', 'script.js': '18' },
-    'course.html': { 'i18n.js': '20261003a', 'courses.js': '20261001a', ...pilot },
-    'courses.html': { 'i18n.js': '20261003a', 'courses.css': '20260930a', 'courses.js': '20261001a', ...pilot },
-    'teaching.html': { 'i18n.js': '20261003a', 'courses.css': '20260930a', 'teaching.js': '20261001a', ...pilot },
-    'accept-invitation.html': { 'accept-invitation.js': '20261001a', 'invitation-i18n.js': '20261001a' },
-    'fiiu.html': { 'styles.css': '30', 'i18n.js': '20261003a', ...festival, 'fiiu.js': '20261002n' },
-    'fiiu-admin.html': { 'styles.css': '30', 'i18n.js': '20261003a', ...festival, 'fiiu-admin.js': '20261002p' },
-    'fiiu-qr.html': { 'i18n.js': '20261003a', ...festival, 'fiiu-qr.js': '20261001b' },
-    'fiiu-checkin.html': { 'i18n.js': '20261003a', ...festival, 'fiiu-checkin.js': '20261001d' },
-    'organisers-only.html': { 'i18n.js': '20261003a', ...festival },
-    'community.html': { 'styles.css': '30', 'script.js': '18', 'i18n.js': '20261003a', ...festival, 'fiiu-hubs.js': '20261001a', 'news-feed.js': '20261001b' },
-    'knowledge.html': { 'styles.css': '30', 'script.js': '18', 'i18n.js': '20261003a', ...festival, 'fiiu-hubs.js': '20261001a' },
-    'resources.html': { 'styles.css': '30', 'script.js': '18', 'i18n.js': '20261003a', ...festival, 'fiiu-hubs.js': '20261001a' },
+    'index.html': { 'styles.css': '30', 'i18n.js': '20261003r', 'app.js': '20', 'recs.js': '4', 'script.js': '18', 'hero-network.js': '2' },
+    'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20261003r', 'catalog.js': '6', ...pilot },
+    'dashboard.html': { 'i18n.js': '20261003r', ...festival, 'fiiu-hubs.js': '20261001a', 'news-feed.js': '20261001b', 'dashboard.js': '20261003r', 'dashboard.css': '37', 'globe.js': '29', 'location-check.js': '20260908b', ...pilot },
+    'login.html': { 'i18n.js': '20261003r', 'auth.js': '20261003r', 'recovery-i18n.js': '20261003r', ...pilot },
+    'reset-password.html': { 'i18n.js': '20261003r', 'recovery-i18n.js': '20261003r', 'password-recovery.js': '20261003r' },
+    'payments.html': { 'i18n.js': '20261003r', 'payments.js': '18', ...pilot },
+    'profile.html': { 'i18n.js': '20261003r', 'profile.js': '20260911c', 'styles.css': '30', ...pilot },
+    'admin.html': { 'styles.css': '30', 'admin.css': '5', 'admin.js': '6', 'i18n.js': '20261003r', 'locale.css': '20260929a', 'locale.js': '20260918b', 'nav.js': '20260928a', 'script.js': '18' },
+    'course.html': { 'i18n.js': '20261003r', 'courses.js': '20261003r', ...pilot },
+    'courses.html': { 'i18n.js': '20261003r', 'courses.css': '20260930a', 'courses.js': '20261003r', ...pilot },
+    'teaching.html': { 'i18n.js': '20261003r', 'courses.css': '20260930a', 'teaching.js': '20261003r', ...pilot },
+    'accept-invitation.html': { 'accept-invitation.js': '20261003r', 'invitation-i18n.js': '20261003r' },
+    'fiiu.html': { 'styles.css': '30', 'i18n.js': '20261003r', ...festival, 'fiiu.js': '20261002n' },
+    'fiiu-admin.html': { 'styles.css': '30', 'i18n.js': '20261003r', ...festival, 'fiiu-admin.js': '20261002p' },
+    'fiiu-qr.html': { 'i18n.js': '20261003r', ...festival, 'fiiu-qr.js': '20261001b' },
+    'fiiu-checkin.html': { 'i18n.js': '20261003r', ...festival, 'fiiu-checkin.js': '20261001d' },
+    'organisers-only.html': { 'i18n.js': '20261003r', ...festival },
+    'community.html': { 'styles.css': '30', 'script.js': '18', 'i18n.js': '20261003r', ...festival, 'fiiu-hubs.js': '20261001a', 'news-feed.js': '20261001b' },
+    'knowledge.html': { 'styles.css': '30', 'script.js': '18', 'i18n.js': '20261003r', ...festival, 'fiiu-hubs.js': '20261001a' },
+    'resources.html': { 'styles.css': '30', 'script.js': '18', 'i18n.js': '20261003r', ...festival, 'fiiu-hubs.js': '20261001a' },
   };
   for (const [page, assets] of Object.entries(required)) {
     for (const [asset, version] of Object.entries(assets)) {

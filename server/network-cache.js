@@ -1,10 +1,23 @@
 /* Process-local, bounded snapshots. Revisions always come from the authoritative
    database. Without revision support, a network response cannot be validated
    after asynchronous work and therefore fails closed. Directory reads never
-   depend on graph availability; graph consumers request it lazily. */
-export function createNetworkSnapshots(repository, { ttlMs = 15_000, now = Date.now } = {}) {
+   depend on graph availability; graph consumers request it lazily.
+
+   The revision alone decides whether the data is current: database triggers bump
+   it on every write to the five tables the directory and graph are read from, so
+   an unchanged revision means unchanged rows. The globe polls every 15 seconds,
+   and rereading the whole directory and graph on each poll only to answer 304
+   cost Supabase egress for nothing. Two clocks remain:
+   - refreshMs: after this long the same rows (and their already loaded graph) are
+     handed out as a new snapshot object, so per-snapshot work derived from them
+     (the places payload, which geocodes a few unplaced cities each time it is
+     built) is recomputed without reading any table again.
+   - ttlMs: a backstop. Rows older than this are read again even when the revision
+     has not moved. */
+export function createNetworkSnapshots(repository, { ttlMs = 10 * 60_000, refreshMs = 15_000, now = Date.now } = {}) {
   let cached = null;
   const pending = new Map();
+  // Keyed by the directory rows, which renewed snapshots share, so a renewal never reloads the graph.
   const graphs = new WeakMap();
   const unstable = () => Object.assign(new Error('Network changed during read; retry shortly'), { status: 503 });
   async function revision() {
@@ -17,13 +30,22 @@ export function createNetworkSnapshots(repository, { ttlMs = 15_000, now = Date.
   }
   async function loadDirectory(key) {
     const rows = await repository.listDirectoryUsers();
-    return { rows, revision: key, expires: now() + ttlMs };
+    const loadedAt = now();
+    return { rows, revision: key, loadedAt, expires: loadedAt + Math.min(refreshMs, ttlMs) };
+  }
+  // The cached snapshot when it is still valid for this revision, renewed (same rows, new identity) when due.
+  function current(key) {
+    const at = now();
+    if (!cached || cached.revision !== key || at - cached.loadedAt >= ttlMs) return null;
+    if (cached.expires <= at) cached = { ...cached, expires: at + refreshMs };
+    return cached;
   }
   async function readDirectory() {
     for (let attempt = 0; attempt < 3; attempt++) {
       const key = await revision();
-      if (cached?.revision !== key || cached.expires <= now()) cached = null;
-      if (cached) return cached;
+      const valid = current(key);
+      if (valid) return valid;
+      cached = null;
       let work = pending.get(key);
       if (!work) {
         work = loadDirectory(key);
@@ -38,11 +60,12 @@ export function createNetworkSnapshots(repository, { ttlMs = 15_000, now = Date.
     throw unstable();
   }
   async function loadGraph(snapshot) {
-    let work = graphs.get(snapshot);
+    const key = snapshot.rows;
+    let work = graphs.get(key);
     if (!work) {
       work = Promise.resolve().then(() => repository.loadGraphStore({ directoryRows: snapshot.rows }));
-      graphs.set(snapshot, work);
-      work.catch(() => { if (graphs.get(snapshot) === work) graphs.delete(snapshot); });
+      graphs.set(key, work);
+      work.catch(() => { if (graphs.get(key) === work) graphs.delete(key); });
     }
     snapshot.graph = await work;
   }

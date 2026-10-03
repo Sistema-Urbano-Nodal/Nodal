@@ -264,8 +264,9 @@ for(const lang of ['es','pt']){
     for(const page of [undefined,'dashboard','course','opportunities']){
       const{api,dictionaries}=load(page);api.apply(lang);
       // Later additions have their own translation coverage; preserve the original copy baseline.
-      // The publishing desk (ops.*), NODAL news (news.*) and the console's desk link are covered by catalog-ui and news-ui.
-      const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish'].includes(key)||/^(?:ops|news)\./.test(key);
+      // The publishing desk (ops.*), NODAL news (news.*) and the console's desk link are covered by catalog-ui and news-ui;
+      // the membership and account-deletion refusals (October 3 review) by review-fix-5-integration.
+      const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','y.alreadyMember','d.uc.deleteSubscription'].includes(key)||/^(?:ops|news)\./.test(key);
       const actual=Object.entries(dictionaries[lang]).filter(([key])=>!later(key)).sort(([a],[b])=>a.localeCompare(b,'en'));
       assert.equal(hash(actual),SNAPSHOTS.nonhome[lang],String(page));
       assert.equal(api.t('nav.privacy'),lang==='es'?'Política de privacidad':'Política de privacidade');

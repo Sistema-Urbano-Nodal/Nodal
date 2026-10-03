@@ -2,7 +2,7 @@
    against Stripe's REST API with fetch. Without Stripe configuration the
    route reports local misconfiguration outside production. */
 
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 const STRIPE_SESSIONS_URL = 'https://api.stripe.com/v1/checkout/sessions';
 export const CYCLES = new Set(['monthly', 'annual']);
@@ -10,6 +10,8 @@ const STRIPE_KEY_RE = /^sk_(test|live)_[A-Za-z0-9]+$/;
 const STRIPE_PRICE_RE = /^price_[A-Za-z0-9]+$/;
 const STRIPE_WEBHOOK_RE = /^whsec_[A-Za-z0-9]+$/;
 const WEBHOOK_TOLERANCE_SEC = 5 * 60;
+// A repeated checkout request inside this window gets the same Stripe session back.
+const CHECKOUT_IDEMPOTENCY_WINDOW_MS = 10 * 60 * 1000;
 
 function wantsLivePayments(env = process.env) {
   return env.PAYMENTS_MODE === 'live';
@@ -48,7 +50,7 @@ export function paymentsConfig(env = process.env) {
   };
 }
 
-export async function createCheckoutSession({ cycle, origin, user }, config, fetchImpl = fetch) {
+export async function createCheckoutSession({ cycle, origin, user }, config, fetchImpl = fetch, now = Date.now()) {
   const price = config.prices[cycle];
   if (!price) throw Object.assign(new Error(`no price configured for ${cycle} billing`), { status: 501 });
   const body = new URLSearchParams({
@@ -62,11 +64,20 @@ export async function createCheckoutSession({ cycle, origin, user }, config, fet
     cancel_url: `${origin}/payments.html?checkout=cancelled`,
   });
   if (user.email) body.set('customer_email', user.email);
+  /* A double click, a retried request or a second tab would otherwise open a second
+     Checkout Session, and paying both starts two subscriptions before the first
+     webhook lets the server refuse. The same member, cycle and price within one
+     window share an Idempotency-Key, so Stripe answers with the session it made. */
+  const windowStart = Math.floor(now / CHECKOUT_IDEMPOTENCY_WINDOW_MS);
+  const idempotencyKey = createHash('sha256')
+    .update(`nodal-checkout:${user.id}:${cycle}:${price}:${windowStart}`)
+    .digest('hex');
   const res = await fetchImpl(STRIPE_SESSIONS_URL, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${config.secretKey}`,
       'Content-Type': 'application/x-www-form-urlencoded',
+      'Idempotency-Key': idempotencyKey,
     },
     body,
   });

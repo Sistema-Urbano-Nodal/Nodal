@@ -2,7 +2,7 @@
    Zero dependencies — run with `node server/server.js` (PORT, DATABASE_PATH, REDIS_URL optional). */
 
 import http from 'node:http';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -26,7 +26,7 @@ import { exportCourseData, deleteCourseData } from './courses-privacy.js';
 import {
   paymentsConfig, createCheckoutSession, verifyStripeWebhook, CYCLES,
 } from './payments.js';
-import { validateEmail, validatePassword } from './auth.js';
+import { parseCookies, validateEmail, validatePassword } from './auth.js';
 import { createRepository } from './repository.js';
 import { dataBackend, resolveSupabaseEnv } from './supabase.js';
 import {
@@ -66,6 +66,32 @@ const AUTH_RATE_LIMIT = envInt('AUTH_RATE_LIMIT', 10);
 // A classroom may share one public IP. Keep account guessing strict while
 // bounding aggregate signup/login work independently (1–10,000 per window).
 const AUTH_IP_RATE_LIMIT = Math.min(10000, Math.max(1, Math.floor(envInt('AUTH_IP_RATE_LIMIT', 800))));
+/* Failed sign-ins are counted per account and requester (AUTH_RATE_LIMIT), so
+   somebody else's wrong guesses never lock the owner out, and per account across
+   every requester against distributed guessing. Successes count for neither. */
+const AUTH_ACCOUNT_RATE_LIMIT = envInt('AUTH_ACCOUNT_RATE_LIMIT', 5 * AUTH_RATE_LIMIT);
+/* Every anonymous sign-up can make the auth provider send an email, and that
+   quota (300 an hour on the Supabase project, over the same Gmail account as
+   FIIU mail) also carries password-recovery links and course invitations. Sign-ups
+   stop at this many an hour per instance, which leaves the rest for those. */
+const SIGNUP_EMAIL_HOURLY_LIMIT = envInt('SIGNUP_EMAIL_HOURLY_LIMIT', 200);
+/* A refresh token that GoTrue rejects costs it a refresh against its per-IP limit,
+   and GoTrue sees this server's address, not the visitor's. Each client address
+   may cause this many rejected refreshes per five minutes; a real browser
+   refreshes about once an hour, and successful refreshes are not counted. */
+const SESSION_REFRESH_FAILURE_LIMIT = envInt('SESSION_REFRESH_FAILURE_LIMIT', 30);
+const SUPABASE_ACCESS_COOKIE = 'nodal_session';
+const SUPABASE_REFRESH_COOKIE = 'nodal_refresh';
+// Routes that never read the session: resolving one would only cost provider calls.
+const SESSIONLESS_API = new Set(['/api/health', '/api/billing/config', '/api/stripe/webhook']);
+/* Routes that answer without a member and only personalise when there is one. A
+   session-service outage serves them signed out instead of failing them. */
+const OPTIONAL_SESSION_API = /^\/api\/(?:auth\/state|fiiu|news|catalog(?:\/[a-z0-9-]{1,40})?)$/;
+/* Routes that use only the member's id, email, role and account status, which the
+   profile row carries. The full profile adds two reads to every request. */
+const ID_ONLY_API = /^\/api\/(?:network\/places|users|users\/search|users\/[^/]+\/(?:follow|interactions)|recommendations\/[^/]+|cities|billing\/status|checkout|me\/export|me\/catalog-interests|me\/location\/(?:suggest|accept)|(?:admin\/)?catalog(?:\/.*)?|admin\/interests(?:\/.*)?)$/;
+// A Stripe subscription in any of these states exists and can still bill the member.
+const LIVE_SUBSCRIPTION_STATUSES = new Set(['pending', 'active', 'trialing', 'past_due', 'unpaid', 'paused']);
 const INTERACTION_RATE_WINDOW_MS = 60 * 1000;
 const INTERACTION_RATE_LIMIT = envInt('INTERACTION_RATE_LIMIT', 60);
 const LINKEDIN_RE = /^https:\/\/(www\.)?linkedin\.com\/(in|company)\/[A-Za-z0-9_-]+/;
@@ -89,6 +115,10 @@ const COSTLY_RATE_WINDOW_MS = 10 * 60 * 1000;
 const COSTLY_RATE_LIMIT = envInt('COSTLY_RATE_LIMIT', 10);      // per ten minutes
 const PLACE_TTL_MS = 30 * 24 * 60 * 60 * 1000;   // a city does not move
 const NETWORK_GEOCODE_PER_REQUEST = envInt('NETWORK_GEOCODE_PER_REQUEST', 4);
+// Total time one places build may spend waiting on the geocoder.
+const NETWORK_GEOCODE_BUDGET_MS = envInt('NETWORK_GEOCODE_BUDGET_MS', 2000);
+// A city the provider could not place (or a failed lookup) is not asked about again for this long.
+const PLACE_MISS_TTL_MS = 10 * 60 * 1000;
 const CITY_SEARCH_MAX_QUERY = 80;
 const CITY_SEARCH_LIMIT = envInt('CITY_SEARCH_LIMIT', 8);
 const CITY_SEARCH_CACHE_MS = 24 * 60 * 60 * 1000;
@@ -200,7 +230,48 @@ function createWindowRateLimiter({ windowMs, limit }) {
       bucket.count += 1;
       return { ok: true, retryAfter: 0 };
     },
+    // Whether take() would succeed, without spending anything.
+    peek(key, now = Date.now()) {
+      const bucket = buckets.get(key);
+      return !bucket || now >= bucket.resetAt || bucket.count < limit;
+    },
+    /* Gives back one unit from take(). A budget that only counts failures takes
+       before the outcome is known, so parallel attempts cannot all slip past it,
+       and returns the unit when the attempt did not fail. */
+    release(key) {
+      const bucket = buckets.get(key);
+      if (bucket && bucket.count > 0) bucket.count -= 1;
+    },
+    reset(key) {
+      buckets.delete(key);
+    },
   };
+}
+
+/* The expiry of a token shaped like a JWT, read without verifying the signature:
+   enough to know that asking the auth provider about it is pointless, never
+   enough to trust it. null when the value is not a JWT at all. */
+function jwtExpiry(token) {
+  const value = String(token || '');
+  const parts = value.split('.');
+  if (value.length > 8192 || parts.length !== 3 || !parts.every(part => /^[A-Za-z0-9_-]+$/.test(part))) return null;
+  try {
+    const exp = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'))?.exp;
+    return Number.isFinite(exp) ? exp : null;
+  } catch {
+    return null;
+  }
+}
+
+// GoTrue refresh tokens are short printable strings; empty, spaced or binary values are not.
+const usableRefreshToken = value => /^[!-~]{1,2048}$/.test(String(value || ''));
+
+// The same request with some cookies left out, for code that reads only req.headers.cookie.
+function withoutCookies(req, names) {
+  const cookie = String(req.headers.cookie || '').split(';')
+    .filter(part => !names.includes(part.split('=')[0].trim()))
+    .join(';');
+  return { headers: { ...req.headers, cookie }, socket: req.socket, method: req.method, url: req.url };
 }
 
 /* Behind a proxy the leftmost X-Forwarded-For entry is whatever the client
@@ -208,8 +279,14 @@ function createWindowRateLimiter({ windowMs, limit }) {
    rotating a header. Prefer X-Real-IP, which the proxy sets and a client cannot
    forge through it; otherwise take the rightmost hop, which is the address the
    nearest trusted proxy observed. */
+/* Vercel always runs the app behind its own proxy, which sets X-Real-IP and X-Forwarded-For, so its headers are
+   trusted there unless TRUST_PROXY is explicitly "false". Elsewhere only TRUST_PROXY=true trusts them. */
+export function trustsProxy(env = process.env) {
+  return env.TRUST_PROXY === 'true' || (env.VERCEL === '1' && env.TRUST_PROXY !== 'false');
+}
+
 function clientIp(req) {
-  if (process.env.TRUST_PROXY === 'true') {
+  if (trustsProxy()) {
     const real = String(req.headers['x-real-ip'] ?? '').trim();
     if (real) return real.slice(0, 80);
     const chain = String(req.headers['x-forwarded-for'] ?? '').split(',').map((v) => v.trim()).filter(Boolean);
@@ -406,8 +483,27 @@ export function createCitySearch({
   };
 }
 
+/* Password-recovery and invitation emails, the FIIU summary and its check-in links
+   use only the configured origin (server/supabase.js emailLinkOrigin). VERCEL_URL
+   names one deployment, behind Vercel's protection, so the public site needs this. */
+function requireExplicitOrigin(env) {
+  const raw = String(env.PUBLIC_BASE_URL || env.NEXT_PUBLIC_APP_URL || '').trim();
+  if (!raw) throw new Error('PUBLIC_BASE_URL (or NEXT_PUBLIC_APP_URL) is required on Vercel Production; email links never use VERCEL_URL');
+  let url;
+  try { url = new URL(raw); } catch { throw new Error('PUBLIC_BASE_URL must be a valid https origin'); }
+  if (url.protocol !== 'https:') throw new Error('PUBLIC_BASE_URL must use https');
+  if (url.username || url.password) throw new Error('PUBLIC_BASE_URL must not contain credentials');
+}
+
 export function validateRuntimeConfig(env = process.env) {
   const backend = dataBackend(env);
+  const vercelProduction = env.VERCEL_ENV === 'production';
+  /* Off Vercel, clientIp() trusts proxy headers only for the exact string "true"; any other spelling would silently
+     key every per-client limit on the proxy's own hop, so one visitor would spend the budget of everyone. On Vercel
+     the proxy is always there (trustsProxy), so a missing or odd value must not stop production from booting. */
+  if (env.VERCEL !== '1' && !['', 'true', 'false'].includes(env.TRUST_PROXY ?? '')) throw new Error('TRUST_PROXY must be "true" or "false"');
+  if (vercelProduction && env.TRUST_PROXY === 'false') console.warn('TRUST_PROXY=false on Vercel Production: every visitor shares one rate-limit bucket');
+  if (vercelProduction) requireExplicitOrigin(env);
   if (env.NODE_ENV === 'production') {
     if (backend === 'sqlite' && !env.DATABASE_PATH) throw new Error('DATABASE_PATH is required in production');
     if (env.COOKIE_SECURE === 'false') throw new Error('COOKIE_SECURE must not be false in production');
@@ -440,6 +536,29 @@ function redirect(res, location) {
     'Cache-Control': 'no-store',
   }));
   res.end();
+}
+
+/* A private page asked for while the session service is down. The browser gets a
+   page it can show, not a JSON error, and is asked to retry shortly. */
+const UNAVAILABLE_PAGE = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>NODAL</title></head>
+<body>
+<h1>NODAL is temporarily unavailable</h1>
+<p>We could not check your sign-in just now. Please reload this page in a minute.</p>
+<p lang="es">NODAL no está disponible en este momento. Recarga esta página en un minuto.</p>
+<p lang="pt">A NODAL está temporariamente indisponível. Recarregue esta página em um minuto.</p>
+</body>
+</html>
+`;
+
+function sendUnavailablePage(req, res) {
+  res.writeHead(503, htmlSecurityHeaders({
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Retry-After': '30',
+  }));
+  res.end(req.method === 'HEAD' ? undefined : UNAVAILABLE_PAGE);
 }
 
 /* CSRF guard for state-changing requests: same-origin only */
@@ -521,7 +640,16 @@ async function recordStripeEvent(repository, event) {
     currentPeriodEnd: null,
   };
   if (event.type === 'checkout.session.completed') {
-    const userId = String(object.client_reference_id || object.metadata?.nodal_user_id || '');
+    /* Only a membership checkout counts. Another Checkout flow in the same Stripe
+       account (a one-off payment, a Payment Link that accepts client_reference_id
+       in its URL) must never mark a member as subscribed. */
+    if ((object.mode !== undefined && object.mode !== 'subscription') || !object.subscription) return;
+    /* createCheckoutSession always sets metadata.nodal_user_id, and a Payment Link
+       cannot: one that only carries client_reference_id is not a NODAL checkout. */
+    const reference = String(object.client_reference_id || '');
+    const metadataUserId = String(object.metadata?.nodal_user_id || '');
+    if (!metadataUserId || (reference && reference !== metadataUserId)) return;
+    const userId = metadataUserId;
     if (!userId || !(await repository.getUserById(userId))) return;
     const paid = object.payment_status === 'paid' || object.payment_status === 'no_payment_required';
     await repository.applyStripeEvent({
@@ -540,7 +668,8 @@ async function recordStripeEvent(repository, event) {
     userId,
     stripeSubscriptionId: String(object.id || ''),
     status: event.type === 'customer.subscription.deleted' ? 'canceled' : object.status,
-    currentPeriodEnd: stripeTimestampToIso(object.current_period_end),
+    // Stripe API 2025-03-31.basil moved the billing period from the subscription to its items.
+    currentPeriodEnd: stripeTimestampToIso(object.current_period_end ?? object.items?.data?.[0]?.current_period_end),
   });
 }
 
@@ -864,7 +993,78 @@ export function createApp({
     return false;
   };
   const authAccountKey = (action, email) => `${action}:${createHash('sha256').update(email).digest('hex')}`;
+  // Failed sign-ins for one account from every requester together (see AUTH_ACCOUNT_RATE_LIMIT).
+  const authAddressLimiter = createWindowRateLimiter({ windowMs: AUTH_RATE_WINDOW_MS, limit: AUTH_ACCOUNT_RATE_LIMIT });
+  const signupEmailCeiling = createWindowRateLimiter({ windowMs: 60 * 60 * 1000, limit: SIGNUP_EMAIL_HOURLY_LIMIT });
+  /* Recovery emails: three per address per requester, so nobody can spend a
+     member's budget for them, and ten per address from everyone together, so one
+     inbox cannot be flooded from many places. */
   const recoveryEmailLimiter = createWindowRateLimiter({ windowMs: 15 * 60 * 1000, limit: 3 });
+  const recoveryAddressLimiter = createWindowRateLimiter({ windowMs: 15 * 60 * 1000, limit: 10 });
+  const sessionRefreshFailures = createWindowRateLimiter({ windowMs: AUTH_RATE_WINDOW_MS, limit: SESSION_REFRESH_FAILURE_LIMIT });
+  // The repository's own cleared-cookie headers; a logout without an access token makes no provider call.
+  const clearedSessionCookies = async () => (await repository.logout({ headers: {} }, process.env))?.cookies || [];
+
+  /* Supabase sessions cost GoTrue calls: /user for the access token and, when that
+     is rejected, a refresh, which GoTrue rate-limits per IP (this server's IP).
+     Cookies are checked here first, so a value that cannot be a session is never
+     sent, and the refreshes one client address can make fail are budgeted. */
+  function sessionCookieState(req) {
+    const cookies = parseCookies(req.headers.cookie);
+    const expiry = jwtExpiry(cookies.get(SUPABASE_ACCESS_COOKIE));
+    return {
+      present: cookies.has(SUPABASE_ACCESS_COOKIE) || cookies.has(SUPABASE_REFRESH_COOKIE),
+      liveAccess: expiry !== null && expiry * 1000 > Date.now(),
+      refreshUsable: usableRefreshToken(cookies.get(SUPABASE_REFRESH_COOKIE)),
+      budgetKey: `session-refresh:${clientIp(req)}`,
+    };
+  }
+  async function resolveRequestSession(req, options) {
+    if (repository.kind !== 'supabase') return repository.resolveSession(req, options);
+    const { present, liveAccess, refreshUsable, budgetKey } = sessionCookieState(req);
+    if (!present) return { user: null, cookies: [] };
+    if (liveAccess) {
+      // The provider may still reject the token (revoked, forged) and fall back to the refresh token.
+      const mayRefresh = refreshUsable && sessionRefreshFailures.peek(budgetKey);
+      const result = await repository.resolveSession(mayRefresh ? req : withoutCookies(req, [SUPABASE_REFRESH_COOKIE]), options);
+      if (mayRefresh && !result.user && result.cookies?.length) sessionRefreshFailures.take(budgetKey);
+      return result;
+    }
+    // Missing, expired or malformed access token: only a refresh can lead to a session.
+    if (!refreshUsable) return { user: null, cookies: await clearedSessionCookies() };
+    // Over budget: signed out for this request, cookies kept for when the budget returns.
+    if (!sessionRefreshFailures.take(budgetKey).ok) return { user: null, cookies: [] };
+    let result;
+    try {
+      result = await repository.resolveSession(withoutCookies(req, [SUPABASE_ACCESS_COOKIE]), options);
+    } finally {
+      // Only a refresh the provider rejected stays counted; a session or an outage hands the unit back.
+      if (!result || result.user) sessionRefreshFailures.release(budgetKey);
+    }
+    return result;
+  }
+  /* Sign-out revokes the session at the provider and may redeem the refresh token
+     to do it. The route takes no other budget, so a token that cannot be live is
+     not sent, and each refresh it may cost reserves a unit of the same per-address
+     budget. The unit is handed back unless the provider rejected that refresh
+     token, so members signing out together from one school network never use up
+     the budget their classmates' session refreshes depend on. Over budget, the
+     cookies are still cleared here; only the revocation is skipped. */
+  async function logoutSession(req) {
+    if (repository.kind !== 'supabase') return repository.logout(req, process.env);
+    const { liveAccess, refreshUsable, budgetKey } = sessionCookieState(req);
+    const drop = [];
+    if (!liveAccess) drop.push(SUPABASE_ACCESS_COOKIE);
+    const reserved = refreshUsable && sessionRefreshFailures.take(budgetKey).ok;
+    if (!reserved) drop.push(SUPABASE_REFRESH_COOKIE);
+    let result;
+    try {
+      result = await repository.logout(drop.length ? withoutCookies(req, drop) : req, process.env);
+    } finally {
+      if (reserved && !result?.refreshRejected) sessionRefreshFailures.release(budgetKey);
+    }
+    return result;
+  }
   const interactionLimiter = createWindowRateLimiter({ windowMs: INTERACTION_RATE_WINDOW_MS, limit: INTERACTION_RATE_LIMIT });
   const recommendationLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: READ_RATE_LIMIT });
   // each search walks the whole directory, so it is bounded per member
@@ -886,15 +1086,21 @@ export function createApp({
   async function resolveCity(city, acceptLanguage) {
     const key = `place:v1:${String(city).trim().toLowerCase()}`;
     const remembered = await cache.get(key);
+    /* A miss is remembered too, for a shorter time. Otherwise every rebuild of the
+       globe's places asked a failing (or rate-limited) provider about the same
+       cities again, one after another, inside the request. */
+    if (remembered === 'null') return null;
     if (remembered) { try { return JSON.parse(remembered); } catch { /* refetch */ } }
+    let point = null;
     try {
       const found = await citySearch.search(city, acceptLanguage);
       const best = (found.cities || []).find((c) => Number.isFinite(c.lat) && Number.isFinite(c.lon));
-      if (!best) return null;
-      const point = { lat: best.lat, lon: best.lon, label: best.label || city };
-      await cache.set(key, JSON.stringify(point), PLACE_TTL_MS);
-      return point;
-    } catch { return null; }
+      if (best) point = { lat: best.lat, lon: best.lon, label: best.label || city };
+    } catch { point = null; }
+    try {
+      await cache.set(key, point ? JSON.stringify(point) : 'null', point ? PLACE_TTL_MS : PLACE_MISS_TTL_MS);
+    } catch { /* an unavailable cache only costs a later lookup */ }
+    return point;
   }
 
   const throttle = (limiter, res2, req2, user, scope) => {
@@ -921,10 +1127,11 @@ export function createApp({
   // 6-character fallback code impractical to guess. Separate, so it never spends registration or organiser budgets.
   const fiiuSelfCheckInLimiter=createWindowRateLimiter({windowMs:60000,limit:20});
   // Summary emails: three per account per hour, so registering and cancelling in a loop cannot turn NODAL into a mailer,
-  // and a ceiling across all accounts (60 an hour per server instance), so a handful of accounts doing that cannot use up
-  // the sending account's daily quota (about 500 for Gmail, 2,000 for Workspace) or get it flagged. The account limit is
-  // checked first, so one account never spends the shared ceiling beyond its own three. A registration over either
-  // limit keeps confirmation_status 'none' for the backfill.
+  // and a ceiling across all accounts (60 an hour per server instance), which slows a handful of accounts doing that.
+  // It does not by itself protect the sending account's daily quota (about 500 for Gmail, 2,000 for Workspace): 60 an
+  // hour is 1,440 a day, and each Vercel instance keeps its own count. A durable per-day send ledger is the open
+  // follow-up (October 3 review, fiiu-1). The account limit is checked first, so one account never spends the shared
+  // ceiling beyond its own three. A registration over either limit keeps confirmation_status 'none' for the backfill.
   const fiiuEmailLimiter=createWindowRateLimiter({windowMs:60*60*1000,limit:fiiuEmailLimits.perAccount});
   const fiiuEmailCeiling=createWindowRateLimiter({windowMs:60*60*1000,limit:fiiuEmailLimits.overall});
   // Check-in links point at the configured public origin; only a server outside production falls back to its Host.
@@ -946,8 +1153,29 @@ export function createApp({
       :throttle(newsWriteLimiter,res,req,user,'news-write'),
   }):null;
   const courseApi=courseStore?createCourseApi({store:courseStore,userRepository:repository,sameOrigin,send,
-    rateLimit:(req,res,user,pathname)=>throttle(pathname.endsWith('/invitations')?courseInvitationLimiter:pathname.endsWith('/attachments')?courseUploadLimiter:['GET','HEAD'].includes(req.method)?courseReadLimiter:courseWriteLimiter,res,req,user,'course'),
+    // Only an upload spends the upload budget; staff list the file library after every upload, use and delete.
+    rateLimit:(req,res,user,pathname)=>throttle(pathname.endsWith('/invitations')?courseInvitationLimiter:req.method==='POST'&&pathname.endsWith('/attachments')?courseUploadLimiter:['GET','HEAD'].includes(req.method)?courseReadLimiter:courseWriteLimiter,res,req,user,'course'),
   }):null;
+  /* Recommendations for a member outside the directory need their private graph:
+     the shared directory plus their own profile, and every follow and interaction.
+     The authoritative network revision moves on any write to those rows, so a
+     cached answer is looked up by revision before any of that is read. Supabase
+     revisions are one database-wide counter; SQLite's are per connection, so
+     there the key is also tied to this server. */
+  const revisionScope = repository?.kind === 'supabase' ? 'db' : randomUUID();
+  async function buildUnlisted(snapshot, userId) {
+    const key = `rec:v5:${revisionScope}:${userId}:${snapshot.revision}`;
+    const cached = await cache.get(key);
+    if (cached) return { payload: cached, hit: true };
+    const graph = await repository.loadGraphStore({ viewerId: userId, directoryRows: snapshot.rows });
+    if (!graph.users.has(userId)) return null;
+    // The model trained on this private graph is kept under its own key, never the shared one.
+    const recommendations = recommend(graph, userId, { modelKey: graphFingerprint(graph) }) ?? [];
+    const payload = JSON.stringify({ userId, generatedAt: new Date().toISOString(), recommendations });
+    await cache.set(key, payload, REC_TTL_MS);
+    return { payload, hit: false };
+  }
+
   if (repository?.cleanupExpiredSessions) repository.cleanupExpiredSessions();
 
   const server = http.createServer(async (req, res) => {
@@ -972,14 +1200,30 @@ export function createApp({
         '/api/auth/recovery/request', '/api/auth/recovery/complete',
         '/api/auth/course-invitation/complete',
       ].includes(pathname);
-      const needsSession = pageNeedsSession || (isApiRequest && !authenticatesRequest && pathname !== '/api/health');
+      const needsSession = pageNeedsSession || (isApiRequest && !authenticatesRequest && !SESSIONLESS_API.has(pathname));
       const authorizationOnly = pageNeedsSession || pathname === '/api/auth/state'
         || /^\/api\/(?:fiiu|admin\/fiiu)(?:\/|$)/.test(pathname)
         || /^\/api\/(?:admin\/)?news(?:\/|$)/.test(pathname)
-        || /^\/api\/(?:courses(?:\/|$)|admin\/courses(?:\/|$)|course-attachments\/|feedback(?:\/|$)|admin\/feedback(?:\/|$))/.test(pathname);
-      const session = useDb && needsSession
-        ? await repository.resolveSession(req, { authorizationOnly })
-        : { user: null, cookies: [] };
+        || /^\/api\/(?:courses(?:\/|$)|admin\/courses(?:\/|$)|course-attachments\/|feedback(?:\/|$)|admin\/feedback(?:\/|$))/.test(pathname)
+        || ID_ONLY_API.test(pathname) || (req.method === 'DELETE' && pathname === '/api/me');
+      const optionalSession = (req.method === 'GET' || req.method === 'HEAD')
+        && (isApiRequest ? OPTIONAL_SESSION_API.test(pathname) : canonical === '/login.html');
+      let session = { user: null, cookies: [] };
+      if (useDb && needsSession) {
+        try {
+          session = await resolveRequestSession(req, { authorizationOnly });
+        } catch (err) {
+          /* The session service is down (or rate limiting this server). A route
+             that works without a member is served signed out, with the cookies
+             left alone; the rest fail closed, a private page as a page. */
+          if (err?.status !== 503) throw err;
+          if (!optionalSession) {
+            if (!isApiRequest) { console.error('request error:', safeErrorMessage(err)); sendUnavailablePage(req, res); return; }
+            throw err;
+          }
+          console.error('session unavailable, serving signed out:', safeErrorMessage(err));
+        }
+      }
       const sessionUser = session.user;
       // A locale preference does not personalize catalog data (lang is in the
       // URL). Keep every other cookie private, including expired sessions.
@@ -1019,11 +1263,18 @@ export function createApp({
 
       if(req.method==='POST'&&pathname==='/api/auth/course-invitation/complete') {
         if(!sameOrigin(req)){send(res,403,{code:'invitation_forbidden'});return;}
-        const rate=authLimiter.take(`invitation:${clientIp(req)}`);
+        /* A class accepts its invitations together from one school network, so the
+           address gets the classroom budget sign-up and sign-in have. The invitation
+           token is the credential, and each one gets the strict budget instead. */
+        const rate=authIpLimiter.take(`invitation:${clientIp(req)}`);
         if(!rate.ok){send(res,429,{code:'invitation_rate'},{'Retry-After':String(rate.retryAfter)});return;}
         if(!courseParticipants||!repository?.completeCourseInvitation){send(res,503,{code:'invitation_unavailable'});return;}
         const input=await readJsonBody(req);
         if(!input||typeof input!=='object'||Array.isArray(input)){send(res,400,{code:'invitation_invalid'});return;}
+        if(typeof input.tokenHash==='string'){
+          const tokenRate=authAccountLimiter.take(`invitation:${createHash('sha256').update(input.tokenHash).digest('hex')}`);
+          if(!tokenRate.ok){send(res,429,{code:'invitation_rate'},{'Retry-After':String(tokenRate.retryAfter)});return;}
+        }
         const result=await repository.completeCourseInvitation({tokenHash:input.tokenHash,password:input.password,fullName:input.fullName,authorize:courseParticipants.authorize,enroll:courseParticipants.accept});
         send(res,result.status,{ok:result.status<400,...(result.code?{code:result.code}:{}),...(result.passwordChanged?{passwordChanged:true}:{}),...(result.courseIds?{courseIds:result.courseIds}:{})},result.cookies?.length?{'Set-Cookie':result.cookies}:{});
         return;
@@ -1238,12 +1489,20 @@ export function createApp({
         const password = typeof body.password === 'string' ? body.password : '';
         if (fullName.length < 2) { send(res, 400, { error: 'full name is required' }); return; }
         if (email.length > 254 || !validateEmail(email)) { send(res, 400, { error: 'valid email is required' }); return; }
-        if (!validatePassword(password)) { send(res, 400, { error: 'password must be at least 8 characters' }); return; }
+        if (!validatePassword(password)) { send(res, 400, { error: 'password must be 8 to 72 characters' }); return; }
         if (!authAllowed(authAccountLimiter, authAccountKey('signup', email), res)) return;
+        const ceiling = signupEmailCeiling.take('signup-email:all');
+        if (!ceiling.ok) {
+          send(res, 429, { error: 'Confirmation email is temporarily unavailable. Please try again later.' }, { 'Retry-After': String(ceiling.retryAfter) });
+          return;
+        }
         let result;
         try {
           result = await repository.signup({ fullName, email, password, env: process.env });
+          // A refused sign-up sent no email, so it does not count against the ceiling.
+          if (result?.error) signupEmailCeiling.release('signup-email:all');
         } catch (err) {
+          if (Number.isInteger(err?.status) && err.status >= 400 && err.status < 500) signupEmailCeiling.release('signup-email:all');
           if (err?.status === 429) {
             send(res, 429, { error: 'Confirmation email is temporarily unavailable. Please try again later.' });
             return;
@@ -1275,8 +1534,15 @@ export function createApp({
           if (!repository.requestPasswordRecovery) { send(res, 503, { code: 'recovery_unavailable' }); return; }
           const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
           if (email.length > 254 || !validateEmail(email)) { send(res, 400, { code: 'recovery_email' }); return; }
+          /* Keyed by requester first, so somebody else's requests never use up a
+             member's own. Over budget is said plainly (the page shows "Too many
+             attempts"); it applies to every address alike, so it reveals nothing
+             about whether an account exists. A silent "sent" left members waiting
+             for an email that never came. */
           const emailKey = createHash('sha256').update(email).digest('hex');
-          if (!recoveryEmailLimiter.take(emailKey).ok) { send(res, 202, { ok: true }); return; }
+          const own = recoveryEmailLimiter.take(`${emailKey}:${clientIp(req)}`);
+          const shared = own.ok ? recoveryAddressLimiter.take(emailKey) : own;
+          if (!shared.ok) { send(res, 429, { code: 'recovery_rate' }, { 'Retry-After': String(shared.retryAfter) }); return; }
           result = await repository.requestPasswordRecovery({ email, req });
         } else {
           if (!repository.completePasswordRecovery) { send(res, 503, { code: 'recovery_unavailable' }); return; }
@@ -1294,8 +1560,21 @@ export function createApp({
         const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
         const password = typeof body.password === 'string' ? body.password : '';
         if (email.length > 254 || !validateEmail(email) || !password) { send(res, 401, { error: 'invalid email or password' }); return; }
-        if (!authAllowed(authAccountLimiter, authAccountKey('login', email), res)) return;
-        const result = await repository.login({ email, password, env: process.env });
+        /* Only wrong passwords count. Each attempt reserves a unit in both budgets
+           before the check, so parallel guesses cannot all get past, and hands it
+           back unless the password was wrong. A sign-in also forgives this
+           requester's earlier mistakes. */
+        const accountKey = authAccountKey('login', email);
+        const requesterKey = `${accountKey}:${clientIp(req)}`;
+        if (!authAllowed(authAccountLimiter, requesterKey, res)) return;
+        if (!authAllowed(authAddressLimiter, accountKey, res)) { authAccountLimiter.release(requesterKey); return; }
+        let result;
+        try {
+          result = await repository.login({ email, password, env: process.env });
+        } finally {
+          if (result?.status !== 401) { authAccountLimiter.release(requesterKey); authAddressLimiter.release(accountKey); }
+        }
+        if (!result.error && result.status < 400) authAccountLimiter.reset(requesterKey);
         if (result.error) { send(res, result.status, { error: result.error }); return; }
         send(res, result.status, { user: result.user }, result.cookies?.length ? { 'Set-Cookie': result.cookies } : {});
         return;
@@ -1303,7 +1582,7 @@ export function createApp({
 
       if (useDb && req.method === 'POST' && pathname === '/api/auth/logout') {
         if (!sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
-        const result = await repository.logout(req, process.env);
+        const result = await logoutSession(req);
         send(res, 200, { ok: true }, result.cookies?.length ? { 'Set-Cookie': result.cookies } : {});
         return;
       }
@@ -1330,6 +1609,14 @@ export function createApp({
         const body = await readJsonBody(req);
         if (String(body.confirmEmail || '').trim().toLowerCase() !== String(sessionUser.email).toLowerCase()) {
           send(res, 400, { error: 'account deletion requires email confirmation' });
+          return;
+        }
+        /* Deleting the account removes the only record that ties a Stripe
+           subscription to this member, while Stripe would go on charging them.
+           The membership is cancelled first. */
+        const subscription = repository.getSubscriptionStatus ? await repository.getSubscriptionStatus(sessionUser.id) : null;
+        if (LIVE_SUBSCRIPTION_STATUSES.has(subscription?.status)) {
+          send(res, 409, { error: 'Cancel your NODAL membership before deleting your account. Contact NODAL if you need help cancelling it.', code: 'subscription_active' });
           return;
         }
         if(courseStore)await deleteCourseData(courseStore,sessionUser.id);
@@ -1465,16 +1752,26 @@ export function createApp({
                  and stored when the member saves their profile. The rest are looked
                  up here, one at a time behind the provider's minimum interval, so a
                  backlog of them would hold the request open for a second each and run
-                 the function past its timeout. A few per request is enough: the
-                 answer is cached for a month, so the backlog drains over a handful of
-                 polls and every city lands within a minute. */
+                 the function past its timeout. A few per request is enough: a found
+                 point is cached for a month, so the backlog drains over a handful of
+                 polls and every city lands within a minute. A city the provider
+                 cannot place, or a failed lookup, is retried after ten minutes. */
               let geocodeBudget = NETWORK_GEOCODE_PER_REQUEST;
+              /* Lookups also share a time budget: a slow or hanging provider would
+                 otherwise hold the poll for its whole timeout per city. A lookup cut
+                 short keeps running and caches its answer for the next build. */
+              const geocodeDeadline = Date.now() + NETWORK_GEOCODE_BUDGET_MS;
               const places = [];
               for (const group of groups.values()) {
                 let point = group.point;
-                if (!point && geocodeBudget > 0) {
+                const remainingMs = geocodeDeadline - Date.now();
+                if (!point && geocodeBudget > 0 && remainingMs > 0) {
                   geocodeBudget -= 1;
-                  point = await resolveCity(group.city, req.headers['accept-language']);
+                  let timer;
+                  point = await Promise.race([
+                    resolveCity(group.city, req.headers['accept-language']),
+                    new Promise(resolve => { timer = setTimeout(resolve, remainingMs, null); }),
+                  ]).finally(() => clearTimeout(timer));
                 }
                 if (!point) continue;
                 const named = group.members.filter((m) => m.named);
@@ -1612,11 +1909,10 @@ export function createApp({
         const build = async snapshot => {
           // An unlisted viewer's own graph is private and never enters shared
           // snapshots or shared model keys. Listed members reuse one graph.
-          const activeStore = snapshot
-            ? (snapshot.graph.users.has(userId) ? snapshot.graph : await repository.loadGraphStore({ viewerId: userId, directoryRows: snapshot.rows }))
-            : store;
+          if (snapshot && !snapshot.graph.users.has(userId)) return buildUnlisted(snapshot, userId);
+          const activeStore = snapshot ? snapshot.graph : store;
           if (!activeStore.users.has(userId)) return null;
-          const fingerprint = snapshot && activeStore === snapshot.graph ? fingerprintOf(activeStore) : graphFingerprint(activeStore);
+          const fingerprint = snapshot ? fingerprintOf(activeStore) : graphFingerprint(activeStore);
           const key = `rec:v4:${userId}:${fingerprint}`;
           const cached = await cache.get(key);
           if (cached) return { payload: cached, hit: true };
@@ -1683,6 +1979,13 @@ export function createApp({
           return;
         }
         if (!payments.config) { send(res, 501, { error: 'payments not configured' }); return; }
+        /* A second Checkout Session would open a second subscription next to the
+           live one: the member is billed twice, and the one stored row then follows
+           whichever subscription sent the last event. */
+        if (useDb && LIVE_SUBSCRIPTION_STATUSES.has((await repository.getSubscriptionStatus(sessionUser.id))?.status)) {
+          send(res, 409, { error: 'You already have a NODAL membership.', code: 'already_subscribed' });
+          return;
+        }
         let origin;
         try {
           origin = publicBaseUrl();

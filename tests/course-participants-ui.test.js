@@ -145,3 +145,20 @@ test('enrollment refresh preserves module drafts, active editor tab, and updates
  assert.equal(byName(h.body,'instructions'),draft);assert.equal(draft.value,'Keep these unpublished teaching instructions');assert.equal(h.ctx.document.getElementById('staff-pane-courseSetup').hidden,false);assert.equal(h.ctx.document.getElementById('staff-pane-participants').hidden,true);assert.match(content(h.ctx.document.getElementById('staff-pane-participants')),/New Student/);assert.match(content(h.body),/Participant added with student access/);assert.equal(h.requests.filter(r=>r.path==='/api/courses/c1').length,1);
  h.ctx.document.getElementById('staff-tab-participants').listeners.click();const fresh=participantForm(h);assert.notEqual(fresh,form);byName(fresh,'email').value='second@example.test';const second=fresh.listeners.submit({preventDefault(){}});finish();await second;assert.equal(h.requests.filter(r=>r.method==='POST').length,2);assert.equal(byName(h.body,'instructions'),draft);
 });
+test('acceptance refuses passwords over the provider limit of 72 UTF-8 bytes before spending the invitation',async()=>{
+ for(const password of ['x'.repeat(73),'é'.repeat(37),'\u{1F600}'.repeat(19)]){const h=acceptanceHarness();h.valid();h.nodes.invitationPassword.value=h.nodes.invitationConfirm.value=password;await h.submit();assert.equal(h.requests.length,0);assert.match(h.nodes.recoveryMessage.textContent,/8.72/);}
+ for(const password of ['x'.repeat(72),'é'.repeat(36)]){const h=acceptanceHarness();h.valid();h.nodes.invitationPassword.value=h.nodes.invitationConfirm.value=password;await h.submit();assert.equal(h.requests.length,1);}
+ const html=readFileSync(new URL('../web/pages/accept-invitation.html',import.meta.url),'utf8');assert.doesNotMatch(html,/maxlength="160"/);assert.match(html,/id="invitationPassword"[^>]*maxlength="72"/);
+});
+test('frontend-xss-1: adding a participant works where AbortSignal has no timeout (Safari before 16)',async()=>{
+ const h=teachingHarness(()=>({result:'enrolled',participant:{id:'u1'}}));await flush();h.ctx.AbortSignal={};
+ const form=participantForm(h);byName(form,'email').value='person@example.test';await form.listeners.submit({preventDefault(){}});
+ const post=h.requests.find(r=>r.method==='POST');assert.ok(post,'the enrollment request is sent');assert.equal(post.signal,undefined);
+ assert.match(content(h.body),/Participant added with student access/);
+});
+test('courses-5: the feedback limit is shown in the member’s language, not the server’s English',async()=>{
+ const h=harness(()=>({status:409,data:{error:'feedback limit reached; edit or delete earlier feedback',code:'feedback_limit'}}));
+ const error=await h.ctx.window.nodalPilot.api('/api/feedback',{action:'course',rating:5},'POST').catch(e=>e);assert.equal(error.translationKey,'feedbackLimit');
+ const node=new Node();h.body.append(node);h.ctx.window.nodalPilot.status(node,error);
+ assert.match(content(node),/reached the feedback limit/);h.lang('es');assert.match(content(node),/límite de comentarios/);h.lang('pt');assert.match(content(node),/limite de feedback/);
+});

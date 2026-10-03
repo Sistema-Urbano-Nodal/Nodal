@@ -200,7 +200,8 @@ function participantView(data,id,version,notice,onRefresh,closed=false){
     if(!address||!email.input.checkValidity()){email.input.reportValidity();return;}
     setBusy(true,sending);status(local,'');
     try{
-      const result=await api(endpoint(id)+(sending?'/invitations':'/participants'),{email:address},'POST',{signal:AbortSignal.timeout(45000)});
+      // api() applies its own 45 s limit where the browser supports AbortSignal.timeout (not Safari before 16).
+      const result=await api(endpoint(id)+(sending?'/invitations':'/participants'),{email:address},'POST');
       if(!current())return;
       if(!['invited','enrolled','already_enrolled'].includes(result.result))throw new Error(t(sending?'invitationUncertain':'participantAddUncertain'));
       const key=result.result==='invited'?'invitationSent':result.result==='already_enrolled'?'participantAlreadyEnrolled':'participantAdded';

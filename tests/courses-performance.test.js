@@ -64,7 +64,7 @@ test('known member ID batches avoid an empty Supabase request without truncating
   for(const cap of[2,100]){
     const rows=Array.from({length:5},(_,i)=>({id:String(i),full_name:'Member '+i,email:i+'@example.test'})),calls=[];
     const store=createCourseStore({clients:{admin:{rest:async(table,{query})=>{
-      calls.push(query);return{rows:rows.slice(query.offset,query.offset+Math.min(cap,query.limit)),contentRange:'0-4/*'};
+      calls.push(query);const after=query.and?.match(/id.gt.([^)]*)\)/)?.[1];return{rows:rows.filter(row=>!after||row.id>after).slice(0,Math.min(cap,query.limit)),contentRange:'0-4/*'};
     }}}});
     const members=await store.getMembers(rows.map(r=>r.id));assert.equal(members.length,5);
     assert.equal(calls.length,cap===2?3:1);assert.equal(calls[0].limit,5);

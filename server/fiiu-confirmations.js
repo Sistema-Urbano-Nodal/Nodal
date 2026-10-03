@@ -99,8 +99,11 @@ export async function sendConfirmationBatch({store,confirm,retryFailed=false,aft
 
 /* The command-line backfill (scripts/send-fiiu-confirmations.js): lists every registration still at 'none' (and
    'failed' with retryFailed) and, with send, emails them one at a time, delayMs apart. A dry run writes nothing and
-   masks the addresses. */
-export async function sendConfirmations({store,confirm=null,send=false,retryFailed=false,limit=Infinity,delayMs=1000,log=console.log}){
+   masks the addresses. Sending honours the same daily cap as the dashboard, counted again before every email (the
+   dashboard may be sending too, and a long run can cross into the next UTC day): once today's sends reach it the run
+   stops and answers capped: true with the cap, today's count and when it resets. ignoreCap (the script's
+   --ignore-cap) is the operator's explicit override, since Gmail's ~500 a day also carries sign-up and password mail. */
+export async function sendConfirmations({store,confirm=null,send=false,retryFailed=false,limit=Infinity,delayMs=1000,log=console.log,dailyCap=DAILY_CAP,ignoreCap=false,clock=Date.now}){
  if(send&&!confirm)throw new Error('Email is not configured: set EMAIL_SMTP_URL, EMAIL_FROM and PUBLIC_BASE_URL.');
  const config=await festivalConfig(store);
  const due=[];
@@ -114,8 +117,12 @@ export async function sendConfirmations({store,confirm=null,send=false,retryFail
  }
  const results={listed:0,sent:0,failed:0,uncertain:0,skipped:0,claimedElsewhere:0};
  for(const registration of due.slice(0,limit)){
+  if(!send){results.listed++;log(`${registration.id}  ${registration.createdAt}  ${emailLanguage(registration.confirmationLanguage)}  ${maskEmail(registration.email)}${isReservedRecipient(registration.email)?'  (test address: would be skipped)':''}`);continue;}
+  if(!ignoreCap){
+   const day=sendingDay(clock()),sentToday=await sentSince(store,day.since);
+   if(sentToday>=dailyCap)return {...results,capped:true,dailyCap,sentToday,resetsAt:day.resetsAt};
+  }
   results.listed++;
-  if(!send){log(`${registration.id}  ${registration.createdAt}  ${emailLanguage(registration.confirmationLanguage)}  ${maskEmail(registration.email)}${isReservedRecipient(registration.email)?'  (test address: would be skipped)':''}`);continue;}
   const status=await deliverConfirmation({store,confirm,config,registration});
   if(status===null){results.claimedElsewhere++;continue;}
   results[status]++;

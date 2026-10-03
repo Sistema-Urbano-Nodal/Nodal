@@ -18,6 +18,7 @@ import {
   DEFAULT_PART_C,
   canApplyForMentor,
   cleanIndicators,
+  cleanProfileList,
   cleanRequests,
   cleanTopics,
   normalizeIndicators,
@@ -322,6 +323,9 @@ function parseJson(value, fallback) {
 
 const json = (value) => JSON.stringify(value ?? null);
 
+// cleanProfileList lives in profile-policy.js so the Supabase repository applies the same cap without loading node:sqlite.
+export { cleanProfileList, PROFILE_LIST_ITEM_MAX } from './profile-policy.js';
+
 function isDirectoryVisible(row) {
   return normalizePartC(parseJson(row.part_c_json, DEFAULT_PART_C)).consent === true;
 }
@@ -329,7 +333,7 @@ function isDirectoryVisible(row) {
 export function toApiUser(row) {
   if (!row) return null;
   const topics = parseJson(row.topics_json, []);
-  const interests = parseJson(row.interests_json, []);
+  const interests = cleanProfileList(parseJson(row.interests_json, []), 12);
   const partC = normalizePartC(parseJson(row.part_c_json, DEFAULT_PART_C));
   const linkedin = partC.linkedin || row.linkedin || '';
   return {
@@ -343,10 +347,10 @@ export function toApiUser(row) {
     title: row.title || 'Member',
     city: row.city,
     interests,
-    active: parseJson(row.active_json, []),
+    active: cleanProfileList(parseJson(row.active_json, []), 6),
     linkedin,
     topics,
-    skills: parseJson(row.skills_json, []),
+    skills: cleanProfileList(parseJson(row.skills_json, []), 12),
     indicators: normalizeIndicators(parseJson(row.indicators_json, DEFAULT_INDICATORS)),
     partC,
     requests: parseJson(row.requests_json, {}),
@@ -421,11 +425,11 @@ export function updateUserProfile(db, id, patch) {
     fullName: ['full_name', (v) => String(v).trim().slice(0, 80)],
     title: ['title', (v) => String(v).trim().slice(0, 80)],
     city: ['city', (v) => String(v).trim().slice(0, 120)],
-    interests: ['interests_json', (v) => json(Array.isArray(v) ? v.map(String).slice(0, 12) : [])],
-    active: ['active_json', (v) => json(Array.isArray(v) ? v.map(String).slice(0, 6) : [])],
+    interests: ['interests_json', (v) => json(cleanProfileList(v, 12))],
+    active: ['active_json', (v) => json(cleanProfileList(v, 6))],
     linkedin: ['linkedin', (v) => String(v || '').trim().slice(0, 220)],
     topics: ['topics_json', () => json(nextTopics)],
-    skills: ['skills_json', (v) => json(Array.isArray(v) ? v.slice(0, 12) : [])],
+    skills: ['skills_json', (v) => json(cleanProfileList(v, 12))],
     indicators: ['indicators_json', () => json(nextIndicators)],
     partC: ['part_c_json', () => json(nextPartC)],
     requests: ['requests_json', (v) => json(cleanRequests(v, current.requests, nextPartC))],
