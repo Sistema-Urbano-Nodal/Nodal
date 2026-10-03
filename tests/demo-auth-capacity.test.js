@@ -55,7 +55,8 @@ test('malformed submissions spend IP budget but do not lock a valid account or r
 });
 
 test('untrusted forwarded headers cannot rotate the shared IP ceiling',async t=>{
- const old=process.env.TRUST_PROXY;delete process.env.TRUST_PROXY;t.after(()=>{if(old!==undefined)process.env.TRUST_PROXY=old;});
+ // Off Vercel (whose proxy is trusted by default): the build runs these tests with VERCEL=1 set.
+ const old=process.env.TRUST_PROXY,oldVercel=process.env.VERCEL;delete process.env.TRUST_PROXY;delete process.env.VERCEL;t.after(()=>{if(old!==undefined)process.env.TRUST_PROXY=old;if(oldVercel!==undefined)process.env.VERCEL=oldVercel;});
  const {call,calls}=await fixture(t);
  for(let i=0;i<800;i++)assert.equal((await call('login',`person-${i}@example.test`,{'X-Real-IP':`192.0.2.${i}`,'X-Forwarded-For':`192.0.2.${i}`})).status,200);
  assert.equal((await call('login','extra@example.test',{'X-Real-IP':'198.51.100.100','X-Forwarded-For':'198.51.100.100'})).status,429);assert.equal(calls.length,800);
