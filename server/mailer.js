@@ -147,7 +147,7 @@ export function createMailTransport({env=process.env,connect=null,timeoutMs=SMTP
    // callback that never comes (a socket that does not report writes) counts as handed over: a retry could send a
    // second copy, so "unknown" is the safe side.
    socket.destroy();
-   const handedOver=flushed!==null&&await Promise.race([flushed,new Promise(resolve=>setTimeout(resolve,250,true))]);
+   let wait;const handedOver=flushed!==null&&await Promise.race([flushed,new Promise(resolve=>{wait=setTimeout(resolve,250,true);})]);clearTimeout(wait);
    if(err?.name==='SmtpError'){
     // A garbled or oversized answer, or silence, once the whole message was written may follow the provider's
     // acceptance, so it must not read as "not delivered".

@@ -91,8 +91,8 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
     // A first registration is stored 'none', then its summary goes out the way the organiser dashboard's "Send the
     // summary" button sends one (deliverConfirmation): a compare-and-set claim 'none' → 'pending' on that status alone,
     // so the version (and with it an edit saved from another tab meanwhile) is never disturbed, the send, and the
-    // outcome. So 'pending' always means a send was started: a lost answer to the insert, or a failure before the
-    // claim, leaves 'none', which the button (or the backfill script) can still send. The send is awaited because the
+    // outcome. So a lost answer to the insert, or a failure before the claim, leaves 'none', which the button (or the
+    // backfill script) can still send, rather than a 'pending' that nothing retries. The send is awaited because the
     // hosting gives no work time after the response; the mailer caps it at 8 seconds, and its outcome never fails the
     // registration. Reserved test domains are 'skipped' for good. The sending allowance is spent only once the insert
     // succeeded, so a failed save never uses it up; a registration over the limit simply stays 'none'. The claim

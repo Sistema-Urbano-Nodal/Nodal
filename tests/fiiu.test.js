@@ -9,6 +9,7 @@ import {FIIU_EVENT,applicationStatus} from '../server/fiiu-domain.js';
 import {createCheckinCodes} from '../server/fiiu-checkin.js';
 import {encodeQr,packBits} from '../server/qr.js';
 import {sendConfirmations} from '../scripts/send-fiiu-confirmations.js';
+import {deliverConfirmation,sendConfirmationBatch} from '../server/fiiu-confirmations.js';
 import {randomUUID} from 'node:crypto';
 import {sendConfirmations as sharedSendConfirmations} from '../server/fiiu-confirmations.js';
 import {createRegistrationConfirmation} from '../server/fiiu-email.js';
@@ -938,6 +939,23 @@ test('an outcome write that fails once is tried again, so the batch carries on a
  const ids=await earlier(db,store,Array.from({length:3},(_,i)=>({email:`shaky${i}@fiiu-inbox.dev`})));
  const response=await call('/api/admin/fiiu/confirmations',{actor:'admin',method:'POST',body:{}});assert.equal(response.status,200);
  assert.equal((await response.json()).sent,3);assert.equal(outbox.length,3);assert.deepEqual(ids.map(id=>statusOf(db,id)),['sent','sent','sent']);
+});
+
+test('a retried outcome write never overwrites a newer claim, so a lost answer cannot lead to a second email',async t=>{
+ // Sender A's 'failed' write commits but its answer is lost; while A waits to try again, "Retry failed" claims the row and sends.
+ const db=createDatabase({filename:':memory:'});t.after(()=>db.close());const store=createFiiuStore({db});
+ const [id]=await earlier(db,store,[{email:'aba@fiiu-inbox.dev',language:'es'}]);const outbox=[];let retryPass=null;
+ const lossy={...store,update:async(name,filters,patch)=>{const row=await store.update(name,filters,patch);
+  if(!retryPass&&patch.confirmationStatus==='failed'){
+   retryPass=sendConfirmationBatch({store,retryFailed:true,confirm:async()=>{outbox.push('B');return {status:'sent',sentAt:new Date().toISOString()};},now:Date.now()});
+   await retryPass;throw Object.assign(Error('upstream timeout after commit'),{status:502});
+  }
+  return row;}};
+ const a=await deliverConfirmation({store:lossy,confirm:async()=>{outbox.push('A');return {status:'failed'};},config:{},registration:{id,confirmationStatus:'none',confirmationLanguage:'es'},attemptAt:'2026-10-02T15:00:00.000Z'});
+ assert.equal(a.status,'failed');assert.equal((await retryPass).sent,1);
+ assert.deepEqual({...db.prepare('SELECT confirmation_status s FROM fiiu_registrations WHERE id=?').get(id)},{s:'sent'},'the newer send stands');
+ assert.equal((await sendConfirmationBatch({store,retryFailed:true,confirm:async()=>{outbox.push('C');return {status:'sent'};},now:Date.now()})).sent,0);
+ assert.deepEqual(outbox,['A','B'],'no third email');
 });
 
 test('a batch whose outcome cannot be recorded stops with an error and that person is never emailed again',async t=>{

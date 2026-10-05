@@ -112,7 +112,7 @@ test('private answers never appear, and the name is escaped and stripped of line
  assert.equal(safeName('  Ana\u0000​ María\n'),'Ana María');assert.equal(safeName('x'.repeat(300)).length,100);
  // Joiners and emoji tags spell names and emoji, so they stay; bidi overrides go; a long name never ends in half a character.
  for(const name of ['👨\u200D👩\u200D👧','علی\u200Cرضا','👩🏽\u200D💻 Ana','🏴\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}'])assert.equal(safeName(name),name);
- assert.equal(safeName('Ana\u202Eevil\u202C'),'Anaevil');assert.equal([...safeName('😀'.repeat(120))].length,100);assert.doesNotMatch(safeName('😀'.repeat(120)),/[\uD800-\uDBFF]$/);
+ assert.equal(safeName('Ana\u202Eevil\u202C'),'Anaevil');assert.equal(safeName('\u200D \u200C'),'','nothing visible, so the plain greeting');assert.equal([...safeName('😀'.repeat(120))].length,100);assert.doesNotMatch(safeName('😀'.repeat(120)),/[\uD800-\uDBFF]$/);
  assert.match(render({answers:{firstName:''}},'es').text,/^Hola:\n/);
 });
 

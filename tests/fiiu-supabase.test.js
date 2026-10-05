@@ -196,7 +196,7 @@ test('Supabase first registration stores the email as none, claims it and settle
  const [claim,settle]=pg.calls.filter(c=>c.table==='fiiu_registrations'&&c.method==='PATCH');
  assert.deepEqual(claim.query,{id:`eq.${first.body.registration.id}`,confirmation_status:'eq.none'},'claimed by a compare-and-set on the status, never on the version');
  assert.equal(claim.body.confirmation_status,'pending');assert.match(claim.body.confirmation_sent_at,/^\d{4}-\d\d-\d\dT/,'the send is stamped when it starts, so the daily cap counts it');
- assert.deepEqual(settle.query,{id:`eq.${first.body.registration.id}`,confirmation_status:'eq.pending'},'compare-and-set on the status, never on the version');
+ assert.deepEqual(settle.query,{id:`eq.${first.body.registration.id}`,confirmation_status:'eq.pending',confirmation_sent_at:`eq.${claim.body.confirmation_sent_at}`},'compare-and-set on this claim, never on the version');
  assert.deepEqual(settle.body,{confirmation_status:'sent',confirmation_sent_at:'2026-10-02T15:00:00.000Z'});
  assert.deepEqual([pg.tables.fiiu_registrations[0].confirmation_status,pg.tables.fiiu_registrations[0].version],['sent',1]);
  // Every registration read selects the new columns (so the migration must be applied before this code is deployed).
@@ -232,7 +232,7 @@ test('Supabase: the organiser summary button counts with exact-count requests, c
  const patches=pg.calls.filter(c=>c.method==='PATCH');
  assert.deepEqual(patches.filter(c=>c.body.confirmation_status==='pending').map(c=>c.query),[1,2,4,6].map(n=>({id:`eq.${uuid(n)}`,confirmation_status:'eq.none'})),'each claim is a compare-and-set on the status');
  assert.ok(patches.filter(c=>c.body.confirmation_status==='pending').every(c=>c.body.confirmation_sent_at==='2026-10-02T18:00:00.000Z'),'each claim stamps when its send starts');
- assert.deepEqual(patches.find(c=>c.query.id===`eq.${uuid(1)}`&&c.body.confirmation_status==='sent'),{table:'fiiu_registrations',method:'PATCH',query:{id:`eq.${uuid(1)}`,confirmation_status:'eq.pending'},headers:{Prefer:'return=representation'},body:{confirmation_status:'sent',confirmation_sent_at:'2026-10-02T17:00:00.000Z'}});
+ assert.deepEqual(patches.find(c=>c.query.id===`eq.${uuid(1)}`&&c.body.confirmation_status==='sent'),{table:'fiiu_registrations',method:'PATCH',query:{id:`eq.${uuid(1)}`,confirmation_status:'eq.pending',confirmation_sent_at:'eq.2026-10-02T18:00:00.000Z'},headers:{Prefer:'return=representation'},body:{confirmation_status:'sent',confirmation_sent_at:'2026-10-02T17:00:00.000Z'}});
  assert.ok(pg.calls.some(c=>!c.method&&c.query.id===`gt.${uuid(6)}`&&c.headers?.Prefer==='count=exact'),'what is left is counted after the cursor');
  // Two of today's six remain: the next batch sends one (the cap), then the cap answers 429.
  const second=await call('POST',{after:first.body.next});assert.deepEqual([second.status,second.body.sent,second.body.sentToday],[200,1,6]);

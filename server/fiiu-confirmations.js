@@ -43,10 +43,12 @@ export async function festivalConfig(store){
    first registration (server/fiiu-api.js), the dashboard batches and the script. Returns {status, sentAt} (status
    'sent', 'failed', 'uncertain' or 'skipped'), or null when someone else claimed the row first. A sender that throws
    counts as 'uncertain'. The outcome write is tried twice, since a row left 'pending' is never sent again
-   automatically: after a 'failed' send that would mean nobody ever gets the email. A failed claim, or an outcome write
-   that fails twice, throws; the row then stays as it was, or 'pending'. No row matches the outcome write when the
-   registration was cancelled meanwhile, and nothing is recreated. The claim stamps confirmation_sent_at with attemptAt
-   so the daily cap counts the send from the moment it starts (see DAILY_CAP and settledSentAt). */
+   automatically: after a 'failed' send that would mean nobody ever gets the email. It matches only this claim (its
+   'pending' and the attemptAt it stamped), so a retry whose first try did land, after which a "Retry failed" pass
+   may have claimed the row again, never overwrites that newer send. A failed claim, or an outcome write that fails
+   twice, throws; the row then stays as it was, or 'pending'. No row matches the outcome write when the registration
+   was cancelled meanwhile, and nothing is recreated. The claim stamps confirmation_sent_at with attemptAt so the daily
+   cap counts the send from the moment it starts (see DAILY_CAP and settledSentAt). */
 export async function deliverConfirmation({store,confirm,config,registration,attemptAt=new Date().toISOString()}){
  const language=emailLanguage(registration.confirmationLanguage);
  const claimed=await store.update('registrations',{id:registration.id,confirmationStatus:registration.confirmationStatus},{confirmationStatus:'pending',confirmationLanguage:language,confirmationSentAt:attemptAt});
@@ -54,7 +56,7 @@ export async function deliverConfirmation({store,confirm,config,registration,att
  let outcome;
  try{outcome=await confirm({registration:claimed,config,language});}catch{outcome={status:'uncertain'};}
  const status=OUTCOMES.includes(outcome?.status)?outcome.status:'uncertain',sentAt=settledSentAt(status,outcome,attemptAt);
- const record=()=>store.update('registrations',{id:registration.id,confirmationStatus:'pending'},{confirmationStatus:status,confirmationSentAt:sentAt});
+ const record=()=>store.update('registrations',{id:registration.id,confirmationStatus:'pending',confirmationSentAt:attemptAt},{confirmationStatus:status,confirmationSentAt:sentAt});
  try{await record();}catch{await pause(250);await record();}
  return {status,sentAt};
 }

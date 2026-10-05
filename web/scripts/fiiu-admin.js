@@ -347,15 +347,15 @@
  const backfillButtons=new Map(),backfillHandlers={send:()=>askBackfill('send'),retry:()=>askBackfill('retry'),confirm:()=>runBackfill(backfillAsk),cancel:()=>{const mode=backfillAsk;backfillAsk=null;renderBackfill(mode);},stop:()=>stopBackfill(),reload:()=>loadBackfill('reload')};
  /* Send swaps itself for Confirm, and Confirm for Stop, with focus on the new button, so a second press meant for the
     first one would land on the next: a double click, Enter pressed twice or held down. A press is ignored for
-    BACKFILL_SETTLE_MS after the buttons change, as is the second click of a double click and a held key's repeats.
-    (A call without an event comes from code, not from a person pressing.) */
+    BACKFILL_SETTLE_MS after the buttons change (longer than an ordinary double click), and a held Enter or Space does
+    not repeat; other held keys (Tab, arrows) move on as usual. (A call without an event comes from code.) */
  const BACKFILL_SETTLE_MS=600;let backfillShownAt=0;
  function textButton(text,action,cls='f-backfill-link'){
   let b=backfillButtons.get(action);
   if(!b){
    b=el('button');b.type='button';b.dataset.action=action;
-   b.addEventListener('click',event=>{if(event&&(event.detail>1||Date.now()-backfillShownAt<BACKFILL_SETTLE_MS))return;backfillHandlers[action]();});
-   b.addEventListener('keydown',event=>{if(event?.repeat)event.preventDefault();});
+   b.addEventListener('click',event=>{if(event&&Date.now()-backfillShownAt<BACKFILL_SETTLE_MS)return;backfillHandlers[action]();});
+   b.addEventListener('keydown',event=>{if(event?.repeat&&['Enter',' '].includes(event.key))event.preventDefault();});
    backfillButtons.set(action,b);
   }
   b.className=cls;b.textContent=text;return b;
@@ -550,7 +550,9 @@
  window.nodalI18n?.onChange(()=>{if(locked)return;rowCache=new WeakMap();setTitle();stampUpdated();recount?.();renderBackfill();if(lastSummary)renderSummary(lastSummary);else renderCheckin();});
  timer=setInterval(()=>{
   if(!festival||locked||sessionLost||document.visibilityState!=='visible')return;
-  return Promise.all([...(capLifted()?[loadBackfill()]:[]),...(autoRefresh.input.checked?[refreshSummary({background:true})]:[])]);
+  // A pass that ended at the cap leaves yesterday's tally and cap message behind; the fresh state replaces them.
+  const lifted=capLifted();if(lifted&&backfillResult?.end==='cap')backfillResult=null;
+  return Promise.all([...(lifted?[loadBackfill()]:[]),...(autoRefresh.input.checked?[refreshSummary({background:true})]:[])]);
  },60000);
  load();
 })();
