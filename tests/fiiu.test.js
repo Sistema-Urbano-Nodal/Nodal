@@ -725,6 +725,32 @@ test('a save that fails before the registration is stored never uses up the acco
  assert.equal(outbox.length,1);assert.equal(db.prepare('SELECT confirmation_status s FROM fiiu_registrations').get().s,'sent');
 });
 
+test('a registration whose insert answer is lost is left for the summary button, never as a send that did not happen',async t=>{
+ // The database keeps the row but the answer never arrives (a timeout or an upstream error after the commit).
+ let lose=true;
+ const {save,outbox,db,store}=await mailSetup(t,{wrapStore:store=>({...store,insert:async(name,record)=>{const row=await store.insert(name,record);if(name==='registrations'&&lose){lose=false;throw Object.assign(Error('upstream unavailable'),{status:502});}return row;}})});
+ assert.equal((await save()).status,502);assert.equal(outbox.length,0);
+ assert.deepEqual({...db.prepare('SELECT confirmation_status s,confirmation_sent_at at FROM fiiu_registrations').get()},{s:'none',at:null});
+ assert.equal((await sendConfirmations({store,log:()=>{}})).listed,1,'the button and the script can still send it');
+});
+
+test('a first registration whose claim or outcome write fails is reported as pending, and only a started send is ever pending',async t=>{
+ // The claim fails: nothing was sent and the row stays 'none' for the button.
+ const claimFails=await mailSetup(t,{wrapStore:store=>({...store,update:async(name,filters,patch)=>{if(name==='registrations'&&patch.confirmationStatus==='pending')throw Error('database unavailable');return store.update(name,filters,patch);}})});
+ let body=await(await claimFails.save()).json();assert.equal(body.confirmationEmail,'pending');assert.equal(claimFails.outbox.length,0);
+ assert.equal(claimFails.db.prepare('SELECT confirmation_status s FROM fiiu_registrations').get().s,'none');
+ // A failed send whose outcome cannot be written on either try: the row says a send was started.
+ const settleFails=await mailSetup(t,{outcome:()=>({status:'failed'}),wrapStore:store=>({...store,update:async(name,filters,patch)=>{if(name==='registrations'&&patch.confirmationStatus==='failed')throw Error('database unavailable');return store.update(name,filters,patch);}})});
+ body=await(await settleFails.save()).json();assert.equal(body.confirmationEmail,'pending');assert.equal(settleFails.outbox.length,1);
+ assert.equal(settleFails.db.prepare('SELECT confirmation_status s FROM fiiu_registrations').get().s,'pending');
+ // Over the hourly limit nothing is written after the insert.
+ let writes=0;
+ const limited=await mailSetup(t,{app:{fiiuEmailLimits:{perAccount:1,overall:60}},wrapStore:store=>({...store,update:async(name,filters,patch)=>{if(name==='registrations')writes++;return store.update(name,filters,patch);}})});
+ const first=(await(await limited.save()).json()).registration;assert.equal(first.confirmationStatus,'sent');
+ assert.equal((await limited.call('/api/fiiu/registration',{method:'DELETE',body:{version:first.version,registrationId:first.id}})).status,200);
+ writes=0;body=await(await limited.save()).json();assert.equal(body.confirmationEmail,'none');assert.equal(writes,0);assert.equal(limited.outbox.length,1);
+});
+
 test('a registration cancelled while its email is sending still gets an answer, and nothing is recreated',async t=>{
  let db;const setup=await mailSetup(t,{outcome:({registration})=>{db.prepare('DELETE FROM fiiu_registrations WHERE id=?').run(registration.id);return {status:'sent',sentAt:'2026-10-02T15:00:00.000Z'};}});db=setup.db;
  const response=await setup.save();assert.equal(response.status,200);assert.equal((await response.json()).confirmationEmail,'sent');
@@ -905,9 +931,19 @@ test('the summary button is for organisers only, same-origin, validated, and ans
  assert.equal(outbox.length,0);assert.equal(statusOf(db,waiting),'none');
 });
 
-test('a batch whose outcome cannot be recorded stops with an error and that person is never emailed again',async t=>{
+test('an outcome write that fails once is tried again, so the batch carries on and nobody is left pending',async t=>{
  let breakOnce=true;
  const wrapStore=store=>({...store,update:async(name,filters,patch)=>{if(name==='registrations'&&patch.confirmationStatus==='sent'&&breakOnce){breakOnce=false;throw Error('database unavailable');}return store.update(name,filters,patch);}});
+ const {db,store,call,outbox}=await mailSetup(t,{wrapStore,app:{fiiuBackfill:{now:()=>BACKFILL_NOW}}});
+ const ids=await earlier(db,store,Array.from({length:3},(_,i)=>({email:`shaky${i}@fiiu-inbox.dev`})));
+ const response=await call('/api/admin/fiiu/confirmations',{actor:'admin',method:'POST',body:{}});assert.equal(response.status,200);
+ assert.equal((await response.json()).sent,3);assert.equal(outbox.length,3);assert.deepEqual(ids.map(id=>statusOf(db,id)),['sent','sent','sent']);
+});
+
+test('a batch whose outcome cannot be recorded stops with an error and that person is never emailed again',async t=>{
+ // One person's outcome write fails on both tries.
+ let victim=null;
+ const wrapStore=store=>({...store,update:async(name,filters,patch)=>{if(name==='registrations'&&patch.confirmationStatus==='sent'&&(victim??=filters.id)===filters.id)throw Error('database unavailable');return store.update(name,filters,patch);}});
  const {db,store,call,outbox}=await mailSetup(t,{wrapStore,app:{fiiuBackfill:{now:()=>BACKFILL_NOW}}});
  const ids=await earlier(db,store,Array.from({length:3},(_,i)=>({email:`fragile${i}@fiiu-inbox.dev`})));
  assert.equal((await call('/api/admin/fiiu/confirmations',{actor:'admin',method:'POST',body:{}})).status,500);

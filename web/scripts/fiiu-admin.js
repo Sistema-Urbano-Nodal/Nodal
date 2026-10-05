@@ -345,13 +345,25 @@
  const plural=(base,n)=>fill(n===1?base+'One':base+'Many',{n:nf(n)});
  // One button per action, made once and kept: a progress update leaves the focused Stop button in place instead of rebuilding it.
  const backfillButtons=new Map(),backfillHandlers={send:()=>askBackfill('send'),retry:()=>askBackfill('retry'),confirm:()=>runBackfill(backfillAsk),cancel:()=>{const mode=backfillAsk;backfillAsk=null;renderBackfill(mode);},stop:()=>stopBackfill(),reload:()=>loadBackfill('reload')};
+ /* Send swaps itself for Confirm, and Confirm for Stop, with focus on the new button, so a second press meant for the
+    first one would land on the next: a double click, Enter pressed twice or held down. A press is ignored for
+    BACKFILL_SETTLE_MS after the buttons change, as is the second click of a double click and a held key's repeats.
+    (A call without an event comes from code, not from a person pressing.) */
+ const BACKFILL_SETTLE_MS=600;let backfillShownAt=0;
  function textButton(text,action,cls='f-backfill-link'){
   let b=backfillButtons.get(action);
-  if(!b){b=el('button');b.type='button';b.dataset.action=action;b.addEventListener('click',()=>backfillHandlers[action]());backfillButtons.set(action,b);}
+  if(!b){
+   b=el('button');b.type='button';b.dataset.action=action;
+   b.addEventListener('click',event=>{if(event&&(event.detail>1||Date.now()-backfillShownAt<BACKFILL_SETTLE_MS))return;backfillHandlers[action]();});
+   b.addEventListener('keydown',event=>{if(event?.repeat)event.preventDefault();});
+   backfillButtons.set(action,b);
+  }
   b.className=cls;b.textContent=text;return b;
  }
  function askBackfill(mode){backfillAsk=mode;backfillResult=null;renderBackfill('confirm');}
  const capReached=()=>Number.isSafeInteger(backfill?.dailyCap)&&Number.isSafeInteger(backfill?.sentToday)&&backfill.sentToday>=backfill.dailyCap;
+ // Today's cap has reset (19:00 Lima) since the page last asked: the minute timer asks again, so the buttons come back without a reload.
+ const capLifted=()=>capReached()&&!backfillRun&&!backfillAsk&&Date.now()>=Date.parse(backfill.resetsAt);
  const capText=()=>fill('backfillCap',{cap:nf(backfill?.dailyCap??0),time:Number.isFinite(Date.parse(backfill?.resetsAt))?limaClock(Date.parse(backfill.resetsAt)):'19:00'});
  function tallyText({sent,failed,uncertain,skipped}){return [fill('backfillDone',{sent:nf(sent),failed:nf(failed)}),...(uncertain?[plural('backfillUncertain',uncertain)]:[]),...(skipped?[plural('backfillSkipped',skipped)]:[])].join(' · ');}
  function resultText({end,tally}){
@@ -392,7 +404,7 @@
   // The buttons are swapped only when the set changes; focus on one that leaves moves to the first remaining action, or the heading.
   const current=[...backfillActions.children],changed=current.length!==actions.length||current.some((b,i)=>b!==actions[i]);
   const hadFocus=Boolean(focus)||(changed&&Boolean(backfillActions.contains?.(document.activeElement)));
-  if(changed)backfillActions.replaceChildren(...actions);
+  if(changed){backfillActions.replaceChildren(...actions);backfillShownAt=Date.now();}
   if(hadFocus){const target=actions.find(b=>b.dataset.action===focus)||actions[0];if(target)target.focus();else{backfillHeading.tabIndex=-1;backfillHeading.focus();}}
  }
  async function loadBackfill(focus){
@@ -536,6 +548,9 @@
  }
  // Rows on screen are translated in place; rows kept for later filters are rebuilt in the new language.
  window.nodalI18n?.onChange(()=>{if(locked)return;rowCache=new WeakMap();setTitle();stampUpdated();recount?.();renderBackfill();if(lastSummary)renderSummary(lastSummary);else renderCheckin();});
- timer=setInterval(()=>{if(festival&&!locked&&!sessionLost&&autoRefresh.input.checked&&document.visibilityState==='visible')return refreshSummary({background:true});},60000);
+ timer=setInterval(()=>{
+  if(!festival||locked||sessionLost||document.visibilityState!=='visible')return;
+  return Promise.all([...(capLifted()?[loadBackfill()]:[]),...(autoRefresh.input.checked?[refreshSummary({background:true})]:[])]);
+ },60000);
  load();
 })();

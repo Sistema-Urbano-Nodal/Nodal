@@ -6,9 +6,10 @@ import {createMailTransport} from '../server/mailer.js';
 const letter={to:'ana@example.com',subject:'Inscripción',text:'Hola',html:'<p>Hola</p>',language:'es'};
 const env={EMAIL_SMTP_URL:'smtp://127.0.0.1:2525',EMAIL_FROM:'a@example.org'};
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
-function fakeSocket(){
+// Like a real socket, a write reports when it has left the process: flushed (default) or failed with writeError(data).
+function fakeSocket({writeError=()=>null}={}){
  const socket=new EventEmitter(),writes=[];let destroyed=false;
- Object.assign(socket,{write:data=>{writes.push(data);},end:data=>{if(data)writes.push(data);},destroy(){destroyed=true;}});
+ Object.assign(socket,{write:(data,done)=>{writes.push(data);if(done){const err=writeError(data);setImmediate(()=>done(err));}},end:data=>{if(data)writes.push(data);},destroy(){destroyed=true;}});
  return {socket,writes,destroyed:()=>destroyed};
 }
 // Feeds complete lines in normal-sized records until the client gives up or `limit` bytes have gone in.
@@ -46,4 +47,21 @@ test('ordinary multi-line replies far below the cap still go through',async()=>{
  socket.emit('data',Buffer.from(Array.from({length:40},(_,i)=>`250-EXTENSION${i}\r\n`).join('')+'250 SMTPUTF8\r\n'));await tick();
  for(const reply of ['250 ok\r\n','250 ok\r\n','354 go\r\n','250 queued\r\n']){socket.emit('data',Buffer.from(reply));await tick();}
  assert.equal((await sent).response,250);assert.equal(writes.at(-1),'QUIT\r\n');
+});
+
+test('a connection lost before the end of the message reached the server leaves delivery "no", so a retry cannot duplicate it',async()=>{
+ // The server says 354, then the connection drops: the upload fails, so the final "." never got out.
+ const {socket}=fakeSocket({writeError:data=>/\r\n\.\r\n$/.test(data)?Object.assign(Error('write EPIPE'),{code:'EPIPE'}):null});
+ const sent=createMailTransport({env,connect:()=>socket,timeoutMs:5000}).send(letter);
+ for(const reply of ['220 ready\r\n','250 hi\r\n','250 ok\r\n','250 ok\r\n','354 go\r\n']){socket.emit('data',Buffer.from(reply));await tick();}
+ socket.emit('error',Object.assign(Error('write EPIPE'),{code:'EPIPE'}));socket.emit('close');
+ await assert.rejects(sent,err=>err.stage==='connection'&&err.delivery==='no'&&err.code==='EPIPE');
+});
+
+test('a connection lost after the whole message was written leaves delivery unknown, since the acceptance may be what was lost',async()=>{
+ const {socket}=fakeSocket();
+ const sent=createMailTransport({env,connect:()=>socket,timeoutMs:5000}).send(letter);
+ for(const reply of ['220 ready\r\n','250 hi\r\n','250 ok\r\n','250 ok\r\n','354 go\r\n']){socket.emit('data',Buffer.from(reply));await tick();}
+ await tick();socket.emit('close');
+ await assert.rejects(sent,err=>err.stage==='connection'&&err.delivery==='unknown');
 });

@@ -6,7 +6,7 @@ import {createCheckinCodes} from './fiiu-checkin.js';
 import {packBits} from './qr.js';
 import {isReservedRecipient,EMAIL_LANGUAGES} from './fiiu-email.js';
 import {parseCookies} from './auth.js';
-import {confirmationState,confirmationCounts,sendConfirmationBatch,settledSentAt,BATCH_SIZE,DAILY_CAP} from './fiiu-confirmations.js';
+import {confirmationState,confirmationCounts,sendConfirmationBatch,deliverConfirmation,BATCH_SIZE,DAILY_CAP} from './fiiu-confirmations.js';
 const now=()=>new Date().toISOString();
 const attendanceView=({activityId,createdAt,method})=>({activityId,createdAt,method});
 // CSV check-in times are Lima wall-clock time (UTC-05:00 all year), e.g. '2026-10-21 09:12'.
@@ -88,30 +88,25 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
      if(!registration)fail('registration changed; reload before saving',409);
      send(res,200,{registration});return true;
     }
-    // A first registration is stored 'pending' when the summary will be sent, then settled by a compare-and-set on
-    // that status alone, so the version (and with it an edit saved from another tab meanwhile) is never disturbed.
-    // The send is awaited because the hosting gives no work time after the response; the mailer caps it at 8 seconds,
-    // and its outcome never fails the registration. Reserved test domains are 'skipped' for good. The sending
-    // allowance is spent only once the insert succeeded, so a failed save never uses it up; a registration over the
-    // limit goes back to 'none', which the organiser dashboard's "Send the summary" button (or the backfill script)
-    // can still send. A 'pending' row carries the send's start in confirmation_sent_at, so the organisers' daily cap
-    // counts it while it is under way and, if it ends 'uncertain', afterwards (server/fiiu-confirmations.js).
+    // A first registration is stored 'none', then its summary goes out the way the organiser dashboard's "Send the
+    // summary" button sends one (deliverConfirmation): a compare-and-set claim 'none' → 'pending' on that status alone,
+    // so the version (and with it an edit saved from another tab meanwhile) is never disturbed, the send, and the
+    // outcome. So 'pending' always means a send was started: a lost answer to the insert, or a failure before the
+    // claim, leaves 'none', which the button (or the backfill script) can still send. The send is awaited because the
+    // hosting gives no work time after the response; the mailer caps it at 8 seconds, and its outcome never fails the
+    // registration. Reserved test domains are 'skipped' for good. The sending allowance is spent only once the insert
+    // succeeded, so a failed save never uses it up; a registration over the limit simply stays 'none'. The claim
+    // stamps confirmation_sent_at, so the organisers' daily cap counts the send while it is under way and, if it ends
+    // 'uncertain', afterwards (server/fiiu-confirmations.js).
     const language=registrationLanguage(input,req);
-    const confirmationStatus=!confirmation?'none':isReservedRecipient(user.email)?'skipped':'pending',createdAt=now(),attemptAt=confirmationStatus==='pending'?createdAt:null;
-    let registration=await store.insert('registrations',{id:randomUUID(),eventId:EVENT_ID,userId:user.id,...patch,createdAt,confirmationStatus,confirmationLanguage:language,confirmationSentAt:attemptAt});
+    const confirmationStatus=confirmation&&isReservedRecipient(user.email)?'skipped':'none';
+    let registration=await store.insert('registrations',{id:randomUUID(),eventId:EVENT_ID,userId:user.id,...patch,createdAt:now(),confirmationStatus,confirmationLanguage:language,confirmationSentAt:null});
     if(!registration)fail('registration changed; reload before saving',409);
-    if(confirmationStatus==='pending'&&!emailAllowed(user)){
-     // No row matches when the registration was cancelled meanwhile; a failed write leaves 'pending'.
-     let status='none';try{await store.update('registrations',{id:registration.id,confirmationStatus:'pending'},{confirmationStatus:'none',confirmationSentAt:null});}catch{status='pending';}
-     registration={...registration,confirmationStatus:status,confirmationSentAt:status==='none'?null:attemptAt};
-    }
-    else if(confirmationStatus==='pending'){
-     let outcome;try{outcome=await confirmation({registration,config:settings,language});}catch{outcome={status:'uncertain'};}
-     const status=['sent','failed','uncertain','skipped'].includes(outcome?.status)?outcome.status:'uncertain',sentAt=settledSentAt(status,outcome,attemptAt);
-     // No row matches when the registration was cancelled while the email was sending; a failed write leaves 'pending'.
-     // Either way this response describes what this request saved, with the email outcome.
-     try{await store.update('registrations',{id:registration.id,confirmationStatus:'pending'},{confirmationStatus:status,confirmationSentAt:sentAt});}catch{/* reported as 'pending' to organisers */}
-     registration={...registration,confirmationStatus:status,confirmationSentAt:sentAt};
+    if(confirmation&&confirmationStatus==='none'&&emailAllowed(user)){
+     // null: an organiser's batch claimed the row first and is sending it. A throw: the claim or the outcome write
+     // failed, and the row says so ('none' or 'pending'). Either way this response reports the email as 'pending'.
+     let delivered=null;try{delivered=await deliverConfirmation({store,confirm:confirmation,config:settings,registration,attemptAt:now()});}catch{/* see above */}
+     registration={...registration,confirmationStatus:delivered?.status??'pending',confirmationSentAt:delivered?.sentAt??null};
     }
     send(res,200,{registration,confirmationEmail:registration.confirmationStatus});return true;
    }

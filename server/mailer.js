@@ -122,8 +122,10 @@ export function createMailTransport({env=process.env,connect=null,timeoutMs=SMTP
   const message=buildMessage({from:config.from,to,replyTo,subject,text,html,language,messageId});
   // SNI only for names: an IP literal is not a valid server name.
   const socket=open({host:config.host,port:config.port,servername:net.isIP(config.host)?undefined:config.host,secure:config.secure});
-  let handedOver=false,finished=false,timer;
-  const deadline=new Promise((resolve,reject)=>{timer=setTimeout(()=>{reject(smtpError('SMTP timed out',{stage:'timeout',delivery:handedOver?'unknown':'no',code:'ETIMEDOUT'}));socket.destroy();},timeoutMs);});
+  // flushed: whether the whole message, its final "." included, left this process (null until it is written). The
+  // provider can have the message only then; a write that errors, or that the socket's end cancels, means it cannot.
+  let flushed=null,finished=false,timer;
+  const deadline=new Promise((resolve,reject)=>{timer=setTimeout(()=>reject(smtpError('SMTP timed out',{stage:'timeout',code:'ETIMEDOUT'})),timeoutMs);});
   const dialogue=(async()=>{
    const read=replies(socket);
    const expect=async(stage,codes)=>{const reply=await read();if(!codes.includes(reply.code))throw smtpError(`SMTP ${stage} refused (${reply.code})`,{stage,status:reply.code,delivery:stage==='message'&&reply.code<400?'unknown':'no'});return reply;};
@@ -134,17 +136,22 @@ export function createMailTransport({env=process.env,connect=null,timeoutMs=SMTP
    await command(`MAIL FROM:<${config.from.address}>`,'sender',[250]);
    await command(`RCPT TO:<${to}>`,'recipient',[250,251]);
    await command('DATA','data',[354]);
-   socket.write(dotStuff(message)+'.\r\n');handedOver=true;
+   flushed=new Promise(resolve=>socket.write(dotStuff(message)+'.\r\n',err=>resolve(!err)));
    const accepted=await expect('message',[250]);
    finished=true;socket.end('QUIT\r\n');
    return {messageId,response:accepted.code};
   })();
   try{return await Promise.race([dialogue,deadline]);}
   catch(err){
+   // Ending the socket first cancels a write still under way, so its callback says whether the message got out. A
+   // callback that never comes (a socket that does not report writes) counts as handed over: a retry could send a
+   // second copy, so "unknown" is the safe side.
+   socket.destroy();
+   const handedOver=flushed!==null&&await Promise.race([flushed,new Promise(resolve=>setTimeout(resolve,250,true))]);
    if(err?.name==='SmtpError'){
-    // A garbled or oversized answer once the whole message was written may follow the provider's acceptance, so it
-    // must not read as "not delivered" (a retry could send a second copy).
-    if(err.stage==='reply'&&handedOver)err.delivery='unknown';
+    // A garbled or oversized answer, or silence, once the whole message was written may follow the provider's
+    // acceptance, so it must not read as "not delivered".
+    if(['reply','timeout'].includes(err.stage))err.delivery=handedOver?'unknown':'no';
     throw err;
    }
    throw smtpError('SMTP connection failed',{stage:'connection',delivery:handedOver?'unknown':'no',code:typeof err?.code==='string'?err.code:undefined});

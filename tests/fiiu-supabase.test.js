@@ -165,7 +165,7 @@ test('the Supabase summary accepts the check-in figures, tolerates their absence
  for(const broken of [{attendedPeople:'1'},{qrPeople:1.5},{lastCheckInAt:42}])await assert.rejects(storeFor({...base,...broken}).summary('fiiu-2026',[]),error=>error.status===502,JSON.stringify(broken));
 });
 
-test('Supabase: a first registration over the sending limit goes back to none for the backfill, without an email or a version bump',async()=>{
+test('Supabase: a first registration over the sending limit stays none for the backfill, without an email, a write or a version bump',async()=>{
  const pg=postgrest(),outbox=[];
  const api=createFiiuApi({store:createFiiuStore({clients:pg.clients}),sameOrigin:()=>true,send:(res,status,body)=>Object.assign(res,{status,body}),
   confirmation:async args=>{outbox.push(args);return {status:'sent'};},emailAllowed:()=>false});
@@ -174,12 +174,11 @@ test('Supabase: a first registration over the sending limit goes back to none fo
  const req={method:'PUT',headers:{'content-type':'application/json'},async *[Symbol.asyncIterator](){yield Buffer.from(JSON.stringify(body));}};
  await api({req,res,url:new URL('http://nodal.test/api/fiiu/registration'),user:member});
  assert.equal(res.status,200);assert.equal(res.body.confirmationEmail,'none');assert.equal(outbox.length,0);
- const patch=pg.calls.find(c=>c.table==='fiiu_registrations'&&c.method==='PATCH');
- assert.deepEqual([patch.query.confirmation_status,patch.body],['eq.pending',{confirmation_status:'none',confirmation_sent_at:null}]);
- assert.deepEqual([pg.tables.fiiu_registrations[0].confirmation_status,pg.tables.fiiu_registrations[0].version],['none',1]);
+ assert.equal(pg.calls.filter(c=>c.table==='fiiu_registrations'&&c.method==='PATCH').length,0,'nothing to undo');
+ assert.deepEqual([pg.tables.fiiu_registrations[0].confirmation_status,pg.tables.fiiu_registrations[0].confirmation_sent_at??null,pg.tables.fiiu_registrations[0].version],['none',null,1]);
 });
 
-test('Supabase first registration stores the email as pending, then settles it by status alone without touching the version',async()=>{
+test('Supabase first registration stores the email as none, claims it and settles it by status alone without touching the version',async()=>{
  const pg=postgrest(),outbox=[];
  const api=createFiiuApi({store:createFiiuStore({clients:pg.clients}),sameOrigin:()=>true,send:(res,status,body)=>Object.assign(res,{status,body}),
   confirmation:async args=>{outbox.push(args);assert.equal(pg.tables.fiiu_registrations[0].confirmation_status,'pending','stored before the send');return {status:'sent',sentAt:'2026-10-02T15:00:00.000Z'};}});
@@ -193,9 +192,10 @@ test('Supabase first registration stores the email as pending, then settles it b
  const first=await call('PUT','/api/fiiu/registration',{version:0,...answers},'nodal.lang=pt');
  assert.equal(first.status,200);assert.equal(first.body.confirmationEmail,'sent');assert.equal(first.body.registration.version,1);assert.equal(outbox[0].language,'pt');
  const insert=pg.calls.find(c=>c.table==='fiiu_registrations'&&c.method==='POST');
- assert.deepEqual([insert.body.confirmation_status,insert.body.confirmation_language],['pending','pt']);
- assert.equal(insert.body.confirmation_sent_at,insert.body.created_at,'the send is stamped when it starts, so the daily cap counts it');
- const settle=pg.calls.find(c=>c.table==='fiiu_registrations'&&c.method==='PATCH');
+ assert.deepEqual([insert.body.confirmation_status,insert.body.confirmation_language,insert.body.confirmation_sent_at],['none','pt',null],'a lost insert answer leaves a row the button can send');
+ const [claim,settle]=pg.calls.filter(c=>c.table==='fiiu_registrations'&&c.method==='PATCH');
+ assert.deepEqual(claim.query,{id:`eq.${first.body.registration.id}`,confirmation_status:'eq.none'},'claimed by a compare-and-set on the status, never on the version');
+ assert.equal(claim.body.confirmation_status,'pending');assert.match(claim.body.confirmation_sent_at,/^\d{4}-\d\d-\d\dT/,'the send is stamped when it starts, so the daily cap counts it');
  assert.deepEqual(settle.query,{id:`eq.${first.body.registration.id}`,confirmation_status:'eq.pending'},'compare-and-set on the status, never on the version');
  assert.deepEqual(settle.body,{confirmation_status:'sent',confirmation_sent_at:'2026-10-02T15:00:00.000Z'});
  assert.deepEqual([pg.tables.fiiu_registrations[0].confirmation_status,pg.tables.fiiu_registrations[0].version],['sent',1]);

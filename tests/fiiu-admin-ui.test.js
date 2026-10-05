@@ -857,6 +857,33 @@ test('sending asks for an in-page confirmation, then sends batch after batch wit
  assert.ok(h.requests.filter(r=>r.path==='/api/admin/fiiu/summary').length>summaries,'the overview is refreshed');
 });
 
+test('a second press meant for Send or Confirm never lands on the button that replaced it',async()=>{
+ let now=Date.parse('2026-10-02T15:00:00.000Z');const Clock=class extends Date{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};
+ const inFlight=deferred();
+ const h=await harness(request=>request.path==='/api/admin/fiiu/confirmations'?inFlight.promise:{content:[],nextCursor:null},{confirmationsRead:()=>emailState({counts:emailCounts({none:6})}),context:{Date:Clock}});
+ // A person's press: a click event with its click count (0 from the keyboard).
+ const click=async(name,detail=1)=>{backfillAction(h,name).listeners.click({detail});await flush();};
+ now+=5000;await click('send');assert.ok(backfillAction(h,'confirm'),'the first press asks for confirmation');
+ await click('confirm',0);now+=100;await click('confirm',0);assert.equal(posts(h).length,0,'Enter pressed again straight away does not confirm');
+ let prevented=false;backfillAction(h,'confirm').listeners.keydown({repeat:true,preventDefault(){prevented=true;}});assert.equal(prevented,true,'a held key does not repeat onto Confirm');
+ now+=1000;await click('confirm',2);assert.equal(posts(h).length,0,'the second click of a double click does not confirm');
+ await click('confirm');assert.equal(posts(h).length,1,'a deliberate press confirms');assert.ok(backfillAction(h,'stop'));
+ await click('stop',0);assert.notEqual(backfillNote(h),'Sent 0 of 6 — stopping after this batch…','a second Confirm press does not stop the pass');
+ now+=1000;await click('stop');assert.equal(backfillNote(h),'Sent 0 of 6 — stopping after this batch…');
+ inFlight.resolve(batch({sent:4,remaining:2,next:'id-4',sentToday:4,counts:emailCounts({none:2,sent:4})}));await flush();
+});
+
+test('a dashboard left open at the daily cap offers the buttons again once the cap resets at 19:00 Lima',async()=>{
+ let now=Date.parse('2026-10-02T23:30:00.000Z');const Clock=class extends Date{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};
+ let state=emailState({counts:emailCounts({none:5,sent:150}),sentToday:150,resetsAt:'2026-10-03T00:00:00.000Z'});
+ const h=await harness(()=>({content:[],nextCursor:null}),{confirmationsRead:()=>state,context:{Date:Clock}});
+ const reads=()=>h.requests.filter(r=>r.path==='/api/admin/fiiu/confirmations'&&r.method==='GET').length,before=reads();
+ assert.equal(backfillButtons(h).length,0);await h.tickTimers();assert.equal(reads(),before,'nothing to ask before the reset');
+ now=Date.parse('2026-10-03T00:00:30.000Z');state=emailState({counts:emailCounts({none:5,sent:150}),resetsAt:'2026-10-04T00:00:00.000Z'});
+ await h.tickTimers();await flush();assert.equal(reads(),before+1);assert.equal(backfillAction(h,'send').textContent,'Send the summary to 5 people');assert.equal(backfillNote(h),'');
+ await h.tickTimers();assert.equal(reads(),before+1,'asked once, not every minute');
+});
+
 test('Stop finishes the batch in flight and sends no more; Cancel sends nothing',async()=>{
  let state=emailState({counts:emailCounts({none:10})});const first=deferred();
  const h=await harness(request=>request.path==='/api/admin/fiiu/confirmations'?first.promise:{content:[],nextCursor:null},{confirmationsRead:()=>state});

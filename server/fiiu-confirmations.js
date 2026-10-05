@@ -39,20 +39,24 @@ export async function festivalConfig(store){
  return {...DEFAULT_CONFIG,...row?.data};
 }
 
-/* Claims one registration from the status it was read with, sends its summary and records the outcome. Returns the
-   outcome ('sent', 'failed', 'uncertain' or 'skipped'), or null when someone else claimed the row first. A sender
-   that throws counts as 'uncertain'. A failed claim or a failed final write throws; the row then stays as it was, or
-   'pending', and is never sent again automatically. The claim stamps confirmation_sent_at with attemptAt so the daily
-   cap counts the send from the moment it starts (see DAILY_CAP and settledSentAt). */
+/* Claims one registration from the status it was read with, sends its summary and records the outcome. Shared by the
+   first registration (server/fiiu-api.js), the dashboard batches and the script. Returns {status, sentAt} (status
+   'sent', 'failed', 'uncertain' or 'skipped'), or null when someone else claimed the row first. A sender that throws
+   counts as 'uncertain'. The outcome write is tried twice, since a row left 'pending' is never sent again
+   automatically: after a 'failed' send that would mean nobody ever gets the email. A failed claim, or an outcome write
+   that fails twice, throws; the row then stays as it was, or 'pending'. No row matches the outcome write when the
+   registration was cancelled meanwhile, and nothing is recreated. The claim stamps confirmation_sent_at with attemptAt
+   so the daily cap counts the send from the moment it starts (see DAILY_CAP and settledSentAt). */
 export async function deliverConfirmation({store,confirm,config,registration,attemptAt=new Date().toISOString()}){
  const language=emailLanguage(registration.confirmationLanguage);
  const claimed=await store.update('registrations',{id:registration.id,confirmationStatus:registration.confirmationStatus},{confirmationStatus:'pending',confirmationLanguage:language,confirmationSentAt:attemptAt});
  if(!claimed)return null;
  let outcome;
  try{outcome=await confirm({registration:claimed,config,language});}catch{outcome={status:'uncertain'};}
- const status=OUTCOMES.includes(outcome?.status)?outcome.status:'uncertain';
- await store.update('registrations',{id:registration.id,confirmationStatus:'pending'},{confirmationStatus:status,confirmationSentAt:settledSentAt(status,outcome,attemptAt)});
- return status;
+ const status=OUTCOMES.includes(outcome?.status)?outcome.status:'uncertain',sentAt=settledSentAt(status,outcome,attemptAt);
+ const record=()=>store.update('registrations',{id:registration.id,confirmationStatus:'pending'},{confirmationStatus:status,confirmationSentAt:sentAt});
+ try{await record();}catch{await pause(250);await record();}
+ return {status,sentAt};
 }
 // confirmation_sent_at once a send settles: the provider's acceptance time for 'sent', the attempt's start for
 // 'uncertain' (it may have gone out, so it keeps counting against the daily cap), none for 'failed' or 'skipped'.
@@ -91,7 +95,7 @@ export async function sendConfirmationBatch({store,confirm,retryFailed=false,aft
  const attemptAt=new Date(now).toISOString(),settled=await Promise.allSettled(due.map(registration=>deliverConfirmation({store,confirm,config,registration,attemptAt})));
  const broken=settled.find(result=>result.status==='rejected');if(broken)throw broken.reason;
  const results={sent:0,failed:0,uncertain:0,skipped:0,claimedElsewhere:0};
- for(const {value} of settled)results[value===null?'claimedElsewhere':value]++;
+ for(const {value} of settled)results[value===null?'claimedElsewhere':value.status]++;
  const next=due.length===room?due.at(-1).id:null;
  const remaining=next?await store.count('registrations',{eventId:EVENT_ID,confirmationStatus},{after:next}):0;
  return {...results,remaining,next,dailyCap,sentToday:sentToday+results.sent+results.uncertain,resetsAt:day.resetsAt};
@@ -123,10 +127,10 @@ export async function sendConfirmations({store,confirm=null,send=false,retryFail
    if(sentToday>=dailyCap)return {...results,capped:true,dailyCap,sentToday,resetsAt:day.resetsAt};
   }
   results.listed++;
-  const status=await deliverConfirmation({store,confirm,config,registration});
-  if(status===null){results.claimedElsewhere++;continue;}
-  results[status]++;
-  log(`${registration.id}  ${status}`);
+  const delivered=await deliverConfirmation({store,confirm,config,registration});
+  if(delivered===null){results.claimedElsewhere++;continue;}
+  results[delivered.status]++;
+  log(`${registration.id}  ${delivered.status}`);
   if(delayMs)await pause(delayMs);
  }
  return results;
