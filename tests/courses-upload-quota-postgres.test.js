@@ -33,7 +33,11 @@ test('PostgreSQL quota serializes RPC and legacy INSERT at READ COMMITTED and RE
  GRANT USAGE ON SCHEMA public TO anon,authenticated,service_role;`);
  const migrations=(await readdir(new URL('../supabase/migrations/',import.meta.url))).filter(file=>file.endsWith('.sql')&&(file<='20260908005245_course_post_owner_edit.sql'||file==='20260909005100_course_upload_quota.sql')).sort();
  for(const file of migrations)await apply('../supabase/migrations/'+file);
- for(const file of ['course-postgres-check.sql','course-post-owner-edit-check.sql','course-upload-quota-check.sql'])await apply('./fixtures/'+file);
+ // The final survey tables are created over Supabase's default privileges (every new table granted to the browser
+ // roles), so the fixture proves their REVOKEs really take effect. It needs only pilot_courses and profiles.
+ await sql('ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon,authenticated,service_role');
+ await apply('../supabase/migrations/20261006004500_course_final_survey.sql');
+ for(const file of ['course-postgres-check.sql','course-post-owner-edit-check.sql','course-upload-quota-check.sql','course-final-survey-check.sql'])await apply('./fixtures/'+file);
 
  const waitFor=async query=>{
   const deadline=Date.now()+10000;

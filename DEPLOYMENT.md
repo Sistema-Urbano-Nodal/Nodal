@@ -98,6 +98,79 @@ select has_table_privilege('anon', 'public.stripe_events', 'SELECT'),
        has_table_privilege('authenticated', 'public.organizations', 'SELECT');        -- false, false after
 ```
 
+## Final survey (Curso Movilidad Nivel 2): one migration, applied by hand, before `main`
+
+The final survey and certificates for *Curso Movilidad Nivel 2* (see
+[docs/implementation/course-final-survey.md](docs/implementation/course-final-survey.md))
+add two server-only tables. Apply
+`20261006004500_course_final_survey.sql` to the production Supabase project
+**before** merging, then merge. It is additive and wrapped in a transaction:
+it creates `course_survey_responses` and `course_certificates` (RLS on, no
+browser grants, `service_role` limited to select/insert/update/delete) and
+changes nothing that exists, so the code live today is unaffected. A second
+run fails on "already exists" and changes nothing.
+
+**Do not deploy the code first.** The new server reads these tables for
+*every* member's `GET /api/me/export` and `DELETE /api/me` (course data export
+and erasure), not only on this course: until the migration is applied those
+fail for everyone, and the course page and the organiser tab of this course
+fail too. `npm run uploads:reconcile` also reads them.
+
+```sh
+npx --no-install supabase db query --linked -f supabase/migrations/20261006004500_course_final_survey.sql
+# the project owner then records it (never `supabase db push`):
+supabase migration repair --status applied 20261006004500
+```
+
+Read-only checks after applying:
+
+```sql
+select relname, relrowsecurity from pg_class
+ where oid in ('public.course_survey_responses'::regclass, 'public.course_certificates'::regclass);  -- both true
+select has_table_privilege('anon', 'public.course_survey_responses', 'SELECT'),
+       has_table_privilege('authenticated', 'public.course_certificates', 'SELECT');                -- false, false
+select to_regclass('public.course_certificates_one_ready');                                         -- not null
+```
+
+Also confirm through the Data API (not only SQL) that PostgREST sees the new
+tables: a service-role `GET /rest/v1/course_survey_responses?select=id&limit=0`
+and the same for `course_certificates` must answer 200. If they answer 404, run
+`NOTIFY pgrst, 'reload schema';` and check again.
+
+Before the survey is announced, run two read-only checks and share the results
+with the organiser:
+
+```sql
+-- 1. Who holds app_role admin. Every administrator can read individual answers, while the survey tells
+--    participants that teachers only receive grouped results: no teacher of the course may be on this list.
+select id, full_name, email from profiles where app_role = 'admin' order by full_name;
+-- 2. Enrolled administrators. They are organisers: they get a read-only preview and are left out of every
+--    count, list, CSV and certificate (expected today: 3 of the 20 enrolled, so 17 participants).
+select p.full_name, p.email from course_enrollments e join profiles p on p.id = e.user_id
+ where e.course_id = '72e3cc56-a506-4a1b-97b5-9333e8d283ca' and p.app_role = 'admin';
+```
+
+After the merge, check the Vercel deployment status (the build runs the
+tests), then smoke-test as a non-enrolled administrator: the teaching
+workspace lists the participants with 0 answered, both CSVs download, and the
+course page shows the read-only preview. Do not enrol staff accounts in
+production for testing.
+
+Afterwards:
+
+- The form closes by itself at `2026-10-24T05:00:00Z` (end of 23 October in
+  Lima). No deploy is needed.
+- **Keep the course published.** Participants reach the survey and download
+  their certificate only while *Curso Movilidad Nivel 2* is `published`.
+  Archiving it or setting it to draft hides both, including certificates of
+  people who already answered. Leave it published for as long as certificates
+  should stay downloadable.
+- If an upload or a deletion of a certificate failed with a Storage error, run
+  `npm run uploads:reconcile` (dry run; see its `certificates` part), then
+  `npm run uploads:reconcile -- --apply`.
+- Retention of the responses (including started-only rows) is not decided yet;
+  record the decision with the other course categories in `docs/privacy/`.
+
 ## Supabase Setup
 
 1. Create a Supabase project.

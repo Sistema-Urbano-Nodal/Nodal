@@ -10,6 +10,15 @@ function postAttachmentIds(ids) {
   if(unique.length>90)throw new Error('discussion attachment batch exceeds page limit');
   return unique.map(identifier);
 }
+/* Course certificates share the private bucket with post and material files, so every certificate operation first
+   checks that its path is the server's own certificates/<course>/<user>/<id>.pdf (the table CHECKs the prefix): no
+   other object, and no '..' segment, can ever be named. */
+const CERTIFICATE_PATH=/^certificates\/(?:[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}\/){2}[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}\.pdf$/;
+function certificatePath(certificate) {
+  const path=certificate?.storagePath;
+  if(typeof path!=='string'||!CERTIFICATE_PATH.test(path))throw new Error('invalid certificate path');
+  return path;
+}
 function tableInfo(name) { const info = COURSE_TABLES[name]; if (!info) throw new Error('unknown course table'); return info; }
 function checkedFields(info, record) {
   for (const field of Object.keys(record)) if (!info.fields.includes(field)) throw new Error(`unknown course field ${field}`);
@@ -95,7 +104,8 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
         const unique=postAttachmentIds(ids);if(!unique.length)return [];
         return db.prepare(`SELECT * FROM course_attachments WHERE course_id=? AND module_id=? AND status='ready' AND id IN (${unique.map(()=>'?').join(',')})`).all(courseId,moduleId,...unique).map(row=>fromRow(tableInfo('attachments'),row));
       },
-      async getMembers(ids) { if(!ids.length)return [];return db.prepare(`SELECT id,full_name AS name,email FROM users WHERE id IN (${ids.map(()=>'?').join(',')})`).all(...ids); },
+      // staff marks administrators, who organise courses and are never counted as participants.
+      async getMembers(ids) { if(!ids.length)return [];return db.prepare(`SELECT id,full_name AS name,email,role FROM users WHERE id IN (${ids.map(()=>'?').join(',')})`).all(...ids).map(({role,...member})=>({...member,staff:role==='admin'})); },
       async count(name, filters = {}) { const info=tableInfo(name),where=whereSql(info,filters);return db.prepare(`SELECT count(*) AS n FROM ${info.table}${where.sql}`).get(...where.params).n; },
       async find(name, filters = {}, options = {}) {
         const info = tableInfo(name), opts = optionsFor(info,options), where = whereSql(info,filters,opts);
@@ -125,7 +135,12 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
       async update(name, filters, patch) {
         const info=tableInfo(name), row=toRow(info,patch,true), where=whereSql(info,filters);
         if (!where.sql) throw new Error('scoped update required');
-        try { return fromRow(info,db.prepare(`UPDATE ${info.table} SET ${Object.keys(row).map(key=>`${key} = ?`).join(',')}${where.sql} RETURNING *`).get(...Object.values(row),...where.params)); } catch(err) { if(/official resource attachment unavailable|remove the material/.test(err.message))fail(err.message,409);throw err; }
+        try { return fromRow(info,db.prepare(`UPDATE ${info.table} SET ${Object.keys(row).map(key=>`${key} = ?`).join(',')}${where.sql} RETURNING *`).get(...Object.values(row),...where.params)); } catch(err) {
+          if(/official resource attachment unavailable|remove the material/.test(err.message))fail(err.message,409);
+          // A unique index refusing an update (a second 'ready' certificate for one person) is a conflict, not a failure.
+          if(String(err.message).includes('UNIQUE constraint'))fail('record already exists',409);
+          throw err;
+        }
       },
       async editPost({id,courseId,userId,expectedBody,body}) {
         return this.update('posts',{id,courseId,userId,body:expectedBody,deletedAt:null},{body});
@@ -138,6 +153,9 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
       async putFile(attachment, bytes) { db.prepare('INSERT INTO course_attachment_bytes (id,bytes) VALUES (?,?)').run(attachment.id,bytes); },
       async getFile(attachment) { const row=db.prepare('SELECT bytes FROM course_attachment_bytes WHERE id=?').get(attachment.id); if(!row) fail('file unavailable',404);return Buffer.from(row.bytes); },
       async deleteFile(attachment) { db.prepare('DELETE FROM course_attachment_bytes WHERE id=?').run(attachment.id); },
+      async putCertificate(certificate,bytes) { certificatePath(certificate);db.prepare('INSERT INTO course_certificate_bytes (id,bytes) VALUES (?,?)').run(certificate.id,bytes); },
+      async getCertificate(certificate) { certificatePath(certificate);const row=db.prepare('SELECT bytes FROM course_certificate_bytes WHERE id=?').get(certificate.id); if(!row) fail('file unavailable',404);return Buffer.from(row.bytes); },
+      async deleteCertificate(certificate) { certificatePath(certificate);db.prepare('DELETE FROM course_certificate_bytes WHERE id=?').run(certificate.id); },
     };
   }
   const supa = clients ?? createSupabaseClients({env,fetchImpl:(url,args)=>fetchImpl(url,{...args,signal:AbortSignal.timeout(15000)})});
@@ -180,6 +198,11 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
     if(!response.ok) fail('attachment storage unavailable',502);
     return response;
   };
+  const removeObject = async storagePath => {
+    const credentials=supa.env;
+    const response=await fetchImpl(`${credentials.url}/storage/v1/object/${BUCKET}`,{method:'DELETE',headers:{apikey:credentials.serverKey,Authorization:`Bearer ${credentials.serverKey}`,'Content-Type':'application/json'},body:JSON.stringify({prefixes:[storagePath]}),signal:AbortSignal.timeout(20000)});
+    if(!response.ok) fail('attachment cleanup unavailable',502);
+  };
   return {
     kind:'supabase',
     async getPostAttachments({ids,courseId,moduleId}) {
@@ -188,7 +211,7 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
       query.id=`in.(${unique.join(',')})`;
       return (await readPage(info.table,query,'id')).map(row=>fromRow(info,row));
     },
-    async getMembers(ids) { if(!ids.length)return [];return (await readPage('profiles',{id:`in.(${ids.join(',')})`,select:'id,full_name,email',order:'id.asc',limit:Math.min(500,new Set(ids).size)},'id')).map(row=>({id:row.id,name:row.full_name,email:row.email})); },
+    async getMembers(ids) { if(!ids.length)return [];return (await readPage('profiles',{id:`in.(${ids.join(',')})`,select:'id,full_name,email,app_role',order:'id.asc',limit:Math.min(500,new Set(ids).size)},'id')).map(row=>({id:row.id,name:row.full_name,email:row.email,staff:row.app_role==='admin'})); },
     async count(name,filters={}) {
       const info=tableInfo(name),query=queryFor(info,filters,{limit:1});query.select='id';delete query.order;
       const credentials=supa.env;
@@ -222,7 +245,11 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
     async update(name,filters,patch) {
       const info=tableInfo(name);if(!Object.keys(filters).length)throw new Error('scoped update required');
       const query=queryFor(info,filters,{});delete query.order;delete query.limit;
-      try { return fromRow(info,(await supa.admin.rest(info.table,{method:'PATCH',query,headers:{Prefer:'return=representation'},body:toRow(info,patch,false)}))[0]); } catch(err) { if(['23514','40P01','40001'].includes(err.code))fail('course material changed; reload before retrying',409);throw err; }
+      try { return fromRow(info,(await supa.admin.rest(info.table,{method:'PATCH',query,headers:{Prefer:'return=representation'},body:toRow(info,patch,false)}))[0]); } catch(err) {
+        if(['23514','40P01','40001'].includes(err.code))fail('course material changed; reload before retrying',409);
+        if(err.code==='23505')fail('record already exists',409);
+        throw err;
+      }
     },
     async editPost({id,courseId,userId,expectedBody,body}) {
       // Full 6000-character Unicode comparisons exceed provider URL limits.
@@ -236,10 +263,9 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
     },
     async putFile(attachment,bytes) { await storage(attachment,{method:'POST',body:bytes}); },
     async getFile(attachment) { return Buffer.from(await (await storage(attachment)).arrayBuffer()); },
-    async deleteFile(attachment) {
-      const credentials=supa.env;
-      const response=await fetchImpl(`${credentials.url}/storage/v1/object/${BUCKET}`,{method:'DELETE',headers:{apikey:credentials.serverKey,Authorization:`Bearer ${credentials.serverKey}`,'Content-Type':'application/json'},body:JSON.stringify({prefixes:[attachment.storagePath]}),signal:AbortSignal.timeout(20000)});
-      if(!response.ok) fail('attachment cleanup unavailable',502);
-    },
+    async deleteFile(attachment) { await removeObject(attachment.storagePath); },
+    async putCertificate(certificate,bytes) { await storage({storagePath:certificatePath(certificate),mime:'application/pdf'},{method:'POST',body:bytes}); },
+    async getCertificate(certificate) { return Buffer.from(await (await storage({storagePath:certificatePath(certificate),mime:'application/pdf'})).arrayBuffer()); },
+    async deleteCertificate(certificate) { await removeObject(certificatePath(certificate)); },
   };
 }

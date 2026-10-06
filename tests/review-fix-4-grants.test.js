@@ -44,3 +44,24 @@ test('the closing migration only revokes, so it is safe to apply by hand and to 
  assert.doesNotMatch(sql,/\b(?:grant|create|drop|alter|insert|update|delete|truncate)\b/i);
  assert.doesNotMatch(sql,/service_role/i,'service_role grants are left as they are');
 });
+
+test('the final survey tables are server-only: the browser roles hold nothing and the server holds its four operations',()=>{
+ for(const table of ['public.course_survey_responses','public.course_certificates']){
+  for(const role of ['anon','authenticated'])assert.equal(stateFor('table',table,role),'revoked',`${table} ${role}`);
+  assert.equal(stateFor('table',table,'service_role'),'granted',table);
+ }
+ const name=readdirSync(dir).find(file=>file.endsWith('_course_final_survey.sql'));
+ assert.match(name??'',/^\d{14}_course_final_survey\.sql$/);
+ assert.ok(name>'20261003201338_close_client_grants_on_server_tables.sql','sorts after the migrations it builds on');
+ const sql=readFileSync(new URL(name,dir),'utf8');
+ // Additive only: every statement creates, secures or grants one of its own two tables, inside one transaction.
+ const own='public\\.(?:course_survey_responses|course_certificates)\\b';
+ const allowed=[/^begin$/i,/^commit$/i,new RegExp(`^create table ${own}`,'i'),new RegExp(`^create (?:unique )?index \\w+ on ${own}`,'i'),new RegExp(`^alter table ${own} enable row level security$`,'i'),new RegExp(`^revoke all on table ${own} from `,'i'),new RegExp(`^grant select,insert,update,delete on table ${own} to service_role$`,'i')];
+ const body=sql.replace(/--[^\n]*/g,'').split(';').map(part=>part.replace(/\s+/g,' ').trim()).filter(Boolean);
+ for(const statement of body)assert.ok(allowed.some(pattern=>pattern.test(statement)),statement);
+ for(const table of ['course_survey_responses','course_certificates'])assert.match(sql,new RegExp(`ALTER TABLE public\\.${table} ENABLE ROW LEVEL SECURITY`));
+ assert.match(sql,/CREATE UNIQUE INDEX course_certificates_one_ready ON public\.course_certificates\(course_id,user_id\) WHERE status='ready'/);
+ assert.match(sql,/storage_path text NOT NULL UNIQUE CHECK\(storage_path LIKE 'certificates\/%'\)/);
+ // A tracked private file never loses its row: neither the account nor the course can be deleted under it.
+ assert.match(sql,/course_certificates[\s\S]*course_id uuid NOT NULL REFERENCES public\.pilot_courses\(id\) ON DELETE RESTRICT,\s*user_id uuid NOT NULL REFERENCES public\.profiles\(id\) ON DELETE RESTRICT/);
+});

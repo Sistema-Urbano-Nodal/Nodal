@@ -34,14 +34,31 @@ test('real application protects pilot pages, disables checkout, exports and eras
   const file=await call(`/api/course-attachments/${attachment.id}`);
   assert.equal(await file.text(),'Observation');assert.match(file.headers.get('content-disposition'),/^attachment/);
   await call('/api/feedback','POST',{action:'assignment',rating:5,courseId:course.id,moduleId:module.id});
+  // The pilot course is the final-survey course. Its routes follow the real deadline, so the response and the
+  // certificate are seeded directly: this test must pass on any date.
+  const stamp=new Date().toISOString(),certificateId=randomUUID();
+  await store.insert('surveys',{id:randomUUID(),courseId:course.id,userId:member.id,answers:{overall:'buena',gender:'prefer_not',age:40,country:'PE'},submittedAt:stamp,createdAt:stamp,updatedAt:stamp});
+  const certificate=await store.insert('certificates',{id:certificateId,courseId:course.id,userId:member.id,size:12,storagePath:`certificates/${course.id}/${member.id}/${certificateId}.pdf`,status:'ready',createdAt:stamp});
+  await store.putCertificate(certificate,Buffer.from('%PDF-1.4 cert'));
+  // Downloading one's own certificate does not depend on the deadline; organiser routes stay closed to members.
+  const pdf=await call(`/api/courses/${course.id}/certificate`);
+  assert.equal(pdf.status,200);assert.equal(pdf.headers.get('content-type'),'application/pdf');assert.equal(pdf.headers.get('x-frame-options'),'DENY');
+  assert.equal(pdf.headers.get('cache-control'),'private, no-store');assert.equal(await pdf.text(),'%PDF-1.4 cert');
+  for(const path of ['final-survey','export?type=survey',`certificates/${member.id}`])assert.equal((await call(`/api/admin/courses/${course.id}/${path}`)).status,403,path);
+  assert.equal((await fetch(`${base}/api/courses/${course.id}/certificate`)).status,401);
   const {data:exported}=await(await call('/api/me/export')).json();
   assert.equal(exported.coursePilot.intakes[0].answers.city,'Lima');
   assert.equal(exported.coursePilot.attachments[0].storagePath,undefined);
+  assert.equal(exported.coursePilot.surveys[0].answers.gender,'prefer_not');
+  assert.deepEqual(exported.coursePilot.certificates.map(c=>[c.id,c.status,c.storagePath]),[[certificateId,'ready',undefined]]);
   assert.equal((await call('/api/me','DELETE',{confirmEmail:member.email})).status,200);
   assert.equal(await store.count('intakes',{userId:member.id}),0);
   assert.equal(await store.count('feedback',{userId:member.id}),0);
   assert.equal(await store.count('attachments',{userId:member.id}),0);
   assert.equal(db.prepare('SELECT count(*) AS n FROM course_attachment_bytes').get().n,0);
+  assert.equal(await store.count('surveys',{userId:member.id}),0);
+  assert.equal(await store.count('certificates',{userId:member.id}),0);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM course_certificate_bytes').get().n,0);
   const removed=(await store.find('posts',{id:post.id}))[0];
   assert.equal(removed.userId,null);assert.equal(removed.body,'');assert.equal(removed.authorName,'');
 });
@@ -56,6 +73,11 @@ test('database account deletion scrubs late posts atomically and refuses unresol
  const attachment=await store.insert('attachments',{id:randomUUID(),courseId:course.id,moduleId:module.id,userId:user.id,name:'pending.txt',mime:'text/plain',size:5,storagePath:'test/pending',status:'pending',createdAt:new Date().toISOString()});
  assert.throws(()=>db.prepare('DELETE FROM users WHERE id=?').run(user.id),/FOREIGN KEY/);
  await store.remove('attachments',{id:attachment.id});
+ // A course certificate row restricts account deletion the same way, until erasure removes it with its file.
+ const certificateId=randomUUID();
+ await store.insert('certificates',{id:certificateId,courseId:course.id,userId:user.id,size:5,storagePath:`certificates/${course.id}/${user.id}/${certificateId}.pdf`,status:'ready',createdAt:new Date().toISOString()});
+ assert.throws(()=>db.prepare('DELETE FROM users WHERE id=?').run(user.id),/FOREIGN KEY/);
+ await store.remove('certificates',{id:certificateId});
  db.prepare('DELETE FROM users WHERE id=?').run(user.id);
  const tombstone=(await store.find('posts',{id:post.id}))[0];
  assert.equal(tombstone.body,'');assert.equal(tombstone.authorName,'');assert.equal(tombstone.userId,null);

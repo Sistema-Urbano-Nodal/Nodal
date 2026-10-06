@@ -1,5 +1,6 @@
 import { newId, identifier, fail, normalizeCourse, normalizeModule, normalizeIntake, normalizePost, normalizeFeedback, decodeAttachment, attachmentFilename, text, csv, INTAKE_FIELDS, FEEDBACK_ACTIONS, decodeCursor, encodeCursor } from './courses-domain.js';
 import {createCourseParticipants} from './course-participants.js';
+import {createFinalSurvey, FINAL_SURVEY} from './course-final-survey.js';
 import {createHash} from 'node:crypto';
 
 const now = () => new Date().toISOString();
@@ -60,7 +61,8 @@ function respond(res,status,body,headers={}) {
   res.end(typeof body==='string'||Buffer.isBuffer(body)?body:JSON.stringify(body));
 }
 
-export function createCourseApi({store,userRepository,sameOrigin,send=respond,rateLimit=()=>true,downloadLimits=DOWNLOAD_LIMITS,log=console.error}={}) {
+// finalSurvey and clock exist for tests: the survey's course and deadline are fixed in production.
+export function createCourseApi({store,userRepository,sameOrigin,send=respond,rateLimit=()=>true,downloadLimits=DOWNLOAD_LIMITS,log=console.error,finalSurvey=FINAL_SURVEY,clock=Date.now}={}) {
   const participants=createCourseParticipants({store,userRepository});
   const downloads=createByteBudget(downloadLimits);
   const findOne=async(name,filters)=>(await store.find(name,filters,{limit:1}))[0]??null;
@@ -166,6 +168,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     };
   }
   function sendCsv(res,name,rows) { send(res,200,csv(rows),{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="${name}.csv"`}); }
+  const survey=createFinalSurvey({store,send,bodyJson,findOne,all,membersForRows,downloads,isStaff,sendCsv,config:finalSurvey,clock,log});
 
   return async function handle({req,res,url,user}) {
     const path=url.pathname;
@@ -276,14 +279,16 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       }
       return true;
     }
+    // The final survey and certificates of one course (server/course-final-survey.js); false for anything else.
+    if(await survey.handle({req,res,url,user,access,courseId,suffix,adminPath}))return true;
     if(!suffix&&req.method==='GET') {
-      let modules=await store.find('modules',{courseId,...(isStaff(user)?{}:{status:'published'})},{limit:101,order:['position','sessionDate','id']});
+      let [modules,finalSurvey]=await Promise.all([store.find('modules',{courseId,...(isStaff(user)?{}:{status:'published'})},{limit:101,order:['position','sessionDate','id']}),survey.snapshot({courseId,user,access})]);
       if(!isStaff(user)&&(!access.enrollment||!access.intake)) modules=modules.map(({id,kind,title,position,sessionDate,status,translations={}})=>({
         id,kind,title,position,sessionDate,status,
         // Preview only localized titles; gated teaching content stays private.
         translations:Object.fromEntries(Object.entries(translations).map(([locale,fields])=>[locale,typeof fields.title==='string'?{title:fields.title}:{}])),
       }));
-      send(res,200,{...access,modules,isAdmin:isStaff(user)});return true;
+      send(res,200,{...access,modules,isAdmin:isStaff(user),...(finalSurvey?{finalSurvey}:{})});return true;
     }
     if(adminPath&&!suffix&&req.method==='PATCH') {
       const input=await bodyJson(req);

@@ -26,8 +26,9 @@ function tr(tag,key,cls){const n=el(tag,cls,t(key));n.dataset.pilotText=key;retu
 function translate(){document.querySelectorAll('[data-pilot-text]').forEach(n=>{n.textContent=t(n.dataset.pilotText);});document.querySelectorAll('[data-pilot-aria]').forEach(n=>n.setAttribute('aria-label',t(n.dataset.pilotAria)));document.querySelectorAll('[data-pilot-placeholder]').forEach(n=>n.setAttribute('placeholder',t(n.dataset.pilotPlaceholder)));document.querySelectorAll('[data-pilot-dynamic]').forEach(n=>localizedBindings.get(n)?.());if(titleSource)document.title=titleSource()+' · NODAL';}
 function translatedError(key,statusCode,fieldKey){return Object.assign(new Error(t(key)),{translationKey:key,status:statusCode,fieldKey});}
 function requestError(data,statusCode){
-  const codes={participant_not_found:'participantNotFound',participant_unconfirmed:'participantUnconfirmed',participant_unavailable:'participantUnavailable',invitation_unavailable:'invitationUnavailable',invitation_uncertain:'invitationUncertain',invitation_rate:'tooManyRequests',invitation_email:'participantEmailError',participant_course_unavailable:'participantCourseUnavailable',participant_enrollment_closed:'participantEnrollmentClosed',enrollment_closed:'closed',feedback_limit:'feedbackLimit'};
-  if(codes[data.code])return Object.assign(translatedError(codes[data.code],statusCode),{code:data.code});
+  const codes={participant_not_found:'participantNotFound',participant_unconfirmed:'participantUnconfirmed',participant_unavailable:'participantUnavailable',invitation_unavailable:'invitationUnavailable',invitation_uncertain:'invitationUncertain',invitation_rate:'tooManyRequests',invitation_email:'participantEmailError',participant_course_unavailable:'participantCourseUnavailable',participant_enrollment_closed:'participantEnrollmentClosed',enrollment_closed:'closed',feedback_limit:'feedbackLimit',survey_unavailable:'surveyUnavailable',survey_closed:'surveyClosed',survey_submitted:'surveyAlreadySent',survey_locked:'surveyLocked',survey_not_started:'surveyNotStarted',survey_changed:'surveyChanged',survey_invalid:'surveyInvalid',certificate_unavailable:'certificateUnavailable',certificate_invalid:'certificateInvalid',certificate_not_enrolled:'certificateNotEnrolled',certificate_changed:'certificateChanged'};
+  // A refused survey answer names its question (`field`, a question id), never what was written.
+  if(codes[data.code])return Object.assign(translatedError(codes[data.code],statusCode),{code:data.code,...(typeof data.field==='string'?{field:data.field}:{})});
   const detail=String(data.error||'');
   if(/enroll and complete/.test(detail))return translatedError('intakeRequired',statusCode);
   if(/enrollment is closed/.test(detail))return translatedError('closed',statusCode);
@@ -116,6 +117,8 @@ function recordingPreview(resource,onOpen){
   return {element,close};
 }
 function date(value){return value?new Intl.DateTimeFormat(window.nodalI18n?.lang||'en',{dateStyle:'medium',timeZone:'UTC'}).format(new Date(value+'T12:00:00Z')):'';}
+// An instant as it reads in Lima (UTC-05:00 all year), where the courses run, in the interface language.
+function limaDate(value,options){return value?new Intl.DateTimeFormat(language(),{...options,timeZone:'America/Lima'}).format(new Date(value)):'';}
 function feedback(action,context={}) {
   const box=el('details','pilot-feedback');box.append(tr('summary','feedback_'+action));
   const history=el('details','pilot-feedback-history'),list=el('div'),historyStatus=el('p','pilot-status');
@@ -196,7 +199,7 @@ function feedback(action,context={}) {
   history.addEventListener('toggle',()=>{if(history.open&&!loaded)return loadHistory();});
   box.append(newForm(),history);return box;
 }
-window.nodalPilot={t,el,tr,api,status,button,field,select,safeUrl,recordingEmbed,recordingPreview,date,feedback,localized,hasLocalized,bind,dynamic,source,setPageTitle};
+window.nodalPilot={t,el,tr,api,status,button,field,select,safeUrl,recordingEmbed,recordingPreview,date,limaDate,feedback,localized,hasLocalized,bind,dynamic,source,setPageTitle};
 window.nodalI18n?.onChange(translate);
 function showPilot(pilot){
   document.documentElement.dataset.pilot=String(pilot);

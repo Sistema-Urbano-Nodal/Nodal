@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const {t,el,tr,api,status,button,field,select,date,bind,dynamic,source,setPageTitle}=window.nodalPilot;
+const {t,el,tr,api,status,button,field,select,date,limaDate,bind,dynamic,source,setPageTitle}=window.nodalPilot;
 const root=document.getElementById('pilotRoot'),msg=document.getElementById('pilotStatus');
 let courses=[],selectedId=null,workspace,selectionVersion=0;
 const endpoint=id=>'/api/admin/courses'+(id?'/'+id:'');
@@ -258,6 +258,128 @@ function activityView(data,id){
   box.append(metrics,tr('p','accessNote','pilot-data-note'),csvLink(id,'activity','export'));return box;
 }
 
+/* The final survey of Curso Movilidad Nivel 2 (docs/implementation/course-final-survey.md): who answered, their
+   certificates and the two CSVs. The server lists enrolled participants only: administrators are organisers and are
+   left out of every count. Bulk PDFs are matched to people here in the browser, so their file names, which are
+   emails, never travel; one PDF goes per request because the hosting caps request bodies near 4.5 MB. */
+const CERTIFICATE_LIMIT=3*1024*1024;
+const normalized=value=>String(value??'').trim().normalize('NFC').toLowerCase();
+const fill=(key,values)=>Object.entries(values).reduce((text,[name,value])=>text.split('{'+name+'}').join(String(value)),t(key));
+function say(node,key,values={}){node.classList.toggle('is-error',false);bind(node,()=>{node.textContent=fill(key,values);});return node;}
+function labelled(node,key,name){bind(node,()=>node.setAttribute('aria-label',fill(key,{name})));return node;}
+function matchCertificates(files,people){
+  const byEmail=new Map(people.filter(p=>normalized(p.email)).map(p=>[normalized(p.email),p])),found=new Map(),unmatched=[];
+  for(const file of files){const person=byEmail.get(normalized(file.name).replace(/\.pdf$/,''));if(person)found.set(person,[...(found.get(person)||[]),file]);else unmatched.push(file);}
+  const matched=[],duplicates=[];for(const [person,group] of found){if(group.length===1)matched.push({person,file:group[0]});else duplicates.push(...group);}
+  return {matched,duplicates,unmatched};
+}
+// The same checks as the server, so a wrong file fails before it is sent: at most 3 MB and a body that starts with %PDF-.
+function readCertificate(file){
+  const invalid=()=>Object.assign(new Error(t('certificateInvalid')),{translationKey:'certificateInvalid',code:'certificate_invalid',local:true});
+  return new Promise((resolve,reject)=>{
+    if(!file||file.size>CERTIFICATE_LIMIT){reject(invalid());return;}
+    const reader=new FileReader();reader.onload=()=>{const data=String(reader.result).split(',')[1]||'';if(/^JVBERi[0-3]/.test(data))resolve(data);else reject(invalid());};reader.onerror=()=>reject(invalid());reader.readAsDataURL(file);
+  });
+}
+function finalSurveyView(id,version){
+  const pane=el('section','pilot-survey-admin'),heading=el('div','pilot-section-heading'),exports=el('div','pilot-survey-exports');
+  exports.append(csvLink(id,'survey','downloadSurveyResponses'),csvLink(id,'survey-status','downloadSurveyStatus'));heading.append(tr('h2','finalSurvey'),exports);
+  const summary=el('div','pilot-survey-summary'),local=el('p','pilot-status');local.setAttribute('role','status');local.setAttribute('aria-live','polite');
+  const reminder=field('surveyReminderLink',new URL('course.html?'+new URLSearchParams({id,encuesta:'1'}),location.href).href);reminder.wrap.className='pilot-survey-reminder';reminder.input.name='survey-reminder-link';reminder.input.readOnly=true;
+  reminder.input.addEventListener('focus',()=>reminder.input.select?.());
+  const bulk=el('details','pilot-file-manager pilot-survey-bulk'),files=field('certificateFiles','','file'),start=button('uploadCertificates',()=>uploadAll()),progress=el('p','pilot-status'),report=el('div','pilot-bulk-report');
+  files.input.name='survey-certificate-files';files.input.multiple=true;files.input.accept='application/pdf,.pdf';start.className+=' pilot-plate';progress.setAttribute('role','status');progress.setAttribute('aria-live','polite');
+  bulk.append(tr('summary','bulkCertificates'),tr('p','bulkCertificatesHint','pilot-data-note'),files.wrap,start,progress,report);
+  const table=el('div','pilot-table-wrap');table.append(tr('p','loading','pilot-empty'));
+  pane.append(heading,summary,local,reminder.wrap,tr('p','surveyReminderNote','pilot-data-note'),bulk,table);
+  let data=null,busy=false,requested=false,actions=[],focusable=new Map();const sent=new Set();
+  const current=()=>version===selectionVersion&&selectedId===id,fileKey=file=>[file.name,file.size,file.lastModified].join(':');
+  const certificatePath=userId=>endpoint(id)+'/certificates/'+encodeURIComponent(userId);
+  function setBusy(value){busy=value;pane.setAttribute('aria-busy',String(value));start.disabled=value;for(const control of actions)control.disabled=value;}
+  async function load(){
+    try{const result=await api(endpoint(id)+'/final-survey',undefined,undefined,{redirectOnUnauthorized:false});if(!current())return false;data=result;render();return true;}
+    catch(err){if(current()){status(local,err);if(!data)table.replaceChildren(button('retry',()=>load(),true));}return false;}
+  }
+  function render(){
+    const day=()=>limaDate(data.lastDay+'T12:00:00Z',{day:'numeric',month:'long'});
+    summary.replaceChildren(dynamic('p',()=>fill('surveyCounts',{answered:data.answered,total:data.total,certificates:data.certificates}),'pilot-survey-counts'));
+    if(data.started)summary.append(dynamic('p',()=>fill('surveyStartedCount',{started:data.started}),'pilot-survey-line'));
+    summary.append(dynamic('p',()=>fill(data.open?'surveyClosesOn':'surveyClosedOn',{date:day()}),'pilot-survey-line'));
+    actions=[];focusable=new Map();
+    if(!data.participants.length){table.replaceChildren(tr('p','noParticipants','pilot-empty'));return;}
+    const grid=el('table','pilot-table'),head=el('tr'),thead=el('thead'),rows=el('tbody');
+    ['participant','surveyColumn','certificateColumn','actionsColumn'].forEach(k=>head.append(tr('th',k)));thead.append(head);grid.append(thead,rows);
+    const when=(value,options)=>{const time=dynamic('time',()=>limaDate(value,options),'pilot-response-date');time.dateTime=value;return time;};
+    for(const p of data.participants){
+      const row=el('tr'),who=el('td','pilot-response-person'),answer=el('td'),certificate=el('td'),controls=el('td','pilot-survey-actions'),name=p.name||p.email;
+      who.append(el('strong',null,p.name||''),el('div','pilot-response-email',p.email||''));
+      if(p.submittedAt)answer.append(tr('span','surveyAnswered','pilot-survey-done'),when(p.submittedAt,{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}));
+      else answer.append(tr('span',p.startedAt?'surveyStartedOnly':'surveyNotYet','pilot-survey-pending'));
+      if(p.certificate){const view=labelled(tr('a','downloadCertificateFile','pilot-survey-file'),'downloadCertificateOf',name);view.href=certificatePath(p.userId);certificate.append(tr('span','certificateUploaded','pilot-survey-done'),when(p.certificate.createdAt,{day:'numeric',month:'short'}),view);}
+      else certificate.append(tr('span','certificateMissing','pilot-survey-pending'));
+      const picker=labelled(el('input'),'certificateFileOf',name);picker.type='file';picker.accept='application/pdf,.pdf';picker.name='survey-certificate-'+p.userId;picker.hidden=true;
+      const upload=labelled(button(p.certificate?'replaceCertificate':'uploadCertificate',()=>{if(!busy)picker.click?.();},true),p.certificate?'replaceCertificateFor':'uploadCertificateFor',name);
+      picker.addEventListener('change',()=>{const file=picker.files?.[0];picker.value='';if(file)uploadOne(p,file);});
+      controls.append(picker,upload);actions.push(upload);focusable.set(p.userId,upload);
+      if(p.certificate){const remove=labelled(button('deleteCertificate',()=>removeOne(p),true),'deleteCertificateFor',name);controls.append(remove);actions.push(remove);}
+      row.append(who,answer,certificate,controls);rows.append(row);
+    }
+    table.replaceChildren(grid);setBusy(busy);
+  }
+  // After a change the table is drawn again.
+  async function refresh(key){if(await load())status(local,t(key));}
+  /* The pressed button is disabled while busy (and a row's is replaced by the redraw), so focus falls to the page.
+     Once the controls are enabled again it returns to that button, or to the same person's row, unless the organiser
+     has moved it meanwhile. */
+  function refocus(target){const active=document.activeElement;if(current()&&(!active||active===document.body))target?.focus();}
+  async function uploadOne(p,file){
+    if(busy)return;setBusy(true);status(local,'');
+    try{const pdf=await readCertificate(file);await api(certificatePath(p.userId),{mime:'application/pdf',data:pdf},'PUT',{redirectOnUnauthorized:false});if(current())await refresh('certificateSaved');}
+    catch(err){if(current())status(local,err);}finally{setBusy(false);refocus(focusable.get(p.userId));}
+  }
+  async function removeOne(p){
+    if(busy||!confirm(t('confirmDeleteCertificate')))return;setBusy(true);status(local,'');
+    try{await api(certificatePath(p.userId),{},'DELETE',{redirectOnUnauthorized:false});if(current())await refresh('certificateDeleted');}
+    catch(err){if(current())status(local,err);}finally{setBusy(false);refocus(focusable.get(p.userId));}
+  }
+  function fileList(key,items,line){const box=el('div');box.append(tr('p',key,'pilot-bulk-heading'));const list=el('ul');items.forEach(item=>list.append(line(item)));box.append(list);return box;}
+  // Before anything is sent, each file is shown next to the person it would go to; duplicates and strangers are listed apart.
+  function showPlan({matched,duplicates,unmatched}){
+    report.replaceChildren();
+    if(matched.length)report.append(fileList('bulkMatched',matched,({person,file})=>{const item=el('li');item.append(el('span',null,file.name+' → '+(person.name||person.email)));if(person.certificate)item.append(tr('span','bulkReplaces','pilot-bulk-note'));return item;}));
+    if(duplicates.length)report.append(fileList('bulkDuplicate',duplicates,file=>el('li',null,file.name)));
+    if(unmatched.length)report.append(fileList('bulkUnmatched',unmatched,file=>el('li',null,file.name)),tr('p','bulkUnmatchedHint','pilot-data-note'));
+  }
+  files.input.addEventListener('change',()=>{status(progress,'');if(data)showPlan(matchCertificates([...(files.input.files||[])],data.participants));});
+  async function uploadAll(){
+    if(busy||!data)return;
+    const plan=matchCertificates([...(files.input.files||[])],data.participants),todo=plan.matched.filter(({file})=>!sent.has(fileKey(file)));showPlan(plan);
+    if(!todo.length){status(progress,new Error(t(plan.matched.length?'bulkAlreadyUploaded':'bulkNothing')));return;}
+    const replacing=todo.filter(({person})=>person.certificate).length;
+    if(replacing&&!confirm(fill('confirmReplaceCertificates',{n:replacing})))return;
+    const failed=[];let uploaded=0,stopped=null;setBusy(true);
+    try{
+      for(const [index,{person,file}] of todo.entries()){
+        if(!current())return;say(progress,'bulkProgress',{current:index+1,total:todo.length});
+        try{const pdf=await readCertificate(file);await api(certificatePath(person.userId),{mime:'application/pdf',data:pdf},'PUT',{redirectOnUnauthorized:false});sent.add(fileKey(file));uploaded++;}
+        catch(err){
+          // A refusal of one file is reported and the rest go on; anything else (session, rate limit, outage) stops the run.
+          if(err.local||(/^certificate_/.test(err.code||'')&&[400,404,409,413].includes(err.status)))failed.push({file,err});else{stopped=err;break;}
+        }
+      }
+    }finally{setBusy(false);refocus(start);}
+    if(!current())return;
+    say(progress,'bulkDone',{uploaded});report.replaceChildren();
+    if(stopped){const reason=el('p','pilot-status');status(reason,stopped);report.append(reason,tr('p','bulkStopped','pilot-status is-error'));}
+    if(failed.length)report.append(fileList('bulkFailed',failed,({file,err})=>{const item=el('li'),reason=el('span');status(reason,err);item.append(el('span',null,file.name+' — '),reason);return item;}));
+    if(plan.duplicates.length)report.append(fileList('bulkDuplicate',plan.duplicates,file=>el('li',null,file.name)));
+    if(plan.unmatched.length)report.append(fileList('bulkUnmatched',plan.unmatched,file=>el('li',null,file.name)),tr('p','bulkUnmatchedHint','pilot-data-note'));
+    await load();
+  }
+  // Read on first opening of the tab, never for a course without the survey.
+  return {element:pane,open(){if(!requested){requested=true;load().then(ok=>{if(!ok)requested=false;});}}};
+}
+
 function setupView(course,modules,id,onCourseSaved){
   const pane=el('section','pilot-setup');
   const courseDetails=el('details','pilot-editor-section');
@@ -284,7 +406,7 @@ function setupView(course,modules,id,onCourseSaved){
 async function showCourse(id,selected='responses',participantNotice=null){
   const version=++selectionVersion;selectedId=id;status(msg,t('loading'));
   try{
-    const [{course,modules},data]=await Promise.all([api('/api/courses/'+id),api(endpoint(id)+'/report')]);
+    const [{course,modules,finalSurvey},data]=await Promise.all([api('/api/courses/'+id),api(endpoint(id)+'/report')]);
     if(version!==selectionVersion)return;
     workspace.replaceChildren();
     const header=el('header','pilot-teaching-course');
@@ -313,12 +435,15 @@ async function showCourse(id,selected='responses',participantNotice=null){
         status(msg,'');
       }catch(error){if(version===selectionVersion&&selectedId===id)status(msg,new Error(t('participantListRefreshError')));}
     }
-    const panes={responses:responseView(data.feedback,id),participants:participantView(data,id,version,participantNotice,refreshParticipants,paneClosed),courseSetup:setupView(course,modules,id,updateCourse)};
+    // The course page sends finalSurvey only for the one course that has the survey, so only that course gets the tab.
+    const survey=finalSurvey?finalSurveyView(id,version):null;
+    const panes={responses:responseView(data.feedback,id),participants:participantView(data,id,version,participantNotice,refreshParticipants,paneClosed),...(survey?{finalSurvey:survey.element}:{}),courseSetup:setupView(course,modules,id,updateCourse)};
     const buttons={};
     function activate(key){
       for(const name of Object.keys(panes)){
         panes[name].hidden=name!==key;buttons[name].setAttribute('aria-selected',String(name===key));buttons[name].tabIndex=name===key?0:-1;
       }
+      if(key==='finalSurvey')survey.open();
     }
     Object.entries(panes).forEach(([key,pane],index)=>{
       const b=button(key,()=>activate(key),true);b.id='staff-tab-'+key;b.setAttribute('role','tab');b.setAttribute('aria-controls','staff-pane-'+key);

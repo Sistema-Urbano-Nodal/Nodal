@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const {t,el,tr,api,status,button,field,select,safeUrl,recordingPreview,date,feedback,localized,hasLocalized,dynamic,source,setPageTitle}=window.nodalPilot;
+const {t,el,tr,api,status,button,field,select,safeUrl,recordingPreview,date,limaDate,feedback,localized,hasLocalized,bind,dynamic,source,setPageTitle}=window.nodalPilot;
 const root=document.getElementById('pilotRoot'),msg=document.getElementById('pilotStatus');
 const courseId=new URLSearchParams(location.search).get('id');
 let snapshot,activeId,loadSequence=0,navigationSequence=0,navigationPending=false;
@@ -27,6 +27,8 @@ async function course(fresh){
     const enroll=button('enroll',async()=>{if(enroll.disabled)return;enroll.disabled=true;try{await api(base()+'/enroll',{});await course();}catch(err){if(err.code==='enrollment_closed')return course({...snapshot,course:{...c,enrollmentOpen:false}});status(msg,err);enroll.disabled=false;}});
     hero.append(enroll);renderRoutePreview();return;
   }
+  // The final survey comes before the intake gate: an enrolled person without a course form answers it too.
+  appendSurvey();
   if(!snapshot.intake&&!snapshot.isAdmin){root.append(intakeForm());renderRoutePreview();return;}
   const actions=el('div','pilot-actions');actions.append(tr('span',snapshot.enrollment?'enrolled':'staff','pilot-tag'));
   if(snapshot.intake){
@@ -77,6 +79,210 @@ function renderRoutePreview(){
   if(!sessions.length)box.append(tr('p','noModules'));
   if(snapshot.modules.some(m=>m.kind==='discussion'))box.append(tr('p','generalDiscussion'));
   root.append(box);
+}
+
+/* The final survey of one course (server/course-final-survey.js, docs/implementation/course-final-survey.md). The server
+   decides every state (open, closed, organiser preview, sent, certificate) and sends the approved Spanish wording, which
+   stays Spanish content (lang=es) in any interface language; only the chrome around it is translated. One controller
+   owns the section across course() re-renders, so answers typed on screen 2 survive them, and every state the server
+   returns is written back to snapshot.finalSurvey. */
+let surveyView=null,surveyIds=0,topicOrder=null,surveyLinkHandled=false;
+const SURVEY_STATE_CODES=['survey_locked','survey_submitted','survey_closed','survey_unavailable','survey_not_started','survey_changed'];
+const surveyPhase=s=>s.preview?(s.open?'preview':'previewClosed'):s.response?.submittedAt?'sent':!s.open?'closed':s.response?'started':'new';
+const surveyKey=s=>[surveyPhase(s),s.certificate||'',s.response?.submittedAt||''].join('|');
+function appendSurvey(){
+  const state=snapshot.finalSurvey;if(!state){surveyView=null;return;}
+  if(surveyView?.key!==surveyKey(state))surveyView=createSurvey(state);else surveyView.update(state);
+  root.append(surveyView.node);
+  // The organiser's reminder link (course.html?id=…&encuesta=1) opens the form once; the address then drops it.
+  if(!surveyLinkHandled&&new URLSearchParams(location.search).get('encuesta')==='1'){
+    surveyLinkHandled=true;const url=new URL(location.href);url.searchParams.delete('encuesta');history.replaceState(null,'',url);
+    surveyView.expand?.(false);surveyView.heading.focus();
+  }
+}
+// One question, or one row of a grid: a fieldset whose error line every control points to with aria-describedby.
+function surveyBlock(text,{number,help,optional,row}={}){
+  const id='survey-q'+(++surveyIds),node=el('fieldset',row?'pilot-survey-row':'pilot-survey-question'),legend=el('legend'),label=el('span',null,(number?number+'. ':'')+text);
+  label.lang='es';label.id=id+'-label';legend.append(label);if(optional)legend.append(tr('span','surveyOptional','pilot-survey-optional'));node.append(legend);
+  const hint=help?el('p','pilot-survey-help',help):null,error=el('p','pilot-survey-error');
+  if(hint){hint.lang='es';hint.id=id+'-help';node.append(hint);}
+  error.id=id+'-error';error.hidden=true;node.append(error);
+  // `notes` describe the controls too: the help line, and a note under the options (question 12).
+  const block={id,node,label,controls:[],notes:hint?[hint]:[],invalid:false};
+  block.describe=()=>{const ids=[...block.notes.map(n=>n.id),block.invalid?error.id:''].filter(Boolean).join(' ');for(const target of [node,...block.controls]){if(ids)target.setAttribute('aria-describedby',ids);else target.removeAttribute('aria-describedby');}};
+  block.fail=(key,n,invalid=block.controls)=>{block.invalid=true;error.hidden=false;bind(error,()=>{error.textContent=t(key).replace('{n}',n??'');});invalid.forEach(c=>c.setAttribute('aria-invalid','true'));block.describe();};
+  block.clear=()=>{if(!block.invalid)return;block.invalid=false;error.hidden=true;delete error.dataset.pilotDynamic;error.textContent='';block.controls.forEach(c=>c.removeAttribute('aria-invalid'));block.describe();};
+  return block;
+}
+function surveyChoices(block,name,type,options,columns,onChange){
+  const list=el('div','pilot-survey-options'+(columns?' cols-'+options.length:''));
+  const items=options.map(option=>{
+    const label=el('label','pilot-survey-option'),input=el('input'),text=el('span',null,option.label);
+    input.type=type;input.name=name;input.value=option.id;text.lang='es';text.id='survey-o'+(++surveyIds);label.append(input,text);list.append(label);block.controls.push(input);
+    input.addEventListener('change',()=>onChange?onChange(input):block.clear());return {option,label,input,text};
+  });
+  block.node.append(list);block.describe();
+  return {items,value:()=>items.find(i=>i.input.checked)?.input.value||'',values:()=>items.filter(i=>i.input.checked).map(i=>i.input.value)};
+}
+// Question 8 asks for a random order with 'Otro' last; it is drawn once per page, so a re-render keeps it.
+function surveyShuffle(options,last){
+  if(!topicOrder){const ids=options.map(o=>o.id).filter(id=>id!==last);for(let i=ids.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[ids[i],ids[j]]=[ids[j],ids[i]];}topicOrder=last?[...ids,last]:ids;}
+  return topicOrder.map(id=>options.find(o=>o.id===id)).filter(Boolean);
+}
+function surveyPart(section){const part=el('section','pilot-survey-part'),title=el('h3',null,section.id+' · '+section.title);title.lang='es';part.append(title);return part;}
+function createSurvey(initial){
+  let state=initial,busy=false,screens={},area=null,opener=null,consent=null,named=null,texts={};
+  const node=el('section','pilot-closeout'),heading=tr('h2','finalSurvey'),body=el('div'),live=el('p','pilot-status');
+  node.id='encuestaFinal';heading.id='encuestaFinalTitle';heading.tabIndex=-1;node.setAttribute('aria-labelledby',heading.id);
+  live.setAttribute('role','status');live.setAttribute('aria-live','polite');node.append(heading,live,body);
+  const view={key:surveyKey(state),node,heading,expand:null,certificate:null,update(next){accept(next);syncName();}};
+  const alive=()=>surveyView===view,closedOn=()=>limaDate(state.lastDay+'T12:00:00Z',{day:'numeric',month:'long'});
+  function accept(next){state=next;snapshot.finalSurvey=next;view.key=surveyKey(next);}
+  function polite(){const line=el('p','pilot-status');line.setAttribute('role','status');line.setAttribute('aria-live','polite');return line;}
+  function stepLine(n){const step=dynamic('p',()=>t('surveyStep').replace('{n}',n),'pilot-survey-step');step.tabIndex=-1;return step;}
+  function render(){
+    screens={};consent=named=null;texts={};view.expand=null;view.certificate=null;body.replaceChildren();
+    const phase=surveyPhase(state);
+    if(phase==='sent'){renderSent();return;}
+    if(state.preview)body.append(tr('p','surveyPreview','pilot-survey-note'));
+    if(!state.open){body.append(dynamic('p',()=>t('surveyClosedOn').replace('{date}',closedOn()),'pilot-closeout-lead'));return;}
+    const intro=el('p','pilot-closeout-intro',state.survey.intro),language=el('p','pilot-survey-note');intro.lang='es';
+    bind(language,()=>{language.textContent=t('surveyInSpanish');language.hidden=(window.nodalI18n?.lang||'en')==='es';});
+    opener=button(state.preview?'previewSurvey':phase==='started'?'resumeSurvey':'startSurvey',()=>show(surveyPhase(state)==='started'?2:1));opener.className+=' pilot-plate';
+    area=el('div','pilot-survey-screens');area.hidden=true;body.append(intro,language,opener,area);
+    view.expand=focus=>show(surveyPhase(state)==='started'?2:1,focus);
+  }
+  function renderSent(){
+    const mine=tr('h3','myCertificate','pilot-certificate-title'),line=el('p','pilot-certificate');mine.id='encuestaFinalCertificate';mine.tabIndex=-1;view.certificate=mine;
+    body.append(dynamic('p',()=>t('surveySentOn').replace('{date}',limaDate(state.response.submittedAt,{day:'numeric',month:'long',year:'numeric'})),'pilot-closeout-lead'),mine,line);
+    if(state.certificate==='ready'){const link=tr('a','downloadCertificate','pilot-button pilot-plate');link.href=base()+'/certificate';line.append(tr('strong','certificateReady','pilot-certificate-state is-ready'));body.append(link);return;}
+    const note=el('p','pilot-survey-note'),mail=el('a',null,state.contactEmail);mail.href='mailto:'+state.contactEmail;
+    line.append(tr('strong','certificatePreparing','pilot-certificate-state is-preparing'));note.append(tr('span','certificatePreparingNote'),' ',mail);body.append(note);
+  }
+  function show(n,focus=true){screens[n]??=n===1?screenOne():screenTwo();area.replaceChildren(screens[n].form);area.hidden=false;opener.hidden=true;if(focus)screens[n].step.focus();}
+  // A refusal that means the state moved on (closed, sent elsewhere, locked) re-reads it; the rest of the page stays.
+  async function reload(error,local){
+    let fresh=null;
+    try{fresh=await api(base(),undefined,undefined,{redirectOnUnauthorized:false});}catch{/* The refusal itself still explains what happened. */}
+    if(!alive())return;
+    if(fresh&&!fresh.finalSurvey){snapshot.finalSurvey=undefined;surveyView=null;node.remove();status(msg,error);return;}
+    if(fresh&&surveyKey(fresh.finalSurvey)!==view.key){accept(fresh.finalSurvey);render();status(live,error);heading.focus();return;}
+    if(fresh)view.update(fresh.finalSurvey);
+    status(local,error);
+  }
+  function syncConsent(){
+    if(!consent)return;const written=Boolean(texts[consent.after]?.value.trim());consent.block.node.hidden=!written;
+    if(!written){consent.choice.items.forEach(i=>{i.input.checked=false;});consent.block.clear();}
+  }
+  // "Sí, como:" is followed by the exact name the message would be published under, and is not offered without one.
+  function syncName(){if(!named)return;named.text.textContent=named.option.label+' '+state.publishAs;named.label.hidden=!state.publishAs;if(!state.publishAs)named.input.checked=false;}
+  function screenOne(){
+    const section=state.survey.sections.find(s=>s.questions.some(q=>q.screen===1)),q=section.questions.find(x=>x.screen===1);
+    const form=el('form','pilot-survey'),step=stepLine(1),part=surveyPart(section),block=surveyBlock(q.label,{number:q.number}),choice=surveyChoices(block,'survey-'+q.id,'radio',q.options,true);
+    const next=button('surveyContinue'),local=polite(),end=el('div','pilot-survey-submit');next.type='submit';next.className+=' pilot-plate';form.noValidate=true;
+    part.append(block.node);end.append(tr('p','surveyLockWarning','pilot-survey-note'),next,local);form.append(step,part,end);
+    form.addEventListener('submit',async event=>{
+      event.preventDefault();if(busy)return;const overall=choice.value();
+      if(!overall){block.fail('surveyChooseOne');choice.items[0].input.focus();return;}
+      // The organiser preview moves on without saving anything.
+      if(state.preview){show(2);return;}
+      busy=true;next.disabled=true;form.setAttribute('aria-busy','true');next.dataset.pilotText='surveySaving';next.textContent=t('surveySaving');status(local,'');
+      try{const result=await api(base()+'/survey/start',{overall},'PUT',{redirectOnUnauthorized:false});if(!alive())return;accept(result.finalSurvey);show(2);}
+      catch(err){if(SURVEY_STATE_CODES.includes(err.code))await reload(err,local);else status(local,err);}
+      finally{busy=false;next.disabled=false;form.setAttribute('aria-busy','false');next.dataset.pilotText='surveyContinue';next.textContent=t('surveyContinue');}
+    });
+    return {form,step};
+  }
+  function screenTwo(){
+    const form=el('form','pilot-survey'),step=stepLine(2),checks=[],reads=[],end=el('div','pilot-survey-submit'),local=polite();form.noValidate=true;
+    form.append(step,tr('p','surveyLockedNote','pilot-survey-locked'));
+    for(const section of state.survey.sections){
+      const questions=section.questions.filter(q=>q.screen!==1);if(!questions.length)continue;
+      const part=surveyPart(section);for(const q of questions)part.append(surveyQuestion(q,section,checks,reads,local));form.append(part);
+    }
+    let send=null;
+    if(state.preview)end.append(tr('p','surveyPreview','pilot-survey-note'));else{send=button('surveySubmit');send.type='submit';send.className+=' pilot-plate';end.append(send);}
+    end.append(local);form.append(end);syncConsent();syncName();
+    form.addEventListener('submit',async event=>{
+      event.preventDefault();if(busy||!send)return;
+      const invalid=checks.map(check=>check()).filter(Boolean);
+      if(invalid.length){status(local,new Error(t('surveyRequiredSummary')));invalid[0].focus();return;}
+      const answers={};reads.forEach(read=>read(answers));
+      busy=true;send.disabled=true;form.setAttribute('aria-busy','true');send.dataset.pilotText='surveySending';send.textContent=t('surveySending');status(local,'');
+      try{
+        const result=await api(base()+'/survey',{answers,publishAs:state.publishAs},'POST',{redirectOnUnauthorized:false});if(!alive())return;
+        accept(result.finalSurvey);render();status(live,t('surveyThanks'));view.certificate?.focus();
+      }catch(err){
+        if(err.code==='survey_invalid'){const target=checks.find(check=>check.id===err.field)?.mark();status(local,err);target?.focus();}
+        else if(SURVEY_STATE_CODES.includes(err.code))await reload(err,local);
+        else status(local,err);
+      }finally{busy=false;send.disabled=false;form.setAttribute('aria-busy','false');send.dataset.pilotText='surveySubmit';send.textContent=t('surveySubmit');}
+    });
+    return {form,step};
+  }
+  /* One question of screen 2. checks validate in question order (each returns the control to focus), reads fill the
+     answers, and local is the screen's polite status line. */
+  function surveyQuestion(q,section,checks,reads,local){
+    const optional=!q.required&&!q.requiredWith&&!/opcional/i.test(section.title),name='survey-'+q.id;
+    const block=surveyBlock(q.label,{number:q.number,help:q.help,optional});
+    // A missing 'other' text marks only that field; the choice above it is valid.
+    const check=(test,target,owner=block)=>checks.push(Object.assign(()=>{const key=test();if(key){owner.clear();owner.fail(key,undefined,key==='surveyOtherRequired'?[target()]:undefined);return target();}owner.clear();return null;},{id:q.id,mark:()=>{owner.fail('surveyInvalidAnswer');return target();}}));
+    const text=(tag,cls)=>{const input=el(tag,cls);if(tag==='input')input.type='text';input.name=name;input.setAttribute('aria-labelledby',block.label.id);block.controls.push(input);block.node.append(input);block.describe();return input;};
+    const otherText=(field,maxLength,labelledBy)=>{const input=el('input','pilot-survey-other');input.type='text';input.name='survey-'+field;input.maxLength=maxLength;input.hidden=true;input.setAttribute('aria-labelledby',labelledBy);input.addEventListener('input',()=>block.clear());block.controls.push(input);return input;};
+    if(q.type==='grid'){
+      // A grid is one question of several required rows; each row is its own fieldset, a block of options on a phone.
+      block.node.className+=' pilot-survey-grid';
+      const rows=q.rows.map(row=>{
+        const part=surveyBlock(row.label,{row:true}),choice=surveyChoices(part,name+'-'+row.id,'radio',row.options,true);block.node.append(part.node);
+        check(()=>choice.value()?'':'surveyRequiredQuestion',()=>part.controls[0],part);return [row.id,choice];
+      });
+      reads.push(answers=>{answers[q.id]=Object.fromEntries(rows.map(([id,choice])=>[id,choice.value()]));});
+    }else if(q.type==='single'){
+      // An optional choice (question 9) can go back to blank: a radio group cannot be unticked on its own.
+      const clearable=!q.required&&!q.requiredWith;let reset=null;
+      const choice=surveyChoices(block,name,'radio',q.options,q.options.length===5,clearable?()=>{block.clear();reset.hidden=false;}:undefined);
+      if(clearable){reset=button('surveyClearChoice',()=>{choice.items.forEach(i=>{i.input.checked=false;});reset.hidden=true;block.clear();choice.items[0].input.focus();},true);reset.className+=' pilot-survey-clear';reset.hidden=true;block.node.append(reset);}
+      if(q.note){const note=el('p','pilot-survey-help',q.note);note.lang='es';note.id=block.id+'-note';block.node.append(note);block.notes.push(note);block.describe();}
+      if(q.requiredWith){
+        // Question 12 is asked only about a message that was actually written.
+        consent={block,choice,after:q.requiredWith};named=choice.items.find(i=>i.option.publishAs)||null;
+        check(()=>!block.node.hidden&&!choice.value()?'surveyRequiredQuestion':'',()=>choice.items.find(i=>!i.label.hidden).input);
+        reads.push(answers=>{answers[q.id]=block.node.hidden?'':choice.value();});
+      }else{check(()=>q.required&&!choice.value()?'surveyRequiredQuestion':'',()=>choice.items[0].input);reads.push(answers=>{answers[q.id]=choice.value();});}
+    }else if(q.type==='multi'){
+      const last=q.other?.option,limit=()=>t('surveyMaxChoices').replace('{n}',q.max);let extra=null;
+      const choice=surveyChoices(block,name,'checkbox',q.shuffle?surveyShuffle(q.options,last):q.options,false,input=>{
+        /* An extra tick is undone where it happened. Focus stays on the box, so the polite status line says why too
+           (and lets it go with the next change); the boxes are not marked invalid for a notice. */
+        if(input.checked&&choice.values().length>q.max){input.checked=false;block.clear();block.fail('surveyMaxChoices',q.max,[]);local.classList.toggle('is-error',false);bind(local,()=>{local.textContent=limit();});return;}
+        block.clear();if(local.textContent===limit())status(local,'');if(extra)extra.hidden=!choice.values().includes(last);
+      });
+      if(last){
+        const item=choice.items.find(i=>i.option.id===last);extra=otherText(q.other.field,q.other.maxLength,item.text.id);item.label.after(extra);block.describe();
+        check(()=>choice.values().includes(last)&&!extra.value.trim()?'surveyOtherRequired':'',()=>extra);
+      }
+      reads.push(answers=>{answers[q.id]=choice.values();if(last)answers[q.other.field]=choice.values().includes(last)?extra.value:'';});
+    }else if(q.type==='text'){
+      const input=text(q.multiline?'textarea':'input','pilot-survey-text');input.maxLength=q.maxLength;texts[q.id]=input;
+      input.addEventListener('input',()=>{block.clear();syncConsent();});reads.push(answers=>{answers[q.id]=input.value;});
+    }else if(q.type==='integer'){
+      const input=text('input','pilot-survey-age'),value=()=>input.value.trim();input.inputMode='numeric';input.autocomplete='off';input.maxLength=String(q.max).length;input.setAttribute('aria-required','true');
+      input.addEventListener('input',()=>block.clear());
+      check(()=>!value()?(q.required?'surveyRequiredQuestion':''):/^\d+$/.test(value())&&Number(value())>=q.min&&Number(value())<=q.max?'':'surveyAgeInvalid',()=>input);
+      reads.push(answers=>{if(value())answers[q.id]=Number(value());});
+    }else if(q.type==='select'){
+      const input=el('select','pilot-survey-select'),blank=tr('option','surveyChooseCountry'),last=q.other?.option;let extra=null,otherItem=null;
+      blank.value='';input.name=name;input.setAttribute('aria-labelledby',block.label.id);input.setAttribute('aria-required','true');input.append(blank);
+      for(const option of q.options){const item=el('option',null,option.label);item.value=option.id;item.lang='es';item.id='survey-o'+(++surveyIds);if(option.id===last)otherItem=item;input.append(item);}
+      block.controls.push(input);block.node.append(input);
+      if(otherItem){extra=otherText(q.other.field,q.other.maxLength,block.label.id+' '+otherItem.id);block.node.append(extra);}
+      block.describe();input.addEventListener('change',()=>{block.clear();if(extra)extra.hidden=input.value!==last;});
+      check(()=>!input.value?(q.required?'surveyRequiredQuestion':''):extra&&input.value===last&&!extra.value.trim()?'surveyOtherRequired':'',()=>extra&&input.value===last?extra:input);
+      reads.push(answers=>{answers[q.id]=input.value;if(last)answers[q.other.field]=input.value===last?extra.value:'';});
+    }
+    return block.node;
+  }
+  render();return view;
 }
 
 async function event(kind,moduleId,resourceUrl){try{await api(base()+'/events',{id:crypto.randomUUID(),moduleId,kind,...(resourceUrl?{resourceUrl}:{})},'POST',{redirectOnUnauthorized:false});}catch(err){if(moduleId===activeId)status(msg,err);}}

@@ -272,3 +272,84 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 
 .pilot-footer{max-width:1264px;margin:0 28px;padding:24px 0;border-top:1px solid var(--line);font-size:12px}
 @media(min-width:1320px){.pilot-footer{margin-left:auto;margin-right:auto}}
+
+/* The final survey (courses.js) sits under the course title as one quiet column. Questions are separated by space, not
+   rules; options are full-width tap rows on a phone and an even row of columns on a wide screen. Content in Spanish
+   carries lang=es, the chrome around it follows the interface language. */
+.pilot-closeout{max-width:760px;margin:0 0 52px}
+.pilot-closeout>h2{margin:0 0 10px}
+.pilot-closeout .pilot-closeout-intro{font-size:14px;line-height:1.8;color:#44553d;margin:0 0 8px}
+.pilot-closeout .pilot-closeout-lead{font-size:14px;margin:0 0 18px}
+.pilot-closeout .pilot-survey-note{font-size:12px;line-height:1.7;color:var(--muted);margin:0 0 16px}
+.pilot-closeout .pilot-survey-note a{font-weight:600}
+/* The one primary action of a survey state: the NODAL press plate (fiiu.css .f-button, admin.css .admin-button-accent). */
+.pilot-page .pilot-plate{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:11px 22px;background:#59bc53;color:#20291e!important;border:2px solid #20291e;border-radius:7px;box-shadow:4px 4px 0 #20291e;font:700 13px/1.3 Montserrat,sans-serif;text-align:center;transition:transform .22s cubic-bezier(.34,1.56,.64,1),box-shadow .22s cubic-bezier(.34,1.56,.64,1),background-color .2s ease}
+.pilot-page .pilot-plate:hover{background:#63c95c;transform:translate(-2px,-2px);box-shadow:6px 6px 0 #20291e}
+.pilot-page .pilot-plate:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #20291e;transition-duration:.08s}
+.pilot-page .pilot-plate:disabled{transform:none;box-shadow:none}
+.pilot-survey-screens{margin-top:30px}
+.pilot-survey{display:grid;gap:40px;justify-items:stretch}
+.pilot-survey>.pilot-button,.pilot-survey-submit>.pilot-button{justify-self:start}
+.pilot-closeout .pilot-survey-step{font-size:12px;font-weight:650;color:var(--section-tone);margin:0 0 -22px}
+.pilot-closeout .pilot-survey-locked{background:#f2ecec;padding:12px 14px;margin:0;font-size:13px;color:#293e25;max-width:none}
+.pilot-survey-part{display:grid;gap:34px;min-width:0}
+.pilot-closeout .pilot-survey-part>h3{margin:0 0 -12px;color:var(--green);font-size:17px}
+.pilot-survey-question,.pilot-survey-row{border:0;margin:0;padding:0;min-width:0}
+.pilot-survey-question>legend,.pilot-survey-row>legend{padding:0;margin:0 0 10px;color:#293e25;font-size:15px;font-weight:600;line-height:1.5}
+.pilot-survey-row>legend{font-size:14px;font-weight:550;margin-bottom:6px}
+.pilot-survey-grid>.pilot-survey-row{margin-top:22px}
+.pilot-survey-grid>legend+.pilot-survey-row,.pilot-survey-grid>.pilot-survey-error+.pilot-survey-row{margin-top:4px}
+.pilot-survey-optional{margin-left:10px;font-size:11px;font-weight:600;color:var(--muted);white-space:nowrap}
+.pilot-closeout .pilot-survey-help{font-size:12px;line-height:1.6;color:var(--muted);margin:0 0 10px}
+.pilot-survey-options+.pilot-survey-help{margin:10px 0 0}
+.pilot-closeout .pilot-survey-error{font-size:13px;font-weight:600;color:#9d2e25;margin:0 0 8px}
+/* Question 9's "Clear selection": a quiet text button under the options, shown only while one is chosen. */
+.pilot-survey-question>.pilot-survey-clear{min-height:44px;margin-top:4px;padding:0 10px;border:0;background:none;font-size:12px;text-decoration:underline!important;text-underline-offset:4px}
+.pilot-survey-question>.pilot-survey-clear:hover{background:none;text-decoration-thickness:2px!important}
+.pilot-survey-options{display:grid;gap:2px}
+.pilot-survey-option{display:flex;align-items:center;gap:12px;min-height:44px;padding:6px 10px;border-radius:3px;cursor:pointer;font-size:14px;line-height:1.45;overflow-wrap:anywhere}
+.pilot-survey-option:hover{background:#f6f8f4}
+.pilot-survey-option:has(input:checked){background:#f2ecec}
+.pilot-survey-option:has(input:focus-visible){outline:2px solid #448337;outline-offset:0}
+.pilot-survey-option input{flex:none;width:19px;height:19px;margin:0;accent-color:#3d5c38}
+.pilot-survey-option:has(input:focus-visible) input{outline:0}
+.pilot-survey-question :is(.pilot-survey-text,.pilot-survey-age,.pilot-survey-select,.pilot-survey-other){display:block;width:100%;border:1px solid #7d8c76;border-radius:3px;background:#fff;color:#293e25;padding:10px 11px;line-height:1.5}
+.pilot-survey-question textarea.pilot-survey-text{min-height:120px;resize:vertical}
+.pilot-survey-question .pilot-survey-age{width:9ch}
+.pilot-survey-question .pilot-survey-other{margin-top:8px}
+.pilot-survey-question [aria-invalid="true"]:is(.pilot-survey-text,.pilot-survey-age,.pilot-survey-select,.pilot-survey-other){border-color:#9d2e25}
+.pilot-survey-submit{display:grid;gap:4px}
+.pilot-closeout .pilot-survey-submit>.pilot-survey-note{margin:0 0 12px}
+.pilot-closeout .pilot-certificate-title{margin:26px 0 6px}
+.pilot-closeout .pilot-certificate{margin:0 0 14px}
+.pilot-certificate-state.is-ready{color:#3d5c38;font-weight:650}
+.pilot-certificate-state.is-preparing{color:var(--muted);font-weight:650}
+@media(min-width:761px){
+ .pilot-survey-options:is(.cols-3,.cols-5,.cols-6){grid-template-columns:repeat(var(--survey-columns),minmax(0,1fr));gap:4px}
+ .pilot-survey-options.cols-3{--survey-columns:3}.pilot-survey-options.cols-5{--survey-columns:5}.pilot-survey-options.cols-6{--survey-columns:6}
+ .pilot-survey-options:is(.cols-3,.cols-5,.cols-6) .pilot-survey-option{flex-direction:column;justify-content:flex-start;gap:6px;padding:10px 6px;text-align:center;font-size:13px}
+}
+@media(max-width:760px){.pilot-closeout{margin-bottom:40px}.pilot-survey-question :is(.pilot-survey-text,.pilot-survey-age,.pilot-survey-select,.pilot-survey-other){font-size:16px}.pilot-survey{gap:34px}}
+@media(max-width:520px){.pilot-closeout .pilot-plate{display:flex;width:100%}.pilot-survey>.pilot-button,.pilot-survey-submit>.pilot-button{justify-self:stretch}}
+
+/* The organiser's survey tab (teaching.js): counts as plain lines, statuses as coloured words, row actions as underlined text. */
+.pilot-survey-exports{display:flex;flex-wrap:wrap;gap:8px 22px}
+.pilot-survey-summary{margin:0 0 18px}
+.pilot-survey-counts{font-size:16px;font-weight:600;color:#293e25;margin:0 0 4px;font-variant-numeric:tabular-nums}
+.pilot-survey-line{font-size:12px;color:var(--muted);margin:0}
+.pilot-survey-reminder{display:grid;gap:7px;max-width:620px;margin:22px 0 0;font-size:12px;font-weight:550}
+.pilot-survey-reminder input{width:100%;border:1px solid #7d8c76;border-radius:3px;background:#fff;color:#293e25;padding:9px 11px;font-size:12px}
+.pilot-survey-admin>.pilot-data-note{margin:8px 0 24px}
+.pilot-survey-bulk{margin:0 0 28px}
+.pilot-survey-bulk .pilot-data-note{margin:14px 0 4px;max-width:72ch}
+.pilot-survey-bulk>.pilot-plate{margin:8px 0 6px}
+.pilot-bulk-report{font-size:12px}
+.pilot-bulk-report ul{margin:6px 0 14px;padding-left:18px;overflow-wrap:anywhere}
+.pilot-bulk-heading{font-weight:600;margin:12px 0 0}
+.pilot-bulk-note{margin-left:8px;color:var(--muted)}
+.pilot-survey-done{color:#3d5c38;font-weight:600}
+.pilot-survey-pending{color:var(--muted)}
+.pilot-survey-file{display:inline-block;margin-top:4px;font-size:11px;font-weight:600}
+.pilot-table td.pilot-survey-actions{white-space:nowrap;padding-top:8px}
+.pilot-survey-actions>.pilot-button{min-height:36px;padding:8px 0;margin-right:16px;border:0;background:none;font-size:11px;text-decoration:underline!important;text-underline-offset:4px}
+.pilot-survey-actions>.pilot-button:hover{background:none;text-decoration-thickness:2px!important}

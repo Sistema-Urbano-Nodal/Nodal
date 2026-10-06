@@ -103,3 +103,49 @@ test('Supabase discussion attachment batches stay scoped and complete across pro
  assert.equal(calls[0].query.limit,5);assert.deepEqual(await store.getPostAttachments({ids:[],courseId:'course',moduleId:'module'}),[]);assert.equal(calls.length,3);
  await assert.rejects(store.getPostAttachments({ids:Array.from({length:91},(_,i)=>String(i)),courseId:'course',moduleId:'module'}),/batch/);
 });
+
+test('Supabase certificates use the private bucket under certificates/ only, as PDFs, with the server key',async()=>{
+ const calls=[],bytes=Buffer.from('%PDF-1.4 certificate');
+ const clients={env:{url:'https://project.supabase.co',serverKey:'test-service-key'},admin:{}};
+ const store=createCourseStore({clients,fetchImpl:async(url,args)=>{calls.push({url,...args});return args.method==='GET'?new Response(bytes):new Response('[]');}});
+ const [course,member,id]=['c0000000-0000-4000-8000-000000000001','a0000000-0000-4000-8000-000000000002','e0000000-0000-4000-8000-000000000003'];
+ const path=`certificates/${course}/${member}/${id}.pdf`,certificate={id,storagePath:path,mime:'text/html'};
+ await store.putCertificate(certificate,bytes);
+ assert.deepEqual(await store.getCertificate(certificate),bytes);
+ await store.deleteCertificate(certificate);
+ assert.deepEqual(calls.map(call=>call.method),['POST','GET','DELETE']);
+ for(const call of calls.slice(0,2)) {
+  assert.equal(call.url,`https://project.supabase.co/storage/v1/object/course-attachments/${path}`);
+  // The stored type is always PDF, whatever the record says, and an upload never overwrites an object.
+  assert.equal(call.headers['Content-Type'],'application/pdf');assert.equal(call.headers['x-upsert'],'false');
+ }
+ assert.equal(calls[2].url,'https://project.supabase.co/storage/v1/object/course-attachments');
+ assert.deepEqual(JSON.parse(calls[2].body),{prefixes:[path]});
+ assert.ok(calls.every(call=>call.headers.Authorization==='Bearer test-service-key'&&call.headers.apikey==='test-service-key'));
+ // A record outside certificates/ (a post or material file in the same bucket) is never touched.
+ for(const storagePath of ['member/file',`certificates/${course}/../${id}.pdf`,`certificates/${course}/${member}/${id}.txt`,`certificates/course/member/${id}.pdf`,path.toUpperCase(),undefined])
+  for(const operation of ['putCertificate','getCertificate','deleteCertificate'])await assert.rejects(store[operation]({id:'x',storagePath},bytes),/invalid certificate path/);
+ assert.equal(calls.length,3);
+ const failing=createCourseStore({clients,fetchImpl:async()=>new Response('',{status:503})});
+ await assert.rejects(failing.putCertificate(certificate,bytes),{status:502});
+ await assert.rejects(failing.deleteCertificate(certificate),{status:502});
+});
+
+test('Supabase survey rows, unique update conflicts and organiser flags',async()=>{
+ const calls=[];
+ const store=createCourseStore({clients:{admin:{rest:async(table,args)=>{
+  calls.push({table,...args});
+  if(args.method==='PATCH')throw Object.assign(new Error('duplicate key value violates unique constraint "course_certificates_one_ready"'),{code:'23505'});
+  if(table==='profiles')return {rows:[{id:'a',full_name:'Ana',email:'ana@example.test',app_role:'admin'},{id:'b',full_name:null,email:'b@example.test',app_role:'member'}],contentRange:'0-1/2'};
+  return {rows:[{id:'r',course_id:'course',user_id:'member',answers:{overall:'buena'},submitted_at:null,created_at:'2026-10-10T15:00:00.000Z',updated_at:'2026-10-10T15:00:00.000Z'}],contentRange:'0-0/1'};
+ }}}});
+ // A second 'ready' certificate for one person is a conflict the route answers as certificate_changed.
+ await assert.rejects(store.update('certificates',{id:'new',status:'pending'},{status:'ready'}),{status:409,message:'record already exists'});
+ assert.deepEqual(calls[0].query,{id:'eq.new',status:'eq.pending',select:'id,course_id,user_id,size,storage_path,status,created_at'});
+ const [row]=await store.find('surveys',{courseId:'course',userId:'member',submittedAt:null},{limit:1});
+ assert.deepEqual(row,{id:'r',courseId:'course',userId:'member',answers:{overall:'buena'},submittedAt:null,createdAt:'2026-10-10T15:00:00.000Z',updatedAt:'2026-10-10T15:00:00.000Z'});
+ assert.equal(calls[1].table,'course_survey_responses');assert.equal(calls[1].query.submitted_at,'is.null');assert.equal(calls[1].query.select,'id,course_id,user_id,answers,submitted_at,created_at,updated_at');
+ // Members carry whether they are organisers, so survey counts and certificates leave administrators out.
+ assert.deepEqual(await store.getMembers(['a','b']),[{id:'a',name:'Ana',email:'ana@example.test',staff:true},{id:'b',name:null,email:'b@example.test',staff:false}]);
+ assert.equal(calls[2].query.select,'id,full_name,email,app_role');
+});

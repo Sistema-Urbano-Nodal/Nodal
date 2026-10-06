@@ -57,8 +57,28 @@ export async function reconcileCourseUploads(store,{apply=false,now=Date.now()}=
   }
   return result;
 }
+/* Course certificates (server/course-final-survey.js) leave the same two kinds of row behind: an upload still
+   'pending' a day after it started, and a replaced or deleted certificate whose Storage object could not be removed
+   ('deleting', never downloadable). Certificates are never "orphaned": a ready one belongs to its person until an
+   organiser replaces or deletes it. Same rules as above: dry run by default, a Storage failure keeps the row. */
+export async function reconcileCourseCertificates(store,{apply=false,now=Date.now()}={}) {
+  const result={pending:0,pendingRemoved:0,deleting:0,deletingRemoved:0,dryRun:!apply};
+  for await (const certificate of rows(store,'certificates',{status:'pending'})) {
+    if(now-Date.parse(certificate.createdAt)<DAY_MS)continue;
+    result.pending++;
+    if(apply){await store.deleteCertificate(certificate);await store.remove('certificates',{id:certificate.id,status:'pending'});result.pendingRemoved++;}
+  }
+  for await (const certificate of rows(store,'certificates',{status:'deleting'})) {
+    result.deleting++;
+    if(apply){await store.deleteCertificate(certificate);await store.remove('certificates',{id:certificate.id,status:'deleting'});result.deletingRemoved++;}
+  }
+  return result;
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const repository=createRepository();
-  try{console.log(JSON.stringify(await reconcileCourseUploads(createCourseStore({db:repository.database}),{apply:process.argv.includes('--apply')})));}
+  try{
+    const store=createCourseStore({db:repository.database}),options={apply:process.argv.includes('--apply')};
+    console.log(JSON.stringify({...await reconcileCourseUploads(store,options),certificates:await reconcileCourseCertificates(store,options)}));
+  }
   finally{repository.close?.();}
 }

@@ -244,6 +244,10 @@ test('service-role Data API migration grants only the repository operations and 
   assert.deepEqual(effectiveServicePrivileges(sql, 'sequence', 'public.member_interactions_id_seq'), ['select', 'usage']);
   // NODAL news is the one table the desk hard-deletes; it gets exactly the four repository operations.
   assert.deepEqual(effectiveServicePrivileges(sql, 'table', 'public.nodal_news'), ['delete', 'insert', 'select', 'update']);
+  // So do the final survey's responses and certificates (server/course-final-survey.js).
+  for (const table of ['public.course_survey_responses', 'public.course_certificates']) {
+    assert.deepEqual(effectiveServicePrivileges(sql, 'table', table), ['delete', 'insert', 'select', 'update'], table);
+  }
   for (const table of ['public.organizations', 'public.organization_memberships', 'public.stripe_events']) {
     assert.deepEqual(effectiveServicePrivileges(sql, 'table', table), [], `${table} must not be exposed to service_role through PostgREST`);
   }
@@ -314,7 +318,7 @@ test('Supabase Data API smoke exercises reads, constrained inserts, updates, and
 test('changed one-hour-cached clients use new URLs on every consuming page', () => {
   const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'course.html', 'courses.html', 'teaching.html', 'accept-invitation.html', 'fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'organisers-only.html', 'community.html', 'knowledge.html', 'resources.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
-  const pilot = { 'pilot-i18n.js': '20261003r', 'pilot.js': '20261003r' };
+  const pilot = { 'pilot-i18n.js': '20261005s', 'pilot.js': '20261005s', 'courses.css': '20261005s' };
   const festival = { 'fiiu.css': '20261002p', 'fiiu-ui.js': '20261005a' };
   const required = {
     'index.html': { 'styles.css': '30', 'i18n.js': '20261003r', 'app.js': '20', 'recs.js': '4', 'script.js': '18', 'hero-network.js': '2' },
@@ -325,9 +329,9 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     'payments.html': { 'i18n.js': '20261003r', 'payments.js': '18', ...pilot },
     'profile.html': { 'i18n.js': '20261003r', 'profile.js': '20260911c', 'styles.css': '30', ...pilot },
     'admin.html': { 'styles.css': '30', 'admin.css': '5', 'admin.js': '6', 'i18n.js': '20261003r', 'locale.css': '20260929a', 'locale.js': '20260918b', 'nav.js': '20260928a', 'script.js': '18' },
-    'course.html': { 'i18n.js': '20261003r', 'courses.js': '20261003r', ...pilot },
-    'courses.html': { 'i18n.js': '20261003r', 'courses.css': '20260930a', 'courses.js': '20261003r', ...pilot },
-    'teaching.html': { 'i18n.js': '20261003r', 'courses.css': '20260930a', 'teaching.js': '20261003r', ...pilot },
+    'course.html': { 'i18n.js': '20261003r', 'courses.js': '20261005s', ...pilot },
+    'courses.html': { 'i18n.js': '20261003r', 'courses.js': '20261005s', ...pilot },
+    'teaching.html': { 'i18n.js': '20261003r', 'teaching.js': '20261005s', ...pilot },
     'accept-invitation.html': { 'accept-invitation.js': '20261003r', 'invitation-i18n.js': '20261003r' },
     'fiiu.html': { 'styles.css': '30', 'i18n.js': '20261003r', ...festival, 'fiiu.js': '20261002n' },
     'fiiu-admin.html': { 'styles.css': '30', 'i18n.js': '20261003r', ...festival, 'fiiu-admin.js': '20261005a' },

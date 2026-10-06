@@ -9,6 +9,9 @@ export const COURSE_TABLES = {
   attachments: { table: 'course_attachments', fields: ['id','courseId','moduleId','userId','purpose','name','mime','size','storagePath','status','createdAt'], json: [] },
   feedback: { table: 'pilot_feedback', fields: ['id','userId','action','courseId','moduleId','rating','comment','createdAt'], json: [] },
   events: { table: 'course_events', fields: ['id','courseId','moduleId','userId','kind','resourceUrl','createdAt'], json: [] },
+  // The final survey of one course and the certificates organisers upload for it (server/course-final-survey.js).
+  surveys: { table: 'course_survey_responses', fields: ['id','courseId','userId','answers','submittedAt','createdAt','updatedAt'], json: ['answers'] },
+  certificates: { table: 'course_certificates', fields: ['id','courseId','userId','size','storagePath','status','createdAt'], json: [] },
 };
 export const snake = key => key.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`);
 
@@ -95,6 +98,23 @@ CREATE TRIGGER IF NOT EXISTS course_posts_account_erasure BEFORE DELETE ON users
  UPDATE course_posts SET body='',links='[]',attachment_ids='[]',author_name='',staff=0,
  deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE user_id=OLD.id;
 END;
+CREATE TABLE IF NOT EXISTS course_survey_responses (
+ id TEXT PRIMARY KEY, course_id TEXT NOT NULL REFERENCES pilot_courses(id) ON DELETE CASCADE,
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, answers TEXT NOT NULL CHECK(json_type(answers)='object'),
+ submitted_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(course_id,user_id)
+);
+CREATE INDEX IF NOT EXISTS course_survey_responses_page ON course_survey_responses(course_id,created_at,id);
+CREATE INDEX IF NOT EXISTS course_survey_responses_user ON course_survey_responses(user_id);
+CREATE TABLE IF NOT EXISTS course_certificates (
+ id TEXT PRIMARY KEY, course_id TEXT NOT NULL REFERENCES pilot_courses(id) ON DELETE RESTRICT,
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT, size INTEGER NOT NULL CHECK(size BETWEEN 1 AND 3145728),
+ storage_path TEXT NOT NULL UNIQUE CHECK(storage_path LIKE 'certificates/%'),
+ status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','ready','deleting')), created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS course_certificate_bytes (id TEXT PRIMARY KEY REFERENCES course_certificates(id) ON DELETE CASCADE, bytes BLOB NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS course_certificates_one_ready ON course_certificates(course_id,user_id) WHERE status='ready';
+CREATE INDEX IF NOT EXISTS course_certificates_page ON course_certificates(course_id,created_at,id);
+CREATE INDEX IF NOT EXISTS course_certificates_user ON course_certificates(user_id);
 `;
 
 // Applied after additive upgrades, so existing SQLite pilot databases also migrate.
