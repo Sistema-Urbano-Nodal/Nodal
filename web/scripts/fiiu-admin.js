@@ -20,7 +20,7 @@
  let lastSummary=null,lastSummaryKey='',recount=null;
  const SECTIONS=[['overview','navOverview'],['checkin','checkIn'],['participants','participants'],['settings','settings'],['content','content']];
  // Columns that hold text rather than counts; the action column's heading is read out but not shown.
- const TEXT_COLUMNS=new Set(['venue','checkinWindow']),HIDDEN_HEADINGS=new Set(['openCheckinScreen']);
+ const TEXT_COLUMNS=new Set(['venue','checkinClosing']),HIDDEN_HEADINGS=new Set(['openCheckinScreen']);
  const KINDS={news:'newsKind',recording:'recording',material:'material'},REVIEW={pending:'reviewPending',accepted:'reviewAccepted',declined:'reviewDeclined'};
  const ADMIN_LABEL={profile:'profileAdmin',publicOfficial:'publicOfficialAdmin',applyLab:'applyLabAdmin',institution:'institutionAdmin',previousAttendance:'previousAttendanceAdmin',accessibilityOther:'accessibilityOtherAdmin',motivationOther:'motivationOtherAdmin'};
  const CHOICE_KEYS=['profile','gender','accessibility','motivation','previousAttendance'];
@@ -69,9 +69,8 @@
   figure('totalRegistrations',big(count(total)));
   figure('publicOfficials',big(count(summary.publicOfficials)),...(total?[note(el('span','',percent.format(summary.publicOfficials/total)+' '),tr('span','shareOfRegistrations'))]:[]));
   if(summary.attendedPeople!==undefined){
-   const people=big(count(summary.attendedPeople)),before=today<event.startsOn&&!summary.attendedPeople;
-   if(before)figure('checkedIn',note(tr('span','checkinOpensOn'),space(),dateNode(event.startsOn,'span','short','f-when-day')));
-   else figure('checkedIn',people,...(Number.isSafeInteger(summary.qrPeople)&&summary.qrPeople>=0?[note(countLabel(summary.qrPeople,'byQr','byQr'))]:[]));
+   // Check-in has no opening time, so the count shows before the festival too.
+   figure('checkedIn',big(count(summary.attendedPeople)),...(Number.isSafeInteger(summary.qrPeople)&&summary.qrPeople>=0?[note(countLabel(summary.qrPeople,'byQr','byQr'))]:[]));
   }
   figure('hoursTitle',big(hours(minutes/60)),...(officials?[note(tr('span','officialsHours'),space(),el('span','',hoursText(officialMinutes/60)))]:[]));
   const lab=el('div','f-figure f-lab-card'),bar=el('div','f-lab-bar'),legend=el('ul','f-lab-legend');bar.setAttribute('aria-hidden','true');
@@ -108,7 +107,7 @@
  const summaryKey=summary=>JSON.stringify(summary)+limaDate();
  function stampUpdated(value=updatedAt){if(!value)return;updatedAt=value;const time=el('time','',new Intl.DateTimeFormat(locale(),{hour:'2-digit',minute:'2-digit',hourCycle:'h23',timeZone:'America/Lima'}).format(value));time.dateTime=value.toISOString();updated.replaceChildren(tr('span','updatedAt'),document.createTextNode(' '),time);}
  // Timed refreshes run in the background: no disabled button and no "Loading…" line, so the layout never jumps; only failures are shown.
- // Identical totals leave the tables alone; the check-in section still re-checks its windows, which open and close with the clock.
+ // Identical totals leave the tables alone; the check-in section still re-checks each block, whose check-in closes with the clock.
  // A refresh asked for while one is in flight (after a write, or a timer tick) runs once more when it lands, so the totals include that write.
  async function refreshSummary({pending,background=false}={}){
   if(locked)return;if(summaryBusy){summaryRerun=true;return;}summaryBusy=true;summaryBody.setAttribute('aria-busy','true');const hadFocus=document.activeElement===summaryRefresh;
@@ -119,22 +118,22 @@
   finally{summaryBusy=false;summaryRefresh.disabled=false;summaryBody.setAttribute('aria-busy','false');if(hadFocus&&(!document.activeElement||document.activeElement===document.body))summaryRefresh.focus();if(summaryRerun){summaryRerun=false;refreshSummary({background:true});}}
  }
  function summaryPanel(){const bar=el('div','f-admin-toolbar');bar.append(tr('h2','summaryTitle'),lastScan,updated,autoRefresh.wrap,summaryRefresh,summaryMessage);summaryHost.id='overview';summaryHost.replaceChildren(bar,summaryBody);return summaryHost;}
- // Check-in: the NODAL blocks by day, each with its window, venue, live count and the screen to show at the door (a separate admin page without participant data).
- // The section is rebuilt only when a count, a window state or the language changes, so a focused link keeps its place.
+ // Check-in: the NODAL blocks by day, each with when its check-in closes, venue, live count and the screen to show at the door (a separate admin page without
+ // participant data). The section is rebuilt only when a count, a block's check-in closing or the language changes, so a focused link keeps its place.
  function checkedInCell(n,number){const cell=el('span','f-summary-count'+(n?'':' is-zero'),number.format(n));cell.append(document.createTextNode(' '),tr('span',n===1?'checkedInOne':'checkedInMany','f-cell-unit'));return cell;}
  function renderCheckin(summary=lastSummary){
   if(!festival)return;const stats=new Map((summary?.activities||[]).map(row=>[row.activityId,row])),blocks=checkinActivities(festival.event),states=blocks.map(activity=>checkinState(activity));
   const key=JSON.stringify([blocks.map(a=>stats.get(a.id)?.attendance??null),states,locale()]);if(key===lastCheckinKey)return;lastCheckinKey=key;
   const active=document.activeElement,refocus=active?.id&&checkinBody.contains?.(active)?active.id:'',number=new Intl.NumberFormat(locale());
   const rows=blocks.map((activity,i)=>{
-   const label=el('span','f-row-label'),title=source('span',activity.title),when=el('span','f-window-cell'),open=link('openCheckinScreen','fiiu-qr.html?a='+encodeURIComponent(activity.id),'f-button secondary f-small'),attended=stats.get(activity.id)?.attendance;
+   const label=el('span','f-row-label'),title=source('span',activity.title),open=link('openCheckinScreen','fiiu-qr.html?a='+encodeURIComponent(activity.id),'f-button secondary f-small'),attended=stats.get(activity.id)?.attendance;
    title.id='f-ck-'+activity.id;label.append(title,activity.registration==='application'?tr('span','lab','f-row-meta'):el('span','f-row-meta',activity.time));
-   // The column heading is hidden when the rows stack on a phone (fiiu.css), so the window and the count carry their own label there.
-   when.append(tr('span','checkinWindow','f-window-label f-cell-label'),windowNode(activity));if(states[i]!=='upcoming')when.append(tr('span',states[i]==='open'?'checkinOpenNow':'checkinClosedNow','f-window-state is-'+states[i]));
    open.id='f-ck-open-'+activity.id;open.target='_blank';open.rel='noopener';describe(open,title.id);
-   return {date:activity.date,row:[label,activity.venue?source('span',activity.venue,'f-row-venue'):tr('span','venuePending','f-muted'),when,Number.isSafeInteger(attended)?checkedInCell(attended,number):el('span','f-summary-count is-zero','–'),open]};
+   // The closing line names itself ("Check-in open until 13:30"), so it needs no label when the rows stack on a phone; the count carries its unit there.
+   // Only a closed block is marked (fiiu.css): every block still to come is open, and marking each one would only add noise.
+   return {date:activity.date,row:[label,activity.venue?source('span',activity.venue,'f-row-venue'):tr('span','venuePending','f-muted'),windowNode(activity,states[i]),Number.isSafeInteger(attended)?checkedInCell(attended,number):el('span','f-summary-count is-zero','–'),open]};
   });
-  checkinBody.replaceChildren(summaryTable({labelledBy:'f-h-checkin',cls:'is-checkin'},['block','venue','checkinWindow','attended','openCheckinScreen'],byDate(rows)));
+  checkinBody.replaceChildren(summaryTable({labelledBy:'f-h-checkin',cls:'is-checkin'},['block','venue','checkinClosing','attended','openCheckinScreen'],byDate(rows)));
   if(refocus)document.getElementById(refocus)?.focus({preventScroll:true});
  }
  function checkinPanel(){

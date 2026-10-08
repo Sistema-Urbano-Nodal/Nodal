@@ -442,7 +442,7 @@ const SECRET='fiiu-test-checkin-secret-0123456789';
 function festivalClock(iso){const clock={at:Date.parse(iso),set(value){clock.at=Date.parse(value);}};const codes=createCheckinCodes({secret:SECRET,now:()=>clock.at});return {clock,codes,options:{fiiuCheckin:{secret:SECRET,now:()=>clock.at}}};}
 const scan=(call,body,actor='member')=>call('/api/fiiu/checkin',{actor,method:'POST',body});
 
-test('attendees check themselves in with the session QR once, only inside its Lima window and only for blocks in their plan',async t=>{
+test('attendees check themselves in with the session QR once, only until check-in closes and only for blocks in their plan',async t=>{
  const {clock,codes,options}=festivalClock('2026-10-21T14:00:00Z');// 09:00 in Lima
  const {call,save,db,users}=await setup(t,undefined,options);
  const code=()=>codes.current('day1-am').code;
@@ -460,15 +460,14 @@ test('attendees check themselves in with the session QR once, only inside its Li
  }
  // A code from six minutes ago has expired; one from four minutes ago still works (checked below).
  const old=code();clock.set('2026-10-21T14:06:00Z');assert.equal((await scan(call,{activityId:'day1-am',code:old})).status,410);
- for(const at of ['2026-10-21T13:29:00Z','2026-10-21T18:31:00Z']){// 08:29 and 13:31 in Lima
-  clock.set(at);response=await scan(call,{activityId:'day1-am',code:code()});assert.equal(response.status,409,at);
-  assert.deepEqual(await response.json(),{error:'check-in is closed for this activity',code:'outside_window',activityId:'day1-am',opensAt:'2026-10-21T13:30:00.000Z',closesAt:'2026-10-21T18:30:00.000Z',serverTime:new Date(at).toISOString()},'the server says when it judged the scan, so the page never relies on the phone clock');
- }
- // An organiser scanning outside the window rehearses: a valid code says so and records nothing; an old code is still refused.
- clock.set('2026-10-21T13:00:00Z');response=await scan(call,{activityId:'day1-am',code:code()},'admin');assert.equal(response.status,200);
- assert.deepEqual(await response.json(),{result:'rehearsal',activityId:'day1-am',opensAt:'2026-10-21T13:30:00.000Z',closesAt:'2026-10-21T18:30:00.000Z',serverTime:'2026-10-21T13:00:00.000Z'});
- response=await scan(call,{code:codes.current('day1-am').shortCode},'admin');assert.equal((await response.json()).result,'rehearsal','a typed screen code rehearses too');
- const stale=code();clock.set('2026-10-21T13:06:00Z');assert.equal((await scan(call,{activityId:'day1-am',code:stale},'admin')).status,410);
+ // 13:31 in Lima, a minute after the 13:30 close: refused, for organisers too, whether the code was scanned or typed.
+ const closed={error:'check-in is closed for this activity',code:'outside_window',activityId:'day1-am',closesAt:'2026-10-21T18:30:00.000Z',serverTime:'2026-10-21T18:31:00.000Z'};
+ clock.set('2026-10-21T18:31:00Z');response=await scan(call,{activityId:'day1-am',code:code()});assert.equal(response.status,409);
+ assert.deepEqual(await response.json(),closed,'the server says when it judged the scan, so the page never relies on the phone clock');
+ response=await scan(call,{activityId:'day1-am',code:code()},'admin');assert.equal(response.status,409);assert.deepEqual(await response.json(),closed);
+ response=await scan(call,{code:codes.current('day1-am').shortCode},'admin');assert.equal(response.status,409);assert.deepEqual(await response.json(),closed);
+ // An old code is refused before anything else, for organisers too.
+ clock.set('2026-10-21T13:00:00Z');const stale=code();clock.set('2026-10-21T13:06:00Z');assert.equal((await scan(call,{activityId:'day1-am',code:stale},'admin')).status,410);
  assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_attendance').get().n,0);
  clock.set('2026-10-22T00:00:00Z');// 19:00 in Lima: day1-pm is not in this plan
  response=await scan(call,{activityId:'day1-pm',code:codes.current('day1-pm').code});assert.equal(response.status,403);
@@ -491,7 +490,31 @@ test('attendees check themselves in with the session QR once, only inside its Li
  assert.equal((await scan(call,{code:'ZZZZZZ'})).status,410);
 });
 
-test('a repeat scan keeps the first confirmation after the window closes, the block leaves the plan or a laboratory application goes back to review',async t=>{
+test('a member and an organiser checking in days before the session are recorded like at the door, and both are refused once it closes',async t=>{
+ const {clock,codes,options}=festivalClock('2026-10-07T15:00:00Z');// 10:00 in Lima on 7 October, two weeks before the blocks
+ const {call,save,db,users}=await setup(t,undefined,options);
+ const answered=[],send=async(actor,body)=>{const response=await scan(call,body,actor),json=await response.json();answered.push(json);return [response.status,json];};
+ const code=id=>codes.current(id).code,recorded=at=>({result:'checked_in',activityId:'day1-am',checkedInAt:at,method:'qr',attendance:[{activityId:'day1-am',createdAt:at,method:'qr'}],hours:{minutes:240,hours:4,untimed:[]}});
+ // An organiser goes through the real check-in: with no registration yet, the real refusal.
+ let [status,body]=await send('admin',{activityId:'day1-am',code:code('day1-am')});assert.deepEqual([status,body.code],[404,'not_registered']);
+ await save();await save({...answers,activities:['day1-am','day1-pm']},'admin');await save({...answers,activities:['day1-am','day1-pm']},'other');
+ for(const actor of ['member','admin']){[status,body]=await send(actor,{activityId:'day1-am',code:code('day1-am')});assert.equal(status,201,actor);assert.deepEqual(body,recorded('2026-10-07T15:00:00.000Z'),actor);}
+ assert.deepEqual(db.prepare('SELECT confirmed_by,activity_id,method FROM fiiu_attendance').all().map(row=>({...row})).sort((a,b)=>a.confirmed_by.localeCompare(b.confirmed_by)),
+  [users.member.id,users.admin.id].sort().map(id=>({confirmed_by:id,activity_id:'day1-am',method:'qr'})));
+ // The typed screen code works days ahead too, and a block outside an organiser's plan gets the real refusal.
+ [status,body]=await send('admin',{code:codes.current('day2-am').shortCode});assert.deepEqual([status,body.code],[403,'not_in_plan']);
+ // At the 13:30 close itself the scan still counts; a second later it does not, for the member and the organiser alike.
+ clock.set('2026-10-21T18:30:00Z');[status,body]=await send('other',{activityId:'day1-am',code:code('day1-am')});assert.equal(status,201);assert.deepEqual(body,recorded('2026-10-21T18:30:00.000Z'));
+ clock.set('2026-10-22T02:30:01Z');
+ for(const actor of ['other','admin']){
+  [status,body]=await send(actor,{activityId:'day1-pm',code:code('day1-pm')});assert.equal(status,409,actor);
+  assert.deepEqual(body,{error:'check-in is closed for this activity',code:'outside_window',activityId:'day1-pm',closesAt:'2026-10-22T02:30:00.000Z',serverTime:'2026-10-22T02:30:01.000Z'},actor);
+ }
+ assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_attendance').get().n,3,'every check-in before the close is recorded, none after');
+ assert.doesNotMatch(JSON.stringify(answered),/rehears|organi[sz]er|opensAt|nothing was recorded/i,'no answer is a test run or names an opening time');
+});
+
+test('a repeat scan keeps the first confirmation after check-in closes, the block leaves the plan or a laboratory application goes back to review',async t=>{
  const {clock,codes,options}=festivalClock('2026-10-21T14:10:00Z');// 09:10 in Lima
  const {call,save,db}=await setup(t,undefined,options);
  const {registration}=await(await save()).json();
@@ -508,7 +531,7 @@ test('a repeat scan keeps the first confirmation after the window closes, the bl
  clock.set('2026-10-21T14:30:00Z');
  assert.equal((await save({...answers,activities:['day1-pm'],version:registration.version,registrationId:registration.id})).status,200);
  response=await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code});assert.equal(response.status,200);assert.deepEqual(await response.json(),kept);
- // Someone else, never checked in, still gets the window refusal for the same block.
+ // Someone else, never checked in, is refused once the same block's check-in has closed.
  const {registration:other}=await(await save(answers,'other')).json();clock.set('2026-10-21T18:35:00Z');assert.equal((await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code},'other')).status,409);
  // The laboratory: accepted, checked in, then an identity edit puts the application back under review.
  clock.set('2026-10-20T15:00:00Z');
@@ -532,10 +555,10 @@ test('the laboratory check-in needs an accepted application and adds no hours un
  let response=await scan(call,{activityId:'day0-lab',code:code()});assert.equal(response.status,403);assert.equal((await response.json()).code,'lab_not_accepted');
  await save(answers,'other');response=await scan(call,{activityId:'day0-lab',code:code()},'other');assert.equal(response.status,403);assert.equal((await response.json()).code,'not_in_plan');
  assert.equal((await call(`/api/admin/fiiu/registrations/${registration.id}`,{actor:'admin',method:'PATCH',body:{version:1,labStatus:'accepted'}})).status,200);
- // Untimed: the whole Lima day of 20 October.
+ // Untimed: check-in closes at the end of 20 October in Lima, and is open on any day before.
  clock.set('2026-10-21T05:00:01Z');response=await scan(call,{activityId:'day0-lab',code:code()});assert.equal(response.status,409);
- assert.deepEqual([(await response.json()).opensAt],['2026-10-20T05:00:00.000Z']);
- clock.set('2026-10-20T05:00:00Z');response=await scan(call,{activityId:'day0-lab',code:code()});assert.equal(response.status,201);
+ assert.deepEqual([(await response.json()).closesAt],['2026-10-21T05:00:00.000Z']);
+ clock.set('2026-10-19T15:00:00Z');response=await scan(call,{activityId:'day0-lab',code:code()});assert.equal(response.status,201);
  assert.deepEqual((await response.json()).hours,{minutes:0,hours:0,untimed:['day0-lab']});
 });
 
@@ -570,11 +593,13 @@ test('the organiser check-in screen gets a rotating link on the public origin, t
  assert.equal(url.searchParams.get('a'),'day1-am');assert.equal(url.searchParams.get('c'),body.code);assert.notEqual(codes.verify('day1-am',body.code),null);
  assert.match(body.shortCode,/^[2-9A-HJ-NP-RT-Y]{6}$/);assert.notEqual(codes.verify('day1-am',body.shortCode),null);
  assert.deepEqual({rotatesAt:body.rotatesAt,validUntil:body.validUntil,serverTime:body.serverTime,window:body.window,checkedIn:body.checkedIn,qr:body.qr},
-  {rotatesAt:'2026-10-21T14:01:00.000Z',validUntil:'2026-10-21T14:05:00.000Z',serverTime:'2026-10-21T14:00:30.000Z',window:{opensAt:'2026-10-21T13:30:00.000Z',closesAt:'2026-10-21T18:30:00.000Z',open:true},checkedIn:1,qr:{size:3,bits:'iIA='}});
+  {rotatesAt:'2026-10-21T14:01:00.000Z',validUntil:'2026-10-21T14:05:00.000Z',serverTime:'2026-10-21T14:00:30.000Z',window:{closesAt:'2026-10-21T18:30:00.000Z',open:true},checkedIn:1,qr:{size:3,bits:'iIA='}});
  assert.deepEqual(encoded,[body.url]);
  assert.doesNotMatch(JSON.stringify(body),/member|example\.test|Ana|TEST-ID/);
  clock.set('2026-10-21T14:01:00Z');const next=await(await call(route,{actor:'admin'})).json();
  assert.notEqual(next.code,body.code,'the code rotates every minute');assert.notEqual(codes.verify('day1-am',body.code),null,'the previous code stays valid for a few minutes');
+ // Open on any earlier day; closed 30 minutes after the block ends (21:30 in Lima for the 21 October evening).
+ clock.set('2026-10-07T15:00:00Z');assert.deepEqual((await(await call('/api/admin/fiiu/checkin?activityId=day1-pm',{actor:'admin'})).json()).window,{closesAt:'2026-10-22T02:30:00.000Z',open:true});
  clock.set('2026-10-22T03:00:00Z');assert.equal((await(await call('/api/admin/fiiu/checkin?activityId=day1-pm',{actor:'admin'})).json()).window.open,false);
  // Outside production, a server without a configured origin links to itself.
  delete process.env.PUBLIC_BASE_URL;const local=await(await call(route,{actor:'admin'})).json();assert.match(local.url,/^http:\/\/127\.0\.0\.1:\d+\/fiiu-checkin\.html\?a=day1-am&c=/);

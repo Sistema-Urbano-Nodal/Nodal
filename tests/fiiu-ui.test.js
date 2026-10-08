@@ -451,7 +451,9 @@ test('festival layout rules: footer at the bottom, natural profile rows, stacked
  const phone=css.match(/@media\(max-width:799px\)\{\n\.f-summary-table\.is-checkin[\s\S]*?\n\}/)?.[0]||'';
  assert.match(phone,/\.f-summary-table\.is-checkin tr\{display:grid;grid-template-columns:minmax\(0,1fr\) auto/,'check-in rows stack below 800px');
  assert.match(phone,/td\.f-col-action\{grid-column:1\/-1/,'the screen button gets its own line instead of scrolling off');
- assert.doesNotMatch(phone,/min-width:200px/);assert.match(phone,/\.f-cell-label\{display:inline\}/);assert.match(css,/\.f-cell-label,\.f-cell-unit\{display:none\}/);
+ assert.doesNotMatch(phone,/min-width:200px/);assert.match(phone,/\.f-cell-unit\{display:inline;/);assert.match(css,/\.f-cell-unit\{display:none\}/);
+ // Only a closed block is marked in the lists; the door screen alone colours the open state.
+ assert.match(css,/\.f-window\.is-closed\{color:var\(--f-muted\)\}/);assert.doesNotMatch(css.replace(/\.f-qr-window \.f-window\.is-open/g,''),/\.f-window\.is-open/,'no open mark on every block still to come');
  assert.match(css,/@media\(max-width:900px\) and \(orientation:portrait\)\{\.f-qr-code\{width:min\(90vw,calc\(100vh - var\(--f-header\) - 27rem\)\)\}\}/);
  assert.match(css,/\.f-qr-note\{[^}]*text-wrap:balance\}/,'the screen note never ends on a lone word');
  assert.match(css,/@media\(min-width:1280px\)\{\.f-admin-settings form\{display:grid;grid-template-columns:minmax\(0,1fr\) minmax\(0,2fr\)/,'the settings fill the wide column');

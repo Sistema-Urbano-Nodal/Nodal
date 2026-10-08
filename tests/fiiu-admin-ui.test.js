@@ -673,12 +673,14 @@ test('the overview is one figure strip: registrations, officials, checked in wit
  assert.ok(key(h.root.querySelector('.f-admin-toolbar'),'lastCheckIn'));assert.match(content(h.root.querySelector('.f-admin-toolbar')),/09:40/,'the last check-in is in Lima time');
 });
 
-test('figures whose fields are absent are left out, and before the festival the check-in figure says when it opens',async()=>{
+test('figures whose fields are absent are left out, and before the festival the check-in figure already counts, since check-in has no opening time',async()=>{
  const old=await harness(()=>({content:[],nextCursor:null}));
  assert.equal(figureFor(old,'checkedIn'),undefined,'no attendedPeople, no figure');assert.ok(figureFor(old,'hoursTitle'));assert.equal(key(figureFor(old,'hoursTitle'),'officialsHours'),undefined);
  assert.equal(key(old.root.querySelector('.f-admin-toolbar'),'lastCheckIn'),undefined);
  const early=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>({summary:{...copy(checkinSummary),attendedPeople:0,qrPeople:0}}),context:{Date:frozen('2026-09-30T10:00:00-05:00')}});
- assert.ok(key(figureFor(early,'checkedIn'),'checkinOpensOn'));assert.equal(key(figureFor(early,'checkedIn'),'byQr'),undefined);
+ assert.match(content(figureFor(early,'checkedIn')),/\b0\b/);assert.ok(key(figureFor(early,'checkedIn'),'byQr'));
+ const ahead=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>({summary:{...copy(checkinSummary),attendedPeople:3,qrPeople:3}}),context:{Date:frozen('2026-10-07T10:00:00-05:00')}});
+ assert.match(content(figureFor(ahead,'checkedIn')),/\b3\b/,'people who checked in ahead of the festival are counted');
 });
 
 test('the day ledger has checked-in and hours columns and marks today with aria-current="date"',async()=>{
@@ -701,18 +703,22 @@ test('activity tables stack, the conference table adds venue and hours, and work
  assert.deepEqual(tables[1].querySelector('thead').querySelectorAll('th').map(cell=>cell.children[0].dataset.fiiuText),['activity','venue','interested','attended']);
 });
 
-test('the check-in section lists the six NODAL blocks by day with window, venue, live count and a screen link, and no workshops or routes',async()=>{
+test('the check-in section lists the six NODAL blocks by day with closing time, venue, live count and a screen link, and no workshops or routes',async()=>{
  const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>({summary:copy(checkinSummary)}),context:festivalDay});
  const section=h.root.querySelector('.f-admin-checkin');assert.equal(section.id,'checkin');assert.ok(key(section,'checkIn'));
  assert.ok(h.root.querySelector('.f-admin-nav').querySelectorAll('a').some(a=>a.href==='#checkin'));
  const links=section.querySelectorAll('a').filter(a=>a.dataset.fiiuText==='openCheckinScreen');
  assert.deepEqual(links.map(a=>a.href),['day0-lab','day1-am','day1-pm','day2-am','day2-pm','day3-am'].map(id=>'fiiu-qr.html?a='+id));
  assert.equal(links[1].target,'_blank');assert.equal(links[1]['aria-describedby'],'f-ck-day1-am f-newtab');
- const row=links[1].parent.parent;assert.match(content(row),/08:30–13:30/);assert.match(content(row),/Auditorio MALI/);assert.match(content(row),/\b30\b/);assert.ok(key(row,'checkinOpenNow'));
- // Stacked on a phone the column headings are hidden, so the window and the count carry their own (otherwise hidden) labels.
- assert.ok(key(row.querySelector('.f-window-cell'),'checkinWindow').className.includes('f-cell-label'));
+ const row=links[1].parent.parent;assert.match(content(row),/Check-in open until\s+13:30\s+Lima time/);assert.doesNotMatch(content(row),/08:30/);assert.match(content(row),/Auditorio MALI/);assert.match(content(row),/\b30\b/);
+ // Stacked on a phone the column headings are hidden: the closing line names itself, and the count carries its own (otherwise hidden) unit.
+ assert.equal(key(row,'checkinClosing'),undefined,'no column label in the row');
+ assert.ok(row.querySelector('.f-col-checkinClosing').querySelector('.f-window'),'the closing line sits in the closing column');
  const count=row.querySelector('.f-summary-count');assert.match(count.textContent,/^30$/);assert.equal(key(count,'checkedInMany').className,'f-cell-unit');
  assert.doesNotMatch(content(section),/Calles para la gente/);assert.equal(key(section,'allScreens').href,'fiiu-qr.html');
+ // From 800px the headings show: the column names the closing time, not a window.
+ const head=section.querySelector('thead');assert.deepEqual(head.querySelectorAll('th').map(cell=>cell.children[0].dataset.fiiuText),['block','venue','checkinClosing','attended','openCheckinScreen']);
+ for(const lang of ['en','es','pt']){h.lang(lang);const shown=h.root.querySelector('.f-admin-checkin').querySelector('thead');assert.equal(key(shown,'checkinClosing').textContent,{en:'Check-in closes',es:'Cierre del registro',pt:'Encerramento do registro'}[lang]);assert.doesNotMatch(content(shown),/window|Horario|Horário/i,lang);}
 });
 
 test('participant detail shows sessions and certificate hours, and how and when each block was confirmed, recomputed after a toggle',async()=>{
@@ -769,13 +775,32 @@ test('an expired session keeps every draft, shows a sign-in link in a new tab an
  await h.tickTimers();assert.equal(reads,4,'and timed refreshes resume');
 });
 
-test('identical totals still let a check-in window open on the next refresh',async()=>{
- let now=Date.parse('2026-10-21T08:20:00-05:00');const Clock=class extends Date{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};
+test('identical totals still let a block’s check-in close on the next refresh',async()=>{
+ let now=Date.parse('2026-10-21T13:20:00-05:00');const Clock=class extends Date{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};
  const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>({summary:copy(checkinSummary)}),context:{Date:Clock}});
  const row=()=>h.root.querySelector('.f-admin-checkin').querySelectorAll('tr').find(node=>/El poder de lo local/.test(content(node)));
- assert.equal(key(row(),'checkinOpenNow'),undefined,'08:20 is before the 08:30 opening');const table=h.root.querySelector('.f-summary-body').querySelector('table');
- now=Date.parse('2026-10-21T08:31:00-05:00');await h.tickTimers();
- assert.ok(key(row(),'checkinOpenNow'));assert.equal(h.root.querySelector('.f-summary-body').querySelector('table'),table,'the overview tables were not rebuilt');
+ assert.ok(key(row(),'checkinOpenUntil'),'13:20 is before the 13:30 close');const table=h.root.querySelector('.f-summary-body').querySelector('table');
+ now=Date.parse('2026-10-21T13:31:00-05:00');await h.tickTimers();
+ assert.ok(key(row(),'checkinClosedAt'));assert.equal(row().querySelector('.f-window').className,'f-window is-closed');
+ assert.equal(h.root.querySelector('.f-summary-body').querySelector('table'),table,'the overview tables were not rebuilt');
+});
+
+test('the check-in section marks only closed blocks, so the blocks still to come stay plain, in every language',async()=>{
+ // 22 October, 10:00 in Lima: the laboratory and both 21 October blocks have closed; the 22 October morning is under way and the rest are ahead.
+ const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>({summary:copy(checkinSummary)}),context:{Date:frozen('2026-10-22T10:00:00-05:00')}});
+ const section=h.root.querySelector('.f-admin-checkin'),windows=section.querySelectorAll('.f-window');
+ assert.deepEqual(windows.map(node=>node.className),['f-window is-closed','f-window is-closed','f-window is-closed','f-window is-open','f-window is-open','f-window is-open']);
+ assert.deepEqual(windows.map(node=>node.children[0].dataset.fiiuText),['checkinClosedAllDay','checkinClosedAt','checkinClosedAt','checkinOpenUntil','checkinOpenUntil','checkinOpenUntil']);
+ for(const lang of ['en','es','pt']){
+  h.lang(lang);const [lab,morning,,today]=h.root.querySelector('.f-admin-checkin').querySelectorAll('.f-window');
+  assert.match(content(morning),{en:/Check-in closed at\s+13:30\s+Lima time/,es:/El registro cerró a las\s+13:30\s+hora de Lima/,pt:/O registro fechou às\s+13:30\s+horário de Lima/}[lang]);
+  assert.match(content(today),{en:/Check-in open until\s+13:30\s+Lima time/,es:/Registro abierto hasta las\s+13:30\s+hora de Lima/,pt:/Registro aberto até\s+13:30\s+horário de Lima/}[lang]);
+  assert.match(content(lab),{en:/Check-in closed at the end of the day, Lima time/,es:/El registro cerró al final del día, hora de Lima/,pt:/O registro fechou no fim do dia, horário de Lima/}[lang]);
+  assert.doesNotMatch(content(h.root.querySelector('.f-admin-checkin')),/rehears|organi[sz]er test|not opened yet|08:30/i,lang);
+ }
+ // Before the festival every block is open and none is marked.
+ const early=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>({summary:copy(checkinSummary)}),context:{Date:frozen('2026-10-07T10:00:00-05:00')}});
+ assert.ok(early.root.querySelector('.f-admin-checkin').querySelectorAll('.f-window').every(node=>node.className==='f-window is-open'));
 });
 
 test('participant detail says in one plain line what happened to the summary email, with the Lima time once sent',async()=>{

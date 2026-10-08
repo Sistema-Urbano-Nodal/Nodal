@@ -319,7 +319,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
   const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'course.html', 'courses.html', 'teaching.html', 'accept-invitation.html', 'fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'organisers-only.html', 'community.html', 'knowledge.html', 'resources.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
   const pilot = { 'pilot-i18n.js': '20261005s', 'pilot.js': '20261005s', 'courses.css': '20261005s' };
-  const festival = { 'fiiu.css': '20261002p', 'fiiu-ui.js': '20261005a' };
+  const festival = { 'fiiu.css': '20261007a', 'fiiu-ui.js': '20261007a' };
   const required = {
     'index.html': { 'styles.css': '30', 'i18n.js': '20261003r', 'app.js': '20', 'recs.js': '4', 'script.js': '18', 'hero-network.js': '2' },
     'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20261003r', 'catalog.js': '6', ...pilot },
@@ -334,9 +334,9 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     'teaching.html': { 'i18n.js': '20261003r', 'teaching.js': '20261005s', ...pilot },
     'accept-invitation.html': { 'accept-invitation.js': '20261003r', 'invitation-i18n.js': '20261003r' },
     'fiiu.html': { 'styles.css': '30', 'i18n.js': '20261003r', ...festival, 'fiiu.js': '20261002n' },
-    'fiiu-admin.html': { 'styles.css': '30', 'i18n.js': '20261003r', ...festival, 'fiiu-admin.js': '20261005a' },
-    'fiiu-qr.html': { 'i18n.js': '20261003r', ...festival, 'fiiu-qr.js': '20261001b' },
-    'fiiu-checkin.html': { 'i18n.js': '20261003r', ...festival, 'fiiu-checkin.js': '20261001d' },
+    'fiiu-admin.html': { 'styles.css': '30', 'i18n.js': '20261003r', ...festival, 'fiiu-admin.js': '20261007a' },
+    'fiiu-qr.html': { 'i18n.js': '20261003r', ...festival, 'fiiu-qr.js': '20261007a' },
+    'fiiu-checkin.html': { 'i18n.js': '20261003r', ...festival, 'fiiu-checkin.js': '20261007a' },
     'organisers-only.html': { 'i18n.js': '20261003r', ...festival },
     'community.html': { 'styles.css': '30', 'script.js': '18', 'i18n.js': '20261003r', ...festival, 'fiiu-hubs.js': '20261001a', 'news-feed.js': '20261001b' },
     'knowledge.html': { 'styles.css': '30', 'script.js': '18', 'i18n.js': '20261003r', ...festival, 'fiiu-hubs.js': '20261001a' },

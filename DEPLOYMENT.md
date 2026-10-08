@@ -414,17 +414,21 @@ registered with their facilitators and are never checked in here.
    `/fiiu-checkin.html`; a signed-out attendee sees "Sign in to check in" for
    that session, signs in and comes back to the same link. Without a camera, they open `/fiiu-checkin.html` and type the
    6-character code.
-3. A scan counts only inside the block's window, from 30 minutes before it
-   starts to 30 minutes after it ends, Lima time. The laboratory has no time yet,
-   so its window is the whole of 20 October in Lima. The person must have that
+3. A scan counts at any time until the block's check-in closes, 30 minutes
+   after it ends, Lima time; there is no opening time, so a scan on an earlier
+   day is recorded too. The laboratory has no time yet, so its check-in closes at
+   the end of 20 October in Lima. After the close everyone, administrators
+   included, is told check-in has closed. The person must have that
    block in their registration (for the laboratory, an accepted application).
    Otherwise the page says why and, while registration is open, links to the
    registration so they can add the block and scan again. A laboratory refusal
    sends the person to the registration desk instead, since the laboratory
    cannot be added from the registration.
 4. Scanning twice is harmless: the first confirmation is kept, even when the
-   second scan comes after the window has closed. Reloading the confirmation
-   page shows the confirmation again.
+   second scan comes after check-in has closed. Reloading the confirmation
+   page shows the confirmation again. Testing a screen is a real check-in: an
+   administrator registered for that block is recorded as attending, so remove
+   that row in the participant detail if it was only a test.
 5. The team can still confirm or remove attendance by hand in the participant
    detail. Each row says whether it came from the QR or the team.
 
@@ -440,7 +444,7 @@ deployment without it, the QR would point at the protected per-deployment URL.
 
 To rehearse locally, start a SQLite server with a festival time, for example
 `DATA_BACKEND=sqlite FIIU_CHECKIN_NOW=2026-10-21T09:10:00-05:00 npm start`
-(the 21 October morning window is open). The clock runs on from that moment, and
+(the 21 October morning block is under way). The clock runs on from that moment, and
 check-ins written under it carry the rehearsal time.
 
 ## FIIU registration summary email

@@ -36,25 +36,22 @@
   });
   return form;
  }
- // The server has already judged the time and says when (serverTime), so a phone clock that is off, or a rehearsal clock on the server, cannot turn
- // "closed" into "not open yet". Without serverTime the phone's clock decides which side of the window it fell on (the midpoint absorbs a small error).
- function closedWindow(activity,data){
-  const at=value=>typeof value==='number'?value:Date.parse(value),opensAt=at(data.opensAt),closesAt=at(data.closesAt),judged=at(data.serverTime),known=Number.isFinite(opensAt)&&Number.isFinite(closesAt);
-  const early=known&&(Number.isFinite(judged)?judged<opensAt:Date.now()<(opensAt+closesAt)/2);
-  const shown=known&&{...(activity||{date:limaDate(new Date(opensAt)),time:''}),checkin:{opensAt:new Date(opensAt).toISOString(),closesAt:new Date(closesAt).toISOString()}};
-  return {early,window:shown&&facts(['checkinWindow',dd(windowNode(shown))])};
+ // Check-in has no opening time, so the server refuses a block (outside_window) only once its check-in has closed: the page says so, with the Lima
+ // closing time when the server sent it. The server judged the time, so the phone's clock is not consulted. Without the block (a typed code
+ // and no programme) the date is shown too.
+ function closedLine(activity,data){
+  const closesAt=typeof data.closesAt==='number'?data.closesAt:Date.parse(data.closesAt);if(!Number.isFinite(closesAt))return null;
+  const line=el('p','f-checkin-window');line.append(windowNode({...(activity||{date:'',time:''}),checkin:{closesAt:new Date(closesAt).toISOString()}},'closed'));return line;
  }
  function success(data,body){
-  // An organiser scanning outside the session: the code works and nothing was recorded.
-  // After the session the code still works, but attendees can no longer use it, so the page says so.
-  if(data.result==='rehearsal'){const activity=find(data.activityId||body.activityId),{early,window}=closedWindow(activity,data);return block('rehearsalTitle',early?'ok':'warn',about(activity),window,hintOf(early?'rehearsalHint':'rehearsalEndedHint'));}
   const id=data.activityId||body.activityId,activity=find(id),attendance=Array.isArray(data.attendance)?data.attendance:[],record=attendance.find(row=>row.activityId===id),at=Date.parse(data.checkedInAt||record?.createdAt);
   const time=Number.isFinite(at)?el('time','',limaClock(at)):null;if(time)time.dateTime=new Date(at).toISOString();
-  const when=time&&dd(...(activity&&limaDate(new Date(at))!==activity.date?[dateNode(limaDate(new Date(at)),'span','short','f-when-day'),space()]:[]),time);
+  // A check-in on another day than the block (any day before it) names that day: "Checked in on Wed 7 Oct at 10:00", since "Registrada a las" only fits a time.
+  const day=time&&activity&&limaDate(new Date(at))!==activity.date?limaDate(new Date(at)):'',when=time&&(day?dd(dateNode(day,'span','short','f-when-day'),space(),tr('span','atClock'),space(),time):dd(time));
   let hours=festival?hoursLine(attendance,festival.event):null;
   if(!festival&&Number.isSafeInteger(data.hours?.hours)){hours=el('p','f-hours');hours.append(countLabel(data.hours.hours,'hoursConfirmed','hoursConfirmed'));}
   const earned=festival?el('div','f-badges'):null;if(earned)badges(earned,attendance,festival.event,{heading:'h2'});
-  return block(data.result==='checked_in'?'checkedInTitle':'alreadyCheckedIn','ok',about(activity),when&&facts(['checkedInAt',when]),hours,earned,actions(link('viewRegistration','fiiu.html#registration','f-button')));
+  return block(data.result==='checked_in'?'checkedInTitle':'alreadyCheckedIn','ok',about(activity),when&&facts([day?'checkedInOn':'checkedInAt',when]),hours,earned,actions(link('viewRegistration','fiiu.html#registration','f-button')));
  }
  function failure(error,body){
   // A typed code names no block, so the block comes from the server's answer when it has one.
@@ -70,7 +67,7 @@
   if(error.status===404)return block('notRegistered','warn',about(activity),hintOf(lab?'labNotAcceptedHint':open?'notRegisteredHint':'askDesk'),open&&!lab&&actions(link('register','fiiu.html#registration','f-button')));
   if(error.code==='lab_not_accepted'||(lab&&error.code==='not_in_plan'))return block('labNotAccepted','warn',about(activity),hintOf('labNotAcceptedHint'));
   if(error.code==='not_in_plan')return block('notInPlan','warn',about(activity),hintOf(open?'notInPlanHint':'askDesk'),open&&actions(link('addToRegistration','fiiu.html#registration','f-button')));
-  if(error.code==='outside_window'){const {early,window}=closedWindow(activity,error);return block(early?'checkinNotOpen':'checkinEndedTitle','warn',about(activity),window,hintOf(early?'checkinNotOpenHint':'askDesk'));}
+  if(error.code==='outside_window')return block('checkinEndedTitle','warn',about(activity),closedLine(activity,error),hintOf('askDesk'));
   if(error.status===410)return block('codeExpired','warn',about(activity),hintOf('expiredHint'),codeForm());
   if(error.code==='invalid_activity')return block('noCheckin','warn',hintOf('noCheckinHint'),actions(link('viewProgramme','fiiu.html#programme','f-button secondary')));
   if(error.status===400)return block('invalidLink','warn',hintOf('invalidLinkHint'),codeForm());

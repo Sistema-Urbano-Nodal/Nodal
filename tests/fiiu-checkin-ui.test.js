@@ -43,32 +43,71 @@ test('an expired code asks for a fresh scan and offers the screen code',async()=
  assert.equal(title(h).dataset.fiiuText,'codeExpired');assert.ok(key(result(h),'expiredHint'));assert.ok(field(result(h),'checkinCode'));
 });
 
-test('an organiser scanning before the session sees that the code works, with the window, and that nothing was recorded',async()=>{
+// No outcome is ever an organiser test run: what an organiser sees is what an attendee sees.
+const TEST_WORDING=/rehears|organi[sz]er|organización|organização|nothing was recorded|no se registró nada|nada foi registrado|This code works|Este código funciona|not opened yet|aún no está abierto|ainda não abriu/i;
+const languages=(h,check)=>{for(const lang of ['en','es','pt']){h.lang(lang);check(lang);}};
+
+test('a check-in days before the session is confirmed with the real message and its Lima date and time, in every language',async()=>{
+ const early=[{activityId:'day1-am',createdAt:'2026-10-07T15:00:00.000Z',method:'qr'}];
+ const h=await page(()=>({status:201,data:{result:'checked_in',activityId:'day1-am',checkedInAt:'2026-10-07T15:00:00.000Z',method:'qr',attendance:early,hours:{minutes:240,hours:4,untimed:[]}}}),{now:'2026-10-07T10:00:00-05:00'});
+ const box=result(h);assert.equal(title(h).dataset.fiiuText,'checkedInTitle');assert.equal(box.className,'f-checkin is-ok');
+ const when=box.querySelector('.f-checkin-facts');assert.ok(key(when,'checkedInOn'),'a day is named, so the label is "on", not "at"');assert.equal(key(when,'checkedInAt'),undefined);assert.equal(when.querySelector('.f-when-day').dataset.fiiuDate,'2026-10-07','the scan day differs from the block day, so it is shown');assert.match(content(when),/10:00/);
+ assert.match(content(box.querySelector('.f-badges')),/✓ El poder de lo local/);assert.match(content(box.querySelector('.f-hours')),/\b4\b/);
+ languages(h,lang=>{
+  assert.equal(title(h).textContent,{en:'You’re checked in',es:'Tu asistencia quedó registrada',pt:'Sua presença foi registrada'}[lang]);
+  // The fact reads as a sentence: the day after "on / el / em", the time after "at / a las / às", never "a las Mié".
+  assert.match(content(when).trim(),{en:/^Checked in on\s+Wed 7 Oct\s+at\s+10:00$/,es:/^Registrada el\s+Mié, 7 oct\.\s+a las\s+10:00$/,pt:/^Registrada em\s+Qua\., 7 de out\.\s+às\s+10:00$/}[lang]);
+  assert.doesNotMatch(content(h.root),TEST_WORDING,lang);
+ });
+ // Nor is any organiser-test or not-open-yet wording left in the strings, in any language.
+ const strings=Object.entries(h.ctx.window.Fiiu.rows);
+ assert.deepEqual(strings.filter(([name,texts])=>/rehearsal|NotOpen/.test(name)||texts.some(text=>/rehears|organiser test|prueba de organización|teste de organização|nothing was recorded|no se registró nada|nada foi registrado|This code works|not opened yet|aún no está abierto|ainda não abriu/i.test(text))).map(([name])=>name),[]);
+});
+
+test('reloading after an early check-in shows the same dated confirmation, while a same-day one keeps "Checked in at"',async()=>{
+ const early=[{activityId:'day1-am',createdAt:'2026-10-07T15:00:00.000Z',method:'qr'}];
+ const h=await page(request=>request.path==='/api/fiiu/registration'?{registration:{id:'r1',version:1,answers:{activities:['day1-am']}},attendance:early,hours:{minutes:240,hours:4,untimed:[]},user:{id:'u1',email:'member@example.test'}}:assert.fail('a reload sends no check-in'),{search:'?a=day1-am',now:'2026-10-09T18:00:00-05:00'});
+ assert.equal(title(h).dataset.fiiuText,'alreadyCheckedIn');const when=result(h).querySelector('.f-checkin-facts');
+ languages(h,lang=>assert.match(content(when).trim(),{en:/^Checked in on\s+Wed 7 Oct\s+at\s+10:00$/,es:/^Registrada el\s+Mié, 7 oct\.\s+a las\s+10:00$/,pt:/^Registrada em\s+Qua\., 7 de out\.\s+às\s+10:00$/}[lang]));
+ const same=await page(()=>checkedIn),fact=result(same).querySelector('.f-checkin-facts');assert.equal(fact.querySelector('.f-when-day'),null);
+ languages(same,lang=>assert.match(content(fact).trim(),{en:/^Checked in at\s+09:12$/,es:/^Registrada a las\s+09:12$/,pt:/^Registrada às\s+09:12$/}[lang]));
+});
+
+test('an answer the page does not know, such as an old organiser test result, is never shown as one',async()=>{
  const h=await page(()=>({status:200,data:{result:'rehearsal',activityId:'day1-am',opensAt:'2026-10-21T13:30:00.000Z',closesAt:'2026-10-21T18:30:00.000Z',serverTime:'2026-10-01T15:00:00.000Z'}}),{now:'2026-10-01T10:00:00-05:00'});
- assert.equal(title(h).dataset.fiiuText,'rehearsalTitle');assert.ok(key(result(h),'rehearsalHint'));
- assert.match(content(result(h).querySelector('.f-checkin-facts')),/08:30–13:30/);assert.equal(result(h).querySelector('.f-badges'),null,'a rehearsal earns no badge');
- // After the session the code still works for the organiser, but the page says attendees can no longer check in.
- const late=await page(()=>({status:200,data:{result:'rehearsal',activityId:'day1-am',opensAt:'2026-10-21T13:30:00.000Z',closesAt:'2026-10-21T18:30:00.000Z',serverTime:'2026-10-21T18:45:00.000Z'}}),{now:'2026-10-21T13:45:00-05:00'});
- assert.equal(title(late).dataset.fiiuText,'rehearsalTitle');assert.ok(key(result(late),'rehearsalEndedHint'));assert.equal(key(result(late),'rehearsalHint'),undefined);
+ assert.equal(title(h).dataset.fiiuText,'checkinFailedTitle');assert.ok(key(result(h),'retry'));assert.equal(result(h).querySelector('.f-badges'),null);
+ languages(h,lang=>assert.doesNotMatch(content(h.root),TEST_WORDING,lang));
 });
 
-test('outside the window the page gives the Lima opening or closing time',async()=>{
- const window={code:'outside_window',activityId:'day1-am',opensAt:'2026-10-21T13:30:00.000Z',closesAt:'2026-10-21T18:30:00.000Z'};
- const early=await page(()=>({status:409,data:window}),{now:'2026-10-21T07:00:00-05:00'});
- assert.equal(title(early).dataset.fiiuText,'checkinNotOpen');assert.match(content(result(early).querySelector('.f-checkin-facts')),/08:30–13:30/);assert.ok(key(result(early),'limaTime'));assert.ok(key(result(early),'checkinNotOpenHint'));
- const late=await page(()=>({status:409,data:window}),{now:'2026-10-21T14:00:00-05:00'});
- assert.equal(title(late).dataset.fiiuText,'checkinEndedTitle');assert.ok(key(result(late),'askDesk'));
+test('once a block’s check-in has closed the page says so with the Lima closing time, whatever the phone’s clock says',async()=>{
+ // The phone still reads that morning; the server judged the scan after the 13:30 close.
+ const closed={code:'outside_window',activityId:'day1-am',closesAt:'2026-10-21T18:30:00.000Z',serverTime:'2026-10-21T18:31:00.000Z'};
+ const h=await page(()=>({status:409,data:closed}),{now:'2026-10-21T07:00:00-05:00'}),box=result(h),line=box.querySelector('.f-checkin-window');
+ assert.equal(title(h).dataset.fiiuText,'checkinEndedTitle');assert.equal(box.className,'f-checkin is-warn');assert.ok(key(box,'askDesk'));
+ assert.ok(key(line,'checkinClosedAt'));assert.ok(key(line,'limaTime'));assert.equal(line.querySelector('.f-window-day'),null,'it closes on the block’s own day');
+ assert.equal(line.querySelector('.f-window').className,'f-window is-closed');
+ languages(h,lang=>{
+  assert.match(content(line),{en:/Check-in closed at\s+13:30\s+Lima time/,es:/El registro cerró a las\s+13:30\s+hora de Lima/,pt:/O registro fechou às\s+13:30\s+horário de Lima/}[lang]);
+  assert.doesNotMatch(content(h.root),TEST_WORDING,lang);
+ });
+ // The laboratory has no time yet: it closed at the end of 20 October, even for a phone still reading 30 September.
+ const lab=await page(()=>({status:409,data:{code:'outside_window',activityId:'day0-lab',closesAt:'2026-10-21T05:00:00.000Z',serverTime:'2026-10-21T14:10:00.000Z'}}),{search:`?a=day0-lab&c=${CODE}`,now:'2026-09-30T10:00:00-05:00'});
+ assert.equal(title(lab).dataset.fiiuText,'checkinEndedTitle');assert.ok(key(result(lab),'askDesk'));
+ languages(lab,lang=>assert.match(content(result(lab).querySelector('.f-checkin-window')),{en:/Check-in closed at the end of the day, Lima time/,es:/El registro cerró al final del día, hora de Lima/,pt:/O registro fechou no fim do dia, horário de Lima/}[lang]));
 });
 
-test('the server’s time, not the phone’s clock, says whether a refused block has not opened yet or has ended',async()=>{
- // The laboratory window (all of 20 October in Lima) is over on the server; the phone still reads 30 September.
- const lab={code:'outside_window',activityId:'day0-lab',opensAt:'2026-10-20T05:00:00.000Z',closesAt:'2026-10-21T05:00:00.000Z'};
- const ended=await page(()=>({status:409,data:{...lab,serverTime:'2026-10-21T14:10:00.000Z'}}),{search:`?a=day0-lab&c=${CODE}`,now:'2026-09-30T10:00:00-05:00'});
- assert.equal(title(ended).dataset.fiiuText,'checkinEndedTitle');assert.ok(key(result(ended),'askDesk'));assert.equal(key(result(ended),'checkinNotOpenHint'),undefined);
- // And the other way round: a phone running a day ahead is told the block has not opened yet.
- const block={code:'outside_window',activityId:'day1-am',opensAt:'2026-10-21T13:30:00.000Z',closesAt:'2026-10-21T18:30:00.000Z'};
- const early=await page(()=>({status:409,data:{...block,serverTime:'2026-10-21T13:00:00.000Z'}}),{now:'2026-10-22T09:00:00-05:00'});
- assert.equal(title(early).dataset.fiiuText,'checkinNotOpen');assert.ok(key(result(early),'checkinNotOpenHint'));
+test('a closed answer never reads as "not open yet", even one from an older server that sent an opening time',async()=>{
+ // An older server's refusal before its opening time; and one without any time at all.
+ const older=await page(()=>({status:409,data:{code:'outside_window',activityId:'day1-am',opensAt:'2026-10-21T13:30:00.000Z',closesAt:'2026-10-21T18:30:00.000Z',serverTime:'2026-10-21T13:00:00.000Z'}}),{now:'2026-10-21T08:00:00-05:00'});
+ assert.equal(title(older).dataset.fiiuText,'checkinEndedTitle');assert.ok(key(result(older),'askDesk'));assert.match(content(result(older).querySelector('.f-checkin-window')),/13:30/);
+ assert.doesNotMatch(content(result(older)),/08:30/,'no opening time is shown');
+ const bare=await page(()=>({status:409,data:{code:'outside_window',activityId:'day1-am'}}));
+ assert.equal(title(bare).dataset.fiiuText,'checkinEndedTitle');assert.equal(result(bare).querySelector('.f-checkin-window'),null);assert.ok(key(result(bare),'askDesk'));
+ for(const h of [older,bare])languages(h,lang=>assert.doesNotMatch(content(h.root),TEST_WORDING,lang));
+ // A typed code names no block, and without the programme the closing line carries its own date.
+ const typed=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?{status:503,data:{}}:{status:409,data:{code:'outside_window',activityId:'day1-am',closesAt:'2026-10-21T18:30:00.000Z'}},{page:'fiiu-checkin',search:''});
+ const form=result(typed).querySelector('form');field(form,'checkinCode').value='K7M4PX';form.listeners.submit({preventDefault(){}});await flush();
+ assert.equal(title(typed).dataset.fiiuText,'checkinEndedTitle');assert.equal(result(typed).querySelector('.f-window-day').dataset.fiiuDate,'2026-10-21');
 });
 
 test('someone without a registration is sent to register while registration is open, and to the desk once it closes',async()=>{

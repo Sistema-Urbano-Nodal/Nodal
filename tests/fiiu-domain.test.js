@@ -12,10 +12,11 @@ test('activity durations are parsed from the programme time with an en dash or a
  assert.equal(CHECKIN_ACTIVITIES.reduce((sum,a)=>sum+(a.minutes??0),0),960,'the conference adds up to 16 hours');
 });
 
-test('check-in windows are Lima time, 30 minutes either side of a block, and the whole Lima day when untimed',()=>{
- assert.deepEqual(checkinWindow(find('day1-am')),{opensAt:'2026-10-21T13:30:00.000Z',closesAt:'2026-10-21T18:30:00.000Z'});
- assert.deepEqual(checkinWindow(find('day1-pm')),{opensAt:'2026-10-21T23:30:00.000Z',closesAt:'2026-10-22T02:30:00.000Z'});
- assert.deepEqual(checkinWindow(find('day0-lab')),{opensAt:'2026-10-20T05:00:00.000Z',closesAt:'2026-10-21T05:00:00.000Z'});
+test('check-in has no opening time and closes in Lima time 30 minutes after a block, or at the end of its Lima day when untimed',()=>{
+ assert.deepEqual(checkinWindow(find('day1-am')),{closesAt:'2026-10-21T18:30:00.000Z'});
+ assert.deepEqual(checkinWindow(find('day1-pm')),{closesAt:'2026-10-22T02:30:00.000Z'});
+ assert.deepEqual(checkinWindow(find('day0-lab')),{closesAt:'2026-10-21T05:00:00.000Z'});
+ for(const activity of CHECKIN_ACTIVITIES)assert.equal(Object.hasOwn(activity.checkin,'opensAt'),false,activity.id);
 });
 
 test('only NODAL blocks take a check-in and carry their window; workshops, routes and legacy activities do not',()=>{

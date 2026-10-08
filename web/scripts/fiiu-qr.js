@@ -1,28 +1,27 @@
 (() => {
  'use strict';
  // The check-in screen shown at the door (organisers only; the server gates the page). Without ?a= it lists the NODAL blocks. With ?a= it shows that block's
- // rotating QR code, the 6-character code and address for phones that cannot scan, the check-in window and a live count. It never shows participant data.
+ // rotating QR code, the 6-character code and address for phones that cannot scan, when check-in closes and a live count. It never shows participant data.
  const {t,el,tr,button,link,source,api,status,dateNode,checkinActivities,checkinState,windowNode,countLabel,newTabNote}=window.Fiiu;
  const root=document.getElementById('fiiuQrRoot'),message=document.getElementById('fiiuStatus'),SVG='http://www.w3.org/2000/svg',REFRESH=30000;
  const id=new URLSearchParams(location.search).get('a')||'';
  let festival=null,activity=null,latest=null,timer=null,stopped=false,busy=false,lock=null,parts=null,offset=0;
- // Codes and windows are judged by the server's clock. Each answer carries serverTime, so the screen keeps the offset and
- // reads "now" as server time: a presenter laptop whose clock is off (or a rehearsal clock) never keeps a code the server
- // already refuses, nor hides one it still accepts.
+ // Codes and the closing time are judged by the server's clock. Each answer carries serverTime, so the screen keeps the offset
+ // and reads "now" as server time: a presenter laptop whose clock is off (or a local FIIU_CHECKIN_NOW clock) never keeps a code
+ // the server already refuses, nor hides one it still accepts.
  const serverNow=()=>Date.now()+offset;
  const setTitle=()=>{document.title='NODAL · '+(activity?activity.title:t('qrTitle'));};
  const time=value=>typeof value==='number'?value:Date.parse(value);
  // Date and time on one line, the venue (often long) on its own, so a wrapped line never starts or ends on a separator.
  function meta(activity,cls,withDate=true){const box=el('div',cls),line=el('p','f-meta-when');if(withDate)line.append(dateNode(activity.date,'span','short','f-when-day'));if(activity.time)line.append(el('span','',activity.time));box.append(line,activity.venue?source('p',activity.venue,'f-meta-venue'):tr('p','venuePending','f-meta-venue'));return box;}
- function stateNode(state){return state==='upcoming'?null:tr('span',state==='open'?'checkinOpenNow':'checkinClosedNow','f-window-state is-'+state);}
  // Without ?a=: one ruled row per block, by day, each opening its own screen.
  function list(){
   const box=el('section','f-qr-list'),head=el('header','f-qr-head'),blocks=checkinActivities(festival.event);head.append(tr('h1','qrTitle'),tr('p','qrListHint','f-muted'));box.append(head);
   for(const date of [...new Set(blocks.map(block=>block.date))]){
    const day=el('section','f-qr-day'),label=dateNode(date,'h2','long','f-qr-day-label'),rows=el('ul','f-qr-rows');label.id='f-qr-day-'+date;day.setAttribute('aria-labelledby',label.id);
    for(const block of blocks.filter(item=>item.date===date)){
-    const row=el('li','f-qr-row'),main=el('div','f-qr-row-main'),title=source('p',block.title,'f-qr-row-title'),when=el('p','f-qr-row-window'),open=link('openCheckinScreen','fiiu-qr.html?a='+encodeURIComponent(block.id),'f-button secondary f-small'),state=stateNode(checkinState(block));
-    title.id='f-qr-'+block.id;open.setAttribute('aria-describedby',title.id);const span=el('span','f-qr-row-span');span.append(tr('span','checkinWindow','f-window-label'),windowNode(block));when.append(span);if(state)when.append(state);main.append(title,meta(block,'f-qr-row-meta',false));row.append(main,when,open);rows.append(row);
+    const row=el('li','f-qr-row'),main=el('div','f-qr-row-main'),title=source('p',block.title,'f-qr-row-title'),when=el('p','f-qr-row-window'),open=link('openCheckinScreen','fiiu-qr.html?a='+encodeURIComponent(block.id),'f-button secondary f-small');
+    title.id='f-qr-'+block.id;open.setAttribute('aria-describedby',title.id);when.append(windowNode(block,checkinState(block)));main.append(title,meta(block,'f-qr-row-meta',false));row.append(main,when,open);rows.append(row);
    }
    day.append(label,rows);box.append(day);
   }
@@ -40,7 +39,7 @@
   back.setAttribute('width',String(side));back.setAttribute('height',String(side));back.setAttribute('fill','#fff');
   path.setAttribute('d',d);path.setAttribute('fill','#000');path.setAttribute('shape-rendering','crispEdges');svg.append(back,path);return svg;
  }
- // With ?a=: the parts that never change are built once; each refresh replaces only the code, the window state and the count, so focus stays on the controls.
+ // With ?a=: the parts that never change are built once; each refresh replaces only the code, the closing line and the count, so focus stays on the controls.
  function screen(){
   const box=el('section','f-qr'),stage=el('div','f-qr-stage'),code=el('div','f-qr-code'),side=el('div','f-qr-side'),title=source('h1',activity.title,'f-qr-title');
   const windowLine=el('p','f-qr-window'),typed=el('div','f-qr-typed'),address=el('p','f-qr-url'),short=el('p','f-qr-short'),count=el('p','f-qr-count'),controls=el('div','f-actions f-qr-controls');
@@ -57,11 +56,12 @@
  function show(data){
   if(typeof data?.shortCode!=='string'||typeof data.url!=='string')throw Object.assign(Error(t('error')),{key:'error'});
   const reported=time(data.serverTime);if(Number.isFinite(reported))offset=reported-Date.now();
-  latest=data;const svg=drawQr(data.qr),opens=time(data.window?.opensAt),closes=time(data.window?.closesAt),shown=Number.isFinite(opens)&&Number.isFinite(closes)?{...activity,checkin:{opensAt:new Date(opens).toISOString(),closesAt:new Date(closes).toISOString()}}:activity;
+  latest=data;const svg=drawQr(data.qr),closes=time(data.window?.closesAt),shown=Number.isFinite(closes)?{...activity,checkin:{closesAt:new Date(closes).toISOString()}}:activity;
   parts.code.replaceChildren(svg||tr('p','qrUnavailable','f-qr-missing'));
   let url=data.url;try{const parsed=new URL(data.url);url=parsed.host+parsed.pathname;}catch{url=data.url.split('?')[0];}
   parts.address.textContent=url;parts.short.textContent=data.shortCode.slice(0,3)+' '+data.shortCode.slice(3);parts.short.setAttribute('aria-label',data.shortCode.split('').join(' '));
-  const state=typeof data.window?.open==='boolean'?(data.window.open?'open':serverNow()<opens?'upcoming':'closed'):checkinState(shown,serverNow()),badge=stateNode(state);parts.windowLine.replaceChildren(tr('span','checkinWindow','f-window-label'),windowNode(shown),...(badge?[badge]:[]));
+  // Open or closed, as the server judged it; an answer without that verdict is judged on the server's clock.
+  parts.windowLine.replaceChildren(windowNode(shown,typeof data.window?.open==='boolean'?(data.window.open?'open':'closed'):checkinState(shown,serverNow())));
   parts.count.replaceChildren(...(Number.isSafeInteger(data.checkedIn)?[countLabel(data.checkedIn,'checkedInOne','checkedInMany')]:[]));
  }
  // Losing the session or organiser access hides the code at once and stops polling; nothing on this page needs to survive.

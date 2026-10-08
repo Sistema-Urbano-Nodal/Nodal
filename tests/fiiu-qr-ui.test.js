@@ -7,10 +7,13 @@ import {createFiiuHarness,key,descendants,content,flush} from './helpers/fiiu-ui
 function bits(size,dark){const bytes=Buffer.alloc(Math.ceil(size*size/8));for(let y=0;y<size;y++)for(let x=0;x<size;x++)if(dark(x,y)){const i=y*size+x;bytes[i>>3]|=0x80>>(i&7);}return bytes.toString('base64');}
 const qr={size:21,bits:bits(21,(x,y)=>y===0||(x===20&&y===20))};
 const later=new Date(Date.now()+5*60000).toISOString(),earlier=new Date(Date.now()-60000).toISOString();
-const screen=(extra={})=>({activityId:'day1-am',url:'https://nodal.example/fiiu-checkin.html?a=day1-am&c=Ab3dEf6hIj9kLm2nOp5qRs',code:'Ab3dEf6hIj9kLm2nOp5qRs',shortCode:'K7M4PX',rotatesAt:later,validUntil:later,window:{opensAt:'2026-10-21T13:30:00.000Z',closesAt:'2026-10-21T18:30:00.000Z',open:true},checkedIn:12,qr,...extra});
-async function page(answer,{search='?a=day1-am'}={}){
- return createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?{event:FIIU_EVENT,config:{registrationOpen:true},content:[],nextCursor:null}:answer(request),{page:'fiiu-qr',search});
+const screen=(extra={})=>({activityId:'day1-am',url:'https://nodal.example/fiiu-checkin.html?a=day1-am&c=Ab3dEf6hIj9kLm2nOp5qRs',code:'Ab3dEf6hIj9kLm2nOp5qRs',shortCode:'K7M4PX',rotatesAt:later,validUntil:later,window:{closesAt:'2026-10-21T18:30:00.000Z',open:true},checkedIn:12,qr,...extra});
+// A clock frozen at one Lima moment, for the page and the formatters alike.
+const frozen=iso=>{const at=Date.parse(iso);return class extends Date{constructor(...args){super(...(args.length?args:[at]));}static now(){return at;}};};
+async function page(answer,{search='?a=day1-am',now}={}){
+ return createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?{event:FIIU_EVENT,config:{registrationOpen:true},content:[],nextCursor:null}:answer(request),{page:'fiiu-qr',search,...(now?{context:{Date:frozen(now)}}:{})});
 }
+const TEST_WORDING=/rehears|organi[sz]er test|nothing was recorded|not opened yet|aún no está abierto|ainda não abriu/i;
 const reads=h=>h.requests.filter(request=>request.path.startsWith('/api/admin/fiiu/checkin')).length;
 
 test('without a block the page lists the NODAL blocks by day, each opening its own screen, and nothing for workshops or routes',async()=>{
@@ -18,7 +21,26 @@ test('without a block the page lists the NODAL blocks by day, each opening its o
  assert.ok(key(h.root,'qrTitle'));const rows=h.root.querySelectorAll('.f-qr-row');
  assert.deepEqual(rows.map(row=>key(row,'openCheckinScreen').href),['day0-lab','day1-am','day1-pm','day2-am','day2-pm','day3-am'].map(id=>'fiiu-qr.html?a='+id));
  assert.doesNotMatch(content(h.root),/Calles para la gente|Lima cromática/);assert.equal(h.requests.length,1);
- assert.match(content(rows[1]),/08:30–13:30/);assert.equal(key(h.root,'admin').href,'fiiu-admin.html#checkin');
+ assert.match(content(rows[1]),/13:30/);assert.doesNotMatch(content(rows[1]),/08:30/,'no opening time');assert.equal(key(h.root,'admin').href,'fiiu-admin.html#checkin');
+});
+
+test('the list says until when each block takes check-ins, open on any earlier day, and marks only the closed ones, in every language',async()=>{
+ // 22 October, 10:00 in Lima: the lab and the 21 October blocks have closed; the rest are open, even those days ahead.
+ const h=await page(()=>assert.fail('the list needs no organiser data'),{search:'',now:'2026-10-22T10:00:00-05:00'}),rows=h.root.querySelectorAll('.f-qr-row');
+ const windows=rows.map(row=>row.querySelector('.f-window'));
+ assert.deepEqual(windows.map(node=>node.className.split(' ')[1]),['is-closed','is-closed','is-closed','is-open','is-open','is-open']);
+ assert.deepEqual(windows.map(node=>node.children[0].dataset.fiiuText),['checkinClosedAllDay','checkinClosedAt','checkinClosedAt','checkinOpenUntil','checkinOpenUntil','checkinOpenUntil']);
+ for(const lang of ['en','es','pt']){
+  h.lang(lang);
+  assert.match(content(windows[1]),{en:/Check-in closed at\s+13:30\s+Lima time/,es:/El registro cerró a las\s+13:30\s+hora de Lima/,pt:/O registro fechou às\s+13:30\s+horário de Lima/}[lang]);
+  assert.match(content(windows[4]),{en:/Check-in open until\s+21:30\s+Lima time/,es:/Registro abierto hasta las\s+21:30\s+hora de Lima/,pt:/Registro aberto até\s+21:30\s+horário de Lima/}[lang]);
+  assert.match(content(windows[0]),{en:/Check-in closed at the end of the day, Lima time/,es:/El registro cerró al final del día, hora de Lima/,pt:/O registro fechou no fim do dia, horário de Lima/}[lang]);
+  assert.doesNotMatch(content(h.root),TEST_WORDING,lang);
+ }
+ // Two weeks before the festival every block, the laboratory included, is open.
+ const before=await page(()=>assert.fail(),{search:'',now:'2026-10-07T10:00:00-05:00'});
+ assert.ok(before.root.querySelectorAll('.f-window').every(node=>node.className==='f-window is-open'));
+ assert.ok(key(before.root.querySelectorAll('.f-qr-row')[0],'checkinOpenAllDay'));
 });
 
 test('a block screen draws the code as one SVG path inside a 4-module quiet zone, with the typed fallback, the window and the live count',async()=>{
@@ -29,7 +51,8 @@ test('a block screen draws the code as one SVG path inside a 4-module quiet zone
  assert.equal(svg.children.filter(node=>node.tagName==='path').length,1,'one path for every dark module');
  assert.equal(path.d,'M4 4h21v1h-21zM24 24h1v1h-1z','runs of dark modules merge, offset by the quiet zone');assert.equal(path['shape-rendering'],'crispEdges');assert.equal(path.fill,'#000');
  assert.match(content(stage.querySelector('h1')),/El poder de lo local/);assert.match(content(stage.querySelector('.f-qr-meta')),/Auditorio MALI/);
- assert.match(content(stage.querySelector('.f-qr-window')),/08:30–13:30/);assert.ok(key(stage,'checkinOpenNow'));
+ const line=stage.querySelector('.f-qr-window');assert.match(content(line),/Check-in open until\s+13:30\s+Lima time/);assert.doesNotMatch(content(line),/08:30/);
+ assert.equal(line.querySelector('.f-window').className,'f-window is-open');
  assert.equal(stage.querySelector('.f-qr-url').textContent,'nodal.example/fiiu-checkin.html','the address to type carries no code');
  assert.equal(stage.querySelector('.f-qr-short').textContent,'K7M 4PX','the short code is grouped 3 + 3');
  const count=stage.querySelector('.f-qr-count');assert.equal(count.role,'status');assert.match(content(count),/\b12\b/);assert.ok(key(count,'checkedInMany'));
@@ -90,11 +113,26 @@ test('the screen reads time from the server, so a presenter clock that is off ne
  reply=()=>screen({serverTime:at(-10*minute),validUntil:at(-6*minute)});const fast=await page(()=>reply());
  reply=()=>({status:503,data:{error:'unavailable'}});await fast.tickTimers();
  assert.ok(descendants(fast.root.querySelector('.f-qr-code')).some(node=>node.tagName==='svg'),'a code the server still accepts stays up');
- // A rehearsal clock three weeks ahead: the 20 October laboratory window has closed in server time, though not yet on the laptop.
- const rehearsal=Date.parse('2026-10-21T14:10:00.000Z');
- const lab=await page(()=>screen({activityId:'day0-lab',serverTime:new Date(rehearsal).toISOString(),validUntil:new Date(rehearsal+5*minute).toISOString(),window:{opensAt:'2026-10-20T05:00:00.000Z',closesAt:'2026-10-21T05:00:00.000Z',open:false}}),{search:'?a=day0-lab'});
- assert.ok(key(lab.root.querySelector('.f-qr-window'),'checkinClosedNow'),'closed by the server clock, not "upcoming" by the laptop clock');
- // Without serverTime (an older server) the laptop clock is the fallback, as before.
- const legacy=await page(()=>screen({serverTime:undefined,window:{opensAt:new Date(real+3600000).toISOString(),closesAt:new Date(real+7200000).toISOString(),open:false}}));
- assert.equal(key(legacy.root.querySelector('.f-qr-window'),'checkinClosedNow'),undefined,'a window opening later on that clock shows no state');
+ // A server clock ahead of the laptop (a local FIIU_CHECKIN_NOW): the 20 October laboratory has closed in server time, though not yet on the laptop.
+ const ahead=Date.parse('2026-10-21T14:10:00.000Z');
+ const lab=await page(()=>screen({activityId:'day0-lab',serverTime:new Date(ahead).toISOString(),validUntil:new Date(ahead+5*minute).toISOString(),window:{closesAt:'2026-10-21T05:00:00.000Z',open:false}}),{search:'?a=day0-lab',now:'2026-10-07T10:00:00-05:00'});
+ assert.ok(key(lab.root.querySelector('.f-qr-window'),'checkinClosedAllDay'),'closed by the server clock, not open by the laptop clock');
+ // Without the server's verdict the server's clock decides: a block that closes later is open, one that closed is closed.
+ const later=await page(()=>screen({serverTime:at(0),window:{closesAt:at(3600000)}}));
+ assert.ok(key(later.root.querySelector('.f-qr-window'),'checkinOpenUntil'));
+ const over=await page(()=>screen({serverTime:at(0),window:{closesAt:at(-60000)}}));
+ assert.ok(key(over.root.querySelector('.f-qr-window'),'checkinClosedAt'));
+});
+
+test('the block screen says until when check-in is open, and when it closed once it has, in every language',async()=>{
+ let reply=()=>screen({serverTime:'2026-10-07T15:00:00.000Z'});const h=await page(()=>reply()),line=()=>h.root.querySelector('.f-qr-window');
+ for(const lang of ['en','es','pt']){
+  h.lang(lang);assert.match(content(line()),{en:/Check-in open until\s+13:30\s+Lima time/,es:/Registro abierto hasta las\s+13:30\s+hora de Lima/,pt:/Registro aberto até\s+13:30\s+horário de Lima/}[lang]);
+  assert.doesNotMatch(content(h.root),TEST_WORDING,lang);
+ }
+ reply=()=>screen({serverTime:'2026-10-21T18:31:00.000Z',window:{closesAt:'2026-10-21T18:30:00.000Z',open:false}});await h.tickTimers();
+ assert.equal(line().querySelector('.f-window').className,'f-window is-closed');
+ for(const lang of ['en','es','pt']){
+  h.lang(lang);assert.match(content(line()),{en:/Check-in closed at\s+13:30\s+Lima time/,es:/El registro cerró a las\s+13:30\s+hora de Lima/,pt:/O registro fechou às\s+13:30\s+horário de Lima/}[lang]);
+ }
 });
