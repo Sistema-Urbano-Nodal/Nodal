@@ -92,15 +92,22 @@ function profileHarness(options={}){
  const ids=['pfName','pfKicker','pfRole','pfCoord','pfInitial','pfTags','pfMeta','pfLinkedin','pfLinkedinText','pfMatch','pfBtns','pfAbout','pfQuote','pfProjects','pfActConn','pfActProj','pfActCourses','pfActSince','pfConnList'];
  const nodes=ids.map(id=>node(id)),signals=node('signals');signals.className='pf-locked';nodes.push(signals,node('title','p.title','NODAL member profile'));
  const user={id:'member',fullName:'Ana Silva',title:'Planner',city:'Lima',topics:[{name:'Mobility',level:2}],partC:{},createdAt:'2026-01-01T00:00:00Z'};
- return harness({nodes,respond:path=>path==='/api/users'?{users:[{id:'other',name:'Other member',role:'Architect'}]}:{user},...options});
+ return harness({nodes,respond:path=>path==='/api/users?limit=5'?{users:[{id:'other',name:'Other member',role:'Architect'}]}:{user},...options});
 }
 test('profile dynamic labels and signals follow language changes without reloading data or replacing user content',async()=>{
  const h=profileHarness();h.run('profile');await flush();const about=h.document.getElementById('pfAbout'),tags=h.document.getElementById('pfTags');assert.match(about.textContent,/No bio yet/);assert.equal(tags.textContent,'Mobility');
- h.api.apply('pt');assert.match(about.textContent,/Ainda sem bio/);assert.equal(tags.textContent,'Mobilidade');assert.match(h.document.getElementById('pfBtns').textContent,/Copiar/);assert.match(h.body.textContent,/Disponibilidade/);assert.equal(h.document.getElementById('pfName').textContent,'Ana Silva');assert.deepEqual(h.requests,['/api/auth/me','/api/users']);
- h.api.apply('es');assert.match(about.textContent,/Aún sin bio/);assert.equal(tags.textContent,'Movilidad');assert.match(h.body.textContent,/Disponibilidad/);assert.deepEqual(h.requests,['/api/auth/me','/api/users']);
+ h.api.apply('pt');assert.match(about.textContent,/Ainda sem bio/);assert.equal(tags.textContent,'Mobilidade');assert.match(h.document.getElementById('pfBtns').textContent,/Copiar/);assert.match(h.body.textContent,/Disponibilidade/);assert.equal(h.document.getElementById('pfName').textContent,'Ana Silva');assert.deepEqual(h.requests,['/api/auth/me','/api/users?limit=5']);
+ h.api.apply('es');assert.match(about.textContent,/Aún sin bio/);assert.equal(tags.textContent,'Movilidad');assert.match(h.body.textContent,/Disponibilidad/);assert.deepEqual(h.requests,['/api/auth/me','/api/users?limit=5']);
+});
+test('profile asks for its few connections alongside the profile instead of after it',async()=>{
+ let release;const h=profileHarness();const respond=h.context.fetch;h.context.fetch=async path=>{if(path==='/api/auth/me')await new Promise(r=>{release=r;});return respond(path);};
+ h.run('profile');await flush();assert.deepEqual(h.requests,['/api/users?limit=5'],'the directory request does not wait for the profile');
+ release();await flush();assert.deepEqual(h.requests,['/api/users?limit=5','/api/auth/me']);assert.match(h.document.getElementById('pfConnList').textContent,/Other member · Architect/);
+ const failed=profileHarness({respond:path=>path==='/api/users?limit=5'?{status:500}:{user:{id:'member',fullName:'Ana Silva'}}});failed.run('profile');await flush();
+ assert.equal(failed.document.getElementById('pfName').textContent,'Ana Silva');assert.match(failed.document.getElementById('pfConnList').textContent,/No connections yet/);
 });
 test('profile failure messages follow the chosen language without retrying the failed request',async()=>{
- const h=profileHarness({respond:()=>({status:404,error:'missing'})});h.run('profile');await flush();const initial=h.document.getElementById('pfRole').textContent;h.api.apply('pt');assert.notEqual(h.document.getElementById('pfRole').textContent,initial);assert.equal(h.document.getElementById('pfRole').textContent,h.api.t('p.notFoundWhy'));assert.equal(h.requests.length,1);
+ const h=profileHarness({respond:()=>({status:404,error:'missing'})});h.run('profile');await flush();const initial=h.document.getElementById('pfRole').textContent;h.api.apply('pt');assert.notEqual(h.document.getElementById('pfRole').textContent,initial);assert.equal(h.document.getElementById('pfRole').textContent,h.api.t('p.notFoundWhy'));assert.deepEqual(h.requests,['/api/auth/me','/api/users?limit=5']);
 });
 
 test('profile sharing identifies the displayed member even on the current-member page',async()=>{
@@ -119,7 +126,7 @@ test('profile sharing offers the same member URL when clipboard access fails',as
 });
 test('expired profile access preserves the requested member and language through sign-in',async()=>{
  const h=profileHarness({url:'https://nodal.test/profile.html?id=other&lang=pt',saved:'pt',respond:()=>({status:401})});let destination;
- h.location.assign=value=>{destination=value;};h.run('profile');await flush();
+ let redirects=0;h.location.assign=value=>{destination=value;redirects++;};h.run('profile');await flush();assert.equal(redirects,1,'a signed-out visitor is sent to sign-in once');
  assert.equal(new URL(destination,h.location).searchParams.get('next'),'/profile.html?id=other&lang=pt');
 });
 

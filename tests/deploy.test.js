@@ -324,7 +324,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     'index.html': { 'styles.css': '30', 'i18n.js': '20261003r', 'app.js': '20', 'recs.js': '4', 'script.js': '18', 'hero-network.js': '2' },
     'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20261003r', 'catalog.js': '6', ...pilot },
     'dashboard.html': { 'i18n.js': '20261003r', ...festival, 'fiiu-hubs.js': '20261001a', 'news-feed.js': '20261001b', 'dashboard.js': '20261003r', 'dashboard.css': '37', 'globe.js': '29', 'location-check.js': '20260908b', ...pilot },
-    'login.html': { 'i18n.js': '20261003r', 'auth.js': '20261003r', 'recovery-i18n.js': '20261003r', ...pilot },
+    'login.html': { 'i18n.js': '20261003r', 'auth.js': '20261003r', 'recovery-i18n.js': '20261003r' },
     'reset-password.html': { 'i18n.js': '20261003r', 'recovery-i18n.js': '20261003r', 'password-recovery.js': '20261003r' },
     'payments.html': { 'i18n.js': '20261003r', 'payments.js': '18', ...pilot },
     'profile.html': { 'i18n.js': '20261003r', 'profile.js': '20260911c', 'styles.css': '30', ...pilot },

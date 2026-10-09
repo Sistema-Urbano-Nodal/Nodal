@@ -3,6 +3,7 @@
   const rows = {
     language:['Language','Idioma','Idioma'],
     forgot:['Forgot your password?','¿Olvidaste tu contraseña?','Esqueceu sua senha?'],
+    newHere:['New to NODAL? Create an account','¿Primera vez en NODAL? Crea tu cuenta','Primeira vez na NODAL? Crie sua conta'],
     requestTitle:['Reset your password','Restablece tu contraseña','Redefina sua senha'],
     requestIntro:["Enter the email you used for NODAL. We'll send you a link to choose a new password.",'Escribe el correo que usaste en NODAL. Te enviaremos un enlace para elegir una nueva contraseña.','Digite o e-mail usado na NODAL. Vamos enviar um link para você escolher uma nova senha.'],
     browserNote:['Open the latest link in this same browser as soon as it arrives.','Abre el enlace más reciente en este mismo navegador en cuanto llegue.','Abra o link mais recente neste mesmo navegador assim que ele chegar.'],

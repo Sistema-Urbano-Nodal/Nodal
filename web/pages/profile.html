@@ -45,28 +45,26 @@
     <section class="pf-hero">
       <div class="wrap">
         <div class="pf-hero-card">
-          <span class="pf-coord" id="pfCoord" aria-hidden="true">Location loading</span>
+          <span class="pf-coord" id="pfCoord" aria-hidden="true"></span>
           <div class="pf-avatar">
             <span class="leader-initial" id="pfInitial">N</span>
             <span class="pf-online" title="Active this week"></span>
           </div>
           <div class="pf-id">
-            <p class="pf-kicker" id="pfKicker">Member profile · Preview</p>
-            <h1 id="pfName">Member profile</h1>
-            <p class="pf-role" id="pfRole">Loading account data</p>
-            <div class="tags" id="pfTags">
-              <span>Profile</span>
-            </div>
-            <p class="pf-meta" id="pfMeta">Loading profile details</p>
+            <p class="pf-kicker" id="pfKicker"></p>
+            <h1 id="pfName">…</h1>
+            <p class="pf-role" id="pfRole"></p>
+            <div class="tags" id="pfTags"></div>
+            <p class="pf-meta" id="pfMeta"></p>
             <a class="pf-linkedin" id="pfLinkedin" href="https://www.linkedin.com" target="_blank" rel="noopener noreferrer" hidden>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 8.8v10H3.4v-10zM5 4.2a1.8 1.8 0 1 1 0 3.6 1.8 1.8 0 0 1 0-3.6zM20.6 13v5.8h-3.1v-5.4c0-1.4-.5-2.3-1.7-2.3-.9 0-1.5.6-1.7 1.2-.1.2-.1.5-.1.8v5.7h-3.1v-10h3.1v1.4c.4-.6 1.2-1.6 2.8-1.6 2 0 3.8 1.3 3.8 4.4z"/></svg>
               <span id="pfLinkedinText">LinkedIn</span>
             </a>
           </div>
           <div class="pf-actions">
-            <span class="pf-match" id="pfMatch">Profile<small>loading</small></span>
+            <span class="pf-match" id="pfMatch">…</span>
             <div class="pf-btns" id="pfBtns">
-              <a class="btn btn-primary" href="dashboard.html">Go to dashboard</a>
+              <a class="btn btn-primary" href="dashboard.html" data-i18n="p.back">Back to your dashboard</a>
             </div>
           </div>
         </div>
@@ -80,7 +78,7 @@
           <article class="pf-card">
             <span class="pf-num" aria-hidden="true">P.01</span>
             <h2 data-i18n="p.about">About</h2>
-            <p id="pfAbout">Loading account profile.</p>
+            <p id="pfAbout">…</p>
             <p class="pf-quote" id="pfQuote" hidden></p>
           </article>
 
@@ -90,10 +88,10 @@
             <ul class="pf-projects" id="pfProjects">
               <li>
                 <div class="pf-proj-head">
-                  <h3>No projects yet</h3>
-                  <span class="pf-status">Open</span>
+                  <h3 data-i18n="p.noProjects">No projects yet</h3>
+                  <span class="pf-status" data-i18n="p.open">Open</span>
                 </div>
-                <p>Projects appear here as you join collaborations through the NODAL network.</p>
+                <p data-i18n="p.noProjectsBody">Projects appear here as you join collaborations through the NODAL network.</p>
               </li>
             </ul>
           </article>
@@ -132,7 +130,7 @@
           <div class="pf-panel">
             <h2 data-i18n="p.connections">Connections</h2>
             <ul class="pf-links" id="pfConnList">
-              <li><span>No connections yet</span></li>
+              <li><span data-i18n="p.noConnections">No connections yet. Start by joining conversations and meeting people with shared interests.</span></li>
             </ul>
           </div>
         </aside>

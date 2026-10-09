@@ -103,6 +103,7 @@
 .auth-page #signupForm .btn:hover { background: #edf3ec; }
 .auth-page .auth-hint { margin-top: 12px; font-size: 12px; line-height: 1.7; color: var(--auth-muted); }
 .auth-page .auth-error { font-weight: 400; line-height: 1.6; overflow-wrap: anywhere; }
+.auth-page .auth-error.is-ok { color: var(--auth-forest); background: #eef6ec; border-color: #b9d6b4; }
 .auth-page .auth-card [hidden] { display: none !important; }
 .auth-page .auth-card :focus-visible { outline: 3px solid var(--auth-forest); outline-offset: 4px; }
 @media (max-width: 860px) {
