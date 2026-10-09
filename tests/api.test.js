@@ -1292,6 +1292,16 @@ test('signing in from a course link preserves the selected course, session and d
   assert.equal(signedIn.headers.get('location'), destination);
 });
 
+test('a signed-out private link that names a supported language opens sign-in in that language', async (t) => {
+  const base = await bootDb(t);
+  const location = async path => (await fetch(base + path, { redirect: 'manual' })).headers.get('location');
+  assert.equal(await location('/course.html?id=c1&encuesta=1&lang=es'), `/login.html?next=${encodeURIComponent('/course.html?id=c1&encuesta=1&lang=es')}&lang=es`);
+  assert.equal(new URL(await location('/dashboard.html?lang=pt'), base).searchParams.get('lang'), 'pt');
+  // No language, or one the site does not have, leaves the sign-in link as it was.
+  assert.equal(await location('/course.html?id=c1'), `/login.html?next=${encodeURIComponent('/course.html?id=c1')}`);
+  for (const lang of ['fr', 'ES', '']) assert.equal(await location(`/course.html?id=c1&lang=${lang}`), `/login.html?next=${encodeURIComponent(`/course.html?id=c1&lang=${lang}`)}`, lang);
+});
+
 test('public authentication and health do not wait for a stale existing session', async (t) => {
   const repository = {
     resolveSession() { throw new Error('Existing session provider is stalled'); },

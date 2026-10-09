@@ -378,6 +378,18 @@ test('cursors are read case-insensitively and never repeat or skip rows',async t
  for(const cursor of [ids[2],ids[2].toUpperCase()])assert.deepEqual((await(await call('/api/fiiu?cursor='+cursor,{actor:'guest'})).json()).content.map(c=>c.id),[ids[1],ids[0]],cursor);
 });
 
+test('the organiser participant list loads 200 registrations a page, the store cap',async t=>{
+ const {call,db}=await setup(t);const store=createFiiuStore({db}),at='2026-09-29T00:00:00.000Z';
+ for(let i=0;i<201;i++){
+  const user=createUser(db,{fullName:'Page fixture',email:`page-${i}@example.test`,passwordHash:'unused',role:'member'});
+  await store.insert('registrations',{id:`${String(i).padStart(8,'0')}-0000-4000-8000-000000000000`,eventId:'fiiu-2026',userId:user.id,email:user.email,answers,labStatus:'none',version:1,createdAt:at,updatedAt:at});
+ }
+ const first=await(await call('/api/admin/fiiu/registrations',{actor:'admin'})).json();
+ assert.equal(first.registrations.length,200);assert.equal(first.nextCursor,first.registrations.at(-1).id);
+ const rest=await(await call('/api/admin/fiiu/registrations?cursor='+first.nextCursor,{actor:'admin'})).json();
+ assert.deepEqual([rest.registrations.length,rest.nextCursor],[1,null]);
+});
+
 test('the public programme answers HEAD like GET without spending write budgets and refuses other methods',async t=>{
  const {call,save}=await setup(t);
  const head=await call('/api/fiiu',{actor:'guest',method:'HEAD'});assert.equal(head.status,200);assert.match(head.headers.get('content-type'),/application\/json/);assert.equal(await head.text(),'');
@@ -566,13 +578,29 @@ test('a QR check-in racing the participant cancellation answers not registered a
  let cancel=false;const {codes,options}=festivalClock('2026-10-21T14:00:00Z');
  const {call,save,db}=await setup(t,store=>({...store,async find(name,filters,findOptions){
   const rows=await store.find(name,filters,findOptions);
-  if(cancel&&name==='attendance'&&filters.activityId){cancel=false;await store.remove('registrations',{id:filters.registrationId});}
+  // The participant cancels right after the check-in reads their attendance rows.
+  if(cancel&&name==='attendance'&&filters.registrationId&&!filters.activityId){cancel=false;await store.remove('registrations',{id:filters.registrationId});}
   return rows;
  }}),options);
  await save();cancel=true;
  const response=await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code});
  assert.equal(response.status,404);assert.deepEqual(await response.json(),{error:'registration unavailable',code:'not_registered',activityId:'day1-am',registrationOpen:true});
  assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_attendance').get().n,0);
+});
+
+test('a first QR check-in reads the registration and its attendance once before the insert, and a repeat scan only reads',async t=>{
+ const {codes,options}=festivalClock('2026-10-21T14:00:00Z');let calls=null;
+ const counted=store=>({...store,...Object.fromEntries(['find','insert','update','remove','count'].map(method=>[method,(...args)=>{calls?.push(`${method} ${args[0]}`);return store[method](...args);}]))});
+ const {call,save}=await setup(t,counted,options);
+ const {registration}=await(await save()).json();
+ for(const [status,expected] of [[201,['find registrations','find attendance','insert attendance']],[200,['find registrations','find attendance']]]){
+  calls=[];const response=await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code});assert.equal(response.status,status);
+  assert.deepEqual((await response.json()).attendance.map(a=>a.activityId),['day1-am']);assert.deepEqual(calls,expected);
+ }
+ // A second block keeps the first row and adds the new one without reading the rows again.
+ assert.equal((await save({...answers,activities:['day1-am','day1-pm'],version:registration.version,registrationId:registration.id})).status,200);
+ calls=[];const response=await scan(call,{activityId:'day1-pm',code:codes.current('day1-pm').code});assert.equal(response.status,201);
+ assert.deepEqual((await response.json()).attendance.map(a=>a.activityId).sort(),['day1-am','day1-pm']);assert.deepEqual(calls,['find registrations','find attendance','insert attendance']);
 });
 
 test('the organiser check-in screen gets a rotating link on the public origin, the window and a count, never participant data',async t=>{
@@ -591,6 +619,7 @@ test('the organiser check-in screen gets a rotating link on the public origin, t
  const body=await response.json(),url=new URL(body.url);
  assert.equal(url.origin,'https://nodal.example','never the request Host');assert.equal(url.pathname,'/fiiu-checkin.html');
  assert.equal(url.searchParams.get('a'),'day1-am');assert.equal(url.searchParams.get('c'),body.code);assert.notEqual(codes.verify('day1-am',body.code),null);
+ assert.equal(url.searchParams.get('lang'),'es','a browser with no saved language opens the check-in in Spanish');
  assert.match(body.shortCode,/^[2-9A-HJ-NP-RT-Y]{6}$/);assert.notEqual(codes.verify('day1-am',body.shortCode),null);
  assert.deepEqual({rotatesAt:body.rotatesAt,validUntil:body.validUntil,serverTime:body.serverTime,window:body.window,checkedIn:body.checkedIn,qr:body.qr},
   {rotatesAt:'2026-10-21T14:01:00.000Z',validUntil:'2026-10-21T14:05:00.000Z',serverTime:'2026-10-21T14:00:30.000Z',window:{closesAt:'2026-10-21T18:30:00.000Z',open:true},checkedIn:1,qr:{size:3,bits:'iIA='}});

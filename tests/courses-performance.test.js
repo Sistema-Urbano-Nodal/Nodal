@@ -36,6 +36,36 @@ test('course access reads run together but membership and private intake remain 
   course.status='draft';try{await assert.rejects(invoke(api,'/api/courses/'+COURSE,{id:MEMBER,permission:'member'}),{status:404});}finally{course.status='published';}
 });
 
+test('opening a session reads its module alongside the course access reads and sends none of it before they pass',async t=>{
+  const MODULE='10000000-0000-4000-8000-000000000004',calls=[],unhandled=[],onUnhandled=reason=>unhandled.push(reason);
+  process.on('unhandledRejection',onUnhandled);t.after(()=>process.off('unhandledRejection',onUnhandled));
+  let release,intake=true,brokenModules=false;const blocked=new Promise(resolve=>{release=resolve;});
+  const module={id:MODULE,courseId:COURSE,kind:'session',title:'Session',status:'published',instructions:'Private teaching content'};
+  const api=createCourseApi({store:{find:async(name,filter)=>{
+    calls.push(name);
+    if(name==='courses'){await blocked;return filter.id===COURSE?[course]:[];}
+    if(name==='enrollments')return[{userId:MEMBER,courseId:COURSE}];
+    if(name==='intakes')return intake?[{answers:{}}]:[];
+    if(name==='modules'){if(brokenModules)throw Object.assign(new Error('modules unavailable'),{status:503});return[module];}
+    return[];
+  }}});
+  const member={id:MEMBER,permission:'member'};
+  const pending=invoke(api,`/api/courses/${COURSE}/modules/${MODULE}`,member);
+  await new Promise(resolve=>setImmediate(resolve));const initial=[...calls];release();const opened=await pending;
+  assert.deepEqual(initial,['courses','enrollments','intakes','modules']);
+  assert.equal(opened.status,200);assert.equal(opened.body.module.instructions,'Private teaching content');
+  assert.equal(calls.filter(name=>name==='modules').length,1,'the module is read once');
+  // Without the course form: refused, and nothing of the module read early is written.
+  intake=false;const written=[];
+  await assert.rejects(api({req:{method:'GET',headers:{}},res:{writeHead:status=>written.push(status),end:body=>written.push(body)},url:new URL(`https://nodal.test/api/courses/${COURSE}/modules/${MODULE}/posts`),user:member}),{status:403});
+  assert.deepEqual(written,[]);
+  // A malformed module id is still refused after the course access check, and an early read that fails for a course
+  // that is not there leaves no unhandled rejection.
+  intake=true;await assert.rejects(invoke(api,`/api/courses/${COURSE}/modules/not-a-module`,member),{status:400});
+  brokenModules=true;await assert.rejects(invoke(api,`/api/courses/${STAFF}/modules/${MODULE}`,member),{status:404});
+  await new Promise(resolve=>setTimeout(resolve,20));assert.deepEqual(unhandled,[]);
+});
+
 test('staff report stops exhausted logical pages without probing each table again',async()=>{
   const calls=[];
   const data={enrollments:[{id:'enrollment',userId:MEMBER,createdAt:stamp}],intakes:[{id:'intake',userId:MEMBER,answers:{city:'Private city'}}],feedback:[{id:'feedback',userId:MEMBER,createdAt:stamp,rating:4}],invitations:[{id:'invitation',email:'new@example.test',createdAt:stamp}]};

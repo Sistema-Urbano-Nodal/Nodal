@@ -88,12 +88,13 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     if(content && !isStaff(user) && (!enrollment || !intake))fail('enroll and complete the intake before opening modules',403);
     return {course,enrollment:enrollment?{...enrollment,intakeCompleted:Boolean(intake)}:null,intake:intake?.answers??null};
   }
-  async function moduleAccess(courseId,moduleId,user,knownAccess) {
+  async function moduleAccess(courseId,moduleId,user,knownAccess,prefetched) {
     // Reuse checks already performed in this request; never share membership
-    // or intake across requests or viewers.
+    // or intake across requests or viewers. prefetched: this request's own read
+    // of the module, awaited only once those checks pass.
     const access=knownAccess??await courseAccess(courseId,user,{content:true});
     if(!isStaff(user)&&(!access.enrollment||!access.intake))fail('enroll and complete the intake before opening modules',403);
-    const module=await findOne('modules',{id:identifier(moduleId),courseId});
+    const module=await (prefetched??findOne('modules',{id:identifier(moduleId),courseId}));
     if(!module || (!isStaff(user)&&module.status!=='published'))fail('module unavailable',404);
     return {...access,module};
   }
@@ -262,6 +263,11 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       await releasePostFiles(post);
       send(res,200,{ok:true});return true;
     }
+    // A session route reads its module alongside the course access reads; nothing of it is answered before those
+    // checks pass, and a refused request leaves the read unused (its failure is caught here).
+    const moduleMatch=suffix.match(/^\/modules\/([^/]+)(\/posts|\/attachments(?:\/[^/]+)?)?$/);
+    const prefetchedModule=moduleMatch?Promise.resolve().then(()=>findOne('modules',{id:identifier(moduleMatch[1]),courseId})):null;
+    prefetchedModule?.catch(()=>{});
     const access=await courseAccess(courseId,user);
     if(adminPath&&['/participants','/invitations'].includes(suffix)&&req.method==='POST') {
       const input=await bodyJson(req);
@@ -368,9 +374,8 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       catch(err) { if(err.status!==409)throw err;const old=await findOne('events',{id,userId:user.id,courseId,moduleId:module.id,kind:input.kind,resourceUrl});if(!old)fail('event identifier is already used',409); }
       send(res,200,{ok:true});return true;
     }
-    const moduleMatch=suffix.match(/^\/modules\/([^/]+)(\/posts|\/attachments(?:\/[^/]+)?)?$/);
     if(moduleMatch) {
-      const {module}=await moduleAccess(courseId,identifier(moduleMatch[1]),user,access);
+      const {module}=await moduleAccess(courseId,identifier(moduleMatch[1]),user,access,prefetchedModule);
       const operation=moduleMatch[2]||'';
       if(!operation&&req.method==='GET'){send(res,200,{module});return true;}
       if(adminPath&&!operation&&req.method==='PATCH') {

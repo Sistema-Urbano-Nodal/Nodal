@@ -82,11 +82,13 @@ const SIGNUP_EMAIL_HOURLY_LIMIT = envInt('SIGNUP_EMAIL_HOURLY_LIMIT', 200);
 const SESSION_REFRESH_FAILURE_LIMIT = envInt('SESSION_REFRESH_FAILURE_LIMIT', 30);
 const SUPABASE_ACCESS_COOKIE = 'nodal_session';
 const SUPABASE_REFRESH_COOKIE = 'nodal_refresh';
-// Routes that never read the session: resolving one would only cost provider calls.
-const SESSIONLESS_API = new Set(['/api/health', '/api/billing/config', '/api/stripe/webhook']);
+/* Routes that never read the session: resolving one would only cost provider calls.
+   The FIIU programme is the same for everyone, so signed-in readers share the
+   public per-address budget guests use. */
+const SESSIONLESS_API = new Set(['/api/health', '/api/billing/config', '/api/stripe/webhook', '/api/fiiu']);
 /* Routes that answer without a member and only personalise when there is one. A
    session-service outage serves them signed out instead of failing them. */
-const OPTIONAL_SESSION_API = /^\/api\/(?:auth\/state|fiiu|news|catalog(?:\/[a-z0-9-]{1,40})?)$/;
+const OPTIONAL_SESSION_API = /^\/api\/(?:auth\/state|news|catalog(?:\/[a-z0-9-]{1,40})?)$/;
 /* Routes that use only the member's id, email, role and account status, which the
    profile row carries. The full profile adds two reads to every request. */
 const ID_ONLY_API = /^\/api\/(?:network\/places|users|users\/search|users\/[^/]+\/(?:follow|interactions)|recommendations\/[^/]+|cities|billing\/status|checkout|me\/export|me\/catalog-interests|me\/location\/(?:suggest|accept)|(?:admin\/)?catalog(?:\/.*)?|admin\/interests(?:\/.*)?)$/;
@@ -983,7 +985,6 @@ export function createApp({
     if (!fingerprints.has(graph)) fingerprints.set(graph, graphFingerprint(graph));
     return fingerprints.get(graph);
   };
-  const authLimiter = createWindowRateLimiter({ windowMs: AUTH_RATE_WINDOW_MS, limit: AUTH_RATE_LIMIT });
   const authAccountLimiter = createWindowRateLimiter({ windowMs: AUTH_RATE_WINDOW_MS, limit: AUTH_RATE_LIMIT });
   const authIpLimiter = createWindowRateLimiter({ windowMs: AUTH_RATE_WINDOW_MS, limit: AUTH_IP_RATE_LIMIT });
   const authAllowed = (limiter, key, res) => {
@@ -1001,6 +1002,11 @@ export function createApp({
      inbox cannot be flooded from many places. */
   const recoveryEmailLimiter = createWindowRateLimiter({ windowMs: 15 * 60 * 1000, limit: 3 });
   const recoveryAddressLimiter = createWindowRateLimiter({ windowMs: 15 * 60 * 1000, limit: 10 });
+  /* Recovery requests from one network (venue Wi-Fi, a carrier's shared IP):
+     room for a queue of people resetting together, while one address still
+     cannot spend the shared email quota in minutes. Completing a reset sends no
+     email and gets the classroom budget. */
+  const recoveryIpLimiter = createWindowRateLimiter({ windowMs: AUTH_RATE_WINDOW_MS, limit: 40 });
   const sessionRefreshFailures = createWindowRateLimiter({ windowMs: AUTH_RATE_WINDOW_MS, limit: SESSION_REFRESH_FAILURE_LIMIT });
   // The repository's own cleared-cookie headers; a logout without an access token makes no provider call.
   const clearedSessionCookies = async () => (await repository.logout({ headers: {} }, process.env))?.cookies || [];
@@ -1237,7 +1243,9 @@ export function createApp({
       if (!pathname.startsWith('/api/')) {
         if (!canonical) { send(res, 400, { error: 'bad path' }); return; }
         if (useDb && PRIVATE_PAGES.has(canonical) && !sessionUser) {
-          redirect(res, `/login.html?next=${encodeURIComponent(safeNext(canonical + url.search))}`);
+          // A link that names its language (a Spanish reminder, say) opens sign-in in that language too.
+          const lang = url.searchParams.get('lang');
+          redirect(res, `/login.html?next=${encodeURIComponent(safeNext(canonical + url.search))}${['en', 'es', 'pt'].includes(lang) ? `&lang=${lang}` : ''}`);
           return;
         }
         if (useDb && ['/admin.html','/teaching.html','/fiiu-admin.html','/fiiu-qr.html'].includes(canonical) && (sessionUser?.permission || sessionUser?.role) !== 'admin') {
@@ -1525,7 +1533,7 @@ export function createApp({
 
       if (useDb && req.method === 'POST' && ['/api/auth/recovery/request', '/api/auth/recovery/complete'].includes(pathname)) {
         if (!sameOrigin(req)) { send(res, 403, { code: 'recovery_forbidden' }); return; }
-        const rate = authLimiter.take(`recovery:${clientIp(req)}`);
+        const rate = pathname.endsWith('/request') ? recoveryIpLimiter.take(`recovery:${clientIp(req)}`) : authIpLimiter.take(`recovery-complete:${clientIp(req)}`);
         if (!rate.ok) { send(res, 429, { code: 'recovery_rate' }, { 'Retry-After': String(rate.retryAfter) }); return; }
         const body = await readJsonBody(req);
         if (!body || typeof body !== 'object' || Array.isArray(body)) { send(res, 400, { code: 'recovery_invalid' }); return; }

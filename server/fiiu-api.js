@@ -44,11 +44,13 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
  const originFor=req=>(typeof publicOrigin==='function'?publicOrigin(req):publicOrigin)||fail('public base URL is not configured',503);
  // One row per person and block, shared by the staff checkbox and the QR check-in. An existing row is kept as it is
  // (its time and method stay the first confirmation's). The participant may cancel between the registration lookup
- // and the insert; the store reports that lost parent as 404.
- async function recordAttendance(registration,activity,{by,method,at=now()}){
-  const filters={registrationId:registration.id,activityId:activity.id};let created=false;
-  if(!await one('attendance',filters)){try{await store.insert('attendance',{id:randomUUID(),...filters,confirmedBy:by,createdAt:at,method});created=true;}catch(err){if(err.status===404)fail('registration unavailable',404);if(err.status!==409||!await one('attendance',filters))throw err;}}
-  return {created,attendance:await store.find('attendance',{registrationId:registration.id})};
+ // and the insert; the store reports that lost parent as 404. known: the person's attendance rows this request already
+ // read (the QR check-in), which then stand in for the lookup before the insert and the re-read after it.
+ async function recordAttendance(registration,activity,{by,method,at=now(),known=null}){
+  const filters={registrationId:registration.id,activityId:activity.id},reread=()=>store.find('attendance',{registrationId:registration.id});
+  if(known?known.some(a=>a.activityId===activity.id):await one('attendance',filters))return {created:false,attendance:known??await reread()};
+  let row;try{row=await store.insert('attendance',{id:randomUUID(),...filters,confirmedBy:by,createdAt:at,method});}catch(err){if(err.status===404)fail('registration unavailable',404);if(err.status!==409||!await one('attendance',filters))throw err;return {created:false,attendance:await reread()};}
+  return {created:true,attendance:known?[...known,row]:await reread()};
  }
  const config=async()=>{const row=await one('config',{id:EVENT_ID});return {...DEFAULT_CONFIG,...row?.data,version:row?.version??0};};
  const publications=async(url,onlyPublished)=>{
@@ -77,9 +79,9 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
   if(path==='/api/fiiu/registration'){
    if(req.method==='GET'){const data=await exportFiiuData(store,user.id);send(res,200,{...data,hours:attendanceHours(data.attendance),user:{id:user.id,name:user.name,email:user.email,city:user.city},isAdmin:user.permission==='admin'});return true;}
    if(req.method==='PUT'){
-    const settings=await config();if(!settings.registrationOpen)fail('registration is closed',403);
-    const input=await body(req);sameAccount(input,user);const expected=version(input.version),answers=normalizeRegistration(input);
-    const existing=await one('registrations',{eventId:EVENT_ID,userId:user.id});
+    const [settings,input,existing]=await Promise.all([config(),body(req),one('registrations',{eventId:EVENT_ID,userId:user.id})]);
+    if(!settings.registrationOpen)fail('registration is closed',403);
+    sameAccount(input,user);const expected=version(input.version),answers=normalizeRegistration(input);
     if((existing?.version??0)!==expected||(existing?.id??null)!==(input.registrationId??null))fail('registration changed; reload before saving',409);
     const patch={email:user.email,answers,labStatus:applicationStatus(answers,existing),version:expected+1,updatedAt:now()};
     if(existing){
@@ -111,7 +113,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
     send(res,200,{registration,confirmationEmail:registration.confirmationStatus});return true;
    }
    if(req.method==='DELETE'){
-    const input=await body(req);sameAccount(input,user);const expected=version(input.version),existing=await one('registrations',{eventId:EVENT_ID,userId:user.id});
+    const [input,existing]=await Promise.all([body(req),one('registrations',{eventId:EVENT_ID,userId:user.id})]);sameAccount(input,user);const expected=version(input.version);
     if((existing?.version??0)!==expected||(existing?.id??null)!==(input.registrationId??null))fail('registration changed; reload before cancelling',409);
     if(existing&&!await store.remove('registrations',{id:existing.id,userId:user.id,version:expected}))fail('registration changed; reload before cancelling',409);
     send(res,200,{ok:true});return true;
@@ -131,13 +133,14 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    const registration=await one('registrations',{eventId:EVENT_ID,userId:user.id});
    // A repeat scan keeps the first confirmation whatever changed since: check-in may have closed, the block may have
    // left the plan, or an edited laboratory application may be back under review. The valid screen code is still required.
-   if(registration&&await one('attendance',{registrationId:registration.id,activityId}))return confirmed(false,await store.find('attendance',{registrationId:registration.id}));
+   const existing=registration?await store.find('attendance',{registrationId:registration.id}):[];
+   if(existing.some(a=>a.activityId===activityId))return confirmed(false,existing);
    // No opening time: a scan days before the block is recorded like one at the door, organisers' included. Once check-in
    // closes everyone is refused; the server judges the time and serverTime says when, whatever the phone's clock says.
    if(t>Date.parse(span.closesAt))return reply(409,{error:'check-in is closed for this activity',code:'outside_window',activityId,...span,serverTime:new Date(t).toISOString()});
    if(!registration)return notRegistered();
    if(!canAttend(registration,activity))return reply(403,{error:'participant is not registered for this activity',code:activity.registration==='application'&&registration.answers?.applyLab===true?'lab_not_accepted':'not_in_plan',activityId,registrationOpen:await registrationOpen()});
-   let result;try{result=await recordAttendance(registration,activity,{by:user.id,method:'qr',at:new Date(t).toISOString()});}catch(err){if(err.status===404)return notRegistered();throw err;}
+   let result;try{result=await recordAttendance(registration,activity,{by:user.id,method:'qr',at:new Date(t).toISOString(),known:existing});}catch(err){if(err.status===404)return notRegistered();throw err;}
    return confirmed(result.created,result.attendance);
   }
   if(path==='/api/admin/fiiu/checkin'&&read){
@@ -146,7 +149,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    const activity=CHECKIN_ACTIVITIES.find(a=>a.id===url.searchParams.get('activityId'));
    if(!activity){send(res,400,{error:'invalid activity',code:'invalid_activity'});return true;}
    const current=codes.current(activity.id),span=checkinWindow(activity),t=clock();
-   const link=`${originFor(req)}/fiiu-checkin.html?a=${encodeURIComponent(activity.id)}&c=${current.code}`;
+   const link=`${originFor(req)}/fiiu-checkin.html?a=${encodeURIComponent(activity.id)}&c=${current.code}&lang=es`;
    send(res,200,{activityId:activity.id,url:link,code:current.code,shortCode:current.shortCode,rotatesAt:current.rotatesAt,validUntil:current.validUntil,serverTime:new Date(t).toISOString(),
     window:{...span,open:t<=Date.parse(span.closesAt)},checkedIn:await store.count('attendance',{activityId:activity.id}),qr:qrOf(link)});
    return true;
@@ -181,8 +184,8 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
   }
   if(path==='/api/admin/fiiu/registrations'&&req.method==='GET'){
    const cursor=url.searchParams.get('cursor'),after=cursor?identifier(cursor):undefined;
-   const registrations=await store.find('registrations',{eventId:EVENT_ID},{after,limit:100});
-   send(res,200,{registrations,nextCursor:registrations.length===100?registrations.at(-1).id:null});return true;
+   const registrations=await store.find('registrations',{eventId:EVENT_ID},{after,limit:200});
+   send(res,200,{registrations,nextCursor:registrations.length===200?registrations.at(-1).id:null});return true;
   }
   if(path==='/api/admin/fiiu/export'&&req.method==='GET'){
    // Attendance columns follow the registration columns, so existing spreadsheets keep their column positions:

@@ -28,6 +28,7 @@ async function fixture(t, { loginDelayMs = 0 } = {}) {
       return body.password === PASSWORD ? { status: 200, user: { id: 'member' }, cookies: [] } : { status: 401, error: 'invalid email or password', cookies: [] };
     },
     requestPasswordRecovery: async body => { calls.push({ action: 'recovery', email: body.email }); return { status: 202, cookies: ['nodal_recovery=verifier; HttpOnly; Path=/api/auth/recovery'] }; },
+    completePasswordRecovery: async () => { calls.push({ action: 'recovery-complete' }); return { status: 200, passwordChanged: true, cookies: [] }; },
   };
   const server = createApp({ repository, courseStore: null, fiiuStore: null, newsStore: null });
   server.listen(0, '127.0.0.1');
@@ -94,6 +95,23 @@ test('recovery for one address has an overall cap that answers honestly instead 
   assert.equal(capped.status, 429);
   assert.equal(capped.body.code, 'recovery_rate');
   assert.equal(calls.length, 10);
+});
+
+test('people resetting their passwords together on one network are not refused, and requests from it stay bounded', async t => {
+  const { post, calls } = await fixture(t);
+  const venue = '198.51.100.40', password = 'new-long-password';
+  for (let i = 0; i < 20; i++) {
+    assert.equal((await post('recovery/request', { email: `attendee-${i}@example.test` }, venue)).status, 202, `request ${i}`);
+    assert.equal((await post('recovery/complete', { code: `code-${i}`, password }, venue)).status, 200, `reset ${i}`);
+  }
+  for (let i = 20; i < 40; i++) assert.equal((await post('recovery/request', { email: `attendee-${i}@example.test` }, venue)).status, 202, `request ${i}`);
+  const over = await post('recovery/request', { email: 'attendee-40@example.test' }, venue);
+  assert.equal(over.status, 429);
+  assert.equal(over.body.code, 'recovery_rate');
+  assert.match(over.headers.get('retry-after'), /^\d+$/);
+  assert.equal((await post('recovery/complete', { code: 'code-40', password }, venue)).status, 200, 'finishing a reset has its own budget');
+  assert.equal(calls.filter(c => c.action === 'recovery').length, 40);
+  assert.equal(calls.filter(c => c.action === 'recovery-complete').length, 21);
 });
 
 test('anonymous sign-ups stop below the shared email quota while sign-in keeps working', async t => {
