@@ -2825,12 +2825,12 @@
     } catch { /* locale persistence still works when history is unavailable */ }
   }
 
-  function apply(lang) {
+  function apply(lang, { persist = true } = {}) {
     const next = supported(lang) ? lang : 'en';
     const changed = next !== current;
     current = next;
-    if (window.nodalLocale) window.nodalLocale.save(current);
-    else try { localStorage.setItem(KEY, current); } catch { /* private mode */ }
+    if (persist && window.nodalLocale) window.nodalLocale.save(current);
+    else if (persist) try { localStorage.setItem(KEY, current); } catch { /* private mode */ }
     syncUrl();
     if (!changed) return;
     document.documentElement.lang = current;
@@ -2861,6 +2861,7 @@
   let stored;
   try { stored = localStorage.getItem(KEY); } catch { /* private mode */ }
   const saved = window.nodalLocale?.read() || (supported(stored) ? stored : supported(requested) ? requested : 'en');
-  apply(saved);
+  // the automatic default (browser language or English) is shown, never saved as a choice
+  apply(saved, { persist: window.nodalLocale?.chosen ? Boolean(window.nodalLocale.chosen()) : supported(stored) || supported(requested) });
   window.nodalLocale?.ready?.('i18n');
 })();

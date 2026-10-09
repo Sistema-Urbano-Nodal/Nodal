@@ -45,7 +45,7 @@ test('privacy page and all its resources are accessible without an account, incl
   assert.ok(policyHeaders.headers.some(({key,value}) => key === 'Cache-Control' && value.includes('public')));
 });
 
-function browser({saved='pt', cookie='', url='https://nodal.test/privacy.html#en-10', blocked=false}={}) {
+function browser({saved='pt', cookie='', url='https://nodal.test/privacy.html#en-10', blocked=false, navigator}={}) {
   const storage = new Map(saved ? [['nodal.lang',saved]] : []);
   const events = new Map();
   const html = {lang:'en',dataset:{}};
@@ -70,7 +70,7 @@ function browser({saved='pt', cookie='', url='https://nodal.test/privacy.html#en
   const context = vm.createContext({document,window,URL,URLSearchParams,localStorage:{
     getItem(key){if(blocked)throw Error('blocked'); return storage.get(key);},
     setItem(key,value){if(blocked)throw Error('blocked');storage.set(key,value);},
-  }});
+  },...(navigator ? {navigator} : {})});
   vm.runInContext(read('web/scripts/locale.js'),context);
   const bootLanguage = html.lang;
   document.readyState='interactive';
@@ -109,4 +109,20 @@ test('cookie language works when browser storage is blocked and first visits can
   assert.equal(reload.html.lang,'pt');
   const first = browser({saved:null,url:'https://nodal.test/privacy.html?lang=pt'});
   assert.equal(first.bootLanguage,'pt');
+});
+
+test('a first visit reads the policy in the browser language without saving it, and a click saves the choice', () => {
+  const h = browser({saved:null,navigator:{languages:['es-PE','es']}});
+  assert.equal(h.html.lang,'es');
+  assert.equal(h.document.title,'NODAL · Política de privacidad');
+  assert.equal(h.window.location.hash,'#es-10');
+  assert.equal(h.storage.size,0);
+  assert.equal(h.document.cookie,'');
+  h.restore();
+  assert.equal(h.storage.size,0);
+  assert.equal(h.document.cookie,'');
+  h.click('en');
+  assert.equal(h.storage.get('nodal.lang'),'en');
+  assert.equal(h.storage.get('nodal.lang.chosen'),'1');
+  assert.equal(h.document.title,'NODAL · Privacy policy');
 });

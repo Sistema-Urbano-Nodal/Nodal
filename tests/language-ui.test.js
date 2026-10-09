@@ -49,6 +49,11 @@ test('a language link initializes a new visitor without overriding an existing c
  assert.equal(harness({url,storage}).api.lang,'pt');
  assert.equal(harness({url:'https://nodal.test/profile.html?lang=es',storage}).api.lang,'pt');
 });
+test('the default language is shown without being saved, and only choices persist',()=>{
+ const storage=new Map(),h=harness({storage});assert.equal(h.api.lang,'en');assert.equal(storage.size,0);
+ h.api.apply('es',{persist:false});assert.equal(h.api.lang,'es');assert.equal(storage.size,0);
+ h.api.apply('pt');assert.equal(storage.get('nodal.lang'),'pt');assert.equal(harness({url:'https://nodal.test/profile.html?lang=es',storage}).api.lang,'pt');
+});
 test('invalid and inherited URL locale names never override a supported saved preference',()=>{
  for(const lang of ['fr','constructor','__proto__',''])assert.equal(harness({url:'https://nodal.test/course.html?lang='+lang,saved:'pt'}).api.lang,'pt',lang);
  const h=harness({saved:'es'});h.api.apply('pt');assert.equal(h.location.searchParams.has('lang'),false);
