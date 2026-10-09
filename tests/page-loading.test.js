@@ -39,7 +39,8 @@ test('startup scripts are discovered in the head and execute after parsing in de
     for(const file of ['app.js','recs.js','dashboard.js','globe.js'])before('i18n.js',file);
     before('i18n.js','auth.js');before('recovery-i18n.js','password-recovery.js');
     before('coastline.js','globe.js');before('globe-geo.js','globe.js');
-    if(name==='dashboard.html'){before('location-check.js','dashboard.js');before('dashboard.js','coastline.js');}
+    // the FIIU widget and news must not queue behind the 195 KB globe coastline
+    if(name==='dashboard.html'){before('location-check.js','dashboard.js');before('dashboard.js','coastline.js');for(const file of ['fiiu-ui.js','fiiu-hubs.js','news-feed.js'])before(file,'coastline.js');before('fiiu-ui.js','fiiu-hubs.js');}
   }
 });
 

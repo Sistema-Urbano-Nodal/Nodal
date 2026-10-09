@@ -391,6 +391,12 @@ h1, h2, h3 {
 .plat-tab:hover { color: var(--green-deep); }
 .plat-tab.is-on { color: var(--green-deep); border-bottom-color: var(--green-bright); }
 .plat-panel { padding-top: clamp(24px,4vh,40px); }
+/* three wrapped tabs overflow a phone; one swipeable row keeps each label on a line */
+@media (max-width: 560px) {
+  .plat-tabs { overflow-x: auto; scrollbar-width: none; border-bottom: 0; box-shadow: inset 0 -2px 0 var(--hairline); }
+  .plat-tab { flex: 0 0 auto; white-space: nowrap; margin-bottom: 0; }
+  .plat-tab:focus-visible { outline-offset: -3px; }   /* the scroll strip would clip an outer ring */
+}
 
 
 .graph-panel::before, .graph-panel::after { content: ""; position: absolute; width: 18px; height: 18px; border: 2px solid var(--green-bright); }
@@ -445,7 +451,7 @@ h1, h2, h3 {
   border-radius: 50%; background: var(--green-bright); }
 .gc-chips { display: flex; flex-wrap: wrap; gap: 7px; }
 .gc-peer { border: 1px solid var(--hairline); background: #fff; cursor: pointer; border-radius: var(--r-pill);
-  font-size: 12.5px; font-weight: 600; color: var(--green-deep); padding: 6px 12px;
+  font-family: var(--font-display); font-size: 12.5px; font-weight: 600; color: var(--green-deep); padding: 6px 12px;
   transition: border-color .2s ease, background-color .2s ease; }
 .gc-peer:hover { border-color: var(--green-bright); background: var(--green-soft); }
 .graph-card .gc-ask { font-family: var(--font-display); font-style: italic; font-weight: 600;
@@ -455,6 +461,14 @@ h1, h2, h3 {
   .graph-card { position: static; width: 100%; margin-top: 14px; box-shadow: none; }
   /* the SVG scales down hard on phones — labels need larger SVG units to stay legible */
   .glabel { font-size: 22px; font-weight: 700; }
+}
+/* on a phone the SVG nodes are too small to read or tap: app.js adds one
+   button per node, shown here in place of the labels */
+.graph-nodes { display: none; }
+@media (max-width: 560px) {
+  .graph-nodes { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+  .graph-nodes .gc-peer { min-height: 44px; }
+  .glabel { display: none; }
 }
 
 /* "how matching works" panel */

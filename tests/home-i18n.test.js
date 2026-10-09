@@ -265,8 +265,10 @@ for(const lang of ['es','pt']){
       const{api,dictionaries}=load(page);api.apply(lang);
       // Later additions have their own translation coverage; preserve the original copy baseline.
       // The publishing desk (ops.*), NODAL news (news.*) and the console's desk link are covered by catalog-ui and news-ui;
-      // the membership and account-deletion refusals (October 3 review) by review-fix-5-integration.
-      const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','y.alreadyMember','d.uc.deleteSubscription'].includes(key)||/^(?:ops|news)\./.test(key);
+      // the membership and account-deletion refusals (October 3 review) by review-fix-5-integration;
+      // the console's loading/failure lines and accessible names (d.aria.*) by dashboard-publishing,
+      // and the catalog's nothing-published state by catalog-ui.
+      const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','y.alreadyMember','d.uc.deleteSubscription','d.greet.hello','d.greet.loading','d.load.failed','catalog.emptyNothingPublished','catalog.nextFiiu','catalog.nextCourses'].includes(key)||/^(?:ops|news|d\.aria)\./.test(key);
       const actual=Object.entries(dictionaries[lang]).filter(([key])=>!later(key)).sort(([a],[b])=>a.localeCompare(b,'en'));
       assert.equal(hash(actual),SNAPSHOTS.nonhome[lang],String(page));
       assert.equal(api.t('nav.privacy'),lang==='es'?'Política de privacidad':'Política de privacidade');
@@ -287,4 +289,22 @@ test('original markup and lazy graph labels switch ES/PT and restore captured En
   const graph={dataset:{i18n:'graph.n.project.k2'},textContent:'Start from real needs and lived experience'};nodes.push(graph);
   api.apply('es');assert.match(hero.textContent,/NODAL conecta personas/);assert.equal(graph.textContent,'Empieza desde necesidades reales y experiencia vivida');
   api.apply('en');assert.equal(hero.textContent,'Original English introduction');assert.equal(graph.textContent,'Start from real needs and lived experience');
+});
+test('landing leader titles, lab chips and accessible names switch language instead of staying English',()=>{
+  const html=readFileSync(new URL('../web/pages/index.html',import.meta.url),'utf8');
+  const leaders=html.slice(html.indexOf('id="leaderRow"'),html.indexOf('</section>',html.indexOf('id="leaderRow"')));
+  assert.equal((leaders.match(/<h3>/g)||[]).length,0,'every leader title carries a key');
+  assert.match(leaders,/<a class="leader-card leader-more" href="login\.html\?next=\/dashboard\.html">[\s\S]*?data-i18n="lead\.more"[\s\S]*?<\/a>/,'the green Join card is a real link');
+  const logos=html.match(/<div class="logos">([\s\S]*?)<\/div>/)[1];
+  assert.equal((logos.match(/<span data-i18n="part\.l\d">/g)||[]).length,6);
+  assert.match(html,/<span class="t-num" data-i18n="part\.open">Open<\/span>/);
+  assert.match(html,/role="tablist" aria-label="How NODAL works" data-i18n-aria-label="platform\.tabsLabel"/);
+  assert.match(html,/id="graph"[^>]+data-i18n-aria-label="graph\.aria"/);
+  assert.doesNotMatch(html,/title="Members only"/);
+  const keys=['lead.n1','lead.n2','lead.n3','lead.n4','lead.n5','lead.i1','lead.i2','lead.i3','lead.i4','lead.i5','part.l1','part.l2','part.l3','part.l4','part.l5','part.l6','part.open','platform.tabsLabel','graph.aria'];
+  for(const key of keys)assert.match(html,new RegExp(`data-i18n(?:-aria-label)?="${key.replace('.','\\.')}"`),key);
+  const {api,dictionaries}=load('home');
+  for(const lang of ['es','pt'])for(const key of keys)assert.ok(key in dictionaries[lang],`${key} in ${lang}`);
+  api.apply('es');assert.equal(api.t('lead.n3'),'Urbanista');assert.equal(api.t('part.l4'),'Co-crear');assert.equal(api.t('graph.aria'),'Red interactiva de actores');
+  api.apply('pt');assert.equal(api.t('part.l6'),'Agir');assert.equal(api.t('platform.tabsLabel'),'Como a NODAL funciona');
 });

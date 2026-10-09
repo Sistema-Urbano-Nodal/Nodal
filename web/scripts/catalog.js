@@ -269,6 +269,17 @@
     page.selectedId = params.get('id');
   }
 
+  // Somewhere useful to go while the catalog has nothing published yet.
+  function nextSteps() {
+    const row = create('div', 'catalog-interest-buttons');
+    for (const [label, href] of [[t('catalog.nextFiiu'), 'fiiu.html#programme'], [t('catalog.nextCourses'), 'courses.html']]) {
+      const link = create('a', 'btn btn-ghost', label);
+      link.href = href;
+      row.append(link);
+    }
+    return row;
+  }
+
   async function loadResults({ append = false } = {}) {
     if (!page.form || !page.results || !page.status) return;
     if (append && (page.listController || !page.nextCursor || page.debounce)) return;
@@ -293,7 +304,11 @@
       payload.items.forEach((item) => page.results.append(renderDispatch(item, selectDetail)));
       page.nextCursor = payload.nextCursor;
       page.more.hidden = !page.nextCursor;
-      page.status.textContent = page.results.children.length ? t('catalog.resultsReady', { n: page.results.children.length }) : t('catalog.empty');
+      const count = page.results.children.length;
+      // kind and state come from hub links; with no search of its own, adjusting filters cannot help
+      const searched = ['q', 'topic', 'location'].some((name) => params.has(name));
+      page.status.textContent = count ? t('catalog.resultsReady', { n: count }) : searched ? t('catalog.empty') : t('catalog.emptyNothingPublished');
+      if (!count && !searched) page.results.append(nextSteps());
     } catch (error) {
       if (error.name !== 'AbortError' && isCurrent()) {
         if (!append) clear(page.results);

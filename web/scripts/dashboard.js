@@ -223,13 +223,13 @@
   function renderIdentity() {
     const hour = new Date().getHours();
     setText('greetWord', t(hour < 12 ? 'd.greet.morning' : hour < 18 ? 'd.greet.afternoon' : 'd.greet.evening'));
-    setText('userName', U.name);
+    setText('userName', U.name || t('d.role.member'));
     setText('sheetCity', cityLabel());
-    setText('sheetRole', U.role);
+    setText('sheetRole', U.role === 'Member' ? t('d.role.member') : U.role);   // 'Member' is the server's no-title sentinel
     setText('metaTopics', String(U.topics.length));
     setText('metaLevel', U.assessed && maxLevel() > 0 ? levelName(maxLevel()) : t('d.meta.levelNone'));
     const avatar = byId('userBtn');
-    if (avatar) avatar.textContent = initials(U.name);
+    if (avatar) { avatar.textContent = initials(U.name); avatar.title = t('d.uc.titleEdit'); }
     setText('greetSub', t(U.assessed ? 'd.greet.subAssessed' : 'd.greet.subNew'));
 
     const liChip = byId('userLinkedIn');
@@ -1483,12 +1483,29 @@
       state.user = U;
       state.notifRead = U.notifRead;
       window.nodalLocationCheck?.setUser(data.user);
+      const retry = byId('loadRetry');
+      if (retry) retry.hidden = true;
       applyAll();
       if (!U.city || !U.role || U.topics.length === 0) openUserDialog();
-    } catch {
-      // api() handles the login redirect for 401. Other failures leave the page
-      // quiet instead of showing stale hardcoded state.
+    } catch (error) {
+      // api() handles the login redirect for 401. Any other failure says so and
+      // offers a retry instead of leaving the loading line up forever.
+      if (error?.message === 'authentication required') return;
+      loadNote('d.load.failed');
+      const retry = byId('loadRetry');
+      if (retry) retry.hidden = false;
     }
   }
+  // data-i18n follows the message, so a language switch re-translates it
+  function loadNote(key) {
+    const note = byId('greetSub');
+    if (note) { note.dataset.i18n = key; note.textContent = t(key); }
+  }
+  const loadRetry = byId('loadRetry');
+  loadRetry?.addEventListener('click', () => {
+    loadRetry.disabled = true;
+    loadNote('d.greet.loading');
+    init().finally(() => { loadRetry.disabled = false; });
+  });
   init();
 })();
