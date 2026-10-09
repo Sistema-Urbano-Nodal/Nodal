@@ -53,10 +53,11 @@ function provider({ userStatus = 200, tokenStatus = 200 } = {}) {
   return { calls, repository: createSupabaseRepository({ env, fetchImpl }) };
 }
 
-async function boot(t, repository) {
+async function boot(t, repository, options = {}) {
   const server = createApp({
     repository, courseStore: null, fiiuStore: null, newsStore: null,
     citySearch: { search: async () => ({ cities: [] }) },
+    ...options,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -79,6 +80,21 @@ test('the pricing endpoint and the Stripe webhook never resolve a session', asyn
   const webhook = await fetch(`${base}/api/stripe/webhook`, { method: 'POST', headers: { cookie: `nodal_session=junk; nodal_refresh=junk` }, body: '{}' });
   assert.equal(webhook.status, 503, 'payments webhook not configured');
   assert.deepEqual(p.calls, [], 'no GoTrue or PostgREST call for routes that never read the session');
+});
+
+test('the public FIIU programme never resolves, refreshes or clears a session', async t => {
+  const p = provider();
+  const reads = [];
+  const fiiuStore = { find: async name => { reads.push(name); return []; } };
+  const base = await boot(t, p.repository, { fiiuStore, fiiuCheckin: { secret: 'fiiu-session-test-secret-0123456789', now: Date.now }, fiiuConfirmation: null });
+  for (const cookie of ['nodal_refresh=good-refresh', `nodal_session=${EXPIRED}; nodal_refresh=good-refresh`, `nodal_session=${LIVE}; nodal_refresh=good-refresh`, 'nodal_session=junk']) {
+    const res = await fetch(`${base}/api/fiiu?kind=news`, { headers: { cookie } });
+    assert.equal(res.status, 200, cookie);
+    assert.equal(res.headers.get('set-cookie'), null, cookie);
+    assert.deepEqual((await res.json()).content, [], cookie);
+  }
+  assert.deepEqual(p.calls, [], 'no GoTrue or profile call, so no refresh token is redeemed');
+  assert.deepEqual(reads, Array(4).fill(['config', 'content']).flat());
 });
 
 test('junk session cookies cannot make anonymous requests call GoTrue without bound', async t => {
@@ -192,4 +208,93 @@ test('id-only routes authorize with the profile row instead of the full profile 
   assert.equal(me.status, 200);
   assert.ok(p.calls.includes('GET /rest/v1/profile_preferences') && p.calls.includes('GET /rest/v1/onboarding_responses'));
   assert.equal(auth(p.calls).length, 1);
+});
+
+/* Authorization reads the profile row of the id the token claims while GoTrue
+   checks the token. Real access tokens carry a UUID sub. */
+const MEMBER_ID = '6f1d2c3b-4a59-4e8f-9a7b-1c2d3e4f5a6b';
+const OTHER_ID = '0b9a8c7d-6e5f-4a3b-8c2d-1e0f9a8b7c6d';
+const claiming = sub => jwt(Math.floor(Date.now() / 1000) + 3600, sub);
+function uuidProvider({ verifiedId = MEMBER_ID, accept = true, accountStatus = 'active', profileFailures = 0, gate = null } = {}) {
+  const calls = [], profileIds = [];
+  let failures = profileFailures;
+  const reply = (payload, status = 200) => ({
+    ok: status < 300, status, headers: new Headers({ 'content-type': 'application/json' }),
+    text: async () => JSON.stringify(payload),
+  });
+  const fetchImpl = async (raw, init = {}) => {
+    const url = new URL(raw);
+    calls.push(`${init.method || 'GET'} ${url.pathname}`);
+    if (url.pathname === '/auth/v1/user') {
+      if (gate) await gate;
+      return accept ? reply({ id: verifiedId, email: 'member@example.test' }) : reply({ msg: 'invalid JWT' }, 401);
+    }
+    if (url.pathname === '/rest/v1/profiles') {
+      const id = url.searchParams.get('id').replace(/^eq\./, '');
+      profileIds.push(id);
+      if (failures-- > 0) return reply({ message: 'unavailable' }, 503);
+      return reply([{ id, email: 'member@example.test', full_name: 'Member One', account_status: accountStatus, app_role: 'member' }]);
+    }
+    if (url.pathname === '/rest/v1/profile_preferences') return reply([{ user_id: verifiedId }]);
+    return reply([]);
+  };
+  return { calls, profileIds, repository: createSupabaseRepository({ env, fetchImpl }) };
+}
+const resolveWith = (repository, token, options = { authorizationOnly: true }) => repository.resolveSession({ headers: { cookie: `nodal_session=${token}` } }, options);
+const tick = () => new Promise(resolve => setImmediate(resolve));
+
+test('authorization starts the profile read while GoTrue is still checking the token, after the GoTrue call', async () => {
+  let release;
+  const p = uuidProvider({ gate: new Promise(resolve => { release = resolve; }) });
+  const pending = resolveWith(p.repository, claiming(MEMBER_ID));
+  await tick();
+  assert.deepEqual(p.calls, ['GET /auth/v1/user', 'GET /rest/v1/profiles']);
+  release();
+  const { user, cookies } = await pending;
+  assert.equal(user.id, MEMBER_ID);
+  assert.deepEqual(cookies, []);
+  assert.deepEqual(p.profileIds, [MEMBER_ID], 'the early read is the only one');
+  // The full profile is not read early.
+  let releaseFull;
+  const full = uuidProvider({ gate: new Promise(resolve => { releaseFull = resolve; }) });
+  const fullPending = resolveWith(full.repository, claiming(MEMBER_ID), {});
+  await tick();
+  assert.deepEqual(full.calls, ['GET /auth/v1/user']);
+  releaseFull();
+  assert.equal((await fullPending).user.id, MEMBER_ID);
+});
+
+test('a token claiming another id, or no UUID, never authorizes with the row read for that claim', async () => {
+  const p = uuidProvider({ verifiedId: MEMBER_ID });
+  const { user } = await resolveWith(p.repository, claiming(OTHER_ID));
+  assert.equal(user.id, MEMBER_ID);
+  assert.deepEqual(p.profileIds, [OTHER_ID, MEMBER_ID], 'the claimed row is thrown away and the verified id is read');
+  const q = uuidProvider({ verifiedId: MEMBER_ID });
+  for (const sub of ['member-1', `${MEMBER_ID},id.neq.null`, `${MEMBER_ID}x`]) assert.equal((await resolveWith(q.repository, claiming(sub))).user.id, MEMBER_ID, sub);
+  assert.deepEqual(q.profileIds, [MEMBER_ID, MEMBER_ID, MEMBER_ID], 'a claim that is not a UUID is never read');
+});
+
+test('a rejected token or a failed early read leaves no unhandled rejection, and a failed early read falls back', async t => {
+  const unhandled = [];
+  const onUnhandled = reason => unhandled.push(reason);
+  process.on('unhandledRejection', onUnhandled);
+  t.after(() => process.off('unhandledRejection', onUnhandled));
+  const rejected = uuidProvider({ accept: false, profileFailures: 1 });
+  const { user, cookies } = await resolveWith(rejected.repository, claiming(MEMBER_ID));
+  assert.equal(user, null);
+  assert.match(cookies.join('\n'), /nodal_session=;[^\n]*Max-Age=0/);
+  const fallback = uuidProvider({ profileFailures: 1 });
+  assert.equal((await resolveWith(fallback.repository, claiming(MEMBER_ID))).user.id, MEMBER_ID);
+  assert.deepEqual(fallback.profileIds, [MEMBER_ID, MEMBER_ID]);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.deepEqual(unhandled, []);
+});
+
+test('a suspended member authorized from the early read is still signed out with cookies cleared', async () => {
+  const p = uuidProvider({ accountStatus: 'suspended' });
+  const { user, cookies } = await resolveWith(p.repository, claiming(MEMBER_ID));
+  assert.equal(user, null);
+  assert.match(cookies.join('\n'), /nodal_session=;[^\n]*Max-Age=0/);
+  assert.match(cookies.join('\n'), /nodal_refresh=;[^\n]*Max-Age=0/);
+  assert.deepEqual(p.profileIds, [MEMBER_ID]);
 });

@@ -218,6 +218,19 @@ function profileQuery(id) {
   return { id: `eq.${id}`, select: '*' };
 }
 
+/* The id an access token claims, read without verifying it: a strict UUID or
+   null. Only ever trusted once GoTrue has confirmed that same id. */
+function unverifiedUuidSub(token) {
+  const parts = String(token || '').split('.');
+  if (parts.length !== 3 || parts[1].length > 8192 || !/^[A-Za-z0-9_-]+$/.test(parts[1])) return null;
+  try {
+    const sub = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'))?.sub;
+    return typeof sub === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sub) ? sub : null;
+  } catch {
+    return null;
+  }
+}
+
 function userIdQuery(userId) {
   return { user_id: `eq.${userId}`, select: '*' };
 }
@@ -923,9 +936,17 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       const refreshToken = cookies.get(REFRESH_COOKIE);
       if (accessToken) {
         try {
-          const authUser = await authUserFromToken(accessToken);
+          /* Authorization needs only the profile row, so the row of the id the
+             token claims is read while GoTrue checks the token. It is used only
+             when GoTrue confirms that id; otherwise, or when that read fails, the
+             usual read follows. */
+          const verifying = authUserFromToken(accessToken);
+          const claimed = authorizationOnly ? unverifiedUuidSub(accessToken) : null;
+          const early = claimed ? first(admin.rest('profiles', { query: profileQuery(claimed) })).catch(() => null) : null;
+          const authUser = await verifying;
           if (!authUser?.id) return { user: null, cookies: clearSessionCookies(env) };
-          const user = await existingOrEnsureProfile(authUser, { authorizationOnly });
+          const profile = early && authUser.id === claimed ? await early : null;
+          const user = profile ? toApiUserFromSupabase({ profile }) : await existingOrEnsureProfile(authUser, { authorizationOnly });
           /* A suspended member's token is still valid as far as the auth
              provider is concerned, so this is the only thing standing between
              them and every authenticated route. Their cookies go too, or the

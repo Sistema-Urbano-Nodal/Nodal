@@ -67,6 +67,6 @@ test('trusted proxy uses the observed final hop while recovery retains its stric
  const {call}=await fixture(t);
  for(let i=0;i<800;i++)assert.equal((await call('login',`class-${i}@example.test`,{'X-Forwarded-For':`192.0.2.${i}, 203.0.113.7`})).status,200);
  assert.equal((await call('login','extra@example.test',{'X-Forwarded-For':'198.51.100.99, 203.0.113.7'})).status,429);
- for(let i=0;i<10;i++)assert.equal((await call('recovery/request',`recovery-${i}@example.test`,{'X-Forwarded-For':`192.0.2.${i}, 203.0.113.7`})).status,202);
+ for(let i=0;i<40;i++)assert.equal((await call('recovery/request',`recovery-${i}@example.test`,{'X-Forwarded-For':`192.0.2.${i}, 203.0.113.7`})).status,202);
  assert.equal((await call('recovery/request','more@example.test',{'X-Forwarded-For':'198.51.100.99, 203.0.113.7'})).status,429);
 });
