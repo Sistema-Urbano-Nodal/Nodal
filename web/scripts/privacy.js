@@ -2,10 +2,10 @@
   'use strict';
   const root = document.documentElement;
   const labels = {en:'Language',es:'Idioma',pt:'Idioma'};
-  function apply(value, navigate = false) {
+  function apply(value, navigate = false, persist = true) {
     const lang = ['en','es','pt'].includes(value) ? value : 'en';
     root.lang = lang;
-    window.nodalLocale?.save(lang);
+    if (persist) window.nodalLocale?.save(lang);
     const article = document.querySelector(`article[data-policy-lang="${lang}"]`);
     document.title = `NODAL · ${article.dataset.title}`;
     document.querySelector('[data-policy-label="language"]').setAttribute('aria-label', labels[lang]);
@@ -19,6 +19,7 @@
     window.nodalLocale?.ready?.('privacy');
   }
   document.querySelectorAll('[data-lang]').forEach(button => button.addEventListener('click', () => apply(button.dataset.lang, true)));
-  window.addEventListener('pageshow', event => { if(event.persisted)apply(window.nodalLocale?.read()); });
-  apply(window.nodalLocale?.read() || root.lang, true);
+  // Only a click or a saved/linked choice is stored; the browser default is just shown.
+  window.addEventListener('pageshow', event => { if(event.persisted)apply(window.nodalLocale?.read(), false, false); });
+  apply(window.nodalLocale?.read() || root.lang, true, Boolean(window.nodalLocale?.chosen?.()));
 })();
