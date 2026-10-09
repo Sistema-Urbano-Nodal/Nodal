@@ -11,6 +11,8 @@
  // The catalogue gives titles, times and venues, the badges and whether registration is open; the check-in never waits for it to start.
  let festival=null;const catalogue=api('/api/fiiu?kind=news').then(data=>{festival=data;},()=>{});
  const find=id=>festival&&id?findActivity(festival.event,id)||null:null,space=()=>document.createTextNode(' ');
+ // A result waits briefly for the programme to name its block, never for a stalled one; without it the block goes unnamed and the hours come from the answer.
+ const shortly=ms=>typeof setTimeout==='function'?Promise.race([catalogue,new Promise(resolve=>setTimeout(resolve,ms))]):catalogue;
  const setTitle=()=>{document.title='NODAL · '+t('checkinPage');};
  function block(titleKey,tone,...nodes){
   const box=el('section','f-checkin'+(tone?' is-'+tone:'')),title=tr('h1',titleKey,'f-checkin-title');title.id='f-checkin-title';title.tabIndex=-1;
@@ -56,6 +58,8 @@
  function failure(error,body){
   // A typed code names no block, so the block comes from the server's answer when it has one.
   const activity=find(body.activityId||error.activityId),open=typeof error.registrationOpen==='boolean'?error.registrationOpen:festival?.config?.registrationOpen===true,retry=()=>actions(button('retry',()=>run(body)));
+  // The registration opens with this block ticked (fiiu.html #add-); the id comes from the answer when the programme has not arrived.
+  const id=activity?.id||body.activityId||error.activityId,addHref=id?'fiiu.html#add-'+encodeURIComponent(id):'fiiu.html#registration';
   if(error.status===401){
    // Sign-in returns here with the same a and c; if the code expired meanwhile, the page says so and offers the screen code.
    // A typed code names no block and will have changed by then, so sign-in returns to the code form and says a new code is needed.
@@ -64,9 +68,9 @@
   }
   // The laboratory is not a block anyone can add: only an accepted application checks in, so no refusal for it links to the registration.
   const lab=activity?.registration==='application';
-  if(error.status===404)return block('notRegistered','warn',about(activity),hintOf(lab?'labNotAcceptedHint':open?'notRegisteredHint':'askDesk'),open&&!lab&&actions(link('register','fiiu.html#registration','f-button')));
+  if(error.status===404)return block('notRegistered','warn',about(activity),hintOf(lab?'labNotAcceptedHint':open?'notRegisteredHint':'askDesk'),open&&!lab&&actions(link('register',addHref,'f-button')));
   if(error.code==='lab_not_accepted'||(lab&&error.code==='not_in_plan'))return block('labNotAccepted','warn',about(activity),hintOf('labNotAcceptedHint'));
-  if(error.code==='not_in_plan')return block('notInPlan','warn',about(activity),hintOf(open?'notInPlanHint':'askDesk'),open&&actions(link('addToRegistration','fiiu.html#registration','f-button')));
+  if(error.code==='not_in_plan')return block('notInPlan','warn',about(activity),hintOf(open?'notInPlanHint':'askDesk'),open&&actions(link('addToRegistration',addHref,'f-button')));
   if(error.code==='outside_window')return block('checkinEndedTitle','warn',about(activity),closedLine(activity,error),hintOf('askDesk'));
   if(error.status===410)return block('codeExpired','warn',about(activity),hintOf('expiredHint'),codeForm());
   if(error.code==='invalid_activity')return block('noCheckin','warn',hintOf('noCheckinHint'),actions(link('viewProgramme','fiiu.html#programme','f-button secondary')));
@@ -74,12 +78,12 @@
   // A rate limit, an outage or a lost connection: the same check-in can simply be sent again.
   return block('checkinFailedTitle','error',about(activity),reasonOf(error),retry());
  }
- function reasonOf(error){const reason=el('p','f-checkin-hint');reason.dataset.fiiuText=error?.key||'error';reason.textContent=t(reason.dataset.fiiuText);return reason;}
+ function reasonOf(error){const reason=el('p','f-checkin-hint');reason.dataset.fiiuText=!error?.key||error.key==='error'?'checkinError':error.key;reason.textContent=t(reason.dataset.fiiuText);return reason;}
  const signIn=(activity,next,hint)=>block('signInToCheckIn','warn',about(activity),hintOf(hint),actions(link('signin','login.html?next='+encodeURIComponent(next),'f-button')));
  async function run(body){
   const pending=block('checking','',about(find(body.activityId)));pending.box.setAttribute('aria-busy','true');let data,error;
   try{data=await api('/api/fiiu/checkin',body);}catch(err){error=err;}
-  await catalogue;(data?success(data,body):failure(error,body)).title.focus();
+  await shortly(1500);(data?success(data,body):failure(error,body)).title.focus();
  }
  // After a check-in the address keeps only a, so a reload (or a phone restoring the tab) lands here without a code.
  // A block already in the person's attendance shows its confirmation again; signed out, the page asks for sign-in first; anything else asks for the screen code.
@@ -90,7 +94,8 @@
   const activity=find(id);
   // Signed out (a sign-in link was followed, then Back or a reload): sign in first, coming back to this block.
   if(problem?.status===401)return signIn(activity,'/fiiu-checkin.html?a='+encodeURIComponent(id),'signInScanAgainHint');
-  if(problem)return block('checkinFailedTitle','error',about(activity),reasonOf(problem),actions(button('retry',()=>revisit(id).then(next=>next?.title.focus()))));
+  // Only the lookup failed: nothing was sent, and a check-in already made is saved.
+  if(problem)return block('checkinLoadFailed','error',about(activity),problem.key==='rate'?reasonOf(problem):hintOf('checkinLoadFailedHint'),actions(button('retry',()=>revisit(id).then(next=>next?.title.focus()))));
   const attendance=Array.isArray(data?.attendance)?data.attendance:[],record=attendance.find(row=>row.activityId===id);
   if(record)return success({result:'already_checked_in',activityId:id,checkedInAt:record.createdAt,attendance,hours:data.hours},{activityId:id});
   if(activity?.registration==='external')return block('noCheckin','warn',hintOf('noCheckinHint'),actions(link('viewProgramme','fiiu.html#programme','f-button secondary')));
@@ -99,7 +104,7 @@
  }
  setTitle();window.nodalI18n?.onChange(setTitle);status(message,'');
  if(activityId||code){
-  if(ID.test(activityId)&&CODE.test(code))run({activityId,code});else if(ID.test(activityId)&&!code)revisit(activityId);else catalogue.then(()=>block('invalidLink','warn',hintOf('invalidLinkHint'),codeForm()));
+  if(ID.test(activityId)&&CODE.test(code))run({activityId,code});else if(ID.test(activityId)&&!code)revisit(activityId);else block('invalidLink','warn',hintOf('invalidLinkHint'),codeForm());
   if(code)history.replaceState?.(null,'',location.pathname+(activityId?'?a='+encodeURIComponent(activityId):''));
- }else catalogue.then(()=>block('codeEntry','',hintOf('codeEntryHint'),codeForm()));
+ }else block('codeEntry','',hintOf('codeEntryHint'),codeForm());
 })();

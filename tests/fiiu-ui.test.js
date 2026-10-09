@@ -153,6 +153,11 @@ test('external links are described as opening a new tab and the note exists once
  assert.equal(new Set(forms.map(node=>node['aria-describedby'])).size,forms.length,'each activity form link is described by its own title');
 });
 
+test('the privacy policy link in the consent step opens in a new tab, so reading it never drops the draft',async()=>{
+ const h=await harness(),consent=descendants(h.form()).find(node=>node.id==='f-step-consent'),policy=consent.querySelectorAll('a').find(node=>node.dataset.fiiuText==='privacy');
+ assert.equal(policy.href,'privacy.html');assert.equal(policy.target,'_blank');assert.equal(policy.rel,'noopener');assert.ok(policy['aria-describedby'].split(' ').includes('f-newtab'));
+});
+
 test('answers start explicitly valid, and an auto-answered official question drops its earlier error before saving',async()=>{
  const h=await harness(),form=h.form(),official=field(form,'publicOfficial'),profile=field(form,'profile');
  assert.equal(form.noValidate,true,'the submit handler validates, so every rule is reported in one pass');
@@ -323,6 +328,7 @@ test('Next for you skips a block that already ended today and keeps an accepted 
  assert.equal(at(lab,'2026-10-20T23:00:00-05:00'),'day0-lab');assert.equal(at(lab,'2026-10-21T00:10:00-05:00'),'day1-am');
  const T=Date.parse('2026-10-21T15:00:00-05:00');class FrozenDate extends Date{constructor(...args){super(...(args.length?args:[T]));}static now(){return T;}}
  const hero=(await harness({registration,context:{Date:FrozenDate}})).root.querySelector('.f-next');assert.match(content(hero),/Intervenir para activar/);assert.match(content(hero),/19:00–21:00/);
+ assert.match(content(hero.querySelector('.f-next-venue')),/Museo Metropolitano de Lima/,'the next block says where it is');
 });
 
 test('answers made only of spaces count as missing, in the step bar and before anything is sent',async()=>{
@@ -355,7 +361,8 @@ test('workshops show their venue and routes their starting point, in the program
  const block=title=>h.root.querySelectorAll('.f-activity').find(node=>content(node).includes(title));
  assert.ok(key(block('Territorio, resiliencia'),'venuePending'),'conference blocks keep Venue to be confirmed');
  assert.match(content(block('Intervenir para activar')),/Auditorio Taulichusco, Museo Metropolitano de Lima, Cercado de Lima/);assert.equal(key(block('Intervenir para activar'),'venuePending'),undefined,'the 21 October evening venue is confirmed');
- const itinerary=h.root.querySelector('.f-saved').querySelectorAll('.f-itinerary-venue');assert.equal(itinerary.length,2);assert.equal(content(itinerary[0]).trim(),'MALI, Cercado de Lima');assert.ok(key(itinerary[1],'startingPoint'));
+ const itinerary=h.root.querySelector('.f-saved').querySelectorAll('.f-itinerary-venue');assert.equal(itinerary.length,3,'registered conference blocks show their venue too');
+ assert.equal(content(itinerary[0]).trim(),'Auditorio MALI, Cercado de Lima');assert.equal(content(itinerary[1]).trim(),'MALI, Cercado de Lima');assert.ok(key(itinerary[2],'startingPoint'));
  h.lang('es');assert.equal(key(venue('route-a'),'startingPoint').textContent,'Punto de inicio:');h.lang('pt');assert.equal(key(venue('route-a'),'startingPoint').textContent,'Ponto de partida:');
 });
 
@@ -491,4 +498,72 @@ test('after the first save the page says where the summary went, that it could n
  // An edit of a saved registration gets no confirmationEmail back, so no email notice.
  const edit=await harness({registration:saved,write:()=>({registration:{...saved,version:2}})});key(edit.root,'edit').listeners.click();edit.fill();await edit.submit();
  assert.ok(!key(edit.root,'emailSent'));assert.notEqual(notice(edit).dataset.fiiuText,'emailNotSent');assert.equal(content(notice(edit)).trim(),'');
+});
+
+test('an accepted laboratory place asks before a save that sends it back to review or gives it up; other edits save without asking',async()=>{
+ const accepted={...saved,labStatus:'accepted',answers:{...answers,publicOfficial:true,applyLab:true,institution:'City',position:'Planner'}};
+ const open=async()=>{const asked=[];let answer=false;const h=await harness({registration:accepted,write:request=>({registration:{...accepted,version:2,labStatus:'pending',answers:request.body}})});h.ctx.window.confirm=message=>{asked.push(message);return answer;};key(h.root,'edit').listeners.click();return{h,asked,agree:()=>{answer=true;}};};
+ const puts=h=>h.requests.filter(request=>request.method==='PUT').length;
+ const name=await open();field(name.h.form(),'lastName').value='Testa';await name.h.submit();
+ assert.deepEqual(name.asked,[name.h.ctx.window.Fiiu.t('labReReview')]);assert.equal(puts(name.h),0,'declining keeps the draft and sends nothing');assert.equal(field(name.h.form(),'lastName').value,'Testa');
+ name.agree();await name.h.submit();assert.equal(puts(name.h),1,'agreeing saves');
+ const role=await open();field(role.h.form(),'position').value='Director';role.agree();await role.h.submit();assert.equal(role.asked.length,1);assert.equal(puts(role.h),1);
+ const withdraw=await open(),apply=field(withdraw.h.form(),'applyLab');apply.checked=false;apply.listeners.change();await withdraw.h.submit();
+ assert.deepEqual(withdraw.asked,[withdraw.h.ctx.window.Fiiu.t('labWithdrawConfirm')]);assert.equal(puts(withdraw.h),0);
+ const city=await open();field(city.h.form(),'city').value='Callao';field(city.h.form(),'lastName').value=' Test ';await city.h.submit();assert.deepEqual(city.asked,[],'the city and surrounding spaces do not touch the review');assert.equal(puts(city.h),1);
+ // A pending application has nothing confirmed to lose.
+ const pending=await harness({registration:{...accepted,labStatus:'pending'},write:request=>({registration:{...accepted,version:2,labStatus:'pending',answers:request.body}})});let asked=0;pending.ctx.window.confirm=()=>{asked++;return false;};
+ key(pending.root,'edit').listeners.click();field(pending.form(),'lastName').value='Testa';await pending.submit();assert.equal(asked,0);assert.equal(puts(pending),1);
+});
+
+test('a failed registration read keeps the programme and shows its error and Try again in the registration panel only',async()=>{
+ let replies=[{status:503,data:{error:'unavailable'}},self(saved)];
+ const h=await harness({read:()=>replies.shift()}),panel=h.root.querySelector('.f-registration');
+ assert.ok(h.root.querySelectorAll('.f-day').length>=4,'the programme is shown');assert.ok(h.root.querySelector('.f-hero'));assert.equal(h.message.dataset.fiiuText,'');
+ assert.ok(key(panel,'registrationLoadError'));assert.ok(key(panel,'retry'));assert.equal(h.form(),null);assert.equal(key(h.root,'signin'),undefined,'an outage never reads as signed out');
+ assert.equal(key(h.root,'register'),undefined,'no guest call to action while the registration is unknown');assert.ok(key(h.root.querySelector('.f-hero'),'viewProgramme'));
+ await key(panel,'retry').listeners.click();
+ assert.ok(h.root.querySelector('.f-saved'),'Try again reads the registration once more');assert.equal(key(h.root,'registrationLoadError'),undefined);assert.ok(key(h.root.querySelector('.f-hero'),'viewRegistration'));
+ assert.equal(h.requests.filter(request=>request.path==='/api/fiiu/registration').length,2);assert.equal(h.requests.filter(request=>request.path==='/api/fiiu?kind=news').length,1,'only the registration is read again');
+ const limited=await harness({read:()=>({status:429,data:{error:'too many requests'}})});assert.ok(key(limited.root.querySelector('.f-registration'),'rate'));assert.ok(key(limited.root.querySelector('.f-registration'),'retry'));
+});
+
+test('#add-<block> ticks that block in the form without saving, and the address goes back to #registration',async()=>{
+ const at=hash=>({location:{hash,search:'',pathname:'/fiiu.html',reload(){}}}),box=(h,id)=>descendants(h.form()).find(node=>node.value===id&&['activities','externalActivities'].includes(node.name));
+ const card=(h,title)=>h.root.querySelectorAll('.f-activity').find(node=>content(node).includes(title));
+ // Saved registration: the edit form opens on the ticked block, and the programme button says it is selected.
+ const member=await harness({registration:saved,context:at('#add-day2-am')});
+ assert.equal(member.form().hidden,false);assert.equal(box(member,'day2-am').checked,true);assert.equal(box(member,'day2-am').focused,true);
+ assert.equal(key(card(member,'Cuidar y transformar la ciudad'),'choiceAdded').dataset.fiiuText,'choiceAdded');assert.equal(member.requests.filter(request=>request.method!=='GET').length,0,'saving stays an explicit tap');
+ assert.deepEqual(member.replaced,['/fiiu.html#registration']);
+ // No registration yet: the block is ticked, but the form starts at its first step.
+ const fresh=await harness({context:at('#add-day2-am')});assert.equal(box(fresh,'day2-am').checked,true);assert.notEqual(box(fresh,'day2-am').focused,true,'the personal answers are not skipped');assert.deepEqual(fresh.replaced,['/fiiu.html#registration']);
+ // A block already in the plan, or the laboratory, only scrolls to the panel.
+ const planned=await harness({registration:saved,context:at('#add-day1-am')});assert.equal(planned.form().hidden,true);assert.notEqual(box(planned,'day1-am').focused,true);
+ const lab=await harness({context:at('#add-day0-lab')});assert.equal(field(lab.form(),'applyLab').checked,false);assert.equal(field(lab.form(),'applyLab').focused,undefined);
+ // A guest has no form; the hash is still replaced.
+ const guest=await harness({read:()=>({status:401,data:{error:'sign in required'}}),context:at('#add-day2-am')});assert.equal(guest.form(),null);assert.deepEqual(guest.replaced,['/fiiu.html#registration']);
+});
+
+test('a guest who chooses a block from its card signs in and comes back with that block ticked',async()=>{
+ const h=await harness({read:()=>({status:401,data:{error:'sign in required'}})}),signin=key(h.root.querySelector('.f-registration'),'signin');
+ assert.equal(signin.href,'login.html?next='+encodeURIComponent('/fiiu.html#registration'));
+ const card=h.root.querySelectorAll('.f-activity').find(node=>content(node).includes('Cuidar y transformar la ciudad')),register=key(card,'register');
+ assert.equal(register.href,'#registration','the card still leads to the panel’s explanation first');register.listeners.click();
+ assert.equal(signin.href,'login.html?next='+encodeURIComponent('/fiiu.html#add-day2-am'));
+});
+
+test('the community events card has its own copy and leads to the festival programme',async()=>{
+ const {hub}=await hubHarness('community',path=>widgetFeed(path)),events=hub.querySelectorAll('.f-hub-card').find(node=>key(node,'events'));
+ assert.ok(key(events,'eventsHint'));assert.equal(key(events,'communityIntro'),undefined,'the intro is not repeated');assert.equal(key(events,'viewProgramme').href,'fiiu.html#programme');assert.equal(key(events,'circles'),undefined);
+ assert.equal(hub.querySelectorAll('[data-fiiu-text]').filter(node=>node.dataset.fiiuText==='communityIntro').length,1);
+});
+
+test('the dashboard widget names the venue of the next block',async()=>{
+ const T=Date.parse('2026-10-21T15:00:00-05:00');class FrozenDate extends Date{constructor(...args){super(...(args.length?args:[T]));}static now(){return T;}}
+ const registration={...saved,answers:{...answers,activities:['day1-pm']}},body=new Node('body'),widget=new Node();body.append(widget);
+ const document={body,documentElement:{lang:'en'},getElementById:id=>id==='fiiuDashboardBody'?widget:null,createElement:tag=>new Node(tag),querySelectorAll:selector=>body.querySelectorAll(selector)};
+ const ctx={document,window:{nodalI18n:{lang:'en',onChange(){}}},Intl,Date:FrozenDate,Error,AbortSignal,fetch:async path=>{const result=widgetFeed(path)||self(registration);return{ok:true,status:200,json:async()=>result};}};
+ vm.createContext(ctx);for(const name of ['fiiu-ui','fiiu-hubs'])vm.runInContext(readFileSync(new URL('../web/scripts/'+name+'.js',import.meta.url),'utf8'),ctx);await flush();
+ assert.match(content(widget.querySelector('.f-next').querySelector('.f-next-venue')),/Museo Metropolitano de Lima/);
 });
