@@ -2,7 +2,8 @@
   'use strict';
 
   // A signup confirmation link lands here with the session tokens (or an error) in the fragment. Sign-in never
-  // uses them, so they leave the address bar and the history entry before anything else runs.
+  // uses them, so they leave the address bar and the history entry before anything else runs; only the outcome is kept.
+  const arrival = (() => { const f = new URLSearchParams((location.hash || '').slice(1)); return f.has('error') || f.has('error_code') ? 'linkExpired' : f.has('access_token') && f.get('type') === 'signup' ? 'confirmed' : null; })();
   if (/(?:^#|&)(?:access_token|refresh_token|error)=/.test(location.hash || '')) history.replaceState(null, '', location.pathname + location.search);
 
   // Bytes of UTF-8 the auth provider counts (it accepts at most 72): accents take two, most emoji four.
@@ -53,7 +54,9 @@
     passwordRequired:['Enter your password.','Escribe tu contraseña.','Digite sua senha.'],
     passwordLength:['Use 8–72 characters for your password (fewer with accents or emoji).','Usa entre 8 y 72 caracteres en tu contraseña (menos con tildes o emojis).','Use entre 8 e 72 caracteres na sua senha (menos com acentos ou emojis).'],
     invalidCredentials:['Email or password is incorrect.','Correo o contraseña incorrectos.','E-mail ou senha incorretos.'],
-    confirmEmail:['Confirm your email before signing in.','Confirma tu correo antes de iniciar sesión.','Confirme seu e-mail antes de entrar.'],
+    confirmEmail:["Confirm your email before signing in. Didn't get the email? Check spam, or use Create account again with the same email and password to get a new link.",'Confirma tu correo antes de iniciar sesión. ¿No te llegó? Revisa el spam o vuelve a usar Crear cuenta con el mismo correo y contraseña para recibir otro enlace.','Confirme seu e-mail antes de entrar. Não recebeu? Confira o spam ou use Criar conta de novo com o mesmo e-mail e senha para receber outro link.'],
+    confirmed:['Email confirmed. Sign in to continue.','Correo confirmado. Inicia sesión para continuar.','E-mail confirmado. Entre para continuar.'],
+    linkExpired:['This link expired or was already used. Try signing in. If we ask you to confirm your email, use Create account again with the same email and password to get a new link.','Este enlace venció o ya se usó. Intenta iniciar sesión; si te pedimos confirmar tu correo, vuelve a usar Crear cuenta con el mismo correo y contraseña para recibir otro.','Este link expirou ou já foi usado. Tente entrar; se pedirmos para confirmar seu e-mail, use Criar conta de novo com o mesmo e-mail e senha para receber outro.'],
     confirmation:['Check your email and confirm your account. If you already confirmed it, sign in.','Revisa tu correo y confirma tu cuenta. Si ya la confirmaste, inicia sesión.','Confira seu e-mail e confirme sua conta. Se já confirmou, entre.'],
     confirmationUnavailable:['Confirmation email is temporarily unavailable. Try again later.','El correo de confirmación no está disponible temporalmente. Inténtalo más tarde.','O e-mail de confirmação está temporariamente indisponível. Tente novamente mais tarde.'],
     rate:['Too many attempts. Wait a few minutes and try again.','Demasiados intentos. Espera unos minutos e inténtalo de nuevo.','Muitas tentativas. Aguarde alguns minutos e tente novamente.'],
@@ -74,8 +77,10 @@
     feedback.forEach((key,node)=>{node.textContent=t(key);});
     forms.forEach(state=>{state.submit.textContent=t(state.busy?state.pendingLabel:state.label);});
   };
+  // Good news reads as good news, not in the red error box.
+  const okKeys = new Set(['confirmation','confirmed']);
   const show = (node,key,input) => {
-    feedback.set(node,key);node.textContent=t(key);node.hidden=false;
+    feedback.set(node,key);node.textContent=t(key);node.hidden=false;node.classList.toggle('is-ok',okKeys.has(key));
     if(input){input.setAttribute('aria-invalid','true');input.focus();}
   };
   const clear = state => {
@@ -127,10 +132,15 @@
       if(!password.value){show(state.error,signup?'passwordLength':'passwordRequired',password);return;}
       // The auth provider accepts at most 72 bytes of UTF-8 (bcrypt); accents and emoji take two to four each.
       if(signup&&(password.value.length<8||utf8Bytes(password.value)>72)){show(state.error,'passwordLength',password);return;}
+      // A second tap right after the email went out would only hit the provider's resend cooldown; after a minute it resends.
+      const sent=state.sent;if(signup&&sent&&sent.email===email.value.trim().toLowerCase()&&Date.now()-sent.at<60000){show(state.error,'confirmation');return;}
       setBusy(state,true);let redirecting=false;
       try{
         const data=await post('/api/auth/'+(signup?'signup':'login'),{email:email.value.trim(),password:password.value,...(signup?{fullName:name.value.trim()}:{})},signup);
-        if(signup&&data.requiresEmailConfirmation){show(state.error,'confirmation');return;}
+        if(signup&&data.requiresEmailConfirmation){
+          state.sent={email:email.value.trim().toLowerCase(),at:Date.now()};const le=$('loginEmail');if(le&&!le.value)le.value=email.value.trim();
+          show(state.error,'confirmation');return;
+        }
         redirecting=true;forgetReturn();location.assign(safeNext);
       }catch(error){show(state.error,error.key||'connection');}
       finally{if(!redirecting)setBusy(state,false);}
@@ -138,4 +148,7 @@
     state.submit.disabled=false;
   }
   setup(false);setup(true);window.nodalI18n?.onChange(render);
+  if(arrival&&$('loginError')){show($('loginError'),arrival);$('loginEmail')?.focus();}
+  // On a phone the Create account form sits below the sign-in card; the link brings its first field up with the keyboard.
+  $('signupLink')?.addEventListener('click',event=>{event.preventDefault();$('signupName')?.focus();});
 })();

@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
 const source=readFileSync(new URL('../web/scripts/auth.js',import.meta.url),'utf8');
 function harness(reply=async()=>({ok:true,status:200,data:{user:{id:'u1'}}}),search='',storage=null,hash=''){
  const nodes={},listeners=[],requests=[];let assigned='',timeout;
- for(const id of ['loginForm','signupForm','loginError','signupError','loginEmail','loginPassword','signupName','signupEmail','signupPassword'])nodes[id]={id,value:'',textContent:'',hidden:true,listeners:{},dataset:{},setAttribute(k,v){this[k]=v;},removeAttribute(k){delete this[k];},addEventListener(k,f){this.listeners[k]=f;},focus(){this.focused=true;}};
+ for(const id of ['loginForm','signupForm','loginError','signupError','loginEmail','loginPassword','signupName','signupEmail','signupPassword','signupLink'])nodes[id]={id,value:'',textContent:'',hidden:true,listeners:{},dataset:{},classes:new Set(),classList:{toggle(k,on){on?nodes[id].classes.add(k):nodes[id].classes.delete(k);}},setAttribute(k,v){this[k]=v;},removeAttribute(k){delete this[k];},addEventListener(k,f){this.listeners[k]=f;},focus(){this.focused=true;}};
  for(const id of ['loginForm','signupForm']){nodes[id].button={disabled:true,textContent:'',dataset:{},setAttribute(k,v){this[k]=v;}};nodes[id].querySelector=()=>nodes[id].button;}
  const context={document:{getElementById:id=>nodes[id]},URL,URLSearchParams,Error,window:{nodalI18n:{lang:'en',onChange:f=>listeners.push(f)}},location:{origin:'https://nodal.test',pathname:'/login.html',search,hash,assign:path=>assigned=path},history:{calls:[],replaceState(state,title,url){this.calls.push(url);}},...(storage?{localStorage:storage}:{}),AbortSignal:{timeout:ms=>{timeout=ms;return{timeout:ms};}},fetch:async(path,options)=>{requests.push({path,options,body:JSON.parse(options.body)});const result=await reply(path,options);return{ok:result.ok,status:result.status,json:async()=>{if(result.jsonError)throw result.jsonError;return result.data;}};}};
  vm.createContext(context);vm.runInContext(source,context);
@@ -136,8 +136,35 @@ test('a remembered destination stamped in the future is ignored, so a wrong phon
  }
 });
 test('a confirmation link’s session tokens are removed from the address bar at once, and other pages keep their address',()=>{
- for(const hash of ['#access_token=a.b.c&refresh_token=r&type=signup','#error=access_denied&error_code=otp_expired']){
+ for(const [hash,expected,es,ok] of [['#access_token=a.b.c&refresh_token=r&type=signup',/Email confirmed/,/Correo confirmado/,true],['#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid',/expired or was already used/,/venció o ya se usó/,false]]){
   const h=harness(undefined,'?next=%2Ffiiu.html',null,hash);assert.deepEqual(h.context.history.calls,['/login.html?next=%2Ffiiu.html'],hash);
+  // The person learns what the link did instead of landing on an unchanged sign-in form.
+  assert.equal(h.nodes.loginError.hidden,false,hash);assert.match(h.nodes.loginError.textContent,expected);assert.equal(h.nodes.loginError.classes.has('is-ok'),ok);
+  assert.equal(h.nodes.loginEmail.focused,true);assert.equal(h.nodes.loginEmail['aria-invalid'],undefined);
+  h.lang('es');assert.match(h.nodes.loginError.textContent,es);
  }
- assert.deepEqual(harness(undefined,'',null,'#signup').context.history.calls,[]);
+ const plain=harness(undefined,'',null,'#signup');assert.deepEqual(plain.context.history.calls,[]);assert.equal(plain.nodes.loginError.hidden,true);
+ // A recovery or invitation fragment is not a signup confirmation.
+ assert.equal(harness(undefined,'',null,'#access_token=a.b.c&type=recovery').nodes.loginError.hidden,true);
+});
+test('a successful signup reads as good news, fills sign-in, and a quick second tap sends no second email',async()=>{
+ const h=harness(async()=>({ok:true,status:202,data:{requiresEmailConfirmation:true}}));h.valid();h.nodes.loginEmail.value='';h.lang('es');
+ await h.submit('signupForm');assert.equal(h.requests.length,1);assert.match(h.nodes.signupError.textContent,/Revisa tu correo/);assert.equal(h.nodes.signupError.classes.has('is-ok'),true);
+ assert.equal(h.nodes.loginEmail.value,'new@example.test','the sign-in form is ready for after the email');assert.equal(h.nodes.signupForm.button.disabled,false);
+ h.nodes.signupEmail.value=' NEW@example.test ';await h.submit('signupForm');assert.equal(h.requests.length,1,'the provider cooldown is not hit');assert.match(h.nodes.signupError.textContent,/Revisa tu correo/);assert.equal(h.nodes.signupError.hidden,false);
+ // After a minute the same address really asks for another email; an error then shows as an error.
+ h.context.Date={now:()=>Date.now()+61000};await h.submit('signupForm');assert.equal(h.requests.length,2);
+ const typed=harness(async()=>({ok:true,status:202,data:{requiresEmailConfirmation:true}}));typed.valid();await typed.submit('signupForm');assert.equal(typed.nodes.loginEmail.value,'member@example.test','a typed sign-in email is kept');
+ typed.nodes.signupEmail.value='other@example.test';await typed.submit('signupForm');assert.equal(typed.requests.length,2,'another address is sent at once');
+ const failing=harness(async(path,options)=>JSON.parse(options.body).email==='new@example.test'?{ok:true,status:202,data:{requiresEmailConfirmation:true}}:{ok:false,status:429,data:{error:'too many authentication attempts'}});failing.valid();
+ await failing.submit('signupForm');assert.equal(failing.nodes.signupError.classes.has('is-ok'),true);failing.nodes.signupEmail.value='late@example.test';await failing.submit('signupForm');assert.match(failing.nodes.signupError.textContent,/Too many attempts/);assert.equal(failing.nodes.signupError.classes.has('is-ok'),false);
+});
+test('signing in before confirming explains how to get a new confirmation link',async()=>{
+ const h=harness(async()=>({ok:false,status:403,data:{error:'Confirm your email before signing in.'}}));h.valid();h.lang('es');await h.submit('loginForm');
+ assert.match(h.nodes.loginError.textContent,/Confirma tu correo/);assert.match(h.nodes.loginError.textContent,/Crear cuenta con el mismo correo y contraseña/);assert.equal(h.nodes.loginError.classes.has('is-ok'),false);
+});
+test('the sign-in card offers new people the Create account form and brings its first field up',()=>{
+ const html=readFileSync(new URL('../web/pages/login.html',import.meta.url),'utf8');
+ const login=html.slice(html.indexOf('id="loginForm"'),html.indexOf('</form>'));assert.match(login,/<a class="auth-recovery" id="signupLink" href="#signupForm" data-recovery-text="newHere">/);
+ const h=harness();let prevented=false;h.nodes.signupLink.listeners.click({preventDefault(){prevented=true;}});assert.equal(prevented,true);assert.equal(h.nodes.signupName.focused,true);
 });

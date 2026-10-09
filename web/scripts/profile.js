@@ -203,12 +203,15 @@
   /* ?id=<member> opens that member's card; no id opens your own */
   const wanted = new URLSearchParams(location.search).get('id');
   const endpoint = wanted ? `/api/users/${encodeURIComponent(wanted)}` : '/api/auth/me';
-  api(endpoint)
+  const profileRequest = api(endpoint);
+  /* the sidebar shows four people: ask for a few, alongside the profile; a plain fetch so a 401 redirects only once */
+  const peopleRequest = $('pfConnList') ? fetch('/api/users?limit=5').then((r) => (r.ok ? r.json() : {})).catch(() => ({})) : null;
+  profileRequest
     .then((data) => {
       currentProfile = {user: normalize(data.user), isSelf: data.self !== false};
       render(currentProfile.user, currentProfile.isSelf);
-      if ($('pfConnList')) api('/api/users').then((data) => {
-        networkPeople = Array.isArray(data.users) ? data.users : [];
+      peopleRequest?.then((data) => {
+        networkPeople = Array.isArray(data?.users) ? data.users : [];
         renderConnections(currentProfile.user);
       }).catch(() => {});
     })

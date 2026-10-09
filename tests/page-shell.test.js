@@ -19,7 +19,7 @@ async function boot(t, pilotMode) {
 
 for (const mode of [true, false]) test(`initial HTML includes the actual pilot mode (${mode}) and stable banner visibility`, async t => {
   const { base, cookie } = await boot(t, mode);
-  for (const page of ['login', 'dashboard', 'courses', 'course', 'profile', 'opportunities']) {
+  for (const page of ['dashboard', 'courses', 'course', 'profile', 'opportunities']) {
     const response = await fetch(`${base}/${page}.html`, { headers: { Cookie: cookie } });
     assert.equal(response.status, 200, page);
     const html = await response.text();
@@ -32,6 +32,8 @@ for (const mode of [true, false]) test(`initial HTML includes the actual pilot m
   }
   const home = await (await fetch(base + '/')).text();
   assert.equal(home, readFileSync(new URL('../web/pages/index.html', import.meta.url), 'utf8'));
+  // Sign-in carries no course-pilot notice in either mode, so it is served as written.
+  assert.equal(await (await fetch(base + '/login.html')).text(), readFileSync(new URL('../web/pages/login.html', import.meta.url), 'utf8'));
   const head = await fetch(base + '/login.html', { method: 'HEAD' });
   assert.equal(head.status, 200); assert.equal(await head.text(), '');
 });
