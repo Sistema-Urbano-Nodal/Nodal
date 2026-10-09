@@ -90,16 +90,16 @@ ${sections.map(([,n,title,body])=>`<section id="${lang}-${n}"><h2>${n}. ${escape
   <meta name="robots" content="noindex, follow">
   <title>NODAL · Privacy policy</title>
   <link rel="stylesheet" href="locale.css?v=20260929a">
-  <script src="locale.js?v=20260918b"></script>
+  <script src="locale.js?v=20261009a"></script>
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="fonts.css?v=20260911b">
   <link rel="stylesheet" href="privacy.css?v=20260919a">
-  <script defer src="privacy.js?v=20260919a"></script>
+  <script defer src="privacy.js?v=20261009a"></script>
 </head>
 <body id="top">
   <a class="policy-skip" href="#policy">${localized('skip')}</a>
   <header class="policy-header">
-    <a class="policy-brand" href="index.html" aria-label="NODAL"><img src="assets/nodal-wordmark.webp" width="112" height="47" alt="NODAL"></a>
+    <a class="policy-brand" href="index.html" aria-label="NODAL"><img src="assets/nodal-wordmark.webp" width="360" height="143" alt="NODAL"></a>
     <a class="policy-home" href="index.html">${localized('home')}</a>
     <div class="policy-languages" role="group" aria-label="Language" data-policy-label="language">
       <button type="button" data-lang="en" aria-label="English" aria-pressed="true">EN</button>
