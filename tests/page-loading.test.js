@@ -66,6 +66,12 @@ test('Montserrat is available locally before first use, with no external font st
     if(url.endsWith('.woff2'))assert.equal(data.subarray(0,4).toString(),'wOF2',`${url} must be a WOFF2 font`);
     assert.ok(build.includes(path.basename(url)),`${url} must be included in the static build`);
     assert.ok(config.headers.some(route=>new RegExp(`^${route.source}$`).test(url)),`${url} must have deployment cache headers`);
+    if(url.endsWith('.woff2')){
+      // Later Vercel rules override earlier ones, as for the email images. Font files are versioned by name (v31).
+      const headers=Object.fromEntries(config.headers.filter(route=>new RegExp(`^${route.source}$`).test(url)).flatMap(route=>route.headers.map(({key,value})=>[key.toLowerCase(),value])));
+      assert.match(headers['cache-control'],/max-age=31536000, immutable/,`${url}: fonts never change under the same name`);
+      assert.equal(headers['cross-origin-resource-policy'],'same-origin',url);
+    }
   }
   assert.match(readFileSync(path.join(ROOT,'web/assets/fonts/OFL.txt'),'utf8'),/SIL OPEN FONT LICENSE/);
 });
