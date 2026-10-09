@@ -179,6 +179,9 @@ h1, h2, h3 {
     repeating-linear-gradient(90deg, transparent 0 63px, rgba(61,92,56,.05) 63px 64px);
 }
 
+/* Phones show the map pushed past the right edge; body overflow-x alone still lets mobile browsers widen the
+   layout viewport to it, so the page pans sideways. This box clips it (no z-index: the map keeps its own). */
+.hero-clip { position: absolute; top: 0; left: 0; width: 100%; height: 92vh; overflow: hidden; pointer-events: none; }
 /* latam map plate + network overlay: one box, so they can never drift apart.
    It starts at the very top so it slides up behind the glass header (no seam). */
 .hero-map {
@@ -760,7 +763,7 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .btn:focus-visible
 /* responsive */
 @media (max-width: 980px) {
   .about-grid, .cards-3, .stats, .plans, .traction, .res-grid { grid-template-columns: 1fr 1fr; }
-  .profile-wrap { grid-template-columns: 1fr; gap: 40px; }
+  .profile-wrap { grid-template-columns: minmax(0, 1fr); gap: 40px; } /* a bare 1fr grows to the 340px card and pushes it to the screen edge */
   .platform-head { grid-template-columns: 1fr; gap: 18px; }
   .platform-head .section-title { max-width: none; }
 }

@@ -896,6 +896,7 @@ select:focus-visible, textarea:focus-visible {
 @media (max-width: 980px) {
   .shell { grid-template-columns: minmax(0, 1fr); }
   .side, .work, .ctx { grid-column: 1; }
+  .work > #fiiuDashboard { margin: calc(var(--pad) * .7) var(--pad); } /* moved under the greeting by dashboard.js */
   .side {
     position: static; height: auto; margin: var(--rail-gap);
     border-radius: var(--r-rail);

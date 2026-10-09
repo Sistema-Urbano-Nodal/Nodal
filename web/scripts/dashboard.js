@@ -1507,5 +1507,18 @@
     loadNote('d.greet.loading');
     init().finally(() => { loadRetry.disabled = false; });
   });
+  // One column stacks the context widgets under the whole console, about eight phone screens down. The festival
+  // block is what registrants open the console for, so on one column it sits under the greeting instead.
+  (function placeFestival() {
+    const block = byId('fiiuDashboard'), overview = byId('overview');
+    if (!block || !overview || typeof window.matchMedia !== 'function') return;
+    const home = block.parentElement, next = block.nextElementSibling, stacked = window.matchMedia('(max-width: 980px)');
+    const place = () => {
+      if (stacked.matches) { if (block.previousElementSibling !== overview) overview.after(block); }
+      else if (block.parentElement !== home) home.insertBefore(block, next?.parentElement === home ? next : home.firstChild);
+    };
+    place();
+    stacked.addEventListener?.('change', place);
+  })();
   init();
 })();
