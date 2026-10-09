@@ -77,7 +77,7 @@ Os dados podem ser tratados em outros países. A lista deverá explicar quais pa
 
 ## 8. Cookies, armazenamento no navegador e vídeos
 
-Usamos cookies para sessão, renovação de acesso e recuperação de senha. A preferência de idioma também é salva no navegador e em um cookie, que pode durar até um ano. A preferência de verificação de localização é guardada no navegador, sem prazo automático de expiração na versão atual.
+Usamos cookies para sessão, renovação de acesso e recuperação de senha. A preferência de idioma também é salva no navegador e em um cookie, que pode durar até um ano. A preferência de verificação de localização é guardada no navegador, sem prazo automático de expiração na versão atual. Enquanto você responde à pesquisa final de um curso, as respostas ainda não enviadas da segunda tela ficam no armazenamento de sessão dessa aba do navegador, para que recarregar a página não as apague; elas são apagadas quando a pesquisa é enviada ou encerrada, ou quando a aba é fechada.
 
 Os controles do navegador permitem apagar esse armazenamento. Isso pode encerrar a sessão ou remover preferências. Cookies e recursos opcionais deverão respeitar as escolhas e os requisitos locais; o consentimento para aparecer no diretório não autoriza rastreamento publicitário.
 

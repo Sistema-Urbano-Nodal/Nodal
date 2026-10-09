@@ -557,3 +557,62 @@ test('expired-session course actions preserve drafts while initial course authen
  }
  const initial=harness(()=>({status:401,data:{error:'expired'}}),{page:'course',search:'?id=c1&module=m1'});initial.run('courses');await flush();assert.match(initial.assigned(),/^\/login.html\?next=%2Fcourse.html%3Fid%3Dc1%26module%3Dm1$/);
 });
+test('the first session opens from the course read itself, while a route click still reads the session',async()=>{
+ const full={id:'m1',kind:'session',title:'Session',resources:[{title:'Slides',kind:'slides',url:'https://example.test/slides'}]};
+ const h=harness((path,opts)=>path==='/api/courses/c1'?{course,modules:[full,{id:'m2',kind:'session',title:'Next',resources:[]}],enrollment:{},intake:{fullName:'Member'},isAdmin:false}:path.endsWith('/modules/m2')?{module:{id:'m2',kind:'session',title:'Next',resources:[]}}:learningFixture(path,opts),{page:'course',search:'?id=c1'});h.run('courses');await flush();
+ assert.equal(h.requests.some(r=>r.path.endsWith('/modules/m1')),false,'no second read of a module the page already has');
+ assert.ok(descendants(h.body).some(n=>n.href==='https://example.test/slides'));assert.ok(h.requests.some(r=>r.path.includes('/modules/m1/posts?')));
+ await descendants(h.body).find(n=>n.dataset.module==='m2').listeners.click();await flush();assert.ok(h.requests.some(r=>r.path.endsWith('/modules/m2')));
+});
+test('attachments say which file is uploading, get two minutes each, and a wrong choice is flagged before anything is sent',async()=>{
+ let finish;const h=harness((path,opts)=>path.endsWith('/attachments')?new Promise(resolve=>{finish=resolve;}):learningFixture(path,opts),{page:'course',search:'?id=c1'});
+ h.ctx.AbortSignal={timeout:ms=>({timeout:ms})};h.ctx.FileReader=class{readAsDataURL(){this.result='data:image/png;base64,YWJj';this.onload();}};h.run('courses');await flush();
+ const form=descendants(h.body).find(n=>n.tagName==='form'&&inputNamed(n,'body')),files=inputNamed(form,'files');
+ files.files=[{name:'photo.jpg',type:'image/jpeg',size:4*1024*1024}];files.listeners.change();assert.match(content(form),/Choose up to 3 allowed files/);
+ files.files=[{name:'a.png',type:'image/png',size:10},{name:'b.png',type:'image/png',size:10}];files.listeners.change();assert.doesNotMatch(content(form),/Choose up to 3 allowed files/);
+ inputNamed(form,'body').value='With photos';const pending=form.listeners.submit({preventDefault(){}});await flush();
+ assert.match(content(form),/Uploading 1 of 2…/);h.lang('es');assert.match(content(form),/Subiendo 1 de 2…/);h.lang('en');
+ finish({attachment:{id:'f1'}});await flush();assert.match(content(form),/Uploading 2 of 2…/);finish({attachment:{id:'f2'}});await pending;
+ const uploads=h.requests.filter(r=>r.path.endsWith('/attachments')),post=h.requests.find(r=>r.method==='POST'&&r.path.endsWith('/posts'));
+ assert.deepEqual(uploads.map(r=>r.signal?.timeout),[120000,120000]);assert.equal(post.signal.timeout,45000,'the post itself keeps the default limit');assert.deepEqual(post.body.attachmentIds,['f1','f2']);
+ assert.match(content(form),/Saved/);assert.doesNotMatch(content(form),/Uploading/);
+});
+test('switching course, All feedback or New course asks before discarding unsaved setup edits',async()=>{
+ const other={...course,id:'c2',title:'Other course'},module={id:'m1',title:'Session',kind:'session',version:1,resources:[{title:'Slides',kind:'slides',url:'https://example.test/slides'}]};
+ const h=harness((path,opts)=>opts?.method==='PATCH'?{course:{...course,version:8}}:path==='/api/admin/courses'?{courses:[course,other]}:path==='/api/admin/feedback'?{feedback:[]}:path.endsWith('/report')?{summary:{enrolled:0},participants:[],feedback:[]}:path.endsWith('/c2')?{course:other,modules:[]}:{course:{...course,version:7},modules:[module]},{page:'teaching'});
+ let asked=0,answer=false;h.ctx.confirm=()=>{asked++;return answer;};h.run('teaching');await flush();
+ const [courseForm,moduleForm]=descendants(h.body).filter(n=>n.tagName==='form'&&descendants(n).some(x=>x.name==='title')),select=id=>descendants(h.body).find(n=>n.dataset.course===id).listeners.click();
+ // Looking at another translation language or choosing a file to upload is not an edit.
+ const language=inputNamed(courseForm,'translationLanguage');language.value='pt';courseForm.listeners.input({target:language});moduleForm.listeners.input({target:inputNamed(moduleForm,'officialFile')});
+ const description=inputNamed(courseForm,'description');description.value='Unsaved course text';courseForm.listeners.input({target:description});
+ await select('c2');await findKey(h.body,'allFeedback').listeners.click();findKey(h.body,'newCourse').listeners.click();await flush();
+ assert.equal(asked,3);assert.ok(descendants(h.body).includes(description));assert.equal(description.value,'Unsaved course text');
+ assert.equal(h.requests.some(r=>r.path==='/api/courses/c2'||r.path==='/api/admin/feedback'),false,'nothing is loaded over the draft');
+ let prevented=false;h.windowEvents.beforeunload({preventDefault(){prevented=true;}});assert.equal(prevented,true,'leaving the page warns too');
+ h.lang('es');assert.equal(h.ctx.window.pilotI18n.t('discardEdits'),'¿Descartar los cambios sin guardar?');h.lang('en');
+ // A saved form is no longer a draft.
+ await courseForm.listeners.submit({preventDefault(){}});prevented=false;h.windowEvents.beforeunload({preventDefault(){prevented=true;}});assert.equal(prevented,false);
+ // Removing a material changes the module without any input event; it counts as an edit as well.
+ findKey(moduleForm,'remove').listeners.click();await select('c2');assert.equal(asked,4);
+ answer=true;await select('c2');await flush();assert.equal(asked,5);assert.match(content(h.body),/Other course/);assert.equal(descendants(h.body).includes(description),false);
+ await select('c1');await flush();assert.equal(asked,5,'nothing left to discard');
+});
+test('responses name the session they are about, searchable by its title, and All feedback names the course',async()=>{
+ const data={summary:{enrolled:1},participants:[],feedback:[{name:'Ana',email:'ana@example.test',action:'recording',rating:2,comment:'La grabación no carga',courseId:'c1',moduleId:'m3',createdAt:'2026-09-05T12:00:00Z'},{name:'Luis',email:'luis@example.test',action:'course',rating:5,comment:'Bien',courseId:'c1',moduleId:null,createdAt:'2026-09-05T13:00:00Z'},{name:'Eva',email:'eva@example.test',action:'content',rating:4,comment:'Gone',courseId:'c1',moduleId:'deleted',createdAt:'2026-09-05T14:00:00Z'}]};
+ const session={id:'m3',title:'Sesión 3',translations:{en:{title:'Session 3'}},resources:[]};let finish;
+ const h=harness(path=>path==='/api/admin/courses'?{courses:[course]}:path==='/api/admin/feedback'?new Promise(resolve=>{finish=resolve;}):path.endsWith('/report')?data:{course:{...course,version:7},modules:[session]},{page:'teaching'});h.run('teaching');await flush();
+ const responses=h.ctx.document.getElementById('staff-pane-responses'),rowOf=name=>descendants(responses).find(n=>n.tagName==='tr'&&content(n).includes(name));
+ assert.match(content(rowOf('Ana')),/Session 3/);h.lang('es');assert.match(content(rowOf('Ana')),/Sesión 3/);h.lang('en');
+ assert.equal(rowOf('Luis').children[1].children.length,2,'course-wide feedback has no session line');assert.equal(rowOf('Eva').children[1].children.length,2,'nor does a deleted session');
+ const search=inputNamed(responses,'searchResponses');search.value='sesión 3';search.listeners.input();assert.match(content(responses),/La grabación no carga/);assert.doesNotMatch(content(responses),/Bien|Gone/);
+ findKey(h.body,'allFeedback').listeners.click();await flush();assert.equal(h.ids.pilotStatus.textContent,'Loading…');
+ finish({feedback:[data.feedback[0],{name:'Rosa',action:'profile',rating:3,comment:'Perfil',courseId:null,createdAt:'2026-09-06T12:00:00Z'}]});await flush();
+ const all=descendants(h.body).find(n=>n.className==='pilot-response-view');assert.match(content(descendants(all).find(n=>n.tagName==='tr'&&content(n).includes('Ana'))),/Real course/);assert.match(content(all),/Perfil/);assert.equal(h.ids.pilotStatus.textContent,'');
+});
+test('hero intake actions are full tap targets and the staff survey and response tables stack on a phone',()=>{
+ const css=readFileSync(new URL('../web/styles/courses.css',import.meta.url),'utf8');
+ const hero=css.match(/\.pilot-course-hero \.pilot-actions button\{([^}]*)\}/)[1];assert.match(hero,/min-height:44px/);assert.match(hero,/font-size:12px/);
+ const phone=css.slice(css.indexOf('@media(max-width:640px){'));
+ assert.match(phone,/^@media/);assert.match(phone,/:is\(\.pilot-feedback-table,\.pilot-survey-admin \.pilot-table\) tr\{display:grid/);assert.match(phone,/\.pilot-table td\.pilot-survey-actions\{white-space:normal\}/);assert.match(phone,/\.pilot-cell-label\{display:block/);
+ assert.match(css,/\.pilot-cell-label\{display:none\}\n@media\(max-width:640px\)/,'labels show only in the stacked layout');
+});
