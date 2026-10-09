@@ -125,9 +125,8 @@
     return res.json();
   }
 
+  // one request: /me answers 401 when signed out, which api() maps to the sign-in state
   async function load() {
-    const state = await api('/api/auth/state');
-    if (!state.authenticated) throw Object.assign(new Error('auth required'), { code: 'auth' });
     const data = await api('/api/recommendations/me');
     if (!Array.isArray(data.recommendations) || data.recommendations.length === 0) {
       showState('empty');

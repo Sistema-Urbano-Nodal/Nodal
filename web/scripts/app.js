@@ -155,6 +155,18 @@
     svg.appendChild(g);
     return { g, c, ring, t };
   });
+  // phones scale the SVG to a few pixels per node; this list (CSS shows it
+  // only there) gives each node a real, translated tap target
+  const nodeList = el('div', 'graph-nodes');
+  const listBtns = N.map((n, i) => {
+    const b = el('button', 'gc-peer', labelOf(n.id));
+    b.type = 'button';
+    b.setAttribute('data-i18n', `graph.n.${n.id}.t`);
+    b.addEventListener('click', () => { select(i, true); card.scrollIntoView({ block: 'nearest' }); });
+    nodeList.append(b);
+    return b;
+  });
+  svg.after(nodeList);
 
   function renderFrame() {
     edgeEls.forEach((l, k) => {
@@ -377,7 +389,7 @@
     [...adj[i]].forEach((k) => {
       const b = el('button', 'gc-peer', labelOf(N[k].id));
       b.type = 'button';
-      b.addEventListener('click', () => select(k));
+      b.addEventListener('click', () => select(k, fromList));
       chips.append(b);
     });
     panes[1].append(chips);
@@ -410,8 +422,10 @@
     card.style.setProperty('--gc-y', `${py.toFixed(1)}%`);
   }
 
-  function select(i) {
+  let fromList = false;   // a card opened from the phone list hands focus back to it
+  function select(i, viaList = false) {
     selected = i;
+    fromList = viaList;
     cardTab = 0;
     buildCard(i);
     card.hidden = false;
@@ -422,7 +436,7 @@
     selected = null;
     card.hidden = true;
     reset();
-    if (wasSelected !== null) nodeEls[wasSelected].g.focus();
+    if (wasSelected !== null) (fromList ? listBtns[wasSelected] : nodeEls[wasSelected].g).focus();
   }
   svg.addEventListener('click', (e) => { if (e.target === svg) deselect(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !card.hidden) deselect(); });

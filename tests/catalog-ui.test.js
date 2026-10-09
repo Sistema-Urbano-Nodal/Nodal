@@ -1533,6 +1533,55 @@ test('failed catalog searches can be retried with the same filters', async () =>
   assert.equal(h.ids.get('catalogRetry').hidden, true);
 });
 
+test('an empty catalog reached from a hub link points somewhere useful; an empty search still says to adjust filters', async () => {
+  const h = catalogHarness(url => Promise.resolve(response(url === '/api/auth/state'
+    ? { authenticated: true } : { items: [], nextCursor: null })));
+  mountCatalogList(h);
+  h.ids.get('catalogForm').querySelectorAll = () => [{ name: 'kind', value: 'learning_circle', checked: true }];
+  await h.api.loadResults();
+  const results = h.ids.get('catalogResults');
+  assert.equal(h.ids.get('catalogStatus').textContent, 'catalog.emptyNothingPublished');
+  assert.equal(results.children.length, 1);
+  const links = results.children[0].children;
+  assert.deepEqual(links.map(link => [link.textContent, link.href, link.className]), [
+    ['catalog.nextFiiu', 'fiiu.html#programme', 'btn btn-ghost'],
+    ['catalog.nextCourses', 'courses.html', 'btn btn-ghost'],
+  ]);
+
+  for (const id of ['catalogQuery', 'catalogTopic', 'catalogLocation']) {
+    h.ids.get(id).value = 'metro';
+    await h.api.loadResults();
+    assert.equal(h.ids.get('catalogStatus').textContent, 'catalog.empty', id);
+    assert.equal(results.children.length, 0, `${id}: a search of their own gets no next steps`);
+    h.ids.get(id).value = '';
+  }
+  for (const [lang, text] of [['es', /^Aún no hay trabajo abierto publicado aquí\./], ['pt', /^Ainda não há trabalho aberto publicado aqui\./]]) {
+    assert.match(deskI18n(lang).t('catalog.emptyNothingPublished'), text);
+  }
+});
+
+test('the landing match deck makes one request and a signed-out 401 shows the sign-in card', async () => {
+  const fake = (tag) => { const node = new FakeNode(tag); node.disabled = false; node.style = {}; return node; };
+  const parts = { '.leader-initial': fake('i'), '.match-name': fake('name'), '.match-role': fake('role'), '.tags': fake('tags'), '.match-why': fake('why'), '.m-skip': fake('skip'), '.m-like': fake('like') };
+  const card = fake('card');
+  card.querySelector = (selector) => parts[selector] ?? null;
+  const stack = fake('matchStack');
+  stack.querySelector = () => card;
+  const requests = [];
+  const context = {
+    document: { getElementById: (id) => (id === 'matchStack' ? stack : null), createElement: (tag) => fake(tag) },
+    window: { nodalI18n: { t: (key) => key, onChange() {} } },
+    fetch: async (url) => { requests.push(url); return { ok: false, status: 401, async json() { return {}; } }; },
+    location: { assign() {} },
+    setTimeout, requestAnimationFrame: () => {},
+  };
+  vm.runInNewContext(read('web', 'scripts', 'recs.js'), context, { filename: 'recs.js' });
+  for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(requests, ['/api/recommendations/me'], 'no separate /api/auth/state round trip');
+  assert.equal(parts['.match-name'].textContent, 'recs.auth.title');
+  assert.equal(parts['.m-like'].disabled, false, 'the sign-in action stays available');
+});
+
 test('applying filters cancels the queued typing search', async () => {
   let reads = 0;
   const h = catalogHarness(url => {

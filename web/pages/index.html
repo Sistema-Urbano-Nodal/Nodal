@@ -219,7 +219,7 @@
         </p>
       </div>
 
-      <div class="plat-tabs" role="tablist" aria-label="How NODAL works">
+      <div class="plat-tabs" role="tablist" aria-label="How NODAL works" data-i18n-aria-label="platform.tabsLabel">
         <button type="button" class="plat-tab is-on" role="tab" id="platTab0" aria-controls="platPanel0" aria-selected="true" data-i18n="plat.tab1">The community</button>
         <button type="button" class="plat-tab" role="tab" id="platTab1" aria-controls="platPanel1" aria-selected="false" tabindex="-1" data-i18n="plat.tab2">How connections happen</button>
         <button type="button" class="plat-tab" role="tab" id="platTab2" aria-controls="platPanel2" aria-selected="false" tabindex="-1" data-i18n="plat.tab3">First steps</button>
@@ -227,7 +227,7 @@
 
       <div class="plat-panel" id="platPanel0" role="tabpanel" aria-labelledby="platTab0">
         <div class="graph-panel">
-          <svg id="graph" viewBox="0 0 900 520" aria-label="Interactive network of actors"></svg>
+          <svg id="graph" viewBox="0 0 900 520" aria-label="Interactive network of actors" data-i18n-aria-label="graph.aria"></svg>
           <div class="graph-card" id="graphCard" hidden></div>
             <p class="graph-hint" data-i18n="graph.hint">Click a node to meet that part of the community.</p>
         </div>
@@ -415,7 +415,7 @@
           <div class="match-avatar"><span class="leader-initial">N</span></div>
           <div class="match-body">
             <h3><span class="match-name">Sign in to connect</span>
-              <span class="lock" title="Members only">
+              <span class="lock" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                   <rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>
                 </svg>
@@ -482,12 +482,12 @@
       <h2 class="section-title" data-i18n="lead.title">Meet people turning local knowledge into shared urban capacity.</h2>
     </div>
     <div class="leader-row" id="leaderRow">
-      <article class="leader-card"><div class="leader-photo"><span class="leader-initial">U</span></div><div class="leader-meta"><h3>Urban researcher</h3><p data-i18n="lead.r1">Member profile · research circle</p></div></article>
-      <article class="leader-card"><div class="leader-photo"><span class="leader-initial">M</span></div><div class="leader-meta"><h3>Mobility engineer</h3><p data-i18n="lead.r2">Member profile · mobility circle</p></div></article>
-      <article class="leader-card"><div class="leader-photo"><span class="leader-initial">P</span></div><div class="leader-meta"><h3>City planner</h3><p data-i18n="lead.r3">Member profile · planning circle</p></div></article>
-      <article class="leader-card"><div class="leader-photo"><span class="leader-initial">C</span></div><div class="leader-meta"><h3>Civic organizer</h3><p data-i18n="lead.r4">Member profile · community circle</p></div></article>
-      <article class="leader-card"><div class="leader-photo"><span class="leader-initial">E</span></div><div class="leader-meta"><h3>Urban economist</h3><p data-i18n="lead.r5">Member profile · policy circle</p></div></article>
-      <article class="leader-card leader-more"><div class="leader-meta"><h3 data-i18n="lead.more">Join NODAL</h3><p data-i18n="lead.moreP">Help shape the first community circle</p></div></article>
+      <article class="leader-card"><div class="leader-photo"><span class="leader-initial" data-i18n="lead.i1">U</span></div><div class="leader-meta"><h3 data-i18n="lead.n1">Urban researcher</h3><p data-i18n="lead.r1">Member profile · research circle</p></div></article>
+      <article class="leader-card"><div class="leader-photo"><span class="leader-initial" data-i18n="lead.i2">M</span></div><div class="leader-meta"><h3 data-i18n="lead.n2">Mobility engineer</h3><p data-i18n="lead.r2">Member profile · mobility circle</p></div></article>
+      <article class="leader-card"><div class="leader-photo"><span class="leader-initial" data-i18n="lead.i3">P</span></div><div class="leader-meta"><h3 data-i18n="lead.n3">City planner</h3><p data-i18n="lead.r3">Member profile · planning circle</p></div></article>
+      <article class="leader-card"><div class="leader-photo"><span class="leader-initial" data-i18n="lead.i4">C</span></div><div class="leader-meta"><h3 data-i18n="lead.n4">Civic organizer</h3><p data-i18n="lead.r4">Member profile · community circle</p></div></article>
+      <article class="leader-card"><div class="leader-photo"><span class="leader-initial" data-i18n="lead.i5">E</span></div><div class="leader-meta"><h3 data-i18n="lead.n5">Urban economist</h3><p data-i18n="lead.r5">Member profile · policy circle</p></div></article>
+      <a class="leader-card leader-more" href="login.html?next=/dashboard.html"><div class="leader-meta"><h3 data-i18n="lead.more">Join NODAL</h3><p data-i18n="lead.moreP">Help shape the first community circle</p></div></a>
     </div>
   </section>
 
@@ -523,11 +523,11 @@
       <p class="eyebrow light" data-i18n="part.eyebrow">Community lab</p>
       <h2 class="section-title light" data-i18n="part.title">Our first community laboratory validates the network through real participation.</h2>
       <div class="logos">
-        <span>Learn</span><span>Meet</span><span>Map</span><span>Co-create</span><span>Share</span><span>Act</span>
+        <span data-i18n="part.l1">Learn</span><span data-i18n="part.l2">Meet</span><span data-i18n="part.l3">Map</span><span data-i18n="part.l4">Co-create</span><span data-i18n="part.l5">Share</span><span data-i18n="part.l6">Act</span>
       </div>
       <div class="traction">
         <div><span class="t-num">NODAL</span><span class="t-label" data-i18n="part.t1">a founding phase to test content, matching, formats and community dynamics with care</span></div>
-        <div><span class="t-num">Open</span><span class="t-label" data-i18n="part.t2">a profile helps us understand how you learn, what you need and what you can contribute</span></div>
+        <div><span class="t-num" data-i18n="part.open">Open</span><span class="t-label" data-i18n="part.t2">a profile helps us understand how you learn, what you need and what you can contribute</span></div>
         <div><span class="t-num">LATAM</span><span class="t-label" data-i18n="part.t3">a regional network connected through public life, local knowledge, data and action</span></div>
       </div>
     </div>
