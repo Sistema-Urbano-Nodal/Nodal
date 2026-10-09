@@ -1231,11 +1231,11 @@ export function createApp({
         }
       }
       const sessionUser = session.user;
-      // A locale preference does not personalize catalog data (lang is in the
-      // URL). Keep every other cookie private, including expired sessions.
+      // A locale preference and its chosen-by-hand marker do not personalize catalog
+      // data (lang is in the URL). Keep every other cookie private, including expired sessions.
       const hasPrivateCookies = (req.headers.cookie || '').split(';').some(value => {
         const cookie = value.trim();
-        return cookie && !/^nodal\.lang=(?:en|es|pt)$/.test(cookie);
+        return cookie && !/^nodal\.lang(?:=(?:en|es|pt)|\.chosen=1)$/.test(cookie);
       });
       const catalogReadIsPrivate = Boolean(sessionUser || hasPrivateCookies);
       if (session.cookies?.length) res.setHeader('Set-Cookie', session.cookies);

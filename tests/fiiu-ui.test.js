@@ -543,6 +543,12 @@ test('#add-<block> ticks that block in the form without saving, and the address 
  const lab=await harness({context:at('#add-day0-lab')});assert.equal(field(lab.form(),'applyLab').checked,false);assert.equal(field(lab.form(),'applyLab').focused,undefined);
  // A guest has no form; the hash is still replaced.
  const guest=await harness({read:()=>({status:401,data:{error:'sign in required'}}),context:at('#add-day2-am')});assert.equal(guest.form(),null);assert.deepEqual(guest.replaced,['/fiiu.html#registration']);
+ // A failed registration read keeps the block for Try again, which then opens the form on it.
+ const replies=[{status:503,data:{error:'unavailable'}},self(saved)];
+ const outage=await harness({read:()=>replies.shift(),context:at('#add-day2-am')});assert.equal(outage.form(),null);
+ await key(outage.root.querySelector('.f-registration'),'retry').listeners.click();
+ assert.equal(outage.form().hidden,false);assert.equal(box(outage,'day2-am').checked,true);assert.equal(box(outage,'day2-am').focused,true);
+ assert.equal(outage.requests.filter(request=>request.method!=='GET').length,0);
 });
 
 test('a guest who chooses a block from its card signs in and comes back with that block ticked',async()=>{

@@ -74,7 +74,8 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
   if(!rateLimit(req,res,user,path))return true;
   if(path==='/api/fiiu'){
    const [settings,page]=await Promise.all([config(),publications(url,true)]);
-   send(res,200,{event:FIIU_EVENT,config:settings,...page});return true;
+   // The same answer for everyone and no cookies: the CDN serves repeat reads (a door rush on one venue address), at most ~15 s old.
+   send(res,200,{event:FIIU_EVENT,config:settings,...page},{'Cache-Control':'public, max-age=0, s-maxage=15, stale-while-revalidate=60'});return true;
   }
   if(path==='/api/fiiu/registration'){
    if(req.method==='GET'){const data=await exportFiiuData(store,user.id);send(res,200,{...data,hours:attendanceHours(data.attendance),user:{id:user.id,name:user.name,email:user.email,city:user.city},isAdmin:user.permission==='admin'});return true;}
@@ -129,7 +130,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    const span=checkinWindow(activity),activityId=activity.id;
    const confirmed=(created,attendance)=>{const row=attendance.find(a=>a.activityId===activityId);return reply(created?201:200,{result:created?'checked_in':'already_checked_in',activityId,checkedInAt:row?.createdAt??null,method:row?.method??null,attendance:attendance.map(attendanceView),hours:attendanceHours(attendance)});};
    const registrationOpen=async()=>(await config()).registrationOpen;
-   const notRegistered=async()=>reply(404,{error:'registration unavailable',code:'not_registered',activityId,registrationOpen:await registrationOpen()});
+   const notRegistered=async()=>reply(404,{error:'registration unavailable',code:'not_registered',activityId,registration:activity.registration,registrationOpen:await registrationOpen()});
    const registration=await one('registrations',{eventId:EVENT_ID,userId:user.id});
    // A repeat scan keeps the first confirmation whatever changed since: check-in may have closed, the block may have
    // left the plan, or an edited laboratory application may be back under review. The valid screen code is still required.
@@ -139,7 +140,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    // closes everyone is refused; the server judges the time and serverTime says when, whatever the phone's clock says.
    if(t>Date.parse(span.closesAt))return reply(409,{error:'check-in is closed for this activity',code:'outside_window',activityId,...span,serverTime:new Date(t).toISOString()});
    if(!registration)return notRegistered();
-   if(!canAttend(registration,activity))return reply(403,{error:'participant is not registered for this activity',code:activity.registration==='application'&&registration.answers?.applyLab===true?'lab_not_accepted':'not_in_plan',activityId,registrationOpen:await registrationOpen()});
+   if(!canAttend(registration,activity))return reply(403,{error:'participant is not registered for this activity',code:activity.registration==='application'&&registration.answers?.applyLab===true?'lab_not_accepted':'not_in_plan',activityId,registration:activity.registration,registrationOpen:await registrationOpen()});
    let result;try{result=await recordAttendance(registration,activity,{by:user.id,method:'qr',at:new Date(t).toISOString(),known:existing});}catch(err){if(err.status===404)return notRegistered();throw err;}
    return confirmed(result.created,result.attendance);
   }
@@ -149,13 +150,13 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    const activity=CHECKIN_ACTIVITIES.find(a=>a.id===url.searchParams.get('activityId'));
    if(!activity){send(res,400,{error:'invalid activity',code:'invalid_activity'});return true;}
    const current=codes.current(activity.id),span=checkinWindow(activity),t=clock();
-   const link=`${originFor(req)}/fiiu-checkin.html?a=${encodeURIComponent(activity.id)}&c=${current.code}&lang=es`;
+   const link=`${originFor(req)}/fiiu-checkin.html?a=${encodeURIComponent(activity.id)}&c=${current.code}`;
    send(res,200,{activityId:activity.id,url:link,code:current.code,shortCode:current.shortCode,rotatesAt:current.rotatesAt,validUntil:current.validUntil,serverTime:new Date(t).toISOString(),
     window:{...span,open:t<=Date.parse(span.closesAt)},checkedIn:await store.count('attendance',{activityId:activity.id}),qr:qrOf(link)});
    return true;
   }
   if(path==='/api/admin/fiiu/config'){
-   if(req.method==='GET'){send(res,200,{config:await config()});return true;}
+   if(req.method==='GET'){send(res,200,{event:FIIU_EVENT,config:await config()});return true;}
    if(req.method==='PUT'){
     const input=await body(req),expected=version(input.version),data=normalizeConfig(input);
     const row=expected?await store.update('config',{id:EVENT_ID,version:expected},{data,version:expected+1}):await store.insert('config',{id:EVENT_ID,data,version:1});

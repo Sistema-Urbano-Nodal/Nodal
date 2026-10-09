@@ -77,7 +77,7 @@ Data may be processed in other countries. The list must explain the countries an
 
 ## 8. Cookies, browser storage and videos
 
-We use cookies for sessions, access renewal and password recovery. Language preferences are also saved in browser storage and a cookie that can last up to one year. The location-check preference is saved in browser storage without automatic expiry in the current version. While you answer a course's final survey, the unsent answers on its second screen are kept in that browser tab's session storage so that reloading the page does not erase them; they are deleted when the survey is sent or closed, or when the tab is closed.
+We use cookies for sessions, access renewal and password recovery. Language preferences are also saved in browser storage and in cookies that can last up to one year, together with a marker that the language was picked by you rather than taken from your browser settings. The location-check preference is saved in browser storage without automatic expiry in the current version. While you answer a course's final survey, the unsent answers on its second screen are kept in that browser tab's session storage so that reloading the page does not erase them; they are deleted when the survey is sent, or the next time the page shows the survey as closed or unavailable. Otherwise they stay until the browser clears that tab's session storage, which can be later than closing the tab if the browser restores it.
 
 Browser controls let you remove this storage. Doing so may sign you out or remove preferences. Optional cookies and features must respect choices and local requirements; directory consent does not authorize advertising tracking.
 

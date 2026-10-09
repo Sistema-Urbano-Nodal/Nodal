@@ -178,7 +178,7 @@ function createSurvey(initial){
     let fresh=null;
     try{fresh=await api(base(),undefined,undefined,{redirectOnUnauthorized:false});}catch{/* The refusal itself still explains what happened. */}
     if(!alive())return;
-    if(fresh&&!fresh.finalSurvey){snapshot.finalSurvey=undefined;surveyView=null;node.remove();status(msg,error);return;}
+    if(fresh&&!fresh.finalSurvey){dropDraft();snapshot.finalSurvey=undefined;surveyView=null;node.remove();status(msg,error);return;}
     if(fresh&&surveyKey(fresh.finalSurvey)!==view.key){accept(fresh.finalSurvey);render();status(live,error);heading.focus();return;}
     if(fresh)view.update(fresh.finalSurvey);
     status(local,error);

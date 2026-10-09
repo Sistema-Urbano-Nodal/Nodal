@@ -1555,6 +1555,11 @@ test('an empty catalog reached from a hub link points somewhere useful; an empty
     assert.equal(results.children.length, 0, `${id}: a search of their own gets no next steps`);
     h.ids.get(id).value = '';
   }
+  // A kind the visitor ticked here (the form's change listener sets this) is their own filter, so open work may exist.
+  h.api.page.userFiltered = true;
+  await h.api.loadResults();
+  assert.equal(h.ids.get('catalogStatus').textContent, 'catalog.empty');
+  assert.equal(results.children.length, 0);
   for (const [lang, text] of [['es', /^Aún no hay trabajo abierto publicado aquí\./], ['pt', /^Ainda não há trabalho aberto publicado aqui\./]]) {
     assert.match(deskI18n(lang).t('catalog.emptyNothingPublished'), text);
   }

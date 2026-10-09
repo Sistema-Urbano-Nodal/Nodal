@@ -939,9 +939,11 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
           /* Authorization needs only the profile row, so the row of the id the
              token claims is read while GoTrue checks the token. It is used only
              when GoTrue confirms that id; otherwise, or when that read fails, the
-             usual read follows. */
+             usual read follows. Only with a refresh cookie too, as real browsers send:
+             the server drops that cookie once an address runs out of refresh failures,
+             so forged access tokens alone never buy a second upstream read. */
           const verifying = authUserFromToken(accessToken);
-          const claimed = authorizationOnly ? unverifiedUuidSub(accessToken) : null;
+          const claimed = authorizationOnly && refreshToken ? unverifiedUuidSub(accessToken) : null;
           const early = claimed ? first(admin.rest('profiles', { query: profileQuery(claimed) })).catch(() => null) : null;
           const authUser = await verifying;
           if (!authUser?.id) return { user: null, cookies: clearSessionCookies(env) };

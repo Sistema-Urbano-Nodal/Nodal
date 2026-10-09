@@ -4,7 +4,7 @@
  const root=document.getElementById('fiiuRoot'),loadStatus=document.getElementById('fiiuStatus');
  const TYPES=[['conference','conferenceOne','conferenceMany'],['workshop','workshopOne','workshopMany'],['route','routeOne','routeMany'],['lab','labOne','labOne']];
  const CHOICE_NAMES=['activities','externalActivities','applyLab'];
- let festival,me={registration:null,attendance:[],user:null},registrationHost,panelHeading,panelBody,heroHost,programmeHost,openForm=null,officialInput=null,syncForm=null,notice='',dayObserver=null,stepObserver=null,sizeObserver=null,errorSeq=0,guestSignin=null;
+ let festival,me={registration:null,attendance:[],user:null},registrationHost,panelHeading,panelBody,heroHost,programmeHost,openForm=null,officialInput=null,syncForm=null,notice='',dayObserver=null,stepObserver=null,sizeObserver=null,errorSeq=0,guestSignin=null,pendingAdd=null;
  // choiceInputs maps an activity id to its form checkbox, so programme actions can pre-select it.
  // programmeActions maps an activity id to its programme button, so the button can show that the box is now ticked in the form.
  const choiceInputs=new Map(),programmeActions=new Map(),dayChips=new Map(),visibleDays=new Set();
@@ -148,12 +148,19 @@
  // Only the first save answers with the summary email's outcome; nothing is said when email is off, skipped or for an edit.
  // 'failed' means the provider never had it; 'uncertain' (and a send that never reported back) usually still arrives.
  const emailNotice=(outcome,email)=>outcome==='sent'?{key:'emailSent',email}:outcome==='failed'?'emailNotSent':['uncertain','pending'].includes(outcome)?'emailDelayed':'';
+ // Ticks the #add-<block> asked for once the registration is known; saving stays an explicit tap. False while there is nothing to apply.
+ function applyAdd(){
+  if(!pendingAdd||me.failed)return false;const input=choiceInputs.get(pendingAdd);pendingAdd=null;
+  if(input&&!input.disabled&&!input.checked&&input.name!=='applyLab'){input.checked=true;if(me.registration)jumpTo(input);syncForm?.(true);if(!me.registration)registrationHost.scrollIntoView({block:'start'});}
+  else registrationHost.scrollIntoView({block:'start'});
+  return true;
+ }
  function renderPanel(){
   choiceInputs.clear();openForm=null;officialInput=null;syncForm=null;sizeObserver?.disconnect();stepObserver?.disconnect();status(message,'');panelBody.replaceChildren();showNotice(notice);notice='';
   registrationHost.className='f-registration'+(!me.user||(!festival.config.registrationOpen&&!me.registration)?' is-compact':'');guestSignin=null;
   if(me.failed){
    let retrying=false;status(message,me.failed.key==='rate'?me.failed:Object.assign(Error(t('registrationLoadError')),{key:'registrationLoadError'}));
-   panelBody.append(message,button('retry',async()=>{if(retrying)return;retrying=true;status(message,'loading');try{me=await api('/api/fiiu/registration');}catch(error){me=unread(error);}renderRegistration();panelHeading.focus();},'f-button secondary'));return;
+   panelBody.append(message,button('retry',async()=>{if(retrying)return;retrying=true;status(message,'loading');try{me=await api('/api/fiiu/registration');}catch(error){me=unread(error);}renderRegistration();if(!applyAdd())panelHeading.focus();},'f-button secondary'));return;
   }
   if(!me.user){
    // Once registration closes, the guest panel only leads people who already registered back to their registration.
@@ -383,12 +390,9 @@
    // #add-<block> (the check-in refusal, or a guest's card after sign-in) ticks that block in the form; saving stays an explicit tap. The hash becomes
    // #registration at once, so a reload after saving does not reopen the form. Someone with no registration yet starts at the top of the form, not past
    // their personal answers; a block already in the plan, the laboratory or a form that is not shown leaves only the scroll to the panel.
-   const hash=location.hash,add=/^#add-([a-z0-9-]{1,60})$/.exec(hash)?.[1];
-   if(add){
-    history.replaceState?.(null,'',location.pathname+location.search+'#registration');const input=choiceInputs.get(add);
-    if(input&&!input.disabled&&!input.checked&&input.name!=='applyLab'){input.checked=true;if(me.registration)jumpTo(input);syncForm?.(true);if(!me.registration)registrationHost.scrollIntoView({block:'start'});}
-    else registrationHost.scrollIntoView({block:'start'});
-   }
+   // When the registration read failed, the block waits for the panel's Try again.
+   const hash=location.hash;pendingAdd=/^#add-([a-z0-9-]{1,60})$/.exec(hash)?.[1]||null;
+   if(pendingAdd){history.replaceState?.(null,'',location.pathname+location.search+'#registration');if(!applyAdd())registrationHost.scrollIntoView({block:'start'});}
    else if(hash==='#f-publicOfficial')jumpTo(officialInput);
    else if(['#registration','#news','#materials','#programme'].includes(hash)||/^#day-\d{4}-\d{2}-\d{2}$/.test(hash))document.querySelector(hash)?.scrollIntoView({block:'start'});
   }catch(error){status(loadStatus,error.key==='error'?Object.assign(Error(t('loadError')),{key:'loadError'}):error);root.append(button('retry',load),newTabNote());}

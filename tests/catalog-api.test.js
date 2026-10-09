@@ -113,7 +113,11 @@ test('a saved language keeps anonymous catalog reads cacheable without caching s
     const etag = response.headers.get('etag');
     assert.ok(etag);
     assert.equal((await fetch(base + path, { headers: { Cookie: 'nodal.lang=pt', 'If-None-Match': etag } })).status, 304);
-    for (const cookie of ['nodal.lang=pt; nodal_session=expired', 'nodal.lang=pt; another=unknown', 'nodal.lang=unsupported']) {
+    // locale.js writes this marker next to every language picked by hand
+    const marked = await fetch(base + path, { headers: { Cookie: 'nodal.lang.chosen=1; nodal.lang=pt', 'If-None-Match': etag } });
+    assert.equal(marked.status, 304);
+    assert.equal(marked.headers.get('cache-control'), 'public, max-age=60, stale-while-revalidate=60');
+    for (const cookie of ['nodal.lang=pt; nodal_session=expired', 'nodal.lang=pt; another=unknown', 'nodal.lang=unsupported', 'nodal.lang.chosen=1; nodal_session=expired', 'nodal.lang.chosen=x']) {
       const privateResponse = await fetch(base + path, { headers: { Cookie: cookie, 'If-None-Match': etag } });
       assert.equal(privateResponse.status, 200);
       assert.equal(privateResponse.headers.get('cache-control'), 'no-store');

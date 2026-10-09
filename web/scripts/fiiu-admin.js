@@ -574,7 +574,7 @@
   for(const section of [summaryHost,checkinHost,participantsHost,settingsHost,contentHost])observer.observe(section);
  }
  async function load(){
-  status(message,'loading');const summaryRequest=api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error}));try{const [publicData,posts,participantData]=await Promise.all([api('/api/fiiu'),api('/api/admin/fiiu/content'),api('/api/admin/fiiu/registrations')]);festival=publicData;config=publicData.config;publications=posts.content;contentCursor=posts.nextCursor;setRecords(participantData.registrations);cursor=participantData.nextCursor;
+  status(message,'loading');const summaryRequest=api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error}));try{const [settingsData,posts,participantData]=await Promise.all([api('/api/admin/fiiu/config'),api('/api/admin/fiiu/content'),api('/api/admin/fiiu/registrations')]);festival={event:settingsData.event};config=settingsData.config;publications=posts.content;contentCursor=posts.nextCursor;setRecords(participantData.registrations);cursor=participantData.nextCursor;
    const grid=el('div','f-admin-columns');grid.append(listHost,detailHost);detailHost.replaceChildren(tr('p','selectParticipant','f-muted f-detail-empty'));const heading=tr('h2','participants');heading.id='f-h-participants';participantsHost.id='participants';participantsHost.replaceChildren(heading,filters(),grid);
    root.replaceChildren(adminHead(),sessionNotice,adminNav(),summaryPanel(),checkinPanel(),participantsHost,settings(),contentPanel(),newTabNote());renderRegistrationPill();readParticipants();renderList();status(message,'');refreshSummary({pending:summaryRequest});renderBackfill();loadBackfill();setTitle();observeSections();
    const hash=location.hash;if(SECTIONS.some(([id])=>'#'+id===hash))document.querySelector(hash)?.scrollIntoView({block:'start'});
@@ -586,7 +586,10 @@
   }
  }
  // Rows on screen are translated in place; rows kept for later filters are rebuilt in the new language.
- window.nodalI18n?.onChange(()=>{if(locked)return;rowCache=new WeakMap();setTitle();stampUpdated();recount?.();renderBackfill();if(lastSummary)renderSummary(lastSummary);else renderCheckin();});
+ window.nodalI18n?.onChange(()=>{
+  // fiiu-ui retranslates #fiiuStatus through textContent, which drops the expired session's sign-in link.
+  if(message.dataset.fiiuText==='unauthorized'&&!message.querySelector('a'))message.append(document.createTextNode(' '),signInLink());
+  if(locked)return;rowCache=new WeakMap();setTitle();stampUpdated();recount?.();renderBackfill();if(lastSummary)renderSummary(lastSummary);else renderCheckin();});
  timer=setInterval(()=>{
   if(!festival||locked||sessionLost||document.visibilityState!=='visible')return;
   // A pass that ended at the cap leaves yesterday's tally and cap message behind; the fresh state replaces them.

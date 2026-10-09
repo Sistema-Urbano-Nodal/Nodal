@@ -240,7 +240,8 @@ function uuidProvider({ verifiedId = MEMBER_ID, accept = true, accountStatus = '
   };
   return { calls, profileIds, repository: createSupabaseRepository({ env, fetchImpl }) };
 }
-const resolveWith = (repository, token, options = { authorizationOnly: true }) => repository.resolveSession({ headers: { cookie: `nodal_session=${token}` } }, options);
+// Browsers hold the refresh cookie next to the access token; the early read waits for both.
+const resolveWith = (repository, token, options = { authorizationOnly: true }, refresh = 'nodal_refresh=refresh-1') => repository.resolveSession({ headers: { cookie: `nodal_session=${token}${refresh ? `; ${refresh}` : ''}` } }, options);
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
 test('authorization starts the profile read while GoTrue is still checking the token, after the GoTrue call', async () => {
@@ -262,6 +263,15 @@ test('authorization starts the profile read while GoTrue is still checking the t
   assert.deepEqual(full.calls, ['GET /auth/v1/user']);
   releaseFull();
   assert.equal((await fullPending).user.id, MEMBER_ID);
+  // An access token without its refresh cookie (what a forged one looks like) gets no early read.
+  let releaseBare;
+  const bare = uuidProvider({ gate: new Promise(resolve => { releaseBare = resolve; }) });
+  const barePending = resolveWith(bare.repository, claiming(MEMBER_ID), { authorizationOnly: true }, '');
+  await tick();
+  assert.deepEqual(bare.calls, ['GET /auth/v1/user']);
+  releaseBare();
+  assert.equal((await barePending).user.id, MEMBER_ID);
+  assert.deepEqual(bare.profileIds, [MEMBER_ID], 'the usual read follows the check');
 });
 
 test('a token claiming another id, or no UUID, never authorizes with the row read for that claim', async () => {

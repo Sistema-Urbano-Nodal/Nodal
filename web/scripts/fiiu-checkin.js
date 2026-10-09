@@ -67,7 +67,7 @@
    return signIn(activity,'/fiiu-checkin.html?a='+encodeURIComponent(body.activityId)+'&c='+encodeURIComponent(body.code),'signInCheckinHint');
   }
   // The laboratory is not a block anyone can add: only an accepted application checks in, so no refusal for it links to the registration.
-  const lab=activity?.registration==='application';
+  const lab=(activity?.registration??error?.registration)==='application';
   if(error.status===404)return block('notRegistered','warn',about(activity),hintOf(lab?'labNotAcceptedHint':open?'notRegisteredHint':'askDesk'),open&&!lab&&actions(link('register',addHref,'f-button')));
   if(error.code==='lab_not_accepted'||(lab&&error.code==='not_in_plan'))return block('labNotAccepted','warn',about(activity),hintOf('labNotAcceptedHint'));
   if(error.code==='not_in_plan')return block('notInPlan','warn',about(activity),hintOf(open?'notInPlanHint':'askDesk'),open&&actions(link('addToRegistration',addHref,'f-button')));

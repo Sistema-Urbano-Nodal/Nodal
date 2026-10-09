@@ -60,8 +60,10 @@ These values come from source code; verify the production configuration and actu
 | `nodal_recovery` | Password recovery, HttpOnly | Up to one hour when set/renewed; path restricted to recovery API. |
 | `nodal.lang` cookie | Chosen language | One year when set/renewed. |
 | `nodal.lang` local storage | Chosen language | No automatic expiry found. |
+| `nodal.lang.chosen` cookie | Marks the saved language as picked by the visitor, not detected from the browser | One year when set/renewed. |
+| `nodal.lang.chosen` local storage | Same marker | No automatic expiry found. |
 | `nodal.location-check.v1:<userId>` local storage | Automatic-check preference and last check day | No automatic expiry found; account deletion on the server does not automatically prove cleanup on every device. |
-| `nodal.surveyDraft.<courseId>.<enrollmentId>` session storage | Unsent answers on screen 2 of a course's final survey, including free text, so a reload keeps them | Removed when the survey is sent or shown as closed; otherwise the browser clears it when the tab closes. |
+| `nodal.surveyDraft.<courseId>.<enrollmentId>` session storage | Unsent answers on screen 2 of a course's final survey, including free text, so a reload keeps them | Removed when the survey is sent, or the next time the page shows it closed or unavailable; otherwise it stays until the browser clears the tab's session storage, which can outlive closing the tab when the browser restores it. |
 
 Classify essential and optional technologies by purpose and applicable law. Preserve the no-embed-before-activation design; explain the provider before activating it. Do not add a decorative “accept all” banner that neither controls third parties nor records choices. [ANPD cookie guidance](https://www.gov.br/anpd/pt-br/centrais-de-conteudo/materiais-educativos-e-publicacoes/guia-orientativo-cookies-e-protecao-de-dados-pessoais.pdf).
 

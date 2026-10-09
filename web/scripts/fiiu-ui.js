@@ -213,7 +213,7 @@
  }
  function check(key,name,value,checked=false){const wrap=el('label','f-check'),input=el('input');input.type='checkbox';input.name=name;input.value=value;input.checked=checked;wrap.append(input,tr('span',key));return{wrap,input};}
  // The server's reason travels with the error: a check-in refusal is told apart by code, and a closed block carries its closesAt.
- const reason=data=>({code:typeof data?.code==='string'?data.code:undefined,activityId:typeof data?.activityId==='string'?data.activityId:undefined,closesAt:data?.closesAt,registrationOpen:typeof data?.registrationOpen==='boolean'?data.registrationOpen:undefined});
+ const reason=data=>({code:typeof data?.code==='string'?data.code:undefined,activityId:typeof data?.activityId==='string'?data.activityId:undefined,registration:typeof data?.registration==='string'?data.registration:undefined,closesAt:data?.closesAt,registrationOpen:typeof data?.registrationOpen==='boolean'?data.registrationOpen:undefined});
  async function api(path,body,method){
   // Safari before 16 (every iOS 15 browser) has no AbortSignal.timeout; there the request simply runs without the 20 s limit.
   let response,data;const signal=typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function'?AbortSignal.timeout(20000):undefined;

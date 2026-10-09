@@ -461,7 +461,7 @@ test('attendees check themselves in with the session QR once, only until check-i
  assert.equal((await scan(call,{activityId:'day1-am',code:code()},'guest')).status,401);
  assert.equal((await call('/api/fiiu/checkin',{method:'POST',body:{activityId:'day1-am',code:code()},origin:'https://elsewhere.test'})).status,403);
  let response=await scan(call,{activityId:'day1-am',code:code()});assert.equal(response.status,404);
- assert.deepEqual(await response.json(),{error:'registration unavailable',code:'not_registered',activityId:'day1-am',registrationOpen:true});
+ assert.deepEqual(await response.json(),{error:'registration unavailable',code:'not_registered',activityId:'day1-am',registration:'general',registrationOpen:true});
  const {registration}=await(await save()).json();
  // Input checks run before the registration lookup; a second account keeps the member's 20-a-minute scan budget.
  for(const activityId of ['unknown','workshop-espacios-comunidad','route-lima-cromatica','workshop-day1',42]){
@@ -483,7 +483,7 @@ test('attendees check themselves in with the session QR once, only until check-i
  assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_attendance').get().n,0);
  clock.set('2026-10-22T00:00:00Z');// 19:00 in Lima: day1-pm is not in this plan
  response=await scan(call,{activityId:'day1-pm',code:codes.current('day1-pm').code});assert.equal(response.status,403);
- assert.deepEqual(await response.json(),{error:'participant is not registered for this activity',code:'not_in_plan',activityId:'day1-pm',registrationOpen:true});
+ assert.deepEqual(await response.json(),{error:'participant is not registered for this activity',code:'not_in_plan',activityId:'day1-pm',registration:'general',registrationOpen:true});
  clock.set('2026-10-21T14:10:00Z');const issued=code();clock.set('2026-10-21T14:14:00Z');
  response=await scan(call,{activityId:'day1-am',code:issued});assert.equal(response.status,201);
  const first=await response.json();
@@ -584,7 +584,7 @@ test('a QR check-in racing the participant cancellation answers not registered a
  }}),options);
  await save();cancel=true;
  const response=await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code});
- assert.equal(response.status,404);assert.deepEqual(await response.json(),{error:'registration unavailable',code:'not_registered',activityId:'day1-am',registrationOpen:true});
+ assert.equal(response.status,404);assert.deepEqual(await response.json(),{error:'registration unavailable',code:'not_registered',activityId:'day1-am',registration:'general',registrationOpen:true});
  assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_attendance').get().n,0);
 });
 
@@ -619,7 +619,7 @@ test('the organiser check-in screen gets a rotating link on the public origin, t
  const body=await response.json(),url=new URL(body.url);
  assert.equal(url.origin,'https://nodal.example','never the request Host');assert.equal(url.pathname,'/fiiu-checkin.html');
  assert.equal(url.searchParams.get('a'),'day1-am');assert.equal(url.searchParams.get('c'),body.code);assert.notEqual(codes.verify('day1-am',body.code),null);
- assert.equal(url.searchParams.get('lang'),'es','a browser with no saved language opens the check-in in Spanish');
+ assert.equal(url.searchParams.has('lang'),false,'the phone language decides; a link language would be saved as the attendee\'s own choice');
  assert.match(body.shortCode,/^[2-9A-HJ-NP-RT-Y]{6}$/);assert.notEqual(codes.verify('day1-am',body.shortCode),null);
  assert.deepEqual({rotatesAt:body.rotatesAt,validUntil:body.validUntil,serverTime:body.serverTime,window:body.window,checkedIn:body.checkedIn,qr:body.qr},
   {rotatesAt:'2026-10-21T14:01:00.000Z',validUntil:'2026-10-21T14:05:00.000Z',serverTime:'2026-10-21T14:00:30.000Z',window:{closesAt:'2026-10-21T18:30:00.000Z',open:true},checkedIn:1,qr:{size:3,bits:'iIA='}});

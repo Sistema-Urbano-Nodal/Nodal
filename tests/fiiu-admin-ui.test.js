@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {DEFAULT_CONFIG,FIIU_EVENT} from '../server/fiiu-domain.js';
-import {createFiiuHarness,key,field,flush,content} from './helpers/fiiu-ui-harness.js';
+import {createFiiuHarness,key,field,flush,content,descendants} from './helpers/fiiu-ui-harness.js';
 
 const participant=(id,firstName)=>({id,eventId:'fiiu-2026',userId:'user-'+id,email:firstName.toLowerCase()+'@example.test',version:1,labStatus:'pending',createdAt:'2026-09-29T12:00:00.000Z',updatedAt:'2026-09-29T12:00:00.000Z',answers:{firstName,lastName:'Test',country:'Perú',city:'Lima',profile:'public_official',publicOfficial:true,applyLab:true,institution:'City Council',position:'Planner',activities:['day1-am'],privacyAccepted:true}});
 const copy=value=>structuredClone(value);
@@ -12,9 +12,9 @@ const emailCounts=(over={})=>({none:0,pending:0,sent:0,failed:0,uncertain:0,skip
 const emailState=(over={})=>({configured:true,counts:emailCounts(),dailyCap:150,sentToday:0,resetsAt:'2026-10-03T00:00:00.000Z',...over});
 async function harness(respond,{participants=[],nextCursor=null,summaryRead=()=>({summary:copy(summary)}),configRead=()=>({config:{...DEFAULT_CONFIG,version:0}}),confirmationsRead=()=>emailState(),context={}}={}){
  return createFiiuHarness(request=>{
-  // The dashboard takes its first settings, version included, from the public read; GET /api/admin/fiiu/config is only for a conflict reload.
-  if(request.path==='/api/fiiu')return{event:FIIU_EVENT,config:configRead(request).config,content:[],nextCursor:null};
-  if(request.path==='/api/admin/fiiu/config'&&request.method==='GET')return configRead(request);
+  // The dashboard reads the programme and its first settings, version included, from its own per-account read, never the public /api/fiiu.
+  if(request.path==='/api/fiiu')throw Error('the dashboard must not depend on the public, CDN-cached programme read');
+  if(request.path==='/api/admin/fiiu/config'&&request.method==='GET')return{event:FIIU_EVENT,...configRead(request)};
   if(request.path==='/api/admin/fiiu/confirmations'&&request.method==='GET')return confirmationsRead(request);
   if(request.path==='/api/admin/fiiu/registrations')return{registrations:copy(participants),nextCursor};
   if(request.path==='/api/admin/fiiu/summary')return summaryRead(request);
@@ -150,11 +150,10 @@ test('finishing an older publication save preserves a newer selected editor and 
  assert.equal(field(editorForm(h),'title').value,'','the draft saved meanwhile does not come back as a new draft');
 });
 
-test('organizer participant loading does not wait for a slow public programme response',async()=>{
+test('organizer participant loading does not wait for a slow programme and settings response',async()=>{
  let finishProgramme;
  const h=await createFiiuHarness(({path})=>{
-  if(path==='/api/fiiu')return new Promise(resolve=>{finishProgramme=()=>resolve({event:FIIU_EVENT,config:DEFAULT_CONFIG,content:[],nextCursor:null});});
-  if(path==='/api/admin/fiiu/config')return{config:DEFAULT_CONFIG};
+  if(path==='/api/admin/fiiu/config')return new Promise(resolve=>{finishProgramme=()=>resolve({event:FIIU_EVENT,config:DEFAULT_CONFIG});});
   if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
   if(path==='/api/admin/fiiu/registrations')return{registrations:[],nextCursor:null};
   if(path==='/api/admin/fiiu/summary')return{summary:copy(summary)};
@@ -316,6 +315,9 @@ test('an error toast clears after 12 seconds or on a tap, an expired session’s
  assert.equal(h.message.dataset.fiiuText,'unauthorized');const signin=key(h.message,'adminSignIn');assert.ok(signin,'the toast carries the sign-in link');
  assert.equal(signin.href,'/login.html?next=%2Ffiiu-admin.html');assert.equal(signin.target,'_blank');assert.equal(signin['aria-describedby'],'f-newtab');
  assert.deepEqual(timers.delays(),[],'it stays until the organiser acts');
+ // A browser's retranslation through textContent removes the link; the fake DOM keeps children, so empty it as the browser would.
+ h.message.children.length=0;h.lang('es');assert.equal(descendants(h.message).filter(node=>node.dataset.fiiuText==='adminSignIn').length,1,'a language switch puts the sign-in link back');
+ h.lang('en');assert.equal(descendants(h.message).filter(node=>node.dataset.fiiuText==='adminSignIn').length,1,'and never adds a second one');
  h.ctx.window.Fiiu.status(h.message,'saving');h.message.listeners.click({target:h.message});assert.equal(h.message.dataset.fiiuText,'saving','a tap never hides Saving…');
 });
 
@@ -398,7 +400,7 @@ test('cancelling a publication edit restores a blank new-publication form',async
 test('a background page read that fails leaves Load more: filtered views say the list is partial, and a press reads the next page once',async()=>{
  const ana=participant('participant-a','Ana'),bruno={...participant('participant-b','Bruno'),labStatus:'accepted'};let fail=true;
  const h=await createFiiuHarness(({path})=>{
-  if(path==='/api/fiiu')return{event:FIIU_EVENT,config:DEFAULT_CONFIG,content:[],nextCursor:null};
+  if(path==='/api/admin/fiiu/config')return{event:FIIU_EVENT,config:DEFAULT_CONFIG};
   if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
   if(path==='/api/admin/fiiu/summary')return{summary:copy(summary)};
   if(path==='/api/admin/fiiu/registrations')return{registrations:[copy(ana)],nextCursor:'page-2'};
@@ -460,7 +462,7 @@ test('an empty filtered list offers a reset that shows everyone again',async()=>
 test('loading the last participant page with Load more moves focus to the first new row, not back to the search box',async()=>{
  const ana=participant('participant-a','Ana'),bruno=participant('participant-b','Bruno');let fail=true;
  const h=await createFiiuHarness(({path})=>{
-  if(path==='/api/fiiu')return{event:FIIU_EVENT,config:DEFAULT_CONFIG,content:[],nextCursor:null};
+  if(path==='/api/admin/fiiu/config')return{event:FIIU_EVENT,config:DEFAULT_CONFIG};
   if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
   if(path==='/api/admin/fiiu/summary')return{summary:copy(summary)};
   if(path==='/api/admin/fiiu/registrations')return{registrations:[copy(bruno)],nextCursor:'page-2'};
@@ -541,7 +543,7 @@ test('organiser forms show validation messages in the page language and drop the
 test('a laboratory review updates its row in place and keeps every page loaded in the background',async()=>{
  const people={a:participant('a','Ana'),b:participant('b','Bruno'),c:participant('c','Carla')};
  const h=await createFiiuHarness(({path,method,body})=>{
-  if(path==='/api/fiiu')return{event:FIIU_EVENT,config:DEFAULT_CONFIG,content:[],nextCursor:null};
+  if(path==='/api/admin/fiiu/config')return{event:FIIU_EVENT,config:DEFAULT_CONFIG};
   if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
   if(path==='/api/admin/fiiu/summary')return{summary:copy(summary)};
   if(path==='/api/admin/fiiu/registrations')return{registrations:[copy(people.a)],nextCursor:'a'};
@@ -630,14 +632,14 @@ test('reloading the latest settings after a conflict re-reads only the settings 
  let reads=0;
  const h=await harness(({method})=>method==='GET'?{content:[],nextCursor:null}:{status:409,data:{error:'configuration changed; reload before saving'}},{configRead:()=>({config:++reads===1?{...DEFAULT_CONFIG,version:0}:{...DEFAULT_CONFIG,partyUrl:'https://example.test/party-latest',version:3}})});
  const settingsReads=()=>h.requests.filter(request=>request.path==='/api/admin/fiiu/config'&&request.method==='GET').length;
- assert.equal(settingsReads(),0,'the first settings, version included, come with the public read');
+ assert.equal(settingsReads(),1,'the first settings, version included, come with the dashboard read');
  const draft=editorForm(h);field(draft,'title').value='Unsaved room change';
  const form=h.root.querySelector('.f-admin-settings').querySelector('form');field(form,'partyUrl').value='https://example.test/party-mine';await submit(form);
  assert.equal(h.message.dataset.fiiuText,'editorConflict');
  await key(form,'reloadLatest').listeners.click();
  const fresh=h.root.querySelector('.f-admin-settings').querySelector('form');
  assert.notEqual(fresh,form);assert.equal(field(fresh,'partyUrl').value,'https://example.test/party-latest');assert.equal(field(fresh,'registrationOpen').focused,true);
- assert.equal(h.reloads(),0,'the page is not reloaded');assert.equal(h.message.dataset.fiiuText,'');assert.equal(settingsReads(),1);
+ assert.equal(h.reloads(),0,'the page is not reloaded');assert.equal(h.message.dataset.fiiuText,'');assert.equal(settingsReads(),2);
  assert.equal(editorForm(h),draft);assert.equal(field(draft,'title').value,'Unsaved room change','an unrelated draft survives');
  await submit(fresh);assert.equal(h.requests.filter(request=>request.method==='PUT').at(-1).body.version,3,'the next save uses the version just read');
 });
@@ -855,7 +857,7 @@ test('participant detail shows sessions and certificate hours, and how and when 
 
 test('a 403 when the dashboard loads shows the organisers-only state with no Retry and no participant data',async()=>{
  const deny={status:403,data:{error:'administrator access required'}};
- const h=await createFiiuHarness(({path})=>path==='/api/fiiu'?{event:FIIU_EVENT,config:DEFAULT_CONFIG,content:[],nextCursor:null}:path==='/api/admin/fiiu/registrations'?{registrations:[participant('a','Ana')],nextCursor:null}:deny,{page:'fiiu-admin'});
+ const h=await createFiiuHarness(({path})=>path==='/api/admin/fiiu/config'?{event:FIIU_EVENT,config:DEFAULT_CONFIG}:path==='/api/admin/fiiu/registrations'?{registrations:[participant('a','Ana')],nextCursor:null}:deny,{page:'fiiu-admin'});
  assert.ok(key(h.root,'organisersOnly'));assert.ok(key(h.root,'organisersOnlyHint'));assert.equal(key(h.root,'retry'),undefined);
  assert.equal(key(h.root,'fiiuPage').href,'fiiu.html');assert.equal(key(h.root,'backToConsole').href,'dashboard.html');
  assert.equal(h.root.querySelectorAll('.f-participant').length,0);assert.doesNotMatch(content(h.root),/ana@example/);
@@ -863,7 +865,7 @@ test('a 403 when the dashboard loads shows the organisers-only state with no Ret
 });
 
 test('a 401 when the dashboard loads goes to sign-in and comes back to this page',async()=>{
- const h=await createFiiuHarness(({path})=>path==='/api/fiiu'?{event:FIIU_EVENT,config:DEFAULT_CONFIG,content:[],nextCursor:null}:{status:401,data:{error:'sign in required'}},{page:'fiiu-admin'});
+ const h=await createFiiuHarness(({path})=>path==='/api/admin/fiiu/config'?{event:FIIU_EVENT,config:DEFAULT_CONFIG}:{status:401,data:{error:'sign in required'}},{page:'fiiu-admin'});
  assert.deepEqual(h.assigned,['/login.html?next=%2Ffiiu-admin.html']);assert.equal(key(h.root,'retry'),undefined);
 });
 

@@ -141,6 +141,12 @@ test('the laboratory cannot be added from the registration, so no laboratory ref
  // A conference block keeps its add-and-scan-again path.
  const block=await page(()=>({status:404,data:{code:'not_registered',activityId:'day1-am',registrationOpen:true}}));
  assert.equal(key(result(block),'register').href,'fiiu.html#add-day1-am');
+ // Without the programme (it failed, or is still on its way after the short wait) the refusal itself names the laboratory.
+ for(const [status,code] of [[403,'not_in_plan'],[404,'not_registered']]){
+  const bare=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?{status:503,data:{}}:{status,data:{code,activityId:'day0-lab',registration:'application',registrationOpen:true}},{page:'fiiu-checkin',search:lab.search,context:{Date:frozen(lab.now)}});
+  assert.ok(key(result(bare),'labNotAcceptedHint'),code);
+  assert.equal(key(result(bare),'register'),undefined,code);assert.equal(key(result(bare),'addToRegistration'),undefined,code);
+ }
 });
 
 test('a signed-out scan gets a sign-in link that comes back with the same block and code',async()=>{
