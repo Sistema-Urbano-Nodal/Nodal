@@ -112,6 +112,7 @@
   noMatches:['No participants match this search or filter.','Ningún participante coincide con esta búsqueda o filtro.','Nenhum participante corresponde a esta busca ou filtro.'],showAll:['Show everyone','Mostrar a todas las personas','Mostrar todas as pessoas'],
   autoRefresh:['Refresh every minute','Actualizar cada minuto','Atualizar a cada minuto'],
   selectParticipant:['Select a participant to see their answers, lab review and attendance.','Selecciona un participante para ver sus respuestas, la revisión del laboratorio y la asistencia.','Selecione um participante para ver suas respostas, a análise do laboratório e a presença.'],
+  registrationGone:['This registration was cancelled and is no longer in the list.','Esta inscripción fue cancelada y ya no está en la lista.','Esta inscrição foi cancelada e não está mais na lista.'],
   backToList:['Back to the list','Volver a la lista','Voltar para a lista'],allAnswers:['All answers','Todas las respuestas','Todas as respostas'],
   profileAdmin:['Profile','Perfil','Perfil'],publicOfficialAdmin:['Public official','Funcionario/a público/a','Gestor/a público/a'],applyLabAdmin:['Laboratory application','Postulación al laboratorio','Candidatura ao laboratório'],institutionAdmin:['Institution','Institución','Instituição'],
   previousAttendanceAdmin:['Previous editions','Ediciones anteriores','Edições anteriores'],accessibilityOtherAdmin:['Support details','Detalle del apoyo','Detalhes do apoio'],motivationOtherAdmin:['Other motivation','Otra motivación','Outra motivação'],

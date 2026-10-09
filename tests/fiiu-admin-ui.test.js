@@ -10,12 +10,13 @@ const summary={totalRegistrations:237,publicOfficials:64,lab:{pending:18,accepte
 // The summary-email block's state (GET /api/admin/fiiu/confirmations); by default nobody is waiting.
 const emailCounts=(over={})=>({none:0,pending:0,sent:0,failed:0,uncertain:0,skipped:0,...over});
 const emailState=(over={})=>({configured:true,counts:emailCounts(),dailyCap:150,sentToday:0,resetsAt:'2026-10-03T00:00:00.000Z',...over});
-async function harness(respond,{participants=[],summaryRead=()=>({summary:copy(summary)}),configRead=()=>({config:{...DEFAULT_CONFIG,version:0}}),confirmationsRead=()=>emailState(),context={}}={}){
+async function harness(respond,{participants=[],nextCursor=null,summaryRead=()=>({summary:copy(summary)}),configRead=()=>({config:{...DEFAULT_CONFIG,version:0}}),confirmationsRead=()=>emailState(),context={}}={}){
  return createFiiuHarness(request=>{
-  if(request.path==='/api/fiiu')return{event:FIIU_EVENT,config:DEFAULT_CONFIG,content:[],nextCursor:null};
+  // The dashboard takes its first settings, version included, from the public read; GET /api/admin/fiiu/config is only for a conflict reload.
+  if(request.path==='/api/fiiu')return{event:FIIU_EVENT,config:configRead(request).config,content:[],nextCursor:null};
   if(request.path==='/api/admin/fiiu/config'&&request.method==='GET')return configRead(request);
   if(request.path==='/api/admin/fiiu/confirmations'&&request.method==='GET')return confirmationsRead(request);
-  if(request.path==='/api/admin/fiiu/registrations')return{registrations:copy(participants),nextCursor:null};
+  if(request.path==='/api/admin/fiiu/registrations')return{registrations:copy(participants),nextCursor};
   if(request.path==='/api/admin/fiiu/summary')return summaryRead(request);
   return respond(request);
  },{page:'fiiu-admin',context});
@@ -271,6 +272,53 @@ test('opening participant details reports loading, never a save',async()=>{
  await opening;assert.notEqual(h.message.dataset.fiiuText,'changesSaved');assert.equal(h.message.dataset.fiiuText,'');assert.equal(detailTitle(h),'Ana Test');
 });
 
+test('opening details on a stacked or short screen brings the detail’s top under the section nav; beside the list the page stays put',async()=>{
+ const ana=participant('participant-a','Ana');
+ const h=await harness(({path})=>path==='/api/admin/fiiu/content'?{content:[],nextCursor:null}:{registration:copy(ana),attendance:[]},{participants:[ana]});
+ const detail=h.root.querySelector('.f-admin-detail'),scrolls=[],focuses=[],queries=[];let beside=false;
+ detail.scrollIntoView=options=>scrolls.push(options);detail.focus=options=>focuses.push(options);h.ctx.window.matchMedia=query=>{queries.push(query);return{matches:beside};};
+ await detailButton(h,0).listeners.click();
+ assert.equal(scrolls.length,1);assert.equal(scrolls[0].block,'start');assert.equal(focuses.length,1);assert.equal(focuses[0].preventScroll,true,'the focus itself never scrolls');
+ assert.deepEqual(queries,['(min-width: 1000px) and (min-height: 641px)'],'the same condition that makes the detail sticky');
+ beside=true;await detailButton(h,0).listeners.click();
+ assert.equal(scrolls.length,1,'beside the list nothing scrolls');assert.equal(focuses.length,2);assert.equal(focuses[1].preventScroll,true);
+});
+
+test('while another person’s details load, the detail on screen is dimmed and inert; a failed switch makes it live again',async()=>{
+ const ana=participant('participant-a','Ana'),bruno=participant('participant-b','Bruno');let hold=null,anaReads=0;
+ const h=await harness(({path,method,body})=>{
+  if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
+  if(method==='PATCH'){Object.assign(ana,{labStatus:body.labStatus,version:ana.version+1});return{registration:copy(ana)};}
+  if(path.endsWith('participant-b'))return hold.promise;
+  anaReads++;return{registration:copy(ana),attendance:[]};
+ },{participants:[ana,bruno]});
+ const detail=h.root.querySelector('.f-admin-detail');
+ await detailButton(h,0).listeners.click();assert.equal(detailTitle(h),'Ana Test');assert.notEqual(detail.inert,true);
+ hold=deferred();const opening=detailButton(h,1).listeners.click();
+ assert.equal(detail.inert,true);assert.equal(detail['aria-busy'],'true');assert.equal(detailTitle(h),'Ana Test','Ana stays on screen, out of reach, until Bruno arrives');
+ hold.resolve({registration:copy(bruno),attendance:[]});await opening;
+ assert.equal(detail.inert,false);assert.equal(detail['aria-busy'],'false');assert.equal(detailTitle(h),'Bruno Test');
+ await detailButton(h,0).listeners.click();hold=deferred();const failing=detailButton(h,1).listeners.click();assert.equal(detail.inert,true);
+ hold.resolve(unavailable);await failing;
+ assert.equal(detail.inert,false);assert.equal(detail['aria-busy'],'false');assert.equal(detailTitle(h),'Ana Test');assert.equal(h.message.dataset.fiiuText,'error');
+ const reads=anaReads,form=h.root.querySelector('.f-review-card').querySelector('form');field(form,'review').value='reviewAccepted';await submit(form);
+ assert.equal(anaReads,reads+1,'a review saved on Ana after the failed switch still refreshes her detail');assert.ok(key(h.root.querySelector('.f-review-card'),'acceptedShort'));
+});
+
+test('an error toast clears after 12 seconds or on a tap, an expired session’s carries a sign-in link, and a tap never hides Saving…',async()=>{
+ const ana=participant('participant-a','Ana');let reply=unavailable;
+ const h=await harness(({path})=>path==='/api/admin/fiiu/content'?{content:[],nextCursor:null}:reply,{participants:[ana]}),timers=fakeTimers(h);
+ await detailButton(h,0).listeners.click();assert.equal(h.message.dataset.fiiuText,'error');assert.deepEqual(timers.delays(),[12000]);
+ timers.run();assert.equal(h.message.dataset.fiiuText,'','the error clears on its own');
+ await detailButton(h,0).listeners.click();assert.equal(h.message.dataset.fiiuText,'error');
+ h.message.listeners.click({target:h.message});assert.equal(h.message.dataset.fiiuText,'','a tap dismisses it');timers.run();
+ reply={status:401,data:{error:'sign in required'}};await detailButton(h,0).listeners.click();
+ assert.equal(h.message.dataset.fiiuText,'unauthorized');const signin=key(h.message,'adminSignIn');assert.ok(signin,'the toast carries the sign-in link');
+ assert.equal(signin.href,'/login.html?next=%2Ffiiu-admin.html');assert.equal(signin.target,'_blank');assert.equal(signin['aria-describedby'],'f-newtab');
+ assert.deepEqual(timers.delays(),[],'it stays until the organiser acts');
+ h.ctx.window.Fiiu.status(h.message,'saving');h.message.listeners.click({target:h.message});assert.equal(h.message.dataset.fiiuText,'saving','a tap never hides Saving…');
+});
+
 test('participant search and lab filters narrow the loaded rows without new requests',async()=>{
  const ana=participant('participant-a','Ana'),bruno={...participant('participant-b','Bruno'),labStatus:'accepted'},carla={...participant('participant-c','Carla'),labStatus:'none',answers:{...participant('participant-c','Carla').answers,publicOfficial:false,applyLab:false}};
  const h=await harness(()=>({content:[],nextCursor:null}),{participants:[carla,bruno,ana]});
@@ -347,21 +395,22 @@ test('cancelling a publication edit restores a blank new-publication form',async
  assert.equal(field(editor,'title').value,'');assert.ok(key(editor,'newContent'));assert.equal(key(editor,'cancelEdit'),undefined);assert.equal(field(editor,'title').focused,true);
 });
 
-test('filtered views over a partial participant list say so, and loading more reads the next page once',async()=>{
- const ana=participant('participant-a','Ana'),bruno={...participant('participant-b','Bruno'),labStatus:'accepted'};
+test('a background page read that fails leaves Load more: filtered views say the list is partial, and a press reads the next page once',async()=>{
+ const ana=participant('participant-a','Ana'),bruno={...participant('participant-b','Bruno'),labStatus:'accepted'};let fail=true;
  const h=await createFiiuHarness(({path})=>{
   if(path==='/api/fiiu')return{event:FIIU_EVENT,config:DEFAULT_CONFIG,content:[],nextCursor:null};
-  if(path==='/api/admin/fiiu/config')return{config:{...DEFAULT_CONFIG,version:0}};
   if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
   if(path==='/api/admin/fiiu/summary')return{summary:copy(summary)};
   if(path==='/api/admin/fiiu/registrations')return{registrations:[copy(ana)],nextCursor:'page-2'};
-  if(path==='/api/admin/fiiu/registrations?cursor=page-2')return{registrations:[copy(bruno)],nextCursor:null};
+  if(path==='/api/admin/fiiu/registrations?cursor=page-2'){if(fail){fail=false;return unavailable;}return{registrations:[copy(bruno)],nextCursor:null};}
   throw Error('Unexpected request '+path);
  },{page:'fiiu-admin'});
- assert.equal(key(h.root,'showingLoaded'),undefined,'the unfiltered list needs no partial-results note');
+ const pageReads=()=>h.requests.filter(request=>request.path.startsWith('/api/admin/fiiu/registrations')).length;
+ assert.equal(pageReads(),2,'the next page was read in the background');assert.equal(h.message.dataset.fiiuText,'','a failed background read shows no toast');
+ assert.equal(key(h.root,'showingLoaded'),undefined,'the unfiltered list needs no partial-results note');assert.ok(key(h.root.querySelector('.f-admin-list'),'loadMore'));
  key(h.root,'filterLabAccepted').listeners.click();assert.ok(key(h.root,'showingLoaded'));assert.ok(key(h.root,'noMatches'));
  await key(h.root.querySelector('.f-admin-list'),'loadMore').listeners.click();
- assert.equal(h.requests.filter(request=>request.path.startsWith('/api/admin/fiiu/registrations')).length,2);
+ assert.equal(pageReads(),3,'one press, one read');
  assert.deepEqual(h.root.querySelectorAll('.f-participant').map(row=>row.querySelector('strong').textContent),['Bruno Test']);
  assert.equal(key(h.root,'showingLoaded'),undefined);assert.equal(key(h.root.querySelector('.f-admin-list'),'loadMore'),undefined);assert.equal(h.message.dataset.fiiuText,'');
 });
@@ -408,19 +457,69 @@ test('an empty filtered list offers a reset that shows everyone again',async()=>
  assert.equal(key(h.root.querySelector('.f-admin-list'),'showAll'),undefined);
 });
 
-test('loading the last participant page moves focus to the first new row, not back to the search box',async()=>{
- const ana=participant('participant-a','Ana'),bruno=participant('participant-b','Bruno');
+test('loading the last participant page with Load more moves focus to the first new row, not back to the search box',async()=>{
+ const ana=participant('participant-a','Ana'),bruno=participant('participant-b','Bruno');let fail=true;
  const h=await createFiiuHarness(({path})=>{
   if(path==='/api/fiiu')return{event:FIIU_EVENT,config:DEFAULT_CONFIG,content:[],nextCursor:null};
-  if(path==='/api/admin/fiiu/config')return{config:{...DEFAULT_CONFIG,version:0}};
   if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
   if(path==='/api/admin/fiiu/summary')return{summary:copy(summary)};
   if(path==='/api/admin/fiiu/registrations')return{registrations:[copy(bruno)],nextCursor:'page-2'};
-  if(path==='/api/admin/fiiu/registrations?cursor=page-2')return{registrations:[copy(ana)],nextCursor:null};
+  // The background read fails once, so Load more is offered.
+  if(path==='/api/admin/fiiu/registrations?cursor=page-2'){if(fail){fail=false;return unavailable;}return{registrations:[copy(ana)],nextCursor:null};}
   throw Error('Unexpected request '+path);
  },{page:'fiiu-admin'});
  await key(h.root.querySelector('.f-admin-list'),'loadMore').listeners.click();
  assert.equal(detailButton(h,0).focused,true,'Ana, loaded last, sorts first and receives focus');assert.notEqual(field(h.root,'searchParticipants').focused,true);
+});
+
+test('the other participant pages load in the background, so search and filters cover everyone without a press',async()=>{
+ const ana=participant('participant-a','Ana'),bruno=participant('participant-b','Bruno'),carla={...participant('participant-c','Carla'),labStatus:'accepted'},second=deferred();
+ const h=await harness(({path})=>{
+  if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
+  if(path==='/api/admin/fiiu/registrations?cursor=page-2')return second.promise;
+  if(path==='/api/admin/fiiu/registrations?cursor=page-3')return{registrations:[copy(carla),copy(ana)],nextCursor:null};
+  throw Error('Unexpected request '+path);
+ },{participants:[ana],nextCursor:'page-2'});
+ const list=()=>h.root.querySelector('.f-admin-list'),timers=fakeTimers(h),reads=()=>h.requests.filter(request=>request.path.startsWith('/api/admin/fiiu/registrations')).length;
+ assert.equal(reads(),2,'the second page is already being read');assert.equal(key(list(),'loadMore'),undefined,'no Load more while the rest loads');
+ key(h.root,'filterLabAccepted').listeners.click();assert.ok(key(list(),'loading'),'a filtered view says more people are on their way');assert.equal(key(list(),'showingLoaded'),undefined);
+ key(h.root,'filterAll').listeners.click();const open=detailButton(h,0);h.ctx.document.activeElement=open;
+ second.resolve({registrations:[copy(bruno)],nextCursor:'page-3'});await flush();
+ assert.equal(reads(),3);assert.deepEqual(participantNames(h),['Ana Test','Bruno Test','Carla Test'],'Ana, read twice, is listed once');
+ assert.notEqual(detailButton(h,0),open,'Ana’s row was rebuilt from the later copy');assert.equal(detailButton(h,0).focused,true,'focus follows Ana to it');
+ assert.equal(key(list(),'loadMore'),undefined);assert.equal(key(list(),'loading'),undefined);
+ type(field(h.root,'searchParticipants'),'carla');timers.run();assert.deepEqual(participantNames(h),['Carla Test'],'a search finds someone from the last page');
+ assert.equal(reads(),3,'and reads nothing more');assert.equal(h.message.dataset.fiiuText,'');
+});
+
+test('a new registration total re-reads the participant list, so a walk-in can be found; unchanged rows stay as they are',async()=>{
+ const ana=participant('participant-a','Ana'),people=[ana];let total=237;
+ const h=await harness(()=>({content:[],nextCursor:null}),{participants:people,summaryRead:()=>({summary:{...copy(summary),totalRegistrations:total}})});
+ const timers=fakeTimers(h),reads=()=>h.requests.filter(request=>request.path.startsWith('/api/admin/fiiu/registrations')).length,row=h.root.querySelector('.f-participant');
+ await h.tickTimers();await flush();assert.equal(reads(),1,'the same total reads nothing');
+ people.push(participant('participant-b','Bruno'));total=238;await h.tickTimers();await flush();
+ assert.equal(reads(),2,'a new total re-reads the list once');assert.deepEqual(participantNames(h),['Ana Test','Bruno Test']);assert.equal(h.root.querySelector('.f-participant'),row,'Ana’s unchanged row is kept');
+ type(field(h.root,'searchParticipants'),'bruno');timers.run();assert.deepEqual(participantNames(h),['Bruno Test']);
+ await h.tickTimers();await flush();assert.equal(reads(),2,'and does not read again while the total holds');
+});
+
+test('opening a registration cancelled since the list loaded removes its row and says so',async()=>{
+ const ana=participant('participant-a','Ana'),bruno=participant('participant-b','Bruno');let cancelled=false;
+ const h=await harness(({path})=>{
+  if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
+  if(path.endsWith('participant-b'))return cancelled?{status:404,data:{error:'registration unavailable'}}:{registration:copy(bruno),attendance:[]};
+  return{registration:copy(ana),attendance:[]};
+ },{participants:[ana,bruno]});
+ await detailButton(h,0).listeners.click();cancelled=true;await detailButton(h,1).listeners.click();
+ assert.deepEqual(participantNames(h),['Ana Test'],'the cancelled row leaves the list');assert.equal(h.message.dataset.fiiuText,'registrationGone');
+ assert.equal(detailTitle(h),'Ana Test','the detail on screen stays');assert.equal(field(h.root,'searchParticipants').focused,true,'focus goes to the search box');
+ h.lang('es');assert.equal(h.message.textContent,'Esta inscripción fue cancelada y ya no está en la lista.');h.lang('en');
+ // The person on screen is the one cancelled: the detail goes too.
+ const again=await harness(({path})=>path==='/api/admin/fiiu/content'?{content:[],nextCursor:null}:cancelled?{status:404,data:{error:'registration unavailable'}}:{registration:copy(ana),attendance:[]},{participants:[ana]});
+ cancelled=false;await detailButton(again,0).listeners.click();assert.equal(detailTitle(again),'Ana Test');
+ cancelled=true;await detailButton(again,0).listeners.click();
+ assert.equal(again.root.querySelectorAll('.f-participant').length,0);assert.equal(detailTitle(again),undefined);assert.ok(key(again.root.querySelector('.f-admin-detail'),'selectParticipant'));
+ assert.equal(again.message.dataset.fiiuText,'registrationGone');
 });
 
 test('saving an edited publication returns focus to that publication in the list',async()=>{
@@ -439,11 +538,10 @@ test('organiser forms show validation messages in the page language and drop the
  form.listeners.input({target:title});assert.equal(title.validationMessage,'');assert.equal(url.validationMessage,'');
 });
 
-test('a laboratory review updates its row in place and keeps every page loaded with Load more',async()=>{
+test('a laboratory review updates its row in place and keeps every page loaded in the background',async()=>{
  const people={a:participant('a','Ana'),b:participant('b','Bruno'),c:participant('c','Carla')};
  const h=await createFiiuHarness(({path,method,body})=>{
   if(path==='/api/fiiu')return{event:FIIU_EVENT,config:DEFAULT_CONFIG,content:[],nextCursor:null};
-  if(path==='/api/admin/fiiu/config')return{config:{...DEFAULT_CONFIG,version:0}};
   if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
   if(path==='/api/admin/fiiu/summary')return{summary:copy(summary)};
   if(path==='/api/admin/fiiu/registrations')return{registrations:[copy(people.a)],nextCursor:'a'};
@@ -453,11 +551,11 @@ test('a laboratory review updates its row in place and keeps every page loaded w
   return{registration:copy(person),attendance:[]};
  },{page:'fiiu-admin'});
  const list=()=>h.root.querySelector('.f-admin-list'),pageReads=()=>h.requests.filter(request=>/^\/api\/admin\/fiiu\/registrations(\?|$)/.test(request.path)).length;
- key(h.root,'filterLabPending').listeners.click();await key(list(),'loadMore').listeners.click();
- assert.deepEqual(participantNames(h),['Ana Test','Bruno Test','Carla Test']);assert.equal(pageReads(),2);
+ key(h.root,'filterLabPending').listeners.click();
+ assert.deepEqual(participantNames(h),['Ana Test','Bruno Test','Carla Test']);assert.equal(pageReads(),2);assert.equal(key(list(),'loadMore'),undefined);
  await detailButton(h,1).listeners.click();const form=h.root.querySelector('.f-review-card').querySelector('form');
  field(form,'review').value='reviewAccepted';await submit(form);assert.equal(h.message.dataset.fiiuText,'changesSaved');
- assert.deepEqual(participantNames(h),['Ana Test','Carla Test'],'Carla, loaded with Load more and still pending, stays; accepted Bruno leaves the pending view');
+ assert.deepEqual(participantNames(h),['Ana Test','Carla Test'],'Carla, from the second page and still pending, stays; accepted Bruno leaves the pending view');
  assert.equal(pageReads(),2,'no page is read again');assert.equal(key(list(),'loadMore'),undefined);assert.equal(key(list(),'showingLoaded'),undefined);
  assert.equal(detailTitle(h),'Bruno Test');assert.ok(key(h.root.querySelector('.f-review-card'),'acceptedShort'),'the detail shows the saved review');
  key(h.root,'filterAll').listeners.click();const bruno=h.root.querySelectorAll('.f-participant')[1];
@@ -531,13 +629,15 @@ test('writes during an in-flight totals refresh get exactly one more refresh onc
 test('reloading the latest settings after a conflict re-reads only the settings and leaves other drafts alone',async()=>{
  let reads=0;
  const h=await harness(({method})=>method==='GET'?{content:[],nextCursor:null}:{status:409,data:{error:'configuration changed; reload before saving'}},{configRead:()=>({config:++reads===1?{...DEFAULT_CONFIG,version:0}:{...DEFAULT_CONFIG,partyUrl:'https://example.test/party-latest',version:3}})});
+ const settingsReads=()=>h.requests.filter(request=>request.path==='/api/admin/fiiu/config'&&request.method==='GET').length;
+ assert.equal(settingsReads(),0,'the first settings, version included, come with the public read');
  const draft=editorForm(h);field(draft,'title').value='Unsaved room change';
  const form=h.root.querySelector('.f-admin-settings').querySelector('form');field(form,'partyUrl').value='https://example.test/party-mine';await submit(form);
  assert.equal(h.message.dataset.fiiuText,'editorConflict');
  await key(form,'reloadLatest').listeners.click();
  const fresh=h.root.querySelector('.f-admin-settings').querySelector('form');
  assert.notEqual(fresh,form);assert.equal(field(fresh,'partyUrl').value,'https://example.test/party-latest');assert.equal(field(fresh,'registrationOpen').focused,true);
- assert.equal(h.reloads(),0,'the page is not reloaded');assert.equal(h.message.dataset.fiiuText,'');
+ assert.equal(h.reloads(),0,'the page is not reloaded');assert.equal(h.message.dataset.fiiuText,'');assert.equal(settingsReads(),1);
  assert.equal(editorForm(h),draft);assert.equal(field(draft,'title').value,'Unsaved room change','an unrelated draft survives');
  await submit(fresh);assert.equal(h.requests.filter(request=>request.method==='PUT').at(-1).body.version,3,'the next save uses the version just read');
 });
@@ -587,6 +687,20 @@ test('replacing an edited publication that has unsaved changes asks first',async
  answer=true;edit(0);assert.equal(asked,2);assert.equal(title().value,'First');
 });
 
+test('leaving the page with an unsaved publication asks first, and the public page opens in a new tab',async()=>{
+ const post={id:'p1',version:1,title:'Existing news',body:'',url:'',kind:'news',status:'published',activityId:''};
+ const h=await harness(()=>({content:[copy(post)],nextCursor:null}));
+ const leave=()=>{let prevented=false;const event={preventDefault(){prevented=true;}};for(const listener of h.windowListeners.beforeunload)listener(event);return prevented&&event.returnValue==='';};
+ assert.equal(h.windowListeners.beforeunload.length,1);assert.equal(leave(),false,'a blank editor lets the page go');
+ field(editorForm(h),'title').value='Half-written news';assert.equal(leave(),true,'an unsaved new publication asks first');
+ key(h.root.querySelector('.f-pub'),'editContent').listeners.click();assert.equal(leave(),true,'set aside while another publication is open, it still counts');
+ key(h.root.querySelector('.f-content-editor'),'cancelEdit').listeners.click();assert.equal(field(editorForm(h),'title').value,'Half-written news');assert.equal(leave(),true,'brought back by Cancel, it still counts');
+ field(editorForm(h),'title').value='';assert.equal(leave(),false);
+ key(h.root.querySelector('.f-pub'),'editContent').listeners.click();assert.equal(leave(),false,'an unchanged edit lets the page go');
+ field(editorForm(h),'title').value='Existing news, corrected';assert.equal(leave(),true,'a changed edit asks first');
+ const view=key(h.root.querySelector('.f-admin-head'),'viewPublic');assert.equal(view.href,'fiiu.html');assert.equal(view.target,'_blank');assert.equal(view.rel,'noopener');assert.equal(view['aria-describedby'],'f-newtab');
+});
+
 test('the registrations CSV downloads through fetch, and a failed export is reported without leaving the dashboard',async()=>{
  const h=await harness(()=>({content:[],nextCursor:null})),timers=fakeTimers(h),events=[],signals=[],fetchPage=h.ctx.fetch,createElement=h.ctx.document.createElement;let reply;
  h.ctx.URL={createObjectURL:blob=>{events.push(['object URL',blob]);return 'blob:nodal/export';},revokeObjectURL:href=>events.push(['revoked',href])};
@@ -603,7 +717,7 @@ test('the registrations CSV downloads through fetch, and a failed export is repo
  const downloading=csv.listeners.click();assert.equal(csv.disabled,true);assert.equal(h.message.dataset.fiiuText,'loading');await downloading;
  assert.deepEqual(events,[['object URL',file],['download','blob:nodal/export','fiiu-2026-registrations.csv',true]]);
  assert.equal(h.body.children.some(node=>node.tagName==='a'),false,'the temporary link is removed');assert.equal(h.message.dataset.fiiuText,'');
- assert.deepEqual(timers.delays(),[60000]);timers.run();assert.deepEqual(events.at(-1),['revoked','blob:nodal/export']);
+ assert.deepEqual(timers.delays(),[12000,60000],'the last failure’s toast clear, then the revoke');timers.run();assert.deepEqual(events.at(-1),['revoked','blob:nodal/export']);assert.equal(h.message.dataset.fiiuText,'','the stale clear leaves the toast alone');
  assert.ok(signals.every(signal=>signal instanceof AbortSignal),'each export has a time limit where the browser supports one');
  h.ctx.AbortSignal={};await csv.listeners.click();
  assert.equal(signals.at(-1),undefined);assert.deepEqual(events.at(-1),['download','blob:nodal/export','fiiu-2026-registrations.csv',true],'Safari before 16, without AbortSignal.timeout, still downloads');

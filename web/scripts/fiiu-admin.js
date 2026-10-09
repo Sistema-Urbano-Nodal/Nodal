@@ -2,13 +2,19 @@
  'use strict';
  const {rows:strings,t,el,tr,source,button,link,field,check,api,status,dateNode,rangeNode,limaDate,locale,findActivity,chronological,typeOf,countLabel,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,checkinState,checkinActivities,limaClock,windowNode}=window.Fiiu;
  const root=document.getElementById('fiiuAdminRoot'),message=document.getElementById('fiiuStatus');
- let festival,config,records=[],cursor=null,publications=[],contentCursor=null,selectedParticipant=null,shownParticipant=null,detailRequest=0,participantFilter='all',participantQuery='',shownCount=null,updatedAt=null,search=null,searchTimer=null,setAside=null;
+ let festival,config,records=[],cursor=null,filling=null,listStale=false,publications=[],contentCursor=null,selectedParticipant=null,shownParticipant=null,detailRequest=0,participantFilter='all',participantQuery='',shownCount=null,updatedAt=null,search=null,searchTimer=null,setAside=null;
  const detailHost=el('section','f-admin-detail'),listHost=el('div','f-admin-list'),participantsHost=el('section','f-admin-participants'),settingsHost=el('section','f-admin-settings'),contentHost=el('section','f-admin-content'),pillHost=el('div','f-pill-host'),editorHost=el('div','f-content-editor'),pubList=el('div','f-pub-list');
  const summaryHost=el('section','f-admin-summary'),summaryBody=el('div','f-summary-body'),summaryMessage=el('p','f-status'),updated=el('span','f-updated'),lastScan=el('span','f-updated'),resultCount=el('p','f-result-count');let summaryBusy=false,summaryRerun=false;
  const checkinHost=el('section','f-admin-checkin'),checkinBody=el('div','f-checkin-body');let lastCheckinKey='';
  // Access: a 403 locks the page (participant data leaves the DOM and polling stops); a 401 keeps every draft, shows a sign-in link and pauses timed refreshes until a request succeeds again.
  let locked=false,sessionLost=false,timer=null,sectionObserver=null;
+ // Leaving the page (a nav link, a reload) with an unsaved publication asks first: an edit with changes, or a new one with any text, open or set aside.
+ const hasText=draft=>Boolean(draft&&(draft.title||draft.body||draft.url));
+ window.addEventListener?.('beforeunload',event=>{if(locked)return;const editor=currentEditor();if(hasText(setAside)||(editor?.isNew?hasText(editor.draft()):editor?.dirty())){event.preventDefault();event.returnValue='';}});
  const signInUrl=()=>'/login.html?next='+encodeURIComponent(location.pathname+location.hash),sessionNotice=el('p','f-notice is-warning f-session-notice');sessionNotice.hidden=true;sessionNotice.setAttribute('role','alert');
+ const signInLink=()=>{const a=link('adminSignIn',signInUrl(),'f-text-link');a.target='_blank';a.rel='noopener';return describe(a);};
+ // Once the dashboard is up, a tap dismisses the toast; "Loading…" and "Saving…" stay until their request ends.
+ message.addEventListener('click',event=>{if(event?.target?.closest?.('a')||!root.querySelector('.f-admin-head')||['loading','saving',''].includes(message.dataset.fiiuText))return;status(message,'');});
  for(const node of [summaryMessage,resultCount]){node.setAttribute('role','status');node.setAttribute('aria-live','polite');}
  const summaryRefresh=button('refreshSummary',()=>refreshSummary(),'f-button secondary f-small');
  // Timed refresh can be paused (WCAG 2.2.2); switching it back on catches up at once.
@@ -112,7 +118,10 @@
  async function refreshSummary({pending,background=false}={}){
   if(locked)return;if(summaryBusy){summaryRerun=true;return;}summaryBusy=true;summaryBody.setAttribute('aria-busy','true');const hadFocus=document.activeElement===summaryRefresh;
   if(!background){summaryRefresh.disabled=true;status(summaryMessage,'loading');}
-  try{const result=await(pending||api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error})));if(result.error)throw result.error;const next=result.data.summary;if(summaryKey(next)!==lastSummaryKey)renderSummary(next);else renderCheckin(next);status(summaryMessage,'');stampUpdated(new Date());resume();}
+  try{const result=await(pending||api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error})));if(result.error)throw result.error;const next=result.data.summary,before=lastSummary?.totalRegistrations;if(summaryKey(next)!==lastSummaryKey)renderSummary(next);else renderCheckin(next);status(summaryMessage,'');stampUpdated(new Date());resume();
+   // A new total (a walk-in registration, a cancellation) re-reads the participant list once every page is in.
+   if(Number.isSafeInteger(before)&&next.totalRegistrations!==before)listStale=true;
+   if(listStale&&!cursor&&!filling){listStale=false;if(next.totalRegistrations!==records.length)readParticipants(true);}}
   catch(error){if(!guard(error))status(summaryMessage,error);}
   // Disabling the button drops focus to <body>; hand it back only if the organiser has not moved on meanwhile.
   finally{summaryBusy=false;summaryRefresh.disabled=false;summaryBody.setAttribute('aria-busy','false');if(hadFocus&&(!document.activeElement||document.activeElement===document.body))summaryRefresh.focus();if(summaryRerun){summaryRerun=false;refreshSummary({background:true});}}
@@ -153,19 +162,21 @@
   return false;
  }
  function resume(){if(!sessionLost)return;sessionLost=false;sessionNotice.hidden=true;}
- function sessionPanel(){const signin=link('adminSignIn',signInUrl(),'f-text-link');signin.target='_blank';signin.rel='noopener';describe(signin);sessionNotice.replaceChildren(tr('span','adminSignInAgain'),document.createTextNode(' '),signin);return sessionNotice;}
+ function sessionPanel(){sessionNotice.replaceChildren(tr('span','adminSignInAgain'),document.createTextNode(' '),signInLink());return sessionNotice;}
  // Feedback: #fiiuStatus is shown as a toast (fiiu.css) so saves are visible wherever the organiser is working.
- function clearLater(node,key){if(typeof setTimeout!=='function')return;clearTimeout(clearTimers.get(node));clearTimers.set(node,setTimeout(()=>{clearTimers.delete(node);if(node.dataset.fiiuText===key)status(node,'');},6000));}
+ function clearLater(node,key,delay=6000){if(typeof setTimeout!=='function')return;clearTimeout(clearTimers.get(node));clearTimers.set(node,setTimeout(()=>{clearTimers.delete(node);if(node.dataset.fiiuText===key)status(node,'');},delay));}
+ // An error toast clears after 12 s; an expired session's carries its own sign-in link instead, so the organiser can act from where they are.
+ function reportError(feedback,err){status(feedback,err);if(feedback!==message)return;if(err?.status===401)message.append(document.createTextNode(' '),signInLink());else clearLater(message,message.dataset.fiiuText,12000);}
  // "Reload the latest version" re-reads only the record that changed into its form; other unsaved drafts on the page stay.
  async function action(control,fn,{feedback=message,conflict=null,reload=null,done='changesSaved'}={}){
   if(control)control.disabled=true;status(feedback,'saving');conflict?.replaceChildren();
   try{await fn();status(feedback,done);clearLater(feedback,done);resume();}
-  catch(err){if(guard(err))return;status(feedback,err);if(err.key==='editorConflict'&&conflict&&reload){const latest=button('reloadLatest',()=>fetchInto(latest,reload),'f-button secondary f-small');conflict.replaceChildren(latest);}}
+  catch(err){if(guard(err))return;reportError(feedback,err);if(err.key==='editorConflict'&&conflict&&reload){const latest=button('reloadLatest',()=>fetchInto(latest,reload),'f-button secondary f-small');conflict.replaceChildren(latest);}}
   finally{if(control)control.disabled=false;}
  }
  // Reads say "Loading…" and then clear; they never report "Changes saved.".
  // Disabling the focused control drops focus to <body>; a failed read hands it back.
- async function fetchInto(control,fn){control.disabled=true;status(message,'loading');try{await fn();status(message,'');resume();}catch(err){if(!guard(err))status(message,err);}finally{control.disabled=false;if(control.isConnected&&(!document.activeElement||document.activeElement===document.body))control.focus();}}
+ async function fetchInto(control,fn){control.disabled=true;status(message,'loading');try{await fn();status(message,'');resume();}catch(err){if(!guard(err))reportError(message,err);}finally{control.disabled=false;if(control.isConnected&&(!document.activeElement||document.activeElement===document.body))control.focus();}}
  function lockForm(form,fallback){
   const active=document.activeElement,controls=[...form.querySelectorAll('input,select,textarea,button')].map(control=>[control,control.disabled]);
   for(const [control] of controls)control.disabled=true;form.setAttribute('aria-busy','true');
@@ -179,11 +190,26 @@
   form.addEventListener('input',reset);form.addEventListener('change',reset);
  }
  async function refreshSaved(fn){try{await fn();}catch{throw Object.assign(new Error(),{key:'savedRefreshFailed'});}}
- // Loaded participants are kept in name order, each with its normalised search key, so a search only filters.
- function setRecords(list){records=[...list].sort(byName);for(const r of records)if(!searchKeys.has(r))searchKeys.set(r,norm(`${r.answers.firstName} ${r.answers.lastName} ${r.email}`));}
- // A saved review, or a detail read that finds a newer version, replaces just that row: pages added with "Load more" stay.
+ // Loaded participants are kept in name order (one per id, the later copy winning), each with its normalised search key, so a search only filters.
+ function setRecords(list){records=[...new Map(list.map(r=>[r.id,r])).values()].sort(byName);for(const r of records)if(!searchKeys.has(r))searchKeys.set(r,norm(`${r.answers.firstName} ${r.answers.lastName} ${r.email}`));}
+ // A saved review, or a detail read that finds a newer version, replaces just that row: every loaded page stays.
  function updateRecord(registration){const old=records.find(r=>r.id===registration.id);if(!old||old.version===registration.version)return;setRecords(records.map(r=>r===old?{...old,...registration}:r));renderList();}
  async function loadMoreParticipants(){const data=await api('/api/admin/fiiu/registrations?cursor='+encodeURIComponent(cursor));setRecords([...records,...data.registrations]);cursor=data.nextCursor;renderList();return data.registrations;}
+ // After the first page the rest load in the background, so search and filters cover everyone; fresh re-reads the whole list (a changed total), keeping each row
+ // whose version is unchanged. One read at a time, the list re-rendered once at the end; a failed read leaves "Load more" (or the next changed total) to carry on.
+ function readParticipants(fresh=false){
+  if(filling||locked||!(fresh||cursor))return filling;
+  filling=(async()=>{
+   const read=[];let next=fresh?null:cursor;
+   try{
+    do{const data=await api('/api/admin/fiiu/registrations'+(next?'?cursor='+encodeURIComponent(next):''));if(locked)return;next=data.nextCursor;if(fresh)read.push(...data.registrations);else{setRecords([...records,...data.registrations]);cursor=next;}}while(next&&!locked);
+    if(fresh){const old=new Map(records.map(r=>[r.id,r]));setRecords(read.map(r=>{const o=old.get(r.id);return o&&o.version>=r.version?o:r;}));cursor=null;}
+   }catch(err){if(!guard(err)&&fresh)listStale=true;}
+   finally{filling=null;if(!locked)renderListKeepingFocus();}
+  })();return filling;
+ }
+ // A background re-render keeps keyboard focus on the same person's button, or on the same list control.
+ function renderListKeepingFocus(){const active=document.activeElement,id=[...rowButtons].find(([,b])=>b===active)?.[0],key=!id&&listHost.contains?.(active)?active.dataset?.fiiuText:'';renderList();const target=id?rowButtons.get(id):key&&[...listHost.querySelectorAll('button')].find(b=>b.dataset.fiiuText===key);if(target&&target!==document.activeElement)target.focus({preventScroll:true});}
  async function loadMoreContent(){const page=await api('/api/admin/fiiu/content?cursor='+encodeURIComponent(contentCursor));publications=[...publications,...page.content];contentCursor=page.nextCursor;renderContent();}
  // Participants: client-side search, filters and name order over the pages loaded so far.
  function filters(){
@@ -215,13 +241,14 @@
   if(!records.length){listHost.append(tr('p','noParticipants'));resultCount.replaceChildren();shownCount=null;}
   else{
    const visible=records.filter(FILTERS[participantFilter]).filter(r=>!participantQuery||searchKeys.get(r).includes(participantQuery));
-   if(cursor&&(participantFilter!=='all'||participantQuery))listHost.append(tr('p','showingLoaded','f-muted'));
+   // While the other pages load in the background a filtered view says so; "Load more" is left only when that load stopped on an error.
+   if(cursor&&(participantFilter!=='all'||participantQuery))listHost.append(tr('p',filling?'loading':'showingLoaded','f-muted'));
    if(!visible.length){listHost.append(tr('p','noMatches','f-muted f-empty'));listHost.append(button('showAll',()=>{participantFilter='all';participantQuery='';if(search)search.input.value='';syncFilterChips();renderList();filterButtons.get('all')?.focus();},'f-button secondary f-small f-show-all'));}
    else{const list=el('ul','f-participant-list');for(const r of visible)list.append(participantRow(r));listHost.append(list);markSelected();}
    if(visible.length!==shownCount){shownCount=visible.length;resultCount.replaceChildren(countLabel(shownCount,'participantShownOne','participantShownMany'));}
   }
   // After the last page, focus lands on the first newly loaded row (in list order), or on the section heading when the filters hide them all.
-  if(cursor){const more=button('loadMore',()=>fetchInto(more,async()=>{const added=new Set((await loadMoreParticipants()).map(r=>r.id)),heading=participantsHost.querySelector('h2'),next=listHost.querySelector('.f-load-more')||[...rowButtons].find(([id])=>added.has(id))?.[1];if(next)next.focus();else if(heading){heading.tabIndex=-1;heading.focus();}}),'f-button secondary f-load-more');more.setAttribute('aria-describedby','f-h-participants');listHost.append(more);}
+  if(cursor&&!filling){const more=button('loadMore',()=>fetchInto(more,async()=>{const added=new Set((await loadMoreParticipants()).map(r=>r.id)),heading=participantsHost.querySelector('h2'),next=listHost.querySelector('.f-load-more')||[...rowButtons].find(([id])=>added.has(id))?.[1];if(next)next.focus();else if(heading){heading.tabIndex=-1;heading.focus();}}),'f-button secondary f-load-more');more.setAttribute('aria-describedby','f-h-participants');listHost.append(more);}
  }
  // Detail: review first, then attendance by day (the person's own plans and interests first) and every non-empty answer.
  function answerValue(key,value){
@@ -296,9 +323,20 @@
   if(state==='Sent'&&Number.isFinite(at))line.append(document.createTextNode(' · '),dateNode(limaDate(new Date(at)),'span','short','f-email-day'),document.createTextNode(' '),el('span','',limaClock(at)));
   return line;
  }
+ // A registration cancelled since the list loaded leaves the list, and the detail if it is shown, with its own message.
+ function registrationGone(id,current){
+  records=records.filter(r=>r.id!==id);if(shownParticipant===id){shownParticipant=null;detailHost.replaceChildren(tr('p','selectParticipant','f-muted f-detail-empty'));detailHost.removeAttribute('aria-labelledby');}
+  renderListKeepingFocus();if(current)search?.input.focus();return Object.assign(Error(t('registrationGone')),{key:'registrationGone'});
+ }
+ // While another person's detail loads, the one on screen is dimmed and inert, so a tick or a review cannot go to the wrong person.
  async function openParticipant(id,{focus=true}={}){
-  const request=++detailRequest;selectedParticipant=id;
-  const data=await api('/api/admin/fiiu/registrations/'+id);if(request!==detailRequest)return;
+  const request=++detailRequest,switching=shownParticipant!==null&&shownParticipant!==id;selectedParticipant=id;
+  if(switching){detailHost.inert=true;detailHost.setAttribute('aria-busy','true');}
+  let data;
+  try{data=await api('/api/admin/fiiu/registrations/'+id);}
+  catch(err){const current=request===detailRequest,gone=err?.status===404&&registrationGone(id,current);if(current)selectedParticipant=shownParticipant;throw gone||err;}
+  finally{if(request===detailRequest){detailHost.inert=false;detailHost.setAttribute('aria-busy','false');}}
+  if(request!==detailRequest)return;
   const r=data.registration,a=r.answers,head=el('header','f-detail-head'),who=el('div'),name=el('h3','',`${a.firstName} ${a.lastName}`),answers=el('details','f-answers');
   updateRecord(r);shownParticipant=id;markSelected();name.id='f-detail-name';who.append(name,el('p','f-muted',r.email),emailStatusLine(r));
   head.append(who,button('backToList',()=>(rowButtons.get(id)||search?.input)?.focus(),'f-button secondary f-small f-narrow-only'));
@@ -306,8 +344,8 @@
   if(a.applyLab)detailHost.append(reviewCard(r,id));
   answers.append(tr('summary','allAnswers'),answerRows(el('dl','f-answers-list'),a,Object.keys(a).filter(key=>!['privacyAccepted','externalActivities'].includes(key))));
   detailHost.append(attendanceFieldset(r,data.attendance,id),answers);
-  // Beside the list (wide screens) the page stays put; stacked below it, move the reader to the detail.
-  if(focus)detailHost.focus({preventScroll:!window.matchMedia?.('(max-width: 999px)')?.matches});
+  // Beside the list (wide, tall screens, where it is sticky; fiiu.css) the page stays put; stacked below it or on a short screen, its top goes just under the section nav.
+  if(focus){const beside=window.matchMedia?.('(min-width: 1000px) and (min-height: 641px)')?.matches;if(!beside)detailHost.scrollIntoView?.({block:'start'});detailHost.focus({preventScroll:true});}
  }
  function renderRegistrationPill(){const on=config.registrationOpen;pillHost.replaceChildren(link(on?'registrationOpenNow':'registrationClosedNow','#settings','f-pill'+(on?' is-open':'')));}
  function settings(){
@@ -508,7 +546,9 @@
  function adminHead(){
   const event=festival.event,head=el('header','f-admin-head'),title=el('div','f-admin-title'),sub=el('p','f-admin-sub'),side=el('div','f-admin-head-side'),actions=el('div','f-actions'),note=tr('p','exportNote','f-muted f-export-note'),csv=button('export',()=>fetchInto(csv,downloadExport),'f-button secondary');
   note.id='f-export-note';describe(csv,note.id);sub.append(el('span','',event.title),rangeNode(event.startsOn,event.endsOn),source('span',event.city));title.append(tr('h1','admin'),sub);
-  actions.append(pillHost,link('viewPublic','fiiu.html','f-text-link'),csv);side.append(actions,note);head.append(title,side);return head;
+  // The public page opens in a new tab, so checking a post never leaves an unsaved draft behind.
+  const view=link('viewPublic','fiiu.html','f-text-link');view.target='_blank';view.rel='noopener';describe(view);
+  actions.append(pillHost,view,csv);side.append(actions,note);head.append(title,side);return head;
  }
  // The CSV is fetched rather than linked, so an expired session, a rate limit or an outage is reported here instead of replacing the dashboard.
  // Safari before 16 has no AbortSignal.timeout; there the download runs without the time limit.
@@ -534,9 +574,9 @@
   for(const section of [summaryHost,checkinHost,participantsHost,settingsHost,contentHost])observer.observe(section);
  }
  async function load(){
-  status(message,'loading');const summaryRequest=api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error}));try{const [publicData,settingsData,posts,participantData]=await Promise.all([api('/api/fiiu'),api('/api/admin/fiiu/config'),api('/api/admin/fiiu/content'),api('/api/admin/fiiu/registrations')]);festival=publicData;config=settingsData.config;publications=posts.content;contentCursor=posts.nextCursor;setRecords(participantData.registrations);cursor=participantData.nextCursor;
+  status(message,'loading');const summaryRequest=api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error}));try{const [publicData,posts,participantData]=await Promise.all([api('/api/fiiu'),api('/api/admin/fiiu/content'),api('/api/admin/fiiu/registrations')]);festival=publicData;config=publicData.config;publications=posts.content;contentCursor=posts.nextCursor;setRecords(participantData.registrations);cursor=participantData.nextCursor;
    const grid=el('div','f-admin-columns');grid.append(listHost,detailHost);detailHost.replaceChildren(tr('p','selectParticipant','f-muted f-detail-empty'));const heading=tr('h2','participants');heading.id='f-h-participants';participantsHost.id='participants';participantsHost.replaceChildren(heading,filters(),grid);
-   root.replaceChildren(adminHead(),sessionNotice,adminNav(),summaryPanel(),checkinPanel(),participantsHost,settings(),contentPanel(),newTabNote());renderRegistrationPill();renderList();status(message,'');refreshSummary({pending:summaryRequest});renderBackfill();loadBackfill();setTitle();observeSections();
+   root.replaceChildren(adminHead(),sessionNotice,adminNav(),summaryPanel(),checkinPanel(),participantsHost,settings(),contentPanel(),newTabNote());renderRegistrationPill();readParticipants();renderList();status(message,'');refreshSummary({pending:summaryRequest});renderBackfill();loadBackfill();setTitle();observeSections();
    const hash=location.hash;if(SECTIONS.some(([id])=>'#'+id===hash))document.querySelector(hash)?.scrollIntoView({block:'start'});
   }catch(error){
    // Signed out before the dashboard loaded: sign in and come straight back. Signed in without organiser access: the organisers-only state, with no Retry.
