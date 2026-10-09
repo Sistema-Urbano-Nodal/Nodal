@@ -112,7 +112,7 @@ test('a closed answer never reads as "not open yet", even one from an older serv
 
 test('someone without a registration is sent to register while registration is open, and to the desk once it closes',async()=>{
  const open=await page(()=>({status:404,data:{code:'not_registered',activityId:'day1-am',registrationOpen:true}}));
- assert.equal(title(open).dataset.fiiuText,'notRegistered');assert.ok(key(result(open),'notRegisteredHint'));assert.equal(key(result(open),'register').href,'fiiu.html#registration');
+ assert.equal(title(open).dataset.fiiuText,'notRegistered');assert.ok(key(result(open),'notRegisteredHint'));assert.equal(key(result(open),'register').href,'fiiu.html#add-day1-am','the form opens with this block ticked');
  const closed=await page(()=>({status:404,data:{code:'not_registered',activityId:'day1-am',registrationOpen:false}}));
  assert.ok(key(result(closed),'askDesk'));assert.equal(key(result(closed),'register'),undefined);
  const race=await page(()=>({status:404,data:{error:'registration unavailable'}}),{registrationOpen:false});
@@ -121,7 +121,7 @@ test('someone without a registration is sent to register while registration is o
 
 test('a block outside the person’s plan links to their registration while it is open; a lab application not yet accepted says so',async()=>{
  const plan=await page(()=>({status:403,data:{code:'not_in_plan',activityId:'day1-am',registrationOpen:true}}));
- assert.equal(title(plan).dataset.fiiuText,'notInPlan');assert.ok(key(result(plan),'notInPlanHint'));assert.equal(key(result(plan),'addToRegistration').href,'fiiu.html#registration');
+ assert.equal(title(plan).dataset.fiiuText,'notInPlan');assert.ok(key(result(plan),'notInPlanHint'));assert.equal(key(result(plan),'addToRegistration').href,'fiiu.html#add-day1-am','the form opens with this block ticked');
  const closed=await page(()=>({status:403,data:{code:'not_in_plan',activityId:'day1-am',registrationOpen:false}}));
  assert.equal(key(result(closed),'addToRegistration'),undefined);assert.ok(key(result(closed),'askDesk'));
  const lab=await page(()=>({status:403,data:{code:'lab_not_accepted',activityId:'day0-lab'}}),{search:`?a=day0-lab&c=${CODE}`});
@@ -140,7 +140,7 @@ test('the laboratory cannot be added from the registration, so no laboratory ref
  assert.equal(key(result(unregistered),'register'),undefined);assert.equal(key(result(unregistered),'notRegisteredHint'),undefined);
  // A conference block keeps its add-and-scan-again path.
  const block=await page(()=>({status:404,data:{code:'not_registered',activityId:'day1-am',registrationOpen:true}}));
- assert.equal(key(result(block),'register').href,'fiiu.html#registration');
+ assert.equal(key(result(block),'register').href,'fiiu.html#add-day1-am');
 });
 
 test('a signed-out scan gets a sign-in link that comes back with the same block and code',async()=>{
@@ -154,7 +154,7 @@ test('a rate limit or a lost connection offers to send the same check-in again',
  let replies=[{status:429,data:{error:'too many requests'}},()=>{throw TypeError('Failed to fetch');},checkedIn];
  const h=await page(()=>{const next=replies.shift();return typeof next==='function'?next():next;});
  assert.equal(title(h).dataset.fiiuText,'checkinFailedTitle');assert.equal(result(h).className,'f-checkin is-error');assert.ok(key(result(h),'rate'));
- await key(result(h),'retry').listeners.click();assert.ok(key(result(h),'error'));
+ await key(result(h),'retry').listeners.click();assert.ok(key(result(h),'checkinError'));assert.equal(key(result(h),'error'),undefined,'no form copy ("your answers are still here") on a page without a form');
  await key(result(h),'retry').listeners.click();assert.equal(title(h).dataset.fiiuText,'checkedInTitle');
  assert.ok(posts(h).every(request=>request.body.code===CODE&&request.body.activityId==='day1-am'));assert.equal(posts(h).length,3);
 });
@@ -182,7 +182,8 @@ test('signed out, a reload or Back after the code left the address asks for sign
  // Any other failure to read the registration offers to try again rather than claiming the link is incomplete.
  let replies=[{status:503,data:{error:'unavailable'}},{registration:null,attendance,hours:{minutes:240,hours:4,untimed:[]},user:{id:'u1',email:'member@example.test'}}];
  const down=await page(request=>request.path==='/api/fiiu/registration'?replies.shift():assert.fail(),{search:'?a=day1-am'});
- assert.equal(title(down).dataset.fiiuText,'checkinFailedTitle');await key(result(down),'retry').listeners.click();await flush();
+ assert.equal(title(down).dataset.fiiuText,'checkinLoadFailed','only the lookup failed: it never says the check-in did not go through');assert.ok(key(result(down),'checkinLoadFailedHint'));assert.equal(key(result(down),'error'),undefined);assert.equal(posts(down).length,0);
+ await key(result(down),'retry').listeners.click();await flush();
  assert.equal(title(down).dataset.fiiuText,'alreadyCheckedIn');assert.equal(title(down).focused,true);
 });
 
@@ -224,4 +225,27 @@ test('participation badges follow the programme, whatever order the store return
  const h=await page(request=>request.path==='/api/fiiu/registration'?{registration:null,attendance:rows,hours:{minutes:240,hours:4,untimed:['day0-lab']},user:{id:'u1',email:'member@example.test'}}:assert.fail(),{search:'?a=day0-lab',now:'2026-10-22T16:00:00-05:00'});
  assert.equal(title(h).dataset.fiiuText,'alreadyCheckedIn');
  assert.deepEqual(result(h).querySelectorAll('.f-badge').map(node=>node.textContent.slice(2,24)),['Gestión urbana en acci','Cuidar y transformar l','Calles para la gente: ']);
+});
+
+test('a lookup held back by a rate limit on reload keeps its wait-a-minute hint',async()=>{
+ const h=await page(request=>request.path==='/api/fiiu/registration'?{status:429,data:{error:'too many requests'}}:assert.fail(),{search:'?a=day1-am'});
+ assert.equal(title(h).dataset.fiiuText,'checkinLoadFailed');assert.ok(key(result(h),'rate'));assert.equal(key(result(h),'checkinLoadFailedHint'),undefined);assert.ok(key(result(h),'retry'));
+});
+
+test('the code form never waits for the programme, with no link or an incomplete one',async()=>{
+ const stalled=search=>createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?new Promise(()=>{}):assert.fail('nothing is sent before a code is typed'),{page:'fiiu-checkin',search});
+ const entry=await stalled('');assert.equal(title(entry).dataset.fiiuText,'codeEntry');assert.ok(field(result(entry),'checkinCode'));assert.equal(entry.message.dataset.fiiuText,'');
+ const broken=await stalled('?c=x');assert.equal(title(broken).dataset.fiiuText,'invalidLink');assert.ok(field(result(broken),'checkinCode'));
+});
+
+test('a stalled programme holds the check-in result only briefly: the result shows with the hours from the answer',async()=>{
+ const waits=[];const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?new Promise(()=>{}):checkedIn,{page:'fiiu-checkin',search:`?a=day1-am&c=${CODE}`,context:{Date:frozen('2026-10-21T09:12:00-05:00'),setTimeout:(fn,ms)=>{waits.push(ms);fn();}}});
+ assert.deepEqual(waits,[1500]);assert.equal(title(h).dataset.fiiuText,'checkedInTitle');assert.equal(title(h).focused,true);
+ assert.match(content(result(h).querySelector('.f-hours')),/\b4\b/);assert.equal(result(h).querySelector('.f-checkin-activity'),null,'without the programme the block is not named');
+});
+
+test('without the programme, a refusal for a typed code still links to the block the server names',async()=>{
+ const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?{status:503,data:{}}:{status:403,data:{code:'not_in_plan',activityId:'day1-pm',registrationOpen:true}},{page:'fiiu-checkin',search:''});
+ const form=result(h).querySelector('form');field(form,'checkinCode').value='K7M4PX';form.listeners.submit({preventDefault(){}});await flush();
+ assert.equal(title(h).dataset.fiiuText,'notInPlan');assert.equal(key(result(h),'addToRegistration').href,'fiiu.html#add-day1-pm');
 });

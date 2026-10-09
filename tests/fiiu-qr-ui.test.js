@@ -88,19 +88,53 @@ test('an ended session hides the code and links to sign-in with the way back',as
  assert.equal(h.root.querySelector('.f-qr-stage'),null);await h.tickTimers();assert.equal(reads(h),1);
 });
 
-test('workshops and routes have no screen: the page explains and asks the server for nothing',async()=>{
- const h=await page(()=>assert.fail('no code for an external activity'),{search:'?a=workshop-calles-gente'});
- assert.ok(key(h.root,'noCheckin'));assert.equal(key(h.root,'allScreens').href,'fiiu-qr.html');assert.equal(reads(h),0);assert.equal(h.timers.length,0);
+test('workshops and routes have no screen: the page explains and never shows a code',async()=>{
+ // The first code is asked for with the programme, before the page knows the block; the server refuses it for an external activity, and nothing more is asked.
+ const h=await page(()=>({status:400,data:{error:'invalid activity',code:'invalid_activity'}}),{search:'?a=workshop-calles-gente'});
+ assert.ok(key(h.root,'noCheckin'));assert.equal(key(h.root,'allScreens').href,'fiiu-qr.html');assert.equal(h.root.querySelector('.f-qr-stage'),null);assert.equal(descendants(h.root).some(node=>node.tagName==='svg'),false);
+ assert.ok(reads(h)<=1);assert.equal(h.timers.length,0);
+});
+
+test('the first code is asked for together with the programme, and read once',async()=>{
+ let finish;const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?new Promise(resolve=>{finish=resolve;}):screen(),{page:'fiiu-qr',search:'?a=day1-am'});
+ assert.deepEqual(h.requests.map(request=>request.path).sort(),['/api/admin/fiiu/checkin?activityId=day1-am','/api/fiiu?kind=news'],'the code does not wait for the programme');
+ finish({event:FIIU_EVENT,config:{registrationOpen:true},content:[],nextCursor:null});await flush();
+ assert.equal(reads(h),1);assert.ok(descendants(h.root.querySelector('.f-qr-code')).some(node=>node.tagName==='svg'));assert.equal(h.root.querySelector('.f-qr-short').textContent,'K7M 4PX');
+});
+
+test('a programme that fails offers Try again, which asks for a fresh code; a failed first code is never an unhandled rejection',async()=>{
+ const unhandled=[],note=reason=>unhandled.push(reason);process.on('unhandledRejection',note);
+ try{
+  let down=true;const h=await createFiiuHarness(request=>down?{status:503,data:{error:'unavailable'}}:request.path==='/api/fiiu?kind=news'?{event:FIIU_EVENT,config:{registrationOpen:true},content:[],nextCursor:null}:screen(),{page:'fiiu-qr',search:'?a=day1-am'});
+  await flush();assert.ok(key(h.root,'retry'));assert.equal(h.message.dataset.fiiuText,'loadError');assert.equal(reads(h),1);
+  down=false;await key(h.root,'retry').listeners.click();await flush();
+  assert.equal(reads(h),2,'Retry asks for a new code instead of reusing the failed one');assert.ok(descendants(h.root.querySelector('.f-qr-code')).some(node=>node.tagName==='svg'));
+  await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(unhandled,[]);
+ }finally{process.off('unhandledRejection',note);}
 });
 
 test('a failed refresh keeps a code that is still accepted, and replaces an expired one with a notice',async()=>{
  let reply=()=>screen();const h=await page(()=>reply());
  reply=()=>({status:503,data:{error:'unavailable'}});await h.tickTimers();
- assert.ok(descendants(h.root.querySelector('.f-qr-code')).some(node=>node.tagName==='svg'),'a code still inside its validity stays');assert.equal(h.message.dataset.fiiuText,'error');
+ assert.ok(descendants(h.root.querySelector('.f-qr-code')).some(node=>node.tagName==='svg'),'a code still inside its validity stays');
+ assert.equal(h.message.dataset.fiiuText,'qrRetrying','the screen says it retries on its own, not that answers are still here');assert.equal(h.root.querySelector('.f-qr-typed').hidden,false);
  reply=()=>screen({validUntil:earlier});await h.tickTimers();reply=()=>({status:503,data:{error:'unavailable'}});await h.tickTimers();
- assert.ok(key(h.root.querySelector('.f-qr-code'),'qrStale'));
+ assert.ok(key(h.root.querySelector('.f-qr-code'),'qrStale'));assert.equal(h.root.querySelector('.f-qr-typed').hidden,true,'the dead short code is hidden too');
+ // A language change redraws the screen in the new language, never the expired code.
+ h.lang('es');assert.ok(key(h.root.querySelector('.f-qr-code'),'qrStale'));assert.equal(descendants(h.root.querySelector('.f-qr-code')).some(node=>node.tagName==='svg'),false);assert.equal(h.root.querySelector('.f-qr-typed').hidden,true);
+ assert.match(content(h.root.querySelector('.f-qr-window')),/Registro abierto hasta las/);h.lang('en');
  reply=()=>screen({qr:null});await h.tickTimers();assert.ok(key(h.root.querySelector('.f-qr-code'),'qrUnavailable'),'without a drawable code the address and short code still work');
- assert.equal(h.root.querySelector('.f-qr-short').textContent,'K7M 4PX');
+ assert.equal(h.root.querySelector('.f-qr-short').textContent,'K7M 4PX');assert.equal(h.root.querySelector('.f-qr-typed').hidden,false,'a fresh code shows the typed fallback again');
+});
+
+test('a language change keeps the clock offset from the last answer, so a dead code is still caught on the next failed refresh',async()=>{
+ const minute=60000,start=Date.now(),at=offset=>new Date(start+offset).toISOString();let now=start;
+ class Clock extends Date{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}}
+ // Server clock 10 minutes ahead; the last good code is accepted for 2 more minutes of server time, then the connection drops for good.
+ let reply=()=>screen({serverTime:at(10*minute),validUntil:at(12*minute)});
+ const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?{event:FIIU_EVENT,config:{registrationOpen:true},content:[],nextCursor:null}:reply(),{page:'fiiu-qr',search:'?a=day1-am',context:{Date:Clock}});
+ reply=()=>({status:503,data:{error:'unavailable'}});now=start+3*minute;h.lang('es');await h.tickTimers();
+ assert.ok(key(h.root.querySelector('.f-qr-code'),'qrStale'),'three minutes on, by the server clock, the code has expired');assert.equal(h.root.querySelector('.f-qr-typed').hidden,true);
 });
 
 test('the screen reads time from the server, so a presenter clock that is off never keeps a refused code or hides a valid one',async()=>{

@@ -5,7 +5,7 @@
  const {t,el,tr,button,link,source,api,status,dateNode,checkinActivities,checkinState,windowNode,countLabel,newTabNote}=window.Fiiu;
  const root=document.getElementById('fiiuQrRoot'),message=document.getElementById('fiiuStatus'),SVG='http://www.w3.org/2000/svg',REFRESH=30000;
  const id=new URLSearchParams(location.search).get('a')||'';
- let festival=null,activity=null,latest=null,timer=null,stopped=false,busy=false,lock=null,parts=null,offset=0;
+ let festival=null,activity=null,latest=null,timer=null,stopped=false,busy=false,stale=false,lock=null,parts=null,offset=0;
  // Codes and the closing time are judged by the server's clock. Each answer carries serverTime, so the screen keeps the offset
  // and reads "now" as server time: a presenter laptop whose clock is off (or a local FIIU_CHECKIN_NOW clock) never keeps a code
  // the server already refuses, nor hides one it still accepts.
@@ -51,12 +51,13 @@
    document.addEventListener('fullscreenchange',()=>{const key=document.fullscreenElement?'exitFullScreen':'fullScreen';full.dataset.fiiuText=key;full.textContent=t(key);});
   }
   controls.append(link('allScreens','fiiu-qr.html','f-text-link'));
-  box.append(stage,controls,tr('p','codeRotates','f-muted f-qr-note'));root.replaceChildren(box,newTabNote());parts={code,windowLine,address,short,count};
+  box.append(stage,controls,tr('p','codeRotates','f-muted f-qr-note'));root.replaceChildren(box,newTabNote());parts={code,windowLine,address,short,count,typed};
  }
- function show(data){
+ // fresh is false when a language change redraws the last answer: its serverTime is old by then, so the clock offset is kept.
+ function show(data,fresh=true){
   if(typeof data?.shortCode!=='string'||typeof data.url!=='string')throw Object.assign(Error(t('error')),{key:'error'});
-  const reported=time(data.serverTime);if(Number.isFinite(reported))offset=reported-Date.now();
-  latest=data;const svg=drawQr(data.qr),closes=time(data.window?.closesAt),shown=Number.isFinite(closes)?{...activity,checkin:{closesAt:new Date(closes).toISOString()}}:activity;
+  const reported=time(data.serverTime);if(fresh&&Number.isFinite(reported))offset=reported-Date.now();
+  latest=data;stale=false;parts.typed.hidden=false;const svg=drawQr(data.qr),closes=time(data.window?.closesAt),shown=Number.isFinite(closes)?{...activity,checkin:{closesAt:new Date(closes).toISOString()}}:activity;
   parts.code.replaceChildren(svg||tr('p','qrUnavailable','f-qr-missing'));
   let url=data.url;try{const parsed=new URL(data.url);url=parsed.host+parsed.pathname;}catch{url=data.url.split('?')[0];}
   parts.address.textContent=url;parts.short.textContent=data.shortCode.slice(0,3)+' '+data.shortCode.slice(3);parts.short.setAttribute('aria-label',data.shortCode.split('').join(' '));
@@ -64,6 +65,8 @@
   parts.windowLine.replaceChildren(windowNode(shown,typeof data.window?.open==='boolean'?(data.window.open?'open':'closed'):checkinState(shown,serverNow())));
   parts.count.replaceChildren(...(Number.isSafeInteger(data.checkedIn)?[countLabel(data.checkedIn,'checkedInOne','checkedInMany')]:[]));
  }
+ // An expired code is dead in both forms: the QR gives way to the notice and the typed code is hidden, so nobody types it at the door.
+ function expire(){stale=true;parts.code.replaceChildren(tr('p','qrStale','f-qr-missing'));parts.typed.hidden=true;}
  // Losing the session or organiser access hides the code at once and stops polling; nothing on this page needs to survive.
  function stop(kind){
   stopped=true;if(timer!==null)clearInterval(timer);lock?.release?.().catch?.(()=>{});lock=null;parts=null;status(message,'');
@@ -73,28 +76,32 @@
   else{actions.append(link('allScreens','fiiu-qr.html','f-button'));box.append(tr('h1','noCheckin'),tr('p','noCheckinHint'),actions);}
   root.replaceChildren(box,newTabNote());
  }
- async function refresh(){
+ // pending is the first code, requested together with the programme; later refreshes ask again.
+ async function refresh(pending){
   if(stopped||busy)return;busy=true;
-  try{show(await api('/api/admin/fiiu/checkin?activityId='+encodeURIComponent(id)));status(message,'');}
+  try{show(await (pending||api('/api/admin/fiiu/checkin?activityId='+encodeURIComponent(id))));status(message,'');}
   catch(error){
    if([401,403].includes(error.status))return stop(error.status);if(error.code==='invalid_activity')return stop(400);
    // A failed refresh keeps the last code while it is still accepted; once it has expired the screen says so instead of sending people to a dead code.
-   status(message,error);if(latest&&!(serverNow()<time(latest.validUntil)))parts?.code.replaceChildren(tr('p','qrStale','f-qr-missing'));
+   // The screen retries on its own, so a lost connection, an outage or a rate limit says so instead of asking for a retry it has no button for.
+   status(message,['error','rate'].includes(error.key)?Object.assign(Error(t('qrRetrying')),{key:'qrRetrying'}):error);if(latest&&parts&&!(serverNow()<time(latest.validUntil)))expire();
   }finally{busy=false;}
  }
  // The screen stays awake while it is shown; the lock is released when the tab is hidden and taken again when it returns.
  function wake(){if(stopped||(lock&&!lock.released)||!globalThis.navigator?.wakeLock)return;navigator.wakeLock.request('screen').then(next=>{if(stopped)next.release?.();else lock=next;},()=>{});}
  async function load(){
   status(message,'loading');
+  // The first code does not depend on the programme, so both are asked for at once; a Retry starts a new request, and an unused one is ignored.
+  const first=id?api('/api/admin/fiiu/checkin?activityId='+encodeURIComponent(id)):null;first?.catch(()=>{});
   try{festival=await api('/api/fiiu?kind=news');}
   catch(error){status(message,error.key==='error'?Object.assign(Error(t('loadError')),{key:'loadError'}):error);root.replaceChildren(button('retry',load));return;}
   status(message,'');if(!id){setTitle();return list();}
   // Only the laboratory and the conference blocks have check-in; any other id gets the explanation, never a code.
   activity=checkinActivities(festival.event).find(block=>block.id===id)||null;setTitle();if(!activity)return stop(400);
-  screen();refresh();wake();
+  screen();refresh(first);wake();
   timer=setInterval(()=>{if(!stopped&&document.visibilityState==='visible')return refresh();},REFRESH);
   document.addEventListener('visibilitychange',()=>{if(stopped||document.visibilityState!=='visible')return;wake();return refresh();});
  }
- window.nodalI18n?.onChange(()=>{setTitle();if(latest&&parts)show(latest);});
+ window.nodalI18n?.onChange(()=>{setTitle();if(latest&&parts){const was=stale;show(latest,false);if(was)expire();}});
  load();
 })();

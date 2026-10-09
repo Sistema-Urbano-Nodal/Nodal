@@ -4,7 +4,7 @@
  const root=document.getElementById('fiiuRoot'),loadStatus=document.getElementById('fiiuStatus');
  const TYPES=[['conference','conferenceOne','conferenceMany'],['workshop','workshopOne','workshopMany'],['route','routeOne','routeMany'],['lab','labOne','labOne']];
  const CHOICE_NAMES=['activities','externalActivities','applyLab'];
- let festival,me={registration:null,attendance:[],user:null},registrationHost,panelHeading,panelBody,heroHost,programmeHost,openForm=null,officialInput=null,syncForm=null,notice='',dayObserver=null,stepObserver=null,sizeObserver=null,errorSeq=0;
+ let festival,me={registration:null,attendance:[],user:null},registrationHost,panelHeading,panelBody,heroHost,programmeHost,openForm=null,officialInput=null,syncForm=null,notice='',dayObserver=null,stepObserver=null,sizeObserver=null,errorSeq=0,guestSignin=null;
  // choiceInputs maps an activity id to its form checkbox, so programme actions can pre-select it.
  // programmeActions maps an activity id to its programme button, so the button can show that the box is now ticked in the form.
  const choiceInputs=new Map(),programmeActions=new Map(),dayChips=new Map(),visibleDays=new Set();
@@ -28,13 +28,13 @@
    if(missingAnswers(a))pills.append(tr('span','actionNeeded','f-pill is-pending'));
    copy.append(pills);
   }
-  // Once registration closes, people without one are pointed to the programme instead of a form they cannot send.
-  const actions=el('div','f-actions');actions.append(registration?link('viewRegistration','#registration','f-button'):config.registrationOpen?link('register','#registration','f-button'):link('viewProgramme','#programme','f-button'));if(config.programUrl)actions.append(link('officialProgram',config.programUrl));actions.append(link('website',event.website,'f-text-link'));copy.append(actions);
+  // Once registration closes, people without one are pointed to the programme instead of a form they cannot send, as they are while their registration could not be read.
+  const actions=el('div','f-actions');actions.append(registration?link('viewRegistration','#registration','f-button'):config.registrationOpen&&!me.failed?link('register','#registration','f-button'):link('viewProgramme','#programme','f-button'));if(config.programUrl)actions.append(link('officialProgram',config.programUrl));actions.append(link('website',event.website,'f-text-link'));copy.append(actions);
   // The poster repeats the facts row visually, so it is hidden from assistive technology.
   const next=nextFor(registration,event),panel=el('aside','f-date-panel'+(next?' has-next':'')),poster=el('div','f-date-poster'),range=el('strong','f-date-range');poster.setAttribute('aria-hidden','true');
   range.append(el('span','',String(Number(event.startsOn.slice(8)))),el('span','f-date-separator','–'),el('span','',String(Number(event.endsOn.slice(8)))));
   poster.append(range,tr('p','datesMonth','f-date-month'),source('p',event.city,'f-city'));panel.append(poster);
-  if(next){const box=el('div','f-next'),when=el('p','f-next-when');when.append(dateNode(next.date,'span','short','f-next-day'));if(next.time)when.append(el('span','f-next-time',next.time));box.append(tr('p','nextForYou','f-next-label'),when,source('p',next.title,'f-next-title'));panel.append(box);}
+  if(next){const box=el('div','f-next'),when=el('p','f-next-when');when.append(dateNode(next.date,'span','short','f-next-day'));if(next.time)when.append(el('span','f-next-time',next.time));box.append(tr('p','nextForYou','f-next-label'),when,source('p',next.title,'f-next-title'));if(next.venue)box.append(source('p',next.venue,'f-next-venue'));panel.append(box);}
   heroHost.replaceChildren(copy,panel);
  }
  // One-way shortcut from the programme into the form: it checks the matching box and focuses it, never un-checks.
@@ -43,7 +43,8 @@
   if(mine)return tr('span',savedKey,savedKey==='interestChip'?'f-pill':'f-pill is-ok');
   const input=choiceInputs.get(activity.id);
   if(input){const action=describe(button(addKey,event=>{if(input.disabled)return;openForm?.();input.checked=true;syncForm?.(true);jumpTo(input,event);},'f-button secondary f-small'),titleId);programmeActions.set(activity.id,{action,addKey});syncProgramme();return action;}
-  if(!me.user&&festival.config.registrationOpen&&activity.registration==='general')return describe(link('register','#registration','f-text-link'),titleId);
+  // A guest goes to the panel's explanation first; its sign-in link then returns with this block ticked (#add-).
+  if(!me.user&&!me.failed&&festival.config.registrationOpen&&activity.registration==='general'){const register=describe(link('register','#registration','f-text-link'),titleId);register.addEventListener('click',()=>{if(guestSignin)guestSignin.href='login.html?next='+encodeURIComponent('/fiiu.html#add-'+activity.id);});return register;}
   return null;
  }
  // One-way feedback: a programme button whose form box is ticked says so; clicking it again only returns to that box.
@@ -122,7 +123,7 @@
   for(const activity of chronological([...registered,...(registration.labStatus!=='none'?event.activities.filter(x=>x.registration==='application'):[])])){
    const row=itineraryRow(activity,prefix);
    if(activity.registration==='application')row.append(tr('span',registration.labStatus+'Short','f-pill is-'+registration.labStatus),tr('p',registration.labStatus+'Hint','f-muted f-itinerary-note'));
-   else row.append(tr('span','statusRegistered','f-pill is-ok'));
+   else{row.append(tr('span','statusRegistered','f-pill is-ok'));const where=venueLine(activity,'f-itinerary-venue');if(where)row.append(where);}
    plan.append(row);
   }
   plan.append(...unknownActivities.map(unknownRow));if(plan.children.length)box.append(tr('h4','myPlan'),plan);
@@ -149,14 +150,18 @@
  const emailNotice=(outcome,email)=>outcome==='sent'?{key:'emailSent',email}:outcome==='failed'?'emailNotSent':['uncertain','pending'].includes(outcome)?'emailDelayed':'';
  function renderPanel(){
   choiceInputs.clear();openForm=null;officialInput=null;syncForm=null;sizeObserver?.disconnect();stepObserver?.disconnect();status(message,'');panelBody.replaceChildren();showNotice(notice);notice='';
-  registrationHost.className='f-registration'+(!me.user||(!festival.config.registrationOpen&&!me.registration)?' is-compact':'');
+  registrationHost.className='f-registration'+(!me.user||(!festival.config.registrationOpen&&!me.registration)?' is-compact':'');guestSignin=null;
+  if(me.failed){
+   let retrying=false;status(message,me.failed.key==='rate'?me.failed:Object.assign(Error(t('registrationLoadError')),{key:'registrationLoadError'}));
+   panelBody.append(message,button('retry',async()=>{if(retrying)return;retrying=true;status(message,'loading');try{me=await api('/api/fiiu/registration');}catch(error){me=unread(error);}renderRegistration();panelHeading.focus();},'f-button secondary'));return;
+  }
   if(!me.user){
    // Once registration closes, the guest panel only leads people who already registered back to their registration.
    const open=festival.config.registrationOpen;
    if(!open)panelBody.append(tr('p','closed','f-notice'));
    panelBody.append(open?tr('p','signinHint'):tr('p','signinClosedHint','f-closed-hint'));
    if(open){const list=el('ul','f-checklist');for(const key of ['canConferences','canLab','canInterests'])list.append(tr('li',key));panelBody.append(list,tr('p','formDuration','f-muted'));}
-   panelBody.append(link('signin','login.html?next='+encodeURIComponent('/fiiu.html#registration'),'f-button'));if(open)panelBody.append(tr('p','privateHint','f-muted f-guest-privacy'));return;
+   guestSignin=link('signin','login.html?next='+encodeURIComponent('/fiiu.html#registration'),'f-button');panelBody.append(guestSignin);if(open)panelBody.append(tr('p','privateHint','f-muted f-guest-privacy'));return;
   }
   const expectedUserId=me.user.id,conflictBox=el('div','f-conflict');let busy=false,saveState='';
   function lock(){
@@ -269,7 +274,9 @@
   const privacy=check('privacyAccepted','privacyAccepted','yes',a.privacyAccepted),privacyStar=el('span','f-required',' *');privacy.input.required=true;privacyStar.setAttribute('aria-hidden','true');
   // The star must sit outside the translated span (refresh() rewrites its text), so both share one wrapper.
   const privacyText=el('span','f-check-text');privacyText.append(...[...privacy.wrap.children].slice(1),privacyStar);privacy.wrap.append(privacyText);
-  consent.append(access,accessOther.wrap,privacy.wrap,link('privacy','privacy.html','f-text-link'));
+  // The policy opens in a new tab: Back would reload this page and drop the draft.
+  const policy=link('privacy','privacy.html','f-text-link');policy.target='_blank';policy.rel='noopener';
+  consent.append(access,accessOther.wrap,privacy.wrap,describe(policy));
   // Client-side "choose one" rule: the custom message sits on the first conference checkbox.
   const syncChoices=()=>{const list=[...form.querySelectorAll('input')].filter(input=>CHOICE_NAMES.includes(input.name)),first=list.find(input=>input.name==='activities')||list[0],any=list.some(input=>input.checked&&!input.disabled);for(const input of list)valid(input,'');if(first)valid(first,any?'':'chooseActivity');};
   function onInvalid(event){
@@ -312,6 +319,10 @@
    if(!form.reportValidity()){const first=document.activeElement;if(first?.getAttribute?.('aria-invalid')==='true')first.scrollIntoView?.({block:'center'});return;}const fd=new FormData(form),payload=Object.fromEntries(fd);
    // language: the summary email after a first registration is written in the language the page is shown in.
    Object.assign(payload,{version:currentVersion,registrationId:currentId,expectedUserId,language:window.nodalI18n?.lang||document.documentElement.lang||'',publicOfficial:fd.get('publicOfficial')==='yes',applyLab:fd.get('applyLab')==='yes',privacyAccepted:fd.get('privacyAccepted')==='yes',activities:fd.getAll('activities'),externalActivities:fd.getAll('externalActivities'),accessibility:fd.getAll('accessibility'),age:fd.get('age')?Number(fd.get('age')):null});
+   // An accepted laboratory place goes back to review when an identity answer changes (server applicationStatus), and is given up without the application: ask first.
+   // me.registration, not existing: Use the current version may have replaced it.
+   const prev=me.registration,changed=()=>payload.publicOfficial!==prev.answers.publicOfficial||['firstName','lastName','institution','position'].some(k=>String(payload[k]??'').trim()!==String(prev.answers[k]??''))||Boolean(prev.answers.nationalId&&String(payload.nationalId??'').trim()!==prev.answers.nationalId);
+   const ask=prev?.labStatus!=='accepted'?'':!payload.applyLab?'labWithdrawConfirm':changed()?'labReReview':'';if(ask&&!window.confirm(t(ask)))return;
    const unlock=lock();status(message,'saving');conflictBox.replaceChildren();saveState='saving';syncSelection();
    try{const result=await api('/api/fiiu/registration',payload,'PUT');me.registration=result.registration;notice=emailNotice(result.confirmationEmail,result.registration.email);renderRegistration();registrationHost.querySelector('.f-saved')?.focus();}
    catch(error){status(message,error);saveState='failed';syncSelection();
@@ -350,12 +361,15 @@
   }
   section.append(heading,list,more,note);next(firstPage,false);return section;
  }
+ // Signed out (401) is the guest view. Any other failure is kept as failed: the programme stays up, and only the registration panel shows the error
+ // with its own Try again, so an outage never reads as signed out.
+ const unread=error=>({registration:null,attendance:[],user:null,...(error.status===401?{}:{failed:error})});
  async function load(){
   status(loadStatus,'loading');root.replaceChildren();
   // Three requests start together: the news page (with the event and settings), the materials page and the person's registration.
   const materials=api('/api/fiiu?kind=materials');materials.catch(()=>{});
   try{
-   const [publicData,registrationData]=await Promise.all([api('/api/fiiu?kind=news'),api('/api/fiiu/registration').catch(error=>{if(error.status===401)return{registration:null,attendance:[],user:null};throw error;})]);
+   const [publicData,registrationData]=await Promise.all([api('/api/fiiu?kind=news'),api('/api/fiiu/registration').catch(unread)]);
    festival=publicData;me=registrationData;
    heroHost=el('section','f-hero');programmeHost=el('section','f-programme');programmeHost.id='programme';
    registrationHost=el('section','f-registration');registrationHost.id='registration';panelHeading=tr('h2','registration');panelHeading.tabIndex=-1;panelBody=el('div','f-panel-body');registrationHost.append(panelHeading,panelNotice,panelBody);
@@ -366,8 +380,16 @@
    const layout=el('div','f-layout');layout.append(programmeHost,registrationHost);root.append(layout);
    const updates=el('div','f-updates-grid');updates.append(feed('news','noNews',()=>publicData),feed('materials','noMaterials',()=>materials));layout.append(updates);root.append(newTabNote());
    renderRegistration();status(loadStatus,'');
-   const hash=location.hash;
-   if(hash==='#f-publicOfficial')jumpTo(officialInput);
+   // #add-<block> (the check-in refusal, or a guest's card after sign-in) ticks that block in the form; saving stays an explicit tap. The hash becomes
+   // #registration at once, so a reload after saving does not reopen the form. Someone with no registration yet starts at the top of the form, not past
+   // their personal answers; a block already in the plan, the laboratory or a form that is not shown leaves only the scroll to the panel.
+   const hash=location.hash,add=/^#add-([a-z0-9-]{1,60})$/.exec(hash)?.[1];
+   if(add){
+    history.replaceState?.(null,'',location.pathname+location.search+'#registration');const input=choiceInputs.get(add);
+    if(input&&!input.disabled&&!input.checked&&input.name!=='applyLab'){input.checked=true;if(me.registration)jumpTo(input);syncForm?.(true);if(!me.registration)registrationHost.scrollIntoView({block:'start'});}
+    else registrationHost.scrollIntoView({block:'start'});
+   }
+   else if(hash==='#f-publicOfficial')jumpTo(officialInput);
    else if(['#registration','#news','#materials','#programme'].includes(hash)||/^#day-\d{4}-\d{2}-\d{2}$/.test(hash))document.querySelector(hash)?.scrollIntoView({block:'start'});
   }catch(error){status(loadStatus,error.key==='error'?Object.assign(Error(t('loadError')),{key:'loadError'}):error);root.append(button('retry',load),newTabNote());}
  }
