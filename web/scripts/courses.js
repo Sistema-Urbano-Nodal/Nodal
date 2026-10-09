@@ -14,7 +14,7 @@ function dates(c){return [date(c.startsOn),date(c.endsOn)].filter(Boolean).join(
 async function directory(){setPageTitle('courses');const {courses,isAdmin}=await api('/api/courses');document.getElementById('teachingLink').hidden=isAdmin!==true;root.replaceChildren();const hero=el('header','pilot-hero');hero.append(tr('p','courses','pilot-context'),tr('h1','intro'),tr('p','directory'));const list=el('div','pilot-directory');if(!courses.length)list.append(tr('p','emptyCourses','pilot-empty'));courses.forEach(c=>{const row=el('article','pilot-course-row'),meta=el('div'),content=el('div');meta.append(tr('span',c.status,'pilot-tag'),dynamic('div',()=>dates(c),'pilot-date'));if(c.enrollmentOpen===false)meta.append(tr('div','closed','pilot-date'));content.append(source('h2',c,'title'),source('p',c,'description'));const link=tr('a','open','pilot-button');link.href='course.html?id='+encodeURIComponent(c.id);row.append(meta,content,link);list.append(row);});root.append(hero,list);status(msg,'');}
 function intakeForm(data,onClose){let busy=false;const box=el('section','pilot-intake');box.append(tr('h2','intake'),tr('p','private'));const form=el('form','pilot-form');const fields={};['fullName','profession','city','motivation','experience','expectations','caseStudy','digitalFamiliarity'].forEach((key,i)=>{const f=field(key,data?.[key]||'',i<3?'text':'textarea');f.input.maxLength=i<3?160:2000;f.input.required=true;fields[key]=f.input;form.append(f.wrap);});const save=button('saveIntake');save.type='submit';const local=el('p','pilot-status');local.setAttribute('role','status');form.append(save);if(onClose)form.append(button('cancel',()=>{if(!busy)onClose();},true));form.append(local);form.addEventListener('submit',async e=>{e.preventDefault();if(busy)return;busy=true;save.disabled=true;form.setAttribute('aria-busy','true');Object.values(fields).forEach(input=>{input.disabled=true;});try{const input=Object.fromEntries(Object.entries(fields).map(([k,n])=>[k,n.value]));await api(base()+'/intake',input,'PUT',{redirectOnUnauthorized:false});await course();}catch(err){status(local,err);}finally{busy=false;save.disabled=false;form.setAttribute('aria-busy','false');Object.values(fields).forEach(input=>{input.disabled=false;});}});box.append(form);return box;}
 async function course(fresh){
-  fresh=fresh||await api(base(),undefined,undefined,{redirectOnUnauthorized:!snapshot});
+  const fetched=!fresh;fresh=fresh||await api(base(),undefined,undefined,{redirectOnUnauthorized:!snapshot});
   stopConversations();navigationSequence++;navigationPending=false;pendingModuleId=null;snapshot=fresh;root.replaceChildren();
   document.getElementById('teachingLink').hidden=!snapshot.isAdmin;
   const c=snapshot.course;setPageTitle(()=>localized(c,'title'));
@@ -23,7 +23,7 @@ async function course(fresh){
   hero.append(metadata,source('h1',c,'title'),source('p',c,'description'));root.append(hero);status(msg,'');
   if(!snapshot.enrollment&&!snapshot.isAdmin){
     // Closed courses keep their route preview but offer no way in.
-    if(!c.enrollmentOpen){const closed=el('div','pilot-actions');closed.append(tr('strong','closed'),tr('span','closedNote'));hero.append(closed);renderRoutePreview();return;}
+    if(!c.enrollmentOpen){const closed=el('div','pilot-actions');closed.append(tr('strong','closed'),tr('span','closedNote'));if(new URLSearchParams(location.search).get('encuesta')==='1')closed.append(...otherAccount());hero.append(closed);renderRoutePreview();return;}
     const enroll=button('enroll',async()=>{if(enroll.disabled)return;enroll.disabled=true;try{await api(base()+'/enroll',{});await course();}catch(err){if(err.code==='enrollment_closed')return course({...snapshot,course:{...c,enrollmentOpen:false}});status(msg,err);enroll.disabled=false;}});
     hero.append(enroll);renderRoutePreview();return;
   }
@@ -70,7 +70,18 @@ async function course(fresh){
   workspace.append(nav,content);root.append(workspace);
   if(!snapshot.modules.length){content.append(tr('p','noModules','pilot-empty'));return;}
   const requested=new URLSearchParams(location.search).get('module');
-  await openModule(snapshot.modules.some(m=>m.id===activeId)?activeId:snapshot.modules.some(m=>m.id===requested)?requested:(sessions[0]||general[0]).id);
+  const target=snapshot.modules.some(m=>m.id===activeId)?activeId:snapshot.modules.some(m=>m.id===requested)?requested:(sessions[0]||general[0]).id;
+  // A course just read carries each full module (only full records have resources), so the first one opens without another read.
+  await openModule(target,fetched?snapshot.modules.find(m=>m.id===target&&Array.isArray(m.resources)):undefined);
+}
+// The survey reminder link opened with an account that is not enrolled: say so, and sign out so the right account can come back here.
+function otherAccount(){
+  const note=el('p'),out=button('switchAccount',async()=>{
+    if(out.disabled)return;out.disabled=true;
+    try{await api('/api/auth/logout',{},'POST',{redirectOnUnauthorized:false});location.assign('/login.html?next='+encodeURIComponent(location.pathname+location.search));}
+    catch(err){status(msg,err);out.disabled=false;}
+  },true);
+  note.append(tr('span','surveyUnavailable'),' ',tr('span','surveyOtherAccount'));return [note,out];
 }
 function renderRoutePreview(){
   const box=el('section','pilot-intake');box.append(tr('h2','route'));
@@ -137,6 +148,8 @@ function createSurvey(initial){
   live.setAttribute('role','status');live.setAttribute('aria-live','polite');node.append(heading,live,body);
   const view={key:surveyKey(state),node,heading,expand:null,certificate:null,update(next){accept(next);syncName();}};
   const alive=()=>surveyView===view,closedOn=()=>limaDate(state.lastDay+'T12:00:00Z',{day:'numeric',month:'long'});
+  // Screen 2's unsent answers, kept per tab and per enrollment so a reload or a discarded tab does not lose them.
+  const draftKey='nodal.surveyDraft.'+courseId+'.'+(snapshot.enrollment?.id||''),dropDraft=()=>{try{sessionStorage.removeItem(draftKey);}catch{/* No storage, no draft. */}};
   function accept(next){state=next;snapshot.finalSurvey=next;view.key=surveyKey(next);}
   function polite(){const line=el('p','pilot-status');line.setAttribute('role','status');line.setAttribute('aria-live','polite');return line;}
   function stepLine(n){const step=dynamic('p',()=>t('surveyStep').replace('{n}',n),'pilot-survey-step');step.tabIndex=-1;return step;}
@@ -145,7 +158,7 @@ function createSurvey(initial){
     const phase=surveyPhase(state);
     if(phase==='sent'){renderSent();return;}
     if(state.preview)body.append(tr('p','surveyPreview','pilot-survey-note'));
-    if(!state.open){body.append(dynamic('p',()=>t('surveyClosedOn').replace('{date}',closedOn()),'pilot-closeout-lead'));return;}
+    if(!state.open){dropDraft();body.append(dynamic('p',()=>t('surveyClosedOn').replace('{date}',closedOn()),'pilot-closeout-lead'));return;}
     const intro=el('p','pilot-closeout-intro',state.survey.intro),language=el('p','pilot-survey-note');intro.lang='es';
     bind(language,()=>{language.textContent=t('surveyInSpanish');language.hidden=(window.nodalI18n?.lang||'en')==='es';});
     opener=button(state.preview?'previewSurvey':phase==='started'?'resumeSurvey':'startSurvey',()=>show(surveyPhase(state)==='started'?2:1));opener.className+=' pilot-plate';
@@ -153,7 +166,7 @@ function createSurvey(initial){
     view.expand=focus=>show(surveyPhase(state)==='started'?2:1,focus);
   }
   function renderSent(){
-    const mine=tr('h3','myCertificate','pilot-certificate-title'),line=el('p','pilot-certificate');mine.id='encuestaFinalCertificate';mine.tabIndex=-1;view.certificate=mine;
+    dropDraft();const mine=tr('h3','myCertificate','pilot-certificate-title'),line=el('p','pilot-certificate');mine.id='encuestaFinalCertificate';mine.tabIndex=-1;view.certificate=mine;
     body.append(dynamic('p',()=>t('surveySentOn').replace('{date}',limaDate(state.response.submittedAt,{day:'numeric',month:'long',year:'numeric'})),'pilot-closeout-lead'),mine,line);
     if(state.certificate==='ready'){const link=tr('a','downloadCertificate','pilot-button pilot-plate');link.href=base()+'/certificate';line.append(tr('strong','certificateReady','pilot-certificate-state is-ready'));body.append(link);return;}
     const note=el('p','pilot-survey-note'),mail=el('a',null,state.contactEmail);mail.href='mailto:'+state.contactEmail;
@@ -202,7 +215,7 @@ function createSurvey(initial){
     }
     let send=null;
     if(state.preview)end.append(tr('p','surveyPreview','pilot-survey-note'));else{send=button('surveySubmit');send.type='submit';send.className+=' pilot-plate';end.append(send);}
-    end.append(local);form.append(end);syncConsent();syncName();
+    end.append(local);form.append(end);syncConsent();syncName();if(!state.preview)keepDraft(form);
     form.addEventListener('submit',async event=>{
       event.preventDefault();if(busy||!send)return;
       const invalid=checks.map(check=>check()).filter(Boolean);
@@ -219,6 +232,23 @@ function createSurvey(initial){
       }finally{busy=false;send.disabled=false;form.setAttribute('aria-busy','false');send.dataset.pilotText='surveySubmit';send.textContent=t('surveySubmit');}
     });
     return {form,step};
+  }
+  /* Restores the draft by name and value (the question 8 shuffle does not matter) and gives each restored control its own
+     event again, which brings back the 'Otro' fields, question 9's clear button and question 12. The form's own listeners
+     run after a control's handler (an over-limit tick undone, a cleared choice), so they save the corrected state. */
+  function keepDraft(form){
+    const controls=[...form.querySelectorAll('input,textarea,select,button')].filter(n=>n.name),ticked=n=>n.type==='radio'||n.type==='checkbox';
+    let saved=null;try{saved=JSON.parse(sessionStorage.getItem(draftKey)||'null');}catch{/* An unreadable draft is ignored. */}
+    if(saved&&typeof saved==='object'){
+      for(const n of controls){const value=saved[n.name];if(ticked(n))n.checked=Array.isArray(value)&&value.includes(n.value);else if(typeof value==='string')n.value=value;}
+      for(const n of controls)if(ticked(n)?n.checked:n.value)n.dispatchEvent(new Event(ticked(n)||/^select$/i.test(n.tagName)?'change':'input'));
+      syncConsent();syncName();
+    }
+    const save=()=>{
+      const draft={};for(const n of controls){if(ticked(n)){if(n.checked)(draft[n.name]??=[]).push(n.value);}else if(n.value)draft[n.name]=n.value;}
+      try{sessionStorage.setItem(draftKey,JSON.stringify(draft));}catch{/* Without storage the answers stay only on screen. */}
+    };
+    for(const type of ['input','change','click'])form.addEventListener(type,save);
   }
   /* One question of screen 2. checks validate in question order (each returns the control to focus), reads fill the
      answers, and local is the screen's polite status line. */
@@ -286,7 +316,7 @@ function createSurvey(initial){
 }
 
 async function event(kind,moduleId,resourceUrl){try{await api(base()+'/events',{id:crypto.randomUUID(),moduleId,kind,...(resourceUrl?{resourceUrl}:{})},'POST',{redirectOnUnauthorized:false});}catch(err){if(moduleId===activeId)status(msg,err);}}
-async function openModule(id){
+async function openModule(id,known){
   const content=document.getElementById('moduleContent');
   // A route click on the current session must not discard its unsent drafts.
   if(content?.dataset.moduleId===id){navigationSequence++;navigationPending=false;pendingModuleId=null;conversations.forEach(view=>view.resume());status(msg,'');return;}
@@ -294,7 +324,7 @@ async function openModule(id){
   const navigation=++navigationSequence;pendingModuleId=id;
   navigationPending=true;conversations.forEach(view=>view.suspend());status(msg,t('loading'));
   try{
-    const {module:m}=await api(base()+'/modules/'+encodeURIComponent(id),undefined,undefined,{redirectOnUnauthorized:false});if(navigation!==navigationSequence)return;
+    const {module:m}=known?{module:known}:await api(base()+'/modules/'+encodeURIComponent(id),undefined,undefined,{redirectOnUnauthorized:false});if(navigation!==navigationSequence)return;
     navigationPending=false;pendingModuleId=null;stopConversations();activeId=id;const sequence=++loadSequence;
     const url=new URL(location.href);url.searchParams.set('module',id);history.replaceState(null,'',url);
     document.querySelectorAll('[data-module]').forEach(b=>{if(b.dataset.module===id)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current');});
@@ -489,10 +519,13 @@ function renderPost(initial,composer,reload,alive){
   card.updatePost(p);return card;
 }
 function showFeedback(action,moduleId){if(moduleId!==activeId)return;const mount=document.getElementById('courseFeedback');if(!mount||[...mount.children].some(box=>box.hasDraft?.()))return;mount.replaceChildren(feedback(action,{courseId,moduleId}));if(action!=='course')mount.querySelector('details')?.setAttribute('open','');}
-/* A contribution whose response was lost keeps its clientId, so resending it unchanged returns the saved post. An edited
+const ATTACHMENT_TYPES=['image/jpeg','image/png','image/webp','application/pdf','text/plain'],invalidFiles=list=>list.length>3||list.some(f=>f.size>3*1024*1024||!ATTACHMENT_TYPES.includes(f.type));
+/* Files are checked when chosen and again on submit. Each upload says which file of how many is on its way and has two
+   minutes, not the default 45 s, since a 3 MB photo on a slow phone uplink can take longer.
+   A contribution whose response was lost keeps its clientId, so resending it unchanged returns the saved post. An edited
    resend under that id is refused as alreadySubmitted; the composer then takes a fresh id (keeping its uploads) so the
    next submit can post the edited text without a page reload. */
-function makeComposer(moduleId,onSaved,options={}){const box=el('details','pilot-composer');box.append(tr('summary',options.kind==='assignment'?'submitAssignment':'startDiscussion'));const form=el('form','pilot-form');const kind=select('kind',['assignment','question'],options.kind==='assignment'?'assignment':'question'),body=field('body','','textarea'),links=field('links','','textarea'),files=field('files','','file'),reply=el('div','pilot-reply-context');body.input.required=true;body.input.maxLength=6000;links.input.maxLength=5000;files.input.multiple=true;files.input.accept='image/jpeg,image/png,image/webp,application/pdf,text/plain';reply.hidden=true;if(options.kind)kind.wrap.hidden=true;const submit=button('post');submit.type='submit';const local=el('p','pilot-status');local.setAttribute('role','status');const extras=el('details','pilot-composer-extras');extras.append(tr('summary','attachExtras'),links.wrap,files.wrap);form.append(reply,kind.wrap,body.wrap,extras,submit,local);box.append(form);let parentId=null,clientId=crypto.randomUUID(),uploaded=[],fileSignature='',busy=false;box.replyTo=p=>{if(busy)return;box.open=true;parentId=p.id;kind.input.disabled=true;reply.replaceChildren(dynamic('span',()=>t('replying')+' '+p.authorName),button('cancel',()=>{if(busy)return;parentId=null;kind.input.disabled=false;reply.hidden=true;},true));reply.hidden=false;body.input.focus();};form.addEventListener('submit',async e=>{e.preventDefault();if(busy)return;busy=true;submit.disabled=true;form.setAttribute('aria-busy','true');for(const input of [body.input,links.input,files.input,kind.input])input.disabled=true;try{const chosen=[...files.input.files];if(chosen.length>3||chosen.some(f=>f.size>3*1024*1024||!['image/jpeg','image/png','image/webp','application/pdf','text/plain'].includes(f.type)))throw new Error(t('fileError'));const parsed=links.input.value.split('\n').map(s=>s.trim()).filter(Boolean).map(url=>{const safe=safeUrl(url);if(!safe)throw new Error(t('urlError'));return {title:new URL(safe).hostname,url:safe};});const signature=chosen.map(f=>[f.name,f.size,f.lastModified].join(':')).join('|');if(signature!==fileSignature){uploaded=[];fileSignature=signature;}for(let i=uploaded.length;i<chosen.length;i++){const f=chosen[i],data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(new Error(t('fileError')));reader.readAsDataURL(f);});const result=await api(base()+'/modules/'+moduleId+'/attachments',{name:f.name,mime:f.type,data},'POST',{redirectOnUnauthorized:false});uploaded.push(result.attachment.id);}const action=!parentId&&kind.input.value==='assignment'?'assignment':'discussion';await api(base()+'/modules/'+moduleId+'/posts',{kind:parentId?'comment':kind.input.value,body:body.input.value,links:parsed,attachmentIds:uploaded,...(parentId?{parentId}:{}),clientId},'POST',{redirectOnUnauthorized:false});form.reset();kind.input.value=options.kind==='assignment'?'assignment':'question';parentId=null;kind.input.disabled=false;reply.hidden=true;uploaded=[];fileSignature='';clientId=crypto.randomUUID();status(local,t('saved'));box.open=false;showFeedback(action,moduleId);await onSaved();}catch(err){if(err.status===409&&err.translationKey==='alreadySubmitted')clientId=crypto.randomUUID();status(local,err);}finally{busy=false;submit.disabled=false;form.setAttribute('aria-busy','false');for(const input of [body.input,links.input,files.input])input.disabled=false;kind.input.disabled=Boolean(parentId);}});return box;}
+function makeComposer(moduleId,onSaved,options={}){const box=el('details','pilot-composer');box.append(tr('summary',options.kind==='assignment'?'submitAssignment':'startDiscussion'));const form=el('form','pilot-form');const kind=select('kind',['assignment','question'],options.kind==='assignment'?'assignment':'question'),body=field('body','','textarea'),links=field('links','','textarea'),files=field('files','','file'),reply=el('div','pilot-reply-context');body.input.required=true;body.input.maxLength=6000;links.input.maxLength=5000;files.input.multiple=true;files.input.accept=ATTACHMENT_TYPES.join(',');reply.hidden=true;if(options.kind)kind.wrap.hidden=true;const submit=button('post');submit.type='submit';const local=el('p','pilot-status');local.setAttribute('role','status');const extras=el('details','pilot-composer-extras');extras.append(tr('summary','attachExtras'),links.wrap,files.wrap);form.append(reply,kind.wrap,body.wrap,extras,submit,local);box.append(form);let parentId=null,clientId=crypto.randomUUID(),uploaded=[],fileSignature='',busy=false;files.input.addEventListener('change',()=>{if(!busy)status(local,invalidFiles([...files.input.files])?new Error(t('fileError')):'');});box.replyTo=p=>{if(busy)return;box.open=true;parentId=p.id;kind.input.disabled=true;reply.replaceChildren(dynamic('span',()=>t('replying')+' '+p.authorName),button('cancel',()=>{if(busy)return;parentId=null;kind.input.disabled=false;reply.hidden=true;},true));reply.hidden=false;body.input.focus();};form.addEventListener('submit',async e=>{e.preventDefault();if(busy)return;busy=true;submit.disabled=true;form.setAttribute('aria-busy','true');for(const input of [body.input,links.input,files.input,kind.input])input.disabled=true;try{const chosen=[...files.input.files];if(invalidFiles(chosen))throw new Error(t('fileError'));const parsed=links.input.value.split('\n').map(s=>s.trim()).filter(Boolean).map(url=>{const safe=safeUrl(url);if(!safe)throw new Error(t('urlError'));return {title:new URL(safe).hostname,url:safe};});const signature=chosen.map(f=>[f.name,f.size,f.lastModified].join(':')).join('|');if(signature!==fileSignature){uploaded=[];fileSignature=signature;}for(let i=uploaded.length;i<chosen.length;i++){local.classList.toggle('is-error',false);bind(local,()=>{local.textContent=t('bulkProgress').replace('{current}',i+1).replace('{total}',chosen.length);});const f=chosen[i],data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(new Error(t('fileError')));reader.readAsDataURL(f);});const result=await api(base()+'/modules/'+moduleId+'/attachments',{name:f.name,mime:f.type,data},'POST',{redirectOnUnauthorized:false,...(typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function'?{signal:AbortSignal.timeout(120000)}:{})});uploaded.push(result.attachment.id);}const action=!parentId&&kind.input.value==='assignment'?'assignment':'discussion';await api(base()+'/modules/'+moduleId+'/posts',{kind:parentId?'comment':kind.input.value,body:body.input.value,links:parsed,attachmentIds:uploaded,...(parentId?{parentId}:{}),clientId},'POST',{redirectOnUnauthorized:false});form.reset();kind.input.value=options.kind==='assignment'?'assignment':'question';parentId=null;kind.input.disabled=false;reply.hidden=true;uploaded=[];fileSignature='';clientId=crypto.randomUUID();status(local,t('saved'));box.open=false;showFeedback(action,moduleId);await onSaved();}catch(err){if(err.status===409&&err.translationKey==='alreadySubmitted')clientId=crypto.randomUUID();status(local,err);}finally{busy=false;submit.disabled=false;form.setAttribute('aria-busy','false');for(const input of [body.input,links.input,files.input])input.disabled=false;kind.input.disabled=Boolean(parentId);}});return box;}
 async function start(){status(msg,t('loading'));try{if(document.body.dataset.page==='course'){if(!courseId)location.replace('courses.html');else await course();}else await directory();}catch(err){status(msg,err);const retry=button('retry',()=>{retry.remove();start();},true);root.append(retry);}}
 window.nodalI18n?.onChange(()=>{document.documentElement.lang=window.nodalI18n.lang;});start();
 })();

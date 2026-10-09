@@ -77,7 +77,7 @@ Los datos pueden tratarse en otros países. La lista deberá explicar qué país
 
 ## 8. Cookies, almacenamiento en el navegador y videos
 
-Utilizamos cookies para la sesión, la renovación del acceso y la recuperación de contraseña. La preferencia de idioma también se guarda en el navegador y en una cookie, que puede durar hasta un año. La preferencia de comprobación de ubicación se guarda en el navegador, sin un vencimiento automático en la versión actual.
+Utilizamos cookies para la sesión, la renovación del acceso y la recuperación de contraseña. La preferencia de idioma también se guarda en el navegador y en una cookie, que puede durar hasta un año. La preferencia de comprobación de ubicación se guarda en el navegador, sin un vencimiento automático en la versión actual. Mientras respondes la encuesta final de un curso, las respuestas aún no enviadas de su segunda pantalla se guardan en el almacenamiento de sesión de esa pestaña del navegador, para que recargar la página no las borre; se eliminan al enviar la encuesta, cuando esta cierra o al cerrar la pestaña.
 
 Los controles del navegador permiten eliminar ese almacenamiento. Esto puede cerrar la sesión o borrar preferencias. Las cookies y funciones opcionales deberán respetar las elecciones y los requisitos locales; el consentimiento para aparecer en el directorio no autoriza el seguimiento publicitario.
 

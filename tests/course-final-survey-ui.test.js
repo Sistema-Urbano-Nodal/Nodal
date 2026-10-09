@@ -17,6 +17,7 @@ class Node {
  getAttribute(k){return this[k]??null;}
  removeAttribute(k){delete this[k];}
  addEventListener(k,f){this.listeners[k]=f;}
+ dispatchEvent(e){this.listeners[e.type]?.(e);}
  querySelectorAll(selector){return descendants(this).filter(n=>selector==='input,textarea,select,button'?['input','textarea','select','button'].includes(n.tagName):selector==='button'?n.tagName==='button':selector==='[data-pilot-text]'?n.dataset.pilotText:selector==='[data-module]'?n.dataset.module:selector==='[data-pilot-dynamic]'?n.dataset.pilotDynamic:selector==='[data-pilot-placeholder]'?n.dataset.pilotPlaceholder:selector==='[data-pilot-aria]'?n.dataset.pilotAria:selector[0]==='.'?n.className?.split(' ').includes(selector.slice(1)):false);}
  querySelector(selector){return this.querySelectorAll(selector)[0]||null;}
  replaceWith(node){if(this.parent){node.parent=this.parent;this.parent.children.splice(this.parent.children.indexOf(this),1,node);}}
@@ -32,16 +33,18 @@ const content=n=>[n.textContent,...(n.children||[]).map(content)].join(' ');
 // What a person sees: hidden nodes and everything inside them are left out.
 const visible=n=>n.hidden?'':[n.textContent,...(n.children||[]).filter(c=>typeof c==='object').map(visible)].join(' ');
 const flush=async()=>{for(let i=0;i<15;i++)await new Promise(r=>setImmediate(r));};
-function harness(respond,{page='course',search='?id=c1'}={}){
+// One browser tab's sessionStorage; passing the same one to a second harness is a reload of that tab.
+const memoryStorage=()=>{const data=new Map();return{data,getItem:k=>data.has(k)?data.get(k):null,setItem:(k,v)=>{data.set(k,String(v));},removeItem:k=>{data.delete(k);}};};
+function harness(respond,{page='course',search='?id=c1',storage=memoryStorage()}={}){
  focused=null;
  const body=new Node('body');body.dataset.page=page;const html=new Node('html');const ids={};for(const id of ['pilotRoot','pilotStatus','teachingLink']){const n=new Node();n.id=id;ids[id]=n;body.append(n);}
- const requests=[],listeners=[],replaced=[];
+ const requests=[],listeners=[],replaced=[],assigned=[];
  const document={body,documentElement:html,readyState:'loading',createElement:t=>new Node(t),getElementById:id=>ids[id]||descendants(body).find(n=>n.id===id),querySelector:()=>null,querySelectorAll:s=>body.querySelectorAll(s),visibilityState:'visible',addEventListener(){},removeEventListener(){},
   // A focused control that is disabled or removed from the page leaves focus on the body, as in a browser.
   get activeElement(){return focused&&!focused.disabled&&descendants(body).includes(focused)?focused:body;}};
- const ctx={document,console,Intl,URL,URLSearchParams,Error,Date,Promise,crypto:{randomUUID:()=>'00000000-0000-4000-8000-000000000001'},history:{replaceState(_s,_t,url){replaced.push(String(url));}},location:{pathname:'/'+page+'.html',search,href:'https://nodal.test/'+page+'.html'+search,assign(){},replace(){}},fetch:async(path,opts)=>{requests.push({path,body:opts?.body?JSON.parse(opts.body):undefined,method:opts?.method});const result=await respond(path,opts);return{ok:result.status===undefined||result.status<400,status:result.status||200,json:async()=>JSON.parse(JSON.stringify(result.data??result))};},window:{addEventListener(){},nodalI18n:{lang:'en',onChange:f=>listeners.push(f)}}};
+ const ctx={document,console,Intl,URL,URLSearchParams,Error,Date,Promise,Event,sessionStorage:storage,crypto:{randomUUID:()=>'00000000-0000-4000-8000-000000000001'},history:{replaceState(_s,_t,url){replaced.push(String(url));}},location:{pathname:'/'+page+'.html',search,href:'https://nodal.test/'+page+'.html'+search,assign(url){assigned.push(url);},replace(){}},fetch:async(path,opts)=>{requests.push({path,body:opts?.body?JSON.parse(opts.body):undefined,method:opts?.method});const result=await respond(path,opts);return{ok:result.status===undefined||result.status<400,status:result.status||200,json:async()=>JSON.parse(JSON.stringify(result.data??result))};},window:{addEventListener(){},nodalI18n:{lang:'en',onChange:f=>listeners.push(f)}}};
  vm.createContext(ctx);for(const file of ['pilot-i18n','pilot'])vm.runInContext(script(file),ctx);
- return{ctx,body,ids,requests,replaced,run:name=>vm.runInContext(script(name),ctx),lang:lang=>{ctx.window.nodalI18n.lang=lang;listeners.forEach(f=>f());},section:()=>document.getElementById('encuestaFinal')};
+ return{ctx,body,ids,requests,replaced,assigned,run:name=>vm.runInContext(script(name),ctx),lang:lang=>{ctx.window.nodalI18n.lang=lang;listeners.forEach(f=>f());},section:()=>document.getElementById('encuestaFinal')};
 }
 const course={id:'c1',title:'Curso Movilidad Nivel 2',description:'Curso',status:'published',enrollmentOpen:false};
 const SURVEY_JSON=JSON.parse(JSON.stringify(SURVEY));
@@ -51,12 +54,12 @@ const open=(patch={})=>({closesAt:FINAL_SURVEY.closesAt,lastDay:'2026-10-23',ope
 const started=(patch={})=>open({response:{startedAt:STARTED,submittedAt:null},...patch});
 const sent=certificate=>({closesAt:FINAL_SURVEY.closesAt,lastDay:'2026-10-23',open:true,contactEmail:FINAL_SURVEY.contactEmail,preview:false,response:{startedAt:STARTED,submittedAt:SENT},certificate,publishAs:''});
 const closed=(patch={})=>({closesAt:FINAL_SURVEY.closesAt,lastDay:'2026-10-23',open:false,contactEmail:FINAL_SURVEY.contactEmail,preview:false,response:null,certificate:null,publishAs:'',...patch});
-const coursePayload=(finalSurvey,patch={})=>({course,modules:[],enrollment:{},intake:{fullName:'Ana Pérez',profession:'Arquitecta'},isAdmin:false,...(finalSurvey?{finalSurvey}:{}),...patch});
-function participant(states,{search,write}={}){
+const coursePayload=(finalSurvey,patch={})=>({course,modules:[],enrollment:{id:'e1'},intake:{fullName:'Ana Pérez',profession:'Arquitecta'},isAdmin:false,...(finalSurvey?{finalSurvey}:{}),...patch});
+function participant(states,{search,write,storage}={}){
  let current=states;const h=harness(async(path,opts)=>{
   if(opts?.method&&write){const reply=await write(path,opts,JSON.parse(opts.body||'{}'));if(reply!==undefined)return reply;}
   return coursePayload(typeof current==='function'?current():current);
- },{search});
+ },{search,storage});
  h.run('courses');return{...h,setState:value=>{current=value;}};
 }
 const inputs=(node,name)=>descendants(node).filter(n=>n.name===name);
@@ -338,6 +341,53 @@ test('the reminder link opens the form once and leaves the address',async()=>{
  const fresh=participant(open(),{search:'?id=c1&encuesta=1'});await flush();assert.match(visible(form(fresh.section())),/Step 1 of 2/);
 });
 
+test('the reminder link opened with an account that is not enrolled says so and offers to sign in with another one',async()=>{
+ const h=harness(()=>coursePayload(null,{enrollment:null,intake:null}),{search:'?id=c1&encuesta=1'});h.run('courses');await flush();
+ for(const key of ['closed','closedNote','surveyUnavailable','surveyOtherAccount','switchAccount'])assert.ok(findKey(h.body,key),key);
+ assert.match(visible(h.body),/This survey is only for people enrolled in this course\. If the reminder reached a different email, sign out and sign in with that account\./);
+ h.lang('es');assert.match(visible(h.body),/Esta encuesta es solo para quienes están inscritos en este curso\. Si el recordatorio llegó a otro correo, cierra sesión y entra con esa cuenta\./);
+ assert.equal(findKey(h.body,'switchAccount').textContent,'Cerrar sesión y usar otra cuenta');
+ // Signing out returns to the sign-in page, which brings the right account back to the open survey.
+ await findKey(h.body,'switchAccount').listeners.click();
+ assert.deepEqual(h.requests.filter(r=>r.method).map(r=>[r.method,r.path]),[['POST','/api/auth/logout']]);
+ assert.deepEqual(h.assigned,['/login.html?next=%2Fcourse.html%3Fid%3Dc1%26encuesta%3D1']);
+ const failing=harness((path,opts)=>opts?.method?{status:503,data:{error:'unavailable'}}:coursePayload(null,{enrollment:null,intake:null}),{search:'?id=c1&encuesta=1'});failing.run('courses');await flush();
+ await findKey(failing.body,'switchAccount').listeners.click();assert.deepEqual(failing.assigned,[]);assert.equal(findKey(failing.body,'switchAccount').disabled,false);assert.match(visible(failing.ids.pilotStatus),/Could not complete this request/);
+ // Without the reminder link the closed course says nothing about the survey.
+ const plain=harness(()=>coursePayload(null,{enrollment:null,intake:null}));plain.run('courses');await flush();
+ assert.ok(findKey(plain.body,'closedNote'));for(const key of ['surveyUnavailable','surveyOtherAccount','switchAccount'])assert.equal(findKey(plain.body,key),undefined,key);
+});
+
+test('screen 2 answers survive a reload of the tab as a draft, never reach another enrollment, and go once sent',async()=>{
+ const storage=memoryStorage(),key='nodal.surveyDraft.c1.e1';
+ const h=await onScreenTwo({storage});const section=h.section(),screen=form(section);
+ for(const row of ASPECTS)choose(section,'survey-aspects-'+row,'satisfecho');
+ type(section,'survey-improvements','Más trabajo de campo');choose(section,'survey-topics','other');type(section,'survey-topicsOther','Logística urbana');
+ choose(section,'survey-format','hibrido');type(section,'survey-testimonial','Muy útil');choose(section,'survey-testimonialConsent','anonymous');
+ pickOption(section,'survey-country','other');type(section,'survey-countryOther','Canadá');
+ // The form's own listener runs after each control's handler, as a bubbling event would.
+ screen.listeners.input();assert.deepEqual([...storage.data.keys()],[key]);
+ const draft=JSON.parse(storage.data.get(key));assert.deepEqual(draft['survey-topics'],['other']);assert.equal(draft['survey-improvements'],'Más trabajo de campo');assert.equal('survey-overall' in draft,false,'question 1 is saved on the server');
+ // A reload builds everything again from the server; the same tab storage brings the answers back.
+ const again=await onScreenTwo({storage,write:path=>path.endsWith('/survey')?{finalSurvey:sent('ready')}:undefined}),restored=again.section();
+ for(const row of ASPECTS)assert.equal(inputs(restored,'survey-aspects-'+row).find(n=>n.checked)?.value,'satisfecho',row);
+ assert.equal(inputs(restored,'survey-improvements')[0].value,'Más trabajo de campo');
+ const topicsOther=inputs(restored,'survey-topicsOther')[0];assert.equal(topicsOther.value,'Logística urbana');assert.equal(topicsOther.hidden,false,"'Otro' shows its field again");
+ assert.equal(findKey(restored,'surveyClearChoice').hidden,false,'question 9 offers its clear button again');
+ const consent=descendants(restored).find(n=>n.tagName==='fieldset'&&content(n).includes('12. ¿Podemos publicar'));assert.equal(consent.hidden,false);
+ assert.equal(inputs(restored,'survey-testimonialConsent').find(n=>n.checked)?.value,'anonymous');
+ assert.equal(inputs(restored,'survey-country')[0].value,'other');assert.equal(inputs(restored,'survey-countryOther')[0].hidden,false);
+ // Clearing question 9 is saved too: its button changes the radios without any input or change event.
+ findKey(restored,'surveyClearChoice').listeners.click();form(restored).listeners.click();assert.equal('survey-format' in JSON.parse(storage.data.get(key)),false);
+ // Another account signing in on the same tab gets its own, empty draft.
+ const other=harness(()=>coursePayload(started(),{enrollment:{id:'e2'}}),{storage});other.run('courses');await flush();await findKey(other.section(),'resumeSurvey').listeners.click();
+ assert.equal(descendants(form(other.section())).filter(n=>n.name).some(n=>['radio','checkbox'].includes(n.type)?n.checked:n.value),false);
+ answerRequired(restored);form(restored).listeners.change();await submit(restored);
+ const post=again.requests.find(r=>r.method==='POST');assert.equal(post.body.answers.improvements,'Más trabajo de campo');assert.equal(post.body.answers.topicsOther,'Logística urbana');
+ assert.equal(storage.data.has(key),false,'a sent survey leaves no draft');
+ storage.setItem(key,'{}');participant(closed(),{storage});await flush();assert.equal(storage.data.has(key),false,'nor does a closed one');
+});
+
 test('every interface key the survey section renders exists in English, Spanish and Portuguese',async()=>{
  const keys=new Set();const collect=node=>descendants(node).forEach(n=>{if(n.dataset.pilotText)keys.add(n.dataset.pilotText);});
  for(const state of [open(),closed(),sent('ready'),sent('preparing'),open({preview:true}),closed({preview:true})]){const h=participant(state);await flush();collect(h.section());}
@@ -356,14 +406,14 @@ const people=[
 ];
 const statusList=(patch={})=>({closesAt:FINAL_SURVEY.closesAt,lastDay:'2026-10-23',open:true,contactEmail:FINAL_SURVEY.contactEmail,total:4,answered:1,started:1,certificates:1,participants:people,...patch});
 const pdf=(name,stamp=1,body='JVBERi0xLjQK')=>({name,size:200,lastModified:stamp,type:'application/pdf',body});
-function organiser({finalSurvey=open({preview:true}),write,list=()=>statusList()}={}){
+function organiser({finalSurvey=open({preview:true}),write,list=()=>statusList(),search=''}={}){
  const h=harness(async(path,opts)=>{
   if(opts?.method){const reply=await write?.(path,opts,JSON.parse(opts.body||'{}'));return reply??{certificate:{id:'new'},replaced:false};}
   if(path==='/api/admin/courses')return{courses:[course]};
   if(path.endsWith('/report'))return{summary:{enrolled:4},participants:[],feedback:[],invitations:[]};
   if(path.endsWith('/final-survey'))return list();
   return{course,modules:[],...(finalSurvey?{finalSurvey}:{})};
- },{page:'teaching',search:''});
+ },{page:'teaching',search});
  h.ctx.FileReader=class{readAsDataURL(file){this.result='data:application/pdf;base64,'+file.body;this.onload();}};h.ctx.confirm=()=>true;
  h.run('teaching');return{...h,pane:()=>h.ctx.document.getElementById('staff-pane-finalSurvey'),tab:()=>h.ctx.document.getElementById('staff-tab-finalSurvey')};
 }
@@ -387,8 +437,11 @@ test('the survey tab sits after Participants, loads on first opening and lists o
  assert.match(visible(rowOf(pane,'Ana Pérez')),/Answered/);assert.match(visible(rowOf(pane,'Ana Pérez')),/Oct 12, 2026/);assert.match(visible(rowOf(pane,'Ana Pérez')),/Uploaded/);
  assert.match(visible(rowOf(pane,'Bruno Díaz')),/Started \(question 1 only\)/);assert.match(visible(rowOf(pane,'Bruno Díaz')),/Missing/);
  assert.match(visible(rowOf(pane,'Carla Soto')),/Not yet/);
+ // Each status cell names its column, for the stacked rows on a phone (CSS hides the labels on a wide screen).
+ assert.equal(findKey(rowOf(pane,'Carla Soto').children[1],'surveyColumn').className,'pilot-cell-label');assert.equal(findKey(rowOf(pane,'Carla Soto').children[2],'certificateColumn').className,'pilot-cell-label');
  assert.ok(descendants(pane).some(n=>n.href==='/api/admin/courses/c1/export?type=survey'));assert.ok(descendants(pane).some(n=>n.href==='/api/admin/courses/c1/export?type=survey-status'));
- assert.equal(inputs(pane,'survey-reminder-link')[0].value,'https://nodal.test/course.html?id=c1&encuesta=1');assert.equal(inputs(pane,'survey-reminder-link')[0].readOnly,true);
+ // lang=es: the survey is Spanish, and a browser with no saved language would otherwise frame it in English.
+ assert.equal(inputs(pane,'survey-reminder-link')[0].value,'https://nodal.test/course.html?id=c1&encuesta=1&lang=es');assert.equal(inputs(pane,'survey-reminder-link')[0].readOnly,true);
  const download=descendants(rowOf(pane,'Ana Pérez')).find(n=>n.tagName==='a');assert.equal(download.href,'/api/admin/courses/c1/certificates/u-ana');assert.equal(download['aria-label'],'Download the certificate of Ana Pérez');
  assert.equal(findKey(rowOf(pane,'Bruno Díaz'),'uploadCertificate')['aria-label'],'Upload the certificate PDF of Bruno Díaz');
  assert.equal(findKey(rowOf(pane,'Ana Pérez'),'replaceCertificate')['aria-label'],'Replace the certificate of Ana Pérez');
@@ -405,6 +458,8 @@ test('one certificate is checked in the browser, uploaded as a PDF, replaced and
  const pressed=findKey(rowOf(pane,'Bruno Díaz'),'uploadCertificate');pressed.focus();
  picker.files=[pdf('not-a-pdf.pdf',1,'aGVsbG8=')];picker.listeners.change();await flush();
  assert.equal(writes(h).length,0);assert.match(visible(pane),/The file must be a PDF of up to 3 MB\./);assert.equal(focused,pressed,'a refused file gives focus back too');
+ // The refusal is written in that person's certificate cell too, next to where the organiser is working.
+ assert.match(visible(rowOf(pane,'Bruno Díaz').children[2]),/Missing.*The file must be a PDF of up to 3 MB\./);assert.equal(pressed.textContent,'Upload PDF');
  picker.files=[{...pdf('big.pdf'),size:3*1024*1024+1}];picker.listeners.change();await flush();assert.equal(writes(h).length,0);
  picker.files=[pdf('bruno.pdf')];picker.listeners.change();await flush();
  const put=writes(h)[0];assert.equal(put.method,'PUT');assert.equal(put.path,'/api/admin/courses/c1/certificates/u-bruno');assert.deepEqual(put.body,{mime:'application/pdf',data:'JVBERi0xLjQK'});
@@ -455,6 +510,28 @@ test('bulk upload stops on a rate limit and a second press continues with the fi
  await findKey(refusing.pane(),'uploadCertificates').listeners.click();await flush();
  assert.deepEqual(writes(refusing).map(r=>r.path.split('/').at(-1)),['u-bruno','u-carla']);
  assert.match(visible(refusing.pane()),/Not uploaded:.*bruno@example\.com\.pdf.*The file must be a PDF of up to 3 MB\..*ana\.perez@example\.com\.pdf/s);assert.match(visible(refusing.pane()),/Uploaded: 1\./);
+});
+
+test('the address keeps the course and tab, a stale tab falls back to Responses, and the survey tab reads again after a minute',async()=>{
+ const h=organiser({search:'?course=c1&tab=finalSurvey'});await flush();const reads=()=>h.requests.filter(r=>r.path.endsWith('/final-survey')).length;
+ assert.equal(h.pane().hidden,false);assert.equal(reads(),1);assert.equal(h.replaced.at(-1),'?course=c1&tab=finalSurvey');
+ h.ctx.document.getElementById('staff-tab-responses').listeners.click();assert.equal(h.replaced.at(-1),'?course=c1&tab=responses');
+ let now=Date.now()+30000;h.ctx.Date=class extends Date{static now(){return now;}};
+ h.tab().listeners.click();await flush();assert.equal(reads(),1,'not again within a minute');
+ now+=60000;h.tab().listeners.click();await flush();assert.equal(reads(),2,'a minute later the counts are read again');
+ for(const search of ['?course=c1&tab=bogus','?course=c1&tab=__proto__','?course=gone&tab=finalSurvey']){
+  const other=organiser({search});await flush();const responses=other.ctx.document.getElementById('staff-pane-responses');
+  if(search.includes('gone'))assert.equal(other.pane().hidden,false,'an unknown course falls back to the first one, keeping the tab');
+  else{assert.equal(responses.hidden,false,search);assert.equal(other.pane().hidden,true,search);}
+ }
+});
+
+test('a certificate upload says so on its own button while it runs',async()=>{
+ let finish;const h=organiser({write:path=>path.endsWith('/u-carla')?new Promise(resolve=>{finish=resolve;}):undefined});await flush();h.tab().listeners.click();await flush();
+ const pressed=findKey(rowOf(h.pane(),'Carla Soto'),'uploadCertificate'),picker=inputs(h.pane(),'survey-certificate-u-carla')[0];picker.files=[pdf('carla.pdf')];picker.listeners.change();await flush();
+ assert.equal(pressed.textContent,'Uploading…');h.lang('es');assert.equal(pressed.textContent,'Subiendo…');h.lang('en');
+ finish({status:409,data:{error:'certificate changed',code:'certificate_changed'}});await flush();
+ assert.equal(pressed.textContent,'Upload PDF');assert.match(visible(rowOf(h.pane(),'Carla Soto').children[2]),/Someone else changed this certificate/);
 });
 
 test('every interface key of the organiser tab exists in English, Spanish and Portuguese',async()=>{

@@ -3,6 +3,10 @@
 const {t,el,tr,api,status,button,field,select,date,limaDate,bind,dynamic,source,setPageTitle}=window.nodalPilot;
 const root=document.getElementById('pilotRoot'),msg=document.getElementById('pilotStatus');
 let courses=[],selectedId=null,workspace,selectionVersion=0;
+// Course and session editors with unsaved changes: switching course, opening All feedback or New course asks first.
+const dirty=new Set();
+const leave=()=>{if(dirty.size&&!confirm(t('discardEdits')))return false;dirty.clear();return true;};
+window.addEventListener?.('beforeunload',e=>{if(dirty.size){e.preventDefault();e.returnValue='';}});
 const endpoint=id=>'/api/admin/courses'+(id?'/'+id:'');
 // Publication status plus a closed-enrollment marker, re-read on language change.
 const courseState=(c,cls)=>dynamic(cls?'span':'small',()=>t(c.status)+(c.enrollmentOpen===false?' · '+t('closed'):''),cls);
@@ -34,6 +38,7 @@ function translationEditor(record,keys){
 
 function makeEditor(record,module,courseId,onSaved){
   const form=el('form','pilot-form'),inputs={};
+  form.addEventListener('input',e=>{const n=e.target;if(n?.name==='translationLanguage'||n?.type==='file')return;dirty.add(form);});
   const contentKeys=module?['title','description','objectives','instructions']:['title','description'];
   const original=el('details','pilot-editor-original');original.open=!record;
   original.append(tr('summary','sourceContent'));const originalFields=el('div','pilot-form');original.append(originalFields);
@@ -56,17 +61,18 @@ function makeEditor(record,module,courseId,onSaved){
   if(module&&record){const moduleKind=el('p','pilot-data-note');moduleKind.append(tr('span','moduleKind'),el('span',null,': '),tr('strong',record.kind||'session'));form.append(moduleKind);}
   if(module){
     const resources=el('div'),rows=el('div');resources.append(tr('h3','resources'));
-    function add(r={}){
+    function add(r={},user=true){
       if(r.attachmentId&&resourceInputs.some(entry=>entry.attachmentId===r.attachmentId))return;
+      if(user)dirty.add(form);
       const row=el('div','pilot-resource-edit'),title=field('title',r.title||''),url=field('url',r.url||'','url'),kind=select('kind',['slides','reading','link','recording','activity'],r.kind||'link');
       title.input.required=true;url.input.required=!r.attachmentId;title.input.maxLength=180;url.input.maxLength=2000;
       const translated=translationEditor(r,['title']),details=el('details');details.append(tr('summary','translations'),translated.section);
       const entry={title:title.input,url:url.input,attachmentId:r.attachmentId,kind:kind.input,translations:translated.value};resourceInputs.push(entry);
       row.append(title.wrap);
       if(r.attachmentId){const download=tr('a','downloadFile');download.href='/api/course-attachments/'+encodeURIComponent(r.attachmentId);row.append(download);}else row.append(url.wrap);
-      row.append(kind.wrap,details,button('remove',()=>{row.remove();resourceInputs=resourceInputs.filter(x=>x!==entry);},true));rows.append(row);
+      row.append(kind.wrap,details,button('remove',()=>{row.remove();resourceInputs=resourceInputs.filter(x=>x!==entry);dirty.add(form);},true));rows.append(row);
     }
-    for(const resource of record?.resources||[])add(resource);
+    for(const resource of record?.resources||[])add(resource,false);
     resources.append(rows,button('addResource',()=>add(),true));
     const manager=el('details','pilot-file-manager');manager.append(tr('summary','manageFiles'),tr('p','officialFileNotice','pilot-data-note'));
     const file=field('officialFile','','file');file.input.accept='image/jpeg,image/png,image/webp,application/pdf,text/plain';
@@ -119,7 +125,7 @@ function makeEditor(record,module,courseId,onSaved){
       body.translations=translations.value();if(record)body.version=record.version;
       if(module){body.resources=resourceInputs.map(r=>({title:r.title.value,...(r.attachmentId?{attachmentId:r.attachmentId}:{url:r.url.value}),kind:r.kind.value,translations:r.translations()}));if(body.resources.some(r=>!r.attachmentId&&!window.nodalPilot.safeUrl(r.url)))throw new Error(t('urlError'));}
       const path=module?endpoint(courseId)+'/modules'+(record?'/'+record.id:''):endpoint(record?.id);
-      const result=await api(path,body,record?'PATCH':'POST'),saved=result.course||result.module;if(record)Object.assign(record,saved);else record=saved;submit.dataset.pilotText='save';submit.textContent=t('save');status(local,t('saved'));await onSaved(saved);await refreshFiles();
+      const result=await api(path,body,record?'PATCH':'POST'),saved=result.course||result.module;if(record)Object.assign(record,saved);else record=saved;submit.dataset.pilotText='save';submit.textContent=t('save');status(local,t('saved'));dirty.delete(form);await onSaved(saved);await refreshFiles();
     }catch(err){
       status(local,err);
       if(err.status===409&&!form.querySelector('[data-reload]')){
@@ -128,7 +134,7 @@ function makeEditor(record,module,courseId,onSaved){
           try{
             const result=await api(module?'/api/courses/'+courseId+'/modules/'+record.id:'/api/courses/'+record.id);
             const fresh=result.module||result.course;
-            form.replaceWith(makeEditor(fresh,module,courseId,onSaved));await onSaved(fresh);
+            dirty.delete(form);form.replaceWith(makeEditor(fresh,module,courseId,onSaved));await onSaved(fresh);
           }catch(error){status(local,error);reload.disabled=false;}
         },true);reload.dataset.reload='true';form.append(reload);
       }
@@ -143,7 +149,7 @@ function csvLink(id,type,key){
   return a;
 }
 
-function feedbackTable(records){
+function feedbackTable(records,where){
   const table=el('table','pilot-table pilot-feedback-table'),head=el('tr');
   ['participant','feedbackAction','rating','feedbackComment'].forEach(k=>head.append(tr('th',k)));
   const thead=el('thead'),body=el('tbody');thead.append(head);table.append(thead,body);
@@ -151,24 +157,26 @@ function feedbackTable(records){
     const row=el('tr'),who=el('td','pilot-response-person'),action=el('td');
     if(f.name)who.append(el('strong',null,f.name));
     if(f.email)who.append(el('div','pilot-response-email',f.email));
-    action.append(tr('span',f.action),dynamic('time',()=>new Date(f.createdAt).toLocaleString(window.nodalI18n?.lang||'en'),'pilot-response-date'));
+    const place=where?.(f);action.append(tr('span',f.action));if(place)action.append(source('div',place,'title','pilot-response-email'));
+    action.append(dynamic('time',()=>new Date(f.createdAt).toLocaleString(window.nodalI18n?.lang||'en'),'pilot-response-date'));
     const rating=el('td','pilot-response-rating');rating.append(el('strong',null,String(f.rating)),el('span',null,' / 5'));
     row.append(who,action,rating,el('td','pilot-response-comment',f.comment||''));body.append(row);
   }
   return table;
 }
 
-function responseView(records,courseId){
+// `context` maps the session (one course) or the course (all feedback) each response is about to its record.
+function responseView(records,courseId,context=new Map()){
   const section=el('section','pilot-response-view');
   const heading=el('div','pilot-section-heading');heading.append(tr('h2',courseId?'responses':'allFeedback'),csvLink(courseId,'feedback','downloadAll'));
   const controls=el('div','pilot-response-filters'),search=field('searchResponses','','search');
   const actions=['allActions',...new Set(records.map(f=>f.action))];
   const action=select('feedbackAction',actions,'allActions');controls.append(search.wrap,action.wrap);
-  const results=el('div','pilot-table-wrap');
+  const results=el('div','pilot-table-wrap'),where=f=>context.get(courseId?f.moduleId:f.courseId),titles=r=>r?[r.title,...Object.values(r.translations||{}).map(x=>x?.title)]:[];
   function render(){
     const term=search.input.value.trim().toLocaleLowerCase();
-    const filtered=records.filter(f=>(action.input.value==='allActions'||f.action===action.input.value)&&[f.name,f.email,f.comment].some(v=>String(v||'').toLocaleLowerCase().includes(term)));
-    results.replaceChildren(filtered.length?feedbackTable(filtered):tr('p',records.length?'noMatchingResponses':'noFeedback','pilot-empty'));
+    const filtered=records.filter(f=>(action.input.value==='allActions'||f.action===action.input.value)&&[f.name,f.email,f.comment,...titles(where(f))].some(v=>String(v||'').toLocaleLowerCase().includes(term)));
+    results.replaceChildren(filtered.length?feedbackTable(filtered,where):tr('p',records.length?'noMatchingResponses':'noFeedback','pilot-empty'));
   }
   search.input.addEventListener('input',render);action.input.addEventListener('change',render);
   section.append(heading,controls,results,tr('p','limitNote','pilot-data-note'));render();return section;
@@ -216,6 +224,8 @@ function participantView(data,id,version,notice,onRefresh,closed=false){
   email.input.addEventListener('input',()=>{invite.hidden=true;status(local,'');});
   form.addEventListener('submit',event=>{event.preventDefault();return mutate(false);});
   form.append(hint,email.wrap,actions);add.append(form);
+  // After an add or an invitation the panel stays open for the next person.
+  if(notice&&!closed)add.open=true;section.focusEmail=()=>email.input.focus();
   // A closed course admits no one: staff reopen Enrollment open in Course setup.
   section.append(closed?tr('div','participantsClosed','pilot-participant-add'):add,local);
   const invitations=(data.invitations||[]).filter(item=>!item.acceptedAt);
@@ -246,7 +256,7 @@ function participantView(data,id,version,notice,onRefresh,closed=false){
     row.append(intake);table.append(row);
   }
   wrap.append(table);section.append(data.participants.length?wrap:tr('p','noParticipants','pilot-empty'));
-  const footer=el('div','pilot-section-footer');footer.append(csvLink(id,'intake','intakeResponses'),tr('p','private','pilot-data-note'));section.append(footer);return section;
+  const footer=el('div','pilot-section-footer');footer.append(csvLink(id,'intake','downloadIntake'),tr('p','intakePrivateStaff','pilot-data-note'));section.append(footer);return section;
 }
 
 function activityView(data,id){
@@ -285,18 +295,19 @@ function finalSurveyView(id,version){
   const pane=el('section','pilot-survey-admin'),heading=el('div','pilot-section-heading'),exports=el('div','pilot-survey-exports');
   exports.append(csvLink(id,'survey','downloadSurveyResponses'),csvLink(id,'survey-status','downloadSurveyStatus'));heading.append(tr('h2','finalSurvey'),exports);
   const summary=el('div','pilot-survey-summary'),local=el('p','pilot-status');local.setAttribute('role','status');local.setAttribute('aria-live','polite');
-  const reminder=field('surveyReminderLink',new URL('course.html?'+new URLSearchParams({id,encuesta:'1'}),location.href).href);reminder.wrap.className='pilot-survey-reminder';reminder.input.name='survey-reminder-link';reminder.input.readOnly=true;
+  const reminder=field('surveyReminderLink',new URL('course.html?'+new URLSearchParams({id,encuesta:'1',lang:'es'}),location.href).href);reminder.wrap.className='pilot-survey-reminder';reminder.input.name='survey-reminder-link';reminder.input.readOnly=true;
   reminder.input.addEventListener('focus',()=>reminder.input.select?.());
   const bulk=el('details','pilot-file-manager pilot-survey-bulk'),files=field('certificateFiles','','file'),start=button('uploadCertificates',()=>uploadAll()),progress=el('p','pilot-status'),report=el('div','pilot-bulk-report');
   files.input.name='survey-certificate-files';files.input.multiple=true;files.input.accept='application/pdf,.pdf';start.className+=' pilot-plate';progress.setAttribute('role','status');progress.setAttribute('aria-live','polite');
   bulk.append(tr('summary','bulkCertificates'),tr('p','bulkCertificatesHint','pilot-data-note'),files.wrap,start,progress,report);
   const table=el('div','pilot-table-wrap');table.append(tr('p','loading','pilot-empty'));
   pane.append(heading,summary,local,reminder.wrap,tr('p','surveyReminderNote','pilot-data-note'),bulk,table);
-  let data=null,busy=false,requested=false,actions=[],focusable=new Map();const sent=new Set();
+  let data=null,busy=false,requested=false,loadedAt=0,actions=[],focusable=new Map(),notes=new Map();const sent=new Set();
   const current=()=>version===selectionVersion&&selectedId===id,fileKey=file=>[file.name,file.size,file.lastModified].join(':');
   const certificatePath=userId=>endpoint(id)+'/certificates/'+encodeURIComponent(userId);
   function setBusy(value){busy=value;pane.setAttribute('aria-busy',String(value));start.disabled=value;for(const control of actions)control.disabled=value;}
   async function load(){
+    loadedAt=Date.now();
     try{const result=await api(endpoint(id)+'/final-survey',undefined,undefined,{redirectOnUnauthorized:false});if(!current())return false;data=result;render();return true;}
     catch(err){if(current()){status(local,err);if(!data)table.replaceChildren(button('retry',()=>load(),true));}return false;}
   }
@@ -305,7 +316,7 @@ function finalSurveyView(id,version){
     summary.replaceChildren(dynamic('p',()=>fill('surveyCounts',{answered:data.answered,total:data.total,certificates:data.certificates}),'pilot-survey-counts'));
     if(data.started)summary.append(dynamic('p',()=>fill('surveyStartedCount',{started:data.started}),'pilot-survey-line'));
     summary.append(dynamic('p',()=>fill(data.open?'surveyClosesOn':'surveyClosedOn',{date:day()}),'pilot-survey-line'));
-    actions=[];focusable=new Map();
+    actions=[];focusable=new Map();notes=new Map();
     if(!data.participants.length){table.replaceChildren(tr('p','noParticipants','pilot-empty'));return;}
     const grid=el('table','pilot-table'),head=el('tr'),thead=el('thead'),rows=el('tbody');
     ['participant','surveyColumn','certificateColumn','actionsColumn'].forEach(k=>head.append(tr('th',k)));thead.append(head);grid.append(thead,rows);
@@ -313,10 +324,14 @@ function finalSurveyView(id,version){
     for(const p of data.participants){
       const row=el('tr'),who=el('td','pilot-response-person'),answer=el('td'),certificate=el('td'),controls=el('td','pilot-survey-actions'),name=p.name||p.email;
       who.append(el('strong',null,p.name||''),el('div','pilot-response-email',p.email||''));
+      // On a phone the rows stack, so each status names its column.
+      answer.append(tr('span','surveyColumn','pilot-cell-label'));certificate.append(tr('span','certificateColumn','pilot-cell-label'));
       if(p.submittedAt)answer.append(tr('span','surveyAnswered','pilot-survey-done'),when(p.submittedAt,{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}));
       else answer.append(tr('span',p.startedAt?'surveyStartedOnly':'surveyNotYet','pilot-survey-pending'));
       if(p.certificate){const view=labelled(tr('a','downloadCertificateFile','pilot-survey-file'),'downloadCertificateOf',name);view.href=certificatePath(p.userId);certificate.append(tr('span','certificateUploaded','pilot-survey-done'),when(p.certificate.createdAt,{day:'numeric',month:'short'}),view);}
       else certificate.append(tr('span','certificateMissing','pilot-survey-pending'));
+      // A refusal is also written in the row itself; `local` above the table stays the one announced.
+      const note=el('p','pilot-status');certificate.append(note);notes.set(p.userId,note);
       const picker=labelled(el('input'),'certificateFileOf',name);picker.type='file';picker.accept='application/pdf,.pdf';picker.name='survey-certificate-'+p.userId;picker.hidden=true;
       const upload=labelled(button(p.certificate?'replaceCertificate':'uploadCertificate',()=>{if(!busy)picker.click?.();},true),p.certificate?'replaceCertificateFor':'uploadCertificateFor',name);
       picker.addEventListener('change',()=>{const file=picker.files?.[0];picker.value='';if(file)uploadOne(p,file);});
@@ -332,15 +347,17 @@ function finalSurveyView(id,version){
      Once the controls are enabled again it returns to that button, or to the same person's row, unless the organiser
      has moved it meanwhile. */
   function refocus(target){const active=document.activeElement;if(current()&&(!active||active===document.body))target?.focus();}
+  function tell(p,err=''){if(!current())return;status(local,err);const note=notes.get(p.userId);if(note)status(note,err);}
   async function uploadOne(p,file){
-    if(busy)return;setBusy(true);status(local,'');
+    if(busy)return;setBusy(true);tell(p);
+    const pressed=focusable.get(p.userId),label=key=>{if(pressed){pressed.dataset.pilotText=key;pressed.textContent=t(key);}};label('certificateUploading');
     try{const pdf=await readCertificate(file);await api(certificatePath(p.userId),{mime:'application/pdf',data:pdf},'PUT',{redirectOnUnauthorized:false});if(current())await refresh('certificateSaved');}
-    catch(err){if(current())status(local,err);}finally{setBusy(false);refocus(focusable.get(p.userId));}
+    catch(err){tell(p,err);}finally{label(p.certificate?'replaceCertificate':'uploadCertificate');setBusy(false);refocus(focusable.get(p.userId));}
   }
   async function removeOne(p){
-    if(busy||!confirm(t('confirmDeleteCertificate')))return;setBusy(true);status(local,'');
+    if(busy||!confirm(t('confirmDeleteCertificate')))return;setBusy(true);tell(p);
     try{await api(certificatePath(p.userId),{},'DELETE',{redirectOnUnauthorized:false});if(current())await refresh('certificateDeleted');}
-    catch(err){if(current())status(local,err);}finally{setBusy(false);refocus(focusable.get(p.userId));}
+    catch(err){tell(p,err);}finally{setBusy(false);refocus(focusable.get(p.userId));}
   }
   function fileList(key,items,line){const box=el('div');box.append(tr('p',key,'pilot-bulk-heading'));const list=el('ul');items.forEach(item=>list.append(line(item)));box.append(list);return box;}
   // Before anything is sent, each file is shown next to the person it would go to; duplicates and strangers are listed apart.
@@ -376,8 +393,8 @@ function finalSurveyView(id,version){
     if(plan.unmatched.length)report.append(fileList('bulkUnmatched',plan.unmatched,file=>el('li',null,file.name)),tr('p','bulkUnmatchedHint','pilot-data-note'));
     await load();
   }
-  // Read on first opening of the tab, never for a course without the survey.
-  return {element:pane,open(){if(!requested){requested=true;load().then(ok=>{if(!ok)requested=false;});}}};
+  // Read on first opening of the tab, never for a course without the survey; opened again a minute later it reads again (never mid-upload).
+  return {element:pane,open(){if(busy||(requested&&Date.now()-loadedAt<60000))return;requested=true;load().then(ok=>{if(!ok)requested=false;});}};
 }
 
 function setupView(course,modules,id,onCourseSaved){
@@ -408,7 +425,7 @@ async function showCourse(id,selected='responses',participantNotice=null){
   try{
     const [{course,modules,finalSurvey},data]=await Promise.all([api('/api/courses/'+id),api(endpoint(id)+'/report')]);
     if(version!==selectionVersion)return;
-    workspace.replaceChildren();
+    workspace.replaceChildren();dirty.clear();
     const header=el('header','pilot-teaching-course');
     const title=el('div');title.append(courseState(course,'pilot-tag'),source('h2',course,'title'));
     const view=tr('a','open','pilot-text-link');view.href='course.html?id='+id;header.append(title,view);workspace.append(header);
@@ -431,18 +448,21 @@ async function showCourse(id,selected='responses',participantNotice=null){
         const previous=panes.participants,next=participantView(fresh,id,version,notice,refreshParticipants,paneClosed);
         next.id=previous.id;next.setAttribute('role','tabpanel');next.setAttribute('aria-labelledby','staff-tab-participants');next.hidden=previous.hidden;
         previous.replaceWith(next);panes.participants=next;
+        const active=document.activeElement;if(notice&&!next.hidden&&(!active||active===document.body))next.focusEmail?.();
         const nextActivity=activityView(fresh,id);nextActivity.open=activity.open;activity.replaceWith(nextActivity);activity=nextActivity;
         status(msg,'');
       }catch(error){if(version===selectionVersion&&selectedId===id)status(msg,new Error(t('participantListRefreshError')));}
     }
     // The course page sends finalSurvey only for the one course that has the survey, so only that course gets the tab.
     const survey=finalSurvey?finalSurveyView(id,version):null;
-    const panes={responses:responseView(data.feedback,id),participants:participantView(data,id,version,participantNotice,refreshParticipants,paneClosed),...(survey?{finalSurvey:survey.element}:{}),courseSetup:setupView(course,modules,id,updateCourse)};
+    const panes={responses:responseView(data.feedback,id,new Map(modules.map(m=>[m.id,m]))),participants:participantView(data,id,version,participantNotice,refreshParticipants,paneClosed),...(survey?{finalSurvey:survey.element}:{}),courseSetup:setupView(course,modules,id,updateCourse)};
     const buttons={};
     function activate(key){
       for(const name of Object.keys(panes)){
         panes[name].hidden=name!==key;buttons[name].setAttribute('aria-selected',String(name===key));buttons[name].tabIndex=name===key?0:-1;
       }
+      // The address keeps the course and tab, so a reload or a return from the course page lands here again.
+      try{history.replaceState(null,'','?'+new URLSearchParams({course:id,tab:key}));}catch{/* The view works without it. */}
       if(key==='finalSurvey')survey.open();
     }
     Object.entries(panes).forEach(([key,pane],index)=>{
@@ -457,6 +477,7 @@ async function showCourse(id,selected='responses',participantNotice=null){
       });
       buttons[key]=b;tabs.append(b);
     });
+    if(!Object.hasOwn(panes,selected))selected='responses';
     workspace.append(tabs,...Object.values(panes),activity);activate(selected);
     document.querySelectorAll('#staffCourses button').forEach(b=>{if(b.dataset.course===id)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
     status(msg,'');
@@ -467,13 +488,15 @@ async function refreshList(fetchLatest=true){
   if(fetchLatest)({courses}=await api(endpoint()));const list=document.getElementById('staffCourses');list.replaceChildren();
   courses.forEach(c=>{
     const b=el('button','pilot-course-select');b.type='button';b.dataset.course=c.id;
-    b.append(source('span',c,'title'),courseState(c));b.addEventListener('click',()=>showCourse(c.id));
+    b.append(source('span',c,'title'),courseState(c));b.addEventListener('click',()=>{if(leave())showCourse(c.id);});
     if(c.id===selectedId)b.setAttribute('aria-current','page');list.append(b);
   });
 }
 async function allFeedback(){
-  const version=++selectionVersion;
-  try{const data=await api('/api/admin/feedback');if(version!==selectionVersion)return;workspace.replaceChildren(responseView(data.feedback,null));}
+  const version=++selectionVersion;selectedId=null;status(msg,t('loading'));
+  document.querySelectorAll('#staffCourses button').forEach(b=>b.removeAttribute('aria-current'));
+  try{history.replaceState(null,'',location.pathname);}catch{/* The view works without it. */}
+  try{const data=await api('/api/admin/feedback');if(version!==selectionVersion)return;workspace.replaceChildren(responseView(data.feedback,null,new Map(courses.map(c=>[c.id,c]))));dirty.clear();status(msg,'');}
   catch(err){if(version===selectionVersion)status(msg,err);}
 }
 async function start(){status(msg,t('loading'));
@@ -483,11 +506,14 @@ async function start(){status(msg,t('loading'));
     const hero=el('header','pilot-hero pilot-teaching-hero');hero.append(tr('h1','teaching'),tr('p','teachingIntro'));
     const layout=el('div','pilot-staff-layout'),nav=el('aside','pilot-staff-nav'),list=el('div','pilot-staff-list');list.id='staffCourses';workspace=el('div','pilot-staff-work');
     const create=button('newCourse',()=>{
-      selectionVersion++;selectedId=null;workspace.replaceChildren();const section=el('section','pilot-setup');
+      if(!leave())return;selectionVersion++;selectedId=null;workspace.replaceChildren();const section=el('section','pilot-setup');
+      try{history.replaceState(null,'',location.pathname);}catch{/* The view works without it. */}
       section.append(tr('h2','newCourse'),makeEditor(null,false,null,async c=>{await refreshList();await showCourse(c.id,'courseSetup');}));workspace.append(section);
     },true);
-    nav.append(tr('h2','courses'),list,button('allFeedback',allFeedback,true),create);layout.append(nav,workspace);root.append(hero,layout);
-    await refreshList(false);if(courses.length)await showCourse(courses[0].id);else create.click();status(msg,'');
+    nav.append(tr('h2','courses'),list,button('allFeedback',()=>{if(leave())allFeedback();},true),create);layout.append(nav,workspace);root.append(hero,layout);
+    await refreshList(false);
+    const q=new URLSearchParams(location.search),wanted=courses.find(c=>c.id===q.get('course'))?.id||courses[0]?.id;
+    if(wanted)await showCourse(wanted,q.get('tab')||undefined);else create.click();status(msg,'');
   }catch(err){status(msg,err);}
 }
 start();

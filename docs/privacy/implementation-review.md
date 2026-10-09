@@ -61,6 +61,7 @@ These values come from source code; verify the production configuration and actu
 | `nodal.lang` cookie | Chosen language | One year when set/renewed. |
 | `nodal.lang` local storage | Chosen language | No automatic expiry found. |
 | `nodal.location-check.v1:<userId>` local storage | Automatic-check preference and last check day | No automatic expiry found; account deletion on the server does not automatically prove cleanup on every device. |
+| `nodal.surveyDraft.<courseId>.<enrollmentId>` session storage | Unsent answers on screen 2 of a course's final survey, including free text, so a reload keeps them | Removed when the survey is sent or shown as closed; otherwise the browser clears it when the tab closes. |
 
 Classify essential and optional technologies by purpose and applicable law. Preserve the no-embed-before-activation design; explain the provider before activating it. Do not add a decorative “accept all” banner that neither controls third parties nor records choices. [ANPD cookie guidance](https://www.gov.br/anpd/pt-br/centrais-de-conteudo/materiais-educativos-e-publicacoes/guia-orientativo-cookies-e-protecao-de-dados-pessoais.pdf).
 

@@ -40,7 +40,8 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-course-hero>p{font-size:14px;max-width:85ch;margin:0}
 .pilot-course-meta{display:flex;align-items:center;gap:24px;font-size:12px;color:var(--muted)}
 .pilot-course-meta a{text-decoration:none;font-weight:600}
-.pilot-course-hero .pilot-actions{margin:20px 0 0;gap:20px}
+.pilot-course-hero .pilot-actions{margin:12px 0 0;gap:0 16px}
+.pilot-course-hero .pilot-actions>p{flex-basis:100%;margin:8px 0 0}
 .pilot-directory{border-top:1px solid var(--line)}
 .pilot-course-row{display:grid;grid-template-columns:165px 1fr auto;gap:32px;align-items:center;padding:32px 0;border-bottom:1px solid var(--line)}
 .pilot-course-row h2{margin:0 0 10px;max-width:34ch}
@@ -53,7 +54,8 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-button:hover{background:#304e2c}
 .pilot-button.secondary:hover{background:#f5f8f2}
 .pilot-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:20px 0}
-.pilot-course-hero .pilot-actions button{padding:0;border:0;border-radius:0;font-size:11px;text-decoration:underline!important;text-underline-offset:4px}
+/* Underlined text actions, each a full 44px tap target. */
+.pilot-course-hero .pilot-actions button{display:inline-flex;align-items:center;min-height:44px;padding:0;border:0;border-radius:0;font-size:12px;text-decoration:underline!important;text-underline-offset:4px}
 .pilot-workspace{display:grid;grid-template-columns:235px minmax(0,1fr);gap:64px;align-items:start}
 .pilot-route{position:sticky;top:28px}
 .pilot-route h2{color:var(--section-tone);font-size:13px;font-weight:650;letter-spacing:0;margin-bottom:24px}
@@ -353,3 +355,17 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-table td.pilot-survey-actions{white-space:nowrap;padding-top:8px}
 .pilot-survey-actions>.pilot-button{min-height:36px;padding:8px 0;margin-right:16px;border:0;background:none;font-size:11px;text-decoration:underline!important;text-underline-offset:4px}
 .pilot-survey-actions>.pilot-button:hover{background:none;text-decoration-thickness:2px!important}
+/* On a phone the survey and response tables stack: one block per person, ruled once, with column labels inside the
+   two status cells. The header stays for screen readers. */
+.pilot-cell-label{display:none}
+@media(max-width:640px){
+ :is(.pilot-feedback-table,.pilot-survey-admin .pilot-table),:is(.pilot-feedback-table,.pilot-survey-admin .pilot-table) tbody{display:block}
+ :is(.pilot-feedback-table,.pilot-survey-admin .pilot-table) thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+ :is(.pilot-feedback-table,.pilot-survey-admin .pilot-table) tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px 16px;padding:16px 0;border-bottom:1px solid #e1e8dc}
+ :is(.pilot-feedback-table,.pilot-survey-admin .pilot-table) td{display:block;padding:0;border:0;min-width:0}
+ :is(.pilot-feedback-table,.pilot-survey-admin .pilot-table) :is(td.pilot-response-person,td.pilot-response-comment,td.pilot-survey-actions){grid-column:1/-1}
+ :is(.pilot-feedback-table,.pilot-survey-admin .pilot-table) .pilot-response-date{white-space:normal}
+ .pilot-response-comment{max-width:none}
+ .pilot-table td.pilot-survey-actions{white-space:normal}
+ .pilot-cell-label{display:block;font-size:11px;color:#6e7d65;margin-bottom:2px}
+}
