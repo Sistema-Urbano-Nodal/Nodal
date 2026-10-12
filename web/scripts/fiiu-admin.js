@@ -746,11 +746,23 @@
   },{rootMargin:'-35% 0px -64% 0px'});
   for(const section of [summaryHost,checkinHost,participantsHost,settingsHost,contentHost,conversationsHost])observer.observe(section);
  }
+ // A section link (#participants, kept through a reload or a return from sign-in) is reached once the sections above it have filled in: the totals,
+ // the questions, the summary emails and the other participant pages push it down by thousands of pixels. One instant jump (html scrolls smoothly,
+ // which would aim at the old place); someone who already scrolled, tapped or typed is left where they are, and later refreshes never scroll.
+ const sectionHosts=()=>({overview:summaryHost,checkin:checkinHost,participants:participantsHost,settings:settingsHost,content:contentHost,conversations:conversationsHost});
+ const sectionId=location.hash.slice(1),wantsSection=SECTIONS.some(([id])=>id===sectionId);let movedOn=false;
+ if(wantsSection){
+  // The browser's own restoration would put a reload back where it was in a far shorter page; the section is the place to be.
+  if(globalThis.history)history.scrollRestoration='manual';
+  for(const type of ['wheel','touchstart','pointerdown','keydown'])window.addEventListener?.(type,()=>{movedOn=true;},{once:true,passive:true});
+ }
+ function reachSection(filled){if(wantsSection)Promise.allSettled(filled).then(()=>{if(!movedOn&&!locked)sectionHosts()[sectionId]?.scrollIntoView({block:'start',behavior:'instant'});});}
  async function load(){
   status(message,'loading');const summaryRequest=api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error})),questionsRequest=readQuestions().then(list=>({list}),error=>({error}));try{const [settingsData,posts,participantData]=await Promise.all([api('/api/admin/fiiu/config'),api('/api/admin/fiiu/content'),api('/api/admin/fiiu/registrations')]);festival={event:settingsData.event};config=settingsData.config;publications=posts.content;contentCursor=posts.nextCursor;setRecords(participantData.registrations);cursor=participantData.nextCursor;
    const grid=el('div','f-admin-columns');grid.append(listHost,detailHost);detailHost.replaceChildren(tr('p','selectParticipant','f-muted f-detail-empty'));const heading=tr('h2','participants');heading.id='f-h-participants';participantsHost.id='participants';participantsHost.replaceChildren(heading,filters(),grid);
-   root.replaceChildren(adminHead(),sessionNotice,adminNav(),summaryPanel(),checkinPanel(),participantsHost,settings(),contentPanel(),conversationsPanel(),newTabNote());renderRegistrationPill();readParticipants();renderList();status(message,'');refreshSummary({pending:summaryRequest});refreshQuestions({pending:questionsRequest});renderBackfill();loadBackfill();setTitle();observeSections();
-   const hash=location.hash;if(SECTIONS.some(([id])=>'#'+id===hash))document.querySelector(hash)?.scrollIntoView({block:'start'});
+   root.replaceChildren(adminHead(),sessionNotice,adminNav(),summaryPanel(),checkinPanel(),participantsHost,settings(),contentPanel(),conversationsPanel(),newTabNote());renderRegistrationPill();
+   const filled=[readParticipants()];renderList();status(message,'');filled.push(refreshSummary({pending:summaryRequest}),refreshQuestions({pending:questionsRequest}));renderBackfill();filled.push(loadBackfill());setTitle();observeSections();
+   reachSection(filled);
   }catch(error){
    // Signed out before the dashboard loaded: sign in and come straight back. Signed in without organiser access: the organisers-only state, with no Retry.
    if(error.status===401){status(message,'');location.assign(signInUrl());return;}

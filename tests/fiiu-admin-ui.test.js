@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 import {DEFAULT_CONFIG,FIIU_EVENT} from '../server/fiiu-domain.js';
-import {createFiiuHarness,key,field,flush,content,descendants} from './helpers/fiiu-ui-harness.js';
+import {createFiiuHarness,key,field,flush,content,descendants,Node} from './helpers/fiiu-ui-harness.js';
 
 const participant=(id,firstName)=>({id,eventId:'fiiu-2026',userId:'user-'+id,email:firstName.toLowerCase()+'@example.test',version:1,labStatus:'pending',createdAt:'2026-09-29T12:00:00.000Z',updatedAt:'2026-09-29T12:00:00.000Z',answers:{firstName,lastName:'Test',country:'Perú',city:'Lima',profile:'public_official',publicOfficial:true,applyLab:true,institution:'City Council',position:'Planner',activities:['day1-am'],privacyAccepted:true}});
 const copy=value=>structuredClone(value);
@@ -1328,6 +1328,29 @@ test('a status change made here while the same question is being edited does not
 // The organiser at work: reaching a section from its link, the detail panel, door check-in on phones, search, the availability switch,
 // failed ticks, a question edit's conflict and a question's CSV.
 const leavePrompt=h=>{let prevented=false;for(const listener of h.windowListeners.beforeunload)listener({preventDefault(){prevented=true;}});return prevented;};
+const at=hash=>({location:{hash,search:'',pathname:'/fiiu-admin.html',assign(){},reload(){}}});
+
+test('opening the dashboard at a section link scrolls there once, after the sections above it have filled in, and never yanks an organiser who already moved',async()=>{
+ const scrolls=[],original=Node.prototype.scrollIntoView;
+ Node.prototype.scrollIntoView=function(options){scrolls.push({id:this.id,options:{...options}});};
+ try{
+  const totals=deferred(),list=deferred(),to=id=>scrolls.filter(scroll=>scroll.id===id);
+  const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>totals.promise,questionsRead:()=>list.promise,context:at('#participants')});
+  assert.deepEqual(to('participants'),[],'nothing moves while the overview is still empty');
+  assert.equal(h.ctx.history.scrollRestoration,'manual','the browser does not restore an old position the late render would then shift');
+  totals.resolve({summary:copy(summary)});await flush();assert.deepEqual(to('participants'),[],'the questions are still on their way');
+  list.resolve({questions:[question()]});await flush();
+  assert.deepEqual(to('participants'),[{id:'participants',options:{block:'start',behavior:'instant'}}],'one jump, not a smooth scroll to a stale position');
+  await h.tickTimers();await flush();assert.equal(to('participants').length,1,'timed refreshes never scroll again');
+  for(const type of ['wheel','touchstart','pointerdown','keydown']){
+   const late=deferred(),again=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>late.promise,context:at('#settings')});
+   for(const listener of again.windowListeners[type]||[])listener({type});
+   late.resolve({summary:copy(summary)});await flush();assert.equal(to('settings').length,0,type+' before the data landed keeps the organiser where they are');
+  }
+  const plain=await harness(()=>({content:[],nextCursor:null}),{context:at('#f-p-anything')});
+  assert.equal(scrolls.length,1,'a hash that is not a section scrolls nothing');assert.notEqual(plain.ctx.history.scrollRestoration,'manual');
+ }finally{Node.prototype.scrollIntoView=original;}
+});
 
 test('switching to another person starts the detail panel at the top, so their name shows above the ticks; refreshing the same person keeps the place',async()=>{
  const ana=participant('participant-a','Ana'),bruno=participant('participant-b','Bruno');
