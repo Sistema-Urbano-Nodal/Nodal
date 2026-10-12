@@ -454,6 +454,22 @@ test('every translation key a script asks for resolves in all three languages', 
   runInNewContext(readFileSync(path.join(ROOT,'web/scripts/fiiu-ui.js'),'utf8'),fiiuContext);
   const fiiuRows=fiiuContext.window.Fiiu.rows;
   for(const [key,values]of Object.entries(fiiuRows))assert.ok(values.length===3&&values.every(v=>typeof v==='string'&&v.trim()),`festival key ${key} must have all three languages`);
+  /* A festival page may add its own strings with Object.assign(Fiiu.rows,{…}) (fiiu-talk.js does). Its script resolves against the shared rows plus
+     those, and each of them needs all three languages too. Only the literal is evaluated, cut out by a brace scan that skips strings and comments,
+     since running the page itself would need a whole DOM. */
+  const festivalRows=(file,js)=>{
+    const start=js.indexOf('Object.assign(Fiiu.rows,');if(start<0)return fiiuRows;
+    const from=js.indexOf('{',start);let depth=0,quote='',i=from;
+    for(;i<js.length;i++){
+      const c=js[i];
+      if(quote){if(c==='\\')i++;else if(c===quote)quote='';}
+      else if(c==='/'&&js[i+1]==='/')i=js.indexOf('\n',i);else if(c==='/'&&js[i+1]==='*')i=js.indexOf('*/',i)+1;
+      else if(`'"\``.includes(c))quote=c;else if(c==='{')depth++;else if(c==='}'&&--depth===0)break;
+    }
+    const local=runInNewContext('('+js.slice(from,i+1)+')');
+    for(const [key,values]of Object.entries(local))assert.ok(values.length===3&&values.every(v=>typeof v==='string'&&v.trim()),`${file}: festival key ${key} must have all three languages`);
+    return {...fiiuRows,...local};
+  };
   const pilotContext={window:{}};
   runInNewContext(readFileSync(path.join(ROOT,'web/scripts/pilot-i18n.js'),'utf8'),pilotContext);
   const pilotRows=pilotContext.window.pilotI18n.rows;
@@ -475,10 +491,11 @@ test('every translation key a script asks for resolves in all three languages', 
   }
   for (const file of readdirSync(path.join(ROOT, 'web', 'scripts')).filter((f) => f.endsWith('.js'))) {
     const js = readFileSync(path.join(ROOT, 'web', 'scripts', file), 'utf8');
+    const festival=file.startsWith('fiiu')?festivalRows(file,js):null;
     for (const m of js.matchAll(/\bt\(\s*'([^']+)'/g)) {
       const key = m[1];
-      if(file.startsWith('fiiu')){
-        if(!fiiuRows[key])missing.push(`${file}: '${key}' is missing from festival translations`);
+      if(festival){
+        if(!festival[key])missing.push(`${file}: '${key}' is missing from festival translations`);
         continue;
       }
       if(['invitation-i18n.js','accept-invitation.js'].includes(file)){

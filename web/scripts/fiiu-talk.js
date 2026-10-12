@@ -76,7 +76,8 @@
    if(!part)return;if(i%2===0){p.append(document.createTextNode(part));return;}
    const trail=TRAIL.exec(part)?.[0]||'',href=part.slice(0,part.length-trail.length);let url=null;try{url=new URL(href);}catch{url=null;}
    if(!url||!['http:','https:'].includes(url.protocol)){p.append(document.createTextNode(part));return;}
-   const a=el('a','f-talk-link',href);a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';a.setAttribute('aria-describedby','f-newtab');p.append(a);if(trail)p.append(document.createTextNode(trail));
+   // Not f-talk-link: that class is the shared conversation entry link, with a speech-bubble glyph and a tall touch target.
+   const a=el('a','f-talk-url',href);a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';a.setAttribute('aria-describedby','f-newtab');p.append(a);if(trail)p.append(document.createTextNode(trail));
   });
   return p;
  }
@@ -109,12 +110,13 @@
   if(m.organiser)meta.append(tr('span','talkOrganiser','f-talk-org'));if(m.hidden)meta.append(tr('span','talkHidden','f-talk-flag'));
   meta.append(when(m.createdAt));row.append(meta);if(m.body)row.append(linkify(m.body));if(m.files.length)row.append(filesOf(m.files));
   // Your own message shows its likes as text and can be deleted, even once the question is closed.
-  if(m.mine){if(m.likeCount>0)actions.append(counted('span','f-talk-likes',m.likeCount===1?'talkLikeOne':'talkLikes',{n:m.likeCount}));actions.append(button('talkDelete',()=>erase(m.id),'f-talk-act'));}
+  if(m.mine){if(m.likeCount>0)actions.append(counted('span','f-talk-likes',m.likeCount===1?'talkLikeOne':'talkLikes',{n:m.likeCount}));actions.append(button('talkDelete',()=>erase(m.id),'f-talk-delete f-talk-act'));}
   else actions.append(likeButton(m));
-  if(me.organiser)actions.append(button(m.hidden?'talkUnhide':'talkHide',()=>moderate(m.id),'f-talk-act'));
+  if(me.organiser)actions.append(button(m.hidden?'talkUnhide':'talkHide',()=>moderate(m.id),'f-talk-hide f-talk-act'));
   row.append(actions);return row;
  }
- // Rows stay in (createdAt, id) order with messages still being sent last. A replaced row hands focus to the same control in its successor.
+ // Rows stay in (createdAt, id) order with messages still being sent last. A replaced row hands focus to the same control in its successor:
+ // each row control's first class names it (f-talk-like, f-talk-delete, f-talk-hide, the last also for Unhide).
  const later=(a,b)=>Boolean(a)&&(a.createdAt>b.createdAt||(a.createdAt===b.createdAt&&a.id>b.id));
  function upsert(view){
   const next={...view,files:Array.isArray(view.files)?view.files:[]},node=messageRow(next),old=rowsById.get(next.id);views.set(next.id,next);rowsById.set(next.id,node);
@@ -196,7 +198,9 @@
     if(question?.id!==id)return;
     // Gone from the pulse: hidden since it was opened. Reading it again says so (or, for an organiser, shows it hidden).
     if(!entry)await reload(id);
-    else{const [, , revision,state]=entry,moved=state!==question.status;if(moved)setStatus(state);if(Number(revision)>known)await changes(id,!moved);}
+    // The CDN can serve a pulse seconds old, so its status counts only with a revision newer than the page's (a status change bumps the revision):
+    // a stale "open" never brings back a composer that a question_closed refusal or a fresh read just removed.
+    else{const [, , revision,state]=entry;if(Number(revision)>known){const moved=state!==question.status;if(moved)setStatus(state);await changes(id,!moved);}}
    }
    failures=0;nextAt=0;if(message.dataset.fiiuText==='talkPaused')status(message,'');
   }catch(error){
@@ -205,13 +209,17 @@
   }finally{busy=false;}
  }
  async function changes(id,header){
-  const data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages?since='+known);if(question?.id!==id)return;
+  const prior=known,data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages?since='+prior);if(question?.id!==id)return;
   if(data.reset)return reload(id);
   const list=Array.isArray(data.changes)?data.changes:[];
-  patch(note=>{for(const change of list){if(!change?.id)continue;if(change.gone)drop(change.id);else note(change,upsert(change));}});
+  // While earlier pages are not loaded, a change to a message older than the first loaded row (a like or an unhide bumps its seq) waits for
+  // "Load earlier", which brings it fresh: shown now it would sit out of context above the gap and raise the pill with nothing new below.
+  const first=before?views.get([...parts.log.children].find(child=>child.dataset.id)?.dataset.id):null;
+  patch(note=>{for(const change of list){if(!change?.id)continue;if(change.gone)drop(change.id);else if(!(first&&!rowsById.has(change.id)&&later(first,change)))note(change,upsert(change));}});
   if(Number.isFinite(data.revision))known=Math.max(known,data.revision);
   // A revision that moved with no message in it was the question itself: its text or talk changed (the pulse already carried any status).
-  if(!list.length&&header){const fresh=await api('/api/fiiu/questions/'+encodeURIComponent(id));if(question?.id===id&&fresh?.question){Object.assign(question,{body:fresh.question.body,talk:fresh.question.talk});setStatus(fresh.question.status);}}
+  // One that did not move needs no read: an organiser on a hidden question asks for changes on every tick, without the pulse.
+  if(!list.length&&header&&Number(data.revision)>prior){const fresh=await api('/api/fiiu/questions/'+encodeURIComponent(id));if(question?.id===id&&fresh?.question){Object.assign(question,{body:fresh.question.body,talk:fresh.question.talk});setStatus(fresh.question.status);}}
  }
  async function reload(id){const data=await api('/api/fiiu/questions/'+encodeURIComponent(id));if(question?.id===id&&data?.question?.id)show(data);}
 
@@ -389,7 +397,8 @@
 
  // A language switch: refresh() in fiiu-ui.js rewrites the plain keys; the numbers, sizes and attributes are rewritten here.
  function relabel(){
-  setTitle();root.querySelectorAll('.f-talk-n').forEach(node=>setCount(node,node.dataset.talkKey,JSON.parse(node.dataset.talkVars||'{}')));
+  // The composer's counter has no key until it first shows (updateLeft() below relabels it); without this guard t(undefined) would stop the switch here.
+  setTitle();root.querySelectorAll('.f-talk-n').forEach(node=>{if(node.dataset.talkKey)setCount(node,node.dataset.talkKey,JSON.parse(node.dataset.talkVars||'{}'));});
   root.querySelectorAll('.f-talk-size').forEach(node=>{node.textContent=sizeText(Number(node.dataset.talkSize));});
   if(parts)parts.log.setAttribute('aria-label',t('talkPage'));if(composer){composer.textarea.placeholder=t('talkPlaceholder');updateLeft();}
  }
