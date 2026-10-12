@@ -967,7 +967,11 @@ select:focus-visible, textarea:focus-visible {
   /* The rail: the wordmark and the language on one row, the section and tool links on one row that scrolls
      sideways, sign-out and privacy under it. Wrapped, the twelve links took six rows (about 330px, more at touch
      size) and pushed the greeting and the festival block a screen down. The fade at the edge says the row goes
-     on, and the end padding lets the last link scroll clear of it. */
+     on, and the end padding lets the last link scroll clear of it.
+     The language set is shown before the links but comes after them in the markup (desktop shares it), so Tab
+     and screen readers reach it after the links. That is kept on purpose: it is a self-contained group, and on
+     the sign-out row (about 412px with privacy, against 315px inside the rail at 375) it would add a fourth row
+     and push "Next for you" below the first phone screen. */
   .side { column-gap: 12px; row-gap: 8px; }
   .side-foot { display: contents; }
   .lang-set { order: 1; margin-left: auto; }
