@@ -155,6 +155,41 @@ test('a lost send retried with the same clientId never duplicates: concurrent se
  assert.equal((await post(q,'nuevo')).body.code,'question_closed');
 });
 
+test('a retry racing the first send of a draft with a photo keeps one message with its photo, whichever attach lands first',async t=>{
+ // Each hold() stops the next attachFiles call until released, so the two requests of one draft can be interleaved.
+ const gates=[];
+ const hold=()=>{const gate={};gate.entered=new Promise(r=>{gate.enter=r;});gate.opened=new Promise(r=>{gate.release=r;});gates.push(gate);return gate;};
+ const {db,json,ask,post,upload,talkStore}=await setup(t,{wrapTalk:store=>({...store,attachFiles:async(...args)=>{const gate=gates.shift();if(gate){gate.enter();await gate.opened;}return store.attachFiles(...args);}})});
+ const q=await ask(),sent=[];
+ const send=(clientId,file)=>post(q,'con foto',{clientId,fileIds:[file.id]});
+ const same=(answers,file)=>{
+  assert.deepEqual(answers.map(a=>a.status),[201,200],JSON.stringify(answers.map(a=>a.body)));
+  assert.equal(answers[1].body.message.id,answers[0].body.message.id);
+  for(const a of answers)assert.deepEqual(a.body.message.files.map(f=>f.id),[file.id]);
+  sent.push([answers[0].body.message.id,file.id]);
+ };
+ // The retry attaches while the first request waits at its attach, which then finds the photo already on its message.
+ const photo=(await upload()).body.file,draft=randomUUID(),held=hold(),first=send(draft,photo);await held.entered;
+ const retry=await send(draft,photo);held.release();
+ same([await first,retry],photo);
+ // The retry reads the message before the first request attaches, and attaches after it.
+ const second=(await upload()).body.file,again=randomUUID(),a=hold(),b=hold(),original=send(again,second);await a.entered;
+ const late=send(again,second);await b.entered;
+ a.release();const stored=await original;b.release();
+ same([stored,await late],second);
+ const page=await json(`/api/fiiu/questions/${q.id}`,{actor:'other'});
+ assert.deepEqual(page.body.messages.map(m=>[m.id,m.files.map(f=>f.id)[0]]),sent,'one visible message each, with its photo');
+ for(const [,id] of sent){assert.equal((await talkStore.findFile(id))?.status,'ready');assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_file_bytes WHERE file_id=?').get(id).n,1);}
+});
+
+test('a retry of a message hidden since it was sent learns it is gone, as its author would on the next sync',async t=>{
+ const {json,ask,post}=await setup(t);
+ const q=await ask(),clientId=randomUUID(),m=(await post(q,'hola',{clientId})).body.message;
+ assert.equal((await json(`/api/admin/fiiu/messages/${m.id}/hidden`,{actor:'admin',method:'PUT',body:{}})).status,200);
+ const retry=await post(q,'hola',{clientId});
+ assert.equal(retry.status,200);assert.deepEqual(retry.body.message,{id:m.id,seq:retry.body.message.seq,gone:true});
+});
+
 test('likes are idempotent, never on your own message and never on a closed question, while deleting your own still works',async t=>{
  const {json,call,ask,post,close}=await setup(t);
  const q=await ask(),m=(await post(q,'hola')).body.message;
@@ -176,6 +211,23 @@ test('likes are idempotent, never on your own message and never on a closed ques
  const removed=await json(`/api/fiiu/messages/${m.id}`,{method:'DELETE',body:{}});assert.equal(removed.status,200);assert.deepEqual(removed.body,{ok:true});
  assert.equal((await call(`/api/fiiu/messages/${m.id}`,{method:'DELETE',body:{}})).status,404,'already gone');
  const after=await json(`/api/fiiu/questions/${q.id}`,{actor:'other'});assert.deepEqual(after.body.messages,[]);assert.equal(after.body.question.messageCount,0);
+});
+
+test('two devices liking at once count once, and a withdrawn message or a hidden question cannot be liked',async t=>{
+ const {json,ask,post}=await setup(t);
+ const q=await ask(),m=(await post(q,'hola')).body.message;
+ const like=(id,method='PUT',actor='other')=>json(`/api/fiiu/messages/${id}/like`,{actor,method,body:{}});
+ const both=await Promise.all([like(m.id),like(m.id)]);
+ assert.deepEqual(both.map(r=>[r.status,r.body.liked]),[[200,true],[200,true]]);
+ assert.equal((await json(`/api/fiiu/questions/${q.id}`,{actor:'other'})).body.messages[0].likeCount,1);
+ const off=await Promise.all([like(m.id,'DELETE'),like(m.id,'DELETE')]);assert.deepEqual(off.map(r=>r.body.likeCount),[0,0]);
+ const draft=(await post(q,'borrador')).body.message;
+ assert.equal((await json(`/api/fiiu/messages/${draft.id}`,{method:'DELETE',body:{}})).status,200);
+ const withdrawn=await like(draft.id);assert.equal(withdrawn.status,404);assert.equal(withdrawn.body.code,'message_unavailable');
+ const current=(await json('/api/admin/fiiu/questions',{actor:'admin'})).body.questions.find(x=>x.id===q.id);
+ assert.equal((await json(`/api/admin/fiiu/questions/${q.id}`,{actor:'admin',method:'PATCH',body:{version:current.version,status:'hidden'}})).status,200);
+ const hidden=await like(m.id);assert.equal(hidden.status,404);assert.equal(hidden.body.code,'message_unavailable');
+ assert.equal((await like(m.id,'PUT','admin')).body.code,'question_closed','organisers see the hidden question but it takes no likes');
 });
 
 test('an organiser hides a message from participants within one sync and brings it back',async t=>{
@@ -244,6 +296,37 @@ test('festival files: types, sizes, thumbnails, attach rules, download access an
  assert.equal((await call(`/api/fiiu/files/${file.id}`)).status,404);
 });
 
+test('festival downloads spend the shared byte budget, organisers excepted, and their own request budget, not the chat\'s',async t=>{
+ const {json,call,ask,post,upload}=await setup(t,{app:{downloadLimits:[{windowMs:60000,bytes:100}],talkLimits:{file:4}}});
+ const q=await ask(),file=(await upload()).body.file;
+ assert.equal((await post(q,'mira',{fileIds:[file.id]})).status,201);
+ const get=(actor='other')=>call(`/api/fiiu/files/${file.id}`,{actor});
+ assert.equal((await get()).status,200,'the first file of a window always fits');
+ const over=await get();assert.equal(over.status,429);assert.ok(Number(over.headers.get('retry-after'))>0);
+ assert.deepEqual(await over.json(),{error:'download limit reached; try again later',code:'download_rate'});
+ assert.equal((await get('admin')).status,200,'organisers are not budgeted');
+ // HEAD is not served: it would read the bytes from Storage for nothing.
+ const head=await call(`/api/fiiu/files/${file.id}`,{actor:'admin',method:'HEAD'});assert.equal(head.status,405);assert.equal(head.headers.get('allow'),'GET');
+ // Four file requests a minute here: the fifth is refused, while the conversation's own reads go on.
+ for(let i=0;i<3;i++)assert.equal((await get('admin')).status,200);
+ const busy=await get('admin');assert.equal(busy.status,429);assert.equal((await busy.json()).error,'too many requests');
+ assert.equal((await json(`/api/fiiu/questions/${q.id}`,{actor:'admin'})).status,200);
+});
+
+test('a withdrawn message whose file cannot be released logs it and never serves the file again',async t=>{
+ // Mocked before the app starts: the conversations take console.error as their log then.
+ let broken=true;const logged=t.mock.method(console,'error',()=>{});
+ const {db,json,call,ask,post,upload,talkStore}=await setup(t,{wrapTalk:store=>({...store,deleteBytes:async file=>{if(broken){broken=false;throw Object.assign(Error('storage down'),{status:502});}return store.deleteBytes(file);}})});
+ const q=await ask(),file=(await upload()).body.file,m=(await post(q,'mira',{fileIds:[file.id]})).body.message;
+ assert.equal((await json(`/api/fiiu/messages/${m.id}`,{method:'DELETE',body:{}})).status,200,'the withdrawal already happened');
+ assert.equal((await talkStore.findFile(file.id)).status,'deleting');
+ assert.deepEqual(logged.mock.calls.map(c=>c.arguments).filter(([text])=>/^festival/.test(text)),[['festival file cleanup failed:',file.id,'storage down']]);
+ assert.equal((await call(`/api/fiiu/files/${file.id}`)).status,404);
+ // Account deletion clears what is left.
+ assert.equal((await call('/api/me',{method:'DELETE',body:{confirmEmail:'member@example.test'}})).status,200);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_files').get().n,0);assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_file_bytes').get().n,0);
+});
+
 test('the festival upload allowance refuses the 31st file',async t=>{
  const {upload}=await setup(t,{app:{talkLimits:{upload:100}}});
  for(let i=0;i<30;i++)assert.equal((await upload({name:`p${i}.jpg`})).status,201,`upload ${i+1}`);
@@ -305,12 +388,33 @@ test('rate limit kinds per route, and the pulse branch never asks for one',async
  assert.equal(await run('GET','/api/fiiu/pulse',null),true);assert.equal(await run('GET','/api/fiiu/pulse',member),true);
  assert.deepEqual(asked,[]);
  const routes=[['GET',`/api/fiiu/questions?activityId=day1-am`,'read'],['GET',`/api/fiiu/questions/${q}`,'read'],['GET',`/api/fiiu/questions/${q}/messages`,'read'],['POST',`/api/fiiu/questions/${q}/messages`,'message'],
-  ['DELETE',`/api/fiiu/messages/${q}`,'write'],['PUT',`/api/fiiu/messages/${q}/like`,'like'],['DELETE',`/api/fiiu/messages/${q}/like`,'like'],['POST','/api/fiiu/files','upload'],['GET',`/api/fiiu/files/${q}`,'read'],
+  ['DELETE',`/api/fiiu/messages/${q}`,'write'],['PUT',`/api/fiiu/messages/${q}/like`,'like'],['DELETE',`/api/fiiu/messages/${q}/like`,'like'],['POST','/api/fiiu/files','upload'],['GET',`/api/fiiu/files/${q}`,'file'],
   ['GET','/api/admin/fiiu/questions','read',admin],['POST','/api/admin/fiiu/questions','write',admin],['PATCH',`/api/admin/fiiu/questions/${q}`,'write',admin],
   ['PUT',`/api/admin/fiiu/messages/${q}/hidden`,'moderate',admin],['DELETE',`/api/admin/fiiu/messages/${q}/hidden`,'moderate',admin],['GET',`/api/admin/fiiu/questions/${q}/export`,'read',admin],['GET',`/api/admin/fiiu/questions/${q}/qr`,'read',admin]];
  for(const [method,path,kind,user] of routes){asked.length=0;assert.equal(await run(method,path,user),true,path);assert.deepEqual(asked.map(a=>a[2]),[kind],`${method} ${path}`);}
  // Paths outside the contract belong to the FIIU API.
  for(const path of ['/api/fiiu','/api/fiiu/registration','/api/fiiu/checkin','/api/admin/fiiu/summary',`/api/fiiu/questions/${q}/other`,'/api/fiiu/pulse/x'])assert.equal(await run('GET',path),false,path);
+});
+
+test('the registration memo keeps at most 5,000 accounts, dropping the oldest first',async()=>{
+ let reads=0;
+ const store={findRegistration:async()=>{reads++;return {firstName:'Ana',lastName:'Test'};},listQuestions:async()=>[]};
+ const api=createTalkApi({store,sameOrigin:()=>true,send:()=>{},clock:()=>1000});
+ const id=i=>`00000000-0000-4000-8000-${String(i).padStart(12,'0')}`;
+ const read=i=>api({req:{method:'GET',headers:{}},res:{},url:new URL('http://x/api/fiiu/questions?activityId=day1-am'),user:{id:id(i),permission:'member'}});
+ for(let i=0;i<=5000;i++)await read(i);
+ assert.equal(reads,5001);
+ await read(1);assert.equal(reads,5001,'still remembered');
+ await read(0);assert.equal(reads,5002,'the oldest was dropped');
+});
+
+test('the routes send their own refusal codes but leave unexposed errors to the global handler',async()=>{
+ const sent=[],hidden=Object.assign(Error('column "secret" of relation "x"'),{status:400,code:'backend_detail',expose:false});
+ const api=createTalkApi({store:{findMessage:async()=>{throw hidden;}},sameOrigin:()=>true,send:(res,status,body)=>sent.push({status,body})});
+ const run=()=>api({req:{method:'DELETE',headers:{}},res:{},url:new URL('http://x/api/fiiu/messages/22222222-2222-4222-8222-222222222222'),user:{id:'u',permission:'member'}});
+ await assert.rejects(run(),err=>err===hidden);assert.deepEqual(sent,[]);
+ hidden.expose=undefined;await run();
+ assert.deepEqual(sent,[{status:400,body:{error:'column "secret" of relation "x"',code:'backend_detail'}}]);
 });
 
 test('the pulse memo answers a burst from one read and lets a write through at once',async()=>{

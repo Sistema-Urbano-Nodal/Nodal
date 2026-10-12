@@ -89,8 +89,9 @@ const SUPABASE_REFRESH_COOKIE = 'nodal_refresh';
    public per-address budget guests use. The conversation pulse is the same for
    everyone too, and never sets a cookie, so the CDN can answer its polls. */
 const SESSIONLESS_API = new Set(['/api/health', '/api/billing/config', '/api/stripe/webhook', '/api/fiiu', '/api/fiiu/pulse']);
-// Per-account conversation writes a minute (server/fiiu-talk-api.js); reads and other writes use the FIIU budgets.
-const TALK_RATE_LIMITS = { message: 10, upload: 6, like: 60, moderate: 120 };
+// Per-account conversation writes and file reads a minute (server/fiiu-talk-api.js); other reads and writes use the
+// FIIU budgets.
+const TALK_RATE_LIMITS = { message: 10, upload: 6, like: 60, moderate: 120, file: 300 };
 /* Routes that answer without a member and only personalise when there is one. A
    session-service outage serves them signed out instead of failing them. */
 const OPTIONAL_SESSION_API = /^\/api\/(?:auth\/state|news|catalog(?:\/[a-z0-9-]{1,40})?)$/;
@@ -986,6 +987,8 @@ export function createApp({
   // Overrides for TALK_RATE_LIMITS, and the conversations' clock (registration memo, timestamps, upload grace); tests set both.
   talkLimits = TALK_RATE_LIMITS,
   talkClock = Date.now,
+  // The byte windows of the download budget course and festival files share (courses-api.js); tests shrink it.
+  downloadLimits = DOWNLOAD_LIMITS,
   newsStore = repository?.database ? createNewsStore({db:repository.database}) : repository?.kind === 'supabase' ? createNewsStore() : null,
 } = {}) {
   const useDb = Boolean(repository);
@@ -1161,13 +1164,14 @@ export function createApp({
       :throttle(fiiuWriteLimiter,res,req,user,'fiiu'),
   }):null;
   // One download budget for course files and festival files, so an account cannot double its Storage egress.
-  const downloads=createByteBudget(DOWNLOAD_LIMITS);
+  const downloads=createByteBudget(downloadLimits);
   /* Conversations: each kind of write has its own per-account budget, so a lively chat never blocks likes or an
-     organiser's moderation. The pulse asks for none (see SESSIONLESS_API); every other read is a signed-in account's. */
+     organiser's moderation, and file reads have one, so thumbnails never spend what the sync polls need. The pulse
+     asks for none (see SESSIONLESS_API); every other read is a signed-in account's. */
   const talkLimit={...TALK_RATE_LIMITS,...talkLimits};
-  const talkMessageLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.message}),talkUploadLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.upload}),talkLikeLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.like}),talkModerateLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.moderate});
+  const talkMessageLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.message}),talkUploadLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.upload}),talkLikeLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.like}),talkModerateLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.moderate}),talkFileLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.file});
   const talkApi=talkStore?createTalkApi({store:talkStore,sameOrigin,send,downloads,encodeQr,publicOrigin:fiiuPublicOrigin,clock:talkClock,
-    rateLimit:(req,res,user,pathname,kind)=>throttle({read:fiiuReadLimiter,message:talkMessageLimiter,upload:talkUploadLimiter,like:talkLikeLimiter,moderate:talkModerateLimiter}[kind]??fiiuWriteLimiter,res,req,user,`fiiu-talk-${kind}`),
+    rateLimit:(req,res,user,pathname,kind)=>throttle({read:fiiuReadLimiter,file:talkFileLimiter,message:talkMessageLimiter,upload:talkUploadLimiter,like:talkLikeLimiter,moderate:talkModerateLimiter}[kind]??fiiuWriteLimiter,res,req,user,`fiiu-talk-${kind}`),
   }):null;
   // NODAL news: guests read the public feed from shared venue or office Wi-Fi, so their budget mirrors the FIIU
   // public read one; the desk's writes share a small per-account budget.

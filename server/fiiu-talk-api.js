@@ -34,7 +34,8 @@ const ROUTES=[
  ['message',/^\/api\/fiiu\/messages\/([^/]+)$/,['DELETE']],
  ['like',/^\/api\/fiiu\/messages\/([^/]+)\/like$/,['PUT','DELETE']],
  ['upload',/^\/api\/fiiu\/files$/,['POST']],
- ['file',/^\/api\/fiiu\/files\/([^/]+)$/,['GET','HEAD']],
+ // GET only: a HEAD would read the bytes from Storage (the thumbnail's type comes from them) to send none.
+ ['file',/^\/api\/fiiu\/files\/([^/]+)$/,['GET']],
  ['adminQuestions',/^\/api\/admin\/fiiu\/questions$/,['GET','HEAD','POST']],
  ['adminQuestion',/^\/api\/admin\/fiiu\/questions\/([^/]+)$/,['PATCH']],
  ['hidden',/^\/api\/admin\/fiiu\/messages\/([^/]+)\/hidden$/,['PUT','DELETE']],
@@ -42,8 +43,10 @@ const ROUTES=[
  ['qr',/^\/api\/admin\/fiiu\/questions\/([^/]+)\/qr$/,['GET','HEAD']],
 ];
 const routeOf=path=>{for(const [name,pattern,methods] of ROUTES){const m=path.match(pattern);if(m)return {name,param:m[1],methods};}return null;};
-// Each write spends its own per-account budget (server.js): a busy chat never blocks likes or moderation.
-const kindOf=(name,read)=>read?'read':{messages:'message',upload:'upload',like:'like',hidden:'moderate'}[name]??'write';
+/* Each write spends its own per-account budget (server.js): a busy chat never blocks likes or moderation. So do file
+   reads, so a photo-heavy chat (or the projector and the chat open on one organiser account) never runs the 'read'
+   budget its sync polls need out on thumbnails; the byte budget still caps what they download. */
+const kindOf=(name,read)=>read?(name==='file'?'file':'read'):{messages:'message',upload:'upload',like:'like',hidden:'moderate'}[name]??'write';
 
 export async function exportTalkData(store,userId){
  const [messages,files,likedMessageIds]=await Promise.all([store.userMessages(userId),store.userFiles(userId),store.userLikes(userId)]);
@@ -200,10 +203,16 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     /* The phone keeps one clientId per draft, so a send whose answer was lost comes back as the same message. Only an
        identical retry is answered that way; a request that stopped between the insert and the attach is finished. A
        retry is answered even once the question has closed, since the message was sent while it was open. */
+    const reused=()=>failCode('client id already used for another message',409,'client_id_reused');
+    /* Two requests of one draft can both be attaching (a retry while the first is still running), so an attach that
+       moves fewer files than asked is a failure only if the files did not end up on this message after all. */
+    const attachedTo=async messageId=>{const got=new Set((await store.filesForMessages([messageId])).map(f=>f.id));return input.fileIds.every(id=>got.has(id));};
     const replay=async old=>{
-     if(old.questionId!==q.id||old.body!==input.body||old.deletedAt)failCode('client id already used for another message',409,'client_id_reused');
+     if(old.questionId!==q.id||old.body!==input.body||old.deletedAt)reused();
      const attached=new Set((await store.filesForMessages([old.id])).map(f=>f.id)),missing=input.fileIds.filter(id=>!attached.has(id));
-     if([...attached].some(id=>!input.fileIds.includes(id))||(missing.length&&await store.attachFiles(missing,old.id,user.id)!==missing.length))failCode('client id already used for another message',409,'client_id_reused');
+     if([...attached].some(id=>!input.fileIds.includes(id)))reused();
+     if(missing.length&&await store.attachFiles(missing,old.id,user.id)!==missing.length&&!await attachedTo(old.id))reused();
+     // A message hidden since it was sent answers with its gone view, as the author's next sync would.
      send(res,200,{message:await viewOf(old,user,organiser)});return true;
     };
     const old=await store.findMessageByClient(user.id,input.clientId);if(old)return await replay(old);
@@ -213,8 +222,9 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     let message;
     try{message=await store.insertMessage({id:randomUUID(),questionId:q.id,userId:user.id,...namesFor(user,registration),organiser,body:input.body,clientId:input.clientId,createdAt:now()});}
     catch(err){const raced=err.status===409&&await store.findMessageByClient(user.id,input.clientId);if(!raced)throw err;return await replay(raced);}
-    // The attach is a compare-and-set; another post of this person's took a file in between, so this one is withdrawn.
-    if(input.fileIds.length&&await store.attachFiles(input.fileIds,message.id,user.id)!==input.fileIds.length){
+    /* The attach is a compare-and-set. A retry of this draft may have attached the files first, and then the message is
+       sent; if another post of this person's took a file in between, this one is withdrawn. */
+    if(input.fileIds.length&&await store.attachFiles(input.fileIds,message.id,user.id)!==input.fileIds.length&&!await attachedTo(message.id)){
      await store.updateMessage({id:message.id,userId:user.id},{body:'',deletedAt:now()});await releaseFiles(message.id);fileUnavailable(400);
     }
     send(res,201,{message:await viewOf(message,user,organiser)});return true;
@@ -323,7 +333,8 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
    const link=`${originFor(req)}/fiiu-talk.html?q=${q.id}`;
    send(res,200,{url:link,qr:qrOf(link)});return true;
   }catch(err){
-   if(typeof err?.code==='string'&&/^[a-z_]+$/.test(err.code)&&err.status>=400&&err.status<500&&!res.headersSent){send(res,err.status,{error:err.message,code:err.code});return true;}
+   // Somebody else's error text (expose: false, as a backend adapter marks it) goes to the global handler, which hides it.
+   if(typeof err?.code==='string'&&/^[a-z_]+$/.test(err.code)&&err.status>=400&&err.status<500&&err.expose!==false&&!res.headersSent){send(res,err.status,{error:err.message,code:err.code});return true;}
    throw err;
   }finally{if(wrote)pulseMemo=null;}
  };
