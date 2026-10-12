@@ -23,7 +23,7 @@ async function setup(t,wrapStore=store=>store,options={}){
  for(const name of ['member','other','admin']){users[name]=createUser(db,{fullName:name,email:`${name}@example.test`,passwordHash:'unused',role:name==='admin'?'admin':'member'});cookies[name]=createSession(db,users[name].id).cookie.split(';')[0];}
  const server=createApp({db,fiiuStore:wrapStore(createFiiuStore({db})),...options});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
  const base=`http://127.0.0.1:${server.address().port}`;
- const call=(path,{actor='member',method='GET',body,origin=base}={})=>fetch(base+path,{method,redirect:'manual',headers:{...(cookies[actor]?{Cookie:cookies[actor]}:{}),Origin:origin,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
+ const call=(path,{actor='member',method='GET',body,origin=base,headers={}}={})=>fetch(base+path,{method,redirect:'manual',headers:{...(cookies[actor]?{Cookie:cookies[actor]}:{}),Origin:origin,'Content-Type':'application/json',...headers},body:body===undefined?undefined:JSON.stringify(body)});
  const save=(body=answers,actor='member')=>call('/api/fiiu/registration',{actor,method:'PUT',body:{version:0,...body}});
  return {db,call,save,users,cookies};
 }
@@ -91,6 +91,51 @@ test('a scanned check-in link opens the check-in page for everyone, and its sign
  // The check-in itself still needs an account.
  const anonymous=await call('/api/fiiu/checkin',{actor:'guest',method:'POST',body:{activityId:'day1-am',code:'x'.repeat(22)}});
  assert.equal(anonymous.status,401);
+});
+
+test('the short address on the check-in screen, and loose spellings of the page typed by hand, redirect to the check-in page with the query kept',async t=>{
+ const {call}=await setup(t);
+ const loose=[['/checkin','/fiiu-checkin.html'],['/CheckIn','/fiiu-checkin.html'],['/checkin/','/fiiu-checkin.html'],['/fiiu-checkin','/fiiu-checkin.html'],['/Fiiu-checkin.html','/fiiu-checkin.html'],
+  ['/FIIU-CHECKIN.HTML','/fiiu-checkin.html'],['/fiiu-checkin.html/','/fiiu-checkin.html'],['/fiiu-checkin.htm','/fiiu-checkin.html'],['/checkin?c=K7M4PX','/fiiu-checkin.html?c=K7M4PX'],['/Fiiu-Checkin?a=day1-am&c=x','/fiiu-checkin.html?a=day1-am&c=x']];
+ for(const [path,location] of loose)for(const actor of ['guest','member']){
+  const response=await call(path,{actor});assert.equal(response.status,302,`${path} ${actor}`);assert.equal(response.headers.get('location'),location,path);assert.equal(response.headers.get('cache-control'),'no-store');
+ }
+ assert.equal((await call('/checkin',{actor:'guest',method:'HEAD'})).status,302);
+ // The page itself is served as before, and nothing else becomes an alias.
+ assert.equal((await call('/fiiu-checkin.html',{actor:'guest'})).status,200);
+ for(const path of ['/checkins','/check-in-x','/fiiu-checkin.js.html'])assert.equal((await call(path,{actor:'guest'})).status,404,path);
+ assert.equal((await call('/checkin',{method:'POST',body:{}})).status,405,'only page loads are redirected');
+});
+
+test('a browser asking for a page that does not exist gets a page with a way on, in the visitor’s language; other clients keep the JSON answer',async t=>{
+ const {call}=await setup(t);
+ const browser={Accept:'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'};
+ for(const path of ['/checkins','/fiiu-chekin.html','/nothing/here?a=day1-am'])for(const actor of ['guest','member']){
+  const response=await call(path,{actor,headers:{...browser,'Accept-Language':'es-PE,es;q=0.9'}}),page=await response.text();
+  assert.equal(response.status,404,path);assert.match(response.headers.get('content-type'),/^text\/html/);assert.equal(response.headers.get('cache-control'),'no-store');
+  assert.match(response.headers.get('content-security-policy'),/script-src 'self'/);assert.equal(response.headers.get('x-content-type-options'),'nosniff');
+  assert.match(page,/^<!DOCTYPE html>/);assert.match(page,/<html lang="es"/);assert.match(page,/<meta name="viewport"/);assert.match(page,/<h1>No encontramos esta página<\/h1>/);
+  assert.match(page,/<a class="f-button" href="\/fiiu-checkin\.html">Ir al registro de asistencia<\/a>/);assert.match(page,/<a class="f-button secondary" href="\/fiiu\.html">Ir a la página del FIIU<\/a>/);
+  assert.doesNotMatch(page,/<script|style=|nothing|chekin|checkins/,'no script, no inline style, and the address is never echoed');
+ }
+ // A language picked on the site wins, then the browser's, then Spanish; an automatic English save does not count as a choice.
+ const lang=async headers=>(await (await call('/missing',{actor:'guest',headers:{...browser,...headers}})).text()).match(/<html lang="(\w+)"/)[1];
+ assert.equal(await lang({Cookie:'nodal.lang=pt','Accept-Language':'en-US'}),'pt');
+ assert.equal(await lang({Cookie:'nodal.lang=en; nodal.lang.chosen=1','Accept-Language':'es-PE'}),'en');
+ assert.equal(await lang({Cookie:'nodal.lang=en','Accept-Language':'pt-BR,pt;q=0.9'}),'pt');
+ assert.equal(await lang({'Accept-Language':'fr-FR,en;q=0.8'}),'en');
+ assert.equal(await lang({'Accept-Language':'fr-FR'}),'es');assert.equal(await lang({}),'es');
+ const english=await(await call('/missing',{actor:'guest',headers:{...browser,'Accept-Language':'en'}})).text();
+ assert.match(english,/<title>NODAL · Page not found<\/title>/);assert.match(english,/>Go to session check-in</);assert.match(english,/>Go to the FIIU page</);
+ const portuguese=await(await call('/missing',{actor:'guest',headers:{...browser,'Accept-Language':'pt'}})).text();
+ assert.match(portuguese,/<h1>Não encontramos esta página<\/h1>/);assert.match(portuguese,/>Ir para o registro de presença</);
+ // A HEAD for a page gets the status alone.
+ const head=await call('/missing',{actor:'guest',method:'HEAD',headers:browser});assert.equal(head.status,404);assert.match(head.headers.get('content-type'),/^text\/html/);assert.equal(await head.text(),'');
+ // Scripts, styles, images and API calls are not pages: they keep the JSON answer.
+ for(const [path,accept] of [['/missing.js','*/*'],['/missing.css','text/css,*/*;q=0.1'],['/missing.png','image/avif,image/webp,*/*'],['/api/missing',browser.Accept],['/missing',undefined]]){
+  const response=await call(path,{actor:'guest',headers:accept?{Accept:accept}:{}});
+  assert.equal(response.status,404,path);assert.match(response.headers.get('content-type'),/^application\/json/,path);assert.deepEqual(await response.json(),{error:'not found'},path);
+ }
 });
 
 test('registration persists privately, updates by version, and cannot grant acceptance or badges',async t=>{
@@ -487,13 +532,15 @@ test('attendees check themselves in with the session QR once, only until check-i
  clock.set('2026-10-21T14:10:00Z');const issued=code();clock.set('2026-10-21T14:14:00Z');
  response=await scan(call,{activityId:'day1-am',code:issued});assert.equal(response.status,201);
  const first=await response.json();
- assert.deepEqual(first,{result:'checked_in',activityId:'day1-am',checkedInAt:'2026-10-21T14:14:00.000Z',method:'qr',attendance:[{activityId:'day1-am',createdAt:'2026-10-21T14:14:00.000Z',method:'qr'}],hours:{minutes:240,hours:4,untimed:[]}});
+ // The answer names the block it recorded, so a typed code (or a programme that has not arrived) still shows which one.
+ assert.deepEqual(first,{result:'checked_in',activityId:'day1-am',checkedInAt:'2026-10-21T14:14:00.000Z',method:'qr',attendance:[{activityId:'day1-am',createdAt:'2026-10-21T14:14:00.000Z',method:'qr'}],hours:{minutes:240,hours:4,untimed:[]},activity:{id:'day1-am',title:'El poder de lo local',date:'2026-10-21',time:'09:00–13:00',venue:'Auditorio MALI, Cercado de Lima'}});
  assert.deepEqual({...db.prepare('SELECT confirmed_by,method FROM fiiu_attendance').get()},{confirmed_by:users.member.id,method:'qr'});
  clock.set('2026-10-21T14:20:00Z');response=await scan(call,{activityId:'day1-am',code:code()});assert.equal(response.status,200);
  const second=await response.json();assert.equal(second.result,'already_checked_in');assert.equal(second.checkedInAt,first.checkedInAt);
  assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_attendance').get().n,1);
  const me=await(await call('/api/fiiu/registration')).json();
  assert.deepEqual(me.attendance,[{activityId:'day1-am',createdAt:'2026-10-21T14:14:00.000Z',method:'qr'}]);assert.deepEqual(me.hours,{minutes:240,hours:4,untimed:[]});
+ assert.equal(me.serverTime,'2026-10-21T14:20:00.000Z','the lookup carries the check-in clock, so a reload judges a closed block as the scan would, never by the phone');
  // Staff can still correct a QR check-in; the typed 6-character code then works without the activity id.
  assert.equal((await call(`/api/admin/fiiu/registrations/${registration.id}/attendance`,{actor:'admin',method:'PUT',body:{activityId:'day1-am',attended:false}})).status,200);
  assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_attendance').get().n,0);
@@ -506,7 +553,7 @@ test('a member and an organiser checking in days before the session are recorded
  const {clock,codes,options}=festivalClock('2026-10-07T15:00:00Z');// 10:00 in Lima on 7 October, two weeks before the blocks
  const {call,save,db,users}=await setup(t,undefined,options);
  const answered=[],send=async(actor,body)=>{const response=await scan(call,body,actor),json=await response.json();answered.push(json);return [response.status,json];};
- const code=id=>codes.current(id).code,recorded=at=>({result:'checked_in',activityId:'day1-am',checkedInAt:at,method:'qr',attendance:[{activityId:'day1-am',createdAt:at,method:'qr'}],hours:{minutes:240,hours:4,untimed:[]}});
+ const code=id=>codes.current(id).code,recorded=at=>({result:'checked_in',activityId:'day1-am',checkedInAt:at,method:'qr',attendance:[{activityId:'day1-am',createdAt:at,method:'qr'}],hours:{minutes:240,hours:4,untimed:[]},activity:{id:'day1-am',title:'El poder de lo local',date:'2026-10-21',time:'09:00–13:00',venue:'Auditorio MALI, Cercado de Lima'}});
  // An organiser goes through the real check-in: with no registration yet, the real refusal.
  let [status,body]=await send('admin',{activityId:'day1-am',code:code('day1-am')});assert.deepEqual([status,body.code],[404,'not_registered']);
  await save();await save({...answers,activities:['day1-am','day1-pm']},'admin');await save({...answers,activities:['day1-am','day1-pm']},'other');
@@ -531,7 +578,7 @@ test('a repeat scan keeps the first confirmation after check-in closes, the bloc
  const {call,save,db}=await setup(t,undefined,options);
  const {registration}=await(await save()).json();
  let response=await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code});assert.equal(response.status,201);
- const first=await response.json(),kept={result:'already_checked_in',activityId:'day1-am',checkedInAt:'2026-10-21T14:10:00.000Z',method:'qr',attendance:first.attendance,hours:{minutes:240,hours:4,untimed:[]}};
+ const first=await response.json(),kept={result:'already_checked_in',activityId:'day1-am',checkedInAt:'2026-10-21T14:10:00.000Z',method:'qr',attendance:first.attendance,hours:{minutes:240,hours:4,untimed:[]},activity:{id:'day1-am',title:'El poder de lo local',date:'2026-10-21',time:'09:00–13:00',venue:'Auditorio MALI, Cercado de Lima'}};
  // 13:35 in Lima, after the 13:30 close: a fresh code from the screen, which keeps drawing one, still confirms the stored check-in.
  clock.set('2026-10-21T18:35:00Z');response=await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code});
  assert.equal(response.status,200);assert.deepEqual(await response.json(),kept);

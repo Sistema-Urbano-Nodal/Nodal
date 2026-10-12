@@ -58,6 +58,9 @@ const PRIVATE_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html', '/dashboard.
 const STATIC_PAGES = new Set(['fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'organisers-only.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'privacy.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html']);
 const STATIC_SCRIPTS = new Set(['fiiu-ui.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js', 'news-feed.js', 'admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'i18n-dashboard.js', 'locale.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'hero-network.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js', 'privacy.js']);
 const ORGANISER_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html']);
+/* The check-in screen shows <host>/checkin for phones that cannot scan. Typed by hand it may come in any case, without
+   .html or with a trailing slash; each spelling is sent to the page with its query (?a=&c=) intact. */
+const CHECKIN_ALIASES = new Set(['/checkin', '/fiiu-checkin', '/fiiu-checkin.htm', '/fiiu-checkin.html']);
 const STATIC_STYLES = new Set(['fiiu.css', 'fiiu-talk.css', 'auth.css', 'styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css']);
 const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp']);
 const STATIC_FONTS = new Set(['montserrat-v31-latin-normal.woff2', 'montserrat-v31-latin-ext-normal.woff2', 'montserrat-v31-latin-italic.woff2', 'montserrat-v31-latin-ext-italic.woff2', 'OFL.txt']);
@@ -911,6 +914,34 @@ function resolveUserId(param, sessionUser, useDb) {
   return sessionUser?.id === param ? param : null;
 }
 
+/* A browser asking for a page that does not exist (an address typed by hand, an
+   old link) gets a small page with a way on instead of raw JSON; scripts, styles,
+   images and other clients keep the JSON answer. The page has no script and never
+   echoes the address. Its language follows the site's: a language picked on the
+   site (an unmarked 'en' is the old automatic save), else the browser's, else
+   Spanish. Its stylesheets carry no ?v= key, so right after a deploy they may be
+   an hour old: harmless on a page this small. */
+const NOT_FOUND_TEXT = {
+  es: ['Página no encontrada', 'No encontramos esta página', 'Puede que la dirección tenga un error o que la página ya no exista.', 'Ir al registro de asistencia', 'Ir a la página del FIIU'],
+  en: ['Page not found', 'We could not find this page', 'The address may have a typo, or the page may no longer exist.', 'Go to session check-in', 'Go to the FIIU page'],
+  pt: ['Página não encontrada', 'Não encontramos esta página', 'O endereço pode ter um erro, ou a página pode não existir mais.', 'Ir para o registro de presença', 'Ir para a página do FIIU'],
+};
+function notFoundLanguage(req) {
+  const cookies = parseCookies(req.headers.cookie), saved = cookies.get('nodal.lang');
+  if (Object.hasOwn(NOT_FOUND_TEXT, saved || '') && (saved !== 'en' || cookies.get('nodal.lang.chosen') === '1')) return saved;
+  return String(req.headers['accept-language'] || '').split(',').map(tag => tag.trim().slice(0, 2).toLowerCase()).find(tag => Object.hasOwn(NOT_FOUND_TEXT, tag)) || 'es';
+}
+function notFound(req, res) {
+  if (!/\btext\/html\b/.test(req.headers.accept || '')) { send(res, 404, { error: 'not found' }); return; }
+  const lang = notFoundLanguage(req), [title, heading, hint, checkin, festival] = NOT_FOUND_TEXT[lang];
+  res.writeHead(404, { ...htmlSecurityHeaders(), 'Content-Type': MIME['.html'], 'Cache-Control': 'no-store' });
+  res.end(req.method === 'HEAD' ? undefined : `<!DOCTYPE html>
+<html lang="${lang}" translate="no"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>NODAL · ${title}</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cline x1='20' y1='22' x2='44' y2='42' stroke='%2359bc53' stroke-width='5'/%3E%3Ccircle cx='20' cy='22' r='11' fill='%233d5c38'/%3E%3Ccircle cx='44' cy='42' r='8' fill='%2359bc53'/%3E%3C/svg%3E"><link rel="stylesheet" href="/fonts.css"><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/fiiu.css"></head>
+<body class="f-page"><main class="f-shell"><section class="f-locked"><h1>${heading}</h1><p>${hint}</p><div class="f-actions"><a class="f-button" href="/fiiu-checkin.html">${checkin}</a><a class="f-button secondary" href="/fiiu.html">${festival}</a></div></section></main></body></html>
+`);
+}
+
 /* Takes the canonical path — already decoded and normalised by
    canonicalPathname — so the private-page check and the file lookup can never
    disagree, and nothing is decoded a second time. */
@@ -918,10 +949,10 @@ async function serveStatic(req, res, canonical, pilotMode, { status = 200 } = {}
   if (req.method !== 'GET' && req.method !== 'HEAD') { send(res, 405, { error: 'method not allowed' }); return; }
 
   const filePath = staticSourcePath(canonical);
-  if (!filePath) { send(res, 404, { error: 'not found' }); return; }
+  if (!filePath) { notFound(req, res); return; }
 
   const type = MIME[path.extname(filePath).toLowerCase()];
-  if (!type) { send(res, 404, { error: 'not found' }); return; }
+  if (!type) { notFound(req, res); return; }
 
   try {
     const raw = await fs.readFile(filePath);
@@ -940,7 +971,7 @@ async function serveStatic(req, res, canonical, pilotMode, { status = 200 } = {}
     });
     res.end(req.method === 'HEAD' ? undefined : data);
   } catch {
-    send(res, 404, { error: 'not found' });
+    notFound(req, res);
   }
 }
 
@@ -1309,6 +1340,7 @@ export function createApp({
           redirect(res, safeNext(url.searchParams.get('next')));
           return;
         }
+        if (['GET', 'HEAD'].includes(req.method) && canonical !== '/fiiu-checkin.html' && CHECKIN_ALIASES.has(canonical.toLowerCase().replace(/\/+$/, ''))) { redirect(res, `/fiiu-checkin.html${url.search}`); return; }
         await serveStatic(req, res, canonical, pilotMode);
         return;
       }

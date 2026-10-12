@@ -78,7 +78,8 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    send(res,200,{event:FIIU_EVENT,config:settings,...page},{'Cache-Control':'public, max-age=0, s-maxage=15, stale-while-revalidate=60'});return true;
   }
   if(path==='/api/fiiu/registration'){
-   if(req.method==='GET'){const data=await exportFiiuData(store,user.id);send(res,200,{...data,hours:attendanceHours(data.attendance),user:{id:user.id,name:user.name,email:user.email,city:user.city},isAdmin:user.permission==='admin'});return true;}
+   // serverTime is the check-in clock (FIIU_CHECKIN_NOW in a rehearsal), so the check-in page judges a closed block on a reload as a scan would, never by the phone.
+   if(req.method==='GET'){const data=await exportFiiuData(store,user.id);send(res,200,{...data,hours:attendanceHours(data.attendance),user:{id:user.id,name:user.name,email:user.email,city:user.city},isAdmin:user.permission==='admin',serverTime:new Date(clock()).toISOString()});return true;}
    if(req.method==='PUT'){
     const [settings,input,existing]=await Promise.all([config(),body(req),one('registrations',{eventId:EVENT_ID,userId:user.id})]);
     if(!settings.registrationOpen)fail('registration is closed',403);
@@ -128,7 +129,9 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    if(input.activityId===undefined||input.activityId===null||input.activityId===''){activity=codes.find(input.code,CHECKIN_ACTIVITIES)?.activity;if(!activity)return expired();}
    else{activity=CHECKIN_ACTIVITIES.find(a=>a.id===input.activityId);if(!activity)return reply(400,{error:'invalid activity',code:'invalid_activity'});if(codes.verify(activity.id,input.code)===null)return expired();}
    const span=checkinWindow(activity),activityId=activity.id;
-   const confirmed=(created,attendance)=>{const row=attendance.find(a=>a.activityId===activityId);return reply(created?201:200,{result:created?'checked_in':'already_checked_in',activityId,checkedInAt:row?.createdAt??null,method:row?.method??null,attendance:attendance.map(attendanceView),hours:attendanceHours(attendance)});};
+   // The confirmation names the block it recorded (static programme data), so the page can say which one even before, or without, the programme.
+   const block={id:activityId,title:activity.title,date:activity.date,time:activity.time??'',venue:activity.venue??''};
+   const confirmed=(created,attendance)=>{const row=attendance.find(a=>a.activityId===activityId);return reply(created?201:200,{result:created?'checked_in':'already_checked_in',activityId,checkedInAt:row?.createdAt??null,method:row?.method??null,attendance:attendance.map(attendanceView),hours:attendanceHours(attendance),activity:block});};
    const registrationOpen=async()=>(await config()).registrationOpen;
    const notRegistered=async()=>reply(404,{error:'registration unavailable',code:'not_registered',activityId,registration:activity.registration,registrationOpen:await registrationOpen()});
    const registration=await one('registrations',{eventId:EVENT_ID,userId:user.id});
