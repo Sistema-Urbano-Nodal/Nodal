@@ -93,6 +93,20 @@ test('a scanned check-in link opens the check-in page for everyone, and its sign
  assert.equal(anonymous.status,401);
 });
 
+test('the short address on the check-in screen, and loose spellings of the page typed by hand, redirect to the check-in page with the query kept',async t=>{
+ const {call}=await setup(t);
+ const loose=[['/checkin','/fiiu-checkin.html'],['/CheckIn','/fiiu-checkin.html'],['/checkin/','/fiiu-checkin.html'],['/fiiu-checkin','/fiiu-checkin.html'],['/Fiiu-checkin.html','/fiiu-checkin.html'],
+  ['/FIIU-CHECKIN.HTML','/fiiu-checkin.html'],['/fiiu-checkin.html/','/fiiu-checkin.html'],['/fiiu-checkin.htm','/fiiu-checkin.html'],['/checkin?c=K7M4PX','/fiiu-checkin.html?c=K7M4PX'],['/Fiiu-Checkin?a=day1-am&c=x','/fiiu-checkin.html?a=day1-am&c=x']];
+ for(const [path,location] of loose)for(const actor of ['guest','member']){
+  const response=await call(path,{actor});assert.equal(response.status,302,`${path} ${actor}`);assert.equal(response.headers.get('location'),location,path);assert.equal(response.headers.get('cache-control'),'no-store');
+ }
+ assert.equal((await call('/checkin',{actor:'guest',method:'HEAD'})).status,302);
+ // The page itself is served as before, and nothing else becomes an alias.
+ assert.equal((await call('/fiiu-checkin.html',{actor:'guest'})).status,200);
+ for(const path of ['/checkins','/check-in-x','/fiiu-checkin.js.html'])assert.equal((await call(path,{actor:'guest'})).status,404,path);
+ assert.equal((await call('/checkin',{method:'POST',body:{}})).status,405,'only page loads are redirected');
+});
+
 test('registration persists privately, updates by version, and cannot grant acceptance or badges',async t=>{
  const {call,save,db}=await setup(t);
  let response=await save({...answers,email:'spoof@example.test',labStatus:'accepted',attendance:['day1-am']});assert.equal(response.status,200);

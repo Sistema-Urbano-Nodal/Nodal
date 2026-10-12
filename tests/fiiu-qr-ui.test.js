@@ -53,7 +53,7 @@ test('a block screen draws the code as one SVG path inside a 4-module quiet zone
  assert.match(content(stage.querySelector('h1')),/El poder de lo local/);assert.match(content(stage.querySelector('.f-qr-meta')),/Auditorio MALI/);
  const line=stage.querySelector('.f-qr-window');assert.match(content(line),/Check-in open until\s+13:30\s+Lima time/);assert.doesNotMatch(content(line),/08:30/);
  assert.equal(line.querySelector('.f-window').className,'f-window is-open');
- assert.equal(stage.querySelector('.f-qr-url').textContent,'nodal.example/fiiu-checkin.html','the address to type carries no code');
+ assert.equal(stage.querySelector('.f-qr-url').textContent,'nodal.example/checkin','the address to type is the short one (the server redirects it to the page) and carries no code');
  assert.equal(stage.querySelector('.f-qr-short').textContent,'K7M 4PX','the short code is grouped 3 + 3');
  const count=stage.querySelector('.f-qr-count');assert.equal(count.role,'status');assert.match(content(count),/\b12\b/);assert.ok(key(count,'checkedInMany'));
  assert.doesNotMatch(content(h.root),/@|nationalId|Ab3dEf6h/,'no participant data and no raw code text on the screen');

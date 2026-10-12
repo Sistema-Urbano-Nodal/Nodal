@@ -73,7 +73,8 @@
   const kicker=ended?'qrClosedKicker':'scanToCheckIn';parts.kicker.dataset.fiiuText=kicker;parts.kicker.textContent=t(kicker);
   if(ended){const notice=el('div','f-qr-closed');notice.append(tr('p','checkinEndedTitle','f-qr-closed-title'),tr('p','askDesk','f-qr-closed-hint'),link('allScreens','fiiu-qr.html','f-text-link'));parts.code.replaceChildren(notice);return;}
   parts.code.replaceChildren(drawQr(data.qr)||tr('p','qrUnavailable','f-qr-missing'));
-  let url=data.url;try{const parsed=new URL(data.url);url=parsed.host+parsed.pathname;}catch{url=data.url.split('?')[0];}
+  // People type the address letter by letter, so the screen shows the short /checkin, which the server sends on to the page.
+  let url=data.url;try{url=new URL(data.url).host+'/checkin';}catch{url=data.url.split('?')[0];}
   parts.address.textContent=url;parts.short.textContent=data.shortCode.slice(0,3)+' '+data.shortCode.slice(3);parts.short.setAttribute('aria-label',data.shortCode.split('').join(' '));
  }
  // An expired code is dead in both forms: the QR gives way to the notice and the typed code is hidden, so nobody types it at the door.

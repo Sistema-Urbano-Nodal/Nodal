@@ -215,6 +215,8 @@ html:has(>body.f-page){scroll-padding-top:176px}.f-page :where(section,footer)[i
 /* The notices that stand in for the code (out of date, not drawable, check-in closed) fill the square at projector scale, readable from the queue. */
 .f-qr-stage .f-qr-missing{font-size:clamp(1.4rem,2.6vw,2.6rem);line-height:1.25}.f-qr-closed{display:grid;align-content:center;gap:var(--f-sp-4);height:100%}.f-qr-closed p{margin:0}
 .f-page .f-qr-closed-title{font-size:clamp(1.9rem,3.6vw,3.6rem);font-weight:750;line-height:1.15;color:var(--f-amber);text-wrap:balance}.f-qr-closed-hint{font-size:clamp(1.25rem,2.2vw,2.2rem);font-weight:600}.f-qr-closed .f-text-link{justify-self:start;display:inline-flex;align-items:center;min-height:44px;font-size:clamp(1rem,1.3vw,1.3rem)}
+/* In full screen the address people copy letter by letter grows with the screen too, never smaller than the text around it. */
+.f-qr-stage:fullscreen .f-qr-type-label{font-size:clamp(1.1rem,1.5vw,1.6rem)}.f-qr-stage:fullscreen .f-qr-url{font-size:clamp(1.6rem,2.4vw,2.6rem)}
 @media(max-width:900px){.f-qr-stage{grid-template-columns:minmax(0,1fr)}.f-qr-code{justify-self:center;width:min(90vw,70vh)}}
 /* Portrait (a tablet held at the door): the QR leaves room under it for the title, window, typed code and count, so people without a working camera see the code without scrolling. */
 @media(max-width:900px) and (orientation:portrait){.f-qr-code{width:min(90vw,calc(100vh - var(--f-header) - 27rem))}}

@@ -58,6 +58,9 @@ const PRIVATE_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html', '/dashboard.
 const STATIC_PAGES = new Set(['fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'organisers-only.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'privacy.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html']);
 const STATIC_SCRIPTS = new Set(['fiiu-ui.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js', 'news-feed.js', 'admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'locale.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'hero-network.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js', 'privacy.js']);
 const ORGANISER_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html']);
+/* The check-in screen shows <host>/checkin for phones that cannot scan. Typed by hand it may come in any case, without
+   .html or with a trailing slash; each spelling is sent to the page with its query (?a=&c=) intact. */
+const CHECKIN_ALIASES = new Set(['/checkin', '/fiiu-checkin', '/fiiu-checkin.htm', '/fiiu-checkin.html']);
 const STATIC_STYLES = new Set(['fiiu.css', 'fiiu-talk.css', 'auth.css', 'styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css']);
 const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp']);
 const STATIC_FONTS = new Set(['montserrat-v31-latin-normal.woff2', 'montserrat-v31-latin-ext-normal.woff2', 'montserrat-v31-latin-italic.woff2', 'montserrat-v31-latin-ext-italic.woff2', 'OFL.txt']);
@@ -1307,6 +1310,7 @@ export function createApp({
           redirect(res, safeNext(url.searchParams.get('next')));
           return;
         }
+        if (['GET', 'HEAD'].includes(req.method) && canonical !== '/fiiu-checkin.html' && CHECKIN_ALIASES.has(canonical.toLowerCase().replace(/\/+$/, ''))) { redirect(res, `/fiiu-checkin.html${url.search}`); return; }
         await serveStatic(req, res, canonical, pilotMode);
         return;
       }
