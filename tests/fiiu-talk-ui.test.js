@@ -134,14 +134,15 @@ test('polling asks for changes only when the pulse moves, patches rows in place 
  await h.visible(true);await flush();assert.equal(sent(h,'GET','/api/fiiu/pulse').length,4,'coming back polls at once');
 });
 
-test('a failing pulse backs off exponentially, says updates are paused, and recovers',async()=>{
+test('a failing pulse backs off exponentially, says in the dock that updates are paused, and recovers',async()=>{
  const Clock=clock();let up=false;
  const h=await page({'GET /api/fiiu/pulse':()=>up?{questions:[[Q,'day1-am',3,'open']]}:{status:503,data:{}}},{context:{Date:Clock}});
  const pulses=()=>sent(h,'GET','/api/fiiu/pulse').length;
- await h.tickTimers();assert.equal(pulses(),1);assert.equal(h.message.dataset.fiiuText,'talkPaused');
+ const paused=()=>h.root.querySelector('.f-talk-dock').querySelector('.f-talk-note');
+ await h.tickTimers();assert.equal(pulses(),1);assert.equal(paused().dataset.fiiuText,'talkPaused');
  Clock.advance(8000);await h.tickTimers();assert.equal(pulses(),2,'8 s after the first failure');
  Clock.advance(8000);await h.tickTimers();assert.equal(pulses(),2,'after 2 failures the next try waits 16 s');
- Clock.advance(8000);up=true;await h.tickTimers();assert.equal(pulses(),3);assert.equal(h.message.textContent,'');
+ Clock.advance(8000);up=true;await h.tickTimers();assert.equal(pulses(),3);assert.equal(paused().textContent,'');
  await h.tickTimers();assert.equal(pulses(),4,'success resets the backoff');
 });
 
@@ -819,4 +820,31 @@ test('an empty question says it closed without answers, or for organisers that i
  const block=await page({'GET /api/fiiu/questions?activityId=day1-am':{activity:ACTIVITY,questions:[question(),question({id:Q2,status:'hidden'})]}},{search:'?a=day1-am'});
  assert.ok(key(block.root,'talkHiddenQuestion'));assert.equal(key(block.root,'talkHidden'),undefined,'Oculto stays for messages');
  const wall=await projector({},{question:{status:'closed'},messages:[]});assert.equal(wall.root.querySelector('.f-talk-wall-empty').dataset.fiiuText,'talkEmptyClosed');
+});
+
+const note=h=>h.root.querySelector('.f-talk-dock').querySelector('.f-talk-note');
+const offline=()=>{throw new Error('offline');};
+
+test('paused updates show in the dock where the reader is, a lost connection is named, and coming back online polls at once',async()=>{
+ let up=false;
+ const h=await page({'GET /api/fiiu/pulse':()=>up?{questions:[[Q,'day1-am',3,'open']]}:offline(),['POST '+MESSAGES]:offline,['PUT /api/fiiu/messages/'+M1+'/like']:offline});
+ await h.tickTimers();
+ assert.equal(note(h).dataset.fiiuText,'talkPausedOffline');assert.equal(note(h).role,'status');assert.equal(h.message.textContent,'','not at the top of the page, far above the reader');
+ const text=composer(h).querySelector('textarea');text.value='Mensaje sin conexión';submit(h);await flush();
+ assert.equal(composerStatus(h),'talkOfflineSend','the send says the connection failed and that Retry will work');assert.ok(rows(h).find(node=>classes(node).includes('is-failed')));
+ await row(h,M1).querySelector('.f-talk-like').listeners.click();await flush();assert.equal(composerStatus(h),'talkOffline');
+ up=true;const pulses=sent(h,'GET','/api/fiiu/pulse').length;
+ await Promise.all((h.windowListeners.online||[]).map(listener=>listener({type:'online'})));
+ assert.equal(sent(h,'GET','/api/fiiu/pulse').length,pulses+1,'back online, the page asks at once instead of waiting out the backoff');assert.equal(note(h).textContent,'');
+ const down=await page({'GET /api/fiiu/pulse':{status:503,data:{}}});await down.tickTimers();assert.equal(note(down).dataset.fiiuText,'talkPaused','a server outage is not called a lost connection');
+ h.lang('es');assert.equal(h.ctx.window.Fiiu.t('talkOfflineSend'),'Sin conexión. Tu mensaje sigue aquí: toca Reintentar cuando vuelvas a tener señal.');
+});
+
+test('without a composer, a failed Hide shows its error in the dock, and the next action that works clears it',async()=>{
+ let fail=true;const ana=over=>message(M1,{authorFull:'Ana Test',hidden:false,...over});
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'closed'},me:{organiser:true,canPost:false},messages:[ana({seq:1})]}),
+  ['PUT /api/admin/fiiu/messages/'+M1+'/hidden']:()=>fail?{status:503,data:{}}:{message:ana({hidden:true,seq:4})}});
+ await key(row(h,M1),'talkHide').listeners.click();await flush();
+ assert.equal(note(h).dataset.fiiuText,'talkError');assert.equal(note(h).textContent,'Something went wrong. Try again.');assert.equal(h.message.textContent,'','not at the top of the page');
+ fail=false;await key(row(h,M1),'talkHide').listeners.click();await flush();assert.equal(note(h).textContent,'');assert.ok(classes(row(h,M1)).includes('is-hidden'));
 });

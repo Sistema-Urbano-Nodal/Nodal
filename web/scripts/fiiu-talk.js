@@ -26,6 +26,9 @@
   talkRegister:['Register for FIIU to join','Inscríbete en el FIIU para participar','Inscreva-se no FIIU para participar'],talkRegisterHint:['Registering is free and takes two minutes.','La inscripción es gratuita y toma dos minutos.','A inscrição é gratuita e leva dois minutos.'],
   talkNew:['New messages ↓','Mensajes nuevos ↓','Novas mensagens ↓'],talkLoadEarlier:['Load earlier messages','Cargar mensajes anteriores','Carregar mensagens anteriores'],
   talkPaused:['Live updates paused. Reconnecting…','Actualizaciones en pausa. Reconectando…','Atualizações pausadas. Reconectando…'],
+  talkPausedOffline:['No connection. Updates come back on their own once you have signal.','Sin conexión. Las actualizaciones vuelven solas cuando recuperes la señal.','Sem conexão. As atualizações voltam sozinhas quando o sinal voltar.'],
+  talkOffline:['No connection. Try again once you have signal.','Sin conexión. Inténtalo de nuevo cuando tengas señal.','Sem conexão. Tente de novo quando tiver sinal.'],
+  talkOfflineSend:['No connection. Your message is still here: tap Retry once you have signal.','Sin conexión. Tu mensaje sigue aquí: toca Reintentar cuando vuelvas a tener señal.','Sem conexão. Sua mensagem continua aqui: toque em Tentar de novo quando tiver sinal.'],
   talkHide:['Hide','Ocultar','Ocultar'],talkUnhide:['Unhide','Mostrar','Mostrar'],talkHidden:['Hidden','Oculto','Oculta'],talkHiddenForYou:['Hidden by the organisers','Oculto por la organización','Ocultada pela organização'],talkBackToBlock:['All questions on this block','Todas las preguntas de este bloque','Todas as perguntas deste bloco'],
   talkOpenFull:['Open full image','Abrir imagen completa','Abrir imagem completa'],talkError:['Something went wrong. Try again.','Algo salió mal. Inténtalo de nuevo.','Algo deu errado. Tente de novo.'],
   talkRate:['Too many messages at once. Wait a moment and try again.','Demasiados mensajes seguidos. Espera un momento e inténtalo de nuevo.','Muitas mensagens de uma vez. Aguarde um momento e tente de novo.'],
@@ -65,7 +68,9 @@
  const setTitle=()=>{document.title='NODAL · '+t(wall?'talkPresent':'talkPage');};
  // The server's refusal codes, each with its own explanation; anything else is "Something went wrong" (a Map, so no code can name an Object property).
  const CODES=new Map(Object.entries({upload_allowance:'talkAllowance',file_type:'talkFileType',too_many_files:'talkTooManyFiles',file_size:'talkFileSize',question_closed:'talkClosed',not_registered:'talkNotRegistered',client_id_reused:'talkReused'}));
- const keyOf=error=>error?.status===429?'talkRate':CODES.get(error?.code)||(error?.status===413?'talkFileSize':error?.status===401?'unauthorized':/^talk[A-Z]/.test(error?.key||'')?error.key:'talkError');
+ // api() reports a request that never got an answer (no signal, a timeout, a captive portal's page) as key 'error' with no status: a lost connection.
+ const keyOf=error=>error?.status===429?'talkRate':CODES.get(error?.code)||(error?.status===413?'talkFileSize':error?.status===401?'unauthorized':/^talk[A-Z]/.test(error?.key||'')?error.key:error?.key==='error'&&!error.status?'talkOffline':'talkError');
+ const PAUSED=['talkPaused','talkPausedOffline'];
  const isOpen=()=>question?.status==='open';
  // Whether focus is inside a node; harness nodes and old browsers may lack contains().
  const holds=node=>{const active=document.activeElement;return Boolean(node&&active&&active!==document.body&&node.contains?.(active));};
@@ -194,7 +199,7 @@
   // Only a change of state touches the dock: moving the composer would drop its focus and the phone keyboard with it.
   if(was!==state){
    const inside=holds(parts.dock);parts.dockState=state;
-   parts.dock.replaceChildren(parts.pill,...(state==='composer'?[ensureComposer().form]:state==='closed'?[parts.closed]:[]));
+   parts.dock.replaceChildren(parts.pill,parts.note,...(state==='composer'?[ensureComposer().form]:state==='closed'?[parts.closed]:[]));
    if(state==='composer')restoreDraft();
    // A close while someone types keeps them in the dock, on the note, which reads itself; anyone else hears it from the status line.
    if(was&&state!=='composer'){if(inside)(state==='closed'?parts.closedNote:parts.log).focus();else if(state==='closed')announce(t('talkClosed'));}
@@ -210,12 +215,15 @@
   const box=el('section','f-talk'),head=el('header','f-talk-head'),earlier=button('talkLoadEarlier',()=>loadEarlier(),'f-button secondary f-talk-earlier'),log=el('ol','f-talk-log'),empty=tr('p','talkEmpty','f-talk-empty'),dock=el('div','f-talk-dock');
   const pill=button('talkNew',()=>{pill.hidden=true;toBottom(true);},'f-talk-new');pill.hidden=true;pill.setAttribute('aria-live','polite');
   const live=el('p','f-sr-only f-talk-live');live.setAttribute('role','status');
+  // The dock's own status line, kept through every dock state: paused updates, and errors when there is no composer to show them. The page's status
+  // sits at the top, far above a reader the chat keeps at the bottom.
+  const note=el('p','f-talk-status f-talk-note');note.setAttribute('role','status');
   // The closed state: the note (focusable, so a close while typing can keep focus there) and an unsent draft under it, in a read-only box whose
   // "select all" stays inside it, so the whole answer can be copied on a phone.
   const closed=el('div','f-talk-closedbox'),closedNote=tr('p','talkClosed','f-talk-closed'),draft=el('div','f-talk-draft'),draftLabel=tr('label','talkDraftKept','f-talk-draft-label'),draftText=el('textarea','f-talk-input f-talk-draft-text');
   closedNote.tabIndex=-1;draftText.id='f-talk-draft';draftText.readOnly=true;draftText.rows=2;draftLabel.htmlFor=draftText.id;draft.append(draftLabel,draftText);draft.hidden=true;closed.append(closedNote,draft);
   log.setAttribute('role','log');log.setAttribute('aria-live','off');log.setAttribute('aria-label',t('talkPage'));log.tabIndex=-1;dock.append(pill);box.append(head,earlier,log,empty,dock,live);
-  root.replaceChildren(box,newTabNote());parts={box,head,earlier,log,empty,dock,pill,live,closed,closedNote,draft,draftText,more:null,dockState:''};
+  root.replaceChildren(box,newTabNote());parts={box,head,earlier,log,empty,dock,pill,live,note,closed,closedNote,draft,draftText,more:null,dockState:''};
  }
  // A reload of the same question (a reset, or a status the pulse cannot carry) rebuilds the rows but keeps the header nodes, the composer and its draft.
  function show(data){
@@ -268,13 +276,15 @@
     // changes answer carries the question as it is now.
     else if(Number(entry[2])>known)await changes(id);
    }
-   failures=0;nextAt=0;if(message.dataset.fiiuText==='talkPaused')status(message,'');
+   failures=0;nextAt=0;paused(null);
    if(wall?.qr==='failed'&&Date.now()>=wall.qrAt)loadQr(id);
   }catch(error){
    if([401,403,404].includes(error?.status))return access(error);
-   failures++;nextAt=Date.now()+Math.min(60000,POLL*2**failures);status(message,'talkPaused');
+   failures++;nextAt=Date.now()+Math.min(60000,POLL*2**failures);paused(keyOf(error)==='talkOffline'?'talkPausedOffline':'talkPaused');
   }finally{busy=false;}
  }
+ // The chat says it is paused in its dock; the projector, which has none, at the top of its page.
+ function paused(key){const node=parts?.note||message;if(key)status(node,key);else if(PAUSED.includes(node.dataset.fiiuText))status(node,'');}
  async function changes(id){
   const data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages?since='+known);if(question?.id!==id)return;
   if(data.reset)return reload(id);
@@ -445,12 +455,14 @@
    /* The copy stored under this clientId can no longer be finished (it stopped before its files and the question closed, a moderator hid it, or
       the retry came too late): the next try is a new message, with its files uploaded again. */
    if(error?.code==='client_id_reused'){attempts.delete(attempt.clientId);attempt.clientId=uuid();attempts.set(attempt.clientId,attempt);for(const file of attempt.files)uploads.delete(fileKey(file));}
-   attempt.state='failed';const failed=pendingRow(attempt,true);row.replaceWith(failed);attempt.row=failed;say(problem(key));
+   attempt.state='failed';const failed=pendingRow(attempt,true);row.replaceWith(failed);attempt.row=failed;say(problem(key==='talkOffline'?'talkOfflineSend':key));
    if(error?.code==='question_closed')closedByServer();
   }
  }
- // Errors from likes, deletions and moderation show next to the composer, or in the page status when the question is closed.
- function notify(error){status(parts?.dockState==='composer'?composer.state:message,problem(keyOf(error)));}
+ // Errors from likes, deletions and moderation show next to the composer, or in the dock's status line when there is none (a closed or hidden
+ // question); the next action that works clears that line, unless it says updates are paused.
+ function notify(error){status(parts?.dockState==='composer'?composer.state:parts?.note||message,problem(keyOf(error)));}
+ function settled(){const node=parts?.note;if(node&&node.dataset.fiiuText&&!PAUSED.includes(node.dataset.fiiuText))status(node,'');}
  function paintLike(id){
   const view=views.get(id),like=rowsById.get(id)?.querySelector('.f-talk-like');if(!view||!like)return;const shown=likeShown(view);
   like.setAttribute('aria-pressed',String(shown.liked));like.querySelector('.f-talk-like-n').textContent=String(shown.likeCount);
@@ -461,7 +473,7 @@
   const view=views.get(id);if(!view||view.mine||view.hidden||liking.has(id)||!isOpen())return;const was=Boolean(view.liked);liking.set(id,!was);paintLike(id);
   try{
    const data=await api('/api/fiiu/messages/'+encodeURIComponent(id)+'/like',{},was?'DELETE':'PUT');
-   setLiked(id,Boolean(data.liked));const now=views.get(id);if(now)now.likeCount=Math.max(0,Number(data.likeCount)||0);
+   setLiked(id,Boolean(data.liked));const now=views.get(id);if(now)now.likeCount=Math.max(0,Number(data.likeCount)||0);settled();
   }catch(error){
    // 404: hidden or deleted a moment ago, which the next sync would also say.
    if(error?.status===404){patch(()=>drop(id));return;}
@@ -470,14 +482,14 @@
  }
  async function erase(id){
   if(!window.confirm(t('talkDeleteConfirm')))return;
-  try{await api('/api/fiiu/messages/'+encodeURIComponent(id),{},'DELETE');patch(()=>drop(id));}
+  try{await api('/api/fiiu/messages/'+encodeURIComponent(id),{},'DELETE');settled();patch(()=>drop(id));}
   catch(error){if(error?.status===404)patch(()=>drop(id));else notify(error);}
  }
  // Organisers hide (PUT) and unhide (DELETE), one request per message at a time; the answer replaces the row, which stays on their screen, greyed.
  // A message its author deleted meanwhile just leaves the screen.
  async function moderate(id){
   const view=views.get(id);if(!view||moderating.has(id))return;moderating.add(id);
-  try{const data=await api('/api/admin/fiiu/messages/'+encodeURIComponent(id)+'/hidden',{},view.hidden?'DELETE':'PUT');if(data?.message?.id&&parts)patch(note=>note(data.message,upsert(data.message)));}
+  try{const data=await api('/api/admin/fiiu/messages/'+encodeURIComponent(id)+'/hidden',{},view.hidden?'DELETE':'PUT');settled();if(data?.message?.id&&parts)patch(note=>note(data.message,upsert(data.message)));}
   catch(error){if(error?.status===404)patch(()=>drop(id));else notify(error);}
   finally{moderating.delete(id);}
  }
@@ -606,6 +618,8 @@
  }
  window.nodalI18n?.onChange(relabel);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible')return;wake();nextAt=0;return tick();});
+ // Back online, the chat asks at once instead of waiting out a backoff that can reach a minute.
+ window.addEventListener('online',()=>{nextAt=0;return tick();});
  document.addEventListener('fullscreenchange',()=>{const full=wall?.full;if(!full)return;const name=document.fullscreenElement?'exitFullScreen':'talkFullscreen';full.dataset.fiiuText=name;full.textContent=t(name);});
  window.addEventListener('scroll',()=>{if(parts&&!parts.pill.hidden&&nearBottom())parts.pill.hidden=true;},{passive:true});
  start();
