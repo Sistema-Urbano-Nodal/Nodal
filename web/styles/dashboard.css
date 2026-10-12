@@ -509,7 +509,10 @@ select:focus-visible, textarea:focus-visible {
    the work surface like a cut-out */
 .globe { display: grid; grid-template-columns: minmax(0, 1fr) 264px; gap: clamp(18px, 2.4vw, 36px); align-items: center; }
 .globe-stage { position: relative; aspect-ratio: 1 / 1; max-height: 84vh; margin-inline: auto; width: 100%; }
-#globeCanvas { display: block; width: 100%; height: 100%; background: none; touch-action: none; cursor: grab; }
+/* On a phone the canvas is nearly the full width of the screen, right under the festival block: a vertical swipe
+   that starts on it must scroll the page. Sideways drags (and taps) still reach globe.js; mouse drags are not
+   affected by touch-action. */
+#globeCanvas { display: block; width: 100%; height: 100%; background: none; touch-action: pan-y pinch-zoom; cursor: grab; }
 #globeCanvas:focus-visible { outline: 2px solid var(--forest); outline-offset: 6px; border-radius: 50%; }
 
 .globe-side { align-self: center; }

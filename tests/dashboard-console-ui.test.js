@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { flush } from './helpers/fiiu-ui-harness.js';
 
 /* The member console on a phone at the festival: the bell, the globe, the festival block, the news, the profile
    prompt, touch sizes and the globe download. Rules are read from the shipped CSS and behaviour is run from the
@@ -31,6 +33,82 @@ test('on phones the bell stays at the right edge and its panel opens inside the 
   // The wrapped topbar put the bell at the left, so the right-anchored panel hung about 226px off the screen.
   assert.match(phone, /\.top-actions\s*\{\s*margin-left:\s*auto;?\s*\}/);
   assert.match(phone, /\.notif-pop\s*\{[^}]*width:\s*min\(320px,\s*calc\(100vw - 2 \* var\(--pad\)\)\)/, 'never wider than the screen less both gutters');
+});
+
+/* ---------------- globe touch (finding 31) ---------------- */
+
+test('a vertical swipe over the globe scrolls the page; sideways drags still turn it', () => {
+  const rule = css().match(/#globeCanvas\s*\{[^}]*\}/)[0];
+  assert.match(rule, /touch-action:\s*pan-y pinch-zoom/);
+  assert.doesNotMatch(rule, /touch-action:\s*none/);
+});
+
+class GlobeElement {
+  constructor() { this.children = []; this.listeners = {}; this.dataset = {}; this.style = {}; this.hidden = false; this.textContent = ''; this.value = ''; this.classList = { add() {}, remove() {} }; }
+  append(...nodes) { for (const node of nodes) { node.parent = this; this.children.push(node); } }
+  appendChild(node) { this.append(node); return node; }
+  prepend(node) { node.parent = this; this.children.unshift(node); }
+  replaceChildren(...nodes) { this.children = []; this.append(...nodes); }
+  remove() {}
+  removeAttribute(name) { if (name === 'hidden') this.hidden = false; }
+  setAttribute(name, value) { this[name] = value; }
+  addEventListener(type, listener) { this.listeners[type] = listener; }
+  dispatchEvent(event) { return this.listeners[event.type]?.(event); }
+  getBoundingClientRect() { return { left: 0, top: 0, width: 500, height: 500 }; }
+  setPointerCapture() {}
+}
+function globe() {
+  const ids = Object.fromEntries(['globeCanvas', 'globeCard', 'globeCity', 'globeLabel', 'globeCount', 'globePeople', 'globeLinks', 'globeEyebrow', 'globeYou', 'globeYouCta', 'globeEmpty', 'globeFeed', 'globeFeedLabel', 'globeTopics', 'globeSince', 'globeSinceLabel', 'globePlay'].map((id) => [id, new GlobeElement()]));
+  const draws = [];
+  let frame;
+  ids.globeCanvas.getContext = () => new Proxy({ createRadialGradient: () => ({ addColorStop() {} }) }, { get(target, name) { return target[name] ?? ((...args) => draws.push({ name, args })); } });
+  const snapshot = { places: [{ city: 'Lima', label: 'Lima', lat: -12, lon: -77, members: 1, named: 1, people: [{ id: 'a', name: 'Ana', role: 'Planner', linkedin: '', joinedAt: '2026-09-01T00:00:00Z' }] }], links: [], topics: [], you: { listed: true, hasCity: true, onMap: true, city: 'Lima' } };
+  const context = vm.createContext({
+    window: { IntersectionObserver: true, devicePixelRatio: 1, matchMedia: () => ({ matches: true }), addEventListener() {}, nodalI18n: { lang: 'en', t: (k) => k, onChange() {} } },
+    document: { hidden: false, getElementById: (id) => ids[id] || null, createElement: () => new GlobeElement(), addEventListener() {} },
+    console, Event, AbortSignal, performance: { now: () => 1000 },
+    IntersectionObserver: class { observe() {} },
+    requestAnimationFrame: (callback) => { frame = callback; return 1; }, cancelAnimationFrame() {},
+    setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {},
+    fetch: async () => ({ status: 200, ok: true, headers: { get: () => 'v1' }, json: async () => snapshot }),
+  });
+  for (const file of ['globe-geo', 'globe']) vm.runInContext(read('web', 'scripts', `${file}.js`), context);
+  const canvas = ids.globeCanvas;
+  const pointer = (type, x, y, extra = {}) => canvas.dispatchEvent({ type, clientX: x, clientY: y, pointerId: 1, pointerType: 'touch', ...extra });
+  const drawn = () => { draws.length = 0; frame(1000); return JSON.stringify(draws.filter((d) => ['moveTo', 'lineTo'].includes(d.name)).map((d) => d.args)); };
+  const pick = () => canvas.dispatchEvent({ type: 'keydown', key: 'ArrowRight', preventDefault() {} });
+  return { ids, canvas, pointer, drawn, pick };
+}
+
+test('lifting a finger after spinning the globe keeps the city that was selected', async () => {
+  const g = globe();
+  await flush();
+  g.pick();
+  assert.equal(g.ids.globeCard.hidden, false, 'a city is selected');
+  g.pointer('pointerdown', 40, 40);
+  g.pointer('pointermove', 120, 44);
+  g.pointer('pointerup', 120, 44);
+  assert.equal(g.ids.globeCard.hidden, false, 'a sideways spin is not a tap: the selection stays');
+  g.pointer('pointerdown', 40, 40);
+  g.pointer('pointerup', 42, 41);
+  assert.equal(g.ids.globeCard.hidden, true, 'a tap on empty space still clears the selection');
+});
+
+test('the globe turns from the finger position, and a scroll the browser takes over ends the drag', async () => {
+  const g = globe();
+  await flush();
+  const before = g.drawn();
+  // Touch moves may carry no movementX (Safari): the turn comes from clientX.
+  g.pointer('pointerdown', 100, 100);
+  g.pointer('pointermove', 160, 100);
+  const after = g.drawn();
+  assert.ok(!/null|NaN/.test(after), 'no undefined movement turns the globe into NaN');
+  assert.ok(after !== before, 'a sideways drag turns the globe');
+  // pan-y hands a vertical swipe to the browser, which cancels the pointer: the next move is a hover, not a drag.
+  g.canvas.style.cursor = '';
+  g.pointer('pointercancel', 160, 100);
+  g.pointer('pointermove', 200, 300);
+  assert.ok(g.canvas.style.cursor, 'after pointercancel a move is a hover again');
 });
 
 /* ---------------- touch targets and search scopes (finding 35) ---------------- */
