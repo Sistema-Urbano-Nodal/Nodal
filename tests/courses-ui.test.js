@@ -6,9 +6,12 @@ import { readFileSync } from 'node:fs';
 const script=name=>readFileSync(new URL('../web/scripts/'+name+'.js',import.meta.url),'utf8');
 class Node {
  constructor(tag='div'){this.tagName=tag;this.children=[];this.dataset={};this.listeners={};this.hidden=false;this.textContent='';this.value='';this.files=[];this.classList={toggle(){}};}
- append(...nodes){nodes.forEach(n=>{if(typeof n==='object')n.parent=this;this.children.push(n);});}
- prepend(...nodes){nodes.forEach(n=>n.parent=this);this.children.unshift(...nodes);}
- after(node){const p=this.parent;if(p){node.parent=p;p.children.splice(p.children.indexOf(this)+1,0,node);}}
+ // Like the DOM, inserting a node that already has a parent moves it rather than copying it.
+ append(...nodes){nodes.forEach(n=>{if(typeof n==='object'){detach(n);n.parent=this;}this.children.push(n);});}
+ prepend(...nodes){nodes.forEach(n=>{detach(n);n.parent=this;});this.children.unshift(...nodes);}
+ after(node){const p=this.parent;if(p){detach(node);node.parent=p;p.children.splice(p.children.indexOf(this)+1,0,node);}}
+ get firstElementChild(){return this.children.find(n=>typeof n==='object')||null;}
+ get nextElementSibling(){const siblings=this.parent?.children.filter(n=>typeof n==='object')||[],at=siblings.indexOf(this);return at<0?null:siblings[at+1]||null;}
  replaceChildren(...nodes){this.children=[];this.append(...nodes);}
  setAttribute(k,v){this[k]=v;}
  getAttribute(k){return this[k]??null;}
@@ -22,6 +25,7 @@ class Node {
  reset(){descendants(this).filter(n=>n.tagName==='input'||n.tagName==='textarea').forEach(n=>{n.value='';n.files=[];});}
 }
 const descendants=node=>(node.children||[]).flatMap(n=>typeof n==='object'?[n,...descendants(n)]:[]);
+const detach=node=>{if(node.parent)node.parent.children=node.parent.children.filter(n=>n!==node);};
 const content=n=>[n.textContent,...(n.children||[]).map(content)].join(' ');
 const flush=async()=>{for(let i=0;i<15;i++)await new Promise(r=>setImmediate(r));};
 function harness(respond,{page='courses',search='',readyState='loading'}={}){
@@ -617,6 +621,32 @@ test('hero intake actions are full tap targets and the staff survey and response
  const phone=css.slice(css.indexOf('@media(max-width:640px){'));
  assert.match(phone,/^@media/);assert.match(phone,/:is\(\.pilot-feedback-table,\.pilot-survey-admin \.pilot-table\) tr\{display:grid/);assert.match(phone,/\.pilot-table td\.pilot-survey-actions\{white-space:normal\}/);assert.match(phone,/\.pilot-cell-label\{display:block/);
  assert.match(css,/\.pilot-cell-label\{display:none\}\n@media\(max-width:640px\)/,'labels show only in the stacked layout');
+});
+test('replies sit under the contribution they answer, oldest first, and name the person they answer',async()=>{
+ const post=(id,minute,extra={})=>({...ownPost,id,body:'Body '+id,createdAt:'2026-09-08T10:0'+minute+':00Z',links:[],attachments:[],canEdit:false,canDelete:false,...extra});
+ const abancay=post('abancay',1,{authorName:'Ana María Gonzales'}),second=post('second',2),first=post('first',3,{parentId:'abancay',kind:'comment',authorName:'Carla'}),nested=post('nested',4,{parentId:'first',kind:'comment'}),late=post('late',5,{parentId:'abancay',kind:'comment',authorName:'Beto'});
+ // The server sends the page newest first.
+ const h=postHarness({posts:[late,nested,first,second,abancay]});h.run('courses');await flush();
+ const list=descendants(h.body).find(n=>n.className==='pilot-post-list');
+ assert.deepEqual(list.children.map(n=>n.id),['post-second','post-abancay','post-first','post-nested','post-late']);
+ assert.deepEqual(list.children.map(n=>n.className),['pilot-post','pilot-post','pilot-post reply','pilot-post reply','pilot-post reply']);
+ const link=id=>descendants(postCard(h,id)).find(n=>n.tagName==='a'&&n.href?.startsWith('#post-'));
+ assert.equal(link('first').textContent,'Replying to Ana María Gonzales');assert.equal(link('first').href,'#post-abancay');
+ assert.equal(link('nested').textContent,'Replying to Carla');assert.equal(link('late').textContent,'Replying to Ana María Gonzales');
+ h.lang('es');assert.equal(link('first').textContent,'Respondiendo a Ana María Gonzales');
+});
+test('a reply whose contribution is on an older page stays flat and says so until that page loads',async()=>{
+ const parent={...ownPost,id:'parent',createdAt:'2026-09-08T10:00:00Z'},newer={...ownPost,id:'newer',body:'Newer question',createdAt:'2026-09-08T12:00:00Z'};
+ const reply={...ownPost,id:'reply',parentId:'parent',kind:'comment',authorName:'Carla',body:'An answer',createdAt:'2026-09-08T11:00:00Z',canEdit:false,canDelete:false};
+ const h=postHarness({intercept:path=>path.includes('/modules/m1/posts')?(path.includes('cursor=older')?{posts:[parent],nextCursor:null}:{posts:[newer,reply],nextCursor:'older'}):undefined});h.run('courses');await flush();
+ const list=descendants(h.body).find(n=>n.className==='pilot-post-list'),card=()=>postCard(h,'reply');
+ const link=()=>descendants(card()).find(n=>n.href==='#post-parent'),earlier=()=>findKey(card(),'replyEarlier');
+ assert.deepEqual(list.children.map(n=>n.id),['post-newer','post-reply']);assert.equal(card().className,'pilot-post');
+ assert.equal(link().hidden,true);assert.equal(earlier().hidden,false);assert.equal(earlier().textContent,'In reply to an earlier contribution');
+ h.lang('es');assert.equal(earlier().textContent,'Respuesta a una contribución anterior');h.lang('en');
+ await findKey(h.body,'loadOlder').listeners.click();await flush();
+ assert.deepEqual(list.children.map(n=>n.id),['post-newer','post-parent','post-reply']);assert.equal(card().className,'pilot-post reply');
+ assert.equal(link().hidden,false);assert.equal(link().textContent,'Replying to Member');assert.equal(earlier().hidden,true);
 });
 // The stylesheet as rules in source order, {media,selectors,style}: enough for courses.css (one level of @media, no braces in values).
 function cssRules(css){

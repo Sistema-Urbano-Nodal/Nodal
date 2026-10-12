@@ -389,9 +389,21 @@ function createConversation(moduleId,sequence,kind){
   const alive=()=>!disposed&&sequence===loadSequence;
   const visible=()=>!navigationPending&&pageActive&&active&&document.visibilityState!=='hidden'&&alive();
   const signature=result=>result.revision??(result.posts?.[0]?.id||'empty');
+  // A reply names the person it answers while that contribution is on the page and live.
   function syncReplyLinks(){
-    const liveIds=new Set([...posts.children].filter(card=>card.isLivePost?.()).map(card=>card.id.slice(5)));
-    for(const card of posts.children)card.showParentLink?.(liveIds.has(card.parentPostId));
+    const live=new Map([...posts.children].filter(card=>card.isLivePost?.()).map(card=>[card.id.slice(5),card]));
+    for(const card of posts.children)card.showParentLink?.(live.get(card.parentPostId)?.authorName());
+  }
+  /* Threads keep the newest-first order the conversation promises, each followed by its replies oldest first (a reply to a
+     reply joins the same thread). A reply whose contribution is not on the page (an older page, or withdrawn) stays where it
+     came until that page loads. Only cards out of place move, so a card being read or edited is not taken away needlessly. */
+  function arrange(){
+    const cards=[...posts.children].filter(card=>card.isLivePost),byId=new Map(cards.filter(card=>card.isLivePost()).map(card=>[card.id.slice(5),card]));
+    const rootOf=card=>{const seen=new Set();let at=card;while(byId.has(at.parentPostId)&&!seen.has(at)){seen.add(at);at=byId.get(at.parentPostId);}return at;};
+    const replies=new Map();for(const card of cards){const root=rootOf(card);if(root!==card)replies.set(root,[...(replies.get(root)||[]),card]);}
+    const order=cards.filter(card=>rootOf(card)===card).flatMap(root=>[root,...(replies.get(root)||[]).sort((a,b)=>String(a.createdAt).localeCompare(String(b.createdAt)))]);
+    let previous=null;
+    for(const card of order){if((previous?previous.nextElementSibling:posts.firstElementChild)!==card){if(previous)previous.after(card);else posts.prepend(card);}previous=card;}
   }
   function cancelPoll(){if(timer!==null&&typeof clearTimeout==='function')clearTimeout(timer);timer=null;pollController?.abort();pollController=null;}
   function schedule(){if(!visible()||loading||!loaded||hasUpdates||timer!==null||typeof setTimeout!=='function')return;timer=setTimeout(checkUpdates,Math.min(120000,30000*2**pollErrors));}
@@ -428,7 +440,7 @@ function createConversation(moduleId,sequence,kind){
         if(existing){existing.updatePost(post);posts.append(existing);drafts.delete(post.id);}else posts.append(renderPost(post,composer,loadPosts,alive));
       }
       for(const [id,card] of drafts){posts.append(card);known.add(id);}
-      syncReplyLinks();
+      arrange();syncReplyLinks();
       posts.querySelector('.pilot-empty')?.remove();
       if(!known.size)posts.append(tr('p',kind==='assignment'?'noAssignments':'noPosts','pilot-empty'));
       cursor=result.nextCursor;more.hidden=!cursor;loaded=true;
@@ -442,11 +454,17 @@ function createConversation(moduleId,sequence,kind){
 
 function renderPost(initial,composer,reload,alive){
   let p=initial,editor=null,busy=false;
-  const card=el('article','pilot-post'+(p.parentId?' reply':''));card.id='post-'+p.id;
-  card.isLivePost=()=>!p.deleted;
+  const card=el('article','pilot-post');card.id='post-'+p.id;card.createdAt=p.createdAt;
+  card.isLivePost=()=>!p.deleted;card.authorName=()=>p.authorName||'';
   const author=el('strong',null,p.authorName||''),staffTag=tr('span','staff','pilot-tag');staffTag.hidden=!p.staff;card.append(author,staffTag);
   card.append(dynamic('small',()=>new Date(p.createdAt).toLocaleString(window.nodalI18n?.lang||'en')));
-  if(p.parentId){const parent=tr('a','replying'),line=el('br');parent.href='#post-'+p.parentId;card.parentPostId=p.parentId;card.showParentLink=visible=>{parent.hidden=!visible;line.hidden=!visible;};card.append(line,parent);}
+  if(p.parentId){
+    // Indented under its contribution with that author's name, or flat with a plain note while it is not on the page.
+    let parentName='';const label=()=>parentName?t('replying')+' '+parentName:t('replyEarlier');
+    const parent=dynamic('a',label),earlier=tr('span','replyEarlier','pilot-reply-earlier'),line=el('br');parent.href='#post-'+p.parentId;card.parentPostId=p.parentId;
+    card.showParentLink=name=>{const shown=typeof name==='string';parentName=name||'';parent.textContent=label();parent.hidden=!shown;earlier.hidden=shown;card.className='pilot-post'+(shown?' reply':'');};
+    card.showParentLink();card.append(line,parent,earlier);
+  }
   const body=el('p'),links=el('ul'),actions=el('div','pilot-post-actions'),local=el('p','pilot-status');local.setAttribute('role','status');
   card.append(tr('div',p.kind,'pilot-date'),body,links,actions,local);
   const reply=button('reply',()=>{if(!busy)composer.replyTo(p);},true);
