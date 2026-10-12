@@ -736,6 +736,12 @@ test('conversation and feedback controls are 44px tap targets with body-size tex
  const feedback=styleAt(375,'.pilot-feedback button');assert.equal(feedback['min-height'],'44px');assert.equal(feedback['font-size'],'13px');
  const star=styleAt(375,'.pilot-feedback .pilot-rating label');assert.equal(star['min-width'],'44px');assert.equal(star['min-height'],'44px');
 });
+test('on a phone the link to the answered contribution is a 44px target that takes the blank line above it',()=>{
+ const link=styleAt(375,'.pilot-post.reply>a');assert.equal(link.display,'inline-flex');assert.equal(link['align-items'],'center');assert.equal(link['min-height'],'44px');
+ // The <br> gave the link a blank line of space; the 44px line replaces it, so the card does not grow.
+ assert.equal(styleAt(375,'.pilot-post.reply>br').display,'none');
+ assert.equal(styleAt(1280,'.pilot-post.reply>a')['min-height'],undefined);assert.equal(styleAt(1280,'.pilot-post.reply>br').display,undefined);
+});
 test('text fields on a phone are 16px so iPhone Safari does not zoom into them',()=>{
  const fields=':is(.pilot-form,.pilot-feedback,.pilot-response-filters,.pilot-survey-reminder) :is(input:not([type=file]):not([type=checkbox]):not([type=radio]),textarea,select)';
  assert.equal(styleAt(375,fields)['font-size'],'16px');assert.equal(styleAt(1280,fields)['font-size'],undefined);
