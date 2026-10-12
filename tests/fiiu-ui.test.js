@@ -687,6 +687,8 @@ const leave=h=>{let prevented=false;for(const listener of h.windowListeners.befo
 const typeInto=(form,name,value)=>{const control=field(form,name);control.value=value;form.listeners.input({target:control});};
 const tick=(form,name,value)=>{const box=descendants(form).find(node=>node.name===name&&node.value===value);box.checked=true;form.listeners.change({target:box});return box;};
 const box=(form,name,value)=>descendants(form).find(node=>node.name===name&&node.value===value);
+// A Date whose "now" the test moves (clock.at = …).
+const movableClock=iso=>{const clock={at:Date.parse(iso)};clock.Date=class extends Date{constructor(...args){super(...(args.length?args:[clock.at]));}static now(){return clock.at;}};return clock;};
 
 test('the hero, programme and news appear from the public read while the registration is still loading, with no guest calls to action',async()=>{
  let answer;const news={...publicData,content:[{id:'n1',kind:'news',title:'Cambio de sala',body:'Texto',url:'',createdAt:'2026-10-20T12:00:00.000Z'}]};
@@ -766,4 +768,44 @@ test('with registration closed, cancelling warns there is no way back, the summa
  // An incomplete registration already names the address in its notice, so it is not repeated.
  const old=await harness({registration:{...saved,answers:{firstName:'Ana',lastName:'Test',activities:['day1-am'],privacyAccepted:true}},publicRead:()=>closed});
  assert.ok(key(old.root,'incompleteClosedNotice'));assert.equal(key(old.root,'closedChanges'),undefined);
+});
+
+test('during a block, the hero says it is happening now and links to its conversation and its day; a minute timer moves it on',async()=>{
+ const clock=movableClock('2026-10-22T11:30:00-05:00'),registration={...saved,answers:{...answers,activities:['day2-am','day2-pm']}};
+ const pulse={questions:[['10000000-0000-4000-8000-000000000007','day2-am',1,'open']]};
+ const h=await harness({registration,pulseRead:()=>pulse,context:{Date:clock.Date}}),next=()=>h.root.querySelector('.f-next');
+ assert.ok(key(next(),'nowForYou'));assert.equal(key(next(),'nextForYou'),undefined);
+ const talk=next().querySelector('.f-talk-link');assert.equal(talk.href,'fiiu-talk.html?a=day2-am');assert.equal(talk['aria-describedby'],'f-next-title');
+ const day=next().querySelectorAll('a').find(node=>node.href==='#day-2026-10-22');assert.ok(day,'the block links to its day in the programme');assert.match(content(day),/Cuidar y transformar la ciudad/);
+ assert.ok(h.timers.some(timer=>timer.delay===60000),'the hero is checked every minute during the festival');
+ const same=next();await h.tickTimers();assert.equal(next(),same,'nothing is redrawn while the block and its state stay the same');
+ clock.at=Date.parse('2026-10-22T13:05:00-05:00');await h.tickTimers();assert.ok(key(next(),'nextForYou'));assert.match(content(next()),/El espacio público/);assert.equal(next().querySelector('.f-talk-link'),null,'a block without questions has no conversation link');
+ // Before the block starts it is "next", and an untimed accepted laboratory is never "now".
+ const early=await harness({registration,context:{Date:movableClock('2026-10-22T08:30:00-05:00').Date}});assert.ok(key(early.root.querySelector('.f-next'),'nextForYou'));
+ const lab=await harness({registration:{...saved,labStatus:'accepted',answers:{...answers,activities:[]}},context:{Date:movableClock('2026-10-20T11:00:00-05:00').Date}});assert.ok(key(lab.root.querySelector('.f-next'),'nextForYou'));
+ const after=await harness({registration,context:{Date:movableClock('2026-10-26T10:00:00-05:00').Date}});assert.ok(!after.timers.some(timer=>timer.delay===60000),'no timer once the festival is over');
+ assert.deepEqual([...h.ctx.window.Fiiu.rows.nowForYou],['Happening now','Ahora','Agora']);
+});
+
+test('coming back to the tab picks up new conversations and news at most once a minute, and never redraws a form being filled in',async()=>{
+ const clock=movableClock('2026-10-21T08:00:00-05:00'),registration={...saved,answers:{...answers,activities:['day1-am','day1-pm']}};
+ let questions=[['10000000-0000-4000-8000-000000000001','day1-am',1,'open']],news=[{id:'n1',kind:'news',title:'Cambio de sala para el bloque del jueves',body:'Sala B',url:'',createdAt:'2026-10-20T12:00:00.000Z'}],pulseFails=false;
+ const h=await harness({registration,publicRead:()=>({...publicData,content:news}),pulseRead:()=>pulseFails?{status:503,data:{error:'unavailable'}}:{questions},context:{Date:clock.Date}});
+ const links=node=>talkLinks(node).map(link=>link.href),reads=path=>h.requests.filter(request=>request.path===path).length,back=async()=>{await h.visible(false);await h.visible(true);await flush();};
+ const newsTitles=()=>descendants(descendants(h.root).find(node=>node.id==='news')).filter(node=>node.tagName==='h3').map(node=>node.textContent);
+ assert.deepEqual(links(h.root.querySelector('.f-programme')),['fiiu-talk.html?a=day1-am']);
+ questions=[...questions,['10000000-0000-4000-8000-000000000002','day1-pm',1,'open']];news=[{id:'n2',kind:'news',title:'Nueva sala para el bloque de la noche',body:'Sala C',url:'',createdAt:'2026-10-21T12:00:00.000Z'},...news];
+ clock.at+=30000;await back();assert.equal(reads('/api/fiiu/pulse'),1,'within a minute nothing is read again');
+ clock.at+=61000;await back();
+ assert.deepEqual(links(h.root.querySelector('.f-programme')),['fiiu-talk.html?a=day1-am','fiiu-talk.html?a=day1-pm']);
+ assert.deepEqual(links(h.root.querySelector('.f-saved')),['fiiu-talk.html?a=day1-am','fiiu-talk.html?a=day1-pm'],'the saved itinerary, not being edited, follows too');
+ assert.deepEqual(newsTitles(),['Nueva sala para el bloque de la noche','Cambio de sala para el bloque del jueves']);assert.match(content(h.root.querySelector('.f-latest')),/Nueva sala/);
+ // A failed read keeps what is shown; a back/forward-cache restore counts as a return.
+ pulseFails=true;clock.at+=61000;await back();assert.equal(links(h.root.querySelector('.f-programme')).length,2);
+ pulseFails=false;questions=[...questions,['10000000-0000-4000-8000-000000000003','day2-am',1,'open']];clock.at+=61000;
+ for(const listener of h.windowListeners.pageshow||[])listener({persisted:true});await flush();assert.equal(links(h.root.querySelector('.f-programme')).length,3);
+ // An edit in progress keeps its form, draft and focus; only the programme and hero follow.
+ await key(h.root,'edit').listeners.click();const form=h.form();typeInto(form,'city','Callao');
+ questions=[...questions,['10000000-0000-4000-8000-000000000004','day3-am',1,'open']];clock.at+=61000;await back();
+ assert.equal(h.form(),form);assert.equal(field(form,'city').value,'Callao');assert.equal(form.hidden,false);assert.equal(links(h.root.querySelector('.f-programme')).length,4);
 });

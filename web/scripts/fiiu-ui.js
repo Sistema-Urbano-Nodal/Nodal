@@ -61,6 +61,8 @@
   cancelClosed:['Registration is closed, so you will not be able to register again.','La inscripción está cerrada: no podrás volver a inscribirte.','As inscrições estão encerradas: você não poderá se inscrever de novo.'],
   closedChanges:['To change your registration, write to fiiu@ocupatucalle.com.','Para cambiar tu inscripción, escribe a fiiu@ocupatucalle.com.','Para alterar sua inscrição, escreva para fiiu@ocupatucalle.com.'],
   externalInterestClosedHint:['Complete each activity’s Google Form to register with its facilitator. Interest in NODAL does not confirm that registration or attendance.','Completa el Google Form de cada actividad para inscribirte con su facilitador. El interés en NODAL no confirma esa inscripción ni la asistencia.','Preencha o Google Forms de cada atividade para se inscrever com o facilitador. O interesse na NODAL não confirma essa inscrição nem a presença.'],
+  // The hero's block while it is under way ("Next for you" otherwise).
+  nowForYou:['Happening now','Ahora','Agora'],
   // Conversation links on festival blocks (talkLink below): "Conversación · 2" on screen, "Conversación, 2 preguntas" for assistive technology.
   talkLink:['Conversation','Conversación','Conversa'],talkLinkOne:['1 question','1 pregunta','1 pergunta'],talkLinkCount:['{n} questions','{n} preguntas','{n} perguntas'],
   pendingShort:['Lab: in review','Laboratorio: en revisión','Laboratório: em análise'],acceptedShort:['Lab: accepted','Laboratorio: aceptado/a','Laboratório: aceito/a'],declinedShort:['Lab: not selected','Laboratorio: no seleccionado/a','Laboratório: não selecionado/a'],
@@ -275,8 +277,10 @@
  function countLabel(n,one,many,cls='f-count'){const box=el('span',cls);box.append(el('b','',memo(locale()+'|number',()=>new Intl.NumberFormat(locale())).format(n)+' '),tr('span',n===1?one:many));return box;}
  // Questions per block from the public conversation pulse ([id, activityId, revision, status] for every question that is not hidden). It is read once per page and
  // shared by every caller; the links it feeds are only a pointer, so a failure or an unexpected answer shows none instead of an error.
+ // {fresh:true} reads it again (a page coming back into view); a fresh read that fails or answers oddly keeps the counts already shown.
  let pulseCounts=null;
- const pulse=()=>pulseCounts??=api('/api/fiiu/pulse').then(data=>{const counts=new Map();for(const row of Array.isArray(data.questions)?data.questions:[])if(Array.isArray(row)&&typeof row[1]==='string'&&row[3]!=='hidden')counts.set(row[1],(counts.get(row[1])||0)+1);return counts;}).catch(()=>new Map());
+ const readPulse=()=>api('/api/fiiu/pulse').then(data=>{if(!Array.isArray(data.questions))throw Error('pulse');const counts=new Map();for(const row of data.questions)if(Array.isArray(row)&&typeof row[1]==='string'&&row[3]!=='hidden')counts.set(row[1],(counts.get(row[1])||0)+1);return counts;});
+ function pulse({fresh=false}={}){if(fresh&&pulseCounts){const shown=pulseCounts;pulseCounts=readPulse().catch(()=>shown);}return pulseCounts??=readPulse().catch(()=>new Map());}
  // "Conversación · 2" on a block, opening its questions. The bare count is hidden from assistive technology, which hears "Conversación, 2 preguntas"; refresh() keeps that phrase in the reader's language.
  const talkSpoken=n=>', '+(n===1?t('talkLinkOne'):t('talkLinkCount').replace('{n}',memo(locale()+'|number',()=>new Intl.NumberFormat(locale())).format(n)));
  function talkLink(activityId,count,cls='f-text-link f-talk-link'){
@@ -285,6 +289,8 @@
  }
  // A block counts until it ends in Lima ('09:00–13:00' until 13:00); one without a time range, such as the accepted laboratory, counts for its whole day.
  const endsAt=activity=>{const end=/[–-]\s*(\d{1,2}):(\d{2})\s*$/.exec(activity.time||'');return end?Number(end[1])*60+Number(end[2]):24*60;};
+ // Under way: today in Lima, past its start time and before its end. An untimed block (the accepted laboratory) has no start, so it is never "now", only next.
+ function underway(activity,now=new Date()){const start=/^\s*(\d{1,2}):(\d{2})\s*[–-]/.exec(activity?.time||''),minutes=limaMinutes(now);return Boolean(start)&&activity.date===limaDate(now)&&Number(start[1])*60+Number(start[2])<=minutes&&minutes<endsAt(activity);}
  function nextFor(registration,event,now=new Date()){
   const answers=registration?.answers;if(!answers)return null;
   const ids=new Set([...(answers.activities||[]),...(registration.labStatus==='accepted'?event.activities.filter(a=>a.registration==='application').map(a=>a.id):[])]),today=limaDate(now),minutes=limaMinutes(now);
@@ -340,6 +346,6 @@
   const attended=new Set(attendance.map(record=>record.activityId));for(const a of chronological([...event.activities,...(event.legacyActivities||[])].filter(a=>attended.has(a.id))))container.append(source('p','✓ '+a.title,'f-badge'));}
  // Scrolls a horizontal chip row just enough to show the item in full, clear of the right-edge fade (fiiu.css); only the row moves, never the page (the rows sit in sticky bars).
  function revealInRow(row,item){const box=item?.getBoundingClientRect?.(),frame=row?.getBoundingClientRect?.();if(!box||!frame)return;const shift=box.left<frame.left+8?box.left-frame.left-8:box.right>frame.right-36?box.right-frame.right+36:0;if(shift)row.scrollBy?.({left:shift});}
- window.Fiiu={rows,t,el,tr,button,link,source,field,check,api,status,dateNode,rangeNode,limaDate,locale,contentCards,badges,findActivity,chronological,typeOf,countLabel,nextFor,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,hoursLine,checkinCloses,checkinState,checkinActivities,limaClock,windowNode,pulse,talkLink};
+ window.Fiiu={rows,t,el,tr,button,link,source,field,check,api,status,dateNode,rangeNode,limaDate,locale,contentCards,badges,findActivity,chronological,typeOf,countLabel,nextFor,underway,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,hoursLine,checkinCloses,checkinState,checkinActivities,limaClock,windowNode,pulse,talkLink};
  window.nodalI18n?.onChange(refresh);refresh();
 })();

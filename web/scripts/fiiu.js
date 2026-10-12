@@ -1,10 +1,10 @@
 (() => {
  'use strict';
- const {el,tr,t,source,button,link,field,check,api,status,dateNode,rangeNode,limaDate,contentCards,badges,findActivity,chronological,typeOf,countLabel,nextFor,hint,describe,newTabNote,revealInRow,hoursLine,pulse,talkLink}=window.Fiiu;
+ const {el,tr,t,source,button,link,field,check,api,status,dateNode,rangeNode,limaDate,contentCards,badges,findActivity,chronological,typeOf,countLabel,nextFor,underway,hint,describe,newTabNote,revealInRow,hoursLine,pulse,talkLink}=window.Fiiu;
  const root=document.getElementById('fiiuRoot'),loadStatus=document.getElementById('fiiuStatus');
  const TYPES=[['conference','conferenceOne','conferenceMany'],['workshop','workshopOne','workshopMany'],['route','routeOne','routeMany'],['lab','labOne','labOne']];
  const CHOICE_NAMES=['activities','externalActivities','applyLab'];
- let festival,me={registration:null,attendance:[],user:null},registrationHost,panelHeading,panelBody,heroHost,programmeHost,openForm=null,officialInput=null,syncForm=null,notice='',dayObserver=null,stepObserver=null,sizeObserver=null,errorSeq=0,guestSignin=null,pendingAdd=null;
+ let festival,me={registration:null,attendance:[],user:null},registrationHost,panelHeading,panelBody,heroHost,programmeHost,openForm=null,officialInput=null,syncForm=null,notice='',dayObserver=null,stepObserver=null,sizeObserver=null,errorSeq=0,guestSignin=null,pendingAdd=null,layoutHost=null,latestNode=null,newsFeed=null;
  // choiceInputs maps an activity id to its form checkbox, so programme actions can pre-select it.
  // programmeActions maps an activity id to its programme button, so the button can show that the box is now ticked in the form.
  const choiceInputs=new Map(),programmeActions=new Map(),dayChips=new Map(),visibleDays=new Set();
@@ -14,7 +14,8 @@
  // The registration form's draft lives in the tab (sessionStorage), with its account and the saved version it edits: a reload, a Back or a tab the phone
  // discarded brings it back once, and another account or a version saved elsewhere since makes it stale. The ID number is never stored.
  // formDirty: unsaved answers on screen; edited: what a programme shortcut or an #add- calls after ticking a box, as typing does.
- const DRAFT='fiiu.draft';let formDirty=()=>false,edited=null,draftChecked=false;
+ // panelIdle: nothing in the panel is being edited or saved, so redrawing it loses nothing.
+ const DRAFT='fiiu.draft';let formDirty=()=>false,edited=null,draftChecked=false,panelIdle=()=>false;
  const readDraft=()=>{try{return JSON.parse(sessionStorage.getItem(DRAFT)||'null');}catch{return null;}};
  const dropDraft=()=>{try{sessionStorage.removeItem(DRAFT);}catch{/* No storage, no draft. */}};
  // Leaving with unsaved answers asks first. Phones seldom ask (iOS Safari never does), so the draft above is what really keeps the answers.
@@ -29,6 +30,15 @@
  // A card's foot is attached only once it holds something, so the link attaches it when it is the first thing there.
  const footTalk=(activity,titleId,host,foot)=>withTalk(activity,titleId,link=>{if(!foot.children.length)host.append(foot);foot.append(link);});
  function typeCounts(list){const counts={};for(const activity of list){const type=typeOf(activity);counts[type]=(counts[type]||0)+1;}return TYPES.filter(([type])=>counts[type]).map(([type,one,many])=>countLabel(counts[type],one,many));}
+ // The hero follows the clock during the festival: once a minute it checks which block is next and whether it is under way, and redraws only when that changes,
+ // giving focus back to the same link if it was in the hero.
+ let heroState='',heroTimer=null;
+ const heroNow=()=>{const next=nextFor(me.registration,festival.event);return next?next.id+(underway(next)?':live':''):'';};
+ function redrawHero(){
+  const active=document.activeElement,inHero=Boolean(heroHost.contains?.(active)),mark=inHero?active.dataset?.fiiuText||active.getAttribute?.('href'):null;
+  renderHero();if(inHero)([...heroHost.querySelectorAll('a,button')].find(node=>(node.dataset.fiiuText||node.getAttribute('href'))===mark)||heroHost.querySelector('a,button'))?.focus();
+ }
+ const followHero=()=>{if(heroNow()!==heroState)redrawHero();};
  function renderHero(){
   const event=festival.event,config=festival.config,registration=me.registration,copy=el('div','f-hero-copy'),title=el('h1','f-hero-title'),kicker=el('span','f-kicker');
   kicker.append(el('span','',event.title),source('span',event.city));title.append(kicker,source('span',event.theme,'f-hero-theme'));
@@ -47,10 +57,17 @@
   // loading or could not be read.
   const actions=el('div','f-actions');actions.append(registration?link('viewRegistration','#registration','f-button'):config.registrationOpen&&!me.failed&&!me.pending?link('register','#registration','f-button'):link('viewProgramme','#programme','f-button'));if(config.programUrl)actions.append(link('officialProgram',config.programUrl));actions.append(link('website',event.website,'f-text-link'));copy.append(actions);
   // The poster repeats the facts row visually, so it is hidden from assistive technology.
-  const next=nextFor(registration,event),panel=el('aside','f-date-panel'+(next?' has-next':'')),poster=el('div','f-date-poster'),range=el('strong','f-date-range');poster.setAttribute('aria-hidden','true');
+  // The next block reads "Ahora" while it is under way. Its title leads to its day in the programme, and its conversation link (once it has questions) sits under it,
+  // so the live Q&A is one tap from the top of the page.
+  const next=nextFor(registration,event),live=Boolean(next&&underway(next)),panel=el('aside','f-date-panel'+(next?' has-next':'')),poster=el('div','f-date-poster'),range=el('strong','f-date-range');poster.setAttribute('aria-hidden','true');
   range.append(el('span','',String(Number(event.startsOn.slice(8)))),el('span','f-date-separator','–'),el('span','',String(Number(event.endsOn.slice(8)))));
   poster.append(range,tr('p','datesMonth','f-date-month'),source('p',event.city,'f-city'));panel.append(poster);
-  if(next){const box=el('div','f-next'),when=el('p','f-next-when');when.append(dateNode(next.date,'span','short','f-next-day'));if(next.time)when.append(el('span','f-next-time',next.time));box.append(tr('p','nextForYou','f-next-label'),when,source('p',next.title,'f-next-title'));if(next.venue)box.append(source('p',next.venue,'f-next-venue'));panel.append(box);}
+  heroState=next?next.id+(live?':live':''):'';
+  if(next){
+   const box=el('div','f-next'),when=el('p','f-next-when'),title=el('p','f-next-title'),toDay=source('a',next.title,'f-text-link');title.id='f-next-title';toDay.href='#day-'+next.date;title.append(toDay);
+   when.append(dateNode(next.date,'span','short','f-next-day'));if(next.time)when.append(el('span','f-next-time',next.time));box.append(tr('p',live?'nowForYou':'nextForYou','f-next-label'),when,title);if(next.venue)box.append(source('p',next.venue,'f-next-venue'));
+   withTalk(next,title.id,link=>box.append(link));panel.append(box);
+  }
   heroHost.replaceChildren(copy,panel);
  }
  // One-way shortcut from the programme into the form: it checks the matching box and focuses it, never un-checks.
@@ -174,7 +191,7 @@
   return true;
  }
  function renderPanel(){
-  choiceInputs.clear();openForm=null;officialInput=null;syncForm=null;formDirty=()=>false;edited=null;sizeObserver?.disconnect();stepObserver?.disconnect();status(message,'');panelBody.replaceChildren();showNotice(notice);notice='';
+  choiceInputs.clear();openForm=null;officialInput=null;syncForm=null;formDirty=()=>false;edited=null;panelIdle=()=>false;sizeObserver?.disconnect();stepObserver?.disconnect();status(message,'');panelBody.replaceChildren();showNotice(notice);notice='';
   registrationHost.className='f-registration'+(!me.user||(!festival.config.registrationOpen&&!me.registration)?' is-compact':'');guestSignin=null;
   if(me.pending){panelBody.append(tr('p','registrationLoading','f-muted'));return;}
   if(me.failed){
@@ -223,7 +240,7 @@
    // Once registration closes there is no Edit, so changes go through the organisers (an incomplete registration's notice already says where).
    if(!festival.config.registrationOpen&&!missingAnswers(existing.answers))summary.append(tr('p','closedChanges','f-muted'));
   }
-  if(!festival.config.registrationOpen){panelBody.append(tr('p','closed','f-notice'),message,conflictBox);return;}
+  if(!festival.config.registrationOpen){panelBody.append(tr('p','closed','f-notice'),message,conflictBox);if(existing)panelIdle=()=>!busy;return;}
   const a=existing?.answers??{},form=el('form','f-form'),feedback=el('div','f-form-feedback');form.hidden=!!existing;let currentVersion=existing?.version??0,currentId=existing?.id??null;
   // Validation state. localised: controls carrying a message set by onInvalid; customKeys: the "choose one" and accessibility rules; errorNotes: the persistent text cue
   // shown beside each flagged answer (the native bubble fades, and colour alone is not enough). The note sits inside the label, hidden from its name, and describes the control.
@@ -341,7 +358,7 @@
    try{sessionStorage.setItem(DRAFT,JSON.stringify({userId:expectedUserId,version:currentVersion,values}));}catch{/* Without storage the answers stay only on screen. */}
   }
   function touched(){dirty=true;keepDraft();}
-  edited=touched;formDirty=()=>dirty&&!busy;
+  edited=touched;formDirty=()=>dirty&&!busy;panelIdle=()=>Boolean(existing)&&form.hidden&&!dirty&&!busy;
   // The first form drawn after the page loads takes the tab's draft, once. Its answers are set, then the dependent fields follow, and an #add- block ticks on top.
   // An edit opens the form on it; a new registration can drop it. Either way the panel says the answers were kept and are not saved yet.
   if(!draftChecked){
@@ -394,7 +411,7 @@
  // Load more stays focusable while it works (aria-disabled plus a busy guard); on the last page focus moves to the first new item, and feedback sits next to the button.
  // A first page that fails (only materials can: the news page carries the festival itself) leaves the rest of the page working and offers Try again in place.
  function feed(kind,empty,firstPage){
-  const section=el('section','f-updates'),list=el('div','f-news'),note=el('p','f-status f-load-more-status'),items=[],fits=item=>(item.kind==='news')===(kind==='news');let cursor=null,loaded=false,busy=false;
+  const section=el('section','f-updates'),list=el('div','f-news'),note=el('p','f-status f-load-more-status'),items=[],fits=item=>(item.kind==='news')===(kind==='news');let cursor=null,loaded=false,busy=false,pages=0;
   section.id=kind;note.setAttribute('role','status');note.setAttribute('aria-live','polite');
   // Both sections have a Load more button, so each one is described by its own section heading.
   const heading=tr('h2',kind);heading.id='f-'+kind+'-heading';
@@ -402,12 +419,19 @@
   async function next(read,asked){
    if(busy)return;busy=true;more.setAttribute('aria-disabled','true');if(asked)status(note,'loading');
    try{
-    const page=await read(),start=items.length;items.push(...page.content.filter(fits));cursor=page.nextCursor;loaded=true;contentCards(list,items,empty);status(note,'');label('loadMore');more.hidden=!cursor;
+    const page=await read(),start=items.length;items.push(...page.content.filter(fits));cursor=page.nextCursor;loaded=true;pages++;contentCards(list,items,empty);status(note,'');label('loadMore');more.hidden=!cursor;
     const first=list.children[start]?.querySelector('h3');if(asked&&more.hidden&&first){first.tabIndex=-1;first.focus();}
    }catch(err){status(note,loaded?err:Object.assign(Error(t('loadError')),{key:'loadError'}));if(!loaded)label('retry');more.hidden=false;}
    finally{busy=false;more.removeAttribute('aria-disabled');}
   }
-  section.append(heading,list,more,note);next(firstPage,false);return section;
+  // A fresh first page (the person came back to the tab): before any Load more it replaces the list; after one, only items not shown yet join at the top.
+  function update(page){
+   if(busy||!loaded)return;const fresh=page.content.filter(fits),shape=list=>JSON.stringify(list.map(item=>[item.id,item.title,item.body,item.url]));
+   if(pages===1){if(shape(fresh)===shape(items))return;items.splice(0,items.length,...fresh);cursor=page.nextCursor;more.hidden=!cursor;}
+   else{const shown=new Set(items.map(item=>item.id)),added=fresh.filter(item=>!shown.has(item.id));if(!added.length)return;items.unshift(...added);}
+   contentCards(list,items,empty);
+  }
+  section.append(heading,list,more,note);next(firstPage,false);return {section,update};
  }
  // Signed out (401) is the guest view. Any other failure is kept as failed: the programme stays up, and only the registration panel shows the error
  // with its own Try again, so an outage never reads as signed out.
@@ -426,6 +450,27 @@
   if(type!=='back_forward'&&type!=='reload')return null;
   try{const y=Number(sessionStorage.getItem(placeKey));return y>0?y:null;}catch{return null;}
  }
+ // The "latest update" link under the hero names the newest news item; it appears, changes or goes as the news does.
+ function showLatest(content){
+  const latest=content.find(item=>item.kind==='news');
+  if(!latest){latestNode?.remove();latestNode=null;return;}
+  const banner=el('a','f-latest');banner.href='#news';banner.append(tr('span','latestUpdate','f-latest-label'),source('span',latest.title,'f-latest-title'));
+  if(latestNode)latestNode.replaceWith(banner);else layoutHost.before(banner);latestNode=banner;
+ }
+ // Coming back to the tab (or to the page from the back/forward cache) picks up what changed meanwhile, at most once a minute: conversations that opened (the
+ // pulse is read again, both reads are cached by the CDN) and news that was published. A form being filled in is never redrawn: the programme and hero are,
+ // and the saved summary too when nothing in it is being edited. A read that fails changes nothing.
+ const sameCounts=(a,b)=>a.size===b.size&&[...a].every(([id,n])=>b.get(id)===n);let lastLook=Infinity;
+ async function lookAgain(){
+  if(me.pending||Date.now()-lastLook<60000)return;lastLook=Date.now();
+  const [counts,news]=await Promise.all([talkCounts?pulse({fresh:true}):null,api('/api/fiiu?kind=news').catch(()=>null)]);
+  // The panel goes first: programme shortcuts point at its form's boxes.
+  if(counts&&!sameCounts(counts,talkCounts)){talkCounts=counts;if(panelIdle())renderPanel();renderProgramme();redrawHero();}
+  else followHero();
+  if(news&&Array.isArray(news.content)){newsFeed?.update(news);showLatest(news.content);}
+ }
+ document.addEventListener?.('visibilitychange',()=>{if(document.visibilityState==='visible')lookAgain();});
+ window.addEventListener?.('pageshow',event=>{if(event?.persisted)lookAgain();});
  async function load(){
   status(loadStatus,'loading');root.replaceChildren();placeKept=false;
   // Four requests start together: the news page (with the event and settings), the materials page, the person's registration and the conversation pulse.
@@ -436,11 +481,9 @@
    festival=publicData;me=PENDING;
    heroHost=el('section','f-hero');programmeHost=el('section','f-programme');programmeHost.id='programme';
    registrationHost=el('section','f-registration');registrationHost.id='registration';panelHeading=tr('h2','registration');panelHeading.tabIndex=-1;panelBody=el('div','f-panel-body');registrationHost.append(panelHeading,panelNotice,panelBody);
-   root.append(heroHost);
-   const latest=festival.content.find(item=>item.kind==='news'),layout=el('div','f-layout');let banner=null;
-   if(latest){banner=el('a','f-latest');banner.href='#news';banner.append(tr('span','latestUpdate','f-latest-label'),source('span',latest.title,'f-latest-title'));root.append(banner);}
-   layout.append(programmeHost,registrationHost);root.append(layout);
-   const updates=el('div','f-updates-grid');updates.append(feed('news','noNews',()=>publicData),feed('materials','noMaterials',()=>materials));layout.append(updates);root.append(newTabNote());
+   const layout=layoutHost=el('div','f-layout');latestNode=null;root.append(heroHost,layout);showLatest(festival.content);
+   layout.append(programmeHost,registrationHost);newsFeed=feed('news','noNews',()=>publicData);
+   const updates=el('div','f-updates-grid');updates.append(newsFeed.section,feed('materials','noMaterials',()=>materials).section);layout.append(updates);root.append(newTabNote());
    renderRegistration();status(loadStatus,'');
    // #add-<block> (the check-in refusal, or a guest's card after sign-in) ticks that block in the form; saving stays an explicit tap. The hash becomes
    // #registration at once, so a reload after saving does not reopen the form. Someone with no registration yet starts at the top of the form, not past
@@ -452,13 +495,13 @@
    const early=['#news','#materials','#programme'].includes(hash)||/^#day-\d{4}-\d{2}-\d{2}$/.test(hash);
    if(early&&!place)document.querySelector(hash)?.scrollIntoView({block:'start'});
    me=await registration;
-   if(me.isAdmin)(banner||layout).before(link('admin','fiiu-admin.html','f-button secondary f-admin-link'));
+   if(me.isAdmin)(latestNode||layout).before(link('admin','fiiu-admin.html','f-button secondary f-admin-link'));
    renderRegistration();
    if(pendingAdd){if(!applyAdd())registrationHost.scrollIntoView({block:'start'});}
    else if(place)try{scrollTo({top:place,behavior:'instant'});}catch{/* No scrolling API: stay at the top. */}
    else if(hash==='#f-publicOfficial')jumpTo(officialInput);
    else if(hash==='#registration')registrationHost.scrollIntoView({block:'start'});
-   placeKept=true;
+   placeKept=true;lastLook=Date.now();if(!heroTimer&&limaDate()<=festival.event.endsOn)heroTimer=setInterval(followHero,60000);
   }catch(error){status(loadStatus,error.key==='error'?Object.assign(Error(t('loadError')),{key:'loadError'}):error);root.append(button('retry',load),newTabNote());}
  }
  load();
