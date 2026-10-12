@@ -69,11 +69,16 @@
     create:['Create account','Crear cuenta','Criar conta'],
     signingIn:['Signing in…','Entrando…','Entrando…'],
     creating:['Creating account…','Creando cuenta…','Criando conta…'],
+    forms:['Sign-in forms','Formularios de acceso','Formulários de acesso'],
   };
   const t = key => messages[key][({en:0,es:1,pt:2})[window.nodalI18n?.lang]??0];
   const $ = id => document.getElementById(id);
   const feedback = new Map(), forms = [];
+  // login.html names the region around both forms in English; like the submit labels, its name follows the page language here.
+  const region = {node:document.querySelector('.auth-grid'),label:'forms'};
+  const nameRegion = () => region.node?.setAttribute('aria-label',t(region.label));
   const render = () => {
+    nameRegion();
     feedback.forEach((key,node)=>{node.textContent=t(key);});
     forms.forEach(state=>{state.submit.textContent=t(state.busy?state.pendingLabel:state.label);});
   };
@@ -134,7 +139,7 @@
       if(signup&&(password.value.length<8||utf8Bytes(password.value)>72)){show(state.error,'passwordLength',password);return;}
       // A second tap right after the email went out would only hit the provider's resend cooldown; after a minute it resends.
       const sent=state.sent;if(signup&&sent&&sent.email===email.value.trim().toLowerCase()&&Date.now()-sent.at<60000){show(state.error,'confirmation');return;}
-      setBusy(state,true);let redirecting=false;
+      setBusy(state,true);let redirecting=false,field=null;
       try{
         const data=await post('/api/auth/'+(signup?'signup':'login'),{email:email.value.trim(),password:password.value,...(signup?{fullName:name.value.trim()}:{})},signup);
         if(signup&&data.requiresEmailConfirmation){
@@ -142,12 +147,23 @@
           show(state.error,'confirmation');return;
         }
         redirecting=true;forgetReturn();location.assign(safeNext);
-      }catch(error){show(state.error,error.key||'connection');}
-      finally{if(!redirecting)setBusy(state,false);}
+      }catch(error){
+        const key=error.key||'connection';
+        // A refusal about one field sends the person back to it; a wrong password is selected, ready to retype.
+        field=({invalidCredentials:password,passwordLength:password,email,name})[key]||null;
+        show(state.error,key,field);if(key==='invalidCredentials')password.select();
+      }
+      finally{
+        if(!redirecting){
+          setBusy(state,false);
+          // The button was disabled while sending, which drops focus to the page; give it back unless the person moved on.
+          if(!field&&(!document.activeElement||document.activeElement===document.body))state.submit.focus();
+        }
+      }
     });
     state.submit.disabled=false;
   }
-  setup(false);setup(true);window.nodalI18n?.onChange(render);
+  setup(false);setup(true);window.nodalI18n?.onChange(render);nameRegion();
   if(arrival&&$('loginError')){show($('loginError'),arrival);$('loginEmail')?.focus();}
   // On a phone the Create account form sits below the sign-in card; the link brings its first field up with the keyboard.
   $('signupLink')?.addEventListener('click',event=>{event.preventDefault();$('signupName')?.focus();});

@@ -90,6 +90,8 @@
   background: var(--auth-forest);
   box-shadow: none;
   color: #fff;
+  /* A <button> does not inherit the page font by default; the shared .btn sets none. */
+  font-family: inherit;
   font-size: 14px;
   font-weight: 600;
   line-height: 1.5;
