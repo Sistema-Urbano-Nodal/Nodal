@@ -30,7 +30,8 @@
  // Leaving the page (a nav link, a reload) with an unsaved publication asks first: an edit with changes, or a new one with any text, open or set aside.
  // The same goes for a new question with text and a question edit with changes.
  const hasText=draft=>Boolean(draft&&(draft.title||draft.body||draft.url));
- window.addEventListener?.('beforeunload',event=>{if(locked)return;const editor=currentEditor();if(hasText(setAside)||(editor?.isNew?hasText(editor.draft()):editor?.dirty())||questionDraft()){event.preventDefault();event.returnValue='';}});
+ // So does a settings link typed but not saved (the availability switch saves on its own).
+ window.addEventListener?.('beforeunload',event=>{if(locked)return;const editor=currentEditor();if(hasText(setAside)||(editor?.isNew?hasText(editor.draft()):editor?.dirty())||questionDraft()||settingsDirty()){event.preventDefault();event.returnValue='';}});
  const signInUrl=()=>'/login.html?next='+encodeURIComponent(location.pathname+location.hash),sessionNotice=el('p','f-notice is-warning f-session-notice');sessionNotice.hidden=true;sessionNotice.setAttribute('role','alert');
  const signInLink=()=>{const a=link('adminSignIn',signInUrl(),'f-text-link');a.target='_blank';a.rel='noopener';return describe(a);};
  // Once the dashboard is up, a tap dismisses the toast; "Loading…" and "Saving…" stay until their request ends.
@@ -374,17 +375,28 @@
   if(focus){const beside=window.matchMedia?.('(min-width: 1000px) and (min-height: 641px)')?.matches;if(!beside)detailHost.scrollIntoView?.({block:'start'});detailHost.focus({preventScroll:true});}
  }
  function renderRegistrationPill(){const on=config.registrationOpen;pillHost.replaceChildren(link(on?'registrationOpenNow':'registrationClosedNow','#settings','f-pill'+(on?' is-open':'')));}
+ // The link fields on screen; leaving the page while one differs from the saved settings asks first.
+ let linkInputs=[];
+ function settingsDirty(){return linkInputs.some(input=>input.value!==(config?.[input.name]??''));}
  function settings(){
-  const form=el('form','f-form'),card=el('div','f-switch-card'),links=el('fieldset','f-links'),open=check('registrationOpen','registrationOpen','yes',config.registrationOpen),note=hint('registrationOpenHint'),conflict=el('div','f-conflict');let busy=false;
-  open.input.setAttribute('role','switch');open.input.setAttribute('aria-describedby',note.id);card.append(open.wrap,note);links.append(tr('legend','publicLinks'));
+  const form=el('form','f-form'),card=el('div','f-switch-card'),links=el('fieldset','f-links'),open=check('registrationOpen','registrationOpen','yes',config.registrationOpen),note=hint('registrationOpenHint'),conflict=el('div','f-conflict'),switchNote=el('p','f-inline-status'),switchConflict=el('div','f-conflict');let busy=false,pending=false;
+  open.input.setAttribute('role','switch');open.input.setAttribute('aria-describedby',note.id);switchNote.setAttribute('role','status');card.append(open.wrap,note,switchNote,switchConflict);links.append(tr('legend','publicLinks'));
   // The public page shows only these two links; each workshop and route carries its own form link.
-  for(const key of ['programUrl','partyUrl'])links.append(field(key,{value:config[key],type:'url',max:2000}).wrap);
+  linkInputs=['programUrl','partyUrl'].map(key=>{const link=field(key,{value:config[key],type:'url',max:2000});links.append(link.wrap);return link.input;});
   const save=button('saveSettings');save.type='submit';form.append(card,links,save,conflict);localiseValidation(form);
+  // The switch saves on its own, as a switch implies (and as attendance ticks do), so the header pill and the public page follow at once. Closing
+  // asks first; a failed save puts it back to what is saved. Its save carries only the availability: links typed but not yet saved wait for Save.
+  // It stays focusable while saving (a toggle meanwhile is undone) and Save waits for it.
+  open.input.addEventListener('change',()=>{
+   if(pending){open.input.checked=!open.input.checked;return;}
+   const wanted=open.input.checked;if(config.registrationOpen&&!wanted&&!window.confirm(t('closeConfirm'))){open.input.checked=true;return;}
+   pending=true;open.input.setAttribute('aria-disabled','true');
+   return action(save,async()=>{try{config=(await api('/api/admin/fiiu/config',{...config,registrationOpen:wanted,version:config.version},'PUT')).config;}catch(err){open.input.checked=config.registrationOpen;throw err;}finally{renderRegistrationPill();}},{feedback:switchNote,conflict:switchConflict,reload:reloadSettings}).finally(()=>{pending=false;open.input.removeAttribute('aria-disabled');});
+  });
   form.addEventListener('submit',async event=>{
-   event.preventDefault();if(busy)return;
-   if(config.registrationOpen&&!open.input.checked&&!window.confirm(t('closeConfirm'))){open.input.checked=true;open.input.focus();return;}
-   // Saved settings the form does not show (the older workshop and route links) go back unchanged.
-   const payload={...config,...Object.fromEntries(new FormData(form)),registrationOpen:open.input.checked,version:config.version},unlock=lockForm(form);busy=true;
+   event.preventDefault();if(busy||pending)return;
+   // Saved settings the form does not show (the older workshop and route links) go back unchanged, and so does the saved availability.
+   const payload={...config,...Object.fromEntries(new FormData(form)),registrationOpen:config.registrationOpen,version:config.version},unlock=lockForm(form);busy=true;
    try{await action(save,async()=>{const result=await api('/api/admin/fiiu/config',payload,'PUT');config=result.config;renderRegistrationPill();},{conflict,reload:reloadSettings});}
    finally{busy=false;unlock();}
   });
