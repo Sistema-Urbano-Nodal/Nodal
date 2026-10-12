@@ -316,14 +316,14 @@ test('Supabase Data API smoke exercises reads, constrained inserts, updates, and
 });
 
 test('changed one-hour-cached clients use new URLs on every consuming page', () => {
-  const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'course.html', 'courses.html', 'teaching.html', 'accept-invitation.html', 'fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'organisers-only.html', 'community.html', 'knowledge.html', 'resources.html']
+  const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'course.html', 'courses.html', 'teaching.html', 'accept-invitation.html', 'fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'organisers-only.html', 'community.html', 'knowledge.html', 'resources.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
   const pilot = { 'pilot-i18n.js': '20261009a', 'pilot.js': '20261005s', 'courses.css': '20261009a' };
-  const festival = { 'fiiu.css': '20261009a', 'fiiu-ui.js': '20261009a' };
+  const festival = { 'fiiu.css': '20261011a', 'fiiu-ui.js': '20261011a' };
   const required = {
     'index.html': { 'styles.css': '31', 'i18n.js': '20261009a', 'app.js': '21', 'recs.js': '5', 'script.js': '18', 'hero-network.js': '2' },
     'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20261009a', 'catalog.js': '7', ...pilot },
-    'dashboard.html': { 'i18n.js': '20261009a', ...festival, 'fiiu-hubs.js': '20261009a', 'news-feed.js': '20261001b', 'dashboard.js': '20261009a', 'dashboard.css': '38', 'globe.js': '29', 'location-check.js': '20260908b', ...pilot },
+    'dashboard.html': { 'i18n.js': '20261009a', ...festival, 'fiiu-hubs.js': '20261011a', 'news-feed.js': '20261001b', 'dashboard.js': '20261009a', 'dashboard.css': '38', 'globe.js': '29', 'location-check.js': '20260908b', ...pilot },
     'login.html': { 'i18n.js': '20261009a', 'auth.js': '20261009a', 'recovery-i18n.js': '20261009a' },
     'reset-password.html': { 'i18n.js': '20261009a', 'recovery-i18n.js': '20261009a', 'password-recovery.js': '20261003r' },
     'payments.html': { 'i18n.js': '20261009a', 'payments.js': '18', ...pilot },
@@ -333,14 +333,15 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     'courses.html': { 'i18n.js': '20261009a', 'courses.js': '20261009a', ...pilot },
     'teaching.html': { 'i18n.js': '20261009a', 'teaching.js': '20261009a', ...pilot },
     'accept-invitation.html': { 'accept-invitation.js': '20261003r', 'invitation-i18n.js': '20261003r' },
-    'fiiu.html': { 'styles.css': '31', 'i18n.js': '20261009a', ...festival, 'fiiu.js': '20261009a' },
-    'fiiu-admin.html': { 'styles.css': '31', 'i18n.js': '20261009a', ...festival, 'fiiu-admin.js': '20261009a' },
+    'fiiu.html': { 'styles.css': '31', 'i18n.js': '20261009a', ...festival, 'fiiu.js': '20261011a' },
+    'fiiu-admin.html': { 'styles.css': '31', 'i18n.js': '20261009a', ...festival, 'fiiu-admin.js': '20261011a' },
     'fiiu-qr.html': { 'i18n.js': '20261009a', ...festival, 'fiiu-qr.js': '20261009a' },
     'fiiu-checkin.html': { 'i18n.js': '20261009a', ...festival, 'fiiu-checkin.js': '20261009a' },
+    'fiiu-talk.html': { 'i18n.js': '20261009a', ...festival, 'fiiu-talk.js': '20261011a', 'fiiu-talk.css': '20261011a' },
     'organisers-only.html': { 'i18n.js': '20261009a', ...festival },
-    'community.html': { 'styles.css': '31', 'script.js': '18', 'i18n.js': '20261009a', ...festival, 'fiiu-hubs.js': '20261009a', 'news-feed.js': '20261001b' },
-    'knowledge.html': { 'styles.css': '31', 'script.js': '18', 'i18n.js': '20261009a', ...festival, 'fiiu-hubs.js': '20261009a' },
-    'resources.html': { 'styles.css': '31', 'script.js': '18', 'i18n.js': '20261009a', ...festival, 'fiiu-hubs.js': '20261009a' },
+    'community.html': { 'styles.css': '31', 'script.js': '18', 'i18n.js': '20261009a', ...festival, 'fiiu-hubs.js': '20261011a', 'news-feed.js': '20261001b' },
+    'knowledge.html': { 'styles.css': '31', 'script.js': '18', 'i18n.js': '20261009a', ...festival, 'fiiu-hubs.js': '20261011a' },
+    'resources.html': { 'styles.css': '31', 'script.js': '18', 'i18n.js': '20261009a', ...festival, 'fiiu-hubs.js': '20261011a' },
   };
   for (const [page, assets] of Object.entries(required)) {
     for (const [asset, version] of Object.entries(assets)) {
@@ -623,7 +624,7 @@ test('festival organiser and check-in pages cross every serving and build bounda
   const vercel = JSON.parse(readFileSync(path.join(ROOT, 'vercel.json'), 'utf8'));
   const list = (source, name) => source.match(new RegExp(`const ${name} = (?:new Set\\()?\\[([^\\]]*)\\]`))?.[1] || '';
 
-  for (const page of ['fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'organisers-only.html']) {
+  for (const page of ['fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'organisers-only.html']) {
     assert.ok(existsSync(path.join(ROOT, 'web', 'pages', page)), `${page} is missing`);
     assert.ok(list(serverSource, 'STATIC_PAGES').includes(`'${page}'`), `${page}: server.js STATIC_PAGES`);
     assert.ok(list(buildSource, 'SERVER_PAGES').includes(`'${page}'`), `${page}: build-static.js SERVER_PAGES`);
@@ -638,11 +639,11 @@ test('festival organiser and check-in pages cross every serving and build bounda
     assert.ok(list(serverSource, 'PRIVATE_PAGES').includes(`'${page}'`), `${page}: PRIVATE_PAGES`);
   }
   // The check-in page loads signed out, so a scan explains itself before asking for sign-in (its API needs a session).
-  for (const page of ['/organisers-only.html', '/fiiu-checkin.html']) assert.ok(!list(serverSource, 'PRIVATE_PAGES').includes(`'${page}'`), page);
+  for (const page of ['/organisers-only.html', '/fiiu-checkin.html', '/fiiu-talk.html']) assert.ok(!list(serverSource, 'PRIVATE_PAGES').includes(`'${page}'`), page);
   assert.match(serverSource, /const ORGANISER_PAGES = new Set\(\['\/fiiu-admin\.html', '\/fiiu-qr\.html'\]\)/);
   assert.match(serverSource, /ORGANISER_PAGES\.has\(canonical\)[^\n]*serveStatic\(req, res, '\/organisers-only\.html', pilotMode, \{ status: 403 \}\)/);
   assert.match(serverSource, /safeNext\(canonical \+ url\.search\)/);
-  for (const script of ['fiiu-checkin.js', 'fiiu-qr.js', 'news-feed.js']) {
+  for (const script of ['fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js', 'news-feed.js']) {
     assert.ok(existsSync(path.join(ROOT, 'web', 'scripts', script)), `${script} is missing`);
     assert.ok(list(serverSource, 'STATIC_SCRIPTS').includes(`'${script}'`), `${script}: server.js STATIC_SCRIPTS`);
     assert.ok(buildSource.includes(`'${script}'`), `${script}: build-static.js`);
