@@ -126,3 +126,21 @@ test('a first visit reads the policy in the browser language without saving it, 
   assert.equal(h.storage.get('nodal.lang.chosen'),'1');
   assert.equal(h.document.title,'NODAL · Privacy policy');
 });
+
+test('festival conversations are described in every language: their data row after the festival, who sees them and what account deletion does', () => {
+  const html = read('web/pages/privacy.html');
+  const articles = Object.fromEntries([...html.matchAll(/<article data-policy-lang="(en|es|pt)"[^>]*>([\s\S]*?)<\/article>/g)].map(([, lang, body]) => [lang, body]));
+  const section = (lang, n) => articles[lang].match(new RegExp(`<section id="${lang}-${n}">([\\s\\S]*?)</section>`))[1];
+  for (const [lang, festival, row, audience, deletion] of [
+    ['en', 'FIIU festival', 'FIIU conversations', 'People registered for the FIIU festival', 'In FIIU conversations'],
+    ['es', 'Festival FIIU', 'Conversaciones del FIIU', 'Personas inscritas en el festival FIIU', 'En las conversaciones del FIIU'],
+    ['pt', 'Festival FIIU', 'Conversas do FIIU', 'Pessoas inscritas no festival FIIU', 'Nas conversas do FIIU'],
+  ]) {
+    assert.equal((articles[lang].match(/<section /g) || []).length, 12, lang);
+    const table = section(lang, 2), before = table.indexOf(`<tr><td>${festival}</td>`), at = table.indexOf(`<tr><td>${row}</td>`);
+    assert.ok(before > -1 && at > before, `${lang}: the conversations row follows the festival row`);
+    assert.equal(table.slice(before, at).match(/<tr>/g).length, 1, `${lang}: directly after it`);
+    assert.ok(section(lang, 4).includes(`<strong>${audience}:</strong>`), `${lang}: section 4 names who sees the messages`);
+    assert.ok(section(lang, 9).includes(deletion), `${lang}: section 9 says what account deletion does to them`);
+  }
+});
