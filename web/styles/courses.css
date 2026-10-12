@@ -291,6 +291,7 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
  .pilot-feedback .pilot-rating label{min-width:44px;min-height:44px;justify-content:center}
  /* The link up to the answered contribution: its 44px line takes the place of the blank <br> line, so the card keeps its height. */
  .pilot-post.reply>a{display:inline-flex;align-items:center;min-height:44px}.pilot-post.reply>br{display:none}
+ .pilot-langs button{min-width:44px;min-height:44px}
 }
 
 .pilot-footer{max-width:1264px;margin:0 28px;padding:24px 0;border-top:1px solid var(--line);font-size:12px}

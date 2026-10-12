@@ -68,7 +68,7 @@ h1, h2, h3 {
    down into the page on click ---------- */
 .btn {
   display: inline-flex; align-items: center; justify-content: center;
-  font-weight: 600; font-size: 16px; line-height: 1;
+  font-family: inherit; font-weight: 600; font-size: 16px; line-height: 1;
   padding: 15px 28px; border-radius: var(--r-btn); cursor: pointer;
   border: 2px solid transparent;
   transition: transform .22s cubic-bezier(.34,1.56,.64,1),
@@ -1023,8 +1023,6 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .btn:focus-visible
   background-image: radial-gradient(rgba(255,255,255,.10) 1.5px, transparent 1.7px);
   background-size: 16px 16px;
   outline: 3px solid rgba(89,188,83,.75); outline-offset: 4px; }
-.pf-online { position: absolute; right: 8px; bottom: 8px; width: 16px; height: 16px;
-  border-radius: 50%; background: var(--green-bright); border: 3px solid #fff; }
 .pf-kicker { font-family: var(--font-mono); font-size: 11px; font-weight: 600;
   letter-spacing: .16em; text-transform: uppercase; color: var(--green-bright); margin-bottom: 10px; }
 .pf-id h1 { font-size: clamp(32px, 4vw, 48px); color: var(--ink); line-height: 1.05; }

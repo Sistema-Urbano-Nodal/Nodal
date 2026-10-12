@@ -28,7 +28,6 @@ function page({lang='es',me,other,people=[]}={}){
  const add=(parent,tag,className='',id)=>{const n=new Node(tag,className);if(id){n.id=id;ids[id]=n;}parent.append(n);return n;};
  const hero=add(body,'section','pf-hero'),card=add(hero,'div','pf-hero-card');
  add(card,'span','pf-coord','pfCoord');const avatar=add(card,'div','pf-avatar');add(avatar,'span','leader-initial','pfInitial').textContent='N';
- const dot=add(avatar,'span','pf-online');dot.setAttribute('title','Active this week');
  const id=add(card,'div','pf-id');for(const [tag,cls,key] of [['p','pf-kicker','pfKicker'],['h1','','pfName'],['p','pf-role','pfRole'],['div','tags','pfTags'],['p','pf-meta','pfMeta']])add(id,tag,cls,key);
  const li=add(id,'a','pf-linkedin','pfLinkedin');add(li,'span','','pfLinkedinText');
  const actions=add(card,'div','pf-actions');add(actions,'span','pf-match','pfMatch').textContent='…';add(actions,'div','pf-btns','pfBtns');
@@ -49,7 +48,7 @@ function page({lang='es',me,other,people=[]}={}){
  const state={lang};
  context.window.nodalI18n={get lang(){return state.lang;},t:(key,vars)=>String(dict[state.lang][key]??dict.en[key]??key).replace(/\{(\w+)\}/g,(m,k)=>vars&&k in vars?vars[k]:m),onChange:fn=>listeners.push(fn)};
  vm.runInContext(read('profile.js'),context);
- return {ids,body,dot,side,actions,grid,locked,context,setLang(value){state.lang=value;listeners.forEach(fn=>fn(value));},buttons:()=>all(ids.pfBtns).filter(n=>n.tagName==='button'),cards:()=>all(main).filter(n=>n.matches('.pf-card'))};
+ return {ids,body,side,actions,grid,locked,context,setLang(value){state.lang=value;listeners.forEach(fn=>fn(value));},buttons:()=>all(ids.pfBtns).filter(n=>n.tagName==='button'),cards:()=>all(main).filter(n=>n.matches('.pf-card'))};
 }
 const ana={id:'ana-id',fullName:'Ana María Gonzales',title:'Member',role:'Member',city:'Lima',partC:{consent:false}};
 
@@ -78,16 +77,23 @@ test('your own hidden profile offers no link to copy, and says how to make it sh
 
 /* The placeholders leave the page rather than being hidden: styles.css gives the members-only card display:grid,
    which beats [hidden], so with the pilot off (courses.css no longer hides [data-billing-only]) it still showed. */
-test('a profile that is not found removes the placeholder badge, online dot and empty panels, and uses the full width',async()=>{
+test('a profile that is not found removes the placeholder badge and empty panels, and uses the full width',async()=>{
  const h=page({other:'hidden-id'});await flush();
  const onPage=node=>all(h.body).includes(node);
  const about=h.cards()[0];
  assert.equal(h.ids.pfName.textContent,'Miembro no encontrado');
- assert.equal(onPage(h.ids.pfMatch),false,'no "…" badge');assert.equal(onPage(h.dot),false,'no "active this week" dot');
+ assert.equal(onPage(h.ids.pfMatch),false,'no "…" badge');
  assert.equal(onPage(h.side),false,'no Activity or Connections panels');
  assert.equal(onPage(h.locked),false,'no members-only card, whatever the stylesheet says about [hidden]');
  assert.deepEqual(h.cards(),[about],'no Projects or members-only cards');assert.equal(about.hidden,false);assert.match(h.ids.pfAbout.textContent,/Parte C/);
  // With the side column gone, the About card takes the whole row instead of sitting beside an empty column.
  assert.equal(h.grid.style.gridTemplateColumns,'1fr');
  h.setLang('en');assert.equal(h.ids.pfName.textContent,'Member not found');assert.deepEqual(h.cards(),[about]);assert.equal(onPage(h.side),false);
+});
+
+// The "active this week" dot sat on every profile with no data behind it, in English only; the footer link stayed English.
+test('the profile page carries no unbacked online dot, and its footer link follows the page language',()=>{
+ const html=readFileSync(new URL('../web/pages/profile.html',import.meta.url),'utf8');
+ assert.doesNotMatch(html,/pf-online/);
+ assert.match(html,/<a class="footer-old" href="https:\/\/sistemaurbano\.org\/nodal\/"[^>]*data-i18n="foot\.old">/);
 });

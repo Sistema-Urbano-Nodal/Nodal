@@ -74,7 +74,7 @@
       else{
         // After a save that got no answer, "already used" most likely means that save went through.
         show(unsure&&result.code==='recovery_invalid'?'recovery_uncertain':result.code in window.nodalRecoveryI18n.rows?result.code:'recovery_uncertain');
-        if(!['recovery_password_length','recovery_rate','recovery_forbidden'].includes(result.code))requestMode();
+        if(!['recovery_password_length','recovery_rate','recovery_forbidden','recovery_unavailable'].includes(result.code))requestMode();
       }
     }catch(error){
       // No answer: the code and the form stay, so trying again costs nothing. A retry cannot save twice, because the

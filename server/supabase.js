@@ -909,7 +909,12 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         session = await browser.auth('/token', {
           method: 'POST', query: { grant_type: 'pkce' }, body: { auth_code: code, code_verifier: verifier }, signal: AbortSignal.timeout(15000),
         });
-      } catch { return recoveryFailure(); }
+      } catch (error) {
+        /* No answer, or the provider failed or throttled: the one-use code may still be unspent, so the verifier
+           stays for a retry. A spent code is refused with a 4xx on that retry, which then ends the link. */
+        if (!error?.status || error.status >= 500 || error.status === 429) return { status: 503, code: 'recovery_unavailable', cookies: [] };
+        return recoveryFailure();
+      }
       if (!isRecoverySession(session)) return recoveryFailure();
       const clear = [...clearSessionCookies(env), recoveryCookie('', 0)];
       try {

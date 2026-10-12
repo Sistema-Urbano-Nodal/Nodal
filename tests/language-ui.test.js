@@ -43,6 +43,14 @@ test('dashboard news requests the news feed instead of hiding news behind a mixe
  assert.match(widget.textContent,/Festival announcement/);assert.doesNotMatch(widget.textContent,/Recent material/);
 });
 
+// Finding 52: a screen reader heard English, Español, Português and never which one was on, on every page i18n.js serves.
+test('the language buttons say which language is on, from the first language through every change',()=>{
+ const langs=['en','es','pt'].map(lang=>{const b=new Node('button');b.className='lang-btn';b.dataset.lang=lang;return b;});
+ const h=harness({nodes:langs,saved:'es'});
+ assert.deepEqual(langs.map(b=>b.attributes['aria-pressed']),['false','true','false']);
+ h.api.apply('pt');assert.deepEqual(langs.map(b=>b.attributes['aria-pressed']),['false','false','true']);
+ for(const page of ['nav','dashboard'])assert.doesNotMatch(script(page),/\.lang-btn[\s\S]{0,200}aria-pressed/,page+' leaves the pressed state to i18n.js');
+});
 test('saved language wins over an old link and later choices survive reload without losing navigation state',()=>{
  const h=harness({url:'https://nodal.test/login.html?lang=pt&next=%2Fcourse.html%3Fid%3Dc1#signin',saved:'en'});assert.equal(h.api.lang,'en');h.api.apply('es');
  assert.equal(h.location.searchParams.get('lang'),'es');assert.equal(h.location.searchParams.get('next'),'/course.html?id=c1');assert.equal(h.location.hash,'#signin');assert.equal(h.storage.get('nodal.lang'),'es');assert.equal(h.historyCalls.at(-1).state.keep,'navigation state');

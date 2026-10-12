@@ -996,8 +996,10 @@
     if (!changed) return;
     document.documentElement.lang = current;
     refresh();
+    // The language buttons say which language is on to a screen reader as well as by colour.
     document.querySelectorAll('.lang-btn').forEach((btn) => {
       btn.classList.toggle('is-on', btn.dataset.lang === current);
+      btn.setAttribute('aria-pressed', String(btn.dataset.lang === current));
     });
     const report = error => console.error('A language subscriber failed to update.', error);
     listeners.forEach((fn) => {

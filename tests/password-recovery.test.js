@@ -10,8 +10,8 @@ import { createApp } from '../server/server.js';
 const env = { NEXT_PUBLIC_SUPABASE_URL:'https://project.supabase.co', NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'public-test-key', SUPABASE_SECRET_KEY:'server-test-key', PUBLIC_BASE_URL:'https://nodal.example', NODE_ENV:'production' };
 const userId='00000000-0000-0000-0000-000000000001';
 const response=(body,status=200)=>new Response(body===null?null:JSON.stringify(body),{status});
-function provider({method='recovery',expired=false,wrongOwner=false,recoverStatus=200,updateStatus=200,logoutStatus=204}={}) {
-  const calls=[];let challenge,used=false;
+function provider({method='recovery',expired=false,wrongOwner=false,recoverStatus=200,updateStatus=200,logoutStatus=204,tokenFailures=[]}={}) {
+  const calls=[];let challenge,used=false;const failures=[...tokenFailures];
   const now=Math.floor(Date.now()/1000);
   const claims={sub:wrongOwner?'different-user':userId,iss:env.NEXT_PUBLIC_SUPABASE_URL+'/auth/v1',aud:'authenticated',exp:now+(expired?-1:3600),amr:[{method,timestamp:now}]};
   const token=['header',Buffer.from(JSON.stringify(claims)).toString('base64url'),'provider-signature'].join('.');
@@ -21,6 +21,7 @@ function provider({method='recovery',expired=false,wrongOwner=false,recoverStatu
     if(url.pathname==='/auth/v1/recover'){challenge=body.code_challenge;return response(recoverStatus===200?{}:{msg:'private provider detail'},recoverStatus);}
     if(url.pathname==='/auth/v1/token'){
       assert.equal(url.searchParams.get('grant_type'),'pkce');
+      const failure=failures.shift();if(failure==='network')throw new TypeError('fetch failed');if(failure)return response({msg:'provider down'},failure);
       if(used||body.auth_code!=='one-use-code'||createHash('sha256').update(body.code_verifier).digest('base64url')!==challenge)return response({msg:'bad code'},400);
       used=true;return response({access_token:token,refresh_token:'never-expose-refresh',user:{id:userId},expires_in:3600});
     }
@@ -53,6 +54,20 @@ test('recovery completion consumes provider code once, updates only its owner an
   assert.equal((await p.repo.completePasswordRecovery({req:req(cookie),code:'one-use-code',password:'other-password'})).status,400);
   assert.equal(p.calls.filter(c=>c.options.method==='PUT').length,1);
   assert.doesNotMatch(JSON.stringify(result),/provider-signature|never-expose-refresh/);
+});
+// An outage on the code exchange used to answer recovery_invalid and drop the verifier cookie, burning a link that was never spent.
+test('a provider outage or lost answer on the code exchange keeps the link for a retry, while a refused code ends it',async()=>{
+  for(const failure of ['network',503,429]){
+    const p=provider({tokenFailures:[failure]}),cookie=await request(p);
+    const first=await p.repo.completePasswordRecovery({req:req(cookie),code:'one-use-code',password:'a-new-password'});
+    assert.equal(first.status,503,String(failure));assert.equal(first.code,'recovery_unavailable');assert.deepEqual(first.cookies,[],'the verifier cookie stays');
+    assert.equal(p.calls.some(c=>c.options.method==='PUT'),false);
+    const retry=await p.repo.completePasswordRecovery({req:req(cookie),code:'one-use-code',password:'a-new-password'});
+    assert.equal(retry.status,200,String(failure));assert.equal(retry.passwordChanged,true);
+  }
+  const p=provider(),cookie=await request(p);
+  const refused=await p.repo.completePasswordRecovery({req:req(cookie),code:'another-code',password:'a-new-password'});
+  assert.equal(refused.status,400);assert.equal(refused.code,'recovery_invalid');assert.match(refused.cookies[0],/^nodal_recovery=;.*Max-Age=0/);
 });
 test('ordinary auth, wrong owner and expired provider tokens never authorize recovery updates',async()=>{
   for(const options of[{method:'password'},{method:'magiclink'},{wrongOwner:true},{expired:true}]){
@@ -205,6 +220,15 @@ test('a timed-out or unreadable answer keeps the code too, without claiming noth
     assert.equal(h.nodes.get('recoveryReset').hidden,false);assert.equal(h.nodes.get('recoveryPassword').value,'safe-new-password');
     await h.submit('recoveryReset');assert.equal(h.calls[1].body.code,'one-use-code');assert.match(h.nodes.get('recoveryMessage').textContent,/Your password has been changed/);
   }
+});
+test('when the provider is down the page keeps the form and the code, so the same link works once it is back',async()=>{
+  const replies=[()=>response({code:'recovery_unavailable'},503),()=>response({passwordChanged:true})];
+  const h=ui(async()=>replies.shift()());
+  h.nodes.get('recoveryPassword').value=h.nodes.get('recoveryConfirm').value='safe-new-password';
+  await h.submit('recoveryReset');
+  assert.match(h.nodes.get('recoveryMessage').textContent,/temporarily unavailable/);
+  assert.equal(h.nodes.get('recoveryReset').hidden,false);assert.equal(h.nodes.get('recoveryRequest').hidden,true);
+  await h.submit('recoveryReset');assert.equal(h.calls[1].body.code,'one-use-code');assert.match(h.nodes.get('recoveryMessage').textContent,/Your password has been changed/);
 });
 test('the server refuses a recovery code a second time with recovery_invalid, which the page relies on to retry safely',async()=>{
   const p=provider(),cookie=await request(p);

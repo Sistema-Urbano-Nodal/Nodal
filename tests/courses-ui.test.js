@@ -746,6 +746,7 @@ test('conversation and feedback controls are 44px tap targets with body-size tex
  assert.equal(styleAt(375,'.pilot-post-edit-actions .pilot-button')['min-height'],'44px');assert.equal(styleAt(375,'.pilot-discussion>.pilot-button')['min-height'],'44px');
  const feedback=styleAt(375,'.pilot-feedback button');assert.equal(feedback['min-height'],'44px');assert.equal(feedback['font-size'],'13px');
  const star=styleAt(375,'.pilot-feedback .pilot-rating label');assert.equal(star['min-width'],'44px');assert.equal(star['min-height'],'44px');
+ const lang=styleAt(375,'.pilot-langs button');assert.equal(lang['min-width'],'44px','the header language buttons were 30px');assert.equal(lang['min-height'],'44px');
 });
 test('on a phone the link to the answered contribution is a 44px target that takes the blank line above it',()=>{
  const link=styleAt(375,'.pilot-post.reply>a');assert.equal(link.display,'inline-flex');assert.equal(link['align-items'],'center');assert.equal(link['min-height'],'44px');

@@ -1,16 +1,5 @@
 /* navigation, shared by all pages: mobile menu + press glint */
 (() => {
-  /* The language buttons say which language is on, to a screen reader as well as by colour: aria-pressed follows
-     the .is-on class i18n.js sets. nav.js can run before or after i18n.js, so it watches the class rather than
-     subscribing, which also catches the first language i18n.js applies. */
-  const langButtons = [...document.querySelectorAll('.lang-btn')];
-  const syncPressed = () => langButtons.forEach((btn) => btn.setAttribute('aria-pressed', String(btn.classList.contains('is-on'))));
-  syncPressed();
-  if (langButtons.length && typeof MutationObserver === 'function') {
-    const watch = new MutationObserver(syncPressed);
-    langButtons.forEach((btn) => watch.observe(btn, { attributes: true, attributeFilter: ['class'] }));
-  }
-
   const nav = document.querySelector('.navbar');
   const toggle = document.getElementById('navToggle');
   if (!nav || !toggle) return;

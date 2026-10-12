@@ -207,10 +207,10 @@
     set('pfKicker', t('p.kicker'));
     set('pfRole', t('p.notFoundWhy'));
     set('pfAbout', t('p.notFoundBody'));
-    /* The page shell is a member's card. Without a member, its placeholders ("…" badge, the online dot,
+    /* The page shell is a member's card. Without a member, its placeholders ("…" badge,
        empty projects, activity and connections written to "you") would describe nobody, so they go.
        Removed, not hidden: styles.css gives the members-only card display:grid, which beats [hidden]. */
-    for (const node of [$('pfMatch'), document.querySelector('.pf-online'), $('pfProjects')?.closest('.pf-card'),
+    for (const node of [$('pfMatch'), $('pfProjects')?.closest('.pf-card'),
       signalsHost, document.querySelector('.pf-side')]) {
       node?.remove();
     }

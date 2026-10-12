@@ -80,14 +80,6 @@ test('a toggle without a translated name gets one (payments.html), and the login
   for(const page of ['login.html','profile.html'])assert.match(read('pages/'+page),/<button type="button" class="nav-toggle" id="navToggle" aria-label="Menu" data-i18n-aria-label="nav\.menuLabel">/,page);
 });
 
-// Finding 52: a screen reader heard English, Español, Português and never which one was on.
-test('the language buttons say which language is on, and follow every change',()=>{
-  const h=harness({on:'es'});
-  assert.deepEqual(h.langs.map(b=>b.attributes['aria-pressed']),['false','true','false']);
-  h.pick('pt');
-  assert.deepEqual(h.langs.map(b=>b.attributes['aria-pressed']),['false','false','true']);
-});
-
 // Finding 39: the white wordmark disappeared over the white "How it works" section.
 test('the wordmark turns white only over dark sections, and the white platform section is not one',()=>{
   const selector=harness().darkSelector();
