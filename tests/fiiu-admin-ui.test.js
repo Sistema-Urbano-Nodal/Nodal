@@ -1321,8 +1321,8 @@ test('a status change made here while the same question is being edited does not
  await key(row().querySelector('form'),'saveQuestion').listeners.click();
  assert.equal(questionWrites(h).at(-1).body.version,3);assert.equal(h.message.dataset.fiiuText,'editorConflict');assert.ok(key(row().querySelector('form'),'reloadLatest'));
  await key(row().querySelector('form'),'reloadLatest').listeners.click();
- const form=row().querySelector('form');assert.equal(field(form,'body').value,'Edited while hiding','the edit reopens on the latest version');assert.equal(field(form,'body').focused,true);
- await key(form,'saveQuestion').listeners.click();assert.equal(questionWrites(h).at(-1).body.version,9);
+ const form=row().querySelector('form');assert.equal(field(form,'body').value,'Second edit','the edit reopens on the latest version with the typed text kept');assert.equal(field(form,'body').focused,true);
+ await key(form,'saveQuestion').listeners.click();assert.deepEqual(questionWrites(h).at(-1).body,{version:9,body:'Second edit',talk:'¡Bienvenidos al FIIU 11!'});
 });
 
 // The organiser at work: reaching a section from its link, the detail panel, door check-in on phones, search, the availability switch,
@@ -1422,6 +1422,36 @@ test('a failed attendance tick says the attendance was not saved: an ended sessi
  h.lang('en');assert.equal(descendants(note).filter(node=>node.dataset.fiiuText==='adminSignIn').length,1,'and never adds a second one');
  const rows=h.ctx.window.Fiiu.rows;for(const name of ['attendanceSignIn','attendanceNotSaved'])assert.ok(rows[name]?.length===3&&rows[name].every(text=>text.trim()),name);
  assert.equal(rows.attendanceSignIn[1],'No se guardó la asistencia: tu sesión terminó.');assert.equal(rows.attendanceNotSaved[1],'No se guardó la asistencia. Revisa la conexión y vuelve a marcarla.');
+});
+
+test('reloading after a question edit conflict keeps the typed text and talk on the latest version, and shows the other organiser’s text when that changed',async()=>{
+ let current=question();
+ const h=await harness(({method,body})=>{
+  if(method==='PATCH'){if(body.version!==current.version)return{status:409,data:{error:'question changed; reload before saving'}};current={...current,...body,version:current.version+1};const{stats,...view}=current;return{question:view};}
+  return{content:[],nextCursor:null};
+ },{questionsRead:()=>({questions:[copy(current)]})});
+ const row=()=>questionRows(h)[0],form=()=>row().querySelector('form'),typed='¿Qué intervención de acupuntura urbana harías en tu cuadra? (texto corregido)';
+ await key(row(),'editQuestion').listeners.click();type(field(form(),'body'),typed);await select(field(form(),'talk'),'');
+ // Another organiser only closes it.
+ current={...current,status:'closed',version:2};
+ await key(form(),'saveQuestion').listeners.click();assert.equal(h.message.dataset.fiiuText,'editorConflict');
+ await key(form(),'reloadLatest').listeners.click();
+ assert.equal(field(form(),'body').value,typed,'the typed text stays');assert.equal(field(form(),'talk').value,'','and so does the talk choice');
+ assert.equal(field(form(),'body').focused,true);assert.equal(form().querySelector('.f-counter').textContent,typed.length+' / 500');
+ assert.equal(form().querySelector('.f-question-latest'),null,'the text was not changed elsewhere: nothing to compare');
+ assert.equal(key(row(),'questionClosed')['aria-pressed'],'true','the row shows the other organiser’s status');assert.equal(leavePrompt(h),true,'the kept draft still guards leaving');
+ await key(form(),'saveQuestion').listeners.click();
+ assert.deepEqual(questionWrites(h).at(-1).body,{version:2,body:typed,talk:null});assert.equal(h.message.dataset.fiiuText,'questionSaved');
+ // A real text conflict: the draft stays in the field and the latest saved text is shown under it.
+ await key(row(),'editQuestion').listeners.click();type(field(form(),'body'),'Mi versión');
+ current={...current,body:'La versión de otra organizadora',talk:'¡Bienvenidos al FIIU 11!',version:7};
+ await key(form(),'saveQuestion').listeners.click();await key(form(),'reloadLatest').listeners.click();
+ assert.equal(field(form(),'body').value,'Mi versión');assert.equal(field(form(),'talk').value,'');
+ const latest=form().querySelector('.f-question-latest');assert.ok(latest);assert.ok(key(latest,'questionLatest'));
+ assert.match(content(latest),/La versión de otra organizadora/);assert.match(content(latest),/¡Bienvenidos al FIIU 11!/);
+ assert.ok(field(form(),'body')['aria-describedby'].split(' ').includes(latest.id),'read out with the field');
+ const rows=h.ctx.window.Fiiu.rows;assert.equal(rows.questionLatest?.length,3);
+ await key(form(),'saveQuestion').listeners.click();assert.equal(questionWrites(h).at(-1).body.version,7);assert.equal(row().querySelector('.f-question-text').textContent,'Mi versión');
 });
 
 test('a question’s CSV downloads through fetch, and an ended session, a busy server or an outage is reported in the dashboard',async()=>{

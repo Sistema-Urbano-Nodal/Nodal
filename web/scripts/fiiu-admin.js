@@ -16,6 +16,7 @@
   noQuestions:['No questions yet.','Aún no hay preguntas.','Ainda não há perguntas.'],questionSaved:['Question saved','Pregunta guardada','Pergunta salva'],
   closeQuestionConfirm:['Close this question? People can still read it but not answer.','¿Cerrar esta pregunta? Las personas podrán leerla, pero ya no responder.','Fechar esta pergunta? As pessoas ainda poderão lê-la, mas não responder.'],
   questionsLoadError:['The questions could not be loaded.','No se pudieron cargar las preguntas.','Não foi possível carregar as perguntas.'],
+  questionLatest:['Latest saved version:','Versión guardada actual:','Versão salva atual:'],
   attendanceSignIn:['Attendance not saved: your session ended.','No se guardó la asistencia: tu sesión terminó.','A presença não foi salva: sua sessão terminou.'],
   attendanceNotSaved:['Attendance not saved. Check the connection and tick it again.','No se guardó la asistencia. Revisa la conexión y vuelve a marcarla.','A presença não foi salva. Verifique a conexão e marque de novo.']
  });
@@ -656,20 +657,21 @@
   try{await action(null,async()=>{const result=await api('/api/admin/fiiu/questions/'+encodeURIComponent(q.id),{version:q.version,status:next},'PATCH');if(!validQuestion(result.question))throw Object.assign(Error(t('error')),{key:'error'});if(entry.editor?.version===q.version)entry.editor.version=result.question.version;upsertQuestion(result.question);},{feedback:entry.note,conflict:entry.conflict,reload,done:'questionSaved'});}
   finally{entry.busy=false;entry.group.setAttribute('aria-busy','false');}
  }
- function openQuestionEdit(entry,focus=true){if(entry.editor)closeQuestionEdit(entry,false);entry.editor=questionEditor(entry);entry.view.replaceWith(entry.editor.form);entry.edit.hidden=true;if(focus)entry.editor.form.querySelector('textarea')?.focus();}
+ function openQuestionEdit(entry,focus=true,draft=null){if(entry.editor)closeQuestionEdit(entry,false);entry.editor=questionEditor(entry,draft);entry.view.replaceWith(entry.editor.form);entry.edit.hidden=true;if(focus)entry.editor.form.querySelector('textarea')?.focus();}
  function closeQuestionEdit(entry,focus=true){if(!entry.editor)return;entry.editor.form.replaceWith(entry.view);entry.editor=null;entry.edit.hidden=false;if(focus)entry.edit.focus();}
  // One form for a new question and for an edit of a saved one, whose block cannot change. A new question keeps one id across retries (as a new
  // publication does), so a save whose answer was lost gets the stored question back instead of a duplicate; the id is renewed once it saves.
- function questionEditor(entry=null){
+ // draft: what an edit that met a conflict had typed ({body, talk}) and the record it started from (base); see send's reload.
+ function questionEditor(entry=null,draft=null){
   const start=entry?.record,isNew=!start,prefix=isNew?'f-qn':'f-qe-'+start.id,form=el('form','f-form f-question-form'),counter=el('span','f-counter'),buttons=el('div','f-question-buttons'),conflict=el('div','f-conflict');let busy=false,draftId=null;
   // version is the one an edit started from; a status change made on this page meanwhile moves it along (setQuestionStatus).
   const editor={form,version:start?.version};
   const block=el('select'),talkField=field('questionTalk'),talk=el('select'),text=field('questionText',{type:'textarea',max:QUESTION_MAX,required:true,value:start?.body});
   talk.name='talk';talk.id=prefix+'-talk';talkField.input.replaceWith(talk);text.input.name='body';text.input.id=prefix+'-text';counter.id=prefix+'-counter';text.input.setAttribute('aria-describedby',counter.id);
-  // The talk choice lists the block's talks and is hidden for a block without any. An edit keeps a saved talk the programme no longer lists, so saving
-  // the text alone never drops it.
-  const fillTalks=(activityId,value='',keep=false)=>{
-   const names=(findActivity(festival.event,activityId)?.sessions||[]).map(([,name])=>name),none=tr('option','questionNoTalk');none.value='';if(keep&&value&&!names.includes(value))names.push(value);
+  // The talk choice lists the block's talks and is hidden for a block without any. An edit keeps a saved (or kept draft) talk the programme no
+  // longer lists, so saving the text alone never drops it.
+  const fillTalks=(activityId,value='',keep=[])=>{
+   const names=(findActivity(festival.event,activityId)?.sessions||[]).map(([,name])=>name),none=tr('option','questionNoTalk');none.value='';for(const name of keep)if(name&&!names.includes(name))names.push(name);
    talk.replaceChildren(none,...names.map(name=>{const option=source('option',name);option.value=name;return option;}));talk.value=names.includes(value)?value:'';talkField.wrap.hidden=!names.length;
   };
   const count=()=>{const number=new Intl.NumberFormat(locale());counter.textContent=number.format(text.input.value.length)+' / '+number.format(QUESTION_MAX);};text.input.addEventListener('input',count);count();
@@ -678,14 +680,24 @@
    for(const a of chronological(festival.event.activities)){const option=source('option',`${a.date.slice(8)}/${a.date.slice(5,7)} · ${a.title}`);option.value=a.id;block.append(option);}
    blockField.input.replaceWith(block);block.addEventListener('change',()=>fillTalks(block.value,talk.value));form.append(tr('h3','newQuestion'),blockField.wrap);
   }
-  fillTalks(start?.activityId||'',start?.talk||'',!isNew);
+  fillTalks(start?.activityId||'',start?.talk||'',isNew?[]:[start.talk]);
   const values=()=>({body:text.input.value.trim(),talk:talk.value||null}),initial=JSON.stringify(values());
+  // Reopened on the latest version after a conflict, the edit keeps what was typed (so it still counts as unsaved). When the other change touched
+  // the text or the talk, not just the status, the latest saved version is shown under the field to compare.
+  let latest=null;
+  if(draft){
+   text.input.value=draft.body;fillTalks(start.activityId,draft.talk,[start.talk,draft.talk]);count();
+   if(draft.base.body!==start.body||(draft.base.talk||null)!==(start.talk||null)){
+    latest=el('p','f-question-latest');latest.id=prefix+'-latest';latest.append(tr('span','questionLatest','f-question-latest-label'),document.createTextNode(' '),source('span',start.body),...(start.talk?[document.createTextNode(' · '),source('span',start.talk)]:[]));
+    text.input.setAttribute('aria-describedby',counter.id+' '+latest.id);
+   }
+  }
   const send=async(state,control)=>{
    if(busy)return;text.input.setCustomValidity(values().body?'':t('requiredField'));if(!form.reportValidity())return;
    const payload=isNew?{id:draftId??=uuid(),activityId:block.value,...values(),status:state}:{version:editor.version,...values()},unlock=lockForm(form,()=>isNew?text.input:entry.edit);busy=true;
    // After a conflict on a new question (its id was saved, with other text, by a send whose answer was lost) the list shows the saved one and the
-   // draft stays, with a new id for a deliberate second question; an edit reopens on the latest version.
-   const reload=isNew?async()=>{await reloadQuestions();draftId=null;conflict.replaceChildren();text.input.focus();}:async()=>{await reloadQuestions();openQuestionEdit(entry);};
+   // draft stays, with a new id for a deliberate second question; an edit reopens on the latest version with its typed text and talk kept.
+   const reload=isNew?async()=>{await reloadQuestions();draftId=null;conflict.replaceChildren();text.input.focus();}:async()=>{const kept={body:text.input.value,talk:talk.value,base:start};await reloadQuestions();openQuestionEdit(entry,true,kept);};
    try{await action(control,async()=>{
     const result=await api('/api/admin/fiiu/questions'+(isNew?'':'/'+encodeURIComponent(start.id)),payload,isNew?'POST':'PATCH');if(!validQuestion(result.question))throw Object.assign(Error(t('error')),{key:'error'});
     if(isNew){draftId=null;text.input.value='';count();}else closeQuestionEdit(entry);
@@ -695,7 +707,7 @@
   };
   if(isNew){const publish=button('publishNow',()=>send('open',publish),'f-button'),hidden=button('saveHidden',()=>send('hidden',hidden),'f-button secondary');buttons.append(publish,hidden);}
   else{const save=button('saveQuestion',()=>send(null,save),'f-button');buttons.append(save,button('cancelEdit',()=>closeQuestionEdit(entry),'f-button secondary f-small'));}
-  form.append(talkField.wrap,text.wrap,counter,buttons,conflict);localiseValidation(form);form.addEventListener('submit',event=>event.preventDefault());
+  form.append(talkField.wrap,text.wrap,counter,...(latest?[latest]:[]),buttons,conflict);localiseValidation(form);form.addEventListener('submit',event=>event.preventDefault());
   return Object.assign(editor,{recount:count,dirty:()=>isNew?Boolean(values().body):JSON.stringify(values())!==initial});
  }
  function conversationsPanel(){
