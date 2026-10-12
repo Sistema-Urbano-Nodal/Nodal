@@ -788,8 +788,8 @@ test('a close while someone types keeps the draft readable under the closed note
  assert.equal(composer(h),null);assert.equal(note.focused,true,'focus stays in the dock, on the note');assert.equal(note.tabIndex,-1);
  assert.ok(key(dock,'talkDraftKept'));const kept=dock.querySelector('.f-talk-draft-text');assert.equal(kept.value,'En mi barrio cambiaría el giro','the draft can still be read and copied');assert.equal(kept.readOnly,true);
  assert.equal(h.root.querySelector('.f-talk-live').textContent,'','a focused note reads itself, so nothing is said twice');
- revision=5;state='open';await h.tickTimers();
- assert.equal(composer(h).querySelector('textarea'),text);assert.equal(text.value,'En mi barrio cambiaría el giro');
+ focusInside(h,note);revision=5;state='open';await h.tickTimers();
+ assert.equal(composer(h).querySelector('textarea'),text);assert.equal(text.value,'En mi barrio cambiaría el giro');assert.equal(text.focused,true,'a reopen hands focus from the note back to the composer');
  // Someone reading the conversation, not typing, hears the close from the status line.
  const reader=await page({...routes,['GET '+MESSAGES+'?since=3']:since(4,[],{status:'closed'})});revision=4;state='closed';await reader.tickTimers();
  const live=reader.root.querySelector('.f-talk-live');assert.equal(live.textContent,'This conversation is closed. You can still read it.');assert.equal(live.role,'status');

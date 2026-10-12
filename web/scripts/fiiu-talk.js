@@ -224,8 +224,10 @@
    const inside=holds(parts.dock);parts.dockState=state;
    parts.dock.replaceChildren(parts.pill,parts.note,...(state==='composer'?[ensureComposer().form]:state==='closed'?[parts.closed]:[]));
    if(state==='composer')restoreDraft();
-   // A close while someone types keeps them in the dock, on the note, which reads itself; anyone else hears it from the status line.
+   // A close while someone types keeps them in the dock, on the note, which reads itself; anyone else hears it from the status line. A reopen hands
+   // focus left in the dock back to the composer.
    if(was&&state!=='composer'){if(inside)(state==='closed'?parts.closedNote:parts.log).focus();else if(state==='closed')announce(t('talkClosed'));}
+   else if(was&&inside)composer.textarea.focus();
   }
   // The closed note leads to the block's open question, if there is one, and keeps an unsent answer readable (and copyable) under it.
   if(state==='closed'){
