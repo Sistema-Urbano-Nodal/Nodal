@@ -336,3 +336,64 @@ test('all four search scopes stay visible: two by two on phones, wrapping under 
   assert.match(phone, /\.search-chips\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/);
 });
 
+/* ---------------- the globe loads on approach (finding 58) ---------------- */
+
+function globeLoader({ wide = false, observer = true, hasNetwork = true, readyState = 'interactive' } = {}) {
+  const appended = [], onLoad = [], idle = [];
+  let fire, margin, observed = 0, disconnected = false;
+  const context = {
+    byId: (id) => (hasNetwork && ['network', 'globeCanvas'].includes(id) ? { id } : null),
+    document: { readyState, createElement: (tag) => ({ tagName: tag }), head: { append: (node) => appended.push(node) } },
+    window: {
+      matchMedia: (query) => ({ matches: wide && /min-width: 1241px/.test(query) }),
+      addEventListener: (type, fn) => { if (type === 'load') onLoad.push(fn); },
+      requestIdleCallback: (fn) => idle.push(fn),
+    },
+  };
+  if (observer) context.window.IntersectionObserver = context.IntersectionObserver = class { constructor(fn, options) { fire = fn; margin = options?.rootMargin; } observe() { observed += 1; } disconnect() { disconnected = true; } };
+  vm.runInNewContext(piece(dashboardJs(), '  (function loadGlobeOnApproach() {', '\n  })();'), context);
+  return {
+    appended, margin: () => margin, observed: () => observed, disconnected: () => disconnected,
+    // the page finishes loading, then the browser goes idle
+    settle: () => { onLoad.splice(0).forEach((fn) => fn()); idle.splice(0).forEach((fn) => fn()); },
+    near: (yes) => { assert.ok(observed, 'the band is watched'); fire([{ isIntersecting: yes }]); },
+  };
+}
+
+test('on phones the globe and its 195 KB coastline load only as the network band comes near', () => {
+  const g = globeLoader();
+  assert.deepEqual(g.appended, [], 'nothing on first load');
+  // The greeting, the route and the festival block arrive after the first paint and push the band down:
+  // watched at once, it looked near on every cold load.
+  assert.equal(g.observed(), 0, 'the band is not watched while the page is still loading');
+  g.settle();
+  assert.equal(g.observed(), 1);
+  assert.match(g.margin(), /\b[6-9]\d\dpx\b/, 'it starts several hundred pixels before the band shows');
+  g.near(false);
+  assert.deepEqual(g.appended, []);
+  g.near(true);
+  assert.deepEqual(g.appended.map((s) => s.src), ['coastline.js?v=3', 'globe-geo.js?v=1', 'globe.js?v=29']);
+  assert.ok(g.appended.every((s) => s.tagName === 'script' && s.async === false), 'inserted scripts run in order, coastline first');
+  assert.equal(g.disconnected(), true);
+  g.near(true);
+  assert.equal(g.appended.length, 3, 'only once');
+  const late = globeLoader({ readyState: 'complete' });
+  late.settle();
+  assert.equal(late.observed(), 1, 'a console that ran after the load event waits only for idle');
+});
+
+test('on the wide console, without IntersectionObserver, or with no globe, the loader behaves', () => {
+  assert.equal(globeLoader({ wide: true }).appended.length, 3, 'the wide console, where the globe is on the first screen, loads it at once');
+  assert.equal(globeLoader({ observer: false }).appended.length, 3, 'an old browser loads it at once');
+  assert.equal(globeLoader({ hasNetwork: false }).appended.length, 0);
+});
+
+test('globe.js only looks up elements dashboard.html has, now that dashboard.js loads it', () => {
+  const html = read('web', 'pages', 'dashboard.html');
+  const ids = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
+  const js = read('web', 'scripts', 'globe.js');
+  const referenced = [...js.matchAll(/getElementById\(\s*'([^']+)'/g)].map((m) => m[1]);
+  assert.ok(referenced.length > 10);
+  assert.deepEqual(referenced.filter((id) => !ids.has(id)), []);
+});
+

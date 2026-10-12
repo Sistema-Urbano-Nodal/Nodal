@@ -1576,5 +1576,43 @@
     window.addEventListener('resize', () => { cancelAnimationFrame(frameId); frameId = requestAnimationFrame(scan); });
     scan();
   })();
+
+  /* ================= the globe, on approach =================
+     The globe needs coastline.js (195 KB, about 72 KB compressed), globe-geo.js and globe.js. As deferred scripts
+     in the head they held DOMContentLoaded and the network data back by about 400 ms on a phone, for a band two
+     screens down. They load once the band comes within 800px of the screen. The band is watched only once the page
+     has loaded and gone idle: the greeting, the route and the festival block arrive after the first paint and push
+     it down, so watched at once it looked near on every cold load. The wide console, where the band is on the
+     first screen and the work column scrolls by itself, loads them at once, as does a browser without
+     IntersectionObserver. An inserted script is async unless told otherwise; async = false keeps the order
+     coastline, geo, globe. The globe's cache keys live here now. */
+  (function loadGlobeOnApproach() {
+    const band = byId('network');
+    if (!band || !byId('globeCanvas')) return;
+    const scripts = ['coastline.js?v=3', 'globe-geo.js?v=1', 'globe.js?v=29'];
+    let observer = null;
+    const load = () => {
+      observer?.disconnect();
+      observer = null;
+      for (const src of scripts) {
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = false;
+        document.head.append(script);
+      }
+    };
+    if (window.matchMedia?.('(min-width: 1241px)').matches || typeof window.IntersectionObserver !== 'function') {
+      load();
+      return;
+    }
+    observer = new IntersectionObserver((entries) => {
+      if (observer && entries.some((entry) => entry.isIntersecting)) load();
+    }, { rootMargin: '0px 0px 800px 0px' });
+    // Safari has no requestIdleCallback; called through window, since a detached call throws Illegal invocation
+    const idle = (fn) => (window.requestIdleCallback ? window.requestIdleCallback(fn, { timeout: 2000 }) : setTimeout(fn, 300));
+    const watch = () => idle(() => observer?.observe(band));
+    if (document.readyState === 'complete') watch();
+    else window.addEventListener('load', watch, { once: true });
+  })();
   init();
 })();
