@@ -11,9 +11,11 @@ import { recommend } from './engine.js';
 import { createCache, MemoryCache } from './cache.js';
 import { createNetworkSnapshots } from './network-cache.js';
 import { createCourseStore } from './courses-repository.js';
-import { createCourseApi } from './courses-api.js';
+import { createCourseApi, createByteBudget, DOWNLOAD_LIMITS } from './courses-api.js';
 import { createFiiuStore } from './fiiu-repository.js';
 import { createFiiuApi, exportFiiuData } from './fiiu-api.js';
+import { createTalkStore } from './fiiu-talk-repository.js';
+import { createTalkApi, exportTalkData, deleteTalkData } from './fiiu-talk-api.js';
 import { resolveCheckinSecret, checkinClock } from './fiiu-checkin.js';
 import { createRegistrationConfirmation } from './fiiu-email.js';
 import { encodeQr as encodeQrCode } from './qr.js';
@@ -84,8 +86,11 @@ const SUPABASE_ACCESS_COOKIE = 'nodal_session';
 const SUPABASE_REFRESH_COOKIE = 'nodal_refresh';
 /* Routes that never read the session: resolving one would only cost provider calls.
    The FIIU programme is the same for everyone, so signed-in readers share the
-   public per-address budget guests use. */
-const SESSIONLESS_API = new Set(['/api/health', '/api/billing/config', '/api/stripe/webhook', '/api/fiiu']);
+   public per-address budget guests use. The conversation pulse is the same for
+   everyone too, and never sets a cookie, so the CDN can answer its polls. */
+const SESSIONLESS_API = new Set(['/api/health', '/api/billing/config', '/api/stripe/webhook', '/api/fiiu', '/api/fiiu/pulse']);
+// Per-account conversation writes a minute (server/fiiu-talk-api.js); reads and other writes use the FIIU budgets.
+const TALK_RATE_LIMITS = { message: 10, upload: 6, like: 60, moderate: 120 };
 /* Routes that answer without a member and only personalise when there is one. A
    session-service outage serves them signed out instead of failing them. */
 const OPTIONAL_SESSION_API = /^\/api\/(?:auth\/state|news|catalog(?:\/[a-z0-9-]{1,40})?)$/;
@@ -975,6 +980,12 @@ export function createApp({
   /* The organiser's "Send the summary" button (POST /api/admin/fiiu/confirmations): emails per request and per UTC
      day, defaults in server/fiiu-confirmations.js. Its requests spend the FIIU write budget (fiiuWriteLimiter). */
   fiiuBackfill = {},
+  // The FIIU block conversations (questions, chat, likes and files), on the FIIU tables' backend. They read the FIIU
+  // registrations, so a server without the FIIU store (fiiuStore: null) has none either.
+  talkStore = !fiiuStore ? null : repository?.database ? createTalkStore({db:repository.database}) : repository?.kind === 'supabase' ? createTalkStore() : null,
+  // Overrides for TALK_RATE_LIMITS, and the conversations' clock (registration memo, timestamps, upload grace); tests set both.
+  talkLimits = TALK_RATE_LIMITS,
+  talkClock = Date.now,
   newsStore = repository?.database ? createNewsStore({db:repository.database}) : repository?.kind === 'supabase' ? createNewsStore() : null,
 } = {}) {
   const useDb = Boolean(repository);
@@ -1149,6 +1160,15 @@ export function createApp({
       :req.method==='POST'&&pathname==='/api/fiiu/checkin'?throttle(fiiuSelfCheckInLimiter,res,req,user,'fiiu-self-checkin')
       :throttle(fiiuWriteLimiter,res,req,user,'fiiu'),
   }):null;
+  // One download budget for course files and festival files, so an account cannot double its Storage egress.
+  const downloads=createByteBudget(DOWNLOAD_LIMITS);
+  /* Conversations: each kind of write has its own per-account budget, so a lively chat never blocks likes or an
+     organiser's moderation. The pulse asks for none (see SESSIONLESS_API); every other read is a signed-in account's. */
+  const talkLimit={...TALK_RATE_LIMITS,...talkLimits};
+  const talkMessageLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.message}),talkUploadLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.upload}),talkLikeLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.like}),talkModerateLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.moderate});
+  const talkApi=talkStore?createTalkApi({store:talkStore,sameOrigin,send,downloads,encodeQr,publicOrigin:fiiuPublicOrigin,clock:talkClock,
+    rateLimit:(req,res,user,pathname,kind)=>throttle({read:fiiuReadLimiter,message:talkMessageLimiter,upload:talkUploadLimiter,like:talkLikeLimiter,moderate:talkModerateLimiter}[kind]??fiiuWriteLimiter,res,req,user,`fiiu-talk-${kind}`),
+  }):null;
   // NODAL news: guests read the public feed from shared venue or office Wi-Fi, so their budget mirrors the FIIU
   // public read one; the desk's writes share a small per-account budget.
   const newsReadLimiter=createWindowRateLimiter({windowMs:60000,limit:120});
@@ -1158,7 +1178,7 @@ export function createApp({
     rateLimit:(req,res,user)=>['GET','HEAD'].includes(req.method)?throttle(user?newsReadLimiter:newsPublicReadLimiter,res,req,user,'news')
       :throttle(newsWriteLimiter,res,req,user,'news-write'),
   }):null;
-  const courseApi=courseStore?createCourseApi({store:courseStore,userRepository:repository,sameOrigin,send,
+  const courseApi=courseStore?createCourseApi({store:courseStore,userRepository:repository,sameOrigin,send,downloads,
     // Only an upload spends the upload budget; staff list the file library after every upload, use and delete.
     rateLimit:(req,res,user,pathname)=>throttle(pathname.endsWith('/invitations')?courseInvitationLimiter:req.method==='POST'&&pathname.endsWith('/attachments')?courseUploadLimiter:['GET','HEAD'].includes(req.method)?courseReadLimiter:courseWriteLimiter,res,req,user,'course'),
   }):null;
@@ -1266,6 +1286,8 @@ export function createApp({
       // HEAD too: uptime probes default to it, and a 404 there reads as an outage
       if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/api/health') { send(res, 200, { ok: true }); return; }
       if(courseApi && await courseApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
+      // Before the FIIU API, which would ask the sessionless pulse to sign in; other paths it does not own fall through.
+      if(talkApi && await talkApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
       if(fiiuApi && await fiiuApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
       if(newsApi && await newsApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
 
@@ -1607,6 +1629,7 @@ export function createApp({
         const data=await repository.exportUserData(sessionUser.id);
         if(courseStore)data.coursePilot=await exportCourseData(courseStore,sessionUser.id);
         if(fiiuStore)data.fiiu=await exportFiiuData(fiiuStore,sessionUser.id);
+        if(talkStore)data.fiiuConversations=await exportTalkData(talkStore,sessionUser.id);
         send(res, 200, { data });
         return;
       }
@@ -1627,6 +1650,8 @@ export function createApp({
           send(res, 409, { error: 'Cancel your NODAL membership before deleting your account. Contact NODAL if you need help cancelling it.', code: 'subscription_active' });
           return;
         }
+        // Festival files go before the account (their rows restrict it); an upload under way answers 409 to try again shortly.
+        if(talkStore)await deleteTalkData(talkStore,sessionUser.id,{now:talkClock()});
         if(courseStore)await deleteCourseData(courseStore,sessionUser.id);
         await repository.deleteUserById(sessionUser.id);
         const result = await repository.logout(req, process.env);

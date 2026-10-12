@@ -55,7 +55,7 @@ function provider({ userStatus = 200, tokenStatus = 200 } = {}) {
 
 async function boot(t, repository, options = {}) {
   const server = createApp({
-    repository, courseStore: null, fiiuStore: null, newsStore: null,
+    repository, courseStore: null, fiiuStore: null, talkStore: null, newsStore: null,
     citySearch: { search: async () => ({ cities: [] }) },
     ...options,
   });
@@ -95,6 +95,24 @@ test('the public FIIU programme never resolves, refreshes or clears a session', 
   }
   assert.deepEqual(p.calls, [], 'no GoTrue or profile call, so no refresh token is redeemed');
   assert.deepEqual(reads, Array(4).fill(['config', 'content']).flat());
+});
+
+test('the festival conversation pulse never resolves, refreshes or clears a session', async t => {
+  // Polled every 4 seconds by every open chat: a session lookup would cost a provider call per poll and a Set-Cookie
+  // would keep the CDN from answering it.
+  const p = provider();
+  let reads = 0;
+  const talkStore = { pulse: async () => { reads += 1; return [{ id: 'q-1', activityId: 'day1-am', revision: 4, status: 'open' }]; } };
+  const base = await boot(t, p.repository, { talkStore });
+  for (const cookie of ['nodal_refresh=good-refresh', `nodal_session=${EXPIRED}; nodal_refresh=good-refresh`, `nodal_session=${LIVE}; nodal_refresh=good-refresh`, 'nodal_session=junk']) {
+    const res = await fetch(`${base}/api/fiiu/pulse`, { headers: { cookie } });
+    assert.equal(res.status, 200, cookie);
+    assert.equal(res.headers.get('set-cookie'), null, cookie);
+    assert.equal(res.headers.get('cache-control'), 'public, max-age=0, s-maxage=2, stale-while-revalidate=4', cookie);
+    assert.deepEqual(await res.json(), { questions: [['q-1', 'day1-am', 4, 'open']] }, cookie);
+  }
+  assert.deepEqual(p.calls, [], 'no GoTrue or profile call, so no refresh token is redeemed');
+  assert.ok(reads >= 1 && reads <= 4);
 });
 
 test('junk session cookies cannot make anonymous requests call GoTrue without bound', async t => {
