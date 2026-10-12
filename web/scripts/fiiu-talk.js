@@ -1,0 +1,512 @@
+(() => {
+ 'use strict';
+ // Festival conversations. ?q= opens one organiser question on a FIIU block with its live chat; ?a= lists a block's questions and opens a single one at once.
+ // Live updates poll the public, CDN-cached pulse every 4 s and fetch only the changes since the shown revision, then patch rows in place: the composer,
+ // focus and scroll position are never rebuilt. People registered for the festival and organisers take part; anyone else is told how to.
+ // Organisers also hide and unhide messages here, and ?q=…&present=1 gives them a projector view of the question with a QR code to join.
+ const Fiiu=window.Fiiu,{t,el,tr,button,link,source,api,status,dateNode,limaClock,limaDate,newTabNote,locale}=Fiiu;
+ // Page-only strings join the shared dictionary, so t(), tr() and the language switch in fiiu-ui.js handle them like the rest.
+ Object.assign(Fiiu.rows,{
+  talkPage:['Conversation','Conversación','Conversa'],talkQuestions:['Questions on this block','Preguntas de este bloque','Perguntas deste bloco'],talkOtherQuestions:['More questions on this block','Más preguntas de este bloque','Mais perguntas deste bloco'],
+  talkEmpty:['No messages yet. Be the first to answer.','Todavía no hay mensajes. Sé la primera persona en responder.','Ainda não há mensagens. Seja a primeira pessoa a responder.'],
+  talkEmptyBlock:['No questions yet for this block.','Todavía no hay preguntas para este bloque.','Ainda não há perguntas para este bloco.'],
+  talkPlaceholder:['Write your answer…','Escribe tu respuesta…','Escreva sua resposta…'],talkSend:['Send','Enviar','Enviar'],talkSending:['Sending…','Enviando…','Enviando…'],talkNotSent:['Not sent','No enviado','Não enviada'],talkRetry:['Retry','Reintentar','Tentar de novo'],talkYou:['You','Tú','Você'],
+  talkAttach:['Add image or PDF','Adjuntar imagen o PDF','Anexar imagem ou PDF'],talkRemoveFile:['Remove','Quitar','Remover'],talkUploading:['Uploading {current} of {total}…','Subiendo {current} de {total}…','Enviando {current} de {total}…'],
+  talkFileType:['Use JPG, PNG, WebP or PDF.','Usa JPG, PNG, WebP o PDF.','Use JPG, PNG, WebP ou PDF.'],talkFileSize:['Each file can be up to 3 MB.','Cada archivo puede pesar hasta 3 MB.','Cada arquivo pode ter até 3 MB.'],
+  talkTooManyFiles:['Up to 3 files per message.','Hasta 3 archivos por mensaje.','Até 3 arquivos por mensagem.'],
+  talkAllowance:['You have reached the festival upload limit (30 files or 30 MB).','Llegaste al límite de archivos del festival (30 archivos o 30 MB).','Você atingiu o limite de arquivos do festival (30 arquivos ou 30 MB).'],
+  talkCharsLeft:['{n} characters left','Quedan {n} caracteres','Restam {n} caracteres'],talkCharLeft:['1 character left','Queda 1 carácter','Resta 1 caractere'],talkCharsOver:['{n} characters over the limit','{n} caracteres por encima del límite','{n} caracteres acima do limite'],
+  talkTooLong:['Your answer is over 1,000 characters. Shorten it to send it.','Tu respuesta pasa de 1000 caracteres. Acórtala para enviarla.','Sua resposta passa de 1.000 caracteres. Encurte-a para enviar.'],
+  talkLike:['Like','Me gusta','Curtir'],talkLikes:['{n} likes','{n} me gusta','{n} curtidas'],talkLikeOne:['1 like','1 me gusta','1 curtida'],talkDelete:['Delete','Eliminar','Apagar'],
+  talkDeleteConfirm:['Delete this message for everyone?','¿Eliminar este mensaje para todas las personas?','Apagar esta mensagem para todos?'],talkOrganiser:['FIIU organisers','Organización FIIU','Organização FIIU'],
+  talkClosed:['This conversation is closed. You can still read it.','Esta conversación está cerrada. Puedes seguir leyéndola.','Esta conversa está encerrada. Você ainda pode lê-la.'],talkClosedChip:['Closed','Cerrada','Encerrada'],
+  talkUnavailable:['This conversation isn’t available.','Esta conversación no está disponible.','Esta conversa não está disponível.'],
+  talkSignIn:['Sign in to join the conversation','Inicia sesión para participar','Entre para participar da conversa'],
+  talkSignInHint:['Conversations are open to people registered for FIIU Fest 11.','Las conversaciones están abiertas a las personas inscritas en el FIIU Fest 11.','As conversas são abertas a quem se inscreveu no FIIU Fest 11.'],
+  talkRegister:['Register for FIIU to join','Inscríbete en el FIIU para participar','Inscreva-se no FIIU para participar'],talkRegisterHint:['Registering is free and takes two minutes.','La inscripción es gratuita y toma dos minutos.','A inscrição é gratuita e leva dois minutos.'],
+  talkNew:['New messages ↓','Mensajes nuevos ↓','Novas mensagens ↓'],talkLoadEarlier:['Load earlier messages','Cargar mensajes anteriores','Carregar mensagens anteriores'],
+  talkPaused:['Live updates paused. Reconnecting…','Actualizaciones en pausa. Reconectando…','Atualizações pausadas. Reconectando…'],
+  talkHide:['Hide','Ocultar','Ocultar'],talkUnhide:['Unhide','Mostrar','Mostrar'],talkHidden:['Hidden','Oculto','Oculta'],talkBackToBlock:['All questions on this block','Todas las preguntas de este bloque','Todas as perguntas deste bloco'],
+  talkOpenFull:['Open full image','Abrir imagen completa','Abrir imagem completa'],talkError:['Something went wrong. Try again.','Algo salió mal. Inténtalo de nuevo.','Algo deu errado. Tente de novo.'],
+  talkRate:['Too many messages at once. Wait a moment and try again.','Demasiados mensajes seguidos. Espera un momento e inténtalo de nuevo.','Muitas mensagens de uma vez. Aguarde um momento e tente de novo.'],
+  talkPresent:['Projector view','Vista de proyección','Modo de projeção'],talkLatest:['Latest','Recientes','Recentes'],talkTop:['Most liked','Con más me gusta','Mais curtidas'],talkFullscreen:['Full screen','Pantalla completa','Tela cheia'],
+  talkScanToJoin:['Scan to join the conversation','Escanea para unirte a la conversación','Escaneie para entrar na conversa'],
+ });
+ const root=document.getElementById('fiiuTalkRoot'),message=document.getElementById('fiiuStatus');
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,ID=/^[a-z0-9-]{1,60}$/;
+ const LIMIT=1000,FILES=3,MAX=3*1024*1024,THUMB=100*1024,POLL=4000,NEAR=120,TYPES=['image/jpeg','image/png','image/webp','application/pdf'],IMAGES=TYPES.slice(0,3);
+ // The projector: answers on screen, and the question length above which its headline steps down so they still fit.
+ const WALL=12,LONG=160,SVG='http://www.w3.org/2000/svg';
+ // A file refused for what it is (type, size, the festival allowance) is the draft's problem: the row goes and the composer says why, since Retry cannot help.
+ const DRAFT=['talkFileType','talkFileSize','talkAllowance','talkTooManyFiles'];
+ let question=null,activity=null,me={organiser:false,canPost:false},before=null,known=0,parts=null,composer=null;
+ let timer=null,busy=false,failures=0,nextAt=0;
+ // present: the address asked for the projector (?q=…&present=1); wall: its parts while an organiser is shown it; order: 'latest' or 'top'.
+ let present=false,wall=null,order='latest',lock=null,waking=false;
+ const views=new Map(),rowsById=new Map(),attempts=new Map(),uploads=new Map(),liking=new Set(),moderating=new Set();
+ const problem=key=>Object.assign(Error(t(key)),{key});
+ const fill=(key,vars)=>t(key).replace(/\{(\w+)\}/g,(all,name)=>name in vars?String(vars[name]):all);
+ // Text with a number in it keeps its key and values, so a language switch can rewrite it (refresh() in fiiu-ui.js only knows plain keys).
+ function setCount(node,key,vars={}){node.dataset.talkKey=key;node.dataset.talkVars=JSON.stringify(vars);node.textContent=fill(key,vars);return node;}
+ const counted=(tag,cls,key,vars)=>setCount(el(tag,cls+' f-talk-n'),key,vars);
+ const sizeText=bytes=>bytes<1048576?Math.max(1,Math.round(bytes/1024))+' KB':new Intl.NumberFormat(locale(),{maximumFractionDigits:1}).format(bytes/1048576)+' MB';
+ const sizeNode=bytes=>{const node=el('span','f-talk-size',sizeText(bytes));node.dataset.talkSize=String(bytes);return node;};
+ const codePoints=text=>[...text].length;
+ const setTitle=()=>{document.title='NODAL · '+t(wall?'talkPresent':'talkPage');};
+ const keyOf=error=>error?.status===429?'talkRate':error?.code==='upload_allowance'?'talkAllowance':error?.code==='file_type'?'talkFileType':error?.code==='too_many_files'?'talkTooManyFiles'
+  :error?.status===413||error?.code==='file_size'?'talkFileSize':error?.code==='question_closed'?'talkClosed':error?.status===401?'unauthorized':/^talk[A-Z]/.test(error?.key||'')?error.key:'talkError';
+ const isOpen=()=>question?.status==='open';
+ function uuid(){
+  if(typeof globalThis.crypto?.randomUUID==='function')return globalThis.crypto.randomUUID();
+  const b=globalThis.crypto.getRandomValues(new Uint8Array(16));b[6]=(b[6]&15)|64;b[8]=(b[8]&63)|128;const hex=[...b].map(x=>x.toString(16).padStart(2,'0')).join('');
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+ }
+
+ // Scrolling: the page itself scrolls. A reader within 120 px of the bottom follows new messages; anyone higher up gets the pill instead.
+ function nearBottom(){const s=document.scrollingElement;return !s||s.scrollHeight-s.scrollTop-s.clientHeight<NEAR;}
+ // The first paint jumps; later moves follow the page's scroll-behavior, which fiiu-talk.css turns off for reduced motion. Older Safari rejects 'instant'.
+ function toBottom(smooth){const s=document.scrollingElement;if(!s)return;if(!smooth&&typeof window.scrollTo==='function'){try{window.scrollTo({top:s.scrollHeight,behavior:'instant'});return;}catch{/* falls through */}}s.scrollTop=s.scrollHeight;}
+ function updateEmpty(){if(parts)parts.empty.hidden=parts.log.children.length>0;}
+ // apply() reports each row it adds; afterwards the page follows them, or raises the pill when the reader is elsewhere (always follows your own).
+ function patch(apply){
+  const near=nearBottom();let added=false,own=false;
+  apply((view,isNew)=>{if(isNew){added=true;own||=Boolean(view.mine);}});
+  updateEmpty();if(!added||!parts)return;
+  if(near||own){parts.pill.hidden=true;toBottom(true);}else parts.pill.hidden=false;
+ }
+
+ // https and http addresses become links; everything else, markup included, stays text. innerHTML is never used.
+ const URLS=/(https?:\/\/[^\s<>"]+)/g,TRAIL=/[.,;:!?)\]}'»”]+$/;
+ function linkify(text){
+  const p=el('p','f-talk-body');p.translate=true;
+  String(text).split(URLS).forEach((part,i)=>{
+   if(!part)return;if(i%2===0){p.append(document.createTextNode(part));return;}
+   const trail=TRAIL.exec(part)?.[0]||'',href=part.slice(0,part.length-trail.length);let url=null;try{url=new URL(href);}catch{url=null;}
+   if(!url||!['http:','https:'].includes(url.protocol)){p.append(document.createTextNode(part));return;}
+   // Not f-talk-link: that class is the shared conversation entry link, with a speech-bubble glyph and a tall touch target.
+   const a=el('a','f-talk-url',href);a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';a.setAttribute('aria-describedby','f-newtab');p.append(a);if(trail)p.append(document.createTextNode(trail));
+  });
+  return p;
+ }
+ // Lima time; a message from another Lima day adds its short date.
+ function when(value){
+  const at=new Date(value),node=el('time','f-talk-time');if(!Number.isFinite(at.getTime()))return node;node.dateTime=at.toISOString();
+  const day=limaDate(at);if(day===limaDate(new Date()))node.textContent=limaClock(at);else node.append(dateNode(day,'span','short','f-talk-day'),document.createTextNode(' '+limaClock(at)));return node;
+ }
+ // Images open full size in a new tab from a lazy thumbnail (the server serves the full image when there is none); PDFs download.
+ function filesOf(files){
+  const box=el('div','f-talk-files');
+  for(const file of files){
+   const href='/api/fiiu/files/'+encodeURIComponent(file.id);
+   if(/^image\//.test(file.mime)){
+    const a=el('a','f-talk-image'),img=el('img');a.href=href;a.target='_blank';a.rel='noopener noreferrer';a.setAttribute('aria-describedby','f-newtab');
+    img.src=href+'?size=thumb';img.loading='lazy';img.decoding='async';img.alt=file.name||'';if(Number.isInteger(file.width)&&Number.isInteger(file.height)){img.width=file.width;img.height=file.height;}
+    a.append(img,tr('span','talkOpenFull','f-sr-only'));box.append(a);
+   }else{const a=el('a','f-talk-file');a.href=href;a.append(el('span','f-talk-file-kind','PDF'),el('span','f-talk-file-name',file.name||'PDF'),sizeNode(Number(file.size)||0));box.append(a);}
+  }
+  return box;
+ }
+ function likeButton(m){
+  const b=el('button','f-talk-like');b.type='button';b.setAttribute('aria-pressed',String(Boolean(m.liked)));b.disabled=!isOpen();
+  b.append(tr('span','talkLike','f-talk-like-label'),el('span','f-talk-like-n',String(m.likeCount||0)));b.addEventListener('click',()=>toggleLike(m.id));return b;
+ }
+ function messageRow(m){
+  const row=el('li','f-talk-msg'+(m.mine?' is-mine':'')+(m.hidden?' is-hidden':'')),meta=el('p','f-talk-meta'),actions=el('div','f-talk-actions');
+  row.dataset.id=m.id;row.dataset.seq=String(m.seq??'');meta.append(el('strong','f-talk-author',m.author||''));
+  if(me.organiser&&m.authorFull&&m.authorFull!==m.author)meta.append(el('span','f-talk-full',m.authorFull));
+  if(m.organiser)meta.append(tr('span','talkOrganiser','f-talk-org'));if(m.hidden)meta.append(tr('span','talkHidden','f-talk-flag'));
+  meta.append(when(m.createdAt));row.append(meta);if(m.body)row.append(linkify(m.body));if(m.files.length)row.append(filesOf(m.files));
+  // Your own message shows its likes as text and can be deleted, even once the question is closed.
+  if(m.mine){if(m.likeCount>0)actions.append(counted('span','f-talk-likes',m.likeCount===1?'talkLikeOne':'talkLikes',{n:m.likeCount}));actions.append(button('talkDelete',()=>erase(m.id),'f-talk-delete f-talk-act'));}
+  else actions.append(likeButton(m));
+  if(me.organiser)actions.append(button(m.hidden?'talkUnhide':'talkHide',()=>moderate(m.id),'f-talk-hide f-talk-act'));
+  row.append(actions);return row;
+ }
+ // Rows stay in (createdAt, id) order with messages still being sent last. A replaced row hands focus to the same control in its successor:
+ // each row control's first class names it (f-talk-like, f-talk-delete, f-talk-hide, the last also for Unhide).
+ const later=(a,b)=>Boolean(a)&&(a.createdAt>b.createdAt||(a.createdAt===b.createdAt&&a.id>b.id));
+ const normal=view=>({...view,files:Array.isArray(view.files)?view.files:[]});
+ function upsert(view){
+  const next=normal(view),node=messageRow(next),old=rowsById.get(next.id);views.set(next.id,next);rowsById.set(next.id,node);
+  if(old){const active=document.activeElement,cls=active&&old.contains?.(active)?String(active.className||'').split(' ')[0]:'';old.replaceWith(node);if(cls)node.querySelector('.'+cls)?.focus();return false;}
+  const after=[...parts.log.children].find(child=>child.dataset.pending==='1'||later(views.get(child.dataset.id),next));if(after)after.before(node);else parts.log.append(node);return true;
+ }
+ function drop(id){rowsById.get(id)?.remove();rowsById.delete(id);views.delete(id);}
+
+ // The header and the dock (pill, then the composer or the closed note) are built once per question and updated in place.
+ function whenLine(a){const line=el('p','f-talk-when');line.append(dateNode(a.date,'span','short','f-talk-day'));if(a.time)line.append(el('span','',a.time));if(a.venue)line.append(source('span',a.venue,'f-talk-venue'));return line;}
+ function blockHead(a){return a?[tr('p','talkPage','f-talk-kicker'),source('h1',a.title,'f-talk-title'),whenLine(a)]:[tr('p','talkPage','f-talk-kicker')];}
+ function renderHead(){
+  const nodes=blockHead(activity);if(question.talk)nodes.push(source('p',question.talk,'f-talk-talk'));if(question.status==='hidden')nodes.push(tr('p','talkHidden','f-talk-flag'));
+  nodes.push(source('blockquote',question.body,'f-talk-question'));if(parts.more)nodes.push(parts.more);parts.head.replaceChildren(...nodes);
+ }
+ function questionList(list){
+  const ul=el('ul','f-talk-list');
+  for(const q of list){const li=el('li'),a=el('a','f-talk-pick');a.href='fiiu-talk.html?q='+encodeURIComponent(q.id);a.append(source('span',q.body,'f-talk-pick-body'));if(q.talk)a.append(source('span',q.talk,'f-talk-pick-talk'));
+   if(q.status!=='open')a.append(tr('span',q.status==='hidden'?'talkHidden':'talkClosedChip','f-talk-flag'));li.append(a);ul.append(li);}
+  return ul;
+ }
+ function showSiblings(list){
+  if(!parts||!Array.isArray(list))return;const others=sorted(list.filter(q=>q?.id&&q.id!==question.id));parts.more=null;
+  if(others.length){const more=el('details','f-talk-more');more.append(tr('summary','talkOtherQuestions'),questionList(others),link('talkBackToBlock','fiiu-talk.html?a='+encodeURIComponent(question.activityId),'f-text-link'));parts.more=more;}
+  renderHead();
+ }
+ function renderDock(){
+  if(!parts)return;const state=isOpen()&&me.canPost?'composer':question.status==='closed'?'closed':'none';
+  // Only a change of state touches the dock: moving the composer would drop its focus and the phone keyboard with it.
+  if(parts.dockState===state)return;parts.dockState=state;
+  parts.dock.replaceChildren(parts.pill,...(state==='composer'?[ensureComposer().form]:state==='closed'?[tr('p','talkClosed','f-talk-closed')]:[]));
+ }
+ function setStatus(state){
+  if(!question||!(parts||wall))return;question.status=state;me.canPost=state==='open';if(wall)return renderWallHead();renderHead();renderDock();
+  for(const node of rowsById.values()){const like=node.querySelector('.f-talk-like');if(like)like.disabled=state!=='open';}
+ }
+ function build(){
+  const box=el('section','f-talk'),head=el('header','f-talk-head'),earlier=button('talkLoadEarlier',()=>loadEarlier(),'f-button secondary f-talk-earlier'),log=el('ol','f-talk-log'),empty=tr('p','talkEmpty','f-talk-empty'),dock=el('div','f-talk-dock');
+  const pill=button('talkNew',()=>{pill.hidden=true;toBottom(true);},'f-talk-new');pill.hidden=true;pill.setAttribute('aria-live','polite');
+  log.setAttribute('role','log');log.setAttribute('aria-live','off');log.setAttribute('aria-label',t('talkPage'));dock.append(pill);box.append(head,earlier,log,empty,dock);
+  root.replaceChildren(box,newTabNote());parts={box,head,earlier,log,empty,dock,pill,more:null,dockState:''};
+ }
+ // A reload of the same question (a reset, or a status the pulse cannot carry) rebuilds the rows but keeps the header nodes, the composer and its draft.
+ function show(data){
+  const again=question?.id===data.question.id;
+  question={...data.question};activity=data.activity||activity;me={organiser:Boolean(data.me?.organiser),canPost:data.me?.canPost!==false&&question.status==='open'};
+  before=typeof data.before==='string'?data.before:null;known=Number(data.revision)||Number(question.revision)||0;
+  // The projector is for organisers; anyone else who opens its address gets the chat.
+  if(present&&me.organiser)return showWall(data,again);
+  unwall();const same=Boolean(parts)&&again;
+  if(!same)build();renderHead();rowsById.clear();views.clear();parts.log.replaceChildren();
+  for(const view of Array.isArray(data.messages)?data.messages:[])if(view?.id)upsert(view);
+  for(const attempt of attempts.values())if(attempt.row)parts.log.append(attempt.row);
+  parts.earlier.hidden=!before;parts.log.setAttribute('aria-label',t('talkPage'));renderDock();updateEmpty();setTitle();if(!same)toBottom(false);
+ }
+
+ // Access states replace the page; polling stops until a question is shown again.
+ function halt(){if(timer!==null)clearInterval(timer);timer=null;question=null;parts=null;unwall();}
+ function block(title,hint,...actions){
+  halt();const box=el('section','f-locked f-talk-locked'),row=el('div','f-actions');row.append(...actions);box.append(tr('h1',title),...(hint?[tr('p',hint)]:[]),row);
+  root.replaceChildren(box,newTabNote());status(message,'');setTitle();
+ }
+ const unavailable=()=>block('talkUnavailable','',activity?link('talkBackToBlock','fiiu-talk.html?a='+encodeURIComponent(activity.id),'f-button secondary'):link('viewProgramme','fiiu.html#programme','f-button secondary'));
+ // An outage is reported as one, never as "signed out" (the fiiu.js rule).
+ function access(error){
+  if(error?.status===401)return block('talkSignIn','talkSignInHint',link('signin','login.html?next='+encodeURIComponent(location.pathname+location.search),'f-button'));
+  if(error?.status===403&&error.code==='not_registered')return block('talkRegister','talkRegisterHint',link('register','fiiu.html#registration','f-button'));
+  if(error?.status===404||error?.status===400)return unavailable();
+  return block(keyOf(error)==='talkRate'?'talkRate':'talkError','',button('retry',()=>start()));
+ }
+
+ // Polling. A tick is skipped while the tab is hidden, while one is running and during the backoff after errors (4 s doubling to at most 60 s).
+ function startPolling(){if(timer===null)timer=setInterval(()=>tick(),POLL);}
+ async function tick(){
+  if(!question||busy||document.visibilityState!=='visible'||Date.now()<nextAt)return;
+  busy=true;const id=question.id;
+  try{
+   // The public pulse leaves hidden questions out, so an organiser reading one asks for its changes directly.
+   if(me.organiser&&question.status==='hidden')await changes(id,true);
+   else{
+    const pulse=await api('/api/fiiu/pulse'),entry=(Array.isArray(pulse.questions)?pulse.questions:[]).find(item=>Array.isArray(item)&&item[0]===id);
+    if(question?.id!==id)return;
+    // Gone from the pulse: hidden since it was opened. Reading it again says so (or, for an organiser, shows it hidden).
+    if(!entry)await reload(id);
+    // The CDN can serve a pulse seconds old, so its status counts only with a revision newer than the page's (a status change bumps the revision):
+    // a stale "open" never brings back a composer that a question_closed refusal or a fresh read just removed.
+    else{const [, , revision,state]=entry;if(Number(revision)>known){const moved=state!==question.status;if(moved)setStatus(state);await changes(id,!moved);}}
+   }
+   failures=0;nextAt=0;if(message.dataset.fiiuText==='talkPaused')status(message,'');
+   if(wall?.qr==='failed'&&Date.now()>=wall.qrAt)loadQr(id);
+  }catch(error){
+   if([401,403,404].includes(error?.status))return access(error);
+   failures++;nextAt=Date.now()+Math.min(60000,POLL*2**failures);status(message,'talkPaused');
+  }finally{busy=false;}
+ }
+ async function changes(id,header){
+  const prior=known,data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages?since='+prior);if(question?.id!==id)return;
+  if(data.reset)return reload(id);
+  const list=Array.isArray(data.changes)?data.changes:[];
+  // The projector keeps every change, older ones included: a like on an early answer can lift it into Most liked.
+  if(wall){for(const change of list)if(change?.id){if(change.gone)views.delete(change.id);else views.set(change.id,normal(change));}renderWall();}
+  else{
+   // While earlier pages are not loaded, a change to a message older than the first loaded row (a like or an unhide bumps its seq) waits for
+   // "Load earlier", which brings it fresh: shown now it would sit out of context above the gap and raise the pill with nothing new below.
+   const first=before?views.get([...parts.log.children].find(child=>child.dataset.id)?.dataset.id):null;
+   patch(note=>{for(const change of list){if(!change?.id)continue;if(change.gone)drop(change.id);else if(!(first&&!rowsById.has(change.id)&&later(first,change)))note(change,upsert(change));}});
+  }
+  if(Number.isFinite(data.revision))known=Math.max(known,data.revision);
+  // A revision that moved with no message in it was the question itself: its text or talk changed (the pulse already carried any status).
+  // One that did not move needs no read: an organiser on a hidden question asks for changes on every tick, without the pulse.
+  if(!list.length&&header&&Number(data.revision)>prior){const fresh=await api('/api/fiiu/questions/'+encodeURIComponent(id));if(question?.id===id&&fresh?.question){Object.assign(question,{body:fresh.question.body,talk:fresh.question.talk});setStatus(fresh.question.status);}}
+ }
+ async function reload(id){const data=await api('/api/fiiu/questions/'+encodeURIComponent(id));if(question?.id===id&&data?.question?.id)show(data);}
+
+ // Composer: text up to 1,000 characters (counted as the server counts them, in code points) and up to 3 images or PDFs.
+ function ensureComposer(){
+  if(composer)return composer;
+  const form=el('form','f-talk-composer'),label=tr('label','talkPlaceholder','f-sr-only'),textarea=el('textarea','f-talk-input'),input=el('input'),chips=el('ul','f-talk-chips'),tools=el('div','f-talk-tools');
+  const attach=button('talkAttach',()=>input.click(),'f-talk-act f-talk-attach'),send=tr('button','talkSend','f-button f-talk-send'),left=el('span','f-talk-left f-talk-n'),state=el('p','f-talk-status');
+  form.noValidate=true;textarea.id='f-talk-text';textarea.name='body';textarea.rows=2;textarea.maxLength=2*LIMIT;textarea.placeholder=t('talkPlaceholder');label.htmlFor=textarea.id;
+  input.type='file';input.multiple=true;input.accept=TYPES.join(',');input.hidden=true;input.tabIndex=-1;send.type='submit';left.hidden=true;chips.hidden=true;state.setAttribute('role','status');
+  tools.append(attach,chips,left);form.append(label,textarea,send,tools,input,state);
+  composer={form,textarea,input,chips,left,state,send,files:[]};
+  textarea.addEventListener('input',()=>{updateLeft();grow();});
+  textarea.addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){event.preventDefault();return submit();}});
+  input.addEventListener('change',()=>{choose([...(input.files||[])]);input.value='';});
+  form.addEventListener('submit',event=>{event.preventDefault();return submit();});
+  return composer;
+ }
+ // field-sizing grows the box where supported; elsewhere its height follows the text, and the stylesheet's max-height stops it at six lines.
+ function grow(){const box=composer.textarea;if(!box.style||globalThis.CSS?.supports?.('field-sizing','content'))return;box.style.height='auto';box.style.height=box.scrollHeight+'px';}
+ function updateLeft(){
+  const n=LIMIT-codePoints(composer.textarea.value.trim());composer.left.hidden=n>=100;
+  if(n<100)setCount(composer.left,n<0?'talkCharsOver':n===1?'talkCharLeft':'talkCharsLeft',{n:Math.abs(n)});
+ }
+ const say=value=>status(composer.state,value);
+ const typeOf=file=>file.type||({jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',webp:'image/webp',pdf:'application/pdf'})[String(file.name).split('.').pop().toLowerCase()]||'';
+ // Checked before any work: the count, the type, and a PDF's size (an image is resized, so its size is judged after).
+ function choose(files){
+  if(!files.length)return;if(composer.files.length+files.length>FILES)return say(problem('talkTooManyFiles'));
+  for(const file of files){const type=typeOf(file);if(!TYPES.includes(type))return say(problem('talkFileType'));if(type==='application/pdf'&&file.size>MAX)return say(problem('talkFileSize'));}
+  composer.files.push(...files);renderChips();say('');
+ }
+ function renderChips(){
+  const c=composer;c.chips.replaceChildren();c.chips.hidden=!c.files.length;
+  c.files.forEach((file,i)=>{
+   const chip=el('li','f-talk-chip'),name=el('span','f-talk-chip-name',file.name);name.id='f-talk-chip-'+i;
+   const remove=button('talkRemoveFile',()=>{c.files.splice(i,1);renderChips();c.textarea.focus();},'f-talk-act');remove.setAttribute('aria-describedby',name.id);chip.append(name,sizeNode(file.size),remove);c.chips.append(chip);
+  });
+ }
+
+ // Images are redrawn on the phone: a JPEG of at most 1600 px and a thumbnail of at most 480 px (which also drops location and camera data).
+ // Bytes travel as base64 read with FileReader, since the CSP allows no blob: URLs.
+ const read=blob=>new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>{const url=String(reader.result);resolve(url.slice(url.indexOf(',')+1));};reader.onerror=()=>reject(reader.error||Error('read'));reader.readAsDataURL(blob);});
+ function scaled(bitmap,edge){
+  const scale=Math.min(1,edge/Math.max(bitmap.width,bitmap.height)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));
+  // JPEG has no transparency: without a white ground a transparent PNG turns black.
+  const g=canvas.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,canvas.width,canvas.height);g.drawImage(bitmap,0,0,canvas.width,canvas.height);return canvas;
+ }
+ const jpeg=(canvas,quality)=>new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(Error('encode')),'image/jpeg',quality));
+ async function prepareFile(file){
+  const type=typeOf(file);
+  if(type==='application/pdf'){if(file.size>MAX)throw problem('talkFileSize');return {name:file.name,mime:type,data:await read(file)};}
+  if(!/^image\//.test(type))throw problem('talkFileType');
+  let full,thumb=null,width,height;
+  try{
+   const bitmap=await createImageBitmap(file,{imageOrientation:'from-image'});
+   try{const big=scaled(bitmap,1600),small=scaled(bitmap,480);width=big.width;height=big.height;full=await jpeg(big,0.85);let blob=await jpeg(small,0.7);if(blob.size>THUMB)blob=await jpeg(small,0.5);if(blob.size<=THUMB)thumb={blob,width:small.width,height:small.height};}
+   finally{bitmap.close?.();}
+  }catch{
+   // HEIC on Chrome or a damaged file: an allowed image the browser cannot redraw goes as it is, without a thumbnail, while it fits.
+   if(!IMAGES.includes(type))throw problem('talkFileType');if(file.size>MAX)throw problem('talkFileSize');
+   return {name:file.name,mime:type,data:await read(file)};
+  }
+  if(full.size>MAX)throw problem('talkFileSize');
+  const payload={name:(String(file.name).replace(/\.[^.]*$/,'')||'image')+'.jpg',mime:'image/jpeg',data:await read(full),width,height};
+  if(thumb)payload.thumb={mime:'image/jpeg',data:await read(thumb.blob),width:thumb.width,height:thumb.height};
+  return payload;
+ }
+ // An uploaded file is remembered by name, size and date, so a retry of the same draft never uploads it twice.
+ const fileKey=file=>[file.name,file.size,file.lastModified].join(':');
+ const sameFiles=(a,b)=>a.length===b.length&&a.every((file,i)=>fileKey(file)===fileKey(b[i]));
+ async function upload(file){
+  const id=fileKey(file);if(uploads.has(id))return uploads.get(id);
+  const data=await api('/api/fiiu/files',await prepareFile(file));if(typeof data?.file?.id!=='string')throw problem('talkError');uploads.set(id,data.file.id);return data.file.id;
+ }
+
+ // Sending. Each draft has a clientId: the server stores one message per clientId, so a retry after a lost answer never posts it twice.
+ function stateNode(key,vars){return vars?counted('span','f-talk-state',key,vars):tr('span',key,'f-talk-state');}
+ function mark(row,key,vars){row.querySelector('.f-talk-state')?.replaceWith(stateNode(key,vars));}
+ function pendingRow(attempt,failed=false){
+  const row=el('li','f-talk-msg is-mine '+(failed?'is-failed':'is-pending')),meta=el('p','f-talk-meta');row.dataset.pending='1';
+  meta.append(tr('strong','talkYou','f-talk-author'),stateNode(failed?'talkNotSent':'talkSending'));row.append(meta);if(attempt.body)row.append(linkify(attempt.body));
+  if(attempt.files.length){const list=el('ul','f-talk-pending-files');for(const file of attempt.files)list.append(el('li','',file.name));row.append(list);}
+  if(failed){const actions=el('div','f-talk-actions');actions.append(button('talkRetry',()=>deliver(attempt),'f-talk-act f-talk-retry'));row.append(actions);}
+  return row;
+ }
+ function submit(){
+  const c=composer,body=c.textarea.value.trim(),files=[...c.files];
+  if(!body&&!files.length){c.textarea.focus();return;}
+  if(codePoints(body)>LIMIT){say(problem('talkTooLong'));c.textarea.focus();return;}
+  // Sending the same draft again is its Retry (same clientId, same content), and a second tap while it is on its way does nothing.
+  const sig=body+'\n'+files.map(fileKey).join('|'),same=[...attempts.values()].find(item=>item.sig===sig);if(same?.state==='sending')return;
+  let attempt=same?.state==='failed'?same:null;if(!attempt){attempt={clientId:uuid(),body,files,sig,state:'new',row:null};attempts.set(attempt.clientId,attempt);}
+  return deliver(attempt);
+ }
+ async function deliver(attempt){
+  if(attempt.state==='sending'||!parts)return;attempt.state='sending';const row=pendingRow(attempt),id=question.id;
+  if(attempt.row)attempt.row.replaceWith(row);else parts.log.append(row);attempt.row=row;updateEmpty();toBottom(true);say('');
+  try{
+   const fileIds=[];
+   for(const [i,file] of attempt.files.entries()){mark(row,'talkUploading',{current:i+1,total:attempt.files.length});fileIds.push(await upload(file));}
+   mark(row,'talkSending');
+   const data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages',{clientId:attempt.clientId,body:attempt.body,fileIds});
+   if(typeof data?.message?.id!=='string')throw problem('talkError');
+   attempts.delete(attempt.clientId);for(const file of attempt.files)uploads.delete(fileKey(file));row.remove();attempt.row=null;
+   if(question?.id===id&&parts)patch(note=>note(data.message,upsert(data.message)));
+   const c=composer;if(!c)return;
+   if(c.textarea.value.trim()===attempt.body&&sameFiles(c.files,attempt.files)){c.textarea.value='';c.files=[];renderChips();updateLeft();grow();}
+   const active=document.activeElement;if(!active||active===document.body||c.form.contains?.(active))c.textarea.focus();
+  }catch(error){
+   const key=keyOf(error);
+   if(DRAFT.includes(key)){attempts.delete(attempt.clientId);row.remove();attempt.row=null;updateEmpty();say(problem(key));return;}
+   // A file the server no longer accepts for this message is uploaded again on the next try.
+   if(error?.code==='file_unavailable')for(const file of attempt.files)uploads.delete(fileKey(file));
+   attempt.state='failed';const failed=pendingRow(attempt,true);row.replaceWith(failed);attempt.row=failed;say(problem(key));
+   if(error?.code==='question_closed')setStatus('closed');
+  }
+ }
+ // Errors from likes, deletions and moderation show next to the composer, or in the page status when the question is closed.
+ function notify(error){status(parts?.dockState==='composer'?composer.state:message,problem(keyOf(error)));}
+ function patchLike(id,{likeCount,liked}){
+  const view=views.get(id);if(view)Object.assign(view,{likeCount,liked});const like=rowsById.get(id)?.querySelector('.f-talk-like');if(!like)return;
+  like.setAttribute('aria-pressed',String(liked));like.querySelector('.f-talk-like-n').textContent=String(likeCount);
+ }
+ // A like shows at once; the server's count then wins, and a failure puts the previous state back. One request per message at a time.
+ async function toggleLike(id){
+  const view=views.get(id);if(!view||liking.has(id)||!isOpen())return;liking.add(id);const was={likeCount:view.likeCount||0,liked:Boolean(view.liked)};
+  patchLike(id,{liked:!was.liked,likeCount:Math.max(0,was.likeCount+(was.liked?-1:1))});
+  try{const data=await api('/api/fiiu/messages/'+encodeURIComponent(id)+'/like',{},was.liked?'DELETE':'PUT');patchLike(id,{liked:Boolean(data.liked),likeCount:Math.max(0,Number(data.likeCount)||0)});}
+  catch(error){patchLike(id,was);notify(error);if(error?.code==='question_closed')setStatus('closed');}
+  finally{liking.delete(id);}
+ }
+ async function erase(id){
+  if(!window.confirm(t('talkDeleteConfirm')))return;
+  try{await api('/api/fiiu/messages/'+encodeURIComponent(id),{},'DELETE');patch(()=>drop(id));}
+  catch(error){if(error?.status===404)patch(()=>drop(id));else notify(error);}
+ }
+ // Organisers hide (PUT) and unhide (DELETE), one request per message at a time; the answer replaces the row, which stays on their screen, greyed.
+ // A message its author deleted meanwhile just leaves the screen.
+ async function moderate(id){
+  const view=views.get(id);if(!view||moderating.has(id))return;moderating.add(id);
+  try{const data=await api('/api/admin/fiiu/messages/'+encodeURIComponent(id)+'/hidden',{},view.hidden?'DELETE':'PUT');if(data?.message?.id&&parts)patch(note=>note(data.message,upsert(data.message)));}
+  catch(error){if(error?.status===404)patch(()=>drop(id));else notify(error);}
+  finally{moderating.delete(id);}
+ }
+ async function loadEarlier(){
+  if(!before||!parts)return;const control=parts.earlier,id=question.id,first=parts.log.children[0];control.disabled=true;
+  try{
+   const data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages?before='+encodeURIComponent(before));if(question?.id!==id)return;
+   for(const view of Array.isArray(data.messages)?data.messages:[])if(view?.id&&!rowsById.has(view.id))upsert(view);
+   before=typeof data.before==='string'?data.before:null;control.hidden=!before;updateEmpty();first?.scrollIntoView?.({block:'start'});
+  }catch(error){notify(error);}finally{control.disabled=false;}
+ }
+
+ // Projector (?q=…&present=1, organisers only): the question as the headline, a QR code to join and the 12 latest or most liked answers, for the room's
+ // screen. It follows the chat's poll, and has no composer, likes or moderation.
+ function buildWall(){
+  const box=el('section','f-talk-wall'),head=el('header','f-talk-wall-head'),code=el('div','f-talk-wall-code'),tools=el('div','f-talk-wall-tools'),sorts=el('div','f-talk-sorts'),feed=el('ol','f-talk-wall-feed'),empty=tr('p','talkEmpty','f-talk-wall-empty');
+  const switches=[['latest','talkLatest'],['top','talkTop']].map(([mode,label])=>{const b=button(label,()=>{order=mode;renderWall();},'f-talk-sort');b.dataset.sort=mode;return b;});sorts.append(...switches);tools.append(sorts);
+  // Full screen takes the whole page where the browser allows it (not on iPhone); the label follows the state, Esc included (fullscreenchange, below).
+  let full=null;
+  if(document.fullscreenEnabled!==false&&typeof document.documentElement?.requestFullscreen==='function'){full=button('talkFullscreen',()=>document.fullscreenElement?document.exitFullscreen?.():document.documentElement.requestFullscreen?.()?.catch?.(()=>{}),'f-button secondary f-talk-full');tools.append(full);}
+  // The empty square holds the code's place, so the headline does not jump when it arrives.
+  code.append(el('div','f-talk-wall-qr'));box.append(head,code,tools,feed,empty);root.replaceChildren(box);parts=null;document.body.classList.add('f-talk-present');
+  wall={head,code,feed,empty,switches,full,svg:null,qr:'loading',qrAt:0,cards:new Map()};
+ }
+ function renderWallHead(){
+  const nodes=activity?[source('p',activity.title,'f-talk-wall-block'),whenLine(activity)]:[];if(question.talk)nodes.push(source('p',question.talk,'f-talk-talk'));
+  if(question.status!=='open')nodes.push(tr('p',question.status==='hidden'?'talkHidden':'talkClosedChip','f-talk-flag'));
+  // The headline is 3 to 5 % of the screen's width; a long question steps down so the answers still fit under it.
+  nodes.push(source('h1',question.body,'f-talk-wall-question'+(codePoints(question.body)>LONG?' is-long':'')));wall.head.replaceChildren(...nodes);
+ }
+ // An answer on the projector: the name, the organiser label and its likes, then the text (four lines at most, in the stylesheet) and thumbnails.
+ function wallCard(m){
+  const card=el('li','f-talk-wall-msg'),meta=el('p','f-talk-wall-meta');card.dataset.id=m.id;meta.append(el('strong','f-talk-author',m.author||''));if(m.organiser)meta.append(tr('span','talkOrganiser','f-talk-org'));
+  if(m.likeCount>0)meta.append(counted('span','f-talk-wall-likes',m.likeCount===1?'talkLikeOne':'talkLikes',{n:m.likeCount}));card.append(meta);
+  if(m.body){const text=el('p','f-talk-wall-body',m.body);text.translate=true;card.append(text);}
+  if(m.files.length){
+   const box=el('div','f-talk-wall-files');
+   for(const file of m.files){
+    if(!/^image\//.test(file.mime)){box.append(el('span','f-talk-wall-file','PDF · '+(file.name||'')));continue;}
+    const img=el('img');img.src='/api/fiiu/files/'+encodeURIComponent(file.id)+'?size=thumb';img.alt=file.name||'';img.decoding='async';if(Number.isInteger(file.width)&&Number.isInteger(file.height)){img.width=file.width;img.height=file.height;}box.append(img);
+   }
+   card.append(box);
+  }
+  return card;
+ }
+ // Latest is newest first; Most liked sorts by likes, then newest. Hidden messages (organisers receive them) never reach the room.
+ const newest=(a,b)=>later(a,b)?-1:later(b,a)?1:0;
+ function renderWall(){
+  if(!wall)return;const list=[...views.values()].filter(view=>!view.hidden).sort(order==='top'?(a,b)=>(b.likeCount||0)-(a.likeCount||0)||newest(a,b):newest).slice(0,WALL),cards=new Map();
+  // A card is rebuilt only when its message changed (a new seq); the others move as they are, so their thumbnails are not fetched again.
+  for(const m of list){const id=m.id+':'+m.seq;cards.set(id,wall.cards.get(id)||wallCard(m));}
+  wall.cards=cards;wall.feed.replaceChildren(...cards.values());wall.empty.hidden=list.length>0;
+  for(const b of wall.switches)b.setAttribute('aria-pressed',String(b.dataset.sort===order));
+ }
+ // The join code arrives as module bits (row-major, most significant bit first) and is drawn as one SVG path inside a 4-module quiet zone. This copies
+ // drawQr from fiiu-qr.js on purpose: the check-in screen is on the festival's critical path, so this page neither imports from it nor changes it.
+ function drawQr(qr){
+  const size=qr?.size;if(!Number.isInteger(size)||size<21||size>177||typeof qr.bits!=='string')return null;
+  let bytes;try{bytes=Uint8Array.from(atob(qr.bits),c=>c.charCodeAt(0));}catch{return null;}
+  if(bytes.length*8<size*size)return null;
+  const dark=i=>(bytes[i>>3]>>(7-(i&7)))&1,side=size+8;let d='';
+  for(let y=0;y<size;y++)for(let x=0;x<size;){if(!dark(y*size+x)){x++;continue;}let run=1;while(x+run<size&&dark(y*size+x+run))run++;d+=`M${x+4} ${y+4}h${run}v1h-${run}z`;x+=run;}
+  const svg=document.createElementNS(SVG,'svg'),back=document.createElementNS(SVG,'rect'),path=document.createElementNS(SVG,'path');
+  svg.setAttribute('viewBox',`0 0 ${side} ${side}`);svg.setAttribute('class','f-talk-qr-svg');svg.setAttribute('role','img');svg.setAttribute('aria-label',t('talkScanToJoin'));
+  back.setAttribute('width',String(side));back.setAttribute('height',String(side));back.setAttribute('fill','#fff');
+  path.setAttribute('d',d);path.setAttribute('fill','#000');path.setAttribute('shape-rendering','crispEdges');svg.append(back,path);return svg;
+ }
+ // Under the code, an address people can type from their seat: the block's (?a=), which lists its questions and opens this one when it is the only one.
+ // The code itself carries the exact ?q= address. The server's origin (PUBLIC_BASE_URL) wins; without an answer, this page's own.
+ function typedAddress(url){try{const at=new URL(url);return at.host+at.pathname+'?a='+encodeURIComponent(question.activityId);}catch{return '';}}
+ async function loadQr(id){
+  if(!wall)return;wall.qr='loading';let data=null,failed=false;
+  try{data=await api('/api/admin/fiiu/questions/'+encodeURIComponent(id)+'/qr');}catch{failed=true;}
+  if(!wall||question?.id!==id)return;
+  // A failed request is tried again by the poll once a minute. A code the encoder could not draw is final: the room keeps the question, the answers
+  // and the address.
+  const svg=drawQr(data?.qr),address=typedAddress(typeof data?.url==='string'?data.url:location.href);Object.assign(wall,{svg,qr:failed?'failed':'done',qrAt:Date.now()+60000});
+  wall.code.replaceChildren(...(svg?[tr('p','talkScanToJoin','f-talk-wall-scan'),svg]:[]),...(address?[el('p','f-talk-wall-url',address)]:[]));wall.code.hidden=!svg&&!address;
+ }
+ function showWall(data,again){
+  if(!wall||!again){buildWall();loadQr(question.id);}
+  views.clear();rowsById.clear();for(const view of Array.isArray(data.messages)?data.messages:[])if(view?.id)views.set(view.id,normal(view));
+  renderWallHead();renderWall();setTitle();
+ }
+ // Leaving the projector (for an access state, or the chat once someone is no longer an organiser) gives back the page's layout and the screen lock.
+ function unwall(){if(!wall)return;wall=null;document.body.classList.remove('f-talk-present');lock?.release?.()?.catch?.(()=>{});lock=null;}
+ // The projector keeps the screen awake. Browsers drop the lock while the tab is hidden, so it is asked for again when the tab returns.
+ function wake(){
+  if(!wall||waking||(lock&&!lock.released)||!globalThis.navigator?.wakeLock)return;waking=true;
+  navigator.wakeLock.request('screen').then(next=>{if(wall)lock=next;else next.release?.();},()=>{}).finally(()=>{waking=false;});
+ }
+
+ // Questions open first, then newest.
+ const sorted=list=>[...list].sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1)||String(b.createdAt).localeCompare(String(a.createdAt)));
+ async function openBlock(id){
+  status(message,'loading');let data;
+  try{data=await api('/api/fiiu/questions?activityId='+encodeURIComponent(id));}catch(error){return access(error);}
+  status(message,'');activity=data.activity||null;const list=sorted(Array.isArray(data.questions)?data.questions.filter(q=>q?.id):[]);
+  if(list.length===1){history.replaceState(null,'',location.pathname+'?q='+encodeURIComponent(list[0].id));return openQuestion(list[0].id,list);}
+  const box=el('section','f-talk f-talk-block'),head=el('header','f-talk-head');head.append(...blockHead(activity));box.append(head);
+  if(list.length)box.append(tr('h2','talkQuestions','f-talk-subhead'),questionList(list));
+  else{const actions=el('div','f-actions');actions.append(link('viewProgramme','fiiu.html#programme','f-button secondary'));box.append(tr('p','talkEmptyBlock','f-talk-empty'),actions);}
+  root.replaceChildren(box,newTabNote());setTitle();
+ }
+ async function openQuestion(id,list=null){
+  status(message,'loading');let data;
+  try{data=await api('/api/fiiu/questions/'+encodeURIComponent(id));}catch(error){return access(error);}
+  status(message,'');if(!data?.question?.id)return access(null);
+  show(data);startPolling();if(wall)return wake();
+  if(list)showSiblings(list);else api('/api/fiiu/questions?activityId='+encodeURIComponent(question.activityId)).then(result=>{if(question?.id===data.question.id)showSiblings(result.questions);},()=>{});
+ }
+ function start(){
+  const params=new URLSearchParams(location.search),q=params.get('q')||'',a=params.get('a')||'';
+  // The projector shows one question (?q=), never a block's list.
+  present=UUID.test(q)&&params.get('present')==='1';
+  setTitle();if(UUID.test(q))return openQuestion(q);if(!q&&ID.test(a))return openBlock(a);status(message,'');unavailable();
+ }
+
+ // A language switch: refresh() in fiiu-ui.js rewrites the plain keys; the numbers, sizes and attributes are rewritten here.
+ function relabel(){
+  // The composer's counter has no key until it first shows (updateLeft() below relabels it); without this guard t(undefined) would stop the switch here.
+  setTitle();root.querySelectorAll('.f-talk-n').forEach(node=>{if(node.dataset.talkKey)setCount(node,node.dataset.talkKey,JSON.parse(node.dataset.talkVars||'{}'));});
+  root.querySelectorAll('.f-talk-size').forEach(node=>{node.textContent=sizeText(Number(node.dataset.talkSize));});
+  if(parts)parts.log.setAttribute('aria-label',t('talkPage'));if(composer){composer.textarea.placeholder=t('talkPlaceholder');updateLeft();}
+  wall?.svg?.setAttribute('aria-label',t('talkScanToJoin'));
+ }
+ window.nodalI18n?.onChange(relabel);
+ document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible')return;wake();nextAt=0;return tick();});
+ document.addEventListener('fullscreenchange',()=>{const full=wall?.full;if(!full)return;const name=document.fullscreenElement?'exitFullScreen':'talkFullscreen';full.dataset.fiiuText=name;full.textContent=t(name);});
+ window.addEventListener('scroll',()=>{if(parts&&!parts.pill.hidden&&nearBottom())parts.pill.hidden=true;},{passive:true});
+ start();
+})();
