@@ -30,15 +30,20 @@
  // A card's foot is attached only once it holds something, so the link attaches it when it is the first thing there.
  const footTalk=(activity,titleId,host,foot)=>withTalk(activity,titleId,link=>{if(!foot.children.length)host.append(foot);foot.append(link);});
  function typeCounts(list){const counts={};for(const activity of list){const type=typeOf(activity);counts[type]=(counts[type]||0)+1;}return TYPES.filter(([type])=>counts[type]).map(([type,one,many])=>countLabel(counts[type],one,many));}
- // The hero follows the clock during the festival: once a minute it checks which block is next and whether it is under way, and redraws only when that changes,
- // giving focus back to the same link if it was in the hero.
+ // A redraw gives keyboard focus back to the same control when it was in a part being redrawn: the control is found again in that part by its text key or link
+ // and the block it describes, or the part's first control takes it. The view stays put, since the person may have scrolled away from the control meanwhile.
+ const focusMark=node=>(node.dataset?.fiiuText||node.getAttribute?.('href')||node.className)+'|'+(node.getAttribute?.('aria-describedby')||'');
+ function keepFocus(redraw,...hosts){
+  const active=document.activeElement,host=hosts.find(part=>part.contains?.(active)),mark=host&&focusMark(active);
+  redraw();if(!host||host.contains(active))return;
+  const controls=[...host.querySelectorAll('a,button,summary,.f-saved')];(controls.find(node=>focusMark(node)===mark)||controls[0])?.focus({preventScroll:true});
+ }
+ // The hero follows the clock during the festival: once a minute it checks which block is next and whether it is under way, and redraws only when that changes.
+ // The check stops after the last day, also on a page left open across it.
  let heroState='',heroTimer=null;
  const heroNow=()=>{const next=nextFor(me.registration,festival.event);return next?next.id+(underway(next)?':live':''):'';};
- function redrawHero(){
-  const active=document.activeElement,inHero=Boolean(heroHost.contains?.(active)),mark=inHero?active.dataset?.fiiuText||active.getAttribute?.('href'):null;
-  renderHero();if(inHero)([...heroHost.querySelectorAll('a,button')].find(node=>(node.dataset.fiiuText||node.getAttribute('href'))===mark)||heroHost.querySelector('a,button'))?.focus();
- }
- const followHero=()=>{if(heroNow()!==heroState)redrawHero();};
+ const redrawHero=()=>keepFocus(renderHero,heroHost);
+ const followHero=()=>{if(heroNow()!==heroState)redrawHero();if(limaDate()>festival.event.endsOn){clearInterval(heroTimer);heroTimer=null;}};
  function renderHero(){
   const event=festival.event,config=festival.config,registration=me.registration,copy=el('div','f-hero-copy'),title=el('h1','f-hero-title'),kicker=el('span','f-kicker');
   kicker.append(el('span','',event.title),source('span',event.city));title.append(kicker,source('span',event.theme,'f-hero-theme'));
@@ -190,8 +195,9 @@
   else registrationHost.scrollIntoView({block:'start'});
   return true;
  }
- function renderPanel(){
-  choiceInputs.clear();openForm=null;officialInput=null;syncForm=null;formDirty=()=>false;edited=null;panelIdle=()=>false;sizeObserver?.disconnect();stepObserver?.disconnect();status(message,'');panelBody.replaceChildren();showNotice(notice);notice='';
+ // redraw: the same saved registration drawn again (new conversation links), so the notice on screen (the summary email's address) stays.
+ function renderPanel(redraw=false){
+  choiceInputs.clear();openForm=null;officialInput=null;syncForm=null;formDirty=()=>false;edited=null;panelIdle=()=>false;sizeObserver?.disconnect();stepObserver?.disconnect();status(message,'');panelBody.replaceChildren();if(!redraw){showNotice(notice);notice='';}
   registrationHost.className='f-registration'+(!me.user||(!festival.config.registrationOpen&&!me.registration)?' is-compact':'');guestSignin=null;
   if(me.pending){panelBody.append(tr('p','registrationLoading','f-muted'));return;}
   if(me.failed){
@@ -240,7 +246,8 @@
    // Once registration closes there is no Edit, so changes go through the organisers (an incomplete registration's notice already says where).
    if(!festival.config.registrationOpen&&!missingAnswers(existing.answers))summary.append(tr('p','closedChanges','f-muted'));
   }
-  if(!festival.config.registrationOpen){panelBody.append(tr('p','closed','f-notice'),message,conflictBox);if(existing)panelIdle=()=>!busy;return;}
+  // A panel showing an error with its recovery action is not idle: a redraw would drop both.
+  if(!festival.config.registrationOpen){panelBody.append(tr('p','closed','f-notice'),message,conflictBox);if(existing)panelIdle=()=>!busy&&!conflictBox.children.length;return;}
   const a=existing?.answers??{},form=el('form','f-form'),feedback=el('div','f-form-feedback');form.hidden=!!existing;let currentVersion=existing?.version??0,currentId=existing?.id??null;
   // Validation state. localised: controls carrying a message set by onInvalid; customKeys: the "choose one" and accessibility rules; errorNotes: the persistent text cue
   // shown beside each flagged answer (the native bubble fades, and colour alone is not enough). The note sits inside the label, hidden from its name, and describes the control.
@@ -358,7 +365,7 @@
    try{sessionStorage.setItem(DRAFT,JSON.stringify({userId:expectedUserId,version:currentVersion,values}));}catch{/* Without storage the answers stay only on screen. */}
   }
   function touched(){dirty=true;keepDraft();}
-  edited=touched;formDirty=()=>dirty&&!busy;panelIdle=()=>Boolean(existing)&&form.hidden&&!dirty&&!busy;
+  edited=touched;formDirty=()=>dirty&&!busy;panelIdle=()=>Boolean(existing)&&form.hidden&&!dirty&&!busy&&!conflictBox.children.length;
   // The first form drawn after the page loads takes the tab's draft, once. Its answers are set, then the dependent fields follow, and an #add- block ticks on top.
   // An edit opens the form on it; a new registration can drop it. Either way the panel says the answers were kept and are not saved yet.
   if(!draftChecked){
@@ -467,7 +474,7 @@
   if(me.pending||Date.now()-lastLook<60000)return;lastLook=Date.now();
   const [counts,news]=await Promise.all([talkCounts?pulse({fresh:true}):null,api('/api/fiiu?kind=news').catch(()=>null)]);
   // The panel goes first: programme shortcuts point at its form's boxes.
-  if(counts&&!sameCounts(counts,talkCounts)){talkCounts=counts;if(panelIdle())renderPanel();renderProgramme();redrawHero();}
+  if(counts&&!sameCounts(counts,talkCounts)){talkCounts=counts;const idle=panelIdle();keepFocus(()=>{if(idle)renderPanel(true);renderProgramme();renderHero();},heroHost,programmeHost,registrationHost);}
   else followHero();
   if(news&&Array.isArray(news.content)){newsFeed?.update(news);showLatest(news.content);}
  }

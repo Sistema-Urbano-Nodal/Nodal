@@ -817,6 +817,8 @@ function watchScrolls(){
  Node.prototype.querySelectorAll=function(selector){return /^#[\w-]+$/.test(selector)?descendants(this).filter(node=>node.id===selector.slice(1)):querySelectorAll.call(this,selector);};
  return{seen,restore(){Node.prototype.scrollIntoView=scrollIntoView;Node.prototype.querySelectorAll=querySelectorAll;}};
 }
+// Node.contains as a browser has it, for the code that checks where focus is.
+function withContains(){const had=Object.hasOwn(Node.prototype,'contains'),before=Node.prototype.contains;Node.prototype.contains=function(node){for(let n=node;n;n=n.parent)if(n===this)return true;return false;};return()=>{if(had)Node.prototype.contains=before;else delete Node.prototype.contains;};}
 const at=hash=>({location:{hash,search:'',pathname:'/fiiu.html'}});
 
 test('a link to the news, the materials, the programme or a day lands there again once the registration redraws the page above it, unless the person has moved',async()=>{
@@ -849,4 +851,29 @@ test('Back after a link inside the page is the browser’s own restore: only a B
  const reload=await page('reload');assert.equal(reload.ctx.history.scrollRestoration,'auto');
  const failed=await harness({publicRead:()=>({status:503,data:{error:'unavailable'}}),context:{sessionStorage:storage,scrollTo(){},performance:{getEntriesByType:()=>[{type:'reload'}]}}});
  assert.ok(key(failed.root,'retry'));assert.equal(failed.ctx.history.scrollRestoration,'auto','a page that could not be drawn gives the restore back too');
+});
+
+test('coming back to the tab keeps keyboard focus on the same programme or summary control, and keeps the panel notice, when new conversations redraw them',async()=>{
+ const clock=movableClock('2026-10-12T08:00:00-05:00'),restore=withContains();let questions=[['10000000-0000-4000-8000-000000000001','day1-am',1,'open']];
+ try{
+  const write=request=>request.method==='DELETE'?{status:409,data:{error:'registration changed; reload before cancelling'}}:{registration:saved,confirmationEmail:'sent'};
+  const h=await harness({write,pulseRead:()=>({questions}),context:{Date:clock.Date}}),document=h.ctx.document;
+  const back=async more=>{questions=[...questions,more];clock.at+=61000;await h.visible(false);await h.visible(true);await flush();};
+  h.fill();await h.submit();const summary=h.root.querySelector('.f-saved'),notice=()=>h.root.querySelector('.f-registration').querySelector('.f-notice');assert.ok(key(notice(),'emailSent'));
+  document.activeElement=summary;await back(['10000000-0000-4000-8000-000000000002','day1-pm',1,'open']);
+  const redrawn=h.root.querySelector('.f-saved');assert.notEqual(redrawn,summary,'the itinerary was redrawn with its new link');assert.equal(redrawn.focused,true,'focus stays on the summary');
+  assert.ok(key(notice(),'emailSent'),'“Te enviamos un resumen a …” stays');
+  const add=key(cardOf(h,'Cuidar y transformar la ciudad'),'addToRegistration');document.activeElement=add;await back(['10000000-0000-4000-8000-000000000003','day2-pm',1,'open']);
+  const again=key(cardOf(h,'Cuidar y transformar la ciudad'),'addToRegistration');assert.notEqual(again,add,'the programme was redrawn');assert.equal(again.focused,true,'focus stays on the same block’s button');
+  assert.ok(!descendants(h.root).some(node=>node!==again&&node.focused&&node.dataset.fiiuText==='addToRegistration'),'no other block’s button takes it');
+  // A cancellation refused because the registration changed elsewhere shows its error and recovery action; a redraw keeps both.
+  h.ctx.window.confirm=()=>true;await key(h.root,'cancel').listeners.click();assert.ok(key(h.root,'reloadSaved'));
+  await back(['10000000-0000-4000-8000-000000000004','day3-am',1,'open']);assert.ok(key(h.root,'reloadSaved'),'the recovery action stays');assert.equal(talkLinks(h.root.querySelector('.f-programme')).length,4,'the programme still follows');
+ }finally{restore();}
+});
+
+test('the hero’s minute check stops once the festival is over, even on a page left open across the last day',async()=>{
+ const clock=movableClock('2026-10-25T20:00:00-05:00'),h=await harness({registration:saved,context:{Date:clock.Date}}),timer=()=>h.timers.find(item=>item.delay===60000);
+ assert.ok(timer());await h.tickTimers();assert.ok(!timer().cleared,'it runs through the last day');
+ clock.at=Date.parse('2026-10-26T00:01:00-05:00');await h.tickTimers();assert.equal(timer().cleared,true);
 });
