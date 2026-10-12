@@ -59,7 +59,8 @@
   const id=data.activityId||body.activityId,activity=find(id)||answered(data.activity,id),attendance=Array.isArray(data.attendance)?data.attendance:[],record=attendance.find(row=>row.activityId===id),at=Date.parse(data.checkedInAt||record?.createdAt);
   const time=Number.isFinite(at)?el('time','',limaClock(at)):null;if(time)time.dateTime=new Date(at).toISOString();
   // A check-in on another day than the block (any day before it) names that day: "Checked in on Wed 7 Oct at 10:00", since "Registrada a las" only fits a time.
-  const day=time&&activity&&limaDate(new Date(at))!==activity.date?limaDate(new Date(at)):'',when=time&&(day?dd(dateNode(day,'span','short','f-when-day'),space(),tr('span','atClock'),space(),time):dd(time));
+  // Without the block (a reload before the programme) the day is always named, as it cannot be compared.
+  const day=time&&(!activity||limaDate(new Date(at))!==activity.date)?limaDate(new Date(at)):'',when=time&&(day?dd(dateNode(day,'span','short','f-when-day'),space(),tr('span','atClock'),space(),time):dd(time));
   let hours=festival?hoursLine(attendance,festival.event):null;
   if(!festival&&Number.isSafeInteger(data.hours?.hours)){hours=el('p','f-hours');hours.append(countLabel(data.hours.hours,'hoursConfirmed','hoursConfirmed'));}
   const earned=festival?el('div','f-badges'):null;if(earned)badges(earned,attendance,festival.event,{heading:'h2'});

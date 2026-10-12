@@ -303,6 +303,8 @@ test('a reload waits for the programme only briefly once the registration has an
  const waits=[];const reply={registration:{id:'r1',version:1,answers:{activities:['day1-am']}},attendance,hours:{minutes:240,hours:4,untimed:[]},user:{id:'u1',email:'member@example.test'}};
  const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?new Promise(()=>{}):request.path==='/api/fiiu/registration'?reply:assert.fail(),{page:'fiiu-checkin',search:'?a=day1-am',context:{Date:frozen('2026-10-21T09:30:00-05:00'),setTimeout:(fn,ms)=>{waits.push(ms);fn();}}});
  assert.deepEqual(waits,[1500]);assert.equal(title(h).dataset.fiiuText,'alreadyCheckedIn');assert.equal(h.message.dataset.fiiuText,'');assert.match(content(result(h).querySelector('.f-hours')),/\b4\b/);
+ // The block is unknown until the programme arrives, so the check-in day is named rather than a bare "at 09:12".
+ const when=result(h).querySelector('.f-checkin-facts');assert.ok(key(when,'checkedInOn'));assert.equal(when.querySelector('.f-when-day').dataset.fiiuDate,'2026-10-21');
 });
 
 test('without the programme, a refusal for a typed code still links to the block the server names',async()=>{
