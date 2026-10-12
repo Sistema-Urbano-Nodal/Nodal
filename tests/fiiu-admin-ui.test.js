@@ -1317,3 +1317,24 @@ test('a status change made here while the same question is being edited does not
  const form=row().querySelector('form');assert.equal(field(form,'body').value,'Edited while hiding','the edit reopens on the latest version');assert.equal(field(form,'body').focused,true);
  await key(form,'saveQuestion').listeners.click();assert.equal(questionWrites(h).at(-1).body.version,9);
 });
+
+// The organiser at work: reaching a section from its link, the detail panel, door check-in on phones, search, the availability switch,
+// failed ticks, a question edit's conflict and a question's CSV.
+
+test('participant search matches every word anywhere in the name or email, so a given name and a surname find someone in either order',async()=>{
+ const ana={...participant('participant-a','Ana'),email:'agonzales@muni.example'},beto={...participant('participant-b','Beto'),email:'bq@example.test'};
+ ana.answers={...ana.answers,firstName:'Ana María',lastName:'Gonzales'};beto.answers={...beto.answers,firstName:'Beto',lastName:'Quispe'};
+ const h=await harness(()=>({content:[],nextCursor:null}),{participants:[beto,ana]}),timers=fakeTimers(h),search=field(h.root,'searchParticipants');
+ for(const [query,names] of [['Ana Gonzales',['Ana María Gonzales']],['gonzales ana',['Ana María Gonzales']],['Quispe Beto',['Beto Quispe']],['  maría   GONZÁLES ',['Ana María Gonzales']],['muni ana',['Ana María Gonzales']],['Ana Quispe',[]]]){
+  type(search,query);timers.run();assert.deepEqual(participantNames(h),names,query);
+ }
+});
+
+test('the pending-review shortcut clears a search left in the box, including one still waiting for its pause in typing',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{participants:[{...participant('participant-b','Bruno'),labStatus:'accepted'},participant('participant-a','Ana')]});
+ const timers=fakeTimers(h),search=field(h.root,'searchParticipants'),review=()=>key(h.root.querySelector('.f-admin-summary'),'reviewPendingAction').listeners.click();
+ type(search,'bruno');timers.run();assert.deepEqual(participantNames(h),['Bruno Test']);
+ review();assert.deepEqual(participantNames(h),['Ana Test'],'every pending application shows');assert.equal(search.value,'');assert.equal(key(h.root,'noMatches'),undefined);
+ key(h.root,'filterAll').listeners.click();type(search,'bru');review();timers.run();
+ assert.deepEqual(participantNames(h),['Ana Test'],'the search typed just before does not come back');assert.equal(search.value,'');
+});
