@@ -373,6 +373,14 @@ test('the consent and privacy wording name NODAL administrators, who can also re
  for(const name of ['privacyAccepted','privateHint'])rows[name].forEach((text,i)=>assert.match(text,[/FIIU organising team and NODAL administrators/,/equipo organizador del FIIU y la administración de NODAL/,/equipe organizadora do FIIU e a administração da NODAL/][i],name));
 });
 
+test('api() takes a per-call timeout and keeps 20 s for every other call',async()=>{
+ const limits=[],context={window:{nodalI18n:{lang:'en',onChange(){}}},document:{documentElement:{lang:'en'},querySelectorAll:()=>[]},Intl,Date,Error,
+  AbortSignal:{timeout:ms=>{limits.push(ms);return {ms};}},fetch:async()=>({ok:true,status:200,json:async()=>({ok:true})})};
+ vm.runInNewContext(readFileSync(new URL('../web/scripts/fiiu-ui.js',import.meta.url),'utf8'),context);const {api}=context.window.Fiiu;
+ await api('/api/fiiu/pulse');await api('/api/fiiu/files',{name:'a.pdf'},'POST',{timeout:120000});await api('/api/fiiu/messages/m/like',{},'PUT');
+ assert.deepEqual(limits,[20000,120000,20000]);
+});
+
 test('date and number formatters are built once per locale and style',()=>{
  let made=0;const counted=Base=>new Proxy(Base,{construct(target,args){made++;return new target(...args);}});
  const context={window:{nodalI18n:{lang:'en',onChange(){}}},document:{documentElement:{lang:'en'},querySelectorAll:()=>[],createElement:tag=>new Node(tag)},Intl:Object.create(Intl,{DateTimeFormat:{value:counted(Intl.DateTimeFormat)},NumberFormat:{value:counted(Intl.NumberFormat)}}),Date,Error};

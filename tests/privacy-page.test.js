@@ -143,4 +143,15 @@ test('festival conversations are described in every language: their data row aft
     assert.ok(section(lang, 4).includes(`<strong>${audience}:</strong>`), `${lang}: section 4 names who sees the messages`);
     assert.ok(section(lang, 9).includes(deletion), `${lang}: section 9 says what account deletion does to them`);
   }
+  // The row promises only what the chat page does: authors keep and can delete their hidden messages, and after cancelling (the page then needs a
+  // registration, which may be closed) the way to remove them is deleting the account, not registering again.
+  for (const [lang, hidden, own, cancel, never] of [
+    ['en', 'it then stays visible only to you and to administrators', 'You can delete your own messages, including hidden ones', 'after canceling, the way to remove them is deleting your account', 'registering again'],
+    ['es', 'desde entonces solo lo ven tú y los administradores', 'Puedes eliminar tus propios mensajes, también los ocultos', 'Después de cancelar, la forma de borrarlos es eliminar tu cuenta', 'volver a inscribirte'],
+    ['pt', 'a partir daí, só você e os administradores a veem', 'Você pode excluir suas próprias mensagens, inclusive as ocultas', 'Depois de cancelar, a forma de removê-las é excluir sua conta', 'se inscrever de novo'],
+  ]) {
+    const table = section(lang, 2);
+    for (const phrase of [hidden, own, cancel]) assert.ok(table.includes(phrase), `${lang}: ${phrase}`);
+    assert.ok(!table.includes(never), `${lang}: no promise the page cannot keep`);
+  }
 });

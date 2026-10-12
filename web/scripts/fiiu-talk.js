@@ -26,24 +26,29 @@
   talkRegister:['Register for FIIU to join','Inscríbete en el FIIU para participar','Inscreva-se no FIIU para participar'],talkRegisterHint:['Registering is free and takes two minutes.','La inscripción es gratuita y toma dos minutos.','A inscrição é gratuita e leva dois minutos.'],
   talkNew:['New messages ↓','Mensajes nuevos ↓','Novas mensagens ↓'],talkLoadEarlier:['Load earlier messages','Cargar mensajes anteriores','Carregar mensagens anteriores'],
   talkPaused:['Live updates paused. Reconnecting…','Actualizaciones en pausa. Reconectando…','Atualizações pausadas. Reconectando…'],
-  talkHide:['Hide','Ocultar','Ocultar'],talkUnhide:['Unhide','Mostrar','Mostrar'],talkHidden:['Hidden','Oculto','Oculta'],talkBackToBlock:['All questions on this block','Todas las preguntas de este bloque','Todas as perguntas deste bloco'],
+  talkHide:['Hide','Ocultar','Ocultar'],talkUnhide:['Unhide','Mostrar','Mostrar'],talkHidden:['Hidden','Oculto','Oculta'],talkHiddenForYou:['Hidden by the organisers','Oculto por la organización','Ocultada pela organização'],talkBackToBlock:['All questions on this block','Todas las preguntas de este bloque','Todas as perguntas deste bloco'],
   talkOpenFull:['Open full image','Abrir imagen completa','Abrir imagem completa'],talkError:['Something went wrong. Try again.','Algo salió mal. Inténtalo de nuevo.','Algo deu errado. Tente de novo.'],
   talkRate:['Too many messages at once. Wait a moment and try again.','Demasiados mensajes seguidos. Espera un momento e inténtalo de nuevo.','Muitas mensagens de uma vez. Aguarde um momento e tente de novo.'],
+  talkReused:['This message was sent before and then deleted. Retry to send it again as a new message.','Este mensaje ya se había enviado y luego se eliminó. Reintenta para enviarlo de nuevo como un mensaje nuevo.','Esta mensagem já tinha sido enviada e depois foi apagada. Tente de novo para enviá-la como uma nova mensagem.'],
+  talkNotRegistered:['You need a FIIU registration to take part.','Necesitas una inscripción en el FIIU para participar.','Você precisa de uma inscrição no FIIU para participar.'],
   talkPresent:['Projector view','Vista de proyección','Modo de projeção'],talkLatest:['Latest','Recientes','Recentes'],talkTop:['Most liked','Con más me gusta','Mais curtidas'],talkFullscreen:['Full screen','Pantalla completa','Tela cheia'],
   talkScanToJoin:['Scan to join the conversation','Escanea para unirte a la conversación','Escaneie para entrar na conversa'],
  });
  const root=document.getElementById('fiiuTalkRoot'),message=document.getElementById('fiiuStatus');
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,ID=/^[a-z0-9-]{1,60}$/;
- const LIMIT=1000,FILES=3,MAX=3*1024*1024,THUMB=100*1024,POLL=4000,NEAR=120,TYPES=['image/jpeg','image/png','image/webp','application/pdf'],IMAGES=TYPES.slice(0,3);
+ const LIMIT=1000,FILES=3,MAX=3*1024*1024,THUMB=100*1024,POLL=4000,NEAR=120,NAME=120,UPLOAD_MS=120000,TYPES=['image/jpeg','image/png','image/webp','application/pdf'],IMAGES=TYPES.slice(0,3);
  // The projector: answers on screen, and the question length above which its headline steps down so they still fit.
  const WALL=12,LONG=160,SVG='http://www.w3.org/2000/svg';
- // A file refused for what it is (type, size, the festival allowance) is the draft's problem: the row goes and the composer says why, since Retry cannot help.
- const DRAFT=['talkFileType','talkFileSize','talkAllowance','talkTooManyFiles'];
+ // A file refused for what it is (type, size, the festival allowance), or a sender without a registration, is the draft's problem: the row goes and the
+ // composer says why, since Retry cannot help.
+ const DRAFT=['talkFileType','talkFileSize','talkAllowance','talkTooManyFiles','talkNotRegistered'];
  let question=null,activity=null,me={organiser:false,canPost:false},before=null,known=0,parts=null,composer=null;
  let timer=null,busy=false,failures=0,nextAt=0;
  // present: the address asked for the projector (?q=…&present=1); wall: its parts while an organiser is shown it; order: 'latest' or 'top'.
  let present=false,wall=null,order='latest',lock=null,waking=false;
- const views=new Map(),rowsById=new Map(),attempts=new Map(),uploads=new Map(),liking=new Set(),moderating=new Set();
+ // liked: the messages this viewer likes. Changes carry no liked flag (one answer serves every viewer), so the page keeps its own: seeded by each full read,
+ // then moved by its own likes. liking: the outcome each like on its way will show, by message.
+ const views=new Map(),rowsById=new Map(),attempts=new Map(),uploads=new Map(),liked=new Set(),liking=new Map(),moderating=new Set();
  const problem=key=>Object.assign(Error(t(key)),{key});
  const fill=(key,vars)=>t(key).replace(/\{(\w+)\}/g,(all,name)=>name in vars?String(vars[name]):all);
  // Text with a number in it keeps its key and values, so a language switch can rewrite it (refresh() in fiiu-ui.js only knows plain keys).
@@ -53,8 +58,9 @@
  const sizeNode=bytes=>{const node=el('span','f-talk-size',sizeText(bytes));node.dataset.talkSize=String(bytes);return node;};
  const codePoints=text=>[...text].length;
  const setTitle=()=>{document.title='NODAL · '+t(wall?'talkPresent':'talkPage');};
- const keyOf=error=>error?.status===429?'talkRate':error?.code==='upload_allowance'?'talkAllowance':error?.code==='file_type'?'talkFileType':error?.code==='too_many_files'?'talkTooManyFiles'
-  :error?.status===413||error?.code==='file_size'?'talkFileSize':error?.code==='question_closed'?'talkClosed':error?.status===401?'unauthorized':/^talk[A-Z]/.test(error?.key||'')?error.key:'talkError';
+ // The server's refusal codes, each with its own explanation; anything else is "Something went wrong" (a Map, so no code can name an Object property).
+ const CODES=new Map(Object.entries({upload_allowance:'talkAllowance',file_type:'talkFileType',too_many_files:'talkTooManyFiles',file_size:'talkFileSize',question_closed:'talkClosed',not_registered:'talkNotRegistered',client_id_reused:'talkReused'}));
+ const keyOf=error=>error?.status===429?'talkRate':CODES.get(error?.code)||(error?.status===413?'talkFileSize':error?.status===401?'unauthorized':/^talk[A-Z]/.test(error?.key||'')?error.key:'talkError');
  const isOpen=()=>question?.status==='open';
  function uuid(){
   if(typeof globalThis.crypto?.randomUUID==='function')return globalThis.crypto.randomUUID();
@@ -106,19 +112,27 @@
   }
   return box;
  }
+ // A like on its way shows its outcome at once over the row's state from the server, which stays as the server last described it until the answer.
+ function likeShown(m){
+  const want=liking.get(m.id),count=m.likeCount||0;
+  return want===undefined||want===Boolean(m.liked)?{liked:Boolean(m.liked),likeCount:count}:{liked:want,likeCount:Math.max(0,count+(want?1:-1))};
+ }
  function likeButton(m){
-  const b=el('button','f-talk-like');b.type='button';b.setAttribute('aria-pressed',String(Boolean(m.liked)));b.disabled=!isOpen();
-  b.append(tr('span','talkLike','f-talk-like-label'),el('span','f-talk-like-n',String(m.likeCount||0)));b.addEventListener('click',()=>toggleLike(m.id));return b;
+  const b=el('button','f-talk-like'),shown=likeShown(m);b.type='button';b.setAttribute('aria-pressed',String(shown.liked));b.disabled=!isOpen();
+  b.append(tr('span','talkLike','f-talk-like-label'),el('span','f-talk-like-n',String(shown.likeCount)));b.addEventListener('click',()=>toggleLike(m.id));return b;
  }
  function messageRow(m){
   const row=el('li','f-talk-msg'+(m.mine?' is-mine':'')+(m.hidden?' is-hidden':'')),meta=el('p','f-talk-meta'),actions=el('div','f-talk-actions');
   row.dataset.id=m.id;row.dataset.seq=String(m.seq??'');meta.append(el('strong','f-talk-author',m.author||''));
   if(me.organiser&&m.authorFull&&m.authorFull!==m.author)meta.append(el('span','f-talk-full',m.authorFull));
-  if(m.organiser)meta.append(tr('span','talkOrganiser','f-talk-org'));if(m.hidden)meta.append(tr('span','talkHidden','f-talk-flag'));
+  // Organisers see every hidden message; a participant sees only their own, told who hid it.
+  if(m.organiser)meta.append(tr('span','talkOrganiser','f-talk-org'));if(m.hidden)meta.append(tr('span',me.organiser?'talkHidden':'talkHiddenForYou','f-talk-flag'));
   meta.append(when(m.createdAt));row.append(meta);if(m.body)row.append(linkify(m.body));if(m.files.length)row.append(filesOf(m.files));
-  // Your own message shows its likes as text and can be deleted, even once the question is closed.
-  if(m.mine){if(m.likeCount>0)actions.append(counted('span','f-talk-likes',m.likeCount===1?'talkLikeOne':'talkLikes',{n:m.likeCount}));actions.append(button('talkDelete',()=>erase(m.id),'f-talk-delete f-talk-act'));}
+  // Your own message and a hidden one show their likes as text: nobody likes their own, and the server refuses a like on a hidden one.
+  if(m.mine||m.hidden){if(m.likeCount>0)actions.append(counted('span','f-talk-likes',m.likeCount===1?'talkLikeOne':'talkLikes',{n:m.likeCount}));}
   else actions.append(likeButton(m));
+  // Your own message can be deleted even once the question is closed, or the organisers hid it.
+  if(m.mine)actions.append(button('talkDelete',()=>erase(m.id),'f-talk-delete f-talk-act'));
   if(me.organiser)actions.append(button(m.hidden?'talkUnhide':'talkHide',()=>moderate(m.id),'f-talk-hide f-talk-act'));
   row.append(actions);return row;
  }
@@ -126,8 +140,11 @@
  // each row control's first class names it (f-talk-like, f-talk-delete, f-talk-hide, the last also for Unhide).
  const later=(a,b)=>Boolean(a)&&(a.createdAt>b.createdAt||(a.createdAt===b.createdAt&&a.id>b.id));
  const normal=view=>({...view,files:Array.isArray(view.files)?view.files:[]});
+ function setLiked(id,on){if(on)liked.add(id);else liked.delete(id);const view=views.get(id);if(view)view.liked=on;}
+ // A view without a liked flag (every ?since= change) keeps the one the page has.
  function upsert(view){
-  const next=normal(view),node=messageRow(next),old=rowsById.get(next.id);views.set(next.id,next);rowsById.set(next.id,node);
+  if(typeof view.liked==='boolean')setLiked(view.id,view.liked);
+  const next={...normal(view),liked:liked.has(view.id)},node=messageRow(next),old=rowsById.get(next.id);views.set(next.id,next);rowsById.set(next.id,node);
   if(old){const active=document.activeElement,cls=active&&old.contains?.(active)?String(active.className||'').split(' ')[0]:'';old.replaceWith(node);if(cls)node.querySelector('.'+cls)?.focus();return false;}
   const after=[...parts.log.children].find(child=>child.dataset.pending==='1'||later(views.get(child.dataset.id),next));if(after)after.before(node);else parts.log.append(node);return true;
  }
@@ -172,6 +189,7 @@
   const again=question?.id===data.question.id;
   question={...data.question};activity=data.activity||activity;me={organiser:Boolean(data.me?.organiser),canPost:data.me?.canPost!==false&&question.status==='open'};
   before=typeof data.before==='string'?data.before:null;known=Number(data.revision)||Number(question.revision)||0;
+  liked.clear();seedLiked(data);
   // The projector is for organisers; anyone else who opens its address gets the chat.
   if(present&&me.organiser)return showWall(data,again);
   unwall();const same=Boolean(parts)&&again;
@@ -180,6 +198,9 @@
   for(const attempt of attempts.values())if(attempt.row)parts.log.append(attempt.row);
   parts.earlier.hidden=!before;parts.log.setAttribute('aria-label',t('talkPage'));renderDock();updateEmpty();setTitle();if(!same)toBottom(false);
  }
+
+ // A full read (the question, or earlier messages) may also list the ids of the messages this viewer likes.
+ function seedLiked(data){for(const id of Array.isArray(data?.liked)?data.liked:[])if(typeof id==='string')liked.add(id);}
 
  // Access states replace the page; polling stops until a question is shown again.
  function halt(){if(timer!==null)clearInterval(timer);timer=null;question=null;parts=null;unwall();}
@@ -203,15 +224,15 @@
   busy=true;const id=question.id;
   try{
    // The public pulse leaves hidden questions out, so an organiser reading one asks for its changes directly.
-   if(me.organiser&&question.status==='hidden')await changes(id,true);
+   if(me.organiser&&question.status==='hidden')await changes(id);
    else{
     const pulse=await api('/api/fiiu/pulse'),entry=(Array.isArray(pulse.questions)?pulse.questions:[]).find(item=>Array.isArray(item)&&item[0]===id);
     if(question?.id!==id)return;
     // Gone from the pulse: hidden since it was opened. Reading it again says so (or, for an organiser, shows it hidden).
     if(!entry)await reload(id);
-    // The CDN can serve a pulse seconds old, so its status counts only with a revision newer than the page's (a status change bumps the revision):
-    // a stale "open" never brings back a composer that a question_closed refusal or a fresh read just removed.
-    else{const [, , revision,state]=entry;if(Number(revision)>known){const moved=state!==question.status;if(moved)setStatus(state);await changes(id,!moved);}}
+    // The pulse only says that something moved past the page's revision. Its status is never applied: the CDN can serve one seconds old, and the
+    // changes answer carries the question as it is now.
+    else if(Number(entry[2])>known)await changes(id);
    }
    failures=0;nextAt=0;if(message.dataset.fiiuText==='talkPaused')status(message,'');
    if(wall?.qr==='failed'&&Date.now()>=wall.qrAt)loadQr(id);
@@ -220,9 +241,12 @@
    failures++;nextAt=Date.now()+Math.min(60000,POLL*2**failures);status(message,'talkPaused');
   }finally{busy=false;}
  }
- async function changes(id,header){
-  const prior=known,data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages?since='+prior);if(question?.id!==id)return;
+ async function changes(id){
+  const data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages?since='+known);if(question?.id!==id)return;
   if(data.reset)return reload(id);
+  // Every answer carries the question as it is now, so an edit or a close lands even when messages moved in the same window. It goes first, so rows
+  // drawn below already know whether the question is open.
+  applyQuestion(data.question);
   const list=Array.isArray(data.changes)?data.changes:[];
   // The projector keeps every change, older ones included: a like on an early answer can lift it into Most liked.
   if(wall){for(const change of list)if(change?.id){if(change.gone)views.delete(change.id);else views.set(change.id,normal(change));}renderWall();}
@@ -233,9 +257,12 @@
    patch(note=>{for(const change of list){if(!change?.id)continue;if(change.gone)drop(change.id);else if(!(first&&!rowsById.has(change.id)&&later(first,change)))note(change,upsert(change));}});
   }
   if(Number.isFinite(data.revision))known=Math.max(known,data.revision);
-  // A revision that moved with no message in it was the question itself: its text or talk changed (the pulse already carried any status).
-  // One that did not move needs no read: an organiser on a hidden question asks for changes on every tick, without the pulse.
-  if(!list.length&&header&&Number(data.revision)>prior){const fresh=await api('/api/fiiu/questions/'+encodeURIComponent(id));if(question?.id===id&&fresh?.question){Object.assign(question,{body:fresh.question.body,talk:fresh.question.talk});setStatus(fresh.question.status);}}
+ }
+ // The header is redrawn only when something in it changed, so a focused "More questions" summary keeps its focus on the other answers.
+ function applyQuestion(fresh){
+  if(!question||fresh?.id!==question.id||typeof fresh.body!=='string')return;
+  const talk=fresh.talk??null,edited=fresh.body!==question.body||talk!==(question.talk??null);if(edited)Object.assign(question,{body:fresh.body,talk});
+  if(['open','closed','hidden'].includes(fresh.status)&&fresh.status!==question.status)setStatus(fresh.status);else if(edited&&(wall||parts))(wall?renderWallHead:renderHead)();
  }
  async function reload(id){const data=await api('/api/fiiu/questions/'+encodeURIComponent(id));if(question?.id===id&&data?.question?.id)show(data);}
 
@@ -284,10 +311,18 @@
   // JPEG has no transparency: without a white ground a transparent PNG turns black.
   const g=canvas.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,canvas.width,canvas.height);g.drawImage(bitmap,0,0,canvas.width,canvas.height);return canvas;
  }
+ // The server refuses a file name over 160 characters (UTF-16 units, as it counts them), so one over 120 is cut here, by whole characters, keeping its
+ // extension: a long report title would otherwise fail on every Retry.
+ function fitName(name,fallback){
+  const full=String(name??'').trim()||fallback;if(full.length<=NAME)return full;
+  const dot=full.lastIndexOf('.'),ext=dot>0&&full.length-dot<=10?full.slice(dot):'';let stem='';
+  for(const ch of full.slice(0,full.length-ext.length)){if(stem.length+ch.length+ext.length>NAME)break;stem+=ch;}
+  return stem+ext;
+ }
  const jpeg=(canvas,quality)=>new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(Error('encode')),'image/jpeg',quality));
  async function prepareFile(file){
   const type=typeOf(file);
-  if(type==='application/pdf'){if(file.size>MAX)throw problem('talkFileSize');return {name:file.name,mime:type,data:await read(file)};}
+  if(type==='application/pdf'){if(file.size>MAX)throw problem('talkFileSize');return {name:fitName(file.name,'file.pdf'),mime:type,data:await read(file)};}
   if(!/^image\//.test(type))throw problem('talkFileType');
   let full,thumb=null,width,height;
   try{
@@ -297,19 +332,20 @@
   }catch{
    // HEIC on Chrome or a damaged file: an allowed image the browser cannot redraw goes as it is, without a thumbnail, while it fits.
    if(!IMAGES.includes(type))throw problem('talkFileType');if(file.size>MAX)throw problem('talkFileSize');
-   return {name:file.name,mime:type,data:await read(file)};
+   return {name:fitName(file.name,'image'),mime:type,data:await read(file)};
   }
   if(full.size>MAX)throw problem('talkFileSize');
-  const payload={name:(String(file.name).replace(/\.[^.]*$/,'')||'image')+'.jpg',mime:'image/jpeg',data:await read(full),width,height};
+  const payload={name:fitName((String(file.name).replace(/\.[^.]*$/,'')||'image')+'.jpg','image.jpg'),mime:'image/jpeg',data:await read(full),width,height};
   if(thumb)payload.thumb={mime:'image/jpeg',data:await read(thumb.blob),width:thumb.width,height:thumb.height};
   return payload;
  }
- // An uploaded file is remembered by name, size and date, so a retry of the same draft never uploads it twice.
+ // An uploaded file is remembered by name, size and date, so a retry of the same draft never uploads it twice. An upload has two minutes, not the 20 s of
+ // the JSON calls: a 3 MB PDF is about 4 MB of base64, which a phone sharing the venue's Wi-Fi may need over half a minute to send.
  const fileKey=file=>[file.name,file.size,file.lastModified].join(':');
  const sameFiles=(a,b)=>a.length===b.length&&a.every((file,i)=>fileKey(file)===fileKey(b[i]));
  async function upload(file){
   const id=fileKey(file);if(uploads.has(id))return uploads.get(id);
-  const data=await api('/api/fiiu/files',await prepareFile(file));if(typeof data?.file?.id!=='string')throw problem('talkError');uploads.set(id,data.file.id);return data.file.id;
+  const data=await api('/api/fiiu/files',await prepareFile(file),'POST',{timeout:UPLOAD_MS});if(typeof data?.file?.id!=='string')throw problem('talkError');uploads.set(id,data.file.id);return data.file.id;
  }
 
  // Sending. Each draft has a clientId: the server stores one message per clientId, so a retry after a lost answer never posts it twice.
@@ -341,7 +377,8 @@
    const data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages',{clientId:attempt.clientId,body:attempt.body,fileIds});
    if(typeof data?.message?.id!=='string')throw problem('talkError');
    attempts.delete(attempt.clientId);for(const file of attempt.files)uploads.delete(fileKey(file));row.remove();attempt.row=null;
-   if(question?.id===id&&parts)patch(note=>note(data.message,upsert(data.message)));
+   // A retry can find the message deleted since it was stored: it was delivered, so the draft goes as for any send, and no row is drawn for it.
+   if(question?.id===id&&parts)patch(note=>{if(data.message.gone)drop(data.message.id);else note(data.message,upsert(data.message));});
    const c=composer;if(!c)return;
    if(c.textarea.value.trim()===attempt.body&&sameFiles(c.files,attempt.files)){c.textarea.value='';c.files=[];renderChips();updateLeft();grow();}
    const active=document.activeElement;if(!active||active===document.body||c.form.contains?.(active))c.textarea.focus();
@@ -350,23 +387,30 @@
    if(DRAFT.includes(key)){attempts.delete(attempt.clientId);row.remove();attempt.row=null;updateEmpty();say(problem(key));return;}
    // A file the server no longer accepts for this message is uploaded again on the next try.
    if(error?.code==='file_unavailable')for(const file of attempt.files)uploads.delete(fileKey(file));
+   // The message stored under this clientId was deleted since, taking its files with it: the next try is a new message, with its files uploaded again.
+   if(error?.code==='client_id_reused'){attempts.delete(attempt.clientId);attempt.clientId=uuid();attempts.set(attempt.clientId,attempt);for(const file of attempt.files)uploads.delete(fileKey(file));}
    attempt.state='failed';const failed=pendingRow(attempt,true);row.replaceWith(failed);attempt.row=failed;say(problem(key));
    if(error?.code==='question_closed')setStatus('closed');
   }
  }
  // Errors from likes, deletions and moderation show next to the composer, or in the page status when the question is closed.
  function notify(error){status(parts?.dockState==='composer'?composer.state:message,problem(keyOf(error)));}
- function patchLike(id,{likeCount,liked}){
-  const view=views.get(id);if(view)Object.assign(view,{likeCount,liked});const like=rowsById.get(id)?.querySelector('.f-talk-like');if(!like)return;
-  like.setAttribute('aria-pressed',String(liked));like.querySelector('.f-talk-like-n').textContent=String(likeCount);
+ function paintLike(id){
+  const view=views.get(id),like=rowsById.get(id)?.querySelector('.f-talk-like');if(!view||!like)return;const shown=likeShown(view);
+  like.setAttribute('aria-pressed',String(shown.liked));like.querySelector('.f-talk-like-n').textContent=String(shown.likeCount);
  }
- // A like shows at once; the server's count then wins, and a failure puts the previous state back. One request per message at a time.
+ // A like shows at once and the server's answer then wins. A failure shows the row as the server last described it, which may be a count a sync brought
+ // while the like was on its way, never the count seen before the tap. One request per message at a time.
  async function toggleLike(id){
-  const view=views.get(id);if(!view||liking.has(id)||!isOpen())return;liking.add(id);const was={likeCount:view.likeCount||0,liked:Boolean(view.liked)};
-  patchLike(id,{liked:!was.liked,likeCount:Math.max(0,was.likeCount+(was.liked?-1:1))});
-  try{const data=await api('/api/fiiu/messages/'+encodeURIComponent(id)+'/like',{},was.liked?'DELETE':'PUT');patchLike(id,{liked:Boolean(data.liked),likeCount:Math.max(0,Number(data.likeCount)||0)});}
-  catch(error){patchLike(id,was);notify(error);if(error?.code==='question_closed')setStatus('closed');}
-  finally{liking.delete(id);}
+  const view=views.get(id);if(!view||view.mine||view.hidden||liking.has(id)||!isOpen())return;const was=Boolean(view.liked);liking.set(id,!was);paintLike(id);
+  try{
+   const data=await api('/api/fiiu/messages/'+encodeURIComponent(id)+'/like',{},was?'DELETE':'PUT');
+   setLiked(id,Boolean(data.liked));const now=views.get(id);if(now)now.likeCount=Math.max(0,Number(data.likeCount)||0);
+  }catch(error){
+   // 404: hidden or deleted a moment ago, which the next sync would also say.
+   if(error?.status===404){patch(()=>drop(id));return;}
+   notify(error);if(error?.code==='question_closed')setStatus('closed');
+  }finally{liking.delete(id);paintLike(id);}
  }
  async function erase(id){
   if(!window.confirm(t('talkDeleteConfirm')))return;
@@ -384,7 +428,7 @@
  async function loadEarlier(){
   if(!before||!parts)return;const control=parts.earlier,id=question.id,first=parts.log.children[0];control.disabled=true;
   try{
-   const data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages?before='+encodeURIComponent(before));if(question?.id!==id)return;
+   const data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages?before='+encodeURIComponent(before));if(question?.id!==id)return;seedLiked(data);
    for(const view of Array.isArray(data.messages)?data.messages:[])if(view?.id&&!rowsById.has(view.id))upsert(view);
    before=typeof data.before==='string'?data.before:null;control.hidden=!before;updateEmpty();first?.scrollIntoView?.({block:'start'});
   }catch(error){notify(error);}finally{control.disabled=false;}
