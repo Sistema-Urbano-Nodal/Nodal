@@ -7,8 +7,8 @@ import {FIIU_SQLITE_SCHEMA} from './fiiu-repository.js';
 
 /* Local mirror of 20261011120000_fiiu_conversations.sql. The triggers keep each question's revision (what the pulse
    publishes) and stamp every changed message with it as seq (attaching its files included), so the since-sync and the
-   counters stay right on every write path, the account-deletion cascade included. recursive_triggers is off, and the update triggers watch named
-   columns, never seq or revision, so their own writes cannot fire them again. As on profiles in Postgres, deleting an
+   counters stay right on every write path, the account-deletion cascade included. recursive_triggers is off, and the
+   update triggers watch named columns, never seq or revision, so their own writes cannot fire them again. As on profiles in Postgres, deleting an
    account blanks its messages first, so a deletion path that skips the application's scrub still leaves no text. */
 export const FIIU_TALK_SQLITE_SCHEMA=`
 CREATE TABLE IF NOT EXISTS fiiu_questions (id TEXT PRIMARY KEY,event_id TEXT NOT NULL,activity_id TEXT NOT NULL,talk TEXT,body TEXT NOT NULL,

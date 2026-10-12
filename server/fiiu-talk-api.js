@@ -62,10 +62,6 @@ export async function exportTalkData(store,userId){
   likedMessageIds,
  };
 }
-/* Before the account goes: its files (object, then row, so a Storage failure stops here and the deletion can be
-   retried), then the text and names of its messages (the conversation keeps a 'deleted message' placeholder), then its
-   likes. An upload under way could reach Storage after its row is gone, where nothing would find it again, so a recent
-   pending upload refuses for those few minutes; an older one is abandoned and cleared like the rest. */
 const busy=()=>fail('An upload is in progress. Try again in a few minutes.',409);
 // deleteTalkData's refusal, touching nothing, so the account deletion can run every check before erasing anything.
 export async function assertTalkDataDeletable(store,userId,{now=Date.now()}={}){
@@ -73,6 +69,10 @@ export async function assertTalkDataDeletable(store,userId,{now=Date.now()}={}){
  if(files.some(f=>f.status==='pending'&&now-Date.parse(f.createdAt)<UPLOAD_GRACE_MS))busy();
  return files;
 }
+/* Before the account goes: its files (object, then row, so a Storage failure stops here and the deletion can be
+   retried), then the text and names of its messages (the conversation keeps a 'deleted message' placeholder), then its
+   likes. An upload under way could reach Storage after its row is gone, where nothing would find it again, so a recent
+   pending upload refuses for those few minutes; an older one is abandoned and cleared like the rest. */
 export async function deleteTalkData(store,userId,{now=Date.now()}={}){
  const files=await assertTalkDataDeletable(store,userId,{now});
  for(const file of files){
@@ -243,8 +243,7 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
    }
    if(name==='question'){
     // The question is read first: its revision is the baseline the page syncs from, so a message written meanwhile is
-    // fetched again rather than missed.
-    // liked seeds the page's own like state, which since answers (shared between viewers) do not carry.
+    // fetched again rather than missed. liked seeds the page's own like state, which since answers do not carry.
     const {organiser}=await access(user),q=await questionFor(param,organiser),activity=talkActivity(q.activityId);
     const page=await store.latestMessages(q.id,{includeHidden:organiser,ownHidden:user.id,limit:TALK_LIMITS.page});
     const {list,liked}=await views(page.rows,{viewer:user.id,organiser});
