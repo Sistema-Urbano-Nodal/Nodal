@@ -497,6 +497,35 @@ test('the account export leaves out the text of a question that is now hidden, a
  assert.doesNotMatch(JSON.stringify(exported),/secreto/);
 });
 
+test('a refused account deletion erases nothing: every refusal is checked before the festival data goes',async t=>{
+ const {db,json,call,ask,post,upload,talkStore,users}=await setup(t);
+ const q=await ask(),file=(await upload()).body.file;
+ const mine=(await post(q,'mi aporte',{fileIds:[file.id]})).body.message,theirs=(await post(q,'otro',{actor:'other'})).body.message;
+ assert.equal((await json(`/api/fiiu/messages/${theirs.id}/like`,{method:'PUT',body:{}})).status,200);
+ const created=await json('/api/admin/courses',{actor:'admin',method:'POST',body:{title:'Movilidad',status:'published',startsOn:'2026-09-09'}});assert.equal(created.status,201);
+ const course=created.body.course,module=(await json(`/api/admin/courses/${course.id}/modules`,{actor:'admin',method:'POST',body:{title:'Primera sesión',status:'published'}})).body.module;
+ const erase=()=>json('/api/me',{method:'DELETE',body:{confirmEmail:'member@example.test'}});
+ const untouched=async why=>{
+  const refused=await erase();assert.equal(refused.status,409,why);
+  assert.equal((await talkStore.findMessage(mine.id)).body,'mi aporte',why);assert.equal((await talkStore.findFile(file.id))?.status,'ready',why);
+  assert.deepEqual(await talkStore.userLikes(users.member.id),[theirs.id],why);
+  assert.equal((await call('/api/auth/me')).status,200,why);
+  return refused.body.error;
+ };
+ // A course upload awaiting reconciliation, which an interrupted upload leaves with no time limit.
+ const attachment=randomUUID();
+ db.prepare("INSERT INTO course_attachments (id,course_id,module_id,user_id,purpose,name,mime,size,storage_path,status,created_at) VALUES (?,?,?,?,'post','notas.txt','text/plain',5,?,'pending',?)").run(attachment,course.id,module.id,users.member.id,`courses/${course.id}/${attachment}`,new Date(Date.now()-86400000).toISOString());
+ assert.match(await untouched('a course upload awaiting reconciliation'),/awaiting reconciliation/);
+ db.prepare('DELETE FROM course_attachments WHERE id=?').run(attachment);
+ // A certificate an organiser is uploading for this person right now.
+ const certificate=randomUUID();
+ db.prepare("INSERT INTO course_certificates (id,course_id,user_id,size,storage_path,status,created_at) VALUES (?,?,?,10,?,'pending',?)").run(certificate,course.id,users.member.id,`certificates/${certificate}`,new Date().toISOString());
+ assert.match(await untouched('a certificate being uploaded'),/certificate is being uploaded/);
+ db.prepare('DELETE FROM course_certificates WHERE id=?').run(certificate);
+ assert.equal((await erase()).status,200);
+ assert.equal(db.prepare('SELECT body FROM fiiu_messages WHERE id=?').get(mine.id).body,'');
+});
+
 test('per-account limits cap messages while the pulse is never rate limited',async t=>{
  const {ask,post,call}=await setup(t,{app:{talkLimits:{message:3}}});
  const q=await ask();

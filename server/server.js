@@ -15,7 +15,7 @@ import { createCourseApi, createByteBudget, DOWNLOAD_LIMITS } from './courses-ap
 import { createFiiuStore } from './fiiu-repository.js';
 import { createFiiuApi, exportFiiuData } from './fiiu-api.js';
 import { createTalkStore } from './fiiu-talk-repository.js';
-import { createTalkApi, exportTalkData, deleteTalkData } from './fiiu-talk-api.js';
+import { createTalkApi, exportTalkData, assertTalkDataDeletable, deleteTalkData } from './fiiu-talk-api.js';
 import { resolveCheckinSecret, checkinClock } from './fiiu-checkin.js';
 import { createRegistrationConfirmation } from './fiiu-email.js';
 import { encodeQr as encodeQrCode } from './qr.js';
@@ -24,7 +24,7 @@ import { createNewsApi } from './news-api.js';
 import { preparePageHtml } from './page-shell.js';
 import {createLocationProvider,validatePosition,validateCityId} from './location.js';
 import { createCourseParticipants } from './course-participants.js';
-import { exportCourseData, deleteCourseData } from './courses-privacy.js';
+import { exportCourseData, assertCourseDataDeletable, deleteCourseData } from './courses-privacy.js';
 import {
   paymentsConfig, createCheckoutSession, verifyStripeWebhook, CYCLES,
 } from './payments.js';
@@ -1654,7 +1654,11 @@ export function createApp({
           send(res, 409, { error: 'Cancel your NODAL membership before deleting your account. Contact NODAL if you need help cancelling it.', code: 'subscription_active' });
           return;
         }
-        // Festival files go before the account (their rows restrict it); an upload under way answers 409 to try again shortly.
+        /* Every refusal is checked before anything is erased: one after the festival data went would leave an active
+           account without its messages, files and likes. Festival files then go before the account (their rows
+           restrict it); an upload under way answers 409 to try again shortly. */
+        if(talkStore)await assertTalkDataDeletable(talkStore,sessionUser.id,{now:talkClock()});
+        if(courseStore)await assertCourseDataDeletable(courseStore,sessionUser.id);
         if(talkStore)await deleteTalkData(talkStore,sessionUser.id,{now:talkClock()});
         if(courseStore)await deleteCourseData(courseStore,sessionUser.id);
         await repository.deleteUserById(sessionUser.id);
