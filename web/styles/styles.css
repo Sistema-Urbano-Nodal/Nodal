@@ -410,6 +410,9 @@ h1, h2, h3 {
 }
 
 
+/* Positioned so its corner brackets and the node card (app.js places it in percent of the graph) anchor to the
+   graph itself: anchored to .wrap, the -1px corner widened every phone by a pixel and the card opened far from its node. */
+.graph-panel { position: relative; }
 .graph-panel::before, .graph-panel::after { content: ""; position: absolute; width: 18px; height: 18px; border: 2px solid var(--green-bright); }
 .graph-panel::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
 .graph-panel::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }

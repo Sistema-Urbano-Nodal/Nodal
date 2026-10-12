@@ -88,6 +88,13 @@ test('the language buttons say which language is on, and follow every change',()
   assert.deepEqual(h.langs.map(b=>b.attributes['aria-pressed']),['false','false','true']);
 });
 
+// Finding 39: the white wordmark disappeared over the white "How it works" section.
+test('the wordmark turns white only over dark sections, and the white platform section is not one',()=>{
+  const selector=harness().darkSelector();
+  assert.match(selector,/\.problem/);assert.doesNotMatch(selector,/\.platform\b/);
+  assert.match(read('styles/styles.css'),/\.platform\s*\{\s*background:\s*#fff/,'the platform section is white');
+});
+
 /* ---------------- shared header CSS (findings 36, 39, 52) ---------------- */
 const css=()=>read('styles/styles.css');
 function block(sheet,header){
@@ -119,3 +126,7 @@ test('language buttons reach 44px on touch screens in the desktop header too',()
   assert.match(block(css(),'@media (pointer: coarse)'),/\.lang-btn\s*\{[^}]*min-width:\s*44px;[^}]*min-height:\s*44px/);
 });
 
+test('the graph corners are drawn on the graph panel, not past the right edge of a phone',()=>{
+  // Without a positioned panel the absolute corners (and the node card) anchored to .wrap; the -1px corner widened every phone by 1px.
+  assert.match(css(),/\.graph-panel\s*\{\s*position:\s*relative;?\s*\}/);
+});
