@@ -12,7 +12,8 @@
   const title=document.getElementById('recoveryTitle');
   const another=document.getElementById('recoveryAnother');
   const params=new URLSearchParams(location.search);
-  let code=params.get('code')||'',busy=false;
+  // unsure: an earlier save got no answer, so the password may already be saved with this code.
+  let code=params.get('code')||'',busy=false,unsure=false;
   const providerError=params.has('error')||Boolean(location.hash);
   // No credentials enter storage or a general NODAL session. Remove callback
   // parameters before users follow links; keep the one-use code only in memory.
@@ -29,13 +30,20 @@
     for(const input of [email,password,confirm])input.disabled=value;
     for(const current of [requestForm,resetForm])current.querySelector('button[type="submit"]').disabled=value;
   }
+  // A request without a readable answer throws {lost}: 'offline' when fetch rejects (no network, or the connection
+  // dropped), 'timeout' after 45 s, 'unreadable' when the reply is not NODAL's JSON (a gateway error page, a venue
+  // Wi-Fi sign-in page). None of them says whether the server acted on it.
   async function post(path,body){
     // Safari before 16 (every iOS 15 browser) has no AbortSignal.timeout; there the request simply runs without the time limit.
     const signal=typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function'?AbortSignal.timeout(45000):undefined;
-    const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(body),...(signal?{signal}:{})});
-    const data=await response.json();
-    return {status:response.status,...data};
+    let response;
+    try{response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(body),...(signal?{signal}:{})});}
+    catch(error){throw {lost:error?.name==='TypeError'||globalThis.navigator?.onLine===false?'offline':'timeout'};}
+    try{return {status:response.status,...await response.json()};}
+    catch{throw {lost:'unreadable'};}
   }
+  // The submit button is disabled while sending, which drops focus to the page; give it back unless the person moved on.
+  function refocus(button){if(!document.activeElement||document.activeElement===document.body)button.focus();}
   requestForm.addEventListener('submit',async event=>{
     event.preventDefault();
     if(busy||requestForm.hidden)return;
@@ -44,8 +52,8 @@
     try{
       const result=await post('/api/auth/recovery/request',{email:email.value.trim()});
       show(result.ok?'sent':result.code in window.nodalRecoveryI18n.rows?result.code:'recovery_unavailable');
-    }catch{show('recovery_unavailable');}
-    finally{setBusy(requestForm,false);button.dataset.recoveryText='request';apply();}
+    }catch(error){show(error?.lost==='unreadable'?'recovery_unavailable':'connection');}
+    finally{setBusy(requestForm,false);button.dataset.recoveryText='request';apply();refocus(button);}
   });
   resetForm.addEventListener('submit',async event=>{
     event.preventDefault();
@@ -58,11 +66,16 @@
       const result=await post('/api/auth/recovery/complete',{code,password:password.value});
       if(result.passwordChanged){code='';resetForm.hidden=true;password.value='';confirm.value='';heading('doneTitle');show(result.code||'done');}
       else{
-        show(result.code in window.nodalRecoveryI18n.rows?result.code:'recovery_uncertain');
+        // After a save that got no answer, "already used" most likely means that save went through.
+        show(unsure&&result.code==='recovery_invalid'?'recovery_uncertain':result.code in window.nodalRecoveryI18n.rows?result.code:'recovery_uncertain');
         if(!['recovery_password_length','recovery_rate','recovery_forbidden'].includes(result.code))requestMode();
       }
-    }catch{show('recovery_uncertain');requestMode();}
-    finally{setBusy(resetForm,false);button.dataset.recoveryText='save';apply();}
+    }catch(error){
+      // No answer: the code and the form stay, so trying again costs nothing. A retry cannot save twice, because the
+      // server refuses a used code with recovery_invalid, and only a server answer lets the link go.
+      unsure=true;show(error?.lost==='offline'?'recovery_connection':'recovery_retry');
+    }
+    finally{setBusy(resetForm,false);button.dataset.recoveryText='save';apply();if(!resetForm.hidden)refocus(button);}
   });
   for(const form of [requestForm,resetForm])form.querySelector('button[type="submit"]').disabled=false;
 })();
