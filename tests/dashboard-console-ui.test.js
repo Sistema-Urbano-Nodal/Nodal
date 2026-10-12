@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { flush } from './helpers/fiiu-ui-harness.js';
+import { Node, key, content, flush, descendants } from './helpers/fiiu-ui-harness.js';
+import { FIIU_EVENT } from '../server/fiiu-domain.js';
 
 /* The member console on a phone at the festival: the bell, the globe, the festival block, the news, the profile
    prompt, touch sizes and the globe download. Rules are read from the shipped CSS and behaviour is run from the
@@ -109,6 +110,66 @@ test('the globe turns from the finger position, and a scroll the browser takes o
   g.pointer('pointercancel', 160, 100);
   g.pointer('pointermove', 200, 300);
   assert.ok(g.canvas.style.cursor, 'after pointercancel a move is a hover again');
+});
+
+/* ---------------- the festival block (finding 32) ---------------- */
+
+const user = { id: '00000000-0000-4000-8000-000000000001', email: 'ana@example.test', name: 'Ana Test', city: 'Lima' };
+const registration = { userId: user.id, id: '00000000-0000-4000-8000-000000000002', version: 1, email: user.email, labStatus: 'none', answers: { firstName: 'Ana', lastName: 'Test', activities: ['day1-am'], externalActivities: [] } };
+const feed = { event: FIIU_EVENT, config: { registrationOpen: true }, content: [{ id: 'n1', kind: 'news', title: 'Cambio de sala', body: 'El bloque del jueves será en el Auditorio NOS PUCP.', url: '', createdAt: '2026-09-29T12:00:00.000Z' }], nextCursor: null };
+async function widget(respond) {
+  const body = new Node('body'), host = new Node(), requests = [], listeners = {};
+  body.append(host);
+  const document = { body, documentElement: { lang: 'en' }, visibilityState: 'visible', getElementById: (id) => (id === 'fiiuDashboardBody' ? host : null), createElement: (tag) => new Node(tag), querySelectorAll: (selector) => body.querySelectorAll(selector), addEventListener: (type, fn) => { listeners[type] = fn; } };
+  const context = vm.createContext({ document, window: { nodalI18n: { lang: 'en', onChange() {} } }, Intl, Date, Error, AbortSignal, Promise,
+    fetch: async (url) => { requests.push(url); const result = await respond(url, requests.filter((r) => r === url).length); return { ok: !result.status || result.status < 400, status: result.status || 200, json: async () => result.data ?? result }; } });
+  for (const name of ['fiiu-ui', 'fiiu-hubs']) vm.runInContext(read('web', 'scripts', `${name}.js`), context);
+  await flush();
+  return { host, requests, listeners, document };
+}
+const errors = (host) => descendants(host).filter((node) => node.dataset.fiiuText === 'loadError');
+const retries = (host) => descendants(host).filter((node) => node.dataset.fiiuText === 'retry');
+
+test('a failed festival news read shows one error and one retry, which redraws the whole block', async () => {
+  const w = await widget((url, n) => (url === '/api/fiiu?kind=news' ? (n === 1 ? { status: 503, data: { error: 'unavailable' } } : feed) : url === '/api/fiiu/registration' ? { user, registration, attendance: [], isAdmin: false } : { questions: [] }));
+  assert.equal(errors(w.host).length, 1, 'one error message for the block');
+  assert.equal(retries(w.host).length, 1, 'one retry for the block');
+  assert.ok(key(w.host, 'viewRegistration'), 'the registration still shows its way back');
+  assert.equal(descendants(w.host).filter((node) => node.dataset.fiiuText === 'registration').length, 0, 'no second link to the same page');
+  await retries(w.host)[0].listeners.click();
+  await flush();
+  assert.equal(errors(w.host).length, 0, 'the error goes once both reads succeed');
+  assert.equal(retries(w.host).length, 0);
+  assert.match(content(w.host), /Cambio de sala/);
+  assert.ok(key(w.host, 'badges'), 'badges come back with the retry');
+  assert.equal(w.requests.filter((r) => r === '/api/fiiu/registration').length, 2, 'the retry reloads both reads');
+});
+
+test('a failed registration read offers a retry instead of telling people to try again with nothing to press', async () => {
+  const w = await widget((url, n) => (url === '/api/fiiu/registration' ? (n === 1 ? { status: 503, data: { error: 'unavailable' } } : { user, registration, attendance: [], isAdmin: false }) : url === '/api/fiiu?kind=news' ? feed : { questions: [] }));
+  assert.equal(errors(w.host).length, 1);
+  const [retry] = retries(w.host);
+  assert.ok(retry, 'the error carries its retry');
+  const pending = retry.listeners.click();
+  assert.equal(retry.disabled, true, 'repeated taps on slow Wi-Fi do not stack requests');
+  await pending;
+  await flush();
+  assert.equal(errors(w.host).length, 0);
+  assert.ok(key(w.host, 'statusRegistered'));
+  assert.ok(key(w.host, 'viewRegistration'));
+});
+
+test('a festival block left open for a while refreshes when the phone comes back to it', async () => {
+  const w = await widget((url) => (url === '/api/fiiu/registration' ? { user, registration, attendance: [], isAdmin: false } : url === '/api/fiiu?kind=news' ? feed : { questions: [] }));
+  assert.equal(typeof w.listeners.visibilitychange, 'function');
+  const reads = () => w.requests.filter((r) => r === '/api/fiiu/registration').length;
+  await w.listeners.visibilitychange();
+  await flush();
+  assert.equal(reads(), 1, 'switching straight back does not reload');
+  const realNow = Date.now;
+  Date.now = () => realNow() + 31 * 60000;
+  try { await w.listeners.visibilitychange(); await flush(); } finally { Date.now = realNow; }
+  assert.equal(reads(), 2, 'half an hour later the next session is read again');
 });
 
 /* ---------------- touch targets and search scopes (finding 35) ---------------- */

@@ -19,22 +19,35 @@
  // Dashboard widget: registration state and next step first, then festival news. The h2 in dashboard.html names the festival.
  if(widget){
   const meta=el('p','f-widget-meta'),state=el('div','f-widget-status'),updates=el('section','f-widget-news'),newsHost=el('div','f-news');
-  meta.append(tr('span','dates'),tr('span','spanishContent','content-language'));state.append(tr('p','loading','f-muted'));updates.append(tr('h3','news'),newsHost);widget.append(meta,state,updates,newTabNote());
-  // One news page feeds the list, the next activity and the registration settings.
-  const feed=api('/api/fiiu?kind=news');news(newsHost,'h4',feed);
-  let settled=false;
-  Promise.all([api('/api/fiiu/registration'),feed.catch(()=>null)]).then(([me,data])=>{
-   const registration=me.registration,chips=el('div','f-widget-chips'),next=el('div','f-widget-next');
+  meta.append(tr('span','dates'),tr('span','spanishContent','content-language'));updates.append(tr('h3','news'),newsHost);widget.append(meta,state,updates,newTabNote());
+  /* The registration and one news page (which also carries the event and the registration settings) draw the whole block: status, next session,
+     badges and hours, then the news. On venue Wi-Fi either read can fail. That shows one error with one retry, which reads both again and redraws
+     everything; a retry that redrew only the news used to leave a stale error, a second link to the same page and no next session. */
+  let loading=false,loadedAt=0;
+  const failure=()=>{const box=el('div','f-widget-error'),retry=button('retry',()=>{retry.disabled=true;load();});box.append(tr('p','loadError'),retry);return box;};
+  async function load(){
+   if(loading)return;loading=true;
+   state.replaceChildren(tr('p','loading','f-muted'));newsHost.replaceChildren();updates.hidden=false;
+   const [mine,page]=await Promise.allSettled([api('/api/fiiu/registration'),api('/api/fiiu?kind=news')]);
+   loading=false;
+   const data=page.status==='fulfilled'?page.value:null;
+   if(data){contentCards(newsHost,data.content.slice(0,5),'noNews','h4');newsHost.append(link('allNews','fiiu.html#news','f-text-link'));}
+   updates.hidden=!data;
+   // Without the registration there is no status to show, so the error stands in for it, with the festival page as the way round.
+   if(mine.status!=='fulfilled'){state.replaceChildren(failure(),link('registration','fiiu.html','f-text-link'));return;}
+   loadedAt=Date.now();
+   const me=mine.value,registration=me.registration,chips=el('div','f-widget-chips'),next=el('div','f-widget-next');
    chips.append(registration?tr('span','statusRegistered','f-pill is-ok'):tr('span','statusNotRegistered','f-pill'));
    if(registration&&registration.labStatus!=='none')chips.append(tr('span',registration.labStatus+'Short','f-pill is-'+registration.labStatus));
    // A registration keeps its way back; without one, the call to action follows the registration settings.
-   state.replaceChildren(chips,next,registration?link('viewRegistration','fiiu.html#registration','f-button'):data?.config?.registrationOpen===false?link('viewProgramme','fiiu.html#programme','f-button'):link('register','fiiu.html#registration','f-button'));settled=true;
+   state.replaceChildren(chips,next,registration?link('viewRegistration','fiiu.html#registration','f-button'):data?.config?.registrationOpen===false?link('viewProgramme','fiiu.html#programme','f-button'):link('register','fiiu.html#registration','f-button'));
    if(me.isAdmin){
     const admin=el('div','f-widget-admin'),pending=el('span');admin.append(link('admin','fiiu-admin.html#participants','f-button secondary f-admin-link'),pending);state.append(admin);
     api('/api/admin/fiiu/summary').then(data=>{const n=data.summary?.lab?.pending;if(Number.isSafeInteger(n)&&n>0)pending.append(countLabel(n,'pendingReviewOne','pendingReviewMany','f-pill is-pending'));}).catch(()=>{});
    }
+   // The status stays; the next session and the badges need the event, so a failed news read puts the block's one retry here.
+   if(!data){loadedAt=0;state.append(failure());return;}
    if(registration){
-    if(!data)throw Error('festival unavailable');
     const box=el('div','f-badges');state.append(box);const upcoming=nextFor(registration,data.event);
     if(upcoming){const line=el('p','f-next');line.append(tr('span','nextForYou','f-next-label'),dateNode(upcoming.date,'span','short','f-next-date'));if(upcoming.time)line.append(el('span','f-next-time',upcoming.time));line.append(source('span',upcoming.title,'f-next-title'));if(upcoming.venue)line.append(source('span',upcoming.venue,'f-next-venue'));next.append(line);
      // The next block's conversation, once the public pulse answers; the pulse is read only when there is a next block to link.
@@ -42,6 +55,9 @@
     // One short line until attendance is confirmed keeps the widget compact; fiiu.html carries the full explanation. Confirmed sessions add their hours.
     badges(box,me.attendance,data.event,{hint:'badgesHintShort'});const hours=hoursLine(me.attendance,data.event);if(hours)box.append(hours);
    }
-  }).catch(()=>{const failure=[tr('p','loadError'),link('registration','fiiu.html','f-text-link')];if(settled)state.append(...failure);else state.replaceChildren(...failure);});
+  }
+  load();
+  // "Next for you" is worked out when the block is drawn. A phone left on the console between sessions reads it again when it comes back after a while.
+  document.addEventListener?.('visibilitychange',()=>{if(document.visibilityState==='visible'&&loadedAt&&Date.now()-loadedAt>15*60000)return load();});
  }
 })();
