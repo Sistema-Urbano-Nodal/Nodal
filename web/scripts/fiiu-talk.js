@@ -40,18 +40,19 @@
   talkHiddenQuestion:['Hidden','Oculta','Oculta'],
   talkEmptyClosed:['This question closed without answers.','Esta pregunta se cerró sin respuestas.','Esta pergunta foi encerrada sem respostas.'],
   talkEmptyHidden:['No messages yet. Participants can answer once the question opens.','Todavía no hay mensajes. Se podrá responder cuando la pregunta se abra.','Ainda não há mensagens. Será possível responder quando a pergunta for aberta.'],
+  talkNextOpen:['Answer the open question','Responder la pregunta abierta','Responder à pergunta aberta'],
   talkDraftKept:['Your unsent answer:','Tu respuesta sin enviar:','Sua resposta não enviada:'],
  });
  const root=document.getElementById('fiiuTalkRoot'),message=document.getElementById('fiiuStatus');
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,ID=/^[a-z0-9-]{1,60}$/;
- const LIMIT=1000,FILES=3,MAX=3*1024*1024,THUMB=100*1024,POLL=4000,NEAR=120,NAME=120,UPLOAD_MS=120000,TYPES=['image/jpeg','image/png','image/webp','application/pdf'],IMAGES=TYPES.slice(0,3);
+ const LIMIT=1000,FILES=3,MAX=3*1024*1024,THUMB=100*1024,POLL=4000,WATCH_MS=8000,WATCH_FOR=2*3600000,NEAR=120,NAME=120,UPLOAD_MS=120000,TYPES=['image/jpeg','image/png','image/webp','application/pdf'],IMAGES=TYPES.slice(0,3);
  // The projector: answers on screen, and the question length above which its headline steps down so they still fit.
  const WALL=12,LONG=160,SVG='http://www.w3.org/2000/svg';
  // A file refused for what it is (type, size, the festival allowance), or a sender without a registration, is the draft's problem: the row goes and the
  // composer says why, since Retry cannot help.
  const DRAFT=['talkFileType','talkFileSize','talkAllowance','talkTooManyFiles','talkNotRegistered'];
  let question=null,activity=null,me={organiser:false,canPost:false},before=null,known=0,parts=null,composer=null;
- let timer=null,busy=false,failures=0,nextAt=0;
+ let timer=null,busy=false,failures=0,nextAt=0,watcher=null;
  // present: the address asked for the projector (?q=…&present=1); wall: its parts while an organiser is shown it; order: 'latest' or 'top'.
  let present=false,wall=null,order='latest',lock=null,waking=false;
  // liked: the messages this viewer likes. Changes carry no liked flag (one answer serves every viewer), so the page keeps its own: seeded by each full read,
@@ -189,10 +190,14 @@
    if(q.status!=='open')a.append(tr('span',q.status==='hidden'?'talkHiddenQuestion':'talkClosedChip','f-talk-flag'));li.append(a);ul.append(li);}
   return ul;
  }
+ // A block's questions as the pulse sees them (ids and statuses, hidden ones left out, as the pulse leaves them out), to notice a change cheaply.
+ const blockSig=pairs=>pairs.filter(([,state])=>state!=='hidden').map(([id,state])=>id+':'+state).sort().join(' ');
+ // The other questions on the block. Redrawn when they change, the list keeps its open state, and its focus moves to the new summary.
  function showSiblings(list){
-  if(!parts||!Array.isArray(list))return;const others=sorted(list.filter(q=>q?.id&&q.id!==question.id));parts.more=null;
-  if(others.length){const more=el('details','f-talk-more');more.append(tr('summary','talkOtherQuestions'),questionList(others),link('talkBackToBlock','fiiu-talk.html?a='+encodeURIComponent(question.activityId),'f-text-link'));parts.more=more;}
-  renderHead();
+  if(!parts||!Array.isArray(list))return;const others=sorted(list.filter(q=>q?.id&&q.id!==question.id)),was=parts.more,focused=holds(was);
+  parts.siblings=others;parts.listSig=blockSig(others.map(q=>[q.id,q.status]));parts.more=null;
+  if(others.length){const more=el('details','f-talk-more');more.open=Boolean(was?.open);more.append(tr('summary','talkOtherQuestions'),questionList(others),link('talkBackToBlock','fiiu-talk.html?a='+encodeURIComponent(question.activityId),'f-text-link'));parts.more=more;}
+  renderHead();renderDock();if(focused)parts.more?.querySelector('summary')?.focus();
  }
  function renderDock(){
   if(!parts)return;const state=isOpen()&&me.canPost?'composer':question.status==='closed'?'closed':'none',was=parts.dockState;
@@ -204,8 +209,11 @@
    // A close while someone types keeps them in the dock, on the note, which reads itself; anyone else hears it from the status line.
    if(was&&state!=='composer'){if(inside)(state==='closed'?parts.closedNote:parts.log).focus();else if(state==='closed')announce(t('talkClosed'));}
   }
-  // The closed note keeps an unsent answer readable (and copyable) under it.
-  if(state==='closed'){const draft=composer?.textarea.value.trim()||storedDraft(question.id).trim();parts.draft.hidden=!draft;parts.draftText.value=draft;}
+  // The closed note leads to the block's open question, if there is one, and keeps an unsent answer readable (and copyable) under it.
+  if(state==='closed'){
+   const open=(parts.siblings||[]).find(q=>q.status==='open'),draft=composer?.textarea.value.trim()||storedDraft(question.id).trim();
+   parts.next.hidden=!open;if(open)parts.next.href='fiiu-talk.html?q='+encodeURIComponent(open.id);parts.draft.hidden=!draft;parts.draftText.value=draft;
+  }
  }
  function setStatus(state){
   if(!question||!(parts||wall))return;question.status=state;me.canPost=state==='open';if(wall)return renderWallHead();renderHead();renderDock();rekey(parts.empty,emptyKey());
@@ -221,9 +229,10 @@
   // The closed state: the note (focusable, so a close while typing can keep focus there) and an unsent draft under it, in a read-only box whose
   // "select all" stays inside it, so the whole answer can be copied on a phone.
   const closed=el('div','f-talk-closedbox'),closedNote=tr('p','talkClosed','f-talk-closed'),draft=el('div','f-talk-draft'),draftLabel=tr('label','talkDraftKept','f-talk-draft-label'),draftText=el('textarea','f-talk-input f-talk-draft-text');
-  closedNote.tabIndex=-1;draftText.id='f-talk-draft';draftText.readOnly=true;draftText.rows=2;draftLabel.htmlFor=draftText.id;draft.append(draftLabel,draftText);draft.hidden=true;closed.append(closedNote,draft);
+  const next=link('talkNextOpen','#','f-button f-talk-next');next.hidden=true;
+  closedNote.tabIndex=-1;draftText.id='f-talk-draft';draftText.readOnly=true;draftText.rows=2;draftLabel.htmlFor=draftText.id;draft.append(draftLabel,draftText);draft.hidden=true;closed.append(closedNote,next,draft);
   log.setAttribute('role','log');log.setAttribute('aria-live','off');log.setAttribute('aria-label',t('talkPage'));log.tabIndex=-1;dock.append(pill);box.append(head,earlier,log,empty,dock,live);
-  root.replaceChildren(box,newTabNote());parts={box,head,earlier,log,empty,dock,pill,live,note,closed,closedNote,draft,draftText,more:null,dockState:''};
+  root.replaceChildren(box,newTabNote());parts={box,head,earlier,log,empty,dock,pill,live,note,closed,closedNote,next,draft,draftText,more:null,dockState:''};
  }
  // A reload of the same question (a reset, or a status the pulse cannot carry) rebuilds the rows but keeps the header nodes, the composer and its draft.
  function show(data){
@@ -244,13 +253,30 @@
  function seedLiked(data){for(const id of Array.isArray(data?.liked)?data.liked:[])if(typeof id==='string')liked.add(id);}
 
  // Access states replace the page; polling stops until a question is shown again.
- function halt(){if(timer!==null)clearInterval(timer);timer=null;question=null;parts=null;unwall();}
+ function halt(){if(timer!==null)clearInterval(timer);timer=null;question=null;parts=null;unwatch();unwall();}
+ // A page with nothing live to follow (a block's list, or a question this viewer cannot see yet) watches the public, CDN-cached pulse every 8 s while
+ // the tab is visible, for two hours at most, and acts once its part of the pulse changes. Opening anything stops it.
+ function watch(changed,act){
+  unwatch();const w={until:Date.now()+WATCH_FOR,busy:false};
+  w.timer=setInterval(async()=>{
+   if(watcher!==w||w.busy||document.visibilityState!=='visible')return;if(Date.now()>w.until)return unwatch();w.busy=true;
+   try{const data=await api('/api/fiiu/pulse'),list=(Array.isArray(data?.questions)?data.questions:[]).filter(Array.isArray);if(watcher===w&&changed(list)){unwatch();await act();}}
+   catch{/* The next round asks again. */}finally{w.busy=false;}
+  },WATCH_MS);
+  watcher=w;
+ }
+ function unwatch(){if(watcher)clearInterval(watcher.timer);watcher=null;}
  // Focus that was on the page (in the composer, say) moves to the heading that replaces it, which also reads the new state out.
  function block(title,hint,...actions){
   const inside=holds(root);halt();const box=el('section','f-locked f-talk-locked'),row=el('div','f-actions'),heading=tr('h1',title);heading.tabIndex=-1;row.append(...actions);box.append(heading,...(hint?[tr('p',hint)]:[]),row);
   root.replaceChildren(box,newTabNote());status(message,'');setTitle();if(inside)heading.focus();
  }
- const unavailable=()=>block('talkUnavailable','',activity?link('talkBackToBlock','fiiu-talk.html?a='+encodeURIComponent(activity.id),'f-button secondary'):link('viewProgramme','fiiu.html#programme','f-button secondary'));
+ // A question hidden from this viewer (not opened yet, or hidden since) opens by itself once the pulse lists it, with the composer and its draft:
+ // people who scanned the projector early are not stranded.
+ function unavailable(){
+  block('talkUnavailable','',activity?link('talkBackToBlock','fiiu-talk.html?a='+encodeURIComponent(activity.id),'f-button secondary'):link('viewProgramme','fiiu.html#programme','f-button secondary'));
+  const q=new URLSearchParams(location.search).get('q')||'';if(UUID.test(q))watch(list=>list.some(item=>item[0]===q),()=>start());
+ }
  // An outage is reported as one, never as "signed out" (the fiiu.js rule).
  function access(error){
   if(error?.status===401)return block('talkSignIn','talkSignInHint',link('signin','login.html?next='+encodeURIComponent(location.pathname+location.search),'f-button'));
@@ -268,13 +294,14 @@
    // The public pulse leaves hidden questions out, so an organiser reading one asks for its changes directly.
    if(me.organiser&&question.status==='hidden')await changes(id);
    else{
-    const pulse=await api('/api/fiiu/pulse'),entry=(Array.isArray(pulse.questions)?pulse.questions:[]).find(item=>Array.isArray(item)&&item[0]===id);
+    const pulse=await api('/api/fiiu/pulse'),list=(Array.isArray(pulse.questions)?pulse.questions:[]).filter(Array.isArray),entry=list.find(item=>item[0]===id);
     if(question?.id!==id)return;
     // Gone from the pulse: hidden since it was opened. Reading it again says so (or, for an organiser, shows it hidden).
     if(!entry)await reload(id);
     // The pulse only says that something moved past the page's revision. Its status is never applied: the CDN can serve one seconds old, and the
     // changes answer carries the question as it is now.
     else if(Number(entry[2])>known)await changes(id);
+    if(!wall&&question?.id===id)await followBlock(list).catch(()=>{});
    }
    failures=0;nextAt=0;paused(null);
    if(wall?.qr==='failed'&&Date.now()>=wall.qrAt)loadQr(id);
@@ -285,6 +312,14 @@
  }
  // The chat says it is paused in its dock; the projector, which has none, at the top of its page.
  function paused(key){const node=parts?.note||message;if(key)status(node,key);else if(PAUSED.includes(node.dataset.fiiuText))status(node,'');}
+ // The other questions on the block follow the pulse: once their ids or statuses change (one opened, closed or hidden), the list is read again, once.
+ // The pulse is compared with the pulse it last acted on, so a CDN copy a few seconds older than the list cannot make every poll read it.
+ async function followBlock(list){
+  if(!parts||parts.listSig===undefined)return;const id=question.id,sig=blockSig(list.filter(item=>item[1]===question.activityId&&item[0]!==id).map(item=>[item[0],item[3]]));
+  if(sig===(parts.pulseSig??parts.listSig)){parts.pulseSig=sig;return;}
+  const data=await api('/api/fiiu/questions?activityId='+encodeURIComponent(question.activityId));
+  if(question?.id===id&&parts){parts.pulseSig=sig;showSiblings(data.questions);}
+ }
  async function changes(id){
   const data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages?since='+known);if(question?.id!==id)return;
   if(data.reset)return reload(id);
@@ -584,25 +619,28 @@
 
  // Questions open first, then newest.
  const sorted=list=>[...list].sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1)||String(b.createdAt).localeCompare(String(a.createdAt)));
- async function openBlock(id){
-  status(message,'loading');let data;
-  try{data=await api('/api/fiiu/questions?activityId='+encodeURIComponent(id));}catch(error){return access(error);}
+ // A block's list follows the pulse too: a question opened, closed or hidden reads it again (quietly, keeping the list on a failure), and a block left
+ // with one question opens it, as a first load does. That is the address the projector shows people to type.
+ function watchBlock(id,last){watch(list=>{const now=blockSig(list.filter(item=>item[1]===id).map(item=>[item[0],item[3]]));if(now===last)return false;last=now;return true;},()=>openBlock(id,last));}
+ async function openBlock(id,seen){
+  unwatch();const refresh=seen!==undefined;if(!refresh)status(message,'loading');let data;
+  try{data=await api('/api/fiiu/questions?activityId='+encodeURIComponent(id));}catch(error){return refresh?watchBlock(id,null):access(error);}
   status(message,'');activity=data.activity||null;const list=sorted(Array.isArray(data.questions)?data.questions.filter(q=>q?.id):[]);
   if(list.length===1){history.replaceState(null,'',location.pathname+'?q='+encodeURIComponent(list[0].id));return openQuestion(list[0].id,list);}
   const box=el('section','f-talk f-talk-block'),head=el('header','f-talk-head');head.append(...blockHead(activity));box.append(head);
   if(list.length)box.append(tr('h2','talkQuestions','f-talk-subhead'),questionList(list));
   else{const actions=el('div','f-actions');actions.append(link('viewProgramme','fiiu.html#programme','f-button secondary'));box.append(tr('p','talkEmptyBlock','f-talk-empty'),actions);}
-  root.replaceChildren(box,newTabNote());setTitle();
+  root.replaceChildren(box,newTabNote());setTitle();watchBlock(id,seen??blockSig(list.map(q=>[q.id,q.status])));
  }
  async function openQuestion(id,list=null){
-  status(message,'loading');let data;
+  unwatch();status(message,'loading');let data;
   try{data=await api('/api/fiiu/questions/'+encodeURIComponent(id));}catch(error){return access(error);}
   status(message,'');if(!data?.question?.id)return access(null);
   show(data);startPolling();if(wall)return wake();
   if(list)showSiblings(list);else api('/api/fiiu/questions?activityId='+encodeURIComponent(question.activityId)).then(result=>{if(question?.id===data.question.id)showSiblings(result.questions);},()=>{});
  }
  function start(){
-  const params=new URLSearchParams(location.search),q=params.get('q')||'',a=params.get('a')||'';
+  unwatch();const params=new URLSearchParams(location.search),q=params.get('q')||'',a=params.get('a')||'';
   // The projector shows one question (?q=), never a block's list.
   present=UUID.test(q)&&params.get('present')==='1';
   setTitle();if(UUID.test(q))return openQuestion(q);if(!q&&ID.test(a))return openBlock(a);status(message,'');unavailable();

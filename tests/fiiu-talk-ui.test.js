@@ -68,7 +68,8 @@ test('a guest is asked to sign in and come back, an account without a registrati
  const outsider=await page({['GET /api/fiiu/questions/'+Q]:{status:403,data:{error:'festival registration required',code:'not_registered'}}});
  assert.ok(key(outsider.root,'talkRegister'));assert.ok(key(outsider.root,'talkRegisterHint'));assert.ok(links(outsider.root).some(a=>a.href==='fiiu.html#registration'));
  const hidden=await page({['GET /api/fiiu/questions/'+Q]:{status:404,data:{error:'not found',code:'question_unavailable'}}});
- assert.ok(key(hidden.root,'talkUnavailable'));assert.ok(links(hidden.root).some(a=>a.href==='fiiu.html#programme'));assert.equal(hidden.timers.length,0);
+ assert.ok(key(hidden.root,'talkUnavailable'));assert.ok(links(hidden.root).some(a=>a.href==='fiiu.html#programme'));
+ assert.deepEqual(hidden.timers.map(timer=>timer.delay),[8000],'a hidden question only watches the public pulse, slowly');
  // An outage is an error with a retry, never "signed out".
  let calls=0;const down=await page({['GET /api/fiiu/questions/'+Q]:()=>calls++?thread():{status:503,data:{}}});
  assert.ok(key(down.root,'talkError'));assert.equal(key(down.root,'talkSignIn'),undefined);
@@ -336,7 +337,7 @@ test('a block address lists its questions open first, opens a single one at once
  const h=await page({'GET /api/fiiu/questions?activityId=day1-am':{activity:ACTIVITY,questions:[older,question()]}},{search:'?a=day1-am'});
  assert.deepEqual(links(h.root).filter(a=>a.href.startsWith('fiiu-talk.html?q=')).map(a=>a.href),['fiiu-talk.html?q='+Q,'fiiu-talk.html?q='+Q2]);
  assert.ok(key(h.root,'talkQuestions'));assert.ok(key(h.root,'talkClosedChip'),'a closed question says so');assert.equal(h.root.querySelector('h1').textContent,'El poder de lo local');
- assert.equal(h.replaced.length,0);assert.equal(h.timers.length,0);
+ assert.equal(h.replaced.length,0);assert.deepEqual(h.timers.map(timer=>timer.delay),[8000],'the list watches the public pulse, slowly');
  const one=await page({},{search:'?a=day1-am'});
  assert.deepEqual(one.replaced,['/fiiu-talk.html?q='+Q]);assert.ok(one.root.querySelector('.f-talk-log'));assert.equal(sent(one,'GET','/api/fiiu/questions?activityId=day1-am').length,1,'the list is not asked for twice');
  const none=await page({'GET /api/fiiu/questions?activityId=day1-am':{activity:ACTIVITY,questions:[]}},{search:'?a=day1-am'});
@@ -847,4 +848,66 @@ test('without a composer, a failed Hide shows its error in the dock, and the nex
  await key(row(h,M1),'talkHide').listeners.click();await flush();
  assert.equal(note(h).dataset.fiiuText,'talkError');assert.equal(note(h).textContent,'Something went wrong. Try again.');assert.equal(h.message.textContent,'','not at the top of the page');
  fail=false;await key(row(h,M1),'talkHide').listeners.click();await flush();assert.equal(note(h).textContent,'');assert.ok(classes(row(h,M1)).includes('is-hidden'));
+});
+
+const LIST='/api/fiiu/questions?activityId=day1-am';
+
+test('when the question closes and another on its block opens, the other questions follow the pulse and the closed note leads to the open one',async()=>{
+ let pulse=[[Q,'day1-am',3,'open']],list=[question()];
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:pulse}),['GET '+LIST]:()=>({activity:ACTIVITY,questions:list}),['GET '+MESSAGES+'?since=3']:since(4,[],{status:'closed'})});
+ assert.equal(h.root.querySelector('.f-talk-more'),null);await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,1,'an unchanged block is not read again');
+ const fresh=question({id:Q2,body:'¿Y mañana?',createdAt:'2026-10-21T15:00:00.000Z'});
+ pulse=[[Q2,'day1-am',1,'open'],[Q,'day1-am',4,'closed'],['cccccccc-cccc-4ccc-8ccc-cccccccccccc','day2-am',7,'open']];list=[fresh,question({status:'closed',revision:4})];
+ await h.tickTimers();
+ assert.equal(sent(h,'GET',LIST).length,2,'one read for the change');assert.equal(composer(h),null);
+ assert.deepEqual(links(h.root.querySelector('.f-talk-more')).map(a=>a.href),['fiiu-talk.html?q='+Q2,'fiiu-talk.html?a=day1-am']);
+ const next=key(h.root.querySelector('.f-talk-dock'),'talkNextOpen');assert.equal(next.hidden,false);assert.equal(next.href,'fiiu-talk.html?q='+Q2);
+ await h.tickTimers();await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,2,'the same pulse reads nothing more');
+ pulse=[[Q2,'day1-am',2,'closed'],[Q,'day1-am',4,'closed']];list=[question({id:Q2,status:'closed'}),question({status:'closed',revision:4})];await h.tickTimers();
+ assert.equal(sent(h,'GET',LIST).length,3);assert.equal(next.hidden,true,'no open question, no link');
+ h.lang('es');assert.equal(next.textContent,'Responder la pregunta abierta');
+});
+
+test('organisers see hidden questions in the block list, which the public pulse leaves out, without reading the list on every poll',async()=>{
+ const draft=question({id:Q2,status:'hidden',body:'Borrador'});
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'closed'},me:{organiser:true,canPost:false}}),['GET '+LIST]:{activity:ACTIVITY,questions:[question({status:'closed'}),draft]}});
+ await h.tickTimers();await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,1);
+ assert.equal(key(h.root.querySelector('.f-talk-dock'),'talkNextOpen').hidden,true,'a hidden question is no way forward');
+});
+
+test('a block page follows the pulse: an empty block opens its question by itself, and a list picks up a new one without a reload',async()=>{
+ let pulse=[],list=[];
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:pulse}),['GET '+LIST]:()=>({activity:ACTIVITY,questions:list})},{search:'?a=day1-am'});
+ assert.ok(key(h.root,'talkEmptyBlock'));assert.equal(h.timers.length,1);assert.equal(h.timers[0].delay,8000,'a slow watch of the public pulse');
+ await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,1,'nothing changed');
+ pulse=[['cccccccc-cccc-4ccc-8ccc-cccccccccccc','day2-am',7,'open']];await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,1,'another block changes nothing here');
+ await h.visible(false);pulse=[[Q,'day1-am',3,'open']];list=[question()];const pulses=sent(h,'GET','/api/fiiu/pulse').length;await h.tickTimers();
+ assert.equal(sent(h,'GET','/api/fiiu/pulse').length,pulses,'a hidden tab does not watch');
+ await h.visible(true);await h.tickTimers();await flush();
+ assert.deepEqual(h.replaced,['/fiiu-talk.html?q='+Q],'the single question opens, as on a first load');assert.ok(composer(h));
+ assert.equal(h.timers[0].cleared,true,'the watch stops');assert.equal(h.timers.filter(timer=>!timer.cleared).length,1,'the chat polls instead');
+ const Q3='dddddddd-dddd-4ddd-8ddd-dddddddddddd',older=question({id:Q3,status:'closed',body:'¿Primera?',createdAt:'2026-10-21T13:00:00.000Z'});
+ pulse=[[Q,'day1-am',3,'open'],[Q3,'day1-am',2,'closed']];list=[question(),older];
+ const many=await page({'GET /api/fiiu/pulse':()=>({questions:pulse}),['GET '+LIST]:()=>({activity:ACTIVITY,questions:list})},{search:'?a=day1-am'});
+ await many.tickTimers();assert.equal(sent(many,'GET',LIST).length,1);
+ pulse=[...pulse,[Q2,'day1-am',1,'open']];list=[...list,question({id:Q2,body:'¿Otra?',createdAt:'2026-10-21T15:00:00.000Z'})];
+ await many.tickTimers();await flush();
+ assert.deepEqual(links(many.root).filter(a=>a.href.startsWith('fiiu-talk.html?q=')).map(a=>a.href),['fiiu-talk.html?q='+Q2,'fiiu-talk.html?q='+Q,'fiiu-talk.html?q='+Q3],'the new question joins the list');
+ assert.equal(many.message.textContent,'','a refresh shows no loading line');
+});
+
+test('a question not open to this viewer keeps watching the pulse and opens by itself, draft and all, once the organisers open it',async()=>{
+ const Clock=clock();let reads=0,shown=false,pulse=[];
+ const h=await page({['GET /api/fiiu/questions/'+Q]:()=>{reads++;return shown?thread():{status:404,data:{error:'not found',code:'question_unavailable'}};},'GET /api/fiiu/pulse':()=>({questions:pulse})},{context:{Date:Clock}});
+ assert.ok(key(h.root,'talkUnavailable'));assert.equal(h.timers.length,1);await h.tickTimers();assert.equal(reads,1,'still not in the pulse');
+ shown=true;pulse=[[Q,'day1-am',3,'open']];await h.tickTimers();await flush();
+ assert.equal(reads,2);assert.ok(composer(h),'opened by itself');assert.equal(h.timers[0].cleared,true);
+ // Hidden again while someone types: the same composer comes back with the draft once the question is open again.
+ const text=composer(h).querySelector('textarea');text.value='Mi borrador';text.listeners.input();
+ shown=false;pulse=[];await h.tickTimers();assert.ok(key(h.root,'talkUnavailable'));
+ shown=true;pulse=[[Q,'day1-am',4,'open']];await h.tickTimers();await flush();
+ assert.equal(composer(h).querySelector('textarea'),text);assert.equal(text.value,'Mi borrador');
+ // The watch ends after two hours.
+ shown=false;pulse=[];await h.tickTimers();const watch=h.timers.at(-1);assert.equal(watch.cleared,undefined);
+ Clock.advance(2*3600000+1);await h.tickTimers();assert.equal(watch.cleared,true);
 });

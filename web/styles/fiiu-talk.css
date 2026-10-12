@@ -53,6 +53,8 @@
 .f-talk-status{grid-column:1/-1;margin:0;font-size:.88rem}.f-talk-status:empty{display:none}.f-talk-status.is-error{color:var(--f-error);font-weight:600}.f-talk-closed{margin:0;color:var(--f-muted)}
 /* The dock's status line sits above the composer or the closed note: paused updates in amber, errors in the error colour. */
 .f-talk-note{margin:0 0 var(--f-sp-2);font-weight:600;color:var(--f-amber)}
+/* A closed question leads to the block's open one, if there is one, with the site's main button under the note. */
+.f-shell .f-talk-next{margin:var(--f-sp-2) 0 0}
 /* A draft the close interrupted stays under the note, read-only and short (it scrolls past three lines), so the dock never covers the conversation. */
 .f-talk-draft{margin:var(--f-sp-2) 0 0}.f-talk-draft-label{display:block;font-size:.84rem;font-weight:650;color:var(--f-muted)}.f-shell .f-talk-draft-text{max-height:calc(4.5em + 22px);margin:2px 0 0;background:var(--f-panel);border-color:var(--f-line)}
 /* Projector (?q=…&present=1, organisers only; fiiu-talk.js puts f-talk-present on the body): a room screen sized from the viewport. The question is the
