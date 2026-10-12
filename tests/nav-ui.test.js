@@ -126,6 +126,12 @@ test('language buttons reach 44px on touch screens in the desktop header too',()
   assert.match(block(css(),'@media (pointer: coarse)'),/\.lang-btn\s*\{[^}]*min-width:\s*44px;[^}]*min-height:\s*44px/);
 });
 
+test('My console reads at 4.5:1: ink on the brand green, and its hover keeps the contrast',()=>{
+  const sheet=css();
+  assert.match(sheet,/\.btn-pill\.btn-nav\s*\{[^}]*background:\s*var\(--green-bright\);\s*color:\s*var\(--ink\)/);
+  assert.match(sheet,/\.btn-pill\.btn-nav:hover\s*\{[^}]*color:\s*var\(--green-deep\)/);
+});
+
 test('the graph corners are drawn on the graph panel, not past the right edge of a phone',()=>{
   // Without a positioned panel the absolute corners (and the node card) anchored to .wrap; the -1px corner widened every phone by 1px.
   assert.match(css(),/\.graph-panel\s*\{\s*position:\s*relative;?\s*\}/);

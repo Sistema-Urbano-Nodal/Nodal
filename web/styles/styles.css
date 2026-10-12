@@ -89,9 +89,11 @@ h1, h2, h3 {
 .btn-ghost-dark { background: transparent; color: #fff; border-color: rgba(255,255,255,.5); }
 .btn-ghost-dark:hover { background: #fff; color: var(--green-deep); box-shadow: 6px 6px 0 rgba(173,222,168,.4); }
 .btn-lg { padding: 18px 40px; font-size: 18px; }
+/* "My console": white on the brand green was 2.4:1 at 14px; ink on it reads at about 5.5:1, as the festival's
+   primary buttons do. The hover's dark green on white keeps 7:1 (the lighter hover green was 4:1). */
 .btn-pill.btn-nav { padding: 9px 18px; font-size: 14px; font-weight: 500; white-space: nowrap;
-  background: var(--green-bright); color: #fff; box-shadow: none; border-radius: var(--r-btn); }
-.btn-pill.btn-nav:hover { background: #fff; color: var(--green-hover); transform: translateY(-1px); box-shadow: none; }
+  background: var(--green-bright); color: var(--ink); box-shadow: none; border-radius: var(--r-btn); }
+.btn-pill.btn-nav:hover { background: #fff; color: var(--green-deep); transform: translateY(-1px); box-shadow: none; }
 .btn-pill.btn-nav:active { transform: scale(.96); }
 
 /* header */
