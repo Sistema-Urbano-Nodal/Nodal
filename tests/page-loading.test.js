@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync,readdirSync} from 'node:fs';
 import path from 'node:path';
 import {staticSourcePath} from '../server/server.js';
+import {SERVER_PAGES} from '../scripts/build-static.js';
 
 const ROOT=path.resolve(import.meta.dirname,'..');
 const pages=()=>readdirSync(path.join(ROOT,'web/pages')).filter(name=>name.endsWith('.html')).map(name=>[name,readFileSync(path.join(ROOT,'web/pages',name),'utf8')]);
@@ -49,7 +50,10 @@ test('Montserrat is available locally before first use, with no external font st
     assert.doesNotMatch(html,/fonts\.(?:googleapis|gstatic)\.com/,`${name}: fonts must load from this origin`);
     assert.match(html,/<link\b[^>]*href="fonts\.css(?:\?[^\"]*)?"[^>]*>/,`${name}: local font stylesheet is required`);
     assert.match(html,/<link\b[^>]*rel="preload"[^>]*href="assets\/fonts\/montserrat-v31-latin-normal\.woff2"[^>]*as="font"[^>]*crossorigin/,`${name}: preload must use the same anonymous font request`);
-    assert.match(html,/font-src 'self'/,`${name}: page CSP must permit local fonts`);
+    // Server pages get the policy, font-src included, from the header (tests/page-csp.test.js); a CDN page keeps a meta.
+    const meta=html.match(/<meta\b[^>]*http-equiv="Content-Security-Policy"[^>]*>/)?.[0];
+    if(meta)assert.match(meta,/font-src 'self'/,`${name}: page CSP must permit local fonts`);
+    else assert.ok(SERVER_PAGES.includes(name),`${name}: a page served from the CDN needs its CSP meta`);
   }
   const css=readFileSync(path.join(ROOT,'web/styles/fonts.css'),'utf8');
   const urls=[...css.matchAll(/url\(['"]?(\/assets\/fonts\/[^)'" ]+)['"]?\)/g)].map(match=>match[1]);
