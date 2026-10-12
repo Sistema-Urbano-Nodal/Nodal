@@ -220,3 +220,19 @@ html:has(>body.f-page){scroll-padding-top:176px}.f-page :where(section,footer)[i
 .f-qr-row{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) auto;gap:var(--f-sp-2) var(--f-sp-5);align-items:center;padding:var(--f-sp-3) 0;border-bottom:1px solid var(--f-line)}.f-page .f-qr-row-title{margin:0;font-weight:650;line-height:1.4}.f-qr-row-meta{margin:2px 0 0;font-size:.86rem;color:var(--f-muted)}.f-qr-row-window{margin:0}.f-qr-list>.f-text-link{display:inline-block;margin-top:var(--f-sp-5)}
 @media(max-width:760px){.f-qr-row{grid-template-columns:minmax(0,1fr)}.f-qr-row>.f-button{justify-self:start}}
 .f-page .f-news-pinned{color:var(--f-forest);font-weight:650}
+/* Conversations section of the organiser dashboard: the new-question form beside the questions, grouped by block in programme order. Each question is
+   one ruled row (text, talk and totals, then the Open / Closed / Hidden switch and its links); a hidden one is greyed, the only state the list marks. */
+.f-admin-conversations{margin-top:var(--f-sp-4);padding:var(--f-sp-5) 0 var(--f-sp-2);border-top:1px solid #cbd6c7}.f-page .f-admin-conversations h2{margin:0}
+.f-conversations-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:var(--f-sp-5) var(--f-sp-7);align-items:start}.f-question-editor,.f-question-side{min-width:0}.f-question-editor form{max-width:650px}.f-page .f-question-editor h3{margin:0 0 var(--f-sp-3)}
+.f-question-buttons{display:flex;flex-wrap:wrap;align-items:center;gap:var(--f-sp-2) var(--f-sp-4)}.f-question-form>.f-conflict:empty,.f-question>.f-conflict:empty{display:none}
+.f-question-alert{display:flex;flex-wrap:wrap;align-items:center;gap:var(--f-sp-1) var(--f-sp-4);margin:0 0 var(--f-sp-3);color:var(--f-error);font-weight:600}
+.f-question-group+.f-question-group{margin-top:var(--f-sp-5)}.f-page .f-question-block{display:flex;flex-wrap:wrap;gap:0 var(--f-sp-2);margin:0 0 var(--f-sp-1);font-size:1rem;line-height:1.4}.f-question-day{color:var(--f-forest)}
+.f-questions{margin:0;padding:0;list-style:none;border-top:2px solid var(--f-ink)}.f-question{display:grid;gap:var(--f-sp-2);padding:var(--f-sp-3) 0;border-bottom:1px solid var(--f-line)}.f-question .f-form{max-width:650px}
+.f-page .f-question-text{margin:0;font-weight:600;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}.f-question.is-hidden .f-question-text{color:var(--f-muted)}
+.f-question-meta{display:flex;flex-wrap:wrap;gap:2px var(--f-sp-3);margin:var(--f-sp-1) 0 0;font-size:var(--f-fs-hint);color:var(--f-muted);font-variant-numeric:tabular-nums}.f-question-talk{flex-basis:100%;color:var(--f-ink);overflow-wrap:anywhere}
+.f-question-count+.f-question-count::before{content:"·";content:"·"/"";margin-right:var(--f-sp-3)}
+.f-question-controls{display:flex;flex-wrap:wrap;align-items:center;gap:var(--f-sp-2) var(--f-sp-5)}.f-question-links{display:flex;flex-wrap:wrap;align-items:center;gap:0 var(--f-sp-4)}.f-question-links>.f-text-link{display:inline-flex;align-items:center;min-height:40px;margin:0}
+/* The status switch: the participant filter chips joined into one control. */
+.f-segmented{display:inline-flex}.f-shell .f-segmented>.f-filter{border-radius:0}.f-shell .f-segmented>.f-filter+.f-filter{margin-left:-2px}.f-shell .f-segmented>.f-filter:first-child{border-radius:7px 0 0 7px}.f-shell .f-segmented>.f-filter:last-child{border-radius:0 7px 7px 0}.f-segmented[aria-busy="true"]{opacity:.6}
+@media(max-width:1000px){.f-conversations-layout{grid-template-columns:minmax(0,1fr)}}
+@media(pointer:coarse){.f-shell .f-segmented>.f-filter,.f-question-links>.f-text-link{min-height:44px}}

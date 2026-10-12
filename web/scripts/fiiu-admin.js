@@ -1,16 +1,36 @@
 (() => {
  'use strict';
  const {rows:strings,t,el,tr,source,button,link,field,check,api,status,dateNode,rangeNode,limaDate,locale,findActivity,chronological,typeOf,countLabel,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,checkinState,checkinActivities,limaClock,windowNode}=window.Fiiu;
+ // The Conversations section's strings live here, since only this page shows them (the chat page keeps its own). {n} is filled in by this script,
+ // so a language switch re-renders those counts.
+ Object.assign(strings,{
+  conversations:['Conversations','Conversaciones','Conversas'],
+  conversationsHint:['Post a question on a block. Registered participants answer in a live chat.','Publica una pregunta en un bloque. Las personas inscritas responden en un chat en vivo.','Publique uma pergunta em um bloco. As pessoas inscritas respondem em um chat ao vivo.'],
+  newQuestion:['New question','Nueva pregunta','Nova pergunta'],questionBlock:['Block','Bloque','Bloco'],questionTalk:['Talk (optional)','Charla (opcional)','Palestra (opcional)'],questionNoTalk:['The whole block','Todo el bloque','O bloco inteiro'],
+  questionText:['Question','Pregunta','Pergunta'],publishNow:['Publish now','Publicar ahora','Publicar agora'],saveHidden:['Save hidden','Guardar oculta','Salvar oculta'],saveQuestion:['Save question','Guardar pregunta','Salvar pergunta'],
+  questionStatus:['Status','Estado','Status'],questionOpen:['Open','Abierta','Aberta'],questionClosed:['Closed','Cerrada','Fechada'],questionHidden:['Hidden','Oculta','Oculta'],
+  openChat:['Open chat','Abrir chat','Abrir chat'],present:['Present','Proyectar','Projetar'],downloadCsv:['Download CSV','Descargar CSV','Baixar CSV'],editQuestion:['Edit','Editar','Editar'],
+  questionMessages:['{n} messages','{n} mensajes','{n} mensagens'],questionMessagesOne:['1 message','1 mensaje','1 mensagem'],
+  questionPeople:['{n} people','{n} personas','{n} pessoas'],questionPeopleOne:['1 person','1 persona','1 pessoa'],
+  questionLikes:['{n} likes','{n} me gusta','{n} curtidas'],questionLikesOne:['1 like','1 me gusta','1 curtida'],
+  noQuestions:['No questions yet.','Aún no hay preguntas.','Ainda não há perguntas.'],questionSaved:['Question saved','Pregunta guardada','Pergunta salva'],
+  closeQuestionConfirm:['Close this question? People can still read it but not answer.','¿Cerrar esta pregunta? Las personas podrán leerla, pero ya no responder.','Fechar esta pergunta? As pessoas ainda poderão lê-la, mas não responder.'],
+  questionsLoadError:['The questions could not be loaded.','No se pudieron cargar las preguntas.','Não foi possível carregar as perguntas.']
+ });
  const root=document.getElementById('fiiuAdminRoot'),message=document.getElementById('fiiuStatus');
  let festival,config,records=[],cursor=null,filling=null,listStale=false,publications=[],contentCursor=null,selectedParticipant=null,shownParticipant=null,detailRequest=0,participantFilter='all',participantQuery='',shownCount=null,updatedAt=null,search=null,searchTimer=null,setAside=null;
  const detailHost=el('section','f-admin-detail'),listHost=el('div','f-admin-list'),participantsHost=el('section','f-admin-participants'),settingsHost=el('section','f-admin-settings'),contentHost=el('section','f-admin-content'),pillHost=el('div','f-pill-host'),editorHost=el('div','f-content-editor'),pubList=el('div','f-pub-list');
  const summaryHost=el('section','f-admin-summary'),summaryBody=el('div','f-summary-body'),summaryMessage=el('p','f-status'),updated=el('span','f-updated'),lastScan=el('span','f-updated'),resultCount=el('p','f-result-count');let summaryBusy=false,summaryRerun=false;
  const checkinHost=el('section','f-admin-checkin'),checkinBody=el('div','f-checkin-body');let lastCheckinKey='';
+ // Conversations: questions is null until the first read lands; each question's row is built once (questionRows, by id) and updated in place.
+ const conversationsHost=el('section','f-admin-conversations'),questionEditorHost=el('div','f-question-editor'),questionList=el('div','f-question-list'),questionAlert=el('div','f-question-alert'),questionRows=new Map();
+ let questions=null,questionsFailed=false,questionsBusy=false,questionLayout='',newQuestion=null;
  // Access: a 403 locks the page (participant data leaves the DOM and polling stops); a 401 keeps every draft, shows a sign-in link and pauses timed refreshes until a request succeeds again.
  let locked=false,sessionLost=false,timer=null,sectionObserver=null;
  // Leaving the page (a nav link, a reload) with an unsaved publication asks first: an edit with changes, or a new one with any text, open or set aside.
+ // The same goes for a new question with text and a question edit with changes.
  const hasText=draft=>Boolean(draft&&(draft.title||draft.body||draft.url));
- window.addEventListener?.('beforeunload',event=>{if(locked)return;const editor=currentEditor();if(hasText(setAside)||(editor?.isNew?hasText(editor.draft()):editor?.dirty())){event.preventDefault();event.returnValue='';}});
+ window.addEventListener?.('beforeunload',event=>{if(locked)return;const editor=currentEditor();if(hasText(setAside)||(editor?.isNew?hasText(editor.draft()):editor?.dirty())||questionDraft()){event.preventDefault();event.returnValue='';}});
  const signInUrl=()=>'/login.html?next='+encodeURIComponent(location.pathname+location.hash),sessionNotice=el('p','f-notice is-warning f-session-notice');sessionNotice.hidden=true;sessionNotice.setAttribute('role','alert');
  const signInLink=()=>{const a=link('adminSignIn',signInUrl(),'f-text-link');a.target='_blank';a.rel='noopener';return describe(a);};
  // Once the dashboard is up, a tap dismisses the toast; "Loading…" and "Saving…" stay until their request ends.
@@ -24,7 +44,7 @@
  // Locale-formatted numbers are rebuilt on a language switch: the latest summary and the open editor's counter.
  // lastSummaryKey lets a refresh that brings identical totals leave the tables alone, so a screen reader keeps its place.
  let lastSummary=null,lastSummaryKey='',recount=null;
- const SECTIONS=[['overview','navOverview'],['checkin','checkIn'],['participants','participants'],['settings','settings'],['content','content']];
+ const SECTIONS=[['overview','navOverview'],['checkin','checkIn'],['participants','participants'],['settings','settings'],['content','content'],['conversations','conversations']];
  // Columns that hold text rather than counts; the action column's heading is read out but not shown.
  const TEXT_COLUMNS=new Set(['venue','checkinClosing']),HIDDEN_HEADINGS=new Set(['openCheckinScreen']);
  const KINDS={news:'newsKind',recording:'recording',material:'material'},REVIEW={pending:'reviewPending',accepted:'reviewAccepted',declined:'reviewDeclined'};
@@ -153,7 +173,8 @@
  function lockOut(){
   locked=true;if(timer!==null)clearInterval(timer);sectionObserver?.disconnect();records=[];publications=[];rowCache=new WeakMap();lastSummary=null;selectedParticipant=shownParticipant=null;
   if(backfillRun){backfillRun.stopping=true;backfillRun.wake?.();}backfill=null;backfillAsk=backfillResult=null;backfillLine.textContent=backfillNote.textContent='';backfillActions.replaceChildren();
-  for(const host of [listHost,detailHost,participantsHost,summaryBody,checkinBody,settingsHost,contentHost,editorHost,pubList,resultCount])host.replaceChildren();
+  questions=null;newQuestion=null;questionRows.clear();questionLayout='';
+  for(const host of [listHost,detailHost,participantsHost,summaryBody,checkinBody,settingsHost,contentHost,editorHost,pubList,resultCount,conversationsHost,questionEditorHost,questionList,questionAlert])host.replaceChildren();
   status(message,'');const box=el('section','f-locked'),actions=el('div','f-actions');actions.append(link('fiiuPage','fiiu.html','f-button'),link('backToConsole','dashboard.html'));box.append(tr('h1','organisersOnly'),tr('p','organisersOnlyHint'),actions);root.replaceChildren(box);
  }
  function guard(error){
@@ -542,6 +563,123 @@
   if(contentCursor){const more=button('loadMore',()=>fetchInto(more,async()=>{await loadMoreContent();(contentHost.querySelector('.f-load-more')||[...contentHost.querySelectorAll('.f-pub')].at(-1)?.querySelector('button'))?.focus();}),'f-button secondary f-load-more');more.setAttribute('aria-describedby','f-h-content');pubList.append(more);}
  }
  function contentPanel(){const heading=tr('h2','content'),layout=el('div','f-content-layout');heading.id='f-h-content';layout.append(editorHost,pubList);contentHost.id='content';contentHost.replaceChildren(heading,layout);setAside=null;newEditor();renderContent();return contentHost;}
+ // Conversations: a question on a block (optionally tied to one of its talks) opens a live chat on fiiu-talk.html for registered participants;
+ // organisers moderate there. The new-question form sits beside the questions, which are grouped by block in programme order.
+ const QUESTION_STATUSES=[['open','questionOpen'],['closed','questionClosed'],['hidden','questionHidden']],QUESTION_MAX=500;
+ const validQuestion=q=>Boolean(q)&&typeof q.id==='string'&&typeof q.activityId==='string'&&Number.isSafeInteger(q.version)&&QUESTION_STATUSES.some(([value])=>value===q.status);
+ const countText=(base,n)=>n===1?t(base+'One'):fill(base,{n:nf(n)});
+ function questionDraft(){return Boolean(newQuestion?.dirty())||[...questionRows.values()].some(entry=>entry.editor?.dirty());}
+ async function readQuestions(){const data=await api('/api/admin/fiiu/questions');if(!Array.isArray(data.questions)||!data.questions.every(validQuestion))throw Object.assign(Error(t('error')),{key:'error'});return data.questions;}
+ // A read that started before one of this page's saves can land after it: the newer local version wins, and a question created meanwhile stays.
+ function mergeQuestions(list){const known=new Map((questions||[]).map(q=>[q.id,q])),merged=list.map(q=>{const old=known.get(q.id);known.delete(q.id);return old&&old.version>q.version?{...old,stats:q.stats??old.stats}:q;});return [...merged,...known.values()];}
+ // A save answers with the question without its totals; the row keeps the ones it had until the next read.
+ function upsertQuestion(q){const old=questions?.find(x=>x.id===q.id),next={...old,...q,stats:q.stats??old?.stats??{messages:q.messageCount??0,people:0,likes:0}};questions=old?questions.map(x=>x===old?next:x):[...(questions||[]),next];renderQuestions();}
+ // Retry and "Reload the latest version" report a failure where the organiser pressed.
+ async function reloadQuestions(){const list=await readQuestions();if(locked)return;questions=mergeQuestions(list);questionsFailed=false;renderQuestions();}
+ // On load and with the minute refresh (after the totals, so it never races their sign-in check): a failure keeps the last list and offers Try again
+ // instead of failing the dashboard.
+ async function refreshQuestions({pending,background=false}={}){
+  if(locked||questionsBusy||(background&&sessionLost))return;questionsBusy=true;
+  try{const result=await(pending||readQuestions().then(list=>({list}),error=>({error})));if(result.error)throw result.error;if(locked)return;questions=mergeQuestions(result.list);questionsFailed=false;resume();}
+  catch(error){if(guard(error))return;questionsFailed=true;}
+  finally{questionsBusy=false;}
+  renderQuestions();
+ }
+ function renderQuestions(){
+  if(locked||!festival)return;questionAlert.hidden=!questionsFailed;
+  if(!questionsFailed)questionAlert.replaceChildren();
+  else if(!questionAlert.children.length){const retry=button('retry',()=>fetchInto(retry,async()=>{await reloadQuestions();if(!document.activeElement||document.activeElement===document.body){const heading=conversationsHost.querySelector('h2');if(heading){heading.tabIndex=-1;heading.focus();}}}),'f-button secondary f-small');questionAlert.replaceChildren(tr('span','questionsLoadError'),retry);}
+  if(!questions||!questions.length){questionList.replaceChildren(...(questions?[tr('p','noQuestions','f-muted f-empty')]:questionsFailed?[]:[tr('p','loading','f-muted')]));questionLayout='';return;}
+  const order=new Map(chronological(festival.event.activities).map((a,i)=>[a.id,i])),rank=q=>order.get(q.activityId)??order.size;
+  const sorted=[...questions].sort((a,b)=>rank(a)-rank(b)||a.activityId.localeCompare(b.activityId)||String(a.createdAt).localeCompare(String(b.createdAt)));
+  for(const q of sorted){const entry=questionRows.get(q.id)||questionEntry(q.id);entry.record=q;entry.update();}
+  // The same questions in the same places are only updated, so a timed refresh never moves focus or an open edit.
+  const layout=JSON.stringify(sorted.map(q=>[q.activityId,q.id]));if(layout===questionLayout)return;questionLayout=layout;
+  const active=document.activeElement,refocus=active?.id&&questionList.contains?.(active)?active.id:'',groups=[];
+  for(const q of sorted){if(groups.at(-1)?.activityId!==q.activityId)groups.push({activityId:q.activityId,rows:[]});groups.at(-1).rows.push(questionRows.get(q.id).row);}
+  questionList.replaceChildren(...groups.map(({activityId,rows})=>{
+   const group=el('div','f-question-group'),heading=el('h3','f-question-block'),list=el('ul','f-questions'),activity=findActivity(festival.event,activityId);heading.id='f-qb-'+activityId;
+   if(activity)heading.append(dateNode(activity.date,'span','short','f-question-day'),source('span',activity.title));else heading.append(el('span','',activityId));
+   list.setAttribute('aria-labelledby',heading.id);list.append(...rows);group.append(heading,list);return group;
+  }));
+  if(refocus)document.getElementById(refocus)?.focus({preventScroll:true});
+ }
+ // One ruled row per question: its text, talk and totals, the Open / Closed / Hidden switch, then Edit and the links. update() redraws it from entry.record.
+ function questionEntry(id){
+  const row=el('li','f-question'),view=el('div','f-question-view'),text=source('p','','f-question-text'),meta=el('p','f-question-meta'),controls=el('div','f-question-controls'),group=el('div','f-segmented'),label=tr('span','questionStatus','f-sr-only'),links=el('div','f-question-links'),note=el('p','f-inline-status'),conflict=el('div','f-conflict');
+  const entry={row,view,note,conflict,group,record:null,editor:null,busy:false,buttons:new Map()},path=encodeURIComponent(id);
+  text.id='f-q-'+id;label.id=text.id+'-status';group.setAttribute('role','group');group.setAttribute('aria-labelledby',label.id);note.setAttribute('role','status');
+  for(const [value,key] of QUESTION_STATUSES){const choice=button(key,()=>setQuestionStatus(entry,value),'f-filter');choice.id=text.id+'-'+value;entry.buttons.set(value,choice);group.append(choice);}
+  const edit=entry.edit=button('editQuestion',()=>openQuestionEdit(entry),'f-button secondary f-small'),chat=link('openChat','fiiu-talk.html?q='+path,'f-text-link'),present=link('present','fiiu-talk.html?q='+path+'&present=1','f-text-link'),csv=link('downloadCsv','/api/admin/fiiu/questions/'+path+'/export','f-text-link');
+  // The chat and the projector open in new tabs, so moderating never leaves a draft behind here; the CSV is a download, so a refused or failed
+  // export never replaces the dashboard.
+  edit.id=text.id+'-edit';for(const a of [chat,present]){a.target='_blank';a.rel='noopener';}csv.download='';for(const node of [edit,chat,present,csv])describe(node,text.id);
+  links.append(edit,chat,present,csv);controls.append(label,group,links);view.append(text,meta);row.append(view,controls,note,conflict);
+  entry.update=()=>{
+   const q=entry.record,stats=q.stats||{},count=(base,n)=>el('span','f-question-count',countText(base,Number.isSafeInteger(n)&&n>=0?n:0));row.className='f-question is-'+q.status;text.textContent=q.body;
+   meta.replaceChildren(...(q.talk?[source('span',q.talk,'f-question-talk')]:[]),count('questionMessages',stats.messages??q.messageCount),count('questionPeople',stats.people),count('questionLikes',stats.likes));
+   for(const [value,choice] of entry.buttons)choice.setAttribute('aria-pressed',String(value===q.status));
+  };
+  questionRows.set(id,entry);return entry;
+ }
+ // The switch stays focusable while a change saves (a press meanwhile is ignored), so focus never drops to the page. Closing asks first;
+ // a conflict offers the latest version, which re-reads the list.
+ async function setQuestionStatus(entry,next){
+  const q=entry.record;if(entry.busy||q.status===next)return;
+  if(next==='closed'&&!window.confirm(t('closeQuestionConfirm')))return;
+  entry.busy=true;entry.group.setAttribute('aria-busy','true');
+  const reload=async()=>{await reloadQuestions();entry.conflict.replaceChildren();status(entry.note,'');entry.buttons.get(entry.record.status)?.focus();};
+  // An edit of this question that started from the version this change replaces moves to the new one, so saving it is no conflict with itself.
+  try{await action(null,async()=>{const result=await api('/api/admin/fiiu/questions/'+encodeURIComponent(q.id),{version:q.version,status:next},'PATCH');if(!validQuestion(result.question))throw Object.assign(Error(t('error')),{key:'error'});if(entry.editor?.version===q.version)entry.editor.version=result.question.version;upsertQuestion(result.question);},{feedback:entry.note,conflict:entry.conflict,reload,done:'questionSaved'});}
+  finally{entry.busy=false;entry.group.setAttribute('aria-busy','false');}
+ }
+ function openQuestionEdit(entry,focus=true){if(entry.editor)closeQuestionEdit(entry,false);entry.editor=questionEditor(entry);entry.view.replaceWith(entry.editor.form);entry.edit.hidden=true;if(focus)entry.editor.form.querySelector('textarea')?.focus();}
+ function closeQuestionEdit(entry,focus=true){if(!entry.editor)return;entry.editor.form.replaceWith(entry.view);entry.editor=null;entry.edit.hidden=false;if(focus)entry.edit.focus();}
+ // One form for a new question and for an edit of a saved one, whose block cannot change. A new question keeps one id across retries (as a new
+ // publication does), so a save whose answer was lost gets the stored question back instead of a duplicate; the id is renewed once it saves.
+ function questionEditor(entry=null){
+  const start=entry?.record,isNew=!start,prefix=isNew?'f-qn':'f-qe-'+start.id,form=el('form','f-form f-question-form'),counter=el('span','f-counter'),buttons=el('div','f-question-buttons'),conflict=el('div','f-conflict');let busy=false,draftId=null;
+  // version is the one an edit started from; a status change made on this page meanwhile moves it along (setQuestionStatus).
+  const editor={form,version:start?.version};
+  const block=el('select'),talkField=field('questionTalk'),talk=el('select'),text=field('questionText',{type:'textarea',max:QUESTION_MAX,required:true,value:start?.body});
+  talk.name='talk';talk.id=prefix+'-talk';talkField.input.replaceWith(talk);text.input.name='body';text.input.id=prefix+'-text';counter.id=prefix+'-counter';text.input.setAttribute('aria-describedby',counter.id);
+  // The talk choice lists the block's talks and is hidden for a block without any. An edit keeps a saved talk the programme no longer lists, so saving
+  // the text alone never drops it.
+  const fillTalks=(activityId,value='',keep=false)=>{
+   const names=(findActivity(festival.event,activityId)?.sessions||[]).map(([,name])=>name),none=tr('option','questionNoTalk');none.value='';if(keep&&value&&!names.includes(value))names.push(value);
+   talk.replaceChildren(none,...names.map(name=>{const option=source('option',name);option.value=name;return option;}));talk.value=names.includes(value)?value:'';talkField.wrap.hidden=!names.length;
+  };
+  const count=()=>{const number=new Intl.NumberFormat(locale());counter.textContent=number.format(text.input.value.length)+' / '+number.format(QUESTION_MAX);};text.input.addEventListener('input',count);count();
+  if(isNew){
+   const blockField=field('questionBlock',{required:true}),blank=tr('option','choose');block.name='activityId';block.id=prefix+'-block';block.required=true;blank.value='';block.append(blank);
+   for(const a of chronological(festival.event.activities)){const option=source('option',`${a.date.slice(8)}/${a.date.slice(5,7)} · ${a.title}`);option.value=a.id;block.append(option);}
+   blockField.input.replaceWith(block);block.addEventListener('change',()=>fillTalks(block.value,talk.value));form.append(tr('h3','newQuestion'),blockField.wrap);
+  }
+  fillTalks(start?.activityId||'',start?.talk||'',!isNew);
+  const values=()=>({body:text.input.value.trim(),talk:talk.value||null}),initial=JSON.stringify(values());
+  const send=async(state,control)=>{
+   if(busy)return;text.input.setCustomValidity(values().body?'':t('requiredField'));if(!form.reportValidity())return;
+   const payload=isNew?{id:draftId??=uuid(),activityId:block.value,...values(),status:state}:{version:editor.version,...values()},unlock=lockForm(form,()=>isNew?text.input:entry.edit);busy=true;
+   // After a conflict on a new question (its id was saved, with other text, by a send whose answer was lost) the list shows the saved one and the
+   // draft stays, with a new id for a deliberate second question; an edit reopens on the latest version.
+   const reload=isNew?async()=>{await reloadQuestions();draftId=null;conflict.replaceChildren();text.input.focus();}:async()=>{await reloadQuestions();openQuestionEdit(entry);};
+   try{await action(control,async()=>{
+    const result=await api('/api/admin/fiiu/questions'+(isNew?'':'/'+encodeURIComponent(start.id)),payload,isNew?'POST':'PATCH');if(!validQuestion(result.question))throw Object.assign(Error(t('error')),{key:'error'});
+    if(isNew){draftId=null;text.input.value='';count();}else closeQuestionEdit(entry);
+    upsertQuestion(result.question);
+   },{conflict,reload,done:'questionSaved'});}
+   finally{busy=false;unlock();}
+  };
+  if(isNew){const publish=button('publishNow',()=>send('open',publish),'f-button'),hidden=button('saveHidden',()=>send('hidden',hidden),'f-button secondary');buttons.append(publish,hidden);}
+  else{const save=button('saveQuestion',()=>send(null,save),'f-button');buttons.append(save,button('cancelEdit',()=>closeQuestionEdit(entry),'f-button secondary f-small'));}
+  form.append(talkField.wrap,text.wrap,counter,buttons,conflict);localiseValidation(form);form.addEventListener('submit',event=>event.preventDefault());
+  return Object.assign(editor,{recount:count,dirty:()=>isNew?Boolean(values().body):JSON.stringify(values())!==initial});
+ }
+ function conversationsPanel(){
+  const heading=tr('h2','conversations'),layout=el('div','f-conversations-layout'),side=el('div','f-question-side');heading.id='f-h-conversations';conversationsHost.id='conversations';
+  newQuestion=questionEditor();questionEditorHost.replaceChildren(newQuestion.form);questionAlert.setAttribute('role','status');side.append(questionAlert,questionList);layout.append(questionEditorHost,side);
+  conversationsHost.replaceChildren(heading,tr('p','conversationsHint','f-muted f-section-hint'),layout);renderQuestions();return conversationsHost;
+ }
  // Page head, section navigation and the current-section marker.
  function adminHead(){
   const event=festival.event,head=el('header','f-admin-head'),title=el('div','f-admin-title'),sub=el('p','f-admin-sub'),side=el('div','f-admin-head-side'),actions=el('div','f-actions'),note=tr('p','exportNote','f-muted f-export-note'),csv=button('export',()=>fetchInto(csv,downloadExport),'f-button secondary');
@@ -571,12 +709,12 @@
    const current=SECTIONS.map(([id])=>id).find(id=>visible.has(id));if(!current)return;
    for(const [id,a] of navLinks){if(id!==current){a.removeAttribute('aria-current');continue;}if(a.getAttribute('aria-current')==='true')continue;a.setAttribute('aria-current','true');const row=a.parentElement?.parentElement;if(row&&!row.contains(document.activeElement))revealInRow(row,a);}
   },{rootMargin:'-35% 0px -64% 0px'});
-  for(const section of [summaryHost,checkinHost,participantsHost,settingsHost,contentHost])observer.observe(section);
+  for(const section of [summaryHost,checkinHost,participantsHost,settingsHost,contentHost,conversationsHost])observer.observe(section);
  }
  async function load(){
-  status(message,'loading');const summaryRequest=api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error}));try{const [settingsData,posts,participantData]=await Promise.all([api('/api/admin/fiiu/config'),api('/api/admin/fiiu/content'),api('/api/admin/fiiu/registrations')]);festival={event:settingsData.event};config=settingsData.config;publications=posts.content;contentCursor=posts.nextCursor;setRecords(participantData.registrations);cursor=participantData.nextCursor;
+  status(message,'loading');const summaryRequest=api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error})),questionsRequest=readQuestions().then(list=>({list}),error=>({error}));try{const [settingsData,posts,participantData]=await Promise.all([api('/api/admin/fiiu/config'),api('/api/admin/fiiu/content'),api('/api/admin/fiiu/registrations')]);festival={event:settingsData.event};config=settingsData.config;publications=posts.content;contentCursor=posts.nextCursor;setRecords(participantData.registrations);cursor=participantData.nextCursor;
    const grid=el('div','f-admin-columns');grid.append(listHost,detailHost);detailHost.replaceChildren(tr('p','selectParticipant','f-muted f-detail-empty'));const heading=tr('h2','participants');heading.id='f-h-participants';participantsHost.id='participants';participantsHost.replaceChildren(heading,filters(),grid);
-   root.replaceChildren(adminHead(),sessionNotice,adminNav(),summaryPanel(),checkinPanel(),participantsHost,settings(),contentPanel(),newTabNote());renderRegistrationPill();readParticipants();renderList();status(message,'');refreshSummary({pending:summaryRequest});renderBackfill();loadBackfill();setTitle();observeSections();
+   root.replaceChildren(adminHead(),sessionNotice,adminNav(),summaryPanel(),checkinPanel(),participantsHost,settings(),contentPanel(),conversationsPanel(),newTabNote());renderRegistrationPill();readParticipants();renderList();status(message,'');refreshSummary({pending:summaryRequest});refreshQuestions({pending:questionsRequest});renderBackfill();loadBackfill();setTitle();observeSections();
    const hash=location.hash;if(SECTIONS.some(([id])=>'#'+id===hash))document.querySelector(hash)?.scrollIntoView({block:'start'});
   }catch(error){
    // Signed out before the dashboard loaded: sign in and come straight back. Signed in without organiser access: the organisers-only state, with no Retry.
@@ -589,12 +727,13 @@
  window.nodalI18n?.onChange(()=>{
   // fiiu-ui retranslates #fiiuStatus through textContent, which drops the expired session's sign-in link.
   if(message.dataset.fiiuText==='unauthorized'&&!message.querySelector('a'))message.append(document.createTextNode(' '),signInLink());
-  if(locked)return;rowCache=new WeakMap();setTitle();stampUpdated();recount?.();renderBackfill();if(lastSummary)renderSummary(lastSummary);else renderCheckin();});
+  if(locked)return;rowCache=new WeakMap();setTitle();stampUpdated();recount?.();renderBackfill();newQuestion?.recount();for(const entry of questionRows.values())entry.editor?.recount();renderQuestions();if(lastSummary)renderSummary(lastSummary);else renderCheckin();});
  timer=setInterval(()=>{
   if(!festival||locked||sessionLost||document.visibilityState!=='visible')return;
   // A pass that ended at the cap leaves yesterday's tally and cap message behind; the fresh state replaces them.
   const lifted=capLifted();if(lifted&&backfillResult?.end==='cap')backfillResult=null;
-  return Promise.all([...(lifted?[loadBackfill()]:[]),...(autoRefresh.input.checked?[refreshSummary({background:true})]:[])]);
+  // The question totals follow the summary totals, so a lost session the summary finds pauses them too.
+  return Promise.all([...(lifted?[loadBackfill()]:[]),...(autoRefresh.input.checked?[refreshSummary({background:true}).then(()=>refreshQuestions({background:true}))]:[])]);
  },60000);
  load();
 })();

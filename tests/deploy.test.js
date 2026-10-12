@@ -454,6 +454,18 @@ test('every translation key a script asks for resolves in all three languages', 
   runInNewContext(readFileSync(path.join(ROOT,'web/scripts/fiiu-ui.js'),'utf8'),fiiuContext);
   const fiiuRows=fiiuContext.window.Fiiu.rows;
   for(const [key,values]of Object.entries(fiiuRows))assert.ok(values.length===3&&values.every(v=>typeof v==='string'&&v.trim()),`festival key ${key} must have all three languages`);
+  // A festival page may keep its own strings, merged into the shared rows at the top of its script (Object.assign(rows,{...})): they resolve for
+  // that script only, and need all three languages too. The literal holds only strings, so it is evaluated as written.
+  const ownFiiuRows=(file,js)=>{
+    const rows={};
+    for(const m of js.matchAll(/Object\.assign\(\s*(?:strings|rows|Fiiu\.rows)\s*,\s*\{/g)){
+      const start=m.index+m[0].length-1;let depth=0,end=start;
+      for(let i=start;i<js.length;i+=1){if(js[i]==='{')depth+=1;else if(js[i]==='}'){depth-=1;if(!depth){end=i;break;}}}
+      Object.assign(rows,runInNewContext('('+js.slice(start,end+1)+')'));
+    }
+    for(const [key,values]of Object.entries(rows))assert.ok(Array.isArray(values)&&values.length===3&&values.every(v=>typeof v==='string'&&v.trim()),`${file}: festival key ${key} must have all three languages`);
+    return rows;
+  };
   const pilotContext={window:{}};
   runInNewContext(readFileSync(path.join(ROOT,'web/scripts/pilot-i18n.js'),'utf8'),pilotContext);
   const pilotRows=pilotContext.window.pilotI18n.rows;
@@ -475,10 +487,11 @@ test('every translation key a script asks for resolves in all three languages', 
   }
   for (const file of readdirSync(path.join(ROOT, 'web', 'scripts')).filter((f) => f.endsWith('.js'))) {
     const js = readFileSync(path.join(ROOT, 'web', 'scripts', file), 'utf8');
+    const ownRows = file.startsWith('fiiu') ? ownFiiuRows(file, js) : {};
     for (const m of js.matchAll(/\bt\(\s*'([^']+)'/g)) {
       const key = m[1];
       if(file.startsWith('fiiu')){
-        if(!fiiuRows[key])missing.push(`${file}: '${key}' is missing from festival translations`);
+        if(!fiiuRows[key]&&!ownRows[key])missing.push(`${file}: '${key}' is missing from festival translations`);
         continue;
       }
       if(['invitation-i18n.js','accept-invitation.js'].includes(file)){

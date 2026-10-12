@@ -10,12 +10,14 @@ const summary={totalRegistrations:237,publicOfficials:64,lab:{pending:18,accepte
 // The summary-email block's state (GET /api/admin/fiiu/confirmations); by default nobody is waiting.
 const emailCounts=(over={})=>({none:0,pending:0,sent:0,failed:0,uncertain:0,skipped:0,...over});
 const emailState=(over={})=>({configured:true,counts:emailCounts(),dailyCap:150,sentToday:0,resetsAt:'2026-10-03T00:00:00.000Z',...over});
-async function harness(respond,{participants=[],nextCursor=null,summaryRead=()=>({summary:copy(summary)}),configRead=()=>({config:{...DEFAULT_CONFIG,version:0}}),confirmationsRead=()=>emailState(),context={}}={}){
+// The conversation questions (GET /api/admin/fiiu/questions); by default there are none.
+async function harness(respond,{participants=[],nextCursor=null,summaryRead=()=>({summary:copy(summary)}),configRead=()=>({config:{...DEFAULT_CONFIG,version:0}}),confirmationsRead=()=>emailState(),questionsRead=()=>({questions:[]}),context={}}={}){
  return createFiiuHarness(request=>{
   // The dashboard reads the programme and its first settings, version included, from its own per-account read, never the public /api/fiiu.
   if(request.path==='/api/fiiu')throw Error('the dashboard must not depend on the public, CDN-cached programme read');
   if(request.path==='/api/admin/fiiu/config'&&request.method==='GET')return{event:FIIU_EVENT,...configRead(request)};
   if(request.path==='/api/admin/fiiu/confirmations'&&request.method==='GET')return confirmationsRead(request);
+  if(request.path==='/api/admin/fiiu/questions'&&request.method==='GET')return questionsRead(request);
   if(request.path==='/api/admin/fiiu/registrations')return{registrations:copy(participants),nextCursor};
   if(request.path==='/api/admin/fiiu/summary')return summaryRead(request);
   return respond(request);
@@ -1110,4 +1112,208 @@ test('Stop pressed while a request is out, which then meets the busy write budge
  assert.deepEqual(timers.delays(),[],'no half-minute pause after Stop');assert.equal(posts(h).length,1);
  assert.equal(backfillNote(h),'Stopped. Sent 0 · Failed 0');assert.equal(backfillAction(h,'stop'),undefined);
  assert.equal(backfillAction(h,'send').textContent,'Send the summary to 9 people','the button is back straight away');
+});
+
+// Conversations: organiser questions on festival blocks (GET/POST /api/admin/fiiu/questions, PATCH /api/admin/fiiu/questions/:id).
+const QUESTION_ID='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const question=(over={})=>({id:QUESTION_ID,activityId:'day1-am',talk:'¡Bienvenidos al FIIU 11!',body:'¿Qué te llevas de esta charla?',status:'open',revision:3,messageCount:4,createdAt:'2026-10-21T14:00:00.000Z',version:1,stats:{messages:4,people:3,likes:7},...over});
+const conversations=h=>h.root.querySelector('.f-admin-conversations');
+const questionForm=h=>conversations(h).querySelector('.f-question-editor').querySelector('form');
+const questionRows=h=>conversations(h).querySelectorAll('.f-question');
+const questionWrites=h=>h.requests.filter(request=>request.path.startsWith('/api/admin/fiiu/questions')&&request.method!=='GET');
+const questionReads=h=>h.requests.filter(request=>request.path==='/api/admin/fiiu/questions'&&request.method==='GET').length;
+const select=async(node,value)=>{node.value=value;await node.listeners.change?.();};
+const CONVERSATION_KEYS=['conversations','conversationsHint','newQuestion','questionBlock','questionTalk','questionNoTalk','questionText','publishNow','saveHidden','saveQuestion','questionStatus','questionOpen','questionClosed','questionHidden','openChat','present','downloadCsv','editQuestion','questionMessages','questionMessagesOne','questionPeople','questionPeopleOne','questionLikes','questionLikesOne','noQuestions','questionSaved','closeQuestionConfirm','questionsLoadError'];
+
+test('the Conversations section follows News and materials, with its own heading, hint and nav entry, in three languages',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}));
+ const section=conversations(h);assert.equal(section.id,'conversations');assert.ok(key(section,'conversations'));assert.ok(key(section,'conversationsHint'));assert.ok(key(section,'noQuestions'));
+ assert.deepEqual(h.root.children.filter(node=>node.tagName==='section').map(node=>node.id),['overview','checkin','participants','settings','content','conversations']);
+ const nav=h.root.querySelector('.f-admin-nav').querySelectorAll('a');assert.deepEqual(nav.map(a=>a.href).slice(-2),['#content','#conversations']);assert.equal(nav.at(-1).dataset.fiiuText,'conversations');
+ assert.equal(questionReads(h),1,'the questions are read once, with the rest of the dashboard');
+ const rows=h.ctx.window.Fiiu.rows;for(const name of CONVERSATION_KEYS){assert.equal(rows[name]?.length,3,name);assert.ok(rows[name].every(text=>typeof text==='string'&&text.trim()),name);}
+ for(const name of ['questionMessages','questionPeople','questionLikes'])assert.ok(rows[name].every(text=>text.includes('{n}')),name);
+ h.lang('es');assert.equal(key(conversations(h),'conversations').textContent,'Conversaciones');h.lang('pt');assert.equal(key(conversations(h),'conversations').textContent,'Conversas');
+});
+
+test('questions are grouped by block in programme order, each with its talk, counts and status, and the counts follow the language',async()=>{
+ const later='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2',other='cccccccc-cccc-4ccc-8ccc-ccccccccccc3';
+ const h=await harness(()=>({content:[],nextCursor:null}),{questionsRead:()=>({questions:[
+  question({id:other,activityId:'day2-am',talk:null,body:'¿Cómo cuidamos la ciudad?',createdAt:'2026-10-21T13:00:00.000Z',stats:{messages:0,people:0,likes:0}}),
+  question(),
+  question({id:later,talk:null,body:'Una pregunta preparada',status:'hidden',createdAt:'2026-10-21T15:00:00.000Z',stats:{messages:1,people:1,likes:1}}),
+ ]})});
+ const groups=conversations(h).querySelectorAll('.f-question-group');assert.equal(groups.length,2);
+ assert.match(content(groups[0].querySelector('h3')),/El poder de lo local/);assert.match(content(groups[1].querySelector('h3')),/Cuidar y transformar la ciudad/);
+ const rows=questionRows(h);assert.deepEqual(rows.map(row=>row.querySelector('.f-question-text').textContent),['¿Qué te llevas de esta charla?','Una pregunta preparada','¿Cómo cuidamos la ciudad?']);
+ assert.equal(rows[0].querySelector('.f-question-text').lang,'es');assert.match(content(rows[0]),/¡Bienvenidos al FIIU 11!/);assert.equal(rows[1].querySelector('.f-question-talk'),null);
+ assert.match(content(rows[0]),/4 messages.*3 people.*7 likes/);assert.match(content(rows[1]),/1 message.*1 person.*1 like\b/);assert.match(content(rows[2]),/0 messages.*0 people.*0 likes/);
+ assert.equal(key(rows[0],'questionOpen')['aria-pressed'],'true');assert.equal(key(rows[0],'questionHidden')['aria-pressed'],'false');
+ assert.equal(key(rows[1],'questionHidden')['aria-pressed'],'true');assert.match(rows[1].className,/\bis-hidden\b/);
+ const group=key(rows[0],'questionOpen').parent;assert.equal(group.role,'group');assert.equal(group['aria-labelledby'],key(rows[0],'questionStatus').id);
+ h.lang('es');assert.match(content(questionRows(h)[0]),/4 mensajes.*3 personas.*7 me gusta/);assert.match(content(questionRows(h)[1]),/1 mensaje.*1 persona.*1 me gusta/);
+ h.lang('pt');assert.match(content(questionRows(h)[0]),/4 mensagens.*3 pessoas.*7 curtidas/);
+});
+
+test('a new question is posted with one UUID across retries; once saved the text clears and the list shows it, and the next draft gets its own id',async()=>{
+ let fail=true;const saved=[];
+ const h=await harness(({method,path,body})=>{
+  if(path==='/api/admin/fiiu/questions'&&method==='POST'){saved.push(body);if(fail){fail=false;return unavailable;}return{status:201,data:{question:{id:body.id,activityId:body.activityId,talk:body.talk,body:body.body,status:body.status,revision:0,messageCount:0,createdAt:'2026-10-11T15:00:00.000Z',version:1}}};}
+  return{content:[],nextCursor:null};
+ });
+ const form=questionForm(h),block=field(form,'activityId');assert.ok(key(conversations(h),'newQuestion'));
+ // Every current block, in programme order, labelled as the publication editor labels them; no historical activities.
+ assert.deepEqual(new Set(block.children.map(option=>option.value)),new Set(['',...FIIU_EVENT.activities.map(activity=>activity.id)]));
+ const dates=block.children.slice(1).map(option=>FIIU_EVENT.activities.find(activity=>activity.id===option.value).date);assert.deepEqual(dates,[...dates].sort());
+ assert.equal(block.children.find(option=>option.value==='day1-am').textContent,'21/10 · El poder de lo local');assert.equal(block.required,true);
+ await select(block,'day1-am');await select(field(form,'talk'),'¡Bienvenidos al FIIU 11!');
+ const text=field(form,'body');assert.equal(text.tagName,'textarea');assert.equal(text.maxLength,500);type(text,'  ¿Qué te llevas?  ');
+ assert.equal(form.querySelector('.f-counter').textContent,'19 / 500');assert.equal(text['aria-describedby'],form.querySelector('.f-counter').id);
+ await key(form,'publishNow').listeners.click();
+ assert.equal(h.message.dataset.fiiuText,'error');assert.equal(text.value,'  ¿Qué te llevas?  ','the draft survives a failed save');assert.equal(questionRows(h).length,0);
+ await key(form,'publishNow').listeners.click();
+ assert.match(saved[0].id,UUID);assert.equal(saved[1].id,saved[0].id,'the retry reuses the id, so a lost response never makes a second question');
+ assert.deepEqual(saved[1],{id:saved[0].id,activityId:'day1-am',talk:'¡Bienvenidos al FIIU 11!',body:'¿Qué te llevas?',status:'open'});
+ assert.equal(h.message.dataset.fiiuText,'questionSaved');assert.equal(text.value,'','the text clears');assert.equal(form.querySelector('.f-counter').textContent,'0 / 500');
+ const rows=questionRows(h);assert.equal(rows.length,1);assert.equal(rows[0].querySelector('.f-question-text').textContent,'¿Qué te llevas?');assert.match(content(rows[0]),/0 messages/);
+ assert.equal(key(conversations(h),'noQuestions'),undefined);
+ type(text,'Una pregunta para más tarde');await key(form,'saveHidden').listeners.click();
+ assert.notEqual(saved.at(-1).id,saved[0].id,'a new draft gets a new id');assert.match(saved.at(-1).id,UUID);assert.equal(saved.at(-1).status,'hidden');
+ assert.equal(questionRows(h).length,2);assert.equal(key(questionRows(h)[1],'questionHidden')['aria-pressed'],'true');
+ // A blank or space-only question, or no block, is stopped in the browser.
+ const before=saved.length;type(text,'   ');await key(form,'publishNow').listeners.click();assert.equal(saved.length,before);assert.equal(text.validationMessage,'Answer this question to continue.');
+ type(text,'Otra');await select(block,'');await key(form,'publishNow').listeners.click();assert.equal(saved.length,before);
+});
+
+test('the talk choice appears only for blocks with talks and lists that block’s talks',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}));
+ const form=questionForm(h),block=field(form,'activityId'),talk=field(form,'talk');
+ assert.equal(talk.parent.hidden,true,'no block chosen yet');assert.equal(talk.required,undefined);
+ await select(block,'day1-pm');assert.equal(talk.parent.hidden,true,'an evening block has no talks');
+ await select(block,'day2-am');assert.equal(talk.parent.hidden,false);
+ assert.deepEqual(talk.children.map(option=>option.value),['',...FIIU_EVENT.activities.find(activity=>activity.id==='day2-am').sessions.map(([,name])=>name)]);
+ assert.equal(talk.children[0].dataset.fiiuText,'questionNoTalk');
+ await select(talk,'Hacer ciudad en alianza');await select(block,'day3-am');assert.equal(talk.value,'','a talk from another block is not kept');
+ await select(block,'');assert.equal(talk.parent.hidden,true);
+});
+
+test('a status change sends the version; a conflict offers Reload the latest version, which re-reads the list',async()=>{
+ let current=question();
+ const h=await harness(({method,body})=>{
+  if(method==='PATCH'){if(body.version!==current.version)return{status:409,data:{error:'question changed; reload before saving',question:current}};current={...current,status:body.status,version:current.version+1};const{stats,...view}=current;return{question:view};}
+  return{content:[],nextCursor:null};
+ },{questionsRead:()=>({questions:[copy(current)]})});
+ const row=()=>questionRows(h)[0],note=()=>row().querySelector('.f-inline-status');
+ await key(row(),'questionHidden').listeners.click();
+ assert.deepEqual(questionWrites(h).map(({method,path,body})=>({method,path,body})),[{method:'PATCH',path:'/api/admin/fiiu/questions/'+QUESTION_ID,body:{version:1,status:'hidden'}}]);
+ assert.equal(key(row(),'questionHidden')['aria-pressed'],'true');assert.equal(key(row(),'questionOpen')['aria-pressed'],'false');assert.match(row().className,/\bis-hidden\b/);
+ assert.equal(note().dataset.fiiuText,'questionSaved');assert.match(content(row()),/4 messages.*3 people.*7 likes/,'counts stay when the answer carries none');
+ await key(row(),'questionHidden').listeners.click();assert.equal(questionWrites(h).length,1,'the current status sends nothing');
+ // Another organiser reopens it meanwhile: this dashboard still holds version 2.
+ current={...current,status:'open',version:5};const reads=questionReads(h);
+ await key(row(),'questionOpen').listeners.click();
+ assert.equal(questionWrites(h).at(-1).body.version,2);assert.equal(note().dataset.fiiuText,'editorConflict');
+ const latest=key(row(),'reloadLatest');assert.ok(latest,'a conflict offers the latest version');
+ await latest.listeners.click();
+ assert.equal(questionReads(h),reads+1);assert.equal(key(row(),'questionOpen')['aria-pressed'],'true');assert.equal(key(row(),'reloadLatest'),undefined);assert.equal(note().dataset.fiiuText,'');
+ await key(row(),'questionHidden').listeners.click();assert.equal(questionWrites(h).at(-1).body.version,5,'the next change uses the version just read');assert.equal(note().dataset.fiiuText,'questionSaved');
+});
+
+test('closing a question asks first; declining sends nothing, and hiding or reopening never asks',async()=>{
+ let current=question(),asked=0,answer=false;
+ const h=await harness(({method,body})=>{if(method==='PATCH'){current={...current,status:body.status,version:current.version+1};return{question:current};}return{content:[],nextCursor:null};},{questionsRead:()=>({questions:[copy(current)]})});
+ h.ctx.window.confirm=message=>{asked++;assert.equal(message,'Close this question? People can still read it but not answer.');return answer;};
+ const row=()=>questionRows(h)[0];
+ await key(row(),'questionClosed').listeners.click();assert.equal(asked,1);assert.equal(questionWrites(h).length,0);assert.equal(key(row(),'questionOpen')['aria-pressed'],'true');
+ answer=true;await key(row(),'questionClosed').listeners.click();assert.equal(asked,2);assert.deepEqual(questionWrites(h).at(-1).body,{version:1,status:'closed'});assert.equal(key(row(),'questionClosed')['aria-pressed'],'true');
+ await key(row(),'questionOpen').listeners.click();await key(row(),'questionHidden').listeners.click();assert.equal(asked,2);assert.deepEqual(questionWrites(h).map(request=>request.body.status),['closed','open','hidden']);
+});
+
+test('editing a question keeps its block, pre-fills the text and talk and saves both with the version; Cancel restores the row',async()=>{
+ let current=question();
+ const h=await harness(({method,body})=>{if(method==='PATCH'){current={...current,...body,version:current.version+1};return{question:current};}return{content:[],nextCursor:null};},{questionsRead:()=>({questions:[copy(current)]})});
+ const row=()=>questionRows(h)[0];
+ await key(row(),'editQuestion').listeners.click();
+ let form=row().querySelector('form');assert.ok(form);assert.equal(field(form,'activityId'),undefined,'the block cannot change');
+ assert.equal(field(form,'body').value,'¿Qué te llevas de esta charla?');assert.equal(field(form,'talk').value,'¡Bienvenidos al FIIU 11!');assert.equal(field(form,'body').focused,true);
+ assert.notEqual(field(form,'body').id,field(questionForm(h),'body').id,'the edit form’s ids differ from the new-question form’s');
+ type(field(form,'body'),'Changed, then cancelled');await key(form,'cancelEdit').listeners.click();
+ assert.equal(row().querySelector('form'),null);assert.equal(row().querySelector('.f-question-text').textContent,'¿Qué te llevas de esta charla?');assert.equal(key(row(),'editQuestion').focused,true);assert.equal(questionWrites(h).length,0);
+ await key(row(),'editQuestion').listeners.click();form=row().querySelector('form');
+ assert.equal(field(form,'body').value,'¿Qué te llevas de esta charla?','a cancelled edit does not come back');
+ type(field(form,'body'),'¿Qué idea te llevas?');await select(field(form,'talk'),'');await key(form,'saveQuestion').listeners.click();
+ assert.deepEqual(questionWrites(h).map(({method,path,body})=>({method,path,body})),[{method:'PATCH',path:'/api/admin/fiiu/questions/'+QUESTION_ID,body:{version:1,body:'¿Qué idea te llevas?',talk:null}}]);
+ assert.equal(row().querySelector('form'),null);assert.equal(row().querySelector('.f-question-text').textContent,'¿Qué idea te llevas?');assert.equal(row().querySelector('.f-question-talk'),null);
+ assert.equal(h.message.dataset.fiiuText,'questionSaved');
+ await key(row(),'editQuestion').listeners.click();type(field(row().querySelector('form'),'body'),'Otra vez');await key(row().querySelector('form'),'saveQuestion').listeners.click();
+ assert.equal(questionWrites(h).at(-1).body.version,2,'the next edit uses the saved version');
+});
+
+test('leaving the page with a question draft or a changed question edit asks first',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{questionsRead:()=>({questions:[question()]})});
+ const leave=()=>{let prevented=false;const event={preventDefault(){prevented=true;}};for(const listener of h.windowListeners.beforeunload)listener(event);return prevented&&event.returnValue==='';};
+ assert.equal(leave(),false);const text=field(questionForm(h),'body');
+ type(text,'Half a question');assert.equal(leave(),true,'a question draft with text asks first');
+ type(text,'   ');assert.equal(leave(),false,'spaces are not a draft');type(text,'');
+ await select(field(questionForm(h),'activityId'),'day1-am');assert.equal(leave(),false,'a block alone is not a draft');
+ await key(questionRows(h)[0],'editQuestion').listeners.click();assert.equal(leave(),false,'an unchanged edit lets the page go');
+ const edit=questionRows(h)[0].querySelector('form');type(field(edit,'body'),'Half-corrected question');assert.equal(leave(),true,'a changed edit asks first');
+ await key(edit,'cancelEdit').listeners.click();assert.equal(leave(),false);
+});
+
+test('losing organiser access empties the Conversations section, whether the summary or the questions read reports it',async()=>{
+ for(const source of ['summary','questions']){
+  let deny=false;const denied={status:403,data:{error:'administrator access required'}};
+  const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>deny&&source==='summary'?denied:{summary:copy(summary)},questionsRead:()=>deny&&source==='questions'?denied:{questions:[question()]}});
+  const host=conversations(h);assert.equal(questionRows(h).length,1);type(field(questionForm(h),'body'),'Unsent question');
+  deny=true;await h.tickTimers();await flush();
+  assert.equal(host.children.length,0,source);assert.ok(key(h.root,'organisersOnly'),source);assert.doesNotMatch(content(h.root),/Qué te llevas|Unsent question/,source);
+  const leave=()=>{let prevented=false;for(const listener of h.windowListeners.beforeunload)listener({preventDefault(){prevented=true;}});return prevented;};assert.equal(leave(),false,'a locked page lets the organiser go');
+  const before=h.requests.length;await h.tickTimers();assert.equal(h.requests.length,before,source);
+ }
+});
+
+test('each question links to its chat and projector in a new tab, and to its CSV',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{questionsRead:()=>({questions:[question()]})});
+ const row=questionRows(h)[0],text=row.querySelector('.f-question-text');assert.equal(text.id,'f-q-'+QUESTION_ID);
+ const chat=key(row,'openChat'),present=key(row,'present'),csv=key(row,'downloadCsv');
+ assert.equal(chat.tagName,'a');assert.equal(chat.href,'fiiu-talk.html?q='+QUESTION_ID);assert.equal(present.href,'fiiu-talk.html?q='+QUESTION_ID+'&present=1');
+ for(const a of [chat,present]){assert.equal(a.target,'_blank');assert.equal(a.rel,'noopener');assert.equal(a['aria-describedby'],text.id+' f-newtab');}
+ assert.equal(csv.href,'/api/admin/fiiu/questions/'+QUESTION_ID+'/export');assert.equal(csv.download,'','downloaded, so a failure never replaces the dashboard');assert.equal(csv.target,undefined);assert.equal(csv['aria-describedby'],text.id);
+ assert.equal(key(row,'editQuestion')['aria-describedby'],text.id);
+});
+
+test('an unavailable questions read leaves the dashboard working and offers a retry; the minute refresh updates counts in place, only while visible and switched on',async()=>{
+ let fail=true,current=question();
+ const h=await harness(()=>({content:[],nextCursor:null}),{questionsRead:()=>fail?unavailable:{questions:[copy(current)]}});
+ const section=conversations(h);assert.ok(h.root.querySelector('.f-admin-summary'));assert.ok(h.root.querySelector('.f-content-editor'));assert.ok(questionForm(h),'a question can still be written');
+ assert.ok(key(section,'questionsLoadError'));assert.equal(key(section,'noQuestions'),undefined,'an outage is not reported as an empty list');
+ fail=false;await key(section,'retry').listeners.click();
+ assert.equal(key(section,'questionsLoadError'),undefined);assert.equal(questionRows(h).length,1);assert.match(content(questionRows(h)[0]),/4 messages/);
+ const row=questionRows(h)[0],chat=key(row,'openChat');current={...current,stats:{messages:9,people:5,likes:12},messageCount:9,revision:8};
+ await h.tickTimers();assert.equal(questionReads(h),3);assert.equal(questionRows(h)[0],row,'the row is updated in place');assert.equal(key(row,'openChat'),chat);assert.match(content(row),/9 messages.*5 people.*12 likes/);
+ h.visible(false);await h.tickTimers();assert.equal(questionReads(h),3,'a background tab does not poll');h.visible(true);
+ const toggle=field(h.root.querySelector('.f-admin-summary'),'autoRefresh');toggle.checked=false;toggle.listeners.change();await h.tickTimers();assert.equal(questionReads(h),3,'paused timed refresh leaves the questions too');
+ fail=true;toggle.checked=true;await h.tickTimers();assert.ok(key(section,'questionsLoadError'));assert.equal(questionRows(h)[0],row,'a failed refresh keeps the last list');
+});
+
+test('a status change made here while the same question is being edited does not turn saving that edit into a conflict, but another organiser’s change does',async()=>{
+ let current=question();
+ const h=await harness(({method,body})=>{
+  if(method==='PATCH'){if(body.version!==current.version)return{status:409,data:{error:'question changed; reload before saving',question:current}};current={...current,...body,version:current.version+1};return{question:current};}
+  return{content:[],nextCursor:null};
+ },{questionsRead:()=>({questions:[copy(current)]})});
+ const row=()=>questionRows(h)[0];
+ await key(row(),'editQuestion').listeners.click();type(field(row().querySelector('form'),'body'),'Edited while hiding');
+ await key(row(),'questionHidden').listeners.click();assert.equal(current.version,2);
+ await key(row().querySelector('form'),'saveQuestion').listeners.click();
+ assert.deepEqual(questionWrites(h).map(request=>request.body.version),[1,2]);assert.equal(h.message.dataset.fiiuText,'questionSaved');assert.equal(row().querySelector('.f-question-text').textContent,'Edited while hiding');
+ // Another organiser's change, learnt from the minute refresh, still meets the conflict.
+ await key(row(),'editQuestion').listeners.click();type(field(row().querySelector('form'),'body'),'Second edit');
+ current={...current,status:'open',version:9};await h.tickTimers();assert.equal(key(row(),'questionOpen')['aria-pressed'],'true');
+ await key(row().querySelector('form'),'saveQuestion').listeners.click();
+ assert.equal(questionWrites(h).at(-1).body.version,3);assert.equal(h.message.dataset.fiiuText,'editorConflict');assert.ok(key(row().querySelector('form'),'reloadLatest'));
+ await key(row().querySelector('form'),'reloadLatest').listeners.click();
+ const form=row().querySelector('form');assert.equal(field(form,'body').value,'Edited while hiding','the edit reopens on the latest version');assert.equal(field(form,'body').focused,true);
+ await key(form,'saveQuestion').listeners.click();assert.equal(questionWrites(h).at(-1).body.version,9);
 });
