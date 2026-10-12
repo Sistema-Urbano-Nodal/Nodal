@@ -62,28 +62,20 @@ test('server pages get their policy from the header and carry no CSP meta that w
   }
 });
 
-/* Chromium keeps no no-store page in the back/forward cache, so Back from a conversation rebuilt the whole programme
-   and dropped the attendee at the top. These two pages are the same HTML for everyone; who is signed in only shows in
-   the no-store API answers the scripts read afterwards. */
-test('the festival programme and conversation pages may be kept for Back, and carry no member data',async t=>{
+/* Chromium keeps any page that is not no-store in the back/forward cache, filled-in fields and all, and no page reads
+   the session again on pageshow(persisted). A kept fiiu.html showed the registration form (email, DNI, age) after
+   signing out and pressing Back, and a kept fiiu-talk.html the attendee-only conversation. Until the pages check the
+   session on restore, every page the server sends stays out of every cache, for every visitor. */
+test('no page is kept for Back, so signing out never leaves a restorable copy of personal data',async t=>{
   const {get}=await boot(t);
-  for(const page of ['fiiu.html','fiiu-talk.html']){
-    const bodies=[];
-    for(const actor of [null,'member','admin']){
-      const response=await get(page,actor);
-      assert.equal(response.status,200,`${page} ${actor}`);
-      assert.equal(response.headers.get('cache-control'),'private, no-cache',`${page}: revalidated, never shared, but not no-store`);
-      bodies.push(await response.text());
-    }
-    assert.equal(bodies[1],bodies[0],`${page}: a member gets the guest's bytes`);assert.equal(bodies[2],bodies[0],page);
-    assert.equal(bodies[0],read(page),`${page} is served exactly as written`);
-    assert.doesNotMatch(bodies[0],/csp-(?:member|admin)|example\.test/,page);
+  const checked=new Set();
+  for(const page of SERVER_PAGES)for(const actor of [null,'member','admin']){
+    const response=await get(page,actor);await response.arrayBuffer();
+    // A redirect to sign-in or a JSON refusal is not a page.
+    if(!/^text\/html/.test(response.headers.get('content-type')||''))continue;
+    assert.equal(response.headers.get('cache-control'),'no-store',`${page} ${actor||'guest'}`);checked.add(page);
   }
-  // Pages that are personal, or that answer differently by role, stay out of every cache.
-  for(const [page,actor] of [['fiiu-checkin.html','member'],['dashboard.html','member'],['fiiu-admin.html','admin'],['fiiu-admin.html','member'],['login.html',null],['index.html',null]]){
-    const response=await get(page,actor);
-    assert.equal(response.headers.get('cache-control'),'no-store',`${page} ${actor}`);await response.arrayBuffer();
-  }
+  assert.deepEqual([...checked].sort(),[...SERVER_PAGES].sort());
 });
 
 test('pages that keep a CSP meta keep the full policy in it',()=>{

@@ -58,10 +58,6 @@ const PRIVATE_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html', '/dashboard.
 const STATIC_PAGES = new Set(['fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'organisers-only.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'privacy.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html']);
 const STATIC_SCRIPTS = new Set(['fiiu-ui.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js', 'news-feed.js', 'admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'i18n-dashboard.js', 'locale.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'hero-network.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js', 'privacy.js']);
 const ORGANISER_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html']);
-/* Chromium never keeps a no-store page in the back/forward cache, so Back from a conversation rebuilt the whole festival
-   programme at the top. These pages are the same HTML for everyone; who is signed in only shows in the no-store API
-   answers their scripts read. They are revalidated on every load and never stored by a shared cache. */
-const BACK_CACHEABLE_PAGES = new Set(['/fiiu.html', '/fiiu-talk.html']);
 const STATIC_STYLES = new Set(['fiiu.css', 'fiiu-talk.css', 'auth.css', 'styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css']);
 const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp']);
 const STATIC_FONTS = new Set(['montserrat-v31-latin-normal.woff2', 'montserrat-v31-latin-ext-normal.woff2', 'montserrat-v31-latin-italic.woff2', 'montserrat-v31-latin-ext-italic.woff2', 'OFL.txt']);
@@ -938,7 +934,9 @@ async function serveStatic(req, res, canonical, pilotMode, { status = 200 } = {}
       ...(canonical==='/dashboard.html'?{'Permissions-Policy':'camera=(), microphone=(), geolocation=(self), payment=()'}:{}),
       ...(['/reset-password.html','/accept-invitation.html'].includes(canonical) ? { 'Referrer-Policy': 'no-referrer' } : {}),
       'Content-Type': type,
-      'Cache-Control': !type.startsWith('text/html') ? STATIC_CACHE_CONTROL : BACK_CACHEABLE_PAGES.has(canonical) && status === 200 ? 'private, no-cache' : 'no-store',
+      // no-store also keeps pages out of the back/forward cache: no page reads the session again on pageshow, so a
+      // restored copy would show the last person's form and conversation after they sign out and press Back.
+      'Cache-Control': type.startsWith('text/html') ? 'no-store' : STATIC_CACHE_CONTROL,
     });
     res.end(req.method === 'HEAD' ? undefined : data);
   } catch {
