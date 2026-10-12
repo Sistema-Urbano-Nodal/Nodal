@@ -1,0 +1,53 @@
+/* Festival conversation page (fiiu-talk.html, the only page that loads this file). Scope as in fiiu.css: every selector starts with an f-talk class or sits under
+   .f-page; the html:has() rule at the end reaches this page only. Phone first, one centred column; messages are set apart by whitespace, not rules, cards or shadows. */
+/* The column fills the screen, so the composer sits at the bottom even before the first message. */
+.f-page[data-page="fiiu-talk"] .f-shell{display:flex;flex-direction:column}.f-page[data-page="fiiu-talk"] #fiiuTalkRoot{flex:1 0 auto;display:flex;flex-direction:column}
+.f-page .f-talk{flex:1 0 auto;display:flex;flex-direction:column;width:100%;max-width:760px;margin:0 auto;padding:var(--f-sp-5) 0 0}.f-page[data-page="fiiu-talk"] .f-locked{width:100%;max-width:760px;margin-inline:auto}
+/* Header: the block, its Lima date, time and venue, the talk, then the question as the largest text on the page. */
+.f-talk-head{padding:0 0 var(--f-sp-4)}.f-talk-kicker{margin:0;font-size:.72rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--f-forest)}
+.f-page .f-talk-title{max-width:none;hyphens:manual;margin:var(--f-sp-1) 0;font-size:clamp(1.6rem,6vw,2.4rem)}
+.f-talk-when{display:flex;flex-wrap:wrap;gap:2px 0;margin:0;font-size:.9rem;color:var(--f-muted)}.f-talk-when>:not(:last-child)::after{content:"·";content:"·"/"";margin:0 .55em}.f-talk-venue{overflow-wrap:anywhere}
+.f-talk-talk{margin:var(--f-sp-4) 0 0;font-size:.92rem;font-weight:650;color:var(--f-forest);overflow-wrap:anywhere}
+.f-talk-question{margin:var(--f-sp-2) 0 0;font-size:clamp(1.2rem,4.6vw,1.55rem);font-weight:650;line-height:1.35;letter-spacing:-.01em;overflow-wrap:anywhere}
+.f-talk-flag{display:inline-block;padding:1px 8px;border-radius:999px;background:var(--f-grey-bg);color:var(--f-grey);font-size:.72rem;font-weight:700;letter-spacing:.06em;line-height:1.5;text-transform:uppercase;white-space:nowrap}.f-talk-head>.f-talk-flag{margin:var(--f-sp-3) 0 0}
+.f-talk-more{margin:var(--f-sp-3) 0 0}.f-talk-more>summary{display:flex;align-items:center;min-height:44px;font-weight:650;color:var(--f-forest);cursor:pointer}.f-talk-more>.f-text-link{display:inline-flex;align-items:center;min-height:44px;white-space:normal}
+/* A block's question list (?a=), also inside "More questions on this block". */
+.f-page .f-talk-subhead{margin:var(--f-sp-4) 0 var(--f-sp-1);font-size:1.15rem}.f-talk-list{display:grid;gap:var(--f-sp-1);margin:0;padding:0;list-style:none}
+.f-shell .f-talk-pick{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px var(--f-sp-2);min-height:44px;padding:var(--f-sp-2) 0;color:var(--f-ink);text-decoration:none}
+.f-talk-pick-body{flex-basis:100%;font-weight:650;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px;overflow-wrap:anywhere}.f-talk-pick:hover .f-talk-pick-body{text-decoration-thickness:2px}.f-talk-pick-talk{font-size:.86rem;color:var(--f-muted)}
+/* Messages: your own on a pale tint (not a bubble); sending is faded, a failure names itself in the error colour, a hidden one (organisers only) is greyed. */
+.f-talk-earlier{align-self:center;margin:0 0 var(--f-sp-3)}.f-talk-log{display:grid;gap:var(--f-sp-2);margin:0 0 var(--f-sp-4);padding:0;list-style:none}
+.f-talk-msg{min-width:0;padding:var(--f-sp-2) var(--f-sp-3)}.f-talk-msg.is-mine{background:color-mix(in srgb,var(--f-leaf) 10%,transparent)}.f-talk-msg.is-pending{opacity:.6}
+.f-talk-msg.is-failed .f-talk-state{color:var(--f-error);font-weight:650}.f-talk-msg.is-hidden{color:var(--f-muted)}.f-talk-msg.is-hidden :is(.f-talk-body,.f-talk-files){opacity:.6}
+.f-page .f-talk-meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px var(--f-sp-2);max-width:none;margin:0;font-size:.84rem;color:var(--f-muted)}.f-talk-author{font-size:.92rem;color:var(--f-ink)}
+.f-talk-org{font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--f-forest)}.f-talk-time{margin-left:auto;font-variant-numeric:tabular-nums;white-space:nowrap}
+.f-talk-body{margin:var(--f-sp-1) 0 0;overflow-wrap:anywhere;white-space:pre-wrap}
+/* Thumbnails keep their shape from the width and height attributes before they load; the full image opens in a new tab. */
+.f-talk-files{display:flex;flex-wrap:wrap;gap:var(--f-sp-2);margin:var(--f-sp-2) 0 0}.f-talk-image{display:block;line-height:0}
+.f-talk-image img{display:block;width:auto;max-width:min(240px,60vw);height:auto;border-radius:6px;background:var(--f-panel)}
+.f-shell .f-talk-file{display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px var(--f-sp-2);min-height:44px;max-width:100%;color:var(--f-ink);text-decoration:none}
+.f-talk-file-kind{padding:1px 6px;border:1px solid var(--f-forest);border-radius:4px;font-size:.7rem;font-weight:700;letter-spacing:.06em;color:var(--f-forest)}
+.f-talk-file-name{font-weight:600;text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere}.f-talk-size{font-size:.84rem;color:var(--f-muted);white-space:nowrap}
+.f-talk-pending-files{margin:var(--f-sp-1) 0 0;padding:0;list-style:none;font-size:.86rem;color:var(--f-muted);overflow-wrap:anywhere}
+/* Row actions are quiet text buttons with full 44 px targets. */
+.f-talk-actions{display:flex;flex-wrap:wrap;align-items:center;gap:0 var(--f-sp-4);margin:2px 0 0}.f-talk-actions:empty{display:none}
+.f-shell :is(.f-talk-act,.f-talk-like){display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0;border:0;background:none;color:var(--f-forest);font-size:.86rem;font-weight:600;cursor:pointer}
+.f-shell :is(.f-talk-act,.f-talk-like):hover:not(:disabled){text-decoration:underline;text-underline-offset:3px}
+.f-talk-like::before{content:"♡";content:"♡"/"";font-size:1.1rem;line-height:1}.f-talk-like[aria-pressed="true"]::before{content:"♥";content:"♥"/""}
+.f-shell .f-talk-like:disabled{color:var(--f-muted);cursor:default}.f-talk-like-n{font-variant-numeric:tabular-nums}.f-talk-likes{font-size:.84rem;color:var(--f-muted)}
+.f-talk-empty{margin:var(--f-sp-4) 0;color:var(--f-muted)}
+/* The dock (the pill, then the composer or the closed note) stays pinned to the bottom of the screen while the conversation scrolls under it. */
+.f-talk-dock{position:sticky;bottom:0;z-index:3;margin-top:auto;padding:var(--f-sp-3) 0 calc(var(--f-sp-3) + env(safe-area-inset-bottom));background:#fff;border-top:1px solid var(--f-line)}
+.f-talk-dock:has(>.f-talk-new:only-child){padding:0;border:0}
+.f-shell .f-talk-new{position:absolute;left:50%;bottom:calc(100% + var(--f-sp-2));transform:translateX(-50%);min-height:44px;padding:0 var(--f-sp-4);border:2px solid var(--f-ink);border-radius:999px;background:var(--f-leaf);color:var(--f-ink);font-weight:700;white-space:nowrap;cursor:pointer}
+.f-talk-composer{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--f-sp-2);align-items:end}
+/* 16px text keeps iOS from zooming in on focus; the box grows with the text up to six lines. */
+.f-shell .f-talk-input{display:block;width:100%;min-height:44px;max-height:calc(9em + 22px);padding:10px 12px;border:1px solid #6e7a69;border-radius:6px;background:#fff;color:var(--f-ink);font-size:1rem;line-height:1.5;resize:none;overflow-y:auto;field-sizing:content}
+.f-shell .f-talk-send{min-height:44px;padding:9px 18px}
+.f-talk-tools{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:0 var(--f-sp-3)}.f-talk-attach::before{content:"+";content:"+"/"";font-size:1.15rem;line-height:1}
+.f-talk-chips{display:flex;flex-wrap:wrap;gap:0 var(--f-sp-3);margin:0;padding:0;list-style:none}.f-talk-chip{display:inline-flex;flex-wrap:wrap;align-items:center;gap:0 var(--f-sp-2);max-width:100%;font-size:.86rem}.f-talk-chip-name{font-weight:600;overflow-wrap:anywhere}
+.f-talk-left{margin-left:auto;font-size:.84rem;color:var(--f-muted);font-variant-numeric:tabular-nums}
+.f-talk-status{grid-column:1/-1;margin:0;font-size:.88rem}.f-talk-status:empty{display:none}.f-talk-status.is-error{color:var(--f-error);font-weight:600}.f-talk-closed{margin:0;color:var(--f-muted)}
+/* Following new messages scrolls smoothly, unless the reader asked for less motion. */
+html:has(>body.f-page[data-page="fiiu-talk"]){scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html:has(>body.f-page[data-page="fiiu-talk"]){scroll-behavior:auto}}

@@ -9,6 +9,9 @@ export class Node {
  prepend(...nodes){this.append(...nodes);this.children=[...nodes,...this.children.filter(node=>!nodes.includes(node))];}
  replaceChildren(...nodes){for(const child of this.children)child.parent=null;this.children=[];this.append(...nodes);}
  replaceWith(node){const parent=this.parent;if(parent){node.parent=parent;parent.children.splice(parent.children.indexOf(this),1,node);this.parent=null;}}
+ // The chat page inserts a row before a later one and removes a deleted one in place, so focus and the composer are never re-parented.
+ before(...nodes){const parent=this.parent;if(!parent)return;for(const node of nodes){if(node.parent)node.parent.children=node.parent.children.filter(child=>child!==node);node.parent=parent;parent.children.splice(parent.children.indexOf(this),0,node);}}
+ remove(){if(this.parent){this.parent.children=this.parent.children.filter(child=>child!==this);this.parent=null;}}
  setAttribute(key,value){this[key]=value;}
  getAttribute(key){return this[key]??null;}
  removeAttribute(key){delete this[key];}
@@ -40,7 +43,7 @@ export const content=node=>[node.textContent,...node.children.map(content)].join
 export async function createFiiuHarness(respond,{page='fiiu',context={},search='',pathname='/'+page+'.html'}={}){
  const body=new Node('body'),root=new Node(),message=new Node(),requests=[],languageListeners=[],timers=[],assigned=[],replaced=[],locks=[],documentListeners={},windowListeners={};body.append(root,message);let reloads=0;
  const fire=type=>Promise.all((documentListeners[type]||[]).map(listener=>listener({type})));
- const document={body,visibilityState:'visible',fullscreenEnabled:true,fullscreenElement:null,documentElement:{lang:'en'},getElementById:id=>['fiiuRoot','fiiuAdminRoot','fiiuCheckinRoot','fiiuQrRoot'].includes(id)?root:message,createElement:tag=>new Node(tag),createElementNS:(namespace,tag)=>Object.assign(new Node(tag),{namespaceURI:namespace}),createTextNode:value=>Object.assign(new Node('text'),{textContent:value}),querySelectorAll:selector=>body.querySelectorAll(selector),querySelector:selector=>body.querySelector(selector),
+ const document={body,visibilityState:'visible',fullscreenEnabled:true,fullscreenElement:null,documentElement:{lang:'en'},getElementById:id=>['fiiuRoot','fiiuAdminRoot','fiiuCheckinRoot','fiiuQrRoot','fiiuTalkRoot'].includes(id)?root:message,createElement:tag=>new Node(tag),createElementNS:(namespace,tag)=>Object.assign(new Node(tag),{namespaceURI:namespace}),createTextNode:value=>Object.assign(new Node('text'),{textContent:value}),querySelectorAll:selector=>body.querySelectorAll(selector),querySelector:selector=>body.querySelector(selector),
   addEventListener:(type,listener)=>{(documentListeners[type]??=[]).push(listener);},exitFullscreen:async()=>{document.fullscreenElement=null;await fire('fullscreenchange');}};
  Node.fullscreen=async node=>{document.fullscreenElement=node;await fire('fullscreenchange');};
  const location={hash:'',search,pathname,reload(){reloads++;},assign(url){assigned.push(url);}};
