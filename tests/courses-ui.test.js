@@ -718,3 +718,9 @@ test('the feedback and post editor save buttons are filled and readable',()=>{
  }
  assert.match(styleAt(1280,'.pilot-feedback button').font,/^600 12px\//,'no longer 10px');
 });
+test('on a phone the route shows every session at once, two to a row, with one rule above the form note',()=>{
+ const list=styleAt(375,'.pilot-route ol'),item=styleAt(375,'.pilot-route li');
+ assert.equal(list.display,'grid');assert.equal(list['grid-template-columns'],'repeat(2,minmax(0,1fr))');assert.equal(list.overflow,undefined);
+ assert.equal(item.flex,undefined);assert.equal(item['border-bottom'],undefined);assert.equal(styleAt(375,'.pilot-route button')['min-height'],'44px');
+ assert.equal(styleAt(1280,'.pilot-route ol').display,undefined,'the desktop rail stays a vertical list');
+});
