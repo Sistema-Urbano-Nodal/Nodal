@@ -26,7 +26,9 @@ function harness({url='https://nodal.test/profile.html',saved='en',nodes=[],resp
  const document={body,documentElement:{},addEventListener(){},querySelectorAll:s=>body.querySelectorAll(s),querySelector:s=>body.querySelector(s),getElementById:id=>find(body,node=>node.id===id),createElement:tag=>new Node(tag)};
  const history={state:{keep:'navigation state'},replaceState(state,unused,next){historyCalls.push({state,next});location.href=new URL(next,location).href;}};
  const context={document,URL,URLSearchParams,location,history,console:{error:(...args)=>errors.push(args)},localStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)},setTimeout(){},fetch:async path=>{requests.push(path);const data=await respond(path);return{ok:data.status===undefined||data.status<400,status:data.status||200,json:async()=>data};}};
- context.window={location,history,addEventListener(){}};vm.createContext(context);if(initializeI18n)vm.runInContext(script('i18n'),context);
+ context.window={location,history,addEventListener(){}};vm.createContext(context);
+ // The console pages load their own strings just before i18n.js, as their HTML does.
+ if(initializeI18n){if(/\/(?:dashboard|profile|payments|admin)\.html$/.test(location.pathname))vm.runInContext(script('i18n-dashboard'),context);vm.runInContext(script('i18n'),context);}
  return{context,body,document,storage,location,requests,errors,historyCalls,api:context.window.nodalI18n,run:name=>vm.runInContext(script(name),context)};
 }
 function find(node,predicate){if(predicate(node))return node;for(const child of node.children||[]){if(typeof child!=='object')continue;const found=find(child,predicate);if(found)return found;}return null;}

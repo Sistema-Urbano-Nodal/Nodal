@@ -6,10 +6,10 @@ import { preparePageHtml } from '../server/page-shell.js';
 const ROOT = path.resolve(import.meta.dirname, '..');
 const WEB_ROOT = path.join(ROOT, 'web');
 const OUTPUT = path.join(ROOT, 'public');
-const STATIC_PAGES = ['opportunities.html', 'privacy.html'];
+export const STATIC_PAGES = ['opportunities.html', 'privacy.html'];
 // These pages stay on the Node server for authorization, recovery redirects,
 // and runtime configuration. Validate them without copying them to the CDN.
-const SERVER_PAGES = ['fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'organisers-only.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html'];
+export const SERVER_PAGES = ['fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'organisers-only.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html'];
 const STATIC_SCRIPTS = [
   'fiiu-ui.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js',
   'news-feed.js',
@@ -27,6 +27,7 @@ const STATIC_SCRIPTS = [
   'globe.js',
   'globe-geo.js',
   'i18n.js',
+  'i18n-dashboard.js',
   'locale.js',
   'location-i18n.js',
   'location-check.js',

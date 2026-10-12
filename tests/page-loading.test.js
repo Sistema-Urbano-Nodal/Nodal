@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync,readdirSync} from 'node:fs';
 import path from 'node:path';
 import {staticSourcePath} from '../server/server.js';
+import {SERVER_PAGES} from '../scripts/build-static.js';
 
 const ROOT=path.resolve(import.meta.dirname,'..');
 const pages=()=>readdirSync(path.join(ROOT,'web/pages')).filter(name=>name.endsWith('.html')).map(name=>[name,readFileSync(path.join(ROOT,'web/pages',name),'utf8')]);
@@ -38,6 +39,8 @@ test('startup scripts are discovered in the head and execute after parsing in de
     before('pilot-i18n.js','pilot.js');before('pilot.js','courses.js');before('pilot.js','teaching.js');
     for(const file of ['app.js','recs.js','dashboard.js','globe.js'])before('i18n.js',file);
     before('i18n.js','auth.js');before('recovery-i18n.js','password-recovery.js');
+    // The console strings are merged by i18n.js when it runs, so they must already be there.
+    if(files.includes('i18n-dashboard.js')){assert.ok(files.includes('i18n.js'),`${name}: i18n-dashboard.js needs i18n.js`);before('i18n-dashboard.js','i18n.js');}
     before('coastline.js','globe.js');before('globe-geo.js','globe.js');
     // the FIIU widget and news must not queue behind the 195 KB globe coastline
     if(name==='dashboard.html'){before('location-check.js','dashboard.js');before('dashboard.js','coastline.js');for(const file of ['fiiu-ui.js','fiiu-hubs.js','news-feed.js'])before(file,'coastline.js');before('fiiu-ui.js','fiiu-hubs.js');}
@@ -49,7 +52,10 @@ test('Montserrat is available locally before first use, with no external font st
     assert.doesNotMatch(html,/fonts\.(?:googleapis|gstatic)\.com/,`${name}: fonts must load from this origin`);
     assert.match(html,/<link\b[^>]*href="fonts\.css(?:\?[^\"]*)?"[^>]*>/,`${name}: local font stylesheet is required`);
     assert.match(html,/<link\b[^>]*rel="preload"[^>]*href="assets\/fonts\/montserrat-v31-latin-normal\.woff2"[^>]*as="font"[^>]*crossorigin/,`${name}: preload must use the same anonymous font request`);
-    assert.match(html,/font-src 'self'/,`${name}: page CSP must permit local fonts`);
+    // Server pages get the policy, font-src included, from the header (tests/page-csp.test.js); a CDN page keeps a meta.
+    const meta=html.match(/<meta\b[^>]*http-equiv="Content-Security-Policy"[^>]*>/)?.[0];
+    if(meta)assert.match(meta,/font-src 'self'/,`${name}: page CSP must permit local fonts`);
+    else assert.ok(SERVER_PAGES.includes(name),`${name}: a page served from the CDN needs its CSP meta`);
   }
   const css=readFileSync(path.join(ROOT,'web/styles/fonts.css'),'utf8');
   const urls=[...css.matchAll(/url\(['"]?(\/assets\/fonts\/[^)'" ]+)['"]?\)/g)].map(match=>match[1]);
@@ -86,4 +92,21 @@ test('pilot pages reserve a single banner in the initial HTML without adding one
     if(name==='dashboard.html')assert.match(html,/<main class="work"[^>]*>\s*<div class="pilot-notice" data-pilot-banner/);
     else assert.match(html,/<\/header>\s*<div class="pilot-notice" data-pilot-banner/,name);
   }
+});
+
+/* The programme's first read is the public, CDN-cached news page. Asked for in the head, it downloads alongside the
+   scripts instead of after all of them. Chromium reuses a preload only for the same URL in the same mode: fetch()'s
+   default (cors, same-origin credentials) is what crossorigin (anonymous) asks for. The per-member registration
+   read is not preloaded: a browser that cannot match a preload asks twice, against that member's rate budget. */
+test('the festival page asks for the programme while its scripts download, in the form fiiu.js reuses',()=>{
+  const html=readFileSync(path.join(ROOT,'web/pages/fiiu.html'),'utf8');
+  const head=html.slice(0,html.indexOf('</head>'));
+  const preloads=[...head.matchAll(/<link\b[^>]*\brel="preload"[^>]*\bas="fetch"[^>]*>/g)].map(match=>match[0]);
+  assert.deepEqual(preloads,['<link rel="preload" href="/api/fiiu?kind=news" as="fetch" crossorigin>']);
+  assert.ok(head.indexOf(preloads[0])<head.indexOf('<script'),'listed before the blocking locale.js');
+  assert.match(readFileSync(path.join(ROOT,'web/scripts/fiiu.js'),'utf8'),/\bapi\('\/api\/fiiu\?kind=news'\)/,'fiiu.js reads the same URL');
+  const ui=readFileSync(path.join(ROOT,'web/scripts/fiiu-ui.js'),'utf8');
+  const call=ui.slice(ui.indexOf('response=await fetch(path,'),ui.indexOf('\n',ui.indexOf('response=await fetch(path,')));
+  assert.ok(call,'fiiu-ui.js api() is where the read happens');
+  assert.doesNotMatch(call,/\b(?:mode|credentials|cache|integrity)\s*:/,'a GET keeps the defaults the preload was made with');
 });

@@ -95,5 +95,5 @@ test('the landing markup carries no price and ships the Supporter button hidden 
   for (const page of ['index.html', 'payments.html', 'dashboard.html', 'profile.html']) {
     assert.doesNotMatch(read('web', 'pages', page), /US\$\s?\d/, `${page} must not hardcode a price`);
   }
-  assert.doesNotMatch(read('web', 'scripts', 'i18n.js'), /US\$\s?\d/);
+  for (const file of ['i18n.js', 'i18n-dashboard.js']) assert.doesNotMatch(read('web', 'scripts', file), /US\$\s?\d/, `${file} must not hardcode a price`);
 });
