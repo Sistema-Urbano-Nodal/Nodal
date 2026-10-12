@@ -5,7 +5,7 @@
  externalInterestHint:['Save your interests here, then complete each activity’s Google Form to register with its facilitator. Interest in NODAL does not confirm that registration or attendance.','Guarda aquí tus actividades de interés y completa el Google Form de cada una para inscribirte con su facilitador. El interés en NODAL no confirma esa inscripción ni la asistencia.','Salve seus interesses aqui e preencha o Google Forms de cada atividade para se inscrever com o facilitador. O interesse na NODAL não confirma essa inscrição nem a presença.'],
  partyHint:['The closing party has separate registration. Check its details with the festival organisers.','La fiesta de cierre tiene inscripción independiente. Consulta los detalles con la organización del festival.','A festa de encerramento tem inscrição independente. Consulte os detalhes com a organização do festival.'],
  accessibilityHint:['Choose any support you need, or explicitly select no additional support.','Selecciona el apoyo que necesitas o indica que no necesitas apoyo adicional.','Selecione o apoio de que precisa ou indique que não precisa de apoio adicional.'],
- accessibilityRequired:['Choose an accessibility answer, including no additional support if appropriate.','Elige una respuesta de accesibilidad, incluyendo no necesito apoyo adicional cuando corresponda.','Escolha uma resposta sobre acessibilidade, incluindo não preciso de apoio adicional quando for o caso.'],
+ accessibilityRequired:['Choose at least one option. If you need no support, tick “No additional support”.','Elige al menos una opción. Si no necesitas apoyo, marca «No necesito apoyo adicional».','Escolha pelo menos uma opção. Se não precisar de apoio, marque “Não preciso de apoio adicional”.'],
  apply:['Apply','Postular','Candidatar-se'],
  summaryTitle:['Registration overview','Resumen de inscripciones','Resumo das inscrições'],
  refreshSummary:['Refresh totals','Actualizar totales','Atualizar totais'],
@@ -55,7 +55,7 @@
   datesMonth:['October 2026','Octubre 2026','Outubro 2026'],nextForYou:['Next for you','Lo próximo para ti','Próximo para você'],latestUpdate:['Latest update','Última novedad','Última novidade'],
   // Conversation links on festival blocks (talkLink below): "Conversación · 2" on screen, "Conversación, 2 preguntas" for assistive technology.
   talkLink:['Conversation','Conversación','Conversa'],talkLinkOne:['1 question','1 pregunta','1 pergunta'],talkLinkCount:['{n} questions','{n} preguntas','{n} perguntas'],
-  pendingShort:['Lab: in review','Laboratorio: en revisión','Laboratório: em análise'],acceptedShort:['Lab: accepted','Laboratorio: aceptada','Laboratório: aceita'],declinedShort:['Lab: not selected','Laboratorio: no seleccionada','Laboratório: não selecionada'],
+  pendingShort:['Lab: in review','Laboratorio: en revisión','Laboratório: em análise'],acceptedShort:['Lab: accepted','Laboratorio: aceptado/a','Laboratório: aceito/a'],declinedShort:['Lab: not selected','Laboratorio: no seleccionado/a','Laboratório: não selecionado/a'],
   pendingHint:['The organising team is reviewing applications. The decision will appear here.','El equipo organizador está revisando las postulaciones. La decisión aparecerá aquí.','A equipe organizadora está analisando as candidaturas. A decisão aparecerá aqui.'],
   acceptedHint:['Your place in the 20 October laboratory is confirmed.','Tu lugar en el laboratorio del 20 de octubre está confirmado.','Sua vaga no laboratório de 20 de outubro está confirmada.'],
   declinedHint:['Your application was not selected this time. Your other registrations are unchanged.','Tu postulación no fue seleccionada esta vez. Tus demás inscripciones no cambian.','Sua candidatura não foi selecionada desta vez. Suas demais inscrições continuam iguais.'],
@@ -82,8 +82,8 @@
   labQuestionHint:['Public officials who answer Yes can apply for the 20 October laboratory.','Si respondes Sí, podrás postular al laboratorio del 20 de octubre.','Se responder Sim, você poderá se candidatar ao laboratório de 20 de outubro.'],
   labApplied:['lab application','postulación al laboratorio','candidatura ao laboratório'],selectionNone:['Nothing selected yet','Aún no has elegido nada','Nada selecionado ainda'],
   backToSaved:['Back to my registration','Volver a mi inscripción','Voltar para minha inscrição'],
-  requiredField:['Answer this question to continue.','Responde esta pregunta para continuar.','Responda a esta pergunta para continuar.'],
-  privacyRequired:['Confirm this to save your registration.','Confirma esta casilla para guardar tu inscripción.','Confirme esta opção para salvar sua inscrição.'],
+  requiredField:['Answer this question to continue.','Completa este campo para continuar.','Preencha este campo para continuar.'],
+  privacyRequired:['Confirm this to save your registration.','Marca esta casilla para guardar tu inscripción.','Marque esta opção para salvar sua inscrição.'],
   invalidAge:['Enter your age as a whole number between 1 and 120.','Escribe tu edad como un número entero entre 1 y 120.','Informe sua idade como um número inteiro entre 1 e 120.'],
   chooseActivity:['Choose a conference block, save a workshop or route interest, or apply for the laboratory.','Elige un bloque de conferencias, guarda un taller o ruta de interés, o postula al laboratorio.','Escolha um bloco de conferências, salve uma oficina ou roteiro de interesse, ou candidate-se ao laboratório.'],
   reviewErrors:['Some answers need attention. The first one is highlighted.','Algunas respuestas necesitan revisión. La primera está resaltada.','Algumas respostas precisam de revisão. A primeira está destacada.'],
@@ -311,7 +311,8 @@
  }
  function hint(key,cls='f-muted'){const p=tr('p',key,cls);p.id='f-hint-'+key;return p;}
  function describe(node,...ids){node.setAttribute('aria-describedby',[...ids,...(node.target==='_blank'?['f-newtab']:[])].join(' '));return node;}
- function newTabNote(){const n=tr('span','newTab','f-sr-only');n.id='f-newtab';return n;}
+ // The note is only ever a description (aria-describedby reads hidden nodes), so it is hidden: as text it would be read after the page's last control, out of place.
+ function newTabNote(){const n=tr('span','newTab','f-sr-only');n.id='f-newtab';n.hidden=true;return n;}
  const KIND={news:'newsKind',recording:'recording',material:'material'},OPEN={news:'open',recording:'watchRecording',material:'openMaterial'};
  function contentCards(container,items,empty='noNews',heading='h3'){
   container.replaceChildren();if(!items.length){container.append(tr('p',empty,'f-muted f-empty'));return;}

@@ -653,3 +653,18 @@ test('conversation links are small inline links with a CSS-drawn bubble and a 44
  assert.match(css,/:is\(\.f-page,\.f-news-widget\) \.f-talk-link\{display:inline-flex;/);assert.match(css,/:is\(\.f-page,\.f-news-widget\) \.f-talk-link::before\{content:"";/);
  assert.match(css,/@media\(pointer:coarse\)\{:is\(\.f-page,\.f-news-widget\) \.f-talk-link\{min-height:44px\}\}/);
 });
+
+test('the new-tab note describes links but is hidden, so it is never read in page order',async()=>{
+ const h=await harness(),note=descendants(h.root).find(node=>node.id==='f-newtab');
+ assert.equal(note.hidden,true);assert.equal(note.dataset.fiiuText,'newTab');assert.equal(h.ctx.window.Fiiu.newTabNote().hidden,true);
+});
+
+test('lab status pills and form errors read naturally in Spanish and Portuguese',()=>{
+ const context={window:{nodalI18n:{lang:'en',onChange(){}}},document:{documentElement:{lang:'en'},querySelectorAll:()=>[]},Intl,Date,Error};
+ vm.runInNewContext(readFileSync(new URL('../web/scripts/fiiu-ui.js',import.meta.url),'utf8'),context);const {rows}=context.window.Fiiu;
+ assert.deepEqual([...rows.acceptedShort.slice(1)],['Laboratorio: aceptado/a','Laboratório: aceito/a']);assert.deepEqual([...rows.declinedShort.slice(1)],['Laboratorio: no seleccionado/a','Laboratório: não selecionado/a']);
+ assert.equal(rows.requiredField[1],'Completa este campo para continuar.');assert.equal(rows.requiredField[2],'Preencha este campo para continuar.');
+ assert.equal(rows.privacyRequired[1],'Marca esta casilla para guardar tu inscripción.');
+ assert.equal(rows.accessibilityRequired[1],'Elige al menos una opción. Si no necesitas apoyo, marca «No necesito apoyo adicional».');assert.ok(rows.accessibilityRequired[1].includes('«'+rows.none[1]+'»'),'the option is quoted by its own label');
+ assert.ok(rows.accessibilityRequired[2].includes('“'+rows.none[2]+'”'));
+});
