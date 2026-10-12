@@ -21,7 +21,9 @@ class Node {
  querySelector(selector){return this.querySelectorAll(selector)[0]||null;}
  replaceWith(node){if(this.parent){node.parent=this.parent;this.parent.children.splice(this.parent.children.indexOf(this),1,node);}}
  remove(){if(this.parent)this.parent.children=this.parent.children.filter(n=>n!==this);}
- focus(){}
+ // focused and scrolledInto record where the page sent the person.
+ focus(options){this.focused=true;this.focusOptions=options;}
+ scrollIntoView(options){this.scrolledInto=options;}
  reset(){descendants(this).filter(n=>n.tagName==='input'||n.tagName==='textarea').forEach(n=>{n.value='';n.files=[];});}
 }
 const descendants=node=>(node.children||[]).flatMap(n=>typeof n==='object'?[n,...descendants(n)]:[]);
@@ -581,7 +583,7 @@ test('attachments say which file is uploading, get two minutes each, and a wrong
  finish({attachment:{id:'f1'}});await flush();assert.match(content(form),/Uploading 2 of 2…/);finish({attachment:{id:'f2'}});await pending;
  const uploads=h.requests.filter(r=>r.path.endsWith('/attachments')),post=h.requests.find(r=>r.method==='POST'&&r.path.endsWith('/posts'));
  assert.deepEqual(uploads.map(r=>r.signal?.timeout),[120000,120000]);assert.equal(post.signal.timeout,45000,'the post itself keeps the default limit');assert.deepEqual(post.body.attachmentIds,['f1','f2']);
- assert.match(content(form),/Saved/);assert.doesNotMatch(content(form),/Uploading/);
+ assert.doesNotMatch(content(form),/Uploading/);assert.match(content(h.body),/Your contribution was published\./);
 });
 test('switching course, All feedback or New course asks before discarding unsaved setup edits',async()=>{
  const other={...course,id:'c2',title:'Other course'},module={id:'m1',title:'Session',kind:'session',version:1,resources:[{title:'Slides',kind:'slides',url:'https://example.test/slides'}]};
@@ -647,6 +649,50 @@ test('a reply whose contribution is on an older page stays flat and says so unti
  await findKey(h.body,'loadOlder').listeners.click();await flush();
  assert.deepEqual(list.children.map(n=>n.id),['post-newer','post-parent','post-reply']);assert.equal(card().className,'pilot-post reply');
  assert.equal(link().hidden,false);assert.equal(link().textContent,'Replying to Member');assert.equal(earlier().hidden,true);
+});
+test('saving the course form says so above the course title and puts focus on the title',async()=>{
+ let saved=false;const intake={fullName:'A',profession:'B',city:'C',motivation:'D',experience:'E',expectations:'F',caseStudy:'G',digitalFamiliarity:'H'};
+ const h=harness((path,opts)=>{if(path.endsWith('/intake')){saved=true;return{intake};}const data=learningFixture(path,opts);return path==='/api/courses/c1'?{...data,intake:saved?intake:null}:data;},{page:'course',search:'?id=c1'});h.run('courses');await flush();
+ const form=descendants(h.body).find(n=>n.tagName==='form'&&inputNamed(n,'caseStudy'));for(const n of descendants(form))if(n.name in intake)n.value=intake[n.name];
+ await form.listeners.submit({preventDefault(){}});await flush();
+ const status=h.ids.pilotStatus,title=h.ctx.document.getElementById('courseTitle');
+ assert.equal(status.textContent,'Your intake is saved. You can now take part in the course.');assert.equal(status.scrolledInto?.block,'start');
+ assert.equal(title.tagName,'h1');assert.equal(title.tabIndex,-1);assert.equal(title.focused,true);assert.equal(title.focusOptions?.preventScroll,true);
+ h.lang('es');assert.equal(status.textContent,'Formulario guardado. Ya puedes participar en el curso.');
+});
+test('saving an edited course form says so and returns focus to Edit my intake',async()=>{
+ const h=harness((path,opts)=>path.endsWith('/intake')?{intake:{fullName:'Updated Member'}}:learningFixture(path,opts),{page:'course',search:'?id=c1'});h.run('courses');await flush();
+ await findKey(h.body,'editIntake').listeners.click();const form=descendants(h.body).find(n=>n.tagName==='form'&&inputNamed(n,'caseStudy'));
+ await form.listeners.submit({preventDefault(){}});await flush();
+ assert.equal(descendants(h.body).some(n=>n.id==='editIntake'),false);
+ assert.equal(h.ids.pilotStatus.textContent,'Your intake is saved.');assert.equal(h.ids.pilotStatus.scrolledInto?.block,'start');
+ const edit=findKey(h.body,'editIntake');assert.equal(edit.focused,true);
+});
+test('a saved form does not hide a session that failed to open',async()=>{
+ let saved=false;const h=harness((path,opts)=>{if(path.endsWith('/intake')){saved=true;return{intake:{fullName:'A'}};}if(path.endsWith('/modules/m1'))return{status:503,data:{error:'unavailable'}};const data=learningFixture(path,opts);return path==='/api/courses/c1'?{...data,modules:[data.modules[1]],intake:saved?{fullName:'A'}:null}:data;},{page:'course',search:'?id=c1'});h.run('courses');await flush();
+ const form=descendants(h.body).find(n=>n.tagName==='form'&&inputNamed(n,'caseStudy'));await form.listeners.submit({preventDefault(){}});await flush();
+ assert.equal(saved,true);assert.doesNotMatch(h.ids.pilotStatus.textContent,/intake is saved/);
+});
+test('publishing a contribution says so below the closed composer and keeps focus on its summary',async()=>{
+ const h=harness(learningFixture,{page:'course',search:'?id=c1&module=m1'});h.run('courses');await flush();
+ const pane=h.ctx.document.getElementById('module-pane-discussion'),box=descendants(pane).find(n=>n.className==='pilot-composer'),summary=box.children[0];
+ summary.listeners.click?.();box.open=true;const form=descendants(box).find(n=>n.tagName==='form');inputNamed(form,'body').value='A contribution';
+ await form.listeners.submit({preventDefault(){}});await flush();
+ const updates=descendants(pane).find(n=>n.className==='pilot-conversation-updates'),local=descendants(form).find(n=>n.className==='pilot-status');
+ assert.equal(box.open,false);assert.equal(summary.tagName,'summary');assert.equal(summary.focused,true);
+ assert.equal(updates.textContent,'Your contribution was published.');assert.equal(local.textContent,'');
+ h.lang('es');assert.equal(updates.textContent,'Tu contribución se publicó.');
+});
+test('a contribution published while an older page loads still says it was published',async()=>{
+ let reads=0,finishPage;const saved={id:'p2',authorName:'Member',createdAt:'2026-09-05T13:00:00Z',kind:'question',body:'New saved question',links:[],attachments:[]};
+ const h=harness((path,opts)=>{
+  if(path.includes('/posts')){if(opts?.method==='POST')return{post:saved};reads++;if(reads===2)return new Promise(resolve=>{finishPage=resolve;});return{posts:reads>2?[saved]:[{...saved,id:'p1',body:'Earlier question'}],nextCursor:reads===1?'next':null};}
+  return learningFixture(path,opts);
+ },{page:'course',search:'?id=c1&module=m1'});h.run('courses');await flush();
+ const pane=h.ctx.document.getElementById('module-pane-discussion');findKey(pane,'loadOlder').listeners.click();await flush();
+ const form=descendants(pane).find(n=>n.tagName==='form'&&inputNamed(n,'body'));inputNamed(form,'body').value=saved.body;await form.listeners.submit({preventDefault(){}});
+ finishPage({posts:[],nextCursor:null});await flush();
+ assert.equal(reads,3);assert.equal(descendants(pane).find(n=>n.className==='pilot-conversation-updates').textContent,'Your contribution was published.');
 });
 // The stylesheet as rules in source order, {media,selectors,style}: enough for courses.css (one level of @media, no braces in values).
 function cssRules(css){

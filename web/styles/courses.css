@@ -31,6 +31,8 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-status{min-height:0;white-space:pre-wrap;margin:0;color:#64725f;font-size:13px}
 .pilot-status:not(:empty){margin:12px 0}
 .pilot-status.is-error{color:#9d2e25}
+/* A save brings the page's status line into view (courses.js); it keeps some room above it. */
+.pilot-main>.pilot-status{scroll-margin-top:16px}
 .pilot-hero{max-width:880px;margin:8px 0 46px}
 .pilot-hero h1{font-size:clamp(30px,3.4vw,44px);line-height:1.2;font-weight:550;letter-spacing:-1.5px;margin:12px 0 18px}
 .pilot-hero p{font-size:15px;color:var(--muted);line-height:1.75}

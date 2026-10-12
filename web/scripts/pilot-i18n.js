@@ -106,6 +106,10 @@ const rows = {
  deleteIntake:["Delete my intake responses", "Eliminar mis respuestas iniciales", "Excluir minhas respostas de ingresso"],
  confirmDeleteIntake:["Delete your intake responses? You will stay enrolled, but must complete a new intake form before reopening the course content.", "¿Eliminar tus respuestas iniciales? Seguirás inscrito, pero deberás completar un nuevo formulario antes de volver a abrir el contenido del curso.", "Excluir suas respostas de ingresso? Você continuará inscrito, mas deverá preencher um novo formulário antes de reabrir o conteúdo do curso."],
  intakeDeleted:["Your intake responses were deleted. Complete a new form to re-enter the course.", "Tus respuestas iniciales fueron eliminadas. Completa un nuevo formulario para volver al curso.", "Suas respostas de ingresso foram excluídas. Preencha um novo formulário para voltar ao curso."],
+ // After a save the page is drawn again; these say what happened (courses.js).
+ intakeSaved:['Your intake is saved. You can now take part in the course.','Formulario guardado. Ya puedes participar en el curso.','Formulário salvo. Você já pode participar do curso.'],
+ intakeUpdated:['Your intake is saved.','Formulario guardado.','Formulário salvo.'],
+ postPublished:['Your contribution was published.','Tu contribución se publicó.','Sua contribuição foi publicada.'],
  // A reply whose contribution is not on the page: an older page, or withdrawn.
  replyEarlier:['In reply to an earlier contribution','Respuesta a una contribución anterior','Resposta a uma contribuição anterior'],
  postEditEmpty:["Write your contribution before saving.", "Escribe tu contribución antes de guardar.", "Escreva sua contribuição antes de salvar."],

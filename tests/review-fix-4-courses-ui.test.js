@@ -77,7 +77,7 @@ test('an edited resend refused as already submitted gets a fresh clientId, so th
  assert.match(content(form),/already exists/);assert.equal(body.value,'Edited wording','the draft is kept');
  await form.listeners.submit({preventDefault(){}});
  const retry=posts().at(-1).body;assert.notEqual(retry.clientId,'00000000-0000-4000-8000-000000000001','a fresh id');assert.equal(retry.body,'Edited wording');
- assert.match(content(form),/Saved/);assert.equal(body.value,'','the edited contribution was posted');
+ assert.match(content(h.body),/Your contribution was published\./);assert.doesNotMatch(content(form),/already exists/);assert.equal(body.value,'','the edited contribution was posted');
 });
 
 test('an unchanged resend keeps its clientId, so a lost response never posts twice',async()=>{
