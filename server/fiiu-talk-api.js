@@ -53,7 +53,9 @@ export async function exportTalkData(store,userId){
  const questions=new Map();
  for(const id of new Set(messages.map(m=>m.questionId)))questions.set(id,await store.getQuestion(id));
  return {
-  messages:messages.map(m=>({id:m.id,questionId:m.questionId,question:questions.get(m.questionId)?.body??'',body:m.body,createdAt:m.createdAt,deleted:Boolean(m.deletedAt),hidden:Boolean(m.hiddenAt)})),
+  // A question hidden since is an organiser's draft again (its text may be rewritten for a later session), which no
+  // participant route shows; the id still ties the messages together.
+  messages:messages.map(m=>({id:m.id,questionId:m.questionId,question:questions.get(m.questionId)?.status==='hidden'?'':questions.get(m.questionId)?.body??'',body:m.body,createdAt:m.createdAt,deleted:Boolean(m.deletedAt),hidden:Boolean(m.hiddenAt)})),
   // Storage paths are internal.
   files:files.map(({id,messageId,name,mime,size,createdAt})=>({id,messageId,name,mime,size,createdAt})),
   likedMessageIds,

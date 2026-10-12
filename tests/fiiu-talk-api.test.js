@@ -486,6 +486,17 @@ test('the account export carries conversations, and account deletion erases file
  assert.deepEqual({...row,deleted_at:Boolean(row.deleted_at)},{body:'',author_name:'',author_full:'',user_id:null,deleted_at:true});
 });
 
+test('the account export leaves out the text of a question that is now hidden, a draft its participants cannot see',async t=>{
+ const {json,ask,post}=await setup(t);
+ const q=await ask(),m=(await post(q,'respuesta')).body.message;
+ const current=(await json('/api/admin/fiiu/questions',{actor:'admin'})).body.questions.find(x=>x.id===q.id);
+ assert.equal((await json(`/api/admin/fiiu/questions/${q.id}`,{actor:'admin',method:'PATCH',body:{version:current.version,status:'hidden',body:'Borrador secreto'}})).status,200);
+ assert.equal((await json(`/api/fiiu/questions/${q.id}`)).status,404);
+ const exported=(await json('/api/me/export')).body.data.fiiuConversations;
+ assert.deepEqual(exported.messages,[{id:m.id,questionId:q.id,question:'',body:'respuesta',createdAt:m.createdAt,deleted:false,hidden:false}]);
+ assert.doesNotMatch(JSON.stringify(exported),/secreto/);
+});
+
 test('per-account limits cap messages while the pulse is never rate limited',async t=>{
  const {ask,post,call}=await setup(t,{app:{talkLimits:{message:3}}});
  const q=await ask();
