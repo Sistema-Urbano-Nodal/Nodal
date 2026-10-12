@@ -148,12 +148,12 @@
   else if(ID.test(activityId)&&!code)revisit(activityId);else block('invalidLink','warn',hintOf('invalidLinkHint'),codeForm());
   if(code)history.replaceState?.(null,'',location.pathname+(activityId?'?a='+encodeURIComponent(activityId):''));
  }else{
-  // A typed code needs an account, so a signed-out visitor is told before typing one. The lookup never holds the form back, and the note joins
-  // the block only while it is still on screen; a code sent signed out anyway still comes back through sign-in.
+  // A typed code needs an account, so a signed-out visitor is told before typing one. The session check (a 200 either way, so no console error for
+  // guests) never holds the form back, and the note joins the block only while it is still on screen; a code sent signed out still comes back through sign-in.
   const form=codeForm(),entry=block('codeEntry','',hintOf('codeEntryHint'),form);
-  api('/api/fiiu/registration').catch(error=>{
-   if(error.status!==401||shown!==entry.box)return;
+  api('/api/auth/state').then(state=>{
+   if(state.authenticated!==false||shown!==entry.box)return;
    const note=el('div','f-checkin-signin');note.append(hintOf('signInBeforeCodeHint'),actions(link('signin','login.html?next='+encodeURIComponent('/fiiu-checkin.html'),'f-button secondary')));form.before(note);
-  });
+  },()=>{});
  }
 })();

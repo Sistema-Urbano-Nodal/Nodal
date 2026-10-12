@@ -212,21 +212,21 @@ test('a typed code sent signed out is kept through sign-in, which comes back and
 });
 
 test('signed out, the bare code page says sign-in comes first before anything is typed, and keeps the form',async()=>{
- const guest=await page(request=>request.path==='/api/fiiu/registration'?{status:401,data:{error:'sign in required'}}:assert.fail('nothing is sent before a code is typed'),{search:''});
+ const guest=await page(request=>request.path==='/api/auth/state'?{authenticated:false}:assert.fail('nothing is sent before a code is typed'),{search:''});
  const box=result(guest),form=box.querySelector('form');
  assert.equal(title(guest).dataset.fiiuText,'codeEntry');assert.ok(key(box,'signInBeforeCodeHint'));
  assert.equal(key(box,'signin').href,'login.html?next='+encodeURIComponent('/fiiu-checkin.html'));
  assert.ok(box.children.indexOf(key(box,'signInBeforeCodeHint').parent)<box.children.indexOf(form),'above the code form');assert.ok(field(form,'checkinCode'));
  languages(guest,lang=>assert.match(content(key(box,'signInBeforeCodeHint')),{en:/^Sign in first/,es:/^Primero inicia sesión/,pt:/^Primeiro entre/}[lang]));
  // Signed in, or when the lookup fails, the page is just the code form.
- for(const reply of [{registration:null,attendance:[],hours:{minutes:0,hours:0,untimed:[]},user:{id:'u1',email:'member@example.test'}},{status:503,data:{error:'unavailable'}}]){
-  const h=await page(request=>request.path==='/api/fiiu/registration'?reply:assert.fail(),{search:''});
+ for(const reply of [{authenticated:true},{status:503,data:{error:'unavailable'}},{}]){
+  const h=await page(request=>request.path==='/api/auth/state'?reply:assert.fail(),{search:''});
   assert.equal(key(result(h),'signInBeforeCodeHint'),undefined);assert.equal(key(result(h),'signin'),undefined);assert.ok(field(result(h),'checkinCode'));
  }
  // A lookup that answers after the code was sent never adds to the result.
- let answer;const late=await page(request=>request.path==='/api/fiiu/registration'?new Promise(resolve=>{answer=resolve;}):checkedIn,{search:''});
+ let answer;const late=await page(request=>request.path==='/api/auth/state'?new Promise(resolve=>{answer=resolve;}):checkedIn,{search:''});
  const entry=result(late).querySelector('form');field(entry,'checkinCode').value='K7M4PX';entry.listeners.submit({preventDefault(){}});await flush();
- answer({status:401,data:{error:'sign in required'}});await flush();
+ answer({authenticated:false});await flush();
  assert.equal(title(late).dataset.fiiuText,'checkedInTitle');assert.equal(key(result(late),'signInBeforeCodeHint'),undefined);
 });
 
@@ -270,7 +270,7 @@ test('a lookup held back by a rate limit on reload keeps its wait-a-minute hint'
 
 test('the code form never waits for the programme, with no link or an incomplete one',async()=>{
  // Only the session lookup behind the sign-in note goes out (and is not waited for); no check-in is sent before a code is typed.
- const stalled=search=>createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'||request.path==='/api/fiiu/registration'?new Promise(()=>{}):assert.fail('nothing is sent before a code is typed'),{page:'fiiu-checkin',search});
+ const stalled=search=>createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'||request.path==='/api/auth/state'?new Promise(()=>{}):assert.fail('nothing is sent before a code is typed'),{page:'fiiu-checkin',search});
  const entry=await stalled('');assert.equal(title(entry).dataset.fiiuText,'codeEntry');assert.ok(field(result(entry),'checkinCode'));assert.equal(entry.message.dataset.fiiuText,'');
  const broken=await stalled('?c=x');assert.equal(title(broken).dataset.fiiuText,'invalidLink');assert.ok(field(result(broken),'checkinCode'));
 });
