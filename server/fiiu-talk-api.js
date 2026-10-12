@@ -10,7 +10,7 @@ import {TALK_LIMITS,talkActivity,normalizeQuestion,normalizeMessage,decodeTalkFi
    messages only when its question's revision moved. Everything else needs a festival registration or an organiser. */
 const PULSE_CACHE='public, max-age=0, s-maxage=2, stale-while-revalidate=4';
 const PULSE_MS=1000,MEMO_MS=60000,MEMO_MAX=5000,UPLOAD_GRACE_MS=10*60000,RETRY_MS=10*60000,CHANGES_MS=1500,CHANGES_MAX=200;
-const STALE_READY_MS=30*60000,STALE_PENDING_MS=60*60000;
+const STALE_READY_MS=30*60000,STALE_PENDING_MS=60*60000,THUMBS_MAX=200,THUMBS_BYTES=20*1024*1024;
 const CSV_HEADER=['question','block','talk','createdAtLima','author','email','organiser','text','files','likes','hidden','deleted'];
 // The chat pages translate refusals by code (see fiiu-talk-domain.js); the global handler would drop it, so it is sent here.
 const failCode=(message,status,code)=>{try{fail(message,status);}catch(err){throw Object.assign(err,{code});}};
@@ -193,6 +193,21 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
    catch(error){log('festival upload release failed:',file.id,errorText(error));}
   }
  }
+ /* A photo posted in a full room is drawn on every phone within a tick, and the answer is private (no CDN), so
+    thumbnails are kept per instance: at most 200 and 20 MB, least recently used first, a read in flight shared. A
+    file id never names other bytes, and the access check runs before for every request. Full images (up to 3 MB,
+    opened one at a time) are read each time. */
+ const thumbs=new Map();let thumbBytes=0;
+ const trimThumbs=()=>{for(const [id,old] of thumbs){if(thumbs.size<=THUMBS_MAX&&thumbBytes<=THUMBS_BYTES)break;thumbs.delete(id);thumbBytes-=old.size;}};
+ function thumbnail(file){
+  const hit=thumbs.get(file.id);
+  if(hit){thumbs.delete(file.id);thumbs.set(file.id,hit);return hit.bytes;}
+  const entry={size:0,bytes:store.getBytes(file,'thumb')};
+  thumbs.set(file.id,entry);trimThumbs();
+  // Counted once it arrives, and only while still held; a failed read is not kept.
+  entry.bytes.then(bytes=>{if(thumbs.get(file.id)!==entry)return;entry.size=bytes.length;thumbBytes+=bytes.length;trimThumbs();},()=>{if(thumbs.get(file.id)===entry)thumbs.delete(file.id);});
+  return entry.bytes;
+ }
  // Another person's file is shown only while its message and question are.
  async function shownToPeers(file){
   if(!file.messageId)return false;
@@ -341,7 +356,8 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     send(res,201,{file:{id,name:file.name,mime:file.mime,size:file.size,width:file.width??null,height:file.height??null,thumb:Boolean(input.thumb)}});return true;
    }
    if(name==='file'){
-    const {organiser}=await access(user),file=await store.findFile(identifier(param));
+    // The file is read beside the registration; its message and question (for someone else's file) depend on it.
+    const fileId=identifier(param),[{organiser},file]=await Promise.all([access(user),store.findFile(fileId)]);
     if(!file||file.status!=='ready'||file.eventId!==EVENT_ID||!(organiser||file.userId===user.id||await shownToPeers(file)))fileUnavailable(404);
     // A file without a thumbnail (a PDF, or a photo the phone could not decode) answers ?size=thumb with itself.
     const thumb=url.searchParams.get('size')==='thumb'&&Boolean(file.thumbSize);
@@ -351,7 +367,7 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     // Organisers moderate and project every conversation, so like the course teaching team they are not budgeted.
     const budget=organiser?{ok:true}:downloads.take(`download:${user.id}`,thumb?file.thumbSize:file.size,clock());
     if(!budget.ok){send(res,429,{error:'download limit reached; try again later',code:'download_rate'},{'Retry-After':String(budget.retryAfter)});return true;}
-    const bytes=await store.getBytes(file,thumb?'thumb':'full'),filename=attachmentFilename(file.name,file.mime);
+    const bytes=await (thumb?thumbnail(file):store.getBytes(file,'full')),filename=attachmentFilename(file.name,file.mime);
     // Images open in the tab; PDFs download, because Chrome refuses its PDF viewer under a sandbox CSP.
     const disposition=file.mime==='application/pdf'?'attachment':'inline';
     send(res,200,bytes,{...caching,'Content-Type':thumb?thumbType(bytes):file.mime,'Content-Disposition':`${disposition}; filename="${filename.replace(/[^a-zA-Z0-9._ -]/g,'_')}"; filename*=UTF-8''${encodeURIComponent(filename)}`,

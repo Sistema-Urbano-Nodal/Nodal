@@ -418,6 +418,51 @@ test('festival files: types, sizes, thumbnails, attach rules, download access an
  assert.equal((await call(`/api/fiiu/files/${file.id}`)).status,404);
 });
 
+test('a thumbnail is read from Storage once per instance for every viewer, while access is still checked on each request',async t=>{
+ const reads=[];
+ const {json,call,ask,post,upload}=await setup(t,{wrapTalk:store=>({...store,getBytes:async(file,variant)=>{reads.push(variant);return store.getBytes(file,variant);}})});
+ const q=await ask(),file=(await upload({thumb:{mime:'image/jpeg',data:thumb,width:480,height:270}})).body.file;
+ const m=(await post(q,'mira',{fileIds:[file.id]})).body.message;
+ const small=actor=>call(`/api/fiiu/files/${file.id}?size=thumb`,{actor});
+ const answers=await Promise.all(['other','admin','member','other'].map(small));
+ assert.deepEqual(answers.map(r=>[r.status,r.headers.get('content-type')]),Array(4).fill([200,'image/jpeg']));
+ for(const r of answers)assert.equal(Buffer.from(await r.arrayBuffer()).toString('base64'),thumb);
+ assert.deepEqual(reads,['thumb'],'one Storage read, shared by requests in flight');
+ for(let i=0;i<2;i++)assert.equal((await call(`/api/fiiu/files/${file.id}`,{actor:'other'})).status,200);
+ assert.deepEqual(reads,['thumb','full','full'],'full images are read each time');
+ assert.equal((await json(`/api/admin/fiiu/messages/${m.id}/hidden`,{actor:'admin',method:'PUT',body:{}})).status,200);
+ assert.equal((await small('other')).status,404,'a cached thumbnail still needs its message shown');
+ assert.equal((await small('stranger')).status,403);
+ assert.equal((await small('admin')).status,200);assert.equal(reads.length,3);
+});
+
+test('the thumbnail cache keeps at most 200 thumbnails and 20 MB, least recently used first, and the file is read beside the access check',async()=>{
+ const id=i=>`00000000-0000-4000-8000-${String(i).padStart(12,'0')}`;
+ const make=size=>{
+  const gets=[];let registered=false;
+  const store={findRegistration:async()=>{await new Promise(r=>setTimeout(r,5));registered=true;return {firstName:'Ana',lastName:'Test'};},
+   findFile:async fileId=>({id:fileId,eventId:'fiiu-2026',userId:'u',status:'ready',thumbSize:5,mime:'image/jpeg',name:'a.jpg',size:10,messageId:null,registeredFirst:registered}),
+   getBytes:async file=>{gets.push(file.id);return Buffer.alloc(size,255);}};
+  const sent=[];
+  const api=createTalkApi({store,sameOrigin:()=>true,send:(res,status)=>sent.push(status),clock:()=>1000});
+  const get=i=>api({req:{method:'GET',headers:{}},res:{},url:new URL(`http://x/api/fiiu/files/${id(i)}?size=thumb`),user:{id:'u',permission:'member'}});
+  return {gets,sent,get,store};
+ };
+ const many=make(10);
+ const first=many.store.findFile;let registeredFirst;many.store.findFile=async fileId=>{const f=await first(fileId);registeredFirst=f.registeredFirst;return f;};
+ await many.get(0);assert.equal(registeredFirst,false,'the file is read while the registration is');assert.deepEqual(many.sent,[200]);
+ for(let i=1;i<=200;i++)await many.get(i);
+ assert.equal(many.gets.length,201);
+ await many.get(1);await many.get(200);assert.equal(many.gets.length,201,'still kept');
+ await many.get(0);assert.equal(many.gets.length,202,'the least recently used went first');
+ await many.get(2);assert.equal(many.gets.length,203,'and then the next');
+ await many.get(1);assert.equal(many.gets.length,203,'a recent read keeps it');
+ const big=make(8*1024*1024);
+ for(const i of [1,2,3])await big.get(i);
+ await big.get(3);await big.get(2);assert.equal(big.gets.length,3);
+ await big.get(1);assert.equal(big.gets.length,4,'24 MB is over 20 MB, so the oldest went');
+});
+
 test('festival downloads spend the shared byte budget, organisers excepted, and their own request budget, not the chat\'s',async t=>{
  const {json,call,ask,post,upload}=await setup(t,{app:{downloadLimits:[{windowMs:60000,bytes:100}],talkLimits:{file:4}}});
  const q=await ask(),file=(await upload()).body.file;
