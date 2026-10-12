@@ -903,6 +903,7 @@ select:focus-visible, textarea:focus-visible {
   .shell { grid-template-columns: minmax(0, 1fr); }
   .side, .work, .ctx { grid-column: 1; }
   .work > #fiiuDashboard { margin: calc(var(--pad) * .7) var(--pad) 0; } /* moved above the greeting by dashboard.js */
+  #overview > #fiiuDashboard { margin-top: clamp(26px, 3.4vh, 46px); } /* without a registration: after the greeting, the route's gap */
   .side {
     position: static; height: auto; margin: var(--rail-gap);
     border-radius: var(--r-rail);

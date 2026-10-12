@@ -41,6 +41,8 @@
    if(mine.status!=='fulfilled'){state.replaceChildren(failure(),link('registration','fiiu.html','f-text-link'));return;}
    loadedAt=Date.now();
    const me=mine.value,registration=me.registration,chips=el('div','f-widget-chips'),next=el('div','f-widget-next');
+   // dashboard.js places the block by this on a phone: first for a registrant, after the greeting for an invitation to register.
+   widget.dataset.registered=String(Boolean(registration));
    chips.append(registration?tr('span','statusRegistered','f-pill is-ok'):tr('span','statusNotRegistered','f-pill'));
    if(registration&&registration.labStatus!=='none')chips.append(tr('span',registration.labStatus+'Short','f-pill is-'+registration.labStatus));
    // A registration keeps its way back; without one, the call to action follows the registration settings.

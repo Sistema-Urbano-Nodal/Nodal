@@ -1532,17 +1532,22 @@
   // One column stacks the context widgets under the whole console, about eight phone screens down. The festival
   // block is what registrants open the console for (the next session, the way back to their registration), so on
   // one column it opens the work surface, right under the search bar. Under the greeting and the route it started
-  // a screen and a half down on a phone.
+  // a screen and a half down on a phone. For a member without a registration it is an invitation, not their next
+  // session: once fiiu-hubs.js has read that (data-registered="false"), the greeting and the page's h1 come first
+  // and the block follows them, above the route. Until then, or when that read fails, it stays first.
   (function placeFestival() {
-    const block = byId('fiiuDashboard'), overview = byId('overview');
+    const block = byId('fiiuDashboard'), overview = byId('overview'), body = byId('fiiuDashboardBody');
     if (!block || !overview || typeof window.matchMedia !== 'function') return;
     const home = block.parentElement, next = block.nextElementSibling, stacked = window.matchMedia('(max-width: 980px)');
+    const spine = overview.querySelector?.('.spine');
     const place = () => {
-      if (stacked.matches) { if (block.nextElementSibling !== overview) overview.before(block); }
-      else if (block.parentElement !== home) home.insertBefore(block, next?.parentElement === home ? next : home.firstChild);
+      if (!stacked.matches) { if (block.parentElement !== home) home.insertBefore(block, next?.parentElement === home ? next : home.firstChild); return; }
+      const before = body?.dataset.registered === 'false' && spine ? spine : overview;
+      if (block.nextElementSibling !== before) before.before(block);
     };
     place();
     stacked.addEventListener?.('change', place);
+    if (body && typeof MutationObserver === 'function') new MutationObserver(place).observe(body, { attributes: true, attributeFilter: ['data-registered'] });
   })();
 
   /* ================= news, read in place =================

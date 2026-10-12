@@ -187,6 +187,15 @@ test('a festival block left open for a while refreshes when the phone comes back
   assert.equal(reads(), 2, 'half an hour later the next session is read again');
 });
 
+test('the block says whether the member is registered, so the console can place it (unknown while a read fails)', async () => {
+  const failed = await widget((url) => (url === '/api/fiiu/registration' ? { status: 503, data: { error: 'unavailable' } } : url === '/api/fiiu?kind=news' ? feed : { questions: [] }));
+  assert.equal(failed.host.dataset.registered, undefined);
+  const member = await widget((url) => (url === '/api/fiiu/registration' ? { user, registration, attendance: [], isAdmin: false } : url === '/api/fiiu?kind=news' ? feed : { questions: [] }));
+  assert.equal(member.host.dataset.registered, 'true');
+  const guest = await widget((url) => (url === '/api/fiiu/registration' ? { user, registration: null, attendance: [], isAdmin: false } : url === '/api/fiiu?kind=news' ? feed : { questions: [] }));
+  assert.equal(guest.host.dataset.registered, 'false');
+});
+
 test('a refresh on the way back keeps the drawn block while it reads, and keeps it when a read fails', async () => {
   let failing = false, release = null;
   const w = await widget(async (url) => {
@@ -345,6 +354,8 @@ test('Cancel and Escape on the profile dialog both count as closing the prompt',
 // dashboard-publishing.test.js runs placeFestival(); here, the spacing it gets in its place.
 test('on one column the festival block opens the work surface, spaced like a band', () => {
   assert.match(blocks(css(), '@media (max-width: 980px)'), /\.work > #fiiuDashboard\s*\{\s*margin:\s*calc\(var\(--pad\) \* \.7\) var\(--pad\) 0;?\s*\}/);
+  // Placed after the greeting for a member without a registration, it keeps the route's own gap off the title block.
+  assert.match(blocks(css(), '@media (max-width: 980px)'), /#overview > #fiiuDashboard\s*\{\s*margin-top:\s*clamp\(26px, 3\.4vh, 46px\);?\s*\}/);
 });
 
 test('the phone nav rail is one sideways row, so the festival block and greeting are not a screen down', () => {

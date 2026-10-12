@@ -200,28 +200,41 @@ test('every console accessible name in the markup is translated, except the live
   assert.deepEqual(untranslated, []);
 });
 
-test('on one column the festival block opens the work surface, above the greeting, and goes back to the context column when wide', () => {
+test('on one column the festival block opens the work surface for registrants, follows the greeting otherwise, and goes back to the context column when wide', () => {
   const source = read('web', 'scripts', 'dashboard.js');
   const start = source.indexOf('(function placeFestival()');
   const iife = source.slice(start, source.indexOf('})();', start) + 5);
-  const el = (id) => ({ id, parentElement: null, children: [],
+  const el = (id) => ({ id, parentElement: null, children: [], dataset: {},
     get previousElementSibling() { const s = this.parentElement?.children; return s ? s[s.indexOf(this) - 1] ?? null : null; },
     get nextElementSibling() { const s = this.parentElement?.children; return s ? s[s.indexOf(this) + 1] ?? null : null; },
     get firstChild() { return this.children[0] ?? null; },
+    querySelector(selector) { return this.children.find((node) => `.${node.id}` === selector) ?? null; },
     insertBefore(node, ref) { node.remove(); node.parentElement = this; this.children.splice(ref ? this.children.indexOf(ref) : this.children.length, 0, node); },
     after(node) { this.parentElement.insertBefore(node, this.nextElementSibling); },
     before(node) { this.parentElement.insertBefore(node, this); },
     remove() { if (this.parentElement) this.parentElement.children.splice(this.parentElement.children.indexOf(this), 1); this.parentElement = null; } });
-  const work = el('work'), overview = el('overview'), network = el('network'), inner = el('ctx-inner'), block = el('fiiuDashboard'), news = el('news');
-  work.insertBefore(overview); work.insertBefore(network); inner.insertBefore(block); inner.insertBefore(news);
-  const byId = (id) => [overview, block].find((node) => node.id === id) ?? null;
+  const work = el('work'), overview = el('overview'), lede = el('lede'), spine = el('spine'), network = el('network'), inner = el('ctx-inner'), block = el('fiiuDashboard'), body = el('fiiuDashboardBody'), news = el('news');
+  work.insertBefore(overview); work.insertBefore(network); overview.insertBefore(lede); overview.insertBefore(spine); inner.insertBefore(block); inner.insertBefore(news);
+  const byId = (id) => [overview, block, body].find((node) => node.id === id) ?? null;
   const media = { matches: true, listener: null, addEventListener(type, fn) { this.listener = fn; } };
-  vm.runInNewContext(iife, { byId, window: { matchMedia: () => media } });
-  // Under the greeting and the route the block started a screen and a half down on a phone.
+  const watched = [];
+  class MutationObserver { constructor(fn) { this.fn = fn; } observe(target, options) { watched.push({ target, options, fn: this.fn }); } }
+  const registered = (value) => { body.dataset.registered = value; for (const w of watched) if (w.target === body && w.options.attributeFilter.includes('data-registered')) w.fn([]); };
+  vm.runInNewContext(iife, { byId, MutationObserver, window: { matchMedia: () => media } });
+  // Under the greeting and the route the block started a screen and a half down on a phone. Until fiiu-hubs.js has read the
+  // registration (and when that read fails) the block opens the work surface, where most members at the festival want it.
   assert.deepEqual(work.children.map((node) => node.id), ['fiiuDashboard', 'overview', 'network']);
+  registered('true');
+  assert.deepEqual(work.children.map((node) => node.id), ['fiiuDashboard', 'overview', 'network'], 'a registration keeps it first');
+  // Without a registration it is an invitation: the greeting (the page h1) comes first, then the block, then the route.
+  registered('false');
+  assert.deepEqual(work.children.map((node) => node.id), ['overview', 'network']);
+  assert.deepEqual(overview.children.map((node) => node.id), ['lede', 'fiiuDashboard', 'spine']);
   media.matches = false; media.listener();
   assert.deepEqual(inner.children.map((node) => node.id), ['fiiuDashboard', 'news'], 'wide screens get it back first in the context column');
-  assert.deepEqual(work.children.map((node) => node.id), ['overview', 'network']);
+  assert.deepEqual(overview.children.map((node) => node.id), ['lede', 'spine']);
+  registered('true');
+  assert.deepEqual(inner.children.map((node) => node.id), ['fiiuDashboard', 'news'], 'a wide screen keeps it in the context column whatever the registration');
   media.matches = true; media.listener();
   assert.equal(block.nextElementSibling, overview);
 });
