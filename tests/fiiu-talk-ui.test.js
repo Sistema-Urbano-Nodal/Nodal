@@ -361,7 +361,8 @@ test('an organiser reading a hidden question asks for the question again only wh
 const SPANISH={talkPage:'Conversación',talkEmpty:'Todavía no hay mensajes. Sé la primera persona en responder.',talkPlaceholder:'Escribe tu respuesta…',talkSend:'Enviar',talkOrganiser:'Organización FIIU',
  talkClosed:'Esta conversación está cerrada. Puedes seguir leyéndola.',talkSignIn:'Inicia sesión para participar',talkRegister:'Inscríbete en el FIIU para participar',talkNew:'Mensajes nuevos ↓'};
 const REQUIRED=['talkPage','talkQuestions','talkOtherQuestions','talkEmpty','talkPlaceholder','talkSend','talkSending','talkNotSent','talkRetry','talkAttach','talkRemoveFile','talkUploading','talkFileType','talkFileSize','talkTooManyFiles','talkAllowance','talkCharsLeft',
- 'talkLike','talkLikes','talkDelete','talkDeleteConfirm','talkOrganiser','talkClosed','talkUnavailable','talkSignIn','talkSignInHint','talkRegister','talkRegisterHint','talkNew','talkLoadEarlier','talkPaused','talkHide','talkUnhide','talkHidden','talkBackToBlock','talkOpenFull','talkError','talkRate','talkEmptyBlock'];
+ 'talkLike','talkLikes','talkDelete','talkDeleteConfirm','talkOrganiser','talkClosed','talkUnavailable','talkSignIn','talkSignInHint','talkRegister','talkRegisterHint','talkNew','talkLoadEarlier','talkPaused','talkHide','talkUnhide','talkHidden','talkBackToBlock','talkOpenFull','talkError','talkRate','talkEmptyBlock',
+ 'talkPresent','talkLatest','talkTop','talkFullscreen','talkScanToJoin'];
 
 test('every chat string has English, Spanish and Portuguese, the Spanish follows the plan, and a language switch relabels the page',async()=>{
  const h=await page({['GET /api/fiiu/questions/'+Q]:thread({messages:[message(M1,{mine:true,likeCount:3})]})}),strings=h.ctx.window.Fiiu.rows;
@@ -389,4 +390,154 @@ test('a language switch with an empty composer relabels the placeholder, the fil
  assert.equal(h.root.querySelector('.f-talk-log')['aria-label'],'Conversa');assert.equal(h.ctx.document.title,'NODAL · Conversa');
  assert.equal(composer(h).querySelector('.f-talk-left').hidden,true,'the hidden counter stays hidden');
  h.lang('es');assert.equal(text.placeholder,'Escribe tu respuesta…');
+});
+
+// Organiser moderation on the chat page.
+test('an organiser hides a message with PUT and unhides it with DELETE; a hidden message stays on the organiser’s screen, greyed with the Hidden chip',async()=>{
+ let revision=3;const hide=later();const ana=over=>message(M1,{authorFull:'Ana Test',hidden:false,...over}),bea=over=>message(M2,{author:'Bea R.',authorFull:'Bea Ruiz',hidden:false,createdAt:'2026-10-21T14:07:00.000Z',...over});
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({me:{organiser:true},messages:[ana({seq:1}),bea({seq:2})]}),
+  ['PUT /api/admin/fiiu/messages/'+M1+'/hidden']:()=>hide.promise,['DELETE /api/admin/fiiu/messages/'+M1+'/hidden']:{message:ana({seq:5})},
+  'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:{revision:6,changes:[ana({seq:5}),bea({hidden:true,seq:6})],liked:[]},
+  ['DELETE /api/admin/fiiu/messages/'+M2+'/hidden']:{status:404,data:{error:'not found'}}});
+ const text=composer(h).querySelector('textarea');text.value='borrador';
+ assert.ok(key(row(h,M1),'talkHide'));assert.ok(!classes(row(h,M1)).includes('is-hidden'));assert.equal(key(row(h,M1),'talkHidden'),undefined);
+ key(row(h,M1),'talkHide').listeners.click();key(row(h,M1),'talkHide').listeners.click();await flush();
+ assert.equal(sent(h,'PUT','/api/admin/fiiu/messages/'+M1+'/hidden').length,1,'a second tap waits for the first');
+ hide.resolve({message:ana({hidden:true,seq:4})});await flush();
+ assert.ok(classes(row(h,M1)).includes('is-hidden'));assert.ok(key(row(h,M1),'talkHidden'),'the Hidden chip');assert.ok(key(row(h,M1),'talkUnhide'));assert.equal(key(row(h,M1),'talkHide'),undefined);
+ assert.match(content(row(h,M1)),/Hola a todas/,'the organiser still reads it');
+ await key(row(h,M1),'talkUnhide').listeners.click();await flush();
+ assert.equal(sent(h,'DELETE','/api/admin/fiiu/messages/'+M1+'/hidden').length,1);
+ assert.ok(!classes(row(h,M1)).includes('is-hidden'));assert.equal(key(row(h,M1),'talkHidden'),undefined);assert.ok(key(row(h,M1),'talkHide'));
+ // The server sends organisers full views of hidden messages in since results, so a message hidden from another screen stays here, marked.
+ revision=6;await h.tickTimers();
+ assert.deepEqual(rows(h).map(node=>node.dataset.id),[M1,M2]);assert.ok(classes(row(h,M2)).includes('is-hidden'));assert.ok(key(row(h,M2),'talkHidden'));assert.ok(key(row(h,M2),'talkUnhide'));
+ assert.equal(text.value,'borrador','moderation never touches the draft');
+ // A message its author deleted meanwhile is gone: unhiding it removes the row instead of showing an error.
+ await key(row(h,M2),'talkUnhide').listeners.click();await flush();
+ assert.equal(row(h,M2),undefined);assert.equal(composer(h).querySelector('.f-talk-status').textContent,'');
+});
+
+test('a member sees no moderation controls, and a message an organiser hides leaves the member’s screen within one poll',async()=>{
+ let revision=3;
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:{revision:4,changes:[{id:M1,seq:4,gone:true}],liked:[]}});
+ assert.equal(key(h.root,'talkHide'),undefined);assert.equal(key(h.root,'talkUnhide'),undefined);assert.equal(h.root.querySelectorAll('.f-talk-hide').length,0);
+ const text=composer(h).querySelector('textarea');text.value='a medio escribir';text.focus();
+ revision=4;await h.tickTimers();
+ assert.deepEqual(rows(h).map(node=>node.dataset.id),[M2]);assert.equal(text.value,'a medio escribir');assert.equal(text.focused,true);
+ assert.equal(h.requests.filter(request=>request.path.startsWith('/api/admin/')).length,0);
+});
+
+// The projector view (?present=1).
+function bits(size,dark){const bytes=Buffer.alloc(Math.ceil(size*size/8));for(let y=0;y<size;y++)for(let x=0;x<size;x++)if(dark(x,y)){const i=y*size+x;bytes[i>>3]|=0x80>>(i&7);}return bytes.toString('base64');}
+const QR={size:21,bits:bits(21,(x,y)=>y===0||(x===20&&y===20))},JOIN='https://nodal.example/fiiu-talk.html?q='+Q,QR_PATH='/api/admin/fiiu/questions/'+Q+'/qr';
+const M5='10000000-0000-4000-8000-000000000005';
+// The projector as an organiser. The first question read waits until the test has given the document what the harness lacks: a class list that records
+// the projector class and, unless fullscreen is false, full screen on the root element.
+async function projector(routes={},over={},{fullscreen=true,search='?q='+Q+'&present=1',context={}}={}){
+ const gate=later(),added=new Set(),read=routes['GET /api/fiiu/questions/'+Q]??(()=>thread({...over,me:{organiser:true,...over.me}}));
+ const h=await page({['GET '+QR_PATH]:{url:JOIN,qr:QR},...routes,['GET /api/fiiu/questions/'+Q]:request=>gate.promise.then(()=>typeof read==='function'?read(request):read)},{search,context});
+ h.body.classList={add:name=>added.add(name),remove:name=>added.delete(name),toggle(){},contains:name=>added.has(name)};
+ if(fullscreen)h.ctx.document.documentElement.requestFullscreen=async function(){h.ctx.document.fullscreenElement=this;await h.fire('fullscreenchange');};
+ gate.resolve();await flush();return Object.assign(h,{added});
+}
+const cards=h=>h.root.querySelectorAll('.f-talk-wall-msg');
+const order=h=>cards(h).map(node=>node.dataset.id);
+const WALL=[message(M1,{likeCount:5,seq:1,authorFull:'Ana Test',hidden:false}),
+ message(M2,{author:'Flavia R.',organiser:true,body:'Bienvenidas',createdAt:'2026-10-21T14:07:00.000Z',likeCount:1,seq:2,authorFull:'Flavia Rojas',hidden:false}),
+ message(M3,{author:'Bea R.',body:'Con foto',createdAt:'2026-10-21T14:09:00.000Z',seq:3,authorFull:'Bea Ruiz',hidden:false,files:[{id:F1,name:'foto.jpg',mime:'image/jpeg',size:1000,width:1600,height:1200,thumb:true}]}),
+ message(M4,{body:'Fuera de tono',createdAt:'2026-10-21T14:10:00.000Z',seq:4,authorFull:'Otro Nombre',hidden:true})];
+
+test('the projector shows the question large with a join QR and the latest answers, without a composer, likes or moderation, and Most liked reorders them',async()=>{
+ const h=await projector({},{messages:WALL});
+ assert.equal(sent(h,'GET',QR_PATH).length,1);assert.ok(h.added.has('f-talk-present'),'the page switches to the projector layout');
+ const wall=h.root.querySelector('.f-talk-wall');assert.ok(wall);
+ const headline=wall.querySelector('.f-talk-wall-question');assert.equal(headline.tagName,'h1');assert.equal(headline.textContent,'¿Qué te llevas de esta mañana?');
+ assert.match(content(wall.querySelector('.f-talk-wall-head')),/El poder de lo local/);assert.match(content(wall.querySelector('.f-talk-wall-head')),/¡Bienvenidos al FIIU 11!/);
+ const svgs=h.root.querySelectorAll('svg');assert.equal(svgs.length,1);const svg=svgs[0];
+ assert.equal(svg.viewBox,'0 0 29 29','a 4-module quiet zone around 21 modules');assert.equal(svg.role,'img');assert.equal(svg['aria-label'],'Scan to join the conversation');
+ const paths=svg.querySelectorAll('path');assert.equal(paths.length,1,'the code is one path');assert.equal(paths[0].d,'M4 4h21v1h-21zM24 24h1v1h-1z');
+ assert.ok(key(wall,'talkScanToJoin'));
+ assert.equal(wall.querySelector('.f-talk-wall-url').textContent,'nodal.example/fiiu-talk.html?a=day1-am','under the code, the block address people can type');
+ assert.equal(composer(h),null);assert.equal(h.root.querySelectorAll('form').length,0);assert.equal(h.root.querySelectorAll('.f-talk-like').length,0);
+ assert.equal(key(h.root,'talkHide'),undefined);assert.equal(key(h.root,'talkUnhide'),undefined);assert.equal(key(h.root,'talkDelete'),undefined);assert.equal(h.root.querySelector('.f-talk-log'),null);
+ assert.deepEqual(order(h),[M3,M2,M1],'latest first, and the hidden message is not projected');
+ const card=id=>cards(h).find(node=>node.dataset.id===id);
+ assert.ok(key(card(M2),'talkOrganiser'));assert.match(content(card(M1)),/5 likes/);assert.match(content(card(M1)),/Hola a todas/);assert.doesNotMatch(content(card(M1)),/Ana Test/,'only the display name');
+ const img=card(M3).querySelector('img');assert.equal(img.src,'/api/fiiu/files/'+F1+'?size=thumb');assert.equal(img.alt,'foto.jpg');assert.equal(img.width,1600);
+ const latest=key(wall,'talkLatest'),top=key(wall,'talkTop');assert.equal(latest['aria-pressed'],'true');assert.equal(top['aria-pressed'],'false');
+ top.listeners.click();assert.deepEqual(order(h),[M1,M2,M3],'most liked first');assert.equal(top['aria-pressed'],'true');assert.equal(latest['aria-pressed'],'false');
+ latest.listeners.click();assert.deepEqual(order(h),[M3,M2,M1]);
+ assert.equal(sent(h,'GET','/api/fiiu/questions?activityId=day1-am').length,0,'no list of the other questions');
+ assert.equal(h.ctx.document.title,'NODAL · Projector view');
+});
+
+test('the projector follows the poll: a new answer leads, a removed one leaves, at most 12 show, and closing the question says so',async()=>{
+ const many=Array.from({length:14},(_,i)=>message('20000000-0000-4000-8000-'+String(i).padStart(12,'0'),{body:'Respuesta '+i,createdAt:new Date(Date.parse('2026-10-21T14:00:00.000Z')+i*60000).toISOString(),seq:i+1}));
+ let revision=14,state='open';
+ const h=await projector({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,state]]}),
+  ['GET '+MESSAGES+'?since=14']:{revision:16,changes:[message(M5,{body:'La última',createdAt:'2026-10-21T14:30:00.000Z',likeCount:2,seq:15}),{id:many[13].id,seq:16,gone:true}],liked:[]},
+  ['GET '+MESSAGES+'?since=16']:{revision:17,changes:[],liked:[]}},{messages:many,revision:14,question:{revision:14}});
+ assert.equal(order(h).length,12);assert.equal(order(h)[0],many[13].id);assert.equal(order(h)[11],many[2].id);
+ const kept=cards(h).find(node=>node.dataset.id===many[12].id);
+ revision=16;await h.tickTimers();
+ assert.equal(order(h)[0],M5);assert.ok(!order(h).includes(many[13].id));assert.equal(order(h).length,12);assert.equal(order(h)[11],many[2].id,'one arrived and one left');
+ assert.equal(cards(h).find(node=>node.dataset.id===many[12].id),kept,'an unchanged answer keeps its element, so its image is not fetched again');
+ key(h.root,'talkTop').listeners.click();assert.equal(order(h)[0],M5,'the only liked answer leads Most liked');
+ revision=17;state='closed';await h.tickTimers();
+ assert.ok(key(h.root.querySelector('.f-talk-wall-head'),'talkClosedChip'));assert.equal(composer(h),null,'closing never brings a composer to the projector');
+ const hidden=await projector({['GET '+MESSAGES+'?since=3']:{revision:3,changes:[],liked:[]}},{question:{status:'hidden'}});
+ assert.ok(key(hidden.root.querySelector('.f-talk-wall-head'),'talkHidden'),'the organiser sees the room cannot open it yet');
+ await hidden.tickTimers();assert.equal(sent(hidden,'GET','/api/fiiu/pulse').length,0,'the pulse leaves hidden questions out');assert.equal(sent(hidden,'GET',MESSAGES+'?since=3').length,1);
+});
+
+test('present=1 for a member renders the normal chat and asks for no QR',async()=>{
+ const h=await page({},{search:'?q='+Q+'&present=1'});
+ assert.ok(composer(h));assert.ok(h.root.querySelector('.f-talk-log'));assert.equal(h.root.querySelector('.f-talk-wall'),null);
+ assert.equal(sent(h,'GET',QR_PATH).length,0);assert.equal(h.requests.filter(request=>request.path.startsWith('/api/admin/')).length,0);assert.equal(h.locks.length,0);
+ assert.equal(h.ctx.document.title,'NODAL · Conversation');
+ const organiser=await page({['GET /api/fiiu/questions/'+Q]:thread({me:{organiser:true}})});
+ assert.ok(composer(organiser),'an organiser without present=1 gets the chat');assert.equal(sent(organiser,'GET',QR_PATH).length,0);
+});
+
+test('the projector keeps the screen awake, takes the lock again after the tab returns, and lets it go when the session ends',async()=>{
+ let revision=3;
+ const h=await projector({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:{status:401,data:{error:'sign in required'}}});
+ assert.equal(h.locks.length,1);assert.equal(h.locks[0].type,'screen');
+ await h.visible(true);await flush();assert.equal(h.locks.length,1,'a lock still held is not asked for twice');
+ h.locks[0].lock.released=true;await h.visible(true);await flush();assert.equal(h.locks.length,2,'the browser let it go while hidden, so it is taken again');
+ revision=4;await h.tickTimers();
+ assert.ok(key(h.root,'talkSignIn'));assert.equal(h.root.querySelector('.f-talk-wall'),null);assert.equal(h.added.has('f-talk-present'),false,'the page leaves the projector layout');
+ assert.equal(h.locks[1].lock.released,true);await h.visible(true);await flush();assert.equal(h.locks.length,2);
+});
+
+test('Full screen covers the whole page and its label follows the state; a browser without it shows no button',async()=>{
+ const h=await projector(),full=key(h.root,'talkFullscreen');assert.ok(full);
+ await full.listeners.click();assert.equal(h.ctx.document.fullscreenElement,h.ctx.document.documentElement);assert.equal(full.dataset.fiiuText,'exitFullScreen');assert.equal(full.textContent,'Exit full screen');
+ await full.listeners.click();assert.equal(h.ctx.document.fullscreenElement,null);assert.equal(full.dataset.fiiuText,'talkFullscreen');
+ const bare=await projector({},{},{fullscreen:false});assert.equal(key(bare.root,'talkFullscreen'),undefined);assert.ok(bare.root.querySelector('.f-talk-wall'));
+});
+
+test('without a QR the projector keeps the question, the address and the answers, and a failed request is tried again a minute later',async()=>{
+ const Clock=clock();let up=false;
+ const none=await projector({['GET '+QR_PATH]:{url:JOIN,qr:null}},{},{context:{Date:Clock}});
+ assert.equal(none.root.querySelectorAll('svg').length,0);assert.equal(key(none.root,'talkScanToJoin'),undefined,'no "scan" without a code');
+ assert.equal(none.root.querySelector('.f-talk-wall-url').textContent,'nodal.example/fiiu-talk.html?a=day1-am');
+ Clock.advance(60000);await none.tickTimers();await flush();assert.equal(sent(none,'GET',QR_PATH).length,1,'a code the server could not draw is not asked for again');
+ const Later=clock();
+ const down=await projector({['GET '+QR_PATH]:()=>up?{url:JOIN,qr:QR}:{status:503,data:{error:'unavailable'}}},{},{context:{Date:Later}});
+ assert.equal(down.root.querySelectorAll('svg').length,0);assert.equal(down.root.querySelector('.f-talk-wall-code').hidden,true);assert.equal(cards(down).length,2);assert.ok(down.root.querySelector('.f-talk-wall-question'));
+ up=true;await down.tickTimers();await flush();assert.equal(sent(down,'GET',QR_PATH).length,1,'not before a minute has passed');
+ Later.advance(60000);await down.tickTimers();await flush();
+ assert.equal(sent(down,'GET',QR_PATH).length,2);assert.equal(down.root.querySelectorAll('svg').length,1);assert.equal(down.root.querySelector('.f-talk-wall-code').hidden,false);
+ Later.advance(60000);await down.tickTimers();await flush();assert.equal(sent(down,'GET',QR_PATH).length,2,'a drawn code stays');
+ const broken=await projector({['GET '+QR_PATH]:{url:JOIN,qr:{size:21,bits:'AAAA'}}});assert.equal(broken.root.querySelectorAll('svg').length,0,'too few bits draw nothing');
+});
+
+test('a language switch relabels the projector',async()=>{
+ const h=await projector({},{messages:[message(M1,{likeCount:3})]});
+ h.lang('es');
+ assert.equal(h.ctx.document.title,'NODAL · Vista de proyección');assert.equal(h.root.querySelector('svg')['aria-label'],'Escanea para unirte a la conversación');
+ assert.equal(key(h.root,'talkTop').textContent,'Con más me gusta');assert.equal(key(h.root,'talkScanToJoin').textContent,'Escanea para unirte a la conversación');assert.match(content(cards(h)[0]),/3 me gusta/);
+ h.lang('pt');assert.equal(key(h.root,'talkLatest').textContent,'Recentes');assert.equal(key(h.root,'talkFullscreen').textContent,'Tela cheia');
 });

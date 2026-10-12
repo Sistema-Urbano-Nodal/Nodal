@@ -3,6 +3,7 @@
  // Festival conversations. ?q= opens one organiser question on a FIIU block with its live chat; ?a= lists a block's questions and opens a single one at once.
  // Live updates poll the public, CDN-cached pulse every 4 s and fetch only the changes since the shown revision, then patch rows in place: the composer,
  // focus and scroll position are never rebuilt. People registered for the festival and organisers take part; anyone else is told how to.
+ // Organisers also hide and unhide messages here, and ?q=…&present=1 gives them a projector view of the question with a QR code to join.
  const Fiiu=window.Fiiu,{t,el,tr,button,link,source,api,status,dateNode,limaClock,limaDate,newTabNote,locale}=Fiiu;
  // Page-only strings join the shared dictionary, so t(), tr() and the language switch in fiiu-ui.js handle them like the rest.
  Object.assign(Fiiu.rows,{
@@ -28,15 +29,21 @@
   talkHide:['Hide','Ocultar','Ocultar'],talkUnhide:['Unhide','Mostrar','Mostrar'],talkHidden:['Hidden','Oculto','Oculta'],talkBackToBlock:['All questions on this block','Todas las preguntas de este bloque','Todas as perguntas deste bloco'],
   talkOpenFull:['Open full image','Abrir imagen completa','Abrir imagem completa'],talkError:['Something went wrong. Try again.','Algo salió mal. Inténtalo de nuevo.','Algo deu errado. Tente de novo.'],
   talkRate:['Too many messages at once. Wait a moment and try again.','Demasiados mensajes seguidos. Espera un momento e inténtalo de nuevo.','Muitas mensagens de uma vez. Aguarde um momento e tente de novo.'],
+  talkPresent:['Projector view','Vista de proyección','Modo de projeção'],talkLatest:['Latest','Recientes','Recentes'],talkTop:['Most liked','Con más me gusta','Mais curtidas'],talkFullscreen:['Full screen','Pantalla completa','Tela cheia'],
+  talkScanToJoin:['Scan to join the conversation','Escanea para unirte a la conversación','Escaneie para entrar na conversa'],
  });
  const root=document.getElementById('fiiuTalkRoot'),message=document.getElementById('fiiuStatus');
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,ID=/^[a-z0-9-]{1,60}$/;
  const LIMIT=1000,FILES=3,MAX=3*1024*1024,THUMB=100*1024,POLL=4000,NEAR=120,TYPES=['image/jpeg','image/png','image/webp','application/pdf'],IMAGES=TYPES.slice(0,3);
+ // The projector: answers on screen, and the question length above which its headline steps down so they still fit.
+ const WALL=12,LONG=160,SVG='http://www.w3.org/2000/svg';
  // A file refused for what it is (type, size, the festival allowance) is the draft's problem: the row goes and the composer says why, since Retry cannot help.
  const DRAFT=['talkFileType','talkFileSize','talkAllowance','talkTooManyFiles'];
  let question=null,activity=null,me={organiser:false,canPost:false},before=null,known=0,parts=null,composer=null;
  let timer=null,busy=false,failures=0,nextAt=0;
- const views=new Map(),rowsById=new Map(),attempts=new Map(),uploads=new Map(),liking=new Set();
+ // present: the address asked for the projector (?q=…&present=1); wall: its parts while an organiser is shown it; order: 'latest' or 'top'.
+ let present=false,wall=null,order='latest',lock=null,waking=false;
+ const views=new Map(),rowsById=new Map(),attempts=new Map(),uploads=new Map(),liking=new Set(),moderating=new Set();
  const problem=key=>Object.assign(Error(t(key)),{key});
  const fill=(key,vars)=>t(key).replace(/\{(\w+)\}/g,(all,name)=>name in vars?String(vars[name]):all);
  // Text with a number in it keeps its key and values, so a language switch can rewrite it (refresh() in fiiu-ui.js only knows plain keys).
@@ -45,7 +52,7 @@
  const sizeText=bytes=>bytes<1048576?Math.max(1,Math.round(bytes/1024))+' KB':new Intl.NumberFormat(locale(),{maximumFractionDigits:1}).format(bytes/1048576)+' MB';
  const sizeNode=bytes=>{const node=el('span','f-talk-size',sizeText(bytes));node.dataset.talkSize=String(bytes);return node;};
  const codePoints=text=>[...text].length;
- const setTitle=()=>{document.title='NODAL · '+t('talkPage');};
+ const setTitle=()=>{document.title='NODAL · '+t(wall?'talkPresent':'talkPage');};
  const keyOf=error=>error?.status===429?'talkRate':error?.code==='upload_allowance'?'talkAllowance':error?.code==='file_type'?'talkFileType':error?.code==='too_many_files'?'talkTooManyFiles'
   :error?.status===413||error?.code==='file_size'?'talkFileSize':error?.code==='question_closed'?'talkClosed':error?.status===401?'unauthorized':/^talk[A-Z]/.test(error?.key||'')?error.key:'talkError';
  const isOpen=()=>question?.status==='open';
@@ -118,8 +125,9 @@
  // Rows stay in (createdAt, id) order with messages still being sent last. A replaced row hands focus to the same control in its successor:
  // each row control's first class names it (f-talk-like, f-talk-delete, f-talk-hide, the last also for Unhide).
  const later=(a,b)=>Boolean(a)&&(a.createdAt>b.createdAt||(a.createdAt===b.createdAt&&a.id>b.id));
+ const normal=view=>({...view,files:Array.isArray(view.files)?view.files:[]});
  function upsert(view){
-  const next={...view,files:Array.isArray(view.files)?view.files:[]},node=messageRow(next),old=rowsById.get(next.id);views.set(next.id,next);rowsById.set(next.id,node);
+  const next=normal(view),node=messageRow(next),old=rowsById.get(next.id);views.set(next.id,next);rowsById.set(next.id,node);
   if(old){const active=document.activeElement,cls=active&&old.contains?.(active)?String(active.className||'').split(' ')[0]:'';old.replaceWith(node);if(cls)node.querySelector('.'+cls)?.focus();return false;}
   const after=[...parts.log.children].find(child=>child.dataset.pending==='1'||later(views.get(child.dataset.id),next));if(after)after.before(node);else parts.log.append(node);return true;
  }
@@ -150,7 +158,7 @@
   parts.dock.replaceChildren(parts.pill,...(state==='composer'?[ensureComposer().form]:state==='closed'?[tr('p','talkClosed','f-talk-closed')]:[]));
  }
  function setStatus(state){
-  if(!question||!parts)return;question.status=state;me.canPost=state==='open';renderHead();renderDock();
+  if(!question||!(parts||wall))return;question.status=state;me.canPost=state==='open';if(wall)return renderWallHead();renderHead();renderDock();
   for(const node of rowsById.values()){const like=node.querySelector('.f-talk-like');if(like)like.disabled=state!=='open';}
  }
  function build(){
@@ -161,9 +169,12 @@
  }
  // A reload of the same question (a reset, or a status the pulse cannot carry) rebuilds the rows but keeps the header nodes, the composer and its draft.
  function show(data){
-  const same=Boolean(parts)&&question?.id===data.question.id;
+  const again=question?.id===data.question.id;
   question={...data.question};activity=data.activity||activity;me={organiser:Boolean(data.me?.organiser),canPost:data.me?.canPost!==false&&question.status==='open'};
   before=typeof data.before==='string'?data.before:null;known=Number(data.revision)||Number(question.revision)||0;
+  // The projector is for organisers; anyone else who opens its address gets the chat.
+  if(present&&me.organiser)return showWall(data,again);
+  unwall();const same=Boolean(parts)&&again;
   if(!same)build();renderHead();rowsById.clear();views.clear();parts.log.replaceChildren();
   for(const view of Array.isArray(data.messages)?data.messages:[])if(view?.id)upsert(view);
   for(const attempt of attempts.values())if(attempt.row)parts.log.append(attempt.row);
@@ -171,7 +182,7 @@
  }
 
  // Access states replace the page; polling stops until a question is shown again.
- function halt(){if(timer!==null)clearInterval(timer);timer=null;question=null;parts=null;}
+ function halt(){if(timer!==null)clearInterval(timer);timer=null;question=null;parts=null;unwall();}
  function block(title,hint,...actions){
   halt();const box=el('section','f-locked f-talk-locked'),row=el('div','f-actions');row.append(...actions);box.append(tr('h1',title),...(hint?[tr('p',hint)]:[]),row);
   root.replaceChildren(box,newTabNote());status(message,'');setTitle();
@@ -203,6 +214,7 @@
     else{const [, , revision,state]=entry;if(Number(revision)>known){const moved=state!==question.status;if(moved)setStatus(state);await changes(id,!moved);}}
    }
    failures=0;nextAt=0;if(message.dataset.fiiuText==='talkPaused')status(message,'');
+   if(wall?.qr==='failed'&&Date.now()>=wall.qrAt)loadQr(id);
   }catch(error){
    if([401,403,404].includes(error?.status))return access(error);
    failures++;nextAt=Date.now()+Math.min(60000,POLL*2**failures);status(message,'talkPaused');
@@ -212,10 +224,14 @@
   const prior=known,data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages?since='+prior);if(question?.id!==id)return;
   if(data.reset)return reload(id);
   const list=Array.isArray(data.changes)?data.changes:[];
-  // While earlier pages are not loaded, a change to a message older than the first loaded row (a like or an unhide bumps its seq) waits for
-  // "Load earlier", which brings it fresh: shown now it would sit out of context above the gap and raise the pill with nothing new below.
-  const first=before?views.get([...parts.log.children].find(child=>child.dataset.id)?.dataset.id):null;
-  patch(note=>{for(const change of list){if(!change?.id)continue;if(change.gone)drop(change.id);else if(!(first&&!rowsById.has(change.id)&&later(first,change)))note(change,upsert(change));}});
+  // The projector keeps every change, older ones included: a like on an early answer can lift it into Most liked.
+  if(wall){for(const change of list)if(change?.id){if(change.gone)views.delete(change.id);else views.set(change.id,normal(change));}renderWall();}
+  else{
+   // While earlier pages are not loaded, a change to a message older than the first loaded row (a like or an unhide bumps its seq) waits for
+   // "Load earlier", which brings it fresh: shown now it would sit out of context above the gap and raise the pill with nothing new below.
+   const first=before?views.get([...parts.log.children].find(child=>child.dataset.id)?.dataset.id):null;
+   patch(note=>{for(const change of list){if(!change?.id)continue;if(change.gone)drop(change.id);else if(!(first&&!rowsById.has(change.id)&&later(first,change)))note(change,upsert(change));}});
+  }
   if(Number.isFinite(data.revision))known=Math.max(known,data.revision);
   // A revision that moved with no message in it was the question itself: its text or talk changed (the pulse already carried any status).
   // One that did not move needs no read: an organiser on a hidden question asks for changes on every tick, without the pulse.
@@ -357,10 +373,13 @@
   try{await api('/api/fiiu/messages/'+encodeURIComponent(id),{},'DELETE');patch(()=>drop(id));}
   catch(error){if(error?.status===404)patch(()=>drop(id));else notify(error);}
  }
+ // Organisers hide (PUT) and unhide (DELETE), one request per message at a time; the answer replaces the row, which stays on their screen, greyed.
+ // A message its author deleted meanwhile just leaves the screen.
  async function moderate(id){
-  const view=views.get(id);if(!view)return;
+  const view=views.get(id);if(!view||moderating.has(id))return;moderating.add(id);
   try{const data=await api('/api/admin/fiiu/messages/'+encodeURIComponent(id)+'/hidden',{},view.hidden?'DELETE':'PUT');if(data?.message?.id&&parts)patch(note=>note(data.message,upsert(data.message)));}
-  catch(error){notify(error);}
+  catch(error){if(error?.status===404)patch(()=>drop(id));else notify(error);}
+  finally{moderating.delete(id);}
  }
  async function loadEarlier(){
   if(!before||!parts)return;const control=parts.earlier,id=question.id,first=parts.log.children[0];control.disabled=true;
@@ -369,6 +388,86 @@
    for(const view of Array.isArray(data.messages)?data.messages:[])if(view?.id&&!rowsById.has(view.id))upsert(view);
    before=typeof data.before==='string'?data.before:null;control.hidden=!before;updateEmpty();first?.scrollIntoView?.({block:'start'});
   }catch(error){notify(error);}finally{control.disabled=false;}
+ }
+
+ // Projector (?q=…&present=1, organisers only): the question as the headline, a QR code to join and the 12 latest or most liked answers, for the room's
+ // screen. It follows the chat's poll, and has no composer, likes or moderation.
+ function buildWall(){
+  const box=el('section','f-talk-wall'),head=el('header','f-talk-wall-head'),code=el('div','f-talk-wall-code'),tools=el('div','f-talk-wall-tools'),sorts=el('div','f-talk-sorts'),feed=el('ol','f-talk-wall-feed'),empty=tr('p','talkEmpty','f-talk-wall-empty');
+  const switches=[['latest','talkLatest'],['top','talkTop']].map(([mode,label])=>{const b=button(label,()=>{order=mode;renderWall();},'f-talk-sort');b.dataset.sort=mode;return b;});sorts.append(...switches);tools.append(sorts);
+  // Full screen takes the whole page where the browser allows it (not on iPhone); the label follows the state, Esc included (fullscreenchange, below).
+  let full=null;
+  if(document.fullscreenEnabled!==false&&typeof document.documentElement?.requestFullscreen==='function'){full=button('talkFullscreen',()=>document.fullscreenElement?document.exitFullscreen?.():document.documentElement.requestFullscreen?.()?.catch?.(()=>{}),'f-button secondary f-talk-full');tools.append(full);}
+  // The empty square holds the code's place, so the headline does not jump when it arrives.
+  code.append(el('div','f-talk-wall-qr'));box.append(head,code,tools,feed,empty);root.replaceChildren(box);parts=null;document.body.classList.add('f-talk-present');
+  wall={head,code,feed,empty,switches,full,svg:null,qr:'loading',qrAt:0,cards:new Map()};
+ }
+ function renderWallHead(){
+  const nodes=activity?[source('p',activity.title,'f-talk-wall-block'),whenLine(activity)]:[];if(question.talk)nodes.push(source('p',question.talk,'f-talk-talk'));
+  if(question.status!=='open')nodes.push(tr('p',question.status==='hidden'?'talkHidden':'talkClosedChip','f-talk-flag'));
+  // The headline is 3 to 5 % of the screen's width; a long question steps down so the answers still fit under it.
+  nodes.push(source('h1',question.body,'f-talk-wall-question'+(codePoints(question.body)>LONG?' is-long':'')));wall.head.replaceChildren(...nodes);
+ }
+ // An answer on the projector: the name, the organiser label and its likes, then the text (four lines at most, in the stylesheet) and thumbnails.
+ function wallCard(m){
+  const card=el('li','f-talk-wall-msg'),meta=el('p','f-talk-wall-meta');card.dataset.id=m.id;meta.append(el('strong','f-talk-author',m.author||''));if(m.organiser)meta.append(tr('span','talkOrganiser','f-talk-org'));
+  if(m.likeCount>0)meta.append(counted('span','f-talk-wall-likes',m.likeCount===1?'talkLikeOne':'talkLikes',{n:m.likeCount}));card.append(meta);
+  if(m.body){const text=el('p','f-talk-wall-body',m.body);text.translate=true;card.append(text);}
+  if(m.files.length){
+   const box=el('div','f-talk-wall-files');
+   for(const file of m.files){
+    if(!/^image\//.test(file.mime)){box.append(el('span','f-talk-wall-file','PDF · '+(file.name||'')));continue;}
+    const img=el('img');img.src='/api/fiiu/files/'+encodeURIComponent(file.id)+'?size=thumb';img.alt=file.name||'';img.decoding='async';if(Number.isInteger(file.width)&&Number.isInteger(file.height)){img.width=file.width;img.height=file.height;}box.append(img);
+   }
+   card.append(box);
+  }
+  return card;
+ }
+ // Latest is newest first; Most liked sorts by likes, then newest. Hidden messages (organisers receive them) never reach the room.
+ const newest=(a,b)=>later(a,b)?-1:later(b,a)?1:0;
+ function renderWall(){
+  if(!wall)return;const list=[...views.values()].filter(view=>!view.hidden).sort(order==='top'?(a,b)=>(b.likeCount||0)-(a.likeCount||0)||newest(a,b):newest).slice(0,WALL),cards=new Map();
+  // A card is rebuilt only when its message changed (a new seq); the others move as they are, so their thumbnails are not fetched again.
+  for(const m of list){const id=m.id+':'+m.seq;cards.set(id,wall.cards.get(id)||wallCard(m));}
+  wall.cards=cards;wall.feed.replaceChildren(...cards.values());wall.empty.hidden=list.length>0;
+  for(const b of wall.switches)b.setAttribute('aria-pressed',String(b.dataset.sort===order));
+ }
+ // The join code arrives as module bits (row-major, most significant bit first) and is drawn as one SVG path inside a 4-module quiet zone. This copies
+ // drawQr from fiiu-qr.js on purpose: the check-in screen is on the festival's critical path, so this page neither imports from it nor changes it.
+ function drawQr(qr){
+  const size=qr?.size;if(!Number.isInteger(size)||size<21||size>177||typeof qr.bits!=='string')return null;
+  let bytes;try{bytes=Uint8Array.from(atob(qr.bits),c=>c.charCodeAt(0));}catch{return null;}
+  if(bytes.length*8<size*size)return null;
+  const dark=i=>(bytes[i>>3]>>(7-(i&7)))&1,side=size+8;let d='';
+  for(let y=0;y<size;y++)for(let x=0;x<size;){if(!dark(y*size+x)){x++;continue;}let run=1;while(x+run<size&&dark(y*size+x+run))run++;d+=`M${x+4} ${y+4}h${run}v1h-${run}z`;x+=run;}
+  const svg=document.createElementNS(SVG,'svg'),back=document.createElementNS(SVG,'rect'),path=document.createElementNS(SVG,'path');
+  svg.setAttribute('viewBox',`0 0 ${side} ${side}`);svg.setAttribute('class','f-talk-qr-svg');svg.setAttribute('role','img');svg.setAttribute('aria-label',t('talkScanToJoin'));
+  back.setAttribute('width',String(side));back.setAttribute('height',String(side));back.setAttribute('fill','#fff');
+  path.setAttribute('d',d);path.setAttribute('fill','#000');path.setAttribute('shape-rendering','crispEdges');svg.append(back,path);return svg;
+ }
+ // Under the code, an address people can type from their seat: the block's (?a=), which lists its questions and opens this one when it is the only one.
+ // The code itself carries the exact ?q= address. The server's origin (PUBLIC_BASE_URL) wins; without an answer, this page's own.
+ function typedAddress(url){try{const at=new URL(url);return at.host+at.pathname+'?a='+encodeURIComponent(question.activityId);}catch{return '';}}
+ async function loadQr(id){
+  if(!wall)return;wall.qr='loading';let data=null,failed=false;
+  try{data=await api('/api/admin/fiiu/questions/'+encodeURIComponent(id)+'/qr');}catch{failed=true;}
+  if(!wall||question?.id!==id)return;
+  // A failed request is tried again by the poll once a minute. A code the encoder could not draw is final: the room keeps the question, the answers
+  // and the address.
+  const svg=drawQr(data?.qr),address=typedAddress(typeof data?.url==='string'?data.url:location.href);Object.assign(wall,{svg,qr:failed?'failed':'done',qrAt:Date.now()+60000});
+  wall.code.replaceChildren(...(svg?[tr('p','talkScanToJoin','f-talk-wall-scan'),svg]:[]),...(address?[el('p','f-talk-wall-url',address)]:[]));wall.code.hidden=!svg&&!address;
+ }
+ function showWall(data,again){
+  if(!wall||!again){buildWall();loadQr(question.id);}
+  views.clear();rowsById.clear();for(const view of Array.isArray(data.messages)?data.messages:[])if(view?.id)views.set(view.id,normal(view));
+  renderWallHead();renderWall();setTitle();
+ }
+ // Leaving the projector (for an access state, or the chat once someone is no longer an organiser) gives back the page's layout and the screen lock.
+ function unwall(){if(!wall)return;wall=null;document.body.classList.remove('f-talk-present');lock?.release?.()?.catch?.(()=>{});lock=null;}
+ // The projector keeps the screen awake. Browsers drop the lock while the tab is hidden, so it is asked for again when the tab returns.
+ function wake(){
+  if(!wall||waking||(lock&&!lock.released)||!globalThis.navigator?.wakeLock)return;waking=true;
+  navigator.wakeLock.request('screen').then(next=>{if(wall)lock=next;else next.release?.();},()=>{}).finally(()=>{waking=false;});
  }
 
  // Questions open first, then newest.
@@ -387,11 +486,13 @@
   status(message,'loading');let data;
   try{data=await api('/api/fiiu/questions/'+encodeURIComponent(id));}catch(error){return access(error);}
   status(message,'');if(!data?.question?.id)return access(null);
-  show(data);startPolling();
+  show(data);startPolling();if(wall)return wake();
   if(list)showSiblings(list);else api('/api/fiiu/questions?activityId='+encodeURIComponent(question.activityId)).then(result=>{if(question?.id===data.question.id)showSiblings(result.questions);},()=>{});
  }
  function start(){
   const params=new URLSearchParams(location.search),q=params.get('q')||'',a=params.get('a')||'';
+  // The projector shows one question (?q=), never a block's list.
+  present=UUID.test(q)&&params.get('present')==='1';
   setTitle();if(UUID.test(q))return openQuestion(q);if(!q&&ID.test(a))return openBlock(a);status(message,'');unavailable();
  }
 
@@ -401,9 +502,11 @@
   setTitle();root.querySelectorAll('.f-talk-n').forEach(node=>{if(node.dataset.talkKey)setCount(node,node.dataset.talkKey,JSON.parse(node.dataset.talkVars||'{}'));});
   root.querySelectorAll('.f-talk-size').forEach(node=>{node.textContent=sizeText(Number(node.dataset.talkSize));});
   if(parts)parts.log.setAttribute('aria-label',t('talkPage'));if(composer){composer.textarea.placeholder=t('talkPlaceholder');updateLeft();}
+  wall?.svg?.setAttribute('aria-label',t('talkScanToJoin'));
  }
  window.nodalI18n?.onChange(relabel);
- document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible')return;nextAt=0;return tick();});
+ document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible')return;wake();nextAt=0;return tick();});
+ document.addEventListener('fullscreenchange',()=>{const full=wall?.full;if(!full)return;const name=document.fullscreenElement?'exitFullScreen':'talkFullscreen';full.dataset.fiiuText=name;full.textContent=t(name);});
  window.addEventListener('scroll',()=>{if(parts&&!parts.pill.hidden&&nearBottom())parts.pill.hidden=true;},{passive:true});
  start();
 })();
