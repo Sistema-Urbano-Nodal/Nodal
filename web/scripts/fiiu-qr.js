@@ -2,10 +2,14 @@
  'use strict';
  // The check-in screen shown at the door (organisers only; the server gates the page). Without ?a= it lists the NODAL blocks. With ?a= it shows that block's
  // rotating QR code, the 6-character code and address for phones that cannot scan, when check-in closes and a live count. It never shows participant data.
- const {t,el,tr,button,link,source,api,status,dateNode,checkinActivities,checkinState,windowNode,countLabel,newTabNote}=window.Fiiu;
+ const Fiiu=window.Fiiu,{t,el,tr,button,link,source,api,status,dateNode,checkinActivities,checkinState,windowNode,countLabel,newTabNote}=Fiiu;
+ // Page-only strings join the shared dictionary, so t(), tr() and the language switch in fiiu-ui.js handle them like the rest.
+ Object.assign(Fiiu.rows,{
+  qrClosedKicker:['Check-in closed','Registro cerrado','Registro encerrado'],
+ });
  const root=document.getElementById('fiiuQrRoot'),message=document.getElementById('fiiuStatus'),SVG='http://www.w3.org/2000/svg',REFRESH=30000;
  const id=new URLSearchParams(location.search).get('a')||'';
- let festival=null,activity=null,latest=null,timer=null,stopped=false,busy=false,stale=false,lock=null,parts=null,offset=0;
+ let festival=null,activity=null,latest=null,timer=null,stopped=false,busy=false,stale=false,ended=false,lock=null,parts=null,offset=0;
  // Codes and the closing time are judged by the server's clock. Each answer carries serverTime, so the screen keeps the offset
  // and reads "now" as server time: a presenter laptop whose clock is off (or a local FIIU_CHECKIN_NOW clock) never keeps a code
  // the server already refuses, nor hides one it still accepts.
@@ -43,30 +47,38 @@
  function screen(){
   const box=el('section','f-qr'),stage=el('div','f-qr-stage'),code=el('div','f-qr-code'),side=el('div','f-qr-side'),title=source('h1',activity.title,'f-qr-title');
   const windowLine=el('p','f-qr-window'),typed=el('div','f-qr-typed'),address=el('p','f-qr-url'),short=el('p','f-qr-short'),count=el('p','f-qr-count'),controls=el('div','f-actions f-qr-controls');
+  const kicker=tr('p','scanToCheckIn','f-qr-kicker'),note=tr('p','codeRotates','f-muted f-qr-note');
   count.setAttribute('role','status');count.setAttribute('aria-live','polite');typed.append(tr('p','orTypeCode','f-qr-type-label'),address,short);
-  side.append(tr('p','scanToCheckIn','f-qr-kicker'),title,meta(activity,'f-qr-meta'),windowLine,typed,count);stage.append(code,side);
+  side.append(kicker,title,meta(activity,'f-qr-meta'),windowLine,typed,count);stage.append(code,side);
   // Full screen where the browser allows it (not on iPhone); the label follows the state, including Esc.
   if(typeof stage.requestFullscreen==='function'&&document.fullscreenEnabled!==false){
    const full=button('fullScreen',()=>document.fullscreenElement?document.exitFullscreen?.():stage.requestFullscreen()?.catch?.(()=>{}),'f-button');controls.append(full);
    document.addEventListener('fullscreenchange',()=>{const key=document.fullscreenElement?'exitFullScreen':'fullScreen';full.dataset.fiiuText=key;full.textContent=t(key);});
   }
   controls.append(link('allScreens','fiiu-qr.html','f-text-link'));
-  box.append(stage,controls,tr('p','codeRotates','f-muted f-qr-note'));root.replaceChildren(box,newTabNote());parts={code,windowLine,address,short,count,typed};
+  box.append(stage,controls,note);root.replaceChildren(box,newTabNote());parts={code,windowLine,address,short,count,typed,kicker,note};
  }
  // fresh is false when a language change redraws the last answer: its serverTime is old by then, so the clock offset is kept.
  function show(data,fresh=true){
   if(typeof data?.shortCode!=='string'||typeof data.url!=='string')throw Object.assign(Error(t('error')),{key:'error'});
   const reported=time(data.serverTime);if(fresh&&Number.isFinite(reported))offset=reported-Date.now();
-  latest=data;stale=false;parts.typed.hidden=false;const svg=drawQr(data.qr),closes=time(data.window?.closesAt),shown=Number.isFinite(closes)?{...activity,checkin:{closesAt:new Date(closes).toISOString()}}:activity;
-  parts.code.replaceChildren(svg||tr('p','qrUnavailable','f-qr-missing'));
+  latest=data;stale=false;const closes=time(data.window?.closesAt),shown=Number.isFinite(closes)?{...activity,checkin:{closesAt:new Date(closes).toISOString()}}:activity;
+  // Open or closed, as the server judged it; an answer without that verdict is judged on the server's clock.
+  const state=typeof data.window?.open==='boolean'?(data.window.open?'open':'closed'):checkinState(shown,serverNow());
+  parts.windowLine.replaceChildren(windowNode(shown,state));
+  parts.count.replaceChildren(...(Number.isSafeInteger(data.checkedIn)?[countLabel(data.checkedIn,'checkedInOne','checkedInMany')]:[]));
+  // Once check-in has closed the server refuses every scan, though it still sends a code: nothing scannable or typeable stays on the projector,
+  // the queue reads that check-in closed and where to go, and polling carries on, so a screen opened by mistake (yesterday's block) is plain to see.
+  ended=state==='closed';parts.typed.hidden=ended;parts.note.hidden=ended;
+  const kicker=ended?'qrClosedKicker':'scanToCheckIn';parts.kicker.dataset.fiiuText=kicker;parts.kicker.textContent=t(kicker);
+  if(ended){const notice=el('div','f-qr-closed');notice.append(tr('p','checkinEndedTitle','f-qr-closed-title'),tr('p','askDesk','f-qr-closed-hint'),link('allScreens','fiiu-qr.html','f-text-link'));parts.code.replaceChildren(notice);return;}
+  parts.code.replaceChildren(drawQr(data.qr)||tr('p','qrUnavailable','f-qr-missing'));
   let url=data.url;try{const parsed=new URL(data.url);url=parsed.host+parsed.pathname;}catch{url=data.url.split('?')[0];}
   parts.address.textContent=url;parts.short.textContent=data.shortCode.slice(0,3)+' '+data.shortCode.slice(3);parts.short.setAttribute('aria-label',data.shortCode.split('').join(' '));
-  // Open or closed, as the server judged it; an answer without that verdict is judged on the server's clock.
-  parts.windowLine.replaceChildren(windowNode(shown,typeof data.window?.open==='boolean'?(data.window.open?'open':'closed'):checkinState(shown,serverNow())));
-  parts.count.replaceChildren(...(Number.isSafeInteger(data.checkedIn)?[countLabel(data.checkedIn,'checkedInOne','checkedInMany')]:[]));
  }
  // An expired code is dead in both forms: the QR gives way to the notice and the typed code is hidden, so nobody types it at the door.
- function expire(){stale=true;parts.code.replaceChildren(tr('p','qrStale','f-qr-missing'));parts.typed.hidden=true;}
+ // A closed block shows no code at all, so its notice stays.
+ function expire(){stale=true;if(ended)return;parts.code.replaceChildren(tr('p','qrStale','f-qr-missing'));parts.typed.hidden=true;}
  // Losing the session or organiser access hides the code at once and stops polling; nothing on this page needs to survive.
  function stop(kind){
   stopped=true;if(timer!==null)clearInterval(timer);lock?.release?.().catch?.(()=>{});lock=null;parts=null;status(message,'');

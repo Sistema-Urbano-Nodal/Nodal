@@ -170,3 +170,32 @@ test('the block screen says until when check-in is open, and when it closed once
   h.lang(lang);assert.match(content(line()),{en:/Check-in closed at\s+13:30\s+Lima time/,es:/El registro cerró a las\s+13:30\s+hora de Lima/,pt:/O registro fechou às\s+13:30\s+horário de Lima/}[lang]);
  }
 });
+
+test('once check-in has closed the screen drops the QR code and the typed code for a large notice, and keeps it through refreshes and language changes',async()=>{
+ // The server still sends a valid code after the close, but refuses every scan of it: nothing scannable may stay on the projector.
+ let reply=()=>screen({serverTime:'2026-10-21T18:31:00.000Z',window:{closesAt:'2026-10-21T18:30:00.000Z',open:false}});const h=await page(()=>reply());
+ const stage=h.root.querySelector('.f-qr-stage'),slot=()=>h.root.querySelector('.f-qr-code'),svg=()=>descendants(slot()).some(node=>node.tagName==='svg');
+ const closedNow=()=>{
+  assert.equal(svg(),false,'no QR code');assert.equal(h.root.querySelector('.f-qr-typed').hidden,true,'no address or short code to type');
+  assert.ok(key(slot(),'checkinEndedTitle'));assert.ok(key(slot(),'askDesk'));assert.equal(key(slot(),'allScreens').href,'fiiu-qr.html');
+  assert.equal(stage.querySelector('.f-qr-kicker').dataset.fiiuText,'qrClosedKicker','the kicker no longer says scan');
+  assert.equal(h.root.querySelector('.f-qr-note').hidden,true,'nor "keep this screen open"');
+  assert.match(content(h.root.querySelector('.f-qr-count')),/\b12\b/,'the final count stays for the organisers');
+  assert.equal(h.root.querySelector('.f-qr-window').querySelector('.f-window').className,'f-window is-closed');
+ };
+ closedNow();
+ for(const lang of ['en','es','pt']){
+  h.lang(lang);closedNow();
+  assert.match(content(slot()),{en:/Check-in for this block has closed\s+Ask the registration desk for help\./,es:/El registro de este bloque ya cerró\s+Pide ayuda en la mesa de registro\./,pt:/O registro deste bloco já encerrou\s+Peça ajuda na mesa de credenciamento\./}[lang]);
+  assert.match(content(stage.querySelector('.f-qr-kicker')),{en:/^Check-in closed$/,es:/^Registro cerrado$/,pt:/^Registro encerrado$/}[lang]);
+ }
+ // Polling carries on, so the closed state survives the next answer and a failed refresh with an expired code.
+ await h.tickTimers();closedNow();
+ reply=()=>({status:503,data:{error:'unavailable'}});await h.tickTimers();closedNow();assert.equal(key(slot(),'qrStale'),undefined);
+ // Without the server's verdict the server's clock decides the same way.
+ reply=()=>screen({serverTime:'2026-10-21T18:31:00.000Z',window:{closesAt:'2026-10-21T18:30:00.000Z'}});await h.tickTimers();closedNow();
+ // An open answer (a closing time moved later) brings the code back.
+ reply=()=>screen({serverTime:'2026-10-21T18:31:00.000Z',window:{closesAt:'2026-10-21T19:30:00.000Z',open:true}});await h.tickTimers();
+ assert.equal(svg(),true);assert.equal(h.root.querySelector('.f-qr-typed').hidden,false);assert.equal(stage.querySelector('.f-qr-kicker').dataset.fiiuText,'scanToCheckIn');
+ assert.equal(h.root.querySelector('.f-qr-note').hidden,false);assert.equal(key(slot(),'checkinEndedTitle'),undefined);
+});
