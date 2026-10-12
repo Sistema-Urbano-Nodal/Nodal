@@ -236,6 +236,8 @@ window.NODAL_I18N_DASH = {
     'd.notif.cohort.t': 'Community host cohort opens next quarter',
     'd.notif.cohort.s': 'Territory path · applications soon',
     'd.notif.clearDone': 'All read ✓',
+    'd.news.more': 'Show more',
+    'd.news.less': 'Show less',
 
     'd.search.noMatch': 'No matches for “{q}” in {scope}.',
     'd.search.catalogSearching': 'Searching the published catalog…',
@@ -854,6 +856,8 @@ window.NODAL_I18N_DASH = {
 
     'd.notif.clear': 'Marcar todo como leído',
     'd.notif.clearDone': 'Todo leído ✓',
+    'd.news.more': 'Ver más',
+    'd.news.less': 'Ver menos',
     'd.notif.welcome.t': 'Te damos la bienvenida',
     'd.notif.welcome.s': 'Salúdanos en el espacio comunitario',
     'd.notif.path.tDone': 'Tu ruta está lista',
@@ -1548,6 +1552,8 @@ window.NODAL_I18N_DASH = {
 
     'd.notif.clear': 'Marcar tudo como lido',
     'd.notif.clearDone': 'Tudo lido ✓',
+    'd.news.more': 'Ver mais',
+    'd.news.less': 'Ver menos',
     'd.notif.welcome.t': 'Boas-vindas à NODAL',
     'd.notif.welcome.s': 'Diga oi no espaço da comunidade',
     'd.notif.path.tDone': 'Sua trilha está pronta',

@@ -42,9 +42,21 @@ test('startup scripts are discovered in the head and execute after parsing in de
     // The console strings are merged by i18n.js when it runs, so they must already be there.
     if(files.includes('i18n-dashboard.js')){assert.ok(files.includes('i18n.js'),`${name}: i18n-dashboard.js needs i18n.js`);before('i18n-dashboard.js','i18n.js');}
     before('coastline.js','globe.js');before('globe-geo.js','globe.js');
-    // the FIIU widget and news must not queue behind the 195 KB globe coastline
-    if(name==='dashboard.html'){before('location-check.js','dashboard.js');before('dashboard.js','coastline.js');for(const file of ['fiiu-ui.js','fiiu-hubs.js','news-feed.js'])before(file,'coastline.js');before('fiiu-ui.js','fiiu-hubs.js');}
+    if(name==='dashboard.html'){
+      before('location-check.js','dashboard.js');before('fiiu-ui.js','fiiu-hubs.js');
+      // The globe and its 195 KB coastline are not in the head: dashboard.js inserts them as the network band nears
+      // (tests/dashboard-console-ui.test.js), so they never hold DOMContentLoaded or the festival block back.
+      for(const file of ['coastline.js','globe-geo.js','globe.js'])assert.ok(!files.includes(file),`dashboard.html: ${file} loads on approach, from dashboard.js`);
+    }
   }
+});
+
+test('dashboard.js inserts the globe scripts in dependency order, with their cache keys',()=>{
+  const js=readFileSync(path.join(ROOT,'web/scripts/dashboard.js'),'utf8');
+  const list=js.match(/const scripts = \[([^\]]+)\];/)?.[1]||'';
+  const files=[...list.matchAll(/'([^'?]+)\?v=[^']+'/g)].map(match=>match[1]);
+  assert.deepEqual(files,['coastline.js','globe-geo.js','globe.js'],'globe.js reads window.NODAL_COASTLINE and window.NodalGeo when it starts');
+  assert.match(js,/script\.async = false;/,'an inserted script is async by default, which would break that order');
 });
 
 test('Montserrat is available locally before first use, with no external font stylesheet',()=>{

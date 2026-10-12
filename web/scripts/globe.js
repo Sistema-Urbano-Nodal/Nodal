@@ -434,10 +434,21 @@
     return best;
   }
 
+  /* A drag turns the globe by how far the pointer moved, read from its position: touch moves may carry no
+     movementX (Safari). A press that travels more than a few pixels is a spin, not a tap, so lifting the finger
+     after spinning keeps the selection instead of picking whatever city ends up under it. On touch screens the
+     canvas lets the browser keep vertical swipes for page scroll (touch-action: pan-y in dashboard.css); the
+     browser then cancels the pointer, which ends the drag. */
+  const TAP_SLOP = 6;
+  let press = null;
+  const release = () => { state.drag = false; press = null; };
   canvas.addEventListener('pointermove', (ev) => {
-    if (state.drag) {
-      state.yaw -= ev.movementX * 0.005;
-      state.tilt = Math.max(-1.1, Math.min(1.1, state.tilt - ev.movementY * 0.004));
+    if (state.drag && press) {
+      state.yaw -= (ev.clientX - press.x) * 0.005;
+      state.tilt = Math.max(-1.1, Math.min(1.1, state.tilt - (ev.clientY - press.y) * 0.004));
+      press.x = ev.clientX;
+      press.y = ev.clientY;
+      if (Math.hypot(ev.clientX - press.x0, ev.clientY - press.y0) > TAP_SLOP) press.moved = true;
       requestDraw();
       return;
     }
@@ -445,15 +456,23 @@
     if (hover !== state.hover) { state.hover = hover; requestDraw(); }
     canvas.style.cursor = state.hover >= 0 ? 'pointer' : 'grab';
   });
-  canvas.addEventListener('pointerdown', (ev) => { state.drag = true; canvas.setPointerCapture(ev.pointerId); });
+  canvas.addEventListener('pointerdown', (ev) => {
+    state.drag = true;
+    press = { x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY, moved: false };
+    canvas.setPointerCapture(ev.pointerId);
+  });
   canvas.addEventListener('pointerup', (ev) => {
-    state.drag = false;
-    const hit = pick(ev);
-    state.picked = hit === state.picked ? -1 : hit;
-    showPlace(state.picked >= 0 ? PLACES[state.picked] : null);
+    const spun = Boolean(press) && (press.moved || Math.hypot(ev.clientX - press.x0, ev.clientY - press.y0) > TAP_SLOP);
+    release();
+    if (!spun) {
+      const hit = pick(ev);
+      state.picked = hit === state.picked ? -1 : hit;
+      showPlace(state.picked >= 0 ? PLACES[state.picked] : null);
+    }
     requestDraw();
   });
-  canvas.addEventListener('pointerleave', () => { state.drag = false; state.hover = -1; requestDraw(); });
+  canvas.addEventListener('pointercancel', release);
+  canvas.addEventListener('pointerleave', () => { release(); state.hover = -1; requestDraw(); });
   canvas.addEventListener('keydown', (ev) => {
     if (!['ArrowRight', 'ArrowLeft'].includes(ev.key)) return;
     // the canvas is focusable, and an empty globe has nothing to step through

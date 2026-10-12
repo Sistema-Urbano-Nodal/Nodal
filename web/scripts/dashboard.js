@@ -941,6 +941,19 @@
     });
   }
 
+  /* ================= profile prompt =================
+     A festival registration collects no NODAL topics, so every registrant's profile counts as incomplete, and the
+     profile dialog opened by itself on every visit, over the festival block they came for. It now opens by itself
+     until the member closes it once on this device; after that the route's first stop, the completeness block and
+     the avatar still open it. */
+  const PROMPT_KEY = 'nodal.profilePrompt.dismissed';
+  const promptDeclined = () => {
+    try { return Boolean(U?.id) && localStorage.getItem(PROMPT_KEY) === String(U.id); } catch { return false; }
+  };
+  const declinePrompt = () => {
+    try { if (U?.id) localStorage.setItem(PROMPT_KEY, String(U.id)); } catch { /* blocked storage: it asks again next visit */ }
+  };
+
   /* ================= profile dialog ================= */
   const userDialog = byId('userDialog');
   const userForm = byId('userForm');
@@ -1039,7 +1052,9 @@
       if (pop) { pop.hidden = true; byId('notifBtn')?.setAttribute('aria-expanded', 'false'); }
       openUserDialog();
     });
-    byId('ucCancel')?.addEventListener('click', () => userDialog.close());
+    byId('ucCancel')?.addEventListener('click', () => { declinePrompt(); userDialog.close(); });
+    // Escape closes a modal dialog through its cancel event, which is the same answer.
+    userDialog.addEventListener('cancel', declinePrompt);
 
     userForm.addEventListener('submit', (e) => {
       const name = uc.name.value.trim();
@@ -1471,6 +1486,13 @@
     catalogQuery = '';
     if (searchInput?.value.trim().length >= 2 && activeScope() !== 'People') runSearch();
   });
+  // The rail's language buttons say which language is on, to a screen reader as well as by colour.
+  (function pressedLanguage() {
+    const buttons = [...document.querySelectorAll('.lang-btn')];
+    const sync = () => buttons.forEach((btn) => btn.setAttribute('aria-pressed', String(btn.dataset.lang === I18N?.lang)));
+    sync();
+    I18N?.onChange(sync);
+  })();
 
   async function init() {
     try {
@@ -1486,7 +1508,7 @@
       const retry = byId('loadRetry');
       if (retry) retry.hidden = true;
       applyAll();
-      if (!U.city || !U.role || U.topics.length === 0) openUserDialog();
+      if ((!U.city || !U.role || U.topics.length === 0) && !promptDeclined()) openUserDialog();
     } catch (error) {
       // api() handles the login redirect for 401. Any other failure says so and
       // offers a retry instead of leaving the loading line up forever.
@@ -1508,17 +1530,101 @@
     init().finally(() => { loadRetry.disabled = false; });
   });
   // One column stacks the context widgets under the whole console, about eight phone screens down. The festival
-  // block is what registrants open the console for, so on one column it sits under the greeting instead.
+  // block is what registrants open the console for (the next session, the way back to their registration), so on
+  // one column it opens the work surface, right under the search bar. Under the greeting and the route it started
+  // a screen and a half down on a phone. For a member without a registration it is an invitation, not their next
+  // session: once fiiu-hubs.js has read that (data-registered="false"), the greeting and the page's h1 come first
+  // and the block follows them, above the route. Until then, or when that read fails, it stays first.
   (function placeFestival() {
-    const block = byId('fiiuDashboard'), overview = byId('overview');
+    const block = byId('fiiuDashboard'), overview = byId('overview'), body = byId('fiiuDashboardBody');
     if (!block || !overview || typeof window.matchMedia !== 'function') return;
     const home = block.parentElement, next = block.nextElementSibling, stacked = window.matchMedia('(max-width: 980px)');
+    const spine = overview.querySelector?.('.spine');
     const place = () => {
-      if (stacked.matches) { if (block.previousElementSibling !== overview) overview.after(block); }
-      else if (block.parentElement !== home) home.insertBefore(block, next?.parentElement === home ? next : home.firstChild);
+      if (!stacked.matches) { if (block.parentElement !== home) home.insertBefore(block, next?.parentElement === home ? next : home.firstChild); return; }
+      const before = body?.dataset.registered === 'false' && spine ? spine : overview;
+      if (block.nextElementSibling !== before) before.before(block);
     };
     place();
     stacked.addEventListener?.('change', place);
+    if (body && typeof MutationObserver === 'function') new MutationObserver(place).observe(body, { attributes: true, attributeFilter: ['data-registered'] });
+  })();
+
+  /* ================= news, read in place =================
+     Both news blocks cut each body at six lines (dashboard.css), so a post of up to 5,000 characters cannot fill a
+     phone screen. A body the cut actually shortens gets a Show more button under it, so a room or time change is
+     read where it is shown. fiiu-hubs.js and news-feed.js draw the blocks on their own schedule and redraw them
+     (news-feed.js on every language switch), so bodies are picked up as they appear. */
+  (function readNewsInPlace() {
+    const blocks = ['fiiuDashboard', 'nodalNews'].map((id) => byId(id)).filter(Boolean);
+    if (!blocks.length || typeof MutationObserver !== 'function') return;
+    let seq = 0;
+    const label = (button, open) => {
+      button.dataset.i18n = open ? 'd.news.less' : 'd.news.more';   // i18n.js relabels it on a language switch
+      button.textContent = t(button.dataset.i18n);
+      button.setAttribute('aria-expanded', String(open));
+    };
+    const cut = (body) => body.scrollHeight > body.clientHeight + 1;
+    function offer(body) {
+      const after = body.nextElementSibling;
+      if (after?.classList.contains('news-more')) {
+        // A rotated phone can make a cut body fit, or a fitting one cut.
+        after.hidden = !body.classList.contains('is-open') && !cut(body);
+        return;
+      }
+      if (!cut(body)) return;
+      if (!body.id) { seq += 1; body.id = `newsBody${seq}`; }
+      const button = el('button', 'news-more');
+      button.type = 'button';
+      button.setAttribute('aria-controls', body.id);
+      label(button, false);
+      button.addEventListener('click', () => label(button, body.classList.toggle('is-open')));
+      body.after(button);
+    }
+    const scan = () => blocks.forEach((block) => block.querySelectorAll('.f-news-body').forEach(offer));
+    const watch = new MutationObserver(scan);
+    blocks.forEach((block) => watch.observe(block, { childList: true, subtree: true }));
+    let frameId = 0;
+    window.addEventListener('resize', () => { cancelAnimationFrame(frameId); frameId = requestAnimationFrame(scan); });
+    scan();
+  })();
+
+  /* ================= the globe, on approach =================
+     The globe needs coastline.js (195 KB, about 72 KB compressed), globe-geo.js and globe.js. As deferred scripts
+     in the head they held DOMContentLoaded and the network data back by about 400 ms on a phone, for a band two
+     screens down. They load once the band comes within 800px of the screen. The band is watched only once the page
+     has loaded and gone idle: the greeting, the route and the festival block arrive after the first paint and push
+     it down, so watched at once it looked near on every cold load. The wide console, where the band is on the
+     first screen and the work column scrolls by itself, loads them at once, as does a browser without
+     IntersectionObserver. An inserted script is async unless told otherwise; async = false keeps the order
+     coastline, geo, globe. The globe's cache keys live here now. */
+  (function loadGlobeOnApproach() {
+    const band = byId('network');
+    if (!band || !byId('globeCanvas')) return;
+    const scripts = ['coastline.js?v=3', 'globe-geo.js?v=1', 'globe.js?v=29'];
+    let observer = null;
+    const load = () => {
+      observer?.disconnect();
+      observer = null;
+      for (const src of scripts) {
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = false;
+        document.head.append(script);
+      }
+    };
+    if (window.matchMedia?.('(min-width: 1241px)').matches || typeof window.IntersectionObserver !== 'function') {
+      load();
+      return;
+    }
+    observer = new IntersectionObserver((entries) => {
+      if (observer && entries.some((entry) => entry.isIntersecting)) load();
+    }, { rootMargin: '0px 0px 800px 0px' });
+    // Safari has no requestIdleCallback; called through window, since a detached call throws Illegal invocation
+    const idle = (fn) => (window.requestIdleCallback ? window.requestIdleCallback(fn, { timeout: 2000 }) : setTimeout(fn, 300));
+    const watch = () => idle(() => observer?.observe(band));
+    if (document.readyState === 'complete') watch();
+    else window.addEventListener('load', watch, { once: true });
   })();
   init();
 })();

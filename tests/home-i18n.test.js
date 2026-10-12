@@ -271,8 +271,8 @@ for(const lang of ['es','pt']){
       // The publishing desk (ops.*), NODAL news (news.*) and the console's desk link are covered by catalog-ui and news-ui;
       // the membership and account-deletion refusals (October 3 review) by review-fix-5-integration;
       // the console's loading/failure lines and accessible names (d.aria.*) by dashboard-publishing,
-      // and the catalog's nothing-published state by catalog-ui.
-      const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','y.alreadyMember','d.uc.deleteSubscription','d.greet.hello','d.greet.loading','d.load.failed','catalog.emptyNothingPublished','catalog.nextFiiu','catalog.nextCourses'].includes(key)||/^(?:ops|news|d\.aria)\./.test(key);
+      // the catalog's nothing-published state by catalog-ui, and the console's Show more / Show less (d.news.*) by dashboard-console-ui.
+      const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','y.alreadyMember','d.uc.deleteSubscription','d.greet.hello','d.greet.loading','d.load.failed','catalog.emptyNothingPublished','catalog.nextFiiu','catalog.nextCourses'].includes(key)||/^(?:ops|news|d\.aria|d\.news)\./.test(key);
       const actual=Object.entries(dictionaries[lang]).filter(([key])=>!later(key)).sort(([a],[b])=>a.localeCompare(b,'en'));
       assert.equal(hash(actual),SNAPSHOTS.nonhome[lang],String(page));
       assert.equal(api.t('nav.privacy'),lang==='es'?'Política de privacidad':'Política de privacidade');

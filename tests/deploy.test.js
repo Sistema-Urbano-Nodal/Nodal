@@ -323,7 +323,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
   const required = {
     'index.html': { 'styles.css': '31', 'i18n.js': '20261013a', 'app.js': '21', 'recs.js': '5', 'script.js': '18', 'hero-network.js': '2' },
     'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20261013a', 'catalog.js': '7', ...pilot },
-    'dashboard.html': { 'i18n-dashboard.js': '20261013a', 'i18n.js': '20261013a', ...festival, 'fiiu-hubs.js': '20261011a', 'news-feed.js': '20261001b', 'dashboard.js': '20261009a', 'dashboard.css': '38', 'globe.js': '29', 'location-check.js': '20260908b', ...pilot },
+    'dashboard.html': { 'i18n-dashboard.js': '20261013a', 'i18n.js': '20261013a', ...festival, 'fiiu-hubs.js': '20261011a', 'news-feed.js': '20261001b', 'dashboard.js': '20261009a', 'dashboard.css': '38', 'location-check.js': '20260908b', ...pilot },
     'login.html': { 'i18n.js': '20261013a', 'auth.js': '20261009a', 'recovery-i18n.js': '20261009a' },
     'reset-password.html': { 'i18n.js': '20261013a', 'recovery-i18n.js': '20261009a', 'password-recovery.js': '20261003r' },
     'payments.html': { 'i18n-dashboard.js': '20261013a', 'i18n.js': '20261013a', 'payments.js': '18', ...pilot },
@@ -348,6 +348,8 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
       assert.match(pages[page], new RegExp(`(?:src|href)="${asset.replace('.', '\\.')}\\?v=${version}"`), `${page} must load the new ${asset} cache key`);
     }
   }
+  // The console inserts the globe scripts itself, as the network band nears; their cache keys live in dashboard.js.
+  assert.match(readFileSync(path.join(ROOT, 'web', 'scripts', 'dashboard.js'), 'utf8'), /'globe\.js\?v=29'/, 'dashboard.js must load the new globe.js cache key');
   assert.match(readFileSync(path.join(ROOT, '.gitignore'), 'utf8'), /^supabase\/\.branches\/$/m);
 });
 

@@ -1,5 +1,16 @@
 /* navigation, shared by all pages: mobile menu + press glint */
 (() => {
+  /* The language buttons say which language is on, to a screen reader as well as by colour: aria-pressed follows
+     the .is-on class i18n.js sets. nav.js can run before or after i18n.js, so it watches the class rather than
+     subscribing, which also catches the first language i18n.js applies. */
+  const langButtons = [...document.querySelectorAll('.lang-btn')];
+  const syncPressed = () => langButtons.forEach((btn) => btn.setAttribute('aria-pressed', String(btn.classList.contains('is-on'))));
+  syncPressed();
+  if (langButtons.length && typeof MutationObserver === 'function') {
+    const watch = new MutationObserver(syncPressed);
+    langButtons.forEach((btn) => watch.observe(btn, { attributes: true, attributeFilter: ['class'] }));
+  }
+
   const nav = document.querySelector('.navbar');
   const toggle = document.getElementById('navToggle');
   if (!nav || !toggle) return;
@@ -10,12 +21,30 @@
   setOpen(nav.classList.contains('open'));
   toggle.addEventListener('click', () => setOpen(!nav.classList.contains('open')));
   nav.querySelectorAll('a').forEach(a => a.addEventListener('click', () => setOpen(false)));
+  /* Picking a language is a menu choice too: the open sheet used to stay over the page (and the sign-in form) with
+     its only close control at its bottom. The picked button goes away with the sheet, so focus returns to the toggle. */
+  nav.querySelectorAll('.lang-btn').forEach((btn) => btn.addEventListener('click', () => {
+    if (!nav.classList.contains('open')) return;
+    setOpen(false);
+    toggle.focus();
+  }));
   nav.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || !nav.classList.contains('open')) return;
     event.preventDefault();
     setOpen(false);
     toggle.focus();
   });
+
+  // The toggle names what it opens; the two menu groups get ids when the page gave them none.
+  const groups = [['.nav-main', 'navMenuMain'], ['.nav-account', 'navMenuAccount']]
+    .map(([selector, id]) => { const group = nav.querySelector(selector); if (group && !group.id) group.id = id; return group?.id; })
+    .filter(Boolean);
+  if (groups.length) toggle.setAttribute('aria-controls', groups.join(' '));
+  // Older headers (payments.html) shipped a toggle named "Menu" in every language.
+  if (!toggle.dataset.i18nAriaLabel) {
+    toggle.dataset.i18nAriaLabel = 'nav.menuLabel';
+    window.nodalI18n?.refresh(toggle);
+  }
 
   /* Keep account navigation stable while the session is loading. Current
      pages ship nav.panel; normalize older markup synchronously as well.
@@ -29,8 +58,9 @@
   }
 
   // wordmark contrast: white while a dark section is under the glass bar, black otherwise
+  // (.platform, "How it works", is white since the landing restyle, so it is not listed)
   const darkSections = document.querySelectorAll(
-    '.problem, .platform, .quote, .membership, .partners, .cta-band, .footer-bottom');
+    '.problem, .quote, .membership, .partners, .cta-band, .footer-bottom');
   if (darkSections.length) {
     const checkDark = () => {
       const navH = nav.offsetHeight;
