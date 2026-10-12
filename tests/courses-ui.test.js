@@ -618,3 +618,27 @@ test('hero intake actions are full tap targets and the staff survey and response
  assert.match(phone,/^@media/);assert.match(phone,/:is\(\.pilot-feedback-table,\.pilot-survey-admin \.pilot-table\) tr\{display:grid/);assert.match(phone,/\.pilot-table td\.pilot-survey-actions\{white-space:normal\}/);assert.match(phone,/\.pilot-cell-label\{display:block/);
  assert.match(css,/\.pilot-cell-label\{display:none\}\n@media\(max-width:640px\)/,'labels show only in the stacked layout');
 });
+// The stylesheet as rules in source order, {media,selectors,style}: enough for courses.css (one level of @media, no braces in values).
+function cssRules(css){
+ css=css.replace(/\/\*[\s\S]*?\*\//g,'');const rules=[];
+ const split=list=>{const out=[];let depth=0,part='';for(const ch of list){if(ch==='(')depth++;if(ch===')')depth--;if(ch===','&&!depth){out.push(part.trim());part='';}else part+=ch;}out.push(part.trim());return out;};
+ const parse=(text,media)=>{for(const chunk of text.split('}')){const at=chunk.indexOf('{');if(at<0)continue;const style={};for(const d of chunk.slice(at+1).split(';')){const colon=d.indexOf(':');if(colon>0)style[d.slice(0,colon).trim()]=d.slice(colon+1).trim();}rules.push({media,selectors:split(chunk.slice(0,at).replace(/\s+/g,' ').trim()),style});}};
+ for(let i=0;;){
+  const at=css.indexOf('@media',i);if(at<0){parse(css.slice(i),null);break;}parse(css.slice(i,at),null);
+  const open=css.indexOf('{',at);let depth=1,end=open+1;for(;depth;end++){if(css[end]==='{')depth++;else if(css[end]==='}')depth--;}
+  parse(css.slice(open+1,end-1),css.slice(at+6,open).trim());i=end;
+ }
+ return rules;
+}
+const courseCss=()=>cssRules(readFileSync(new URL('../web/styles/courses.css',import.meta.url),'utf8'));
+const applies=(media,width)=>!media||[...media.matchAll(/(min|max)-width:(\d+)px/g)].every(([,kind,n])=>kind==='max'?width<=Number(n):width>=Number(n));
+// What one exact selector declares at a viewport width, later rules winning (rules for other selectors are not weighed).
+const styleAt=(width,selector)=>Object.assign({},...courseCss().filter(rule=>rule.selectors.includes(selector)&&applies(rule.media,width)).map(rule=>rule.style));
+test('the feedback and post editor save buttons are filled and readable',()=>{
+ // .pilot-feedback button and .pilot-post .pilot-button paint their buttons transparent, while .pilot-button keeps white!important text.
+ for(const width of [375,1280]){
+  const primary=styleAt(width,':is(.pilot-post,.pilot-feedback) .pilot-button:not(.secondary)');
+  assert.equal(primary.background,'#3d5c38',width);assert.equal(primary['text-decoration'],'none!important',width);
+ }
+ assert.match(styleAt(1280,'.pilot-feedback button').font,/^600 12px\//,'no longer 10px');
+});

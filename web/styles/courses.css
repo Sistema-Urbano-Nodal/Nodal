@@ -133,9 +133,13 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-feedback-comment label{display:block;margin-top:10px}
 .pilot-feedback-comment label>span{display:none}
 .pilot-feedback textarea{width:100%;min-height:72px;padding:9px;border:1px solid #c8d3c2;border-radius:3px;font:inherit;resize:vertical}
-.pilot-feedback button{align-self:flex-start;margin-top:19px;background:transparent;color:#3d5c38;border:1px solid #bfceb8;border-radius:3px;padding:7px 11px;font:600 10px/1.5 Montserrat,sans-serif;cursor:pointer}
+.pilot-feedback button{align-self:flex-start;margin-top:19px;background:transparent;color:#3d5c38;border:1px solid #bfceb8;border-radius:3px;padding:7px 11px;font:600 12px/1.5 Montserrat,sans-serif;cursor:pointer}
 .pilot-feedback .pilot-status{flex-basis:100%;font-size:11px}
 .pilot-feedback form>p:not(.pilot-status){margin:0;font-size:12px}
+/* Posts and the feedback widget turn their buttons into text on a transparent ground, but .pilot-button's text is white,
+   so the one primary action there (send feedback, save a post or a feedback edit) stays a filled button. */
+:is(.pilot-post,.pilot-feedback) .pilot-button:not(.secondary){background:#3d5c38;border:1px solid #3d5c38;padding:8px 16px;text-decoration:none!important}
+:is(.pilot-post,.pilot-feedback) .pilot-button:not(.secondary):hover{background:#304e2c}
 
 /* Staff work starts with responses; configuration is a separate tab. */
 .pilot-teaching-hero{max-width:800px;margin-bottom:36px}
