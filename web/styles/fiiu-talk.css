@@ -16,7 +16,8 @@
 .f-page .f-talk-subhead{margin:var(--f-sp-4) 0 var(--f-sp-1);font-size:1.15rem}.f-talk-list{display:grid;gap:var(--f-sp-1);margin:0;padding:0;list-style:none}
 .f-shell .f-talk-pick{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px var(--f-sp-2);min-height:44px;padding:var(--f-sp-2) 0;color:var(--f-ink);text-decoration:none}
 .f-talk-pick-body{flex-basis:100%;font-weight:650;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px;overflow-wrap:anywhere}.f-talk-pick:hover .f-talk-pick-body{text-decoration-thickness:2px}.f-talk-pick-talk{font-size:.86rem;color:var(--f-muted)}
-/* Messages: your own on a pale tint (not a bubble); sending is faded, a failure names itself in the error colour, a hidden one (organisers only) is greyed. */
+/* Messages: your own on a pale tint (not a bubble); sending is faded, a failure names itself in the error colour, a hidden one is greyed (only organisers
+   and its author see it, the author with "Hidden by the organisers"). */
 .f-talk-earlier{align-self:center;margin:0 0 var(--f-sp-3)}.f-talk-log{display:grid;gap:var(--f-sp-2);margin:0 0 var(--f-sp-4);padding:0;list-style:none}
 .f-talk-msg{min-width:0;padding:var(--f-sp-2) var(--f-sp-3)}.f-talk-msg.is-mine{background:color-mix(in srgb,var(--f-leaf) 10%,transparent)}.f-talk-msg.is-pending{opacity:.6}
 .f-talk-msg.is-failed .f-talk-state{color:var(--f-error);font-weight:650}.f-talk-msg.is-hidden{color:var(--f-muted)}.f-talk-msg.is-hidden :is(.f-talk-body,.f-talk-files){opacity:.6}

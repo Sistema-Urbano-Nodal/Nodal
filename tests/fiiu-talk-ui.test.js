@@ -11,6 +11,10 @@ const ACTIVITY={id:'day1-am',title:'El poder de lo local',date:'2026-10-21',time
 const question=(over={})=>({id:Q,activityId:'day1-am',talk:'¡Bienvenidos al FIIU 11!',body:'¿Qué te llevas de esta mañana?',status:'open',revision:3,messageCount:2,createdAt:'2026-10-21T13:55:00.000Z',...over});
 const message=(id,over={})=>({id,author:'Ana T.',organiser:false,mine:false,body:'Hola a todas',files:[],likeCount:0,liked:false,createdAt:'2026-10-21T14:05:00.000Z',seq:1,...over});
 const thread=(over={})=>({question:question(over.question),activity:ACTIVITY,messages:over.messages??[message(M1,{seq:1}),message(M2,{author:'Flavia R.',organiser:true,body:'Bienvenidas',createdAt:'2026-10-21T14:07:00.000Z',seq:2})],before:over.before??null,revision:over.revision??3,me:{organiser:false,canPost:true,...over.me}});
+// A ?since= answer as the server sends it: the changes, then the question as it is now (its text, talk and status ride on every answer).
+const since=(revision,changes=[],over={})=>({revision,changes,question:question({revision,...over})});
+// Changes carry no liked flag: one answer serves every viewer, and the page keeps its own.
+const bare=view=>{const {liked,...rest}=view;return rest;};
 // A clock frozen at one Lima moment (the festival's first morning) that a test can move forward.
 const clock=(iso='2026-10-21T09:30:00-05:00')=>{let at=Date.parse(iso);return class extends Date{constructor(...args){super(...(args.length?args:[at]));}static now(){return at;}static advance(ms){at+=ms;}};};
 // routes answer 'METHOD path'; a function answer gets the request. Unknown requests are 404s, so a stray call shows up as a failure.
@@ -93,7 +97,7 @@ test('a message appears at once as sending; a failure keeps the draft and offers
 test('a message that reached the server before its answer was lost appears once after Retry',async()=>{
  let revision=3,posts=0;
  const mine=message(M3,{mine:true,body:'Una vez',createdAt:'2026-10-21T14:20:00.000Z',seq:4});
- const h=await page({['POST '+MESSAGES]:()=>posts++?{status:200,data:{message:mine}}:{status:503,data:{}},'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:{revision:4,changes:[mine],liked:[]}});
+ const h=await page({['POST '+MESSAGES]:()=>posts++?{status:200,data:{message:mine}}:{status:503,data:{}},'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:since(4,[mine])});
  composer(h).querySelector('textarea').value='Una vez';submit(h);await flush();
  assert.ok(classes(rows(h).at(-1)).includes('is-failed'));
  revision=4;await h.tickTimers();assert.ok(row(h,M3),'the poll brings the message the server kept');
@@ -117,7 +121,7 @@ test('Ctrl or Command with Enter sends, an empty draft sends nothing, and the co
 test('polling asks for changes only when the pulse moves, patches rows in place and leaves the draft and focus alone',async()=>{
  let revision=3;
  const h=await page({'GET /api/fiiu/pulse':()=>({questions:[[Q2,'day1-am',9,'open'],[Q,'day1-am',revision,'open']]}),
-  ['GET '+MESSAGES+'?since=3']:{revision:5,changes:[message(M3,{body:'Nuevo',createdAt:'2026-10-21T14:06:00.000Z',seq:4}),{id:M1,seq:5,gone:true}],liked:[]}});
+  ['GET '+MESSAGES+'?since=3']:since(5,[message(M3,{body:'Nuevo',createdAt:'2026-10-21T14:06:00.000Z',seq:4}),{id:M1,seq:5,gone:true}])});
  const text=composer(h).querySelector('textarea');text.value='borrador';text.focus();
  await h.tickTimers();assert.equal(sent(h,'GET','/api/fiiu/pulse').length,1);assert.equal(sent(h,'GET',/since=/).length,0,'an unchanged revision fetches nothing');
  revision=5;await h.tickTimers();assert.equal(sent(h,'GET',/since=/).length,1);
@@ -153,8 +157,8 @@ test('a reset reloads the conversation and keeps the draft; a question that leav
 test('new messages below the fold raise the pill instead of scrolling, and near the bottom the page follows them',async()=>{
  let revision=3;
  const h=await page({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),
-  ['GET '+MESSAGES+'?since=3']:{revision:4,changes:[message(M3,{seq:4,createdAt:'2026-10-21T14:10:00.000Z'})],liked:[]},
-  ['GET '+MESSAGES+'?since=4']:{revision:5,changes:[message(M4,{seq:5,createdAt:'2026-10-21T14:11:00.000Z'})],liked:[]}});
+  ['GET '+MESSAGES+'?since=3']:since(4,[message(M3,{seq:4,createdAt:'2026-10-21T14:10:00.000Z'})]),
+  ['GET '+MESSAGES+'?since=4']:since(5,[message(M4,{seq:5,createdAt:'2026-10-21T14:11:00.000Z'})])});
  const scroller={scrollHeight:3000,scrollTop:0,clientHeight:800};h.ctx.document.scrollingElement=scroller;
  const pill=h.root.querySelector('.f-talk-new');assert.equal(pill.hidden,true);assert.equal(pill['aria-live'],'polite');assert.equal(pill.dataset.fiiuText,'talkNew');
  revision=4;await h.tickTimers();assert.equal(pill.hidden,false);assert.equal(scroller.scrollTop,0,'a reader higher up stays where they are');
@@ -172,8 +176,8 @@ test('earlier messages load above the first page',async()=>{
 test('a like on a message older than the loaded page changes nothing on screen until earlier messages are loaded',async()=>{
  let revision=3;const old=over=>message(M3,{body:'Llegué temprano',createdAt:'2026-10-21T13:58:00.000Z',...over});
  const h=await page({['GET /api/fiiu/questions/'+Q]:thread({before:'cursor-1'}),'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),
-  ['GET '+MESSAGES+'?since=3']:{revision:4,changes:[old({likeCount:1,seq:4})],liked:[]},
-  ['GET '+MESSAGES+'?since=4']:{revision:5,changes:[message(M4,{seq:5,createdAt:'2026-10-21T14:10:00.000Z'})],liked:[]},
+  ['GET '+MESSAGES+'?since=3']:since(4,[old({likeCount:1,seq:4})]),
+  ['GET '+MESSAGES+'?since=4']:since(5,[message(M4,{seq:5,createdAt:'2026-10-21T14:10:00.000Z'})]),
   ['GET '+MESSAGES+'?before=cursor-1']:{messages:[old({likeCount:1,seq:4})],before:null}});
  const scroller={scrollHeight:3000,scrollTop:0,clientHeight:800};h.ctx.document.scrollingElement=scroller;const pill=h.root.querySelector('.f-talk-new');
  revision=4;await h.tickTimers();
@@ -287,13 +291,13 @@ test('https and http addresses become links that open in a new tab, and nothing 
  assert.deepEqual(links(text).map(a=>a.className),['f-talk-url','f-talk-url']);
 });
 
-test('a closed question is readable without a composer or likes, and a pulse that closes it removes the composer',async()=>{
+test('a closed question is readable without a composer or likes, and a sync that closes it removes the composer',async()=>{
  const h=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'closed'},me:{canPost:false},messages:[message(M1,{seq:1}),message(M2,{mine:true,seq:2})]}),'GET /api/fiiu/pulse':{questions:[[Q,'day1-am',3,'closed']]}});
  assert.equal(composer(h),null);assert.ok(key(h.root,'talkClosed'));assert.equal(row(h,M1).querySelector('.f-talk-like').disabled,true);
  assert.ok(key(row(h,M2),'talkDelete'),'your own message can still be deleted');
  let state='open';
- // Closing bumps the question's revision, so the pulse that carries it is newer than the page.
- const live=await page({['GET /api/fiiu/questions/'+Q]:()=>thread({question:{status:state,revision:state==='open'?3:4},me:{canPost:state==='open'},revision:state==='open'?3:4}),'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',state==='open'?3:4,state]]}),['GET '+MESSAGES+'?since=3']:{revision:4,changes:[],liked:[]}});
+ // Closing bumps the question's revision, so the pulse moves past the page, which asks for the changes; their answer carries the closed question.
+ const live=await page({['GET /api/fiiu/questions/'+Q]:()=>thread({question:{status:state,revision:state==='open'?3:4},me:{canPost:state==='open'},revision:state==='open'?3:4}),'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',state==='open'?3:4,state]]}),['GET '+MESSAGES+'?since=3']:since(4,[],{status:'closed'})});
  assert.ok(composer(live));assert.equal(row(live,M1).querySelector('.f-talk-like').disabled,false);
  state='closed';await live.tickTimers();
  assert.equal(composer(live),null);assert.ok(key(live.root,'talkClosed'));assert.equal(row(live,M1).querySelector('.f-talk-like').disabled,true);
@@ -303,7 +307,7 @@ test('a closed question is readable without a composer or likes, and a pulse tha
 });
 
 test('a pulse the CDN cached before the question closed does not bring the composer back',async()=>{
- // The pulse can be seconds old; a status it carries counts only with a revision newer than the page's (a status change bumps the revision).
+ // The pulse can be seconds old: it only says that something moved past the page's revision, and its status is never applied.
  const closing=await page({['POST '+MESSAGES]:{status:403,data:{error:'question closed',code:'question_closed'}}});
  composer(closing).querySelector('textarea').value='Tarde';submit(closing);await flush();assert.equal(composer(closing),null);
  await closing.tickTimers();assert.equal(composer(closing),null,'the stale open pulse at the shown revision is ignored');assert.ok(key(closing.root,'talkClosed'));
@@ -337,7 +341,7 @@ test('organisers get Hide on each message and the full name; members do not',asy
 test('a row replaced by a poll or by moderation keeps focus on the same control, not the first one',async()=>{
  let revision=3;const mine=over=>message(M1,{mine:true,authorFull:'Flavia Rojas',...over});
  const h=await page({['GET /api/fiiu/questions/'+Q]:thread({me:{organiser:true},messages:[mine({seq:1})]}),'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),
-  ['GET '+MESSAGES+'?since=3']:{revision:4,changes:[mine({likeCount:1,seq:4})],liked:[]},['PUT /api/admin/fiiu/messages/'+M1+'/hidden']:{message:mine({likeCount:1,hidden:true,seq:5})}});
+  ['GET '+MESSAGES+'?since=3']:since(4,[mine({likeCount:1,seq:4})]),['PUT /api/admin/fiiu/messages/'+M1+'/hidden']:{message:mine({likeCount:1,hidden:true,seq:5})}});
  // The harness has no focus tracking: the test names the focused control and lets the old row answer contains().
  const focusOn=(control)=>{const old=row(h,M1);old.contains=node=>descendants(old).includes(node);h.ctx.document.activeElement=control;};
  focusOn(key(row(h,M1),'talkHide'));revision=4;await h.tickTimers();
@@ -346,23 +350,53 @@ test('a row replaced by a poll or by moderation keeps focus on the same control,
  assert.equal(key(row(h,M1),'talkUnhide').focused,true,'hiding hands focus to Unhide');assert.notEqual(key(row(h,M1),'talkDelete').focused,true);
 });
 
-test('an organiser reading a hidden question asks for the question again only when its revision moved',async()=>{
+test('an organiser reading a hidden question follows its edits from the changes answers, without reading it again',async()=>{
  let revision=3,body='¿Qué te llevas?';
  const h=await page({['GET /api/fiiu/questions/'+Q]:()=>thread({question:{status:'hidden',body},me:{organiser:true}}),
-  ['GET '+MESSAGES+'?since=3']:()=>({revision,changes:[],liked:[]}),['GET '+MESSAGES+'?since=4']:{revision:4,changes:[],liked:[]}});
+  ['GET '+MESSAGES+'?since=3']:()=>since(revision,[],{status:'hidden',body}),['GET '+MESSAGES+'?since=4']:()=>since(4,[],{status:'hidden',body})});
  const reads=()=>sent(h,'GET','/api/fiiu/questions/'+Q).length;
- await h.tickTimers();await h.tickTimers();assert.equal(sent(h,'GET',/since=3$/).length,2);assert.equal(reads(),1,'nothing moved, so the question is not read again');
+ await h.tickTimers();await h.tickTimers();assert.equal(sent(h,'GET',/since=3$/).length,2);
  assert.equal(sent(h,'GET','/api/fiiu/pulse').length,0,'the public pulse leaves hidden questions out');
- revision=4;body='¿Qué te llevas de esta mañana?';await h.tickTimers();assert.equal(reads(),2,'an edit of the question moved its revision');
- assert.equal(h.root.querySelector('.f-talk-question').textContent,'¿Qué te llevas de esta mañana?');
- await h.tickTimers();assert.equal(sent(h,'GET',/since=4$/).length,1);assert.equal(reads(),2);
+ revision=4;body='¿Qué te llevas de esta mañana?';await h.tickTimers();
+ assert.equal(h.root.querySelector('.f-talk-question').textContent,'¿Qué te llevas de esta mañana?');assert.ok(key(h.root.querySelector('.f-talk-head'),'talkHidden'));
+ await h.tickTimers();assert.equal(sent(h,'GET',/since=4$/).length,1);assert.equal(reads(),1,'each answer carries the question, so it is never read again');
+});
+
+test('an organiser on a hidden question sees it open, with the answers that arrived in the same sync',async()=>{
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'hidden'},me:{organiser:true}}),'GET /api/fiiu/pulse':{questions:[[Q,'day1-am',5,'open']]},
+  ['GET '+MESSAGES+'?since=3']:since(5,[message(M3,{body:'Primera',createdAt:'2026-10-21T14:10:00.000Z',authorFull:'Ana Test',hidden:false,seq:5})],{status:'open'})});
+ assert.equal(composer(h),null);assert.ok(key(h.root.querySelector('.f-talk-head'),'talkHidden'));assert.equal(row(h,M1).querySelector('.f-talk-like').disabled,true);
+ await h.tickTimers();
+ assert.ok(row(h,M3));assert.ok(composer(h),'the composer appears');assert.equal(key(h.root.querySelector('.f-talk-head'),'talkHidden'),undefined);assert.equal(row(h,M1).querySelector('.f-talk-like').disabled,false);
+ await h.tickTimers();assert.equal(sent(h,'GET','/api/fiiu/pulse').length,1,'an open question follows the pulse again');assert.equal(sent(h,'GET',/since=/).length,1);
+});
+
+test('a question edit that shares a sync with an answer reaches the header, and the question is not read again',async()=>{
+ let revision=3;
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),
+  ['GET '+MESSAGES+'?since=3']:since(5,[message(M3,{body:'Nuevo',createdAt:'2026-10-21T14:10:00.000Z',seq:5})],{body:'¿Qué ciudad te llevas de esta mañana?',talk:'Ciudades que cuidan'})});
+ const text=composer(h).querySelector('textarea');text.value='borrador';text.focus();
+ revision=5;await h.tickTimers();
+ assert.ok(row(h,M3));assert.equal(h.root.querySelector('.f-talk-question').textContent,'¿Qué ciudad te llevas de esta mañana?');assert.equal(h.root.querySelector('.f-talk-talk').textContent,'Ciudades que cuidan');
+ assert.equal(sent(h,'GET','/api/fiiu/questions/'+Q).length,1,'the answer carried the question');assert.equal(text.value,'borrador');assert.equal(text.focused,true);
+});
+
+test('a close that shares a sync with a like closes the chat even under a stale pulse, and a reopen brings the composer back',async()=>{
+ let entry=[Q,'day1-am',4,'open'];
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:[entry]}),
+  ['GET '+MESSAGES+'?since=3']:since(5,[message(M1,{likeCount:1,seq:4})],{status:'closed'}),['GET '+MESSAGES+'?since=5']:since(6,[],{status:'open'})});
+ await h.tickTimers();
+ assert.equal(composer(h),null);assert.ok(key(h.root,'talkClosed'));assert.equal(row(h,M1).querySelector('.f-talk-like').disabled,true);assert.match(content(row(h,M1)),/1/);
+ entry=[Q,'day1-am',5,'closed'];await h.tickTimers();assert.equal(sent(h,'GET',/since=/).length,1,'nothing is newer than the page');
+ entry=[Q,'day1-am',6,'open'];await h.tickTimers();
+ assert.ok(composer(h));assert.equal(key(h.root,'talkClosed'),undefined);assert.equal(row(h,M1).querySelector('.f-talk-like').disabled,false);
 });
 
 const SPANISH={talkPage:'Conversación',talkEmpty:'Todavía no hay mensajes. Sé la primera persona en responder.',talkPlaceholder:'Escribe tu respuesta…',talkSend:'Enviar',talkOrganiser:'Organización FIIU',
  talkClosed:'Esta conversación está cerrada. Puedes seguir leyéndola.',talkSignIn:'Inicia sesión para participar',talkRegister:'Inscríbete en el FIIU para participar',talkNew:'Mensajes nuevos ↓'};
 const REQUIRED=['talkPage','talkQuestions','talkOtherQuestions','talkEmpty','talkPlaceholder','talkSend','talkSending','talkNotSent','talkRetry','talkAttach','talkRemoveFile','talkUploading','talkFileType','talkFileSize','talkTooManyFiles','talkAllowance','talkCharsLeft',
  'talkLike','talkLikes','talkDelete','talkDeleteConfirm','talkOrganiser','talkClosed','talkUnavailable','talkSignIn','talkSignInHint','talkRegister','talkRegisterHint','talkNew','talkLoadEarlier','talkPaused','talkHide','talkUnhide','talkHidden','talkBackToBlock','talkOpenFull','talkError','talkRate','talkEmptyBlock',
- 'talkPresent','talkLatest','talkTop','talkFullscreen','talkScanToJoin'];
+ 'talkPresent','talkLatest','talkTop','talkFullscreen','talkScanToJoin','talkHiddenForYou','talkReused','talkNotRegistered'];
 
 test('every chat string has English, Spanish and Portuguese, the Spanish follows the plan, and a language switch relabels the page',async()=>{
  const h=await page({['GET /api/fiiu/questions/'+Q]:thread({messages:[message(M1,{mine:true,likeCount:3})]})}),strings=h.ctx.window.Fiiu.rows;
@@ -397,7 +431,7 @@ test('an organiser hides a message with PUT and unhides it with DELETE; a hidden
  let revision=3;const hide=later();const ana=over=>message(M1,{authorFull:'Ana Test',hidden:false,...over}),bea=over=>message(M2,{author:'Bea R.',authorFull:'Bea Ruiz',hidden:false,createdAt:'2026-10-21T14:07:00.000Z',...over});
  const h=await page({['GET /api/fiiu/questions/'+Q]:thread({me:{organiser:true},messages:[ana({seq:1}),bea({seq:2})]}),
   ['PUT /api/admin/fiiu/messages/'+M1+'/hidden']:()=>hide.promise,['DELETE /api/admin/fiiu/messages/'+M1+'/hidden']:{message:ana({seq:5})},
-  'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:{revision:6,changes:[ana({seq:5}),bea({hidden:true,seq:6})],liked:[]},
+  'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:since(6,[ana({seq:5}),bea({hidden:true,seq:6})]),
   ['DELETE /api/admin/fiiu/messages/'+M2+'/hidden']:{status:404,data:{error:'not found'}}});
  const text=composer(h).querySelector('textarea');text.value='borrador';
  assert.ok(key(row(h,M1),'talkHide'));assert.ok(!classes(row(h,M1)).includes('is-hidden'));assert.equal(key(row(h,M1),'talkHidden'),undefined);
@@ -420,12 +454,135 @@ test('an organiser hides a message with PUT and unhides it with DELETE; a hidden
 
 test('a member sees no moderation controls, and a message an organiser hides leaves the member’s screen within one poll',async()=>{
  let revision=3;
- const h=await page({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:{revision:4,changes:[{id:M1,seq:4,gone:true}],liked:[]}});
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:since(4,[{id:M1,seq:4,gone:true}])});
  assert.equal(key(h.root,'talkHide'),undefined);assert.equal(key(h.root,'talkUnhide'),undefined);assert.equal(h.root.querySelectorAll('.f-talk-hide').length,0);
  const text=composer(h).querySelector('textarea');text.value='a medio escribir';text.focus();
  revision=4;await h.tickTimers();
  assert.deepEqual(rows(h).map(node=>node.dataset.id),[M2]);assert.equal(text.value,'a medio escribir');assert.equal(text.focused,true);
  assert.equal(h.requests.filter(request=>request.path.startsWith('/api/admin/')).length,0);
+});
+
+// The review round: likes kept between syncs, authors' hidden messages, replayed sends, upload limits and refusals by code.
+test('a sync keeps the liked state the page knows, since changes carry no liked flag',async()=>{
+ let revision=3;const bea=over=>message(M2,{author:'Bea R.',createdAt:'2026-10-21T14:07:00.000Z',...over});
+ // The first read names what you liked in its liked list, as well as (or instead of) each message's flag.
+ const h=await page({['GET /api/fiiu/questions/'+Q]:{...thread({messages:[bare(message(M1,{likeCount:2,seq:1})),bea({likeCount:1,liked:false,seq:2})]}),liked:[M1]},
+  'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['PUT /api/fiiu/messages/'+M2+'/like']:{likeCount:2,liked:true},
+  ['GET '+MESSAGES+'?since=3']:since(4,[bare(message(M1,{likeCount:3,seq:4}))]),['GET '+MESSAGES+'?since=4']:since(5,[bare(bea({likeCount:2,seq:5}))])});
+ const pressed=id=>row(h,id).querySelector('.f-talk-like')['aria-pressed'],count=id=>row(h,id).querySelector('.f-talk-like-n').textContent;
+ assert.equal(pressed(M1),'true','seeded from the liked list');assert.equal(pressed(M2),'false');
+ revision=4;await h.tickTimers();assert.equal(pressed(M1),'true','a change without the flag keeps it');assert.equal(count(M1),'3');
+ await row(h,M2).querySelector('.f-talk-like').listeners.click();await flush();assert.equal(pressed(M2),'true');
+ revision=5;await h.tickTimers();assert.equal(pressed(M2),'true','your like survives the next sync');assert.equal(count(M2),'2');
+});
+
+test('your own message hidden by the organisers stays on your screen, greyed with its chip and Delete, and you can delete it',async()=>{
+ let revision=3;const mine=over=>message(M1,{mine:true,likeCount:1,seq:1,...over});
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({messages:[mine({hidden:true}),message(M2,{author:'Bea R.',createdAt:'2026-10-21T14:07:00.000Z',seq:2})]}),
+  'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:since(4,[mine({hidden:false,seq:4})]),['GET '+MESSAGES+'?since=4']:since(5,[mine({hidden:true,seq:5})]),
+  ['DELETE /api/fiiu/messages/'+M1]:{ok:true}});
+ const hidden=row(h,M1);
+ assert.ok(classes(hidden).includes('is-hidden'));assert.ok(key(hidden,'talkHiddenForYou'),'the author is told why');assert.equal(key(hidden,'talkHidden'),undefined);
+ assert.equal(hidden.querySelector('.f-talk-like'),null);assert.ok(key(hidden,'talkDelete'));assert.equal(key(hidden,'talkUnhide'),undefined,'a participant cannot unhide');
+ assert.equal(h.ctx.window.Fiiu.t('talkHiddenForYou'),'Hidden by the organisers');
+ revision=4;await h.tickTimers();assert.ok(!classes(row(h,M1)).includes('is-hidden'));assert.equal(key(row(h,M1),'talkHiddenForYou'),undefined);
+ revision=5;await h.tickTimers();assert.ok(key(row(h,M1),'talkHiddenForYou'),'hidden again, still on the author’s screen');
+ await key(row(h,M1),'talkDelete').listeners.click();await flush();
+ assert.equal(sent(h,'DELETE','/api/fiiu/messages/'+M1).length,1);assert.equal(row(h,M1),undefined);
+});
+
+test('a Retry answered with the message already removed clears the draft and leaves no row behind',async()=>{
+ let posts=0;
+ const h=await page({['POST '+MESSAGES]:()=>posts++?{status:200,data:{message:{id:M3,seq:5,gone:true}}}:{status:503,data:{}}});
+ const text=composer(h).querySelector('textarea');text.value='Se fue';submit(h);await flush();
+ await key(rows(h).find(node=>classes(node).includes('is-failed')),'talkRetry').listeners.click();await flush();
+ assert.deepEqual(rows(h).map(node=>node.dataset.id),[M1,M2],'no blank row and no pending or failed copy');
+ assert.equal(text.value,'','it was delivered, then removed');assert.equal(composerStatus(h),'');
+});
+
+test('a Retry refused because its earlier copy was deleted keeps the draft, and the next try is a new message with its files uploaded again',async()=>{
+ let posts=0,uploads=0;const answers=[{status:503,data:{}},{status:409,data:{error:'client id already used for another message',code:'client_id_reused'}},{status:201,data:{message:message(M3,{mine:true,body:'Otra vez',createdAt:'2026-10-21T14:20:00.000Z',seq:6})}}];
+ const h=await page({'POST /api/fiiu/files':()=>({status:201,data:{file:{id:[F1,F2][uploads++],name:'a.jpg',mime:'image/jpeg',size:1000,width:null,height:null,thumb:false}}}),['POST '+MESSAGES]:()=>answers[posts++]},
+  {context:{createImageBitmap:async()=>{throw new Error('x');},FileReader:Reader}});
+ const text=composer(h).querySelector('textarea'),failed=()=>rows(h).find(node=>classes(node).includes('is-failed'));
+ text.value='Otra vez';choose(h,[file('a.jpg','image/jpeg',1000)]);submit(h);await flush();
+ await key(failed(),'talkRetry').listeners.click();await flush();
+ assert.ok(failed(),'still Not sent, with Retry');assert.equal(text.value,'Otra vez','the draft stays');assert.equal(composerStatus(h),'talkReused');
+ await key(failed(),'talkRetry').listeners.click();await flush();
+ const posted=sent(h,'POST',MESSAGES).map(request=>request.body);
+ assert.equal(posted[1].clientId,posted[0].clientId,'a plain Retry repeats the clientId');assert.notEqual(posted[2].clientId,posted[1].clientId,'after the refusal, a new one');
+ assert.deepEqual(posted.map(body=>body.fileIds),[[F1],[F1],[F2]],'the earlier copy took its files with it, so they are uploaded again');
+ assert.deepEqual(rows(h).map(node=>node.dataset.id),[M1,M2,M3]);assert.equal(text.value,'');
+});
+
+test('uploads get two minutes before they are abandoned, every other request keeps the 20 s limit',async()=>{
+ const limits=[];let upload=null;
+ const h=await page({'POST /api/fiiu/files':()=>{upload=limits.at(-1);return {status:201,data:{file:{id:F2,name:'programa.pdf',mime:'application/pdf',size:1000,width:null,height:null,thumb:false}}};},
+  ['POST '+MESSAGES]:{status:201,data:{message:message(M3,{mine:true,body:'',seq:4})}}},{context:{FileReader:Reader,AbortSignal:{timeout:ms=>{limits.push(ms);return {ms};}}}});
+ choose(h,[file('programa.pdf','application/pdf',3*1024*1024)]);submit(h);await flush();
+ assert.equal(upload,120000);assert.ok(row(h,M3));assert.deepEqual(limits.filter(ms=>ms!==20000),[120000],'only the upload waits longer');assert.ok(limits.length>=3);
+});
+
+test('a file name over 120 characters is shortened before upload, keeping its extension and whole characters',async()=>{
+ const names=[],drawn=()=>({width:0,height:0,getContext:()=>({set fillStyle(value){},fillRect(){},drawImage(){}}),toBlob(callback,type){callback({type,size:1000,label:'jpeg'});}});
+ const answer={'POST /api/fiiu/files':request=>{names.push(request.body.name);return {status:201,data:{file:{id:F1,name:request.body.name,mime:request.body.mime,size:1,width:null,height:null,thumb:false}}};},['POST '+MESSAGES]:{status:201,data:{message:message(M3,{mine:true,body:'',seq:4})}}};
+ const long='Informe de la mesa de trabajo sobre movilidad urbana y espacio público en Lima Metropolitana, versión revisada por el equipo organizador';
+ const raw=await page(answer,{context:{createImageBitmap:async()=>{throw new Error('x');},FileReader:Reader}});
+ choose(raw,[file(long+'.pdf','application/pdf',1000),file('😀'.repeat(100)+'.png','image/png',1000),file('corto.pdf','application/pdf',10)]);submit(raw);await flush();
+ assert.equal(names[0].length,120);assert.ok(names[0].endsWith('.pdf'));assert.ok(names[0].startsWith('Informe de la mesa'));
+ assert.equal(names[1],'😀'.repeat(58)+'.png','an emoji is never cut in half');assert.equal(names[2],'corto.pdf','a short name is sent as it is');
+ const redrawn=await page(answer,{context:{createImageBitmap:async()=>({width:800,height:600,close(){}}),FileReader:Reader}});
+ redrawn.ctx.document.createElement=(make=>tag=>tag==='canvas'?drawn():make(tag))(redrawn.ctx.document.createElement);
+ choose(redrawn,[file(long+'.png','image/png',1000)]);submit(redrawn);await flush();
+ assert.equal(names[3].length,120);assert.ok(names[3].endsWith('.jpg'),'a redrawn photo is a JPEG');assert.ok(sent(raw,'POST',MESSAGES).length&&sent(redrawn,'POST',MESSAGES).length);
+});
+
+test('a failed like shows the row as the server last described it, including a count a sync brought meanwhile',async()=>{
+ let revision=3;const put=later();
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({messages:[message(M1,{likeCount:4,seq:1}),message(M2,{mine:true,createdAt:'2026-10-21T14:07:00.000Z',seq:2})]}),
+  'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:since(4,[bare(message(M1,{likeCount:5,seq:4}))]),['PUT /api/fiiu/messages/'+M1+'/like']:()=>put.promise});
+ const like=()=>row(h,M1).querySelector('.f-talk-like'),count=()=>like().querySelector('.f-talk-like-n').textContent;
+ like().listeners.click();await flush();assert.equal(count(),'5','optimistic');assert.equal(like()['aria-pressed'],'true');
+ revision=4;await h.tickTimers();assert.equal(like()['aria-pressed'],'true','the like on its way still shows after the row is replaced');
+ put.resolve({status:429,data:{error:'too many requests'}});await flush();
+ assert.equal(count(),'5','the count the sync brought, not the 4 seen before the tap');assert.equal(like()['aria-pressed'],'false');assert.equal(composerStatus(h),'talkRate');
+});
+
+test('organisers get no Like on a hidden message, which shows its count instead, and reopening the question does not add one',async()=>{
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'closed'},me:{organiser:true,canPost:false},messages:[message(M1,{authorFull:'Ana Test',hidden:false,seq:1}),message(M2,{author:'Bea R.',authorFull:'Bea Ruiz',hidden:true,likeCount:2,createdAt:'2026-10-21T14:07:00.000Z',seq:2})]}),
+  'GET /api/fiiu/pulse':{questions:[[Q,'day1-am',4,'open']]},['GET '+MESSAGES+'?since=3']:since(4,[],{status:'open'})});
+ assert.equal(row(h,M2).querySelector('.f-talk-like'),null);assert.match(content(row(h,M2)),/2 likes/);assert.ok(key(row(h,M2),'talkUnhide'));assert.ok(key(row(h,M2),'talkHidden'));
+ await h.tickTimers();
+ assert.ok(composer(h),'reopened');assert.equal(row(h,M1).querySelector('.f-talk-like').disabled,false);assert.equal(row(h,M2).querySelector('.f-talk-like'),null);
+});
+
+test('a like on a message removed a moment ago takes the row away without an error, and one refused as closed closes the chat',async()=>{
+ const h=await page({['PUT /api/fiiu/messages/'+M1+'/like']:{status:404,data:{error:'message unavailable',code:'message_unavailable'}}});
+ await row(h,M1).querySelector('.f-talk-like').listeners.click();await flush();
+ assert.equal(row(h,M1),undefined);assert.equal(composer(h).querySelector('.f-talk-status').textContent,'','no error');assert.deepEqual(rows(h).map(node=>node.dataset.id),[M2]);
+ const closed=await page({['PUT /api/fiiu/messages/'+M1+'/like']:{status:403,data:{error:'this conversation is closed',code:'question_closed'}}});
+ await row(closed,M1).querySelector('.f-talk-like').listeners.click();await flush();
+ assert.equal(composer(closed),null);assert.ok(key(closed.root,'talkClosed'));assert.equal(row(closed,M1).querySelector('.f-talk-like').disabled,true);assert.equal(row(closed,M1).querySelector('.f-talk-like')['aria-pressed'],'false');
+});
+
+test('refusals of a send say what happened in the person’s language, and only those Retry can fix keep a Retry',async()=>{
+ const cases=[
+  ['message',{status:429,data:{error:'too many requests'}},'talkRate',true],
+  ['message',{status:403,data:{error:'festival registration required',code:'not_registered'}},'talkNotRegistered',false],
+  ['message',{status:409,data:{error:'client id already used for another message',code:'client_id_reused'}},'talkReused',true],
+  ['file',{status:413,data:{error:'festival upload allowance reached',code:'upload_allowance'}},'talkAllowance',false],
+  ['file',{status:400,data:{error:'unsupported file type',code:'file_type'}},'talkFileType',false],
+  ['file',{status:413,data:{error:'file exceeds 3 MB',code:'file_size'}},'talkFileSize',false],
+ ];
+ for(const [where,answer,expected,retry] of cases){
+  const h=await page({'POST /api/fiiu/files':where==='file'?answer:{status:201,data:{file:{id:F1,name:'a.pdf',mime:'application/pdf',size:1,width:null,height:null,thumb:false}}},['POST '+MESSAGES]:where==='message'?answer:{status:500,data:{}}},{context:{FileReader:Reader}});
+  const text=composer(h).querySelector('textarea');text.value='Hola';if(where==='file')choose(h,[file('a.pdf','application/pdf',1000)]);submit(h);await flush();
+  assert.equal(composerStatus(h),expected,expected);assert.equal(text.value,'Hola','the draft stays');
+  assert.equal(Boolean(rows(h).find(node=>classes(node).includes('is-failed'))),retry,expected+(retry?' keeps Retry':' leaves no row'));
+ }
+ const h=await page({['POST '+MESSAGES]:{status:403,data:{error:'festival registration required',code:'not_registered'}}});
+ composer(h).querySelector('textarea').value='Hola';submit(h);await flush();h.lang('es');
+ assert.equal(composer(h).querySelector('.f-talk-status').textContent,'Necesitas una inscripción en el FIIU para participar.');
 });
 
 // The projector view (?present=1).
@@ -476,8 +633,8 @@ test('the projector follows the poll: a new answer leads, a removed one leaves, 
  const many=Array.from({length:14},(_,i)=>message('20000000-0000-4000-8000-'+String(i).padStart(12,'0'),{body:'Respuesta '+i,createdAt:new Date(Date.parse('2026-10-21T14:00:00.000Z')+i*60000).toISOString(),seq:i+1}));
  let revision=14,state='open';
  const h=await projector({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,state]]}),
-  ['GET '+MESSAGES+'?since=14']:{revision:16,changes:[message(M5,{body:'La última',createdAt:'2026-10-21T14:30:00.000Z',likeCount:2,seq:15}),{id:many[13].id,seq:16,gone:true}],liked:[]},
-  ['GET '+MESSAGES+'?since=16']:{revision:17,changes:[],liked:[]}},{messages:many,revision:14,question:{revision:14}});
+  ['GET '+MESSAGES+'?since=14']:since(16,[message(M5,{body:'La última',createdAt:'2026-10-21T14:30:00.000Z',likeCount:2,seq:15}),{id:many[13].id,seq:16,gone:true}]),
+  ['GET '+MESSAGES+'?since=16']:since(17,[],{status:'closed'})},{messages:many,revision:14,question:{revision:14}});
  assert.equal(order(h).length,12);assert.equal(order(h)[0],many[13].id);assert.equal(order(h)[11],many[2].id);
  const kept=cards(h).find(node=>node.dataset.id===many[12].id);
  revision=16;await h.tickTimers();
@@ -486,7 +643,7 @@ test('the projector follows the poll: a new answer leads, a removed one leaves, 
  key(h.root,'talkTop').listeners.click();assert.equal(order(h)[0],M5,'the only liked answer leads Most liked');
  revision=17;state='closed';await h.tickTimers();
  assert.ok(key(h.root.querySelector('.f-talk-wall-head'),'talkClosedChip'));assert.equal(composer(h),null,'closing never brings a composer to the projector');
- const hidden=await projector({['GET '+MESSAGES+'?since=3']:{revision:3,changes:[],liked:[]}},{question:{status:'hidden'}});
+ const hidden=await projector({['GET '+MESSAGES+'?since=3']:since(3,[],{status:'hidden'})},{question:{status:'hidden'}});
  assert.ok(key(hidden.root.querySelector('.f-talk-wall-head'),'talkHidden'),'the organiser sees the room cannot open it yet');
  await hidden.tickTimers();assert.equal(sent(hidden,'GET','/api/fiiu/pulse').length,0,'the pulse leaves hidden questions out');assert.equal(sent(hidden,'GET',MESSAGES+'?since=3').length,1);
 });
@@ -540,4 +697,13 @@ test('a language switch relabels the projector',async()=>{
  assert.equal(h.ctx.document.title,'NODAL · Vista de proyección');assert.equal(h.root.querySelector('svg')['aria-label'],'Escanea para unirte a la conversación');
  assert.equal(key(h.root,'talkTop').textContent,'Con más me gusta');assert.equal(key(h.root,'talkScanToJoin').textContent,'Escanea para unirte a la conversación');assert.match(content(cards(h)[0]),/3 me gusta/);
  h.lang('pt');assert.equal(key(h.root,'talkLatest').textContent,'Recentes');assert.equal(key(h.root,'talkFullscreen').textContent,'Tela cheia');
+});
+
+test('the projector headline follows a question edit that arrives with answers',async()=>{
+ let revision=3;
+ const h=await projector({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),
+  ['GET '+MESSAGES+'?since=3']:since(5,[message(M3,{body:'Nueva',createdAt:'2026-10-21T14:10:00.000Z',seq:5})],{body:'¿Qué ciudad imaginas?',talk:null})});
+ revision=5;await h.tickTimers();
+ assert.equal(order(h)[0],M3);assert.equal(h.root.querySelector('.f-talk-wall-question').textContent,'¿Qué ciudad imaginas?');
+ assert.equal(h.root.querySelector('.f-talk-wall-head').querySelector('.f-talk-talk'),null,'the talk was taken off');
 });
