@@ -5,7 +5,7 @@
  externalInterestHint:['Save your interests here, then complete each activity’s Google Form to register with its facilitator. Interest in NODAL does not confirm that registration or attendance.','Guarda aquí tus actividades de interés y completa el Google Form de cada una para inscribirte con su facilitador. El interés en NODAL no confirma esa inscripción ni la asistencia.','Salve seus interesses aqui e preencha o Google Forms de cada atividade para se inscrever com o facilitador. O interesse na NODAL não confirma essa inscrição nem a presença.'],
  partyHint:['The closing party has separate registration. Check its details with the festival organisers.','La fiesta de cierre tiene inscripción independiente. Consulta los detalles con la organización del festival.','A festa de encerramento tem inscrição independente. Consulte os detalhes com a organização do festival.'],
  accessibilityHint:['Choose any support you need, or explicitly select no additional support.','Selecciona el apoyo que necesitas o indica que no necesitas apoyo adicional.','Selecione o apoio de que precisa ou indique que não precisa de apoio adicional.'],
- accessibilityRequired:['Choose an accessibility answer, including no additional support if appropriate.','Elige una respuesta de accesibilidad, incluyendo no necesito apoyo adicional cuando corresponda.','Escolha uma resposta sobre acessibilidade, incluindo não preciso de apoio adicional quando for o caso.'],
+ accessibilityRequired:['Choose at least one option. If you need no support, tick “No additional support”.','Elige al menos una opción. Si no necesitas apoyo, marca «No necesito apoyo adicional».','Escolha pelo menos uma opção. Se não precisar de apoio, marque “Não preciso de apoio adicional”.'],
  apply:['Apply','Postular','Candidatar-se'],
  summaryTitle:['Registration overview','Resumen de inscripciones','Resumo das inscrições'],
  refreshSummary:['Refresh totals','Actualizar totales','Atualizar totais'],
@@ -53,9 +53,19 @@
   statusRegistered:['Registered','Inscrito/a','Inscrito/a'],statusNotRegistered:['Not registered yet','Aún sin inscripción','Ainda sem inscrição'],
   actionNeeded:['Action needed','Acción necesaria','Ação necessária'],
   datesMonth:['October 2026','Octubre 2026','Outubro 2026'],nextForYou:['Next for you','Lo próximo para ti','Próximo para você'],latestUpdate:['Latest update','Última novedad','Última novidade'],
+  registrationLoading:['Loading your registration…','Cargando tu inscripción…','Carregando sua inscrição…'],
+  // A registration draft kept in the tab, so a reload or a discarded tab keeps the answers (fiiu.js).
+  draftRestored:['We kept your unsaved answers. Save to confirm them.','Recuperamos tus respuestas sin guardar. Guarda para confirmarlas.','Recuperamos suas respostas não salvas. Salve para confirmá-las.'],
+  discardDraft:['Discard unsaved answers','Descartar respuestas sin guardar','Descartar respostas não salvas'],discardRegistrationEdit:['Discard your unsaved registration changes?','¿Descartar los cambios sin guardar de tu inscripción?','Descartar as alterações não salvas da sua inscrição?'],
+  // Registration closed: cancelling cannot be undone, and changes go through the organisers.
+  cancelClosed:['Registration is closed, so you will not be able to register again.','La inscripción está cerrada: no podrás volver a inscribirte.','As inscrições estão encerradas: você não poderá se inscrever de novo.'],
+  closedChanges:['To change your registration, write to fiiu@ocupatucalle.com.','Para cambiar tu inscripción, escribe a fiiu@ocupatucalle.com.','Para alterar sua inscrição, escreva para fiiu@ocupatucalle.com.'],
+  externalInterestClosedHint:['Complete each activity’s Google Form to register with its facilitator. Interest in NODAL does not confirm that registration or attendance.','Completa el Google Form de cada actividad para inscribirte con su facilitador. El interés en NODAL no confirma esa inscripción ni la asistencia.','Preencha o Google Forms de cada atividade para se inscrever com o facilitador. O interesse na NODAL não confirma essa inscrição nem a presença.'],
+  // The hero's block while it is under way ("Next for you" otherwise).
+  nowForYou:['Happening now','Ahora','Agora'],
   // Conversation links on festival blocks (talkLink below): "Conversación · 2" on screen, "Conversación, 2 preguntas" for assistive technology.
   talkLink:['Conversation','Conversación','Conversa'],talkLinkOne:['1 question','1 pregunta','1 pergunta'],talkLinkCount:['{n} questions','{n} preguntas','{n} perguntas'],
-  pendingShort:['Lab: in review','Laboratorio: en revisión','Laboratório: em análise'],acceptedShort:['Lab: accepted','Laboratorio: aceptada','Laboratório: aceita'],declinedShort:['Lab: not selected','Laboratorio: no seleccionada','Laboratório: não selecionada'],
+  pendingShort:['Lab: in review','Laboratorio: en revisión','Laboratório: em análise'],acceptedShort:['Lab: accepted','Laboratorio: aceptado/a','Laboratório: aceito/a'],declinedShort:['Lab: not selected','Laboratorio: no seleccionado/a','Laboratório: não selecionado/a'],
   pendingHint:['The organising team is reviewing applications. The decision will appear here.','El equipo organizador está revisando las postulaciones. La decisión aparecerá aquí.','A equipe organizadora está analisando as candidaturas. A decisão aparecerá aqui.'],
   acceptedHint:['Your place in the 20 October laboratory is confirmed.','Tu lugar en el laboratorio del 20 de octubre está confirmado.','Sua vaga no laboratório de 20 de outubro está confirmada.'],
   declinedHint:['Your application was not selected this time. Your other registrations are unchanged.','Tu postulación no fue seleccionada esta vez. Tus demás inscripciones no cambian.','Sua candidatura não foi selecionada desta vez. Suas demais inscrições continuam iguais.'],
@@ -82,8 +92,8 @@
   labQuestionHint:['Public officials who answer Yes can apply for the 20 October laboratory.','Si respondes Sí, podrás postular al laboratorio del 20 de octubre.','Se responder Sim, você poderá se candidatar ao laboratório de 20 de outubro.'],
   labApplied:['lab application','postulación al laboratorio','candidatura ao laboratório'],selectionNone:['Nothing selected yet','Aún no has elegido nada','Nada selecionado ainda'],
   backToSaved:['Back to my registration','Volver a mi inscripción','Voltar para minha inscrição'],
-  requiredField:['Answer this question to continue.','Responde esta pregunta para continuar.','Responda a esta pergunta para continuar.'],
-  privacyRequired:['Confirm this to save your registration.','Confirma esta casilla para guardar tu inscripción.','Confirme esta opção para salvar sua inscrição.'],
+  requiredField:['Answer this question to continue.','Completa este campo para continuar.','Preencha este campo para continuar.'],
+  privacyRequired:['Confirm this to save your registration.','Marca esta casilla para guardar tu inscripción.','Marque esta opção para salvar sua inscrição.'],
   invalidAge:['Enter your age as a whole number between 1 and 120.','Escribe tu edad como un número entero entre 1 y 120.','Informe sua idade como um número inteiro entre 1 e 120.'],
   chooseActivity:['Choose a conference block, save a workshop or route interest, or apply for the laboratory.','Elige un bloque de conferencias, guarda un taller o ruta de interés, o postula al laboratorio.','Escolha um bloco de conferências, salve uma oficina ou roteiro de interesse, ou candidate-se ao laboratório.'],
   reviewErrors:['Some answers need attention. The first one is highlighted.','Algunas respuestas necesitan revisión. La primera está resaltada.','Algumas respostas precisam de revisão. A primeira está destacada.'],
@@ -267,8 +277,10 @@
  function countLabel(n,one,many,cls='f-count'){const box=el('span',cls);box.append(el('b','',memo(locale()+'|number',()=>new Intl.NumberFormat(locale())).format(n)+' '),tr('span',n===1?one:many));return box;}
  // Questions per block from the public conversation pulse ([id, activityId, revision, status] for every question that is not hidden). It is read once per page and
  // shared by every caller; the links it feeds are only a pointer, so a failure or an unexpected answer shows none instead of an error.
+ // {fresh:true} reads it again (a page coming back into view); a fresh read that fails or answers oddly keeps the counts already shown.
  let pulseCounts=null;
- const pulse=()=>pulseCounts??=api('/api/fiiu/pulse').then(data=>{const counts=new Map();for(const row of Array.isArray(data.questions)?data.questions:[])if(Array.isArray(row)&&typeof row[1]==='string'&&row[3]!=='hidden')counts.set(row[1],(counts.get(row[1])||0)+1);return counts;}).catch(()=>new Map());
+ const readPulse=()=>api('/api/fiiu/pulse').then(data=>{if(!Array.isArray(data.questions))throw Error('pulse');const counts=new Map();for(const row of data.questions)if(Array.isArray(row)&&typeof row[1]==='string'&&row[3]!=='hidden')counts.set(row[1],(counts.get(row[1])||0)+1);return counts;});
+ function pulse({fresh=false}={}){if(fresh&&pulseCounts){const shown=pulseCounts;pulseCounts=readPulse().catch(()=>shown);}return pulseCounts??=readPulse().catch(()=>new Map());}
  // "Conversación · 2" on a block, opening its questions. The bare count is hidden from assistive technology, which hears "Conversación, 2 preguntas"; refresh() keeps that phrase in the reader's language.
  const talkSpoken=n=>', '+(n===1?t('talkLinkOne'):t('talkLinkCount').replace('{n}',memo(locale()+'|number',()=>new Intl.NumberFormat(locale())).format(n)));
  function talkLink(activityId,count,cls='f-text-link f-talk-link'){
@@ -277,6 +289,8 @@
  }
  // A block counts until it ends in Lima ('09:00–13:00' until 13:00); one without a time range, such as the accepted laboratory, counts for its whole day.
  const endsAt=activity=>{const end=/[–-]\s*(\d{1,2}):(\d{2})\s*$/.exec(activity.time||'');return end?Number(end[1])*60+Number(end[2]):24*60;};
+ // Under way: today in Lima, past its start time and before its end. An untimed block (the accepted laboratory) has no start, so it is never "now", only next.
+ function underway(activity,now=new Date()){const start=/^\s*(\d{1,2}):(\d{2})\s*[–-]/.exec(activity?.time||''),minutes=limaMinutes(now);return Boolean(start)&&activity.date===limaDate(now)&&Number(start[1])*60+Number(start[2])<=minutes&&minutes<endsAt(activity);}
  function nextFor(registration,event,now=new Date()){
   const answers=registration?.answers;if(!answers)return null;
   const ids=new Set([...(answers.activities||[]),...(registration.labStatus==='accepted'?event.activities.filter(a=>a.registration==='application').map(a=>a.id):[])]),today=limaDate(now),minutes=limaMinutes(now);
@@ -311,7 +325,8 @@
  }
  function hint(key,cls='f-muted'){const p=tr('p',key,cls);p.id='f-hint-'+key;return p;}
  function describe(node,...ids){node.setAttribute('aria-describedby',[...ids,...(node.target==='_blank'?['f-newtab']:[])].join(' '));return node;}
- function newTabNote(){const n=tr('span','newTab','f-sr-only');n.id='f-newtab';return n;}
+ // The note is only ever a description (aria-describedby reads hidden nodes), so it is hidden: as text it would be read after the page's last control, out of place.
+ function newTabNote(){const n=tr('span','newTab','f-sr-only');n.id='f-newtab';n.hidden=true;return n;}
  const KIND={news:'newsKind',recording:'recording',material:'material'},OPEN={news:'open',recording:'watchRecording',material:'openMaterial'};
  function contentCards(container,items,empty='noNews',heading='h3'){
   container.replaceChildren();if(!items.length){container.append(tr('p',empty,'f-muted f-empty'));return;}
@@ -331,6 +346,6 @@
   const attended=new Set(attendance.map(record=>record.activityId));for(const a of chronological([...event.activities,...(event.legacyActivities||[])].filter(a=>attended.has(a.id))))container.append(source('p','✓ '+a.title,'f-badge'));}
  // Scrolls a horizontal chip row just enough to show the item in full, clear of the right-edge fade (fiiu.css); only the row moves, never the page (the rows sit in sticky bars).
  function revealInRow(row,item){const box=item?.getBoundingClientRect?.(),frame=row?.getBoundingClientRect?.();if(!box||!frame)return;const shift=box.left<frame.left+8?box.left-frame.left-8:box.right>frame.right-36?box.right-frame.right+36:0;if(shift)row.scrollBy?.({left:shift});}
- window.Fiiu={rows,t,el,tr,button,link,source,field,check,api,status,dateNode,rangeNode,limaDate,locale,contentCards,badges,findActivity,chronological,typeOf,countLabel,nextFor,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,hoursLine,checkinCloses,checkinState,checkinActivities,limaClock,windowNode,pulse,talkLink};
+ window.Fiiu={rows,t,el,tr,button,link,source,field,check,api,status,dateNode,rangeNode,limaDate,locale,contentCards,badges,findActivity,chronological,typeOf,countLabel,nextFor,underway,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,hoursLine,checkinCloses,checkinState,checkinActivities,limaClock,windowNode,pulse,talkLink};
  window.nodalI18n?.onChange(refresh);refresh();
 })();

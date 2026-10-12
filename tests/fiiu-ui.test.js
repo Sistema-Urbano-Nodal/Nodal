@@ -653,3 +653,229 @@ test('conversation links are small inline links with a CSS-drawn bubble and a 44
  assert.match(css,/:is\(\.f-page,\.f-news-widget\) \.f-talk-link\{display:inline-flex;/);assert.match(css,/:is\(\.f-page,\.f-news-widget\) \.f-talk-link::before\{content:"";/);
  assert.match(css,/@media\(pointer:coarse\)\{:is\(\.f-page,\.f-news-widget\) \.f-talk-link\{min-height:44px\}\}/);
 });
+
+test('the new-tab note describes links but is hidden, so it is never read in page order',async()=>{
+ const h=await harness(),note=descendants(h.root).find(node=>node.id==='f-newtab');
+ assert.equal(note.hidden,true);assert.equal(note.dataset.fiiuText,'newTab');assert.equal(h.ctx.window.Fiiu.newTabNote().hidden,true);
+});
+
+test('lab status pills and form errors read naturally in Spanish and Portuguese',()=>{
+ const context={window:{nodalI18n:{lang:'en',onChange(){}}},document:{documentElement:{lang:'en'},querySelectorAll:()=>[]},Intl,Date,Error};
+ vm.runInNewContext(readFileSync(new URL('../web/scripts/fiiu-ui.js',import.meta.url),'utf8'),context);const {rows}=context.window.Fiiu;
+ assert.deepEqual([...rows.acceptedShort.slice(1)],['Laboratorio: aceptado/a','Laboratório: aceito/a']);assert.deepEqual([...rows.declinedShort.slice(1)],['Laboratorio: no seleccionado/a','Laboratório: não selecionado/a']);
+ assert.equal(rows.requiredField[1],'Completa este campo para continuar.');assert.equal(rows.requiredField[2],'Preencha este campo para continuar.');
+ assert.equal(rows.privacyRequired[1],'Marca esta casilla para guardar tu inscripción.');
+ assert.equal(rows.accessibilityRequired[1],'Elige al menos una opción. Si no necesitas apoyo, marca «No necesito apoyo adicional».');assert.ok(rows.accessibilityRequired[1].includes('«'+rows.none[1]+'»'),'the option is quoted by its own label');
+ assert.ok(rows.accessibilityRequired[2].includes('“'+rows.none[2]+'”'));
+});
+
+test('programme and registration actions are at least 44px tall on touch screens, with the text size unchanged',()=>{
+ const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8'),touch=[...css.matchAll(/@media\(pointer:coarse\)\{([^\n]*)\}\n/g)].map(match=>match[1]).join('');
+ const rule=selector=>[...touch.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter(([,list])=>list.split(/,(?![^()]*\))/).includes(selector)).map(([,,body])=>body).join(';');
+ for(const selector of ['.f-programme .f-button.secondary.f-small','.f-registration .f-button.f-small','.f-shell .f-steps .f-step','.f-registration .f-form .f-check'])assert.match(rule(selector),/min-height:44px/,selector);
+ for(const selector of [':is(.f-hero,.f-compact-actions,.f-activity-foot,.f-external-meta) .f-text-link','.f-itinerary-row>.f-text-link','.f-stepped>fieldset>.f-text-link','.f-updates-grid .f-news-item>.f-text-link'])assert.match(rule(selector),/display:inline-flex;align-items:center;min-height:44px/,selector);
+ // The festival page's own news and materials only: the dashboard and community news cards share .f-news-item and are another page's to size.
+ assert.equal(rule('.f-news-item>.f-text-link'),'');
+ // The session disclosure grows by padding: display:flex would drop its ▸ marker.
+ assert.match(rule('.f-sessions>summary'),/padding-block:11px/);assert.doesNotMatch(rule('.f-sessions>summary'),/display/);
+ // A multi-line checkbox label keeps its box at the first line, and the organiser's checkboxes are left alone.
+ assert.doesNotMatch(rule('.f-registration .f-form .f-check'),/align-items/);assert.doesNotMatch(touch,/(^|[},])\.f-check\{/);
+ assert.doesNotMatch(touch,/font-size/);
+});
+
+// One browser tab's sessionStorage: a second harness given the same one is a reload of that tab.
+const tabStorage=()=>{const data=new Map();return{data,getItem:name=>data.has(name)?data.get(name):null,setItem:(name,value)=>{data.set(name,String(value));},removeItem:name=>{data.delete(name);}};};
+const leave=h=>{let prevented=false;for(const listener of h.windowListeners.beforeunload||[])listener({preventDefault(){prevented=true;}});return prevented;};
+const typeInto=(form,name,value)=>{const control=field(form,name);control.value=value;form.listeners.input({target:control});};
+const tick=(form,name,value)=>{const box=descendants(form).find(node=>node.name===name&&node.value===value);box.checked=true;form.listeners.change({target:box});return box;};
+const box=(form,name,value)=>descendants(form).find(node=>node.name===name&&node.value===value);
+// A Date whose "now" the test moves (clock.at = …).
+const movableClock=iso=>{const clock={at:Date.parse(iso)};clock.Date=class extends Date{constructor(...args){super(...(args.length?args:[clock.at]));}static now(){return clock.at;}};return clock;};
+
+test('the hero, programme and news appear from the public read while the registration is still loading, with no guest calls to action',async()=>{
+ let answer;const news={...publicData,content:[{id:'n1',kind:'news',title:'Cambio de sala',body:'Texto',url:'',createdAt:'2026-10-20T12:00:00.000Z'}]};
+ const h=await harness({read:()=>new Promise(resolve=>{answer=resolve;}),publicRead:()=>news}),panel=h.root.querySelector('.f-registration'),hero=h.root.querySelector('.f-hero');
+ assert.ok(hero);assert.ok(h.root.querySelectorAll('.f-day').length>=4);assert.ok(descendants(h.root).some(node=>node.id==='news'));assert.equal(h.message.dataset.fiiuText,'','the page is no longer loading');
+ assert.ok(key(panel,'registrationLoading'));assert.equal(key(panel,'signin'),undefined);assert.ok(key(hero,'viewProgramme'));
+ for(const name of ['register','apply','addToRegistration','saveInterest'])assert.equal(key(h.root,name),undefined,name+' waits for the registration');
+ answer({...self(saved),isAdmin:true});await flush();
+ assert.ok(h.root.querySelector('.f-saved'));assert.equal(key(h.root,'registrationLoading'),undefined);assert.ok(key(h.root.querySelector('.f-hero'),'viewRegistration'));
+ const admin=h.root.children.findIndex(node=>node.dataset.fiiuText==='admin');assert.equal(admin,1,'the organiser link sits under the hero once the account is known');
+ assert.ok(key(h.root,'saveInterest'));
+});
+
+test('Back to the festival page returns to the same place: the position is kept on pagehide and restored once the page is drawn',async()=>{
+ const storage=tabStorage(),scrolls=[];
+ const page=(type,{y=0,read}={})=>harness({registration:saved,read,context:{sessionStorage:storage,scrollY:y,scrollTo:options=>scrolls.push({...options}),performance:{getEntriesByType:kind=>kind==='navigation'?[{type}]:[]}}});
+ const first=await page('navigate',{y:2080});assert.deepEqual(scrolls,[],'a new visit starts at the top');
+ for(const listener of first.windowListeners.scroll)listener({});for(const listener of first.windowListeners.pagehide)listener({persisted:false});
+ let answer;await page('back_forward',{read:()=>new Promise(resolve=>{answer=resolve;})});assert.deepEqual(scrolls,[],'it waits until the registration is drawn');
+ answer(self(saved));await flush();assert.deepEqual(scrolls,[{top:2080,behavior:'instant'}],'instant: the page scrolls smoothly otherwise');
+ scrolls.length=0;await page('reload');assert.deepEqual(scrolls,[{top:2080,behavior:'instant'}],'a reload keeps the place too');
+ scrolls.length=0;await page('navigate');assert.deepEqual(scrolls,[]);
+});
+
+test('a half-filled registration comes back after a reload in the same tab, without the ID number, and leaving asks first',async()=>{
+ const storage=tabStorage(),context={sessionStorage:storage};
+ const first=await harness({context}),form=first.form();assert.equal(leave(first),false,'an untouched form lets the page go');
+ typeInto(form,'firstName','Carla');typeInto(form,'nationalId','12345678');tick(form,'activities','day1-am');tick(form,'accessibility','none');
+ assert.equal(leave(first),true,'unsaved answers ask before the page goes');assert.doesNotMatch([...storage.data.values()].join(' '),/12345678/,'the ID number is never kept in storage');
+ const second=await harness({context,write:request=>({registration:{...saved,answers:request.body}})}),again=second.form();
+ assert.equal(field(again,'firstName').value,'Carla');assert.equal(field(again,'nationalId').value,'');assert.equal(box(again,'activities','day1-am').checked,true);assert.equal(box(again,'accessibility','none').checked,true);
+ assert.match(content(again.querySelector('.f-selection')),/1\s+conference block/,'the save bar counts the restored choice');
+ assert.ok(key(second.root.querySelector('.f-registration'),'draftRestored'),'the panel says the answers were kept');assert.equal(leave(second),true,'restored answers are still unsaved');
+ // A successful save drops the draft, and the page goes without asking.
+ second.fill();await second.submit();assert.ok(second.root.querySelector('.f-saved'));assert.equal(storage.data.size,0);assert.equal(leave(second),false);
+ const third=await harness({context});assert.equal(field(third.form(),'firstName').value,'');assert.equal(key(third.root,'draftRestored'),undefined);
+});
+
+test('a restored new-registration draft can be discarded, and another account in the tab drops it instead of seeing it',async()=>{
+ const storage=tabStorage(),context={sessionStorage:storage};
+ const first=await harness({context});typeInto(first.form(),'firstName','Carla');
+ const other={...user,id:'00000000-0000-4000-8000-000000000009',email:'beto@example.test'};
+ const beto=await harness({context,read:()=>({user:other,registration:null,attendance:[],isAdmin:false})});
+ assert.equal(field(beto.form(),'firstName').value,'','another account never sees the draft');assert.equal(storage.data.size,0,'a shared phone keeps no one else’s answers');
+ typeInto(beto.form(),'firstName','Beto');
+ const again=await harness({context,read:()=>({user:other,registration:null,attendance:[],isAdmin:false})});assert.equal(field(again.form(),'firstName').value,'Beto');
+ let asked=0;again.ctx.window.confirm=()=>{asked++;return asked>1;};
+ await key(again.form(),'discardDraft').listeners.click();assert.equal(field(again.form(),'firstName').value,'Beto','declining keeps the answers');
+ await key(again.form(),'discardDraft').listeners.click();
+ assert.equal(asked,2);assert.equal(field(again.form(),'firstName').value,'');assert.equal(key(again.root,'discardDraft'),undefined);assert.equal(storage.data.size,0);assert.equal(leave(again),false);
+});
+
+test('Back to my registration asks before dropping unsaved edits, and an edit restored after a reload opens the form on it',async()=>{
+ const storage=tabStorage(),context={sessionStorage:storage};let asked=0,agree=false;
+ const h=await harness({registration:saved,context});h.ctx.window.confirm=()=>{asked++;return agree;};
+ await key(h.root,'edit').listeners.click();await key(h.form(),'backToSaved').listeners.click();assert.equal(asked,0,'an untouched edit goes back without asking');assert.equal(h.form().hidden,true);
+ await key(h.root,'edit').listeners.click();await key(cardOf(h,'Cuidar y transformar la ciudad'),'addToRegistration').listeners.click();typeInto(h.form(),'firstName','Ana Cambiada');
+ await key(h.form(),'backToSaved').listeners.click();assert.equal(asked,1);assert.equal(h.form().hidden,false,'declining keeps the edit open');assert.equal(field(h.form(),'firstName').value,'Ana Cambiada');
+ const again=await harness({registration:saved,context});
+ assert.equal(again.form().hidden,false,'a restored edit opens the form');assert.equal(again.root.querySelector('.f-saved').hidden,true);assert.equal(field(again.form(),'firstName').value,'Ana Cambiada');
+ assert.equal(box(again.form(),'activities','day2-am').checked,true,'a block added from the programme comes back too');assert.equal(key(cardOf(again,'Cuidar y transformar la ciudad'),'choiceAdded').dataset.fiiuText,'choiceAdded');
+ assert.ok(key(again.root.querySelector('.f-registration'),'draftRestored'));
+ again.ctx.window.confirm=()=>true;await key(again.form(),'backToSaved').listeners.click();assert.equal(again.form().hidden,true);assert.equal(storage.data.size,0,'discarding drops the draft');
+ // A draft made against an older saved version (an edit from another device since) is stale and dropped.
+ const typed=await harness({registration:saved,context});await key(typed.root,'edit').listeners.click();typeInto(typed.form(),'city','Callao');
+ const newer=await harness({registration:{...saved,version:2},context});assert.equal(newer.form().hidden,true);assert.equal(field(newer.form(),'city').value,'Lima');assert.equal(storage.data.size,0);
+});
+
+test('with registration closed, cancelling warns there is no way back, the summary points to the organisers, and the interests hint drops the save step',async()=>{
+ const closed={...publicData,config:{...publicData.config,registrationOpen:false}},registration={...saved,answers:{...answers,externalActivities:['workshop-calles-gente']}};let question='';
+ const h=await harness({registration,publicRead:()=>closed});h.ctx.window.confirm=text=>{question=text;return false;};const {t,rows}=h.ctx.window.Fiiu;
+ await key(h.root,'cancel').listeners.click();assert.ok(question.endsWith(' '+t('cancelClosed')),question);assert.ok(question.startsWith(t('cancelConfirm')));
+ const summary=h.root.querySelector('.f-saved');assert.ok(key(summary,'externalInterestClosedHint'));assert.equal(key(summary,'externalInterestHint'),undefined);assert.ok(key(summary,'closedChanges'));
+ assert.equal(rows.cancelClosed[1],'La inscripción está cerrada: no podrás volver a inscribirte.');assert.doesNotMatch(rows.externalInterestClosedHint[1],/Guarda/);
+ const open=await harness({registration});open.ctx.window.confirm=text=>{question=text;return false;};await key(open.root,'cancel').listeners.click();
+ assert.ok(!question.includes(t('cancelClosed')));assert.ok(key(open.root.querySelector('.f-saved'),'externalInterestHint'));assert.equal(key(open.root,'closedChanges'),undefined);
+ // An incomplete registration already names the address in its notice, so it is not repeated.
+ const old=await harness({registration:{...saved,answers:{firstName:'Ana',lastName:'Test',activities:['day1-am'],privacyAccepted:true}},publicRead:()=>closed});
+ assert.ok(key(old.root,'incompleteClosedNotice'));assert.equal(key(old.root,'closedChanges'),undefined);
+});
+
+test('during a block, the hero says it is happening now and links to its conversation and its day; a minute timer moves it on',async()=>{
+ const clock=movableClock('2026-10-22T11:30:00-05:00'),registration={...saved,answers:{...answers,activities:['day2-am','day2-pm']}};
+ const pulse={questions:[['10000000-0000-4000-8000-000000000007','day2-am',1,'open']]};
+ const h=await harness({registration,pulseRead:()=>pulse,context:{Date:clock.Date}}),next=()=>h.root.querySelector('.f-next');
+ assert.ok(key(next(),'nowForYou'));assert.equal(key(next(),'nextForYou'),undefined);
+ const talk=next().querySelector('.f-talk-link');assert.equal(talk.href,'fiiu-talk.html?a=day2-am');assert.equal(talk['aria-describedby'],'f-next-title');
+ const day=next().querySelectorAll('a').find(node=>node.href==='#day-2026-10-22');assert.ok(day,'the block links to its day in the programme');assert.match(content(day),/Cuidar y transformar la ciudad/);
+ assert.ok(h.timers.some(timer=>timer.delay===60000),'the hero is checked every minute during the festival');
+ const same=next();await h.tickTimers();assert.equal(next(),same,'nothing is redrawn while the block and its state stay the same');
+ clock.at=Date.parse('2026-10-22T13:05:00-05:00');await h.tickTimers();assert.ok(key(next(),'nextForYou'));assert.match(content(next()),/El espacio público/);assert.equal(next().querySelector('.f-talk-link'),null,'a block without questions has no conversation link');
+ // Before the block starts it is "next", and an untimed accepted laboratory is never "now".
+ const early=await harness({registration,context:{Date:movableClock('2026-10-22T08:30:00-05:00').Date}});assert.ok(key(early.root.querySelector('.f-next'),'nextForYou'));
+ const lab=await harness({registration:{...saved,labStatus:'accepted',answers:{...answers,activities:[]}},context:{Date:movableClock('2026-10-20T11:00:00-05:00').Date}});assert.ok(key(lab.root.querySelector('.f-next'),'nextForYou'));
+ const after=await harness({registration,context:{Date:movableClock('2026-10-26T10:00:00-05:00').Date}});assert.ok(!after.timers.some(timer=>timer.delay===60000),'no timer once the festival is over');
+ assert.deepEqual([...h.ctx.window.Fiiu.rows.nowForYou],['Happening now','Ahora','Agora']);
+});
+
+test('coming back to the tab picks up new conversations and news at most once a minute, and never redraws a form being filled in',async()=>{
+ const clock=movableClock('2026-10-21T08:00:00-05:00'),registration={...saved,answers:{...answers,activities:['day1-am','day1-pm']}};
+ let questions=[['10000000-0000-4000-8000-000000000001','day1-am',1,'open']],news=[{id:'n1',kind:'news',title:'Cambio de sala para el bloque del jueves',body:'Sala B',url:'',createdAt:'2026-10-20T12:00:00.000Z'}],pulseFails=false;
+ const h=await harness({registration,publicRead:()=>({...publicData,content:news}),pulseRead:()=>pulseFails?{status:503,data:{error:'unavailable'}}:{questions},context:{Date:clock.Date}});
+ const links=node=>talkLinks(node).map(link=>link.href),reads=path=>h.requests.filter(request=>request.path===path).length,back=async()=>{await h.visible(false);await h.visible(true);await flush();};
+ const newsTitles=()=>descendants(descendants(h.root).find(node=>node.id==='news')).filter(node=>node.tagName==='h3').map(node=>node.textContent);
+ assert.deepEqual(links(h.root.querySelector('.f-programme')),['fiiu-talk.html?a=day1-am']);
+ questions=[...questions,['10000000-0000-4000-8000-000000000002','day1-pm',1,'open']];news=[{id:'n2',kind:'news',title:'Nueva sala para el bloque de la noche',body:'Sala C',url:'',createdAt:'2026-10-21T12:00:00.000Z'},...news];
+ clock.at+=30000;await back();assert.equal(reads('/api/fiiu/pulse'),1,'within a minute nothing is read again');
+ clock.at+=61000;await back();
+ assert.deepEqual(links(h.root.querySelector('.f-programme')),['fiiu-talk.html?a=day1-am','fiiu-talk.html?a=day1-pm']);
+ assert.deepEqual(links(h.root.querySelector('.f-saved')),['fiiu-talk.html?a=day1-am','fiiu-talk.html?a=day1-pm'],'the saved itinerary, not being edited, follows too');
+ assert.deepEqual(newsTitles(),['Nueva sala para el bloque de la noche','Cambio de sala para el bloque del jueves']);assert.match(content(h.root.querySelector('.f-latest')),/Nueva sala/);
+ // A failed read keeps what is shown; a back/forward-cache restore counts as a return.
+ pulseFails=true;clock.at+=61000;await back();assert.equal(links(h.root.querySelector('.f-programme')).length,2);
+ pulseFails=false;questions=[...questions,['10000000-0000-4000-8000-000000000003','day2-am',1,'open']];clock.at+=61000;
+ for(const listener of h.windowListeners.pageshow||[])listener({persisted:true});await flush();assert.equal(links(h.root.querySelector('.f-programme')).length,3);
+ // An edit in progress keeps its form, draft and focus; only the programme and hero follow.
+ await key(h.root,'edit').listeners.click();const form=h.form();typeInto(form,'city','Callao');
+ questions=[...questions,['10000000-0000-4000-8000-000000000004','day3-am',1,'open']];clock.at+=61000;await back();
+ assert.equal(h.form(),form);assert.equal(field(form,'city').value,'Callao');assert.equal(form.hidden,false);assert.equal(links(h.root.querySelector('.f-programme')).length,4);
+});
+
+// Records the ids of the nodes scrollIntoView lands on, and lets document.querySelector find a node by its id as a browser does.
+function watchScrolls(){
+ const seen=[],{scrollIntoView,querySelectorAll}=Node.prototype;
+ Node.prototype.scrollIntoView=function(){seen.push(this.id);};
+ Node.prototype.querySelectorAll=function(selector){return /^#[\w-]+$/.test(selector)?descendants(this).filter(node=>node.id===selector.slice(1)):querySelectorAll.call(this,selector);};
+ return{seen,restore(){Node.prototype.scrollIntoView=scrollIntoView;Node.prototype.querySelectorAll=querySelectorAll;}};
+}
+// Node.contains as a browser has it, for the code that checks where focus is.
+function withContains(){const had=Object.hasOwn(Node.prototype,'contains'),before=Node.prototype.contains;Node.prototype.contains=function(node){for(let n=node;n;n=n.parent)if(n===this)return true;return false;};return()=>{if(had)Node.prototype.contains=before;else delete Node.prototype.contains;};}
+const at=hash=>({location:{hash,search:'',pathname:'/fiiu.html'}});
+
+test('a link to the news, the materials, the programme or a day lands there again once the registration redraws the page above it, unless the person has moved',async()=>{
+ const scrolls=watchScrolls();
+ try{
+  for(const hash of ['#news','#materials','#programme','#day-2026-10-23']){
+   let answer;scrolls.seen.length=0;await harness({read:()=>new Promise(resolve=>{answer=resolve;}),context:at(hash)});
+   assert.deepEqual(scrolls.seen,[hash.slice(1)],hash+': the programme and feeds are drawn, so the link scrolls at once');
+   answer(self(saved));await flush();assert.deepEqual(scrolls.seen,[hash.slice(1),hash.slice(1)],hash+' is at the top again after the registration redraw');
+  }
+  // A registration that answers at once still redraws the programme and panel, so the scroll follows that redraw too.
+  scrolls.seen.length=0;await harness({registration:saved,context:at('#programme')});assert.equal(scrolls.seen.at(-1),'programme');assert.equal(scrolls.seen.length,2);
+  // Someone who scrolled, tapped or typed meanwhile stays where they went.
+  for(const type of ['wheel','touchstart','pointerdown','keydown']){
+   let answer;scrolls.seen.length=0;const h=await harness({read:()=>new Promise(resolve=>{answer=resolve;}),context:at('#news')});
+   for(const listener of h.windowListeners[type]||[])listener({type});
+   answer(self(saved));await flush();assert.deepEqual(scrolls.seen,['news'],type);
+  }
+ }finally{scrolls.restore();}
+});
+
+test('Back after a link inside the page is the browser’s own restore: only a Back or reload being rebuilt turns it off, and only until the page is drawn',async()=>{
+ const storage=tabStorage(),scrolls=[];storage.setItem('fiiu.place:/fiiu.html','2080');
+ const page=(type,read)=>harness({registration:saved,read,context:{sessionStorage:storage,scrollTo:options=>scrolls.push({...options}),performance:{getEntriesByType:kind=>kind==='navigation'?[{type}]:[]}}});
+ const fresh=await page('navigate');assert.notEqual(fresh.ctx.history.scrollRestoration,'manual','a new visit leaves the browser in charge');
+ let answer;const back=await page('back_forward',()=>new Promise(resolve=>{answer=resolve;}));assert.equal(back.ctx.history.scrollRestoration,'manual','the browser does not jump about while the page is rebuilt');
+ answer(self(saved));await flush();assert.deepEqual(scrolls,[{top:2080,behavior:'instant'}]);
+ // Day chips, "Ver mi inscripción", "Última novedad" and the step links make history entries that copy this setting, so Back from them works again.
+ assert.equal(back.ctx.history.scrollRestoration,'auto');
+ const reload=await page('reload');assert.equal(reload.ctx.history.scrollRestoration,'auto');
+ const failed=await harness({publicRead:()=>({status:503,data:{error:'unavailable'}}),context:{sessionStorage:storage,scrollTo(){},performance:{getEntriesByType:()=>[{type:'reload'}]}}});
+ assert.ok(key(failed.root,'retry'));assert.equal(failed.ctx.history.scrollRestoration,'auto','a page that could not be drawn gives the restore back too');
+});
+
+test('coming back to the tab keeps keyboard focus on the same programme or summary control, and keeps the panel notice, when new conversations redraw them',async()=>{
+ const clock=movableClock('2026-10-12T08:00:00-05:00'),restore=withContains();let questions=[['10000000-0000-4000-8000-000000000001','day1-am',1,'open']];
+ try{
+  const write=request=>request.method==='DELETE'?{status:409,data:{error:'registration changed; reload before cancelling'}}:{registration:saved,confirmationEmail:'sent'};
+  const h=await harness({write,pulseRead:()=>({questions}),context:{Date:clock.Date}}),document=h.ctx.document;
+  const back=async more=>{questions=[...questions,more];clock.at+=61000;await h.visible(false);await h.visible(true);await flush();};
+  h.fill();await h.submit();const summary=h.root.querySelector('.f-saved'),notice=()=>h.root.querySelector('.f-registration').querySelector('.f-notice');assert.ok(key(notice(),'emailSent'));
+  document.activeElement=summary;await back(['10000000-0000-4000-8000-000000000002','day1-pm',1,'open']);
+  const redrawn=h.root.querySelector('.f-saved');assert.notEqual(redrawn,summary,'the itinerary was redrawn with its new link');assert.equal(redrawn.focused,true,'focus stays on the summary');
+  assert.ok(key(notice(),'emailSent'),'“Te enviamos un resumen a …” stays');
+  const add=key(cardOf(h,'Cuidar y transformar la ciudad'),'addToRegistration');document.activeElement=add;await back(['10000000-0000-4000-8000-000000000003','day2-pm',1,'open']);
+  const again=key(cardOf(h,'Cuidar y transformar la ciudad'),'addToRegistration');assert.notEqual(again,add,'the programme was redrawn');assert.equal(again.focused,true,'focus stays on the same block’s button');
+  assert.ok(!descendants(h.root).some(node=>node!==again&&node.focused&&node.dataset.fiiuText==='addToRegistration'),'no other block’s button takes it');
+  // A cancellation refused because the registration changed elsewhere shows its error and recovery action; a redraw keeps both.
+  h.ctx.window.confirm=()=>true;await key(h.root,'cancel').listeners.click();assert.ok(key(h.root,'reloadSaved'));
+  await back(['10000000-0000-4000-8000-000000000004','day3-am',1,'open']);assert.ok(key(h.root,'reloadSaved'),'the recovery action stays');assert.equal(talkLinks(h.root.querySelector('.f-programme')).length,4,'the programme still follows');
+ }finally{restore();}
+});
+
+test('the hero’s minute check stops once the festival is over, even on a page left open across the last day',async()=>{
+ const clock=movableClock('2026-10-25T20:00:00-05:00'),h=await harness({registration:saved,context:{Date:clock.Date}}),timer=()=>h.timers.find(item=>item.delay===60000);
+ assert.ok(timer());await h.tickTimers();assert.ok(!timer().cleared,'it runs through the last day');
+ clock.at=Date.parse('2026-10-26T00:01:00-05:00');await h.tickTimers();assert.equal(timer().cleared,true);
+});
