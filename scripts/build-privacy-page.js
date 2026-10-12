@@ -95,7 +95,7 @@ ${sections.map(([,n,title,body])=>`<section id="${lang}-${n}"><h2>${n}. ${escape
   <script src="locale.js?v=20261009a"></script>
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="fonts.css?v=20260911b">
-  <link rel="stylesheet" href="privacy.css?v=20260919a">
+  <link rel="stylesheet" href="privacy.css?v=20261013b">
   <script defer src="privacy.js?v=20261009a"></script>
 </head>
 <body id="top">
