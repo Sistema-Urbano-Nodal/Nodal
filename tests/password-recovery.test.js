@@ -219,6 +219,8 @@ test('when a server answer ends the reset, focus goes to the heading rather than
   const h=ui(async()=>replies.shift()());const title=h.nodes.get('recoveryTitle');
   h.nodes.get('recoveryPassword').value=h.nodes.get('recoveryConfirm').value='safe-new-password';
   await h.submit('recoveryReset');assert.notEqual(title.focused,true,'a retry keeps focus on the button');
+  // As in Chrome, focus still sits on the button the answer just hid until the browser moves it to the page.
+  const button=h.nodes.get('recoveryResetButton');h.nodes.get('recoveryReset').contains=node=>node===button;h.context.document.activeElement=button;
   await h.submit('recoveryReset');
   assert.equal(h.nodes.get('recoveryReset').hidden,true);assert.equal(title.textContent,'Reset your password');
   assert.equal(title.tabIndex,-1);assert.equal(title.focused,true);

@@ -67,10 +67,11 @@
       finally{
         busy=false;form.setAttribute('aria-busy','false');submit.disabled=false;submit.dataset.invitationText='accept';apply();
         // Disabling the button while sending dropped focus to the page; give it back unless the person moved on. When the
-        // answer ended the acceptance the form is gone, so focus goes to the heading, which names the outcome.
-        if(!document.activeElement||document.activeElement===document.body){
-          if(!form.hidden)submit.focus();else{title.tabIndex=-1;title.focus();}
-        }
+        // answer ended the acceptance the form is gone, so focus goes to the heading, which names the outcome. Chrome
+        // leaves focus on the hidden button until the next frame, then drops it to the page, so that counts as dropped.
+        const active=document.activeElement,dropped=!active||active===document.body;
+        if(!form.hidden){if(dropped)submit.focus();}
+        else if(dropped||form.contains(active)){title.tabIndex=-1;title.focus();}
       }
     });
   }

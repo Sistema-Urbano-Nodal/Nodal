@@ -174,6 +174,8 @@ test('when a server answer ends the acceptance, focus goes to the heading, and t
  let h;const seen=[];
  h=acceptanceHarness({transport:[new TypeError('Failed to fetch')],reply:async()=>{h.lang('es');seen.push({text:h.nodes.recoveryMessage.textContent,hidden:h.nodes.recoveryMessage.hidden});return {code:'invitation_invalid'};}});
  h.valid();await h.submit();assert.match(h.nodes.recoveryMessage.textContent,/Check your connection/);assert.notEqual(h.nodes.invitationTitle.focused,true);
+ // As in Chrome, focus still sits on the button the answer just hid until the browser moves it to the page.
+ h.nodes.invitationForm.contains=node=>node===h.nodes.invitationSubmit;h.ctx.document.activeElement=h.nodes.invitationSubmit;
  await h.submit();
  assert.deepEqual(seen,[{text:'',hidden:false}],'empty but still on the page while sending, even when the language changes meanwhile');
  assert.equal(h.nodes.invitationForm.hidden,true);assert.equal(h.nodes.invitationTitle.tabIndex,-1);assert.equal(h.nodes.invitationTitle.focused,true);

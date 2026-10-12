@@ -46,9 +46,10 @@
     catch{throw {lost:'unreadable'};}
   }
   // The submit button is disabled while sending, which drops focus to the page; give it back unless the person moved on.
-  function refocus(button){if(!document.activeElement||document.activeElement===document.body)button.focus();}
+  // gone: a form just hidden. Chrome leaves focus on its button until the next frame, then drops it to the page.
+  function refocus(target,gone){const active=document.activeElement;if(!active||active===document.body||gone?.contains(active))target.focus();}
   // When an answer ends the reset, the form that held focus is gone; the heading names what the page offers now.
-  function focusTitle(){title.tabIndex=-1;refocus(title);}
+  function focusTitle(){title.tabIndex=-1;refocus(title,resetForm);}
   requestForm.addEventListener('submit',async event=>{
     event.preventDefault();
     if(busy||requestForm.hidden)return;
