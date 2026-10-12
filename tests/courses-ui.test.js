@@ -650,6 +650,17 @@ test('a reply whose contribution is on an older page stays flat and says so unti
  assert.deepEqual(list.children.map(n=>n.id),['post-newer','post-parent','post-reply']);assert.equal(card().className,'pilot-post reply');
  assert.equal(link().hidden,false);assert.equal(link().textContent,'Replying to Member');assert.equal(earlier().hidden,true);
 });
+test('a reply to a contribution with no author name still sits under it and says it answers a contribution',async()=>{
+ const parent={...ownPost,id:'parent',authorName:'',canEdit:false,canDelete:false};
+ const reply={...ownPost,id:'reply',parentId:'parent',kind:'comment',authorName:'Carla',body:'An answer',createdAt:'2026-09-08T11:00:00Z',canEdit:false,canDelete:false};
+ const h=postHarness({posts:[reply,parent]});h.run('courses');await flush();
+ const card=postCard(h,'reply'),link=descendants(card).find(n=>n.href==='#post-parent');
+ assert.equal(card.className,'pilot-post reply');assert.equal(link.hidden,false);assert.equal(findKey(card,'replyEarlier').hidden,true);
+ assert.equal(link.textContent,'Replying to a contribution');h.lang('es');assert.equal(link.textContent,'Respondiendo a una contribución');h.lang('en');
+ // The composer's reply line falls back the same way instead of a bare 'Replying to'.
+ findKey(postCard(h,'parent'),'reply').listeners.click();
+ assert.equal(descendants(h.body).find(n=>n.className==='pilot-reply-context').children[0].textContent,'Replying to a contribution');
+});
 test('saving the course form says so above the course title and puts focus on the title',async()=>{
  let saved=false;const intake={fullName:'A',profession:'B',city:'C',motivation:'D',experience:'E',expectations:'F',caseStudy:'G',digitalFamiliarity:'H'};
  const h=harness((path,opts)=>{if(path.endsWith('/intake')){saved=true;return{intake};}const data=learningFixture(path,opts);return path==='/api/courses/c1'?{...data,intake:saved?intake:null}:data;},{page:'course',search:'?id=c1'});h.run('courses');await flush();

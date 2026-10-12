@@ -112,6 +112,8 @@ const rows = {
  postPublished:['Your contribution was published.','Tu contribución se publicó.','Sua contribuição foi publicada.'],
  // A reply whose contribution is not on the page: an older page, or withdrawn.
  replyEarlier:['In reply to an earlier contribution','Respuesta a una contribución anterior','Resposta a uma contribuição anterior'],
+ // A reply whose contribution is on the page but carries no author name.
+ replyingUnnamed:['Replying to a contribution','Respondiendo a una contribución','Respondendo a uma contribuição'],
  postEditEmpty:["Write your contribution before saving.", "Escribe tu contribución antes de guardar.", "Escreva sua contribuição antes de salvar."],
  myFeedback:["My saved feedback", "Mis opiniones guardadas", "Meus feedbacks salvos"],
  myFeedbackHint:["Review, edit or delete feedback you have submitted across NODAL. Only your own responses appear here.", "Revisa, edita o elimina tus opiniones enviadas en NODAL. Aquí solo aparecen tus respuestas.", "Consulte, edite ou exclua os feedbacks que você enviou na NODAL. Apenas suas respostas aparecem aqui."],
