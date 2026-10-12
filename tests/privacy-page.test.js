@@ -137,9 +137,10 @@ test('festival conversations are described in every language: their data row aft
     ['pt', 'Festival FIIU', 'Conversas do FIIU', 'Pessoas inscritas no festival FIIU', 'Nas conversas do FIIU'],
   ]) {
     assert.equal((articles[lang].match(/<section /g) || []).length, 12, lang);
-    const table = section(lang, 2), before = table.indexOf(`<tr><td>${festival}</td>`), at = table.indexOf(`<tr><td>${row}</td>`);
+    const rowOf = category => table.indexOf(`<tr role="row"><td role="cell">${category}</td>`);
+    const table = section(lang, 2), before = rowOf(festival), at = rowOf(row);
     assert.ok(before > -1 && at > before, `${lang}: the conversations row follows the festival row`);
-    assert.equal(table.slice(before, at).match(/<tr>/g).length, 1, `${lang}: directly after it`);
+    assert.equal(table.slice(before, at).match(/<tr[\s>]/g).length, 1, `${lang}: directly after it`);
     assert.ok(section(lang, 4).includes(`<strong>${audience}:</strong>`), `${lang}: section 4 names who sees the messages`);
     assert.ok(section(lang, 9).includes(deletion), `${lang}: section 9 says what account deletion does to them`);
   }
@@ -198,4 +199,19 @@ test('on phones the data table reflows at body size, and the policy links and bu
   assert.match(declarations(rules, '.policy-languages button', touch), /min-width:\s*44px/);
   assert.doesNotMatch(declarations(rules, '.policy-home', phone), /font-size:\s*1[0-2]px/);
   assert.doesNotMatch(css, /border-left/, 'no left accent bars');
+});
+
+/* On phones the stacked rows use display:block, which can strip a table's semantics (Safari and VoiceOver), and the
+   visually hidden header row then names no cell. Explicit roles keep the table, its rows, headers and cells. */
+test('the data table keeps explicit table roles, so its stacked phone layout is still read as a table', async () => {
+  const html = read('web/pages/privacy.html');
+  const count = pattern => (html.match(pattern) || []).length;
+  const tables = count(/<table[\s>]/g);
+  assert.ok(tables >= 3, 'one table per language at least');
+  assert.equal(count(/<table role="table">/g), tables);
+  assert.equal(count(/<thead role="rowgroup">/g), tables);
+  assert.equal(count(/<tbody role="rowgroup">/g), tables);
+  assert.equal(count(/<tr role="row">/g), count(/<tr[\s>]/g));
+  assert.equal(count(/<th role="columnheader" scope="col">/g), count(/<th[\s>]/g));
+  assert.equal(count(/<td role="cell">/g), count(/<td[\s>]/g));
 });
