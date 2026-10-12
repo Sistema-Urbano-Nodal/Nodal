@@ -32,6 +32,8 @@ const submit=h=>composer(h).listeners.submit({preventDefault(){}});
 const later=()=>{let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};};
 const links=node=>node.querySelectorAll('a');
 const MESSAGES='/api/fiiu/questions/'+Q+'/messages';
+// After a refusal that says the question closed, the page reads it again: the first read is the page load, the next ones see the close.
+const closesOnRefusal=()=>{let reads=0;return ()=>reads++?thread({question:{status:'closed',revision:4},me:{canPost:false},revision:4}):thread();};
 
 test('the chat shows the block, the talk and the question, then the messages oldest first with the organiser label and Lima times',async()=>{
  const yesterday=message(M3,{body:'Llegué temprano',createdAt:'2026-10-20T20:00:00.000Z',seq:1});
@@ -301,19 +303,31 @@ test('a closed question is readable without a composer or likes, and a sync that
  assert.ok(composer(live));assert.equal(row(live,M1).querySelector('.f-talk-like').disabled,false);
  state='closed';await live.tickTimers();
  assert.equal(composer(live),null);assert.ok(key(live.root,'talkClosed'));assert.equal(row(live,M1).querySelector('.f-talk-like').disabled,true);
- const closing=await page({['POST '+MESSAGES]:{status:403,data:{error:'question closed',code:'question_closed'}}});
+ const closing=await page({['GET /api/fiiu/questions/'+Q]:closesOnRefusal(),['POST '+MESSAGES]:{status:403,data:{error:'question closed',code:'question_closed'}}});
  composer(closing).querySelector('textarea').value='Tarde';submit(closing);await flush();
  assert.equal(composer(closing),null,'a refusal because it closed switches the page to closed');assert.ok(key(closing.root,'talkClosed'));
 });
 
 test('a pulse the CDN cached before the question closed does not bring the composer back',async()=>{
  // The pulse can be seconds old: it only says that something moved past the page's revision, and its status is never applied.
- const closing=await page({['POST '+MESSAGES]:{status:403,data:{error:'question closed',code:'question_closed'}}});
+ const closing=await page({['GET /api/fiiu/questions/'+Q]:closesOnRefusal(),['POST '+MESSAGES]:{status:403,data:{error:'question closed',code:'question_closed'}}});
  composer(closing).querySelector('textarea').value='Tarde';submit(closing);await flush();assert.equal(composer(closing),null);
  await closing.tickTimers();assert.equal(composer(closing),null,'the stale open pulse at the shown revision is ignored');assert.ok(key(closing.root,'talkClosed'));
  assert.equal(sent(closing,'GET',/since=/).length,0);
  const fresh=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'closed',revision:4},me:{canPost:false},revision:4})});
  await fresh.tickTimers();assert.equal(composer(fresh),null,'a first load that says closed wins over an older pulse that says open');assert.equal(row(fresh,M1).querySelector('.f-talk-like').disabled,true);
+});
+
+test('a refused send reads the question again, so an answer computed before the close cannot reopen the composer',async()=>{
+ // The first read is the page load; after the refusal the page reads the question again and gets the close's revision.
+ let reads=0;const loaded=thread(),closed=thread({question:{status:'closed',revision:5},me:{canPost:false},revision:5});
+ const h=await page({['GET /api/fiiu/questions/'+Q]:()=>reads++?closed:loaded,['POST '+MESSAGES]:{status:403,data:{error:'question closed',code:'question_closed'}},
+  'GET /api/fiiu/pulse':{questions:[[Q,'day1-am',5,'open']]},['GET '+MESSAGES+'?since=3']:since(4,[],{status:'open'})});
+ composer(h).querySelector('textarea').value='Tarde';submit(h);await flush();
+ assert.equal(composer(h),null);assert.equal(reads,2,'the question was read again after the refusal');
+ await h.tickTimers();await flush();
+ assert.equal(sent(h,'GET',/since=3/).length,1,'the pulse moved, so the page synced');
+ assert.equal(composer(h),null,'an answer older than the close is ignored');assert.ok(key(h.root,'talkClosed'));
 });
 
 test('a block address lists its questions open first, opens a single one at once, and says when there are none',async()=>{
@@ -500,7 +514,7 @@ test('a Retry answered with the message already removed clears the draft and lea
  assert.equal(text.value,'','it was delivered, then removed');assert.equal(composerStatus(h),'');
 });
 
-test('a Retry refused because its earlier copy was deleted keeps the draft, and the next try is a new message with its files uploaded again',async()=>{
+test('a Retry refused because its earlier copy can no longer be finished keeps the draft, and the next try is a new message with its files uploaded again',async()=>{
  let posts=0,uploads=0;const answers=[{status:503,data:{}},{status:409,data:{error:'client id already used for another message',code:'client_id_reused'}},{status:201,data:{message:message(M3,{mine:true,body:'Otra vez',createdAt:'2026-10-21T14:20:00.000Z',seq:6})}}];
  const h=await page({'POST /api/fiiu/files':()=>({status:201,data:{file:{id:[F1,F2][uploads++],name:'a.jpg',mime:'image/jpeg',size:1000,width:null,height:null,thumb:false}}}),['POST '+MESSAGES]:()=>answers[posts++]},
   {context:{createImageBitmap:async()=>{throw new Error('x');},FileReader:Reader}});
@@ -560,7 +574,7 @@ test('a like on a message removed a moment ago takes the row away without an err
  const h=await page({['PUT /api/fiiu/messages/'+M1+'/like']:{status:404,data:{error:'message unavailable',code:'message_unavailable'}}});
  await row(h,M1).querySelector('.f-talk-like').listeners.click();await flush();
  assert.equal(row(h,M1),undefined);assert.equal(composer(h).querySelector('.f-talk-status').textContent,'','no error');assert.deepEqual(rows(h).map(node=>node.dataset.id),[M2]);
- const closed=await page({['PUT /api/fiiu/messages/'+M1+'/like']:{status:403,data:{error:'this conversation is closed',code:'question_closed'}}});
+ const closed=await page({['GET /api/fiiu/questions/'+Q]:closesOnRefusal(),['PUT /api/fiiu/messages/'+M1+'/like']:{status:403,data:{error:'this conversation is closed',code:'question_closed'}}});
  await row(closed,M1).querySelector('.f-talk-like').listeners.click();await flush();
  assert.equal(composer(closed),null);assert.ok(key(closed.root,'talkClosed'));assert.equal(row(closed,M1).querySelector('.f-talk-like').disabled,true);assert.equal(row(closed,M1).querySelector('.f-talk-like')['aria-pressed'],'false');
 });

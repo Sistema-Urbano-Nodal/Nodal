@@ -319,7 +319,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
   const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'course.html', 'courses.html', 'teaching.html', 'accept-invitation.html', 'fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'organisers-only.html', 'community.html', 'knowledge.html', 'resources.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
   const pilot = { 'pilot-i18n.js': '20261009a', 'pilot.js': '20261005s', 'courses.css': '20261009a' };
-  const festival = { 'fiiu.css': '20261011a', 'fiiu-ui.js': '20261011a' };
+  const festival = { 'fiiu.css': '20261011a', 'fiiu-ui.js': '20261012a' };
   const required = {
     'index.html': { 'styles.css': '31', 'i18n.js': '20261009a', 'app.js': '21', 'recs.js': '5', 'script.js': '18', 'hero-network.js': '2' },
     'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20261009a', 'catalog.js': '7', ...pilot },
@@ -337,7 +337,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     'fiiu-admin.html': { 'styles.css': '31', 'i18n.js': '20261009a', ...festival, 'fiiu-admin.js': '20261011a' },
     'fiiu-qr.html': { 'i18n.js': '20261009a', ...festival, 'fiiu-qr.js': '20261009a' },
     'fiiu-checkin.html': { 'i18n.js': '20261009a', ...festival, 'fiiu-checkin.js': '20261009a' },
-    'fiiu-talk.html': { 'i18n.js': '20261009a', ...festival, 'fiiu-talk.js': '20261011a', 'fiiu-talk.css': '20261011a' },
+    'fiiu-talk.html': { 'i18n.js': '20261009a', ...festival, 'fiiu-talk.js': '20261012a', 'fiiu-talk.css': '20261012a' },
     'organisers-only.html': { 'i18n.js': '20261009a', ...festival },
     'community.html': { 'styles.css': '31', 'script.js': '18', 'i18n.js': '20261009a', ...festival, 'fiiu-hubs.js': '20261011a', 'news-feed.js': '20261001b' },
     'knowledge.html': { 'styles.css': '31', 'script.js': '18', 'i18n.js': '20261009a', ...festival, 'fiiu-hubs.js': '20261011a' },

@@ -29,7 +29,7 @@
   talkHide:['Hide','Ocultar','Ocultar'],talkUnhide:['Unhide','Mostrar','Mostrar'],talkHidden:['Hidden','Oculto','Oculta'],talkHiddenForYou:['Hidden by the organisers','Oculto por la organización','Ocultada pela organização'],talkBackToBlock:['All questions on this block','Todas las preguntas de este bloque','Todas as perguntas deste bloco'],
   talkOpenFull:['Open full image','Abrir imagen completa','Abrir imagem completa'],talkError:['Something went wrong. Try again.','Algo salió mal. Inténtalo de nuevo.','Algo deu errado. Tente de novo.'],
   talkRate:['Too many messages at once. Wait a moment and try again.','Demasiados mensajes seguidos. Espera un momento e inténtalo de nuevo.','Muitas mensagens de uma vez. Aguarde um momento e tente de novo.'],
-  talkReused:['This message was sent before and then deleted. Retry to send it again as a new message.','Este mensaje ya se había enviado y luego se eliminó. Reintenta para enviarlo de nuevo como un mensaje nuevo.','Esta mensagem já tinha sido enviada e depois foi apagada. Tente de novo para enviá-la como uma nova mensagem.'],
+  talkReused:['This message could not be finished. Retry to send it as a new message.','No se pudo terminar de enviar este mensaje. Reintenta para enviarlo como un mensaje nuevo.','Não foi possível terminar de enviar esta mensagem. Tente de novo para enviá-la como uma nova mensagem.'],
   talkNotRegistered:['You need a FIIU registration to take part.','Necesitas una inscripción en el FIIU para participar.','Você precisa de uma inscrição no FIIU para participar.'],
   talkPresent:['Projector view','Vista de proyección','Modo de projeção'],talkLatest:['Latest','Recientes','Recentes'],talkTop:['Most liked','Con más me gusta','Mais curtidas'],talkFullscreen:['Full screen','Pantalla completa','Tela cheia'],
   talkScanToJoin:['Scan to join the conversation','Escanea para unirte a la conversación','Escaneie para entrar na conversa'],
@@ -261,10 +261,18 @@
  // The header is redrawn only when something in it changed, so a focused "More questions" summary keeps its focus on the other answers.
  function applyQuestion(fresh){
   if(!question||fresh?.id!==question.id||typeof fresh.body!=='string')return;
+  // An answer older than the question on screen (one in flight across a close, or another instance's shared copy) never undoes it.
+  const revision=Number(fresh.revision);if(Number.isFinite(revision)){if(revision<Number(question.revision||0))return;question.revision=revision;}
   const talk=fresh.talk??null,edited=fresh.body!==question.body||talk!==(question.talk??null);if(edited)Object.assign(question,{body:fresh.body,talk});
   if(['open','closed','hidden'].includes(fresh.status)&&fresh.status!==question.status)setStatus(fresh.status);else if(edited&&(wall||parts))(wall?renderWallHead:renderHead)();
  }
  async function reload(id){const data=await api('/api/fiiu/questions/'+encodeURIComponent(id));if(question?.id===id&&data?.question?.id)show(data);}
+ // A refusal says the question closed before any sync did: it closes at once, and the question is read again (that read is never shared) so its
+ // revision is the close's, and an older answer still on its way cannot bring the composer back.
+ function closedByServer(){
+  setStatus('closed');const id=question?.id;if(!id)return;
+  api('/api/fiiu/questions/'+encodeURIComponent(id)).then(data=>{if(question?.id===id)applyQuestion(data?.question);},()=>{});
+ }
 
  // Composer: text up to 1,000 characters (counted as the server counts them, in code points) and up to 3 images or PDFs.
  function ensureComposer(){
@@ -311,8 +319,8 @@
   // JPEG has no transparency: without a white ground a transparent PNG turns black.
   const g=canvas.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,canvas.width,canvas.height);g.drawImage(bitmap,0,0,canvas.width,canvas.height);return canvas;
  }
- // The server refuses a file name over 160 characters (UTF-16 units, as it counts them), so one over 120 is cut here, by whole characters, keeping its
- // extension: a long report title would otherwise fail on every Retry.
+ // The server shortens a file name over 160 characters; one over 120 is cut here already, by whole characters and keeping its extension, so the name
+ // people see in the chat is the one they sent.
  function fitName(name,fallback){
   const full=String(name??'').trim()||fallback;if(full.length<=NAME)return full;
   const dot=full.lastIndexOf('.'),ext=dot>0&&full.length-dot<=10?full.slice(dot):'';let stem='';
@@ -387,10 +395,11 @@
    if(DRAFT.includes(key)){attempts.delete(attempt.clientId);row.remove();attempt.row=null;updateEmpty();say(problem(key));return;}
    // A file the server no longer accepts for this message is uploaded again on the next try.
    if(error?.code==='file_unavailable')for(const file of attempt.files)uploads.delete(fileKey(file));
-   // The message stored under this clientId was deleted since, taking its files with it: the next try is a new message, with its files uploaded again.
+   /* The copy stored under this clientId can no longer be finished (it stopped before its files and the question closed, a moderator hid it, or
+      the retry came too late): the next try is a new message, with its files uploaded again. */
    if(error?.code==='client_id_reused'){attempts.delete(attempt.clientId);attempt.clientId=uuid();attempts.set(attempt.clientId,attempt);for(const file of attempt.files)uploads.delete(fileKey(file));}
    attempt.state='failed';const failed=pendingRow(attempt,true);row.replaceWith(failed);attempt.row=failed;say(problem(key));
-   if(error?.code==='question_closed')setStatus('closed');
+   if(error?.code==='question_closed')closedByServer();
   }
  }
  // Errors from likes, deletions and moderation show next to the composer, or in the page status when the question is closed.
@@ -409,7 +418,7 @@
   }catch(error){
    // 404: hidden or deleted a moment ago, which the next sync would also say.
    if(error?.status===404){patch(()=>drop(id));return;}
-   notify(error);if(error?.code==='question_closed')setStatus('closed');
+   notify(error);if(error?.code==='question_closed')closedByServer();
   }finally{liking.delete(id);paintLike(id);}
  }
  async function erase(id){
