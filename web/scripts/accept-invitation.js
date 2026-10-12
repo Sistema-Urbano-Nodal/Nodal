@@ -42,7 +42,9 @@
       if(name.value.trim().length<2||name.value.trim().length>120||/[\u0000-\u001f\u007f]/.test(name.value)){invalid(name,'nameLength');return;}
       if(password.value.length<8||utf8Bytes(password.value)>72){invalid(password,'invitation_password_length');return;}
       if(password.value!==confirmation.value){invalid(confirmation,'mismatch');return;}
-      busy=true;form.setAttribute('aria-busy','true');submit.disabled=true;submit.dataset.invitationText='saving';message.hidden=true;apply();
+      // Emptied, not hidden, while sending: a live region that stays on the page announces its next text even when it
+      // repeats the last one; one that reappears may not be announced at all.
+      busy=true;form.setAttribute('aria-busy','true');submit.disabled=true;submit.dataset.invitationText='saving';delete message.dataset.invitationText;message.textContent='';apply();
       try{
         const result=await send({tokenHash,password:password.value,fullName:name.value.trim()});
         if(result.passwordChanged===true){
@@ -64,8 +66,11 @@
       }
       finally{
         busy=false;form.setAttribute('aria-busy','false');submit.disabled=false;submit.dataset.invitationText='accept';apply();
-        // Disabling the button while sending dropped focus to the page; give it back unless the person moved on.
-        if(!form.hidden&&(!document.activeElement||document.activeElement===document.body))submit.focus();
+        // Disabling the button while sending dropped focus to the page; give it back unless the person moved on. When the
+        // answer ended the acceptance the form is gone, so focus goes to the heading, which names the outcome.
+        if(!document.activeElement||document.activeElement===document.body){
+          if(!form.hidden)submit.focus();else{title.tabIndex=-1;title.focus();}
+        }
       }
     });
   }

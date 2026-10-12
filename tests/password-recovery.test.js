@@ -212,6 +212,35 @@ test('the server refuses a recovery code a second time with recovery_invalid, wh
   const again=await p.repo.completePasswordRecovery({req:req(cookie),code:'one-use-code',password:'a-new-password'});
   assert.equal(again.code,'recovery_invalid');assert.notEqual(again.passwordChanged,true);
 });
+/* When an answer ends the reset, the form that held focus disappears and focus would fall to the page, so a keyboard
+   or screen-reader user is left nowhere. It goes to the heading, which now names what the page offers. */
+test('when a server answer ends the reset, focus goes to the heading rather than the page',async()=>{
+  const replies=[()=>{throw new TypeError('Failed to fetch');},()=>response({code:'recovery_invalid'},400)];
+  const h=ui(async()=>replies.shift()());const title=h.nodes.get('recoveryTitle');
+  h.nodes.get('recoveryPassword').value=h.nodes.get('recoveryConfirm').value='safe-new-password';
+  await h.submit('recoveryReset');assert.notEqual(title.focused,true,'a retry keeps focus on the button');
+  await h.submit('recoveryReset');
+  assert.equal(h.nodes.get('recoveryReset').hidden,true);assert.equal(title.textContent,'Reset your password');
+  assert.equal(title.tabIndex,-1);assert.equal(title.focused,true);
+  const done=ui(async()=>response({passwordChanged:true}));done.nodes.get('recoveryPassword').value=done.nodes.get('recoveryConfirm').value='safe-new-password';
+  await done.submit('recoveryReset');assert.equal(done.nodes.get('recoveryTitle').focused,true,'and after the password is saved');
+});
+/* The message is a live region. Two lost answers in a row write the same words, which screen readers may not
+   announce again, so the message empties while each request is sent and every answer arrives as new text. */
+test('the message empties while a request is sent, so a repeated answer is announced again',async()=>{
+  const seen=[];let h;
+  const replies=[()=>{throw Object.assign(new Error('signal timed out'),{name:'TimeoutError'});},()=>new Response('<html>Bad gateway</html>',{status:502})];
+  h=ui(async()=>{h.lang('es');seen.push(h.nodes.get('recoveryMessage').textContent);return replies.shift()();});
+  h.nodes.get('recoveryPassword').value=h.nodes.get('recoveryConfirm').value='safe-new-password';
+  await h.submit('recoveryReset');const first=h.nodes.get('recoveryMessage').textContent;
+  await h.submit('recoveryReset');
+  assert.deepEqual(seen,['',''],'empty while sending, even when the language changes meanwhile');
+  assert.equal(h.nodes.get('recoveryMessage').textContent,first);assert.match(first,/No pudimos confirmar si la contraseña se guardó/);
+  const offline=[];let r;
+  r=ui(async()=>{offline.push(r.nodes.get('recoveryMessage').textContent);throw new TypeError('Failed to fetch');},{search:''});
+  r.nodes.get('recoveryEmail').value='member@example.test';await r.submit('recoveryRequest');await r.submit('recoveryRequest');
+  assert.deepEqual(offline,['','']);assert.match(r.nodes.get('recoveryMessage').textContent,/check your connection/i);
+});
 test('requesting a link while offline says to check the connection, not that recovery is unavailable',async()=>{
   const h=ui(async()=>{throw new TypeError('Failed to fetch');},{search:''});h.nodes.get('recoveryEmail').value='member@example.test';h.lang('es');
   await h.submit('recoveryRequest');

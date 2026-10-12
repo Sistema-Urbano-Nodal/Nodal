@@ -19,6 +19,9 @@
   // parameters before users follow links; keep the one-use code only in memory.
   history.replaceState(null,'','/reset-password.html');
   function show(key){message.dataset.recoveryText=key;message.textContent=rt(key);message.hidden=false;}
+  // Emptied, not hidden, while a request is sent: a live region that stays on the page announces its next text even
+  // when it repeats the last one (two lost answers in a row); one that reappears may not be announced at all.
+  function clear(){delete message.dataset.recoveryText;message.textContent='';}
   function heading(key){title.dataset.recoveryText=key;title.textContent=rt(key);}
   function requestMode(){code='';resetForm.hidden=true;requestForm.hidden=false;another.hidden=true;heading('requestTitle');}
   requestForm.hidden=Boolean(code);resetForm.hidden=!code;
@@ -44,11 +47,13 @@
   }
   // The submit button is disabled while sending, which drops focus to the page; give it back unless the person moved on.
   function refocus(button){if(!document.activeElement||document.activeElement===document.body)button.focus();}
+  // When an answer ends the reset, the form that held focus is gone; the heading names what the page offers now.
+  function focusTitle(){title.tabIndex=-1;refocus(title);}
   requestForm.addEventListener('submit',async event=>{
     event.preventDefault();
     if(busy||requestForm.hidden)return;
     if(!requestForm.checkValidity()){requestForm.reportValidity();return;}
-    const button=requestForm.querySelector('button[type="submit"]');setBusy(requestForm,true);button.dataset.recoveryText='sending';apply();
+    const button=requestForm.querySelector('button[type="submit"]');setBusy(requestForm,true);clear();button.dataset.recoveryText='sending';apply();
     try{
       const result=await post('/api/auth/recovery/request',{email:email.value.trim()});
       show(result.ok?'sent':result.code in window.nodalRecoveryI18n.rows?result.code:'recovery_unavailable');
@@ -61,7 +66,7 @@
     if(!code){show('recovery_invalid');requestMode();return;}
     if(password.value.length<8||utf8Bytes(password.value)>72){show('recovery_password_length');return;}
     if(password.value!==confirm.value){show('mismatch');return;}
-    const button=resetForm.querySelector('button[type="submit"]');setBusy(resetForm,true);button.dataset.recoveryText='saving';apply();
+    const button=resetForm.querySelector('button[type="submit"]');setBusy(resetForm,true);clear();button.dataset.recoveryText='saving';apply();
     try{
       const result=await post('/api/auth/recovery/complete',{code,password:password.value});
       if(result.passwordChanged){code='';resetForm.hidden=true;password.value='';confirm.value='';heading('doneTitle');show(result.code||'done');}
@@ -75,7 +80,7 @@
       // server refuses a used code with recovery_invalid, and only a server answer lets the link go.
       unsure=true;show(error?.lost==='offline'?'recovery_connection':'recovery_retry');
     }
-    finally{setBusy(resetForm,false);button.dataset.recoveryText='save';apply();if(!resetForm.hidden)refocus(button);}
+    finally{setBusy(resetForm,false);button.dataset.recoveryText='save';apply();if(resetForm.hidden)focusTitle();else refocus(button);}
   });
   for(const form of [requestForm,resetForm])form.querySelector('button[type="submit"]').disabled=false;
 })();

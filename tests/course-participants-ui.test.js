@@ -167,6 +167,18 @@ test('a timed-out or unreadable acceptance keeps the invitation, and a later use
  // Without a lost answer first, a used token still says so.
  const used=acceptanceHarness({reply:async()=>({code:'invitation_invalid'})});used.valid();await used.submit();assert.match(used.nodes.recoveryMessage.textContent,/missing, expired or already used/);
 });
+/* When an answer ends the acceptance, the form that held focus disappears; focus goes to the heading instead of
+   falling to the page. The message empties while sending, so a repeated answer is announced again. */
+test('when a server answer ends the acceptance, focus goes to the heading, and the message empties while sending',async()=>{
+ const missing=acceptanceHarness({hash:''});assert.notEqual(missing.nodes.invitationTitle.focused,true,'nothing moves focus on load');
+ let h;const seen=[];
+ h=acceptanceHarness({transport:[new TypeError('Failed to fetch')],reply:async()=>{h.lang('es');seen.push({text:h.nodes.recoveryMessage.textContent,hidden:h.nodes.recoveryMessage.hidden});return {code:'invitation_invalid'};}});
+ h.valid();await h.submit();assert.match(h.nodes.recoveryMessage.textContent,/Check your connection/);assert.notEqual(h.nodes.invitationTitle.focused,true);
+ await h.submit();
+ assert.deepEqual(seen,[{text:'',hidden:false}],'empty but still on the page while sending, even when the language changes meanwhile');
+ assert.equal(h.nodes.invitationForm.hidden,true);assert.equal(h.nodes.invitationTitle.tabIndex,-1);assert.equal(h.nodes.invitationTitle.focused,true);
+ const done=acceptanceHarness();done.valid();await done.submit();assert.equal(done.nodes.invitationTitle.focused,true,'and after the account is ready');
+});
 test('public invitation document has a self-only security policy and no external scripts or styles',()=>{
  const html=readFileSync(new URL('../web/pages/accept-invitation.html',import.meta.url),'utf8');assert.match(html,/name="referrer" content="no-referrer"/);assert.doesNotMatch(html,/http-equiv="Content-Security-Policy"/,'the self-only policy comes from the server header (tests/page-csp.test.js)');assert.doesNotMatch(html,/(?:src|href)="https?:/);assert.ok(html.indexOf('src="accept-invitation.js')<html.indexOf('<link'));assert.equal((html.match(/<script /g)||[]).length,3);const h=acceptanceHarness();for(const [key,values]of Object.entries(h.ctx.window.nodalInvitationI18n.rows)){assert.equal(values.length,3,key);assert.ok(values.every(v=>typeof v==='string'&&v.length),key);}
 });
