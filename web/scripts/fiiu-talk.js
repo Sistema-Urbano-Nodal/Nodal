@@ -24,8 +24,13 @@
   talkSignIn:['Sign in to join the conversation','Inicia sesión para participar','Entre para participar da conversa'],
   talkSignInHint:['Conversations are open to people registered for FIIU Fest 11.','Las conversaciones están abiertas a las personas inscritas en el FIIU Fest 11.','As conversas são abertas a quem se inscreveu no FIIU Fest 11.'],
   talkRegister:['Register for FIIU to join','Inscríbete en el FIIU para participar','Inscreva-se no FIIU para participar'],talkRegisterHint:['Registering is free and takes two minutes.','La inscripción es gratuita y toma dos minutos.','A inscrição é gratuita e leva dois minutos.'],
-  talkNew:['New messages ↓','Mensajes nuevos ↓','Novas mensagens ↓'],talkLoadEarlier:['Load earlier messages','Cargar mensajes anteriores','Carregar mensagens anteriores'],
+  talkNew:['New messages ↓','Mensajes nuevos ↓','Novas mensagens ↓'],
+  talkNewOne:['1 new answer from {author}','1 respuesta nueva de {author}','1 nova resposta de {author}'],talkNewMany:['{n} new answers','{n} respuestas nuevas','{n} novas respostas'],
+  talkDeleted:['Message deleted','Mensaje eliminado','Mensagem apagada'],talkLoadEarlier:['Load earlier messages','Cargar mensajes anteriores','Carregar mensagens anteriores'],
   talkPaused:['Live updates paused. Reconnecting…','Actualizaciones en pausa. Reconectando…','Atualizações pausadas. Reconectando…'],
+  talkPausedOffline:['No connection. Updates come back on their own once you have signal.','Sin conexión. Las actualizaciones vuelven solas cuando recuperes la señal.','Sem conexão. As atualizações voltam sozinhas quando o sinal voltar.'],
+  talkOffline:['No connection. Try again once you have signal.','Sin conexión. Inténtalo de nuevo cuando tengas señal.','Sem conexão. Tente de novo quando tiver sinal.'],
+  talkOfflineSend:['No connection. Your message is still here: tap Retry once you have signal.','Sin conexión. Tu mensaje sigue aquí: toca Reintentar cuando vuelvas a tener señal.','Sem conexão. Sua mensagem continua aqui: toque em Tentar de novo quando tiver sinal.'],
   talkHide:['Hide','Ocultar','Ocultar'],talkUnhide:['Unhide','Mostrar','Mostrar'],talkHidden:['Hidden','Oculto','Oculta'],talkHiddenForYou:['Hidden by the organisers','Oculto por la organización','Ocultada pela organização'],talkBackToBlock:['All questions on this block','Todas las preguntas de este bloque','Todas as perguntas deste bloco'],
   talkOpenFull:['Open full image','Abrir imagen completa','Abrir imagem completa'],talkError:['Something went wrong. Try again.','Algo salió mal. Inténtalo de nuevo.','Algo deu errado. Tente de novo.'],
   talkRate:['Too many messages at once. Wait a moment and try again.','Demasiados mensajes seguidos. Espera un momento e inténtalo de nuevo.','Muitas mensagens de uma vez. Aguarde um momento e tente de novo.'],
@@ -33,17 +38,25 @@
   talkNotRegistered:['You need a FIIU registration to take part.','Necesitas una inscripción en el FIIU para participar.','Você precisa de uma inscrição no FIIU para participar.'],
   talkPresent:['Projector view','Vista de proyección','Modo de projeção'],talkLatest:['Latest','Recientes','Recentes'],talkTop:['Most liked','Con más me gusta','Mais curtidas'],talkFullscreen:['Full screen','Pantalla completa','Tela cheia'],
   talkScanToJoin:['Scan to join the conversation','Escanea para unirte a la conversación','Escaneie para entrar na conversa'],
+  talkScanToRead:['Scan to read the conversation','Escanea para leer la conversación','Escaneie para ler a conversa'],talkOpensSoon:['The conversation opens soon','La conversación se abrirá en breve','A conversa será aberta em breve'],
+  // A question is feminine in Spanish and Portuguese (la pregunta, a pergunta), a message masculine in Spanish (el mensaje): each gets its own chip.
+  talkHiddenQuestion:['Hidden','Oculta','Oculta'],
+  talkEmptyClosed:['This question closed without answers.','Esta pregunta se cerró sin respuestas.','Esta pergunta foi encerrada sem respostas.'],
+  talkEmptyHidden:['No messages yet. Participants can answer once the question opens.','Todavía no hay mensajes. Se podrá responder cuando la pregunta se abra.','Ainda não há mensagens. Será possível responder quando a pergunta for aberta.'],
+  talkNextOpen:['Answer the open question','Responder la pregunta abierta','Responder à pergunta aberta'],
+  talkDraftKept:['Your unsent answer:','Tu respuesta sin enviar:','Sua resposta não enviada:'],talkDiscardDraft:['Discard','Descartar','Descartar'],
  });
  const root=document.getElementById('fiiuTalkRoot'),message=document.getElementById('fiiuStatus');
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,ID=/^[a-z0-9-]{1,60}$/;
- const LIMIT=1000,FILES=3,MAX=3*1024*1024,THUMB=100*1024,POLL=4000,NEAR=120,NAME=120,UPLOAD_MS=120000,TYPES=['image/jpeg','image/png','image/webp','application/pdf'],IMAGES=TYPES.slice(0,3);
- // The projector: answers on screen, and the question length above which its headline steps down so they still fit.
- const WALL=12,LONG=160,SVG='http://www.w3.org/2000/svg';
+ const LIMIT=1000,FILES=3,MAX=3*1024*1024,THUMB=100*1024,POLL=4000,WATCH_MS=8000,WATCH_FOR=2*3600000,NEAR=120,NAME=120,UPLOAD_MS=120000,TYPES=['image/jpeg','image/png','image/webp','application/pdf'],IMAGES=TYPES.slice(0,3);
+ // The projector: answers on screen at most, the question length above which its headline steps down so they still fit, and the room left under the
+ // last row of answers.
+ const WALL=12,LONG=160,FIT_MARGIN=8,SVG='http://www.w3.org/2000/svg';
  // A file refused for what it is (type, size, the festival allowance), or a sender without a registration, is the draft's problem: the row goes and the
  // composer says why, since Retry cannot help.
  const DRAFT=['talkFileType','talkFileSize','talkAllowance','talkTooManyFiles','talkNotRegistered'];
  let question=null,activity=null,me={organiser:false,canPost:false},before=null,known=0,parts=null,composer=null;
- let timer=null,busy=false,failures=0,nextAt=0;
+ let timer=null,busy=false,failures=0,nextAt=0,watcher=null,dockObserver=null;
  // present: the address asked for the projector (?q=…&present=1); wall: its parts while an organiser is shown it; order: 'latest' or 'top'.
  let present=false,wall=null,order='latest',lock=null,waking=false;
  // liked: the messages this viewer likes. Changes carry no liked flag (one answer serves every viewer), so the page keeps its own: seeded by each full read,
@@ -60,24 +73,76 @@
  const setTitle=()=>{document.title='NODAL · '+t(wall?'talkPresent':'talkPage');};
  // The server's refusal codes, each with its own explanation; anything else is "Something went wrong" (a Map, so no code can name an Object property).
  const CODES=new Map(Object.entries({upload_allowance:'talkAllowance',file_type:'talkFileType',too_many_files:'talkTooManyFiles',file_size:'talkFileSize',question_closed:'talkClosed',not_registered:'talkNotRegistered',client_id_reused:'talkReused'}));
- const keyOf=error=>error?.status===429?'talkRate':CODES.get(error?.code)||(error?.status===413?'talkFileSize':error?.status===401?'unauthorized':/^talk[A-Z]/.test(error?.key||'')?error.key:'talkError');
+ // api() reports a request that never got an answer (no signal, a timeout, a captive portal's page) as key 'error' with no status: a lost connection.
+ const keyOf=error=>error?.status===429?'talkRate':CODES.get(error?.code)||(error?.status===413?'talkFileSize':error?.status===401?'unauthorized':/^talk[A-Z]/.test(error?.key||'')?error.key:error?.key==='error'&&!error.status?'talkOffline':'talkError');
+ const PAUSED=['talkPaused','talkPausedOffline'];
  const isOpen=()=>question?.status==='open';
+ // Whether focus is inside a node; harness nodes and old browsers may lack contains().
+ const holds=node=>{const active=document.activeElement;return Boolean(node&&active&&active!==document.body&&node.contains?.(active));};
+ // A key-labelled node switched to another key keeps following the language switch (refresh() in fiiu-ui.js rewrites data-fiiu-text).
+ function rekey(node,key){if(node&&node.dataset.fiiuText!==key){node.dataset.fiiuText=key;node.textContent=t(key);}}
+ const emptyKey=()=>question?.status==='closed'?'talkEmptyClosed':question?.status==='hidden'?'talkEmptyHidden':'talkEmpty';
+ // One polite status, built with the page and never shown, says what a screen reader would otherwise miss. The same text again gets a trailing
+ // no-break space, so it is read again. It carries no key: a language switch must not repeat the last announcement.
+ function announce(text){const live=parts?.live;if(live)live.textContent=live.textContent===text?text+'\u00a0':text;}
+ // A half-typed answer is kept for the tab (sessionStorage), per question: a close, a sign-in round trip or a reload brings it back. Storage can be
+ // blocked or full, so every access is guarded and the draft then stays on screen only.
+ const DRAFTS='nodal.talkDraft.';
+ function storedDraft(id){try{return globalThis.sessionStorage?.getItem(DRAFTS+id)||'';}catch{return '';}}
+ function keepDraft(){
+  const id=question?.id,text=composer?.textarea.value||'';if(!id)return;
+  try{if(text.trim())globalThis.sessionStorage?.setItem(DRAFTS+id,text);else globalThis.sessionStorage?.removeItem(DRAFTS+id);}catch{/* Without storage the draft stays on screen only. */}
+ }
+ // A message handed to its row is kept the same way, with its clientId, until the server confirms or refuses it: a reload, or a phone that drops the
+ // tab while offline, draws it again as not sent, and Retry is still the same message (one the server already has comes back, not a second copy).
+ // Text only: a photo cannot come back after a reload, and its text alone under the same clientId would be refused as another message.
+ const UNSENT='nodal.talkUnsent.';
+ function keepUnsent(){
+  const id=question?.id;if(!id)return;const list=[...attempts.values()].filter(item=>!item.files.length).map(({clientId,body})=>({clientId,body}));
+  try{if(list.length)globalThis.sessionStorage?.setItem(UNSENT+id,JSON.stringify(list));else globalThis.sessionStorage?.removeItem(UNSENT+id);}catch{/* The rows stay on screen only. */}
+ }
+ function restoreUnsent(){
+  let list;try{list=JSON.parse(globalThis.sessionStorage?.getItem(UNSENT+question.id)||'[]');}catch{list=[];}
+  for(const item of Array.isArray(list)?list:[]){
+   if(!UUID.test(String(item?.clientId))||typeof item.body!=='string'||!item.body.trim()||attempts.has(item.clientId))continue;
+   const attempt={clientId:item.clientId,body:item.body,files:[],sig:item.body+'\n',state:'failed',row:null};attempt.row=pendingRow(attempt,true);attempts.set(attempt.clientId,attempt);
+  }
+ }
  function uuid(){
   if(typeof globalThis.crypto?.randomUUID==='function')return globalThis.crypto.randomUUID();
   const b=globalThis.crypto.getRandomValues(new Uint8Array(16));b[6]=(b[6]&15)|64;b[8]=(b[8]&63)|128;const hex=[...b].map(x=>x.toString(16).padStart(2,'0')).join('');
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
  }
 
- // Scrolling: the page itself scrolls. A reader within 120 px of the bottom follows new messages; anyone higher up gets the pill instead.
- function nearBottom(){const s=document.scrollingElement;return !s||s.scrollHeight-s.scrollTop-s.clientHeight<NEAR;}
+ // Scrolling: the page itself scrolls, and its bottom is where the conversation ends (the dock at rest on the screen's bottom edge), not the end of the
+ // document: the site footer stays below, reached by scrolling on, instead of taking a fifth of a small phone under the composer. A reader within
+ // 120 px of that end, or past it, follows new messages; anyone higher up gets the pill instead. Without the conversation, the document's end.
+ function end(){
+  const s=document.scrollingElement,box=parts?.box?.getBoundingClientRect?.();if(!s)return 0;
+  return box?Math.max(0,Math.round(box.bottom+s.scrollTop-(window.innerHeight||s.clientHeight))):s.scrollHeight-s.clientHeight;
+ }
+ function nearBottom(){const s=document.scrollingElement;return !s||s.scrollTop>=end()-NEAR;}
+ // Whether the reader follows the end when the chat grows without a new message (a failed send's taller row, a taller dock): a move to the end says
+ // yes, and after that the reader's own scrolling decides. A smooth move still on its way down follows; scrolling up, away from the end, stops it.
+ let following=true,lastTop=0;
+ function track(){const s=document.scrollingElement;if(!s)return;const top=s.scrollTop;following=nearBottom()||(following&&top>=lastTop);lastTop=top;}
  // The first paint jumps; later moves follow the page's scroll-behavior, which fiiu-talk.css turns off for reduced motion. Older Safari rejects 'instant'.
- function toBottom(smooth){const s=document.scrollingElement;if(!s)return;if(!smooth&&typeof window.scrollTo==='function'){try{window.scrollTo({top:s.scrollHeight,behavior:'instant'});return;}catch{/* falls through */}}s.scrollTop=s.scrollHeight;}
+ function toBottom(smooth){
+  const s=document.scrollingElement;if(!s)return;const top=parts?.box?.getBoundingClientRect?end():s.scrollHeight;following=true;
+  if(!smooth&&typeof window.scrollTo==='function'){try{window.scrollTo({top,behavior:'instant'});lastTop=s.scrollTop;return;}catch{/* falls through */}}s.scrollTop=top;lastTop=s.scrollTop;
+ }
+ // The chat grew under a reader who follows it (a taller dock with a paused line, a status, a kept draft or a longer answer): the end moved down, and
+ // the reader goes with it, so the last message does not slide under the dock. Anyone reading higher up, or past the end on the footer, stays.
+ function keepEnd(){const s=document.scrollingElement;if(s&&parts&&following&&s.scrollTop<end())toBottom(false);}
  function updateEmpty(){if(parts)parts.empty.hidden=parts.log.children.length>0;}
  // apply() reports each row it adds; afterwards the page follows them, or raises the pill when the reader is elsewhere (always follows your own).
+ // Other people's new rows are announced once per patch (one per poll), so a busy room is not read out row by row; likes and edits replace rows and
+ // say nothing, which is why the log itself is not a live region.
  function patch(apply){
-  const near=nearBottom();let added=false,own=false;
-  apply((view,isNew)=>{if(isNew){added=true;own||=Boolean(view.mine);}});
+  const near=nearBottom(),others=[];let added=false,own=false;
+  apply((view,isNew)=>{if(isNew){added=true;own||=Boolean(view.mine);if(!view.mine)others.push(view);}});
   updateEmpty();if(!added||!parts)return;
+  if(others.length)announce(others.length===1?fill('talkNewOne',{author:others[0].author||''}):fill('talkNewMany',{n:others.length}));
   if(near||own){parts.pill.hidden=true;toBottom(true);}else parts.pill.hidden=false;
  }
 
@@ -118,12 +183,13 @@
   return want===undefined||want===Boolean(m.liked)?{liked:Boolean(m.liked),likeCount:count}:{liked:want,likeCount:Math.max(0,count+(want?1:-1))};
  }
  function likeButton(m){
-  const b=el('button','f-talk-like'),shown=likeShown(m);b.type='button';b.setAttribute('aria-pressed',String(shown.liked));b.disabled=!isOpen();
+  const b=el('button','f-talk-like'),shown=likeShown(m);b.type='button';b.setAttribute('aria-pressed',String(shown.liked));b.setAttribute('aria-describedby','f-talk-m-'+m.id);b.disabled=!isOpen();
   b.append(tr('span','talkLike','f-talk-like-label'),el('span','f-talk-like-n',String(shown.likeCount)));b.addEventListener('click',()=>toggleLike(m.id));return b;
  }
  function messageRow(m){
   const row=el('li','f-talk-msg'+(m.mine?' is-mine':'')+(m.hidden?' is-hidden':'')),meta=el('p','f-talk-meta'),actions=el('div','f-talk-actions');
-  row.dataset.id=m.id;row.dataset.seq=String(m.seq??'');meta.append(el('strong','f-talk-author',m.author||''));
+  // The meta line (author, labels, time) describes the row's buttons, so "Delete" or "Like" says whose message it acts on.
+  row.dataset.id=m.id;row.dataset.seq=String(m.seq??'');meta.id='f-talk-m-'+m.id;meta.append(el('strong','f-talk-author',m.author||''));
   if(me.organiser&&m.authorFull&&m.authorFull!==m.author)meta.append(el('span','f-talk-full',m.authorFull));
   // Organisers see every hidden message; a participant sees only their own, told who hid it.
   if(m.organiser)meta.append(tr('span','talkOrganiser','f-talk-org'));if(m.hidden)meta.append(tr('span',me.organiser?'talkHidden':'talkHiddenForYou','f-talk-flag'));
@@ -134,6 +200,7 @@
   // Your own message can be deleted even once the question is closed, or the organisers hid it.
   if(m.mine)actions.append(button('talkDelete',()=>erase(m.id),'f-talk-delete f-talk-act'));
   if(me.organiser)actions.append(button(m.hidden?'talkUnhide':'talkHide',()=>moderate(m.id),'f-talk-hide f-talk-act'));
+  for(const control of actions.querySelectorAll('.f-talk-act'))control.setAttribute('aria-describedby',meta.id);
   row.append(actions);return row;
  }
  // Rows stay in (createdAt, id) order with messages still being sent last. A replaced row hands focus to the same control in its successor:
@@ -154,35 +221,74 @@
  function whenLine(a){const line=el('p','f-talk-when');line.append(dateNode(a.date,'span','short','f-talk-day'));if(a.time)line.append(el('span','',a.time));if(a.venue)line.append(source('span',a.venue,'f-talk-venue'));return line;}
  function blockHead(a){return a?[tr('p','talkPage','f-talk-kicker'),source('h1',a.title,'f-talk-title'),whenLine(a)]:[tr('p','talkPage','f-talk-kicker')];}
  function renderHead(){
-  const nodes=blockHead(activity);if(question.talk)nodes.push(source('p',question.talk,'f-talk-talk'));if(question.status==='hidden')nodes.push(tr('p','talkHidden','f-talk-flag'));
+  const nodes=blockHead(activity);if(question.talk)nodes.push(source('p',question.talk,'f-talk-talk'));if(question.status==='hidden')nodes.push(tr('p','talkHiddenQuestion','f-talk-flag'));
   nodes.push(source('blockquote',question.body,'f-talk-question'));if(parts.more)nodes.push(parts.more);parts.head.replaceChildren(...nodes);
  }
  function questionList(list){
   const ul=el('ul','f-talk-list');
   for(const q of list){const li=el('li'),a=el('a','f-talk-pick');a.href='fiiu-talk.html?q='+encodeURIComponent(q.id);a.append(source('span',q.body,'f-talk-pick-body'));if(q.talk)a.append(source('span',q.talk,'f-talk-pick-talk'));
-   if(q.status!=='open')a.append(tr('span',q.status==='hidden'?'talkHidden':'talkClosedChip','f-talk-flag'));li.append(a);ul.append(li);}
+   if(q.status!=='open')a.append(tr('span',q.status==='hidden'?'talkHiddenQuestion':'talkClosedChip','f-talk-flag'));li.append(a);ul.append(li);}
   return ul;
  }
+ // A block's questions as the pulse sees them (ids and statuses, hidden ones left out, as the pulse leaves them out), to notice a change cheaply.
+ const blockSig=pairs=>pairs.filter(([,state])=>state!=='hidden').map(([id,state])=>id+':'+state).sort().join(' ');
+ // The other questions on the block. Redrawn when they change, the list keeps its open state, and its focus moves to the new summary.
  function showSiblings(list){
-  if(!parts||!Array.isArray(list))return;const others=sorted(list.filter(q=>q?.id&&q.id!==question.id));parts.more=null;
-  if(others.length){const more=el('details','f-talk-more');more.append(tr('summary','talkOtherQuestions'),questionList(others),link('talkBackToBlock','fiiu-talk.html?a='+encodeURIComponent(question.activityId),'f-text-link'));parts.more=more;}
-  renderHead();
+  if(!parts||!Array.isArray(list))return;const others=sorted(list.filter(q=>q?.id&&q.id!==question.id)),was=parts.more,focused=holds(was);
+  parts.siblings=others;parts.listSig=blockSig(others.map(q=>[q.id,q.status]));parts.more=null;
+  if(others.length){const more=el('details','f-talk-more');more.open=Boolean(was?.open);more.append(tr('summary','talkOtherQuestions'),questionList(others),link('talkBackToBlock','fiiu-talk.html?a='+encodeURIComponent(question.activityId),'f-text-link'));parts.more=more;}
+  renderHead();renderDock();if(focused)parts.more?.querySelector('summary')?.focus();
  }
  function renderDock(){
-  if(!parts)return;const state=isOpen()&&me.canPost?'composer':question.status==='closed'?'closed':'none';
+  if(!parts)return;const state=isOpen()&&me.canPost?'composer':question.status==='closed'?'closed':'none',was=parts.dockState;
   // Only a change of state touches the dock: moving the composer would drop its focus and the phone keyboard with it.
-  if(parts.dockState===state)return;parts.dockState=state;
-  parts.dock.replaceChildren(parts.pill,...(state==='composer'?[ensureComposer().form]:state==='closed'?[tr('p','talkClosed','f-talk-closed')]:[]));
+  if(was!==state){
+   const inside=holds(parts.dock);parts.dockState=state;
+   parts.dock.replaceChildren(parts.pill,parts.note,...(state==='composer'?[ensureComposer().form]:state==='closed'?[parts.closed]:[]));
+   if(state==='composer')restoreDraft();
+   // A close while someone types keeps them in the dock, on the note, which reads itself; anyone else hears it from the status line. A reopen hands
+   // focus left in the dock back to the composer.
+   if(was&&state!=='composer'){if(inside)(state==='closed'?parts.closedNote:parts.log).focus();else if(state==='closed')announce(t('talkClosed'));}
+   else if(was&&inside)composer.textarea.focus();
+  }
+  // The closed note leads to the block's open question, if there is one, and keeps an unsent answer readable (and copyable) under it.
+  if(state==='closed'){
+   const open=(parts.siblings||[]).find(q=>q.status==='open'),draft=composer?.textarea.value.trim()||storedDraft(question.id).trim();
+   parts.next.hidden=!open;if(open)parts.next.href='fiiu-talk.html?q='+encodeURIComponent(open.id);parts.draft.hidden=!draft;parts.draftText.value=draft;
+  }
+ }
+ // Discarding a kept draft clears it from the composer and the tab; focus on the button, which goes with it, moves to the closed note.
+ function discardDraft(){
+  const inside=holds(parts?.draft);if(composer){composer.textarea.value='';updateLeft();grow();}keepDraft();
+  if(!parts)return;parts.draft.hidden=true;parts.draftText.value='';if(inside)parts.closedNote.focus();
  }
  function setStatus(state){
-  if(!question||!(parts||wall))return;question.status=state;me.canPost=state==='open';if(wall)return renderWallHead();renderHead();renderDock();
+  if(!question||!(parts||wall))return;question.status=state;me.canPost=state==='open';if(wall)return renderWallHead();renderHead();renderDock();rekey(parts.empty,emptyKey());
   for(const node of rowsById.values()){const like=node.querySelector('.f-talk-like');if(like)like.disabled=state!=='open';}
  }
  function build(){
   const box=el('section','f-talk'),head=el('header','f-talk-head'),earlier=button('talkLoadEarlier',()=>loadEarlier(),'f-button secondary f-talk-earlier'),log=el('ol','f-talk-log'),empty=tr('p','talkEmpty','f-talk-empty'),dock=el('div','f-talk-dock');
-  const pill=button('talkNew',()=>{pill.hidden=true;toBottom(true);},'f-talk-new');pill.hidden=true;pill.setAttribute('aria-live','polite');
-  log.setAttribute('role','log');log.setAttribute('aria-live','off');log.setAttribute('aria-label',t('talkPage'));dock.append(pill);box.append(head,earlier,log,empty,dock);
-  root.replaceChildren(box,newTabNote());parts={box,head,earlier,log,empty,dock,pill,more:null,dockState:''};
+  const pill=button('talkNew',()=>{pill.hidden=true;toBottom(true);},'f-talk-new');pill.hidden=true;
+  const live=el('p','f-sr-only f-talk-live');live.setAttribute('role','status');
+  // The dock's own status line, kept through every dock state: paused updates, and errors when there is no composer to show them. The page's status
+  // sits at the top, far above a reader the chat keeps at the bottom.
+  const note=el('p','f-talk-status f-talk-note');note.setAttribute('role','status');
+  // The closed state: the note (focusable, so a close while typing can keep focus there) and an unsent draft under it, in a read-only box whose
+  // "select all" stays inside it, so the whole answer can be copied on a phone.
+  const closed=el('div','f-talk-closedbox'),closedNote=tr('p','talkClosed','f-talk-closed'),draft=el('div','f-talk-draft'),draftLabel=tr('label','talkDraftKept','f-talk-draft-label'),draftText=el('textarea','f-talk-input f-talk-draft-text');
+  const next=link('talkNextOpen','#','f-button f-talk-next');next.hidden=true;
+  // Discard drops the kept draft for good, so a reader done with it gets the dock's room back, here and whenever the question is opened again in the tab.
+  const draftHead=el('div','f-talk-draft-head'),discard=button('talkDiscardDraft',()=>discardDraft(),'f-talk-act f-talk-discard');draftHead.append(draftLabel,discard);
+  closedNote.tabIndex=-1;draftText.id='f-talk-draft';draftText.readOnly=true;draftText.rows=2;draftLabel.htmlFor=draftText.id;draft.append(draftHead,draftText);draft.hidden=true;closed.append(closedNote,next,draft);
+  log.setAttribute('role','log');log.setAttribute('aria-live','off');log.setAttribute('aria-label',t('talkPage'));log.tabIndex=-1;dock.append(pill);box.append(head,earlier,log,empty,dock,live);
+  root.replaceChildren(box,newTabNote());parts={box,head,earlier,log,empty,dock,pill,live,note,closed,closedNote,next,draft,draftText,more:null,dockState:''};
+  // The stylesheet keeps focused message controls clear of the sticky dock by its measured height, which grows with chips, a status and six lines; a
+  // reader at the end follows its growth (the first measure only sets the height).
+  dockObserver?.disconnect();dockObserver=null;
+  if(typeof ResizeObserver==='function'){
+   let last=null;
+   dockObserver=new ResizeObserver(()=>{const height=dock.offsetHeight;box.style?.setProperty?.('--f-talk-dock-h',height+'px');if(last!==null&&height>last)keepEnd();last=height;});dockObserver.observe(dock);
+  }
  }
  // A reload of the same question (a reset, or a status the pulse cannot carry) rebuilds the rows but keeps the header nodes, the composer and its draft.
  function show(data){
@@ -195,20 +301,47 @@
   unwall();const same=Boolean(parts)&&again;
   if(!same)build();renderHead();rowsById.clear();views.clear();parts.log.replaceChildren();
   for(const view of Array.isArray(data.messages)?data.messages:[])if(view?.id)upsert(view);
-  for(const attempt of attempts.values())if(attempt.row)parts.log.append(attempt.row);
-  parts.earlier.hidden=!before;parts.log.setAttribute('aria-label',t('talkPage'));renderDock();updateEmpty();setTitle();if(!same)toBottom(false);
+  restoreUnsent();for(const attempt of attempts.values())if(attempt.row)parts.log.append(attempt.row);
+  parts.earlier.hidden=!before;parts.log.setAttribute('aria-label',t('talkPage'));renderDock();rekey(parts.empty,emptyKey());updateEmpty();setTitle();if(!same)toBottom(false);
  }
 
  // A full read (the question, or earlier messages) may also list the ids of the messages this viewer likes.
  function seedLiked(data){for(const id of Array.isArray(data?.liked)?data.liked:[])if(typeof id==='string')liked.add(id);}
 
  // Access states replace the page; polling stops until a question is shown again.
- function halt(){if(timer!==null)clearInterval(timer);timer=null;question=null;parts=null;unwall();}
- function block(title,hint,...actions){
-  halt();const box=el('section','f-locked f-talk-locked'),row=el('div','f-actions');row.append(...actions);box.append(tr('h1',title),...(hint?[tr('p',hint)]:[]),row);
-  root.replaceChildren(box,newTabNote());status(message,'');setTitle();
+ function halt(){if(timer!==null)clearInterval(timer);timer=null;question=null;parts=null;dockObserver?.disconnect();dockObserver=null;unwatch();unwall();}
+ // A page with nothing live to follow (a block's list, or a question this viewer cannot see yet) watches the public, CDN-cached pulse every 8 s while
+ // the tab is visible, for two hours at most, and acts once its part of the pulse changes. Opening anything stops it.
+ function watch(changed,act){
+  unwatch();const w={until:Date.now()+WATCH_FOR,busy:false};
+  w.timer=setInterval(async()=>{
+   if(watcher!==w||w.busy||document.visibilityState!=='visible')return;if(Date.now()>w.until)return unwatch();w.busy=true;
+   try{const data=await api('/api/fiiu/pulse'),list=(Array.isArray(data?.questions)?data.questions:[]).filter(Array.isArray);if(watcher===w&&changed(list)){unwatch();await act();}}
+   catch{/* The next round asks again. */}finally{w.busy=false;}
+  },WATCH_MS);
+  watcher=w;
  }
- const unavailable=()=>block('talkUnavailable','',activity?link('talkBackToBlock','fiiu-talk.html?a='+encodeURIComponent(activity.id),'f-button secondary'):link('viewProgramme','fiiu.html#programme','f-button secondary'));
+ function unwatch(){if(watcher)clearInterval(watcher.timer);watcher=null;}
+ // Focus that was on the page (in the composer, say) moves to the heading that replaces it, which also reads the new state out.
+ function block(title,hint,...actions){
+  const inside=holds(root);halt();const box=el('section','f-locked f-talk-locked'),row=el('div','f-actions'),heading=tr('h1',title);heading.tabIndex=-1;row.append(...actions);box.append(heading,...(hint?[tr('p',hint)]:[]),row);
+  root.replaceChildren(box,newTabNote());status(message,'');setTitle();if(inside)heading.focus();
+ }
+ // A page that redraws itself (a question that opened by itself, a block's list that changed) gives focus that was on the old page to the new one, which
+ // reads the change out: the same link if it is still listed; in a chat, the composer, else the closed note, else the conversation; else the heading.
+ // Not the chat's heading: its header is redrawn when the other questions arrive.
+ async function redraw(act){
+  const active=document.activeElement,inside=holds(root),href=inside?active.getAttribute?.('href'):null;await act();if(!inside||holds(root))return;
+  const same=href?[...root.querySelectorAll('a')].find(a=>a.getAttribute?.('href')===href):null;if(same)return same.focus();
+  if(parts){const target=parts.dockState==='composer'?composer.textarea:parts.dockState==='closed'?parts.closedNote:parts.log;return target.focus(target===parts.log?{preventScroll:true}:undefined);}
+  const heading=root.querySelector('h1');if(heading){heading.tabIndex=-1;heading.focus();}
+ }
+ // A question hidden from this viewer (not opened yet, or hidden since) opens by itself once the pulse lists it, with the composer and its draft:
+ // people who scanned the projector early are not stranded.
+ function unavailable(){
+  block('talkUnavailable','',activity?link('talkBackToBlock','fiiu-talk.html?a='+encodeURIComponent(activity.id),'f-button secondary'):link('viewProgramme','fiiu.html#programme','f-button secondary'));
+  const q=new URLSearchParams(location.search).get('q')||'';if(UUID.test(q))watch(list=>list.some(item=>item[0]===q),()=>redraw(start));
+ }
  // An outage is reported as one, never as "signed out" (the fiiu.js rule).
  function access(error){
   if(error?.status===401)return block('talkSignIn','talkSignInHint',link('signin','login.html?next='+encodeURIComponent(location.pathname+location.search),'f-button'));
@@ -226,20 +359,32 @@
    // The public pulse leaves hidden questions out, so an organiser reading one asks for its changes directly.
    if(me.organiser&&question.status==='hidden')await changes(id);
    else{
-    const pulse=await api('/api/fiiu/pulse'),entry=(Array.isArray(pulse.questions)?pulse.questions:[]).find(item=>Array.isArray(item)&&item[0]===id);
+    const pulse=await api('/api/fiiu/pulse'),list=(Array.isArray(pulse.questions)?pulse.questions:[]).filter(Array.isArray),entry=list.find(item=>item[0]===id);
     if(question?.id!==id)return;
     // Gone from the pulse: hidden since it was opened. Reading it again says so (or, for an organiser, shows it hidden).
     if(!entry)await reload(id);
     // The pulse only says that something moved past the page's revision. Its status is never applied: the CDN can serve one seconds old, and the
     // changes answer carries the question as it is now.
     else if(Number(entry[2])>known)await changes(id);
+    if(!wall&&question?.id===id)await followBlock(list).catch(()=>{});
    }
-   failures=0;nextAt=0;if(message.dataset.fiiuText==='talkPaused')status(message,'');
+   failures=0;nextAt=0;paused(null);
    if(wall?.qr==='failed'&&Date.now()>=wall.qrAt)loadQr(id);
   }catch(error){
    if([401,403,404].includes(error?.status))return access(error);
-   failures++;nextAt=Date.now()+Math.min(60000,POLL*2**failures);status(message,'talkPaused');
+   failures++;nextAt=Date.now()+Math.min(60000,POLL*2**failures);paused(keyOf(error)==='talkOffline'?'talkPausedOffline':'talkPaused');
   }finally{busy=false;}
+ }
+ // The chat says it is paused in its dock; the projector, which has none, at the top of its page.
+ function paused(key){const node=parts?.note||message;if(key)status(node,key);else if(PAUSED.includes(node.dataset.fiiuText))status(node,'');}
+ // The other questions on the block follow the pulse: once their ids or statuses change (one opened, closed or hidden), the list is read again, once.
+ // The pulse is compared with the pulse it last acted on, so a CDN copy a few seconds older than the list cannot make every poll read it. A list that
+ // failed to load with the question is unknown, and every poll asks for it until one arrives.
+ async function followBlock(list){
+  if(!parts)return;const id=question.id,sig=blockSig(list.filter(item=>item[1]===question.activityId&&item[0]!==id).map(item=>[item[0],item[3]]));
+  if(sig===(parts.pulseSig??parts.listSig)){parts.pulseSig=sig;return;}
+  const data=await api('/api/fiiu/questions?activityId='+encodeURIComponent(question.activityId));
+  if(question?.id===id&&parts){parts.pulseSig=sig;showSiblings(data.questions);}
  }
  async function changes(id){
   const data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages?since='+known);if(question?.id!==id)return;
@@ -283,11 +428,16 @@
   input.type='file';input.multiple=true;input.accept=TYPES.join(',');input.hidden=true;input.tabIndex=-1;send.type='submit';left.hidden=true;chips.hidden=true;state.setAttribute('role','status');
   tools.append(attach,chips,left);form.append(label,textarea,send,tools,input,state);
   composer={form,textarea,input,chips,left,state,send,files:[]};
-  textarea.addEventListener('input',()=>{updateLeft();grow();});
+  textarea.addEventListener('input',()=>{updateLeft();grow();keepDraft();});
   textarea.addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){event.preventDefault();return submit();}});
   input.addEventListener('change',()=>{choose([...(input.files||[])]);input.value='';});
   form.addEventListener('submit',event=>{event.preventDefault();return submit();});
   return composer;
+ }
+ // The composer serves one question per page; the first time it shows for it, an empty one takes the draft kept for the tab.
+ function restoreDraft(){
+  const c=composer,id=question?.id;if(!c||!id||c.draftFor===id)return;c.draftFor=id;
+  if(!c.textarea.value){const text=storedDraft(id);if(text){c.textarea.value=text;updateLeft();grow();}}
  }
  // field-sizing grows the box where supported; elsewhere its height follows the text, and the stylesheet's max-height stops it at six lines.
  function grow(){const box=composer.textarea;if(!box.style||globalThis.CSS?.supports?.('field-sizing','content'))return;box.style.height='auto';box.style.height=box.scrollHeight+'px';}
@@ -347,13 +497,14 @@
   if(thumb)payload.thumb={mime:'image/jpeg',data:await read(thumb.blob),width:thumb.width,height:thumb.height};
   return payload;
  }
- // An uploaded file is remembered by name, size and date, so a retry of the same draft never uploads it twice. An upload has two minutes, not the 20 s of
- // the JSON calls: a 3 MB PDF is about 4 MB of base64, which a phone sharing the venue's Wi-Fi may need over half a minute to send.
+ // An upload is remembered by name, size and date from the moment it starts, so neither a retry nor the same file sent again while it travels uploads
+ // it twice. An upload has two minutes, not the 20 s of the JSON calls: a 3 MB PDF is about 4 MB of base64, which a phone sharing the venue's Wi-Fi may
+ // need over half a minute to send.
  const fileKey=file=>[file.name,file.size,file.lastModified].join(':');
- const sameFiles=(a,b)=>a.length===b.length&&a.every((file,i)=>fileKey(file)===fileKey(b[i]));
- async function upload(file){
+ function upload(file){
   const id=fileKey(file);if(uploads.has(id))return uploads.get(id);
-  const data=await api('/api/fiiu/files',await prepareFile(file),'POST',{timeout:UPLOAD_MS});if(typeof data?.file?.id!=='string')throw problem('talkError');uploads.set(id,data.file.id);return data.file.id;
+  const sending=(async()=>{const data=await api('/api/fiiu/files',await prepareFile(file),'POST',{timeout:UPLOAD_MS});if(typeof data?.file?.id!=='string')throw problem('talkError');return data.file.id;})();
+  uploads.set(id,sending);sending.catch(()=>{if(uploads.get(id)===sending)uploads.delete(id);});return sending;
  }
 
  // Sending. Each draft has a clientId: the server stores one message per clientId, so a retry after a lost answer never posts it twice.
@@ -366,14 +517,17 @@
   if(failed){const actions=el('div','f-talk-actions');actions.append(button('talkRetry',()=>deliver(attempt),'f-talk-act f-talk-retry'));row.append(actions);}
   return row;
  }
+ // Sending hands the draft to its row and empties the composer at once, as chat apps do: what is typed next is a new message, and a photo still
+ // uploading is never sent again with it. The row keeps the content, and Retry when it fails.
+ function clearComposer(){const c=composer;c.textarea.value='';c.files=[];renderChips();updateLeft();grow();keepDraft();}
  function submit(){
   const c=composer,body=c.textarea.value.trim(),files=[...c.files];
   if(!body&&!files.length){c.textarea.focus();return;}
   if(codePoints(body)>LIMIT){say(problem('talkTooLong'));c.textarea.focus();return;}
-  // Sending the same draft again is its Retry (same clientId, same content), and a second tap while it is on its way does nothing.
-  const sig=body+'\n'+files.map(fileKey).join('|'),same=[...attempts.values()].find(item=>item.sig===sig);if(same?.state==='sending')return;
-  let attempt=same?.state==='failed'?same:null;if(!attempt){attempt={clientId:uuid(),body,files,sig,state:'new',row:null};attempts.set(attempt.clientId,attempt);}
-  return deliver(attempt);
+  // The same draft typed again is the same message: a failed one is retried with its clientId, and one on its way is already in its row.
+  const sig=body+'\n'+files.map(fileKey).join('|'),same=[...attempts.values()].find(item=>item.sig===sig);if(same?.state==='sending'){clearComposer();return;}
+  let attempt=same?.state==='failed'?same:null;if(!attempt){attempt={clientId:uuid(),body,files,sig,state:'new',row:null};attempts.set(attempt.clientId,attempt);keepUnsent();}
+  clearComposer();return deliver(attempt);
  }
  async function deliver(attempt){
   if(attempt.state==='sending'||!parts)return;attempt.state='sending';const row=pendingRow(attempt),id=question.id;
@@ -384,26 +538,34 @@
    mark(row,'talkSending');
    const data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages',{clientId:attempt.clientId,body:attempt.body,fileIds});
    if(typeof data?.message?.id!=='string')throw problem('talkError');
-   attempts.delete(attempt.clientId);for(const file of attempt.files)uploads.delete(fileKey(file));row.remove();attempt.row=null;
+   attempts.delete(attempt.clientId);keepUnsent();for(const file of attempt.files)uploads.delete(fileKey(file));row.remove();attempt.row=null;
    // A retry can find the message deleted since it was stored: it was delivered, so the draft goes as for any send, and no row is drawn for it.
    if(question?.id===id&&parts)patch(note=>{if(data.message.gone)drop(data.message.id);else note(data.message,upsert(data.message));});
    const c=composer;if(!c)return;
-   if(c.textarea.value.trim()===attempt.body&&sameFiles(c.files,attempt.files)){c.textarea.value='';c.files=[];renderChips();updateLeft();grow();}
    const active=document.activeElement;if(!active||active===document.body||c.form.contains?.(active))c.textarea.focus();
   }catch(error){
    const key=keyOf(error);
-   if(DRAFT.includes(key)){attempts.delete(attempt.clientId);row.remove();attempt.row=null;updateEmpty();say(problem(key));return;}
+   // The draft goes back to the composer to be fixed, unless something new was typed or attached there meanwhile.
+   if(DRAFT.includes(key)){
+    attempts.delete(attempt.clientId);keepUnsent();row.remove();attempt.row=null;updateEmpty();
+    const c=composer;if(c&&!c.textarea.value.trim()&&!c.files.length){c.textarea.value=attempt.body;c.files=[...attempt.files];renderChips();updateLeft();grow();keepDraft();}
+    say(problem(key));return;
+   }
    // A file the server no longer accepts for this message is uploaded again on the next try.
    if(error?.code==='file_unavailable')for(const file of attempt.files)uploads.delete(fileKey(file));
    /* The copy stored under this clientId can no longer be finished (it stopped before its files and the question closed, a moderator hid it, or
       the retry came too late): the next try is a new message, with its files uploaded again. */
-   if(error?.code==='client_id_reused'){attempts.delete(attempt.clientId);attempt.clientId=uuid();attempts.set(attempt.clientId,attempt);for(const file of attempt.files)uploads.delete(fileKey(file));}
-   attempt.state='failed';const failed=pendingRow(attempt,true);row.replaceWith(failed);attempt.row=failed;say(problem(key));
+   if(error?.code==='client_id_reused'){attempts.delete(attempt.clientId);attempt.clientId=uuid();attempts.set(attempt.clientId,attempt);keepUnsent();for(const file of attempt.files)uploads.delete(fileKey(file));}
+   // The failed row is taller than the sending one (its Retry) and the composer gains a status line: a reader still following (the send took them to
+   // the end) stays at the end, so the message and its Retry are above the dock instead of under it.
+   attempt.state='failed';const failed=pendingRow(attempt,true);row.replaceWith(failed);attempt.row=failed;say(problem(key==='talkOffline'?'talkOfflineSend':key));keepEnd();
    if(error?.code==='question_closed')closedByServer();
   }
  }
- // Errors from likes, deletions and moderation show next to the composer, or in the page status when the question is closed.
- function notify(error){status(parts?.dockState==='composer'?composer.state:message,problem(keyOf(error)));}
+ // Errors from likes, deletions and moderation show next to the composer, or in the dock's status line when there is none (a closed or hidden
+ // question); the next action that works clears that line, unless it says updates are paused.
+ function notify(error){status(parts?.dockState==='composer'?composer.state:parts?.note||message,problem(keyOf(error)));}
+ function settled(){const node=parts?.note;if(node&&node.dataset.fiiuText&&!PAUSED.includes(node.dataset.fiiuText))status(node,'');}
  function paintLike(id){
   const view=views.get(id),like=rowsById.get(id)?.querySelector('.f-talk-like');if(!view||!like)return;const shown=likeShown(view);
   like.setAttribute('aria-pressed',String(shown.liked));like.querySelector('.f-talk-like-n').textContent=String(shown.likeCount);
@@ -414,24 +576,33 @@
   const view=views.get(id);if(!view||view.mine||view.hidden||liking.has(id)||!isOpen())return;const was=Boolean(view.liked);liking.set(id,!was);paintLike(id);
   try{
    const data=await api('/api/fiiu/messages/'+encodeURIComponent(id)+'/like',{},was?'DELETE':'PUT');
-   setLiked(id,Boolean(data.liked));const now=views.get(id);if(now)now.likeCount=Math.max(0,Number(data.likeCount)||0);
+   setLiked(id,Boolean(data.liked));const now=views.get(id);if(now)now.likeCount=Math.max(0,Number(data.likeCount)||0);settled();
   }catch(error){
    // 404: hidden or deleted a moment ago, which the next sync would also say.
-   if(error?.status===404){patch(()=>drop(id));return;}
+   if(error?.status===404){gone(id,false);return;}
    notify(error);if(error?.code==='question_closed')closedByServer();
   }finally{liking.delete(id);paintLike(id);}
  }
  async function erase(id){
   if(!window.confirm(t('talkDeleteConfirm')))return;
-  try{await api('/api/fiiu/messages/'+encodeURIComponent(id),{},'DELETE');patch(()=>drop(id));}
-  catch(error){if(error?.status===404)patch(()=>drop(id));else notify(error);}
+  try{await api('/api/fiiu/messages/'+encodeURIComponent(id),{},'DELETE');settled();gone(id);}
+  catch(error){if(error?.status===404)gone(id);else notify(error);}
+ }
+ // A row that goes while focus is in it hands focus to the next message's first control, else the previous one's, else the composer (or the log), and
+ // the status line says it was deleted (not for a like refused because the message was hidden). The target is picked after the request, since a poll
+ // may have replaced the rows meanwhile.
+ function gone(id,tell=true){
+  const row=rowsById.get(id);if(!row||!parts){patch(()=>drop(id));return;}
+  const list=[...parts.log.children],i=list.indexOf(row),active=document.activeElement,lost=!active||active===document.body||holds(row);
+  const control=node=>[...(node?.querySelectorAll('button,a')||[])].find(item=>!item.disabled&&!item.hidden),target=control(list[i+1])||control(list[i-1])||(parts.dockState==='composer'?composer.textarea:parts.log);
+  patch(()=>drop(id));if(lost)target.focus(target===parts.log?{preventScroll:true}:undefined);if(tell)announce(t('talkDeleted'));
  }
  // Organisers hide (PUT) and unhide (DELETE), one request per message at a time; the answer replaces the row, which stays on their screen, greyed.
  // A message its author deleted meanwhile just leaves the screen.
  async function moderate(id){
   const view=views.get(id);if(!view||moderating.has(id))return;moderating.add(id);
-  try{const data=await api('/api/admin/fiiu/messages/'+encodeURIComponent(id)+'/hidden',{},view.hidden?'DELETE':'PUT');if(data?.message?.id&&parts)patch(note=>note(data.message,upsert(data.message)));}
-  catch(error){if(error?.status===404)patch(()=>drop(id));else notify(error);}
+  try{const data=await api('/api/admin/fiiu/messages/'+encodeURIComponent(id)+'/hidden',{},view.hidden?'DELETE':'PUT');settled();if(data?.message?.id&&parts)patch(note=>note(data.message,upsert(data.message)));}
+  catch(error){if(error?.status===404)gone(id);else notify(error);}
   finally{moderating.delete(id);}
  }
  async function loadEarlier(){
@@ -439,7 +610,10 @@
   try{
    const data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages?before='+encodeURIComponent(before));if(question?.id!==id)return;seedLiked(data);
    for(const view of Array.isArray(data.messages)?data.messages:[])if(view?.id&&!rowsById.has(view.id))upsert(view);
-   before=typeof data.before==='string'?data.before:null;control.hidden=!before;updateEmpty();first?.scrollIntoView?.({block:'start'});
+   before=typeof data.before==='string'?data.before:null;const active=document.activeElement,lost=!before&&(!active||active===document.body||holds(control));
+   control.hidden=!before;updateEmpty();first?.scrollIntoView?.({block:'start'});
+   // The last page takes its button away: focus moves to the newest message it brought, without moving the page again.
+   if(lost){const list=[...parts.log.children],newest=list[first?list.indexOf(first)-1:list.length-1];if(newest){newest.tabIndex=-1;newest.focus({preventScroll:true});}}
   }catch(error){notify(error);}finally{control.disabled=false;}
  }
 
@@ -452,14 +626,15 @@
   let full=null;
   if(document.fullscreenEnabled!==false&&typeof document.documentElement?.requestFullscreen==='function'){full=button('talkFullscreen',()=>document.fullscreenElement?document.exitFullscreen?.():document.documentElement.requestFullscreen?.()?.catch?.(()=>{}),'f-button secondary f-talk-full');tools.append(full);}
   // The empty square holds the code's place, so the headline does not jump when it arrives.
-  code.append(el('div','f-talk-wall-qr'));box.append(head,code,tools,feed,empty);root.replaceChildren(box);parts=null;document.body.classList.add('f-talk-present');
-  wall={head,code,feed,empty,switches,full,svg:null,qr:'loading',qrAt:0,cards:new Map()};
+  code.append(el('div','f-talk-wall-qr'));box.append(head,code,tools,feed,empty);root.replaceChildren(box);parts=null;dockObserver?.disconnect();dockObserver=null;document.body.classList.add('f-talk-present');
+  wall={head,code,feed,empty,switches,full,svg:null,address:'',qr:'loading',qrAt:0,cards:new Map()};
+  document.fonts?.ready?.then(()=>fitWall(),()=>{});
  }
  function renderWallHead(){
   const nodes=activity?[source('p',activity.title,'f-talk-wall-block'),whenLine(activity)]:[];if(question.talk)nodes.push(source('p',question.talk,'f-talk-talk'));
-  if(question.status!=='open')nodes.push(tr('p',question.status==='hidden'?'talkHidden':'talkClosedChip','f-talk-flag'));
+  if(question.status!=='open')nodes.push(tr('p',question.status==='hidden'?'talkHiddenQuestion':'talkClosedChip','f-talk-flag'));rekey(wall.empty,emptyKey());
   // The headline is 3 to 5 % of the screen's width; a long question steps down so the answers still fit under it.
-  nodes.push(source('h1',question.body,'f-talk-wall-question'+(codePoints(question.body)>LONG?' is-long':'')));wall.head.replaceChildren(...nodes);
+  nodes.push(source('h1',question.body,'f-talk-wall-question'+(codePoints(question.body)>LONG?' is-long':'')));wall.head.replaceChildren(...nodes);paintCode();fitWall();
  }
  // An answer on the projector: the name, the organiser label and its likes, then the text (four lines at most, in the stylesheet) and thumbnails.
  function wallCard(m){
@@ -470,7 +645,8 @@
    const box=el('div','f-talk-wall-files');
    for(const file of m.files){
     if(!/^image\//.test(file.mime)){box.append(el('span','f-talk-wall-file','PDF · '+(file.name||'')));continue;}
-    const img=el('img');img.src='/api/fiiu/files/'+encodeURIComponent(file.id)+'?size=thumb';img.alt=file.name||'';img.decoding='async';if(Number.isInteger(file.width)&&Number.isInteger(file.height)){img.width=file.width;img.height=file.height;}box.append(img);
+    // A thumbnail without known dimensions changes the card's height when it arrives, so the wall is fitted again.
+    const img=el('img');img.src='/api/fiiu/files/'+encodeURIComponent(file.id)+'?size=thumb';img.alt=file.name||'';img.decoding='async';img.addEventListener('load',()=>fitWall());if(Number.isInteger(file.width)&&Number.isInteger(file.height)){img.width=file.width;img.height=file.height;}box.append(img);
    }
    card.append(box);
   }
@@ -483,7 +659,18 @@
   // A card is rebuilt only when its message changed (a new seq); the others move as they are, so their thumbnails are not fetched again.
   for(const m of list){const id=m.id+':'+m.seq;cards.set(id,wall.cards.get(id)||wallCard(m));}
   wall.cards=cards;wall.feed.replaceChildren(...cards.values());wall.empty.hidden=list.length>0;
-  for(const b of wall.switches)b.setAttribute('aria-pressed',String(b.dataset.sort===order));
+  for(const b of wall.switches)b.setAttribute('aria-pressed',String(b.dataset.sort===order));fitWall();
+ }
+ // A projector has no scrolling, so the room sees whole answers only: after each draw, and when the screen changes size or goes full screen, every row
+ // of cards that would cross the screen's bottom edge is left out (rows, so none is left half full). The first row stays even on a screen too short for
+ // it, rather than an empty wall; the one-column layout an organiser checks on a phone scrolls, and keeps them all.
+ function fitWall(){
+  if(!wall)return;const list=[...wall.feed.children];for(const card of list)card.hidden=false;
+  if(!list.length||window.matchMedia?.('(max-width:900px)').matches)return;
+  const s=document.scrollingElement,limit=(window.innerHeight||s?.clientHeight||0)-FIT_MARGIN,y=s?.scrollTop||0,box=card=>card.getBoundingClientRect?.();
+  const cut=list.find(card=>{const b=box(card);return b&&b.bottom+y>limit;});if(!cut)return;
+  const first=box(list[0]).top,from=box(cut).top>first?box(cut).top:box(list.find(card=>box(card).top>first)||cut).top;
+  if(from>first)for(const card of list)if(box(card).top>=from)card.hidden=true;
  }
  // The join code arrives as module bits (row-major, most significant bit first) and is drawn as one SVG path inside a 4-module quiet zone. This copies
  // drawQr from fiiu-qr.js on purpose: the check-in screen is on the festival's critical path, so this page neither imports from it nor changes it.
@@ -507,8 +694,16 @@
   if(!wall||question?.id!==id)return;
   // A failed request is tried again by the poll once a minute. A code the encoder could not draw is final: the room keeps the question, the answers
   // and the address.
-  const svg=drawQr(data?.qr),address=typedAddress(typeof data?.url==='string'?data.url:location.href);Object.assign(wall,{svg,qr:failed?'failed':'done',qrAt:Date.now()+60000});
-  wall.code.replaceChildren(...(svg?[tr('p','talkScanToJoin','f-talk-wall-scan'),svg]:[]),...(address?[el('p','f-talk-wall-url',address)]:[]));wall.code.hidden=!svg&&!address;
+  const svg=drawQr(data?.qr),address=typedAddress(typeof data?.url==='string'?data.url:location.href);Object.assign(wall,{svg,address,qr:failed?'failed':'done',qrAt:Date.now()+60000});
+  paintCode();fitWall();
+ }
+ // The code says what scanning gives: joining an open question, reading a closed one. A hidden question shows no code and no address yet (they would
+ // find nothing), only that it opens soon; the code comes back when it opens. renderWallHead() repaints it on every change of status.
+ function paintCode(){
+  if(!wall)return;const state=question?.status;
+  if(state==='hidden'){wall.code.replaceChildren(tr('p','talkOpensSoon','f-talk-wall-scan'));wall.code.hidden=false;return;}
+  if(wall.qr==='loading')return;const label=state==='closed'?'talkScanToRead':'talkScanToJoin',{svg,address}=wall;svg?.setAttribute('aria-label',t(label));
+  wall.code.replaceChildren(...(svg?[tr('p',label,'f-talk-wall-scan'),svg]:[]),...(address?[el('p','f-talk-wall-url',address)]:[]));wall.code.hidden=!svg&&!address;
  }
  function showWall(data,again){
   if(!wall||!again){buildWall();loadQr(question.id);}
@@ -525,25 +720,28 @@
 
  // Questions open first, then newest.
  const sorted=list=>[...list].sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1)||String(b.createdAt).localeCompare(String(a.createdAt)));
- async function openBlock(id){
-  status(message,'loading');let data;
-  try{data=await api('/api/fiiu/questions?activityId='+encodeURIComponent(id));}catch(error){return access(error);}
+ // A block's list follows the pulse too: a question opened, closed or hidden reads it again (quietly, keeping the list on a failure), and a block left
+ // with one question opens it, as a first load does. That is the address the projector shows people to type.
+ function watchBlock(id,last){watch(list=>{const now=blockSig(list.filter(item=>item[1]===id).map(item=>[item[0],item[3]]));if(now===last)return false;last=now;return true;},()=>redraw(()=>openBlock(id,last)));}
+ async function openBlock(id,seen){
+  unwatch();const refresh=seen!==undefined;if(!refresh)status(message,'loading');let data;
+  try{data=await api('/api/fiiu/questions?activityId='+encodeURIComponent(id));}catch(error){return refresh?watchBlock(id,null):access(error);}
   status(message,'');activity=data.activity||null;const list=sorted(Array.isArray(data.questions)?data.questions.filter(q=>q?.id):[]);
   if(list.length===1){history.replaceState(null,'',location.pathname+'?q='+encodeURIComponent(list[0].id));return openQuestion(list[0].id,list);}
   const box=el('section','f-talk f-talk-block'),head=el('header','f-talk-head');head.append(...blockHead(activity));box.append(head);
   if(list.length)box.append(tr('h2','talkQuestions','f-talk-subhead'),questionList(list));
   else{const actions=el('div','f-actions');actions.append(link('viewProgramme','fiiu.html#programme','f-button secondary'));box.append(tr('p','talkEmptyBlock','f-talk-empty'),actions);}
-  root.replaceChildren(box,newTabNote());setTitle();
+  root.replaceChildren(box,newTabNote());setTitle();watchBlock(id,seen??blockSig(list.map(q=>[q.id,q.status])));
  }
  async function openQuestion(id,list=null){
-  status(message,'loading');let data;
+  unwatch();status(message,'loading');let data;
   try{data=await api('/api/fiiu/questions/'+encodeURIComponent(id));}catch(error){return access(error);}
   status(message,'');if(!data?.question?.id)return access(null);
   show(data);startPolling();if(wall)return wake();
   if(list)showSiblings(list);else api('/api/fiiu/questions?activityId='+encodeURIComponent(question.activityId)).then(result=>{if(question?.id===data.question.id)showSiblings(result.questions);},()=>{});
  }
  function start(){
-  const params=new URLSearchParams(location.search),q=params.get('q')||'',a=params.get('a')||'';
+  unwatch();const params=new URLSearchParams(location.search),q=params.get('q')||'',a=params.get('a')||'';
   // The projector shows one question (?q=), never a block's list.
   present=UUID.test(q)&&params.get('present')==='1';
   setTitle();if(UUID.test(q))return openQuestion(q);if(!q&&ID.test(a))return openBlock(a);status(message,'');unavailable();
@@ -555,11 +753,14 @@
   setTitle();root.querySelectorAll('.f-talk-n').forEach(node=>{if(node.dataset.talkKey)setCount(node,node.dataset.talkKey,JSON.parse(node.dataset.talkVars||'{}'));});
   root.querySelectorAll('.f-talk-size').forEach(node=>{node.textContent=sizeText(Number(node.dataset.talkSize));});
   if(parts)parts.log.setAttribute('aria-label',t('talkPage'));if(composer){composer.textarea.placeholder=t('talkPlaceholder');updateLeft();}
-  wall?.svg?.setAttribute('aria-label',t('talkScanToJoin'));
+  wall?.svg?.setAttribute('aria-label',t(question?.status==='closed'?'talkScanToRead':'talkScanToJoin'));
  }
  window.nodalI18n?.onChange(relabel);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible')return;wake();nextAt=0;return tick();});
- document.addEventListener('fullscreenchange',()=>{const full=wall?.full;if(!full)return;const name=document.fullscreenElement?'exitFullScreen':'talkFullscreen';full.dataset.fiiuText=name;full.textContent=t(name);});
- window.addEventListener('scroll',()=>{if(parts&&!parts.pill.hidden&&nearBottom())parts.pill.hidden=true;},{passive:true});
+ // Back online, the chat asks at once instead of waiting out a backoff that can reach a minute.
+ window.addEventListener('online',()=>{nextAt=0;return tick();});
+ document.addEventListener('fullscreenchange',()=>{fitWall();const full=wall?.full;if(!full)return;const name=document.fullscreenElement?'exitFullScreen':'talkFullscreen';full.dataset.fiiuText=name;full.textContent=t(name);});
+ window.addEventListener('resize',()=>fitWall());
+ window.addEventListener('scroll',()=>{track();if(parts&&!parts.pill.hidden&&nearBottom())parts.pill.hidden=true;},{passive:true});
  start();
 })();

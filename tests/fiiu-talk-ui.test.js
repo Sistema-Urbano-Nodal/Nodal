@@ -68,7 +68,8 @@ test('a guest is asked to sign in and come back, an account without a registrati
  const outsider=await page({['GET /api/fiiu/questions/'+Q]:{status:403,data:{error:'festival registration required',code:'not_registered'}}});
  assert.ok(key(outsider.root,'talkRegister'));assert.ok(key(outsider.root,'talkRegisterHint'));assert.ok(links(outsider.root).some(a=>a.href==='fiiu.html#registration'));
  const hidden=await page({['GET /api/fiiu/questions/'+Q]:{status:404,data:{error:'not found',code:'question_unavailable'}}});
- assert.ok(key(hidden.root,'talkUnavailable'));assert.ok(links(hidden.root).some(a=>a.href==='fiiu.html#programme'));assert.equal(hidden.timers.length,0);
+ assert.ok(key(hidden.root,'talkUnavailable'));assert.ok(links(hidden.root).some(a=>a.href==='fiiu.html#programme'));
+ assert.deepEqual(hidden.timers.map(timer=>timer.delay),[8000],'a hidden question only watches the public pulse, slowly');
  // An outage is an error with a retry, never "signed out".
  let calls=0;const down=await page({['GET /api/fiiu/questions/'+Q]:()=>calls++?thread():{status:503,data:{}}});
  assert.ok(key(down.root,'talkError'));assert.equal(key(down.root,'talkSignIn'),undefined);
@@ -76,16 +77,16 @@ test('a guest is asked to sign in and come back, an account without a registrati
  const broken=await page({},{search:'?q=nope'});assert.ok(key(broken.root,'talkUnavailable'));assert.equal(broken.requests.length,0,'a malformed address asks the server nothing');
 });
 
-test('a message appears at once as sending; a failure keeps the draft and offers Retry with the same clientId; success shows the server row',async()=>{
+test('a message appears at once as sending and leaves the composer; a failure keeps it in its row with Retry and the same clientId; success shows the server row',async()=>{
  const answers=[later(),later()];let n=0;
  const h=await page({['POST '+MESSAGES]:()=>answers[n++].promise});
  const text=composer(h).querySelector('textarea');text.value='  Me llevo la idea de barrio  ';text.focus();
- submit(h);await flush();
+ submit(h);await flush();assert.equal(text.value,'','the composer empties at once');
  submit(h);await flush();assert.equal(sent(h,'POST',MESSAGES).length,1,'a second tap while sending posts nothing');assert.equal(rows(h).filter(node=>node.dataset.pending).length,1);
  const pending=rows(h).at(-1);assert.ok(classes(pending).includes('is-pending'));assert.ok(key(pending,'talkSending'));assert.equal(content(pending.querySelector('.f-talk-body')).trim(),'Me llevo la idea de barrio');
  answers[0].resolve({status:503,data:{error:'unavailable'}});await flush();
  const failed=rows(h).at(-1);assert.ok(classes(failed).includes('is-failed'));assert.ok(key(failed,'talkNotSent'));assert.ok(key(failed,'talkRetry'));
- assert.equal(text.value,'  Me llevo la idea de barrio  ','the draft survives a failure');assert.equal(composer(h).querySelector('.f-talk-status').dataset.fiiuText,'talkError');
+ assert.equal(content(failed.querySelector('.f-talk-body')).trim(),'Me llevo la idea de barrio','the failed row keeps the message');assert.equal(text.value,'');assert.equal(composer(h).querySelector('.f-talk-status').dataset.fiiuText,'talkError');
  text.focused=false;key(failed,'talkRetry').listeners.click();await flush();
  assert.ok(classes(rows(h).at(-1)).includes('is-pending'),'a retry shows the sending state again');
  answers[1].resolve({status:201,data:{message:message(M3,{mine:true,body:'Me llevo la idea de barrio',createdAt:'2026-10-21T14:20:00.000Z',seq:4})}});await flush();
@@ -134,14 +135,15 @@ test('polling asks for changes only when the pulse moves, patches rows in place 
  await h.visible(true);await flush();assert.equal(sent(h,'GET','/api/fiiu/pulse').length,4,'coming back polls at once');
 });
 
-test('a failing pulse backs off exponentially, says updates are paused, and recovers',async()=>{
+test('a failing pulse backs off exponentially, says in the dock that updates are paused, and recovers',async()=>{
  const Clock=clock();let up=false;
  const h=await page({'GET /api/fiiu/pulse':()=>up?{questions:[[Q,'day1-am',3,'open']]}:{status:503,data:{}}},{context:{Date:Clock}});
  const pulses=()=>sent(h,'GET','/api/fiiu/pulse').length;
- await h.tickTimers();assert.equal(pulses(),1);assert.equal(h.message.dataset.fiiuText,'talkPaused');
+ const paused=()=>h.root.querySelector('.f-talk-dock').querySelector('.f-talk-note');
+ await h.tickTimers();assert.equal(pulses(),1);assert.equal(paused().dataset.fiiuText,'talkPaused');
  Clock.advance(8000);await h.tickTimers();assert.equal(pulses(),2,'8 s after the first failure');
  Clock.advance(8000);await h.tickTimers();assert.equal(pulses(),2,'after 2 failures the next try waits 16 s');
- Clock.advance(8000);up=true;await h.tickTimers();assert.equal(pulses(),3);assert.equal(h.message.textContent,'');
+ Clock.advance(8000);up=true;await h.tickTimers();assert.equal(pulses(),3);assert.equal(paused().textContent,'');
  await h.tickTimers();assert.equal(pulses(),4,'success resets the backoff');
 });
 
@@ -162,7 +164,7 @@ test('new messages below the fold raise the pill instead of scrolling, and near 
   ['GET '+MESSAGES+'?since=3']:since(4,[message(M3,{seq:4,createdAt:'2026-10-21T14:10:00.000Z'})]),
   ['GET '+MESSAGES+'?since=4']:since(5,[message(M4,{seq:5,createdAt:'2026-10-21T14:11:00.000Z'})])});
  const scroller={scrollHeight:3000,scrollTop:0,clientHeight:800};h.ctx.document.scrollingElement=scroller;
- const pill=h.root.querySelector('.f-talk-new');assert.equal(pill.hidden,true);assert.equal(pill['aria-live'],'polite');assert.equal(pill.dataset.fiiuText,'talkNew');
+ const pill=h.root.querySelector('.f-talk-new');assert.equal(pill.hidden,true);assert.equal(pill.dataset.fiiuText,'talkNew');
  revision=4;await h.tickTimers();assert.equal(pill.hidden,false);assert.equal(scroller.scrollTop,0,'a reader higher up stays where they are');
  pill.listeners.click();assert.equal(pill.hidden,true);assert.equal(scroller.scrollTop,3000);
  scroller.scrollTop=2150;revision=5;await h.tickTimers();assert.equal(pill.hidden,true);assert.equal(scroller.scrollTop,3000,'near the bottom the page follows');
@@ -335,7 +337,7 @@ test('a block address lists its questions open first, opens a single one at once
  const h=await page({'GET /api/fiiu/questions?activityId=day1-am':{activity:ACTIVITY,questions:[older,question()]}},{search:'?a=day1-am'});
  assert.deepEqual(links(h.root).filter(a=>a.href.startsWith('fiiu-talk.html?q=')).map(a=>a.href),['fiiu-talk.html?q='+Q,'fiiu-talk.html?q='+Q2]);
  assert.ok(key(h.root,'talkQuestions'));assert.ok(key(h.root,'talkClosedChip'),'a closed question says so');assert.equal(h.root.querySelector('h1').textContent,'El poder de lo local');
- assert.equal(h.replaced.length,0);assert.equal(h.timers.length,0);
+ assert.equal(h.replaced.length,0);assert.deepEqual(h.timers.map(timer=>timer.delay),[8000],'the list watches the public pulse, slowly');
  const one=await page({},{search:'?a=day1-am'});
  assert.deepEqual(one.replaced,['/fiiu-talk.html?q='+Q]);assert.ok(one.root.querySelector('.f-talk-log'));assert.equal(sent(one,'GET','/api/fiiu/questions?activityId=day1-am').length,1,'the list is not asked for twice');
  const none=await page({'GET /api/fiiu/questions?activityId=day1-am':{activity:ACTIVITY,questions:[]}},{search:'?a=day1-am'});
@@ -372,16 +374,16 @@ test('an organiser reading a hidden question follows its edits from the changes 
  await h.tickTimers();await h.tickTimers();assert.equal(sent(h,'GET',/since=3$/).length,2);
  assert.equal(sent(h,'GET','/api/fiiu/pulse').length,0,'the public pulse leaves hidden questions out');
  revision=4;body='¿Qué te llevas de esta mañana?';await h.tickTimers();
- assert.equal(h.root.querySelector('.f-talk-question').textContent,'¿Qué te llevas de esta mañana?');assert.ok(key(h.root.querySelector('.f-talk-head'),'talkHidden'));
+ assert.equal(h.root.querySelector('.f-talk-question').textContent,'¿Qué te llevas de esta mañana?');assert.ok(key(h.root.querySelector('.f-talk-head'),'talkHiddenQuestion'));
  await h.tickTimers();assert.equal(sent(h,'GET',/since=4$/).length,1);assert.equal(reads(),1,'each answer carries the question, so it is never read again');
 });
 
 test('an organiser on a hidden question sees it open, with the answers that arrived in the same sync',async()=>{
  const h=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'hidden'},me:{organiser:true}}),'GET /api/fiiu/pulse':{questions:[[Q,'day1-am',5,'open']]},
   ['GET '+MESSAGES+'?since=3']:since(5,[message(M3,{body:'Primera',createdAt:'2026-10-21T14:10:00.000Z',authorFull:'Ana Test',hidden:false,seq:5})],{status:'open'})});
- assert.equal(composer(h),null);assert.ok(key(h.root.querySelector('.f-talk-head'),'talkHidden'));assert.equal(row(h,M1).querySelector('.f-talk-like').disabled,true);
+ assert.equal(composer(h),null);assert.ok(key(h.root.querySelector('.f-talk-head'),'talkHiddenQuestion'));assert.equal(row(h,M1).querySelector('.f-talk-like').disabled,true);
  await h.tickTimers();
- assert.ok(row(h,M3));assert.ok(composer(h),'the composer appears');assert.equal(key(h.root.querySelector('.f-talk-head'),'talkHidden'),undefined);assert.equal(row(h,M1).querySelector('.f-talk-like').disabled,false);
+ assert.ok(row(h,M3));assert.ok(composer(h),'the composer appears');assert.equal(key(h.root.querySelector('.f-talk-head'),'talkHiddenQuestion'),undefined);assert.equal(row(h,M1).querySelector('.f-talk-like').disabled,false);
  await h.tickTimers();assert.equal(sent(h,'GET','/api/fiiu/pulse').length,1,'an open question follows the pulse again');assert.equal(sent(h,'GET',/since=/).length,1);
 });
 
@@ -514,14 +516,14 @@ test('a Retry answered with the message already removed clears the draft and lea
  assert.equal(text.value,'','it was delivered, then removed');assert.equal(composerStatus(h),'');
 });
 
-test('a Retry refused because its earlier copy can no longer be finished keeps the draft, and the next try is a new message with its files uploaded again',async()=>{
+test('a Retry refused because its earlier copy can no longer be finished keeps the row, and the next try is a new message with its files uploaded again',async()=>{
  let posts=0,uploads=0;const answers=[{status:503,data:{}},{status:409,data:{error:'client id already used for another message',code:'client_id_reused'}},{status:201,data:{message:message(M3,{mine:true,body:'Otra vez',createdAt:'2026-10-21T14:20:00.000Z',seq:6})}}];
  const h=await page({'POST /api/fiiu/files':()=>({status:201,data:{file:{id:[F1,F2][uploads++],name:'a.jpg',mime:'image/jpeg',size:1000,width:null,height:null,thumb:false}}}),['POST '+MESSAGES]:()=>answers[posts++]},
   {context:{createImageBitmap:async()=>{throw new Error('x');},FileReader:Reader}});
  const text=composer(h).querySelector('textarea'),failed=()=>rows(h).find(node=>classes(node).includes('is-failed'));
  text.value='Otra vez';choose(h,[file('a.jpg','image/jpeg',1000)]);submit(h);await flush();
  await key(failed(),'talkRetry').listeners.click();await flush();
- assert.ok(failed(),'still Not sent, with Retry');assert.equal(text.value,'Otra vez','the draft stays');assert.equal(composerStatus(h),'talkReused');
+ assert.ok(failed(),'still Not sent, with Retry');assert.match(content(failed()),/Otra vez/,'the row keeps the message');assert.equal(text.value,'');assert.equal(composerStatus(h),'talkReused');
  await key(failed(),'talkRetry').listeners.click();await flush();
  const posted=sent(h,'POST',MESSAGES).map(request=>request.body);
  assert.equal(posted[1].clientId,posted[0].clientId,'a plain Retry repeats the clientId');assert.notEqual(posted[2].clientId,posted[1].clientId,'after the refusal, a new one');
@@ -591,8 +593,9 @@ test('refusals of a send say what happened in the person’s language, and only 
  for(const [where,answer,expected,retry] of cases){
   const h=await page({'POST /api/fiiu/files':where==='file'?answer:{status:201,data:{file:{id:F1,name:'a.pdf',mime:'application/pdf',size:1,width:null,height:null,thumb:false}}},['POST '+MESSAGES]:where==='message'?answer:{status:500,data:{}}},{context:{FileReader:Reader}});
   const text=composer(h).querySelector('textarea');text.value='Hola';if(where==='file')choose(h,[file('a.pdf','application/pdf',1000)]);submit(h);await flush();
-  assert.equal(composerStatus(h),expected,expected);assert.equal(text.value,'Hola','the draft stays');
-  assert.equal(Boolean(rows(h).find(node=>classes(node).includes('is-failed'))),retry,expected+(retry?' keeps Retry':' leaves no row'));
+  // What Retry can fix stays in its row; what it cannot goes back to the composer to be fixed.
+  assert.equal(composerStatus(h),expected,expected);assert.equal(text.value,retry?'':'Hola',expected);
+  const failed=rows(h).find(node=>classes(node).includes('is-failed'));assert.equal(Boolean(failed),retry,expected+(retry?' keeps Retry':' leaves no row'));if(failed)assert.match(content(failed),/Hola/);
  }
  const h=await page({['POST '+MESSAGES]:{status:403,data:{error:'festival registration required',code:'not_registered'}}});
  composer(h).querySelector('textarea').value='Hola';submit(h);await flush();h.lang('es');
@@ -658,7 +661,7 @@ test('the projector follows the poll: a new answer leads, a removed one leaves, 
  revision=17;state='closed';await h.tickTimers();
  assert.ok(key(h.root.querySelector('.f-talk-wall-head'),'talkClosedChip'));assert.equal(composer(h),null,'closing never brings a composer to the projector');
  const hidden=await projector({['GET '+MESSAGES+'?since=3']:since(3,[],{status:'hidden'})},{question:{status:'hidden'}});
- assert.ok(key(hidden.root.querySelector('.f-talk-wall-head'),'talkHidden'),'the organiser sees the room cannot open it yet');
+ assert.ok(key(hidden.root.querySelector('.f-talk-wall-head'),'talkHiddenQuestion'),'the organiser sees the room cannot open it yet');
  await hidden.tickTimers();assert.equal(sent(hidden,'GET','/api/fiiu/pulse').length,0,'the pulse leaves hidden questions out');assert.equal(sent(hidden,'GET',MESSAGES+'?since=3').length,1);
 });
 
@@ -720,4 +723,409 @@ test('the projector headline follows a question edit that arrives with answers',
  revision=5;await h.tickTimers();
  assert.equal(order(h)[0],M3);assert.equal(h.root.querySelector('.f-talk-wall-question').textContent,'¿Qué ciudad imaginas?');
  assert.equal(h.root.querySelector('.f-talk-wall-head').querySelector('.f-talk-talk'),null,'the talk was taken off');
+});
+
+// Round 3: the composer hands each draft to its row, drafts outlive closes and reloads, and the page follows its block.
+test('sending empties the composer at once, so a caption typed while a photo uploads is a new text message and the photo is uploaded once',async()=>{
+ const upload=later();let n=0;
+ const h=await page({'POST /api/fiiu/files':()=>upload.promise,['POST '+MESSAGES]:request=>({status:201,data:{message:message('30000000-0000-4000-8000-00000000000'+n++,{mine:true,body:request.body.body,createdAt:'2026-10-21T14:2'+n+':00.000Z',seq:4+n})}})},
+  {context:{createImageBitmap:async()=>{throw new Error('x');},FileReader:Reader}});
+ const text=composer(h).querySelector('textarea'),photo=file('feria.jpg','image/jpeg',1000);
+ choose(h,[photo]);submit(h);await flush();
+ assert.equal(text.value,'');assert.equal(chips(h).length,0,'the photo left the composer with its message');assert.equal(composer(h).querySelector('.f-talk-chips').hidden,true);
+ assert.equal(rows(h).at(-1).querySelector('.f-talk-state').textContent,'Uploading 1 of 1…');
+ text.value='Esta es la feria de mi barrio';text.listeners.input();submit(h);await flush();
+ assert.equal(text.value,'');assert.deepEqual(sent(h,'POST',MESSAGES).map(request=>request.body.fileIds),[[]],'the caption goes on its own, without the photo');
+ // The very same draft again while it is on its way is already in its row: the composer empties and nothing new is sent.
+ choose(h,[photo]);submit(h);await flush();assert.equal(chips(h).length,0);assert.equal(rows(h).filter(node=>node.dataset.pending).length,1);
+ // The same photo in another message while its first upload runs waits for that upload instead of sending the bytes twice.
+ text.value='Otra vez la foto';choose(h,[photo]);submit(h);await flush();
+ upload.resolve({status:201,data:{file:{id:F1,name:'feria.jpg',mime:'image/jpeg',size:1000,width:null,height:null,thumb:false}}});await flush();
+ assert.equal(sent(h,'POST','/api/fiiu/files').length,1,'one upload');
+ assert.deepEqual(sent(h,'POST',MESSAGES).map(request=>[request.body.body,request.body.fileIds]),[['Esta es la feria de mi barrio',[]],['',[F1]],['Otra vez la foto',[F1]]]);
+});
+
+test('a refusal Retry cannot fix puts the draft back in an empty composer; a draft typed meanwhile is never overwritten',async()=>{
+ const refuse={status:403,data:{error:'festival registration required',code:'not_registered'}};
+ const h=await page({['POST '+MESSAGES]:refuse});
+ const text=composer(h).querySelector('textarea');text.value='Hola';submit(h);assert.equal(text.value,'','handed to its row at once');await flush();
+ assert.equal(text.value,'Hola');assert.equal(composerStatus(h),'talkNotRegistered');
+ const answer=later(),busy=await page({['POST '+MESSAGES]:()=>answer.promise});
+ const box=composer(busy).querySelector('textarea');box.value='Primero';submit(busy);await flush();box.value='Otra cosa';
+ answer.resolve(refuse);await flush();assert.equal(box.value,'Otra cosa');assert.equal(composerStatus(busy),'talkNotRegistered');
+});
+
+// sessionStorage as the page uses it; broken() is a browser that blocks site data, where every call throws.
+const memoryStore=(seed={})=>{const items=new Map(Object.entries(seed));return {items,getItem:name=>items.has(name)?items.get(name):null,setItem:(name,value)=>{items.set(name,String(value));},removeItem:name=>{items.delete(name);}};};
+const blocked={getItem(){throw new Error('denied');},setItem(){throw new Error('denied');},removeItem(){throw new Error('denied');}};
+// The harness tracks no focus: a test names the focused element, and contains() answers for it.
+const focusInside=(h,node)=>{h.ctx.document.activeElement=node;for(const box of [h.root,...descendants(h.root)])box.contains=child=>child===box||descendants(box).includes(child);};
+const DRAFT_KEY='nodal.talkDraft.'+Q;
+
+test('a half-typed answer is kept per question for the tab, so a reload or a sign-in round trip brings it back, and sending drops it',async()=>{
+ const sessionStorage=memoryStore();
+ const h=await page({['POST '+MESSAGES]:{status:201,data:{message:message(M3,{mine:true,body:'Mi borrador',seq:4})}}},{context:{sessionStorage}});
+ const text=composer(h).querySelector('textarea');text.value='Mi borrador';text.listeners.input();
+ assert.equal(sessionStorage.items.get(DRAFT_KEY),'Mi borrador');
+ const again=await page({},{context:{sessionStorage}});
+ assert.equal(composer(again).querySelector('textarea').value,'Mi borrador','the reloaded page restores it');
+ submit(h);assert.equal(sessionStorage.items.has(DRAFT_KEY),false,'a sent draft is not restored again');
+ text.value='   ';text.listeners.input();assert.equal(sessionStorage.items.has(DRAFT_KEY),false,'an empty composer stores nothing');
+ // A refusal that puts the draft back stores it again.
+ const refused=await page({['POST '+MESSAGES]:{status:403,data:{error:'festival registration required',code:'not_registered'}}},{context:{sessionStorage}});
+ const box=composer(refused).querySelector('textarea');box.value='Sin inscripción';submit(refused);await flush();assert.equal(sessionStorage.items.get(DRAFT_KEY),'Sin inscripción');
+ const denied=await page({},{context:{sessionStorage:blocked}});const typed=composer(denied).querySelector('textarea');typed.value='Hola';typed.listeners.input();
+ assert.equal(typed.value,'Hola','without storage the draft stays on screen');
+});
+
+test('a close while someone types keeps the draft readable under the closed note, moves focus to the note, and a reopen gives the composer back with it',async()=>{
+ let state='open',revision=3;
+ const routes={'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,state]]}),['GET '+MESSAGES+'?since=3']:since(4,[],{status:'closed'}),['GET '+MESSAGES+'?since=4']:since(5,[],{status:'open'})};
+ const h=await page(routes);
+ const text=composer(h).querySelector('textarea');text.value='En mi barrio cambiaría el giro';text.listeners.input();focusInside(h,text);
+ revision=4;state='closed';await h.tickTimers();
+ const dock=h.root.querySelector('.f-talk-dock'),note=key(dock,'talkClosed');
+ assert.equal(composer(h),null);assert.equal(note.focused,true,'focus stays in the dock, on the note');assert.equal(note.tabIndex,-1);
+ assert.ok(key(dock,'talkDraftKept'));const kept=dock.querySelector('.f-talk-draft-text');assert.equal(kept.value,'En mi barrio cambiaría el giro','the draft can still be read and copied');assert.equal(kept.readOnly,true);
+ assert.equal(h.root.querySelector('.f-talk-live').textContent,'','a focused note reads itself, so nothing is said twice');
+ focusInside(h,note);revision=5;state='open';await h.tickTimers();
+ assert.equal(composer(h).querySelector('textarea'),text);assert.equal(text.value,'En mi barrio cambiaría el giro');assert.equal(text.focused,true,'a reopen hands focus from the note back to the composer');
+ // Someone reading the conversation, not typing, hears the close from the status line.
+ const reader=await page({...routes,['GET '+MESSAGES+'?since=3']:since(4,[],{status:'closed'})});revision=4;state='closed';await reader.tickTimers();
+ const live=reader.root.querySelector('.f-talk-live');assert.equal(live.textContent,'This conversation is closed. You can still read it.');assert.equal(live.role,'status');
+ assert.equal(reader.root.querySelector('.f-talk-draft').hidden,true,'no draft, no draft block');
+ // A first load on a closed question announces nothing.
+ const closed=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'closed'},me:{canPost:false}})});assert.equal(closed.root.querySelector('.f-talk-live').textContent,'');
+});
+
+test('a sign-in asked for by a poll takes focus to its heading, and the draft is waiting when the person comes back',async()=>{
+ const sessionStorage=memoryStore();let revision=3;
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:{status:401,data:{error:'sign in required'}}},{context:{sessionStorage}});
+ const text=composer(h).querySelector('textarea');text.value='Casi termino';text.listeners.input();focusInside(h,text);
+ revision=4;await h.tickTimers();
+ const heading=key(h.root,'talkSignIn');assert.equal(heading.focused,true);assert.equal(heading.tabIndex,-1);
+ const back=await page({},{context:{sessionStorage}});assert.equal(composer(back).querySelector('textarea').value,'Casi termino');
+});
+
+test('an empty question says it closed without answers, or for organisers that it is not open yet, and a question’s Hidden chip agrees with pregunta',async()=>{
+ const closed=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'closed'},me:{canPost:false},messages:[]})});
+ const empty=closed.root.querySelector('.f-talk-empty');assert.equal(empty.hidden,false);assert.equal(empty.dataset.fiiuText,'talkEmptyClosed');
+ closed.lang('es');assert.equal(empty.textContent,'Esta pregunta se cerró sin respuestas.');
+ let revision=3;
+ const live=await page({['GET /api/fiiu/questions/'+Q]:thread({messages:[]}),'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:since(4,[],{status:'closed'})});
+ assert.equal(live.root.querySelector('.f-talk-empty').dataset.fiiuText,'talkEmpty');revision=4;await live.tickTimers();
+ assert.equal(live.root.querySelector('.f-talk-empty').dataset.fiiuText,'talkEmptyClosed','a close re-keys the empty line');
+ const hidden=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'hidden'},me:{organiser:true},messages:[]})});
+ assert.equal(hidden.root.querySelector('.f-talk-empty').dataset.fiiuText,'talkEmptyHidden');
+ const chip=key(hidden.root.querySelector('.f-talk-head'),'talkHiddenQuestion');assert.ok(chip);hidden.lang('es');assert.equal(chip.textContent,'Oculta');
+ const block=await page({'GET /api/fiiu/questions?activityId=day1-am':{activity:ACTIVITY,questions:[question(),question({id:Q2,status:'hidden'})]}},{search:'?a=day1-am'});
+ assert.ok(key(block.root,'talkHiddenQuestion'));assert.equal(key(block.root,'talkHidden'),undefined,'Oculto stays for messages');
+ const wall=await projector({},{question:{status:'closed'},messages:[]});assert.equal(wall.root.querySelector('.f-talk-wall-empty').dataset.fiiuText,'talkEmptyClosed');
+});
+
+const note=h=>h.root.querySelector('.f-talk-dock').querySelector('.f-talk-note');
+const offline=()=>{throw new Error('offline');};
+
+test('paused updates show in the dock where the reader is, a lost connection is named, and coming back online polls at once',async()=>{
+ let up=false;
+ const h=await page({'GET /api/fiiu/pulse':()=>up?{questions:[[Q,'day1-am',3,'open']]}:offline(),['POST '+MESSAGES]:offline,['PUT /api/fiiu/messages/'+M1+'/like']:offline});
+ await h.tickTimers();
+ assert.equal(note(h).dataset.fiiuText,'talkPausedOffline');assert.equal(note(h).role,'status');assert.equal(h.message.textContent,'','not at the top of the page, far above the reader');
+ const text=composer(h).querySelector('textarea');text.value='Mensaje sin conexión';submit(h);await flush();
+ assert.equal(composerStatus(h),'talkOfflineSend','the send says the connection failed and that Retry will work');assert.ok(rows(h).find(node=>classes(node).includes('is-failed')));
+ await row(h,M1).querySelector('.f-talk-like').listeners.click();await flush();assert.equal(composerStatus(h),'talkOffline');
+ up=true;const pulses=sent(h,'GET','/api/fiiu/pulse').length;
+ await Promise.all((h.windowListeners.online||[]).map(listener=>listener({type:'online'})));
+ assert.equal(sent(h,'GET','/api/fiiu/pulse').length,pulses+1,'back online, the page asks at once instead of waiting out the backoff');assert.equal(note(h).textContent,'');
+ const down=await page({'GET /api/fiiu/pulse':{status:503,data:{}}});await down.tickTimers();assert.equal(note(down).dataset.fiiuText,'talkPaused','a server outage is not called a lost connection');
+ h.lang('es');assert.equal(h.ctx.window.Fiiu.t('talkOfflineSend'),'Sin conexión. Tu mensaje sigue aquí: toca Reintentar cuando vuelvas a tener señal.');
+});
+
+test('without a composer, a failed Hide shows its error in the dock, and the next action that works clears it',async()=>{
+ let fail=true;const ana=over=>message(M1,{authorFull:'Ana Test',hidden:false,...over});
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'closed'},me:{organiser:true,canPost:false},messages:[ana({seq:1})]}),
+  ['PUT /api/admin/fiiu/messages/'+M1+'/hidden']:()=>fail?{status:503,data:{}}:{message:ana({hidden:true,seq:4})}});
+ await key(row(h,M1),'talkHide').listeners.click();await flush();
+ assert.equal(note(h).dataset.fiiuText,'talkError');assert.equal(note(h).textContent,'Something went wrong. Try again.');assert.equal(h.message.textContent,'','not at the top of the page');
+ fail=false;await key(row(h,M1),'talkHide').listeners.click();await flush();assert.equal(note(h).textContent,'');assert.ok(classes(row(h,M1)).includes('is-hidden'));
+});
+
+const LIST='/api/fiiu/questions?activityId=day1-am';
+
+test('when the question closes and another on its block opens, the other questions follow the pulse and the closed note leads to the open one',async()=>{
+ let pulse=[[Q,'day1-am',3,'open']],list=[question()];
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:pulse}),['GET '+LIST]:()=>({activity:ACTIVITY,questions:list}),['GET '+MESSAGES+'?since=3']:since(4,[],{status:'closed'})});
+ assert.equal(h.root.querySelector('.f-talk-more'),null);await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,1,'an unchanged block is not read again');
+ const fresh=question({id:Q2,body:'¿Y mañana?',createdAt:'2026-10-21T15:00:00.000Z'});
+ pulse=[[Q2,'day1-am',1,'open'],[Q,'day1-am',4,'closed'],['cccccccc-cccc-4ccc-8ccc-cccccccccccc','day2-am',7,'open']];list=[fresh,question({status:'closed',revision:4})];
+ await h.tickTimers();
+ assert.equal(sent(h,'GET',LIST).length,2,'one read for the change');assert.equal(composer(h),null);
+ assert.deepEqual(links(h.root.querySelector('.f-talk-more')).map(a=>a.href),['fiiu-talk.html?q='+Q2,'fiiu-talk.html?a=day1-am']);
+ const next=key(h.root.querySelector('.f-talk-dock'),'talkNextOpen');assert.equal(next.hidden,false);assert.equal(next.href,'fiiu-talk.html?q='+Q2);
+ await h.tickTimers();await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,2,'the same pulse reads nothing more');
+ pulse=[[Q2,'day1-am',2,'closed'],[Q,'day1-am',4,'closed']];list=[question({id:Q2,status:'closed'}),question({status:'closed',revision:4})];await h.tickTimers();
+ assert.equal(sent(h,'GET',LIST).length,3);assert.equal(next.hidden,true,'no open question, no link');
+ h.lang('es');assert.equal(next.textContent,'Responder la pregunta abierta');
+});
+
+test('organisers see hidden questions in the block list, which the public pulse leaves out, without reading the list on every poll',async()=>{
+ const draft=question({id:Q2,status:'hidden',body:'Borrador'});
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'closed'},me:{organiser:true,canPost:false}}),['GET '+LIST]:{activity:ACTIVITY,questions:[question({status:'closed'}),draft]}});
+ await h.tickTimers();await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,1);
+ assert.equal(key(h.root.querySelector('.f-talk-dock'),'talkNextOpen').hidden,true,'a hidden question is no way forward');
+});
+
+test('a block page follows the pulse: an empty block opens its question by itself, and a list picks up a new one without a reload',async()=>{
+ let pulse=[],list=[];
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:pulse}),['GET '+LIST]:()=>({activity:ACTIVITY,questions:list})},{search:'?a=day1-am'});
+ assert.ok(key(h.root,'talkEmptyBlock'));assert.equal(h.timers.length,1);assert.equal(h.timers[0].delay,8000,'a slow watch of the public pulse');
+ await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,1,'nothing changed');
+ pulse=[['cccccccc-cccc-4ccc-8ccc-cccccccccccc','day2-am',7,'open']];await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,1,'another block changes nothing here');
+ await h.visible(false);pulse=[[Q,'day1-am',3,'open']];list=[question()];const pulses=sent(h,'GET','/api/fiiu/pulse').length;await h.tickTimers();
+ assert.equal(sent(h,'GET','/api/fiiu/pulse').length,pulses,'a hidden tab does not watch');
+ await h.visible(true);await h.tickTimers();await flush();
+ assert.deepEqual(h.replaced,['/fiiu-talk.html?q='+Q],'the single question opens, as on a first load');assert.ok(composer(h));
+ assert.equal(h.timers[0].cleared,true,'the watch stops');assert.equal(h.timers.filter(timer=>!timer.cleared).length,1,'the chat polls instead');
+ const Q3='dddddddd-dddd-4ddd-8ddd-dddddddddddd',older=question({id:Q3,status:'closed',body:'¿Primera?',createdAt:'2026-10-21T13:00:00.000Z'});
+ pulse=[[Q,'day1-am',3,'open'],[Q3,'day1-am',2,'closed']];list=[question(),older];
+ const many=await page({'GET /api/fiiu/pulse':()=>({questions:pulse}),['GET '+LIST]:()=>({activity:ACTIVITY,questions:list})},{search:'?a=day1-am'});
+ await many.tickTimers();assert.equal(sent(many,'GET',LIST).length,1);
+ pulse=[...pulse,[Q2,'day1-am',1,'open']];list=[...list,question({id:Q2,body:'¿Otra?',createdAt:'2026-10-21T15:00:00.000Z'})];
+ await many.tickTimers();await flush();
+ assert.deepEqual(links(many.root).filter(a=>a.href.startsWith('fiiu-talk.html?q=')).map(a=>a.href),['fiiu-talk.html?q='+Q2,'fiiu-talk.html?q='+Q,'fiiu-talk.html?q='+Q3],'the new question joins the list');
+ assert.equal(many.message.textContent,'','a refresh shows no loading line');
+});
+
+test('a question not open to this viewer keeps watching the pulse and opens by itself, draft and all, once the organisers open it',async()=>{
+ const Clock=clock();let reads=0,shown=false,pulse=[];
+ const h=await page({['GET /api/fiiu/questions/'+Q]:()=>{reads++;return shown?thread():{status:404,data:{error:'not found',code:'question_unavailable'}};},'GET /api/fiiu/pulse':()=>({questions:pulse})},{context:{Date:Clock}});
+ assert.ok(key(h.root,'talkUnavailable'));assert.equal(h.timers.length,1);await h.tickTimers();assert.equal(reads,1,'still not in the pulse');
+ shown=true;pulse=[[Q,'day1-am',3,'open']];await h.tickTimers();await flush();
+ assert.equal(reads,2);assert.ok(composer(h),'opened by itself');assert.equal(h.timers[0].cleared,true);
+ // Hidden again while someone types: the same composer comes back with the draft once the question is open again.
+ const text=composer(h).querySelector('textarea');text.value='Mi borrador';text.listeners.input();
+ shown=false;pulse=[];await h.tickTimers();assert.ok(key(h.root,'talkUnavailable'));
+ shown=true;pulse=[[Q,'day1-am',4,'open']];await h.tickTimers();await flush();
+ assert.equal(composer(h).querySelector('textarea'),text);assert.equal(text.value,'Mi borrador');
+ // The watch ends after two hours.
+ shown=false;pulse=[];await h.tickTimers();const watch=h.timers.at(-1);assert.equal(watch.cleared,undefined);
+ Clock.advance(2*3600000+1);await h.tickTimers();assert.equal(watch.cleared,true);
+});
+
+// Accessibility: focus clear of the dock and never lost, announcements, and row controls that say whose message they act on.
+test('the page measures the sticky dock for the stylesheet, so a focused message control is scrolled clear of it',async()=>{
+ const observers=[];class ResizeObserver{constructor(callback){this.callback=callback;this.targets=[];this.disconnected=false;observers.push(this);}observe(node){this.targets.push(node);}disconnect(){this.disconnected=true;}}
+ let revision=3;
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:{status:401,data:{error:'sign in required'}}},{context:{ResizeObserver}});
+ const box=h.root.querySelector('.f-talk'),dock=box.querySelector('.f-talk-dock'),set={};box.style={setProperty:(name,value)=>{set[name]=value;}};
+ assert.equal(observers.length,1);assert.deepEqual(observers[0].targets,[dock]);
+ dock.offsetHeight=154;observers[0].callback();assert.equal(set['--f-talk-dock-h'],'154px');
+ revision=4;await h.tickTimers();assert.equal(observers[0].disconnected,true,'a page that leaves the chat lets the dock go');
+ const css=readFileSync(new URL('../web/styles/fiiu-talk.css',import.meta.url),'utf8');
+ assert.match(css,/\.f-talk-log :is\(a,button,\[tabindex\]\)[^{]*\{scroll-margin-bottom:calc\(var\(--f-talk-dock-h,140px\) \+ 16px\)\}/);
+ assert.match(css,/@media\(max-height:480px\)\{[^\n]*\.f-talk-dock\{position:static\}/,'on a landscape phone or at high zoom the dock stops covering the chat');
+ assert.doesNotMatch(css,/is-hidden[^{]*\.f-talk-body[^{]*\{opacity/,'hidden messages stay readable for the organisers deciding on them');
+});
+
+test('deleting a message moves focus to the next message, else the previous one, else the composer, and says it was deleted',async()=>{
+ const mine=(id,over)=>message(id,{mine:true,...over});
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({messages:[mine(M1,{seq:1}),message(M2,{author:'Bea R.',createdAt:'2026-10-21T14:07:00.000Z',seq:2}),mine(M3,{createdAt:'2026-10-21T14:09:00.000Z',seq:3})]}),
+  ['DELETE /api/fiiu/messages/'+M1]:{ok:true},['DELETE /api/fiiu/messages/'+M3]:{ok:true}});
+ const like=row(h,M2).querySelector('.f-talk-like');
+ await key(row(h,M1),'talkDelete').listeners.click();await flush();
+ assert.equal(row(h,M1),undefined);assert.equal(like.focused,true,'the next message');assert.equal(h.root.querySelector('.f-talk-live').textContent,'Message deleted');
+ like.focused=false;await key(row(h,M3),'talkDelete').listeners.click();await flush();
+ assert.equal(like.focused,true,'the last one hands focus back to the previous message');assert.equal(h.root.querySelector('.f-talk-live').textContent,'Message deleted ','the same news is said again');
+ const only=await page({['GET /api/fiiu/questions/'+Q]:thread({messages:[mine(M1,{seq:1})]}),['DELETE /api/fiiu/messages/'+M1]:{ok:true}});
+ await key(row(only,M1),'talkDelete').listeners.click();await flush();assert.equal(composer(only).querySelector('textarea').focused,true,'with no message left, the composer');
+});
+
+test('the last page of earlier messages hands focus to the newest of them before its button goes',async()=>{
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({before:'cursor-1'}),['GET '+MESSAGES+'?before=cursor-1']:{messages:[message(M4,{createdAt:'2026-10-21T13:57:00.000Z',seq:0}),message(M3,{createdAt:'2026-10-21T13:58:00.000Z',seq:0})],before:null}});
+ const earlier=h.root.querySelector('.f-talk-earlier');await earlier.listeners.click();await flush();
+ assert.equal(earlier.hidden,true);assert.equal(row(h,M3).tabIndex,-1);assert.equal(row(h,M3).focused,true);assert.notEqual(row(h,M4).focused,true);
+});
+
+test('answers from other people are announced once per poll, your own and a reload are not, and the pill is no longer a live region',async()=>{
+ let revision=3;const beto=(id,minute,over)=>message(id,{author:'Beto Q.',createdAt:`2026-10-21T14:${minute}:00.000Z`,...over});
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),
+  ['GET '+MESSAGES+'?since=3']:since(4,[beto(M3,10,{seq:4})]),['GET '+MESSAGES+'?since=4']:since(6,[beto(M4,11,{seq:5}),beto(M5,12,{author:'Carla V.',seq:6})]),
+  ['GET '+MESSAGES+'?since=6']:since(7,[message('10000000-0000-4000-8000-000000000006',{mine:true,createdAt:'2026-10-21T14:13:00.000Z',seq:7}),beto(M3,10,{likeCount:2,seq:8})].map(view=>({...view,seq:Math.max(view.seq,7)})))});
+ const live=h.root.querySelector('.f-talk-live'),pill=h.root.querySelector('.f-talk-new');
+ assert.equal(pill['aria-live'],undefined);assert.equal(live.textContent,'','the first load says nothing');
+ revision=4;await h.tickTimers();assert.equal(live.textContent,'1 new answer from Beto Q.');
+ revision=6;await h.tickTimers();assert.equal(live.textContent,'2 new answers');
+ revision=7;await h.tickTimers();assert.equal(live.textContent,'2 new answers','your own message and a like say nothing');
+ h.lang('es');assert.equal(h.ctx.window.Fiiu.t('talkNewOne'),'1 respuesta nueva de {author}');
+});
+
+test('like, delete and hide buttons are described by their message’s author and time',async()=>{
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({me:{organiser:true},messages:[message(M1,{authorFull:'Ana Test',hidden:false,seq:1}),message(M2,{mine:true,authorFull:'Flavia Rojas',hidden:false,createdAt:'2026-10-21T14:07:00.000Z',seq:2})]})});
+ const meta=row(h,M1).querySelector('.f-talk-meta');assert.equal(meta.id,'f-talk-m-'+M1);
+ assert.equal(row(h,M1).querySelector('.f-talk-like')['aria-describedby'],meta.id);assert.equal(key(row(h,M1),'talkHide')['aria-describedby'],meta.id);
+ assert.equal(key(row(h,M2),'talkDelete')['aria-describedby'],'f-talk-m-'+M2);
+});
+
+test('following the chat stops where the conversation ends, so the footer stays below the docked composer',async()=>{
+ let revision=3;
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:since(4,[message(M3,{seq:4,createdAt:'2026-10-21T14:10:00.000Z'})]),
+  ['GET '+MESSAGES+'?since=4']:since(5,[message(M4,{seq:5,createdAt:'2026-10-21T14:11:00.000Z'})])});
+ // The document is 3000 px tall on an 800 px screen; the conversation (its dock included) ends at 2700, above the shell's padding and the footer.
+ const scroller={scrollHeight:3000,scrollTop:1850,clientHeight:800};h.ctx.document.scrollingElement=scroller;
+ h.root.querySelector('.f-talk').getBoundingClientRect=()=>({bottom:2700-scroller.scrollTop});const pill=h.root.querySelector('.f-talk-new');
+ revision=4;await h.tickTimers();assert.equal(scroller.scrollTop,1900,'the dock’s bottom on the screen’s bottom, not the end of the document');assert.equal(pill.hidden,true);
+ scroller.scrollTop=2200;revision=5;await h.tickTimers();assert.equal(pill.hidden,true,'a reader who scrolled on to the footer still counts as following');
+});
+
+// The projector: whole answers only, and a code that says what scanning gives.
+const answers=n=>Array.from({length:n},(_,i)=>message('40000000-0000-4000-8000-'+String(i).padStart(12,'0'),{body:'Respuesta '+i,createdAt:new Date(Date.parse('2026-10-21T14:00:00.000Z')+i*60000).toISOString(),seq:i+1}));
+// Lays the cards out as a 3-column grid whose rows start at 600 px and are 200 px apart, each 180 px tall, on a screen innerHeight tall.
+function lay(h,innerHeight){h.ctx.window.innerHeight=innerHeight;cards(h).forEach((card,i)=>{const top=600+200*Math.floor(i/3);card.getBoundingClientRect=()=>({top,bottom:top+180});});}
+
+test('the projector shows only whole answers, leaving out every row that would cross the screen’s bottom edge, and fits again on resize and full screen',async()=>{
+ let revision=6;
+ const h=await projector({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=6']:since(7,[message(M5,{body:'Nueva',createdAt:'2026-10-21T15:00:00.000Z',seq:7})])},{messages:answers(6),revision:6,question:{revision:6}});
+ const shown=()=>cards(h).filter(card=>!card.hidden).length;
+ lay(h,1080);await Promise.all(h.windowListeners.resize.map(listener=>listener({type:'resize'})));
+ assert.equal(shown(),6,'two rows end at 980, within 1080');
+ lay(h,900);await Promise.all(h.windowListeners.resize.map(listener=>listener({type:'resize'})));
+ assert.equal(shown(),3,'the second row would end at 980, past 900: it goes whole');assert.deepEqual(cards(h).map(card=>card.hidden),[false,false,false,true,true,true]);
+ lay(h,1080);await h.fire('fullscreenchange');assert.equal(shown(),6,'full screen gives the room more height');
+ // A new answer redraws the wall, and every card is measured again.
+ revision=7;h.ctx.window.innerHeight=900;const old=h.root.querySelector('.f-talk-wall-feed').replaceChildren;
+ h.root.querySelector('.f-talk-wall-feed').replaceChildren=function(...nodes){old.apply(this,nodes);lay(h,900);};
+ await h.tickTimers();assert.equal(cards(h).length,7);assert.equal(shown(),3);assert.equal(order(h)[0],M5);
+ // A screen too short even for one row keeps the first row rather than an empty wall; the narrow, scrolling layout keeps every answer.
+ lay(h,500);await h.fire('fullscreenchange');assert.equal(shown(),3);
+ h.ctx.window.matchMedia=query=>({matches:query==='(max-width:900px)'});lay(h,900);await h.fire('fullscreenchange');assert.equal(shown(),7);
+ const css=readFileSync(new URL('../web/styles/fiiu-talk.css',import.meta.url),'utf8');
+ assert.match(css,/\.f-talk-wall\{[^}]*font-size:clamp\(1\.1rem,\.4rem \+ \.6vw \+ \.8vh,1\.75rem\)/,'answer text grows with the screen’s height too, for 4:3 projectors');
+ assert.match(css,/\.f-talk-wall-url\{[^}]*font-size:max\(1rem,\.9em\);[^}]*color:var\(--f-ink\)/,'the address can be typed from the back rows');
+});
+
+test('the projector’s code invites joining an open question and reading a closed one, and a hidden question shows no code until it opens',async()=>{
+ let revision=3,state='open';
+ const h=await projector({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,state]]}),['GET '+MESSAGES+'?since=3']:since(4,[],{status:'closed'})},{messages:[]});
+ const code=()=>h.root.querySelector('.f-talk-wall-code');
+ assert.ok(key(code(),'talkScanToJoin'));assert.equal(h.root.querySelector('.f-talk-wall-empty').dataset.fiiuText,'talkEmpty');
+ revision=4;state='closed';await h.tickTimers();
+ assert.ok(key(code(),'talkScanToRead'),'a closed question can still be read');assert.equal(key(code(),'talkScanToJoin'),undefined);
+ assert.equal(h.root.querySelector('svg')['aria-label'],'Scan to read the conversation');assert.equal(h.root.querySelector('.f-talk-wall-empty').dataset.fiiuText,'talkEmptyClosed');
+ h.lang('es');assert.equal(key(code(),'talkScanToRead').textContent,'Escanea para leer la conversación');assert.equal(h.root.querySelector('svg')['aria-label'],'Escanea para leer la conversación');
+ const hidden=await projector({['GET '+MESSAGES+'?since=3']:since(3,[],{status:'hidden'})},{question:{status:'hidden'}});
+ const box=hidden.root.querySelector('.f-talk-wall-code');
+ assert.equal(hidden.root.querySelectorAll('svg').length,0,'no code to scan yet');assert.equal(box.querySelector('.f-talk-wall-url'),null);assert.ok(key(box,'talkOpensSoon'));assert.equal(box.hidden,false);
+ const opening=await projector({['GET '+MESSAGES+'?since=3']:since(4,[],{status:'open'})},{question:{status:'hidden'}});
+ await opening.tickTimers();assert.equal(opening.root.querySelectorAll('svg').length,1,'the code appears once it opens');assert.ok(key(opening.root,'talkScanToJoin'));
+ assert.equal(opening.root.querySelector('.f-talk-wall-url').textContent,'nodal.example/fiiu-talk.html?a=day1-am');
+});
+
+// Following the chat when its own rows and dock grow, and keeping what a page that redraws itself holds.
+// The reader scrolls to top: the page hears it as a browser would tell it.
+const scrollTo=(h,scroller,top)=>{scroller.scrollTop=top;return Promise.all((h.windowListeners.scroll||[]).map(listener=>listener({type:'scroll'})));};
+const follow=(h,extra)=>{
+ // The document is 3000 px tall on an 800 px screen; the conversation (its dock included) ends at 2700 plus whatever extra() has grown since.
+ const scroller={scrollHeight:3000,scrollTop:1900,clientHeight:800};h.ctx.document.scrollingElement=scroller;
+ h.root.querySelector('.f-talk').getBoundingClientRect=()=>({bottom:2700+extra()-scroller.scrollTop});return scroller;
+};
+
+test('a send that fails while the reader follows the chat keeps its row and Retry in view above the dock, and a reader higher up stays',async()=>{
+ const answer=later();
+ const h=await page({['POST '+MESSAGES]:()=>answer.promise});
+ // A failed row is 46 px taller than a sending one (its Retry), and the composer's status line adds 24 px to the dock.
+ const failed=()=>rows(h).some(node=>classes(node).includes('is-failed')),scroller=follow(h,()=>failed()?46+(composerStatus(h)?24:0):0);
+ composer(h).querySelector('textarea').value='Sin señal';submit(h);await flush();assert.equal(scroller.scrollTop,1900);
+ answer.resolve({status:503,data:{}});await flush();
+ assert.ok(failed());assert.equal(scroller.scrollTop,1970,'the conversation’s end, failed row and status line included, on the screen’s bottom');
+ const other=later(),up=await page({['POST '+MESSAGES]:()=>other.promise});
+ const away=follow(up,()=>rows(up).some(node=>classes(node).includes('is-failed'))?70:0);
+ composer(up).querySelector('textarea').value='Sin señal';submit(up);await flush();await scrollTo(up,away,1000);
+ other.resolve({status:503,data:{}});await flush();assert.equal(away.scrollTop,1000,'someone reading earlier messages is not moved');
+ // Someone who sends while reading earlier messages is taken to the end smoothly: a failure that arrives on the way still lands at the new end.
+ const third=later(),slow=await page({['POST '+MESSAGES]:()=>third.promise});
+ const glide={scrollHeight:3000,clientHeight:800,at:1900,target:null,get scrollTop(){return this.at;},set scrollTop(top){this.target=top;}};slow.ctx.document.scrollingElement=glide;
+ slow.root.querySelector('.f-talk').getBoundingClientRect=()=>({bottom:2700+(rows(slow).some(node=>classes(node).includes('is-failed'))?70:0)-glide.at});
+ const heard=()=>Promise.all(slow.windowListeners.scroll.map(listener=>listener({type:'scroll'})));await heard();glide.at=1000;await heard();
+ composer(slow).querySelector('textarea').value='Sin señal';submit(slow);await flush();assert.equal(glide.target,1900,'the send heads for the end');
+ third.resolve({status:503,data:{}});await flush();assert.equal(glide.target,1970,'still on its way there: the new end');
+});
+
+test('a dock that grows (a paused line, a status, a longer draft) keeps a reader at the end following, and moves nobody else',async()=>{
+ const observers=[];class ResizeObserver{constructor(callback){this.callback=callback;observers.push(this);}observe(){}disconnect(){}}
+ const h=await page({},{context:{ResizeObserver}});
+ const box=h.root.querySelector('.f-talk'),dock=box.querySelector('.f-talk-dock');box.style={setProperty(){}};
+ let extra=0;const scroller=follow(h,()=>extra),resize=height=>{extra+=height-dock.offsetHeight;dock.offsetHeight=height;observers[0].callback();};dock.offsetHeight=120;
+ resize(120);assert.equal(scroller.scrollTop,1900,'the first measure moves nothing');
+ resize(160);assert.equal(scroller.scrollTop,1940,'40 px more dock, 40 px further down');
+ resize(120);assert.equal(scroller.scrollTop,1940,'a shrinking dock moves nothing');
+ await scrollTo(h,scroller,1000);resize(200);assert.equal(scroller.scrollTop,1000,'a reader higher up stays');
+ await scrollTo(h,scroller,2300);resize(240);assert.equal(scroller.scrollTop,2300,'a reader on the footer, past the end, stays');
+});
+
+test('a block list that failed to load with the question is read on the next poll, then only when the block changes',async()=>{
+ let fail=true;const other=question({id:Q2,body:'¿Y mañana?',createdAt:'2026-10-21T15:00:00.000Z'});
+ const h=await page({'GET /api/fiiu/pulse':{questions:[[Q,'day1-am',3,'open'],[Q2,'day1-am',1,'open']]},['GET '+LIST]:()=>fail?offline():{activity:ACTIVITY,questions:[question(),other]}});
+ assert.equal(h.root.querySelector('.f-talk-more'),null);assert.equal(sent(h,'GET',LIST).length,1);
+ await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,2,'asked again while the list is unknown');assert.equal(h.root.querySelector('.f-talk-more'),null);
+ fail=false;await h.tickTimers();
+ assert.deepEqual(links(h.root.querySelector('.f-talk-more')).map(a=>a.href),['fiiu-talk.html?q='+Q2,'fiiu-talk.html?a=day1-am']);
+ await h.tickTimers();await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,3,'known now: the same pulse reads nothing more');
+});
+
+test('a page that opens or redraws itself keeps focus that was on it: the composer or closed note of a question that opened, the same link in a block’s list, else the heading',async()=>{
+ let shown=false,pulse=[];
+ const h=await page({['GET /api/fiiu/questions/'+Q]:()=>shown?thread():{status:404,data:{error:'not found',code:'question_unavailable'}},'GET /api/fiiu/pulse':()=>({questions:pulse})});
+ focusInside(h,key(h.root,'talkUnavailable'));shown=true;pulse=[[Q,'day1-am',3,'open']];await h.tickTimers();await flush();
+ assert.equal(composer(h).querySelector('textarea').focused,true,'the question that opened takes focus to its composer');
+ shown=false;pulse=[];const reader=await page({['GET /api/fiiu/questions/'+Q]:()=>shown?thread({question:{status:'closed'},me:{canPost:false}}):{status:404,data:{}},'GET /api/fiiu/pulse':()=>({questions:pulse})});
+ focusInside(reader,key(reader.root,'talkUnavailable'));shown=true;pulse=[[Q,'day1-am',3,'closed']];await reader.tickTimers();await flush();
+ assert.equal(key(reader.root.querySelector('.f-talk-dock'),'talkClosed').focused,true,'a closed one, to the note that says so');
+ // Nobody focused on the page: nothing is moved.
+ shown=false;pulse=[];const away=await page({['GET /api/fiiu/questions/'+Q]:()=>shown?thread():{status:404,data:{}},'GET /api/fiiu/pulse':()=>({questions:pulse})});
+ shown=true;pulse=[[Q,'day1-am',3,'open']];await away.tickTimers();await flush();assert.notEqual(composer(away).querySelector('textarea').focused,true);
+ // A block's list redrawn by the pulse keeps focus on the same question, or gives it to the heading when that question has gone.
+ const Q3='dddddddd-dddd-4ddd-8ddd-dddddddddddd';let list=[question(),question({id:Q3,status:'closed',body:'¿Primera?',createdAt:'2026-10-21T13:00:00.000Z'})];
+ pulse=[[Q,'day1-am',3,'open'],[Q3,'day1-am',2,'closed']];
+ const block=await page({'GET /api/fiiu/pulse':()=>({questions:pulse}),['GET '+LIST]:()=>({activity:ACTIVITY,questions:list})},{search:'?a=day1-am'});
+ focusInside(block,links(block.root).find(a=>a.href==='fiiu-talk.html?q='+Q3));
+ pulse=[...pulse,[Q2,'day1-am',1,'open']];list=[...list,question({id:Q2,body:'¿Otra?',createdAt:'2026-10-21T15:00:00.000Z'})];await block.tickTimers();await flush();
+ const same=links(block.root).find(a=>a.href==='fiiu-talk.html?q='+Q3);assert.equal(same.focused,true,'the same question, in the new list');
+ focusInside(block,same);pulse=pulse.filter(item=>item[0]!==Q3);list=list.filter(q=>q.id!==Q3);await block.tickTimers();await flush();
+ assert.equal(block.root.querySelector('h1').focused,true,'its question gone, the heading');
+});
+
+const UNSENT_KEY='nodal.talkUnsent.'+Q;
+
+test('a message not confirmed by the server survives a reload as not sent, and Retry is still the same message; a confirmed or refused one is forgotten',async()=>{
+ const sessionStorage=memoryStore();
+ const h=await page({['POST '+MESSAGES]:offline},{context:{sessionStorage}});
+ const text=composer(h).querySelector('textarea');text.value='Sin señal en el auditorio';text.listeners.input();submit(h);await flush();
+ assert.equal(sessionStorage.items.has(DRAFT_KEY),false,'the composer is empty');assert.deepEqual(JSON.parse(sessionStorage.items.get(UNSENT_KEY)),[{clientId:CLIENT,body:'Sin señal en el auditorio'}]);
+ // The reloaded page would give a new draft another clientId.
+ const back=await page({['POST '+MESSAGES]:request=>({status:200,data:{message:message(M3,{mine:true,body:request.body.body,createdAt:'2026-10-21T14:20:00.000Z',seq:4})}})},{context:{sessionStorage,crypto:{randomUUID:()=>'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'}}});
+ const failed=rows(back).at(-1);assert.ok(classes(failed).includes('is-failed'),'the reloaded page shows it as not sent');assert.equal(content(failed.querySelector('.f-talk-body')).trim(),'Sin señal en el auditorio');
+ assert.equal(composer(back).querySelector('textarea').value,'','not in the composer, so it cannot go twice');
+ await key(failed,'talkRetry').listeners.click();await flush();
+ assert.deepEqual(sent(back,'POST',MESSAGES).map(request=>request.body.clientId),[CLIENT],'the same clientId: a copy the server already has comes back, not a second one');
+ assert.deepEqual(rows(back).map(node=>node.dataset.id),[M1,M2,M3]);assert.equal(sessionStorage.items.has(UNSENT_KEY),false);
+ // A photo cannot come back after a reload, so a message with one is not kept; a refusal Retry cannot fix goes back to the composer instead.
+ const photo=await page({['POST '+MESSAGES]:offline,'POST /api/fiiu/files':offline},{context:{sessionStorage}});
+ choose(photo,[{name:'feria.pdf',type:'application/pdf',size:1000,lastModified:1}]);submit(photo);await flush();assert.equal(sessionStorage.items.has(UNSENT_KEY),false);
+ const refused=await page({['POST '+MESSAGES]:{status:403,data:{error:'festival registration required',code:'not_registered'}}},{context:{sessionStorage}});
+ const box=composer(refused).querySelector('textarea');box.value='Sin inscripción';submit(refused);await flush();
+ assert.equal(sessionStorage.items.has(UNSENT_KEY),false);assert.equal(sessionStorage.items.get(DRAFT_KEY),'Sin inscripción');
+ const denied=await page({['POST '+MESSAGES]:offline},{context:{sessionStorage:blocked}});composer(denied).querySelector('textarea').value='Hola';submit(denied);await flush();
+ assert.ok(classes(rows(denied).at(-1)).includes('is-failed'),'without storage the row still shows');
+});
+
+test('a draft kept under a closed question can be discarded, so the dock shrinks back and the draft does not return',async()=>{
+ const sessionStorage=memoryStore({[DRAFT_KEY]:'Lo que quería decir'});
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'closed'},me:{canPost:false}})},{context:{sessionStorage}});
+ const draft=h.root.querySelector('.f-talk-draft');assert.equal(draft.hidden,false);
+ const discard=key(draft,'talkDiscardDraft');assert.ok(discard);focusInside(h,discard);
+ await discard.listeners.click();
+ assert.equal(draft.hidden,true);assert.equal(sessionStorage.items.has(DRAFT_KEY),false);assert.equal(key(h.root,'talkClosed').focused,true,'focus goes to the closed note');
+ const again=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'closed'},me:{canPost:false}})},{context:{sessionStorage}});
+ assert.equal(again.root.querySelector('.f-talk-draft').hidden,true,'opening the question again shows no draft');
+ h.lang('es');assert.equal(discard.textContent,'Descartar');
 });

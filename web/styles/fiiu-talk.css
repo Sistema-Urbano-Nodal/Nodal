@@ -16,11 +16,12 @@
 .f-page .f-talk-subhead{margin:var(--f-sp-4) 0 var(--f-sp-1);font-size:1.15rem}.f-talk-list{display:grid;gap:var(--f-sp-1);margin:0;padding:0;list-style:none}
 .f-shell .f-talk-pick{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px var(--f-sp-2);min-height:44px;padding:var(--f-sp-2) 0;color:var(--f-ink);text-decoration:none}
 .f-talk-pick-body{flex-basis:100%;font-weight:650;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px;overflow-wrap:anywhere}.f-talk-pick:hover .f-talk-pick-body{text-decoration-thickness:2px}.f-talk-pick-talk{font-size:.86rem;color:var(--f-muted)}
-/* Messages: your own on a pale tint (not a bubble); sending is faded, a failure names itself in the error colour, a hidden one is greyed (only organisers
-   and its author see it, the author with "Hidden by the organisers"). */
+/* Messages: your own on a pale tint (not a bubble); sending is faded, a failure names itself in the error colour, a hidden one is muted (only organisers
+   and its author see it, the author with "Hidden by the organisers"): its text stays readable at full contrast for the organisers deciding on it, and
+   only its images fade. */
 .f-talk-earlier{align-self:center;margin:0 0 var(--f-sp-3)}.f-talk-log{display:grid;gap:var(--f-sp-2);margin:0 0 var(--f-sp-4);padding:0;list-style:none}
 .f-talk-msg{min-width:0;padding:var(--f-sp-2) var(--f-sp-3)}.f-talk-msg.is-mine{background:color-mix(in srgb,var(--f-leaf) 10%,transparent)}.f-talk-msg.is-pending{opacity:.6}
-.f-talk-msg.is-failed .f-talk-state{color:var(--f-error);font-weight:650}.f-talk-msg.is-hidden{color:var(--f-muted)}.f-talk-msg.is-hidden :is(.f-talk-body,.f-talk-files){opacity:.6}
+.f-talk-msg.is-failed .f-talk-state{color:var(--f-error);font-weight:650}.f-talk-msg.is-hidden{color:var(--f-muted)}.f-talk-msg.is-hidden .f-talk-image img{opacity:.6}
 .f-page .f-talk-meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px var(--f-sp-2);max-width:none;margin:0;font-size:.84rem;color:var(--f-muted)}.f-talk-author{font-size:.92rem;color:var(--f-ink)}
 .f-talk-org{font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--f-forest)}.f-talk-time{margin-left:auto;font-variant-numeric:tabular-nums;white-space:nowrap}
 .f-talk-body{margin:var(--f-sp-1) 0 0;overflow-wrap:anywhere;white-space:pre-wrap}
@@ -40,7 +41,11 @@
 .f-talk-empty{margin:var(--f-sp-4) 0;color:var(--f-muted)}
 /* The dock (the pill, then the composer or the closed note) stays pinned to the bottom of the screen while the conversation scrolls under it. */
 .f-talk-dock{position:sticky;bottom:0;z-index:3;margin-top:auto;padding:var(--f-sp-3) 0 calc(var(--f-sp-3) + env(safe-area-inset-bottom));background:#fff;border-top:1px solid var(--f-line)}
-.f-talk-dock:has(>.f-talk-new:only-child){padding:0;border:0}
+/* A control focused in the conversation is scrolled clear of the dock (fiiu-talk.js keeps --f-talk-dock-h at its measured height), as fiiu.css does for
+   the form's save bar. Only controls above the dock: one inside it would make the page jump each time someone tabs into the composer. */
+.f-talk-log :is(a,button,[tabindex]),.f-talk-earlier,.f-talk-more :is(summary,a){scroll-margin-bottom:calc(var(--f-talk-dock-h,140px) + 16px)}
+/* With nothing to show (a hidden question for a participant who cannot post), the dock keeps only the pill and an empty status line, and takes no room. */
+.f-talk-dock:has(>.f-talk-note:empty:last-child){padding:0;border:0}
 .f-shell .f-talk-new{position:absolute;left:50%;bottom:calc(100% + var(--f-sp-2));transform:translateX(-50%);min-height:44px;padding:0 var(--f-sp-4);border:2px solid var(--f-ink);border-radius:999px;background:var(--f-leaf);color:var(--f-ink);font-weight:700;white-space:nowrap;cursor:pointer}
 .f-talk-composer{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--f-sp-2);align-items:end}
 /* 16px text keeps iOS from zooming in on focus; the box grows with the text up to six lines. */
@@ -50,25 +55,36 @@
 .f-talk-chips{display:flex;flex-wrap:wrap;gap:0 var(--f-sp-3);margin:0;padding:0;list-style:none}.f-talk-chip{display:inline-flex;flex-wrap:wrap;align-items:center;gap:0 var(--f-sp-2);max-width:100%;font-size:.86rem}.f-talk-chip-name{font-weight:600;overflow-wrap:anywhere}
 .f-talk-left{margin-left:auto;font-size:.84rem;color:var(--f-muted);font-variant-numeric:tabular-nums}
 .f-talk-status{grid-column:1/-1;margin:0;font-size:.88rem}.f-talk-status:empty{display:none}.f-talk-status.is-error{color:var(--f-error);font-weight:600}.f-talk-closed{margin:0;color:var(--f-muted)}
+/* The dock's status line sits above the composer or the closed note: paused updates in amber, errors in the error colour. */
+.f-talk-note{margin:0 0 var(--f-sp-2);font-weight:600;color:var(--f-amber)}
+/* A closed question leads to the block's open one, if there is one, with the site's main button under the note. */
+.f-shell .f-talk-next{margin:var(--f-sp-2) 0 0}
+/* A draft the close interrupted stays under the note, read-only and short (it scrolls past three lines), with Discard on its label's line: the reader
+   can give the dock's room back to the conversation. */
+.f-talk-draft{margin:var(--f-sp-2) 0 0}.f-talk-draft-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 var(--f-sp-3)}
+.f-talk-draft-label{display:block;font-size:.84rem;font-weight:650;color:var(--f-muted)}.f-shell .f-talk-draft-text{max-height:calc(4.5em + 22px);margin:2px 0 0;background:var(--f-panel);border-color:var(--f-line)}
 /* Projector (?q=…&present=1, organisers only; fiiu-talk.js puts f-talk-present on the body): a room screen sized from the viewport. The question is the
    headline with the join code beside it, the latest or most liked answers sit below in columns. The footer goes, and in full screen the site header too. */
 .f-page.f-talk-present>.f-footer{display:none}html:fullscreen>.f-page.f-talk-present>.navbar{display:none}
-.f-talk-wall{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"head code" "tools code" "feed feed";gap:var(--f-sp-4) var(--f-sp-7);align-items:start;padding:var(--f-sp-6) 0 0;font-size:clamp(1rem,.5rem + .9vw,1.75rem);line-height:1.4}
+/* Text grows with the screen's height as well as its width, so a 4:3 projector (1024x768) gets about 19 px answers, a 1080p one about 27 px. */
+.f-talk-wall{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"head code" "tools code" "feed feed";gap:var(--f-sp-4) var(--f-sp-7);align-items:start;padding:var(--f-sp-6) 0 0;font-size:clamp(1.1rem,.4rem + .6vw + .8vh,1.75rem);line-height:1.4}
 .f-talk-wall-head{grid-area:head;min-width:0}.f-talk-wall-block{margin:0;font-size:.8em;font-weight:700;color:var(--f-forest);overflow-wrap:anywhere}
-.f-talk-wall .f-talk-when{font-size:.7em}.f-talk-wall .f-talk-talk{margin:var(--f-sp-2) 0 0;font-size:.8em}.f-talk-wall-head>.f-talk-flag{margin:var(--f-sp-3) 0 0;font-size:.55em}
+/* Closed or hidden reads from the back of the room: the chip is as large as the answers. */
+.f-talk-wall .f-talk-when{font-size:.7em}.f-talk-wall .f-talk-talk{margin:var(--f-sp-2) 0 0;font-size:.8em}.f-talk-wall-head>.f-talk-flag{margin:var(--f-sp-3) 0 0;padding:.1em .6em;font-size:1em;letter-spacing:.04em}
 /* 3 to 5 % of the screen's width; a question over 160 characters steps down so the answers still fit under it. */
 .f-page .f-talk-wall-question{max-width:none;margin:var(--f-sp-3) 0 0;font-size:clamp(3vw,1rem + 3vw,5vw);font-weight:750;line-height:1.12;hyphens:manual}
 .f-page .f-talk-wall-question.is-long{font-size:clamp(1.5rem,2.4vw,3vw)}
 /* The code: about a quarter of the width and never taller than the screen allows. The empty square holds its place until it arrives; its white edge is the quiet zone. */
 .f-talk-wall-code{grid-area:code;display:grid;justify-items:center;gap:var(--f-sp-2);width:clamp(180px,min(24vw,42vh),560px)}
 .f-talk-wall-qr,.f-talk-qr-svg{display:block;width:100%;height:auto;aspect-ratio:1}
-.f-talk-wall-scan{margin:0;font-weight:700;text-align:center}.f-talk-wall-url{margin:0;font-size:.72em;font-weight:600;color:var(--f-muted);text-align:center;overflow-wrap:anywhere}
+/* The address is typed from a seat, so it is at least body size and in ink, not a muted caption. */
+.f-talk-wall-scan{margin:0;font-weight:700;text-align:center}.f-talk-wall-url{margin:0;font-size:max(1rem,.9em);font-weight:600;color:var(--f-ink);text-align:center;overflow-wrap:anywhere}
 /* Latest / Most liked is one segmented control; the pressed half is filled. */
 .f-talk-wall-tools{grid-area:tools;display:flex;flex-wrap:wrap;align-items:center;gap:var(--f-sp-3);font-size:max(1rem,.7em)}.f-talk-sorts{display:inline-flex}
 .f-shell .f-talk-sort{min-height:44px;padding:0 var(--f-sp-4);border:2px solid var(--f-ink);background:#fff;color:var(--f-ink);font-weight:650;cursor:pointer}
 .f-shell .f-talk-sort:first-child{border-radius:7px 0 0 7px}.f-shell .f-talk-sort:last-child{border-left:0;border-radius:0 7px 7px 0}.f-shell .f-talk-sort[aria-pressed="true"]{background:var(--f-ink);color:#fff}
-/* Answers: whitespace between them, no cards; text stops at four lines and images stay small. They are near body size (about 24 px on a 1080p
-   screen), readable from the back of a room; on a full wall the latest scroll below the fold rather than shrink. */
+/* Answers: whitespace between them, no cards; text stops at four lines and images stay small, readable from the back of a room. The room sees whole
+   answers only: fiiu-talk.js leaves out every row that would cross the screen's bottom edge, rather than shrink them or cut one in half. */
 .f-talk-wall-feed{grid-area:feed;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,15em),1fr));gap:var(--f-sp-5) var(--f-sp-6);margin:var(--f-sp-3) 0 0;padding:0;list-style:none}
 .f-talk-wall-msg{min-width:0;font-size:.95em}.f-talk-wall-meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 .6em;margin:0;font-size:.85em;color:var(--f-muted)}
 .f-talk-wall-meta .f-talk-author{font-size:1.08em}.f-talk-wall .f-talk-org{font-size:.72em}.f-talk-wall-likes::before{content:"♥ ";content:"♥ "/"";color:var(--f-leaf)}
@@ -77,6 +93,8 @@
 .f-talk-wall-file{font-size:.85em;font-weight:600;color:var(--f-forest);overflow-wrap:anywhere}.f-talk-wall-empty{grid-column:1/-1;margin:0;color:var(--f-muted)}
 /* An organiser checking the view on a phone or a narrow window gets one column. */
 @media(max-width:900px){.f-talk-wall{grid-template-columns:minmax(0,1fr);grid-template-areas:"head" "code" "tools" "feed"}.f-talk-wall-code{justify-self:center;width:min(100%,360px)}.f-page :is(.f-talk-wall-question,.f-talk-wall-question.is-long){font-size:clamp(1.4rem,6vw,2.4rem)}}
+/* A landscape phone or high zoom leaves too little height for a sticky dock: it rests at the end of the conversation, and the pill floats on its own. */
+@media(max-height:480px){.f-page .f-talk-dock{position:static}.f-talk-log :is(a,button,[tabindex]),.f-talk-earlier,.f-talk-more :is(summary,a){scroll-margin-bottom:0}.f-shell .f-talk-new{position:fixed;z-index:3;bottom:calc(var(--f-sp-3) + env(safe-area-inset-bottom))}}
 /* Following new messages scrolls smoothly, unless the reader asked for less motion. */
 html:has(>body.f-page[data-page="fiiu-talk"]){scroll-behavior:smooth}
 @media (prefers-reduced-motion:reduce){html:has(>body.f-page[data-page="fiiu-talk"]){scroll-behavior:auto}}
