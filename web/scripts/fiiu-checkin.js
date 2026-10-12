@@ -11,6 +11,7 @@
   otherAccountHint:['Registered with another email? Sign in with that account.','¿Te inscribiste con otro correo? Inicia sesión con esa cuenta.','Você se inscreveu com outro e-mail? Entre com essa conta.'],
   useOtherAccount:['Use another account','Usar otra cuenta','Usar outra conta'],
   signInBeforeCodeHint:['Sign in first, with the account you registered with. Then type the code.','Primero inicia sesión con la cuenta con la que te inscribiste. Luego escribe el código.','Primeiro entre com a conta com que você se inscreveu. Depois digite o código.'],
+  signInTypedCodeHint:['Use the account you registered with. If the code expires meanwhile, type the new code from the screen.','Usa la cuenta con la que te inscribiste. Si el código vence mientras tanto, escribe el código nuevo de la pantalla.','Use a conta com que você se inscreveu. Se o código expirar nesse meio-tempo, digite o código novo da tela.'],
  });
  const root=document.getElementById('fiiuCheckinRoot'),message=document.getElementById('fiiuStatus');
  const params=new URLSearchParams(location.search),activityId=params.get('a')||'',code=params.get('c')||'';
@@ -76,7 +77,8 @@
   // The registration opens with this block ticked (fiiu.html #add-); the id comes from the answer when the programme has not arrived.
   const id=activity?.id||body.activityId||error.activityId,addHref=id?'fiiu.html#add-'+encodeURIComponent(id):'fiiu.html#registration';
   // Sign-in returns here with the same code, scanned or typed (codes last 5 minutes); if it expired meanwhile, the page says so and offers the code form.
-  if(error.status===401)return signIn(activity,returnTo(body),'signInCheckinHint');
+  // A typed code came from someone whose camera could not scan, so their hint points to the screen's new code rather than a fresh scan.
+  if(error.status===401)return signIn(activity,returnTo(body),body.activityId?'signInCheckinHint':'signInTypedCodeHint');
   const lab=(activity?.registration??error?.registration)==='application';
   if(error.status===404)return unregistered(activity,{open,lab,addHref,account,next:returnTo(body)});
   if(error.code==='lab_not_accepted'||error.code==='not_in_plan')return outsidePlan(activity,{open,lab:lab||error.code==='lab_not_accepted',addHref});

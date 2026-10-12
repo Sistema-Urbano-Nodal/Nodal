@@ -197,7 +197,12 @@ test('a typed code sent signed out is kept through sign-in, which comes back and
  // Codes are accepted for 5 minutes, so the code typed before sign-in usually still works after it; an expired one gets the code form.
  const h=await page(()=>({status:401,data:{error:'sign in required'}}),{search:''});
  const form=result(h).querySelector('form');field(form,'checkinCode').value='k7m-4px';form.listeners.submit({preventDefault(){}});await flush();
- assert.equal(title(h).dataset.fiiuText,'signInToCheckIn');assert.ok(key(result(h),'signInCheckinHint'));assert.equal(key(result(h),'signInScanAgainHint'),undefined);
+ // Someone who typed the code could not scan it, so the hint points to the screen's new code rather than a fresh scan.
+ assert.equal(title(h).dataset.fiiuText,'signInToCheckIn');assert.ok(key(result(h),'signInTypedCodeHint'));assert.equal(key(result(h),'signInCheckinHint'),undefined);assert.equal(key(result(h),'signInScanAgainHint'),undefined);
+ languages(h,lang=>{
+  assert.match(content(key(result(h),'signInTypedCodeHint')),{en:/type the new code from the screen\.$/,es:/escribe el código nuevo de la pantalla\.$/,pt:/digite o código novo da tela\.$/}[lang]);
+  assert.doesNotMatch(content(result(h)),/scan|escane/i,lang);
+ });
  assert.equal(key(result(h),'signin').href,'login.html?next='+encodeURIComponent('/fiiu-checkin.html?c=K7M4PX'));
  // Back from sign-in, the lone code is sent at once and leaves the address bar, like a scanned one.
  for(const sent of ['K7M4PX','k7m-4px']){
