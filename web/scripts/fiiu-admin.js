@@ -362,9 +362,11 @@
   finally{if(request===detailRequest){detailHost.inert=false;detailHost.setAttribute('aria-busy','false');}}
   if(request!==detailRequest)return;
   const r=data.registration,a=r.answers,head=el('header','f-detail-head'),who=el('div'),name=el('h3','',`${a.firstName} ${a.lastName}`),answers=el('details','f-answers');
-  updateRecord(r);shownParticipant=id;markSelected();name.id='f-detail-name';who.append(name,el('p','f-muted',r.email),emailStatusLine(r));
+  const changed=shownParticipant!==id;updateRecord(r);shownParticipant=id;markSelected();name.id='f-detail-name';who.append(name,el('p','f-muted',r.email),emailStatusLine(r));
   head.append(who,button('backToList',()=>(rowButtons.get(id)||search?.input)?.focus(),'f-button secondary f-small f-narrow-only'));
-  detailHost.replaceChildren(head);detailHost.tabIndex=-1;detailHost.setAttribute('aria-labelledby',name.id);
+  // Beside the list the panel scrolls on its own (fiiu.css): another person starts at the top, with their name above the ticks, instead of at the
+  // previous person's place. Re-reading the same person (after a review save) keeps the place.
+  detailHost.replaceChildren(head);if(changed)detailHost.scrollTop=0;detailHost.tabIndex=-1;detailHost.setAttribute('aria-labelledby',name.id);
   if(a.applyLab)detailHost.append(reviewCard(r,id));
   answers.append(tr('summary','allAnswers'),answerRows(el('dl','f-answers-list'),a,Object.keys(a).filter(key=>!['privacyAccepted','externalActivities'].includes(key))));
   detailHost.append(attendanceFieldset(r,data.attendance,id),answers);

@@ -1321,6 +1321,21 @@ test('a status change made here while the same question is being edited does not
 // The organiser at work: reaching a section from its link, the detail panel, door check-in on phones, search, the availability switch,
 // failed ticks, a question edit's conflict and a question's CSV.
 
+test('switching to another person starts the detail panel at the top, so their name shows above the ticks; refreshing the same person keeps the place',async()=>{
+ const ana=participant('participant-a','Ana'),bruno=participant('participant-b','Bruno');
+ const h=await harness(({path,method,body})=>{
+  if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
+  if(method==='PATCH'){Object.assign(ana,{labStatus:body.labStatus,version:ana.version+1});return{registration:copy(ana)};}
+  return{registration:copy(path.endsWith('participant-b')?bruno:ana),attendance:[]};
+ },{participants:[ana,bruno]});
+ h.ctx.window.matchMedia=()=>({matches:true});const detail=h.root.querySelector('.f-admin-detail');
+ await detailButton(h,0).listeners.click();detail.scrollTop=196;
+ await detailButton(h,1).listeners.click();assert.equal(detailTitle(h),'Bruno Test');assert.equal(detail.scrollTop,0,'not Ana’s scroll position');
+ await detailButton(h,0).listeners.click();assert.equal(detail.scrollTop,0);detail.scrollTop=150;
+ const form=h.root.querySelector('.f-review-card').querySelector('form');field(form,'review').value='reviewAccepted';await submit(form);
+ assert.equal(detailTitle(h),'Ana Test');assert.equal(detail.scrollTop,150,'a save that re-reads the same person keeps the place');
+});
+
 test('participant search matches every word anywhere in the name or email, so a given name and a surname find someone in either order',async()=>{
  const ana={...participant('participant-a','Ana'),email:'agonzales@muni.example'},beto={...participant('participant-b','Beto'),email:'bq@example.test'};
  ana.answers={...ana.answers,firstName:'Ana María',lastName:'Gonzales'};beto.answers={...beto.answers,firstName:'Beto',lastName:'Quispe'};
