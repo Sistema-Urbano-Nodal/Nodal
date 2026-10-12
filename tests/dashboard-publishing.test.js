@@ -200,7 +200,7 @@ test('every console accessible name in the markup is translated, except the live
   assert.deepEqual(untranslated, []);
 });
 
-test('on one column the festival block moves under the greeting, and back to the context column when wide', () => {
+test('on one column the festival block opens the work surface, above the greeting, and goes back to the context column when wide', () => {
   const source = read('web', 'scripts', 'dashboard.js');
   const start = source.indexOf('(function placeFestival()');
   const iife = source.slice(start, source.indexOf('})();', start) + 5);
@@ -210,16 +210,18 @@ test('on one column the festival block moves under the greeting, and back to the
     get firstChild() { return this.children[0] ?? null; },
     insertBefore(node, ref) { node.remove(); node.parentElement = this; this.children.splice(ref ? this.children.indexOf(ref) : this.children.length, 0, node); },
     after(node) { this.parentElement.insertBefore(node, this.nextElementSibling); },
+    before(node) { this.parentElement.insertBefore(node, this); },
     remove() { if (this.parentElement) this.parentElement.children.splice(this.parentElement.children.indexOf(this), 1); this.parentElement = null; } });
   const work = el('work'), overview = el('overview'), network = el('network'), inner = el('ctx-inner'), block = el('fiiuDashboard'), news = el('news');
   work.insertBefore(overview); work.insertBefore(network); inner.insertBefore(block); inner.insertBefore(news);
   const byId = (id) => [overview, block].find((node) => node.id === id) ?? null;
   const media = { matches: true, listener: null, addEventListener(type, fn) { this.listener = fn; } };
   vm.runInNewContext(iife, { byId, window: { matchMedia: () => media } });
-  assert.deepEqual(work.children.map((node) => node.id), ['overview', 'fiiuDashboard', 'network']);
+  // Under the greeting and the route the block started a screen and a half down on a phone.
+  assert.deepEqual(work.children.map((node) => node.id), ['fiiuDashboard', 'overview', 'network']);
   media.matches = false; media.listener();
   assert.deepEqual(inner.children.map((node) => node.id), ['fiiuDashboard', 'news'], 'wide screens get it back first in the context column');
   assert.deepEqual(work.children.map((node) => node.id), ['overview', 'network']);
   media.matches = true; media.listener();
-  assert.equal(block.previousElementSibling, overview);
+  assert.equal(block.nextElementSibling, overview);
 });

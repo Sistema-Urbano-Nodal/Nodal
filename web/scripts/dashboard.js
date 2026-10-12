@@ -941,6 +941,19 @@
     });
   }
 
+  /* ================= profile prompt =================
+     A festival registration collects no NODAL topics, so every registrant's profile counts as incomplete, and the
+     profile dialog opened by itself on every visit, over the festival block they came for. It now opens by itself
+     until the member closes it once on this device; after that the route's first stop, the completeness block and
+     the avatar still open it. */
+  const PROMPT_KEY = 'nodal.profilePrompt.dismissed';
+  const promptDeclined = () => {
+    try { return Boolean(U?.id) && localStorage.getItem(PROMPT_KEY) === String(U.id); } catch { return false; }
+  };
+  const declinePrompt = () => {
+    try { if (U?.id) localStorage.setItem(PROMPT_KEY, String(U.id)); } catch { /* blocked storage: it asks again next visit */ }
+  };
+
   /* ================= profile dialog ================= */
   const userDialog = byId('userDialog');
   const userForm = byId('userForm');
@@ -1039,7 +1052,9 @@
       if (pop) { pop.hidden = true; byId('notifBtn')?.setAttribute('aria-expanded', 'false'); }
       openUserDialog();
     });
-    byId('ucCancel')?.addEventListener('click', () => userDialog.close());
+    byId('ucCancel')?.addEventListener('click', () => { declinePrompt(); userDialog.close(); });
+    // Escape closes a modal dialog through its cancel event, which is the same answer.
+    userDialog.addEventListener('cancel', declinePrompt);
 
     userForm.addEventListener('submit', (e) => {
       const name = uc.name.value.trim();
@@ -1486,7 +1501,7 @@
       const retry = byId('loadRetry');
       if (retry) retry.hidden = true;
       applyAll();
-      if (!U.city || !U.role || U.topics.length === 0) openUserDialog();
+      if ((!U.city || !U.role || U.topics.length === 0) && !promptDeclined()) openUserDialog();
     } catch (error) {
       // api() handles the login redirect for 401. Any other failure says so and
       // offers a retry instead of leaving the loading line up forever.
@@ -1508,13 +1523,15 @@
     init().finally(() => { loadRetry.disabled = false; });
   });
   // One column stacks the context widgets under the whole console, about eight phone screens down. The festival
-  // block is what registrants open the console for, so on one column it sits under the greeting instead.
+  // block is what registrants open the console for (the next session, the way back to their registration), so on
+  // one column it opens the work surface, right under the search bar. Under the greeting and the route it started
+  // a screen and a half down on a phone.
   (function placeFestival() {
     const block = byId('fiiuDashboard'), overview = byId('overview');
     if (!block || !overview || typeof window.matchMedia !== 'function') return;
     const home = block.parentElement, next = block.nextElementSibling, stacked = window.matchMedia('(max-width: 980px)');
     const place = () => {
-      if (stacked.matches) { if (block.previousElementSibling !== overview) overview.after(block); }
+      if (stacked.matches) { if (block.nextElementSibling !== overview) overview.before(block); }
       else if (block.parentElement !== home) home.insertBefore(block, next?.parentElement === home ? next : home.firstChild);
     };
     place();

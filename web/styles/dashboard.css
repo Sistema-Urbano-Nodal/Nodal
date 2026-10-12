@@ -902,7 +902,7 @@ select:focus-visible, textarea:focus-visible {
 @media (max-width: 980px) {
   .shell { grid-template-columns: minmax(0, 1fr); }
   .side, .work, .ctx { grid-column: 1; }
-  .work > #fiiuDashboard { margin: calc(var(--pad) * .7) var(--pad); } /* moved under the greeting by dashboard.js */
+  .work > #fiiuDashboard { margin: calc(var(--pad) * .7) var(--pad) 0; } /* moved above the greeting by dashboard.js */
   .side {
     position: static; height: auto; margin: var(--rail-gap);
     border-radius: var(--r-rail);
@@ -962,6 +962,26 @@ select:focus-visible, textarea:focus-visible {
   .notif-pop { width: min(320px, calc(100vw - 2 * var(--pad))); }
   .fields { grid-template-columns: minmax(0, 1fr); }
   .uc-row { grid-template-columns: 1fr; }
+
+  /* The rail: the wordmark and the language on one row, the section and tool links on one row that scrolls
+     sideways, sign-out and privacy under it. Wrapped, the twelve links took six rows (about 330px, more at touch
+     size) and pushed the greeting and the festival block a screen down. The fade at the edge says the row goes
+     on, and the end padding lets the last link scroll clear of it. */
+  .side { column-gap: 12px; row-gap: 8px; }
+  .side-foot { display: contents; }
+  .lang-set { order: 1; margin-left: auto; }
+  .side-nav {
+    order: 2; flex: 1 0 100%; min-width: 0;
+    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+    padding-inline-end: 32px; overscroll-behavior-x: contain;
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+            mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+  }
+  .side-nav::-webkit-scrollbar { display: none; }
+  .side .side-link:focus-visible { outline-offset: -3px; outline-color: #fff; } /* inside: the scroller clips an outer ring */
+  .side-link.is-active { box-shadow: none; } /* the scroller would cut its glow off at the bottom */
+  .side-out { order: 3; }
+  .side-privacy { order: 4; }
 }
 /* Below the widest layout the search row is short: the scope label goes (the chips name themselves) */
 @media (max-width: 1439px) {

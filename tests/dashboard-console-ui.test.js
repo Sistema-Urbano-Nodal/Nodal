@@ -254,6 +254,63 @@ test('Show more and Show less read in English, Spanish and Portuguese', () => {
   }
 });
 
+/* ---------------- profile prompt and the festival block's place (finding 34) ---------------- */
+
+function promptHarness({ stored = null, user: me = { id: 'ana', city: '', role: 'Member', topics: [] } } = {}) {
+  const source = dashboardJs();
+  const storage = new Map(stored === null ? [] : [['nodal.profilePrompt.dismissed', stored]]);
+  let opened = 0;
+  const context = {
+    api: async () => ({ user: me }), byId: () => null, t: (k) => k, applyAll() {}, state: {}, window: {},
+    normalizeApiUser: (u) => ({ topics: [], ...u }),
+    openUserDialog: () => { opened += 1; },
+    localStorage: { getItem: (k) => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, String(v)) },
+  };
+  const prompt = piece(source, '  /* ================= profile prompt', '  /* ================= profile dialog').replace(/ {2}\/\* =+ profile dialog$/, '');
+  vm.runInNewContext(`let U, confirmedCity;\n${prompt}\n${piece(source, '  async function init() {', '\n  }\n')}\nglobalThis.declinePrompt = declinePrompt; globalThis.done = init();`, context, { filename: 'dashboard-prompt.js' });
+  return { context, storage, opened: () => opened };
+}
+
+test('the profile prompt opens by itself until the member closes it once', async () => {
+  const fresh = promptHarness();
+  await fresh.context.done;
+  assert.equal(fresh.opened(), 1, 'a new account is asked once');
+  fresh.context.declinePrompt();
+  assert.equal(fresh.storage.get('nodal.profilePrompt.dismissed'), 'ana');
+  const again = promptHarness({ stored: 'ana' });
+  await again.context.done;
+  assert.equal(again.opened(), 0, 'a closed prompt stays closed on the next visit');
+  const other = promptHarness({ stored: 'someone-else' });
+  await other.context.done;
+  assert.equal(other.opened(), 1, 'another account on the same phone is still asked');
+  // Storage that throws (private mode, blocked site data) still loads the console.
+  const blocked = promptHarness();
+  await blocked.context.done;
+  blocked.context.localStorage = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); } };
+  assert.doesNotThrow(() => blocked.context.declinePrompt());
+});
+
+test('Cancel and Escape on the profile dialog both count as closing the prompt', () => {
+  const source = dashboardJs();
+  assert.match(source, /byId\('ucCancel'\)\?\.addEventListener\('click', \(\) => \{ declinePrompt\(\); userDialog\.close\(\); \}\);/);
+  assert.match(source, /userDialog\.addEventListener\('cancel', declinePrompt\);/);
+  assert.match(source, /if \(\(!U\.city \|\| !U\.role \|\| U\.topics\.length === 0\) && !promptDeclined\(\)\) openUserDialog\(\);/);
+});
+
+// dashboard-publishing.test.js runs placeFestival(); here, the spacing it gets in its place.
+test('on one column the festival block opens the work surface, spaced like a band', () => {
+  assert.match(blocks(css(), '@media (max-width: 980px)'), /\.work > #fiiuDashboard\s*\{\s*margin:\s*calc\(var\(--pad\) \* \.7\) var\(--pad\) 0;?\s*\}/);
+});
+
+test('the phone nav rail is one sideways row, so the festival block and greeting are not a screen down', () => {
+  const phone = blocks(css(), '@media (max-width: 760px)');
+  assert.match(phone, /\.side-nav\s*\{[^}]*flex-wrap:\s*nowrap;[^}]*overflow-x:\s*auto/);
+  assert.match(phone, /\.side-nav\s*\{[^}]*mask-image:\s*linear-gradient/, 'a fade at the edge says the row goes on');
+  assert.match(phone, /\.side-foot\s*\{\s*display:\s*contents;?\s*\}/, 'language next to the wordmark, sign-out under the row');
+  // The scroller clips an outer focus ring, so the ring goes inside.
+  assert.match(phone, /\.side \.side-link:focus-visible\s*\{\s*outline-offset:\s*-3px;\s*outline-color:\s*#fff;?\s*\}/, 'white reads on the green active link too');
+});
+
 /* ---------------- touch targets and search scopes (finding 35) ---------------- */
 
 test('every console control is at least 44px on a touch screen, without changing type sizes', () => {
