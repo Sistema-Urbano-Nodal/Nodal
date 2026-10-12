@@ -22,14 +22,18 @@
   meta.append(tr('span','dates'),tr('span','spanishContent','content-language'));updates.append(tr('h3','news'),newsHost);widget.append(meta,state,updates,newTabNote());
   /* The registration and one news page (which also carries the event and the registration settings) draw the whole block: status, next session,
      badges and hours, then the news. On venue Wi-Fi either read can fail. That shows one error with one retry, which reads both again and redraws
-     everything; a retry that redrew only the news used to leave a stale error, a second link to the same page and no next session. */
+     everything; a retry that redrew only the news used to leave a stale error, a second link to the same page and no next session.
+     A refresh on the way back (background) reads behind the drawn block: a phone waking on venue Wi-Fi often fails a read for a moment, and clearing
+     first turned a working block into the error box and collapsed it while it read. Only two good reads redraw it, in one step; a failed refresh
+     keeps the block and the old loadedAt, so the next return tries again. */
   let loading=false,loadedAt=0;
   const failure=()=>{const box=el('div','f-widget-error'),retry=button('retry',()=>{retry.disabled=true;load();});box.append(tr('p','loadError'),retry);return box;};
-  async function load(){
+  async function load(background=false){
    if(loading)return;loading=true;
-   state.replaceChildren(tr('p','loading','f-muted'));newsHost.replaceChildren();updates.hidden=false;
+   if(!background){state.replaceChildren(tr('p','loading','f-muted'));newsHost.replaceChildren();updates.hidden=false;}
    const [mine,page]=await Promise.allSettled([api('/api/fiiu/registration'),api('/api/fiiu?kind=news')]);
    loading=false;
+   if(background&&(mine.status!=='fulfilled'||page.status!=='fulfilled'))return;
    const data=page.status==='fulfilled'?page.value:null;
    if(data){contentCards(newsHost,data.content.slice(0,5),'noNews','h4');newsHost.append(link('allNews','fiiu.html#news','f-text-link'));}
    updates.hidden=!data;
@@ -58,6 +62,6 @@
   }
   load();
   // "Next for you" is worked out when the block is drawn. A phone left on the console between sessions reads it again when it comes back after a while.
-  document.addEventListener?.('visibilitychange',()=>{if(document.visibilityState==='visible'&&loadedAt&&Date.now()-loadedAt>15*60000)return load();});
+  document.addEventListener?.('visibilitychange',()=>{if(document.visibilityState==='visible'&&loadedAt&&Date.now()-loadedAt>15*60000)return load(true);});
  }
 })();

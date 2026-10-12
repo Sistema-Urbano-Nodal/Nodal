@@ -187,6 +187,51 @@ test('a festival block left open for a while refreshes when the phone comes back
   assert.equal(reads(), 2, 'half an hour later the next session is read again');
 });
 
+test('a refresh on the way back keeps the drawn block while it reads, and keeps it when a read fails', async () => {
+  let failing = false, release = null;
+  const w = await widget(async (url) => {
+    if (url === '/api/fiiu/registration' || url === '/api/fiiu?kind=news') {
+      if (release) await release;
+      if (failing) return { status: 503, data: { error: 'unavailable' } };
+    }
+    return url === '/api/fiiu/registration' ? { user, registration, attendance: [], isAdmin: false } : url === '/api/fiiu?kind=news' ? feed : { questions: [] };
+  });
+  const count = (name) => descendants(w.host).filter((node) => node.dataset.fiiuText === name).length;
+  const drawn = (when) => {
+    assert.equal(count('viewRegistration'), 1, `${when}: the registration keeps its one way back`);
+    assert.equal(count('badges'), 1, `${when}: the badges stay`);
+    assert.equal(count('allNews'), 1, `${when}: the news stays, once`);
+    assert.match(content(w.host), /Cambio de sala/, `${when}: the news stays`);
+    assert.equal(count('loading'), 0, `${when}: no loading line replaces the block`);
+    assert.equal(errors(w.host).length, 0, `${when}: no error replaces the block`);
+  };
+  drawn('first load');
+  const reads = () => w.requests.filter((r) => r === '/api/fiiu/registration').length;
+  const realNow = Date.now;
+  Date.now = () => realNow() + 16 * 60000;
+  try {
+    // A phone waking on venue Wi-Fi: the reads are slow, then fail.
+    failing = true;
+    let open;
+    release = new Promise((resolve) => { open = resolve; });
+    const refresh = w.listeners.visibilitychange();
+    await flush();
+    drawn('while the refresh reads');
+    open();
+    await refresh;
+    await flush();
+    drawn('after the refresh failed');
+    assert.equal(reads(), 2, 'the refresh did read again');
+    // A failed refresh keeps the old time, so the next return tries again, and good reads redraw in one step.
+    failing = false;
+    release = null;
+    await w.listeners.visibilitychange();
+    await flush();
+    drawn('after a good refresh');
+    assert.equal(reads(), 3, 'the next return tries again');
+  } finally { Date.now = realNow; }
+});
+
 /* ---------------- news read in place (finding 33) ---------------- */
 
 test('festival and NODAL news show six lines, and a longer body opens in place', () => {
