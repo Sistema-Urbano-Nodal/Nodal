@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import {readFileSync} from 'node:fs';
 import {DEFAULT_CONFIG,FIIU_EVENT} from '../server/fiiu-domain.js';
 import {createFiiuHarness,key,field,flush,content,descendants} from './helpers/fiiu-ui-harness.js';
 
@@ -1341,6 +1342,16 @@ test('switching to another person starts the detail panel at the top, so their n
  await detailButton(h,0).listeners.click();assert.equal(detail.scrollTop,0);detail.scrollTop=150;
  const form=h.root.querySelector('.f-review-card').querySelector('form');field(form,'review').value='reviewAccepted';await submit(form);
  assert.equal(detailTitle(h),'Ana Test');assert.equal(detail.scrollTop,150,'a save that re-reads the same person keeps the place');
+});
+
+test('on touch screens the attendance rows, the other-activities disclosure, filters, section nav, review shortcut and small buttons are at least 44px tall, with body-size row text',()=>{
+ const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8'),coarse=css.split('\n').filter(line=>line.startsWith('@media(pointer:coarse)')).join('\n');
+ assert.match(coarse,/\.f-attendance-row \.f-check\{min-height:44px;margin:0;padding:10px 0;font-size:1rem\}/,'padding rather than centring, so a two-line title keeps its box by the first line');
+ assert.match(coarse,/\.f-attendance-row \.f-check input\{width:24px;height:24px;margin-top:0\}/);
+ assert.match(coarse,/\.f-attendance-row>:is\(\.f-pill,\.f-inline-status,\.f-attendance-method\)\{margin-left:34px\}/,'the notes under a row stay in line with its title');
+ assert.match(coarse,/\.f-page \.f-other>summary\{min-height:44px;padding:12px 0\}/);
+ assert.match(coarse,/\.f-page\[data-page="fiiu-admin"\] :is\(\.f-filter,\.f-admin-nav a,\.f-lab-review,\.f-button\.f-small\)\{min-height:44px\}/);
+ assert.match(coarse,/\.f-admin-nav\{padding:4px 0\}/,'the stuck nav stays 53px tall, so the scroll padding under it still fits');
 });
 
 test('participant search matches every word anywhere in the name or email, so a given name and a surname find someone in either order',async()=>{
