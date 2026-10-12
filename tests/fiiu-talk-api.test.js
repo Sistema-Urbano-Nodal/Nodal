@@ -5,6 +5,7 @@ import {randomUUID} from 'node:crypto';
 import {createDatabase,createUser} from '../server/db.js';
 import {createSession} from '../server/auth.js';
 import {createApp} from '../server/server.js';
+import {createRepository} from '../server/repository.js';
 import {createFiiuStore} from '../server/fiiu-repository.js';
 import {createTalkStore} from '../server/fiiu-talk-repository.js';
 import {createTalkApi,exportTalkData,deleteTalkData} from '../server/fiiu-talk-api.js';
@@ -575,6 +576,37 @@ test('per-account limits cap messages while the pulse is never rate limited',asy
   const statuses=await Promise.all(Array.from({length:50},()=>call('/api/fiiu/pulse',{actor:'guest'}).then(async r=>{await r.arrayBuffer();return r.status;})));
   assert.deepEqual([...new Set(statuses)],[200],`round ${round}`);
  }
+});
+
+test('the chat poll remembers a verified session for 30 s by a hash of its token, while other routes and tokens verify each request',async t=>{
+ let now=Date.parse('2026-10-21T14:00:00.000Z');
+ const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
+ const repository=createRepository({db}),resolve=repository.resolveSession.bind(repository);let verified=0;
+ repository.resolveSession=async(...args)=>{verified++;return resolve(...args);};
+ const admin=createUser(db,{fullName:'Flavia Soto',email:'admin@example.test',passwordHash:'unused',role:'admin'});
+ const [one,two]=[createSession(db,admin.id),createSession(db,admin.id)].map(s=>s.cookie.split(';')[0]);
+ const server=createApp({repository,fiiuStore:createFiiuStore({db}),talkStore:createTalkStore({db}),fiiuConfirmation:null,talkClock:()=>now});
+ server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
+ const base=`http://127.0.0.1:${server.address().port}`;
+ const call=(path,cookie,{method='GET',body}={})=>fetch(base+path,{method,headers:{Cookie:cookie,Origin:base,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
+ const q=(await (await call('/api/admin/fiiu/questions',one,{method:'POST',body:{activityId:'day1-am',body:'¿Qué te llevas?',status:'open'}})).json()).question;
+ const poll=`/api/fiiu/questions/${q.id}/messages?since=0`;
+ verified=0;
+ for(let i=0;i<3;i++)assert.equal((await call(poll,one)).status,200);
+ assert.equal(verified,1,'one verification for three polls');
+ assert.equal((await call(`/api/fiiu/questions/${q.id}`,one)).status,200);assert.equal(verified,2,'the page itself verifies');
+ assert.equal((await call(`/api/fiiu/questions/${q.id}/messages`,one,{method:'POST',body:{clientId:randomUUID(),body:'hola'}})).status,201);assert.equal(verified,3,'so does a write to the same path');
+ assert.equal((await call(poll,two)).status,200);assert.equal(verified,4,'another token verifies');
+ // The trade-off: signed out (or suspended) elsewhere, this one read route answers for at most 30 s more.
+ assert.equal((await call('/api/auth/logout',two,{method:'POST',body:{}})).status,200);
+ assert.equal((await call(poll,two)).status,200);assert.equal(verified,4);
+ assert.equal((await call(`/api/fiiu/questions/${q.id}`,two)).status,401,'every other route sees the sign-out at once');
+ now+=30000;
+ assert.equal((await call(poll,two)).status,401,'and this one after 30 s');
+ assert.equal((await call(poll,one)).status,200);assert.equal(verified,7,'an expired entry verifies again');
+ // A refused session is never remembered.
+ for(let i=0;i<2;i++)assert.equal((await call(poll,'nodal_session=not-a-session')).status,401);
+ assert.equal(verified,9);
 });
 
 test('rate limit kinds per route, and the pulse branch never asks for one',async()=>{

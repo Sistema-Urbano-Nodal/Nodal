@@ -92,6 +92,15 @@ const SESSIONLESS_API = new Set(['/api/health', '/api/billing/config', '/api/str
 // Per-account conversation writes and file reads a minute (server/fiiu-talk-api.js); other reads and writes use the
 // FIIU budgets.
 const TALK_RATE_LIMITS = { message: 10, upload: 6, like: 60, moderate: 120, file: 300 };
+/* Every phone in a room polls GET /api/fiiu/questions/:id/messages every few seconds, and on Supabase each request
+   costs a GoTrue /user call and a profile read before the conversation's own reads. For that one read route, a session
+   that resolved without changing any cookie is remembered per instance for 30 seconds (never past the access token's
+   own expiry), keyed by a SHA-256 of the access token so the token itself is never kept. The trade-off: a suspension,
+   a sign-out elsewhere or a revoked token stops this route's answers up to 30 seconds late (the festival registration
+   memo already allows 60). Every other route, the same path's writes and the file downloads included, verifies each
+   request, and a refusal is never remembered, so signing in again works at once. */
+const CHAT_POLL = /^\/api\/fiiu\/questions\/[^/]+\/messages$/;
+const POLL_SESSION_MS = 30000, POLL_SESSION_MAX = 5000;
 /* Routes that answer without a member and only personalise when there is one. A
    session-service outage serves them signed out instead of failing them. */
 const OPTIONAL_SESSION_API = /^\/api\/(?:auth\/state|news|catalog(?:\/[a-z0-9-]{1,40})?)$/;
@@ -1063,6 +1072,21 @@ export function createApp({
     }
     return result;
   }
+  const pollSessions = new Map();
+  async function resolvePollSession(req, options) {
+    const token = parseCookies(req.headers.cookie).get(SUPABASE_ACCESS_COOKIE);
+    if (!token) return resolveRequestSession(req, options);
+    const key = createHash('sha256').update(token).digest('hex'), now = talkClock(), hit = pollSessions.get(key);
+    if (hit && now < hit.until) return { user: hit.user, cookies: [] };
+    pollSessions.delete(key);
+    const session = await resolveRequestSession(req, options);
+    if (session.user && !session.cookies?.length) {
+      const expiry = jwtExpiry(token);
+      pollSessions.set(key, { user: session.user, until: Math.min(now + POLL_SESSION_MS, expiry === null ? Infinity : expiry * 1000) });
+      if (pollSessions.size > POLL_SESSION_MAX) pollSessions.delete(pollSessions.keys().next().value);
+    }
+    return session;
+  }
   /* Sign-out revokes the session at the provider and may redeem the refresh token
      to do it. The route takes no other budget, so a token that cannot be live is
      not sent, and each refresh it may cost reserves a unit of the same per-address
@@ -1241,7 +1265,7 @@ export function createApp({
       let session = { user: null, cookies: [] };
       if (useDb && needsSession) {
         try {
-          session = await resolveRequestSession(req, { authorizationOnly });
+          session = await (req.method === 'GET' && CHAT_POLL.test(pathname) ? resolvePollSession : resolveRequestSession)(req, { authorizationOnly });
         } catch (err) {
           /* The session service is down (or rate limiting this server). A route
              that works without a member is served signed out, with the cookies
