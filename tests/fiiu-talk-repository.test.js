@@ -27,6 +27,28 @@ test('registrations are read for names and emails only',async()=>{
  const emails=await store.registrationEmails(EVENT,[ana.id,ben.id,ana.id]);
  assert.ok(emails instanceof Map);assert.equal(emails.get(ana.id),'ana@example.test');assert.equal(emails.has(ben.id),false);
  assert.equal((await store.registrationEmails(EVENT,[])).size,0);
+ // An erased author's messages keep user_id NULL; the export asks for their email too and simply gets none.
+ const erased=await store.registrationEmails(EVENT,[ana.id,null,undefined]);
+ assert.deepEqual([...erased],[[ana.id,'ana@example.test']]);
+});
+
+test('the talk store reads registrations even when the FIIU store has not run on the database yet',async()=>{
+ const db=createDatabase({filename:':memory:'});
+ const ana=createUser(db,{fullName:'Ana Test',email:'ana@example.test',passwordHash:'x'});
+ const store=createTalkStore({db});
+ assert.equal(await store.findRegistration(EVENT,ana.id),null);assert.equal((await store.registrationEmails(EVENT,[ana.id])).size,0);
+ await createFiiuStore({db}).insert('registrations',{id:randomUUID(),eventId:EVENT,userId:ana.id,email:'ana@example.test',answers:{firstName:'Ana',lastName:'Test'},labStatus:'none',version:1,createdAt:at(0),updatedAt:at(0)});
+ assert.equal((await store.findRegistration(EVENT,ana.id)).firstName,'Ana','the FIIU store still upgrades and uses the same table');
+});
+
+test('an optional field left undefined is treated as absent, as JSON leaves it out for Supabase',async()=>{
+ const {store,ana,question,message,file}=setup();
+ const pdf=await file(ana,{mime:'application/pdf',width:undefined,height:undefined,thumbSize:undefined});
+ assert.deepEqual([pdf.status,pdf.width,pdf.height,pdf.thumbSize],['pending',null,null,null]);
+ const q=await question(),m=await message(q,ana);
+ const hidden=await store.updateMessage({id:m.id},{hiddenAt:at(70),hiddenBy:undefined,body:undefined});
+ assert.equal(hidden.body,'hola','an undefined patch field leaves the column alone');assert.equal(hidden.hiddenAt,at(70));
+ await assert.rejects(store.updateMessage({id:m.id},{body:undefined}),/empty/);
 });
 
 test('each message moves its question revision and takes it as seq',async()=>{
@@ -160,13 +182,31 @@ test('scrubbing a person blanks their messages, and deleting the account keeps t
  assert.equal((await store.userLikes(ana.id)).length,0);
 });
 
+test('deleting an account that was never scrubbed still blanks its messages, as the Postgres trigger does',async()=>{
+ const {db,store,ana,ben,question,message,file}=setup();
+ const q=await question(),mine=await message(q,ana),theirs=await message(q,ben);
+ const held=await file(ana);
+ assert.throws(()=>db.prepare('DELETE FROM users WHERE id=?').run(ana.id),/FOREIGN KEY/,'files are removed by the application first');
+ assert.equal((await store.findMessage(mine.id)).body,'hola','the refused deletion rolled the blanking back');
+ await store.removeFile(held.id);
+ const before=await store.getQuestion(q.id);
+ db.prepare('DELETE FROM users WHERE id=?').run(ana.id);
+ const orphan=await store.findMessage(mine.id);
+ assert.deepEqual([orphan.userId,orphan.body,orphan.authorName,orphan.authorFull],[null,'','','']);
+ assert.match(orphan.deletedAt,/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/,'stamped in the UTC ISO form the app writes');
+ const after=await store.getQuestion(q.id);
+ assert.equal(after.messageCount,1);assert.ok(after.revision>before.revision,'browsers learn the message went');
+ assert.equal((await store.findMessage(theirs.id)).body,'hola');
+ assert.deepEqual((await store.allMessages(q.id)).filter(m=>m.body).map(m=>m.id),[theirs.id]);
+});
+
 test('a reused client id or question id is a 409 conflict',async()=>{
  const {store,ana,question,message}=setup();
  const q=await question(),m=await message(q,ana);
  await assert.rejects(message(q,ana,{clientId:m.clientId}),e=>e.status===409&&e.code==='conflict');
  await assert.rejects(question({id:q.id}),e=>e.status===409&&e.code==='conflict');
  await assert.rejects(message(q,{id:randomUUID()}),e=>e.status===404,'an account deleted mid-request is a 404');
- await assert.rejects(message({id:randomUUID()},ana),'an unknown question has no revision to take');
+ await assert.rejects(message({id:randomUUID()},ana),e=>e.status===404&&e.message==='related record unavailable','an unknown question has no revision to take');
  assert.equal((await store.getQuestion(q.id)).revision,1,'the refused insert left the revision alone');
 });
 
@@ -186,8 +226,13 @@ test('file bytes round-trip for both variants and are removed together',async()=
  await store.putBytes(f,'full',Buffer.from('full'));await store.putBytes(f,'thumb',Buffer.from('thumb'));
  assert.equal((await store.getBytes(f,'full')).toString(),'full');assert.equal((await store.getBytes(f,'thumb')).toString(),'thumb');
  assert.ok(Buffer.isBuffer(await store.getBytes(f,'full')));
+ // Storage answers these with the 502 of object-storage.js (x-upsert false refuses a second put, a missing object is
+ // a failed GET), so local tests see the statuses production returns.
+ const storage=e=>e.status===502&&e.message==='attachment storage unavailable';
+ await assert.rejects(store.putBytes(f,'full',Buffer.from('again')),storage,'bytes are never replaced');
+ assert.equal((await store.getBytes(f,'full')).toString(),'full');
  await store.deleteBytes(f);
- await assert.rejects(store.getBytes(f,'full'),e=>e.status===404);await assert.rejects(store.getBytes(f,'thumb'),e=>e.status===404);
+ await assert.rejects(store.getBytes(f,'full'),storage);await assert.rejects(store.getBytes(f,'thumb'),storage);
  await assert.rejects(store.putBytes(f,'original',Buffer.from('x')),/variant/);
 });
 
@@ -239,7 +284,14 @@ test('Supabase likes ignore duplicates, unlikes return what they removed, and up
  const fk=supabase(()=>({status:409,body:{code:'23503',message:'violates foreign key constraint'}}));
  await assert.rejects(fk.store.like(M,U,'2026-10-21T14:00:00.000Z'),e=>e.status===404);
  const dup=supabase(()=>({status:409,body:{code:'23505',message:'duplicate key'}}));
- await assert.rejects(dup.store.insertMessage({id:M,questionId:Q,userId:U,authorName:'A',authorFull:'A',organiser:false,body:'x',clientId:F,createdAt:'2026-10-21T14:00:00.000Z'}),e=>e.status===409&&e.code==='conflict');
+ const post={id:M,questionId:Q,userId:U,authorName:'A',authorFull:'A',organiser:false,body:'x',clientId:F,createdAt:'2026-10-21T14:00:00.000Z'};
+ await assert.rejects(dup.store.insertMessage(post),e=>e.status===409&&e.code==='conflict');
+ // The BEFORE INSERT trigger takes seq from the question's revision, so a missing question fails NOT NULL on seq before
+ // the foreign key is checked; it is still a missing parent. Any other NOT NULL failure is a bug and stays unmapped.
+ const orphan=supabase(()=>({status:400,body:{code:'23502',message:'null value in column "seq" of relation "fiiu_messages" violates not-null constraint'}}));
+ await assert.rejects(orphan.store.insertMessage(post),e=>e.status===404&&e.message==='related record unavailable');
+ const bug=supabase(()=>({status:400,body:{code:'23502',message:'null value in column "body" of relation "fiiu_messages" violates not-null constraint'}}));
+ await assert.rejects(bug.store.insertMessage(post),e=>e.status===400&&e.code==='23502');
 });
 
 test('Supabase attaches files only when ready and unattached, and maps the allowance and lock errors of the reservation RPC',async()=>{
@@ -256,12 +308,12 @@ test('Supabase attaches files only when ready and unattached, and maps the allow
  const refuse=code=>supabase(()=>({status:400,body:{code,message:'provider text'}})).store.reserveFile(record);
  await assert.rejects(refuse('PFU01'),e=>e.status===413&&e.code==='upload_allowance'&&e.message==='festival upload allowance reached');
  await assert.rejects(refuse('23505'),e=>e.status===409);
- await assert.rejects(refuse('40001'),e=>e.status===409&&e.message==='upload changed; retry');
- await assert.rejects(refuse('40P01'),e=>e.status===409);
+ await assert.rejects(refuse('40001'),e=>e.status===409&&e.code==='conflict'&&e.message==='upload changed; retry');
+ await assert.rejects(refuse('40P01'),e=>e.status===409&&e.code==='conflict');
 });
 
 test('Supabase reads registration names through JSON paths, never the whole questionnaire, and chunks emails by 100',async()=>{
- const pg=supabase(call=>call.query.limit==='1'?{body:[{id:'r',email:'ana@example.test',first_name:'Ana',last_name:'Test'}]}:{body:call.query.user_id.slice(4,-1).split(',').map(id=>({user_id:id,email:id+'@example.test'}))});
+ const pg=supabase(call=>call.query.select.startsWith('id,')?{body:[{id:'r',email:'ana@example.test',first_name:'Ana',last_name:'Test'}]}:{body:call.query.user_id.slice(4,-1).split(',').map(id=>({user_id:id,email:id+'@example.test'}))});
  assert.deepEqual(await pg.store.findRegistration(EVENT,U),{id:'r',email:'ana@example.test',firstName:'Ana',lastName:'Test'});
  const read=pg.calls[0];assert.equal(read.path,'/rest/v1/fiiu_registrations');
  assert.equal(read.query.select,'id,email,first_name:answers->>firstName,last_name:answers->>lastName');
@@ -272,6 +324,17 @@ test('Supabase reads registration names through JSON paths, never the whole ques
  assert.equal(emails.size,150);assert.equal(emails.get(ids[149]),ids[149]+'@example.test');
  assert.deepEqual(pg.calls.slice(1).map(c=>c.query.user_id.split(',').length),[100,50]);assert.equal(pg.calls[1].query.select,'user_id,email');
  await assert.rejects(pg.store.registrationEmails(EVENT,['a,b']),/identifier/,'an in-list never takes PostgREST syntax');
+ // An erased author (user_id NULL) is skipped rather than failing the whole organiser export.
+ const calls=pg.calls.length,erased=await pg.store.registrationEmails(EVENT,[U,null,undefined]);
+ assert.deepEqual([...erased],[[U,U+'@example.test']]);assert.equal(pg.calls.at(-1).query.user_id,`in.(${U})`);assert.equal(pg.calls.length,calls+1);
+ assert.equal((await pg.store.registrationEmails(EVENT,[null])).size,0);assert.equal(pg.calls.length,calls+1,'nothing to look up, no request');
+});
+
+test('Supabase drops undefined patch fields the way SQLite does, so an all-undefined update is refused on both',async()=>{
+ const pg=supabase(call=>call.method==='PATCH'?{body:[{id:M,hidden_at:'2026-10-21T15:00:00+00:00'}]}:{});
+ await assert.rejects(pg.store.updateMessage({id:M},{body:undefined}),/empty/);assert.equal(pg.calls.length,0);
+ await pg.store.updateMessage({id:M},{hiddenAt:'2026-10-21T15:00:00.000Z',hiddenBy:undefined});
+ assert.deepEqual(pg.calls[0].body,{hidden_at:'2026-10-21T15:00:00.000Z'});
 });
 
 test('Supabase keeps file bytes at fiiu/<userId>/<id> and .thumb in the private bucket and removes both at once',async()=>{

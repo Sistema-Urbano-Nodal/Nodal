@@ -3,11 +3,13 @@ import {fail} from './courses-domain.js';
 import {snake} from './courses-schema.js';
 import {createObjectStorage} from './object-storage.js';
 import {TALK_LIMITS} from './fiiu-talk-domain.js';
+import {FIIU_SQLITE_SCHEMA} from './fiiu-repository.js';
 
 /* Local mirror of 20261011120000_fiiu_conversations.sql. The triggers keep each question's revision (what the pulse
    publishes) and stamp every changed message with it as seq, so the since-sync and the counters stay right on every
    write path, the account-deletion cascade included. recursive_triggers is off, and the update triggers watch named
-   columns, never seq or revision, so their own writes cannot fire them again. */
+   columns, never seq or revision, so their own writes cannot fire them again. As on profiles in Postgres, deleting an
+   account blanks its messages first, so a deletion path that skips the application's scrub still leaves no text. */
 export const FIIU_TALK_SQLITE_SCHEMA=`
 CREATE TABLE IF NOT EXISTS fiiu_questions (id TEXT PRIMARY KEY,event_id TEXT NOT NULL,activity_id TEXT NOT NULL,talk TEXT,body TEXT NOT NULL,
  status TEXT NOT NULL CHECK(status IN ('open','closed','hidden')),revision INTEGER NOT NULL DEFAULT 0,message_count INTEGER NOT NULL DEFAULT 0,
@@ -38,6 +40,8 @@ CREATE TRIGGER IF NOT EXISTS fiiu_like_insert AFTER INSERT ON fiiu_message_likes
 CREATE TRIGGER IF NOT EXISTS fiiu_like_delete AFTER DELETE ON fiiu_message_likes BEGIN UPDATE fiiu_messages SET like_count=max(0,like_count-1) WHERE id=OLD.message_id; END;
 CREATE TRIGGER IF NOT EXISTS fiiu_question_change AFTER UPDATE OF body,talk,status ON fiiu_questions
  WHEN NEW.body IS NOT OLD.body OR NEW.talk IS NOT OLD.talk OR NEW.status IS NOT OLD.status BEGIN UPDATE fiiu_questions SET revision=revision+1 WHERE id=NEW.id; END;
+CREATE TRIGGER IF NOT EXISTS fiiu_messages_account_erasure BEFORE DELETE ON users BEGIN
+ UPDATE fiiu_messages SET body='',author_name='',author_full='',deleted_at=coalesce(deleted_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')) WHERE user_id=OLD.id; END;
 `;
 const TABLES={
  questions:{name:'fiiu_questions',fields:['id','eventId','activityId','talk','body','status','revision','messageCount','createdBy','version','createdAt','updatedAt']},
@@ -52,19 +56,27 @@ const TIMES=new Set(['createdAt','updatedAt','hiddenAt','deletedAt']);
 const utc=value=>typeof value==='string'&&Number.isFinite(Date.parse(value))?new Date(value).toISOString():value;
 const checked=(table,record)=>{for(const k of Object.keys(record))if(!table.fields.includes(k))throw Error('unknown festival field');return record;};
 const from=(table,row,pg=false)=>row?Object.fromEntries(table.fields.map(k=>{const v=row[snake(k)];return [k,k==='organiser'?Boolean(v):pg&&TIMES.has(k)?utc(v):v];})):null;
-const to=(table,record,sqlite)=>Object.fromEntries(Object.entries(checked(table,record)).map(([k,v])=>[snake(k),sqlite&&typeof v==='boolean'?Number(v):v]));
+// An undefined field is absent, as JSON.stringify makes it for Supabase: the column default on insert, untouched on
+// update. SQLite would otherwise refuse to bind it, so a thumbSize left undefined for a PDF works the same on both.
+const to=(table,record,sqlite)=>Object.fromEntries(Object.entries(checked(table,record)).filter(([,v])=>v!==undefined).map(([k,v])=>[snake(k),sqlite&&typeof v==='boolean'?Number(v):v]));
 // The chat pages translate refusals by code; a reused id means the client must reload, a missing parent is a 404.
+// The message insert trigger copies seq from the question's revision, so an unknown question fails NOT NULL on seq
+// before its foreign key is checked, on both backends. A NOT NULL failure on any other column is a bug and stays raw.
 const failCode=(message,status,code)=>{try{fail(message,status);}catch(err){throw Object.assign(err,{code});}};
+const ORPHAN=/NOT NULL constraint failed: fiiu_messages\.seq|null value in column "seq"/;
 const conflict=err=>{
  if(err.code==='23505'||/UNIQUE constraint/.test(err.message))failCode('record changed; reload before saving',409,'conflict');
- if(err.code==='23503'||/FOREIGN KEY constraint/.test(err.message))fail('related record unavailable',404);
+ if(err.code==='23503'||/FOREIGN KEY constraint/.test(err.message)||ORPHAN.test(err.message))fail('related record unavailable',404);
  throw err;
 };
 const allowance=()=>failCode('festival upload allowance reached',413,'upload_allowance');
+const storage=()=>fail('attachment storage unavailable',502);
 // Polls and pages are bounded: the caller asks one row over its page (100, or 200 changes) to learn whether more exist.
 const capped=(limit,max=TALK_LIMITS.changes+1)=>{if(!Number.isInteger(limit)||limit<1)throw Error('invalid festival limit');return Math.min(limit,max);};
 const revisionOf=since=>{if(!Number.isSafeInteger(since)||since<0)fail('invalid revision');return since;};
 const chunks=(list,size=100)=>{const unique=[...new Set(list)],out=[];for(let i=0;i<unique.length;i+=size)out.push(unique.slice(i,i+size));return out;};
+// Account erasure leaves a message's user_id NULL, and the organiser export still asks for its author's email.
+const accounts=ids=>ids.filter(id=>typeof id==='string');
 const variantOf=variant=>{if(!VARIANTS.includes(variant))throw Error('invalid file variant');return variant;};
 
 export function createTalkStore({db,env=process.env,clients,fetchImpl=fetch}={}){
@@ -74,7 +86,8 @@ export function createTalkStore({db,env=process.env,clients,fetchImpl=fetch}={})
 }
 
 function sqliteTalk(db){
- db.exec(FIIU_TALK_SQLITE_SCHEMA);
+ // Registrations are the FIIU store's table (IF NOT EXISTS, so the two stores may start in either order).
+ db.exec(FIIU_SQLITE_SCHEMA);db.exec(FIIU_TALK_SQLITE_SCHEMA);
  const get=(sql,...params)=>db.prepare(sql).get(...params),all=(sql,...params)=>db.prepare(sql).all(...params),run=(sql,...params)=>db.prepare(sql).run(...params).changes;
  const marks=list=>list.map(()=>'?').join(',');
  // Re-read after writes: RETURNING shows the row before the AFTER triggers stamped seq and revision.
@@ -94,7 +107,7 @@ function sqliteTalk(db){
    return row?{id:row.id,email:row.email,firstName:String(row.first_name??''),lastName:String(row.last_name??'')}:null;
   },
   async registrationEmails(eventId,userIds){
-   return new Map(among(userIds,chunk=>all(`SELECT user_id,email FROM fiiu_registrations WHERE event_id=? AND user_id IN (${marks(chunk)})`,eventId,...chunk)).map(r=>[r.user_id,r.email]));
+   return new Map(among(accounts(userIds),chunk=>all(`SELECT user_id,email FROM fiiu_registrations WHERE event_id=? AND user_id IN (${marks(chunk)})`,eventId,...chunk)).map(r=>[r.user_id,r.email]));
   },
   async insertQuestion(record){return insert(QT,{...record,version:1,updatedAt:record.createdAt});},
   async getQuestion(id){return byId(QT,id);},
@@ -172,8 +185,10 @@ function sqliteTalk(db){
    return (limit===undefined?all('SELECT * FROM fiiu_files WHERE user_id=? ORDER BY created_at,id',userId):all('SELECT * FROM fiiu_files WHERE user_id=? ORDER BY created_at,id LIMIT ?',userId,capped(limit))).map(r=>from(FT,r));
   },
   async removeFile(id){return run('DELETE FROM fiiu_files WHERE id=?',id);},
-  async putBytes(file,variant,bytes){try{run('INSERT INTO fiiu_file_bytes (file_id,variant,bytes) VALUES (?,?,?)',file.id,variantOf(variant),bytes);}catch(err){conflict(err);}},
-  async getBytes(file,variant){const row=get('SELECT bytes FROM fiiu_file_bytes WHERE file_id=? AND variant=?',file.id,variantOf(variant));if(!row)fail('file unavailable',404);return Buffer.from(row.bytes);},
+  // Storage refuses a second put (x-upsert false) and a missing object with object-storage.js's 502, so the local
+  // bytes answer the same: the API decides from the file row (status, thumbSize), never from a refused read.
+  async putBytes(file,variant,bytes){const kind=variantOf(variant);try{run('INSERT INTO fiiu_file_bytes (file_id,variant,bytes) VALUES (?,?,?)',file.id,kind,bytes);}catch(err){if(/constraint failed/.test(err.message))storage();throw err;}},
+  async getBytes(file,variant){const row=get('SELECT bytes FROM fiiu_file_bytes WHERE file_id=? AND variant=?',file.id,variantOf(variant));if(!row)storage();return Buffer.from(row.bytes);},
   async deleteBytes(file){run('DELETE FROM fiiu_file_bytes WHERE file_id=?',file.id);},
  };
 }
@@ -196,7 +211,9 @@ function supabaseTalk(supa,fetchImpl){
  /* Everything for one person or one question, 200 rows a request. The first request asks for the exact count, so the
     usual short read is one round trip; follow-ups continue after the last row by (created_at, key) rather than OFFSET,
     so a write between requests cannot repeat or skip rows. Without a count, read on until an empty page. `and` carries
-    the keyset so it never meets a caller's own filters. */
+    the keyset so it never meets a caller's own filters. A short page alone never ends the read, even for the bounded
+    pulse and file reads: the project's max-rows setting may cap pages below 200, and the count rides in the same
+    request (as in the course and FIIU stores). */
  const readAll=async(table,query,key='id')=>{
   const rows=[];let cursor={},total=null,first=true;
   for(;;){
@@ -221,7 +238,7 @@ function supabaseTalk(supa,fetchImpl){
   },
   async registrationEmails(eventId,userIds){
    const out=new Map();
-   for(const chunk of chunks(userIds))for(const row of await read('fiiu_registrations',{select:'user_id,email',event_id:`eq.${eventId}`,user_id:list(chunk),limit:chunk.length}))out.set(row.user_id,row.email);
+   for(const chunk of chunks(accounts(userIds)))for(const row of await read('fiiu_registrations',{select:'user_id,email',event_id:`eq.${eventId}`,user_id:list(chunk),limit:chunk.length}))out.set(row.user_id,row.email);
    return out;
   },
   async insertQuestion(record){const [row]=await write(QT.name,{method:'POST',body:to(QT,{...record,version:1,updatedAt:record.createdAt})});if(!row)unavailable();return from(QT,row,true);},
@@ -258,8 +275,8 @@ function supabaseTalk(supa,fetchImpl){
    return (await read(MT.name,{select:select(MT),question_id:`eq.${questionId}`,seq:`gt.${revisionOf(since)}`,order:'seq.asc',limit:capped(limit)})).map(r=>from(MT,r,true));
   },
   async updateMessage(filters,patch){
-   if(!filters?.id)throw Error('scoped update required');checked(MT,filters);if(!Object.keys(patch).length)throw Error('empty festival update');
-   const [row]=await write(MT.name,{method:'PATCH',query:eqs(filters),body:to(MT,patch,false)});
+   if(!filters?.id)throw Error('scoped update required');checked(MT,filters);const body=to(MT,patch,false);if(!Object.keys(body).length)throw Error('empty festival update');
+   const [row]=await write(MT.name,{method:'PATCH',query:eqs(filters),body});
    return from(MT,row,true);
   },
   async allMessages(questionId){return (await readAll(MT.name,{select:select(MT),question_id:`eq.${questionId}`})).map(r=>from(MT,r,true));},
@@ -288,7 +305,8 @@ function supabaseTalk(supa,fetchImpl){
   async reserveFile(record){
    let rows;
    try{rows=await supa.admin.rest('rpc/reserve_fiiu_file',{method:'POST',body:{p_file:to(FT,{...record,status:'pending'},false)}});}
-   catch(err){if(err.code==='PFU01')allowance();if(['40P01','40001'].includes(err.code))fail('upload changed; retry',409);conflict(err);}
+   // A deadlock or serialisation failure left nothing behind, so the page may simply send the upload again.
+   catch(err){if(err.code==='PFU01')allowance();if(['40P01','40001'].includes(err.code))failCode('upload changed; retry',409,'conflict');conflict(err);}
    if(!rows?.[0])unavailable();return from(FT,rows[0],true);
   },
   async setFileStatus(id,fromStatus,toStatus){
