@@ -632,10 +632,11 @@
   const entry={row,view,note,conflict,group,record:null,editor:null,busy:false,buttons:new Map()},path=encodeURIComponent(id);
   text.id='f-q-'+id;label.id=text.id+'-status';group.setAttribute('role','group');group.setAttribute('aria-labelledby',label.id);note.setAttribute('role','status');
   for(const [value,key] of QUESTION_STATUSES){const choice=button(key,()=>setQuestionStatus(entry,value),'f-filter');choice.id=text.id+'-'+value;entry.buttons.set(value,choice);group.append(choice);}
-  const edit=entry.edit=button('editQuestion',()=>openQuestionEdit(entry),'f-button secondary f-small'),chat=link('openChat','fiiu-talk.html?q='+path,'f-text-link'),present=link('present','fiiu-talk.html?q='+path+'&present=1','f-text-link'),csv=link('downloadCsv','/api/admin/fiiu/questions/'+path+'/export','f-text-link');
-  // The chat and the projector open in new tabs, so moderating never leaves a draft behind here; the CSV is a download, so a refused or failed
-  // export never replaces the dashboard.
-  edit.id=text.id+'-edit';for(const a of [chat,present]){a.target='_blank';a.rel='noopener';}csv.download='';for(const node of [edit,chat,present,csv])describe(node,text.id);
+  const edit=entry.edit=button('editQuestion',()=>openQuestionEdit(entry),'f-button secondary f-small'),chat=link('openChat','fiiu-talk.html?q='+path,'f-text-link'),present=link('present','fiiu-talk.html?q='+path+'&present=1','f-text-link');
+  // The chat and the projector open in new tabs, so moderating never leaves a draft behind here; the CSV is fetched like the registrations
+  // export, so an ended session, a rate limit or an outage is reported here instead of a cancelled download.
+  const csv=button('downloadCsv',()=>fetchInto(csv,()=>downloadExport('/api/admin/fiiu/questions/'+path+'/export','fiiu-conversation.csv')),'f-text-link');
+  edit.id=text.id+'-edit';for(const a of [chat,present]){a.target='_blank';a.rel='noopener';}for(const node of [edit,chat,present,csv])describe(node,text.id);
   links.append(edit,chat,present,csv);controls.append(label,group,links);view.append(text,meta);row.append(view,controls,note,conflict);
   entry.update=()=>{
    const q=entry.record,stats=q.stats||{},count=(base,n)=>el('span','f-question-count',countText(base,Number.isSafeInteger(n)&&n>=0?n:0));row.className='f-question is-'+q.status;text.textContent=q.body;
@@ -704,19 +705,19 @@
  }
  // Page head, section navigation and the current-section marker.
  function adminHead(){
-  const event=festival.event,head=el('header','f-admin-head'),title=el('div','f-admin-title'),sub=el('p','f-admin-sub'),side=el('div','f-admin-head-side'),actions=el('div','f-actions'),note=tr('p','exportNote','f-muted f-export-note'),csv=button('export',()=>fetchInto(csv,downloadExport),'f-button secondary');
+  const event=festival.event,head=el('header','f-admin-head'),title=el('div','f-admin-title'),sub=el('p','f-admin-sub'),side=el('div','f-admin-head-side'),actions=el('div','f-actions'),note=tr('p','exportNote','f-muted f-export-note'),csv=button('export',()=>fetchInto(csv,()=>downloadExport()),'f-button secondary');
   note.id='f-export-note';describe(csv,note.id);sub.append(el('span','',event.title),rangeNode(event.startsOn,event.endsOn),source('span',event.city));title.append(tr('h1','admin'),sub);
   // The public page opens in a new tab, so checking a post never leaves an unsaved draft behind.
   const view=link('viewPublic','fiiu.html','f-text-link');view.target='_blank';view.rel='noopener';describe(view);
   actions.append(pillHost,view,csv);side.append(actions,note);head.append(title,side);return head;
  }
- // The CSV is fetched rather than linked, so an expired session, a rate limit or an outage is reported here instead of replacing the dashboard.
+ // The CSVs (registrations, and each question's answers) are fetched rather than linked, so an expired session, a rate limit or an outage is reported here instead of replacing the dashboard.
  // Safari before 16 has no AbortSignal.timeout; there the download runs without the time limit.
- async function downloadExport(){
+ async function downloadExport(url='/api/admin/fiiu/export',fallback='fiiu-registrations.csv'){
   const failed=key=>Object.assign(Error(t(key)),{key});let blob,name;
-  try{const response=await fetch('/api/admin/fiiu/export',{signal:globalThis.AbortSignal?.timeout?.(60000)});if(!response.ok)throw Object.assign(failed(({401:'unauthorized',403:'forbidden',429:'rate'})[response.status]||'error'),{status:response.status});name=/filename="([^"]+)"/.exec(response.headers.get('Content-Disposition')||'')?.[1];blob=await response.blob();}
+  try{const response=await fetch(url,{signal:globalThis.AbortSignal?.timeout?.(60000)});if(!response.ok)throw Object.assign(failed(({401:'unauthorized',403:'forbidden',429:'rate'})[response.status]||'error'),{status:response.status});name=/filename="([^"]+)"/.exec(response.headers.get('Content-Disposition')||'')?.[1];blob=await response.blob();}
   catch(err){throw err?.key?err:failed('error');}
-  const href=URL.createObjectURL(blob),a=el('a');a.href=href;a.download=name||'fiiu-registrations.csv';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),60000);
+  const href=URL.createObjectURL(blob),a=el('a');a.href=href;a.download=name||fallback;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),60000);
  }
  function adminNav(){
   const nav=el('nav','f-admin-nav'),label=tr('span','sectionNav','f-sr-only'),list=el('ul');label.id='f-admin-nav-label';nav.setAttribute('aria-labelledby',label.id);

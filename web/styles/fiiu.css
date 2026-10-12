@@ -234,6 +234,8 @@ html:has(>body.f-page){scroll-padding-top:176px}.f-page :where(section,footer)[i
 .f-question-meta{display:flex;flex-wrap:wrap;gap:2px var(--f-sp-3);margin:var(--f-sp-1) 0 0;font-size:var(--f-fs-hint);color:var(--f-muted);font-variant-numeric:tabular-nums}.f-question-talk{flex-basis:100%;color:var(--f-ink);overflow-wrap:anywhere}
 .f-question-count+.f-question-count::before{content:"·";content:"·"/"";margin-right:var(--f-sp-3)}
 .f-question-controls{display:flex;flex-wrap:wrap;align-items:center;gap:var(--f-sp-2) var(--f-sp-5)}.f-question-links{display:flex;flex-wrap:wrap;align-items:center;gap:0 var(--f-sp-4)}.f-question-links>.f-text-link{display:inline-flex;align-items:center;min-height:40px;margin:0}
+/* A question's CSV is a button (it is fetched, so a failure is reported here), drawn as the links beside it. */
+.f-question-links>button.f-text-link{padding:0;border:0;background:none;font:inherit;font-weight:600;color:var(--f-forest);cursor:pointer}.f-question-links>button.f-text-link:disabled{opacity:.6;cursor:wait}
 /* The status switch: the participant filter chips joined into one control. */
 .f-segmented{display:inline-flex}.f-shell .f-segmented>.f-filter{border-radius:0}.f-shell .f-segmented>.f-filter+.f-filter{margin-left:-2px}.f-shell .f-segmented>.f-filter:first-child{border-radius:7px 0 0 7px}.f-shell .f-segmented>.f-filter:last-child{border-radius:0 7px 7px 0}.f-segmented[aria-busy="true"]{opacity:.6}
 @media(max-width:1000px){.f-conversations-layout{grid-template-columns:minmax(0,1fr)}}

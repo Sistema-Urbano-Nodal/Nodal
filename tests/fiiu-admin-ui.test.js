@@ -1280,13 +1280,13 @@ test('losing organiser access empties the Conversations section, whether the sum
  }
 });
 
-test('each question links to its chat and projector in a new tab, and to its CSV',async()=>{
+test('each question links to its chat and projector in a new tab, and offers its CSV as a button that never leaves the dashboard',async()=>{
  const h=await harness(()=>({content:[],nextCursor:null}),{questionsRead:()=>({questions:[question()]})});
  const row=questionRows(h)[0],text=row.querySelector('.f-question-text');assert.equal(text.id,'f-q-'+QUESTION_ID);
  const chat=key(row,'openChat'),present=key(row,'present'),csv=key(row,'downloadCsv');
  assert.equal(chat.tagName,'a');assert.equal(chat.href,'fiiu-talk.html?q='+QUESTION_ID);assert.equal(present.href,'fiiu-talk.html?q='+QUESTION_ID+'&present=1');
  for(const a of [chat,present]){assert.equal(a.target,'_blank');assert.equal(a.rel,'noopener');assert.equal(a['aria-describedby'],text.id+' f-newtab');}
- assert.equal(csv.href,'/api/admin/fiiu/questions/'+QUESTION_ID+'/export');assert.equal(csv.download,'','downloaded, so a failure never replaces the dashboard');assert.equal(csv.target,undefined);assert.equal(csv['aria-describedby'],text.id);
+ assert.equal(csv.tagName,'button');assert.equal(csv.type,'button');assert.equal(csv.href,undefined,'fetched, so a failure is reported instead of a cancelled download');assert.equal(csv['aria-describedby'],text.id);
  assert.equal(key(row,'editQuestion')['aria-describedby'],text.id);
 });
 
@@ -1422,4 +1422,20 @@ test('a failed attendance tick says the attendance was not saved: an ended sessi
  h.lang('en');assert.equal(descendants(note).filter(node=>node.dataset.fiiuText==='adminSignIn').length,1,'and never adds a second one');
  const rows=h.ctx.window.Fiiu.rows;for(const name of ['attendanceSignIn','attendanceNotSaved'])assert.ok(rows[name]?.length===3&&rows[name].every(text=>text.trim()),name);
  assert.equal(rows.attendanceSignIn[1],'No se guardó la asistencia: tu sesión terminó.');assert.equal(rows.attendanceNotSaved[1],'No se guardó la asistencia. Revisa la conexión y vuelve a marcarla.');
+});
+
+test('a question’s CSV downloads through fetch, and an ended session, a busy server or an outage is reported in the dashboard',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{questionsRead:()=>({questions:[question()]})}),events=[],fetchPage=h.ctx.fetch,createElement=h.ctx.document.createElement;let reply;
+ fakeTimers(h);h.ctx.URL={createObjectURL:blob=>{events.push(['object URL',blob]);return 'blob:nodal/q';},revokeObjectURL(){}};
+ h.ctx.document.createElement=tag=>{const node=createElement(tag);if(tag==='a')Object.assign(node,{click(){events.push(['download',this.href,this.download]);},remove(){this.parent.children=this.parent.children.filter(child=>child!==this);this.parent=null;}});return node;};
+ const path='/api/admin/fiiu/questions/'+QUESTION_ID+'/export',failure=code=>async()=>({ok:false,status:code,headers:{get:()=>'application/json'},blob:async()=>{throw Error('not a CSV');}});
+ h.ctx.fetch=async(url,options)=>url===path?reply():fetchPage(url,options);
+ const csv=key(questionRows(h)[0],'downloadCsv');
+ reply=failure(401);await csv.listeners.click();
+ assert.equal(h.message.dataset.fiiuText,'unauthorized');assert.ok(key(h.message,'adminSignIn'),'with the sign-in link');assert.equal(h.root.querySelector('.f-session-notice').hidden,false);
+ for(const [code,shown] of [[429,'rate'],[502,'error']]){reply=failure(code);await csv.listeners.click();assert.equal(h.message.dataset.fiiuText,shown);assert.equal(csv.disabled,false);}
+ assert.equal(events.length,0,'nothing is downloaded when the export fails');
+ const file={type:'text/csv'};reply=async()=>({ok:true,status:200,headers:{get:name=>name==='Content-Disposition'?'attachment; filename="fiiu-conversation-aaaaaaaa.csv"':'text/csv'},blob:async()=>file});
+ await csv.listeners.click();assert.deepEqual(events,[['object URL',file],['download','blob:nodal/q','fiiu-conversation-aaaaaaaa.csv']]);
+ reply=async()=>({ok:true,status:200,headers:{get:()=>null},blob:async()=>file});await csv.listeners.click();assert.equal(events.at(-1)[2],'fiiu-conversation.csv','a fallback name when the server gives none');
 });
