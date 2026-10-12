@@ -299,9 +299,50 @@ test('on slow Wi-Fi the confirmation names its block and day from the answer, an
  // The programme lands: the same confirmation, now with its badge, replaces the first one.
  arrive(publicData());await flush();box=result(h);
  assert.equal(title(h).dataset.fiiuText,'alreadyCheckedIn');assert.match(content(box.querySelector('.f-checkin-activity')),/El poder de lo local/);assert.match(content(box.querySelector('.f-badges')),/✓ El poder de lo local/);
- // A refusal is never redrawn when the programme lands, so a code being typed into its form is kept.
+ // A result whose code form holds typing is not redrawn when the programme lands, so the code being typed is kept.
  let late;const slow=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?new Promise(resolve=>{late=resolve;}):{status:410,data:{error:'check-in code expired',code:'expired'}},{page:'fiiu-checkin',search:`?a=day1-am&c=${CODE}`,context:{setTimeout:(fn)=>fn()}});
  const input=field(result(slow),'checkinCode');input.value='K7M';late(publicData());await flush();assert.equal(field(result(slow),'checkinCode'),input);assert.equal(input.value,'K7M');
+});
+
+test('on slow Wi-Fi a refusal for a typed code names its block once the programme arrives',async()=>{
+ const typed=async answer=>{
+  let arrive;const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?new Promise(resolve=>{arrive=resolve;}):request.path==='/api/fiiu/registration'?{status:503,data:{}}:answer,{page:'fiiu-checkin',search:'',context:{Date:frozen('2026-10-21T22:00:00-05:00'),setTimeout:fn=>fn()}});
+  const form=result(h).querySelector('form');field(form,'checkinCode').value='K7M4PX';form.listeners.submit({preventDefault(){}});await flush();return {h,arrive};
+ };
+ for(const [answer,titleKey] of [[{status:404,data:{code:'not_registered',activityId:'day1-pm',registrationOpen:true}},'notRegistered'],[{status:403,data:{code:'not_in_plan',activityId:'day1-pm',registrationOpen:true}},'notInPlan'],[{status:409,data:{code:'outside_window',activityId:'day1-pm',closesAt:'2026-10-22T02:30:00.000Z'}},'checkinEndedTitle']]){
+  const {h,arrive}=await typed(answer);
+  assert.equal(title(h).dataset.fiiuText,titleKey);assert.equal(result(h).querySelector('.f-checkin-activity'),null,'only the id is known yet');
+  h.ctx.document.activeElement=title(h);arrive(publicData());await flush();
+  assert.equal(title(h).dataset.fiiuText,titleKey);assert.match(content(result(h).querySelector('.f-checkin-activity')),/Intervenir para activar/,titleKey);assert.equal(title(h).focused,true,'focus stays on the title');
+  assert.equal(h.requests.filter(request=>request.method==='POST').length,1,'nothing is sent again');
+ }
+ // A programme that fails leaves the refusal as it was.
+ const {h,arrive}=await typed({status:403,data:{code:'not_in_plan',activityId:'day1-pm',registrationOpen:true}}),shown=result(h);
+ arrive({status:503,data:{}});await flush();assert.equal(result(h),shown);
+});
+
+test('a reload shown before the programme arrived says what a scan would once it lands, unless its code form is in use',async()=>{
+ const reloaded=async(registration,{status}={})=>{
+  let arrive;const reply=status?{status,data:{error:'sign in required'}}:{registration,attendance:[],hours:{minutes:0,hours:0,untimed:[]},user:{id:'u1',email:'beto@example.test'},serverTime:'2026-10-21T14:12:00.000Z'};
+  const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?new Promise(resolve=>{arrive=resolve;}):request.path==='/api/fiiu/registration'?reply:assert.fail(request.path),{page:'fiiu-checkin',search:'?a=day1-pm',context:{Date:frozen('2026-10-21T09:12:00-05:00'),setTimeout:fn=>fn()}});
+  return {h,arrive};
+ };
+ const plan={id:'r1',version:1,answers:{activities:['day1-am']}};
+ // Without the programme the block could not be judged, so the code was asked for; the programme shows it is outside the plan.
+ let {h,arrive}=await reloaded(plan);assert.equal(title(h).dataset.fiiuText,'scanAgainTitle');assert.equal(result(h).querySelector('.f-checkin-activity'),null);
+ arrive(publicData());await flush();
+ assert.equal(title(h).dataset.fiiuText,'notInPlan');assert.equal(key(result(h),'addToRegistration').href,'fiiu.html#add-day1-pm');assert.equal(field(result(h),'checkinCode'),undefined);
+ assert.match(content(result(h).querySelector('.f-checkin-activity')),/Intervenir para activar/);assert.equal(h.requests.filter(request=>request.path==='/api/fiiu/registration').length,1,'the lookup is not repeated');
+ // A block the person can check in to keeps asking for the code, now naming it; so does sign-in.
+ ({h,arrive}=await reloaded({...plan,answers:{activities:['day1-pm']}}));arrive(publicData());await flush();
+ assert.equal(title(h).dataset.fiiuText,'scanAgainTitle');assert.match(content(result(h).querySelector('.f-checkin-activity')),/Intervenir para activar/);
+ ({h,arrive}=await reloaded(null,{status:401}));assert.equal(title(h).dataset.fiiuText,'signInToCheckIn');arrive(publicData());await flush();
+ assert.equal(title(h).dataset.fiiuText,'signInToCheckIn');assert.match(content(result(h).querySelector('.f-checkin-activity')),/Intervenir para activar/);
+ // A code being typed, or a field holding the cursor, is never taken away.
+ ({h,arrive}=await reloaded(plan));let input=field(result(h),'checkinCode');input.value='K7';arrive(publicData());await flush();
+ assert.equal(title(h).dataset.fiiuText,'scanAgainTitle');assert.equal(field(result(h),'checkinCode'),input);assert.equal(input.value,'K7');
+ ({h,arrive}=await reloaded(plan));input=field(result(h),'checkinCode');h.ctx.document.activeElement=input;arrive(publicData());await flush();
+ assert.equal(field(result(h),'checkinCode'),input);
 });
 
 test('a reload waits for the programme only briefly once the registration has answered',async()=>{

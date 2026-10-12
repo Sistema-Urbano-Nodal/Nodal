@@ -20,7 +20,8 @@
  let festival=null,shown=null;const catalogue=api('/api/fiiu?kind=news').then(data=>{festival=data;},()=>{});
  const find=id=>festival&&id?findActivity(festival.event,id)||null:null,space=()=>document.createTextNode(' ');
  // A result (and a reload) waits briefly for the programme, never for a stalled one: a confirmation then names its block from the answer, takes the
- // hours from it, and gains its badge when the programme lands; a reload without the programme cannot judge the block, so it asks for the code.
+ // hours from it, and gains its badge when the programme lands; a reload without the programme cannot judge the block, so it asks for the code
+ // until the programme lands (completeLater).
  const within=(promise,ms)=>typeof setTimeout==='function'?Promise.race([promise,new Promise(resolve=>setTimeout(resolve,ms))]):promise,shortly=ms=>within(catalogue,ms);
  const setTitle=()=>{document.title='NODAL · '+t('checkinPage');};
  function block(titleKey,tone,...nodes){
@@ -56,6 +57,16 @@
  }
  // The block the server says it recorded, for when the programme has not arrived (or failed): enough to name it and its day.
  const answered=(activity,id)=>activity&&activity.id===id&&typeof activity.title==='string'&&typeof activity.date==='string'?activity:null;
+ // A programme that lands after a result was drawn completes it: the block's name, the badge, or the judgement a reload could not make without it.
+ // Only a result still on screen is redrawn, and never one whose code form holds typing or the cursor; focus stays on its title.
+ function completeLater(result,redraw){
+  if(!festival)catalogue.then(()=>{
+   const input=result.box.querySelector('input');
+   if(!festival||shown!==result.box||input&&(input.value||document.activeElement===input))return;
+   const focused=document.activeElement===result.title,next=redraw();if(focused)next.title.focus();
+  });
+  return result;
+ }
  function success(data,body){
   const id=data.activityId||body.activityId,activity=find(id)||answered(data.activity,id),attendance=Array.isArray(data.attendance)?data.attendance:[],record=attendance.find(row=>row.activityId===id),at=Date.parse(data.checkedInAt||record?.createdAt);
   const time=Number.isFinite(at)?el('time','',limaClock(at)):null;if(time)time.dateTime=new Date(at).toISOString();
@@ -65,13 +76,13 @@
   let hours=festival?hoursLine(attendance,festival.event):null;
   if(!festival&&Number.isSafeInteger(data.hours?.hours)){hours=el('p','f-hours');hours.append(countLabel(data.hours.hours,'hoursConfirmed','hoursConfirmed'));}
   const earned=festival?el('div','f-badges'):null;if(earned)badges(earned,attendance,festival.event,{heading:'h2'});
-  const result=block(data.result==='checked_in'?'checkedInTitle':'alreadyCheckedIn','ok',about(activity),when&&facts([day?'checkedInOn':'checkedInAt',when]),hours,earned,actions(link('viewRegistration','fiiu.html#registration','f-button')));
-  // A programme that lands later completes the confirmation (the badge, and the block if the answer had none). Only this block is redrawn, as it
-  // has no form to lose, and only while it is still shown; focus stays on its title.
-  if(!festival)catalogue.then(()=>{if(!festival||shown!==result.box)return;const focused=document.activeElement===result.title,next=success(data,body);if(focused)next.title.focus();});
-  return result;
+  return completeLater(block(data.result==='checked_in'?'checkedInTitle':'alreadyCheckedIn','ok',about(activity),when&&facts([day?'checkedInOn':'checkedInAt',when]),hours,earned,actions(link('viewRegistration','fiiu.html#registration','f-button'))),()=>success(data,body));
  }
+ // A refusal drawn before the programme arrived has only the block's id (a typed code, or slow Wi-Fi); the programme names the block later.
  function failure(error,body,account){
+  const result=refusal(error,body,account);return body.activityId||error.activityId?completeLater(result,()=>failure(error,body,account)):result;
+ }
+ function refusal(error,body,account){
   // A typed code names no block, so the block comes from the server's answer when it has one.
   const activity=find(body.activityId||error.activityId),open=typeof error.registrationOpen==='boolean'?error.registrationOpen:festival?.config?.registrationOpen===true,retry=()=>actions(button('retry',()=>run(body)));
   // The registration opens with this block ticked (fiiu.html #add-); the id comes from the answer when the programme has not arrived.
@@ -123,6 +134,10 @@
   status(message,'loading');let data=null,problem=null;
   try{data=await api('/api/fiiu/registration');}catch(err){problem=err;}
   await shortly(1500);status(message,'');
+  // A programme that lands later judges the block from the same lookup, which is not repeated.
+  return completeLater(judge(id,data,problem),()=>judge(id,data,problem));
+ }
+ function judge(id,data,problem){
   const activity=find(id);
   // Signed out (a sign-in link was followed, then Back or a reload): sign in first, coming back to this block.
   if(problem?.status===401)return signIn(activity,'/fiiu-checkin.html?a='+encodeURIComponent(id),'signInScanAgainHint');
