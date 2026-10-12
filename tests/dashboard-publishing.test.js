@@ -15,6 +15,8 @@ function loadI18n(lang) {
     URLSearchParams,
     console,
   };
+  // As dashboard.html loads them: the console's own strings, then i18n.js.
+  vm.runInNewContext(read('web', 'scripts', 'i18n-dashboard.js'), context);
   vm.runInNewContext(read('web', 'scripts', 'i18n.js'), context);
   context.window.nodalI18n.apply(lang);
   return context.window.nodalI18n;
@@ -92,6 +94,7 @@ function liveConsole({ lang = 'es', replies }) {
   };
   context.window = { location, history, addEventListener() {}, matchMedia: () => ({ matches: true }) };
   vm.createContext(context);
+  vm.runInContext(read('web', 'scripts', 'i18n-dashboard.js'), context);
   vm.runInContext(read('web', 'scripts', 'i18n.js'), context);
   vm.runInContext(read('web', 'scripts', 'dashboard.js'), context);
   return { node: (id) => document.getElementById(id), requests, location, i18n: context.window.nodalI18n };

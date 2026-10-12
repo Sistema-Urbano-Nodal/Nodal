@@ -5,6 +5,8 @@ import {createHash} from 'node:crypto';
 import vm from 'node:vm';
 
 const SCRIPT=readFileSync(new URL('../web/scripts/i18n.js',import.meta.url),'utf8');
+// The console's own strings, which the console pages load just before i18n.js.
+const CONSOLE=readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.meta.url),'utf8');
 // These 223 keys and the home hashes are captured from the runtime dictionaries
 // at 6ab93f9, including text created lazily by the original homepage graph.
 const HOME_KEYS=[
@@ -244,9 +246,10 @@ const SNAPSHOTS={
 };
 
 const hash=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
-function load(page,nodes=[]){
+function load(page,nodes=[],{withConsole=false}={}){
   const context={document:{body:{dataset:page?{page}:{}},documentElement:{},querySelectorAll:selector=>selector==='[data-i18n]'?nodes:[]},window:{location:{search:''}},localStorage:{getItem(){return null;},setItem(){}},URLSearchParams};
   vm.createContext(context);
+  if(withConsole)vm.runInContext(CONSOLE,context);
   // Snapshot the resolved dictionaries after every normal assignment. This
   // catches duplicate-key overrides that source-key scans cannot detect.
   vm.runInContext(SCRIPT.replace('const listeners = new Set();','window.dictionaryForTest = DICT; const listeners = new Set();'),context);
@@ -262,7 +265,8 @@ for(const lang of ['es','pt']){
   });
   test('nonhome catalog and console dictionaries remain unchanged in '+lang,()=>{
     for(const page of [undefined,'dashboard','course','opportunities']){
-      const{api,dictionaries}=load(page);api.apply(lang);
+      // With the console strings, as a console page has them; tests/i18n-split.test.js checks the other pages get the rest.
+      const{api,dictionaries}=load(page,[],{withConsole:true});api.apply(lang);
       // Later additions have their own translation coverage; preserve the original copy baseline.
       // The publishing desk (ops.*), NODAL news (news.*) and the console's desk link are covered by catalog-ui and news-ui;
       // the membership and account-deletion refusals (October 3 review) by review-fix-5-integration;

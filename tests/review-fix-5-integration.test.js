@@ -91,7 +91,8 @@ test('catalog-news-payments-1: a live membership turns checkout off when the pag
     await flush();
     assert.equal(page.nodes.selectPro.disabled, false, status);
   }
-  const i18n = script('i18n');
+  // The console's strings are in i18n-dashboard.js, which payments.html and dashboard.html load.
+  const i18n = script('i18n-dashboard');
   for (const key of ['y.alreadyMember', 'd.uc.deleteSubscription']) assert.equal(i18n.split(`'${key}':`).length - 1, 3, `${key} in EN, ES and PT`);
 });
 

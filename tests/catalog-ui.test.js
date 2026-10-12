@@ -15,6 +15,9 @@ const adminPage = () => read('web', 'pages', 'admin.html');
 const adminScript = () => read('web', 'scripts', 'admin.js');
 const adminStyles = () => read('web', 'styles', 'admin.css');
 const i18n = () => read('web', 'scripts', 'i18n.js');
+// The console pages (admin.html, dashboard.html) load their own strings just before i18n.js.
+const consoleI18n = () => read('web', 'scripts', 'i18n-dashboard.js');
+const consoleStrings = () => { const context = { window: {} }; vm.runInNewContext(consoleI18n(), context); return context.window.NODAL_I18N_DASH; };
 
 class FakeNode {
   constructor(id = '') {
@@ -164,6 +167,7 @@ function deskI18n(lang = 'en', nodes = []) {
   };
   const context = { URLSearchParams, document, console, localStorage: { getItem() { return null; }, setItem() {} }, location: { search: '' } };
   context.window = context;
+  vm.runInNewContext(consoleI18n(), context, { filename: 'i18n-dashboard.js' });
   vm.runInNewContext(i18n(), context, { filename: 'i18n.js' });
   context.window.nodalI18n.apply(lang);
   return context.window.nodalI18n;
@@ -1462,10 +1466,10 @@ test('recommendation asynchronous states are translated and never synthesize rec
 });
 
 test('dashboard catalog and recommendation states resolve in EN, ES, and PT', () => {
-  const source = i18n();
-  const english = dictionaryKeys(source, 'DASH_EN');
-  const spanish = dictionaryKeys(source, 'DASH_ES');
-  const portuguese = dictionaryKeys(source, 'DASH_PT');
+  const source = i18n(), own = consoleStrings();
+  const english = new Set([...dictionaryKeys(source, 'DASH_EN'), ...Object.keys(own.en)]);
+  const spanish = new Set([...dictionaryKeys(source, 'DASH_ES'), ...Object.keys(own.es)]);
+  const portuguese = new Set([...dictionaryKeys(source, 'DASH_PT'), ...Object.keys(own.pt)]);
   const required = [
     'd.search.catalogSearching', 'd.search.catalogUnavailable', 'd.search.catalogEmpty',
     'catalog.startsAt', 'catalog.endDate', 'catalog.subtype.grant',

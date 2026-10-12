@@ -321,27 +321,27 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
   const pilot = { 'pilot-i18n.js': '20261009a', 'pilot.js': '20261005s', 'courses.css': '20261009a' };
   const festival = { 'fiiu.css': '20261011a', 'fiiu-ui.js': '20261012a' };
   const required = {
-    'index.html': { 'styles.css': '31', 'i18n.js': '20261009a', 'app.js': '21', 'recs.js': '5', 'script.js': '18', 'hero-network.js': '2' },
-    'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20261009a', 'catalog.js': '7', ...pilot },
-    'dashboard.html': { 'i18n.js': '20261009a', ...festival, 'fiiu-hubs.js': '20261011a', 'news-feed.js': '20261001b', 'dashboard.js': '20261009a', 'dashboard.css': '38', 'globe.js': '29', 'location-check.js': '20260908b', ...pilot },
-    'login.html': { 'i18n.js': '20261009a', 'auth.js': '20261009a', 'recovery-i18n.js': '20261009a' },
-    'reset-password.html': { 'i18n.js': '20261009a', 'recovery-i18n.js': '20261009a', 'password-recovery.js': '20261003r' },
-    'payments.html': { 'i18n.js': '20261009a', 'payments.js': '18', ...pilot },
-    'profile.html': { 'i18n.js': '20261009a', 'profile.js': '20261009a', 'styles.css': '31', ...pilot },
-    'admin.html': { 'styles.css': '31', 'admin.css': '5', 'admin.js': '6', 'i18n.js': '20261009a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20260928a', 'script.js': '18' },
-    'course.html': { 'i18n.js': '20261009a', 'courses.js': '20261009a', ...pilot },
-    'courses.html': { 'i18n.js': '20261009a', 'courses.js': '20261009a', ...pilot },
-    'teaching.html': { 'i18n.js': '20261009a', 'teaching.js': '20261009a', ...pilot },
+    'index.html': { 'styles.css': '31', 'i18n.js': '20261013a', 'app.js': '21', 'recs.js': '5', 'script.js': '18', 'hero-network.js': '2' },
+    'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20261013a', 'catalog.js': '7', ...pilot },
+    'dashboard.html': { 'i18n-dashboard.js': '20261013a', 'i18n.js': '20261013a', ...festival, 'fiiu-hubs.js': '20261011a', 'news-feed.js': '20261001b', 'dashboard.js': '20261009a', 'dashboard.css': '38', 'globe.js': '29', 'location-check.js': '20260908b', ...pilot },
+    'login.html': { 'i18n.js': '20261013a', 'auth.js': '20261009a', 'recovery-i18n.js': '20261009a' },
+    'reset-password.html': { 'i18n.js': '20261013a', 'recovery-i18n.js': '20261009a', 'password-recovery.js': '20261003r' },
+    'payments.html': { 'i18n-dashboard.js': '20261013a', 'i18n.js': '20261013a', 'payments.js': '18', ...pilot },
+    'profile.html': { 'i18n-dashboard.js': '20261013a', 'i18n.js': '20261013a', 'profile.js': '20261009a', 'styles.css': '31', ...pilot },
+    'admin.html': { 'i18n-dashboard.js': '20261013a', 'styles.css': '31', 'admin.css': '5', 'admin.js': '6', 'i18n.js': '20261013a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20260928a', 'script.js': '18' },
+    'course.html': { 'i18n.js': '20261013a', 'courses.js': '20261009a', ...pilot },
+    'courses.html': { 'i18n.js': '20261013a', 'courses.js': '20261009a', ...pilot },
+    'teaching.html': { 'i18n.js': '20261013a', 'teaching.js': '20261009a', ...pilot },
     'accept-invitation.html': { 'accept-invitation.js': '20261003r', 'invitation-i18n.js': '20261003r' },
-    'fiiu.html': { 'styles.css': '31', 'i18n.js': '20261009a', ...festival, 'fiiu.js': '20261011a' },
-    'fiiu-admin.html': { 'styles.css': '31', 'i18n.js': '20261009a', ...festival, 'fiiu-admin.js': '20261011a' },
-    'fiiu-qr.html': { 'i18n.js': '20261009a', ...festival, 'fiiu-qr.js': '20261009a' },
-    'fiiu-checkin.html': { 'i18n.js': '20261009a', ...festival, 'fiiu-checkin.js': '20261009a' },
-    'fiiu-talk.html': { 'i18n.js': '20261009a', ...festival, 'fiiu-talk.js': '20261012a', 'fiiu-talk.css': '20261012a' },
-    'organisers-only.html': { 'i18n.js': '20261009a', ...festival },
-    'community.html': { 'styles.css': '31', 'script.js': '18', 'i18n.js': '20261009a', ...festival, 'fiiu-hubs.js': '20261011a', 'news-feed.js': '20261001b' },
-    'knowledge.html': { 'styles.css': '31', 'script.js': '18', 'i18n.js': '20261009a', ...festival, 'fiiu-hubs.js': '20261011a' },
-    'resources.html': { 'styles.css': '31', 'script.js': '18', 'i18n.js': '20261009a', ...festival, 'fiiu-hubs.js': '20261011a' },
+    'fiiu.html': { 'styles.css': '31', 'i18n.js': '20261013a', ...festival, 'fiiu.js': '20261011a' },
+    'fiiu-admin.html': { 'styles.css': '31', 'i18n.js': '20261013a', ...festival, 'fiiu-admin.js': '20261011a' },
+    'fiiu-qr.html': { 'i18n.js': '20261013a', ...festival, 'fiiu-qr.js': '20261009a' },
+    'fiiu-checkin.html': { 'i18n.js': '20261013a', ...festival, 'fiiu-checkin.js': '20261009a' },
+    'fiiu-talk.html': { 'i18n.js': '20261013a', ...festival, 'fiiu-talk.js': '20261012a', 'fiiu-talk.css': '20261012a' },
+    'organisers-only.html': { 'i18n.js': '20261013a', ...festival },
+    'community.html': { 'styles.css': '31', 'script.js': '18', 'i18n.js': '20261013a', ...festival, 'fiiu-hubs.js': '20261011a', 'news-feed.js': '20261001b' },
+    'knowledge.html': { 'styles.css': '31', 'script.js': '18', 'i18n.js': '20261013a', ...festival, 'fiiu-hubs.js': '20261011a' },
+    'resources.html': { 'styles.css': '31', 'script.js': '18', 'i18n.js': '20261013a', ...festival, 'fiiu-hubs.js': '20261011a' },
   };
   for (const [page, assets] of Object.entries(required)) {
     for (const [asset, version] of Object.entries(assets)) {
@@ -426,8 +426,12 @@ test('every translation key a script asks for resolves in all three languages', 
       ...[...body.matchAll(/(?:^|[,\n])\s*([A-Za-z_$][\w$]*):/gm)].map((m) => m[1]),
     ]);
   };
-  // English is DASH_EN plus whatever the pages carry in data-i18n
-  const english = dictionary('DASH_EN');
+  // The console's own strings are in i18n-dashboard.js (tests/i18n-split.test.js checks each page loads what it uses).
+  const consoleContext = { window: {} };
+  runInNewContext(readFileSync(path.join(ROOT, 'web', 'scripts', 'i18n-dashboard.js'), 'utf8'), consoleContext);
+  const consoleStrings = consoleContext.window.NODAL_I18N_DASH;
+  // English is DASH_EN and the console's English, plus whatever the pages carry in data-i18n
+  const english = new Set([...dictionary('DASH_EN'), ...Object.keys(consoleStrings.en)]);
   const fromMarkup = [];
   const homePages = new Set();
   const pagesForScript = new Map();
@@ -444,8 +448,8 @@ test('every translation key a script asks for resolves in all three languages', 
       fromMarkup.push([m[1], page]);
     }
   }
-  const spanish = new Set([...dictionary('ES'), ...dictionary('DASH_ES')]);
-  const portuguese = new Set([...dictionary('PT'), ...dictionary('DASH_PT')]);
+  const spanish = new Set([...dictionary('ES'), ...dictionary('DASH_ES'), ...Object.keys(consoleStrings.es)]);
+  const portuguese = new Set([...dictionary('PT'), ...dictionary('DASH_PT'), ...Object.keys(consoleStrings.pt)]);
 
   const homeSpanish = dictionary('HOME_ES');
   const homePortuguese = dictionary('HOME_PT');

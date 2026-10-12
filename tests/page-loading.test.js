@@ -39,6 +39,8 @@ test('startup scripts are discovered in the head and execute after parsing in de
     before('pilot-i18n.js','pilot.js');before('pilot.js','courses.js');before('pilot.js','teaching.js');
     for(const file of ['app.js','recs.js','dashboard.js','globe.js'])before('i18n.js',file);
     before('i18n.js','auth.js');before('recovery-i18n.js','password-recovery.js');
+    // The console strings are merged by i18n.js when it runs, so they must already be there.
+    if(files.includes('i18n-dashboard.js')){assert.ok(files.includes('i18n.js'),`${name}: i18n-dashboard.js needs i18n.js`);before('i18n-dashboard.js','i18n.js');}
     before('coastline.js','globe.js');before('globe-geo.js','globe.js');
     // the FIIU widget and news must not queue behind the 195 KB globe coastline
     if(name==='dashboard.html'){before('location-check.js','dashboard.js');before('dashboard.js','coastline.js');for(const file of ['fiiu-ui.js','fiiu-hubs.js','news-feed.js'])before(file,'coastline.js');before('fiiu-ui.js','fiiu-hubs.js');}

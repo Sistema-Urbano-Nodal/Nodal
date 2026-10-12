@@ -27,6 +27,7 @@ const STATIC_SCRIPTS = [
   'globe.js',
   'globe-geo.js',
   'i18n.js',
+  'i18n-dashboard.js',
   'locale.js',
   'location-i18n.js',
   'location-check.js',

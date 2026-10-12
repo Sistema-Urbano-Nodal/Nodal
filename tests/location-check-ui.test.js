@@ -157,6 +157,6 @@ test('location markup and dynamic copy have all EN/ES/PT translations and no bac
   for (const [key, values] of Object.entries(rows)) assert.ok(values.length === 3 && values.every(value => typeof value === 'string' && value.trim()), key);
   for (const match of markup.matchAll(/data-location-text="([^"]+)"/g)) assert.ok(rows[match[1]], match[1]);
   for (const match of source.matchAll(/\blt\('([^']+)'/g)) assert.ok(rows[match[1]], match[1]);
-  assert.doesNotMatch(source, /watchPosition/);assert.ok(markup.indexOf('location-check.js?') < markup.indexOf('dashboard.js?'));
+  assert.doesNotMatch(source, /watchPosition/);assert.ok(markup.indexOf('src="location-check.js?') < markup.indexOf('src="dashboard.js?'));
   assert.match(markup, /id="locationAutomatic" aria-describedby="locationAutomaticHint locationPrivacy"/);
 });
