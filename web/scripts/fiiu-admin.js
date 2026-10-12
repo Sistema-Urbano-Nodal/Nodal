@@ -1,8 +1,8 @@
 (() => {
  'use strict';
  const {rows:strings,t,el,tr,source,button,link,field,check,api,status,dateNode,rangeNode,limaDate,locale,findActivity,chronological,typeOf,countLabel,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,checkinState,checkinActivities,limaClock,windowNode}=window.Fiiu;
- // The Conversations section's strings live here, since only this page shows them (the chat page keeps its own). {n} is filled in by this script,
- // so a language switch re-renders those counts.
+ // The Conversations section's strings, and the attendance tick's failures, live here, since only this page shows them (the chat page keeps its own).
+ // {n} is filled in by this script, so a language switch re-renders those counts.
  Object.assign(strings,{
   conversations:['Conversations','Conversaciones','Conversas'],
   conversationsHint:['Post a question on a block. Registered participants answer in a live chat.','Publica una pregunta en un bloque. Las personas inscritas responden en un chat en vivo.','Publique uma pergunta em um bloco. As pessoas inscritas respondem em um chat ao vivo.'],
@@ -15,7 +15,9 @@
   questionLikes:['{n} likes','{n} me gusta','{n} curtidas'],questionLikesOne:['1 like','1 me gusta','1 curtida'],
   noQuestions:['No questions yet.','Aún no hay preguntas.','Ainda não há perguntas.'],questionSaved:['Question saved','Pregunta guardada','Pergunta salva'],
   closeQuestionConfirm:['Close this question? People can still read it but not answer.','¿Cerrar esta pregunta? Las personas podrán leerla, pero ya no responder.','Fechar esta pergunta? As pessoas ainda poderão lê-la, mas não responder.'],
-  questionsLoadError:['The questions could not be loaded.','No se pudieron cargar las preguntas.','Não foi possível carregar as perguntas.']
+  questionsLoadError:['The questions could not be loaded.','No se pudieron cargar las preguntas.','Não foi possível carregar as perguntas.'],
+  attendanceSignIn:['Attendance not saved: your session ended.','No se guardó la asistencia: tu sesión terminó.','A presença não foi salva: sua sessão terminou.'],
+  attendanceNotSaved:['Attendance not saved. Check the connection and tick it again.','No se guardó la asistencia. Revisa la conexión y vuelve a marcarla.','A presença não foi salva. Verifique a conexão e marque de novo.']
  });
  const root=document.getElementById('fiiuAdminRoot'),message=document.getElementById('fiiuStatus');
  let festival,config,records=[],cursor=null,filling=null,listStale=false,publications=[],contentCursor=null,selectedParticipant=null,shownParticipant=null,detailRequest=0,participantFilter='all',participantQuery='',participantWords=[],shownCount=null,updatedAt=null,search=null,searchTimer=null,setAside=null;
@@ -187,8 +189,9 @@
  function sessionPanel(){sessionNotice.replaceChildren(tr('span','adminSignInAgain'),document.createTextNode(' '),signInLink());return sessionNotice;}
  // Feedback: #fiiuStatus is shown as a toast (fiiu.css) so saves are visible wherever the organiser is working.
  function clearLater(node,key,delay=6000){if(typeof setTimeout!=='function')return;clearTimeout(clearTimers.get(node));clearTimers.set(node,setTimeout(()=>{clearTimers.delete(node);if(node.dataset.fiiuText===key)status(node,'');},delay));}
- // An error toast clears after 12 s; an expired session's carries its own sign-in link instead, so the organiser can act from where they are.
- function reportError(feedback,err){status(feedback,err);if(feedback!==message)return;if(err?.status===401)message.append(document.createTextNode(' '),signInLink());else clearLater(message,message.dataset.fiiuText,12000);}
+ // An error toast clears after 12 s. An expired session's message, in the toast or on the row where it happened (an attendance tick),
+ // carries its own sign-in link instead, so the organiser can act from where they are.
+ function reportError(feedback,err){status(feedback,err);if(err?.status===401)feedback.append(document.createTextNode(' '),signInLink());else if(feedback===message)clearLater(message,message.dataset.fiiuText,12000);}
  // "Reload the latest version" re-reads only the record that changed into its form; other unsaved drafts on the page stay.
  async function action(control,fn,{feedback=message,conflict=null,reload=null,done='changesSaved'}={}){
   if(control)control.disabled=true;status(feedback,'saving');conflict?.replaceChildren();
@@ -310,10 +313,12 @@
   how.replaceChildren(...methodNote(activity,records?.get(activity.id)));row.method=()=>how.replaceChildren(...methodNote(activity,records?.get(activity.id)));
   label.append(input,text);row.append(label,how);if(chip)row.append(chip);row.append(note);
   // Autosave keeps the checkbox focusable: a toggle while a save is pending is undone instead of disabling the control.
+  // A failed save undoes the tick and says so on the row: the shared messages speak of drafts a tick does not have. An outage and a server
+  // error read the same (the page cannot tell them apart); the status travels on, so an ended session still shows its notice.
   input.addEventListener('change',()=>{
    if(pending){input.checked=!input.checked;return;}
    const wanted=input.checked;pending=true;input.setAttribute('aria-disabled','true');
-   return action(null,async()=>{let result;try{result=await api('/api/admin/fiiu/registrations/'+id+'/attendance',{activityId:activity.id,attended:wanted},'PUT');}catch(err){input.checked=!wanted;throw err;}saved?.(activity,wanted,result?.attendance);refreshSummary({background:true});},{feedback:note,done:'attendanceSaved'}).finally(()=>{pending=false;input.removeAttribute('aria-disabled');});
+   return action(null,async()=>{let result;try{result=await api('/api/admin/fiiu/registrations/'+id+'/attendance',{activityId:activity.id,attended:wanted},'PUT');}catch(err){input.checked=!wanted;const k=err?.status===401?'attendanceSignIn':err?.key==='error'?'attendanceNotSaved':'';throw k?Object.assign(Error(t(k)),{key:k,status:err.status}):err;}saved?.(activity,wanted,result?.attendance);refreshSummary({background:true});},{feedback:note,done:'attendanceSaved'}).finally(()=>{pending=false;input.removeAttribute('aria-disabled');});
   });
   return row;
  }
@@ -742,8 +747,8 @@
  }
  // Rows on screen are translated in place; rows kept for later filters are rebuilt in the new language.
  window.nodalI18n?.onChange(()=>{
-  // fiiu-ui retranslates #fiiuStatus through textContent, which drops the expired session's sign-in link.
-  if(message.dataset.fiiuText==='unauthorized'&&!message.querySelector('a'))message.append(document.createTextNode(' '),signInLink());
+  // fiiu-ui retranslates #fiiuStatus and the row notes through textContent, which drops the expired session's sign-in link.
+  for(const node of [message,...root.querySelectorAll('.f-inline-status')])if(['unauthorized','attendanceSignIn'].includes(node.dataset.fiiuText)&&!node.querySelector('a'))node.append(document.createTextNode(' '),signInLink());
   if(locked)return;rowCache=new WeakMap();setTitle();stampUpdated();recount?.();renderBackfill();newQuestion?.recount();for(const entry of questionRows.values())entry.editor?.recount();renderQuestions();if(lastSummary)renderSummary(lastSummary);else renderCheckin();});
  timer=setInterval(()=>{
   if(!festival||locked||sessionLost||document.visibilityState!=='visible')return;

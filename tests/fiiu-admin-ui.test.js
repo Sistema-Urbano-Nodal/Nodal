@@ -1388,3 +1388,27 @@ test('leaving the page with a typed link not yet saved asks first; the switch, w
  party.value='';assert.equal(leavePrompt(h),false,'typed back as saved, it lets the page go');
  party.value='https://example.test/party-new';await submit(form);assert.equal(leavePrompt(h),false,'saved');
 });
+
+test('a failed attendance tick says the attendance was not saved: an ended session puts a sign-in link on the row, an outage asks to tick again',async()=>{
+ const ana=participant('participant-a','Ana');let reply;
+ const h=await harness(({path,method})=>{
+  if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
+  if(method==='PUT')return reply();
+  return{registration:copy(ana),attendance:[]};
+ },{participants:[ana]});
+ await detailButton(h,0).listeners.click();
+ const row=h.root.querySelector('.f-admin-detail').querySelectorAll('.f-attendance-row').find(node=>key(node,'statusRegistered')),input=row.querySelector('input'),note=row.querySelector('.f-inline-status');
+ const tick=async()=>{input.checked=true;await input.listeners.change();};
+ reply=()=>{throw TypeError('Failed to fetch');};await tick();
+ assert.equal(input.checked,false,'the tick is undone');assert.equal(note.dataset.fiiuText,'attendanceNotSaved');assert.equal(note.querySelector('a'),null);
+ reply=()=>unavailable;await tick();assert.equal(note.dataset.fiiuText,'attendanceNotSaved','a server error reads the same: the page cannot tell them apart');
+ reply=()=>({status:429,data:{error:'too many requests'}});await tick();assert.equal(note.dataset.fiiuText,'rate');
+ reply=()=>({status:401,data:{error:'sign in required'}});await tick();
+ assert.equal(input.checked,false);assert.equal(note.dataset.fiiuText,'attendanceSignIn');
+ const signin=key(note,'adminSignIn');assert.ok(signin,'the sign-in link is on the row');assert.equal(signin.target,'_blank');assert.equal(signin.href,'/login.html?next=%2Ffiiu-admin.html');
+ assert.equal(h.root.querySelector('.f-session-notice').hidden,false,'the page notice shows too');assert.equal(h.message.dataset.fiiuText,'','no toast on top of it');
+ note.children.length=0;h.lang('es');assert.equal(descendants(note).filter(node=>node.dataset.fiiuText==='adminSignIn').length,1,'a language switch puts the link back');
+ h.lang('en');assert.equal(descendants(note).filter(node=>node.dataset.fiiuText==='adminSignIn').length,1,'and never adds a second one');
+ const rows=h.ctx.window.Fiiu.rows;for(const name of ['attendanceSignIn','attendanceNotSaved'])assert.ok(rows[name]?.length===3&&rows[name].every(text=>text.trim()),name);
+ assert.equal(rows.attendanceSignIn[1],'No se guardó la asistencia: tu sesión terminó.');assert.equal(rows.attendanceNotSaved[1],'No se guardó la asistencia. Revisa la conexión y vuelve a marcarla.');
+});
