@@ -94,12 +94,13 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-form input[type="file"]{font-size:11px}
 .pilot-form .pilot-button{justify-self:start}
 .pilot-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-.pilot-composer{margin:20px 0 8px;border-top:1px solid #bdcdb5;border-bottom:1px solid #bdcdb5;padding:14px 0}
-.pilot-composer>summary{font-size:12px;font-weight:650;color:#3d5c38;list-style:none;display:flex;gap:10px;align-items:center}
+/* Only the summary opens a <details>, so the composer's breathing room is the summary's own height, not padding around it. */
+.pilot-composer{margin:20px 0 8px;border-top:1px solid #bdcdb5;border-bottom:1px solid #bdcdb5;padding:0}
+.pilot-composer>summary{min-height:48px;font-size:12px;font-weight:650;color:#3d5c38;list-style:none;display:flex;gap:10px;align-items:center}
 .pilot-composer>summary:before{content:'+';font-size:20px;font-weight:400;line-height:1}
 .pilot-composer[open]>summary:before{content:'−'}
 .pilot-composer>summary::-webkit-details-marker{display:none}
-.pilot-composer>.pilot-form{padding-top:22px}
+.pilot-composer>.pilot-form{padding:22px 0 14px}
 .pilot-composer-extras{font-size:12px}
 .pilot-composer-extras>summary{color:#64725f;margin-bottom:10px}
 .pilot-composer-extras label{margin:14px 0}
@@ -277,6 +278,18 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-post-actions{display:flex;gap:0 18px;flex-wrap:wrap}
 .pilot-post-actions .pilot-button{margin-right:0}
 .pilot-post .pilot-status{font-size:12px;white-space:pre-wrap}
+/* On a phone each conversation and feedback control is a 44px target with body-size text; a summary's own padding makes
+   its height, since the space around it does not open the <details>. */
+@media(max-width:760px){
+ .pilot-post .pilot-button,.pilot-post-edit-actions .pilot-button{display:inline-flex;align-items:center;min-height:44px;margin:0;font-size:13px}
+ .pilot-post-actions{gap:0 24px}
+ .pilot-composer>summary{font-size:13px}
+ .pilot-composer-extras>summary,.pilot-feedback>summary,.pilot-feedback-comment summary,.pilot-feedback-history>summary{min-height:44px;padding:12px 0;font-size:13px}
+ .pilot-composer-extras>summary{margin-bottom:0}.pilot-feedback{padding-top:6px}.pilot-feedback-comment{flex-basis:100%;padding-top:0}
+ .pilot-discussion>.pilot-section-heading>.pilot-button{min-height:44px;font-size:13px}.pilot-discussion>.pilot-button{min-height:44px}
+ .pilot-feedback button{min-height:44px;font-size:13px}
+ .pilot-feedback .pilot-rating label{min-width:44px;min-height:44px;justify-content:center}
+}
 
 .pilot-footer{max-width:1264px;margin:0 28px;padding:24px 0;border-top:1px solid var(--line);font-size:12px}
 @media(min-width:1320px){.pilot-footer{margin-left:auto;margin-right:auto}}

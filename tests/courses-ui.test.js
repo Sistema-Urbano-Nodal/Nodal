@@ -724,3 +724,15 @@ test('on a phone the route shows every session at once, two to a row, with one r
  assert.equal(item.flex,undefined);assert.equal(item['border-bottom'],undefined);assert.equal(styleAt(375,'.pilot-route button')['min-height'],'44px');
  assert.equal(styleAt(1280,'.pilot-route ol').display,undefined,'the desktop rail stays a vertical list');
 });
+test('conversation and feedback controls are 44px tap targets with body-size text on a phone',()=>{
+ const post=styleAt(375,'.pilot-post .pilot-button');assert.equal(post['min-height'],'44px');assert.equal(post['font-size'],'13px');assert.equal(styleAt(375,'.pilot-post-actions').gap,'0 24px');
+ // A <details> opens only from its summary, so the composer's padding moves onto the summary.
+ assert.equal(styleAt(375,'.pilot-composer').padding,'0');assert.ok(parseInt(styleAt(375,'.pilot-composer>summary')['min-height'],10)>=44);
+ for(const summary of ['.pilot-composer>summary','.pilot-composer-extras>summary','.pilot-feedback>summary','.pilot-feedback-comment summary','.pilot-feedback-history>summary']){
+  const style=styleAt(375,summary);assert.ok(parseInt(style['min-height'],10)>=44,summary);assert.equal(style['font-size'],'13px',summary);
+ }
+ const refresh=styleAt(375,'.pilot-discussion>.pilot-section-heading>.pilot-button');assert.equal(refresh['min-height'],'44px');assert.equal(refresh['font-size'],'13px');
+ assert.equal(styleAt(375,'.pilot-post-edit-actions .pilot-button')['min-height'],'44px');assert.equal(styleAt(375,'.pilot-discussion>.pilot-button')['min-height'],'44px');
+ const feedback=styleAt(375,'.pilot-feedback button');assert.equal(feedback['min-height'],'44px');assert.equal(feedback['font-size'],'13px');
+ const star=styleAt(375,'.pilot-feedback .pilot-rating label');assert.equal(star['min-width'],'44px');assert.equal(star['min-height'],'44px');
+});
