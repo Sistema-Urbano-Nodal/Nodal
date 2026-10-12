@@ -50,6 +50,8 @@
 .f-talk-chips{display:flex;flex-wrap:wrap;gap:0 var(--f-sp-3);margin:0;padding:0;list-style:none}.f-talk-chip{display:inline-flex;flex-wrap:wrap;align-items:center;gap:0 var(--f-sp-2);max-width:100%;font-size:.86rem}.f-talk-chip-name{font-weight:600;overflow-wrap:anywhere}
 .f-talk-left{margin-left:auto;font-size:.84rem;color:var(--f-muted);font-variant-numeric:tabular-nums}
 .f-talk-status{grid-column:1/-1;margin:0;font-size:.88rem}.f-talk-status:empty{display:none}.f-talk-status.is-error{color:var(--f-error);font-weight:600}.f-talk-closed{margin:0;color:var(--f-muted)}
+/* A draft the close interrupted stays under the note, read-only and short (it scrolls past three lines), so the dock never covers the conversation. */
+.f-talk-draft{margin:var(--f-sp-2) 0 0}.f-talk-draft-label{display:block;font-size:.84rem;font-weight:650;color:var(--f-muted)}.f-shell .f-talk-draft-text{max-height:calc(4.5em + 22px);margin:2px 0 0;background:var(--f-panel);border-color:var(--f-line)}
 /* Projector (?q=…&present=1, organisers only; fiiu-talk.js puts f-talk-present on the body): a room screen sized from the viewport. The question is the
    headline with the join code beside it, the latest or most liked answers sit below in columns. The footer goes, and in full screen the site header too. */
 .f-page.f-talk-present>.f-footer{display:none}html:fullscreen>.f-page.f-talk-present>.navbar{display:none}

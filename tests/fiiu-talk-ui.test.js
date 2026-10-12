@@ -372,16 +372,16 @@ test('an organiser reading a hidden question follows its edits from the changes 
  await h.tickTimers();await h.tickTimers();assert.equal(sent(h,'GET',/since=3$/).length,2);
  assert.equal(sent(h,'GET','/api/fiiu/pulse').length,0,'the public pulse leaves hidden questions out');
  revision=4;body='¿Qué te llevas de esta mañana?';await h.tickTimers();
- assert.equal(h.root.querySelector('.f-talk-question').textContent,'¿Qué te llevas de esta mañana?');assert.ok(key(h.root.querySelector('.f-talk-head'),'talkHidden'));
+ assert.equal(h.root.querySelector('.f-talk-question').textContent,'¿Qué te llevas de esta mañana?');assert.ok(key(h.root.querySelector('.f-talk-head'),'talkHiddenQuestion'));
  await h.tickTimers();assert.equal(sent(h,'GET',/since=4$/).length,1);assert.equal(reads(),1,'each answer carries the question, so it is never read again');
 });
 
 test('an organiser on a hidden question sees it open, with the answers that arrived in the same sync',async()=>{
  const h=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'hidden'},me:{organiser:true}}),'GET /api/fiiu/pulse':{questions:[[Q,'day1-am',5,'open']]},
   ['GET '+MESSAGES+'?since=3']:since(5,[message(M3,{body:'Primera',createdAt:'2026-10-21T14:10:00.000Z',authorFull:'Ana Test',hidden:false,seq:5})],{status:'open'})});
- assert.equal(composer(h),null);assert.ok(key(h.root.querySelector('.f-talk-head'),'talkHidden'));assert.equal(row(h,M1).querySelector('.f-talk-like').disabled,true);
+ assert.equal(composer(h),null);assert.ok(key(h.root.querySelector('.f-talk-head'),'talkHiddenQuestion'));assert.equal(row(h,M1).querySelector('.f-talk-like').disabled,true);
  await h.tickTimers();
- assert.ok(row(h,M3));assert.ok(composer(h),'the composer appears');assert.equal(key(h.root.querySelector('.f-talk-head'),'talkHidden'),undefined);assert.equal(row(h,M1).querySelector('.f-talk-like').disabled,false);
+ assert.ok(row(h,M3));assert.ok(composer(h),'the composer appears');assert.equal(key(h.root.querySelector('.f-talk-head'),'talkHiddenQuestion'),undefined);assert.equal(row(h,M1).querySelector('.f-talk-like').disabled,false);
  await h.tickTimers();assert.equal(sent(h,'GET','/api/fiiu/pulse').length,1,'an open question follows the pulse again');assert.equal(sent(h,'GET',/since=/).length,1);
 });
 
@@ -659,7 +659,7 @@ test('the projector follows the poll: a new answer leads, a removed one leaves, 
  revision=17;state='closed';await h.tickTimers();
  assert.ok(key(h.root.querySelector('.f-talk-wall-head'),'talkClosedChip'));assert.equal(composer(h),null,'closing never brings a composer to the projector');
  const hidden=await projector({['GET '+MESSAGES+'?since=3']:since(3,[],{status:'hidden'})},{question:{status:'hidden'}});
- assert.ok(key(hidden.root.querySelector('.f-talk-wall-head'),'talkHidden'),'the organiser sees the room cannot open it yet');
+ assert.ok(key(hidden.root.querySelector('.f-talk-wall-head'),'talkHiddenQuestion'),'the organiser sees the room cannot open it yet');
  await hidden.tickTimers();assert.equal(sent(hidden,'GET','/api/fiiu/pulse').length,0,'the pulse leaves hidden questions out');assert.equal(sent(hidden,'GET',MESSAGES+'?since=3').length,1);
 });
 
@@ -751,4 +751,72 @@ test('a refusal Retry cannot fix puts the draft back in an empty composer; a dra
  const answer=later(),busy=await page({['POST '+MESSAGES]:()=>answer.promise});
  const box=composer(busy).querySelector('textarea');box.value='Primero';submit(busy);await flush();box.value='Otra cosa';
  answer.resolve(refuse);await flush();assert.equal(box.value,'Otra cosa');assert.equal(composerStatus(busy),'talkNotRegistered');
+});
+
+// sessionStorage as the page uses it; broken() is a browser that blocks site data, where every call throws.
+const memoryStore=(seed={})=>{const items=new Map(Object.entries(seed));return {items,getItem:name=>items.has(name)?items.get(name):null,setItem:(name,value)=>{items.set(name,String(value));},removeItem:name=>{items.delete(name);}};};
+const blocked={getItem(){throw new Error('denied');},setItem(){throw new Error('denied');},removeItem(){throw new Error('denied');}};
+// The harness tracks no focus: a test names the focused element, and contains() answers for it.
+const focusInside=(h,node)=>{h.ctx.document.activeElement=node;for(const box of [h.root,...descendants(h.root)])box.contains=child=>child===box||descendants(box).includes(child);};
+const DRAFT_KEY='nodal.talkDraft.'+Q;
+
+test('a half-typed answer is kept per question for the tab, so a reload or a sign-in round trip brings it back, and sending drops it',async()=>{
+ const sessionStorage=memoryStore();
+ const h=await page({['POST '+MESSAGES]:{status:201,data:{message:message(M3,{mine:true,body:'Mi borrador',seq:4})}}},{context:{sessionStorage}});
+ const text=composer(h).querySelector('textarea');text.value='Mi borrador';text.listeners.input();
+ assert.equal(sessionStorage.items.get(DRAFT_KEY),'Mi borrador');
+ const again=await page({},{context:{sessionStorage}});
+ assert.equal(composer(again).querySelector('textarea').value,'Mi borrador','the reloaded page restores it');
+ submit(h);assert.equal(sessionStorage.items.has(DRAFT_KEY),false,'a sent draft is not restored again');
+ text.value='   ';text.listeners.input();assert.equal(sessionStorage.items.has(DRAFT_KEY),false,'an empty composer stores nothing');
+ // A refusal that puts the draft back stores it again.
+ const refused=await page({['POST '+MESSAGES]:{status:403,data:{error:'festival registration required',code:'not_registered'}}},{context:{sessionStorage}});
+ const box=composer(refused).querySelector('textarea');box.value='Sin inscripción';submit(refused);await flush();assert.equal(sessionStorage.items.get(DRAFT_KEY),'Sin inscripción');
+ const denied=await page({},{context:{sessionStorage:blocked}});const typed=composer(denied).querySelector('textarea');typed.value='Hola';typed.listeners.input();
+ assert.equal(typed.value,'Hola','without storage the draft stays on screen');
+});
+
+test('a close while someone types keeps the draft readable under the closed note, moves focus to the note, and a reopen gives the composer back with it',async()=>{
+ let state='open',revision=3;
+ const routes={'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,state]]}),['GET '+MESSAGES+'?since=3']:since(4,[],{status:'closed'}),['GET '+MESSAGES+'?since=4']:since(5,[],{status:'open'})};
+ const h=await page(routes);
+ const text=composer(h).querySelector('textarea');text.value='En mi barrio cambiaría el giro';text.listeners.input();focusInside(h,text);
+ revision=4;state='closed';await h.tickTimers();
+ const dock=h.root.querySelector('.f-talk-dock'),note=key(dock,'talkClosed');
+ assert.equal(composer(h),null);assert.equal(note.focused,true,'focus stays in the dock, on the note');assert.equal(note.tabIndex,-1);
+ assert.ok(key(dock,'talkDraftKept'));const kept=dock.querySelector('.f-talk-draft-text');assert.equal(kept.value,'En mi barrio cambiaría el giro','the draft can still be read and copied');assert.equal(kept.readOnly,true);
+ assert.equal(h.root.querySelector('.f-talk-live').textContent,'','a focused note reads itself, so nothing is said twice');
+ revision=5;state='open';await h.tickTimers();
+ assert.equal(composer(h).querySelector('textarea'),text);assert.equal(text.value,'En mi barrio cambiaría el giro');
+ // Someone reading the conversation, not typing, hears the close from the status line.
+ const reader=await page({...routes,['GET '+MESSAGES+'?since=3']:since(4,[],{status:'closed'})});revision=4;state='closed';await reader.tickTimers();
+ const live=reader.root.querySelector('.f-talk-live');assert.equal(live.textContent,'This conversation is closed. You can still read it.');assert.equal(live.role,'status');
+ assert.equal(reader.root.querySelector('.f-talk-draft').hidden,true,'no draft, no draft block');
+ // A first load on a closed question announces nothing.
+ const closed=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'closed'},me:{canPost:false}})});assert.equal(closed.root.querySelector('.f-talk-live').textContent,'');
+});
+
+test('a sign-in asked for by a poll takes focus to its heading, and the draft is waiting when the person comes back',async()=>{
+ const sessionStorage=memoryStore();let revision=3;
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:{status:401,data:{error:'sign in required'}}},{context:{sessionStorage}});
+ const text=composer(h).querySelector('textarea');text.value='Casi termino';text.listeners.input();focusInside(h,text);
+ revision=4;await h.tickTimers();
+ const heading=key(h.root,'talkSignIn');assert.equal(heading.focused,true);assert.equal(heading.tabIndex,-1);
+ const back=await page({},{context:{sessionStorage}});assert.equal(composer(back).querySelector('textarea').value,'Casi termino');
+});
+
+test('an empty question says it closed without answers, or for organisers that it is not open yet, and a question’s Hidden chip agrees with pregunta',async()=>{
+ const closed=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'closed'},me:{canPost:false},messages:[]})});
+ const empty=closed.root.querySelector('.f-talk-empty');assert.equal(empty.hidden,false);assert.equal(empty.dataset.fiiuText,'talkEmptyClosed');
+ closed.lang('es');assert.equal(empty.textContent,'Esta pregunta se cerró sin respuestas.');
+ let revision=3;
+ const live=await page({['GET /api/fiiu/questions/'+Q]:thread({messages:[]}),'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:since(4,[],{status:'closed'})});
+ assert.equal(live.root.querySelector('.f-talk-empty').dataset.fiiuText,'talkEmpty');revision=4;await live.tickTimers();
+ assert.equal(live.root.querySelector('.f-talk-empty').dataset.fiiuText,'talkEmptyClosed','a close re-keys the empty line');
+ const hidden=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'hidden'},me:{organiser:true},messages:[]})});
+ assert.equal(hidden.root.querySelector('.f-talk-empty').dataset.fiiuText,'talkEmptyHidden');
+ const chip=key(hidden.root.querySelector('.f-talk-head'),'talkHiddenQuestion');assert.ok(chip);hidden.lang('es');assert.equal(chip.textContent,'Oculta');
+ const block=await page({'GET /api/fiiu/questions?activityId=day1-am':{activity:ACTIVITY,questions:[question(),question({id:Q2,status:'hidden'})]}},{search:'?a=day1-am'});
+ assert.ok(key(block.root,'talkHiddenQuestion'));assert.equal(key(block.root,'talkHidden'),undefined,'Oculto stays for messages');
+ const wall=await projector({},{question:{status:'closed'},messages:[]});assert.equal(wall.root.querySelector('.f-talk-wall-empty').dataset.fiiuText,'talkEmptyClosed');
 });

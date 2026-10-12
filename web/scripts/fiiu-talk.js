@@ -33,6 +33,11 @@
   talkNotRegistered:['You need a FIIU registration to take part.','Necesitas una inscripción en el FIIU para participar.','Você precisa de uma inscrição no FIIU para participar.'],
   talkPresent:['Projector view','Vista de proyección','Modo de projeção'],talkLatest:['Latest','Recientes','Recentes'],talkTop:['Most liked','Con más me gusta','Mais curtidas'],talkFullscreen:['Full screen','Pantalla completa','Tela cheia'],
   talkScanToJoin:['Scan to join the conversation','Escanea para unirte a la conversación','Escaneie para entrar na conversa'],
+  // A question is feminine in Spanish and Portuguese (la pregunta, a pergunta), a message masculine in Spanish (el mensaje): each gets its own chip.
+  talkHiddenQuestion:['Hidden','Oculta','Oculta'],
+  talkEmptyClosed:['This question closed without answers.','Esta pregunta se cerró sin respuestas.','Esta pergunta foi encerrada sem respostas.'],
+  talkEmptyHidden:['No messages yet. Participants can answer once the question opens.','Todavía no hay mensajes. Se podrá responder cuando la pregunta se abra.','Ainda não há mensagens. Será possível responder quando a pergunta for aberta.'],
+  talkDraftKept:['Your unsent answer:','Tu respuesta sin enviar:','Sua resposta não enviada:'],
  });
  const root=document.getElementById('fiiuTalkRoot'),message=document.getElementById('fiiuStatus');
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,ID=/^[a-z0-9-]{1,60}$/;
@@ -62,6 +67,22 @@
  const CODES=new Map(Object.entries({upload_allowance:'talkAllowance',file_type:'talkFileType',too_many_files:'talkTooManyFiles',file_size:'talkFileSize',question_closed:'talkClosed',not_registered:'talkNotRegistered',client_id_reused:'talkReused'}));
  const keyOf=error=>error?.status===429?'talkRate':CODES.get(error?.code)||(error?.status===413?'talkFileSize':error?.status===401?'unauthorized':/^talk[A-Z]/.test(error?.key||'')?error.key:'talkError');
  const isOpen=()=>question?.status==='open';
+ // Whether focus is inside a node; harness nodes and old browsers may lack contains().
+ const holds=node=>{const active=document.activeElement;return Boolean(node&&active&&active!==document.body&&node.contains?.(active));};
+ // A key-labelled node switched to another key keeps following the language switch (refresh() in fiiu-ui.js rewrites data-fiiu-text).
+ function rekey(node,key){if(node&&node.dataset.fiiuText!==key){node.dataset.fiiuText=key;node.textContent=t(key);}}
+ const emptyKey=()=>question?.status==='closed'?'talkEmptyClosed':question?.status==='hidden'?'talkEmptyHidden':'talkEmpty';
+ // One polite status, built with the page and never shown, says what a screen reader would otherwise miss. The same text again gets a trailing
+ // no-break space, so it is read again. It carries no key: a language switch must not repeat the last announcement.
+ function announce(text){const live=parts?.live;if(live)live.textContent=live.textContent===text?text+'\u00a0':text;}
+ // A half-typed answer is kept for the tab (sessionStorage), per question: a close, a sign-in round trip or a reload brings it back. Storage can be
+ // blocked or full, so every access is guarded and the draft then stays on screen only.
+ const DRAFTS='nodal.talkDraft.';
+ function storedDraft(id){try{return globalThis.sessionStorage?.getItem(DRAFTS+id)||'';}catch{return '';}}
+ function keepDraft(){
+  const id=question?.id,text=composer?.textarea.value||'';if(!id)return;
+  try{if(text.trim())globalThis.sessionStorage?.setItem(DRAFTS+id,text);else globalThis.sessionStorage?.removeItem(DRAFTS+id);}catch{/* Without storage the draft stays on screen only. */}
+ }
  function uuid(){
   if(typeof globalThis.crypto?.randomUUID==='function')return globalThis.crypto.randomUUID();
   const b=globalThis.crypto.getRandomValues(new Uint8Array(16));b[6]=(b[6]&15)|64;b[8]=(b[8]&63)|128;const hex=[...b].map(x=>x.toString(16).padStart(2,'0')).join('');
@@ -154,13 +175,13 @@
  function whenLine(a){const line=el('p','f-talk-when');line.append(dateNode(a.date,'span','short','f-talk-day'));if(a.time)line.append(el('span','',a.time));if(a.venue)line.append(source('span',a.venue,'f-talk-venue'));return line;}
  function blockHead(a){return a?[tr('p','talkPage','f-talk-kicker'),source('h1',a.title,'f-talk-title'),whenLine(a)]:[tr('p','talkPage','f-talk-kicker')];}
  function renderHead(){
-  const nodes=blockHead(activity);if(question.talk)nodes.push(source('p',question.talk,'f-talk-talk'));if(question.status==='hidden')nodes.push(tr('p','talkHidden','f-talk-flag'));
+  const nodes=blockHead(activity);if(question.talk)nodes.push(source('p',question.talk,'f-talk-talk'));if(question.status==='hidden')nodes.push(tr('p','talkHiddenQuestion','f-talk-flag'));
   nodes.push(source('blockquote',question.body,'f-talk-question'));if(parts.more)nodes.push(parts.more);parts.head.replaceChildren(...nodes);
  }
  function questionList(list){
   const ul=el('ul','f-talk-list');
   for(const q of list){const li=el('li'),a=el('a','f-talk-pick');a.href='fiiu-talk.html?q='+encodeURIComponent(q.id);a.append(source('span',q.body,'f-talk-pick-body'));if(q.talk)a.append(source('span',q.talk,'f-talk-pick-talk'));
-   if(q.status!=='open')a.append(tr('span',q.status==='hidden'?'talkHidden':'talkClosedChip','f-talk-flag'));li.append(a);ul.append(li);}
+   if(q.status!=='open')a.append(tr('span',q.status==='hidden'?'talkHiddenQuestion':'talkClosedChip','f-talk-flag'));li.append(a);ul.append(li);}
   return ul;
  }
  function showSiblings(list){
@@ -169,20 +190,32 @@
   renderHead();
  }
  function renderDock(){
-  if(!parts)return;const state=isOpen()&&me.canPost?'composer':question.status==='closed'?'closed':'none';
+  if(!parts)return;const state=isOpen()&&me.canPost?'composer':question.status==='closed'?'closed':'none',was=parts.dockState;
   // Only a change of state touches the dock: moving the composer would drop its focus and the phone keyboard with it.
-  if(parts.dockState===state)return;parts.dockState=state;
-  parts.dock.replaceChildren(parts.pill,...(state==='composer'?[ensureComposer().form]:state==='closed'?[tr('p','talkClosed','f-talk-closed')]:[]));
+  if(was!==state){
+   const inside=holds(parts.dock);parts.dockState=state;
+   parts.dock.replaceChildren(parts.pill,...(state==='composer'?[ensureComposer().form]:state==='closed'?[parts.closed]:[]));
+   if(state==='composer')restoreDraft();
+   // A close while someone types keeps them in the dock, on the note, which reads itself; anyone else hears it from the status line.
+   if(was&&state!=='composer'){if(inside)(state==='closed'?parts.closedNote:parts.log).focus();else if(state==='closed')announce(t('talkClosed'));}
+  }
+  // The closed note keeps an unsent answer readable (and copyable) under it.
+  if(state==='closed'){const draft=composer?.textarea.value.trim()||storedDraft(question.id).trim();parts.draft.hidden=!draft;parts.draftText.value=draft;}
  }
  function setStatus(state){
-  if(!question||!(parts||wall))return;question.status=state;me.canPost=state==='open';if(wall)return renderWallHead();renderHead();renderDock();
+  if(!question||!(parts||wall))return;question.status=state;me.canPost=state==='open';if(wall)return renderWallHead();renderHead();renderDock();rekey(parts.empty,emptyKey());
   for(const node of rowsById.values()){const like=node.querySelector('.f-talk-like');if(like)like.disabled=state!=='open';}
  }
  function build(){
   const box=el('section','f-talk'),head=el('header','f-talk-head'),earlier=button('talkLoadEarlier',()=>loadEarlier(),'f-button secondary f-talk-earlier'),log=el('ol','f-talk-log'),empty=tr('p','talkEmpty','f-talk-empty'),dock=el('div','f-talk-dock');
   const pill=button('talkNew',()=>{pill.hidden=true;toBottom(true);},'f-talk-new');pill.hidden=true;pill.setAttribute('aria-live','polite');
-  log.setAttribute('role','log');log.setAttribute('aria-live','off');log.setAttribute('aria-label',t('talkPage'));dock.append(pill);box.append(head,earlier,log,empty,dock);
-  root.replaceChildren(box,newTabNote());parts={box,head,earlier,log,empty,dock,pill,more:null,dockState:''};
+  const live=el('p','f-sr-only f-talk-live');live.setAttribute('role','status');
+  // The closed state: the note (focusable, so a close while typing can keep focus there) and an unsent draft under it, in a read-only box whose
+  // "select all" stays inside it, so the whole answer can be copied on a phone.
+  const closed=el('div','f-talk-closedbox'),closedNote=tr('p','talkClosed','f-talk-closed'),draft=el('div','f-talk-draft'),draftLabel=tr('label','talkDraftKept','f-talk-draft-label'),draftText=el('textarea','f-talk-input f-talk-draft-text');
+  closedNote.tabIndex=-1;draftText.id='f-talk-draft';draftText.readOnly=true;draftText.rows=2;draftLabel.htmlFor=draftText.id;draft.append(draftLabel,draftText);draft.hidden=true;closed.append(closedNote,draft);
+  log.setAttribute('role','log');log.setAttribute('aria-live','off');log.setAttribute('aria-label',t('talkPage'));log.tabIndex=-1;dock.append(pill);box.append(head,earlier,log,empty,dock,live);
+  root.replaceChildren(box,newTabNote());parts={box,head,earlier,log,empty,dock,pill,live,closed,closedNote,draft,draftText,more:null,dockState:''};
  }
  // A reload of the same question (a reset, or a status the pulse cannot carry) rebuilds the rows but keeps the header nodes, the composer and its draft.
  function show(data){
@@ -196,7 +229,7 @@
   if(!same)build();renderHead();rowsById.clear();views.clear();parts.log.replaceChildren();
   for(const view of Array.isArray(data.messages)?data.messages:[])if(view?.id)upsert(view);
   for(const attempt of attempts.values())if(attempt.row)parts.log.append(attempt.row);
-  parts.earlier.hidden=!before;parts.log.setAttribute('aria-label',t('talkPage'));renderDock();updateEmpty();setTitle();if(!same)toBottom(false);
+  parts.earlier.hidden=!before;parts.log.setAttribute('aria-label',t('talkPage'));renderDock();rekey(parts.empty,emptyKey());updateEmpty();setTitle();if(!same)toBottom(false);
  }
 
  // A full read (the question, or earlier messages) may also list the ids of the messages this viewer likes.
@@ -204,9 +237,10 @@
 
  // Access states replace the page; polling stops until a question is shown again.
  function halt(){if(timer!==null)clearInterval(timer);timer=null;question=null;parts=null;unwall();}
+ // Focus that was on the page (in the composer, say) moves to the heading that replaces it, which also reads the new state out.
  function block(title,hint,...actions){
-  halt();const box=el('section','f-locked f-talk-locked'),row=el('div','f-actions');row.append(...actions);box.append(tr('h1',title),...(hint?[tr('p',hint)]:[]),row);
-  root.replaceChildren(box,newTabNote());status(message,'');setTitle();
+  const inside=holds(root);halt();const box=el('section','f-locked f-talk-locked'),row=el('div','f-actions'),heading=tr('h1',title);heading.tabIndex=-1;row.append(...actions);box.append(heading,...(hint?[tr('p',hint)]:[]),row);
+  root.replaceChildren(box,newTabNote());status(message,'');setTitle();if(inside)heading.focus();
  }
  const unavailable=()=>block('talkUnavailable','',activity?link('talkBackToBlock','fiiu-talk.html?a='+encodeURIComponent(activity.id),'f-button secondary'):link('viewProgramme','fiiu.html#programme','f-button secondary'));
  // An outage is reported as one, never as "signed out" (the fiiu.js rule).
@@ -283,11 +317,16 @@
   input.type='file';input.multiple=true;input.accept=TYPES.join(',');input.hidden=true;input.tabIndex=-1;send.type='submit';left.hidden=true;chips.hidden=true;state.setAttribute('role','status');
   tools.append(attach,chips,left);form.append(label,textarea,send,tools,input,state);
   composer={form,textarea,input,chips,left,state,send,files:[]};
-  textarea.addEventListener('input',()=>{updateLeft();grow();});
+  textarea.addEventListener('input',()=>{updateLeft();grow();keepDraft();});
   textarea.addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){event.preventDefault();return submit();}});
   input.addEventListener('change',()=>{choose([...(input.files||[])]);input.value='';});
   form.addEventListener('submit',event=>{event.preventDefault();return submit();});
   return composer;
+ }
+ // The composer serves one question per page; the first time it shows for it, an empty one takes the draft kept for the tab.
+ function restoreDraft(){
+  const c=composer,id=question?.id;if(!c||!id||c.draftFor===id)return;c.draftFor=id;
+  if(!c.textarea.value){const text=storedDraft(id);if(text){c.textarea.value=text;updateLeft();grow();}}
  }
  // field-sizing grows the box where supported; elsewhere its height follows the text, and the stylesheet's max-height stops it at six lines.
  function grow(){const box=composer.textarea;if(!box.style||globalThis.CSS?.supports?.('field-sizing','content'))return;box.style.height='auto';box.style.height=box.scrollHeight+'px';}
@@ -369,7 +408,7 @@
  }
  // Sending hands the draft to its row and empties the composer at once, as chat apps do: what is typed next is a new message, and a photo still
  // uploading is never sent again with it. The row keeps the content, and Retry when it fails.
- function clearComposer(){const c=composer;c.textarea.value='';c.files=[];renderChips();updateLeft();grow();}
+ function clearComposer(){const c=composer;c.textarea.value='';c.files=[];renderChips();updateLeft();grow();keepDraft();}
  function submit(){
   const c=composer,body=c.textarea.value.trim(),files=[...c.files];
   if(!body&&!files.length){c.textarea.focus();return;}
@@ -398,7 +437,7 @@
    // The draft goes back to the composer to be fixed, unless something new was typed or attached there meanwhile.
    if(DRAFT.includes(key)){
     attempts.delete(attempt.clientId);row.remove();attempt.row=null;updateEmpty();
-    const c=composer;if(c&&!c.textarea.value.trim()&&!c.files.length){c.textarea.value=attempt.body;c.files=[...attempt.files];renderChips();updateLeft();grow();}
+    const c=composer;if(c&&!c.textarea.value.trim()&&!c.files.length){c.textarea.value=attempt.body;c.files=[...attempt.files];renderChips();updateLeft();grow();keepDraft();}
     say(problem(key));return;
    }
    // A file the server no longer accepts for this message is uploaded again on the next try.
@@ -465,7 +504,7 @@
  }
  function renderWallHead(){
   const nodes=activity?[source('p',activity.title,'f-talk-wall-block'),whenLine(activity)]:[];if(question.talk)nodes.push(source('p',question.talk,'f-talk-talk'));
-  if(question.status!=='open')nodes.push(tr('p',question.status==='hidden'?'talkHidden':'talkClosedChip','f-talk-flag'));
+  if(question.status!=='open')nodes.push(tr('p',question.status==='hidden'?'talkHiddenQuestion':'talkClosedChip','f-talk-flag'));rekey(wall.empty,emptyKey());
   // The headline is 3 to 5 % of the screen's width; a long question steps down so the answers still fit under it.
   nodes.push(source('h1',question.body,'f-talk-wall-question'+(codePoints(question.body)>LONG?' is-long':'')));wall.head.replaceChildren(...nodes);
  }
