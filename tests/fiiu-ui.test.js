@@ -668,3 +668,15 @@ test('lab status pills and form errors read naturally in Spanish and Portuguese'
  assert.equal(rows.accessibilityRequired[1],'Elige al menos una opción. Si no necesitas apoyo, marca «No necesito apoyo adicional».');assert.ok(rows.accessibilityRequired[1].includes('«'+rows.none[1]+'»'),'the option is quoted by its own label');
  assert.ok(rows.accessibilityRequired[2].includes('“'+rows.none[2]+'”'));
 });
+
+test('programme and registration actions are at least 44px tall on touch screens, with the text size unchanged',()=>{
+ const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8'),touch=[...css.matchAll(/@media\(pointer:coarse\)\{([^\n]*)\}\n/g)].map(match=>match[1]).join('');
+ const rule=selector=>[...touch.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter(([,list])=>list.split(/,(?![^()]*\))/).includes(selector)).map(([,,body])=>body).join(';');
+ for(const selector of ['.f-programme .f-button.secondary.f-small','.f-registration .f-button.f-small','.f-shell .f-steps .f-step','.f-registration .f-form .f-check'])assert.match(rule(selector),/min-height:44px/,selector);
+ for(const selector of [':is(.f-hero,.f-compact-actions,.f-activity-foot,.f-external-meta) .f-text-link','.f-itinerary-row>.f-text-link','.f-stepped>fieldset>.f-text-link','.f-news-item>.f-text-link'])assert.match(rule(selector),/display:inline-flex;align-items:center;min-height:44px/,selector);
+ // The session disclosure grows by padding: display:flex would drop its ▸ marker.
+ assert.match(rule('.f-sessions>summary'),/padding-block:11px/);assert.doesNotMatch(rule('.f-sessions>summary'),/display/);
+ // A multi-line checkbox label keeps its box at the first line, and the organiser's checkboxes are left alone.
+ assert.doesNotMatch(rule('.f-registration .f-form .f-check'),/align-items/);assert.doesNotMatch(touch,/(^|[},])\.f-check\{/);
+ assert.doesNotMatch(touch,/font-size/);
+});
