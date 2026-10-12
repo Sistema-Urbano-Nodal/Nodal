@@ -683,6 +683,10 @@ test('programme and registration actions are at least 44px tall on touch screens
 
 // One browser tab's sessionStorage: a second harness given the same one is a reload of that tab.
 const tabStorage=()=>{const data=new Map();return{data,getItem:name=>data.has(name)?data.get(name):null,setItem:(name,value)=>{data.set(name,String(value));},removeItem:name=>{data.delete(name);}};};
+const leave=h=>{let prevented=false;for(const listener of h.windowListeners.beforeunload||[])listener({preventDefault(){prevented=true;}});return prevented;};
+const typeInto=(form,name,value)=>{const control=field(form,name);control.value=value;form.listeners.input({target:control});};
+const tick=(form,name,value)=>{const box=descendants(form).find(node=>node.name===name&&node.value===value);box.checked=true;form.listeners.change({target:box});return box;};
+const box=(form,name,value)=>descendants(form).find(node=>node.name===name&&node.value===value);
 
 test('the hero, programme and news appear from the public read while the registration is still loading, with no guest calls to action',async()=>{
  let answer;const news={...publicData,content:[{id:'n1',kind:'news',title:'Cambio de sala',body:'Texto',url:'',createdAt:'2026-10-20T12:00:00.000Z'}]};
@@ -705,4 +709,61 @@ test('Back to the festival page returns to the same place: the position is kept 
  answer(self(saved));await flush();assert.deepEqual(scrolls,[{top:2080,behavior:'instant'}],'instant: the page scrolls smoothly otherwise');
  scrolls.length=0;await page('reload');assert.deepEqual(scrolls,[{top:2080,behavior:'instant'}],'a reload keeps the place too');
  scrolls.length=0;await page('navigate');assert.deepEqual(scrolls,[]);
+});
+
+test('a half-filled registration comes back after a reload in the same tab, without the ID number, and leaving asks first',async()=>{
+ const storage=tabStorage(),context={sessionStorage:storage};
+ const first=await harness({context}),form=first.form();assert.equal(leave(first),false,'an untouched form lets the page go');
+ typeInto(form,'firstName','Carla');typeInto(form,'nationalId','12345678');tick(form,'activities','day1-am');tick(form,'accessibility','none');
+ assert.equal(leave(first),true,'unsaved answers ask before the page goes');assert.doesNotMatch([...storage.data.values()].join(' '),/12345678/,'the ID number is never kept in storage');
+ const second=await harness({context,write:request=>({registration:{...saved,answers:request.body}})}),again=second.form();
+ assert.equal(field(again,'firstName').value,'Carla');assert.equal(field(again,'nationalId').value,'');assert.equal(box(again,'activities','day1-am').checked,true);assert.equal(box(again,'accessibility','none').checked,true);
+ assert.match(content(again.querySelector('.f-selection')),/1\s+conference block/,'the save bar counts the restored choice');
+ assert.ok(key(second.root.querySelector('.f-registration'),'draftRestored'),'the panel says the answers were kept');assert.equal(leave(second),true,'restored answers are still unsaved');
+ // A successful save drops the draft, and the page goes without asking.
+ second.fill();await second.submit();assert.ok(second.root.querySelector('.f-saved'));assert.equal(storage.data.size,0);assert.equal(leave(second),false);
+ const third=await harness({context});assert.equal(field(third.form(),'firstName').value,'');assert.equal(key(third.root,'draftRestored'),undefined);
+});
+
+test('a restored new-registration draft can be discarded, and another account in the tab drops it instead of seeing it',async()=>{
+ const storage=tabStorage(),context={sessionStorage:storage};
+ const first=await harness({context});typeInto(first.form(),'firstName','Carla');
+ const other={...user,id:'00000000-0000-4000-8000-000000000009',email:'beto@example.test'};
+ const beto=await harness({context,read:()=>({user:other,registration:null,attendance:[],isAdmin:false})});
+ assert.equal(field(beto.form(),'firstName').value,'','another account never sees the draft');assert.equal(storage.data.size,0,'a shared phone keeps no one else’s answers');
+ typeInto(beto.form(),'firstName','Beto');
+ const again=await harness({context,read:()=>({user:other,registration:null,attendance:[],isAdmin:false})});assert.equal(field(again.form(),'firstName').value,'Beto');
+ let asked=0;again.ctx.window.confirm=()=>{asked++;return asked>1;};
+ await key(again.form(),'discardDraft').listeners.click();assert.equal(field(again.form(),'firstName').value,'Beto','declining keeps the answers');
+ await key(again.form(),'discardDraft').listeners.click();
+ assert.equal(asked,2);assert.equal(field(again.form(),'firstName').value,'');assert.equal(key(again.root,'discardDraft'),undefined);assert.equal(storage.data.size,0);assert.equal(leave(again),false);
+});
+
+test('Back to my registration asks before dropping unsaved edits, and an edit restored after a reload opens the form on it',async()=>{
+ const storage=tabStorage(),context={sessionStorage:storage};let asked=0,agree=false;
+ const h=await harness({registration:saved,context});h.ctx.window.confirm=()=>{asked++;return agree;};
+ await key(h.root,'edit').listeners.click();await key(h.form(),'backToSaved').listeners.click();assert.equal(asked,0,'an untouched edit goes back without asking');assert.equal(h.form().hidden,true);
+ await key(h.root,'edit').listeners.click();await key(cardOf(h,'Cuidar y transformar la ciudad'),'addToRegistration').listeners.click();typeInto(h.form(),'firstName','Ana Cambiada');
+ await key(h.form(),'backToSaved').listeners.click();assert.equal(asked,1);assert.equal(h.form().hidden,false,'declining keeps the edit open');assert.equal(field(h.form(),'firstName').value,'Ana Cambiada');
+ const again=await harness({registration:saved,context});
+ assert.equal(again.form().hidden,false,'a restored edit opens the form');assert.equal(again.root.querySelector('.f-saved').hidden,true);assert.equal(field(again.form(),'firstName').value,'Ana Cambiada');
+ assert.equal(box(again.form(),'activities','day2-am').checked,true,'a block added from the programme comes back too');assert.equal(key(cardOf(again,'Cuidar y transformar la ciudad'),'choiceAdded').dataset.fiiuText,'choiceAdded');
+ assert.ok(key(again.root.querySelector('.f-registration'),'draftRestored'));
+ again.ctx.window.confirm=()=>true;await key(again.form(),'backToSaved').listeners.click();assert.equal(again.form().hidden,true);assert.equal(storage.data.size,0,'discarding drops the draft');
+ // A draft made against an older saved version (an edit from another device since) is stale and dropped.
+ const typed=await harness({registration:saved,context});await key(typed.root,'edit').listeners.click();typeInto(typed.form(),'city','Callao');
+ const newer=await harness({registration:{...saved,version:2},context});assert.equal(newer.form().hidden,true);assert.equal(field(newer.form(),'city').value,'Lima');assert.equal(storage.data.size,0);
+});
+
+test('with registration closed, cancelling warns there is no way back, the summary points to the organisers, and the interests hint drops the save step',async()=>{
+ const closed={...publicData,config:{...publicData.config,registrationOpen:false}},registration={...saved,answers:{...answers,externalActivities:['workshop-calles-gente']}};let question='';
+ const h=await harness({registration,publicRead:()=>closed});h.ctx.window.confirm=text=>{question=text;return false;};const {t,rows}=h.ctx.window.Fiiu;
+ await key(h.root,'cancel').listeners.click();assert.ok(question.endsWith(' '+t('cancelClosed')),question);assert.ok(question.startsWith(t('cancelConfirm')));
+ const summary=h.root.querySelector('.f-saved');assert.ok(key(summary,'externalInterestClosedHint'));assert.equal(key(summary,'externalInterestHint'),undefined);assert.ok(key(summary,'closedChanges'));
+ assert.equal(rows.cancelClosed[1],'La inscripción está cerrada: no podrás volver a inscribirte.');assert.doesNotMatch(rows.externalInterestClosedHint[1],/Guarda/);
+ const open=await harness({registration});open.ctx.window.confirm=text=>{question=text;return false;};await key(open.root,'cancel').listeners.click();
+ assert.ok(!question.includes(t('cancelClosed')));assert.ok(key(open.root.querySelector('.f-saved'),'externalInterestHint'));assert.equal(key(open.root,'closedChanges'),undefined);
+ // An incomplete registration already names the address in its notice, so it is not repeated.
+ const old=await harness({registration:{...saved,answers:{firstName:'Ana',lastName:'Test',activities:['day1-am'],privacyAccepted:true}},publicRead:()=>closed});
+ assert.ok(key(old.root,'incompleteClosedNotice'));assert.equal(key(old.root,'closedChanges'),undefined);
 });

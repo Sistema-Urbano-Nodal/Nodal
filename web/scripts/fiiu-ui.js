@@ -54,6 +54,13 @@
   actionNeeded:['Action needed','Acción necesaria','Ação necessária'],
   datesMonth:['October 2026','Octubre 2026','Outubro 2026'],nextForYou:['Next for you','Lo próximo para ti','Próximo para você'],latestUpdate:['Latest update','Última novedad','Última novidade'],
   registrationLoading:['Loading your registration…','Cargando tu inscripción…','Carregando sua inscrição…'],
+  // A registration draft kept in the tab, so a reload or a discarded tab keeps the answers (fiiu.js).
+  draftRestored:['We kept your unsaved answers. Save to confirm them.','Recuperamos tus respuestas sin guardar. Guarda para confirmarlas.','Recuperamos suas respostas não salvas. Salve para confirmá-las.'],
+  discardDraft:['Discard unsaved answers','Descartar respuestas sin guardar','Descartar respostas não salvas'],discardRegistrationEdit:['Discard your unsaved registration changes?','¿Descartar los cambios sin guardar de tu inscripción?','Descartar as alterações não salvas da sua inscrição?'],
+  // Registration closed: cancelling cannot be undone, and changes go through the organisers.
+  cancelClosed:['Registration is closed, so you will not be able to register again.','La inscripción está cerrada: no podrás volver a inscribirte.','As inscrições estão encerradas: você não poderá se inscrever de novo.'],
+  closedChanges:['To change your registration, write to fiiu@ocupatucalle.com.','Para cambiar tu inscripción, escribe a fiiu@ocupatucalle.com.','Para alterar sua inscrição, escreva para fiiu@ocupatucalle.com.'],
+  externalInterestClosedHint:['Complete each activity’s Google Form to register with its facilitator. Interest in NODAL does not confirm that registration or attendance.','Completa el Google Form de cada actividad para inscribirte con su facilitador. El interés en NODAL no confirma esa inscripción ni la asistencia.','Preencha o Google Forms de cada atividade para se inscrever com o facilitador. O interesse na NODAL não confirma essa inscrição nem a presença.'],
   // Conversation links on festival blocks (talkLink below): "Conversación · 2" on screen, "Conversación, 2 preguntas" for assistive technology.
   talkLink:['Conversation','Conversación','Conversa'],talkLinkOne:['1 question','1 pregunta','1 pergunta'],talkLinkCount:['{n} questions','{n} preguntas','{n} perguntas'],
   pendingShort:['Lab: in review','Laboratorio: en revisión','Laboratório: em análise'],acceptedShort:['Lab: accepted','Laboratorio: aceptado/a','Laboratório: aceito/a'],declinedShort:['Lab: not selected','Laboratorio: no seleccionado/a','Laboratório: não selecionado/a'],

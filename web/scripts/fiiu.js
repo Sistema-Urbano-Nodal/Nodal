@@ -11,6 +11,14 @@
  // The status line can take focus, so a failed save can move there (fiiu.css keeps focused controls clear of the sticky bars).
  const message=el('p','f-status');message.setAttribute('role','status');message.setAttribute('aria-live','polite');message.tabIndex=-1;
  const panelNotice=el('p','f-status f-notice is-ok');panelNotice.setAttribute('role','status');panelNotice.setAttribute('aria-live','polite');
+ // The registration form's draft lives in the tab (sessionStorage), with its account and the saved version it edits: a reload, a Back or a tab the phone
+ // discarded brings it back once, and another account or a version saved elsewhere since makes it stale. The ID number is never stored.
+ // formDirty: unsaved answers on screen; edited: what a programme shortcut or an #add- calls after ticking a box, as typing does.
+ const DRAFT='fiiu.draft';let formDirty=()=>false,edited=null,draftChecked=false;
+ const readDraft=()=>{try{return JSON.parse(sessionStorage.getItem(DRAFT)||'null');}catch{return null;}};
+ const dropDraft=()=>{try{sessionStorage.removeItem(DRAFT);}catch{/* No storage, no draft. */}};
+ // Leaving with unsaved answers asks first. Phones seldom ask (iOS Safari never does), so the draft above is what really keeps the answers.
+ window.addEventListener?.('beforeunload',event=>{if(!formDirty())return;event.preventDefault();event.returnValue='';});
  const missingAnswers=a=>['country','city','profile','nationalId','gender','motivation','previousAttendance'].filter(k=>!a[k]).length+(Number.isInteger(a.age)?0:1)+(Array.isArray(a.accessibility)&&a.accessibility.length?0:1)+(typeof a.publicOfficial==='boolean'?0:1);
  function jumpTo(input,event){event?.preventDefault?.();if(!input)return;openForm?.();const fold=input.closest?.('details');if(fold)fold.open=true;input.focus();input.scrollIntoView?.({block:'center'});}
  // Conversation links come from the public pulse, which never holds up the page: a block drawn before it answers gets its link when it does,
@@ -50,7 +58,7 @@
  function choiceAction(activity,mine,savedKey,addKey,titleId){
   if(mine)return tr('span',savedKey,savedKey==='interestChip'?'f-pill':'f-pill is-ok');
   const input=choiceInputs.get(activity.id);
-  if(input){const action=describe(button(addKey,event=>{if(input.disabled)return;openForm?.();input.checked=true;syncForm?.(true);jumpTo(input,event);},'f-button secondary f-small'),titleId);programmeActions.set(activity.id,{action,addKey});syncProgramme();return action;}
+  if(input){const action=describe(button(addKey,event=>{if(input.disabled)return;openForm?.();input.checked=true;syncForm?.(true);edited?.();jumpTo(input,event);},'f-button secondary f-small'),titleId);programmeActions.set(activity.id,{action,addKey});syncProgramme();return action;}
   // A guest goes to the panel's explanation first; its sign-in link then returns with this block ticked (#add-). While the registration loads, nobody is a guest yet.
   if(!me.user&&!me.failed&&!me.pending&&festival.config.registrationOpen&&activity.registration==='general'){const register=describe(link('register','#registration','f-text-link'),titleId);register.addEventListener('click',()=>{if(guestSignin)guestSignin.href='login.html?next='+encodeURIComponent('/fiiu.html#add-'+activity.id);});return register;}
   return null;
@@ -140,7 +148,7 @@
   if(a.externalActivities?.length){
    const [interests,unknownInterests]=split(a.externalActivities),list=el('ol','f-itinerary');
    for(const activity of interests){const row=itineraryRow(activity,prefix),where=venueLine(activity,'f-itinerary-venue');row.append(tr('span','interestChip','f-pill'));if(where)row.append(where);if(activity.formUrl)row.append(describe(link('externalFormNext',activity.formUrl,'f-text-link'),prefix+activity.id));withTalk(activity,prefix+activity.id,link=>row.append(link));list.append(row);}
-   list.append(...unknownInterests.map(unknownRow));box.append(tr('h4','externalActivities'),tr('p','externalInterestHint','f-muted'),list);
+   list.append(...unknownInterests.map(unknownRow));box.append(tr('h4','externalActivities'),tr('p',festival.config.registrationOpen?'externalInterestHint':'externalInterestClosedHint','f-muted'),list);
   }
   box.append(tr('p','savedHint','f-muted'));
   // Badges, then the hours they add up to for the certificate.
@@ -161,12 +169,12 @@
  // Ticks the #add-<block> asked for once the registration is known; saving stays an explicit tap. False while there is nothing to apply.
  function applyAdd(){
   if(!pendingAdd||me.failed||me.pending)return false;const input=choiceInputs.get(pendingAdd);pendingAdd=null;
-  if(input&&!input.disabled&&!input.checked&&input.name!=='applyLab'){input.checked=true;if(me.registration)jumpTo(input);syncForm?.(true);if(!me.registration)registrationHost.scrollIntoView({block:'start'});}
+  if(input&&!input.disabled&&!input.checked&&input.name!=='applyLab'){input.checked=true;if(me.registration)jumpTo(input);syncForm?.(true);edited?.();if(!me.registration)registrationHost.scrollIntoView({block:'start'});}
   else registrationHost.scrollIntoView({block:'start'});
   return true;
  }
  function renderPanel(){
-  choiceInputs.clear();openForm=null;officialInput=null;syncForm=null;sizeObserver?.disconnect();stepObserver?.disconnect();status(message,'');panelBody.replaceChildren();showNotice(notice);notice='';
+  choiceInputs.clear();openForm=null;officialInput=null;syncForm=null;formDirty=()=>false;edited=null;sizeObserver?.disconnect();stepObserver?.disconnect();status(message,'');panelBody.replaceChildren();showNotice(notice);notice='';
   registrationHost.className='f-registration'+(!me.user||(!festival.config.registrationOpen&&!me.registration)?' is-compact':'');guestSignin=null;
   if(me.pending){panelBody.append(tr('p','registrationLoading','f-muted'));return;}
   if(me.failed){
@@ -181,19 +189,20 @@
    if(open){const list=el('ul','f-checklist');for(const key of ['canConferences','canLab','canInterests'])list.append(tr('li',key));panelBody.append(list,tr('p','formDuration','f-muted'));}
    guestSignin=link('signin','login.html?next='+encodeURIComponent('/fiiu.html#registration'),'f-button');panelBody.append(guestSignin);if(open)panelBody.append(tr('p','privateHint','f-muted f-guest-privacy'));return;
   }
-  const expectedUserId=me.user.id,conflictBox=el('div','f-conflict');let busy=false,saveState='';
+  const expectedUserId=me.user.id,conflictBox=el('div','f-conflict');let busy=false,saveState='',dirty=false;
   function lock(){
    busy=true;const active=document.activeElement,controls=[...registrationHost.querySelectorAll('input,select,textarea,button')].map(control=>[control,control.disabled]),form=registrationHost.querySelector('form');
    for(const [control] of controls)control.disabled=true;form?.setAttribute('aria-busy','true');
    // Disabling the focused control drops focus to <body>; put it back when the control is usable again.
    return()=>{busy=false;for(const [control,disabled] of controls)control.disabled=disabled;form?.setAttribute('aria-busy','false');if(active?.isConnected&&!active.disabled&&(!document.activeElement||document.activeElement===document.body))active.focus();};
   }
-  function accountChanged(){status(message,Object.assign(Error(t('accountChanged')),{key:'accountChanged'}));conflictBox.replaceChildren(button('reloadAccount',()=>location.reload()));}
+  // Reloading for the other account drops this draft on purpose, so it does not ask first.
+  function accountChanged(){status(message,Object.assign(Error(t('accountChanged')),{key:'accountChanged'}));conflictBox.replaceChildren(button('reloadAccount',()=>{dirty=false;location.reload();}));}
   async function currentRegistration(){const latest=await api('/api/fiiu/registration');if(latest.user.id!==expectedUserId)throw Object.assign(Error(t('accountChanged')),{key:'accountChanged',status:409});return latest;}
   function reloadSaved(){
    conflictBox.replaceChildren(button('reloadSaved',async()=>{
     if(busy)return;const unlock=lock();
-    try{me=await currentRegistration();renderRegistration();(registrationHost.querySelector('.f-saved')||panelHeading).focus();}
+    try{me=await currentRegistration();dropDraft();renderRegistration();(registrationHost.querySelector('.f-saved')||panelHeading).focus();}
     catch(error){if(error.key==='accountChanged')accountChanged();else status(message,error);}
     finally{unlock();}
    },'f-button secondary'));
@@ -203,13 +212,16 @@
    summary=savedSummary(existing,{withBadges:true});const actions=el('div','f-actions');
    if(festival.config.registrationOpen)actions.append(button('edit',()=>{openForm();firstAnswer?.focus();}));
    const cancel=button('cancel',async()=>{
-    // Cancelling also deletes confirmed attendance, so the question says so once there is some.
-    if(busy||!window.confirm(t('cancelConfirm')+(me.attendance.length?' '+t('cancelWithAttendance'):'')))return;
+    // Cancelling also deletes confirmed attendance, so the question says so once there is some; while registration is closed it cannot be undone, so it says that too.
+    // Cancel stays available while closed: it is also how someone withdraws their personal answers.
+    if(busy||!window.confirm(t('cancelConfirm')+(me.attendance.length?' '+t('cancelWithAttendance'):'')+(festival.config.registrationOpen?'':' '+t('cancelClosed'))))return;
     const unlock=lock();status(message,'saving');conflictBox.replaceChildren();
-    try{await api('/api/fiiu/registration',{version:me.registration.version,registrationId:me.registration.id,expectedUserId},'DELETE');notice='cancelled';me.registration=null;me.attendance=[];renderRegistration();panelHeading.focus();}
+    try{await api('/api/fiiu/registration',{version:me.registration.version,registrationId:me.registration.id,expectedUserId},'DELETE');dropDraft();notice='cancelled';me.registration=null;me.attendance=[];renderRegistration();panelHeading.focus();}
     catch(error){if(error.key==='accountChanged')accountChanged();else{status(message,error);reloadSaved();}}
     finally{unlock();}
    },'f-button secondary');actions.append(cancel);summary.append(actions);panelBody.append(summary);
+   // Once registration closes there is no Edit, so changes go through the organisers (an incomplete registration's notice already says where).
+   if(!festival.config.registrationOpen&&!missingAnswers(existing.answers))summary.append(tr('p','closedChanges','f-muted'));
   }
   if(!festival.config.registrationOpen){panelBody.append(tr('p','closed','f-notice'),message,conflictBox);return;}
   const a=existing?.answers??{},form=el('form','f-form'),feedback=el('div','f-form-feedback');form.hidden=!!existing;let currentVersion=existing?.version??0,currentId=existing?.id??null;
@@ -226,8 +238,8 @@
   const clearLocalised=control=>{if(!control)return;if(localised.has(control)){control.setCustomValidity('');localised.delete(control);}flag(control,null);};
   // The submit handler validates, so the accessibility and choose-one rules are reported with every other field in one pass.
   form.noValidate=true;
-  // Editing keeps the saved summary (and its Cancel action) one click away; re-rendering discards the draft.
-  if(existing){openForm=()=>{form.hidden=false;summary.hidden=true;registrationHost.className='f-registration';feedback.append(message,conflictBox);};form.append(button('backToSaved',()=>{if(busy)return;renderRegistration();registrationHost.querySelector('.f-saved')?.focus();},'f-button secondary f-small f-back'));}
+  // Editing keeps the saved summary (and its Cancel action) one click away; going back discards the draft, so unsaved changes are confirmed first.
+  if(existing){openForm=()=>{form.hidden=false;summary.hidden=true;registrationHost.className='f-registration';feedback.append(message,conflictBox);};form.append(button('backToSaved',()=>{if(busy||(dirty&&!window.confirm(t('discardRegistrationEdit'))))return;dropDraft();renderRegistration();registrationHost.querySelector('.f-saved')?.focus();},'f-button secondary f-small f-back'));}
   else openForm=()=>{};
   // Each step: fieldset id, legend key, and the short name shown in the sticky step bar.
   const steps=[['f-step-personal','personal','personal'],['f-step-choices','choices','stepChoices'],['f-step-questions','questionnaire','stepQuestions'],['f-step-consent','consentStep','stepConsent']],stepsNav=el('nav','f-steps'),stepsLabel=tr('span','stepsLabel','f-sr-only'),stepList=el('ol');
@@ -324,9 +336,27 @@
   if('IntersectionObserver' in window){const sets=[personal,choices,details,consent],inView=new Set();stepObserver=new IntersectionObserver(entries=>{for(const entry of entries){if(entry.isIntersecting)inView.add(entry.target);else inView.delete(entry.target);}const current=sets.find(set=>inView.has(set));if(!current)return;stepLinks.forEach((step,i)=>{if(sets[i]===current)step.setAttribute('aria-current','step');else step.removeAttribute('aria-current');});revealStep();},{rootMargin:'-30% 0px -60% 0px'});for(const set of sets)stepObserver.observe(set);}
   for(const control of form.querySelectorAll('input,select,textarea'))control.setAttribute('aria-invalid','false');syncForm();
   if(existing)panelBody.append(message,conflictBox);
+  function keepDraft(){
+   const values={};for(const control of form.querySelectorAll('input,select,textarea')){if(!control.name||control.readOnly||control.name==='nationalId')continue;if(control.type==='checkbox'){values[control.name]??=[];if(control.checked)values[control.name].push(control.value);}else values[control.name]=control.value;}
+   try{sessionStorage.setItem(DRAFT,JSON.stringify({userId:expectedUserId,version:currentVersion,values}));}catch{/* Without storage the answers stay only on screen. */}
+  }
+  function touched(){dirty=true;keepDraft();}
+  edited=touched;formDirty=()=>dirty&&!busy;
+  // The first form drawn after the page loads takes the tab's draft, once. Its answers are set, then the dependent fields follow, and an #add- block ticks on top.
+  // An edit opens the form on it; a new registration can drop it. Either way the panel says the answers were kept and are not saved yet.
+  if(!draftChecked){
+   draftChecked=true;const draft=readDraft();
+   if(draft&&(draft.userId!==expectedUserId||draft.version!==currentVersion||!draft.values||typeof draft.values!=='object'))dropDraft();
+   else if(draft){
+    for(const control of form.querySelectorAll('input,select,textarea')){const value=draft.values[control.name];if(value===undefined||control.readOnly||control.name==='nationalId')continue;if(control.type==='checkbox')control.checked=Array.isArray(value)&&value.includes(control.value);else if(typeof value==='string')control.value=value;}
+    syncLab();syncOther();syncForm(true);dirty=true;showNotice('draftRestored');
+    if(existing)openForm();
+    else form.prepend(button('discardDraft',()=>{if(busy||!window.confirm(t('discardRegistrationEdit')))return;dropDraft();renderRegistration();panelHeading.focus();},'f-button secondary f-small f-back'));
+   }
+  }
   // Form-level listeners only: controls keep their single change listener each.
-  form.addEventListener('change',event=>{clearLocalised(event?.target);syncForm(CHOICE_NAMES.includes(event?.target?.name));});
-  form.addEventListener('input',event=>{clearLocalised(event?.target);syncForm();});
+  form.addEventListener('change',event=>{clearLocalised(event?.target);syncForm(CHOICE_NAMES.includes(event?.target?.name));touched();});
+  form.addEventListener('input',event=>{clearLocalised(event?.target);syncForm();touched();});
   form.addEventListener('invalid',onInvalid,true);
   form.addEventListener('submit',async event=>{
    // Stale localised messages are dropped first, so a value set without an event (profile → public official) is re-checked natively.
@@ -342,14 +372,14 @@
    const prev=me.registration,changed=()=>payload.publicOfficial!==prev.answers.publicOfficial||['firstName','lastName','institution','position'].some(k=>String(payload[k]??'').trim()!==String(prev.answers[k]??''))||Boolean(prev.answers.nationalId&&String(payload.nationalId??'').trim()!==prev.answers.nationalId);
    const ask=prev?.labStatus!=='accepted'?'':!payload.applyLab?'labWithdrawConfirm':changed()?'labReReview':'';if(ask&&!window.confirm(t(ask)))return;
    const unlock=lock();status(message,'saving');conflictBox.replaceChildren();saveState='saving';syncSelection();
-   try{const result=await api('/api/fiiu/registration',payload,'PUT');me.registration=result.registration;notice=emailNotice(result.confirmationEmail,result.registration.email);renderRegistration();registrationHost.querySelector('.f-saved')?.focus();}
+   try{const result=await api('/api/fiiu/registration',payload,'PUT');dropDraft();me.registration=result.registration;notice=emailNotice(result.confirmationEmail,result.registration.email);renderRegistration();registrationHost.querySelector('.f-saved')?.focus();}
    catch(error){status(message,error);saveState='failed';syncSelection();
     if(error.key==='accountChanged')accountChanged();
     else if(error.status===409)conflictBox.append(button('viewSaved',async()=>{
      if(busy)return;const release=lock();
      try{const latest=await currentRegistration(),saved=latest.registration&&savedSummary(latest.registration,{prefix:'f-itc-'});
       // The hero and programme follow the version kept for the next save; the form (and choiceInputs) stays as drafted.
-      const use=button('useLatest',()=>{if(busy)return;currentVersion=latest.registration?.version??0;currentId=latest.registration?.id??null;me.registration=latest.registration;me.attendance=latest.attendance;conflictBox.replaceChildren();status(message,latest.registration?'latestReplace':'latestCreate');saveState='';syncSelection();renderHero();renderProgramme();submit.focus();});
+      const use=button('useLatest',()=>{if(busy)return;currentVersion=latest.registration?.version??0;currentId=latest.registration?.id??null;me.registration=latest.registration;me.attendance=latest.attendance;if(dirty)keepDraft();conflictBox.replaceChildren();status(message,latest.registration?'latestReplace':'latestCreate');saveState='';syncSelection();renderHero();renderProgramme();submit.focus();});
       conflictBox.replaceChildren(...(saved?[saved]:[]),use);(saved||use).focus();
      }catch(err){if(err.key==='accountChanged')accountChanged();else status(message,err);}
      finally{release();}
