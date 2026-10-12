@@ -441,8 +441,10 @@
  // Back to this page (and a reload) builds it again from the network, after the browser's own scroll restore has run against an empty page and given up.
  // So the page keeps its place itself: the position is saved when the page is left and restored, instantly (the site scrolls smoothly), once it is drawn again.
  // The position is the last one scrolled to: by pagehide, locale.js has hidden a translated page again, and phone text autosizing can already have moved it.
+ // The browser's own restore is off only while such a page is rebuilt, so it never jumps about meanwhile. It is on again once the page is drawn: the history
+ // entries that links inside the page make (day chips, "Ver mi inscripción", "Última novedad", the form's steps) copy this setting, and Back from them is the browser's.
  const placeKey='fiiu.place:'+location.pathname;let placeKept=false,placeY=0;
- try{history.scrollRestoration='manual';}catch{/* The browser restores on its own then. */}
+ const browserRestore=on=>{try{history.scrollRestoration=on?'auto':'manual';}catch{/* The browser restores on its own then. */}};
  window.addEventListener?.('scroll',()=>{placeY=scrollY;},{passive:true});
  window.addEventListener?.('pagehide',()=>{if(placeKept)try{sessionStorage.setItem(placeKey,String(Math.round(placeY)));}catch{/* Without storage the next visit starts at the top. */}});
  function savedPlace(){
@@ -470,9 +472,11 @@
   if(news&&Array.isArray(news.content)){newsFeed?.update(news);showLatest(news.content);}
  }
  document.addEventListener?.('visibilitychange',()=>{if(document.visibilityState==='visible')lookAgain();});
+ // Someone who scrolls, taps or types after a link has scrolled the page early keeps their place when the registration redraws the page (see load).
+ let stirred=false;for(const type of ['wheel','touchstart','pointerdown','keydown'])window.addEventListener?.(type,()=>{stirred=true;},{passive:true});
  window.addEventListener?.('pageshow',event=>{if(event?.persisted)lookAgain();});
  async function load(){
-  status(loadStatus,'loading');root.replaceChildren();placeKept=false;
+  status(loadStatus,'loading');root.replaceChildren();placeKept=false;const place=savedPlace();if(place)browserRestore(false);
   // Four requests start together: the news page (with the event and settings), the materials page, the person's registration and the conversation pulse.
   // Only the news page holds up the page. The registration fills its panel when it answers; the pulse adds its links to the programme and the itinerary.
   const materials=api('/api/fiiu?kind=materials'),registration=api('/api/fiiu/registration').catch(unread);materials.catch(()=>{});pulse().then(showTalks);
@@ -489,20 +493,23 @@
    // #registration at once, so a reload after saving does not reopen the form. Someone with no registration yet starts at the top of the form, not past
    // their personal answers; a block already in the plan, the laboratory or a form that is not shown leaves only the scroll to the panel.
    // When the registration read failed, the block waits for the panel's Try again.
-   const hash=location.hash,place=savedPlace();pendingAdd=/^#add-([a-z0-9-]{1,60})$/.exec(hash)?.[1]||null;
+   const hash=location.hash;pendingAdd=/^#add-([a-z0-9-]{1,60})$/.exec(hash)?.[1]||null;
    if(pendingAdd)history.replaceState?.(null,'',location.pathname+location.search+'#registration');
-   // The programme and the feeds are already in place, so their hashes scroll now; the panel's wait for the registration, which changes the heights above it.
+   // The programme and the feeds are already in place, so their hashes scroll now; the panel's wait for the registration. Its answer redraws the hero, the programme
+   // and the panel, which moves everything under them, so an early hash scrolls again then, unless the person has moved meanwhile.
    const early=['#news','#materials','#programme'].includes(hash)||/^#day-\d{4}-\d{2}-\d{2}$/.test(hash);
-   if(early&&!place)document.querySelector(hash)?.scrollIntoView({block:'start'});
+   if(early&&!place){stirred=false;document.querySelector(hash)?.scrollIntoView({block:'start'});}
    me=await registration;
    if(me.isAdmin)(latestNode||layout).before(link('admin','fiiu-admin.html','f-button secondary f-admin-link'));
    renderRegistration();
    if(pendingAdd){if(!applyAdd())registrationHost.scrollIntoView({block:'start'});}
    else if(place)try{scrollTo({top:place,behavior:'instant'});}catch{/* No scrolling API: stay at the top. */}
+   else if(early){if(!stirred)document.querySelector(hash)?.scrollIntoView({block:'start'});}
    else if(hash==='#f-publicOfficial')jumpTo(officialInput);
    else if(hash==='#registration')registrationHost.scrollIntoView({block:'start'});
    placeKept=true;lastLook=Date.now();if(!heroTimer&&limaDate()<=festival.event.endsOn)heroTimer=setInterval(followHero,60000);
   }catch(error){status(loadStatus,error.key==='error'?Object.assign(Error(t('loadError')),{key:'loadError'}):error);root.append(button('retry',load),newTabNote());}
+  browserRestore(true);
  }
  load();
 })();

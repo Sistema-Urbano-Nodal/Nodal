@@ -705,7 +705,7 @@ test('the hero, programme and news appear from the public read while the registr
 test('Back to the festival page returns to the same place: the position is kept on pagehide and restored once the page is drawn',async()=>{
  const storage=tabStorage(),scrolls=[];
  const page=(type,{y=0,read}={})=>harness({registration:saved,read,context:{sessionStorage:storage,scrollY:y,scrollTo:options=>scrolls.push({...options}),performance:{getEntriesByType:kind=>kind==='navigation'?[{type}]:[]}}});
- const first=await page('navigate',{y:2080});assert.equal(first.ctx.history.scrollRestoration,'manual');assert.deepEqual(scrolls,[],'a new visit starts at the top');
+ const first=await page('navigate',{y:2080});assert.deepEqual(scrolls,[],'a new visit starts at the top');
  for(const listener of first.windowListeners.scroll)listener({});for(const listener of first.windowListeners.pagehide)listener({persisted:false});
  let answer;await page('back_forward',{read:()=>new Promise(resolve=>{answer=resolve;})});assert.deepEqual(scrolls,[],'it waits until the registration is drawn');
  answer(self(saved));await flush();assert.deepEqual(scrolls,[{top:2080,behavior:'instant'}],'instant: the page scrolls smoothly otherwise');
@@ -808,4 +808,45 @@ test('coming back to the tab picks up new conversations and news at most once a 
  await key(h.root,'edit').listeners.click();const form=h.form();typeInto(form,'city','Callao');
  questions=[...questions,['10000000-0000-4000-8000-000000000004','day3-am',1,'open']];clock.at+=61000;await back();
  assert.equal(h.form(),form);assert.equal(field(form,'city').value,'Callao');assert.equal(form.hidden,false);assert.equal(links(h.root.querySelector('.f-programme')).length,4);
+});
+
+// Records the ids of the nodes scrollIntoView lands on, and lets document.querySelector find a node by its id as a browser does.
+function watchScrolls(){
+ const seen=[],{scrollIntoView,querySelectorAll}=Node.prototype;
+ Node.prototype.scrollIntoView=function(){seen.push(this.id);};
+ Node.prototype.querySelectorAll=function(selector){return /^#[\w-]+$/.test(selector)?descendants(this).filter(node=>node.id===selector.slice(1)):querySelectorAll.call(this,selector);};
+ return{seen,restore(){Node.prototype.scrollIntoView=scrollIntoView;Node.prototype.querySelectorAll=querySelectorAll;}};
+}
+const at=hash=>({location:{hash,search:'',pathname:'/fiiu.html'}});
+
+test('a link to the news, the materials, the programme or a day lands there again once the registration redraws the page above it, unless the person has moved',async()=>{
+ const scrolls=watchScrolls();
+ try{
+  for(const hash of ['#news','#materials','#programme','#day-2026-10-23']){
+   let answer;scrolls.seen.length=0;await harness({read:()=>new Promise(resolve=>{answer=resolve;}),context:at(hash)});
+   assert.deepEqual(scrolls.seen,[hash.slice(1)],hash+': the programme and feeds are drawn, so the link scrolls at once');
+   answer(self(saved));await flush();assert.deepEqual(scrolls.seen,[hash.slice(1),hash.slice(1)],hash+' is at the top again after the registration redraw');
+  }
+  // A registration that answers at once still redraws the programme and panel, so the scroll follows that redraw too.
+  scrolls.seen.length=0;await harness({registration:saved,context:at('#programme')});assert.equal(scrolls.seen.at(-1),'programme');assert.equal(scrolls.seen.length,2);
+  // Someone who scrolled, tapped or typed meanwhile stays where they went.
+  for(const type of ['wheel','touchstart','pointerdown','keydown']){
+   let answer;scrolls.seen.length=0;const h=await harness({read:()=>new Promise(resolve=>{answer=resolve;}),context:at('#news')});
+   for(const listener of h.windowListeners[type]||[])listener({type});
+   answer(self(saved));await flush();assert.deepEqual(scrolls.seen,['news'],type);
+  }
+ }finally{scrolls.restore();}
+});
+
+test('Back after a link inside the page is the browser’s own restore: only a Back or reload being rebuilt turns it off, and only until the page is drawn',async()=>{
+ const storage=tabStorage(),scrolls=[];storage.setItem('fiiu.place:/fiiu.html','2080');
+ const page=(type,read)=>harness({registration:saved,read,context:{sessionStorage:storage,scrollTo:options=>scrolls.push({...options}),performance:{getEntriesByType:kind=>kind==='navigation'?[{type}]:[]}}});
+ const fresh=await page('navigate');assert.notEqual(fresh.ctx.history.scrollRestoration,'manual','a new visit leaves the browser in charge');
+ let answer;const back=await page('back_forward',()=>new Promise(resolve=>{answer=resolve;}));assert.equal(back.ctx.history.scrollRestoration,'manual','the browser does not jump about while the page is rebuilt');
+ answer(self(saved));await flush();assert.deepEqual(scrolls,[{top:2080,behavior:'instant'}]);
+ // Day chips, "Ver mi inscripción", "Última novedad" and the step links make history entries that copy this setting, so Back from them works again.
+ assert.equal(back.ctx.history.scrollRestoration,'auto');
+ const reload=await page('reload');assert.equal(reload.ctx.history.scrollRestoration,'auto');
+ const failed=await harness({publicRead:()=>({status:503,data:{error:'unavailable'}}),context:{sessionStorage:storage,scrollTo(){},performance:{getEntriesByType:()=>[{type:'reload'}]}}});
+ assert.ok(key(failed.root,'retry'));assert.equal(failed.ctx.history.scrollRestoration,'auto','a page that could not be drawn gives the restore back too');
 });
