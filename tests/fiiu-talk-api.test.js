@@ -455,6 +455,43 @@ test('the festival upload allowance refuses the 31st file',async t=>{
  assert.equal(over.status,413);assert.deepEqual(over.body,{error:'festival upload allowance reached',code:'upload_allowance'});
 });
 
+test('uploads that never reached a message stop holding the allowance once stale: ready after 30 minutes, pending after an hour',async t=>{
+ let now=Date.parse('2026-10-21T14:00:00.000Z');
+ const {db,ask,post,upload,talkStore,users}=await setup(t,{app:{talkClock:()=>now,talkLimits:{upload:100}}});
+ const q=await ask(),sent=(await upload()).body.file;
+ assert.equal((await post(q,'mira',{fileIds:[sent.id]})).status,201);
+ // Answers lost (the page uploaded again), drafts dropped or refused: ready rows no message will ever take.
+ const orphans=[];for(let i=0;i<28;i++){const r=await upload({name:`p${i}.jpg`});assert.equal(r.status,201);orphans.push(r.body.file.id);}
+ // An upload that died between its reservation and its bytes.
+ const died=randomUUID();
+ await talkStore.reserveFile({id:died,eventId:'fiiu-2026',userId:users.member.id,name:'d.jpg',mime:'image/jpeg',size:10,width:null,height:null,thumbSize:null,storagePath:`fiiu/${users.member.id}/${died}`,createdAt:new Date(now).toISOString()});
+ const theirs=(await upload({},'other')).body.file;
+ assert.equal((await upload()).body.code,'upload_allowance');
+ now+=30*60000;
+ assert.equal((await upload()).body.code,'upload_allowance','not before 30 minutes');
+ now+=1;
+ const fresh=await upload();assert.equal(fresh.status,201);
+ for(const id of orphans)assert.equal(await talkStore.findFile(id),null);
+ assert.equal(db.prepare(`SELECT count(*) AS n FROM fiiu_file_bytes WHERE file_id IN (${orphans.map(()=>'?').join(',')})`).get(...orphans).n,0,'their bytes went too');
+ assert.ok((await talkStore.findFile(sent.id)).messageId,'an attached file stays');
+ assert.equal((await talkStore.findFile(died)).status,'pending','a pending upload has an hour');
+ assert.equal((await talkStore.findFile(theirs.id)).status,'ready','another person\'s uploads are theirs to release');
+ now+=30*60000;
+ assert.equal((await upload()).status,201);assert.equal(await talkStore.findFile(died),null);
+ assert.equal((await talkStore.findFile(fresh.body.file.id)).status,'ready','a recent upload is kept for its draft');
+});
+
+test('releasing stale uploads never takes a file a send attached in the meantime',async t=>{
+ let now=Date.parse('2026-10-21T14:00:00.000Z'),racing=null;
+ // The send attaches the file between the release's read and its claim.
+ const {ask,post,upload,talkStore}=await setup(t,{app:{talkClock:()=>now},wrapTalk:store=>({...store,setFileStatus:async(...args)=>{if(racing&&args[0]===racing.file&&args[2]==='deleting'){const r=racing;racing=null;await r.send();}return store.setFileStatus(...args);}})});
+ const q=await ask(),file=(await upload()).body.file;
+ now+=31*60000;
+ let sent;racing={file:file.id,send:async()=>{sent=await post(q,'tarde',{fileIds:[file.id]});}};
+ assert.equal((await upload()).status,201);
+ assert.equal(sent.status,201);assert.ok((await talkStore.findFile(file.id)).messageId,'the attached file stayed');
+});
+
 test('the account export carries conversations, and account deletion erases files, likes and message text',async t=>{
  const {db,json,call,ask,post,upload,talkStore,users}=await setup(t);
  const q=await ask();

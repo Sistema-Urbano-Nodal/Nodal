@@ -165,6 +165,8 @@ test('files attach only when ready, unattached and the poster\'s own',async()=>{
  assert.deepEqual((await store.filesForMessages([m.id,m2.id])).map(f=>f.id),[mine.id]);
  assert.deepEqual((await store.filesByIds([pending.id,mine.id])).map(f=>f.id).sort(),[mine.id,pending.id].sort());
  assert.equal((await store.findFile(mine.id)).messageId,m.id);
+ assert.equal(await store.setFileStatus(mine.id,'ready','deleting',{unattached:true}),null,'an attached file is never claimed as unattached');
+ const loose=await file(ana);assert.equal((await store.setFileStatus(loose.id,'pending','deleting',{unattached:true})).status,'deleting');
  assert.equal(await store.removeFile(pending.id),1);assert.equal(await store.findFile(pending.id),null);
 });
 
@@ -316,6 +318,9 @@ test('Supabase likes ignore duplicates, unlikes return what they removed, and up
 test('Supabase attaches files only when ready and unattached, and maps the allowance and lock errors of the reservation RPC',async()=>{
  const pg=supabase(call=>call.method==='PATCH'?{body:[{id:F}]}:{});
  assert.equal(await pg.store.attachFiles([F],M,U),1);
+ await pg.store.setFileStatus(F,'ready','deleting',{unattached:true});
+ assert.deepEqual([pg.calls[1].method,pg.calls[1].query.id,pg.calls[1].query.status,pg.calls[1].query.message_id],['PATCH',`eq.${F}`,'eq.ready','is.null']);assert.deepEqual(pg.calls[1].body,{status:'deleting'});
+ await pg.store.setFileStatus(F,'ready','deleting');assert.equal(pg.calls[2].query.message_id,undefined);
  const patch=pg.calls[0];
  assert.equal(patch.path,'/rest/v1/fiiu_files');assert.equal(patch.query.message_id,'is.null');assert.equal(patch.query.status,'eq.ready');
  assert.equal(patch.query.id,`in.(${F})`);assert.equal(patch.query.user_id,`eq.${U}`);assert.deepEqual(patch.body,{message_id:M});assert.equal(patch.headers.Prefer,'return=representation');

@@ -10,6 +10,7 @@ import {TALK_LIMITS,talkActivity,normalizeQuestion,normalizeMessage,decodeTalkFi
    messages only when its question's revision moved. Everything else needs a festival registration or an organiser. */
 const PULSE_CACHE='public, max-age=0, s-maxage=2, stale-while-revalidate=4';
 const PULSE_MS=1000,MEMO_MS=60000,MEMO_MAX=5000,UPLOAD_GRACE_MS=10*60000,RETRY_MS=10*60000,CHANGES_MS=1500,CHANGES_MAX=200;
+const STALE_READY_MS=30*60000,STALE_PENDING_MS=60*60000;
 const CSV_HEADER=['question','block','talk','createdAtLima','author','email','organiser','text','files','likes','hidden','deleted'];
 // The chat pages translate refusals by code (see fiiu-talk-domain.js); the global handler would drop it, so it is sent here.
 const failCode=(message,status,code)=>{try{fail(message,status);}catch(err){throw Object.assign(err,{code});}};
@@ -177,6 +178,21 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
    catch(error){log('festival file cleanup failed:',file.id,errorText(error));}
   }
  }
+ /* Uploads that never reached a message (an answer lost, so the page uploaded again; a draft dropped, refused or lost
+    to a reload) would hold the person's festival allowance for good, and their bytes would stay in Storage until the
+    account goes. So the uploader's stale ones go before each new reservation: a ready, unattached file after 30
+    minutes (a draft kept open longer gets file_unavailable and uploads again), a pending one after an hour (an upload
+    that died mid-way; a live one ends within the function's time limit). The claim is a compare-and-set on the
+    unattached state, so a file a send attaches meanwhile is kept. A failure is logged; the upload goes on. */
+ async function releaseStale(userId){
+  const t=clock();
+  for(const file of await store.userFiles(userId)){
+   const age=t-Date.parse(file.createdAt);
+   if(!(file.status==='ready'&&!file.messageId&&age>STALE_READY_MS||file.status==='pending'&&age>STALE_PENDING_MS))continue;
+   try{const claimed=await store.setFileStatus(file.id,file.status,'deleting',{unattached:true});if(!claimed)continue;await store.deleteBytes(claimed);await store.removeFile(claimed.id);}
+   catch(error){log('festival upload release failed:',file.id,errorText(error));}
+  }
+ }
  // Another person's file is shown only while its message and question are.
  async function shownToPeers(file){
   if(!file.messageId)return false;
@@ -311,6 +327,7 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
    if(name==='upload'){
     await access(user);
     let input;try{input=decodeTalkFile(await uploadBody(req));}catch(err){if(err.status===413&&!err.code)Object.assign(err,{code:'file_size'});throw err;}
+    await releaseStale(user.id);
     const id=randomUUID();
     const file=await store.reserveFile({id,eventId:EVENT_ID,userId:user.id,name:input.name,mime:input.mime,size:input.size,width:input.width,height:input.height,thumbSize:input.thumb?.size??null,storagePath:`fiiu/${user.id}/${id}`,createdAt:now()});
     try{await store.putBytes(file,'full',input.bytes);if(input.thumb)await store.putBytes(file,'thumb',input.thumb.bytes);}

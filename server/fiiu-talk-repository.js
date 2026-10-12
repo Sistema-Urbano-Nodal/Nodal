@@ -175,9 +175,10 @@ function sqliteTalk(db){
    }catch(err){db.exec('ROLLBACK');conflict(err);}
    return byId(FT,record.id);
   },
-  async setFileStatus(id,fromStatus,toStatus){
+  // unattached: only while no message holds the file, so a release never takes one a send attached meanwhile.
+  async setFileStatus(id,fromStatus,toStatus,{unattached=false}={}){
    if(!FILE_STATUSES.includes(fromStatus)||!FILE_STATUSES.includes(toStatus))throw Error('invalid file status');
-   return from(FT,get('UPDATE fiiu_files SET status=? WHERE id=? AND status=? RETURNING *',toStatus,id,fromStatus));
+   return from(FT,get(`UPDATE fiiu_files SET status=? WHERE id=? AND status=?${unattached?' AND message_id IS NULL':''} RETURNING *`,toStatus,id,fromStatus));
   },
   async findFile(id){return byId(FT,id);},
   async filesByIds(ids){return among(ids,chunk=>all(`SELECT * FROM fiiu_files WHERE id IN (${marks(chunk)}) ORDER BY created_at,id`,...chunk)).map(r=>from(FT,r));},
@@ -316,9 +317,9 @@ function supabaseTalk(supa,fetchImpl){
    catch(err){if(err.code==='PFU01')allowance();if(['40P01','40001'].includes(err.code))failCode('upload changed; retry',409,'conflict');conflict(err);}
    if(!rows?.[0])unavailable();return from(FT,rows[0],true);
   },
-  async setFileStatus(id,fromStatus,toStatus){
+  async setFileStatus(id,fromStatus,toStatus,{unattached=false}={}){
    if(!FILE_STATUSES.includes(fromStatus)||!FILE_STATUSES.includes(toStatus))throw Error('invalid file status');
-   return from(FT,(await write(FT.name,{method:'PATCH',query:{id:`eq.${id}`,status:`eq.${fromStatus}`},body:{status:toStatus}}))[0],true);
+   return from(FT,(await write(FT.name,{method:'PATCH',query:{id:`eq.${id}`,status:`eq.${fromStatus}`,...(unattached?{message_id:'is.null'}:{})},body:{status:toStatus}}))[0],true);
   },
   async findFile(id){return one(FT,{id});},
   async filesByIds(ids){
