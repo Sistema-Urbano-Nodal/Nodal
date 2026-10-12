@@ -155,3 +155,47 @@ test('festival conversations are described in every language: their data row aft
     assert.ok(!table.includes(never), `${lang}: no promise the page cannot keep`);
   }
 });
+
+// The stylesheet's rules, with the media query each sits in ('' at the top level).
+function cssRules(css) {
+  const rules = [];
+  const walk = (text, media) => {
+    let i = 0;
+    while (i < text.length) {
+      const open = text.indexOf('{', i); if (open === -1) break;
+      const head = text.slice(i, open).trim();
+      if (head.startsWith('@media')) {
+        let depth = 1, j = open + 1;
+        for (; depth && j < text.length; j++) depth += text[j] === '{' ? 1 : text[j] === '}' ? -1 : 0;
+        walk(text.slice(open + 1, j - 1), head); i = j;
+      } else {
+        const close = text.indexOf('}', open);
+        rules.push({media, selectors: head.split(',').map(s => s.trim()), body: text.slice(open + 1, close)}); i = close + 1;
+      }
+    }
+  };
+  walk(css.replace(/\/\*[\s\S]*?\*\//g, ''), '');
+  return rules;
+}
+const declarations = (rules, selector, media) => rules.filter(rule => rule.selectors.includes(selector) && media(rule.media)).map(rule => rule.body).join(';');
+
+test('on phones the data table reflows at body size, and the policy links and buttons are full touch targets', () => {
+  const css = read('web/styles/privacy.css'), rules = cssRules(css);
+  const phone = media => /max-width:\s*600px/.test(media);
+  // Each row stacks: the category over its explanation, full width, instead of a 99px column of 13px text broken mid-word.
+  for (const element of ['table', 'tbody', 'tr', 'td']) assert.match(declarations(rules, element, phone), /display:\s*block/, element);
+  assert.match(declarations(rules, 'thead', phone), /position:\s*absolute/, 'the header row stays for screen readers only');
+  assert.doesNotMatch(declarations(rules, 'thead', phone), /display:\s*none/);
+  const cells = declarations(rules, 'td', phone) + ';' + declarations(rules, 'td:first-child', phone);
+  assert.doesNotMatch(cells, /font-size:\s*1[0-4]px|overflow-wrap:\s*anywhere/, 'no shrunken text or broken words');
+  assert.match(declarations(rules, 'td:first-child', phone), /width:\s*auto/);
+  // Phone-sized or touch: every target is at least 44px.
+  const touch = media => phone(media) || /pointer:\s*coarse/.test(media);
+  for (const selector of ['.policy-contents a', '.policy-languages button', '.policy-home', '.policy-footer a', '.policy-top']) {
+    assert.match(declarations(rules, selector, touch), /min-height:\s*44px/, selector);
+  }
+  assert.match(declarations(rules, '.policy-contents a', touch), /display:\s*(?:block|flex)/);
+  assert.match(declarations(rules, '.policy-languages button', touch), /min-width:\s*44px/);
+  assert.doesNotMatch(declarations(rules, '.policy-home', phone), /font-size:\s*1[0-2]px/);
+  assert.doesNotMatch(css, /border-left/, 'no left accent bars');
+});
