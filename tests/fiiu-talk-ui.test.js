@@ -1019,3 +1019,45 @@ test('the projector’s code invites joining an open question and reading a clos
  await opening.tickTimers();assert.equal(opening.root.querySelectorAll('svg').length,1,'the code appears once it opens');assert.ok(key(opening.root,'talkScanToJoin'));
  assert.equal(opening.root.querySelector('.f-talk-wall-url').textContent,'nodal.example/fiiu-talk.html?a=day1-am');
 });
+
+// Following the chat when its own rows and dock grow, and keeping what a page that redraws itself holds.
+// The reader scrolls to top: the page hears it as a browser would tell it.
+const scrollTo=(h,scroller,top)=>{scroller.scrollTop=top;return Promise.all((h.windowListeners.scroll||[]).map(listener=>listener({type:'scroll'})));};
+const follow=(h,extra)=>{
+ // The document is 3000 px tall on an 800 px screen; the conversation (its dock included) ends at 2700 plus whatever extra() has grown since.
+ const scroller={scrollHeight:3000,scrollTop:1900,clientHeight:800};h.ctx.document.scrollingElement=scroller;
+ h.root.querySelector('.f-talk').getBoundingClientRect=()=>({bottom:2700+extra()-scroller.scrollTop});return scroller;
+};
+
+test('a send that fails while the reader follows the chat keeps its row and Retry in view above the dock, and a reader higher up stays',async()=>{
+ const answer=later();
+ const h=await page({['POST '+MESSAGES]:()=>answer.promise});
+ // A failed row is 46 px taller than a sending one (its Retry), and the composer's status line adds 24 px to the dock.
+ const failed=()=>rows(h).some(node=>classes(node).includes('is-failed')),scroller=follow(h,()=>failed()?46+(composerStatus(h)?24:0):0);
+ composer(h).querySelector('textarea').value='Sin señal';submit(h);await flush();assert.equal(scroller.scrollTop,1900);
+ answer.resolve({status:503,data:{}});await flush();
+ assert.ok(failed());assert.equal(scroller.scrollTop,1970,'the conversation’s end, failed row and status line included, on the screen’s bottom');
+ const other=later(),up=await page({['POST '+MESSAGES]:()=>other.promise});
+ const away=follow(up,()=>rows(up).some(node=>classes(node).includes('is-failed'))?70:0);
+ composer(up).querySelector('textarea').value='Sin señal';submit(up);await flush();await scrollTo(up,away,1000);
+ other.resolve({status:503,data:{}});await flush();assert.equal(away.scrollTop,1000,'someone reading earlier messages is not moved');
+ // Someone who sends while reading earlier messages is taken to the end smoothly: a failure that arrives on the way still lands at the new end.
+ const third=later(),slow=await page({['POST '+MESSAGES]:()=>third.promise});
+ const glide={scrollHeight:3000,clientHeight:800,at:1900,target:null,get scrollTop(){return this.at;},set scrollTop(top){this.target=top;}};slow.ctx.document.scrollingElement=glide;
+ slow.root.querySelector('.f-talk').getBoundingClientRect=()=>({bottom:2700+(rows(slow).some(node=>classes(node).includes('is-failed'))?70:0)-glide.at});
+ const heard=()=>Promise.all(slow.windowListeners.scroll.map(listener=>listener({type:'scroll'})));await heard();glide.at=1000;await heard();
+ composer(slow).querySelector('textarea').value='Sin señal';submit(slow);await flush();assert.equal(glide.target,1900,'the send heads for the end');
+ third.resolve({status:503,data:{}});await flush();assert.equal(glide.target,1970,'still on its way there: the new end');
+});
+
+test('a dock that grows (a paused line, a status, a longer draft) keeps a reader at the end following, and moves nobody else',async()=>{
+ const observers=[];class ResizeObserver{constructor(callback){this.callback=callback;observers.push(this);}observe(){}disconnect(){}}
+ const h=await page({},{context:{ResizeObserver}});
+ const box=h.root.querySelector('.f-talk'),dock=box.querySelector('.f-talk-dock');box.style={setProperty(){}};
+ let extra=0;const scroller=follow(h,()=>extra),resize=height=>{extra+=height-dock.offsetHeight;dock.offsetHeight=height;observers[0].callback();};dock.offsetHeight=120;
+ resize(120);assert.equal(scroller.scrollTop,1900,'the first measure moves nothing');
+ resize(160);assert.equal(scroller.scrollTop,1940,'40 px more dock, 40 px further down');
+ resize(120);assert.equal(scroller.scrollTop,1940,'a shrinking dock moves nothing');
+ await scrollTo(h,scroller,1000);resize(200);assert.equal(scroller.scrollTop,1000,'a reader higher up stays');
+ await scrollTo(h,scroller,2300);resize(240);assert.equal(scroller.scrollTop,2300,'a reader on the footer, past the end, stays');
+});

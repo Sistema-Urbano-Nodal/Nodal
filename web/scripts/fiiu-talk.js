@@ -107,11 +107,18 @@
   return box?Math.max(0,Math.round(box.bottom+s.scrollTop-(window.innerHeight||s.clientHeight))):s.scrollHeight-s.clientHeight;
  }
  function nearBottom(){const s=document.scrollingElement;return !s||s.scrollTop>=end()-NEAR;}
+ // Whether the reader follows the end when the chat grows without a new message (a failed send's taller row, a taller dock): a move to the end says
+ // yes, and after that the reader's own scrolling decides. A smooth move still on its way down follows; scrolling up, away from the end, stops it.
+ let following=true,lastTop=0;
+ function track(){const s=document.scrollingElement;if(!s)return;const top=s.scrollTop;following=nearBottom()||(following&&top>=lastTop);lastTop=top;}
  // The first paint jumps; later moves follow the page's scroll-behavior, which fiiu-talk.css turns off for reduced motion. Older Safari rejects 'instant'.
  function toBottom(smooth){
-  const s=document.scrollingElement;if(!s)return;const top=parts?.box?.getBoundingClientRect?end():s.scrollHeight;
-  if(!smooth&&typeof window.scrollTo==='function'){try{window.scrollTo({top,behavior:'instant'});return;}catch{/* falls through */}}s.scrollTop=top;
+  const s=document.scrollingElement;if(!s)return;const top=parts?.box?.getBoundingClientRect?end():s.scrollHeight;following=true;
+  if(!smooth&&typeof window.scrollTo==='function'){try{window.scrollTo({top,behavior:'instant'});lastTop=s.scrollTop;return;}catch{/* falls through */}}s.scrollTop=top;lastTop=s.scrollTop;
  }
+ // The chat grew under a reader who follows it (a taller dock with a paused line, a status, a kept draft or a longer answer): the end moved down, and
+ // the reader goes with it, so the last message does not slide under the dock. Anyone reading higher up, or past the end on the footer, stays.
+ function keepEnd(){const s=document.scrollingElement;if(s&&parts&&following&&s.scrollTop<end())toBottom(false);}
  function updateEmpty(){if(parts)parts.empty.hidden=parts.log.children.length>0;}
  // apply() reports each row it adds; afterwards the page follows them, or raises the pill when the reader is elsewhere (always follows your own).
  // Other people's new rows are announced once per patch (one per poll), so a busy room is not read out row by row; likes and edits replace rows and
@@ -253,9 +260,13 @@
   closedNote.tabIndex=-1;draftText.id='f-talk-draft';draftText.readOnly=true;draftText.rows=2;draftLabel.htmlFor=draftText.id;draft.append(draftLabel,draftText);draft.hidden=true;closed.append(closedNote,next,draft);
   log.setAttribute('role','log');log.setAttribute('aria-live','off');log.setAttribute('aria-label',t('talkPage'));log.tabIndex=-1;dock.append(pill);box.append(head,earlier,log,empty,dock,live);
   root.replaceChildren(box,newTabNote());parts={box,head,earlier,log,empty,dock,pill,live,note,closed,closedNote,next,draft,draftText,more:null,dockState:''};
-  // The stylesheet keeps focused message controls clear of the sticky dock by its measured height, which grows with chips, a status and six lines.
+  // The stylesheet keeps focused message controls clear of the sticky dock by its measured height, which grows with chips, a status and six lines; a
+  // reader at the end follows its growth (the first measure only sets the height).
   dockObserver?.disconnect();dockObserver=null;
-  if(typeof ResizeObserver==='function'){dockObserver=new ResizeObserver(()=>box.style?.setProperty?.('--f-talk-dock-h',dock.offsetHeight+'px'));dockObserver.observe(dock);}
+  if(typeof ResizeObserver==='function'){
+   let last=null;
+   dockObserver=new ResizeObserver(()=>{const height=dock.offsetHeight;box.style?.setProperty?.('--f-talk-dock-h',height+'px');if(last!==null&&height>last)keepEnd();last=height;});dockObserver.observe(dock);
+  }
  }
  // A reload of the same question (a reset, or a status the pulse cannot carry) rebuilds the rows but keeps the header nodes, the composer and its draft.
  function show(data){
@@ -513,7 +524,9 @@
    /* The copy stored under this clientId can no longer be finished (it stopped before its files and the question closed, a moderator hid it, or
       the retry came too late): the next try is a new message, with its files uploaded again. */
    if(error?.code==='client_id_reused'){attempts.delete(attempt.clientId);attempt.clientId=uuid();attempts.set(attempt.clientId,attempt);for(const file of attempt.files)uploads.delete(fileKey(file));}
-   attempt.state='failed';const failed=pendingRow(attempt,true);row.replaceWith(failed);attempt.row=failed;say(problem(key==='talkOffline'?'talkOfflineSend':key));
+   // The failed row is taller than the sending one (its Retry) and the composer gains a status line: a reader still following (the send took them to
+   // the end) stays at the end, so the message and its Retry are above the dock instead of under it.
+   attempt.state='failed';const failed=pendingRow(attempt,true);row.replaceWith(failed);attempt.row=failed;say(problem(key==='talkOffline'?'talkOfflineSend':key));keepEnd();
    if(error?.code==='question_closed')closedByServer();
   }
  }
@@ -716,6 +729,6 @@
  window.addEventListener('online',()=>{nextAt=0;return tick();});
  document.addEventListener('fullscreenchange',()=>{fitWall();const full=wall?.full;if(!full)return;const name=document.fullscreenElement?'exitFullScreen':'talkFullscreen';full.dataset.fiiuText=name;full.textContent=t(name);});
  window.addEventListener('resize',()=>fitWall());
- window.addEventListener('scroll',()=>{if(parts&&!parts.pill.hidden&&nearBottom())parts.pill.hidden=true;},{passive:true});
+ window.addEventListener('scroll',()=>{track();if(parts&&!parts.pill.hidden&&nearBottom())parts.pill.hidden=true;},{passive:true});
  start();
 })();
