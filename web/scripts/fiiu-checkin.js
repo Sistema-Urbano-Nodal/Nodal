@@ -18,7 +18,8 @@
  // The catalogue gives titles, times and venues, the badges and whether registration is open; the check-in never waits for it to start.
  let festival=null,shown=null;const catalogue=api('/api/fiiu?kind=news').then(data=>{festival=data;},()=>{});
  const find=id=>festival&&id?findActivity(festival.event,id)||null:null,space=()=>document.createTextNode(' ');
- // A result waits briefly for the programme to name its block, never for a stalled one; without it the block goes unnamed and the hours come from the answer.
+ // A result (and a reload) waits briefly for the programme, never for a stalled one: a confirmation then names its block from the answer, takes the
+ // hours from it, and gains its badge when the programme lands; a reload without the programme cannot judge the block, so it asks for the code.
  const within=(promise,ms)=>typeof setTimeout==='function'?Promise.race([promise,new Promise(resolve=>setTimeout(resolve,ms))]):promise,shortly=ms=>within(catalogue,ms);
  const setTitle=()=>{document.title='NODAL · '+t('checkinPage');};
  function block(titleKey,tone,...nodes){
@@ -52,15 +53,21 @@
   const closesAt=typeof data.closesAt==='number'?data.closesAt:Date.parse(data.closesAt);if(!Number.isFinite(closesAt))return null;
   const line=el('p','f-checkin-window');line.append(windowNode({...(activity||{date:'',time:''}),checkin:{closesAt:new Date(closesAt).toISOString()}},'closed'));return line;
  }
+ // The block the server says it recorded, for when the programme has not arrived (or failed): enough to name it and its day.
+ const answered=(activity,id)=>activity&&activity.id===id&&typeof activity.title==='string'&&typeof activity.date==='string'?activity:null;
  function success(data,body){
-  const id=data.activityId||body.activityId,activity=find(id),attendance=Array.isArray(data.attendance)?data.attendance:[],record=attendance.find(row=>row.activityId===id),at=Date.parse(data.checkedInAt||record?.createdAt);
+  const id=data.activityId||body.activityId,activity=find(id)||answered(data.activity,id),attendance=Array.isArray(data.attendance)?data.attendance:[],record=attendance.find(row=>row.activityId===id),at=Date.parse(data.checkedInAt||record?.createdAt);
   const time=Number.isFinite(at)?el('time','',limaClock(at)):null;if(time)time.dateTime=new Date(at).toISOString();
   // A check-in on another day than the block (any day before it) names that day: "Checked in on Wed 7 Oct at 10:00", since "Registrada a las" only fits a time.
   const day=time&&activity&&limaDate(new Date(at))!==activity.date?limaDate(new Date(at)):'',when=time&&(day?dd(dateNode(day,'span','short','f-when-day'),space(),tr('span','atClock'),space(),time):dd(time));
   let hours=festival?hoursLine(attendance,festival.event):null;
   if(!festival&&Number.isSafeInteger(data.hours?.hours)){hours=el('p','f-hours');hours.append(countLabel(data.hours.hours,'hoursConfirmed','hoursConfirmed'));}
   const earned=festival?el('div','f-badges'):null;if(earned)badges(earned,attendance,festival.event,{heading:'h2'});
-  return block(data.result==='checked_in'?'checkedInTitle':'alreadyCheckedIn','ok',about(activity),when&&facts([day?'checkedInOn':'checkedInAt',when]),hours,earned,actions(link('viewRegistration','fiiu.html#registration','f-button')));
+  const result=block(data.result==='checked_in'?'checkedInTitle':'alreadyCheckedIn','ok',about(activity),when&&facts([day?'checkedInOn':'checkedInAt',when]),hours,earned,actions(link('viewRegistration','fiiu.html#registration','f-button')));
+  // A programme that lands later completes the confirmation (the badge, and the block if the answer had none). Only this block is redrawn, as it
+  // has no form to lose, and only while it is still shown; focus stays on its title.
+  if(!festival)catalogue.then(()=>{if(!festival||shown!==result.box)return;const focused=document.activeElement===result.title,next=success(data,body);if(focused)next.title.focus();});
+  return result;
  }
  function failure(error,body,account){
   // A typed code names no block, so the block comes from the server's answer when it has one.
@@ -112,7 +119,7 @@
  async function revisit(id){
   status(message,'loading');let data=null,problem=null;
   try{data=await api('/api/fiiu/registration');}catch(err){problem=err;}
-  await catalogue;status(message,'');
+  await shortly(1500);status(message,'');
   const activity=find(id);
   // Signed out (a sign-in link was followed, then Back or a reload): sign in first, coming back to this block.
   if(problem?.status===401)return signIn(activity,'/fiiu-checkin.html?a='+encodeURIComponent(id),'signInScanAgainHint');

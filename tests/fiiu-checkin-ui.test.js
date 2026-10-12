@@ -278,7 +278,31 @@ test('the code form never waits for the programme, with no link or an incomplete
 test('a stalled programme holds the check-in result only briefly: the result shows with the hours from the answer',async()=>{
  const waits=[];const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?new Promise(()=>{}):checkedIn,{page:'fiiu-checkin',search:`?a=day1-am&c=${CODE}`,context:{Date:frozen('2026-10-21T09:12:00-05:00'),setTimeout:(fn,ms)=>{waits.push(ms);fn();}}});
  assert.deepEqual(waits,[1500]);assert.equal(title(h).dataset.fiiuText,'checkedInTitle');assert.equal(title(h).focused,true);
- assert.match(content(result(h).querySelector('.f-hours')),/\b4\b/);assert.equal(result(h).querySelector('.f-checkin-activity'),null,'without the programme the block is not named');
+ assert.match(content(result(h).querySelector('.f-hours')),/\b4\b/);assert.equal(result(h).querySelector('.f-checkin-activity'),null,'an older answer without the block leaves it unnamed');
+});
+
+test('on slow Wi-Fi the confirmation names its block and day from the answer, and fills in the badge once the programme arrives',async()=>{
+ const block={id:'day1-am',title:'El poder de lo local',date:'2026-10-21',time:'09:00–13:00',venue:'Auditorio MALI, Cercado de Lima'};
+ // Checked in on 12 October for the 21 October block; the programme is still on its way.
+ const early=[{activityId:'day1-am',createdAt:'2026-10-12T17:44:00.000Z',method:'qr'}],answer={status:200,data:{result:'already_checked_in',activityId:'day1-am',checkedInAt:'2026-10-12T17:44:00.000Z',method:'qr',attendance:early,hours:{minutes:240,hours:4,untimed:[]},activity:block}};
+ let arrive;const programme=new Promise(resolve=>{arrive=resolve;});
+ const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?programme:answer,{page:'fiiu-checkin',search:`?a=day1-am&c=${CODE}`,context:{Date:frozen('2026-10-12T12:44:00-05:00'),setTimeout:(fn)=>fn()}});
+ let box=result(h);assert.equal(title(h).dataset.fiiuText,'alreadyCheckedIn');assert.equal(title(h).focused,true);
+ assert.match(content(box.querySelector('.f-checkin-activity')),/El poder de lo local/);assert.match(content(box.querySelector('.f-checkin-activity')),/Auditorio MALI/);
+ const when=box.querySelector('.f-checkin-facts');assert.ok(key(when,'checkedInOn'),'the scan day differs from the block day, so it is named');assert.equal(when.querySelector('.f-when-day').dataset.fiiuDate,'2026-10-12');
+ assert.match(content(box.querySelector('.f-hours')),/\b4\b/);assert.equal(box.querySelector('.f-badges'),null);
+ // The programme lands: the same confirmation, now with its badge, replaces the first one.
+ arrive(publicData());await flush();box=result(h);
+ assert.equal(title(h).dataset.fiiuText,'alreadyCheckedIn');assert.match(content(box.querySelector('.f-checkin-activity')),/El poder de lo local/);assert.match(content(box.querySelector('.f-badges')),/✓ El poder de lo local/);
+ // A refusal is never redrawn when the programme lands, so a code being typed into its form is kept.
+ let late;const slow=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?new Promise(resolve=>{late=resolve;}):{status:410,data:{error:'check-in code expired',code:'expired'}},{page:'fiiu-checkin',search:`?a=day1-am&c=${CODE}`,context:{setTimeout:(fn)=>fn()}});
+ const input=field(result(slow),'checkinCode');input.value='K7M';late(publicData());await flush();assert.equal(field(result(slow),'checkinCode'),input);assert.equal(input.value,'K7M');
+});
+
+test('a reload waits for the programme only briefly once the registration has answered',async()=>{
+ const waits=[];const reply={registration:{id:'r1',version:1,answers:{activities:['day1-am']}},attendance,hours:{minutes:240,hours:4,untimed:[]},user:{id:'u1',email:'member@example.test'}};
+ const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?new Promise(()=>{}):request.path==='/api/fiiu/registration'?reply:assert.fail(),{page:'fiiu-checkin',search:'?a=day1-am',context:{Date:frozen('2026-10-21T09:30:00-05:00'),setTimeout:(fn,ms)=>{waits.push(ms);fn();}}});
+ assert.deepEqual(waits,[1500]);assert.equal(title(h).dataset.fiiuText,'alreadyCheckedIn');assert.equal(h.message.dataset.fiiuText,'');assert.match(content(result(h).querySelector('.f-hours')),/\b4\b/);
 });
 
 test('without the programme, a refusal for a typed code still links to the block the server names',async()=>{

@@ -501,7 +501,8 @@ test('attendees check themselves in with the session QR once, only until check-i
  clock.set('2026-10-21T14:10:00Z');const issued=code();clock.set('2026-10-21T14:14:00Z');
  response=await scan(call,{activityId:'day1-am',code:issued});assert.equal(response.status,201);
  const first=await response.json();
- assert.deepEqual(first,{result:'checked_in',activityId:'day1-am',checkedInAt:'2026-10-21T14:14:00.000Z',method:'qr',attendance:[{activityId:'day1-am',createdAt:'2026-10-21T14:14:00.000Z',method:'qr'}],hours:{minutes:240,hours:4,untimed:[]}});
+ // The answer names the block it recorded, so a typed code (or a programme that has not arrived) still shows which one.
+ assert.deepEqual(first,{result:'checked_in',activityId:'day1-am',checkedInAt:'2026-10-21T14:14:00.000Z',method:'qr',attendance:[{activityId:'day1-am',createdAt:'2026-10-21T14:14:00.000Z',method:'qr'}],hours:{minutes:240,hours:4,untimed:[]},activity:{id:'day1-am',title:'El poder de lo local',date:'2026-10-21',time:'09:00–13:00',venue:'Auditorio MALI, Cercado de Lima'}});
  assert.deepEqual({...db.prepare('SELECT confirmed_by,method FROM fiiu_attendance').get()},{confirmed_by:users.member.id,method:'qr'});
  clock.set('2026-10-21T14:20:00Z');response=await scan(call,{activityId:'day1-am',code:code()});assert.equal(response.status,200);
  const second=await response.json();assert.equal(second.result,'already_checked_in');assert.equal(second.checkedInAt,first.checkedInAt);
@@ -521,7 +522,7 @@ test('a member and an organiser checking in days before the session are recorded
  const {clock,codes,options}=festivalClock('2026-10-07T15:00:00Z');// 10:00 in Lima on 7 October, two weeks before the blocks
  const {call,save,db,users}=await setup(t,undefined,options);
  const answered=[],send=async(actor,body)=>{const response=await scan(call,body,actor),json=await response.json();answered.push(json);return [response.status,json];};
- const code=id=>codes.current(id).code,recorded=at=>({result:'checked_in',activityId:'day1-am',checkedInAt:at,method:'qr',attendance:[{activityId:'day1-am',createdAt:at,method:'qr'}],hours:{minutes:240,hours:4,untimed:[]}});
+ const code=id=>codes.current(id).code,recorded=at=>({result:'checked_in',activityId:'day1-am',checkedInAt:at,method:'qr',attendance:[{activityId:'day1-am',createdAt:at,method:'qr'}],hours:{minutes:240,hours:4,untimed:[]},activity:{id:'day1-am',title:'El poder de lo local',date:'2026-10-21',time:'09:00–13:00',venue:'Auditorio MALI, Cercado de Lima'}});
  // An organiser goes through the real check-in: with no registration yet, the real refusal.
  let [status,body]=await send('admin',{activityId:'day1-am',code:code('day1-am')});assert.deepEqual([status,body.code],[404,'not_registered']);
  await save();await save({...answers,activities:['day1-am','day1-pm']},'admin');await save({...answers,activities:['day1-am','day1-pm']},'other');
@@ -546,7 +547,7 @@ test('a repeat scan keeps the first confirmation after check-in closes, the bloc
  const {call,save,db}=await setup(t,undefined,options);
  const {registration}=await(await save()).json();
  let response=await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code});assert.equal(response.status,201);
- const first=await response.json(),kept={result:'already_checked_in',activityId:'day1-am',checkedInAt:'2026-10-21T14:10:00.000Z',method:'qr',attendance:first.attendance,hours:{minutes:240,hours:4,untimed:[]}};
+ const first=await response.json(),kept={result:'already_checked_in',activityId:'day1-am',checkedInAt:'2026-10-21T14:10:00.000Z',method:'qr',attendance:first.attendance,hours:{minutes:240,hours:4,untimed:[]},activity:{id:'day1-am',title:'El poder de lo local',date:'2026-10-21',time:'09:00–13:00',venue:'Auditorio MALI, Cercado de Lima'}};
  // 13:35 in Lima, after the 13:30 close: a fresh code from the screen, which keeps drawing one, still confirms the stored check-in.
  clock.set('2026-10-21T18:35:00Z');response=await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code});
  assert.equal(response.status,200);assert.deepEqual(await response.json(),kept);

@@ -129,7 +129,9 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    if(input.activityId===undefined||input.activityId===null||input.activityId===''){activity=codes.find(input.code,CHECKIN_ACTIVITIES)?.activity;if(!activity)return expired();}
    else{activity=CHECKIN_ACTIVITIES.find(a=>a.id===input.activityId);if(!activity)return reply(400,{error:'invalid activity',code:'invalid_activity'});if(codes.verify(activity.id,input.code)===null)return expired();}
    const span=checkinWindow(activity),activityId=activity.id;
-   const confirmed=(created,attendance)=>{const row=attendance.find(a=>a.activityId===activityId);return reply(created?201:200,{result:created?'checked_in':'already_checked_in',activityId,checkedInAt:row?.createdAt??null,method:row?.method??null,attendance:attendance.map(attendanceView),hours:attendanceHours(attendance)});};
+   // The confirmation names the block it recorded (static programme data), so the page can say which one even before, or without, the programme.
+   const block={id:activityId,title:activity.title,date:activity.date,time:activity.time??'',venue:activity.venue??''};
+   const confirmed=(created,attendance)=>{const row=attendance.find(a=>a.activityId===activityId);return reply(created?201:200,{result:created?'checked_in':'already_checked_in',activityId,checkedInAt:row?.createdAt??null,method:row?.method??null,attendance:attendance.map(attendanceView),hours:attendanceHours(attendance),activity:block});};
    const registrationOpen=async()=>(await config()).registrationOpen;
    const notRegistered=async()=>reply(404,{error:'registration unavailable',code:'not_registered',activityId,registration:activity.registration,registrationOpen:await registrationOpen()});
    const registration=await one('registrations',{eventId:EVENT_ID,userId:user.id});
