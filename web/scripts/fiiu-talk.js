@@ -347,9 +347,10 @@
  // The chat says it is paused in its dock; the projector, which has none, at the top of its page.
  function paused(key){const node=parts?.note||message;if(key)status(node,key);else if(PAUSED.includes(node.dataset.fiiuText))status(node,'');}
  // The other questions on the block follow the pulse: once their ids or statuses change (one opened, closed or hidden), the list is read again, once.
- // The pulse is compared with the pulse it last acted on, so a CDN copy a few seconds older than the list cannot make every poll read it.
+ // The pulse is compared with the pulse it last acted on, so a CDN copy a few seconds older than the list cannot make every poll read it. A list that
+ // failed to load with the question is unknown, and every poll asks for it until one arrives.
  async function followBlock(list){
-  if(!parts||parts.listSig===undefined)return;const id=question.id,sig=blockSig(list.filter(item=>item[1]===question.activityId&&item[0]!==id).map(item=>[item[0],item[3]]));
+  if(!parts)return;const id=question.id,sig=blockSig(list.filter(item=>item[1]===question.activityId&&item[0]!==id).map(item=>[item[0],item[3]]));
   if(sig===(parts.pulseSig??parts.listSig)){parts.pulseSig=sig;return;}
   const data=await api('/api/fiiu/questions?activityId='+encodeURIComponent(question.activityId));
   if(question?.id===id&&parts){parts.pulseSig=sig;showSiblings(data.questions);}

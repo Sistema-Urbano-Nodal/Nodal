@@ -1061,3 +1061,13 @@ test('a dock that grows (a paused line, a status, a longer draft) keeps a reader
  await scrollTo(h,scroller,1000);resize(200);assert.equal(scroller.scrollTop,1000,'a reader higher up stays');
  await scrollTo(h,scroller,2300);resize(240);assert.equal(scroller.scrollTop,2300,'a reader on the footer, past the end, stays');
 });
+
+test('a block list that failed to load with the question is read on the next poll, then only when the block changes',async()=>{
+ let fail=true;const other=question({id:Q2,body:'¿Y mañana?',createdAt:'2026-10-21T15:00:00.000Z'});
+ const h=await page({'GET /api/fiiu/pulse':{questions:[[Q,'day1-am',3,'open'],[Q2,'day1-am',1,'open']]},['GET '+LIST]:()=>fail?offline():{activity:ACTIVITY,questions:[question(),other]}});
+ assert.equal(h.root.querySelector('.f-talk-more'),null);assert.equal(sent(h,'GET',LIST).length,1);
+ await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,2,'asked again while the list is unknown');assert.equal(h.root.querySelector('.f-talk-more'),null);
+ fail=false;await h.tickTimers();
+ assert.deepEqual(links(h.root.querySelector('.f-talk-more')).map(a=>a.href),['fiiu-talk.html?q='+Q2,'fiiu-talk.html?a=day1-am']);
+ await h.tickTimers();await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,3,'known now: the same pulse reads nothing more');
+});
