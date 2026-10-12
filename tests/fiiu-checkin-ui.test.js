@@ -288,3 +288,46 @@ test('a reload says what a scan would: closed by the server’s clock, not regis
  // A registered person on an open block in their plan is the one asked to scan again.
  const ready=await reload(lookup());assert.equal(title(ready).dataset.fiiuText,'scanAgainTitle');assert.ok(key(result(ready),'scanAgainHint'));
 });
+
+test('a “not registered” refusal names the signed-in account and offers another one, which signs out and comes back to the same block and code',async()=>{
+ const refusal=(registrationOpen=true)=>({status:404,data:{code:'not_registered',activityId:'day1-am',registrationOpen}});
+ const lookup={registration:null,attendance:[],hours:{minutes:0,hours:0,untimed:[]},user:{id:'u2',email:'carla.someone.with.a.long.address@example.test'},serverTime:'2026-10-21T14:12:00.000Z'};
+ const scanned=(answer=refusal(),account=lookup,options={})=>page(request=>request.path==='/api/fiiu/checkin'?answer:request.path==='/api/fiiu/registration'?account:request.path==='/api/auth/logout'?{ok:true}:assert.fail(request.path),options);
+ const h=await scanned(),box=result(h);
+ assert.equal(title(h).dataset.fiiuText,'notRegistered');assert.equal(title(h).focused,true);
+ const fact=box.querySelector('.f-checkin-facts');assert.ok(key(fact,'checkinAccount'));assert.match(content(fact),/carla\.someone\.with\.a\.long\.address@example\.test/,'the whole address, on the person’s own phone');
+ assert.ok(key(box,'notRegisteredHint'));assert.ok(key(box,'otherAccountHint'));
+ const register=key(box,'register'),other=key(box,'useOtherAccount');
+ assert.equal(register.href,'fiiu.html#add-day1-am');assert.equal(register.className,'f-button','registering stays the main action');assert.equal(other.className,'f-button secondary');
+ languages(h,lang=>{
+  assert.match(content(fact).trim(),{en:/^Signed in as\s+carla/,es:/^Sesión iniciada como\s+carla/,pt:/^Conectado como\s+carla/}[lang]);
+  assert.equal(content(other).trim(),{en:'Use another account',es:'Usar otra cuenta',pt:'Usar outra conta'}[lang]);
+  assert.match(content(key(box,'otherAccountHint')),{en:/another email/,es:/otro correo/,pt:/outro e-mail/}[lang]);
+ });
+ await other.listeners.click();
+ assert.deepEqual(h.requests.filter(request=>request.path==='/api/auth/logout').map(request=>request.method),['POST'],'signs out first');
+ assert.deepEqual(h.assigned,['/login.html?next='+encodeURIComponent(`/fiiu-checkin.html?a=day1-am&c=${CODE}`)],'sign-in comes back with the block and the code');
+ // Once registration has closed the desk is the way, and another account still is.
+ const closed=await scanned(refusal(false));assert.ok(key(result(closed),'askDesk'));assert.equal(key(result(closed),'register'),undefined);assert.ok(key(result(closed),'useOtherAccount'));
+ // Without the account (the lookup failed) the refusal still offers another one.
+ const unknown=await scanned(refusal(),{status:503,data:{error:'unavailable'}});
+ assert.equal(title(unknown).dataset.fiiuText,'notRegistered');assert.equal(result(unknown).querySelector('.f-checkin-facts'),null);assert.ok(key(result(unknown),'useOtherAccount'));
+ // A failed sign-out says so and leaves the button usable; nothing navigates.
+ const stuck=await page(request=>request.path==='/api/fiiu/checkin'?refusal():request.path==='/api/fiiu/registration'?lookup:{status:503,data:{error:'unavailable'}});
+ const again=key(result(stuck),'useOtherAccount');await again.listeners.click();
+ assert.deepEqual(stuck.assigned,[]);assert.equal(again.disabled,false);assert.equal(stuck.message.dataset.fiiuText,'error');
+ // Someone with a registration is on the right account: a block outside the plan names no account.
+ const plan=await scanned({status:403,data:{code:'not_in_plan',activityId:'day1-am',registrationOpen:true}});
+ assert.equal(key(result(plan),'useOtherAccount'),undefined);assert.equal(plan.requests.filter(request=>request.path==='/api/fiiu/registration').length,0,'and asks nothing more');
+ // A reload uses the lookup it already made, and comes back to the block.
+ const reload=await page(request=>request.path==='/api/fiiu/registration'?lookup:request.path==='/api/auth/logout'?{ok:true}:assert.fail(request.path),{search:'?a=day1-am'});
+ assert.equal(title(reload).dataset.fiiuText,'notRegistered');assert.match(content(result(reload).querySelector('.f-checkin-facts')),/carla\.someone/);
+ assert.equal(reload.requests.filter(request=>request.path==='/api/fiiu/registration').length,1);
+ await key(result(reload),'useOtherAccount').listeners.click();assert.deepEqual(reload.assigned,['/login.html?next='+encodeURIComponent('/fiiu-checkin.html?a=day1-am')]);
+});
+
+test('the account lookup behind a refusal holds the result only briefly',async()=>{
+ const waits=[];const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?publicData():request.path==='/api/fiiu/registration'?new Promise(()=>{}):{status:404,data:{code:'not_registered',activityId:'day1-am',registrationOpen:true}},{page:'fiiu-checkin',search:`?a=day1-am&c=${CODE}`,context:{Date:frozen('2026-10-21T09:12:00-05:00'),setTimeout:(fn,ms)=>{waits.push(ms);fn();}}});
+ assert.ok(waits.length&&waits.every(ms=>ms<=1500),String(waits));assert.equal(title(h).dataset.fiiuText,'notRegistered');assert.equal(title(h).focused,true);
+ assert.equal(result(h).querySelector('.f-checkin-facts'),null);assert.ok(key(result(h),'useOtherAccount'));
+});

@@ -4,7 +4,13 @@
  // The check-in is sent at once and c then leaves the address bar, so a reload or a shared screenshot of the page cannot reuse it;
  // a reload shows the person's confirmation for that block instead (revisit).
  // Every outcome is one ruled block: a title that takes focus, the block it concerns, and the one next step.
- const {t,el,tr,button,link,source,field,api,status,dateNode,limaDate,badges,findActivity,countLabel,hoursLine,limaClock,windowNode,newTabNote,checkinCloses}=window.Fiiu;
+ const Fiiu=window.Fiiu,{t,el,tr,button,link,source,field,api,status,dateNode,limaDate,badges,findActivity,countLabel,hoursLine,limaClock,windowNode,newTabNote,checkinCloses}=Fiiu;
+ // Page-only strings join the shared dictionary, so t(), tr() and the language switch in fiiu-ui.js handle them like the rest.
+ Object.assign(Fiiu.rows,{
+  checkinAccount:['Signed in as','Sesión iniciada como','Conectado como'],
+  otherAccountHint:['Registered with another email? Sign in with that account.','¿Te inscribiste con otro correo? Inicia sesión con esa cuenta.','Você se inscreveu com outro e-mail? Entre com essa conta.'],
+  useOtherAccount:['Use another account','Usar otra cuenta','Usar outra conta'],
+ });
  const root=document.getElementById('fiiuCheckinRoot'),message=document.getElementById('fiiuStatus');
  const params=new URLSearchParams(location.search),activityId=params.get('a')||'',code=params.get('c')||'';
  const ID=/^[a-z0-9-]{1,60}$/,CODE=/^[A-Za-z0-9_-]{6,64}$/,SHORT=/^[A-Z0-9]{6}$/;
@@ -12,7 +18,7 @@
  let festival=null;const catalogue=api('/api/fiiu?kind=news').then(data=>{festival=data;},()=>{});
  const find=id=>festival&&id?findActivity(festival.event,id)||null:null,space=()=>document.createTextNode(' ');
  // A result waits briefly for the programme to name its block, never for a stalled one; without it the block goes unnamed and the hours come from the answer.
- const shortly=ms=>typeof setTimeout==='function'?Promise.race([catalogue,new Promise(resolve=>setTimeout(resolve,ms))]):catalogue;
+ const within=(promise,ms)=>typeof setTimeout==='function'?Promise.race([promise,new Promise(resolve=>setTimeout(resolve,ms))]):promise,shortly=ms=>within(catalogue,ms);
  const setTitle=()=>{document.title='NODAL · '+t('checkinPage');};
  function block(titleKey,tone,...nodes){
   const box=el('section','f-checkin'+(tone?' is-'+tone:'')),title=tr('h1',titleKey,'f-checkin-title');title.id='f-checkin-title';title.tabIndex=-1;
@@ -55,7 +61,7 @@
   const earned=festival?el('div','f-badges'):null;if(earned)badges(earned,attendance,festival.event,{heading:'h2'});
   return block(data.result==='checked_in'?'checkedInTitle':'alreadyCheckedIn','ok',about(activity),when&&facts([day?'checkedInOn':'checkedInAt',when]),hours,earned,actions(link('viewRegistration','fiiu.html#registration','f-button')));
  }
- function failure(error,body){
+ function failure(error,body,account){
   // A typed code names no block, so the block comes from the server's answer when it has one.
   const activity=find(body.activityId||error.activityId),open=typeof error.registrationOpen==='boolean'?error.registrationOpen:festival?.config?.registrationOpen===true,retry=()=>actions(button('retry',()=>run(body)));
   // The registration opens with this block ticked (fiiu.html #add-); the id comes from the answer when the programme has not arrived.
@@ -67,7 +73,7 @@
    return signIn(activity,'/fiiu-checkin.html?a='+encodeURIComponent(body.activityId)+'&c='+encodeURIComponent(body.code),'signInCheckinHint');
   }
   const lab=(activity?.registration??error?.registration)==='application';
-  if(error.status===404)return unregistered(activity,{open,lab,addHref});
+  if(error.status===404)return unregistered(activity,{open,lab,addHref,account,next:returnTo(body)});
   if(error.code==='lab_not_accepted'||error.code==='not_in_plan')return outsidePlan(activity,{open,lab:lab||error.code==='lab_not_accepted',addHref});
   if(error.code==='outside_window')return ended(activity,error);
   if(error.status===410)return block('codeExpired','warn',about(activity),hintOf('expiredHint'),codeForm());
@@ -78,15 +84,30 @@
  }
  // The refusals a scan gets from the server, and a reload works out from the registration lookup, read the same either way.
  // The laboratory is not a block anyone can add: only an accepted application checks in, so no refusal for it links to the registration.
- const unregistered=(activity,{open,lab,addHref})=>block('notRegistered','warn',about(activity),hintOf(lab?'labNotAcceptedHint':open?'notRegisteredHint':'askDesk'),open&&!lab&&actions(link('register',addHref,'f-button')));
+ // Someone without a registration may be signed in to another account than the one they registered with (a work and a personal email): the refusal
+ // names this account and offers another, so nobody registers twice and splits their hours. account is '' when the lookup did not answer in time.
+ const unregistered=(activity,{open,lab,addHref,account,next})=>block('notRegistered','warn',about(activity),account&&facts(['checkinAccount',dd(el('span','',account))]),
+  hintOf(lab?'labNotAcceptedHint':open?'notRegisteredHint':'askDesk'),hintOf('otherAccountHint'),actions(open&&!lab&&link('register',addHref,'f-button'),otherAccount(next)));
+ // Another account means signing out first; sign-in then comes back to next (the same block, and the code while it lasts: 5 minutes, then the code form).
+ function otherAccount(next){
+  const control=button('useOtherAccount',async()=>{
+   if(control.disabled)return;control.disabled=true;
+   try{await api('/api/auth/logout',{},'POST');location.assign('/login.html?next='+encodeURIComponent(next));}catch(error){control.disabled=false;status(message,error);}
+  },'f-button secondary');
+  return control;
+ }
+ // Where a sign-in comes back to: the same code, with the block when the link named one.
+ const returnTo=body=>'/fiiu-checkin.html?'+(body.activityId?'a='+encodeURIComponent(body.activityId)+'&':'')+'c='+encodeURIComponent(body.code);
  const outsidePlan=(activity,{open,lab,addHref})=>lab?block('labNotAccepted','warn',about(activity),hintOf('labNotAcceptedHint')):block('notInPlan','warn',about(activity),hintOf(open?'notInPlanHint':'askDesk'),open&&actions(link('addToRegistration',addHref,'f-button')));
  const ended=(activity,data)=>block('checkinEndedTitle','warn',about(activity),closedLine(activity,data),hintOf('askDesk'));
  function reasonOf(error){const reason=el('p','f-checkin-hint');reason.dataset.fiiuText=!error?.key||error.key==='error'?'checkinError':error.key;reason.textContent=t(reason.dataset.fiiuText);return reason;}
  const signIn=(activity,next,hint)=>block('signInToCheckIn','warn',about(activity),hintOf(hint),actions(link('signin','login.html?next='+encodeURIComponent(next),'f-button')));
  async function run(body){
-  const pending=block('checking','',about(find(body.activityId)));pending.box.setAttribute('aria-busy','true');let data,error;
+  const pending=block('checking','',about(find(body.activityId)));pending.box.setAttribute('aria-busy','true');let data,error,account='';
   try{data=await api('/api/fiiu/checkin',body);}catch(err){error=err;}
-  await shortly(1500);(data?success(data,body):failure(error,body)).title.focus();
+  // A "not registered" refusal names the signed-in account; like the programme, that lookup holds the result only briefly.
+  const who=error?.status===404?api('/api/fiiu/registration').then(reply=>{account=reply.user.email;},()=>{}):null;
+  await Promise.all([shortly(1500),who&&within(who,1500)]);(data?success(data,body):failure(error,body,account)).title.focus();
  }
  // After a check-in the address keeps only a, so a reload (or a phone restoring the tab) lands here without a code, as does a new account back from
  // its confirmation email. A block already in the person's attendance shows its confirmation again; signed out, the page asks for sign-in first;
@@ -109,7 +130,7 @@
    const now=Date.parse(data.serverTime),closesAt=checkinCloses(activity),registration=data.registration;
    const open=festival.config?.registrationOpen===true,lab=activity.registration==='application',addHref='fiiu.html#add-'+encodeURIComponent(id);
    if(Number.isFinite(now)&&now>closesAt)return ended(activity,{closesAt});
-   if(!registration)return unregistered(activity,{open,lab,addHref});
+   if(!registration)return unregistered(activity,{open,lab,addHref,account:data.user.email,next:'/fiiu-checkin.html?a='+encodeURIComponent(id)});
    // The server's rule (canAttend): a conference block must be in the plan, the laboratory needs an accepted application.
    if(activity.registration==='general'?!registration.answers.activities.includes(id):lab&&registration.labStatus!=='accepted')return outsidePlan(activity,{open,lab,addHref});
   }
