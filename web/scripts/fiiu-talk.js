@@ -305,11 +305,20 @@
   const inside=holds(root);halt();const box=el('section','f-locked f-talk-locked'),row=el('div','f-actions'),heading=tr('h1',title);heading.tabIndex=-1;row.append(...actions);box.append(heading,...(hint?[tr('p',hint)]:[]),row);
   root.replaceChildren(box,newTabNote());status(message,'');setTitle();if(inside)heading.focus();
  }
+ // A page that redraws itself (a question that opened by itself, a block's list that changed) gives focus that was on the old page to the new one, which
+ // reads the change out: the same link if it is still listed; in a chat, the composer, else the closed note, else the conversation; else the heading.
+ // Not the chat's heading: its header is redrawn when the other questions arrive.
+ async function redraw(act){
+  const active=document.activeElement,inside=holds(root),href=inside?active.getAttribute?.('href'):null;await act();if(!inside||holds(root))return;
+  const same=href?[...root.querySelectorAll('a')].find(a=>a.getAttribute?.('href')===href):null;if(same)return same.focus();
+  if(parts){const target=parts.dockState==='composer'?composer.textarea:parts.dockState==='closed'?parts.closedNote:parts.log;return target.focus(target===parts.log?{preventScroll:true}:undefined);}
+  const heading=root.querySelector('h1');if(heading){heading.tabIndex=-1;heading.focus();}
+ }
  // A question hidden from this viewer (not opened yet, or hidden since) opens by itself once the pulse lists it, with the composer and its draft:
  // people who scanned the projector early are not stranded.
  function unavailable(){
   block('talkUnavailable','',activity?link('talkBackToBlock','fiiu-talk.html?a='+encodeURIComponent(activity.id),'f-button secondary'):link('viewProgramme','fiiu.html#programme','f-button secondary'));
-  const q=new URLSearchParams(location.search).get('q')||'';if(UUID.test(q))watch(list=>list.some(item=>item[0]===q),()=>start());
+  const q=new URLSearchParams(location.search).get('q')||'';if(UUID.test(q))watch(list=>list.some(item=>item[0]===q),()=>redraw(start));
  }
  // An outage is reported as one, never as "signed out" (the fiiu.js rule).
  function access(error){
@@ -691,7 +700,7 @@
  const sorted=list=>[...list].sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1)||String(b.createdAt).localeCompare(String(a.createdAt)));
  // A block's list follows the pulse too: a question opened, closed or hidden reads it again (quietly, keeping the list on a failure), and a block left
  // with one question opens it, as a first load does. That is the address the projector shows people to type.
- function watchBlock(id,last){watch(list=>{const now=blockSig(list.filter(item=>item[1]===id).map(item=>[item[0],item[3]]));if(now===last)return false;last=now;return true;},()=>openBlock(id,last));}
+ function watchBlock(id,last){watch(list=>{const now=blockSig(list.filter(item=>item[1]===id).map(item=>[item[0],item[3]]));if(now===last)return false;last=now;return true;},()=>redraw(()=>openBlock(id,last)));}
  async function openBlock(id,seen){
   unwatch();const refresh=seen!==undefined;if(!refresh)status(message,'loading');let data;
   try{data=await api('/api/fiiu/questions?activityId='+encodeURIComponent(id));}catch(error){return refresh?watchBlock(id,null):access(error);}

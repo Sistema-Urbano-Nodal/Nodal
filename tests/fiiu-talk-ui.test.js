@@ -1071,3 +1071,25 @@ test('a block list that failed to load with the question is read on the next pol
  assert.deepEqual(links(h.root.querySelector('.f-talk-more')).map(a=>a.href),['fiiu-talk.html?q='+Q2,'fiiu-talk.html?a=day1-am']);
  await h.tickTimers();await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,3,'known now: the same pulse reads nothing more');
 });
+
+test('a page that opens or redraws itself keeps focus that was on it: the composer or closed note of a question that opened, the same link in a block’s list, else the heading',async()=>{
+ let shown=false,pulse=[];
+ const h=await page({['GET /api/fiiu/questions/'+Q]:()=>shown?thread():{status:404,data:{error:'not found',code:'question_unavailable'}},'GET /api/fiiu/pulse':()=>({questions:pulse})});
+ focusInside(h,key(h.root,'talkUnavailable'));shown=true;pulse=[[Q,'day1-am',3,'open']];await h.tickTimers();await flush();
+ assert.equal(composer(h).querySelector('textarea').focused,true,'the question that opened takes focus to its composer');
+ shown=false;pulse=[];const reader=await page({['GET /api/fiiu/questions/'+Q]:()=>shown?thread({question:{status:'closed'},me:{canPost:false}}):{status:404,data:{}},'GET /api/fiiu/pulse':()=>({questions:pulse})});
+ focusInside(reader,key(reader.root,'talkUnavailable'));shown=true;pulse=[[Q,'day1-am',3,'closed']];await reader.tickTimers();await flush();
+ assert.equal(key(reader.root.querySelector('.f-talk-dock'),'talkClosed').focused,true,'a closed one, to the note that says so');
+ // Nobody focused on the page: nothing is moved.
+ shown=false;pulse=[];const away=await page({['GET /api/fiiu/questions/'+Q]:()=>shown?thread():{status:404,data:{}},'GET /api/fiiu/pulse':()=>({questions:pulse})});
+ shown=true;pulse=[[Q,'day1-am',3,'open']];await away.tickTimers();await flush();assert.notEqual(composer(away).querySelector('textarea').focused,true);
+ // A block's list redrawn by the pulse keeps focus on the same question, or gives it to the heading when that question has gone.
+ const Q3='dddddddd-dddd-4ddd-8ddd-dddddddddddd';let list=[question(),question({id:Q3,status:'closed',body:'¿Primera?',createdAt:'2026-10-21T13:00:00.000Z'})];
+ pulse=[[Q,'day1-am',3,'open'],[Q3,'day1-am',2,'closed']];
+ const block=await page({'GET /api/fiiu/pulse':()=>({questions:pulse}),['GET '+LIST]:()=>({activity:ACTIVITY,questions:list})},{search:'?a=day1-am'});
+ focusInside(block,links(block.root).find(a=>a.href==='fiiu-talk.html?q='+Q3));
+ pulse=[...pulse,[Q2,'day1-am',1,'open']];list=[...list,question({id:Q2,body:'¿Otra?',createdAt:'2026-10-21T15:00:00.000Z'})];await block.tickTimers();await flush();
+ const same=links(block.root).find(a=>a.href==='fiiu-talk.html?q='+Q3);assert.equal(same.focused,true,'the same question, in the new list');
+ focusInside(block,same);pulse=pulse.filter(item=>item[0]!==Q3);list=list.filter(q=>q.id!==Q3);await block.tickTimers();await flush();
+ assert.equal(block.root.querySelector('h1').focused,true,'its question gone, the heading');
+});
