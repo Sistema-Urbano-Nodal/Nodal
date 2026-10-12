@@ -193,11 +193,41 @@ test('signed out, a reload or Back after the code left the address asks for sign
  assert.equal(title(down).dataset.fiiuText,'alreadyCheckedIn');assert.equal(title(down).focused,true);
 });
 
-test('a typed code sent signed out returns to the code form after sign-in and says a new code will be needed',async()=>{
+test('a typed code sent signed out is kept through sign-in, which comes back and sends it, then drops it from the address',async()=>{
+ // Codes are accepted for 5 minutes, so the code typed before sign-in usually still works after it; an expired one gets the code form.
  const h=await page(()=>({status:401,data:{error:'sign in required'}}),{search:''});
- const form=result(h).querySelector('form');field(form,'checkinCode').value='K7M4PX';form.listeners.submit({preventDefault(){}});await flush();
- assert.equal(title(h).dataset.fiiuText,'signInToCheckIn');assert.ok(key(result(h),'signInScanAgainHint'));assert.equal(key(result(h),'signInCheckinHint'),undefined);
- assert.equal(key(result(h),'signin').href,'login.html?next='+encodeURIComponent('/fiiu-checkin.html'));
+ const form=result(h).querySelector('form');field(form,'checkinCode').value='k7m-4px';form.listeners.submit({preventDefault(){}});await flush();
+ assert.equal(title(h).dataset.fiiuText,'signInToCheckIn');assert.ok(key(result(h),'signInCheckinHint'));assert.equal(key(result(h),'signInScanAgainHint'),undefined);
+ assert.equal(key(result(h),'signin').href,'login.html?next='+encodeURIComponent('/fiiu-checkin.html?c=K7M4PX'));
+ // Back from sign-in, the lone code is sent at once and leaves the address bar, like a scanned one.
+ for(const sent of ['K7M4PX','k7m-4px']){
+  const back=await page(()=>checkedIn,{search:'?c='+encodeURIComponent(sent)});
+  assert.deepEqual(posts(back).map(request=>request.body),[{code:'K7M4PX'}]);assert.equal(title(back).dataset.fiiuText,'checkedInTitle');
+  assert.deepEqual(back.replaced,['/fiiu-checkin.html']);
+ }
+ const expired=await page(()=>({status:410,data:{error:'check-in code expired',code:'expired'}}),{search:'?c=K7M4PX'});
+ assert.equal(title(expired).dataset.fiiuText,'codeExpired');assert.ok(field(result(expired),'checkinCode'));
+ // Anything else in c alone is still an incomplete link, and nothing is sent.
+ const broken=await page(()=>assert.fail('nothing is sent'),{search:'?c=K7M4'});assert.equal(title(broken).dataset.fiiuText,'invalidLink');assert.equal(posts(broken).length,0);
+});
+
+test('signed out, the bare code page says sign-in comes first before anything is typed, and keeps the form',async()=>{
+ const guest=await page(request=>request.path==='/api/fiiu/registration'?{status:401,data:{error:'sign in required'}}:assert.fail('nothing is sent before a code is typed'),{search:''});
+ const box=result(guest),form=box.querySelector('form');
+ assert.equal(title(guest).dataset.fiiuText,'codeEntry');assert.ok(key(box,'signInBeforeCodeHint'));
+ assert.equal(key(box,'signin').href,'login.html?next='+encodeURIComponent('/fiiu-checkin.html'));
+ assert.ok(box.children.indexOf(key(box,'signInBeforeCodeHint').parent)<box.children.indexOf(form),'above the code form');assert.ok(field(form,'checkinCode'));
+ languages(guest,lang=>assert.match(content(key(box,'signInBeforeCodeHint')),{en:/^Sign in first/,es:/^Primero inicia sesión/,pt:/^Primeiro entre/}[lang]));
+ // Signed in, or when the lookup fails, the page is just the code form.
+ for(const reply of [{registration:null,attendance:[],hours:{minutes:0,hours:0,untimed:[]},user:{id:'u1',email:'member@example.test'}},{status:503,data:{error:'unavailable'}}]){
+  const h=await page(request=>request.path==='/api/fiiu/registration'?reply:assert.fail(),{search:''});
+  assert.equal(key(result(h),'signInBeforeCodeHint'),undefined);assert.equal(key(result(h),'signin'),undefined);assert.ok(field(result(h),'checkinCode'));
+ }
+ // A lookup that answers after the code was sent never adds to the result.
+ let answer;const late=await page(request=>request.path==='/api/fiiu/registration'?new Promise(resolve=>{answer=resolve;}):checkedIn,{search:''});
+ const entry=result(late).querySelector('form');field(entry,'checkinCode').value='K7M4PX';entry.listeners.submit({preventDefault(){}});await flush();
+ answer({status:401,data:{error:'sign in required'}});await flush();
+ assert.equal(title(late).dataset.fiiuText,'checkedInTitle');assert.equal(key(result(late),'signInBeforeCodeHint'),undefined);
 });
 
 test('reloading the page after a check-in shows the confirmation again instead of an incomplete link',async()=>{
@@ -239,7 +269,8 @@ test('a lookup held back by a rate limit on reload keeps its wait-a-minute hint'
 });
 
 test('the code form never waits for the programme, with no link or an incomplete one',async()=>{
- const stalled=search=>createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?new Promise(()=>{}):assert.fail('nothing is sent before a code is typed'),{page:'fiiu-checkin',search});
+ // Only the session lookup behind the sign-in note goes out (and is not waited for); no check-in is sent before a code is typed.
+ const stalled=search=>createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'||request.path==='/api/fiiu/registration'?new Promise(()=>{}):assert.fail('nothing is sent before a code is typed'),{page:'fiiu-checkin',search});
  const entry=await stalled('');assert.equal(title(entry).dataset.fiiuText,'codeEntry');assert.ok(field(result(entry),'checkinCode'));assert.equal(entry.message.dataset.fiiuText,'');
  const broken=await stalled('?c=x');assert.equal(title(broken).dataset.fiiuText,'invalidLink');assert.ok(field(result(broken),'checkinCode'));
 });

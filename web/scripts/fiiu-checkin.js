@@ -10,19 +10,20 @@
   checkinAccount:['Signed in as','Sesión iniciada como','Conectado como'],
   otherAccountHint:['Registered with another email? Sign in with that account.','¿Te inscribiste con otro correo? Inicia sesión con esa cuenta.','Você se inscreveu com outro e-mail? Entre com essa conta.'],
   useOtherAccount:['Use another account','Usar otra cuenta','Usar outra conta'],
+  signInBeforeCodeHint:['Sign in first, with the account you registered with. Then type the code.','Primero inicia sesión con la cuenta con la que te inscribiste. Luego escribe el código.','Primeiro entre com a conta com que você se inscreveu. Depois digite o código.'],
  });
  const root=document.getElementById('fiiuCheckinRoot'),message=document.getElementById('fiiuStatus');
  const params=new URLSearchParams(location.search),activityId=params.get('a')||'',code=params.get('c')||'';
- const ID=/^[a-z0-9-]{1,60}$/,CODE=/^[A-Za-z0-9_-]{6,64}$/,SHORT=/^[A-Z0-9]{6}$/;
+ const ID=/^[a-z0-9-]{1,60}$/,CODE=/^[A-Za-z0-9_-]{6,64}$/,SHORT=/^[A-Z0-9]{6}$/,typedCode=value=>String(value).toUpperCase().replace(/[\s-]/g,'');
  // The catalogue gives titles, times and venues, the badges and whether registration is open; the check-in never waits for it to start.
- let festival=null;const catalogue=api('/api/fiiu?kind=news').then(data=>{festival=data;},()=>{});
+ let festival=null,shown=null;const catalogue=api('/api/fiiu?kind=news').then(data=>{festival=data;},()=>{});
  const find=id=>festival&&id?findActivity(festival.event,id)||null:null,space=()=>document.createTextNode(' ');
  // A result waits briefly for the programme to name its block, never for a stalled one; without it the block goes unnamed and the hours come from the answer.
  const within=(promise,ms)=>typeof setTimeout==='function'?Promise.race([promise,new Promise(resolve=>setTimeout(resolve,ms))]):promise,shortly=ms=>within(catalogue,ms);
  const setTitle=()=>{document.title='NODAL · '+t('checkinPage');};
  function block(titleKey,tone,...nodes){
   const box=el('section','f-checkin'+(tone?' is-'+tone:'')),title=tr('h1',titleKey,'f-checkin-title');title.id='f-checkin-title';title.tabIndex=-1;
-  box.setAttribute('aria-labelledby',title.id);box.append(tr('p','checkinPage','f-checkin-kicker'),title,...nodes.filter(Boolean));root.replaceChildren(box,newTabNote());return {box,title};
+  box.setAttribute('aria-labelledby',title.id);box.append(tr('p','checkinPage','f-checkin-kicker'),title,...nodes.filter(Boolean));root.replaceChildren(box,newTabNote());shown=box;return {box,title};
  }
  function about(activity){
   if(!activity)return null;const box=el('div','f-checkin-activity'),when=el('p','f-checkin-when');
@@ -38,7 +39,7 @@
   entry.input.autocomplete='off';entry.input.spellcheck=false;entry.input.setAttribute('autocapitalize','characters');entry.input.setAttribute('aria-invalid','false');problem.id='f-code-problem';problem.setAttribute('role','status');
   form.append(entry.wrap,submit,problem);form.addEventListener('input',()=>{entry.input.setAttribute('aria-invalid','false');status(problem,'');});
   form.addEventListener('submit',event=>{
-   event.preventDefault();const value=String(entry.input.value).toUpperCase().replace(/[\s-]/g,'');
+   event.preventDefault();const value=typedCode(entry.input.value);
    if(!SHORT.test(value)){entry.input.setAttribute('aria-invalid','true');entry.input.setAttribute('aria-describedby',problem.id);status(problem,Object.assign(Error(t('checkinCodeInvalid')),{key:'checkinCodeInvalid'}));entry.input.focus();return;}
    run({code:value});
   });
@@ -66,12 +67,8 @@
   const activity=find(body.activityId||error.activityId),open=typeof error.registrationOpen==='boolean'?error.registrationOpen:festival?.config?.registrationOpen===true,retry=()=>actions(button('retry',()=>run(body)));
   // The registration opens with this block ticked (fiiu.html #add-); the id comes from the answer when the programme has not arrived.
   const id=activity?.id||body.activityId||error.activityId,addHref=id?'fiiu.html#add-'+encodeURIComponent(id):'fiiu.html#registration';
-  if(error.status===401){
-   // Sign-in returns here with the same a and c; if the code expired meanwhile, the page says so and offers the screen code.
-   // A typed code names no block and will have changed by then, so sign-in returns to the code form and says a new code is needed.
-   if(!body.activityId)return signIn(activity,'/fiiu-checkin.html','signInScanAgainHint');
-   return signIn(activity,'/fiiu-checkin.html?a='+encodeURIComponent(body.activityId)+'&c='+encodeURIComponent(body.code),'signInCheckinHint');
-  }
+  // Sign-in returns here with the same code, scanned or typed (codes last 5 minutes); if it expired meanwhile, the page says so and offers the code form.
+  if(error.status===401)return signIn(activity,returnTo(body),'signInCheckinHint');
   const lab=(activity?.registration??error?.registration)==='application';
   if(error.status===404)return unregistered(activity,{open,lab,addHref,account,next:returnTo(body)});
   if(error.code==='lab_not_accepted'||error.code==='not_in_plan')return outsidePlan(activity,{open,lab:lab||error.code==='lab_not_accepted',addHref});
@@ -139,7 +136,17 @@
  }
  setTitle();window.nodalI18n?.onChange(setTitle);status(message,'');
  if(activityId||code){
-  if(ID.test(activityId)&&CODE.test(code))run({activityId,code});else if(ID.test(activityId)&&!code)revisit(activityId);else block('invalidLink','warn',hintOf('invalidLinkHint'),codeForm());
+  // A lone c is a typed code back from sign-in; it is sent, then leaves the address bar like a scanned one.
+  if(ID.test(activityId)&&CODE.test(code))run({activityId,code});else if(!activityId&&SHORT.test(typedCode(code)))run({code:typedCode(code)});
+  else if(ID.test(activityId)&&!code)revisit(activityId);else block('invalidLink','warn',hintOf('invalidLinkHint'),codeForm());
   if(code)history.replaceState?.(null,'',location.pathname+(activityId?'?a='+encodeURIComponent(activityId):''));
- }else block('codeEntry','',hintOf('codeEntryHint'),codeForm());
+ }else{
+  // A typed code needs an account, so a signed-out visitor is told before typing one. The lookup never holds the form back, and the note joins
+  // the block only while it is still on screen; a code sent signed out anyway still comes back through sign-in.
+  const form=codeForm(),entry=block('codeEntry','',hintOf('codeEntryHint'),form);
+  api('/api/fiiu/registration').catch(error=>{
+   if(error.status!==401||shown!==entry.box)return;
+   const note=el('div','f-checkin-signin');note.append(hintOf('signInBeforeCodeHint'),actions(link('signin','login.html?next='+encodeURIComponent('/fiiu-checkin.html'),'f-button secondary')));form.before(note);
+  });
+ }
 })();
