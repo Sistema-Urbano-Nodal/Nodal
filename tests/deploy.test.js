@@ -634,10 +634,17 @@ test('festival organiser and check-in pages cross every serving and build bounda
     assert.ok(list(buildSource, 'SERVER_PAGES').includes(`'${page}'`), `${page}: build-static.js SERVER_PAGES`);
     assert.ok(!list(buildSource, 'STATIC_PAGES').includes(`'${page}'`),
       `${page} must never be copied to public, where Vercel filesystem routing would bypass server authorization`);
-    const route = vercel.headers.find((r) => new RegExp(`^${r.source}$`).test(`/${page}`));
-    assert.ok(route?.headers.some((h) => h.key === 'Cache-Control' && h.value === 'no-store'), `${page}: no-store`);
-    assert.ok(route?.headers.some((h) => h.key === 'X-Robots-Tag' && /noindex/.test(h.value)), `${page}: noindex`);
+    // Every matching rule applies, a later one overriding an earlier one's key.
+    const headers = Object.fromEntries(vercel.headers.filter((r) => new RegExp(`^${r.source}$`).test(`/${page}`)).flatMap((r) => r.headers.map(({ key, value }) => [key, value])));
+    // Back from a conversation may restore it from the back/forward cache (server.js BACK_CACHEABLE_PAGES); the others are never stored.
+    assert.equal(headers['Cache-Control'], page === 'fiiu-talk.html' ? 'private, no-cache' : 'no-store', page);
+    assert.match(headers['X-Robots-Tag'] || '', /noindex/, `${page}: noindex`);
+    assert.equal(headers['Cross-Origin-Resource-Policy'], 'same-origin', page);
+    assert.equal(headers['X-Content-Type-Options'], 'nosniff', page);
   }
+  assert.match(serverSource, /const BACK_CACHEABLE_PAGES = new Set\(\['\/fiiu\.html', '\/fiiu-talk\.html'\]\)/);
+  assert.ok(!vercel.headers.some((r) => new RegExp(`^${r.source}$`).test('/fiiu.html') && r.headers.some((h) => h.key === 'Cache-Control')),
+    'fiiu.html keeps the server\'s Cache-Control');
   // Signed-out visitors of organiser pages are sent to sign-in; members never reach organiser HTML.
   for (const page of ['/fiiu-admin.html', '/fiiu-qr.html']) {
     assert.ok(list(serverSource, 'PRIVATE_PAGES').includes(`'${page}'`), `${page}: PRIVATE_PAGES`);
