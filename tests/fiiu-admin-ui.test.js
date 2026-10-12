@@ -1372,7 +1372,7 @@ test('on touch screens the attendance rows, the other-activities disclosure, fil
  assert.match(coarse,/\.f-attendance-row \.f-check\{min-height:44px;margin:0;padding:10px 0;font-size:1rem\}/,'padding rather than centring, so a two-line title keeps its box by the first line');
  assert.match(coarse,/\.f-attendance-row \.f-check input\{width:24px;height:24px;margin-top:0\}/);
  assert.match(coarse,/\.f-attendance-row>:is\(\.f-pill,\.f-inline-status,\.f-attendance-method\)\{margin-left:34px\}/,'the notes under a row stay in line with its title');
- assert.match(coarse,/\.f-page \.f-other>summary\{min-height:44px;padding:12px 0\}/);
+ assert.match(coarse,/\.f-page \.f-other>summary\{min-height:44px;padding:12px 0;font-size:1rem\}/,'the same text size as the rows it opens');
  assert.match(coarse,/\.f-page\[data-page="fiiu-admin"\] :is\(\.f-filter,\.f-admin-nav a,\.f-lab-review,\.f-button\.f-small\)\{min-height:44px\}/);
  assert.match(coarse,/\.f-admin-nav\{padding:4px 0\}/,'the stuck nav stays 53px tall, so the scroll padding under it still fits');
 });
