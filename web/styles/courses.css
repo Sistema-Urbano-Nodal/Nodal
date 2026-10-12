@@ -31,6 +31,8 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-status{min-height:0;white-space:pre-wrap;margin:0;color:#64725f;font-size:13px}
 .pilot-status:not(:empty){margin:12px 0}
 .pilot-status.is-error{color:#9d2e25}
+/* A save brings the page's status line into view (courses.js); it keeps some room above it. */
+.pilot-main>.pilot-status{scroll-margin-top:16px}
 .pilot-hero{max-width:880px;margin:8px 0 46px}
 .pilot-hero h1{font-size:clamp(30px,3.4vw,44px);line-height:1.2;font-weight:550;letter-spacing:-1.5px;margin:12px 0 18px}
 .pilot-hero p{font-size:15px;color:var(--muted);line-height:1.75}
@@ -92,12 +94,13 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-form input[type="file"]{font-size:11px}
 .pilot-form .pilot-button{justify-self:start}
 .pilot-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-.pilot-composer{margin:20px 0 8px;border-top:1px solid #bdcdb5;border-bottom:1px solid #bdcdb5;padding:14px 0}
-.pilot-composer>summary{font-size:12px;font-weight:650;color:#3d5c38;list-style:none;display:flex;gap:10px;align-items:center}
+/* Only the summary opens a <details>, so the composer's breathing room is the summary's own height, not padding around it. */
+.pilot-composer{margin:20px 0 8px;border-top:1px solid #bdcdb5;border-bottom:1px solid #bdcdb5;padding:0}
+.pilot-composer>summary{min-height:48px;font-size:12px;font-weight:650;color:#3d5c38;list-style:none;display:flex;gap:10px;align-items:center}
 .pilot-composer>summary:before{content:'+';font-size:20px;font-weight:400;line-height:1}
 .pilot-composer[open]>summary:before{content:'−'}
 .pilot-composer>summary::-webkit-details-marker{display:none}
-.pilot-composer>.pilot-form{padding-top:22px}
+.pilot-composer>.pilot-form{padding:22px 0 14px}
 .pilot-composer-extras{font-size:12px}
 .pilot-composer-extras>summary{color:#64725f;margin-bottom:10px}
 .pilot-composer-extras label{margin:14px 0}
@@ -110,7 +113,7 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-post ul{padding-left:18px;margin:8px 0}
 .pilot-post .pilot-button{margin:8px 18px 0 0;padding:0;border:0;background:none;font-size:11px;font-weight:600;text-decoration:underline!important;text-underline-offset:4px}
 .pilot-post.reply{margin-left:24px;border-left:2px solid #e0e8db;padding-left:20px}
-.pilot-post.reply>a{font-size:11px;color:#65715e}
+.pilot-post.reply>a,.pilot-reply-earlier{font-size:12px;color:#65715e}
 .pilot-reply-context{display:flex;gap:12px;align-items:center;border-left:2px solid #6c8f5f;padding:8px 12px;font-size:12px;background:#f7f9f5}
 
 /* One inline question sits beside the activity that prompted it. */
@@ -133,9 +136,13 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-feedback-comment label{display:block;margin-top:10px}
 .pilot-feedback-comment label>span{display:none}
 .pilot-feedback textarea{width:100%;min-height:72px;padding:9px;border:1px solid #c8d3c2;border-radius:3px;font:inherit;resize:vertical}
-.pilot-feedback button{align-self:flex-start;margin-top:19px;background:transparent;color:#3d5c38;border:1px solid #bfceb8;border-radius:3px;padding:7px 11px;font:600 10px/1.5 Montserrat,sans-serif;cursor:pointer}
+.pilot-feedback button{align-self:flex-start;margin-top:19px;background:transparent;color:#3d5c38;border:1px solid #bfceb8;border-radius:3px;padding:7px 11px;font:600 12px/1.5 Montserrat,sans-serif;cursor:pointer}
 .pilot-feedback .pilot-status{flex-basis:100%;font-size:11px}
 .pilot-feedback form>p:not(.pilot-status){margin:0;font-size:12px}
+/* Posts and the feedback widget turn their buttons into text on a transparent ground, but .pilot-button's text is white,
+   so the one primary action there (send feedback, save a post or a feedback edit) stays a filled button. */
+:is(.pilot-post,.pilot-feedback) .pilot-button:not(.secondary){background:#3d5c38;border:1px solid #3d5c38;padding:8px 16px;text-decoration:none!important}
+:is(.pilot-post,.pilot-feedback) .pilot-button:not(.secondary):hover{background:#304e2c}
 
 /* Staff work starts with responses; configuration is a separate tab. */
 .pilot-teaching-hero{max-width:800px;margin-bottom:36px}
@@ -199,7 +206,7 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 
 @media(max-width:1100px){.pilot-workspace{grid-template-columns:205px minmax(0,1fr);gap:38px}.pilot-staff-layout{grid-template-columns:175px minmax(0,1fr);gap:28px}.pilot-course-row{grid-template-columns:140px 1fr}.pilot-course-row>.pilot-button{grid-column:2;justify-self:start}.pilot-response-filters{grid-template-columns:1fr 160px}}
 @media(max-width:760px){
- .pilot-header{gap:18px;padding:18px 20px}.pilot-header nav{order:3;flex-basis:100%;flex-wrap:wrap;gap:10px 20px}.pilot-header nav a{font-size:11px}.pilot-langs{margin-left:auto}.pilot-main{padding:26px 20px 60px}.pilot-notice{padding:8px 20px;font-size:11px;text-align:left}.pilot-notice strong{display:block}.pilot-hero{margin-bottom:28px}.pilot-hero h1{letter-spacing:-1px}.pilot-course-hero{padding-bottom:22px}.pilot-course-meta{flex-wrap:wrap;gap:8px 20px}.pilot-course-row{grid-template-columns:1fr;gap:14px;padding:25px 0}.pilot-course-row>.pilot-button{grid-column:1}.pilot-workspace,.pilot-staff-layout{grid-template-columns:minmax(0,1fr);gap:26px}.pilot-route{position:static;min-width:0}.pilot-route h2{margin-bottom:12px}.pilot-route ol{display:flex;overflow:auto;padding-bottom:3px}.pilot-route li{flex:0 0 200px;border-left:0;border-bottom:1px solid #cdd8c8;padding:0 8px 8px 0;margin:0}.pilot-route li:before{display:none}.pilot-route button{padding:9px 8px;grid-template-columns:22px 1fr}.pilot-progress{margin:16px 0 0;padding-top:10px}.pilot-progress p{max-width:80ch}.pilot-module-heading h2{font-size:25px}.pilot-content>section{padding:24px 0}.pilot-form-grid{grid-template-columns:1fr}.pilot-staff-nav{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding-top:0;border-top:0}.pilot-staff-nav>h2{flex-basis:100%;margin-bottom:0}.pilot-staff-list{display:flex;overflow:auto;gap:8px;margin:0;max-width:100%;flex-basis:100%}.pilot-course-select{flex:0 0 210px;border-left:0;border-bottom:2px solid transparent;padding:9px 10px;margin:0}.pilot-course-select[aria-current="page"]{border-left-color:transparent;border-bottom-color:#3d5c38}.pilot-staff-nav>.pilot-button{font-size:11px}.pilot-teaching-course{margin-bottom:18px}.pilot-teaching-course h2{font-size:23px}.pilot-tabs{gap:24px;margin-bottom:24px}.pilot-tabs>.pilot-button{font-size:11px}.pilot-section-heading{flex-wrap:wrap;gap:10px;margin-bottom:20px}.pilot-response-filters{grid-template-columns:1fr;gap:12px}.pilot-response-filters select{max-width:240px}.pilot-post.reply{margin-left:12px;padding-left:14px}.pilot-feedback form{gap:12px 18px}.pilot-feedback-comment{min-width:140px}.pilot-feedback button{margin-top:10px}.pilot-teaching-hero h1{font-size:29px}
+ .pilot-header{gap:18px;padding:18px 20px}.pilot-header nav{order:3;flex-basis:100%;flex-wrap:wrap;gap:10px 20px}.pilot-header nav a{font-size:11px}.pilot-langs{margin-left:auto}.pilot-main{padding:26px 20px 60px}.pilot-notice{padding:8px 20px;font-size:11px;text-align:left}.pilot-notice strong{display:block}.pilot-hero{margin-bottom:28px}.pilot-hero h1{letter-spacing:-1px}.pilot-course-hero{padding-bottom:22px}.pilot-course-meta{flex-wrap:wrap;gap:8px 20px}.pilot-course-row{grid-template-columns:1fr;gap:14px;padding:25px 0}.pilot-course-row>.pilot-button{grid-column:1}.pilot-workspace,.pilot-staff-layout{grid-template-columns:minmax(0,1fr);gap:26px}.pilot-route{position:static;min-width:0}.pilot-route h2{margin-bottom:12px}.pilot-route ol{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 12px}.pilot-route li{border-left:0;padding:0;margin:0}.pilot-route li:before{display:none}.pilot-route button{min-height:44px;padding:9px 8px;grid-template-columns:22px 1fr}.pilot-progress{margin:16px 0 0;padding-top:10px}.pilot-progress p{max-width:80ch}.pilot-module-heading h2{font-size:25px}.pilot-content>section{padding:24px 0}.pilot-form-grid{grid-template-columns:1fr}.pilot-staff-nav{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding-top:0;border-top:0}.pilot-staff-nav>h2{flex-basis:100%;margin-bottom:0}.pilot-staff-list{display:flex;overflow:auto;gap:8px;margin:0;max-width:100%;flex-basis:100%}.pilot-course-select{flex:0 0 210px;border-left:0;border-bottom:2px solid transparent;padding:9px 10px;margin:0}.pilot-course-select[aria-current="page"]{border-left-color:transparent;border-bottom-color:#3d5c38}.pilot-staff-nav>.pilot-button{font-size:11px}.pilot-teaching-course{margin-bottom:18px}.pilot-teaching-course h2{font-size:23px}.pilot-tabs{gap:24px;margin-bottom:24px}.pilot-tabs>.pilot-button{font-size:11px}.pilot-section-heading{flex-wrap:wrap;gap:10px;margin-bottom:20px}.pilot-response-filters{grid-template-columns:1fr;gap:12px}.pilot-response-filters select{max-width:240px}.pilot-post.reply{margin-left:12px;padding-left:14px}.pilot-feedback form{gap:12px 18px}.pilot-feedback-comment{min-width:140px}.pilot-feedback button{margin-top:10px}.pilot-teaching-hero h1{font-size:29px}
 }
 @media(prefers-reduced-motion:reduce){.pilot-page *{scroll-behavior:auto!important;transition:none!important}}
 
@@ -271,6 +278,20 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-post-actions{display:flex;gap:0 18px;flex-wrap:wrap}
 .pilot-post-actions .pilot-button{margin-right:0}
 .pilot-post .pilot-status{font-size:12px;white-space:pre-wrap}
+/* On a phone each conversation and feedback control is a 44px target with body-size text; a summary's own padding makes
+   its height, since the space around it does not open the <details>. */
+@media(max-width:760px){
+ .pilot-post .pilot-button,.pilot-post-edit-actions .pilot-button{display:inline-flex;align-items:center;min-height:44px;margin:0;font-size:13px}
+ .pilot-post-actions{gap:0 24px}
+ .pilot-composer>summary{font-size:13px}
+ .pilot-composer-extras>summary,.pilot-feedback>summary,.pilot-feedback-comment summary,.pilot-feedback-history>summary{min-height:44px;padding:12px 0;font-size:13px}
+ .pilot-composer-extras>summary{margin-bottom:0}.pilot-feedback{padding-top:6px}.pilot-feedback-comment{flex-basis:100%;padding-top:0}
+ .pilot-discussion>.pilot-section-heading>.pilot-button{min-height:44px;font-size:13px}.pilot-discussion>.pilot-button{min-height:44px}
+ .pilot-feedback button{min-height:44px;font-size:13px}
+ .pilot-feedback .pilot-rating label{min-width:44px;min-height:44px;justify-content:center}
+ /* The link up to the answered contribution: its 44px line takes the place of the blank <br> line, so the card keeps its height. */
+ .pilot-post.reply>a{display:inline-flex;align-items:center;min-height:44px}.pilot-post.reply>br{display:none}
+}
 
 .pilot-footer{max-width:1264px;margin:0 28px;padding:24px 0;border-top:1px solid var(--line);font-size:12px}
 @media(min-width:1320px){.pilot-footer{margin-left:auto;margin-right:auto}}
@@ -369,3 +390,6 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
  .pilot-table td.pilot-survey-actions{white-space:normal}
  .pilot-cell-label{display:block;font-size:11px;color:#6e7d65;margin-bottom:2px}
 }
+/* iPhone Safari zooms into a focused field under 16px and stays zoomed, so on a phone every text field is 16px (labels
+   keep their size). The final survey's fields have their own rule above. */
+@media(max-width:760px){:is(.pilot-form,.pilot-feedback,.pilot-response-filters,.pilot-survey-reminder) :is(input:not([type=file]):not([type=checkbox]):not([type=radio]),textarea,select){font-size:16px}}

@@ -12,7 +12,10 @@ const base=()=>'/api/courses/'+encodeURIComponent(courseId);
 function textSection(key,record){const section=el('section');section.append(tr('h3',key),source('p',record,key));return section;}
 function dates(c){return [date(c.startsOn),date(c.endsOn)].filter(Boolean).join(' – ');}
 async function directory(){setPageTitle('courses');const {courses,isAdmin}=await api('/api/courses');document.getElementById('teachingLink').hidden=isAdmin!==true;root.replaceChildren();const hero=el('header','pilot-hero');hero.append(tr('p','courses','pilot-context'),tr('h1','intro'),tr('p','directory'));const list=el('div','pilot-directory');if(!courses.length)list.append(tr('p','emptyCourses','pilot-empty'));courses.forEach(c=>{const row=el('article','pilot-course-row'),meta=el('div'),content=el('div');meta.append(tr('span',c.status,'pilot-tag'),dynamic('div',()=>dates(c),'pilot-date'));if(c.enrollmentOpen===false)meta.append(tr('div','closed','pilot-date'));content.append(source('h2',c,'title'),source('p',c,'description'));const link=tr('a','open','pilot-button');link.href='course.html?id='+encodeURIComponent(c.id);row.append(meta,content,link);list.append(row);});root.append(hero,list);status(msg,'');}
-function intakeForm(data,onClose){let busy=false;const box=el('section','pilot-intake');box.append(tr('h2','intake'),tr('p','private'));const form=el('form','pilot-form');const fields={};['fullName','profession','city','motivation','experience','expectations','caseStudy','digitalFamiliarity'].forEach((key,i)=>{const f=field(key,data?.[key]||'',i<3?'text':'textarea');f.input.maxLength=i<3?160:2000;f.input.required=true;fields[key]=f.input;form.append(f.wrap);});const save=button('saveIntake');save.type='submit';const local=el('p','pilot-status');local.setAttribute('role','status');form.append(save);if(onClose)form.append(button('cancel',()=>{if(!busy)onClose();},true));form.append(local);form.addEventListener('submit',async e=>{e.preventDefault();if(busy)return;busy=true;save.disabled=true;form.setAttribute('aria-busy','true');Object.values(fields).forEach(input=>{input.disabled=true;});try{const input=Object.fromEntries(Object.entries(fields).map(([k,n])=>[k,n.value]));await api(base()+'/intake',input,'PUT',{redirectOnUnauthorized:false});await course();}catch(err){status(local,err);}finally{busy=false;save.disabled=false;form.setAttribute('aria-busy','false');Object.values(fields).forEach(input=>{input.disabled=false;});}});box.append(form);return box;}
+// course() draws the page again after a save, so the confirmation goes to the status line above the course title, brought
+// into view, and focus to a real element instead of <body>. A session that failed to open keeps its error there.
+function confirmSaved(key,target){if(!msg.textContent)status(msg,t(key));msg.scrollIntoView({block:'start'});target?.focus({preventScroll:true});}
+function intakeForm(data,onClose){let busy=false;const box=el('section','pilot-intake');box.append(tr('h2','intake'),tr('p','private'));const form=el('form','pilot-form');const fields={};['fullName','profession','city','motivation','experience','expectations','caseStudy','digitalFamiliarity'].forEach((key,i)=>{const f=field(key,data?.[key]||'',i<3?'text':'textarea');f.input.maxLength=i<3?160:2000;f.input.required=true;fields[key]=f.input;form.append(f.wrap);});const save=button('saveIntake');save.type='submit';const local=el('p','pilot-status');local.setAttribute('role','status');form.append(save);if(onClose)form.append(button('cancel',()=>{if(!busy)onClose();},true));form.append(local);form.addEventListener('submit',async e=>{e.preventDefault();if(busy)return;busy=true;save.disabled=true;form.setAttribute('aria-busy','true');Object.values(fields).forEach(input=>{input.disabled=true;});try{const input=Object.fromEntries(Object.entries(fields).map(([k,n])=>[k,n.value]));await api(base()+'/intake',input,'PUT',{redirectOnUnauthorized:false});await course();confirmSaved(onClose?'intakeUpdated':'intakeSaved',document.getElementById(onClose?'editIntakeButton':'courseTitle'));}catch(err){status(local,err);}finally{busy=false;save.disabled=false;form.setAttribute('aria-busy','false');Object.values(fields).forEach(input=>{input.disabled=false;});}});box.append(form);return box;}
 async function course(fresh){
   const fetched=!fresh;fresh=fresh||await api(base(),undefined,undefined,{redirectOnUnauthorized:!snapshot});
   stopConversations();navigationSequence++;navigationPending=false;pendingModuleId=null;snapshot=fresh;root.replaceChildren();
@@ -20,7 +23,8 @@ async function course(fresh){
   const c=snapshot.course;setPageTitle(()=>localized(c,'title'));
   const hero=el('header','pilot-hero pilot-course-hero'),back=tr('a','courses');back.href='courses.html';
   const metadata=el('div','pilot-course-meta');metadata.append(back,dynamic('span',()=>dates(c),'pilot-date'));
-  hero.append(metadata,source('h1',c,'title'),source('p',c,'description'));root.append(hero);status(msg,'');
+  const title=source('h1',c,'title');title.id='courseTitle';title.tabIndex=-1;
+  hero.append(metadata,title,source('p',c,'description'));root.append(hero);status(msg,'');
   if(!snapshot.enrollment&&!snapshot.isAdmin){
     // Closed courses keep their route preview but offer no way in.
     if(!c.enrollmentOpen){const closed=el('div','pilot-actions');closed.append(tr('strong','closed'),tr('span','closedNote'));if(new URLSearchParams(location.search).get('encuesta')==='1')closed.append(...otherAccount());hero.append(closed);renderRoutePreview();return;}
@@ -38,7 +42,7 @@ async function course(fresh){
       const existing=document.getElementById('editIntake');
       if(existing){if(existing.querySelector('form')?.getAttribute('aria-busy')!=='true')existing.remove();return;}
       const box=intakeForm(snapshot.intake,()=>box.remove());box.id='editIntake';hero.after(box);
-    },true);
+    },true);edit.id='editIntakeButton';
     const remove=button('deleteIntake',async()=>{
       if(deleting||document.getElementById('editIntake')?.querySelector('form')?.getAttribute('aria-busy')==='true')return;
       if(!confirm(t('confirmDeleteIntake')))return;
@@ -382,16 +386,28 @@ function createConversation(moduleId,sequence,kind){
   heading.append(tr('h3',kind==='assignment'?'assignmentsView':'discussionView'));
   const posts=el('div','pilot-post-list'),updates=el('p','pilot-conversation-updates');updates.setAttribute('role','status');updates.setAttribute('aria-live','polite');
   const refresh=button('refreshConversation',()=>loadPosts(true),true),more=button('loadOlder',()=>loadPosts(false),true);more.hidden=true;
-  const composer=makeComposer(moduleId,()=>loadPosts(true),{kind});
+  const composer=makeComposer(moduleId,()=>loadPosts(true,'postPublished'),{kind});
   heading.append(refresh);section.append(heading,tr('p',kind==='assignment'?'assignmentHelp':'discussionHelp','pilot-data-note'),composer,updates,posts,more);
-  let cursor=null,loading=false,refreshPending=false,loaded=false,active=false,disposed=false,baseline=null,timer=null,pollController=null,pollErrors=0,hasUpdates=false;
+  let cursor=null,loading=false,refreshPending=false,pendingNotice='',loaded=false,active=false,disposed=false,baseline=null,timer=null,pollController=null,pollErrors=0,hasUpdates=false;
   const known=new Set();
   const alive=()=>!disposed&&sequence===loadSequence;
   const visible=()=>!navigationPending&&pageActive&&active&&document.visibilityState!=='hidden'&&alive();
   const signature=result=>result.revision??(result.posts?.[0]?.id||'empty');
+  // A reply names the person it answers while that contribution is on the page and live.
   function syncReplyLinks(){
-    const liveIds=new Set([...posts.children].filter(card=>card.isLivePost?.()).map(card=>card.id.slice(5)));
-    for(const card of posts.children)card.showParentLink?.(liveIds.has(card.parentPostId));
+    const live=new Map([...posts.children].filter(card=>card.isLivePost?.()).map(card=>[card.id.slice(5),card]));
+    for(const card of posts.children)card.showParentLink?.(live.get(card.parentPostId)?.authorName());
+  }
+  /* Threads keep the newest-first order the conversation promises, each followed by its replies oldest first (a reply to a
+     reply joins the same thread). A reply whose contribution is not on the page (an older page, or withdrawn) stays where it
+     came until that page loads. Only cards out of place move, so a card being read or edited is not taken away needlessly. */
+  function arrange(){
+    const cards=[...posts.children].filter(card=>card.isLivePost),byId=new Map(cards.filter(card=>card.isLivePost()).map(card=>[card.id.slice(5),card]));
+    const rootOf=card=>{const seen=new Set();let at=card;while(byId.has(at.parentPostId)&&!seen.has(at)){seen.add(at);at=byId.get(at.parentPostId);}return at;};
+    const replies=new Map();for(const card of cards){const root=rootOf(card);if(root!==card)replies.set(root,[...(replies.get(root)||[]),card]);}
+    const order=cards.filter(card=>rootOf(card)===card).flatMap(root=>[root,...(replies.get(root)||[]).sort((a,b)=>String(a.createdAt).localeCompare(String(b.createdAt)))]);
+    let previous=null;
+    for(const card of order){if((previous?previous.nextElementSibling:posts.firstElementChild)!==card){if(previous)previous.after(card);else posts.prepend(card);}previous=card;}
   }
   function cancelPoll(){if(timer!==null&&typeof clearTimeout==='function')clearTimeout(timer);timer=null;pollController?.abort();pollController=null;}
   function schedule(){if(!visible()||loading||!loaded||hasUpdates||timer!==null||typeof setTimeout!=='function')return;timer=setTimeout(checkUpdates,Math.min(120000,30000*2**pollErrors));}
@@ -406,7 +422,7 @@ function createConversation(moduleId,sequence,kind){
     finally{if(pollController===controller)pollController=null;schedule();}
   }
   async function loadPosts(reset,notice){
-    if(!alive())return;syncReplyLinks();if(loading){refreshPending=refreshPending||reset;return;}
+    if(!alive())return;syncReplyLinks();if(loading){refreshPending=refreshPending||reset;if(reset&&notice)pendingNotice=notice;return;}
     loading=true;cancelPoll();more.disabled=true;refresh.disabled=true;
     try{
       const params=new URLSearchParams({kind,order:'desc'});if(!reset&&cursor)params.set('cursor',cursor);
@@ -428,25 +444,33 @@ function createConversation(moduleId,sequence,kind){
         if(existing){existing.updatePost(post);posts.append(existing);drafts.delete(post.id);}else posts.append(renderPost(post,composer,loadPosts,alive));
       }
       for(const [id,card] of drafts){posts.append(card);known.add(id);}
-      syncReplyLinks();
+      arrange();syncReplyLinks();
       posts.querySelector('.pilot-empty')?.remove();
       if(!known.size)posts.append(tr('p',kind==='assignment'?'noAssignments':'noPosts','pilot-empty'));
       cursor=result.nextCursor;more.hidden=!cursor;loaded=true;
     }catch(err){if(!alive())return;status(msg,err);if(!known.size){const retry=button('retry',()=>{retry.remove();return loadPosts(true);},true);posts.append(retry);}}
-    finally{loading=false;more.disabled=false;refresh.disabled=false;if(refreshPending&&alive()){refreshPending=false;await loadPosts(true);}schedule();}
+    finally{loading=false;more.disabled=false;refresh.disabled=false;if(refreshPending&&alive()){const queued=pendingNotice;refreshPending=false;pendingNotice='';await loadPosts(true,queued);}schedule();}
   }
   function visibilityChanged(){if(!visible())cancelPoll();else schedule();}
   document.addEventListener('visibilitychange',visibilityChanged);
   return{element:section,suspend:cancelPoll,resume:schedule,loadInitial:()=>loaded?Promise.resolve():loadPosts(true),setActive(value){active=value;if(!active)cancelPoll();else schedule();},dispose(){disposed=true;cancelPoll();document.removeEventListener?.('visibilitychange',visibilityChanged);}};
 }
 
+// Whose contribution a reply answers; a contribution without an author name is still named as one, not left as a bare 'Replying to'.
+const replyingTo=name=>name?t('replying')+' '+name:t('replyingUnnamed');
 function renderPost(initial,composer,reload,alive){
   let p=initial,editor=null,busy=false;
-  const card=el('article','pilot-post'+(p.parentId?' reply':''));card.id='post-'+p.id;
-  card.isLivePost=()=>!p.deleted;
+  const card=el('article','pilot-post');card.id='post-'+p.id;card.createdAt=p.createdAt;
+  card.isLivePost=()=>!p.deleted;card.authorName=()=>p.authorName||'';
   const author=el('strong',null,p.authorName||''),staffTag=tr('span','staff','pilot-tag');staffTag.hidden=!p.staff;card.append(author,staffTag);
   card.append(dynamic('small',()=>new Date(p.createdAt).toLocaleString(window.nodalI18n?.lang||'en')));
-  if(p.parentId){const parent=tr('a','replying'),line=el('br');parent.href='#post-'+p.parentId;card.parentPostId=p.parentId;card.showParentLink=visible=>{parent.hidden=!visible;line.hidden=!visible;};card.append(line,parent);}
+  if(p.parentId){
+    // Indented under its contribution with that author's name, or flat with a plain note while it is not on the page.
+    let parentName='';const label=()=>replyingTo(parentName);
+    const parent=dynamic('a',label),earlier=tr('span','replyEarlier','pilot-reply-earlier'),line=el('br');parent.href='#post-'+p.parentId;card.parentPostId=p.parentId;
+    card.showParentLink=name=>{const shown=typeof name==='string';parentName=name||'';parent.textContent=label();parent.hidden=!shown;earlier.hidden=shown;card.className='pilot-post'+(shown?' reply':'');};
+    card.showParentLink();card.append(line,parent,earlier);
+  }
   const body=el('p'),links=el('ul'),actions=el('div','pilot-post-actions'),local=el('p','pilot-status');local.setAttribute('role','status');
   card.append(tr('div',p.kind,'pilot-date'),body,links,actions,local);
   const reply=button('reply',()=>{if(!busy)composer.replyTo(p);},true);
@@ -524,8 +548,9 @@ const ATTACHMENT_TYPES=['image/jpeg','image/png','image/webp','application/pdf',
    minutes, not the default 45 s, since a 3 MB photo on a slow phone uplink can take longer.
    A contribution whose response was lost keeps its clientId, so resending it unchanged returns the saved post. An edited
    resend under that id is refused as alreadySubmitted; the composer then takes a fresh id (keeping its uploads) so the
-   next submit can post the edited text without a page reload. */
-function makeComposer(moduleId,onSaved,options={}){const box=el('details','pilot-composer');box.append(tr('summary',options.kind==='assignment'?'submitAssignment':'startDiscussion'));const form=el('form','pilot-form');const kind=select('kind',['assignment','question'],options.kind==='assignment'?'assignment':'question'),body=field('body','','textarea'),links=field('links','','textarea'),files=field('files','','file'),reply=el('div','pilot-reply-context');body.input.required=true;body.input.maxLength=6000;links.input.maxLength=5000;files.input.multiple=true;files.input.accept=ATTACHMENT_TYPES.join(',');reply.hidden=true;if(options.kind)kind.wrap.hidden=true;const submit=button('post');submit.type='submit';const local=el('p','pilot-status');local.setAttribute('role','status');const extras=el('details','pilot-composer-extras');extras.append(tr('summary','attachExtras'),links.wrap,files.wrap);form.append(reply,kind.wrap,body.wrap,extras,submit,local);box.append(form);let parentId=null,clientId=crypto.randomUUID(),uploaded=[],fileSignature='',busy=false;files.input.addEventListener('change',()=>{if(!busy)status(local,invalidFiles([...files.input.files])?new Error(t('fileError')):'');});box.replyTo=p=>{if(busy)return;box.open=true;parentId=p.id;kind.input.disabled=true;reply.replaceChildren(dynamic('span',()=>t('replying')+' '+p.authorName),button('cancel',()=>{if(busy)return;parentId=null;kind.input.disabled=false;reply.hidden=true;},true));reply.hidden=false;body.input.focus();};form.addEventListener('submit',async e=>{e.preventDefault();if(busy)return;busy=true;submit.disabled=true;form.setAttribute('aria-busy','true');for(const input of [body.input,links.input,files.input,kind.input])input.disabled=true;try{const chosen=[...files.input.files];if(invalidFiles(chosen))throw new Error(t('fileError'));const parsed=links.input.value.split('\n').map(s=>s.trim()).filter(Boolean).map(url=>{const safe=safeUrl(url);if(!safe)throw new Error(t('urlError'));return {title:new URL(safe).hostname,url:safe};});const signature=chosen.map(f=>[f.name,f.size,f.lastModified].join(':')).join('|');if(signature!==fileSignature){uploaded=[];fileSignature=signature;}for(let i=uploaded.length;i<chosen.length;i++){local.classList.toggle('is-error',false);bind(local,()=>{local.textContent=t('bulkProgress').replace('{current}',i+1).replace('{total}',chosen.length);});const f=chosen[i],data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(new Error(t('fileError')));reader.readAsDataURL(f);});const result=await api(base()+'/modules/'+moduleId+'/attachments',{name:f.name,mime:f.type,data},'POST',{redirectOnUnauthorized:false,...(typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function'?{signal:AbortSignal.timeout(120000)}:{})});uploaded.push(result.attachment.id);}const action=!parentId&&kind.input.value==='assignment'?'assignment':'discussion';await api(base()+'/modules/'+moduleId+'/posts',{kind:parentId?'comment':kind.input.value,body:body.input.value,links:parsed,attachmentIds:uploaded,...(parentId?{parentId}:{}),clientId},'POST',{redirectOnUnauthorized:false});form.reset();kind.input.value=options.kind==='assignment'?'assignment':'question';parentId=null;kind.input.disabled=false;reply.hidden=true;uploaded=[];fileSignature='';clientId=crypto.randomUUID();status(local,t('saved'));box.open=false;showFeedback(action,moduleId);await onSaved();}catch(err){if(err.status===409&&err.translationKey==='alreadySubmitted')clientId=crypto.randomUUID();status(local,err);}finally{busy=false;submit.disabled=false;form.setAttribute('aria-busy','false');for(const input of [body.input,links.input,files.input])input.disabled=false;kind.input.disabled=Boolean(parentId);}});return box;}
+   next submit can post the edited text without a page reload. A published contribution closes the composer, so the
+   conversation's own status line says so (one inside the closed <details> would be hidden) and focus stays on its summary. */
+function makeComposer(moduleId,onSaved,options={}){const box=el('details','pilot-composer'),summary=tr('summary',options.kind==='assignment'?'submitAssignment':'startDiscussion');box.append(summary);const form=el('form','pilot-form');const kind=select('kind',['assignment','question'],options.kind==='assignment'?'assignment':'question'),body=field('body','','textarea'),links=field('links','','textarea'),files=field('files','','file'),reply=el('div','pilot-reply-context');body.input.required=true;body.input.maxLength=6000;links.input.maxLength=5000;files.input.multiple=true;files.input.accept=ATTACHMENT_TYPES.join(',');reply.hidden=true;if(options.kind)kind.wrap.hidden=true;const submit=button('post');submit.type='submit';const local=el('p','pilot-status');local.setAttribute('role','status');const extras=el('details','pilot-composer-extras');extras.append(tr('summary','attachExtras'),links.wrap,files.wrap);form.append(reply,kind.wrap,body.wrap,extras,submit,local);box.append(form);let parentId=null,clientId=crypto.randomUUID(),uploaded=[],fileSignature='',busy=false;files.input.addEventListener('change',()=>{if(!busy)status(local,invalidFiles([...files.input.files])?new Error(t('fileError')):'');});box.replyTo=p=>{if(busy)return;box.open=true;parentId=p.id;kind.input.disabled=true;reply.replaceChildren(dynamic('span',()=>replyingTo(p.authorName)),button('cancel',()=>{if(busy)return;parentId=null;kind.input.disabled=false;reply.hidden=true;},true));reply.hidden=false;body.input.focus();};form.addEventListener('submit',async e=>{e.preventDefault();if(busy)return;busy=true;submit.disabled=true;form.setAttribute('aria-busy','true');for(const input of [body.input,links.input,files.input,kind.input])input.disabled=true;try{const chosen=[...files.input.files];if(invalidFiles(chosen))throw new Error(t('fileError'));const parsed=links.input.value.split('\n').map(s=>s.trim()).filter(Boolean).map(url=>{const safe=safeUrl(url);if(!safe)throw new Error(t('urlError'));return {title:new URL(safe).hostname,url:safe};});const signature=chosen.map(f=>[f.name,f.size,f.lastModified].join(':')).join('|');if(signature!==fileSignature){uploaded=[];fileSignature=signature;}for(let i=uploaded.length;i<chosen.length;i++){local.classList.toggle('is-error',false);bind(local,()=>{local.textContent=t('bulkProgress').replace('{current}',i+1).replace('{total}',chosen.length);});const f=chosen[i],data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(new Error(t('fileError')));reader.readAsDataURL(f);});const result=await api(base()+'/modules/'+moduleId+'/attachments',{name:f.name,mime:f.type,data},'POST',{redirectOnUnauthorized:false,...(typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function'?{signal:AbortSignal.timeout(120000)}:{})});uploaded.push(result.attachment.id);}const action=!parentId&&kind.input.value==='assignment'?'assignment':'discussion';await api(base()+'/modules/'+moduleId+'/posts',{kind:parentId?'comment':kind.input.value,body:body.input.value,links:parsed,attachmentIds:uploaded,...(parentId?{parentId}:{}),clientId},'POST',{redirectOnUnauthorized:false});form.reset();kind.input.value=options.kind==='assignment'?'assignment':'question';parentId=null;kind.input.disabled=false;reply.hidden=true;uploaded=[];fileSignature='';clientId=crypto.randomUUID();status(local,'');box.open=false;summary.focus();showFeedback(action,moduleId);await onSaved();}catch(err){if(err.status===409&&err.translationKey==='alreadySubmitted')clientId=crypto.randomUUID();status(local,err);}finally{busy=false;submit.disabled=false;form.setAttribute('aria-busy','false');for(const input of [body.input,links.input,files.input])input.disabled=false;kind.input.disabled=Boolean(parentId);}});return box;}
 async function start(){status(msg,t('loading'));try{if(document.body.dataset.page==='course'){if(!courseId)location.replace('courses.html');else await course();}else await directory();}catch(err){status(msg,err);const retry=button('retry',()=>{retry.remove();start();},true);root.append(retry);}}
 window.nodalI18n?.onChange(()=>{document.documentElement.lang=window.nodalI18n.lang;});start();
 })();

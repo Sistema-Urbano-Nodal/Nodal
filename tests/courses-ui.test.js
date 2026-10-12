@@ -6,9 +6,12 @@ import { readFileSync } from 'node:fs';
 const script=name=>readFileSync(new URL('../web/scripts/'+name+'.js',import.meta.url),'utf8');
 class Node {
  constructor(tag='div'){this.tagName=tag;this.children=[];this.dataset={};this.listeners={};this.hidden=false;this.textContent='';this.value='';this.files=[];this.classList={toggle(){}};}
- append(...nodes){nodes.forEach(n=>{if(typeof n==='object')n.parent=this;this.children.push(n);});}
- prepend(...nodes){nodes.forEach(n=>n.parent=this);this.children.unshift(...nodes);}
- after(node){const p=this.parent;if(p){node.parent=p;p.children.splice(p.children.indexOf(this)+1,0,node);}}
+ // Like the DOM, inserting a node that already has a parent moves it rather than copying it.
+ append(...nodes){nodes.forEach(n=>{if(typeof n==='object'){detach(n);n.parent=this;}this.children.push(n);});}
+ prepend(...nodes){nodes.forEach(n=>{detach(n);n.parent=this;});this.children.unshift(...nodes);}
+ after(node){const p=this.parent;if(p){detach(node);node.parent=p;p.children.splice(p.children.indexOf(this)+1,0,node);}}
+ get firstElementChild(){return this.children.find(n=>typeof n==='object')||null;}
+ get nextElementSibling(){const siblings=this.parent?.children.filter(n=>typeof n==='object')||[],at=siblings.indexOf(this);return at<0?null:siblings[at+1]||null;}
  replaceChildren(...nodes){this.children=[];this.append(...nodes);}
  setAttribute(k,v){this[k]=v;}
  getAttribute(k){return this[k]??null;}
@@ -18,10 +21,13 @@ class Node {
  querySelector(selector){return this.querySelectorAll(selector)[0]||null;}
  replaceWith(node){if(this.parent){node.parent=this.parent;this.parent.children.splice(this.parent.children.indexOf(this),1,node);}}
  remove(){if(this.parent)this.parent.children=this.parent.children.filter(n=>n!==this);}
- focus(){}
+ // focused and scrolledInto record where the page sent the person.
+ focus(options){this.focused=true;this.focusOptions=options;}
+ scrollIntoView(options){this.scrolledInto=options;}
  reset(){descendants(this).filter(n=>n.tagName==='input'||n.tagName==='textarea').forEach(n=>{n.value='';n.files=[];});}
 }
 const descendants=node=>(node.children||[]).flatMap(n=>typeof n==='object'?[n,...descendants(n)]:[]);
+const detach=node=>{if(node.parent)node.parent.children=node.parent.children.filter(n=>n!==node);};
 const content=n=>[n.textContent,...(n.children||[]).map(content)].join(' ');
 const flush=async()=>{for(let i=0;i<15;i++)await new Promise(r=>setImmediate(r));};
 function harness(respond,{page='courses',search='',readyState='loading'}={}){
@@ -577,7 +583,7 @@ test('attachments say which file is uploading, get two minutes each, and a wrong
  finish({attachment:{id:'f1'}});await flush();assert.match(content(form),/Uploading 2 of 2…/);finish({attachment:{id:'f2'}});await pending;
  const uploads=h.requests.filter(r=>r.path.endsWith('/attachments')),post=h.requests.find(r=>r.method==='POST'&&r.path.endsWith('/posts'));
  assert.deepEqual(uploads.map(r=>r.signal?.timeout),[120000,120000]);assert.equal(post.signal.timeout,45000,'the post itself keeps the default limit');assert.deepEqual(post.body.attachmentIds,['f1','f2']);
- assert.match(content(form),/Saved/);assert.doesNotMatch(content(form),/Uploading/);
+ assert.doesNotMatch(content(form),/Uploading/);assert.match(content(h.body),/Your contribution was published\./);
 });
 test('switching course, All feedback or New course asks before discarding unsaved setup edits',async()=>{
  const other={...course,id:'c2',title:'Other course'},module={id:'m1',title:'Session',kind:'session',version:1,resources:[{title:'Slides',kind:'slides',url:'https://example.test/slides'}]};
@@ -617,4 +623,137 @@ test('hero intake actions are full tap targets and the staff survey and response
  const phone=css.slice(css.indexOf('@media(max-width:640px){'));
  assert.match(phone,/^@media/);assert.match(phone,/:is\(\.pilot-feedback-table,\.pilot-survey-admin \.pilot-table\) tr\{display:grid/);assert.match(phone,/\.pilot-table td\.pilot-survey-actions\{white-space:normal\}/);assert.match(phone,/\.pilot-cell-label\{display:block/);
  assert.match(css,/\.pilot-cell-label\{display:none\}\n@media\(max-width:640px\)/,'labels show only in the stacked layout');
+});
+test('replies sit under the contribution they answer, oldest first, and name the person they answer',async()=>{
+ const post=(id,minute,extra={})=>({...ownPost,id,body:'Body '+id,createdAt:'2026-09-08T10:0'+minute+':00Z',links:[],attachments:[],canEdit:false,canDelete:false,...extra});
+ const abancay=post('abancay',1,{authorName:'Ana María Gonzales'}),second=post('second',2),first=post('first',3,{parentId:'abancay',kind:'comment',authorName:'Carla'}),nested=post('nested',4,{parentId:'first',kind:'comment'}),late=post('late',5,{parentId:'abancay',kind:'comment',authorName:'Beto'});
+ // The server sends the page newest first.
+ const h=postHarness({posts:[late,nested,first,second,abancay]});h.run('courses');await flush();
+ const list=descendants(h.body).find(n=>n.className==='pilot-post-list');
+ assert.deepEqual(list.children.map(n=>n.id),['post-second','post-abancay','post-first','post-nested','post-late']);
+ assert.deepEqual(list.children.map(n=>n.className),['pilot-post','pilot-post','pilot-post reply','pilot-post reply','pilot-post reply']);
+ const link=id=>descendants(postCard(h,id)).find(n=>n.tagName==='a'&&n.href?.startsWith('#post-'));
+ assert.equal(link('first').textContent,'Replying to Ana María Gonzales');assert.equal(link('first').href,'#post-abancay');
+ assert.equal(link('nested').textContent,'Replying to Carla');assert.equal(link('late').textContent,'Replying to Ana María Gonzales');
+ h.lang('es');assert.equal(link('first').textContent,'Respondiendo a Ana María Gonzales');
+});
+test('a reply whose contribution is on an older page stays flat and says so until that page loads',async()=>{
+ const parent={...ownPost,id:'parent',createdAt:'2026-09-08T10:00:00Z'},newer={...ownPost,id:'newer',body:'Newer question',createdAt:'2026-09-08T12:00:00Z'};
+ const reply={...ownPost,id:'reply',parentId:'parent',kind:'comment',authorName:'Carla',body:'An answer',createdAt:'2026-09-08T11:00:00Z',canEdit:false,canDelete:false};
+ const h=postHarness({intercept:path=>path.includes('/modules/m1/posts')?(path.includes('cursor=older')?{posts:[parent],nextCursor:null}:{posts:[newer,reply],nextCursor:'older'}):undefined});h.run('courses');await flush();
+ const list=descendants(h.body).find(n=>n.className==='pilot-post-list'),card=()=>postCard(h,'reply');
+ const link=()=>descendants(card()).find(n=>n.href==='#post-parent'),earlier=()=>findKey(card(),'replyEarlier');
+ assert.deepEqual(list.children.map(n=>n.id),['post-newer','post-reply']);assert.equal(card().className,'pilot-post');
+ assert.equal(link().hidden,true);assert.equal(earlier().hidden,false);assert.equal(earlier().textContent,'In reply to an earlier contribution');
+ h.lang('es');assert.equal(earlier().textContent,'Respuesta a una contribución anterior');h.lang('en');
+ await findKey(h.body,'loadOlder').listeners.click();await flush();
+ assert.deepEqual(list.children.map(n=>n.id),['post-newer','post-parent','post-reply']);assert.equal(card().className,'pilot-post reply');
+ assert.equal(link().hidden,false);assert.equal(link().textContent,'Replying to Member');assert.equal(earlier().hidden,true);
+});
+test('a reply to a contribution with no author name still sits under it and says it answers a contribution',async()=>{
+ const parent={...ownPost,id:'parent',authorName:'',canEdit:false,canDelete:false};
+ const reply={...ownPost,id:'reply',parentId:'parent',kind:'comment',authorName:'Carla',body:'An answer',createdAt:'2026-09-08T11:00:00Z',canEdit:false,canDelete:false};
+ const h=postHarness({posts:[reply,parent]});h.run('courses');await flush();
+ const card=postCard(h,'reply'),link=descendants(card).find(n=>n.href==='#post-parent');
+ assert.equal(card.className,'pilot-post reply');assert.equal(link.hidden,false);assert.equal(findKey(card,'replyEarlier').hidden,true);
+ assert.equal(link.textContent,'Replying to a contribution');h.lang('es');assert.equal(link.textContent,'Respondiendo a una contribución');h.lang('en');
+ // The composer's reply line falls back the same way instead of a bare 'Replying to'.
+ findKey(postCard(h,'parent'),'reply').listeners.click();
+ assert.equal(descendants(h.body).find(n=>n.className==='pilot-reply-context').children[0].textContent,'Replying to a contribution');
+});
+test('saving the course form says so above the course title and puts focus on the title',async()=>{
+ let saved=false;const intake={fullName:'A',profession:'B',city:'C',motivation:'D',experience:'E',expectations:'F',caseStudy:'G',digitalFamiliarity:'H'};
+ const h=harness((path,opts)=>{if(path.endsWith('/intake')){saved=true;return{intake};}const data=learningFixture(path,opts);return path==='/api/courses/c1'?{...data,intake:saved?intake:null}:data;},{page:'course',search:'?id=c1'});h.run('courses');await flush();
+ const form=descendants(h.body).find(n=>n.tagName==='form'&&inputNamed(n,'caseStudy'));for(const n of descendants(form))if(n.name in intake)n.value=intake[n.name];
+ await form.listeners.submit({preventDefault(){}});await flush();
+ const status=h.ids.pilotStatus,title=h.ctx.document.getElementById('courseTitle');
+ assert.equal(status.textContent,'Your intake is saved. You can now take part in the course.');assert.equal(status.scrolledInto?.block,'start');
+ assert.equal(title.tagName,'h1');assert.equal(title.tabIndex,-1);assert.equal(title.focused,true);assert.equal(title.focusOptions?.preventScroll,true);
+ h.lang('es');assert.equal(status.textContent,'Formulario guardado. Ya puedes participar en el curso.');
+});
+test('saving an edited course form says so and returns focus to Edit my intake',async()=>{
+ const h=harness((path,opts)=>path.endsWith('/intake')?{intake:{fullName:'Updated Member'}}:learningFixture(path,opts),{page:'course',search:'?id=c1'});h.run('courses');await flush();
+ await findKey(h.body,'editIntake').listeners.click();const form=descendants(h.body).find(n=>n.tagName==='form'&&inputNamed(n,'caseStudy'));
+ await form.listeners.submit({preventDefault(){}});await flush();
+ assert.equal(descendants(h.body).some(n=>n.id==='editIntake'),false);
+ assert.equal(h.ids.pilotStatus.textContent,'Your intake is saved.');assert.equal(h.ids.pilotStatus.scrolledInto?.block,'start');
+ const edit=findKey(h.body,'editIntake');assert.equal(edit.focused,true);
+});
+test('a saved form does not hide a session that failed to open',async()=>{
+ let saved=false;const h=harness((path,opts)=>{if(path.endsWith('/intake')){saved=true;return{intake:{fullName:'A'}};}if(path.endsWith('/modules/m1'))return{status:503,data:{error:'unavailable'}};const data=learningFixture(path,opts);return path==='/api/courses/c1'?{...data,modules:[data.modules[1]],intake:saved?{fullName:'A'}:null}:data;},{page:'course',search:'?id=c1'});h.run('courses');await flush();
+ const form=descendants(h.body).find(n=>n.tagName==='form'&&inputNamed(n,'caseStudy'));await form.listeners.submit({preventDefault(){}});await flush();
+ assert.equal(saved,true);assert.doesNotMatch(h.ids.pilotStatus.textContent,/intake is saved/);
+});
+test('publishing a contribution says so below the closed composer and keeps focus on its summary',async()=>{
+ const h=harness(learningFixture,{page:'course',search:'?id=c1&module=m1'});h.run('courses');await flush();
+ const pane=h.ctx.document.getElementById('module-pane-discussion'),box=descendants(pane).find(n=>n.className==='pilot-composer'),summary=box.children[0];
+ summary.listeners.click?.();box.open=true;const form=descendants(box).find(n=>n.tagName==='form');inputNamed(form,'body').value='A contribution';
+ await form.listeners.submit({preventDefault(){}});await flush();
+ const updates=descendants(pane).find(n=>n.className==='pilot-conversation-updates'),local=descendants(form).find(n=>n.className==='pilot-status');
+ assert.equal(box.open,false);assert.equal(summary.tagName,'summary');assert.equal(summary.focused,true);
+ assert.equal(updates.textContent,'Your contribution was published.');assert.equal(local.textContent,'');
+ h.lang('es');assert.equal(updates.textContent,'Tu contribución se publicó.');
+});
+test('a contribution published while an older page loads still says it was published',async()=>{
+ let reads=0,finishPage;const saved={id:'p2',authorName:'Member',createdAt:'2026-09-05T13:00:00Z',kind:'question',body:'New saved question',links:[],attachments:[]};
+ const h=harness((path,opts)=>{
+  if(path.includes('/posts')){if(opts?.method==='POST')return{post:saved};reads++;if(reads===2)return new Promise(resolve=>{finishPage=resolve;});return{posts:reads>2?[saved]:[{...saved,id:'p1',body:'Earlier question'}],nextCursor:reads===1?'next':null};}
+  return learningFixture(path,opts);
+ },{page:'course',search:'?id=c1&module=m1'});h.run('courses');await flush();
+ const pane=h.ctx.document.getElementById('module-pane-discussion');findKey(pane,'loadOlder').listeners.click();await flush();
+ const form=descendants(pane).find(n=>n.tagName==='form'&&inputNamed(n,'body'));inputNamed(form,'body').value=saved.body;await form.listeners.submit({preventDefault(){}});
+ finishPage({posts:[],nextCursor:null});await flush();
+ assert.equal(reads,3);assert.equal(descendants(pane).find(n=>n.className==='pilot-conversation-updates').textContent,'Your contribution was published.');
+});
+// The stylesheet as rules in source order, {media,selectors,style}: enough for courses.css (one level of @media, no braces in values).
+function cssRules(css){
+ css=css.replace(/\/\*[\s\S]*?\*\//g,'');const rules=[];
+ const split=list=>{const out=[];let depth=0,part='';for(const ch of list){if(ch==='(')depth++;if(ch===')')depth--;if(ch===','&&!depth){out.push(part.trim());part='';}else part+=ch;}out.push(part.trim());return out;};
+ const parse=(text,media)=>{for(const chunk of text.split('}')){const at=chunk.indexOf('{');if(at<0)continue;const style={};for(const d of chunk.slice(at+1).split(';')){const colon=d.indexOf(':');if(colon>0)style[d.slice(0,colon).trim()]=d.slice(colon+1).trim();}rules.push({media,selectors:split(chunk.slice(0,at).replace(/\s+/g,' ').trim()),style});}};
+ for(let i=0;;){
+  const at=css.indexOf('@media',i);if(at<0){parse(css.slice(i),null);break;}parse(css.slice(i,at),null);
+  const open=css.indexOf('{',at);let depth=1,end=open+1;for(;depth;end++){if(css[end]==='{')depth++;else if(css[end]==='}')depth--;}
+  parse(css.slice(open+1,end-1),css.slice(at+6,open).trim());i=end;
+ }
+ return rules;
+}
+const courseCss=()=>cssRules(readFileSync(new URL('../web/styles/courses.css',import.meta.url),'utf8'));
+const applies=(media,width)=>!media||[...media.matchAll(/(min|max)-width:(\d+)px/g)].every(([,kind,n])=>kind==='max'?width<=Number(n):width>=Number(n));
+// What one exact selector declares at a viewport width, later rules winning (rules for other selectors are not weighed).
+const styleAt=(width,selector)=>Object.assign({},...courseCss().filter(rule=>rule.selectors.includes(selector)&&applies(rule.media,width)).map(rule=>rule.style));
+test('the feedback and post editor save buttons are filled and readable',()=>{
+ // .pilot-feedback button and .pilot-post .pilot-button paint their buttons transparent, while .pilot-button keeps white!important text.
+ for(const width of [375,1280]){
+  const primary=styleAt(width,':is(.pilot-post,.pilot-feedback) .pilot-button:not(.secondary)');
+  assert.equal(primary.background,'#3d5c38',width);assert.equal(primary['text-decoration'],'none!important',width);
+ }
+ assert.match(styleAt(1280,'.pilot-feedback button').font,/^600 12px\//,'no longer 10px');
+});
+test('on a phone the route shows every session at once, two to a row, with one rule above the form note',()=>{
+ const list=styleAt(375,'.pilot-route ol'),item=styleAt(375,'.pilot-route li');
+ assert.equal(list.display,'grid');assert.equal(list['grid-template-columns'],'repeat(2,minmax(0,1fr))');assert.equal(list.overflow,undefined);
+ assert.equal(item.flex,undefined);assert.equal(item['border-bottom'],undefined);assert.equal(styleAt(375,'.pilot-route button')['min-height'],'44px');
+ assert.equal(styleAt(1280,'.pilot-route ol').display,undefined,'the desktop rail stays a vertical list');
+});
+test('conversation and feedback controls are 44px tap targets with body-size text on a phone',()=>{
+ const post=styleAt(375,'.pilot-post .pilot-button');assert.equal(post['min-height'],'44px');assert.equal(post['font-size'],'13px');assert.equal(styleAt(375,'.pilot-post-actions').gap,'0 24px');
+ // A <details> opens only from its summary, so the composer's padding moves onto the summary.
+ assert.equal(styleAt(375,'.pilot-composer').padding,'0');assert.ok(parseInt(styleAt(375,'.pilot-composer>summary')['min-height'],10)>=44);
+ for(const summary of ['.pilot-composer>summary','.pilot-composer-extras>summary','.pilot-feedback>summary','.pilot-feedback-comment summary','.pilot-feedback-history>summary']){
+  const style=styleAt(375,summary);assert.ok(parseInt(style['min-height'],10)>=44,summary);assert.equal(style['font-size'],'13px',summary);
+ }
+ const refresh=styleAt(375,'.pilot-discussion>.pilot-section-heading>.pilot-button');assert.equal(refresh['min-height'],'44px');assert.equal(refresh['font-size'],'13px');
+ assert.equal(styleAt(375,'.pilot-post-edit-actions .pilot-button')['min-height'],'44px');assert.equal(styleAt(375,'.pilot-discussion>.pilot-button')['min-height'],'44px');
+ const feedback=styleAt(375,'.pilot-feedback button');assert.equal(feedback['min-height'],'44px');assert.equal(feedback['font-size'],'13px');
+ const star=styleAt(375,'.pilot-feedback .pilot-rating label');assert.equal(star['min-width'],'44px');assert.equal(star['min-height'],'44px');
+});
+test('on a phone the link to the answered contribution is a 44px target that takes the blank line above it',()=>{
+ const link=styleAt(375,'.pilot-post.reply>a');assert.equal(link.display,'inline-flex');assert.equal(link['align-items'],'center');assert.equal(link['min-height'],'44px');
+ // The <br> gave the link a blank line of space; the 44px line replaces it, so the card does not grow.
+ assert.equal(styleAt(375,'.pilot-post.reply>br').display,'none');
+ assert.equal(styleAt(1280,'.pilot-post.reply>a')['min-height'],undefined);assert.equal(styleAt(1280,'.pilot-post.reply>br').display,undefined);
+});
+test('text fields on a phone are 16px so iPhone Safari does not zoom into them',()=>{
+ const fields=':is(.pilot-form,.pilot-feedback,.pilot-response-filters,.pilot-survey-reminder) :is(input:not([type=file]):not([type=checkbox]):not([type=radio]),textarea,select)';
+ assert.equal(styleAt(375,fields)['font-size'],'16px');assert.equal(styleAt(1280,fields)['font-size'],undefined);
 });
