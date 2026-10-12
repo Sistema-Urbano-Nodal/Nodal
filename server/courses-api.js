@@ -19,7 +19,9 @@ export const FEEDBACK_LIMIT = 200;
    repeat views cost nothing; the budget only stops one account from turning Supabase Storage egress (5 GB a month
    on Free) into a loop. */
 export const DOWNLOAD_LIMITS = [{windowMs:10*60*1000,bytes:64*1024*1024},{windowMs:24*60*60*1000,bytes:512*1024*1024}];
-function createByteBudget(windows) {
+// The festival conversations draw on the same budget (server.js passes one to both APIs), so an account cannot
+// double its Storage egress by downloading through the other route.
+export function createByteBudget(windows) {
   const buckets=windows.map(()=>new Map());let sweptAt=0;
   return {
     take(key,amount,at=Date.now()) {
@@ -35,7 +37,7 @@ function createByteBudget(windows) {
   };
 }
 // If-None-Match against one strong ETag; weak and listed forms match too, as RFC 9110 allows for GET.
-const matchesEtag = (header, etag) => typeof header === 'string' && header.split(',').some(tag => { const value=tag.trim().replace(/^W\//,''); return value==='*'||value===etag; });
+export const matchesEtag = (header, etag) => typeof header === 'string' && header.split(',').some(tag => { const value=tag.trim().replace(/^W\//,''); return value==='*'||value===etag; });
 /* Activity events are counted, not replayed: one row per person, session, kind, resource and UTC hour. The id is
    derived from those, so repeated opens within the hour hit the primary key and are answered as already recorded,
    and no client can choose (or exhaust) identifiers. */
@@ -62,9 +64,8 @@ function respond(res,status,body,headers={}) {
 }
 
 // finalSurvey and clock exist for tests: the survey's course and deadline are fixed in production.
-export function createCourseApi({store,userRepository,sameOrigin,send=respond,rateLimit=()=>true,downloadLimits=DOWNLOAD_LIMITS,log=console.error,finalSurvey=FINAL_SURVEY,clock=Date.now}={}) {
+export function createCourseApi({store,userRepository,sameOrigin,send=respond,rateLimit=()=>true,downloadLimits=DOWNLOAD_LIMITS,downloads=createByteBudget(downloadLimits),log=console.error,finalSurvey=FINAL_SURVEY,clock=Date.now}={}) {
   const participants=createCourseParticipants({store,userRepository});
-  const downloads=createByteBudget(downloadLimits);
   const findOne=async(name,filters)=>(await store.find(name,filters,{limit:1}))[0]??null;
   async function all(name,filters={},max=Infinity) {
     let rows=[],after=null;

@@ -5,14 +5,14 @@ import {once} from 'node:events';
 import {randomUUID} from 'node:crypto';
 import {createDatabase,createUser,toApiUser} from '../server/db.js';
 import {createCourseStore} from '../server/courses-repository.js';
-import {createCourseApi} from '../server/courses-api.js';
+import {createCourseApi,createByteBudget,matchesEtag} from '../server/courses-api.js';
 import {deleteCourseData} from '../server/courses-privacy.js';
 
-async function setup(t) {
+async function setup(t,apiOptions={}) {
  const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
  const users={};for(const [key,role] of [['staff','admin'],['student','member'],['other','member']]) users[key]=toApiUser(createUser(db,{fullName:key,email:`${key}@example.test`,passwordHash:'test',role}));
  const store=createCourseStore({db});
- const api=createCourseApi({store,userRepository:{getUserById:async id=>Object.values(users).find(u=>u.id===id),toApiUser:u=>u},sameOrigin:req=>req.headers.origin===`http://${req.headers.host}`});
+ const api=createCourseApi({store,userRepository:{getUserById:async id=>Object.values(users).find(u=>u.id===id),toApiUser:u=>u},sameOrigin:req=>req.headers.origin===`http://${req.headers.host}`,...apiOptions});
  const server=http.createServer(async(req,res)=>{try{if(!await api({req,res,url:new URL(req.url,`http://${req.headers.host}`),user:users[req.headers.cookie]})){res.writeHead(404);res.end();}}catch(e){res.writeHead(e.status??500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:e.message}));}});
  server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
  const base=`http://127.0.0.1:${server.address().port}`;
@@ -363,4 +363,17 @@ test('equal-position sessions use session date before ID while explicit position
  await store.update('modules',{id:earlier.id},{id:'f0000000-0000-4000-8000-000000000001'});earlier.id='f0000000-0000-4000-8000-000000000001';
  const response=await(await call(`/api/courses/${course.id}`,{actor:'staff'})).json();
  assert.deepEqual(response.modules.filter(m=>m.kind==='session').map(m=>m.id),[explicit.id,earlier.id,module.id]);
+});
+
+test('an injected download budget is the one member downloads draw from, so another API can share it',async t=>{
+ const takes=[];const downloads={take:(key,amount)=>{takes.push([key,amount]);return {ok:false,retryAfter:7};}};
+ const {call,course,module,enter,users}=await setup(t,{downloads});await enter();
+ const upload=await call(`/api/courses/${course.id}/modules/${module.id}/attachments`,{method:'POST',body:{name:'field.txt',mime:'text/plain',data:Buffer.from('Field').toString('base64')}});assert.equal(upload.status,201);
+ const {attachment}=await upload.json();
+ const refused=await call(`/api/course-attachments/${attachment.id}`);assert.equal(refused.status,429);assert.equal(refused.headers.get('retry-after'),'7');
+ assert.deepEqual(takes,[[`download:${users.student.id}`,5]]);
+ assert.equal((await call(`/api/course-attachments/${attachment.id}`,{actor:'staff'})).status,200,'staff are not budgeted');
+ const budget=createByteBudget([{windowMs:1000,bytes:10}]);
+ assert.equal(budget.take('k',8,0).ok,true);assert.deepEqual(budget.take('k',8,1),{ok:false,retryAfter:1});assert.equal(budget.take('other',8,1).ok,true);
+ assert.equal(matchesEtag('W/"a", "b"','"b"'),true);assert.equal(matchesEtag(undefined,'"a"'),false);
 });
