@@ -10,7 +10,7 @@ const CLIENT='cccccccc-cccc-4ccc-8ccc-000000000000';
 const ACTIVITY={id:'day1-am',title:'El poder de lo local',date:'2026-10-21',time:'09:00–13:00',venue:'Auditorio MALI, Cercado de Lima',sessions:[['09:00–10:00','¡Bienvenidos al FIIU 11!']],registration:'general',period:'morning'};
 const question=(over={})=>({id:Q,activityId:'day1-am',talk:'¡Bienvenidos al FIIU 11!',body:'¿Qué te llevas de esta mañana?',status:'open',revision:3,messageCount:2,createdAt:'2026-10-21T13:55:00.000Z',...over});
 const message=(id,over={})=>({id,author:'Ana T.',organiser:false,mine:false,body:'Hola a todas',files:[],likeCount:0,liked:false,createdAt:'2026-10-21T14:05:00.000Z',seq:1,...over});
-const thread=(over={})=>({question:question(over.question),activity:ACTIVITY,messages:over.messages??[message(M1,{seq:1}),message(M2,{author:'Flavia R.',organiser:true,body:'Bienvenidas',createdAt:'2026-10-21T14:07:00.000Z',seq:2})],before:over.before??null,revision:over.revision??3,me:{organiser:false,canPost:true,...over.me}});
+const thread=(over={})=>({question:question(over.question),activity:ACTIVITY,messages:over.messages??[message(M1,{seq:1}),message(M2,{author:'Flavia R.',organiser:true,body:'Bienvenidas',createdAt:'2026-10-21T14:07:00.000Z',seq:2})],before:over.before??null,revision:over.revision??3,me:{draftKey:'viewer-ana',organiser:false,canPost:true,...over.me}});
 // A ?since= answer as the server sends it: the changes, then the question as it is now (its text, talk and status ride on every answer).
 const since=(revision,changes=[],over={})=>({revision,changes,question:question({revision,...over})});
 // Changes carry no liked flag: one answer serves every viewer, and the page keeps its own.
@@ -760,7 +760,7 @@ const memoryStore=(seed={})=>{const items=new Map(Object.entries(seed));return {
 const blocked={getItem(){throw new Error('denied');},setItem(){throw new Error('denied');},removeItem(){throw new Error('denied');}};
 // The harness tracks no focus: a test names the focused element, and contains() answers for it.
 const focusInside=(h,node)=>{h.ctx.document.activeElement=node;for(const box of [h.root,...descendants(h.root)])box.contains=child=>child===box||descendants(box).includes(child);};
-const DRAFT_KEY='nodal.talkDraft.'+Q;
+const DRAFT_KEY='nodal.talkDraft.viewer-ana.'+Q;
 
 test('a half-typed answer is kept per question for the tab, so a reload or a sign-in round trip brings it back, and sending drops it',async()=>{
  const sessionStorage=memoryStore();
@@ -1094,7 +1094,7 @@ test('a page that opens or redraws itself keeps focus that was on it: the compos
  assert.equal(block.root.querySelector('h1').focused,true,'its question gone, the heading');
 });
 
-const UNSENT_KEY='nodal.talkUnsent.'+Q;
+const UNSENT_KEY='nodal.talkUnsent.viewer-ana.'+Q;
 
 test('a message not confirmed by the server survives a reload as not sent, and Retry is still the same message; a confirmed or refused one is forgotten',async()=>{
  const sessionStorage=memoryStore();
@@ -1128,4 +1128,45 @@ test('a draft kept under a closed question can be discarded, so the dock shrinks
  const again=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'closed'},me:{canPost:false}})},{context:{sessionStorage}});
  assert.equal(again.root.querySelector('.f-talk-draft').hidden,true,'opening the question again shows no draft');
  h.lang('es');assert.equal(discard.textContent,'Descartar');
+});
+
+// Review of round 3: the unsent store must belong to one person, a restored row must survive a closed question, and a refusal must not lose text.
+test('drafts and unsent messages belong to the person who wrote them: the next account on the same tab gets neither',async()=>{
+ const sessionStorage=memoryStore();
+ const ana=await page({['POST '+MESSAGES]:offline},{context:{sessionStorage}});
+ const text=composer(ana).querySelector('textarea');text.value='Ana privada';submit(ana);await flush();
+ text.value='Borrador de Ana';text.listeners.input();
+ const beto=await page({['GET /api/fiiu/questions/'+Q]:thread({me:{draftKey:'viewer-beto'}}),['POST '+MESSAGES]:offline},{context:{sessionStorage}});
+ assert.equal(composer(beto).querySelector('textarea').value,'','Ana’s draft is not in Beto’s composer');
+ assert.equal(rows(beto).some(node=>classes(node).includes('is-failed')),false,'nor her unsent message in his chat');
+ const back=await page({},{context:{sessionStorage}});
+ assert.equal(composer(back).querySelector('textarea').value,'Borrador de Ana','Ana gets both back');assert.ok(classes(rows(back).at(-1)).includes('is-failed'));
+ // A read without a key keeps nothing in the tab rather than sharing one slot between people.
+ const keyless=await page({['GET /api/fiiu/questions/'+Q]:thread({me:{draftKey:undefined}})},{context:{sessionStorage}});
+ const box=composer(keyless).querySelector('textarea');assert.equal(box.value,'');box.value='Sin dueño';box.listeners.input();
+ assert.deepEqual([...sessionStorage.items.keys()].filter(name=>!name.includes('viewer-ana')),[]);
+});
+
+test('Retry on an unsent message restored under a question that has closed says so in the dock, and Discard lets it go for good',async()=>{
+ const sessionStorage=memoryStore({[UNSENT_KEY]:JSON.stringify([{clientId:CLIENT,body:'Escrito sin señal'}])});
+ const routes={['GET /api/fiiu/questions/'+Q]:thread({question:{status:'closed'},me:{canPost:false}}),['POST '+MESSAGES]:{status:409,data:{error:'question closed',code:'question_closed'}}};
+ const h=await page(routes,{context:{sessionStorage}});
+ assert.equal(composer(h),null);const restored=rows(h).at(-1);assert.ok(classes(restored).includes('is-failed'));
+ await key(restored,'talkRetry').listeners.click();await flush();// it used to throw here, with no composer to report to
+ const after=rows(h).at(-1);assert.ok(classes(after).includes('is-failed'),'back to not sent, not stuck on Sending…');assert.ok(key(after,'talkRetry'));
+ assert.equal(h.root.querySelector('.f-talk-note').dataset.fiiuText,'talkClosed','the dock says why');
+ await key(after,'talkDiscardDraft').listeners.click();
+ assert.equal(rows(h).some(node=>node.dataset.pending),false);assert.equal(sessionStorage.items.has(UNSENT_KEY),false);
+ const again=await page(routes,{context:{sessionStorage}});assert.equal(rows(again).some(node=>node.dataset.pending),false,'it does not come back');
+});
+
+test('a refused message is kept as a failed row with its text when something new was typed meanwhile, instead of being dropped',async()=>{
+ const reply=later();
+ const h=await page({['POST '+MESSAGES]:()=>reply.promise});
+ const text=composer(h).querySelector('textarea');text.value='Primera idea';submit(h);
+ text.value='Segunda idea a medio escribir';text.listeners.input();
+ reply.resolve({status:403,data:{error:'festival registration required',code:'not_registered'}});await flush();
+ assert.equal(text.value,'Segunda idea a medio escribir','what is being typed stays');
+ const kept=rows(h).at(-1);assert.ok(classes(kept).includes('is-failed'));assert.equal(content(kept.querySelector('.f-talk-body')).trim(),'Primera idea');
+ await key(kept,'talkDiscardDraft').listeners.click();assert.equal(rows(h).some(node=>node.dataset.pending),false);
 });

@@ -365,6 +365,9 @@ test('the phone nav rail is one sideways row, so the festival block and greeting
   assert.match(phone, /\.side-foot\s*\{\s*display:\s*contents;?\s*\}/, 'language next to the wordmark, sign-out under the row');
   // The scroller clips an outer focus ring, so the ring goes inside.
   assert.match(phone, /\.side \.side-link:focus-visible\s*\{\s*outline-offset:\s*-3px;\s*outline-color:\s*#fff;?\s*\}/, 'white reads on the green active link too');
+  // A mouse cannot swipe the row and its scrollbar is hidden, so with a fine pointer the links wrap again.
+  const mouse = blocks(css(), '@media (max-width: 760px) and (hover: hover) and (pointer: fine)');
+  assert.match(mouse, /\.side-nav\s*\{[^}]*flex-wrap:\s*wrap;[^}]*overflow-x:\s*visible;[^}]*mask-image:\s*none/);
 });
 
 /* ---------------- touch targets and search scopes (finding 35) ---------------- */

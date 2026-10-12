@@ -398,8 +398,13 @@
    if(pending){open.input.checked=!open.input.checked;return;}
    const wanted=open.input.checked;if(config.registrationOpen&&!wanted&&!window.confirm(t('closeConfirm'))){open.input.checked=true;return;}
    pending=true;open.input.setAttribute('aria-disabled','true');
-   return action(save,async()=>{try{config=(await api('/api/admin/fiiu/config',{...config,registrationOpen:wanted,version:config.version},'PUT')).config;}catch(err){open.input.checked=config.registrationOpen;throw err;}finally{renderRegistrationPill();}},{feedback:switchNote,conflict:switchConflict,reload:reloadSettings}).finally(()=>{pending=false;open.input.removeAttribute('aria-disabled');});
+   return action(save,async()=>{try{config=(await api('/api/admin/fiiu/config',{...config,registrationOpen:wanted,version:config.version},'PUT')).config;}catch(err){open.input.checked=config.registrationOpen;throw err;}finally{renderRegistrationPill();}},{feedback:switchNote,conflict:switchConflict,reload:reloadSwitch}).finally(()=>{pending=false;open.input.removeAttribute('aria-disabled');});
   });
+  // The switch's own conflict re-reads the settings for the switch alone: links typed and not yet saved stay in their fields, waiting for Save.
+  async function reloadSwitch(){
+   config=(await api('/api/admin/fiiu/config')).config;open.input.checked=config.registrationOpen;renderRegistrationPill();
+   status(switchNote,'');switchConflict.replaceChildren();open.input.focus();
+  }
   form.addEventListener('submit',async event=>{
    event.preventDefault();if(busy||pending)return;
    // Saved settings the form does not show (the older workshop and route links) go back unchanged, and so does the saved availability.

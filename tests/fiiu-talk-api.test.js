@@ -81,7 +81,7 @@ test('organisers create, retry, hide, close and edit questions with versions',as
  assert.deepEqual((await json('/api/fiiu/questions?activityId=day1-am',{actor:'admin'})).body.questions.map(q=>q.id).sort(),[open.id,draft.id].sort());
  const hidden=await json(`/api/fiiu/questions/${draft.id}`);assert.equal(hidden.status,404);assert.equal(hidden.body.code,'question_unavailable');
  assert.equal((await json(`/api/fiiu/questions/${randomUUID()}`)).status,404);
- const preview=await json(`/api/fiiu/questions/${draft.id}`,{actor:'admin'});assert.equal(preview.status,200);assert.deepEqual(preview.body.me,{organiser:true,canPost:false});
+ const preview=await json(`/api/fiiu/questions/${draft.id}`,{actor:'admin'});assert.equal(preview.status,200);assert.deepEqual(preview.body.me,{draftKey:preview.body.me.draftKey,organiser:true,canPost:false});assert.match(preview.body.me.draftKey,/^[\w-]{16}$/);
  const list=await json('/api/admin/fiiu/questions',{actor:'admin'});
  assert.equal(list.status,200);assert.deepEqual(list.body.questions.find(q=>q.id===open.id).stats,{messages:0,people:0,likes:0});
  const closed=await json(`/api/admin/fiiu/questions/${open.id}`,{actor:'admin',method:'PATCH',body:{version:1,status:'closed'}});
@@ -107,10 +107,14 @@ test('participants post with idempotent retries, see display names only, and syn
  assert.equal((await post(q,'   ')).body.code,'empty_message');
  assert.equal((await post(q,'x'.repeat(1001))).body.code,'message_too_long');
  const seen=await json(`/api/fiiu/questions/${q.id}`,{actor:'other'});
- assert.equal(seen.status,200);assert.equal(seen.body.revision,1);assert.deepEqual(seen.body.me,{organiser:false,canPost:true});
+ assert.equal(seen.status,200);assert.equal(seen.body.revision,1);assert.deepEqual(seen.body.me,{draftKey:seen.body.me.draftKey,organiser:false,canPost:true});
  assert.equal(seen.body.question.messageCount,1);assert.equal(seen.body.activity.id,'day1-am');assert.equal(seen.body.before,null);
  const [view]=seen.body.messages;assert.equal(view.author,'Ana T.');assert.equal(view.mine,false);
  assert.equal('userId' in view,false);assert.equal('authorFull' in view,false);assert.doesNotMatch(JSON.stringify(seen.body),new RegExp(users.member.id));
+ // Each viewer gets their own stable name for drafts kept in the tab; it is not their id.
+ const seenAgain=await json(`/api/fiiu/questions/${q.id}`,{actor:'other'}),author=await json(`/api/fiiu/questions/${q.id}`);
+ assert.equal(seenAgain.body.me.draftKey,seen.body.me.draftKey);assert.notEqual(author.body.me.draftKey,seen.body.me.draftKey);
+ assert.doesNotMatch(JSON.stringify(author.body),new RegExp(users.member.id),'nor the reader’s own id');
  const second=await post(q,'Respuesta',{actor:'other'});assert.equal(second.status,201);assert.equal(second.body.message.author,'Ben O.');
  const since=await json(`/api/fiiu/questions/${q.id}/messages?since=1`);
  assert.equal(since.status,200);assert.deepEqual(since.body.changes.map(c=>c.id),[second.body.message.id]);assert.equal(since.body.liked,undefined);

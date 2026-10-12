@@ -1,9 +1,13 @@
-import {randomUUID} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {fail,identifier,csv,attachmentFilename,encodeCursor,decodeCursor} from './courses-domain.js';
 import {bodyJson,createByteBudget,matchesEtag,DOWNLOAD_LIMITS} from './courses-api.js';
 import {EVENT_ID} from './fiiu-domain.js';
 import {packBits} from './qr.js';
 import {TALK_LIMITS,talkActivity,normalizeQuestion,normalizeMessage,decodeTalkFile,namesFor,questionView,messageView,goneView,activityView} from './fiiu-talk-domain.js';
+
+// The page keeps a viewer's unsent text in the tab under this name, so the next person signing in on a shared phone never gets it. A digest, not the
+// id: a conversation read never carries user ids.
+const draftKey=userId=>createHash('sha256').update('nodal-talk-draft:'+userId).digest('base64url').slice(0,16);
 
 /* FIIU block conversations over HTTP. The pulse is the one public route: ids, blocks, revisions and statuses, the same
    for everyone, so the CDN answers the 4-second polls of a full auditorium (one venue address) and a phone fetches
@@ -252,7 +256,7 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     const page=await store.latestMessages(q.id,{includeHidden:organiser,ownHidden:user.id,limit:TALK_LIMITS.page});
     const {list,liked}=await views(page.rows,{viewer:user.id,organiser});
     send(res,200,{question:questionView(q,{organiser}),activity:activity?activityView(activity):null,messages:list,liked:[...liked],
-     before:page.more?encodeCursor(page.rows[0]):null,revision:Number(q.revision),me:{organiser,canPost:q.status==='open'}});
+     before:page.more?encodeCursor(page.rows[0]):null,revision:Number(q.revision),me:{draftKey:draftKey(user.id),organiser,canPost:q.status==='open'}});
     return true;
    }
    if(name==='messages'&&read){

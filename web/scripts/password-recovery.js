@@ -27,7 +27,7 @@
   requestForm.hidden=Boolean(code);resetForm.hidden=!code;
   another.hidden=!code;heading(code?'newTitle':'requestTitle');
   if(providerError&&!code)show('recovery_invalid');
-  another.addEventListener('click',()=>{if(busy)return;requestMode();message.hidden=true;email.focus();});
+  another.addEventListener('click',()=>{if(busy)return;requestMode();clear();email.focus();});
   function setBusy(form,value){
     busy=value;form.setAttribute('aria-busy',String(value));another.disabled=value;
     for(const input of [email,password,confirm])input.disabled=value;

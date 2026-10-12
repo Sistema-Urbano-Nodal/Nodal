@@ -86,23 +86,26 @@
  // no-break space, so it is read again. It carries no key: a language switch must not repeat the last announcement.
  function announce(text){const live=parts?.live;if(live)live.textContent=live.textContent===text?text+'\u00a0':text;}
  // A half-typed answer is kept for the tab (sessionStorage), per question: a close, a sign-in round trip or a reload brings it back. Storage can be
- // blocked or full, so every access is guarded and the draft then stays on screen only.
+ // blocked or full, so every access is guarded and the draft then stays on screen only. It is kept per viewer too: on a shared phone, or after "Use
+ // another account", the next person never sees, or posts under their own name, what someone else typed.
  const DRAFTS='nodal.talkDraft.';
- function storedDraft(id){try{return globalThis.sessionStorage?.getItem(DRAFTS+id)||'';}catch{return '';}}
+ const slot=(prefix,id)=>me.draftKey&&id?prefix+me.draftKey+'.'+id:'';
+ function storedDraft(id){const name=slot(DRAFTS,id);if(!name)return '';try{return globalThis.sessionStorage?.getItem(name)||'';}catch{return '';}}
  function keepDraft(){
-  const id=question?.id,text=composer?.textarea.value||'';if(!id)return;
-  try{if(text.trim())globalThis.sessionStorage?.setItem(DRAFTS+id,text);else globalThis.sessionStorage?.removeItem(DRAFTS+id);}catch{/* Without storage the draft stays on screen only. */}
+  const name=slot(DRAFTS,question?.id),text=composer?.textarea.value||'';if(!name)return;
+  try{if(text.trim())globalThis.sessionStorage?.setItem(name,text);else globalThis.sessionStorage?.removeItem(name);}catch{/* Without storage the draft stays on screen only. */}
  }
  // A message handed to its row is kept the same way, with its clientId, until the server confirms or refuses it: a reload, or a phone that drops the
  // tab while offline, draws it again as not sent, and Retry is still the same message (one the server already has comes back, not a second copy).
  // Text only: a photo cannot come back after a reload, and its text alone under the same clientId would be refused as another message.
  const UNSENT='nodal.talkUnsent.';
  function keepUnsent(){
-  const id=question?.id;if(!id)return;const list=[...attempts.values()].filter(item=>!item.files.length).map(({clientId,body})=>({clientId,body}));
-  try{if(list.length)globalThis.sessionStorage?.setItem(UNSENT+id,JSON.stringify(list));else globalThis.sessionStorage?.removeItem(UNSENT+id);}catch{/* The rows stay on screen only. */}
+  const name=slot(UNSENT,question?.id);if(!name)return;const list=[...attempts.values()].filter(item=>!item.files.length).map(({clientId,body})=>({clientId,body}));
+  try{if(list.length)globalThis.sessionStorage?.setItem(name,JSON.stringify(list));else globalThis.sessionStorage?.removeItem(name);}catch{/* The rows stay on screen only. */}
  }
  function restoreUnsent(){
-  let list;try{list=JSON.parse(globalThis.sessionStorage?.getItem(UNSENT+question.id)||'[]');}catch{list=[];}
+  const name=slot(UNSENT,question.id);if(!name)return;
+  let list;try{list=JSON.parse(globalThis.sessionStorage?.getItem(name)||'[]');}catch{list=[];}
   for(const item of Array.isArray(list)?list:[]){
    if(!UUID.test(String(item?.clientId))||typeof item.body!=='string'||!item.body.trim()||attempts.has(item.clientId))continue;
    const attempt={clientId:item.clientId,body:item.body,files:[],sig:item.body+'\n',state:'failed',row:null};attempt.row=pendingRow(attempt,true);attempts.set(attempt.clientId,attempt);
@@ -293,7 +296,7 @@
  // A reload of the same question (a reset, or a status the pulse cannot carry) rebuilds the rows but keeps the header nodes, the composer and its draft.
  function show(data){
   const again=question?.id===data.question.id;
-  question={...data.question};activity=data.activity||activity;me={organiser:Boolean(data.me?.organiser),canPost:data.me?.canPost!==false&&question.status==='open'};
+  question={...data.question};activity=data.activity||activity;me={draftKey:/^[\w-]{1,64}$/.test(String(data.me?.draftKey))?data.me.draftKey:'',organiser:Boolean(data.me?.organiser),canPost:data.me?.canPost!==false&&question.status==='open'};
   before=typeof data.before==='string'?data.before:null;known=Number(data.revision)||Number(question.revision)||0;
   liked.clear();seedLiked(data);
   // The projector is for organisers; anyone else who opens its address gets the chat.
@@ -514,7 +517,8 @@
   const row=el('li','f-talk-msg is-mine '+(failed?'is-failed':'is-pending')),meta=el('p','f-talk-meta');row.dataset.pending='1';
   meta.append(tr('strong','talkYou','f-talk-author'),stateNode(failed?'talkNotSent':'talkSending'));row.append(meta);if(attempt.body)row.append(linkify(attempt.body));
   if(attempt.files.length){const list=el('ul','f-talk-pending-files');for(const file of attempt.files)list.append(el('li','',file.name));row.append(list);}
-  if(failed){const actions=el('div','f-talk-actions');actions.append(button('talkRetry',()=>deliver(attempt),'f-talk-act f-talk-retry'));row.append(actions);}
+  // Discard lets go of one that cannot go anywhere: a question closed since, or a file the festival will not take.
+  if(failed){const actions=el('div','f-talk-actions');actions.append(button('talkRetry',()=>deliver(attempt),'f-talk-act f-talk-retry'),button('talkDiscardDraft',()=>discard(attempt),'f-talk-act'));row.append(actions);}
   return row;
  }
  // Sending hands the draft to its row and empties the composer at once, as chat apps do: what is typed next is a new message, and a photo still
@@ -529,9 +533,15 @@
   let attempt=same?.state==='failed'?same:null;if(!attempt){attempt={clientId:uuid(),body,files,sig,state:'new',row:null};attempts.set(attempt.clientId,attempt);keepUnsent();}
   clearComposer();return deliver(attempt);
  }
+ function discard(attempt){
+  if(attempt.state==='sending')return;attempts.delete(attempt.clientId);keepUnsent();for(const file of attempt.files)uploads.delete(fileKey(file));
+  attempt.row?.remove();attempt.row=null;updateEmpty();if(composer&&parts?.dockState==='composer')composer.textarea.focus();
+ }
+ // A Retry can come from a row restored on a question that has closed since, where there is no composer: its news goes to the dock's status line.
+ const tell=value=>status(composer&&parts?.dockState==='composer'?composer.state:parts?.note||message,value);
  async function deliver(attempt){
   if(attempt.state==='sending'||!parts)return;attempt.state='sending';const row=pendingRow(attempt),id=question.id;
-  if(attempt.row)attempt.row.replaceWith(row);else parts.log.append(row);attempt.row=row;updateEmpty();toBottom(true);say('');
+  if(attempt.row)attempt.row.replaceWith(row);else parts.log.append(row);attempt.row=row;updateEmpty();toBottom(true);tell('');
   try{
    const fileIds=[];
    for(const [i,file] of attempt.files.entries()){mark(row,'talkUploading',{current:i+1,total:attempt.files.length});fileIds.push(await upload(file));}
@@ -545,11 +555,13 @@
    const active=document.activeElement;if(!active||active===document.body||c.form.contains?.(active))c.textarea.focus();
   }catch(error){
    const key=keyOf(error);
-   // The draft goes back to the composer to be fixed, unless something new was typed or attached there meanwhile.
-   if(DRAFT.includes(key)){
+   /* The draft goes back to the composer to be fixed. When something new was typed or attached there meanwhile, it stays as a failed row instead,
+      with its text and Discard, so nothing is lost. */
+   const c=composer;
+   if(DRAFT.includes(key)&&c&&!c.textarea.value.trim()&&!c.files.length){
     attempts.delete(attempt.clientId);keepUnsent();row.remove();attempt.row=null;updateEmpty();
-    const c=composer;if(c&&!c.textarea.value.trim()&&!c.files.length){c.textarea.value=attempt.body;c.files=[...attempt.files];renderChips();updateLeft();grow();keepDraft();}
-    say(problem(key));return;
+    c.textarea.value=attempt.body;c.files=[...attempt.files];renderChips();updateLeft();grow();keepDraft();
+    tell(problem(key));return;
    }
    // A file the server no longer accepts for this message is uploaded again on the next try.
    if(error?.code==='file_unavailable')for(const file of attempt.files)uploads.delete(fileKey(file));
@@ -558,13 +570,13 @@
    if(error?.code==='client_id_reused'){attempts.delete(attempt.clientId);attempt.clientId=uuid();attempts.set(attempt.clientId,attempt);keepUnsent();for(const file of attempt.files)uploads.delete(fileKey(file));}
    // The failed row is taller than the sending one (its Retry) and the composer gains a status line: a reader still following (the send took them to
    // the end) stays at the end, so the message and its Retry are above the dock instead of under it.
-   attempt.state='failed';const failed=pendingRow(attempt,true);row.replaceWith(failed);attempt.row=failed;say(problem(key==='talkOffline'?'talkOfflineSend':key));keepEnd();
+   attempt.state='failed';const failed=pendingRow(attempt,true);row.replaceWith(failed);attempt.row=failed;tell(problem(key==='talkOffline'?'talkOfflineSend':key));keepEnd();
    if(error?.code==='question_closed')closedByServer();
   }
  }
  // Errors from likes, deletions and moderation show next to the composer, or in the dock's status line when there is none (a closed or hidden
  // question); the next action that works clears that line, unless it says updates are paused.
- function notify(error){status(parts?.dockState==='composer'?composer.state:parts?.note||message,problem(keyOf(error)));}
+ function notify(error){tell(problem(keyOf(error)));}
  function settled(){const node=parts?.note;if(node&&node.dataset.fiiuText&&!PAUSED.includes(node.dataset.fiiuText))status(node,'');}
  function paintLike(id){
   const view=views.get(id),like=rowsById.get(id)?.querySelector('.f-talk-like');if(!view||!like)return;const shown=likeShown(view);

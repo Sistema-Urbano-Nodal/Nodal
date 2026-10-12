@@ -230,6 +230,15 @@ test('when the provider is down the page keeps the form and the code, so the sam
   assert.equal(h.nodes.get('recoveryReset').hidden,false);assert.equal(h.nodes.get('recoveryRequest').hidden,true);
   await h.submit('recoveryReset');assert.equal(h.calls[1].body.code,'one-use-code');assert.match(h.nodes.get('recoveryMessage').textContent,/Your password has been changed/);
 });
+// A live region that appears and gets its text in the same moment is often not read; one already on the page, empty, is.
+test('the reset and invitation status line is on the page from the start, empty and taking no room, so the first answer is read too',()=>{
+  for(const page of ['reset-password','accept-invitation']){
+    const html=readFileSync(new URL(`../web/pages/${page}.html`,import.meta.url),'utf8');
+    assert.match(html,/<p id="recoveryMessage" role="status" aria-live="polite"><\/p>/,page);
+  }
+  assert.match(readFileSync(new URL('../web/styles/recovery.css',import.meta.url),'utf8'),/#recoveryMessage:empty\{margin:0\}/);
+  assert.doesNotMatch(readFileSync(new URL('../web/scripts/password-recovery.js',import.meta.url),'utf8'),/message\.hidden=true/,'emptied, never hidden');
+});
 test('the server refuses a recovery code a second time with recovery_invalid, which the page relies on to retry safely',async()=>{
   const p=provider(),cookie=await request(p);
   assert.equal((await p.repo.completePasswordRecovery({req:req(cookie),code:'one-use-code',password:'a-new-password'})).passwordChanged,true);

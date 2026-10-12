@@ -988,6 +988,11 @@ select:focus-visible, textarea:focus-visible {
   .side-out { order: 3; }
   .side-privacy { order: 4; }
 }
+/* A narrow window with a mouse has no swipe, and the wheel scrolls the page, so the hidden-scrollbar row would keep the
+   tool links out of reach there: with a fine pointer the links wrap onto rows again, every one in sight. */
+@media (max-width: 760px) and (hover: hover) and (pointer: fine) {
+  .side-nav { flex-wrap: wrap; overflow-x: visible; padding-inline-end: 0; -webkit-mask-image: none; mask-image: none; }
+}
 /* Below the widest layout the search row is short: the scope label goes (the chips name themselves) */
 @media (max-width: 1439px) {
   .search-in { display: none; }

@@ -653,6 +653,20 @@ test('reloading the latest settings after a conflict re-reads only the settings 
  await submit(fresh);assert.equal(h.requests.filter(request=>request.method==='PUT').at(-1).body.version,3,'the next save uses the version just read');
 });
 
+test('a conflict on the availability switch reloads the switch alone, so links typed and not yet saved stay for Save',async()=>{
+ let reads=0;
+ const h=await harness(({method})=>method==='GET'?{content:[],nextCursor:null}:{status:409,data:{error:'configuration changed; reload before saving'}},{configRead:()=>({config:++reads===1?{...DEFAULT_CONFIG,version:0}:{...DEFAULT_CONFIG,registrationOpen:false,partyUrl:'https://example.test/party-latest',version:3}})});
+ const form=h.root.querySelector('.f-admin-settings').querySelector('form'),open=field(form,'registrationOpen'),card=h.root.querySelector('.f-switch-card');
+ field(form,'programUrl').value='https://example.test/programme-typed';h.ctx.window.confirm=()=>true;
+ open.checked=false;await open.listeners.change();
+ assert.equal(open.checked,true,'the refused switch shows what is saved');
+ await key(card,'reloadLatest').listeners.click();
+ assert.equal(h.root.querySelector('.f-admin-settings').querySelector('form'),form,'the form is not rebuilt');
+ assert.equal(field(form,'programUrl').value,'https://example.test/programme-typed','the typed link stays');
+ assert.equal(open.checked,false,'the switch shows the latest availability');assert.equal(open.focused,true);
+ assert.ok(key(h.root.querySelector('.f-admin-head'),'registrationClosedNow'));assert.equal(key(card,'reloadLatest'),undefined);
+});
+
 test('reloading the latest review after a conflict re-reads only that participant',async()=>{
  const ana=participant('participant-a','Ana');let reads=0;
  const h=await harness(({path,method})=>{
