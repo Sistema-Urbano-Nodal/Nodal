@@ -121,22 +121,31 @@ export function attachmentFilename(name, mime) {
   while (base.join('').length + ext.length > 160) base.pop();
   return base.join('') + ext;
 }
-export function decodeAttachment(input = {}) {
+export const COURSE_ATTACHMENT_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf', 'text/plain'];
+// The festival translates refusals by a machine code; the course pages keep showing the message.
+const failCode = (message, status, code) => { try { fail(message, status); } catch (err) { throw Object.assign(err, { code }); } };
+const sizeLabel = bytes => bytes % 1048576 === 0 ? `${bytes / 1048576} MB` : bytes % 1024 === 0 ? `${bytes / 1024} KB` : `${bytes} bytes`;
+/* Course callers pass no options and keep the course types, the 3 MB limit and the wording. The festival narrows
+   both (no text files; 100 KB thumbnails), so its refusals name the limit they hit rather than the course's. */
+export function decodeAttachment(input = {}, { types = COURSE_ATTACHMENT_TYPES, max = MAX_ATTACHMENT_BYTES } = {}) {
   const supplied = text(input.name, 'filename', 160, true);
   const mime = input.mime;
-  if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf', 'text/plain'].includes(mime)) fail('unsupported file type: use JPG, PNG, WebP, PDF or text');
+  if (!types.includes(mime)) failCode(types === COURSE_ATTACHMENT_TYPES ? 'unsupported file type: use JPG, PNG, WebP, PDF or text' : 'unsupported file type', 400, 'file_type');
   const name = attachmentFilename(supplied, mime);
   const data = input.data;
-  if (typeof data !== 'string' || data.length > Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4) fail('file exceeds 3 MB', 413);
+  if (typeof data !== 'string' || data.length > Math.ceil(max / 3) * 4) failCode(`file exceeds ${sizeLabel(max)}`, 413, 'file_size');
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data)) fail('invalid file encoding');
   const bytes = Buffer.from(data, 'base64');
-  if (!bytes.length || bytes.length > MAX_ATTACHMENT_BYTES || bytes.toString('base64') !== data) fail('invalid file size or encoding', 413);
+  // The base64 ceiling rounds up to whole groups, so a file up to two bytes over the limit still reaches here.
+  if (bytes.length > max) failCode('invalid file size or encoding', 413, 'file_size');
+  if (!bytes.length || bytes.toString('base64') !== data) fail('invalid file size or encoding', 413);
   const valid = mime === 'image/png' ? bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
     : mime === 'image/jpeg' ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
       : mime === 'image/webp' ? bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP'
         : mime === 'application/pdf' ? bytes.toString('ascii', 0, 5) === '%PDF-'
           : !bytes.includes(0) && !bytes.toString('utf8').includes('\uFFFD');
-  if (!valid) fail('file content does not match its type');
+  // A phone photo renamed to .jpg (HEIC) is a type problem for the person sending it, so it shares the type code.
+  if (!valid) failCode('file content does not match its type', 400, 'file_type');
   return { name, mime, size: bytes.length, bytes };
 }
 export function csv(rows) {

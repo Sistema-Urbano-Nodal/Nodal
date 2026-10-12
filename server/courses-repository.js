@@ -2,6 +2,7 @@ import { COURSE_TABLES, COURSE_SQLITE_SCHEMA, COURSE_SQLITE_DISCUSSION_SCHEMA, s
 import { createSupabaseClients } from './supabase.js';
 import { randomUUID } from 'node:crypto';
 import { fail, identifier } from './courses-domain.js';
+import { createObjectStorage } from './object-storage.js';
 
 const BUCKET = 'course-attachments';
 const uploadAllowanceReached = () => fail('course upload allowance reached; use a link instead',413);
@@ -191,18 +192,7 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
     else if(opts.after)query.id=`${opts.desc?'lt':'gt'}.${opts.after.id}`;
     return query;
   };
-  const storage = async (attachment, {method='GET',body}={}) => {
-    const credentials=supa.env;
-    const url=`${credentials.url}/storage/v1/object/${BUCKET}/${attachment.storagePath.split('/').map(encodeURIComponent).join('/')}`;
-    const response=await fetchImpl(url,{method,body,headers:{apikey:credentials.serverKey,Authorization:`Bearer ${credentials.serverKey}`,'Content-Type':attachment.mime,'x-upsert':'false'},signal:AbortSignal.timeout(20000)});
-    if(!response.ok) fail('attachment storage unavailable',502);
-    return response;
-  };
-  const removeObject = async storagePath => {
-    const credentials=supa.env;
-    const response=await fetchImpl(`${credentials.url}/storage/v1/object/${BUCKET}`,{method:'DELETE',headers:{apikey:credentials.serverKey,Authorization:`Bearer ${credentials.serverKey}`,'Content-Type':'application/json'},body:JSON.stringify({prefixes:[storagePath]}),signal:AbortSignal.timeout(20000)});
-    if(!response.ok) fail('attachment cleanup unavailable',502);
-  };
+  const objects = createObjectStorage({env:supa.env,fetchImpl,bucket:BUCKET});
   return {
     kind:'supabase',
     async getPostAttachments({ids,courseId,moduleId}) {
@@ -261,11 +251,11 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
       const query=queryFor(info,filters,{});delete query.order;delete query.limit;
       await supa.admin.rest(info.table,{method:'DELETE',query});
     },
-    async putFile(attachment,bytes) { await storage(attachment,{method:'POST',body:bytes}); },
-    async getFile(attachment) { return Buffer.from(await (await storage(attachment)).arrayBuffer()); },
-    async deleteFile(attachment) { await removeObject(attachment.storagePath); },
-    async putCertificate(certificate,bytes) { await storage({storagePath:certificatePath(certificate),mime:'application/pdf'},{method:'POST',body:bytes}); },
-    async getCertificate(certificate) { return Buffer.from(await (await storage({storagePath:certificatePath(certificate),mime:'application/pdf'})).arrayBuffer()); },
-    async deleteCertificate(certificate) { await removeObject(certificatePath(certificate)); },
+    async putFile(attachment,bytes) { await objects.put(attachment.storagePath,attachment.mime,bytes); },
+    async getFile(attachment) { return objects.get(attachment.storagePath,attachment.mime); },
+    async deleteFile(attachment) { await objects.remove([attachment.storagePath]); },
+    async putCertificate(certificate,bytes) { await objects.put(certificatePath(certificate),'application/pdf',bytes); },
+    async getCertificate(certificate) { return objects.get(certificatePath(certificate),'application/pdf'); },
+    async deleteCertificate(certificate) { await objects.remove([certificatePath(certificate)]); },
   };
 }
