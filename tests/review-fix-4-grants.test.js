@@ -65,3 +65,35 @@ test('the final survey tables are server-only: the browser roles hold nothing an
  // A tracked private file never loses its row: neither the account nor the course can be deleted under it.
  assert.match(sql,/course_certificates[\s\S]*course_id uuid NOT NULL REFERENCES public\.pilot_courses\(id\) ON DELETE RESTRICT,\s*user_id uuid NOT NULL REFERENCES public\.profiles\(id\) ON DELETE RESTRICT/);
 });
+
+test('the festival conversation tables are server-only, and their migration only adds',()=>{
+ for(const table of ['public.fiiu_questions','public.fiiu_messages','public.fiiu_message_likes','public.fiiu_files']){
+  for(const role of ['anon','authenticated'])assert.equal(stateFor('table',table,role),'revoked',`${table} ${role}`);
+  assert.equal(stateFor('table',table,'service_role'),'granted',table);
+ }
+ for(const fn of ['public.reserve_fiiu_file(jsonb)','public.fiiu_question_stats(text)']){
+  for(const role of ['anon','authenticated'])assert.equal(stateFor('function',fn,role),'revoked',`${fn} ${role}`);
+  assert.equal(stateFor('function',fn,'service_role'),'granted',fn);
+ }
+ const name=readdirSync(dir).find(file=>file.endsWith('_fiiu_conversations.sql'));
+ assert.match(name??'',/^\d{14}_fiiu_conversations\.sql$/);
+ assert.ok(name>'20261006004500_course_final_survey.sql','sorts after the migrations it builds on');
+ const sql=readFileSync(new URL(name,dir),'utf8').replace(/--[^\n]*/g,'');
+ // Function bodies hold their own semicolons, so they are folded away before splitting into statements.
+ const body=sql.replace(/\$\$[\s\S]*?\$\$/g,()=>'$$body$$').split(';').map(part=>part.replace(/\s+/g,' ').trim()).filter(Boolean);
+ const own='(?:public\\.fiiu_(?:questions|messages|message_likes|files)|nodal_private\\.fiiu_upload_locks)\\b';
+ const fn='(?:public|nodal_private)\\.(?:fiiu_\\w+|erase_fiiu_messages_on_account_delete|reserve_fiiu_file|guard_fiiu_upload_quota)\\(';
+ const allowed=[/^begin$/i,/^commit$/i,new RegExp(`^create table ${own}`,'i'),new RegExp(`^create index \\w+ on ${own}`,'i'),new RegExp(`^create function ${fn}`,'i'),
+  new RegExp(`^create trigger fiiu_\\w+ (?:before|after) [a-z ]+ on public\\.(?:fiiu_\\w+|profiles) for each row execute function ${fn}\\)$`,'i'),
+  /^create schema if not exists nodal_private$/i,new RegExp(`^alter table ${own} enable row level security$`,'i'),/^revoke all on (?:table|function|schema) .+ from public,anon,authenticated(?:,service_role)?$/i,/^grant [a-z, ]+ on .+ to service_role$/i];
+ for(const statement of body)assert.ok(allowed.some(pattern=>pattern.test(statement)),statement);
+ assert.doesNotMatch(sql,/\b(?:drop|truncate)\b/i);assert.doesNotMatch(sql,/\bdelete\s+from\b/i);assert.doesNotMatch(sql,/\balter\s+table\b[^;]*\bdrop\b/i);
+ for(const table of ['public.fiiu_questions','public.fiiu_messages','public.fiiu_message_likes','public.fiiu_files','nodal_private.fiiu_upload_locks'])
+  assert.match(sql,new RegExp(`ALTER TABLE ${table.replace('.','\\.')} ENABLE ROW LEVEL SECURITY`));
+ // Triggers reached through GoTrue's account deletion run as their owner with an empty search path (see 20261003201144).
+ const definers=sql.match(/CREATE FUNCTION [^$]*SECURITY DEFINER[^$]*\$\$/g)??[];
+ assert.equal(definers.length,4);for(const header of definers)assert.match(header,/SET search_path=''/,header);
+ // A tracked private file never loses its row: the account cannot be deleted under it.
+ assert.match(sql,/user_id uuid NOT NULL REFERENCES public\.profiles\(id\) ON DELETE RESTRICT,\s*message_id uuid REFERENCES public\.fiiu_messages\(id\) ON DELETE RESTRICT/);
+ assert.match(sql,/storage_path text NOT NULL UNIQUE CHECK\(storage_path LIKE 'fiiu\/%'\)/);
+});
