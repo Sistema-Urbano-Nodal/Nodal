@@ -23,7 +23,7 @@ async function setup(t,wrapStore=store=>store,options={}){
  for(const name of ['member','other','admin']){users[name]=createUser(db,{fullName:name,email:`${name}@example.test`,passwordHash:'unused',role:name==='admin'?'admin':'member'});cookies[name]=createSession(db,users[name].id).cookie.split(';')[0];}
  const server=createApp({db,fiiuStore:wrapStore(createFiiuStore({db})),...options});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
  const base=`http://127.0.0.1:${server.address().port}`;
- const call=(path,{actor='member',method='GET',body,origin=base}={})=>fetch(base+path,{method,redirect:'manual',headers:{...(cookies[actor]?{Cookie:cookies[actor]}:{}),Origin:origin,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
+ const call=(path,{actor='member',method='GET',body,origin=base,headers={}}={})=>fetch(base+path,{method,redirect:'manual',headers:{...(cookies[actor]?{Cookie:cookies[actor]}:{}),Origin:origin,'Content-Type':'application/json',...headers},body:body===undefined?undefined:JSON.stringify(body)});
  const save=(body=answers,actor='member')=>call('/api/fiiu/registration',{actor,method:'PUT',body:{version:0,...body}});
  return {db,call,save,users,cookies};
 }
@@ -105,6 +105,37 @@ test('the short address on the check-in screen, and loose spellings of the page 
  assert.equal((await call('/fiiu-checkin.html',{actor:'guest'})).status,200);
  for(const path of ['/checkins','/check-in-x','/fiiu-checkin.js.html'])assert.equal((await call(path,{actor:'guest'})).status,404,path);
  assert.equal((await call('/checkin',{method:'POST',body:{}})).status,405,'only page loads are redirected');
+});
+
+test('a browser asking for a page that does not exist gets a page with a way on, in the visitor’s language; other clients keep the JSON answer',async t=>{
+ const {call}=await setup(t);
+ const browser={Accept:'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'};
+ for(const path of ['/checkins','/fiiu-chekin.html','/nothing/here?a=day1-am'])for(const actor of ['guest','member']){
+  const response=await call(path,{actor,headers:{...browser,'Accept-Language':'es-PE,es;q=0.9'}}),page=await response.text();
+  assert.equal(response.status,404,path);assert.match(response.headers.get('content-type'),/^text\/html/);assert.equal(response.headers.get('cache-control'),'no-store');
+  assert.match(response.headers.get('content-security-policy'),/script-src 'self'/);assert.equal(response.headers.get('x-content-type-options'),'nosniff');
+  assert.match(page,/^<!DOCTYPE html>/);assert.match(page,/<html lang="es"/);assert.match(page,/<meta name="viewport"/);assert.match(page,/<h1>No encontramos esta página<\/h1>/);
+  assert.match(page,/<a class="f-button" href="\/fiiu-checkin\.html">Ir al registro de asistencia<\/a>/);assert.match(page,/<a class="f-button secondary" href="\/fiiu\.html">Ir a la página del FIIU<\/a>/);
+  assert.doesNotMatch(page,/<script|style=|nothing|chekin|checkins/,'no script, no inline style, and the address is never echoed');
+ }
+ // A language picked on the site wins, then the browser's, then Spanish; an automatic English save does not count as a choice.
+ const lang=async headers=>(await (await call('/missing',{actor:'guest',headers:{...browser,...headers}})).text()).match(/<html lang="(\w+)"/)[1];
+ assert.equal(await lang({Cookie:'nodal.lang=pt','Accept-Language':'en-US'}),'pt');
+ assert.equal(await lang({Cookie:'nodal.lang=en; nodal.lang.chosen=1','Accept-Language':'es-PE'}),'en');
+ assert.equal(await lang({Cookie:'nodal.lang=en','Accept-Language':'pt-BR,pt;q=0.9'}),'pt');
+ assert.equal(await lang({'Accept-Language':'fr-FR,en;q=0.8'}),'en');
+ assert.equal(await lang({'Accept-Language':'fr-FR'}),'es');assert.equal(await lang({}),'es');
+ const english=await(await call('/missing',{actor:'guest',headers:{...browser,'Accept-Language':'en'}})).text();
+ assert.match(english,/<title>NODAL · Page not found<\/title>/);assert.match(english,/>Go to session check-in</);assert.match(english,/>Go to the FIIU page</);
+ const portuguese=await(await call('/missing',{actor:'guest',headers:{...browser,'Accept-Language':'pt'}})).text();
+ assert.match(portuguese,/<h1>Não encontramos esta página<\/h1>/);assert.match(portuguese,/>Ir para o registro de presença</);
+ // A HEAD for a page gets the status alone.
+ const head=await call('/missing',{actor:'guest',method:'HEAD',headers:browser});assert.equal(head.status,404);assert.match(head.headers.get('content-type'),/^text\/html/);assert.equal(await head.text(),'');
+ // Scripts, styles, images and API calls are not pages: they keep the JSON answer.
+ for(const [path,accept] of [['/missing.js','*/*'],['/missing.css','text/css,*/*;q=0.1'],['/missing.png','image/avif,image/webp,*/*'],['/api/missing',browser.Accept],['/missing',undefined]]){
+  const response=await call(path,{actor:'guest',headers:accept?{Accept:accept}:{}});
+  assert.equal(response.status,404,path);assert.match(response.headers.get('content-type'),/^application\/json/,path);assert.deepEqual(await response.json(),{error:'not found'},path);
+ }
 });
 
 test('registration persists privately, updates by version, and cannot grant acceptance or badges',async t=>{
