@@ -164,7 +164,7 @@ test('new messages below the fold raise the pill instead of scrolling, and near 
   ['GET '+MESSAGES+'?since=3']:since(4,[message(M3,{seq:4,createdAt:'2026-10-21T14:10:00.000Z'})]),
   ['GET '+MESSAGES+'?since=4']:since(5,[message(M4,{seq:5,createdAt:'2026-10-21T14:11:00.000Z'})])});
  const scroller={scrollHeight:3000,scrollTop:0,clientHeight:800};h.ctx.document.scrollingElement=scroller;
- const pill=h.root.querySelector('.f-talk-new');assert.equal(pill.hidden,true);assert.equal(pill['aria-live'],'polite');assert.equal(pill.dataset.fiiuText,'talkNew');
+ const pill=h.root.querySelector('.f-talk-new');assert.equal(pill.hidden,true);assert.equal(pill.dataset.fiiuText,'talkNew');
  revision=4;await h.tickTimers();assert.equal(pill.hidden,false);assert.equal(scroller.scrollTop,0,'a reader higher up stays where they are');
  pill.listeners.click();assert.equal(pill.hidden,true);assert.equal(scroller.scrollTop,3000);
  scroller.scrollTop=2150;revision=5;await h.tickTimers();assert.equal(pill.hidden,true);assert.equal(scroller.scrollTop,3000,'near the bottom the page follows');
@@ -910,4 +910,69 @@ test('a question not open to this viewer keeps watching the pulse and opens by i
  // The watch ends after two hours.
  shown=false;pulse=[];await h.tickTimers();const watch=h.timers.at(-1);assert.equal(watch.cleared,undefined);
  Clock.advance(2*3600000+1);await h.tickTimers();assert.equal(watch.cleared,true);
+});
+
+// Accessibility: focus clear of the dock and never lost, announcements, and row controls that say whose message they act on.
+test('the page measures the sticky dock for the stylesheet, so a focused message control is scrolled clear of it',async()=>{
+ const observers=[];class ResizeObserver{constructor(callback){this.callback=callback;this.targets=[];this.disconnected=false;observers.push(this);}observe(node){this.targets.push(node);}disconnect(){this.disconnected=true;}}
+ let revision=3;
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:{status:401,data:{error:'sign in required'}}},{context:{ResizeObserver}});
+ const box=h.root.querySelector('.f-talk'),dock=box.querySelector('.f-talk-dock'),set={};box.style={setProperty:(name,value)=>{set[name]=value;}};
+ assert.equal(observers.length,1);assert.deepEqual(observers[0].targets,[dock]);
+ dock.offsetHeight=154;observers[0].callback();assert.equal(set['--f-talk-dock-h'],'154px');
+ revision=4;await h.tickTimers();assert.equal(observers[0].disconnected,true,'a page that leaves the chat lets the dock go');
+ const css=readFileSync(new URL('../web/styles/fiiu-talk.css',import.meta.url),'utf8');
+ assert.match(css,/\.f-talk-log :is\(a,button,\[tabindex\]\)[^{]*\{scroll-margin-bottom:calc\(var\(--f-talk-dock-h,140px\) \+ 16px\)\}/);
+ assert.match(css,/@media\(max-height:480px\)\{[^\n]*\.f-talk-dock\{position:static\}/,'on a landscape phone or at high zoom the dock stops covering the chat');
+ assert.doesNotMatch(css,/is-hidden[^{]*\.f-talk-body[^{]*\{opacity/,'hidden messages stay readable for the organisers deciding on them');
+});
+
+test('deleting a message moves focus to the next message, else the previous one, else the composer, and says it was deleted',async()=>{
+ const mine=(id,over)=>message(id,{mine:true,...over});
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({messages:[mine(M1,{seq:1}),message(M2,{author:'Bea R.',createdAt:'2026-10-21T14:07:00.000Z',seq:2}),mine(M3,{createdAt:'2026-10-21T14:09:00.000Z',seq:3})]}),
+  ['DELETE /api/fiiu/messages/'+M1]:{ok:true},['DELETE /api/fiiu/messages/'+M3]:{ok:true}});
+ const like=row(h,M2).querySelector('.f-talk-like');
+ await key(row(h,M1),'talkDelete').listeners.click();await flush();
+ assert.equal(row(h,M1),undefined);assert.equal(like.focused,true,'the next message');assert.equal(h.root.querySelector('.f-talk-live').textContent,'Message deleted');
+ like.focused=false;await key(row(h,M3),'talkDelete').listeners.click();await flush();
+ assert.equal(like.focused,true,'the last one hands focus back to the previous message');assert.equal(h.root.querySelector('.f-talk-live').textContent,'Message deleted ','the same news is said again');
+ const only=await page({['GET /api/fiiu/questions/'+Q]:thread({messages:[mine(M1,{seq:1})]}),['DELETE /api/fiiu/messages/'+M1]:{ok:true}});
+ await key(row(only,M1),'talkDelete').listeners.click();await flush();assert.equal(composer(only).querySelector('textarea').focused,true,'with no message left, the composer');
+});
+
+test('the last page of earlier messages hands focus to the newest of them before its button goes',async()=>{
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({before:'cursor-1'}),['GET '+MESSAGES+'?before=cursor-1']:{messages:[message(M4,{createdAt:'2026-10-21T13:57:00.000Z',seq:0}),message(M3,{createdAt:'2026-10-21T13:58:00.000Z',seq:0})],before:null}});
+ const earlier=h.root.querySelector('.f-talk-earlier');await earlier.listeners.click();await flush();
+ assert.equal(earlier.hidden,true);assert.equal(row(h,M3).tabIndex,-1);assert.equal(row(h,M3).focused,true);assert.notEqual(row(h,M4).focused,true);
+});
+
+test('answers from other people are announced once per poll, your own and a reload are not, and the pill is no longer a live region',async()=>{
+ let revision=3;const beto=(id,minute,over)=>message(id,{author:'Beto Q.',createdAt:`2026-10-21T14:${minute}:00.000Z`,...over});
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),
+  ['GET '+MESSAGES+'?since=3']:since(4,[beto(M3,10,{seq:4})]),['GET '+MESSAGES+'?since=4']:since(6,[beto(M4,11,{seq:5}),beto(M5,12,{author:'Carla V.',seq:6})]),
+  ['GET '+MESSAGES+'?since=6']:since(7,[message('10000000-0000-4000-8000-000000000006',{mine:true,createdAt:'2026-10-21T14:13:00.000Z',seq:7}),beto(M3,10,{likeCount:2,seq:8})].map(view=>({...view,seq:Math.max(view.seq,7)})))});
+ const live=h.root.querySelector('.f-talk-live'),pill=h.root.querySelector('.f-talk-new');
+ assert.equal(pill['aria-live'],undefined);assert.equal(live.textContent,'','the first load says nothing');
+ revision=4;await h.tickTimers();assert.equal(live.textContent,'1 new answer from Beto Q.');
+ revision=6;await h.tickTimers();assert.equal(live.textContent,'2 new answers');
+ revision=7;await h.tickTimers();assert.equal(live.textContent,'2 new answers','your own message and a like say nothing');
+ h.lang('es');assert.equal(h.ctx.window.Fiiu.t('talkNewOne'),'1 respuesta nueva de {author}');
+});
+
+test('like, delete and hide buttons are described by their message’s author and time',async()=>{
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({me:{organiser:true},messages:[message(M1,{authorFull:'Ana Test',hidden:false,seq:1}),message(M2,{mine:true,authorFull:'Flavia Rojas',hidden:false,createdAt:'2026-10-21T14:07:00.000Z',seq:2})]})});
+ const meta=row(h,M1).querySelector('.f-talk-meta');assert.equal(meta.id,'f-talk-m-'+M1);
+ assert.equal(row(h,M1).querySelector('.f-talk-like')['aria-describedby'],meta.id);assert.equal(key(row(h,M1),'talkHide')['aria-describedby'],meta.id);
+ assert.equal(key(row(h,M2),'talkDelete')['aria-describedby'],'f-talk-m-'+M2);
+});
+
+test('following the chat stops where the conversation ends, so the footer stays below the docked composer',async()=>{
+ let revision=3;
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:since(4,[message(M3,{seq:4,createdAt:'2026-10-21T14:10:00.000Z'})]),
+  ['GET '+MESSAGES+'?since=4']:since(5,[message(M4,{seq:5,createdAt:'2026-10-21T14:11:00.000Z'})])});
+ // The document is 3000 px tall on an 800 px screen; the conversation (its dock included) ends at 2700, above the shell's padding and the footer.
+ const scroller={scrollHeight:3000,scrollTop:1850,clientHeight:800};h.ctx.document.scrollingElement=scroller;
+ h.root.querySelector('.f-talk').getBoundingClientRect=()=>({bottom:2700-scroller.scrollTop});const pill=h.root.querySelector('.f-talk-new');
+ revision=4;await h.tickTimers();assert.equal(scroller.scrollTop,1900,'the dock’s bottom on the screen’s bottom, not the end of the document');assert.equal(pill.hidden,true);
+ scroller.scrollTop=2200;revision=5;await h.tickTimers();assert.equal(pill.hidden,true,'a reader who scrolled on to the footer still counts as following');
 });

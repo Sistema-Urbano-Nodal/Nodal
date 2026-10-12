@@ -24,7 +24,9 @@
   talkSignIn:['Sign in to join the conversation','Inicia sesión para participar','Entre para participar da conversa'],
   talkSignInHint:['Conversations are open to people registered for FIIU Fest 11.','Las conversaciones están abiertas a las personas inscritas en el FIIU Fest 11.','As conversas são abertas a quem se inscreveu no FIIU Fest 11.'],
   talkRegister:['Register for FIIU to join','Inscríbete en el FIIU para participar','Inscreva-se no FIIU para participar'],talkRegisterHint:['Registering is free and takes two minutes.','La inscripción es gratuita y toma dos minutos.','A inscrição é gratuita e leva dois minutos.'],
-  talkNew:['New messages ↓','Mensajes nuevos ↓','Novas mensagens ↓'],talkLoadEarlier:['Load earlier messages','Cargar mensajes anteriores','Carregar mensagens anteriores'],
+  talkNew:['New messages ↓','Mensajes nuevos ↓','Novas mensagens ↓'],
+  talkNewOne:['1 new answer from {author}','1 respuesta nueva de {author}','1 nova resposta de {author}'],talkNewMany:['{n} new answers','{n} respuestas nuevas','{n} novas respostas'],
+  talkDeleted:['Message deleted','Mensaje eliminado','Mensagem apagada'],talkLoadEarlier:['Load earlier messages','Cargar mensajes anteriores','Carregar mensagens anteriores'],
   talkPaused:['Live updates paused. Reconnecting…','Actualizaciones en pausa. Reconectando…','Atualizações pausadas. Reconectando…'],
   talkPausedOffline:['No connection. Updates come back on their own once you have signal.','Sin conexión. Las actualizaciones vuelven solas cuando recuperes la señal.','Sem conexão. As atualizações voltam sozinhas quando o sinal voltar.'],
   talkOffline:['No connection. Try again once you have signal.','Sin conexión. Inténtalo de nuevo cuando tengas señal.','Sem conexão. Tente de novo quando tiver sinal.'],
@@ -52,7 +54,7 @@
  // composer says why, since Retry cannot help.
  const DRAFT=['talkFileType','talkFileSize','talkAllowance','talkTooManyFiles','talkNotRegistered'];
  let question=null,activity=null,me={organiser:false,canPost:false},before=null,known=0,parts=null,composer=null;
- let timer=null,busy=false,failures=0,nextAt=0,watcher=null;
+ let timer=null,busy=false,failures=0,nextAt=0,watcher=null,dockObserver=null;
  // present: the address asked for the projector (?q=…&present=1); wall: its parts while an organiser is shown it; order: 'latest' or 'top'.
  let present=false,wall=null,order='latest',lock=null,waking=false;
  // liked: the messages this viewer likes. Changes carry no liked flag (one answer serves every viewer), so the page keeps its own: seeded by each full read,
@@ -95,16 +97,28 @@
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
  }
 
- // Scrolling: the page itself scrolls. A reader within 120 px of the bottom follows new messages; anyone higher up gets the pill instead.
- function nearBottom(){const s=document.scrollingElement;return !s||s.scrollHeight-s.scrollTop-s.clientHeight<NEAR;}
+ // Scrolling: the page itself scrolls, and its bottom is where the conversation ends (the dock at rest on the screen's bottom edge), not the end of the
+ // document: the site footer stays below, reached by scrolling on, instead of taking a fifth of a small phone under the composer. A reader within
+ // 120 px of that end, or past it, follows new messages; anyone higher up gets the pill instead. Without the conversation, the document's end.
+ function end(){
+  const s=document.scrollingElement,box=parts?.box?.getBoundingClientRect?.();if(!s)return 0;
+  return box?Math.max(0,Math.round(box.bottom+s.scrollTop-(window.innerHeight||s.clientHeight))):s.scrollHeight-s.clientHeight;
+ }
+ function nearBottom(){const s=document.scrollingElement;return !s||s.scrollTop>=end()-NEAR;}
  // The first paint jumps; later moves follow the page's scroll-behavior, which fiiu-talk.css turns off for reduced motion. Older Safari rejects 'instant'.
- function toBottom(smooth){const s=document.scrollingElement;if(!s)return;if(!smooth&&typeof window.scrollTo==='function'){try{window.scrollTo({top:s.scrollHeight,behavior:'instant'});return;}catch{/* falls through */}}s.scrollTop=s.scrollHeight;}
+ function toBottom(smooth){
+  const s=document.scrollingElement;if(!s)return;const top=parts?.box?.getBoundingClientRect?end():s.scrollHeight;
+  if(!smooth&&typeof window.scrollTo==='function'){try{window.scrollTo({top,behavior:'instant'});return;}catch{/* falls through */}}s.scrollTop=top;
+ }
  function updateEmpty(){if(parts)parts.empty.hidden=parts.log.children.length>0;}
  // apply() reports each row it adds; afterwards the page follows them, or raises the pill when the reader is elsewhere (always follows your own).
+ // Other people's new rows are announced once per patch (one per poll), so a busy room is not read out row by row; likes and edits replace rows and
+ // say nothing, which is why the log itself is not a live region.
  function patch(apply){
-  const near=nearBottom();let added=false,own=false;
-  apply((view,isNew)=>{if(isNew){added=true;own||=Boolean(view.mine);}});
+  const near=nearBottom(),others=[];let added=false,own=false;
+  apply((view,isNew)=>{if(isNew){added=true;own||=Boolean(view.mine);if(!view.mine)others.push(view);}});
   updateEmpty();if(!added||!parts)return;
+  if(others.length)announce(others.length===1?fill('talkNewOne',{author:others[0].author||''}):fill('talkNewMany',{n:others.length}));
   if(near||own){parts.pill.hidden=true;toBottom(true);}else parts.pill.hidden=false;
  }
 
@@ -145,12 +159,13 @@
   return want===undefined||want===Boolean(m.liked)?{liked:Boolean(m.liked),likeCount:count}:{liked:want,likeCount:Math.max(0,count+(want?1:-1))};
  }
  function likeButton(m){
-  const b=el('button','f-talk-like'),shown=likeShown(m);b.type='button';b.setAttribute('aria-pressed',String(shown.liked));b.disabled=!isOpen();
+  const b=el('button','f-talk-like'),shown=likeShown(m);b.type='button';b.setAttribute('aria-pressed',String(shown.liked));b.setAttribute('aria-describedby','f-talk-m-'+m.id);b.disabled=!isOpen();
   b.append(tr('span','talkLike','f-talk-like-label'),el('span','f-talk-like-n',String(shown.likeCount)));b.addEventListener('click',()=>toggleLike(m.id));return b;
  }
  function messageRow(m){
   const row=el('li','f-talk-msg'+(m.mine?' is-mine':'')+(m.hidden?' is-hidden':'')),meta=el('p','f-talk-meta'),actions=el('div','f-talk-actions');
-  row.dataset.id=m.id;row.dataset.seq=String(m.seq??'');meta.append(el('strong','f-talk-author',m.author||''));
+  // The meta line (author, labels, time) describes the row's buttons, so "Delete" or "Like" says whose message it acts on.
+  row.dataset.id=m.id;row.dataset.seq=String(m.seq??'');meta.id='f-talk-m-'+m.id;meta.append(el('strong','f-talk-author',m.author||''));
   if(me.organiser&&m.authorFull&&m.authorFull!==m.author)meta.append(el('span','f-talk-full',m.authorFull));
   // Organisers see every hidden message; a participant sees only their own, told who hid it.
   if(m.organiser)meta.append(tr('span','talkOrganiser','f-talk-org'));if(m.hidden)meta.append(tr('span',me.organiser?'talkHidden':'talkHiddenForYou','f-talk-flag'));
@@ -161,6 +176,7 @@
   // Your own message can be deleted even once the question is closed, or the organisers hid it.
   if(m.mine)actions.append(button('talkDelete',()=>erase(m.id),'f-talk-delete f-talk-act'));
   if(me.organiser)actions.append(button(m.hidden?'talkUnhide':'talkHide',()=>moderate(m.id),'f-talk-hide f-talk-act'));
+  for(const control of actions.querySelectorAll('.f-talk-act'))control.setAttribute('aria-describedby',meta.id);
   row.append(actions);return row;
  }
  // Rows stay in (createdAt, id) order with messages still being sent last. A replaced row hands focus to the same control in its successor:
@@ -221,7 +237,7 @@
  }
  function build(){
   const box=el('section','f-talk'),head=el('header','f-talk-head'),earlier=button('talkLoadEarlier',()=>loadEarlier(),'f-button secondary f-talk-earlier'),log=el('ol','f-talk-log'),empty=tr('p','talkEmpty','f-talk-empty'),dock=el('div','f-talk-dock');
-  const pill=button('talkNew',()=>{pill.hidden=true;toBottom(true);},'f-talk-new');pill.hidden=true;pill.setAttribute('aria-live','polite');
+  const pill=button('talkNew',()=>{pill.hidden=true;toBottom(true);},'f-talk-new');pill.hidden=true;
   const live=el('p','f-sr-only f-talk-live');live.setAttribute('role','status');
   // The dock's own status line, kept through every dock state: paused updates, and errors when there is no composer to show them. The page's status
   // sits at the top, far above a reader the chat keeps at the bottom.
@@ -233,6 +249,9 @@
   closedNote.tabIndex=-1;draftText.id='f-talk-draft';draftText.readOnly=true;draftText.rows=2;draftLabel.htmlFor=draftText.id;draft.append(draftLabel,draftText);draft.hidden=true;closed.append(closedNote,next,draft);
   log.setAttribute('role','log');log.setAttribute('aria-live','off');log.setAttribute('aria-label',t('talkPage'));log.tabIndex=-1;dock.append(pill);box.append(head,earlier,log,empty,dock,live);
   root.replaceChildren(box,newTabNote());parts={box,head,earlier,log,empty,dock,pill,live,note,closed,closedNote,next,draft,draftText,more:null,dockState:''};
+  // The stylesheet keeps focused message controls clear of the sticky dock by its measured height, which grows with chips, a status and six lines.
+  dockObserver?.disconnect();dockObserver=null;
+  if(typeof ResizeObserver==='function'){dockObserver=new ResizeObserver(()=>box.style?.setProperty?.('--f-talk-dock-h',dock.offsetHeight+'px'));dockObserver.observe(dock);}
  }
  // A reload of the same question (a reset, or a status the pulse cannot carry) rebuilds the rows but keeps the header nodes, the composer and its draft.
  function show(data){
@@ -253,7 +272,7 @@
  function seedLiked(data){for(const id of Array.isArray(data?.liked)?data.liked:[])if(typeof id==='string')liked.add(id);}
 
  // Access states replace the page; polling stops until a question is shown again.
- function halt(){if(timer!==null)clearInterval(timer);timer=null;question=null;parts=null;unwatch();unwall();}
+ function halt(){if(timer!==null)clearInterval(timer);timer=null;question=null;parts=null;dockObserver?.disconnect();dockObserver=null;unwatch();unwall();}
  // A page with nothing live to follow (a block's list, or a question this viewer cannot see yet) watches the public, CDN-cached pulse every 8 s while
  // the tab is visible, for two hours at most, and acts once its part of the pulse changes. Opening anything stops it.
  function watch(changed,act){
@@ -511,21 +530,30 @@
    setLiked(id,Boolean(data.liked));const now=views.get(id);if(now)now.likeCount=Math.max(0,Number(data.likeCount)||0);settled();
   }catch(error){
    // 404: hidden or deleted a moment ago, which the next sync would also say.
-   if(error?.status===404){patch(()=>drop(id));return;}
+   if(error?.status===404){gone(id,false);return;}
    notify(error);if(error?.code==='question_closed')closedByServer();
   }finally{liking.delete(id);paintLike(id);}
  }
  async function erase(id){
   if(!window.confirm(t('talkDeleteConfirm')))return;
-  try{await api('/api/fiiu/messages/'+encodeURIComponent(id),{},'DELETE');settled();patch(()=>drop(id));}
-  catch(error){if(error?.status===404)patch(()=>drop(id));else notify(error);}
+  try{await api('/api/fiiu/messages/'+encodeURIComponent(id),{},'DELETE');settled();gone(id);}
+  catch(error){if(error?.status===404)gone(id);else notify(error);}
+ }
+ // A row that goes while focus is in it hands focus to the next message's first control, else the previous one's, else the composer (or the log), and
+ // the status line says it was deleted (not for a like refused because the message was hidden). The target is picked after the request, since a poll
+ // may have replaced the rows meanwhile.
+ function gone(id,tell=true){
+  const row=rowsById.get(id);if(!row||!parts){patch(()=>drop(id));return;}
+  const list=[...parts.log.children],i=list.indexOf(row),active=document.activeElement,lost=!active||active===document.body||holds(row);
+  const control=node=>[...(node?.querySelectorAll('button,a')||[])].find(item=>!item.disabled&&!item.hidden),target=control(list[i+1])||control(list[i-1])||(parts.dockState==='composer'?composer.textarea:parts.log);
+  patch(()=>drop(id));if(lost)target.focus(target===parts.log?{preventScroll:true}:undefined);if(tell)announce(t('talkDeleted'));
  }
  // Organisers hide (PUT) and unhide (DELETE), one request per message at a time; the answer replaces the row, which stays on their screen, greyed.
  // A message its author deleted meanwhile just leaves the screen.
  async function moderate(id){
   const view=views.get(id);if(!view||moderating.has(id))return;moderating.add(id);
   try{const data=await api('/api/admin/fiiu/messages/'+encodeURIComponent(id)+'/hidden',{},view.hidden?'DELETE':'PUT');settled();if(data?.message?.id&&parts)patch(note=>note(data.message,upsert(data.message)));}
-  catch(error){if(error?.status===404)patch(()=>drop(id));else notify(error);}
+  catch(error){if(error?.status===404)gone(id);else notify(error);}
   finally{moderating.delete(id);}
  }
  async function loadEarlier(){
@@ -533,7 +561,10 @@
   try{
    const data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages?before='+encodeURIComponent(before));if(question?.id!==id)return;seedLiked(data);
    for(const view of Array.isArray(data.messages)?data.messages:[])if(view?.id&&!rowsById.has(view.id))upsert(view);
-   before=typeof data.before==='string'?data.before:null;control.hidden=!before;updateEmpty();first?.scrollIntoView?.({block:'start'});
+   before=typeof data.before==='string'?data.before:null;const active=document.activeElement,lost=!before&&(!active||active===document.body||holds(control));
+   control.hidden=!before;updateEmpty();first?.scrollIntoView?.({block:'start'});
+   // The last page takes its button away: focus moves to the newest message it brought, without moving the page again.
+   if(lost){const list=[...parts.log.children],newest=list[first?list.indexOf(first)-1:list.length-1];if(newest){newest.tabIndex=-1;newest.focus({preventScroll:true});}}
   }catch(error){notify(error);}finally{control.disabled=false;}
  }
 
@@ -546,7 +577,7 @@
   let full=null;
   if(document.fullscreenEnabled!==false&&typeof document.documentElement?.requestFullscreen==='function'){full=button('talkFullscreen',()=>document.fullscreenElement?document.exitFullscreen?.():document.documentElement.requestFullscreen?.()?.catch?.(()=>{}),'f-button secondary f-talk-full');tools.append(full);}
   // The empty square holds the code's place, so the headline does not jump when it arrives.
-  code.append(el('div','f-talk-wall-qr'));box.append(head,code,tools,feed,empty);root.replaceChildren(box);parts=null;document.body.classList.add('f-talk-present');
+  code.append(el('div','f-talk-wall-qr'));box.append(head,code,tools,feed,empty);root.replaceChildren(box);parts=null;dockObserver?.disconnect();dockObserver=null;document.body.classList.add('f-talk-present');
   wall={head,code,feed,empty,switches,full,svg:null,qr:'loading',qrAt:0,cards:new Map()};
  }
  function renderWallHead(){
