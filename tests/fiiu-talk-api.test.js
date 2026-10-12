@@ -112,7 +112,7 @@ test('participants post with idempotent retries, see display names only, and syn
  assert.equal('userId' in view,false);assert.equal('authorFull' in view,false);assert.doesNotMatch(JSON.stringify(seen.body),new RegExp(users.member.id));
  const second=await post(q,'Respuesta',{actor:'other'});assert.equal(second.status,201);assert.equal(second.body.message.author,'Ben O.');
  const since=await json(`/api/fiiu/questions/${q.id}/messages?since=1`);
- assert.equal(since.status,200);assert.deepEqual(since.body.changes.map(c=>c.id),[second.body.message.id]);assert.deepEqual(since.body.liked,[]);
+ assert.equal(since.status,200);assert.deepEqual(since.body.changes.map(c=>c.id),[second.body.message.id]);assert.equal(since.body.liked,undefined);
  assert.equal(since.body.revision,(await pulse()).find(([id])=>id===q.id)[2],'the pulse publishes the same revision');
  assert.deepEqual((await json(`/api/fiiu/questions/${q.id}/messages?since=${since.body.revision}`)).body.changes,[]);
  assert.equal((await json(`/api/fiiu/questions/${q.id}/messages?since=99`)).body.reset,true,'a revision from the future reloads');
@@ -229,12 +229,12 @@ test('a retry of a message deleted since it was sent learns it is gone',async t=
  assert.equal(retry.status,200);assert.deepEqual(retry.body.message,{id:m.id,seq:retry.body.message.seq,gone:true});
 });
 
-test('a retry of a message hidden since it was sent learns it is gone, as its author would on the next sync',async t=>{
+test('a retry of a message hidden since it was sent gets its author\'s hidden view, as their next sync would',async t=>{
  const {json,ask,post}=await setup(t);
  const q=await ask(),clientId=randomUUID(),m=(await post(q,'hola',{clientId})).body.message;
  assert.equal((await json(`/api/admin/fiiu/messages/${m.id}/hidden`,{actor:'admin',method:'PUT',body:{}})).status,200);
  const retry=await post(q,'hola',{clientId});
- assert.equal(retry.status,200);assert.deepEqual(retry.body.message,{id:m.id,seq:retry.body.message.seq,gone:true});
+ assert.equal(retry.status,200);assert.deepEqual(retry.body.message,{...m,seq:retry.body.message.seq,hidden:true});
 });
 
 test('likes are idempotent, never on your own message and never on a closed question, while deleting your own still works',async t=>{
@@ -244,7 +244,9 @@ test('likes are idempotent, never on your own message and never on a closed ques
  assert.deepEqual((await like('PUT')).body,{likeCount:1,liked:true});
  assert.deepEqual((await like('PUT')).body,{likeCount:1,liked:true},'a second device liking again does not double count');
  const synced=await json(`/api/fiiu/questions/${q.id}/messages?since=1`,{actor:'other'});
- assert.equal(synced.body.changes[0].likeCount,1);assert.equal(synced.body.changes[0].liked,true);assert.deepEqual(synced.body.liked,[m.id]);
+ // A since answer is shared between viewers, so it carries the count and no like of the viewer's: the page keeps its own.
+ assert.equal(synced.body.changes[0].likeCount,1);assert.equal('liked' in synced.body.changes[0],false);assert.equal(synced.body.liked,undefined);
+ const seeded=await json(`/api/fiiu/questions/${q.id}`,{actor:'other'});assert.equal(seeded.body.messages[0].liked,true);assert.deepEqual(seeded.body.liked,[m.id]);
  assert.equal((await json(`/api/fiiu/questions/${q.id}`)).body.messages[0].liked,false,'the author sees the count, not the like as theirs');
  assert.deepEqual((await like('DELETE')).body,{likeCount:0,liked:false});
  assert.deepEqual((await like('DELETE')).body,{likeCount:0,liked:false},'unliking twice never goes negative');
@@ -288,7 +290,9 @@ test('an organiser hides a message from participants within one sync and brings 
  const gone=await json(`/api/fiiu/questions/${q.id}/messages?since=${baseline}`,{actor:'other'});
  assert.deepEqual(gone.body.changes,[{id:m.id,seq:revision,gone:true}]);assert.equal(gone.body.revision,revision);
  assert.deepEqual((await json(`/api/fiiu/questions/${q.id}`,{actor:'other'})).body.messages,[]);
- assert.deepEqual((await json(`/api/fiiu/questions/${q.id}/messages?since=${baseline}`)).body.changes[0].gone,true,'the author loses it too');
+ const own=(await json(`/api/fiiu/questions/${q.id}/messages?since=${baseline}`)).body.changes[0];
+ const {liked,...shared}=m;assert.equal(liked,false);
+ assert.deepEqual(own,{...shared,seq:revision,hidden:true},'its author keeps it, marked hidden, so they can still delete it');
  const staff=await json(`/api/fiiu/questions/${q.id}/messages?since=${baseline}`,{actor:'admin'});
  assert.equal(staff.body.changes[0].hidden,true);assert.equal(staff.body.changes[0].authorFull,'Ana Test');assert.equal(staff.body.changes[0].body,'hola');
  const staffPage=await json(`/api/fiiu/questions/${q.id}`,{actor:'admin'});assert.equal(staffPage.body.messages[0].hidden,true);assert.equal(staffPage.body.question.messageCount,0);
@@ -298,6 +302,76 @@ test('an organiser hides a message from participants within one sync and brings 
  const back=await json(`/api/fiiu/questions/${q.id}/messages?since=${revision}`,{actor:'other'});
  assert.equal(back.body.changes.length,1);assert.equal(back.body.changes[0].body,'hola');assert.equal(back.body.changes[0].gone,undefined);
  assert.equal((await json(`/api/admin/fiiu/messages/${randomUUID()}/hidden`,{actor:'admin',method:'PUT',body:{}})).status,404);
+});
+
+test('since answers carry the question, so an edit or a close sharing a sync with message changes still reaches the page',async t=>{
+ const {json,ask,post,close}=await setup(t);
+ const q=await ask(),baseline=(await json(`/api/fiiu/questions/${q.id}`,{actor:'other'})).body.revision;
+ const current=(await json('/api/admin/fiiu/questions',{actor:'admin'})).body.questions.find(x=>x.id===q.id);
+ assert.equal((await json(`/api/admin/fiiu/questions/${q.id}`,{actor:'admin',method:'PATCH',body:{version:current.version,body:'¿Y ahora?',talk:'¡Bienvenidos al FIIU 11!'}})).status,200);
+ const m=(await post(q,'hola')).body.message;
+ const both=await json(`/api/fiiu/questions/${q.id}/messages?since=${baseline}`,{actor:'other'});
+ assert.deepEqual(both.body.changes.map(c=>c.id),[m.id]);
+ assert.deepEqual(both.body.question,(await json(`/api/fiiu/questions/${q.id}`,{actor:'other'})).body.question,'the same view as the page');
+ assert.equal(both.body.question.body,'¿Y ahora?');assert.equal(both.body.question.talk,'¡Bienvenidos al FIIU 11!');assert.equal(both.body.question.version,undefined);
+ await close(q);
+ const closed=await json(`/api/fiiu/questions/${q.id}/messages?since=${both.body.revision}`,{actor:'other'});
+ assert.deepEqual(closed.body.changes,[]);assert.equal(closed.body.question.status,'closed');
+ const reset=await json(`/api/fiiu/questions/${q.id}/messages?since=999`,{actor:'admin'});
+ assert.equal(reset.body.reset,true);assert.equal(reset.body.question.status,'closed');assert.equal(typeof reset.body.question.version,'number','organisers get their version');
+});
+
+test('authors keep their own hidden message, with its files, on every read and can still delete it; everyone else loses it',async t=>{
+ const {json,call,ask,post,upload,talkStore}=await setup(t);
+ const q=await ask(),file=(await upload()).body.file,clientId=randomUUID(),m=(await post(q,'mira',{clientId,fileIds:[file.id]})).body.message;
+ const peer=(await post(q,'otro',{actor:'other'})).body.message;
+ assert.equal((await json(`/api/admin/fiiu/messages/${m.id}/hidden`,{actor:'admin',method:'PUT',body:{}})).status,200);
+ const page=(await json(`/api/fiiu/questions/${q.id}`)).body;
+ const view=page.messages.find(x=>x.id===m.id);
+ assert.equal(view.hidden,true);assert.equal(view.mine,true);assert.deepEqual(view.files.map(f=>f.id),[file.id]);assert.equal(view.authorFull,undefined);
+ assert.equal(page.question.messageCount,1,'the count is still what participants see');
+ assert.equal((await call(`/api/fiiu/files/${file.id}`)).status,200,'the author still opens the file');
+ assert.deepEqual((await json(`/api/fiiu/questions/${q.id}`,{actor:'other'})).body.messages.map(x=>x.id),[peer.id]);
+ assert.equal((await call(`/api/fiiu/files/${file.id}`,{actor:'other'})).status,404);
+ // One shared since answer: the author's view and everyone else's are built from the same rows.
+ const mine=await json(`/api/fiiu/questions/${q.id}/messages?since=0`),theirs=await json(`/api/fiiu/questions/${q.id}/messages?since=0`,{actor:'other'});
+ assert.equal(mine.body.changes.find(c=>c.id===m.id).hidden,true);assert.equal(mine.body.changes.find(c=>c.id===m.id).files.length,1);
+ assert.deepEqual(theirs.body.changes.find(c=>c.id===m.id),{id:m.id,seq:mine.body.changes.find(c=>c.id===m.id).seq,gone:true});
+ assert.equal(theirs.body.changes.find(c=>c.id===peer.id).mine,true);assert.equal(mine.body.changes.find(c=>c.id===peer.id).mine,false);
+ assert.equal((await json(`/api/fiiu/messages/${m.id}/like`,{actor:'other',method:'PUT',body:{}})).status,404);
+ assert.equal((await json(`/api/fiiu/messages/${m.id}`,{method:'DELETE',body:{}})).status,200);
+ assert.deepEqual((await json(`/api/fiiu/questions/${q.id}`)).body.messages.map(x=>x.id),[peer.id]);
+ assert.equal(await talkStore.findFile(file.id),null,'its files went with it');
+});
+
+test('since answers are read once per question, revision and audience for 1.5 s, then built per viewer in memory',async()=>{
+ const Q='22222222-2222-4222-8222-222222222222';let t=1000,reads=0;const sent=[];
+ const row=(id,userId,seq,extra={})=>({id,questionId:Q,userId,authorName:'Ana T.',authorFull:'Ana Test',organiser:false,body:'hola',likeCount:0,seq,hiddenAt:null,deletedAt:null,createdAt:'2026-10-21T14:00:00.000Z',...extra});
+ const store={findRegistration:async()=>({firstName:'Ana',lastName:'Test'}),
+  getQuestion:async()=>{reads++;await new Promise(r=>setTimeout(r,5));return {id:Q,eventId:'fiiu-2026',activityId:'day1-am',talk:null,body:'¿Qué?',status:'open',revision:1000,messageCount:1,version:2,createdAt:'x'};},
+  messagesSince:async()=>{reads++;return [row('m1','a',900,{hiddenAt:'x'}),row('m2','b',901)];},
+  filesForMessages:async()=>{reads++;return [];},likedAmong:async()=>{throw Error('a since answer reads no per-viewer likes');}};
+ const api=createTalkApi({store,sameOrigin:()=>true,send:(res,status,body)=>sent.push(body),clock:()=>t});
+ const get=(id,since=2,permission='member')=>api({req:{method:'GET',headers:{}},res:{},url:new URL(`http://x/api/fiiu/questions/${Q}/messages?since=${since}`),user:{id,permission}});
+ await Promise.all([get('a'),get('b'),get('c')]);
+ assert.equal(reads,3,'one question, one changes and one files read for three viewers');
+ sent.length=0;await get('a');await get('b');
+ assert.equal(reads,3);
+ assert.equal(sent[0].changes[0].hidden,true,'the author sees their hidden message');assert.equal(sent[0].changes[0].mine,true);
+ assert.deepEqual(sent[1].changes[0],{id:'m1',seq:900,gone:true},'nobody else does');assert.equal(sent[1].changes[1].mine,true);
+ assert.equal(sent[0].question.body,'¿Qué?');assert.equal(sent[0].revision,1000);
+ await get('o',2,'admin');assert.equal(reads,6,'organisers have their own entry');assert.equal(sent.at(-1).changes[0].hidden,true);assert.equal(sent.at(-1).question.version,2);
+ await get('a',3);assert.equal(reads,9,'another revision is another entry');
+ t+=1499;await get('b');assert.equal(reads,9);
+ t+=1;await get('b');assert.equal(reads,12,'expired after 1.5 s');
+ // Bounded: the oldest entry goes first.
+ for(let i=10;i<=210;i++)await get('a',i);
+ const before=reads;await get('a',210);assert.equal(reads,before,'the newest is kept');
+ await get('a',10);assert.equal(reads,before+3,'the oldest was dropped');
+ // A write through this instance drops them, so its author's next poll reads past it.
+ const posted=reads;
+ await api({req:{method:'DELETE',headers:{}},res:{},url:new URL(`http://x/api/fiiu/messages/${Q}`),user:{id:'a',permission:'member'}}).catch(()=>{});
+ await get('a',210);assert.equal(reads,posted+3);
 });
 
 test('festival files: types, sizes, thumbnails, attach rules, download access and headers, and release on delete',async t=>{

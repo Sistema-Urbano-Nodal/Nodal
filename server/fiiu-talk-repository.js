@@ -135,9 +135,10 @@ function sqliteTalk(db){
   async insertMessage(record){return insert(MT,record);},
   async findMessage(id){return byId(MT,id);},
   async findMessageByClient(userId,clientId){return from(MT,get('SELECT * FROM fiiu_messages WHERE user_id=? AND client_id=?',userId,clientId));},
-  async latestMessages(questionId,{includeHidden=false,before=null,limit=TALK_LIMITS.page}={}){
+  // ownHidden: the reader's id, whose own hidden messages come too (marked for them by the API).
+  async latestMessages(questionId,{includeHidden=false,ownHidden=null,before=null,limit=TALK_LIMITS.page}={}){
    const n=capped(limit,TALK_LIMITS.changes),params=[questionId];let sql='SELECT * FROM fiiu_messages WHERE question_id=? AND deleted_at IS NULL';
-   if(!includeHidden)sql+=' AND hidden_at IS NULL';
+   if(!includeHidden){sql+=ownHidden?' AND (hidden_at IS NULL OR user_id=?)':' AND hidden_at IS NULL';if(ownHidden)params.push(ownHidden);}
    if(before){sql+=' AND (created_at<? OR (created_at=? AND id<?))';params.push(before.createdAt,before.createdAt,before.id);}
    const rows=all(sql+' ORDER BY created_at DESC,id DESC LIMIT ?',...params,n+1).map(r=>from(MT,r));
    return {rows:rows.slice(0,n).reverse(),more:rows.length>n};
@@ -206,7 +207,8 @@ function supabaseTalk(supa,fetchImpl){
  const unavailable=()=>fail('festival conversation data unavailable',502);
  const select=table=>table.fields.map(snake).join(',');
  const eqs=filters=>Object.fromEntries(Object.entries(filters).map(([k,v])=>[snake(k),v===null?'is.null':`eq.${v}`]));
- const list=ids=>{for(const id of ids)if(typeof id!=='string'||!TOKEN.test(id))throw Error('invalid festival identifier');return `in.(${ids.join(',')})`;};
+ const token=id=>{if(typeof id!=='string'||!TOKEN.test(id))throw Error('invalid festival identifier');return id;};
+ const list=ids=>`in.(${ids.map(token).join(',')})`;
  const read=async(table,query)=>{const rows=await supa.admin.rest(table,{query});if(!Array.isArray(rows))unavailable();return rows;};
  const write=async(table,{headers,...options})=>{
   let rows;try{rows=await supa.admin.rest(table,{...options,headers:{Prefer:'return=representation',...headers}});}catch(err){conflict(err);}
@@ -265,8 +267,10 @@ function supabaseTalk(supa,fetchImpl){
   async insertMessage(record){const [row]=await write(MT.name,{method:'POST',body:to(MT,record,false)});if(!row)unavailable();return from(MT,row,true);},
   async findMessage(id){return one(MT,{id});},
   async findMessageByClient(userId,clientId){return one(MT,{userId,clientId});},
-  async latestMessages(questionId,{includeHidden=false,before=null,limit=TALK_LIMITS.page}={}){
-   const n=capped(limit,TALK_LIMITS.changes),query={select:select(MT),question_id:`eq.${questionId}`,deleted_at:'is.null',...(includeHidden?{}:{hidden_at:'is.null'}),order:'created_at.desc,id.desc',limit:n+1};
+  // The author filter rides in `and`, so it never meets the cursor's `or`.
+  async latestMessages(questionId,{includeHidden=false,ownHidden=null,before=null,limit=TALK_LIMITS.page}={}){
+   const hidden=includeHidden?{}:ownHidden?{and:`(or(hidden_at.is.null,user_id.eq.${token(ownHidden)}))`}:{hidden_at:'is.null'};
+   const n=capped(limit,TALK_LIMITS.changes),query={select:select(MT),question_id:`eq.${questionId}`,deleted_at:'is.null',...hidden,order:'created_at.desc,id.desc',limit:n+1};
    if(before){
     if(typeof before.createdAt!=='string'||!TIME.test(before.createdAt)||typeof before.id!=='string'||!TOKEN.test(before.id))fail('invalid cursor');
     query.or=`(created_at.lt.${before.createdAt},and(created_at.eq.${before.createdAt},id.lt.${before.id}))`;

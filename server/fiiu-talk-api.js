@@ -9,7 +9,7 @@ import {TALK_LIMITS,talkActivity,normalizeQuestion,normalizeMessage,decodeTalkFi
    for everyone, so the CDN answers the 4-second polls of a full auditorium (one venue address) and a phone fetches
    messages only when its question's revision moved. Everything else needs a festival registration or an organiser. */
 const PULSE_CACHE='public, max-age=0, s-maxage=2, stale-while-revalidate=4';
-const PULSE_MS=1000,MEMO_MS=60000,MEMO_MAX=5000,UPLOAD_GRACE_MS=10*60000,RETRY_MS=10*60000;
+const PULSE_MS=1000,MEMO_MS=60000,MEMO_MAX=5000,UPLOAD_GRACE_MS=10*60000,RETRY_MS=10*60000,CHANGES_MS=1500,CHANGES_MAX=200;
 const CSV_HEADER=['question','block','talk','createdAtLima','author','email','organiser','text','files','likes','hidden','deleted'];
 // The chat pages translate refusals by code (see fiiu-talk-domain.js); the global handler would drop it, so it is sent here.
 const failCode=(message,status,code)=>{try{fail(message,status);}catch(err){throw Object.assign(err,{code});}};
@@ -117,14 +117,50 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
   if(!q||q.eventId!==EVENT_ID||(q.status==='hidden'&&!organiser))unavailable();
   return q;
  }
- // Deleted messages are gone for everyone and hidden ones for participants; organisers see hidden ones marked.
+ /* Deleted messages are gone for everyone. Hidden ones are gone for participants except their author, who keeps
+    seeing it marked so they can still delete it (the privacy policy promises that); organisers see them all marked. */
+ const shownTo=(m,{viewer,organiser})=>!m.deletedAt&&(organiser||!m.hiddenAt||m.userId===viewer);
+ // The files of every message someone may be shown, by message.
+ async function filesOf(rows){
+  const ids=rows.filter(m=>!m.deletedAt).map(m=>m.id),byMessage=new Map();
+  if(ids.length)for(const f of await store.filesForMessages(ids))byMessage.set(f.messageId,[...(byMessage.get(f.messageId)??[]),f]);
+  return byMessage;
+ }
+ // liked: the viewer's likes among the rows, or null for an answer shared between viewers (no like field at all).
+ const viewsOf=(rows,files,{viewer,organiser,liked=null})=>rows.map(m=>shownTo(m,{viewer,organiser})?messageView(m,{viewer,organiser,files:files.get(m.id)??[],liked:liked?liked.has(m.id):null}):goneView(m));
+ // A page of messages for one viewer, with their likes.
  async function views(rows,{viewer,organiser}){
-  const shown=m=>!m.deletedAt&&(organiser||!m.hiddenAt),ids=rows.filter(shown).map(m=>m.id);
-  const [files,liked]=ids.length?await Promise.all([store.filesForMessages(ids),store.likedAmong(viewer,ids)]):[[],new Set()];
-  const byMessage=new Map();for(const f of files)byMessage.set(f.messageId,[...(byMessage.get(f.messageId)??[]),f]);
-  return {liked,list:rows.map(m=>shown(m)?messageView(m,{viewer,organiser,files:byMessage.get(m.id)??[],liked:liked.has(m.id)}):goneView(m))};
+  const ids=rows.filter(m=>shownTo(m,{viewer,organiser})).map(m=>m.id);
+  const [files,liked]=ids.length?await Promise.all([filesOf(rows),store.likedAmong(viewer,ids)]):[new Map(),new Set()];
+  return {liked,list:viewsOf(rows,files,{viewer,organiser,liked})};
  }
  const viewOf=async(message,user,organiser)=>(await views([message],{viewer:user.id,organiser})).list[0];
+ /* The pulse moves for a whole room at once, so its phones ask for the same changes within a second or two. The part
+    of a since answer they share (the question, the changed rows and their files) is read once per instance for 1.5 s
+    per question, revision and audience, and concurrent requests share the read in flight; each viewer's answer is then
+    built from it in memory (whose message it is, an author's own hidden one), which is why it carries no likes of the
+    viewer's. A write through this instance drops the entries, so its author's next poll reads past it. Being up to
+    1.5 s behind is safe: the answer's revision is that of its rows, so a later pulse asks again from there. */
+ const changesMemo=new Map();
+ function changesSince(id,from,organiser){
+  const key=`${id}:${from}:${organiser?'organiser':'participant'}`,t=clock(),hit=changesMemo.get(key);
+  if(hit&&t-hit.at<CHANGES_MS)return hit.promise;
+  changesMemo.delete(key);
+  const entry={at:t,promise:(async()=>{
+   const q=await questionFor(id,organiser),revision=Number(q.revision);
+   // A revision from the future (another database, a reset) or more changes than one answer holds: reload.
+   if(from>revision)return {q,reset:true,revision};
+   const rows=await store.messagesSince(q.id,from,{limit:TALK_LIMITS.changes+1});
+   if(rows.length>TALK_LIMITS.changes)return {q,reset:true,revision};
+   // A message written after the question was read is already here, so the page need not fetch it again.
+   return {q,rows,files:await filesOf(rows),revision:Math.max(revision,...rows.map(m=>Number(m.seq)))};
+  })()};
+  changesMemo.set(key,entry);
+  // Oldest first: expired entries, then any over the cap.
+  for(const [k,old] of changesMemo){if(t-old.at<CHANGES_MS&&changesMemo.size<=CHANGES_MAX)break;changesMemo.delete(k);}
+  entry.promise.catch(()=>{if(changesMemo.get(key)===entry)changesMemo.delete(key);});
+  return entry.promise;
+ }
  /* A withdrawn message takes its files with it: ready → deleting, the objects, then the row (which also returns them to
     the person's allowance). The withdrawal already happened, so a failure is logged, not reported; the row stays
     'deleting', which is never served and is cleared with the account. */
@@ -170,29 +206,28 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
    if(name==='question'){
     // The question is read first: its revision is the baseline the page syncs from, so a message written meanwhile is
     // fetched again rather than missed.
+    // liked seeds the page's own like state, which since answers (shared between viewers) do not carry.
     const {organiser}=await access(user),q=await questionFor(param,organiser),activity=talkActivity(q.activityId);
-    const page=await store.latestMessages(q.id,{includeHidden:organiser,limit:TALK_LIMITS.page});
-    send(res,200,{question:questionView(q,{organiser}),activity:activity?activityView(activity):null,messages:(await views(page.rows,{viewer:user.id,organiser})).list,
+    const page=await store.latestMessages(q.id,{includeHidden:organiser,ownHidden:user.id,limit:TALK_LIMITS.page});
+    const {list,liked}=await views(page.rows,{viewer:user.id,organiser});
+    send(res,200,{question:questionView(q,{organiser}),activity:activity?activityView(activity):null,messages:list,liked:[...liked],
      before:page.more?encodeCursor(page.rows[0]):null,revision:Number(q.revision),me:{organiser,canPost:q.status==='open'}});
     return true;
    }
    if(name==='messages'&&read){
-    const {organiser}=await access(user),q=await questionFor(param,organiser);
-    const since=url.searchParams.get('since'),before=url.searchParams.get('before');
+    const {organiser}=await access(user),since=url.searchParams.get('since'),before=url.searchParams.get('before');
     if(since!==null){
      if(!/^\d{1,15}$/.test(since))fail('invalid revision');
-     const from=Number(since),revision=Number(q.revision);
-     // A revision from the future (another database, a reset) or more changes than one answer holds: reload.
-     if(from>revision){send(res,200,{reset:true,revision});return true;}
-     const rows=await store.messagesSince(q.id,from,{limit:TALK_LIMITS.changes+1});
-     if(rows.length>TALK_LIMITS.changes){send(res,200,{reset:true,revision});return true;}
-     const {list,liked}=await views(rows,{viewer:user.id,organiser});
-     // A message written after the question was read is already here, so the page need not fetch it again.
-     send(res,200,{revision:Math.max(revision,...rows.map(m=>Number(m.seq))),changes:list,liked:[...liked]});return true;
+     /* The question rides along every answer, so an edit of its text or talk, or a close, that lands in the same sync
+        as message changes still reaches the page and the projector. */
+     const {q,reset,revision,rows,files}=await changesSince(identifier(param),Number(since),organiser),question=questionView(q,{organiser});
+     if(reset){send(res,200,{reset:true,revision,question});return true;}
+     send(res,200,{revision,question,changes:viewsOf(rows,files,{viewer:user.id,organiser})});return true;
     }
+    const q=await questionFor(param,organiser);
     if(before!==null){
      const cursor=decodeCursor(before);if(!cursor)fail('invalid cursor');
-     const page=await store.latestMessages(q.id,{includeHidden:organiser,before:cursor,limit:TALK_LIMITS.page});
+     const page=await store.latestMessages(q.id,{includeHidden:organiser,ownHidden:user.id,before:cursor,limit:TALK_LIMITS.page});
      send(res,200,{messages:(await views(page.rows,{viewer:user.id,organiser})).list,before:page.more?encodeCursor(page.rows[0]):null});return true;
     }
     fail('since or before is required');
@@ -354,6 +389,6 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
    // Somebody else's error text (expose: false, as a backend adapter marks it) goes to the global handler, which hides it.
    if(typeof err?.code==='string'&&/^[a-z_]+$/.test(err.code)&&err.status>=400&&err.status<500&&err.expose!==false&&!res.headersSent){send(res,err.status,{error:err.message,code:err.code});return true;}
    throw err;
-  }finally{if(wrote)pulseMemo=null;}
+  }finally{if(wrote){pulseMemo=null;changesMemo.clear();}}
  };
 }

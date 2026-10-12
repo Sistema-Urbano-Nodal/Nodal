@@ -103,6 +103,8 @@ test('the latest page skips deleted messages, hides hidden ones unless asked and
  assert.deepEqual(older.rows.map(m=>m.body),['m0']);assert.equal(older.more,false);
  const all=await store.latestMessages(q.id,{limit:10,includeHidden:true});
  assert.deepEqual(all.rows.map(m=>m.body),['m0','m1','m2','m4'],'organisers see hidden messages, never deleted ones');assert.equal(all.more,false);
+ assert.deepEqual((await store.latestMessages(q.id,{limit:10,ownHidden:ana.id})).rows.map(m=>m.body),['m0','m1','m2','m4'],'an author sees their own hidden message');
+ assert.deepEqual((await store.latestMessages(q.id,{limit:10,ownHidden:org.id})).rows.map(m=>m.body),['m0','m2','m4'],'and nobody else\'s');
  // Two messages written in the same millisecond still page apart by id.
  const same=at(90),[a,b]=[randomUUID(),randomUUID()].sort();
  await message(q,ana,{id:a,createdAt:same,body:'a'});await message(q,ana,{id:b,createdAt:same,body:'b'});
@@ -278,6 +280,10 @@ test('Supabase messagesSince and the latest page send exact keyset queries and r
  assert.deepEqual(page.rows.map(r=>[r.id,r.createdAt,r.organiser]),[['b','2026-10-21T14:00:02.500Z',true]],'one row over the limit is trimmed, the rest come oldest first');
  assert.equal(page.more,true);
  await pg.store.latestMessages(Q,{includeHidden:true});assert.equal(pg.calls[3].query.hidden_at,undefined);assert.equal(pg.calls[3].query.limit,'101');
+ // An author's own hidden messages come too; the filter rides in `and`, so it never meets the cursor's `or`.
+ await pg.store.latestMessages(Q,{ownHidden:U,before:{createdAt:'2026-10-21T14:00:03.000Z',id:M}});
+ assert.equal(pg.calls[4].query.hidden_at,undefined);assert.equal(pg.calls[4].query.and,`(or(hidden_at.is.null,user_id.eq.${U}))`);assert.match(pg.calls[4].query.or,/^\(created_at\.lt\./);
+ await assert.rejects(pg.store.latestMessages(Q,{ownHidden:'x,y'}),/identifier/,'an author id never takes PostgREST syntax');
  await assert.rejects(pg.store.latestMessages(Q,{before:{createdAt:'x),or(id.gt.0',id:M}}),e=>e.status===400,'a cursor cannot inject a filter');
 });
 
