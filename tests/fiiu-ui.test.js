@@ -670,7 +670,8 @@ test('lab status pills and form errors read naturally in Spanish and Portuguese'
 });
 
 test('programme and registration actions are at least 44px tall on touch screens, with the text size unchanged',()=>{
- const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8'),touch=[...css.matchAll(/@media\(pointer:coarse\)\{([^\n]*)\}\n/g)].map(match=>match[1]).join('');
+ // The participant page's touch block only: the organiser's attendance rows grow their text on purpose (13.9 px was too small at the door).
+ const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8'),touch=[...css.matchAll(/@media\(pointer:coarse\)\{([^\n]*)\}\n/g)].map(match=>match[1]).filter(block=>!/f-attendance-row|data-page="fiiu-admin"|f-segmented/.test(block)).join('');
  const rule=selector=>[...touch.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter(([,list])=>list.split(/,(?![^()]*\))/).includes(selector)).map(([,,body])=>body).join(';');
  for(const selector of ['.f-programme .f-button.secondary.f-small','.f-registration .f-button.f-small','.f-shell .f-steps .f-step','.f-registration .f-form .f-check'])assert.match(rule(selector),/min-height:44px/,selector);
  for(const selector of [':is(.f-hero,.f-compact-actions,.f-activity-foot,.f-external-meta) .f-text-link','.f-itinerary-row>.f-text-link','.f-stepped>fieldset>.f-text-link','.f-updates-grid .f-news-item>.f-text-link'])assert.match(rule(selector),/display:inline-flex;align-items:center;min-height:44px/,selector);

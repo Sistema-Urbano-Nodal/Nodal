@@ -1130,7 +1130,7 @@ const questionRows=h=>conversations(h).querySelectorAll('.f-question');
 const questionWrites=h=>h.requests.filter(request=>request.path.startsWith('/api/admin/fiiu/questions')&&request.method!=='GET');
 const questionReads=h=>h.requests.filter(request=>request.path==='/api/admin/fiiu/questions'&&request.method==='GET').length;
 const select=async(node,value)=>{node.value=value;await node.listeners.change?.();};
-const CONVERSATION_KEYS=['conversations','conversationsHint','newQuestion','questionBlock','questionTalk','questionNoTalk','questionText','publishNow','saveHidden','saveQuestion','questionStatus','questionOpen','questionClosed','questionHidden','openChat','present','downloadCsv','editQuestion','questionMessages','questionMessagesOne','questionPeople','questionPeopleOne','questionLikes','questionLikesOne','noQuestions','questionSaved','closeQuestionConfirm','questionsLoadError'];
+const CONVERSATION_KEYS=['conversations','conversationsHint','newQuestion','questionBlock','questionTalk','questionNoTalk','questionText','publishNow','saveHidden','saveQuestion','questionStatus','questionOpen','questionClosed','questionHidden','openChat','present','downloadCsv','editQuestion','questionMessages','questionMessagesOne','questionPeople','questionPeopleOne','questionLikes','questionLikesOne','noQuestions','questionSaved','closeQuestionConfirm','hideQuestionConfirm','questionsLoadError'];
 
 test('the Conversations section follows News and materials, with its own heading, hint and nav entry, in three languages',async()=>{
  const h=await harness(()=>({content:[],nextCursor:null}));
@@ -1226,14 +1226,21 @@ test('a status change sends the version; a conflict offers Reload the latest ver
  await key(row(),'questionHidden').listeners.click();assert.equal(questionWrites(h).at(-1).body.version,5,'the next change uses the version just read');assert.equal(note().dataset.fiiuText,'questionSaved');
 });
 
-test('closing a question asks first; declining sends nothing, and hiding or reopening never asks',async()=>{
- let current=question(),asked=0,answer=false;
+test('closing or hiding a live question asks first; declining sends nothing, and reopening or hiding a prepared one never asks',async()=>{
+ let current=question(),asked=[],answer=false;
  const h=await harness(({method,body})=>{if(method==='PATCH'){current={...current,status:body.status,version:current.version+1};return{question:current};}return{content:[],nextCursor:null};},{questionsRead:()=>({questions:[copy(current)]})});
- h.ctx.window.confirm=message=>{asked++;assert.equal(message,'Close this question? People can still read it but not answer.');return answer;};
+ h.ctx.window.confirm=message=>{asked.push(message);return answer;};
  const row=()=>questionRows(h)[0];
- await key(row(),'questionClosed').listeners.click();assert.equal(asked,1);assert.equal(questionWrites(h).length,0);assert.equal(key(row(),'questionOpen')['aria-pressed'],'true');
- answer=true;await key(row(),'questionClosed').listeners.click();assert.equal(asked,2);assert.deepEqual(questionWrites(h).at(-1).body,{version:1,status:'closed'});assert.equal(key(row(),'questionClosed')['aria-pressed'],'true');
- await key(row(),'questionOpen').listeners.click();await key(row(),'questionHidden').listeners.click();assert.equal(asked,2);assert.deepEqual(questionWrites(h).map(request=>request.body.status),['closed','open','hidden']);
+ await key(row(),'questionClosed').listeners.click();assert.deepEqual(asked,['Close this question? People can still read it but not answer.']);assert.equal(questionWrites(h).length,0);assert.equal(key(row(),'questionOpen')['aria-pressed'],'true');
+ answer=true;await key(row(),'questionClosed').listeners.click();assert.equal(asked.length,2);assert.deepEqual(questionWrites(h).at(-1).body,{version:1,status:'closed'});assert.equal(key(row(),'questionClosed')['aria-pressed'],'true');
+ await key(row(),'questionOpen').listeners.click();assert.equal(asked.length,2,'reopening never asks');
+ // An open question is on phones and the projector: hiding it asks, and a declined hide sends nothing.
+ answer=false;await key(row(),'questionHidden').listeners.click();assert.equal(asked.at(-1),'Hide this question? It disappears from phones and the projector until you open it again.');assert.deepEqual(questionWrites(h).map(request=>request.body.status),['closed','open']);
+ answer=true;await key(row(),'questionHidden').listeners.click();assert.deepEqual(questionWrites(h).map(request=>request.body.status),['closed','open','hidden']);
+ // A prepared question (closed, with no answers) hides without asking.
+ const prepared=await harness(({method,body})=>method==='PATCH'?{question:{...question({status:'closed',stats:{messages:0,people:0,likes:0}}),status:body.status,version:2}}:{content:[],nextCursor:null},{questionsRead:()=>({questions:[question({status:'closed',stats:{messages:0,people:0,likes:0}})]})});
+ let silent=0;prepared.ctx.window.confirm=()=>{silent++;return true;};
+ await key(questionRows(prepared)[0],'questionHidden').listeners.click();assert.equal(silent,0);assert.deepEqual(questionWrites(prepared).map(request=>request.body.status),['hidden']);
 });
 
 test('editing a question keeps its block, pre-fills the text and talk and saves both with the version; Cancel restores the row',async()=>{

@@ -15,6 +15,7 @@
   questionLikes:['{n} likes','{n} me gusta','{n} curtidas'],questionLikesOne:['1 like','1 me gusta','1 curtida'],
   noQuestions:['No questions yet.','Aún no hay preguntas.','Ainda não há perguntas.'],questionSaved:['Question saved','Pregunta guardada','Pergunta salva'],
   closeQuestionConfirm:['Close this question? People can still read it but not answer.','¿Cerrar esta pregunta? Las personas podrán leerla, pero ya no responder.','Fechar esta pergunta? As pessoas ainda poderão lê-la, mas não responder.'],
+  hideQuestionConfirm:['Hide this question? It disappears from phones and the projector until you open it again.','¿Ocultar esta pregunta? Dejará de verse en los teléfonos y en la proyección hasta que la vuelvas a abrir.','Ocultar esta pergunta? Ela deixa de aparecer nos celulares e na projeção até você abri-la de novo.'],
   questionsLoadError:['The questions could not be loaded.','No se pudieron cargar las preguntas.','Não foi possível carregar as perguntas.'],
   questionLatest:['Latest saved version:','Versión guardada actual:','Versão salva atual:'],
   attendanceSignIn:['Attendance not saved: your session ended.','No se guardó la asistencia: tu sesión terminó.','A presença não foi salva: sua sessão terminou.'],
@@ -653,6 +654,8 @@
  async function setQuestionStatus(entry,next){
   const q=entry.record;if(entry.busy||q.status===next)return;
   if(next==='closed'&&!window.confirm(t('closeQuestionConfirm')))return;
+  // Hiding takes a live or answered question off every phone and the projector at once; a prepared one hides without asking.
+  if(next==='hidden'&&(q.status==='open'||(q.stats?.messages??q.messageCount??0)>0)&&!window.confirm(t('hideQuestionConfirm')))return;
   entry.busy=true;entry.group.setAttribute('aria-busy','true');
   const reload=async()=>{await reloadQuestions();entry.conflict.replaceChildren();status(entry.note,'');entry.buttons.get(entry.record.status)?.focus();};
   // An edit of this question that started from the version this change replaces moves to the new one, so saving it is no conflict with itself.
