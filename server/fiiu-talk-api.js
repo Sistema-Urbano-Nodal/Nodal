@@ -9,7 +9,7 @@ import {TALK_LIMITS,talkActivity,normalizeQuestion,normalizeMessage,decodeTalkFi
    for everyone, so the CDN answers the 4-second polls of a full auditorium (one venue address) and a phone fetches
    messages only when its question's revision moved. Everything else needs a festival registration or an organiser. */
 const PULSE_CACHE='public, max-age=0, s-maxage=2, stale-while-revalidate=4';
-const PULSE_MS=1000,MEMO_MS=60000,MEMO_MAX=5000,UPLOAD_GRACE_MS=10*60000;
+const PULSE_MS=1000,MEMO_MS=60000,MEMO_MAX=5000,UPLOAD_GRACE_MS=10*60000,RETRY_MS=10*60000;
 const CSV_HEADER=['question','block','talk','createdAtLima','author','email','organiser','text','files','likes','hidden','deleted'];
 // The chat pages translate refusals by code (see fiiu-talk-domain.js); the global handler would drop it, so it is sent here.
 const failCode=(message,status,code)=>{try{fail(message,status);}catch(err){throw Object.assign(err,{code});}};
@@ -201,19 +201,31 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     const {organiser,registration}=await access(user,{names:true}),q=await questionFor(param,organiser);
     const input=normalizeMessage(await body(req));
     /* The phone keeps one clientId per draft, so a send whose answer was lost comes back as the same message. Only an
-       identical retry is answered that way; a request that stopped between the insert and the attach is finished. A
-       retry is answered even once the question has closed, since the message was sent while it was open. */
+       identical retry is answered that way. A retry is answered even once the question has closed, since the message
+       was sent while it was open; one deleted since answers with its gone view (the page drops the pending row). */
     const reused=()=>failCode('client id already used for another message',409,'client_id_reused');
     /* Two requests of one draft can both be attaching (a retry while the first is still running), so an attach that
        moves fewer files than asked is a failure only if the files did not end up on this message after all. */
     const attachedTo=async messageId=>{const got=new Set((await store.filesForMessages([messageId])).map(f=>f.id));return input.fileIds.every(id=>got.has(id));};
     const replay=async old=>{
-     if(old.questionId!==q.id||old.body!==input.body||old.deletedAt)reused();
+     if(old.questionId!==q.id)reused();
+     // Deleting blanks the body, so it is not compared.
+     if(old.deletedAt){send(res,200,{message:goneView(old)});return true;}
+     if(old.body!==input.body)reused();
      const attached=new Set((await store.filesForMessages([old.id])).map(f=>f.id)),missing=input.fileIds.filter(id=>!attached.has(id));
      if([...attached].some(id=>!input.fileIds.includes(id)))reused();
-     if(missing.length&&await store.attachFiles(missing,old.id,user.id)!==missing.length&&!await attachedTo(old.id))reused();
-     // A message hidden since it was sent answers with its gone view, as the author's next sync would.
-     send(res,200,{message:await viewOf(old,user,organiser)});return true;
+     let row=old;
+     if(missing.length){
+      /* Attaching only finishes the original send, a request that stopped between the insert and the attach: never
+         past the close or a moderator, never onto a message that already has its files, never long after. Otherwise
+         a reused clientId would slip new files into an old or reviewed message. */
+      if(q.status!=='open')failCode('this conversation is closed',403,'question_closed');
+      if(old.hiddenAt||attached.size||!(clock()-Date.parse(old.createdAt)<RETRY_MS))reused();
+      if(await store.attachFiles(missing,old.id,user.id)!==missing.length&&!await attachedTo(old.id))reused();
+      // The attach restamped the message, so the answer carries the seq peers will sync.
+      row=await store.findMessage(old.id)??old;
+     }
+     send(res,200,{message:await viewOf(row,user,organiser)});return true;
     };
     const old=await store.findMessageByClient(user.id,input.clientId);if(old)return await replay(old);
     if(q.status!=='open')failCode('this conversation is closed',403,'question_closed');
@@ -224,10 +236,16 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     catch(err){const raced=err.status===409&&await store.findMessageByClient(user.id,input.clientId);if(!raced)throw err;return await replay(raced);}
     /* The attach is a compare-and-set. A retry of this draft may have attached the files first, and then the message is
        sent; if another post of this person's took a file in between, this one is withdrawn. */
-    if(input.fileIds.length&&await store.attachFiles(input.fileIds,message.id,user.id)!==input.fileIds.length&&!await attachedTo(message.id)){
-     await store.updateMessage({id:message.id,userId:user.id},{body:'',deletedAt:now()});await releaseFiles(message.id);fileUnavailable(400);
+    if(input.fileIds.length){
+     if(await store.attachFiles(input.fileIds,message.id,user.id)!==input.fileIds.length&&!await attachedTo(message.id)){
+      await store.updateMessage({id:message.id,userId:user.id},{body:'',deletedAt:now()});await releaseFiles(message.id);fileUnavailable(400);
+     }
+     // The attach restamped the message (so peers that synced it without its files fetch it again): send that seq.
+     message=await store.findMessage(message.id)??message;
     }
-    send(res,201,{message:await viewOf(message,user,organiser)});return true;
+    /* Built from what this request holds rather than read back: the files are exactly the ones checked above, and a
+       new message carries no like of its author's (own_message refuses one). */
+    send(res,201,{message:messageView(message,{viewer:user.id,organiser,files,liked:false})});return true;
    }
    if(name==='message'){
     // Authorship alone: people can withdraw what they wrote whatever the question's state, even after cancelling.

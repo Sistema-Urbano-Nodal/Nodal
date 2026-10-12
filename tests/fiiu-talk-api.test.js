@@ -182,6 +182,53 @@ test('a retry racing the first send of a draft with a photo keeps one message wi
  for(const [,id] of sent){assert.equal((await talkStore.findFile(id))?.status,'ready');assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_file_bytes WHERE file_id=?').get(id).n,1);}
 });
 
+test('a retry can only finish its own send: no new file once the question closed, the message was hidden, has files or is old',async t=>{
+ let now=Date.parse('2026-10-21T14:00:00.000Z');
+ const {json,ask,post,upload,close,talkStore}=await setup(t,{app:{talkClock:()=>now}});
+ const q=await ask(),stray=(await upload()).body.file;
+ const retry=(clientId,body,files)=>post(q,body,{clientId,fileIds:files.map(f=>f.id)});
+ const hid=randomUUID(),hidden=(await post(q,'oculto',{clientId:hid})).body.message;
+ assert.equal((await json(`/api/admin/fiiu/messages/${hidden.id}/hidden`,{actor:'admin',method:'PUT',body:{}})).status,200);
+ assert.equal((await retry(hid,'oculto',[stray])).body.code,'client_id_reused','a moderated message takes no new file');
+ const sent=randomUUID(),photo=(await upload()).body.file;
+ assert.equal((await retry(sent,'con foto',[photo])).status,201);
+ assert.equal((await retry(sent,'con foto',[photo,stray])).body.code,'client_id_reused','a message with its files takes no more');
+ assert.equal((await retry(sent,'con foto',[photo])).status,200,'the same retry is still answered');
+ const old=randomUUID();assert.equal((await post(q,'viejo',{clientId:old})).status,201);
+ now+=10*60000;
+ assert.equal((await retry(old,'viejo',[stray])).body.code,'client_id_reused','past the ten-minute retry window');
+ const late=randomUUID();assert.equal((await post(q,'tarde',{clientId:late})).status,201);
+ await close(q);
+ const closed=await retry(late,'tarde',[stray]);assert.equal(closed.status,403);assert.equal(closed.body.code,'question_closed');
+ assert.equal((await post(q,'tarde',{clientId:late})).status,200,'a retry without new files still learns it was sent');
+ assert.equal((await talkStore.findFile(stray.id)).messageId,null,'the stray file never moved');
+});
+
+test('files attached after the insert reach peers that synced the message without them',async t=>{
+ // The first send stops after the insert (a PostgREST timeout on the attach); its author retries.
+ let broken=true;
+ const {json,ask,post,upload,pulse}=await setup(t,{wrapTalk:store=>({...store,attachFiles:async(...args)=>{if(broken){broken=false;throw Object.assign(Error('attach timed out'),{status:502});}return store.attachFiles(...args);}})});
+ const q=await ask(),file=(await upload()).body.file,clientId=randomUUID();
+ assert.equal((await post(q,'',{clientId,fileIds:[file.id]})).status,502);
+ const early=await json(`/api/fiiu/questions/${q.id}/messages?since=0`,{actor:'other'});
+ assert.deepEqual(early.body.changes.map(c=>c.files.length),[0],'a peer synced the photo message before its photo');
+ const finished=await post(q,'',{clientId,fileIds:[file.id]});assert.equal(finished.status,200);
+ const later=await json(`/api/fiiu/questions/${q.id}/messages?since=${early.body.revision}`,{actor:'other'});
+ assert.deepEqual(later.body.changes.map(c=>[c.id,c.files.map(f=>f.id)]),[[finished.body.message.id,[file.id]]]);
+ assert.equal((await pulse())[0][2],later.body.revision,'the pulse moved with it');
+ assert.equal(finished.body.message.seq,later.body.revision,'the answer carries the seq the attach stamped');
+ const fresh=await post(q,'',{fileIds:[(await upload()).body.file.id]});
+ assert.equal(fresh.status,201);assert.equal(fresh.body.message.seq,(await pulse())[0][2],'so does a first send with files');
+});
+
+test('a retry of a message deleted since it was sent learns it is gone',async t=>{
+ const {json,ask,post,upload}=await setup(t);
+ const q=await ask(),clientId=randomUUID(),file=(await upload()).body.file,m=(await post(q,'hola',{clientId,fileIds:[file.id]})).body.message;
+ assert.equal((await json(`/api/fiiu/messages/${m.id}`,{method:'DELETE',body:{}})).status,200);
+ const retry=await post(q,'hola',{clientId,fileIds:[file.id]});
+ assert.equal(retry.status,200);assert.deepEqual(retry.body.message,{id:m.id,seq:retry.body.message.seq,gone:true});
+});
+
 test('a retry of a message hidden since it was sent learns it is gone, as its author would on the next sync',async t=>{
  const {json,ask,post}=await setup(t);
  const q=await ask(),clientId=randomUUID(),m=(await post(q,'hola',{clientId})).body.message;

@@ -6,8 +6,8 @@ import {TALK_LIMITS} from './fiiu-talk-domain.js';
 import {FIIU_SQLITE_SCHEMA} from './fiiu-repository.js';
 
 /* Local mirror of 20261011120000_fiiu_conversations.sql. The triggers keep each question's revision (what the pulse
-   publishes) and stamp every changed message with it as seq, so the since-sync and the counters stay right on every
-   write path, the account-deletion cascade included. recursive_triggers is off, and the update triggers watch named
+   publishes) and stamp every changed message with it as seq (attaching its files included), so the since-sync and the
+   counters stay right on every write path, the account-deletion cascade included. recursive_triggers is off, and the update triggers watch named
    columns, never seq or revision, so their own writes cannot fire them again. As on profiles in Postgres, deleting an
    account blanks its messages first, so a deletion path that skips the application's scrub still leaves no text. */
 export const FIIU_TALK_SQLITE_SCHEMA=`
@@ -40,6 +40,9 @@ CREATE TRIGGER IF NOT EXISTS fiiu_like_insert AFTER INSERT ON fiiu_message_likes
 CREATE TRIGGER IF NOT EXISTS fiiu_like_delete AFTER DELETE ON fiiu_message_likes BEGIN UPDATE fiiu_messages SET like_count=max(0,like_count-1) WHERE id=OLD.message_id; END;
 CREATE TRIGGER IF NOT EXISTS fiiu_question_change AFTER UPDATE OF body,talk,status ON fiiu_questions
  WHEN NEW.body IS NOT OLD.body OR NEW.talk IS NOT OLD.talk OR NEW.status IS NOT OLD.status BEGIN UPDATE fiiu_questions SET revision=revision+1 WHERE id=NEW.id; END;
+CREATE TRIGGER IF NOT EXISTS fiiu_file_attached AFTER UPDATE OF message_id ON fiiu_files WHEN NEW.message_id IS NOT NULL AND NEW.message_id IS NOT OLD.message_id BEGIN
+ UPDATE fiiu_questions SET revision=revision+1 WHERE id=(SELECT question_id FROM fiiu_messages WHERE id=NEW.message_id);
+ UPDATE fiiu_messages SET seq=(SELECT q.revision FROM fiiu_questions q JOIN fiiu_messages m ON m.question_id=q.id WHERE m.id=NEW.message_id) WHERE id=NEW.message_id; END;
 CREATE TRIGGER IF NOT EXISTS fiiu_messages_account_erasure BEFORE DELETE ON users BEGIN
  UPDATE fiiu_messages SET body='',author_name='',author_full='',deleted_at=coalesce(deleted_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')) WHERE user_id=OLD.id; END;
 `;

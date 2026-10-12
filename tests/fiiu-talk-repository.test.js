@@ -166,6 +166,19 @@ test('files attach only when ready, unattached and the poster\'s own',async()=>{
  assert.equal(await store.removeFile(pending.id),1);assert.equal(await store.findFile(pending.id),null);
 });
 
+test('attaching files moves the question revision and restamps the message, so a sync fetches it again with them',async()=>{
+ const {store,ana,question,message,file}=setup();
+ const q=await question(),m=await message(q,ana),[f1,f2,f3]=[await file(ana),await file(ana),await file(ana)];
+ for(const f of [f1,f2,f3])await store.setFileStatus(f.id,'pending','ready');
+ assert.equal((await store.getQuestion(q.id)).revision,1,'a file finishing its upload moves nothing');
+ assert.equal(await store.attachFiles([f1.id,f2.id],m.id,ana.id),2);
+ const after=await store.getQuestion(q.id),moved=await store.findMessage(m.id);
+ assert.ok(after.revision>1);assert.equal(moved.seq,after.revision);assert.equal(after.messageCount,1,'the visible count is unchanged');
+ assert.deepEqual((await store.messagesSince(q.id,1)).map(x=>x.id),[m.id]);
+ assert.equal(await store.attachFiles([f1.id],m.id,ana.id),0);assert.equal((await store.getQuestion(q.id)).revision,after.revision,'a refused attach moves nothing');
+ await store.setFileStatus(f1.id,'ready','deleting');assert.equal((await store.getQuestion(q.id)).revision,after.revision,'neither does a release');
+});
+
 test('scrubbing a person blanks their messages, and deleting the account keeps the rows and cascades the likes',async()=>{
  const {db,store,ana,ben,question,message}=setup();
  const q=await question(),mine=await message(q,ana),theirs=await message(q,ben),gone=await message(q,ana);
