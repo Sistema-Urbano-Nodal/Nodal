@@ -4,7 +4,7 @@
  // The check-in is sent at once and c then leaves the address bar, so a reload or a shared screenshot of the page cannot reuse it;
  // a reload shows the person's confirmation for that block instead (revisit).
  // Every outcome is one ruled block: a title that takes focus, the block it concerns, and the one next step.
- const {t,el,tr,button,link,source,field,api,status,dateNode,limaDate,badges,findActivity,countLabel,hoursLine,limaClock,windowNode,newTabNote}=window.Fiiu;
+ const {t,el,tr,button,link,source,field,api,status,dateNode,limaDate,badges,findActivity,countLabel,hoursLine,limaClock,windowNode,newTabNote,checkinCloses}=window.Fiiu;
  const root=document.getElementById('fiiuCheckinRoot'),message=document.getElementById('fiiuStatus');
  const params=new URLSearchParams(location.search),activityId=params.get('a')||'',code=params.get('c')||'';
  const ID=/^[a-z0-9-]{1,60}$/,CODE=/^[A-Za-z0-9_-]{6,64}$/,SHORT=/^[A-Z0-9]{6}$/;
@@ -23,7 +23,7 @@
   when.append(dateNode(activity.date,'span','short','f-when-day'));if(activity.time)when.append(el('span','',activity.time));
   box.append(source('p',activity.title,'f-checkin-block'),when);if(activity.venue)box.append(source('p',activity.venue,'f-checkin-venue'));return box;
  }
- const hintOf=key=>tr('p',key,'f-checkin-hint'),actions=(...nodes)=>{const box=el('div','f-actions');box.append(...nodes);return box;};
+ const hintOf=key=>tr('p',key,'f-checkin-hint'),actions=(...nodes)=>{const box=el('div','f-actions');box.append(...nodes.filter(Boolean));return box;};
  function facts(...pairs){const list=el('dl','f-checkin-facts');for(const [key,value] of pairs){const row=el('div','f-checkin-fact');row.append(tr('dt',key),value);list.append(row);}return list;}
  const dd=(...nodes)=>{const node=el('dd');node.append(...nodes);return node;};
  // The code form is the fallback for phones that cannot read the QR code: it sends the 6-character code shown under it.
@@ -66,18 +66,21 @@
    if(!body.activityId)return signIn(activity,'/fiiu-checkin.html','signInScanAgainHint');
    return signIn(activity,'/fiiu-checkin.html?a='+encodeURIComponent(body.activityId)+'&c='+encodeURIComponent(body.code),'signInCheckinHint');
   }
-  // The laboratory is not a block anyone can add: only an accepted application checks in, so no refusal for it links to the registration.
   const lab=(activity?.registration??error?.registration)==='application';
-  if(error.status===404)return block('notRegistered','warn',about(activity),hintOf(lab?'labNotAcceptedHint':open?'notRegisteredHint':'askDesk'),open&&!lab&&actions(link('register',addHref,'f-button')));
-  if(error.code==='lab_not_accepted'||(lab&&error.code==='not_in_plan'))return block('labNotAccepted','warn',about(activity),hintOf('labNotAcceptedHint'));
-  if(error.code==='not_in_plan')return block('notInPlan','warn',about(activity),hintOf(open?'notInPlanHint':'askDesk'),open&&actions(link('addToRegistration',addHref,'f-button')));
-  if(error.code==='outside_window')return block('checkinEndedTitle','warn',about(activity),closedLine(activity,error),hintOf('askDesk'));
+  if(error.status===404)return unregistered(activity,{open,lab,addHref});
+  if(error.code==='lab_not_accepted'||error.code==='not_in_plan')return outsidePlan(activity,{open,lab:lab||error.code==='lab_not_accepted',addHref});
+  if(error.code==='outside_window')return ended(activity,error);
   if(error.status===410)return block('codeExpired','warn',about(activity),hintOf('expiredHint'),codeForm());
   if(error.code==='invalid_activity')return block('noCheckin','warn',hintOf('noCheckinHint'),actions(link('viewProgramme','fiiu.html#programme','f-button secondary')));
   if(error.status===400)return block('invalidLink','warn',hintOf('invalidLinkHint'),codeForm());
   // A rate limit, an outage or a lost connection: the same check-in can simply be sent again.
   return block('checkinFailedTitle','error',about(activity),reasonOf(error),retry());
  }
+ // The refusals a scan gets from the server, and a reload works out from the registration lookup, read the same either way.
+ // The laboratory is not a block anyone can add: only an accepted application checks in, so no refusal for it links to the registration.
+ const unregistered=(activity,{open,lab,addHref})=>block('notRegistered','warn',about(activity),hintOf(lab?'labNotAcceptedHint':open?'notRegisteredHint':'askDesk'),open&&!lab&&actions(link('register',addHref,'f-button')));
+ const outsidePlan=(activity,{open,lab,addHref})=>lab?block('labNotAccepted','warn',about(activity),hintOf('labNotAcceptedHint')):block('notInPlan','warn',about(activity),hintOf(open?'notInPlanHint':'askDesk'),open&&actions(link('addToRegistration',addHref,'f-button')));
+ const ended=(activity,data)=>block('checkinEndedTitle','warn',about(activity),closedLine(activity,data),hintOf('askDesk'));
  function reasonOf(error){const reason=el('p','f-checkin-hint');reason.dataset.fiiuText=!error?.key||error.key==='error'?'checkinError':error.key;reason.textContent=t(reason.dataset.fiiuText);return reason;}
  const signIn=(activity,next,hint)=>block('signInToCheckIn','warn',about(activity),hintOf(hint),actions(link('signin','login.html?next='+encodeURIComponent(next),'f-button')));
  async function run(body){
@@ -85,8 +88,9 @@
   try{data=await api('/api/fiiu/checkin',body);}catch(err){error=err;}
   await shortly(1500);(data?success(data,body):failure(error,body)).title.focus();
  }
- // After a check-in the address keeps only a, so a reload (or a phone restoring the tab) lands here without a code.
- // A block already in the person's attendance shows its confirmation again; signed out, the page asks for sign-in first; anything else asks for the screen code.
+ // After a check-in the address keeps only a, so a reload (or a phone restoring the tab) lands here without a code, as does a new account back from
+ // its confirmation email. A block already in the person's attendance shows its confirmation again; signed out, the page asks for sign-in first;
+ // a scan the server would refuse gets that refusal now; only a scan that would go through asks for the screen code.
  async function revisit(id){
   status(message,'loading');let data=null,problem=null;
   try{data=await api('/api/fiiu/registration');}catch(err){problem=err;}
@@ -99,7 +103,17 @@
   const attendance=Array.isArray(data?.attendance)?data.attendance:[],record=attendance.find(row=>row.activityId===id);
   if(record)return success({result:'already_checked_in',activityId:id,checkedInAt:record.createdAt,attendance,hours:data.hours},{activityId:id});
   if(activity?.registration==='external')return block('noCheckin','warn',hintOf('noCheckinHint'),actions(link('viewProgramme','fiiu.html#programme','f-button secondary')));
-  // Signed in with no confirmation for this block: the address alone cannot check in, so ask for the screen code.
+  // In the server's order: closed (by the server's clock in this answer; an answer without it judges nothing), then no registration, then the plan.
+  // Without the programme the block is unknown, so the screen code lets the server judge.
+  if(activity){
+   const now=Date.parse(data.serverTime),closesAt=checkinCloses(activity),registration=data.registration;
+   const open=festival.config?.registrationOpen===true,lab=activity.registration==='application',addHref='fiiu.html#add-'+encodeURIComponent(id);
+   if(Number.isFinite(now)&&now>closesAt)return ended(activity,{closesAt});
+   if(!registration)return unregistered(activity,{open,lab,addHref});
+   // The server's rule (canAttend): a conference block must be in the plan, the laboratory needs an accepted application.
+   if(activity.registration==='general'?!registration.answers.activities.includes(id):lab&&registration.labStatus!=='accepted')return outsidePlan(activity,{open,lab,addHref});
+  }
+  // Signed in, registered for an open block and not yet checked in: the address alone cannot check in, so ask for the screen code.
   return block('scanAgainTitle','warn',about(activity),hintOf('scanAgainHint'),codeForm());
  }
  setTitle();window.nodalI18n?.onChange(setTitle);status(message,'');

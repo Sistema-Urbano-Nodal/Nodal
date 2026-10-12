@@ -168,7 +168,7 @@ test('a rate limit or a lost connection offers to send the same check-in again',
 test('workshops and routes have no check-in, and an incomplete link sends nothing',async()=>{
  const external=await page(()=>({status:400,data:{code:'invalid_activity'}}),{search:`?a=workshop-calles-gente&c=${CODE}`});
  assert.equal(title(external).dataset.fiiuText,'noCheckin');assert.ok(key(result(external),'noCheckinHint'));
- const registration=(rows=[])=>({registration:null,attendance:rows,hours:{minutes:0,hours:0,untimed:[]},user:{id:'u1',email:'member@example.test'}});
+ const registration=(rows=[])=>({registration:{id:'r1',version:1,answers:{activities:['day1-am']}},attendance:rows,hours:{minutes:0,hours:0,untimed:[]},user:{id:'u1',email:'member@example.test'}});
  const partial=await page(request=>request.method==='GET'&&request.path==='/api/fiiu/registration'?registration():assert.fail('nothing is sent for an incomplete link'),{search:'?a=day1-am'});
  assert.equal(title(partial).dataset.fiiuText,'scanAgainTitle');assert.ok(key(result(partial),'scanAgainHint'));assert.match(content(result(partial).querySelector('.f-checkin-activity')),/El poder de lo local/,'the block is named');
  assert.ok(field(result(partial),'checkinCode'));assert.deepEqual(partial.replaced,[]);assert.equal(posts(partial).length,0);
@@ -186,7 +186,7 @@ test('signed out, a reload or Back after the code left the address asks for sign
  assert.equal(key(result(h),'signin').href,'login.html?next='+encodeURIComponent('/fiiu-checkin.html?a=day1-am'));
  assert.equal(field(result(h),'checkinCode'),undefined,'no code form before sign-in');assert.equal(posts(h).length,0);assert.equal(h.message.dataset.fiiuText,'');
  // Any other failure to read the registration offers to try again rather than claiming the link is incomplete.
- let replies=[{status:503,data:{error:'unavailable'}},{registration:null,attendance,hours:{minutes:240,hours:4,untimed:[]},user:{id:'u1',email:'member@example.test'}}];
+ let replies=[{status:503,data:{error:'unavailable'}},{registration:{id:'r1',version:1,answers:{activities:['day1-am']}},attendance,hours:{minutes:240,hours:4,untimed:[]},user:{id:'u1',email:'member@example.test'}}];
  const down=await page(request=>request.path==='/api/fiiu/registration'?replies.shift():assert.fail(),{search:'?a=day1-am'});
  assert.equal(title(down).dataset.fiiuText,'checkinLoadFailed','only the lookup failed: it never says the check-in did not go through');assert.ok(key(result(down),'checkinLoadFailedHint'));assert.equal(key(result(down),'error'),undefined);assert.equal(posts(down).length,0);
  await key(result(down),'retry').listeners.click();await flush();
@@ -209,7 +209,7 @@ test('reloading the page after a check-in shows the confirmation again instead o
  assert.match(content(box.querySelector('.f-badges')),/✓ El poder de lo local/);assert.match(content(box.querySelector('.f-hours')),/\b4\b/);
  assert.equal(key(box,'viewRegistration').href,'fiiu.html#registration');assert.equal(h.message.dataset.fiiuText,'');assert.deepEqual(h.replaced,[]);
  // Another block on the same address is not confirmed by this one.
- const other=await page(request=>request.path==='/api/fiiu/registration'?{registration:null,attendance,hours:{minutes:240,hours:4,untimed:[]},user:{id:'u1',email:'member@example.test'}}:assert.fail(),{search:'?a=day1-pm'});
+ const other=await page(request=>request.path==='/api/fiiu/registration'?{registration:{id:'r1',version:1,answers:{activities:['day1-am','day1-pm']}},attendance,hours:{minutes:240,hours:4,untimed:[]},user:{id:'u1',email:'member@example.test'}}:assert.fail(),{search:'?a=day1-pm'});
  assert.equal(title(other).dataset.fiiuText,'scanAgainTitle');
 });
 
@@ -228,7 +228,7 @@ test('without a link the page asks for the 6-character screen code, checks it be
 test('participation badges follow the programme, whatever order the store returns the attendance in',async()=>{
  // Attendance ids are random UUIDs, so the API order is arbitrary: a 22 October workshop, the 22 October morning, then the 20 October laboratory.
  const rows=[{activityId:'workshop-calles-gente',createdAt:'2026-10-22T20:00:00.000Z',method:'staff'},{activityId:'day2-am',createdAt:'2026-10-22T14:05:00.000Z',method:'qr'},{activityId:'day0-lab',createdAt:'2026-10-20T15:00:00.000Z',method:'qr'}];
- const h=await page(request=>request.path==='/api/fiiu/registration'?{registration:null,attendance:rows,hours:{minutes:240,hours:4,untimed:['day0-lab']},user:{id:'u1',email:'member@example.test'}}:assert.fail(),{search:'?a=day0-lab',now:'2026-10-22T16:00:00-05:00'});
+ const h=await page(request=>request.path==='/api/fiiu/registration'?{registration:{id:'r1',version:1,answers:{activities:['day2-am'],applyLab:true},labStatus:'accepted'},attendance:rows,hours:{minutes:240,hours:4,untimed:['day0-lab']},user:{id:'u1',email:'member@example.test'}}:assert.fail(),{search:'?a=day0-lab',now:'2026-10-22T16:00:00-05:00'});
  assert.equal(title(h).dataset.fiiuText,'alreadyCheckedIn');
  assert.deepEqual(result(h).querySelectorAll('.f-badge').map(node=>node.textContent.slice(2,24)),['Gestión urbana en acci','Cuidar y transformar l','Calles para la gente: ']);
 });
@@ -254,4 +254,37 @@ test('without the programme, a refusal for a typed code still links to the block
  const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?{status:503,data:{}}:{status:403,data:{code:'not_in_plan',activityId:'day1-pm',registrationOpen:true}},{page:'fiiu-checkin',search:''});
  const form=result(h).querySelector('form');field(form,'checkinCode').value='K7M4PX';form.listeners.submit({preventDefault(){}});await flush();
  assert.equal(title(h).dataset.fiiuText,'notInPlan');assert.equal(key(result(h),'addToRegistration').href,'fiiu.html#add-day1-pm');
+});
+
+test('a reload says what a scan would: closed by the server’s clock, not registered, not in the plan or a laboratory place not confirmed, and only otherwise asks for the code',async()=>{
+ const own=(activities=['day1-am'],extra={})=>({id:'r1',version:1,answers:{activities},...extra});
+ const lookup=(registration=own(),serverTime='2026-10-21T14:12:00.000Z')=>({registration,attendance:[],hours:{minutes:0,hours:0,untimed:[]},user:{id:'u1',email:'beto@example.test'},...(serverTime?{serverTime}:{})});
+ const reload=(reply,{search='?a=day1-am',...options}={})=>page(request=>request.path==='/api/fiiu/registration'&&request.method==='GET'?reply:assert.fail('a reload sends no check-in'),{search,...options});
+ // 14:00 in Lima by the server's clock, half an hour after the 13:30 close, while the phone still reads that morning.
+ const closed=await reload(lookup(own(),'2026-10-21T19:00:00.000Z'),{now:'2026-10-21T08:00:00-05:00'});
+ assert.equal(title(closed).dataset.fiiuText,'checkinEndedTitle');assert.equal(result(closed).className,'f-checkin is-warn');assert.ok(key(result(closed),'askDesk'));
+ assert.match(content(result(closed).querySelector('.f-checkin-window')),/13:30/);assert.equal(field(result(closed),'checkinCode'),undefined,'no code form for a closed block');assert.equal(posts(closed).length,0);
+ // As on the server, closed comes before anything about the registration.
+ assert.equal(title(await reload(lookup(null,'2026-10-21T19:00:00.000Z'))).dataset.fiiuText,'checkinEndedTitle');
+ // Only the server's clock judges: a phone reading after the close, or an older answer without the server's time, still gets the code form.
+ for(const late of [await reload(lookup(),{now:'2026-10-21T20:00:00-05:00'}),await reload(lookup(own(),null),{now:'2026-10-21T20:00:00-05:00'})]){
+  assert.equal(title(late).dataset.fiiuText,'scanAgainTitle');assert.ok(field(result(late),'checkinCode'));
+ }
+ // No registration: the same refusal as a scan, with the register link while registration is open and the desk once it closes.
+ const none=await reload(lookup(null));
+ assert.equal(title(none).dataset.fiiuText,'notRegistered');assert.ok(key(result(none),'notRegisteredHint'));assert.equal(key(result(none),'register').href,'fiiu.html#add-day1-am');
+ assert.equal(field(result(none),'checkinCode'),undefined,'no "scan again" for someone the server would refuse');
+ const late=await reload(lookup(null),{registrationOpen:false});assert.equal(title(late).dataset.fiiuText,'notRegistered');assert.ok(key(result(late),'askDesk'));assert.equal(key(result(late),'register'),undefined);
+ // A block outside the plan links to the registration with it ticked.
+ const plan=await reload(lookup(),{search:'?a=day1-pm'});
+ assert.equal(title(plan).dataset.fiiuText,'notInPlan');assert.ok(key(result(plan),'notInPlanHint'));assert.equal(key(result(plan),'addToRegistration').href,'fiiu.html#add-day1-pm');assert.equal(field(result(plan),'checkinCode'),undefined);
+ // The laboratory needs an accepted application; a pending one says so, an accepted one is asked for the code.
+ const lab={search:'?a=day0-lab',now:'2026-10-20T10:00:00-05:00'},labTime='2026-10-20T15:00:00.000Z';
+ const pending=await reload(lookup(own(['day1-am'],{answers:{activities:['day1-am'],applyLab:true},labStatus:'pending'}),labTime),lab);
+ assert.equal(title(pending).dataset.fiiuText,'labNotAccepted');assert.ok(key(result(pending),'labNotAcceptedHint'));assert.equal(key(result(pending),'addToRegistration'),undefined);
+ const unregisteredLab=await reload(lookup(null,labTime),lab);assert.equal(title(unregisteredLab).dataset.fiiuText,'notRegistered');assert.ok(key(result(unregisteredLab),'labNotAcceptedHint'));assert.equal(key(result(unregisteredLab),'register'),undefined);
+ const accepted=await reload(lookup(own(['day1-am'],{answers:{activities:['day1-am'],applyLab:true},labStatus:'accepted'}),labTime),lab);
+ assert.equal(title(accepted).dataset.fiiuText,'scanAgainTitle');assert.ok(field(result(accepted),'checkinCode'));
+ // A registered person on an open block in their plan is the one asked to scan again.
+ const ready=await reload(lookup());assert.equal(title(ready).dataset.fiiuText,'scanAgainTitle');assert.ok(key(result(ready),'scanAgainHint'));
 });

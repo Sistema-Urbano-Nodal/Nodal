@@ -508,6 +508,7 @@ test('attendees check themselves in with the session QR once, only until check-i
  assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_attendance').get().n,1);
  const me=await(await call('/api/fiiu/registration')).json();
  assert.deepEqual(me.attendance,[{activityId:'day1-am',createdAt:'2026-10-21T14:14:00.000Z',method:'qr'}]);assert.deepEqual(me.hours,{minutes:240,hours:4,untimed:[]});
+ assert.equal(me.serverTime,'2026-10-21T14:20:00.000Z','the lookup carries the check-in clock, so a reload judges a closed block as the scan would, never by the phone');
  // Staff can still correct a QR check-in; the typed 6-character code then works without the activity id.
  assert.equal((await call(`/api/admin/fiiu/registrations/${registration.id}/attendance`,{actor:'admin',method:'PUT',body:{activityId:'day1-am',attended:false}})).status,200);
  assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_attendance').get().n,0);
