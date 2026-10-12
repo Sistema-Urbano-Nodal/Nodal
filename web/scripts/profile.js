@@ -16,6 +16,16 @@
     ['Environment & nature', 'environment'],
   ]);
   const topicLabel = (name) => (TOPIC_KEYS.has(name) ? t(`d.topic.${TOPIC_KEYS.get(name)}`) : name);
+  // 'Member' is the server's no-title sentinel; the console shows it translated too.
+  const roleLabel = (role) => (!role || role === 'Member' ? t('d.role.member') : role);
+  /* One profile-only line in en/es/pt, picked by the page language like auth.js's messages, so the console
+     dictionary and its cache key stay as they are. */
+  const SHARE_HIDDEN = [
+    'To share your profile, opt into the directory in Part C.',
+    'Para compartir tu perfil, autoriza el directorio en la Parte C.',
+    'Para compartilhar seu perfil, autorize o diretório na Parte C.',
+  ];
+  const shareHidden = () => SHARE_HIDDEN[({ en: 0, es: 1, pt: 2 })[I18N?.lang] ?? 0];
   let currentProfile = null, profileFailed = false, networkPeople = [];
   let signalsHost = document.querySelector('.pf-locked');
 
@@ -55,7 +65,7 @@
     document.title = `${user.fullName} · ${t('p.title')}`;
     set('pfName', user.fullName);
     set('pfKicker', t(isSelf ? 'p.kickerSelf' : 'p.kicker'));
-    set('pfRole', `${user.title}${user.city ? ` · ${user.city}` : ''}`);
+    set('pfRole', `${roleLabel(user.title)}${user.city ? ` · ${user.city}` : ''}`);
     const parts = user.fullName.trim().split(/\s+/);
     set('pfInitial', (parts[0]?.[0] + (parts[1]?.[0] ?? '')).toUpperCase() || 'N');
     set('pfCoord', user.city || t('p.cityPending'));
@@ -96,24 +106,33 @@
         : 'p.listed')));
     }
     const btns = $('pfBtns');
+    $('pfShareHint')?.remove();
     if (btns) {
-      btns.replaceChildren();
       const edit = el('a', 'btn btn-primary', t(isSelf ? 'p.edit' : 'p.back'));
       edit.href = 'dashboard.html';
-      const share = el('button', 'btn btn-ghost', t('p.copy'));
-      const profileUrl = new URL('/profile.html', location.origin);
-      profileUrl.searchParams.set('id', user.id);
-      share.type = 'button';
-      share.addEventListener('click', async () => {
-        try {
-          await navigator.clipboard.writeText(profileUrl.href);
-          share.textContent = t('p.copied');
-        } catch {
-          share.textContent = profileUrl.href;
-        }
-        setTimeout(() => { share.textContent = t('p.copy'); }, 2200);
-      });
-      btns.append(edit, share);
+      btns.replaceChildren(edit);
+      /* Until you opt into the directory, your link opens "Member not found" for everyone else
+         (the server answers 404), so it is not offered; a line says how to make it shareable. */
+      if (isSelf && !user.partC.consent) {
+        const hint = el('p', 'pf-meta', shareHidden());
+        hint.id = 'pfShareHint';
+        btns.closest('.pf-actions')?.append(hint);
+      } else {
+        const share = el('button', 'btn btn-ghost', t('p.copy'));
+        const profileUrl = new URL('/profile.html', location.origin);
+        profileUrl.searchParams.set('id', user.id);
+        share.type = 'button';
+        share.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(profileUrl.href);
+            share.textContent = t('p.copied');
+          } catch {
+            share.textContent = profileUrl.href;
+          }
+          setTimeout(() => { share.textContent = t('p.copy'); }, 2200);
+        });
+        btns.append(share);
+      }
     }
 
     set('pfAbout', user.partC.bio || t(isSelf ? 'p.noBioSelf' : 'p.noBio'));
@@ -175,7 +194,7 @@
         head.append(el('span', '', t('p.onNetwork')));
         list.replaceChildren(head, ...people.map((u) => {
           const row = el('li');
-          row.append(el('span', '', `${u.name} · ${u.role}`));
+          row.append(el('span', '', `${u.name} · ${roleLabel(u.role)}`));
           return row;
         }));
       }
@@ -188,6 +207,12 @@
     set('pfKicker', t('p.kicker'));
     set('pfRole', t('p.notFoundWhy'));
     set('pfAbout', t('p.notFoundBody'));
+    /* The page shell is a member's card. Without a member, its placeholders ("…" badge, the online dot,
+       empty projects, activity and connections written to "you") would describe nobody, so they go. */
+    for (const node of [$('pfMatch'), document.querySelector('.pf-online'), $('pfProjects')?.closest('.pf-card'),
+      signalsHost, document.querySelector('.pf-side')]) {
+      if (node) node.hidden = true;
+    }
     const btns = $('pfBtns');
     if (btns) {
       const back = el('a', 'btn btn-primary', t('p.back'));
