@@ -403,7 +403,9 @@
    event.preventDefault();if(busy||pending)return;
    // Saved settings the form does not show (the older workshop and route links) go back unchanged, and so does the saved availability.
    const payload={...config,...Object.fromEntries(new FormData(form)),registrationOpen:config.registrationOpen,version:config.version},unlock=lockForm(form);busy=true;
-   try{await action(save,async()=>{const result=await api('/api/admin/fiiu/config',payload,'PUT');config=result.config;renderRegistrationPill();},{conflict,reload:reloadSettings});}
+   // The server saves each link as its URL parser writes it (https://Example.org becomes https://example.org/), so the fields take the saved
+   // values back: what shows is what is saved, and leaving afterwards does not ask about changes that are already saved.
+   try{await action(save,async()=>{const result=await api('/api/admin/fiiu/config',payload,'PUT');config=result.config;for(const input of linkInputs)input.value=config[input.name]??'';renderRegistrationPill();},{conflict,reload:reloadSettings});}
    finally{busy=false;unlock();}
   });
   settingsHost.id='settings';settingsHost.replaceChildren(tr('h2','settings'),form,backfillHost);return settingsHost;

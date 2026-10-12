@@ -1415,12 +1415,16 @@ test('a switch save that fails puts the switch back and says so beside it; a con
 });
 
 test('leaving the page with a typed link not yet saved asks first; the switch, which saves itself, never does',async()=>{
- const h=await harness(({method,body})=>method==='GET'?{content:[],nextCursor:null}:{config:{...body,version:body.version+1}});
+ // Like the server (normalizeConfig), the reply stores each link as new URL(link).href.
+ const normal=body=>Object.fromEntries(Object.entries(body).map(([name,value])=>[name,name.endsWith('Url')&&value?new URL(value).href:value]));
+ const h=await harness(({method,body})=>method==='GET'?{content:[],nextCursor:null}:{config:{...normal(body),version:body.version+1}});
  const form=h.root.querySelector('.f-admin-settings').querySelector('form'),open=field(form,'registrationOpen'),party=field(form,'partyUrl');
  open.checked=false;await open.listeners.change();assert.equal(leavePrompt(h),false);
  party.value='https://example.test/party-new';assert.equal(leavePrompt(h),true,'an unsaved link asks first');
  party.value='';assert.equal(leavePrompt(h),false,'typed back as saved, it lets the page go');
  party.value='https://example.test/party-new';await submit(form);assert.equal(leavePrompt(h),false,'saved');
+ party.value='https://Example.test';await submit(form);
+ assert.equal(party.value,'https://example.test/','the field shows the link as the server saved it');assert.equal(leavePrompt(h),false,'a link the server tidied is still saved');
 });
 
 test('a failed attendance tick says the attendance was not saved: an ended session puts a sign-in link on the row, an outage asks to tick again',async()=>{
