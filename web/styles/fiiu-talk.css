@@ -66,9 +66,10 @@
 .f-talk-wall-tools{grid-area:tools;display:flex;flex-wrap:wrap;align-items:center;gap:var(--f-sp-3);font-size:max(1rem,.7em)}.f-talk-sorts{display:inline-flex}
 .f-shell .f-talk-sort{min-height:44px;padding:0 var(--f-sp-4);border:2px solid var(--f-ink);background:#fff;color:var(--f-ink);font-weight:650;cursor:pointer}
 .f-shell .f-talk-sort:first-child{border-radius:7px 0 0 7px}.f-shell .f-talk-sort:last-child{border-left:0;border-radius:0 7px 7px 0}.f-shell .f-talk-sort[aria-pressed="true"]{background:var(--f-ink);color:#fff}
-/* Answers: whitespace between them, no cards; text stops at four lines and images stay small, so twelve fit a 1080p screen. */
-.f-talk-wall-feed{grid-area:feed;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,14em),1fr));gap:var(--f-sp-5) var(--f-sp-6);margin:var(--f-sp-3) 0 0;padding:0;list-style:none}
-.f-talk-wall-msg{min-width:0;font-size:.8em}.f-talk-wall-meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 .6em;margin:0;font-size:.85em;color:var(--f-muted)}
+/* Answers: whitespace between them, no cards; text stops at four lines and images stay small. They are near body size (about 24 px on a 1080p
+   screen), readable from the back of a room; on a full wall the latest scroll below the fold rather than shrink. */
+.f-talk-wall-feed{grid-area:feed;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,15em),1fr));gap:var(--f-sp-5) var(--f-sp-6);margin:var(--f-sp-3) 0 0;padding:0;list-style:none}
+.f-talk-wall-msg{min-width:0;font-size:.95em}.f-talk-wall-meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 .6em;margin:0;font-size:.85em;color:var(--f-muted)}
 .f-talk-wall-meta .f-talk-author{font-size:1.08em}.f-talk-wall .f-talk-org{font-size:.72em}.f-talk-wall-likes::before{content:"♥ ";content:"♥ "/"";color:var(--f-leaf)}
 .f-talk-wall-body{display:-webkit-box;margin:.2em 0 0;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:4;line-clamp:4;overflow-wrap:anywhere;white-space:pre-wrap}
 .f-talk-wall-files{display:flex;flex-wrap:wrap;align-items:center;gap:.4em;margin:.4em 0 0}.f-talk-wall-files img{display:block;width:auto;max-width:100%;height:auto;max-height:5em;border-radius:6px;background:var(--f-panel)}
