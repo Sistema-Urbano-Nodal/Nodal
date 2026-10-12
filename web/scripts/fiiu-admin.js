@@ -1,8 +1,8 @@
 (() => {
  'use strict';
  const {rows:strings,t,el,tr,source,button,link,field,check,api,status,dateNode,rangeNode,limaDate,locale,findActivity,chronological,typeOf,countLabel,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,checkinState,checkinActivities,limaClock,windowNode}=window.Fiiu;
- // The Conversations section's strings live here, since only this page shows them (the chat page keeps its own). {n} is filled in by this script,
- // so a language switch re-renders those counts.
+ // The Conversations section's strings, and the attendance tick's failures, live here, since only this page shows them (the chat page keeps its own).
+ // {n} is filled in by this script, so a language switch re-renders those counts.
  Object.assign(strings,{
   conversations:['Conversations','Conversaciones','Conversas'],
   conversationsHint:['Post a question on a block. Registered participants answer in a live chat.','Publica una pregunta en un bloque. Las personas inscritas responden en un chat en vivo.','Publique uma pergunta em um bloco. As pessoas inscritas respondem em um chat ao vivo.'],
@@ -15,10 +15,13 @@
   questionLikes:['{n} likes','{n} me gusta','{n} curtidas'],questionLikesOne:['1 like','1 me gusta','1 curtida'],
   noQuestions:['No questions yet.','Aún no hay preguntas.','Ainda não há perguntas.'],questionSaved:['Question saved','Pregunta guardada','Pergunta salva'],
   closeQuestionConfirm:['Close this question? People can still read it but not answer.','¿Cerrar esta pregunta? Las personas podrán leerla, pero ya no responder.','Fechar esta pergunta? As pessoas ainda poderão lê-la, mas não responder.'],
-  questionsLoadError:['The questions could not be loaded.','No se pudieron cargar las preguntas.','Não foi possível carregar as perguntas.']
+  questionsLoadError:['The questions could not be loaded.','No se pudieron cargar las preguntas.','Não foi possível carregar as perguntas.'],
+  questionLatest:['Latest saved version:','Versión guardada actual:','Versão salva atual:'],
+  attendanceSignIn:['Attendance not saved: your session ended.','No se guardó la asistencia: tu sesión terminó.','A presença não foi salva: sua sessão terminou.'],
+  attendanceNotSaved:['Attendance not saved. Check the connection and tick it again.','No se guardó la asistencia. Revisa la conexión y vuelve a marcarla.','A presença não foi salva. Verifique a conexão e marque de novo.']
  });
  const root=document.getElementById('fiiuAdminRoot'),message=document.getElementById('fiiuStatus');
- let festival,config,records=[],cursor=null,filling=null,listStale=false,publications=[],contentCursor=null,selectedParticipant=null,shownParticipant=null,detailRequest=0,participantFilter='all',participantQuery='',shownCount=null,updatedAt=null,search=null,searchTimer=null,setAside=null;
+ let festival,config,records=[],cursor=null,filling=null,listStale=false,publications=[],contentCursor=null,selectedParticipant=null,shownParticipant=null,detailRequest=0,participantFilter='all',participantQuery='',participantWords=[],shownCount=null,updatedAt=null,search=null,searchTimer=null,setAside=null;
  const detailHost=el('section','f-admin-detail'),listHost=el('div','f-admin-list'),participantsHost=el('section','f-admin-participants'),settingsHost=el('section','f-admin-settings'),contentHost=el('section','f-admin-content'),pillHost=el('div','f-pill-host'),editorHost=el('div','f-content-editor'),pubList=el('div','f-pub-list');
  const summaryHost=el('section','f-admin-summary'),summaryBody=el('div','f-summary-body'),summaryMessage=el('p','f-status'),updated=el('span','f-updated'),lastScan=el('span','f-updated'),resultCount=el('p','f-result-count');let summaryBusy=false,summaryRerun=false;
  const checkinHost=el('section','f-admin-checkin'),checkinBody=el('div','f-checkin-body');let lastCheckinKey='';
@@ -30,7 +33,8 @@
  // Leaving the page (a nav link, a reload) with an unsaved publication asks first: an edit with changes, or a new one with any text, open or set aside.
  // The same goes for a new question with text and a question edit with changes.
  const hasText=draft=>Boolean(draft&&(draft.title||draft.body||draft.url));
- window.addEventListener?.('beforeunload',event=>{if(locked)return;const editor=currentEditor();if(hasText(setAside)||(editor?.isNew?hasText(editor.draft()):editor?.dirty())||questionDraft()){event.preventDefault();event.returnValue='';}});
+ // So does a settings link typed but not saved (the availability switch saves on its own).
+ window.addEventListener?.('beforeunload',event=>{if(locked)return;const editor=currentEditor();if(hasText(setAside)||(editor?.isNew?hasText(editor.draft()):editor?.dirty())||questionDraft()||settingsDirty()){event.preventDefault();event.returnValue='';}});
  const signInUrl=()=>'/login.html?next='+encodeURIComponent(location.pathname+location.hash),sessionNotice=el('p','f-notice is-warning f-session-notice');sessionNotice.hidden=true;sessionNotice.setAttribute('role','alert');
  const signInLink=()=>{const a=link('adminSignIn',signInUrl(),'f-text-link');a.target='_blank';a.rel='noopener';return describe(a);};
  // Once the dashboard is up, a tap dismisses the toast; "Loading…" and "Saving…" stay until their request ends.
@@ -186,8 +190,9 @@
  function sessionPanel(){sessionNotice.replaceChildren(tr('span','adminSignInAgain'),document.createTextNode(' '),signInLink());return sessionNotice;}
  // Feedback: #fiiuStatus is shown as a toast (fiiu.css) so saves are visible wherever the organiser is working.
  function clearLater(node,key,delay=6000){if(typeof setTimeout!=='function')return;clearTimeout(clearTimers.get(node));clearTimers.set(node,setTimeout(()=>{clearTimers.delete(node);if(node.dataset.fiiuText===key)status(node,'');},delay));}
- // An error toast clears after 12 s; an expired session's carries its own sign-in link instead, so the organiser can act from where they are.
- function reportError(feedback,err){status(feedback,err);if(feedback!==message)return;if(err?.status===401)message.append(document.createTextNode(' '),signInLink());else clearLater(message,message.dataset.fiiuText,12000);}
+ // An error toast clears after 12 s. An expired session's message, in the toast or on the row where it happened (an attendance tick),
+ // carries its own sign-in link instead, so the organiser can act from where they are.
+ function reportError(feedback,err){status(feedback,err);if(err?.status===401)feedback.append(document.createTextNode(' '),signInLink());else if(feedback===message)clearLater(message,message.dataset.fiiuText,12000);}
  // "Reload the latest version" re-reads only the record that changed into its form; other unsaved drafts on the page stay.
  async function action(control,fn,{feedback=message,conflict=null,reload=null,done='changesSaved'}={}){
   if(control)control.disabled=true;status(feedback,'saving');conflict?.replaceChildren();
@@ -235,14 +240,17 @@
  // Participants: client-side search, filters and name order over the pages loaded so far.
  function filters(){
   const box=el('div','f-admin-filters'),chips=el('div','f-filter-chips'),label=tr('span','filterLabel','f-sr-only');search=field('searchParticipants',{type:'search',max:120});
-  // Filtering waits for a pause in typing, so a long list is not re-rendered on every keystroke.
-  search.input.autocomplete='off';search.input.addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{const query=norm(search.input.value.trim());if(query===participantQuery)return;participantQuery=query;renderList();},120);});
+  // Filtering waits for a pause in typing, so a long list is not re-rendered on every keystroke. Each word may match anywhere, so a given name
+  // and a surname find "Ana María Gonzales" in either order.
+  search.input.autocomplete='off';search.input.addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{const query=norm(search.input.value.trim());if(query===participantQuery)return;participantQuery=query;participantWords=query.split(/\s+/).filter(Boolean);renderList();},120);});
   label.id='f-filter-label';chips.setAttribute('role','group');chips.setAttribute('aria-labelledby',label.id);chips.append(label);
   for(const [key,text] of [['all','filterAll'],['labPending','filterLabPending'],['labAccepted','filterLabAccepted'],['publicOfficials','publicOfficials']]){const chip=button(text,()=>{participantFilter=key;syncFilterChips();renderList();},'f-filter');filterButtons.set(key,chip);chips.append(chip);}
   syncFilterChips();box.append(search.wrap,chips,resultCount);return box;
  }
  function syncFilterChips(){for(const [key,chip] of filterButtons)chip.setAttribute('aria-pressed',String(key===participantFilter));}
- function showFilter(key){participantFilter=key;syncFilterChips();renderList();participantsHost.scrollIntoView?.({block:'start'});filterButtons.get(key)?.focus({preventScroll:true});}
+ // A shortcut shows its whole filter: a search left in the box, or still waiting for its pause, is cleared.
+ function clearSearch(){globalThis.clearTimeout?.(searchTimer);participantQuery='';participantWords=[];if(search)search.input.value='';}
+ function showFilter(key){participantFilter=key;clearSearch();syncFilterChips();renderList();participantsHost.scrollIntoView?.({block:'start'});filterButtons.get(key)?.focus({preventScroll:true});}
  function markSelected(){for(const [id,row] of rowNodes){const on=id===shownParticipant;row.className='f-participant'+(on?' is-selected':'');row.setAttribute('aria-current',String(on));}}
  // Each loaded record's row is built once (again after a language switch); searching and filtering re-attach it.
  function participantRow(r){
@@ -261,10 +269,10 @@
   listHost.replaceChildren();rowButtons.clear();rowNodes.clear();
   if(!records.length){listHost.append(tr('p','noParticipants'));resultCount.replaceChildren();shownCount=null;}
   else{
-   const visible=records.filter(FILTERS[participantFilter]).filter(r=>!participantQuery||searchKeys.get(r).includes(participantQuery));
+   const visible=records.filter(FILTERS[participantFilter]).filter(r=>{const searchKey=searchKeys.get(r);return participantWords.every(word=>searchKey.includes(word));});
    // While the other pages load in the background a filtered view says so; "Load more" is left only when that load stopped on an error.
    if(cursor&&(participantFilter!=='all'||participantQuery))listHost.append(tr('p',filling?'loading':'showingLoaded','f-muted'));
-   if(!visible.length){listHost.append(tr('p','noMatches','f-muted f-empty'));listHost.append(button('showAll',()=>{participantFilter='all';participantQuery='';if(search)search.input.value='';syncFilterChips();renderList();filterButtons.get('all')?.focus();},'f-button secondary f-small f-show-all'));}
+   if(!visible.length){listHost.append(tr('p','noMatches','f-muted f-empty'));listHost.append(button('showAll',()=>{participantFilter='all';clearSearch();syncFilterChips();renderList();filterButtons.get('all')?.focus();},'f-button secondary f-small f-show-all'));}
    else{const list=el('ul','f-participant-list');for(const r of visible)list.append(participantRow(r));listHost.append(list);markSelected();}
    if(visible.length!==shownCount){shownCount=visible.length;resultCount.replaceChildren(countLabel(shownCount,'participantShownOne','participantShownMany'));}
   }
@@ -306,10 +314,12 @@
   how.replaceChildren(...methodNote(activity,records?.get(activity.id)));row.method=()=>how.replaceChildren(...methodNote(activity,records?.get(activity.id)));
   label.append(input,text);row.append(label,how);if(chip)row.append(chip);row.append(note);
   // Autosave keeps the checkbox focusable: a toggle while a save is pending is undone instead of disabling the control.
+  // A failed save undoes the tick and says so on the row: the shared messages speak of drafts a tick does not have. An outage and a server
+  // error read the same (the page cannot tell them apart); the status travels on, so an ended session still shows its notice.
   input.addEventListener('change',()=>{
    if(pending){input.checked=!input.checked;return;}
    const wanted=input.checked;pending=true;input.setAttribute('aria-disabled','true');
-   return action(null,async()=>{let result;try{result=await api('/api/admin/fiiu/registrations/'+id+'/attendance',{activityId:activity.id,attended:wanted},'PUT');}catch(err){input.checked=!wanted;throw err;}saved?.(activity,wanted,result?.attendance);refreshSummary({background:true});},{feedback:note,done:'attendanceSaved'}).finally(()=>{pending=false;input.removeAttribute('aria-disabled');});
+   return action(null,async()=>{let result;try{result=await api('/api/admin/fiiu/registrations/'+id+'/attendance',{activityId:activity.id,attended:wanted},'PUT');}catch(err){input.checked=!wanted;const k=err?.status===401?'attendanceSignIn':err?.key==='error'?'attendanceNotSaved':'';throw k?Object.assign(Error(t(k)),{key:k,status:err.status}):err;}saved?.(activity,wanted,result?.attendance);refreshSummary({background:true});},{feedback:note,done:'attendanceSaved'}).finally(()=>{pending=false;input.removeAttribute('aria-disabled');});
   });
   return row;
  }
@@ -359,9 +369,11 @@
   finally{if(request===detailRequest){detailHost.inert=false;detailHost.setAttribute('aria-busy','false');}}
   if(request!==detailRequest)return;
   const r=data.registration,a=r.answers,head=el('header','f-detail-head'),who=el('div'),name=el('h3','',`${a.firstName} ${a.lastName}`),answers=el('details','f-answers');
-  updateRecord(r);shownParticipant=id;markSelected();name.id='f-detail-name';who.append(name,el('p','f-muted',r.email),emailStatusLine(r));
+  const changed=shownParticipant!==id;updateRecord(r);shownParticipant=id;markSelected();name.id='f-detail-name';who.append(name,el('p','f-muted',r.email),emailStatusLine(r));
   head.append(who,button('backToList',()=>(rowButtons.get(id)||search?.input)?.focus(),'f-button secondary f-small f-narrow-only'));
-  detailHost.replaceChildren(head);detailHost.tabIndex=-1;detailHost.setAttribute('aria-labelledby',name.id);
+  // Beside the list the panel scrolls on its own (fiiu.css): another person starts at the top, with their name above the ticks, instead of at the
+  // previous person's place. Re-reading the same person (after a review save) keeps the place.
+  detailHost.replaceChildren(head);if(changed)detailHost.scrollTop=0;detailHost.tabIndex=-1;detailHost.setAttribute('aria-labelledby',name.id);
   if(a.applyLab)detailHost.append(reviewCard(r,id));
   answers.append(tr('summary','allAnswers'),answerRows(el('dl','f-answers-list'),a,Object.keys(a).filter(key=>!['privacyAccepted','externalActivities'].includes(key))));
   detailHost.append(attendanceFieldset(r,data.attendance,id),answers);
@@ -369,18 +381,31 @@
   if(focus){const beside=window.matchMedia?.('(min-width: 1000px) and (min-height: 641px)')?.matches;if(!beside)detailHost.scrollIntoView?.({block:'start'});detailHost.focus({preventScroll:true});}
  }
  function renderRegistrationPill(){const on=config.registrationOpen;pillHost.replaceChildren(link(on?'registrationOpenNow':'registrationClosedNow','#settings','f-pill'+(on?' is-open':'')));}
+ // The link fields on screen; leaving the page while one differs from the saved settings asks first.
+ let linkInputs=[];
+ function settingsDirty(){return linkInputs.some(input=>input.value!==(config?.[input.name]??''));}
  function settings(){
-  const form=el('form','f-form'),card=el('div','f-switch-card'),links=el('fieldset','f-links'),open=check('registrationOpen','registrationOpen','yes',config.registrationOpen),note=hint('registrationOpenHint'),conflict=el('div','f-conflict');let busy=false;
-  open.input.setAttribute('role','switch');open.input.setAttribute('aria-describedby',note.id);card.append(open.wrap,note);links.append(tr('legend','publicLinks'));
+  const form=el('form','f-form'),card=el('div','f-switch-card'),links=el('fieldset','f-links'),open=check('registrationOpen','registrationOpen','yes',config.registrationOpen),note=hint('registrationOpenHint'),conflict=el('div','f-conflict'),switchNote=el('p','f-inline-status'),switchConflict=el('div','f-conflict');let busy=false,pending=false;
+  open.input.setAttribute('role','switch');open.input.setAttribute('aria-describedby',note.id);switchNote.setAttribute('role','status');card.append(open.wrap,note,switchNote,switchConflict);links.append(tr('legend','publicLinks'));
   // The public page shows only these two links; each workshop and route carries its own form link.
-  for(const key of ['programUrl','partyUrl'])links.append(field(key,{value:config[key],type:'url',max:2000}).wrap);
+  linkInputs=['programUrl','partyUrl'].map(key=>{const link=field(key,{value:config[key],type:'url',max:2000});links.append(link.wrap);return link.input;});
   const save=button('saveSettings');save.type='submit';form.append(card,links,save,conflict);localiseValidation(form);
+  // The switch saves on its own, as a switch implies (and as attendance ticks do), so the header pill and the public page follow at once. Closing
+  // asks first; a failed save puts it back to what is saved. Its save carries only the availability: links typed but not yet saved wait for Save.
+  // It stays focusable while saving (a toggle meanwhile is undone) and Save waits for it.
+  open.input.addEventListener('change',()=>{
+   if(pending){open.input.checked=!open.input.checked;return;}
+   const wanted=open.input.checked;if(config.registrationOpen&&!wanted&&!window.confirm(t('closeConfirm'))){open.input.checked=true;return;}
+   pending=true;open.input.setAttribute('aria-disabled','true');
+   return action(save,async()=>{try{config=(await api('/api/admin/fiiu/config',{...config,registrationOpen:wanted,version:config.version},'PUT')).config;}catch(err){open.input.checked=config.registrationOpen;throw err;}finally{renderRegistrationPill();}},{feedback:switchNote,conflict:switchConflict,reload:reloadSettings}).finally(()=>{pending=false;open.input.removeAttribute('aria-disabled');});
+  });
   form.addEventListener('submit',async event=>{
-   event.preventDefault();if(busy)return;
-   if(config.registrationOpen&&!open.input.checked&&!window.confirm(t('closeConfirm'))){open.input.checked=true;open.input.focus();return;}
-   // Saved settings the form does not show (the older workshop and route links) go back unchanged.
-   const payload={...config,...Object.fromEntries(new FormData(form)),registrationOpen:open.input.checked,version:config.version},unlock=lockForm(form);busy=true;
-   try{await action(save,async()=>{const result=await api('/api/admin/fiiu/config',payload,'PUT');config=result.config;renderRegistrationPill();},{conflict,reload:reloadSettings});}
+   event.preventDefault();if(busy||pending)return;
+   // Saved settings the form does not show (the older workshop and route links) go back unchanged, and so does the saved availability.
+   const payload={...config,...Object.fromEntries(new FormData(form)),registrationOpen:config.registrationOpen,version:config.version},unlock=lockForm(form);busy=true;
+   // The server saves each link as its URL parser writes it (https://Example.org becomes https://example.org/), so the fields take the saved
+   // values back: what shows is what is saved, and leaving afterwards does not ask about changes that are already saved.
+   try{await action(save,async()=>{const result=await api('/api/admin/fiiu/config',payload,'PUT');config=result.config;for(const input of linkInputs)input.value=config[input.name]??'';renderRegistrationPill();},{conflict,reload:reloadSettings});}
    finally{busy=false;unlock();}
   });
   settingsHost.id='settings';settingsHost.replaceChildren(tr('h2','settings'),form,backfillHost);return settingsHost;
@@ -610,10 +635,11 @@
   const entry={row,view,note,conflict,group,record:null,editor:null,busy:false,buttons:new Map()},path=encodeURIComponent(id);
   text.id='f-q-'+id;label.id=text.id+'-status';group.setAttribute('role','group');group.setAttribute('aria-labelledby',label.id);note.setAttribute('role','status');
   for(const [value,key] of QUESTION_STATUSES){const choice=button(key,()=>setQuestionStatus(entry,value),'f-filter');choice.id=text.id+'-'+value;entry.buttons.set(value,choice);group.append(choice);}
-  const edit=entry.edit=button('editQuestion',()=>openQuestionEdit(entry),'f-button secondary f-small'),chat=link('openChat','fiiu-talk.html?q='+path,'f-text-link'),present=link('present','fiiu-talk.html?q='+path+'&present=1','f-text-link'),csv=link('downloadCsv','/api/admin/fiiu/questions/'+path+'/export','f-text-link');
-  // The chat and the projector open in new tabs, so moderating never leaves a draft behind here; the CSV is a download, so a refused or failed
-  // export never replaces the dashboard.
-  edit.id=text.id+'-edit';for(const a of [chat,present]){a.target='_blank';a.rel='noopener';}csv.download='';for(const node of [edit,chat,present,csv])describe(node,text.id);
+  const edit=entry.edit=button('editQuestion',()=>openQuestionEdit(entry),'f-button secondary f-small'),chat=link('openChat','fiiu-talk.html?q='+path,'f-text-link'),present=link('present','fiiu-talk.html?q='+path+'&present=1','f-text-link');
+  // The chat and the projector open in new tabs, so moderating never leaves a draft behind here; the CSV is fetched like the registrations
+  // export, so an ended session, a rate limit or an outage is reported here instead of a cancelled download.
+  const csv=button('downloadCsv',()=>fetchInto(csv,()=>downloadExport('/api/admin/fiiu/questions/'+path+'/export','fiiu-conversation.csv')),'f-text-link');
+  edit.id=text.id+'-edit';for(const a of [chat,present]){a.target='_blank';a.rel='noopener';}for(const node of [edit,chat,present,csv])describe(node,text.id);
   links.append(edit,chat,present,csv);controls.append(label,group,links);view.append(text,meta);row.append(view,controls,note,conflict);
   entry.update=()=>{
    const q=entry.record,stats=q.stats||{},count=(base,n)=>el('span','f-question-count',countText(base,Number.isSafeInteger(n)&&n>=0?n:0));row.className='f-question is-'+q.status;text.textContent=q.body;
@@ -633,20 +659,21 @@
   try{await action(null,async()=>{const result=await api('/api/admin/fiiu/questions/'+encodeURIComponent(q.id),{version:q.version,status:next},'PATCH');if(!validQuestion(result.question))throw Object.assign(Error(t('error')),{key:'error'});if(entry.editor?.version===q.version)entry.editor.version=result.question.version;upsertQuestion(result.question);},{feedback:entry.note,conflict:entry.conflict,reload,done:'questionSaved'});}
   finally{entry.busy=false;entry.group.setAttribute('aria-busy','false');}
  }
- function openQuestionEdit(entry,focus=true){if(entry.editor)closeQuestionEdit(entry,false);entry.editor=questionEditor(entry);entry.view.replaceWith(entry.editor.form);entry.edit.hidden=true;if(focus)entry.editor.form.querySelector('textarea')?.focus();}
+ function openQuestionEdit(entry,focus=true,draft=null){if(entry.editor)closeQuestionEdit(entry,false);entry.editor=questionEditor(entry,draft);entry.view.replaceWith(entry.editor.form);entry.edit.hidden=true;if(focus)entry.editor.form.querySelector('textarea')?.focus();}
  function closeQuestionEdit(entry,focus=true){if(!entry.editor)return;entry.editor.form.replaceWith(entry.view);entry.editor=null;entry.edit.hidden=false;if(focus)entry.edit.focus();}
  // One form for a new question and for an edit of a saved one, whose block cannot change. A new question keeps one id across retries (as a new
  // publication does), so a save whose answer was lost gets the stored question back instead of a duplicate; the id is renewed once it saves.
- function questionEditor(entry=null){
+ // draft: what an edit that met a conflict had typed ({body, talk}) and the record it started from (base); see send's reload.
+ function questionEditor(entry=null,draft=null){
   const start=entry?.record,isNew=!start,prefix=isNew?'f-qn':'f-qe-'+start.id,form=el('form','f-form f-question-form'),counter=el('span','f-counter'),buttons=el('div','f-question-buttons'),conflict=el('div','f-conflict');let busy=false,draftId=null;
   // version is the one an edit started from; a status change made on this page meanwhile moves it along (setQuestionStatus).
   const editor={form,version:start?.version};
   const block=el('select'),talkField=field('questionTalk'),talk=el('select'),text=field('questionText',{type:'textarea',max:QUESTION_MAX,required:true,value:start?.body});
   talk.name='talk';talk.id=prefix+'-talk';talkField.input.replaceWith(talk);text.input.name='body';text.input.id=prefix+'-text';counter.id=prefix+'-counter';text.input.setAttribute('aria-describedby',counter.id);
-  // The talk choice lists the block's talks and is hidden for a block without any. An edit keeps a saved talk the programme no longer lists, so saving
-  // the text alone never drops it.
-  const fillTalks=(activityId,value='',keep=false)=>{
-   const names=(findActivity(festival.event,activityId)?.sessions||[]).map(([,name])=>name),none=tr('option','questionNoTalk');none.value='';if(keep&&value&&!names.includes(value))names.push(value);
+  // The talk choice lists the block's talks and is hidden for a block without any. An edit keeps a saved (or kept draft) talk the programme no
+  // longer lists, so saving the text alone never drops it.
+  const fillTalks=(activityId,value='',keep=[])=>{
+   const names=(findActivity(festival.event,activityId)?.sessions||[]).map(([,name])=>name),none=tr('option','questionNoTalk');none.value='';for(const name of keep)if(name&&!names.includes(name))names.push(name);
    talk.replaceChildren(none,...names.map(name=>{const option=source('option',name);option.value=name;return option;}));talk.value=names.includes(value)?value:'';talkField.wrap.hidden=!names.length;
   };
   const count=()=>{const number=new Intl.NumberFormat(locale());counter.textContent=number.format(text.input.value.length)+' / '+number.format(QUESTION_MAX);};text.input.addEventListener('input',count);count();
@@ -655,14 +682,24 @@
    for(const a of chronological(festival.event.activities)){const option=source('option',`${a.date.slice(8)}/${a.date.slice(5,7)} · ${a.title}`);option.value=a.id;block.append(option);}
    blockField.input.replaceWith(block);block.addEventListener('change',()=>fillTalks(block.value,talk.value));form.append(tr('h3','newQuestion'),blockField.wrap);
   }
-  fillTalks(start?.activityId||'',start?.talk||'',!isNew);
+  fillTalks(start?.activityId||'',start?.talk||'',isNew?[]:[start.talk]);
   const values=()=>({body:text.input.value.trim(),talk:talk.value||null}),initial=JSON.stringify(values());
+  // Reopened on the latest version after a conflict, the edit keeps what was typed (so it still counts as unsaved). When the other change touched
+  // the text or the talk, not just the status, the latest saved version is shown under the field to compare.
+  let latest=null;
+  if(draft){
+   text.input.value=draft.body;fillTalks(start.activityId,draft.talk,[start.talk,draft.talk]);count();
+   if(draft.base.body!==start.body||(draft.base.talk||null)!==(start.talk||null)){
+    latest=el('p','f-question-latest');latest.id=prefix+'-latest';latest.append(tr('span','questionLatest','f-question-latest-label'),document.createTextNode(' '),source('span',start.body),...(start.talk?[document.createTextNode(' · '),source('span',start.talk)]:[]));
+    text.input.setAttribute('aria-describedby',counter.id+' '+latest.id);
+   }
+  }
   const send=async(state,control)=>{
    if(busy)return;text.input.setCustomValidity(values().body?'':t('requiredField'));if(!form.reportValidity())return;
    const payload=isNew?{id:draftId??=uuid(),activityId:block.value,...values(),status:state}:{version:editor.version,...values()},unlock=lockForm(form,()=>isNew?text.input:entry.edit);busy=true;
    // After a conflict on a new question (its id was saved, with other text, by a send whose answer was lost) the list shows the saved one and the
-   // draft stays, with a new id for a deliberate second question; an edit reopens on the latest version.
-   const reload=isNew?async()=>{await reloadQuestions();draftId=null;conflict.replaceChildren();text.input.focus();}:async()=>{await reloadQuestions();openQuestionEdit(entry);};
+   // draft stays, with a new id for a deliberate second question; an edit reopens on the latest version with its typed text and talk kept.
+   const reload=isNew?async()=>{await reloadQuestions();draftId=null;conflict.replaceChildren();text.input.focus();}:async()=>{const kept={body:text.input.value,talk:talk.value,base:start};await reloadQuestions();openQuestionEdit(entry,true,kept);};
    try{await action(control,async()=>{
     const result=await api('/api/admin/fiiu/questions'+(isNew?'':'/'+encodeURIComponent(start.id)),payload,isNew?'POST':'PATCH');if(!validQuestion(result.question))throw Object.assign(Error(t('error')),{key:'error'});
     if(isNew){draftId=null;text.input.value='';count();}else closeQuestionEdit(entry);
@@ -672,7 +709,7 @@
   };
   if(isNew){const publish=button('publishNow',()=>send('open',publish),'f-button'),hidden=button('saveHidden',()=>send('hidden',hidden),'f-button secondary');buttons.append(publish,hidden);}
   else{const save=button('saveQuestion',()=>send(null,save),'f-button');buttons.append(save,button('cancelEdit',()=>closeQuestionEdit(entry),'f-button secondary f-small'));}
-  form.append(talkField.wrap,text.wrap,counter,buttons,conflict);localiseValidation(form);form.addEventListener('submit',event=>event.preventDefault());
+  form.append(talkField.wrap,text.wrap,counter,...(latest?[latest]:[]),buttons,conflict);localiseValidation(form);form.addEventListener('submit',event=>event.preventDefault());
   return Object.assign(editor,{recount:count,dirty:()=>isNew?Boolean(values().body):JSON.stringify(values())!==initial});
  }
  function conversationsPanel(){
@@ -682,19 +719,19 @@
  }
  // Page head, section navigation and the current-section marker.
  function adminHead(){
-  const event=festival.event,head=el('header','f-admin-head'),title=el('div','f-admin-title'),sub=el('p','f-admin-sub'),side=el('div','f-admin-head-side'),actions=el('div','f-actions'),note=tr('p','exportNote','f-muted f-export-note'),csv=button('export',()=>fetchInto(csv,downloadExport),'f-button secondary');
+  const event=festival.event,head=el('header','f-admin-head'),title=el('div','f-admin-title'),sub=el('p','f-admin-sub'),side=el('div','f-admin-head-side'),actions=el('div','f-actions'),note=tr('p','exportNote','f-muted f-export-note'),csv=button('export',()=>fetchInto(csv,()=>downloadExport()),'f-button secondary');
   note.id='f-export-note';describe(csv,note.id);sub.append(el('span','',event.title),rangeNode(event.startsOn,event.endsOn),source('span',event.city));title.append(tr('h1','admin'),sub);
   // The public page opens in a new tab, so checking a post never leaves an unsaved draft behind.
   const view=link('viewPublic','fiiu.html','f-text-link');view.target='_blank';view.rel='noopener';describe(view);
   actions.append(pillHost,view,csv);side.append(actions,note);head.append(title,side);return head;
  }
- // The CSV is fetched rather than linked, so an expired session, a rate limit or an outage is reported here instead of replacing the dashboard.
+ // The CSVs (registrations, and each question's answers) are fetched rather than linked, so an expired session, a rate limit or an outage is reported here instead of replacing the dashboard.
  // Safari before 16 has no AbortSignal.timeout; there the download runs without the time limit.
- async function downloadExport(){
+ async function downloadExport(url='/api/admin/fiiu/export',fallback='fiiu-registrations.csv'){
   const failed=key=>Object.assign(Error(t(key)),{key});let blob,name;
-  try{const response=await fetch('/api/admin/fiiu/export',{signal:globalThis.AbortSignal?.timeout?.(60000)});if(!response.ok)throw Object.assign(failed(({401:'unauthorized',403:'forbidden',429:'rate'})[response.status]||'error'),{status:response.status});name=/filename="([^"]+)"/.exec(response.headers.get('Content-Disposition')||'')?.[1];blob=await response.blob();}
+  try{const response=await fetch(url,{signal:globalThis.AbortSignal?.timeout?.(60000)});if(!response.ok)throw Object.assign(failed(({401:'unauthorized',403:'forbidden',429:'rate'})[response.status]||'error'),{status:response.status});name=/filename="([^"]+)"/.exec(response.headers.get('Content-Disposition')||'')?.[1];blob=await response.blob();}
   catch(err){throw err?.key?err:failed('error');}
-  const href=URL.createObjectURL(blob),a=el('a');a.href=href;a.download=name||'fiiu-registrations.csv';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),60000);
+  const href=URL.createObjectURL(blob),a=el('a');a.href=href;a.download=name||fallback;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),60000);
  }
  function adminNav(){
   const nav=el('nav','f-admin-nav'),label=tr('span','sectionNav','f-sr-only'),list=el('ul');label.id='f-admin-nav-label';nav.setAttribute('aria-labelledby',label.id);
@@ -711,11 +748,23 @@
   },{rootMargin:'-35% 0px -64% 0px'});
   for(const section of [summaryHost,checkinHost,participantsHost,settingsHost,contentHost,conversationsHost])observer.observe(section);
  }
+ // A section link (#participants, kept through a reload or a return from sign-in) is reached once the sections above it have filled in: the totals,
+ // the questions, the summary emails and the other participant pages push it down by thousands of pixels. One instant jump (html scrolls smoothly,
+ // which would aim at the old place); someone who already scrolled, tapped or typed is left where they are, and later refreshes never scroll.
+ const sectionHosts=()=>({overview:summaryHost,checkin:checkinHost,participants:participantsHost,settings:settingsHost,content:contentHost,conversations:conversationsHost});
+ const sectionId=location.hash.slice(1),wantsSection=SECTIONS.some(([id])=>id===sectionId);let movedOn=false;
+ if(wantsSection){
+  // The browser's own restoration would put a reload back where it was in a far shorter page; the section is the place to be.
+  if(globalThis.history)history.scrollRestoration='manual';
+  for(const type of ['wheel','touchstart','pointerdown','keydown'])window.addEventListener?.(type,()=>{movedOn=true;},{once:true,passive:true});
+ }
+ function reachSection(filled){if(wantsSection)Promise.allSettled(filled).then(()=>{if(!movedOn&&!locked)sectionHosts()[sectionId]?.scrollIntoView({block:'start',behavior:'instant'});});}
  async function load(){
   status(message,'loading');const summaryRequest=api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error})),questionsRequest=readQuestions().then(list=>({list}),error=>({error}));try{const [settingsData,posts,participantData]=await Promise.all([api('/api/admin/fiiu/config'),api('/api/admin/fiiu/content'),api('/api/admin/fiiu/registrations')]);festival={event:settingsData.event};config=settingsData.config;publications=posts.content;contentCursor=posts.nextCursor;setRecords(participantData.registrations);cursor=participantData.nextCursor;
    const grid=el('div','f-admin-columns');grid.append(listHost,detailHost);detailHost.replaceChildren(tr('p','selectParticipant','f-muted f-detail-empty'));const heading=tr('h2','participants');heading.id='f-h-participants';participantsHost.id='participants';participantsHost.replaceChildren(heading,filters(),grid);
-   root.replaceChildren(adminHead(),sessionNotice,adminNav(),summaryPanel(),checkinPanel(),participantsHost,settings(),contentPanel(),conversationsPanel(),newTabNote());renderRegistrationPill();readParticipants();renderList();status(message,'');refreshSummary({pending:summaryRequest});refreshQuestions({pending:questionsRequest});renderBackfill();loadBackfill();setTitle();observeSections();
-   const hash=location.hash;if(SECTIONS.some(([id])=>'#'+id===hash))document.querySelector(hash)?.scrollIntoView({block:'start'});
+   root.replaceChildren(adminHead(),sessionNotice,adminNav(),summaryPanel(),checkinPanel(),participantsHost,settings(),contentPanel(),conversationsPanel(),newTabNote());renderRegistrationPill();
+   const filled=[readParticipants()];renderList();status(message,'');filled.push(refreshSummary({pending:summaryRequest}),refreshQuestions({pending:questionsRequest}));renderBackfill();filled.push(loadBackfill());setTitle();observeSections();
+   reachSection(filled);
   }catch(error){
    // Signed out before the dashboard loaded: sign in and come straight back. Signed in without organiser access: the organisers-only state, with no Retry.
    if(error.status===401){status(message,'');location.assign(signInUrl());return;}
@@ -725,8 +774,8 @@
  }
  // Rows on screen are translated in place; rows kept for later filters are rebuilt in the new language.
  window.nodalI18n?.onChange(()=>{
-  // fiiu-ui retranslates #fiiuStatus through textContent, which drops the expired session's sign-in link.
-  if(message.dataset.fiiuText==='unauthorized'&&!message.querySelector('a'))message.append(document.createTextNode(' '),signInLink());
+  // fiiu-ui retranslates #fiiuStatus and the row notes through textContent, which drops the expired session's sign-in link.
+  for(const node of [message,...root.querySelectorAll('.f-inline-status')])if(['unauthorized','attendanceSignIn'].includes(node.dataset.fiiuText)&&!node.querySelector('a'))node.append(document.createTextNode(' '),signInLink());
   if(locked)return;rowCache=new WeakMap();setTitle();stampUpdated();recount?.();renderBackfill();newQuestion?.recount();for(const entry of questionRows.values())entry.editor?.recount();renderQuestions();if(lastSummary)renderSummary(lastSummary);else renderCheckin();});
  timer=setInterval(()=>{
   if(!festival||locked||sessionLost||document.visibilityState!=='visible')return;

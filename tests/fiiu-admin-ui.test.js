@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import {readFileSync} from 'node:fs';
 import {DEFAULT_CONFIG,FIIU_EVENT} from '../server/fiiu-domain.js';
-import {createFiiuHarness,key,field,flush,content,descendants} from './helpers/fiiu-ui-harness.js';
+import {createFiiuHarness,key,field,flush,content,descendants,Node} from './helpers/fiiu-ui-harness.js';
 
 const participant=(id,firstName)=>({id,eventId:'fiiu-2026',userId:'user-'+id,email:firstName.toLowerCase()+'@example.test',version:1,labStatus:'pending',createdAt:'2026-09-29T12:00:00.000Z',updatedAt:'2026-09-29T12:00:00.000Z',answers:{firstName,lastName:'Test',country:'Perú',city:'Lima',profile:'public_official',publicOfficial:true,applyLab:true,institution:'City Council',position:'Planner',activities:['day1-am'],privacyAccepted:true}});
 const copy=value=>structuredClone(value);
@@ -166,23 +167,23 @@ test('organizer participant loading does not wait for a slow programme and setti
  assert.equal(h.requests.filter(request=>request.path==='/api/admin/fiiu/registrations').length,1);
 });
 
-test('settings stay locked while saving so the displayed availability matches the submitted value',async()=>{
+test('saving the links stays locked while saving, sends the saved availability with them, and the next save uses the saved version',async()=>{
  let finishSave;
  const h=await harness(({method,body})=>method==='GET'?{content:[],nextCursor:null}:new Promise(resolve=>{finishSave=()=>resolve({config:{...body,version:body.version+1}});}));
  const form=h.root.querySelector('.f-admin-settings').querySelector('form'),open=field(form,'registrationOpen'),programme=field(form,'programUrl');
- open.checked=false;programme.value='https://example.test/programme';
+ programme.value='https://example.test/programme';
  form.listeners.submit({preventDefault(){}});form.listeners.submit({preventDefault(){}});
  const writes=h.requests.filter(request=>request.method==='PUT');
  assert.equal(writes.length,1,'a pending settings save must ignore repeat submission');
- assert.equal(writes[0].body.registrationOpen,false);assert.equal(writes[0].body.programUrl,'https://example.test/programme');
+ assert.equal(writes[0].body.registrationOpen,true,'the saved availability goes with the links');assert.equal(writes[0].body.programUrl,'https://example.test/programme');
  assert.ok(form.querySelectorAll('input,select,textarea,button').every(control=>control.disabled),'availability and links must not appear editable while their earlier values are being saved');
  assert.equal(form['aria-busy'],'true');
  finishSave();await flush();
- assert.equal(open.checked,false);assert.equal(open.disabled,false);assert.equal(programme.disabled,false);
+ assert.equal(open.checked,true);assert.equal(open.disabled,false);assert.equal(programme.disabled,false);
  assert.equal(form['aria-busy'],'false');assert.equal(h.message.dataset.fiiuText,'changesSaved');
- open.checked=true;form.listeners.submit({preventDefault(){}});
+ programme.value='https://example.test/programme-2';form.listeners.submit({preventDefault(){}});
  const next=h.requests.filter(request=>request.method==='PUT')[1];
- assert.equal(next.body.registrationOpen,true);assert.equal(next.body.version,1,'the next edit must use the saved configuration version');
+ assert.equal(next.body.programUrl,'https://example.test/programme-2');assert.equal(next.body.version,1,'the next edit must use the saved configuration version');
  finishSave();await flush();
 });
 
@@ -190,11 +191,11 @@ test('a failed settings save keeps the draft and restores each previous disabled
  let finishSave;
  const h=await harness(({method})=>method==='GET'?{content:[],nextCursor:null}:new Promise(resolve=>{finishSave=resolve;}));
  const form=h.root.querySelector('.f-admin-settings').querySelector('form'),open=field(form,'registrationOpen'),programme=field(form,'programUrl'),party=field(form,'partyUrl');
- open.checked=false;programme.value='https://example.test/corrected-programme';party.disabled=true;
+ programme.value='https://example.test/corrected-programme';party.disabled=true;
  form.listeners.submit({preventDefault(){}});
  assert.equal(programme.disabled,true);assert.equal(open.disabled,true);
  finishSave(unavailable);await flush();
- assert.equal(open.checked,false);assert.equal(programme.value,'https://example.test/corrected-programme');
+ assert.equal(open.checked,true);assert.equal(programme.value,'https://example.test/corrected-programme');
  assert.equal(open.disabled,false);assert.equal(programme.disabled,false);assert.equal(party.disabled,true);
  assert.equal(key(form,'saveSettings').disabled,false);assert.equal(form['aria-busy'],'false');assert.equal(h.message.dataset.fiiuText,'error');
 });
@@ -360,15 +361,21 @@ test('activity totals are split into conference and interest tables in programme
  assert.match(content(conferences),/121/);assert.match(content(interests),/3/);
 });
 
-test('closing registration asks first and a declined confirmation saves nothing',async()=>{
+test('the availability switch saves on its own: closing asks first, a declined close changes nothing, unsaved links stay out of it and the header pill follows',async()=>{
  const h=await harness(({method,body})=>method==='GET'?{content:[],nextCursor:null}:{config:{...body,version:body.version+1}});
- const form=h.root.querySelector('.f-admin-settings').querySelector('form'),open=field(form,'registrationOpen');let asked=0;
- assert.equal(open.role,'switch');h.ctx.window.confirm=()=>{asked++;return false;};
- open.checked=false;await submit(form);assert.equal(asked,1);assert.equal(open.checked,true,'a declined close keeps registration open');
- assert.equal(h.requests.filter(request=>request.method==='PUT').length,0);
- h.ctx.window.confirm=()=>{asked++;return true;};open.checked=false;await submit(form);
- assert.equal(asked,2);assert.equal(h.requests.filter(request=>request.method==='PUT')[0].body.registrationOpen,false);assert.equal(h.message.dataset.fiiuText,'changesSaved');
- assert.equal(key(h.root.querySelector('.f-admin-head'),'registrationClosedNow')?.href,'#settings');
+ const form=h.root.querySelector('.f-admin-settings').querySelector('form'),open=field(form,'registrationOpen'),note=h.root.querySelector('.f-switch-card').querySelector('.f-inline-status'),puts=()=>h.requests.filter(request=>request.method==='PUT');let asked=0;
+ assert.equal(open.role,'switch');assert.equal(note.role,'status');h.ctx.window.confirm=message=>{asked++;assert.equal(message,h.ctx.window.Fiiu.t('closeConfirm'));return false;};
+ open.checked=false;await open.listeners.change();assert.equal(asked,1);assert.equal(open.checked,true,'a declined close keeps registration open');assert.equal(puts().length,0);
+ field(form,'partyUrl').value='https://example.test/party-unsaved';
+ h.ctx.window.confirm=()=>{asked++;return true;};open.checked=false;await open.listeners.change();
+ assert.equal(asked,2);assert.equal(puts().length,1);
+ assert.deepEqual(puts()[0].body,{...DEFAULT_CONFIG,registrationOpen:false,version:0},'only the availability changes; the typed link waits for its own Save');
+ assert.equal(note.dataset.fiiuText,'changesSaved');assert.equal(key(h.root.querySelector('.f-admin-head'),'registrationClosedNow')?.href,'#settings','the header pill says closed at once');
+ assert.equal(field(form,'partyUrl').value,'https://example.test/party-unsaved');
+ open.checked=true;await open.listeners.change();assert.equal(asked,2,'reopening never asks');
+ assert.deepEqual(puts().at(-1).body,{...DEFAULT_CONFIG,registrationOpen:true,version:1});assert.ok(key(h.root.querySelector('.f-admin-head'),'registrationOpenNow'));
+ await submit(form);
+ assert.deepEqual(puts().at(-1).body,{...DEFAULT_CONFIG,partyUrl:'https://example.test/party-unsaved',registrationOpen:true,version:2},'Save sends the links with the saved availability and version');
 });
 
 test('participant detail masks the national ID, skips empty answers and autosaves attendance without disabling it',async()=>{
@@ -1273,13 +1280,13 @@ test('losing organiser access empties the Conversations section, whether the sum
  }
 });
 
-test('each question links to its chat and projector in a new tab, and to its CSV',async()=>{
+test('each question links to its chat and projector in a new tab, and offers its CSV as a button that never leaves the dashboard',async()=>{
  const h=await harness(()=>({content:[],nextCursor:null}),{questionsRead:()=>({questions:[question()]})});
  const row=questionRows(h)[0],text=row.querySelector('.f-question-text');assert.equal(text.id,'f-q-'+QUESTION_ID);
  const chat=key(row,'openChat'),present=key(row,'present'),csv=key(row,'downloadCsv');
  assert.equal(chat.tagName,'a');assert.equal(chat.href,'fiiu-talk.html?q='+QUESTION_ID);assert.equal(present.href,'fiiu-talk.html?q='+QUESTION_ID+'&present=1');
  for(const a of [chat,present]){assert.equal(a.target,'_blank');assert.equal(a.rel,'noopener');assert.equal(a['aria-describedby'],text.id+' f-newtab');}
- assert.equal(csv.href,'/api/admin/fiiu/questions/'+QUESTION_ID+'/export');assert.equal(csv.download,'','downloaded, so a failure never replaces the dashboard');assert.equal(csv.target,undefined);assert.equal(csv['aria-describedby'],text.id);
+ assert.equal(csv.tagName,'button');assert.equal(csv.type,'button');assert.equal(csv.href,undefined,'fetched, so a failure is reported instead of a cancelled download');assert.equal(csv['aria-describedby'],text.id);
  assert.equal(key(row,'editQuestion')['aria-describedby'],text.id);
 });
 
@@ -1314,6 +1321,178 @@ test('a status change made here while the same question is being edited does not
  await key(row().querySelector('form'),'saveQuestion').listeners.click();
  assert.equal(questionWrites(h).at(-1).body.version,3);assert.equal(h.message.dataset.fiiuText,'editorConflict');assert.ok(key(row().querySelector('form'),'reloadLatest'));
  await key(row().querySelector('form'),'reloadLatest').listeners.click();
- const form=row().querySelector('form');assert.equal(field(form,'body').value,'Edited while hiding','the edit reopens on the latest version');assert.equal(field(form,'body').focused,true);
- await key(form,'saveQuestion').listeners.click();assert.equal(questionWrites(h).at(-1).body.version,9);
+ const form=row().querySelector('form');assert.equal(field(form,'body').value,'Second edit','the edit reopens on the latest version with the typed text kept');assert.equal(field(form,'body').focused,true);
+ await key(form,'saveQuestion').listeners.click();assert.deepEqual(questionWrites(h).at(-1).body,{version:9,body:'Second edit',talk:'¡Bienvenidos al FIIU 11!'});
+});
+
+// The organiser at work: reaching a section from its link, the detail panel, door check-in on phones, search, the availability switch,
+// failed ticks, a question edit's conflict and a question's CSV.
+const leavePrompt=h=>{let prevented=false;for(const listener of h.windowListeners.beforeunload)listener({preventDefault(){prevented=true;}});return prevented;};
+const at=hash=>({location:{hash,search:'',pathname:'/fiiu-admin.html',assign(){},reload(){}}});
+
+test('opening the dashboard at a section link scrolls there once, after the sections above it have filled in, and never yanks an organiser who already moved',async()=>{
+ const scrolls=[],original=Node.prototype.scrollIntoView;
+ Node.prototype.scrollIntoView=function(options){scrolls.push({id:this.id,options:{...options}});};
+ try{
+  const totals=deferred(),list=deferred(),to=id=>scrolls.filter(scroll=>scroll.id===id);
+  const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>totals.promise,questionsRead:()=>list.promise,context:at('#participants')});
+  assert.deepEqual(to('participants'),[],'nothing moves while the overview is still empty');
+  assert.equal(h.ctx.history.scrollRestoration,'manual','the browser does not restore an old position the late render would then shift');
+  totals.resolve({summary:copy(summary)});await flush();assert.deepEqual(to('participants'),[],'the questions are still on their way');
+  list.resolve({questions:[question()]});await flush();
+  assert.deepEqual(to('participants'),[{id:'participants',options:{block:'start',behavior:'instant'}}],'one jump, not a smooth scroll to a stale position');
+  await h.tickTimers();await flush();assert.equal(to('participants').length,1,'timed refreshes never scroll again');
+  for(const type of ['wheel','touchstart','pointerdown','keydown']){
+   const late=deferred(),again=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>late.promise,context:at('#settings')});
+   for(const listener of again.windowListeners[type]||[])listener({type});
+   late.resolve({summary:copy(summary)});await flush();assert.equal(to('settings').length,0,type+' before the data landed keeps the organiser where they are');
+  }
+  const plain=await harness(()=>({content:[],nextCursor:null}),{context:at('#f-p-anything')});
+  assert.equal(scrolls.length,1,'a hash that is not a section scrolls nothing');assert.notEqual(plain.ctx.history.scrollRestoration,'manual');
+ }finally{Node.prototype.scrollIntoView=original;}
+});
+
+test('switching to another person starts the detail panel at the top, so their name shows above the ticks; refreshing the same person keeps the place',async()=>{
+ const ana=participant('participant-a','Ana'),bruno=participant('participant-b','Bruno');
+ const h=await harness(({path,method,body})=>{
+  if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
+  if(method==='PATCH'){Object.assign(ana,{labStatus:body.labStatus,version:ana.version+1});return{registration:copy(ana)};}
+  return{registration:copy(path.endsWith('participant-b')?bruno:ana),attendance:[]};
+ },{participants:[ana,bruno]});
+ h.ctx.window.matchMedia=()=>({matches:true});const detail=h.root.querySelector('.f-admin-detail');
+ await detailButton(h,0).listeners.click();detail.scrollTop=196;
+ await detailButton(h,1).listeners.click();assert.equal(detailTitle(h),'Bruno Test');assert.equal(detail.scrollTop,0,'not Ana’s scroll position');
+ await detailButton(h,0).listeners.click();assert.equal(detail.scrollTop,0);detail.scrollTop=150;
+ const form=h.root.querySelector('.f-review-card').querySelector('form');field(form,'review').value='reviewAccepted';await submit(form);
+ assert.equal(detailTitle(h),'Ana Test');assert.equal(detail.scrollTop,150,'a save that re-reads the same person keeps the place');
+});
+
+test('on touch screens the attendance rows, the other-activities disclosure, filters, section nav, review shortcut and small buttons are at least 44px tall, with body-size row text',()=>{
+ const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8'),coarse=css.split('\n').filter(line=>line.startsWith('@media(pointer:coarse)')).join('\n');
+ assert.match(coarse,/\.f-attendance-row \.f-check\{min-height:44px;margin:0;padding:10px 0;font-size:1rem\}/,'padding rather than centring, so a two-line title keeps its box by the first line');
+ assert.match(coarse,/\.f-attendance-row \.f-check input\{width:24px;height:24px;margin-top:0\}/);
+ assert.match(coarse,/\.f-attendance-row>:is\(\.f-pill,\.f-inline-status,\.f-attendance-method\)\{margin-left:34px\}/,'the notes under a row stay in line with its title');
+ assert.match(coarse,/\.f-page \.f-other>summary\{min-height:44px;padding:12px 0;font-size:1rem\}/,'the same text size as the rows it opens');
+ assert.match(coarse,/\.f-page\[data-page="fiiu-admin"\] :is\(\.f-filter,\.f-admin-nav a,\.f-lab-review,\.f-button\.f-small\)\{min-height:44px\}/);
+ assert.match(coarse,/\.f-admin-nav\{padding:4px 0\}/,'the stuck nav stays 53px tall, so the scroll padding under it still fits');
+});
+
+test('participant search matches every word anywhere in the name or email, so a given name and a surname find someone in either order',async()=>{
+ const ana={...participant('participant-a','Ana'),email:'agonzales@muni.example'},beto={...participant('participant-b','Beto'),email:'bq@example.test'};
+ ana.answers={...ana.answers,firstName:'Ana María',lastName:'Gonzales'};beto.answers={...beto.answers,firstName:'Beto',lastName:'Quispe'};
+ const h=await harness(()=>({content:[],nextCursor:null}),{participants:[beto,ana]}),timers=fakeTimers(h),search=field(h.root,'searchParticipants');
+ for(const [query,names] of [['Ana Gonzales',['Ana María Gonzales']],['gonzales ana',['Ana María Gonzales']],['Quispe Beto',['Beto Quispe']],['  maría   GONZÁLES ',['Ana María Gonzales']],['muni ana',['Ana María Gonzales']],['Ana Quispe',[]]]){
+  type(search,query);timers.run();assert.deepEqual(participantNames(h),names,query);
+ }
+});
+
+test('the pending-review shortcut clears a search left in the box, including one still waiting for its pause in typing',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{participants:[{...participant('participant-b','Bruno'),labStatus:'accepted'},participant('participant-a','Ana')]});
+ const timers=fakeTimers(h),search=field(h.root,'searchParticipants'),review=()=>key(h.root.querySelector('.f-admin-summary'),'reviewPendingAction').listeners.click();
+ type(search,'bruno');timers.run();assert.deepEqual(participantNames(h),['Bruno Test']);
+ review();assert.deepEqual(participantNames(h),['Ana Test'],'every pending application shows');assert.equal(search.value,'');assert.equal(key(h.root,'noMatches'),undefined);
+ key(h.root,'filterAll').listeners.click();type(search,'bru');review();timers.run();
+ assert.deepEqual(participantNames(h),['Ana Test'],'the search typed just before does not come back');assert.equal(search.value,'');
+});
+
+test('a switch save that fails puts the switch back and says so beside it; a conflict offers the latest settings; a toggle while saving is undone',async()=>{
+ let reply=unavailable,reads=0;
+ const h=await harness(({method})=>method==='GET'?{content:[],nextCursor:null}:reply,{configRead:()=>({config:++reads===1?{...DEFAULT_CONFIG,version:0}:{...DEFAULT_CONFIG,registrationOpen:false,version:4}})});
+ const card=()=>h.root.querySelector('.f-switch-card'),open=()=>field(card(),'registrationOpen'),note=()=>card().querySelector('.f-inline-status'),pill=name=>key(h.root.querySelector('.f-admin-head'),name);
+ open().checked=false;await open().listeners.change();
+ assert.equal(open().checked,true,'the switch shows what is saved');assert.equal(note().dataset.fiiuText,'error');assert.ok(pill('registrationOpenNow'));
+ reply={status:409,data:{error:'configuration changed; reload before saving'}};open().checked=false;await open().listeners.change();
+ assert.equal(open().checked,true);assert.equal(note().dataset.fiiuText,'editorConflict');
+ await key(card(),'reloadLatest').listeners.click();
+ assert.equal(open().checked,false,'the latest settings show another organiser closed it');assert.ok(pill('registrationClosedNow'));assert.equal(open().focused,true);
+ const save=key(h.root.querySelector('.f-admin-settings'),'saveSettings'),before=h.requests.filter(request=>request.method==='PUT').length;let finish;
+ reply=new Promise(resolve=>{finish=resolve;});open().checked=true;const saving=open().listeners.change();
+ assert.equal(open().disabled,false,'the switch keeps focus while saving');assert.equal(open()['aria-disabled'],'true');assert.equal(save.disabled,true,'the links wait for it');
+ open().checked=false;open().listeners.change();assert.equal(open().checked,true,'a toggle while saving is undone');
+ assert.equal(h.requests.filter(request=>request.method==='PUT').length,before+1);assert.equal(h.requests.at(-1).body.version,4,'the version just read');
+ finish({config:{...DEFAULT_CONFIG,registrationOpen:true,version:5}});await saving;
+ assert.equal(open()['aria-disabled'],undefined);assert.equal(save.disabled,false);assert.ok(pill('registrationOpenNow'));assert.equal(note().dataset.fiiuText,'changesSaved');
+});
+
+test('leaving the page with a typed link not yet saved asks first; the switch, which saves itself, never does',async()=>{
+ // Like the server (normalizeConfig), the reply stores each link as new URL(link).href.
+ const normal=body=>Object.fromEntries(Object.entries(body).map(([name,value])=>[name,name.endsWith('Url')&&value?new URL(value).href:value]));
+ const h=await harness(({method,body})=>method==='GET'?{content:[],nextCursor:null}:{config:{...normal(body),version:body.version+1}});
+ const form=h.root.querySelector('.f-admin-settings').querySelector('form'),open=field(form,'registrationOpen'),party=field(form,'partyUrl');
+ open.checked=false;await open.listeners.change();assert.equal(leavePrompt(h),false);
+ party.value='https://example.test/party-new';assert.equal(leavePrompt(h),true,'an unsaved link asks first');
+ party.value='';assert.equal(leavePrompt(h),false,'typed back as saved, it lets the page go');
+ party.value='https://example.test/party-new';await submit(form);assert.equal(leavePrompt(h),false,'saved');
+ party.value='https://Example.test';await submit(form);
+ assert.equal(party.value,'https://example.test/','the field shows the link as the server saved it');assert.equal(leavePrompt(h),false,'a link the server tidied is still saved');
+});
+
+test('a failed attendance tick says the attendance was not saved: an ended session puts a sign-in link on the row, an outage asks to tick again',async()=>{
+ const ana=participant('participant-a','Ana');let reply;
+ const h=await harness(({path,method})=>{
+  if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
+  if(method==='PUT')return reply();
+  return{registration:copy(ana),attendance:[]};
+ },{participants:[ana]});
+ await detailButton(h,0).listeners.click();
+ const row=h.root.querySelector('.f-admin-detail').querySelectorAll('.f-attendance-row').find(node=>key(node,'statusRegistered')),input=row.querySelector('input'),note=row.querySelector('.f-inline-status');
+ const tick=async()=>{input.checked=true;await input.listeners.change();};
+ reply=()=>{throw TypeError('Failed to fetch');};await tick();
+ assert.equal(input.checked,false,'the tick is undone');assert.equal(note.dataset.fiiuText,'attendanceNotSaved');assert.equal(note.querySelector('a'),null);
+ reply=()=>unavailable;await tick();assert.equal(note.dataset.fiiuText,'attendanceNotSaved','a server error reads the same: the page cannot tell them apart');
+ reply=()=>({status:429,data:{error:'too many requests'}});await tick();assert.equal(note.dataset.fiiuText,'rate');
+ reply=()=>({status:401,data:{error:'sign in required'}});await tick();
+ assert.equal(input.checked,false);assert.equal(note.dataset.fiiuText,'attendanceSignIn');
+ const signin=key(note,'adminSignIn');assert.ok(signin,'the sign-in link is on the row');assert.equal(signin.target,'_blank');assert.equal(signin.href,'/login.html?next=%2Ffiiu-admin.html');
+ assert.equal(h.root.querySelector('.f-session-notice').hidden,false,'the page notice shows too');assert.equal(h.message.dataset.fiiuText,'','no toast on top of it');
+ note.children.length=0;h.lang('es');assert.equal(descendants(note).filter(node=>node.dataset.fiiuText==='adminSignIn').length,1,'a language switch puts the link back');
+ h.lang('en');assert.equal(descendants(note).filter(node=>node.dataset.fiiuText==='adminSignIn').length,1,'and never adds a second one');
+ const rows=h.ctx.window.Fiiu.rows;for(const name of ['attendanceSignIn','attendanceNotSaved'])assert.ok(rows[name]?.length===3&&rows[name].every(text=>text.trim()),name);
+ assert.equal(rows.attendanceSignIn[1],'No se guardó la asistencia: tu sesión terminó.');assert.equal(rows.attendanceNotSaved[1],'No se guardó la asistencia. Revisa la conexión y vuelve a marcarla.');
+});
+
+test('reloading after a question edit conflict keeps the typed text and talk on the latest version, and shows the other organiser’s text when that changed',async()=>{
+ let current=question();
+ const h=await harness(({method,body})=>{
+  if(method==='PATCH'){if(body.version!==current.version)return{status:409,data:{error:'question changed; reload before saving'}};current={...current,...body,version:current.version+1};const{stats,...view}=current;return{question:view};}
+  return{content:[],nextCursor:null};
+ },{questionsRead:()=>({questions:[copy(current)]})});
+ const row=()=>questionRows(h)[0],form=()=>row().querySelector('form'),typed='¿Qué intervención de acupuntura urbana harías en tu cuadra? (texto corregido)';
+ await key(row(),'editQuestion').listeners.click();type(field(form(),'body'),typed);await select(field(form(),'talk'),'');
+ // Another organiser only closes it.
+ current={...current,status:'closed',version:2};
+ await key(form(),'saveQuestion').listeners.click();assert.equal(h.message.dataset.fiiuText,'editorConflict');
+ await key(form(),'reloadLatest').listeners.click();
+ assert.equal(field(form(),'body').value,typed,'the typed text stays');assert.equal(field(form(),'talk').value,'','and so does the talk choice');
+ assert.equal(field(form(),'body').focused,true);assert.equal(form().querySelector('.f-counter').textContent,typed.length+' / 500');
+ assert.equal(form().querySelector('.f-question-latest'),null,'the text was not changed elsewhere: nothing to compare');
+ assert.equal(key(row(),'questionClosed')['aria-pressed'],'true','the row shows the other organiser’s status');assert.equal(leavePrompt(h),true,'the kept draft still guards leaving');
+ await key(form(),'saveQuestion').listeners.click();
+ assert.deepEqual(questionWrites(h).at(-1).body,{version:2,body:typed,talk:null});assert.equal(h.message.dataset.fiiuText,'questionSaved');
+ // A real text conflict: the draft stays in the field and the latest saved text is shown under it.
+ await key(row(),'editQuestion').listeners.click();type(field(form(),'body'),'Mi versión');
+ current={...current,body:'La versión de otra organizadora',talk:'¡Bienvenidos al FIIU 11!',version:7};
+ await key(form(),'saveQuestion').listeners.click();await key(form(),'reloadLatest').listeners.click();
+ assert.equal(field(form(),'body').value,'Mi versión');assert.equal(field(form(),'talk').value,'');
+ const latest=form().querySelector('.f-question-latest');assert.ok(latest);assert.ok(key(latest,'questionLatest'));
+ assert.match(content(latest),/La versión de otra organizadora/);assert.match(content(latest),/¡Bienvenidos al FIIU 11!/);
+ assert.ok(field(form(),'body')['aria-describedby'].split(' ').includes(latest.id),'read out with the field');
+ const rows=h.ctx.window.Fiiu.rows;assert.equal(rows.questionLatest?.length,3);
+ await key(form(),'saveQuestion').listeners.click();assert.equal(questionWrites(h).at(-1).body.version,7);assert.equal(row().querySelector('.f-question-text').textContent,'Mi versión');
+});
+
+test('a question’s CSV downloads through fetch, and an ended session, a busy server or an outage is reported in the dashboard',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{questionsRead:()=>({questions:[question()]})}),events=[],fetchPage=h.ctx.fetch,createElement=h.ctx.document.createElement;let reply;
+ fakeTimers(h);h.ctx.URL={createObjectURL:blob=>{events.push(['object URL',blob]);return 'blob:nodal/q';},revokeObjectURL(){}};
+ h.ctx.document.createElement=tag=>{const node=createElement(tag);if(tag==='a')Object.assign(node,{click(){events.push(['download',this.href,this.download]);},remove(){this.parent.children=this.parent.children.filter(child=>child!==this);this.parent=null;}});return node;};
+ const path='/api/admin/fiiu/questions/'+QUESTION_ID+'/export',failure=code=>async()=>({ok:false,status:code,headers:{get:()=>'application/json'},blob:async()=>{throw Error('not a CSV');}});
+ h.ctx.fetch=async(url,options)=>url===path?reply():fetchPage(url,options);
+ const csv=key(questionRows(h)[0],'downloadCsv');
+ reply=failure(401);await csv.listeners.click();
+ assert.equal(h.message.dataset.fiiuText,'unauthorized');assert.ok(key(h.message,'adminSignIn'),'with the sign-in link');assert.equal(h.root.querySelector('.f-session-notice').hidden,false);
+ for(const [code,shown] of [[429,'rate'],[502,'error']]){reply=failure(code);await csv.listeners.click();assert.equal(h.message.dataset.fiiuText,shown);assert.equal(csv.disabled,false);}
+ assert.equal(events.length,0,'nothing is downloaded when the export fails');
+ const file={type:'text/csv'};reply=async()=>({ok:true,status:200,headers:{get:name=>name==='Content-Disposition'?'attachment; filename="fiiu-conversation-aaaaaaaa.csv"':'text/csv'},blob:async()=>file});
+ await csv.listeners.click();assert.deepEqual(events,[['object URL',file],['download','blob:nodal/q','fiiu-conversation-aaaaaaaa.csv']]);
+ reply=async()=>({ok:true,status:200,headers:{get:()=>null},blob:async()=>file});await csv.listeners.click();assert.equal(events.at(-1)[2],'fiiu-conversation.csv','a fallback name when the server gives none');
 });
