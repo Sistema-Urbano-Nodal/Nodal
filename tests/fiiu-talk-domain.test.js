@@ -165,3 +165,10 @@ test('message views can leave the viewer\'s like out, and show authors their own
  assert.equal(hidden.hidden,true);assert.equal(hidden.mine,true);assert.equal('authorFull' in hidden,false);
  assert.equal('hidden' in messageView(m,{viewer:'u'}),false,'a shown message says nothing to a participant');
 });
+
+test('shortening a file name costs the same for a name of megabytes, so one upload cannot stall the server',()=>{
+ const pdf=Buffer.from('%PDF-1.4').toString('base64'),started=performance.now();
+ const f=decodeTalkFile({name:'a'.repeat(4e6)+'.pdf',mime:'application/pdf',data:pdf});
+ assert.ok(performance.now()-started<200,'the cut stops at the limit');
+ assert.equal(f.name.length,160);assert.ok(f.name.endsWith('.pdf'));
+});

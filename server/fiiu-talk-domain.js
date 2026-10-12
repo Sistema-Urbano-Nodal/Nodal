@@ -17,11 +17,13 @@ const points=value=>[...value].length,cap=(value,max)=>[...value].slice(0,max).j
 const plain=value=>typeof value==='string'?value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'').toWellFormed():value;
 // A downloaded report can carry a long name the person cannot change from the chat: it is cut to the column's 160
 // characters, extension kept and never inside an emoji, rather than refused.
+// One pass that stops at the limit: the upload body may carry a name of megabytes, and the cut must cost the same as a short one.
 function shortName(name){
- if(typeof name!=='string'||name.trim().length<=160)return name;
- const clean=name.trim(),ext=clean.match(/\.[\p{L}\p{N}]{1,10}$/u)?.[0]??'',stem=[...clean.slice(0,clean.length-ext.length)];
- while(stem.join('').length+ext.length>160)stem.pop();
- return stem.join('').trimEnd()+ext;
+ if(typeof name!=='string')return name;
+ const clean=name.trim();if(clean.length<=160)return name;
+ const ext=clean.match(/\.[\p{L}\p{N}]{1,10}$/u)?.[0]??'';
+ let stem='';for(const ch of clean.slice(0,clean.length-ext.length)){if(stem.length+ch.length+ext.length>160)break;stem+=ch;}
+ return stem.trimEnd()+ext;
 }
 const dimension=value=>Number.isInteger(value)&&value>=1&&value<=20000?value:null;
 // Width and height only size the image box before it loads, so one without the other is dropped with it.

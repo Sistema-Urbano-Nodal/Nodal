@@ -160,8 +160,12 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
    if(from>revision)return {q,reset:true,revision};
    const rows=await store.messagesSince(q.id,from,{limit:TALK_LIMITS.changes+1});
    if(rows.length>TALK_LIMITS.changes)return {q,reset:true,revision};
-   // A message written after the question was read is already here, so the page need not fetch it again.
-   return {q,rows,files:await filesOf(rows),revision:Math.max(revision,...rows.map(m=>Number(m.seq)))};
+   /* A message written after the question was read is already here, so the page need not fetch it again. A close or an
+      edit may have landed between the two reads, though, and the page trusts the question this answer carries; when a row
+      is newer than the question, the question is read again so the two never disagree. */
+   const top=Math.max(revision,...rows.map(m=>Number(m.seq)));
+   const [shown,files]=await Promise.all([top>revision?questionFor(id,organiser):q,filesOf(rows)]);
+   return {q:shown,rows,files,revision:top};
   })()};
   changesMemo.set(key,entry);
   // Oldest first: expired entries, then any over the cap.
@@ -291,8 +295,10 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
       /* Attaching only finishes the original send, a request that stopped between the insert and the attach: never
          past the close or a moderator, never onto a message that already has its files, never long after. Otherwise
          a reused clientId would slip new files into an old or reviewed message. */
-      if(q.status!=='open')failCode('this conversation is closed',403,'question_closed');
-      if(old.hiddenAt||attached.size||!(clock()-Date.parse(old.createdAt)<RETRY_MS))reused();
+      // A refused finish must not leave an empty message on everyone's screen: one with no text and no files is withdrawn.
+      const refuse=async problem=>{if(!old.body&&!attached.size)await store.updateMessage({id:old.id,userId:user.id,deletedAt:null},{body:'',deletedAt:now()});problem();};
+      if(q.status!=='open')await refuse(()=>failCode('this conversation is closed',403,'question_closed'));
+      if(old.hiddenAt||attached.size||!(clock()-Date.parse(old.createdAt)<RETRY_MS))await refuse(reused);
       if(await store.attachFiles(missing,old.id,user.id)!==missing.length&&!await attachedTo(old.id))reused();
       // The attach restamped the message, so the answer carries the seq peers will sync.
       row=await store.findMessage(old.id)??old;
@@ -310,7 +316,8 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
        sent; if another post of this person's took a file in between, this one is withdrawn. */
     if(input.fileIds.length){
      if(await store.attachFiles(input.fileIds,message.id,user.id)!==input.fileIds.length&&!await attachedTo(message.id)){
-      await store.updateMessage({id:message.id,userId:user.id},{body:'',deletedAt:now()});await releaseFiles(message.id);fileUnavailable(400);
+      // The withdrawn copy gives up its clientId, so a Retry of this draft is a new send rather than a replay of the gone copy.
+      await store.updateMessage({id:message.id,userId:user.id},{body:'',deletedAt:now(),clientId:randomUUID()});await releaseFiles(message.id);fileUnavailable(400);
      }
      // The attach restamped the message (so peers that synced it without its files fetch it again): send that seq.
      message=await store.findMessage(message.id)??message;
@@ -428,6 +435,8 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
    // Somebody else's error text (expose: false, as a backend adapter marks it) goes to the global handler, which hides it.
    if(typeof err?.code==='string'&&/^[a-z_]+$/.test(err.code)&&err.status>=400&&err.status<500&&err.expose!==false&&!res.headersSent){send(res,err.status,{error:err.message,code:err.code});return true;}
    throw err;
-  }finally{if(wrote){pulseMemo=null;changesMemo.clear();}}
+  /* A like answer already carries its count and state, so a like (the busiest write in a full room) keeps the shared since
+     answers rather than make every poll that follows read again. */
+  }finally{if(wrote){pulseMemo=null;if(name!=='like')changesMemo.clear();}}
  };
 }

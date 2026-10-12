@@ -205,6 +205,41 @@ test('a retry can only finish its own send: no new file once the question closed
  assert.equal((await talkStore.findFile(stray.id)).messageId,null,'the stray file never moved');
 });
 
+test('a refused finish withdraws a photo-only message that never got its photo, so nobody sees an empty message',async t=>{
+ const {json,ask,post,upload,close,talkStore,users}=await setup(t);
+ const q=await ask(),photo=(await upload()).body.file,draft=randomUUID();
+ // The first request inserted the message and stopped before attaching its only content, the photo.
+ const stored=await talkStore.insertMessage({id:randomUUID(),questionId:q.id,userId:users.member.id,authorName:'Ana T.',authorFull:'Ana Test',organiser:false,body:'',clientId:draft,createdAt:new Date().toISOString()});
+ await close(q);
+ const refused=await post(q,'',{clientId:draft,fileIds:[photo.id]});
+ assert.equal(refused.status,403);assert.equal(refused.body.code,'question_closed');
+ assert.ok((await talkStore.findMessage(stored.id)).deletedAt,'withdrawn rather than left empty');
+ assert.deepEqual((await json(`/api/fiiu/questions/${q.id}`,{actor:'other'})).body.messages,[]);
+});
+
+test('a send withdrawn because a file was taken gives up its clientId, so the Retry posts it rather than learning it is gone',async t=>{
+ let lose=true;
+ const {json,ask,post,upload}=await setup(t,{wrapTalk:store=>({...store,attachFiles:async(...args)=>{if(lose){lose=false;return 0;}return store.attachFiles(...args);}})});
+ const q=await ask(),photo=(await upload()).body.file,draft=randomUUID();
+ const first=await post(q,'con foto',{clientId:draft,fileIds:[photo.id]});
+ assert.equal(first.status,400);assert.equal(first.body.code,'file_unavailable');
+ const retry=await post(q,'con foto',{clientId:draft,fileIds:[photo.id]});
+ assert.equal(retry.status,201,JSON.stringify(retry.body));assert.equal(retry.body.message.gone,undefined);
+ assert.deepEqual(retry.body.message.files.map(f=>f.id),[photo.id]);
+ assert.deepEqual((await json(`/api/fiiu/questions/${q.id}`,{actor:'other'})).body.messages.map(m=>m.body),['con foto']);
+});
+
+test('a close landing between the question read and the changes read still reaches the page in that same answer',async t=>{
+ let race=null;
+ const {json,ask,post,talkStore}=await setup(t,{wrapTalk:store=>({...store,messagesSince:async(...args)=>{if(race){const go=race;race=null;await go();}return store.messagesSince(...args);}})});
+ const q=await ask(),baseline=(await json(`/api/fiiu/questions/${q.id}`,{actor:'other'})).body.revision;
+ // A last answer, then the close, both after the question was read for this sync and before its changes were.
+ race=async()=>{await post(q,'justo a tiempo');const current=await talkStore.getQuestion(q.id);await talkStore.updateQuestion(q.id,current.version,{status:'closed',updatedAt:new Date().toISOString()});};
+ const answer=await json(`/api/fiiu/questions/${q.id}/messages?since=${baseline}`,{actor:'other'});
+ assert.equal(answer.body.changes.length,1);
+ assert.equal(answer.body.question.status,'closed','the question is as new as the rows');
+});
+
 test('files attached after the insert reach peers that synced the message without them',async t=>{
  // The first send stops after the insert (a PostgREST timeout on the attach); its author retries.
  let broken=true;
@@ -373,6 +408,10 @@ test('since answers are read once per question, revision and audience for 1.5 s,
  const posted=reads;
  await api({req:{method:'DELETE',headers:{}},res:{},url:new URL(`http://x/api/fiiu/messages/${Q}`),user:{id:'a',permission:'member'}}).catch(()=>{});
  await get('a',210);assert.equal(reads,posted+3);
+ // A like answers with its own count, so it keeps them: in a full room every poll after a like would otherwise read again.
+ const liked=reads;
+ await api({req:{method:'PUT',headers:{}},res:{},url:new URL(`http://x/api/fiiu/messages/${Q}/like`),user:{id:'b',permission:'member'}}).catch(()=>{});
+ await get('a',210);assert.equal(reads,liked,'a like keeps the shared answers');
 });
 
 test('festival files: types, sizes, thumbnails, attach rules, download access and headers, and release on delete',async t=>{
