@@ -397,3 +397,15 @@ test('globe.js only looks up elements dashboard.html has, now that dashboard.js 
   assert.deepEqual(referenced.filter((id) => !ids.has(id)), []);
 });
 
+/* ---------------- language buttons in the console rail (finding 52) ---------------- */
+
+test('the console rail language buttons say which language is on', () => {
+  const buttons = ['en', 'es', 'pt'].map((lang) => ({ dataset: { lang }, attributes: {}, setAttribute(k, v) { this.attributes[k] = String(v); } }));
+  let listener;
+  const context = { document: { querySelectorAll: (s) => (s === '.lang-btn' ? buttons : []) }, I18N: { lang: 'es', onChange: (fn) => { listener = fn; } } };
+  vm.runInNewContext(piece(dashboardJs(), '  (function pressedLanguage() {', '\n  })();'), context);
+  assert.deepEqual(buttons.map((b) => b.attributes['aria-pressed']), ['false', 'true', 'false']);
+  context.I18N.lang = 'pt';
+  listener('pt');
+  assert.deepEqual(buttons.map((b) => b.attributes['aria-pressed']), ['false', 'false', 'true']);
+});

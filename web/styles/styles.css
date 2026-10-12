@@ -164,7 +164,15 @@ h1, h2, h3 {
 @keyframes glint { from { opacity: .95; transform: scale(.25); } to { opacity: 0; transform: scale(1.7); } }
 
 .nav-toggle { display: none; flex-direction: column; gap: 5px; background: none; border: 0; cursor: pointer; padding: 8px; margin-left: auto; }
-.nav-toggle span { width: 26px; height: 3px; background: var(--green-deep); border-radius: 2px; }
+.nav-toggle span { width: 26px; height: 3px; background: var(--green-deep); border-radius: 2px; transition: transform .2s ease, opacity .2s ease; }
+/* open, the three bars fold into a close mark (bars are 3px with a 5px gap: 8px between centres) */
+.nav-toggle[aria-expanded="true"] span:nth-child(1) { transform: translateY(8px) rotate(45deg); }
+.nav-toggle[aria-expanded="true"] span:nth-child(2) { opacity: 0; }
+.nav-toggle[aria-expanded="true"] span:nth-child(3) { transform: translateY(-8px) rotate(-45deg); }
+/* touch screens: the language buttons reach 44px in the desktop header too (the type stays 11px) */
+@media (pointer: coarse) {
+  .lang-btn { min-width: 44px; min-height: 44px; }
+}
 
 /* hero */
 .hero { position: relative; min-height: calc(100vh - 92px); overflow: hidden; isolation: isolate; }
@@ -778,6 +786,13 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .btn:focus-visible
   }
   .navbar.open .nav-account { margin-left: 0; }
   .navbar.open .nav-main a, .navbar.open .nav-account a:not(.btn) { width: fit-content; }
+  /* The toggle is last in the markup, so the full-width groups wrapped it to the bottom of the open sheet, about
+     400px down. Ordered after it, the groups open below a toggle that stays at the top right. */
+  .navbar.open .nav-main, .navbar.open .nav-account { order: 2; }
+  .navbar.open .nav-account { align-items: flex-start; }
+  .nav-toggle { min-width: 44px; min-height: 44px; align-items: center; justify-content: center; }
+  .navbar.open .lang-btn { min-width: 44px; min-height: 44px; }
+  .navbar.open .nav-main a, .navbar.open .nav-account a { min-height: 44px; display: inline-flex; align-items: center; }
 }
 @media (max-width: 820px) {
   .hero-map { right: -38vw; z-index: 1; }
@@ -814,6 +829,7 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .btn:focus-visible
   * { animation: none !important; scroll-behavior: auto; }
   .headline > span, .hero-sub, .hero-cta, .hero-kicker { opacity: 1; transform: none; }
   .card-flat, .res-card, .stat, .plan, .match-card, .leader-card, .pf-card, .btn, .socials a { transition: none; }
+  .nav-toggle span { transition: none; }
 }
 
 /* payments page */

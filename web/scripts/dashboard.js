@@ -1486,6 +1486,13 @@
     catalogQuery = '';
     if (searchInput?.value.trim().length >= 2 && activeScope() !== 'People') runSearch();
   });
+  // The rail's language buttons say which language is on, to a screen reader as well as by colour.
+  (function pressedLanguage() {
+    const buttons = [...document.querySelectorAll('.lang-btn')];
+    const sync = () => buttons.forEach((btn) => btn.setAttribute('aria-pressed', String(btn.dataset.lang === I18N?.lang)));
+    sync();
+    I18N?.onChange(sync);
+  })();
 
   async function init() {
     try {
