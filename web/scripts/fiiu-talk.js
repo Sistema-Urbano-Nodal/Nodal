@@ -93,6 +93,21 @@
   const id=question?.id,text=composer?.textarea.value||'';if(!id)return;
   try{if(text.trim())globalThis.sessionStorage?.setItem(DRAFTS+id,text);else globalThis.sessionStorage?.removeItem(DRAFTS+id);}catch{/* Without storage the draft stays on screen only. */}
  }
+ // A message handed to its row is kept the same way, with its clientId, until the server confirms or refuses it: a reload, or a phone that drops the
+ // tab while offline, draws it again as not sent, and Retry is still the same message (one the server already has comes back, not a second copy).
+ // Text only: a photo cannot come back after a reload, and its text alone under the same clientId would be refused as another message.
+ const UNSENT='nodal.talkUnsent.';
+ function keepUnsent(){
+  const id=question?.id;if(!id)return;const list=[...attempts.values()].filter(item=>!item.files.length).map(({clientId,body})=>({clientId,body}));
+  try{if(list.length)globalThis.sessionStorage?.setItem(UNSENT+id,JSON.stringify(list));else globalThis.sessionStorage?.removeItem(UNSENT+id);}catch{/* The rows stay on screen only. */}
+ }
+ function restoreUnsent(){
+  let list;try{list=JSON.parse(globalThis.sessionStorage?.getItem(UNSENT+question.id)||'[]');}catch{list=[];}
+  for(const item of Array.isArray(list)?list:[]){
+   if(!UUID.test(String(item?.clientId))||typeof item.body!=='string'||!item.body.trim()||attempts.has(item.clientId))continue;
+   const attempt={clientId:item.clientId,body:item.body,files:[],sig:item.body+'\n',state:'failed',row:null};attempt.row=pendingRow(attempt,true);attempts.set(attempt.clientId,attempt);
+  }
+ }
  function uuid(){
   if(typeof globalThis.crypto?.randomUUID==='function')return globalThis.crypto.randomUUID();
   const b=globalThis.crypto.getRandomValues(new Uint8Array(16));b[6]=(b[6]&15)|64;b[8]=(b[8]&63)|128;const hex=[...b].map(x=>x.toString(16).padStart(2,'0')).join('');
@@ -279,7 +294,7 @@
   unwall();const same=Boolean(parts)&&again;
   if(!same)build();renderHead();rowsById.clear();views.clear();parts.log.replaceChildren();
   for(const view of Array.isArray(data.messages)?data.messages:[])if(view?.id)upsert(view);
-  for(const attempt of attempts.values())if(attempt.row)parts.log.append(attempt.row);
+  restoreUnsent();for(const attempt of attempts.values())if(attempt.row)parts.log.append(attempt.row);
   parts.earlier.hidden=!before;parts.log.setAttribute('aria-label',t('talkPage'));renderDock();rekey(parts.empty,emptyKey());updateEmpty();setTitle();if(!same)toBottom(false);
  }
 
@@ -504,7 +519,7 @@
   if(codePoints(body)>LIMIT){say(problem('talkTooLong'));c.textarea.focus();return;}
   // The same draft typed again is the same message: a failed one is retried with its clientId, and one on its way is already in its row.
   const sig=body+'\n'+files.map(fileKey).join('|'),same=[...attempts.values()].find(item=>item.sig===sig);if(same?.state==='sending'){clearComposer();return;}
-  let attempt=same?.state==='failed'?same:null;if(!attempt){attempt={clientId:uuid(),body,files,sig,state:'new',row:null};attempts.set(attempt.clientId,attempt);}
+  let attempt=same?.state==='failed'?same:null;if(!attempt){attempt={clientId:uuid(),body,files,sig,state:'new',row:null};attempts.set(attempt.clientId,attempt);keepUnsent();}
   clearComposer();return deliver(attempt);
  }
  async function deliver(attempt){
@@ -516,7 +531,7 @@
    mark(row,'talkSending');
    const data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages',{clientId:attempt.clientId,body:attempt.body,fileIds});
    if(typeof data?.message?.id!=='string')throw problem('talkError');
-   attempts.delete(attempt.clientId);for(const file of attempt.files)uploads.delete(fileKey(file));row.remove();attempt.row=null;
+   attempts.delete(attempt.clientId);keepUnsent();for(const file of attempt.files)uploads.delete(fileKey(file));row.remove();attempt.row=null;
    // A retry can find the message deleted since it was stored: it was delivered, so the draft goes as for any send, and no row is drawn for it.
    if(question?.id===id&&parts)patch(note=>{if(data.message.gone)drop(data.message.id);else note(data.message,upsert(data.message));});
    const c=composer;if(!c)return;
@@ -525,7 +540,7 @@
    const key=keyOf(error);
    // The draft goes back to the composer to be fixed, unless something new was typed or attached there meanwhile.
    if(DRAFT.includes(key)){
-    attempts.delete(attempt.clientId);row.remove();attempt.row=null;updateEmpty();
+    attempts.delete(attempt.clientId);keepUnsent();row.remove();attempt.row=null;updateEmpty();
     const c=composer;if(c&&!c.textarea.value.trim()&&!c.files.length){c.textarea.value=attempt.body;c.files=[...attempt.files];renderChips();updateLeft();grow();keepDraft();}
     say(problem(key));return;
    }
@@ -533,7 +548,7 @@
    if(error?.code==='file_unavailable')for(const file of attempt.files)uploads.delete(fileKey(file));
    /* The copy stored under this clientId can no longer be finished (it stopped before its files and the question closed, a moderator hid it, or
       the retry came too late): the next try is a new message, with its files uploaded again. */
-   if(error?.code==='client_id_reused'){attempts.delete(attempt.clientId);attempt.clientId=uuid();attempts.set(attempt.clientId,attempt);for(const file of attempt.files)uploads.delete(fileKey(file));}
+   if(error?.code==='client_id_reused'){attempts.delete(attempt.clientId);attempt.clientId=uuid();attempts.set(attempt.clientId,attempt);keepUnsent();for(const file of attempt.files)uploads.delete(fileKey(file));}
    // The failed row is taller than the sending one (its Retry) and the composer gains a status line: a reader still following (the send took them to
    // the end) stays at the end, so the message and its Retry are above the dock instead of under it.
    attempt.state='failed';const failed=pendingRow(attempt,true);row.replaceWith(failed);attempt.row=failed;say(problem(key==='talkOffline'?'talkOfflineSend':key));keepEnd();

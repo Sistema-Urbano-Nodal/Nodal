@@ -1093,3 +1093,27 @@ test('a page that opens or redraws itself keeps focus that was on it: the compos
  focusInside(block,same);pulse=pulse.filter(item=>item[0]!==Q3);list=list.filter(q=>q.id!==Q3);await block.tickTimers();await flush();
  assert.equal(block.root.querySelector('h1').focused,true,'its question gone, the heading');
 });
+
+const UNSENT_KEY='nodal.talkUnsent.'+Q;
+
+test('a message not confirmed by the server survives a reload as not sent, and Retry is still the same message; a confirmed or refused one is forgotten',async()=>{
+ const sessionStorage=memoryStore();
+ const h=await page({['POST '+MESSAGES]:offline},{context:{sessionStorage}});
+ const text=composer(h).querySelector('textarea');text.value='Sin señal en el auditorio';text.listeners.input();submit(h);await flush();
+ assert.equal(sessionStorage.items.has(DRAFT_KEY),false,'the composer is empty');assert.deepEqual(JSON.parse(sessionStorage.items.get(UNSENT_KEY)),[{clientId:CLIENT,body:'Sin señal en el auditorio'}]);
+ // The reloaded page would give a new draft another clientId.
+ const back=await page({['POST '+MESSAGES]:request=>({status:200,data:{message:message(M3,{mine:true,body:request.body.body,createdAt:'2026-10-21T14:20:00.000Z',seq:4})}})},{context:{sessionStorage,crypto:{randomUUID:()=>'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'}}});
+ const failed=rows(back).at(-1);assert.ok(classes(failed).includes('is-failed'),'the reloaded page shows it as not sent');assert.equal(content(failed.querySelector('.f-talk-body')).trim(),'Sin señal en el auditorio');
+ assert.equal(composer(back).querySelector('textarea').value,'','not in the composer, so it cannot go twice');
+ await key(failed,'talkRetry').listeners.click();await flush();
+ assert.deepEqual(sent(back,'POST',MESSAGES).map(request=>request.body.clientId),[CLIENT],'the same clientId: a copy the server already has comes back, not a second one');
+ assert.deepEqual(rows(back).map(node=>node.dataset.id),[M1,M2,M3]);assert.equal(sessionStorage.items.has(UNSENT_KEY),false);
+ // A photo cannot come back after a reload, so a message with one is not kept; a refusal Retry cannot fix goes back to the composer instead.
+ const photo=await page({['POST '+MESSAGES]:offline,'POST /api/fiiu/files':offline},{context:{sessionStorage}});
+ choose(photo,[{name:'feria.pdf',type:'application/pdf',size:1000,lastModified:1}]);submit(photo);await flush();assert.equal(sessionStorage.items.has(UNSENT_KEY),false);
+ const refused=await page({['POST '+MESSAGES]:{status:403,data:{error:'festival registration required',code:'not_registered'}}},{context:{sessionStorage}});
+ const box=composer(refused).querySelector('textarea');box.value='Sin inscripción';submit(refused);await flush();
+ assert.equal(sessionStorage.items.has(UNSENT_KEY),false);assert.equal(sessionStorage.items.get(DRAFT_KEY),'Sin inscripción');
+ const denied=await page({['POST '+MESSAGES]:offline},{context:{sessionStorage:blocked}});composer(denied).querySelector('textarea').value='Hola';submit(denied);await flush();
+ assert.ok(classes(rows(denied).at(-1)).includes('is-failed'),'without storage the row still shows');
+});
