@@ -5,13 +5,14 @@ import {readFileSync} from 'node:fs';
 
 const script=name=>readFileSync(new URL(`../web/scripts/${name}.js`,import.meta.url),'utf8');
 class Node {
- constructor(tag='div'){this.tagName=tag;this.dataset={};this.children=[];this.listeners={};this.attributes={};this.classList={toggle(){},contains:()=>false};this.hidden=false;this.value='';this._text='';}
+ constructor(tag='div'){this.tagName=tag;this.dataset={};this.children=[];this.listeners={};this.attributes={};this.classList={toggle(){},contains:()=>false};this.hidden=false;this.value='';this._text='';this.style={};}
  set textContent(value){this._text=String(value);this.children=[];}
  get textContent(){return this._text+this.children.map(child=>typeof child==='string'?child:child.textContent).join('');}
  append(...nodes){for(const node of nodes){if(typeof node==='object')node.parent=this;this.children.push(node);}}
  appendChild(node){this.append(node);return node;}
  replaceChildren(...nodes){this._text='';this.children=[];this.append(...nodes);}
  replaceWith(node){const i=this.parent.children.indexOf(this);node.parent=this.parent;this.parent.children.splice(i,1,node);}
+ remove(){if(this.parent)this.parent.children=this.parent.children.filter(child=>child!==this);this.parent=null;}
  setAttribute(key,value){this.attributes[key]=String(value);}
  getAttribute(key){return this.attributes[key]??null;}
  removeAttribute(key){delete this.attributes[key];}
@@ -19,6 +20,7 @@ class Node {
  matches(selector){return selector[0]==='.'?this.className?.split(' ').includes(selector.slice(1)):selector[0]==='['?this.dataset[selector.slice(6,-1).replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]!==undefined:selector==='input:checked'?this.tagName==='input'&&this.checked:this.tagName===selector;}
  querySelectorAll(selector){return this.children.flatMap(child=>typeof child==='object'?[...(child.matches(selector)?[child]:[]),...child.querySelectorAll(selector)]:[]);}
  querySelector(selector){return this.querySelectorAll(selector)[0]??null;}
+ closest(selector){let node=this;while(node&&!node.matches?.(selector))node=node.parent;return node||null;}
 }
 const flush=async()=>{for(let i=0;i<8;i++)await new Promise(resolve=>setImmediate(resolve));};
 function harness({url='https://nodal.test/profile.html',saved='en',nodes=[],respond=()=>({user:{fullName:'Member'}}),storage=new Map([['nodal.lang',saved]]),initializeI18n=true}={}){
@@ -93,7 +95,8 @@ test('one failing locale subscriber cannot prevent other views updating',async()
 function profileHarness(options={}){
  const ids=['pfName','pfKicker','pfRole','pfCoord','pfInitial','pfTags','pfMeta','pfLinkedin','pfLinkedinText','pfMatch','pfBtns','pfAbout','pfQuote','pfProjects','pfActConn','pfActProj','pfActCourses','pfActSince','pfConnList'];
  const nodes=ids.map(id=>node(id)),signals=node('signals');signals.className='pf-locked';nodes.push(signals,node('title','p.title','NODAL member profile'));
- const user={id:'member',fullName:'Ana Silva',title:'Planner',city:'Lima',topics:[{name:'Mobility',level:2}],partC:{},createdAt:'2026-01-01T00:00:00Z'};
+ // Listed in the directory, so the profile offers its link (a hidden one says how to list it instead).
+ const user={id:'member',fullName:'Ana Silva',title:'Planner',city:'Lima',topics:[{name:'Mobility',level:2}],partC:{consent:true},createdAt:'2026-01-01T00:00:00Z'};
  return harness({nodes,respond:path=>path==='/api/users?limit=5'?{users:[{id:'other',name:'Other member',role:'Architect'}]}:{user},...options});
 }
 test('profile dynamic labels and signals follow language changes without reloading data or replacing user content',async()=>{

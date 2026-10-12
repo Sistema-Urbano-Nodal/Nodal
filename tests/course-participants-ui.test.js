@@ -112,12 +112,13 @@ test('saving the Enrollment open toggle refreshes the participants pane and cour
  assert.deepEqual(reports,[true,false,true]);assert.ok(participantForm(h));assert.doesNotMatch(content(h.body),/Enrollment closed/);
 });
 
-function acceptanceHarness({hash='#token_hash='+ 'a'.repeat(56),reply=async()=>({passwordChanged:true,courseIds:['00000000-0000-4000-8000-000000000001']})}={}){
+// transport: errors the next requests' fetch rejects with, in order (a dropped connection, a timeout), before any reply.
+function acceptanceHarness({hash='#token_hash='+ 'a'.repeat(56),reply=async()=>({passwordChanged:true,courseIds:['00000000-0000-4000-8000-000000000001']}),transport=[]}={}){
  const body=new Node('body'),nodes={},listeners={},requests=[],historyCalls=[],stored=[];
  for(const id of ['invitationForm','recoveryMessage','invitationTitle','invitationName','invitationPassword','invitationConfirm','invitationSubmit','invitationSignIn']){const node=new Node(id==='invitationForm'?'form':'div');node.id=id;nodes[id]=node;body.append(node);}
  nodes.invitationForm.hidden=true;nodes.invitationSubmit.dataset.invitationText='accept';const languageGroup=new Node('div');languageGroup.className='recovery-languages';body.append(languageGroup);for(const lang of ['en','es','pt']){const b=new Node('button');b.className='lang-btn';b.dataset.lang=lang;languageGroup.append(b);}
  const document={body,documentElement:{},readyState:'loading',getElementById:id=>nodes[id],querySelector:selector=>body.querySelector(selector),querySelectorAll:selector=>selector==='[data-invitation-text]'?descendants(body).filter(n=>n.dataset.invitationText):body.querySelectorAll(selector),addEventListener:(key,fn)=>{listeners[key]=fn;}};
- const ctx={document,URLSearchParams,AbortSignal,window:{},location:{hash,search:'?ignored=1'},history:{replaceState:(_state,_title,path)=>{historyCalls.push(path);}},localStorage:{getItem:()=>null,setItem:(key,value)=>stored.push({key,value})},fetch:async(path,options)=>{requests.push({path,body:JSON.parse(options.body),options});return{json:async()=>await reply()};}};
+ const ctx={document,URLSearchParams,AbortSignal,window:{},location:{hash,search:'?ignored=1'},history:{replaceState:(_state,_title,path)=>{historyCalls.push(path);}},localStorage:{getItem:()=>null,setItem:(key,value)=>stored.push({key,value})},fetch:async(path,options)=>{requests.push({path,body:JSON.parse(options.body),options});const lost=transport.shift();if(lost)throw lost;return{json:async()=>await reply()};}};
  vm.createContext(ctx);vm.runInContext(script('accept-invitation'),ctx);vm.runInContext(script('invitation-i18n'),ctx);listeners.DOMContentLoaded();
  return{body,nodes,ctx,requests,historyCalls,stored,submit:()=>nodes.invitationForm.listeners.submit({preventDefault(){}}),valid:()=>{nodes.invitationName.value='New Member';nodes.invitationPassword.value=' secure password ';nodes.invitationConfirm.value=' secure password ';},lang:lang=>descendants(body).find(n=>n.dataset.lang===lang).listeners.click()};
 }
@@ -140,8 +141,45 @@ test('a closed course on acceptance confirms the account without claiming enroll
  assert.equal(h.nodes.invitationSubmit.disabled,false);
  h.lang('es');assert.match(h.nodes.recoveryMessage.textContent,/inscripciones de este curso ya cerraron/);h.lang('pt');assert.match(h.nodes.recoveryMessage.textContent,/inscrições deste curso foram encerradas/);
 });
-test('consumed invitation errors and network uncertainty direct users to sign in or password recovery',async()=>{
- for(const reply of [async()=>({code:'invitation_password_rejected'}),async()=>{throw new Error('private provider internals');}]){const h=acceptanceHarness({reply});h.valid();await h.submit();assert.equal(h.nodes.invitationForm.hidden,true);assert.equal(h.nodes.invitationPassword.value,'');assert.doesNotMatch(h.nodes.recoveryMessage.textContent,/private provider internals|new invitation/);assert.match(h.nodes.recoveryMessage.textContent,/reset|password reset/);assert.equal(h.nodes.invitationSubmit.disabled,false);}
+test('consumed invitation errors and server-reported uncertainty direct users to sign in or password recovery',async()=>{
+ for(const reply of [async()=>({code:'invitation_password_rejected'}),async()=>({code:'invitation_uncertain'})]){const h=acceptanceHarness({reply});h.valid();await h.submit();assert.equal(h.nodes.invitationForm.hidden,true);assert.equal(h.nodes.invitationPassword.value,'');assert.doesNotMatch(h.nodes.recoveryMessage.textContent,/private provider internals|new invitation/);assert.match(h.nodes.recoveryMessage.textContent,/reset|password reset/);assert.equal(h.nodes.invitationSubmit.disabled,false);}
+});
+/* A dropped connection must not throw the one-use invitation away: the browser may never have sent it. The token
+   and the form stay for another try, which is safe because the provider refuses a used token (invitation_invalid). */
+test('a dropped connection keeps the invitation and the form, and says to check the connection',async()=>{
+ const h=acceptanceHarness({transport:[new TypeError('Failed to fetch')]});h.valid();h.lang('es');await h.submit();
+ assert.equal(h.nodes.invitationForm.hidden,false);assert.equal(h.nodes.invitationPassword.value,' secure password ');assert.equal(h.nodes.invitationSubmit.disabled,false);
+ assert.match(h.nodes.recoveryMessage.textContent,/No se pudieron enviar tus datos\. Revisa tu conexión y vuelve a intentarlo\. Si la contraseña ya se guardó, inicia sesión con ella\./);
+ assert.notEqual(h.nodes.invitationTitle.dataset.invitationText,'invalidTitle');assert.equal(h.nodes.invitationSubmit.focused,true,'focus returns to the re-enabled button');
+ h.lang('pt');assert.match(h.nodes.recoveryMessage.textContent,/Verifique sua conexão/);
+ await h.submit();assert.equal(h.requests.length,2);assert.equal(h.requests[1].body.tokenHash,'a'.repeat(56));
+ assert.equal(h.nodes.invitationForm.hidden,true);assert.match(h.nodes.recoveryMessage.textContent,/inscrição no curso foi confirmada/);
+});
+test('a timed-out or unreadable acceptance keeps the invitation, and a later used-token answer reads as possibly saved',async()=>{
+ const timeout=acceptanceHarness({transport:[Object.assign(new Error('signal timed out'),{name:'TimeoutError'})],reply:async()=>({code:'invitation_invalid'})});timeout.valid();await timeout.submit();
+ assert.equal(timeout.nodes.invitationForm.hidden,false);assert.match(timeout.nodes.recoveryMessage.textContent,/could not confirm whether your password was saved\. Try again\./);
+ // The first try reached the provider after all: the retry hears the token is used, so the password may be saved.
+ await timeout.submit();assert.equal(timeout.requests[1].body.tokenHash,'a'.repeat(56));assert.equal(timeout.nodes.invitationForm.hidden,true);
+ assert.match(timeout.nodes.recoveryMessage.textContent,/Try signing in with the password you chose/);assert.doesNotMatch(timeout.nodes.recoveryMessage.textContent,/missing, expired/);
+ let first=true;const unreadable=acceptanceHarness({reply:async()=>{if(first){first=false;throw new SyntaxError('Unexpected token <');}return {passwordChanged:true,courseIds:['00000000-0000-4000-8000-000000000001']};}});
+ unreadable.valid();await unreadable.submit();assert.equal(unreadable.nodes.invitationForm.hidden,false);assert.match(unreadable.nodes.recoveryMessage.textContent,/Try again/);
+ await unreadable.submit();assert.match(unreadable.nodes.recoveryMessage.textContent,/enrollment is confirmed/);
+ // Without a lost answer first, a used token still says so.
+ const used=acceptanceHarness({reply:async()=>({code:'invitation_invalid'})});used.valid();await used.submit();assert.match(used.nodes.recoveryMessage.textContent,/missing, expired or already used/);
+});
+/* When an answer ends the acceptance, the form that held focus disappears; focus goes to the heading instead of
+   falling to the page. The message empties while sending, so a repeated answer is announced again. */
+test('when a server answer ends the acceptance, focus goes to the heading, and the message empties while sending',async()=>{
+ const missing=acceptanceHarness({hash:''});assert.notEqual(missing.nodes.invitationTitle.focused,true,'nothing moves focus on load');
+ let h;const seen=[];
+ h=acceptanceHarness({transport:[new TypeError('Failed to fetch')],reply:async()=>{h.lang('es');seen.push({text:h.nodes.recoveryMessage.textContent,hidden:h.nodes.recoveryMessage.hidden});return {code:'invitation_invalid'};}});
+ h.valid();await h.submit();assert.match(h.nodes.recoveryMessage.textContent,/Check your connection/);assert.notEqual(h.nodes.invitationTitle.focused,true);
+ // As in Chrome, focus still sits on the button the answer just hid until the browser moves it to the page.
+ h.nodes.invitationForm.contains=node=>node===h.nodes.invitationSubmit;h.ctx.document.activeElement=h.nodes.invitationSubmit;
+ await h.submit();
+ assert.deepEqual(seen,[{text:'',hidden:false}],'empty but still on the page while sending, even when the language changes meanwhile');
+ assert.equal(h.nodes.invitationForm.hidden,true);assert.equal(h.nodes.invitationTitle.tabIndex,-1);assert.equal(h.nodes.invitationTitle.focused,true);
+ const done=acceptanceHarness();done.valid();await done.submit();assert.equal(done.nodes.invitationTitle.focused,true,'and after the account is ready');
 });
 test('public invitation document has a self-only security policy and no external scripts or styles',()=>{
  const html=readFileSync(new URL('../web/pages/accept-invitation.html',import.meta.url),'utf8');assert.match(html,/name="referrer" content="no-referrer"/);assert.doesNotMatch(html,/http-equiv="Content-Security-Policy"/,'the self-only policy comes from the server header (tests/page-csp.test.js)');assert.doesNotMatch(html,/(?:src|href)="https?:/);assert.ok(html.indexOf('src="accept-invitation.js')<html.indexOf('<link'));assert.equal((html.match(/<script /g)||[]).length,3);const h=acceptanceHarness();for(const [key,values]of Object.entries(h.ctx.window.nodalInvitationI18n.rows)){assert.equal(values.length,3,key);assert.ok(values.every(v=>typeof v==='string'&&v.length),key);}

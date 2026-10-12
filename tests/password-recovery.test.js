@@ -157,7 +157,101 @@ test('reset UI blocks mismatched passwords and renders consumed-proof or ambiguo
   const h=ui(async()=>response({ok:false,code:'recovery_password_rejected'},400));
   h.nodes.get('recoveryPassword').value='safe-new-password';h.nodes.get('recoveryConfirm').value='other-password';await h.submit('recoveryReset');assert.equal(h.calls.length,0);
   h.nodes.get('recoveryConfirm').value='safe-new-password';await h.submit('recoveryReset');assert.equal(h.nodes.get('recoveryRequest').hidden,false);assert.match(h.nodes.get('recoveryMessage').textContent,/could not be accepted/);
-  const q=ui(async()=>{throw Error('connection lost');});q.nodes.get('recoveryPassword').value=q.nodes.get('recoveryConfirm').value='safe-new-password';await q.submit('recoveryReset');assert.match(q.nodes.get('recoveryMessage').textContent,/could not confirm whether/);assert.equal(q.nodes.get('recoveryReset').hidden,true);
+  // The server says recovery_uncertain only after the provider took the code, so that link is spent.
+  const q=ui(async()=>response({code:'recovery_uncertain'},503));q.nodes.get('recoveryPassword').value=q.nodes.get('recoveryConfirm').value='safe-new-password';await q.submit('recoveryReset');assert.match(q.nodes.get('recoveryMessage').textContent,/could not confirm whether/);assert.equal(q.nodes.get('recoveryReset').hidden,true);
+});
+/* Venue Wi-Fi drops. A request that got no answer may never have reached NODAL, so the one-use code and the form stay
+   and the person can simply try again. That is safe: the server answers recovery_invalid for a code already used, so a
+   retry can never save a password twice; only then does the page let the link go. */
+test('a dropped connection keeps the one-use code and the form, and says to check the connection',async()=>{
+  const replies=[()=>{throw new TypeError('Failed to fetch');},()=>response({passwordChanged:true})];
+  const h=ui(async()=>replies.shift()());h.lang('es');
+  h.nodes.get('recoveryPassword').value=h.nodes.get('recoveryConfirm').value='safe-new-password';
+  await h.submit('recoveryReset');
+  const message=h.nodes.get('recoveryMessage').textContent;
+  assert.match(message,/No se pudo enviar la nueva contraseña\. Revisa tu conexión y vuelve a intentarlo\./);
+  assert.match(message,/Si ya se guardó, inicia sesión con ella\./,'the first try might have arrived after all');
+  assert.doesNotMatch(message,/no está disponible|Solicita otro/);
+  assert.equal(h.nodes.get('recoveryReset').hidden,false);assert.equal(h.nodes.get('recoveryRequest').hidden,true);
+  assert.equal(h.nodes.get('recoveryAnother').hidden,false);assert.equal(h.nodes.get('recoveryTitle').textContent,'Elige una nueva contraseña');
+  assert.equal(h.nodes.get('recoveryPassword').value,'safe-new-password');assert.equal(h.nodes.get('recoveryPassword').disabled,false);
+  assert.equal(h.nodes.get('recoveryResetButton').disabled,false);
+  assert.equal(h.nodes.get('recoveryResetButton').focused,true,'focus comes back to the button that was disabled while sending');
+  h.lang('pt');assert.match(h.nodes.get('recoveryMessage').textContent,/Verifique sua conexão/);
+  await h.submit('recoveryReset');
+  assert.equal(h.calls.length,2);assert.equal(h.calls[1].body.code,'one-use-code');
+  assert.equal(h.nodes.get('recoveryReset').hidden,true);assert.match(h.nodes.get('recoveryMessage').textContent,/Sua senha foi alterada/);
+});
+test('after a lost answer, a link the server calls used reads as a password that may already be saved',async()=>{
+  const replies=[()=>{throw new TypeError('Load failed');},()=>response({code:'recovery_invalid'},400)];
+  const h=ui(async()=>replies.shift()());h.lang('es');
+  h.nodes.get('recoveryPassword').value=h.nodes.get('recoveryConfirm').value='safe-new-password';
+  await h.submit('recoveryReset');await h.submit('recoveryReset');
+  assert.equal(h.calls[1].body.code,'one-use-code');
+  assert.match(h.nodes.get('recoveryMessage').textContent,/No pudimos confirmar si la contraseña se guardó\. Intenta iniciar sesión con la nueva contraseña/);
+  assert.equal(h.nodes.get('recoveryReset').hidden,true);assert.equal(h.nodes.get('recoveryRequest').hidden,false);
+  await h.submit('recoveryReset');assert.equal(h.calls.length,2,'the used code is gone');
+  // Without an earlier lost answer the same reply still says the link is invalid.
+  const fresh=ui(async()=>response({code:'recovery_invalid'},400));fresh.nodes.get('recoveryPassword').value=fresh.nodes.get('recoveryConfirm').value='safe-new-password';
+  await fresh.submit('recoveryReset');assert.match(fresh.nodes.get('recoveryMessage').textContent,/invalid, expired, or already used/);
+});
+test('a timed-out or unreadable answer keeps the code too, without claiming nothing was sent',async()=>{
+  for(const fail of [()=>{throw Object.assign(new Error('signal timed out'),{name:'TimeoutError'});},()=>new Response('<html>Bad gateway</html>',{status:502})]){
+    const replies=[fail,()=>response({passwordChanged:true})];
+    const h=ui(async()=>replies.shift()());
+    h.nodes.get('recoveryPassword').value=h.nodes.get('recoveryConfirm').value='safe-new-password';
+    await h.submit('recoveryReset');
+    assert.match(h.nodes.get('recoveryMessage').textContent,/We could not confirm whether the password was saved\. Try again\. If it was already saved, sign in with the new password\./);
+    assert.equal(h.nodes.get('recoveryReset').hidden,false);assert.equal(h.nodes.get('recoveryPassword').value,'safe-new-password');
+    await h.submit('recoveryReset');assert.equal(h.calls[1].body.code,'one-use-code');assert.match(h.nodes.get('recoveryMessage').textContent,/Your password has been changed/);
+  }
+});
+test('the server refuses a recovery code a second time with recovery_invalid, which the page relies on to retry safely',async()=>{
+  const p=provider(),cookie=await request(p);
+  assert.equal((await p.repo.completePasswordRecovery({req:req(cookie),code:'one-use-code',password:'a-new-password'})).passwordChanged,true);
+  const again=await p.repo.completePasswordRecovery({req:req(cookie),code:'one-use-code',password:'a-new-password'});
+  assert.equal(again.code,'recovery_invalid');assert.notEqual(again.passwordChanged,true);
+});
+/* When an answer ends the reset, the form that held focus disappears and focus would fall to the page, so a keyboard
+   or screen-reader user is left nowhere. It goes to the heading, which now names what the page offers. */
+test('when a server answer ends the reset, focus goes to the heading rather than the page',async()=>{
+  const replies=[()=>{throw new TypeError('Failed to fetch');},()=>response({code:'recovery_invalid'},400)];
+  const h=ui(async()=>replies.shift()());const title=h.nodes.get('recoveryTitle');
+  h.nodes.get('recoveryPassword').value=h.nodes.get('recoveryConfirm').value='safe-new-password';
+  await h.submit('recoveryReset');assert.notEqual(title.focused,true,'a retry keeps focus on the button');
+  // As in Chrome, focus still sits on the button the answer just hid until the browser moves it to the page.
+  const button=h.nodes.get('recoveryResetButton');h.nodes.get('recoveryReset').contains=node=>node===button;h.context.document.activeElement=button;
+  await h.submit('recoveryReset');
+  assert.equal(h.nodes.get('recoveryReset').hidden,true);assert.equal(title.textContent,'Reset your password');
+  assert.equal(title.tabIndex,-1);assert.equal(title.focused,true);
+  const done=ui(async()=>response({passwordChanged:true}));done.nodes.get('recoveryPassword').value=done.nodes.get('recoveryConfirm').value='safe-new-password';
+  await done.submit('recoveryReset');assert.equal(done.nodes.get('recoveryTitle').focused,true,'and after the password is saved');
+});
+/* The message is a live region. Two lost answers in a row write the same words, which screen readers may not
+   announce again, so the message empties while each request is sent and every answer arrives as new text. */
+test('the message empties while a request is sent, so a repeated answer is announced again',async()=>{
+  const seen=[];let h;
+  const replies=[()=>{throw Object.assign(new Error('signal timed out'),{name:'TimeoutError'});},()=>new Response('<html>Bad gateway</html>',{status:502})];
+  h=ui(async()=>{h.lang('es');seen.push(h.nodes.get('recoveryMessage').textContent);return replies.shift()();});
+  h.nodes.get('recoveryPassword').value=h.nodes.get('recoveryConfirm').value='safe-new-password';
+  await h.submit('recoveryReset');const first=h.nodes.get('recoveryMessage').textContent;
+  await h.submit('recoveryReset');
+  assert.deepEqual(seen,['',''],'empty while sending, even when the language changes meanwhile');
+  assert.equal(h.nodes.get('recoveryMessage').textContent,first);assert.match(first,/No pudimos confirmar si la contraseña se guardó/);
+  const offline=[];let r;
+  r=ui(async()=>{offline.push(r.nodes.get('recoveryMessage').textContent);throw new TypeError('Failed to fetch');},{search:''});
+  r.nodes.get('recoveryEmail').value='member@example.test';await r.submit('recoveryRequest');await r.submit('recoveryRequest');
+  assert.deepEqual(offline,['','']);assert.match(r.nodes.get('recoveryMessage').textContent,/check your connection/i);
+});
+test('requesting a link while offline says to check the connection, not that recovery is unavailable',async()=>{
+  const h=ui(async()=>{throw new TypeError('Failed to fetch');},{search:''});h.nodes.get('recoveryEmail').value='member@example.test';h.lang('es');
+  await h.submit('recoveryRequest');
+  assert.match(h.nodes.get('recoveryMessage').textContent,/Revisa tu conexión y vuelve a intentarlo/);assert.doesNotMatch(h.nodes.get('recoveryMessage').textContent,/no está disponible/);
+  assert.equal(h.nodes.get('recoveryEmail').value,'member@example.test');assert.equal(h.nodes.get('recoveryRequestButton').disabled,false);
+  assert.equal(h.nodes.get('recoveryRequestButton').focused,true);
+  // A server that answers that recovery is down is still believed.
+  const down=ui(async()=>response({code:'recovery_unavailable'},503),{search:''});down.nodes.get('recoveryEmail').value='member@example.test';
+  await down.submit('recoveryRequest');assert.match(down.nodes.get('recoveryMessage').textContent,/temporarily unavailable/);
 });
 test('recovery UI rejects fragment sessions and provides account-neutral trilingual request feedback',async()=>{
   const h=ui(async()=>response({ok:true},202),{search:'',hash:'#access_token=arbitrary&type=recovery'});

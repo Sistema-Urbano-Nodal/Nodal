@@ -137,9 +137,10 @@ test('festival conversations are described in every language: their data row aft
     ['pt', 'Festival FIIU', 'Conversas do FIIU', 'Pessoas inscritas no festival FIIU', 'Nas conversas do FIIU'],
   ]) {
     assert.equal((articles[lang].match(/<section /g) || []).length, 12, lang);
-    const table = section(lang, 2), before = table.indexOf(`<tr><td>${festival}</td>`), at = table.indexOf(`<tr><td>${row}</td>`);
+    const rowOf = category => table.indexOf(`<tr role="row"><td role="cell">${category}</td>`);
+    const table = section(lang, 2), before = rowOf(festival), at = rowOf(row);
     assert.ok(before > -1 && at > before, `${lang}: the conversations row follows the festival row`);
-    assert.equal(table.slice(before, at).match(/<tr>/g).length, 1, `${lang}: directly after it`);
+    assert.equal(table.slice(before, at).match(/<tr[\s>]/g).length, 1, `${lang}: directly after it`);
     assert.ok(section(lang, 4).includes(`<strong>${audience}:</strong>`), `${lang}: section 4 names who sees the messages`);
     assert.ok(section(lang, 9).includes(deletion), `${lang}: section 9 says what account deletion does to them`);
   }
@@ -154,4 +155,63 @@ test('festival conversations are described in every language: their data row aft
     for (const phrase of [hidden, own, cancel]) assert.ok(table.includes(phrase), `${lang}: ${phrase}`);
     assert.ok(!table.includes(never), `${lang}: no promise the page cannot keep`);
   }
+});
+
+// The stylesheet's rules, with the media query each sits in ('' at the top level).
+function cssRules(css) {
+  const rules = [];
+  const walk = (text, media) => {
+    let i = 0;
+    while (i < text.length) {
+      const open = text.indexOf('{', i); if (open === -1) break;
+      const head = text.slice(i, open).trim();
+      if (head.startsWith('@media')) {
+        let depth = 1, j = open + 1;
+        for (; depth && j < text.length; j++) depth += text[j] === '{' ? 1 : text[j] === '}' ? -1 : 0;
+        walk(text.slice(open + 1, j - 1), head); i = j;
+      } else {
+        const close = text.indexOf('}', open);
+        rules.push({media, selectors: head.split(',').map(s => s.trim()), body: text.slice(open + 1, close)}); i = close + 1;
+      }
+    }
+  };
+  walk(css.replace(/\/\*[\s\S]*?\*\//g, ''), '');
+  return rules;
+}
+const declarations = (rules, selector, media) => rules.filter(rule => rule.selectors.includes(selector) && media(rule.media)).map(rule => rule.body).join(';');
+
+test('on phones the data table reflows at body size, and the policy links and buttons are full touch targets', () => {
+  const css = read('web/styles/privacy.css'), rules = cssRules(css);
+  const phone = media => /max-width:\s*600px/.test(media);
+  // Each row stacks: the category over its explanation, full width, instead of a 99px column of 13px text broken mid-word.
+  for (const element of ['table', 'tbody', 'tr', 'td']) assert.match(declarations(rules, element, phone), /display:\s*block/, element);
+  assert.match(declarations(rules, 'thead', phone), /position:\s*absolute/, 'the header row stays for screen readers only');
+  assert.doesNotMatch(declarations(rules, 'thead', phone), /display:\s*none/);
+  const cells = declarations(rules, 'td', phone) + ';' + declarations(rules, 'td:first-child', phone);
+  assert.doesNotMatch(cells, /font-size:\s*1[0-4]px|overflow-wrap:\s*anywhere/, 'no shrunken text or broken words');
+  assert.match(declarations(rules, 'td:first-child', phone), /width:\s*auto/);
+  // Phone-sized or touch: every target is at least 44px.
+  const touch = media => phone(media) || /pointer:\s*coarse/.test(media);
+  for (const selector of ['.policy-contents a', '.policy-languages button', '.policy-home', '.policy-footer a', '.policy-top']) {
+    assert.match(declarations(rules, selector, touch), /min-height:\s*44px/, selector);
+  }
+  assert.match(declarations(rules, '.policy-contents a', touch), /display:\s*(?:block|flex)/);
+  assert.match(declarations(rules, '.policy-languages button', touch), /min-width:\s*44px/);
+  assert.doesNotMatch(declarations(rules, '.policy-home', phone), /font-size:\s*1[0-2]px/);
+  assert.doesNotMatch(css, /border-left/, 'no left accent bars');
+});
+
+/* On phones the stacked rows use display:block, which can strip a table's semantics (Safari and VoiceOver), and the
+   visually hidden header row then names no cell. Explicit roles keep the table, its rows, headers and cells. */
+test('the data table keeps explicit table roles, so its stacked phone layout is still read as a table', async () => {
+  const html = read('web/pages/privacy.html');
+  const count = pattern => (html.match(pattern) || []).length;
+  const tables = count(/<table[\s>]/g);
+  assert.ok(tables >= 3, 'one table per language at least');
+  assert.equal(count(/<table role="table">/g), tables);
+  assert.equal(count(/<thead role="rowgroup">/g), tables);
+  assert.equal(count(/<tbody role="rowgroup">/g), tables);
+  assert.equal(count(/<tr role="row">/g), count(/<tr[\s>]/g));
+  assert.equal(count(/<th role="columnheader" scope="col">/g), count(/<th[\s>]/g));
+  assert.equal(count(/<td role="cell">/g), count(/<td[\s>]/g));
 });

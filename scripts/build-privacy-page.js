@@ -58,7 +58,9 @@ function blocks(text, labels) {
     if (block.startsWith('|')) {
       const rows = block.split('\n').filter(row => !/^\|[\s|:-]+\|$/.test(row))
         .map(row => row.split('|').slice(1,-1).map(cell => cell.trim()));
-      return `<div class="policy-table" role="region" aria-label="${labels.table}" tabindex="0"><table><thead><tr>${rows[0].map(cell=>`<th scope="col">${inline(cell)}</th>`).join('')}</tr></thead><tbody>${rows.slice(1).map(row=>`<tr>${row.map(cell=>`<td>${inline(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+      // Explicit roles: privacy.css stacks the rows with display:block on phones, which can strip a table's
+      // semantics (Safari, VoiceOver) and leave the visually hidden header row naming no cell.
+      return `<div class="policy-table" role="region" aria-label="${labels.table}" tabindex="0"><table role="table"><thead role="rowgroup"><tr role="row">${rows[0].map(cell=>`<th role="columnheader" scope="col">${inline(cell)}</th>`).join('')}</tr></thead><tbody role="rowgroup">${rows.slice(1).map(row=>`<tr role="row">${row.map(cell=>`<td role="cell">${inline(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
     }
     if (block.startsWith('- ')) return `<ul>${block.split('\n').map(line=>`<li>${inline(line.replace(/^- /,''))}</li>`).join('')}</ul>`;
     return `<p>${inline(block)}</p>`;
