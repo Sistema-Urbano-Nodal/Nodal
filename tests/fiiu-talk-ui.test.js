@@ -976,3 +976,46 @@ test('following the chat stops where the conversation ends, so the footer stays 
  revision=4;await h.tickTimers();assert.equal(scroller.scrollTop,1900,'the dock’s bottom on the screen’s bottom, not the end of the document');assert.equal(pill.hidden,true);
  scroller.scrollTop=2200;revision=5;await h.tickTimers();assert.equal(pill.hidden,true,'a reader who scrolled on to the footer still counts as following');
 });
+
+// The projector: whole answers only, and a code that says what scanning gives.
+const answers=n=>Array.from({length:n},(_,i)=>message('40000000-0000-4000-8000-'+String(i).padStart(12,'0'),{body:'Respuesta '+i,createdAt:new Date(Date.parse('2026-10-21T14:00:00.000Z')+i*60000).toISOString(),seq:i+1}));
+// Lays the cards out as a 3-column grid whose rows start at 600 px and are 200 px apart, each 180 px tall, on a screen innerHeight tall.
+function lay(h,innerHeight){h.ctx.window.innerHeight=innerHeight;cards(h).forEach((card,i)=>{const top=600+200*Math.floor(i/3);card.getBoundingClientRect=()=>({top,bottom:top+180});});}
+
+test('the projector shows only whole answers, leaving out every row that would cross the screen’s bottom edge, and fits again on resize and full screen',async()=>{
+ let revision=6;
+ const h=await projector({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=6']:since(7,[message(M5,{body:'Nueva',createdAt:'2026-10-21T15:00:00.000Z',seq:7})])},{messages:answers(6),revision:6,question:{revision:6}});
+ const shown=()=>cards(h).filter(card=>!card.hidden).length;
+ lay(h,1080);await Promise.all(h.windowListeners.resize.map(listener=>listener({type:'resize'})));
+ assert.equal(shown(),6,'two rows end at 980, within 1080');
+ lay(h,900);await Promise.all(h.windowListeners.resize.map(listener=>listener({type:'resize'})));
+ assert.equal(shown(),3,'the second row would end at 980, past 900: it goes whole');assert.deepEqual(cards(h).map(card=>card.hidden),[false,false,false,true,true,true]);
+ lay(h,1080);await h.fire('fullscreenchange');assert.equal(shown(),6,'full screen gives the room more height');
+ // A new answer redraws the wall, and every card is measured again.
+ revision=7;h.ctx.window.innerHeight=900;const old=h.root.querySelector('.f-talk-wall-feed').replaceChildren;
+ h.root.querySelector('.f-talk-wall-feed').replaceChildren=function(...nodes){old.apply(this,nodes);lay(h,900);};
+ await h.tickTimers();assert.equal(cards(h).length,7);assert.equal(shown(),3);assert.equal(order(h)[0],M5);
+ // A screen too short even for one row keeps the first row rather than an empty wall; the narrow, scrolling layout keeps every answer.
+ lay(h,500);await h.fire('fullscreenchange');assert.equal(shown(),3);
+ h.ctx.window.matchMedia=query=>({matches:query==='(max-width:900px)'});lay(h,900);await h.fire('fullscreenchange');assert.equal(shown(),7);
+ const css=readFileSync(new URL('../web/styles/fiiu-talk.css',import.meta.url),'utf8');
+ assert.match(css,/\.f-talk-wall\{[^}]*font-size:clamp\(1\.1rem,\.4rem \+ \.6vw \+ \.8vh,1\.75rem\)/,'answer text grows with the screen’s height too, for 4:3 projectors');
+ assert.match(css,/\.f-talk-wall-url\{[^}]*font-size:max\(1rem,\.9em\);[^}]*color:var\(--f-ink\)/,'the address can be typed from the back rows');
+});
+
+test('the projector’s code invites joining an open question and reading a closed one, and a hidden question shows no code until it opens',async()=>{
+ let revision=3,state='open';
+ const h=await projector({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,state]]}),['GET '+MESSAGES+'?since=3']:since(4,[],{status:'closed'})},{messages:[]});
+ const code=()=>h.root.querySelector('.f-talk-wall-code');
+ assert.ok(key(code(),'talkScanToJoin'));assert.equal(h.root.querySelector('.f-talk-wall-empty').dataset.fiiuText,'talkEmpty');
+ revision=4;state='closed';await h.tickTimers();
+ assert.ok(key(code(),'talkScanToRead'),'a closed question can still be read');assert.equal(key(code(),'talkScanToJoin'),undefined);
+ assert.equal(h.root.querySelector('svg')['aria-label'],'Scan to read the conversation');assert.equal(h.root.querySelector('.f-talk-wall-empty').dataset.fiiuText,'talkEmptyClosed');
+ h.lang('es');assert.equal(key(code(),'talkScanToRead').textContent,'Escanea para leer la conversación');assert.equal(h.root.querySelector('svg')['aria-label'],'Escanea para leer la conversación');
+ const hidden=await projector({['GET '+MESSAGES+'?since=3']:since(3,[],{status:'hidden'})},{question:{status:'hidden'}});
+ const box=hidden.root.querySelector('.f-talk-wall-code');
+ assert.equal(hidden.root.querySelectorAll('svg').length,0,'no code to scan yet');assert.equal(box.querySelector('.f-talk-wall-url'),null);assert.ok(key(box,'talkOpensSoon'));assert.equal(box.hidden,false);
+ const opening=await projector({['GET '+MESSAGES+'?since=3']:since(4,[],{status:'open'})},{question:{status:'hidden'}});
+ await opening.tickTimers();assert.equal(opening.root.querySelectorAll('svg').length,1,'the code appears once it opens');assert.ok(key(opening.root,'talkScanToJoin'));
+ assert.equal(opening.root.querySelector('.f-talk-wall-url').textContent,'nodal.example/fiiu-talk.html?a=day1-am');
+});

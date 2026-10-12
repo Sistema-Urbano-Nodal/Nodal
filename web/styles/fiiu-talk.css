@@ -64,22 +64,25 @@
 /* Projector (?q=…&present=1, organisers only; fiiu-talk.js puts f-talk-present on the body): a room screen sized from the viewport. The question is the
    headline with the join code beside it, the latest or most liked answers sit below in columns. The footer goes, and in full screen the site header too. */
 .f-page.f-talk-present>.f-footer{display:none}html:fullscreen>.f-page.f-talk-present>.navbar{display:none}
-.f-talk-wall{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"head code" "tools code" "feed feed";gap:var(--f-sp-4) var(--f-sp-7);align-items:start;padding:var(--f-sp-6) 0 0;font-size:clamp(1rem,.5rem + .9vw,1.75rem);line-height:1.4}
+/* Text grows with the screen's height as well as its width, so a 4:3 projector (1024x768) gets about 19 px answers, a 1080p one about 27 px. */
+.f-talk-wall{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"head code" "tools code" "feed feed";gap:var(--f-sp-4) var(--f-sp-7);align-items:start;padding:var(--f-sp-6) 0 0;font-size:clamp(1.1rem,.4rem + .6vw + .8vh,1.75rem);line-height:1.4}
 .f-talk-wall-head{grid-area:head;min-width:0}.f-talk-wall-block{margin:0;font-size:.8em;font-weight:700;color:var(--f-forest);overflow-wrap:anywhere}
-.f-talk-wall .f-talk-when{font-size:.7em}.f-talk-wall .f-talk-talk{margin:var(--f-sp-2) 0 0;font-size:.8em}.f-talk-wall-head>.f-talk-flag{margin:var(--f-sp-3) 0 0;font-size:.55em}
+/* Closed or hidden reads from the back of the room: the chip is as large as the answers. */
+.f-talk-wall .f-talk-when{font-size:.7em}.f-talk-wall .f-talk-talk{margin:var(--f-sp-2) 0 0;font-size:.8em}.f-talk-wall-head>.f-talk-flag{margin:var(--f-sp-3) 0 0;padding:.1em .6em;font-size:1em;letter-spacing:.04em}
 /* 3 to 5 % of the screen's width; a question over 160 characters steps down so the answers still fit under it. */
 .f-page .f-talk-wall-question{max-width:none;margin:var(--f-sp-3) 0 0;font-size:clamp(3vw,1rem + 3vw,5vw);font-weight:750;line-height:1.12;hyphens:manual}
 .f-page .f-talk-wall-question.is-long{font-size:clamp(1.5rem,2.4vw,3vw)}
 /* The code: about a quarter of the width and never taller than the screen allows. The empty square holds its place until it arrives; its white edge is the quiet zone. */
 .f-talk-wall-code{grid-area:code;display:grid;justify-items:center;gap:var(--f-sp-2);width:clamp(180px,min(24vw,42vh),560px)}
 .f-talk-wall-qr,.f-talk-qr-svg{display:block;width:100%;height:auto;aspect-ratio:1}
-.f-talk-wall-scan{margin:0;font-weight:700;text-align:center}.f-talk-wall-url{margin:0;font-size:.72em;font-weight:600;color:var(--f-muted);text-align:center;overflow-wrap:anywhere}
+/* The address is typed from a seat, so it is at least body size and in ink, not a muted caption. */
+.f-talk-wall-scan{margin:0;font-weight:700;text-align:center}.f-talk-wall-url{margin:0;font-size:max(1rem,.9em);font-weight:600;color:var(--f-ink);text-align:center;overflow-wrap:anywhere}
 /* Latest / Most liked is one segmented control; the pressed half is filled. */
 .f-talk-wall-tools{grid-area:tools;display:flex;flex-wrap:wrap;align-items:center;gap:var(--f-sp-3);font-size:max(1rem,.7em)}.f-talk-sorts{display:inline-flex}
 .f-shell .f-talk-sort{min-height:44px;padding:0 var(--f-sp-4);border:2px solid var(--f-ink);background:#fff;color:var(--f-ink);font-weight:650;cursor:pointer}
 .f-shell .f-talk-sort:first-child{border-radius:7px 0 0 7px}.f-shell .f-talk-sort:last-child{border-left:0;border-radius:0 7px 7px 0}.f-shell .f-talk-sort[aria-pressed="true"]{background:var(--f-ink);color:#fff}
-/* Answers: whitespace between them, no cards; text stops at four lines and images stay small. They are near body size (about 24 px on a 1080p
-   screen), readable from the back of a room; on a full wall the latest scroll below the fold rather than shrink. */
+/* Answers: whitespace between them, no cards; text stops at four lines and images stay small, readable from the back of a room. The room sees whole
+   answers only: fiiu-talk.js leaves out every row that would cross the screen's bottom edge, rather than shrink them or cut one in half. */
 .f-talk-wall-feed{grid-area:feed;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,15em),1fr));gap:var(--f-sp-5) var(--f-sp-6);margin:var(--f-sp-3) 0 0;padding:0;list-style:none}
 .f-talk-wall-msg{min-width:0;font-size:.95em}.f-talk-wall-meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 .6em;margin:0;font-size:.85em;color:var(--f-muted)}
 .f-talk-wall-meta .f-talk-author{font-size:1.08em}.f-talk-wall .f-talk-org{font-size:.72em}.f-talk-wall-likes::before{content:"♥ ";content:"♥ "/"";color:var(--f-leaf)}

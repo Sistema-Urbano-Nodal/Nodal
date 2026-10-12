@@ -38,6 +38,7 @@
   talkNotRegistered:['You need a FIIU registration to take part.','Necesitas una inscripción en el FIIU para participar.','Você precisa de uma inscrição no FIIU para participar.'],
   talkPresent:['Projector view','Vista de proyección','Modo de projeção'],talkLatest:['Latest','Recientes','Recentes'],talkTop:['Most liked','Con más me gusta','Mais curtidas'],talkFullscreen:['Full screen','Pantalla completa','Tela cheia'],
   talkScanToJoin:['Scan to join the conversation','Escanea para unirte a la conversación','Escaneie para entrar na conversa'],
+  talkScanToRead:['Scan to read the conversation','Escanea para leer la conversación','Escaneie para ler a conversa'],talkOpensSoon:['The conversation opens soon','La conversación se abrirá en breve','A conversa será aberta em breve'],
   // A question is feminine in Spanish and Portuguese (la pregunta, a pergunta), a message masculine in Spanish (el mensaje): each gets its own chip.
   talkHiddenQuestion:['Hidden','Oculta','Oculta'],
   talkEmptyClosed:['This question closed without answers.','Esta pregunta se cerró sin respuestas.','Esta pergunta foi encerrada sem respostas.'],
@@ -48,8 +49,9 @@
  const root=document.getElementById('fiiuTalkRoot'),message=document.getElementById('fiiuStatus');
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,ID=/^[a-z0-9-]{1,60}$/;
  const LIMIT=1000,FILES=3,MAX=3*1024*1024,THUMB=100*1024,POLL=4000,WATCH_MS=8000,WATCH_FOR=2*3600000,NEAR=120,NAME=120,UPLOAD_MS=120000,TYPES=['image/jpeg','image/png','image/webp','application/pdf'],IMAGES=TYPES.slice(0,3);
- // The projector: answers on screen, and the question length above which its headline steps down so they still fit.
- const WALL=12,LONG=160,SVG='http://www.w3.org/2000/svg';
+ // The projector: answers on screen at most, the question length above which its headline steps down so they still fit, and the room left under the
+ // last row of answers.
+ const WALL=12,LONG=160,FIT_MARGIN=8,SVG='http://www.w3.org/2000/svg';
  // A file refused for what it is (type, size, the festival allowance), or a sender without a registration, is the draft's problem: the row goes and the
  // composer says why, since Retry cannot help.
  const DRAFT=['talkFileType','talkFileSize','talkAllowance','talkTooManyFiles','talkNotRegistered'];
@@ -578,13 +580,14 @@
   if(document.fullscreenEnabled!==false&&typeof document.documentElement?.requestFullscreen==='function'){full=button('talkFullscreen',()=>document.fullscreenElement?document.exitFullscreen?.():document.documentElement.requestFullscreen?.()?.catch?.(()=>{}),'f-button secondary f-talk-full');tools.append(full);}
   // The empty square holds the code's place, so the headline does not jump when it arrives.
   code.append(el('div','f-talk-wall-qr'));box.append(head,code,tools,feed,empty);root.replaceChildren(box);parts=null;dockObserver?.disconnect();dockObserver=null;document.body.classList.add('f-talk-present');
-  wall={head,code,feed,empty,switches,full,svg:null,qr:'loading',qrAt:0,cards:new Map()};
+  wall={head,code,feed,empty,switches,full,svg:null,address:'',qr:'loading',qrAt:0,cards:new Map()};
+  document.fonts?.ready?.then(()=>fitWall(),()=>{});
  }
  function renderWallHead(){
   const nodes=activity?[source('p',activity.title,'f-talk-wall-block'),whenLine(activity)]:[];if(question.talk)nodes.push(source('p',question.talk,'f-talk-talk'));
   if(question.status!=='open')nodes.push(tr('p',question.status==='hidden'?'talkHiddenQuestion':'talkClosedChip','f-talk-flag'));rekey(wall.empty,emptyKey());
   // The headline is 3 to 5 % of the screen's width; a long question steps down so the answers still fit under it.
-  nodes.push(source('h1',question.body,'f-talk-wall-question'+(codePoints(question.body)>LONG?' is-long':'')));wall.head.replaceChildren(...nodes);
+  nodes.push(source('h1',question.body,'f-talk-wall-question'+(codePoints(question.body)>LONG?' is-long':'')));wall.head.replaceChildren(...nodes);paintCode();fitWall();
  }
  // An answer on the projector: the name, the organiser label and its likes, then the text (four lines at most, in the stylesheet) and thumbnails.
  function wallCard(m){
@@ -595,7 +598,8 @@
    const box=el('div','f-talk-wall-files');
    for(const file of m.files){
     if(!/^image\//.test(file.mime)){box.append(el('span','f-talk-wall-file','PDF · '+(file.name||'')));continue;}
-    const img=el('img');img.src='/api/fiiu/files/'+encodeURIComponent(file.id)+'?size=thumb';img.alt=file.name||'';img.decoding='async';if(Number.isInteger(file.width)&&Number.isInteger(file.height)){img.width=file.width;img.height=file.height;}box.append(img);
+    // A thumbnail without known dimensions changes the card's height when it arrives, so the wall is fitted again.
+    const img=el('img');img.src='/api/fiiu/files/'+encodeURIComponent(file.id)+'?size=thumb';img.alt=file.name||'';img.decoding='async';img.addEventListener('load',()=>fitWall());if(Number.isInteger(file.width)&&Number.isInteger(file.height)){img.width=file.width;img.height=file.height;}box.append(img);
    }
    card.append(box);
   }
@@ -608,7 +612,18 @@
   // A card is rebuilt only when its message changed (a new seq); the others move as they are, so their thumbnails are not fetched again.
   for(const m of list){const id=m.id+':'+m.seq;cards.set(id,wall.cards.get(id)||wallCard(m));}
   wall.cards=cards;wall.feed.replaceChildren(...cards.values());wall.empty.hidden=list.length>0;
-  for(const b of wall.switches)b.setAttribute('aria-pressed',String(b.dataset.sort===order));
+  for(const b of wall.switches)b.setAttribute('aria-pressed',String(b.dataset.sort===order));fitWall();
+ }
+ // A projector has no scrolling, so the room sees whole answers only: after each draw, and when the screen changes size or goes full screen, every row
+ // of cards that would cross the screen's bottom edge is left out (rows, so none is left half full). The first row stays even on a screen too short for
+ // it, rather than an empty wall; the one-column layout an organiser checks on a phone scrolls, and keeps them all.
+ function fitWall(){
+  if(!wall)return;const list=[...wall.feed.children];for(const card of list)card.hidden=false;
+  if(!list.length||window.matchMedia?.('(max-width:900px)').matches)return;
+  const s=document.scrollingElement,limit=(window.innerHeight||s?.clientHeight||0)-FIT_MARGIN,y=s?.scrollTop||0,box=card=>card.getBoundingClientRect?.();
+  const cut=list.find(card=>{const b=box(card);return b&&b.bottom+y>limit;});if(!cut)return;
+  const first=box(list[0]).top,from=box(cut).top>first?box(cut).top:box(list.find(card=>box(card).top>first)||cut).top;
+  if(from>first)for(const card of list)if(box(card).top>=from)card.hidden=true;
  }
  // The join code arrives as module bits (row-major, most significant bit first) and is drawn as one SVG path inside a 4-module quiet zone. This copies
  // drawQr from fiiu-qr.js on purpose: the check-in screen is on the festival's critical path, so this page neither imports from it nor changes it.
@@ -632,8 +647,16 @@
   if(!wall||question?.id!==id)return;
   // A failed request is tried again by the poll once a minute. A code the encoder could not draw is final: the room keeps the question, the answers
   // and the address.
-  const svg=drawQr(data?.qr),address=typedAddress(typeof data?.url==='string'?data.url:location.href);Object.assign(wall,{svg,qr:failed?'failed':'done',qrAt:Date.now()+60000});
-  wall.code.replaceChildren(...(svg?[tr('p','talkScanToJoin','f-talk-wall-scan'),svg]:[]),...(address?[el('p','f-talk-wall-url',address)]:[]));wall.code.hidden=!svg&&!address;
+  const svg=drawQr(data?.qr),address=typedAddress(typeof data?.url==='string'?data.url:location.href);Object.assign(wall,{svg,address,qr:failed?'failed':'done',qrAt:Date.now()+60000});
+  paintCode();fitWall();
+ }
+ // The code says what scanning gives: joining an open question, reading a closed one. A hidden question shows no code and no address yet (they would
+ // find nothing), only that it opens soon; the code comes back when it opens. renderWallHead() repaints it on every change of status.
+ function paintCode(){
+  if(!wall)return;const state=question?.status;
+  if(state==='hidden'){wall.code.replaceChildren(tr('p','talkOpensSoon','f-talk-wall-scan'));wall.code.hidden=false;return;}
+  if(wall.qr==='loading')return;const label=state==='closed'?'talkScanToRead':'talkScanToJoin',{svg,address}=wall;svg?.setAttribute('aria-label',t(label));
+  wall.code.replaceChildren(...(svg?[tr('p',label,'f-talk-wall-scan'),svg]:[]),...(address?[el('p','f-talk-wall-url',address)]:[]));wall.code.hidden=!svg&&!address;
  }
  function showWall(data,again){
   if(!wall||!again){buildWall();loadQr(question.id);}
@@ -683,13 +706,14 @@
   setTitle();root.querySelectorAll('.f-talk-n').forEach(node=>{if(node.dataset.talkKey)setCount(node,node.dataset.talkKey,JSON.parse(node.dataset.talkVars||'{}'));});
   root.querySelectorAll('.f-talk-size').forEach(node=>{node.textContent=sizeText(Number(node.dataset.talkSize));});
   if(parts)parts.log.setAttribute('aria-label',t('talkPage'));if(composer){composer.textarea.placeholder=t('talkPlaceholder');updateLeft();}
-  wall?.svg?.setAttribute('aria-label',t('talkScanToJoin'));
+  wall?.svg?.setAttribute('aria-label',t(question?.status==='closed'?'talkScanToRead':'talkScanToJoin'));
  }
  window.nodalI18n?.onChange(relabel);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible')return;wake();nextAt=0;return tick();});
  // Back online, the chat asks at once instead of waiting out a backoff that can reach a minute.
  window.addEventListener('online',()=>{nextAt=0;return tick();});
- document.addEventListener('fullscreenchange',()=>{const full=wall?.full;if(!full)return;const name=document.fullscreenElement?'exitFullScreen':'talkFullscreen';full.dataset.fiiuText=name;full.textContent=t(name);});
+ document.addEventListener('fullscreenchange',()=>{fitWall();const full=wall?.full;if(!full)return;const name=document.fullscreenElement?'exitFullScreen':'talkFullscreen';full.dataset.fiiuText=name;full.textContent=t(name);});
+ window.addEventListener('resize',()=>fitWall());
  window.addEventListener('scroll',()=>{if(parts&&!parts.pill.hidden&&nearBottom())parts.pill.hidden=true;},{passive:true});
  start();
 })();
