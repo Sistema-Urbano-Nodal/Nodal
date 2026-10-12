@@ -11,6 +11,18 @@ export const talkActivity=id=>FIIU_EVENT.activities.find(a=>a.id===id)??null;
 // The chat pages translate refusals by this code rather than by the English message.
 const failCode=(message,code,status=400)=>{try{fail(message,status);}catch(err){throw Object.assign(err,{code});}};
 const points=value=>[...value].length,cap=(value,max)=>[...value].slice(0,max).join('');
+/* PostgreSQL cannot store U+0000 in text (PostgREST answers an opaque 400) while SQLite cut the text there, and JSON can
+   carry a lone surrogate neither stores as sent. Other C0 controls are invisible in the composer, so a retry would fail
+   the same way: they go too, before the limits are checked. Tab, newline and carriage return stay. */
+const plain=value=>typeof value==='string'?value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'').toWellFormed():value;
+// A downloaded report can carry a long name the person cannot change from the chat: it is cut to the column's 160
+// characters, extension kept and never inside an emoji, rather than refused.
+function shortName(name){
+ if(typeof name!=='string'||name.trim().length<=160)return name;
+ const clean=name.trim(),ext=clean.match(/\.[\p{L}\p{N}]{1,10}$/u)?.[0]??'',stem=[...clean.slice(0,clean.length-ext.length)];
+ while(stem.join('').length+ext.length>160)stem.pop();
+ return stem.join('').trimEnd()+ext;
+}
 const dimension=value=>Number.isInteger(value)&&value>=1&&value<=20000?value:null;
 // Width and height only size the image box before it loads, so one without the other is dropped with it.
 const dimensions=(input,image)=>{const width=image?dimension(input?.width):null,height=image?dimension(input?.height):null;return width&&height?{width,height}:{width:null,height:null};};
@@ -18,7 +30,8 @@ const dimensions=(input,image)=>{const width=image?dimension(input?.width):null,
 /* Create (no current): the activity must be live, the status open or hidden (a hidden question is a prepared draft).
    Edit: the merged row is re-checked, the activity cannot move, and closed becomes possible. A talk is re-checked only
    when the edit supplies a different one, so closing a question survives a talk renamed in the catalogue since. */
-export function normalizeQuestion(input={},current=null){
+export function normalizeQuestion(raw={},current=null){
+ const input={...raw,body:plain(raw.body),talk:plain(raw.talk)};
  if(current&&input.activityId!==undefined&&input.activityId!==current.activityId)failCode('activity cannot change','invalid_activity');
  const activityId=current?current.activityId:input.activityId,activity=talkActivity(activityId);
  if(!activity)failCode('invalid activity','invalid_activity');
@@ -36,7 +49,7 @@ export function normalizeQuestion(input={},current=null){
 export function normalizeMessage(input={}){
  const clientId=identifier(input.clientId);
  if(input.body!==undefined&&input.body!==null&&typeof input.body!=='string')fail('message must be text');
- const body=String(input.body??'').trim();
+ const body=plain(String(input.body??'')).trim();
  if(points(body)>TALK_LIMITS.message)failCode('message is too long','message_too_long');
  if(!Array.isArray(input.fileIds??[]))fail('fileIds must be a list');
  const fileIds=[...new Set((input.fileIds??[]).map(identifier))];
@@ -46,7 +59,7 @@ export function normalizeMessage(input={}){
 }
 // The phone sends the full image and, for images it could decode, a small JPEG or WebP preview (never for PDFs).
 export function decodeTalkFile(input={}){
- const file=decodeAttachment(input,{types:TALK_FILE_TYPES,max:TALK_LIMITS.fileBytes}),image=file.mime.startsWith('image/');
+ const file=decodeAttachment({...input,name:shortName(input.name)},{types:TALK_FILE_TYPES,max:TALK_LIMITS.fileBytes}),image=file.mime.startsWith('image/');
  let thumb=null;
  if(input.thumb!==undefined&&input.thumb!==null){
   if(!image)fail('only images have a thumbnail');
@@ -72,11 +85,14 @@ export function namesFor(user,registration){
  return {authorName:cap(displayName(words[0],words.length>1?words.at(-1):''),120),authorFull:cap(full,240)};
 }
 export const questionView=(q,{organiser=false}={})=>({id:q.id,activityId:q.activityId,talk:q.talk??null,body:q.body,status:q.status,revision:Number(q.revision),messageCount:Number(q.messageCount),createdAt:q.createdAt,...(organiser?{version:q.version}:{})});
-// Peers see a display name and whether the message is theirs, never the author's id or a storage path.
+/* Peers see a display name and whether the message is theirs, never the author's id or a storage path. liked: null
+   leaves the viewer's like out, for answers shared between viewers (the page keeps its own). A participant is only
+   given a hidden message that is their own (the API sends everyone else its gone view), marked so they can delete it. */
 export function messageView(m,{viewer=null,organiser=false,files=[],liked=false}={}){
  return {id:m.id,author:m.authorName,organiser:Boolean(m.organiser),mine:Boolean(viewer)&&viewer===m.userId,body:m.body,
   files:files.map(f=>({id:f.id,name:attachmentFilename(f.name,f.mime),mime:f.mime,size:f.size,width:f.width??null,height:f.height??null,thumb:Boolean(f.thumbSize)})),
-  likeCount:Number(m.likeCount??0),liked:Boolean(liked),createdAt:m.createdAt,seq:Number(m.seq),...(organiser?{authorFull:m.authorFull,hidden:Boolean(m.hiddenAt)}:{})};
+  likeCount:Number(m.likeCount??0),...(liked===null?{}:{liked:Boolean(liked)}),createdAt:m.createdAt,seq:Number(m.seq),
+  ...(organiser?{authorFull:m.authorFull,hidden:Boolean(m.hiddenAt)}:m.hiddenAt?{hidden:true}:{})};
 }
 export const goneView=m=>({id:m.id,seq:Number(m.seq),gone:true});
 export const activityView=({id,title,date,time,venue,sessions,registration,period})=>({id,title,date,time,venue,sessions,registration,period});

@@ -24,14 +24,22 @@ export async function exportCourseData(store,userId) {
   return result;
 }
 
+const awaitingReconciliation=()=>fail('An upload is awaiting reconciliation. Contact the teaching team before retrying account deletion.',409);
+/* deleteCourseData's refusals, touching nothing, so the account deletion can run every check (the festival's too)
+   before its first destructive step. A course certificate an organiser is uploading right now could reach Storage
+   after its row is gone, where no row (and so no reconciliation) would ever find it: refused for those few minutes.
+   A pending course upload is refused until the teaching team reconciles it. */
+export async function assertCourseDataDeletable(store,userId,{now=Date.now()}={}) {
+  const uploading=await store.find('certificates',{userId,status:'pending'},{limit:100});
+  if(uploading.some(certificate=>now-Date.parse(certificate.createdAt)<CERTIFICATE_UPLOAD_GRACE_MS))fail('A course certificate is being uploaded for this account. Try again in a few minutes.',409);
+  if((await store.find('attachments',{userId,status:'pending'},{limit:1})).length)awaitingReconciliation();
+}
+
 export async function deleteCourseData(store,userId,{now=Date.now()}={}) {
+  await assertCourseDataDeletable(store,userId,{now});
   const member=(await store.getMembers([userId]))[0];
   if(member?.email)await store.remove('invitations',{email:member.email.toLowerCase()});
   await store.remove('invitations',{userId});
-  /* A course certificate an organiser is uploading right now could reach Storage after its row is gone, where no
-     row (and so no reconciliation) would ever find it. Refuse for those few minutes, before any file is touched. */
-  const uploading=await store.find('certificates',{userId,status:'pending'},{limit:100});
-  if(uploading.some(certificate=>now-Date.parse(certificate.createdAt)<CERTIFICATE_UPLOAD_GRACE_MS))fail('A course certificate is being uploaded for this account. Try again in a few minutes.',409);
   // Official materials are course-owned (purpose=material, userId=null) from
   // upload time. Staff account erasure retains them; private post files still
   // belong to the person and must be removed before deleting the account.
@@ -39,7 +47,8 @@ export async function deleteCourseData(store,userId,{now=Date.now()}={}) {
   for(;;) {
     const attachments=await store.find('attachments',{userId},{limit:100});
     for(const attachment of attachments) {
-      if(attachment.status==='pending')fail('An upload is awaiting reconciliation. Contact the teaching team before retrying account deletion.',409);
+      // An upload that started since the check above.
+      if(attachment.status==='pending')awaitingReconciliation();
       await store.deleteFile(attachment);await store.remove('attachments',{id:attachment.id,userId});
     }
     if(!attachments.length)break;

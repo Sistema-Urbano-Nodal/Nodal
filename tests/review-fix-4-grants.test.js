@@ -84,7 +84,7 @@ test('the festival conversation tables are server-only, and their migration only
  const own='(?:public\\.fiiu_(?:questions|messages|message_likes|files)|nodal_private\\.fiiu_upload_locks)\\b';
  const fn='(?:public|nodal_private)\\.(?:fiiu_\\w+|erase_fiiu_messages_on_account_delete|reserve_fiiu_file|guard_fiiu_upload_quota)\\(';
  const allowed=[/^begin$/i,/^commit$/i,new RegExp(`^create table ${own}`,'i'),new RegExp(`^create index \\w+ on ${own}`,'i'),new RegExp(`^create function ${fn}`,'i'),
-  new RegExp(`^create trigger fiiu_\\w+ (?:before|after) [a-z ]+ on public\\.(?:fiiu_\\w+|profiles) for each row execute function ${fn}\\)$`,'i'),
+  new RegExp(`^create trigger fiiu_\\w+ (?:before|after) [a-z_ ]+ on public\\.(?:fiiu_\\w+|profiles) for each row execute function ${fn}\\)$`,'i'),
   /^create schema if not exists nodal_private$/i,new RegExp(`^alter table ${own} enable row level security$`,'i'),/^revoke all on (?:table|function|schema) .+ from public,anon,authenticated(?:,service_role)?$/i,/^grant [a-z, ]+ on .+ to service_role$/i];
  for(const statement of body)assert.ok(allowed.some(pattern=>pattern.test(statement)),statement);
  assert.doesNotMatch(sql,/\b(?:drop|truncate)\b/i);assert.doesNotMatch(sql,/\bdelete\s+from\b/i);assert.doesNotMatch(sql,/\balter\s+table\b[^;]*\bdrop\b/i);
@@ -92,7 +92,7 @@ test('the festival conversation tables are server-only, and their migration only
   assert.match(sql,new RegExp(`ALTER TABLE ${table.replace('.','\\.')} ENABLE ROW LEVEL SECURITY`));
  // Triggers reached through GoTrue's account deletion run as their owner with an empty search path (see 20261003201144).
  const definers=sql.match(/CREATE FUNCTION [^$]*SECURITY DEFINER[^$]*\$\$/g)??[];
- assert.equal(definers.length,4);for(const header of definers)assert.match(header,/SET search_path=''/,header);
+ assert.equal(definers.length,5);for(const header of definers)assert.match(header,/SET search_path=''/,header);
  // A tracked private file never loses its row: the account cannot be deleted under it.
  assert.match(sql,/user_id uuid NOT NULL REFERENCES public\.profiles\(id\) ON DELETE RESTRICT,\s*message_id uuid REFERENCES public\.fiiu_messages\(id\) ON DELETE RESTRICT/);
  assert.match(sql,/storage_path text NOT NULL UNIQUE CHECK\(storage_path LIKE 'fiiu\/%'\)/);

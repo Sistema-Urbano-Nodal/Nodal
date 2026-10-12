@@ -79,6 +79,23 @@ $$;
 REVOKE ALL ON FUNCTION public.fiiu_question_revision() FROM PUBLIC,anon,authenticated;
 CREATE TRIGGER fiiu_question_revision BEFORE UPDATE ON public.fiiu_questions FOR EACH ROW EXECUTE FUNCTION public.fiiu_question_revision();
 
+-- Attaching files is a second write after the message insert (or a retry finishing an interrupted send), so it
+-- restamps the message too: a browser that synced the message before its files fetches it again with them. The
+-- message row is locked before the question, the order every message write takes, so an attach and a like cannot
+-- deadlock; the seq it writes is not a watched column, so fiiu_message_sequence lets it through unchanged.
+CREATE FUNCTION public.fiiu_file_attached() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE parent uuid; stamp bigint;
+BEGIN
+ IF NEW.message_id IS NULL OR NEW.message_id IS NOT DISTINCT FROM OLD.message_id THEN RETURN NEW; END IF;
+ SELECT question_id INTO parent FROM public.fiiu_messages WHERE id=NEW.message_id FOR NO KEY UPDATE;
+ UPDATE public.fiiu_questions SET revision=revision+1 WHERE id=parent RETURNING revision INTO stamp;
+ UPDATE public.fiiu_messages SET seq=stamp WHERE id=NEW.message_id;
+ RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.fiiu_file_attached() FROM PUBLIC,anon,authenticated;
+CREATE TRIGGER fiiu_file_attached AFTER UPDATE OF message_id ON public.fiiu_files FOR EACH ROW EXECUTE FUNCTION public.fiiu_file_attached();
+
 -- Account erasure: the text and name go, a placeholder keeps the conversation's shape. Files are removed by the
 -- application first (fiiu_files.user_id is RESTRICT), likes cascade.
 CREATE FUNCTION public.erase_fiiu_messages_on_account_delete() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$

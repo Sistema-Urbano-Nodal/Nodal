@@ -33,7 +33,7 @@ test('PostgreSQL festival conversations keep revisions, counters and the upload 
  assert.equal(await sql(`SELECT count(*) FROM unnest(${list(tables)}) t WHERE (SELECT relrowsecurity FROM pg_class WHERE oid=t::regclass)`),'5');
  assert.equal(await sql(`SELECT coalesce(string_agg(r||' '||p||' '||t,', '),'') FROM unnest(array['anon','authenticated']) r,unnest(${list(tables)}) t,
   unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p WHERE has_table_privilege(r,t,p)`),'','browser roles hold no table privilege');
- const triggers=['public.fiiu_message_sequence()','public.fiiu_like_count()','public.fiiu_question_revision()','public.erase_fiiu_messages_on_account_delete()','nodal_private.guard_fiiu_upload_quota()'];
+ const triggers=['public.fiiu_message_sequence()','public.fiiu_like_count()','public.fiiu_question_revision()','public.fiiu_file_attached()','public.erase_fiiu_messages_on_account_delete()','nodal_private.guard_fiiu_upload_quota()'];
  const rpcs=['public.reserve_fiiu_file(jsonb)','public.fiiu_question_stats(text)'];
  assert.equal(await sql(`SELECT coalesce(string_agg(r||' '||f,', '),'') FROM unnest(array['anon','authenticated']) r,unnest(${list([...triggers,...rpcs])}) f WHERE has_function_privilege(r,f,'EXECUTE')`),'','browser roles execute nothing');
  assert.equal(await sql(`SELECT bool_and(has_function_privilege('service_role',f,'EXECUTE')) FROM unnest(${list(rpcs)}) f`),'t');
@@ -41,7 +41,7 @@ test('PostgreSQL festival conversations keep revisions, counters and the upload 
  await assert.rejects(as('authenticated',`SELECT * FROM public.fiiu_question_stats('fiiu-2026');`),/permission denied for function fiiu_question_stats/);
  // Account deletion reaches the triggers as GoTrue's role, so they run as their owner with an empty search path.
  assert.equal(await sql(`SELECT string_agg(proname,',' ORDER BY proname) FROM pg_proc WHERE prosecdef AND proconfig=ARRAY['search_path=""'] AND oid IN (SELECT unnest(${list(triggers)})::regprocedure)`),
-  'erase_fiiu_messages_on_account_delete,fiiu_like_count,fiiu_message_sequence,fiiu_question_revision');
+  'erase_fiiu_messages_on_account_delete,fiiu_file_attached,fiiu_like_count,fiiu_message_sequence,fiiu_question_revision');
  assert.equal(await sql(`SELECT has_table_privilege('supabase_auth_admin','public.fiiu_messages','UPDATE') OR has_table_privilege('supabase_auth_admin','public.fiiu_questions','UPDATE')`),'f');
 
  const [a,b,c,d]=['a','b','c','d'].map(x=>`${x.repeat(8)}-${x.repeat(4)}-4${x.repeat(3)}-8${x.repeat(3)}-${x.repeat(12)}`);
@@ -129,4 +129,14 @@ test('PostgreSQL festival conversations keep revisions, counters and the upload 
  assert.equal(Number(await question('revision')),before+3,'the blanking, the cleared author and the removed like each move the revision');
  assert.equal(await service(`SELECT count(*) FROM nodal_private.fiiu_upload_locks;`),'2');
  assert.equal(await service(`SELECT people||':'||likes FROM public.fiiu_question_stats('fiiu-2026');`),'1:1');
+
+ // Attaching a file restamps its message (a second request after the insert), so a browser that synced the message
+ // without its files fetches it again; a status change or an unchanged message_id moves nothing.
+ const file=`md5('file-1')::uuid`,stamp=async()=>[await question('revision'),await message(1,'seq')];
+ await service(`UPDATE public.fiiu_files SET status='ready' WHERE id=${file};`);
+ const [ready]=await stamp();
+ await service(`UPDATE public.fiiu_files SET message_id='${m(1)}' WHERE id=${file} AND message_id IS NULL;`);
+ assert.deepEqual(await stamp(),[String(Number(ready)+1),String(Number(ready)+1)]);
+ await service(`UPDATE public.fiiu_files SET message_id=message_id,status=status WHERE id=${file};`);
+ assert.equal(await question('revision'),String(Number(ready)+1));
 });

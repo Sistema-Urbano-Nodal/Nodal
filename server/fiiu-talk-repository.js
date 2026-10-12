@@ -6,9 +6,9 @@ import {TALK_LIMITS} from './fiiu-talk-domain.js';
 import {FIIU_SQLITE_SCHEMA} from './fiiu-repository.js';
 
 /* Local mirror of 20261011120000_fiiu_conversations.sql. The triggers keep each question's revision (what the pulse
-   publishes) and stamp every changed message with it as seq, so the since-sync and the counters stay right on every
-   write path, the account-deletion cascade included. recursive_triggers is off, and the update triggers watch named
-   columns, never seq or revision, so their own writes cannot fire them again. As on profiles in Postgres, deleting an
+   publishes) and stamp every changed message with it as seq (attaching its files included), so the since-sync and the
+   counters stay right on every write path, the account-deletion cascade included. recursive_triggers is off, and the
+   update triggers watch named columns, never seq or revision, so their own writes cannot fire them again. As on profiles in Postgres, deleting an
    account blanks its messages first, so a deletion path that skips the application's scrub still leaves no text. */
 export const FIIU_TALK_SQLITE_SCHEMA=`
 CREATE TABLE IF NOT EXISTS fiiu_questions (id TEXT PRIMARY KEY,event_id TEXT NOT NULL,activity_id TEXT NOT NULL,talk TEXT,body TEXT NOT NULL,
@@ -40,6 +40,9 @@ CREATE TRIGGER IF NOT EXISTS fiiu_like_insert AFTER INSERT ON fiiu_message_likes
 CREATE TRIGGER IF NOT EXISTS fiiu_like_delete AFTER DELETE ON fiiu_message_likes BEGIN UPDATE fiiu_messages SET like_count=max(0,like_count-1) WHERE id=OLD.message_id; END;
 CREATE TRIGGER IF NOT EXISTS fiiu_question_change AFTER UPDATE OF body,talk,status ON fiiu_questions
  WHEN NEW.body IS NOT OLD.body OR NEW.talk IS NOT OLD.talk OR NEW.status IS NOT OLD.status BEGIN UPDATE fiiu_questions SET revision=revision+1 WHERE id=NEW.id; END;
+CREATE TRIGGER IF NOT EXISTS fiiu_file_attached AFTER UPDATE OF message_id ON fiiu_files WHEN NEW.message_id IS NOT NULL AND NEW.message_id IS NOT OLD.message_id BEGIN
+ UPDATE fiiu_questions SET revision=revision+1 WHERE id=(SELECT question_id FROM fiiu_messages WHERE id=NEW.message_id);
+ UPDATE fiiu_messages SET seq=(SELECT q.revision FROM fiiu_questions q JOIN fiiu_messages m ON m.question_id=q.id WHERE m.id=NEW.message_id) WHERE id=NEW.message_id; END;
 CREATE TRIGGER IF NOT EXISTS fiiu_messages_account_erasure BEFORE DELETE ON users BEGIN
  UPDATE fiiu_messages SET body='',author_name='',author_full='',deleted_at=coalesce(deleted_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')) WHERE user_id=OLD.id; END;
 `;
@@ -132,9 +135,10 @@ function sqliteTalk(db){
   async insertMessage(record){return insert(MT,record);},
   async findMessage(id){return byId(MT,id);},
   async findMessageByClient(userId,clientId){return from(MT,get('SELECT * FROM fiiu_messages WHERE user_id=? AND client_id=?',userId,clientId));},
-  async latestMessages(questionId,{includeHidden=false,before=null,limit=TALK_LIMITS.page}={}){
+  // ownHidden: the reader's id, whose own hidden messages come too (marked for them by the API).
+  async latestMessages(questionId,{includeHidden=false,ownHidden=null,before=null,limit=TALK_LIMITS.page}={}){
    const n=capped(limit,TALK_LIMITS.changes),params=[questionId];let sql='SELECT * FROM fiiu_messages WHERE question_id=? AND deleted_at IS NULL';
-   if(!includeHidden)sql+=' AND hidden_at IS NULL';
+   if(!includeHidden){sql+=ownHidden?' AND (hidden_at IS NULL OR user_id=?)':' AND hidden_at IS NULL';if(ownHidden)params.push(ownHidden);}
    if(before){sql+=' AND (created_at<? OR (created_at=? AND id<?))';params.push(before.createdAt,before.createdAt,before.id);}
    const rows=all(sql+' ORDER BY created_at DESC,id DESC LIMIT ?',...params,n+1).map(r=>from(MT,r));
    return {rows:rows.slice(0,n).reverse(),more:rows.length>n};
@@ -171,9 +175,10 @@ function sqliteTalk(db){
    }catch(err){db.exec('ROLLBACK');conflict(err);}
    return byId(FT,record.id);
   },
-  async setFileStatus(id,fromStatus,toStatus){
+  // unattached: only while no message holds the file, so a release never takes one a send attached meanwhile.
+  async setFileStatus(id,fromStatus,toStatus,{unattached=false}={}){
    if(!FILE_STATUSES.includes(fromStatus)||!FILE_STATUSES.includes(toStatus))throw Error('invalid file status');
-   return from(FT,get('UPDATE fiiu_files SET status=? WHERE id=? AND status=? RETURNING *',toStatus,id,fromStatus));
+   return from(FT,get(`UPDATE fiiu_files SET status=? WHERE id=? AND status=?${unattached?' AND message_id IS NULL':''} RETURNING *`,toStatus,id,fromStatus));
   },
   async findFile(id){return byId(FT,id);},
   async filesByIds(ids){return among(ids,chunk=>all(`SELECT * FROM fiiu_files WHERE id IN (${marks(chunk)}) ORDER BY created_at,id`,...chunk)).map(r=>from(FT,r));},
@@ -203,7 +208,8 @@ function supabaseTalk(supa,fetchImpl){
  const unavailable=()=>fail('festival conversation data unavailable',502);
  const select=table=>table.fields.map(snake).join(',');
  const eqs=filters=>Object.fromEntries(Object.entries(filters).map(([k,v])=>[snake(k),v===null?'is.null':`eq.${v}`]));
- const list=ids=>{for(const id of ids)if(typeof id!=='string'||!TOKEN.test(id))throw Error('invalid festival identifier');return `in.(${ids.join(',')})`;};
+ const token=id=>{if(typeof id!=='string'||!TOKEN.test(id))throw Error('invalid festival identifier');return id;};
+ const list=ids=>`in.(${ids.map(token).join(',')})`;
  const read=async(table,query)=>{const rows=await supa.admin.rest(table,{query});if(!Array.isArray(rows))unavailable();return rows;};
  const write=async(table,{headers,...options})=>{
   let rows;try{rows=await supa.admin.rest(table,{...options,headers:{Prefer:'return=representation',...headers}});}catch(err){conflict(err);}
@@ -262,8 +268,10 @@ function supabaseTalk(supa,fetchImpl){
   async insertMessage(record){const [row]=await write(MT.name,{method:'POST',body:to(MT,record,false)});if(!row)unavailable();return from(MT,row,true);},
   async findMessage(id){return one(MT,{id});},
   async findMessageByClient(userId,clientId){return one(MT,{userId,clientId});},
-  async latestMessages(questionId,{includeHidden=false,before=null,limit=TALK_LIMITS.page}={}){
-   const n=capped(limit,TALK_LIMITS.changes),query={select:select(MT),question_id:`eq.${questionId}`,deleted_at:'is.null',...(includeHidden?{}:{hidden_at:'is.null'}),order:'created_at.desc,id.desc',limit:n+1};
+  // The author filter rides in `and`, so it never meets the cursor's `or`.
+  async latestMessages(questionId,{includeHidden=false,ownHidden=null,before=null,limit=TALK_LIMITS.page}={}){
+   const hidden=includeHidden?{}:ownHidden?{and:`(or(hidden_at.is.null,user_id.eq.${token(ownHidden)}))`}:{hidden_at:'is.null'};
+   const n=capped(limit,TALK_LIMITS.changes),query={select:select(MT),question_id:`eq.${questionId}`,deleted_at:'is.null',...hidden,order:'created_at.desc,id.desc',limit:n+1};
    if(before){
     if(typeof before.createdAt!=='string'||!TIME.test(before.createdAt)||typeof before.id!=='string'||!TOKEN.test(before.id))fail('invalid cursor');
     query.or=`(created_at.lt.${before.createdAt},and(created_at.eq.${before.createdAt},id.lt.${before.id}))`;
@@ -309,9 +317,9 @@ function supabaseTalk(supa,fetchImpl){
    catch(err){if(err.code==='PFU01')allowance();if(['40P01','40001'].includes(err.code))failCode('upload changed; retry',409,'conflict');conflict(err);}
    if(!rows?.[0])unavailable();return from(FT,rows[0],true);
   },
-  async setFileStatus(id,fromStatus,toStatus){
+  async setFileStatus(id,fromStatus,toStatus,{unattached=false}={}){
    if(!FILE_STATUSES.includes(fromStatus)||!FILE_STATUSES.includes(toStatus))throw Error('invalid file status');
-   return from(FT,(await write(FT.name,{method:'PATCH',query:{id:`eq.${id}`,status:`eq.${fromStatus}`},body:{status:toStatus}}))[0],true);
+   return from(FT,(await write(FT.name,{method:'PATCH',query:{id:`eq.${id}`,status:`eq.${fromStatus}`,...(unattached?{message_id:'is.null'}:{})},body:{status:toStatus}}))[0],true);
   },
   async findFile(id){return one(FT,{id});},
   async filesByIds(ids){

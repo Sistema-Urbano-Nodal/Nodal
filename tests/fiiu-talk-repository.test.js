@@ -103,6 +103,8 @@ test('the latest page skips deleted messages, hides hidden ones unless asked and
  assert.deepEqual(older.rows.map(m=>m.body),['m0']);assert.equal(older.more,false);
  const all=await store.latestMessages(q.id,{limit:10,includeHidden:true});
  assert.deepEqual(all.rows.map(m=>m.body),['m0','m1','m2','m4'],'organisers see hidden messages, never deleted ones');assert.equal(all.more,false);
+ assert.deepEqual((await store.latestMessages(q.id,{limit:10,ownHidden:ana.id})).rows.map(m=>m.body),['m0','m1','m2','m4'],'an author sees their own hidden message');
+ assert.deepEqual((await store.latestMessages(q.id,{limit:10,ownHidden:org.id})).rows.map(m=>m.body),['m0','m2','m4'],'and nobody else\'s');
  // Two messages written in the same millisecond still page apart by id.
  const same=at(90),[a,b]=[randomUUID(),randomUUID()].sort();
  await message(q,ana,{id:a,createdAt:same,body:'a'});await message(q,ana,{id:b,createdAt:same,body:'b'});
@@ -163,7 +165,22 @@ test('files attach only when ready, unattached and the poster\'s own',async()=>{
  assert.deepEqual((await store.filesForMessages([m.id,m2.id])).map(f=>f.id),[mine.id]);
  assert.deepEqual((await store.filesByIds([pending.id,mine.id])).map(f=>f.id).sort(),[mine.id,pending.id].sort());
  assert.equal((await store.findFile(mine.id)).messageId,m.id);
+ assert.equal(await store.setFileStatus(mine.id,'ready','deleting',{unattached:true}),null,'an attached file is never claimed as unattached');
+ const loose=await file(ana);assert.equal((await store.setFileStatus(loose.id,'pending','deleting',{unattached:true})).status,'deleting');
  assert.equal(await store.removeFile(pending.id),1);assert.equal(await store.findFile(pending.id),null);
+});
+
+test('attaching files moves the question revision and restamps the message, so a sync fetches it again with them',async()=>{
+ const {store,ana,question,message,file}=setup();
+ const q=await question(),m=await message(q,ana),[f1,f2,f3]=[await file(ana),await file(ana),await file(ana)];
+ for(const f of [f1,f2,f3])await store.setFileStatus(f.id,'pending','ready');
+ assert.equal((await store.getQuestion(q.id)).revision,1,'a file finishing its upload moves nothing');
+ assert.equal(await store.attachFiles([f1.id,f2.id],m.id,ana.id),2);
+ const after=await store.getQuestion(q.id),moved=await store.findMessage(m.id);
+ assert.ok(after.revision>1);assert.equal(moved.seq,after.revision);assert.equal(after.messageCount,1,'the visible count is unchanged');
+ assert.deepEqual((await store.messagesSince(q.id,1)).map(x=>x.id),[m.id]);
+ assert.equal(await store.attachFiles([f1.id],m.id,ana.id),0);assert.equal((await store.getQuestion(q.id)).revision,after.revision,'a refused attach moves nothing');
+ await store.setFileStatus(f1.id,'ready','deleting');assert.equal((await store.getQuestion(q.id)).revision,after.revision,'neither does a release');
 });
 
 test('scrubbing a person blanks their messages, and deleting the account keeps the rows and cascades the likes',async()=>{
@@ -265,6 +282,10 @@ test('Supabase messagesSince and the latest page send exact keyset queries and r
  assert.deepEqual(page.rows.map(r=>[r.id,r.createdAt,r.organiser]),[['b','2026-10-21T14:00:02.500Z',true]],'one row over the limit is trimmed, the rest come oldest first');
  assert.equal(page.more,true);
  await pg.store.latestMessages(Q,{includeHidden:true});assert.equal(pg.calls[3].query.hidden_at,undefined);assert.equal(pg.calls[3].query.limit,'101');
+ // An author's own hidden messages come too; the filter rides in `and`, so it never meets the cursor's `or`.
+ await pg.store.latestMessages(Q,{ownHidden:U,before:{createdAt:'2026-10-21T14:00:03.000Z',id:M}});
+ assert.equal(pg.calls[4].query.hidden_at,undefined);assert.equal(pg.calls[4].query.and,`(or(hidden_at.is.null,user_id.eq.${U}))`);assert.match(pg.calls[4].query.or,/^\(created_at\.lt\./);
+ await assert.rejects(pg.store.latestMessages(Q,{ownHidden:'x,y'}),/identifier/,'an author id never takes PostgREST syntax');
  await assert.rejects(pg.store.latestMessages(Q,{before:{createdAt:'x),or(id.gt.0',id:M}}),e=>e.status===400,'a cursor cannot inject a filter');
 });
 
@@ -297,6 +318,9 @@ test('Supabase likes ignore duplicates, unlikes return what they removed, and up
 test('Supabase attaches files only when ready and unattached, and maps the allowance and lock errors of the reservation RPC',async()=>{
  const pg=supabase(call=>call.method==='PATCH'?{body:[{id:F}]}:{});
  assert.equal(await pg.store.attachFiles([F],M,U),1);
+ await pg.store.setFileStatus(F,'ready','deleting',{unattached:true});
+ assert.deepEqual([pg.calls[1].method,pg.calls[1].query.id,pg.calls[1].query.status,pg.calls[1].query.message_id],['PATCH',`eq.${F}`,'eq.ready','is.null']);assert.deepEqual(pg.calls[1].body,{status:'deleting'});
+ await pg.store.setFileStatus(F,'ready','deleting');assert.equal(pg.calls[2].query.message_id,undefined);
  const patch=pg.calls[0];
  assert.equal(patch.path,'/rest/v1/fiiu_files');assert.equal(patch.query.message_id,'is.null');assert.equal(patch.query.status,'eq.ready');
  assert.equal(patch.query.id,`in.(${F})`);assert.equal(patch.query.user_id,`eq.${U}`);assert.deepEqual(patch.body,{message_id:M});assert.equal(patch.headers.Prefer,'return=representation');

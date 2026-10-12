@@ -136,3 +136,32 @@ test('question and activity views carry what the chat header needs and the versi
 test('the limits match the migration and the spec',()=>{
  assert.deepEqual(TALK_LIMITS,{question:500,talk:180,message:1000,files:3,fileBytes:3145728,thumbBytes:102400,quotaFiles:30,quotaBytes:31457280,page:100,changes:200});
 });
+test('control characters are stripped from messages and questions before the limits, so both backends store the same text',()=>{
+ const clientId='11111111-1111-4111-8111-111111111111';
+ // PostgreSQL cannot store U+0000 in text; SQLite cut the text there. Tab, newline and carriage return stay.
+ assert.equal(normalizeMessage({clientId,body:'a\u0000b\u0007c\td\ne\r\nf\u001F'}).body,'abc\td\ne\r\nf');
+ assert.throws(()=>normalizeMessage({clientId,body:'\u0000\u0001 '}),e=>e.code==='empty_message','only control characters is an empty message');
+ assert.equal(normalizeMessage({clientId,body:'x'.repeat(1000)+'\u0000'.repeat(5)}).body.length,1000,'stripped before the length check');
+ assert.equal(normalizeMessage({clientId,body:'a\uD800b'}).body,'a�b','a lone surrogate (JSON allows one) becomes the replacement character');
+ const q=normalizeQuestion({activityId:'day1-am',body:'¿Qué\u0000 te llevas?\u0008',talk:'¡Bienvenidos al FIIU 11!\u0000'});
+ assert.equal(q.body,'¿Qué te llevas?');assert.equal(q.talk,'¡Bienvenidos al FIIU 11!');
+ assert.equal(normalizeQuestion({body:'y\u0000'},{activityId:'day1-am',talk:null,body:'x',status:'open'}).body,'y');
+ assert.throws(()=>normalizeQuestion({activityId:'day1-am',body:'\u0000'}),e=>e.status===400,'a question of control characters has no body');
+});
+test('a file name over 160 characters is shortened, keeping its extension, rather than refused',()=>{
+ const jpeg=Buffer.from([255,216,255,224,0,16]).toString('base64'),pdf=Buffer.from('%PDF-1.4').toString('base64');
+ const report=decodeTalkFile({name:'Informe '.repeat(30)+'final.pdf',mime:'application/pdf',data:pdf});
+ assert.equal(report.name.length,160);assert.ok(report.name.endsWith('.pdf'));assert.ok(report.name.startsWith('Informe Informe'));
+ const photo=decodeTalkFile({name:'😀'.repeat(100)+'.jpeg',mime:'image/jpeg',data:jpeg});
+ assert.ok(photo.name.length<=160&&photo.name.endsWith('.jpeg'));assert.equal(photo.name.isWellFormed(),true,'an emoji is never split');
+ assert.equal(decodeTalkFile({name:'x'.repeat(200),mime:'application/pdf',data:pdf}).name,'x'.repeat(156)+'.pdf','no extension: the type adds one');
+ assert.equal(decodeTalkFile({name:'a'.repeat(160),mime:'application/pdf',data:pdf}).name.length,160);
+ assert.throws(()=>decodeTalkFile({name:'',mime:'application/pdf',data:pdf}),e=>e.status===400,'a name is still required');
+});
+test('message views can leave the viewer\'s like out, and show authors their own hidden message as hidden',()=>{
+ const m={id:'m',userId:'u',authorName:'Ana T.',authorFull:'Ana Test',organiser:0,body:'hola',likeCount:2,createdAt:'2026-10-21T14:00:00.000Z',seq:7,hiddenAt:null};
+ assert.equal('liked' in messageView(m,{viewer:'u',liked:null}),false,'a shared answer carries no per-viewer like');
+ const hidden=messageView({...m,hiddenAt:'x'},{viewer:'u',organiser:false});
+ assert.equal(hidden.hidden,true);assert.equal(hidden.mine,true);assert.equal('authorFull' in hidden,false);
+ assert.equal('hidden' in messageView(m,{viewer:'u'}),false,'a shown message says nothing to a participant');
+});

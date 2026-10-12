@@ -9,7 +9,8 @@ import {TALK_LIMITS,talkActivity,normalizeQuestion,normalizeMessage,decodeTalkFi
    for everyone, so the CDN answers the 4-second polls of a full auditorium (one venue address) and a phone fetches
    messages only when its question's revision moved. Everything else needs a festival registration or an organiser. */
 const PULSE_CACHE='public, max-age=0, s-maxage=2, stale-while-revalidate=4';
-const PULSE_MS=1000,MEMO_MS=60000,MEMO_MAX=5000,UPLOAD_GRACE_MS=10*60000;
+const PULSE_MS=1000,MEMO_MS=60000,MEMO_MAX=5000,UPLOAD_GRACE_MS=10*60000,RETRY_MS=10*60000,CHANGES_MS=1500,CHANGES_MAX=200;
+const STALE_READY_MS=30*60000,STALE_PENDING_MS=60*60000,THUMBS_MAX=200,THUMBS_BYTES=20*1024*1024;
 const CSV_HEADER=['question','block','talk','createdAtLima','author','email','organiser','text','files','likes','hidden','deleted'];
 // The chat pages translate refusals by code (see fiiu-talk-domain.js); the global handler would drop it, so it is sent here.
 const failCode=(message,status,code)=>{try{fail(message,status);}catch(err){throw Object.assign(err,{code});}};
@@ -53,20 +54,27 @@ export async function exportTalkData(store,userId){
  const questions=new Map();
  for(const id of new Set(messages.map(m=>m.questionId)))questions.set(id,await store.getQuestion(id));
  return {
-  messages:messages.map(m=>({id:m.id,questionId:m.questionId,question:questions.get(m.questionId)?.body??'',body:m.body,createdAt:m.createdAt,deleted:Boolean(m.deletedAt),hidden:Boolean(m.hiddenAt)})),
+  // A question hidden since is an organiser's draft again (its text may be rewritten for a later session), which no
+  // participant route shows; the id still ties the messages together.
+  messages:messages.map(m=>({id:m.id,questionId:m.questionId,question:questions.get(m.questionId)?.status==='hidden'?'':questions.get(m.questionId)?.body??'',body:m.body,createdAt:m.createdAt,deleted:Boolean(m.deletedAt),hidden:Boolean(m.hiddenAt)})),
   // Storage paths are internal.
   files:files.map(({id,messageId,name,mime,size,createdAt})=>({id,messageId,name,mime,size,createdAt})),
   likedMessageIds,
  };
+}
+const busy=()=>fail('An upload is in progress. Try again in a few minutes.',409);
+// deleteTalkData's refusal, touching nothing, so the account deletion can run every check before erasing anything.
+export async function assertTalkDataDeletable(store,userId,{now=Date.now()}={}){
+ const files=await store.userFiles(userId);
+ if(files.some(f=>f.status==='pending'&&now-Date.parse(f.createdAt)<UPLOAD_GRACE_MS))busy();
+ return files;
 }
 /* Before the account goes: its files (object, then row, so a Storage failure stops here and the deletion can be
    retried), then the text and names of its messages (the conversation keeps a 'deleted message' placeholder), then its
    likes. An upload under way could reach Storage after its row is gone, where nothing would find it again, so a recent
    pending upload refuses for those few minutes; an older one is abandoned and cleared like the rest. */
 export async function deleteTalkData(store,userId,{now=Date.now()}={}){
- const busy=()=>fail('An upload is in progress. Try again in a few minutes.',409);
- const files=await store.userFiles(userId);
- if(files.some(f=>f.status==='pending'&&now-Date.parse(f.createdAt)<UPLOAD_GRACE_MS))busy();
+ const files=await assertTalkDataDeletable(store,userId,{now});
  for(const file of files){
   const claimed=file.status==='deleting'?file:await store.setFileStatus(file.id,file.status,'deleting');
   if(!claimed)continue;
@@ -117,14 +125,50 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
   if(!q||q.eventId!==EVENT_ID||(q.status==='hidden'&&!organiser))unavailable();
   return q;
  }
- // Deleted messages are gone for everyone and hidden ones for participants; organisers see hidden ones marked.
+ /* Deleted messages are gone for everyone. Hidden ones are gone for participants except their author, who keeps
+    seeing it marked so they can still delete it (the privacy policy promises that); organisers see them all marked. */
+ const shownTo=(m,{viewer,organiser})=>!m.deletedAt&&(organiser||!m.hiddenAt||m.userId===viewer);
+ // The files of every message someone may be shown, by message.
+ async function filesOf(rows){
+  const ids=rows.filter(m=>!m.deletedAt).map(m=>m.id),byMessage=new Map();
+  if(ids.length)for(const f of await store.filesForMessages(ids))byMessage.set(f.messageId,[...(byMessage.get(f.messageId)??[]),f]);
+  return byMessage;
+ }
+ // liked: the viewer's likes among the rows, or null for an answer shared between viewers (no like field at all).
+ const viewsOf=(rows,files,{viewer,organiser,liked=null})=>rows.map(m=>shownTo(m,{viewer,organiser})?messageView(m,{viewer,organiser,files:files.get(m.id)??[],liked:liked?liked.has(m.id):null}):goneView(m));
+ // A page of messages for one viewer, with their likes.
  async function views(rows,{viewer,organiser}){
-  const shown=m=>!m.deletedAt&&(organiser||!m.hiddenAt),ids=rows.filter(shown).map(m=>m.id);
-  const [files,liked]=ids.length?await Promise.all([store.filesForMessages(ids),store.likedAmong(viewer,ids)]):[[],new Set()];
-  const byMessage=new Map();for(const f of files)byMessage.set(f.messageId,[...(byMessage.get(f.messageId)??[]),f]);
-  return {liked,list:rows.map(m=>shown(m)?messageView(m,{viewer,organiser,files:byMessage.get(m.id)??[],liked:liked.has(m.id)}):goneView(m))};
+  const ids=rows.filter(m=>shownTo(m,{viewer,organiser})).map(m=>m.id);
+  const [files,liked]=ids.length?await Promise.all([filesOf(rows),store.likedAmong(viewer,ids)]):[new Map(),new Set()];
+  return {liked,list:viewsOf(rows,files,{viewer,organiser,liked})};
  }
  const viewOf=async(message,user,organiser)=>(await views([message],{viewer:user.id,organiser})).list[0];
+ /* The pulse moves for a whole room at once, so its phones ask for the same changes within a second or two. The part
+    of a since answer they share (the question, the changed rows and their files) is read once per instance for 1.5 s
+    per question, revision and audience, and concurrent requests share the read in flight; each viewer's answer is then
+    built from it in memory (whose message it is, an author's own hidden one), which is why it carries no likes of the
+    viewer's. A write through this instance drops the entries, so its author's next poll reads past it. Being up to
+    1.5 s behind is safe: the answer's revision is that of its rows, so a later pulse asks again from there. */
+ const changesMemo=new Map();
+ function changesSince(id,from,organiser){
+  const key=`${id}:${from}:${organiser?'organiser':'participant'}`,t=clock(),hit=changesMemo.get(key);
+  if(hit&&t-hit.at<CHANGES_MS)return hit.promise;
+  changesMemo.delete(key);
+  const entry={at:t,promise:(async()=>{
+   const q=await questionFor(id,organiser),revision=Number(q.revision);
+   // A revision from the future (another database, a reset) or more changes than one answer holds: reload.
+   if(from>revision)return {q,reset:true,revision};
+   const rows=await store.messagesSince(q.id,from,{limit:TALK_LIMITS.changes+1});
+   if(rows.length>TALK_LIMITS.changes)return {q,reset:true,revision};
+   // A message written after the question was read is already here, so the page need not fetch it again.
+   return {q,rows,files:await filesOf(rows),revision:Math.max(revision,...rows.map(m=>Number(m.seq)))};
+  })()};
+  changesMemo.set(key,entry);
+  // Oldest first: expired entries, then any over the cap.
+  for(const [k,old] of changesMemo){if(t-old.at<CHANGES_MS&&changesMemo.size<=CHANGES_MAX)break;changesMemo.delete(k);}
+  entry.promise.catch(()=>{if(changesMemo.get(key)===entry)changesMemo.delete(key);});
+  return entry.promise;
+ }
  /* A withdrawn message takes its files with it: ready → deleting, the objects, then the row (which also returns them to
     the person's allowance). The withdrawal already happened, so a failure is logged, not reported; the row stays
     'deleting', which is never served and is cleared with the account. */
@@ -133,6 +177,36 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
    try{const claimed=await store.setFileStatus(file.id,'ready','deleting');if(!claimed)continue;await store.deleteBytes(claimed);await store.removeFile(claimed.id);}
    catch(error){log('festival file cleanup failed:',file.id,errorText(error));}
   }
+ }
+ /* Uploads that never reached a message (an answer lost, so the page uploaded again; a draft dropped, refused or lost
+    to a reload) would hold the person's festival allowance for good, and their bytes would stay in Storage until the
+    account goes. So the uploader's stale ones go before each new reservation: a ready, unattached file after 30
+    minutes (a draft kept open longer gets file_unavailable and uploads again), a pending one after an hour (an upload
+    that died mid-way; a live one ends within the function's time limit). The claim is a compare-and-set on the
+    unattached state, so a file a send attaches meanwhile is kept. A failure is logged; the upload goes on. */
+ async function releaseStale(userId){
+  const t=clock();
+  for(const file of await store.userFiles(userId)){
+   const age=t-Date.parse(file.createdAt);
+   if(!(file.status==='ready'&&!file.messageId&&age>STALE_READY_MS||file.status==='pending'&&age>STALE_PENDING_MS))continue;
+   try{const claimed=await store.setFileStatus(file.id,file.status,'deleting',{unattached:true});if(!claimed)continue;await store.deleteBytes(claimed);await store.removeFile(claimed.id);}
+   catch(error){log('festival upload release failed:',file.id,errorText(error));}
+  }
+ }
+ /* A photo posted in a full room is drawn on every phone within a tick, and the answer is private (no CDN), so
+    thumbnails are kept per instance: at most 200 and 20 MB, least recently used first, a read in flight shared. A
+    file id never names other bytes, and the access check runs before for every request. Full images (up to 3 MB,
+    opened one at a time) are read each time. */
+ const thumbs=new Map();let thumbBytes=0;
+ const trimThumbs=()=>{for(const [id,old] of thumbs){if(thumbs.size<=THUMBS_MAX&&thumbBytes<=THUMBS_BYTES)break;thumbs.delete(id);thumbBytes-=old.size;}};
+ function thumbnail(file){
+  const hit=thumbs.get(file.id);
+  if(hit){thumbs.delete(file.id);thumbs.set(file.id,hit);return hit.bytes;}
+  const entry={size:0,bytes:store.getBytes(file,'thumb')};
+  thumbs.set(file.id,entry);trimThumbs();
+  // Counted once it arrives, and only while still held; a failed read is not kept.
+  entry.bytes.then(bytes=>{if(thumbs.get(file.id)!==entry)return;entry.size=bytes.length;thumbBytes+=bytes.length;trimThumbs();},()=>{if(thumbs.get(file.id)===entry)thumbs.delete(file.id);});
+  return entry.bytes;
  }
  // Another person's file is shown only while its message and question are.
  async function shownToPeers(file){
@@ -169,30 +243,28 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
    }
    if(name==='question'){
     // The question is read first: its revision is the baseline the page syncs from, so a message written meanwhile is
-    // fetched again rather than missed.
+    // fetched again rather than missed. liked seeds the page's own like state, which since answers do not carry.
     const {organiser}=await access(user),q=await questionFor(param,organiser),activity=talkActivity(q.activityId);
-    const page=await store.latestMessages(q.id,{includeHidden:organiser,limit:TALK_LIMITS.page});
-    send(res,200,{question:questionView(q,{organiser}),activity:activity?activityView(activity):null,messages:(await views(page.rows,{viewer:user.id,organiser})).list,
+    const page=await store.latestMessages(q.id,{includeHidden:organiser,ownHidden:user.id,limit:TALK_LIMITS.page});
+    const {list,liked}=await views(page.rows,{viewer:user.id,organiser});
+    send(res,200,{question:questionView(q,{organiser}),activity:activity?activityView(activity):null,messages:list,liked:[...liked],
      before:page.more?encodeCursor(page.rows[0]):null,revision:Number(q.revision),me:{organiser,canPost:q.status==='open'}});
     return true;
    }
    if(name==='messages'&&read){
-    const {organiser}=await access(user),q=await questionFor(param,organiser);
-    const since=url.searchParams.get('since'),before=url.searchParams.get('before');
+    const {organiser}=await access(user),since=url.searchParams.get('since'),before=url.searchParams.get('before');
     if(since!==null){
      if(!/^\d{1,15}$/.test(since))fail('invalid revision');
-     const from=Number(since),revision=Number(q.revision);
-     // A revision from the future (another database, a reset) or more changes than one answer holds: reload.
-     if(from>revision){send(res,200,{reset:true,revision});return true;}
-     const rows=await store.messagesSince(q.id,from,{limit:TALK_LIMITS.changes+1});
-     if(rows.length>TALK_LIMITS.changes){send(res,200,{reset:true,revision});return true;}
-     const {list,liked}=await views(rows,{viewer:user.id,organiser});
-     // A message written after the question was read is already here, so the page need not fetch it again.
-     send(res,200,{revision:Math.max(revision,...rows.map(m=>Number(m.seq))),changes:list,liked:[...liked]});return true;
+     /* The question rides along every answer, so an edit of its text or talk, or a close, that lands in the same sync
+        as message changes still reaches the page and the projector. */
+     const {q,reset,revision,rows,files}=await changesSince(identifier(param),Number(since),organiser),question=questionView(q,{organiser});
+     if(reset){send(res,200,{reset:true,revision,question});return true;}
+     send(res,200,{revision,question,changes:viewsOf(rows,files,{viewer:user.id,organiser})});return true;
     }
+    const q=await questionFor(param,organiser);
     if(before!==null){
      const cursor=decodeCursor(before);if(!cursor)fail('invalid cursor');
-     const page=await store.latestMessages(q.id,{includeHidden:organiser,before:cursor,limit:TALK_LIMITS.page});
+     const page=await store.latestMessages(q.id,{includeHidden:organiser,ownHidden:user.id,before:cursor,limit:TALK_LIMITS.page});
      send(res,200,{messages:(await views(page.rows,{viewer:user.id,organiser})).list,before:page.more?encodeCursor(page.rows[0]):null});return true;
     }
     fail('since or before is required');
@@ -201,19 +273,31 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     const {organiser,registration}=await access(user,{names:true}),q=await questionFor(param,organiser);
     const input=normalizeMessage(await body(req));
     /* The phone keeps one clientId per draft, so a send whose answer was lost comes back as the same message. Only an
-       identical retry is answered that way; a request that stopped between the insert and the attach is finished. A
-       retry is answered even once the question has closed, since the message was sent while it was open. */
+       identical retry is answered that way. A retry is answered even once the question has closed, since the message
+       was sent while it was open; one deleted since answers with its gone view (the page drops the pending row). */
     const reused=()=>failCode('client id already used for another message',409,'client_id_reused');
     /* Two requests of one draft can both be attaching (a retry while the first is still running), so an attach that
        moves fewer files than asked is a failure only if the files did not end up on this message after all. */
     const attachedTo=async messageId=>{const got=new Set((await store.filesForMessages([messageId])).map(f=>f.id));return input.fileIds.every(id=>got.has(id));};
     const replay=async old=>{
-     if(old.questionId!==q.id||old.body!==input.body||old.deletedAt)reused();
+     if(old.questionId!==q.id)reused();
+     // Deleting blanks the body, so it is not compared.
+     if(old.deletedAt){send(res,200,{message:goneView(old)});return true;}
+     if(old.body!==input.body)reused();
      const attached=new Set((await store.filesForMessages([old.id])).map(f=>f.id)),missing=input.fileIds.filter(id=>!attached.has(id));
      if([...attached].some(id=>!input.fileIds.includes(id)))reused();
-     if(missing.length&&await store.attachFiles(missing,old.id,user.id)!==missing.length&&!await attachedTo(old.id))reused();
-     // A message hidden since it was sent answers with its gone view, as the author's next sync would.
-     send(res,200,{message:await viewOf(old,user,organiser)});return true;
+     let row=old;
+     if(missing.length){
+      /* Attaching only finishes the original send, a request that stopped between the insert and the attach: never
+         past the close or a moderator, never onto a message that already has its files, never long after. Otherwise
+         a reused clientId would slip new files into an old or reviewed message. */
+      if(q.status!=='open')failCode('this conversation is closed',403,'question_closed');
+      if(old.hiddenAt||attached.size||!(clock()-Date.parse(old.createdAt)<RETRY_MS))reused();
+      if(await store.attachFiles(missing,old.id,user.id)!==missing.length&&!await attachedTo(old.id))reused();
+      // The attach restamped the message, so the answer carries the seq peers will sync.
+      row=await store.findMessage(old.id)??old;
+     }
+     send(res,200,{message:await viewOf(row,user,organiser)});return true;
     };
     const old=await store.findMessageByClient(user.id,input.clientId);if(old)return await replay(old);
     if(q.status!=='open')failCode('this conversation is closed',403,'question_closed');
@@ -224,10 +308,16 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     catch(err){const raced=err.status===409&&await store.findMessageByClient(user.id,input.clientId);if(!raced)throw err;return await replay(raced);}
     /* The attach is a compare-and-set. A retry of this draft may have attached the files first, and then the message is
        sent; if another post of this person's took a file in between, this one is withdrawn. */
-    if(input.fileIds.length&&await store.attachFiles(input.fileIds,message.id,user.id)!==input.fileIds.length&&!await attachedTo(message.id)){
-     await store.updateMessage({id:message.id,userId:user.id},{body:'',deletedAt:now()});await releaseFiles(message.id);fileUnavailable(400);
+    if(input.fileIds.length){
+     if(await store.attachFiles(input.fileIds,message.id,user.id)!==input.fileIds.length&&!await attachedTo(message.id)){
+      await store.updateMessage({id:message.id,userId:user.id},{body:'',deletedAt:now()});await releaseFiles(message.id);fileUnavailable(400);
+     }
+     // The attach restamped the message (so peers that synced it without its files fetch it again): send that seq.
+     message=await store.findMessage(message.id)??message;
     }
-    send(res,201,{message:await viewOf(message,user,organiser)});return true;
+    /* Built from what this request holds rather than read back: the files are exactly the ones checked above, and a
+       new message carries no like of its author's (own_message refuses one). */
+    send(res,201,{message:messageView(message,{viewer:user.id,organiser,files,liked:false})});return true;
    }
    if(name==='message'){
     // Authorship alone: people can withdraw what they wrote whatever the question's state, even after cancelling.
@@ -251,6 +341,7 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
    if(name==='upload'){
     await access(user);
     let input;try{input=decodeTalkFile(await uploadBody(req));}catch(err){if(err.status===413&&!err.code)Object.assign(err,{code:'file_size'});throw err;}
+    await releaseStale(user.id);
     const id=randomUUID();
     const file=await store.reserveFile({id,eventId:EVENT_ID,userId:user.id,name:input.name,mime:input.mime,size:input.size,width:input.width,height:input.height,thumbSize:input.thumb?.size??null,storagePath:`fiiu/${user.id}/${id}`,createdAt:now()});
     try{await store.putBytes(file,'full',input.bytes);if(input.thumb)await store.putBytes(file,'thumb',input.thumb.bytes);}
@@ -264,7 +355,8 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     send(res,201,{file:{id,name:file.name,mime:file.mime,size:file.size,width:file.width??null,height:file.height??null,thumb:Boolean(input.thumb)}});return true;
    }
    if(name==='file'){
-    const {organiser}=await access(user),file=await store.findFile(identifier(param));
+    // The file is read beside the registration; its message and question (for someone else's file) depend on it.
+    const fileId=identifier(param),[{organiser},file]=await Promise.all([access(user),store.findFile(fileId)]);
     if(!file||file.status!=='ready'||file.eventId!==EVENT_ID||!(organiser||file.userId===user.id||await shownToPeers(file)))fileUnavailable(404);
     // A file without a thumbnail (a PDF, or a photo the phone could not decode) answers ?size=thumb with itself.
     const thumb=url.searchParams.get('size')==='thumb'&&Boolean(file.thumbSize);
@@ -274,7 +366,7 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     // Organisers moderate and project every conversation, so like the course teaching team they are not budgeted.
     const budget=organiser?{ok:true}:downloads.take(`download:${user.id}`,thumb?file.thumbSize:file.size,clock());
     if(!budget.ok){send(res,429,{error:'download limit reached; try again later',code:'download_rate'},{'Retry-After':String(budget.retryAfter)});return true;}
-    const bytes=await store.getBytes(file,thumb?'thumb':'full'),filename=attachmentFilename(file.name,file.mime);
+    const bytes=await (thumb?thumbnail(file):store.getBytes(file,'full')),filename=attachmentFilename(file.name,file.mime);
     // Images open in the tab; PDFs download, because Chrome refuses its PDF viewer under a sandbox CSP.
     const disposition=file.mime==='application/pdf'?'attachment':'inline';
     send(res,200,bytes,{...caching,'Content-Type':thumb?thumbType(bytes):file.mime,'Content-Disposition':`${disposition}; filename="${filename.replace(/[^a-zA-Z0-9._ -]/g,'_')}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
@@ -336,6 +428,6 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
    // Somebody else's error text (expose: false, as a backend adapter marks it) goes to the global handler, which hides it.
    if(typeof err?.code==='string'&&/^[a-z_]+$/.test(err.code)&&err.status>=400&&err.status<500&&err.expose!==false&&!res.headersSent){send(res,err.status,{error:err.message,code:err.code});return true;}
    throw err;
-  }finally{if(wrote)pulseMemo=null;}
+  }finally{if(wrote){pulseMemo=null;changesMemo.clear();}}
  };
 }

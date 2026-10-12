@@ -5,6 +5,7 @@ import {randomUUID} from 'node:crypto';
 import {createDatabase,createUser} from '../server/db.js';
 import {createSession} from '../server/auth.js';
 import {createApp} from '../server/server.js';
+import {createRepository} from '../server/repository.js';
 import {createFiiuStore} from '../server/fiiu-repository.js';
 import {createTalkStore} from '../server/fiiu-talk-repository.js';
 import {createTalkApi,exportTalkData,deleteTalkData} from '../server/fiiu-talk-api.js';
@@ -112,7 +113,7 @@ test('participants post with idempotent retries, see display names only, and syn
  assert.equal('userId' in view,false);assert.equal('authorFull' in view,false);assert.doesNotMatch(JSON.stringify(seen.body),new RegExp(users.member.id));
  const second=await post(q,'Respuesta',{actor:'other'});assert.equal(second.status,201);assert.equal(second.body.message.author,'Ben O.');
  const since=await json(`/api/fiiu/questions/${q.id}/messages?since=1`);
- assert.equal(since.status,200);assert.deepEqual(since.body.changes.map(c=>c.id),[second.body.message.id]);assert.deepEqual(since.body.liked,[]);
+ assert.equal(since.status,200);assert.deepEqual(since.body.changes.map(c=>c.id),[second.body.message.id]);assert.equal(since.body.liked,undefined);
  assert.equal(since.body.revision,(await pulse()).find(([id])=>id===q.id)[2],'the pulse publishes the same revision');
  assert.deepEqual((await json(`/api/fiiu/questions/${q.id}/messages?since=${since.body.revision}`)).body.changes,[]);
  assert.equal((await json(`/api/fiiu/questions/${q.id}/messages?since=99`)).body.reset,true,'a revision from the future reloads');
@@ -182,12 +183,59 @@ test('a retry racing the first send of a draft with a photo keeps one message wi
  for(const [,id] of sent){assert.equal((await talkStore.findFile(id))?.status,'ready');assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_file_bytes WHERE file_id=?').get(id).n,1);}
 });
 
-test('a retry of a message hidden since it was sent learns it is gone, as its author would on the next sync',async t=>{
+test('a retry can only finish its own send: no new file once the question closed, the message was hidden, has files or is old',async t=>{
+ let now=Date.parse('2026-10-21T14:00:00.000Z');
+ const {json,ask,post,upload,close,talkStore}=await setup(t,{app:{talkClock:()=>now}});
+ const q=await ask(),stray=(await upload()).body.file;
+ const retry=(clientId,body,files)=>post(q,body,{clientId,fileIds:files.map(f=>f.id)});
+ const hid=randomUUID(),hidden=(await post(q,'oculto',{clientId:hid})).body.message;
+ assert.equal((await json(`/api/admin/fiiu/messages/${hidden.id}/hidden`,{actor:'admin',method:'PUT',body:{}})).status,200);
+ assert.equal((await retry(hid,'oculto',[stray])).body.code,'client_id_reused','a moderated message takes no new file');
+ const sent=randomUUID(),photo=(await upload()).body.file;
+ assert.equal((await retry(sent,'con foto',[photo])).status,201);
+ assert.equal((await retry(sent,'con foto',[photo,stray])).body.code,'client_id_reused','a message with its files takes no more');
+ assert.equal((await retry(sent,'con foto',[photo])).status,200,'the same retry is still answered');
+ const old=randomUUID();assert.equal((await post(q,'viejo',{clientId:old})).status,201);
+ now+=10*60000;
+ assert.equal((await retry(old,'viejo',[stray])).body.code,'client_id_reused','past the ten-minute retry window');
+ const late=randomUUID();assert.equal((await post(q,'tarde',{clientId:late})).status,201);
+ await close(q);
+ const closed=await retry(late,'tarde',[stray]);assert.equal(closed.status,403);assert.equal(closed.body.code,'question_closed');
+ assert.equal((await post(q,'tarde',{clientId:late})).status,200,'a retry without new files still learns it was sent');
+ assert.equal((await talkStore.findFile(stray.id)).messageId,null,'the stray file never moved');
+});
+
+test('files attached after the insert reach peers that synced the message without them',async t=>{
+ // The first send stops after the insert (a PostgREST timeout on the attach); its author retries.
+ let broken=true;
+ const {json,ask,post,upload,pulse}=await setup(t,{wrapTalk:store=>({...store,attachFiles:async(...args)=>{if(broken){broken=false;throw Object.assign(Error('attach timed out'),{status:502});}return store.attachFiles(...args);}})});
+ const q=await ask(),file=(await upload()).body.file,clientId=randomUUID();
+ assert.equal((await post(q,'',{clientId,fileIds:[file.id]})).status,502);
+ const early=await json(`/api/fiiu/questions/${q.id}/messages?since=0`,{actor:'other'});
+ assert.deepEqual(early.body.changes.map(c=>c.files.length),[0],'a peer synced the photo message before its photo');
+ const finished=await post(q,'',{clientId,fileIds:[file.id]});assert.equal(finished.status,200);
+ const later=await json(`/api/fiiu/questions/${q.id}/messages?since=${early.body.revision}`,{actor:'other'});
+ assert.deepEqual(later.body.changes.map(c=>[c.id,c.files.map(f=>f.id)]),[[finished.body.message.id,[file.id]]]);
+ assert.equal((await pulse())[0][2],later.body.revision,'the pulse moved with it');
+ assert.equal(finished.body.message.seq,later.body.revision,'the answer carries the seq the attach stamped');
+ const fresh=await post(q,'',{fileIds:[(await upload()).body.file.id]});
+ assert.equal(fresh.status,201);assert.equal(fresh.body.message.seq,(await pulse())[0][2],'so does a first send with files');
+});
+
+test('a retry of a message deleted since it was sent learns it is gone',async t=>{
+ const {json,ask,post,upload}=await setup(t);
+ const q=await ask(),clientId=randomUUID(),file=(await upload()).body.file,m=(await post(q,'hola',{clientId,fileIds:[file.id]})).body.message;
+ assert.equal((await json(`/api/fiiu/messages/${m.id}`,{method:'DELETE',body:{}})).status,200);
+ const retry=await post(q,'hola',{clientId,fileIds:[file.id]});
+ assert.equal(retry.status,200);assert.deepEqual(retry.body.message,{id:m.id,seq:retry.body.message.seq,gone:true});
+});
+
+test('a retry of a message hidden since it was sent gets its author\'s hidden view, as their next sync would',async t=>{
  const {json,ask,post}=await setup(t);
  const q=await ask(),clientId=randomUUID(),m=(await post(q,'hola',{clientId})).body.message;
  assert.equal((await json(`/api/admin/fiiu/messages/${m.id}/hidden`,{actor:'admin',method:'PUT',body:{}})).status,200);
  const retry=await post(q,'hola',{clientId});
- assert.equal(retry.status,200);assert.deepEqual(retry.body.message,{id:m.id,seq:retry.body.message.seq,gone:true});
+ assert.equal(retry.status,200);assert.deepEqual(retry.body.message,{...m,seq:retry.body.message.seq,hidden:true});
 });
 
 test('likes are idempotent, never on your own message and never on a closed question, while deleting your own still works',async t=>{
@@ -197,7 +245,9 @@ test('likes are idempotent, never on your own message and never on a closed ques
  assert.deepEqual((await like('PUT')).body,{likeCount:1,liked:true});
  assert.deepEqual((await like('PUT')).body,{likeCount:1,liked:true},'a second device liking again does not double count');
  const synced=await json(`/api/fiiu/questions/${q.id}/messages?since=1`,{actor:'other'});
- assert.equal(synced.body.changes[0].likeCount,1);assert.equal(synced.body.changes[0].liked,true);assert.deepEqual(synced.body.liked,[m.id]);
+ // A since answer is shared between viewers, so it carries the count and no like of the viewer's: the page keeps its own.
+ assert.equal(synced.body.changes[0].likeCount,1);assert.equal('liked' in synced.body.changes[0],false);assert.equal(synced.body.liked,undefined);
+ const seeded=await json(`/api/fiiu/questions/${q.id}`,{actor:'other'});assert.equal(seeded.body.messages[0].liked,true);assert.deepEqual(seeded.body.liked,[m.id]);
  assert.equal((await json(`/api/fiiu/questions/${q.id}`)).body.messages[0].liked,false,'the author sees the count, not the like as theirs');
  assert.deepEqual((await like('DELETE')).body,{likeCount:0,liked:false});
  assert.deepEqual((await like('DELETE')).body,{likeCount:0,liked:false},'unliking twice never goes negative');
@@ -241,7 +291,9 @@ test('an organiser hides a message from participants within one sync and brings 
  const gone=await json(`/api/fiiu/questions/${q.id}/messages?since=${baseline}`,{actor:'other'});
  assert.deepEqual(gone.body.changes,[{id:m.id,seq:revision,gone:true}]);assert.equal(gone.body.revision,revision);
  assert.deepEqual((await json(`/api/fiiu/questions/${q.id}`,{actor:'other'})).body.messages,[]);
- assert.deepEqual((await json(`/api/fiiu/questions/${q.id}/messages?since=${baseline}`)).body.changes[0].gone,true,'the author loses it too');
+ const own=(await json(`/api/fiiu/questions/${q.id}/messages?since=${baseline}`)).body.changes[0];
+ const {liked,...shared}=m;assert.equal(liked,false);
+ assert.deepEqual(own,{...shared,seq:revision,hidden:true},'its author keeps it, marked hidden, so they can still delete it');
  const staff=await json(`/api/fiiu/questions/${q.id}/messages?since=${baseline}`,{actor:'admin'});
  assert.equal(staff.body.changes[0].hidden,true);assert.equal(staff.body.changes[0].authorFull,'Ana Test');assert.equal(staff.body.changes[0].body,'hola');
  const staffPage=await json(`/api/fiiu/questions/${q.id}`,{actor:'admin'});assert.equal(staffPage.body.messages[0].hidden,true);assert.equal(staffPage.body.question.messageCount,0);
@@ -251,6 +303,76 @@ test('an organiser hides a message from participants within one sync and brings 
  const back=await json(`/api/fiiu/questions/${q.id}/messages?since=${revision}`,{actor:'other'});
  assert.equal(back.body.changes.length,1);assert.equal(back.body.changes[0].body,'hola');assert.equal(back.body.changes[0].gone,undefined);
  assert.equal((await json(`/api/admin/fiiu/messages/${randomUUID()}/hidden`,{actor:'admin',method:'PUT',body:{}})).status,404);
+});
+
+test('since answers carry the question, so an edit or a close sharing a sync with message changes still reaches the page',async t=>{
+ const {json,ask,post,close}=await setup(t);
+ const q=await ask(),baseline=(await json(`/api/fiiu/questions/${q.id}`,{actor:'other'})).body.revision;
+ const current=(await json('/api/admin/fiiu/questions',{actor:'admin'})).body.questions.find(x=>x.id===q.id);
+ assert.equal((await json(`/api/admin/fiiu/questions/${q.id}`,{actor:'admin',method:'PATCH',body:{version:current.version,body:'¿Y ahora?',talk:'¡Bienvenidos al FIIU 11!'}})).status,200);
+ const m=(await post(q,'hola')).body.message;
+ const both=await json(`/api/fiiu/questions/${q.id}/messages?since=${baseline}`,{actor:'other'});
+ assert.deepEqual(both.body.changes.map(c=>c.id),[m.id]);
+ assert.deepEqual(both.body.question,(await json(`/api/fiiu/questions/${q.id}`,{actor:'other'})).body.question,'the same view as the page');
+ assert.equal(both.body.question.body,'¿Y ahora?');assert.equal(both.body.question.talk,'¡Bienvenidos al FIIU 11!');assert.equal(both.body.question.version,undefined);
+ await close(q);
+ const closed=await json(`/api/fiiu/questions/${q.id}/messages?since=${both.body.revision}`,{actor:'other'});
+ assert.deepEqual(closed.body.changes,[]);assert.equal(closed.body.question.status,'closed');
+ const reset=await json(`/api/fiiu/questions/${q.id}/messages?since=999`,{actor:'admin'});
+ assert.equal(reset.body.reset,true);assert.equal(reset.body.question.status,'closed');assert.equal(typeof reset.body.question.version,'number','organisers get their version');
+});
+
+test('authors keep their own hidden message, with its files, on every read and can still delete it; everyone else loses it',async t=>{
+ const {json,call,ask,post,upload,talkStore}=await setup(t);
+ const q=await ask(),file=(await upload()).body.file,clientId=randomUUID(),m=(await post(q,'mira',{clientId,fileIds:[file.id]})).body.message;
+ const peer=(await post(q,'otro',{actor:'other'})).body.message;
+ assert.equal((await json(`/api/admin/fiiu/messages/${m.id}/hidden`,{actor:'admin',method:'PUT',body:{}})).status,200);
+ const page=(await json(`/api/fiiu/questions/${q.id}`)).body;
+ const view=page.messages.find(x=>x.id===m.id);
+ assert.equal(view.hidden,true);assert.equal(view.mine,true);assert.deepEqual(view.files.map(f=>f.id),[file.id]);assert.equal(view.authorFull,undefined);
+ assert.equal(page.question.messageCount,1,'the count is still what participants see');
+ assert.equal((await call(`/api/fiiu/files/${file.id}`)).status,200,'the author still opens the file');
+ assert.deepEqual((await json(`/api/fiiu/questions/${q.id}`,{actor:'other'})).body.messages.map(x=>x.id),[peer.id]);
+ assert.equal((await call(`/api/fiiu/files/${file.id}`,{actor:'other'})).status,404);
+ // One shared since answer: the author's view and everyone else's are built from the same rows.
+ const mine=await json(`/api/fiiu/questions/${q.id}/messages?since=0`),theirs=await json(`/api/fiiu/questions/${q.id}/messages?since=0`,{actor:'other'});
+ assert.equal(mine.body.changes.find(c=>c.id===m.id).hidden,true);assert.equal(mine.body.changes.find(c=>c.id===m.id).files.length,1);
+ assert.deepEqual(theirs.body.changes.find(c=>c.id===m.id),{id:m.id,seq:mine.body.changes.find(c=>c.id===m.id).seq,gone:true});
+ assert.equal(theirs.body.changes.find(c=>c.id===peer.id).mine,true);assert.equal(mine.body.changes.find(c=>c.id===peer.id).mine,false);
+ assert.equal((await json(`/api/fiiu/messages/${m.id}/like`,{actor:'other',method:'PUT',body:{}})).status,404);
+ assert.equal((await json(`/api/fiiu/messages/${m.id}`,{method:'DELETE',body:{}})).status,200);
+ assert.deepEqual((await json(`/api/fiiu/questions/${q.id}`)).body.messages.map(x=>x.id),[peer.id]);
+ assert.equal(await talkStore.findFile(file.id),null,'its files went with it');
+});
+
+test('since answers are read once per question, revision and audience for 1.5 s, then built per viewer in memory',async()=>{
+ const Q='22222222-2222-4222-8222-222222222222';let t=1000,reads=0;const sent=[];
+ const row=(id,userId,seq,extra={})=>({id,questionId:Q,userId,authorName:'Ana T.',authorFull:'Ana Test',organiser:false,body:'hola',likeCount:0,seq,hiddenAt:null,deletedAt:null,createdAt:'2026-10-21T14:00:00.000Z',...extra});
+ const store={findRegistration:async()=>({firstName:'Ana',lastName:'Test'}),
+  getQuestion:async()=>{reads++;await new Promise(r=>setTimeout(r,5));return {id:Q,eventId:'fiiu-2026',activityId:'day1-am',talk:null,body:'¿Qué?',status:'open',revision:1000,messageCount:1,version:2,createdAt:'x'};},
+  messagesSince:async()=>{reads++;return [row('m1','a',900,{hiddenAt:'x'}),row('m2','b',901)];},
+  filesForMessages:async()=>{reads++;return [];},likedAmong:async()=>{throw Error('a since answer reads no per-viewer likes');}};
+ const api=createTalkApi({store,sameOrigin:()=>true,send:(res,status,body)=>sent.push(body),clock:()=>t});
+ const get=(id,since=2,permission='member')=>api({req:{method:'GET',headers:{}},res:{},url:new URL(`http://x/api/fiiu/questions/${Q}/messages?since=${since}`),user:{id,permission}});
+ await Promise.all([get('a'),get('b'),get('c')]);
+ assert.equal(reads,3,'one question, one changes and one files read for three viewers');
+ sent.length=0;await get('a');await get('b');
+ assert.equal(reads,3);
+ assert.equal(sent[0].changes[0].hidden,true,'the author sees their hidden message');assert.equal(sent[0].changes[0].mine,true);
+ assert.deepEqual(sent[1].changes[0],{id:'m1',seq:900,gone:true},'nobody else does');assert.equal(sent[1].changes[1].mine,true);
+ assert.equal(sent[0].question.body,'¿Qué?');assert.equal(sent[0].revision,1000);
+ await get('o',2,'admin');assert.equal(reads,6,'organisers have their own entry');assert.equal(sent.at(-1).changes[0].hidden,true);assert.equal(sent.at(-1).question.version,2);
+ await get('a',3);assert.equal(reads,9,'another revision is another entry');
+ t+=1499;await get('b');assert.equal(reads,9);
+ t+=1;await get('b');assert.equal(reads,12,'expired after 1.5 s');
+ // Bounded: the oldest entry goes first.
+ for(let i=10;i<=210;i++)await get('a',i);
+ const before=reads;await get('a',210);assert.equal(reads,before,'the newest is kept');
+ await get('a',10);assert.equal(reads,before+3,'the oldest was dropped');
+ // A write through this instance drops them, so its author's next poll reads past it.
+ const posted=reads;
+ await api({req:{method:'DELETE',headers:{}},res:{},url:new URL(`http://x/api/fiiu/messages/${Q}`),user:{id:'a',permission:'member'}}).catch(()=>{});
+ await get('a',210);assert.equal(reads,posted+3);
 });
 
 test('festival files: types, sizes, thumbnails, attach rules, download access and headers, and release on delete',async t=>{
@@ -296,6 +418,51 @@ test('festival files: types, sizes, thumbnails, attach rules, download access an
  assert.equal((await call(`/api/fiiu/files/${file.id}`)).status,404);
 });
 
+test('a thumbnail is read from Storage once per instance for every viewer, while access is still checked on each request',async t=>{
+ const reads=[];
+ const {json,call,ask,post,upload}=await setup(t,{wrapTalk:store=>({...store,getBytes:async(file,variant)=>{reads.push(variant);return store.getBytes(file,variant);}})});
+ const q=await ask(),file=(await upload({thumb:{mime:'image/jpeg',data:thumb,width:480,height:270}})).body.file;
+ const m=(await post(q,'mira',{fileIds:[file.id]})).body.message;
+ const small=actor=>call(`/api/fiiu/files/${file.id}?size=thumb`,{actor});
+ const answers=await Promise.all(['other','admin','member','other'].map(small));
+ assert.deepEqual(answers.map(r=>[r.status,r.headers.get('content-type')]),Array(4).fill([200,'image/jpeg']));
+ for(const r of answers)assert.equal(Buffer.from(await r.arrayBuffer()).toString('base64'),thumb);
+ assert.deepEqual(reads,['thumb'],'one Storage read, shared by requests in flight');
+ for(let i=0;i<2;i++)assert.equal((await call(`/api/fiiu/files/${file.id}`,{actor:'other'})).status,200);
+ assert.deepEqual(reads,['thumb','full','full'],'full images are read each time');
+ assert.equal((await json(`/api/admin/fiiu/messages/${m.id}/hidden`,{actor:'admin',method:'PUT',body:{}})).status,200);
+ assert.equal((await small('other')).status,404,'a cached thumbnail still needs its message shown');
+ assert.equal((await small('stranger')).status,403);
+ assert.equal((await small('admin')).status,200);assert.equal(reads.length,3);
+});
+
+test('the thumbnail cache keeps at most 200 thumbnails and 20 MB, least recently used first, and the file is read beside the access check',async()=>{
+ const id=i=>`00000000-0000-4000-8000-${String(i).padStart(12,'0')}`;
+ const make=size=>{
+  const gets=[];let registered=false;
+  const store={findRegistration:async()=>{await new Promise(r=>setTimeout(r,5));registered=true;return {firstName:'Ana',lastName:'Test'};},
+   findFile:async fileId=>({id:fileId,eventId:'fiiu-2026',userId:'u',status:'ready',thumbSize:5,mime:'image/jpeg',name:'a.jpg',size:10,messageId:null,registeredFirst:registered}),
+   getBytes:async file=>{gets.push(file.id);return Buffer.alloc(size,255);}};
+  const sent=[];
+  const api=createTalkApi({store,sameOrigin:()=>true,send:(res,status)=>sent.push(status),clock:()=>1000});
+  const get=i=>api({req:{method:'GET',headers:{}},res:{},url:new URL(`http://x/api/fiiu/files/${id(i)}?size=thumb`),user:{id:'u',permission:'member'}});
+  return {gets,sent,get,store};
+ };
+ const many=make(10);
+ const first=many.store.findFile;let registeredFirst;many.store.findFile=async fileId=>{const f=await first(fileId);registeredFirst=f.registeredFirst;return f;};
+ await many.get(0);assert.equal(registeredFirst,false,'the file is read while the registration is');assert.deepEqual(many.sent,[200]);
+ for(let i=1;i<=200;i++)await many.get(i);
+ assert.equal(many.gets.length,201);
+ await many.get(1);await many.get(200);assert.equal(many.gets.length,201,'still kept');
+ await many.get(0);assert.equal(many.gets.length,202,'the least recently used went first');
+ await many.get(2);assert.equal(many.gets.length,203,'and then the next');
+ await many.get(1);assert.equal(many.gets.length,203,'a recent read keeps it');
+ const big=make(8*1024*1024);
+ for(const i of [1,2,3])await big.get(i);
+ await big.get(3);await big.get(2);assert.equal(big.gets.length,3);
+ await big.get(1);assert.equal(big.gets.length,4,'24 MB is over 20 MB, so the oldest went');
+});
+
 test('festival downloads spend the shared byte budget, organisers excepted, and their own request budget, not the chat\'s',async t=>{
  const {json,call,ask,post,upload}=await setup(t,{app:{downloadLimits:[{windowMs:60000,bytes:100}],talkLimits:{file:4}}});
  const q=await ask(),file=(await upload()).body.file;
@@ -334,6 +501,43 @@ test('the festival upload allowance refuses the 31st file',async t=>{
  assert.equal(over.status,413);assert.deepEqual(over.body,{error:'festival upload allowance reached',code:'upload_allowance'});
 });
 
+test('uploads that never reached a message stop holding the allowance once stale: ready after 30 minutes, pending after an hour',async t=>{
+ let now=Date.parse('2026-10-21T14:00:00.000Z');
+ const {db,ask,post,upload,talkStore,users}=await setup(t,{app:{talkClock:()=>now,talkLimits:{upload:100}}});
+ const q=await ask(),sent=(await upload()).body.file;
+ assert.equal((await post(q,'mira',{fileIds:[sent.id]})).status,201);
+ // Answers lost (the page uploaded again), drafts dropped or refused: ready rows no message will ever take.
+ const orphans=[];for(let i=0;i<28;i++){const r=await upload({name:`p${i}.jpg`});assert.equal(r.status,201);orphans.push(r.body.file.id);}
+ // An upload that died between its reservation and its bytes.
+ const died=randomUUID();
+ await talkStore.reserveFile({id:died,eventId:'fiiu-2026',userId:users.member.id,name:'d.jpg',mime:'image/jpeg',size:10,width:null,height:null,thumbSize:null,storagePath:`fiiu/${users.member.id}/${died}`,createdAt:new Date(now).toISOString()});
+ const theirs=(await upload({},'other')).body.file;
+ assert.equal((await upload()).body.code,'upload_allowance');
+ now+=30*60000;
+ assert.equal((await upload()).body.code,'upload_allowance','not before 30 minutes');
+ now+=1;
+ const fresh=await upload();assert.equal(fresh.status,201);
+ for(const id of orphans)assert.equal(await talkStore.findFile(id),null);
+ assert.equal(db.prepare(`SELECT count(*) AS n FROM fiiu_file_bytes WHERE file_id IN (${orphans.map(()=>'?').join(',')})`).get(...orphans).n,0,'their bytes went too');
+ assert.ok((await talkStore.findFile(sent.id)).messageId,'an attached file stays');
+ assert.equal((await talkStore.findFile(died)).status,'pending','a pending upload has an hour');
+ assert.equal((await talkStore.findFile(theirs.id)).status,'ready','another person\'s uploads are theirs to release');
+ now+=30*60000;
+ assert.equal((await upload()).status,201);assert.equal(await talkStore.findFile(died),null);
+ assert.equal((await talkStore.findFile(fresh.body.file.id)).status,'ready','a recent upload is kept for its draft');
+});
+
+test('releasing stale uploads never takes a file a send attached in the meantime',async t=>{
+ let now=Date.parse('2026-10-21T14:00:00.000Z'),racing=null;
+ // The send attaches the file between the release's read and its claim.
+ const {ask,post,upload,talkStore}=await setup(t,{app:{talkClock:()=>now},wrapTalk:store=>({...store,setFileStatus:async(...args)=>{if(racing&&args[0]===racing.file&&args[2]==='deleting'){const r=racing;racing=null;await r.send();}return store.setFileStatus(...args);}})});
+ const q=await ask(),file=(await upload()).body.file;
+ now+=31*60000;
+ let sent;racing={file:file.id,send:async()=>{sent=await post(q,'tarde',{fileIds:[file.id]});}};
+ assert.equal((await upload()).status,201);
+ assert.equal(sent.status,201);assert.ok((await talkStore.findFile(file.id)).messageId,'the attached file stayed');
+});
+
 test('the account export carries conversations, and account deletion erases files, likes and message text',async t=>{
  const {db,json,call,ask,post,upload,talkStore,users}=await setup(t);
  const q=await ask();
@@ -365,6 +569,46 @@ test('the account export carries conversations, and account deletion erases file
  assert.deepEqual({...row,deleted_at:Boolean(row.deleted_at)},{body:'',author_name:'',author_full:'',user_id:null,deleted_at:true});
 });
 
+test('the account export leaves out the text of a question that is now hidden, a draft its participants cannot see',async t=>{
+ const {json,ask,post}=await setup(t);
+ const q=await ask(),m=(await post(q,'respuesta')).body.message;
+ const current=(await json('/api/admin/fiiu/questions',{actor:'admin'})).body.questions.find(x=>x.id===q.id);
+ assert.equal((await json(`/api/admin/fiiu/questions/${q.id}`,{actor:'admin',method:'PATCH',body:{version:current.version,status:'hidden',body:'Borrador secreto'}})).status,200);
+ assert.equal((await json(`/api/fiiu/questions/${q.id}`)).status,404);
+ const exported=(await json('/api/me/export')).body.data.fiiuConversations;
+ assert.deepEqual(exported.messages,[{id:m.id,questionId:q.id,question:'',body:'respuesta',createdAt:m.createdAt,deleted:false,hidden:false}]);
+ assert.doesNotMatch(JSON.stringify(exported),/secreto/);
+});
+
+test('a refused account deletion erases nothing: every refusal is checked before the festival data goes',async t=>{
+ const {db,json,call,ask,post,upload,talkStore,users}=await setup(t);
+ const q=await ask(),file=(await upload()).body.file;
+ const mine=(await post(q,'mi aporte',{fileIds:[file.id]})).body.message,theirs=(await post(q,'otro',{actor:'other'})).body.message;
+ assert.equal((await json(`/api/fiiu/messages/${theirs.id}/like`,{method:'PUT',body:{}})).status,200);
+ const created=await json('/api/admin/courses',{actor:'admin',method:'POST',body:{title:'Movilidad',status:'published',startsOn:'2026-09-09'}});assert.equal(created.status,201);
+ const course=created.body.course,module=(await json(`/api/admin/courses/${course.id}/modules`,{actor:'admin',method:'POST',body:{title:'Primera sesión',status:'published'}})).body.module;
+ const erase=()=>json('/api/me',{method:'DELETE',body:{confirmEmail:'member@example.test'}});
+ const untouched=async why=>{
+  const refused=await erase();assert.equal(refused.status,409,why);
+  assert.equal((await talkStore.findMessage(mine.id)).body,'mi aporte',why);assert.equal((await talkStore.findFile(file.id))?.status,'ready',why);
+  assert.deepEqual(await talkStore.userLikes(users.member.id),[theirs.id],why);
+  assert.equal((await call('/api/auth/me')).status,200,why);
+  return refused.body.error;
+ };
+ // A course upload awaiting reconciliation, which an interrupted upload leaves with no time limit.
+ const attachment=randomUUID();
+ db.prepare("INSERT INTO course_attachments (id,course_id,module_id,user_id,purpose,name,mime,size,storage_path,status,created_at) VALUES (?,?,?,?,'post','notas.txt','text/plain',5,?,'pending',?)").run(attachment,course.id,module.id,users.member.id,`courses/${course.id}/${attachment}`,new Date(Date.now()-86400000).toISOString());
+ assert.match(await untouched('a course upload awaiting reconciliation'),/awaiting reconciliation/);
+ db.prepare('DELETE FROM course_attachments WHERE id=?').run(attachment);
+ // A certificate an organiser is uploading for this person right now.
+ const certificate=randomUUID();
+ db.prepare("INSERT INTO course_certificates (id,course_id,user_id,size,storage_path,status,created_at) VALUES (?,?,?,10,?,'pending',?)").run(certificate,course.id,users.member.id,`certificates/${certificate}`,new Date().toISOString());
+ assert.match(await untouched('a certificate being uploaded'),/certificate is being uploaded/);
+ db.prepare('DELETE FROM course_certificates WHERE id=?').run(certificate);
+ assert.equal((await erase()).status,200);
+ assert.equal(db.prepare('SELECT body FROM fiiu_messages WHERE id=?').get(mine.id).body,'');
+});
+
 test('per-account limits cap messages while the pulse is never rate limited',async t=>{
  const {ask,post,call}=await setup(t,{app:{talkLimits:{message:3}}});
  const q=await ask();
@@ -377,6 +621,37 @@ test('per-account limits cap messages while the pulse is never rate limited',asy
   const statuses=await Promise.all(Array.from({length:50},()=>call('/api/fiiu/pulse',{actor:'guest'}).then(async r=>{await r.arrayBuffer();return r.status;})));
   assert.deepEqual([...new Set(statuses)],[200],`round ${round}`);
  }
+});
+
+test('the chat poll remembers a verified session for 30 s by a hash of its token, while other routes and tokens verify each request',async t=>{
+ let now=Date.parse('2026-10-21T14:00:00.000Z');
+ const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
+ const repository=createRepository({db}),resolve=repository.resolveSession.bind(repository);let verified=0;
+ repository.resolveSession=async(...args)=>{verified++;return resolve(...args);};
+ const admin=createUser(db,{fullName:'Flavia Soto',email:'admin@example.test',passwordHash:'unused',role:'admin'});
+ const [one,two]=[createSession(db,admin.id),createSession(db,admin.id)].map(s=>s.cookie.split(';')[0]);
+ const server=createApp({repository,fiiuStore:createFiiuStore({db}),talkStore:createTalkStore({db}),fiiuConfirmation:null,talkClock:()=>now});
+ server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
+ const base=`http://127.0.0.1:${server.address().port}`;
+ const call=(path,cookie,{method='GET',body}={})=>fetch(base+path,{method,headers:{Cookie:cookie,Origin:base,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
+ const q=(await (await call('/api/admin/fiiu/questions',one,{method:'POST',body:{activityId:'day1-am',body:'¿Qué te llevas?',status:'open'}})).json()).question;
+ const poll=`/api/fiiu/questions/${q.id}/messages?since=0`;
+ verified=0;
+ for(let i=0;i<3;i++)assert.equal((await call(poll,one)).status,200);
+ assert.equal(verified,1,'one verification for three polls');
+ assert.equal((await call(`/api/fiiu/questions/${q.id}`,one)).status,200);assert.equal(verified,2,'the page itself verifies');
+ assert.equal((await call(`/api/fiiu/questions/${q.id}/messages`,one,{method:'POST',body:{clientId:randomUUID(),body:'hola'}})).status,201);assert.equal(verified,3,'so does a write to the same path');
+ assert.equal((await call(poll,two)).status,200);assert.equal(verified,4,'another token verifies');
+ // The trade-off: signed out (or suspended) elsewhere, this one read route answers for at most 30 s more.
+ assert.equal((await call('/api/auth/logout',two,{method:'POST',body:{}})).status,200);
+ assert.equal((await call(poll,two)).status,200);assert.equal(verified,4);
+ assert.equal((await call(`/api/fiiu/questions/${q.id}`,two)).status,401,'every other route sees the sign-out at once');
+ now+=30000;
+ assert.equal((await call(poll,two)).status,401,'and this one after 30 s');
+ assert.equal((await call(poll,one)).status,200);assert.equal(verified,7,'an expired entry verifies again');
+ // A refused session is never remembered.
+ for(let i=0;i<2;i++)assert.equal((await call(poll,'nodal_session=not-a-session')).status,401);
+ assert.equal(verified,9);
 });
 
 test('rate limit kinds per route, and the pulse branch never asks for one',async()=>{
