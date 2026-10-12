@@ -388,3 +388,6 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
  .pilot-table td.pilot-survey-actions{white-space:normal}
  .pilot-cell-label{display:block;font-size:11px;color:#6e7d65;margin-bottom:2px}
 }
+/* iPhone Safari zooms into a focused field under 16px and stays zoomed, so on a phone every text field is 16px (labels
+   keep their size). The final survey's fields have their own rule above. */
+@media(max-width:760px){:is(.pilot-form,.pilot-feedback,.pilot-response-filters,.pilot-survey-reminder) :is(input:not([type=file]):not([type=checkbox]):not([type=radio]),textarea,select){font-size:16px}}

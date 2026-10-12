@@ -736,3 +736,7 @@ test('conversation and feedback controls are 44px tap targets with body-size tex
  const feedback=styleAt(375,'.pilot-feedback button');assert.equal(feedback['min-height'],'44px');assert.equal(feedback['font-size'],'13px');
  const star=styleAt(375,'.pilot-feedback .pilot-rating label');assert.equal(star['min-width'],'44px');assert.equal(star['min-height'],'44px');
 });
+test('text fields on a phone are 16px so iPhone Safari does not zoom into them',()=>{
+ const fields=':is(.pilot-form,.pilot-feedback,.pilot-response-filters,.pilot-survey-reminder) :is(input:not([type=file]):not([type=checkbox]):not([type=radio]),textarea,select)';
+ assert.equal(styleAt(375,fields)['font-size'],'16px');assert.equal(styleAt(1280,fields)['font-size'],undefined);
+});
