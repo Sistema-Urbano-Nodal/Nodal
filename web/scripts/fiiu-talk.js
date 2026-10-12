@@ -347,13 +347,14 @@
   if(thumb)payload.thumb={mime:'image/jpeg',data:await read(thumb.blob),width:thumb.width,height:thumb.height};
   return payload;
  }
- // An uploaded file is remembered by name, size and date, so a retry of the same draft never uploads it twice. An upload has two minutes, not the 20 s of
- // the JSON calls: a 3 MB PDF is about 4 MB of base64, which a phone sharing the venue's Wi-Fi may need over half a minute to send.
+ // An upload is remembered by name, size and date from the moment it starts, so neither a retry nor the same file sent again while it travels uploads
+ // it twice. An upload has two minutes, not the 20 s of the JSON calls: a 3 MB PDF is about 4 MB of base64, which a phone sharing the venue's Wi-Fi may
+ // need over half a minute to send.
  const fileKey=file=>[file.name,file.size,file.lastModified].join(':');
- const sameFiles=(a,b)=>a.length===b.length&&a.every((file,i)=>fileKey(file)===fileKey(b[i]));
- async function upload(file){
+ function upload(file){
   const id=fileKey(file);if(uploads.has(id))return uploads.get(id);
-  const data=await api('/api/fiiu/files',await prepareFile(file),'POST',{timeout:UPLOAD_MS});if(typeof data?.file?.id!=='string')throw problem('talkError');uploads.set(id,data.file.id);return data.file.id;
+  const sending=(async()=>{const data=await api('/api/fiiu/files',await prepareFile(file),'POST',{timeout:UPLOAD_MS});if(typeof data?.file?.id!=='string')throw problem('talkError');return data.file.id;})();
+  uploads.set(id,sending);sending.catch(()=>{if(uploads.get(id)===sending)uploads.delete(id);});return sending;
  }
 
  // Sending. Each draft has a clientId: the server stores one message per clientId, so a retry after a lost answer never posts it twice.
@@ -366,14 +367,17 @@
   if(failed){const actions=el('div','f-talk-actions');actions.append(button('talkRetry',()=>deliver(attempt),'f-talk-act f-talk-retry'));row.append(actions);}
   return row;
  }
+ // Sending hands the draft to its row and empties the composer at once, as chat apps do: what is typed next is a new message, and a photo still
+ // uploading is never sent again with it. The row keeps the content, and Retry when it fails.
+ function clearComposer(){const c=composer;c.textarea.value='';c.files=[];renderChips();updateLeft();grow();}
  function submit(){
   const c=composer,body=c.textarea.value.trim(),files=[...c.files];
   if(!body&&!files.length){c.textarea.focus();return;}
   if(codePoints(body)>LIMIT){say(problem('talkTooLong'));c.textarea.focus();return;}
-  // Sending the same draft again is its Retry (same clientId, same content), and a second tap while it is on its way does nothing.
-  const sig=body+'\n'+files.map(fileKey).join('|'),same=[...attempts.values()].find(item=>item.sig===sig);if(same?.state==='sending')return;
+  // The same draft typed again is the same message: a failed one is retried with its clientId, and one on its way is already in its row.
+  const sig=body+'\n'+files.map(fileKey).join('|'),same=[...attempts.values()].find(item=>item.sig===sig);if(same?.state==='sending'){clearComposer();return;}
   let attempt=same?.state==='failed'?same:null;if(!attempt){attempt={clientId:uuid(),body,files,sig,state:'new',row:null};attempts.set(attempt.clientId,attempt);}
-  return deliver(attempt);
+  clearComposer();return deliver(attempt);
  }
  async function deliver(attempt){
   if(attempt.state==='sending'||!parts)return;attempt.state='sending';const row=pendingRow(attempt),id=question.id;
@@ -388,11 +392,15 @@
    // A retry can find the message deleted since it was stored: it was delivered, so the draft goes as for any send, and no row is drawn for it.
    if(question?.id===id&&parts)patch(note=>{if(data.message.gone)drop(data.message.id);else note(data.message,upsert(data.message));});
    const c=composer;if(!c)return;
-   if(c.textarea.value.trim()===attempt.body&&sameFiles(c.files,attempt.files)){c.textarea.value='';c.files=[];renderChips();updateLeft();grow();}
    const active=document.activeElement;if(!active||active===document.body||c.form.contains?.(active))c.textarea.focus();
   }catch(error){
    const key=keyOf(error);
-   if(DRAFT.includes(key)){attempts.delete(attempt.clientId);row.remove();attempt.row=null;updateEmpty();say(problem(key));return;}
+   // The draft goes back to the composer to be fixed, unless something new was typed or attached there meanwhile.
+   if(DRAFT.includes(key)){
+    attempts.delete(attempt.clientId);row.remove();attempt.row=null;updateEmpty();
+    const c=composer;if(c&&!c.textarea.value.trim()&&!c.files.length){c.textarea.value=attempt.body;c.files=[...attempt.files];renderChips();updateLeft();grow();}
+    say(problem(key));return;
+   }
    // A file the server no longer accepts for this message is uploaded again on the next try.
    if(error?.code==='file_unavailable')for(const file of attempt.files)uploads.delete(fileKey(file));
    /* The copy stored under this clientId can no longer be finished (it stopped before its files and the question closed, a moderator hid it, or

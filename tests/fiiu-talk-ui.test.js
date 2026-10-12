@@ -76,16 +76,16 @@ test('a guest is asked to sign in and come back, an account without a registrati
  const broken=await page({},{search:'?q=nope'});assert.ok(key(broken.root,'talkUnavailable'));assert.equal(broken.requests.length,0,'a malformed address asks the server nothing');
 });
 
-test('a message appears at once as sending; a failure keeps the draft and offers Retry with the same clientId; success shows the server row',async()=>{
+test('a message appears at once as sending and leaves the composer; a failure keeps it in its row with Retry and the same clientId; success shows the server row',async()=>{
  const answers=[later(),later()];let n=0;
  const h=await page({['POST '+MESSAGES]:()=>answers[n++].promise});
  const text=composer(h).querySelector('textarea');text.value='  Me llevo la idea de barrio  ';text.focus();
- submit(h);await flush();
+ submit(h);await flush();assert.equal(text.value,'','the composer empties at once');
  submit(h);await flush();assert.equal(sent(h,'POST',MESSAGES).length,1,'a second tap while sending posts nothing');assert.equal(rows(h).filter(node=>node.dataset.pending).length,1);
  const pending=rows(h).at(-1);assert.ok(classes(pending).includes('is-pending'));assert.ok(key(pending,'talkSending'));assert.equal(content(pending.querySelector('.f-talk-body')).trim(),'Me llevo la idea de barrio');
  answers[0].resolve({status:503,data:{error:'unavailable'}});await flush();
  const failed=rows(h).at(-1);assert.ok(classes(failed).includes('is-failed'));assert.ok(key(failed,'talkNotSent'));assert.ok(key(failed,'talkRetry'));
- assert.equal(text.value,'  Me llevo la idea de barrio  ','the draft survives a failure');assert.equal(composer(h).querySelector('.f-talk-status').dataset.fiiuText,'talkError');
+ assert.equal(content(failed.querySelector('.f-talk-body')).trim(),'Me llevo la idea de barrio','the failed row keeps the message');assert.equal(text.value,'');assert.equal(composer(h).querySelector('.f-talk-status').dataset.fiiuText,'talkError');
  text.focused=false;key(failed,'talkRetry').listeners.click();await flush();
  assert.ok(classes(rows(h).at(-1)).includes('is-pending'),'a retry shows the sending state again');
  answers[1].resolve({status:201,data:{message:message(M3,{mine:true,body:'Me llevo la idea de barrio',createdAt:'2026-10-21T14:20:00.000Z',seq:4})}});await flush();
@@ -514,14 +514,14 @@ test('a Retry answered with the message already removed clears the draft and lea
  assert.equal(text.value,'','it was delivered, then removed');assert.equal(composerStatus(h),'');
 });
 
-test('a Retry refused because its earlier copy can no longer be finished keeps the draft, and the next try is a new message with its files uploaded again',async()=>{
+test('a Retry refused because its earlier copy can no longer be finished keeps the row, and the next try is a new message with its files uploaded again',async()=>{
  let posts=0,uploads=0;const answers=[{status:503,data:{}},{status:409,data:{error:'client id already used for another message',code:'client_id_reused'}},{status:201,data:{message:message(M3,{mine:true,body:'Otra vez',createdAt:'2026-10-21T14:20:00.000Z',seq:6})}}];
  const h=await page({'POST /api/fiiu/files':()=>({status:201,data:{file:{id:[F1,F2][uploads++],name:'a.jpg',mime:'image/jpeg',size:1000,width:null,height:null,thumb:false}}}),['POST '+MESSAGES]:()=>answers[posts++]},
   {context:{createImageBitmap:async()=>{throw new Error('x');},FileReader:Reader}});
  const text=composer(h).querySelector('textarea'),failed=()=>rows(h).find(node=>classes(node).includes('is-failed'));
  text.value='Otra vez';choose(h,[file('a.jpg','image/jpeg',1000)]);submit(h);await flush();
  await key(failed(),'talkRetry').listeners.click();await flush();
- assert.ok(failed(),'still Not sent, with Retry');assert.equal(text.value,'Otra vez','the draft stays');assert.equal(composerStatus(h),'talkReused');
+ assert.ok(failed(),'still Not sent, with Retry');assert.match(content(failed()),/Otra vez/,'the row keeps the message');assert.equal(text.value,'');assert.equal(composerStatus(h),'talkReused');
  await key(failed(),'talkRetry').listeners.click();await flush();
  const posted=sent(h,'POST',MESSAGES).map(request=>request.body);
  assert.equal(posted[1].clientId,posted[0].clientId,'a plain Retry repeats the clientId');assert.notEqual(posted[2].clientId,posted[1].clientId,'after the refusal, a new one');
@@ -591,8 +591,9 @@ test('refusals of a send say what happened in the person’s language, and only 
  for(const [where,answer,expected,retry] of cases){
   const h=await page({'POST /api/fiiu/files':where==='file'?answer:{status:201,data:{file:{id:F1,name:'a.pdf',mime:'application/pdf',size:1,width:null,height:null,thumb:false}}},['POST '+MESSAGES]:where==='message'?answer:{status:500,data:{}}},{context:{FileReader:Reader}});
   const text=composer(h).querySelector('textarea');text.value='Hola';if(where==='file')choose(h,[file('a.pdf','application/pdf',1000)]);submit(h);await flush();
-  assert.equal(composerStatus(h),expected,expected);assert.equal(text.value,'Hola','the draft stays');
-  assert.equal(Boolean(rows(h).find(node=>classes(node).includes('is-failed'))),retry,expected+(retry?' keeps Retry':' leaves no row'));
+  // What Retry can fix stays in its row; what it cannot goes back to the composer to be fixed.
+  assert.equal(composerStatus(h),expected,expected);assert.equal(text.value,retry?'':'Hola',expected);
+  const failed=rows(h).find(node=>classes(node).includes('is-failed'));assert.equal(Boolean(failed),retry,expected+(retry?' keeps Retry':' leaves no row'));if(failed)assert.match(content(failed),/Hola/);
  }
  const h=await page({['POST '+MESSAGES]:{status:403,data:{error:'festival registration required',code:'not_registered'}}});
  composer(h).querySelector('textarea').value='Hola';submit(h);await flush();h.lang('es');
@@ -720,4 +721,34 @@ test('the projector headline follows a question edit that arrives with answers',
  revision=5;await h.tickTimers();
  assert.equal(order(h)[0],M3);assert.equal(h.root.querySelector('.f-talk-wall-question').textContent,'¿Qué ciudad imaginas?');
  assert.equal(h.root.querySelector('.f-talk-wall-head').querySelector('.f-talk-talk'),null,'the talk was taken off');
+});
+
+// Round 3: the composer hands each draft to its row, drafts outlive closes and reloads, and the page follows its block.
+test('sending empties the composer at once, so a caption typed while a photo uploads is a new text message and the photo is uploaded once',async()=>{
+ const upload=later();let n=0;
+ const h=await page({'POST /api/fiiu/files':()=>upload.promise,['POST '+MESSAGES]:request=>({status:201,data:{message:message('30000000-0000-4000-8000-00000000000'+n++,{mine:true,body:request.body.body,createdAt:'2026-10-21T14:2'+n+':00.000Z',seq:4+n})}})},
+  {context:{createImageBitmap:async()=>{throw new Error('x');},FileReader:Reader}});
+ const text=composer(h).querySelector('textarea'),photo=file('feria.jpg','image/jpeg',1000);
+ choose(h,[photo]);submit(h);await flush();
+ assert.equal(text.value,'');assert.equal(chips(h).length,0,'the photo left the composer with its message');assert.equal(composer(h).querySelector('.f-talk-chips').hidden,true);
+ assert.equal(rows(h).at(-1).querySelector('.f-talk-state').textContent,'Uploading 1 of 1…');
+ text.value='Esta es la feria de mi barrio';text.listeners.input();submit(h);await flush();
+ assert.equal(text.value,'');assert.deepEqual(sent(h,'POST',MESSAGES).map(request=>request.body.fileIds),[[]],'the caption goes on its own, without the photo');
+ // The very same draft again while it is on its way is already in its row: the composer empties and nothing new is sent.
+ choose(h,[photo]);submit(h);await flush();assert.equal(chips(h).length,0);assert.equal(rows(h).filter(node=>node.dataset.pending).length,1);
+ // The same photo in another message while its first upload runs waits for that upload instead of sending the bytes twice.
+ text.value='Otra vez la foto';choose(h,[photo]);submit(h);await flush();
+ upload.resolve({status:201,data:{file:{id:F1,name:'feria.jpg',mime:'image/jpeg',size:1000,width:null,height:null,thumb:false}}});await flush();
+ assert.equal(sent(h,'POST','/api/fiiu/files').length,1,'one upload');
+ assert.deepEqual(sent(h,'POST',MESSAGES).map(request=>[request.body.body,request.body.fileIds]),[['Esta es la feria de mi barrio',[]],['',[F1]],['Otra vez la foto',[F1]]]);
+});
+
+test('a refusal Retry cannot fix puts the draft back in an empty composer; a draft typed meanwhile is never overwritten',async()=>{
+ const refuse={status:403,data:{error:'festival registration required',code:'not_registered'}};
+ const h=await page({['POST '+MESSAGES]:refuse});
+ const text=composer(h).querySelector('textarea');text.value='Hola';submit(h);assert.equal(text.value,'','handed to its row at once');await flush();
+ assert.equal(text.value,'Hola');assert.equal(composerStatus(h),'talkNotRegistered');
+ const answer=later(),busy=await page({['POST '+MESSAGES]:()=>answer.promise});
+ const box=composer(busy).querySelector('textarea');box.value='Primero';submit(busy);await flush();box.value='Otra cosa';
+ answer.resolve(refuse);await flush();assert.equal(box.value,'Otra cosa');assert.equal(composerStatus(busy),'talkNotRegistered');
 });
