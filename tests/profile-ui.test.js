@@ -8,7 +8,7 @@ const flush=async()=>{for(let i=0;i<10;i++)await new Promise(r=>setImmediate(r))
 
 // Just enough DOM for profile.js: ids, class lookups, closest() and replaceWith().
 class Node {
- constructor(tag='div',className=''){this.tagName=tag;this.className=className;this.children=[];this.attributes={};this.listeners={};this.hidden=false;this._text='';this.href='';}
+ constructor(tag='div',className=''){this.tagName=tag;this.className=className;this.children=[];this.attributes={};this.listeners={};this.hidden=false;this._text='';this.href='';this.style={};}
  get textContent(){return this._text+this.children.map(n=>typeof n==='string'?n:n.textContent).join('');}
  set textContent(value){this._text=String(value);this.children=[];}
  append(...nodes){for(const n of nodes){if(typeof n==='object')n.parent=this;this.children.push(n);}}
@@ -35,7 +35,7 @@ function page({lang='es',me,other,people=[]}={}){
  const grid=add(add(body,'section','pf-body'),'div','wrap pf-grid'),main=add(grid,'div','pf-main');
  const about=add(main,'article','pf-card');add(about,'p','','pfAbout');add(about,'p','pf-quote','pfQuote');
  add(add(main,'article','pf-card'),'ul','pf-projects','pfProjects');
- add(main,'article','pf-card pf-locked');
+ const locked=add(main,'article','pf-card pf-locked');
  const side=add(grid,'aside','pf-side');const activity=add(side,'div','pf-panel');for(const key of ['pfActConn','pfActProj','pfActCourses','pfActSince'])add(activity,'dd','',key);
  add(add(side,'div','pf-panel'),'ul','pf-links','pfConnList');
  const listeners=[],dict={};
@@ -49,7 +49,7 @@ function page({lang='es',me,other,people=[]}={}){
  const state={lang};
  context.window.nodalI18n={get lang(){return state.lang;},t:(key,vars)=>String(dict[state.lang][key]??dict.en[key]??key).replace(/\{(\w+)\}/g,(m,k)=>vars&&k in vars?vars[k]:m),onChange:fn=>listeners.push(fn)};
  vm.runInContext(read('profile.js'),context);
- return {ids,body,dot,side,actions,context,setLang(value){state.lang=value;listeners.forEach(fn=>fn(value));},buttons:()=>all(ids.pfBtns).filter(n=>n.tagName==='button'),cards:()=>all(main).filter(n=>n.matches('.pf-card'))};
+ return {ids,body,dot,side,actions,grid,locked,context,setLang(value){state.lang=value;listeners.forEach(fn=>fn(value));},buttons:()=>all(ids.pfBtns).filter(n=>n.tagName==='button'),cards:()=>all(main).filter(n=>n.matches('.pf-card'))};
 }
 const ana={id:'ana-id',fullName:'Ana María Gonzales',title:'Member',role:'Member',city:'Lima',partC:{consent:false}};
 
@@ -76,12 +76,18 @@ test('your own hidden profile offers no link to copy, and says how to make it sh
  assert.deepEqual(other.buttons().map(b=>b.textContent),['Copiar enlace del perfil'],'another member’s listed profile can be shared');
 });
 
-test('a profile that is not found hides the placeholder badge, online dot and empty panels',async()=>{
+/* The placeholders leave the page rather than being hidden: styles.css gives the members-only card display:grid,
+   which beats [hidden], so with the pilot off (courses.css no longer hides [data-billing-only]) it still showed. */
+test('a profile that is not found removes the placeholder badge, online dot and empty panels, and uses the full width',async()=>{
  const h=page({other:'hidden-id'});await flush();
+ const onPage=node=>all(h.body).includes(node);
+ const about=h.cards()[0];
  assert.equal(h.ids.pfName.textContent,'Miembro no encontrado');
- assert.equal(h.ids.pfMatch.hidden,true,'no "…" badge');assert.equal(h.dot.hidden,true,'no "active this week" dot');
- assert.equal(h.side.hidden,true,'no Activity or Connections panels');
- const [about,...rest]=h.cards();assert.equal(about.hidden,false);assert.match(h.ids.pfAbout.textContent,/Parte C/);
- assert.ok(rest.length===2&&rest.every(card=>card.hidden),'no Projects or members-only cards');
- h.setLang('en');assert.equal(h.ids.pfName.textContent,'Member not found');assert.equal(h.ids.pfMatch.hidden,true);assert.equal(h.side.hidden,true);
+ assert.equal(onPage(h.ids.pfMatch),false,'no "…" badge');assert.equal(onPage(h.dot),false,'no "active this week" dot');
+ assert.equal(onPage(h.side),false,'no Activity or Connections panels');
+ assert.equal(onPage(h.locked),false,'no members-only card, whatever the stylesheet says about [hidden]');
+ assert.deepEqual(h.cards(),[about],'no Projects or members-only cards');assert.equal(about.hidden,false);assert.match(h.ids.pfAbout.textContent,/Parte C/);
+ // With the side column gone, the About card takes the whole row instead of sitting beside an empty column.
+ assert.equal(h.grid.style.gridTemplateColumns,'1fr');
+ h.setLang('en');assert.equal(h.ids.pfName.textContent,'Member not found');assert.deepEqual(h.cards(),[about]);assert.equal(onPage(h.side),false);
 });

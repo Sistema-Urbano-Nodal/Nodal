@@ -5,13 +5,14 @@ import {readFileSync} from 'node:fs';
 
 const script=name=>readFileSync(new URL(`../web/scripts/${name}.js`,import.meta.url),'utf8');
 class Node {
- constructor(tag='div'){this.tagName=tag;this.dataset={};this.children=[];this.listeners={};this.attributes={};this.classList={toggle(){},contains:()=>false};this.hidden=false;this.value='';this._text='';}
+ constructor(tag='div'){this.tagName=tag;this.dataset={};this.children=[];this.listeners={};this.attributes={};this.classList={toggle(){},contains:()=>false};this.hidden=false;this.value='';this._text='';this.style={};}
  set textContent(value){this._text=String(value);this.children=[];}
  get textContent(){return this._text+this.children.map(child=>typeof child==='string'?child:child.textContent).join('');}
  append(...nodes){for(const node of nodes){if(typeof node==='object')node.parent=this;this.children.push(node);}}
  appendChild(node){this.append(node);return node;}
  replaceChildren(...nodes){this._text='';this.children=[];this.append(...nodes);}
  replaceWith(node){const i=this.parent.children.indexOf(this);node.parent=this.parent;this.parent.children.splice(i,1,node);}
+ remove(){if(this.parent)this.parent.children=this.parent.children.filter(child=>child!==this);this.parent=null;}
  setAttribute(key,value){this.attributes[key]=String(value);}
  getAttribute(key){return this.attributes[key]??null;}
  removeAttribute(key){delete this.attributes[key];}
