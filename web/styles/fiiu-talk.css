@@ -59,8 +59,10 @@
 .f-talk-note{margin:0 0 var(--f-sp-2);font-weight:600;color:var(--f-amber)}
 /* A closed question leads to the block's open one, if there is one, with the site's main button under the note. */
 .f-shell .f-talk-next{margin:var(--f-sp-2) 0 0}
-/* A draft the close interrupted stays under the note, read-only and short (it scrolls past three lines), so the dock never covers the conversation. */
-.f-talk-draft{margin:var(--f-sp-2) 0 0}.f-talk-draft-label{display:block;font-size:.84rem;font-weight:650;color:var(--f-muted)}.f-shell .f-talk-draft-text{max-height:calc(4.5em + 22px);margin:2px 0 0;background:var(--f-panel);border-color:var(--f-line)}
+/* A draft the close interrupted stays under the note, read-only and short (it scrolls past three lines), with Discard on its label's line: the reader
+   can give the dock's room back to the conversation. */
+.f-talk-draft{margin:var(--f-sp-2) 0 0}.f-talk-draft-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 var(--f-sp-3)}
+.f-talk-draft-label{display:block;font-size:.84rem;font-weight:650;color:var(--f-muted)}.f-shell .f-talk-draft-text{max-height:calc(4.5em + 22px);margin:2px 0 0;background:var(--f-panel);border-color:var(--f-line)}
 /* Projector (?q=…&present=1, organisers only; fiiu-talk.js puts f-talk-present on the body): a room screen sized from the viewport. The question is the
    headline with the join code beside it, the latest or most liked answers sit below in columns. The footer goes, and in full screen the site header too. */
 .f-page.f-talk-present>.f-footer{display:none}html:fullscreen>.f-page.f-talk-present>.navbar{display:none}

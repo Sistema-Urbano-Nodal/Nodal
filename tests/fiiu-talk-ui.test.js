@@ -1117,3 +1117,15 @@ test('a message not confirmed by the server survives a reload as not sent, and R
  const denied=await page({['POST '+MESSAGES]:offline},{context:{sessionStorage:blocked}});composer(denied).querySelector('textarea').value='Hola';submit(denied);await flush();
  assert.ok(classes(rows(denied).at(-1)).includes('is-failed'),'without storage the row still shows');
 });
+
+test('a draft kept under a closed question can be discarded, so the dock shrinks back and the draft does not return',async()=>{
+ const sessionStorage=memoryStore({[DRAFT_KEY]:'Lo que quería decir'});
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'closed'},me:{canPost:false}})},{context:{sessionStorage}});
+ const draft=h.root.querySelector('.f-talk-draft');assert.equal(draft.hidden,false);
+ const discard=key(draft,'talkDiscardDraft');assert.ok(discard);focusInside(h,discard);
+ await discard.listeners.click();
+ assert.equal(draft.hidden,true);assert.equal(sessionStorage.items.has(DRAFT_KEY),false);assert.equal(key(h.root,'talkClosed').focused,true,'focus goes to the closed note');
+ const again=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'closed'},me:{canPost:false}})},{context:{sessionStorage}});
+ assert.equal(again.root.querySelector('.f-talk-draft').hidden,true,'opening the question again shows no draft');
+ h.lang('es');assert.equal(discard.textContent,'Descartar');
+});

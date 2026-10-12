@@ -44,7 +44,7 @@
   talkEmptyClosed:['This question closed without answers.','Esta pregunta se cerró sin respuestas.','Esta pergunta foi encerrada sem respostas.'],
   talkEmptyHidden:['No messages yet. Participants can answer once the question opens.','Todavía no hay mensajes. Se podrá responder cuando la pregunta se abra.','Ainda não há mensagens. Será possível responder quando a pergunta for aberta.'],
   talkNextOpen:['Answer the open question','Responder la pregunta abierta','Responder à pergunta aberta'],
-  talkDraftKept:['Your unsent answer:','Tu respuesta sin enviar:','Sua resposta não enviada:'],
+  talkDraftKept:['Your unsent answer:','Tu respuesta sin enviar:','Sua resposta não enviada:'],talkDiscardDraft:['Discard','Descartar','Descartar'],
  });
  const root=document.getElementById('fiiuTalkRoot'),message=document.getElementById('fiiuStatus');
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,ID=/^[a-z0-9-]{1,60}$/;
@@ -257,6 +257,11 @@
    parts.next.hidden=!open;if(open)parts.next.href='fiiu-talk.html?q='+encodeURIComponent(open.id);parts.draft.hidden=!draft;parts.draftText.value=draft;
   }
  }
+ // Discarding a kept draft clears it from the composer and the tab; focus on the button, which goes with it, moves to the closed note.
+ function discardDraft(){
+  const inside=holds(parts?.draft);if(composer){composer.textarea.value='';updateLeft();grow();}keepDraft();
+  if(!parts)return;parts.draft.hidden=true;parts.draftText.value='';if(inside)parts.closedNote.focus();
+ }
  function setStatus(state){
   if(!question||!(parts||wall))return;question.status=state;me.canPost=state==='open';if(wall)return renderWallHead();renderHead();renderDock();rekey(parts.empty,emptyKey());
   for(const node of rowsById.values()){const like=node.querySelector('.f-talk-like');if(like)like.disabled=state!=='open';}
@@ -272,7 +277,9 @@
   // "select all" stays inside it, so the whole answer can be copied on a phone.
   const closed=el('div','f-talk-closedbox'),closedNote=tr('p','talkClosed','f-talk-closed'),draft=el('div','f-talk-draft'),draftLabel=tr('label','talkDraftKept','f-talk-draft-label'),draftText=el('textarea','f-talk-input f-talk-draft-text');
   const next=link('talkNextOpen','#','f-button f-talk-next');next.hidden=true;
-  closedNote.tabIndex=-1;draftText.id='f-talk-draft';draftText.readOnly=true;draftText.rows=2;draftLabel.htmlFor=draftText.id;draft.append(draftLabel,draftText);draft.hidden=true;closed.append(closedNote,next,draft);
+  // Discard drops the kept draft for good, so a reader done with it gets the dock's room back, here and whenever the question is opened again in the tab.
+  const draftHead=el('div','f-talk-draft-head'),discard=button('talkDiscardDraft',()=>discardDraft(),'f-talk-act f-talk-discard');draftHead.append(draftLabel,discard);
+  closedNote.tabIndex=-1;draftText.id='f-talk-draft';draftText.readOnly=true;draftText.rows=2;draftLabel.htmlFor=draftText.id;draft.append(draftHead,draftText);draft.hidden=true;closed.append(closedNote,next,draft);
   log.setAttribute('role','log');log.setAttribute('aria-live','off');log.setAttribute('aria-label',t('talkPage'));log.tabIndex=-1;dock.append(pill);box.append(head,earlier,log,empty,dock,live);
   root.replaceChildren(box,newTabNote());parts={box,head,earlier,log,empty,dock,pill,live,note,closed,closedNote,next,draft,draftText,more:null,dockState:''};
   // The stylesheet keeps focused message controls clear of the sticky dock by its measured height, which grows with chips, a status and six lines; a
