@@ -1,6 +1,6 @@
 (() => {
  'use strict';
- const {el,tr,t,source,button,link,field,check,api,status,dateNode,rangeNode,limaDate,contentCards,badges,findActivity,chronological,typeOf,countLabel,nextFor,hint,describe,newTabNote,revealInRow,hoursLine}=window.Fiiu;
+ const {el,tr,t,source,button,link,field,check,api,status,dateNode,rangeNode,limaDate,contentCards,badges,findActivity,chronological,typeOf,countLabel,nextFor,hint,describe,newTabNote,revealInRow,hoursLine,pulse,talkLink}=window.Fiiu;
  const root=document.getElementById('fiiuRoot'),loadStatus=document.getElementById('fiiuStatus');
  const TYPES=[['conference','conferenceOne','conferenceMany'],['workshop','workshopOne','workshopMany'],['route','routeOne','routeMany'],['lab','labOne','labOne']];
  const CHOICE_NAMES=['activities','externalActivities','applyLab'];
@@ -13,6 +13,13 @@
  const panelNotice=el('p','f-status f-notice is-ok');panelNotice.setAttribute('role','status');panelNotice.setAttribute('aria-live','polite');
  const missingAnswers=a=>['country','city','profile','nationalId','gender','motivation','previousAttendance'].filter(k=>!a[k]).length+(Number.isInteger(a.age)?0:1)+(Array.isArray(a.accessibility)&&a.accessibility.length?0:1)+(typeof a.publicOfficial==='boolean'?0:1);
  function jumpTo(input,event){event?.preventDefault?.();if(!input)return;openForm?.();const fold=input.closest?.('details');if(fold)fold.open=true;input.focus();input.scrollIntoView?.({block:'center'});}
+ // Conversation links come from the public pulse, which never holds up the page: a block drawn before it answers gets its link when it does,
+ // and later redraws add theirs at once. Guests see them too; the chat page explains signing in.
+ let talkCounts=null;const talkWaiting=[];
+ function withTalk(activity,titleId,place){const add=counts=>{const n=counts.get(activity.id);if(n)place(describe(talkLink(activity.id,n),titleId));};if(talkCounts)add(talkCounts);else talkWaiting.push(add);}
+ function showTalks(counts){talkCounts=counts;for(const add of talkWaiting.splice(0))add(counts);}
+ // A card's foot is attached only once it holds something, so the link attaches it when it is the first thing there.
+ const footTalk=(activity,titleId,host,foot)=>withTalk(activity,titleId,link=>{if(!foot.children.length)host.append(foot);foot.append(link);});
  function typeCounts(list){const counts={};for(const activity of list){const type=typeOf(activity);counts[type]=(counts[type]||0)+1;}return TYPES.filter(([type])=>counts[type]).map(([type,one,many])=>countLabel(counts[type],one,many));}
  function renderHero(){
   const event=festival.event,config=festival.config,registration=me.registration,copy=el('div','f-hero-copy'),title=el('h1','f-hero-title'),kicker=el('span','f-kicker');
@@ -51,18 +58,20 @@
  function syncProgramme(){for(const [id,{action,addKey}] of programmeActions){const input=choiceInputs.get(id),on=Boolean(input?.checked&&!input.disabled),key=on?'choiceAdded':addKey;if(action.dataset.fiiuText===key)continue;action.dataset.fiiuText=key;action.textContent=t(key);action.className='f-button secondary f-small'+(on?' is-added':'');}}
  function labCard(activity,labStatus){
   const card=el('article','f-activity is-lab'),title=source('h4',activity.title);title.id='f-act-'+activity.id+'-title';card.append(title,tr('p','labType','f-lab-type'));
-  if(labStatus!=='none'){card.append(tr('p',labStatus+'Short','f-pill is-'+labStatus));return card;}
-  if(!festival.config.registrationOpen)return card;
-  const apply=describe(link('apply',officialInput?'#f-publicOfficial':'#registration','f-button secondary f-small'),title.id);
-  if(officialInput)apply.addEventListener('click',event=>{const lab=choiceInputs.get(activity.id);jumpTo(lab&&!lab.disabled?lab:officialInput,event);});
-  card.append(apply);return card;
+  if(labStatus!=='none')card.append(tr('p',labStatus+'Short','f-pill is-'+labStatus));
+  else if(festival.config.registrationOpen){
+   const apply=describe(link('apply',officialInput?'#f-publicOfficial':'#registration','f-button secondary f-small'),title.id);
+   if(officialInput)apply.addEventListener('click',event=>{const lab=choiceInputs.get(activity.id);jumpTo(lab&&!lab.disabled?lab:officialInput,event);});
+   card.append(apply);
+  }
+  footTalk(activity,title.id,card,el('div','f-activity-foot'));return card;
  }
  function conferenceCard(activity,mine){
   const card=el('article','f-activity is-conference'),rail=el('div','f-time-rail'),body=el('div','f-activity-body'),title=source('h4',activity.title);title.id='f-act-'+activity.id+'-title';
   rail.append(activity.time?el('p','f-time',activity.time):tr('p','timePending','f-muted'),tr('p',activity.period,'f-period'));
   const foot=el('div','f-activity-foot'),action=choiceAction(activity,mine,'statusRegistered','addToRegistration',title.id);body.append(activity.venue?source('p',activity.venue,'f-venue'):tr('p','venuePending','f-muted f-venue'));
   if(activity.sessions.length){const details=el('details','f-sessions'),summary=el('summary'),list=el('ul','f-session-list');summary.append(countLabel(activity.sessions.length,'sessionOne','sessions'));describe(summary,title.id);for(const [time,name] of activity.sessions){const item=el('li');item.append(el('span','f-session-time',time),source('span',name));list.append(item);}details.append(summary,list);foot.append(details);}
-  if(action)foot.append(action);if(foot.children.length)body.append(foot);
+  if(action)foot.append(action);if(foot.children.length)body.append(foot);footTalk(activity,title.id,body,foot);
   // The title comes first in the DOM so heading navigation lands before the time; CSS places the time rail beside it.
   card.append(title,rail,body);return card;
  }
@@ -78,7 +87,7 @@
    const mine=interests.has(activity.id),row=el('li','f-compact'),main=el('div','f-compact-main'),title=source('p',activity.title,'f-compact-title'),where=venueLine(activity,'f-compact-venue'),actions=el('div','f-compact-actions');title.id='f-act-'+activity.id+'-title';
    main.append(title);if(where)main.append(where);
    const action=choiceAction(activity,mine,'interestChip','saveInterest',title.id);if(action)actions.append(action);
-   actions.append(describe(link('activityForm',activity.formUrl||festival.event.website,'f-text-link'),title.id));row.append(main,actions);list.append(row);
+   actions.append(describe(link('activityForm',activity.formUrl||festival.event.website,'f-text-link'),title.id));withTalk(activity,title.id,link=>actions.append(link));row.append(main,actions);list.append(row);
   }
   group.append(head,list);return group;
  }
@@ -124,12 +133,12 @@
    const row=itineraryRow(activity,prefix);
    if(activity.registration==='application')row.append(tr('span',registration.labStatus+'Short','f-pill is-'+registration.labStatus),tr('p',registration.labStatus+'Hint','f-muted f-itinerary-note'));
    else{row.append(tr('span','statusRegistered','f-pill is-ok'));const where=venueLine(activity,'f-itinerary-venue');if(where)row.append(where);}
-   plan.append(row);
+   withTalk(activity,prefix+activity.id,link=>row.append(link));plan.append(row);
   }
   plan.append(...unknownActivities.map(unknownRow));if(plan.children.length)box.append(tr('h4','myPlan'),plan);
   if(a.externalActivities?.length){
    const [interests,unknownInterests]=split(a.externalActivities),list=el('ol','f-itinerary');
-   for(const activity of interests){const row=itineraryRow(activity,prefix),where=venueLine(activity,'f-itinerary-venue');row.append(tr('span','interestChip','f-pill'));if(where)row.append(where);if(activity.formUrl)row.append(describe(link('externalFormNext',activity.formUrl,'f-text-link'),prefix+activity.id));list.append(row);}
+   for(const activity of interests){const row=itineraryRow(activity,prefix),where=venueLine(activity,'f-itinerary-venue');row.append(tr('span','interestChip','f-pill'));if(where)row.append(where);if(activity.formUrl)row.append(describe(link('externalFormNext',activity.formUrl,'f-text-link'),prefix+activity.id));withTalk(activity,prefix+activity.id,link=>row.append(link));list.append(row);}
    list.append(...unknownInterests.map(unknownRow));box.append(tr('h4','externalActivities'),tr('p','externalInterestHint','f-muted'),list);
   }
   box.append(tr('p','savedHint','f-muted'));
@@ -374,7 +383,8 @@
  async function load(){
   status(loadStatus,'loading');root.replaceChildren();
   // Three requests start together: the news page (with the event and settings), the materials page and the person's registration.
-  const materials=api('/api/fiiu?kind=materials');materials.catch(()=>{});
+  // The conversation pulse starts with them but is never awaited; its links join the programme and the itinerary when it answers.
+  const materials=api('/api/fiiu?kind=materials');materials.catch(()=>{});pulse().then(showTalks);
   try{
    const [publicData,registrationData]=await Promise.all([api('/api/fiiu?kind=news'),api('/api/fiiu/registration').catch(unread)]);
    festival=publicData;me=registrationData;

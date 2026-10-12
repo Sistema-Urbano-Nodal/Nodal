@@ -11,9 +11,10 @@ const saved={userId:user.id,id:'00000000-0000-4000-8000-000000000002',version:1,
 const self=registration=>({user,registration,attendance:[],isAdmin:false});
 const publicData={event:FIIU_EVENT,config:{registrationOpen:true,programUrl:'https://canva.link/ficmkatcg9fudwk'},content:[],nextCursor:null};
 // The page reads the news page (which carries the event and settings) and the materials page separately.
-async function harness({registration=null,write=async()=>({status:503,data:{error:'unavailable'}}),read,publicRead=()=>publicData,materialsRead=()=>publicData,context}={}){
+// The conversation pulse answers on its own path, so it never uses up one of the registration reads a test counts.
+async function harness({registration=null,write=async()=>({status:503,data:{error:'unavailable'}}),read,publicRead=()=>publicData,materialsRead=()=>publicData,pulseRead=()=>({questions:[]}),context}={}){
  let registrationReads=0;
- const h=await createFiiuHarness(request=>request.method!=='GET'?write(request):request.path==='/api/fiiu?kind=news'?publicRead():request.path==='/api/fiiu?kind=materials'?materialsRead():request.path==='/api/auth/state'?{authenticated:true}:read?read(++registrationReads):self(registration),{context});
+ const h=await createFiiuHarness(request=>request.method!=='GET'?write(request):request.path==='/api/fiiu?kind=news'?publicRead():request.path==='/api/fiiu?kind=materials'?materialsRead():request.path==='/api/fiiu/pulse'?pulseRead():request.path==='/api/auth/state'?{authenticated:true}:read?read(++registrationReads):self(registration),{context});
  const form=()=>h.root.querySelector('form');
  const fill=()=>{for(const input of descendants(form()).filter(node=>node.name)){const value=answers[input.name];if(value!==undefined){if(input.type==='checkbox')input.checked=Array.isArray(value)?value.includes(input.value):value===true;else input.value=String(value);}}field(form(),'publicOfficial').value='no';};
  return{...h,form,fill,submit:()=>form().listeners.submit({preventDefault(){}})};
@@ -56,9 +57,9 @@ test('a cancelled registration can be reconciled after an ambiguous network fail
 });
 
 
-test('the programme, both feeds and self-registration start together (three requests) without an auth-state round trip',async()=>{
+test('the programme, both feeds, self-registration and the conversation pulse start together (four requests) without an auth-state round trip',async()=>{
  let finish;const h=await harness({publicRead:()=>new Promise(resolve=>{finish=resolve;})});
- assert.deepEqual(h.requests.map(request=>request.path).sort(),['/api/fiiu/registration','/api/fiiu?kind=materials','/api/fiiu?kind=news']);finish(publicData);
+ assert.deepEqual(h.requests.map(request=>request.path).sort(),['/api/fiiu/pulse','/api/fiiu/registration','/api/fiiu?kind=materials','/api/fiiu?kind=news']);finish(publicData);
 });
 
 test('only a registration 401 becomes a guest view; service failures remain retryable errors',async()=>{
@@ -194,7 +195,7 @@ test('news and materials page separately: newer materials never hide the news, a
  const item=(id,kind='news')=>({id,kind,title:'Item '+id,body:'',url:'',createdAt:'2026-09-29T12:00:00.000Z'});let fail=true;
  const materials=Array.from({length:100},(_,i)=>item('m'+i,i%2?'recording':'material'));
  const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?{...publicData,content:[item('n1')],nextCursor:'c1'}:request.path==='/api/fiiu?kind=materials'?{...publicData,content:materials,nextCursor:'m99'}:request.path==='/api/fiiu?kind=news&cursor=c1'?(fail?{status:503,data:{error:'unavailable'}}:{content:[item('n2')],nextCursor:null}):request.path==='/api/fiiu?kind=materials&cursor=m99'?{content:[item('m100','material')],nextCursor:null}:self(null));
- assert.equal(h.requests.length,3);assert.ok(!h.requests.some(request=>request.path==='/api/fiiu'),'the mixed first page is no longer read');
+ assert.equal(h.requests.filter(request=>request.path!=='/api/fiiu/pulse').length,3);assert.ok(!h.requests.some(request=>request.path==='/api/fiiu'),'the mixed first page is no longer read');
  const [news,library]=['news','materials'].map(id=>descendants(h.root).find(node=>node.id===id)),titles=section=>section.querySelectorAll('h3').map(node=>node.textContent);
  assert.deepEqual(titles(news),['Item n1'],'100 newer materials leave the news in place');assert.equal(titles(library).length,100);assert.match(content(h.root.querySelector('.f-latest')),/Item n1/);
  const more=key(news,'loadMore'),feedback=news.querySelector('.f-load-more-status'),pending=more.listeners.click(),duplicate=more.listeners.click();
@@ -257,10 +258,11 @@ test('the sticky step bar uses short names while the fieldsets keep full legends
  assert.equal(field(form,'gender').autocomplete,'sex');assert.equal(field(form,'institution').autocomplete,'organization');assert.equal(field(form,'position').autocomplete,'organization-title');
 });
 
-async function widgetHarness(respond){
+// context adds or replaces globals (a Date frozen at a festival hour).
+async function widgetHarness(respond,context={}){
  const body=new Node('body'),widget=new Node(),requests=[];body.append(widget);
  const document={body,documentElement:{lang:'en'},getElementById:id=>id==='fiiuDashboardBody'?widget:null,createElement:tag=>new Node(tag),querySelectorAll:selector=>body.querySelectorAll(selector)};
- const ctx={document,window:{nodalI18n:{lang:'en',onChange(){}}},Intl,Date,Error,AbortSignal,fetch:async path=>{requests.push(path);const result=await respond(path);return{ok:!result.status||result.status<400,status:result.status||200,json:async()=>result.data??result};}};
+ const ctx={document,window:{nodalI18n:{lang:'en',onChange(){}}},Intl,Date,Error,AbortSignal,fetch:async path=>{requests.push(path);const result=await respond(path);return{ok:!result.status||result.status<400,status:result.status||200,json:async()=>result.data??result};},...context};
  vm.createContext(ctx);for(const name of ['fiiu-ui','fiiu-hubs'])vm.runInContext(readFileSync(new URL('../web/scripts/'+name+'.js',import.meta.url),'utf8'),ctx);await flush();
  return{widget,requests};
 }
@@ -277,7 +279,7 @@ test('dashboard widget shows registration state, the next activity and the organ
  assert.equal(key(widget,'admin').href,'fiiu-admin.html#participants');assert.ok(key(widget,'pendingReviewMany'));assert.match(text,/\b3\b/);
  assert.equal(key(widget,'allNews').href,'fiiu.html#news');assert.match(text,/Festival announcement/);assert.doesNotMatch(text,/Recent material/);
  assert.ok(key(widget,'badges'));assert.ok(key(widget,'badgesHintShort'),'the widget keeps the badge hint to one short line');assert.equal(key(widget,'badgesHint'),undefined);assert.ok(requests.includes('/api/admin/fiiu/summary'));
- assert.deepEqual(requests.filter(path=>path.startsWith('/api/fiiu')&&path!=='/api/fiiu/registration'),['/api/fiiu?kind=news'],'one news request serves the list, the next activity and the badges');
+ assert.deepEqual(requests.filter(path=>path.startsWith('/api/fiiu')&&!['/api/fiiu/registration','/api/fiiu/pulse'].includes(path)),['/api/fiiu?kind=news'],'one news request serves the list, the next activity and the badges');
  const order=['dates','statusRegistered','viewRegistration','news'].map(name=>descendants(widget).indexOf(key(widget,name)));assert.deepEqual([...order].sort((a,b)=>a-b),order,'meta, state and CTA come before the news');
 });
 
@@ -290,7 +292,7 @@ test('dashboard widget invites members without a registration to register and sk
 
 test('the page loads and saves where AbortSignal has no timeout (Safari before 16, every iOS 15 browser)',async()=>{
  const h=await harness({context:{AbortSignal:{}},write:request=>({registration:{...saved,answers:request.body}})});
- assert.equal(h.message.dataset.fiiuText,'');assert.ok(h.root.querySelector('.f-programme'));assert.ok(!key(h.root,'retry'));assert.equal(h.requests.length,3);
+ assert.equal(h.message.dataset.fiiuText,'');assert.ok(h.root.querySelector('.f-programme'));assert.ok(!key(h.root,'retry'));assert.equal(h.requests.length,4);
  h.fill();await h.submit();assert.equal(h.requests.filter(request=>request.method==='PUT').length,1);assert.ok(h.root.querySelector('.f-saved'));
 });
 
@@ -572,4 +574,74 @@ test('the dashboard widget names the venue of the next block',async()=>{
  const ctx={document,window:{nodalI18n:{lang:'en',onChange(){}}},Intl,Date:FrozenDate,Error,AbortSignal,fetch:async path=>{const result=widgetFeed(path)||self(registration);return{ok:true,status:200,json:async()=>result};}};
  vm.createContext(ctx);for(const name of ['fiiu-ui','fiiu-hubs'])vm.runInContext(readFileSync(new URL('../web/scripts/'+name+'.js',import.meta.url),'utf8'),ctx);await flush();
  assert.match(content(widget.querySelector('.f-next').querySelector('.f-next-venue')),/Museo Metropolitano de Lima/);
+});
+
+// The public conversation pulse lists [id, activityId, revision, status] for every question that is not hidden: two on the 21 October morning here.
+const pulseData={questions:[['10000000-0000-4000-8000-000000000001','day1-am',3,'open'],['10000000-0000-4000-8000-000000000002','day1-am',1,'closed']]};
+const talkLinks=node=>node.querySelectorAll('.f-talk-link');
+const cardOf=(h,title)=>h.root.querySelectorAll('.f-activity').find(node=>content(node).includes(title));
+
+test('a block with conversations links to them from its programme card when the pulse answers, which never holds up the page',async()=>{
+ let answer;const h=await harness({pulseRead:()=>new Promise(resolve=>{answer=resolve;})});
+ assert.ok(h.root.querySelector('.f-programme'),'the programme is drawn before the pulse answers');assert.deepEqual(talkLinks(h.root),[]);
+ answer(pulseData);await flush();
+ const links=talkLinks(h.root);assert.equal(links.length,1,'only the block with questions has a link');assert.ok(descendants(cardOf(h,'El poder de lo local')).includes(links[0]),'the link sits on its own block’s card');
+ assert.equal(links[0].href,'fiiu-talk.html?a=day1-am');assert.match(content(links[0]),/Conversation\s+·\s+2/);assert.equal(links[0].target,undefined,'the chat opens in the same tab');
+ assert.equal(links[0]['aria-describedby'],'f-act-day1-am-title','each link is described by its block title');
+ // Assistive technology hears "Conversation, 2 questions" instead of the bare count, in the reader's language.
+ const spoken=links[0].querySelector('.f-talk-spoken');assert.equal(links[0].querySelector('.f-talk-count')['aria-hidden'],'true');assert.equal(spoken.textContent,', 2 questions');
+ h.lang('es');assert.match(content(links[0]),/Conversación\s+·\s+2/);assert.equal(spoken.textContent,', 2 preguntas');h.lang('pt');assert.match(content(links[0]),/Conversa\s+·\s+2/);assert.equal(spoken.textContent,', 2 perguntas');
+ assert.equal(h.requests.filter(request=>request.path==='/api/fiiu/pulse').length,1);
+});
+
+test('a pulse that fails or answers oddly shows no conversation links and no error',async()=>{
+ for(const pulseRead of [()=>({status:503,data:{error:'unavailable'}}),()=>({questions:'none'}),()=>({questions:[null,'day1-am',{1:'day1-am'}]})]){
+  const h=await harness({registration:saved,pulseRead});
+  assert.deepEqual(talkLinks(h.root),[]);assert.ok(h.root.querySelector('.f-programme'));assert.ok(h.root.querySelector('.f-saved'));assert.equal(h.message.dataset.fiiuText,'');
+  for(const name of ['error','loadError','retry'])assert.equal(key(h.root,name),undefined,name);
+ }
+});
+
+test('the saved itinerary links a registered block to its conversation after the venue, and the links survive a re-render',async()=>{
+ const h=await harness({registration:saved,pulseRead:()=>pulseData,write:()=>({ok:true})});
+ const row=h.root.querySelector('.f-saved').querySelectorAll('.f-itinerary-row').find(node=>descendants(node).some(child=>child.id==='f-it-day1-am')),link=row.querySelector('.f-talk-link');
+ assert.equal(link.href,'fiiu-talk.html?a=day1-am');assert.ok(row.querySelector('.f-itinerary-venue'));assert.equal(row.children.at(-1),link,'the link closes the row, after the venue');assert.equal(link['aria-describedby'],'f-it-day1-am');
+ // Cancelling redraws the programme from the pulse already read: the card keeps its link and nothing is requested again.
+ await key(h.root,'cancel').listeners.click();assert.equal(h.root.querySelector('.f-saved'),null);
+ assert.equal(talkLinks(cardOf(h,'El poder de lo local')).length,1);assert.equal(h.requests.filter(request=>request.path==='/api/fiiu/pulse').length,1);
+});
+
+test('guests see conversation links too, on conference and laboratory cards and on workshop and route rows',async()=>{
+ const pulse={questions:[...pulseData.questions,['10000000-0000-4000-8000-000000000003','workshop-calles-gente',1,'open'],['10000000-0000-4000-8000-000000000004','day0-lab',2,'closed']]};
+ const h=await harness({read:()=>({status:401,data:{error:'sign in required'}}),pulseRead:()=>pulse});assert.ok(key(h.root,'signin'),'this is the guest view');
+ const card=talkLinks(cardOf(h,'El poder de lo local'));assert.equal(card.length,1);assert.equal(card[0].href,'fiiu-talk.html?a=day1-am');
+ const lab=cardOf(h,'Gestión urbana en acción').querySelector('.f-activity-foot');assert.equal(talkLinks(lab)[0].href,'fiiu-talk.html?a=day0-lab');assert.equal(talkLinks(lab)[0]['aria-describedby'],'f-act-day0-lab-title');
+ const row=h.root.querySelectorAll('.f-compact').find(node=>descendants(node).some(child=>child.id==='f-act-workshop-calles-gente-title')),link=row.querySelector('.f-compact-actions').querySelector('.f-talk-link');
+ assert.equal(link.href,'fiiu-talk.html?a=workshop-calles-gente');assert.match(content(link),/Conversation\s+·\s+1/);assert.equal(link.querySelector('.f-talk-spoken').textContent,', 1 question');
+ assert.equal(talkLinks(h.root).length,3);
+});
+
+test('the cancel question says conversation messages stay, in every language',()=>{
+ const context={window:{nodalI18n:{lang:'en',onChange(){}}},document:{documentElement:{lang:'en'},querySelectorAll:()=>[]},Intl,Date,Error};
+ vm.runInNewContext(readFileSync(new URL('../web/scripts/fiiu-ui.js',import.meta.url),'utf8'),context);const {rows}=context.window.Fiiu;
+ const said=['Your conversation messages stay; delete them first if you want them removed.','Tus mensajes en las conversaciones se mantienen; bórralos antes si quieres eliminarlos.','Suas mensagens nas conversas permanecem; apague-as antes se quiser removê-las.'];
+ rows.cancelConfirm.forEach((text,i)=>{assert.ok(text.endsWith(' '+said[i]),text);assert.match(text,[/^Cancel your registration/,/^¿Cancelar tu inscripción/,/^Cancelar sua inscrição/][i]);});
+ for(const name of ['talkLink','talkLinkOne','talkLinkCount'])assert.ok(rows[name].length===3&&rows[name].every(text=>typeof text==='string'&&text.trim()),name);
+});
+
+test('the dashboard widget links the next block to its conversation',async()=>{
+ const T=Date.parse('2026-10-21T08:00:00-05:00');class FrozenDate extends Date{constructor(...args){super(...(args.length?args:[T]));}static now(){return T;}}
+ const registration={...saved,answers:{...answers,activities:['day1-am']}};
+ const {widget,requests}=await widgetHarness(path=>path==='/api/fiiu/pulse'?pulseData:widgetFeed(path)||self(registration),{Date:FrozenDate});
+ const link=widget.querySelector('.f-next').querySelector('.f-talk-link');assert.equal(link.href,'fiiu-talk.html?a=day1-am');assert.match(content(link),/Conversation\s+·\s+2/);
+ assert.equal(requests.filter(path=>path==='/api/fiiu/pulse').length,1);
+ // A next block without questions has no link.
+ const quiet=await widgetHarness(path=>path==='/api/fiiu/pulse'?{questions:[['10000000-0000-4000-8000-000000000005','day2-am',1,'open']]}:widgetFeed(path)||self(registration),{Date:FrozenDate});
+ assert.ok(quiet.widget.querySelector('.f-next'));assert.equal(quiet.widget.querySelector('.f-talk-link'),null);
+});
+
+test('conversation links are small inline links with a CSS-drawn bubble and a 44px target on touch screens',()=>{
+ const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8');
+ assert.match(css,/:is\(\.f-page,\.f-news-widget\) \.f-talk-link\{display:inline-flex;/);assert.match(css,/:is\(\.f-page,\.f-news-widget\) \.f-talk-link::before\{content:"";/);
+ assert.match(css,/@media\(pointer:coarse\)\{:is\(\.f-page,\.f-news-widget\) \.f-talk-link\{min-height:44px\}\}/);
 });
