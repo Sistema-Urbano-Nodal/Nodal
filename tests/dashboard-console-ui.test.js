@@ -12,6 +12,7 @@ import { FIIU_EVENT } from '../server/fiiu-domain.js';
 const ROOT = path.resolve(import.meta.dirname, '..');
 const read = (...parts) => readFileSync(path.join(ROOT, ...parts), 'utf8');
 const css = () => read('web', 'styles', 'dashboard.css');
+const dashboardJs = () => read('web', 'scripts', 'dashboard.js');
 
 // Every `header { … }` block in the stylesheet, joined; a brace scan, since rules nest inside media queries.
 function blocks(source, header) {
@@ -25,6 +26,20 @@ function blocks(source, header) {
   }
   assert.ok(found.length, `${header} block is missing`);
   return found.join('\n');
+}
+// One self-contained piece of dashboard.js: from its opening line to the first `closing` after it.
+function piece(source, opening, closing) {
+  const start = source.indexOf(opening);
+  const end = source.indexOf(closing, start + opening.length);
+  assert.ok(start >= 0 && end > start, `${opening.trim()} must stay discoverable in dashboard.js`);
+  return source.slice(start, end + closing.length);
+}
+function loadI18n(lang) {
+  const context = { document: { body: { dataset: { page: 'dashboard' } }, documentElement: {}, querySelectorAll: () => [] }, window: { location: { search: '' } }, localStorage: { getItem: () => null, setItem() {} }, URLSearchParams, console };
+  vm.runInNewContext(read('web', 'scripts', 'i18n-dashboard.js'), context);
+  vm.runInNewContext(read('web', 'scripts', 'i18n.js'), context);
+  context.window.nodalI18n.apply(lang, { persist: false });
+  return context.window.nodalI18n;
 }
 
 /* ---------------- notifications (finding 30) ---------------- */
@@ -170,6 +185,73 @@ test('a festival block left open for a while refreshes when the phone comes back
   Date.now = () => realNow() + 31 * 60000;
   try { await w.listeners.visibilitychange(); await flush(); } finally { Date.now = realNow; }
   assert.equal(reads(), 2, 'half an hour later the next session is read again');
+});
+
+/* ---------------- news read in place (finding 33) ---------------- */
+
+test('festival and NODAL news show six lines, and a longer body opens in place', () => {
+  const sheet = css();
+  assert.match(sheet, /#fiiuDashboard \.f-news-body,\s*#nodalNews \.f-news-body\s*\{[^}]*-webkit-line-clamp:\s*6;[^}]*line-clamp:\s*6/);
+  assert.match(sheet, /#fiiuDashboard \.f-news-body\.is-open,\s*#nodalNews \.f-news-body\.is-open\s*\{[^}]*display:\s*block/);
+  assert.match(blocks(sheet, '@media (pointer: coarse)'), /\.news-more/);
+});
+
+class Body {
+  constructor(id, cut) { this.id = id; this.className = 'f-news-body'; this.scrollHeight = cut ? 130 : 43; this.clientHeight = 43; this.dataset = {}; this.parent = null; this.attributes = {};
+    const classes = new Set(['f-news-body']);
+    this.classList = { contains: (c) => classes.has(c), toggle: (c, force) => { const on = force ?? !classes.has(c); if (on) classes.add(c); else classes.delete(c); return on; } };
+  }
+  after(node) { const list = this.parent.children; list.splice(list.indexOf(this) + 1, 0, node); node.parent = this.parent; }
+  get nextElementSibling() { const list = this.parent.children; return list[list.indexOf(this) + 1] ?? null; }
+}
+function newsHarness(bodies) {
+  const article = { children: [] };
+  for (const body of bodies) { body.parent = article; article.children.push(body); }
+  const block = { querySelectorAll: (selector) => (selector === '.f-news-body' ? article.children.filter((n) => n instanceof Body) : []) };
+  let observe;
+  const created = [];
+  const context = {
+    byId: (id) => (id === 'fiiuDashboard' ? block : null),
+    t: (k) => `t:${k}`,
+    el: (tag, cls) => { const classes = new Set(cls.split(' ')); const node = { tagName: tag, className: cls, dataset: {}, attributes: {}, listeners: {}, hidden: false, textContent: '', classList: { contains: (c) => classes.has(c) }, setAttribute(k, v) { this.attributes[k] = String(v); }, addEventListener(type, fn) { this.listeners[type] = fn; } }; created.push(node); return node; },
+    MutationObserver: class { constructor(fn) { observe = fn; } observe() {} },
+    window: { addEventListener() {} }, requestAnimationFrame: () => 0, cancelAnimationFrame() {},
+  };
+  vm.runInNewContext(piece(dashboardJs(), '  (function readNewsInPlace() {', '\n  })();'), context);
+  return { article, created, mutate: () => observe([]) };
+}
+
+test('only a body the six-line cut shortens gets a Show more toggle, wired for screen readers', () => {
+  const short = new Body('', false), long = new Body('', true);
+  const h = newsHarness([short, long]);
+  const toggles = () => h.article.children.filter((n) => n.className === 'news-more');
+  assert.equal(toggles().length, 1);
+  const [toggle] = toggles();
+  assert.equal(h.article.children.indexOf(toggle), h.article.children.indexOf(long) + 1, 'the toggle follows the body it opens');
+  assert.equal(toggle.type, 'button');
+  assert.ok(long.id, 'the body gets an id to be controlled by');
+  assert.equal(toggle.attributes['aria-controls'], long.id);
+  assert.equal(toggle.attributes['aria-expanded'], 'false');
+  assert.equal(toggle.dataset.i18n, 'd.news.more', 'a language switch relabels it');
+  assert.equal(toggle.textContent, 't:d.news.more');
+  toggle.listeners.click();
+  assert.equal(long.classList.contains('is-open'), true);
+  assert.equal(toggle.attributes['aria-expanded'], 'true');
+  assert.equal(toggle.textContent, 't:d.news.less');
+  h.mutate();
+  assert.equal(toggles().length, 1, 'redraws never add a second toggle');
+  toggle.listeners.click();
+  assert.equal(long.classList.contains('is-open'), false);
+  assert.equal(toggle.textContent, 't:d.news.more');
+});
+
+test('Show more and Show less read in English, Spanish and Portuguese', () => {
+  const expected = { en: ['Show more', 'Show less'], es: ['Ver más', 'Ver menos'], pt: ['Ver mais', 'Ver menos'] };
+  for (const [lang, [more, less]] of Object.entries(expected)) {
+    const i18n = loadI18n(lang);
+    assert.equal(i18n.t('d.news.more'), more, lang);
+    assert.equal(i18n.t('d.news.less'), less, lang);
+  }
 });
 
 /* ---------------- touch targets and search scopes (finding 35) ---------------- */

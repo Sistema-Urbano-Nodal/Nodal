@@ -1013,11 +1013,24 @@ select:focus-visible, textarea:focus-visible {
 #nodalNews .f-news-item:first-child { padding-top: 0; }
 #nodalNews .nodal-news-all { display: inline-block; margin-top: var(--f-sp-1, 4px); }
 
+/* News is read in place. fiiu.css cuts every widget body at two lines, which hid the new room of a room change and
+   the time of a time change; six lines carry a short operational notice whole, and a longer post (up to 5,000
+   characters) gets a Show more button from dashboard.js instead of filling the column. */
+#fiiuDashboard .f-news-body, #nodalNews .f-news-body { -webkit-line-clamp: 6; line-clamp: 6; }
+#fiiuDashboard .f-news-body.is-open, #nodalNews .f-news-body.is-open { display: block; -webkit-line-clamp: none; line-clamp: none; overflow: visible; }
+.news-more {
+  display: inline-flex; align-items: center; min-height: 32px; padding: 0;
+  border: 0; background: none; font: inherit; font-weight: 600; color: var(--forest);
+  text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px;
+}
+.news-more:hover { text-decoration-thickness: 2px; }
+.news-more[hidden] { display: none; }
+
 /* Touch screens: every control reaches 44px, type sizes unchanged. Last in the file, so it outranks the
    desktop sizes above (and fiiu.css's 40px widget buttons, through the block ids). */
 @media (pointer: coarse) {
   .chip, .seg button, .side-link, .side-out, .lang-btn, .btn-ghost, .btn-dark, .btn-green, .pill-btn,
-  .pc-cancel, .globe-chip, .globe-play, .notif-clear,
+  .pc-cancel, .globe-chip, .globe-play, .notif-clear, .news-more,
   .location-check .btn-ghost, .location-check .btn-dark, .location-check-preference, .uc-topics label,
   .partc input[type="text"], .partc input[type="url"], .partc select {
     min-height: 44px;

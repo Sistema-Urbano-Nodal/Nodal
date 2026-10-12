@@ -1520,5 +1520,44 @@
     place();
     stacked.addEventListener?.('change', place);
   })();
+
+  /* ================= news, read in place =================
+     Both news blocks cut each body at six lines (dashboard.css), so a post of up to 5,000 characters cannot fill a
+     phone screen. A body the cut actually shortens gets a Show more button under it, so a room or time change is
+     read where it is shown. fiiu-hubs.js and news-feed.js draw the blocks on their own schedule and redraw them
+     (news-feed.js on every language switch), so bodies are picked up as they appear. */
+  (function readNewsInPlace() {
+    const blocks = ['fiiuDashboard', 'nodalNews'].map((id) => byId(id)).filter(Boolean);
+    if (!blocks.length || typeof MutationObserver !== 'function') return;
+    let seq = 0;
+    const label = (button, open) => {
+      button.dataset.i18n = open ? 'd.news.less' : 'd.news.more';   // i18n.js relabels it on a language switch
+      button.textContent = t(button.dataset.i18n);
+      button.setAttribute('aria-expanded', String(open));
+    };
+    const cut = (body) => body.scrollHeight > body.clientHeight + 1;
+    function offer(body) {
+      const after = body.nextElementSibling;
+      if (after?.classList.contains('news-more')) {
+        // A rotated phone can make a cut body fit, or a fitting one cut.
+        after.hidden = !body.classList.contains('is-open') && !cut(body);
+        return;
+      }
+      if (!cut(body)) return;
+      if (!body.id) { seq += 1; body.id = `newsBody${seq}`; }
+      const button = el('button', 'news-more');
+      button.type = 'button';
+      button.setAttribute('aria-controls', body.id);
+      label(button, false);
+      button.addEventListener('click', () => label(button, body.classList.toggle('is-open')));
+      body.after(button);
+    }
+    const scan = () => blocks.forEach((block) => block.querySelectorAll('.f-news-body').forEach(offer));
+    const watch = new MutationObserver(scan);
+    blocks.forEach((block) => watch.observe(block, { childList: true, subtree: true }));
+    let frameId = 0;
+    window.addEventListener('resize', () => { cancelAnimationFrame(frameId); frameId = requestAnimationFrame(scan); });
+    scan();
+  })();
   init();
 })();
