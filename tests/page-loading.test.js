@@ -93,3 +93,20 @@ test('pilot pages reserve a single banner in the initial HTML without adding one
     else assert.match(html,/<\/header>\s*<div class="pilot-notice" data-pilot-banner/,name);
   }
 });
+
+/* The programme's first read is the public, CDN-cached news page. Asked for in the head, it downloads alongside the
+   scripts instead of after all of them. Chromium reuses a preload only for the same URL in the same mode: fetch()'s
+   default (cors, same-origin credentials) is what crossorigin (anonymous) asks for. The per-member registration
+   read is not preloaded: a browser that cannot match a preload asks twice, against that member's rate budget. */
+test('the festival page asks for the programme while its scripts download, in the form fiiu.js reuses',()=>{
+  const html=readFileSync(path.join(ROOT,'web/pages/fiiu.html'),'utf8');
+  const head=html.slice(0,html.indexOf('</head>'));
+  const preloads=[...head.matchAll(/<link\b[^>]*\brel="preload"[^>]*\bas="fetch"[^>]*>/g)].map(match=>match[0]);
+  assert.deepEqual(preloads,['<link rel="preload" href="/api/fiiu?kind=news" as="fetch" crossorigin>']);
+  assert.ok(head.indexOf(preloads[0])<head.indexOf('<script'),'listed before the blocking locale.js');
+  assert.match(readFileSync(path.join(ROOT,'web/scripts/fiiu.js'),'utf8'),/\bapi\('\/api\/fiiu\?kind=news'\)/,'fiiu.js reads the same URL');
+  const ui=readFileSync(path.join(ROOT,'web/scripts/fiiu-ui.js'),'utf8');
+  const call=ui.slice(ui.indexOf('response=await fetch(path,'),ui.indexOf('\n',ui.indexOf('response=await fetch(path,')));
+  assert.ok(call,'fiiu-ui.js api() is where the read happens');
+  assert.doesNotMatch(call,/\b(?:mode|credentials|cache|integrity)\s*:/,'a GET keeps the defaults the preload was made with');
+});
