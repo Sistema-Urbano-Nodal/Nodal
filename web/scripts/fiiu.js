@@ -35,8 +35,9 @@
    if(missingAnswers(a))pills.append(tr('span','actionNeeded','f-pill is-pending'));
    copy.append(pills);
   }
-  // Once registration closes, people without one are pointed to the programme instead of a form they cannot send, as they are while their registration could not be read.
-  const actions=el('div','f-actions');actions.append(registration?link('viewRegistration','#registration','f-button'):config.registrationOpen&&!me.failed?link('register','#registration','f-button'):link('viewProgramme','#programme','f-button'));if(config.programUrl)actions.append(link('officialProgram',config.programUrl));actions.append(link('website',event.website,'f-text-link'));copy.append(actions);
+  // Once registration closes, people without one are pointed to the programme instead of a form they cannot send, as they are while their registration is still
+  // loading or could not be read.
+  const actions=el('div','f-actions');actions.append(registration?link('viewRegistration','#registration','f-button'):config.registrationOpen&&!me.failed&&!me.pending?link('register','#registration','f-button'):link('viewProgramme','#programme','f-button'));if(config.programUrl)actions.append(link('officialProgram',config.programUrl));actions.append(link('website',event.website,'f-text-link'));copy.append(actions);
   // The poster repeats the facts row visually, so it is hidden from assistive technology.
   const next=nextFor(registration,event),panel=el('aside','f-date-panel'+(next?' has-next':'')),poster=el('div','f-date-poster'),range=el('strong','f-date-range');poster.setAttribute('aria-hidden','true');
   range.append(el('span','',String(Number(event.startsOn.slice(8)))),el('span','f-date-separator','–'),el('span','',String(Number(event.endsOn.slice(8)))));
@@ -50,8 +51,8 @@
   if(mine)return tr('span',savedKey,savedKey==='interestChip'?'f-pill':'f-pill is-ok');
   const input=choiceInputs.get(activity.id);
   if(input){const action=describe(button(addKey,event=>{if(input.disabled)return;openForm?.();input.checked=true;syncForm?.(true);jumpTo(input,event);},'f-button secondary f-small'),titleId);programmeActions.set(activity.id,{action,addKey});syncProgramme();return action;}
-  // A guest goes to the panel's explanation first; its sign-in link then returns with this block ticked (#add-).
-  if(!me.user&&!me.failed&&festival.config.registrationOpen&&activity.registration==='general'){const register=describe(link('register','#registration','f-text-link'),titleId);register.addEventListener('click',()=>{if(guestSignin)guestSignin.href='login.html?next='+encodeURIComponent('/fiiu.html#add-'+activity.id);});return register;}
+  // A guest goes to the panel's explanation first; its sign-in link then returns with this block ticked (#add-). While the registration loads, nobody is a guest yet.
+  if(!me.user&&!me.failed&&!me.pending&&festival.config.registrationOpen&&activity.registration==='general'){const register=describe(link('register','#registration','f-text-link'),titleId);register.addEventListener('click',()=>{if(guestSignin)guestSignin.href='login.html?next='+encodeURIComponent('/fiiu.html#add-'+activity.id);});return register;}
   return null;
  }
  // One-way feedback: a programme button whose form box is ticked says so; clicking it again only returns to that box.
@@ -59,7 +60,7 @@
  function labCard(activity,labStatus){
   const card=el('article','f-activity is-lab'),title=source('h4',activity.title);title.id='f-act-'+activity.id+'-title';card.append(title,tr('p','labType','f-lab-type'));
   if(labStatus!=='none')card.append(tr('p',labStatus+'Short','f-pill is-'+labStatus));
-  else if(festival.config.registrationOpen){
+  else if(festival.config.registrationOpen&&!me.pending){
    const apply=describe(link('apply',officialInput?'#f-publicOfficial':'#registration','f-button secondary f-small'),title.id);
    if(officialInput)apply.addEventListener('click',event=>{const lab=choiceInputs.get(activity.id);jumpTo(lab&&!lab.disabled?lab:officialInput,event);});
    card.append(apply);
@@ -159,7 +160,7 @@
  const emailNotice=(outcome,email)=>outcome==='sent'?{key:'emailSent',email}:outcome==='failed'?'emailNotSent':['uncertain','pending'].includes(outcome)?'emailDelayed':'';
  // Ticks the #add-<block> asked for once the registration is known; saving stays an explicit tap. False while there is nothing to apply.
  function applyAdd(){
-  if(!pendingAdd||me.failed)return false;const input=choiceInputs.get(pendingAdd);pendingAdd=null;
+  if(!pendingAdd||me.failed||me.pending)return false;const input=choiceInputs.get(pendingAdd);pendingAdd=null;
   if(input&&!input.disabled&&!input.checked&&input.name!=='applyLab'){input.checked=true;if(me.registration)jumpTo(input);syncForm?.(true);if(!me.registration)registrationHost.scrollIntoView({block:'start'});}
   else registrationHost.scrollIntoView({block:'start'});
   return true;
@@ -167,6 +168,7 @@
  function renderPanel(){
   choiceInputs.clear();openForm=null;officialInput=null;syncForm=null;sizeObserver?.disconnect();stepObserver?.disconnect();status(message,'');panelBody.replaceChildren();showNotice(notice);notice='';
   registrationHost.className='f-registration'+(!me.user||(!festival.config.registrationOpen&&!me.registration)?' is-compact':'');guestSignin=null;
+  if(me.pending){panelBody.append(tr('p','registrationLoading','f-muted'));return;}
   if(me.failed){
    let retrying=false;status(message,me.failed.key==='rate'?me.failed:Object.assign(Error(t('registrationLoadError')),{key:'registrationLoadError'}));
    panelBody.append(message,button('retry',async()=>{if(retrying)return;retrying=true;status(message,'loading');try{me=await api('/api/fiiu/registration');}catch(error){me=unread(error);}renderRegistration();if(!applyAdd())panelHeading.focus();},'f-button secondary'));return;
@@ -380,31 +382,53 @@
  // Signed out (401) is the guest view. Any other failure is kept as failed: the programme stays up, and only the registration panel shows the error
  // with its own Try again, so an outage never reads as signed out.
  const unread=error=>({registration:null,attendance:[],user:null,...(error.status===401?{}:{failed:error})});
+ // Until the registration answers, the page is drawn from the public read alone: the panel says it is loading, and no card offers a guest's sign-up meanwhile.
+ const PENDING={registration:null,attendance:[],user:null,pending:true};
+ // Back to this page (and a reload) builds it again from the network, after the browser's own scroll restore has run against an empty page and given up.
+ // So the page keeps its place itself: the position is saved when the page is left and restored, instantly (the site scrolls smoothly), once it is drawn again.
+ // The position is the last one scrolled to: by pagehide, locale.js has hidden a translated page again, and phone text autosizing can already have moved it.
+ const placeKey='fiiu.place:'+location.pathname;let placeKept=false,placeY=0;
+ try{history.scrollRestoration='manual';}catch{/* The browser restores on its own then. */}
+ window.addEventListener?.('scroll',()=>{placeY=scrollY;},{passive:true});
+ window.addEventListener?.('pagehide',()=>{if(placeKept)try{sessionStorage.setItem(placeKey,String(Math.round(placeY)));}catch{/* Without storage the next visit starts at the top. */}});
+ function savedPlace(){
+  let type='';try{type=performance.getEntriesByType('navigation')[0]?.type||'';}catch{/* No navigation timing: treat it as a new visit. */}
+  if(type!=='back_forward'&&type!=='reload')return null;
+  try{const y=Number(sessionStorage.getItem(placeKey));return y>0?y:null;}catch{return null;}
+ }
  async function load(){
-  status(loadStatus,'loading');root.replaceChildren();
-  // Three requests start together: the news page (with the event and settings), the materials page and the person's registration.
-  // The conversation pulse starts with them but is never awaited; its links join the programme and the itinerary when it answers.
-  const materials=api('/api/fiiu?kind=materials');materials.catch(()=>{});pulse().then(showTalks);
+  status(loadStatus,'loading');root.replaceChildren();placeKept=false;
+  // Four requests start together: the news page (with the event and settings), the materials page, the person's registration and the conversation pulse.
+  // Only the news page holds up the page. The registration fills its panel when it answers; the pulse adds its links to the programme and the itinerary.
+  const materials=api('/api/fiiu?kind=materials'),registration=api('/api/fiiu/registration').catch(unread);materials.catch(()=>{});pulse().then(showTalks);
   try{
-   const [publicData,registrationData]=await Promise.all([api('/api/fiiu?kind=news'),api('/api/fiiu/registration').catch(unread)]);
-   festival=publicData;me=registrationData;
+   const publicData=await api('/api/fiiu?kind=news');
+   festival=publicData;me=PENDING;
    heroHost=el('section','f-hero');programmeHost=el('section','f-programme');programmeHost.id='programme';
    registrationHost=el('section','f-registration');registrationHost.id='registration';panelHeading=tr('h2','registration');panelHeading.tabIndex=-1;panelBody=el('div','f-panel-body');registrationHost.append(panelHeading,panelNotice,panelBody);
    root.append(heroHost);
-   if(me.isAdmin)root.append(link('admin','fiiu-admin.html','f-button secondary f-admin-link'));
-   const latest=festival.content.find(item=>item.kind==='news');
-   if(latest){const banner=el('a','f-latest');banner.href='#news';banner.append(tr('span','latestUpdate','f-latest-label'),source('span',latest.title,'f-latest-title'));root.append(banner);}
-   const layout=el('div','f-layout');layout.append(programmeHost,registrationHost);root.append(layout);
+   const latest=festival.content.find(item=>item.kind==='news'),layout=el('div','f-layout');let banner=null;
+   if(latest){banner=el('a','f-latest');banner.href='#news';banner.append(tr('span','latestUpdate','f-latest-label'),source('span',latest.title,'f-latest-title'));root.append(banner);}
+   layout.append(programmeHost,registrationHost);root.append(layout);
    const updates=el('div','f-updates-grid');updates.append(feed('news','noNews',()=>publicData),feed('materials','noMaterials',()=>materials));layout.append(updates);root.append(newTabNote());
    renderRegistration();status(loadStatus,'');
    // #add-<block> (the check-in refusal, or a guest's card after sign-in) ticks that block in the form; saving stays an explicit tap. The hash becomes
    // #registration at once, so a reload after saving does not reopen the form. Someone with no registration yet starts at the top of the form, not past
    // their personal answers; a block already in the plan, the laboratory or a form that is not shown leaves only the scroll to the panel.
    // When the registration read failed, the block waits for the panel's Try again.
-   const hash=location.hash;pendingAdd=/^#add-([a-z0-9-]{1,60})$/.exec(hash)?.[1]||null;
-   if(pendingAdd){history.replaceState?.(null,'',location.pathname+location.search+'#registration');if(!applyAdd())registrationHost.scrollIntoView({block:'start'});}
+   const hash=location.hash,place=savedPlace();pendingAdd=/^#add-([a-z0-9-]{1,60})$/.exec(hash)?.[1]||null;
+   if(pendingAdd)history.replaceState?.(null,'',location.pathname+location.search+'#registration');
+   // The programme and the feeds are already in place, so their hashes scroll now; the panel's wait for the registration, which changes the heights above it.
+   const early=['#news','#materials','#programme'].includes(hash)||/^#day-\d{4}-\d{2}-\d{2}$/.test(hash);
+   if(early&&!place)document.querySelector(hash)?.scrollIntoView({block:'start'});
+   me=await registration;
+   if(me.isAdmin)(banner||layout).before(link('admin','fiiu-admin.html','f-button secondary f-admin-link'));
+   renderRegistration();
+   if(pendingAdd){if(!applyAdd())registrationHost.scrollIntoView({block:'start'});}
+   else if(place)try{scrollTo({top:place,behavior:'instant'});}catch{/* No scrolling API: stay at the top. */}
    else if(hash==='#f-publicOfficial')jumpTo(officialInput);
-   else if(['#registration','#news','#materials','#programme'].includes(hash)||/^#day-\d{4}-\d{2}-\d{2}$/.test(hash))document.querySelector(hash)?.scrollIntoView({block:'start'});
+   else if(hash==='#registration')registrationHost.scrollIntoView({block:'start'});
+   placeKept=true;
   }catch(error){status(loadStatus,error.key==='error'?Object.assign(Error(t('loadError')),{key:'loadError'}):error);root.append(button('retry',load),newTabNote());}
  }
  load();

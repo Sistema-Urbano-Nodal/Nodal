@@ -680,3 +680,29 @@ test('programme and registration actions are at least 44px tall on touch screens
  assert.doesNotMatch(rule('.f-registration .f-form .f-check'),/align-items/);assert.doesNotMatch(touch,/(^|[},])\.f-check\{/);
  assert.doesNotMatch(touch,/font-size/);
 });
+
+// One browser tab's sessionStorage: a second harness given the same one is a reload of that tab.
+const tabStorage=()=>{const data=new Map();return{data,getItem:name=>data.has(name)?data.get(name):null,setItem:(name,value)=>{data.set(name,String(value));},removeItem:name=>{data.delete(name);}};};
+
+test('the hero, programme and news appear from the public read while the registration is still loading, with no guest calls to action',async()=>{
+ let answer;const news={...publicData,content:[{id:'n1',kind:'news',title:'Cambio de sala',body:'Texto',url:'',createdAt:'2026-10-20T12:00:00.000Z'}]};
+ const h=await harness({read:()=>new Promise(resolve=>{answer=resolve;}),publicRead:()=>news}),panel=h.root.querySelector('.f-registration'),hero=h.root.querySelector('.f-hero');
+ assert.ok(hero);assert.ok(h.root.querySelectorAll('.f-day').length>=4);assert.ok(descendants(h.root).some(node=>node.id==='news'));assert.equal(h.message.dataset.fiiuText,'','the page is no longer loading');
+ assert.ok(key(panel,'registrationLoading'));assert.equal(key(panel,'signin'),undefined);assert.ok(key(hero,'viewProgramme'));
+ for(const name of ['register','apply','addToRegistration','saveInterest'])assert.equal(key(h.root,name),undefined,name+' waits for the registration');
+ answer({...self(saved),isAdmin:true});await flush();
+ assert.ok(h.root.querySelector('.f-saved'));assert.equal(key(h.root,'registrationLoading'),undefined);assert.ok(key(h.root.querySelector('.f-hero'),'viewRegistration'));
+ const admin=h.root.children.findIndex(node=>node.dataset.fiiuText==='admin');assert.equal(admin,1,'the organiser link sits under the hero once the account is known');
+ assert.ok(key(h.root,'saveInterest'));
+});
+
+test('Back to the festival page returns to the same place: the position is kept on pagehide and restored once the page is drawn',async()=>{
+ const storage=tabStorage(),scrolls=[];
+ const page=(type,{y=0,read}={})=>harness({registration:saved,read,context:{sessionStorage:storage,scrollY:y,scrollTo:options=>scrolls.push({...options}),performance:{getEntriesByType:kind=>kind==='navigation'?[{type}]:[]}}});
+ const first=await page('navigate',{y:2080});assert.equal(first.ctx.history.scrollRestoration,'manual');assert.deepEqual(scrolls,[],'a new visit starts at the top');
+ for(const listener of first.windowListeners.scroll)listener({});for(const listener of first.windowListeners.pagehide)listener({persisted:false});
+ let answer;await page('back_forward',{read:()=>new Promise(resolve=>{answer=resolve;})});assert.deepEqual(scrolls,[],'it waits until the registration is drawn');
+ answer(self(saved));await flush();assert.deepEqual(scrolls,[{top:2080,behavior:'instant'}],'instant: the page scrolls smoothly otherwise');
+ scrolls.length=0;await page('reload');assert.deepEqual(scrolls,[{top:2080,behavior:'instant'}],'a reload keeps the place too');
+ scrolls.length=0;await page('navigate');assert.deepEqual(scrolls,[]);
+});

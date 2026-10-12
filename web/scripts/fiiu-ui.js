@@ -53,6 +53,7 @@
   statusRegistered:['Registered','Inscrito/a','Inscrito/a'],statusNotRegistered:['Not registered yet','Aún sin inscripción','Ainda sem inscrição'],
   actionNeeded:['Action needed','Acción necesaria','Ação necessária'],
   datesMonth:['October 2026','Octubre 2026','Outubro 2026'],nextForYou:['Next for you','Lo próximo para ti','Próximo para você'],latestUpdate:['Latest update','Última novedad','Última novidade'],
+  registrationLoading:['Loading your registration…','Cargando tu inscripción…','Carregando sua inscrição…'],
   // Conversation links on festival blocks (talkLink below): "Conversación · 2" on screen, "Conversación, 2 preguntas" for assistive technology.
   talkLink:['Conversation','Conversación','Conversa'],talkLinkOne:['1 question','1 pregunta','1 pergunta'],talkLinkCount:['{n} questions','{n} preguntas','{n} perguntas'],
   pendingShort:['Lab: in review','Laboratorio: en revisión','Laboratório: em análise'],acceptedShort:['Lab: accepted','Laboratorio: aceptado/a','Laboratório: aceito/a'],declinedShort:['Lab: not selected','Laboratorio: no seleccionado/a','Laboratório: não selecionado/a'],
