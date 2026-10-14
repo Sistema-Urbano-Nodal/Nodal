@@ -6,8 +6,14 @@ import {FIIU_EVENT} from './fiiu-domain.js';
 // once base64 makes it ~4 MB, and the per-person allowance counts pending uploads too.
 export const TALK_LIMITS={question:500,talk:180,message:1000,files:3,fileBytes:3*1024*1024,thumbBytes:100*1024,quotaFiles:30,quotaBytes:30*1024*1024,page:100,changes:200};
 export const TALK_FILE_TYPES=['image/jpeg','image/png','image/webp','application/pdf'];
-// Legacy activities (the old workshop and route days) cannot get questions; only the live catalogue can.
-export const talkActivity=id=>FIIU_EVENT.activities.find(a=>a.id===id)??null;
+// A question is a conversation or a 1–10 rating (with the chat below it); the type is chosen when it is created.
+export const QUESTION_KINDS=['chat','rating'];
+/* The festival-wide space beside the blocks: a pseudo-block that is neither in the programme nor in a registration,
+   so it has no date, time, venue or talks, and the same people take part as on a block. */
+export const GENERAL_SPACE=Object.freeze({id:'general',period:'general',title:'FIIU General',date:null,time:'',venue:'',sessions:Object.freeze([]),registration:'general-space'});
+/* Blocks come from the programme the server serves (organisers edit titles, venues and talks), the built-in one by
+   default. Legacy activities (the old workshop and route days) cannot get questions; only the live catalogue can. */
+export const talkActivity=(id,event=FIIU_EVENT)=>id===GENERAL_SPACE.id?GENERAL_SPACE:event.activities.find(a=>a.id===id)??null;
 // The chat pages translate refusals by this code rather than by the English message.
 const failCode=(message,code,status=400)=>{try{fail(message,status);}catch(err){throw Object.assign(err,{code});}};
 const points=value=>[...value].length,cap=(value,max)=>[...value].slice(0,max).join('');
@@ -31,12 +37,17 @@ const dimensions=(input,image)=>{const width=image?dimension(input?.width):null,
 
 /* Create (no current): the activity must be live, the status open or hidden (a hidden question is a prepared draft).
    Edit: the merged row is re-checked, the activity cannot move, and closed becomes possible. A talk is re-checked only
-   when the edit supplies a different one, so closing a question survives a talk renamed in the catalogue since. */
-export function normalizeQuestion(raw={},current=null){
+   when the edit supplies a different one, so closing a question survives a talk renamed in the catalogue since. A
+   talk is one of the block's sessions in `event`, the programme as edited. The type is set at creation and an edit
+   may only repeat it: a rating's totals would mean nothing as a conversation, and the other way round. */
+export function normalizeQuestion(raw={},current=null,event=FIIU_EVENT){
  const input={...raw,body:plain(raw.body),talk:plain(raw.talk)};
  if(current&&input.activityId!==undefined&&input.activityId!==current.activityId)failCode('activity cannot change','invalid_activity');
- const activityId=current?current.activityId:input.activityId,activity=talkActivity(activityId);
+ const activityId=current?current.activityId:input.activityId,activity=talkActivity(activityId,event);
  if(!activity)failCode('invalid activity','invalid_activity');
+ const kind=current?current.kind??'chat':input.kind??'chat';
+ if(current&&input.kind!=null&&input.kind!==kind)failCode('question type cannot change','kind_locked');
+ if(!QUESTION_KINDS.includes(kind))failCode('invalid question type','invalid_kind');
  let talk=current?.talk??null;
  if(!current||input.talk!==undefined){
   talk=text(input.talk??undefined,'talk',TALK_LIMITS.talk)||null;
@@ -45,7 +56,7 @@ export function normalizeQuestion(raw={},current=null){
  const body=text(input.body===undefined?current?.body:input.body,'question',TALK_LIMITS.question,true);
  const status=input.status===undefined?current?.status??'open':input.status;
  if(!(current?['open','closed','hidden']:['open','hidden']).includes(status))fail('invalid status');
- return {activityId,talk,body,status};
+ return {activityId,talk,body,status,kind};
 }
 // The limit counts code points like Postgres char_length, so 1000 emoji fit as they do in the column.
 export function normalizeMessage(input={}){
@@ -86,7 +97,9 @@ export function namesFor(user,registration){
  const full=String(user?.name??user?.fullName??'').trim(),words=full.split(/\s+/).filter(Boolean);
  return {authorName:cap(displayName(words[0],words.length>1?words.at(-1):''),120),authorFull:cap(full,240)};
 }
-export const questionView=(q,{organiser=false}={})=>({id:q.id,activityId:q.activityId,talk:q.talk??null,body:q.body,status:q.status,revision:Number(q.revision),messageCount:Number(q.messageCount),createdAt:q.createdAt,...(organiser?{version:q.version}:{})});
+// A rating question carries its ten totals, score 1 first: never who gave which score.
+const totals=counts=>Array.from({length:10},(_,i)=>Number(counts?.[i]??0));
+export const questionView=(q,{organiser=false}={})=>{const kind=q.kind??'chat';return {id:q.id,activityId:q.activityId,talk:q.talk??null,body:q.body,status:q.status,kind,...(kind==='rating'?{ratingCounts:totals(q.ratingCounts)}:{}),revision:Number(q.revision),messageCount:Number(q.messageCount),createdAt:q.createdAt,...(organiser?{version:q.version}:{})};};
 /* Peers see a display name and whether the message is theirs, never the author's id or a storage path. liked: null
    leaves the viewer's like out, for answers shared between viewers (the page keeps its own). A participant is only
    given a hidden message that is their own (the API sends everyone else its gone view), marked so they can delete it. */

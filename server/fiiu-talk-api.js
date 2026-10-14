@@ -1,7 +1,7 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {fail,identifier,csv,attachmentFilename,encodeCursor,decodeCursor} from './courses-domain.js';
 import {bodyJson,createByteBudget,matchesEtag,DOWNLOAD_LIMITS} from './courses-api.js';
-import {EVENT_ID} from './fiiu-domain.js';
+import {EVENT_ID,FIIU_EVENT} from './fiiu-domain.js';
 import {packBits} from './qr.js';
 import {TALK_LIMITS,talkActivity,normalizeQuestion,normalizeMessage,decodeTalkFile,namesFor,questionView,messageView,goneView,activityView} from './fiiu-talk-domain.js';
 
@@ -38,6 +38,7 @@ const ROUTES=[
  ['messages',/^\/api\/fiiu\/questions\/([^/]+)\/messages$/,['GET','HEAD','POST']],
  ['message',/^\/api\/fiiu\/messages\/([^/]+)$/,['DELETE']],
  ['like',/^\/api\/fiiu\/messages\/([^/]+)\/like$/,['PUT','DELETE']],
+ ['rating',/^\/api\/fiiu\/questions\/([^/]+)\/rating$/,['PUT']],
  ['upload',/^\/api\/fiiu\/files$/,['POST']],
  // GET only: a HEAD would read the bytes from Storage (the thumbnail's type comes from them) to send none.
  ['file',/^\/api\/fiiu\/files\/([^/]+)$/,['GET']],
@@ -51,19 +52,23 @@ const routeOf=path=>{for(const [name,pattern,methods] of ROUTES){const m=path.ma
 /* Each write spends its own per-account budget (server.js): a busy chat never blocks likes or moderation. So do file
    reads, so a photo-heavy chat (or the projector and the chat open on one organiser account) never runs the 'read'
    budget its sync polls need out on thumbnails; the byte budget still caps what they download. */
-const kindOf=(name,read)=>read?(name==='file'?'file':'read'):{messages:'message',upload:'upload',like:'like',hidden:'moderate'}[name]??'write';
+// A score is a tap like a like, and a full room rates together, so it spends the like budget.
+const kindOf=(name,read)=>read?(name==='file'?'file':'read'):{messages:'message',upload:'upload',like:'like',rating:'like',hidden:'moderate'}[name]??'write';
 
 export async function exportTalkData(store,userId){
- const [messages,files,likedMessageIds]=await Promise.all([store.userMessages(userId),store.userFiles(userId),store.userLikes(userId)]);
+ const [messages,files,likedMessageIds,ratings]=await Promise.all([store.userMessages(userId),store.userFiles(userId),store.userLikes(userId),store.userRatings(userId)]);
  const questions=new Map();
- for(const id of new Set(messages.map(m=>m.questionId)))questions.set(id,await store.getQuestion(id));
+ for(const id of new Set([...messages,...ratings].map(m=>m.questionId)))questions.set(id,await store.getQuestion(id));
+ // A question hidden since is an organiser's draft again (its text may be rewritten for a later session), which no
+ // participant route shows; the id still ties the messages and scores together.
+ const question=id=>questions.get(id)?.status==='hidden'?'':questions.get(id)?.body??'';
  return {
-  // A question hidden since is an organiser's draft again (its text may be rewritten for a later session), which no
-  // participant route shows; the id still ties the messages together.
-  messages:messages.map(m=>({id:m.id,questionId:m.questionId,question:questions.get(m.questionId)?.status==='hidden'?'':questions.get(m.questionId)?.body??'',body:m.body,createdAt:m.createdAt,deleted:Boolean(m.deletedAt),hidden:Boolean(m.hiddenAt)})),
+  messages:messages.map(m=>({id:m.id,questionId:m.questionId,question:question(m.questionId),body:m.body,createdAt:m.createdAt,deleted:Boolean(m.deletedAt),hidden:Boolean(m.hiddenAt)})),
   // Storage paths are internal.
   files:files.map(({id,messageId,name,mime,size,createdAt})=>({id,messageId,name,mime,size,createdAt})),
   likedMessageIds,
+  // The person's own scores only; everyone else's exist for them as totals.
+  ratings:ratings.map(r=>({questionId:r.questionId,question:question(r.questionId),score:r.score,createdAt:r.createdAt,updatedAt:r.updatedAt})),
  };
 }
 const busy=()=>fail('An upload is in progress. Try again in a few minutes.',409);
@@ -75,8 +80,9 @@ export async function assertTalkDataDeletable(store,userId,{now=Date.now()}={}){
 }
 /* Before the account goes: its files (object, then row, so a Storage failure stops here and the deletion can be
    retried), then the text and names of its messages (the conversation keeps a 'deleted message' placeholder), then its
-   likes. An upload under way could reach Storage after its row is gone, where nothing would find it again, so a recent
-   pending upload refuses for those few minutes; an older one is abandoned and cleared like the rest. */
+   likes and its scores (which leave the totals). An upload under way could reach Storage after its row is gone, where
+   nothing would find it again, so a recent pending upload refuses for those few minutes; an older one is abandoned and
+   cleared like the rest. */
 export async function deleteTalkData(store,userId,{now=Date.now()}={}){
  const files=await assertTalkDataDeletable(store,userId,{now});
  for(const file of files){
@@ -88,12 +94,16 @@ export async function deleteTalkData(store,userId,{now=Date.now()}={}){
  if((await store.userFiles(userId,{limit:1})).length)busy();
  await store.scrubUserMessages(userId,new Date(now).toISOString());
  await store.removeUserLikes(userId);
+ await store.removeUserRatings(userId);
 }
 
 // publicOrigin: the configured site origin (a string or a function of the request) the projector QR points to.
 // downloads: the byte budget shared with the course files (server.js), so one account cannot double its Storage egress.
-export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,downloads=createByteBudget(DOWNLOAD_LIMITS),encodeQr=null,publicOrigin=()=>fail('public base URL is not configured',503),clock=Date.now,log=console.error}){
+// programme: the festival programme as organisers edited it (server/fiiu-programme.js, memoised per instance).
+export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,downloads=createByteBudget(DOWNLOAD_LIMITS),encodeQr=null,publicOrigin=()=>fail('public base URL is not configured',503),clock=Date.now,log=console.error,programme={event:async()=>FIIU_EVENT}}){
  const now=()=>new Date(clock()).toISOString();
+ // A block's title, venue or talks never stop a conversation: if the edits cannot be read, the built-in programme serves.
+ const eventOf=async()=>{try{return await programme.event();}catch(error){log('festival programme unavailable:',errorText(error));return FIIU_EVENT;}};
  const qrOf=link=>{if(!encodeQr)return null;try{return qrView(encodeQr(link));}catch{return null;}};
  const originFor=req=>(typeof publicOrigin==='function'?publicOrigin(req):publicOrigin)||fail('public base URL is not configured',503);
  /* Registered means a fiiu_registrations row. A full room polls together, so a positive answer is kept for 60 seconds
@@ -244,19 +254,20 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
    if(!rateLimit(req,res,user,path,kindOf(name,read)))return true;
    wrote=!read;
    if(name==='questions'){
-    const {organiser}=await access(user),activity=talkActivity(url.searchParams.get('activityId'));
+    const {organiser}=await access(user),activity=talkActivity(url.searchParams.get('activityId'),await eventOf());
     if(!activity){send(res,400,{error:'invalid activity',code:'invalid_activity'});return true;}
     const rows=await store.listQuestions(EVENT_ID,{activityId:activity.id,includeHidden:organiser});
     send(res,200,{activity:activityView(activity),questions:rows.map(q=>questionView(q,{organiser}))});return true;
    }
    if(name==='question'){
     // The question is read first: its revision is the baseline the page syncs from, so a message written meanwhile is
-    // fetched again rather than missed. liked seeds the page's own like state, which since answers do not carry.
-    const {organiser}=await access(user),q=await questionFor(param,organiser),activity=talkActivity(q.activityId);
-    const page=await store.latestMessages(q.id,{includeHidden:organiser,ownHidden:user.id,limit:TALK_LIMITS.page});
-    const {list,liked}=await views(page.rows,{viewer:user.id,organiser});
+    // fetched again rather than missed. liked seeds the page's own like state, which since answers do not carry; so
+    // does score, on a rating question: the reader's own, never anyone else's.
+    const {organiser}=await access(user),q=await questionFor(param,organiser),rating=q.kind==='rating';
+    const [event,page,score]=await Promise.all([eventOf(),store.latestMessages(q.id,{includeHidden:organiser,ownHidden:user.id,limit:TALK_LIMITS.page}),rating?store.ratingOf(q.id,user.id):null]);
+    const activity=talkActivity(q.activityId,event),{list,liked}=await views(page.rows,{viewer:user.id,organiser});
     send(res,200,{question:questionView(q,{organiser}),activity:activity?activityView(activity):null,messages:list,liked:[...liked],
-     before:page.more?encodeCursor(page.rows[0]):null,revision:Number(q.revision),me:{draftKey:draftKey(user.id),organiser,canPost:q.status==='open'}});
+     before:page.more?encodeCursor(page.rows[0]):null,revision:Number(q.revision),me:{draftKey:draftKey(user.id),organiser,canPost:q.status==='open',...(rating?{score}:{})}});
     return true;
    }
    if(name==='messages'&&read){
@@ -349,6 +360,17 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     if(liked)await store.like(message.id,user.id,now());else await store.unlike(message.id,user.id);
     send(res,200,{likeCount:Number((await store.findMessage(message.id))?.likeCount??0),liked});return true;
    }
+   if(name==='rating'){
+    /* Whoever may post may rate, organisers included: one score per person, changeable while the question is open.
+       The store checks the question again inside the write, so a close landing after this read still refuses. The
+       answer carries the totals and the score just given, never anyone else's. */
+    const {organiser}=await access(user),q=await questionFor(param,organiser),{score}=await body(req);
+    if(q.kind!=='rating')failCode('not a rating question',400,'not_rating');
+    if(!Number.isInteger(score)||score<1||score>10)failCode('score must be a whole number from 1 to 10',400,'invalid_score');
+    if(q.status!=='open')failCode('this question is closed',409,'question_closed');
+    const {ratingCounts,revision}=await store.setRating(q.id,user.id,score,now());
+    send(res,200,{score,ratingCounts,revision:Number(revision)});return true;
+   }
    if(name==='upload'){
     await access(user);
     let input;try{input=decodeTalkFile(await uploadBody(req));}catch(err){if(err.status===413&&!err.code)Object.assign(err,{code:'file_size'});throw err;}
@@ -392,12 +414,12 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     /* The dashboard sends a UUID made once per draft and reuses it on retry, as the publication editor does: a save
        whose answer was lost returns the stored question. Different content under that id (edited, opened or closed
        since) is a conflict, so the form is kept instead of reporting a save that did not happen. */
-    const input=await body(req),question=normalizeQuestion(input),id=input.id==null?randomUUID():identifier(input.id);
+    const input=await body(req),question=normalizeQuestion(input,null,await eventOf()),id=input.id==null?randomUUID():identifier(input.id);
     let row;
     try{row=await store.insertQuestion({id,eventId:EVENT_ID,...question,createdBy:user.id,createdAt:now()});}
     catch(err){
      const existing=input.id!=null&&err.status===409&&await store.getQuestion(id);if(!existing||existing.eventId!==EVENT_ID)throw err;
-     const same=['activityId','talk','body','status'].every(k=>(existing[k]??null)===(question[k]??null));
+     const same=['activityId','talk','body','status','kind'].every(k=>(existing[k]??null)===(question[k]??null));
      send(res,same?200:409,{...(same?{}:{error:'question changed; reload before saving'}),question:questionView(existing,{organiser:true})});return true;
     }
     send(res,201,{question:questionView(row,{organiser:true})});return true;
@@ -408,7 +430,7 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     const current=await store.getQuestion(identifier(param));if(!current||current.eventId!==EVENT_ID)unavailable();
     const conflict=row=>{send(res,409,{error:'question changed; reload before saving',question:questionView(row,{organiser:true})});return true;};
     if(current.version!==input.version)return conflict(current);
-    const next=normalizeQuestion(input,current);
+    const next=normalizeQuestion(input,current,await eventOf());
     const row=await store.updateQuestion(current.id,input.version,{body:next.body,talk:next.talk,status:next.status,updatedAt:now()});
     if(!row){const latest=await store.getQuestion(current.id);if(!latest)unavailable();return conflict(latest);}
     send(res,200,{question:questionView(row,{organiser:true})});return true;
@@ -427,7 +449,7 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     const messages=await store.allMessages(q.id);
     const [files,emails]=await Promise.all([messages.length?store.filesForMessages(messages.map(m=>m.id)):[],store.registrationEmails(EVENT_ID,messages.map(m=>m.userId))]);
     const names=new Map();for(const f of files)names.set(f.messageId,[...(names.get(f.messageId)??[]),attachmentFilename(f.name,f.mime)]);
-    const block=talkActivity(q.activityId)?.title??q.activityId;
+    const block=talkActivity(q.activityId,await eventOf())?.title??q.activityId;
     const rows=[CSV_HEADER,...messages.map(m=>[q.body,block,q.talk??'',limaTime(m.createdAt),m.authorFull||m.authorName,emails.get(m.userId)??'',Boolean(m.organiser),m.body,(names.get(m.id)??[]).join('; '),Number(m.likeCount),Boolean(m.hiddenAt),Boolean(m.deletedAt)])];
     send(res,200,csv(rows),{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="fiiu-conversation-${q.id.slice(0,8)}.csv"`});return true;
    }
@@ -439,8 +461,8 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
    // Somebody else's error text (expose: false, as a backend adapter marks it) goes to the global handler, which hides it.
    if(typeof err?.code==='string'&&/^[a-z_]+$/.test(err.code)&&err.status>=400&&err.status<500&&err.expose!==false&&!res.headersSent){send(res,err.status,{error:err.message,code:err.code});return true;}
    throw err;
-  /* A like answer already carries its count and state, so a like (the busiest write in a full room) keeps the shared since
-     answers rather than make every poll that follows read again. */
-  }finally{if(wrote){pulseMemo=null;if(name!=='like')changesMemo.clear();}}
+  /* A like answer already carries its count and state, and a score its totals and revision, so these (the busiest
+     writes in a full room) keep the shared since answers rather than make every poll that follows read again. */
+  }finally{if(wrote){pulseMemo=null;if(name!=='like'&&name!=='rating')changesMemo.clear();}}
  };
 }

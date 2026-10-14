@@ -5,6 +5,11 @@ import {createObjectStorage} from './object-storage.js';
 import {TALK_LIMITS} from './fiiu-talk-domain.js';
 import {FIIU_SQLITE_SCHEMA} from './fiiu-repository.js';
 
+/* Question types (20261013120000_fiiu_programme_general.sql): the columns are in the table for a new database and are
+   added to an older one, whose rows are conversations; SQLite has no arrays, so the ten totals are JSON text. The
+   column CHECK reads kind too, as the migration's table CHECK does. */
+const QUESTION_KIND="TEXT NOT NULL DEFAULT 'chat' CHECK(kind IN ('chat','rating'))";
+const RATING_COUNTS="TEXT CHECK((kind='chat' AND rating_counts IS NULL) OR (kind='rating' AND rating_counts IS NOT NULL AND json_valid(rating_counts) AND json_array_length(rating_counts)=10))";
 /* Local mirror of 20261011120000_fiiu_conversations.sql. The triggers keep each question's revision (what the pulse
    publishes) and stamp every changed message with it as seq (attaching its files included), so the since-sync and the
    counters stay right on every write path, the account-deletion cascade included. recursive_triggers is off, and the
@@ -13,7 +18,8 @@ import {FIIU_SQLITE_SCHEMA} from './fiiu-repository.js';
 export const FIIU_TALK_SQLITE_SCHEMA=`
 CREATE TABLE IF NOT EXISTS fiiu_questions (id TEXT PRIMARY KEY,event_id TEXT NOT NULL,activity_id TEXT NOT NULL,talk TEXT,body TEXT NOT NULL,
  status TEXT NOT NULL CHECK(status IN ('open','closed','hidden')),revision INTEGER NOT NULL DEFAULT 0,message_count INTEGER NOT NULL DEFAULT 0,
- created_by TEXT REFERENCES users(id) ON DELETE SET NULL,version INTEGER NOT NULL CHECK(version>0),created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+ created_by TEXT REFERENCES users(id) ON DELETE SET NULL,version INTEGER NOT NULL CHECK(version>0),created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
+ kind ${QUESTION_KIND},rating_counts ${RATING_COUNTS});
 CREATE INDEX IF NOT EXISTS fiiu_questions_activity ON fiiu_questions(event_id,activity_id,created_at);
 CREATE TABLE IF NOT EXISTS fiiu_messages (id TEXT PRIMARY KEY,question_id TEXT NOT NULL REFERENCES fiiu_questions(id) ON DELETE RESTRICT,
  user_id TEXT REFERENCES users(id) ON DELETE SET NULL,author_name TEXT NOT NULL,author_full TEXT NOT NULL,organiser INTEGER NOT NULL DEFAULT 0,
@@ -46,8 +52,24 @@ CREATE TRIGGER IF NOT EXISTS fiiu_file_attached AFTER UPDATE OF message_id ON fi
 CREATE TRIGGER IF NOT EXISTS fiiu_messages_account_erasure BEFORE DELETE ON users BEGIN
  UPDATE fiiu_messages SET body='',author_name='',author_full='',deleted_at=coalesce(deleted_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')) WHERE user_id=OLD.id; END;
 `;
+/* Run once the type columns exist (an older database gets them first). A question's type is set when it is created.
+   Every score written, changed or removed (an account deletion cascades) moves its question's totals and revision, as
+   the Postgres trigger does: a change is one total down then another up, each a revision. The JSON path is 0-based,
+   so score n is element n-1. */
+const total=(score,step)=>`UPDATE fiiu_questions SET rating_counts=json_set(rating_counts,'$['||(${score}-1)||']',${step==='+'?`json_extract(rating_counts,'$['||(${score}-1)||']')+1`:`max(0,json_extract(rating_counts,'$['||(${score}-1)||']')-1)`}),revision=revision+1`;
+export const FIIU_TALK_RATINGS_SQLITE_SCHEMA=`
+CREATE TRIGGER IF NOT EXISTS fiiu_question_kind_lock BEFORE UPDATE OF kind ON fiiu_questions WHEN NEW.kind IS NOT OLD.kind BEGIN SELECT RAISE(ABORT,'question type cannot change'); END;
+CREATE TABLE IF NOT EXISTS fiiu_ratings (question_id TEXT NOT NULL REFERENCES fiiu_questions(id) ON DELETE CASCADE,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ score INTEGER NOT NULL CHECK(score BETWEEN 1 AND 10),created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(question_id,user_id));
+CREATE INDEX IF NOT EXISTS fiiu_ratings_user ON fiiu_ratings(user_id);
+CREATE TRIGGER IF NOT EXISTS fiiu_rating_insert AFTER INSERT ON fiiu_ratings BEGIN ${total('NEW.score','+')} WHERE id=NEW.question_id AND kind='rating'; END;
+CREATE TRIGGER IF NOT EXISTS fiiu_rating_change AFTER UPDATE OF score ON fiiu_ratings WHEN NEW.score IS NOT OLD.score BEGIN
+ ${total('OLD.score','-')} WHERE id=OLD.question_id AND kind='rating';
+ ${total('NEW.score','+')} WHERE id=NEW.question_id AND kind='rating'; END;
+CREATE TRIGGER IF NOT EXISTS fiiu_rating_delete AFTER DELETE ON fiiu_ratings BEGIN ${total('OLD.score','-')} WHERE id=OLD.question_id AND kind='rating'; END;
+`;
 const TABLES={
- questions:{name:'fiiu_questions',fields:['id','eventId','activityId','talk','body','status','revision','messageCount','createdBy','version','createdAt','updatedAt']},
+ questions:{name:'fiiu_questions',fields:['id','eventId','activityId','talk','body','status','kind','ratingCounts','revision','messageCount','createdBy','version','createdAt','updatedAt']},
  messages:{name:'fiiu_messages',fields:['id','questionId','userId','authorName','authorFull','organiser','body','clientId','likeCount','seq','hiddenAt','hiddenBy','deletedAt','createdAt']},
  files:{name:'fiiu_files',fields:['id','eventId','userId','messageId','name','mime','size','width','height','thumbSize','storagePath','status','createdAt']},
 };
@@ -58,10 +80,14 @@ const QUESTION_PATCH=['body','talk','status','updatedAt'],FILE_STATUSES=['pendin
 const TIMES=new Set(['createdAt','updatedAt','hiddenAt','deletedAt']);
 const utc=value=>typeof value==='string'&&Number.isFinite(Date.parse(value))?new Date(value).toISOString():value;
 const checked=(table,record)=>{for(const k of Object.keys(record))if(!table.fields.includes(k))throw Error('unknown festival field');return record;};
-const from=(table,row,pg=false)=>row?Object.fromEntries(table.fields.map(k=>{const v=row[snake(k)];return [k,k==='organiser'?Boolean(v):pg&&TIMES.has(k)?utc(v):v];})):null;
+// Postgres answers the ten rating totals as a JSON array (integer[]); SQLite keeps them as JSON text.
+const JSON_FIELDS=new Set(['ratingCounts']);
+const from=(table,row,pg=false)=>row?Object.fromEntries(table.fields.map(k=>{const v=row[snake(k)];return [k,k==='organiser'?Boolean(v):pg&&TIMES.has(k)?utc(v):JSON_FIELDS.has(k)&&typeof v==='string'?JSON.parse(v):v];})):null;
 // An undefined field is absent, as JSON.stringify makes it for Supabase: the column default on insert, untouched on
 // update. SQLite would otherwise refuse to bind it, so a thumbSize left undefined for a PDF works the same on both.
-const to=(table,record,sqlite)=>Object.fromEntries(Object.entries(checked(table,record)).filter(([,v])=>v!==undefined).map(([k,v])=>[snake(k),sqlite&&typeof v==='boolean'?Number(v):v]));
+const to=(table,record,sqlite)=>Object.fromEntries(Object.entries(checked(table,record)).filter(([,v])=>v!==undefined).map(([k,v])=>[snake(k),sqlite&&typeof v==='boolean'?Number(v):sqlite&&JSON_FIELDS.has(k)&&v!==null?JSON.stringify(v):v]));
+// A rating question starts at ten zeros (the migration's CHECK wants them); a conversation has no totals.
+const newQuestion=record=>({...record,ratingCounts:record.kind==='rating'?Array(10).fill(0):null,version:1,updatedAt:record.createdAt});
 // The chat pages translate refusals by code; a reused id means the client must reload, a missing parent is a 404.
 // The message insert trigger copies seq from the question's revision, so an unknown question fails NOT NULL on seq
 // before its foreign key is checked, on both backends. A NOT NULL failure on any other column is a bug and stays raw.
@@ -73,6 +99,9 @@ const conflict=err=>{
  throw err;
 };
 const allowance=()=>failCode('festival upload allowance reached',413,'upload_allowance');
+// A score is refused where the question is checked, inside the write: no question, not a rating question, not open.
+const RATING_REFUSALS={PFR01:['question unavailable',404,'question_unavailable'],PFR02:['not a rating question',400,'not_rating'],PFR03:['this question is closed',409,'question_closed']};
+const scoreOf=score=>{if(!Number.isInteger(score)||score<1||score>10)throw Error('invalid festival score');return score;};
 const storage=()=>fail('attachment storage unavailable',502);
 // Polls and pages are bounded: the caller asks one row over its page (100, or 200 changes) to learn whether more exist.
 const capped=(limit,max=TALK_LIMITS.changes+1)=>{if(!Number.isInteger(limit)||limit<1)throw Error('invalid festival limit');return Math.min(limit,max);};
@@ -91,6 +120,14 @@ export function createTalkStore({db,env=process.env,clients,fetchImpl=fetch}={})
 function sqliteTalk(db){
  // Registrations are the FIIU store's table (IF NOT EXISTS, so the two stores may start in either order).
  db.exec(FIIU_SQLITE_SCHEMA);db.exec(FIIU_TALK_SQLITE_SCHEMA);
+ // CREATE TABLE IF NOT EXISTS does not upgrade an older local database; another connection adding a column first is
+ // the only error tolerated (as in fiiu-repository.js).
+ const addColumn=(table,name,definition)=>{
+  if(db.prepare(`PRAGMA table_info(${table})`).all().some(c=>c.name===name))return;
+  try{db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);}catch(err){if(!/duplicate column/i.test(err.message))throw err;}
+ };
+ addColumn('fiiu_questions','kind',QUESTION_KIND);addColumn('fiiu_questions','rating_counts',RATING_COUNTS);
+ db.exec(FIIU_TALK_RATINGS_SQLITE_SCHEMA);
  const get=(sql,...params)=>db.prepare(sql).get(...params),all=(sql,...params)=>db.prepare(sql).all(...params),run=(sql,...params)=>db.prepare(sql).run(...params).changes;
  const marks=list=>list.map(()=>'?').join(',');
  // Re-read after writes: RETURNING shows the row before the AFTER triggers stamped seq and revision.
@@ -112,7 +149,7 @@ function sqliteTalk(db){
   async registrationEmails(eventId,userIds){
    return new Map(among(accounts(userIds),chunk=>all(`SELECT user_id,email FROM fiiu_registrations WHERE event_id=? AND user_id IN (${marks(chunk)})`,eventId,...chunk)).map(r=>[r.user_id,r.email]));
   },
-  async insertQuestion(record){return insert(QT,{...record,version:1,updatedAt:record.createdAt});},
+  async insertQuestion(record){return insert(QT,newQuestion(record));},
   async getQuestion(id){return byId(QT,id);},
   async listQuestions(eventId,{activityId,includeHidden=false}={}){
    const params=[eventId];let sql='SELECT * FROM fiiu_questions WHERE event_id=?';
@@ -162,6 +199,23 @@ function sqliteTalk(db){
   async likedAmong(userId,messageIds){return new Set(among(messageIds,chunk=>all(`SELECT message_id FROM fiiu_message_likes WHERE user_id=? AND message_id IN (${marks(chunk)})`,userId,...chunk)).map(r=>r.message_id));},
   async userLikes(userId){return all('SELECT message_id FROM fiiu_message_likes WHERE user_id=? ORDER BY created_at,message_id',userId).map(r=>r.message_id);},
   async removeUserLikes(userId){return run('DELETE FROM fiiu_message_likes WHERE user_id=?',userId);},
+  /* The SQLite twin of set_fiiu_rating: BEGIN IMMEDIATE holds the write lock from the question check to the read-back,
+     so a close cannot land in between, and the triggers move the totals inside it. The same score again updates
+     nothing, so it moves neither the totals nor the revision. */
+  async setRating(questionId,userId,score,at){
+   scoreOf(score);db.exec('BEGIN IMMEDIATE');
+   try{
+    const q=get('SELECT kind,status FROM fiiu_questions WHERE id=?',questionId);
+    const refusal=!q?'PFR01':q.kind!=='rating'?'PFR02':q.status!=='open'?'PFR03':null;if(refusal)failCode(...RATING_REFUSALS[refusal]);
+    run('INSERT INTO fiiu_ratings (question_id,user_id,score,created_at,updated_at) VALUES (?,?,?,?,?) ON CONFLICT(question_id,user_id) DO UPDATE SET score=excluded.score,updated_at=excluded.updated_at WHERE fiiu_ratings.score<>excluded.score',questionId,userId,score,at,at);
+    const row=get('SELECT rating_counts,revision FROM fiiu_questions WHERE id=?',questionId);
+    db.exec('COMMIT');
+    return {ratingCounts:JSON.parse(row.rating_counts),revision:row.revision};
+   }catch(err){db.exec('ROLLBACK');conflict(err);}
+  },
+  async ratingOf(questionId,userId){return get('SELECT score FROM fiiu_ratings WHERE question_id=? AND user_id=?',questionId,userId)?.score??null;},
+  async userRatings(userId){return all('SELECT question_id,score,created_at,updated_at FROM fiiu_ratings WHERE user_id=? ORDER BY created_at,question_id',userId).map(r=>({questionId:r.question_id,score:r.score,createdAt:r.created_at,updatedAt:r.updated_at}));},
+  async removeUserRatings(userId){return run('DELETE FROM fiiu_ratings WHERE user_id=?',userId);},
   async reserveFile(record){
    const row=to(FT,{...record,status:'pending'},true),keys=Object.keys(row);
    // No await between the count and the insert: BEGIN IMMEDIATE takes the write lock, which also serialises other
@@ -247,7 +301,7 @@ function supabaseTalk(supa,fetchImpl){
    for(const chunk of chunks(accounts(userIds)))for(const row of await read('fiiu_registrations',{select:'user_id,email',event_id:`eq.${eventId}`,user_id:list(chunk),limit:chunk.length}))out.set(row.user_id,row.email);
    return out;
   },
-  async insertQuestion(record){const [row]=await write(QT.name,{method:'POST',body:to(QT,{...record,version:1,updatedAt:record.createdAt})});if(!row)unavailable();return from(QT,row,true);},
+  async insertQuestion(record){const [row]=await write(QT.name,{method:'POST',body:to(QT,newQuestion(record))});if(!row)unavailable();return from(QT,row,true);},
   async getQuestion(id){return one(QT,{id});},
   async listQuestions(eventId,{activityId,includeHidden=false}={}){
    return (await readAll(QT.name,{select:select(QT),event_id:`eq.${eventId}`,...(activityId!==undefined?{activity_id:`eq.${activityId}`}:{}),...(includeHidden?{}:{status:'neq.hidden'})})).map(r=>from(QT,r,true));
@@ -309,6 +363,20 @@ function supabaseTalk(supa,fetchImpl){
   },
   async userLikes(userId){return (await readAll('fiiu_message_likes',{select:'message_id,created_at',user_id:`eq.${userId}`},'message_id')).map(r=>r.message_id);},
   async removeUserLikes(userId){return (await write('fiiu_message_likes',{method:'DELETE',query:{user_id:`eq.${userId}`,select:'message_id'}})).length;},
+  // One transaction in the database (20261013120000): the question is locked and checked, the score upserted, and the
+  // totals the trigger moved are answered with the revision. Its refusals carry PFR codes.
+  async setRating(questionId,userId,score,at){
+   let rows;
+   try{rows=await supa.admin.rest('rpc/set_fiiu_rating',{method:'POST',body:{p_question_id:questionId,p_user_id:userId,p_score:scoreOf(score),p_at:at}});}
+   catch(err){if(RATING_REFUSALS[err.code])failCode(...RATING_REFUSALS[err.code]);conflict(err);}
+   const [row]=Array.isArray(rows)?rows:[];if(!Array.isArray(row?.counts))unavailable();
+   return {ratingCounts:row.counts.map(Number),revision:Number(row.rev)};
+  },
+  async ratingOf(questionId,userId){const [row]=await read('fiiu_ratings',{select:'score',question_id:`eq.${questionId}`,user_id:`eq.${userId}`,limit:1});return row?Number(row.score):null;},
+  async userRatings(userId){
+   return (await readAll('fiiu_ratings',{select:'question_id,score,created_at,updated_at',user_id:`eq.${userId}`},'question_id')).map(r=>({questionId:r.question_id,score:Number(r.score),createdAt:utc(r.created_at),updatedAt:utc(r.updated_at)}));
+  },
+  async removeUserRatings(userId){return (await write('fiiu_ratings',{method:'DELETE',query:{user_id:`eq.${userId}`,select:'question_id'}})).length;},
   // The RPC's trigger serialises one person's reservations and raises PFU01 over the allowance (pending files count).
   async reserveFile(record){
    let rows;

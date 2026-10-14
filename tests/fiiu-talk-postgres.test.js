@@ -6,8 +6,8 @@ import {promisify} from 'node:util';
 // Opt-in: run against an empty disposable database, for example
 //   createdb -h 127.0.0.1 nodal_fiiu_test_talk$$ && NODAL_FIIU_TALK_TEST_DATABASE_URL=postgresql://127.0.0.1/nodal_fiiu_test_talk$$ node --test tests/fiiu-talk-postgres.test.js; dropdb -h 127.0.0.1 nodal_fiiu_test_talk$$
 const databaseUrl=process.env.NODAL_FIIU_TALK_TEST_DATABASE_URL;
-const migrations=['20260928233515_fiiu_festival','20260929194059_fiiu_event_summary','20261001011759_fiiu_checkin','20261003013301_fiiu_confirmation_email','20261011120000_fiiu_conversations'];
-test('PostgreSQL festival conversations keep revisions, counters and the upload allowance in triggers, stay server-only and survive account erasure',{skip:!databaseUrl,timeout:60000},async()=>{
+const migrations=['20260928233515_fiiu_festival','20260929194059_fiiu_event_summary','20261001011759_fiiu_checkin','20261003013301_fiiu_confirmation_email','20261011120000_fiiu_conversations','20261013120000_fiiu_programme_general'];
+test('PostgreSQL festival conversations keep revisions, counters, rating totals and the upload allowance in triggers, stay server-only and survive account erasure',{skip:!databaseUrl,timeout:60000},async()=>{
  const url=new URL(databaseUrl);
  assert.ok(['127.0.0.1','localhost','[::1]'].includes(url.hostname));
  assert.match(url.pathname,/^\/nodal_fiiu_test_[a-z0-9_]+$/);assert.equal(url.search,'');
@@ -139,4 +139,59 @@ test('PostgreSQL festival conversations keep revisions, counters and the upload 
  assert.deepEqual(await stamp(),[String(Number(ready)+1),String(Number(ready)+1)]);
  await service(`UPDATE public.fiiu_files SET message_id=message_id,status=status WHERE id=${file};`);
  assert.equal(await question('revision'),String(Number(ready)+1));
+
+ // 20261013120000: programme edits, one-off notices and rating questions are server-only like the rest.
+ const added=['public.fiiu_programme','public.fiiu_notices','public.fiiu_ratings'];
+ assert.equal(await sql(`SELECT count(*) FROM unnest(${list(added)}) t WHERE (SELECT relrowsecurity FROM pg_class WHERE oid=t::regclass)`),'3');
+ assert.equal(await sql(`SELECT coalesce(string_agg(r||' '||p||' '||t,', '),'') FROM unnest(array['anon','authenticated']) r,unnest(${list(added)}) t,
+  unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p WHERE has_table_privilege(r,t,p)`),'','browser roles hold nothing on the new tables');
+ assert.equal(await sql(`SELECT bool_and(has_table_privilege('service_role',t,p)) FROM unnest(${list(added)}) t,unnest(array['SELECT','INSERT','UPDATE','DELETE']) p`),'t');
+ const ratingTriggers=['public.fiiu_question_kind_lock()','public.fiiu_rating_count()'],setRating='public.set_fiiu_rating(uuid,uuid,smallint,timestamptz)';
+ assert.equal(await sql(`SELECT coalesce(string_agg(r||' '||f,', '),'') FROM unnest(array['anon','authenticated']) r,unnest(${list([...ratingTriggers,setRating])}) f WHERE has_function_privilege(r,f,'EXECUTE')`),'','browser roles execute none of the new functions');
+ assert.equal(await sql(`SELECT has_function_privilege('service_role','${setRating}','EXECUTE')`),'t');
+ await assert.rejects(as('authenticated',`SELECT * FROM public.set_fiiu_rating('${q}','${a}',5::smallint,now());`),/permission denied for function set_fiiu_rating/);
+ await assert.rejects(as('anon',`SELECT * FROM public.fiiu_ratings;`),/permission denied for table fiiu_ratings/);
+ assert.equal(await sql(`SELECT string_agg(proname,',' ORDER BY proname) FROM pg_proc WHERE prosecdef AND proconfig=ARRAY['search_path=""'] AND oid IN (SELECT unnest(${list(ratingTriggers)})::regprocedure)`),
+  'fiiu_question_kind_lock,fiiu_rating_count','the triggers run as their owner, so an account deletion reaches them');
+
+ // A question is a conversation without totals or a rating with exactly ten; existing questions are conversations.
+ assert.equal(await question("kind||':'||coalesce(array_to_string(rating_counts,','),'null')"),'chat:null');
+ const r='40000000-0000-4000-8000-000000000001',zeros='{0,0,0,0,0,0,0,0,0,0}';
+ const ask=(id,kind,counts)=>service(`INSERT INTO public.fiiu_questions(id,event_id,activity_id,talk,body,status,created_by,version,created_at,updated_at,kind,rating_counts)
+  VALUES('${id}','fiiu-2026','general',NULL,'Del 1 al 10','open',NULL,1,now(),now(),'${kind}',${counts});`);
+ await assert.rejects(ask('40000000-0000-4000-8000-000000000002','rating','NULL'),/fiiu_questions_rating_counts/,'a rating question has its totals');
+ await assert.rejects(ask('40000000-0000-4000-8000-000000000003','rating',"'{0,0,0}'"),/fiiu_questions_rating_counts/,'ten of them');
+ await assert.rejects(ask('40000000-0000-4000-8000-000000000004','chat',`'${zeros}'`),/fiiu_questions_rating_counts/,'a conversation has none');
+ await assert.rejects(ask('40000000-0000-4000-8000-000000000005','poll','NULL'),/check constraint/);
+ await ask(r,'rating',`'${zeros}'`);
+ const rq=field=>service(`SELECT ${field} FROM public.fiiu_questions WHERE id='${r}';`);
+ const rate=(user,score,id=r)=>service(`SELECT array_to_string(counts,',')||':'||rev FROM public.set_fiiu_rating('${id}','${user}',${score}::smallint,now());`);
+
+ // One score per person, changeable: the RPC answers the totals and revision the trigger moved in the same transaction.
+ assert.equal(await rate(a,8),'0,0,0,0,0,0,0,1,0,0:1');
+ assert.equal(await rate(a,8),'0,0,0,0,0,0,0,1,0,0:1','the same score again changes nothing');
+ assert.equal(await rate(a,3),'0,0,1,0,0,0,0,0,0,0:3','a change moves one total down and another up');
+ assert.equal(await rate(b,3),'0,0,2,0,0,0,0,0,0,0:4');
+ assert.equal(await service(`SELECT string_agg(score::text,',' ORDER BY score) FROM public.fiiu_ratings WHERE question_id='${r}';`),'3,3');
+ await assert.rejects(rate(a,11),/check constraint/);
+ await assert.rejects(rate(a,5,q),/PFR02/,'a conversation takes no score');
+ await assert.rejects(rate(a,5,'40000000-0000-4000-8000-0000000000ff'),/PFR01/,'nor a missing question');
+ await service(`UPDATE public.fiiu_questions SET status='closed' WHERE id='${r}';`);
+ await assert.rejects(rate(a,5),/PFR03/,'nor a closed one');
+ assert.equal(await rq("array_to_string(rating_counts,',')||':'||revision"),'0,0,2,0,0,0,0,0,0,0:5','refusals move nothing; the close moved the revision');
+ await assert.rejects(service(`UPDATE public.fiiu_questions SET kind='chat',rating_counts=NULL WHERE id='${r}';`),/PFR04/,'the type never changes');
+ await service(`UPDATE public.fiiu_questions SET kind='rating',body='Del 1 al 10, ¿cuánto?' WHERE id='${r}';`);
+
+ // GoTrue's account deletion cascades the score away, and the trigger takes it out of the totals even once closed; a
+ // notice goes with the account and a programme edit stays without its editor.
+ await service(`INSERT INTO public.fiiu_programme VALUES('day1-am','fiiu-2026','{"title":"Editado"}',1,'${a}',now());
+  INSERT INTO public.fiiu_notices VALUES(gen_random_uuid(),'fiiu-2026','${a}','closing-party','sent','es',now(),now(),now());`);
+ await assert.rejects(service(`INSERT INTO public.fiiu_notices VALUES(gen_random_uuid(),'fiiu-2026','${a}','closing-party','pending','es',now(),now(),now());`),/duplicate key/,'one notice of a kind per person');
+ await service(`DELETE FROM public.fiiu_files WHERE user_id='${a}';`);
+ const revision=Number(await rq('revision'));
+ await erase([a]);
+ assert.equal(await rq("array_to_string(rating_counts,',')"),'0,0,1,0,0,0,0,0,0,0');assert.equal(Number(await rq('revision')),revision+1);
+ assert.equal(await service(`SELECT count(*) FROM public.fiiu_ratings WHERE user_id='${a}';`),'0');
+ assert.equal(await service(`SELECT count(*) FROM public.fiiu_notices WHERE user_id='${a}';`),'0');
+ assert.equal(await service(`SELECT data->>'title'||':'||coalesce(updated_by::text,'null') FROM public.fiiu_programme WHERE id='day1-am';`),'Editado:null');
 });
