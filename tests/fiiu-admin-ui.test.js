@@ -1008,7 +1008,10 @@ test('the summary email block: singular forms, nobody waiting, email off, the da
  r=await reload(emailState({configured:false,counts:emailCounts({none:46})}));
  assert.match(backfillLine(r),/^Summary emails are off\. To turn them on, set EMAIL_SMTP_URL and EMAIL_FROM/);assert.equal(backfillButtons(r).length,0,'no button while email is off');assert.equal(key(backfillBlock(r),'backfillHint').hidden,true,'one line');
  r=await reload(emailState({counts:emailCounts({none:5,sent:150}),sentToday:150}));
- assert.equal(backfillButtons(r).length,0);assert.equal(backfillNote(r),'Today’s limit of 150 summary emails is reached (sign-up emails included). Sending can continue after 19:00 Lima time.');
+ // The cap is shared with the party announcement, so the summary block says that both count toward it.
+ assert.equal(backfillButtons(r).length,0);assert.equal(backfillNote(r),'Today’s limit of 150 emails is reached (sign-up emails and the party announcement included). Sending can continue after 19:00 Lima time.');
+ r.lang('es');assert.equal(backfillNote(r),'Se alcanzó el límite de hoy: 150 correos (incluidos los de inscripción y el anuncio de la fiesta). Se puede seguir enviando después de las 19:00, hora de Lima.');
+ r.lang('pt');assert.equal(backfillNote(r),'O limite de hoje foi atingido: 150 e-mails (incluindo os de inscrição e o anúncio da festa). O envio pode continuar depois das 19:00, horário de Lima.');r.lang('en');
  let fail=true;r=await harness(()=>({content:[],nextCursor:null}),{confirmationsRead:()=>fail?{status:503,data:{error:'unavailable'}}:emailState({counts:emailCounts({none:2})})});
  assert.equal(backfillLine(r),'The summary email status could not be loaded.');assert.equal(content(r.message).trim(),'','the rest of the page is unaffected');
  fail=false;await press(r,'reload');assert.equal(backfillLine(r),'2 registrations have not received the summary email · 0 sent');assert.ok(backfillAction(r,'send'));
@@ -1109,7 +1112,7 @@ test('the summary run reports the daily cap, email turned off, a lost session, a
   await press(h,'send');await press(h,'confirm');return h;
  };
  let h=await run(state=>{state.value=emailState({counts:emailCounts({none:4,sent:150}),sentToday:150});return {status:429,data:{error:'daily summary email limit reached',code:'daily_cap'}};});
- assert.equal(backfillNote(h),'Sent 4 · Failed 0. Today’s limit of 150 summary emails is reached (sign-up emails included). Sending can continue after 19:00 Lima time.');
+ assert.equal(backfillNote(h),'Sent 4 · Failed 0. Today’s limit of 150 emails is reached (sign-up emails and the party announcement included). Sending can continue after 19:00 Lima time.');
  assert.equal(backfillAction(h,'send'),undefined,'no button until tomorrow');assert.equal(posts(h).length,2);
  h=await run(state=>{state.value=emailState({configured:false,counts:emailCounts({none:4,sent:4})});return {status:503,data:{error:'email is not configured',code:'email_not_configured'}};});
  assert.match(backfillLine(h),/^Summary emails are off/);assert.equal(backfillButtons(h).length,0);assert.equal(backfillNote(h),'');
@@ -1776,7 +1779,9 @@ test('under the party’s row, Announce the party says who is waiting, how many 
  const h=await harness(()=>({content:[],nextCursor:null}),{noticesRead:()=>noticeState({counts:noticeCounts({waiting:120,sent:30,failed:2}),sentToday:40})});
  const block=noticeBlock(h),row=blockRow(h,'closing-party');assert.ok(block);assert.ok(row.children.includes(block),'directly in the party’s row');
  assert.equal(programmeSection(h).querySelectorAll('.f-party-notice').length,1,'no other block has one');
- assert.ok(key(block,'noticeTitle'));assert.equal(key(block,'noticeHint').hidden,false);assert.equal(block.role,'group');assert.equal(block['aria-labelledby'],key(block,'noticeTitle').id);
+ assert.ok(key(block,'noticeTitle'));assert.equal(key(block,'noticeTitle').tagName,'h4','a part of its day, whose heading is an h3');assert.equal(programmeSection(h).querySelector('.f-programme-date').tagName,'h3');
+ assert.equal(h.root.querySelector('.f-admin-settings').querySelector('.f-backfill').querySelector('h3').dataset.fiiuText,'backfillTitle','the summary emails keep their h3 under the settings’ h2');
+ assert.equal(key(block,'noticeHint').hidden,false);assert.equal(block.role,'group');assert.equal(block['aria-labelledby'],key(block,'noticeTitle').id);
  assert.equal(noticeLine(h),'120 registrants have not added the party · 30 sent · 2 failed · 110 left today');assert.equal(noticeNote(h),'');
  assert.deepEqual(noticeButtons(h).map(b=>[b.dataset.action,b.textContent,b.className]),[['send','Announce the party to 120 people','f-button'],['retry','Retry failed (2)','f-backfill-link']]);
  h.lang('es');assert.equal(noticeLine(h),'120 personas inscritas no han añadido la fiesta · 30 enviados · 2 con error · quedan 110 hoy');assert.equal(noticeAction(h,'send').textContent,'Anunciar la fiesta a 120 personas');

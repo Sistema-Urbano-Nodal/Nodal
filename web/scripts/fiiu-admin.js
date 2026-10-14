@@ -75,6 +75,8 @@
   noticeCap:['Today’s limit of {cap} emails is reached (summary and sign-up emails included). Sending can continue after {time} Lima time.','Se alcanzó el límite de hoy: {cap} correos (incluidos los de resumen e inscripción). Se puede seguir enviando después de las {time}, hora de Lima.','O limite de hoje foi atingido: {cap} e-mails (incluindo os de resumo e de inscrição). O envio pode continuar depois das {time}, horário de Lima.'],
   noticeOff:['Emails are off, so the announcement cannot be sent. To turn them on, set EMAIL_SMTP_URL and EMAIL_FROM (and PUBLIC_BASE_URL) in Vercel for Production, then redeploy.','Los correos están desactivados, así que el anuncio no se puede enviar. Para activarlos, configura EMAIL_SMTP_URL y EMAIL_FROM (y PUBLIC_BASE_URL) en Vercel para Production y vuelve a desplegar.','Os e-mails estão desativados, então o anúncio não pode ser enviado. Para ativá-los, defina EMAIL_SMTP_URL e EMAIL_FROM (e PUBLIC_BASE_URL) na Vercel para Production e publique de novo.'],
   noticeLoadError:['The announcement status could not be loaded.','No se pudo cargar el estado del anuncio.','Não foi possível carregar o status do anúncio.'],
+  // The summary emails' cap line: the party announcement now counts toward the same daily limit (the shared backfillCap names sign-up emails only).
+  summaryCap:['Today’s limit of {cap} emails is reached (sign-up emails and the party announcement included). Sending can continue after {time} Lima time.','Se alcanzó el límite de hoy: {cap} correos (incluidos los de inscripción y el anuncio de la fiesta). Se puede seguir enviando después de las {time}, hora de Lima.','O limite de hoje foi atingido: {cap} e-mails (incluindo os de inscrição e o anúncio da festa). O envio pode continuar depois das {time}, horário de Lima.'],
   // The settings keep one public link, the programme's.
   publicLink:['Link shown on the public page','Enlace que se muestra en la página pública','Link exibido na página pública']
  });
@@ -503,9 +505,9 @@
  // id names the block; endpoint answers GET with the state (configured, counts, dailyCap, sentToday, resetsAt) and POST with one batch. waiting is the
  // counts key of the people still to email; keys holds the block's own wording. The summary emails' batches also say how many are left after their
  // cursor (remaining); the announcement's counts say who is still waiting. left adds what is left of today's cap to the counts line; active says
- // whether the block is on the page at all.
- function emailPass({id,endpoint,waiting,keys,remaining=false,left=false,active=()=>true}){
-  const host=el('div','f-backfill'+(id==='backfill'?'':' f-'+id)),heading=tr('h3',keys.title),hintNode=tr('p',keys.hint,'f-muted f-section-hint'),line=el('p','f-backfill-line'),note=el('p','f-backfill-note'),actions=el('div','f-backfill-actions');
+ // whether the block is on the page at all; level is its heading's, one below the heading it sits under.
+ function emailPass({id,endpoint,waiting,keys,remaining=false,left=false,active=()=>true,level='h3'}){
+  const host=el('div','f-backfill'+(id==='backfill'?'':' f-'+id)),heading=tr(level,keys.title),hintNode=tr('p',keys.hint,'f-muted f-section-hint'),line=el('p','f-backfill-line'),note=el('p','f-backfill-note'),actions=el('div','f-backfill-actions');
   heading.id='f-h-'+id;host.setAttribute('role','group');host.setAttribute('aria-labelledby',heading.id);note.setAttribute('role','status');note.setAttribute('aria-live','polite');host.append(heading,hintNode,line,note,actions);
   // state: the last GET; ask: the pass waiting for its confirmation; run: the pass under way; result: how the last one ended.
   let state=null,loadFailed=false,ask=null,run=null,result=null,shownAt=0;
@@ -624,9 +626,10 @@
    lock(){if(run){run.stopping=true;run.wake?.();}state=null;ask=result=null;line.textContent=note.textContent='';actions.replaceChildren();}};
   return self;
  }
- const summaryEmails=emailPass({id:'backfill',endpoint:'/api/admin/fiiu/confirmations',waiting:'none',remaining:true,keys:{title:'backfillTitle',hint:'backfillHint',waiting:'backfillWaiting',noneWaiting:'backfillNoneWaiting',send:'backfillSend',confirmHint:'backfillConfirmHint',cap:'backfillCap',off:'backfillOff',loadError:'backfillLoadError'}});
- // The announcement sits under the party's row in the Programme section, so it is read only when the programme has the party.
- const partyNotice=emailPass({id:'party-notice',endpoint:'/api/admin/fiiu/notices/closing-party',waiting:'waiting',left:true,active:()=>Boolean(festival&&findActivity(festival.event,'closing-party')),keys:{title:'noticeTitle',hint:'noticeHint',waiting:'noticeWaiting',noneWaiting:'noticeNoneWaiting',send:'noticeSend',confirmHint:'noticeConfirmHint',cap:'noticeCap',off:'noticeOff',loadError:'noticeLoadError'}});
+ const summaryEmails=emailPass({id:'backfill',endpoint:'/api/admin/fiiu/confirmations',waiting:'none',remaining:true,keys:{title:'backfillTitle',hint:'backfillHint',waiting:'backfillWaiting',noneWaiting:'backfillNoneWaiting',send:'backfillSend',confirmHint:'backfillConfirmHint',cap:'summaryCap',off:'backfillOff',loadError:'backfillLoadError'}});
+ // The announcement sits under the party's row in the Programme section, so it is read only when the programme has the party; its heading is an
+ // h4, a part of the party's day (an h3).
+ const partyNotice=emailPass({id:'party-notice',endpoint:'/api/admin/fiiu/notices/closing-party',waiting:'waiting',left:true,level:'h4',active:()=>Boolean(festival&&findActivity(festival.event,'closing-party')),keys:{title:'noticeTitle',hint:'noticeHint',waiting:'noticeWaiting',noneWaiting:'noticeNoneWaiting',send:'noticeSend',confirmHint:'noticeConfirmHint',cap:'noticeCap',off:'noticeOff',loadError:'noticeLoadError'}});
  const emailPasses=[summaryEmails,partyNotice];
  // Programme: every block's details as organisers edit them (the server keeps one row per edited block, with its own version); adding or removing a block is
  // still a code change. Blocks are grouped by day in programme order; each row is built once (programmeRows, by id) and updated in place, and one block's
