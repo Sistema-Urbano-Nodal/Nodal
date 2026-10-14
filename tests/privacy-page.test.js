@@ -157,6 +157,20 @@ test('festival conversations are described in every language: their data row aft
   }
 });
 
+test('rating answers and one-off festival notices are described in every language', () => {
+  const html = read('web/pages/privacy.html');
+  const articles = Object.fromEntries([...html.matchAll(/<article data-policy-lang="(en|es|pt)"[^>]*>([\s\S]*?)<\/article>/g)].map(([, lang, body]) => [lang, body]));
+  const table = lang => articles[lang].match(new RegExp(`<section id="${lang}-2">([\\s\\S]*?)</section>`))[1];
+  for (const [lang, ratings, notices] of [
+    ['en', 'Rating answers are stored with your account so you can change them, and are only ever shown as anonymous totals.', 'We record one-off festival notices sent to you, so nobody receives the same one twice.'],
+    ['es', 'Las valoraciones se guardan con tu cuenta para que puedas cambiarlas, y solo se muestran como totales anónimos.', 'Registramos los avisos puntuales del festival que te enviamos, para que nadie reciba el mismo dos veces.'],
+    ['pt', 'As avaliações são guardadas com a sua conta para que você possa alterá-las, e só aparecem como totais anônimos.', 'Registramos os avisos pontuais do festival enviados a você, para que ninguém receba o mesmo duas vezes.'],
+  ]) {
+    assert.ok(table(lang).includes(ratings), `${lang}: ratings`);
+    assert.ok(table(lang).includes(notices), `${lang}: notices`);
+  }
+});
+
 // The stylesheet's rules, with the media query each sits in ('' at the top level).
 function cssRules(css) {
   const rules = [];

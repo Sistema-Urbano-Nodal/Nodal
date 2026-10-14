@@ -1206,3 +1206,20 @@ test('the settings no longer carry a party link: a stored one is dropped and a s
  assert.equal(Object.hasOwn((await saved.json()).config,'partyUrl'),false);
  assert.equal(Object.hasOwn(JSON.parse(db.prepare("SELECT data FROM fiiu_config").get().data),'partyUrl'),false);
 });
+
+test('the personal export lists the festival notices sent to the person, and deleting accounts removes them and keeps programme edits without the editor',async t=>{
+ const {call,save,db,users}=await setup(t);const store=createFiiuStore({db});
+ assert.equal((await save()).status,200);
+ await store.insert('notices',{id:randomUUID(),eventId:'fiiu-2026',userId:users.member.id,kind:'closing-party',status:'sent',language:'es',sentAt:'2026-10-14T18:00:05.000Z',createdAt:'2026-10-14T18:00:00.000Z',updatedAt:'2026-10-14T18:00:05.000Z'});
+ const exported=(await(await call('/api/me/export')).json()).data.fiiu;
+ assert.deepEqual(exported.notices,[{kind:'closing-party',status:'sent',sentAt:'2026-10-14T18:00:05.000Z'}]);
+ assert.deepEqual((await(await call('/api/me/export',{actor:'other'})).json()).data.fiiu.notices,[],'nobody else’s');
+ const party=FIIU_EVENT.activities.find(a=>a.id==='closing-party');
+ assert.equal((await call('/api/admin/fiiu/programme/closing-party',{actor:'admin',method:'PUT',body:{title:'Fiesta final',date:party.date,time:party.time,venue:party.venue,description:'',sessions:party.sessions,version:0}})).status,200);
+ assert.equal(db.prepare('SELECT updated_by AS by FROM fiiu_programme').get().by,users.admin.id);
+ assert.equal((await call('/api/me',{method:'DELETE',body:{confirmEmail:'member@example.test'}})).status,200);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_notices').get().n,0);
+ assert.equal((await call('/api/me',{actor:'admin',method:'DELETE',body:{confirmEmail:'admin@example.test'}})).status,200);
+ assert.deepEqual({...db.prepare('SELECT id,version,updated_by AS by FROM fiiu_programme').get()},{id:'closing-party',version:1,by:null},'the edit stays, without who made it');
+ assert.equal((await(await call('/api/fiiu',{actor:'guest'})).json()).event.activities.find(a=>a.id==='closing-party').title,'Fiesta final');
+});

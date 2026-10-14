@@ -20,10 +20,11 @@ const qrView=qr=>typeof qr?.bits==='string'?{size:qr.size,bits:qr.bits}:{size:qr
 // derived from the session; older clients can omit this additional guard.
 function sameAccount(input,user){if(input.expectedUserId!==undefined&&input.expectedUserId!==user.id)fail('account changed; reload before continuing',409);}
 const body=req=>bodyJson(req,24576);
+// The person's festival data for the account export: the registration, attendance and the one-off notices sent to them.
 export async function exportFiiuData(store,userId){
- const registration=(await store.find('registrations',{eventId:EVENT_ID,userId},{limit:1}))[0]??null;
+ const [registration,notices]=await Promise.all([store.find('registrations',{eventId:EVENT_ID,userId},{limit:1}).then(rows=>rows[0]??null),store.find('notices',{eventId:EVENT_ID,userId})]);
  const attendance=registration?await store.find('attendance',{registrationId:registration.id}):[];
- return {registration,attendance:attendance.map(attendanceView)};
+ return {registration,attendance:attendance.map(attendanceView),notices:notices.map(({kind,status,sentAt})=>({kind,status,sentAt}))};
 }
 // A block's built-in values, which "Restore original" brings back.
 const originalOf=({title,date,time,venue,description='',sessions,registration,formUrl})=>({title,date,time,venue,description,sessions,...(registration==='external'?{formUrl}:{})});
