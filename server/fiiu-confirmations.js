@@ -1,5 +1,6 @@
-import {EVENT_ID,DEFAULT_CONFIG} from './fiiu-domain.js';
+import {EVENT_ID,configView} from './fiiu-domain.js';
 import {isReservedRecipient,emailLanguage} from './fiiu-email.js';
+import {readProgramme} from './fiiu-programme.js';
 
 /* Sending the FIIU registration summary to people the first-registration email did not reach: confirmation_status
    'none' (registered before the email existed, while it was off, or over the hourly sending limit) and, on request,
@@ -17,26 +18,35 @@ const OUTCOMES=['sent','failed','uncertain','skipped'];
 // One dashboard request sends at most BATCH_SIZE emails, concurrently, each under the mailer's 8-second cap, so a
 // request ends well inside the hosting's function time limit; the page asks for the next batch.
 export const BATCH_SIZE=4;
-/* Summary emails a UTC day, sign-up ones included: the dashboard stops sending once this many have gone out today.
+/* Emails a UTC day from the festival, summaries (sign-up ones included) and one-off notices together: the dashboard
+   stops sending either once this many have gone out today.
    Counted in the database, so every server instance sees the same total, from every send that may have reached the
-   provider: confirmation_sent_at is stamped when a send starts (the row turns 'pending') and is kept for 'sent' (as
+   provider: confirmation_sent_at (a notice's sent_at alike) is stamped when a send starts (the row turns 'pending') and is kept for 'sent' (as
    the time the provider accepted it) and 'uncertain'; only 'failed' and 'skipped', which the provider cannot have,
    clear it. So a slow mail server that leaves every send 'uncertain' still uses up the cap. Gmail allows about 500
    messages in any 24 hours for the whole account (sign-up, password and summary emails together); two UTC days back
-   to back can put twice the cap inside 24 hours, still under that. Two organisers sending at the same moment can pass
-   the cap by at most one batch each, and a registration cancelled the same day takes its email out of the count
-   (its row is deleted). Sign-ups themselves are never held back by it. */
+   to back can put twice the cap inside 24 hours, still under that. Batches running at once (two organisers, the
+   party and summary buttons, the script) never pass it together: each send is counted again once claimed, and a
+   claim that finds today's total over the cap is put back unsent (see overCap), so near the cap they may stop a few
+   emails short instead. Sign-ups themselves are never held back by it, and a registration cancelled the same day
+   takes its email out of the count (its row is deleted). */
 export const DAILY_CAP=150;
 // The states whose confirmation_sent_at marks a send that may have reached the provider.
 export const ATTEMPTED=['sent','uncertain','pending'];
 
 export const maskEmail=email=>{const [name,domain]=String(email).split('@');return `${name.slice(0,1)}***@${domain??''}`;};
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+// A write that must land (an outcome, or a claim put back): a row left 'pending' is never sent again automatically.
+export const twice=async write=>{try{await write();}catch{await pause(250);await write();}};
+/* Whether a send just claimed would pass today's cap. Counted after the claim, so it sees every other claim made before
+   it: of the sends that go ahead, the last to count saw all the others and found the total within the cap. cap:
+   {dailyCap, since} (since: the start of the UTC day, from sendingDay), or null where nothing is held back. */
+export const overCap=async(store,cap)=>Boolean(cap)&&await sentSince(store,cap.since)>cap.dailyCap;
 
 // The live festival settings the email links to (programme URL and the like).
 export async function festivalConfig(store){
  const row=(await store.find('config',{id:EVENT_ID},{limit:1}))[0];
- return {...DEFAULT_CONFIG,...row?.data};
+ return configView(row?.data);
 }
 
 /* Claims one registration from the status it was read with, sends its summary and records the outcome. Shared by the
@@ -48,16 +58,20 @@ export async function festivalConfig(store){
    may have claimed the row again, never overwrites that newer send. A failed claim, or an outcome write that fails
    twice, throws; the row then stays as it was, or 'pending'. No row matches the outcome write when the registration
    was cancelled meanwhile, and nothing is recreated. The claim stamps confirmation_sent_at with attemptAt so the daily
-   cap counts the send from the moment it starts (see DAILY_CAP and settledSentAt). */
-export async function deliverConfirmation({store,confirm,config,registration,attemptAt=new Date().toISOString()}){
+   cap counts the send from the moment it starts (see DAILY_CAP and settledSentAt). event: the programme as it stands
+   (organisers' edits included), which the email lists; the sender falls back to the built-in one without it. cap (the
+   dashboard and the script; never a sign-up): a claim over today's cap is put back as it was read, unsent, and
+   answers {status:'capped'}. */
+export async function deliverConfirmation({store,confirm,config,event,registration,attemptAt=new Date().toISOString(),cap=null}){
  const language=emailLanguage(registration.confirmationLanguage);
  const claimed=await store.update('registrations',{id:registration.id,confirmationStatus:registration.confirmationStatus},{confirmationStatus:'pending',confirmationLanguage:language,confirmationSentAt:attemptAt});
  if(!claimed)return null;
+ const mine={id:registration.id,confirmationStatus:'pending',confirmationSentAt:attemptAt};
+ if(await overCap(store,cap)){await twice(()=>store.update('registrations',mine,{confirmationStatus:registration.confirmationStatus,confirmationLanguage:registration.confirmationLanguage??null,confirmationSentAt:registration.confirmationSentAt??null}));return {status:'capped'};}
  let outcome;
- try{outcome=await confirm({registration:claimed,config,language});}catch{outcome={status:'uncertain'};}
+ try{outcome=await confirm({registration:claimed,config,language,event});}catch{outcome={status:'uncertain'};}
  const status=OUTCOMES.includes(outcome?.status)?outcome.status:'uncertain',sentAt=settledSentAt(status,outcome,attemptAt);
- const record=()=>store.update('registrations',{id:registration.id,confirmationStatus:'pending',confirmationSentAt:attemptAt},{confirmationStatus:status,confirmationSentAt:sentAt});
- try{await record();}catch{await pause(250);await record();}
+ await twice(()=>store.update('registrations',mine,{confirmationStatus:status,confirmationSentAt:sentAt}));
  return {status,sentAt};
 }
 // confirmation_sent_at once a send settles: the provider's acceptance time for 'sent', the attempt's start for
@@ -75,8 +89,15 @@ export function sendingDay(now=Date.now()){
  const start=new Date(now);start.setUTCHours(0,0,0,0);
  return {since:start.toISOString(),resetsAt:new Date(start.getTime()+864e5).toISOString()};
 }
-// Sends since `since` that may have reached the provider: accepted, uncertain or still under way.
-export const sentSince=(store,since)=>store.count('registrations',{eventId:EVENT_ID},{atLeast:{confirmationSentAt:since},oneOf:{confirmationStatus:ATTEMPTED}});
+// Sends since `since` that may have reached the provider: accepted, uncertain or still under way. Summary emails and
+// one-off notices (server/fiiu-notices.js) share the cap, so both count.
+export async function sentSince(store,since){
+ const [summaries,notices]=await Promise.all([
+  store.count('registrations',{eventId:EVENT_ID},{atLeast:{confirmationSentAt:since},oneOf:{confirmationStatus:ATTEMPTED}}),
+  store.count('notices',{eventId:EVENT_ID},{atLeast:{sentAt:since},oneOf:{status:ATTEMPTED}}),
+ ]);
+ return summaries+notices;
+}
 
 // The dashboard's picture: the state counts and today's use of the daily cap.
 export async function confirmationState(store,{dailyCap=DAILY_CAP,now=Date.now()}={}){
@@ -86,18 +107,21 @@ export async function confirmationState(store,{dailyCap=DAILY_CAP,now=Date.now()
 
 /* One dashboard batch: up to `size` registrations still at 'none' (or 'failed' with retryFailed), after the `after`
    cursor in id order, all sent at once. Answers {capped:true, ...} without sending anything when today's cap is used
-   up; otherwise the outcome counts, `claimedElsewhere` (rows another sender claimed first), `next` (the cursor for the
-   following batch, null when this was the last) and `remaining` (rows of that state still after the cursor). The
-   cursor keeps a retry pass from picking the rows that just failed again, and ends every pass. */
-export async function sendConfirmationBatch({store,confirm,retryFailed=false,after=null,size=BATCH_SIZE,dailyCap=DAILY_CAP,now=Date.now()}){
+   up, and also, with the outcome counts of what it did send, when another sender took the room left before its claims
+   (whoever it put back waits for the next pass); otherwise the outcome counts, `claimedElsewhere` (rows another
+   sender claimed first), `next` (the cursor for the following batch, null when this was the last) and `remaining`
+   (rows of that state still after the cursor). The cursor keeps a retry pass from picking the rows that just failed
+   again, and ends every pass. */
+export async function sendConfirmationBatch({store,confirm,event,retryFailed=false,after=null,size=BATCH_SIZE,dailyCap=DAILY_CAP,now=Date.now()}){
  const day=sendingDay(now),sentToday=await sentSince(store,day.since),room=Math.min(size,dailyCap-sentToday);
  if(room<=0)return {capped:true,dailyCap,sentToday,resetsAt:day.resetsAt};
  const confirmationStatus=retryFailed?'failed':'none';
- const [due,config]=await Promise.all([store.find('registrations',{eventId:EVENT_ID,confirmationStatus},{after:after??undefined,limit:room}),festivalConfig(store)]);
- const attemptAt=new Date(now).toISOString(),settled=await Promise.allSettled(due.map(registration=>deliverConfirmation({store,confirm,config,registration,attemptAt})));
+ const [due,config,programme]=await Promise.all([store.find('registrations',{eventId:EVENT_ID,confirmationStatus},{after:after??undefined,limit:room}),festivalConfig(store),event??readProgramme(store)]);
+ const attemptAt=new Date(now).toISOString(),cap={dailyCap,since:day.since},settled=await Promise.allSettled(due.map(registration=>deliverConfirmation({store,confirm,config,event:programme,registration,attemptAt,cap})));
  const broken=settled.find(result=>result.status==='rejected');if(broken)throw broken.reason;
- const results={sent:0,failed:0,uncertain:0,skipped:0,claimedElsewhere:0};
- for(const {value} of settled)results[value===null?'claimedElsewhere':value.status]++;
+ const results={sent:0,failed:0,uncertain:0,skipped:0,claimedElsewhere:0};let heldBack=0;
+ for(const {value} of settled)if(value?.status==='capped')heldBack++;else results[value===null?'claimedElsewhere':value.status]++;
+ if(heldBack)return {capped:true,...results,dailyCap,sentToday:await sentSince(store,day.since),resetsAt:day.resetsAt};
  const next=due.length===room?due.at(-1).id:null;
  const remaining=next?await store.count('registrations',{eventId:EVENT_ID,confirmationStatus},{after:next}):0;
  return {...results,remaining,next,dailyCap,sentToday:sentToday+results.sent+results.uncertain,resetsAt:day.resetsAt};
@@ -105,13 +129,14 @@ export async function sendConfirmationBatch({store,confirm,retryFailed=false,aft
 
 /* The command-line backfill (scripts/send-fiiu-confirmations.js): lists every registration still at 'none' (and
    'failed' with retryFailed) and, with send, emails them one at a time, delayMs apart. A dry run writes nothing and
-   masks the addresses. Sending honours the same daily cap as the dashboard, counted again before every email (the
-   dashboard may be sending too, and a long run can cross into the next UTC day): once today's sends reach it the run
-   stops and answers capped: true with the cap, today's count and when it resets. ignoreCap (the script's
-   --ignore-cap) is the operator's explicit override, since Gmail's ~500 a day also carries sign-up and password mail. */
+   masks the addresses. Sending honours the same daily cap as the dashboard, counted again before every email and once
+   it is claimed (the dashboard may be sending too, and a long run can cross into the next UTC day): once today's sends
+   reach it the run stops and answers capped: true with the cap, today's count and when it resets. ignoreCap (the
+   script's --ignore-cap) is the operator's explicit override, since Gmail's ~500 a day also carries sign-up and
+   password mail. */
 export async function sendConfirmations({store,confirm=null,send=false,retryFailed=false,limit=Infinity,delayMs=1000,log=console.log,dailyCap=DAILY_CAP,ignoreCap=false,clock=Date.now}){
  if(send&&!confirm)throw new Error('Email is not configured: set EMAIL_SMTP_URL, EMAIL_FROM and PUBLIC_BASE_URL.');
- const config=await festivalConfig(store);
+ const [config,event]=await Promise.all([festivalConfig(store),readProgramme(store)]);
  const due=[];
  for(const confirmationStatus of retryFailed?['none','failed']:['none']){
   let after;
@@ -124,12 +149,11 @@ export async function sendConfirmations({store,confirm=null,send=false,retryFail
  const results={listed:0,sent:0,failed:0,uncertain:0,skipped:0,claimedElsewhere:0};
  for(const registration of due.slice(0,limit)){
   if(!send){results.listed++;log(`${registration.id}  ${registration.createdAt}  ${emailLanguage(registration.confirmationLanguage)}  ${maskEmail(registration.email)}${isReservedRecipient(registration.email)?'  (test address: would be skipped)':''}`);continue;}
-  if(!ignoreCap){
-   const day=sendingDay(clock()),sentToday=await sentSince(store,day.since);
-   if(sentToday>=dailyCap)return {...results,capped:true,dailyCap,sentToday,resetsAt:day.resetsAt};
-  }
+  const day=sendingDay(clock()),cap=ignoreCap?null:{dailyCap,since:day.since};
+  if(cap){const sentToday=await sentSince(store,day.since);if(sentToday>=dailyCap)return {...results,capped:true,dailyCap,sentToday,resetsAt:day.resetsAt};}
+  const delivered=await deliverConfirmation({store,confirm,config,event,registration,cap});
+  if(delivered?.status==='capped')return {...results,capped:true,dailyCap,sentToday:await sentSince(store,day.since),resetsAt:day.resetsAt};
   results.listed++;
-  const delivered=await deliverConfirmation({store,confirm,config,registration});
   if(delivered===null){results.claimedElsewhere++;continue;}
   results[delivered.status]++;
   log(`${registration.id}  ${delivered.status}`);

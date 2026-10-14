@@ -34,6 +34,8 @@ export const FIIU_EVENT={
   {id:'day2-am',date:'2026-10-22',period:'morning',registration:'general',title:'Cuidar y transformar la ciudad',time:'09:00–13:00',venue:'Auditorio NOS PUCP, Av. Camino Real 1037, San Isidro',sessions:[['09:00–10:30','Movilidad y entornos sensibles al cuidado'],['10:30–12:00','Hacer ciudad en alianza'],['12:00–13:00','Transformar para habitar mejor: Respuestas urbanas frente a la vulnerabilidad']]},
   {id:'day2-pm',date:'2026-10-22',period:'evening',registration:'general',title:'El espacio público como escenario para expresar, cuestionar y movilizar',time:'19:00–21:00',venue:'Hall Segundo Piso, MALI, Cercado de Lima',sessions:[]},
   {id:'day3-am',date:'2026-10-23',period:'morning',registration:'general',title:'Territorio, resiliencia y adaptación climática',time:'09:00–13:00',venue:'Auditorio NOS PUCP, Av. Camino Real 1037, San Isidro',sessions:[['09:00–10:30','Decisiones desde el territorio: Transformación y planificación urbana desde la gobernanza colaborativa'],['10:30–11:00','Reporte de percepciones sobre cambio climático y riesgos en Lima y Callao'],['11:00–13:00','Resiliencia urbana y adaptación climática']]},
+  // Register only ('social'): people add it to their registration for a headcount; it never takes a check-in or adds hours.
+  {id:'closing-party',date:'2026-10-25',period:'party',registration:'social',title:'¡Fiesta de cierre y Chelas Urbanas!',time:'17:00',venue:'La Vermut Bar, Av. Francisco Bolognesi 235, Barranco 15063',sessions:[['17:00–19:00','Chelas Urbanas'],['19:00 en adelante','Fiesta de cierre']]},
   ...externalActivities,
  ],
 };
@@ -56,8 +58,10 @@ for(const activity of FIIU_EVENT.activities)Object.assign(activity,{minutes:isCh
 export const CHECKIN_ACTIVITIES=FIIU_EVENT.activities.filter(isCheckinActivity);
 export const ALL_FIIU_ACTIVITIES=[...FIIU_EVENT.activities,...LEGACY_FIIU_ACTIVITIES];
 // The organiser rule for confirming attendance, shared by the staff checkbox and the QR check-in: a conference block
-// must be in the person's plan, the lab needs an accepted application, and external activities are always allowed.
+// must be in the person's plan, the lab needs an accepted application, the party never (it is register only), and
+// external activities are always allowed.
 export function canAttend(registration,activity){
+ if(activity.registration==='social')return false;
  if(activity.registration==='general')return Array.isArray(registration.answers?.activities)&&registration.answers.activities.includes(activity.id);
  if(activity.registration==='application')return registration.labStatus==='accepted';
  return true;
@@ -69,7 +73,12 @@ export function attendanceHours(attendance,activities=ALL_FIIU_ACTIVITIES){
  for(const id of new Set(attendance.map(row=>row.activityId))){const activity=activities.find(a=>a.id===id);if(!isCheckinActivity(activity))continue;const m=activityMinutes(activity);if(m===null)untimed.push(id);else minutes+=m;}
  return {minutes,hours:Math.floor(minutes/60+0.5),untimed};
 }
-export const DEFAULT_CONFIG={registrationOpen:true,programUrl:'https://canva.link/ficmkatcg9fudwk',workshopsUrl:'',routesUrl:'',partyUrl:''};
+export const DEFAULT_CONFIG={registrationOpen:true,programUrl:'https://canva.link/ficmkatcg9fudwk',workshopsUrl:'',routesUrl:''};
+// The stored settings as the pages see them: only the settings that exist today (a party link saved before the party
+// joined the NODAL registration is dropped), each defaulting to its built-in value.
+export const configView=data=>Object.fromEntries(Object.keys(DEFAULT_CONFIG).map(key=>[key,data?.[key]??DEFAULT_CONFIG[key]]));
+// The blocks a person ticks in the NODAL registration: the conference blocks and the closing party.
+export const REGISTERED_KINDS=['general','social'];
 const choices=(value,allowed,name,optional=false)=>{if(optional&&(value===undefined||value===''))return '';if(!allowed.includes(value))fail(`invalid ${name}`);return value;};
 export function normalizeRegistration(input){
  if(typeof input.publicOfficial!=='boolean')fail('publicOfficial is required');
@@ -78,7 +87,7 @@ export function normalizeRegistration(input){
  const publicOfficial=input.publicOfficial,applyLab=input.applyLab===true;
  if(applyLab&&!publicOfficial)fail('laboratory applications are for public officials');
  const activities=input.activities;
- if(!Array.isArray(activities)||activities.length>5||activities.some(id=>!FIIU_EVENT.activities.some(a=>a.id===id&&a.registration==='general')))fail('invalid activities');
+ if(!Array.isArray(activities)||activities.length>6||activities.some(id=>!FIIU_EVENT.activities.some(a=>a.id===id&&REGISTERED_KINDS.includes(a.registration))))fail('invalid activities');
  const external=input.externalActivities??[];
  if(!Array.isArray(external)||external.length>14||external.some(id=>!externalActivities.some(a=>a.id===id)))fail('invalid externalActivities');
  if(!activities.length&&!external.length&&!applyLab)fail('select an activity or apply for the laboratory');
@@ -104,6 +113,40 @@ export function applicationStatus(answers,existing){
  // Filling in the national ID the first release left optional completes the application; replacing one is an identity change.
  if(!existing?.answers.applyLab||['institution','position','publicOfficial','firstName','lastName','nationalId'].some(k=>answers[k]!==existing.answers[k]&&(k!=='nationalId'||existing.answers[k])))return 'pending';
  return existing.labStatus;
+}
+/* Organiser edits to a built-in programme block (server/fiiu-programme.js stores them). The block's id, period and kind
+   never change; these fields do. A block that takes a check-in is untimed or has a full range, since its check-in
+   window and hours come from it; the party, workshops and routes may also give a start alone. Refusals are 400s with a
+   code the panel explains. */
+const CLOCK=/^([01]\d|2[0-3]):([0-5]\d)$/,clockMinutes=t=>{const m=CLOCK.exec(t);return m?Number(m[1])*60+Number(m[2]):null;};
+// '' (untimed), 'HH:MM' or 'HH:MM–HH:MM' with the start first (an en dash, whatever was typed), else null.
+export function canonicalTime(value){
+ if(value===undefined||value===null)return '';if(typeof value!=='string')return null;
+ const parts=value.trim().split(/\s*[–-]\s*/);if(parts.length===1&&!parts[0])return '';
+ if(parts.length===1)return clockMinutes(parts[0])===null?null:parts[0];
+ if(parts.length!==2)return null;const [a,b]=parts.map(clockMinutes);
+ return a===null||b===null||a>=b?null:`${parts[0]}–${parts[1]}`;
+}
+const codeFail=code=>{throw Object.assign(new Error(code.replace(/_/g,' ')),{status:400,code});};
+// Control characters other than tab and the line breaks are dropped, and a lone surrogate becomes U+FFFD.
+const visible=value=>value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g,'').toWellFormed();
+const oneLine=(value,max,code,required)=>{
+ if(value!==undefined&&value!==null&&typeof value!=='string')codeFail(code);
+ const v=visible(value??'').trim();if(/[\r\n\u2028\u2029]/.test(v)||[...v].length>max||(required&&!v))codeFail(code);return v;
+};
+const realDate=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&!Number.isNaN(Date.parse(`${value}T12:00:00Z`))&&new Date(`${value}T12:00:00Z`).toISOString().slice(0,10)===value;
+export function normalizeProgrammeEdit(activity,input={},event=FIIU_EVENT){
+ const title=oneLine(input.title,200,'invalid_title',true),venue=oneLine(input.venue,200,'invalid_venue',false);
+ const date=realDate(input.date)&&input.date>=event.startsOn&&input.date<=event.endsOn?input.date:codeFail('invalid_date');
+ const time=canonicalTime(input.time);if(time===null||(time&&!time.includes('–')&&!['social','external'].includes(activity.registration)))codeFail('invalid_time');
+ if(input.description!==undefined&&input.description!==null&&typeof input.description!=='string')codeFail('invalid_description');
+ const description=visible(input.description??'').replace(/\r\n?/g,'\n').trim();if([...description].length>1500)codeFail('invalid_description');
+ const lines=input.sessions??[];if(!Array.isArray(lines)||lines.length>12)codeFail('invalid_sessions');
+ const sessions=lines.map(line=>{if(!Array.isArray(line)||line.length!==2)codeFail('invalid_sessions');return [oneLine(line[0],40,'invalid_sessions',false),oneLine(line[1],200,'invalid_sessions',true)];});
+ const edit={title,date,time,venue,description,sessions};
+ // Workshops and routes keep their facilitators' Google Form; other blocks have none.
+ if(activity.registration==='external'){try{edit.formUrl=httpsUrl(input.formUrl);}catch{codeFail('invalid_form_url');}}
+ return edit;
 }
 export function version(value){if(!Number.isSafeInteger(value)||value<0)fail('version is required');return value;}
 export function normalizeConfig(input){
