@@ -309,10 +309,13 @@
   const ids=new Set([...(answers.activities||[]),...(registration.labStatus==='accepted'?event.activities.filter(a=>a.registration==='application').map(a=>a.id):[])]),today=limaDate(now),minutes=limaMinutes(now);
   return chronological(event.activities.filter(a=>ids.has(a.id)&&(a.date>today||(a.date===today&&endsAt(a)>minutes))))[0]||null;
  }
- // Certificate hours: a block counts its scheduled length (the server sends it as minutes; '09:00–13:00' is 240) and an untimed one counts none: the laboratory until
- // its length is set, workshops and routes. Each person's minutes are summed, then rounded half up to whole hours.
+ // Certificate hours, as the server counts them: only the blocks that take a check-in (the laboratory and the conferences) count, so a workshop, a route or
+ // the party adds nothing even once an organiser gives it a time range. A block counts the minutes the server sends ('09:00–13:00' is 240; null, which
+ // counts none, while its length is unknown, as the laboratory's); only an older payload without the field falls back to the time. Each person's minutes
+ // are summed, then rounded half up to whole hours.
  const SPAN=/^(\d{1,2}):(\d{2})\s*[–-]\s*(\d{1,2}):(\d{2})$/;
- const minutesOf=activity=>{if(Number.isFinite(activity?.minutes))return Math.max(0,activity.minutes);const m=SPAN.exec(activity?.time||'');return m?Math.max(0,(m[3]*60+Number(m[4]))-(m[1]*60+Number(m[2]))):0;};
+ const takesCheckin=activity=>Boolean(activity)&&!activity.legacy&&['general','application'].includes(activity.registration);
+ const minutesOf=activity=>{if(!takesCheckin(activity))return 0;if(activity.minutes!==undefined)return Number.isFinite(activity.minutes)?Math.max(0,activity.minutes):0;const m=SPAN.exec(activity.time||'');return m?Math.max(0,(m[3]*60+Number(m[4]))-(m[1]*60+Number(m[2]))):0;};
  function hoursOf(attendance,event){const out={sessions:0,minutes:0,hours:0,untimed:[]};for(const record of attendance||[]){const activity=findActivity(event,record.activityId);if(!activity)continue;out.sessions++;const m=minutesOf(activity);if(m)out.minutes+=m;else out.untimed.push(activity.id);}out.hours=Math.round(out.minutes/60);return out;}
  const hoursText=hours=>memo(locale()+'|hours',()=>new Intl.NumberFormat(locale(),{maximumFractionDigits:1})).format(hours)+' h';
  // "6 h confirmed", plus a note while the laboratory's length is unknown; nothing before the first confirmed session.
@@ -327,7 +330,7 @@
  const checkinState=(activity,now=Date.now())=>now<=checkinCloses(activity)?'open':'closed';
  // Only NODAL's own blocks take QR check-in: the laboratory and the conferences. Workshops and routes stay with their facilitators, and the closing party
  // (registration 'social') is register only.
- const checkinActivities=event=>chronological(event.activities.filter(activity=>['general','application'].includes(activity.registration)));
+ const checkinActivities=event=>chronological(event.activities.filter(takesCheckin));
  const limaClock=value=>limaFormat('en-GB','clock',{hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(value);
  // "Check-in open until 13:30 Lima time", then "Check-in closed at 13:30 Lima time"; the untimed laboratory reads "until the end of the day". The date is added
  // only when check-in closes on another day than the block, since every view already names the block's day. The state class lets a view colour it.

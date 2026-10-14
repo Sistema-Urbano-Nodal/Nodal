@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {FIIU_EVENT} from '../server/fiiu-domain.js';
+import {mergeProgramme} from '../server/fiiu-programme.js';
 import {createFiiuHarness,key,field,flush,content} from './helpers/fiiu-ui-harness.js';
 
 const CODE='Ab3dEf6hIj9kLm2nOp5qRs';
@@ -25,6 +26,13 @@ test('a scanned code checks in at once, then leaves the address bar, and the res
  assert.match(content(box.querySelector('.f-badges')),/✓ El poder de lo local/);
  const hours=box.querySelector('.f-hours');assert.ok(key(hours,'hoursConfirmed'));assert.match(content(hours),/\b4\b/);
  assert.equal(key(box,'viewRegistration').href,'fiiu.html#registration');assert.equal(h.message.dataset.fiiuText,'');
+});
+
+test('a workshop the team confirmed adds no hours to the check-in result, even once an organiser gives it a time range, as the server certifies',async()=>{
+ const event=JSON.parse(JSON.stringify(mergeProgramme([{id:'workshop-espacios-comunidad',data:{time:'10:00–12:00'}}])));
+ const both=[...attendance,{activityId:'workshop-espacios-comunidad',createdAt:'2026-10-21T13:00:00.000Z',method:'staff'}];
+ const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?{...publicData(),event}:{status:201,data:{...checkedIn.data,attendance:both}},{page:'fiiu-checkin',search:`?a=day1-am&c=${CODE}`,context:{Date:frozen('2026-10-21T09:12:00-05:00')}});
+ assert.equal(title(h).dataset.fiiuText,'checkedInTitle');assert.match(content(result(h).querySelector('.f-hours')),/\b4\b/,'the server’s 4 h, not 6');
 });
 
 test('a second scan says the person was already checked in, with the first check-in time',async()=>{

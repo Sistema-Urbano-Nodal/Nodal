@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {FIIU_EVENT} from '../server/fiiu-domain.js';
+import {FIIU_EVENT,attendanceHours} from '../server/fiiu-domain.js';
+import {mergeProgramme} from '../server/fiiu-programme.js';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 import {createFiiuHarness,key,field,descendants,content,flush,Node} from './helpers/fiiu-ui-harness.js';
@@ -436,6 +437,33 @@ test('an accepted laboratory counts for badges but its hours are pending until i
  const hours=h.root.querySelector('.f-saved').querySelector('.f-hours');assert.match(content(hours),/\b0\b/);assert.ok(key(hours,'labHoursPending'));
 });
 
+// The programme as GET /api/fiiu sends it after an organiser gives a workshop and a route a time range: both keep minutes:null, since only the
+// blocks that take a check-in count for the certificate.
+const TIMED=JSON.parse(JSON.stringify(mergeProgramme([{id:'workshop-espacios-comunidad',data:{time:'10:00–12:00'}},{id:'route-amancaes',data:{time:'09:00–13:00'}}])));
+const timedAttendance=['day1-am','workshop-espacios-comunidad','route-amancaes'].map((activityId,i)=>({activityId,createdAt:`2026-10-2${1+i}T14:12:00.000Z`,method:i?'staff':'qr'}));
+const timedRegistration={...saved,answers:{...answers,activities:['day1-am'],externalActivities:['workshop-espacios-comunidad','route-amancaes']}};
+
+test('certificate hours agree with the server: only blocks that take a check-in count, and a timed workshop, route or the party adds nothing',()=>{
+ const context={window:{nodalI18n:{lang:'en',onChange(){}}},document:{documentElement:{lang:'en'},querySelectorAll:()=>[]},Intl,Date,Error};
+ vm.runInNewContext(readFileSync(new URL('../web/scripts/fiiu-ui.js',import.meta.url),'utf8'),context);const {minutesOf,hoursOf}=context.window.Fiiu,block=id=>TIMED.activities.find(activity=>activity.id===id);
+ assert.equal(block('workshop-espacios-comunidad').time,'10:00–12:00');assert.equal(block('workshop-espacios-comunidad').minutes,null);
+ assert.deepEqual(['day1-am','day1-pm','workshop-espacios-comunidad','route-amancaes','closing-party','day0-lab'].map(id=>minutesOf(block(id))),[240,120,0,0,0,0]);
+ // The participant page, the dashboard widget, the check-in page and the organiser dashboard all take their hours from this helper.
+ const server=attendanceHours(timedAttendance,TIMED.activities),browser=hoursOf(timedAttendance,TIMED);
+ assert.deepEqual([browser.minutes,browser.hours],[server.minutes,server.hours]);assert.deepEqual([browser.minutes,browser.hours,browser.sessions],[240,4,3]);
+ // An older payload without minutes falls back to the time, still for check-in blocks only; a present null counts none.
+ assert.equal(minutesOf({registration:'general',time:'09:00–13:00'}),240);assert.equal(minutesOf({registration:'external',time:'10:00–12:00'}),0);
+ assert.equal(minutesOf({registration:'general',time:'09:00–13:00',minutes:null}),0);assert.equal(minutesOf({registration:'social',time:'17:00–19:00'}),0);assert.equal(minutesOf(undefined),0);
+ for(const name of ['fiiu','fiiu-hubs','fiiu-checkin','fiiu-admin'])assert.match(readFileSync(new URL('../web/scripts/'+name+'.js',import.meta.url),'utf8'),/\b(hoursLine|hoursOf|minutesOf)\b[^}]*\}=(window\.)?Fiiu/,name+' takes the shared hours helper');
+});
+
+test('a workshop and a route given a time range add no hours on the participant page or the dashboard widget, as on the certificate',async()=>{
+ const h=await harness({registration:timedRegistration,publicRead:()=>({...publicData,event:TIMED}),read:()=>({...self(timedRegistration),attendance:timedAttendance})});
+ assert.match(content(h.root.querySelector('.f-saved').querySelector('.f-hours')),/\b4\b/);assert.doesNotMatch(content(h.root.querySelector('.f-saved').querySelector('.f-hours')),/\b(6|10)\b/);
+ const {widget}=await widgetHarness(path=>path==='/api/fiiu?kind=news'?{...widgetFeed(path),event:TIMED}:widgetFeed(path)||{...self(timedRegistration),attendance:timedAttendance});
+ assert.match(content(widget.querySelector('.f-hours')),/\b4\b/);
+});
+
 test('the organiser link appears only for organisers, never for a member or a guest',async()=>{
  const member=await harness({registration:saved});assert.equal(key(member.root,'admin'),undefined);
  const guest=await harness({read:()=>({status:401,data:{error:'sign in required'}})});assert.equal(key(guest.root,'admin'),undefined);assert.ok(key(guest.root,'signin'));
@@ -567,6 +595,17 @@ test('a guest who chooses a block from its card signs in and comes back with tha
  const card=h.root.querySelectorAll('.f-activity').find(node=>content(node).includes('Cuidar y transformar la ciudad')),register=key(card,'register');
  assert.equal(register.href,'#registration','the card still leads to the panel’s explanation first');register.listeners.click();
  assert.equal(signin.href,'login.html?next='+encodeURIComponent('/fiiu.html#add-day2-am'));
+});
+
+test('a guest who opens an #add- link (the party email’s button) keeps that block through sign-in, also after Try again',async()=>{
+ const at=hash=>({location:{hash,search:'',pathname:'/fiiu.html',reload(){}}}),signin=h=>key(h.root.querySelector('.f-registration'),'signin');
+ const guest=await harness({read:()=>({status:401,data:{error:'sign in required'}}),context:at('#add-closing-party')});
+ assert.equal(guest.form(),null);assert.deepEqual(guest.replaced,['/fiiu.html#registration'],'the address still drops the #add-');
+ assert.equal(signin(guest).href,'login.html?next='+encodeURIComponent('/fiiu.html#add-closing-party'),'signing in comes back with the party ticked');
+ const replies=[{status:503,data:{error:'unavailable'}},{status:401,data:{error:'sign in required'}}];
+ const outage=await harness({read:()=>replies.shift(),context:at('#add-closing-party')});await key(outage.root.querySelector('.f-registration'),'retry').listeners.click();
+ assert.equal(signin(outage).href,'login.html?next='+encodeURIComponent('/fiiu.html#add-closing-party'));
+ const plain=await harness({read:()=>({status:401,data:{error:'sign in required'}}),context:at('#registration')});assert.equal(signin(plain).href,'login.html?next='+encodeURIComponent('/fiiu.html#registration'));
 });
 
 test('the community events card has its own copy and leads to the festival programme',async()=>{

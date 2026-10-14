@@ -698,7 +698,9 @@
   try{
    for(let want=score;;){
     const data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/rating',{score:want},'PUT');if(rate!==r||question?.id!==id)return;
-    r.saved=scoreOf(data?.score)??want;const totals=validCounts(data?.ratingCounts);if(totals)question.ratingCounts=totals;
+    // The answer's totals and revision are read in the same write. A poll that read a later rating can land first, so totals older than the ones
+    // on screen are left alone (the next poll sees nothing newer and would not fix them); an answer without a revision is taken as it is.
+    r.saved=scoreOf(data?.score)??want;const totals=validCounts(data?.ratingCounts);if(totals&&!(Number(data?.revision)<Number(question.revision||0)))question.ratingCounts=totals;
     // The answer's revision is the question's own: an older live update still on its way can no longer put older totals back.
     if(Number.isFinite(data?.revision))question.revision=Math.max(Number(question.revision)||0,data.revision);
     const next=r.next;r.next=null;if(next===null||next===r.saved)break;want=next;
