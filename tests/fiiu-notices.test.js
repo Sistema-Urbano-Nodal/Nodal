@@ -10,7 +10,7 @@ import {FIIU_EVENT} from '../server/fiiu-domain.js';
 import {mergeProgramme} from '../server/fiiu-programme.js';
 import {partyEmail,createPartyNotice,EMAIL_ROWS} from '../server/fiiu-email.js';
 import {noticeState,noticeCounts,sendNoticeBatch} from '../server/fiiu-notices.js';
-import {sendConfirmationBatch,confirmationState} from '../server/fiiu-confirmations.js';
+import {sendConfirmationBatch,confirmationState,sendConfirmations} from '../server/fiiu-confirmations.js';
 
 /* The one-off closing-party announcement (server/fiiu-notices.js): every registrant who has not added the party gets it
    once. Recipients use fiiu-inbox.dev, a placeholder outside the reserved test domains; example.test ones are skipped. */
@@ -108,6 +108,48 @@ test('summary emails and party notices share one daily cap, counted from every s
  assert.equal((await confirmationState(store,{dailyCap:3,now:NOW})).sentToday,3);assert.equal((await noticeState(store,{dailyCap:3,now:NOW})).sentToday,3);
  // The next UTC day there is room again.
  const tomorrow=await sendNoticeBatch({store,notify,event:FIIU_EVENT,dailyCap:3,after:first.next,now:Date.parse('2026-10-15T00:00:01.000Z')});assert.deepEqual([tomorrow.sent,tomorrow.sentToday],[3,3]);
+});
+
+test('a claim that finds the cap filled by a sender that got in first is put back unsent: notices, their retries, summaries and the script alike',async t=>{
+ const {db,store}=local(t);
+ const [first,retried,summary]=await people(db,store,[{email:'first@fiiu-inbox.dev'},{email:'retried@fiiu-inbox.dev',notice:'failed'},{email:'summary@fiiu-inbox.dev',summary:'none',activities:['closing-party']},
+  ...[0,1,2].map(i=>({email:`rival${i}@fiiu-inbox.dev`,summary:'failed',activities:['closing-party']}))]);
+ // Another organiser's summary batch claims three people just before each claim here: today's cap of three is full.
+ const rivals=on=>db.prepare("UPDATE fiiu_registrations SET confirmation_status=?,confirmation_sent_at=? WHERE email LIKE 'rival%'").run(on?'pending':'failed',on?'2026-10-14T17:59:59.000Z':null);
+ const racing={...store,insert:async(...args)=>{rivals(true);return store.insert(...args);},update:async(...args)=>{rivals(true);return store.update(...args);}};
+ const summaryOf=()=>({...db.prepare('SELECT confirmation_status AS status,confirmation_sent_at AS sentAt,confirmation_language AS language FROM fiiu_registrations WHERE id=?').get(summary.id)});
+ const mail=[],send=async({registration})=>{mail.push(registration.email);return {status:'sent',sentAt:'2026-10-14T18:00:05.000Z'};};
+ assert.deepEqual(await sendNoticeBatch({store:racing,notify:send,event:FIIU_EVENT,dailyCap:3,now:NOW}),{capped:true,sent:0,failed:0,uncertain:0,skipped:0,claimedElsewhere:0,dailyCap:3,sentToday:3,resetsAt:'2026-10-15T00:00:00.000Z'});
+ assert.equal(noticeOf(db,first.userId),null,'no notice row is left behind: still waiting');
+ rivals(false);assert.equal((await sendNoticeBatch({store:racing,notify:send,event:FIIU_EVENT,retryFailed:true,dailyCap:3,now:NOW})).capped,true);
+ assert.deepEqual(noticeOf(db,retried.userId),{status:'failed',sentAt:null,language:'es'},'the failed row is back as it was, for the next retry');
+ rivals(false);assert.equal((await sendConfirmationBatch({store:racing,confirm:send,event:FIIU_EVENT,dailyCap:3,now:NOW})).capped,true);
+ assert.deepEqual(summaryOf(),{status:'none',sentAt:null,language:null},'the summary is back to waiting, its language unset as before');
+ rivals(false);const script=await sendConfirmations({store:racing,confirm:send,send:true,delayMs:0,log:()=>{},dailyCap:3,clock:()=>NOW});
+ assert.deepEqual([script.capped,script.listed,script.sent,script.sentToday],[true,0,0,3]);assert.deepEqual(summaryOf(),{status:'none',sentAt:null,language:null});
+ assert.deepEqual(mail,[],'nobody is emailed over the cap');
+ // Once the cap has room, each of them goes out as usual.
+ rivals(false);
+ assert.equal((await sendNoticeBatch({store,notify:send,event:FIIU_EVENT,dailyCap:3,now:NOW})).sent,1);
+ assert.equal((await sendNoticeBatch({store,notify:send,event:FIIU_EVENT,retryFailed:true,dailyCap:3,now:NOW})).sent,1);
+ assert.equal((await sendConfirmationBatch({store,confirm:send,event:FIIU_EVENT,dailyCap:3,now:NOW})).sent,1);
+ assert.deepEqual(mail,['first@fiiu-inbox.dev','retried@fiiu-inbox.dev','summary@fiiu-inbox.dev']);
+});
+
+test('party passes and the summary button running at once never pass the shared cap together',async t=>{
+ const {db,store:base}=local(t);
+ // All three read today's total before any of them claims, as overlapping requests near the cap do.
+ let arrived=0,open;const barrier=new Promise(resolve=>{open=resolve;});
+ const store={...base,count:async(...args)=>{const n=await base.count(...args);if(arrived<6){if(++arrived===6)open();await barrier;}return n;}};
+ const crowd=await people(db,base,[...Array.from({length:8},(_,i)=>({email:`n${i}@fiiu-inbox.dev`})),...Array.from({length:4},(_,i)=>({email:`s${i}@fiiu-inbox.dev`,summary:'none',activities:['closing-party']}))]);
+ const mail=[],send=async({registration})=>{mail.push(registration.email);return {status:'sent',sentAt:'2026-10-14T18:00:05.000Z'};};
+ const answers=await Promise.all([sendNoticeBatch({store,notify:send,event:FIIU_EVENT,dailyCap:3,now:NOW}),sendNoticeBatch({store,notify:send,event:FIIU_EVENT,dailyCap:3,after:crowd[3].id,now:NOW}),
+  sendConfirmationBatch({store,confirm:send,event:FIIU_EVENT,dailyCap:3,now:NOW})]);
+ const {sentToday}=await noticeState(base,{dailyCap:3,now:NOW});
+ assert.ok(sentToday<=3,`${sentToday} sends counted today`);assert.equal(mail.length,sentToday,'every email that went out is counted, and nothing else');
+ assert.ok(answers.every(answer=>answer.capped||answer.sent===3),'a batch that put anyone back answers capped');
+ assert.equal(db.prepare("SELECT count(*) AS n FROM fiiu_notices WHERE status<>'sent'").get().n,0,'whoever was put back has no notice row, so is still waiting');
+ assert.equal(db.prepare("SELECT count(*) AS n FROM fiiu_registrations WHERE confirmation_status NOT IN ('sent','none')").get().n,0,'and no summary is stuck pending');
 });
 
 test('the party email names the party as the programme has it, with its day, start, session lines, venue and a link to add it, in three languages',()=>{
