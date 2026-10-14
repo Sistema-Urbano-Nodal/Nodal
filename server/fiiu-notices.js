@@ -69,8 +69,9 @@ export async function sendNoticeBatch({store,notify,event,retryFailed=false,afte
   /* Someone who has since added the party or cancelled can never be retried: their failed row goes (only while still
      'failed', so a claim another pass just made stands), so the panel's failed count and its "Retry failed" are only
      people a retry reaches, and they are waiting again should they drop the party or register anew. A failed send is
-     not counted against the cap, and the provider never had it. */
-  await Promise.all(rows.filter(row=>!reachable(row)).map(({failed:row})=>store.remove('notices',{id:row.id,status:'failed'})));
+     not counted against the cap, and the provider never had it. The cleanup never fails the batch (a lost delete leaves
+     the row for the next retry pass, as dropFailedNotice in server/fiiu-api.js does), so the people it reaches still go. */
+  await Promise.all(rows.filter(row=>!reachable(row)).map(({failed:row})=>store.remove('notices',{id:row.id,status:'failed'}).catch(()=>{})));
   due=rows.filter(reachable);
   next=failed.length===room?failed.at(-1).id:null;
  }else{

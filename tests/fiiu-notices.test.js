@@ -113,6 +113,19 @@ test('a retry settles the failed notices nobody can be retried for, someone who 
  assert.deepEqual((await sendAll({store,notify,event:FIIU_EVENT,retryFailed:true,now:NOW})).map(b=>[b.sent,b.next]),[[0,null]]);assert.equal(mail.length,1);
 });
 
+test('a retry whose cleanup of an unreachable failed row fails still sends to everyone it can reach, and the row waits for the next pass',async t=>{
+ const {db,store}=local(t);
+ const [joined,still]=await people(db,store,[{email:'joined@fiiu-inbox.dev',notice:'failed'},{email:'still@fiiu-inbox.dev',notice:'failed'}]);
+ db.prepare("UPDATE fiiu_registrations SET answers=json_set(answers,'$.activities',json('[\"closing-party\"]')) WHERE id=?").run(joined.id);
+ // A Supabase 5xx or timeout on the DELETE of the stale row.
+ const flaky={...store,remove:async(name,...args)=>{if(name==='notices')throw Object.assign(Error('festival deletion unavailable'),{status:502});return store.remove(name,...args);}};
+ const {sent:mail,notify}=outbox(),batch=await sendNoticeBatch({store:flaky,notify,event:FIIU_EVENT,retryFailed:true,now:NOW});
+ assert.deepEqual(mail.map(m=>m.registration.email),['still@fiiu-inbox.dev']);assert.deepEqual([batch.sent,batch.failed,batch.next],[1,0,null]);
+ assert.equal(noticeOf(db,still.userId).status,'sent');assert.equal(noticeOf(db,joined.userId).status,'failed','left for the next retry pass');
+ await sendNoticeBatch({store,notify,event:FIIU_EVENT,retryFailed:true,now:NOW});
+ assert.equal(noticeOf(db,joined.userId),null,'the next pass settles it');assert.equal(mail.length,1);
+});
+
 test('summary emails and party notices share one daily cap, counted from every send that may have reached the provider',async t=>{
  const {db,store}=local(t);
  await people(db,store,[{email:'summary-today@fiiu-inbox.dev',summarySentAt:'2026-10-14T01:00:00.000Z'},{email:'summary-waiting@fiiu-inbox.dev',summary:'none'},
