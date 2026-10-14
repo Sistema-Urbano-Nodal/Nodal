@@ -112,6 +112,35 @@ test('conversation block views and talks follow the programme the server serves'
  assert.deepEqual(logged,[['festival programme unavailable:','programme table unavailable']]);
 });
 
+test('rating questions are created with their type, which never changes, and every list and sync carries their totals',async t=>{
+ const {json,ask}=await setup(t);
+ const zeros=Array(10).fill(0);
+ const chat=await ask();assert.equal(chat.kind,'chat');assert.equal('ratingCounts' in chat,false);
+ const rating=await ask({activityId:'general',body:'Del 1 al 10, ¿cuánto te sirvió el festival?',kind:'rating'});
+ assert.equal(rating.kind,'rating');assert.deepEqual(rating.ratingCounts,zeros);
+ const bad=await json('/api/admin/fiiu/questions',{actor:'admin',method:'POST',body:{activityId:'day1-am',body:'x',status:'open',kind:'poll'}});
+ assert.deepEqual([bad.status,bad.body.code],[400,'invalid_kind']);
+ const locked=await json(`/api/admin/fiiu/questions/${rating.id}`,{actor:'admin',method:'PATCH',body:{version:1,kind:'chat'}});
+ assert.deepEqual([locked.status,locked.body.code],[400,'kind_locked']);
+ assert.equal((await json(`/api/admin/fiiu/questions/${chat.id}`,{actor:'admin',method:'PATCH',body:{version:1,kind:'rating'}})).body.code,'kind_locked');
+ const participants=(await json('/api/fiiu/questions?activityId=general')).body.questions;
+ assert.deepEqual(participants.map(q=>[q.kind,q.ratingCounts]),[['rating',zeros]]);
+ const since=await json(`/api/fiiu/questions/${rating.id}/messages?since=0`,{actor:'other'});
+ assert.equal(since.body.question.kind,'rating');assert.deepEqual(since.body.question.ratingCounts,zeros);
+ assert.equal((await json(`/api/fiiu/questions/${chat.id}/messages?since=0`,{actor:'other'})).body.question.kind,'chat');
+ const edited=await json(`/api/admin/fiiu/questions/${rating.id}`,{actor:'admin',method:'PATCH',body:{version:1,body:'Del 1 al 10, ¿cuánto te sirvió?',status:'closed',kind:'rating'}});
+ assert.equal(edited.status,200);assert.deepEqual([edited.body.question.kind,edited.body.question.status,edited.body.question.body],['rating','closed','Del 1 al 10, ¿cuánto te sirvió?']);
+ assert.deepEqual(edited.body.question.ratingCounts,zeros);
+ const list=(await json('/api/admin/fiiu/questions',{actor:'admin'})).body.questions;
+ assert.deepEqual(list.map(q=>[q.id,q.kind,q.ratingCounts??null]),[[chat.id,'chat',null],[rating.id,'rating',zeros]]);
+ // A retried save is the same question only with the same type.
+ const draft={id:randomUUID(),activityId:'general',body:'¿Del 1 al 10?',status:'hidden',kind:'rating'};
+ assert.equal((await json('/api/admin/fiiu/questions',{actor:'admin',method:'POST',body:draft})).status,201);
+ assert.equal((await json('/api/admin/fiiu/questions',{actor:'admin',method:'POST',body:draft})).status,200);
+ const other=await json('/api/admin/fiiu/questions',{actor:'admin',method:'POST',body:{...draft,kind:'chat'}});
+ assert.equal(other.status,409);assert.equal(other.body.question.kind,'rating');
+});
+
 test('organisers create, retry, hide, close and edit questions with versions',async t=>{
  const {json,ask,pulse}=await setup(t);
  const open=await ask({talk:'¡Bienvenidos al FIIU 11!'});

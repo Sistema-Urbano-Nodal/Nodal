@@ -127,6 +127,38 @@ test('question edits are compare-and-set on version and only text, talk and stat
  await assert.rejects(store.updateQuestion(q.id,4,{activityId:'day2-am'}),/unknown/,'the block cannot move');
 });
 
+test('questions store their type, a rating question its ten totals, and the type never changes',async()=>{
+ const {db,store,question}=setup();
+ const zeros=Array(10).fill(0),chat=await question(),rating=await question({kind:'rating'});
+ assert.deepEqual([chat.kind,chat.ratingCounts],['chat',null]);assert.deepEqual([rating.kind,rating.ratingCounts],['rating',zeros]);
+ assert.equal(db.prepare('SELECT rating_counts FROM fiiu_questions WHERE id=?').get(rating.id).rating_counts,JSON.stringify(zeros),'JSON text, as SQLite has no arrays');
+ assert.deepEqual((await store.listQuestions(EVENT,{})).map(q=>[q.kind,q.ratingCounts]),[['chat',null],['rating',zeros]]);
+ assert.throws(()=>db.prepare("UPDATE fiiu_questions SET kind='chat',rating_counts=NULL WHERE id=?").run(rating.id),/question type cannot change/);
+ assert.throws(()=>db.prepare('UPDATE fiiu_questions SET rating_counts=NULL WHERE id=?').run(rating.id),/CHECK constraint/,'a rating question always has its totals');
+ assert.throws(()=>db.prepare("UPDATE fiiu_questions SET rating_counts='[0,0]' WHERE id=?").run(rating.id),/CHECK constraint/,'ten of them');
+ assert.throws(()=>db.prepare("UPDATE fiiu_questions SET rating_counts=? WHERE id=?").run(JSON.stringify(zeros),chat.id),/CHECK constraint/,'a conversation has none');
+ await assert.rejects(question({kind:'poll'}),/CHECK constraint/);
+ await assert.rejects(store.updateQuestion(rating.id,1,{kind:'chat'}),/unknown/,'the store never writes a type change');
+ const closed=await store.updateQuestion(rating.id,1,{status:'closed',updatedAt:at(90)});
+ assert.deepEqual([closed.kind,closed.status,closed.ratingCounts],['rating','closed',zeros]);
+});
+
+test('a local database made before question types is upgraded in place',async()=>{
+ const db=createDatabase({filename:':memory:'});
+ const org=createUser(db,{fullName:'Org Test',email:'org@example.test',passwordHash:'x'});
+ db.exec(`CREATE TABLE fiiu_questions (id TEXT PRIMARY KEY,event_id TEXT NOT NULL,activity_id TEXT NOT NULL,talk TEXT,body TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('open','closed','hidden')),revision INTEGER NOT NULL DEFAULT 0,message_count INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT REFERENCES users(id) ON DELETE SET NULL,version INTEGER NOT NULL CHECK(version>0),created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`);
+ const old=randomUUID();
+ db.prepare("INSERT INTO fiiu_questions (id,event_id,activity_id,body,status,created_by,version,created_at,updated_at) VALUES (?,?,'day1-am','¿Qué?','open',?,1,?,?)").run(old,EVENT,org.id,at(0),at(0));
+ // Twice: a second store on the same file (the dev server and a script) finds the columns already there.
+ const store=createTalkStore({db});createTalkStore({db});
+ const before=await store.getQuestion(old);assert.deepEqual([before.kind,before.ratingCounts],['chat',null]);
+ const rating=await store.insertQuestion({id:randomUUID(),eventId:EVENT,activityId:'general',talk:null,body:'¿Del 1 al 10?',status:'open',kind:'rating',createdBy:org.id,createdAt:at(1)});
+ assert.deepEqual(rating.ratingCounts,Array(10).fill(0));
+ assert.throws(()=>db.prepare("UPDATE fiiu_questions SET kind='rating' WHERE id=?").run(old),/question type cannot change/);
+});
+
 test('the pulse and the participant list leave hidden questions out',async()=>{
  const {store,question,ana,message}=setup();
  const open=await question({activityId:'day1-am'}),hidden=await question({activityId:'day1-am',status:'hidden'}),other=await question({activityId:'day2-am'});
@@ -392,6 +424,20 @@ test('Supabase full reads page by (created_at, id), the stats come from the RPC 
  assert.deepEqual(pg.calls.at(-1).body,{p_event_id:EVENT});assert.equal(pg.calls.at(-1).method,'POST');assert.deepEqual(stats.get(Q),{people:3,likes:7});
  assert.deepEqual(await pg.store.pulse(EVENT),[{id:Q,activityId:'day1-am',revision:4,status:'open'}]);
  assert.equal(pg.calls.at(-1).query.status,'neq.hidden');assert.equal(pg.calls.at(-1).query.event_id,`eq.${EVENT}`);
+});
+
+test('Supabase questions carry their type and totals, and a new rating question starts at ten zeros',async()=>{
+ const zeros=Array(10).fill(0);
+ const pg=supabase(call=>call.method==='POST'?{status:201,body:[{id:Q,kind:call.body.kind??'chat',rating_counts:call.body.rating_counts,version:1,revision:0}]}:{body:[{id:Q,kind:'rating',rating_counts:[0,1,0,0,0,0,0,2,0,0],created_at:'2026-10-21T14:00:00+00:00'}],range:'0-0/1'});
+ const record={id:Q,eventId:EVENT,activityId:'general',talk:null,body:'¿Del 1 al 10?',status:'open',createdBy:U,createdAt:'2026-10-21T14:00:00.000Z'};
+ const rating=await pg.store.insertQuestion({...record,kind:'rating'});
+ assert.equal(pg.calls[0].body.kind,'rating');assert.deepEqual(pg.calls[0].body.rating_counts,zeros);assert.deepEqual([rating.kind,rating.ratingCounts],['rating',zeros]);
+ const chat=await pg.store.insertQuestion({...record,kind:'chat'});
+ assert.equal(pg.calls[1].body.kind,'chat');assert.equal(pg.calls[1].body.rating_counts,null);assert.deepEqual([chat.kind,chat.ratingCounts],['chat',null]);
+ const [listed]=await pg.store.listQuestions(EVENT,{includeHidden:true});
+ for(const column of ['kind','rating_counts'])assert.match(pg.calls.at(-1).query.select,new RegExp(`(^|,)${column}(,|$)`),column);
+ assert.deepEqual(listed.ratingCounts,[0,1,0,0,0,0,0,2,0,0]);
+ await assert.rejects(pg.store.updateQuestion(Q,1,{kind:'chat'}),/unknown/);
 });
 
 test('Supabase question writes are versioned and scrubbing blanks deleted and live messages without double counting',async()=>{

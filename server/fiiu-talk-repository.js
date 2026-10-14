@@ -10,10 +10,16 @@ import {FIIU_SQLITE_SCHEMA} from './fiiu-repository.js';
    counters stay right on every write path, the account-deletion cascade included. recursive_triggers is off, and the
    update triggers watch named columns, never seq or revision, so their own writes cannot fire them again. As on profiles in Postgres, deleting an
    account blanks its messages first, so a deletion path that skips the application's scrub still leaves no text. */
+/* Question types (20261013120000_fiiu_programme_general.sql): the columns are in the table for a new database and are
+   added to an older one, whose rows are conversations; SQLite has no arrays, so the ten totals are JSON text. The
+   column CHECK reads kind too, as the migration's table CHECK does. */
+const QUESTION_KIND="TEXT NOT NULL DEFAULT 'chat' CHECK(kind IN ('chat','rating'))";
+const RATING_COUNTS="TEXT CHECK((kind='chat' AND rating_counts IS NULL) OR (kind='rating' AND rating_counts IS NOT NULL AND json_valid(rating_counts) AND json_array_length(rating_counts)=10))";
 export const FIIU_TALK_SQLITE_SCHEMA=`
 CREATE TABLE IF NOT EXISTS fiiu_questions (id TEXT PRIMARY KEY,event_id TEXT NOT NULL,activity_id TEXT NOT NULL,talk TEXT,body TEXT NOT NULL,
  status TEXT NOT NULL CHECK(status IN ('open','closed','hidden')),revision INTEGER NOT NULL DEFAULT 0,message_count INTEGER NOT NULL DEFAULT 0,
- created_by TEXT REFERENCES users(id) ON DELETE SET NULL,version INTEGER NOT NULL CHECK(version>0),created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+ created_by TEXT REFERENCES users(id) ON DELETE SET NULL,version INTEGER NOT NULL CHECK(version>0),created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
+ kind ${QUESTION_KIND},rating_counts ${RATING_COUNTS});
 CREATE INDEX IF NOT EXISTS fiiu_questions_activity ON fiiu_questions(event_id,activity_id,created_at);
 CREATE TABLE IF NOT EXISTS fiiu_messages (id TEXT PRIMARY KEY,question_id TEXT NOT NULL REFERENCES fiiu_questions(id) ON DELETE RESTRICT,
  user_id TEXT REFERENCES users(id) ON DELETE SET NULL,author_name TEXT NOT NULL,author_full TEXT NOT NULL,organiser INTEGER NOT NULL DEFAULT 0,
@@ -46,8 +52,12 @@ CREATE TRIGGER IF NOT EXISTS fiiu_file_attached AFTER UPDATE OF message_id ON fi
 CREATE TRIGGER IF NOT EXISTS fiiu_messages_account_erasure BEFORE DELETE ON users BEGIN
  UPDATE fiiu_messages SET body='',author_name='',author_full='',deleted_at=coalesce(deleted_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')) WHERE user_id=OLD.id; END;
 `;
+// Run once the type columns exist (an older database gets them first): a question's type is set when it is created.
+export const FIIU_TALK_KINDS_SQLITE_SCHEMA=`
+CREATE TRIGGER IF NOT EXISTS fiiu_question_kind_lock BEFORE UPDATE OF kind ON fiiu_questions WHEN NEW.kind IS NOT OLD.kind BEGIN SELECT RAISE(ABORT,'question type cannot change'); END;
+`;
 const TABLES={
- questions:{name:'fiiu_questions',fields:['id','eventId','activityId','talk','body','status','revision','messageCount','createdBy','version','createdAt','updatedAt']},
+ questions:{name:'fiiu_questions',fields:['id','eventId','activityId','talk','body','status','kind','ratingCounts','revision','messageCount','createdBy','version','createdAt','updatedAt']},
  messages:{name:'fiiu_messages',fields:['id','questionId','userId','authorName','authorFull','organiser','body','clientId','likeCount','seq','hiddenAt','hiddenBy','deletedAt','createdAt']},
  files:{name:'fiiu_files',fields:['id','eventId','userId','messageId','name','mime','size','width','height','thumbSize','storagePath','status','createdAt']},
 };
@@ -58,10 +68,14 @@ const QUESTION_PATCH=['body','talk','status','updatedAt'],FILE_STATUSES=['pendin
 const TIMES=new Set(['createdAt','updatedAt','hiddenAt','deletedAt']);
 const utc=value=>typeof value==='string'&&Number.isFinite(Date.parse(value))?new Date(value).toISOString():value;
 const checked=(table,record)=>{for(const k of Object.keys(record))if(!table.fields.includes(k))throw Error('unknown festival field');return record;};
-const from=(table,row,pg=false)=>row?Object.fromEntries(table.fields.map(k=>{const v=row[snake(k)];return [k,k==='organiser'?Boolean(v):pg&&TIMES.has(k)?utc(v):v];})):null;
+// Postgres answers the ten rating totals as a JSON array (integer[]); SQLite keeps them as JSON text.
+const JSON_FIELDS=new Set(['ratingCounts']);
+const from=(table,row,pg=false)=>row?Object.fromEntries(table.fields.map(k=>{const v=row[snake(k)];return [k,k==='organiser'?Boolean(v):pg&&TIMES.has(k)?utc(v):JSON_FIELDS.has(k)&&typeof v==='string'?JSON.parse(v):v];})):null;
 // An undefined field is absent, as JSON.stringify makes it for Supabase: the column default on insert, untouched on
 // update. SQLite would otherwise refuse to bind it, so a thumbSize left undefined for a PDF works the same on both.
-const to=(table,record,sqlite)=>Object.fromEntries(Object.entries(checked(table,record)).filter(([,v])=>v!==undefined).map(([k,v])=>[snake(k),sqlite&&typeof v==='boolean'?Number(v):v]));
+const to=(table,record,sqlite)=>Object.fromEntries(Object.entries(checked(table,record)).filter(([,v])=>v!==undefined).map(([k,v])=>[snake(k),sqlite&&typeof v==='boolean'?Number(v):sqlite&&JSON_FIELDS.has(k)&&v!==null?JSON.stringify(v):v]));
+// A rating question starts at ten zeros (the migration's CHECK wants them); a conversation has no totals.
+const newQuestion=record=>({...record,ratingCounts:record.kind==='rating'?Array(10).fill(0):null,version:1,updatedAt:record.createdAt});
 // The chat pages translate refusals by code; a reused id means the client must reload, a missing parent is a 404.
 // The message insert trigger copies seq from the question's revision, so an unknown question fails NOT NULL on seq
 // before its foreign key is checked, on both backends. A NOT NULL failure on any other column is a bug and stays raw.
@@ -91,6 +105,14 @@ export function createTalkStore({db,env=process.env,clients,fetchImpl=fetch}={})
 function sqliteTalk(db){
  // Registrations are the FIIU store's table (IF NOT EXISTS, so the two stores may start in either order).
  db.exec(FIIU_SQLITE_SCHEMA);db.exec(FIIU_TALK_SQLITE_SCHEMA);
+ // CREATE TABLE IF NOT EXISTS does not upgrade an older local database; another connection adding a column first is
+ // the only error tolerated (as in fiiu-repository.js).
+ const addColumn=(table,name,definition)=>{
+  if(db.prepare(`PRAGMA table_info(${table})`).all().some(c=>c.name===name))return;
+  try{db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);}catch(err){if(!/duplicate column/i.test(err.message))throw err;}
+ };
+ addColumn('fiiu_questions','kind',QUESTION_KIND);addColumn('fiiu_questions','rating_counts',RATING_COUNTS);
+ db.exec(FIIU_TALK_KINDS_SQLITE_SCHEMA);
  const get=(sql,...params)=>db.prepare(sql).get(...params),all=(sql,...params)=>db.prepare(sql).all(...params),run=(sql,...params)=>db.prepare(sql).run(...params).changes;
  const marks=list=>list.map(()=>'?').join(',');
  // Re-read after writes: RETURNING shows the row before the AFTER triggers stamped seq and revision.
@@ -112,7 +134,7 @@ function sqliteTalk(db){
   async registrationEmails(eventId,userIds){
    return new Map(among(accounts(userIds),chunk=>all(`SELECT user_id,email FROM fiiu_registrations WHERE event_id=? AND user_id IN (${marks(chunk)})`,eventId,...chunk)).map(r=>[r.user_id,r.email]));
   },
-  async insertQuestion(record){return insert(QT,{...record,version:1,updatedAt:record.createdAt});},
+  async insertQuestion(record){return insert(QT,newQuestion(record));},
   async getQuestion(id){return byId(QT,id);},
   async listQuestions(eventId,{activityId,includeHidden=false}={}){
    const params=[eventId];let sql='SELECT * FROM fiiu_questions WHERE event_id=?';
@@ -247,7 +269,7 @@ function supabaseTalk(supa,fetchImpl){
    for(const chunk of chunks(accounts(userIds)))for(const row of await read('fiiu_registrations',{select:'user_id,email',event_id:`eq.${eventId}`,user_id:list(chunk),limit:chunk.length}))out.set(row.user_id,row.email);
    return out;
   },
-  async insertQuestion(record){const [row]=await write(QT.name,{method:'POST',body:to(QT,{...record,version:1,updatedAt:record.createdAt})});if(!row)unavailable();return from(QT,row,true);},
+  async insertQuestion(record){const [row]=await write(QT.name,{method:'POST',body:to(QT,newQuestion(record))});if(!row)unavailable();return from(QT,row,true);},
   async getQuestion(id){return one(QT,{id});},
   async listQuestions(eventId,{activityId,includeHidden=false}={}){
    return (await readAll(QT.name,{select:select(QT),event_id:`eq.${eventId}`,...(activityId!==undefined?{activity_id:`eq.${activityId}`}:{}),...(includeHidden?{}:{status:'neq.hidden'})})).map(r=>from(QT,r,true));

@@ -400,7 +400,7 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     try{row=await store.insertQuestion({id,eventId:EVENT_ID,...question,createdBy:user.id,createdAt:now()});}
     catch(err){
      const existing=input.id!=null&&err.status===409&&await store.getQuestion(id);if(!existing||existing.eventId!==EVENT_ID)throw err;
-     const same=['activityId','talk','body','status'].every(k=>(existing[k]??null)===(question[k]??null));
+     const same=['activityId','talk','body','status','kind'].every(k=>(existing[k]??null)===(question[k]??null));
      send(res,same?200:409,{...(same?{}:{error:'question changed; reload before saving'}),question:questionView(existing,{organiser:true})});return true;
     }
     send(res,201,{question:questionView(row,{organiser:true})});return true;

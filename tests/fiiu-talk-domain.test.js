@@ -36,7 +36,7 @@ test('General is a festival-wide space next to the blocks, with no date, time, v
  assert.deepEqual(GENERAL_SPACE,general);assert.deepEqual(talkActivity('general'),general);
  assert.deepEqual(activityView(talkActivity('general')),general,'the view carries every field the chat header reads');
  assert.equal(FIIU_EVENT.activities.some(a=>a.id==='general'),false,'it is not part of the programme');
- assert.deepEqual(normalizeQuestion({activityId:'general',body:'¿Cómo va el festival?'}),{activityId:'general',talk:null,body:'¿Cómo va el festival?',status:'open'});
+ assert.deepEqual(normalizeQuestion({activityId:'general',body:'¿Cómo va el festival?'}),{activityId:'general',talk:null,body:'¿Cómo va el festival?',status:'open',kind:'chat'});
  for(const talk of ['¡Bienvenidos al FIIU 11!','Otra'])assert.throws(()=>normalizeQuestion({activityId:'general',body:'x',talk}),e=>e.code==='invalid_talk',talk);
 });
 test('blocks and their talks come from the programme the server serves, so organiser edits apply',()=>{
@@ -56,7 +56,7 @@ test('questions belong to a current activity and an optional talk of that block'
  assert.throws(()=>normalizeQuestion({activityId:'day2-am',body:'y'},{activityId:'day1-am',body:'x',status:'open'}),e=>e.status===400,'activity cannot change');
 });
 test('a new question defaults to open, may be saved hidden, and needs a body',()=>{
- assert.deepEqual(normalizeQuestion({activityId:'day1-pm',body:'¿Qué intervendrías?'}),{activityId:'day1-pm',talk:null,body:'¿Qué intervendrías?',status:'open'});
+ assert.deepEqual(normalizeQuestion({activityId:'day1-pm',body:'¿Qué intervendrías?'}),{activityId:'day1-pm',talk:null,body:'¿Qué intervendrías?',status:'open',kind:'chat'});
  assert.equal(normalizeQuestion({activityId:'day1-pm',body:'x',status:'hidden'}).status,'hidden');
  for(const talk of ['',null,'   '])assert.equal(normalizeQuestion({activityId:'day1-am',body:'x',talk}).talk,null,JSON.stringify(talk));
  assert.equal(normalizeQuestion({activityId:'day1-am',body:'x',talk:' El poder de lo local: ciudadanía activa '}).talk,'El poder de lo local: ciudadanía activa');
@@ -69,8 +69,8 @@ test('a new question defaults to open, may be saved hidden, and needs a body',()
 });
 test('an edit keeps what it does not change and validates what it does',()=>{
  const current={activityId:'day1-am',talk:'¡Bienvenidos al FIIU 11!',body:'x',status:'closed',version:3};
- assert.deepEqual(normalizeQuestion({version:3,status:'hidden'},current),{activityId:'day1-am',talk:'¡Bienvenidos al FIIU 11!',body:'x',status:'hidden'});
- assert.deepEqual(normalizeQuestion({body:'y',talk:null},current),{activityId:'day1-am',talk:null,body:'y',status:'closed'});
+ assert.deepEqual(normalizeQuestion({version:3,status:'hidden'},current),{activityId:'day1-am',talk:'¡Bienvenidos al FIIU 11!',body:'x',status:'hidden',kind:'chat'});
+ assert.deepEqual(normalizeQuestion({body:'y',talk:null},current),{activityId:'day1-am',talk:null,body:'y',status:'closed',kind:'chat'});
  assert.equal(normalizeQuestion({activityId:'day1-am',status:'open'},current).status,'open','repeating the same activity is fine');
  assert.throws(()=>normalizeQuestion({talk:'Other'},current),e=>e.code==='invalid_talk');
  assert.throws(()=>normalizeQuestion({body:''},current),e=>e.status===400);
@@ -143,10 +143,28 @@ test('message views list files by safe name and mark organiser authors and thumb
 });
 test('question and activity views carry what the chat header needs and the version only for organisers',()=>{
  const q={id:'q',eventId:'fiiu-2026',activityId:'day1-am',talk:null,body:'¿Qué te llevas?',status:'open',revision:'4',messageCount:2,createdBy:'u',version:2,createdAt:'2026-10-21T14:00:00.000Z',updatedAt:'x'};
- assert.deepEqual(questionView(q,{organiser:false}),{id:'q',activityId:'day1-am',talk:null,body:'¿Qué te llevas?',status:'open',revision:4,messageCount:2,createdAt:q.createdAt});
- assert.deepEqual(questionView(q,{organiser:true}),{id:'q',activityId:'day1-am',talk:null,body:'¿Qué te llevas?',status:'open',revision:4,messageCount:2,createdAt:q.createdAt,version:2});
+ assert.deepEqual(questionView(q,{organiser:false}),{id:'q',activityId:'day1-am',talk:null,body:'¿Qué te llevas?',status:'open',kind:'chat',revision:4,messageCount:2,createdAt:q.createdAt});
+ assert.deepEqual(questionView(q,{organiser:true}),{id:'q',activityId:'day1-am',talk:null,body:'¿Qué te llevas?',status:'open',kind:'chat',revision:4,messageCount:2,createdAt:q.createdAt,version:2});
  const a=FIIU_EVENT.activities.find(x=>x.id==='day1-am');
  assert.deepEqual(activityView(a),{id:'day1-am',title:a.title,date:'2026-10-21',time:'09:00–13:00',venue:a.venue,sessions:a.sessions,registration:'general',period:'morning'});
+});
+test('a question is a conversation or a 1–10 rating, chosen when it is created and never changed',()=>{
+ assert.equal(normalizeQuestion({activityId:'day1-am',body:'x'}).kind,'chat');assert.equal(normalizeQuestion({activityId:'day1-am',body:'x',kind:null}).kind,'chat');
+ assert.equal(normalizeQuestion({activityId:'general',body:'Del 1 al 10, ¿cuánto te sirvió?',kind:'rating'}).kind,'rating');
+ for(const kind of ['poll','Rating','',1,{}])assert.throws(()=>normalizeQuestion({activityId:'day1-am',body:'x',kind}),e=>e.status===400&&e.code==='invalid_kind',JSON.stringify(kind));
+ const current={activityId:'day1-am',talk:null,body:'x',status:'open',kind:'rating'};
+ assert.equal(normalizeQuestion({body:'y'},current).kind,'rating');assert.equal(normalizeQuestion({body:'y',kind:'rating'},current).kind,'rating','repeating the same type is fine');
+ assert.throws(()=>normalizeQuestion({kind:'chat'},current),e=>e.status===400&&e.code==='kind_locked');
+ assert.throws(()=>normalizeQuestion({kind:'rating'},{...current,kind:'chat'}),e=>e.code==='kind_locked');
+ assert.throws(()=>normalizeQuestion({kind:'poll'},current),e=>e.code==='kind_locked');
+ assert.equal(normalizeQuestion({status:'closed'},{...current,kind:undefined}).kind,'chat','a row from before question types is a conversation');
+});
+test('question views carry the type, and a rating question its ten totals, score 1 first',()=>{
+ const q={id:'q',eventId:'fiiu-2026',activityId:'general',talk:null,body:'¿Del 1 al 10?',status:'open',kind:'rating',ratingCounts:['0',1,0,0,0,0,0,2,0,0],revision:3,messageCount:0,version:1,createdAt:'2026-10-21T14:00:00.000Z'};
+ assert.deepEqual(questionView(q),{id:'q',activityId:'general',talk:null,body:'¿Del 1 al 10?',status:'open',kind:'rating',ratingCounts:[0,1,0,0,0,0,0,2,0,0],revision:3,messageCount:0,createdAt:q.createdAt});
+ assert.deepEqual(questionView({...q,ratingCounts:null}).ratingCounts,Array(10).fill(0));
+ const chat=questionView({...q,kind:'chat',ratingCounts:null},{organiser:true});
+ assert.equal(chat.kind,'chat');assert.equal('ratingCounts' in chat,false,'a conversation has no totals');
 });
 test('the limits match the migration and the spec',()=>{
  assert.deepEqual(TALK_LIMITS,{question:500,talk:180,message:1000,files:3,fileBytes:3145728,thumbBytes:102400,quotaFiles:30,quotaBytes:31457280,page:100,changes:200});
