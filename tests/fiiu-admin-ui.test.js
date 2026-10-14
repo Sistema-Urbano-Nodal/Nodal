@@ -1649,15 +1649,24 @@ test('Save sends every field with the version, says Changes saved, marks the row
  const party=await openBlock(h,'closing-party');type(field(party,'start'),'18:00');await submit(party);assert.equal(programmeWrites(h).at(-1).body.time,'18:00');assert.equal('formUrl' in programmeWrites(h).at(-1).body,false);
 });
 
-test('the browser stops a blank title, an end before its start, a lone end and a conference start without an end, and sends nothing',async()=>{
+test('the browser stops a blank title, an end before its start, a lone end, a conference start without an end and a date outside the festival, and sends nothing',async()=>{
  const h=await harness(request=>request.method==='PUT'?savedBlock(request):{content:[],nextCursor:null});
  const form=await openBlock(h,'day1-am'),start=field(form,'start'),end=field(form,'end'),title=field(form,'title');
  type(title,'   ');await submit(form);assert.equal(title.validationMessage,'Answer this question to continue.');type(title,'Título');
  type(end,'08:00');await submit(form);assert.equal(end.validationMessage,'The end time must be after the start time.');
  type(end,'');await submit(form);assert.equal(end.validationMessage,'Add an end time, or leave both times empty.');
  type(start,'');type(end,'12:00');await submit(form);assert.equal(start.validationMessage,'Add a start time.');
+ // A day typed outside the festival (a date's segments take any day; min and max only limit the picker) gets the date's own message. The browser
+ // checks min and max before the submit handler runs: 'invalid' reaches the form first (its capture listener) and then the date, and the
+ // bubble shows the message the date has after both. A change reaches the form, which drops every message.
+ type(start,'09:00');type(end,'13:00');const date=field(form,'date');
+ const invalid=validity=>{date.validity=validity;form.listeners.invalid({target:date});date.listeners.invalid?.({target:date});return date.validationMessage;};
+ const change=value=>{type(date,value);form.listeners.input();};
+ change('2026-10-26');assert.equal(invalid({rangeOverflow:true}),'Choose a date between 20 and 25 October.');await submit(form);
+ change('2026-10-19');h.lang('es');assert.equal(invalid({rangeUnderflow:true}),'Elige una fecha entre el 20 y el 25 de octubre.');h.lang('en');
+ change('');assert.equal(invalid({valueMissing:true}),'Answer this question to continue.','an empty date keeps the required message');
  assert.equal(programmeWrites(h).length,0);
- type(start,'');type(end,'');await submit(form);assert.equal(programmeWrites(h).length,1,'no time at all is a valid untimed block');assert.equal(programmeWrites(h)[0].body.time,'');
+ change('2026-10-21');date.validity={valid:true};type(start,'');type(end,'');await submit(form);assert.equal(programmeWrites(h).length,1,'no time at all is a valid untimed block');assert.equal(programmeWrites(h)[0].body.time,'');
 });
 
 test('each refusal code shows its own message beside the form and keeps everything typed',async()=>{

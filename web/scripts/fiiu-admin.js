@@ -767,6 +767,9 @@
   }
   form.append(title.wrap,...after('title'),date.wrap,...after('date'),times,timeHint,...after('time'),venue.wrap,...after('venue'),description.wrap,counter,...after('description'),schedule,...(link?[link.wrap,...after('formUrl')]:[]),warnings,buttons,conflict);
   localiseValidation(form);count();syncTimes();
+  // A day typed into the date's segments can fall outside the festival (min and max only limit the picker). The browser then stops the save before
+  // the submit handler runs, and the form's generic message would name required fields and links: the date's own message replaces it.
+  date.input.addEventListener('invalid',()=>{const validity=date.input.validity;if(validity?.rangeOverflow||validity?.rangeUnderflow)date.input.setCustomValidity(t('pgInvalidDate'));});
   // Saving sends every field with the version the form started from. A refusal keeps the form open with everything typed.
   form.addEventListener('submit',async event=>{
    event.preventDefault();if(busy)return;
