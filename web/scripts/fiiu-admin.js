@@ -57,7 +57,7 @@
   pgInvalidTime:['Check the times: the end must come after the start, and a conference block or the laboratory needs both times or none.','Revisa los horarios: el fin debe ser posterior al inicio, y un bloque de conferencias o el laboratorio necesita ambas horas o ninguna.','Revise os horários: o término deve vir depois do início, e um bloco de conferências ou o laboratório precisa dos dois horários ou de nenhum.'],
   pgInvalidVenue:['Write the venue in up to 200 characters, on one line.','Escribe el lugar en hasta 200 caracteres, en una sola línea.','Escreva o local em até 200 caracteres, em uma só linha.'],
   pgInvalidDescription:['Shorten the description to 1,500 characters.','Acorta la descripción a 1500 caracteres.','Reduza a descrição para 1.500 caracteres.'],
-  pgInvalidSessions:['Check the schedule: up to 12 lines, each with a title, and times of up to 40 characters.','Revisa la agenda: hasta 12 líneas, cada una con título, y horarios de hasta 40 caracteres.','Revise a agenda: até 12 linhas, cada uma com título, e horários de até 40 caracteres.'],
+  pgInvalidSessions:['Check the schedule: up to 12 lines, each with a title of up to 180 characters, and times of up to 40 characters.','Revisa la agenda: hasta 12 líneas, cada una con un título de hasta 180 caracteres, y horarios de hasta 40 caracteres.','Revise a agenda: até 12 linhas, cada uma com um título de até 180 caracteres, e horários de até 40 caracteres.'],
   pgInvalidFormUrl:['Enter the activity form link, starting with https://.','Escribe el enlace del formulario, empezando por https://.','Informe o link do formulário, começando com https://.'],
   pgNotFound:['This block is no longer in the programme. Reload the page.','Este bloque ya no está en el programa. Recarga la página.','Este bloco não está mais na programação. Recarregue a página.'],
   pgHoursWarningOne:['1 person has checked in to this block. Their certificate hours will follow the new time.','1 persona registró su asistencia en este bloque. Sus horas del certificado seguirán el nuevo horario.','1 pessoa registrou presença neste bloco. As horas do certificado vão seguir o novo horário.'],
@@ -205,7 +205,7 @@
  async function refreshSummary({pending,background=false}={}){
   if(locked)return;if(summaryBusy){summaryRerun=true;return;}summaryBusy=true;summaryBody.setAttribute('aria-busy','true');const hadFocus=document.activeElement===summaryRefresh;
   if(!background){summaryRefresh.disabled=true;status(summaryMessage,'loading');}
-  try{const result=await(pending||api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error})));if(result.error)throw result.error;const next=result.data.summary,before=lastSummary?.totalRegistrations;if(summaryKey(next)!==lastSummaryKey)renderSummary(next);else renderCheckin(next);status(summaryMessage,'');stampUpdated(new Date());resume();
+  try{const result=await(pending||api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error})));if(result.error)throw result.error;const next=result.data.summary,before=lastSummary?.totalRegistrations;if(summaryKey(next)!==lastSummaryKey)renderSummary(next);else renderCheckin(next);syncCheckins(next);status(summaryMessage,'');stampUpdated(new Date());resume();
    // A new total (a walk-in registration, a cancellation) re-reads the participant list once every page is in.
    if(Number.isSafeInteger(before)&&next.totalRegistrations!==before)listStale=true;
    if(listStale&&!cursor&&!filling){listStale=false;if(next.totalRegistrations!==records.length)readParticipants(true);}}
@@ -509,8 +509,8 @@
  function emailPass({id,endpoint,waiting,keys,remaining=false,left=false,active=()=>true,level='h3'}){
   const host=el('div','f-backfill'+(id==='backfill'?'':' f-'+id)),heading=tr(level,keys.title),hintNode=tr('p',keys.hint,'f-muted f-section-hint'),line=el('p','f-backfill-line'),note=el('p','f-backfill-note'),actions=el('div','f-backfill-actions');
   heading.id='f-h-'+id;host.setAttribute('role','group');host.setAttribute('aria-labelledby',heading.id);note.setAttribute('role','status');note.setAttribute('aria-live','polite');host.append(heading,hintNode,line,note,actions);
-  // state: the last GET; ask: the pass waiting for its confirmation; run: the pass under way; result: how the last one ended.
-  let state=null,loadFailed=false,ask=null,run=null,result=null,shownAt=0;
+  // state: the last GET; ask: the pass waiting for its confirmation; run: the pass under way; result: how the last one ended; asking: Send's read is out.
+  let state=null,loadFailed=false,ask=null,run=null,result=null,shownAt=0,asking=false;
   const validCounts=counts=>Boolean(counts)&&[waiting,...EMAIL_STATES].every(k=>Number.isSafeInteger(counts[k])&&counts[k]>=0);
   const validBatch=data=>TALLY.every(k=>Number.isSafeInteger(data[k])&&data[k]>=0)&&(!remaining||(Number.isSafeInteger(data.remaining)&&data.remaining>=0))&&(data.next===null||typeof data.next==='string')&&validCounts(data.counts);
   // One button per action, made once and kept: a progress update leaves the focused Stop button in place instead of rebuilding it.
@@ -525,7 +525,16 @@
    }
    b.className=cls;b.textContent=text;return b;
   }
-  function askFor(mode){ask=mode;result=null;render('confirm');}
+  // Confirm names the number waiting now, not at page load: people register all day and sign-up emails use the shared cap, so Send reads the state
+  // again first. A press while that read is out is ignored; a read that fails, or finds nobody to email or the cap reached, asks nothing. The read
+  // shows (Loading… and aria-busy) for as long as it is out: on a slow connection a press that seems to do nothing invites more presses, and one
+  // that comes after the settle time would land on Confirm without the number being read.
+  async function askFor(mode){
+   if(asking||run)return;asking=true;result=null;host.setAttribute('aria-busy','true');render();let fresh;
+   try{fresh=await load();}finally{asking=false;host.setAttribute('aria-busy','false');}
+   if(fresh&&!locked&&!run&&state.configured&&!capReached()&&(mode==='retry'?state.counts.failed:state.counts[waiting]))ask=mode;
+   render(ask?'confirm':undefined);
+  }
   const capReached=()=>Number.isSafeInteger(state?.dailyCap)&&Number.isSafeInteger(state?.sentToday)&&state.sentToday>=state.dailyCap;
   // Today's cap has reset (19:00 Lima) since the page last asked: the minute timer asks again, so the buttons come back without a reload.
   const capLifted=()=>capReached()&&!run&&!ask&&Date.now()>=Date.parse(state.resetsAt);
@@ -559,8 +568,10 @@
      shown.push(textButton(plural('backfillConfirm',n),'confirm','f-button'),textButton(t('backfillCancel'),'cancel'));
     }
     else{
-     if(result){status=resultText(result);error=['session','error'].includes(result.end);}
-     if(capReached()&&(counts[waiting]||counts.failed)){if(result?.end!=='cap')status=(status?status+' ':'')+capText();}
+     if(asking)status=t('loading');
+     else if(result){status=resultText(result);error=['session','error'].includes(result.end);}
+     else if(loadFailed){status=t(keys.loadError);error=true;}
+     if(capReached()&&(counts[waiting]||counts.failed)){if(result?.end!=='cap'&&!asking)status=(status?status+' ':'')+capText();}
      else{
       if(counts[waiting])shown.push(textButton(plural(keys.send,counts[waiting]),'send','f-button'));
       if(counts.failed)shown.push(textButton(fill('backfillRetry',{n:nf(counts.failed)}),'retry'));
@@ -574,16 +585,27 @@
    if(changed){actions.replaceChildren(...shown);shownAt=Date.now();}
    if(hadFocus){const target=shown.find(b=>b.dataset.action===focus)||shown[0];if(target)target.focus();else{heading.tabIndex=-1;heading.focus();}}
   }
+  // Says whether the state was read.
   async function load(focus){
-   if(locked||!active())return;
+   if(locked||!active())return false;
    try{
     const data=await api(endpoint);
     if(typeof data.configured!=='boolean'||!validCounts(data.counts))throw Object.assign(Error(t('error')),{key:'error'});
     state=data;loadFailed=false;resume();
-   }catch(error){if(guard(error))return;loadFailed=true;}
-   render(focus);
+   }catch(error){if(guard(error))return false;loadFailed=true;}
+   render(focus);return !loadFailed;
   }
   function stop(){const pass=run;if(!pass||pass.stopping)return;pass.stopping=true;pass.wake?.();render('stop');}
+  // One batch, posted here rather than through api(), which keeps only a refusal's code: a batch that sent some emails and then reached the shared
+  // daily cap answers 429 with its outcomes (sent, failed, uncertain, skipped, claimedElsewhere) beside the cap's fields, and the refusal carries them.
+  async function post(body){
+   let response,data;const signal=typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function'?AbortSignal.timeout(20000):undefined;
+   try{response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),...(signal?{signal}:{})});data=await response.json().catch(()=>null);}
+   catch{throw Object.assign(Error(t('error')),{key:'error'});}
+   if(!response.ok)throw Object.assign(Error(t('error')),{key:'error',status:response.status,code:typeof data?.code==='string'?data.code:undefined,...(TALLY.every(k=>Number.isSafeInteger(data?.[k])&&data[k]>=0)?{outcome:Object.fromEntries(TALLY.map(k=>[k,data[k]]))}:{})});
+   if(!data||typeof data!=='object'||Array.isArray(data))throw Object.assign(Error(t('error')),{key:'error'});
+   return data;
+  }
   // One pass: POST after POST with the previous answer's cursor until nothing is left, Stop, an error or today's cap. A plain 429 (the
   // organiser write budget) pauses half a minute and carries on, at most five times in a row.
   async function start(mode){
@@ -594,7 +616,7 @@
    try{
     while(!pass.stopping&&!locked){
      let data;
-     try{data=await api(endpoint,{retryFailed:mode==='retry',...(after?{after}:{})},'POST');}
+     try{data=await post({retryFailed:mode==='retry',...(after?{after}:{})});}
      catch(error){
       // Stop pressed while this request was out: a plain 429 sent nothing, so the pass ends now instead of pausing first.
       if(error.status===429&&error.code!=='daily_cap'&&pass.stopping)break;
@@ -613,6 +635,8 @@
     if(!finished&&pass.stopping)end='stopped';
    }catch(error){
     if(guard(error)){run=null;return;}
+    // What the batch that met the cap sent still counts in this pass's report.
+    if(error.code==='daily_cap'&&error.outcome)for(const k of TALLY)pass.tally[k]+=error.outcome[k];
     end=error.code==='daily_cap'?'cap':error.code==='email_not_configured'?'off':error.status===401?'session':'error';
     if(end==='off')state={...state,configured:false};
    }
@@ -670,7 +694,8 @@
  function renderProgramme(){
   if(locked||!festival)return;programmeAlert.hidden=!programmeFailed;
   if(!programmeFailed)programmeAlert.replaceChildren();
-  else if(!programmeAlert.children.length){const retry=button('retry',()=>fetchInto(retry,async()=>{const list=await readProgramme();if(locked)return;programme=list;programmeFailed=false;renderProgramme();}),'f-button secondary f-small');programmeAlert.replaceChildren(tr('span','pgLoadError'),retry);}
+  // A read that works removes Try again with the alert; focus that went with it moves to the section's heading, as in Conversations.
+  else if(!programmeAlert.children.length){const retry=button('retry',()=>fetchInto(retry,async()=>{const list=await readProgramme();if(locked)return;programme=list;programmeFailed=false;renderProgramme();if(!document.activeElement||document.activeElement===document.body){const heading=programmeHost.querySelector('h2');if(heading){heading.tabIndex=-1;heading.focus();}}}),'f-button secondary f-small');programmeAlert.replaceChildren(tr('span','pgLoadError'),retry);}
   if(!programme){programmeList.replaceChildren(...(programmeFailed?[]:[tr('p','loading','f-muted')]));programmeLayout='';return;}
   const sorted=chronological(programme);
   for(const a of sorted){const entry=programmeRows.get(a.id)||programmeEntry(a.id);entry.record=a;entry.update();}
@@ -714,10 +739,11 @@
   counter.id=prefix+'-counter';const count=()=>{counter.textContent=nf(description.input.value.length)+' / '+nf(DESCRIPTION_MAX);};description.input.addEventListener('input',count);
   const link=external?input('pgFormUrl','formUrl',{value:start.formUrl||'',type:'url',required:true,max:2000}):null;
   // Schedule lines: a free-text time and a title each, numbered by place; the first cannot move up, the last cannot move down, twelve at most.
+  // A line's title is offered as a question's talk in Conversations, which takes 180 characters (fiiu_questions.talk), so the line takes no more.
   const schedule=el('fieldset','f-programme-schedule'),lineList=el('ol','f-programme-lines'),lines=[];let lineCount=0;
   const addLine=button('pgAddLine',()=>{const line=newLine('','');lines.push(line);layoutLines();line.when.input.focus();},'f-button secondary f-small');
   function newLine(time,name){
-   const item=el('li','f-programme-line'),label=el('p','f-programme-line-label'),tools=el('div','f-programme-line-tools'),when=field('pgSessionTime',{value:time,max:40}),what=field('pgSessionTitle',{value:name,max:200,required:true}),line={item,label,when,what};
+   const item=el('li','f-programme-line'),label=el('p','f-programme-line-label'),tools=el('div','f-programme-line-tools'),when=field('pgSessionTime',{value:time,max:40}),what=field('pgSessionTitle',{value:name,max:180,required:true}),line={item,label,when,what};
    label.id=prefix+'-line'+(++lineCount);when.input.name='sessionTime';what.input.name='sessionTitle';when.input.id=label.id+'-time';what.input.id=label.id+'-title';item.setAttribute('role','group');item.setAttribute('aria-labelledby',label.id);
    line.up=button('pgMoveUp',()=>moveLine(line,-1),'f-line-button');line.down=button('pgMoveDown',()=>moveLine(line,1),'f-line-button');line.remove=button('pgRemoveLine',()=>dropLine(line),'f-line-button');
    for(const b of [line.up,line.down,line.remove])describe(b,label.id);tools.append(line.up,line.down,line.remove);item.append(label,when.wrap,what.wrap,tools);return line;
@@ -766,6 +792,9 @@
   }
   form.append(title.wrap,...after('title'),date.wrap,...after('date'),times,timeHint,...after('time'),venue.wrap,...after('venue'),description.wrap,counter,...after('description'),schedule,...(link?[link.wrap,...after('formUrl')]:[]),warnings,buttons,conflict);
   localiseValidation(form);count();syncTimes();
+  // A day typed into the date's segments can fall outside the festival (min and max only limit the picker). The browser then stops the save before
+  // the submit handler runs, and the form's generic message would name required fields and links: the date's own message replaces it.
+  date.input.addEventListener('invalid',()=>{const validity=date.input.validity;if(validity?.rangeOverflow||validity?.rangeUnderflow)date.input.setCustomValidity(t('pgInvalidDate'));});
   // Saving sends every field with the version the form started from. A refusal keeps the form open with everything typed.
   form.addEventListener('submit',async event=>{
    event.preventDefault();if(busy)return;
@@ -777,7 +806,14 @@
    try{await action(save,async()=>{let result;try{result=await api('/api/admin/fiiu/programme/'+encodeURIComponent(start.id),payload,'PUT');}catch(err){throw refusal(err);}if(!validBlock(result?.activity)||result.activity.id!==start.id)throw Object.assign(Error(t('error')),{key:'error'});closeProgrammeEdit(entry);applyBlock(result.activity);},{feedback:entry.note,conflict,reload});}
    finally{busy=false;unlock();}
   });
-  return Object.assign(editor,{dirty:()=>JSON.stringify(values())!==initial,recount:()=>{count();warn();}});
+  return Object.assign(editor,{dirty:()=>JSON.stringify(values())!==initial,recount:()=>{count();warn();},warn});
+ }
+ // A block's check-in count comes with the programme read, which runs at load, with a save and with a conflict's reload; the totals bring a newer one
+ // with every refresh and attendance tick. That count goes onto the block, so an open form's hours warning names everyone checked in so far.
+ function syncCheckins(summary){
+  if(!programme)return;const counts=new Map(summary.activities.map(row=>[row.activityId,row.attendance]));
+  for(const a of programme){const n=counts.get(a.id);if(Number.isSafeInteger(n)&&n>=0)a.checkedIn=n;}
+  for(const entry of programmeRows.values())entry.editor?.warn();
  }
  // "Reload the latest version" re-reads the programme and takes only this block from it, so other rows keep what they show.
  async function reloadBlock(id){const latest=(await readProgramme()).find(a=>a.id===id);if(!latest)throw Object.assign(Error(t('pgNotFound')),{key:'pgNotFound'});if(locked)return;applyBlock(latest);}

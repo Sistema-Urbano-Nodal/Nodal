@@ -1619,6 +1619,9 @@ test('schedule lines can be added up to twelve, removed and moved, each move kee
  key(lines()[1],'pgRemoveLine').listeners.click();assert.deepEqual(lineValues(form),[first,third]);assert.equal(field(lines()[1],'sessionTitle').focused,true,'focus moves to the next line');
  add.listeners.click();assert.equal(lines().length,3);assert.deepEqual(lineValues(form).at(-1),['','']);assert.equal(field(lines()[2],'sessionTime').focused,true);
  assert.equal(field(lines()[2],'sessionTime').maxLength,40);assert.equal(field(lines()[2],'sessionTitle').required,true);
+ // A session title is offered as a question's talk in Conversations, which takes 180 characters, so the line takes no more; the refusal says so.
+ assert.equal(field(lines()[2],'sessionTitle').maxLength,180);
+ assert.ok(h.ctx.window.Fiiu.rows.pgInvalidSessions.every(text=>/\b180\b/.test(text)),'in every language');
  while(lines().length<12)add.listeners.click();assert.equal(add.disabled,true,'twelve lines at most');
  key(lines()[11],'pgRemoveLine').listeners.click();assert.equal(add.disabled,false);
  for(let i=lines().length;i>0;i--)key(lines()[0],'pgRemoveLine').listeners.click();assert.equal(lines().length,0);assert.equal(add.focused,true,'with no line left, focus goes to Add line');
@@ -1646,15 +1649,24 @@ test('Save sends every field with the version, says Changes saved, marks the row
  const party=await openBlock(h,'closing-party');type(field(party,'start'),'18:00');await submit(party);assert.equal(programmeWrites(h).at(-1).body.time,'18:00');assert.equal('formUrl' in programmeWrites(h).at(-1).body,false);
 });
 
-test('the browser stops a blank title, an end before its start, a lone end and a conference start without an end, and sends nothing',async()=>{
+test('the browser stops a blank title, an end before its start, a lone end, a conference start without an end and a date outside the festival, and sends nothing',async()=>{
  const h=await harness(request=>request.method==='PUT'?savedBlock(request):{content:[],nextCursor:null});
  const form=await openBlock(h,'day1-am'),start=field(form,'start'),end=field(form,'end'),title=field(form,'title');
  type(title,'   ');await submit(form);assert.equal(title.validationMessage,'Answer this question to continue.');type(title,'Título');
  type(end,'08:00');await submit(form);assert.equal(end.validationMessage,'The end time must be after the start time.');
  type(end,'');await submit(form);assert.equal(end.validationMessage,'Add an end time, or leave both times empty.');
  type(start,'');type(end,'12:00');await submit(form);assert.equal(start.validationMessage,'Add a start time.');
+ // A day typed outside the festival (a date's segments take any day; min and max only limit the picker) gets the date's own message. The browser
+ // checks min and max before the submit handler runs: 'invalid' reaches the form first (its capture listener) and then the date, and the
+ // bubble shows the message the date has after both. A change reaches the form, which drops every message.
+ type(start,'09:00');type(end,'13:00');const date=field(form,'date');
+ const invalid=validity=>{date.validity=validity;form.listeners.invalid({target:date});date.listeners.invalid?.({target:date});return date.validationMessage;};
+ const change=value=>{type(date,value);form.listeners.input();};
+ change('2026-10-26');assert.equal(invalid({rangeOverflow:true}),'Choose a date between 20 and 25 October.');await submit(form);
+ change('2026-10-19');h.lang('es');assert.equal(invalid({rangeUnderflow:true}),'Elige una fecha entre el 20 y el 25 de octubre.');h.lang('en');
+ change('');assert.equal(invalid({valueMissing:true}),'Answer this question to continue.','an empty date keeps the required message');
  assert.equal(programmeWrites(h).length,0);
- type(start,'');type(end,'');await submit(form);assert.equal(programmeWrites(h).length,1,'no time at all is a valid untimed block');assert.equal(programmeWrites(h)[0].body.time,'');
+ change('2026-10-21');date.validity={valid:true};type(start,'');type(end,'');await submit(form);assert.equal(programmeWrites(h).length,1,'no time at all is a valid untimed block');assert.equal(programmeWrites(h)[0].body.time,'');
 });
 
 test('each refusal code shows its own message beside the form and keeps everything typed',async()=>{
@@ -1731,7 +1743,8 @@ test('Restore original asks first, sends DELETE with the version and shows the b
 });
 
 test('a block with check-ins warns that hours follow a new date or time, and a block whose day has started warns that its check-in moves',async()=>{
- const h=await harness(()=>({content:[],nextCursor:null}),{programmeRead:()=>({activities:programmeItems({'day1-am':{checkedIn:12},'closing-party':{checkedIn:0}})}),context:festivalDay});
+ // The totals agree with the programme read: whichever lands last gives the block its count.
+ const h=await harness(()=>({content:[],nextCursor:null}),{programmeRead:()=>({activities:programmeItems({'day1-am':{checkedIn:12},'closing-party':{checkedIn:0}})}),summaryRead:()=>({summary:{...copy(summary),activities:[{activityId:'day1-am',registrations:121,externalInterests:0,attendance:12}]}}),context:festivalDay});
  const form=await openBlock(h,'day1-am'),warnings=form.querySelectorAll('.f-programme-warning'),shown=()=>warnings.filter(node=>!node.hidden).map(node=>node.dataset.fiiuText||node.textContent);
  assert.deepEqual(shown(),[],'no warning before a change');
  type(field(form,'venue'),'Otra sala');assert.deepEqual(shown(),[],'a venue change moves nothing');
@@ -1745,6 +1758,22 @@ test('a block with check-ins warns that hours follow a new date or time, and a b
  const party=await openBlock(h,'closing-party');type(field(party,'start'),'18:00');assert.deepEqual(party.querySelectorAll('.f-programme-warning').filter(node=>!node.hidden),[],'the party takes no check-in');
 });
 
+test('the hours warning counts check-ins made after the page loaded: each totals refresh updates it, under an open form too, and a save brings the block’s own count',async()=>{
+ let attended=0;const totals=()=>({summary:{...copy(summary),activities:[{activityId:'day1-am',registrations:121,externalInterests:0,attendance:attended}]}});
+ const h=await harness(request=>request.method==='PUT'?{activity:{...savedBlock(request).activity,checkedIn:9}}:{content:[],nextCursor:null},{summaryRead:totals});
+ const hours=form=>form.querySelector('.f-programme-warning');
+ let form=await openBlock(h,'day1-am');type(field(form,'end'),'14:00');assert.equal(hours(form).hidden,true,'nobody has checked in when the page loads');
+ // People check in by QR while the form is open; the minute refresh brings the totals.
+ attended=3;await h.tickTimers();await flush();
+ assert.equal(hours(form).hidden,false);assert.equal(hours(form).textContent,'3 people have checked in to this block. Their certificate hours will follow the new time.');
+ await key(form,'pgCancel').listeners.click();form=await openBlock(h,'day1-am');type(field(form,'end'),'14:00');assert.match(hours(form).textContent,/^3 people/,'a form opened later starts from the latest totals');
+ // A save answers with the block's count at that moment, newer than the last totals.
+ type(field(form,'end'),'13:00');type(field(form,'venue'),'Otra sala');await submit(form);
+ form=await openBlock(h,'day1-am');type(field(form,'end'),'14:00');assert.match(hours(form).textContent,/^9 people/);
+ // An unticked attendance lowers it again with the next totals.
+ attended=0;await h.tickTimers();await flush();assert.equal(hours(form).hidden,true);
+});
+
 test('opening another block with unsaved changes asks first, Cancel closes the form, and leaving the page with changes asks too',async()=>{
  const h=await harness(()=>({content:[],nextCursor:null}));let asked=0,answer=false;h.ctx.window.confirm=message=>{asked++;assert.equal(message,h.ctx.window.Fiiu.t('pgDiscard'));return answer;};
  let form=await openBlock(h,'day1-am');assert.equal(leavePrompt(h),false,'an unchanged form lets the page go');
@@ -1755,7 +1784,7 @@ test('opening another block with unsaved changes asks first, Cancel closes the f
  answer=true;await openBlock(h,'day1-pm');assert.equal(asked,2);assert.equal(blockForm(h,'day1-am'),null);assert.ok(blockForm(h,'day1-pm'));assert.equal(leavePrompt(h),false);
 });
 
-test('an unavailable programme read leaves the dashboard working and offers a retry in the section',async()=>{
+test('an unavailable programme read leaves the dashboard working and offers a retry in the section, which hands focus to the heading once it works',async()=>{
  let fail=true;const h=await harness(()=>({content:[],nextCursor:null}),{programmeRead:()=>fail?unavailable:{activities:programmeItems()}});
  const section=programmeSection(h);assert.ok(key(section,'pgLoadError'));assert.equal(section.querySelectorAll('.f-programme-row').length,0);
  assert.equal(h.message.dataset.fiiuText,'','the page toast is not used');assert.ok(h.root.querySelector('.f-admin-summary'));assert.ok(questionForm(h));
@@ -1771,6 +1800,8 @@ test('an unavailable programme read leaves the dashboard working and offers a re
  assert.equal(key(programmeSection(plain),'pgLoadError'),undefined);assert.equal(field(await openBlock(plain,'day1-am'),'description').value,'');
  fail=false;await key(section,'retry').listeners.click();
  assert.equal(key(section,'pgLoadError'),undefined);assert.equal(section.querySelectorAll('.f-programme-row').length,EVENT.activities.length);
+ // Try again leaves with the alert, so focus goes to the section's heading instead of falling to the page.
+ const heading=section.querySelector('h2');assert.equal(heading.id,'f-h-programme');assert.equal(heading.focused,true);assert.equal(heading.tabIndex,-1);
 });
 
 test('losing organiser access empties the Programme section and stops guarding its unsaved form',async()=>{
@@ -1852,6 +1883,42 @@ test('announcing asks first with the number waiting, then sends batch after batc
  assert.equal(h.requests.some(r=>r.path==='/api/admin/fiiu/confirmations'&&r.method==='POST'),false,'the summary emails are untouched');
 });
 
+test('Send asks the server again before Confirm, so the number confirmed is the number waiting now, with today’s cap as it stands',async()=>{
+ let state=noticeState({counts:noticeCounts({waiting:3})});
+ const h=await harness(request=>request.path===NOTICES?noticeBatch({sent:4,next:null,sentToday:14,counts:noticeCounts({sent:4})}):{content:[],nextCursor:null},{noticesRead:()=>state});
+ const reads=()=>h.requests.filter(r=>r.path===NOTICES&&r.method==='GET').length,before=reads();
+ assert.equal(noticeAction(h,'send').textContent,'Announce the party to 3 people');
+ // A fourth person registers without the party, and sign-up emails use some of today's cap, after the page loaded.
+ state=noticeState({counts:noticeCounts({waiting:4}),sentToday:10});
+ await pressNotice(h,'send');assert.equal(reads(),before+1);
+ assert.equal(noticeAction(h,'confirm').textContent,'Confirm: send 4 emails');assert.equal(noticeAction(h,'confirm').focused,true);
+ assert.equal(noticeLine(h),'4 registrants have not added the party · 0 sent · 140 left today');
+ await pressNotice(h,'confirm');assert.equal(noticeNote(h),'Sent 4 · Failed 0');
+ // Nobody left to email by the press: nothing to confirm. At the cap: its message, nothing to confirm.
+ state=noticeState({counts:noticeCounts({waiting:2})});const gone=await harness(()=>({content:[],nextCursor:null}),{noticesRead:()=>state});
+ state=noticeState({counts:noticeCounts({sent:2})});await pressNotice(gone,'send');assert.equal(noticeAction(gone,'confirm'),undefined);assert.equal(noticeButtons(gone).length,0);assert.match(noticeLine(gone),/^Nobody is waiting/);
+ state=noticeState({counts:noticeCounts({waiting:2})});const full=await harness(()=>({content:[],nextCursor:null}),{noticesRead:()=>state});
+ state=noticeState({counts:noticeCounts({waiting:2}),sentToday:150});await pressNotice(full,'send');assert.equal(noticeAction(full,'confirm'),undefined);assert.match(noticeNote(full),/^Today’s limit of 150 emails is reached/);
+ // A failed read says so and asks nothing; Send stays to try again.
+ state=noticeState({counts:noticeCounts({waiting:2})});const flaky=await harness(()=>({content:[],nextCursor:null}),{noticesRead:()=>state});
+ state=unavailable;await pressNotice(flaky,'send');assert.equal(noticeAction(flaky,'confirm'),undefined);assert.equal(noticeNote(flaky),'The announcement status could not be loaded.');assert.ok(noticeAction(flaky,'send'));
+ assert.equal(noticeBlock(flaky)['aria-busy'],'false');
+ // A second press while the read is out reads once. Meanwhile the block says it is reading (a language switch keeps that), so a slow read does
+ // not look like a press that did nothing and invite more presses, which could land on Confirm once it appears.
+ const read=deferred();state=read.promise;const slow=flaky,count=()=>slow.requests.filter(r=>r.path===NOTICES&&r.method==='GET').length,at=count();
+ noticeAction(slow,'send').listeners.click();noticeAction(slow,'send').listeners.click();await flush();assert.equal(count(),at+1);
+ assert.equal(noticeNote(slow),'Loading…');assert.equal(noticeBlock(slow)['aria-busy'],'true');assert.equal(noticeAction(slow,'confirm'),undefined);
+ slow.lang('es');assert.equal(noticeNote(slow),'Cargando…');slow.lang('pt');assert.equal(noticeNote(slow),'Carregando…');slow.lang('en');
+ read.resolve(noticeState({counts:noticeCounts({waiting:5})}));await flush();assert.equal(noticeAction(slow,'confirm').textContent,'Confirm: send 5 emails');assert.equal(noticeNote(slow),'The announcement goes out now, a few emails at a time. You can stop at any time.');
+ assert.equal(noticeBlock(slow)['aria-busy'],'false');
+ // A read that finds nobody waiting leaves no Loading… behind.
+ assert.equal(noticeNote(gone),'');assert.equal(noticeBlock(gone)['aria-busy'],'false');
+ // Retry failed and the summary emails, which share the controller, read again too.
+ let summaryState=emailState({counts:emailCounts({none:2,failed:1})});const both=await harness(()=>({content:[],nextCursor:null}),{confirmationsRead:()=>summaryState});
+ summaryState=emailState({counts:emailCounts({none:7,failed:3})});await press(both,'retry');assert.equal(backfillAction(both,'confirm').textContent,'Confirm: send 3 emails');
+ await press(both,'cancel');await press(both,'send');assert.equal(backfillAction(both,'confirm').textContent,'Confirm: send 7 emails');
+});
+
 test('Stop ends the announcement after the batch in flight, Cancel sends nothing, and Retry failed resends only the failed ones',async()=>{
  let state=noticeState({counts:noticeCounts({waiting:10})});const first=deferred();
  const h=await harness(request=>request.path===NOTICES?first.promise:{content:[],nextCursor:null},{noticesRead:()=>state});
@@ -1886,15 +1953,42 @@ test('the announcement reports the shared daily cap with its reset time, email t
  await pressNotice(lost,'send');await pressNotice(lost,'confirm');assert.ok(key(lost.root,'organisersOnly'));assert.equal(lost.root.querySelector('.f-party-notice'),null);
 });
 
+test('a batch that sends some emails and then reaches the shared daily cap counts them in the pass’s report, for the announcement and the summary emails',async()=>{
+ // The 429 keeps its cap fields and adds the batch's own outcomes.
+ const capped=(counts,outcome)=>({status:429,data:{error:'daily email limit reached',code:'daily_cap',dailyCap:150,sentToday:150,resetsAt:'2026-10-03T00:00:00.000Z',counts,sent:0,failed:0,uncertain:0,skipped:0,claimedElsewhere:0,...outcome}});
+ let state=noticeState({counts:noticeCounts({waiting:6}),sentToday:146});
+ const h=await harness(request=>{if(request.path!==NOTICES)return{content:[],nextCursor:null};state=noticeState({counts:noticeCounts({waiting:2,sent:3,failed:1}),sentToday:150});return capped(noticeCounts({waiting:2,sent:3,failed:1}),{sent:3,failed:1});},{noticesRead:()=>state});
+ await pressNotice(h,'send');await pressNotice(h,'confirm');
+ assert.equal(noticeNote(h),'Sent 3 · Failed 1. Today’s limit of 150 emails is reached (summary and sign-up emails included). Sending can continue after 19:00 Lima time.','the first batch’s emails are in the report');
+ assert.equal(noticeAction(h,'send'),undefined,'no button until the cap resets');
+ // Summary emails: a full batch, then one that met the cap after two.
+ let summaryState=emailState({counts:emailCounts({none:8})}),calls=0;
+ const s=await harness(request=>{
+  if(request.path!=='/api/admin/fiiu/confirmations')return{content:[],nextCursor:null};
+  if(++calls===1)return batch({sent:4,remaining:4,next:'id-4',sentToday:146,counts:emailCounts({none:4,sent:4})});
+  summaryState=emailState({counts:emailCounts({none:2,sent:6}),sentToday:150});return capped(emailCounts({none:2,sent:6}),{sent:2,uncertain:1});
+ },{confirmationsRead:()=>summaryState});
+ await press(s,'send');await press(s,'confirm');
+ assert.equal(backfillNote(s),'Sent 6 · Failed 0 · 1 may not have arrived. Today’s limit of 150 emails is reached (sign-up emails and the party announcement included). Sending can continue after 19:00 Lima time.');
+ // An answer without the numbers, or with malformed ones, adds nothing.
+ for(const outcome of [{sent:undefined},{sent:'3'},{failed:-1}]){
+  state=noticeState({counts:noticeCounts({waiting:6})});
+  const odd=await harness(request=>request.path===NOTICES?capped(noticeCounts({waiting:6}),{sent:3,...outcome}):{content:[],nextCursor:null},{noticesRead:()=>state});
+  await pressNotice(odd,'send');await pressNotice(odd,'confirm');assert.match(noticeNote(odd),/^Today’s limit of 150 emails is reached/,JSON.stringify(outcome));
+ }
+});
+
 test('a finished pass re-reads the other email block, since summary emails and the announcement share the daily cap',async()=>{
  const h=await harness(request=>{
   if(request.path===NOTICES)return noticeBatch({sent:3,next:null,sentToday:3,counts:noticeCounts({sent:3})});
   if(request.path==='/api/admin/fiiu/confirmations')return batch({sent:2,remaining:0,next:null,sentToday:5,counts:emailCounts({sent:2})});
   return{content:[],nextCursor:null};
  },{noticesRead:()=>noticeState({counts:noticeCounts({waiting:3})}),confirmationsRead:()=>emailState({counts:emailCounts({none:2})})});
- const reads=path=>h.requests.filter(r=>r.path===path&&r.method==='GET').length,summaryReads=reads('/api/admin/fiiu/confirmations'),noticeReads=reads(NOTICES);
- await pressNotice(h,'send');await pressNotice(h,'confirm');assert.equal(reads('/api/admin/fiiu/confirmations'),summaryReads+1,'the summary block learns the new count');assert.equal(reads(NOTICES),noticeReads+1);
- await press(h,'send');await press(h,'confirm');assert.equal(reads(NOTICES),noticeReads+2,'and the other way round');
+ // Send reads its own block again before Confirm (see above); the reads counted here are the ones after the pass.
+ const reads=path=>h.requests.filter(r=>r.path===path&&r.method==='GET').length;
+ await pressNotice(h,'send');const summaryReads=reads('/api/admin/fiiu/confirmations'),noticeReads=reads(NOTICES);
+ await pressNotice(h,'confirm');assert.equal(reads('/api/admin/fiiu/confirmations'),summaryReads+1,'the summary block learns the new count');assert.equal(reads(NOTICES),noticeReads+1);
+ await press(h,'send');const after=reads(NOTICES);await press(h,'confirm');assert.equal(reads(NOTICES),after+1,'and the other way round');
 });
 
 // General and rating questions: activityId 'general' is accepted wherever a block id is; question views carry kind ('chat' or 'rating') and, for
