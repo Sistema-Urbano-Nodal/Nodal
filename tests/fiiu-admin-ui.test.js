@@ -1883,6 +1883,35 @@ test('announcing asks first with the number waiting, then sends batch after batc
  assert.equal(h.requests.some(r=>r.path==='/api/admin/fiiu/confirmations'&&r.method==='POST'),false,'the summary emails are untouched');
 });
 
+test('Send asks the server again before Confirm, so the number confirmed is the number waiting now, with today’s cap as it stands',async()=>{
+ let state=noticeState({counts:noticeCounts({waiting:3})});
+ const h=await harness(request=>request.path===NOTICES?noticeBatch({sent:4,next:null,sentToday:14,counts:noticeCounts({sent:4})}):{content:[],nextCursor:null},{noticesRead:()=>state});
+ const reads=()=>h.requests.filter(r=>r.path===NOTICES&&r.method==='GET').length,before=reads();
+ assert.equal(noticeAction(h,'send').textContent,'Announce the party to 3 people');
+ // A fourth person registers without the party, and sign-up emails use some of today's cap, after the page loaded.
+ state=noticeState({counts:noticeCounts({waiting:4}),sentToday:10});
+ await pressNotice(h,'send');assert.equal(reads(),before+1);
+ assert.equal(noticeAction(h,'confirm').textContent,'Confirm: send 4 emails');assert.equal(noticeAction(h,'confirm').focused,true);
+ assert.equal(noticeLine(h),'4 registrants have not added the party · 0 sent · 140 left today');
+ await pressNotice(h,'confirm');assert.equal(noticeNote(h),'Sent 4 · Failed 0');
+ // Nobody left to email by the press: nothing to confirm. At the cap: its message, nothing to confirm.
+ state=noticeState({counts:noticeCounts({waiting:2})});const gone=await harness(()=>({content:[],nextCursor:null}),{noticesRead:()=>state});
+ state=noticeState({counts:noticeCounts({sent:2})});await pressNotice(gone,'send');assert.equal(noticeAction(gone,'confirm'),undefined);assert.equal(noticeButtons(gone).length,0);assert.match(noticeLine(gone),/^Nobody is waiting/);
+ state=noticeState({counts:noticeCounts({waiting:2})});const full=await harness(()=>({content:[],nextCursor:null}),{noticesRead:()=>state});
+ state=noticeState({counts:noticeCounts({waiting:2}),sentToday:150});await pressNotice(full,'send');assert.equal(noticeAction(full,'confirm'),undefined);assert.match(noticeNote(full),/^Today’s limit of 150 emails is reached/);
+ // A failed read says so and asks nothing; Send stays to try again.
+ state=noticeState({counts:noticeCounts({waiting:2})});const flaky=await harness(()=>({content:[],nextCursor:null}),{noticesRead:()=>state});
+ state=unavailable;await pressNotice(flaky,'send');assert.equal(noticeAction(flaky,'confirm'),undefined);assert.equal(noticeNote(flaky),'The announcement status could not be loaded.');assert.ok(noticeAction(flaky,'send'));
+ // A second press while the read is out reads once.
+ const read=deferred();state=read.promise;const slow=flaky,count=()=>slow.requests.filter(r=>r.path===NOTICES&&r.method==='GET').length,at=count();
+ noticeAction(slow,'send').listeners.click();noticeAction(slow,'send').listeners.click();await flush();assert.equal(count(),at+1);
+ read.resolve(noticeState({counts:noticeCounts({waiting:5})}));await flush();assert.equal(noticeAction(slow,'confirm').textContent,'Confirm: send 5 emails');assert.equal(noticeNote(slow),'The announcement goes out now, a few emails at a time. You can stop at any time.');
+ // Retry failed and the summary emails, which share the controller, read again too.
+ let summaryState=emailState({counts:emailCounts({none:2,failed:1})});const both=await harness(()=>({content:[],nextCursor:null}),{confirmationsRead:()=>summaryState});
+ summaryState=emailState({counts:emailCounts({none:7,failed:3})});await press(both,'retry');assert.equal(backfillAction(both,'confirm').textContent,'Confirm: send 3 emails');
+ await press(both,'cancel');await press(both,'send');assert.equal(backfillAction(both,'confirm').textContent,'Confirm: send 7 emails');
+});
+
 test('Stop ends the announcement after the batch in flight, Cancel sends nothing, and Retry failed resends only the failed ones',async()=>{
  let state=noticeState({counts:noticeCounts({waiting:10})});const first=deferred();
  const h=await harness(request=>request.path===NOTICES?first.promise:{content:[],nextCursor:null},{noticesRead:()=>state});
@@ -1923,9 +1952,11 @@ test('a finished pass re-reads the other email block, since summary emails and t
   if(request.path==='/api/admin/fiiu/confirmations')return batch({sent:2,remaining:0,next:null,sentToday:5,counts:emailCounts({sent:2})});
   return{content:[],nextCursor:null};
  },{noticesRead:()=>noticeState({counts:noticeCounts({waiting:3})}),confirmationsRead:()=>emailState({counts:emailCounts({none:2})})});
- const reads=path=>h.requests.filter(r=>r.path===path&&r.method==='GET').length,summaryReads=reads('/api/admin/fiiu/confirmations'),noticeReads=reads(NOTICES);
- await pressNotice(h,'send');await pressNotice(h,'confirm');assert.equal(reads('/api/admin/fiiu/confirmations'),summaryReads+1,'the summary block learns the new count');assert.equal(reads(NOTICES),noticeReads+1);
- await press(h,'send');await press(h,'confirm');assert.equal(reads(NOTICES),noticeReads+2,'and the other way round');
+ // Send reads its own block again before Confirm (see above); the reads counted here are the ones after the pass.
+ const reads=path=>h.requests.filter(r=>r.path===path&&r.method==='GET').length;
+ await pressNotice(h,'send');const summaryReads=reads('/api/admin/fiiu/confirmations'),noticeReads=reads(NOTICES);
+ await pressNotice(h,'confirm');assert.equal(reads('/api/admin/fiiu/confirmations'),summaryReads+1,'the summary block learns the new count');assert.equal(reads(NOTICES),noticeReads+1);
+ await press(h,'send');const after=reads(NOTICES);await press(h,'confirm');assert.equal(reads(NOTICES),after+1,'and the other way round');
 });
 
 // General and rating questions: activityId 'general' is accepted wherever a block id is; question views carry kind ('chat' or 'rating') and, for

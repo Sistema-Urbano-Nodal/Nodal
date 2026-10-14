@@ -509,8 +509,8 @@
  function emailPass({id,endpoint,waiting,keys,remaining=false,left=false,active=()=>true,level='h3'}){
   const host=el('div','f-backfill'+(id==='backfill'?'':' f-'+id)),heading=tr(level,keys.title),hintNode=tr('p',keys.hint,'f-muted f-section-hint'),line=el('p','f-backfill-line'),note=el('p','f-backfill-note'),actions=el('div','f-backfill-actions');
   heading.id='f-h-'+id;host.setAttribute('role','group');host.setAttribute('aria-labelledby',heading.id);note.setAttribute('role','status');note.setAttribute('aria-live','polite');host.append(heading,hintNode,line,note,actions);
-  // state: the last GET; ask: the pass waiting for its confirmation; run: the pass under way; result: how the last one ended.
-  let state=null,loadFailed=false,ask=null,run=null,result=null,shownAt=0;
+  // state: the last GET; ask: the pass waiting for its confirmation; run: the pass under way; result: how the last one ended; asking: Send's read is out.
+  let state=null,loadFailed=false,ask=null,run=null,result=null,shownAt=0,asking=false;
   const validCounts=counts=>Boolean(counts)&&[waiting,...EMAIL_STATES].every(k=>Number.isSafeInteger(counts[k])&&counts[k]>=0);
   const validBatch=data=>TALLY.every(k=>Number.isSafeInteger(data[k])&&data[k]>=0)&&(!remaining||(Number.isSafeInteger(data.remaining)&&data.remaining>=0))&&(data.next===null||typeof data.next==='string')&&validCounts(data.counts);
   // One button per action, made once and kept: a progress update leaves the focused Stop button in place instead of rebuilding it.
@@ -525,7 +525,14 @@
    }
    b.className=cls;b.textContent=text;return b;
   }
-  function askFor(mode){ask=mode;result=null;render('confirm');}
+  // Confirm names the number waiting now, not at page load: people register all day and sign-up emails use the shared cap, so Send reads the state
+  // again first. A press while that read is out is ignored; a read that fails, or finds nobody to email or the cap reached, asks nothing.
+  async function askFor(mode){
+   if(asking||run)return;asking=true;result=null;let fresh;
+   try{fresh=await load();}finally{asking=false;}
+   if(!fresh||locked||run||!state.configured||capReached()||!(mode==='retry'?state.counts.failed:state.counts[waiting]))return;
+   ask=mode;render('confirm');
+  }
   const capReached=()=>Number.isSafeInteger(state?.dailyCap)&&Number.isSafeInteger(state?.sentToday)&&state.sentToday>=state.dailyCap;
   // Today's cap has reset (19:00 Lima) since the page last asked: the minute timer asks again, so the buttons come back without a reload.
   const capLifted=()=>capReached()&&!run&&!ask&&Date.now()>=Date.parse(state.resetsAt);
@@ -560,6 +567,7 @@
     }
     else{
      if(result){status=resultText(result);error=['session','error'].includes(result.end);}
+     else if(loadFailed){status=t(keys.loadError);error=true;}
      if(capReached()&&(counts[waiting]||counts.failed)){if(result?.end!=='cap')status=(status?status+' ':'')+capText();}
      else{
       if(counts[waiting])shown.push(textButton(plural(keys.send,counts[waiting]),'send','f-button'));
@@ -574,14 +582,15 @@
    if(changed){actions.replaceChildren(...shown);shownAt=Date.now();}
    if(hadFocus){const target=shown.find(b=>b.dataset.action===focus)||shown[0];if(target)target.focus();else{heading.tabIndex=-1;heading.focus();}}
   }
+  // Says whether the state was read.
   async function load(focus){
-   if(locked||!active())return;
+   if(locked||!active())return false;
    try{
     const data=await api(endpoint);
     if(typeof data.configured!=='boolean'||!validCounts(data.counts))throw Object.assign(Error(t('error')),{key:'error'});
     state=data;loadFailed=false;resume();
-   }catch(error){if(guard(error))return;loadFailed=true;}
-   render(focus);
+   }catch(error){if(guard(error))return false;loadFailed=true;}
+   render(focus);return !loadFailed;
   }
   function stop(){const pass=run;if(!pass||pass.stopping)return;pass.stopping=true;pass.wake?.();render('stop');}
   // One pass: POST after POST with the previous answer's cursor until nothing is left, Stop, an error or today's cap. A plain 429 (the
