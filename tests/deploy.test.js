@@ -319,11 +319,11 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
   const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'course.html', 'courses.html', 'teaching.html', 'accept-invitation.html', 'fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'organisers-only.html', 'community.html', 'knowledge.html', 'resources.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
   const pilot = { 'pilot-i18n.js': '20261013b', 'pilot.js': '20261005s', 'courses.css': '20261013b' };
-  const festival = { 'fiiu.css': '20261013b', 'fiiu-ui.js': '20261013b' };
+  const festival = { 'fiiu.css': '20261013c', 'fiiu-ui.js': '20261013c' };
   const required = {
     'index.html': { 'styles.css': '32', 'i18n.js': '20261013b', 'app.js': '21', 'recs.js': '5', 'script.js': '18', 'hero-network.js': '2' },
     'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20261013b', 'catalog.js': '7', ...pilot },
-    'dashboard.html': { 'i18n-dashboard.js': '20261013b', 'i18n.js': '20261013b', ...festival, 'fiiu-hubs.js': '20261013b', 'news-feed.js': '20261001b', 'dashboard.js': '20261013b', 'dashboard.css': '39', 'location-check.js': '20260908b', ...pilot },
+    'dashboard.html': { 'i18n-dashboard.js': '20261013b', 'i18n.js': '20261013b', ...festival, 'fiiu-hubs.js': '20261013c', 'news-feed.js': '20261001b', 'dashboard.js': '20261013b', 'dashboard.css': '39', 'location-check.js': '20260908b', ...pilot },
     'login.html': { 'i18n.js': '20261013b', 'auth.js': '20261013b', 'recovery-i18n.js': '20261013b' },
     'reset-password.html': { 'i18n.js': '20261013b', 'recovery-i18n.js': '20261013b', 'password-recovery.js': '20261013b' },
     'payments.html': { 'i18n-dashboard.js': '20261013b', 'i18n.js': '20261013b', 'payments.js': '18', ...pilot },
@@ -333,15 +333,15 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     'courses.html': { 'i18n.js': '20261013b', 'courses.js': '20261013b', ...pilot },
     'teaching.html': { 'i18n.js': '20261013b', 'teaching.js': '20261009a', ...pilot },
     'accept-invitation.html': { 'accept-invitation.js': '20261013b', 'invitation-i18n.js': '20261013b' },
-    'fiiu.html': { 'styles.css': '32', 'i18n.js': '20261013b', ...festival, 'fiiu.js': '20261013b' },
-    'fiiu-admin.html': { 'styles.css': '32', 'i18n.js': '20261013b', ...festival, 'fiiu-admin.js': '20261013b' },
+    'fiiu.html': { 'styles.css': '32', 'i18n.js': '20261013b', ...festival, 'fiiu.js': '20261013c' },
+    'fiiu-admin.html': { 'styles.css': '32', 'i18n.js': '20261013b', ...festival, 'fiiu-admin.js': '20261013c' },
     'fiiu-qr.html': { 'i18n.js': '20261013b', ...festival, 'fiiu-qr.js': '20261013b' },
     'fiiu-checkin.html': { 'i18n.js': '20261013b', ...festival, 'fiiu-checkin.js': '20261013b' },
-    'fiiu-talk.html': { 'i18n.js': '20261013b', ...festival, 'fiiu-talk.js': '20261013b', 'fiiu-talk.css': '20261013b' },
+    'fiiu-talk.html': { 'i18n.js': '20261013b', ...festival, 'fiiu-talk.js': '20261013c', 'fiiu-talk.css': '20261013c' },
     'organisers-only.html': { 'i18n.js': '20261013b', ...festival },
-    'community.html': { 'styles.css': '32', 'script.js': '18', 'i18n.js': '20261013b', ...festival, 'fiiu-hubs.js': '20261013b', 'news-feed.js': '20261001b' },
-    'knowledge.html': { 'styles.css': '32', 'script.js': '18', 'i18n.js': '20261013b', ...festival, 'fiiu-hubs.js': '20261013b' },
-    'resources.html': { 'styles.css': '32', 'script.js': '18', 'i18n.js': '20261013b', ...festival, 'fiiu-hubs.js': '20261013b' },
+    'community.html': { 'styles.css': '32', 'script.js': '18', 'i18n.js': '20261013b', ...festival, 'fiiu-hubs.js': '20261013c', 'news-feed.js': '20261001b' },
+    'knowledge.html': { 'styles.css': '32', 'script.js': '18', 'i18n.js': '20261013b', ...festival, 'fiiu-hubs.js': '20261013c' },
+    'resources.html': { 'styles.css': '32', 'script.js': '18', 'i18n.js': '20261013b', ...festival, 'fiiu-hubs.js': '20261013c' },
   };
   for (const [page, assets] of Object.entries(required)) {
     for (const [asset, version] of Object.entries(assets)) {
