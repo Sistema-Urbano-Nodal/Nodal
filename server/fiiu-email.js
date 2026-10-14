@@ -3,7 +3,7 @@ import {createMailTransport,validAddress} from './mailer.js';
 
 /* The FIIU registration summary, emailed after a person's first registration (server/fiiu-api.js; edits send nothing),
    in the language they registered in. It repeats only what they chose: conference blocks, the laboratory application and
-   the workshop and route interests with each Google Form, never the private answers (national ID, age, gender,
+   the closing party, the workshop and route interests with each Google Form, never the private answers (national ID, age, gender,
    accessibility, motivation, institution or role). Activity titles and venues stay in Spanish, as in the programme. */
 export const EMAIL_LANGUAGES=['en','es','pt'];
 export const EMAIL_ROWS={
@@ -22,6 +22,9 @@ export const EMAIL_ROWS={
  conference:['Conference block','Bloque de conferencias','Bloco de conferências'],
  lab:['Laboratory for public officials','Laboratorio para funcionarios','Laboratório para gestores públicos'],
  workshop:['Workshop · interest','Taller · interés','Oficina · interesse'],route:['Urban route · interest','Ruta urbana · interés','Roteiro urbano · interesse'],
+ party:['Closing party','Fiesta de cierre','Festa de encerramento'],
+ // A start without an end (the party): "From 17:00".
+ from:['From {time}','Desde las {time}','A partir das {time}'],
  venuePending:['Venue to be confirmed','Lugar por confirmar','Local a confirmar'],
  startingPoint:['Starting point:','Punto de inicio:','Ponto de partida:'],
  formLink:['Complete the Google Form','Completar el Google Form','Preencher o Google Form'],
@@ -69,25 +72,28 @@ export function emailOrigin(env=process.env){
   return url.origin;
  }catch{return null;}
 }
-const PERIODS=['lab','morning','evening','workshop','route'];
+const PERIODS=['lab','morning','evening','workshop','route','party'];
 const rank=activity=>{const i=PERIODS.indexOf(activity.period);return i<0?PERIODS.length:i;};
-// The same order as the festival page: by day, then lab, morning, evening, workshops, routes, then start time.
+// The same order as the festival page: by day, then lab, morning, evening, workshops, routes, the party, then start time.
 const chronological=list=>[...list].sort((a,b)=>a.date.localeCompare(b.date)||rank(a)-rank(b)||(a.time||'').localeCompare(b.time||''));
 const cap=(text,locale)=>text?text.charAt(0).toLocaleUpperCase(locale)+text.slice(1):text;
 const longDate=(value,lang)=>cap(new Intl.DateTimeFormat(LOCALES[lang],{weekday:'long',day:'numeric',month:'long',timeZone:FIIU_EVENT.timeZone}).format(new Date(`${value}T12:00:00-05:00`)),LOCALES[lang]);
 
 // What the person chose, in programme order, from the current catalogue only (unknown and legacy ids are skipped).
+// The conference blocks and the party are both ticked in answers.activities.
 function chosenItems(registration,event){
- const a=registration.answers??{},conferences=new Set(Array.isArray(a.activities)?a.activities:[]),interests=new Set(Array.isArray(a.externalActivities)?a.externalActivities:[]);
+ const a=registration.answers??{},ticked=new Set(Array.isArray(a.activities)?a.activities:[]),interests=new Set(Array.isArray(a.externalActivities)?a.externalActivities:[]);
  const lab=a.applyLab===true||['pending','accepted','declined'].includes(registration.labStatus);
- return chronological(event.activities.filter(activity=>activity.registration==='general'?conferences.has(activity.id):activity.registration==='application'?lab:activity.registration==='external'&&interests.has(activity.id)));
+ return chronological(event.activities.filter(activity=>['general','social'].includes(activity.registration)?ticked.has(activity.id):activity.registration==='application'?lab:activity.registration==='external'&&interests.has(activity.id)));
 }
+// A block's time as the email shows it: a range as it is, a start alone as "From 17:00".
+export const timeLabel=(time,row)=>time&&!/[–-]/.test(time)?row('from').replace('{time}',()=>time):time||'';
 function itemView(activity,registration,row){
- const kind=activity.registration==='general'?'conference':activity.registration==='application'?'lab':activity.period==='route'?'route':'workshop';
+ const kind=activity.registration==='general'?'conference':activity.registration==='application'?'lab':activity.registration==='social'?'party':activity.period==='route'?'route':'workshop';
  const status=kind==='lab'?row({pending:'labPending',accepted:'labAccepted',declined:'labDeclined'}[registration.labStatus]||'labPending'):'';
  // Conference blocks always say where (or that the venue is not confirmed yet); the laboratory leaves an unknown venue out, as the page does.
  const venue=activity.venue||(kind==='conference'?row('venuePending'):''),prefix=activity.venue&&kind==='route'?row('startingPoint'):'';
- return {kind,label:[activity.time,row(kind)].filter(Boolean).join(' · '),title:activity.title,venue,prefix,venueIsSpanish:Boolean(activity.venue),status,formUrl:['workshop','route'].includes(kind)?httpsLink(activity.formUrl):''};
+ return {kind,label:[timeLabel(activity.time,row),row(kind)].filter(Boolean).join(' · '),title:activity.title,venue,prefix,venueIsSpanish:Boolean(activity.venue),status,formUrl:['workshop','route'].includes(kind)?httpsLink(activity.formUrl):''};
 }
 
 /* The email is a letter from the NODAL team on the festival's beige paper, in the site's own voice: the NODAL lockup and
@@ -108,7 +114,7 @@ const festivalDate=(value,lang,options)=>new Intl.DateTimeFormat(LOCALES[lang],{
 export function registrationEmail({registration,config={},language,origin,event=FIIU_EVENT}){
  const lang=emailLanguage(language),i=EMAIL_LANGUAGES.indexOf(lang),row=key=>EMAIL_ROWS[key][i];
  const name=safeName(registration.answers?.firstName),greeting=name?row('greeting').replace('{name}',()=>name):row('greetingPlain');
- const items=chosenItems(registration,event).map(activity=>({date:activity.date,time:activity.time||'',...itemView(activity,registration,row)}));
+ const items=chosenItems(registration,event).map(activity=>({date:activity.date,time:timeLabel(activity.time,row),...itemView(activity,registration,row)}));
  const days=[...new Set(items.map(item=>item.date))].map(date=>({date,label:longDate(date,lang),items:items.filter(item=>item.date===date)}));
  const needsForms=items.some(item=>item.formUrl);
  const registrationUrl=`${origin}/fiiu.html#registration`,privacyUrl=`${origin}/privacy.html`,workshopsUrl=`${origin}/fiiu.html#programme`;
@@ -158,7 +164,7 @@ export function registrationEmail({registration,config={},language,origin,event=
     beside the title and venue. On a phone the rail folds into one line above the title, joined by the hidden " · ". */
  const kind=(label,top)=>`<p class="c-forest" style="margin:${top}px 0 0;${type(12,17,600,FOREST)}">${e(label)}</p>`;
  const itemHtml=item=>`<tr><td class="rail" width="120" valign="top" style="width:120px;padding:0 16px 18px 0;">`
-  +(item.time?`<p class="c-ink" style="margin:0;${type(14,21,700,INK,'white-space:nowrap;')}">${e(item.time)}</p><span class="sep c-muted" style="display:none;mso-hide:all;color:${MUTED};${f}font-size:12px;"> · </span>${kind(row(item.kind),0)}`:kind(row(item.kind),3))
+  +(item.time?`<p class="c-ink" style="margin:0;${type(14,21,700,INK,/\s/.test(item.time)?'':'white-space:nowrap;')}">${e(item.time)}</p><span class="sep c-muted" style="display:none;mso-hide:all;color:${MUTED};${f}font-size:12px;"> · </span>${kind(row(item.kind),0)}`:kind(row(item.kind),3))
   +`</td><td class="main" valign="top" style="padding:0 0 18px;">`
   +`<p class="c-ink" style="margin:0;${type(16,22,700,INK)}">${es(item.title)}</p>`
   +(item.venue?`<p class="c-muted" style="margin:2px 0 0;${type(14,21,400,MUTED)}">${item.prefix?`<span style="font-weight:600;">${e(item.prefix)}</span> `:''}${item.venueIsSpanish?es(item.venue):e(item.venue)}</p>`:'')

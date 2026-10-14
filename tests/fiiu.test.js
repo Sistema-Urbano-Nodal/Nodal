@@ -348,6 +348,16 @@ test('organizer summary covers every registration, distinguishes interests and c
  assert.doesNotMatch(JSON.stringify(body),/summary-\d|example\.test|firstName|nationalId|TEST-ID|userId/);
 });
 
+test('the closing party is a register-only block: people add it alone or with conference blocks, and the summary counts it',async t=>{
+ const {call,save}=await setup(t);
+ assert.equal((await save({...answers,activities:['closing-party']})).status,200,'the party alone is a valid registration');
+ assert.equal((await save({...answers,activities:['day1-am','day1-pm','day2-am','day2-pm','day3-am','closing-party']},'other')).status,200,'all five blocks and the party');
+ const s=(await(await call('/api/admin/fiiu/summary',{actor:'admin'})).json()).summary;
+ assert.deepEqual(s.activities.find(a=>a.activityId==='closing-party'),{activityId:'closing-party',registrations:2,externalInterests:0,attendance:0,officialAttendance:0});
+ assert.deepEqual(s.days.find(d=>d.date==='2026-10-25'),{date:'2026-10-25',registrations:2,attendance:0});
+ assert.equal(s.activities.find(a=>a.activityId==='day1-am').registrations,1);
+});
+
 test('summary tolerates incomplete historical answers and does not double-count duplicate choices',async t=>{
  const {db,users}=await setup(t);const store=createFiiuStore({db});
  const r=await store.insert('registrations',{id:'30000000-0000-4000-8000-000000000001',eventId:'fiiu-2026',userId:users.member.id,email:'fixture@example.test',answers:{activities:['day1-am','day1-am','day0-lab'],externalActivities:['workshop-day1','workshop-day1'],applyLab:'true',publicOfficial:'true',profile:{invalid:true}},labStatus:'none',version:1,createdAt:'2026-09-29T00:00:00Z',updatedAt:'2026-09-29T00:00:00Z'});

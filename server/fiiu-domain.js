@@ -34,6 +34,8 @@ export const FIIU_EVENT={
   {id:'day2-am',date:'2026-10-22',period:'morning',registration:'general',title:'Cuidar y transformar la ciudad',time:'09:00–13:00',venue:'Auditorio NOS PUCP, Av. Camino Real 1037, San Isidro',sessions:[['09:00–10:30','Movilidad y entornos sensibles al cuidado'],['10:30–12:00','Hacer ciudad en alianza'],['12:00–13:00','Transformar para habitar mejor: Respuestas urbanas frente a la vulnerabilidad']]},
   {id:'day2-pm',date:'2026-10-22',period:'evening',registration:'general',title:'El espacio público como escenario para expresar, cuestionar y movilizar',time:'19:00–21:00',venue:'Hall Segundo Piso, MALI, Cercado de Lima',sessions:[]},
   {id:'day3-am',date:'2026-10-23',period:'morning',registration:'general',title:'Territorio, resiliencia y adaptación climática',time:'09:00–13:00',venue:'Auditorio NOS PUCP, Av. Camino Real 1037, San Isidro',sessions:[['09:00–10:30','Decisiones desde el territorio: Transformación y planificación urbana desde la gobernanza colaborativa'],['10:30–11:00','Reporte de percepciones sobre cambio climático y riesgos en Lima y Callao'],['11:00–13:00','Resiliencia urbana y adaptación climática']]},
+  // Register only ('social'): people add it to their registration for a headcount; it never takes a check-in or adds hours.
+  {id:'closing-party',date:'2026-10-25',period:'party',registration:'social',title:'¡Fiesta de cierre y Chelas Urbanas!',time:'17:00',venue:'La Vermut Bar, Av. Francisco Bolognesi 235, Barranco 15063',sessions:[['17:00–19:00','Chelas Urbanas'],['19:00 en adelante','Fiesta de cierre']]},
   ...externalActivities,
  ],
 };
@@ -56,8 +58,10 @@ for(const activity of FIIU_EVENT.activities)Object.assign(activity,{minutes:isCh
 export const CHECKIN_ACTIVITIES=FIIU_EVENT.activities.filter(isCheckinActivity);
 export const ALL_FIIU_ACTIVITIES=[...FIIU_EVENT.activities,...LEGACY_FIIU_ACTIVITIES];
 // The organiser rule for confirming attendance, shared by the staff checkbox and the QR check-in: a conference block
-// must be in the person's plan, the lab needs an accepted application, and external activities are always allowed.
+// must be in the person's plan, the lab needs an accepted application, the party never (it is register only), and
+// external activities are always allowed.
 export function canAttend(registration,activity){
+ if(activity.registration==='social')return false;
  if(activity.registration==='general')return Array.isArray(registration.answers?.activities)&&registration.answers.activities.includes(activity.id);
  if(activity.registration==='application')return registration.labStatus==='accepted';
  return true;
@@ -70,6 +74,8 @@ export function attendanceHours(attendance,activities=ALL_FIIU_ACTIVITIES){
  return {minutes,hours:Math.floor(minutes/60+0.5),untimed};
 }
 export const DEFAULT_CONFIG={registrationOpen:true,programUrl:'https://canva.link/ficmkatcg9fudwk',workshopsUrl:'',routesUrl:'',partyUrl:''};
+// The blocks a person ticks in the NODAL registration: the conference blocks and the closing party.
+export const REGISTERED_KINDS=['general','social'];
 const choices=(value,allowed,name,optional=false)=>{if(optional&&(value===undefined||value===''))return '';if(!allowed.includes(value))fail(`invalid ${name}`);return value;};
 export function normalizeRegistration(input){
  if(typeof input.publicOfficial!=='boolean')fail('publicOfficial is required');
@@ -78,7 +84,7 @@ export function normalizeRegistration(input){
  const publicOfficial=input.publicOfficial,applyLab=input.applyLab===true;
  if(applyLab&&!publicOfficial)fail('laboratory applications are for public officials');
  const activities=input.activities;
- if(!Array.isArray(activities)||activities.length>5||activities.some(id=>!FIIU_EVENT.activities.some(a=>a.id===id&&a.registration==='general')))fail('invalid activities');
+ if(!Array.isArray(activities)||activities.length>6||activities.some(id=>!FIIU_EVENT.activities.some(a=>a.id===id&&REGISTERED_KINDS.includes(a.registration))))fail('invalid activities');
  const external=input.externalActivities??[];
  if(!Array.isArray(external)||external.length>14||external.some(id=>!externalActivities.some(a=>a.id===id)))fail('invalid externalActivities');
  if(!activities.length&&!external.length&&!applyLab)fail('select an activity or apply for the laboratory');

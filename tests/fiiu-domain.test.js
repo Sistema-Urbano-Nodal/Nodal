@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {FIIU_EVENT,CHECKIN_ACTIVITIES,activityMinutes,checkinWindow,canAttend,attendanceHours,isCheckinActivity} from '../server/fiiu-domain.js';
+import {FIIU_EVENT,CHECKIN_ACTIVITIES,activityMinutes,checkinWindow,canAttend,attendanceHours,isCheckinActivity,normalizeRegistration,REGISTERED_KINDS} from '../server/fiiu-domain.js';
 
 const find=id=>FIIU_EVENT.activities.find(a=>a.id===id);
 
@@ -46,4 +46,25 @@ test('certificate hours sum timed NODAL blocks once each and round the person to
  for(const [time,hours] of [['09:00–11:30',3],['09:00–10:30',2],['09:00–10:29',1],['09:00–09:29',0],['09:00–09:30',1]])
   assert.equal(attendanceHours([{activityId:'a'}],[block('a',time)]).hours,hours,time);
  assert.equal(attendanceHours([{activityId:'e'}],[{id:'e',date:'2026-10-21',registration:'external',time:'09:00–13:00'}]).minutes,0,'external activities never add certificate hours');
+});
+
+// The smallest valid registration body, as tests/fiiu.test.js sends it.
+const validInput={firstName:'Ana',lastName:'Test',country:'Perú',city:'Lima',profile:'professional',publicOfficial:false,activities:['day1-am'],externalActivities:[],nationalId:'TEST-ID',gender:'prefer_not',age:30,accessibility:['none'],motivation:'learn',previousAttendance:'no',privacyAccepted:true};
+
+test('the closing party is a register-only block: never checked in, never counted, valid alone in a registration',()=>{
+ const party=FIIU_EVENT.activities.find(a=>a.id==='closing-party');
+ assert.deepEqual({date:party.date,registration:party.registration,time:party.time,period:party.period},{date:'2026-10-25',registration:'social',time:'17:00',period:'party'});
+ assert.equal(party.title,'¡Fiesta de cierre y Chelas Urbanas!');assert.match(party.venue,/La Vermut Bar, Av\. Francisco Bolognesi 235, Barranco 15063/);
+ assert.deepEqual(party.sessions,[['17:00–19:00','Chelas Urbanas'],['19:00 en adelante','Fiesta de cierre']]);
+ assert.equal(isCheckinActivity(party),false);assert.equal(CHECKIN_ACTIVITIES.some(a=>a.id==='closing-party'),false);
+ assert.deepEqual([party.checkin,party.minutes],[null,null]);
+ assert.equal(canAttend({answers:{activities:['closing-party']}},party),false,'staff can never confirm attendance at the party, even for someone who added it');
+ assert.deepEqual(attendanceHours([{activityId:'closing-party'}]),{minutes:0,hours:0,untimed:[]});
+ assert.deepEqual(REGISTERED_KINDS,['general','social']);
+ const answers=normalizeRegistration({...validInput,activities:['closing-party'],externalActivities:[],applyLab:false});assert.deepEqual(answers.activities,['closing-party']);
+ assert.equal(normalizeRegistration({...validInput,activities:['day1-am','day1-pm','day2-am','day2-pm','day3-am','closing-party']}).activities.length,6);
+ assert.throws(()=>normalizeRegistration({...validInput,activities:['day1-am','day1-pm','day2-am','day2-pm','day3-am','closing-party','day0-lab']}),/invalid activities/);
+ for(const id of ['day0-lab','workshop-bosques-urbanos','workshop-day1'])assert.throws(()=>normalizeRegistration({...validInput,activities:[id]}),/invalid activities/,id);
+ // It sits after the last conference block, before the workshops and routes.
+ const ids=FIIU_EVENT.activities.map(a=>a.id);assert.equal(ids.indexOf('closing-party'),ids.indexOf('day3-am')+1);
 });

@@ -184,7 +184,8 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    }
   }
   if(path==='/api/admin/fiiu/summary'&&req.method==='GET'){
-   send(res,200,{summary:await store.summary(EVENT_ID,ALL_FIIU_ACTIVITIES)});return true;
+   // The summary tags every ticked block 'general' (the Postgres function too), so the party joins the catalogue as one.
+   send(res,200,{summary:await store.summary(EVENT_ID,ALL_FIIU_ACTIVITIES.map(a=>a.registration==='social'?{...a,registration:'general'}:a))});return true;
   }
   if(path==='/api/admin/fiiu/registrations'&&req.method==='GET'){
    const cursor=url.searchParams.get('cursor'),after=cursor?identifier(cursor):undefined;
