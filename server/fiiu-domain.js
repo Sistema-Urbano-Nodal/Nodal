@@ -111,6 +111,40 @@ export function applicationStatus(answers,existing){
  if(!existing?.answers.applyLab||['institution','position','publicOfficial','firstName','lastName','nationalId'].some(k=>answers[k]!==existing.answers[k]&&(k!=='nationalId'||existing.answers[k])))return 'pending';
  return existing.labStatus;
 }
+/* Organiser edits to a built-in programme block (server/fiiu-programme.js stores them). The block's id, period and kind
+   never change; these fields do. A block that takes a check-in is untimed or has a full range, since its check-in
+   window and hours come from it; the party, workshops and routes may also give a start alone. Refusals are 400s with a
+   code the panel explains. */
+const CLOCK=/^([01]\d|2[0-3]):([0-5]\d)$/,clockMinutes=t=>{const m=CLOCK.exec(t);return m?Number(m[1])*60+Number(m[2]):null;};
+// '' (untimed), 'HH:MM' or 'HH:MM–HH:MM' with the start first (an en dash, whatever was typed), else null.
+export function canonicalTime(value){
+ if(value===undefined||value===null)return '';if(typeof value!=='string')return null;
+ const parts=value.trim().split(/\s*[–-]\s*/);if(parts.length===1&&!parts[0])return '';
+ if(parts.length===1)return clockMinutes(parts[0])===null?null:parts[0];
+ if(parts.length!==2)return null;const [a,b]=parts.map(clockMinutes);
+ return a===null||b===null||a>=b?null:`${parts[0]}–${parts[1]}`;
+}
+const codeFail=code=>{throw Object.assign(new Error(code.replace(/_/g,' ')),{status:400,code});};
+// Control characters other than tab and the line breaks are dropped, and a lone surrogate becomes U+FFFD.
+const visible=value=>value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g,'').toWellFormed();
+const oneLine=(value,max,code,required)=>{
+ if(value!==undefined&&value!==null&&typeof value!=='string')codeFail(code);
+ const v=visible(value??'').trim();if(/[\r\n\u2028\u2029]/.test(v)||[...v].length>max||(required&&!v))codeFail(code);return v;
+};
+const realDate=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&!Number.isNaN(Date.parse(`${value}T12:00:00Z`))&&new Date(`${value}T12:00:00Z`).toISOString().slice(0,10)===value;
+export function normalizeProgrammeEdit(activity,input={},event=FIIU_EVENT){
+ const title=oneLine(input.title,200,'invalid_title',true),venue=oneLine(input.venue,200,'invalid_venue',false);
+ const date=realDate(input.date)&&input.date>=event.startsOn&&input.date<=event.endsOn?input.date:codeFail('invalid_date');
+ const time=canonicalTime(input.time);if(time===null||(time&&!time.includes('–')&&!['social','external'].includes(activity.registration)))codeFail('invalid_time');
+ if(input.description!==undefined&&input.description!==null&&typeof input.description!=='string')codeFail('invalid_description');
+ const description=visible(input.description??'').replace(/\r\n?/g,'\n').trim();if([...description].length>1500)codeFail('invalid_description');
+ const lines=input.sessions??[];if(!Array.isArray(lines)||lines.length>12)codeFail('invalid_sessions');
+ const sessions=lines.map(line=>{if(!Array.isArray(line)||line.length!==2)codeFail('invalid_sessions');return [oneLine(line[0],40,'invalid_sessions',false),oneLine(line[1],200,'invalid_sessions',true)];});
+ const edit={title,date,time,venue,description,sessions};
+ // Workshops and routes keep their facilitators' Google Form; other blocks have none.
+ if(activity.registration==='external'){try{edit.formUrl=httpsUrl(input.formUrl);}catch{codeFail('invalid_form_url');}}
+ return edit;
+}
 export function version(value){if(!Number.isSafeInteger(value)||value<0)fail('version is required');return value;}
 export function normalizeConfig(input){
  if(typeof input.registrationOpen!=='boolean')fail('registrationOpen is required');
