@@ -980,3 +980,12 @@ test('the console festival block links the General conversation with its open-qu
  }
  const quiet=await widgetHarness(respond(saved,{questions:[[G2,'general',2,'closed']]}));assert.equal(quiet.widget.querySelector('.f-talk-general'),null);
 });
+
+test('the console’s Next for you reads “From 17:00” when the next block is the closing party, and follows a language change',async()=>{
+ const T=Date.parse('2026-10-25T10:00:00-05:00');class FrozenDate extends Date{constructor(...args){super(...(args.length?args:[T]));}static now(){return T;}}
+ const registration={...saved,answers:{...answers,activities:['day1-am','closing-party']}},listeners=[],i18n={lang:'en',onChange:listener=>listeners.push(listener)};
+ const {widget}=await widgetHarness(path=>path==='/api/fiiu?kind=news'?{...partyData(),content:[]}:path==='/api/fiiu/pulse'?{questions:[]}:self(registration),{Date:FrozenDate,window:{nodalI18n:i18n}});
+ const next=widget.querySelector('.f-next');assert.match(content(next),/¡Fiesta de cierre/);
+ const time=next.querySelector('.f-next-time');assert.equal(time.textContent,'From 17:00');
+ for(const [lang,text] of [['es','Desde las 17:00'],['pt','A partir das 17:00']]){i18n.lang=lang;listeners.forEach(listener=>listener());assert.equal(time.textContent,text);}
+});
