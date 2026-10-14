@@ -103,12 +103,17 @@
  }
  // The organisers' description of a block, under its title: their text as written, with its line breaks (fiiu.css) and its https addresses as links.
  const description=activity=>activity.description?linkify(source('p','','f-activity-desc'),activity.description):null;
+ // A block's session lines, folded under their count; the summary names the block it belongs to. Organisers can add them to any block.
+ function sessionList(activity,titleId){
+  if(!activity.sessions?.length)return null;const details=el('details','f-sessions'),summary=el('summary'),list=el('ul','f-session-list');summary.append(countLabel(activity.sessions.length,'sessionOne','sessions'));describe(summary,titleId);
+  for(const [time,name] of activity.sessions){const item=el('li');item.append(el('span','f-session-time',time),source('span',name));list.append(item);}details.append(summary,list);return details;
+ }
  // A conference block, or the closing party, which takes the same "Add to my registration" and says it is register only where a conference names its period.
  function conferenceCard(activity,mine){
   const party=activity.registration==='social',card=el('article','f-activity is-conference'+(party?' is-party':'')),rail=el('div','f-time-rail'),body=el('div','f-activity-body'),title=source('h4',activity.title),about=description(activity);title.id='f-act-'+activity.id+'-title';
   rail.append(activity.time?timeNode(activity.time,'p','f-time'):tr('p','timePending','f-muted'),tr('p',party?'partyType':activity.period,'f-period'));
-  const foot=el('div','f-activity-foot'),action=choiceAction(activity,mine,'statusRegistered','addToRegistration',title.id);if(about)body.append(about);body.append(activity.venue?source('p',activity.venue,'f-venue'):tr('p','venuePending','f-muted f-venue'));
-  if(activity.sessions.length){const details=el('details','f-sessions'),summary=el('summary'),list=el('ul','f-session-list');summary.append(countLabel(activity.sessions.length,'sessionOne','sessions'));describe(summary,title.id);for(const [time,name] of activity.sessions){const item=el('li');item.append(el('span','f-session-time',time),source('span',name));list.append(item);}details.append(summary,list);foot.append(details);}
+  const foot=el('div','f-activity-foot'),action=choiceAction(activity,mine,'statusRegistered','addToRegistration',title.id),sessions=sessionList(activity,title.id);if(about)body.append(about);body.append(activity.venue?source('p',activity.venue,'f-venue'):tr('p','venuePending','f-muted f-venue'));
+  if(sessions)foot.append(sessions);
   if(action)foot.append(action);if(foot.children.length)body.append(foot);footTalk(activity,title.id,body,foot);
   // The title comes first in the DOM so heading navigation lands before the time; CSS places the time rail beside it.
   card.append(title,rail,body);return card;
@@ -123,7 +128,8 @@
   head.append(tr('h4',type),tr('span','external','f-type-note'));
   for(const activity of items){
    const mine=interests.has(activity.id),row=el('li','f-compact'),main=el('div','f-compact-main'),title=source('p',activity.title,'f-compact-title'),about=description(activity),where=venueLine(activity,'f-compact-venue'),actions=el('div','f-compact-actions');title.id='f-act-'+activity.id+'-title';
-   main.append(title);if(about)main.append(about);if(where)main.append(where);
+   // Built-in workshops and routes have no time; one the organisers set (often a start only, "Desde las 10:00") shows above the venue, with any session lines under it.
+   const sessions=sessionList(activity,title.id);main.append(title);if(about)main.append(about);if(activity.time)main.append(timeNode(activity.time,'p','f-compact-time'));if(where)main.append(where);if(sessions)main.append(sessions);
    const action=choiceAction(activity,mine,'interestChip','saveInterest',title.id);if(action)actions.append(action);
    actions.append(describe(link('activityForm',activity.formUrl||festival.event.website,'f-text-link'),title.id));withTalk(activity,title.id,link=>actions.append(link));row.append(main,actions);list.append(row);
   }
@@ -316,7 +322,7 @@
    const group=el('fieldset','f-external-day');group.append(dateNode(day,'legend','long','f-external-day-label'));
    for(const activity of externals.filter(item=>item.date===day)){
     const row=el('div','f-external-choice'),label=el('label','f-check'),input=el('input'),title=source('span',activity.title,'f-choice-title');input.type='checkbox';input.name='externalActivities';input.value=activity.id;input.id='f-act-'+activity.id;input.checked=a.externalActivities?.includes(activity.id)||false;title.id='f-choice-'+activity.id+'-title';
-    const meta=el('p','f-external-meta');label.append(input,title);meta.append(tr('span',typeOf(activity)==='route'?'routeType':'workshopType','f-chip'),describe(link('activityForm',activity.formUrl||festival.event.website,'f-text-link'),title.id));row.append(label,meta);group.append(row);choiceInputs.set(activity.id,input);
+    const meta=el('p','f-external-meta');label.append(input,title);meta.append(tr('span',typeOf(activity)==='route'?'routeType':'workshopType','f-chip'));if(activity.time)meta.append(timeNode(activity.time,'span','f-external-time'));meta.append(describe(link('activityForm',activity.formUrl||festival.event.website,'f-text-link'),title.id));row.append(label,meta);group.append(row);choiceInputs.set(activity.id,input);
    }
    externalChoices.append(group);
   }

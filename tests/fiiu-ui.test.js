@@ -989,3 +989,19 @@ test('the console’s Next for you reads “From 17:00” when the next block is
  const time=next.querySelector('.f-next-time');assert.equal(time.textContent,'From 17:00');
  for(const [lang,text] of [['es','Desde las 17:00'],['pt','A partir das 17:00']]){i18n.lang=lang;listeners.forEach(listener=>listener());assert.equal(time.textContent,text);}
 });
+
+test('an edited workshop or route time and its session lines show on its programme row, and the time in the form’s interest list',async()=>{
+ const edit={'route-arcoiris':{time:'10:00',sessions:[['10:00','Salida en bici'],['12:30','Cierre en la pileta']],edited:true},'workshop-poder-local':{time:'15:00–17:00',edited:true}};
+ const event={...FIIU_EVENT,activities:FIIU_EVENT.activities.map(activity=>edit[activity.id]?{...activity,...edit[activity.id]}:activity)};
+ const h=await harness({publicRead:()=>({...publicData,event})});
+ const rows=h.root.querySelector('.f-programme').querySelectorAll('.f-compact'),row=id=>rows.find(node=>descendants(node).some(child=>child.id==='f-act-'+id+'-title'));
+ const route=row('route-arcoiris'),time=route.querySelector('.f-compact-time');assert.equal(time.textContent,'From 10:00');
+ const main=route.querySelector('.f-compact-main').children;assert.ok(main.indexOf(time)<main.indexOf(route.querySelector('.f-compact-venue')),'the time comes before the starting point');
+ assert.deepEqual(route.querySelector('.f-session-list').children.map(item=>content(item).replace(/\s+/g,' ').trim()),['10:00 Salida en bici','12:30 Cierre en la pileta']);
+ assert.equal(row('workshop-poder-local').querySelector('.f-compact-time').textContent,'15:00–17:00','a range is shown as it is');assert.equal(row('workshop-poder-local').querySelector('.f-sessions'),null,'no session lines, no list');
+ assert.equal(row('workshop-bosques-urbanos').querySelector('.f-compact-time'),null,'no time, no line');
+ const choice=h.form().querySelectorAll('.f-external-choice').find(node=>descendants(node).some(child=>child.id==='f-act-route-arcoiris')),chosen=choice.querySelector('.f-external-time');
+ assert.equal(chosen.textContent,'From 10:00');
+ h.lang('es');assert.equal(time.textContent,'Desde las 10:00');assert.equal(chosen.textContent,'Desde las 10:00');h.lang('pt');assert.equal(time.textContent,'A partir das 10:00');
+ const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8');assert.match(css,/\.f-compact-time\{[^}]*font-variant-numeric:tabular-nums/);
+});
