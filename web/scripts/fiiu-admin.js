@@ -5,7 +5,7 @@
  // {n} is filled in by this script, so a language switch re-renders those counts.
  Object.assign(strings,{
   conversations:['Conversations','Conversaciones','Conversas'],
-  conversationsHint:['Post a question on a block. Registered participants answer in a live chat.','Publica una pregunta en un bloque. Las personas inscritas responden en un chat en vivo.','Publique uma pergunta em um bloco. As pessoas inscritas respondem em um chat ao vivo.'],
+  conversationsHint:['Post a question on a block or to the whole festival, as a conversation or a 1–10 rating. Registered participants answer in a live chat.','Publica una pregunta en un bloque o para todo el festival, como conversación o valoración del 1 al 10. Las personas inscritas responden en un chat en vivo.','Publique uma pergunta em um bloco ou para todo o festival, como conversa ou avaliação de 1 a 10. As pessoas inscritas respondem em um chat ao vivo.'],
   newQuestion:['New question','Nueva pregunta','Nova pergunta'],questionBlock:['Block','Bloque','Bloco'],questionTalk:['Talk (optional)','Charla (opcional)','Palestra (opcional)'],questionNoTalk:['The whole block','Todo el bloque','O bloco inteiro'],
   questionText:['Question','Pregunta','Pergunta'],publishNow:['Publish now','Publicar ahora','Publicar agora'],saveHidden:['Save hidden','Guardar oculta','Salvar oculta'],saveQuestion:['Save question','Guardar pregunta','Salvar pergunta'],
   questionStatus:['Status','Estado','Status'],questionOpen:['Open','Abierta','Aberta'],questionClosed:['Closed','Cerrada','Fechada'],questionHidden:['Hidden','Oculta','Oculta'],
@@ -18,11 +18,70 @@
   hideQuestionConfirm:['Hide this question? It disappears from phones and the projector until you open it again.','¿Ocultar esta pregunta? Dejará de verse en los teléfonos y en la proyección hasta que la vuelvas a abrir.','Ocultar esta pergunta? Ela deixa de aparecer nos celulares e na projeção até você abri-la de novo.'],
   questionsLoadError:['The questions could not be loaded.','No se pudieron cargar las preguntas.','Não foi possível carregar as perguntas.'],
   questionLatest:['Latest saved version:','Versión guardada actual:','Versão salva atual:'],
+  // General, the festival-wide space, and the question types. Scores are only ever totals: no one, organisers included, sees who gave which.
+  questionGeneral:['General (whole festival)','General (todo el festival)','Geral (todo o festival)'],
+  questionKind:['Type','Tipo','Tipo'],questionKindChat:['Conversation','Conversación','Conversa'],questionKindRating:['Rating 1–10','Valoración 1–10','Avaliação 1–10'],
+  questionKindHint:['A rating asks people to tap a number from 1 to 10, and they can still comment. Scores are anonymous: everyone, organisers included, sees only the totals.','Una valoración pide tocar un número del 1 al 10, y también se puede comentar. Las valoraciones son anónimas: todos, también la organización, ven solo los totales.','Uma avaliação pede para tocar um número de 1 a 10, e também é possível comentar. As avaliações são anônimas: todos, inclusive a organização, veem apenas os totais.'],
+  questionKindLocked:['The type cannot change once the question is saved.','El tipo no puede cambiar una vez guardada la pregunta.','O tipo não pode mudar depois que a pergunta é salva.'],
+  ratingAverage:['Average','Promedio','Média'],ratingPeopleOne:['1 person rated','1 persona valoró','1 pessoa avaliou'],ratingPeopleMany:['{n} people rated','{n} personas valoraron','{n} pessoas avaliaram'],
+  ratingNone:['No ratings yet','Aún no hay valoraciones','Ainda não há avaliações'],ratingBars:['Ratings from 1 to 10','Valoraciones del 1 al 10','Avaliações de 1 a 10'],
+  ratingBarOne:['1 person chose {score}','1 persona eligió {score}','1 pessoa escolheu {score}'],ratingBarMany:['{n} people chose {score}','{n} personas eligieron {score}','{n} pessoas escolheram {score}'],
+  ratingCsv:['Download counts (CSV)','Descargar conteos (CSV)','Baixar contagens (CSV)'],
+  // The party in the totals and the participant list: people register for it, so it counts registrations, with no attendance or hours.
+  blocksAndParty:['Conferences, laboratory and party','Conferencias, laboratorio y fiesta','Conferências, laboratório e festa'],
+  filterBlock:['Block','Bloque','Bloco'],filterAllBlocks:['All blocks','Todos los bloques','Todos os blocos'],
   attendanceSignIn:['Attendance not saved: your session ended.','No se guardó la asistencia: tu sesión terminó.','A presença não foi salva: sua sessão terminou.'],
-  attendanceNotSaved:['Attendance not saved. Check the connection and tick it again.','No se guardó la asistencia. Revisa la conexión y vuelve a marcarla.','A presença não foi salva. Verifique a conexão e marque de novo.']
+  attendanceNotSaved:['Attendance not saved. Check the connection and tick it again.','No se guardó la asistencia. Revisa la conexión y vuelve a marcarla.','A presença não foi salva. Verifique a conexão e marque de novo.'],
+  // The Programme section: each block's details as organisers edit them. "From" and the kind labels sit before data, so they need no {placeholders}.
+  programmeSection:['Programme','Programa','Programação'],
+  pgHint:['Edit the details of each block. Changes reach the festival page within a minute; adding or removing a block still needs the NODAL team.','Edita los detalles de cada bloque. Los cambios llegan a la página del festival en menos de un minuto; para añadir o quitar un bloque, escribe al equipo de NODAL.','Edite os detalhes de cada bloco. As alterações chegam à página do festival em menos de um minuto; para adicionar ou remover um bloco, fale com a equipe NODAL.'],
+  pgUntimed:['Untimed','Sin horario','Sem horário'],pgFrom:['From','Desde las','A partir das'],
+  pgConference:['Conference','Conferencia','Conferência'],pgLab:['Laboratory','Laboratorio','Laboratório'],pgParty:['Party','Fiesta','Festa'],pgWorkshop:['Workshop','Taller','Oficina'],pgRoute:['Route','Ruta','Roteiro'],
+  pgEdited:['Edited','Editado','Editado'],pgEdit:['Edit','Editar','Editar'],
+  pgTitle:['Title','Título','Título'],pgDate:['Date','Fecha','Data'],pgStart:['Start time','Hora de inicio','Horário de início'],pgEnd:['End time','Hora de fin','Horário de término'],pgEndOptional:['End time (optional)','Hora de fin (opcional)','Horário de término (opcional)'],
+  pgTimeHintCheckin:['Give a start and an end, or leave both empty for a block without a set time. Check-in and certificate hours follow these times.','Indica inicio y fin, o deja ambas vacías para un bloque sin horario fijo. El registro de asistencia y las horas del certificado siguen estos horarios.','Informe início e término, ou deixe os dois vazios para um bloco sem horário definido. O registro de presença e as horas do certificado seguem esses horários.'],
+  pgTimeHintFree:['The end time is optional: a start alone reads “From 17:00”.','La hora de fin es opcional: solo con el inicio se lee «Desde las 17:00».','O horário de término é opcional: só com o início aparece “A partir das 17:00”.'],
+  pgVenue:['Venue','Lugar','Local'],pgDescription:['Description (optional)','Descripción (opcional)','Descrição (opcional)'],
+  pgSessions:['Schedule','Agenda','Agenda'],pgSessionsHint:['One line per talk or moment: a time, free text such as “19:00 onwards”, and a title.','Una línea por charla o momento: un horario, en texto libre como «19:00 en adelante», y un título.','Uma linha por palestra ou momento: um horário, em texto livre como “19:00 em diante”, e um título.'],
+  pgSessionTime:['Time','Horario','Horário'],pgSessionTitle:['Title','Título','Título'],pgLine:['Line','Línea','Linha'],
+  pgAddLine:['Add line','Añadir línea','Adicionar linha'],pgMoveUp:['Move up','Subir','Subir'],pgMoveDown:['Move down','Bajar','Descer'],pgRemoveLine:['Remove','Quitar','Remover'],
+  pgFormUrl:['Activity form link (https://)','Enlace del formulario de la actividad (https://)','Link do formulário da atividade (https://)'],
+  pgSave:['Save block','Guardar bloque','Salvar bloco'],pgCancel:['Cancel','Cancelar','Cancelar'],pgRestore:['Restore original','Restaurar el original','Restaurar o original'],
+  pgRestoreConfirm:['Restore this block’s original details? The changes saved here are removed for everyone.','¿Restaurar los datos originales de este bloque? Los cambios guardados aquí se eliminan para todos.','Restaurar os dados originais deste bloco? As alterações salvas aqui são removidas para todos.'],
+  pgRestored:['Original restored','Original restaurado','Original restaurado'],
+  pgDiscard:['Discard your unsaved changes to this block?','¿Descartar los cambios sin guardar de este bloque?','Descartar as alterações não salvas deste bloco?'],
+  pgStartRequired:['Add a start time.','Añade una hora de inicio.','Adicione um horário de início.'],pgEndRequired:['Add an end time, or leave both times empty.','Añade una hora de fin o deja ambas vacías.','Adicione um horário de término ou deixe os dois vazios.'],
+  pgEndAfterStart:['The end time must be after the start time.','La hora de fin debe ser posterior a la de inicio.','O horário de término deve ser depois do de início.'],
+  pgInvalidTitle:['Write a title of up to 200 characters, on one line.','Escribe un título de hasta 200 caracteres, en una sola línea.','Escreva um título de até 200 caracteres, em uma só linha.'],
+  pgInvalidDate:['Choose a date between 20 and 25 October.','Elige una fecha entre el 20 y el 25 de octubre.','Escolha uma data entre 20 e 25 de outubro.'],
+  pgInvalidTime:['Check the times: the end must come after the start, and a conference block or the laboratory needs both times or none.','Revisa los horarios: el fin debe ser posterior al inicio, y un bloque de conferencias o el laboratorio necesita ambas horas o ninguna.','Revise os horários: o término deve vir depois do início, e um bloco de conferências ou o laboratório precisa dos dois horários ou de nenhum.'],
+  pgInvalidVenue:['Write the venue in up to 200 characters, on one line.','Escribe el lugar en hasta 200 caracteres, en una sola línea.','Escreva o local em até 200 caracteres, em uma só linha.'],
+  pgInvalidDescription:['Shorten the description to 1,500 characters.','Acorta la descripción a 1500 caracteres.','Reduza a descrição para 1.500 caracteres.'],
+  pgInvalidSessions:['Check the schedule: up to 12 lines, each with a title, and times of up to 40 characters.','Revisa la agenda: hasta 12 líneas, cada una con título, y horarios de hasta 40 caracteres.','Revise a agenda: até 12 linhas, cada uma com título, e horários de até 40 caracteres.'],
+  pgInvalidFormUrl:['Enter the activity form link, starting with https://.','Escribe el enlace del formulario, empezando por https://.','Informe o link do formulário, começando com https://.'],
+  pgNotFound:['This block is no longer in the programme. Reload the page.','Este bloque ya no está en el programa. Recarga la página.','Este bloco não está mais na programação. Recarregue a página.'],
+  pgHoursWarningOne:['1 person has checked in to this block. Their certificate hours will follow the new time.','1 persona registró su asistencia en este bloque. Sus horas del certificado seguirán el nuevo horario.','1 pessoa registrou presença neste bloco. As horas do certificado vão seguir o novo horário.'],
+  pgHoursWarningMany:['{n} people have checked in to this block. Their certificate hours will follow the new time.','{n} personas registraron su asistencia en este bloque. Sus horas del certificado seguirán el nuevo horario.','{n} pessoas registraram presença neste bloco. As horas do certificado vão seguir o novo horário.'],
+  pgWindowWarning:['This block’s day has started: a new date or time moves its check-in at once.','El día de este bloque ya empezó: una nueva fecha u hora mueve su registro de asistencia de inmediato.','O dia deste bloco já começou: uma nova data ou horário muda o registro de presença na hora.'],
+  pgLoadError:['The programme could not be loaded.','No se pudo cargar el programa.','Não foi possível carregar a programação.'],pgEmptyValue:['(empty)','(vacío)','(vazio)'],
+  // The party announcement, under the party's row; its sent, failed and progress lines are the summary emails' own (fiiu-ui.js).
+  noticeTitle:['Announce the party','Anunciar la fiesta','Anunciar a festa'],
+  noticeHint:['One email to each registrant who has not added the closing party yet, with its details and a button to add it. Each person gets it once, in the language they registered in (Spanish otherwise).','Un correo a cada persona inscrita que aún no añadió la fiesta de cierre, con sus detalles y un botón para añadirla. Cada persona lo recibe una sola vez, en el idioma en que se inscribió (si no, en español).','Um e-mail para cada pessoa inscrita que ainda não adicionou a festa de encerramento, com os detalhes e um botão para adicioná-la. Cada pessoa o recebe uma única vez, no idioma em que se inscreveu (se não, em espanhol).'],
+  noticeWaitingOne:['1 registrant has not added the party','1 persona inscrita no ha añadido la fiesta','1 pessoa inscrita não adicionou a festa'],noticeWaitingMany:['{n} registrants have not added the party','{n} personas inscritas no han añadido la fiesta','{n} pessoas inscritas não adicionaram a festa'],
+  noticeNoneWaiting:['Nobody is waiting for the announcement','Nadie espera el anuncio','Ninguém aguarda o anúncio'],
+  noticeLeftOne:['1 left today','queda 1 hoy','resta 1 hoje'],noticeLeftMany:['{n} left today','quedan {n} hoy','restam {n} hoje'],
+  noticeSendOne:['Announce the party to 1 person','Anunciar la fiesta a 1 persona','Anunciar a festa para 1 pessoa'],noticeSendMany:['Announce the party to {n} people','Anunciar la fiesta a {n} personas','Anunciar a festa para {n} pessoas'],
+  noticeConfirmHint:['The announcement goes out now, a few emails at a time. You can stop at any time.','El anuncio sale ahora, unos pocos correos a la vez. Puedes detener el envío en cualquier momento.','O anúncio sai agora, alguns e-mails por vez. Você pode parar o envio a qualquer momento.'],
+  noticeCap:['Today’s limit of {cap} emails is reached (summary and sign-up emails included). Sending can continue after {time} Lima time.','Se alcanzó el límite de hoy: {cap} correos (incluidos los de resumen e inscripción). Se puede seguir enviando después de las {time}, hora de Lima.','O limite de hoje foi atingido: {cap} e-mails (incluindo os de resumo e de inscrição). O envio pode continuar depois das {time}, horário de Lima.'],
+  noticeOff:['Emails are off, so the announcement cannot be sent. To turn them on, set EMAIL_SMTP_URL and EMAIL_FROM (and PUBLIC_BASE_URL) in Vercel for Production, then redeploy.','Los correos están desactivados, así que el anuncio no se puede enviar. Para activarlos, configura EMAIL_SMTP_URL y EMAIL_FROM (y PUBLIC_BASE_URL) en Vercel para Production y vuelve a desplegar.','Os e-mails estão desativados, então o anúncio não pode ser enviado. Para ativá-los, defina EMAIL_SMTP_URL e EMAIL_FROM (e PUBLIC_BASE_URL) na Vercel para Production e publique de novo.'],
+  noticeLoadError:['The announcement status could not be loaded.','No se pudo cargar el estado del anuncio.','Não foi possível carregar o status do anúncio.'],
+  // The summary emails' cap line: the party announcement now counts toward the same daily limit (the shared backfillCap names sign-up emails only).
+  summaryCap:['Today’s limit of {cap} emails is reached (sign-up emails and the party announcement included). Sending can continue after {time} Lima time.','Se alcanzó el límite de hoy: {cap} correos (incluidos los de inscripción y el anuncio de la fiesta). Se puede seguir enviando después de las {time}, hora de Lima.','O limite de hoje foi atingido: {cap} e-mails (incluindo os de inscrição e o anúncio da festa). O envio pode continuar depois das {time}, horário de Lima.'],
+  // The settings keep one public link, the programme's.
+  publicLink:['Link shown on the public page','Enlace que se muestra en la página pública','Link exibido na página pública']
  });
  const root=document.getElementById('fiiuAdminRoot'),message=document.getElementById('fiiuStatus');
- let festival,config,records=[],cursor=null,filling=null,listStale=false,publications=[],contentCursor=null,selectedParticipant=null,shownParticipant=null,detailRequest=0,participantFilter='all',participantQuery='',participantWords=[],shownCount=null,updatedAt=null,search=null,searchTimer=null,setAside=null;
+ let festival,config,records=[],cursor=null,filling=null,listStale=false,publications=[],contentCursor=null,selectedParticipant=null,shownParticipant=null,detailRequest=0,participantFilter='all',participantQuery='',participantWords=[],participantBlock='',blockFilter=null,shownCount=null,updatedAt=null,search=null,searchTimer=null,setAside=null;
  const detailHost=el('section','f-admin-detail'),listHost=el('div','f-admin-list'),participantsHost=el('section','f-admin-participants'),settingsHost=el('section','f-admin-settings'),contentHost=el('section','f-admin-content'),pillHost=el('div','f-pill-host'),editorHost=el('div','f-content-editor'),pubList=el('div','f-pub-list');
  const summaryHost=el('section','f-admin-summary'),summaryBody=el('div','f-summary-body'),summaryMessage=el('p','f-status'),updated=el('span','f-updated'),lastScan=el('span','f-updated'),resultCount=el('p','f-result-count');let summaryBusy=false,summaryRerun=false;
  const checkinHost=el('section','f-admin-checkin'),checkinBody=el('div','f-checkin-body');let lastCheckinKey='';
@@ -35,7 +94,8 @@
  // The same goes for a new question with text and a question edit with changes.
  const hasText=draft=>Boolean(draft&&(draft.title||draft.body||draft.url));
  // So does a settings link typed but not saved (the availability switch saves on its own).
- window.addEventListener?.('beforeunload',event=>{if(locked)return;const editor=currentEditor();if(hasText(setAside)||(editor?.isNew?hasText(editor.draft()):editor?.dirty())||questionDraft()||settingsDirty()){event.preventDefault();event.returnValue='';}});
+ // And so does an open programme block with changes.
+ window.addEventListener?.('beforeunload',event=>{if(locked)return;const editor=currentEditor();if(hasText(setAside)||(editor?.isNew?hasText(editor.draft()):editor?.dirty())||questionDraft()||settingsDirty()||programmeDraft()){event.preventDefault();event.returnValue='';}});
  const signInUrl=()=>'/login.html?next='+encodeURIComponent(location.pathname+location.hash),sessionNotice=el('p','f-notice is-warning f-session-notice');sessionNotice.hidden=true;sessionNotice.setAttribute('role','alert');
  const signInLink=()=>{const a=link('adminSignIn',signInUrl(),'f-text-link');a.target='_blank';a.rel='noopener';return describe(a);};
  // Once the dashboard is up, a tap dismisses the toast; "Loading…" and "Saving…" stay until their request ends.
@@ -49,7 +109,7 @@
  // Locale-formatted numbers are rebuilt on a language switch: the latest summary and the open editor's counter.
  // lastSummaryKey lets a refresh that brings identical totals leave the tables alone, so a screen reader keeps its place.
  let lastSummary=null,lastSummaryKey='',recount=null;
- const SECTIONS=[['overview','navOverview'],['checkin','checkIn'],['participants','participants'],['settings','settings'],['content','content'],['conversations','conversations']];
+ const SECTIONS=[['overview','navOverview'],['checkin','checkIn'],['participants','participants'],['settings','settings'],['programme','programmeSection'],['content','content'],['conversations','conversations']];
  // Columns that hold text rather than counts; the action column's heading is read out but not shown.
  const TEXT_COLUMNS=new Set(['venue','checkinClosing']),HIDDEN_HEADINGS=new Set(['openCheckinScreen']);
  const KINDS={news:'newsKind',recording:'recording',material:'material'},REVIEW={pending:'reviewPending',accepted:'reviewAccepted',declined:'reviewDeclined'};
@@ -117,20 +177,22 @@
    const label=el('span','f-row-day'),current=row.date===today;label.append(dateNode(row.date,'span','short','f-row-date'));if(current)label.append(tr('span','today','f-row-today'));
    return Object.assign([label,count(row.registrations),count(row.attendance),hours((dayMinutes.get(row.date)||0)/60)],current?{current:'date'}:{});
   })}]);
-  // Split by type (lab and conferences vs workshops and routes), each in programme order; ids no longer in the catalogue go last.
+  // Split by type (lab, conferences and the party vs workshops and routes), each in programme order; ids no longer in the catalogue go last.
+  // The party takes registrations but no check-in, so its attendance and hours read as not applicable.
   const entries=summary.activities.filter(row=>event.activities.some(a=>a.id===row.activityId)||row.registrations||row.externalInterests||row.attendance).map(row=>({row,activity:findActivity(event,row.activityId)}));
-  const order=new Map(chronological(entries.filter(e=>e.activity).map(e=>e.activity)).map((a,i)=>[a.id,i])),rank=e=>e.activity?order.get(e.activity.id):order.size,conferences=[],externals=[];
+  const order=new Map(chronological(entries.filter(e=>e.activity).map(e=>e.activity)).map((a,i)=>[a.id,i])),rank=e=>e.activity?order.get(e.activity.id):order.size,conferences=[],externals=[],none=()=>el('span','f-summary-count is-zero','–');let party=false;
   for(const {row,activity} of [...entries].sort((a,b)=>rank(a)-rank(b))){
-   const [registrations,interests,attendance]=[row.registrations,row.externalInterests,row.attendance].map(count),external=Boolean(activity)&&['workshop','route'].includes(typeOf(activity)),label=el('span','f-row-label');
-   if(activity){label.append(source('span',activity.title));if(activity.registration==='application')label.append(tr('span','lab','f-row-meta'));else if(activity.time&&!external)label.append(el('span','f-row-meta',activity.time));}else label.append(el('span','',row.activityId));
+   const [registrations,interests,attendance]=[row.registrations,row.externalInterests,row.attendance].map(count),kind=activity?blockKind(activity):'',external=['workshop','route'].includes(kind),label=el('span','f-row-label');
+   if(kind==='party')party=true;
+   if(activity){label.append(source('span',activity.title));if(activity.registration==='application')label.append(tr('span','lab','f-row-meta'));else if(kind==='party')label.append(tr('span','pgParty','f-row-meta'));else if(activity.time&&!external)label.append(el('span','f-row-meta',activity.time));}else label.append(el('span','',row.activityId));
    const venue=activity?.venue?source('span',activity.venue,'f-row-venue'):activity?tr('span','venuePending','f-muted'):el('span','');
-   (external?externals:conferences).push({date:activity?.date,row:external?[label,venue,interests,attendance]:[label,venue,registrations,attendance,hours(row.attendance*minutesOf(activity)/60)]});
+   (external?externals:conferences).push({date:activity?.date,row:external?[label,venue,interests,attendance]:kind==='party'?[label,venue,registrations,none(),none()]:[label,venue,registrations,attendance,hours(row.attendance*minutesOf(activity)/60)]});
   }
   const heading=key=>{const h=tr('h3',key);h.id='f-sum-'+key;return h;},col=(...nodes)=>{const box=el('div','f-summary-col');box.append(...nodes);return box;},people=el('div','f-summary-grid'),activities=el('div','f-summary-stack');
   // Largest profiles first; equal counts keep the server's alphabetical order.
   const profiles=summary.profiles.length?summaryTable({labelledBy:'f-sum-profiles',cls:'is-profiles'},['profileAdmin','participantCount','share'],[{rows:[...summary.profiles].sort((a,b)=>b.count-a.count).map(row=>[tr('span',row.profile||'unspecified'),count(row.count),el('span','f-summary-share',total?percent.format(row.count/total):'–')])}]):tr('p','noParticipants','f-muted');
   people.append(col(heading('byDay'),days,tr('p','byDayHint','f-muted f-table-note')),col(heading('profiles'),profiles));
-  activities.append(summaryTable({caption:'conferencesAndLab'},['activity','venue','registered','attended','hours'],byDate(conferences)),summaryTable({caption:'externalActivities'},['activity','venue','interested','attended'],byDate(externals)));
+  activities.append(summaryTable({caption:party?'blocksAndParty':'conferencesAndLab'},['activity','venue','registered','attended','hours'],byDate(conferences)),summaryTable({caption:'externalActivities'},['activity','venue','interested','attended'],byDate(externals)));
   summaryBody.replaceChildren(figures,people,heading('byActivity'),activities);lastSummary=summary;lastSummaryKey=summaryKey(summary);renderCheckin(summary);
   if(refocus)document.getElementById(refocus)?.focus({preventScroll:true});
  }
@@ -156,7 +218,8 @@
  // participant data). The section is rebuilt only when a count, a block's check-in closing or the language changes, so a focused link keeps its place.
  function checkedInCell(n,number){const cell=el('span','f-summary-count'+(n?'':' is-zero'),number.format(n));cell.append(document.createTextNode(' '),tr('span',n===1?'checkedInOne':'checkedInMany','f-cell-unit'));return cell;}
  function renderCheckin(summary=lastSummary){
-  if(!festival)return;const stats=new Map((summary?.activities||[]).map(row=>[row.activityId,row])),blocks=checkinActivities(festival.event),states=blocks.map(activity=>checkinState(activity));
+  // checkinActivities leaves out only workshops and routes; the party (a register-only block) takes no check-in either.
+  if(!festival)return;const stats=new Map((summary?.activities||[]).map(row=>[row.activityId,row])),blocks=checkinActivities(festival.event).filter(takesCheckin),states=blocks.map(activity=>checkinState(activity));
   const key=JSON.stringify([blocks.map(a=>stats.get(a.id)?.attendance??null),states,locale()]);if(key===lastCheckinKey)return;lastCheckinKey=key;
   const active=document.activeElement,refocus=active?.id&&checkinBody.contains?.(active)?active.id:'',number=new Intl.NumberFormat(locale());
   const rows=blocks.map((activity,i)=>{
@@ -177,9 +240,9 @@
  // Losing organiser access mid-session (role removed, or another account signed in) clears every participant answer from the page and stops polling.
  function lockOut(){
   locked=true;if(timer!==null)clearInterval(timer);sectionObserver?.disconnect();records=[];publications=[];rowCache=new WeakMap();lastSummary=null;selectedParticipant=shownParticipant=null;
-  if(backfillRun){backfillRun.stopping=true;backfillRun.wake?.();}backfill=null;backfillAsk=backfillResult=null;backfillLine.textContent=backfillNote.textContent='';backfillActions.replaceChildren();
-  questions=null;newQuestion=null;questionRows.clear();questionLayout='';
-  for(const host of [listHost,detailHost,participantsHost,summaryBody,checkinBody,settingsHost,contentHost,editorHost,pubList,resultCount,conversationsHost,questionEditorHost,questionList,questionAlert])host.replaceChildren();
+  for(const pass of emailPasses)pass.lock();
+  questions=null;newQuestion=null;questionRows.clear();questionLayout='';programme=null;programmeRows.clear();programmeLayout='';
+  for(const host of [listHost,detailHost,participantsHost,summaryBody,checkinBody,settingsHost,contentHost,editorHost,pubList,resultCount,conversationsHost,questionEditorHost,questionList,questionAlert,programmeHost,programmeList,programmeAlert])host.replaceChildren();
   status(message,'');const box=el('section','f-locked'),actions=el('div','f-actions');actions.append(link('fiiuPage','fiiu.html','f-button'),link('backToConsole','dashboard.html'));box.append(tr('h1','organisersOnly'),tr('p','organisersOnlyHint'),actions);root.replaceChildren(box);
  }
  function guard(error){
@@ -246,12 +309,18 @@
   search.input.autocomplete='off';search.input.addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{const query=norm(search.input.value.trim());if(query===participantQuery)return;participantQuery=query;participantWords=query.split(/\s+/).filter(Boolean);renderList();},120);});
   label.id='f-filter-label';chips.setAttribute('role','group');chips.setAttribute('aria-labelledby',label.id);chips.append(label);
   for(const [key,text] of [['all','filterAll'],['labPending','filterLabPending'],['labAccepted','filterLabAccepted'],['publicOfficials','publicOfficials']]){const chip=button(text,()=>{participantFilter=key;syncFilterChips();renderList();},'f-filter');filterButtons.set(key,chip);chips.append(chip);}
-  syncFilterChips();box.append(search.wrap,chips,resultCount);return box;
+  // The block filter lists every block people register for (the conference blocks and the party) and combines with the chips and the search.
+  const block=field('filterBlock'),every=tr('option','filterAllBlocks');blockFilter=el('select');blockFilter.name='participantBlock';blockFilter.id='f-participantBlock';every.value='';blockFilter.append(every);
+  for(const a of chronological(festival.event.activities.filter(activity=>['general','social'].includes(activity.registration)))){const option=source('option',blockLabel(a));option.value=a.id;blockFilter.append(option);}
+  block.input.replaceWith(blockFilter);blockFilter.addEventListener('change',()=>{participantBlock=blockFilter.value;renderList();});
+  syncFilterChips();box.append(search.wrap,block.wrap,chips,resultCount);return box;
  }
+ const blockLabel=a=>`${a.date.slice(8)}/${a.date.slice(5,7)} · ${a.title}`;
+ function clearBlock(){participantBlock='';if(blockFilter)blockFilter.value='';}
  function syncFilterChips(){for(const [key,chip] of filterButtons)chip.setAttribute('aria-pressed',String(key===participantFilter));}
  // A shortcut shows its whole filter: a search left in the box, or still waiting for its pause, is cleared.
  function clearSearch(){globalThis.clearTimeout?.(searchTimer);participantQuery='';participantWords=[];if(search)search.input.value='';}
- function showFilter(key){participantFilter=key;clearSearch();syncFilterChips();renderList();participantsHost.scrollIntoView?.({block:'start'});filterButtons.get(key)?.focus({preventScroll:true});}
+ function showFilter(key){participantFilter=key;clearSearch();clearBlock();syncFilterChips();renderList();participantsHost.scrollIntoView?.({block:'start'});filterButtons.get(key)?.focus({preventScroll:true});}
  function markSelected(){for(const [id,row] of rowNodes){const on=id===shownParticipant;row.className='f-participant'+(on?' is-selected':'');row.setAttribute('aria-current',String(on));}}
  // Each loaded record's row is built once (again after a language switch); searching and filtering re-attach it.
  function participantRow(r){
@@ -270,10 +339,10 @@
   listHost.replaceChildren();rowButtons.clear();rowNodes.clear();
   if(!records.length){listHost.append(tr('p','noParticipants'));resultCount.replaceChildren();shownCount=null;}
   else{
-   const visible=records.filter(FILTERS[participantFilter]).filter(r=>{const searchKey=searchKeys.get(r);return participantWords.every(word=>searchKey.includes(word));});
+   const visible=records.filter(FILTERS[participantFilter]).filter(r=>!participantBlock||r.answers.activities?.includes(participantBlock)).filter(r=>{const searchKey=searchKeys.get(r);return participantWords.every(word=>searchKey.includes(word));});
    // While the other pages load in the background a filtered view says so; "Load more" is left only when that load stopped on an error.
-   if(cursor&&(participantFilter!=='all'||participantQuery))listHost.append(tr('p',filling?'loading':'showingLoaded','f-muted'));
-   if(!visible.length){listHost.append(tr('p','noMatches','f-muted f-empty'));listHost.append(button('showAll',()=>{participantFilter='all';clearSearch();syncFilterChips();renderList();filterButtons.get('all')?.focus();},'f-button secondary f-small f-show-all'));}
+   if(cursor&&(participantFilter!=='all'||participantQuery||participantBlock))listHost.append(tr('p',filling?'loading':'showingLoaded','f-muted'));
+   if(!visible.length){listHost.append(tr('p','noMatches','f-muted f-empty'));listHost.append(button('showAll',()=>{participantFilter='all';clearSearch();clearBlock();syncFilterChips();renderList();filterButtons.get('all')?.focus();},'f-button secondary f-small f-show-all'));}
    else{const list=el('ul','f-participant-list');for(const r of visible)list.append(participantRow(r));listHost.append(list);markSelected();}
    if(visible.length!==shownCount){shownCount=visible.length;resultCount.replaceChildren(countLabel(shownCount,'participantShownOne','participantShownMany'));}
   }
@@ -338,7 +407,8 @@
   for(const id of [...interests].filter(id=>!findActivity(festival.event,id))){const row=el('p','f-attendance-row f-unknown-interest');row.append(el('span','f-attendance-title',id),tr('span','interestChip','f-pill'));box.append(row);}
   const plan=activity=>activity.registration==='external'?interests.has(activity.id)&&'interest':activity.registration==='application'?r.labStatus==='accepted'&&'lab':a.activities.includes(activity.id)&&'registered';
   const own=activity=>attended.has(activity.id)||Boolean(plan(activity)),chip=activity=>({registered:()=>tr('span','statusRegistered','f-pill is-ok'),lab:()=>tr('span','acceptedShort','f-pill is-accepted'),interest:()=>tr('span','interestChip','f-pill')})[plan(activity)]?.();
-  const list=chronological([...festival.event.activities,...(festival.event.legacyActivities||[]).filter(activity=>attended.has(activity.id)||interests.has(activity.id))].filter(activity=>activity.registration==='external'||own(activity)));
+  // The party takes no check-in, so it has no tick here (the answers below list it).
+  const list=chronological([...festival.event.activities,...(festival.event.legacyActivities||[]).filter(activity=>attended.has(activity.id)||interests.has(activity.id))].filter(activity=>activity.registration!=='social'&&(activity.registration==='external'||own(activity))));
   for(const date of [...new Set(list.map(activity=>activity.date))]){
    const day=list.filter(activity=>activity.date===date),others=day.filter(activity=>!own(activity)),group=el('div','f-attendance-day'),dayLabel=dateNode(date,'p','long','f-attendance-date');dayLabel.id='f-att-'+date;group.append(dayLabel);
    for(const activity of day.filter(own))group.append(rowFor(activity,attended.has(activity.id),chip(activity)));
@@ -384,12 +454,14 @@
  function renderRegistrationPill(){const on=config.registrationOpen;pillHost.replaceChildren(link(on?'registrationOpenNow':'registrationClosedNow','#settings','f-pill'+(on?' is-open':'')));}
  // The link fields on screen; leaving the page while one differs from the saved settings asks first.
  let linkInputs=[];
+ // The saved settings a save sends back. An older record may still hold the party link the settings no longer have; it is left behind, not sent.
+ const savedSettings=()=>Object.fromEntries(Object.entries(config).filter(([name])=>name!=='partyUrl'));
  function settingsDirty(){return linkInputs.some(input=>input.value!==(config?.[input.name]??''));}
  function settings(){
   const form=el('form','f-form'),card=el('div','f-switch-card'),links=el('fieldset','f-links'),open=check('registrationOpen','registrationOpen','yes',config.registrationOpen),note=hint('registrationOpenHint'),conflict=el('div','f-conflict'),switchNote=el('p','f-inline-status'),switchConflict=el('div','f-conflict');let busy=false,pending=false;
-  open.input.setAttribute('role','switch');open.input.setAttribute('aria-describedby',note.id);switchNote.setAttribute('role','status');card.append(open.wrap,note,switchNote,switchConflict);links.append(tr('legend','publicLinks'));
-  // The public page shows only these two links; each workshop and route carries its own form link.
-  linkInputs=['programUrl','partyUrl'].map(key=>{const link=field(key,{value:config[key],type:'url',max:2000});links.append(link.wrap);return link.input;});
+  open.input.setAttribute('role','switch');open.input.setAttribute('aria-describedby',note.id);switchNote.setAttribute('role','status');card.append(open.wrap,note,switchNote,switchConflict);links.append(tr('legend','publicLink'));
+  // The public page shows only the programme link: each workshop and route carries its own form link, and the party registers through NODAL.
+  linkInputs=['programUrl'].map(key=>{const link=field(key,{value:config[key],type:'url',max:2000});links.append(link.wrap);return link.input;});
   const save=button('saveSettings');save.type='submit';form.append(card,links,save,conflict);localiseValidation(form);
   // The switch saves on its own, as a switch implies (and as attendance ticks do), so the header pill and the public page follow at once. Closing
   // asks first; a failed save puts it back to what is saved. Its save carries only the availability: links typed but not yet saved wait for Save.
@@ -398,7 +470,7 @@
    if(pending){open.input.checked=!open.input.checked;return;}
    const wanted=open.input.checked;if(config.registrationOpen&&!wanted&&!window.confirm(t('closeConfirm'))){open.input.checked=true;return;}
    pending=true;open.input.setAttribute('aria-disabled','true');
-   return action(save,async()=>{try{config=(await api('/api/admin/fiiu/config',{...config,registrationOpen:wanted,version:config.version},'PUT')).config;}catch(err){open.input.checked=config.registrationOpen;throw err;}finally{renderRegistrationPill();}},{feedback:switchNote,conflict:switchConflict,reload:reloadSwitch}).finally(()=>{pending=false;open.input.removeAttribute('aria-disabled');});
+   return action(save,async()=>{try{config=(await api('/api/admin/fiiu/config',{...savedSettings(),registrationOpen:wanted,version:config.version},'PUT')).config;}catch(err){open.input.checked=config.registrationOpen;throw err;}finally{renderRegistrationPill();}},{feedback:switchNote,conflict:switchConflict,reload:reloadSwitch}).finally(()=>{pending=false;open.input.removeAttribute('aria-disabled');});
   });
   // The switch's own conflict re-reads the settings for the switch alone: links typed and not yet saved stay in their fields, waiting for Save.
   async function reloadSwitch(){
@@ -408,139 +480,308 @@
   form.addEventListener('submit',async event=>{
    event.preventDefault();if(busy||pending)return;
    // Saved settings the form does not show (the older workshop and route links) go back unchanged, and so does the saved availability.
-   const payload={...config,...Object.fromEntries(new FormData(form)),registrationOpen:config.registrationOpen,version:config.version},unlock=lockForm(form);busy=true;
+   const payload={...savedSettings(),...Object.fromEntries(new FormData(form)),registrationOpen:config.registrationOpen,version:config.version},unlock=lockForm(form);busy=true;
    // The server saves each link as its URL parser writes it (https://Example.org becomes https://example.org/), so the fields take the saved
    // values back: what shows is what is saved, and leaving afterwards does not ask about changes that are already saved.
    try{await action(save,async()=>{const result=await api('/api/admin/fiiu/config',payload,'PUT');config=result.config;for(const input of linkInputs)input.value=config[input.name]??'';renderRegistrationPill();},{conflict,reload:reloadSettings});}
    finally{busy=false;unlock();}
   });
-  settingsHost.id='settings';settingsHost.replaceChildren(tr('h2','settings'),form,backfillHost);return settingsHost;
+  settingsHost.id='settings';settingsHost.replaceChildren(tr('h2','settings'),form,summaryEmails.host);return settingsHost;
  }
  async function reloadSettings(){config=(await api('/api/admin/fiiu/config')).config;renderRegistrationPill();settings();settingsHost.querySelector('input')?.focus();}
- // Summary emails: people the first-registration email did not reach (registered before it existed, or while sending was off or over its
- // limit) get it from here. One press sends batch after batch (the server sends a few per request and claims each row before its email
- // goes out, so a double click or a second organiser never emails anyone twice) until the pass is done, stopped, or today's cap is reached.
- // Plain lines and one press-plate button; Retry, Cancel and Stop are text buttons. Interpolated text carries no data-fiiu-text, so the
- // language switch re-renders it here instead of overwriting the numbers.
- const backfillHost=el('div','f-backfill'),backfillHeading=tr('h3','backfillTitle'),backfillHint=tr('p','backfillHint','f-muted f-section-hint'),backfillLine=el('p','f-backfill-line'),backfillNote=el('p','f-backfill-note'),backfillActions=el('div','f-backfill-actions');
- backfillHeading.id='f-h-backfill';backfillHost.setAttribute('role','group');backfillHost.setAttribute('aria-labelledby',backfillHeading.id);backfillNote.setAttribute('role','status');backfillNote.setAttribute('aria-live','polite');
- backfillHost.append(backfillHeading,backfillHint,backfillLine,backfillNote,backfillActions);
- // backfill: the last GET (configured, counts, dailyCap, sentToday, resetsAt); backfillAsk: the pass waiting for its confirmation; backfillRun: the pass under way; backfillResult: how the last one ended.
- let backfill=null,backfillLoadFailed=false,backfillAsk=null,backfillRun=null,backfillResult=null;
- const EMAIL_STATES=['none','pending','sent','failed','uncertain','skipped'],TALLY=['sent','failed','uncertain','skipped','claimedElsewhere'];
- const validCounts=counts=>Boolean(counts)&&EMAIL_STATES.every(k=>Number.isSafeInteger(counts[k])&&counts[k]>=0);
- const validBatch=data=>TALLY.every(k=>Number.isSafeInteger(data[k])&&data[k]>=0)&&Number.isSafeInteger(data.remaining)&&data.remaining>=0&&(data.next===null||typeof data.next==='string')&&validCounts(data.counts);
+ // Email passes: the summary emails (people the first-registration email did not reach, because they registered before it existed or while sending
+ // was off or over its limit) and the party announcement (registrants who have not added the closing party). One press sends batch after batch (the
+ // server sends a few per request and claims each row before its email goes out, so a double click or a second organiser never emails anyone twice)
+ // until the pass is done, stopped, or today's cap, which both share, is reached. Plain lines and one press-plate button; Retry, Cancel and Stop
+ // are text buttons. Interpolated text carries no data-fiiu-text, so the language switch re-renders it here instead of overwriting the numbers.
+ const EMAIL_STATES=['pending','sent','failed','uncertain','skipped'],TALLY=['sent','failed','uncertain','skipped','claimedElsewhere'];
  const fill=(key,values={})=>t(key).replace(/\{(\w+)\}/g,(match,name)=>values[name]??match),nf=n=>new Intl.NumberFormat(locale()).format(n);
  const plural=(base,n)=>fill(n===1?base+'One':base+'Many',{n:nf(n)});
- // One button per action, made once and kept: a progress update leaves the focused Stop button in place instead of rebuilding it.
- const backfillButtons=new Map(),backfillHandlers={send:()=>askBackfill('send'),retry:()=>askBackfill('retry'),confirm:()=>runBackfill(backfillAsk),cancel:()=>{const mode=backfillAsk;backfillAsk=null;renderBackfill(mode);},stop:()=>stopBackfill(),reload:()=>loadBackfill('reload')};
  /* Send swaps itself for Confirm, and Confirm for Stop, with focus on the new button, so a second press meant for the
     first one would land on the next: a double click, Enter pressed twice or held down. A press is ignored for
     BACKFILL_SETTLE_MS after the buttons change (longer than an ordinary double click), and a held Enter or Space does
     not repeat; other held keys (Tab, arrows) move on as usual. (A call without an event comes from code.) */
- const BACKFILL_SETTLE_MS=600;let backfillShownAt=0;
- function textButton(text,action,cls='f-backfill-link'){
-  let b=backfillButtons.get(action);
-  if(!b){
-   b=el('button');b.type='button';b.dataset.action=action;
-   b.addEventListener('click',event=>{if(event&&Date.now()-backfillShownAt<BACKFILL_SETTLE_MS)return;backfillHandlers[action]();});
-   b.addEventListener('keydown',event=>{if(event?.repeat&&['Enter',' '].includes(event.key))event.preventDefault();});
-   backfillButtons.set(action,b);
-  }
-  b.className=cls;b.textContent=text;return b;
- }
- function askBackfill(mode){backfillAsk=mode;backfillResult=null;renderBackfill('confirm');}
- const capReached=()=>Number.isSafeInteger(backfill?.dailyCap)&&Number.isSafeInteger(backfill?.sentToday)&&backfill.sentToday>=backfill.dailyCap;
- // Today's cap has reset (19:00 Lima) since the page last asked: the minute timer asks again, so the buttons come back without a reload.
- const capLifted=()=>capReached()&&!backfillRun&&!backfillAsk&&Date.now()>=Date.parse(backfill.resetsAt);
- const capText=()=>fill('backfillCap',{cap:nf(backfill?.dailyCap??0),time:Number.isFinite(Date.parse(backfill?.resetsAt))?limaClock(Date.parse(backfill.resetsAt)):'19:00'});
- function tallyText({sent,failed,uncertain,skipped}){return [fill('backfillDone',{sent:nf(sent),failed:nf(failed)}),...(uncertain?[plural('backfillUncertain',uncertain)]:[]),...(skipped?[plural('backfillSkipped',skipped)]:[])].join(' · ');}
- function resultText({end,tally}){
-  const handled=tally.sent+tally.failed+tally.uncertain+tally.skipped,base=tallyText(tally);
-  if(end==='done')return base+(tally.failed?' — '+t('backfillDoneRetry'):'');
-  if(end==='stopped')return t('backfillStopped')+' '+base;
-  const reason={cap:capText(),session:t('backfillSignIn'),error:t('backfillError')}[end]||'';
-  return handled?base+'. '+reason:reason;
- }
- function progressText(run){
-  const parts=[fill('backfillProgress',{sent:nf(run.tally.sent),total:nf(Math.max(run.total,run.tally.sent))}),...(run.tally.failed?[fill('backfillFailed',{n:nf(run.tally.failed)})]:[])];
-  return parts.join(' · ')+(run.stopping?' — '+t('backfillStopping'):run.waiting?' — '+t('backfillPausing'):'…');
- }
- // focus names the action to focus after this render; otherwise focus that was on a replaced button moves to the first action, or the heading.
- function renderBackfill(focus){
-  if(locked)return;
-  const counts=backfill?.counts,actions=[];let line,note='',error=false;
-  backfillHint.hidden=Boolean(backfill&&!backfill.configured);
-  if(!backfill){line=t(backfillLoadFailed?'backfillLoadError':'loading');if(backfillLoadFailed)actions.push(textButton(t('retry'),'reload'));}
-  else if(!backfill.configured)line=t('backfillOff');
-  else{
-   line=[counts.none?plural('backfillWaiting',counts.none):t('backfillNoneWaiting'),plural('backfillSent',counts.sent),...(counts.failed?[fill('backfillFailed',{n:nf(counts.failed)})]:[]),...(counts.uncertain+counts.pending?[plural('backfillUncertain',counts.uncertain+counts.pending)]:[]),...(counts.skipped?[plural('backfillSkipped',counts.skipped)]:[])].join(' · ');
-   if(backfillRun){note=progressText(backfillRun);actions.push(textButton(t('backfillStop'),'stop'));}
-   else if(backfillAsk){
-    const n=backfillAsk==='retry'?counts.failed:counts.none;note=t('backfillConfirmHint');
-    actions.push(textButton(plural('backfillConfirm',n),'confirm','f-button'),textButton(t('backfillCancel'),'cancel'));
+ const BACKFILL_SETTLE_MS=600;
+ // id names the block; endpoint answers GET with the state (configured, counts, dailyCap, sentToday, resetsAt) and POST with one batch. waiting is the
+ // counts key of the people still to email; keys holds the block's own wording. The summary emails' batches also say how many are left after their
+ // cursor (remaining); the announcement's counts say who is still waiting. left adds what is left of today's cap to the counts line; active says
+ // whether the block is on the page at all; level is its heading's, one below the heading it sits under.
+ function emailPass({id,endpoint,waiting,keys,remaining=false,left=false,active=()=>true,level='h3'}){
+  const host=el('div','f-backfill'+(id==='backfill'?'':' f-'+id)),heading=tr(level,keys.title),hintNode=tr('p',keys.hint,'f-muted f-section-hint'),line=el('p','f-backfill-line'),note=el('p','f-backfill-note'),actions=el('div','f-backfill-actions');
+  heading.id='f-h-'+id;host.setAttribute('role','group');host.setAttribute('aria-labelledby',heading.id);note.setAttribute('role','status');note.setAttribute('aria-live','polite');host.append(heading,hintNode,line,note,actions);
+  // state: the last GET; ask: the pass waiting for its confirmation; run: the pass under way; result: how the last one ended.
+  let state=null,loadFailed=false,ask=null,run=null,result=null,shownAt=0;
+  const validCounts=counts=>Boolean(counts)&&[waiting,...EMAIL_STATES].every(k=>Number.isSafeInteger(counts[k])&&counts[k]>=0);
+  const validBatch=data=>TALLY.every(k=>Number.isSafeInteger(data[k])&&data[k]>=0)&&(!remaining||(Number.isSafeInteger(data.remaining)&&data.remaining>=0))&&(data.next===null||typeof data.next==='string')&&validCounts(data.counts);
+  // One button per action, made once and kept: a progress update leaves the focused Stop button in place instead of rebuilding it.
+  const buttons=new Map(),handlers={send:()=>askFor('send'),retry:()=>askFor('retry'),confirm:()=>start(ask),cancel:()=>{const mode=ask;ask=null;render(mode);},stop:()=>stop(),reload:()=>load('reload')};
+  function textButton(text,action,cls='f-backfill-link'){
+   let b=buttons.get(action);
+   if(!b){
+    b=el('button');b.type='button';b.dataset.action=action;
+    b.addEventListener('click',event=>{if(event&&Date.now()-shownAt<BACKFILL_SETTLE_MS)return;handlers[action]();});
+    b.addEventListener('keydown',event=>{if(event?.repeat&&['Enter',' '].includes(event.key))event.preventDefault();});
+    buttons.set(action,b);
    }
+   b.className=cls;b.textContent=text;return b;
+  }
+  function askFor(mode){ask=mode;result=null;render('confirm');}
+  const capReached=()=>Number.isSafeInteger(state?.dailyCap)&&Number.isSafeInteger(state?.sentToday)&&state.sentToday>=state.dailyCap;
+  // Today's cap has reset (19:00 Lima) since the page last asked: the minute timer asks again, so the buttons come back without a reload.
+  const capLifted=()=>capReached()&&!run&&!ask&&Date.now()>=Date.parse(state.resetsAt);
+  const capText=()=>fill(keys.cap,{cap:nf(state?.dailyCap??0),time:Number.isFinite(Date.parse(state?.resetsAt))?limaClock(Date.parse(state.resetsAt)):'19:00'});
+  const leftToday=()=>Number.isSafeInteger(state?.dailyCap)&&Number.isSafeInteger(state?.sentToday)?Math.max(0,state.dailyCap-state.sentToday):null;
+  function tallyText({sent,failed,uncertain,skipped}){return [fill('backfillDone',{sent:nf(sent),failed:nf(failed)}),...(uncertain?[plural('backfillUncertain',uncertain)]:[]),...(skipped?[plural('backfillSkipped',skipped)]:[])].join(' · ');}
+  function resultText({end,tally}){
+   const handled=tally.sent+tally.failed+tally.uncertain+tally.skipped,base=tallyText(tally);
+   if(end==='done')return base+(tally.failed?' — '+t('backfillDoneRetry'):'');
+   if(end==='stopped')return t('backfillStopped')+' '+base;
+   const reason={cap:capText(),session:t('backfillSignIn'),error:t('backfillError')}[end]||'';
+   return handled?base+'. '+reason:reason;
+  }
+  function progressText(pass){
+   const parts=[fill('backfillProgress',{sent:nf(pass.tally.sent),total:nf(Math.max(pass.total,pass.tally.sent))}),...(pass.tally.failed?[fill('backfillFailed',{n:nf(pass.tally.failed)})]:[])];
+   return parts.join(' · ')+(pass.stopping?' — '+t('backfillStopping'):pass.waiting?' — '+t('backfillPausing'):'…');
+  }
+  // focus names the action to focus after this render; otherwise focus that was on a replaced button moves to the first action, or the heading.
+  function render(focus){
+   if(locked)return;
+   const counts=state?.counts,shown=[];let text,status='',error=false;
+   hintNode.hidden=Boolean(state&&!state.configured);
+   if(!state){text=t(loadFailed?keys.loadError:'loading');if(loadFailed)shown.push(textButton(t('retry'),'reload'));}
+   else if(!state.configured)text=t(keys.off);
    else{
-    if(backfillResult){note=resultText(backfillResult);error=['session','error'].includes(backfillResult.end);}
-    if(capReached()&&(counts.none||counts.failed)){if(backfillResult?.end!=='cap')note=(note?note+' ':'')+capText();}
+    const rest=left?leftToday():null;
+    text=[counts[waiting]?plural(keys.waiting,counts[waiting]):t(keys.noneWaiting),plural('backfillSent',counts.sent),...(counts.failed?[fill('backfillFailed',{n:nf(counts.failed)})]:[]),...(counts.uncertain+counts.pending?[plural('backfillUncertain',counts.uncertain+counts.pending)]:[]),...(counts.skipped?[plural('backfillSkipped',counts.skipped)]:[]),...(rest===null?[]:[plural('noticeLeft',rest)])].join(' · ');
+    if(run){status=progressText(run);shown.push(textButton(t('backfillStop'),'stop'));}
+    else if(ask){
+     const n=ask==='retry'?counts.failed:counts[waiting];status=t(keys.confirmHint);
+     shown.push(textButton(plural('backfillConfirm',n),'confirm','f-button'),textButton(t('backfillCancel'),'cancel'));
+    }
     else{
-     if(counts.none)actions.push(textButton(plural('backfillSend',counts.none),'send','f-button'));
-     if(counts.failed)actions.push(textButton(fill('backfillRetry',{n:nf(counts.failed)}),'retry'));
+     if(result){status=resultText(result);error=['session','error'].includes(result.end);}
+     if(capReached()&&(counts[waiting]||counts.failed)){if(result?.end!=='cap')status=(status?status+' ':'')+capText();}
+     else{
+      if(counts[waiting])shown.push(textButton(plural(keys.send,counts[waiting]),'send','f-button'));
+      if(counts.failed)shown.push(textButton(fill('backfillRetry',{n:nf(counts.failed)}),'retry'));
+     }
     }
    }
+   line.textContent=text;note.textContent=status;note.classList.toggle('is-error',error);
+   // The buttons are swapped only when the set changes; focus on one that leaves moves to the first remaining action, or the heading.
+   const current=[...actions.children],changed=current.length!==shown.length||current.some((b,i)=>b!==shown[i]);
+   const hadFocus=Boolean(focus)||(changed&&Boolean(actions.contains?.(document.activeElement)));
+   if(changed){actions.replaceChildren(...shown);shownAt=Date.now();}
+   if(hadFocus){const target=shown.find(b=>b.dataset.action===focus)||shown[0];if(target)target.focus();else{heading.tabIndex=-1;heading.focus();}}
   }
-  backfillLine.textContent=line;backfillNote.textContent=note;backfillNote.classList.toggle('is-error',error);
-  // The buttons are swapped only when the set changes; focus on one that leaves moves to the first remaining action, or the heading.
-  const current=[...backfillActions.children],changed=current.length!==actions.length||current.some((b,i)=>b!==actions[i]);
-  const hadFocus=Boolean(focus)||(changed&&Boolean(backfillActions.contains?.(document.activeElement)));
-  if(changed){backfillActions.replaceChildren(...actions);backfillShownAt=Date.now();}
-  if(hadFocus){const target=actions.find(b=>b.dataset.action===focus)||actions[0];if(target)target.focus();else{backfillHeading.tabIndex=-1;backfillHeading.focus();}}
+  async function load(focus){
+   if(locked||!active())return;
+   try{
+    const data=await api(endpoint);
+    if(typeof data.configured!=='boolean'||!validCounts(data.counts))throw Object.assign(Error(t('error')),{key:'error'});
+    state=data;loadFailed=false;resume();
+   }catch(error){if(guard(error))return;loadFailed=true;}
+   render(focus);
+  }
+  function stop(){const pass=run;if(!pass||pass.stopping)return;pass.stopping=true;pass.wake?.();render('stop');}
+  // One pass: POST after POST with the previous answer's cursor until nothing is left, Stop, an error or today's cap. A plain 429 (the
+  // organiser write budget) pauses half a minute and carries on, at most five times in a row.
+  async function start(mode){
+   if(run||!state)return;
+   const pass=run={total:mode==='retry'?state.counts.failed:state.counts[waiting],tally:Object.fromEntries(TALLY.map(k=>[k,0])),stopping:false,waiting:false,wake:null};
+   ask=null;result=null;render('stop');
+   let after=null,pauses=0,finished=false,end='done';
+   try{
+    while(!pass.stopping&&!locked){
+     let data;
+     try{data=await api(endpoint,{retryFailed:mode==='retry',...(after?{after}:{})},'POST');}
+     catch(error){
+      // Stop pressed while this request was out: a plain 429 sent nothing, so the pass ends now instead of pausing first.
+      if(error.status===429&&error.code!=='daily_cap'&&pass.stopping)break;
+      if(error.status===429&&error.code!=='daily_cap'&&pauses<5&&typeof setTimeout==='function'){pauses++;pass.waiting=true;render();await new Promise(resolve=>{pass.wake=resolve;setTimeout(resolve,30000);});pass.waiting=false;pass.wake=null;render();continue;}
+      throw error;
+     }
+     pauses=0;if(!validBatch(data))throw Object.assign(Error(t('error')),{key:'error'});
+     for(const k of TALLY)pass.tally[k]+=data[k];
+     // What this pass still has to do: its own outcomes so far plus what is left, as the server says after the cursor or as the counts still wait.
+     const handled=pass.tally.sent+pass.tally.failed+pass.tally.uncertain+pass.tally.skipped;
+     pass.total=remaining?handled+data.remaining:mode==='retry'?Math.max(pass.total,handled):handled+data.counts[waiting];
+     state={...state,counts:data.counts,...(Number.isSafeInteger(data.sentToday)?{sentToday:data.sentToday}:{})};resume();
+     if(!data.next||(remaining&&!data.remaining)){finished=true;break;}
+     after=data.next;render();
+    }
+    if(!finished&&pass.stopping)end='stopped';
+   }catch(error){
+    if(guard(error)){run=null;return;}
+    end=error.code==='daily_cap'?'cap':error.code==='email_not_configured'?'off':error.status===401?'session':'error';
+    if(end==='off')state={...state,configured:false};
+   }
+   run=null;result=end==='off'?null:{end,tally:pass.tally};render();
+   // The counts behind the buttons and the overview from the server; the other block's cap counter has moved too.
+   refreshSummary({background:true});await Promise.all(emailPasses.map(other=>other===self?load():other.running()?null:other.load()));
+  }
+  const self={host,render,load,running:()=>Boolean(run),
+   // The minute timer: once the cap has reset, a pass that ended at the cap leaves no stale message, and the state is read again.
+   tick(){if(!capLifted())return null;if(result?.end==='cap')result=null;return load();},
+   lock(){if(run){run.stopping=true;run.wake?.();}state=null;ask=result=null;line.textContent=note.textContent='';actions.replaceChildren();}};
+  return self;
  }
- async function loadBackfill(focus){
+ const summaryEmails=emailPass({id:'backfill',endpoint:'/api/admin/fiiu/confirmations',waiting:'none',remaining:true,keys:{title:'backfillTitle',hint:'backfillHint',waiting:'backfillWaiting',noneWaiting:'backfillNoneWaiting',send:'backfillSend',confirmHint:'backfillConfirmHint',cap:'summaryCap',off:'backfillOff',loadError:'backfillLoadError'}});
+ // The announcement sits under the party's row in the Programme section, so it is read only when the programme has the party; its heading is an
+ // h4, a part of the party's day (an h3).
+ const partyNotice=emailPass({id:'party-notice',endpoint:'/api/admin/fiiu/notices/closing-party',waiting:'waiting',left:true,level:'h4',active:()=>Boolean(festival&&findActivity(festival.event,'closing-party')),keys:{title:'noticeTitle',hint:'noticeHint',waiting:'noticeWaiting',noneWaiting:'noticeNoneWaiting',send:'noticeSend',confirmHint:'noticeConfirmHint',cap:'noticeCap',off:'noticeOff',loadError:'noticeLoadError'}});
+ const emailPasses=[summaryEmails,partyNotice];
+ // Programme: every block's details as organisers edit them (the server keeps one row per edited block, with its own version); adding or removing a block is
+ // still a code change. Blocks are grouped by day in programme order; each row is built once (programmeRows, by id) and updated in place, and one block's
+ // form is open at a time, under its row.
+ const programmeHost=el('section','f-admin-programme'),programmeList=el('div','f-programme-list'),programmeAlert=el('div','f-question-alert'),programmeRows=new Map();
+ let programme=null,programmeFailed=false,programmeLayout='';
+ // The party is a "social" block: people add it to their registration, but it takes no check-in and counts no hours.
+ const blockKind=activity=>activity.registration==='social'?'party':typeOf(activity),takesCheckin=activity=>['general','application'].includes(activity?.registration);
+ const BLOCK_KINDS={conference:'pgConference',lab:'pgLab',party:'pgParty',workshop:'pgWorkshop',route:'pgRoute'},DESCRIPTION_MAX=1500,SCHEDULE_MAX=12;
+ // Each refusal the server explains with a code gets its own message beside the form.
+ const PROGRAMME_CODES={invalid_title:'pgInvalidTitle',invalid_date:'pgInvalidDate',invalid_time:'pgInvalidTime',invalid_venue:'pgInvalidVenue',invalid_description:'pgInvalidDescription',invalid_sessions:'pgInvalidSessions',invalid_form_url:'pgInvalidFormUrl'};
+ const refusal=err=>{const k=err?.status===400?PROGRAMME_CODES[err.code]:err?.status===404?'pgNotFound':'';return k?Object.assign(Error(t(k)),{key:k,status:err.status,code:err.code}):err;};
+ // The form opens on every field, so a block it could not fill (a schedule line that is not a time and a title, say) reads as a failed read.
+ const isLine=line=>Array.isArray(line)&&line.length===2&&line.every(part=>typeof part==='string');
+ const validBlock=a=>Boolean(a)&&typeof a.id==='string'&&typeof a.title==='string'&&typeof a.date==='string'&&typeof a.time==='string'&&typeof a.venue==='string'&&['string','undefined'].includes(typeof a.description)&&Array.isArray(a.sessions)&&a.sessions.every(isLine)&&Number.isSafeInteger(a.version)&&a.version>=0;
+ const isEdited=a=>Boolean(a.edited)||a.version>0;
+ // '09:00–13:00' is a start and an end, '17:00' a start only (the party, workshops and routes may have one), '' no set time.
+ const splitTime=time=>{const m=/^(\d{2}:\d{2})(?:\s*[–-]\s*(\d{2}:\d{2}))?$/.exec(time||'');return m?[m[1],m[2]||'']:['',''];};
+ const timeParts=time=>!time?[tr('span','pgUntimed')]:/[–-]/.test(time)?[el('span','',time)]:[tr('span','pgFrom'),document.createTextNode(' '+time)];
+ function programmeDraft(){return [...programmeRows.values()].some(entry=>entry.editor?.dirty());}
+ async function readProgramme(){const data=await api('/api/admin/fiiu/programme');if(!Array.isArray(data.activities)||!data.activities.every(validBlock))throw Object.assign(Error(t('error')),{key:'error'});return data.activities;}
+ // Read with the dashboard: a failure keeps the dashboard and offers Try again here. Later reads come from a conflict's reload, block by block.
+ async function refreshProgramme({pending}={}){
   if(locked)return;
-  try{
-   const data=await api('/api/admin/fiiu/confirmations');
-   if(typeof data.configured!=='boolean'||!validCounts(data.counts))throw Object.assign(Error(t('error')),{key:'error'});
-   backfill=data;backfillLoadFailed=false;resume();
-  }catch(error){if(guard(error))return;backfillLoadFailed=true;}
-  renderBackfill(focus);
+  try{const result=await(pending||readProgramme().then(list=>({list}),error=>({error})));if(result.error)throw result.error;if(locked)return;programme=result.list;programmeFailed=false;resume();}
+  catch(error){if(guard(error))return;programmeFailed=true;}
+  renderProgramme();
  }
- function stopBackfill(){const run=backfillRun;if(!run||run.stopping)return;run.stopping=true;run.wake?.();renderBackfill('stop');}
- // One pass: POST after POST with the previous answer's cursor until nothing is left, Stop, an error or today's cap. A plain 429 (the
- // organiser write budget) pauses half a minute and carries on, at most five times in a row.
- async function runBackfill(mode){
-  if(backfillRun||!backfill)return;
-  const run=backfillRun={total:mode==='retry'?backfill.counts.failed:backfill.counts.none,tally:Object.fromEntries(TALLY.map(k=>[k,0])),stopping:false,waiting:false,wake:null};
-  backfillAsk=null;backfillResult=null;renderBackfill('stop');
-  let after=null,pauses=0,finished=false,end='done';
-  try{
-   while(!run.stopping&&!locked){
-    let data;
-    try{data=await api('/api/admin/fiiu/confirmations',{retryFailed:mode==='retry',...(after?{after}:{})},'POST');}
-    catch(error){
-     // Stop pressed while this request was out: a plain 429 sent nothing, so the pass ends now instead of pausing first.
-     if(error.status===429&&error.code!=='daily_cap'&&run.stopping)break;
-     if(error.status===429&&error.code!=='daily_cap'&&pauses<5&&typeof setTimeout==='function'){pauses++;run.waiting=true;renderBackfill();await new Promise(resolve=>{run.wake=resolve;setTimeout(resolve,30000);});run.waiting=false;run.wake=null;renderBackfill();continue;}
-     throw error;
-    }
-    pauses=0;if(!validBatch(data))throw Object.assign(Error(t('error')),{key:'error'});
-    for(const k of TALLY)run.tally[k]+=data[k];
-    // What this pass still has to do: its own outcomes so far plus what the server says is left after the cursor.
-    run.total=run.tally.sent+run.tally.failed+run.tally.uncertain+run.tally.skipped+data.remaining;
-    backfill={...backfill,counts:data.counts,...(Number.isSafeInteger(data.sentToday)?{sentToday:data.sentToday}:{})};resume();
-    if(!data.next||!data.remaining){finished=true;break;}
-    after=data.next;renderBackfill();
-   }
-   if(!finished&&run.stopping)end='stopped';
-  }catch(error){
-   if(guard(error)){backfillRun=null;return;}
-   end=error.code==='daily_cap'?'cap':error.code==='email_not_configured'?'off':error.status===401?'session':'error';
-   if(end==='off')backfill={...backfill,configured:false};
+ // A saved, restored or re-read block replaces its row and the dashboard's copy of the programme, so the totals, check-in and conversation headings name it as saved.
+ function applyBlock(item){
+  programme=(programme||[]).map(a=>a.id===item.id?item:a);
+  const {version,original,checkedIn,...block}=item;festival.event={...festival.event,activities:festival.event.activities.map(a=>a.id===block.id?{...a,...block}:a)};
+  // Every block picker on the page names it as saved: the participant filter, the new question's and the open publication editor's.
+  const pickers=[blockFilter,...[newQuestion?.form,editorHost.querySelector('form')].flatMap(form=>form?[...form.querySelectorAll('select')].filter(select=>select.name==='activityId'):[])];
+  for(const select of pickers)for(const option of select?.children||[])if(option.value===block.id)option.textContent=blockLabel(block);
+  renderProgramme();lastCheckinKey='';if(lastSummary)renderSummary(lastSummary);else renderCheckin();questionLayout='';renderQuestions();
+ }
+ function renderProgramme(){
+  if(locked||!festival)return;programmeAlert.hidden=!programmeFailed;
+  if(!programmeFailed)programmeAlert.replaceChildren();
+  else if(!programmeAlert.children.length){const retry=button('retry',()=>fetchInto(retry,async()=>{const list=await readProgramme();if(locked)return;programme=list;programmeFailed=false;renderProgramme();}),'f-button secondary f-small');programmeAlert.replaceChildren(tr('span','pgLoadError'),retry);}
+  if(!programme){programmeList.replaceChildren(...(programmeFailed?[]:[tr('p','loading','f-muted')]));programmeLayout='';return;}
+  const sorted=chronological(programme);
+  for(const a of sorted){const entry=programmeRows.get(a.id)||programmeEntry(a.id);entry.record=a;entry.update();}
+  // The same blocks on the same days are only updated, so a save never moves focus or the open form.
+  const layout=JSON.stringify(sorted.map(a=>[a.date,a.id]));if(layout===programmeLayout)return;programmeLayout=layout;
+  const active=document.activeElement,refocus=active?.id&&programmeList.contains?.(active)?active.id:'',days=[];
+  for(const a of sorted){if(days.at(-1)?.date!==a.date)days.push({date:a.date,rows:[]});days.at(-1).rows.push(programmeRows.get(a.id).row);}
+  programmeList.replaceChildren(...days.map(({date,rows})=>{const day=el('div','f-programme-day'),heading=dateNode(date,'h3','long','f-programme-date'),list=el('ul','f-programme-blocks');heading.id='f-pgd-'+date;list.setAttribute('aria-labelledby',heading.id);list.append(...rows);day.append(heading,list);return day;}));
+  if(refocus)document.getElementById(refocus)?.focus({preventScroll:true});
+ }
+ // One row per block: its time, title, kind and Edited pill, then Edit; the form opens in the slot under them and the row's note says how a save went.
+ function programmeEntry(id){
+  const row=el('li','f-programme-row'),view=el('div','f-programme-view'),when=el('span','f-programme-time'),main=el('div','f-programme-main'),title=source('span','','f-programme-title'),meta=el('span','f-programme-meta'),slot=el('div','f-programme-slot'),note=el('p','f-inline-status');
+  const entry={row,slot,note,record:null,editor:null};title.id='f-pg-'+id;note.setAttribute('role','status');
+  const edit=entry.edit=button('pgEdit',()=>openProgrammeEdit(entry),'f-button secondary f-small');edit.id=title.id+'-edit';describe(edit,title.id);
+  // The party's announcement sits directly under its row.
+  main.append(title,meta);view.append(when,main,edit);row.append(view,slot,note,...(id==='closing-party'?[partyNotice.host]:[]));
+  entry.update=()=>{const a=entry.record,kind=blockKind(a);row.className='f-programme-row is-'+kind;when.replaceChildren(...timeParts(a.time));title.textContent=a.title;meta.replaceChildren(tr('span',BLOCK_KINDS[kind],'f-programme-kind'),...(isEdited(a)?[tr('span','pgEdited','f-pill is-edited')]:[]));};
+  programmeRows.set(id,entry);return entry;
+ }
+ // Opening another block with unsaved changes asks first; draft carries what a conflict's reload keeps (see programmeEditor).
+ function openProgrammeEdit(entry,focus=true,draft=null){
+  const open=[...programmeRows.values()].find(other=>other.editor&&other!==entry);
+  if(open){if(open.editor.dirty()&&!window.confirm(t('pgDiscard')))return;closeProgrammeEdit(open,false);}
+  closeProgrammeEdit(entry,false);entry.editor=programmeEditor(entry,draft);entry.slot.replaceChildren(entry.editor.form);entry.edit.hidden=true;status(entry.note,'');
+  if(focus)entry.editor.form.querySelector('input')?.focus();
+ }
+ function closeProgrammeEdit(entry,focus=true){if(!entry.editor)return;entry.slot.replaceChildren();entry.editor=null;entry.edit.hidden=false;if(focus)entry.edit.focus();}
+ // The block's form: title, date (within the festival), start and end, venue, description, schedule lines and, for workshops and routes, the form link.
+ // A block that takes check-in (a conference block, the laboratory) has both times or neither; the party, workshops and routes may have a start only.
+ // draft: after a conflict, the fields changed here (kept) to put over the latest version, and the version they started from (base).
+ function programmeEditor(entry,draft=null){
+  const start=entry.record,checkin=takesCheckin(start),external=start.registration==='external',prefix='f-pg-'+start.id,event=festival.event;
+  const form=el('form','f-form f-programme-form'),buttons=el('div','f-programme-buttons'),conflict=el('div','f-conflict');let busy=false;
+  const editor={form,version:start.version};
+  const input=(key,name,options)=>{const f=field(key,options);f.input.name=name;f.input.id=prefix+'-'+name;return f;};
+  const title=input('pgTitle','title',{value:start.title,required:true,max:200}),date=input('pgDate','date',{value:start.date,type:'date',required:true});date.input.min=event.startsOn;date.input.max=event.endsOn;
+  const [startAt,endAt]=splitTime(start.time),from=input('pgStart','start',{value:startAt,type:'time'}),to=input(checkin?'pgEnd':'pgEndOptional','end',{value:endAt,type:'time'});
+  const times=el('div','f-programme-times'),timeHint=tr('p',checkin?'pgTimeHintCheckin':'pgTimeHintFree','f-muted f-programme-hint');timeHint.id=prefix+'-time-hint';times.append(from.wrap,to.wrap);
+  const venue=input('pgVenue','venue',{value:start.venue,max:200}),description=input('pgDescription','description',{value:start.description||'',type:'textarea',max:DESCRIPTION_MAX}),counter=el('span','f-counter');
+  counter.id=prefix+'-counter';const count=()=>{counter.textContent=nf(description.input.value.length)+' / '+nf(DESCRIPTION_MAX);};description.input.addEventListener('input',count);
+  const link=external?input('pgFormUrl','formUrl',{value:start.formUrl||'',type:'url',required:true,max:2000}):null;
+  // Schedule lines: a free-text time and a title each, numbered by place; the first cannot move up, the last cannot move down, twelve at most.
+  const schedule=el('fieldset','f-programme-schedule'),lineList=el('ol','f-programme-lines'),lines=[];let lineCount=0;
+  const addLine=button('pgAddLine',()=>{const line=newLine('','');lines.push(line);layoutLines();line.when.input.focus();},'f-button secondary f-small');
+  function newLine(time,name){
+   const item=el('li','f-programme-line'),label=el('p','f-programme-line-label'),tools=el('div','f-programme-line-tools'),when=field('pgSessionTime',{value:time,max:40}),what=field('pgSessionTitle',{value:name,max:200,required:true}),line={item,label,when,what};
+   label.id=prefix+'-line'+(++lineCount);when.input.name='sessionTime';what.input.name='sessionTitle';when.input.id=label.id+'-time';what.input.id=label.id+'-title';item.setAttribute('role','group');item.setAttribute('aria-labelledby',label.id);
+   line.up=button('pgMoveUp',()=>moveLine(line,-1),'f-line-button');line.down=button('pgMoveDown',()=>moveLine(line,1),'f-line-button');line.remove=button('pgRemoveLine',()=>dropLine(line),'f-line-button');
+   for(const b of [line.up,line.down,line.remove])describe(b,label.id);tools.append(line.up,line.down,line.remove);item.append(label,when.wrap,what.wrap,tools);return line;
   }
-  backfillRun=null;backfillResult=end==='off'?null:{end,tally:run.tally};renderBackfill();
-  // The counts behind the buttons, and the overview, from the server.
-  refreshSummary({background:true});await loadBackfill();
+  function layoutLines(){lines.forEach((line,i)=>{line.label.replaceChildren(tr('span','pgLine'),document.createTextNode(' '+(i+1)));line.up.disabled=i===0;line.down.disabled=i===lines.length-1;});lineList.replaceChildren(...lines.map(line=>line.item));addLine.disabled=lines.length>=SCHEDULE_MAX;}
+  // Moving re-attaches the lines, which drops focus; it returns to the moved line's button, or to its other one once the line reaches an end.
+  function moveLine(line,step){const i=lines.indexOf(line),j=i+step;if(j<0||j>=lines.length)return;[lines[i],lines[j]]=[lines[j],lines[i]];layoutLines();const same=step<0?line.up:line.down;(same.disabled?(step<0?line.down:line.up):same).focus();}
+  function dropLine(line){const i=lines.indexOf(line);lines.splice(i,1);layoutLines();const next=lines[i]||lines[i-1];(next?next.what.input:addLine).focus();}
+  const setLines=list=>{lines.length=0;for(const [time,name] of list)lines.push(newLine(time,name));layoutLines();};setLines(start.sessions);
+  // raw: the fields as typed; values: what a save sends, the two times joined as the server writes them.
+  const raw=()=>({title:title.input.value,date:date.input.value,start:from.input.value,end:to.input.value,venue:venue.input.value,description:description.input.value,sessions:lines.map(line=>[line.when.input.value,line.what.input.value]),...(link?{formUrl:link.input.value}:{})});
+  const timeOf=(a,b)=>a&&b?`${a}–${b}`:a||(b?'–'+b:'');
+  const values=()=>{const typed=raw();return {title:typed.title,date:typed.date,time:timeOf(typed.start,typed.end),venue:typed.venue,description:typed.description,sessions:typed.sessions,...(link?{formUrl:typed.formUrl}:{})};};
+  // Warnings before Save: certificate hours follow a check-in block's times, and a block whose Lima day has started moves its check-in at once.
+  const warnings=el('div','f-programme-warnings'),hours=el('p','f-programme-warning'),dayStarted=tr('p','pgWindowWarning','f-programme-warning');warnings.setAttribute('aria-live','polite');warnings.append(hours,dayStarted);
+  const warn=()=>{const moved=checkin&&(date.input.value!==start.date||timeOf(from.input.value,to.input.value)!==start.time),people=Number.isSafeInteger(start.checkedIn)?start.checkedIn:0;hours.hidden=!(moved&&people>0);hours.textContent=hours.hidden?'':plural('pgHoursWarning',people);dayStarted.hidden=!(moved&&limaDate()>=start.date);};
+  const syncTimes=()=>{to.setRequired(checkin&&Boolean(from.input.value));from.setRequired(Boolean(to.input.value));warn();};
+  for(const control of [date.input,from.input,to.input])for(const type of ['input','change'])control.addEventListener(type,syncTimes);
+  const opened=raw(),initial=JSON.stringify(values()),latest={};
+  // Reopened after a conflict: the latest version with the fields changed here put back, so it still counts as unsaved. Where the other organiser
+  // changed the same field, their saved value is shown under it to compare.
+  if(draft){
+   const set={title:v=>{title.input.value=v;},date:v=>{date.input.value=v;},start:v=>{from.input.value=v;},end:v=>{to.input.value=v;},venue:v=>{venue.input.value=v;},description:v=>{description.input.value=v;},sessions:setLines,formUrl:v=>{if(link)link.input.value=v;}};
+   for(const [name,value] of Object.entries(draft.kept))set[name]?.(value);
+   for(const name of new Set(Object.keys(draft.kept).map(name=>['start','end'].includes(name)?'time':name))){
+    const value=start[name];if(JSON.stringify(value??'')===JSON.stringify(draft.base[name]??''))continue;
+    const note=el('p','f-question-latest'),shown=name==='date'?[dateNode(value,'span','short')]:name==='time'?timeParts(value):name==='sessions'?[source('span',value.map(([time,what])=>time?time+' '+what:what).join(' · '))]:[source('span',value)];
+    note.id=prefix+'-latest-'+name;note.append(tr('span','questionLatest','f-question-latest-label'),document.createTextNode(' '),...(value?.length?shown:[tr('span','pgEmptyValue')]));latest[name]=note;
+   }
+  }
+  const describeBy=(control,...ids)=>{const list=ids.filter(Boolean);if(list.length)control.setAttribute('aria-describedby',list.join(' '));};
+  describeBy(title.input,latest.title?.id);describeBy(date.input,latest.date?.id);for(const f of [from,to])describeBy(f.input,timeHint.id,latest.time?.id);describeBy(venue.input,latest.venue?.id);describeBy(description.input,counter.id,latest.description?.id);if(link)describeBy(link.input,latest.formUrl?.id);
+  const after=name=>latest[name]?[latest[name]]:[];
+  schedule.append(tr('legend','pgSessions'),tr('p','pgSessionsHint','f-muted f-programme-hint'),lineList,...after('sessions'),addLine);
+  const save=button('pgSave',null,'f-button');save.type='submit';buttons.append(save,button('pgCancel',()=>closeProgrammeEdit(entry),'f-button secondary f-small'));
+  // The two times are one field: a start or an end changed here keeps both, so the form never pairs this end with the other organiser's start.
+  const reload=async()=>{const typed=raw(),kept=Object.fromEntries(Object.entries(typed).filter(([name,value])=>JSON.stringify(value)!==JSON.stringify(opened[name])));if('start' in kept||'end' in kept)Object.assign(kept,{start:typed.start,end:typed.end});await reloadBlock(start.id);status(entry.note,'');openProgrammeEdit(entry,true,{kept,base:start});};
+  // Restoring deletes the edit, after a confirmation; the row then shows the built-in values.
+  if(isEdited(start)){
+   const restore=button('pgRestore',async()=>{
+    if(busy||!window.confirm(t('pgRestoreConfirm')))return;const unlock=lockForm(form,()=>entry.edit);busy=true;
+    try{await action(restore,async()=>{let result;try{result=await api('/api/admin/fiiu/programme/'+encodeURIComponent(start.id)+'?version='+editor.version,{},'DELETE');}catch(err){throw refusal(err);}if(!validBlock(result?.activity)||result.activity.id!==start.id)throw Object.assign(Error(t('error')),{key:'error'});closeProgrammeEdit(entry);applyBlock(result.activity);},{feedback:entry.note,conflict,reload,done:'pgRestored'});}
+    finally{busy=false;unlock();}
+   },'f-text-link f-programme-restore');
+   buttons.append(restore);
+  }
+  form.append(title.wrap,...after('title'),date.wrap,...after('date'),times,timeHint,...after('time'),venue.wrap,...after('venue'),description.wrap,counter,...after('description'),schedule,...(link?[link.wrap,...after('formUrl')]:[]),warnings,buttons,conflict);
+  localiseValidation(form);count();syncTimes();
+  // Saving sends every field with the version the form started from. A refusal keeps the form open with everything typed.
+  form.addEventListener('submit',async event=>{
+   event.preventDefault();if(busy)return;
+   const a=from.input.value,b=to.input.value;
+   for(const control of [title.input,...lines.map(line=>line.what.input)])control.setCustomValidity(control.value.trim()?'':t('requiredField'));
+   from.input.setCustomValidity(!a&&b?t('pgStartRequired'):'');to.input.setCustomValidity(a&&b&&b<=a?t('pgEndAfterStart'):checkin&&a&&!b?t('pgEndRequired'):'');
+   if(!form.reportValidity())return;
+   const payload={...values(),version:editor.version},unlock=lockForm(form,()=>entry.editor?.form.querySelector('input')||entry.edit);busy=true;
+   try{await action(save,async()=>{let result;try{result=await api('/api/admin/fiiu/programme/'+encodeURIComponent(start.id),payload,'PUT');}catch(err){throw refusal(err);}if(!validBlock(result?.activity)||result.activity.id!==start.id)throw Object.assign(Error(t('error')),{key:'error'});closeProgrammeEdit(entry);applyBlock(result.activity);},{feedback:entry.note,conflict,reload});}
+   finally{busy=false;unlock();}
+  });
+  return Object.assign(editor,{dirty:()=>JSON.stringify(values())!==initial,recount:()=>{count();warn();}});
  }
+ // "Reload the latest version" re-reads the programme and takes only this block from it, so other rows keep what they show.
+ async function reloadBlock(id){const latest=(await readProgramme()).find(a=>a.id===id);if(!latest)throw Object.assign(Error(t('pgNotFound')),{key:'pgNotFound'});if(locked)return;applyBlock(latest);}
+ function programmePanel(){const heading=tr('h2','programmeSection');heading.id='f-h-programme';programmeHost.id='programme';programmeAlert.setAttribute('role','status');programmeHost.replaceChildren(heading,tr('p','pgHint','f-muted f-section-hint'),programmeAlert,programmeList);renderProgramme();return programmeHost;}
  // Content: one editor beside the list. Editing a publication sets an unsaved new-publication draft aside; Cancel, or saving that edit, brings it back.
  const currentEditor=()=>editors.get(editorHost.querySelector('form'));
  function showEditor(form,focus){editorHost.replaceChildren(form);if(focus)form.querySelector('input')?.focus();}
@@ -597,12 +838,14 @@
  // Conversations: a question on a block (optionally tied to one of its talks) opens a live chat on fiiu-talk.html for registered participants;
  // organisers moderate there. The new-question form sits beside the questions, which are grouped by block in programme order.
  const QUESTION_STATUSES=[['open','questionOpen'],['closed','questionClosed'],['hidden','questionHidden']],QUESTION_MAX=500;
- const validQuestion=q=>Boolean(q)&&typeof q.id==='string'&&typeof q.activityId==='string'&&Number.isSafeInteger(q.version)&&QUESTION_STATUSES.some(([value])=>value===q.status);
+ // A rating question carries its ten totals (index 0 for a score of 1); anything else there reads as a failed read, never as numbers.
+ const validTotals=counts=>Array.isArray(counts)&&counts.length===10&&counts.every(n=>Number.isSafeInteger(n)&&n>=0),isRating=q=>q?.kind==='rating';
+ const validQuestion=q=>Boolean(q)&&typeof q.id==='string'&&typeof q.activityId==='string'&&Number.isSafeInteger(q.version)&&QUESTION_STATUSES.some(([value])=>value===q.status)&&[undefined,'chat','rating'].includes(q.kind)&&(q.ratingCounts==null||validTotals(q.ratingCounts));
  const countText=(base,n)=>n===1?t(base+'One'):fill(base,{n:nf(n)});
  function questionDraft(){return Boolean(newQuestion?.dirty())||[...questionRows.values()].some(entry=>entry.editor?.dirty());}
  async function readQuestions(){const data=await api('/api/admin/fiiu/questions');if(!Array.isArray(data.questions)||!data.questions.every(validQuestion))throw Object.assign(Error(t('error')),{key:'error'});return data.questions;}
  // A read that started before one of this page's saves can land after it: the newer local version wins, and a question created meanwhile stays.
- function mergeQuestions(list){const known=new Map((questions||[]).map(q=>[q.id,q])),merged=list.map(q=>{const old=known.get(q.id);known.delete(q.id);return old&&old.version>q.version?{...old,stats:q.stats??old.stats}:q;});return [...merged,...known.values()];}
+ function mergeQuestions(list){const known=new Map((questions||[]).map(q=>[q.id,q])),merged=list.map(q=>{const old=known.get(q.id);known.delete(q.id);return old&&old.version>q.version?{...old,stats:q.stats??old.stats,ratingCounts:q.ratingCounts??old.ratingCounts}:q;});return [...merged,...known.values()];}
  // A save answers with the question without its totals; the row keeps the ones it had until the next read.
  function upsertQuestion(q){const old=questions?.find(x=>x.id===q.id),next={...old,...q,stats:q.stats??old?.stats??{messages:q.messageCount??0,people:0,likes:0}};questions=old?questions.map(x=>x===old?next:x):[...(questions||[]),next];renderQuestions();}
  // Retry and "Reload the latest version" report a failure where the organiser pressed.
@@ -621,7 +864,7 @@
   if(!questionsFailed)questionAlert.replaceChildren();
   else if(!questionAlert.children.length){const retry=button('retry',()=>fetchInto(retry,async()=>{await reloadQuestions();if(!document.activeElement||document.activeElement===document.body){const heading=conversationsHost.querySelector('h2');if(heading){heading.tabIndex=-1;heading.focus();}}}),'f-button secondary f-small');questionAlert.replaceChildren(tr('span','questionsLoadError'),retry);}
   if(!questions||!questions.length){questionList.replaceChildren(...(questions?[tr('p','noQuestions','f-muted f-empty')]:questionsFailed?[]:[tr('p','loading','f-muted')]));questionLayout='';return;}
-  const order=new Map(chronological(festival.event.activities).map((a,i)=>[a.id,i])),rank=q=>order.get(q.activityId)??order.size;
+  const order=new Map(chronological(festival.event.activities).map((a,i)=>[a.id,i])),rank=q=>q.activityId==='general'?-1:order.get(q.activityId)??order.size;
   const sorted=[...questions].sort((a,b)=>rank(a)-rank(b)||a.activityId.localeCompare(b.activityId)||String(a.createdAt).localeCompare(String(b.createdAt)));
   for(const q of sorted){const entry=questionRows.get(q.id)||questionEntry(q.id);entry.record=q;entry.update();}
   // The same questions in the same places are only updated, so a timed refresh never moves focus or an open edit.
@@ -630,7 +873,7 @@
   for(const q of sorted){if(groups.at(-1)?.activityId!==q.activityId)groups.push({activityId:q.activityId,rows:[]});groups.at(-1).rows.push(questionRows.get(q.id).row);}
   questionList.replaceChildren(...groups.map(({activityId,rows})=>{
    const group=el('div','f-question-group'),heading=el('h3','f-question-block'),list=el('ul','f-questions'),activity=findActivity(festival.event,activityId);heading.id='f-qb-'+activityId;
-   if(activity)heading.append(dateNode(activity.date,'span','short','f-question-day'),source('span',activity.title));else heading.append(el('span','',activityId));
+   if(activityId==='general')heading.append(tr('span','questionGeneral'));else if(activity)heading.append(dateNode(activity.date,'span','short','f-question-day'),source('span',activity.title));else heading.append(el('span','',activityId));
    list.setAttribute('aria-labelledby',heading.id);list.append(...rows);group.append(heading,list);return group;
   }));
   if(refocus)document.getElementById(refocus)?.focus({preventScroll:true});
@@ -645,14 +888,37 @@
   // The chat and the projector open in new tabs, so moderating never leaves a draft behind here; the CSV is fetched like the registrations
   // export, so an ended session, a rate limit or an outage is reported here instead of a cancelled download.
   const csv=button('downloadCsv',()=>fetchInto(csv,()=>downloadExport('/api/admin/fiiu/questions/'+path+'/export','fiiu-conversation.csv')),'f-text-link');
-  edit.id=text.id+'-edit';for(const a of [chat,present]){a.target='_blank';a.rel='noopener';}for(const node of [edit,chat,present,csv])describe(node,text.id);
-  links.append(edit,chat,present,csv);controls.append(label,group,links);view.append(text,meta);row.append(view,controls,note,conflict);
+  // A rating question also shows its totals, and offers them as a CSV built here from the totals on the page.
+  const totals=el('div','f-rating'),counts=button('ratingCsv',()=>downloadRating(entry.record),'f-text-link');
+  edit.id=text.id+'-edit';for(const a of [chat,present]){a.target='_blank';a.rel='noopener';}for(const node of [edit,chat,present,csv,counts])describe(node,text.id);
+  links.append(edit,chat,present,csv,counts);controls.append(label,group,links);view.append(text,meta,totals);row.append(view,controls,note,conflict);
   entry.update=()=>{
    const q=entry.record,stats=q.stats||{},count=(base,n)=>el('span','f-question-count',countText(base,Number.isSafeInteger(n)&&n>=0?n:0));row.className='f-question is-'+q.status;text.textContent=q.body;
-   meta.replaceChildren(...(q.talk?[source('span',q.talk,'f-question-talk')]:[]),count('questionMessages',stats.messages??q.messageCount),count('questionPeople',stats.people),count('questionLikes',stats.likes));
+   meta.replaceChildren(...(q.talk?[source('span',q.talk,'f-question-talk')]:[]),count('questionMessages',stats.messages??q.messageCount),count('questionPeople',stats.people),count('questionLikes',stats.likes),...(isRating(q)?[tr('span','questionKindRating','f-chip f-question-kind')]:[]));
+   totals.hidden=counts.hidden=!isRating(q);if(isRating(q))ratingTotals(totals,q.ratingCounts);else totals.replaceChildren();
    for(const [value,choice] of entry.buttons)choice.setAttribute('aria-pressed',String(value===q.status));
   };
   questionRows.set(id,entry);return entry;
+ }
+ // A rating's totals: the average to one decimal and how many rated, over a strip of ten counts. The drawn counts, bars and scores are hidden from
+ // assistive technology, which hears one sentence per score instead ("4 people chose 10"). Before any answer it says so instead.
+ function ratingTotals(box,counts){
+  const list=validTotals(counts)?counts:Array(10).fill(0),people=list.reduce((sum,n)=>sum+n,0);
+  if(!people){box.replaceChildren(tr('p','ratingNone','f-muted f-rating-none'));return;}
+  const average=list.reduce((sum,n,i)=>sum+n*(i+1),0)/people,top=Math.max(...list),line=el('p','f-rating-line'),bars=el('ol','f-rating-bars');
+  line.append(tr('span','ratingAverage'),document.createTextNode(' '),el('strong','f-rating-average',new Intl.NumberFormat(locale(),{minimumFractionDigits:1,maximumFractionDigits:1}).format(average)),document.createTextNode(' · '),el('span','',plural('ratingPeople',people)));
+  bars.setAttribute('aria-label',t('ratingBars'));
+  list.forEach((n,i)=>{
+   const item=el('li','f-rating-step'+(n?'':' is-zero')),shown=[el('span','f-rating-count',nf(n)),el('span','f-rating-bar'),el('span','f-rating-score',String(i+1))];
+   for(const node of shown)node.setAttribute('aria-hidden','true');shown[1].style?.setProperty?.('--share',String(n/top));
+   item.append(...shown,el('span','f-sr-only',fill(n===1?'ratingBarOne':'ratingBarMany',{n:nf(n),score:String(i+1)})));bars.append(item);
+  });
+  box.replaceChildren(line,bars);
+ }
+ // The counts CSV: score,count for 1 to 10, saved like the server's CSVs (a byte-order mark, so spreadsheets read it as UTF-8, and CRLF lines).
+ function downloadRating(q){
+  const list=validTotals(q.ratingCounts)?q.ratingCounts:Array(10).fill(0),rows=['score,count',...list.map((n,i)=>`${i+1},${n}`)];
+  try{saveFile(new Blob(['\uFEFF'+rows.join('\r\n')],{type:'text/csv;charset=utf-8'}),'fiiu-rating-'+q.id.slice(0,8)+'.csv');}catch{reportError(message,Object.assign(Error(t('error')),{key:'error'}));}
  }
  // The switch stays focusable while a change saves (a press meanwhile is ignored), so focus never drops to the page. Closing asks first;
  // a conflict offers the latest version, which re-reads the list.
@@ -685,11 +951,18 @@
    talk.replaceChildren(none,...names.map(name=>{const option=source('option',name);option.value=name;return option;}));talk.value=names.includes(value)?value:'';talkField.wrap.hidden=!names.length;
   };
   const count=()=>{const number=new Intl.NumberFormat(locale());counter.textContent=number.format(text.input.value.length)+' / '+number.format(QUESTION_MAX);};text.input.addEventListener('input',count);count();
+  // The type is chosen once, when the question is created: a conversation (the default) or a 1–10 rating. An edit shows it and cannot change it.
+  let kinds=[];const kindOf=()=>kinds.find(choice=>choice.checked)?.value||'chat';
   if(isNew){
-   const blockField=field('questionBlock',{required:true}),blank=tr('option','choose');block.name='activityId';block.id=prefix+'-block';block.required=true;blank.value='';block.append(blank);
+   // General, the whole festival's space, comes before the blocks; it has no talks.
+   const blockField=field('questionBlock',{required:true}),blank=tr('option','choose'),general=tr('option','questionGeneral');block.name='activityId';block.id=prefix+'-block';block.required=true;blank.value='';general.value='general';block.append(blank,general);
    for(const a of chronological(festival.event.activities)){const option=source('option',`${a.date.slice(8)}/${a.date.slice(5,7)} · ${a.title}`);option.value=a.id;block.append(option);}
-   blockField.input.replaceWith(block);block.addEventListener('change',()=>fillTalks(block.value,talk.value));form.append(tr('h3','newQuestion'),blockField.wrap);
+   blockField.input.replaceWith(block);block.addEventListener('change',()=>fillTalks(block.value,talk.value));
+   const choice=el('fieldset','f-kind-choice'),kindHint=tr('p','questionKindHint','f-muted f-kind-hint');kindHint.id=prefix+'-kind-hint';choice.append(tr('legend','questionKind'));
+   kinds=[['chat','questionKindChat'],['rating','questionKindRating']].map(([value,key])=>{const wrap=el('label','f-check'),input=el('input');input.type='radio';input.name='kind';input.value=value;input.id=prefix+'-kind-'+value;input.checked=value==='chat';wrap.append(input,tr('span',key));choice.append(wrap);return input;});
+   kinds[1].setAttribute('aria-describedby',kindHint.id);choice.append(kindHint);form.append(tr('h3','newQuestion'),blockField.wrap,choice);
   }
+  else{const locked=el('p','f-muted f-kind-locked');locked.append(tr('span',isRating(start)?'questionKindRating':'questionKindChat','f-question-kind'),document.createTextNode(' · '),tr('span','questionKindLocked'));form.append(locked);}
   fillTalks(start?.activityId||'',start?.talk||'',isNew?[]:[start.talk]);
   const values=()=>({body:text.input.value.trim(),talk:talk.value||null}),initial=JSON.stringify(values());
   // Reopened on the latest version after a conflict, the edit keeps what was typed (so it still counts as unsaved). When the other change touched
@@ -704,7 +977,7 @@
   }
   const send=async(state,control)=>{
    if(busy)return;text.input.setCustomValidity(values().body?'':t('requiredField'));if(!form.reportValidity())return;
-   const payload=isNew?{id:draftId??=uuid(),activityId:block.value,...values(),status:state}:{version:editor.version,...values()},unlock=lockForm(form,()=>isNew?text.input:entry.edit);busy=true;
+   const payload=isNew?{id:draftId??=uuid(),activityId:block.value,kind:kindOf(),...values(),status:state}:{version:editor.version,...values()},unlock=lockForm(form,()=>isNew?text.input:entry.edit);busy=true;
    // After a conflict on a new question (its id was saved, with other text, by a send whose answer was lost) the list shows the saved one and the
    // draft stays, with a new id for a deliberate second question; an edit reopens on the latest version with its typed text and talk kept.
    const reload=isNew?async()=>{await reloadQuestions();draftId=null;conflict.replaceChildren();text.input.focus();}:async()=>{const kept={body:text.input.value,talk:talk.value,base:start};await reloadQuestions();openQuestionEdit(entry,true,kept);};
@@ -739,8 +1012,10 @@
   const failed=key=>Object.assign(Error(t(key)),{key});let blob,name;
   try{const response=await fetch(url,{signal:globalThis.AbortSignal?.timeout?.(60000)});if(!response.ok)throw Object.assign(failed(({401:'unauthorized',403:'forbidden',429:'rate'})[response.status]||'error'),{status:response.status});name=/filename="([^"]+)"/.exec(response.headers.get('Content-Disposition')||'')?.[1];blob=await response.blob();}
   catch(err){throw err?.key?err:failed('error');}
-  const href=URL.createObjectURL(blob),a=el('a');a.href=href;a.download=name||fallback;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),60000);
+  saveFile(blob,name||fallback);
  }
+ // Hands the browser a file to save: a temporary link to the file, clicked and removed; the file's address is released a minute later.
+ function saveFile(blob,name){const href=URL.createObjectURL(blob),a=el('a');a.href=href;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),60000);}
  function adminNav(){
   const nav=el('nav','f-admin-nav'),label=tr('span','sectionNav','f-sr-only'),list=el('ul');label.id='f-admin-nav-label';nav.setAttribute('aria-labelledby',label.id);
   for(const [id,key] of SECTIONS){const item=el('li'),a=link(key,'#'+id,'');if(id==='overview')a.setAttribute('aria-current','true');navLinks.set(id,a);item.append(a);list.append(item);}
@@ -754,12 +1029,12 @@
    const current=SECTIONS.map(([id])=>id).find(id=>visible.has(id));if(!current)return;
    for(const [id,a] of navLinks){if(id!==current){a.removeAttribute('aria-current');continue;}if(a.getAttribute('aria-current')==='true')continue;a.setAttribute('aria-current','true');const row=a.parentElement?.parentElement;if(row&&!row.contains(document.activeElement))revealInRow(row,a);}
   },{rootMargin:'-35% 0px -64% 0px'});
-  for(const section of [summaryHost,checkinHost,participantsHost,settingsHost,contentHost,conversationsHost])observer.observe(section);
+  for(const section of [summaryHost,checkinHost,participantsHost,settingsHost,programmeHost,contentHost,conversationsHost])observer.observe(section);
  }
  // A section link (#participants, kept through a reload or a return from sign-in) is reached once the sections above it have filled in: the totals,
  // the questions, the summary emails and the other participant pages push it down by thousands of pixels. One instant jump (html scrolls smoothly,
  // which would aim at the old place); someone who already scrolled, tapped or typed is left where they are, and later refreshes never scroll.
- const sectionHosts=()=>({overview:summaryHost,checkin:checkinHost,participants:participantsHost,settings:settingsHost,content:contentHost,conversations:conversationsHost});
+ const sectionHosts=()=>({overview:summaryHost,checkin:checkinHost,participants:participantsHost,settings:settingsHost,programme:programmeHost,content:contentHost,conversations:conversationsHost});
  const sectionId=location.hash.slice(1),wantsSection=SECTIONS.some(([id])=>id===sectionId);let movedOn=false;
  if(wantsSection){
   // The browser's own restoration would put a reload back where it was in a far shorter page; the section is the place to be.
@@ -768,10 +1043,10 @@
  }
  function reachSection(filled){if(wantsSection)Promise.allSettled(filled).then(()=>{if(!movedOn&&!locked)sectionHosts()[sectionId]?.scrollIntoView({block:'start',behavior:'instant'});});}
  async function load(){
-  status(message,'loading');const summaryRequest=api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error})),questionsRequest=readQuestions().then(list=>({list}),error=>({error}));try{const [settingsData,posts,participantData]=await Promise.all([api('/api/admin/fiiu/config'),api('/api/admin/fiiu/content'),api('/api/admin/fiiu/registrations')]);festival={event:settingsData.event};config=settingsData.config;publications=posts.content;contentCursor=posts.nextCursor;setRecords(participantData.registrations);cursor=participantData.nextCursor;
+  status(message,'loading');const summaryRequest=api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error})),questionsRequest=readQuestions().then(list=>({list}),error=>({error})),programmeRequest=readProgramme().then(list=>({list}),error=>({error}));try{const [settingsData,posts,participantData]=await Promise.all([api('/api/admin/fiiu/config'),api('/api/admin/fiiu/content'),api('/api/admin/fiiu/registrations')]);festival={event:settingsData.event};config=settingsData.config;publications=posts.content;contentCursor=posts.nextCursor;setRecords(participantData.registrations);cursor=participantData.nextCursor;
    const grid=el('div','f-admin-columns');grid.append(listHost,detailHost);detailHost.replaceChildren(tr('p','selectParticipant','f-muted f-detail-empty'));const heading=tr('h2','participants');heading.id='f-h-participants';participantsHost.id='participants';participantsHost.replaceChildren(heading,filters(),grid);
-   root.replaceChildren(adminHead(),sessionNotice,adminNav(),summaryPanel(),checkinPanel(),participantsHost,settings(),contentPanel(),conversationsPanel(),newTabNote());renderRegistrationPill();
-   const filled=[readParticipants()];renderList();status(message,'');filled.push(refreshSummary({pending:summaryRequest}),refreshQuestions({pending:questionsRequest}));renderBackfill();filled.push(loadBackfill());setTitle();observeSections();
+   root.replaceChildren(adminHead(),sessionNotice,adminNav(),summaryPanel(),checkinPanel(),participantsHost,settings(),programmePanel(),contentPanel(),conversationsPanel(),newTabNote());renderRegistrationPill();
+   const filled=[readParticipants()];renderList();status(message,'');filled.push(refreshSummary({pending:summaryRequest}),refreshQuestions({pending:questionsRequest}),refreshProgramme({pending:programmeRequest}));for(const pass of emailPasses){pass.render();filled.push(pass.load());}setTitle();observeSections();
    reachSection(filled);
   }catch(error){
    // Signed out before the dashboard loaded: sign in and come straight back. Signed in without organiser access: the organisers-only state, with no Retry.
@@ -784,13 +1059,12 @@
  window.nodalI18n?.onChange(()=>{
   // fiiu-ui retranslates #fiiuStatus and the row notes through textContent, which drops the expired session's sign-in link.
   for(const node of [message,...root.querySelectorAll('.f-inline-status')])if(['unauthorized','attendanceSignIn'].includes(node.dataset.fiiuText)&&!node.querySelector('a'))node.append(document.createTextNode(' '),signInLink());
-  if(locked)return;rowCache=new WeakMap();setTitle();stampUpdated();recount?.();renderBackfill();newQuestion?.recount();for(const entry of questionRows.values())entry.editor?.recount();renderQuestions();if(lastSummary)renderSummary(lastSummary);else renderCheckin();});
+  if(locked)return;rowCache=new WeakMap();setTitle();stampUpdated();recount?.();for(const pass of emailPasses)pass.render();newQuestion?.recount();for(const entry of questionRows.values())entry.editor?.recount();for(const entry of programmeRows.values())entry.editor?.recount();renderQuestions();if(lastSummary)renderSummary(lastSummary);else renderCheckin();});
  timer=setInterval(()=>{
   if(!festival||locked||sessionLost||document.visibilityState!=='visible')return;
-  // A pass that ended at the cap leaves yesterday's tally and cap message behind; the fresh state replaces them.
-  const lifted=capLifted();if(lifted&&backfillResult?.end==='cap')backfillResult=null;
+  // An email block whose cap has reset reads its state again (a pass that ended at the cap leaves no stale message behind).
   // The question totals follow the summary totals, so a lost session the summary finds pauses them too.
-  return Promise.all([...(lifted?[loadBackfill()]:[]),...(autoRefresh.input.checked?[refreshSummary({background:true}).then(()=>refreshQuestions({background:true}))]:[])]);
+  return Promise.all([...emailPasses.map(pass=>pass.tick()).filter(Boolean),...(autoRefresh.input.checked?[refreshSummary({background:true}).then(()=>refreshQuestions({background:true}))]:[])]);
  },60000);
  load();
 })();
