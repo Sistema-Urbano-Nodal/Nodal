@@ -134,6 +134,9 @@ const oneLine=(value,max,code,required)=>{
  if(value!==undefined&&value!==null&&typeof value!=='string')codeFail(code);
  const v=visible(value??'').trim();if(/[\r\n\u2028\u2029]/.test(v)||[...v].length>max||(required&&!v))codeFail(code);return v;
 };
+// A session title is what a conversation question names as its talk, so it keeps to the talk's limit (TALK_LIMITS.talk in
+// server/fiiu-talk-domain.js, which imports this module, and the fiiu_questions.talk CHECK): a longer one could never be asked about.
+const SESSION_TITLE_MAX=180;
 const realDate=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&!Number.isNaN(Date.parse(`${value}T12:00:00Z`))&&new Date(`${value}T12:00:00Z`).toISOString().slice(0,10)===value;
 export function normalizeProgrammeEdit(activity,input={},event=FIIU_EVENT){
  const title=oneLine(input.title,200,'invalid_title',true),venue=oneLine(input.venue,200,'invalid_venue',false);
@@ -142,7 +145,7 @@ export function normalizeProgrammeEdit(activity,input={},event=FIIU_EVENT){
  if(input.description!==undefined&&input.description!==null&&typeof input.description!=='string')codeFail('invalid_description');
  const description=visible(input.description??'').replace(/\r\n?/g,'\n').trim();if([...description].length>1500)codeFail('invalid_description');
  const lines=input.sessions??[];if(!Array.isArray(lines)||lines.length>12)codeFail('invalid_sessions');
- const sessions=lines.map(line=>{if(!Array.isArray(line)||line.length!==2)codeFail('invalid_sessions');return [oneLine(line[0],40,'invalid_sessions',false),oneLine(line[1],200,'invalid_sessions',true)];});
+ const sessions=lines.map(line=>{if(!Array.isArray(line)||line.length!==2)codeFail('invalid_sessions');return [oneLine(line[0],40,'invalid_sessions',false),oneLine(line[1],SESSION_TITLE_MAX,'invalid_sessions',true)];});
  const edit={title,date,time,venue,description,sessions};
  // Workshops and routes keep their facilitators' Google Form; other blocks have none.
  if(activity.registration==='external'){try{edit.formUrl=httpsUrl(input.formUrl);}catch{codeFail('invalid_form_url');}}
