@@ -7,18 +7,27 @@ import {createFiiuHarness,key,field,flush,content,descendants,Node} from './help
 
 const participant=(id,firstName)=>({id,eventId:'fiiu-2026',userId:'user-'+id,email:firstName.toLowerCase()+'@example.test',version:1,labStatus:'pending',createdAt:'2026-09-29T12:00:00.000Z',updatedAt:'2026-09-29T12:00:00.000Z',answers:{firstName,lastName:'Test',country:'Perú',city:'Lima',profile:'public_official',publicOfficial:true,applyLab:true,institution:'City Council',position:'Planner',activities:['day1-am'],privacyAccepted:true}});
 const copy=value=>structuredClone(value);
+// The closing party, as the server sends it in the programme (a register-only "social" block): until the server's programme has it, the dashboard is fed
+// the programme with it in place, after the conference blocks and before the workshops, as lane A adds it.
+const PARTY={id:'closing-party',date:'2026-10-25',period:'party',registration:'social',title:'¡Fiesta de cierre y Chelas Urbanas!',time:'17:00',venue:'La Vermut Bar, Av. Francisco Bolognesi 235, Barranco 15063',sessions:[['17:00–19:00','Chelas Urbanas'],['19:00 en adelante','Fiesta de cierre']],description:'',edited:false};
+const firstExternal=FIIU_EVENT.activities.findIndex(activity=>activity.registration==='external');
+const EVENT=FIIU_EVENT.activities.some(activity=>activity.id===PARTY.id)?FIIU_EVENT:{...FIIU_EVENT,activities:[...FIIU_EVENT.activities.slice(0,firstExternal),PARTY,...FIIU_EVENT.activities.slice(firstExternal)]};
+// GET /api/admin/fiiu/programme: each block with its version (0 while unedited), its built-in values and its check-in count.
+const programmeItem=(activity,over={})=>({...activity,description:activity.description??'',edited:false,version:0,original:{title:activity.title,date:activity.date,time:activity.time,venue:activity.venue,description:activity.description??'',sessions:activity.sessions,...(activity.registration==='external'?{formUrl:activity.formUrl}:{})},checkedIn:0,...over});
+const programmeItems=(over={})=>EVENT.activities.map(activity=>programmeItem(activity,over[activity.id]));
 const summary={totalRegistrations:237,publicOfficials:64,lab:{pending:18,accepted:12,declined:2},activities:[{activityId:'day1-am',registrations:121,externalInterests:0,attendance:0}],days:[{date:'2026-10-21',registrations:157,attendance:0}],profiles:[{profile:'student',count:48}]};
 // The summary-email block's state (GET /api/admin/fiiu/confirmations); by default nobody is waiting.
 const emailCounts=(over={})=>({none:0,pending:0,sent:0,failed:0,uncertain:0,skipped:0,...over});
 const emailState=(over={})=>({configured:true,counts:emailCounts(),dailyCap:150,sentToday:0,resetsAt:'2026-10-03T00:00:00.000Z',...over});
 // The conversation questions (GET /api/admin/fiiu/questions); by default there are none.
-async function harness(respond,{participants=[],nextCursor=null,summaryRead=()=>({summary:copy(summary)}),configRead=()=>({config:{...DEFAULT_CONFIG,version:0}}),confirmationsRead=()=>emailState(),questionsRead=()=>({questions:[]}),context={}}={}){
+async function harness(respond,{participants=[],nextCursor=null,summaryRead=()=>({summary:copy(summary)}),configRead=()=>({config:{...DEFAULT_CONFIG,version:0}}),confirmationsRead=()=>emailState(),questionsRead=()=>({questions:[]}),programmeRead=()=>({activities:programmeItems()}),context={}}={}){
  return createFiiuHarness(request=>{
   // The dashboard reads the programme and its first settings, version included, from its own per-account read, never the public /api/fiiu.
   if(request.path==='/api/fiiu')throw Error('the dashboard must not depend on the public, CDN-cached programme read');
-  if(request.path==='/api/admin/fiiu/config'&&request.method==='GET')return{event:FIIU_EVENT,...configRead(request)};
+  if(request.path==='/api/admin/fiiu/config'&&request.method==='GET')return{event:EVENT,...configRead(request)};
   if(request.path==='/api/admin/fiiu/confirmations'&&request.method==='GET')return confirmationsRead(request);
   if(request.path==='/api/admin/fiiu/questions'&&request.method==='GET')return questionsRead(request);
+  if(request.path==='/api/admin/fiiu/programme'&&request.method==='GET')return programmeRead(request);
   if(request.path==='/api/admin/fiiu/registrations')return{registrations:copy(participants),nextCursor};
   if(request.path==='/api/admin/fiiu/summary')return summaryRead(request);
   return respond(request);
@@ -37,16 +46,16 @@ function fakeTimers(h){
  h.ctx.setTimeout=(callback,delay)=>{queue.set(++last,{callback,delay});return last;};h.ctx.clearTimeout=id=>{queue.delete(id);};
  return{delays:()=>[...queue.values()].map(timer=>timer.delay),run(){const due=[...queue.values()];queue.clear();for(const timer of due)timer.callback();}};
 }
-const type=(input,value)=>{input.value=value;input.listeners.input();};
+const type=(input,value)=>{input.value=value;input.listeners.input?.();};
 
 test('editing historical publications preserves only their existing legacy activity and sends it when saving',async()=>{
- for(const legacy of FIIU_EVENT.legacyActivities){
+ for(const legacy of EVENT.legacyActivities){
   const post={id:'legacy-post',version:1,title:'Existing workshop material',body:'',url:'https://example.test/material',kind:'material',status:'published',activityId:legacy.id};
   const h=await harness(({method,body})=>method==='GET'?{content:[copy(post)],nextCursor:null}:{content:{...post,...body,version:post.version+1}});
   await key(h.root.querySelector('.f-news-item'),'editContent').listeners.click();
   const form=h.root.querySelector('.f-content-editor').querySelector('form'),select=field(form,'activityId');
   // The lightweight DOM permits values without matching options; check both.
-  assert.deepEqual(select.children.filter(option=>FIIU_EVENT.legacyActivities.some(activity=>activity.id===option.value)).map(option=>option.value),[legacy.id]);
+  assert.deepEqual(select.children.filter(option=>EVENT.legacyActivities.some(activity=>activity.id===option.value)).map(option=>option.value),[legacy.id]);
   assert.equal(select.value,legacy.id);
   field(form,'title').value='Corrected historical material';await submit(form);
   const writes=h.requests.filter(request=>request.method!=='GET');assert.equal(writes.length,1);
@@ -57,7 +66,7 @@ test('editing historical publications preserves only their existing legacy activ
 
 test('new publication activity choices exclude all historical activities',async()=>{
  const h=await harness(()=>({content:[],nextCursor:null})),select=field(h.root.querySelector('.f-content-editor'),'activityId');
- assert.equal(select.value,'');assert.deepEqual(select.children.map(option=>option.value),['',...FIIU_EVENT.activities.map(activity=>activity.id)]);
+ assert.equal(select.value,'');assert.deepEqual(select.children.map(option=>option.value),['',...EVENT.activities.map(activity=>activity.id)]);
 });
 
 test('a new publication sends one lowercase UUID across retries, so a retry after a lost response gets the saved row instead of a duplicate',async()=>{
@@ -156,7 +165,7 @@ test('finishing an older publication save preserves a newer selected editor and 
 test('organizer participant loading does not wait for a slow programme and settings response',async()=>{
  let finishProgramme;
  const h=await createFiiuHarness(({path})=>{
-  if(path==='/api/admin/fiiu/config')return new Promise(resolve=>{finishProgramme=()=>resolve({event:FIIU_EVENT,config:DEFAULT_CONFIG});});
+  if(path==='/api/admin/fiiu/config')return new Promise(resolve=>{finishProgramme=()=>resolve({event:EVENT,config:DEFAULT_CONFIG});});
   if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
   if(path==='/api/admin/fiiu/registrations')return{registrations:[],nextCursor:null};
   if(path==='/api/admin/fiiu/summary')return{summary:copy(summary)};
@@ -353,9 +362,9 @@ test('activity totals are split into conference and interest tables in programme
  const conferences=tables.find(table=>caption(table)==='conferencesAndLab'),interests=tables.find(table=>caption(table)==='externalActivities');
  assert.ok(conferences);assert.ok(interests);assert.ok(key(dashboard,'externalActivities'));
  const titles=table=>table.querySelectorAll('tbody').flatMap(body=>body.querySelectorAll('tr')).filter(row=>row.className!=='f-group').map(row=>content(row.children[0]).trim().split(/\s+/).slice(0,3).join(' '));
- const conferenceIds=['day1-am','day2-am'].map(id=>FIIU_EVENT.activities.find(a=>a.id===id).title.split(/\s+/).slice(0,3).join(' '));
+ const conferenceIds=['day1-am','day2-am'].map(id=>EVENT.activities.find(a=>a.id===id).title.split(/\s+/).slice(0,3).join(' '));
  assert.deepEqual(titles(conferences).filter(title=>conferenceIds.includes(title)),conferenceIds,'Wednesday before Thursday, whatever the server order');
- const interestTitles=['workshop-day1','route-amancaes'].map(id=>[...FIIU_EVENT.legacyActivities,...FIIU_EVENT.activities].find(a=>a.id===id).title.split(/\s+/).slice(0,3).join(' '));
+ const interestTitles=['workshop-day1','route-amancaes'].map(id=>[...EVENT.legacyActivities,...EVENT.activities].find(a=>a.id===id).title.split(/\s+/).slice(0,3).join(' '));
  assert.deepEqual(titles(interests),interestTitles,'a legacy workshop with interest joins the workshop table, before the Saturday route');
  assert.equal(conferences.querySelectorAll('tbody')[0].querySelector('.f-group').children[0].scope,'rowgroup');
  assert.match(content(conferences),/121/);assert.match(content(interests),/3/);
@@ -409,7 +418,7 @@ test('cancelling a publication edit restores a blank new-publication form',async
 test('a background page read that fails leaves Load more: filtered views say the list is partial, and a press reads the next page once',async()=>{
  const ana=participant('participant-a','Ana'),bruno={...participant('participant-b','Bruno'),labStatus:'accepted'};let fail=true;
  const h=await createFiiuHarness(({path})=>{
-  if(path==='/api/admin/fiiu/config')return{event:FIIU_EVENT,config:DEFAULT_CONFIG};
+  if(path==='/api/admin/fiiu/config')return{event:EVENT,config:DEFAULT_CONFIG};
   if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
   if(path==='/api/admin/fiiu/summary')return{summary:copy(summary)};
   if(path==='/api/admin/fiiu/registrations')return{registrations:[copy(ana)],nextCursor:'page-2'};
@@ -471,7 +480,7 @@ test('an empty filtered list offers a reset that shows everyone again',async()=>
 test('loading the last participant page with Load more moves focus to the first new row, not back to the search box',async()=>{
  const ana=participant('participant-a','Ana'),bruno=participant('participant-b','Bruno');let fail=true;
  const h=await createFiiuHarness(({path})=>{
-  if(path==='/api/admin/fiiu/config')return{event:FIIU_EVENT,config:DEFAULT_CONFIG};
+  if(path==='/api/admin/fiiu/config')return{event:EVENT,config:DEFAULT_CONFIG};
   if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
   if(path==='/api/admin/fiiu/summary')return{summary:copy(summary)};
   if(path==='/api/admin/fiiu/registrations')return{registrations:[copy(bruno)],nextCursor:'page-2'};
@@ -552,7 +561,7 @@ test('organiser forms show validation messages in the page language and drop the
 test('a laboratory review updates its row in place and keeps every page loaded in the background',async()=>{
  const people={a:participant('a','Ana'),b:participant('b','Bruno'),c:participant('c','Carla')};
  const h=await createFiiuHarness(({path,method,body})=>{
-  if(path==='/api/admin/fiiu/config')return{event:FIIU_EVENT,config:DEFAULT_CONFIG};
+  if(path==='/api/admin/fiiu/config')return{event:EVENT,config:DEFAULT_CONFIG};
   if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
   if(path==='/api/admin/fiiu/summary')return{summary:copy(summary)};
   if(path==='/api/admin/fiiu/registrations')return{registrations:[copy(people.a)],nextCursor:'a'};
@@ -880,7 +889,7 @@ test('participant detail shows sessions and certificate hours, and how and when 
 
 test('a 403 when the dashboard loads shows the organisers-only state with no Retry and no participant data',async()=>{
  const deny={status:403,data:{error:'administrator access required'}};
- const h=await createFiiuHarness(({path})=>path==='/api/admin/fiiu/config'?{event:FIIU_EVENT,config:DEFAULT_CONFIG}:path==='/api/admin/fiiu/registrations'?{registrations:[participant('a','Ana')],nextCursor:null}:deny,{page:'fiiu-admin'});
+ const h=await createFiiuHarness(({path})=>path==='/api/admin/fiiu/config'?{event:EVENT,config:DEFAULT_CONFIG}:path==='/api/admin/fiiu/registrations'?{registrations:[participant('a','Ana')],nextCursor:null}:deny,{page:'fiiu-admin'});
  assert.ok(key(h.root,'organisersOnly'));assert.ok(key(h.root,'organisersOnlyHint'));assert.equal(key(h.root,'retry'),undefined);
  assert.equal(key(h.root,'fiiuPage').href,'fiiu.html');assert.equal(key(h.root,'backToConsole').href,'dashboard.html');
  assert.equal(h.root.querySelectorAll('.f-participant').length,0);assert.doesNotMatch(content(h.root),/ana@example/);
@@ -888,7 +897,7 @@ test('a 403 when the dashboard loads shows the organisers-only state with no Ret
 });
 
 test('a 401 when the dashboard loads goes to sign-in and comes back to this page',async()=>{
- const h=await createFiiuHarness(({path})=>path==='/api/admin/fiiu/config'?{event:FIIU_EVENT,config:DEFAULT_CONFIG}:{status:401,data:{error:'sign in required'}},{page:'fiiu-admin'});
+ const h=await createFiiuHarness(({path})=>path==='/api/admin/fiiu/config'?{event:EVENT,config:DEFAULT_CONFIG}:{status:401,data:{error:'sign in required'}},{page:'fiiu-admin'});
  assert.deepEqual(h.assigned,['/login.html?next=%2Ffiiu-admin.html']);assert.equal(key(h.root,'retry'),undefined);
 });
 
@@ -1149,7 +1158,7 @@ const CONVERSATION_KEYS=['conversations','conversationsHint','newQuestion','ques
 test('the Conversations section follows News and materials, with its own heading, hint and nav entry, in three languages',async()=>{
  const h=await harness(()=>({content:[],nextCursor:null}));
  const section=conversations(h);assert.equal(section.id,'conversations');assert.ok(key(section,'conversations'));assert.ok(key(section,'conversationsHint'));assert.ok(key(section,'noQuestions'));
- assert.deepEqual(h.root.children.filter(node=>node.tagName==='section').map(node=>node.id),['overview','checkin','participants','settings','content','conversations']);
+ assert.deepEqual(h.root.children.filter(node=>node.tagName==='section').map(node=>node.id),['overview','checkin','participants','settings','programme','content','conversations']);
  const nav=h.root.querySelector('.f-admin-nav').querySelectorAll('a');assert.deepEqual(nav.map(a=>a.href).slice(-2),['#content','#conversations']);assert.equal(nav.at(-1).dataset.fiiuText,'conversations');
  assert.equal(questionReads(h),1,'the questions are read once, with the rest of the dashboard');
  const rows=h.ctx.window.Fiiu.rows;for(const name of CONVERSATION_KEYS){assert.equal(rows[name]?.length,3,name);assert.ok(rows[name].every(text=>typeof text==='string'&&text.trim()),name);}
@@ -1184,8 +1193,8 @@ test('a new question is posted with one UUID across retries; once saved the text
  });
  const form=questionForm(h),block=field(form,'activityId');assert.ok(key(conversations(h),'newQuestion'));
  // Every current block, in programme order, labelled as the publication editor labels them; no historical activities.
- assert.deepEqual(new Set(block.children.map(option=>option.value)),new Set(['',...FIIU_EVENT.activities.map(activity=>activity.id)]));
- const dates=block.children.slice(1).map(option=>FIIU_EVENT.activities.find(activity=>activity.id===option.value).date);assert.deepEqual(dates,[...dates].sort());
+ assert.deepEqual(new Set(block.children.map(option=>option.value)),new Set(['',...EVENT.activities.map(activity=>activity.id)]));
+ const dates=block.children.slice(1).map(option=>EVENT.activities.find(activity=>activity.id===option.value).date);assert.deepEqual(dates,[...dates].sort());
  assert.equal(block.children.find(option=>option.value==='day1-am').textContent,'21/10 · El poder de lo local');assert.equal(block.required,true);
  await select(block,'day1-am');await select(field(form,'talk'),'¡Bienvenidos al FIIU 11!');
  const text=field(form,'body');assert.equal(text.tagName,'textarea');assert.equal(text.maxLength,500);type(text,'  ¿Qué te llevas?  ');
@@ -1212,7 +1221,7 @@ test('the talk choice appears only for blocks with talks and lists that block’
  assert.equal(talk.parent.hidden,true,'no block chosen yet');assert.equal(talk.required,undefined);
  await select(block,'day1-pm');assert.equal(talk.parent.hidden,true,'an evening block has no talks');
  await select(block,'day2-am');assert.equal(talk.parent.hidden,false);
- assert.deepEqual(talk.children.map(option=>option.value),['',...FIIU_EVENT.activities.find(activity=>activity.id==='day2-am').sessions.map(([,name])=>name)]);
+ assert.deepEqual(talk.children.map(option=>option.value),['',...EVENT.activities.find(activity=>activity.id==='day2-am').sessions.map(([,name])=>name)]);
  assert.equal(talk.children[0].dataset.fiiuText,'questionNoTalk');
  await select(talk,'Hacer ciudad en alianza');await select(block,'day3-am');assert.equal(talk.value,'','a talk from another block is not kept');
  await select(block,'');assert.equal(talk.parent.hidden,true);
@@ -1516,4 +1525,223 @@ test('a question’s CSV downloads through fetch, and an ended session, a busy s
  const file={type:'text/csv'};reply=async()=>({ok:true,status:200,headers:{get:name=>name==='Content-Disposition'?'attachment; filename="fiiu-conversation-aaaaaaaa.csv"':'text/csv'},blob:async()=>file});
  await csv.listeners.click();assert.deepEqual(events,[['object URL',file],['download','blob:nodal/q','fiiu-conversation-aaaaaaaa.csv']]);
  reply=async()=>({ok:true,status:200,headers:{get:()=>null},blob:async()=>file});await csv.listeners.click();assert.equal(events.at(-1)[2],'fiiu-conversation.csv','a fallback name when the server gives none');
+});
+
+// Programme: the organiser programme routes (GET /api/admin/fiiu/programme, PUT and DELETE /api/admin/fiiu/programme/:id) as the server serves them.
+const programmeSection=h=>h.root.querySelector('.f-admin-programme');
+const blockRow=(h,id)=>programmeSection(h).querySelectorAll('.f-programme-row').find(row=>row.querySelector('.f-programme-title')?.id==='f-pg-'+id);
+const blockForm=(h,id)=>blockRow(h,id).querySelector('form');
+const openBlock=async(h,id)=>{key(blockRow(h,id),'pgEdit').listeners.click();await flush();return blockForm(h,id);};
+const programmeWrites=h=>h.requests.filter(request=>request.path.startsWith('/api/admin/fiiu/programme/'));
+const programmeReads=h=>h.requests.filter(request=>request.path==='/api/admin/fiiu/programme'&&request.method==='GET').length;
+const lineValues=form=>form.querySelectorAll('.f-programme-line').map(line=>[field(line,'sessionTime').value,field(line,'sessionTitle').value]);
+// A PUT that saves: the block as sent, edited, one version on.
+const savedBlock=({path,body})=>{const id=decodeURIComponent(path.split('/').pop()),{version,...fields}=body;return{activity:programmeItem(EVENT.activities.find(activity=>activity.id===id),{...fields,edited:true,version:version+1})};};
+const PROGRAMME_KEYS=['programmeSection','pgHint','pgUntimed','pgFrom','pgConference','pgLab','pgParty','pgWorkshop','pgRoute','pgEdited','pgEdit','pgTitle','pgDate','pgStart','pgEnd','pgEndOptional','pgTimeHintCheckin','pgTimeHintFree','pgVenue','pgDescription','pgSessions','pgSessionsHint','pgSessionTime','pgSessionTitle','pgLine','pgAddLine','pgMoveUp','pgMoveDown','pgRemoveLine','pgFormUrl','pgSave','pgCancel','pgRestore','pgRestoreConfirm','pgRestored','pgDiscard','pgStartRequired','pgEndRequired','pgEndAfterStart','pgInvalidTitle','pgInvalidDate','pgInvalidTime','pgInvalidVenue','pgInvalidDescription','pgInvalidSessions','pgInvalidFormUrl','pgNotFound','pgHoursWarningOne','pgHoursWarningMany','pgWindowWarning','pgLoadError','pgEmptyValue'];
+
+test('the Programme section sits between Registration and links and Conversations, with its own nav entry, and #programme reaches it',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}));
+ assert.deepEqual(h.root.children.filter(node=>node.tagName==='section').map(node=>node.id),['overview','checkin','participants','settings','programme','content','conversations']);
+ const nav=h.root.querySelector('.f-admin-nav').querySelectorAll('a').map(a=>a.href);assert.deepEqual(nav.slice(nav.indexOf('#settings'),nav.indexOf('#settings')+2),['#settings','#programme']);
+ const section=programmeSection(h);assert.equal(section.id,'programme');assert.ok(key(section,'programmeSection'));assert.ok(key(section,'pgHint'));assert.equal(programmeReads(h),1,'read once, with the rest of the dashboard');
+ const rows=h.ctx.window.Fiiu.rows;for(const name of PROGRAMME_KEYS){assert.equal(rows[name]?.length,3,name);assert.ok(rows[name].every(text=>typeof text==='string'&&text.trim()),name);}
+ for(const name of ['pgHoursWarningOne','pgHoursWarningMany'])assert.ok(rows[name].every(text=>name.endsWith('One')||text.includes('{n}')),name);
+ h.lang('es');assert.equal(key(section,'programmeSection').textContent,'Programa');h.lang('pt');assert.equal(key(section,'programmeSection').textContent,'Programação');
+ const scrolls=[],original=Node.prototype.scrollIntoView;Node.prototype.scrollIntoView=function(){scrolls.push(this.id);};
+ try{await harness(()=>({content:[],nextCursor:null}),{context:at('#programme')});await flush();assert.deepEqual(scrolls,['programme']);}finally{Node.prototype.scrollIntoView=original;}
+});
+
+test('programme rows are grouped by day in programme order, each with its time, title, kind and an Edited pill, in three languages',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{programmeRead:()=>({activities:programmeItems({'day2-pm':{title:'Título editado',edited:true,version:2}})})});
+ const days=programmeSection(h).querySelectorAll('.f-programme-day');
+ assert.deepEqual(days.map(day=>day.querySelector('h3').dataset.fiiuDate),['2026-10-20','2026-10-21','2026-10-22','2026-10-23','2026-10-24','2026-10-25']);
+ const ids=day=>day.querySelectorAll('.f-programme-title').map(node=>node.id.slice('f-pg-'.length));
+ assert.deepEqual(ids(days[1]).slice(0,2),['day1-am','day1-pm'],'the conference blocks first, morning then evening');assert.ok(ids(days[1]).slice(2).every(id=>id.startsWith('workshop-')));
+ assert.equal(ids(days[5]).at(-1),'closing-party','the party closes the last day');
+ assert.equal(days[1].querySelector('ul')['aria-labelledby'],days[1].querySelector('h3').id);
+ const time=id=>content(blockRow(h,id).querySelector('.f-programme-time')).replace(/\s+/g,' ').trim();
+ assert.equal(time('day1-am'),'09:00–13:00');assert.equal(time('day0-lab'),'Untimed');assert.equal(time('closing-party'),'From 17:00');
+ for(const [id,kind] of [['day1-am','pgConference'],['day0-lab','pgLab'],['closing-party','pgParty'],['workshop-calles-gente','pgWorkshop'],['route-amancaes','pgRoute']])assert.ok(key(blockRow(h,id),kind),id);
+ assert.ok(key(blockRow(h,'day2-pm'),'pgEdited'));assert.equal(blockRow(h,'day2-pm').querySelector('.f-programme-title').textContent,'Título editado');
+ assert.equal(programmeSection(h).querySelectorAll('.f-programme-row').filter(row=>key(row,'pgEdited')).length,1,'only the edited block is marked');
+ const title=blockRow(h,'day1-am').querySelector('.f-programme-title');assert.equal(title.lang,'es','block texts are the organisers’ Spanish');
+ const edit=key(blockRow(h,'day1-am'),'pgEdit');assert.equal(edit['aria-describedby'],title.id);
+ h.lang('es');assert.equal(time('closing-party'),'Desde las 17:00');assert.equal(time('day0-lab'),'Sin horario');assert.equal(key(blockRow(h,'closing-party'),'pgParty').textContent,'Fiesta');
+ h.lang('pt');assert.equal(time('closing-party'),'A partir das 17:00');
+});
+
+test('Edit opens one form under the row with every field; the end time is optional only for the party, workshops and routes',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}));
+ const form=await openBlock(h,'day1-am'),row=blockRow(h,'day1-am');
+ assert.ok(form);assert.equal(key(row,'pgEdit').hidden,true,'the row’s Edit gives way to the form');assert.equal(field(form,'title').focused,true);
+ assert.equal(field(form,'title').value,'El poder de lo local');assert.equal(field(form,'title').required,true);assert.equal(field(form,'title').maxLength,200);
+ const date=field(form,'date');assert.equal(date.type,'date');assert.equal(date.value,'2026-10-21');assert.equal(date.min,'2026-10-20');assert.equal(date.max,'2026-10-25');
+ const start=field(form,'start'),end=field(form,'end');assert.equal(start.type,'time');assert.equal(end.type,'time');assert.equal(start.value,'09:00');assert.equal(end.value,'13:00');
+ assert.equal(end.required,true,'a conference block with a start needs an end');assert.ok(key(form,'pgTimeHintCheckin'));
+ type(start,'');type(end,'');assert.equal(end.required,false,'or no time at all, untimed like the laboratory');assert.equal(start.required,false);
+ type(end,'12:00');assert.equal(start.required,true,'an end needs a start');
+ assert.equal(field(form,'venue').value,'Auditorio MALI, Cercado de Lima');assert.equal(field(form,'venue').maxLength,200);
+ const description=field(form,'description');assert.equal(description.tagName,'textarea');assert.equal(description.maxLength,1500);
+ type(description,'Línea uno\nLínea dos');assert.equal(form.querySelector('.f-counter').textContent,'19 / 1,500');assert.equal(description['aria-describedby'],form.querySelector('.f-counter').id);
+ assert.equal(field(form,'formUrl'),undefined,'only workshops and routes carry a form link');assert.equal(key(form,'pgRestore'),undefined,'nothing to restore on an unedited block');
+ assert.deepEqual(lineValues(form),EVENT.activities.find(activity=>activity.id==='day1-am').sessions);
+ const party=await openBlock(h,'closing-party');assert.equal(blockForm(h,'day1-am'),null,'one form at a time');
+ assert.equal(field(party,'start').value,'17:00');assert.equal(field(party,'end').value,'');assert.equal(field(party,'end').required,false,'the party may have a start only');assert.ok(key(party,'pgEndOptional'));assert.ok(key(party,'pgTimeHintFree'));
+ const workshop=await openBlock(h,'workshop-calles-gente'),link=field(workshop,'formUrl');
+ assert.equal(link.type,'url');assert.equal(link.required,true);assert.equal(link.value,EVENT.activities.find(activity=>activity.id==='workshop-calles-gente').formUrl);
+ // Field ids are the block's own, so no two controls on the page share one.
+ assert.ok(descendants(workshop).filter(node=>['input','textarea'].includes(node.tagName)).every(node=>node.id?.startsWith('f-pg-workshop-calles-gente-')));
+});
+
+test('schedule lines can be added up to twelve, removed and moved, each move keeping focus on the line’s own button',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}));
+ const form=await openBlock(h,'day1-am'),lines=()=>form.querySelectorAll('.f-programme-line'),add=key(form,'pgAddLine');
+ const [first,second,third]=EVENT.activities.find(activity=>activity.id==='day1-am').sessions;
+ assert.equal(key(lines()[0],'pgMoveUp').disabled,true);assert.equal(key(lines()[2],'pgMoveDown').disabled,true);assert.equal(key(lines()[1],'pgMoveUp').disabled,false);
+ assert.match(content(lines()[1].querySelector('.f-programme-line-label')),/Line\s+2/);assert.equal(lines()[1].role,'group');assert.equal(lines()[1]['aria-labelledby'],lines()[1].querySelector('.f-programme-line-label').id);
+ const up=key(lines()[1],'pgMoveUp');up.listeners.click();
+ assert.deepEqual(lineValues(form),[second,first,third]);assert.notEqual(up.focused,true,'the first line cannot move up: focus goes to its Move down');assert.equal(key(lines()[0],'pgMoveDown').focused,true);
+ key(lines()[0],'pgMoveDown').listeners.click();assert.deepEqual(lineValues(form),[first,second,third]);
+ key(lines()[1],'pgRemoveLine').listeners.click();assert.deepEqual(lineValues(form),[first,third]);assert.equal(field(lines()[1],'sessionTitle').focused,true,'focus moves to the next line');
+ add.listeners.click();assert.equal(lines().length,3);assert.deepEqual(lineValues(form).at(-1),['','']);assert.equal(field(lines()[2],'sessionTime').focused,true);
+ assert.equal(field(lines()[2],'sessionTime').maxLength,40);assert.equal(field(lines()[2],'sessionTitle').required,true);
+ while(lines().length<12)add.listeners.click();assert.equal(add.disabled,true,'twelve lines at most');
+ key(lines()[11],'pgRemoveLine').listeners.click();assert.equal(add.disabled,false);
+ for(let i=lines().length;i>0;i--)key(lines()[0],'pgRemoveLine').listeners.click();assert.equal(lines().length,0);assert.equal(add.focused,true,'with no line left, focus goes to Add line');
+});
+
+test('Save sends every field with the version, says Changes saved, marks the row Edited, closes the form and updates the rest of the dashboard',async()=>{
+ const h=await harness(request=>request.method==='PUT'?savedBlock(request):{content:[],nextCursor:null},{summaryRead:()=>({summary:copy(checkinSummary)})});
+ const form=await openBlock(h,'day1-am');
+ type(field(form,'title'),'El poder de lo local, renovado');type(field(form,'start'),'10:00');type(field(form,'end'),'14:00');type(field(form,'venue'),'Auditorio MALI');type(field(form,'description'),'Ingreso libre.\nTraer DNI.');
+ type(field(form.querySelectorAll('.f-programme-line')[0],'sessionTime'),'10:00–11:00');
+ await submit(form);
+ const [put]=programmeWrites(h);assert.equal(put.method,'PUT');assert.equal(put.path,'/api/admin/fiiu/programme/day1-am');
+ const [,second,third]=EVENT.activities.find(activity=>activity.id==='day1-am').sessions;
+ assert.deepEqual(put.body,{title:'El poder de lo local, renovado',date:'2026-10-21',time:'10:00–14:00',venue:'Auditorio MALI',description:'Ingreso libre.\nTraer DNI.',sessions:[['10:00–11:00','¡Bienvenidos al FIIU 11!'],second,third],version:0});
+ const row=blockRow(h,'day1-am');assert.equal(row.querySelector('form'),null,'the form closes');assert.equal(key(row,'pgEdit').hidden,false);assert.equal(key(row,'pgEdit').focused,true);
+ assert.equal(row.querySelector('.f-inline-status').dataset.fiiuText,'changesSaved');assert.ok(key(row,'pgEdited'));
+ assert.equal(row.querySelector('.f-programme-title').textContent,'El poder de lo local, renovado');assert.match(content(row.querySelector('.f-programme-time')),/10:00–14:00/);
+ assert.match(content(h.root.querySelector('.f-admin-checkin')),/El poder de lo local, renovado/,'the check-in section names the block as saved');
+ assert.match(content(h.root.querySelector('.f-admin-summary')),/El poder de lo local, renovado/,'and so do the totals');
+ await openBlock(h,'day1-am');assert.equal(field(blockForm(h,'day1-am'),'title').value,'El poder de lo local, renovado','the form opens on the saved values');assert.ok(key(blockForm(h,'day1-am'),'pgRestore'));
+ type(field(blockForm(h,'day1-am'),'venue'),'Otra sala');await submit(blockForm(h,'day1-am'));assert.equal(programmeWrites(h).at(-1).body.version,1,'the next save uses the saved version');
+ // A workshop sends its form link; the party sends a start-only time.
+ const workshop=await openBlock(h,'workshop-calles-gente');type(field(workshop,'formUrl'),'https://forms.gle/nuevo');await submit(workshop);
+ assert.equal(programmeWrites(h).at(-1).body.formUrl,'https://forms.gle/nuevo');assert.equal(programmeWrites(h).at(-1).body.time,'');
+ const party=await openBlock(h,'closing-party');type(field(party,'start'),'18:00');await submit(party);assert.equal(programmeWrites(h).at(-1).body.time,'18:00');assert.equal('formUrl' in programmeWrites(h).at(-1).body,false);
+});
+
+test('the browser stops a blank title, an end before its start, a lone end and a conference start without an end, and sends nothing',async()=>{
+ const h=await harness(request=>request.method==='PUT'?savedBlock(request):{content:[],nextCursor:null});
+ const form=await openBlock(h,'day1-am'),start=field(form,'start'),end=field(form,'end'),title=field(form,'title');
+ type(title,'   ');await submit(form);assert.equal(title.validationMessage,'Answer this question to continue.');type(title,'Título');
+ type(end,'08:00');await submit(form);assert.equal(end.validationMessage,'The end time must be after the start time.');
+ type(end,'');await submit(form);assert.equal(end.validationMessage,'Add an end time, or leave both times empty.');
+ type(start,'');type(end,'12:00');await submit(form);assert.equal(start.validationMessage,'Add a start time.');
+ assert.equal(programmeWrites(h).length,0);
+ type(start,'');type(end,'');await submit(form);assert.equal(programmeWrites(h).length,1,'no time at all is a valid untimed block');assert.equal(programmeWrites(h)[0].body.time,'');
+});
+
+test('each refusal code shows its own message beside the form and keeps everything typed',async()=>{
+ let reply;const h=await harness(request=>request.method==='PUT'?reply:{content:[],nextCursor:null});
+ const form=await openBlock(h,'day2-am'),note=blockRow(h,'day2-am').querySelector('.f-inline-status');type(field(form,'title'),'Título a medias');
+ const codes={invalid_title:'pgInvalidTitle',invalid_date:'pgInvalidDate',invalid_time:'pgInvalidTime',invalid_venue:'pgInvalidVenue',invalid_description:'pgInvalidDescription',invalid_sessions:'pgInvalidSessions',invalid_form_url:'pgInvalidFormUrl'};
+ for(const [code,shown] of Object.entries(codes)){
+  reply={status:400,data:{error:code.replace(/_/g,' '),code}};await submit(form);
+  assert.equal(note.dataset.fiiuText,shown,code);assert.equal(blockForm(h,'day2-am'),form,'the form stays open');assert.equal(field(form,'title').value,'Título a medias');assert.equal(field(form,'title').disabled,false);
+ }
+ reply={status:404,data:{error:'not found'}};await submit(form);assert.equal(note.dataset.fiiuText,'pgNotFound');
+ h.lang('es');assert.equal(note.textContent,'Este bloque ya no está en el programa. Recarga la página.');
+});
+
+test('a conflict offers Reload the latest version, which takes the other organiser’s block but keeps the fields changed here',async()=>{
+ let current=programmeItem(EVENT.activities.find(activity=>activity.id==='day2-am'));
+ const h=await harness(request=>{
+  if(request.method==='PUT'){if(request.body.version!==current.version)return{status:409,data:{error:'programme changed',code:'programme_conflict',activity:current}};return savedBlock(request);}
+  return{content:[],nextCursor:null};
+ },{programmeRead:()=>({activities:programmeItems().map(item=>item.id===current.id?copy(current):item)})});
+ const form=await openBlock(h,'day2-am');type(field(form,'venue'),'Mi sede');type(field(form,'description'),'Mi descripción');
+ // Another organiser saves the title and the venue meanwhile.
+ current={...current,title:'Título de otra organizadora',venue:'Su sede',edited:true,version:2};
+ await submit(form);const row=blockRow(h,'day2-am');assert.equal(row.querySelector('.f-inline-status').dataset.fiiuText,'editorConflict');
+ const reads=programmeReads(h),reload=key(form,'reloadLatest');assert.ok(reload,'a conflict offers the latest version');await reload.listeners.click();
+ assert.equal(programmeReads(h),reads+1,'only the programme is read again');
+ const fresh=blockForm(h,'day2-am');assert.notEqual(fresh,form);
+ assert.equal(field(fresh,'title').value,'Título de otra organizadora','a field changed only elsewhere takes the latest value');
+ assert.equal(field(fresh,'venue').value,'Mi sede');assert.equal(field(fresh,'description').value,'Mi descripción','fields changed here are kept');
+ const notes=fresh.querySelectorAll('.f-question-latest');assert.equal(notes.length,1,'the latest saved value is shown only where both changed');assert.match(content(notes[0]),/Su sede/);
+ assert.ok(field(fresh,'venue')['aria-describedby'].split(' ').includes(notes[0].id));
+ assert.equal(row.querySelector('.f-inline-status').dataset.fiiuText,'');assert.ok(key(row,'pgEdited'),'the row shows the other organiser’s save');assert.equal(leavePrompt(h),true,'the kept changes still guard leaving');
+ await submit(fresh);assert.deepEqual({...programmeWrites(h).at(-1).body,sessions:undefined},{title:'Título de otra organizadora',date:'2026-10-22',time:'09:00–13:00',venue:'Mi sede',description:'Mi descripción',sessions:undefined,version:2});
+ assert.equal(blockForm(h,'day2-am'),null);
+});
+
+test('Restore original asks first, sends DELETE with the version and shows the built-in values',async()=>{
+ const built=EVENT.activities.find(activity=>activity.id==='day1-pm');let asked=0,answer=false;
+ const h=await harness(request=>request.method==='DELETE'?{activity:programmeItem(built)}:{content:[],nextCursor:null},{programmeRead:()=>({activities:programmeItems({'day1-pm':{title:'Título editado',venue:'Otra sede',edited:true,version:3}})})});
+ h.ctx.window.confirm=message=>{asked++;assert.equal(message,h.ctx.window.Fiiu.t('pgRestoreConfirm'));return answer;};
+ const form=await openBlock(h,'day1-pm'),restore=key(form,'pgRestore');assert.ok(restore);
+ await restore.listeners.click();assert.equal(asked,1);assert.equal(programmeWrites(h).length,0,'declining sends nothing');assert.equal(blockForm(h,'day1-pm'),form);
+ answer=true;await restore.listeners.click();
+ assert.deepEqual(programmeWrites(h).map(({method,path})=>[method,path]),[['DELETE','/api/admin/fiiu/programme/day1-pm?version=3']]);
+ const row=blockRow(h,'day1-pm');assert.equal(row.querySelector('form'),null);assert.equal(key(row,'pgEdited'),undefined);assert.equal(row.querySelector('.f-programme-title').textContent,built.title);
+ assert.equal(row.querySelector('.f-inline-status').dataset.fiiuText,'pgRestored');
+ const again=await openBlock(h,'day1-pm');assert.equal(field(again,'venue').value,built.venue);assert.equal(key(again,'pgRestore'),undefined);
+});
+
+test('a block with check-ins warns that hours follow a new date or time, and a block whose day has started warns that its check-in moves',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{programmeRead:()=>({activities:programmeItems({'day1-am':{checkedIn:12},'closing-party':{checkedIn:0}})}),context:festivalDay});
+ const form=await openBlock(h,'day1-am'),warnings=form.querySelectorAll('.f-programme-warning'),shown=()=>warnings.filter(node=>!node.hidden).map(node=>node.dataset.fiiuText||node.textContent);
+ assert.deepEqual(shown(),[],'no warning before a change');
+ type(field(form,'venue'),'Otra sala');assert.deepEqual(shown(),[],'a venue change moves nothing');
+ type(field(form,'end'),'14:00');
+ assert.deepEqual(shown(),['12 people have checked in to this block. Their certificate hours will follow the new time.','pgWindowWarning']);
+ assert.equal(form.querySelector('.f-programme-warnings')['aria-live'],'polite');
+ h.lang('es');assert.equal(shown()[0],'12 personas registraron su asistencia en este bloque. Sus horas del certificado seguirán el nuevo horario.');h.lang('en');
+ type(field(form,'end'),'13:00');assert.deepEqual(shown(),[],'back as saved, no warning');
+ type(field(form,'date'),'2026-10-22');assert.equal(shown().length,2,'a new date warns too');
+ const later=await openBlock(h,'day3-am');type(field(later,'end'),'12:00');assert.deepEqual(later.querySelectorAll('.f-programme-warning').filter(node=>!node.hidden),[],'a later block with no check-ins moves without a warning');
+ const party=await openBlock(h,'closing-party');type(field(party,'start'),'18:00');assert.deepEqual(party.querySelectorAll('.f-programme-warning').filter(node=>!node.hidden),[],'the party takes no check-in');
+});
+
+test('opening another block with unsaved changes asks first, Cancel closes the form, and leaving the page with changes asks too',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}));let asked=0,answer=false;h.ctx.window.confirm=message=>{asked++;assert.equal(message,h.ctx.window.Fiiu.t('pgDiscard'));return answer;};
+ let form=await openBlock(h,'day1-am');assert.equal(leavePrompt(h),false,'an unchanged form lets the page go');
+ await openBlock(h,'day1-pm');assert.equal(asked,0,'an unchanged form is replaced without asking');assert.equal(blockForm(h,'day1-am'),null);
+ await key(blockForm(h,'day1-pm'),'pgCancel').listeners.click();assert.equal(blockForm(h,'day1-pm'),null);assert.equal(key(blockRow(h,'day1-pm'),'pgEdit').focused,true);
+ form=await openBlock(h,'day1-am');type(field(form,'title'),'Cambio sin guardar');assert.equal(leavePrompt(h),true);
+ await openBlock(h,'day1-pm');assert.equal(asked,1);assert.equal(blockForm(h,'day1-am'),form,'declining keeps the unsaved form');assert.equal(field(form,'title').value,'Cambio sin guardar');assert.equal(blockForm(h,'day1-pm'),null);
+ answer=true;await openBlock(h,'day1-pm');assert.equal(asked,2);assert.equal(blockForm(h,'day1-am'),null);assert.ok(blockForm(h,'day1-pm'));assert.equal(leavePrompt(h),false);
+});
+
+test('an unavailable programme read leaves the dashboard working and offers a retry in the section',async()=>{
+ let fail=true;const h=await harness(()=>({content:[],nextCursor:null}),{programmeRead:()=>fail?unavailable:{activities:programmeItems()}});
+ const section=programmeSection(h);assert.ok(key(section,'pgLoadError'));assert.equal(section.querySelectorAll('.f-programme-row').length,0);
+ assert.equal(h.message.dataset.fiiuText,'','the page toast is not used');assert.ok(h.root.querySelector('.f-admin-summary'));assert.ok(questionForm(h));
+ // Anything malformed reads as a failed read.
+ const odd=await harness(()=>({content:[],nextCursor:null}),{programmeRead:()=>({activities:[{id:'day1-am'}]})});assert.ok(key(programmeSection(odd),'pgLoadError'));
+ fail=false;await key(section,'retry').listeners.click();
+ assert.equal(key(section,'pgLoadError'),undefined);assert.equal(section.querySelectorAll('.f-programme-row').length,EVENT.activities.length);
+});
+
+test('losing organiser access empties the Programme section and stops guarding its unsaved form',async()=>{
+ let deny=false;const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>deny?{status:403,data:{error:'administrator access required'}}:{summary:copy(summary)}});
+ const form=await openBlock(h,'day1-am');type(field(form,'title'),'Sin guardar');deny=true;await h.tickTimers();await flush();
+ assert.ok(key(h.root,'organisersOnly'));assert.equal(programmeSection(h),null);assert.equal(h.root.querySelector('.f-programme-row'),null);assert.equal(leavePrompt(h),false);
+});
+
+test('the check-in section leaves out the party, which takes no check-in',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>({summary:copy(checkinSummary)}),context:festivalDay});
+ const links=h.root.querySelector('.f-admin-checkin').querySelectorAll('a').filter(a=>a.dataset.fiiuText==='openCheckinScreen');
+ assert.equal(links.some(a=>a.href.includes('closing-party')),false);assert.doesNotMatch(content(h.root.querySelector('.f-admin-checkin')),/Fiesta de cierre/);
+});
+
+test('the organiser CSS is the stylesheet’s last block: 44px touch targets, and no fixed width that would push a 360px phone sideways',()=>{
+ const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8'),marker='/* Organiser: programme, party announcement, ratings */',at=css.indexOf(marker);
+ assert.ok(at>0);assert.equal(css.indexOf(marker,at+1),-1,'one block');const block=css.slice(at);
+ assert.match(block,/@media\(pointer:coarse\)\{\.f-shell :is\(\.f-line-button,\.f-programme-restore[^)]*\)\{min-height:44px\}/);
+ // Widths that only apply past a breakpoint, caps (max-width) and tracks clamped to the column (min(100%,…)) never widen a phone page.
+ const loose=block.replace(/@media\([^)]*\)/g,'').replace(/min\(100%,\d+px\)/g,'').replace(/max-width:\d+px/g,'');
+ assert.doesNotMatch(loose,/(?:min-width|[{;]width|flex-basis|grid-template-columns|inline-size)\s*:[^;}]*\b\d{3,}px/,'no fixed width of 100px or more');assert.doesNotMatch(block,/border-left:\s*[3-9]px/,'no thick left accent bar');
 });

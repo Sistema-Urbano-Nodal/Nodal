@@ -19,7 +19,39 @@
   questionsLoadError:['The questions could not be loaded.','No se pudieron cargar las preguntas.','Não foi possível carregar as perguntas.'],
   questionLatest:['Latest saved version:','Versión guardada actual:','Versão salva atual:'],
   attendanceSignIn:['Attendance not saved: your session ended.','No se guardó la asistencia: tu sesión terminó.','A presença não foi salva: sua sessão terminou.'],
-  attendanceNotSaved:['Attendance not saved. Check the connection and tick it again.','No se guardó la asistencia. Revisa la conexión y vuelve a marcarla.','A presença não foi salva. Verifique a conexão e marque de novo.']
+  attendanceNotSaved:['Attendance not saved. Check the connection and tick it again.','No se guardó la asistencia. Revisa la conexión y vuelve a marcarla.','A presença não foi salva. Verifique a conexão e marque de novo.'],
+  // The Programme section: each block's details as organisers edit them. "From" and the kind labels sit before data, so they need no {placeholders}.
+  programmeSection:['Programme','Programa','Programação'],
+  pgHint:['Edit the details of each block. Changes reach the festival page within a minute; adding or removing a block still needs the NODAL team.','Edita los detalles de cada bloque. Los cambios llegan a la página del festival en menos de un minuto; para añadir o quitar un bloque, escribe al equipo de NODAL.','Edite os detalhes de cada bloco. As alterações chegam à página do festival em menos de um minuto; para adicionar ou remover um bloco, fale com a equipe NODAL.'],
+  pgUntimed:['Untimed','Sin horario','Sem horário'],pgFrom:['From','Desde las','A partir das'],
+  pgConference:['Conference','Conferencia','Conferência'],pgLab:['Laboratory','Laboratorio','Laboratório'],pgParty:['Party','Fiesta','Festa'],pgWorkshop:['Workshop','Taller','Oficina'],pgRoute:['Route','Ruta','Roteiro'],
+  pgEdited:['Edited','Editado','Editado'],pgEdit:['Edit','Editar','Editar'],
+  pgTitle:['Title','Título','Título'],pgDate:['Date','Fecha','Data'],pgStart:['Start time','Hora de inicio','Horário de início'],pgEnd:['End time','Hora de fin','Horário de término'],pgEndOptional:['End time (optional)','Hora de fin (opcional)','Horário de término (opcional)'],
+  pgTimeHintCheckin:['Give a start and an end, or leave both empty for a block without a set time. Check-in and certificate hours follow these times.','Indica inicio y fin, o deja ambas vacías para un bloque sin horario fijo. El registro de asistencia y las horas del certificado siguen estos horarios.','Informe início e término, ou deixe os dois vazios para um bloco sem horário definido. O registro de presença e as horas do certificado seguem esses horários.'],
+  pgTimeHintFree:['The end time is optional: a start alone reads “From 17:00”.','La hora de fin es opcional: solo con el inicio se lee «Desde las 17:00».','O horário de término é opcional: só com o início aparece “A partir das 17:00”.'],
+  pgVenue:['Venue','Lugar','Local'],pgDescription:['Description (optional)','Descripción (opcional)','Descrição (opcional)'],
+  pgSessions:['Schedule','Agenda','Agenda'],pgSessionsHint:['One line per talk or moment: a time, free text such as “19:00 onwards”, and a title.','Una línea por charla o momento: un horario, en texto libre como «19:00 en adelante», y un título.','Uma linha por palestra ou momento: um horário, em texto livre como “19:00 em diante”, e um título.'],
+  pgSessionTime:['Time','Horario','Horário'],pgSessionTitle:['Title','Título','Título'],pgLine:['Line','Línea','Linha'],
+  pgAddLine:['Add line','Añadir línea','Adicionar linha'],pgMoveUp:['Move up','Subir','Subir'],pgMoveDown:['Move down','Bajar','Descer'],pgRemoveLine:['Remove','Quitar','Remover'],
+  pgFormUrl:['Activity form link (https://)','Enlace del formulario de la actividad (https://)','Link do formulário da atividade (https://)'],
+  pgSave:['Save block','Guardar bloque','Salvar bloco'],pgCancel:['Cancel','Cancelar','Cancelar'],pgRestore:['Restore original','Restaurar el original','Restaurar o original'],
+  pgRestoreConfirm:['Restore this block’s original details? The changes saved here are removed for everyone.','¿Restaurar los datos originales de este bloque? Los cambios guardados aquí se eliminan para todos.','Restaurar os dados originais deste bloco? As alterações salvas aqui são removidas para todos.'],
+  pgRestored:['Original restored','Original restaurado','Original restaurado'],
+  pgDiscard:['Discard your unsaved changes to this block?','¿Descartar los cambios sin guardar de este bloque?','Descartar as alterações não salvas deste bloco?'],
+  pgStartRequired:['Add a start time.','Añade una hora de inicio.','Adicione um horário de início.'],pgEndRequired:['Add an end time, or leave both times empty.','Añade una hora de fin o deja ambas vacías.','Adicione um horário de término ou deixe os dois vazios.'],
+  pgEndAfterStart:['The end time must be after the start time.','La hora de fin debe ser posterior a la de inicio.','O horário de término deve ser depois do de início.'],
+  pgInvalidTitle:['Write a title of up to 200 characters, on one line.','Escribe un título de hasta 200 caracteres, en una sola línea.','Escreva um título de até 200 caracteres, em uma só linha.'],
+  pgInvalidDate:['Choose a date between 20 and 25 October.','Elige una fecha entre el 20 y el 25 de octubre.','Escolha uma data entre 20 e 25 de outubro.'],
+  pgInvalidTime:['Check the times: the end must come after the start, and a conference block or the laboratory needs both times or none.','Revisa los horarios: el fin debe ser posterior al inicio, y un bloque de conferencias o el laboratorio necesita ambas horas o ninguna.','Revise os horários: o término deve vir depois do início, e um bloco de conferências ou o laboratório precisa dos dois horários ou de nenhum.'],
+  pgInvalidVenue:['Write the venue in up to 200 characters, on one line.','Escribe el lugar en hasta 200 caracteres, en una sola línea.','Escreva o local em até 200 caracteres, em uma só linha.'],
+  pgInvalidDescription:['Shorten the description to 1,500 characters.','Acorta la descripción a 1500 caracteres.','Reduza a descrição para 1.500 caracteres.'],
+  pgInvalidSessions:['Check the schedule: up to 12 lines, each with a title, and times of up to 40 characters.','Revisa la agenda: hasta 12 líneas, cada una con título, y horarios de hasta 40 caracteres.','Revise a agenda: até 12 linhas, cada uma com título, e horários de até 40 caracteres.'],
+  pgInvalidFormUrl:['Enter the activity form link, starting with https://.','Escribe el enlace del formulario, empezando por https://.','Informe o link do formulário, começando com https://.'],
+  pgNotFound:['This block is no longer in the programme. Reload the page.','Este bloque ya no está en el programa. Recarga la página.','Este bloco não está mais na programação. Recarregue a página.'],
+  pgHoursWarningOne:['1 person has checked in to this block. Their certificate hours will follow the new time.','1 persona registró su asistencia en este bloque. Sus horas del certificado seguirán el nuevo horario.','1 pessoa registrou presença neste bloco. As horas do certificado vão seguir o novo horário.'],
+  pgHoursWarningMany:['{n} people have checked in to this block. Their certificate hours will follow the new time.','{n} personas registraron su asistencia en este bloque. Sus horas del certificado seguirán el nuevo horario.','{n} pessoas registraram presença neste bloco. As horas do certificado vão seguir o novo horário.'],
+  pgWindowWarning:['This block’s day has started: a new date or time moves its check-in at once.','El día de este bloque ya empezó: una nueva fecha u hora mueve su registro de asistencia de inmediato.','O dia deste bloco já começou: uma nova data ou horário muda o registro de presença na hora.'],
+  pgLoadError:['The programme could not be loaded.','No se pudo cargar el programa.','Não foi possível carregar a programação.'],pgEmptyValue:['(empty)','(vacío)','(vazio)']
  });
  const root=document.getElementById('fiiuAdminRoot'),message=document.getElementById('fiiuStatus');
  let festival,config,records=[],cursor=null,filling=null,listStale=false,publications=[],contentCursor=null,selectedParticipant=null,shownParticipant=null,detailRequest=0,participantFilter='all',participantQuery='',participantWords=[],shownCount=null,updatedAt=null,search=null,searchTimer=null,setAside=null;
@@ -35,7 +67,8 @@
  // The same goes for a new question with text and a question edit with changes.
  const hasText=draft=>Boolean(draft&&(draft.title||draft.body||draft.url));
  // So does a settings link typed but not saved (the availability switch saves on its own).
- window.addEventListener?.('beforeunload',event=>{if(locked)return;const editor=currentEditor();if(hasText(setAside)||(editor?.isNew?hasText(editor.draft()):editor?.dirty())||questionDraft()||settingsDirty()){event.preventDefault();event.returnValue='';}});
+ // And so does an open programme block with changes.
+ window.addEventListener?.('beforeunload',event=>{if(locked)return;const editor=currentEditor();if(hasText(setAside)||(editor?.isNew?hasText(editor.draft()):editor?.dirty())||questionDraft()||settingsDirty()||programmeDraft()){event.preventDefault();event.returnValue='';}});
  const signInUrl=()=>'/login.html?next='+encodeURIComponent(location.pathname+location.hash),sessionNotice=el('p','f-notice is-warning f-session-notice');sessionNotice.hidden=true;sessionNotice.setAttribute('role','alert');
  const signInLink=()=>{const a=link('adminSignIn',signInUrl(),'f-text-link');a.target='_blank';a.rel='noopener';return describe(a);};
  // Once the dashboard is up, a tap dismisses the toast; "Loading…" and "Saving…" stay until their request ends.
@@ -49,7 +82,7 @@
  // Locale-formatted numbers are rebuilt on a language switch: the latest summary and the open editor's counter.
  // lastSummaryKey lets a refresh that brings identical totals leave the tables alone, so a screen reader keeps its place.
  let lastSummary=null,lastSummaryKey='',recount=null;
- const SECTIONS=[['overview','navOverview'],['checkin','checkIn'],['participants','participants'],['settings','settings'],['content','content'],['conversations','conversations']];
+ const SECTIONS=[['overview','navOverview'],['checkin','checkIn'],['participants','participants'],['settings','settings'],['programme','programmeSection'],['content','content'],['conversations','conversations']];
  // Columns that hold text rather than counts; the action column's heading is read out but not shown.
  const TEXT_COLUMNS=new Set(['venue','checkinClosing']),HIDDEN_HEADINGS=new Set(['openCheckinScreen']);
  const KINDS={news:'newsKind',recording:'recording',material:'material'},REVIEW={pending:'reviewPending',accepted:'reviewAccepted',declined:'reviewDeclined'};
@@ -156,7 +189,8 @@
  // participant data). The section is rebuilt only when a count, a block's check-in closing or the language changes, so a focused link keeps its place.
  function checkedInCell(n,number){const cell=el('span','f-summary-count'+(n?'':' is-zero'),number.format(n));cell.append(document.createTextNode(' '),tr('span',n===1?'checkedInOne':'checkedInMany','f-cell-unit'));return cell;}
  function renderCheckin(summary=lastSummary){
-  if(!festival)return;const stats=new Map((summary?.activities||[]).map(row=>[row.activityId,row])),blocks=checkinActivities(festival.event),states=blocks.map(activity=>checkinState(activity));
+  // checkinActivities leaves out only workshops and routes; the party (a register-only block) takes no check-in either.
+  if(!festival)return;const stats=new Map((summary?.activities||[]).map(row=>[row.activityId,row])),blocks=checkinActivities(festival.event).filter(takesCheckin),states=blocks.map(activity=>checkinState(activity));
   const key=JSON.stringify([blocks.map(a=>stats.get(a.id)?.attendance??null),states,locale()]);if(key===lastCheckinKey)return;lastCheckinKey=key;
   const active=document.activeElement,refocus=active?.id&&checkinBody.contains?.(active)?active.id:'',number=new Intl.NumberFormat(locale());
   const rows=blocks.map((activity,i)=>{
@@ -178,8 +212,8 @@
  function lockOut(){
   locked=true;if(timer!==null)clearInterval(timer);sectionObserver?.disconnect();records=[];publications=[];rowCache=new WeakMap();lastSummary=null;selectedParticipant=shownParticipant=null;
   if(backfillRun){backfillRun.stopping=true;backfillRun.wake?.();}backfill=null;backfillAsk=backfillResult=null;backfillLine.textContent=backfillNote.textContent='';backfillActions.replaceChildren();
-  questions=null;newQuestion=null;questionRows.clear();questionLayout='';
-  for(const host of [listHost,detailHost,participantsHost,summaryBody,checkinBody,settingsHost,contentHost,editorHost,pubList,resultCount,conversationsHost,questionEditorHost,questionList,questionAlert])host.replaceChildren();
+  questions=null;newQuestion=null;questionRows.clear();questionLayout='';programme=null;programmeRows.clear();programmeLayout='';
+  for(const host of [listHost,detailHost,participantsHost,summaryBody,checkinBody,settingsHost,contentHost,editorHost,pubList,resultCount,conversationsHost,questionEditorHost,questionList,questionAlert,programmeHost,programmeList,programmeAlert])host.replaceChildren();
   status(message,'');const box=el('section','f-locked'),actions=el('div','f-actions');actions.append(link('fiiuPage','fiiu.html','f-button'),link('backToConsole','dashboard.html'));box.append(tr('h1','organisersOnly'),tr('p','organisersOnlyHint'),actions);root.replaceChildren(box);
  }
  function guard(error){
@@ -541,6 +575,150 @@
   // The counts behind the buttons, and the overview, from the server.
   refreshSummary({background:true});await loadBackfill();
  }
+ // Programme: every block's details as organisers edit them (the server keeps one row per edited block, with its own version); adding or removing a block is
+ // still a code change. Blocks are grouped by day in programme order; each row is built once (programmeRows, by id) and updated in place, and one block's
+ // form is open at a time, under its row.
+ const programmeHost=el('section','f-admin-programme'),programmeList=el('div','f-programme-list'),programmeAlert=el('div','f-question-alert'),programmeRows=new Map();
+ let programme=null,programmeFailed=false,programmeLayout='';
+ // The party is a "social" block: people add it to their registration, but it takes no check-in and counts no hours.
+ const blockKind=activity=>activity.registration==='social'?'party':typeOf(activity),takesCheckin=activity=>['general','application'].includes(activity?.registration);
+ const BLOCK_KINDS={conference:'pgConference',lab:'pgLab',party:'pgParty',workshop:'pgWorkshop',route:'pgRoute'},DESCRIPTION_MAX=1500,SCHEDULE_MAX=12;
+ // Each refusal the server explains with a code gets its own message beside the form.
+ const PROGRAMME_CODES={invalid_title:'pgInvalidTitle',invalid_date:'pgInvalidDate',invalid_time:'pgInvalidTime',invalid_venue:'pgInvalidVenue',invalid_description:'pgInvalidDescription',invalid_sessions:'pgInvalidSessions',invalid_form_url:'pgInvalidFormUrl'};
+ const refusal=err=>{const k=err?.status===400?PROGRAMME_CODES[err.code]:err?.status===404?'pgNotFound':'';return k?Object.assign(Error(t(k)),{key:k,status:err.status,code:err.code}):err;};
+ const validBlock=a=>Boolean(a)&&typeof a.id==='string'&&typeof a.title==='string'&&typeof a.date==='string'&&typeof a.time==='string'&&Array.isArray(a.sessions)&&Number.isSafeInteger(a.version)&&a.version>=0;
+ const isEdited=a=>Boolean(a.edited)||a.version>0;
+ // '09:00–13:00' is a start and an end, '17:00' a start only (the party, workshops and routes may have one), '' no set time.
+ const splitTime=time=>{const m=/^(\d{2}:\d{2})(?:\s*[–-]\s*(\d{2}:\d{2}))?$/.exec(time||'');return m?[m[1],m[2]||'']:['',''];};
+ const timeParts=time=>!time?[tr('span','pgUntimed')]:/[–-]/.test(time)?[el('span','',time)]:[tr('span','pgFrom'),document.createTextNode(' '+time)];
+ function programmeDraft(){return [...programmeRows.values()].some(entry=>entry.editor?.dirty());}
+ async function readProgramme(){const data=await api('/api/admin/fiiu/programme');if(!Array.isArray(data.activities)||!data.activities.every(validBlock))throw Object.assign(Error(t('error')),{key:'error'});return data.activities;}
+ // Read with the dashboard: a failure keeps the dashboard and offers Try again here. Later reads come from a conflict's reload, block by block.
+ async function refreshProgramme({pending}={}){
+  if(locked)return;
+  try{const result=await(pending||readProgramme().then(list=>({list}),error=>({error})));if(result.error)throw result.error;if(locked)return;programme=result.list;programmeFailed=false;resume();}
+  catch(error){if(guard(error))return;programmeFailed=true;}
+  renderProgramme();
+ }
+ // A saved, restored or re-read block replaces its row and the dashboard's copy of the programme, so the totals, check-in and conversation headings name it as saved.
+ function applyBlock(item){
+  programme=(programme||[]).map(a=>a.id===item.id?item:a);
+  const {version,original,checkedIn,...block}=item;festival.event={...festival.event,activities:festival.event.activities.map(a=>a.id===block.id?{...a,...block}:a)};
+  renderProgramme();lastCheckinKey='';if(lastSummary)renderSummary(lastSummary);else renderCheckin();questionLayout='';renderQuestions();
+ }
+ function renderProgramme(){
+  if(locked||!festival)return;programmeAlert.hidden=!programmeFailed;
+  if(!programmeFailed)programmeAlert.replaceChildren();
+  else if(!programmeAlert.children.length){const retry=button('retry',()=>fetchInto(retry,async()=>{const list=await readProgramme();if(locked)return;programme=list;programmeFailed=false;renderProgramme();}),'f-button secondary f-small');programmeAlert.replaceChildren(tr('span','pgLoadError'),retry);}
+  if(!programme){programmeList.replaceChildren(...(programmeFailed?[]:[tr('p','loading','f-muted')]));programmeLayout='';return;}
+  const sorted=chronological(programme);
+  for(const a of sorted){const entry=programmeRows.get(a.id)||programmeEntry(a.id);entry.record=a;entry.update();}
+  // The same blocks on the same days are only updated, so a save never moves focus or the open form.
+  const layout=JSON.stringify(sorted.map(a=>[a.date,a.id]));if(layout===programmeLayout)return;programmeLayout=layout;
+  const active=document.activeElement,refocus=active?.id&&programmeList.contains?.(active)?active.id:'',days=[];
+  for(const a of sorted){if(days.at(-1)?.date!==a.date)days.push({date:a.date,rows:[]});days.at(-1).rows.push(programmeRows.get(a.id).row);}
+  programmeList.replaceChildren(...days.map(({date,rows})=>{const day=el('div','f-programme-day'),heading=dateNode(date,'h3','long','f-programme-date'),list=el('ul','f-programme-blocks');heading.id='f-pgd-'+date;list.setAttribute('aria-labelledby',heading.id);list.append(...rows);day.append(heading,list);return day;}));
+  if(refocus)document.getElementById(refocus)?.focus({preventScroll:true});
+ }
+ // One row per block: its time, title, kind and Edited pill, then Edit; the form opens in the slot under them and the row's note says how a save went.
+ function programmeEntry(id){
+  const row=el('li','f-programme-row'),view=el('div','f-programme-view'),when=el('span','f-programme-time'),main=el('div','f-programme-main'),title=source('span','','f-programme-title'),meta=el('span','f-programme-meta'),slot=el('div','f-programme-slot'),note=el('p','f-inline-status');
+  const entry={row,slot,note,record:null,editor:null};title.id='f-pg-'+id;note.setAttribute('role','status');
+  const edit=entry.edit=button('pgEdit',()=>openProgrammeEdit(entry),'f-button secondary f-small');edit.id=title.id+'-edit';describe(edit,title.id);
+  main.append(title,meta);view.append(when,main,edit);row.append(view,slot,note);
+  entry.update=()=>{const a=entry.record,kind=blockKind(a);row.className='f-programme-row is-'+kind;when.replaceChildren(...timeParts(a.time));title.textContent=a.title;meta.replaceChildren(tr('span',BLOCK_KINDS[kind],'f-programme-kind'),...(isEdited(a)?[tr('span','pgEdited','f-pill is-edited')]:[]));};
+  programmeRows.set(id,entry);return entry;
+ }
+ // Opening another block with unsaved changes asks first; draft carries what a conflict's reload keeps (see programmeEditor).
+ function openProgrammeEdit(entry,focus=true,draft=null){
+  const open=[...programmeRows.values()].find(other=>other.editor&&other!==entry);
+  if(open){if(open.editor.dirty()&&!window.confirm(t('pgDiscard')))return;closeProgrammeEdit(open,false);}
+  closeProgrammeEdit(entry,false);entry.editor=programmeEditor(entry,draft);entry.slot.replaceChildren(entry.editor.form);entry.edit.hidden=true;status(entry.note,'');
+  if(focus)entry.editor.form.querySelector('input')?.focus();
+ }
+ function closeProgrammeEdit(entry,focus=true){if(!entry.editor)return;entry.slot.replaceChildren();entry.editor=null;entry.edit.hidden=false;if(focus)entry.edit.focus();}
+ // The block's form: title, date (within the festival), start and end, venue, description, schedule lines and, for workshops and routes, the form link.
+ // A block that takes check-in (a conference block, the laboratory) has both times or neither; the party, workshops and routes may have a start only.
+ // draft: after a conflict, the fields changed here (kept) to put over the latest version, and the version they started from (base).
+ function programmeEditor(entry,draft=null){
+  const start=entry.record,checkin=takesCheckin(start),external=start.registration==='external',prefix='f-pg-'+start.id,event=festival.event;
+  const form=el('form','f-form f-programme-form'),buttons=el('div','f-programme-buttons'),conflict=el('div','f-conflict');let busy=false;
+  const editor={form,version:start.version};
+  const input=(key,name,options)=>{const f=field(key,options);f.input.name=name;f.input.id=prefix+'-'+name;return f;};
+  const title=input('pgTitle','title',{value:start.title,required:true,max:200}),date=input('pgDate','date',{value:start.date,type:'date',required:true});date.input.min=event.startsOn;date.input.max=event.endsOn;
+  const [startAt,endAt]=splitTime(start.time),from=input('pgStart','start',{value:startAt,type:'time'}),to=input(checkin?'pgEnd':'pgEndOptional','end',{value:endAt,type:'time'});
+  const times=el('div','f-programme-times'),timeHint=tr('p',checkin?'pgTimeHintCheckin':'pgTimeHintFree','f-muted f-programme-hint');timeHint.id=prefix+'-time-hint';times.append(from.wrap,to.wrap);
+  const venue=input('pgVenue','venue',{value:start.venue,max:200}),description=input('pgDescription','description',{value:start.description||'',type:'textarea',max:DESCRIPTION_MAX}),counter=el('span','f-counter');
+  counter.id=prefix+'-counter';const count=()=>{counter.textContent=nf(description.input.value.length)+' / '+nf(DESCRIPTION_MAX);};description.input.addEventListener('input',count);
+  const link=external?input('pgFormUrl','formUrl',{value:start.formUrl||'',type:'url',required:true,max:2000}):null;
+  // Schedule lines: a free-text time and a title each, numbered by place; the first cannot move up, the last cannot move down, twelve at most.
+  const schedule=el('fieldset','f-programme-schedule'),lineList=el('ol','f-programme-lines'),lines=[];let lineCount=0;
+  const addLine=button('pgAddLine',()=>{const line=newLine('','');lines.push(line);layoutLines();line.when.input.focus();},'f-button secondary f-small');
+  function newLine(time,name){
+   const item=el('li','f-programme-line'),label=el('p','f-programme-line-label'),tools=el('div','f-programme-line-tools'),when=field('pgSessionTime',{value:time,max:40}),what=field('pgSessionTitle',{value:name,max:200,required:true}),line={item,label,when,what};
+   label.id=prefix+'-line'+(++lineCount);when.input.name='sessionTime';what.input.name='sessionTitle';when.input.id=label.id+'-time';what.input.id=label.id+'-title';item.setAttribute('role','group');item.setAttribute('aria-labelledby',label.id);
+   line.up=button('pgMoveUp',()=>moveLine(line,-1),'f-line-button');line.down=button('pgMoveDown',()=>moveLine(line,1),'f-line-button');line.remove=button('pgRemoveLine',()=>dropLine(line),'f-line-button');
+   for(const b of [line.up,line.down,line.remove])describe(b,label.id);tools.append(line.up,line.down,line.remove);item.append(label,when.wrap,what.wrap,tools);return line;
+  }
+  function layoutLines(){lines.forEach((line,i)=>{line.label.replaceChildren(tr('span','pgLine'),document.createTextNode(' '+(i+1)));line.up.disabled=i===0;line.down.disabled=i===lines.length-1;});lineList.replaceChildren(...lines.map(line=>line.item));addLine.disabled=lines.length>=SCHEDULE_MAX;}
+  // Moving re-attaches the lines, which drops focus; it returns to the moved line's button, or to its other one once the line reaches an end.
+  function moveLine(line,step){const i=lines.indexOf(line),j=i+step;if(j<0||j>=lines.length)return;[lines[i],lines[j]]=[lines[j],lines[i]];layoutLines();const same=step<0?line.up:line.down;(same.disabled?(step<0?line.down:line.up):same).focus();}
+  function dropLine(line){const i=lines.indexOf(line);lines.splice(i,1);layoutLines();const next=lines[i]||lines[i-1];(next?next.what.input:addLine).focus();}
+  const setLines=list=>{lines.length=0;for(const [time,name] of list)lines.push(newLine(time,name));layoutLines();};setLines(start.sessions);
+  // raw: the fields as typed; values: what a save sends, the two times joined as the server writes them.
+  const raw=()=>({title:title.input.value,date:date.input.value,start:from.input.value,end:to.input.value,venue:venue.input.value,description:description.input.value,sessions:lines.map(line=>[line.when.input.value,line.what.input.value]),...(link?{formUrl:link.input.value}:{})});
+  const timeOf=(a,b)=>a&&b?`${a}–${b}`:a||(b?'–'+b:'');
+  const values=()=>{const typed=raw();return {title:typed.title,date:typed.date,time:timeOf(typed.start,typed.end),venue:typed.venue,description:typed.description,sessions:typed.sessions,...(link?{formUrl:typed.formUrl}:{})};};
+  // Warnings before Save: certificate hours follow a check-in block's times, and a block whose Lima day has started moves its check-in at once.
+  const warnings=el('div','f-programme-warnings'),hours=el('p','f-programme-warning'),dayStarted=tr('p','pgWindowWarning','f-programme-warning');warnings.setAttribute('aria-live','polite');warnings.append(hours,dayStarted);
+  const warn=()=>{const moved=checkin&&(date.input.value!==start.date||timeOf(from.input.value,to.input.value)!==start.time),people=Number.isSafeInteger(start.checkedIn)?start.checkedIn:0;hours.hidden=!(moved&&people>0);hours.textContent=hours.hidden?'':plural('pgHoursWarning',people);dayStarted.hidden=!(moved&&limaDate()>=start.date);};
+  const syncTimes=()=>{to.setRequired(checkin&&Boolean(from.input.value));from.setRequired(Boolean(to.input.value));warn();};
+  for(const control of [date.input,from.input,to.input])for(const type of ['input','change'])control.addEventListener(type,syncTimes);
+  const opened=raw(),initial=JSON.stringify(values()),latest={};
+  // Reopened after a conflict: the latest version with the fields changed here put back, so it still counts as unsaved. Where the other organiser
+  // changed the same field, their saved value is shown under it to compare.
+  if(draft){
+   const set={title:v=>{title.input.value=v;},date:v=>{date.input.value=v;},start:v=>{from.input.value=v;},end:v=>{to.input.value=v;},venue:v=>{venue.input.value=v;},description:v=>{description.input.value=v;},sessions:setLines,formUrl:v=>{if(link)link.input.value=v;}};
+   for(const [name,value] of Object.entries(draft.kept))set[name]?.(value);
+   for(const name of new Set(Object.keys(draft.kept).map(name=>['start','end'].includes(name)?'time':name))){
+    const value=start[name];if(JSON.stringify(value??'')===JSON.stringify(draft.base[name]??''))continue;
+    const note=el('p','f-question-latest'),shown=name==='date'?[dateNode(value,'span','short')]:name==='time'?timeParts(value):name==='sessions'?[source('span',value.map(([time,what])=>time?time+' '+what:what).join(' · '))]:[source('span',value)];
+    note.id=prefix+'-latest-'+name;note.append(tr('span','questionLatest','f-question-latest-label'),document.createTextNode(' '),...(value?.length?shown:[tr('span','pgEmptyValue')]));latest[name]=note;
+   }
+  }
+  const describeBy=(control,...ids)=>{const list=ids.filter(Boolean);if(list.length)control.setAttribute('aria-describedby',list.join(' '));};
+  describeBy(title.input,latest.title?.id);describeBy(date.input,latest.date?.id);for(const f of [from,to])describeBy(f.input,timeHint.id,latest.time?.id);describeBy(venue.input,latest.venue?.id);describeBy(description.input,counter.id,latest.description?.id);if(link)describeBy(link.input,latest.formUrl?.id);
+  const after=name=>latest[name]?[latest[name]]:[];
+  schedule.append(tr('legend','pgSessions'),tr('p','pgSessionsHint','f-muted f-programme-hint'),lineList,...after('sessions'),addLine);
+  const save=button('pgSave',null,'f-button');save.type='submit';buttons.append(save,button('pgCancel',()=>closeProgrammeEdit(entry),'f-button secondary f-small'));
+  const reload=async()=>{const kept=Object.fromEntries(Object.entries(raw()).filter(([name,value])=>JSON.stringify(value)!==JSON.stringify(opened[name])));await reloadBlock(start.id);status(entry.note,'');openProgrammeEdit(entry,true,{kept,base:start});};
+  // Restoring deletes the edit, after a confirmation; the row then shows the built-in values.
+  if(isEdited(start)){
+   const restore=button('pgRestore',async()=>{
+    if(busy||!window.confirm(t('pgRestoreConfirm')))return;const unlock=lockForm(form,()=>entry.edit);busy=true;
+    try{await action(restore,async()=>{let result;try{result=await api('/api/admin/fiiu/programme/'+encodeURIComponent(start.id)+'?version='+editor.version,{},'DELETE');}catch(err){throw refusal(err);}if(!validBlock(result?.activity)||result.activity.id!==start.id)throw Object.assign(Error(t('error')),{key:'error'});closeProgrammeEdit(entry);applyBlock(result.activity);},{feedback:entry.note,conflict,reload,done:'pgRestored'});}
+    finally{busy=false;unlock();}
+   },'f-text-link f-programme-restore');
+   buttons.append(restore);
+  }
+  form.append(title.wrap,...after('title'),date.wrap,...after('date'),times,timeHint,...after('time'),venue.wrap,...after('venue'),description.wrap,counter,...after('description'),schedule,...(link?[link.wrap,...after('formUrl')]:[]),warnings,buttons,conflict);
+  localiseValidation(form);count();syncTimes();
+  // Saving sends every field with the version the form started from. A refusal keeps the form open with everything typed.
+  form.addEventListener('submit',async event=>{
+   event.preventDefault();if(busy)return;
+   const a=from.input.value,b=to.input.value;
+   for(const control of [title.input,...lines.map(line=>line.what.input)])control.setCustomValidity(control.value.trim()?'':t('requiredField'));
+   from.input.setCustomValidity(!a&&b?t('pgStartRequired'):'');to.input.setCustomValidity(a&&b&&b<=a?t('pgEndAfterStart'):checkin&&a&&!b?t('pgEndRequired'):'');
+   if(!form.reportValidity())return;
+   const payload={...values(),version:editor.version},unlock=lockForm(form,()=>entry.editor?.form.querySelector('input')||entry.edit);busy=true;
+   try{await action(save,async()=>{let result;try{result=await api('/api/admin/fiiu/programme/'+encodeURIComponent(start.id),payload,'PUT');}catch(err){throw refusal(err);}if(!validBlock(result?.activity)||result.activity.id!==start.id)throw Object.assign(Error(t('error')),{key:'error'});closeProgrammeEdit(entry);applyBlock(result.activity);},{feedback:entry.note,conflict,reload});}
+   finally{busy=false;unlock();}
+  });
+  return Object.assign(editor,{dirty:()=>JSON.stringify(values())!==initial,recount:()=>{count();warn();}});
+ }
+ // "Reload the latest version" re-reads the programme and takes only this block from it, so other rows keep what they show.
+ async function reloadBlock(id){const latest=(await readProgramme()).find(a=>a.id===id);if(!latest)throw Object.assign(Error(t('pgNotFound')),{key:'pgNotFound'});if(locked)return;applyBlock(latest);}
+ function programmePanel(){const heading=tr('h2','programmeSection');heading.id='f-h-programme';programmeHost.id='programme';programmeAlert.setAttribute('role','status');programmeHost.replaceChildren(heading,tr('p','pgHint','f-muted f-section-hint'),programmeAlert,programmeList);renderProgramme();return programmeHost;}
  // Content: one editor beside the list. Editing a publication sets an unsaved new-publication draft aside; Cancel, or saving that edit, brings it back.
  const currentEditor=()=>editors.get(editorHost.querySelector('form'));
  function showEditor(form,focus){editorHost.replaceChildren(form);if(focus)form.querySelector('input')?.focus();}
@@ -754,12 +932,12 @@
    const current=SECTIONS.map(([id])=>id).find(id=>visible.has(id));if(!current)return;
    for(const [id,a] of navLinks){if(id!==current){a.removeAttribute('aria-current');continue;}if(a.getAttribute('aria-current')==='true')continue;a.setAttribute('aria-current','true');const row=a.parentElement?.parentElement;if(row&&!row.contains(document.activeElement))revealInRow(row,a);}
   },{rootMargin:'-35% 0px -64% 0px'});
-  for(const section of [summaryHost,checkinHost,participantsHost,settingsHost,contentHost,conversationsHost])observer.observe(section);
+  for(const section of [summaryHost,checkinHost,participantsHost,settingsHost,programmeHost,contentHost,conversationsHost])observer.observe(section);
  }
  // A section link (#participants, kept through a reload or a return from sign-in) is reached once the sections above it have filled in: the totals,
  // the questions, the summary emails and the other participant pages push it down by thousands of pixels. One instant jump (html scrolls smoothly,
  // which would aim at the old place); someone who already scrolled, tapped or typed is left where they are, and later refreshes never scroll.
- const sectionHosts=()=>({overview:summaryHost,checkin:checkinHost,participants:participantsHost,settings:settingsHost,content:contentHost,conversations:conversationsHost});
+ const sectionHosts=()=>({overview:summaryHost,checkin:checkinHost,participants:participantsHost,settings:settingsHost,programme:programmeHost,content:contentHost,conversations:conversationsHost});
  const sectionId=location.hash.slice(1),wantsSection=SECTIONS.some(([id])=>id===sectionId);let movedOn=false;
  if(wantsSection){
   // The browser's own restoration would put a reload back where it was in a far shorter page; the section is the place to be.
@@ -768,10 +946,10 @@
  }
  function reachSection(filled){if(wantsSection)Promise.allSettled(filled).then(()=>{if(!movedOn&&!locked)sectionHosts()[sectionId]?.scrollIntoView({block:'start',behavior:'instant'});});}
  async function load(){
-  status(message,'loading');const summaryRequest=api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error})),questionsRequest=readQuestions().then(list=>({list}),error=>({error}));try{const [settingsData,posts,participantData]=await Promise.all([api('/api/admin/fiiu/config'),api('/api/admin/fiiu/content'),api('/api/admin/fiiu/registrations')]);festival={event:settingsData.event};config=settingsData.config;publications=posts.content;contentCursor=posts.nextCursor;setRecords(participantData.registrations);cursor=participantData.nextCursor;
+  status(message,'loading');const summaryRequest=api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error})),questionsRequest=readQuestions().then(list=>({list}),error=>({error})),programmeRequest=readProgramme().then(list=>({list}),error=>({error}));try{const [settingsData,posts,participantData]=await Promise.all([api('/api/admin/fiiu/config'),api('/api/admin/fiiu/content'),api('/api/admin/fiiu/registrations')]);festival={event:settingsData.event};config=settingsData.config;publications=posts.content;contentCursor=posts.nextCursor;setRecords(participantData.registrations);cursor=participantData.nextCursor;
    const grid=el('div','f-admin-columns');grid.append(listHost,detailHost);detailHost.replaceChildren(tr('p','selectParticipant','f-muted f-detail-empty'));const heading=tr('h2','participants');heading.id='f-h-participants';participantsHost.id='participants';participantsHost.replaceChildren(heading,filters(),grid);
-   root.replaceChildren(adminHead(),sessionNotice,adminNav(),summaryPanel(),checkinPanel(),participantsHost,settings(),contentPanel(),conversationsPanel(),newTabNote());renderRegistrationPill();
-   const filled=[readParticipants()];renderList();status(message,'');filled.push(refreshSummary({pending:summaryRequest}),refreshQuestions({pending:questionsRequest}));renderBackfill();filled.push(loadBackfill());setTitle();observeSections();
+   root.replaceChildren(adminHead(),sessionNotice,adminNav(),summaryPanel(),checkinPanel(),participantsHost,settings(),programmePanel(),contentPanel(),conversationsPanel(),newTabNote());renderRegistrationPill();
+   const filled=[readParticipants()];renderList();status(message,'');filled.push(refreshSummary({pending:summaryRequest}),refreshQuestions({pending:questionsRequest}),refreshProgramme({pending:programmeRequest}));renderBackfill();filled.push(loadBackfill());setTitle();observeSections();
    reachSection(filled);
   }catch(error){
    // Signed out before the dashboard loaded: sign in and come straight back. Signed in without organiser access: the organisers-only state, with no Retry.
@@ -784,7 +962,7 @@
  window.nodalI18n?.onChange(()=>{
   // fiiu-ui retranslates #fiiuStatus and the row notes through textContent, which drops the expired session's sign-in link.
   for(const node of [message,...root.querySelectorAll('.f-inline-status')])if(['unauthorized','attendanceSignIn'].includes(node.dataset.fiiuText)&&!node.querySelector('a'))node.append(document.createTextNode(' '),signInLink());
-  if(locked)return;rowCache=new WeakMap();setTitle();stampUpdated();recount?.();renderBackfill();newQuestion?.recount();for(const entry of questionRows.values())entry.editor?.recount();renderQuestions();if(lastSummary)renderSummary(lastSummary);else renderCheckin();});
+  if(locked)return;rowCache=new WeakMap();setTitle();stampUpdated();recount?.();renderBackfill();newQuestion?.recount();for(const entry of questionRows.values())entry.editor?.recount();for(const entry of programmeRows.values())entry.editor?.recount();renderQuestions();if(lastSummary)renderSummary(lastSummary);else renderCheckin();});
  timer=setInterval(()=>{
   if(!festival||locked||sessionLost||document.visibilityState!=='visible')return;
   // A pass that ended at the cap leaves yesterday's tally and cap message behind; the fresh state replaces them.
