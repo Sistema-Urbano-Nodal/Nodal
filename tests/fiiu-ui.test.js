@@ -1005,3 +1005,8 @@ test('an edited workshop or route time and its session lines show on its program
  h.lang('es');assert.equal(time.textContent,'Desde las 10:00');assert.equal(chosen.textContent,'Desde las 10:00');h.lang('pt');assert.equal(time.textContent,'A partir das 10:00');
  const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8');assert.match(css,/\.f-compact-time\{[^}]*font-variant-numeric:tabular-nums/);
 });
+
+test('the form’s choose-one hint and error say the closing party alone is enough, in every language',async()=>{
+ const h=await harness(),{t}=h.ctx.window.Fiiu;
+ for(const [lang,party] of [['en',/the closing party/],['es',/la fiesta de cierre/],['pt',/a festa de encerramento/]]){h.lang(lang);assert.match(t('choicesHint'),party,lang);assert.match(t('chooseActivity'),party,lang);}
+});
