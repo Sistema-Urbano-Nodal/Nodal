@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {FIIU_EVENT,CHECKIN_ACTIVITIES,activityMinutes,checkinWindow,canAttend,attendanceHours,isCheckinActivity,normalizeRegistration,REGISTERED_KINDS,canonicalTime,normalizeProgrammeEdit} from '../server/fiiu-domain.js';
+import {normalizeQuestion,TALK_LIMITS} from '../server/fiiu-talk-domain.js';
 
 const find=id=>FIIU_EVENT.activities.find(a=>a.id===id);
 
@@ -108,4 +109,17 @@ test('programme titles, dates, venues, descriptions, session lines and form link
  assert.equal(Object.hasOwn(edit('day1-am',{formUrl:'https://forms.gle/x'}),'formUrl'),false);
  assert.equal(Object.hasOwn(edit('closing-party',{formUrl:'http://x'}),'formUrl'),false);
  assert.deepEqual(Object.keys(edit('day1-am')),['title','date','time','venue','description','sessions']);
+});
+
+test('a session title fits a conversation question’s talk, so a question can name every session the editor saves',()=>{
+ const longest='x'.repeat(TALK_LIMITS.talk);
+ refused(()=>edit('day3-am',{sessions:[['09:00–10:30','x'.repeat(TALK_LIMITS.talk+1)]]}),'invalid_sessions');
+ const sessions=edit('day3-am',{sessions:[['09:00–10:30',longest]]}).sessions,event={...FIIU_EVENT,activities:FIIU_EVENT.activities.map(a=>a.id==='day3-am'?{...a,sessions}:a)};
+ assert.equal(normalizeQuestion({activityId:'day3-am',kind:'chat',body:'¿Qué opinan?',talk:longest,status:'open'},null,event).talk,longest);
+ // The talk's limit counts UTF-16 units, as the editor's maxlength does, so an emoji takes two: 180 code points of this are 181 units.
+ const sprout='Ciudades vivas 🌱 ',over=sprout+'x'.repeat(TALK_LIMITS.talk-[...sprout].length),fits=over.slice(0,-1);
+ assert.deepEqual([[...over].length,over.length],[TALK_LIMITS.talk,TALK_LIMITS.talk+1]);
+ refused(()=>edit('day3-am',{sessions:[['09:00–10:30',over]]}),'invalid_sessions');
+ const saved=edit('day3-am',{sessions:[['09:00–10:30',fits]]}).sessions,edited={...FIIU_EVENT,activities:FIIU_EVENT.activities.map(a=>a.id==='day3-am'?{...a,sessions:saved}:a)};
+ assert.equal(normalizeQuestion({activityId:'day3-am',kind:'chat',body:'¿Qué opinan?',talk:fits,status:'open'},null,edited).talk,fits);
 });

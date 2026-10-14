@@ -86,13 +86,44 @@ test('outcomes: sent keeps the provider’s time, uncertain the attempt’s, fai
  const retry=outbox();
  const passes=await sendAll({store,notify:retry.notify,event:FIIU_EVENT,retryFailed:true,size:1,now:NOW});
  assert.deepEqual(retry.sent.map(m=>m.registration.email),['bounce@fiiu-inbox.dev'],'only the failed one still waiting; uncertain is never resent');
- assert.equal(passes.reduce((n,b)=>n+b.sent,0),1);assert.equal(noticeOf(db,bounce.userId).status,'sent');assert.equal(noticeOf(db,later.userId).status,'failed');
+ assert.equal(passes.reduce((n,b)=>n+b.sent,0),1);assert.equal(noticeOf(db,bounce.userId).status,'sent');
+ assert.equal(noticeOf(db,later.userId),null,'their failed row goes, so no failed one is left to offer a retry for');assert.equal((await noticeCounts(store)).failed,0);
  assert.equal(mail.length,5);
- // A failed row another sender claims between the read and the claim is left to it (compare-and-set failed → pending).
+ // Should they take the party out again, they are waiting once more, like anyone never announced to.
  db.prepare("UPDATE fiiu_registrations SET answers=json_set(answers,'$.activities',json('[\"day1-am\"]')) WHERE id=?").run(later.id);
+ assert.equal((await noticeCounts(store)).waiting,1);
+ assert.equal((await sendNoticeBatch({store,notify:outbox(()=>({status:'failed'})).notify,event:FIIU_EVENT,now:NOW})).failed,1);assert.equal(noticeOf(db,later.userId).status,'failed');
+ // A failed row another sender claims between the read and the claim is left to it (compare-and-set failed → pending).
  const racing={...store,find:async(name,filters,options)=>{const rows=await store.find(name,filters,options);if(name==='notices'&&filters.status==='failed')db.prepare("UPDATE fiiu_notices SET status='pending' WHERE status='failed'").run();return rows;}};
  const lost=await sendNoticeBatch({store:racing,notify:retry.notify,event:FIIU_EVENT,retryFailed:true,now:NOW});
  assert.deepEqual([lost.sent,lost.claimedElsewhere,retry.sent.length],[0,1,1]);
+});
+
+test('a retry settles the failed notices nobody can be retried for, someone who has since added the party or cancelled, so the failed count is only people a retry reaches',async t=>{
+ const {db,store}=local(t);
+ const [joined,cancelled,still]=await people(db,store,[{email:'joined@fiiu-inbox.dev',notice:'failed'},{email:'cancelled@fiiu-inbox.dev',notice:'failed'},{email:'still@fiiu-inbox.dev',notice:'failed'}]);
+ db.prepare("UPDATE fiiu_registrations SET answers=json_set(answers,'$.activities',json('[\"closing-party\"]')) WHERE id=?").run(joined.id);
+ // The notice row outlives the registration: it belongs to the account (the cancel route removes the registration this way).
+ assert.equal(await store.remove('registrations',{id:cancelled.id,userId:cancelled.userId,version:1}),1);
+ assert.equal((await noticeCounts(store)).failed,3);
+ const {sent:mail,notify}=outbox(),passes=await sendAll({store,notify,event:FIIU_EVENT,retryFailed:true,size:2,now:NOW});
+ assert.deepEqual(mail.map(m=>m.registration.email),['still@fiiu-inbox.dev']);assert.deepEqual([passes.reduce((n,b)=>n+b.sent,0),passes.reduce((n,b)=>n+b.failed,0),passes.at(-1).next],[1,0,null]);
+ assert.deepEqual([joined,cancelled].map(p=>noticeOf(db,p.userId)),[null,null]);assert.equal(noticeOf(db,still.userId).status,'sent');
+ assert.deepEqual(await noticeCounts(store),{waiting:0,pending:0,sent:1,failed:0,uncertain:0,skipped:0},'no failed one is left, and the person with the party is not waiting');
+ assert.deepEqual((await sendAll({store,notify,event:FIIU_EVENT,retryFailed:true,now:NOW})).map(b=>[b.sent,b.next]),[[0,null]]);assert.equal(mail.length,1);
+});
+
+test('a retry whose cleanup of an unreachable failed row fails still sends to everyone it can reach, and the row waits for the next pass',async t=>{
+ const {db,store}=local(t);
+ const [joined,still]=await people(db,store,[{email:'joined@fiiu-inbox.dev',notice:'failed'},{email:'still@fiiu-inbox.dev',notice:'failed'}]);
+ db.prepare("UPDATE fiiu_registrations SET answers=json_set(answers,'$.activities',json('[\"closing-party\"]')) WHERE id=?").run(joined.id);
+ // A Supabase 5xx or timeout on the DELETE of the stale row.
+ const flaky={...store,remove:async(name,...args)=>{if(name==='notices')throw Object.assign(Error('festival deletion unavailable'),{status:502});return store.remove(name,...args);}};
+ const {sent:mail,notify}=outbox(),batch=await sendNoticeBatch({store:flaky,notify,event:FIIU_EVENT,retryFailed:true,now:NOW});
+ assert.deepEqual(mail.map(m=>m.registration.email),['still@fiiu-inbox.dev']);assert.deepEqual([batch.sent,batch.failed,batch.next],[1,0,null]);
+ assert.equal(noticeOf(db,still.userId).status,'sent');assert.equal(noticeOf(db,joined.userId).status,'failed','left for the next retry pass');
+ await sendNoticeBatch({store,notify,event:FIIU_EVENT,retryFailed:true,now:NOW});
+ assert.equal(noticeOf(db,joined.userId),null,'the next pass settles it');assert.equal(mail.length,1);
 });
 
 test('summary emails and party notices share one daily cap, counted from every send that may have reached the provider',async t=>{
@@ -133,6 +164,26 @@ test('a claim that finds the cap filled by a sender that got in first is put bac
  assert.equal((await sendNoticeBatch({store,notify:send,event:FIIU_EVENT,dailyCap:3,now:NOW})).sent,1);
  assert.equal((await sendNoticeBatch({store,notify:send,event:FIIU_EVENT,retryFailed:true,dailyCap:3,now:NOW})).sent,1);
  assert.equal((await sendConfirmationBatch({store,confirm:send,event:FIIU_EVENT,dailyCap:3,now:NOW})).sent,1);
+ assert.deepEqual(mail,['first@fiiu-inbox.dev','retried@fiiu-inbox.dev','summary@fiiu-inbox.dev']);
+});
+
+test('a claim whose cap count fails is put back unsent before the error goes on, so the next pass sends it: notices, their retries and summaries alike',async t=>{
+ const {db,store}=local(t);
+ const [first,retried,summary]=await people(db,store,[{email:'first@fiiu-inbox.dev'},{email:'retried@fiiu-inbox.dev',notice:'failed'},{email:'summary@fiiu-inbox.dev',summary:'none',activities:['closing-party']}]);
+ // The batch's own two counts of today's total pass; the next one, made once the person is claimed, fails (a Supabase 5xx or timeout).
+ const flaky=()=>{let n=0;return {...store,count:async(...args)=>{if(++n===3)throw Object.assign(Error('festival data unavailable'),{status:502});return store.count(...args);}};};
+ const summaryOf=()=>({...db.prepare('SELECT confirmation_status AS status,confirmation_sent_at AS sentAt,confirmation_language AS language FROM fiiu_registrations WHERE id=?').get(summary.id)});
+ const mail=[],send=async({registration})=>{mail.push(registration.email);return {status:'sent',sentAt:'2026-10-14T18:00:05.000Z'};};
+ await assert.rejects(sendNoticeBatch({store:flaky(),notify:send,event:FIIU_EVENT,now:NOW}),/festival data unavailable/);
+ assert.equal(noticeOf(db,first.userId),null,'no pending row is left behind: still waiting, and not counted against the cap');
+ await assert.rejects(sendNoticeBatch({store:flaky(),notify:send,event:FIIU_EVENT,retryFailed:true,now:NOW}),/festival data unavailable/);
+ assert.deepEqual(noticeOf(db,retried.userId),{status:'failed',sentAt:null,language:'es'},'the failed row is back as it was, for the next retry');
+ await assert.rejects(sendConfirmationBatch({store:flaky(),confirm:send,event:FIIU_EVENT,now:NOW}),/festival data unavailable/);
+ assert.deepEqual(summaryOf(),{status:'none',sentAt:null,language:null},'the summary is back to waiting');
+ assert.deepEqual(mail,[]);assert.equal((await noticeState(store,{now:NOW})).sentToday,0);
+ assert.equal((await sendNoticeBatch({store,notify:send,event:FIIU_EVENT,now:NOW})).sent,1);
+ assert.equal((await sendNoticeBatch({store,notify:send,event:FIIU_EVENT,retryFailed:true,now:NOW})).sent,1);
+ assert.equal((await sendConfirmationBatch({store,confirm:send,event:FIIU_EVENT,now:NOW})).sent,1);
  assert.deepEqual(mail,['first@fiiu-inbox.dev','retried@fiiu-inbox.dev','summary@fiiu-inbox.dev']);
 });
 
@@ -201,10 +252,10 @@ test('the party notice sender is off where the summary is off, skips test addres
  assert.ok(logs.every(line=>!/@/.test(line)),logs.join('\n'));
 });
 
-async function app(t,{notice,backfill={now:()=>NOW}}={}){
+async function app(t,{notice,backfill={now:()=>NOW},wrap=store=>store}={}){
  const db=createDatabase({filename:':memory:'});t.after(()=>db.close());const store=createFiiuStore({db}),cookies={};
  for(const [name,role] of [['member','member'],['admin','admin']])cookies[name]=createSession(db,createUser(db,{fullName:name,email:`${name}@fiiu-inbox.dev`,passwordHash:'unused',role}).id).cookie.split(';')[0];
- const server=createApp({db,fiiuStore:store,fiiuConfirmation:null,fiiuPartyNotice:notice,fiiuBackfill:backfill});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
+ const server=createApp({db,fiiuStore:wrap(store),fiiuConfirmation:null,fiiuPartyNotice:notice,fiiuBackfill:backfill});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
  const base=`http://127.0.0.1:${server.address().port}`;
  const call=(path,{actor='admin',method='GET',body,origin=base}={})=>fetch(base+path,{method,headers:{...(cookies[actor]?{Cookie:cookies[actor]}:{}),Origin:origin,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
  return {db,store,call};
@@ -243,9 +294,34 @@ test('the announcement is for organisers only, same-origin, validated, answers 5
  assert.equal(mail.length,0);
  const first=await call('/api/admin/fiiu/notices/closing-party',{method:'POST',body:{}});assert.equal(first.status,200);
  const capped=await call('/api/admin/fiiu/notices/closing-party',{method:'POST',body:{after:(await first.json()).next}});assert.equal(capped.status,429);
- assert.deepEqual(await capped.json(),{error:'daily email limit reached',code:'daily_cap',dailyCap:1,sentToday:1,resetsAt:'2026-10-15T00:00:00.000Z',counts:{waiting:1,pending:0,sent:1,failed:0,uncertain:0,skipped:0}});
+ assert.deepEqual(await capped.json(),{error:'daily email limit reached',code:'daily_cap',dailyCap:1,sentToday:1,resetsAt:'2026-10-15T00:00:00.000Z',counts:{waiting:1,pending:0,sent:1,failed:0,uncertain:0,skipped:0},sent:0,failed:0,uncertain:0,skipped:0,claimedElsewhere:0});
  assert.equal(mail.length,1);
  assert.equal((await call('/api/admin/fiiu/notices/other-kind',{method:'POST',body:{}})).status,404);
+});
+
+test('a party batch another sender stops at today’s cap answers 429 with the announcements it did send, for the panel’s report',async t=>{
+ let inserts=0,rival=null;
+ // The batch's fourth claim waits while a summary email takes the last place left today.
+ const wrap=base=>({...base,insert:async(name,row)=>{if(name==='notices'&&++inserts===4){await new Promise(resolve=>setTimeout(resolve,50));await base.update('registrations',{id:rival.id},{confirmationStatus:'pending',confirmationSentAt:new Date(NOW).toISOString()});}return base.insert(name,row);}});
+ const {sent:mail,notify}=outbox(),{db,store,call}=await app(t,{notice:notify,backfill:{now:()=>NOW,dailyCap:4},wrap});
+ [rival]=await people(db,store,[{email:'rival@fiiu-inbox.dev',activities:['closing-party'],summary:'none'},...Array.from({length:6},(_,i)=>({email:`p${i}@fiiu-inbox.dev`}))]);
+ const response=await call('/api/admin/fiiu/notices/closing-party',{method:'POST',body:{}});assert.equal(response.status,429);
+ assert.deepEqual(await response.json(),{error:'daily email limit reached',code:'daily_cap',dailyCap:4,sentToday:4,resetsAt:'2026-10-15T00:00:00.000Z',counts:{waiting:3,pending:0,sent:3,failed:0,uncertain:0,skipped:0},sent:3,failed:0,uncertain:0,skipped:0,claimedElsewhere:0});
+ assert.deepEqual(mail.map(m=>m.registration.email),['p0@fiiu-inbox.dev','p1@fiiu-inbox.dev','p2@fiiu-inbox.dev']);
+});
+
+test('a failed announcement goes as soon as its person adds the party or cancels, so the panel never offers a retry nobody can get',async t=>{
+ const {db,store,call}=await app(t,{notice:outbox().notify});
+ const register=async actor=>{const response=await call('/api/fiiu/registration',{actor,method:'PUT',body:{version:0,...answers}});assert.equal(response.status,200);return (await response.json()).registration;};
+ const fail=async ({userId})=>store.insert('notices',{id:randomUUID(),eventId:'fiiu-2026',userId,kind:'closing-party',status:'failed',language:'es',sentAt:null,createdAt:'2026-10-14T17:00:00.000Z',updatedAt:'2026-10-14T17:00:00.000Z'});
+ const [member,admin]=[await register('member'),await register('admin')];await fail(member);await fail(admin);
+ const failedCount=async()=>(await(await call('/api/admin/fiiu/notices/closing-party')).json()).counts.failed;
+ assert.equal(await failedCount(),2);
+ const edit=activities=>call('/api/fiiu/registration',{actor:'member',method:'PUT',body:{...answers,activities,version:member.version,registrationId:member.id}});
+ assert.equal((await edit(['day1-am','day1-pm'])).status,200);assert.equal(noticeOf(db,member.userId).status,'failed','still without the party: the retry is still theirs');member.version++;
+ assert.equal((await edit(['day1-am','closing-party'])).status,200);assert.equal(noticeOf(db,member.userId),null);
+ assert.equal((await call('/api/fiiu/registration',{actor:'admin',method:'DELETE',body:{version:admin.version,registrationId:admin.id}})).status,200);assert.equal(noticeOf(db,admin.userId),null);
+ assert.equal(await failedCount(),0);
 });
 
 test('the local database keeps notices as the migration does: one per person and kind, gone with the account',async t=>{
