@@ -14,6 +14,7 @@ import { createCourseStore } from './courses-repository.js';
 import { createCourseApi, createByteBudget, DOWNLOAD_LIMITS } from './courses-api.js';
 import { createFiiuStore } from './fiiu-repository.js';
 import { createFiiuApi, exportFiiuData } from './fiiu-api.js';
+import { createProgramme } from './fiiu-programme.js';
 import { createTalkStore } from './fiiu-talk-repository.js';
 import { createTalkApi, exportTalkData, assertTalkDataDeletable, deleteTalkData } from './fiiu-talk-api.js';
 import { resolveCheckinSecret, checkinClock } from './fiiu-checkin.js';
@@ -1012,6 +1013,9 @@ export function createApp({
     secret: resolveCheckinSecret(process.env, repository?.kind === 'supabase' ? 'supabase' : 'sqlite'),
     now: checkinClock(process.env, repository?.kind === 'supabase' ? 'supabase' : 'sqlite'),
   } : null,
+  /* The festival programme with the organisers' edits (server/fiiu-programme.js), read at most every 30 s per instance.
+     One for the festival API and the conversations, so a save clears the memo both read. */
+  fiiuProgramme = fiiuStore ? createProgramme({ store: fiiuStore }) : null,
   // text => {size, modules} QR encoder for the check-in screen; null makes the API answer qr: null.
   encodeQr = encodeQrCode,
   /* The FIIU registration summary email (server/fiiu-email.js), sent after a first registration, or null (off).
@@ -1214,7 +1218,7 @@ export function createApp({
   // Check-in links point at the configured public origin; only a server outside production falls back to its Host.
   const fiiuPublicOrigin=req=>{try{return publicBaseUrl();}catch(err){if(process.env.NODE_ENV==='production')throw err;return new URL(`http://${req.headers.host}`).origin;}};
   const fiiuApi=fiiuStore?createFiiuApi({store:fiiuStore,sameOrigin,send,checkin:fiiuCheckin??{},encodeQr,publicOrigin:fiiuPublicOrigin,
-    confirmation:fiiuConfirmation,emailAllowed:user=>fiiuEmailLimiter.take(`fiiu-email:${user.id}`).ok&&fiiuEmailCeiling.take('fiiu-email:all').ok,backfill:fiiuBackfill,
+    confirmation:fiiuConfirmation,emailAllowed:user=>fiiuEmailLimiter.take(`fiiu-email:${user.id}`).ok&&fiiuEmailCeiling.take('fiiu-email:all').ok,backfill:fiiuBackfill,programme:fiiuProgramme,
     rateLimit:(req,res,user,pathname)=>['GET','HEAD'].includes(req.method)?throttle(user?fiiuReadLimiter:fiiuPublicReadLimiter,res,req,user,'fiiu')
       :req.method==='PUT'&&/^\/api\/admin\/fiiu\/registrations\/[^/]+\/attendance$/.test(pathname)?throttle(fiiuCheckInLimiter,res,req,user,'fiiu-checkin')
       :req.method==='POST'&&pathname==='/api/fiiu/checkin'?throttle(fiiuSelfCheckInLimiter,res,req,user,'fiiu-self-checkin')
@@ -1227,7 +1231,7 @@ export function createApp({
      asks for none (see SESSIONLESS_API); every other read is a signed-in account's. */
   const talkLimit={...TALK_RATE_LIMITS,...talkLimits};
   const talkMessageLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.message}),talkUploadLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.upload}),talkLikeLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.like}),talkModerateLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.moderate}),talkFileLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.file});
-  const talkApi=talkStore?createTalkApi({store:talkStore,sameOrigin,send,downloads,encodeQr,publicOrigin:fiiuPublicOrigin,clock:talkClock,
+  const talkApi=talkStore?createTalkApi({store:talkStore,sameOrigin,send,downloads,encodeQr,publicOrigin:fiiuPublicOrigin,clock:talkClock,programme:fiiuProgramme,
     rateLimit:(req,res,user,pathname,kind)=>throttle({read:fiiuReadLimiter,file:talkFileLimiter,message:talkMessageLimiter,upload:talkUploadLimiter,like:talkLikeLimiter,moderate:talkModerateLimiter}[kind]??fiiuWriteLimiter,res,req,user,`fiiu-talk-${kind}`),
   }):null;
   // NODAL news: guests read the public feed from shared venue or office Wi-Fi, so their budget mirrors the FIIU

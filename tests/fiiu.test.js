@@ -650,6 +650,8 @@ test('a first QR check-in reads the registration and its attendance once before 
  const counted=store=>({...store,...Object.fromEntries(['find','insert','update','remove','count'].map(method=>[method,(...args)=>{calls?.push(`${method} ${args[0]}`);return store[method](...args);}]))});
  const {call,save}=await setup(t,counted,options);
  const {registration}=await(await save()).json();
+ // A warm instance: the programme is read once per 30 seconds, not per scan.
+ assert.equal((await call('/api/fiiu')).status,200);
  for(const [status,expected] of [[201,['find registrations','find attendance','insert attendance']],[200,['find registrations','find attendance']]]){
   calls=[];const response=await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code});assert.equal(response.status,status);
   assert.deepEqual((await response.json()).attendance.map(a=>a.activityId),['day1-am']);assert.deepEqual(calls,expected);
@@ -1094,4 +1096,113 @@ test('end to end through the real sender: the button delivers to the mail server
  assert.ok(db.prepare("SELECT count(*) n FROM fiiu_registrations WHERE confirmation_sent_at IS NOT NULL").get().n===2);
  // A later command-line run finds nobody left to email.
  assert.equal((await sendConfirmations({store,log:()=>{}})).listed,0);
+});
+
+// Organisers edit the details of programme blocks (server/fiiu-programme.js): every reader follows the edit.
+const programmeEdit=(id,changes={})=>{const a=FIIU_EVENT.activities.find(x=>x.id===id);return {title:a.title,date:a.date,time:a.time,venue:a.venue,description:'',sessions:a.sessions,...(a.formUrl?{formUrl:a.formUrl}:{}),version:0,...changes};};
+const putProgramme=(call,id,body,actor='admin')=>call(`/api/admin/fiiu/programme/${id}`,{actor,method:'PUT',body});
+
+test('an organiser edit reaches the public and organiser programme, the check-in window, hours, the export and the summary email at once',async t=>{
+ const {clock,codes,options}=festivalClock('2026-10-21T14:00:00Z');// 09:00 in Lima
+ const sent=[],confirmation=createRegistrationConfirmation({transport:{loopback:true,async send(message){sent.push(message);}},origin:'https://nodal.example.org',log:()=>{}});
+ const {call,save}=await mailSetup(t,{confirmation,app:options});
+ const before=await(await call('/api/fiiu',{actor:'guest'})).json(),am=before.event.activities.find(a=>a.id==='day1-am');
+ assert.deepEqual([am.title,am.edited,am.description],['El poder de lo local',false,'']);
+ const body=programmeEdit('day1-am',{title:'El poder de lo local, editado',time:'10:00-15:00',description:'Traer DNI.\nhttps://fiiu.example/mapa',sessions:[['10:00–15:00','Todo el bloque']]});
+ const response=await putProgramme(call,'day1-am',body);assert.equal(response.status,200);
+ const {activity}=await response.json();
+ assert.deepEqual([activity.title,activity.time,activity.edited,activity.version,activity.checkedIn,activity.minutes],['El poder de lo local, editado','10:00–15:00',true,1,0,300]);
+ assert.deepEqual(activity.original,{title:'El poder de lo local',date:'2026-10-21',time:'09:00–13:00',venue:'Auditorio MALI, Cercado de Lima',description:'',sessions:FIIU_EVENT.activities.find(a=>a.id==='day1-am').sessions});
+ // The public programme shows it at once: this instance's 30-second memo is cleared by the save.
+ const after=(await(await call('/api/fiiu',{actor:'guest'})).json()).event.activities.find(a=>a.id==='day1-am');
+ assert.deepEqual([after.title,after.time,after.description,after.sessions,after.edited,after.minutes,after.checkin],['El poder de lo local, editado','10:00–15:00','Traer DNI.\nhttps://fiiu.example/mapa',[['10:00–15:00','Todo el bloque']],true,300,{closesAt:'2026-10-21T20:30:00.000Z'}]);
+ assert.equal((await(await call('/api/admin/fiiu/config',{actor:'admin'})).json()).event.activities.find(a=>a.id==='day1-am').title,'El poder de lo local, editado');
+ assert.equal((await(await call('/api/admin/fiiu/checkin?activityId=day1-am',{actor:'admin'})).json()).window.closesAt,'2026-10-21T20:30:00.000Z');
+ // The summary email names the edited block and its new time.
+ const {registration}=await(await save({activities:['day1-am']})).json();
+ assert.equal(sent.length,1);assert.match(sent[0].text,/10:00–15:00 · Bloque de conferencias\n  El poder de lo local, editado\n/);
+ // Hours follow the new time: five hours, in the person's page, the organiser view and the export.
+ const scanned=await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code},'ana');assert.equal(scanned.status,201);
+ const result=await scanned.json();assert.deepEqual(result.hours,{minutes:300,hours:5,untimed:[]});assert.equal(result.activity.title,'El poder de lo local, editado');
+ assert.deepEqual((await(await call('/api/fiiu/registration',{actor:'ana'})).json()).hours,{minutes:300,hours:5,untimed:[]});
+ assert.equal((await(await call(`/api/admin/fiiu/registrations/${registration.id}`,{actor:'admin'})).json()).hours.hours,5);
+ const [header,row]=(await(await call('/api/admin/fiiu/export',{actor:'admin'})).text()).replace(/^﻿/,'').split('\r\n').map(line=>line.slice(1,-1).split('","'));
+ assert.deepEqual(['attendedMinutes','certificateHours'].map(name=>row[header.indexOf(name)]),['300','5']);
+ // The window closes 30 minutes after the new end (15:30 in Lima), not the old one (13:30).
+ await save({activities:['day1-am']},'bea');clock.set('2026-10-21T20:00:00Z');
+ assert.equal((await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code},'bea')).status,201);
+ clock.set('2026-10-21T20:31:00Z');assert.equal((await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code},'tester')).status,409);
+ // The organiser list counts the block's check-ins.
+ const list=(await(await call('/api/admin/fiiu/programme',{actor:'admin'})).json()).activities;
+ assert.equal(list.find(a=>a.id==='day1-am').checkedIn,2);
+});
+
+test('programme edits are versioned, restorable, for organisers only, same-origin, and each refusal carries its code',async t=>{
+ const {call,save}=await setup(t);
+ const list=await call('/api/admin/fiiu/programme',{actor:'admin'});assert.equal(list.status,200);
+ const {activities}=await list.json();
+ assert.deepEqual(activities.map(a=>a.id),FIIU_EVENT.activities.map(a=>a.id),'every block, the party, workshops and routes included');
+ for(const a of activities){
+  const built=FIIU_EVENT.activities.find(x=>x.id===a.id);
+  assert.deepEqual([a.version,a.edited,a.checkedIn,a.description],[0,false,0,''],a.id);
+  assert.deepEqual(a.original,{title:built.title,date:built.date,time:built.time,venue:built.venue,description:'',sessions:built.sessions,...(built.registration==='external'?{formUrl:built.formUrl}:{})},a.id);
+ }
+ // Versions: 0 creates, the current version changes, an old one is a conflict that answers the current item.
+ let response=await putProgramme(call,'closing-party',programmeEdit('closing-party',{title:'Fiesta 1',time:'18:00'}));assert.equal(response.status,200);assert.equal((await response.json()).activity.version,1);
+ response=await putProgramme(call,'closing-party',programmeEdit('closing-party',{title:'Fiesta stale'}));assert.equal(response.status,409);
+ let conflict=await response.json();assert.equal(conflict.code,'programme_conflict');assert.deepEqual([conflict.activity.title,conflict.activity.version,conflict.activity.time],['Fiesta 1',1,'18:00']);
+ response=await putProgramme(call,'closing-party',programmeEdit('closing-party',{title:'Fiesta 2',version:1}));assert.equal(response.status,200);assert.equal((await response.json()).activity.version,2);
+ // Two organisers saving the same version at once: one wins, the other gets the winner's item.
+ const race=await Promise.all([putProgramme(call,'day2-pm',programmeEdit('day2-pm',{title:'A'})),putProgramme(call,'day2-pm',programmeEdit('day2-pm',{title:'B'}))]);
+ assert.deepEqual(race.map(r=>r.status).sort(),[200,409]);const lost=await race.find(r=>r.status===409).json();assert.equal(lost.code,'programme_conflict');assert.equal(lost.activity.version,1);
+ // Restore: an old version is a conflict; the current one brings the built-in values back.
+ response=await call('/api/admin/fiiu/programme/closing-party?version=1',{actor:'admin',method:'DELETE'});assert.equal(response.status,409);
+ conflict=await response.json();assert.deepEqual([conflict.code,conflict.activity.version],['programme_conflict',2]);
+ response=await call('/api/admin/fiiu/programme/closing-party?version=2',{actor:'admin',method:'DELETE'});assert.equal(response.status,200);
+ const restored=(await response.json()).activity;assert.deepEqual([restored.title,restored.time,restored.version,restored.edited],['¡Fiesta de cierre y Chelas Urbanas!','17:00',0,false]);
+ assert.equal((await(await call('/api/fiiu',{actor:'guest'})).json()).event.activities.find(a=>a.id==='closing-party').title,'¡Fiesta de cierre y Chelas Urbanas!');
+ assert.equal((await call('/api/admin/fiiu/programme/closing-party?version=0',{actor:'admin',method:'DELETE'})).status,200,'restoring a block that has no edit is a no-op');
+ assert.equal((await call('/api/admin/fiiu/programme/day2-pm?version=0',{actor:'admin',method:'DELETE'})).status,409,'an edit made since is not thrown away');
+ assert.equal((await call('/api/admin/fiiu/programme/day2-pm?version=x',{actor:'admin',method:'DELETE'})).status,400);
+ // Unknown and legacy blocks, members, guests and other origins.
+ for(const id of ['no-such-block','workshop-day1'])assert.equal((await putProgramme(call,id,programmeEdit('day1-am'))).status,404,id);
+ assert.equal((await putProgramme(call,'day1-am',programmeEdit('day1-am'),'member')).status,403);
+ assert.equal((await call('/api/admin/fiiu/programme')).status,403);assert.equal((await call('/api/admin/fiiu/programme',{actor:'guest'})).status,401);
+ assert.equal((await call('/api/admin/fiiu/programme/day1-am',{actor:'admin',method:'PUT',body:programmeEdit('day1-am'),origin:'https://elsewhere.test'})).status,403);
+ assert.equal((await call('/api/admin/fiiu/programme/day1-am?version=0',{actor:'admin',method:'DELETE',origin:'https://elsewhere.test'})).status,403);
+ // Each refusal reaches the panel with its code, and nothing is saved.
+ for(const [id,changes,code] of [['day1-am',{title:''},'invalid_title'],['day1-am',{date:'2026-10-26'},'invalid_date'],['day1-am',{time:'17:00'},'invalid_time'],['day1-am',{venue:'x'.repeat(201)},'invalid_venue'],
+  ['day1-am',{description:'x'.repeat(1501)},'invalid_description'],['day1-am',{sessions:'nope'},'invalid_sessions'],['workshop-bosques-urbanos',{formUrl:'http://forms.gle/x'},'invalid_form_url']]){
+  const refused=await putProgramme(call,id,programmeEdit(id,changes));assert.equal(refused.status,400,code);assert.equal((await refused.json()).code,code);
+ }
+ assert.equal((await putProgramme(call,'day1-am',programmeEdit('day1-am',{version:-1}))).status,400);
+ assert.equal((await(await call('/api/admin/fiiu/programme',{actor:'admin'})).json()).activities.find(a=>a.id==='day1-am').version,0);
+ // A member's own registration keeps working with edited blocks.
+ assert.equal((await save({...answers,activities:['day2-pm','closing-party']})).status,200);
+});
+
+test('the closing party never takes a check-in: not by QR, not by staff, not on the check-in screen, even for someone who added it',async t=>{
+ const {codes,options}=festivalClock('2026-10-25T22:00:00Z');// 17:00 in Lima
+ const {call,save}=await setup(t,undefined,options);
+ const {registration}=await(await save({...answers,activities:['day1-am','closing-party']})).json();
+ const qr=await scan(call,{activityId:'closing-party',code:codes.current('closing-party').code});assert.equal(qr.status,400);assert.equal((await qr.json()).code,'invalid_activity');
+ assert.equal((await scan(call,{code:codes.current('closing-party').code})).status,410,'a bare code never finds the party');
+ const staff=await call(`/api/admin/fiiu/registrations/${registration.id}/attendance`,{actor:'admin',method:'PUT',body:{activityId:'closing-party',attended:true}});
+ assert.equal(staff.status,400);assert.deepEqual(await staff.json(),{error:'participant is not registered for this activity'});
+ assert.equal((await call('/api/admin/fiiu/checkin?activityId=closing-party',{actor:'admin'})).status,400);
+ // Even after an organiser edits it to a full range.
+ assert.equal((await putProgramme(call,'closing-party',programmeEdit('closing-party',{time:'17:00–23:00'}))).status,200);
+ assert.equal((await scan(call,{activityId:'closing-party',code:codes.current('closing-party').code})).status,400);
+ const party=(await(await call('/api/fiiu',{actor:'guest'})).json()).event.activities.find(a=>a.id==='closing-party');assert.deepEqual([party.checkin,party.minutes],[null,null]);
+ assert.deepEqual((await(await call('/api/fiiu/registration')).json()).attendance,[]);
+});
+
+test('the settings no longer carry a party link: a stored one is dropped and a sent one is not saved',async t=>{
+ const {call,db}=await setup(t);
+ await createFiiuStore({db}).insert('config',{id:'fiiu-2026',data:{registrationOpen:true,programUrl:'https://canva.link/x',workshopsUrl:'',routesUrl:'',partyUrl:'https://example.org/party'},version:1});
+ assert.equal(Object.hasOwn((await(await call('/api/fiiu',{actor:'guest'})).json()).config,'partyUrl'),false);
+ const admin=(await(await call('/api/admin/fiiu/config',{actor:'admin'})).json()).config;assert.equal(Object.hasOwn(admin,'partyUrl'),false);assert.equal(admin.programUrl,'https://canva.link/x');
+ const saved=await call('/api/admin/fiiu/config',{actor:'admin',method:'PUT',body:{...admin,partyUrl:'https://example.org/party2'}});assert.equal(saved.status,200);
+ assert.equal(Object.hasOwn((await saved.json()).config,'partyUrl'),false);
+ assert.equal(Object.hasOwn(JSON.parse(db.prepare("SELECT data FROM fiiu_config").get().data),'partyUrl'),false);
 });

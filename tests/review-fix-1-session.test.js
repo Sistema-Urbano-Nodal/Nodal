@@ -94,7 +94,8 @@ test('the public FIIU programme never resolves, refreshes or clears a session', 
     assert.deepEqual((await res.json()).content, [], cookie);
   }
   assert.deepEqual(p.calls, [], 'no GoTrue or profile call, so no refresh token is redeemed');
-  assert.deepEqual(reads, Array(4).fill(['config', 'content']).flat());
+  // The programme (organisers' edits) is read once and then served from the instance's 30-second memo.
+  assert.deepEqual(reads, ['config', 'content', 'programme', ...Array(3).fill(['config', 'content']).flat()]);
 });
 
 test('the festival conversation pulse never resolves, refreshes or clears a session', async t => {

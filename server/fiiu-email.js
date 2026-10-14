@@ -235,7 +235,7 @@ ${body}
  return {subject,html,text};
 }
 
-/* The sender the API calls on a first registration: async ({registration, config, language}) → {status, sentAt?},
+/* The sender the API calls on a first registration: async ({registration, config, language, event}) → {status, sentAt?},
    never throwing. 'sent' once the provider accepted the message; 'failed' when it cannot have it (a refusal, an
    unreachable server, a timeout before the message was handed over), so a later retry cannot duplicate it;
    'uncertain' when the whole message went out without a final answer; 'skipped' for reserved test domains.
@@ -249,10 +249,10 @@ export function createRegistrationConfirmation({env=process.env,transport,origin
  if(!transport)return null;
  if(loopbackOnly&&!transport.loopback){log('FIIU confirmation email is off: a local SQLite server only sends to a loopback mail catcher');return null;}
  if(!origin){log('FIIU confirmation email is off: PUBLIC_BASE_URL is not configured');return null;}
- return async function confirm({registration,config,language}){
+ return async function confirm({registration,config,language,event}){
   if(isReservedRecipient(registration.email))return {status:'skipped'};
   let message;
-  try{message=registrationEmail({registration,config,language,origin});}
+  try{message=registrationEmail({registration,config,language,origin,...(event?{event}:{})});}
   catch{log(`FIIU confirmation email failed for registration ${registration.id} (template)`);return {status:'failed'};}
   try{await transport.send({to:registration.email,...message,language:emailLanguage(language)});return {status:'sent',sentAt:new Date().toISOString()};}
   catch(err){

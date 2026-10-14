@@ -1,7 +1,8 @@
 import {randomUUID} from 'node:crypto';
 import {fail,identifier,csv} from './courses-domain.js';
 import {bodyJson} from './courses-api.js';
-import {EVENT_ID,FIIU_EVENT,ALL_FIIU_ACTIVITIES,CHECKIN_ACTIVITIES,DEFAULT_CONFIG,normalizeRegistration,applicationStatus,version,normalizeContent,contentView,normalizeConfig,canAttend,checkinWindow,attendanceHours} from './fiiu-domain.js';
+import {EVENT_ID,FIIU_EVENT,LEGACY_FIIU_ACTIVITIES,configView,normalizeRegistration,applicationStatus,version,normalizeContent,contentView,normalizeConfig,canAttend,checkinWindow,attendanceHours,isCheckinActivity,normalizeProgrammeEdit} from './fiiu-domain.js';
+import {createProgramme,mergeActivity} from './fiiu-programme.js';
 import {createCheckinCodes} from './fiiu-checkin.js';
 import {packBits} from './qr.js';
 import {isReservedRecipient,EMAIL_LANGUAGES} from './fiiu-email.js';
@@ -23,6 +24,8 @@ export async function exportFiiuData(store,userId){
  const attendance=registration?await store.find('attendance',{registrationId:registration.id}):[];
  return {registration,attendance:attendance.map(attendanceView)};
 }
+// A block's built-in values, which "Restore original" brings back.
+const originalOf=({title,date,time,venue,description='',sessions,registration,formUrl})=>({title,date,time,venue,description,sessions,...(registration==='external'?{formUrl}:{})});
 // The summary email's language: the page's own (sent with the registration), else the site language cookie, else Spanish.
 export function registrationLanguage(input,req){
  if(EMAIL_LANGUAGES.includes(input?.language))return input.language;
@@ -34,8 +37,9 @@ export function registrationLanguage(input,req){
 // confirmation: async ({registration, config, language}) => {status, sentAt?}, the registration summary email (see
 // server/fiiu-email.js), or null when email is off; emailAllowed(user) spends one send from the account's hourly
 // allowance and the server-wide ceiling, and answers false when either is used up. backfill: {batchSize, dailyCap,
-// now} for the organiser's "Send the summary" button (server/fiiu-confirmations.js); tests shrink them.
-export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin={},encodeQr=null,publicOrigin=()=>fail('public base URL is not configured',503),confirmation=null,emailAllowed=()=>true,backfill={}}){
+// now} for the organiser's "Send the summary" button (server/fiiu-confirmations.js); tests shrink them. programme: the
+// merged programme (server/fiiu-programme.js), shared with the conversations so one save clears one memo.
+export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin={},encodeQr=null,publicOrigin=()=>fail('public base URL is not configured',503),confirmation=null,emailAllowed=()=>true,backfill={},programme=createProgramme({store})}){
  const {batchSize=BATCH_SIZE,dailyCap=DAILY_CAP,now:today=()=>Date.now()}=backfill;
  // A link the encoder cannot draw (say, an unusually long configured origin) leaves the screen its typed address and short code.
  const qrOf=link=>{if(!encodeQr)return null;try{return qrView(encodeQr(link));}catch{return null;}};
@@ -52,7 +56,13 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
   let row;try{row=await store.insert('attendance',{id:randomUUID(),...filters,confirmedBy:by,createdAt:at,method});}catch(err){if(err.status===404)fail('registration unavailable',404);if(err.status!==409||!await one('attendance',filters))throw err;return {created:false,attendance:await reread()};}
   return {created:true,attendance:known?[...known,row]:await reread()};
  }
- const config=async()=>{const row=await one('config',{id:EVENT_ID});return {...DEFAULT_CONFIG,...row?.data,version:row?.version??0};};
+ const config=async()=>{const row=await one('config',{id:EVENT_ID});return {...configView(row?.data),version:row?.version??0};};
+ /* The programme as it stands, organisers' edits included: the event, every activity a stored id may name (legacy ones
+    too) for hours and the export, and the blocks that take a check-in, whose windows follow their current times. */
+ const live=async()=>{const event=await programme.event();return {event,all:[...event.activities,...LEGACY_FIIU_ACTIVITIES],checkin:event.activities.filter(isCheckinActivity)};};
+ // A block as the organiser editor lists it: current values, the edit's version (0: none), the built-in values and,
+ // for a block that takes a check-in, how many people checked in (an edit to its time changes their hours).
+ const programmeItem=async(activity,row)=>({...mergeActivity(activity,row),version:row?.version??0,original:originalOf(activity),checkedIn:isCheckinActivity(activity)?await store.count('attendance',{activityId:activity.id}):0});
  const publications=async(url,onlyPublished)=>{
   // kind=materials lists recordings and materials together, with the same newest-first cursor as the other kinds.
   const kind=url.searchParams.get('kind')||undefined;
@@ -73,13 +83,13 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
   if(!read&&!sameOrigin(req)){send(res,403,{error:'cross-origin request rejected'});return true;}
   if(!rateLimit(req,res,user,path))return true;
   if(path==='/api/fiiu'){
-   const [settings,page]=await Promise.all([config(),publications(url,true)]);
+   const [settings,page,{event}]=await Promise.all([config(),publications(url,true),live()]);
    // The same answer for everyone and no cookies: the CDN serves repeat reads (a door rush on one venue address), at most ~15 s old.
-   send(res,200,{event:FIIU_EVENT,config:settings,...page},{'Cache-Control':'public, max-age=0, s-maxage=15, stale-while-revalidate=60'});return true;
+   send(res,200,{event,config:settings,...page},{'Cache-Control':'public, max-age=0, s-maxage=15, stale-while-revalidate=60'});return true;
   }
   if(path==='/api/fiiu/registration'){
    // serverTime is the check-in clock (FIIU_CHECKIN_NOW in a rehearsal), so the check-in page judges a closed block on a reload as a scan would, never by the phone.
-   if(req.method==='GET'){const data=await exportFiiuData(store,user.id);send(res,200,{...data,hours:attendanceHours(data.attendance),user:{id:user.id,name:user.name,email:user.email,city:user.city},isAdmin:user.permission==='admin',serverTime:new Date(clock()).toISOString()});return true;}
+   if(req.method==='GET'){const [data,{all}]=await Promise.all([exportFiiuData(store,user.id),live()]);send(res,200,{...data,hours:attendanceHours(data.attendance,all),user:{id:user.id,name:user.name,email:user.email,city:user.city},isAdmin:user.permission==='admin',serverTime:new Date(clock()).toISOString()});return true;}
    if(req.method==='PUT'){
     const [settings,input,existing]=await Promise.all([config(),body(req),one('registrations',{eventId:EVENT_ID,userId:user.id})]);
     if(!settings.registrationOpen)fail('registration is closed',403);
@@ -109,7 +119,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
     if(confirmation&&confirmationStatus==='none'&&emailAllowed(user)){
      // null: an organiser's batch claimed the row first and is sending it. A throw: the claim or the outcome write
      // failed, and the row says so ('none' or 'pending'). Either way this response reports the email as 'pending'.
-     let delivered=null;try{delivered=await deliverConfirmation({store,confirm:confirmation,config:settings,registration,attemptAt:now()});}catch{/* see above */}
+     let delivered=null;try{delivered=await deliverConfirmation({store,confirm:confirmation,config:settings,event:(await live()).event,registration,attemptAt:now()});}catch{/* see above */}
      registration={...registration,confirmationStatus:delivered?.status??'pending',confirmationSentAt:delivered?.sentAt??null};
     }
     send(res,200,{registration,confirmationEmail:registration.confirmationStatus});return true;
@@ -123,15 +133,15 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
   }
   if(path==='/api/fiiu/checkin'&&req.method==='POST'){
    // Self check-in from the session QR (or its 6-character code). Only the lab and the conference blocks qualify.
-   const input=await body(req),t=clock(),reply=(status,payload)=>{send(res,status,payload);return true;};
+   const [input,{all,checkin:blocks}]=await Promise.all([body(req),live()]),t=clock(),reply=(status,payload)=>{send(res,status,payload);return true;};
    const expired=()=>reply(410,{error:'check-in code expired',code:'expired'});
    let activity;
-   if(input.activityId===undefined||input.activityId===null||input.activityId===''){activity=codes.find(input.code,CHECKIN_ACTIVITIES)?.activity;if(!activity)return expired();}
-   else{activity=CHECKIN_ACTIVITIES.find(a=>a.id===input.activityId);if(!activity)return reply(400,{error:'invalid activity',code:'invalid_activity'});if(codes.verify(activity.id,input.code)===null)return expired();}
+   if(input.activityId===undefined||input.activityId===null||input.activityId===''){activity=codes.find(input.code,blocks)?.activity;if(!activity)return expired();}
+   else{activity=blocks.find(a=>a.id===input.activityId);if(!activity)return reply(400,{error:'invalid activity',code:'invalid_activity'});if(codes.verify(activity.id,input.code)===null)return expired();}
    const span=checkinWindow(activity),activityId=activity.id;
-   // The confirmation names the block it recorded (static programme data), so the page can say which one even before, or without, the programme.
+   // The confirmation names the block it recorded (as the programme stands), so the page can say which one even before, or without, the programme.
    const block={id:activityId,title:activity.title,date:activity.date,time:activity.time??'',venue:activity.venue??''};
-   const confirmed=(created,attendance)=>{const row=attendance.find(a=>a.activityId===activityId);return reply(created?201:200,{result:created?'checked_in':'already_checked_in',activityId,checkedInAt:row?.createdAt??null,method:row?.method??null,attendance:attendance.map(attendanceView),hours:attendanceHours(attendance),activity:block});};
+   const confirmed=(created,attendance)=>{const row=attendance.find(a=>a.activityId===activityId);return reply(created?201:200,{result:created?'checked_in':'already_checked_in',activityId,checkedInAt:row?.createdAt??null,method:row?.method??null,attendance:attendance.map(attendanceView),hours:attendanceHours(attendance,all),activity:block});};
    const registrationOpen=async()=>(await config()).registrationOpen;
    const notRegistered=async()=>reply(404,{error:'registration unavailable',code:'not_registered',activityId,registration:activity.registration,registrationOpen:await registrationOpen()});
    const registration=await one('registrations',{eventId:EVENT_ID,userId:user.id});
@@ -150,7 +160,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
   if(path==='/api/admin/fiiu/checkin'&&read){
    // The presenter screen: the current code and link, never participant data. Polled every 30 seconds per screen,
    // so the count is a single counted query rather than the full summary.
-   const activity=CHECKIN_ACTIVITIES.find(a=>a.id===url.searchParams.get('activityId'));
+   const activity=(await live()).checkin.find(a=>a.id===url.searchParams.get('activityId'));
    if(!activity){send(res,400,{error:'invalid activity',code:'invalid_activity'});return true;}
    const current=codes.current(activity.id),span=checkinWindow(activity),t=clock();
    const link=`${originFor(req)}/fiiu-checkin.html?a=${encodeURIComponent(activity.id)}&c=${current.code}`;
@@ -159,7 +169,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    return true;
   }
   if(path==='/api/admin/fiiu/config'){
-   if(req.method==='GET'){send(res,200,{event:FIIU_EVENT,config:await config()});return true;}
+   if(req.method==='GET'){const [{event},settings]=await Promise.all([live(),config()]);send(res,200,{event,config:settings});return true;}
    if(req.method==='PUT'){
     const input=await body(req),expected=version(input.version),data=normalizeConfig(input);
     const row=expected?await store.update('config',{id:EVENT_ID,version:expected},{data,version:expected+1}):await store.insert('config',{id:EVENT_ID,data,version:1});
@@ -177,7 +187,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
     if(input.retryFailed!==undefined&&typeof input.retryFailed!=='boolean')fail('invalid retryFailed');
     const after=input.after===undefined||input.after===null?null:identifier(input.after);
     if(!confirmation){send(res,503,{error:'email is not configured',code:'email_not_configured'});return true;}
-    const batch=await sendConfirmationBatch({store,confirm:confirmation,retryFailed:input.retryFailed===true,after,size:batchSize,dailyCap,now:today()});
+    const batch=await sendConfirmationBatch({store,confirm:confirmation,event:(await live()).event,retryFailed:input.retryFailed===true,after,size:batchSize,dailyCap,now:today()});
     const counts=await confirmationCounts(store);
     if(batch.capped){send(res,429,{error:'daily summary email limit reached',code:'daily_cap',dailyCap:batch.dailyCap,sentToday:batch.sentToday,resetsAt:batch.resetsAt,counts});return true;}
     send(res,200,{...batch,counts});return true;
@@ -185,7 +195,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
   }
   if(path==='/api/admin/fiiu/summary'&&req.method==='GET'){
    // The summary tags every ticked block 'general' (the Postgres function too), so the party joins the catalogue as one.
-   send(res,200,{summary:await store.summary(EVENT_ID,ALL_FIIU_ACTIVITIES.map(a=>a.registration==='social'?{...a,registration:'general'}:a))});return true;
+   send(res,200,{summary:await store.summary(EVENT_ID,(await live()).all.map(a=>a.registration==='social'?{...a,registration:'general'}:a))});return true;
   }
   if(path==='/api/admin/fiiu/registrations'&&req.method==='GET'){
    const cursor=url.searchParams.get('cursor'),after=cursor?identifier(cursor):undefined;
@@ -196,14 +206,14 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    // Attendance columns follow the registration columns, so existing spreadsheets keep their column positions:
    // what each person attended, certificate minutes and rounded hours, how each block was confirmed, and one Lima
    // check-in time per NODAL block. confirmationEmail (the summary email's status) comes last for the same reason.
-   const blocks=CHECKIN_ACTIVITIES.map(a=>a.id);
+   const {all,checkin:nodal}=await live(),blocks=nodal.map(a=>a.id);
    const rows=[['registrationId','email','firstName','lastName','country','city','profile','publicOfficial','activities','externalActivities','labStatus','institution','position','nationalId','gender','age','accessibility','accessibilityOther','motivation','motivationOther','previousAttendance','registeredAt','attendedActivities','attendedDays','attendedMinutes','certificateHours','checkInMethods',...blocks.map(id=>`checkInLima_${id}`),'confirmationEmail']];let after;
    const list=value=>Array.isArray(value)?value.join('; '):'';
-   const attended=new Map(),order=id=>{const i=ALL_FIIU_ACTIVITIES.findIndex(a=>a.id===id);return i<0?ALL_FIIU_ACTIVITIES.length:i;};
+   const attended=new Map(),order=id=>{const i=all.findIndex(a=>a.id===id);return i<0?all.length:i;};
    do{const page=await store.find('attendance',{},{after});for(const row of page)attended.set(row.registrationId,[...(attended.get(row.registrationId)??[]),row]);after=page.length===200?page.at(-1).id:null;}while(after);
    do{const page=await store.find('registrations',{eventId:EVENT_ID},{after});for(const r of page){
-    const a=r.answers,done=(attended.get(r.id)??[]).sort((x,y)=>order(x.activityId)-order(y.activityId)||(x.activityId<y.activityId?-1:1)),hours=attendanceHours(done),byId=new Map(done.map(x=>[x.activityId,x]));
-    const days=[...new Set(done.map(x=>ALL_FIIU_ACTIVITIES.find(y=>y.id===x.activityId)?.date).filter(Boolean))].sort();
+    const a=r.answers,done=(attended.get(r.id)??[]).sort((x,y)=>order(x.activityId)-order(y.activityId)||(x.activityId<y.activityId?-1:1)),hours=attendanceHours(done,all),byId=new Map(done.map(x=>[x.activityId,x]));
+    const days=[...new Set(done.map(x=>all.find(y=>y.id===x.activityId)?.date).filter(Boolean))].sort();
     rows.push([r.id,r.email,a.firstName,a.lastName,a.country,a.city,a.profile,a.publicOfficial,list(a.activities),list(a.externalActivities),r.labStatus,a.institution,a.position,a.nationalId,a.gender,a.age,list(a.accessibility),a.accessibilityOther,a.motivation,a.motivationOther,a.previousAttendance,r.createdAt,
      list(done.map(x=>x.activityId)),list(days),hours.minutes,hours.hours,list(done.map(x=>`${x.activityId}:${x.method??'staff'}`)),...blocks.map(id=>limaTime(byId.get(id)?.createdAt)),r.confirmationStatus??'none']);
    }after=page.length===200?page.at(-1).id:null;}while(after);
@@ -212,7 +222,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
   let match=path.match(/^\/api\/admin\/fiiu\/registrations\/([^/]+)(\/attendance)?$/);
   if(match){
    const registration=await one('registrations',{id:identifier(match[1]),eventId:EVENT_ID});if(!registration)fail('registration unavailable',404);
-   if(!match[2]&&req.method==='GET'){const attendance=await store.find('attendance',{registrationId:registration.id});send(res,200,{registration,attendance,hours:attendanceHours(attendance)});return true;}
+   if(!match[2]&&req.method==='GET'){const [attendance,{all}]=await Promise.all([store.find('attendance',{registrationId:registration.id}),live()]);send(res,200,{registration,attendance,hours:attendanceHours(attendance,all)});return true;}
    if(!match[2]&&req.method==='PATCH'){
     const input=await body(req),expected=version(input.version);
     if(!registration.answers.publicOfficial||!registration.answers.applyLab||!['pending','accepted','declined'].includes(input.labStatus))fail('invalid laboratory review');
@@ -220,14 +230,50 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
     if(!updated)fail('registration changed; reload before reviewing',409);send(res,200,{registration:updated});return true;
    }
    if(match[2]&&req.method==='PUT'){
-    const input=await body(req),activity=ALL_FIIU_ACTIVITIES.find(a=>a.id===input.activityId);
+    const [input,{all}]=await Promise.all([body(req),live()]),activity=all.find(a=>a.id===input.activityId);
     if(!activity||typeof input.attended!=='boolean')fail('invalid attendance');
     if(input.attended&&!canAttend(registration,activity))fail('participant is not registered for this activity');
     // Unticking removes the row whichever way it was recorded, so staff can correct a QR check-in.
     if(!input.attended)await store.remove('attendance',{registrationId:registration.id,activityId:activity.id});
     const attendance=input.attended?(await recordAttendance(registration,activity,{by:user.id,method:'staff'})).attendance:await store.find('attendance',{registrationId:registration.id});
-    send(res,200,{attendance,hours:attendanceHours(attendance)});return true;
+    send(res,200,{attendance,hours:attendanceHours(attendance,all)});return true;
    }
+  }
+  match=path.match(/^\/api\/admin\/fiiu\/programme(?:\/([^/]+))?$/);
+  if(match)try{
+   // Organisers edit the details of the built-in blocks, never their id, period or kind (registrations, check-ins and
+   // conversations point at those). One row per edited block with its own version: 0 creates it, an old version is a
+   // conflict answered with the block as it now stands, and DELETE restores the built-in values.
+   if(match[1]===undefined&&read){
+    const byId=new Map((await programme.rows()).map(row=>[row.id,row]));
+    send(res,200,{activities:await Promise.all(FIIU_EVENT.activities.map(activity=>programmeItem(activity,byId.get(activity.id))))});return true;
+   }
+   const activity=match[1]===undefined?null:FIIU_EVENT.activities.find(a=>a.id===match[1]);
+   if(match[1]!==undefined&&['PUT','DELETE'].includes(req.method)&&!activity)fail('activity unavailable',404);
+   const current=()=>one('programme',{id:activity.id,eventId:EVENT_ID});
+   const conflict=async row=>{send(res,409,{error:'programme changed; reload before saving',code:'programme_conflict',activity:await programmeItem(activity,row)});return true;};
+   if(activity&&req.method==='PUT'){
+    const input=await body(req),expected=version(input.version),data=normalizeProgrammeEdit(activity,input),existing=await current();
+    if((existing?.version??0)!==expected)return conflict(existing);
+    const patch={data,version:expected+1,updatedBy:user.id,updatedAt:now()};let row=null;
+    if(expected)row=await store.update('programme',{id:activity.id,eventId:EVENT_ID,version:expected},patch);
+    else try{row=await store.insert('programme',{id:activity.id,eventId:EVENT_ID,...patch});}catch(err){if(err.status!==409)throw err;}
+    // Cleared whatever happened: a lost race means the programme changed too.
+    programme.clear();
+    if(!row)return conflict(await current());
+    send(res,200,{activity:await programmeItem(activity,row)});return true;
+   }
+   if(activity&&req.method==='DELETE'){
+    const raw=url.searchParams.get('version')??'',expected=version(/^\d{1,9}$/.test(raw)?Number(raw):undefined);
+    const removed=expected?await store.remove('programme',{id:activity.id,eventId:EVENT_ID,version:expected}):0;
+    programme.clear();
+    if(!removed){const existing=await current();if(existing||expected)return conflict(existing);}
+    send(res,200,{activity:await programmeItem(activity,null)});return true;
+   }
+  }catch(err){
+   // The editor explains each refusal by its code (invalid_title, invalid_time…).
+   if(err?.status===400&&typeof err.code==='string'&&/^invalid_[a-z_]+$/.test(err.code)&&!res.headersSent){send(res,400,{error:err.message,code:err.code});return true;}
+   throw err;
   }
   if(path==='/api/admin/fiiu/content'){
    if(req.method==='GET'){send(res,200,await publications(url,false));return true;}
