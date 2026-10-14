@@ -6,8 +6,12 @@ import {FIIU_EVENT} from './fiiu-domain.js';
 // once base64 makes it ~4 MB, and the per-person allowance counts pending uploads too.
 export const TALK_LIMITS={question:500,talk:180,message:1000,files:3,fileBytes:3*1024*1024,thumbBytes:100*1024,quotaFiles:30,quotaBytes:30*1024*1024,page:100,changes:200};
 export const TALK_FILE_TYPES=['image/jpeg','image/png','image/webp','application/pdf'];
-// Legacy activities (the old workshop and route days) cannot get questions; only the live catalogue can.
-export const talkActivity=id=>FIIU_EVENT.activities.find(a=>a.id===id)??null;
+/* The festival-wide space beside the blocks: a pseudo-block that is neither in the programme nor in a registration,
+   so it has no date, time, venue or talks, and the same people take part as on a block. */
+export const GENERAL_SPACE=Object.freeze({id:'general',period:'general',title:'FIIU General',date:null,time:'',venue:'',sessions:Object.freeze([]),registration:'general-space'});
+/* Blocks come from the programme the server serves (organisers edit titles, venues and talks), the built-in one by
+   default. Legacy activities (the old workshop and route days) cannot get questions; only the live catalogue can. */
+export const talkActivity=(id,event=FIIU_EVENT)=>id===GENERAL_SPACE.id?GENERAL_SPACE:event.activities.find(a=>a.id===id)??null;
 // The chat pages translate refusals by this code rather than by the English message.
 const failCode=(message,code,status=400)=>{try{fail(message,status);}catch(err){throw Object.assign(err,{code});}};
 const points=value=>[...value].length,cap=(value,max)=>[...value].slice(0,max).join('');
@@ -31,11 +35,12 @@ const dimensions=(input,image)=>{const width=image?dimension(input?.width):null,
 
 /* Create (no current): the activity must be live, the status open or hidden (a hidden question is a prepared draft).
    Edit: the merged row is re-checked, the activity cannot move, and closed becomes possible. A talk is re-checked only
-   when the edit supplies a different one, so closing a question survives a talk renamed in the catalogue since. */
-export function normalizeQuestion(raw={},current=null){
+   when the edit supplies a different one, so closing a question survives a talk renamed in the catalogue since. A
+   talk is one of the block's sessions in `event`, the programme as edited. */
+export function normalizeQuestion(raw={},current=null,event=FIIU_EVENT){
  const input={...raw,body:plain(raw.body),talk:plain(raw.talk)};
  if(current&&input.activityId!==undefined&&input.activityId!==current.activityId)failCode('activity cannot change','invalid_activity');
- const activityId=current?current.activityId:input.activityId,activity=talkActivity(activityId);
+ const activityId=current?current.activityId:input.activityId,activity=talkActivity(activityId,event);
  if(!activity)failCode('invalid activity','invalid_activity');
  let talk=current?.talk??null;
  if(!current||input.talk!==undefined){

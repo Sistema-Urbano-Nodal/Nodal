@@ -1,7 +1,7 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {fail,identifier,csv,attachmentFilename,encodeCursor,decodeCursor} from './courses-domain.js';
 import {bodyJson,createByteBudget,matchesEtag,DOWNLOAD_LIMITS} from './courses-api.js';
-import {EVENT_ID} from './fiiu-domain.js';
+import {EVENT_ID,FIIU_EVENT} from './fiiu-domain.js';
 import {packBits} from './qr.js';
 import {TALK_LIMITS,talkActivity,normalizeQuestion,normalizeMessage,decodeTalkFile,namesFor,questionView,messageView,goneView,activityView} from './fiiu-talk-domain.js';
 
@@ -92,8 +92,11 @@ export async function deleteTalkData(store,userId,{now=Date.now()}={}){
 
 // publicOrigin: the configured site origin (a string or a function of the request) the projector QR points to.
 // downloads: the byte budget shared with the course files (server.js), so one account cannot double its Storage egress.
-export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,downloads=createByteBudget(DOWNLOAD_LIMITS),encodeQr=null,publicOrigin=()=>fail('public base URL is not configured',503),clock=Date.now,log=console.error}){
+// programme: the festival programme as organisers edited it (server/fiiu-programme.js, memoised per instance).
+export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,downloads=createByteBudget(DOWNLOAD_LIMITS),encodeQr=null,publicOrigin=()=>fail('public base URL is not configured',503),clock=Date.now,log=console.error,programme={event:async()=>FIIU_EVENT}}){
  const now=()=>new Date(clock()).toISOString();
+ // A block's title, venue or talks never stop a conversation: if the edits cannot be read, the built-in programme serves.
+ const eventOf=async()=>{try{return await programme.event();}catch(error){log('festival programme unavailable:',errorText(error));return FIIU_EVENT;}};
  const qrOf=link=>{if(!encodeQr)return null;try{return qrView(encodeQr(link));}catch{return null;}};
  const originFor=req=>(typeof publicOrigin==='function'?publicOrigin(req):publicOrigin)||fail('public base URL is not configured',503);
  /* Registered means a fiiu_registrations row. A full room polls together, so a positive answer is kept for 60 seconds
@@ -244,7 +247,7 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
    if(!rateLimit(req,res,user,path,kindOf(name,read)))return true;
    wrote=!read;
    if(name==='questions'){
-    const {organiser}=await access(user),activity=talkActivity(url.searchParams.get('activityId'));
+    const {organiser}=await access(user),activity=talkActivity(url.searchParams.get('activityId'),await eventOf());
     if(!activity){send(res,400,{error:'invalid activity',code:'invalid_activity'});return true;}
     const rows=await store.listQuestions(EVENT_ID,{activityId:activity.id,includeHidden:organiser});
     send(res,200,{activity:activityView(activity),questions:rows.map(q=>questionView(q,{organiser}))});return true;
@@ -252,8 +255,8 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
    if(name==='question'){
     // The question is read first: its revision is the baseline the page syncs from, so a message written meanwhile is
     // fetched again rather than missed. liked seeds the page's own like state, which since answers do not carry.
-    const {organiser}=await access(user),q=await questionFor(param,organiser),activity=talkActivity(q.activityId);
-    const page=await store.latestMessages(q.id,{includeHidden:organiser,ownHidden:user.id,limit:TALK_LIMITS.page});
+    const {organiser}=await access(user),q=await questionFor(param,organiser);
+    const [event,page]=await Promise.all([eventOf(),store.latestMessages(q.id,{includeHidden:organiser,ownHidden:user.id,limit:TALK_LIMITS.page})]),activity=talkActivity(q.activityId,event);
     const {list,liked}=await views(page.rows,{viewer:user.id,organiser});
     send(res,200,{question:questionView(q,{organiser}),activity:activity?activityView(activity):null,messages:list,liked:[...liked],
      before:page.more?encodeCursor(page.rows[0]):null,revision:Number(q.revision),me:{draftKey:draftKey(user.id),organiser,canPost:q.status==='open'}});
@@ -392,7 +395,7 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     /* The dashboard sends a UUID made once per draft and reuses it on retry, as the publication editor does: a save
        whose answer was lost returns the stored question. Different content under that id (edited, opened or closed
        since) is a conflict, so the form is kept instead of reporting a save that did not happen. */
-    const input=await body(req),question=normalizeQuestion(input),id=input.id==null?randomUUID():identifier(input.id);
+    const input=await body(req),question=normalizeQuestion(input,null,await eventOf()),id=input.id==null?randomUUID():identifier(input.id);
     let row;
     try{row=await store.insertQuestion({id,eventId:EVENT_ID,...question,createdBy:user.id,createdAt:now()});}
     catch(err){
@@ -408,7 +411,7 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     const current=await store.getQuestion(identifier(param));if(!current||current.eventId!==EVENT_ID)unavailable();
     const conflict=row=>{send(res,409,{error:'question changed; reload before saving',question:questionView(row,{organiser:true})});return true;};
     if(current.version!==input.version)return conflict(current);
-    const next=normalizeQuestion(input,current);
+    const next=normalizeQuestion(input,current,await eventOf());
     const row=await store.updateQuestion(current.id,input.version,{body:next.body,talk:next.talk,status:next.status,updatedAt:now()});
     if(!row){const latest=await store.getQuestion(current.id);if(!latest)unavailable();return conflict(latest);}
     send(res,200,{question:questionView(row,{organiser:true})});return true;
@@ -427,7 +430,7 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     const messages=await store.allMessages(q.id);
     const [files,emails]=await Promise.all([messages.length?store.filesForMessages(messages.map(m=>m.id)):[],store.registrationEmails(EVENT_ID,messages.map(m=>m.userId))]);
     const names=new Map();for(const f of files)names.set(f.messageId,[...(names.get(f.messageId)??[]),attachmentFilename(f.name,f.mime)]);
-    const block=talkActivity(q.activityId)?.title??q.activityId;
+    const block=talkActivity(q.activityId,await eventOf())?.title??q.activityId;
     const rows=[CSV_HEADER,...messages.map(m=>[q.body,block,q.talk??'',limaTime(m.createdAt),m.authorFull||m.authorName,emails.get(m.userId)??'',Boolean(m.organiser),m.body,(names.get(m.id)??[]).join('; '),Number(m.likeCount),Boolean(m.hiddenAt),Boolean(m.deletedAt)])];
     send(res,200,csv(rows),{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="fiiu-conversation-${q.id.slice(0,8)}.csv"`});return true;
    }

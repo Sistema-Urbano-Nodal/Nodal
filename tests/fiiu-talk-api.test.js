@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {once} from 'node:events';
 import {randomUUID} from 'node:crypto';
+import {Readable} from 'node:stream';
 import {createDatabase,createUser} from '../server/db.js';
 import {createSession} from '../server/auth.js';
 import {createApp} from '../server/server.js';
@@ -9,6 +10,7 @@ import {createRepository} from '../server/repository.js';
 import {createFiiuStore} from '../server/fiiu-repository.js';
 import {createTalkStore} from '../server/fiiu-talk-repository.js';
 import {createTalkApi,exportTalkData,deleteTalkData} from '../server/fiiu-talk-api.js';
+import {FIIU_EVENT} from '../server/fiiu-domain.js';
 
 const answers={firstName:'Ana',lastName:'Test',country:'Perú',city:'Lima',profile:'professional',publicOfficial:false,activities:['day1-am'],externalActivities:[],nationalId:'TEST-ID',gender:'prefer_not',age:30,accessibility:['none'],motivation:'learn',previousAttendance:'no',privacyAccepted:true};
 const jpeg=Buffer.from([255,216,255,224,...Array(60).fill(0)]).toString('base64');
@@ -61,6 +63,53 @@ test('the pulse is public, cacheable and cookie-free while conversations need a 
  // Other festival routes are still answered by the FIIU API.
  assert.equal((await call('/api/fiiu/registration')).status,200);
  assert.equal((await call('/api/fiiu/questions/not-a-route/at-all')).status,404);
+});
+
+test('the General space takes questions and chat like a block, for registered people and organisers only',async t=>{
+ const {json,call,ask,post,pulse}=await setup(t);
+ const general={id:'general',period:'general',title:'FIIU General',date:null,time:'',venue:'',sessions:[],registration:'general-space'};
+ const q=await ask({activityId:'general',body:'¿Qué te ha gustado del festival?'});
+ assert.equal(q.activityId,'general');assert.equal(q.talk,null);
+ const talk=await json('/api/admin/fiiu/questions',{actor:'admin',method:'POST',body:{activityId:'general',talk:'¡Bienvenidos al FIIU 11!',body:'x',status:'open'}});
+ assert.equal(talk.status,400);assert.equal(talk.body.code,'invalid_talk','General has no talks');
+ for(const actor of ['member','admin']){
+  const list=await json('/api/fiiu/questions?activityId=general',{actor});
+  assert.equal(list.status,200,actor);assert.deepEqual(list.body.activity,general);assert.deepEqual(list.body.questions.map(x=>x.id),[q.id]);
+ }
+ const stranger=await json('/api/fiiu/questions?activityId=general',{actor:'stranger'});
+ assert.equal(stranger.status,403);assert.deepEqual(stranger.body,{error:'festival registration required',code:'not_registered'});
+ assert.equal((await call('/api/fiiu/questions?activityId=general',{actor:'guest'})).status,401);
+ assert.deepEqual((await json('/api/fiiu/questions?activityId=day1-am')).body.questions,[],'General questions stay out of the blocks');
+ assert.deepEqual(await pulse(),[[q.id,'general',0,'open']]);
+ const sent=await post(q,'¡Todo!');assert.equal(sent.status,201);
+ const page=await json(`/api/fiiu/questions/${q.id}`,{actor:'other'});
+ assert.equal(page.status,200);assert.deepEqual(page.body.activity,general);assert.deepEqual(page.body.messages.map(m=>m.body),['¡Todo!']);
+ const lines=(await (await call(`/api/admin/fiiu/questions/${q.id}/export`,{actor:'admin'})).text()).replace(/^﻿/,'').split('\r\n');
+ assert.match(lines[1],/^"¿Qué te ha gustado del festival\?","FIIU General","",/);
+});
+
+test('conversation block views and talks follow the programme the server serves',async()=>{
+ const edited={...FIIU_EVENT,activities:FIIU_EVENT.activities.map(a=>a.id==='day1-am'?{...a,title:'Lo local, editado',venue:'Otra sala',sessions:[['09:00–10:00','Bienvenida renombrada']]}:a)};
+ let reads=0;const sent=[],inserted=[];
+ const programme={event:async()=>{reads++;return edited;}};
+ const q={id:'22222222-2222-4222-8222-222222222222',eventId:'fiiu-2026',activityId:'day1-am',talk:null,body:'¿Qué?',status:'open',revision:0,messageCount:0,version:1,createdAt:'2026-10-21T14:00:00.000Z'};
+ const store={listQuestions:async()=>[q],getQuestion:async()=>q,latestMessages:async()=>({rows:[],more:false}),insertQuestion:async record=>{inserted.push(record);return {...q,...record,revision:0,messageCount:0,version:1};}};
+ const api=createTalkApi({store,programme,sameOrigin:()=>true,send:(res,status,body)=>sent.push({status,body})});
+ const admin={id:'11111111-1111-4111-8111-111111111111',permission:'admin'};
+ const run=(method,path,body)=>api({req:Object.assign(Readable.from(body===undefined?[]:[Buffer.from(JSON.stringify(body))]),{method,headers:{'content-type':'application/json'}}),res:{},url:new URL(`http://x${path}`),user:admin});
+ await run('GET','/api/fiiu/questions?activityId=day1-am');
+ assert.equal(sent.at(-1).body.activity.title,'Lo local, editado');assert.equal(sent.at(-1).body.activity.venue,'Otra sala');
+ await run('GET',`/api/fiiu/questions/${q.id}`);assert.equal(sent.at(-1).body.activity.title,'Lo local, editado');
+ await run('POST','/api/admin/fiiu/questions',{activityId:'day1-am',talk:'Bienvenida renombrada',body:'x',status:'open'});
+ assert.equal(sent.at(-1).status,201);assert.equal(inserted[0].talk,'Bienvenida renombrada','a talk is checked against the edited sessions');
+ await run('POST','/api/admin/fiiu/questions',{activityId:'day1-am',talk:'¡Bienvenidos al FIIU 11!',body:'x',status:'open'});
+ assert.deepEqual([sent.at(-1).status,sent.at(-1).body.code],[400,'invalid_talk']);
+ assert.equal(reads,4);
+ // Edits that cannot be read never stop a conversation: the built-in programme serves, and the failure is logged.
+ const logged=[],down=createTalkApi({store,programme:{event:async()=>{throw Error('programme table unavailable');}},sameOrigin:()=>true,send:(res,status,body)=>sent.push({status,body}),log:(...args)=>logged.push(args)});
+ await down({req:{method:'GET',headers:{}},res:{},url:new URL('http://x/api/fiiu/questions?activityId=day1-am'),user:admin});
+ assert.equal(sent.at(-1).status,200);assert.equal(sent.at(-1).body.activity.title,'El poder de lo local');
+ assert.deepEqual(logged,[['festival programme unavailable:','programme table unavailable']]);
 });
 
 test('organisers create, retry, hide, close and edit questions with versions',async t=>{

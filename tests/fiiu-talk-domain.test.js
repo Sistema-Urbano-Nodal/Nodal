@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {normalizeQuestion,normalizeMessage,decodeTalkFile,displayName,namesFor,messageView,goneView,questionView,activityView,talkActivity,TALK_LIMITS,TALK_FILE_TYPES} from '../server/fiiu-talk-domain.js';
+import {normalizeQuestion,normalizeMessage,decodeTalkFile,displayName,namesFor,messageView,goneView,questionView,activityView,talkActivity,GENERAL_SPACE,TALK_LIMITS,TALK_FILE_TYPES} from '../server/fiiu-talk-domain.js';
 import {FIIU_EVENT} from '../server/fiiu-domain.js';
 
 test('display names keep a first name and a surname initial',()=>{
@@ -30,6 +30,21 @@ test('only current festival activities can carry questions',()=>{
  assert.equal(talkActivity('day1-am').id,'day1-am');
  assert.equal(talkActivity('workshop-day1'),null,'legacy activities are excluded');
  assert.equal(talkActivity('nope'),null);assert.equal(talkActivity(undefined),null);
+});
+test('General is a festival-wide space next to the blocks, with no date, time, venue or talks',()=>{
+ const general={id:'general',period:'general',title:'FIIU General',date:null,time:'',venue:'',sessions:[],registration:'general-space'};
+ assert.deepEqual(GENERAL_SPACE,general);assert.deepEqual(talkActivity('general'),general);
+ assert.deepEqual(activityView(talkActivity('general')),general,'the view carries every field the chat header reads');
+ assert.equal(FIIU_EVENT.activities.some(a=>a.id==='general'),false,'it is not part of the programme');
+ assert.deepEqual(normalizeQuestion({activityId:'general',body:'¿Cómo va el festival?'}),{activityId:'general',talk:null,body:'¿Cómo va el festival?',status:'open'});
+ for(const talk of ['¡Bienvenidos al FIIU 11!','Otra'])assert.throws(()=>normalizeQuestion({activityId:'general',body:'x',talk}),e=>e.code==='invalid_talk',talk);
+});
+test('blocks and their talks come from the programme the server serves, so organiser edits apply',()=>{
+ const event={...FIIU_EVENT,activities:FIIU_EVENT.activities.map(a=>a.id==='day1-am'?{...a,title:'Lo local, editado',sessions:[['09:00–10:00','Bienvenida renombrada']]}:a)};
+ assert.equal(talkActivity('day1-am',event).title,'Lo local, editado');assert.equal(talkActivity('day1-am').title,'El poder de lo local','the built-in programme by default');
+ assert.equal(talkActivity('general',event),GENERAL_SPACE);assert.equal(talkActivity('workshop-day1',event),null);
+ assert.equal(normalizeQuestion({activityId:'day1-am',body:'x',talk:'Bienvenida renombrada'},null,event).talk,'Bienvenida renombrada');
+ assert.throws(()=>normalizeQuestion({activityId:'day1-am',body:'x',talk:'¡Bienvenidos al FIIU 11!'},null,event),e=>e.code==='invalid_talk','a talk renamed since is no longer offered');
 });
 test('questions belong to a current activity and an optional talk of that block',()=>{
  assert.equal(normalizeQuestion({activityId:'day1-am',talk:'¡Bienvenidos al FIIU 11!',body:' ¿Qué te llevas? '}).body,'¿Qué te llevas?');
