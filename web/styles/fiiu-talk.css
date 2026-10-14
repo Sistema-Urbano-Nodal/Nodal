@@ -15,7 +15,20 @@
 /* A block's question list (?a=), also inside "More questions on this block". */
 .f-page .f-talk-subhead{margin:var(--f-sp-4) 0 var(--f-sp-1);font-size:1.15rem}.f-talk-list{display:grid;gap:var(--f-sp-1);margin:0;padding:0;list-style:none}
 .f-shell .f-talk-pick{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px var(--f-sp-2);min-height:44px;padding:var(--f-sp-2) 0;color:var(--f-ink);text-decoration:none}
-.f-talk-pick-body{flex-basis:100%;font-weight:650;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px;overflow-wrap:anywhere}.f-talk-pick:hover .f-talk-pick-body{text-decoration-thickness:2px}.f-talk-pick-talk{font-size:.86rem;color:var(--f-muted)}
+.f-talk-pick-body{flex-basis:100%;font-weight:650;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px;overflow-wrap:anywhere}.f-talk-pick:hover .f-talk-pick-body{text-decoration-thickness:2px}.f-talk-pick-talk{font-size:.86rem;color:var(--f-muted)}.f-talk-kind{font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--f-forest)}
+/* A rating question: ten numbers under the question, two rows of five on a phone and one row from 600 px, each a 44 px target; the chosen one is filled.
+   Once the person has rated, a line of text and a strip of ten bars (fiiu-talk.js sets each bar's --f-share); screen readers get the counts as a sentence. */
+.f-talk-rate{margin:var(--f-sp-4) 0 0}.f-page .f-talk-rate-label{margin:0 0 var(--f-sp-2);font-size:.92rem;font-weight:650;color:var(--f-forest)}
+.f-talk-scale{display:grid;grid-template-columns:repeat(5,minmax(44px,1fr));gap:var(--f-sp-2);max-width:34rem}
+@media(min-width:600px){.f-talk-scale{grid-template-columns:repeat(10,minmax(44px,1fr))}}
+.f-shell .f-talk-score{min-width:44px;min-height:44px;padding:0;border:2px solid var(--f-forest);border-radius:7px;background:#fff;color:var(--f-forest);font-size:1.05rem;font-weight:700;font-variant-numeric:tabular-nums;cursor:pointer}
+.f-shell .f-talk-score:not([aria-checked="true"]):hover:not(:disabled){background:var(--f-panel)}.f-shell .f-talk-score[aria-checked="true"]{background:var(--f-forest);color:#fff}
+.f-shell .f-talk-score:disabled{border-color:var(--f-line);color:var(--f-muted);cursor:default}.f-shell .f-talk-score[aria-checked="true"]:disabled{border-color:var(--f-muted);background:var(--f-muted);color:#fff}
+.f-page .f-talk-rate-hint{margin:var(--f-sp-1) 0 0;font-size:var(--f-fs-hint);color:var(--f-muted)}.f-talk-rate>.f-talk-status{margin:var(--f-sp-2) 0 0}
+.f-talk-rate-results{margin:var(--f-sp-3) 0 0}.f-page .f-talk-rate-line{display:flex;flex-wrap:wrap;margin:0;font-size:.92rem}.f-talk-rate-line>:not(:last-child)::after{content:"·";content:"·"/"";margin:0 .55em;color:var(--f-muted)}.f-talk-rate-yours{font-weight:700}
+.f-talk-bars{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:4px;height:5.5rem;max-width:34rem;margin:var(--f-sp-2) 0 0;padding:0;list-style:none}
+.f-talk-bar{display:grid;grid-template-rows:minmax(0,1fr) auto;min-width:0}.f-talk-bar-fill{align-self:end;height:calc(var(--f-share,0)*100%);min-height:2px;border-radius:3px 3px 0 0;background:var(--f-forest)}
+.f-talk-bar-n{padding-top:2px;font-size:.72rem;color:var(--f-muted);text-align:center;font-variant-numeric:tabular-nums}
 /* Messages: your own on a pale tint (not a bubble); sending is faded, a failure names itself in the error colour, a hidden one is muted (only organisers
    and its author see it, the author with "Hidden by the organisers"): its text stays readable at full contrast for the organisers deciding on it, and
    only its images fade. */
@@ -74,6 +87,9 @@
 /* 3 to 5 % of the screen's width; a question over 160 characters steps down so the answers still fit under it. */
 .f-page .f-talk-wall-question{max-width:none;margin:var(--f-sp-3) 0 0;font-size:clamp(3vw,1rem + 3vw,5vw);font-weight:750;line-height:1.12;hyphens:manual}
 .f-page .f-talk-wall-question.is-long{font-size:clamp(1.5rem,2.4vw,3vw)}
+/* A rating question on the projector: the live average in large type with its count, then the bars, under the headline. */
+.f-talk-wall-rating{margin:var(--f-sp-4) 0 0}.f-page .f-talk-wall-score{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 .5em;max-width:none;margin:0;font-weight:650;color:var(--f-muted)}
+.f-talk-wall-average{font-size:2.6em;font-weight:750;line-height:1;font-variant-numeric:tabular-nums;color:var(--f-ink)}.f-talk-wall .f-talk-bars{height:4.5em;max-width:none}.f-talk-wall .f-talk-bar-n{font-size:.6em}
 /* The code: about a quarter of the width and never taller than the screen allows. The empty square holds its place until it arrives; its white edge is the quiet zone. */
 .f-talk-wall-code{grid-area:code;display:grid;justify-items:center;gap:var(--f-sp-2);width:clamp(180px,min(24vw,42vh),560px)}
 .f-talk-wall-qr,.f-talk-qr-svg{display:block;width:100%;height:auto;aspect-ratio:1}

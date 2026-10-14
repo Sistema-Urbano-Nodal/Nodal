@@ -1201,3 +1201,121 @@ test('the projector works for a General question: “FIIU General” over the qu
  assert.equal(head.querySelector('.f-talk-wall-question').textContent,'¿Qué te llevas de esta mañana?');assert.deepEqual(order(h),[M3,M2,M1]);
  assert.equal(wall.querySelector('.f-talk-wall-url').textContent,'nodal.example/fiiu-talk.html?a=general');
 });
+
+// Rating questions (kind 'rating'): ten counts, index 0 = score 1. BEFORE is 41 people (average 7.6); AFTER adds an 8 (42 people, average 7.6).
+const BEFORE=[0,0,1,2,2,4,8,11,7,6],AFTER=[0,0,1,2,2,4,8,12,7,6];
+const RATING='/api/fiiu/questions/'+Q+'/rating';
+const rated=(over={})=>thread({...over,question:{kind:'rating',ratingCounts:BEFORE,...over.question},me:{score:null,...over.me}});
+const scale=h=>h.root.querySelector('.f-talk-scale').querySelectorAll('button');
+const results=h=>h.root.querySelector('.f-talk-rate-results');
+const checked=h=>scale(h).map(b=>b['aria-checked']==='true');
+const only=n=>[...Array(10)].map((_,i)=>i===n-1);
+
+test('a rating question shows a 1–10 radiogroup under the question with “1 = lowest, 10 = highest”, and no results before the person rates',async()=>{
+ const h=await page({['GET /api/fiiu/questions/'+Q]:rated()});
+ const head=h.root.querySelector('.f-talk-head'),box=h.root.querySelector('.f-talk-rate'),group=box.querySelector('.f-talk-scale'),buttons=scale(h);
+ assert.equal(head.children[head.children.indexOf(head.querySelector('.f-talk-question'))+1],box,'right under the question');
+ assert.equal(group.role,'radiogroup');assert.deepEqual(buttons.map(b=>b.textContent),['1','2','3','4','5','6','7','8','9','10']);
+ for(const b of buttons){assert.equal(b.tagName,'button');assert.equal(b.type,'button');assert.equal(b.role,'radio');assert.equal(b['aria-checked'],'false');assert.equal(b.disabled,false);}
+ const label=key(box,'talkScoreLabel'),hint=key(box,'talkScoreScale');assert.equal(group['aria-labelledby'],label.id);assert.equal(group['aria-describedby'],hint.id);assert.equal(hint.textContent,'1 = lowest, 10 = highest');
+ assert.deepEqual(buttons.map(b=>b.tabIndex),[0,-1,-1,-1,-1,-1,-1,-1,-1,-1],'one tab stop');
+ assert.equal(results(h),null,'no average or bars before rating, though the totals came with the question');assert.doesNotMatch(content(h.root),/7\.6|Average/);
+ assert.ok(composer(h),'the chat below works as on any question');
+ h.lang('es');assert.equal(hint.textContent,'1 = más bajo, 10 = más alto');assert.equal(label.textContent,'Tu valoración');
+ const chat=await page();assert.equal(chat.root.querySelector('.f-talk-rate'),null,'a conversation question has no scale');
+ const css=readFileSync(new URL('../web/styles/fiiu-talk.css',import.meta.url),'utf8');
+ assert.match(css,/\.f-talk-scale\{[^}]*grid-template-columns:repeat\(5,minmax\(44px,1fr\)\)/,'two rows of five on a phone');
+ assert.match(css,/@media\(min-width:600px\)\{\.f-talk-scale\{grid-template-columns:repeat\(10,minmax\(44px,1fr\)\)\}\}/,'one row on wide screens');
+ assert.match(css,/\.f-shell \.f-talk-score\{[^}]*min-width:44px;min-height:44px/,'44 px targets');
+});
+
+test('tapping 8 marks it at once and saves it; the answer’s totals replace the shown ones and the results appear, with a text alternative',async()=>{
+ const reply=later(),h=await page({['GET /api/fiiu/questions/'+Q]:rated(),['PUT '+RATING]:()=>reply.promise});
+ scale(h)[7].listeners.click();
+ assert.deepEqual(checked(h),only(8));assert.equal(scale(h)[7].tabIndex,0);assert.deepEqual(sent(h,'PUT',RATING).map(request=>request.body),[{score:8}]);
+ assert.equal(results(h),null,'the results wait for the answer');
+ reply.resolve({score:8,ratingCounts:AFTER,revision:4});await flush();
+ const box=results(h);assert.match(content(box),/Your rating: 8/);assert.match(content(box),/Average 7\.6 from 42 people/);
+ const strip=box.querySelector('.f-talk-bars'),bars=strip.querySelectorAll('.f-talk-bar');assert.equal(strip['aria-hidden'],'true');assert.equal(bars.length,10);
+ assert.deepEqual(bars.map(bar=>bar.dataset.count),AFTER.map(String));assert.equal(bars[7].dataset.share,'1');assert.equal(bars[0].dataset.share,'0');
+ const alt=box.querySelector('.f-talk-rate-alt');assert.ok(classes(alt).includes('f-sr-only'));
+ assert.equal(alt.textContent,'6 people chose 10, 7 people chose 9, 12 people chose 8, 8 people chose 7, 4 people chose 6, 2 people chose 5, 2 people chose 4, 1 person chose 3','scores nobody chose are left out');
+ h.lang('es');assert.match(content(results(h)),/Tu valoración: 8/);assert.match(content(results(h)),/Promedio 7\.6 de 42 personas/);assert.match(results(h).querySelector('.f-talk-rate-alt').textContent,/^6 personas eligieron 10, /);
+ h.lang('pt');assert.match(content(results(h)),/Média 7,6 de 42 pessoas/);
+ assert.equal(h.root.querySelector('.f-talk-rate').querySelector('.f-talk-status').textContent,'');
+});
+
+test('a failed rating puts the previous choice back and says why; taps while one is saving send only the latest; a close refused by the server closes the scale',async()=>{
+ const h=await page({['GET /api/fiiu/questions/'+Q]:rated({me:{score:5}}),['PUT '+RATING]:{status:503,data:{error:'unavailable'}}});
+ assert.deepEqual(checked(h),only(5));assert.match(content(results(h)),/Your rating: 5/);
+ scale(h)[7].listeners.click();assert.deepEqual(checked(h),only(8));await flush();
+ assert.deepEqual(checked(h),only(5),'the previous choice is back');assert.equal(scale(h)[4].tabIndex,0);assert.match(content(results(h)),/Your rating: 5/);
+ const note=h.root.querySelector('.f-talk-rate').querySelector('.f-talk-status');assert.equal(note.dataset.fiiuText,'talkError');
+ const replies=[later(),later()];let n=0;const queue=await page({['GET /api/fiiu/questions/'+Q]:rated(),['PUT '+RATING]:()=>replies[n++].promise});
+ scale(queue)[2].listeners.click();scale(queue)[5].listeners.click();scale(queue)[8].listeners.click();
+ assert.equal(sent(queue,'PUT',RATING).length,1,'one request at a time');assert.deepEqual(checked(queue),only(9),'the latest tap shows at once');
+ replies[0].resolve({score:3,ratingCounts:[0,0,1,0,0,0,0,0,0,0],revision:4});await flush();
+ assert.deepEqual(sent(queue,'PUT',RATING).map(request=>request.body.score),[3,9],'the 6 in between is never sent');assert.deepEqual(checked(queue),only(9));
+ replies[1].resolve({score:9,ratingCounts:[0,0,0,0,0,0,0,0,1,0],revision:5});await flush();
+ assert.match(content(results(queue)),/Your rating: 9/);assert.match(content(results(queue)),/Average 9\.0 from 1 person/);assert.equal(sent(queue,'PUT',RATING).length,2);
+ // The same number again saves nothing.
+ scale(queue)[8].listeners.click();await flush();assert.equal(sent(queue,'PUT',RATING).length,2);
+ let reads=0;const closing=await page({['GET /api/fiiu/questions/'+Q]:()=>reads++?rated({question:{status:'closed',revision:4},me:{canPost:false}}):rated(),['PUT '+RATING]:{status:409,data:{error:'question closed',code:'question_closed'}}});
+ scale(closing)[0].listeners.click();await flush();
+ assert.ok(scale(closing).every(b=>b.disabled));assert.deepEqual(checked(closing),Array(10).fill(false),'nothing was saved');assert.equal(closing.root.querySelector('.f-talk-rate').querySelector('.f-talk-status').dataset.fiiuText,'talkClosed');
+ const busy=await page({['GET /api/fiiu/questions/'+Q]:rated(),['PUT '+RATING]:{status:429,data:{error:'too many requests'}}});scale(busy)[0].listeners.click();await flush();
+ assert.equal(busy.root.querySelector('.f-talk-rate').querySelector('.f-talk-status').dataset.fiiuText,'talkScoreTooFast');
+});
+
+test('a full read with the person’s score shows the results at once, and live totals update them without redrawing the chat or the scale',async()=>{
+ const NEWER=[...BEFORE];NEWER[9]+=1;
+ const routes=score=>({['GET /api/fiiu/questions/'+Q]:rated({me:{score}}),'GET /api/fiiu/pulse':{questions:[[Q,'day1-am',5,'open']]},['GET '+MESSAGES+'?since=3']:since(5,[],{kind:'rating',ratingCounts:NEWER})});
+ const h=await page(routes(7));
+ assert.deepEqual(checked(h),only(7));assert.match(content(results(h)),/Your rating: 7/);assert.match(content(results(h)),/Average 7\.6 from 41 people/);
+ const log=h.root.querySelector('.f-talk-log'),first=row(h,M1),button=scale(h)[0],text=composer(h).querySelector('textarea');text.value='a medio escribir';
+ await h.tickTimers();
+ assert.match(content(results(h)),/Average 7\.7 from 42 people/);assert.equal(results(h).querySelectorAll('.f-talk-bar')[9].dataset.count,'7');
+ assert.equal(h.root.querySelector('.f-talk-log'),log);assert.equal(row(h,M1),first);assert.equal(scale(h)[0],button);assert.equal(composer(h).querySelector('textarea').value,'a medio escribir');
+ const fresh=await page(routes(null));await fresh.tickTimers();assert.equal(results(fresh),null,'someone who has not rated still sees no totals');
+});
+
+test('a closed rating question disables the scale and shows the results only to people who rated and to organisers',async()=>{
+ const closed=me=>rated({question:{status:'closed'},me:{canPost:false,...me}});
+ const voter=await page({['GET /api/fiiu/questions/'+Q]:closed({score:4})});assert.ok(scale(voter).every(b=>b.disabled));assert.deepEqual(checked(voter),only(4));assert.match(content(results(voter)),/Your rating: 4/);
+ assert.ok(key(voter.root,'talkClosed'),'the chat below is closed as on any question');
+ const other=await page({['GET /api/fiiu/questions/'+Q]:closed({score:null})});assert.ok(scale(other).every(b=>b.disabled));assert.equal(results(other),null);
+ const organiser=await page({['GET /api/fiiu/questions/'+Q]:closed({score:null,organiser:true})});assert.match(content(results(organiser)),/Average 7\.6 from 41 people/);assert.doesNotMatch(content(results(organiser)),/Your rating/);
+ const empty=await page({['GET /api/fiiu/questions/'+Q]:rated({question:{status:'closed',ratingCounts:[0,0,0,0,0,0,0,0,0,0]},me:{canPost:false,organiser:true}})});assert.match(content(results(empty)),/No ratings yet/);assert.equal(results(empty).querySelector('.f-talk-bars'),null);
+ // A close that arrives with the live updates disables the same buttons in place.
+ const live=await page({['GET /api/fiiu/questions/'+Q]:rated(),'GET /api/fiiu/pulse':{questions:[[Q,'day1-am',4,'closed']]},['GET '+MESSAGES+'?since=3']:since(4,[],{kind:'rating',ratingCounts:BEFORE,status:'closed'})});
+ const buttons=scale(live);await live.tickTimers();assert.equal(scale(live)[0],buttons[0]);assert.ok(buttons.every(b=>b.disabled));assert.equal(results(live),null);
+});
+
+test('arrow keys move between the numbers inside the scale without saving, and Enter or Space (the buttons’ own activation) choose',async()=>{
+ const h=await page({['GET /api/fiiu/questions/'+Q]:rated({me:{score:5}}),['PUT '+RATING]:{score:6,ratingCounts:AFTER,revision:4}}),buttons=scale(h);
+ assert.deepEqual(buttons.map(b=>b.tabIndex),[-1,-1,-1,-1,0,-1,-1,-1,-1,-1],'the chosen number is the tab stop');
+ const press=(b,name)=>{let prevented=false;b.listeners.keydown({key:name,preventDefault(){prevented=true;}});return prevented;};
+ assert.equal(press(buttons[4],'ArrowRight'),true);assert.equal(buttons[5].focused,true);assert.equal(buttons[5].tabIndex,0);assert.equal(buttons[4].tabIndex,-1);
+ press(buttons[5],'ArrowDown');assert.equal(buttons[6].focused,true);press(buttons[6],'ArrowLeft');assert.equal(buttons[5].tabIndex,0);press(buttons[5],'ArrowUp');assert.equal(buttons[4].tabIndex,0);
+ press(buttons[0],'ArrowLeft');assert.equal(buttons[9].focused,true,'it wraps');press(buttons[9],'ArrowRight');assert.equal(buttons[0].tabIndex,0);
+ press(buttons[3],'End');assert.equal(buttons[9].tabIndex,0);press(buttons[9],'Home');assert.equal(buttons[0].tabIndex,0);
+ assert.equal(sent(h,'PUT',RATING).length,0,'moving does not save');assert.deepEqual(checked(h),only(5));
+ assert.equal(press(buttons[5],'Enter'),false,'Enter and Space are left to the button, which clicks');assert.equal(press(buttons[5],' '),false);assert.equal(press(buttons[5],'toString'),false);
+ buttons[5].listeners.click();await flush();assert.deepEqual(sent(h,'PUT',RATING).map(request=>request.body),[{score:6}]);assert.deepEqual(checked(h),only(6));
+});
+
+test('the projector shows a rating question’s live average in large type, its bars and its count, and no scale',async()=>{
+ const h=await projector({'GET /api/fiiu/pulse':{questions:[[Q,'day1-am',5,'open']]},['GET '+MESSAGES+'?since=3']:since(5,[],{kind:'rating',ratingCounts:AFTER})},{question:{kind:'rating',ratingCounts:BEFORE},messages:[]});
+ const box=()=>h.root.querySelector('.f-talk-wall-rating');assert.equal(box().querySelector('.f-talk-wall-average').textContent,'7.6');assert.match(content(box()),/41 people/);
+ assert.equal(box().querySelectorAll('.f-talk-bar').length,10);assert.equal(h.root.querySelector('.f-talk-scale'),null,'the room sees the results, not the scale');
+ assert.ok(h.root.querySelector('.f-talk-wall-head').querySelectorAll('div').includes(box()),'under the question');
+ await h.tickTimers();assert.match(content(box()),/42 people/);
+ h.lang('es');assert.match(content(box()),/42 personas/);assert.ok(key(box(),'talkScoreAverageLabel'));
+ const css=readFileSync(new URL('../web/styles/fiiu-talk.css',import.meta.url),'utf8');assert.match(css,/\.f-talk-wall-average\{[^}]*font-size:/);
+});
+
+test('a block’s question list marks rating questions',async()=>{
+ const h=await page({'GET /api/fiiu/questions?activityId=day1-am':{activity:ACTIVITY,questions:[question({kind:'rating',ratingCounts:BEFORE}),question({id:Q2,kind:'chat',body:'Otra'})]}},{search:'?a=day1-am'});
+ const picks=h.root.querySelectorAll('.f-talk-pick');assert.equal(picks.length,2);assert.ok(key(picks[0],'talkScoreChip'));assert.equal(key(picks[1],'talkScoreChip'),undefined);
+ h.lang('es');assert.equal(key(picks[0],'talkScoreChip').textContent,'Valoración 1–10');
+});
