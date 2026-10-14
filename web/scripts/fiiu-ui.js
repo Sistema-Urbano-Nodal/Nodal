@@ -312,8 +312,8 @@
   return m?at(m[3],m[4])+18e5:at(0,'00')+864e5;
  }
  const checkinState=(activity,now=Date.now())=>now<=checkinCloses(activity)?'open':'closed';
- // Only NODAL's own blocks take QR check-in: the laboratory and the conferences. Workshops and routes stay with their facilitators.
- const checkinActivities=event=>chronological(event.activities.filter(activity=>activity.registration!=='external'));
+ // Only NODAL's own blocks take QR check-in: the laboratory and the conferences. Workshops and routes stay with their facilitators; the closing party is register only.
+ const checkinActivities=event=>chronological(event.activities.filter(activity=>['general','application'].includes(activity.registration)));
  const limaClock=value=>limaFormat('en-GB','clock',{hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(value);
  // "Check-in open until 13:30 Lima time", then "Check-in closed at 13:30 Lima time"; the untimed laboratory reads "until the end of the day". The date is added
  // only when check-in closes on another day than the block, since every view already names the block's day. The state class lets a view colour it.
