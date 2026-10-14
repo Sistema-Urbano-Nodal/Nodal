@@ -1279,6 +1279,16 @@ test('a full read with the person’s score shows the results at once, and live 
  const fresh=await page(routes(null));await fresh.tickTimers();assert.equal(results(fresh),null,'someone who has not rated still sees no totals');
 });
 
+test('a rating’s own answer older than the live totals on screen keeps the newer totals, which the next poll would not bring back',async()=>{
+ // The PUT commits at revision 5, someone else rates a 10 at 6, and the poll that read 6 answers first.
+ const NEWER=[...AFTER];NEWER[9]+=1;const reply=later();let pulse=3;
+ const h=await page({['GET /api/fiiu/questions/'+Q]:rated({me:{score:5}}),'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',pulse,'open']]}),['GET '+MESSAGES+'?since=3']:since(6,[],{kind:'rating',ratingCounts:NEWER}),['PUT '+RATING]:()=>reply.promise});
+ scale(h)[7].listeners.click();pulse=6;await h.tickTimers();assert.match(content(results(h)),/Average 7\.7 from 43 people/);
+ reply.resolve({score:8,ratingCounts:AFTER,revision:5});await flush();
+ assert.match(content(results(h)),/Your rating: 8/,'the saved score still shows');assert.match(content(results(h)),/Average 7\.7 from 43 people/,'the older totals do not come back');
+ assert.deepEqual(results(h).querySelectorAll('.f-talk-bar').map(bar=>bar.dataset.count),NEWER.map(String));
+});
+
 test('a closed rating question disables the scale and shows the results only to people who rated and to organisers',async()=>{
  const closed=me=>rated({question:{status:'closed'},me:{canPost:false,...me}});
  const voter=await page({['GET /api/fiiu/questions/'+Q]:closed({score:4})});assert.ok(scale(voter).every(b=>b.disabled));assert.deepEqual(checked(voter),only(4));assert.match(content(results(voter)),/Your rating: 4/);
