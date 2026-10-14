@@ -43,7 +43,7 @@ For every block (conference, lab, party, workshop, route):
 | `time` | see below |
 | `venue` | 0–200 characters, one line |
 | `description` | new, optional, 0–1,500 characters, line breaks kept, shown as plain text (no HTML, links made clickable like chat bodies) |
-| `sessions` | 0–12 lines, each a time label (0–40 characters, free text such as "19:00 en adelante") and a title (1–200 characters) |
+| `sessions` | 0–12 lines, each a time label (0–40 characters, free text such as "19:00 en adelante") and a title (1–180 characters, the limit of a conversation talk, so any session can carry a question) |
 | `formUrl` | workshops and routes only, an `https://` URL |
 
 The block's `id`, `period` and `registration` kind never change: registrations, check-ins and conversations point at them.

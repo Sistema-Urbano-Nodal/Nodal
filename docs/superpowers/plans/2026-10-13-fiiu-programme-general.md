@@ -62,7 +62,7 @@ Four lanes run in parallel in separate worktrees, each with review and fixes, th
 
 **Party notice routes** (organisers only):
 - `GET /api/admin/fiiu/notices/closing-party` → `200 {configured, counts:{waiting,pending,sent,failed,uncertain,skipped}, dailyCap, sentToday, resetsAt}`. `waiting` = registrations without the party in their plan and without a notice row.
-- `POST /api/admin/fiiu/notices/closing-party` with `{retryFailed?:boolean, after?:id}` → `200 {sent,failed,uncertain,skipped,claimedElsewhere,next,dailyCap,sentToday,resetsAt,counts}` (`next` null when the pass is done); `429 {code:'daily_cap',dailyCap,sentToday,resetsAt,counts}`; `503 {code:'email_not_configured'}`.
+- `POST /api/admin/fiiu/notices/closing-party` with `{retryFailed?:boolean, after?:id}` → `200 {sent,failed,uncertain,skipped,claimedElsewhere,next,dailyCap,sentToday,resetsAt,counts}` (`next` null when the pass is done); `429 {code:'daily_cap',dailyCap,sentToday,resetsAt,counts,sent,failed,uncertain,skipped,claimedElsewhere}` (what the batch sent before it reached the cap; zeros when it sent nothing); `503 {code:'email_not_configured'}`.
 
 **Conversations:**
 - `activityId:'general'` is accepted wherever a block id is. `GET /api/fiiu/questions?activityId=general` answers `activity:{id:'general',period:'general',title:'FIIU General',date:null,time:'',venue:'',sessions:[],registration:'general-space'}`.

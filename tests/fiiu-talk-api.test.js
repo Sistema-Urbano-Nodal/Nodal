@@ -132,7 +132,8 @@ test('rating questions are created with their type, which never changes, and eve
  assert.equal(edited.status,200);assert.deepEqual([edited.body.question.kind,edited.body.question.status,edited.body.question.body],['rating','closed','Del 1 al 10, ¿cuánto te sirvió?']);
  assert.deepEqual(edited.body.question.ratingCounts,zeros);
  const list=(await json('/api/admin/fiiu/questions',{actor:'admin'})).body.questions;
- assert.deepEqual(list.map(q=>[q.id,q.kind,q.ratingCounts??null]),[[chat.id,'chat',null],[rating.id,'rating',zeros]]);
+ // Both were created in the same millisecond, so the list's order between them falls to their random ids: compare as a set.
+ assert.deepEqual(list.map(q=>[q.id,q.kind,q.ratingCounts??null]).sort((a,b)=>a[0]<b[0]?-1:1),[[chat.id,'chat',null],[rating.id,'rating',zeros]].sort((a,b)=>a[0]<b[0]?-1:1));
  // A retried save is the same question only with the same type.
  const draft={id:randomUUID(),activityId:'general',body:'¿Del 1 al 10?',status:'hidden',kind:'rating'};
  assert.equal((await json('/api/admin/fiiu/questions',{actor:'admin',method:'POST',body:draft})).status,201);
