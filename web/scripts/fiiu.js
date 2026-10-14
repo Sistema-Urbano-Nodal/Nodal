@@ -86,7 +86,7 @@
   const input=choiceInputs.get(activity.id);
   if(input){const action=describe(button(addKey,event=>{if(input.disabled)return;openForm?.();input.checked=true;syncForm?.(true);edited?.();jumpTo(input,event);},'f-button secondary f-small'),titleId);programmeActions.set(activity.id,{action,addKey});syncProgramme();return action;}
   // A guest goes to the panel's explanation first; its sign-in link then returns with this block ticked (#add-). While the registration loads, nobody is a guest yet.
-  if(!me.user&&!me.failed&&!me.pending&&festival.config.registrationOpen&&REGISTERED.includes(activity.registration)){const register=describe(link('register','#registration','f-text-link'),titleId);register.addEventListener('click',()=>{if(guestSignin)guestSignin.href='login.html?next='+encodeURIComponent('/fiiu.html#add-'+activity.id);});return register;}
+  if(!me.user&&!me.failed&&!me.pending&&festival.config.registrationOpen&&REGISTERED.includes(activity.registration)){const register=describe(link('register','#registration','f-text-link'),titleId);register.addEventListener('click',()=>{if(guestSignin)guestSignin.href=signinTo(activity.id);});return register;}
   return null;
  }
  // One-way feedback: a programme button whose form box is ticked says so; clicking it again only returns to that box.
@@ -203,9 +203,12 @@
  // Only the first save answers with the summary email's outcome; nothing is said when email is off, skipped or for an edit.
  // 'failed' means the provider never had it; 'uncertain' (and a send that never reported back) usually still arrives.
  const emailNotice=(outcome,email)=>outcome==='sent'?{key:'emailSent',email}:outcome==='failed'?'emailNotSent':['uncertain','pending'].includes(outcome)?'emailDelayed':'';
+ // The guest panel's sign-in: back to the panel, or with a block to tick on return (#add-<block>).
+ const signinTo=id=>'login.html?next='+encodeURIComponent('/fiiu.html#'+(id?'add-'+id:'registration'));
  // Ticks the #add-<block> asked for once the registration is known; saving stays an explicit tap. False while there is nothing to apply.
+ // A guest has no form to tick, so the sign-in link carries the block instead: the party email's button is often opened where nobody is signed in.
  function applyAdd(){
-  if(!pendingAdd||me.failed||me.pending)return false;const input=choiceInputs.get(pendingAdd);pendingAdd=null;
+  if(!pendingAdd||me.failed||me.pending)return false;const input=choiceInputs.get(pendingAdd);if(!me.user&&guestSignin)guestSignin.href=signinTo(pendingAdd);pendingAdd=null;
   if(input&&!input.disabled&&!input.checked&&input.name!=='applyLab'){input.checked=true;if(me.registration)jumpTo(input);syncForm?.(true);edited?.();if(!me.registration)registrationHost.scrollIntoView({block:'start'});}
   else registrationHost.scrollIntoView({block:'start'});
   return true;
@@ -225,7 +228,7 @@
    if(!open)panelBody.append(tr('p','closed','f-notice'));
    panelBody.append(open?tr('p','signinHint'):tr('p','signinClosedHint','f-closed-hint'));
    if(open){const list=el('ul','f-checklist');for(const key of ['canConferences','canLab','canInterests'])list.append(tr('li',key));panelBody.append(list,tr('p','formDuration','f-muted'));}
-   guestSignin=link('signin','login.html?next='+encodeURIComponent('/fiiu.html#registration'),'f-button');panelBody.append(guestSignin);if(open)panelBody.append(tr('p','privateHint','f-muted f-guest-privacy'));return;
+   guestSignin=link('signin',signinTo(),'f-button');panelBody.append(guestSignin);if(open)panelBody.append(tr('p','privateHint','f-muted f-guest-privacy'));return;
   }
   const expectedUserId=me.user.id,conflictBox=el('div','f-conflict');let busy=false,saveState='',dirty=false;
   function lock(){

@@ -569,6 +569,17 @@ test('a guest who chooses a block from its card signs in and comes back with tha
  assert.equal(signin.href,'login.html?next='+encodeURIComponent('/fiiu.html#add-day2-am'));
 });
 
+test('a guest who opens an #add- link (the party email’s button) keeps that block through sign-in, also after Try again',async()=>{
+ const at=hash=>({location:{hash,search:'',pathname:'/fiiu.html',reload(){}}}),signin=h=>key(h.root.querySelector('.f-registration'),'signin');
+ const guest=await harness({read:()=>({status:401,data:{error:'sign in required'}}),context:at('#add-closing-party')});
+ assert.equal(guest.form(),null);assert.deepEqual(guest.replaced,['/fiiu.html#registration'],'the address still drops the #add-');
+ assert.equal(signin(guest).href,'login.html?next='+encodeURIComponent('/fiiu.html#add-closing-party'),'signing in comes back with the party ticked');
+ const replies=[{status:503,data:{error:'unavailable'}},{status:401,data:{error:'sign in required'}}];
+ const outage=await harness({read:()=>replies.shift(),context:at('#add-closing-party')});await key(outage.root.querySelector('.f-registration'),'retry').listeners.click();
+ assert.equal(signin(outage).href,'login.html?next='+encodeURIComponent('/fiiu.html#add-closing-party'));
+ const plain=await harness({read:()=>({status:401,data:{error:'sign in required'}}),context:at('#registration')});assert.equal(signin(plain).href,'login.html?next='+encodeURIComponent('/fiiu.html#registration'));
+});
+
 test('the community events card has its own copy and leads to the festival programme',async()=>{
  const {hub}=await hubHarness('community',path=>widgetFeed(path)),events=hub.querySelectorAll('.f-hub-card').find(node=>key(node,'events'));
  assert.ok(key(events,'eventsHint'));assert.equal(key(events,'communityIntro'),undefined,'the intro is not repeated');assert.equal(key(events,'viewProgramme').href,'fiiu.html#programme');assert.equal(key(events,'circles'),undefined);
