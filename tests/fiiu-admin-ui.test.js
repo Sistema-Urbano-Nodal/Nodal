@@ -1902,10 +1902,17 @@ test('Send asks the server again before Confirm, so the number confirmed is the 
  // A failed read says so and asks nothing; Send stays to try again.
  state=noticeState({counts:noticeCounts({waiting:2})});const flaky=await harness(()=>({content:[],nextCursor:null}),{noticesRead:()=>state});
  state=unavailable;await pressNotice(flaky,'send');assert.equal(noticeAction(flaky,'confirm'),undefined);assert.equal(noticeNote(flaky),'The announcement status could not be loaded.');assert.ok(noticeAction(flaky,'send'));
- // A second press while the read is out reads once.
+ assert.equal(noticeBlock(flaky)['aria-busy'],'false');
+ // A second press while the read is out reads once. Meanwhile the block says it is reading (a language switch keeps that), so a slow read does
+ // not look like a press that did nothing and invite more presses, which could land on Confirm once it appears.
  const read=deferred();state=read.promise;const slow=flaky,count=()=>slow.requests.filter(r=>r.path===NOTICES&&r.method==='GET').length,at=count();
  noticeAction(slow,'send').listeners.click();noticeAction(slow,'send').listeners.click();await flush();assert.equal(count(),at+1);
+ assert.equal(noticeNote(slow),'Loading…');assert.equal(noticeBlock(slow)['aria-busy'],'true');assert.equal(noticeAction(slow,'confirm'),undefined);
+ slow.lang('es');assert.equal(noticeNote(slow),'Cargando…');slow.lang('pt');assert.equal(noticeNote(slow),'Carregando…');slow.lang('en');
  read.resolve(noticeState({counts:noticeCounts({waiting:5})}));await flush();assert.equal(noticeAction(slow,'confirm').textContent,'Confirm: send 5 emails');assert.equal(noticeNote(slow),'The announcement goes out now, a few emails at a time. You can stop at any time.');
+ assert.equal(noticeBlock(slow)['aria-busy'],'false');
+ // A read that finds nobody waiting leaves no Loading… behind.
+ assert.equal(noticeNote(gone),'');assert.equal(noticeBlock(gone)['aria-busy'],'false');
  // Retry failed and the summary emails, which share the controller, read again too.
  let summaryState=emailState({counts:emailCounts({none:2,failed:1})});const both=await harness(()=>({content:[],nextCursor:null}),{confirmationsRead:()=>summaryState});
  summaryState=emailState({counts:emailCounts({none:7,failed:3})});await press(both,'retry');assert.equal(backfillAction(both,'confirm').textContent,'Confirm: send 3 emails');

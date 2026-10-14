@@ -526,12 +526,14 @@
    b.className=cls;b.textContent=text;return b;
   }
   // Confirm names the number waiting now, not at page load: people register all day and sign-up emails use the shared cap, so Send reads the state
-  // again first. A press while that read is out is ignored; a read that fails, or finds nobody to email or the cap reached, asks nothing.
+  // again first. A press while that read is out is ignored; a read that fails, or finds nobody to email or the cap reached, asks nothing. The read
+  // shows (Loading… and aria-busy) for as long as it is out: on a slow connection a press that seems to do nothing invites more presses, and one
+  // that comes after the settle time would land on Confirm without the number being read.
   async function askFor(mode){
-   if(asking||run)return;asking=true;result=null;let fresh;
-   try{fresh=await load();}finally{asking=false;}
-   if(!fresh||locked||run||!state.configured||capReached()||!(mode==='retry'?state.counts.failed:state.counts[waiting]))return;
-   ask=mode;render('confirm');
+   if(asking||run)return;asking=true;result=null;host.setAttribute('aria-busy','true');render();let fresh;
+   try{fresh=await load();}finally{asking=false;host.setAttribute('aria-busy','false');}
+   if(fresh&&!locked&&!run&&state.configured&&!capReached()&&(mode==='retry'?state.counts.failed:state.counts[waiting]))ask=mode;
+   render(ask?'confirm':undefined);
   }
   const capReached=()=>Number.isSafeInteger(state?.dailyCap)&&Number.isSafeInteger(state?.sentToday)&&state.sentToday>=state.dailyCap;
   // Today's cap has reset (19:00 Lima) since the page last asked: the minute timer asks again, so the buttons come back without a reload.
@@ -566,9 +568,10 @@
      shown.push(textButton(plural('backfillConfirm',n),'confirm','f-button'),textButton(t('backfillCancel'),'cancel'));
     }
     else{
-     if(result){status=resultText(result);error=['session','error'].includes(result.end);}
+     if(asking)status=t('loading');
+     else if(result){status=resultText(result);error=['session','error'].includes(result.end);}
      else if(loadFailed){status=t(keys.loadError);error=true;}
-     if(capReached()&&(counts[waiting]||counts.failed)){if(result?.end!=='cap')status=(status?status+' ':'')+capText();}
+     if(capReached()&&(counts[waiting]||counts.failed)){if(result?.end!=='cap'&&!asking)status=(status?status+' ':'')+capText();}
      else{
       if(counts[waiting])shown.push(textButton(plural(keys.send,counts[waiting]),'send','f-button'));
       if(counts.failed)shown.push(textButton(fill('backfillRetry',{n:nf(counts.failed)}),'retry'));
