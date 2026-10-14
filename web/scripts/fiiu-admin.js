@@ -593,6 +593,16 @@
    render(focus);return !loadFailed;
   }
   function stop(){const pass=run;if(!pass||pass.stopping)return;pass.stopping=true;pass.wake?.();render('stop');}
+  // One batch, posted here rather than through api(), which keeps only a refusal's code: a batch that sent some emails and then reached the shared
+  // daily cap answers 429 with its outcomes (sent, failed, uncertain, skipped, claimedElsewhere) beside the cap's fields, and the refusal carries them.
+  async function post(body){
+   let response,data;const signal=typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function'?AbortSignal.timeout(20000):undefined;
+   try{response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),...(signal?{signal}:{})});data=await response.json().catch(()=>null);}
+   catch{throw Object.assign(Error(t('error')),{key:'error'});}
+   if(!response.ok)throw Object.assign(Error(t('error')),{key:'error',status:response.status,code:typeof data?.code==='string'?data.code:undefined,...(TALLY.every(k=>Number.isSafeInteger(data?.[k])&&data[k]>=0)?{outcome:Object.fromEntries(TALLY.map(k=>[k,data[k]]))}:{})});
+   if(!data||typeof data!=='object'||Array.isArray(data))throw Object.assign(Error(t('error')),{key:'error'});
+   return data;
+  }
   // One pass: POST after POST with the previous answer's cursor until nothing is left, Stop, an error or today's cap. A plain 429 (the
   // organiser write budget) pauses half a minute and carries on, at most five times in a row.
   async function start(mode){
@@ -603,7 +613,7 @@
    try{
     while(!pass.stopping&&!locked){
      let data;
-     try{data=await api(endpoint,{retryFailed:mode==='retry',...(after?{after}:{})},'POST');}
+     try{data=await post({retryFailed:mode==='retry',...(after?{after}:{})});}
      catch(error){
       // Stop pressed while this request was out: a plain 429 sent nothing, so the pass ends now instead of pausing first.
       if(error.status===429&&error.code!=='daily_cap'&&pass.stopping)break;
@@ -622,6 +632,8 @@
     if(!finished&&pass.stopping)end='stopped';
    }catch(error){
     if(guard(error)){run=null;return;}
+    // What the batch that met the cap sent still counts in this pass's report.
+    if(error.code==='daily_cap'&&error.outcome)for(const k of TALLY)pass.tally[k]+=error.outcome[k];
     end=error.code==='daily_cap'?'cap':error.code==='email_not_configured'?'off':error.status===401?'session':'error';
     if(end==='off')state={...state,configured:false};
    }

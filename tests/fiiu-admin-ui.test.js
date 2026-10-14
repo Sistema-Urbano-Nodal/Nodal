@@ -1946,6 +1946,31 @@ test('the announcement reports the shared daily cap with its reset time, email t
  await pressNotice(lost,'send');await pressNotice(lost,'confirm');assert.ok(key(lost.root,'organisersOnly'));assert.equal(lost.root.querySelector('.f-party-notice'),null);
 });
 
+test('a batch that sends some emails and then reaches the shared daily cap counts them in the pass’s report, for the announcement and the summary emails',async()=>{
+ // The 429 keeps its cap fields and adds the batch's own outcomes.
+ const capped=(counts,outcome)=>({status:429,data:{error:'daily email limit reached',code:'daily_cap',dailyCap:150,sentToday:150,resetsAt:'2026-10-03T00:00:00.000Z',counts,sent:0,failed:0,uncertain:0,skipped:0,claimedElsewhere:0,...outcome}});
+ let state=noticeState({counts:noticeCounts({waiting:6}),sentToday:146});
+ const h=await harness(request=>{if(request.path!==NOTICES)return{content:[],nextCursor:null};state=noticeState({counts:noticeCounts({waiting:2,sent:3,failed:1}),sentToday:150});return capped(noticeCounts({waiting:2,sent:3,failed:1}),{sent:3,failed:1});},{noticesRead:()=>state});
+ await pressNotice(h,'send');await pressNotice(h,'confirm');
+ assert.equal(noticeNote(h),'Sent 3 · Failed 1. Today’s limit of 150 emails is reached (summary and sign-up emails included). Sending can continue after 19:00 Lima time.','the first batch’s emails are in the report');
+ assert.equal(noticeAction(h,'send'),undefined,'no button until the cap resets');
+ // Summary emails: a full batch, then one that met the cap after two.
+ let summaryState=emailState({counts:emailCounts({none:8})}),calls=0;
+ const s=await harness(request=>{
+  if(request.path!=='/api/admin/fiiu/confirmations')return{content:[],nextCursor:null};
+  if(++calls===1)return batch({sent:4,remaining:4,next:'id-4',sentToday:146,counts:emailCounts({none:4,sent:4})});
+  summaryState=emailState({counts:emailCounts({none:2,sent:6}),sentToday:150});return capped(emailCounts({none:2,sent:6}),{sent:2,uncertain:1});
+ },{confirmationsRead:()=>summaryState});
+ await press(s,'send');await press(s,'confirm');
+ assert.equal(backfillNote(s),'Sent 6 · Failed 0 · 1 may not have arrived. Today’s limit of 150 emails is reached (sign-up emails and the party announcement included). Sending can continue after 19:00 Lima time.');
+ // An answer without the numbers, or with malformed ones, adds nothing.
+ for(const outcome of [{sent:undefined},{sent:'3'},{failed:-1}]){
+  state=noticeState({counts:noticeCounts({waiting:6})});
+  const odd=await harness(request=>request.path===NOTICES?capped(noticeCounts({waiting:6}),{sent:3,...outcome}):{content:[],nextCursor:null},{noticesRead:()=>state});
+  await pressNotice(odd,'send');await pressNotice(odd,'confirm');assert.match(noticeNote(odd),/^Today’s limit of 150 emails is reached/,JSON.stringify(outcome));
+ }
+});
+
 test('a finished pass re-reads the other email block, since summary emails and the announcement share the daily cap',async()=>{
  const h=await harness(request=>{
   if(request.path===NOTICES)return noticeBatch({sent:3,next:null,sentToday:3,counts:noticeCounts({sent:3})});
