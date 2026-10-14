@@ -4,7 +4,7 @@
  // Live updates poll the public, CDN-cached pulse every 4 s and fetch only the changes since the shown revision, then patch rows in place: the composer,
  // focus and scroll position are never rebuilt. People registered for the festival and organisers take part; anyone else is told how to.
  // Organisers also hide and unhide messages here, and ?q=…&present=1 gives them a projector view of the question with a QR code to join.
- const Fiiu=window.Fiiu,{t,el,tr,button,link,source,api,status,dateNode,limaClock,limaDate,newTabNote,locale}=Fiiu;
+ const Fiiu=window.Fiiu,{t,el,tr,button,link,source,api,status,dateNode,timeNode,limaClock,limaDate,newTabNote,locale}=Fiiu;
  // Page-only strings join the shared dictionary, so t(), tr() and the language switch in fiiu-ui.js handle them like the rest.
  Object.assign(Fiiu.rows,{
   talkPage:['Conversation','Conversación','Conversa'],talkQuestions:['Questions on this block','Preguntas de este bloque','Perguntas deste bloco'],talkOtherQuestions:['More questions on this block','Más preguntas de este bloque','Mais perguntas deste bloco'],
@@ -45,6 +45,10 @@
   talkEmptyHidden:['No messages yet. Participants can answer once the question opens.','Todavía no hay mensajes. Se podrá responder cuando la pregunta se abra.','Ainda não há mensagens. Será possível responder quando a pergunta for aberta.'],
   talkNextOpen:['Answer the open question','Responder la pregunta abierta','Responder à pergunta aberta'],
   talkDraftKept:['Your unsent answer:','Tu respuesta sin enviar:','Sua resposta não enviada:'],talkDiscardDraft:['Discard','Descartar','Descartar'],
+  // The festival-wide General space (?a=general): a block with no date, time or venue, named in the reader's language.
+  talkGeneralTitle:['FIIU General','FIIU General','FIIU Geral'],talkQuestionsGeneral:['Questions for the whole festival','Preguntas para todo el festival','Perguntas para todo o festival'],
+  talkOtherQuestionsGeneral:['More questions for the whole festival','Más preguntas para todo el festival','Mais perguntas para todo o festival'],talkBackToGeneral:['All General questions','Todas las preguntas generales','Todas as perguntas gerais'],
+  talkEmptyGeneral:['No General questions yet.','Todavía no hay preguntas generales.','Ainda não há perguntas gerais.'],
  });
  const root=document.getElementById('fiiuTalkRoot'),message=document.getElementById('fiiuStatus');
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,ID=/^[a-z0-9-]{1,60}$/;
@@ -221,8 +225,10 @@
  function drop(id){rowsById.get(id)?.remove();rowsById.delete(id);views.delete(id);}
 
  // The header and the dock (pill, then the composer or the closed note) are built once per question and updated in place.
- function whenLine(a){const line=el('p','f-talk-when');line.append(dateNode(a.date,'span','short','f-talk-day'));if(a.time)line.append(el('span','',a.time));if(a.venue)line.append(source('span',a.venue,'f-talk-venue'));return line;}
- function blockHead(a){return a?[tr('p','talkPage','f-talk-kicker'),source('h1',a.title,'f-talk-title'),whenLine(a)]:[tr('p','talkPage','f-talk-kicker')];}
+ function whenLine(a){const line=el('p','f-talk-when');line.append(dateNode(a.date,'span','short','f-talk-day'));if(a.time)line.append(timeNode(a.time));if(a.venue)line.append(source('span',a.venue,'f-talk-venue'));return line;}
+ // General is the festival-wide space: it has no date, time or venue, and its name follows the reader's language. Its lists and links say "General", not "this block".
+ const isGeneral=id=>id==='general',general=(id,key,generalKey)=>isGeneral(id)?generalKey:key;
+ function blockHead(a){return !a?[tr('p','talkPage','f-talk-kicker')]:isGeneral(a.id)?[tr('p','talkPage','f-talk-kicker'),tr('h1','talkGeneralTitle','f-talk-title')]:[tr('p','talkPage','f-talk-kicker'),source('h1',a.title,'f-talk-title'),whenLine(a)];}
  function renderHead(){
   const nodes=blockHead(activity);if(question.talk)nodes.push(source('p',question.talk,'f-talk-talk'));if(question.status==='hidden')nodes.push(tr('p','talkHiddenQuestion','f-talk-flag'));
   nodes.push(source('blockquote',question.body,'f-talk-question'));if(parts.more)nodes.push(parts.more);parts.head.replaceChildren(...nodes);
@@ -239,7 +245,7 @@
  function showSiblings(list){
   if(!parts||!Array.isArray(list))return;const others=sorted(list.filter(q=>q?.id&&q.id!==question.id)),was=parts.more,focused=holds(was);
   parts.siblings=others;parts.listSig=blockSig(others.map(q=>[q.id,q.status]));parts.more=null;
-  if(others.length){const more=el('details','f-talk-more');more.open=Boolean(was?.open);more.append(tr('summary','talkOtherQuestions'),questionList(others),link('talkBackToBlock','fiiu-talk.html?a='+encodeURIComponent(question.activityId),'f-text-link'));parts.more=more;}
+  if(others.length){const more=el('details','f-talk-more'),id=question.activityId;more.open=Boolean(was?.open);more.append(tr('summary',general(id,'talkOtherQuestions','talkOtherQuestionsGeneral')),questionList(others),link(general(id,'talkBackToBlock','talkBackToGeneral'),'fiiu-talk.html?a='+encodeURIComponent(id),'f-text-link'));parts.more=more;}
   renderHead();renderDock();if(focused)parts.more?.querySelector('summary')?.focus();
  }
  function renderDock(){
@@ -342,7 +348,7 @@
  // A question hidden from this viewer (not opened yet, or hidden since) opens by itself once the pulse lists it, with the composer and its draft:
  // people who scanned the projector early are not stranded.
  function unavailable(){
-  block('talkUnavailable','',activity?link('talkBackToBlock','fiiu-talk.html?a='+encodeURIComponent(activity.id),'f-button secondary'):link('viewProgramme','fiiu.html#programme','f-button secondary'));
+  block('talkUnavailable','',activity?link(general(activity.id,'talkBackToBlock','talkBackToGeneral'),'fiiu-talk.html?a='+encodeURIComponent(activity.id),'f-button secondary'):link('viewProgramme','fiiu.html#programme','f-button secondary'));
   const q=new URLSearchParams(location.search).get('q')||'';if(UUID.test(q))watch(list=>list.some(item=>item[0]===q),()=>redraw(start));
  }
  // An outage is reported as one, never as "signed out" (the fiiu.js rule).
@@ -643,7 +649,7 @@
   document.fonts?.ready?.then(()=>fitWall(),()=>{});
  }
  function renderWallHead(){
-  const nodes=activity?[source('p',activity.title,'f-talk-wall-block'),whenLine(activity)]:[];if(question.talk)nodes.push(source('p',question.talk,'f-talk-talk'));
+  const nodes=!activity?[]:isGeneral(activity.id)?[tr('p','talkGeneralTitle','f-talk-wall-block')]:[source('p',activity.title,'f-talk-wall-block'),whenLine(activity)];if(question.talk)nodes.push(source('p',question.talk,'f-talk-talk'));
   if(question.status!=='open')nodes.push(tr('p',question.status==='hidden'?'talkHiddenQuestion':'talkClosedChip','f-talk-flag'));rekey(wall.empty,emptyKey());
   // The headline is 3 to 5 % of the screen's width; a long question steps down so the answers still fit under it.
   nodes.push(source('h1',question.body,'f-talk-wall-question'+(codePoints(question.body)>LONG?' is-long':'')));wall.head.replaceChildren(...nodes);paintCode();fitWall();
@@ -741,8 +747,8 @@
   status(message,'');activity=data.activity||null;const list=sorted(Array.isArray(data.questions)?data.questions.filter(q=>q?.id):[]);
   if(list.length===1){history.replaceState(null,'',location.pathname+'?q='+encodeURIComponent(list[0].id));return openQuestion(list[0].id,list);}
   const box=el('section','f-talk f-talk-block'),head=el('header','f-talk-head');head.append(...blockHead(activity));box.append(head);
-  if(list.length)box.append(tr('h2','talkQuestions','f-talk-subhead'),questionList(list));
-  else{const actions=el('div','f-actions');actions.append(link('viewProgramme','fiiu.html#programme','f-button secondary'));box.append(tr('p','talkEmptyBlock','f-talk-empty'),actions);}
+  if(list.length)box.append(tr('h2',general(id,'talkQuestions','talkQuestionsGeneral'),'f-talk-subhead'),questionList(list));
+  else{const actions=el('div','f-actions');actions.append(link('viewProgramme','fiiu.html#programme','f-button secondary'));box.append(tr('p',general(id,'talkEmptyBlock','talkEmptyGeneral'),'f-talk-empty'),actions);}
   root.replaceChildren(box,newTabNote());setTitle();watchBlock(id,seen??blockSig(list.map(q=>[q.id,q.status])));
  }
  async function openQuestion(id,list=null){

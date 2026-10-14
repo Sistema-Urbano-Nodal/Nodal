@@ -1170,3 +1170,34 @@ test('a refused message is kept as a failed row with its text when something new
  const kept=rows(h).at(-1);assert.ok(classes(kept).includes('is-failed'));assert.equal(content(kept.querySelector('.f-talk-body')).trim(),'Primera idea');
  await key(kept,'talkDiscardDraft').listeners.click();assert.equal(rows(h).some(node=>node.dataset.pending),false);
 });
+
+// The festival-wide General space, as the server describes it (lane B): a pseudo-block with no date, time or venue.
+const GENERAL={id:'general',period:'general',title:'FIIU General',date:null,time:'',venue:'',sessions:[],registration:'general-space'};
+const GENERAL_LIST='/api/fiiu/questions?activityId=general';
+const generalThread=(over={})=>({...thread({...over,question:{activityId:'general',talk:null,...over.question}}),activity:GENERAL});
+
+test('?a=general lists the festival-wide questions under “FIIU General”, with no date line',async()=>{
+ const h=await page({['GET '+GENERAL_LIST]:{activity:GENERAL,questions:[question({activityId:'general',talk:null}),question({id:Q2,activityId:'general',talk:null,body:'¿Qué ciudad sueñas?',status:'closed',createdAt:'2026-10-21T12:00:00.000Z'})]}},{search:'?a=general'});
+ const head=h.root.querySelector('.f-talk-head'),title=head.querySelector('h1');
+ assert.equal(title.dataset.fiiuText,'talkGeneralTitle');assert.equal(title.textContent,'FIIU General');assert.equal(head.querySelector('.f-talk-when'),null,'no date, time or venue line');
+ assert.ok(key(h.root,'talkQuestionsGeneral'));assert.equal(key(h.root,'talkQuestions'),undefined);
+ assert.deepEqual(links(h.root).map(a=>a.href),['fiiu-talk.html?q='+Q,'fiiu-talk.html?q='+Q2]);
+ h.lang('es');assert.equal(title.textContent,'FIIU General');h.lang('pt');assert.equal(title.textContent,'FIIU Geral');
+ const none=await page({['GET '+GENERAL_LIST]:{activity:GENERAL,questions:[]}},{search:'?a=general'});assert.ok(key(none.root,'talkEmptyGeneral'));assert.equal(none.root.querySelector('.f-talk-when'),null);
+});
+
+test('a General question shows “FIIU General” in its head, and its back link returns to ?a=general',async()=>{
+ const h=await page({['GET /api/fiiu/questions/'+Q]:generalThread(),['GET '+GENERAL_LIST]:{activity:GENERAL,questions:[question({activityId:'general',talk:null}),question({id:Q2,activityId:'general',talk:null,body:'¿Qué ciudad sueñas?'})]},'GET /api/fiiu/pulse':{questions:[[Q,'general',3,'open'],[Q2,'general',1,'open']]}});
+ const head=h.root.querySelector('.f-talk-head');assert.equal(head.querySelector('h1').textContent,'FIIU General');assert.equal(head.querySelector('.f-talk-when'),null);assert.equal(head.querySelector('.f-talk-talk'),null);
+ assert.equal(head.querySelector('.f-talk-question').textContent,'¿Qué te llevas de esta mañana?');assert.ok(composer(h),'people take part as on a block');
+ const more=h.root.querySelector('.f-talk-more');assert.ok(key(more,'talkOtherQuestionsGeneral'));assert.equal(key(more,'talkOtherQuestions'),undefined);
+ const back=key(more,'talkBackToGeneral');assert.equal(back.href,'fiiu-talk.html?a=general');
+});
+
+test('the projector works for a General question: “FIIU General” over the question, with the General address under the code',async()=>{
+ const h=await projector({['GET /api/fiiu/questions/'+Q]:()=>({...generalThread({messages:WALL}),me:{organiser:true,canPost:true,draftKey:'viewer-ana'}})});
+ const wall=h.root.querySelector('.f-talk-wall'),head=wall.querySelector('.f-talk-wall-head');
+ assert.equal(key(head,'talkGeneralTitle').textContent,'FIIU General');assert.equal(head.querySelector('.f-talk-when'),null);
+ assert.equal(head.querySelector('.f-talk-wall-question').textContent,'¿Qué te llevas de esta mañana?');assert.deepEqual(order(h),[M3,M2,M1]);
+ assert.equal(wall.querySelector('.f-talk-wall-url').textContent,'nodal.example/fiiu-talk.html?a=general');
+});
