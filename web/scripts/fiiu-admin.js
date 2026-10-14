@@ -642,7 +642,9 @@
  // Each refusal the server explains with a code gets its own message beside the form.
  const PROGRAMME_CODES={invalid_title:'pgInvalidTitle',invalid_date:'pgInvalidDate',invalid_time:'pgInvalidTime',invalid_venue:'pgInvalidVenue',invalid_description:'pgInvalidDescription',invalid_sessions:'pgInvalidSessions',invalid_form_url:'pgInvalidFormUrl'};
  const refusal=err=>{const k=err?.status===400?PROGRAMME_CODES[err.code]:err?.status===404?'pgNotFound':'';return k?Object.assign(Error(t(k)),{key:k,status:err.status,code:err.code}):err;};
- const validBlock=a=>Boolean(a)&&typeof a.id==='string'&&typeof a.title==='string'&&typeof a.date==='string'&&typeof a.time==='string'&&Array.isArray(a.sessions)&&Number.isSafeInteger(a.version)&&a.version>=0;
+ // The form opens on every field, so a block it could not fill (a schedule line that is not a time and a title, say) reads as a failed read.
+ const isLine=line=>Array.isArray(line)&&line.length===2&&line.every(part=>typeof part==='string');
+ const validBlock=a=>Boolean(a)&&typeof a.id==='string'&&typeof a.title==='string'&&typeof a.date==='string'&&typeof a.time==='string'&&typeof a.venue==='string'&&['string','undefined'].includes(typeof a.description)&&Array.isArray(a.sessions)&&a.sessions.every(isLine)&&Number.isSafeInteger(a.version)&&a.version>=0;
  const isEdited=a=>Boolean(a.edited)||a.version>0;
  // '09:00–13:00' is a start and an end, '17:00' a start only (the party, workshops and routes may have one), '' no set time.
  const splitTime=time=>{const m=/^(\d{2}:\d{2})(?:\s*[–-]\s*(\d{2}:\d{2}))?$/.exec(time||'');return m?[m[1],m[2]||'']:['',''];};
@@ -660,7 +662,9 @@
  function applyBlock(item){
   programme=(programme||[]).map(a=>a.id===item.id?item:a);
   const {version,original,checkedIn,...block}=item;festival.event={...festival.event,activities:festival.event.activities.map(a=>a.id===block.id?{...a,...block}:a)};
-  for(const option of blockFilter?.children||[])if(option.value===block.id)option.textContent=blockLabel(block);
+  // Every block picker on the page names it as saved: the participant filter, the new question's and the open publication editor's.
+  const pickers=[blockFilter,...[newQuestion?.form,editorHost.querySelector('form')].flatMap(form=>form?[...form.querySelectorAll('select')].filter(select=>select.name==='activityId'):[])];
+  for(const select of pickers)for(const option of select?.children||[])if(option.value===block.id)option.textContent=blockLabel(block);
   renderProgramme();lastCheckinKey='';if(lastSummary)renderSummary(lastSummary);else renderCheckin();questionLayout='';renderQuestions();
  }
  function renderProgramme(){
@@ -749,7 +753,8 @@
   const after=name=>latest[name]?[latest[name]]:[];
   schedule.append(tr('legend','pgSessions'),tr('p','pgSessionsHint','f-muted f-programme-hint'),lineList,...after('sessions'),addLine);
   const save=button('pgSave',null,'f-button');save.type='submit';buttons.append(save,button('pgCancel',()=>closeProgrammeEdit(entry),'f-button secondary f-small'));
-  const reload=async()=>{const kept=Object.fromEntries(Object.entries(raw()).filter(([name,value])=>JSON.stringify(value)!==JSON.stringify(opened[name])));await reloadBlock(start.id);status(entry.note,'');openProgrammeEdit(entry,true,{kept,base:start});};
+  // The two times are one field: a start or an end changed here keeps both, so the form never pairs this end with the other organiser's start.
+  const reload=async()=>{const typed=raw(),kept=Object.fromEntries(Object.entries(typed).filter(([name,value])=>JSON.stringify(value)!==JSON.stringify(opened[name])));if('start' in kept||'end' in kept)Object.assign(kept,{start:typed.start,end:typed.end});await reloadBlock(start.id);status(entry.note,'');openProgrammeEdit(entry,true,{kept,base:start});};
   // Restoring deletes the edit, after a confirmation; the row then shows the built-in values.
   if(isEdited(start)){
    const restore=button('pgRestore',async()=>{

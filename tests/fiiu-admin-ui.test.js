@@ -1691,6 +1691,32 @@ test('a conflict offers Reload the latest version, which takes the other organis
  assert.equal(blockForm(h,'day2-am'),null);
 });
 
+test('after a conflict the two times stay together: a start or an end changed here keeps both, so the form never mixes them with the other organiser’s',async()=>{
+ let current=programmeItem(EVENT.activities.find(activity=>activity.id==='day2-am'));
+ const h=await harness(request=>{
+  if(request.method==='PUT'){if(request.body.version!==current.version)return{status:409,data:{error:'programme changed',code:'programme_conflict',activity:current}};return savedBlock(request);}
+  return{content:[],nextCursor:null};
+ },{programmeRead:()=>({activities:programmeItems().map(item=>item.id===current.id?copy(current):item)})});
+ const form=await openBlock(h,'day2-am');assert.equal(field(form,'start').value,'09:00');type(field(form,'end'),'14:00');
+ // Another organiser moves the block to the afternoon meanwhile.
+ current={...current,time:'15:00–19:00',edited:true,version:1};
+ await submit(form);await key(form,'reloadLatest').listeners.click();
+ const fresh=blockForm(h,'day2-am');
+ assert.deepEqual([field(fresh,'start').value,field(fresh,'end').value],['09:00','14:00'],'the time typed here, whole: never 15:00–14:00, which nobody chose');
+ const notes=fresh.querySelectorAll('.f-question-latest');assert.equal(notes.length,1,'the other organiser’s time is shown to compare');assert.match(content(notes[0]),/15:00–19:00/);
+ assert.ok(field(fresh,'start')['aria-describedby'].split(' ').includes(notes[0].id));assert.ok(field(fresh,'end')['aria-describedby'].split(' ').includes(notes[0].id));
+ await submit(fresh);assert.equal(programmeWrites(h).at(-1).body.time,'09:00–14:00');assert.equal(programmeWrites(h).at(-1).body.version,1);assert.equal(blockForm(h,'day2-am'),null,'saved, not blocked by an end before its start');
+});
+
+test('a saved block’s new title and date reach every block picker on the page: the participant filter, the new question’s and the publication editor’s',async()=>{
+ const h=await harness(request=>request.method==='PUT'?savedBlock(request):{content:[],nextCursor:null});
+ const pickers=()=>[field(h.root.querySelector('.f-admin-filters'),'participantBlock'),field(questionForm(h),'activityId'),field(editorForm(h),'activityId')];
+ const label=select=>select.children.find(option=>option.value==='day1-am')?.textContent;
+ assert.deepEqual(pickers().map(label),Array(3).fill('21/10 · El poder de lo local'));
+ const form=await openBlock(h,'day1-am');type(field(form,'title'),'El poder de lo local, renovado');type(field(form,'date'),'2026-10-22');await submit(form);
+ assert.deepEqual(pickers().map(label),Array(3).fill('22/10 · El poder de lo local, renovado'));
+});
+
 test('Restore original asks first, sends DELETE with the version and shows the built-in values',async()=>{
  const built=EVENT.activities.find(activity=>activity.id==='day1-pm');let asked=0,answer=false;
  const h=await harness(request=>request.method==='DELETE'?{activity:programmeItem(built)}:{content:[],nextCursor:null},{programmeRead:()=>({activities:programmeItems({'day1-pm':{title:'Título editado',venue:'Otra sede',edited:true,version:3}})})});
@@ -1735,6 +1761,14 @@ test('an unavailable programme read leaves the dashboard working and offers a re
  assert.equal(h.message.dataset.fiiuText,'','the page toast is not used');assert.ok(h.root.querySelector('.f-admin-summary'));assert.ok(questionForm(h));
  // Anything malformed reads as a failed read.
  const odd=await harness(()=>({content:[],nextCursor:null}),{programmeRead:()=>({activities:[{id:'day1-am'}]})});assert.ok(key(programmeSection(odd),'pgLoadError'));
+ // So does a block whose fields the form could not open on: a schedule line that is not a time and a title, a venue or a description that is not text.
+ for(const over of [{sessions:[null]},{sessions:[['09:00']]},{sessions:[['09:00',3]]},{sessions:[['09:00','Charla','extra']]},{venue:null},{description:5}]){
+  const bad=await harness(()=>({content:[],nextCursor:null}),{programmeRead:()=>({activities:programmeItems({'day1-am':over})})});
+  assert.ok(key(programmeSection(bad),'pgLoadError'),JSON.stringify(over));assert.equal(programmeSection(bad).querySelectorAll('.f-programme-row').length,0,JSON.stringify(over));
+ }
+ // A block without a description (an older server) still opens.
+ const plain=await harness(()=>({content:[],nextCursor:null}),{programmeRead:()=>({activities:programmeItems().map(({description,...item})=>item)})});
+ assert.equal(key(programmeSection(plain),'pgLoadError'),undefined);assert.equal(field(await openBlock(plain,'day1-am'),'description').value,'');
  fail=false;await key(section,'retry').listeners.click();
  assert.equal(key(section,'pgLoadError'),undefined);assert.equal(section.querySelectorAll('.f-programme-row').length,EVENT.activities.length);
 });
