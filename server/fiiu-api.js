@@ -20,6 +20,11 @@ const qrView=qr=>typeof qr?.bits==='string'?{size:qr.size,bits:qr.bits}:{size:qr
 // derived from the session; older clients can omit this additional guard.
 function sameAccount(input,user){if(input.expectedUserId!==undefined&&input.expectedUserId!==user.id)fail('account changed; reload before continuing',409);}
 const body=req=>bodyJson(req,24576);
+/* The 429 a summary or party batch answers at today's cap: the cap, today's count, when it resets, the counts, and the
+   outcomes of what this batch did send before it stopped (another sender may have taken the room left between its
+   claims; all 0 when nothing went out), so the panel's report of the pass counts those emails too. */
+const capReply=(error,batch,counts)=>({error,code:'daily_cap',dailyCap:batch.dailyCap,sentToday:batch.sentToday,resetsAt:batch.resetsAt,counts,
+ ...Object.fromEntries(['sent','failed','uncertain','skipped','claimedElsewhere'].map(k=>[k,batch[k]??0]))});
 // The person's festival data for the account export: the registration, attendance and the one-off notices sent to them.
 export async function exportFiiuData(store,userId){
  const [registration,notices]=await Promise.all([store.find('registrations',{eventId:EVENT_ID,userId},{limit:1}).then(rows=>rows[0]??null),store.find('notices',{eventId:EVENT_ID,userId})]);
@@ -200,7 +205,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
     if(!confirmation){send(res,503,{error:'email is not configured',code:'email_not_configured'});return true;}
     const batch=await sendConfirmationBatch({store,confirm:confirmation,event:(await live()).event,retryFailed:input.retryFailed===true,after,size:batchSize,dailyCap,now:today()});
     const counts=await confirmationCounts(store);
-    if(batch.capped){send(res,429,{error:'daily summary email limit reached',code:'daily_cap',dailyCap:batch.dailyCap,sentToday:batch.sentToday,resetsAt:batch.resetsAt,counts});return true;}
+    if(batch.capped){send(res,429,capReply('daily summary email limit reached',batch,counts));return true;}
     send(res,200,{...batch,counts});return true;
    }
   }
@@ -215,7 +220,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
     if(!partyNotice){send(res,503,{error:'email is not configured',code:'email_not_configured'});return true;}
     const batch=await sendNoticeBatch({store,notify:partyNotice,event:(await live()).event,retryFailed:input.retryFailed===true,after,size:batchSize,dailyCap,now:today()});
     const counts=await noticeCounts(store);
-    if(batch.capped){send(res,429,{error:'daily email limit reached',code:'daily_cap',dailyCap:batch.dailyCap,sentToday:batch.sentToday,resetsAt:batch.resetsAt,counts});return true;}
+    if(batch.capped){send(res,429,capReply('daily email limit reached',batch,counts));return true;}
     send(res,200,{...batch,counts});return true;
    }
   }

@@ -239,10 +239,10 @@ test('the party notice sender is off where the summary is off, skips test addres
  assert.ok(logs.every(line=>!/@/.test(line)),logs.join('\n'));
 });
 
-async function app(t,{notice,backfill={now:()=>NOW}}={}){
+async function app(t,{notice,backfill={now:()=>NOW},wrap=store=>store}={}){
  const db=createDatabase({filename:':memory:'});t.after(()=>db.close());const store=createFiiuStore({db}),cookies={};
  for(const [name,role] of [['member','member'],['admin','admin']])cookies[name]=createSession(db,createUser(db,{fullName:name,email:`${name}@fiiu-inbox.dev`,passwordHash:'unused',role}).id).cookie.split(';')[0];
- const server=createApp({db,fiiuStore:store,fiiuConfirmation:null,fiiuPartyNotice:notice,fiiuBackfill:backfill});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
+ const server=createApp({db,fiiuStore:wrap(store),fiiuConfirmation:null,fiiuPartyNotice:notice,fiiuBackfill:backfill});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
  const base=`http://127.0.0.1:${server.address().port}`;
  const call=(path,{actor='admin',method='GET',body,origin=base}={})=>fetch(base+path,{method,headers:{...(cookies[actor]?{Cookie:cookies[actor]}:{}),Origin:origin,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
  return {db,store,call};
@@ -281,9 +281,20 @@ test('the announcement is for organisers only, same-origin, validated, answers 5
  assert.equal(mail.length,0);
  const first=await call('/api/admin/fiiu/notices/closing-party',{method:'POST',body:{}});assert.equal(first.status,200);
  const capped=await call('/api/admin/fiiu/notices/closing-party',{method:'POST',body:{after:(await first.json()).next}});assert.equal(capped.status,429);
- assert.deepEqual(await capped.json(),{error:'daily email limit reached',code:'daily_cap',dailyCap:1,sentToday:1,resetsAt:'2026-10-15T00:00:00.000Z',counts:{waiting:1,pending:0,sent:1,failed:0,uncertain:0,skipped:0}});
+ assert.deepEqual(await capped.json(),{error:'daily email limit reached',code:'daily_cap',dailyCap:1,sentToday:1,resetsAt:'2026-10-15T00:00:00.000Z',counts:{waiting:1,pending:0,sent:1,failed:0,uncertain:0,skipped:0},sent:0,failed:0,uncertain:0,skipped:0,claimedElsewhere:0});
  assert.equal(mail.length,1);
  assert.equal((await call('/api/admin/fiiu/notices/other-kind',{method:'POST',body:{}})).status,404);
+});
+
+test('a party batch another sender stops at today’s cap answers 429 with the announcements it did send, for the panel’s report',async t=>{
+ let inserts=0,rival=null;
+ // The batch's fourth claim waits while a summary email takes the last place left today.
+ const wrap=base=>({...base,insert:async(name,row)=>{if(name==='notices'&&++inserts===4){await new Promise(resolve=>setTimeout(resolve,50));await base.update('registrations',{id:rival.id},{confirmationStatus:'pending',confirmationSentAt:new Date(NOW).toISOString()});}return base.insert(name,row);}});
+ const {sent:mail,notify}=outbox(),{db,store,call}=await app(t,{notice:notify,backfill:{now:()=>NOW,dailyCap:4},wrap});
+ [rival]=await people(db,store,[{email:'rival@fiiu-inbox.dev',activities:['closing-party'],summary:'none'},...Array.from({length:6},(_,i)=>({email:`p${i}@fiiu-inbox.dev`}))]);
+ const response=await call('/api/admin/fiiu/notices/closing-party',{method:'POST',body:{}});assert.equal(response.status,429);
+ assert.deepEqual(await response.json(),{error:'daily email limit reached',code:'daily_cap',dailyCap:4,sentToday:4,resetsAt:'2026-10-15T00:00:00.000Z',counts:{waiting:3,pending:0,sent:3,failed:0,uncertain:0,skipped:0},sent:3,failed:0,uncertain:0,skipped:0,claimedElsewhere:0});
+ assert.deepEqual(mail.map(m=>m.registration.email),['p0@fiiu-inbox.dev','p1@fiiu-inbox.dev','p2@fiiu-inbox.dev']);
 });
 
 test('a failed announcement goes as soon as its person adds the party or cancels, so the panel never offers a retry nobody can get',async t=>{

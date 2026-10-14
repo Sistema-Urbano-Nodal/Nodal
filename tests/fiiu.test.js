@@ -966,6 +966,19 @@ test('retrying the failed summaries walks the list once, even when some fail aga
  const main=await sendAll(call);assert.deepEqual(main.map(b=>[b.sent,b.failed]),[[1,0]]);assert.equal(outbox.at(-1)[0],'new@fiiu-inbox.dev');
 });
 
+test('a summary batch another sender stops at today’s cap answers 429 with the emails it did send, for the panel’s report',async t=>{
+ let claims=0,db=null;
+ // The batch's fourth claim waits while the party button's announcement takes the last place left today.
+ const wrapStore=base=>({...base,update:async(name,filters,patch)=>{
+  if(name==='registrations'&&patch.confirmationStatus==='pending'&&++claims===4){await new Promise(resolve=>setTimeout(resolve,50));const rival=createUser(db,{fullName:'Rival',email:'rival@fiiu-inbox.dev',passwordHash:'unused'});await base.insert('notices',{id:randomUUID(),eventId:'fiiu-2026',userId:rival.id,kind:'closing-party',status:'pending',language:'es',sentAt:new Date(BACKFILL_NOW).toISOString(),createdAt:new Date(BACKFILL_NOW).toISOString(),updatedAt:new Date(BACKFILL_NOW).toISOString()});}
+  return base.update(name,filters,patch);}});
+ const setup=await mailSetup(t,{wrapStore,outcome:()=>({status:'sent',sentAt:new Date(BACKFILL_NOW).toISOString()}),app:{fiiuBackfill:{dailyCap:4,now:()=>BACKFILL_NOW}}});db=setup.db;
+ await earlier(db,setup.store,Array.from({length:6},(_,i)=>({email:`s${i}@fiiu-inbox.dev`})));
+ const response=await setup.call('/api/admin/fiiu/confirmations',{actor:'admin',method:'POST',body:{}});assert.equal(response.status,429);
+ assert.deepEqual(await response.json(),{error:'daily summary email limit reached',code:'daily_cap',dailyCap:4,sentToday:4,resetsAt:'2026-10-03T00:00:00.000Z',counts:{none:3,pending:0,sent:3,failed:0,uncertain:0,skipped:0},sent:3,failed:0,uncertain:0,skipped:0,claimedElsewhere:0});
+ assert.equal(setup.outbox.length,3);
+});
+
 test('the daily cap stops the button once today’s summary emails reach it, sign-ups included, and lifts the next UTC day',async t=>{
  let now=BACKFILL_NOW;
  const {db,store,call,save,outbox}=await mailSetup(t,{outcome:()=>({status:'sent',sentAt:new Date(now).toISOString()}),app:{fiiuBackfill:{dailyCap:3,now:()=>now}}});
@@ -976,7 +989,7 @@ test('the daily cap stops the button once today’s summary emails reach it, sig
  assert.deepEqual([first.sent,first.sentToday,first.remaining],[2,3,3],'only the room left today');
  const capped=await call('/api/admin/fiiu/confirmations',{actor:'admin',method:'POST',body:{after:first.next}});
  assert.equal(capped.status,429);
- assert.deepEqual(await capped.json(),{error:'daily summary email limit reached',code:'daily_cap',dailyCap:3,sentToday:3,resetsAt:'2026-10-03T00:00:00.000Z',counts:{none:3,pending:0,sent:4,failed:0,uncertain:0,skipped:0}});
+ assert.deepEqual(await capped.json(),{error:'daily summary email limit reached',code:'daily_cap',dailyCap:3,sentToday:3,resetsAt:'2026-10-03T00:00:00.000Z',counts:{none:3,pending:0,sent:4,failed:0,uncertain:0,skipped:0},sent:0,failed:0,uncertain:0,skipped:0,claimedElsewhere:0});
  assert.equal(outbox.length,2);
  assert.equal((await(await save()).json()).confirmationEmail,'sent','a sign-up still gets its email at the cap');
  now=Date.parse('2026-10-03T00:00:01.000Z');
