@@ -1319,3 +1319,8 @@ test('a block’s question list marks rating questions',async()=>{
  const picks=h.root.querySelectorAll('.f-talk-pick');assert.equal(picks.length,2);assert.ok(key(picks[0],'talkScoreChip'));assert.equal(key(picks[1],'talkScoreChip'),undefined);
  h.lang('es');assert.equal(key(picks[0],'talkScoreChip').textContent,'Valoración 1–10');
 });
+
+test('chat messages use the shared linkify of fiiu-ui.js, so the URL rule lives in one place',()=>{
+ const talk=readFileSync(new URL('../web/scripts/fiiu-talk.js',import.meta.url),'utf8');
+ assert.doesNotMatch(talk,/https\?:\\\/\\\//,'no URL pattern of its own');assert.match(talk,/Fiiu\.linkify\(|\blinkify\b[^;]*=window\.Fiiu|,linkify[,}]/);
+});

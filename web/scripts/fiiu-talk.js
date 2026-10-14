@@ -163,19 +163,9 @@
   if(near||own){parts.pill.hidden=true;toBottom(true);}else parts.pill.hidden=false;
  }
 
- // https and http addresses become links; everything else, markup included, stays text. innerHTML is never used.
- const URLS=/(https?:\/\/[^\s<>"]+)/g,TRAIL=/[.,;:!?)\]}'»”]+$/;
- function linkify(text){
-  const p=el('p','f-talk-body');p.translate=true;
-  String(text).split(URLS).forEach((part,i)=>{
-   if(!part)return;if(i%2===0){p.append(document.createTextNode(part));return;}
-   const trail=TRAIL.exec(part)?.[0]||'',href=part.slice(0,part.length-trail.length);let url=null;try{url=new URL(href);}catch{url=null;}
-   if(!url||!['http:','https:'].includes(url.protocol)){p.append(document.createTextNode(part));return;}
-   // Not f-talk-link: that class is the shared conversation entry link, with a speech-bubble glyph and a tall touch target.
-   const a=el('a','f-talk-url',href);a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';a.setAttribute('aria-describedby','f-newtab');p.append(a);if(trail)p.append(document.createTextNode(trail));
-  });
-  return p;
- }
+ // A message body: https and http addresses become links (Fiiu.linkify in fiiu-ui.js, shared with block descriptions); everything else, markup included,
+ // stays text. Not f-talk-link: that class is the shared conversation entry link, with a speech-bubble glyph and a tall touch target.
+ const linkify=text=>{const p=el('p','f-talk-body');p.translate=true;return Fiiu.linkify(p,text,{http:true,cls:'f-talk-url'});};
  // Lima time; a message from another Lima day adds its short date.
  function when(value){
   const at=new Date(value),node=el('time','f-talk-time');if(!Number.isFinite(at.getTime()))return node;node.dateTime=at.toISOString();
