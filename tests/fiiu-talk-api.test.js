@@ -141,6 +141,96 @@ test('rating questions are created with their type, which never changes, and eve
  assert.equal(other.status,409);assert.equal(other.body.question.kind,'rating');
 });
 
+const counts=(...pairs)=>{const c=Array(10).fill(0);for(const [score,n] of pairs)c[score-1]=n;return c;};
+test('registered people and organisers rate a 1–10 question, change it while open, and get the totals and only their own score back',async t=>{
+ const {json,ask,pulse}=await setup(t);
+ const q=await ask({activityId:'general',body:'Del 1 al 10, ¿cuánto te sirvió?',kind:'rating'});
+ const rate=(score,actor='member')=>json(`/api/fiiu/questions/${q.id}/rating`,{actor,method:'PUT',body:{score}});
+ const read=(actor='member')=>json(`/api/fiiu/questions/${q.id}`,{actor});
+ assert.equal((await read()).body.me.score,null,'not rated yet');
+ const first=await rate(8);
+ assert.equal(first.status,200);assert.deepEqual(first.body,{score:8,ratingCounts:counts([8,1]),revision:1});
+ assert.deepEqual((await rate(8)).body,{score:8,ratingCounts:counts([8,1]),revision:1},'the same score again changes nothing');
+ assert.equal((await read()).body.me.score,8);
+ const changed=await rate(3);assert.deepEqual(changed.body.ratingCounts,counts([3,1]));assert.ok(changed.body.revision>1,'a change moves the revision');
+ assert.deepEqual((await rate(3,'other')).body.ratingCounts,counts([3,2]),'a second person adds to the totals');
+ const mine=await read();assert.equal(mine.body.me.score,3);assert.deepEqual(mine.body.question.ratingCounts,counts([3,2]));
+ const organiser=await read('admin');assert.equal(organiser.body.me.score,null);assert.deepEqual(organiser.body.question.ratingCounts,counts([3,2]));
+ const staff=await rate(10,'admin');assert.equal(staff.status,200,'organisers may rate');assert.deepEqual(staff.body.ratingCounts,counts([3,2],[10,1]));
+ assert.equal((await read('admin')).body.me.score,10);
+ const since=await json(`/api/fiiu/questions/${q.id}/messages?since=0`,{actor:'other'});
+ assert.deepEqual(since.body.question.ratingCounts,counts([3,2],[10,1]),'since answers carry the totals');assert.equal(since.body.question.revision,staff.body.revision);
+ assert.deepEqual(await pulse(),[[q.id,'general',staff.body.revision,'open']],'the pulse moved with them');
+ const chat=await ask();assert.equal('score' in (await json(`/api/fiiu/questions/${chat.id}`)).body.me,false,'a conversation has no score');
+});
+
+test('a rating is refused, moving no total, without a registration, on a conversation, closed or hidden, or out of 1–10',async t=>{
+ const {json,ask,close}=await setup(t);
+ const q=await ask({kind:'rating'}),chat=await ask();
+ const rate=(body,{actor='member',id=q.id,headers}={})=>json(`/api/fiiu/questions/${id}/rating`,{actor,method:'PUT',body,headers});
+ const refused=async(answer,status,code,why)=>{const r=await answer;assert.deepEqual([r.status,r.body.code],[status,code],why);};
+ assert.equal((await rate({score:5},{actor:'other'})).status,200);
+ const totals=async()=>{const {question}=(await json(`/api/fiiu/questions/${q.id}`,{actor:'admin'})).body;return [question.ratingCounts,question.revision];};
+ const baseline=await totals();
+ await refused(rate({score:5},{actor:'stranger'}),403,'not_registered','no registration');
+ await refused(rate({score:5},{id:chat.id}),400,'not_rating','a conversation');
+ for(const body of [{score:0},{score:11},{score:'8'},{score:8.5},{score:null},{score:-3},{}])await refused(rate(body),400,'invalid_score',JSON.stringify(body));
+ await refused(rate({score:5},{id:randomUUID()}),404,'question_unavailable','no such question');
+ assert.equal((await rate({score:5},{actor:'guest'})).status,401);
+ assert.equal((await rate({score:5},{headers:{Origin:'https://evil.example'}})).status,403,'cross-origin');
+ assert.deepEqual(await totals(),baseline,'nothing moved');assert.equal((await json(`/api/fiiu/questions/${q.id}`)).body.me.score,null);
+ const closed=await close(q);
+ await refused(rate({score:5}),409,'question_closed','closed');
+ assert.equal((await json(`/api/admin/fiiu/questions/${q.id}`,{actor:'admin',method:'PATCH',body:{version:closed.version,status:'hidden'}})).status,200);
+ await refused(rate({score:5}),404,'question_unavailable','a hidden question is no question to participants');
+ await refused(rate({score:5},{actor:'admin'}),409,'question_closed','organisers see it, but it takes no scores');
+ assert.deepEqual((await totals())[0],baseline[0]);
+});
+
+test('ratings spend the like budget',async t=>{
+ const {json,ask}=await setup(t,{app:{talkLimits:{like:2}}});
+ const q=await ask({kind:'rating'}),rate=score=>json(`/api/fiiu/questions/${q.id}/rating`,{method:'PUT',body:{score}});
+ assert.equal((await rate(4)).status,200);assert.equal((await rate(5)).status,200);
+ const limited=await rate(6);assert.equal(limited.status,429);assert.ok(limited.headers.get('retry-after'));
+ assert.equal((await json(`/api/fiiu/questions/${q.id}`)).body.me.score,5);
+});
+
+test('no answer says who gave which score: totals for everyone and to each person only their own',async t=>{
+ const {json,call,ask,post,users}=await setup(t);
+ const q=await ask({activityId:'general',kind:'rating'});
+ for(const [actor,score] of [['member',9],['other',2],['admin',7]])assert.equal((await json(`/api/fiiu/questions/${q.id}/rating`,{actor,method:'PUT',body:{score}})).status,200);
+ await post(q,'Me encantó');
+ const scores=(value,path='')=>value&&typeof value==='object'?Object.entries(value).flatMap(([k,v])=>[...(k==='score'?[path+k]:[]),...scores(v,`${path}${k}.`)]):[];
+ const ids=Object.values(users).map(u=>u.id);
+ const answers=[];
+ for(const actor of ['member','other','admin']){
+  const page=await json(`/api/fiiu/questions/${q.id}`,{actor});answers.push(page.body);
+  assert.equal(page.body.me.score,{member:9,other:2,admin:7}[actor],actor);assert.deepEqual(scores(page.body),['me.score'],`${actor}: only their own score`);
+  for(const path of [`/api/fiiu/questions/${q.id}/messages?since=0`,'/api/fiiu/questions?activityId=general'])answers.push((await json(path,{actor})).body);
+ }
+ answers.push((await json('/api/admin/fiiu/questions',{actor:'admin'})).body,(await json('/api/fiiu/pulse',{actor:'guest'})).body);
+ for(const body of answers)if(!body.me)assert.deepEqual(scores(body),[],JSON.stringify(body).slice(0,120));
+ for(const body of answers)for(const id of ids)assert.doesNotMatch(JSON.stringify(body),new RegExp(id));
+ const csv=await (await call(`/api/admin/fiiu/questions/${q.id}/export`,{actor:'admin'})).text();
+ assert.equal(csv.replace(/^﻿/,'').split('\r\n')[0],'"question","block","talk","createdAtLima","author","email","organiser","text","files","likes","hidden","deleted"','no score column');
+ for(const id of ids)assert.doesNotMatch(csv,new RegExp(id));
+});
+
+test('the account export lists the person\'s own scores, and deleting the account takes them out of the totals',async t=>{
+ const {db,json,call,ask,users}=await setup(t);
+ const q=await ask({activityId:'general',body:'Del 1 al 10, ¿cuánto te sirvió?',kind:'rating'});
+ const rate=(actor,score)=>json(`/api/fiiu/questions/${q.id}/rating`,{actor,method:'PUT',body:{score}});
+ await rate('member',9);await rate('other',2);
+ const {ratings}=(await json('/api/me/export')).body.data.fiiuConversations;
+ assert.deepEqual(ratings,[{questionId:q.id,question:'Del 1 al 10, ¿cuánto te sirvió?',score:9,createdAt:ratings[0].createdAt,updatedAt:ratings[0].updatedAt}]);
+ assert.match(ratings[0].createdAt,/^\d{4}-\d\d-\d\dT/);
+ const baseline=(await json(`/api/fiiu/questions/${q.id}`,{actor:'admin'})).body.question.revision;
+ assert.equal((await call('/api/me',{method:'DELETE',body:{confirmEmail:'member@example.test'}})).status,200);
+ const after=(await json(`/api/fiiu/questions/${q.id}`,{actor:'admin'})).body.question;
+ assert.deepEqual(after.ratingCounts,counts([2,1]));assert.ok(after.revision>baseline,'phones learn the totals changed');
+ assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_ratings WHERE user_id=?').get(users.member.id).n,0);
+});
+
 test('organisers create, retry, hide, close and edit questions with versions',async t=>{
  const {json,ask,pulse}=await setup(t);
  const open=await ask({talk:'¡Bienvenidos al FIIU 11!'});
@@ -784,7 +874,7 @@ test('rate limit kinds per route, and the pulse branch never asks for one',async
  assert.equal(await run('GET','/api/fiiu/pulse',null),true);assert.equal(await run('GET','/api/fiiu/pulse',member),true);
  assert.deepEqual(asked,[]);
  const routes=[['GET',`/api/fiiu/questions?activityId=day1-am`,'read'],['GET',`/api/fiiu/questions/${q}`,'read'],['GET',`/api/fiiu/questions/${q}/messages`,'read'],['POST',`/api/fiiu/questions/${q}/messages`,'message'],
-  ['DELETE',`/api/fiiu/messages/${q}`,'write'],['PUT',`/api/fiiu/messages/${q}/like`,'like'],['DELETE',`/api/fiiu/messages/${q}/like`,'like'],['POST','/api/fiiu/files','upload'],['GET',`/api/fiiu/files/${q}`,'file'],
+  ['DELETE',`/api/fiiu/messages/${q}`,'write'],['PUT',`/api/fiiu/messages/${q}/like`,'like'],['DELETE',`/api/fiiu/messages/${q}/like`,'like'],['PUT',`/api/fiiu/questions/${q}/rating`,'like'],['POST','/api/fiiu/files','upload'],['GET',`/api/fiiu/files/${q}`,'file'],
   ['GET','/api/admin/fiiu/questions','read',admin],['POST','/api/admin/fiiu/questions','write',admin],['PATCH',`/api/admin/fiiu/questions/${q}`,'write',admin],
   ['PUT',`/api/admin/fiiu/messages/${q}/hidden`,'moderate',admin],['DELETE',`/api/admin/fiiu/messages/${q}/hidden`,'moderate',admin],['GET',`/api/admin/fiiu/questions/${q}/export`,'read',admin],['GET',`/api/admin/fiiu/questions/${q}/qr`,'read',admin]];
  for(const [method,path,kind,user] of routes){asked.length=0;assert.equal(await run(method,path,user),true,path);assert.deepEqual(asked.map(a=>a[2]),[kind],`${method} ${path}`);}
@@ -878,11 +968,17 @@ test('exportTalkData and deleteTalkData work on the store directly',async()=>{
  try{
   const user=createUser(db,{fullName:'Ana Test',email:'ana@example.test',passwordHash:'x'});
   const store=createTalkStore({db});
-  assert.deepEqual(await exportTalkData(store,user.id),{messages:[],files:[],likedMessageIds:[]});
+  assert.deepEqual(await exportTalkData(store,user.id),{messages:[],files:[],likedMessageIds:[],ratings:[]});
   const id=randomUUID(),now=Date.parse('2026-10-21T14:00:00.000Z');
   await store.reserveFile({id,eventId:'fiiu-2026',userId:user.id,name:'a.jpg',mime:'image/jpeg',size:10,width:null,height:null,thumbSize:null,storagePath:`fiiu/${user.id}/${id}`,createdAt:new Date(now-60000).toISOString()});
   await assert.rejects(deleteTalkData(store,user.id,{now}),err=>err.status===409&&/upload is in progress/.test(err.message));
+  const q=await store.insertQuestion({id:randomUUID(),eventId:'fiiu-2026',activityId:'general',talk:null,body:'¿Del 1 al 10?',status:'open',kind:'rating',createdBy:null,createdAt:new Date(now).toISOString()});
+  await store.setRating(q.id,user.id,6,new Date(now).toISOString());
+  assert.deepEqual((await exportTalkData(store,user.id)).ratings.map(r=>[r.question,r.score]),[['¿Del 1 al 10?',6]]);
+  await store.updateQuestion(q.id,1,{status:'hidden',updatedAt:new Date(now).toISOString()});
+  assert.deepEqual((await exportTalkData(store,user.id)).ratings.map(r=>[r.question,r.score]),[['',6]],'a question hidden since is a draft again: its text is left out');
   await deleteTalkData(store,user.id,{now:now+10*60000});
   assert.equal(await store.findFile(id),null);
+  assert.deepEqual(await store.userRatings(user.id),[]);assert.deepEqual((await store.getQuestion(q.id)).ratingCounts,Array(10).fill(0));
  }finally{db.close();}
 });
