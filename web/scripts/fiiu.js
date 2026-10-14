@@ -28,6 +28,7 @@
  // and later redraws add theirs at once. Guests see them too; the chat page explains signing in.
  let talkCounts=null;const talkWaiting=[];
  function withTalk(activity,titleId,place){const add=counts=>{const n=counts.get(activity.id);if(n)place(describe(talkLink(activity.id,n),titleId));};if(talkCounts)add(talkCounts);else talkWaiting.push(add);}
+ function withGeneral(place){const add=counts=>{const n=counts.open?.get('general');if(n)place(talkLink('general',n,'f-text-link f-talk-link f-talk-general','talkGeneral'));};if(talkCounts)add(talkCounts);else talkWaiting.push(add);}
  function showTalks(counts){talkCounts=counts;for(const add of talkWaiting.splice(0))add(counts);}
  // A card's foot is attached only once it holds something, so the link attaches it when it is the first thing there.
  const footTalk=(activity,titleId,host,foot)=>withTalk(activity,titleId,link=>{if(!foot.children.length)host.append(foot);foot.append(link);});
@@ -138,6 +139,8 @@
   const event=festival.event,registration=me.registration,mine=new Set(registration?.answers.activities||[]),interests=new Set(registration?.answers.externalActivities||[]),labStatus=registration?.labStatus||'none';
   const head=el('div','f-section-head'),nav=el('nav','f-day-nav'),navLabel=tr('span','dayNav','f-sr-only'),chips=el('ol','f-day-chips'),sections=[];
   head.append(tr('h2','programmeTitle'),tr('p','programmeHint','f-muted'));
+  // The festival-wide General conversation leads the programme while it has an open question.
+  withGeneral(link=>{const line=el('p','f-programme-general');line.append(link);head.append(line);});
   navLabel.id='f-day-nav-label';nav.setAttribute('aria-labelledby',navLabel.id);nav.append(navLabel,chips);chips.addEventListener('focusin',event=>{const chip=event?.target?.closest?.('a');if(chip)revealInRow(chips,chip);});
   programmeHost.replaceChildren(head,nav);dayChips.clear();visibleDays.clear();programmeActions.clear();
   for(const day of [...new Set(event.activities.map(a=>a.date))].sort()){
@@ -475,7 +478,7 @@
  // Coming back to the tab (or to the page from the back/forward cache) picks up what changed meanwhile, at most once a minute: conversations that opened (the
  // pulse is read again, both reads are cached by the CDN) and news that was published. A form being filled in is never redrawn: the programme and hero are,
  // and the saved summary too when nothing in it is being edited. A read that fails changes nothing.
- const sameCounts=(a,b)=>a.size===b.size&&[...a].every(([id,n])=>b.get(id)===n);let lastLook=Infinity;
+ const sameMap=(a,b)=>a.size===b.size&&[...a].every(([id,n])=>b.get(id)===n),sameCounts=(a,b)=>sameMap(a,b)&&sameMap(a.open||new Map(),b.open||new Map());let lastLook=Infinity;
  async function lookAgain(){
   if(me.pending||Date.now()-lastLook<60000)return;lastLook=Date.now();
   const [counts,news]=await Promise.all([talkCounts?pulse({fresh:true}):null,api('/api/fiiu?kind=news').catch(()=>null)]);

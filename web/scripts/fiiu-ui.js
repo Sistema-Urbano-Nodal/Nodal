@@ -68,6 +68,8 @@
   nowForYou:['Happening now','Ahora','Agora'],
   // Conversation links on festival blocks (talkLink below): "Conversación · 2" on screen, "Conversación, 2 preguntas" for assistive technology.
   talkLink:['Conversation','Conversación','Conversa'],talkLinkOne:['1 question','1 pregunta','1 pergunta'],talkLinkCount:['{n} questions','{n} preguntas','{n} perguntas'],
+  // The festival-wide General space (fiiu-talk.html?a=general), linked at the top of the programme and in the console with its open questions.
+  talkGeneral:['General conversation','Conversación general','Conversa geral'],
   pendingShort:['Lab: in review','Laboratorio: en revisión','Laboratório: em análise'],acceptedShort:['Lab: accepted','Laboratorio: aceptado/a','Laboratório: aceito/a'],declinedShort:['Lab: not selected','Laboratorio: no seleccionado/a','Laboratório: não selecionado/a'],
   pendingHint:['The organising team is reviewing applications. The decision will appear here.','El equipo organizador está revisando las postulaciones. La decisión aparecerá aquí.','A equipe organizadora está analisando as candidaturas. A decisão aparecerá aqui.'],
   acceptedHint:['Your place in the 20 October laboratory is confirmed.','Tu lugar en el laboratorio del 20 de octubre está confirmado.','Sua vaga no laboratório de 20 de outubro está confirmada.'],
@@ -286,15 +288,18 @@
  function countLabel(n,one,many,cls='f-count'){const box=el('span',cls);box.append(el('b','',memo(locale()+'|number',()=>new Intl.NumberFormat(locale())).format(n)+' '),tr('span',n===1?one:many));return box;}
  // Questions per block from the public conversation pulse ([id, activityId, revision, status] for every question that is not hidden). It is read once per page and
  // shared by every caller; the links it feeds are only a pointer, so a failure or an unexpected answer shows none instead of an error.
+ // counts.open holds the open questions per block: the General link counts those, and goes once none is open.
  // {fresh:true} reads it again (a page coming back into view); a fresh read that fails or answers oddly keeps the counts already shown.
  let pulseCounts=null;
- const readPulse=()=>api('/api/fiiu/pulse').then(data=>{if(!Array.isArray(data.questions))throw Error('pulse');const counts=new Map();for(const row of data.questions)if(Array.isArray(row)&&typeof row[1]==='string'&&row[3]!=='hidden')counts.set(row[1],(counts.get(row[1])||0)+1);return counts;});
- function pulse({fresh=false}={}){if(fresh&&pulseCounts){const shown=pulseCounts;pulseCounts=readPulse().catch(()=>shown);}return pulseCounts??=readPulse().catch(()=>new Map());}
+ const noCounts=()=>Object.assign(new Map(),{open:new Map()});
+ const readPulse=()=>api('/api/fiiu/pulse').then(data=>{if(!Array.isArray(data.questions))throw Error('pulse');const counts=noCounts();for(const row of data.questions)if(Array.isArray(row)&&typeof row[1]==='string'&&row[3]!=='hidden'){counts.set(row[1],(counts.get(row[1])||0)+1);if(row[3]==='open')counts.open.set(row[1],(counts.open.get(row[1])||0)+1);}return counts;});
+ function pulse({fresh=false}={}){if(fresh&&pulseCounts){const shown=pulseCounts;pulseCounts=readPulse().catch(()=>shown);}return pulseCounts??=readPulse().catch(noCounts);}
  // "Conversación · 2" on a block, opening its questions. The bare count is hidden from assistive technology, which hears "Conversación, 2 preguntas"; refresh() keeps that phrase in the reader's language.
  const talkSpoken=n=>', '+(n===1?t('talkLinkOne'):t('talkLinkCount').replace('{n}',memo(locale()+'|number',()=>new Intl.NumberFormat(locale())).format(n)));
- function talkLink(activityId,count,cls='f-text-link f-talk-link'){
+ // label: the General space reads "Conversación general · 2".
+ function talkLink(activityId,count,cls='f-text-link f-talk-link',label='talkLink'){
   const a=el('a',cls),shown=el('span','f-talk-count',' · '+count),spoken=el('span','f-sr-only f-talk-spoken',talkSpoken(count));
-  a.href='fiiu-talk.html?a='+encodeURIComponent(activityId);shown.setAttribute('aria-hidden','true');spoken.dataset.talkCount=String(count);a.append(tr('span','talkLink'),shown,spoken);return a;
+  a.href='fiiu-talk.html?a='+encodeURIComponent(activityId);shown.setAttribute('aria-hidden','true');spoken.dataset.talkCount=String(count);a.append(tr('span',label),shown,spoken);return a;
  }
  // A block counts until it ends in Lima ('09:00–13:00' until 13:00); one without a time range, such as the accepted laboratory, counts for its whole day.
  const endsAt=activity=>{const end=/[–-]\s*(\d{1,2}):(\d{2})\s*$/.exec(activity.time||'');return end?Number(end[1])*60+Number(end[2]):24*60;};

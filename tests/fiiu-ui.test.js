@@ -287,7 +287,7 @@ test('dashboard widget invites members without a registration to register and sk
  const {widget,requests}=await widgetHarness(path=>widgetFeed(path)||self(null));
  assert.equal(key(widget,'statusNotRegistered').className,'f-pill');assert.equal(key(widget,'register').href,'fiiu.html#registration');
  assert.equal(key(widget,'viewRegistration'),undefined);assert.equal(key(widget,'nextForYou'),undefined);assert.equal(key(widget,'admin'),undefined);
- assert.deepEqual(requests.filter(path=>path!=='/api/fiiu?kind=news').sort(),['/api/fiiu/registration']);
+ assert.deepEqual(requests.filter(path=>path!=='/api/fiiu?kind=news').sort(),['/api/fiiu/pulse','/api/fiiu/registration'],'only the public pulse, for the General link');
 });
 
 test('the page loads and saves where AbortSignal has no timeout (Safari before 16, every iOS 15 browser)',async()=>{
@@ -405,7 +405,7 @@ async function hubHarness(page,respond){
 test('the dashboard widget and the community card follow the registration settings',async()=>{
  const closed={...publicData.config,registrationOpen:false};
  const member=await widgetHarness(path=>widgetFeed(path,closed)||self(null));assert.equal(key(member.widget,'register'),undefined);assert.equal(key(member.widget,'viewProgramme').href,'fiiu.html#programme');
- assert.deepEqual(member.requests.sort(),['/api/fiiu/registration','/api/fiiu?kind=news']);
+ assert.deepEqual(member.requests.sort(),['/api/fiiu/pulse','/api/fiiu/registration','/api/fiiu?kind=news'],'the public pulse only feeds the General link');
  assert.ok(key((await widgetHarness(path=>widgetFeed(path,closed)||self(saved))).widget,'viewRegistration'),'a registration keeps its way back');
  const community=await hubHarness('community',path=>widgetFeed(path,closed));assert.equal(key(community.hub,'register'),undefined);assert.equal(key(community.hub,'viewProgramme').href,'fiiu.html#programme');
  const open=await hubHarness('community',path=>widgetFeed(path));assert.equal(key(open.hub,'register').href,'fiiu.html');assert.deepEqual(open.requests,['/api/fiiu?kind=news']);
@@ -952,4 +952,31 @@ test('a block description shows under its title as plain text with its line brea
 test('the party never gets a check-in screen: the check-in blocks are the laboratory and the conferences only',async()=>{
  const h=await harness({publicRead:()=>partyData()}),{checkinActivities}=h.ctx.window.Fiiu;
  assert.deepEqual([...checkinActivities(partyEvent()).map(activity=>activity.id)],['day0-lab','day1-am','day1-pm','day2-am','day2-pm','day3-am']);
+});
+
+// The festival-wide General space: its questions ride in the pulse under the activity id 'general'.
+const G1='20000000-0000-4000-8000-000000000001',G2='20000000-0000-4000-8000-000000000002',G3='20000000-0000-4000-8000-000000000003';
+const generalPulse={questions:[[G1,'general',4,'open'],[G2,'general',2,'closed'],[G3,'general',1,'open'],...pulseData.questions]};
+
+test('a General conversation link leads the programme with its open-question count, only while General has an open question',async()=>{
+ const h=await harness({pulseRead:()=>generalPulse}),head=h.root.querySelector('.f-programme').querySelector('.f-section-head'),link=head.querySelector('.f-talk-general');
+ assert.ok(link,'the link sits at the top of the programme');assert.equal(link.href,'fiiu-talk.html?a=general');assert.equal(link.target,undefined);
+ assert.match(content(link),/General conversation\s+·\s+2/,'closed General questions are not counted');assert.equal(link.querySelector('.f-talk-spoken').textContent,', 2 questions');
+ h.lang('es');assert.match(content(link),/Conversación general\s+·\s+2/);assert.equal(link.querySelector('.f-talk-spoken').textContent,', 2 preguntas');h.lang('pt');assert.match(content(link),/Conversa geral\s+·\s+2/);
+ assert.equal(talkLinks(cardOf(h,'El poder de lo local')).length,1,'block links are unchanged');
+ for(const questions of [[[G2,'general',2,'closed'],...pulseData.questions],pulseData.questions]){const quiet=await harness({pulseRead:()=>({questions})});assert.equal(quiet.root.querySelector('.f-talk-general'),null);}
+ // A General question that closes while the page is in the background takes the link away when the person comes back.
+ const clock=movableClock('2026-10-21T08:00:00-05:00');let pulse=generalPulse;const back=await harness({pulseRead:()=>pulse,context:{Date:clock.Date}});assert.ok(back.root.querySelector('.f-talk-general'));
+ pulse={questions:generalPulse.questions.map(row=>row[1]==='general'?[row[0],row[1],row[2]+1,'closed']:row)};clock.at+=61000;await back.visible(false);await back.visible(true);await flush();
+ assert.equal(back.root.querySelector('.f-talk-general'),null);
+});
+
+test('the console festival block links the General conversation with its open-question count, for members with or without a registration',async()=>{
+ const respond=(registration,pulse=generalPulse)=>path=>path==='/api/fiiu/pulse'?pulse:widgetFeed(path)||self(registration);
+ for(const registration of [saved,null]){
+  const {widget}=await widgetHarness(respond(registration)),link=widget.querySelector('.f-talk-general');
+  assert.equal(link.href,'fiiu-talk.html?a=general');assert.match(content(link),/General conversation\s+·\s+2/);
+  const order=[key(widget,registration?'viewRegistration':'register'),link].map(node=>descendants(widget).indexOf(node));assert.ok(order[0]<order[1],'after the call to action');
+ }
+ const quiet=await widgetHarness(respond(saved,{questions:[[G2,'general',2,'closed']]}));assert.equal(quiet.widget.querySelector('.f-talk-general'),null);
 });
