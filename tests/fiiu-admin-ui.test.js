@@ -7,6 +7,8 @@ import {createFiiuHarness,key,field,flush,content,descendants,Node} from './help
 
 const participant=(id,firstName)=>({id,eventId:'fiiu-2026',userId:'user-'+id,email:firstName.toLowerCase()+'@example.test',version:1,labStatus:'pending',createdAt:'2026-09-29T12:00:00.000Z',updatedAt:'2026-09-29T12:00:00.000Z',answers:{firstName,lastName:'Test',country:'Perú',city:'Lima',profile:'public_official',publicOfficial:true,applyLab:true,institution:'City Council',position:'Planner',activities:['day1-am'],privacyAccepted:true}});
 const copy=value=>structuredClone(value);
+// The settings as the dashboard sends them back: the party link left the settings (the party registers through NODAL now), so no save carries it.
+const SETTINGS=Object.fromEntries(Object.entries(DEFAULT_CONFIG).filter(([name])=>name!=='partyUrl'));
 // The closing party, as the server sends it in the programme (a register-only "social" block): until the server's programme has it, the dashboard is fed
 // the programme with it in place, after the conference blocks and before the workshops, as lane A adds it.
 const PARTY={id:'closing-party',date:'2026-10-25',period:'party',registration:'social',title:'¡Fiesta de cierre y Chelas Urbanas!',time:'17:00',venue:'La Vermut Bar, Av. Francisco Bolognesi 235, Barranco 15063',sessions:[['17:00–19:00','Chelas Urbanas'],['19:00 en adelante','Fiesta de cierre']],description:'',edited:false};
@@ -203,8 +205,9 @@ test('saving the links stays locked while saving, sends the saved availability w
 test('a failed settings save keeps the draft and restores each previous disabled state',async()=>{
  let finishSave;
  const h=await harness(({method})=>method==='GET'?{content:[],nextCursor:null}:new Promise(resolve=>{finishSave=resolve;}));
- const form=h.root.querySelector('.f-admin-settings').querySelector('form'),open=field(form,'registrationOpen'),programme=field(form,'programUrl'),party=field(form,'partyUrl');
- programme.value='https://example.test/corrected-programme';party.disabled=true;
+ // A control that was disabled before the save (here one added for the test) stays disabled after it.
+ const form=h.root.querySelector('.f-admin-settings').querySelector('form'),open=field(form,'registrationOpen'),programme=field(form,'programUrl'),party=Object.assign(new Node('input'),{name:'extra',disabled:true});form.append(party);
+ programme.value='https://example.test/corrected-programme';
  form.listeners.submit({preventDefault(){}});
  assert.equal(programme.disabled,true);assert.equal(open.disabled,true);
  finishSave(unavailable);await flush();
@@ -379,16 +382,16 @@ test('the availability switch saves on its own: closing asks first, a declined c
  const form=h.root.querySelector('.f-admin-settings').querySelector('form'),open=field(form,'registrationOpen'),note=h.root.querySelector('.f-switch-card').querySelector('.f-inline-status'),puts=()=>h.requests.filter(request=>request.method==='PUT');let asked=0;
  assert.equal(open.role,'switch');assert.equal(note.role,'status');h.ctx.window.confirm=message=>{asked++;assert.equal(message,h.ctx.window.Fiiu.t('closeConfirm'));return false;};
  open.checked=false;await open.listeners.change();assert.equal(asked,1);assert.equal(open.checked,true,'a declined close keeps registration open');assert.equal(puts().length,0);
- field(form,'partyUrl').value='https://example.test/party-unsaved';
+ field(form,'programUrl').value='https://example.test/programme-unsaved';
  h.ctx.window.confirm=()=>{asked++;return true;};open.checked=false;await open.listeners.change();
  assert.equal(asked,2);assert.equal(puts().length,1);
- assert.deepEqual(puts()[0].body,{...DEFAULT_CONFIG,registrationOpen:false,version:0},'only the availability changes; the typed link waits for its own Save');
+ assert.deepEqual(puts()[0].body,{...SETTINGS,registrationOpen:false,version:0},'only the availability changes; the typed link waits for its own Save');
  assert.equal(note.dataset.fiiuText,'changesSaved');assert.equal(key(h.root.querySelector('.f-admin-head'),'registrationClosedNow')?.href,'#settings','the header pill says closed at once');
- assert.equal(field(form,'partyUrl').value,'https://example.test/party-unsaved');
+ assert.equal(field(form,'programUrl').value,'https://example.test/programme-unsaved');
  open.checked=true;await open.listeners.change();assert.equal(asked,2,'reopening never asks');
- assert.deepEqual(puts().at(-1).body,{...DEFAULT_CONFIG,registrationOpen:true,version:1});assert.ok(key(h.root.querySelector('.f-admin-head'),'registrationOpenNow'));
+ assert.deepEqual(puts().at(-1).body,{...SETTINGS,registrationOpen:true,version:1});assert.ok(key(h.root.querySelector('.f-admin-head'),'registrationOpenNow'));
  await submit(form);
- assert.deepEqual(puts().at(-1).body,{...DEFAULT_CONFIG,partyUrl:'https://example.test/party-unsaved',registrationOpen:true,version:2},'Save sends the links with the saved availability and version');
+ assert.deepEqual(puts().at(-1).body,{...SETTINGS,programUrl:'https://example.test/programme-unsaved',registrationOpen:true,version:2},'Save sends the link with the saved availability and version');
 });
 
 test('participant detail masks the national ID, skips empty answers and autosaves attendance without disabling it',async()=>{
@@ -652,15 +655,15 @@ test('writes during an in-flight totals refresh get exactly one more refresh onc
 
 test('reloading the latest settings after a conflict re-reads only the settings and leaves other drafts alone',async()=>{
  let reads=0;
- const h=await harness(({method})=>method==='GET'?{content:[],nextCursor:null}:{status:409,data:{error:'configuration changed; reload before saving'}},{configRead:()=>({config:++reads===1?{...DEFAULT_CONFIG,version:0}:{...DEFAULT_CONFIG,partyUrl:'https://example.test/party-latest',version:3}})});
+ const h=await harness(({method})=>method==='GET'?{content:[],nextCursor:null}:{status:409,data:{error:'configuration changed; reload before saving'}},{configRead:()=>({config:++reads===1?{...DEFAULT_CONFIG,version:0}:{...DEFAULT_CONFIG,programUrl:'https://example.test/programme-latest',version:3}})});
  const settingsReads=()=>h.requests.filter(request=>request.path==='/api/admin/fiiu/config'&&request.method==='GET').length;
  assert.equal(settingsReads(),1,'the first settings, version included, come with the dashboard read');
  const draft=editorForm(h);field(draft,'title').value='Unsaved room change';
- const form=h.root.querySelector('.f-admin-settings').querySelector('form');field(form,'partyUrl').value='https://example.test/party-mine';await submit(form);
+ const form=h.root.querySelector('.f-admin-settings').querySelector('form');field(form,'programUrl').value='https://example.test/programme-mine';await submit(form);
  assert.equal(h.message.dataset.fiiuText,'editorConflict');
  await key(form,'reloadLatest').listeners.click();
  const fresh=h.root.querySelector('.f-admin-settings').querySelector('form');
- assert.notEqual(fresh,form);assert.equal(field(fresh,'partyUrl').value,'https://example.test/party-latest');assert.equal(field(fresh,'registrationOpen').focused,true);
+ assert.notEqual(fresh,form);assert.equal(field(fresh,'programUrl').value,'https://example.test/programme-latest');assert.equal(field(fresh,'registrationOpen').focused,true);
  assert.equal(h.reloads(),0,'the page is not reloaded');assert.equal(h.message.dataset.fiiuText,'');assert.equal(settingsReads(),2);
  assert.equal(editorForm(h),draft);assert.equal(field(draft,'title').value,'Unsaved room change','an unrelated draft survives');
  await submit(fresh);assert.equal(h.requests.filter(request=>request.method==='PUT').at(-1).body.version,3,'the next save uses the version just read');
@@ -668,7 +671,7 @@ test('reloading the latest settings after a conflict re-reads only the settings 
 
 test('a conflict on the availability switch reloads the switch alone, so links typed and not yet saved stay for Save',async()=>{
  let reads=0;
- const h=await harness(({method})=>method==='GET'?{content:[],nextCursor:null}:{status:409,data:{error:'configuration changed; reload before saving'}},{configRead:()=>({config:++reads===1?{...DEFAULT_CONFIG,version:0}:{...DEFAULT_CONFIG,registrationOpen:false,partyUrl:'https://example.test/party-latest',version:3}})});
+ const h=await harness(({method})=>method==='GET'?{content:[],nextCursor:null}:{status:409,data:{error:'configuration changed; reload before saving'}},{configRead:()=>({config:++reads===1?{...DEFAULT_CONFIG,version:0}:{...DEFAULT_CONFIG,registrationOpen:false,programUrl:'https://example.test/programme-latest',version:3}})});
  const form=h.root.querySelector('.f-admin-settings').querySelector('form'),open=field(form,'registrationOpen'),card=h.root.querySelector('.f-switch-card');
  field(form,'programUrl').value='https://example.test/programme-typed';h.ctx.window.confirm=()=>true;
  open.checked=false;await open.listeners.change();
@@ -761,14 +764,16 @@ test('the registrations CSV downloads through fetch, and a failed export is repo
  assert.equal(signals.at(-1),undefined);assert.deepEqual(events.at(-1),['download','blob:nodal/export','fiiu-2026-registrations.csv',true],'Safari before 16, without AbortSignal.timeout, still downloads');
 });
 
-test('settings edit only the links the public page shows and send the other saved links back unchanged',async()=>{
- const saved={...DEFAULT_CONFIG,version:4,workshopsUrl:'https://example.test/workshops',routesUrl:'https://example.test/routes'};
+test('settings edit only the programme link the public page shows, send the other saved links back unchanged and never send a party link',async()=>{
+ // An older saved record may still hold a party link; the party now registers through NODAL, so it is not shown and not sent back.
+ const saved={...DEFAULT_CONFIG,version:4,workshopsUrl:'https://example.test/workshops',routesUrl:'https://example.test/routes',partyUrl:'https://example.test/old-party'};
  const h=await harness(({method,body})=>method==='GET'?{content:[],nextCursor:null}:{config:{...body,version:body.version+1}},{configRead:()=>({config:copy(saved)})});
  const form=h.root.querySelector('.f-admin-settings').querySelector('form');
- assert.deepEqual(form.querySelectorAll('input').filter(input=>input.type==='url').map(input=>input.name),['programUrl','partyUrl']);
- field(form,'partyUrl').value='https://example.test/party';await submit(form);
+ assert.deepEqual(form.querySelectorAll('input').filter(input=>input.type==='url').map(input=>input.name),['programUrl']);assert.equal(key(form,'partyUrl'),undefined);
+ field(form,'programUrl').value='https://example.test/programme';await submit(form);
  const body=h.requests.find(request=>request.method==='PUT').body;
- assert.equal(body.partyUrl,'https://example.test/party');assert.equal(body.programUrl,saved.programUrl);assert.equal(body.version,4);
+ assert.equal('partyUrl' in body,false);assert.equal(body.programUrl,'https://example.test/programme');assert.equal(body.version,4);
+ const open=field(form,'registrationOpen');h.ctx.window.confirm=()=>true;open.checked=false;await open.listeners.change();assert.equal('partyUrl' in h.requests.filter(request=>request.method==='PUT').at(-1).body,false,'nor does the switch');
  assert.equal(body.workshopsUrl,saved.workshopsUrl);assert.equal(body.routesUrl,saved.routesUrl);
 });
 
@@ -1452,13 +1457,13 @@ test('leaving the page with a typed link not yet saved asks first; the switch, w
  // Like the server (normalizeConfig), the reply stores each link as new URL(link).href.
  const normal=body=>Object.fromEntries(Object.entries(body).map(([name,value])=>[name,name.endsWith('Url')&&value?new URL(value).href:value]));
  const h=await harness(({method,body})=>method==='GET'?{content:[],nextCursor:null}:{config:{...normal(body),version:body.version+1}});
- const form=h.root.querySelector('.f-admin-settings').querySelector('form'),open=field(form,'registrationOpen'),party=field(form,'partyUrl');
+ const form=h.root.querySelector('.f-admin-settings').querySelector('form'),open=field(form,'registrationOpen'),programme=field(form,'programUrl');
  open.checked=false;await open.listeners.change();assert.equal(leavePrompt(h),false);
- party.value='https://example.test/party-new';assert.equal(leavePrompt(h),true,'an unsaved link asks first');
- party.value='';assert.equal(leavePrompt(h),false,'typed back as saved, it lets the page go');
- party.value='https://example.test/party-new';await submit(form);assert.equal(leavePrompt(h),false,'saved');
- party.value='https://Example.test';await submit(form);
- assert.equal(party.value,'https://example.test/','the field shows the link as the server saved it');assert.equal(leavePrompt(h),false,'a link the server tidied is still saved');
+ programme.value='https://example.test/programme-new';assert.equal(leavePrompt(h),true,'an unsaved link asks first');
+ programme.value=DEFAULT_CONFIG.programUrl;assert.equal(leavePrompt(h),false,'typed back as saved, it lets the page go');
+ programme.value='https://example.test/programme-new';await submit(form);assert.equal(leavePrompt(h),false,'saved');
+ programme.value='https://Example.test';await submit(form);
+ assert.equal(programme.value,'https://example.test/','the field shows the link as the server saved it');assert.equal(leavePrompt(h),false,'a link the server tidied is still saved');
 });
 
 test('a failed attendance tick says the attendance was not saved: an ended session puts a sign-in link on the row, an outage asks to tick again',async()=>{

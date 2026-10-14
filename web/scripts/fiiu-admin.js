@@ -429,12 +429,14 @@
  function renderRegistrationPill(){const on=config.registrationOpen;pillHost.replaceChildren(link(on?'registrationOpenNow':'registrationClosedNow','#settings','f-pill'+(on?' is-open':'')));}
  // The link fields on screen; leaving the page while one differs from the saved settings asks first.
  let linkInputs=[];
+ // The saved settings a save sends back. An older record may still hold the party link the settings no longer have; it is left behind, not sent.
+ const savedSettings=()=>Object.fromEntries(Object.entries(config).filter(([name])=>name!=='partyUrl'));
  function settingsDirty(){return linkInputs.some(input=>input.value!==(config?.[input.name]??''));}
  function settings(){
   const form=el('form','f-form'),card=el('div','f-switch-card'),links=el('fieldset','f-links'),open=check('registrationOpen','registrationOpen','yes',config.registrationOpen),note=hint('registrationOpenHint'),conflict=el('div','f-conflict'),switchNote=el('p','f-inline-status'),switchConflict=el('div','f-conflict');let busy=false,pending=false;
   open.input.setAttribute('role','switch');open.input.setAttribute('aria-describedby',note.id);switchNote.setAttribute('role','status');card.append(open.wrap,note,switchNote,switchConflict);links.append(tr('legend','publicLinks'));
-  // The public page shows only these two links; each workshop and route carries its own form link.
-  linkInputs=['programUrl','partyUrl'].map(key=>{const link=field(key,{value:config[key],type:'url',max:2000});links.append(link.wrap);return link.input;});
+  // The public page shows only the programme link: each workshop and route carries its own form link, and the party registers through NODAL.
+  linkInputs=['programUrl'].map(key=>{const link=field(key,{value:config[key],type:'url',max:2000});links.append(link.wrap);return link.input;});
   const save=button('saveSettings');save.type='submit';form.append(card,links,save,conflict);localiseValidation(form);
   // The switch saves on its own, as a switch implies (and as attendance ticks do), so the header pill and the public page follow at once. Closing
   // asks first; a failed save puts it back to what is saved. Its save carries only the availability: links typed but not yet saved wait for Save.
@@ -443,7 +445,7 @@
    if(pending){open.input.checked=!open.input.checked;return;}
    const wanted=open.input.checked;if(config.registrationOpen&&!wanted&&!window.confirm(t('closeConfirm'))){open.input.checked=true;return;}
    pending=true;open.input.setAttribute('aria-disabled','true');
-   return action(save,async()=>{try{config=(await api('/api/admin/fiiu/config',{...config,registrationOpen:wanted,version:config.version},'PUT')).config;}catch(err){open.input.checked=config.registrationOpen;throw err;}finally{renderRegistrationPill();}},{feedback:switchNote,conflict:switchConflict,reload:reloadSwitch}).finally(()=>{pending=false;open.input.removeAttribute('aria-disabled');});
+   return action(save,async()=>{try{config=(await api('/api/admin/fiiu/config',{...savedSettings(),registrationOpen:wanted,version:config.version},'PUT')).config;}catch(err){open.input.checked=config.registrationOpen;throw err;}finally{renderRegistrationPill();}},{feedback:switchNote,conflict:switchConflict,reload:reloadSwitch}).finally(()=>{pending=false;open.input.removeAttribute('aria-disabled');});
   });
   // The switch's own conflict re-reads the settings for the switch alone: links typed and not yet saved stay in their fields, waiting for Save.
   async function reloadSwitch(){
@@ -453,7 +455,7 @@
   form.addEventListener('submit',async event=>{
    event.preventDefault();if(busy||pending)return;
    // Saved settings the form does not show (the older workshop and route links) go back unchanged, and so does the saved availability.
-   const payload={...config,...Object.fromEntries(new FormData(form)),registrationOpen:config.registrationOpen,version:config.version},unlock=lockForm(form);busy=true;
+   const payload={...savedSettings(),...Object.fromEntries(new FormData(form)),registrationOpen:config.registrationOpen,version:config.version},unlock=lockForm(form);busy=true;
    // The server saves each link as its URL parser writes it (https://Example.org becomes https://example.org/), so the fields take the saved
    // values back: what shows is what is saved, and leaving afterwards does not ask about changes that are already saved.
    try{await action(save,async()=>{const result=await api('/api/admin/fiiu/config',payload,'PUT');config=result.config;for(const input of linkInputs)input.value=config[input.name]??'';renderRegistrationPill();},{conflict,reload:reloadSettings});}
