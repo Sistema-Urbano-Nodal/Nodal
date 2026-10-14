@@ -275,4 +275,6 @@ html:has(>body.f-page){scroll-padding-top:176px}.f-page :where(section,footer)[i
 .f-shell .f-line-button{min-height:36px;padding:4px 0;border:0;background:none;color:var(--f-forest);font:inherit;font-size:.86rem;font-weight:600;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px;cursor:pointer}.f-shell .f-line-button:disabled{color:var(--f-muted);text-decoration:none;cursor:default}
 .f-page .f-programme-warning{margin:0 0 var(--f-sp-2);font-size:.92rem;font-weight:600;color:var(--f-amber)}
 .f-programme-buttons{display:flex;flex-wrap:wrap;align-items:center;gap:var(--f-sp-2) var(--f-sp-4)}.f-shell .f-programme-restore{min-height:40px;margin-left:auto;padding:4px 0;border:0;background:none;font:inherit;cursor:pointer}
-@media(pointer:coarse){.f-shell :is(.f-line-button,.f-programme-restore){min-height:44px}}
+/* The party announcement under the party's row: the summary emails' plain lines in one column, whatever the screen, since it sits in a day's column. */
+.f-backfill.f-party-notice{display:block;max-width:none;margin:var(--f-sp-4) 0 var(--f-sp-2)}.f-page .f-party-notice h3{font-size:.95rem}
+@media(pointer:coarse){.f-shell :is(.f-line-button,.f-programme-restore,.f-party-notice .f-backfill-link){min-height:44px}}

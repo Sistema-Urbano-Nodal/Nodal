@@ -19,8 +19,11 @@ const summary={totalRegistrations:237,publicOfficials:64,lab:{pending:18,accepte
 // The summary-email block's state (GET /api/admin/fiiu/confirmations); by default nobody is waiting.
 const emailCounts=(over={})=>({none:0,pending:0,sent:0,failed:0,uncertain:0,skipped:0,...over});
 const emailState=(over={})=>({configured:true,counts:emailCounts(),dailyCap:150,sentToday:0,resetsAt:'2026-10-03T00:00:00.000Z',...over});
+// The party announcement's state (GET /api/admin/fiiu/notices/closing-party): waiting counts the registrants without the party and without a notice.
+const noticeCounts=(over={})=>({waiting:0,pending:0,sent:0,failed:0,uncertain:0,skipped:0,...over});
+const noticeState=(over={})=>({configured:true,counts:noticeCounts(),dailyCap:150,sentToday:0,resetsAt:'2026-10-03T00:00:00.000Z',...over});
 // The conversation questions (GET /api/admin/fiiu/questions); by default there are none.
-async function harness(respond,{participants=[],nextCursor=null,summaryRead=()=>({summary:copy(summary)}),configRead=()=>({config:{...DEFAULT_CONFIG,version:0}}),confirmationsRead=()=>emailState(),questionsRead=()=>({questions:[]}),programmeRead=()=>({activities:programmeItems()}),context={}}={}){
+async function harness(respond,{participants=[],nextCursor=null,summaryRead=()=>({summary:copy(summary)}),configRead=()=>({config:{...DEFAULT_CONFIG,version:0}}),confirmationsRead=()=>emailState(),questionsRead=()=>({questions:[]}),programmeRead=()=>({activities:programmeItems()}),noticesRead=()=>noticeState(),context={}}={}){
  return createFiiuHarness(request=>{
   // The dashboard reads the programme and its first settings, version included, from its own per-account read, never the public /api/fiiu.
   if(request.path==='/api/fiiu')throw Error('the dashboard must not depend on the public, CDN-cached programme read');
@@ -28,6 +31,7 @@ async function harness(respond,{participants=[],nextCursor=null,summaryRead=()=>
   if(request.path==='/api/admin/fiiu/confirmations'&&request.method==='GET')return confirmationsRead(request);
   if(request.path==='/api/admin/fiiu/questions'&&request.method==='GET')return questionsRead(request);
   if(request.path==='/api/admin/fiiu/programme'&&request.method==='GET')return programmeRead(request);
+  if(request.path==='/api/admin/fiiu/notices/closing-party'&&request.method==='GET')return noticesRead(request);
   if(request.path==='/api/admin/fiiu/registrations')return{registrations:copy(participants),nextCursor};
   if(request.path==='/api/admin/fiiu/summary')return summaryRead(request);
   return respond(request);
@@ -1740,8 +1744,107 @@ test('the check-in section leaves out the party, which takes no check-in',async(
 test('the organiser CSS is the stylesheet’s last block: 44px touch targets, and no fixed width that would push a 360px phone sideways',()=>{
  const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8'),marker='/* Organiser: programme, party announcement, ratings */',at=css.indexOf(marker);
  assert.ok(at>0);assert.equal(css.indexOf(marker,at+1),-1,'one block');const block=css.slice(at);
- assert.match(block,/@media\(pointer:coarse\)\{\.f-shell :is\(\.f-line-button,\.f-programme-restore[^)]*\)\{min-height:44px\}/);
+ assert.match(block,/@media\(pointer:coarse\)\{\.f-shell :is\(\.f-line-button,\.f-programme-restore,\.f-party-notice \.f-backfill-link[^)]*\)\{min-height:44px\}/);
  // Widths that only apply past a breakpoint, caps (max-width) and tracks clamped to the column (min(100%,…)) never widen a phone page.
  const loose=block.replace(/@media\([^)]*\)/g,'').replace(/min\(100%,\d+px\)/g,'').replace(/max-width:\d+px/g,'');
  assert.doesNotMatch(loose,/(?:min-width|[{;]width|flex-basis|grid-template-columns|inline-size)\s*:[^;}]*\b\d{3,}px/,'no fixed width of 100px or more');assert.doesNotMatch(block,/border-left:\s*[3-9]px/,'no thick left accent bar');
+});
+
+// The party announcement (GET and POST /api/admin/fiiu/notices/closing-party), under the party's row in the Programme section: the summary-email
+// controller, given the announcement's endpoint and wording.
+const NOTICES='/api/admin/fiiu/notices/closing-party';
+const noticeBlock=h=>blockRow(h,'closing-party')?.querySelector('.f-party-notice');
+const noticeLine=h=>noticeBlock(h).querySelector('.f-backfill-line').textContent;
+const noticeNote=h=>noticeBlock(h).querySelector('.f-backfill-note').textContent;
+const noticeButtons=h=>noticeBlock(h).querySelectorAll('button');
+const noticeAction=(h,name)=>noticeButtons(h).find(b=>b.dataset.action===name);
+const pressNotice=async(h,name)=>{const b=noticeAction(h,name);assert.ok(b,`no ${name} button`);b.listeners.click();await flush();};
+const noticePosts=h=>h.requests.filter(r=>r.path===NOTICES&&r.method==='POST');
+const noticeBatch=(over={})=>({sent:0,failed:0,uncertain:0,skipped:0,claimedElsewhere:0,next:null,dailyCap:150,sentToday:0,resetsAt:'2026-10-03T00:00:00.000Z',counts:noticeCounts(),...over});
+const NOTICE_KEYS=['noticeTitle','noticeHint','noticeWaitingOne','noticeWaitingMany','noticeNoneWaiting','noticeLeftOne','noticeLeftMany','noticeSendOne','noticeSendMany','noticeConfirmHint','noticeCap','noticeOff','noticeLoadError'];
+
+test('under the party’s row, Announce the party says who is waiting, how many went out and how many are left today, in three languages',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{noticesRead:()=>noticeState({counts:noticeCounts({waiting:120,sent:30,failed:2}),sentToday:40})});
+ const block=noticeBlock(h),row=blockRow(h,'closing-party');assert.ok(block);assert.ok(row.children.includes(block),'directly in the party’s row');
+ assert.equal(programmeSection(h).querySelectorAll('.f-party-notice').length,1,'no other block has one');
+ assert.ok(key(block,'noticeTitle'));assert.equal(key(block,'noticeHint').hidden,false);assert.equal(block.role,'group');assert.equal(block['aria-labelledby'],key(block,'noticeTitle').id);
+ assert.equal(noticeLine(h),'120 registrants have not added the party · 30 sent · 2 failed · 110 left today');assert.equal(noticeNote(h),'');
+ assert.deepEqual(noticeButtons(h).map(b=>[b.dataset.action,b.textContent,b.className]),[['send','Announce the party to 120 people','f-button'],['retry','Retry failed (2)','f-backfill-link']]);
+ h.lang('es');assert.equal(noticeLine(h),'120 personas inscritas no han añadido la fiesta · 30 enviados · 2 con error · quedan 110 hoy');assert.equal(noticeAction(h,'send').textContent,'Anunciar la fiesta a 120 personas');
+ h.lang('pt');assert.equal(noticeLine(h),'120 pessoas inscritas não adicionaram a festa · 30 enviados · 2 com erro · restam 110 hoje');
+ const rows=h.ctx.window.Fiiu.rows;for(const name of NOTICE_KEYS){assert.equal(rows[name]?.length,3,name);assert.ok(rows[name].every(text=>typeof text==='string'&&text.trim()),name);}
+ h.lang('en');const one=await harness(()=>({content:[],nextCursor:null}),{noticesRead:()=>noticeState({counts:noticeCounts({waiting:1,sent:1}),sentToday:149})});
+ assert.equal(noticeLine(one),'1 registrant has not added the party · 1 sent · 1 left today');assert.equal(noticeAction(one,'send').textContent,'Announce the party to 1 person');
+ const none=await harness(()=>({content:[],nextCursor:null}),{noticesRead:()=>noticeState({counts:noticeCounts({sent:80,skipped:2}),sentToday:80})});
+ assert.equal(noticeLine(none),'Nobody is waiting for the announcement · 80 sent · 2 test addresses skipped · 70 left today');assert.equal(noticeButtons(none).length,0);
+ // The summary emails keep their own block, under the settings.
+ assert.ok(h.root.querySelector('.f-admin-settings').children.includes(h.root.querySelector('.f-backfill')));
+});
+
+test('announcing asks first with the number waiting, then sends batch after batch from the previous cursor until there is no next one',async()=>{
+ let state=noticeState({counts:noticeCounts({waiting:6})});const second=deferred();
+ const h=await harness(request=>{
+  if(request.path!==NOTICES)return{content:[],nextCursor:null};
+  if(noticePosts(h).length===1)return noticeBatch({sent:4,next:'reg-4',sentToday:4,counts:noticeCounts({waiting:2,sent:4})});
+  return second.promise;
+ },{noticesRead:()=>state});
+ let asked=0;h.ctx.window.confirm=()=>{asked++;return true;};
+ await pressNotice(h,'send');
+ assert.equal(noticePosts(h).length,0,'the first press only asks');assert.equal(asked,0,'in the page, not a browser dialog');
+ assert.equal(noticeNote(h),'The announcement goes out now, a few emails at a time. You can stop at any time.');
+ const confirm=noticeAction(h,'confirm');assert.equal(confirm.textContent,'Confirm: send 6 emails');assert.equal(confirm.focused,true);assert.ok(noticeAction(h,'cancel'));
+ confirm.listeners.click();confirm.listeners.click();await flush();
+ assert.equal(noticeNote(h),'Sent 4 of 6…');assert.equal(noticeAction(h,'stop').focused,true);
+ assert.equal(noticeLine(h),'2 registrants have not added the party · 4 sent · 146 left today','the counts follow each batch');
+ assert.deepEqual(noticePosts(h).map(r=>r.body),[{retryFailed:false},{retryFailed:false,after:'reg-4'}],'one pass despite the double click, the second batch after the first one’s cursor');
+ state=noticeState({counts:noticeCounts({sent:5,failed:1}),sentToday:6});
+ second.resolve(noticeBatch({sent:1,failed:1,next:null,sentToday:6,counts:noticeCounts({sent:5,failed:1})}));await flush();
+ assert.equal(noticePosts(h).length,2,'no next cursor: the pass is done');assert.equal(noticeNote(h),'Sent 5 · Failed 1 — you can retry the failed ones');
+ assert.equal(noticeLine(h),'Nobody is waiting for the announcement · 5 sent · 1 failed · 144 left today');assert.deepEqual(noticeButtons(h).map(b=>b.dataset.action),['retry']);
+ assert.equal(h.requests.some(r=>r.path==='/api/admin/fiiu/confirmations'&&r.method==='POST'),false,'the summary emails are untouched');
+});
+
+test('Stop ends the announcement after the batch in flight, Cancel sends nothing, and Retry failed resends only the failed ones',async()=>{
+ let state=noticeState({counts:noticeCounts({waiting:10})});const first=deferred();
+ const h=await harness(request=>request.path===NOTICES?first.promise:{content:[],nextCursor:null},{noticesRead:()=>state});
+ await pressNotice(h,'send');await pressNotice(h,'cancel');assert.equal(noticePosts(h).length,0);assert.equal(noticeAction(h,'send').focused,true);
+ await pressNotice(h,'send');await pressNotice(h,'confirm');assert.equal(noticeNote(h),'Sent 0 of 10…');
+ await pressNotice(h,'stop');assert.equal(noticeNote(h),'Sent 0 of 10 — stopping after this batch…');
+ state=noticeState({counts:noticeCounts({waiting:6,sent:4}),sentToday:4});first.resolve(noticeBatch({sent:4,next:'reg-4',sentToday:4,counts:noticeCounts({waiting:6,sent:4})}));await flush();
+ assert.equal(noticePosts(h).length,1,'nothing after Stop');assert.equal(noticeNote(h),'Stopped. Sent 4 · Failed 0');assert.equal(noticeAction(h,'send').textContent,'Announce the party to 6 people');
+ let retried=noticeState({counts:noticeCounts({sent:9,failed:2})});
+ const r=await harness(request=>{if(request.path!==NOTICES)return{content:[],nextCursor:null};retried=noticeState({counts:noticeCounts({sent:11})});return noticeBatch({sent:2,next:null,sentToday:11,counts:noticeCounts({sent:11})});},{noticesRead:()=>retried});
+ assert.deepEqual(noticeButtons(r).map(b=>b.dataset.action),['retry']);await pressNotice(r,'retry');assert.equal(noticeAction(r,'confirm').textContent,'Confirm: send 2 emails');
+ await pressNotice(r,'confirm');assert.deepEqual(noticePosts(r).map(request=>request.body),[{retryFailed:true}]);assert.equal(noticeNote(r),'Sent 2 · Failed 0');assert.equal(noticeButtons(r).length,0);
+});
+
+test('the announcement reports the shared daily cap with its reset time, email turned off, a failed read and a lost organiser role',async()=>{
+ const capped=await harness(()=>({content:[],nextCursor:null}),{noticesRead:()=>noticeState({counts:noticeCounts({waiting:5,sent:20}),sentToday:150})});
+ assert.equal(noticeButtons(capped).length,0);assert.equal(noticeNote(capped),'Today’s limit of 150 emails is reached (summary and sign-up emails included). Sending can continue after 19:00 Lima time.');
+ assert.match(noticeLine(capped),/· 0 left today$/);
+ let state=noticeState({counts:noticeCounts({waiting:8})});
+ const h=await harness(request=>{if(request.path!==NOTICES)return{content:[],nextCursor:null};state=noticeState({counts:noticeCounts({waiting:8}),sentToday:150});return{status:429,data:{error:'daily email limit reached',code:'daily_cap',dailyCap:150,sentToday:150,resetsAt:'2026-10-03T00:00:00.000Z',counts:noticeCounts({waiting:8})}};},{noticesRead:()=>state});
+ await pressNotice(h,'send');await pressNotice(h,'confirm');
+ assert.match(noticeNote(h),/^Today’s limit of 150 emails is reached/);assert.equal(noticeAction(h,'send'),undefined,'no button until the cap resets');
+ // Sending was switched off after the page loaded: the POST says so, and so does the state read after it.
+ let configured=true;const off=await harness(request=>{if(request.path!==NOTICES)return{content:[],nextCursor:null};configured=false;return{status:503,data:{error:'email is not configured',code:'email_not_configured'}};},{noticesRead:()=>noticeState({configured,counts:noticeCounts({waiting:3})})});
+ await pressNotice(off,'send');await pressNotice(off,'confirm');assert.match(noticeLine(off),/^Emails are off, so the announcement cannot be sent\./);assert.equal(noticeButtons(off).length,0);assert.equal(key(noticeBlock(off),'noticeHint').hidden,true);
+ const unset=await harness(()=>({content:[],nextCursor:null}),{noticesRead:()=>noticeState({configured:false,counts:noticeCounts({waiting:3})})});assert.match(noticeLine(unset),/^Emails are off/);assert.equal(noticeButtons(unset).length,0);
+ let fail=true;const failed=await harness(()=>({content:[],nextCursor:null}),{noticesRead:()=>fail?unavailable:noticeState({counts:noticeCounts({waiting:2})})});
+ assert.equal(noticeLine(failed),'The announcement status could not be loaded.');assert.equal(content(failed.message).trim(),'');
+ fail=false;await pressNotice(failed,'reload');assert.equal(noticeLine(failed),'2 registrants have not added the party · 0 sent · 150 left today');
+ const odd=await harness(()=>({content:[],nextCursor:null}),{noticesRead:()=>({configured:true,counts:{waiting:'2'}})});assert.equal(noticeLine(odd),'The announcement status could not be loaded.','anything malformed reads as a failed read');
+ const lost=await harness(request=>request.path===NOTICES?{status:403,data:{error:'administrator access required'}}:{content:[],nextCursor:null},{noticesRead:()=>noticeState({counts:noticeCounts({waiting:3})})});
+ await pressNotice(lost,'send');await pressNotice(lost,'confirm');assert.ok(key(lost.root,'organisersOnly'));assert.equal(lost.root.querySelector('.f-party-notice'),null);
+});
+
+test('a finished pass re-reads the other email block, since summary emails and the announcement share the daily cap',async()=>{
+ const h=await harness(request=>{
+  if(request.path===NOTICES)return noticeBatch({sent:3,next:null,sentToday:3,counts:noticeCounts({sent:3})});
+  if(request.path==='/api/admin/fiiu/confirmations')return batch({sent:2,remaining:0,next:null,sentToday:5,counts:emailCounts({sent:2})});
+  return{content:[],nextCursor:null};
+ },{noticesRead:()=>noticeState({counts:noticeCounts({waiting:3})}),confirmationsRead:()=>emailState({counts:emailCounts({none:2})})});
+ const reads=path=>h.requests.filter(r=>r.path===path&&r.method==='GET').length,summaryReads=reads('/api/admin/fiiu/confirmations'),noticeReads=reads(NOTICES);
+ await pressNotice(h,'send');await pressNotice(h,'confirm');assert.equal(reads('/api/admin/fiiu/confirmations'),summaryReads+1,'the summary block learns the new count');assert.equal(reads(NOTICES),noticeReads+1);
+ await press(h,'send');await press(h,'confirm');assert.equal(reads(NOTICES),noticeReads+2,'and the other way round');
 });

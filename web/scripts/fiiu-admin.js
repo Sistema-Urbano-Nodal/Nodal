@@ -51,7 +51,18 @@
   pgHoursWarningOne:['1 person has checked in to this block. Their certificate hours will follow the new time.','1 persona registró su asistencia en este bloque. Sus horas del certificado seguirán el nuevo horario.','1 pessoa registrou presença neste bloco. As horas do certificado vão seguir o novo horário.'],
   pgHoursWarningMany:['{n} people have checked in to this block. Their certificate hours will follow the new time.','{n} personas registraron su asistencia en este bloque. Sus horas del certificado seguirán el nuevo horario.','{n} pessoas registraram presença neste bloco. As horas do certificado vão seguir o novo horário.'],
   pgWindowWarning:['This block’s day has started: a new date or time moves its check-in at once.','El día de este bloque ya empezó: una nueva fecha u hora mueve su registro de asistencia de inmediato.','O dia deste bloco já começou: uma nova data ou horário muda o registro de presença na hora.'],
-  pgLoadError:['The programme could not be loaded.','No se pudo cargar el programa.','Não foi possível carregar a programação.'],pgEmptyValue:['(empty)','(vacío)','(vazio)']
+  pgLoadError:['The programme could not be loaded.','No se pudo cargar el programa.','Não foi possível carregar a programação.'],pgEmptyValue:['(empty)','(vacío)','(vazio)'],
+  // The party announcement, under the party's row; its sent, failed and progress lines are the summary emails' own (fiiu-ui.js).
+  noticeTitle:['Announce the party','Anunciar la fiesta','Anunciar a festa'],
+  noticeHint:['One email to each registrant who has not added the closing party yet, with its details and a button to add it. Each person gets it once, in the language they registered in (Spanish otherwise).','Un correo a cada persona inscrita que aún no añadió la fiesta de cierre, con sus detalles y un botón para añadirla. Cada persona lo recibe una sola vez, en el idioma en que se inscribió (si no, en español).','Um e-mail para cada pessoa inscrita que ainda não adicionou a festa de encerramento, com os detalhes e um botão para adicioná-la. Cada pessoa o recebe uma única vez, no idioma em que se inscreveu (se não, em espanhol).'],
+  noticeWaitingOne:['1 registrant has not added the party','1 persona inscrita no ha añadido la fiesta','1 pessoa inscrita não adicionou a festa'],noticeWaitingMany:['{n} registrants have not added the party','{n} personas inscritas no han añadido la fiesta','{n} pessoas inscritas não adicionaram a festa'],
+  noticeNoneWaiting:['Nobody is waiting for the announcement','Nadie espera el anuncio','Ninguém aguarda o anúncio'],
+  noticeLeftOne:['1 left today','queda 1 hoy','resta 1 hoje'],noticeLeftMany:['{n} left today','quedan {n} hoy','restam {n} hoje'],
+  noticeSendOne:['Announce the party to 1 person','Anunciar la fiesta a 1 persona','Anunciar a festa para 1 pessoa'],noticeSendMany:['Announce the party to {n} people','Anunciar la fiesta a {n} personas','Anunciar a festa para {n} pessoas'],
+  noticeConfirmHint:['The announcement goes out now, a few emails at a time. You can stop at any time.','El anuncio sale ahora, unos pocos correos a la vez. Puedes detener el envío en cualquier momento.','O anúncio sai agora, alguns e-mails por vez. Você pode parar o envio a qualquer momento.'],
+  noticeCap:['Today’s limit of {cap} emails is reached (summary and sign-up emails included). Sending can continue after {time} Lima time.','Se alcanzó el límite de hoy: {cap} correos (incluidos los de resumen e inscripción). Se puede seguir enviando después de las {time}, hora de Lima.','O limite de hoje foi atingido: {cap} e-mails (incluindo os de resumo e de inscrição). O envio pode continuar depois das {time}, horário de Lima.'],
+  noticeOff:['Emails are off, so the announcement cannot be sent. To turn them on, set EMAIL_SMTP_URL and EMAIL_FROM (and PUBLIC_BASE_URL) in Vercel for Production, then redeploy.','Los correos están desactivados, así que el anuncio no se puede enviar. Para activarlos, configura EMAIL_SMTP_URL y EMAIL_FROM (y PUBLIC_BASE_URL) en Vercel para Production y vuelve a desplegar.','Os e-mails estão desativados, então o anúncio não pode ser enviado. Para ativá-los, defina EMAIL_SMTP_URL e EMAIL_FROM (e PUBLIC_BASE_URL) na Vercel para Production e publique de novo.'],
+  noticeLoadError:['The announcement status could not be loaded.','No se pudo cargar el estado del anuncio.','Não foi possível carregar o status do anúncio.']
  });
  const root=document.getElementById('fiiuAdminRoot'),message=document.getElementById('fiiuStatus');
  let festival,config,records=[],cursor=null,filling=null,listStale=false,publications=[],contentCursor=null,selectedParticipant=null,shownParticipant=null,detailRequest=0,participantFilter='all',participantQuery='',participantWords=[],shownCount=null,updatedAt=null,search=null,searchTimer=null,setAside=null;
@@ -211,7 +222,7 @@
  // Losing organiser access mid-session (role removed, or another account signed in) clears every participant answer from the page and stops polling.
  function lockOut(){
   locked=true;if(timer!==null)clearInterval(timer);sectionObserver?.disconnect();records=[];publications=[];rowCache=new WeakMap();lastSummary=null;selectedParticipant=shownParticipant=null;
-  if(backfillRun){backfillRun.stopping=true;backfillRun.wake?.();}backfill=null;backfillAsk=backfillResult=null;backfillLine.textContent=backfillNote.textContent='';backfillActions.replaceChildren();
+  for(const pass of emailPasses)pass.lock();
   questions=null;newQuestion=null;questionRows.clear();questionLayout='';programme=null;programmeRows.clear();programmeLayout='';
   for(const host of [listHost,detailHost,participantsHost,summaryBody,checkinBody,settingsHost,contentHost,editorHost,pubList,resultCount,conversationsHost,questionEditorHost,questionList,questionAlert,programmeHost,programmeList,programmeAlert])host.replaceChildren();
   status(message,'');const box=el('section','f-locked'),actions=el('div','f-actions');actions.append(link('fiiuPage','fiiu.html','f-button'),link('backToConsole','dashboard.html'));box.append(tr('h1','organisersOnly'),tr('p','organisersOnlyHint'),actions);root.replaceChildren(box);
@@ -448,133 +459,150 @@
    try{await action(save,async()=>{const result=await api('/api/admin/fiiu/config',payload,'PUT');config=result.config;for(const input of linkInputs)input.value=config[input.name]??'';renderRegistrationPill();},{conflict,reload:reloadSettings});}
    finally{busy=false;unlock();}
   });
-  settingsHost.id='settings';settingsHost.replaceChildren(tr('h2','settings'),form,backfillHost);return settingsHost;
+  settingsHost.id='settings';settingsHost.replaceChildren(tr('h2','settings'),form,summaryEmails.host);return settingsHost;
  }
  async function reloadSettings(){config=(await api('/api/admin/fiiu/config')).config;renderRegistrationPill();settings();settingsHost.querySelector('input')?.focus();}
- // Summary emails: people the first-registration email did not reach (registered before it existed, or while sending was off or over its
- // limit) get it from here. One press sends batch after batch (the server sends a few per request and claims each row before its email
- // goes out, so a double click or a second organiser never emails anyone twice) until the pass is done, stopped, or today's cap is reached.
- // Plain lines and one press-plate button; Retry, Cancel and Stop are text buttons. Interpolated text carries no data-fiiu-text, so the
- // language switch re-renders it here instead of overwriting the numbers.
- const backfillHost=el('div','f-backfill'),backfillHeading=tr('h3','backfillTitle'),backfillHint=tr('p','backfillHint','f-muted f-section-hint'),backfillLine=el('p','f-backfill-line'),backfillNote=el('p','f-backfill-note'),backfillActions=el('div','f-backfill-actions');
- backfillHeading.id='f-h-backfill';backfillHost.setAttribute('role','group');backfillHost.setAttribute('aria-labelledby',backfillHeading.id);backfillNote.setAttribute('role','status');backfillNote.setAttribute('aria-live','polite');
- backfillHost.append(backfillHeading,backfillHint,backfillLine,backfillNote,backfillActions);
- // backfill: the last GET (configured, counts, dailyCap, sentToday, resetsAt); backfillAsk: the pass waiting for its confirmation; backfillRun: the pass under way; backfillResult: how the last one ended.
- let backfill=null,backfillLoadFailed=false,backfillAsk=null,backfillRun=null,backfillResult=null;
- const EMAIL_STATES=['none','pending','sent','failed','uncertain','skipped'],TALLY=['sent','failed','uncertain','skipped','claimedElsewhere'];
- const validCounts=counts=>Boolean(counts)&&EMAIL_STATES.every(k=>Number.isSafeInteger(counts[k])&&counts[k]>=0);
- const validBatch=data=>TALLY.every(k=>Number.isSafeInteger(data[k])&&data[k]>=0)&&Number.isSafeInteger(data.remaining)&&data.remaining>=0&&(data.next===null||typeof data.next==='string')&&validCounts(data.counts);
+ // Email passes: the summary emails (people the first-registration email did not reach, because they registered before it existed or while sending
+ // was off or over its limit) and the party announcement (registrants who have not added the closing party). One press sends batch after batch (the
+ // server sends a few per request and claims each row before its email goes out, so a double click or a second organiser never emails anyone twice)
+ // until the pass is done, stopped, or today's cap, which both share, is reached. Plain lines and one press-plate button; Retry, Cancel and Stop
+ // are text buttons. Interpolated text carries no data-fiiu-text, so the language switch re-renders it here instead of overwriting the numbers.
+ const EMAIL_STATES=['pending','sent','failed','uncertain','skipped'],TALLY=['sent','failed','uncertain','skipped','claimedElsewhere'];
  const fill=(key,values={})=>t(key).replace(/\{(\w+)\}/g,(match,name)=>values[name]??match),nf=n=>new Intl.NumberFormat(locale()).format(n);
  const plural=(base,n)=>fill(n===1?base+'One':base+'Many',{n:nf(n)});
- // One button per action, made once and kept: a progress update leaves the focused Stop button in place instead of rebuilding it.
- const backfillButtons=new Map(),backfillHandlers={send:()=>askBackfill('send'),retry:()=>askBackfill('retry'),confirm:()=>runBackfill(backfillAsk),cancel:()=>{const mode=backfillAsk;backfillAsk=null;renderBackfill(mode);},stop:()=>stopBackfill(),reload:()=>loadBackfill('reload')};
  /* Send swaps itself for Confirm, and Confirm for Stop, with focus on the new button, so a second press meant for the
     first one would land on the next: a double click, Enter pressed twice or held down. A press is ignored for
     BACKFILL_SETTLE_MS after the buttons change (longer than an ordinary double click), and a held Enter or Space does
     not repeat; other held keys (Tab, arrows) move on as usual. (A call without an event comes from code.) */
- const BACKFILL_SETTLE_MS=600;let backfillShownAt=0;
- function textButton(text,action,cls='f-backfill-link'){
-  let b=backfillButtons.get(action);
-  if(!b){
-   b=el('button');b.type='button';b.dataset.action=action;
-   b.addEventListener('click',event=>{if(event&&Date.now()-backfillShownAt<BACKFILL_SETTLE_MS)return;backfillHandlers[action]();});
-   b.addEventListener('keydown',event=>{if(event?.repeat&&['Enter',' '].includes(event.key))event.preventDefault();});
-   backfillButtons.set(action,b);
-  }
-  b.className=cls;b.textContent=text;return b;
- }
- function askBackfill(mode){backfillAsk=mode;backfillResult=null;renderBackfill('confirm');}
- const capReached=()=>Number.isSafeInteger(backfill?.dailyCap)&&Number.isSafeInteger(backfill?.sentToday)&&backfill.sentToday>=backfill.dailyCap;
- // Today's cap has reset (19:00 Lima) since the page last asked: the minute timer asks again, so the buttons come back without a reload.
- const capLifted=()=>capReached()&&!backfillRun&&!backfillAsk&&Date.now()>=Date.parse(backfill.resetsAt);
- const capText=()=>fill('backfillCap',{cap:nf(backfill?.dailyCap??0),time:Number.isFinite(Date.parse(backfill?.resetsAt))?limaClock(Date.parse(backfill.resetsAt)):'19:00'});
- function tallyText({sent,failed,uncertain,skipped}){return [fill('backfillDone',{sent:nf(sent),failed:nf(failed)}),...(uncertain?[plural('backfillUncertain',uncertain)]:[]),...(skipped?[plural('backfillSkipped',skipped)]:[])].join(' · ');}
- function resultText({end,tally}){
-  const handled=tally.sent+tally.failed+tally.uncertain+tally.skipped,base=tallyText(tally);
-  if(end==='done')return base+(tally.failed?' — '+t('backfillDoneRetry'):'');
-  if(end==='stopped')return t('backfillStopped')+' '+base;
-  const reason={cap:capText(),session:t('backfillSignIn'),error:t('backfillError')}[end]||'';
-  return handled?base+'. '+reason:reason;
- }
- function progressText(run){
-  const parts=[fill('backfillProgress',{sent:nf(run.tally.sent),total:nf(Math.max(run.total,run.tally.sent))}),...(run.tally.failed?[fill('backfillFailed',{n:nf(run.tally.failed)})]:[])];
-  return parts.join(' · ')+(run.stopping?' — '+t('backfillStopping'):run.waiting?' — '+t('backfillPausing'):'…');
- }
- // focus names the action to focus after this render; otherwise focus that was on a replaced button moves to the first action, or the heading.
- function renderBackfill(focus){
-  if(locked)return;
-  const counts=backfill?.counts,actions=[];let line,note='',error=false;
-  backfillHint.hidden=Boolean(backfill&&!backfill.configured);
-  if(!backfill){line=t(backfillLoadFailed?'backfillLoadError':'loading');if(backfillLoadFailed)actions.push(textButton(t('retry'),'reload'));}
-  else if(!backfill.configured)line=t('backfillOff');
-  else{
-   line=[counts.none?plural('backfillWaiting',counts.none):t('backfillNoneWaiting'),plural('backfillSent',counts.sent),...(counts.failed?[fill('backfillFailed',{n:nf(counts.failed)})]:[]),...(counts.uncertain+counts.pending?[plural('backfillUncertain',counts.uncertain+counts.pending)]:[]),...(counts.skipped?[plural('backfillSkipped',counts.skipped)]:[])].join(' · ');
-   if(backfillRun){note=progressText(backfillRun);actions.push(textButton(t('backfillStop'),'stop'));}
-   else if(backfillAsk){
-    const n=backfillAsk==='retry'?counts.failed:counts.none;note=t('backfillConfirmHint');
-    actions.push(textButton(plural('backfillConfirm',n),'confirm','f-button'),textButton(t('backfillCancel'),'cancel'));
+ const BACKFILL_SETTLE_MS=600;
+ // id names the block; endpoint answers GET with the state (configured, counts, dailyCap, sentToday, resetsAt) and POST with one batch. waiting is the
+ // counts key of the people still to email; keys holds the block's own wording. The summary emails' batches also say how many are left after their
+ // cursor (remaining); the announcement's counts say who is still waiting. left adds what is left of today's cap to the counts line; active says
+ // whether the block is on the page at all.
+ function emailPass({id,endpoint,waiting,keys,remaining=false,left=false,active=()=>true}){
+  const host=el('div','f-backfill'+(id==='backfill'?'':' f-'+id)),heading=tr('h3',keys.title),hintNode=tr('p',keys.hint,'f-muted f-section-hint'),line=el('p','f-backfill-line'),note=el('p','f-backfill-note'),actions=el('div','f-backfill-actions');
+  heading.id='f-h-'+id;host.setAttribute('role','group');host.setAttribute('aria-labelledby',heading.id);note.setAttribute('role','status');note.setAttribute('aria-live','polite');host.append(heading,hintNode,line,note,actions);
+  // state: the last GET; ask: the pass waiting for its confirmation; run: the pass under way; result: how the last one ended.
+  let state=null,loadFailed=false,ask=null,run=null,result=null,shownAt=0;
+  const validCounts=counts=>Boolean(counts)&&[waiting,...EMAIL_STATES].every(k=>Number.isSafeInteger(counts[k])&&counts[k]>=0);
+  const validBatch=data=>TALLY.every(k=>Number.isSafeInteger(data[k])&&data[k]>=0)&&(!remaining||(Number.isSafeInteger(data.remaining)&&data.remaining>=0))&&(data.next===null||typeof data.next==='string')&&validCounts(data.counts);
+  // One button per action, made once and kept: a progress update leaves the focused Stop button in place instead of rebuilding it.
+  const buttons=new Map(),handlers={send:()=>askFor('send'),retry:()=>askFor('retry'),confirm:()=>start(ask),cancel:()=>{const mode=ask;ask=null;render(mode);},stop:()=>stop(),reload:()=>load('reload')};
+  function textButton(text,action,cls='f-backfill-link'){
+   let b=buttons.get(action);
+   if(!b){
+    b=el('button');b.type='button';b.dataset.action=action;
+    b.addEventListener('click',event=>{if(event&&Date.now()-shownAt<BACKFILL_SETTLE_MS)return;handlers[action]();});
+    b.addEventListener('keydown',event=>{if(event?.repeat&&['Enter',' '].includes(event.key))event.preventDefault();});
+    buttons.set(action,b);
    }
+   b.className=cls;b.textContent=text;return b;
+  }
+  function askFor(mode){ask=mode;result=null;render('confirm');}
+  const capReached=()=>Number.isSafeInteger(state?.dailyCap)&&Number.isSafeInteger(state?.sentToday)&&state.sentToday>=state.dailyCap;
+  // Today's cap has reset (19:00 Lima) since the page last asked: the minute timer asks again, so the buttons come back without a reload.
+  const capLifted=()=>capReached()&&!run&&!ask&&Date.now()>=Date.parse(state.resetsAt);
+  const capText=()=>fill(keys.cap,{cap:nf(state?.dailyCap??0),time:Number.isFinite(Date.parse(state?.resetsAt))?limaClock(Date.parse(state.resetsAt)):'19:00'});
+  const leftToday=()=>Number.isSafeInteger(state?.dailyCap)&&Number.isSafeInteger(state?.sentToday)?Math.max(0,state.dailyCap-state.sentToday):null;
+  function tallyText({sent,failed,uncertain,skipped}){return [fill('backfillDone',{sent:nf(sent),failed:nf(failed)}),...(uncertain?[plural('backfillUncertain',uncertain)]:[]),...(skipped?[plural('backfillSkipped',skipped)]:[])].join(' · ');}
+  function resultText({end,tally}){
+   const handled=tally.sent+tally.failed+tally.uncertain+tally.skipped,base=tallyText(tally);
+   if(end==='done')return base+(tally.failed?' — '+t('backfillDoneRetry'):'');
+   if(end==='stopped')return t('backfillStopped')+' '+base;
+   const reason={cap:capText(),session:t('backfillSignIn'),error:t('backfillError')}[end]||'';
+   return handled?base+'. '+reason:reason;
+  }
+  function progressText(pass){
+   const parts=[fill('backfillProgress',{sent:nf(pass.tally.sent),total:nf(Math.max(pass.total,pass.tally.sent))}),...(pass.tally.failed?[fill('backfillFailed',{n:nf(pass.tally.failed)})]:[])];
+   return parts.join(' · ')+(pass.stopping?' — '+t('backfillStopping'):pass.waiting?' — '+t('backfillPausing'):'…');
+  }
+  // focus names the action to focus after this render; otherwise focus that was on a replaced button moves to the first action, or the heading.
+  function render(focus){
+   if(locked)return;
+   const counts=state?.counts,shown=[];let text,status='',error=false;
+   hintNode.hidden=Boolean(state&&!state.configured);
+   if(!state){text=t(loadFailed?keys.loadError:'loading');if(loadFailed)shown.push(textButton(t('retry'),'reload'));}
+   else if(!state.configured)text=t(keys.off);
    else{
-    if(backfillResult){note=resultText(backfillResult);error=['session','error'].includes(backfillResult.end);}
-    if(capReached()&&(counts.none||counts.failed)){if(backfillResult?.end!=='cap')note=(note?note+' ':'')+capText();}
+    const rest=left?leftToday():null;
+    text=[counts[waiting]?plural(keys.waiting,counts[waiting]):t(keys.noneWaiting),plural('backfillSent',counts.sent),...(counts.failed?[fill('backfillFailed',{n:nf(counts.failed)})]:[]),...(counts.uncertain+counts.pending?[plural('backfillUncertain',counts.uncertain+counts.pending)]:[]),...(counts.skipped?[plural('backfillSkipped',counts.skipped)]:[]),...(rest===null?[]:[plural('noticeLeft',rest)])].join(' · ');
+    if(run){status=progressText(run);shown.push(textButton(t('backfillStop'),'stop'));}
+    else if(ask){
+     const n=ask==='retry'?counts.failed:counts[waiting];status=t(keys.confirmHint);
+     shown.push(textButton(plural('backfillConfirm',n),'confirm','f-button'),textButton(t('backfillCancel'),'cancel'));
+    }
     else{
-     if(counts.none)actions.push(textButton(plural('backfillSend',counts.none),'send','f-button'));
-     if(counts.failed)actions.push(textButton(fill('backfillRetry',{n:nf(counts.failed)}),'retry'));
+     if(result){status=resultText(result);error=['session','error'].includes(result.end);}
+     if(capReached()&&(counts[waiting]||counts.failed)){if(result?.end!=='cap')status=(status?status+' ':'')+capText();}
+     else{
+      if(counts[waiting])shown.push(textButton(plural(keys.send,counts[waiting]),'send','f-button'));
+      if(counts.failed)shown.push(textButton(fill('backfillRetry',{n:nf(counts.failed)}),'retry'));
+     }
     }
    }
+   line.textContent=text;note.textContent=status;note.classList.toggle('is-error',error);
+   // The buttons are swapped only when the set changes; focus on one that leaves moves to the first remaining action, or the heading.
+   const current=[...actions.children],changed=current.length!==shown.length||current.some((b,i)=>b!==shown[i]);
+   const hadFocus=Boolean(focus)||(changed&&Boolean(actions.contains?.(document.activeElement)));
+   if(changed){actions.replaceChildren(...shown);shownAt=Date.now();}
+   if(hadFocus){const target=shown.find(b=>b.dataset.action===focus)||shown[0];if(target)target.focus();else{heading.tabIndex=-1;heading.focus();}}
   }
-  backfillLine.textContent=line;backfillNote.textContent=note;backfillNote.classList.toggle('is-error',error);
-  // The buttons are swapped only when the set changes; focus on one that leaves moves to the first remaining action, or the heading.
-  const current=[...backfillActions.children],changed=current.length!==actions.length||current.some((b,i)=>b!==actions[i]);
-  const hadFocus=Boolean(focus)||(changed&&Boolean(backfillActions.contains?.(document.activeElement)));
-  if(changed){backfillActions.replaceChildren(...actions);backfillShownAt=Date.now();}
-  if(hadFocus){const target=actions.find(b=>b.dataset.action===focus)||actions[0];if(target)target.focus();else{backfillHeading.tabIndex=-1;backfillHeading.focus();}}
- }
- async function loadBackfill(focus){
-  if(locked)return;
-  try{
-   const data=await api('/api/admin/fiiu/confirmations');
-   if(typeof data.configured!=='boolean'||!validCounts(data.counts))throw Object.assign(Error(t('error')),{key:'error'});
-   backfill=data;backfillLoadFailed=false;resume();
-  }catch(error){if(guard(error))return;backfillLoadFailed=true;}
-  renderBackfill(focus);
- }
- function stopBackfill(){const run=backfillRun;if(!run||run.stopping)return;run.stopping=true;run.wake?.();renderBackfill('stop');}
- // One pass: POST after POST with the previous answer's cursor until nothing is left, Stop, an error or today's cap. A plain 429 (the
- // organiser write budget) pauses half a minute and carries on, at most five times in a row.
- async function runBackfill(mode){
-  if(backfillRun||!backfill)return;
-  const run=backfillRun={total:mode==='retry'?backfill.counts.failed:backfill.counts.none,tally:Object.fromEntries(TALLY.map(k=>[k,0])),stopping:false,waiting:false,wake:null};
-  backfillAsk=null;backfillResult=null;renderBackfill('stop');
-  let after=null,pauses=0,finished=false,end='done';
-  try{
-   while(!run.stopping&&!locked){
-    let data;
-    try{data=await api('/api/admin/fiiu/confirmations',{retryFailed:mode==='retry',...(after?{after}:{})},'POST');}
-    catch(error){
-     // Stop pressed while this request was out: a plain 429 sent nothing, so the pass ends now instead of pausing first.
-     if(error.status===429&&error.code!=='daily_cap'&&run.stopping)break;
-     if(error.status===429&&error.code!=='daily_cap'&&pauses<5&&typeof setTimeout==='function'){pauses++;run.waiting=true;renderBackfill();await new Promise(resolve=>{run.wake=resolve;setTimeout(resolve,30000);});run.waiting=false;run.wake=null;renderBackfill();continue;}
-     throw error;
+  async function load(focus){
+   if(locked||!active())return;
+   try{
+    const data=await api(endpoint);
+    if(typeof data.configured!=='boolean'||!validCounts(data.counts))throw Object.assign(Error(t('error')),{key:'error'});
+    state=data;loadFailed=false;resume();
+   }catch(error){if(guard(error))return;loadFailed=true;}
+   render(focus);
+  }
+  function stop(){const pass=run;if(!pass||pass.stopping)return;pass.stopping=true;pass.wake?.();render('stop');}
+  // One pass: POST after POST with the previous answer's cursor until nothing is left, Stop, an error or today's cap. A plain 429 (the
+  // organiser write budget) pauses half a minute and carries on, at most five times in a row.
+  async function start(mode){
+   if(run||!state)return;
+   const pass=run={total:mode==='retry'?state.counts.failed:state.counts[waiting],tally:Object.fromEntries(TALLY.map(k=>[k,0])),stopping:false,waiting:false,wake:null};
+   ask=null;result=null;render('stop');
+   let after=null,pauses=0,finished=false,end='done';
+   try{
+    while(!pass.stopping&&!locked){
+     let data;
+     try{data=await api(endpoint,{retryFailed:mode==='retry',...(after?{after}:{})},'POST');}
+     catch(error){
+      // Stop pressed while this request was out: a plain 429 sent nothing, so the pass ends now instead of pausing first.
+      if(error.status===429&&error.code!=='daily_cap'&&pass.stopping)break;
+      if(error.status===429&&error.code!=='daily_cap'&&pauses<5&&typeof setTimeout==='function'){pauses++;pass.waiting=true;render();await new Promise(resolve=>{pass.wake=resolve;setTimeout(resolve,30000);});pass.waiting=false;pass.wake=null;render();continue;}
+      throw error;
+     }
+     pauses=0;if(!validBatch(data))throw Object.assign(Error(t('error')),{key:'error'});
+     for(const k of TALLY)pass.tally[k]+=data[k];
+     // What this pass still has to do: its own outcomes so far plus what is left, as the server says after the cursor or as the counts still wait.
+     const handled=pass.tally.sent+pass.tally.failed+pass.tally.uncertain+pass.tally.skipped;
+     pass.total=remaining?handled+data.remaining:mode==='retry'?Math.max(pass.total,handled):handled+data.counts[waiting];
+     state={...state,counts:data.counts,...(Number.isSafeInteger(data.sentToday)?{sentToday:data.sentToday}:{})};resume();
+     if(!data.next||(remaining&&!data.remaining)){finished=true;break;}
+     after=data.next;render();
     }
-    pauses=0;if(!validBatch(data))throw Object.assign(Error(t('error')),{key:'error'});
-    for(const k of TALLY)run.tally[k]+=data[k];
-    // What this pass still has to do: its own outcomes so far plus what the server says is left after the cursor.
-    run.total=run.tally.sent+run.tally.failed+run.tally.uncertain+run.tally.skipped+data.remaining;
-    backfill={...backfill,counts:data.counts,...(Number.isSafeInteger(data.sentToday)?{sentToday:data.sentToday}:{})};resume();
-    if(!data.next||!data.remaining){finished=true;break;}
-    after=data.next;renderBackfill();
+    if(!finished&&pass.stopping)end='stopped';
+   }catch(error){
+    if(guard(error)){run=null;return;}
+    end=error.code==='daily_cap'?'cap':error.code==='email_not_configured'?'off':error.status===401?'session':'error';
+    if(end==='off')state={...state,configured:false};
    }
-   if(!finished&&run.stopping)end='stopped';
-  }catch(error){
-   if(guard(error)){backfillRun=null;return;}
-   end=error.code==='daily_cap'?'cap':error.code==='email_not_configured'?'off':error.status===401?'session':'error';
-   if(end==='off')backfill={...backfill,configured:false};
+   run=null;result=end==='off'?null:{end,tally:pass.tally};render();
+   // The counts behind the buttons and the overview from the server; the other block's cap counter has moved too.
+   refreshSummary({background:true});await Promise.all(emailPasses.map(other=>other===self?load():other.running()?null:other.load()));
   }
-  backfillRun=null;backfillResult=end==='off'?null:{end,tally:run.tally};renderBackfill();
-  // The counts behind the buttons, and the overview, from the server.
-  refreshSummary({background:true});await loadBackfill();
+  const self={host,render,load,running:()=>Boolean(run),
+   // The minute timer: once the cap has reset, a pass that ended at the cap leaves no stale message, and the state is read again.
+   tick(){if(!capLifted())return null;if(result?.end==='cap')result=null;return load();},
+   lock(){if(run){run.stopping=true;run.wake?.();}state=null;ask=result=null;line.textContent=note.textContent='';actions.replaceChildren();}};
+  return self;
  }
+ const summaryEmails=emailPass({id:'backfill',endpoint:'/api/admin/fiiu/confirmations',waiting:'none',remaining:true,keys:{title:'backfillTitle',hint:'backfillHint',waiting:'backfillWaiting',noneWaiting:'backfillNoneWaiting',send:'backfillSend',confirmHint:'backfillConfirmHint',cap:'backfillCap',off:'backfillOff',loadError:'backfillLoadError'}});
+ // The announcement sits under the party's row in the Programme section, so it is read only when the programme has the party.
+ const partyNotice=emailPass({id:'party-notice',endpoint:'/api/admin/fiiu/notices/closing-party',waiting:'waiting',left:true,active:()=>Boolean(festival&&findActivity(festival.event,'closing-party')),keys:{title:'noticeTitle',hint:'noticeHint',waiting:'noticeWaiting',noneWaiting:'noticeNoneWaiting',send:'noticeSend',confirmHint:'noticeConfirmHint',cap:'noticeCap',off:'noticeOff',loadError:'noticeLoadError'}});
+ const emailPasses=[summaryEmails,partyNotice];
  // Programme: every block's details as organisers edit them (the server keeps one row per edited block, with its own version); adding or removing a block is
  // still a code change. Blocks are grouped by day in programme order; each row is built once (programmeRows, by id) and updated in place, and one block's
  // form is open at a time, under its row.
@@ -625,7 +653,8 @@
   const row=el('li','f-programme-row'),view=el('div','f-programme-view'),when=el('span','f-programme-time'),main=el('div','f-programme-main'),title=source('span','','f-programme-title'),meta=el('span','f-programme-meta'),slot=el('div','f-programme-slot'),note=el('p','f-inline-status');
   const entry={row,slot,note,record:null,editor:null};title.id='f-pg-'+id;note.setAttribute('role','status');
   const edit=entry.edit=button('pgEdit',()=>openProgrammeEdit(entry),'f-button secondary f-small');edit.id=title.id+'-edit';describe(edit,title.id);
-  main.append(title,meta);view.append(when,main,edit);row.append(view,slot,note);
+  // The party's announcement sits directly under its row.
+  main.append(title,meta);view.append(when,main,edit);row.append(view,slot,note,...(id==='closing-party'?[partyNotice.host]:[]));
   entry.update=()=>{const a=entry.record,kind=blockKind(a);row.className='f-programme-row is-'+kind;when.replaceChildren(...timeParts(a.time));title.textContent=a.title;meta.replaceChildren(tr('span',BLOCK_KINDS[kind],'f-programme-kind'),...(isEdited(a)?[tr('span','pgEdited','f-pill is-edited')]:[]));};
   programmeRows.set(id,entry);return entry;
  }
@@ -949,7 +978,7 @@
   status(message,'loading');const summaryRequest=api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error})),questionsRequest=readQuestions().then(list=>({list}),error=>({error})),programmeRequest=readProgramme().then(list=>({list}),error=>({error}));try{const [settingsData,posts,participantData]=await Promise.all([api('/api/admin/fiiu/config'),api('/api/admin/fiiu/content'),api('/api/admin/fiiu/registrations')]);festival={event:settingsData.event};config=settingsData.config;publications=posts.content;contentCursor=posts.nextCursor;setRecords(participantData.registrations);cursor=participantData.nextCursor;
    const grid=el('div','f-admin-columns');grid.append(listHost,detailHost);detailHost.replaceChildren(tr('p','selectParticipant','f-muted f-detail-empty'));const heading=tr('h2','participants');heading.id='f-h-participants';participantsHost.id='participants';participantsHost.replaceChildren(heading,filters(),grid);
    root.replaceChildren(adminHead(),sessionNotice,adminNav(),summaryPanel(),checkinPanel(),participantsHost,settings(),programmePanel(),contentPanel(),conversationsPanel(),newTabNote());renderRegistrationPill();
-   const filled=[readParticipants()];renderList();status(message,'');filled.push(refreshSummary({pending:summaryRequest}),refreshQuestions({pending:questionsRequest}),refreshProgramme({pending:programmeRequest}));renderBackfill();filled.push(loadBackfill());setTitle();observeSections();
+   const filled=[readParticipants()];renderList();status(message,'');filled.push(refreshSummary({pending:summaryRequest}),refreshQuestions({pending:questionsRequest}),refreshProgramme({pending:programmeRequest}));for(const pass of emailPasses){pass.render();filled.push(pass.load());}setTitle();observeSections();
    reachSection(filled);
   }catch(error){
    // Signed out before the dashboard loaded: sign in and come straight back. Signed in without organiser access: the organisers-only state, with no Retry.
@@ -962,13 +991,12 @@
  window.nodalI18n?.onChange(()=>{
   // fiiu-ui retranslates #fiiuStatus and the row notes through textContent, which drops the expired session's sign-in link.
   for(const node of [message,...root.querySelectorAll('.f-inline-status')])if(['unauthorized','attendanceSignIn'].includes(node.dataset.fiiuText)&&!node.querySelector('a'))node.append(document.createTextNode(' '),signInLink());
-  if(locked)return;rowCache=new WeakMap();setTitle();stampUpdated();recount?.();renderBackfill();newQuestion?.recount();for(const entry of questionRows.values())entry.editor?.recount();for(const entry of programmeRows.values())entry.editor?.recount();renderQuestions();if(lastSummary)renderSummary(lastSummary);else renderCheckin();});
+  if(locked)return;rowCache=new WeakMap();setTitle();stampUpdated();recount?.();for(const pass of emailPasses)pass.render();newQuestion?.recount();for(const entry of questionRows.values())entry.editor?.recount();for(const entry of programmeRows.values())entry.editor?.recount();renderQuestions();if(lastSummary)renderSummary(lastSummary);else renderCheckin();});
  timer=setInterval(()=>{
   if(!festival||locked||sessionLost||document.visibilityState!=='visible')return;
-  // A pass that ended at the cap leaves yesterday's tally and cap message behind; the fresh state replaces them.
-  const lifted=capLifted();if(lifted&&backfillResult?.end==='cap')backfillResult=null;
+  // An email block whose cap has reset reads its state again (a pass that ended at the cap leaves no stale message behind).
   // The question totals follow the summary totals, so a lost session the summary finds pauses them too.
-  return Promise.all([...(lifted?[loadBackfill()]:[]),...(autoRefresh.input.checked?[refreshSummary({background:true}).then(()=>refreshQuestions({background:true}))]:[])]);
+  return Promise.all([...emailPasses.map(pass=>pass.tick()).filter(Boolean),...(autoRefresh.input.checked?[refreshSummary({background:true}).then(()=>refreshQuestions({background:true}))]:[])]);
  },60000);
  load();
 })();
