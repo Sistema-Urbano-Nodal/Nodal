@@ -171,6 +171,38 @@ Afterwards:
 - Retention of the responses (including started-only rows) is not decided yet;
   record the decision with the other course categories in `docs/privacy/`.
 
+## FIIU programme editor, party notice, General and ratings: one migration before `main`
+
+`20261013120000_fiiu_programme_general.sql` adds three server-only tables
+(`fiiu_programme` for organiser edits to programme blocks, `fiiu_notices` for
+one-off festival emails such as the closing-party announcement, `fiiu_ratings`
+for 1–10 rating answers), two columns on `fiiu_questions` (`kind`, default
+`'chat'`, and `rating_counts`), the trigger that keeps the rating totals and
+revision, the type lock and the `set_fiiu_rating` RPC. It is additive: existing
+questions become `'chat'` and the code live today never reads the new columns,
+so applying it first is safe. The new server selects `kind` and `rating_counts`
+on every conversation read and reads `fiiu_programme` for the programme, so
+deploying the code first breaks the festival page, check-in and conversations
+until it is applied.
+
+```bash
+npx --no-install supabase db query --linked -f supabase/migrations/20261013120000_fiiu_programme_general.sql
+npx --no-install supabase migration repair --status applied 20261013120000
+```
+
+```sql
+select count(*) from pg_tables where schemaname = 'public'
+ and tablename in ('fiiu_programme','fiiu_notices','fiiu_ratings') and rowsecurity;
+-- 3
+select column_name, column_default from information_schema.columns
+ where table_schema = 'public' and table_name = 'fiiu_questions' and column_name in ('kind','rating_counts');
+-- kind          | 'chat'::text
+-- rating_counts | (null)
+```
+
+The party announcement uses the summary email's settings and shares its daily
+cap; without them the panel says email is off and nothing is sent.
+
 ## Supabase Setup
 
 1. Create a Supabase project.

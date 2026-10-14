@@ -174,9 +174,9 @@ CREATE TABLE public.fiiu_notices (
 | `GET /api/admin/fiiu/programme` | organisers | built-in and edited values per block, with versions |
 | `PUT /api/admin/fiiu/programme/:activityId` | organisers | `{...fields, version}`; 0 creates; 409 on an old version |
 | `DELETE /api/admin/fiiu/programme/:activityId?version=n` | organisers | restore the original |
-| `GET /api/admin/fiiu/notices/closing-party` | organisers | eligible, sent, pending, failed, uncertain, skipped, `sentToday`, `dailyCap` |
-| `POST /api/admin/fiiu/notices/closing-party/send` | organisers | `{retryFailed?, after?}`: one batch, like the backfill |
-| `PUT /api/fiiu/questions/:id/rating` | participants and organisers who may post | `{score}` → `{score, counts}` |
+| `GET /api/admin/fiiu/notices/closing-party` | organisers | `counts` (waiting, pending, sent, failed, uncertain, skipped), `sentToday`, `dailyCap`, `resetsAt` |
+| `POST /api/admin/fiiu/notices/closing-party` | organisers | `{retryFailed?, after?}`: one batch, like the backfill |
+| `PUT /api/fiiu/questions/:id/rating` | participants and organisers who may post | `{score}` → `{score, ratingCounts, revision}` |
 
 - Question views gain `kind` and, for ratings, `ratingCounts` (ten integers). The full question read adds `me.score` (or `null`). `?since=` answers carry `kind` and `ratingCounts` on the question, as they carry its status today.
 - `POST /api/admin/fiiu/questions` accepts `kind` (`chat` default, or `rating`); `PATCH` refuses a `kind` change.
