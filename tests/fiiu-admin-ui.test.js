@@ -1743,7 +1743,8 @@ test('Restore original asks first, sends DELETE with the version and shows the b
 });
 
 test('a block with check-ins warns that hours follow a new date or time, and a block whose day has started warns that its check-in moves',async()=>{
- const h=await harness(()=>({content:[],nextCursor:null}),{programmeRead:()=>({activities:programmeItems({'day1-am':{checkedIn:12},'closing-party':{checkedIn:0}})}),context:festivalDay});
+ // The totals agree with the programme read: whichever lands last gives the block its count.
+ const h=await harness(()=>({content:[],nextCursor:null}),{programmeRead:()=>({activities:programmeItems({'day1-am':{checkedIn:12},'closing-party':{checkedIn:0}})}),summaryRead:()=>({summary:{...copy(summary),activities:[{activityId:'day1-am',registrations:121,externalInterests:0,attendance:12}]}}),context:festivalDay});
  const form=await openBlock(h,'day1-am'),warnings=form.querySelectorAll('.f-programme-warning'),shown=()=>warnings.filter(node=>!node.hidden).map(node=>node.dataset.fiiuText||node.textContent);
  assert.deepEqual(shown(),[],'no warning before a change');
  type(field(form,'venue'),'Otra sala');assert.deepEqual(shown(),[],'a venue change moves nothing');
@@ -1755,6 +1756,22 @@ test('a block with check-ins warns that hours follow a new date or time, and a b
  type(field(form,'date'),'2026-10-22');assert.equal(shown().length,2,'a new date warns too');
  const later=await openBlock(h,'day3-am');type(field(later,'end'),'12:00');assert.deepEqual(later.querySelectorAll('.f-programme-warning').filter(node=>!node.hidden),[],'a later block with no check-ins moves without a warning');
  const party=await openBlock(h,'closing-party');type(field(party,'start'),'18:00');assert.deepEqual(party.querySelectorAll('.f-programme-warning').filter(node=>!node.hidden),[],'the party takes no check-in');
+});
+
+test('the hours warning counts check-ins made after the page loaded: each totals refresh updates it, under an open form too, and a save brings the block’s own count',async()=>{
+ let attended=0;const totals=()=>({summary:{...copy(summary),activities:[{activityId:'day1-am',registrations:121,externalInterests:0,attendance:attended}]}});
+ const h=await harness(request=>request.method==='PUT'?{activity:{...savedBlock(request).activity,checkedIn:9}}:{content:[],nextCursor:null},{summaryRead:totals});
+ const hours=form=>form.querySelector('.f-programme-warning');
+ let form=await openBlock(h,'day1-am');type(field(form,'end'),'14:00');assert.equal(hours(form).hidden,true,'nobody has checked in when the page loads');
+ // People check in by QR while the form is open; the minute refresh brings the totals.
+ attended=3;await h.tickTimers();await flush();
+ assert.equal(hours(form).hidden,false);assert.equal(hours(form).textContent,'3 people have checked in to this block. Their certificate hours will follow the new time.');
+ await key(form,'pgCancel').listeners.click();form=await openBlock(h,'day1-am');type(field(form,'end'),'14:00');assert.match(hours(form).textContent,/^3 people/,'a form opened later starts from the latest totals');
+ // A save answers with the block's count at that moment, newer than the last totals.
+ type(field(form,'end'),'13:00');type(field(form,'venue'),'Otra sala');await submit(form);
+ form=await openBlock(h,'day1-am');type(field(form,'end'),'14:00');assert.match(hours(form).textContent,/^9 people/);
+ // An unticked attendance lowers it again with the next totals.
+ attended=0;await h.tickTimers();await flush();assert.equal(hours(form).hidden,true);
 });
 
 test('opening another block with unsaved changes asks first, Cancel closes the form, and leaving the page with changes asks too',async()=>{

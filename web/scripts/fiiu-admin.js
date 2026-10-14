@@ -205,7 +205,7 @@
  async function refreshSummary({pending,background=false}={}){
   if(locked)return;if(summaryBusy){summaryRerun=true;return;}summaryBusy=true;summaryBody.setAttribute('aria-busy','true');const hadFocus=document.activeElement===summaryRefresh;
   if(!background){summaryRefresh.disabled=true;status(summaryMessage,'loading');}
-  try{const result=await(pending||api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error})));if(result.error)throw result.error;const next=result.data.summary,before=lastSummary?.totalRegistrations;if(summaryKey(next)!==lastSummaryKey)renderSummary(next);else renderCheckin(next);status(summaryMessage,'');stampUpdated(new Date());resume();
+  try{const result=await(pending||api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error})));if(result.error)throw result.error;const next=result.data.summary,before=lastSummary?.totalRegistrations;if(summaryKey(next)!==lastSummaryKey)renderSummary(next);else renderCheckin(next);syncCheckins(next);status(summaryMessage,'');stampUpdated(new Date());resume();
    // A new total (a walk-in registration, a cancellation) re-reads the participant list once every page is in.
    if(Number.isSafeInteger(before)&&next.totalRegistrations!==before)listStale=true;
    if(listStale&&!cursor&&!filling){listStale=false;if(next.totalRegistrations!==records.length)readParticipants(true);}}
@@ -782,7 +782,14 @@
    try{await action(save,async()=>{let result;try{result=await api('/api/admin/fiiu/programme/'+encodeURIComponent(start.id),payload,'PUT');}catch(err){throw refusal(err);}if(!validBlock(result?.activity)||result.activity.id!==start.id)throw Object.assign(Error(t('error')),{key:'error'});closeProgrammeEdit(entry);applyBlock(result.activity);},{feedback:entry.note,conflict,reload});}
    finally{busy=false;unlock();}
   });
-  return Object.assign(editor,{dirty:()=>JSON.stringify(values())!==initial,recount:()=>{count();warn();}});
+  return Object.assign(editor,{dirty:()=>JSON.stringify(values())!==initial,recount:()=>{count();warn();},warn});
+ }
+ // A block's check-in count comes with the programme read, which runs at load, with a save and with a conflict's reload; the totals bring a newer one
+ // with every refresh and attendance tick. That count goes onto the block, so an open form's hours warning names everyone checked in so far.
+ function syncCheckins(summary){
+  if(!programme)return;const counts=new Map(summary.activities.map(row=>[row.activityId,row.attendance]));
+  for(const a of programme){const n=counts.get(a.id);if(Number.isSafeInteger(n)&&n>=0)a.checkedIn=n;}
+  for(const entry of programmeRows.values())entry.editor?.warn();
  }
  // "Reload the latest version" re-reads the programme and takes only this block from it, so other rows keep what they show.
  async function reloadBlock(id){const latest=(await readProgramme()).find(a=>a.id===id);if(!latest)throw Object.assign(Error(t('pgNotFound')),{key:'pgNotFound'});if(locked)return;applyBlock(latest);}
