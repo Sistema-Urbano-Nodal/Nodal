@@ -5,7 +5,7 @@
  // {n} is filled in by this script, so a language switch re-renders those counts.
  Object.assign(strings,{
   conversations:['Conversations','Conversaciones','Conversas'],
-  conversationsHint:['Post a question on a block. Registered participants answer in a live chat.','Publica una pregunta en un bloque. Las personas inscritas responden en un chat en vivo.','Publique uma pergunta em um bloco. As pessoas inscritas respondem em um chat ao vivo.'],
+  conversationsHint:['Post a question on a block or to the whole festival, as a conversation or a 1–10 rating. Registered participants answer in a live chat.','Publica una pregunta en un bloque o para todo el festival, como conversación o valoración del 1 al 10. Las personas inscritas responden en un chat en vivo.','Publique uma pergunta em um bloco ou para todo o festival, como conversa ou avaliação de 1 a 10. As pessoas inscritas respondem em um chat ao vivo.'],
   newQuestion:['New question','Nueva pregunta','Nova pergunta'],questionBlock:['Block','Bloque','Bloco'],questionTalk:['Talk (optional)','Charla (opcional)','Palestra (opcional)'],questionNoTalk:['The whole block','Todo el bloque','O bloco inteiro'],
   questionText:['Question','Pregunta','Pergunta'],publishNow:['Publish now','Publicar ahora','Publicar agora'],saveHidden:['Save hidden','Guardar oculta','Salvar oculta'],saveQuestion:['Save question','Guardar pregunta','Salvar pergunta'],
   questionStatus:['Status','Estado','Status'],questionOpen:['Open','Abierta','Aberta'],questionClosed:['Closed','Cerrada','Fechada'],questionHidden:['Hidden','Oculta','Oculta'],
@@ -18,6 +18,18 @@
   hideQuestionConfirm:['Hide this question? It disappears from phones and the projector until you open it again.','¿Ocultar esta pregunta? Dejará de verse en los teléfonos y en la proyección hasta que la vuelvas a abrir.','Ocultar esta pergunta? Ela deixa de aparecer nos celulares e na projeção até você abri-la de novo.'],
   questionsLoadError:['The questions could not be loaded.','No se pudieron cargar las preguntas.','Não foi possível carregar as perguntas.'],
   questionLatest:['Latest saved version:','Versión guardada actual:','Versão salva atual:'],
+  // General, the festival-wide space, and the question types. Scores are only ever totals: no one, organisers included, sees who gave which.
+  questionGeneral:['General (whole festival)','General (todo el festival)','Geral (todo o festival)'],
+  questionKind:['Type','Tipo','Tipo'],questionKindChat:['Conversation','Conversación','Conversa'],questionKindRating:['Rating 1–10','Valoración 1–10','Avaliação 1–10'],
+  questionKindHint:['A rating asks people to tap a number from 1 to 10, and they can still comment. Scores are anonymous: everyone, organisers included, sees only the totals.','Una valoración pide tocar un número del 1 al 10, y también se puede comentar. Las valoraciones son anónimas: todos, también la organización, ven solo los totales.','Uma avaliação pede para tocar um número de 1 a 10, e também é possível comentar. As avaliações são anônimas: todos, inclusive a organização, veem apenas os totais.'],
+  questionKindLocked:['The type cannot change once the question is saved.','El tipo no puede cambiar una vez guardada la pregunta.','O tipo não pode mudar depois que a pergunta é salva.'],
+  ratingAverage:['Average','Promedio','Média'],ratingPeopleOne:['1 person rated','1 persona valoró','1 pessoa avaliou'],ratingPeopleMany:['{n} people rated','{n} personas valoraron','{n} pessoas avaliaram'],
+  ratingNone:['No ratings yet','Aún no hay valoraciones','Ainda não há avaliações'],ratingBars:['Ratings from 1 to 10','Valoraciones del 1 al 10','Avaliações de 1 a 10'],
+  ratingBarOne:['1 person chose {score}','1 persona eligió {score}','1 pessoa escolheu {score}'],ratingBarMany:['{n} people chose {score}','{n} personas eligieron {score}','{n} pessoas escolheram {score}'],
+  ratingCsv:['Download counts (CSV)','Descargar conteos (CSV)','Baixar contagens (CSV)'],
+  // The party in the totals and the participant list: people register for it, so it counts registrations, with no attendance or hours.
+  blocksAndParty:['Conferences, laboratory and party','Conferencias, laboratorio y fiesta','Conferências, laboratório e festa'],
+  filterBlock:['Block','Bloque','Bloco'],filterAllBlocks:['All blocks','Todos los bloques','Todos os blocos'],
   attendanceSignIn:['Attendance not saved: your session ended.','No se guardó la asistencia: tu sesión terminó.','A presença não foi salva: sua sessão terminou.'],
   attendanceNotSaved:['Attendance not saved. Check the connection and tick it again.','No se guardó la asistencia. Revisa la conexión y vuelve a marcarla.','A presença não foi salva. Verifique a conexão e marque de novo.'],
   // The Programme section: each block's details as organisers edit them. "From" and the kind labels sit before data, so they need no {placeholders}.
@@ -65,7 +77,7 @@
   noticeLoadError:['The announcement status could not be loaded.','No se pudo cargar el estado del anuncio.','Não foi possível carregar o status do anúncio.']
  });
  const root=document.getElementById('fiiuAdminRoot'),message=document.getElementById('fiiuStatus');
- let festival,config,records=[],cursor=null,filling=null,listStale=false,publications=[],contentCursor=null,selectedParticipant=null,shownParticipant=null,detailRequest=0,participantFilter='all',participantQuery='',participantWords=[],shownCount=null,updatedAt=null,search=null,searchTimer=null,setAside=null;
+ let festival,config,records=[],cursor=null,filling=null,listStale=false,publications=[],contentCursor=null,selectedParticipant=null,shownParticipant=null,detailRequest=0,participantFilter='all',participantQuery='',participantWords=[],participantBlock='',blockFilter=null,shownCount=null,updatedAt=null,search=null,searchTimer=null,setAside=null;
  const detailHost=el('section','f-admin-detail'),listHost=el('div','f-admin-list'),participantsHost=el('section','f-admin-participants'),settingsHost=el('section','f-admin-settings'),contentHost=el('section','f-admin-content'),pillHost=el('div','f-pill-host'),editorHost=el('div','f-content-editor'),pubList=el('div','f-pub-list');
  const summaryHost=el('section','f-admin-summary'),summaryBody=el('div','f-summary-body'),summaryMessage=el('p','f-status'),updated=el('span','f-updated'),lastScan=el('span','f-updated'),resultCount=el('p','f-result-count');let summaryBusy=false,summaryRerun=false;
  const checkinHost=el('section','f-admin-checkin'),checkinBody=el('div','f-checkin-body');let lastCheckinKey='';
@@ -161,20 +173,22 @@
    const label=el('span','f-row-day'),current=row.date===today;label.append(dateNode(row.date,'span','short','f-row-date'));if(current)label.append(tr('span','today','f-row-today'));
    return Object.assign([label,count(row.registrations),count(row.attendance),hours((dayMinutes.get(row.date)||0)/60)],current?{current:'date'}:{});
   })}]);
-  // Split by type (lab and conferences vs workshops and routes), each in programme order; ids no longer in the catalogue go last.
+  // Split by type (lab, conferences and the party vs workshops and routes), each in programme order; ids no longer in the catalogue go last.
+  // The party takes registrations but no check-in, so its attendance and hours read as not applicable.
   const entries=summary.activities.filter(row=>event.activities.some(a=>a.id===row.activityId)||row.registrations||row.externalInterests||row.attendance).map(row=>({row,activity:findActivity(event,row.activityId)}));
-  const order=new Map(chronological(entries.filter(e=>e.activity).map(e=>e.activity)).map((a,i)=>[a.id,i])),rank=e=>e.activity?order.get(e.activity.id):order.size,conferences=[],externals=[];
+  const order=new Map(chronological(entries.filter(e=>e.activity).map(e=>e.activity)).map((a,i)=>[a.id,i])),rank=e=>e.activity?order.get(e.activity.id):order.size,conferences=[],externals=[],none=()=>el('span','f-summary-count is-zero','–');let party=false;
   for(const {row,activity} of [...entries].sort((a,b)=>rank(a)-rank(b))){
-   const [registrations,interests,attendance]=[row.registrations,row.externalInterests,row.attendance].map(count),external=Boolean(activity)&&['workshop','route'].includes(typeOf(activity)),label=el('span','f-row-label');
-   if(activity){label.append(source('span',activity.title));if(activity.registration==='application')label.append(tr('span','lab','f-row-meta'));else if(activity.time&&!external)label.append(el('span','f-row-meta',activity.time));}else label.append(el('span','',row.activityId));
+   const [registrations,interests,attendance]=[row.registrations,row.externalInterests,row.attendance].map(count),kind=activity?blockKind(activity):'',external=['workshop','route'].includes(kind),label=el('span','f-row-label');
+   if(kind==='party')party=true;
+   if(activity){label.append(source('span',activity.title));if(activity.registration==='application')label.append(tr('span','lab','f-row-meta'));else if(kind==='party')label.append(tr('span','pgParty','f-row-meta'));else if(activity.time&&!external)label.append(el('span','f-row-meta',activity.time));}else label.append(el('span','',row.activityId));
    const venue=activity?.venue?source('span',activity.venue,'f-row-venue'):activity?tr('span','venuePending','f-muted'):el('span','');
-   (external?externals:conferences).push({date:activity?.date,row:external?[label,venue,interests,attendance]:[label,venue,registrations,attendance,hours(row.attendance*minutesOf(activity)/60)]});
+   (external?externals:conferences).push({date:activity?.date,row:external?[label,venue,interests,attendance]:kind==='party'?[label,venue,registrations,none(),none()]:[label,venue,registrations,attendance,hours(row.attendance*minutesOf(activity)/60)]});
   }
   const heading=key=>{const h=tr('h3',key);h.id='f-sum-'+key;return h;},col=(...nodes)=>{const box=el('div','f-summary-col');box.append(...nodes);return box;},people=el('div','f-summary-grid'),activities=el('div','f-summary-stack');
   // Largest profiles first; equal counts keep the server's alphabetical order.
   const profiles=summary.profiles.length?summaryTable({labelledBy:'f-sum-profiles',cls:'is-profiles'},['profileAdmin','participantCount','share'],[{rows:[...summary.profiles].sort((a,b)=>b.count-a.count).map(row=>[tr('span',row.profile||'unspecified'),count(row.count),el('span','f-summary-share',total?percent.format(row.count/total):'–')])}]):tr('p','noParticipants','f-muted');
   people.append(col(heading('byDay'),days,tr('p','byDayHint','f-muted f-table-note')),col(heading('profiles'),profiles));
-  activities.append(summaryTable({caption:'conferencesAndLab'},['activity','venue','registered','attended','hours'],byDate(conferences)),summaryTable({caption:'externalActivities'},['activity','venue','interested','attended'],byDate(externals)));
+  activities.append(summaryTable({caption:party?'blocksAndParty':'conferencesAndLab'},['activity','venue','registered','attended','hours'],byDate(conferences)),summaryTable({caption:'externalActivities'},['activity','venue','interested','attended'],byDate(externals)));
   summaryBody.replaceChildren(figures,people,heading('byActivity'),activities);lastSummary=summary;lastSummaryKey=summaryKey(summary);renderCheckin(summary);
   if(refocus)document.getElementById(refocus)?.focus({preventScroll:true});
  }
@@ -291,12 +305,18 @@
   search.input.autocomplete='off';search.input.addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{const query=norm(search.input.value.trim());if(query===participantQuery)return;participantQuery=query;participantWords=query.split(/\s+/).filter(Boolean);renderList();},120);});
   label.id='f-filter-label';chips.setAttribute('role','group');chips.setAttribute('aria-labelledby',label.id);chips.append(label);
   for(const [key,text] of [['all','filterAll'],['labPending','filterLabPending'],['labAccepted','filterLabAccepted'],['publicOfficials','publicOfficials']]){const chip=button(text,()=>{participantFilter=key;syncFilterChips();renderList();},'f-filter');filterButtons.set(key,chip);chips.append(chip);}
-  syncFilterChips();box.append(search.wrap,chips,resultCount);return box;
+  // The block filter lists every block people register for (the conference blocks and the party) and combines with the chips and the search.
+  const block=field('filterBlock'),every=tr('option','filterAllBlocks');blockFilter=el('select');blockFilter.name='participantBlock';blockFilter.id='f-participantBlock';every.value='';blockFilter.append(every);
+  for(const a of chronological(festival.event.activities.filter(activity=>['general','social'].includes(activity.registration)))){const option=source('option',blockLabel(a));option.value=a.id;blockFilter.append(option);}
+  block.input.replaceWith(blockFilter);blockFilter.addEventListener('change',()=>{participantBlock=blockFilter.value;renderList();});
+  syncFilterChips();box.append(search.wrap,block.wrap,chips,resultCount);return box;
  }
+ const blockLabel=a=>`${a.date.slice(8)}/${a.date.slice(5,7)} · ${a.title}`;
+ function clearBlock(){participantBlock='';if(blockFilter)blockFilter.value='';}
  function syncFilterChips(){for(const [key,chip] of filterButtons)chip.setAttribute('aria-pressed',String(key===participantFilter));}
  // A shortcut shows its whole filter: a search left in the box, or still waiting for its pause, is cleared.
  function clearSearch(){globalThis.clearTimeout?.(searchTimer);participantQuery='';participantWords=[];if(search)search.input.value='';}
- function showFilter(key){participantFilter=key;clearSearch();syncFilterChips();renderList();participantsHost.scrollIntoView?.({block:'start'});filterButtons.get(key)?.focus({preventScroll:true});}
+ function showFilter(key){participantFilter=key;clearSearch();clearBlock();syncFilterChips();renderList();participantsHost.scrollIntoView?.({block:'start'});filterButtons.get(key)?.focus({preventScroll:true});}
  function markSelected(){for(const [id,row] of rowNodes){const on=id===shownParticipant;row.className='f-participant'+(on?' is-selected':'');row.setAttribute('aria-current',String(on));}}
  // Each loaded record's row is built once (again after a language switch); searching and filtering re-attach it.
  function participantRow(r){
@@ -315,10 +335,10 @@
   listHost.replaceChildren();rowButtons.clear();rowNodes.clear();
   if(!records.length){listHost.append(tr('p','noParticipants'));resultCount.replaceChildren();shownCount=null;}
   else{
-   const visible=records.filter(FILTERS[participantFilter]).filter(r=>{const searchKey=searchKeys.get(r);return participantWords.every(word=>searchKey.includes(word));});
+   const visible=records.filter(FILTERS[participantFilter]).filter(r=>!participantBlock||r.answers.activities?.includes(participantBlock)).filter(r=>{const searchKey=searchKeys.get(r);return participantWords.every(word=>searchKey.includes(word));});
    // While the other pages load in the background a filtered view says so; "Load more" is left only when that load stopped on an error.
-   if(cursor&&(participantFilter!=='all'||participantQuery))listHost.append(tr('p',filling?'loading':'showingLoaded','f-muted'));
-   if(!visible.length){listHost.append(tr('p','noMatches','f-muted f-empty'));listHost.append(button('showAll',()=>{participantFilter='all';clearSearch();syncFilterChips();renderList();filterButtons.get('all')?.focus();},'f-button secondary f-small f-show-all'));}
+   if(cursor&&(participantFilter!=='all'||participantQuery||participantBlock))listHost.append(tr('p',filling?'loading':'showingLoaded','f-muted'));
+   if(!visible.length){listHost.append(tr('p','noMatches','f-muted f-empty'));listHost.append(button('showAll',()=>{participantFilter='all';clearSearch();clearBlock();syncFilterChips();renderList();filterButtons.get('all')?.focus();},'f-button secondary f-small f-show-all'));}
    else{const list=el('ul','f-participant-list');for(const r of visible)list.append(participantRow(r));listHost.append(list);markSelected();}
    if(visible.length!==shownCount){shownCount=visible.length;resultCount.replaceChildren(countLabel(shownCount,'participantShownOne','participantShownMany'));}
   }
@@ -383,7 +403,8 @@
   for(const id of [...interests].filter(id=>!findActivity(festival.event,id))){const row=el('p','f-attendance-row f-unknown-interest');row.append(el('span','f-attendance-title',id),tr('span','interestChip','f-pill'));box.append(row);}
   const plan=activity=>activity.registration==='external'?interests.has(activity.id)&&'interest':activity.registration==='application'?r.labStatus==='accepted'&&'lab':a.activities.includes(activity.id)&&'registered';
   const own=activity=>attended.has(activity.id)||Boolean(plan(activity)),chip=activity=>({registered:()=>tr('span','statusRegistered','f-pill is-ok'),lab:()=>tr('span','acceptedShort','f-pill is-accepted'),interest:()=>tr('span','interestChip','f-pill')})[plan(activity)]?.();
-  const list=chronological([...festival.event.activities,...(festival.event.legacyActivities||[]).filter(activity=>attended.has(activity.id)||interests.has(activity.id))].filter(activity=>activity.registration==='external'||own(activity)));
+  // The party takes no check-in, so it has no tick here (the answers below list it).
+  const list=chronological([...festival.event.activities,...(festival.event.legacyActivities||[]).filter(activity=>attended.has(activity.id)||interests.has(activity.id))].filter(activity=>activity.registration!=='social'&&(activity.registration==='external'||own(activity))));
   for(const date of [...new Set(list.map(activity=>activity.date))]){
    const day=list.filter(activity=>activity.date===date),others=day.filter(activity=>!own(activity)),group=el('div','f-attendance-day'),dayLabel=dateNode(date,'p','long','f-attendance-date');dayLabel.id='f-att-'+date;group.append(dayLabel);
    for(const activity of day.filter(own))group.append(rowFor(activity,attended.has(activity.id),chip(activity)));
@@ -634,6 +655,7 @@
  function applyBlock(item){
   programme=(programme||[]).map(a=>a.id===item.id?item:a);
   const {version,original,checkedIn,...block}=item;festival.event={...festival.event,activities:festival.event.activities.map(a=>a.id===block.id?{...a,...block}:a)};
+  for(const option of blockFilter?.children||[])if(option.value===block.id)option.textContent=blockLabel(block);
   renderProgramme();lastCheckinKey='';if(lastSummary)renderSummary(lastSummary);else renderCheckin();questionLayout='';renderQuestions();
  }
  function renderProgramme(){
@@ -806,12 +828,14 @@
  // Conversations: a question on a block (optionally tied to one of its talks) opens a live chat on fiiu-talk.html for registered participants;
  // organisers moderate there. The new-question form sits beside the questions, which are grouped by block in programme order.
  const QUESTION_STATUSES=[['open','questionOpen'],['closed','questionClosed'],['hidden','questionHidden']],QUESTION_MAX=500;
- const validQuestion=q=>Boolean(q)&&typeof q.id==='string'&&typeof q.activityId==='string'&&Number.isSafeInteger(q.version)&&QUESTION_STATUSES.some(([value])=>value===q.status);
+ // A rating question carries its ten totals (index 0 for a score of 1); anything else there reads as a failed read, never as numbers.
+ const validTotals=counts=>Array.isArray(counts)&&counts.length===10&&counts.every(n=>Number.isSafeInteger(n)&&n>=0),isRating=q=>q?.kind==='rating';
+ const validQuestion=q=>Boolean(q)&&typeof q.id==='string'&&typeof q.activityId==='string'&&Number.isSafeInteger(q.version)&&QUESTION_STATUSES.some(([value])=>value===q.status)&&[undefined,'chat','rating'].includes(q.kind)&&(q.ratingCounts==null||validTotals(q.ratingCounts));
  const countText=(base,n)=>n===1?t(base+'One'):fill(base,{n:nf(n)});
  function questionDraft(){return Boolean(newQuestion?.dirty())||[...questionRows.values()].some(entry=>entry.editor?.dirty());}
  async function readQuestions(){const data=await api('/api/admin/fiiu/questions');if(!Array.isArray(data.questions)||!data.questions.every(validQuestion))throw Object.assign(Error(t('error')),{key:'error'});return data.questions;}
  // A read that started before one of this page's saves can land after it: the newer local version wins, and a question created meanwhile stays.
- function mergeQuestions(list){const known=new Map((questions||[]).map(q=>[q.id,q])),merged=list.map(q=>{const old=known.get(q.id);known.delete(q.id);return old&&old.version>q.version?{...old,stats:q.stats??old.stats}:q;});return [...merged,...known.values()];}
+ function mergeQuestions(list){const known=new Map((questions||[]).map(q=>[q.id,q])),merged=list.map(q=>{const old=known.get(q.id);known.delete(q.id);return old&&old.version>q.version?{...old,stats:q.stats??old.stats,ratingCounts:q.ratingCounts??old.ratingCounts}:q;});return [...merged,...known.values()];}
  // A save answers with the question without its totals; the row keeps the ones it had until the next read.
  function upsertQuestion(q){const old=questions?.find(x=>x.id===q.id),next={...old,...q,stats:q.stats??old?.stats??{messages:q.messageCount??0,people:0,likes:0}};questions=old?questions.map(x=>x===old?next:x):[...(questions||[]),next];renderQuestions();}
  // Retry and "Reload the latest version" report a failure where the organiser pressed.
@@ -830,7 +854,7 @@
   if(!questionsFailed)questionAlert.replaceChildren();
   else if(!questionAlert.children.length){const retry=button('retry',()=>fetchInto(retry,async()=>{await reloadQuestions();if(!document.activeElement||document.activeElement===document.body){const heading=conversationsHost.querySelector('h2');if(heading){heading.tabIndex=-1;heading.focus();}}}),'f-button secondary f-small');questionAlert.replaceChildren(tr('span','questionsLoadError'),retry);}
   if(!questions||!questions.length){questionList.replaceChildren(...(questions?[tr('p','noQuestions','f-muted f-empty')]:questionsFailed?[]:[tr('p','loading','f-muted')]));questionLayout='';return;}
-  const order=new Map(chronological(festival.event.activities).map((a,i)=>[a.id,i])),rank=q=>order.get(q.activityId)??order.size;
+  const order=new Map(chronological(festival.event.activities).map((a,i)=>[a.id,i])),rank=q=>q.activityId==='general'?-1:order.get(q.activityId)??order.size;
   const sorted=[...questions].sort((a,b)=>rank(a)-rank(b)||a.activityId.localeCompare(b.activityId)||String(a.createdAt).localeCompare(String(b.createdAt)));
   for(const q of sorted){const entry=questionRows.get(q.id)||questionEntry(q.id);entry.record=q;entry.update();}
   // The same questions in the same places are only updated, so a timed refresh never moves focus or an open edit.
@@ -839,7 +863,7 @@
   for(const q of sorted){if(groups.at(-1)?.activityId!==q.activityId)groups.push({activityId:q.activityId,rows:[]});groups.at(-1).rows.push(questionRows.get(q.id).row);}
   questionList.replaceChildren(...groups.map(({activityId,rows})=>{
    const group=el('div','f-question-group'),heading=el('h3','f-question-block'),list=el('ul','f-questions'),activity=findActivity(festival.event,activityId);heading.id='f-qb-'+activityId;
-   if(activity)heading.append(dateNode(activity.date,'span','short','f-question-day'),source('span',activity.title));else heading.append(el('span','',activityId));
+   if(activityId==='general')heading.append(tr('span','questionGeneral'));else if(activity)heading.append(dateNode(activity.date,'span','short','f-question-day'),source('span',activity.title));else heading.append(el('span','',activityId));
    list.setAttribute('aria-labelledby',heading.id);list.append(...rows);group.append(heading,list);return group;
   }));
   if(refocus)document.getElementById(refocus)?.focus({preventScroll:true});
@@ -854,14 +878,37 @@
   // The chat and the projector open in new tabs, so moderating never leaves a draft behind here; the CSV is fetched like the registrations
   // export, so an ended session, a rate limit or an outage is reported here instead of a cancelled download.
   const csv=button('downloadCsv',()=>fetchInto(csv,()=>downloadExport('/api/admin/fiiu/questions/'+path+'/export','fiiu-conversation.csv')),'f-text-link');
-  edit.id=text.id+'-edit';for(const a of [chat,present]){a.target='_blank';a.rel='noopener';}for(const node of [edit,chat,present,csv])describe(node,text.id);
-  links.append(edit,chat,present,csv);controls.append(label,group,links);view.append(text,meta);row.append(view,controls,note,conflict);
+  // A rating question also shows its totals, and offers them as a CSV built here from the totals on the page.
+  const totals=el('div','f-rating'),counts=button('ratingCsv',()=>downloadRating(entry.record),'f-text-link');
+  edit.id=text.id+'-edit';for(const a of [chat,present]){a.target='_blank';a.rel='noopener';}for(const node of [edit,chat,present,csv,counts])describe(node,text.id);
+  links.append(edit,chat,present,csv,counts);controls.append(label,group,links);view.append(text,meta,totals);row.append(view,controls,note,conflict);
   entry.update=()=>{
    const q=entry.record,stats=q.stats||{},count=(base,n)=>el('span','f-question-count',countText(base,Number.isSafeInteger(n)&&n>=0?n:0));row.className='f-question is-'+q.status;text.textContent=q.body;
-   meta.replaceChildren(...(q.talk?[source('span',q.talk,'f-question-talk')]:[]),count('questionMessages',stats.messages??q.messageCount),count('questionPeople',stats.people),count('questionLikes',stats.likes));
+   meta.replaceChildren(...(q.talk?[source('span',q.talk,'f-question-talk')]:[]),count('questionMessages',stats.messages??q.messageCount),count('questionPeople',stats.people),count('questionLikes',stats.likes),...(isRating(q)?[tr('span','questionKindRating','f-chip f-question-kind')]:[]));
+   totals.hidden=counts.hidden=!isRating(q);if(isRating(q))ratingTotals(totals,q.ratingCounts);else totals.replaceChildren();
    for(const [value,choice] of entry.buttons)choice.setAttribute('aria-pressed',String(value===q.status));
   };
   questionRows.set(id,entry);return entry;
+ }
+ // A rating's totals: the average to one decimal and how many rated, over a strip of ten counts. The drawn counts, bars and scores are hidden from
+ // assistive technology, which hears one sentence per score instead ("4 people chose 10"). Before any answer it says so instead.
+ function ratingTotals(box,counts){
+  const list=validTotals(counts)?counts:Array(10).fill(0),people=list.reduce((sum,n)=>sum+n,0);
+  if(!people){box.replaceChildren(tr('p','ratingNone','f-muted f-rating-none'));return;}
+  const average=list.reduce((sum,n,i)=>sum+n*(i+1),0)/people,top=Math.max(...list),line=el('p','f-rating-line'),bars=el('ol','f-rating-bars');
+  line.append(tr('span','ratingAverage'),document.createTextNode(' '),el('strong','f-rating-average',new Intl.NumberFormat(locale(),{minimumFractionDigits:1,maximumFractionDigits:1}).format(average)),document.createTextNode(' · '),el('span','',plural('ratingPeople',people)));
+  bars.setAttribute('aria-label',t('ratingBars'));
+  list.forEach((n,i)=>{
+   const item=el('li','f-rating-step'+(n?'':' is-zero')),shown=[el('span','f-rating-count',nf(n)),el('span','f-rating-bar'),el('span','f-rating-score',String(i+1))];
+   for(const node of shown)node.setAttribute('aria-hidden','true');shown[1].style?.setProperty?.('--share',String(n/top));
+   item.append(...shown,el('span','f-sr-only',fill(n===1?'ratingBarOne':'ratingBarMany',{n:nf(n),score:String(i+1)})));bars.append(item);
+  });
+  box.replaceChildren(line,bars);
+ }
+ // The counts CSV: score,count for 1 to 10, saved like the server's CSVs (a byte-order mark, so spreadsheets read it as UTF-8, and CRLF lines).
+ function downloadRating(q){
+  const list=validTotals(q.ratingCounts)?q.ratingCounts:Array(10).fill(0),rows=['score,count',...list.map((n,i)=>`${i+1},${n}`)];
+  try{saveFile(new Blob(['\uFEFF'+rows.join('\r\n')],{type:'text/csv;charset=utf-8'}),'fiiu-rating-'+q.id.slice(0,8)+'.csv');}catch{reportError(message,Object.assign(Error(t('error')),{key:'error'}));}
  }
  // The switch stays focusable while a change saves (a press meanwhile is ignored), so focus never drops to the page. Closing asks first;
  // a conflict offers the latest version, which re-reads the list.
@@ -894,11 +941,18 @@
    talk.replaceChildren(none,...names.map(name=>{const option=source('option',name);option.value=name;return option;}));talk.value=names.includes(value)?value:'';talkField.wrap.hidden=!names.length;
   };
   const count=()=>{const number=new Intl.NumberFormat(locale());counter.textContent=number.format(text.input.value.length)+' / '+number.format(QUESTION_MAX);};text.input.addEventListener('input',count);count();
+  // The type is chosen once, when the question is created: a conversation (the default) or a 1–10 rating. An edit shows it and cannot change it.
+  let kinds=[];const kindOf=()=>kinds.find(choice=>choice.checked)?.value||'chat';
   if(isNew){
-   const blockField=field('questionBlock',{required:true}),blank=tr('option','choose');block.name='activityId';block.id=prefix+'-block';block.required=true;blank.value='';block.append(blank);
+   // General, the whole festival's space, comes before the blocks; it has no talks.
+   const blockField=field('questionBlock',{required:true}),blank=tr('option','choose'),general=tr('option','questionGeneral');block.name='activityId';block.id=prefix+'-block';block.required=true;blank.value='';general.value='general';block.append(blank,general);
    for(const a of chronological(festival.event.activities)){const option=source('option',`${a.date.slice(8)}/${a.date.slice(5,7)} · ${a.title}`);option.value=a.id;block.append(option);}
-   blockField.input.replaceWith(block);block.addEventListener('change',()=>fillTalks(block.value,talk.value));form.append(tr('h3','newQuestion'),blockField.wrap);
+   blockField.input.replaceWith(block);block.addEventListener('change',()=>fillTalks(block.value,talk.value));
+   const choice=el('fieldset','f-kind-choice'),kindHint=tr('p','questionKindHint','f-muted f-kind-hint');kindHint.id=prefix+'-kind-hint';choice.append(tr('legend','questionKind'));
+   kinds=[['chat','questionKindChat'],['rating','questionKindRating']].map(([value,key])=>{const wrap=el('label','f-check'),input=el('input');input.type='radio';input.name='kind';input.value=value;input.id=prefix+'-kind-'+value;input.checked=value==='chat';wrap.append(input,tr('span',key));choice.append(wrap);return input;});
+   kinds[1].setAttribute('aria-describedby',kindHint.id);choice.append(kindHint);form.append(tr('h3','newQuestion'),blockField.wrap,choice);
   }
+  else{const locked=el('p','f-muted f-kind-locked');locked.append(tr('span',isRating(start)?'questionKindRating':'questionKindChat','f-question-kind'),document.createTextNode(' · '),tr('span','questionKindLocked'));form.append(locked);}
   fillTalks(start?.activityId||'',start?.talk||'',isNew?[]:[start.talk]);
   const values=()=>({body:text.input.value.trim(),talk:talk.value||null}),initial=JSON.stringify(values());
   // Reopened on the latest version after a conflict, the edit keeps what was typed (so it still counts as unsaved). When the other change touched
@@ -913,7 +967,7 @@
   }
   const send=async(state,control)=>{
    if(busy)return;text.input.setCustomValidity(values().body?'':t('requiredField'));if(!form.reportValidity())return;
-   const payload=isNew?{id:draftId??=uuid(),activityId:block.value,...values(),status:state}:{version:editor.version,...values()},unlock=lockForm(form,()=>isNew?text.input:entry.edit);busy=true;
+   const payload=isNew?{id:draftId??=uuid(),activityId:block.value,kind:kindOf(),...values(),status:state}:{version:editor.version,...values()},unlock=lockForm(form,()=>isNew?text.input:entry.edit);busy=true;
    // After a conflict on a new question (its id was saved, with other text, by a send whose answer was lost) the list shows the saved one and the
    // draft stays, with a new id for a deliberate second question; an edit reopens on the latest version with its typed text and talk kept.
    const reload=isNew?async()=>{await reloadQuestions();draftId=null;conflict.replaceChildren();text.input.focus();}:async()=>{const kept={body:text.input.value,talk:talk.value,base:start};await reloadQuestions();openQuestionEdit(entry,true,kept);};
@@ -948,8 +1002,10 @@
   const failed=key=>Object.assign(Error(t(key)),{key});let blob,name;
   try{const response=await fetch(url,{signal:globalThis.AbortSignal?.timeout?.(60000)});if(!response.ok)throw Object.assign(failed(({401:'unauthorized',403:'forbidden',429:'rate'})[response.status]||'error'),{status:response.status});name=/filename="([^"]+)"/.exec(response.headers.get('Content-Disposition')||'')?.[1];blob=await response.blob();}
   catch(err){throw err?.key?err:failed('error');}
-  const href=URL.createObjectURL(blob),a=el('a');a.href=href;a.download=name||fallback;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),60000);
+  saveFile(blob,name||fallback);
  }
+ // Hands the browser a file to save: a temporary link to the file, clicked and removed; the file's address is released a minute later.
+ function saveFile(blob,name){const href=URL.createObjectURL(blob),a=el('a');a.href=href;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),60000);}
  function adminNav(){
   const nav=el('nav','f-admin-nav'),label=tr('span','sectionNav','f-sr-only'),list=el('ul');label.id='f-admin-nav-label';nav.setAttribute('aria-labelledby',label.id);
   for(const [id,key] of SECTIONS){const item=el('li'),a=link(key,'#'+id,'');if(id==='overview')a.setAttribute('aria-current','true');navLinks.set(id,a);item.append(a);list.append(item);}

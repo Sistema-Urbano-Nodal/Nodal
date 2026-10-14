@@ -277,4 +277,14 @@ html:has(>body.f-page){scroll-padding-top:176px}.f-page :where(section,footer)[i
 .f-programme-buttons{display:flex;flex-wrap:wrap;align-items:center;gap:var(--f-sp-2) var(--f-sp-4)}.f-shell .f-programme-restore{min-height:40px;margin-left:auto;padding:4px 0;border:0;background:none;font:inherit;cursor:pointer}
 /* The party announcement under the party's row: the summary emails' plain lines in one column, whatever the screen, since it sits in a day's column. */
 .f-backfill.f-party-notice{display:block;max-width:none;margin:var(--f-sp-4) 0 var(--f-sp-2)}.f-page .f-party-notice h3{font-size:.95rem}
+/* Conversations: the type choice of a new question (two radios on one line), the locked type of a saved one, and a rating's totals: the average and
+   how many rated over a strip of ten counts, each bar's height its share of the largest count (fiiu-admin.js sets --share). */
+.f-kind-choice{min-width:0;margin:0 0 var(--f-sp-3);padding:0;border:0}.f-kind-choice>legend{padding:0;font-size:.84rem;font-weight:550}
+.f-kind-choice .f-check{display:inline-flex;align-items:center;min-height:44px;margin:0 var(--f-sp-5) 0 0;padding:0;font-size:.92rem}.f-page .f-kind-hint{margin:0;font-size:var(--f-fs-hint);line-height:1.45}
+.f-page .f-kind-locked{margin:0 0 var(--f-sp-3);font-size:var(--f-fs-hint)}.f-kind-locked .f-question-kind{font-weight:650;color:var(--f-ink)}
+.f-rating{max-width:420px;margin:var(--f-sp-2) 0 0}.f-page .f-rating-line{margin:0 0 var(--f-sp-2);font-size:.92rem;font-variant-numeric:tabular-nums}.f-rating-average{font-size:1.15rem}.f-page .f-rating-none{margin:0;font-size:var(--f-fs-hint)}
+.f-rating-bars{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:4px;margin:0;padding:0;list-style:none}
+.f-rating-step{display:grid;grid-template-rows:auto 48px auto;justify-items:center;gap:2px;min-width:0;font-size:var(--f-fs-hint);font-variant-numeric:tabular-nums}
+.f-rating-bar{align-self:end;width:100%;height:calc(var(--share,0)*48px);min-height:2px;border-radius:2px 2px 0 0;background:var(--f-forest)}.f-rating-step.is-zero .f-rating-bar{background:var(--f-line)}
+.f-rating-count{color:var(--f-muted)}.f-rating-score{font-weight:650}
 @media(pointer:coarse){.f-shell :is(.f-line-button,.f-programme-restore,.f-party-notice .f-backfill-link){min-height:44px}}

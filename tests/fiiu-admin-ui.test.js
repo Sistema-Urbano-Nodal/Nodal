@@ -1201,9 +1201,9 @@ test('a new question is posted with one UUID across retries; once saved the text
   return{content:[],nextCursor:null};
  });
  const form=questionForm(h),block=field(form,'activityId');assert.ok(key(conversations(h),'newQuestion'));
- // Every current block, in programme order, labelled as the publication editor labels them; no historical activities.
- assert.deepEqual(new Set(block.children.map(option=>option.value)),new Set(['',...EVENT.activities.map(activity=>activity.id)]));
- const dates=block.children.slice(1).map(option=>EVENT.activities.find(activity=>activity.id===option.value).date);assert.deepEqual(dates,[...dates].sort());
+ // General first, then every current block, in programme order, labelled as the publication editor labels them; no historical activities.
+ assert.deepEqual(new Set(block.children.map(option=>option.value)),new Set(['','general',...EVENT.activities.map(activity=>activity.id)]));assert.equal(block.children[1].value,'general');
+ const dates=block.children.slice(2).map(option=>EVENT.activities.find(activity=>activity.id===option.value).date);assert.deepEqual(dates,[...dates].sort());
  assert.equal(block.children.find(option=>option.value==='day1-am').textContent,'21/10 · El poder de lo local');assert.equal(block.required,true);
  await select(block,'day1-am');await select(field(form,'talk'),'¡Bienvenidos al FIIU 11!');
  const text=field(form,'body');assert.equal(text.tagName,'textarea');assert.equal(text.maxLength,500);type(text,'  ¿Qué te llevas?  ');
@@ -1212,7 +1212,7 @@ test('a new question is posted with one UUID across retries; once saved the text
  assert.equal(h.message.dataset.fiiuText,'error');assert.equal(text.value,'  ¿Qué te llevas?  ','the draft survives a failed save');assert.equal(questionRows(h).length,0);
  await key(form,'publishNow').listeners.click();
  assert.match(saved[0].id,UUID);assert.equal(saved[1].id,saved[0].id,'the retry reuses the id, so a lost response never makes a second question');
- assert.deepEqual(saved[1],{id:saved[0].id,activityId:'day1-am',talk:'¡Bienvenidos al FIIU 11!',body:'¿Qué te llevas?',status:'open'});
+ assert.deepEqual(saved[1],{id:saved[0].id,activityId:'day1-am',kind:'chat',talk:'¡Bienvenidos al FIIU 11!',body:'¿Qué te llevas?',status:'open'});
  assert.equal(h.message.dataset.fiiuText,'questionSaved');assert.equal(text.value,'','the text clears');assert.equal(form.querySelector('.f-counter').textContent,'0 / 500');
  const rows=questionRows(h);assert.equal(rows.length,1);assert.equal(rows[0].querySelector('.f-question-text').textContent,'¿Qué te llevas?');assert.match(content(rows[0]),/0 messages/);
  assert.equal(key(conversations(h),'noQuestions'),undefined);
@@ -1852,4 +1852,107 @@ test('a finished pass re-reads the other email block, since summary emails and t
  const reads=path=>h.requests.filter(r=>r.path===path&&r.method==='GET').length,summaryReads=reads('/api/admin/fiiu/confirmations'),noticeReads=reads(NOTICES);
  await pressNotice(h,'send');await pressNotice(h,'confirm');assert.equal(reads('/api/admin/fiiu/confirmations'),summaryReads+1,'the summary block learns the new count');assert.equal(reads(NOTICES),noticeReads+1);
  await press(h,'send');await press(h,'confirm');assert.equal(reads(NOTICES),noticeReads+2,'and the other way round');
+});
+
+// General and rating questions: activityId 'general' is accepted wherever a block id is; question views carry kind ('chat' or 'rating') and, for
+// ratings, ratingCounts (ten totals, index 0 for a score of 1).
+const RATING_ID='dddddddd-dddd-4ddd-8ddd-ddddddddddd4';
+const rating=(over={})=>question({id:RATING_ID,activityId:'general',talk:null,body:'¿Cómo calificas el FIIU 11?',kind:'rating',ratingCounts:[0,0,0,0,1,0,2,3,0,4],stats:{messages:2,people:2,likes:0},...over});
+const C4_KEYS=['questionGeneral','questionKind','questionKindChat','questionKindRating','questionKindHint','questionKindLocked','ratingAverage','ratingPeopleOne','ratingPeopleMany','ratingNone','ratingBars','ratingBarOne','ratingBarMany','ratingCsv','blocksAndParty','filterBlock','filterAllBlocks'];
+
+test('the block picker starts with General (whole festival), which has no talks, and General questions come first under their own heading',async()=>{
+ const saved=[];
+ const h=await harness(({method,path,body})=>{
+  if(path==='/api/admin/fiiu/questions'&&method==='POST'){saved.push(body);return{status:201,data:{question:{...body,revision:0,messageCount:0,createdAt:'2026-10-13T15:00:00.000Z',version:1}}};}
+  return{content:[],nextCursor:null};
+ },{questionsRead:()=>({questions:[question(),question({id:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee5',activityId:'general',talk:null,body:'¿Qué barrio te inspira?'})]})});
+ const form=questionForm(h),block=field(form,'activityId'),general=block.children[1];
+ assert.equal(general.value,'general');assert.equal(general.dataset.fiiuText,'questionGeneral');assert.equal(general.textContent,'General (whole festival)');
+ await select(block,'general');assert.equal(field(form,'talk').parent.hidden,true,'the whole festival has no talks');
+ type(field(form,'body'),'¿Qué te llevas del festival?');await key(form,'publishNow').listeners.click();
+ assert.deepEqual({...saved[0],id:undefined},{id:undefined,activityId:'general',kind:'chat',talk:null,body:'¿Qué te llevas del festival?',status:'open'});
+ const groups=conversations(h).querySelectorAll('.f-question-group');assert.equal(groups.length,2);
+ assert.ok(key(groups[0].querySelector('h3'),'questionGeneral'),'General first');assert.match(content(groups[1].querySelector('h3')),/El poder de lo local/);
+ assert.equal(groups[0].querySelectorAll('.f-question').length,2,'the new question joins its group');
+ const rows=h.ctx.window.Fiiu.rows;for(const name of C4_KEYS){assert.equal(rows[name]?.length,3,name);assert.ok(rows[name].every(text=>typeof text==='string'&&text.trim()),name);}
+ h.lang('es');assert.equal(general.textContent,'General (todo el festival)');assert.equal(key(groups[0].querySelector('h3'),'questionGeneral').textContent,'General (todo el festival)');
+});
+
+test('a new question is a Conversation or a Rating 1–10, sent as kind; a saved question shows its type and offers no way to change it',async()=>{
+ const saved=[];let current=rating();
+ const h=await harness(({method,path,body})=>{
+  if(path==='/api/admin/fiiu/questions'&&method==='POST'){saved.push(body);return{status:201,data:{question:{...body,ratingCounts:body.kind==='rating'?Array(10).fill(0):null,revision:0,messageCount:0,createdAt:'2026-10-13T15:00:00.000Z',version:1}}};}
+  if(method==='PATCH'){current={...current,...body,version:current.version+1};return{question:current};}
+  return{content:[],nextCursor:null};
+ },{questionsRead:()=>({questions:[copy(current)]})});
+ const form=questionForm(h),choice=form.querySelector('.f-kind-choice'),radios=choice.querySelectorAll('input');
+ assert.equal(choice.tagName,'fieldset');assert.ok(key(choice,'questionKind'));assert.ok(key(choice,'questionKindHint'));
+ assert.deepEqual(radios.map(input=>[input.type,input.name,input.value,input.checked]),[['radio','kind','chat',true],['radio','kind','rating',false]],'Conversation is the default');
+ assert.deepEqual(radios.map(input=>input.parent.querySelector('span').dataset.fiiuText),['questionKindChat','questionKindRating']);
+ assert.equal(radios[1]['aria-describedby'],key(choice,'questionKindHint').id,'the hint explains the rating');
+ radios[0].checked=false;radios[1].checked=true;await select(field(form,'activityId'),'day2-am');type(field(form,'body'),'¿Qué nota le das a este bloque?');await key(form,'publishNow').listeners.click();
+ assert.equal(saved[0].kind,'rating');assert.equal(saved[0].activityId,'day2-am');
+ const created=questionRows(h).find(row=>row.querySelector('.f-question-text').textContent==='¿Qué nota le das a este bloque?');assert.ok(key(created,'questionKindRating'),'the row says it is a rating');assert.ok(key(created,'ratingNone'));
+ const row=questionRows(h).find(node=>node.querySelector('.f-question-text').id==='f-q-'+RATING_ID);await key(row,'editQuestion').listeners.click();
+ const edit=row.querySelector('form');assert.equal(edit.querySelectorAll('input').filter(input=>input.type==='radio').length,0,'no way to change the type');
+ const locked=edit.querySelector('.f-kind-locked');assert.ok(key(locked,'questionKindRating'));assert.ok(key(locked,'questionKindLocked'));
+ type(field(edit,'body'),'¿Cómo calificas el FIIU 11, del 1 al 10?');await key(edit,'saveQuestion').listeners.click();
+ assert.deepEqual(questionWrites(h).at(-1).body,{version:1,body:'¿Cómo calificas el FIIU 11, del 1 al 10?',talk:null},'an edit never sends the type');
+ const chat=await harness(()=>({content:[],nextCursor:null}),{questionsRead:()=>({questions:[question()]})});
+ assert.equal(key(questionRows(chat)[0],'questionKindRating'),undefined);assert.notEqual(key(questionRows(chat)[0],'ratingCsv')?.hidden,false,'a conversation has no counts to download');assert.equal(questionRows(chat)[0].querySelector('.f-rating').hidden,true);
+});
+
+test('a rating question’s row shows the average to one decimal, how many rated and a 1–10 strip read out as counts; without answers it says No ratings yet',async()=>{
+ let current=rating();const h=await harness(()=>({content:[],nextCursor:null}),{questionsRead:()=>({questions:[copy(current)]})});
+ const row=questionRows(h)[0],box=row.querySelector('.f-rating');
+ assert.match(content(box.querySelector('.f-rating-line')),/Average\s+8\.3\s+·\s+10 people rated/,'(5 + 2×7 + 3×8 + 4×10) / 10');
+ const bars=box.querySelector('ol');assert.equal(bars['aria-label'],'Ratings from 1 to 10');assert.equal(bars.children.length,10);
+ const spoken=bars.children.map(item=>item.querySelector('.f-sr-only').textContent);
+ assert.deepEqual([spoken[0],spoken[4],spoken[9]],['0 people chose 1','1 person chose 5','4 people chose 10']);
+ assert.ok(bars.children.every(item=>item.children.filter(node=>node.className!=='f-sr-only').every(node=>node['aria-hidden']==='true')),'the drawn counts, bars and scores are hidden from assistive technology, which hears the sentence');
+ assert.equal(bars.children[9].querySelector('.f-rating-count').textContent,'4');assert.equal(bars.children[9].querySelector('.f-rating-score').textContent,'10');
+ h.lang('es');assert.match(content(row.querySelector('.f-rating-line')),/Promedio\s+8\.3\s+·\s+10 personas valoraron/);assert.equal(row.querySelector('.f-rating').querySelector('ol').children[4].querySelector('.f-sr-only').textContent,'1 persona eligió 5');
+ h.lang('pt');assert.match(content(row.querySelector('.f-rating-line')),/Média\s+8,3\s+·\s+10 pessoas avaliaram/);h.lang('en');
+ // The minute refresh brings new totals into the same row.
+ current={...current,ratingCounts:[0,0,0,0,0,0,0,0,0,1],revision:9};await h.tickTimers();
+ assert.equal(questionRows(h)[0],row);assert.match(content(row.querySelector('.f-rating-line')),/Average\s+10\.0\s+·\s+1 person rated/);
+ current={...current,ratingCounts:Array(10).fill(0)};await h.tickTimers();assert.ok(key(row,'ratingNone'));assert.equal(row.querySelector('.f-rating').querySelector('ol'),null);
+ // A malformed strip reads as a failed read, never as numbers.
+ const odd=await harness(()=>({content:[],nextCursor:null}),{questionsRead:()=>({questions:[rating({ratingCounts:[1,2,3]})]})});assert.ok(key(conversations(odd),'questionsLoadError'));
+});
+
+test('Download counts (CSV) saves score,count rows 1 to 10 through the panel’s download path',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{questionsRead:()=>({questions:[rating()]})}),events=[],createElement=h.ctx.document.createElement;fakeTimers(h);
+ h.ctx.Blob=class{constructor(parts,options){this.text=parts.join('');this.type=options.type;}};
+ h.ctx.URL={createObjectURL:blob=>{events.push(['object URL',blob]);return 'blob:nodal/rating';},revokeObjectURL(){}};
+ h.ctx.document.createElement=tag=>{const node=createElement(tag);if(tag==='a')Object.assign(node,{click(){events.push(['download',this.href,this.download]);},remove(){this.parent.children=this.parent.children.filter(child=>child!==this);this.parent=null;}});return node;};
+ const csv=key(questionRows(h)[0],'ratingCsv');assert.equal(csv.tagName,'button');assert.equal(csv['aria-describedby'],'f-q-'+RATING_ID);
+ await csv.listeners.click();
+ const [[,file],[,href,name]]=events;assert.equal(href,'blob:nodal/rating');assert.equal(name,'fiiu-rating-dddddddd.csv');assert.equal(file.type,'text/csv;charset=utf-8');
+ assert.equal(file.text,'﻿score,count\r\n1,0\r\n2,0\r\n3,0\r\n4,0\r\n5,1\r\n6,0\r\n7,2\r\n8,3\r\n9,0\r\n10,4');
+ assert.equal(h.requests.some(request=>request.path.includes('/export')),false,'the counts are already on the page');
+});
+
+test('the party counts in the activity totals by registrations only, takes no attendance tick, and the participant list filters by block',async()=>{
+ const withParty={...copy(checkinSummary),activities:[...checkinSummary.activities,{activityId:'closing-party',registrations:45,externalInterests:0,attendance:0}]};
+ const ana=participant('participant-a','Ana'),beto=participant('participant-b','Beto'),carla=participant('participant-c','Carla');
+ ana.answers.activities=['day1-am','closing-party'];beto.answers.activities=['closing-party'];carla.answers.activities=['day2-am'];
+ const h=await harness(({path})=>path==='/api/admin/fiiu/content'?{content:[],nextCursor:null}:{registration:copy(ana),attendance:[]},{participants:[ana,beto,carla],summaryRead:()=>({summary:copy(withParty)})});
+ const tables=h.root.querySelector('.f-summary-stack').children.map(scroll=>scroll.children[0]);
+ assert.equal(tables[0].querySelector('caption').dataset.fiiuText,'blocksAndParty');
+ const party=tables[0].querySelectorAll('tr').find(row=>/Fiesta de cierre/.test(content(row)));assert.ok(party,'the party is in the registrations table');
+ assert.ok(key(party,'pgParty'));assert.match(content(party),/\b45\b/);assert.deepEqual(party.children.slice(3).map(cell=>cell.textContent||content(cell).trim()),['–','–'],'no attendance and no hours');
+ assert.doesNotMatch(content(tables[1]),/Fiesta de cierre/,'not among the workshop and route interests');
+ // Without a party row the table keeps its name.
+ const plain=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>({summary:copy(checkinSummary)})});assert.equal(plain.root.querySelector('.f-summary-stack').children[0].children[0].querySelector('caption').dataset.fiiuText,'conferencesAndLab');
+ await detailButton(h,0).listeners.click();const detail=h.root.querySelector('.f-admin-detail');
+ assert.equal(detail.querySelectorAll('.f-attendance-row').some(row=>/Fiesta de cierre/.test(content(row))),false,'no tick for the party');assert.match(content(detail.querySelector('.f-answers')),/Fiesta de cierre/,'it is listed with the answers');
+ const filter=field(h.root.querySelector('.f-admin-filters'),'participantBlock');assert.equal(filter.tagName,'select');assert.ok(key(filter.parent,'filterBlock'));
+ assert.deepEqual(filter.children.map(option=>option.value),['',...EVENT.activities.filter(activity=>['general','social'].includes(activity.registration)).map(activity=>activity.id)],'every block people register for, the party last');
+ assert.equal(filter.children[0].dataset.fiiuText,'filterAllBlocks');
+ await select(filter,'closing-party');assert.deepEqual(participantNames(h),['Ana Test','Beto Test']);assert.match(content(h.root.querySelector('.f-result-count')),/2/);
+ key(h.root,'filterLabPending').listeners.click();assert.deepEqual(participantNames(h),['Ana Test','Beto Test'],'with the other filters');
+ await select(filter,'day2-am');assert.deepEqual(participantNames(h),['Carla Test']);
+ await select(filter,'day3-am');assert.ok(key(h.root,'noMatches'));key(h.root,'showAll').listeners.click();assert.equal(filter.value,'','Show everyone clears the block too');assert.equal(participantNames(h).length,3);
+ await select(filter,'closing-party');key(h.root.querySelector('.f-admin-summary'),'reviewPendingAction').listeners.click();assert.equal(filter.value,'','a shortcut shows its whole filter');
 });
