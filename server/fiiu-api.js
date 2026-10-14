@@ -8,6 +8,7 @@ import {packBits} from './qr.js';
 import {isReservedRecipient,EMAIL_LANGUAGES} from './fiiu-email.js';
 import {parseCookies} from './auth.js';
 import {confirmationState,confirmationCounts,sendConfirmationBatch,deliverConfirmation,BATCH_SIZE,DAILY_CAP} from './fiiu-confirmations.js';
+import {noticeState,noticeCounts,sendNoticeBatch} from './fiiu-notices.js';
 const now=()=>new Date().toISOString();
 const attendanceView=({activityId,createdAt,method})=>({activityId,createdAt,method});
 // CSV check-in times are Lima wall-clock time (UTC-05:00 all year), e.g. '2026-10-21 09:12'.
@@ -37,9 +38,11 @@ export function registrationLanguage(input,req){
 // confirmation: async ({registration, config, language}) => {status, sentAt?}, the registration summary email (see
 // server/fiiu-email.js), or null when email is off; emailAllowed(user) spends one send from the account's hourly
 // allowance and the server-wide ceiling, and answers false when either is used up. backfill: {batchSize, dailyCap,
-// now} for the organiser's "Send the summary" button (server/fiiu-confirmations.js); tests shrink them. programme: the
-// merged programme (server/fiiu-programme.js), shared with the conversations so one save clears one memo.
-export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin={},encodeQr=null,publicOrigin=()=>fail('public base URL is not configured',503),confirmation=null,emailAllowed=()=>true,backfill={},programme=createProgramme({store})}){
+// now} for the organiser's "Send the summary" and "Announce the party" buttons (server/fiiu-confirmations.js,
+// server/fiiu-notices.js); tests shrink them. partyNotice: async ({registration, event, language}) => {status, sentAt?},
+// the closing-party announcement (server/fiiu-email.js), or null when email is off. programme: the merged programme
+// (server/fiiu-programme.js), shared with the conversations so one save clears one memo.
+export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin={},encodeQr=null,publicOrigin=()=>fail('public base URL is not configured',503),confirmation=null,emailAllowed=()=>true,backfill={},partyNotice=null,programme=createProgramme({store})}){
  const {batchSize=BATCH_SIZE,dailyCap=DAILY_CAP,now:today=()=>Date.now()}=backfill;
  // A link the encoder cannot draw (say, an unusually long configured origin) leaves the screen its typed address and short code.
  const qrOf=link=>{if(!encodeQr)return null;try{return qrView(encodeQr(link));}catch{return null;}};
@@ -190,6 +193,21 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
     const batch=await sendConfirmationBatch({store,confirm:confirmation,event:(await live()).event,retryFailed:input.retryFailed===true,after,size:batchSize,dailyCap,now:today()});
     const counts=await confirmationCounts(store);
     if(batch.capped){send(res,429,{error:'daily summary email limit reached',code:'daily_cap',dailyCap:batch.dailyCap,sentToday:batch.sentToday,resetsAt:batch.resetsAt,counts});return true;}
+    send(res,200,{...batch,counts});return true;
+   }
+  }
+  if(path==='/api/admin/fiiu/notices/closing-party'){
+   // The closing-party announcement, once to every registrant who has not added the party, one small batch per request
+   // as the summary button sends (server/fiiu-notices.js); it shares the summary emails' daily cap.
+   if(read){send(res,200,{configured:Boolean(partyNotice),...await noticeState(store,{dailyCap,now:today()})});return true;}
+   if(req.method==='POST'){
+    const input=await body(req);
+    if(input.retryFailed!==undefined&&typeof input.retryFailed!=='boolean')fail('invalid retryFailed');
+    const after=input.after===undefined||input.after===null?null:identifier(input.after);
+    if(!partyNotice){send(res,503,{error:'email is not configured',code:'email_not_configured'});return true;}
+    const batch=await sendNoticeBatch({store,notify:partyNotice,event:(await live()).event,retryFailed:input.retryFailed===true,after,size:batchSize,dailyCap,now:today()});
+    const counts=await noticeCounts(store);
+    if(batch.capped){send(res,429,{error:'daily email limit reached',code:'daily_cap',dailyCap:batch.dailyCap,sentToday:batch.sentToday,resetsAt:batch.resetsAt,counts});return true;}
     send(res,200,{...batch,counts});return true;
    }
   }

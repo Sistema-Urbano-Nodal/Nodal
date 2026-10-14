@@ -18,9 +18,10 @@ const OUTCOMES=['sent','failed','uncertain','skipped'];
 // One dashboard request sends at most BATCH_SIZE emails, concurrently, each under the mailer's 8-second cap, so a
 // request ends well inside the hosting's function time limit; the page asks for the next batch.
 export const BATCH_SIZE=4;
-/* Summary emails a UTC day, sign-up ones included: the dashboard stops sending once this many have gone out today.
+/* Emails a UTC day from the festival, summaries (sign-up ones included) and one-off notices together: the dashboard
+   stops sending either once this many have gone out today.
    Counted in the database, so every server instance sees the same total, from every send that may have reached the
-   provider: confirmation_sent_at is stamped when a send starts (the row turns 'pending') and is kept for 'sent' (as
+   provider: confirmation_sent_at (a notice's sent_at alike) is stamped when a send starts (the row turns 'pending') and is kept for 'sent' (as
    the time the provider accepted it) and 'uncertain'; only 'failed' and 'skipped', which the provider cannot have,
    clear it. So a slow mail server that leaves every send 'uncertain' still uses up the cap. Gmail allows about 500
    messages in any 24 hours for the whole account (sign-up, password and summary emails together); two UTC days back
@@ -77,8 +78,15 @@ export function sendingDay(now=Date.now()){
  const start=new Date(now);start.setUTCHours(0,0,0,0);
  return {since:start.toISOString(),resetsAt:new Date(start.getTime()+864e5).toISOString()};
 }
-// Sends since `since` that may have reached the provider: accepted, uncertain or still under way.
-export const sentSince=(store,since)=>store.count('registrations',{eventId:EVENT_ID},{atLeast:{confirmationSentAt:since},oneOf:{confirmationStatus:ATTEMPTED}});
+// Sends since `since` that may have reached the provider: accepted, uncertain or still under way. Summary emails and
+// one-off notices (server/fiiu-notices.js) share the cap, so both count.
+export async function sentSince(store,since){
+ const [summaries,notices]=await Promise.all([
+  store.count('registrations',{eventId:EVENT_ID},{atLeast:{confirmationSentAt:since},oneOf:{confirmationStatus:ATTEMPTED}}),
+  store.count('notices',{eventId:EVENT_ID},{atLeast:{sentAt:since},oneOf:{status:ATTEMPTED}}),
+ ]);
+ return summaries+notices;
+}
 
 // The dashboard's picture: the state counts and today's use of the daily cap.
 export async function confirmationState(store,{dailyCap=DAILY_CAP,now=Date.now()}={}){

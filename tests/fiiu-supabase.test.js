@@ -7,7 +7,9 @@ import {createCheckinCodes} from '../server/fiiu-checkin.js';
 // In-memory PostgREST for the festival tables: eq/gt/gte/lt/in filters, the store's keyset `or`, order, limit, a response
 // row cap, exact counts (Content-Range) and constraint errors shaped like server/supabase.js responseError().
 function postgrest({cap=Infinity,count=true,afterRead}={}){
- const tables={fiiu_registrations:[],fiiu_attendance:[],fiiu_config:[],fiiu_content:[],fiiu_programme:[]},calls=[];
+ const tables={fiiu_registrations:[],fiiu_attendance:[],fiiu_config:[],fiiu_content:[],fiiu_programme:[],fiiu_notices:[]},calls=[];
+ // select with a JSON path alias (activities:answers->activities) returns just the asked columns, as PostgREST does.
+ const project=(rows,select)=>!/->/.test(select??'')?rows:rows.map(row=>Object.fromEntries(select.split(',').map(part=>{const [alias,path=alias]=part.split(':'),[column,key]=path.split('->');return [alias,key?row[column]?.[key]:row[column]];})));
  const byText=(a,b)=>a<b?-1:a>b?1:0;
  const matches=(row,query)=>Object.entries(query).every(([key,expr])=>{
   if(['select','order','limit'].includes(key))return true;
@@ -20,13 +22,13 @@ function postgrest({cap=Infinity,count=true,afterRead}={}){
   calls.push({table,...options});const query=options.query??{};
   if(!options.method){
    const found=tables[table].filter(row=>matches(row,query)).sort(query.order==='id.asc'?(a,b)=>byText(a.id,b.id):(a,b)=>byText(b.created_at,a.created_at)||byText(b.id,a.id));
-   const page=structuredClone(found.slice(0,Math.min(query.limit,cap))),total=count&&options.headers?.Prefer==='count=exact'?found.length:'*';
+   const page=project(structuredClone(found.slice(0,Math.min(query.limit,cap))),query.select),total=count&&options.headers?.Prefer==='count=exact'?found.length:'*';
    afterRead?.({table,tables,count:calls.length});
    return options.includeRange?{rows:page,contentRange:page.length?`0-${page.length-1}/${total}`:`*/${total}`}:page;
   }
   if(options.method==='POST'){
    const row=structuredClone(options.body);
-   if(tables[table].some(r=>r.id===row.id))throw error('23505','duplicate key value violates unique constraint');
+   if(tables[table].some(r=>r.id===row.id||(table==='fiiu_notices'&&r.event_id===row.event_id&&r.user_id===row.user_id&&r.kind===row.kind)))throw error('23505','duplicate key value violates unique constraint');
    if(table==='fiiu_attendance'&&!tables.fiiu_registrations.some(r=>r.id===row.registration_id))throw error('23503','insert or update violates foreign key constraint');
    tables[table].push(row);return [structuredClone(row)];
   }
@@ -250,4 +252,28 @@ test('Supabase programme edits are read and written with the migration columns, 
  assert.deepEqual(pg.calls.at(-1).query,{id:'eq.day1-am',event_id:'eq.fiiu-2026',version:'eq.1'});
  const rows=await store.find('programme',{eventId:'fiiu-2026'},{limit:200});
  assert.deepEqual(pg.calls.at(-1).query.select,'id,event_id,data,version,updated_by,updated_at');assert.deepEqual(rows.map(r=>[r.id,r.data.title,r.version]),[['day1-am','Dos',2]]);
+});
+
+test('Supabase: who still waits for the party announcement is read without private answers, page by page, and claims are unique',async()=>{
+ const pg=postgrest({cap:2});
+ const person=(n,activities,extra={})=>({...registration(n),email:`p${n}@fiiu-inbox.dev`,confirmation_language:n===1?'pt':null,answers:{nationalId:'SECRET',activities},...extra});
+ pg.tables.fiiu_registrations.push(person(1,['day1-am']),person(2,['closing-party']),person(3,null),person(4,['day1-am']),person(5,['day2-am']),{...person(6,['day1-am']),event_id:'other'});
+ pg.tables.fiiu_notices.push({id:uuid(9),event_id:'fiiu-2026',user_id:'u4',kind:'closing-party',status:'sent',sent_at:'2026-10-14T10:00:00+00:00'});
+ const store=createFiiuStore({clients:pg.clients}),options={kind:'closing-party',activityId:'closing-party'};
+ assert.equal(await store.noticeWaiting('fiiu-2026',options),3,'1, 3 (no plan) and 5; 2 has the party, 4 a notice, 6 another event');
+ const first=await store.noticeAudience('fiiu-2026',{...options,limit:2});
+ assert.deepEqual(first,[{id:uuid(1),userId:'u1',email:'p1@fiiu-inbox.dev',confirmationLanguage:'pt'},{id:uuid(3),userId:'u3',email:'p3@fiiu-inbox.dev',confirmationLanguage:null}]);
+ assert.deepEqual((await store.noticeAudience('fiiu-2026',{...options,after:uuid(3),limit:2})).map(r=>r.id),[uuid(5)]);
+ const reads=pg.calls.filter(c=>c.table==='fiiu_registrations');
+ assert.ok(reads.every(c=>c.query.select==='id,user_id,email,confirmation_language,activities:answers->activities'||c.query.select==='id,user_id,activities:answers->activities'),'never the private answers');
+ assert.ok(reads.every(c=>c.query.event_id==='eq.fiiu-2026'&&c.query.order==='id.asc'));
+ assert.ok(reads.some(c=>c.query.id==='gt.'+uuid(2)),'a capped page continues after its last row');
+ assert.ok(pg.calls.filter(c=>c.table==='fiiu_notices').every(c=>c.query.kind==='eq.closing-party'&&c.query.select==='id,user_id'));
+ // The claim is the unique notice row: a second claim for the same person is a conflict.
+ const claim={id:uuid(7),eventId:'fiiu-2026',userId:'u1',kind:'closing-party',status:'pending',language:'pt',sentAt:'2026-10-14T18:00:00.000Z',createdAt:'x',updatedAt:'x'};
+ await store.insert('notices',claim);await assert.rejects(store.insert('notices',{...claim,id:uuid(8)}),err=>err.status===409);
+ assert.equal(await store.noticeWaiting('fiiu-2026',options),2);
+ // Today's notices count toward the shared cap with one exact count, no rows downloaded.
+ assert.equal(await store.count('notices',{eventId:'fiiu-2026'},{atLeast:{sentAt:'2026-10-14T00:00:00.000Z'},oneOf:{status:['sent','uncertain','pending']}}),2);
+ assert.deepEqual(pg.calls.at(-1).query,{select:'id',limit:1,event_id:'eq.fiiu-2026',sent_at:'gte.2026-10-14T00:00:00.000Z',status:'in.(sent,uncertain,pending)'});
 });

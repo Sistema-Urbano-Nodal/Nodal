@@ -31,6 +31,15 @@ CREATE TABLE IF NOT EXISTS fiiu_programme (
  updated_by TEXT REFERENCES users(id) ON DELETE SET NULL,updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS fiiu_programme_editor ON fiiu_programme(updated_by);
+CREATE TABLE IF NOT EXISTS fiiu_notices (
+ id TEXT PRIMARY KEY,event_id TEXT NOT NULL,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL CHECK(kind IN ('closing-party')),
+ status TEXT NOT NULL CHECK(status IN ('pending','sent','failed','uncertain','skipped')),
+ language TEXT CHECK(language IN ('en','es','pt')),sent_at TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
+ UNIQUE(event_id,user_id,kind)
+);
+CREATE INDEX IF NOT EXISTS fiiu_notices_user ON fiiu_notices(user_id);
+CREATE INDEX IF NOT EXISTS fiiu_notices_sent ON fiiu_notices(event_id,sent_at);
 `;
 const TABLES={
  registrations:{name:'fiiu_registrations',fields:['id','eventId','userId','email','answers','labStatus','version','createdAt','updatedAt','confirmationStatus','confirmationLanguage','confirmationSentAt'],json:['answers']},
@@ -40,6 +49,8 @@ const TABLES={
  content:{name:'fiiu_content',fields:['id','eventId','data','status','version','createdAt','updatedAt'],json:['data']},
  // Organisers' edits to programme blocks (server/fiiu-programme.js); id is the block id.
  programme:{name:'fiiu_programme',fields:['id','eventId','data','version','updatedBy','updatedAt'],json:['data']},
+ // One-off festival notices (server/fiiu-notices.js): one row per person and kind, claimed before the email goes out.
+ notices:{name:'fiiu_notices',fields:['id','eventId','userId','kind','status','language','sentAt','createdAt','updatedAt'],json:[]},
 };
 const info=name=>{if(!TABLES[name])throw Error('unknown festival table');return TABLES[name];};
 const checked=(table,record)=>{for(const k of Object.keys(record))if(!table.fields.includes(k))throw Error('unknown festival field');return record;};
@@ -49,6 +60,12 @@ const to=(table,record,sqlite)=>Object.fromEntries(Object.entries(checked(table,
 const conflict=err=>{if(err.code==='23505'||/UNIQUE constraint/.test(err.message))fail('record changed; reload before saving',409);if(err.code==='23503'||/FOREIGN KEY constraint/.test(err.message))fail('related record unavailable',404);throw err;};
 // 'materials' is the public page's combined list of recordings and materials.
 const KINDS={news:['news'],recording:['recording'],material:['material'],materials:['recording','material']};
+// A registration's plan from its stored answers (a historical answer may have none).
+const planned=(activities,activityId)=>Array.isArray(activities)&&activities.includes(activityId);
+// The registrations a notice may still go to: the plan lacks the activity and the person has no notice of this kind.
+const AUDIENCE=`FROM fiiu_registrations r WHERE r.event_id=?
+ AND NOT EXISTS (SELECT 1 FROM json_each(CASE WHEN json_type(r.answers,'$.activities')='array' THEN json_extract(r.answers,'$.activities') ELSE '[]' END) WHERE value=?)
+ AND NOT EXISTS (SELECT 1 FROM fiiu_notices n WHERE n.event_id=r.event_id AND n.user_id=r.user_id AND n.kind=?)`;
 const optionalCounts=result=>['attendedPeople','qrPeople'].every(k=>result[k]===undefined||Number.isSafeInteger(result[k]))&&(result.lastCheckInAt===undefined||result.lastCheckInAt===null||typeof result.lastCheckInAt==='string');
 export function createFiiuStore({db,env=process.env,clients,fetchImpl=fetch}={}){
  if(db){
@@ -66,6 +83,18 @@ export function createFiiuStore({db,env=process.env,clients,fetchImpl=fetch}={})
   addColumn('fiiu_registrations','confirmation_sent_at','TEXT');
  }
  const supa=db?null:clients??createSupabaseClients({env,fetchImpl:(url,args)=>fetchImpl(url,{...args,signal:AbortSignal.timeout(15000)})});
+ /* Supabase: light keyset pages of one table (only the columns asked for, never the private answers), until an empty
+    page or until take(page) says it has enough. Pages end on an empty one, so a provider row cap below the asked limit
+    never ends a scan early. */
+ async function scan(table,query,take=()=>false,after=null){
+  for(let cursor=after;;){
+   const page=await supa.admin.rest(table,{query:{...query,order:'id.asc',limit:1000,...(cursor?{id:`gt.${cursor}`}:{})}});
+   if(!Array.isArray(page))fail('festival data unavailable',502);if(!page.length||take(page))return;cursor=page.at(-1).id;
+  }
+ }
+ // Who already has a notice of this kind (any status), and the registrations without the activity in their plan.
+ async function noticed(eventId,kind){const users=new Set();await scan('fiiu_notices',{select:'id,user_id',event_id:`eq.${eventId}`,kind:`eq.${kind}`},page=>{for(const row of page)users.add(row.user_id);});return users;}
+ const unplanned={select:'id,user_id,email,confirmation_language,activities:answers->activities'};
  function where(table,filters,after){
   checked(table,filters);const entries=Object.entries(filters),params=entries.map(([,v])=>v);
   const parts=entries.map(([k])=>`${snake(k)}=?`);if(after){parts.push('id>?');params.push(after);}
@@ -140,6 +169,27 @@ export function createFiiuStore({db,env=process.env,clients,fetchImpl=fetch}={})
     cursor=keyset(page.rows.at(-1).id,page.rows.at(-1).created_at);
    }
    return rows.map(row=>from(table,row));
+  },
+  /* The people a one-off notice may still go to (server/fiiu-notices.js): registrations of the event whose plan lacks
+     activityId and who have no notice of this kind, in id order after `after`, as {id, userId, email,
+     confirmationLanguage}. Never the private answers. */
+  async noticeAudience(eventId,{kind,activityId,after=null,limit=200}){
+   if(!Number.isInteger(limit)||limit<1||limit>200)throw Error('invalid festival limit');
+   if(db)return db.prepare(`SELECT r.id,r.user_id,r.email,r.confirmation_language ${AUDIENCE} AND r.id>? ORDER BY r.id LIMIT ?`).all(eventId,activityId,kind,after??'',limit)
+    .map(row=>({id:row.id,userId:row.user_id,email:row.email,confirmationLanguage:row.confirmation_language}));
+   const users=await noticed(eventId,kind),found=[];
+   await scan('fiiu_registrations',{...unplanned,event_id:`eq.${eventId}`},page=>{
+    for(const row of page){if(found.length===limit)return true;if(!planned(row.activities,activityId)&&!users.has(row.user_id))found.push({id:row.id,userId:row.user_id,email:row.email,confirmationLanguage:row.confirmation_language});}
+    return found.length===limit;
+   },after);
+   return found;
+  },
+  // How many people that is, for the organisers' panel.
+  async noticeWaiting(eventId,{kind,activityId}){
+   if(db)return db.prepare(`SELECT count(*) AS n ${AUDIENCE}`).get(eventId,activityId,kind).n;
+   const users=await noticed(eventId,kind);let waiting=0;
+   await scan('fiiu_registrations',{select:'id,user_id,activities:answers->activities',event_id:`eq.${eventId}`},page=>{for(const row of page)if(!planned(row.activities,activityId)&&!users.has(row.user_id))waiting++;});
+   return waiting;
   },
   // A cheap total for polling screens (the check-in QR) and the summary-email counts: never downloads the rows.
   // PostgREST answers one id with the exact count in Content-Range. after counts only ids above that one; atLeast
