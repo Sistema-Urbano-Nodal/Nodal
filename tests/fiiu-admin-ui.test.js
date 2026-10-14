@@ -1619,6 +1619,9 @@ test('schedule lines can be added up to twelve, removed and moved, each move kee
  key(lines()[1],'pgRemoveLine').listeners.click();assert.deepEqual(lineValues(form),[first,third]);assert.equal(field(lines()[1],'sessionTitle').focused,true,'focus moves to the next line');
  add.listeners.click();assert.equal(lines().length,3);assert.deepEqual(lineValues(form).at(-1),['','']);assert.equal(field(lines()[2],'sessionTime').focused,true);
  assert.equal(field(lines()[2],'sessionTime').maxLength,40);assert.equal(field(lines()[2],'sessionTitle').required,true);
+ // A session title is offered as a question's talk in Conversations, which takes 180 characters, so the line takes no more; the refusal says so.
+ assert.equal(field(lines()[2],'sessionTitle').maxLength,180);
+ assert.ok(h.ctx.window.Fiiu.rows.pgInvalidSessions.every(text=>/\b180\b/.test(text)),'in every language');
  while(lines().length<12)add.listeners.click();assert.equal(add.disabled,true,'twelve lines at most');
  key(lines()[11],'pgRemoveLine').listeners.click();assert.equal(add.disabled,false);
  for(let i=lines().length;i>0;i--)key(lines()[0],'pgRemoveLine').listeners.click();assert.equal(lines().length,0);assert.equal(add.focused,true,'with no line left, focus goes to Add line');

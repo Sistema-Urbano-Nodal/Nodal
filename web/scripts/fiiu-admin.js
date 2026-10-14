@@ -57,7 +57,7 @@
   pgInvalidTime:['Check the times: the end must come after the start, and a conference block or the laboratory needs both times or none.','Revisa los horarios: el fin debe ser posterior al inicio, y un bloque de conferencias o el laboratorio necesita ambas horas o ninguna.','Revise os horários: o término deve vir depois do início, e um bloco de conferências ou o laboratório precisa dos dois horários ou de nenhum.'],
   pgInvalidVenue:['Write the venue in up to 200 characters, on one line.','Escribe el lugar en hasta 200 caracteres, en una sola línea.','Escreva o local em até 200 caracteres, em uma só linha.'],
   pgInvalidDescription:['Shorten the description to 1,500 characters.','Acorta la descripción a 1500 caracteres.','Reduza a descrição para 1.500 caracteres.'],
-  pgInvalidSessions:['Check the schedule: up to 12 lines, each with a title, and times of up to 40 characters.','Revisa la agenda: hasta 12 líneas, cada una con título, y horarios de hasta 40 caracteres.','Revise a agenda: até 12 linhas, cada uma com título, e horários de até 40 caracteres.'],
+  pgInvalidSessions:['Check the schedule: up to 12 lines, each with a title of up to 180 characters, and times of up to 40 characters.','Revisa la agenda: hasta 12 líneas, cada una con un título de hasta 180 caracteres, y horarios de hasta 40 caracteres.','Revise a agenda: até 12 linhas, cada uma com um título de até 180 caracteres, e horários de até 40 caracteres.'],
   pgInvalidFormUrl:['Enter the activity form link, starting with https://.','Escribe el enlace del formulario, empezando por https://.','Informe o link do formulário, começando com https://.'],
   pgNotFound:['This block is no longer in the programme. Reload the page.','Este bloque ya no está en el programa. Recarga la página.','Este bloco não está mais na programação. Recarregue a página.'],
   pgHoursWarningOne:['1 person has checked in to this block. Their certificate hours will follow the new time.','1 persona registró su asistencia en este bloque. Sus horas del certificado seguirán el nuevo horario.','1 pessoa registrou presença neste bloco. As horas do certificado vão seguir o novo horário.'],
@@ -714,10 +714,11 @@
   counter.id=prefix+'-counter';const count=()=>{counter.textContent=nf(description.input.value.length)+' / '+nf(DESCRIPTION_MAX);};description.input.addEventListener('input',count);
   const link=external?input('pgFormUrl','formUrl',{value:start.formUrl||'',type:'url',required:true,max:2000}):null;
   // Schedule lines: a free-text time and a title each, numbered by place; the first cannot move up, the last cannot move down, twelve at most.
+  // A line's title is offered as a question's talk in Conversations, which takes 180 characters (fiiu_questions.talk), so the line takes no more.
   const schedule=el('fieldset','f-programme-schedule'),lineList=el('ol','f-programme-lines'),lines=[];let lineCount=0;
   const addLine=button('pgAddLine',()=>{const line=newLine('','');lines.push(line);layoutLines();line.when.input.focus();},'f-button secondary f-small');
   function newLine(time,name){
-   const item=el('li','f-programme-line'),label=el('p','f-programme-line-label'),tools=el('div','f-programme-line-tools'),when=field('pgSessionTime',{value:time,max:40}),what=field('pgSessionTitle',{value:name,max:200,required:true}),line={item,label,when,what};
+   const item=el('li','f-programme-line'),label=el('p','f-programme-line-label'),tools=el('div','f-programme-line-tools'),when=field('pgSessionTime',{value:time,max:40}),what=field('pgSessionTitle',{value:name,max:180,required:true}),line={item,label,when,what};
    label.id=prefix+'-line'+(++lineCount);when.input.name='sessionTime';what.input.name='sessionTitle';when.input.id=label.id+'-time';what.input.id=label.id+'-title';item.setAttribute('role','group');item.setAttribute('aria-labelledby',label.id);
    line.up=button('pgMoveUp',()=>moveLine(line,-1),'f-line-button');line.down=button('pgMoveDown',()=>moveLine(line,1),'f-line-button');line.remove=button('pgRemoveLine',()=>dropLine(line),'f-line-button');
    for(const b of [line.up,line.down,line.remove])describe(b,label.id);tools.append(line.up,line.down,line.remove);item.append(label,when.wrap,what.wrap,tools);return line;
