@@ -880,3 +880,76 @@ test('the hero’s minute check stops once the festival is over, even on a page 
  assert.ok(timer());await h.tickTimers();assert.ok(!timer().cleared,'it runs through the last day');
  clock.at=Date.parse('2026-10-26T00:01:00-05:00');await h.tickTimers();assert.equal(timer().cleared,true);
 });
+
+// The closing party as the server serves it (lane A: a register-only block, never checked in). Built here so the page is tested before the server has it;
+// once FIIU_EVENT carries it, the server's own copy is replaced by this one.
+const PARTY={id:'closing-party',date:'2026-10-25',period:'party',registration:'social',title:'¡Fiesta de cierre y Chelas Urbanas!',time:'17:00',venue:'La Vermut Bar, Av. Francisco Bolognesi 235, Barranco 15063',sessions:[['17:00–19:00','Chelas Urbanas'],['19:00 en adelante','Fiesta de cierre']],description:'',edited:false,minutes:null,checkin:null};
+const partyEvent=(over={})=>({...FIIU_EVENT,activities:[...FIIU_EVENT.activities.filter(activity=>activity.id!=='closing-party'),{...PARTY,...over}]});
+const partyData=over=>({...publicData,event:partyEvent(over)});
+const atHash=hash=>({location:{hash,search:'',pathname:'/fiiu.html',reload(){}}});
+
+test('the separate party aside and its strings are gone: the closing party is a block on 25 October, after the day’s routes, reading “From 17:00”',async()=>{
+ const h=await harness({publicRead:()=>partyData()});
+ assert.equal(h.root.querySelector('.f-party'),null);
+ for(const name of ['party','partyHint','partyRegister','partyDetails'])assert.equal(h.ctx.window.Fiiu.rows[name],undefined,name);
+ const day=h.root.querySelectorAll('section').find(node=>node.id==='day-2026-10-25'),blocks=day.querySelector('.f-day-blocks').children,card=cardOf(h,'¡Fiesta de cierre y Chelas Urbanas!');
+ assert.equal(blocks.at(-1),card,'the party closes its day');assert.ok(blocks.slice(0,-1).some(node=>node.className==='f-type-group'),'the day’s routes come before it');
+ assert.ok(card.className.split(' ').includes('is-party'));assert.ok(key(card,'partyType'),'the card says it is register only');
+ assert.match(content(card),/La Vermut Bar, Av\. Francisco Bolognesi 235, Barranco 15063/);
+ const sessions=card.querySelector('.f-session-list').children.map(item=>content(item).replace(/\s+/g,' ').trim());assert.deepEqual(sessions,['17:00–19:00 Chelas Urbanas','19:00 en adelante Fiesta de cierre']);
+ assert.ok(key(card,'addToRegistration'),'the same action as a conference block');
+ const time=card.querySelector('.f-time');assert.equal(time.textContent,'From 17:00');
+ h.lang('es');assert.equal(time.textContent,'Desde las 17:00');h.lang('pt');assert.equal(time.textContent,'A partir das 17:00');
+ const {timeLabel,typeOf}=h.ctx.window.Fiiu;assert.equal(typeOf(PARTY),'party');
+ assert.equal(timeLabel('09:00–13:00'),'09:00–13:00','a range is unchanged');assert.equal(timeLabel(''),'','no time stays empty');
+ // A guest gets the same way in as on a conference block.
+ const guest=await harness({read:()=>({status:401,data:{error:'sign in required'}}),publicRead:()=>partyData()});assert.equal(key(cardOf(guest,'¡Fiesta de cierre'),'register').href,'#registration');
+});
+
+test('a start-only block is under way from its start until the end of its Lima day, and its time reads “From …” in the hero and the itinerary',async()=>{
+ const registration={...saved,answers:{...answers,activities:['closing-party']}};
+ const h=await harness({registration,publicRead:()=>partyData(),context:{Date:movableClock('2026-10-25T18:30:00-05:00').Date}}),next=h.root.querySelector('.f-next');
+ assert.ok(key(next,'nowForYou'));assert.match(content(next),/¡Fiesta de cierre/);assert.equal(next.querySelector('.f-next-time').textContent,'From 17:00');
+ const row=h.root.querySelector('.f-saved').querySelectorAll('.f-itinerary-row').find(node=>content(node).includes('¡Fiesta de cierre'));assert.equal(row.querySelector('.f-itinerary-time').textContent,'From 17:00');
+ const {underway}=h.ctx.window.Fiiu;assert.equal(underway(PARTY,new Date('2026-10-25T16:59:00-05:00')),false);assert.equal(underway(PARTY,new Date('2026-10-25T23:30:00-05:00')),true);
+ assert.equal(underway(PARTY,new Date('2026-10-24T18:00:00-05:00')),false);
+});
+
+test('the registration form offers the party as its own register-only choice, counts it apart from conference blocks, and #add-closing-party ticks it for saving',async()=>{
+ const fresh=await harness({publicRead:()=>partyData()}),form=fresh.form(),boxes=descendants(form).filter(node=>node.name==='activities'),party=boxes.find(node=>node.value==='closing-party');
+ assert.ok(party,'the party is chosen with the conference blocks');assert.equal(boxes.at(-1),party,'in time order, after the last conference block');
+ const choice=party.parent;assert.ok(key(choice,'partyType'));assert.match(content(choice),/From 17:00/);assert.match(content(choice),/¡Fiesta de cierre/);
+ // Only the party ticked: the choose-one rule is met, and the save bar names the party, not a conference block.
+ party.checked=true;form.listeners.change({target:party});const selection=form.querySelector('.f-selection');
+ assert.ok(key(selection,'closingParty'));assert.equal(key(selection,'conferenceOne'),undefined);assert.equal(party.validationMessage||'','');
+ fresh.fill();party.checked=true;form.listeners.change({target:party});assert.ok(key(selection,'conferenceOne'));assert.ok(key(selection,'closingParty'));
+ // A saved plan with a conference block and the party: the hero counts one conference block and shows the party apart.
+ const both=await harness({registration:{...saved,answers:{...answers,activities:['closing-party','day1-am']}},publicRead:()=>partyData()}),pills=both.root.querySelector('.f-hero-status');
+ assert.ok(key(pills,'conferenceOne'));assert.match(content(pills),/\b1\b/);assert.equal(key(pills,'conferenceMany'),undefined);assert.ok(key(pills,'closingParty'));
+ const card=cardOf(both,'¡Fiesta de cierre');assert.ok(key(card,'statusRegistered'));
+ // #add-closing-party opens a saved registration in edit mode with the party ticked; saving stays a tap and sends it with the other blocks.
+ const member=await harness({registration:saved,publicRead:()=>partyData(),context:atHash('#add-closing-party'),write:request=>({registration:{...saved,version:2,answers:{...answers,activities:request.body.activities}}})});
+ const box=descendants(member.form()).find(node=>node.name==='activities'&&node.value==='closing-party');
+ assert.equal(member.form().hidden,false);assert.equal(box.checked,true);assert.equal(box.focused,true);assert.deepEqual(member.replaced,['/fiiu.html#registration']);
+ assert.equal(member.requests.filter(request=>request.method!=='GET').length,0);
+ await member.submit();const put=member.requests.find(request=>request.method==='PUT');assert.deepEqual([...put.body.activities].sort(),['closing-party','day1-am']);
+});
+
+test('a block description shows under its title as plain text with its line breaks, and only https addresses become links',async()=>{
+ const text='Trae tu bici.\nMás en https://fiiu.sistemaurbano.org/fiesta. <b>no</b> http://inseguro.example';
+ const event={...FIIU_EVENT,activities:FIIU_EVENT.activities.map(activity=>activity.id==='day1-am'?{...activity,description:text,edited:true}:activity.id==='route-arcoiris'?{...activity,description:'Punto de encuentro: la pileta.'}:activity)};
+ const h=await harness({publicRead:()=>({...publicData,event})});
+ const card=cardOf(h,'El poder de lo local'),desc=card.querySelector('.f-activity-desc');
+ assert.ok(desc);assert.equal(card.querySelector('.f-activity-body').children[0],desc,'it opens the card body, under the title');assert.equal(desc.lang,'es');
+ const anchors=desc.querySelectorAll('a');assert.deepEqual(anchors.map(a=>a.href),['https://fiiu.sistemaurbano.org/fiesta']);assert.equal(anchors[0].target,'_blank');assert.equal(anchors[0].rel,'noopener noreferrer');
+ assert.equal(desc.querySelectorAll('b').length,0,'markup stays text');assert.equal(content(desc).replace(/\s+/g,' ').trim(),'Trae tu bici. Más en https://fiiu.sistemaurbano.org/fiesta . <b>no</b> http://inseguro.example'.replace(/\s+/g,' '));
+ assert.ok(desc.children.some(node=>node.tagName==='text'&&node.textContent.includes('\n')),'the line break is kept for the stylesheet');
+ assert.equal(cardOf(h,'Cuidar y transformar la ciudad').querySelector('.f-activity-desc'),null,'no description, no node');
+ const route=h.root.querySelectorAll('.f-compact').find(node=>descendants(node).some(child=>child.id==='f-act-route-arcoiris-title'));assert.equal(content(route.querySelector('.f-activity-desc')).trim(),'Punto de encuentro: la pileta.');
+ const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8');assert.match(css,/\.f-activity-desc\{[^}]*white-space:pre-line/);
+});
+
+test('the party never gets a check-in screen: the check-in blocks are the laboratory and the conferences only',async()=>{
+ const h=await harness({publicRead:()=>partyData()}),{checkinActivities}=h.ctx.window.Fiiu;
+ assert.deepEqual([...checkinActivities(partyEvent()).map(activity=>activity.id)],['day0-lab','day1-am','day1-pm','day2-am','day2-pm','day3-am']);
+});

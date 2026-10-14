@@ -3,7 +3,6 @@
  const rows={
  externalActivities:['Workshop and route interests','Interés en talleres y rutas','Interesse em oficinas e roteiros'],
  externalInterestHint:['Save your interests here, then complete each activity’s Google Form to register with its facilitator. Interest in NODAL does not confirm that registration or attendance.','Guarda aquí tus actividades de interés y completa el Google Form de cada una para inscribirte con su facilitador. El interés en NODAL no confirma esa inscripción ni la asistencia.','Salve seus interesses aqui e preencha o Google Forms de cada atividade para se inscrever com o facilitador. O interesse na NODAL não confirma essa inscrição nem a presença.'],
- partyHint:['The closing party has separate registration. Check its details with the festival organisers.','La fiesta de cierre tiene inscripción independiente. Consulta los detalles con la organización del festival.','A festa de encerramento tem inscrição independente. Consulte os detalhes com a organização do festival.'],
  accessibilityHint:['Choose any support you need, or explicitly select no additional support.','Selecciona el apoyo que necesitas o indica que no necesitas apoyo adicional.','Selecione o apoio de que precisa ou indique que não precisa de apoio adicional.'],
  accessibilityRequired:['Choose at least one option. If you need no support, tick “No additional support”.','Elige al menos una opción. Si no necesitas apoyo, marca «No necesito apoyo adicional».','Escolha pelo menos uma opção. Se não precisar de apoio, marque “Não preciso de apoio adicional”.'],
  apply:['Apply','Postular','Candidatar-se'],
@@ -25,7 +24,11 @@
   dates:['20–25 October 2026','20–25 de octubre de 2026','20–25 de outubro de 2026'],register:['Register','Inscríbete','Inscreva-se'],website:['Festival website','Web del festival','Site do festival'],officialProgram:['View the live programme','Ver el programa en vivo','Ver a programação ao vivo'],
   programmeTitle:['Make room for the city','Haz espacio para la ciudad','Abra espaço para a cidade'],programmeHint:['Times are in Lima. The programme may change; admission is subject to each venue’s capacity.','Horarios de Lima. El programa está sujeto a cambios y el ingreso depende del aforo de cada espacio.','Horários de Lima. A programação pode mudar e a entrada depende da capacidade de cada espaço.'],
   morning:['Morning block','Bloque de mañana','Bloco da manhã'],evening:['Evening block','Bloque de noche','Bloco da noite'],lab:['Public-officials laboratory','Laboratorio para funcionarios','Laboratório para gestores públicos'],workshop:['Workshops','Talleres','Oficinas'],route:['Urban routes','Rutas urbanas','Roteiros urbanos'],venuePending:['Venue to be confirmed','Lugar por confirmar','Local a confirmar'],timePending:['Time to be confirmed','Horario por confirmar','Horário a confirmar'],
-  external:['Separate registration','Inscripción independiente','Inscrição separada'],party:['Closing party','Fiesta de cierre','Festa de encerramento'],
+  external:['Separate registration','Inscripción independiente','Inscrição separada'],
+  // The closing party: a block people add to their registration for the headcount, with no check-in and no certificate hours.
+  closingParty:['Closing party','Fiesta de cierre','Festa de encerramento'],partyType:['Closing party · register only','Fiesta de cierre · solo con inscripción','Festa de encerramento · só com inscrição'],partyOne:['closing party','fiesta de cierre','festa de encerramento'],
+  // A block with a start time only (the party, a workshop or a route): timeLabel below fills in {time}.
+  fromTime:['From {time}','Desde las {time}','A partir das {time}'],
   registration:['Your FIIU registration','Tu inscripción al FIIU','Sua inscrição no FIIU'],signinHint:['Use your NODAL account to register. Your registration stays in your console, where you can review and update it.','Usa tu cuenta de NODAL para inscribirte. Tu inscripción queda en Mi panel para revisarla y actualizarla.','Use sua conta NODAL para se inscrever. Sua inscrição fica no painel, onde você pode consultar e atualizar.'],signin:['Sign in or create an account','Inicia sesión o crea tu cuenta','Entre ou crie sua conta'],
   personal:['About you','Tus datos','Seus dados'],choices:['Choose your activities','Elige tus actividades','Escolha suas atividades'],questionnaire:['A few questions','Algunas preguntas','Algumas perguntas'],privateHint:['Only you, the FIIU organising team and NODAL administrators can see these answers. They are not published on your NODAL profile.','Solo tú, el equipo organizador del FIIU y la administración de NODAL pueden ver estas respuestas. No se publican en tu perfil de NODAL.','Apenas você, a equipe organizadora do FIIU e a administração da NODAL podem ver estas respostas. Elas não são publicadas no seu perfil NODAL.'],
   firstName:['First name','Nombres','Nome'],lastName:['Last name','Apellidos','Sobrenome'],email:['Account email','Correo de tu cuenta','E-mail da conta'],country:['Country of origin','País de origen','País de origem'],city:['City of residence','Ciudad de residencia','Cidade de residência'],profile:['Your main profile','Tu perfil principal','Seu perfil principal'],
@@ -77,7 +80,6 @@
   interestChip:['Interest saved','Interés guardado','Interesse salvo'],activityForm:['Activity form','Formulario de la actividad','Formulário da atividade'],
   externalFormNext:['Next step: complete the activity form','Siguiente paso: completa el formulario de la actividad','Próximo passo: preencha o formulário da atividade'],
   newTab:['(opens in a new tab)','(se abre en una pestaña nueva)','(abre em uma nova aba)'],
-  partyRegister:['Register for the closing party','Inscríbete en la fiesta de cierre','Inscreva-se na festa de encerramento'],partyDetails:['Closing party details','Detalles de la fiesta de cierre','Detalhes da festa de encerramento'],
   formIntro:['Takes about 5 minutes. Fields marked * are required.','Toma unos 5 minutos. Los campos marcados con * son obligatorios.','Leva cerca de 5 minutos. Os campos marcados com * são obrigatórios.'],
   formDuration:['Registration takes about 5 minutes.','La inscripción toma unos 5 minutos.','A inscrição leva cerca de 5 minutos.'],
   canConferences:['Choose your conference blocks','Elige tus bloques de conferencias','Escolha seus blocos de conferências'],
@@ -264,15 +266,22 @@
   document.querySelectorAll('[data-fiiu-text]').forEach(n=>{n.textContent=t(n.dataset.fiiuText);});
   document.querySelectorAll('[data-fiiu-date]').forEach(n=>{n.textContent=date(n.dataset.fiiuDate,n.dataset.fiiuDateStyle);});
   document.querySelectorAll('[data-fiiu-range]').forEach(n=>{const [a,b]=n.dataset.fiiuRange.split('/');n.textContent=dateRange(a,b);});
+  document.querySelectorAll('[data-fiiu-time]').forEach(n=>{n.textContent=timeLabel(n.dataset.fiiuTime);});
   document.querySelectorAll('.f-talk-spoken').forEach(n=>{n.textContent=talkSpoken(Number(n.dataset.talkCount));});
  }
  function dateNode(value,tag='p',style='long',cls='f-date'){const n=el(tag,cls,date(value,style));n.dataset.fiiuDate=value;if(style!=='long')n.dataset.fiiuDateStyle=style;return n;}
  function rangeNode(start,end,tag='span',cls='f-range'){const n=el(tag,cls,dateRange(start,end));n.dataset.fiiuRange=start+'/'+end;return n;}
- const PERIODS=['lab','morning','evening','workshop','route'];
+ // A start time alone ('17:00': the party, a workshop or a route) reads "Desde las 17:00"; a range ('09:00–13:00') and no time are shown as they are.
+ // timeNode keeps the time on the node, so refresh() rewrites the phrase in the reader's language.
+ const START=/^\d{1,2}:\d{2}$/;
+ const timeLabel=time=>START.test(time||'')?t('fromTime').replace('{time}',time):time||'';
+ function timeNode(time,tag='span',cls=''){const n=el(tag,cls,timeLabel(time));if(START.test(time||''))n.dataset.fiiuTime=time;return n;}
+ // The closing party ends its day, after the workshops and routes.
+ const PERIODS=['lab','morning','evening','workshop','route','party'];
  const rank=activity=>{const i=PERIODS.indexOf(activity.period);return i<0?PERIODS.length:i;};
  // Date, then period, then time; Array#sort is stable, so catalog order breaks the remaining ties.
  const chronological=list=>[...list].sort((a,b)=>a.date.localeCompare(b.date)||rank(a)-rank(b)||(a.time||'').localeCompare(b.time||''));
- const typeOf=activity=>activity.registration==='application'?'lab':activity.registration==='general'?'conference':activity.period==='route'?'route':'workshop';
+ const typeOf=activity=>activity.registration==='application'?'lab':activity.registration==='general'?'conference':activity.registration==='social'?'party':activity.period==='route'?'route':'workshop';
  // The trailing space keeps copied or read-out text as "5 workshops"; in the flex layout it collapses and the gap spaces the parts.
  function countLabel(n,one,many,cls='f-count'){const box=el('span',cls);box.append(el('b','',memo(locale()+'|number',()=>new Intl.NumberFormat(locale())).format(n)+' '),tr('span',n===1?one:many));return box;}
  // Questions per block from the public conversation pulse ([id, activityId, revision, status] for every question that is not hidden). It is read once per page and
@@ -289,8 +298,9 @@
  }
  // A block counts until it ends in Lima ('09:00–13:00' until 13:00); one without a time range, such as the accepted laboratory, counts for its whole day.
  const endsAt=activity=>{const end=/[–-]\s*(\d{1,2}):(\d{2})\s*$/.exec(activity.time||'');return end?Number(end[1])*60+Number(end[2]):24*60;};
- // Under way: today in Lima, past its start time and before its end. An untimed block (the accepted laboratory) has no start, so it is never "now", only next.
- function underway(activity,now=new Date()){const start=/^\s*(\d{1,2}):(\d{2})\s*[–-]/.exec(activity?.time||''),minutes=limaMinutes(now);return Boolean(start)&&activity.date===limaDate(now)&&Number(start[1])*60+Number(start[2])<=minutes&&minutes<endsAt(activity);}
+ // Under way: today in Lima, past its start time and before its end (a start-only block, the party, until the end of its day). An untimed block (the accepted
+ // laboratory) has no start, so it is never "now", only next.
+ function underway(activity,now=new Date()){const start=/^\s*(\d{1,2}):(\d{2})\s*(?:[–-]|$)/.exec(activity?.time||''),minutes=limaMinutes(now);return Boolean(start)&&activity.date===limaDate(now)&&Number(start[1])*60+Number(start[2])<=minutes&&minutes<endsAt(activity);}
  function nextFor(registration,event,now=new Date()){
   const answers=registration?.answers;if(!answers)return null;
   const ids=new Set([...(answers.activities||[]),...(registration.labStatus==='accepted'?event.activities.filter(a=>a.registration==='application').map(a=>a.id):[])]),today=limaDate(now),minutes=limaMinutes(now);
@@ -312,8 +322,9 @@
   return m?at(m[3],m[4])+18e5:at(0,'00')+864e5;
  }
  const checkinState=(activity,now=Date.now())=>now<=checkinCloses(activity)?'open':'closed';
- // Only NODAL's own blocks take QR check-in: the laboratory and the conferences. Workshops and routes stay with their facilitators.
- const checkinActivities=event=>chronological(event.activities.filter(activity=>activity.registration!=='external'));
+ // Only NODAL's own blocks take QR check-in: the laboratory and the conferences. Workshops and routes stay with their facilitators, and the closing party
+ // (registration 'social') is register only.
+ const checkinActivities=event=>chronological(event.activities.filter(activity=>['general','application'].includes(activity.registration)));
  const limaClock=value=>limaFormat('en-GB','clock',{hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(value);
  // "Check-in open until 13:30 Lima time", then "Check-in closed at 13:30 Lima time"; the untimed laboratory reads "until the end of the day". The date is added
  // only when check-in closes on another day than the block, since every view already names the block's day. The state class lets a view colour it.
@@ -322,6 +333,18 @@
   if(!SPAN.test(activity.time||'')&&closes===Date.parse(`${activity.date}T00:00:00-05:00`)+864e5){box.append(tr('span',closed?'checkinClosedAllDay':'checkinOpenAllDay','f-window-label'));return box;}
   box.append(tr('span',closed?'checkinClosedAt':'checkinOpenUntil','f-window-label'),el('span','f-window-time',limaClock(closes)));if(day!==activity.date)box.append(dateNode(day,'span','short','f-window-day'));
   box.append(tr('span','limaTime','f-window-zone'));return box;
+ }
+ // Web addresses in plain text become links, appended to node; everything else, markup included, stays text, and innerHTML is never used. Block descriptions
+ // link https addresses only; the chat ({http:true}) links http ones too. A trailing full stop or bracket stays outside the link.
+ const URLS=/(https?:\/\/[^\s<>"]+)/g,TRAIL=/[.,;:!?)\]}'»”]+$/;
+ function linkify(node,text,{http=false,cls='f-text-link'}={}){
+  String(text).split(URLS).forEach((part,i)=>{
+   if(!part)return;if(i%2===0){node.append(document.createTextNode(part));return;}
+   const trail=TRAIL.exec(part)?.[0]||'',href=part.slice(0,part.length-trail.length);let url=null;try{url=new URL(href);}catch{url=null;}
+   if(!url||!(url.protocol==='https:'||(http&&url.protocol==='http:'))){node.append(document.createTextNode(part));return;}
+   const a=el('a',cls,href);a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';a.setAttribute('aria-describedby','f-newtab');node.append(a);if(trail)node.append(document.createTextNode(trail));
+  });
+  return node;
  }
  function hint(key,cls='f-muted'){const p=tr('p',key,cls);p.id='f-hint-'+key;return p;}
  function describe(node,...ids){node.setAttribute('aria-describedby',[...ids,...(node.target==='_blank'?['f-newtab']:[])].join(' '));return node;}
@@ -346,6 +369,6 @@
   const attended=new Set(attendance.map(record=>record.activityId));for(const a of chronological([...event.activities,...(event.legacyActivities||[])].filter(a=>attended.has(a.id))))container.append(source('p','✓ '+a.title,'f-badge'));}
  // Scrolls a horizontal chip row just enough to show the item in full, clear of the right-edge fade (fiiu.css); only the row moves, never the page (the rows sit in sticky bars).
  function revealInRow(row,item){const box=item?.getBoundingClientRect?.(),frame=row?.getBoundingClientRect?.();if(!box||!frame)return;const shift=box.left<frame.left+8?box.left-frame.left-8:box.right>frame.right-36?box.right-frame.right+36:0;if(shift)row.scrollBy?.({left:shift});}
- window.Fiiu={rows,t,el,tr,button,link,source,field,check,api,status,dateNode,rangeNode,limaDate,locale,contentCards,badges,findActivity,chronological,typeOf,countLabel,nextFor,underway,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,hoursLine,checkinCloses,checkinState,checkinActivities,limaClock,windowNode,pulse,talkLink};
+ window.Fiiu={rows,t,el,tr,button,link,source,field,check,api,status,dateNode,rangeNode,timeLabel,timeNode,limaDate,locale,contentCards,badges,findActivity,chronological,typeOf,countLabel,nextFor,underway,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,hoursLine,checkinCloses,checkinState,checkinActivities,limaClock,windowNode,pulse,talkLink,linkify};
  window.nodalI18n?.onChange(refresh);refresh();
 })();
