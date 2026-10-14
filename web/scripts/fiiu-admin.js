@@ -670,7 +670,8 @@
  function renderProgramme(){
   if(locked||!festival)return;programmeAlert.hidden=!programmeFailed;
   if(!programmeFailed)programmeAlert.replaceChildren();
-  else if(!programmeAlert.children.length){const retry=button('retry',()=>fetchInto(retry,async()=>{const list=await readProgramme();if(locked)return;programme=list;programmeFailed=false;renderProgramme();}),'f-button secondary f-small');programmeAlert.replaceChildren(tr('span','pgLoadError'),retry);}
+  // A read that works removes Try again with the alert; focus that went with it moves to the section's heading, as in Conversations.
+  else if(!programmeAlert.children.length){const retry=button('retry',()=>fetchInto(retry,async()=>{const list=await readProgramme();if(locked)return;programme=list;programmeFailed=false;renderProgramme();if(!document.activeElement||document.activeElement===document.body){const heading=programmeHost.querySelector('h2');if(heading){heading.tabIndex=-1;heading.focus();}}}),'f-button secondary f-small');programmeAlert.replaceChildren(tr('span','pgLoadError'),retry);}
   if(!programme){programmeList.replaceChildren(...(programmeFailed?[]:[tr('p','loading','f-muted')]));programmeLayout='';return;}
   const sorted=chronological(programme);
   for(const a of sorted){const entry=programmeRows.get(a.id)||programmeEntry(a.id);entry.record=a;entry.update();}

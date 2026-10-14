@@ -1767,7 +1767,7 @@ test('opening another block with unsaved changes asks first, Cancel closes the f
  answer=true;await openBlock(h,'day1-pm');assert.equal(asked,2);assert.equal(blockForm(h,'day1-am'),null);assert.ok(blockForm(h,'day1-pm'));assert.equal(leavePrompt(h),false);
 });
 
-test('an unavailable programme read leaves the dashboard working and offers a retry in the section',async()=>{
+test('an unavailable programme read leaves the dashboard working and offers a retry in the section, which hands focus to the heading once it works',async()=>{
  let fail=true;const h=await harness(()=>({content:[],nextCursor:null}),{programmeRead:()=>fail?unavailable:{activities:programmeItems()}});
  const section=programmeSection(h);assert.ok(key(section,'pgLoadError'));assert.equal(section.querySelectorAll('.f-programme-row').length,0);
  assert.equal(h.message.dataset.fiiuText,'','the page toast is not used');assert.ok(h.root.querySelector('.f-admin-summary'));assert.ok(questionForm(h));
@@ -1783,6 +1783,8 @@ test('an unavailable programme read leaves the dashboard working and offers a re
  assert.equal(key(programmeSection(plain),'pgLoadError'),undefined);assert.equal(field(await openBlock(plain,'day1-am'),'description').value,'');
  fail=false;await key(section,'retry').listeners.click();
  assert.equal(key(section,'pgLoadError'),undefined);assert.equal(section.querySelectorAll('.f-programme-row').length,EVENT.activities.length);
+ // Try again leaves with the alert, so focus goes to the section's heading instead of falling to the page.
+ const heading=section.querySelector('h2');assert.equal(heading.id,'f-h-programme');assert.equal(heading.focused,true);assert.equal(heading.tabIndex,-1);
 });
 
 test('losing organiser access empties the Programme section and stops guarding its unsaved form',async()=>{
