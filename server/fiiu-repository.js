@@ -26,6 +26,11 @@ CREATE TABLE IF NOT EXISTS fiiu_content (
 );
 CREATE INDEX IF NOT EXISTS fiiu_content_page ON fiiu_content(event_id,status,id);
 CREATE INDEX IF NOT EXISTS fiiu_content_recent ON fiiu_content(event_id,created_at DESC,id DESC);
+CREATE TABLE IF NOT EXISTS fiiu_programme (
+ id TEXT PRIMARY KEY,event_id TEXT NOT NULL,data TEXT NOT NULL,version INTEGER NOT NULL CHECK(version>0),
+ updated_by TEXT REFERENCES users(id) ON DELETE SET NULL,updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS fiiu_programme_editor ON fiiu_programme(updated_by);
 `;
 const TABLES={
  registrations:{name:'fiiu_registrations',fields:['id','eventId','userId','email','answers','labStatus','version','createdAt','updatedAt','confirmationStatus','confirmationLanguage','confirmationSentAt'],json:['answers']},
@@ -33,6 +38,8 @@ const TABLES={
  attendance:{name:'fiiu_attendance',fields:['id','registrationId','activityId','confirmedBy','createdAt','method'],json:[]},
  config:{name:'fiiu_config',fields:['id','data','version'],json:['data']},
  content:{name:'fiiu_content',fields:['id','eventId','data','status','version','createdAt','updatedAt'],json:['data']},
+ // Organisers' edits to programme blocks (server/fiiu-programme.js); id is the block id.
+ programme:{name:'fiiu_programme',fields:['id','eventId','data','version','updatedBy','updatedAt'],json:['data']},
 };
 const info=name=>{if(!TABLES[name])throw Error('unknown festival table');return TABLES[name];};
 const checked=(table,record)=>{for(const k of Object.keys(record))if(!table.fields.includes(k))throw Error('unknown festival field');return record;};

@@ -7,7 +7,7 @@ import {createCheckinCodes} from '../server/fiiu-checkin.js';
 // In-memory PostgREST for the festival tables: eq/gt/gte/lt/in filters, the store's keyset `or`, order, limit, a response
 // row cap, exact counts (Content-Range) and constraint errors shaped like server/supabase.js responseError().
 function postgrest({cap=Infinity,count=true,afterRead}={}){
- const tables={fiiu_registrations:[],fiiu_attendance:[],fiiu_config:[],fiiu_content:[]},calls=[];
+ const tables={fiiu_registrations:[],fiiu_attendance:[],fiiu_config:[],fiiu_content:[],fiiu_programme:[]},calls=[];
  const byText=(a,b)=>a<b?-1:a>b?1:0;
  const matches=(row,query)=>Object.entries(query).every(([key,expr])=>{
   if(['select','order','limit'].includes(key))return true;
@@ -239,4 +239,15 @@ test('Supabase: the organiser summary button counts with exact-count requests, c
  assert.equal(pg.calls.filter(c=>!c.method&&c.query.id===`gt.${uuid(6)}`&&c.query.confirmation_status==='eq.none'&&c.query.select!=='id').length,1,'the batch reads after the cursor');
  const capped=await call('POST',{after:second.body.next});assert.deepEqual([capped.status,capped.body.code,capped.body.counts.none],[429,'daily_cap',1]);
  assert.equal(outbox.length,5);assert.equal(pg.tables.fiiu_registrations.find(r=>r.id===uuid(7)).confirmation_status,'failed','failed rows wait for a retry');
+});
+
+test('Supabase programme edits are read and written with the migration columns, versioned, data as JSON',async()=>{
+ const pg=postgrest(),store=createFiiuStore({clients:pg.clients});
+ const row=await store.insert('programme',{id:'day1-am',eventId:'fiiu-2026',data:{title:'Uno'},version:1,updatedBy:'u1',updatedAt:'2026-10-13T12:00:00.000Z'});
+ assert.deepEqual(pg.calls.at(-1).body,{id:'day1-am',event_id:'fiiu-2026',data:{title:'Uno'},version:1,updated_by:'u1',updated_at:'2026-10-13T12:00:00.000Z'},'data goes as JSON, not text');
+ assert.deepEqual(row.data,{title:'Uno'});
+ await store.update('programme',{id:'day1-am',eventId:'fiiu-2026',version:1},{data:{title:'Dos'},version:2});
+ assert.deepEqual(pg.calls.at(-1).query,{id:'eq.day1-am',event_id:'eq.fiiu-2026',version:'eq.1'});
+ const rows=await store.find('programme',{eventId:'fiiu-2026'},{limit:200});
+ assert.deepEqual(pg.calls.at(-1).query.select,'id,event_id,data,version,updated_by,updated_at');assert.deepEqual(rows.map(r=>[r.id,r.data.title,r.version]),[['day1-am','Dos',2]]);
 });
