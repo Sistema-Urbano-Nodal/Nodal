@@ -57,7 +57,7 @@ async function deliverNotice({store,notify,event,registration,failed,kind,attemp
    what it did send, when another sender took the room left before its claims (whoever it put back is still waiting
    for the next pass); otherwise the outcome counts, claimedElsewhere and `next`, the cursor for the following batch
    (null when this pass is done). The main pass walks the waiting registrations by id; retryFailed walks the 'failed'
-   notices by id instead, leaving out anyone who has since added the party or cancelled. */
+   notices by id instead, removing the row of anyone who has since added the party or cancelled. */
 export async function sendNoticeBatch({store,notify,event,retryFailed=false,after=null,size=BATCH_SIZE,dailyCap=DAILY_CAP,now=Date.now(),notice=PARTY_NOTICE}){
  const day=sendingDay(now),sentToday=await sentSince(store,day.since),room=Math.min(size,dailyCap-sentToday);
  if(room<=0)return {capped:true,dailyCap,sentToday,resetsAt:day.resetsAt};
@@ -65,7 +65,13 @@ export async function sendNoticeBatch({store,notify,event,retryFailed=false,afte
  if(retryFailed){
   const failed=await store.find('notices',{eventId:EVENT_ID,kind,status:'failed'},{after:after??undefined,limit:room});
   const people=await Promise.all(failed.map(async row=>(await store.find('registrations',{eventId:EVENT_ID,userId:row.userId},{limit:1}))[0]??null));
-  due=failed.map((row,i)=>({failed:row,registration:people[i]})).filter(({registration})=>registration&&!planned(registration,activityId));
+  const rows=failed.map((row,i)=>({failed:row,registration:people[i]})),reachable=({registration})=>Boolean(registration)&&!planned(registration,activityId);
+  /* Someone who has since added the party or cancelled can never be retried: their failed row goes (only while still
+     'failed', so a claim another pass just made stands), so the panel's failed count and its "Retry failed" are only
+     people a retry reaches, and they are waiting again should they drop the party or register anew. A failed send is
+     not counted against the cap, and the provider never had it. */
+  await Promise.all(rows.filter(row=>!reachable(row)).map(({failed:row})=>store.remove('notices',{id:row.id,status:'failed'})));
+  due=rows.filter(reachable);
   next=failed.length===room?failed.at(-1).id:null;
  }else{
   const waiting=await store.noticeAudience(EVENT_ID,{kind,activityId,after,limit:room});

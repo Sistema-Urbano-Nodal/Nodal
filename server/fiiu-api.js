@@ -8,7 +8,7 @@ import {packBits} from './qr.js';
 import {isReservedRecipient,EMAIL_LANGUAGES} from './fiiu-email.js';
 import {parseCookies} from './auth.js';
 import {confirmationState,confirmationCounts,sendConfirmationBatch,deliverConfirmation,BATCH_SIZE,DAILY_CAP} from './fiiu-confirmations.js';
-import {noticeState,noticeCounts,sendNoticeBatch} from './fiiu-notices.js';
+import {noticeState,noticeCounts,sendNoticeBatch,PARTY_NOTICE} from './fiiu-notices.js';
 const now=()=>new Date().toISOString();
 const attendanceView=({activityId,createdAt,method})=>({activityId,createdAt,method});
 // CSV check-in times are Lima wall-clock time (UTC-05:00 all year), e.g. '2026-10-21 09:12'.
@@ -60,6 +60,12 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
   let row;try{row=await store.insert('attendance',{id:randomUUID(),...filters,confirmedBy:by,createdAt:at,method});}catch(err){if(err.status===404)fail('registration unavailable',404);if(err.status!==409||!await one('attendance',filters))throw err;return {created:false,attendance:await reread()};}
   return {created:true,attendance:known?[...known,row]:await reread()};
  }
+ /* A failed party announcement to someone who has just added the party or cancelled can never be retried: it goes now,
+    so the organisers' failed count and its "Retry failed" are only people a retry reaches, and the person is waiting
+    again should they drop the party or register anew. Only while 'failed' (a send under way stands; the cap never
+    counts a failed one). It never fails the participant's save: a lost write is settled by the next retry pass. */
+ const plansParty=answers=>Array.isArray(answers?.activities)&&answers.activities.includes(PARTY_NOTICE.activityId);
+ const dropFailedNotice=async userId=>{try{await store.remove('notices',{eventId:EVENT_ID,userId,kind:PARTY_NOTICE.kind,status:'failed'});}catch{/* see above */}};
  const config=async()=>{const row=await one('config',{id:EVENT_ID});return {...configView(row?.data),version:row?.version??0};};
  /* The programme as it stands, organisers' edits included: the event, every activity a stored id may name (legacy ones
     too) for hours and the export, and the blocks that take a check-in, whose windows follow their current times. */
@@ -104,6 +110,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
      // Edits never email: the summary goes out once, after the first registration.
      const registration=await store.update('registrations',{id:existing.id,userId:user.id,version:expected},patch);
      if(!registration)fail('registration changed; reload before saving',409);
+     if(plansParty(answers)&&!plansParty(existing.answers))await dropFailedNotice(user.id);
      send(res,200,{registration});return true;
     }
     // A first registration is stored 'none', then its summary goes out the way the organiser dashboard's "Send the
@@ -131,7 +138,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    if(req.method==='DELETE'){
     const [input,existing]=await Promise.all([body(req),one('registrations',{eventId:EVENT_ID,userId:user.id})]);sameAccount(input,user);const expected=version(input.version);
     if((existing?.version??0)!==expected||(existing?.id??null)!==(input.registrationId??null))fail('registration changed; reload before cancelling',409);
-    if(existing&&!await store.remove('registrations',{id:existing.id,userId:user.id,version:expected}))fail('registration changed; reload before cancelling',409);
+    if(existing){if(!await store.remove('registrations',{id:existing.id,userId:user.id,version:expected}))fail('registration changed; reload before cancelling',409);await dropFailedNotice(user.id);}
     send(res,200,{ok:true});return true;
    }
   }
