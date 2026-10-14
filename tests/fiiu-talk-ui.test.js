@@ -1320,6 +1320,30 @@ test('a block’s question list marks rating questions',async()=>{
  h.lang('es');assert.equal(key(picks[0],'talkScoreChip').textContent,'Valoración 1–10');
 });
 
+test('a number focused when the question closes hands focus to the scale’s label, so a keyboard user is not left on a disabled button',async()=>{
+ const closes={'GET /api/fiiu/pulse':{questions:[[Q,'day1-am',4,'closed']]},['GET '+MESSAGES+'?since=3']:since(4,[],{kind:'rating',ratingCounts:BEFORE,status:'closed'})};
+ const live=await page({['GET /api/fiiu/questions/'+Q]:rated(),...closes}),label=key(live.root.querySelector('.f-talk-rate'),'talkScoreLabel');
+ focusInside(live,scale(live)[3]);await live.tickTimers();
+ assert.ok(scale(live).every(b=>b.disabled));assert.equal(label.tabIndex,-1);assert.equal(label.focused,true,'focus lands on the label, which can hold it');
+ assert.equal(live.root.querySelector('.f-talk-live').textContent,'This conversation is closed. You can still read it.','the status line says why');
+ // A close refused by the server after a tap does the same.
+ let reads=0;const refused=await page({['GET /api/fiiu/questions/'+Q]:()=>reads++?rated({question:{status:'closed',revision:4},me:{canPost:false}}):rated(),['PUT '+RATING]:{status:409,data:{error:'question closed',code:'question_closed'}}});
+ const tapped=scale(refused)[7];focusInside(refused,tapped);tapped.listeners.click();await flush();
+ assert.ok(scale(refused).every(b=>b.disabled));assert.equal(key(refused.root.querySelector('.f-talk-rate'),'talkScoreLabel').focused,true);
+ // Focus elsewhere on the page is left alone.
+ const away=await page({['GET /api/fiiu/questions/'+Q]:rated(),...closes}),text=composer(away).querySelector('textarea');focusInside(away,text);await away.tickTimers();
+ assert.notEqual(key(away.root.querySelector('.f-talk-rate'),'talkScoreLabel').focused,true);
+});
+
+test('the results line reads as two phrases in copied and spoken text, and stacks them on a phone instead of leaving a dangling dot',async()=>{
+ const h=await page({['GET /api/fiiu/questions/'+Q]:rated({me:{score:8},question:{ratingCounts:AFTER}})});
+ const line=results(h).querySelector('.f-talk-rate-line');assert.equal(line.children.map(node=>node.textContent).join(''),'Your rating: 8 Average 7.6 from 42 people');
+ const css=readFileSync(new URL('../web/styles/fiiu-talk.css',import.meta.url),'utf8');
+ assert.match(css,/\.f-page \.f-talk-rate-line\{display:grid;/,'one phrase per line on a phone');
+ assert.match(css,/@media\(min-width:600px\)\{\.f-page \.f-talk-rate-line\{display:flex;[^}]*\}\.f-talk-rate-line>:not\(:last-child\)::after\{content:"·";/,'the dot only where the phrases share a line');
+ assert.doesNotMatch(css.replace(/@media\(min-width:600px\)\{\.f-page \.f-talk-rate-line[^@]*/,''),/f-talk-rate-line>[^{]*::after/,'no dot outside the wide layout');
+});
+
 test('chat messages use the shared linkify of fiiu-ui.js, so the URL rule lives in one place',()=>{
  const talk=readFileSync(new URL('../web/scripts/fiiu-talk.js',import.meta.url),'utf8');
  assert.doesNotMatch(talk,/https\?:\\\/\\\//,'no URL pattern of its own');assert.match(talk,/Fiiu\.linkify\(|\blinkify\b[^;]*=window\.Fiiu|,linkify[,}]/);

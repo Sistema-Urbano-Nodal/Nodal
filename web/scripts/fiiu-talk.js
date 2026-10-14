@@ -654,18 +654,22 @@
  const MOVES=new Map([['ArrowRight',1],['ArrowDown',1],['ArrowLeft',-1],['ArrowUp',-1]]);
  function buildRate(id){
   const box=el('div','f-talk-rate'),label=tr('p','talkScoreLabel','f-talk-rate-label'),group=el('div','f-talk-scale'),hint=tr('p','talkScoreScale','f-talk-rate-hint'),note=el('p','f-talk-status'),out=el('div','f-talk-rate-out');
-  label.id='f-talk-rate-label';hint.id='f-talk-rate-hint';group.setAttribute('role','radiogroup');group.setAttribute('aria-labelledby',label.id);group.setAttribute('aria-describedby',hint.id);note.setAttribute('role','status');
+  // The label can take focus (never a tab stop): paintRate hands it the focus of a number that is being disabled.
+  label.id='f-talk-rate-label';label.tabIndex=-1;hint.id='f-talk-rate-hint';group.setAttribute('role','radiogroup');group.setAttribute('aria-labelledby',label.id);group.setAttribute('aria-describedby',hint.id);note.setAttribute('role','status');
   const buttons=Array.from({length:10},(_,i)=>{const b=el('button','f-talk-score',String(i+1));b.type='button';b.setAttribute('role','radio');b.addEventListener('click',()=>rateWith(i+1));b.addEventListener('keydown',event=>moveScore(i,event));group.append(b);return b;});
-  box.append(label,group,hint,note,out);return {id,box,buttons,note,out,saved:null,shown:null,next:null,busy:false};
+  box.append(label,group,hint,note,out);return {id,box,label,buttons,note,out,saved:null,shown:null,next:null,busy:false};
  }
  // The tab stop is the chosen number (the first while none is), and follows the arrow keys.
  function moveScore(i,event){
   const to=MOVES.has(event.key)?(i+MOVES.get(event.key)+10)%10:event.key==='Home'?0:event.key==='End'?9:null;if(to===null||!rate)return;
   event.preventDefault();rate.buttons.forEach((b,j)=>{b.tabIndex=j===to?0:-1;});rate.buttons[to].focus();
  }
+ // A number that is disabled while it has focus (the question closed under it, live or as the server refused a tap) would drop focus to the page's top,
+ // so it goes to the scale's label first; the status line or the scale's note says why.
  function paintRate(){
-  if(!rate||!question)return;const usable=isOpen()&&me.canPost,shown=rate.shown;
+  if(!rate||!question)return;const usable=isOpen()&&me.canPost,shown=rate.shown,stranded=!usable&&rate.buttons.includes(document.activeElement);
   rate.buttons.forEach((b,i)=>{const on=shown===i+1;b.setAttribute('aria-checked',String(on));b.disabled=!usable;b.tabIndex=(shown?on:i===0)?0:-1;});
+  if(stranded)rate.label.focus();
   rate.out.replaceChildren(...(rate.saved!==null||(me.organiser&&!isOpen())?[results(rate.saved)]:[]));
  }
  // A strip of ten bars, one per score, as tall as its share of the most chosen one (CSSOM, never a style attribute). It is a picture: screen readers get
@@ -677,9 +681,10 @@
  }
  const spoken=counts=>el('p','f-sr-only f-talk-rate-alt',counts.map((count,i)=>[i+1,count]).filter(([,count])=>count).reverse().map(([score,count])=>fill(count===1?'talkScoreChoseOne':'talkScoreChose',{n:number(count),score})).join(', '));
  // "Your rating: 8 · Average 7.6 from 42 people", then the bars. Rebuilt whole on a change or a language switch: it holds nothing to focus.
+ // The dot is drawn by the stylesheet on wide screens only; the space between the phrases keeps copied and spoken text apart (it collapses in the layout).
  function results(score){
   const {counts,n,avg}=totalsOf(question.ratingCounts),box=el('div','f-talk-rate-results'),line=el('p','f-talk-rate-line');
-  if(score)line.append(el('span','f-talk-rate-yours',fill('talkScoreYours',{score})));
+  if(score)line.append(el('span','f-talk-rate-yours',fill('talkScoreYours',{score})),document.createTextNode(' '));
   line.append(n?el('span','f-talk-rate-avg',fill(n===1?'talkScoreAverageOne':'talkScoreAverage',{avg:average(avg),n:number(n)})):tr('span','talkScoreNone','f-talk-rate-avg'));
   box.append(line);if(n)box.append(bars(counts),spoken(counts));return box;
  }
