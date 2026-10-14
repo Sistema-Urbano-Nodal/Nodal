@@ -1158,6 +1158,8 @@ test('programme edits are versioned, restorable, for organisers only, same-origi
  // Restore: an old version is a conflict; the current one brings the built-in values back.
  response=await call('/api/admin/fiiu/programme/closing-party?version=1',{actor:'admin',method:'DELETE'});assert.equal(response.status,409);
  conflict=await response.json();assert.deepEqual([conflict.code,conflict.activity.version],['programme_conflict',2]);
+ // The public programme now holds the edit in its 30-second memo, so the restore below must clear it.
+ assert.equal((await(await call('/api/fiiu',{actor:'guest'})).json()).event.activities.find(a=>a.id==='closing-party').title,'Fiesta 2');
  response=await call('/api/admin/fiiu/programme/closing-party?version=2',{actor:'admin',method:'DELETE'});assert.equal(response.status,200);
  const restored=(await response.json()).activity;assert.deepEqual([restored.title,restored.time,restored.version,restored.edited],['¡Fiesta de cierre y Chelas Urbanas!','17:00',0,false]);
  assert.equal((await(await call('/api/fiiu',{actor:'guest'})).json()).event.activities.find(a=>a.id==='closing-party').title,'¡Fiesta de cierre y Chelas Urbanas!');
