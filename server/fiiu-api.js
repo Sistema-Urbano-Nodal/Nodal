@@ -36,7 +36,7 @@ export function registrationLanguage(input,req){
 }
 // checkin: {secret, now} for the rotating codes (tests freeze the clock); publicOrigin: the configured site origin (a
 // string or a function of the request) that check-in links point to, never the Host header in production.
-// confirmation: async ({registration, config, language}) => {status, sentAt?}, the registration summary email (see
+// confirmation: async ({registration, config, language, event}) => {status, sentAt?}, the registration summary email (see
 // server/fiiu-email.js), or null when email is off; emailAllowed(user) spends one send from the account's hourly
 // allowance and the server-wide ceiling, and answers false when either is used up. backfill: {batchSize, dailyCap,
 // now} for the organiser's "Send the summary" and "Announce the party" buttons (server/fiiu-confirmations.js,
