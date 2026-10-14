@@ -40,8 +40,13 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 export const twice=async write=>{try{await write();}catch{await pause(250);await write();}};
 /* Whether a send just claimed would pass today's cap. Counted after the claim, so it sees every other claim made before
    it: of the sends that go ahead, the last to count saw all the others and found the total within the cap. cap:
-   {dailyCap, since} (since: the start of the UTC day, from sendingDay), or null where nothing is held back. */
-export const overCap=async(store,cap)=>Boolean(cap)&&await sentSince(store,cap.since)>cap.dailyCap;
+   {dailyCap, since} (since: the start of the UTC day, from sendingDay), or null where nothing is held back. A claim over
+   it is put back unsent with putBack; so is one whose count fails, before the error goes on, since a 'pending' that
+   nobody sent is never picked up again (and would count against the cap). */
+export async function overCap(store,cap,putBack){
+ let over;try{over=Boolean(cap)&&await sentSince(store,cap.since)>cap.dailyCap;}catch(err){await putBack();throw err;}
+ if(over)await putBack();return over;
+}
 
 // The live festival settings the email links to (programme URL and the like).
 export async function festivalConfig(store){
@@ -61,13 +66,13 @@ export async function festivalConfig(store){
    cap counts the send from the moment it starts (see DAILY_CAP and settledSentAt). event: the programme as it stands
    (organisers' edits included), which the email lists; the sender falls back to the built-in one without it. cap (the
    dashboard and the script; never a sign-up): a claim over today's cap is put back as it was read, unsent, and
-   answers {status:'capped'}. */
+   answers {status:'capped'}; one whose cap count fails is put back the same way and throws. */
 export async function deliverConfirmation({store,confirm,config,event,registration,attemptAt=new Date().toISOString(),cap=null}){
  const language=emailLanguage(registration.confirmationLanguage);
  const claimed=await store.update('registrations',{id:registration.id,confirmationStatus:registration.confirmationStatus},{confirmationStatus:'pending',confirmationLanguage:language,confirmationSentAt:attemptAt});
  if(!claimed)return null;
  const mine={id:registration.id,confirmationStatus:'pending',confirmationSentAt:attemptAt};
- if(await overCap(store,cap)){await twice(()=>store.update('registrations',mine,{confirmationStatus:registration.confirmationStatus,confirmationLanguage:registration.confirmationLanguage??null,confirmationSentAt:registration.confirmationSentAt??null}));return {status:'capped'};}
+ if(await overCap(store,cap,()=>twice(()=>store.update('registrations',mine,{confirmationStatus:registration.confirmationStatus,confirmationLanguage:registration.confirmationLanguage??null,confirmationSentAt:registration.confirmationSentAt??null}))))return {status:'capped'};
  let outcome;
  try{outcome=await confirm({registration:claimed,config,language,event});}catch{outcome={status:'uncertain'};}
  const status=OUTCOMES.includes(outcome?.status)?outcome.status:'uncertain',sentAt=settledSentAt(status,outcome,attemptAt);

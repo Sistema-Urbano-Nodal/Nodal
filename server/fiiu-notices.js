@@ -35,7 +35,7 @@ export async function noticeState(store,{dailyCap=DAILY_CAP,now=Date.now(),notic
    their account was deleted meanwhile). A sender that throws counts as 'uncertain'. The outcome write matches only this
    claim and is tried twice, since a row left 'pending' is never sent again automatically. A claim that finds today's
    cap passed is put back unsent and answers {status:'capped'}: the new row removed (the person is waiting again), or
-   the retried one 'failed' again as it was read. */
+   the retried one 'failed' again as it was read. One whose cap count fails is put back the same way and throws. */
 async function deliverNotice({store,notify,event,registration,failed,kind,attemptAt,cap}){
  const language=emailLanguage(registration.confirmationLanguage);
  let claimed;
@@ -44,7 +44,7 @@ async function deliverNotice({store,notify,event,registration,failed,kind,attemp
  catch(err){if(err.status===409||err.status===404)return null;throw err;}
  if(!claimed)return null;
  const mine={id:claimed.id,status:'pending',sentAt:attemptAt};
- if(await overCap(store,cap)){await twice(()=>failed?store.update('notices',mine,{status:'failed',language:failed.language,sentAt:failed.sentAt,updatedAt:failed.updatedAt}):store.remove('notices',mine));return {status:'capped'};}
+ if(await overCap(store,cap,()=>twice(()=>failed?store.update('notices',mine,{status:'failed',language:failed.language,sentAt:failed.sentAt,updatedAt:failed.updatedAt}):store.remove('notices',mine))))return {status:'capped'};
  let outcome;
  try{outcome=await notify({registration,event,language});}catch{outcome={status:'uncertain'};}
  const status=OUTCOMES.includes(outcome?.status)?outcome.status:'uncertain',sentAt=settledSentAt(status,outcome,attemptAt);

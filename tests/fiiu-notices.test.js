@@ -136,6 +136,26 @@ test('a claim that finds the cap filled by a sender that got in first is put bac
  assert.deepEqual(mail,['first@fiiu-inbox.dev','retried@fiiu-inbox.dev','summary@fiiu-inbox.dev']);
 });
 
+test('a claim whose cap count fails is put back unsent before the error goes on, so the next pass sends it: notices, their retries and summaries alike',async t=>{
+ const {db,store}=local(t);
+ const [first,retried,summary]=await people(db,store,[{email:'first@fiiu-inbox.dev'},{email:'retried@fiiu-inbox.dev',notice:'failed'},{email:'summary@fiiu-inbox.dev',summary:'none',activities:['closing-party']}]);
+ // The batch's own two counts of today's total pass; the next one, made once the person is claimed, fails (a Supabase 5xx or timeout).
+ const flaky=()=>{let n=0;return {...store,count:async(...args)=>{if(++n===3)throw Object.assign(Error('festival data unavailable'),{status:502});return store.count(...args);}};};
+ const summaryOf=()=>({...db.prepare('SELECT confirmation_status AS status,confirmation_sent_at AS sentAt,confirmation_language AS language FROM fiiu_registrations WHERE id=?').get(summary.id)});
+ const mail=[],send=async({registration})=>{mail.push(registration.email);return {status:'sent',sentAt:'2026-10-14T18:00:05.000Z'};};
+ await assert.rejects(sendNoticeBatch({store:flaky(),notify:send,event:FIIU_EVENT,now:NOW}),/festival data unavailable/);
+ assert.equal(noticeOf(db,first.userId),null,'no pending row is left behind: still waiting, and not counted against the cap');
+ await assert.rejects(sendNoticeBatch({store:flaky(),notify:send,event:FIIU_EVENT,retryFailed:true,now:NOW}),/festival data unavailable/);
+ assert.deepEqual(noticeOf(db,retried.userId),{status:'failed',sentAt:null,language:'es'},'the failed row is back as it was, for the next retry');
+ await assert.rejects(sendConfirmationBatch({store:flaky(),confirm:send,event:FIIU_EVENT,now:NOW}),/festival data unavailable/);
+ assert.deepEqual(summaryOf(),{status:'none',sentAt:null,language:null},'the summary is back to waiting');
+ assert.deepEqual(mail,[]);assert.equal((await noticeState(store,{now:NOW})).sentToday,0);
+ assert.equal((await sendNoticeBatch({store,notify:send,event:FIIU_EVENT,now:NOW})).sent,1);
+ assert.equal((await sendNoticeBatch({store,notify:send,event:FIIU_EVENT,retryFailed:true,now:NOW})).sent,1);
+ assert.equal((await sendConfirmationBatch({store,confirm:send,event:FIIU_EVENT,now:NOW})).sent,1);
+ assert.deepEqual(mail,['first@fiiu-inbox.dev','retried@fiiu-inbox.dev','summary@fiiu-inbox.dev']);
+});
+
 test('party passes and the summary button running at once never pass the shared cap together',async t=>{
  const {db,store:base}=local(t);
  // All three read today's total before any of them claims, as overlapping requests near the cap do.
