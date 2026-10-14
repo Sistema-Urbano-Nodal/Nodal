@@ -1,8 +1,10 @@
 (() => {
  'use strict';
- const {el,tr,t,source,button,link,field,check,api,status,dateNode,rangeNode,limaDate,contentCards,badges,findActivity,chronological,typeOf,countLabel,nextFor,underway,hint,describe,newTabNote,revealInRow,hoursLine,pulse,talkLink}=window.Fiiu;
+ const {el,tr,t,source,button,link,field,check,api,status,dateNode,rangeNode,timeNode,limaDate,contentCards,badges,findActivity,chronological,typeOf,countLabel,nextFor,underway,hint,describe,newTabNote,revealInRow,hoursLine,pulse,talkLink,linkify}=window.Fiiu;
  const root=document.getElementById('fiiuRoot'),loadStatus=document.getElementById('fiiuStatus');
- const TYPES=[['conference','conferenceOne','conferenceMany'],['workshop','workshopOne','workshopMany'],['route','routeOne','routeMany'],['lab','labOne','labOne']];
+ const TYPES=[['conference','conferenceOne','conferenceMany'],['workshop','workshopOne','workshopMany'],['route','routeOne','routeMany'],['lab','labOne','labOne'],['party','partyOne','partyOne']];
+ // Blocks a person adds to their registration: the conferences and the closing party (register only).
+ const REGISTERED=['general','social'];
  const CHOICE_NAMES=['activities','externalActivities','applyLab'];
  let festival,me={registration:null,attendance:[],user:null},registrationHost,panelHeading,panelBody,heroHost,programmeHost,openForm=null,officialInput=null,syncForm=null,notice='',dayObserver=null,stepObserver=null,sizeObserver=null,errorSeq=0,guestSignin=null,pendingAdd=null,layoutHost=null,latestNode=null,newsFeed=null;
  // choiceInputs maps an activity id to its form checkbox, so programme actions can pre-select it.
@@ -26,6 +28,7 @@
  // and later redraws add theirs at once. Guests see them too; the chat page explains signing in.
  let talkCounts=null;const talkWaiting=[];
  function withTalk(activity,titleId,place){const add=counts=>{const n=counts.get(activity.id);if(n)place(describe(talkLink(activity.id,n),titleId));};if(talkCounts)add(talkCounts);else talkWaiting.push(add);}
+ function withGeneral(place){const add=counts=>{const n=counts.open?.get('general');if(n)place(talkLink('general',n,'f-text-link f-talk-link f-talk-general','talkGeneral'));};if(talkCounts)add(talkCounts);else talkWaiting.push(add);}
  function showTalks(counts){talkCounts=counts;for(const add of talkWaiting.splice(0))add(counts);}
  // A card's foot is attached only once it holds something, so the link attaches it when it is the first thing there.
  const footTalk=(activity,titleId,host,foot)=>withTalk(activity,titleId,link=>{if(!foot.children.length)host.append(foot);foot.append(link);});
@@ -51,8 +54,9 @@
   meta.append(rangeNode(event.startsOn,event.endsOn),tr('span',config.registrationOpen?'registrationOpenNow':'registrationClosedNow',config.registrationOpen?'is-open':''));counts.append(...typeCounts(event.activities));
   copy.append(title,tr('span','spanishContent','content-language'),tr('p','intro','f-hero-intro'),meta,counts);
   if(registration){
-   const a=registration.answers,pills=el('p','f-hero-status'),interests=a.externalActivities?.length||0;pills.append(tr('span','statusRegistered','f-pill is-ok'));
-   if(a.activities.length)pills.append(countLabel(a.activities.length,'conferenceOne','conferenceMany','f-pill'));
+   // The party is counted apart: it is not a conference block.
+   const a=registration.answers,pills=el('p','f-hero-status'),interests=a.externalActivities?.length||0,party=a.activities.filter(id=>findActivity(event,id)?.registration==='social').length,conferences=a.activities.length-party;pills.append(tr('span','statusRegistered','f-pill is-ok'));
+   if(conferences)pills.append(countLabel(conferences,'conferenceOne','conferenceMany','f-pill'));if(party)pills.append(tr('span','closingParty','f-pill'));
    if(interests)pills.append(countLabel(interests,'interestOne','interestMany','f-pill'));
    if(registration.labStatus!=='none')pills.append(tr('span',registration.labStatus+'Short','f-pill is-'+registration.labStatus));
    if(missingAnswers(a))pills.append(tr('span','actionNeeded','f-pill is-pending'));
@@ -70,7 +74,7 @@
   heroState=next?next.id+(live?':live':''):'';
   if(next){
    const box=el('div','f-next'),when=el('p','f-next-when'),title=el('p','f-next-title'),toDay=source('a',next.title,'f-text-link');title.id='f-next-title';toDay.href='#day-'+next.date;title.append(toDay);
-   when.append(dateNode(next.date,'span','short','f-next-day'));if(next.time)when.append(el('span','f-next-time',next.time));box.append(tr('p',live?'nowForYou':'nextForYou','f-next-label'),when,title);if(next.venue)box.append(source('p',next.venue,'f-next-venue'));
+   when.append(dateNode(next.date,'span','short','f-next-day'));if(next.time)when.append(timeNode(next.time,'span','f-next-time'));box.append(tr('p',live?'nowForYou':'nextForYou','f-next-label'),when,title);if(next.venue)box.append(source('p',next.venue,'f-next-venue'));
    withTalk(next,title.id,link=>box.append(link));panel.append(box);
   }
   heroHost.replaceChildren(copy,panel);
@@ -82,13 +86,13 @@
   const input=choiceInputs.get(activity.id);
   if(input){const action=describe(button(addKey,event=>{if(input.disabled)return;openForm?.();input.checked=true;syncForm?.(true);edited?.();jumpTo(input,event);},'f-button secondary f-small'),titleId);programmeActions.set(activity.id,{action,addKey});syncProgramme();return action;}
   // A guest goes to the panel's explanation first; its sign-in link then returns with this block ticked (#add-). While the registration loads, nobody is a guest yet.
-  if(!me.user&&!me.failed&&!me.pending&&festival.config.registrationOpen&&activity.registration==='general'){const register=describe(link('register','#registration','f-text-link'),titleId);register.addEventListener('click',()=>{if(guestSignin)guestSignin.href='login.html?next='+encodeURIComponent('/fiiu.html#add-'+activity.id);});return register;}
+  if(!me.user&&!me.failed&&!me.pending&&festival.config.registrationOpen&&REGISTERED.includes(activity.registration)){const register=describe(link('register','#registration','f-text-link'),titleId);register.addEventListener('click',()=>{if(guestSignin)guestSignin.href='login.html?next='+encodeURIComponent('/fiiu.html#add-'+activity.id);});return register;}
   return null;
  }
  // One-way feedback: a programme button whose form box is ticked says so; clicking it again only returns to that box.
  function syncProgramme(){for(const [id,{action,addKey}] of programmeActions){const input=choiceInputs.get(id),on=Boolean(input?.checked&&!input.disabled),key=on?'choiceAdded':addKey;if(action.dataset.fiiuText===key)continue;action.dataset.fiiuText=key;action.textContent=t(key);action.className='f-button secondary f-small'+(on?' is-added':'');}}
  function labCard(activity,labStatus){
-  const card=el('article','f-activity is-lab'),title=source('h4',activity.title);title.id='f-act-'+activity.id+'-title';card.append(title,tr('p','labType','f-lab-type'));
+  const card=el('article','f-activity is-lab'),title=source('h4',activity.title),about=description(activity);title.id='f-act-'+activity.id+'-title';card.append(title,tr('p','labType','f-lab-type'));if(about)card.append(about);
   if(labStatus!=='none')card.append(tr('p',labStatus+'Short','f-pill is-'+labStatus));
   else if(festival.config.registrationOpen&&!me.pending){
    const apply=describe(link('apply',officialInput?'#f-publicOfficial':'#registration','f-button secondary f-small'),title.id);
@@ -97,11 +101,19 @@
   }
   footTalk(activity,title.id,card,el('div','f-activity-foot'));return card;
  }
+ // The organisers' description of a block, under its title: their text as written, with its line breaks (fiiu.css) and its https addresses as links.
+ const description=activity=>activity.description?linkify(source('p','','f-activity-desc'),activity.description):null;
+ // A block's session lines, folded under their count; the summary names the block it belongs to. Organisers can add them to any block.
+ function sessionList(activity,titleId){
+  if(!activity.sessions?.length)return null;const details=el('details','f-sessions'),summary=el('summary'),list=el('ul','f-session-list');summary.append(countLabel(activity.sessions.length,'sessionOne','sessions'));describe(summary,titleId);
+  for(const [time,name] of activity.sessions){const item=el('li');item.append(el('span','f-session-time',time),source('span',name));list.append(item);}details.append(summary,list);return details;
+ }
+ // A conference block, or the closing party, which takes the same "Add to my registration" and says it is register only where a conference names its period.
  function conferenceCard(activity,mine){
-  const card=el('article','f-activity is-conference'),rail=el('div','f-time-rail'),body=el('div','f-activity-body'),title=source('h4',activity.title);title.id='f-act-'+activity.id+'-title';
-  rail.append(activity.time?el('p','f-time',activity.time):tr('p','timePending','f-muted'),tr('p',activity.period,'f-period'));
-  const foot=el('div','f-activity-foot'),action=choiceAction(activity,mine,'statusRegistered','addToRegistration',title.id);body.append(activity.venue?source('p',activity.venue,'f-venue'):tr('p','venuePending','f-muted f-venue'));
-  if(activity.sessions.length){const details=el('details','f-sessions'),summary=el('summary'),list=el('ul','f-session-list');summary.append(countLabel(activity.sessions.length,'sessionOne','sessions'));describe(summary,title.id);for(const [time,name] of activity.sessions){const item=el('li');item.append(el('span','f-session-time',time),source('span',name));list.append(item);}details.append(summary,list);foot.append(details);}
+  const party=activity.registration==='social',card=el('article','f-activity is-conference'+(party?' is-party':'')),rail=el('div','f-time-rail'),body=el('div','f-activity-body'),title=source('h4',activity.title),about=description(activity);title.id='f-act-'+activity.id+'-title';
+  rail.append(activity.time?timeNode(activity.time,'p','f-time'):tr('p','timePending','f-muted'),tr('p',party?'partyType':activity.period,'f-period'));
+  const foot=el('div','f-activity-foot'),action=choiceAction(activity,mine,'statusRegistered','addToRegistration',title.id),sessions=sessionList(activity,title.id);if(about)body.append(about);body.append(activity.venue?source('p',activity.venue,'f-venue'):tr('p','venuePending','f-muted f-venue'));
+  if(sessions)foot.append(sessions);
   if(action)foot.append(action);if(foot.children.length)body.append(foot);footTalk(activity,title.id,body,foot);
   // The title comes first in the DOM so heading navigation lands before the time; CSS places the time rail beside it.
   card.append(title,rail,body);return card;
@@ -115,8 +127,9 @@
   const group=el('div','f-type-group'),head=el('div','f-type-head'),list=el('ul','f-compact-list');
   head.append(tr('h4',type),tr('span','external','f-type-note'));
   for(const activity of items){
-   const mine=interests.has(activity.id),row=el('li','f-compact'),main=el('div','f-compact-main'),title=source('p',activity.title,'f-compact-title'),where=venueLine(activity,'f-compact-venue'),actions=el('div','f-compact-actions');title.id='f-act-'+activity.id+'-title';
-   main.append(title);if(where)main.append(where);
+   const mine=interests.has(activity.id),row=el('li','f-compact'),main=el('div','f-compact-main'),title=source('p',activity.title,'f-compact-title'),about=description(activity),where=venueLine(activity,'f-compact-venue'),actions=el('div','f-compact-actions');title.id='f-act-'+activity.id+'-title';
+   // Built-in workshops and routes have no time; one the organisers set (often a start only, "Desde las 10:00") shows above the venue, with any session lines under it.
+   const sessions=sessionList(activity,title.id);main.append(title);if(about)main.append(about);if(activity.time)main.append(timeNode(activity.time,'p','f-compact-time'));if(where)main.append(where);if(sessions)main.append(sessions);
    const action=choiceAction(activity,mine,'interestChip','saveInterest',title.id);if(action)actions.append(action);
    actions.append(describe(link('activityForm',activity.formUrl||festival.event.website,'f-text-link'),title.id));withTalk(activity,title.id,link=>actions.append(link));row.append(main,actions);list.append(row);
   }
@@ -132,6 +145,8 @@
   const event=festival.event,registration=me.registration,mine=new Set(registration?.answers.activities||[]),interests=new Set(registration?.answers.externalActivities||[]),labStatus=registration?.labStatus||'none';
   const head=el('div','f-section-head'),nav=el('nav','f-day-nav'),navLabel=tr('span','dayNav','f-sr-only'),chips=el('ol','f-day-chips'),sections=[];
   head.append(tr('h2','programmeTitle'),tr('p','programmeHint','f-muted'));
+  // The festival-wide General conversation leads the programme while it has an open question.
+  withGeneral(link=>{const line=el('p','f-programme-general');line.append(link);head.append(line);});
   navLabel.id='f-day-nav-label';nav.setAttribute('aria-labelledby',navLabel.id);nav.append(navLabel,chips);chips.addEventListener('focusin',event=>{const chip=event?.target?.closest?.('a');if(chip)revealInRow(chips,chip);});
   programmeHost.replaceChildren(head,nav);dayChips.clear();visibleDays.clear();programmeActions.clear();
   for(const day of [...new Set(event.activities.map(a=>a.date))].sort()){
@@ -143,15 +158,15 @@
    for(const activity of of('lab'))blocks.append(labCard(activity,labStatus));
    for(const activity of of('conference'))blocks.append(conferenceCard(activity,mine.has(activity.id)));
    for(const type of ['workshop','route'])if(of(type).length)blocks.append(typeGroup(type,of(type),interests));
+   for(const activity of of('party'))blocks.append(conferenceCard(activity,mine.has(activity.id)));
    section.append(header,blocks);programmeHost.append(section);sections.push(section);
   }
-  const party=el('aside','f-party');party.append(tr('h3','party'),tr('p','partyHint','f-muted'),festival.config.partyUrl?link('partyRegister',festival.config.partyUrl):link('partyDetails',event.website));programmeHost.append(party);
   if('IntersectionObserver' in window){
    dayObserver??=new IntersectionObserver(entries=>{for(const entry of entries){const day=entry.target.id.slice(4);if(entry.isIntersecting)visibleDays.add(day);else visibleDays.delete(day);}markDay();},{rootMargin:'-180px 0px -60% 0px'});
    dayObserver.disconnect();for(const section of sections)dayObserver.observe(section);
   }
  }
- function itineraryRow(activity,prefix){const row=el('li','f-itinerary-row'),when=el('span','f-itinerary-when'),title=source('span',activity.title,'f-itinerary-title');title.id=prefix+activity.id;when.append(dateNode(activity.date,'span','short','f-itinerary-day'));if(activity.time)when.append(el('span','f-itinerary-time',activity.time));row.append(when,title);return row;}
+ function itineraryRow(activity,prefix){const row=el('li','f-itinerary-row'),when=el('span','f-itinerary-when'),title=source('span',activity.title,'f-itinerary-title');title.id=prefix+activity.id;when.append(dateNode(activity.date,'span','short','f-itinerary-day'));if(activity.time)when.append(timeNode(activity.time,'span','f-itinerary-time'));row.append(when,title);return row;}
  function savedSummary(registration,{withBadges=false,prefix='f-it-'}={}){
   const a=registration.answers,event=festival.event,box=el('section','f-saved'),head=el('div','f-saved-head'),heading=tr('h3','saved');box.tabIndex=-1;heading.id=prefix+'saved-heading';box.setAttribute('aria-labelledby',heading.id);
   head.append(heading,el('p','f-saved-who',`${a.firstName} ${a.lastName} · ${registration.email}`));box.append(head);
@@ -295,9 +310,9 @@
   official.input.addEventListener('change',syncLab);apply.input.addEventListener('change',syncLab);
   // A programmatic answer fires no event on the select, so its earlier error is cleared here.
   profile.input.addEventListener('change',()=>{if(profile.input.value==='public_official'&&!official.input.value){official.input.value='yes';clearLocalised(official.input);syncLab();}});
-  for(const activity of chronological(festival.event.activities.filter(x=>x.registration==='general'))){
+  for(const activity of chronological(festival.event.activities.filter(x=>REGISTERED.includes(x.registration)))){
    const label=el('label','f-activity-choice'),input=el('input'),text=el('span','f-choice-text');input.type='checkbox';input.name='activities';input.value=activity.id;input.id='f-act-'+activity.id;input.checked=a.activities?.includes(activity.id)||false;
-   text.append(dateNode(activity.date,'span','short','f-choice-day'));if(activity.time)text.append(el('span','f-choice-time',activity.time));text.append(source('span',activity.title,'f-choice-title'));label.append(input,text);choices.append(label);choiceInputs.set(activity.id,input);
+   text.append(dateNode(activity.date,'span','short','f-choice-day'));if(activity.time)text.append(timeNode(activity.time,'span','f-choice-time'));text.append(source('span',activity.title,'f-choice-title'));if(activity.registration==='social')text.append(tr('span','partyType','f-choice-kind'));label.append(input,text);choices.append(label);choiceInputs.set(activity.id,input);
   }
   // The programme already lists every workshop and route with a "Save as interest" shortcut, so the form keeps its copy folded until needed.
   const externalBox=el('details','f-external-box'),externalSummary=el('summary'),externalCount=el('span','f-external-count'),externalChoices=el('fieldset','f-external-choices');externalSummary.append(tr('span','externalActivities'),externalCount);
@@ -307,7 +322,7 @@
    const group=el('fieldset','f-external-day');group.append(dateNode(day,'legend','long','f-external-day-label'));
    for(const activity of externals.filter(item=>item.date===day)){
     const row=el('div','f-external-choice'),label=el('label','f-check'),input=el('input'),title=source('span',activity.title,'f-choice-title');input.type='checkbox';input.name='externalActivities';input.value=activity.id;input.id='f-act-'+activity.id;input.checked=a.externalActivities?.includes(activity.id)||false;title.id='f-choice-'+activity.id+'-title';
-    const meta=el('p','f-external-meta');label.append(input,title);meta.append(tr('span',typeOf(activity)==='route'?'routeType':'workshopType','f-chip'),describe(link('activityForm',activity.formUrl||festival.event.website,'f-text-link'),title.id));row.append(label,meta);group.append(row);choiceInputs.set(activity.id,input);
+    const meta=el('p','f-external-meta');label.append(input,title);meta.append(tr('span',typeOf(activity)==='route'?'routeType':'workshopType','f-chip'));if(activity.time)meta.append(timeNode(activity.time,'span','f-external-time'));meta.append(describe(link('activityForm',activity.formUrl||festival.event.website,'f-text-link'),title.id));row.append(label,meta);group.append(row);choiceInputs.set(activity.id,input);
    }
    externalChoices.append(group);
   }
@@ -339,9 +354,9 @@
    const key=localised.get(control)||customKeys.get(control);flag(control,key?{key}:{text:control.validationMessage});status(message,'reviewErrors');syncSelection();
   }
   const selection=el('p','f-selection'),submit=button('save'),bar=el('div','f-submit-bar');submit.type='submit';bar.append(selection,submit);
-  const checkedCount=name=>[...form.querySelectorAll('input')].filter(input=>input.name===name&&input.checked&&!input.disabled).length;
-  // The status line above may be off-screen, so the sticky bar says next to Save when answers are flagged, while a save runs and after one fails.
-  const syncSelection=()=>{const n=checkedCount('activities'),m=checkedCount('externalActivities'),parts=[],flagged=[...form.querySelectorAll('input,select,textarea')].some(control=>!control.disabled&&control.getAttribute?.('aria-invalid')==='true');if(n)parts.push(countLabel(n,'conferenceOne','conferenceMany'));if(m)parts.push(countLabel(m,'interestOne','interestMany'));if(checkedCount('applyLab'))parts.push(tr('span','labApplied'));const alert=flagged?'answersNeedAttention':saveState==='failed'?'saveFailed':'';selection.className='f-selection'+(alert?' is-error':'');selection.replaceChildren(...(alert?[tr('span',alert)]:saveState==='saving'?[tr('span','saving')]:parts.length?parts:[tr('span','selectionNone')]));externalCount.replaceChildren(...(m?[countLabel(m,'interestOne','interestMany','f-pill is-ok')]:[]));if(!flagged&&message.dataset.fiiuText==='reviewErrors')status(message,'');};
+  const checkedCount=(name,only=()=>true)=>[...form.querySelectorAll('input')].filter(input=>input.name===name&&input.checked&&!input.disabled&&only(input)).length,isParty=input=>findActivity(festival.event,input.value)?.registration==='social';
+  // The status line above may be off-screen, so the sticky bar says next to Save when answers are flagged, while a save runs and after one fails. The party is named apart from the conference blocks.
+  const syncSelection=()=>{const n=checkedCount('activities',input=>!isParty(input)),m=checkedCount('externalActivities'),parts=[],flagged=[...form.querySelectorAll('input,select,textarea')].some(control=>!control.disabled&&control.getAttribute?.('aria-invalid')==='true');if(n)parts.push(countLabel(n,'conferenceOne','conferenceMany'));if(checkedCount('activities',isParty))parts.push(tr('span','closingParty'));if(m)parts.push(countLabel(m,'interestOne','interestMany'));if(checkedCount('applyLab'))parts.push(tr('span','labApplied'));const alert=flagged?'answersNeedAttention':saveState==='failed'?'saveFailed':'';selection.className='f-selection'+(alert?' is-error':'');selection.replaceChildren(...(alert?[tr('span',alert)]:saveState==='saving'?[tr('span','saving')]:parts.length?parts:[tr('span','selectionNone')]));externalCount.replaceChildren(...(m?[countLabel(m,'interestOne','interestMany','f-pill is-ok')]:[]));if(!flagged&&message.dataset.fiiuText==='reviewErrors')status(message,'');};
   const syncSteps=()=>[personal,choices,details,consent].forEach((set,i)=>{
    const controls=[...set.querySelectorAll('input,select,textarea')].filter(control=>!control.disabled);
    let done=controls.filter(control=>control.required).every(control=>control.type==='checkbox'?control.checked:Boolean(String(control.value).trim()));
@@ -469,7 +484,7 @@
  // Coming back to the tab (or to the page from the back/forward cache) picks up what changed meanwhile, at most once a minute: conversations that opened (the
  // pulse is read again, both reads are cached by the CDN) and news that was published. A form being filled in is never redrawn: the programme and hero are,
  // and the saved summary too when nothing in it is being edited. A read that fails changes nothing.
- const sameCounts=(a,b)=>a.size===b.size&&[...a].every(([id,n])=>b.get(id)===n);let lastLook=Infinity;
+ const sameMap=(a,b)=>a.size===b.size&&[...a].every(([id,n])=>b.get(id)===n),sameCounts=(a,b)=>sameMap(a,b)&&sameMap(a.open||new Map(),b.open||new Map());let lastLook=Infinity;
  async function lookAgain(){
   if(me.pending||Date.now()-lastLook<60000)return;lastLook=Date.now();
   const [counts,news]=await Promise.all([talkCounts?pulse({fresh:true}):null,api('/api/fiiu?kind=news').catch(()=>null)]);

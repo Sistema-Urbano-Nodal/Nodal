@@ -287,7 +287,7 @@ test('dashboard widget invites members without a registration to register and sk
  const {widget,requests}=await widgetHarness(path=>widgetFeed(path)||self(null));
  assert.equal(key(widget,'statusNotRegistered').className,'f-pill');assert.equal(key(widget,'register').href,'fiiu.html#registration');
  assert.equal(key(widget,'viewRegistration'),undefined);assert.equal(key(widget,'nextForYou'),undefined);assert.equal(key(widget,'admin'),undefined);
- assert.deepEqual(requests.filter(path=>path!=='/api/fiiu?kind=news').sort(),['/api/fiiu/registration']);
+ assert.deepEqual(requests.filter(path=>path!=='/api/fiiu?kind=news').sort(),['/api/fiiu/pulse','/api/fiiu/registration'],'only the public pulse, for the General link');
 });
 
 test('the page loads and saves where AbortSignal has no timeout (Safari before 16, every iOS 15 browser)',async()=>{
@@ -405,7 +405,7 @@ async function hubHarness(page,respond){
 test('the dashboard widget and the community card follow the registration settings',async()=>{
  const closed={...publicData.config,registrationOpen:false};
  const member=await widgetHarness(path=>widgetFeed(path,closed)||self(null));assert.equal(key(member.widget,'register'),undefined);assert.equal(key(member.widget,'viewProgramme').href,'fiiu.html#programme');
- assert.deepEqual(member.requests.sort(),['/api/fiiu/registration','/api/fiiu?kind=news']);
+ assert.deepEqual(member.requests.sort(),['/api/fiiu/pulse','/api/fiiu/registration','/api/fiiu?kind=news'],'the public pulse only feeds the General link');
  assert.ok(key((await widgetHarness(path=>widgetFeed(path,closed)||self(saved))).widget,'viewRegistration'),'a registration keeps its way back');
  const community=await hubHarness('community',path=>widgetFeed(path,closed));assert.equal(key(community.hub,'register'),undefined);assert.equal(key(community.hub,'viewProgramme').href,'fiiu.html#programme');
  const open=await hubHarness('community',path=>widgetFeed(path));assert.equal(key(open.hub,'register').href,'fiiu.html');assert.deepEqual(open.requests,['/api/fiiu?kind=news']);
@@ -879,4 +879,134 @@ test('the hero’s minute check stops once the festival is over, even on a page 
  const clock=movableClock('2026-10-25T20:00:00-05:00'),h=await harness({registration:saved,context:{Date:clock.Date}}),timer=()=>h.timers.find(item=>item.delay===60000);
  assert.ok(timer());await h.tickTimers();assert.ok(!timer().cleared,'it runs through the last day');
  clock.at=Date.parse('2026-10-26T00:01:00-05:00');await h.tickTimers();assert.equal(timer().cleared,true);
+});
+
+// The closing party as the server serves it (lane A: a register-only block, never checked in). Built here so the page is tested before the server has it;
+// once FIIU_EVENT carries it, the server's own copy is replaced by this one.
+const PARTY={id:'closing-party',date:'2026-10-25',period:'party',registration:'social',title:'¡Fiesta de cierre y Chelas Urbanas!',time:'17:00',venue:'La Vermut Bar, Av. Francisco Bolognesi 235, Barranco 15063',sessions:[['17:00–19:00','Chelas Urbanas'],['19:00 en adelante','Fiesta de cierre']],description:'',edited:false,minutes:null,checkin:null};
+const partyEvent=(over={})=>({...FIIU_EVENT,activities:[...FIIU_EVENT.activities.filter(activity=>activity.id!=='closing-party'),{...PARTY,...over}]});
+const partyData=over=>({...publicData,event:partyEvent(over)});
+const atHash=hash=>({location:{hash,search:'',pathname:'/fiiu.html',reload(){}}});
+
+test('the separate party aside and its strings are gone: the closing party is a block on 25 October, after the day’s routes, reading “From 17:00”',async()=>{
+ const h=await harness({publicRead:()=>partyData()});
+ assert.equal(h.root.querySelector('.f-party'),null);
+ for(const name of ['party','partyHint','partyRegister','partyDetails'])assert.equal(h.ctx.window.Fiiu.rows[name],undefined,name);
+ const day=h.root.querySelectorAll('section').find(node=>node.id==='day-2026-10-25'),blocks=day.querySelector('.f-day-blocks').children,card=cardOf(h,'¡Fiesta de cierre y Chelas Urbanas!');
+ assert.equal(blocks.at(-1),card,'the party closes its day');assert.ok(blocks.slice(0,-1).some(node=>node.className==='f-type-group'),'the day’s routes come before it');
+ assert.ok(card.className.split(' ').includes('is-party'));assert.ok(key(card,'partyType'),'the card says it is register only');
+ assert.match(content(card),/La Vermut Bar, Av\. Francisco Bolognesi 235, Barranco 15063/);
+ const sessions=card.querySelector('.f-session-list').children.map(item=>content(item).replace(/\s+/g,' ').trim());assert.deepEqual(sessions,['17:00–19:00 Chelas Urbanas','19:00 en adelante Fiesta de cierre']);
+ assert.ok(key(card,'addToRegistration'),'the same action as a conference block');
+ const time=card.querySelector('.f-time');assert.equal(time.textContent,'From 17:00');
+ h.lang('es');assert.equal(time.textContent,'Desde las 17:00');h.lang('pt');assert.equal(time.textContent,'A partir das 17:00');
+ const {timeLabel,typeOf}=h.ctx.window.Fiiu;assert.equal(typeOf(PARTY),'party');
+ assert.equal(timeLabel('09:00–13:00'),'09:00–13:00','a range is unchanged');assert.equal(timeLabel(''),'','no time stays empty');
+ // A guest gets the same way in as on a conference block.
+ const guest=await harness({read:()=>({status:401,data:{error:'sign in required'}}),publicRead:()=>partyData()});assert.equal(key(cardOf(guest,'¡Fiesta de cierre'),'register').href,'#registration');
+});
+
+test('a start-only block is under way from its start until the end of its Lima day, and its time reads “From …” in the hero and the itinerary',async()=>{
+ const registration={...saved,answers:{...answers,activities:['closing-party']}};
+ const h=await harness({registration,publicRead:()=>partyData(),context:{Date:movableClock('2026-10-25T18:30:00-05:00').Date}}),next=h.root.querySelector('.f-next');
+ assert.ok(key(next,'nowForYou'));assert.match(content(next),/¡Fiesta de cierre/);assert.equal(next.querySelector('.f-next-time').textContent,'From 17:00');
+ const row=h.root.querySelector('.f-saved').querySelectorAll('.f-itinerary-row').find(node=>content(node).includes('¡Fiesta de cierre'));assert.equal(row.querySelector('.f-itinerary-time').textContent,'From 17:00');
+ const {underway}=h.ctx.window.Fiiu;assert.equal(underway(PARTY,new Date('2026-10-25T16:59:00-05:00')),false);assert.equal(underway(PARTY,new Date('2026-10-25T23:30:00-05:00')),true);
+ assert.equal(underway(PARTY,new Date('2026-10-24T18:00:00-05:00')),false);
+});
+
+test('the registration form offers the party as its own register-only choice, counts it apart from conference blocks, and #add-closing-party ticks it for saving',async()=>{
+ const fresh=await harness({publicRead:()=>partyData()}),form=fresh.form(),boxes=descendants(form).filter(node=>node.name==='activities'),party=boxes.find(node=>node.value==='closing-party');
+ assert.ok(party,'the party is chosen with the conference blocks');assert.equal(boxes.at(-1),party,'in time order, after the last conference block');
+ const choice=party.parent;assert.ok(key(choice,'partyType'));assert.match(content(choice),/From 17:00/);assert.match(content(choice),/¡Fiesta de cierre/);
+ // Only the party ticked: the choose-one rule is met, and the save bar names the party, not a conference block.
+ party.checked=true;form.listeners.change({target:party});const selection=form.querySelector('.f-selection');
+ assert.ok(key(selection,'closingParty'));assert.equal(key(selection,'conferenceOne'),undefined);assert.equal(party.validationMessage||'','');
+ fresh.fill();party.checked=true;form.listeners.change({target:party});assert.ok(key(selection,'conferenceOne'));assert.ok(key(selection,'closingParty'));
+ // A saved plan with a conference block and the party: the hero counts one conference block and shows the party apart.
+ const both=await harness({registration:{...saved,answers:{...answers,activities:['closing-party','day1-am']}},publicRead:()=>partyData()}),pills=both.root.querySelector('.f-hero-status');
+ assert.ok(key(pills,'conferenceOne'));assert.match(content(pills),/\b1\b/);assert.equal(key(pills,'conferenceMany'),undefined);assert.ok(key(pills,'closingParty'));
+ const card=cardOf(both,'¡Fiesta de cierre');assert.ok(key(card,'statusRegistered'));
+ // #add-closing-party opens a saved registration in edit mode with the party ticked; saving stays a tap and sends it with the other blocks.
+ const member=await harness({registration:saved,publicRead:()=>partyData(),context:atHash('#add-closing-party'),write:request=>({registration:{...saved,version:2,answers:{...answers,activities:request.body.activities}}})});
+ const box=descendants(member.form()).find(node=>node.name==='activities'&&node.value==='closing-party');
+ assert.equal(member.form().hidden,false);assert.equal(box.checked,true);assert.equal(box.focused,true);assert.deepEqual(member.replaced,['/fiiu.html#registration']);
+ assert.equal(member.requests.filter(request=>request.method!=='GET').length,0);
+ await member.submit();const put=member.requests.find(request=>request.method==='PUT');assert.deepEqual([...put.body.activities].sort(),['closing-party','day1-am']);
+});
+
+test('a block description shows under its title as plain text with its line breaks, and only https addresses become links',async()=>{
+ const text='Trae tu bici.\nMás en https://fiiu.sistemaurbano.org/fiesta. <b>no</b> http://inseguro.example';
+ const event={...FIIU_EVENT,activities:FIIU_EVENT.activities.map(activity=>activity.id==='day1-am'?{...activity,description:text,edited:true}:activity.id==='route-arcoiris'?{...activity,description:'Punto de encuentro: la pileta.'}:activity)};
+ const h=await harness({publicRead:()=>({...publicData,event})});
+ const card=cardOf(h,'El poder de lo local'),desc=card.querySelector('.f-activity-desc');
+ assert.ok(desc);assert.equal(card.querySelector('.f-activity-body').children[0],desc,'it opens the card body, under the title');assert.equal(desc.lang,'es');
+ const anchors=desc.querySelectorAll('a');assert.deepEqual(anchors.map(a=>a.href),['https://fiiu.sistemaurbano.org/fiesta']);assert.equal(anchors[0].target,'_blank');assert.equal(anchors[0].rel,'noopener noreferrer');
+ assert.equal(desc.querySelectorAll('b').length,0,'markup stays text');assert.equal(content(desc).replace(/\s+/g,' ').trim(),'Trae tu bici. Más en https://fiiu.sistemaurbano.org/fiesta . <b>no</b> http://inseguro.example'.replace(/\s+/g,' '));
+ assert.ok(desc.children.some(node=>node.tagName==='text'&&node.textContent.includes('\n')),'the line break is kept for the stylesheet');
+ assert.equal(cardOf(h,'Cuidar y transformar la ciudad').querySelector('.f-activity-desc'),null,'no description, no node');
+ const route=h.root.querySelectorAll('.f-compact').find(node=>descendants(node).some(child=>child.id==='f-act-route-arcoiris-title'));assert.equal(content(route.querySelector('.f-activity-desc')).trim(),'Punto de encuentro: la pileta.');
+ const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8');assert.match(css,/\.f-activity-desc\{[^}]*white-space:pre-line/);
+});
+
+test('the party never gets a check-in screen: the check-in blocks are the laboratory and the conferences only',async()=>{
+ const h=await harness({publicRead:()=>partyData()}),{checkinActivities}=h.ctx.window.Fiiu;
+ assert.deepEqual([...checkinActivities(partyEvent()).map(activity=>activity.id)],['day0-lab','day1-am','day1-pm','day2-am','day2-pm','day3-am']);
+});
+
+// The festival-wide General space: its questions ride in the pulse under the activity id 'general'.
+const G1='20000000-0000-4000-8000-000000000001',G2='20000000-0000-4000-8000-000000000002',G3='20000000-0000-4000-8000-000000000003';
+const generalPulse={questions:[[G1,'general',4,'open'],[G2,'general',2,'closed'],[G3,'general',1,'open'],...pulseData.questions]};
+
+test('a General conversation link leads the programme with its open-question count, only while General has an open question',async()=>{
+ const h=await harness({pulseRead:()=>generalPulse}),head=h.root.querySelector('.f-programme').querySelector('.f-section-head'),link=head.querySelector('.f-talk-general');
+ assert.ok(link,'the link sits at the top of the programme');assert.equal(link.href,'fiiu-talk.html?a=general');assert.equal(link.target,undefined);
+ assert.match(content(link),/General conversation\s+·\s+2/,'closed General questions are not counted');assert.equal(link.querySelector('.f-talk-spoken').textContent,', 2 questions');
+ h.lang('es');assert.match(content(link),/Conversación general\s+·\s+2/);assert.equal(link.querySelector('.f-talk-spoken').textContent,', 2 preguntas');h.lang('pt');assert.match(content(link),/Conversa geral\s+·\s+2/);
+ assert.equal(talkLinks(cardOf(h,'El poder de lo local')).length,1,'block links are unchanged');
+ for(const questions of [[[G2,'general',2,'closed'],...pulseData.questions],pulseData.questions]){const quiet=await harness({pulseRead:()=>({questions})});assert.equal(quiet.root.querySelector('.f-talk-general'),null);}
+ // A General question that closes while the page is in the background takes the link away when the person comes back.
+ const clock=movableClock('2026-10-21T08:00:00-05:00');let pulse=generalPulse;const back=await harness({pulseRead:()=>pulse,context:{Date:clock.Date}});assert.ok(back.root.querySelector('.f-talk-general'));
+ pulse={questions:generalPulse.questions.map(row=>row[1]==='general'?[row[0],row[1],row[2]+1,'closed']:row)};clock.at+=61000;await back.visible(false);await back.visible(true);await flush();
+ assert.equal(back.root.querySelector('.f-talk-general'),null);
+});
+
+test('the console festival block links the General conversation with its open-question count, for members with or without a registration',async()=>{
+ const respond=(registration,pulse=generalPulse)=>path=>path==='/api/fiiu/pulse'?pulse:widgetFeed(path)||self(registration);
+ for(const registration of [saved,null]){
+  const {widget}=await widgetHarness(respond(registration)),link=widget.querySelector('.f-talk-general');
+  assert.equal(link.href,'fiiu-talk.html?a=general');assert.match(content(link),/General conversation\s+·\s+2/);
+  const order=[key(widget,registration?'viewRegistration':'register'),link].map(node=>descendants(widget).indexOf(node));assert.ok(order[0]<order[1],'after the call to action');
+ }
+ const quiet=await widgetHarness(respond(saved,{questions:[[G2,'general',2,'closed']]}));assert.equal(quiet.widget.querySelector('.f-talk-general'),null);
+});
+
+test('the console’s Next for you reads “From 17:00” when the next block is the closing party, and follows a language change',async()=>{
+ const T=Date.parse('2026-10-25T10:00:00-05:00');class FrozenDate extends Date{constructor(...args){super(...(args.length?args:[T]));}static now(){return T;}}
+ const registration={...saved,answers:{...answers,activities:['day1-am','closing-party']}},listeners=[],i18n={lang:'en',onChange:listener=>listeners.push(listener)};
+ const {widget}=await widgetHarness(path=>path==='/api/fiiu?kind=news'?{...partyData(),content:[]}:path==='/api/fiiu/pulse'?{questions:[]}:self(registration),{Date:FrozenDate,window:{nodalI18n:i18n}});
+ const next=widget.querySelector('.f-next');assert.match(content(next),/¡Fiesta de cierre/);
+ const time=next.querySelector('.f-next-time');assert.equal(time.textContent,'From 17:00');
+ for(const [lang,text] of [['es','Desde las 17:00'],['pt','A partir das 17:00']]){i18n.lang=lang;listeners.forEach(listener=>listener());assert.equal(time.textContent,text);}
+});
+
+test('an edited workshop or route time and its session lines show on its programme row, and the time in the form’s interest list',async()=>{
+ const edit={'route-arcoiris':{time:'10:00',sessions:[['10:00','Salida en bici'],['12:30','Cierre en la pileta']],edited:true},'workshop-poder-local':{time:'15:00–17:00',edited:true}};
+ const event={...FIIU_EVENT,activities:FIIU_EVENT.activities.map(activity=>edit[activity.id]?{...activity,...edit[activity.id]}:activity)};
+ const h=await harness({publicRead:()=>({...publicData,event})});
+ const rows=h.root.querySelector('.f-programme').querySelectorAll('.f-compact'),row=id=>rows.find(node=>descendants(node).some(child=>child.id==='f-act-'+id+'-title'));
+ const route=row('route-arcoiris'),time=route.querySelector('.f-compact-time');assert.equal(time.textContent,'From 10:00');
+ const main=route.querySelector('.f-compact-main').children;assert.ok(main.indexOf(time)<main.indexOf(route.querySelector('.f-compact-venue')),'the time comes before the starting point');
+ assert.deepEqual(route.querySelector('.f-session-list').children.map(item=>content(item).replace(/\s+/g,' ').trim()),['10:00 Salida en bici','12:30 Cierre en la pileta']);
+ assert.equal(row('workshop-poder-local').querySelector('.f-compact-time').textContent,'15:00–17:00','a range is shown as it is');assert.equal(row('workshop-poder-local').querySelector('.f-sessions'),null,'no session lines, no list');
+ assert.equal(row('workshop-bosques-urbanos').querySelector('.f-compact-time'),null,'no time, no line');
+ const choice=h.form().querySelectorAll('.f-external-choice').find(node=>descendants(node).some(child=>child.id==='f-act-route-arcoiris')),chosen=choice.querySelector('.f-external-time');
+ assert.equal(chosen.textContent,'From 10:00');
+ h.lang('es');assert.equal(time.textContent,'Desde las 10:00');assert.equal(chosen.textContent,'Desde las 10:00');h.lang('pt');assert.equal(time.textContent,'A partir das 10:00');
+ const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8');assert.match(css,/\.f-compact-time\{[^}]*font-variant-numeric:tabular-nums/);
+});
+
+test('the form’s choose-one hint and error say the closing party alone is enough, in every language',async()=>{
+ const h=await harness(),{t}=h.ctx.window.Fiiu;
+ for(const [lang,party] of [['en',/the closing party/],['es',/la fiesta de cierre/],['pt',/a festa de encerramento/]]){h.lang(lang);assert.match(t('choicesHint'),party,lang);assert.match(t('chooseActivity'),party,lang);}
 });

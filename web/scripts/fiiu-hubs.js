@@ -1,6 +1,6 @@
 (() => {
  'use strict';
- const {el,tr,link,button,source,api,status,dateNode,contentCards,badges,countLabel,nextFor,newTabNote,hoursLine,pulse,talkLink}=window.Fiiu;
+ const {el,tr,link,button,source,api,status,dateNode,timeNode,contentCards,badges,countLabel,nextFor,newTabNote,hoursLine,pulse,talkLink}=window.Fiiu;
  const hub=document.getElementById('fiiuHub'),widget=document.getElementById('fiiuDashboardBody'),message=document.getElementById('fiiuStatus');
  // A link is given as [key, url], or as a node when the caller updates it later.
  function card(title,copy,links,featured=false){const box=el('article','f-hub-card'+(featured?' featured':''));box.append(tr('h2',title),tr('p',copy));const actions=el('div','f-actions');for(const item of links)actions.append(Array.isArray(item)?link(...item):item);box.append(actions);return box;}
@@ -47,6 +47,9 @@
    if(registration&&registration.labStatus!=='none')chips.append(tr('span',registration.labStatus+'Short','f-pill is-'+registration.labStatus));
    // A registration keeps its way back; without one, the call to action follows the registration settings.
    state.replaceChildren(chips,next,registration?link('viewRegistration','fiiu.html#registration','f-button'):data?.config?.registrationOpen===false?link('viewProgramme','fiiu.html#programme','f-button'):link('register','fiiu.html#registration','f-button'));
+   // The festival-wide General conversation, with its open questions from the public pulse; nothing while none is open. A refresh reads the pulse again.
+   const general=el('p','f-widget-general');general.hidden=true;state.append(general);
+   pulse({fresh:background}).then(counts=>{const n=counts.open?.get('general');if(!n)return;general.append(talkLink('general',n,'f-text-link f-talk-link f-talk-general','talkGeneral'));general.hidden=false;});
    if(me.isAdmin){
     const admin=el('div','f-widget-admin'),pending=el('span');admin.append(link('admin','fiiu-admin.html#participants','f-button secondary f-admin-link'),pending);state.append(admin);
     api('/api/admin/fiiu/summary').then(data=>{const n=data.summary?.lab?.pending;if(Number.isSafeInteger(n)&&n>0)pending.append(countLabel(n,'pendingReviewOne','pendingReviewMany','f-pill is-pending'));}).catch(()=>{});
@@ -55,8 +58,8 @@
    if(!data){loadedAt=0;state.append(failure());return;}
    if(registration){
     const box=el('div','f-badges');state.append(box);const upcoming=nextFor(registration,data.event);
-    if(upcoming){const line=el('p','f-next');line.append(tr('span','nextForYou','f-next-label'),dateNode(upcoming.date,'span','short','f-next-date'));if(upcoming.time)line.append(el('span','f-next-time',upcoming.time));line.append(source('span',upcoming.title,'f-next-title'));if(upcoming.venue)line.append(source('span',upcoming.venue,'f-next-venue'));next.append(line);
-     // The next block's conversation, once the public pulse answers; the pulse is read only when there is a next block to link.
+    if(upcoming){const line=el('p','f-next');line.append(tr('span','nextForYou','f-next-label'),dateNode(upcoming.date,'span','short','f-next-date'));if(upcoming.time)line.append(timeNode(upcoming.time,'span','f-next-time'));line.append(source('span',upcoming.title,'f-next-title'));if(upcoming.venue)line.append(source('span',upcoming.venue,'f-next-venue'));next.append(line);
+     // The next block's conversation, from the same pulse read as the General link above.
      pulse().then(counts=>{const n=counts.get(upcoming.id);if(n)line.append(talkLink(upcoming.id,n));});}
     // One short line until attendance is confirmed keeps the widget compact; fiiu.html carries the full explanation. Confirmed sessions add their hours.
     badges(box,me.attendance,data.event,{hint:'badgesHintShort'});const hours=hoursLine(me.attendance,data.event);if(hours)box.append(hours);

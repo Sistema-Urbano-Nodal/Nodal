@@ -16,7 +16,7 @@ export class Node {
  getAttribute(key){return this[key]??null;}
  removeAttribute(key){delete this[key];}
  addEventListener(key,listener){this.listeners[key]=listener;}
- querySelectorAll(selector){return descendants(this).filter(node=>selector.split(',').some(part=>part.startsWith('.')?node.className?.split(' ').includes(part.slice(1)):part==='[data-fiiu-text]'?node.dataset.fiiuText:part==='[data-fiiu-date]'?node.dataset.fiiuDate:part==='[data-fiiu-range]'?node.dataset.fiiuRange:node.tagName===part));}
+ querySelectorAll(selector){return descendants(this).filter(node=>selector.split(',').some(part=>part.startsWith('.')?node.className?.split(' ').includes(part.slice(1)):part==='[data-fiiu-text]'?node.dataset.fiiuText:part==='[data-fiiu-date]'?node.dataset.fiiuDate:part==='[data-fiiu-range]'?node.dataset.fiiuRange:part==='[data-fiiu-time]'?node.dataset.fiiuTime:node.tagName===part));}
  querySelector(selector){return this.querySelectorAll(selector)[0]||null;}
  get elements(){return Object.fromEntries(descendants(this).filter(node=>node.name).map(node=>[node.name,node]));}
  focus(){this.focused=true;}

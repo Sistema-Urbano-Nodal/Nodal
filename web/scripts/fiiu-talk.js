@@ -4,7 +4,7 @@
  // Live updates poll the public, CDN-cached pulse every 4 s and fetch only the changes since the shown revision, then patch rows in place: the composer,
  // focus and scroll position are never rebuilt. People registered for the festival and organisers take part; anyone else is told how to.
  // Organisers also hide and unhide messages here, and ?q=…&present=1 gives them a projector view of the question with a QR code to join.
- const Fiiu=window.Fiiu,{t,el,tr,button,link,source,api,status,dateNode,limaClock,limaDate,newTabNote,locale}=Fiiu;
+ const Fiiu=window.Fiiu,{t,el,tr,button,link,source,api,status,dateNode,timeNode,limaClock,limaDate,newTabNote,locale}=Fiiu;
  // Page-only strings join the shared dictionary, so t(), tr() and the language switch in fiiu-ui.js handle them like the rest.
  Object.assign(Fiiu.rows,{
   talkPage:['Conversation','Conversación','Conversa'],talkQuestions:['Questions on this block','Preguntas de este bloque','Perguntas deste bloco'],talkOtherQuestions:['More questions on this block','Más preguntas de este bloque','Mais perguntas deste bloco'],
@@ -45,6 +45,18 @@
   talkEmptyHidden:['No messages yet. Participants can answer once the question opens.','Todavía no hay mensajes. Se podrá responder cuando la pregunta se abra.','Ainda não há mensagens. Será possível responder quando a pergunta for aberta.'],
   talkNextOpen:['Answer the open question','Responder la pregunta abierta','Responder à pergunta aberta'],
   talkDraftKept:['Your unsent answer:','Tu respuesta sin enviar:','Sua resposta não enviada:'],talkDiscardDraft:['Discard','Descartar','Descartar'],
+  // The festival-wide General space (?a=general): a block with no date, time or venue, named in the reader's language.
+  talkGeneralTitle:['FIIU General','FIIU General','FIIU Geral'],talkQuestionsGeneral:['Questions for the whole festival','Preguntas para todo el festival','Perguntas para todo o festival'],
+  talkOtherQuestionsGeneral:['More questions for the whole festival','Más preguntas para todo el festival','Mais perguntas para todo o festival'],talkBackToGeneral:['All General questions','Todas las preguntas generales','Todas as perguntas gerais'],
+  talkEmptyGeneral:['No General questions yet.','Todavía no hay preguntas generales.','Ainda não há perguntas gerais.'],
+  // Rating questions: one tap on 1 to 10 under the question; the results show once the person has rated. {score}, {avg} and {n} are filled in here.
+  talkScoreLabel:['Your rating','Tu valoración','Sua avaliação'],talkScoreScale:['1 = lowest, 10 = highest','1 = más bajo, 10 = más alto','1 = mais baixo, 10 = mais alto'],
+  talkScoreYours:['Your rating: {score}','Tu valoración: {score}','Sua avaliação: {score}'],
+  talkScoreAverage:['Average {avg} from {n} people','Promedio {avg} de {n} personas','Média {avg} de {n} pessoas'],talkScoreAverageOne:['Average {avg} from 1 person','Promedio {avg} de 1 persona','Média {avg} de 1 pessoa'],
+  talkScoreNone:['No ratings yet','Todavía no hay valoraciones','Ainda não há avaliações'],
+  talkScoreChose:['{n} people chose {score}','{n} personas eligieron {score}','{n} pessoas escolheram {score}'],talkScoreChoseOne:['1 person chose {score}','1 persona eligió {score}','1 pessoa escolheu {score}'],
+  talkScoreChip:['Rating 1–10','Valoración 1–10','Avaliação 1–10'],talkScoreTooFast:['Too many changes at once. Wait a moment and try again.','Demasiados cambios seguidos. Espera un momento e inténtalo de nuevo.','Muitas mudanças de uma vez. Aguarde um momento e tente de novo.'],
+  talkScoreAverageLabel:['Average','Promedio','Média'],talkScorePeople:['{n} people','{n} personas','{n} pessoas'],talkScorePeopleOne:['1 person','1 persona','1 pessoa'],
  });
  const root=document.getElementById('fiiuTalkRoot'),message=document.getElementById('fiiuStatus');
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,ID=/^[a-z0-9-]{1,60}$/;
@@ -56,6 +68,8 @@
  // composer says why, since Retry cannot help.
  const DRAFT=['talkFileType','talkFileSize','talkAllowance','talkTooManyFiles','talkNotRegistered'];
  let question=null,activity=null,me={organiser:false,canPost:false},before=null,known=0,parts=null,composer=null;
+ // rate: the 1–10 scale of a rating question, built once per question and repainted in place (see the rating section below).
+ let rate=null;
  let timer=null,busy=false,failures=0,nextAt=0,watcher=null,dockObserver=null;
  // present: the address asked for the projector (?q=…&present=1); wall: its parts while an organiser is shown it; order: 'latest' or 'top'.
  let present=false,wall=null,order='latest',lock=null,waking=false;
@@ -149,19 +163,9 @@
   if(near||own){parts.pill.hidden=true;toBottom(true);}else parts.pill.hidden=false;
  }
 
- // https and http addresses become links; everything else, markup included, stays text. innerHTML is never used.
- const URLS=/(https?:\/\/[^\s<>"]+)/g,TRAIL=/[.,;:!?)\]}'»”]+$/;
- function linkify(text){
-  const p=el('p','f-talk-body');p.translate=true;
-  String(text).split(URLS).forEach((part,i)=>{
-   if(!part)return;if(i%2===0){p.append(document.createTextNode(part));return;}
-   const trail=TRAIL.exec(part)?.[0]||'',href=part.slice(0,part.length-trail.length);let url=null;try{url=new URL(href);}catch{url=null;}
-   if(!url||!['http:','https:'].includes(url.protocol)){p.append(document.createTextNode(part));return;}
-   // Not f-talk-link: that class is the shared conversation entry link, with a speech-bubble glyph and a tall touch target.
-   const a=el('a','f-talk-url',href);a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';a.setAttribute('aria-describedby','f-newtab');p.append(a);if(trail)p.append(document.createTextNode(trail));
-  });
-  return p;
- }
+ // A message body: https and http addresses become links (Fiiu.linkify in fiiu-ui.js, shared with block descriptions); everything else, markup included,
+ // stays text. Not f-talk-link: that class is the shared conversation entry link, with a speech-bubble glyph and a tall touch target.
+ const linkify=text=>{const p=el('p','f-talk-body');p.translate=true;return Fiiu.linkify(p,text,{http:true,cls:'f-talk-url'});};
  // Lima time; a message from another Lima day adds its short date.
  function when(value){
   const at=new Date(value),node=el('time','f-talk-time');if(!Number.isFinite(at.getTime()))return node;node.dateTime=at.toISOString();
@@ -221,15 +225,19 @@
  function drop(id){rowsById.get(id)?.remove();rowsById.delete(id);views.delete(id);}
 
  // The header and the dock (pill, then the composer or the closed note) are built once per question and updated in place.
- function whenLine(a){const line=el('p','f-talk-when');line.append(dateNode(a.date,'span','short','f-talk-day'));if(a.time)line.append(el('span','',a.time));if(a.venue)line.append(source('span',a.venue,'f-talk-venue'));return line;}
- function blockHead(a){return a?[tr('p','talkPage','f-talk-kicker'),source('h1',a.title,'f-talk-title'),whenLine(a)]:[tr('p','talkPage','f-talk-kicker')];}
+ function whenLine(a){const line=el('p','f-talk-when');line.append(dateNode(a.date,'span','short','f-talk-day'));if(a.time)line.append(timeNode(a.time));if(a.venue)line.append(source('span',a.venue,'f-talk-venue'));return line;}
+ // General is the festival-wide space: it has no date, time or venue, and its name follows the reader's language. Its lists and links say "General", not "this block".
+ const isGeneral=id=>id==='general',general=(id,key,generalKey)=>isGeneral(id)?generalKey:key;
+ function blockHead(a){return !a?[tr('p','talkPage','f-talk-kicker')]:isGeneral(a.id)?[tr('p','talkPage','f-talk-kicker'),tr('h1','talkGeneralTitle','f-talk-title')]:[tr('p','talkPage','f-talk-kicker'),source('h1',a.title,'f-talk-title'),whenLine(a)];}
+ // A rating question's scale sits under the question; a number focused there keeps its focus through the redraw.
  function renderHead(){
   const nodes=blockHead(activity);if(question.talk)nodes.push(source('p',question.talk,'f-talk-talk'));if(question.status==='hidden')nodes.push(tr('p','talkHiddenQuestion','f-talk-flag'));
-  nodes.push(source('blockquote',question.body,'f-talk-question'));if(parts.more)nodes.push(parts.more);parts.head.replaceChildren(...nodes);
+  nodes.push(source('blockquote',question.body,'f-talk-question'));if(rate)nodes.push(rate.box);if(parts.more)nodes.push(parts.more);
+  const active=holds(rate?.box)?document.activeElement:null;parts.head.replaceChildren(...nodes);active?.focus();paintRate();
  }
  function questionList(list){
   const ul=el('ul','f-talk-list');
-  for(const q of list){const li=el('li'),a=el('a','f-talk-pick');a.href='fiiu-talk.html?q='+encodeURIComponent(q.id);a.append(source('span',q.body,'f-talk-pick-body'));if(q.talk)a.append(source('span',q.talk,'f-talk-pick-talk'));
+  for(const q of list){const li=el('li'),a=el('a','f-talk-pick');a.href='fiiu-talk.html?q='+encodeURIComponent(q.id);a.append(source('span',q.body,'f-talk-pick-body'));if(q.talk)a.append(source('span',q.talk,'f-talk-pick-talk'));if(q.kind==='rating')a.append(tr('span','talkScoreChip','f-talk-kind'));
    if(q.status!=='open')a.append(tr('span',q.status==='hidden'?'talkHiddenQuestion':'talkClosedChip','f-talk-flag'));li.append(a);ul.append(li);}
   return ul;
  }
@@ -239,7 +247,7 @@
  function showSiblings(list){
   if(!parts||!Array.isArray(list))return;const others=sorted(list.filter(q=>q?.id&&q.id!==question.id)),was=parts.more,focused=holds(was);
   parts.siblings=others;parts.listSig=blockSig(others.map(q=>[q.id,q.status]));parts.more=null;
-  if(others.length){const more=el('details','f-talk-more');more.open=Boolean(was?.open);more.append(tr('summary','talkOtherQuestions'),questionList(others),link('talkBackToBlock','fiiu-talk.html?a='+encodeURIComponent(question.activityId),'f-text-link'));parts.more=more;}
+  if(others.length){const more=el('details','f-talk-more'),id=question.activityId;more.open=Boolean(was?.open);more.append(tr('summary',general(id,'talkOtherQuestions','talkOtherQuestionsGeneral')),questionList(others),link(general(id,'talkBackToBlock','talkBackToGeneral'),'fiiu-talk.html?a='+encodeURIComponent(id),'f-text-link'));parts.more=more;}
   renderHead();renderDock();if(focused)parts.more?.querySelector('summary')?.focus();
  }
  function renderDock(){
@@ -302,6 +310,9 @@
   // The projector is for organisers; anyone else who opens its address gets the chat.
   if(present&&me.organiser)return showWall(data,again);
   unwall();const same=Boolean(parts)&&again;
+  // A read of the same question while a rating is on its way keeps that rating's state; the answer settles it.
+  if(question.kind!=='rating')rate=null;
+  else{if(rate?.id!==question.id)rate=buildRate(question.id);if(!rate.busy)rate.saved=rate.shown=scoreOf(data.me?.score);}
   if(!same)build();renderHead();rowsById.clear();views.clear();parts.log.replaceChildren();
   for(const view of Array.isArray(data.messages)?data.messages:[])if(view?.id)upsert(view);
   restoreUnsent();for(const attempt of attempts.values())if(attempt.row)parts.log.append(attempt.row);
@@ -312,7 +323,7 @@
  function seedLiked(data){for(const id of Array.isArray(data?.liked)?data.liked:[])if(typeof id==='string')liked.add(id);}
 
  // Access states replace the page; polling stops until a question is shown again.
- function halt(){if(timer!==null)clearInterval(timer);timer=null;question=null;parts=null;dockObserver?.disconnect();dockObserver=null;unwatch();unwall();}
+ function halt(){if(timer!==null)clearInterval(timer);timer=null;question=null;parts=null;rate=null;dockObserver?.disconnect();dockObserver=null;unwatch();unwall();}
  // A page with nothing live to follow (a block's list, or a question this viewer cannot see yet) watches the public, CDN-cached pulse every 8 s while
  // the tab is visible, for two hours at most, and acts once its part of the pulse changes. Opening anything stops it.
  function watch(changed,act){
@@ -342,7 +353,7 @@
  // A question hidden from this viewer (not opened yet, or hidden since) opens by itself once the pulse lists it, with the composer and its draft:
  // people who scanned the projector early are not stranded.
  function unavailable(){
-  block('talkUnavailable','',activity?link('talkBackToBlock','fiiu-talk.html?a='+encodeURIComponent(activity.id),'f-button secondary'):link('viewProgramme','fiiu.html#programme','f-button secondary'));
+  block('talkUnavailable','',activity?link(general(activity.id,'talkBackToBlock','talkBackToGeneral'),'fiiu-talk.html?a='+encodeURIComponent(activity.id),'f-button secondary'):link('viewProgramme','fiiu.html#programme','f-button secondary'));
   const q=new URLSearchParams(location.search).get('q')||'';if(UUID.test(q))watch(list=>list.some(item=>item[0]===q),()=>redraw(start));
  }
  // An outage is reported as one, never as "signed out" (the fiiu.js rule).
@@ -412,7 +423,9 @@
   // An answer older than the question on screen (one in flight across a close, or another instance's shared copy) never undoes it.
   const revision=Number(fresh.revision);if(Number.isFinite(revision)){if(revision<Number(question.revision||0))return;question.revision=revision;}
   const talk=fresh.talk??null,edited=fresh.body!==question.body||talk!==(question.talk??null);if(edited)Object.assign(question,{body:fresh.body,talk});
-  if(['open','closed','hidden'].includes(fresh.status)&&fresh.status!==question.status)setStatus(fresh.status);else if(edited&&(wall||parts))(wall?renderWallHead:renderHead)();
+  // A rating question's totals ride on every answer too: they repaint the results (and the projector's) in place, never the chat or the scale.
+  const totals=validCounts(fresh.ratingCounts),moved=Boolean(totals)&&String(totals)!==String(question.ratingCounts);if(moved)question.ratingCounts=totals;
+  if(['open','closed','hidden'].includes(fresh.status)&&fresh.status!==question.status)setStatus(fresh.status);else if(edited&&(wall||parts))(wall?renderWallHead:renderHead)();else if(moved)(wall?paintWallRating:paintRate)();
  }
  async function reload(id){const data=await api('/api/fiiu/questions/'+encodeURIComponent(id));if(question?.id===id&&data?.question?.id)show(data);}
  // A refusal says the question closed before any sync did: it closes at once, and the question is read again (that read is never shared) so its
@@ -629,6 +642,82 @@
   }catch(error){notify(error);}finally{control.disabled=false;}
  }
 
+ // Rating questions (kind 'rating'): ten numbers under the question in a radiogroup. A tap shows at once and saves (PUT …/rating); a tap made while one is
+ // saving waits, and only the latest goes next. A failure puts back the score the server holds and says why, as a like does. The totals travel with every
+ // live update (one answer serves every phone), but the page holds them back until the person has rated, so nobody's score is anchored by the others'; a
+ // closed question shows them to the people who rated and to organisers. Arrow keys move between the numbers; Enter and Space are the buttons' own click.
+ // rate: {id, box, buttons, note, out, saved (the server's score for this viewer, or null), shown (the one on screen), next (the queued tap), busy}.
+ const scoreOf=value=>Number.isInteger(value)&&value>=1&&value<=10?value:null;
+ const validCounts=list=>Array.isArray(list)&&list.length===10&&list.every(n=>Number.isSafeInteger(n)&&n>=0)?[...list]:null;
+ const totalsOf=list=>{const counts=validCounts(list)||Array(10).fill(0),n=counts.reduce((sum,c)=>sum+c,0);return {counts,n,avg:n?counts.reduce((sum,c,i)=>sum+c*(i+1),0)/n:0};};
+ const number=n=>new Intl.NumberFormat(locale()).format(n),average=avg=>new Intl.NumberFormat(locale(),{minimumFractionDigits:1,maximumFractionDigits:1}).format(avg);
+ const MOVES=new Map([['ArrowRight',1],['ArrowDown',1],['ArrowLeft',-1],['ArrowUp',-1]]);
+ function buildRate(id){
+  const box=el('div','f-talk-rate'),label=tr('p','talkScoreLabel','f-talk-rate-label'),group=el('div','f-talk-scale'),hint=tr('p','talkScoreScale','f-talk-rate-hint'),note=el('p','f-talk-status'),out=el('div','f-talk-rate-out');
+  // The label can take focus (never a tab stop): paintRate hands it the focus of a number that is being disabled.
+  label.id='f-talk-rate-label';label.tabIndex=-1;hint.id='f-talk-rate-hint';group.setAttribute('role','radiogroup');group.setAttribute('aria-labelledby',label.id);group.setAttribute('aria-describedby',hint.id);note.setAttribute('role','status');
+  const buttons=Array.from({length:10},(_,i)=>{const b=el('button','f-talk-score',String(i+1));b.type='button';b.setAttribute('role','radio');b.addEventListener('click',()=>rateWith(i+1));b.addEventListener('keydown',event=>moveScore(i,event));group.append(b);return b;});
+  box.append(label,group,hint,note,out);return {id,box,label,buttons,note,out,saved:null,shown:null,next:null,busy:false};
+ }
+ // The tab stop is the chosen number (the first while none is), and follows the arrow keys.
+ function moveScore(i,event){
+  const to=MOVES.has(event.key)?(i+MOVES.get(event.key)+10)%10:event.key==='Home'?0:event.key==='End'?9:null;if(to===null||!rate)return;
+  event.preventDefault();rate.buttons.forEach((b,j)=>{b.tabIndex=j===to?0:-1;});rate.buttons[to].focus();
+ }
+ // A number that is disabled while it has focus (the question closed under it, live or as the server refused a tap) would drop focus to the page's top,
+ // so it goes to the scale's label first; the status line or the scale's note says why.
+ function paintRate(){
+  if(!rate||!question)return;const usable=isOpen()&&me.canPost,shown=rate.shown,stranded=!usable&&rate.buttons.includes(document.activeElement);
+  rate.buttons.forEach((b,i)=>{const on=shown===i+1;b.setAttribute('aria-checked',String(on));b.disabled=!usable;b.tabIndex=(shown?on:i===0)?0:-1;});
+  if(stranded)rate.label.focus();
+  rate.out.replaceChildren(...(rate.saved!==null||(me.organiser&&!isOpen())?[results(rate.saved)]:[]));
+ }
+ // A strip of ten bars, one per score, as tall as its share of the most chosen one (CSSOM, never a style attribute). It is a picture: screen readers get
+ // spoken(), the counts as a sentence from 10 down, leaving out the scores nobody chose.
+ function bars(counts,cls='f-talk-bars'){
+  const max=Math.max(...counts),strip=el('ol',cls);strip.setAttribute('aria-hidden','true');
+  counts.forEach((count,i)=>{const bar=el('li','f-talk-bar'),level=el('span','f-talk-bar-fill'),share=max?count/max:0;bar.dataset.count=String(count);bar.dataset.share=String(Math.round(share*1000)/1000);level.style?.setProperty?.('--f-share',String(share));bar.append(level,el('span','f-talk-bar-n',String(i+1)));strip.append(bar);});
+  return strip;
+ }
+ const spoken=counts=>el('p','f-sr-only f-talk-rate-alt',counts.map((count,i)=>[i+1,count]).filter(([,count])=>count).reverse().map(([score,count])=>fill(count===1?'talkScoreChoseOne':'talkScoreChose',{n:number(count),score})).join(', '));
+ // "Your rating: 8 · Average 7.6 from 42 people", then the bars. Rebuilt whole on a change or a language switch: it holds nothing to focus.
+ // The dot is drawn by the stylesheet on wide screens only; the space between the phrases keeps copied and spoken text apart (it collapses in the layout).
+ function results(score){
+  const {counts,n,avg}=totalsOf(question.ratingCounts),box=el('div','f-talk-rate-results'),line=el('p','f-talk-rate-line');
+  if(score)line.append(el('span','f-talk-rate-yours',fill('talkScoreYours',{score})),document.createTextNode(' '));
+  line.append(n?el('span','f-talk-rate-avg',fill(n===1?'talkScoreAverageOne':'talkScoreAverage',{avg:average(avg),n:number(n)})):tr('span','talkScoreNone','f-talk-rate-avg'));
+  box.append(line);if(n)box.append(bars(counts),spoken(counts));return box;
+ }
+ // A 429 here is about taps, not messages, so it gets its own words.
+ const scoreKey=error=>error?.status===429?'talkScoreTooFast':keyOf(error);
+ async function rateWith(score){
+  const r=rate,id=question?.id;if(!r||!isOpen()||!me.canPost)return;
+  if(r.busy){r.next=score;r.shown=score;paintRate();return;}
+  if(score===r.saved&&r.shown===score)return;
+  r.busy=true;r.shown=score;paintRate();
+  try{
+   for(let want=score;;){
+    const data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/rating',{score:want},'PUT');if(rate!==r||question?.id!==id)return;
+    r.saved=scoreOf(data?.score)??want;const totals=validCounts(data?.ratingCounts);if(totals)question.ratingCounts=totals;
+    // The answer's revision is the question's own: an older live update still on its way can no longer put older totals back.
+    if(Number.isFinite(data?.revision))question.revision=Math.max(Number(question.revision)||0,data.revision);
+    const next=r.next;r.next=null;if(next===null||next===r.saved)break;want=next;
+   }
+   r.shown=r.saved;status(r.note,'');
+  }catch(error){
+   if(rate!==r)return;r.next=null;r.shown=r.saved;status(r.note,problem(scoreKey(error)));
+   if(error?.code==='question_closed')closedByServer();
+  }finally{if(rate===r){r.busy=false;paintRate();}}
+ }
+ // The projector's results: the average in large type, the count and the bars, for everyone in the room, live.
+ function wallRating(){
+  const {counts,n,avg}=totalsOf(question.ratingCounts),box=el('div','f-talk-wall-rating');
+  if(!n){box.append(tr('p','talkScoreNone','f-talk-wall-score'));return box;}
+  const line=el('p','f-talk-wall-score');line.append(tr('span','talkScoreAverageLabel','f-talk-wall-avg-label'),el('span','f-talk-wall-average',average(avg)),el('span','f-talk-wall-people',fill(n===1?'talkScorePeopleOne':'talkScorePeople',{n:number(n)})));
+  box.append(line,bars(counts,'f-talk-bars f-talk-wall-bars'),spoken(counts));return box;
+ }
+ function paintWallRating(){if(!wall?.rating||question?.kind!=='rating')return;const next=wallRating();wall.rating.replaceWith(next);wall.rating=next;fitWall();}
+
  // Projector (?q=…&present=1, organisers only): the question as the headline, a QR code to join and the 12 latest or most liked answers, for the room's
  // screen. It follows the chat's poll, and has no composer, likes or moderation.
  function buildWall(){
@@ -643,10 +732,11 @@
   document.fonts?.ready?.then(()=>fitWall(),()=>{});
  }
  function renderWallHead(){
-  const nodes=activity?[source('p',activity.title,'f-talk-wall-block'),whenLine(activity)]:[];if(question.talk)nodes.push(source('p',question.talk,'f-talk-talk'));
+  const nodes=!activity?[]:isGeneral(activity.id)?[tr('p','talkGeneralTitle','f-talk-wall-block')]:[source('p',activity.title,'f-talk-wall-block'),whenLine(activity)];if(question.talk)nodes.push(source('p',question.talk,'f-talk-talk'));
   if(question.status!=='open')nodes.push(tr('p',question.status==='hidden'?'talkHiddenQuestion':'talkClosedChip','f-talk-flag'));rekey(wall.empty,emptyKey());
   // The headline is 3 to 5 % of the screen's width; a long question steps down so the answers still fit under it.
-  nodes.push(source('h1',question.body,'f-talk-wall-question'+(codePoints(question.body)>LONG?' is-long':'')));wall.head.replaceChildren(...nodes);paintCode();fitWall();
+  nodes.push(source('h1',question.body,'f-talk-wall-question'+(codePoints(question.body)>LONG?' is-long':'')));wall.rating=question.kind==='rating'?wallRating():null;if(wall.rating)nodes.push(wall.rating);
+  wall.head.replaceChildren(...nodes);paintCode();fitWall();
  }
  // An answer on the projector: the name, the organiser label and its likes, then the text (four lines at most, in the stylesheet) and thumbnails.
  function wallCard(m){
@@ -741,8 +831,8 @@
   status(message,'');activity=data.activity||null;const list=sorted(Array.isArray(data.questions)?data.questions.filter(q=>q?.id):[]);
   if(list.length===1){history.replaceState(null,'',location.pathname+'?q='+encodeURIComponent(list[0].id));return openQuestion(list[0].id,list);}
   const box=el('section','f-talk f-talk-block'),head=el('header','f-talk-head');head.append(...blockHead(activity));box.append(head);
-  if(list.length)box.append(tr('h2','talkQuestions','f-talk-subhead'),questionList(list));
-  else{const actions=el('div','f-actions');actions.append(link('viewProgramme','fiiu.html#programme','f-button secondary'));box.append(tr('p','talkEmptyBlock','f-talk-empty'),actions);}
+  if(list.length)box.append(tr('h2',general(id,'talkQuestions','talkQuestionsGeneral'),'f-talk-subhead'),questionList(list));
+  else{const actions=el('div','f-actions');actions.append(link('viewProgramme','fiiu.html#programme','f-button secondary'));box.append(tr('p',general(id,'talkEmptyBlock','talkEmptyGeneral'),'f-talk-empty'),actions);}
   root.replaceChildren(box,newTabNote());setTitle();watchBlock(id,seen??blockSig(list.map(q=>[q.id,q.status])));
  }
  async function openQuestion(id,list=null){
@@ -766,6 +856,8 @@
   root.querySelectorAll('.f-talk-size').forEach(node=>{node.textContent=sizeText(Number(node.dataset.talkSize));});
   if(parts)parts.log.setAttribute('aria-label',t('talkPage'));if(composer){composer.textarea.placeholder=t('talkPlaceholder');updateLeft();}
   wall?.svg?.setAttribute('aria-label',t(question?.status==='closed'?'talkScanToRead':'talkScanToJoin'));
+  // The rating results carry formatted numbers and sentences: drawn again in the new language.
+  paintRate();paintWallRating();
  }
  window.nodalI18n?.onChange(relabel);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible')return;wake();nextAt=0;return tick();});
