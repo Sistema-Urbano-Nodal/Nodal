@@ -287,4 +287,6 @@ html:has(>body.f-page){scroll-padding-top:176px}.f-page :where(section,footer)[i
 .f-rating-step{display:grid;grid-template-rows:auto 48px auto;justify-items:center;gap:2px;min-width:0;font-size:var(--f-fs-hint);font-variant-numeric:tabular-nums}
 .f-rating-bar{align-self:end;width:100%;height:calc(var(--share,0)*48px);min-height:2px;border-radius:2px 2px 0 0;background:var(--f-forest)}.f-rating-step.is-zero .f-rating-bar{background:var(--f-line)}
 .f-rating-count{color:var(--f-muted)}.f-rating-score{font-weight:650}
-@media(pointer:coarse){.f-shell :is(.f-line-button,.f-programme-restore,.f-party-notice .f-backfill-link){min-height:44px}}
+@media(pointer:coarse){.f-shell :is(.f-line-button,.f-programme-restore,.f-party-notice .f-backfill-link){min-height:44px;min-width:44px;text-align:center}}
+/* Settings: one public link is left, so on wide screens it takes one readable column instead of half of two. */
+@media(min-width:1000px){.f-admin-settings .f-links{grid-template-columns:minmax(0,1fr);max-width:640px}}

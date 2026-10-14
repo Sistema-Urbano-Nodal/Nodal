@@ -770,6 +770,8 @@ test('settings edit only the programme link the public page shows, send the othe
  const h=await harness(({method,body})=>method==='GET'?{content:[],nextCursor:null}:{config:{...body,version:body.version+1}},{configRead:()=>({config:copy(saved)})});
  const form=h.root.querySelector('.f-admin-settings').querySelector('form');
  assert.deepEqual(form.querySelectorAll('input').filter(input=>input.type==='url').map(input=>input.name),['programUrl']);assert.equal(key(form,'partyUrl'),undefined);
+ const legend=form.querySelector('legend');assert.equal(legend.dataset.fiiuText,'publicLink','one link, so the legend is singular');assert.equal(legend.textContent,'Link shown on the public page');
+ h.lang('es');assert.equal(legend.textContent,'Enlace que se muestra en la página pública');h.lang('pt');assert.equal(legend.textContent,'Link exibido na página pública');h.lang('en');
  field(form,'programUrl').value='https://example.test/programme';await submit(form);
  const body=h.requests.find(request=>request.method==='PUT').body;
  assert.equal('partyUrl' in body,false);assert.equal(body.programUrl,'https://example.test/programme');assert.equal(body.version,4);
@@ -1749,7 +1751,9 @@ test('the check-in section leaves out the party, which takes no check-in',async(
 test('the organiser CSS is the stylesheet’s last block: 44px touch targets, and no fixed width that would push a 360px phone sideways',()=>{
  const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8'),marker='/* Organiser: programme, party announcement, ratings */',at=css.indexOf(marker);
  assert.ok(at>0);assert.equal(css.indexOf(marker,at+1),-1,'one block');const block=css.slice(at);
- assert.match(block,/@media\(pointer:coarse\)\{\.f-shell :is\(\.f-line-button,\.f-programme-restore,\.f-party-notice \.f-backfill-link[^)]*\)\{min-height:44px\}/);
+ assert.match(block,/@media\(pointer:coarse\)\{\.f-shell :is\(\.f-line-button,\.f-programme-restore,\.f-party-notice \.f-backfill-link[^)]*\)\{min-height:44px;min-width:44px;text-align:center\}/,'44px wide too: Subir and Bajar are narrower than that');
+ // One programme link is left in the settings, so the links fieldset is one column on wide screens instead of half of two.
+ assert.match(block,/@media\(min-width:1000px\)\{\.f-admin-settings \.f-links\{grid-template-columns:minmax\(0,1fr\);max-width:\d+px\}\}/);
  // Widths that only apply past a breakpoint, caps (max-width) and tracks clamped to the column (min(100%,…)) never widen a phone page.
  const loose=block.replace(/@media\([^)]*\)/g,'').replace(/min\(100%,\d+px\)/g,'').replace(/max-width:\d+px/g,'');
  assert.doesNotMatch(loose,/(?:min-width|[{;]width|flex-basis|grid-template-columns|inline-size)\s*:[^;}]*\b\d{3,}px/,'no fixed width of 100px or more');assert.doesNotMatch(block,/border-left:\s*[3-9]px/,'no thick left accent bar');

@@ -74,7 +74,9 @@
   noticeConfirmHint:['The announcement goes out now, a few emails at a time. You can stop at any time.','El anuncio sale ahora, unos pocos correos a la vez. Puedes detener el envío en cualquier momento.','O anúncio sai agora, alguns e-mails por vez. Você pode parar o envio a qualquer momento.'],
   noticeCap:['Today’s limit of {cap} emails is reached (summary and sign-up emails included). Sending can continue after {time} Lima time.','Se alcanzó el límite de hoy: {cap} correos (incluidos los de resumen e inscripción). Se puede seguir enviando después de las {time}, hora de Lima.','O limite de hoje foi atingido: {cap} e-mails (incluindo os de resumo e de inscrição). O envio pode continuar depois das {time}, horário de Lima.'],
   noticeOff:['Emails are off, so the announcement cannot be sent. To turn them on, set EMAIL_SMTP_URL and EMAIL_FROM (and PUBLIC_BASE_URL) in Vercel for Production, then redeploy.','Los correos están desactivados, así que el anuncio no se puede enviar. Para activarlos, configura EMAIL_SMTP_URL y EMAIL_FROM (y PUBLIC_BASE_URL) en Vercel para Production y vuelve a desplegar.','Os e-mails estão desativados, então o anúncio não pode ser enviado. Para ativá-los, defina EMAIL_SMTP_URL e EMAIL_FROM (e PUBLIC_BASE_URL) na Vercel para Production e publique de novo.'],
-  noticeLoadError:['The announcement status could not be loaded.','No se pudo cargar el estado del anuncio.','Não foi possível carregar o status do anúncio.']
+  noticeLoadError:['The announcement status could not be loaded.','No se pudo cargar el estado del anuncio.','Não foi possível carregar o status do anúncio.'],
+  // The settings keep one public link, the programme's.
+  publicLink:['Link shown on the public page','Enlace que se muestra en la página pública','Link exibido na página pública']
  });
  const root=document.getElementById('fiiuAdminRoot'),message=document.getElementById('fiiuStatus');
  let festival,config,records=[],cursor=null,filling=null,listStale=false,publications=[],contentCursor=null,selectedParticipant=null,shownParticipant=null,detailRequest=0,participantFilter='all',participantQuery='',participantWords=[],participantBlock='',blockFilter=null,shownCount=null,updatedAt=null,search=null,searchTimer=null,setAside=null;
@@ -455,7 +457,7 @@
  function settingsDirty(){return linkInputs.some(input=>input.value!==(config?.[input.name]??''));}
  function settings(){
   const form=el('form','f-form'),card=el('div','f-switch-card'),links=el('fieldset','f-links'),open=check('registrationOpen','registrationOpen','yes',config.registrationOpen),note=hint('registrationOpenHint'),conflict=el('div','f-conflict'),switchNote=el('p','f-inline-status'),switchConflict=el('div','f-conflict');let busy=false,pending=false;
-  open.input.setAttribute('role','switch');open.input.setAttribute('aria-describedby',note.id);switchNote.setAttribute('role','status');card.append(open.wrap,note,switchNote,switchConflict);links.append(tr('legend','publicLinks'));
+  open.input.setAttribute('role','switch');open.input.setAttribute('aria-describedby',note.id);switchNote.setAttribute('role','status');card.append(open.wrap,note,switchNote,switchConflict);links.append(tr('legend','publicLink'));
   // The public page shows only the programme link: each workshop and route carries its own form link, and the party registers through NODAL.
   linkInputs=['programUrl'].map(key=>{const link=field(key,{value:config[key],type:'url',max:2000});links.append(link.wrap);return link.input;});
   const save=button('saveSettings');save.type='submit';form.append(card,links,save,conflict);localiseValidation(form);
