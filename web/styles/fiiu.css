@@ -259,16 +259,16 @@ html:has(>body.f-page){scroll-padding-top:176px}.f-page :where(section,footer)[i
 .f-programme-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,460px),1fr));gap:var(--f-sp-5) var(--f-sp-7);align-items:start}
 .f-page .f-programme-date{margin:0 0 var(--f-sp-2);padding-bottom:var(--f-sp-1);border-bottom:2px solid var(--f-ink);font-size:1rem;line-height:1.4}
 .f-programme-blocks{display:grid;gap:var(--f-sp-3);margin:0;padding:0;list-style:none}.f-programme-row{min-width:0}
-.f-programme-view{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px var(--f-sp-3);align-items:center}.f-programme-view>.f-button{grid-column:2;grid-row:1/span 2}
+.f-programme-view{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px var(--f-sp-3);align-items:center}.f-programme-view>:not(.f-button){grid-column:1}.f-programme-view>.f-button{grid-column:2;grid-row:1/span 2}
 .f-programme-time{font-size:var(--f-fs-hint);font-weight:650;color:var(--f-forest);font-variant-numeric:tabular-nums}.f-programme-main{display:grid;gap:2px;min-width:0}
 .f-programme-title{font-weight:600;line-height:1.4;overflow-wrap:anywhere}.f-programme-meta{display:flex;flex-wrap:wrap;align-items:center;gap:2px var(--f-sp-2);font-size:var(--f-fs-hint);color:var(--f-muted)}
 .f-pill.is-edited{min-height:22px;padding:1px 8px;border-radius:999px;background:var(--f-pale);color:var(--f-forest-deep)}
 .f-programme-row>.f-inline-status{display:block;margin:var(--f-sp-1) 0 0}
-@media(min-width:600px){.f-programme-view{grid-template-columns:6.5rem minmax(0,1fr) auto}.f-programme-view>.f-programme-time{align-self:start;padding-top:2px}.f-programme-view>.f-button{grid-column:3;grid-row:1}}
+@media(min-width:600px){.f-programme-view{grid-template-columns:6.5rem minmax(0,1fr) auto}.f-programme-view>.f-programme-time{grid-column:1;align-self:start;padding-top:2px}.f-programme-view>.f-programme-main{grid-column:2;grid-row:1}.f-programme-view>.f-button{grid-column:3;grid-row:1}}
 /* The block's form: one column, the two times side by side; schedule lines are a time and a title with their move and remove buttons under them. */
 .f-programme-form{margin:var(--f-sp-3) 0 var(--f-sp-2);max-width:760px}.f-programme-times{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--f-sp-3)}
 .f-page .f-programme-hint{margin:calc(-1*var(--f-sp-2)) 0 var(--f-sp-3);font-size:var(--f-fs-hint);line-height:1.45}
-.f-programme-schedule{min-width:0;margin:0 0 var(--f-sp-3);padding:0;border:0}.f-programme-schedule>legend{padding:0;font-size:.84rem;font-weight:650}.f-programme-schedule>.f-programme-hint{margin:var(--f-sp-1) 0 0}
+.f-form .f-programme-schedule{min-width:0;margin:0 0 var(--f-sp-3);padding:0;border:0}.f-programme-schedule>legend{padding:0;font-size:.84rem;font-weight:650}.f-form .f-programme-schedule>.f-programme-hint{margin:var(--f-sp-1) 0 0}
 .f-programme-lines{display:grid;gap:var(--f-sp-3);margin:var(--f-sp-3) 0;padding:0;list-style:none}.f-programme-line{display:grid;grid-template-columns:minmax(0,1fr);gap:0 var(--f-sp-3);min-width:0}.f-programme-line .f-field{margin:0 0 var(--f-sp-1)}
 .f-page .f-programme-line-label{grid-column:1/-1;margin:0;font-size:var(--f-fs-hint);font-weight:650;color:var(--f-muted)}.f-programme-line-tools{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:0 var(--f-sp-4)}
 @media(min-width:480px){.f-programme-line{grid-template-columns:minmax(0,10rem) minmax(0,1fr)}}
@@ -279,8 +279,8 @@ html:has(>body.f-page){scroll-padding-top:176px}.f-page :where(section,footer)[i
 .f-backfill.f-party-notice{display:block;max-width:none;margin:var(--f-sp-4) 0 var(--f-sp-2)}.f-page .f-party-notice h3{font-size:.95rem}
 /* Conversations: the type choice of a new question (two radios on one line), the locked type of a saved one, and a rating's totals: the average and
    how many rated over a strip of ten counts, each bar's height its share of the largest count (fiiu-admin.js sets --share). */
-.f-kind-choice{min-width:0;margin:0 0 var(--f-sp-3);padding:0;border:0}.f-kind-choice>legend{padding:0;font-size:.84rem;font-weight:550}
-.f-kind-choice .f-check{display:inline-flex;align-items:center;min-height:44px;margin:0 var(--f-sp-5) 0 0;padding:0;font-size:.92rem}.f-page .f-kind-hint{margin:0;font-size:var(--f-fs-hint);line-height:1.45}
+.f-form .f-kind-choice{min-width:0;margin:0 0 var(--f-sp-3);padding:0;border:0}.f-kind-choice>legend{padding:0;font-size:.84rem;font-weight:550}
+.f-kind-choice .f-check{display:inline-flex;align-items:center;min-height:44px;margin:0 var(--f-sp-5) 0 0;padding:0;font-size:.92rem}.f-form .f-kind-choice>.f-kind-hint{margin:0;font-size:var(--f-fs-hint);line-height:1.45}
 .f-page .f-kind-locked{margin:0 0 var(--f-sp-3);font-size:var(--f-fs-hint)}.f-kind-locked .f-question-kind{font-weight:650;color:var(--f-ink)}
 .f-rating{max-width:420px;margin:var(--f-sp-2) 0 0}.f-page .f-rating-line{margin:0 0 var(--f-sp-2);font-size:.92rem;font-variant-numeric:tabular-nums}.f-rating-average{font-size:1.15rem}.f-page .f-rating-none{margin:0;font-size:var(--f-fs-hint)}
 .f-rating-bars{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:4px;margin:0;padding:0;list-style:none}
