@@ -4,7 +4,7 @@
  // The check-in is sent at once and c then leaves the address bar, so a reload or a shared screenshot of the page cannot reuse it;
  // a reload shows the person's confirmation for that block instead (revisit).
  // Every outcome is one ruled block: a title that takes focus, the block it concerns, and the one next step.
- const Fiiu=window.Fiiu,{t,el,tr,button,link,source,field,api,status,dateNode,limaDate,badges,findActivity,countLabel,hoursLine,limaClock,windowNode,newTabNote,checkinCloses}=Fiiu;
+ const Fiiu=window.Fiiu,{t,el,tr,button,link,source,field,api,status,dateNode,limaDate,badges,festivalBadges,findActivity,countLabel,hoursLine,limaClock,windowNode,newTabNote,checkinCloses}=Fiiu;
  // Page-only strings join the shared dictionary, so t(), tr() and the language switch in fiiu-ui.js handle them like the rest.
  Object.assign(Fiiu.rows,{
   checkinAccount:['Signed in as','Sesión iniciada como','Conectado como'],
@@ -12,6 +12,9 @@
   useOtherAccount:['Use another account','Usar otra cuenta','Usar outra conta'],
   signInBeforeCodeHint:['Sign in first, with the account you registered with. Then type the code.','Primero inicia sesión con la cuenta con la que te inscribiste. Luego escribe el código.','Primeiro entre com a conta com que você se inscreveu. Depois digite o código.'],
   signInTypedCodeHint:['Use the account you registered with. If the code expires meanwhile, type the new code from the screen.','Usa la cuenta con la que te inscribiste. Si el código vence mientras tanto, escribe el código nuevo de la pantalla.','Use a conta com que você se inscreveu. Se o código expirar nesse meio-tempo, digite o código novo da tela.'],
+  // What a first scan unlocked. The milestone names are the console's own (d.badge.fiiu.*.name in i18n-dashboard.js, which this page does not load).
+  badgeUnlocked:['Badge unlocked:','Insignia desbloqueada:','Insígnia desbloqueada:'],milestoneReached:['Milestone reached:','Hito alcanzado:','Marco alcançado:'],seeInConsole:['See it in your console','Velo en tu panel','Veja no seu painel'],
+  milestoneFirst:['First session','Primera sesión','Primeira sessão'],milestoneThree:['Three sessions','Tres sesiones','Três sessões'],milestoneConferences:['All five conferences','Las cinco conferencias','As cinco conferências'],milestoneLab:['Laboratory','Laboratorio','Laboratório'],
  });
  const root=document.getElementById('fiiuCheckinRoot'),message=document.getElementById('fiiuStatus');
  const params=new URLSearchParams(location.search),activityId=params.get('a')||'',code=params.get('c')||'';
@@ -67,6 +70,30 @@
   });
   return result;
  }
+ // What this check-in unlocked: the badges earned with it that were not earned without it, by the console's rule (Fiiu.festivalBadges). The page has no
+ // registration, which the rule allows, since what is earned follows from the attendance alone. Only a scan that created the attendance unlocks anything
+ // (a repeat scan or a reload does not), and nothing is claimed before the programme lands.
+ const MILESTONES={'milestone:first':'milestoneFirst','milestone:three':'milestoneThree','milestone:conferences':'milestoneConferences','milestone:lab':'milestoneLab'};
+ function unlockedBy(data,id,attendance){
+  if(data.result!=='checked_in'||!festival)return [];
+  const earned=list=>festivalBadges(null,list,festival.event).filter(badge=>badge.state==='earned'),before=new Set(earned(attendance.filter(row=>row.activityId!==id)).map(badge=>badge.id));
+  return earned(attendance).filter(badge=>!before.has(badge.id)&&(badge.kind==='session'||MILESTONES[badge.id]));
+ }
+ // The confirmation shows it, with the way to the console's Recognition ledger. The status line says it once for a screen reader, just after the title takes
+ // focus: visually hidden, from plain nodes without data-fiiu-text, so a redraw or a language switch never says it again; the block title keeps lang=es
+ // there too, so a screen reader reads it with a Spanish voice.
+ let told='';
+ function unlockedNews(id,unlocked){
+  if(!unlocked.length)return null;const box=el('div','f-unlocked'),spoken=el('span','f-sr-only'),text=value=>document.createTextNode(value);
+  for(const badge of unlocked){
+   const session=badge.kind==='session',key=session?'badgeUnlocked':'milestoneReached',line=el('p','f-unlocked-line');
+   line.append(tr('span',key,'f-unlocked-label'),space(),session?source('span',badge.activity.title):tr('span',MILESTONES[badge.id]));box.append(line);
+   spoken.append(text(t(key)+' '),session?source('span',badge.activity.title):text(t(MILESTONES[badge.id])),text('. '));
+  }
+  box.append(link('seeInConsole','dashboard.html#badges','f-text-link'));
+  if(told!==id){told=id;Promise.resolve().then(()=>message.replaceChildren(spoken));}
+  return box;
+ }
  function success(data,body){
   const id=data.activityId||body.activityId,activity=find(id)||answered(data.activity,id),attendance=Array.isArray(data.attendance)?data.attendance:[],record=attendance.find(row=>row.activityId===id),at=Date.parse(data.checkedInAt||record?.createdAt);
   const time=Number.isFinite(at)?el('time','',limaClock(at)):null;if(time)time.dateTime=new Date(at).toISOString();
@@ -76,7 +103,8 @@
   let hours=festival?hoursLine(attendance,festival.event):null;
   if(!festival&&Number.isSafeInteger(data.hours?.hours)){hours=el('p','f-hours');hours.append(countLabel(data.hours.hours,'hoursConfirmed','hoursConfirmed'));}
   const earned=festival?el('div','f-badges'):null;if(earned)badges(earned,attendance,festival.event,{heading:'h2'});
-  return completeLater(block(data.result==='checked_in'?'checkedInTitle':'alreadyCheckedIn','ok',about(activity),when&&facts([day?'checkedInOn':'checkedInAt',when]),hours,earned,actions(link('viewRegistration','fiiu.html#registration','f-button'))),()=>success(data,body));
+  const news=unlockedNews(id,unlockedBy(data,id,attendance));
+  return completeLater(block(data.result==='checked_in'?'checkedInTitle':'alreadyCheckedIn','ok',about(activity),when&&facts([day?'checkedInOn':'checkedInAt',when]),news,hours,earned,actions(link('viewRegistration','fiiu.html#registration','f-button'))),()=>success(data,body));
  }
  // A refusal drawn before the programme arrived has only the block's id (a typed code, or slow Wi-Fi); the programme names the block later.
  function failure(error,body,account){

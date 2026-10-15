@@ -649,7 +649,8 @@ select:focus-visible, textarea:focus-visible {
    where you stand. One ruled ledger, grouped by family — each badge is a line
    entry with its number, its requirement, what it opens, and (where the work
    is countable) a tally that fills as you go. State is carried by ink weight
-   and a left accent, never by dashed outlines or shouted labels. */
+   and the drawn check, never by a left accent bar, dashed outlines or shouted
+   labels. */
 .badge-grid { display: grid; gap: 14px; }
 .bl-group { background: #fff; border: 1px solid var(--rule-2); border-radius: var(--r-card); box-shadow: var(--lift); overflow: hidden; }
 .bl-head {
@@ -695,14 +696,12 @@ select:focus-visible, textarea:focus-visible {
 .bl-meter i.is-on { background: var(--green); border-color: var(--green); }
 .bl-frac { font-size: 11px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
 
-.bl-row.is-earned { box-shadow: inset 3px 0 0 var(--forest); }
 .bl-row.is-earned .bl-check { background: var(--forest); border-color: var(--forest); }
 .bl-row.is-earned .bl-check::after {
   content: ''; position: absolute; left: 2px; top: 2.5px;
   width: 7px; height: 3.5px; border-left: 2px solid #fff; border-bottom: 2px solid #fff;
   transform: rotate(-45deg);
 }
-.bl-row.is-progress { box-shadow: inset 3px 0 0 var(--green); }
 .bl-row.is-progress .bl-check { border-color: var(--green); }
 .bl-row.is-locked .bl-name { color: var(--text-2); font-weight: 600; }
 .bl-row.is-locked .bl-idx, .bl-row.is-locked .bl-req { color: var(--muted); }

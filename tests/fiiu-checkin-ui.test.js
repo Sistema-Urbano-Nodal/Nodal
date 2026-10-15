@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {FIIU_EVENT} from '../server/fiiu-domain.js';
 import {mergeProgramme} from '../server/fiiu-programme.js';
-import {createFiiuHarness,key,field,flush,content} from './helpers/fiiu-ui-harness.js';
+import {createFiiuHarness,key,field,flush,content,descendants} from './helpers/fiiu-ui-harness.js';
+import vm from 'node:vm';
+import {readFileSync} from 'node:fs';
 
 const CODE='Ab3dEf6hIj9kLm2nOp5qRs';
 const publicData=(registrationOpen=true)=>({event:FIIU_EVENT,config:{registrationOpen,programUrl:''},content:[],nextCursor:null});
@@ -441,4 +443,63 @@ test('the account lookup behind a refusal holds the result only briefly',async()
  const waits=[];const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?publicData():request.path==='/api/fiiu/registration'?new Promise(()=>{}):{status:404,data:{code:'not_registered',activityId:'day1-am',registrationOpen:true}},{page:'fiiu-checkin',search:`?a=day1-am&c=${CODE}`,context:{Date:frozen('2026-10-21T09:12:00-05:00'),setTimeout:(fn,ms)=>{waits.push(ms);fn();}}});
  assert.ok(waits.length&&waits.every(ms=>ms<=1500),String(waits));assert.equal(title(h).dataset.fiiuText,'notRegistered');assert.equal(title(h).focused,true);
  assert.equal(result(h).querySelector('.f-checkin-facts'),null);assert.ok(key(result(h),'useOtherAccount'));
+});
+
+// What a first scan unlocks, from the console's own rule (Fiiu.festivalBadges): shown in the confirmation, and said once on the page's status line.
+const unlockedLines=h=>(result(h).querySelector('.f-unlocked')?.children||[]).filter(node=>node.tagName==='p').map(node=>content(node).replace(/\s+/g,' ').trim());
+// What a screen reader hears from the status line: its text run together, as the browser's textContent gives it.
+const spokenText=node=>node.textContent+node.children.map(spokenText).join(''),announced=h=>spokenText(h.message).replace(/\s+/g,' ').trim();
+const rows=(...ids)=>ids.map((activityId,i)=>({activityId,createdAt:`2026-10-2${1+i}T14:12:00.000Z`,method:'qr'}));
+const first=(activityId,list)=>({status:201,data:{result:'checked_in',activityId,checkedInAt:list.find(r=>r.activityId===activityId).createdAt,method:'qr',attendance:list,hours:{minutes:0,hours:0,untimed:[]}}});
+
+test('a first check-in shows the badge it unlocked and the milestone it reached, with a way to the console, and says it once',async()=>{
+ const h=await page(()=>checkedIn);await flush();const box=result(h),unlocked=box.querySelector('.f-unlocked');
+ assert.deepEqual(unlockedLines(h),['Badge unlocked: El poder de lo local','Milestone reached: First session']);
+ const toConsole=key(unlocked,'seeInConsole');assert.equal(toConsole.href,'dashboard.html#badges');assert.equal(toConsole.tagName,'a');
+ assert.equal(unlocked.children.find(node=>node.tagName==='p').children.at(-1).lang,'es','the block keeps its Spanish title');
+ const order=box.children.map(node=>node.className);assert.ok(order.indexOf('f-checkin-facts')<order.indexOf('f-unlocked')&&order.indexOf('f-unlocked')<order.indexOf('f-hours'),'right under the check-in time');
+ assert.equal(title(h).focused,true,'the title still takes focus first');
+ assert.equal(announced(h),'Badge unlocked: El poder de lo local. Milestone reached: First session.');
+ assert.equal(h.message.children.length,1);assert.equal(h.message.children[0].className,'f-sr-only','the status line says it; the confirmation shows it');
+ const spoken=descendants(h.message.children[0]),blockTitle=spoken.find(node=>node.lang==='es');
+ assert.equal(blockTitle?.textContent,'El poder de lo local','a screen reader says the Spanish title with a Spanish voice, the rest in the page language');
+ assert.ok(spoken.every(node=>!node.dataset.fiiuText),'plain nodes, so a language switch never says it again');
+ h.lang('es');
+ assert.deepEqual(unlockedLines(h),['Insignia desbloqueada: El poder de lo local','Hito alcanzado: Primera sesión']);
+ assert.doesNotMatch(announced(h),/Insignia/,'a language switch does not say it again');
+});
+
+test('the third session, every conference and the laboratory each reach their milestone',async()=>{
+ const three=await page(()=>first('day2-am',rows('day1-am','day1-pm','day2-am')),{search:`?a=day2-am&c=${CODE}`});await flush();
+ assert.deepEqual(unlockedLines(three),['Badge unlocked: Cuidar y transformar la ciudad','Milestone reached: Three sessions']);
+ const five=await page(()=>first('day3-am',rows('day1-am','day1-pm','day2-am','day2-pm','day3-am')),{search:`?a=day3-am&c=${CODE}`});await flush();
+ assert.deepEqual(unlockedLines(five),['Badge unlocked: Territorio, resiliencia y adaptación climática','Milestone reached: All five conferences']);
+ const lab=await page(()=>first('day0-lab',rows('day0-lab')),{search:`?a=day0-lab&c=${CODE}`,now:'2026-10-20T10:00:00-05:00'});await flush();
+ assert.deepEqual(unlockedLines(lab),['Badge unlocked: Gestión urbana en acción: nuevas herramientas para la gestión local','Milestone reached: First session','Milestone reached: Laboratory']);
+ assert.equal(announced(lab),'Badge unlocked: Gestión urbana en acción: nuevas herramientas para la gestión local. Milestone reached: First session. Milestone reached: Laboratory.');
+});
+
+test('a repeat scan or a reload announces nothing new',async()=>{
+ const again=await page(()=>({status:200,data:{...checkedIn.data,result:'already_checked_in'}}));await flush();
+ assert.equal(title(again).dataset.fiiuText,'alreadyCheckedIn');assert.equal(result(again).querySelector('.f-unlocked'),null);assert.equal(announced(again),'');
+ const reload=await page(request=>request.path==='/api/fiiu/registration'?{registration:{id:'r1',version:1,answers:{activities:['day1-am']}},attendance,hours:{minutes:240,hours:4,untimed:[]},user:{id:'u1',email:'member@example.test'}}:assert.fail(),{search:'?a=day1-am'});await flush();
+ assert.equal(title(reload).dataset.fiiuText,'alreadyCheckedIn');assert.equal(result(reload).querySelector('.f-unlocked'),null);assert.equal(announced(reload),'');
+});
+
+test('a programme that lands after the confirmation adds the badge news then, said once',async()=>{
+ let arrive;const programme=new Promise(resolve=>{arrive=resolve;});
+ const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?programme:checkedIn,{page:'fiiu-checkin',search:`?a=day1-am&c=${CODE}`,context:{Date:frozen('2026-10-21T09:12:00-05:00'),setTimeout:(fn)=>fn()}});
+ assert.equal(title(h).dataset.fiiuText,'checkedInTitle');assert.equal(result(h).querySelector('.f-unlocked'),null,'nothing is claimed before the programme is known');await flush();assert.equal(announced(h),'');
+ arrive(publicData());await flush();
+ assert.deepEqual(unlockedLines(h),['Badge unlocked: El poder de lo local','Milestone reached: First session']);
+ assert.equal(announced(h),'Badge unlocked: El poder de lo local. Milestone reached: First session.');
+});
+
+test('the check-in page names the milestones as the console does, in every language, and its console link is a 44px target on touch',async()=>{
+ const h=await page(()=>checkedIn),{rows:strings}=h.ctx.window.Fiiu,dash={window:{}};
+ vm.runInNewContext(readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.meta.url),'utf8'),dash);
+ for(const [i,lang] of ['en','es','pt'].entries())for(const [row,id] of [['milestoneFirst','first'],['milestoneThree','three'],['milestoneConferences','conferences'],['milestoneLab','lab']])
+  assert.equal(strings[row][i],dash.window.NODAL_I18N_DASH[lang][`d.badge.fiiu.${id}.name`],`${lang} ${id}`);
+ for(const row of ['badgeUnlocked','milestoneReached','seeInConsole'])assert.ok(strings[row].length===3&&strings[row].every(Boolean),row);
+ assert.match(readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8'),/@media\(pointer:coarse\)\{[^}]*\.f-unlocked>\.f-text-link\{[^}]*min-height:44px/);
 });
