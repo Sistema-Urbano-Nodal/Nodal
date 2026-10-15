@@ -126,14 +126,16 @@ test('file sizes, dimensions and thumbnails are checked against the festival lim
  assert.deepEqual(TALK_FILE_TYPES,['image/jpeg','image/png','image/webp','application/pdf']);
 });
 test('message views never reveal ids and show organisers the full name and hidden state',()=>{
- const m={id:'m',userId:'u',authorName:'Ana T.',authorFull:'Ana Test',organiser:0,body:'hola',likeCount:2,createdAt:'2026-10-21T14:00:00.000Z',seq:7,hiddenAt:null};
+ const m={id:'m',userId:'u',authorName:'Ana T.',authorFull:'Ana Test',organiser:0,body:'hola',clientId:'c-ana',likeCount:2,createdAt:'2026-10-21T14:00:00.000Z',seq:7,hiddenAt:null};
  const view=messageView(m,{viewer:'u',organiser:false,files:[],liked:true});
- assert.deepEqual(view,{id:'m',author:'Ana T.',organiser:false,mine:true,body:'hola',files:[],likeCount:2,liked:true,createdAt:m.createdAt,seq:7});
- assert.equal(messageView({...m,hiddenAt:'x'},{viewer:'o',organiser:true,files:[],liked:false}).hidden,true);
+ assert.deepEqual(view,{id:'m',author:'Ana T.',organiser:false,mine:true,clientId:'c-ana',body:'hola',files:[],likeCount:2,liked:true,createdAt:m.createdAt,seq:7},'the author gets back the clientId their own phone made, to match a send whose answer was lost');
+ const organiser=messageView({...m,hiddenAt:'x'},{viewer:'o',organiser:true,files:[],liked:false});
+ assert.equal(organiser.hidden,true);assert.equal('clientId' in organiser,false,'nobody else gets it, organisers included');
+ assert.equal('clientId' in messageView(m,{viewer:'b',organiser:false}),false);assert.equal('clientId' in messageView(m,{organiser:false}),false,'nor a view without a viewer');
  assert.deepEqual(goneView(m),{id:'m',seq:7,gone:true});
 });
 test('message views list files by safe name and mark organiser authors and thumbnails',()=>{
- const m={id:'m',userId:'o',authorName:'Flavia S.',authorFull:'Flavia Soto',organiser:true,body:'',likeCount:0,createdAt:'2026-10-21T14:00:00.000Z',seq:'9',hiddenAt:null,storagePath:'fiiu/o/f'};
+ const m={id:'m',userId:'o',authorName:'Flavia S.',authorFull:'Flavia Soto',organiser:true,body:'',clientId:'c-flavia',likeCount:0,createdAt:'2026-10-21T14:00:00.000Z',seq:'9',hiddenAt:null,storagePath:'fiiu/o/f'};
  const files=[{id:'f1',name:'foto',mime:'image/jpeg',size:900,width:1600,height:900,thumbSize:120,storagePath:'fiiu/o/f1',userId:'o'},{id:'f2',name:'deck.pdf',mime:'application/pdf',size:4000,thumbSize:null}];
  const view=messageView(m,{viewer:'u',organiser:true,files,liked:false});
  assert.deepEqual(view,{id:'m',author:'Flavia S.',organiser:true,mine:false,body:'',likeCount:0,liked:false,createdAt:m.createdAt,seq:9,authorFull:'Flavia Soto',hidden:false,

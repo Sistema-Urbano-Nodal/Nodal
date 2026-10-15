@@ -285,7 +285,7 @@ test('participants post with idempotent retries, see display names only, and syn
  const clientId=randomUUID();
  const first=await post(q,'  Hola a todos  ',{clientId});
  assert.equal(first.status,201);
- assert.deepEqual(first.body.message,{id:first.body.message.id,author:'Ana T.',organiser:false,mine:true,body:'Hola a todos',files:[],likeCount:0,liked:false,createdAt:first.body.message.createdAt,seq:1});
+ assert.deepEqual(first.body.message,{id:first.body.message.id,author:'Ana T.',organiser:false,mine:true,clientId,body:'Hola a todos',files:[],likeCount:0,liked:false,createdAt:first.body.message.createdAt,seq:1});
  const again=await post(q,'Hola a todos',{clientId});assert.equal(again.status,200,'an identical retry is the same message');assert.equal(again.body.message.id,first.body.message.id);
  const reused=await post(q,'Otro texto',{clientId});assert.equal(reused.status,409);assert.equal(reused.body.code,'client_id_reused');
  assert.equal((await post(q,'   ')).body.code,'empty_message');
@@ -321,6 +321,39 @@ test('participants post with idempotent retries, see display names only, and syn
  assert.equal(older.status,200);assert.equal(older.body.messages.length,100);assert.equal(older.body.messages.at(-1).body,'m104');assert.ok(older.body.before);
  const oldest=await json(`/api/fiiu/questions/${q.id}/messages?before=${older.body.before}`);
  assert.deepEqual(oldest.body.messages.map(m=>m.body).slice(-5),['m0','m1','m2','m3','m4']);assert.equal(oldest.body.before,null);
+});
+
+/* A send whose answer was lost (a timeout on venue Wi-Fi, a reload or Back while it was sending) left the page a
+   'Not sent' copy beside the stored message, because no view said which draft a message came from. Each person now gets
+   their own clientId back on their own messages, on every answer that carries messages; it is the value their phone
+   made, so it tells them nothing new, and nobody else's is ever sent. */
+test('a person\'s own messages carry their clientId on every read and write answer, and nobody else\'s ever do',async t=>{
+ const {json,ask,post,talkStore,users}=await setup(t);
+ const q=await ask(),mine=randomUUID(),theirs=randomUUID(),staff=randomUUID();
+ const sent=await post(q,'Mi propuesta',{clientId:mine});assert.equal(sent.status,201);assert.equal(sent.body.message.clientId,mine,'the send answer');
+ assert.equal((await post(q,'Mi propuesta',{clientId:mine})).body.message.clientId,mine,'the replay of a lost send');
+ const other=(await post(q,'Otra idea',{actor:'other',clientId:theirs})).body.message;assert.equal(other.clientId,theirs);
+ const organiser=(await post(q,'Gracias',{actor:'admin',clientId:staff})).body.message;assert.equal(organiser.clientId,staff);
+ const byBody=list=>Object.fromEntries(list.map(m=>[m.body,m]));
+ const page=byBody((await json(`/api/fiiu/questions/${q.id}`)).body.messages);
+ assert.equal(page['Mi propuesta'].clientId,mine,'the full read');assert.equal('clientId' in page['Otra idea'],false);assert.equal('clientId' in page.Gracias,false);
+ const since=byBody((await json(`/api/fiiu/questions/${q.id}/messages?since=0`)).body.changes);
+ assert.equal(since['Mi propuesta'].clientId,mine,'a since answer, built per viewer from rows shared between viewers');assert.equal('clientId' in since['Otra idea'],false);
+ const otherSince=byBody((await json(`/api/fiiu/questions/${q.id}/messages?since=0`,{actor:'other'})).body.changes);
+ assert.equal(otherSince['Otra idea'].clientId,theirs);assert.equal('clientId' in otherSince['Mi propuesta'],false,'the same shared rows give the next viewer only their own');
+ const staffPage=byBody((await json(`/api/fiiu/questions/${q.id}`,{actor:'admin'})).body.messages);
+ assert.equal(staffPage.Gracias.clientId,staff);assert.equal('clientId' in staffPage['Mi propuesta'],false,'organisers see everyone\'s messages, never their clientIds');
+ const hidden=await json(`/api/admin/fiiu/messages/${sent.body.message.id}/hidden`,{actor:'admin',method:'PUT',body:{}});
+ assert.equal(hidden.status,200);assert.equal('clientId' in hidden.body.message,false,'nor in the moderation answer');
+ assert.equal(byBody((await json(`/api/fiiu/questions/${q.id}`)).body.messages)['Mi propuesta'].clientId,mine,'an author\'s own hidden message is still theirs');
+ // An earlier page: 100 newer messages push the first ones back.
+ const at=i=>new Date(Date.UTC(2099,0,1,0,0,0,i)).toISOString();
+ for(let i=0;i<100;i++)await talkStore.insertMessage({id:randomUUID(),questionId:q.id,userId:users.other.id,authorName:'Ben O.',authorFull:'Ben Otro',organiser:false,body:`m${i}`,clientId:randomUUID(),createdAt:at(i)});
+ const first=await json(`/api/fiiu/questions/${q.id}`);assert.ok(first.body.before);
+ const earlier=byBody((await json(`/api/fiiu/questions/${q.id}/messages?before=${first.body.before}`)).body.messages);
+ assert.equal(earlier['Mi propuesta'].clientId,mine,'an earlier page');assert.equal('clientId' in earlier['Otra idea'],false);
+ assert.equal(first.body.messages.filter(m=>'clientId' in m).length,0,'none of the 100 messages someone else wrote');
+ assert.doesNotMatch(JSON.stringify(first.body),new RegExp(theirs));
 });
 
 test('a lost send retried with the same clientId never duplicates: concurrent sends, an interrupted attach, a closed question',async t=>{

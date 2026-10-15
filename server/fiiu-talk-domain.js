@@ -102,9 +102,12 @@ const totals=counts=>Array.from({length:10},(_,i)=>Number(counts?.[i]??0));
 export const questionView=(q,{organiser=false}={})=>{const kind=q.kind??'chat';return {id:q.id,activityId:q.activityId,talk:q.talk??null,body:q.body,status:q.status,kind,...(kind==='rating'?{ratingCounts:totals(q.ratingCounts)}:{}),revision:Number(q.revision),messageCount:Number(q.messageCount),createdAt:q.createdAt,...(organiser?{version:q.version}:{})};};
 /* Peers see a display name and whether the message is theirs, never the author's id or a storage path. liked: null
    leaves the viewer's like out, for answers shared between viewers (the page keeps its own). A participant is only
-   given a hidden message that is their own (the API sends everyone else its gone view), marked so they can delete it. */
+   given a hidden message that is their own (the API sends everyone else its gone view), marked so they can delete it.
+   The author alone gets the message's clientId, the value their own phone made for the draft: it lets the page match a
+   send whose answer was lost (a timeout, a reload) to the stored message instead of showing it again as not sent. */
 export function messageView(m,{viewer=null,organiser=false,files=[],liked=false}={}){
- return {id:m.id,author:m.authorName,organiser:Boolean(m.organiser),mine:Boolean(viewer)&&viewer===m.userId,body:m.body,
+ const mine=Boolean(viewer)&&viewer===m.userId;
+ return {id:m.id,author:m.authorName,organiser:Boolean(m.organiser),mine,...(mine?{clientId:m.clientId}:{}),body:m.body,
   files:files.map(f=>({id:f.id,name:attachmentFilename(f.name,f.mime),mime:f.mime,size:f.size,width:f.width??null,height:f.height??null,thumb:Boolean(f.thumbSize)})),
   likeCount:Number(m.likeCount??0),...(liked===null?{}:{liked:Boolean(liked)}),createdAt:m.createdAt,seq:Number(m.seq),
   ...(organiser?{authorFull:m.authorFull,hidden:Boolean(m.hiddenAt)}:m.hiddenAt?{hidden:true}:{})};
