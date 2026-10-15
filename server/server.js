@@ -17,6 +17,7 @@ import { createFiiuApi, exportFiiuData } from './fiiu-api.js';
 import { createProgramme } from './fiiu-programme.js';
 import { createTalkStore } from './fiiu-talk-repository.js';
 import { createTalkApi, exportTalkData, assertTalkDataDeletable, deleteTalkData } from './fiiu-talk-api.js';
+import { createLive } from './fiiu-live.js';
 import { resolveCheckinSecret, checkinClock } from './fiiu-checkin.js';
 import { createRegistrationConfirmation, createPartyNotice } from './fiiu-email.js';
 import { encodeQr as encodeQrCode } from './qr.js';
@@ -106,8 +107,9 @@ const TALK_RATE_LIMITS = { message: 10, upload: 6, like: 60, moderate: 120, file
    own expiry), keyed by a SHA-256 of the access token so the token itself is never kept. The trade-off: a suspension,
    a sign-out elsewhere or a revoked token stops this route's answers up to 30 seconds late (the festival registration
    memo already allows 60). Every other route, the same path's writes and the file downloads included, verifies each
-   request, and a refusal is never remembered, so signing in again works at once. */
-const CHAT_POLL = /^\/api\/fiiu\/questions\/[^/]+\/messages$/;
+   request, and a refusal is never remembered, so signing in again works at once. The festival live window
+   (GET /api/fiiu/live) is polled by the same phones every 30 s, so it shares the memo. */
+const CHAT_POLL = /^\/api\/fiiu\/(?:questions\/[^/]+\/messages|live)$/;
 const POLL_SESSION_MS = 30000, POLL_SESSION_MAX = 5000;
 /* Routes that answer without a member and only personalise when there is one. A
    session-service outage serves them signed out instead of failing them. */
@@ -1238,7 +1240,9 @@ export function createApp({
      asks for none (see SESSIONLESS_API); every other read is a signed-in account's. */
   const talkLimit={...TALK_RATE_LIMITS,...talkLimits};
   const talkMessageLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.message}),talkUploadLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.upload}),talkLikeLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.like}),talkModerateLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.moderate}),talkFileLimiter=createWindowRateLimiter({windowMs:60000,limit:talkLimit.file});
-  const talkApi=talkStore?createTalkApi({store:talkStore,sameOrigin,send,downloads,encodeQr,publicOrigin:fiiuPublicOrigin,clock:talkClock,programme:fiiuProgramme,
+  // The festival live window: one view per instance every 15 s, on the conversations' clock (tests move it).
+  const fiiuLive=talkStore&&fiiuStore&&fiiuProgramme?createLive({fiiuStore,talkStore,programme:fiiuProgramme,clock:talkClock}):null;
+  const talkApi=talkStore?createTalkApi({store:talkStore,sameOrigin,send,downloads,encodeQr,publicOrigin:fiiuPublicOrigin,clock:talkClock,programme:fiiuProgramme,live:fiiuLive,
     rateLimit:(req,res,user,pathname,kind)=>throttle({read:fiiuReadLimiter,file:talkFileLimiter,message:talkMessageLimiter,upload:talkUploadLimiter,like:talkLikeLimiter,moderate:talkModerateLimiter}[kind]??fiiuWriteLimiter,res,req,user,`fiiu-talk-${kind}`),
   }):null;
   // NODAL news: guests read the public feed from shared venue or office Wi-Fi, so their budget mirrors the FIIU

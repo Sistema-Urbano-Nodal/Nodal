@@ -12,7 +12,7 @@ const draftKey=userId=>createHash('sha256').update('nodal-talk-draft:'+userId).d
 /* FIIU block conversations over HTTP. The pulse is the one public route: ids, blocks, revisions and statuses, the same
    for everyone, so the CDN answers the 4-second polls of a full auditorium (one venue address) and a phone fetches
    messages only when its question's revision moved. Everything else needs a festival registration or an organiser. */
-const PULSE_CACHE='public, max-age=0, s-maxage=2, stale-while-revalidate=4';
+const PULSE_CACHE='public, max-age=0, s-maxage=2, stale-while-revalidate=4',LIVE_CACHE='private, no-store';
 const PULSE_MS=1000,MEMO_MS=60000,MEMO_MAX=5000,UPLOAD_GRACE_MS=10*60000,RETRY_MS=10*60000,CHANGES_MS=1500,CHANGES_MAX=200;
 const STALE_READY_MS=30*60000,STALE_PENDING_MS=60*60000,THUMBS_MAX=200,THUMBS_BYTES=20*1024*1024;
 const CSV_HEADER=['question','block','talk','createdAtLima','author','email','organiser','text','files','likes','hidden','deleted'];
@@ -33,6 +33,7 @@ const uploadBody=req=>bodyJson(req,4*1024*1024+160*1024);
 const thumbType=bytes=>bytes.toString('ascii',0,4)==='RIFF'&&bytes.toString('ascii',8,12)==='WEBP'?'image/webp':'image/jpeg';
 const ROUTES=[
  ['pulse',/^\/api\/fiiu\/pulse$/,['GET','HEAD']],
+ ['live',/^\/api\/fiiu\/live$/,['GET','HEAD']],
  ['questions',/^\/api\/fiiu\/questions$/,['GET','HEAD']],
  ['question',/^\/api\/fiiu\/questions\/([^/]+)$/,['GET','HEAD']],
  ['messages',/^\/api\/fiiu\/questions\/([^/]+)\/messages$/,['GET','HEAD','POST']],
@@ -102,7 +103,8 @@ export async function deleteTalkData(store,userId,{now=Date.now()}={}){
 // publicOrigin: the configured site origin (a string or a function of the request) the projector QR points to.
 // downloads: the byte budget shared with the course files (server.js), so one account cannot double its Storage egress.
 // programme: the festival programme as organisers edited it (server/fiiu-programme.js, memoised per instance).
-export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,downloads=createByteBudget(DOWNLOAD_LIMITS),encodeQr=null,publicOrigin=()=>fail('public base URL is not configured',503),clock=Date.now,log=console.error,programme={event:async()=>FIIU_EVENT}}){
+// live: the festival live window (server/fiiu-live.js), or null, which leaves its route unanswered (404).
+export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,downloads=createByteBudget(DOWNLOAD_LIMITS),encodeQr=null,publicOrigin=()=>fail('public base URL is not configured',503),clock=Date.now,log=console.error,programme={event:async()=>FIIU_EVENT},live=null}){
  const now=()=>new Date(clock()).toISOString();
  // A block's title, venue or talks never stop a conversation: if the edits cannot be read, the built-in programme serves.
  const eventOf=async()=>{try{return await programme.event();}catch(error){log('festival programme unavailable:',errorText(error));return FIIU_EVENT;}};
@@ -271,6 +273,13 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     send(res,200,{question:questionView(q,{organiser}),activity:activity?activityView(activity):null,messages:list,liked:[...liked],
      before:page.more?encodeCursor(page.rows[0]):null,revision:Number(q.revision),me:{draftKey:draftKey(user.id),organiser,canPost:q.status==='open',...(rating?{score}:{})}});
     return true;
+   }
+   if(name==='live'){
+    /* The same for every reader it answers (server/fiiu-live.js keeps it 15 s), but only registered people and organisers
+       may see it, so no shared cache may keep it either. */
+    if(!live){send(res,404,{error:'not found'});return true;}
+    await access(user);
+    send(res,200,await live.read(user),{'Cache-Control':LIVE_CACHE});return true;
    }
    if(name==='top'){
     /* The visible answers of the whole question with the most likes, ties newest first: the wall ranked only the latest
