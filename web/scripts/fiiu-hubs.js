@@ -56,6 +56,10 @@
    }
    // The status stays; the next session and the badges need the event, so a failed news read puts the block's one retry here.
    if(!data){loadedAt=0;state.append(failure());return;}
+   // The console's Recognition ledger draws its FIIU family from these same two reads, so it makes no request of its own: dashboard.js (loaded before
+   // this file) listens on document for this event. Only two good reads hand over, on the first draw and on a refresh; after a failed read the ledger
+   // keeps what it shows, and without a registration (null) it shows no festival family.
+   if(typeof CustomEvent==='function')document.dispatchEvent?.(new CustomEvent('nodal:fiiu-festival',{detail:{registration,attendance:me.attendance,event:data.event}}));
    if(registration){
     const box=el('div','f-badges');state.append(box);const upcoming=nextFor(registration,data.event);
     if(upcoming){const line=el('p','f-next');line.append(tr('span','nextForYou','f-next-label'),dateNode(upcoming.date,'span','short','f-next-date'));if(upcoming.time)line.append(timeNode(upcoming.time,'span','f-next-time'));line.append(source('span',upcoming.title,'f-next-title'));if(upcoming.venue)line.append(source('span',upcoming.venue,'f-next-venue'));next.append(line);

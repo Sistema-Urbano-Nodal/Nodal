@@ -133,14 +133,16 @@ const user = { id: '00000000-0000-4000-8000-000000000001', email: 'ana@example.t
 const registration = { userId: user.id, id: '00000000-0000-4000-8000-000000000002', version: 1, email: user.email, labStatus: 'none', answers: { firstName: 'Ana', lastName: 'Test', activities: ['day1-am'], externalActivities: [] } };
 const feed = { event: FIIU_EVENT, config: { registrationOpen: true }, content: [{ id: 'n1', kind: 'news', title: 'Cambio de sala', body: 'El bloque del jueves será en el Auditorio NOS PUCP.', url: '', createdAt: '2026-09-29T12:00:00.000Z' }], nextCursor: null };
 async function widget(respond) {
-  const body = new Node('body'), host = new Node(), requests = [], listeners = {};
+  const body = new Node('body'), host = new Node(), requests = [], listeners = {}, events = [];
   body.append(host);
-  const document = { body, documentElement: { lang: 'en' }, visibilityState: 'visible', getElementById: (id) => (id === 'fiiuDashboardBody' ? host : null), createElement: (tag) => new Node(tag), querySelectorAll: (selector) => body.querySelectorAll(selector), addEventListener: (type, fn) => { listeners[type] = fn; } };
-  const context = vm.createContext({ document, window: { nodalI18n: { lang: 'en', onChange() {} } }, Intl, Date, Error, AbortSignal, Promise,
+  // events: what the block dispatches on document for the console (dashboard.js) to pick up.
+  const document = { body, documentElement: { lang: 'en' }, visibilityState: 'visible', getElementById: (id) => (id === 'fiiuDashboardBody' ? host : null), createElement: (tag) => new Node(tag), querySelectorAll: (selector) => body.querySelectorAll(selector), addEventListener: (type, fn) => { listeners[type] = fn; }, dispatchEvent: (event) => { events.push(event); return true; } };
+  const CustomEvent = class { constructor(type, init = {}) { this.type = type; this.detail = init.detail; } };
+  const context = vm.createContext({ document, CustomEvent, window: { nodalI18n: { lang: 'en', onChange() {} } }, Intl, Date, Error, AbortSignal, Promise,
     fetch: async (url) => { requests.push(url); const result = await respond(url, requests.filter((r) => r === url).length); return { ok: !result.status || result.status < 400, status: result.status || 200, json: async () => result.data ?? result }; } });
   for (const name of ['fiiu-ui', 'fiiu-hubs']) vm.runInContext(read('web', 'scripts', `${name}.js`), context);
   await flush();
-  return { host, requests, listeners, document };
+  return { host, requests, listeners, document, events };
 }
 const errors = (host) => descendants(host).filter((node) => node.dataset.fiiuText === 'loadError');
 const retries = (host) => descendants(host).filter((node) => node.dataset.fiiuText === 'retry');
@@ -239,6 +241,38 @@ test('a refresh on the way back keeps the drawn block while it reads, and keeps 
     drawn('after a good refresh');
     assert.equal(reads(), 3, 'the next return tries again');
   } finally { Date.now = realNow; }
+});
+
+test('the festival block hands its registration, attendance and programme to the Recognition ledger, which reads nothing itself', async () => {
+  const attendance = [{ activityId: 'day1-am', createdAt: '2026-10-21T14:12:00.000Z', method: 'qr' }];
+  let failing = false;
+  const w = await widget((url) => (failing && url === '/api/fiiu?kind=news' ? { status: 503, data: { error: 'unavailable' } } : url === '/api/fiiu/registration' ? { user, registration, attendance, isAdmin: false } : url === '/api/fiiu?kind=news' ? feed : { questions: [] }));
+  assert.equal(w.events.length, 1, 'one hand-off per drawn block');
+  const [event] = w.events;
+  assert.equal(event.type, 'nodal:fiiu-festival');
+  assert.equal(event.detail.registration.id, registration.id);
+  assert.deepEqual(event.detail.attendance, attendance);
+  assert.equal(event.detail.event, feed.event, 'the merged programme the news page carries');
+  assert.deepEqual([...new Set(w.requests)].sort(), ['/api/fiiu/pulse', '/api/fiiu/registration', '/api/fiiu?kind=news'], 'the reads the block already made');
+  const realNow = Date.now;
+  Date.now = () => realNow() + 16 * 60000;
+  try {
+    // A refresh on the way back hands the new data over too; a refresh that fails hands nothing, so the ledger keeps what it shows.
+    await w.listeners.visibilitychange();
+    await flush();
+    assert.equal(w.events.length, 2);
+    failing = true;
+    Date.now = () => realNow() + 32 * 60000;
+    await w.listeners.visibilitychange();
+    await flush();
+    assert.equal(w.events.length, 2);
+  } finally { Date.now = realNow; }
+  // Without a registration the hand-off says so, and the ledger shows no festival family; a failed first read sends nothing.
+  const guest = await widget((url) => (url === '/api/fiiu/registration' ? { user, registration: null, attendance: [], isAdmin: false } : url === '/api/fiiu?kind=news' ? feed : { questions: [] }));
+  assert.equal(guest.events.length, 1);
+  assert.equal(guest.events[0].detail.registration, null);
+  const failed = await widget((url) => (url === '/api/fiiu?kind=news' ? { status: 503, data: { error: 'unavailable' } } : url === '/api/fiiu/registration' ? { user, registration, attendance, isAdmin: false } : { questions: [] }));
+  assert.equal(failed.events.length, 0);
 });
 
 /* ---------------- news read in place (finding 33) ---------------- */
