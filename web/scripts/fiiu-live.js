@@ -53,7 +53,7 @@
  function build(d,{compact,preview,named,open=0},keys){
   const keep=(node,id)=>{keys.set(id,node);return node;},tally=(id,n,one,many,cls)=>keep(countLabel(count(n),one,many,cls),id);
   const now=slot(d.now),next=slot(d.next),list=talks(d.conversations),pulse=d.pulse||{},badges=d.badges||{},today=limaDate();
-  const head=el('div','f-live-head'),title=tr(compact?'h3':'h2','liveTitle','f-live-title');title.id=compact?'f-live-line-title':'f-live-title';head.append(title);
+  const head=el('div','f-live-head'),title=tr(compact?'h3':'h2','liveTitle','f-live-title');if(!compact)title.id='f-live-title';head.append(title);
   if(preview)head.append(tr('span','livePreview','f-live-preview'));
   // A date only when the next session is on another day; the venue is left to the session page on the console.
   const when=(meta,a,later)=>{if(later&&a.date!==today)meta.append(dateNode(a.date,'span','short','f-live-day'));if(a.time)meta.append(timeNode(a.time,'span','f-live-time'));};
@@ -129,7 +129,9 @@
     host.replaceChildren(...tree);shownKeys=keys;shownSig=sig;const more=host.querySelector('.f-live-more');if(more&&opened)more.open=true;
     if(mark)[...host.querySelectorAll('a')].find(a=>a.getAttribute('href')===mark)?.focus({preventScroll:true});
    }
-   host.setAttribute('aria-labelledby',compact?'f-live-line-title':'f-live-title');host.hidden=false;
+   // The band's <section> is named by its h2, which makes it a region. The console's line sits in a plain div, which may not carry a name (the
+   // generic role), and its h3 already heads it.
+   if(!compact)host.setAttribute('aria-labelledby','f-live-title');host.hidden=false;
   }
   /* Without access the festival page shows one line during the festival; the console shows nothing. A guest the page knows (expected) is invited to
      register in its panel, or once registration closes to sign in; so is an account without a registration (403). A 401 the page did not expect

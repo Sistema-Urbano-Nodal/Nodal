@@ -318,7 +318,9 @@ const elsewhere=()=>({user,registration:{...saved,answers:{...answers,activities
 test('the console’s festival block carries one live line for a registered person: what is on, today’s check-ins, the live conversations and a way to the band',async()=>{
  const h=await consoleBlock(feed(elsewhere));
  const line=h.line();assert.ok(line,'the line is in the block');assert.match(line.className,/\bis-compact\b/);assert.equal(line.hidden,false);
- const title=key(line,'liveTitle');assert.equal(title.tagName,'h3','under the block’s h2');assert.equal(line['aria-labelledby'],title.id);
+ const title=key(line,'liveTitle');assert.equal(title.tagName,'h3','under the block’s h2');
+ // The line's host is a plain div, which may not carry a label (ARIA 1.2 prohibits aria-labelledby on the generic role); its h3 names it.
+ assert.equal(line.tagName,'div');assert.equal(line['aria-labelledby'],undefined);assert.equal(line.role,undefined);
  assert.ok(key(line,'liveNow'));const session=linkTo(line,'El poder de lo local');assert.equal(session.href,'fiiu-session.html?a=day1-am');assert.match(content(line),/09:00–13:00/);
  assert.match(content(line),/87\s+check-ins today/);assert.match(content(line),/2\s+live conversations/);
  const open=key(line,'liveOpen');assert.equal(open.tagName,'a');assert.equal(open.href,'fiiu.html#en-vivo');
