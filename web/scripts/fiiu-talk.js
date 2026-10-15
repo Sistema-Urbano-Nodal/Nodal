@@ -133,13 +133,18 @@
   const name=slot(UNSENT,qid);if(!name)return;const list=[...attempts.values()].filter(item=>item.qid===qid&&!item.files.length).map(({clientId,body})=>({clientId,body}));
   try{if(list.length)globalThis.sessionStorage?.setItem(name,JSON.stringify(list));else globalThis.sessionStorage?.removeItem(name);}catch{/* The rows stay on screen only. */}
  }
+ // A stored attempt whose message is already in the conversation (the server's answer was lost to a reload, Back or a discarded tab) is done, not unsent:
+ // the person's own messages come with their clientId (audit #18).
  function restoreUnsent(){
   const name=slot(UNSENT,question.id);if(!name)return;
   let list;try{list=JSON.parse(globalThis.sessionStorage?.getItem(name)||'[]');}catch{list=[];}
+  const delivered=new Set([...views.values()].filter(view=>view.mine&&view.clientId).map(view=>view.clientId));let done=false;
   for(const item of Array.isArray(list)?list:[]){
+   if(delivered.has(item?.clientId)){done=true;continue;}
    if(!UUID.test(String(item?.clientId))||typeof item.body!=='string'||!item.body.trim()||attempts.has(item.clientId))continue;
    const attempt={clientId:item.clientId,qid:question.id,body:item.body,files:[],sig:item.body+'\n',state:'failed',row:null};attempt.row=pendingRow(attempt,true);attempts.set(attempt.clientId,attempt);
   }
+  if(done)keepUnsent();
  }
  function uuid(){
   if(typeof globalThis.crypto?.randomUUID==='function')return globalThis.crypto.randomUUID();
@@ -231,14 +236,21 @@
  const later=(a,b)=>Boolean(a)&&(a.createdAt>b.createdAt||(a.createdAt===b.createdAt&&a.id>b.id));
  const normal=view=>({...view,files:Array.isArray(view.files)?view.files:[]});
  function setLiked(id,on){if(on)liked.add(id);else liked.delete(id);const view=views.get(id);if(view)view.liked=on;}
- // A view without a liked flag (every ?since= change) keeps the one the page has.
+ // A view without a liked flag (every ?since= change) keeps the one the page has. Your own message carries its clientId, which settles the attempt that
+ // sent it (audit #0, #6): one whose answer was lost no longer shows as not sent, and one still sending loses its pending row at once.
  function upsert(view){
-  if(typeof view.liked==='boolean')setLiked(view.id,view.liked);
+  if(typeof view.liked==='boolean')setLiked(view.id,view.liked);if(view.mine&&typeof view.clientId==='string')landed(view.clientId);
   const next={...normal(view),liked:liked.has(view.id)},node=messageRow(next),old=rowsById.get(next.id);views.set(next.id,next);rowsById.set(next.id,node);
   if(old){const active=document.activeElement,cls=active&&old.contains?.(active)?String(active.className||'').split(' ')[0]:'';old.replaceWith(node);if(cls)node.querySelector('.'+cls)?.focus();return false;}
   const after=[...parts.log.children].find(child=>child.dataset.pending==='1'||later(views.get(child.dataset.id),next));if(after)after.before(node);else parts.log.append(node);return true;
  }
  function drop(id){rowsById.get(id)?.remove();rowsById.delete(id);views.delete(id);}
+ function landed(clientId){
+  const attempt=attempts.get(clientId);if(!attempt)return;attempt.landed=true;
+  if(attempt.state==='sending'){attempt.row?.remove();attempt.row=null;return;}
+  forget(attempt);const node=composer?.state;if(node&&['talkOfflineSend','talkError','talkRate'].includes(node.dataset.fiiuText))status(node,'');
+ }
+ function forget(attempt){attempts.delete(attempt.clientId);keepUnsent(attempt.qid);for(const file of attempt.files)uploads.delete(fileKey(file));attempt.row?.remove();attempt.row=null;updateEmpty();}
 
  // The block's Lima date (left out under the session header, whose kicker names the day), its time and its venue.
  function whenLine(a,{day=true}={}){const line=el('p','f-talk-when');if(day&&a.date)line.append(dateNode(a.date,'span','short','f-talk-day'));if(a.time)line.append(timeNode(a.time));if(a.venue)line.append(source('span',a.venue,'f-talk-venue'));return line.children.length?line:null;}
@@ -646,8 +658,7 @@
   clearComposer();return deliver(attempt);
  }
  function discard(attempt){
-  if(attempt.state==='sending')return;attempts.delete(attempt.clientId);keepUnsent(attempt.qid);for(const file of attempt.files)uploads.delete(fileKey(file));
-  attempt.row?.remove();attempt.row=null;updateEmpty();if(composer&&parts?.dockState==='composer')composer.textarea.focus();
+  if(attempt.state==='sending')return;forget(attempt);if(composer&&parts?.dockState==='composer')composer.textarea.focus();
  }
  // A Retry can come from a row restored on a question that has closed since, where there is no composer: its news goes to the dock's status line.
  const tell=value=>status(composer&&parts?.dockState==='composer'?composer.state:parts?.note||message,value);
@@ -660,13 +671,15 @@
    mark(row,'talkSending');
    const data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages',{clientId:attempt.clientId,body:attempt.body,fileIds});
    if(typeof data?.message?.id!=='string')throw problem('talkError');
-   attempts.delete(attempt.clientId);keepUnsent(id);for(const file of attempt.files)uploads.delete(fileKey(file));row.remove();attempt.row=null;
+   forget(attempt);
    // A retry can find the message deleted since it was stored: it was delivered, so the draft goes as for any send, and no row is drawn for it.
    if(question?.id===id&&parts)patch(note=>{if(data.message.gone)drop(data.message.id);else note(data.message,upsert(data.message));});
    const c=composer;if(!c)return;
    const active=document.activeElement;if(!active||active===document.body||c.form.contains?.(active))c.textarea.focus();
   }catch(error){
    const key=keyOf(error);
+   // The server has it (a poll brought it back with its clientId): the answer was lost, not the message.
+   if(attempt.landed){forget(attempt);return;}
    // The person moved to another question meanwhile: the attempt waits there as not sent, with Retry, for when they come back.
    if(question?.id!==id){attempt.state='failed';attempt.row=pendingRow(attempt,true);return;}
    /* The draft goes back to the composer to be fixed. When something new was typed or attached there meanwhile, it stays as a failed row instead,

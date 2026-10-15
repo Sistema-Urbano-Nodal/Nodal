@@ -1501,3 +1501,34 @@ test('fiiu-session.html loads the conversation page’s assets under its own tit
  assert.equal(headers['Cache-Control'],'no-store');assert.match(headers['X-Robots-Tag']||'',/noindex/);
  const css=read('web/styles/fiiu-talk.css');assert.match(css,/data-page="fiiu-session"/,'the conversation layout applies to the session page');
 });
+
+// Audit fixes (chat-audit-findings.json, by finding number). The server returns clientId on the viewer's own messages only (lane A's contract).
+test('#0/#6: a send that reached the server but lost its answer shows once, when the poll brings it back with its clientId, and the error goes',async()=>{
+ const sessionStorage=memoryStore();let revision=3;
+ const mine=message(M3,{mine:true,clientId:CLIENT,body:'Respuesta perdida de Dora',createdAt:'2026-10-21T14:20:00.000Z',seq:4});
+ const h=await page({['POST '+MESSAGES]:offline,'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:since(4,[mine])},{context:{sessionStorage}});
+ composer(h).querySelector('textarea').value='Respuesta perdida de Dora';submit(h);await flush();
+ assert.ok(rows(h).some(node=>classes(node).includes('is-failed')));assert.equal(composerStatus(h),'talkOfflineSend');assert.ok(sessionStorage.items.has(UNSENT_KEY));
+ revision=4;await h.tickTimers();
+ assert.deepEqual(rows(h).map(node=>node.dataset.id),[M1,M2,M3],'one row: the real one, no “Not sent” copy');assert.equal(rows(h).some(node=>node.dataset.pending),false);
+ assert.equal(sessionStorage.items.has(UNSENT_KEY),false,'nothing left to restore after a reload');assert.equal(composerStatus(h),'','the false “no connection” goes too');
+ // Someone else's message (no clientId reaches anyone else) never takes a failed row away.
+ const other=await page({['GET /api/fiiu/questions/'+Q]:thread({messages:[message(M1),message(M3,{clientId:undefined,body:'Sin señal',seq:4})]})},{context:{sessionStorage:memoryStore({[UNSENT_KEY]:JSON.stringify([{clientId:CLIENT,body:'Sin señal'}])})}});
+ assert.ok(rows(other).some(node=>classes(node).includes('is-failed')));
+});
+
+test('#0: a message still sending whose real row arrives first loses its pending row at once, and a lost answer afterwards draws no failed copy',async()=>{
+ const sessionStorage=memoryStore(),gate=later();let revision=3;
+ const h=await page({['POST '+MESSAGES]:()=>gate.promise.then(offline),'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),
+  ['GET '+MESSAGES+'?since=3']:since(4,[message(M3,{mine:true,clientId:CLIENT,body:'Llega antes',createdAt:'2026-10-21T14:20:00.000Z',seq:4})])},{context:{sessionStorage}});
+ composer(h).querySelector('textarea').value='Llega antes';submit(h);await flush();assert.ok(rows(h).some(node=>node.dataset.pending));
+ revision=4;await h.tickTimers();assert.deepEqual(rows(h).map(node=>node.dataset.id),[M1,M2,M3]);assert.equal(rows(h).some(node=>node.dataset.pending),false);
+ gate.resolve();await flush();
+ assert.deepEqual(rows(h).map(node=>node.dataset.id),[M1,M2,M3],'no “Not sent” row');assert.equal(sessionStorage.items.has(UNSENT_KEY),false);assert.equal(composerStatus(h),'');
+});
+
+test('#18: a page left while a message was sending, whose server copy is already in the conversation, does not bring it back as not sent',async()=>{
+ const sessionStorage=memoryStore({[UNSENT_KEY]:JSON.stringify([{clientId:CLIENT,body:'Mensaje enviado justo antes de volver atrás'}])});
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({messages:[message(M1),message(M3,{mine:true,clientId:CLIENT,body:'Mensaje enviado justo antes de volver atrás',seq:4})]})},{context:{sessionStorage}});
+ assert.deepEqual(rows(h).map(node=>node.dataset.id),[M1,M3]);assert.equal(rows(h).some(node=>node.dataset.pending),false);assert.equal(sessionStorage.items.has(UNSENT_KEY),false);
+});
