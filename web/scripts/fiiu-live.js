@@ -31,6 +31,8 @@
  });
  // The three most active conversations show; the others (the server sends five at most, LISTED) fold under one control, so the band leaves room for the page.
  const REFRESH=30000,SHOWN=3,LISTED=5;
+ // Signing in from the band's line comes back to the band (fiiu.js lands #en-vivo on it).
+ const SIGN_IN='login.html?next='+encodeURIComponent('/fiiu.html#en-vivo');
  // fiiu-ui.js builds the session page's address (Fiiu.sessionLink); the same address is built here while a page loads an older fiiu-ui.js.
  const sessionLink=(activityId,questionId)=>(Fiiu.sessionLink||((a,q)=>'fiiu-session.html?a='+encodeURIComponent(a)+(q?'&q='+encodeURIComponent(q):'')))(activityId,questionId);
  const formats=new Map(),format=(id,options)=>{const k=locale()+'|'+id;if(!formats.has(k))formats.set(k,new Intl.NumberFormat(locale(),options));return formats.get(k);};
@@ -129,17 +131,19 @@
    }
    host.setAttribute('aria-labelledby',compact?'f-live-line-title':'f-live-title');host.hidden=false;
   }
-  // Without access the festival page shows one line during the festival; the console shows nothing.
-  function prompt(status){
-   const key=registrationOpen?'liveRegister':status===401?'liveSignIn':'';
+  /* Without access the festival page shows one line during the festival; the console shows nothing. A guest the page knows (expected) is invited to
+     register in its panel, or once registration closes to sign in; so is an account without a registration (403). A 401 the page did not expect
+     (a session that ended, a sign-out in another tab) asks to sign in again: the panel can still show the person's registration from before. */
+  function prompt(status,expected=false){
+   const key=status===401&&(!expected||!registrationOpen)?'liveSignIn':registrationOpen?'liveRegister':'';
    if(compact||!key||!inDates()){hide();return;}
-   const line=el('p','f-live-prompt');line.append(tr('span','liveTitle','f-live-label'),link(key,'#registration','f-text-link'));
+   const line=el('p','f-live-prompt');line.append(tr('span','liveTitle','f-live-label'),link(key,key==='liveSignIn'?SIGN_IN:'#registration','f-text-link'));
    host.replaceChildren(line);host.removeAttribute?.('aria-labelledby');shownSig='prompt';shownKeys=new Map();host.hidden=false;
   }
   async function read(){
    if(stopped||busy)return;
    if(!organiser&&!inDates()){pause();hide();drawn();return;}
-   const refused=known();if(refused===401||refused===403){last=null;pause();prompt(refused);drawn();return;}
+   const refused=known();if(refused===401||refused===403){last=null;pause();prompt(refused,true);drawn();return;}
    busy=true;
    try{
     const d=await api('/api/fiiu/live');if(stopped)return;if(!d||typeof d.active!=='boolean')throw Error('live');

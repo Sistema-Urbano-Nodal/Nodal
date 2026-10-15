@@ -24,6 +24,8 @@ const LIVE=(over={})=>({active:true,generatedAt:'2026-10-21T15:29:40.000Z',
  badges:{first:120,three:14,conferences:0,lab:9},
  pulse:{registered:540,checkedInToday:87,checkedInTotal:99,messages:1234,ratings:18},...over});
 const reads=h=>h.requests.filter(request=>request.path==='/api/fiiu/live').length;
+// Signing in from the band's line comes back to the band.
+const SIGN_IN='login.html?next='+encodeURIComponent('/fiiu.html#en-vivo');
 const running=h=>h.timers.filter(timer=>!timer.cleared);
 const linkTo=(node,text)=>node.querySelectorAll('a').find(a=>a.textContent===text);
 // fiiu-ui.js then fiiu-live.js, as the pages load them, with Fiiu.live.mount on a host of the test's own. time: a Date class (see clock) in place of when.
@@ -89,17 +91,30 @@ test('an inactive answer hides the band and stops the refresh',async()=>{
 });
 
 test('without a registration the festival page shows one line to register, the console nothing, and neither keeps asking',async()=>{
- for(const status of [401,403]){
-  const h=await band(()=>({status,data:{error:'no',code:status===403?'not_registered':undefined}}));
+ // A guest the page knows (known: 401), and an account the server finds without a registration (403).
+ for(const [status,options] of [[401,{known:()=>401}],[403,{}]]){
+  const h=await band(()=>({status,data:{error:'no',code:status===403?'not_registered':undefined}}),options);
   assert.equal(h.host.hidden,false);const line=h.host.querySelector('.f-live-prompt');assert.ok(line);
   const go=key(line,'liveRegister');assert.equal(go.tagName,'a');assert.equal(go.href,'#registration');
   assert.equal(h.host.querySelectorAll('.f-live-part').length,0);assert.equal(running(h).length,0,'no refresh without access');
   h.lang('es');assert.equal(key(line,'liveRegister').textContent,'Inscríbete para ver el FIIU en vivo');
-  const compact=await band(()=>({status,data:{error:'no'}}),{compact:true});assert.equal(compact.host.hidden,true);assert.equal(compact.host.children.length,0);assert.equal(running(compact).length,0);
+  const compact=await band(()=>({status,data:{error:'no'}}),{compact:true,...options});assert.equal(compact.host.hidden,true);assert.equal(compact.host.children.length,0);assert.equal(running(compact).length,0);
  }
- // Once registration closes, a signed-out reader is asked to sign in with a registered account, and a signed-in one without a registration sees nothing.
- const guest=await band(()=>({status:401,data:{error:'sign in required'}}),{registrationOpen:false});assert.ok(key(guest.host,'liveSignIn'));assert.equal(key(guest.host,'liveRegister'),undefined);
+ // Once registration closes, a guest is asked to sign in with a registered account, and a signed-in one without a registration sees nothing.
+ const guest=await band(()=>LIVE(),{registrationOpen:false,known:()=>401});assert.equal(key(guest.host,'liveSignIn').href,SIGN_IN);assert.equal(key(guest.host,'liveRegister'),undefined);
  const member=await band(()=>({status:403,data:{error:'no',code:'not_registered'}}),{registrationOpen:false});assert.equal(member.host.hidden,true);
+});
+
+test('a 401 the page did not expect (a session that ended, a sign-out in another tab) asks to sign in again and come back to the band, not to register',async()=>{
+ for(const registrationOpen of [true,false]){
+  const h=await band(()=>({status:401,data:{error:'sign in required'}}),{registrationOpen});
+  const go=key(h.host,'liveSignIn');assert.ok(go,String(registrationOpen));assert.equal(go.tagName,'a');assert.equal(go.href,SIGN_IN);assert.equal(key(h.host,'liveRegister'),undefined);assert.equal(running(h).length,0);
+ }
+ // fiiu.html: a registered person's page, whose panel still shows the registration, gets 401 from the live read.
+ const page=await festivalPage(()=>({status:401,data:{error:'sign in required'}}),{me:{user,registration:saved,attendance:[],isAdmin:false}});
+ const line=byId(page.root,'en-vivo');assert.ok(page.root.querySelector('.f-saved'),'the panel shows the registration');
+ assert.equal(key(line,'liveSignIn').href,SIGN_IN);assert.equal(key(line,'liveRegister'),undefined);
+ page.lang('es');assert.equal(key(line,'liveSignIn').textContent,'Inicia sesión con tu cuenta inscrita para ver el FIIU en vivo');
 });
 
 test('the band reads every 30 s while the tab is visible, pauses while hidden and reads at once on return; a failed read keeps what it shows',async()=>{
