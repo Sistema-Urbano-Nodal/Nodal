@@ -1657,14 +1657,17 @@ test('#10: a like whose answer arrives after a sync that already counted it neit
  const put=later();let revision=3;
  const h=await page({['GET /api/fiiu/questions/'+Q]:thread({messages:[message(M1,{author:'Beto Q.',body:'En San Martín de Porres…',likeCount:0,seq:1}),message(M2,{mine:true,createdAt:'2026-10-21T14:07:00.000Z',seq:2})]}),
   'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['PUT /api/fiiu/messages/'+M1+'/like']:()=>put.promise,
-  // The poll reads Ana's like and Eva's: 2 likes at seq 7. Asked again from before the tap, the server says the same.
-  ['GET '+MESSAGES+'?since=3']:since(7,[bare(message(M1,{author:'Beto Q.',likeCount:2,seq:7}))]),['GET '+MESSAGES+'?since=1']:since(7,[bare(message(M1,{author:'Beto Q.',likeCount:2,seq:7}))])});
+  // The poll reads Ana's like and Eva's (2 likes at seq 7) and a newer answer (seq 9). Asked again from that row's seq, the server says the same.
+  ['GET '+MESSAGES+'?since=3']:since(9,[bare(message(M1,{author:'Beto Q.',likeCount:2,seq:7})),bare(message(M3,{body:'Otra',createdAt:'2026-10-21T14:09:00.000Z',seq:9}))]),
+  ['GET '+MESSAGES+'?since=7']:since(9,[bare(message(M3,{body:'Otra',createdAt:'2026-10-21T14:09:00.000Z',seq:9}))])});
  const like=()=>row(h,M1).querySelector('.f-talk-like'),count=()=>like().querySelector('.f-talk-like-n').textContent;
  like().listeners.click();await flush();assert.equal(count(),'1','at once');assert.equal(like()['aria-pressed'],'true');
- revision=7;await h.tickTimers();assert.equal(count(),'2','the synced count already holds this like: not 3');assert.equal(like()['aria-pressed'],'true');
+ revision=9;await h.tickTimers();assert.equal(count(),'2','the synced count already holds this like: not 3');assert.equal(like()['aria-pressed'],'true');
  // The like's own answer, older than that sync (Eva's like came after it), lands now.
  put.resolve({likeCount:1,liked:true});await flush();assert.equal(count(),'2','the older count does not overwrite the newer one');assert.equal(like()['aria-pressed'],'true');
- await h.tickTimers();assert.equal(sent(h,'GET',MESSAGES+'?since=1').length,1,'and the page checks again from before the tap');assert.equal(count(),'2');
+ // The check starts from the synced row, which any later state of the message (the like's own change too) is newer than: not from the tap, which on an
+ // old message in a busy question is hundreds of changes back.
+ await h.tickTimers();assert.equal(sent(h,'GET',MESSAGES+'?since=7').length,1,'and the page checks again from the synced row');assert.equal(sent(h,'GET',MESSAGES+'?since=1').length,0);assert.equal(count(),'2');
 });
 
 test('#19: a page waiting for a question whose watch ran out after two hours looks again when the tab comes back, or the connection does',async()=>{

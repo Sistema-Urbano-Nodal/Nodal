@@ -788,14 +788,16 @@
   like.setAttribute('aria-pressed',String(shown.liked));like.querySelector('.f-talk-like-n').textContent=String(shown.likeCount);
  }
  // A like shows at once and the server's answer then wins, unless a sync changed the message while it was on its way: the answer's count may then be older
- // than the one on screen (one more like landed between them), so the synced count stays and the changes since the tap are asked for again, which settles
- // it (audit #10). A failure shows the row as the server last described it, never the count seen before the tap. One request per message at a time.
+ // than the one on screen (one more like landed between them), so the synced count stays and the changes are asked for again from the synced row's seq,
+ // which settles it (audit #10): any later state of the message, the like's own change too, is newer than that row. Not from the tap: on an old message in
+ // a busy question that is hundreds of changes back, a reset and a rebuild. A failure shows the row as the server last described it, never the count seen
+ // before the tap. One request per message at a time.
  async function toggleLike(id){
   const view=views.get(id);if(!view||view.mine||view.hidden||liking.has(id)||!isOpen())return;const was=Boolean(view.liked),tapped=Number(view.seq);liking.set(id,{want:!was,seq:tapped});paintLike(id);
   try{
    const data=await api('/api/fiiu/messages/'+encodeURIComponent(id)+'/like',{},was?'DELETE':'PUT');
    setLiked(id,Boolean(data.liked));const now=views.get(id);
-   if(now){if(Number(now.seq)===tapped)now.likeCount=Math.max(0,Number(data.likeCount)||0);else if(Number.isFinite(tapped))known=Math.min(known,tapped);}settled();
+   if(now){const seq=Number(now.seq);if(seq===tapped)now.likeCount=Math.max(0,Number(data.likeCount)||0);else if(Number.isFinite(seq))known=Math.min(known,seq);}settled();
   }catch(error){
    // 404: hidden or deleted a moment ago, which the next sync would also say.
    if(error?.status===404){gone(id,false);return;}
