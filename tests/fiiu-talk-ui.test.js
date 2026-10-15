@@ -1558,3 +1558,24 @@ test('#2: a failed like’s error under the composer goes once a later like work
  const text=composer(h).querySelector('textarea');text.value='x'.repeat(1001);submit(h);await flush();assert.equal(composerStatus(h),'talkTooLong');
  fail=false;await row(h,M1).querySelector('.f-talk-like').listeners.click();await flush();assert.equal(composerStatus(h),'talkTooLong');
 });
+
+test('#3: a failed message with a photo keeps its text through a reload, as a not-sent row that asks for the file again and puts the text back to send',async()=>{
+ const sessionStorage=memoryStore(),text='Una respuesta larga que escribí con cuidado sobre el taller de movilidad';
+ const first=await page({'POST /api/fiiu/files':offline,['POST '+MESSAGES]:offline},{context:{sessionStorage,createImageBitmap:async()=>{throw new Error('x');},FileReader:Reader}});
+ composer(first).querySelector('textarea').value=text;choose(first,[file('foto.jpg','image/jpeg',1000)]);submit(first);await flush();
+ assert.ok(rows(first).some(node=>classes(node).includes('is-failed')));
+ assert.deepEqual(JSON.parse(sessionStorage.items.get(UNSENT_KEY)),[{clientId:CLIENT,body:text,files:['foto.jpg']}],'the text is kept, with the file’s name');
+ // The phone drops the tab while the person checks the camera, and the page loads again.
+ const back=await page({},{context:{sessionStorage}});
+ const kept=rows(back).find(node=>classes(node).includes('is-failed'));assert.ok(kept,'the message comes back as not sent');
+ assert.match(content(kept),/taller de movilidad/);assert.match(content(kept),/foto\.jpg/);assert.ok(key(kept,'talkFilesLost'));assert.equal(key(kept,'talkRetry'),undefined,'nothing to resend without its file');
+ const box=composer(back).querySelector('textarea');box.value='otra cosa';await key(kept,'talkToComposer').listeners.click();
+ assert.equal(composerStatus(back),'talkFinishFirst','what is being typed is never overwritten');assert.ok(rows(back).includes(kept));
+ box.value='';await key(kept,'talkToComposer').listeners.click();
+ assert.equal(box.value,text,'the text goes back to the composer, to attach the photo again');assert.equal(rows(back).some(node=>node.dataset.pending),false);
+ assert.equal(sessionStorage.items.has(UNSENT_KEY),false);assert.equal(sessionStorage.items.get(DRAFT_KEY),text,'and is kept as the draft');assert.equal(composerStatus(back),'talkReattachHint');
+ // A photo with no text has nothing to keep; a closed question keeps the text readable with Discard only.
+ const closed=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'closed'},me:{canPost:false}})},{context:{sessionStorage:memoryStore({[UNSENT_KEY]:JSON.stringify([{clientId:CLIENT,body:text,files:['foto.jpg']}])})}});
+ const row3=rows(closed).find(node=>classes(node).includes('is-failed'));assert.match(content(row3),/taller de movilidad/);assert.equal(key(row3,'talkToComposer'),undefined);assert.ok(key(row3,'talkDiscardDraft'));
+ closed.lang('es');assert.equal(key(row3,'talkFilesLost').textContent,'No enviado: adjunta el archivo de nuevo');
+});

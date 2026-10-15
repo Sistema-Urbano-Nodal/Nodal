@@ -50,6 +50,10 @@
   talkEmptyHidden:['No messages yet. Participants can answer once the question opens.','Todavía no hay mensajes. Se podrá responder cuando la pregunta se abra.','Ainda não há mensagens. Será possível responder quando a pergunta for aberta.'],
   talkNextOpen:['Answer the open question','Responder la pregunta abierta','Responder à pergunta aberta'],
   talkDraftKept:['Your unsent answer:','Tu respuesta sin enviar:','Sua resposta não enviada:'],talkDiscardDraft:['Discard','Descartar','Descartar'],
+  // A message with a photo or PDF that was not sent comes back after a reload with its text only: the file has to be attached again.
+  talkFilesLost:['Not sent: attach the file again','No enviado: adjunta el archivo de nuevo','Não enviada: anexe o arquivo de novo'],talkToComposer:['Edit and send','Editar y enviar','Editar e enviar'],
+  talkReattachHint:['Attach the file again, then send.','Adjunta el archivo de nuevo y envía.','Anexe o arquivo de novo e envie.'],
+  talkFinishFirst:['Send or clear what you are writing first.','Primero envía o borra lo que estás escribiendo.','Primeiro envie ou apague o que está escrevendo.'],
   // The festival-wide General space (?a=general): a block with no date, time or venue, named in the reader's language.
   talkGeneralTitle:['FIIU General','FIIU General','FIIU Geral'],talkQuestionsGeneral:['Questions for the whole festival','Preguntas para todo el festival','Perguntas para todo o festival'],
   talkEmptyGeneral:['No General questions yet.','Todavía no hay preguntas generales.','Ainda não há perguntas gerais.'],
@@ -126,11 +130,13 @@
  }
  // A message handed to its row is kept the same way, with its clientId, until the server confirms or refuses it: a reload, or a phone that drops the
  // tab while offline, draws it again as not sent, and Retry is still the same message (one the server already has comes back, not a second copy).
- // Text only: a photo cannot come back after a reload, and its text alone under the same clientId would be refused as another message.
+ // A photo or PDF cannot come back after a reload, so a message with files keeps its text and the files' names (audit #3): it returns as not sent, with
+ // no Retry (its text alone under the same clientId would be refused as another message), and its text goes back to the composer to attach them again.
  // Each attempt belongs to its question (qid): the page can switch questions while one is on its way.
  const UNSENT='nodal.talkUnsent.';
  function keepUnsent(qid=question?.id){
-  const name=slot(UNSENT,qid);if(!name)return;const list=[...attempts.values()].filter(item=>item.qid===qid&&!item.files.length).map(({clientId,body})=>({clientId,body}));
+  const name=slot(UNSENT,qid);if(!name)return;
+  const list=[...attempts.values()].filter(item=>item.qid===qid&&item.body.trim()).map(({clientId,body,files,lost})=>files.length||lost?.length?{clientId,body,files:lost||files.map(file=>String(file.name))}:{clientId,body});
   try{if(list.length)globalThis.sessionStorage?.setItem(name,JSON.stringify(list));else globalThis.sessionStorage?.removeItem(name);}catch{/* The rows stay on screen only. */}
  }
  // A stored attempt whose message is already in the conversation (the server's answer was lost to a reload, Back or a discarded tab) is done, not unsent:
@@ -142,7 +148,8 @@
   for(const item of Array.isArray(list)?list:[]){
    if(delivered.has(item?.clientId)){done=true;continue;}
    if(!UUID.test(String(item?.clientId))||typeof item.body!=='string'||!item.body.trim()||attempts.has(item.clientId))continue;
-   const attempt={clientId:item.clientId,qid:question.id,body:item.body,files:[],sig:item.body+'\n',state:'failed',row:null};attempt.row=pendingRow(attempt,true);attempts.set(attempt.clientId,attempt);
+   const lost=Array.isArray(item.files)?item.files.filter(name=>typeof name==='string').slice(0,FILES):[];
+   const attempt={clientId:item.clientId,qid:question.id,body:item.body,files:[],lost,sig:lost.length?null:item.body+'\n',state:'failed',row:null};attempt.row=pendingRow(attempt,true);attempts.set(attempt.clientId,attempt);
   }
   if(done)keepUnsent();
  }
@@ -644,12 +651,17 @@
  function stateNode(key,vars){return vars?counted('span','f-talk-state',key,vars):tr('span',key,'f-talk-state');}
  function mark(row,key,vars){row.querySelector('.f-talk-state')?.replaceWith(stateNode(key,vars));}
  function pendingRow(attempt,failed=false){
-  const row=el('li','f-talk-msg is-mine '+(failed?'is-failed':'is-pending')),meta=el('p','f-talk-meta');row.dataset.pending='1';
-  meta.append(tr('strong','talkYou','f-talk-author'),stateNode(failed?'talkNotSent':'talkSending'));row.append(meta);if(attempt.body)row.append(linkify(attempt.body));
-  if(attempt.files.length){const list=el('ul','f-talk-pending-files');for(const file of attempt.files)list.append(el('li','',file.name));row.append(list);}
+  const row=el('li','f-talk-msg is-mine '+(failed?'is-failed':'is-pending')),meta=el('p','f-talk-meta'),lost=attempt.lost?.length?attempt.lost:null;row.dataset.pending='1';
+  meta.append(tr('strong','talkYou','f-talk-author'),stateNode(lost?'talkFilesLost':failed?'talkNotSent':'talkSending'));row.append(meta);if(attempt.body)row.append(linkify(attempt.body));
+  const names=lost||attempt.files.map(file=>file.name);if(names.length){const list=el('ul','f-talk-pending-files');for(const name of names)list.append(el('li','',name));row.append(list);}
   // Discard lets go of one that cannot go anywhere: a question closed since, or a file the festival will not take.
-  if(failed){const actions=el('div','f-talk-actions');actions.append(button('talkRetry',()=>deliver(attempt),'f-talk-act f-talk-retry'),button('talkDiscardDraft',()=>discard(attempt),'f-talk-act'));row.append(actions);}
+  if(failed){const actions=el('div','f-talk-actions');actions.append(...[lost?(isOpen()&&me.canPost?button('talkToComposer',()=>toComposer(attempt),'f-talk-act f-talk-retry'):null):button('talkRetry',()=>deliver(attempt),'f-talk-act f-talk-retry'),button('talkDiscardDraft',()=>discard(attempt),'f-talk-act')].filter(Boolean));row.append(actions);}
   return row;
+ }
+ // A message whose files did not survive a reload goes back to an empty composer, to attach them again; what is being typed is never overwritten.
+ function toComposer(attempt){
+  const c=composer;if(!c||parts?.dockState!=='composer')return;if(c.textarea.value.trim()||c.files.length)return say(problem('talkFinishFirst'));
+  forget(attempt);c.textarea.value=attempt.body;updateLeft();grow();keepDraft();c.textarea.focus();say('talkReattachHint');
  }
  // Sending hands the draft to its row and empties the composer at once, as chat apps do: what is typed next is a new message, and a photo still
  // uploading is never sent again with it. The row keeps the content, and Retry when it fails.
