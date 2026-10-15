@@ -24,8 +24,8 @@
  window.addEventListener?.('beforeunload',event=>{if(!formDirty())return;event.preventDefault();event.returnValue='';});
  const missingAnswers=a=>['country','city','profile','nationalId','gender','motivation','previousAttendance'].filter(k=>!a[k]).length+(Number.isInteger(a.age)?0:1)+(Array.isArray(a.accessibility)&&a.accessibility.length?0:1)+(typeof a.publicOfficial==='boolean'?0:1);
  function jumpTo(input,event){event?.preventDefault?.();if(!input)return;openForm?.();const fold=input.closest?.('details');if(fold)fold.open=true;input.focus();input.scrollIntoView?.({block:'center'});}
- // Conversation links come from the public pulse, which never holds up the page: a block drawn before it answers gets its link when it does,
- // and later redraws add theirs at once. Guests see them too; the chat page explains signing in.
+ // Session links ("Ver sesión · 2", to the block's page with its questions) come from the public pulse, which never holds up the page: a block drawn
+ // before it answers gets its link when it does, and later redraws add theirs at once. Guests see them too; the session page explains signing in.
  let talkCounts=null;const talkWaiting=[];
  function withTalk(activity,titleId,place){const add=counts=>{const n=counts.get(activity.id);if(n)place(describe(talkLink(activity.id,n),titleId));};if(talkCounts)add(talkCounts);else talkWaiting.push(add);}
  function withGeneral(place){const add=counts=>{const n=counts.open?.get('general');if(n)place(talkLink('general',n,'f-text-link f-talk-link f-talk-general','talkGeneral'));};if(talkCounts)add(talkCounts);else talkWaiting.push(add);}

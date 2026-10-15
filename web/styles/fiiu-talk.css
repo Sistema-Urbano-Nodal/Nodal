@@ -1,9 +1,31 @@
-/* Festival conversation page (fiiu-talk.html, the only page that loads this file). Scope as in fiiu.css: every selector starts with an f-talk class or sits under
-   .f-page; the html:has() and html:fullscreen rules reach this page only. Phone first, one centred column; messages are set apart by whitespace, not rules, cards or shadows.
+/* The session page (fiiu-session.html, and the old fiiu-talk.html, the only pages that load this file). Scope as in fiiu.css: every selector starts with an
+   f-talk class or sits under .f-page; the html:has() and html:fullscreen rules reach these pages only. Phone first, one centred column; messages are set apart by whitespace, not rules, cards or shadows.
    The plan's hairline between messages is left out on purpose: NODAL keeps a line only for a real break (here the dock's top edge), never on every row. */
 /* The column fills the screen, so the composer sits at the bottom even before the first message. */
-.f-page[data-page="fiiu-talk"] .f-shell{display:flex;flex-direction:column}.f-page[data-page="fiiu-talk"] #fiiuTalkRoot{flex:1 0 auto;display:flex;flex-direction:column}
-.f-page .f-talk{flex:1 0 auto;display:flex;flex-direction:column;width:100%;max-width:760px;margin:0 auto;padding:var(--f-sp-5) 0 0}.f-page[data-page="fiiu-talk"] .f-locked{width:100%;max-width:760px;margin-inline:auto}
+.f-page:is([data-page="fiiu-talk"],[data-page="fiiu-session"]) .f-shell{display:flex;flex-direction:column}.f-page:is([data-page="fiiu-talk"],[data-page="fiiu-session"]) #fiiuTalkRoot{flex:1 0 auto;display:flex;flex-direction:column}
+.f-page .f-talk{flex:1 0 auto;display:flex;flex-direction:column;width:100%;max-width:760px;margin:0 auto;padding:var(--f-sp-5) 0 0}.f-page:is([data-page="fiiu-talk"],[data-page="fiiu-session"]) .f-locked{width:100%;max-width:760px;margin-inline:auto}
+/* The session header: "FIIU Fest 11 · the day", the title, time and venue, the organisers' description and the talks, then the person's status as quiet pills.
+   Whitespace, not a rule, sets it apart from the questions below; the questions area then fills the screen, so the dock still rests on its bottom edge. */
+.f-talk-session{width:100%;max-width:760px;margin:0 auto;padding:var(--f-sp-5) 0 0}.f-talk-session .f-talk-kicker>:not(:last-child)::after{content:"·";content:"·"/"";margin:0 .55em}
+.f-page .f-talk-desc{max-width:65ch;margin:var(--f-sp-3) 0 0;font-size:.95rem;line-height:1.5;white-space:pre-line;overflow-wrap:anywhere}
+.f-talk-session .f-talk-talks{margin:var(--f-sp-2) 0 0}.f-talk-talks>summary{display:flex;align-items:center;gap:0 10px;min-height:44px;font-weight:650;color:var(--f-forest);list-style:none;cursor:pointer}.f-talk-talks>summary::-webkit-details-marker{display:none}
+.f-talk-talks>summary::after{content:"+";content:"+"/"";font-size:1.3rem;font-weight:500;line-height:1}.f-talk-talks[open]>summary::after{content:"−";content:"−"/""}.f-talk-talks .f-session-list{margin-top:0}
+.f-talk-mine{display:flex;flex-wrap:wrap;align-items:center;gap:var(--f-sp-1) var(--f-sp-4);margin:var(--f-sp-4) 0 0}.f-talk-mine .f-pill{white-space:normal}.f-talk-mine-hint{font-size:.84rem;color:var(--f-muted)}
+.f-talk-mine-time{font-variant-numeric:tabular-nums}
+/* On a phone the time and a long venue stack, rather than leave a dot hanging at the end of a line. */
+@media(max-width:599px){.f-talk-session .f-talk-when{display:grid}.f-talk-session .f-talk-when>:not(:last-child)::after{content:none}}
+.f-page .f-talk-qa{flex:1 0 auto;display:flex;flex-direction:column;width:100%;max-width:760px;margin:0 auto;padding:var(--f-sp-6) 0 0}.f-talk-chat{flex:1 0 auto;display:flex;flex-direction:column}
+.f-talk-qa .f-talk{padding-top:0}.f-talk-qa .f-locked{padding:var(--f-sp-2) 0 var(--f-sp-4)}.f-page .f-talk-qa .f-locked h2{margin:0 0 var(--f-sp-3);font-size:clamp(1.3rem,5vw,1.6rem)}
+.f-talk-qa .f-locked>p{max-width:60ch;margin:0 0 var(--f-sp-2)}.f-talk-qa .f-locked>.f-actions{margin-top:var(--f-sp-4)}.f-talk-account strong{overflow-wrap:anywhere}
+/* The session's questions, when there are several: each a 44 px link with its type, status and answer count; the one open below is tinted, not barred. */
+.f-talk-switch:not(:empty){margin:0 0 var(--f-sp-5)}.f-talk-switch .f-talk-subhead{margin-top:0}
+.f-shell .f-talk-switch .f-talk-pick{padding-inline:var(--f-sp-2);border-radius:6px}.f-shell .f-talk-pick[aria-current="true"]{background:color-mix(in srgb,var(--f-leaf) 12%,transparent)}
+.f-talk-pick[aria-current="true"] .f-talk-pick-body{text-decoration:none}
+.f-talk-pick-meta{display:flex;flex-wrap:wrap;gap:0;font-size:.78rem;color:var(--f-muted)}.f-talk-pick-meta>:not(:last-child)::after{content:"·";content:"·"/"";margin:0 .5em;color:var(--f-muted)}
+.f-talk-state-chip.is-open{color:var(--f-forest);font-weight:650}
+/* Over the question, a small label (the chat's heading), and under it the way to the latest answers. */
+.f-page .f-talk-qlabel{max-width:none;margin:0;font-size:.72rem;line-height:1.4;letter-spacing:.12em}.f-talk-head>.f-talk-jump{margin:var(--f-sp-2) 0 0}
+@media(pointer:coarse){.f-talk-mine .f-text-link{display:inline-flex;align-items:center;min-height:44px}}
 /* Header: the block, its Lima date, time and venue, the talk, then the question as the largest text on the page. */
 .f-talk-head{padding:0 0 var(--f-sp-4)}.f-talk-kicker{margin:0;font-size:.72rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--f-forest)}
 .f-page .f-talk-title{max-width:none;hyphens:manual;margin:var(--f-sp-1) 0;font-size:clamp(1.6rem,6vw,2.4rem)}
@@ -11,8 +33,7 @@
 .f-talk-talk{margin:var(--f-sp-4) 0 0;font-size:.92rem;font-weight:650;color:var(--f-forest);overflow-wrap:anywhere}
 .f-talk-question{margin:var(--f-sp-2) 0 0;font-size:clamp(1.2rem,4.6vw,1.55rem);font-weight:650;line-height:1.35;letter-spacing:-.01em;overflow-wrap:anywhere}
 .f-talk-flag{display:inline-block;padding:1px 8px;border-radius:999px;background:var(--f-grey-bg);color:var(--f-grey);font-size:.72rem;font-weight:700;letter-spacing:.06em;line-height:1.5;text-transform:uppercase;white-space:nowrap}.f-talk-head>.f-talk-flag{margin:var(--f-sp-3) 0 0}
-.f-talk-more{margin:var(--f-sp-3) 0 0}.f-talk-more>summary{display:flex;align-items:center;min-height:44px;font-weight:650;color:var(--f-forest);cursor:pointer}.f-talk-more>.f-text-link{display:inline-flex;align-items:center;min-height:44px;white-space:normal}
-/* A block's question list (?a=), also inside "More questions on this block". */
+/* The session's question list. */
 .f-page .f-talk-subhead{margin:var(--f-sp-4) 0 var(--f-sp-1);font-size:1.15rem}.f-talk-list{display:grid;gap:var(--f-sp-1);margin:0;padding:0;list-style:none}
 .f-shell .f-talk-pick{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px var(--f-sp-2);min-height:44px;padding:var(--f-sp-2) 0;color:var(--f-ink);text-decoration:none}
 .f-talk-pick-body{flex-basis:100%;font-weight:650;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px;overflow-wrap:anywhere}.f-talk-pick:hover .f-talk-pick-body{text-decoration-thickness:2px}.f-talk-pick-talk{font-size:.86rem;color:var(--f-muted)}.f-talk-kind{font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--f-forest)}
@@ -58,7 +79,7 @@
 .f-talk-dock{position:sticky;bottom:0;z-index:3;margin-top:auto;padding:var(--f-sp-3) 0 calc(var(--f-sp-3) + env(safe-area-inset-bottom));background:#fff;border-top:1px solid var(--f-line)}
 /* A control focused in the conversation is scrolled clear of the dock (fiiu-talk.js keeps --f-talk-dock-h at its measured height), as fiiu.css does for
    the form's save bar. Only controls above the dock: one inside it would make the page jump each time someone tabs into the composer. */
-.f-talk-log :is(a,button,[tabindex]),.f-talk-earlier,.f-talk-more :is(summary,a){scroll-margin-bottom:calc(var(--f-talk-dock-h,140px) + 16px)}
+.f-talk-log :is(a,button,[tabindex]),.f-talk-earlier{scroll-margin-bottom:calc(var(--f-talk-dock-h,140px) + 16px)}
 /* With nothing to show (a hidden question for a participant who cannot post), the dock keeps only the pill and an empty status line, and takes no room. */
 .f-talk-dock:has(>.f-talk-note:empty:last-child){padding:0;border:0}
 .f-shell .f-talk-new{position:absolute;left:50%;bottom:calc(100% + var(--f-sp-2));transform:translateX(-50%);min-height:44px;padding:0 var(--f-sp-4);border:2px solid var(--f-ink);border-radius:999px;background:var(--f-leaf);color:var(--f-ink);font-weight:700;white-space:nowrap;cursor:pointer}
@@ -112,7 +133,7 @@
 /* An organiser checking the view on a phone or a narrow window gets one column. */
 @media(max-width:900px){.f-talk-wall{grid-template-columns:minmax(0,1fr);grid-template-areas:"head" "code" "tools" "feed"}.f-talk-wall-code{justify-self:center;width:min(100%,360px)}.f-page :is(.f-talk-wall-question,.f-talk-wall-question.is-long){font-size:clamp(1.4rem,6vw,2.4rem)}}
 /* A landscape phone or high zoom leaves too little height for a sticky dock: it rests at the end of the conversation, and the pill floats on its own. */
-@media(max-height:480px){.f-page .f-talk-dock{position:static}.f-talk-log :is(a,button,[tabindex]),.f-talk-earlier,.f-talk-more :is(summary,a){scroll-margin-bottom:0}.f-shell .f-talk-new{position:fixed;z-index:3;bottom:calc(var(--f-sp-3) + env(safe-area-inset-bottom))}}
+@media(max-height:480px){.f-page .f-talk-dock{position:static}.f-talk-log :is(a,button,[tabindex]),.f-talk-earlier{scroll-margin-bottom:0}.f-shell .f-talk-new{position:fixed;z-index:3;bottom:calc(var(--f-sp-3) + env(safe-area-inset-bottom))}}
 /* Following new messages scrolls smoothly, unless the reader asked for less motion. */
-html:has(>body.f-page[data-page="fiiu-talk"]){scroll-behavior:smooth}
-@media (prefers-reduced-motion:reduce){html:has(>body.f-page[data-page="fiiu-talk"]){scroll-behavior:auto}}
+html:has(>body.f-page:is([data-page="fiiu-talk"],[data-page="fiiu-session"])){scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html:has(>body.f-page:is([data-page="fiiu-talk"],[data-page="fiiu-session"])){scroll-behavior:auto}}

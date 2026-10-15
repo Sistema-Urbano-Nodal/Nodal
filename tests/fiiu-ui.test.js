@@ -633,12 +633,20 @@ test('a block with conversations links to them from its programme card when the 
  assert.ok(h.root.querySelector('.f-programme'),'the programme is drawn before the pulse answers');assert.deepEqual(talkLinks(h.root),[]);
  answer(pulseData);await flush();
  const links=talkLinks(h.root);assert.equal(links.length,1,'only the block with questions has a link');assert.ok(descendants(cardOf(h,'El poder de lo local')).includes(links[0]),'the link sits on its own block’s card');
- assert.equal(links[0].href,'fiiu-talk.html?a=day1-am');assert.match(content(links[0]),/Conversation\s+·\s+2/);assert.equal(links[0].target,undefined,'the chat opens in the same tab');
+ assert.equal(links[0].href,'fiiu-session.html?a=day1-am');assert.match(content(links[0]),/View session\s+·\s+2/);assert.equal(links[0].target,undefined,'the chat opens in the same tab');
  assert.equal(links[0]['aria-describedby'],'f-act-day1-am-title','each link is described by its block title');
  // Assistive technology hears "Conversation, 2 questions" instead of the bare count, in the reader's language.
  const spoken=links[0].querySelector('.f-talk-spoken');assert.equal(links[0].querySelector('.f-talk-count')['aria-hidden'],'true');assert.equal(spoken.textContent,', 2 questions');
- h.lang('es');assert.match(content(links[0]),/Conversación\s+·\s+2/);assert.equal(spoken.textContent,', 2 preguntas');h.lang('pt');assert.match(content(links[0]),/Conversa\s+·\s+2/);assert.equal(spoken.textContent,', 2 perguntas');
+ h.lang('es');assert.match(content(links[0]),/Ver sesión\s+·\s+2/);assert.equal(spoken.textContent,', 2 preguntas');h.lang('pt');assert.match(content(links[0]),/Ver sessão\s+·\s+2/);assert.equal(spoken.textContent,', 2 perguntas');
  assert.equal(h.requests.filter(request=>request.path==='/api/fiiu/pulse').length,1);
+});
+
+test('session links go to the session page, with the question when one is named',()=>{
+ const context={window:{nodalI18n:{lang:'en',onChange(){}}},document:{documentElement:{lang:'en'},querySelectorAll:()=>[]},Intl,Date,Error};
+ vm.runInNewContext(readFileSync(new URL('../web/scripts/fiiu-ui.js',import.meta.url),'utf8'),context);const {sessionLink}=context.window.Fiiu;
+ assert.equal(sessionLink('day1-am'),'fiiu-session.html?a=day1-am');assert.equal(sessionLink('general'),'fiiu-session.html?a=general');
+ assert.equal(sessionLink('day1-am','10000000-0000-4000-8000-000000000001'),'fiiu-session.html?a=day1-am&q=10000000-0000-4000-8000-000000000001');
+ assert.equal(sessionLink('a b&c'),'fiiu-session.html?a=a%20b%26c','encoded');
 });
 
 test('a pulse that fails or answers oddly shows no conversation links and no error',async()=>{
@@ -652,7 +660,7 @@ test('a pulse that fails or answers oddly shows no conversation links and no err
 test('the saved itinerary links a registered block to its conversation after the venue, and the links survive a re-render',async()=>{
  const h=await harness({registration:saved,pulseRead:()=>pulseData,write:()=>({ok:true})});
  const row=h.root.querySelector('.f-saved').querySelectorAll('.f-itinerary-row').find(node=>descendants(node).some(child=>child.id==='f-it-day1-am')),link=row.querySelector('.f-talk-link');
- assert.equal(link.href,'fiiu-talk.html?a=day1-am');assert.ok(row.querySelector('.f-itinerary-venue'));assert.equal(row.children.at(-1),link,'the link closes the row, after the venue');assert.equal(link['aria-describedby'],'f-it-day1-am');
+ assert.equal(link.href,'fiiu-session.html?a=day1-am');assert.ok(row.querySelector('.f-itinerary-venue'));assert.equal(row.children.at(-1),link,'the link closes the row, after the venue');assert.equal(link['aria-describedby'],'f-it-day1-am');
  // Cancelling redraws the programme from the pulse already read: the card keeps its link and nothing is requested again.
  await key(h.root,'cancel').listeners.click();assert.equal(h.root.querySelector('.f-saved'),null);
  assert.equal(talkLinks(cardOf(h,'El poder de lo local')).length,1);assert.equal(h.requests.filter(request=>request.path==='/api/fiiu/pulse').length,1);
@@ -661,10 +669,10 @@ test('the saved itinerary links a registered block to its conversation after the
 test('guests see conversation links too, on conference and laboratory cards and on workshop and route rows',async()=>{
  const pulse={questions:[...pulseData.questions,['10000000-0000-4000-8000-000000000003','workshop-calles-gente',1,'open'],['10000000-0000-4000-8000-000000000004','day0-lab',2,'closed']]};
  const h=await harness({read:()=>({status:401,data:{error:'sign in required'}}),pulseRead:()=>pulse});assert.ok(key(h.root,'signin'),'this is the guest view');
- const card=talkLinks(cardOf(h,'El poder de lo local'));assert.equal(card.length,1);assert.equal(card[0].href,'fiiu-talk.html?a=day1-am');
- const lab=cardOf(h,'Gestión urbana en acción').querySelector('.f-activity-foot');assert.equal(talkLinks(lab)[0].href,'fiiu-talk.html?a=day0-lab');assert.equal(talkLinks(lab)[0]['aria-describedby'],'f-act-day0-lab-title');
+ const card=talkLinks(cardOf(h,'El poder de lo local'));assert.equal(card.length,1);assert.equal(card[0].href,'fiiu-session.html?a=day1-am');
+ const lab=cardOf(h,'Gestión urbana en acción').querySelector('.f-activity-foot');assert.equal(talkLinks(lab)[0].href,'fiiu-session.html?a=day0-lab');assert.equal(talkLinks(lab)[0]['aria-describedby'],'f-act-day0-lab-title');
  const row=h.root.querySelectorAll('.f-compact').find(node=>descendants(node).some(child=>child.id==='f-act-workshop-calles-gente-title')),link=row.querySelector('.f-compact-actions').querySelector('.f-talk-link');
- assert.equal(link.href,'fiiu-talk.html?a=workshop-calles-gente');assert.match(content(link),/Conversation\s+·\s+1/);assert.equal(link.querySelector('.f-talk-spoken').textContent,', 1 question');
+ assert.equal(link.href,'fiiu-session.html?a=workshop-calles-gente');assert.match(content(link),/View session\s+·\s+1/);assert.equal(link.querySelector('.f-talk-spoken').textContent,', 1 question');
  assert.equal(talkLinks(h.root).length,3);
 });
 
@@ -680,7 +688,7 @@ test('the dashboard widget links the next block to its conversation',async()=>{
  const T=Date.parse('2026-10-21T08:00:00-05:00');class FrozenDate extends Date{constructor(...args){super(...(args.length?args:[T]));}static now(){return T;}}
  const registration={...saved,answers:{...answers,activities:['day1-am']}};
  const {widget,requests}=await widgetHarness(path=>path==='/api/fiiu/pulse'?pulseData:widgetFeed(path)||self(registration),{Date:FrozenDate});
- const link=widget.querySelector('.f-next').querySelector('.f-talk-link');assert.equal(link.href,'fiiu-talk.html?a=day1-am');assert.match(content(link),/Conversation\s+·\s+2/);
+ const link=widget.querySelector('.f-next').querySelector('.f-talk-link');assert.equal(link.href,'fiiu-session.html?a=day1-am');assert.match(content(link),/View session\s+·\s+2/);
  assert.equal(requests.filter(path=>path==='/api/fiiu/pulse').length,1);
  // A next block without questions has no link.
  const quiet=await widgetHarness(path=>path==='/api/fiiu/pulse'?{questions:[['10000000-0000-4000-8000-000000000005','day2-am',1,'open']]}:widgetFeed(path)||self(registration),{Date:FrozenDate});
@@ -817,7 +825,7 @@ test('during a block, the hero says it is happening now and links to its convers
  const pulse={questions:[['10000000-0000-4000-8000-000000000007','day2-am',1,'open']]};
  const h=await harness({registration,pulseRead:()=>pulse,context:{Date:clock.Date}}),next=()=>h.root.querySelector('.f-next');
  assert.ok(key(next(),'nowForYou'));assert.equal(key(next(),'nextForYou'),undefined);
- const talk=next().querySelector('.f-talk-link');assert.equal(talk.href,'fiiu-talk.html?a=day2-am');assert.equal(talk['aria-describedby'],'f-next-title');
+ const talk=next().querySelector('.f-talk-link');assert.equal(talk.href,'fiiu-session.html?a=day2-am');assert.equal(talk['aria-describedby'],'f-next-title');
  const day=next().querySelectorAll('a').find(node=>node.href==='#day-2026-10-22');assert.ok(day,'the block links to its day in the programme');assert.match(content(day),/Cuidar y transformar la ciudad/);
  assert.ok(h.timers.some(timer=>timer.delay===60000),'the hero is checked every minute during the festival');
  const same=next();await h.tickTimers();assert.equal(next(),same,'nothing is redrawn while the block and its state stay the same');
@@ -835,12 +843,12 @@ test('coming back to the tab picks up new conversations and news at most once a 
  const h=await harness({registration,publicRead:()=>({...publicData,content:news}),pulseRead:()=>pulseFails?{status:503,data:{error:'unavailable'}}:{questions},context:{Date:clock.Date}});
  const links=node=>talkLinks(node).map(link=>link.href),reads=path=>h.requests.filter(request=>request.path===path).length,back=async()=>{await h.visible(false);await h.visible(true);await flush();};
  const newsTitles=()=>descendants(descendants(h.root).find(node=>node.id==='news')).filter(node=>node.tagName==='h3').map(node=>node.textContent);
- assert.deepEqual(links(h.root.querySelector('.f-programme')),['fiiu-talk.html?a=day1-am']);
+ assert.deepEqual(links(h.root.querySelector('.f-programme')),['fiiu-session.html?a=day1-am']);
  questions=[...questions,['10000000-0000-4000-8000-000000000002','day1-pm',1,'open']];news=[{id:'n2',kind:'news',title:'Nueva sala para el bloque de la noche',body:'Sala C',url:'',createdAt:'2026-10-21T12:00:00.000Z'},...news];
  clock.at+=30000;await back();assert.equal(reads('/api/fiiu/pulse'),1,'within a minute nothing is read again');
  clock.at+=61000;await back();
- assert.deepEqual(links(h.root.querySelector('.f-programme')),['fiiu-talk.html?a=day1-am','fiiu-talk.html?a=day1-pm']);
- assert.deepEqual(links(h.root.querySelector('.f-saved')),['fiiu-talk.html?a=day1-am','fiiu-talk.html?a=day1-pm'],'the saved itinerary, not being edited, follows too');
+ assert.deepEqual(links(h.root.querySelector('.f-programme')),['fiiu-session.html?a=day1-am','fiiu-session.html?a=day1-pm']);
+ assert.deepEqual(links(h.root.querySelector('.f-saved')),['fiiu-session.html?a=day1-am','fiiu-session.html?a=day1-pm'],'the saved itinerary, not being edited, follows too');
  assert.deepEqual(newsTitles(),['Nueva sala para el bloque de la noche','Cambio de sala para el bloque del jueves']);assert.match(content(h.root.querySelector('.f-latest')),/Nueva sala/);
  // A failed read keeps what is shown; a back/forward-cache restore counts as a return.
  pulseFails=true;clock.at+=61000;await back();assert.equal(links(h.root.querySelector('.f-programme')).length,2);
@@ -999,7 +1007,7 @@ const generalPulse={questions:[[G1,'general',4,'open'],[G2,'general',2,'closed']
 
 test('a General conversation link leads the programme with its open-question count, only while General has an open question',async()=>{
  const h=await harness({pulseRead:()=>generalPulse}),head=h.root.querySelector('.f-programme').querySelector('.f-section-head'),link=head.querySelector('.f-talk-general');
- assert.ok(link,'the link sits at the top of the programme');assert.equal(link.href,'fiiu-talk.html?a=general');assert.equal(link.target,undefined);
+ assert.ok(link,'the link sits at the top of the programme');assert.equal(link.href,'fiiu-session.html?a=general');assert.equal(link.target,undefined);
  assert.match(content(link),/General conversation\s+·\s+2/,'closed General questions are not counted');assert.equal(link.querySelector('.f-talk-spoken').textContent,', 2 questions');
  h.lang('es');assert.match(content(link),/Conversación general\s+·\s+2/);assert.equal(link.querySelector('.f-talk-spoken').textContent,', 2 preguntas');h.lang('pt');assert.match(content(link),/Conversa geral\s+·\s+2/);
  assert.equal(talkLinks(cardOf(h,'El poder de lo local')).length,1,'block links are unchanged');
@@ -1014,7 +1022,7 @@ test('the console festival block links the General conversation with its open-qu
  const respond=(registration,pulse=generalPulse)=>path=>path==='/api/fiiu/pulse'?pulse:widgetFeed(path)||self(registration);
  for(const registration of [saved,null]){
   const {widget}=await widgetHarness(respond(registration)),link=widget.querySelector('.f-talk-general');
-  assert.equal(link.href,'fiiu-talk.html?a=general');assert.match(content(link),/General conversation\s+·\s+2/);
+  assert.equal(link.href,'fiiu-session.html?a=general');assert.match(content(link),/General conversation\s+·\s+2/);
   const order=[key(widget,registration?'viewRegistration':'register'),link].map(node=>descendants(widget).indexOf(node));assert.ok(order[0]<order[1],'after the call to action');
  }
  const quiet=await widgetHarness(respond(saved,{questions:[[G2,'general',2,'closed']]}));assert.equal(quiet.widget.querySelector('.f-talk-general'),null);

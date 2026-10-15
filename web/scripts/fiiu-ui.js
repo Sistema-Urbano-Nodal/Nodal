@@ -66,9 +66,9 @@
   externalInterestClosedHint:['Complete each activity’s Google Form to register with its facilitator. Interest in NODAL does not confirm that registration or attendance.','Completa el Google Form de cada actividad para inscribirte con su facilitador. El interés en NODAL no confirma esa inscripción ni la asistencia.','Preencha o Google Forms de cada atividade para se inscrever com o facilitador. O interesse na NODAL não confirma essa inscrição nem a presença.'],
   // The hero's block while it is under way ("Next for you" otherwise).
   nowForYou:['Happening now','Ahora','Agora'],
-  // Conversation links on festival blocks (talkLink below): "Conversación · 2" on screen, "Conversación, 2 preguntas" for assistive technology.
-  talkLink:['Conversation','Conversación','Conversa'],talkLinkOne:['1 question','1 pregunta','1 pergunta'],talkLinkCount:['{n} questions','{n} preguntas','{n} perguntas'],
-  // The festival-wide General space (fiiu-talk.html?a=general), linked at the top of the programme and in the console with its open questions.
+  // Session links on festival blocks (talkLink below), to the session page with its questions: "Ver sesión · 2" on screen, "Ver sesión, 2 preguntas" for assistive technology.
+  talkLink:['View session','Ver sesión','Ver sessão'],talkLinkOne:['1 question','1 pregunta','1 pergunta'],talkLinkCount:['{n} questions','{n} preguntas','{n} perguntas'],
+  // The festival-wide General space (fiiu-session.html?a=general), linked at the top of the programme and in the console with its open questions.
   talkGeneral:['General conversation','Conversación general','Conversa geral'],
   pendingShort:['Lab: in review','Laboratorio: en revisión','Laboratório: em análise'],acceptedShort:['Lab: accepted','Laboratorio: aceptado/a','Laboratório: aceito/a'],declinedShort:['Lab: not selected','Laboratorio: no seleccionado/a','Laboratório: não selecionado/a'],
   pendingHint:['The organising team is reviewing applications. The decision will appear here.','El equipo organizador está revisando las postulaciones. La decisión aparecerá aquí.','A equipe organizadora está analisando as candidaturas. A decisão aparecerá aqui.'],
@@ -292,12 +292,15 @@
  const noCounts=()=>Object.assign(new Map(),{open:new Map()});
  const readPulse=()=>api('/api/fiiu/pulse').then(data=>{if(!Array.isArray(data.questions))throw Error('pulse');const counts=noCounts();for(const row of data.questions)if(Array.isArray(row)&&typeof row[1]==='string'&&row[3]!=='hidden'){counts.set(row[1],(counts.get(row[1])||0)+1);if(row[3]==='open')counts.open.set(row[1],(counts.open.get(row[1])||0)+1);}return counts;});
  function pulse({fresh=false}={}){if(fresh&&pulseCounts){const shown=pulseCounts;pulseCounts=readPulse().catch(()=>shown);}return pulseCounts??=readPulse().catch(noCounts);}
- // "Conversación · 2" on a block, opening its questions. The bare count is hidden from assistive technology, which hears "Conversación, 2 preguntas"; refresh() keeps that phrase in the reader's language.
+ // A session's page (fiiu-session.html): its details, the person's status and its questions; a named question opens there. The festival pages, the console
+ // and the live window link sessions only through this.
+ const sessionLink=(activityId,questionId)=>'fiiu-session.html?a='+encodeURIComponent(activityId)+(questionId?'&q='+encodeURIComponent(questionId):'');
+ // "Ver sesión · 2" on a block, opening its page. The bare count is hidden from assistive technology, which hears "Ver sesión, 2 preguntas"; refresh() keeps that phrase in the reader's language.
  const talkSpoken=n=>', '+(n===1?t('talkLinkOne'):t('talkLinkCount').replace('{n}',memo(locale()+'|number',()=>new Intl.NumberFormat(locale())).format(n)));
  // label: the General space reads "Conversación general · 2".
  function talkLink(activityId,count,cls='f-text-link f-talk-link',label='talkLink'){
   const a=el('a',cls),shown=el('span','f-talk-count',' · '+count),spoken=el('span','f-sr-only f-talk-spoken',talkSpoken(count));
-  a.href='fiiu-talk.html?a='+encodeURIComponent(activityId);shown.setAttribute('aria-hidden','true');spoken.dataset.talkCount=String(count);a.append(tr('span',label),shown,spoken);return a;
+  a.href=sessionLink(activityId);shown.setAttribute('aria-hidden','true');spoken.dataset.talkCount=String(count);a.append(tr('span',label),shown,spoken);return a;
  }
  // A block counts until it ends in Lima ('09:00–13:00' until 13:00); one without a time range, such as the accepted laboratory, counts for its whole day.
  const endsAt=activity=>{const end=/[–-]\s*(\d{1,2}):(\d{2})\s*$/.exec(activity.time||'');return end?Number(end[1])*60+Number(end[2]):24*60;};
@@ -395,6 +398,6 @@
  }
  // Scrolls a horizontal chip row just enough to show the item in full, clear of the right-edge fade (fiiu.css); only the row moves, never the page (the rows sit in sticky bars).
  function revealInRow(row,item){const box=item?.getBoundingClientRect?.(),frame=row?.getBoundingClientRect?.();if(!box||!frame)return;const shift=box.left<frame.left+8?box.left-frame.left-8:box.right>frame.right-36?box.right-frame.right+36:0;if(shift)row.scrollBy?.({left:shift});}
- window.Fiiu={rows,t,el,tr,button,link,source,field,check,api,status,dateNode,rangeNode,timeLabel,timeNode,limaDate,locale,contentCards,badges,festivalBadges,findActivity,chronological,typeOf,countLabel,nextFor,underway,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,hoursLine,checkinCloses,checkinState,checkinActivities,limaClock,windowNode,pulse,talkLink,linkify};
+ window.Fiiu={rows,t,el,tr,button,link,source,field,check,api,status,dateNode,rangeNode,timeLabel,timeNode,limaDate,locale,contentCards,badges,festivalBadges,findActivity,chronological,typeOf,countLabel,nextFor,underway,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,hoursLine,checkinCloses,checkinState,checkinActivities,limaClock,windowNode,pulse,talkLink,sessionLink,linkify};
  window.nodalI18n?.onChange(refresh);refresh();
 })();
