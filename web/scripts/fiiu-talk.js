@@ -667,7 +667,7 @@
   if(attempt.state==='sending')return;forget(attempt);if(composer&&parts?.dockState==='composer')composer.textarea.focus();
  }
  // A Retry can come from a row restored on a question that has closed since, where there is no composer: its news goes to the dock's status line.
- const tell=value=>status(composer&&parts?.dockState==='composer'?composer.state:parts?.note||message,value);
+ const told=()=>composer&&parts?.dockState==='composer'?composer.state:parts?.note||message,tell=value=>status(told(),value);
  async function deliver(attempt){
   if(attempt.state==='sending'||!parts||attempt.qid!==question?.id)return;attempt.state='sending';const row=pendingRow(attempt),id=attempt.qid;
   if(attempt.row)attempt.row.replaceWith(row);else parts.log.append(row);attempt.row=row;updateEmpty();toBottom(true);tell('');
@@ -708,9 +708,14 @@
   }
  }
  // Errors from likes, deletions and moderation show next to the composer, or in the dock's status line when there is none (a closed or hidden
- // question); the next action that works clears that line, unless it says updates are paused.
- function notify(error){tell(problem(keyOf(error)));}
- function settled(){const node=parts?.note;if(node&&node.dataset.fiiuText&&!PAUSED.includes(node.dataset.fiiuText))status(node,'');}
+ // question); the next action that works clears that line, unless it says updates are paused. The composer's line is cleared only while it still
+ // shows that error (audit #2): a draft's own problem, such as its length, stays.
+ let notified=null;
+ function notify(error){const key=keyOf(error);tell(problem(key));notified={node:told(),key};}
+ function settled(){
+  const node=parts?.note;if(node&&node.dataset.fiiuText&&!PAUSED.includes(node.dataset.fiiuText))status(node,'');
+  if(notified&&notified.node.dataset.fiiuText===notified.key)status(notified.node,'');notified=null;
+ }
  function paintLike(id){
   const view=views.get(id),like=rowsById.get(id)?.querySelector('.f-talk-like');if(!view||!like)return;const shown=likeShown(view);
   like.setAttribute('aria-pressed',String(shown.liked));like.querySelector('.f-talk-like-n').textContent=String(shown.likeCount);

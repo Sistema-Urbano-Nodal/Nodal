@@ -1547,3 +1547,14 @@ test('#1: a reader at the end stays there when the keyboard or a rotation resize
  await scrollTo(h,scroller,1850);scroller.clientHeight=760;await fire('resize');assert.equal(scroller.scrollTop,1850);
  await scrollTo(h,scroller,900);scroller.clientHeight=500;await fire('resize');assert.equal(scroller.scrollTop,900,'a reader higher up stays');
 });
+
+test('#2: a failed like’s error under the composer goes once a later like works, and a draft’s own problem stays',async()=>{
+ let fail=true;
+ const h=await page({['PUT /api/fiiu/messages/'+M1+'/like']:()=>fail?offline():{likeCount:1,liked:true},['PUT /api/fiiu/messages/'+M2+'/like']:{likeCount:1,liked:true}});
+ await row(h,M1).querySelector('.f-talk-like').listeners.click();await flush();assert.equal(composerStatus(h),'talkOffline');
+ await row(h,M2).querySelector('.f-talk-like').listeners.click();await flush();
+ assert.equal(row(h,M2).querySelector('.f-talk-like')['aria-pressed'],'true');assert.equal(composerStatus(h),'','the false “no connection” line goes');
+ // An over-long draft keeps its warning through a like: it is about the draft, which has not changed.
+ const text=composer(h).querySelector('textarea');text.value='x'.repeat(1001);submit(h);await flush();assert.equal(composerStatus(h),'talkTooLong');
+ fail=false;await row(h,M1).querySelector('.f-talk-like').listeners.click();await flush();assert.equal(composerStatus(h),'talkTooLong');
+});
