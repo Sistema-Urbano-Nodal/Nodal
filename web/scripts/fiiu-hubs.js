@@ -27,6 +27,11 @@
      first turned a working block into the error box and collapsed it while it read. Only two good reads redraw it, in one step; a failed refresh
      keeps the block and the old loadedAt, so the next return tries again. */
   let loading=false,loadedAt=0;
+  /* The live line (fiiu-live.js) for registered people and organisers: what is on, today's check-ins and the live conversations, with a way to the band on
+     fiiu.html. It is mounted once and keeps itself up to date; a redraw of the block moves the same node, so it neither reads again nor starts over.
+     Without a registration there is none, and no read for it. */
+  const liveLine=el('div');liveLine.hidden=true;let live=null,liveNamed=null;
+  const stopLive=()=>{live?.stop();live=null;liveLine.hidden=true;liveLine.replaceChildren();};
   const failure=()=>{const box=el('div','f-widget-error'),retry=button('retry',()=>{retry.disabled=true;load();});box.append(tr('p','loadError'),retry);return box;};
   async function load(background=false){
    if(loading)return;loading=true;
@@ -38,7 +43,7 @@
    if(data){contentCards(newsHost,data.content.slice(0,5),'noNews','h4');newsHost.append(link('allNews','fiiu.html#news','f-text-link'));}
    updates.hidden=!data;
    // Without the registration there is no status to show, so the error stands in for it, with the festival page as the way round.
-   if(mine.status!=='fulfilled'){state.replaceChildren(failure(),link('registration','fiiu.html','f-text-link'));return;}
+   if(mine.status!=='fulfilled'){stopLive();state.replaceChildren(failure(),link('registration','fiiu.html','f-text-link'));return;}
    loadedAt=Date.now();
    const me=mine.value,registration=me.registration,chips=el('div','f-widget-chips'),next=el('div','f-widget-next');
    // dashboard.js places the block by this on a phone: first for a registrant, after the greeting for an invitation to register.
@@ -46,7 +51,8 @@
    chips.append(registration?tr('span','statusRegistered','f-pill is-ok'):tr('span','statusNotRegistered','f-pill'));
    if(registration&&registration.labStatus!=='none')chips.append(tr('span',registration.labStatus+'Short','f-pill is-'+registration.labStatus));
    // A registration keeps its way back; without one, the call to action follows the registration settings.
-   state.replaceChildren(chips,next,registration?link('viewRegistration','fiiu.html#registration','f-button'):data?.config?.registrationOpen===false?link('viewProgramme','fiiu.html#programme','f-button'):link('register','fiiu.html#registration','f-button'));
+   if(!registration&&!me.isAdmin)stopLive();
+   state.replaceChildren(chips,next,liveLine,registration?link('viewRegistration','fiiu.html#registration','f-button'):data?.config?.registrationOpen===false?link('viewProgramme','fiiu.html#programme','f-button'):link('register','fiiu.html#registration','f-button'));
    // The festival-wide General conversation, with its open questions from the public pulse; nothing while none is open. A refresh reads the pulse again.
    const general=el('p','f-widget-general');general.hidden=true;state.append(general);
    pulse({fresh:background}).then(counts=>{const n=counts.open?.get('general');if(!n)return;general.append(talkLink('general',n,'f-text-link f-talk-link f-talk-general','talkGeneral'));general.hidden=false;});
@@ -56,12 +62,14 @@
    }
    // The status stays; the next session and the badges need the event, so a failed news read puts the block's one retry here.
    if(!data){loadedAt=0;state.append(failure());return;}
+   // The line leaves out the session the block names as the person's next (liveNamed, set below), so it never says the same thing twice.
+   liveNamed=null;if((registration||me.isAdmin)&&!live&&window.Fiiu.live)live=window.Fiiu.live.mount(liveLine,{compact:true,event:data.event,organiser:Boolean(me.isAdmin),named:()=>liveNamed});
    // The console's Recognition ledger draws its FIIU family from these same two reads, so it makes no request of its own: dashboard.js (loaded before
    // this file) listens on document for this event. Only two good reads hand over, on the first draw and on a refresh; after a failed read the ledger
    // keeps what it shows, and without a registration (null) it shows no festival family.
    if(typeof CustomEvent==='function')document.dispatchEvent?.(new CustomEvent('nodal:fiiu-festival',{detail:{registration,attendance:me.attendance,event:data.event}}));
    if(registration){
-    const box=el('div','f-badges');state.append(box);const upcoming=nextFor(registration,data.event);
+    const box=el('div','f-badges');state.append(box);const upcoming=nextFor(registration,data.event);liveNamed=upcoming?.id||null;
     if(upcoming){const line=el('p','f-next');line.append(tr('span','nextForYou','f-next-label'),dateNode(upcoming.date,'span','short','f-next-date'));if(upcoming.time)line.append(timeNode(upcoming.time,'span','f-next-time'));line.append(source('span',upcoming.title,'f-next-title'));if(upcoming.venue)line.append(source('span',upcoming.venue,'f-next-venue'));next.append(line);
      // The next block's session page, with its questions, from the same pulse read as the General link above.
      pulse().then(counts=>{const n=counts.get(upcoming.id);if(n)line.append(talkLink(upcoming.id,n));});}

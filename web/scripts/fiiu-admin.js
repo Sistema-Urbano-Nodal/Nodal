@@ -27,6 +27,9 @@
   ratingNone:['No ratings yet','Aún no hay valoraciones','Ainda não há avaliações'],ratingBars:['Ratings from 1 to 10','Valoraciones del 1 al 10','Avaliações de 1 a 10'],
   ratingBarOne:['1 person chose {score}','1 persona eligió {score}','1 pessoa escolheu {score}'],ratingBarMany:['{n} people chose {score}','{n} personas eligieron {score}','{n} pessoas escolheram {score}'],
   ratingCsv:['Download counts (CSV)','Descargar conteos (CSV)','Baixar contagens (CSV)'],
+  // A question refused because the programme changed under the form (a talk renamed, a block gone), by another organiser or in this page's Programme section.
+  questionTalkChanged:['This talk changed in the programme. Choose it again.','Esta charla cambió en el programa; vuelve a elegirla.','Esta palestra mudou na programação. Escolha-a de novo.'],
+  questionBlockChanged:['This block is no longer in the programme. Choose another one.','Este bloque ya no está en el programa; elige otro.','Este bloco não está mais na programação. Escolha outro.'],
   // The party in the totals and the participant list: people register for it, so it counts registrations, with no attendance or hours.
   blocksAndParty:['Conferences, laboratory and party','Conferencias, laboratorio y fiesta','Conferências, laboratório e festa'],
   filterBlock:['Block','Bloque','Bloco'],filterAllBlocks:['All blocks','Todos los bloques','Todos os blocos'],
@@ -684,8 +687,10 @@
  }
  // A saved, restored or re-read block replaces its row and the dashboard's copy of the programme, so the totals, check-in and conversation headings name it as saved.
  function applyBlock(item){
-  programme=(programme||[]).map(a=>a.id===item.id?item:a);
+  if(programme)programme=programme.map(a=>a.id===item.id?item:a);
   const {version,original,checkedIn,...block}=item;festival.event={...festival.event,activities:festival.event.activities.map(a=>a.id===block.id?{...a,...block}:a)};
+  // The question forms on this block list its talks as saved; a talk chosen under a name the block no longer has is cleared, with a note.
+  for(const editor of [newQuestion,...[...questionRows.values()].map(entry=>entry.editor)])editor?.refillTalks(block.id);
   // Every block picker on the page names it as saved: the participant filter, the new question's and the open publication editor's.
   const pickers=[blockFilter,...[newQuestion?.form,editorHost.querySelector('form')].flatMap(form=>form?[...form.querySelectorAll('select')].filter(select=>select.name==='activityId'):[])];
   for(const select of pickers)for(const option of select?.children||[])if(option.value===block.id)option.textContent=blockLabel(block);
@@ -986,6 +991,11 @@
    const names=(findActivity(festival.event,activityId)?.sessions||[]).map(([,name])=>name),none=tr('option','questionNoTalk');none.value='';for(const name of keep)if(name&&!names.includes(name))names.push(name);
    talk.replaceChildren(none,...names.map(name=>{const option=source('option',name);option.value=name;return option;}));talk.value=names.includes(value)?value:'';talkField.wrap.hidden=!names.length;
   };
+  // Shown under the choice when a talk chosen here left the block's list (renamed or removed in the programme), until a talk or block is chosen again.
+  const talkNote=tr('p','questionTalkChanged','f-talk-changed');talkNote.id=prefix+'-talk-note';talkNote.hidden=true;
+  const noteTalk=on=>{talkNote.hidden=!on;if(on)talk.setAttribute('aria-describedby',talkNote.id);else talk.removeAttribute('aria-describedby');};talk.addEventListener('change',()=>noteTalk(false));
+  // The programme as saved on this page, or read again after a refusal, rebuilds the talk choice of a form on that block.
+  const refillTalks=activityId=>{if((isNew?block.value:start.activityId)!==activityId)return;const before=talk.value;fillTalks(activityId,before,isNew?[]:[start.talk]);if(before&&talk.value!==before)noteTalk(true);};
   const count=()=>{const number=new Intl.NumberFormat(locale());counter.textContent=number.format(text.input.value.length)+' / '+number.format(QUESTION_MAX);};text.input.addEventListener('input',count);count();
   // The type is chosen once, when the question is created: a conversation (the default) or a 1–10 rating. An edit shows it and cannot change it.
   let kinds=[];const kindOf=()=>kinds.find(choice=>choice.checked)?.value||'chat';
@@ -993,7 +1003,7 @@
    // General, the whole festival's space, comes before the blocks; it has no talks.
    const blockField=field('questionBlock',{required:true}),blank=tr('option','choose'),general=tr('option','questionGeneral');block.name='activityId';block.id=prefix+'-block';block.required=true;blank.value='';general.value='general';block.append(blank,general);
    for(const a of chronological(festival.event.activities)){const option=source('option',`${a.date.slice(8)}/${a.date.slice(5,7)} · ${a.title}`);option.value=a.id;block.append(option);}
-   blockField.input.replaceWith(block);block.addEventListener('change',()=>fillTalks(block.value,talk.value));
+   blockField.input.replaceWith(block);block.addEventListener('change',()=>{fillTalks(block.value,talk.value);noteTalk(false);});
    const choice=el('fieldset','f-kind-choice'),kindHint=tr('p','questionKindHint','f-muted f-kind-hint');kindHint.id=prefix+'-kind-hint';choice.append(tr('legend','questionKind'));
    kinds=[['chat','questionKindChat'],['rating','questionKindRating']].map(([value,key])=>{const wrap=el('label','f-check'),input=el('input');input.type='radio';input.name='kind';input.value=value;input.id=prefix+'-kind-'+value;input.checked=value==='chat';wrap.append(input,tr('span',key));choice.append(wrap);return input;});
    kinds[1].setAttribute('aria-describedby',kindHint.id);choice.append(kindHint);form.append(tr('h3','newQuestion'),blockField.wrap,choice);
@@ -1018,16 +1028,26 @@
    // draft stays, with a new id for a deliberate second question; an edit reopens on the latest version with its typed text and talk kept.
    const reload=isNew?async()=>{await reloadQuestions();draftId=null;conflict.replaceChildren();text.input.focus();}:async()=>{const kept={body:text.input.value,talk:talk.value,base:start};await reloadQuestions();openQuestionEdit(entry,true,kept);};
    try{await action(control,async()=>{
-    const result=await api('/api/admin/fiiu/questions'+(isNew?'':'/'+encodeURIComponent(start.id)),payload,isNew?'POST':'PATCH');if(!validQuestion(result.question))throw Object.assign(Error(t('error')),{key:'error'});
-    if(isNew){draftId=null;text.input.value='';count();}else closeQuestionEdit(entry);
+    let result;try{result=await api('/api/admin/fiiu/questions'+(isNew?'':'/'+encodeURIComponent(start.id)),payload,isNew?'POST':'PATCH');}catch(err){throw await questionRefusal(err,isNew?block.value:start.activityId);}
+    if(!validQuestion(result.question))throw Object.assign(Error(t('error')),{key:'error'});
+    noteTalk(false);if(isNew){draftId=null;text.input.value='';count();}else closeQuestionEdit(entry);
     upsertQuestion(result.question);
    },{conflict,reload,done:'questionSaved'});}
    finally{busy=false;unlock();}
   };
   if(isNew){const publish=button('publishNow',()=>send('open',publish),'f-button'),hidden=button('saveHidden',()=>send('hidden',hidden),'f-button secondary');buttons.append(publish,hidden);}
   else{const save=button('saveQuestion',()=>send(null,save),'f-button');buttons.append(save,button('cancelEdit',()=>closeQuestionEdit(entry),'f-button secondary f-small'));}
-  form.append(talkField.wrap,text.wrap,counter,...(latest?[latest]:[]),buttons,conflict);localiseValidation(form);form.addEventListener('submit',event=>event.preventDefault());
-  return Object.assign(editor,{recount:count,dirty:()=>isNew?Boolean(values().body):JSON.stringify(values())!==initial});
+  form.append(talkField.wrap,talkNote,text.wrap,counter,...(latest?[latest]:[]),buttons,conflict);localiseValidation(form);form.addEventListener('submit',event=>event.preventDefault());
+  return Object.assign(editor,{recount:count,refillTalks,dirty:()=>isNew?Boolean(values().body):JSON.stringify(values())!==initial});
+ }
+ /* The server checks a question's block and talk against the programme as edited, which may have changed since this page read it: another organiser
+    renamed the talk, or another server instance still held the older programme. Each refusal gets its own message (every other admin 400 reads "check
+    the required fields"), and the block is read again, so its form offers the talks as they are now; the typed question and its id stay for the retry. */
+ const QUESTION_CODES={invalid_talk:'questionTalkChanged',invalid_activity:'questionBlockChanged'};
+ async function questionRefusal(err,activityId){
+  const k=err?.status===400&&QUESTION_CODES[err.code];if(!k)return err;
+  try{const latest=(await readProgramme()).find(a=>a.id===activityId);if(latest&&!locked)applyBlock(latest);}catch{/* The message still says what to do; the next refusal reads again. */}
+  return Object.assign(Error(t(k)),{key:k,status:err.status,code:err.code});
  }
  function conversationsPanel(){
   const heading=tr('h2','conversations'),layout=el('div','f-conversations-layout'),side=el('div','f-question-side');heading.id='f-h-conversations';conversationsHost.id='conversations';

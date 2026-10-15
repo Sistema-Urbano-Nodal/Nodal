@@ -1241,6 +1241,47 @@ test('the talk choice appears only for blocks with talks and lists that block’
  await select(block,'');assert.equal(talk.parent.hidden,true);
 });
 
+// Finding 13: the talk choice followed the programme as the page loaded it, so a talk renamed since (here, in the Programme section) kept its old name
+// in the list and the question was refused with an unrelated message.
+const WELCOME='¡Bienvenidos al FIIU 11!',RENAMED='¡Bienvenidas y bienvenidos al FIIU 11!';
+const DAY1_TALKS=EVENT.activities.find(activity=>activity.id==='day1-am').sessions;
+const renamedDay1=()=>programmeItems({'day1-am':{sessions:DAY1_TALKS.map(([time,name])=>[time,name===WELCOME?RENAMED:name]),edited:true,version:1}});
+test('renaming a talk in the Programme section refills the new question’s talk choice, and a talk chosen before it says it changed',async()=>{
+ const h=await harness(request=>request.method==='PUT'?savedBlock(request):{content:[],nextCursor:null});
+ const form=questionForm(h),block=field(form,'activityId'),talk=field(form,'talk');
+ await select(block,'day1-am');await select(talk,WELCOME);type(field(form,'body'),'¿Qué te llevas?');
+ const edit=await openBlock(h,'day1-am');type(field(edit.querySelectorAll('.f-programme-line')[0],'sessionTitle'),RENAMED);await submit(edit);
+ assert.deepEqual(talk.children.map(option=>option.value),['',RENAMED,...DAY1_TALKS.slice(1).map(([,name])=>name)],'the list offers the talk under its new name');
+ assert.equal(talk.value,'','the old name is not kept');assert.equal(field(form,'body').value,'¿Qué te llevas?','the typed question stays');
+ const note=key(form,'questionTalkChanged');assert.ok(note);assert.equal(note.hidden,false);assert.equal(talk['aria-describedby'],note.id);
+ await select(talk,RENAMED);assert.equal(note.hidden,true,'choosing again clears the note');assert.equal(talk['aria-describedby'],undefined);
+ // A save of another block leaves this form's choice alone.
+ const other=await openBlock(h,'day2-am');type(field(other,'venue'),'Otra sala');await submit(other);assert.equal(talk.value,RENAMED);assert.equal(note.hidden,true);
+});
+
+test('a talk renamed by another organiser is refused with its own message; the block is read again so the new name can be chosen',async()=>{
+ let renamed=false;const posts=[];
+ const h=await harness(({method,path,body})=>{
+  if(path==='/api/admin/fiiu/questions'&&method==='POST'){posts.push(body);if(body.talk===WELCOME){renamed=true;return{status:400,data:{error:'invalid talk',code:'invalid_talk'}};}if(body.activityId==='gone')return{status:400,data:{error:'invalid activity',code:'invalid_activity'}};return{status:201,data:{question:{id:body.id,activityId:body.activityId,talk:body.talk,body:body.body,status:body.status,revision:0,messageCount:0,createdAt:'2026-10-21T15:00:00.000Z',version:1}}};}
+  return{content:[],nextCursor:null};
+ },{programmeRead:()=>({activities:renamed?renamedDay1():programmeItems()})});
+ const form=questionForm(h),block=field(form,'activityId'),talk=field(form,'talk');
+ await select(block,'day1-am');await select(talk,WELCOME);type(field(form,'body'),'¿Qué te llevas?');
+ await key(form,'publishNow').listeners.click();await flush();
+ assert.equal(h.message.dataset.fiiuText,'questionTalkChanged','not the required-fields and HTTPS message');assert.equal(programmeReads(h),2,'the programme is read again');
+ assert.ok(talk.children.some(option=>option.value===RENAMED));assert.ok(!talk.children.some(option=>option.value===WELCOME));assert.equal(key(form,'questionTalkChanged').hidden,false);
+ assert.equal(field(form,'body').value,'¿Qué te llevas?');assert.equal(questionRows(h).length,0);
+ assert.match(content(blockRow(h,'day1-am')),/El poder de lo local/,'the Programme section has the block as read');
+ await select(talk,RENAMED);await key(form,'publishNow').listeners.click();await flush();
+ assert.equal(posts.at(-1).talk,RENAMED);assert.equal(posts.at(-1).id,posts[0].id,'the same question, sent again');assert.equal(questionRows(h).length,1);assert.equal(h.message.dataset.fiiuText,'questionSaved');
+ const rows=h.ctx.window.Fiiu.rows;for(const name of ['questionTalkChanged','questionBlockChanged']){assert.equal(rows[name]?.length,3,name);assert.ok(rows[name].every(text=>typeof text==='string'&&text.trim()),name);}
+ h.lang('es');assert.equal(rows.questionTalkChanged[1],'Esta charla cambió en el programa; vuelve a elegirla.');
+ // A block that left the programme gets its own message too.
+ const gone=Object.assign(h.ctx.document.createElement('option'),{value:'gone',textContent:'gone'});block.append(gone);await select(block,'gone');type(field(form,'body'),'Otra pregunta');
+ await key(form,'publishNow').listeners.click();await flush();assert.equal(h.message.dataset.fiiuText,'questionBlockChanged');
+});
+
+
 test('a status change sends the version; a conflict offers Reload the latest version, which re-reads the list',async()=>{
  let current=question();
  const h=await harness(({method,body})=>{
