@@ -189,3 +189,49 @@ test('fiiu.html and the console load fiiu-live.js after fiiu-ui.js and before th
  assert.match(server,/const STATIC_SCRIPTS = new Set\(\[[^\]]*'fiiu-live\.js'/);assert.match(build,/STATIC_SCRIPTS = \[[\s\S]*?'fiiu-live\.js'/);
  assert.ok(vercel.headers.some(route=>route.source.endsWith('.js')&&new RegExp('^'+route.source+'$').test('/fiiu-live.js')),'vercel.json caches it like the other scripts');
 });
+
+// The console's festival block (dashboard.html): fiiu-ui.js, fiiu-live.js, then fiiu-hubs.js, drawing into #fiiuDashboardBody. clock.advance moves time on.
+function clock(iso){let at=Date.parse(iso);const Clock=class extends Date{constructor(...args){super(...(args.length?args:[at]));}static now(){return at;}};return{Date:Clock,advance:ms=>{at+=ms;}};}
+async function consoleBlock(respond,{when=DURING}={}){
+ const body=new Node('body'),widget=new Node(),requests=[],timers=[],listeners={},time=clock(when);body.append(widget);
+ const document={body,visibilityState:'visible',documentElement:{lang:'en'},getElementById:id=>id==='fiiuDashboardBody'?widget:null,createElement:tag=>new Node(tag),createTextNode:value=>Object.assign(new Node('text'),{textContent:value}),querySelectorAll:selector=>body.querySelectorAll(selector),addEventListener:(type,listener)=>{(listeners[type]??=[]).push(listener);}};
+ const ctx={document,window:{nodalI18n:{lang:'en',onChange(){}}},Intl,Date:time.Date,Error,AbortSignal,URL,URLSearchParams,setInterval:(callback,delay)=>timers.push({callback,delay}),clearInterval:id=>{if(timers[id-1])timers[id-1].cleared=true;},
+  fetch:async path=>{requests.push(path);const result=await respond(path);return{ok:!result.status||result.status<400,status:result.status||200,json:async()=>result.data??result};}};
+ vm.createContext(ctx);for(const name of ['fiiu-ui','fiiu-live','fiiu-hubs'])vm.runInContext(read(name),ctx);await flush();
+ const visible=async()=>{await Promise.all((listeners.visibilitychange||[]).map(listener=>listener({type:'visibilitychange'})));await flush();};
+ return{widget,requests,timers,advance:time.advance,visible,line:()=>widget.querySelector('.f-live')};
+}
+const feed=(me,live=()=>LIVE())=>path=>path==='/api/fiiu/live'?live():path==='/api/fiiu?kind=news'?festival():path==='/api/fiiu/registration'?me():path==='/api/fiiu/pulse'?{questions:[]}:path==='/api/admin/fiiu/summary'?{summary:{lab:{pending:0}}}:{status:404,data:{error:'not found'}};
+const registered=()=>({user,registration:saved,attendance:[],isAdmin:false});
+
+test('the console’s festival block carries one live line for a registered person: what is on, today’s check-ins, the live conversations and a way to the band',async()=>{
+ const h=await consoleBlock(feed(registered));
+ const line=h.line();assert.ok(line,'the line is in the block');assert.match(line.className,/\bis-compact\b/);assert.equal(line.hidden,false);
+ const title=key(line,'liveTitle');assert.equal(title.tagName,'h3','under the block’s h2');assert.equal(line['aria-labelledby'],title.id);
+ assert.ok(key(line,'liveNow'));const session=linkTo(line,'El poder de lo local');assert.equal(session.href,'fiiu-session.html?a=day1-am');assert.match(content(line),/09:00–13:00/);
+ assert.match(content(line),/87\s+check-ins today/);assert.match(content(line),/2\s+live conversations/);
+ const open=key(line,'liveOpen');assert.equal(open.tagName,'a');assert.equal(open.href,'fiiu.html#en-vivo');
+ assert.equal(line.querySelectorAll('.f-live-part').length,0,'one line, not the band');assert.equal(h.requests.filter(path=>path==='/api/fiiu/live').length,1);
+ // It sits with the person's status, after the next session and before the registration button.
+ const order=['statusRegistered','liveTitle','viewRegistration'].map(name=>descendants(h.widget).indexOf(key(h.widget,name)));assert.deepEqual([...order].sort((a,b)=>a-b),order);
+ // With nothing on now, the next session, with its day when it is another day.
+ const later=await consoleBlock(feed(registered,()=>LIVE({now:null,next:{activity:activity('day2-am')}})));assert.ok(key(later.line(),'liveNext'));assert.ok(later.line().querySelector('.f-live-day'));
+});
+
+test('the console shows no live line without a registration, and no read for it; an organiser gets it, as a preview outside the dates',async()=>{
+ const none=await consoleBlock(feed(()=>({user,registration:null,attendance:[],isAdmin:false})));
+ assert.equal(none.requests.includes('/api/fiiu/live'),false);assert.ok(!none.line()||none.line().hidden);assert.equal(key(none.widget,'liveTitle'),undefined);
+ const organiser=await consoleBlock(feed(()=>({user,registration:null,attendance:[],isAdmin:true})),{when:BEFORE});
+ assert.ok(organiser.requests.includes('/api/fiiu/live'));assert.ok(key(organiser.line(),'livePreview'));
+ const early=await consoleBlock(feed(registered),{when:BEFORE});assert.equal(early.requests.includes('/api/fiiu/live'),false,'a participant’s console waits for the festival');
+ // An answer the person may not read draws nothing in the console.
+ const refused=await consoleBlock(feed(registered,()=>({status:403,data:{error:'no',code:'not_registered'}})));assert.equal(refused.line().hidden,true);assert.equal(refused.line().children.length,0);
+});
+
+test('a background refresh of the block keeps the same live line without reading it twice, and a cancelled registration ends it',async()=>{
+ let me=registered();const h=await consoleBlock(feed(()=>me));const line=h.line(),reads=()=>h.requests.filter(path=>path==='/api/fiiu/live').length;
+ h.advance(16*60000);await h.visible();
+ assert.equal(h.line(),line,'the same node, moved into the redrawn block');assert.equal(line.hidden,false);assert.equal(reads(),2,'only the line’s own read on return');
+ me={user,registration:null,attendance:[],isAdmin:false};h.advance(16*60000);await h.visible();
+ assert.equal(key(h.widget,'liveTitle'),undefined,'gone with the registration');const before=reads();await Promise.all(h.timers.filter(timer=>!timer.cleared).map(timer=>timer.callback()));assert.equal(reads(),before,'and it stops reading');
+});
