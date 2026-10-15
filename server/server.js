@@ -62,6 +62,10 @@ const ORGANISER_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html']);
 /* The check-in screen shows <host>/checkin for phones that cannot scan. Typed by hand it may come in any case, without
    .html or with a trailing slash; each spelling is sent to the page with its query (?a=&c=) intact. */
 const CHECKIN_ALIASES = new Set(['/checkin', '/fiiu-checkin', '/fiiu-checkin.htm', '/fiiu-checkin.html']);
+/* A session's questions and chat live on its session page now. Every conversation link already sent, printed or
+   projected (fiiu-talk.html?a=, ?q=, &present=1) goes there with its query, in any of the spellings above; so do loose
+   spellings of the session page itself, whose address the projector shows for typing. */
+const SESSION_ALIASES = new Set(['/fiiu-talk', '/fiiu-talk.htm', '/fiiu-talk.html', '/fiiu-session', '/fiiu-session.htm', '/fiiu-session.html']);
 const STATIC_STYLES = new Set(['fiiu.css', 'fiiu-talk.css', 'auth.css', 'styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css']);
 const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp']);
 const STATIC_FONTS = new Set(['montserrat-v31-latin-normal.woff2', 'montserrat-v31-latin-ext-normal.woff2', 'montserrat-v31-latin-italic.woff2', 'montserrat-v31-latin-ext-italic.woff2', 'OFL.txt']);
@@ -1348,6 +1352,7 @@ export function createApp({
           return;
         }
         if (['GET', 'HEAD'].includes(req.method) && canonical !== '/fiiu-checkin.html' && CHECKIN_ALIASES.has(canonical.toLowerCase().replace(/\/+$/, ''))) { redirect(res, `/fiiu-checkin.html${url.search}`); return; }
+        if (['GET', 'HEAD'].includes(req.method) && canonical !== '/fiiu-session.html' && SESSION_ALIASES.has(canonical.toLowerCase().replace(/\/+$/, ''))) { redirect(res, `/fiiu-session.html${url.search}`); return; }
         await serveStatic(req, res, canonical, pilotMode);
         return;
       }

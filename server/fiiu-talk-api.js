@@ -453,9 +453,10 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     const rows=[CSV_HEADER,...messages.map(m=>[q.body,block,q.talk??'',limaTime(m.createdAt),m.authorFull||m.authorName,emails.get(m.userId)??'',Boolean(m.organiser),m.body,(names.get(m.id)??[]).join('; '),Number(m.likeCount),Boolean(m.hiddenAt),Boolean(m.deletedAt)])];
     send(res,200,csv(rows),{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="fiiu-conversation-${q.id.slice(0,8)}.csv"`});return true;
    }
-   // name==='qr': the projector's join code, for the configured origin (never the Host header in production).
+   // name==='qr': the projector's join code, for the configured origin (never the Host header in production). It opens
+   // the session page at the question (the page finds its session), not the old address a redirect would cost a room.
    const q=await store.getQuestion(identifier(param));if(!q||q.eventId!==EVENT_ID)unavailable();
-   const link=`${originFor(req)}/fiiu-talk.html?q=${q.id}`;
+   const link=`${originFor(req)}/fiiu-session.html?q=${q.id}`;
    send(res,200,{url:link,qr:qrOf(link)});return true;
   }catch(err){
    // Somebody else's error text (expose: false, as a backend adapter marks it) goes to the global handler, which hides it.

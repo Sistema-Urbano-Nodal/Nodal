@@ -65,6 +65,21 @@ test('the pulse is public, cacheable and cookie-free while conversations need a 
  assert.equal((await call('/api/fiiu/questions/not-a-route/at-all')).status,404);
 });
 
+test('old conversation links, and loose spellings of the session page typed by hand, redirect to the session page with the query kept',async t=>{
+ const {call}=await setup(t),q=randomUUID();
+ const loose=[['/fiiu-talk.html?a=day1-am','/fiiu-session.html?a=day1-am'],['/fiiu-talk.html?q='+q,'/fiiu-session.html?q='+q],['/fiiu-talk.html?q='+q+'&present=1','/fiiu-session.html?q='+q+'&present=1'],
+  ['/fiiu-talk?a=day1-am','/fiiu-session.html?a=day1-am'],['/fiiu-talk.htm?a=general','/fiiu-session.html?a=general'],['/fiiu-talk.html/?a=general','/fiiu-session.html?a=general'],
+  ['/Fiiu-talk.html?a=general','/fiiu-session.html?a=general'],['/FIIU-TALK.HTML?a=day2-am','/fiiu-session.html?a=day2-am'],['/fiiu-talk/','/fiiu-session.html'],['/fiiu-talk.html','/fiiu-session.html'],
+  // The projector's typed address now names the session page, so its loose spellings are forgiven too.
+  ['/fiiu-session?a=day1-am','/fiiu-session.html?a=day1-am'],['/Fiiu-Session.html?a=general','/fiiu-session.html?a=general'],['/fiiu-session.html/?a=general','/fiiu-session.html?a=general'],['/fiiu-session.htm','/fiiu-session.html']];
+ for(const [path,location] of loose)for(const actor of ['guest','member']){
+  const response=await call(path,{actor});assert.equal(response.status,302,`${path} ${actor}`);assert.equal(response.headers.get('location'),location,path);assert.equal(response.headers.get('cache-control'),'no-store');
+ }
+ const head=await call('/fiiu-talk?a=day1-am',{actor:'guest',method:'HEAD'});assert.equal(head.status,302);assert.equal(head.headers.get('location'),'/fiiu-session.html?a=day1-am');
+ assert.equal((await call('/fiiu-talk.html?a=day1-am',{method:'POST',body:{}})).status,405,'only page loads are redirected');
+ for(const path of ['/fiiu-talks','/fiiu-talk.js.html','/fiiu-sessions','/fiiu-session.js.html'])assert.equal((await call(path,{actor:'guest'})).status,404,path);
+});
+
 test('the General space takes questions and chat like a block, for registered people and organisers only',async t=>{
  const {json,call,ask,post,pulse}=await setup(t);
  const general={id:'general',period:'general',title:'FIIU General',date:null,time:'',venue:'',sessions:[],registration:'general-space'};
@@ -943,7 +958,7 @@ test('the projector QR points at the configured public origin and is for organis
  const {json,ask}=await setup(t);
  const q=await ask();
  const r=await json(`/api/admin/fiiu/questions/${q.id}/qr`,{actor:'admin'});
- assert.equal(r.status,200);assert.equal(r.body.url,`https://nodal.example/fiiu-talk.html?q=${q.id}`);
+ assert.equal(r.status,200);assert.equal(r.body.url,`https://nodal.example/fiiu-session.html?q=${q.id}`,'the join code opens the session page at its question, with no redirect on the way');
  assert.equal(typeof r.body.qr.size,'number');assert.equal(typeof r.body.qr.bits,'string');
  assert.equal((await json(`/api/admin/fiiu/questions/${q.id}/qr`)).status,403);
  assert.equal((await json(`/api/admin/fiiu/questions/${randomUUID()}/qr`,{actor:'admin'})).status,404);
