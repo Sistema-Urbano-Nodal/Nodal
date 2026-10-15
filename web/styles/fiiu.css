@@ -298,3 +298,29 @@ html:has(>body.f-page){scroll-padding-top:176px}.f-page :where(section,footer)[i
 @media(pointer:coarse){.f-shell :is(.f-line-button,.f-programme-restore,.f-party-notice .f-backfill-link){min-height:44px;min-width:44px;text-align:center}}
 /* Settings: one public link is left, so on wide screens it takes one readable column instead of half of two. */
 @media(min-width:1000px){.f-admin-settings .f-links{grid-template-columns:minmax(0,1fr);max-width:640px}}
+/* Live window (fiiu-live.js): the band at the top of fiiu.html and the compact line in the console's festival block. One pale panel and whitespace carry
+   the parts (no cards, no left bars, no rule per row); the numbers are set like the organiser totals, in the forest green. Refreshes change text in place. */
+.f-live{margin:var(--f-sp-4) 0 0;padding:var(--f-sp-5);background:var(--f-panel);border-radius:8px}
+.f-live-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--f-sp-1) var(--f-sp-3);margin:0 0 var(--f-sp-4)}.f-page .f-live-title{margin:0;font-size:clamp(1.25rem,1.7vw,1.5rem);font-weight:750}
+.f-live-preview{display:inline-flex;align-items:center;min-height:24px;padding:2px 10px;border-radius:999px;background:var(--f-amber-bg);color:var(--f-amber);font-size:var(--f-fs-hint);font-weight:650}
+.f-live-updated{margin:0 0 0 auto;font-size:var(--f-fs-hint);color:var(--f-muted);font-variant-numeric:tabular-nums}
+.f-live-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--f-sp-5) var(--f-sp-6)}.f-live-part{min-width:0}
+@media(min-width:700px){.f-live-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(min-width:1180px){.f-live-grid{grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) minmax(0,.9fr) minmax(0,.9fr)}}
+.f-page .f-live-label{display:block;margin:0 0 var(--f-sp-1);font-size:.72rem;font-weight:700;letter-spacing:.12em;line-height:1.4;text-transform:uppercase;color:var(--f-forest)}
+.f-live-session+.f-live-session{margin-top:var(--f-sp-4)}.f-shell .f-live-session-title{display:block;font-size:1.1rem;font-weight:700;line-height:1.35;color:var(--f-ink);text-underline-offset:3px;overflow-wrap:anywhere}
+.f-live-meta{display:flex;flex-wrap:wrap;gap:0 .55em;margin:var(--f-sp-1) 0 0;font-size:.88rem;line-height:1.45;color:var(--f-muted)}.f-live-meta>:not(:last-child)::after{content:"·";content:"·"/"";margin-left:.55em}
+.f-live-time,.f-live-day{font-variant-numeric:tabular-nums}.f-page .f-live-count{margin:var(--f-sp-2) 0 0;font-size:.92rem}.f-page .f-live-count>b{font-size:1.15rem;color:var(--f-forest)}
+.f-live-talk-list{display:grid;gap:var(--f-sp-4);margin:0;padding:0;list-style:none}.f-live-talk{min-width:0}
+.f-shell .f-live-question{display:block;font-weight:650;line-height:1.4;color:var(--f-ink);text-underline-offset:3px;overflow-wrap:anywhere}.f-live-talk .f-live-meta{font-size:var(--f-fs-hint)}
+.f-live-latest,.f-live-rating{margin:var(--f-sp-1) 0 0;font-size:.88rem;line-height:1.45;overflow-wrap:anywhere}.f-live-latest{display:flex;flex-wrap:wrap;gap:0 .5em}.f-live-author{font-weight:650}.f-live-at{color:var(--f-muted);font-variant-numeric:tabular-nums}.f-live-said{flex-basis:100%}.f-live-rating{font-weight:600;color:var(--f-forest)}
+.f-live-hint{margin:0 0 var(--f-sp-1);font-size:var(--f-fs-hint);color:var(--f-muted)}.f-live-figures{margin:0;padding:0;list-style:none}
+.f-live-figure{display:flex;justify-content:space-between;align-items:baseline;gap:var(--f-sp-3);padding:var(--f-sp-1) 0}.f-live-figure-label{font-size:.9rem;line-height:1.4}.f-live-value{font-size:1.2rem;font-weight:700;color:var(--f-forest);font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Without access the band is one line inviting the person to register. */
+.f-live:has(>.f-live-prompt){padding:var(--f-sp-3) var(--f-sp-4)}.f-live-prompt{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 var(--f-sp-3);margin:0}.f-live-prompt>.f-live-label{margin:0}
+/* The console: plain lines in the festival block's flow (the console draws no panels). */
+.f-news-widget .f-live.is-compact{display:grid;justify-items:start;gap:2px;margin:0;padding:0;background:none;border-radius:0;max-width:100%}.f-news-widget .f-live.is-compact .f-live-head{margin:0}
+.f-news-widget .f-live.is-compact .f-live-title{margin:0;font-size:.7rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--f-forest)}.f-news-widget .f-live-preview{font-size:.72rem}
+.f-news-widget .f-live-line{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;margin:0}.f-news-widget .f-live-line>.f-live-label{font-weight:700}.f-news-widget .f-live-line :is(.f-live-day,.f-live-time){font-weight:650}
+.f-news-widget .f-live-session-title{flex-basis:100%;font-weight:600;color:var(--f-ink);overflow-wrap:anywhere}.f-news-widget .f-live-counts{display:flex;flex-wrap:wrap;gap:0 .55em;margin:0;color:var(--f-muted)}.f-news-widget .f-live-counts>:not(:last-child)::after{content:"·";content:"·"/"";margin-left:.55em}
+@media(pointer:coarse){.f-shell :is(.f-live-session-title,.f-live-question){display:flex;align-items:center;min-height:44px}.f-shell .f-live-prompt .f-text-link,.f-news-widget :is(.f-live-session-title,.f-live-open){display:inline-flex;align-items:center;min-height:44px}}

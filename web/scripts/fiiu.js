@@ -192,7 +192,10 @@
   if(withBadges){if(me.attendance.length||limaDate()>=event.startsOn){const badgeBox=el('div','f-badges'),hours=hoursLine(me.attendance,event);badges(badgeBox,me.attendance,event,{heading:'h4'});if(hours)badgeBox.append(hours);box.append(badgeBox);}else box.append(tr('p','badgesHint','f-muted'));}
   return box;
  }
- function renderRegistration(){renderPanel();renderProgramme();renderHero();}
+ function renderRegistration(){renderPanel();renderProgramme();renderHero();liveFollow();}
+ // The live window (fiiu-live.js) leads the page as #en-vivo during the festival, and for organisers as a preview (see load). A registration saved or
+ // cancelled here changes who may read it, so the band reads again at once instead of at the next return to the tab.
+ let liveHost=null,liveBand=null,liveHad=null;function liveFollow(){const has=Boolean(me.registration);if(liveBand&&liveHad!==null&&has!==liveHad)liveBand.refresh();liveHad=has;}
  // A notice is a string key, or {key, email} for "We emailed a summary to <address>.": the sentence follows the language, the address stays as it is.
  // An email that failed or may not arrive is a warning, not the green confirmation.
  function showNotice(value){
@@ -501,7 +504,7 @@
  let stirred=false;for(const type of ['wheel','touchstart','pointerdown','keydown'])window.addEventListener?.(type,()=>{stirred=true;},{passive:true});
  window.addEventListener?.('pageshow',event=>{if(event?.persisted)lookAgain();});
  async function load(){
-  status(loadStatus,'loading');root.replaceChildren();placeKept=false;const place=savedPlace();if(place)browserRestore(false);
+  status(loadStatus,'loading');root.replaceChildren();placeKept=false;const place=savedPlace();if(place)browserRestore(false);liveBand?.stop();liveBand=null;
   // Four requests start together: the news page (with the event and settings), the materials page, the person's registration and the conversation pulse.
   // Only the news page holds up the page. The registration fills its panel when it answers; the pulse adds its links to the programme and the itinerary.
   const materials=api('/api/fiiu?kind=materials'),registration=api('/api/fiiu/registration').catch(unread);materials.catch(()=>{});pulse().then(showTalks);
@@ -510,6 +513,7 @@
    festival=publicData;me=PENDING;
    heroHost=el('section','f-hero');programmeHost=el('section','f-programme');programmeHost.id='programme';
    registrationHost=el('section','f-registration');registrationHost.id='registration';panelHeading=tr('h2','registration');panelHeading.tabIndex=-1;panelBody=el('div','f-panel-body');registrationHost.append(panelHeading,panelNotice,panelBody);
+   liveHost=window.Fiiu.live?el('section'):null;if(liveHost){liveHost.id='en-vivo';liveHost.hidden=true;root.append(liveHost);}
    const layout=layoutHost=el('div','f-layout');latestNode=null;root.append(heroHost,layout);showLatest(festival.content);
    layout.append(programmeHost,registrationHost);newsFeed=feed('news','noNews',()=>publicData);
    const updates=el('div','f-updates-grid');updates.append(newsFeed.section,feed('materials','noMaterials',()=>materials).section);layout.append(updates);root.append(newTabNote());
@@ -527,6 +531,8 @@
    me=await registration;
    if(me.isAdmin)(latestNode||layout).before(link('admin','fiiu-admin.html','f-button secondary f-admin-link'));
    renderRegistration();
+   // The band reads once the registration is known, so it never delays the four requests above; it keeps itself up to date from then on.
+   if(liveHost){liveBand=window.Fiiu.live.mount(liveHost,{event:festival.event,organiser:Boolean(me.isAdmin),registrationOpen:festival.config.registrationOpen!==false});liveHad=Boolean(me.registration);}
    if(pendingAdd){if(!applyAdd())registrationHost.scrollIntoView({block:'start'});}
    else if(place)try{scrollTo({top:place,behavior:'instant'});}catch{/* No scrolling API: stay at the top. */}
    else if(early){if(!stirred)document.querySelector(hash)?.scrollIntoView({block:'start'});}
