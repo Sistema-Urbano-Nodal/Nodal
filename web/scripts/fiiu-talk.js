@@ -556,13 +556,16 @@
  }
 
  // Composer: text up to 1,000 characters (counted as the server counts them, in code points) and up to 3 images or PDFs.
+ // A button tapped while typing (Send, Attach, a chip's Remove, a failed row's) leaves focus, and the phone keyboard, in the text box: Blink focuses a tapped
+ // button, which closed Android's keyboard after every message (audit #4). The click still fires; someone who tabbed to the button keeps focus on it.
+ function typing(control){const hold=event=>{if(composer&&document.activeElement===composer.textarea)event?.preventDefault?.();};control.addEventListener('pointerdown',hold);control.addEventListener('mousedown',hold);return control;}
  function ensureComposer(){
   if(composer)return composer;
   const form=el('form','f-talk-composer'),label=tr('label','talkPlaceholder','f-sr-only'),textarea=el('textarea','f-talk-input'),input=el('input'),chips=el('ul','f-talk-chips'),tools=el('div','f-talk-tools');
   const attach=button('talkAttach',()=>input.click(),'f-talk-act f-talk-attach'),send=tr('button','talkSend','f-button f-talk-send'),left=el('span','f-talk-left f-talk-n'),state=el('p','f-talk-status');
   form.noValidate=true;textarea.id='f-talk-text';textarea.name='body';textarea.rows=2;textarea.maxLength=2*LIMIT;textarea.placeholder=t('talkPlaceholder');label.htmlFor=textarea.id;
   input.type='file';input.multiple=true;input.accept=TYPES.join(',');input.hidden=true;input.tabIndex=-1;send.type='submit';left.hidden=true;chips.hidden=true;state.setAttribute('role','status');
-  tools.append(attach,chips,left);form.append(label,textarea,send,tools,input,state);
+  typing(send);typing(attach);tools.append(attach,chips,left);form.append(label,textarea,send,tools,input,state);
   composer={form,textarea,input,chips,left,state,send,files:[]};
   textarea.addEventListener('input',()=>{updateLeft();grow();keepDraft();});
   textarea.addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){event.preventDefault();return submit();}});
@@ -597,7 +600,8 @@
   const c=composer;c.chips.replaceChildren();c.chips.hidden=!c.files.length;
   c.files.forEach((file,i)=>{
    const chip=el('li','f-talk-chip'),name=el('span','f-talk-chip-name',file.name);name.id='f-talk-chip-'+i;
-   const remove=button('talkRemoveFile',()=>{c.files.splice(i,1);renderChips();c.textarea.focus();},'f-talk-act');remove.setAttribute('aria-describedby',name.id);chip.append(name,sizeNode(file.size),remove);c.chips.append(chip);
+   // A keyboard press hands focus, which goes with the button, to the text box; a tap keeps it where it was (typing() keeps it in the text box).
+   const remove=typing(button('talkRemoveFile',event=>{c.files.splice(i,1);renderChips();if(!event?.detail)c.textarea.focus();},'f-talk-act'));remove.setAttribute('aria-describedby',name.id);chip.append(name,sizeNode(file.size),remove);c.chips.append(chip);
   });
  }
 
@@ -655,7 +659,7 @@
   meta.append(tr('strong','talkYou','f-talk-author'),stateNode(lost?'talkFilesLost':failed?'talkNotSent':'talkSending'));row.append(meta);if(attempt.body)row.append(linkify(attempt.body));
   const names=lost||attempt.files.map(file=>file.name);if(names.length){const list=el('ul','f-talk-pending-files');for(const name of names)list.append(el('li','',name));row.append(list);}
   // Discard lets go of one that cannot go anywhere: a question closed since, or a file the festival will not take.
-  if(failed){const actions=el('div','f-talk-actions');actions.append(...[lost?(isOpen()&&me.canPost?button('talkToComposer',()=>toComposer(attempt),'f-talk-act f-talk-retry'):null):button('talkRetry',()=>deliver(attempt),'f-talk-act f-talk-retry'),button('talkDiscardDraft',()=>discard(attempt),'f-talk-act')].filter(Boolean));row.append(actions);}
+  if(failed){const actions=el('div','f-talk-actions');actions.append(...[lost?(isOpen()&&me.canPost?button('talkToComposer',()=>toComposer(attempt),'f-talk-act f-talk-retry'):null):button('talkRetry',()=>deliver(attempt),'f-talk-act f-talk-retry'),button('talkDiscardDraft',event=>discard(attempt,event),'f-talk-act')].filter(Boolean).map(typing));row.append(actions);}
   return row;
  }
  // A message whose files did not survive a reload goes back to an empty composer, to attach them again; what is being typed is never overwritten.
@@ -675,8 +679,11 @@
   let attempt=same?.state==='failed'?same:null;if(!attempt){attempt={clientId:uuid(),qid:question.id,body,files,sig,state:'new',row:null};attempts.set(attempt.clientId,attempt);keepUnsent();}
   clearComposer();return deliver(attempt);
  }
- function discard(attempt){
-  if(attempt.state==='sending')return;forget(attempt);if(composer&&parts?.dockState==='composer')composer.textarea.focus();
+ // Focus that was in the row (a keyboard press: a tap has no click detail of 0) moves to the composer, or the conversation; a tap leaves focus alone, so a phone
+ // keyboard never opens unasked.
+ function discard(attempt,event){
+  if(attempt.state==='sending')return;const inside=!event?.detail&&holds(attempt.row);forget(attempt);
+  if(inside)(composer&&parts?.dockState==='composer'?composer.textarea:parts?.log)?.focus();
  }
  // A Retry can come from a row restored on a question that has closed since, where there is no composer: its news goes to the dock's status line.
  const told=()=>composer&&parts?.dockState==='composer'?composer.state:parts?.note||message,tell=value=>status(told(),value);

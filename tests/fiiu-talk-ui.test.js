@@ -1579,3 +1579,25 @@ test('#3: a failed message with a photo keeps its text through a reload, as a no
  const row3=rows(closed).find(node=>classes(node).includes('is-failed'));assert.match(content(row3),/taller de movilidad/);assert.equal(key(row3,'talkToComposer'),undefined);assert.ok(key(row3,'talkDiscardDraft'));
  closed.lang('es');assert.equal(key(row3,'talkFilesLost').textContent,'No enviado: adjunta el archivo de nuevo');
 });
+
+test('#4: tapping Send, Attach, Remove or a failed row’s buttons while typing keeps focus (and the phone keyboard) in the text box; keyboard users keep theirs',async()=>{
+ const h=await page({['POST '+MESSAGES]:offline});
+ const c=composer(h),text=c.querySelector('textarea'),send=c.querySelector('.f-talk-send');let prevented=0;
+ const press=(node,type)=>node.listeners[type]?.({preventDefault(){prevented++;}});
+ h.ctx.document.activeElement=text;
+ press(send,'pointerdown');press(send,'mousedown');assert.equal(prevented,2,'the button does not take focus from the text box');
+ press(key(c,'talkAttach'),'pointerdown');assert.equal(prevented,3);
+ // Someone who tabbed to Send keeps focus on it.
+ h.ctx.document.activeElement=send;press(send,'pointerdown');assert.equal(prevented,3);
+ // Removing a chip by tap leaves focus where it was; by keyboard (no pointer) focus moves to the text box, since the button goes.
+ h.ctx.document.activeElement=text;choose(h,[file('a.pdf','application/pdf',10),file('b.pdf','application/pdf',10)]);
+ const remove=()=>key(chips(h)[0],'talkRemoveFile');press(remove(),'pointerdown');assert.equal(prevented,4);
+ text.focused=false;remove().listeners.click({detail:1});assert.equal(text.focused,false,'a tap never opens the keyboard by itself');
+ remove().listeners.click({detail:0});assert.equal(text.focused,true);
+ // A failed row's Discard: a tap does not focus the text box, a keyboard press does.
+ text.value='Sin señal';submit(h);await flush();const failed=()=>rows(h).find(node=>classes(node).includes('is-failed'));
+ press(key(failed(),'talkRetry'),'pointerdown');assert.equal(prevented,5);
+ text.focused=false;await key(failed(),'talkDiscardDraft').listeners.click({detail:1});assert.equal(failed(),undefined);assert.equal(text.focused,false);
+ text.value='Otra vez';submit(h);await flush();const discard=key(failed(),'talkDiscardDraft');focusInside(h,discard);text.focused=false;
+ await discard.listeners.click({detail:0});assert.equal(text.focused,true,'focus that was in the removed row goes to the text box');
+});
