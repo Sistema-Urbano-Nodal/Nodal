@@ -1121,8 +1121,10 @@
   paintRate();paintWallRating();
  }
  window.nodalI18n?.onChange(relabel);
- document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible')return;if(recheck)return start();if(rewatch())return;wake();if(page&&question)loadMine({fresh:true});nextAt=0;return tick();});
- window.addEventListener('pageshow',event=>{if(event?.persisted&&recheck)start();});
+ // Back from the registration (a tab switch, or Back out of the page cache) reads the registration again too: the one remembered predates it.
+ const registered=()=>{mineRead=null;return start();};
+ document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible')return;if(recheck)return registered();if(rewatch())return;wake();if(page&&question)loadMine({fresh:true});nextAt=0;return tick();});
+ window.addEventListener('pageshow',event=>{if(event?.persisted&&recheck)registered();});
  window.addEventListener('popstate',()=>back());
  // Back online, the chat asks at once instead of waiting out a backoff that can reach a minute.
  window.addEventListener('online',()=>{if(rewatch())return;nextAt=0;return tick();});

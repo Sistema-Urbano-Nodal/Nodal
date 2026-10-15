@@ -1480,9 +1480,14 @@ test('someone signed in without a registration is told how to register, whether 
  const closed=await page({...SESSION_ROUTES,'GET /api/fiiu?kind=news':programme({registrationOpen:false}),'GET /api/fiiu/registration':carla,['GET '+LIST]:refusal},{search:'?a=day1-am'});
  assert.ok(key(qa(closed),'talkRegisterClosed'));assert.equal(key(qa(closed),'register'),undefined,'no promise registration cannot keep');assert.equal(key(qa(closed),'talkRegisterHint'),undefined);
  // Registered meanwhile (in another tab, or Back from the form): coming back to the tab opens the conversation.
- let registered=false;
- const later=await page({...SESSION_ROUTES,'GET /api/fiiu/registration':carla,['GET '+LIST]:()=>registered?{activity:ACTIVITY,questions:[question()]}:refusal},{search:'?a=day1-am'});
+ // The status under the header reads the new registration too, not the one remembered from before it existed.
+ let registered=false;const routes={...SESSION_ROUTES,'GET /api/fiiu/registration':()=>registered?mine({user:carla.user,attendance:[]}):carla,['GET '+LIST]:()=>registered?{activity:ACTIVITY,questions:[question()]}:refusal};
+ const later=await page(routes,{search:'?a=day1-am'});
  registered=true;await later.visible(false);await later.visible(true);await flush();assert.ok(composer(later),'the chat opens once the registration exists');
+ assert.ok(key(sessionHead(later).querySelector('.f-talk-mine'),'talkInPlan'),'in the registration, as saved');
+ registered=false;const restored=await page(routes,{search:'?a=day1-am'});registered=true;
+ await Promise.all((restored.windowListeners.pageshow||[]).map(listener=>listener({type:'pageshow',persisted:true})));await flush();
+ assert.ok(composer(restored),'Back from the form, out of the page cache');assert.ok(key(sessionHead(restored).querySelector('.f-talk-mine'),'talkInPlan'));
 });
 
 test('arriving shows the header and the question first, not the end of the chat, with a control that goes to the latest answers',async()=>{
