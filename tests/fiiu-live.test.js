@@ -218,6 +218,18 @@ test('the view is built at most every 15 s per instance, concurrent reads share 
  broken.on=false;clock.tick(15000);assert.equal((await live.read(member)).pulse.registered,2,'and the next window reads again');
 });
 
+test('clear() drops the kept view, so the next read builds again inside the 15 s, and a failed build still serves the last one',async t=>{
+ const {live,reads,broken,clock,logged,person}=await world(t);
+ await person({activities:['day1-am']});
+ await live.read(member);const perBuild=reads.n;
+ await person({activities:['day1-am']});
+ live.clear();
+ const again=await live.read(member);assert.equal(reads.n,2*perBuild,'read again without the clock moving');assert.equal(again.pulse.registered,2);
+ await live.read(member);assert.equal(reads.n,2*perBuild,'and kept for its own 15 s');
+ clock.tick(1000);live.clear();broken.on=true;
+ const stale=await live.read(member);assert.equal(stale.generatedAt,again.generatedAt,'the outage fallback is untouched');assert.equal(logged.length,1);
+});
+
 /* Over HTTP: member (Ana Test) is registered, stranger is signed in without a registration, admin organises without
    one, guest has no session. */
 async function app(t,{at=AT,repository}={}){
@@ -246,6 +258,42 @@ test('the live route answers registered people and organisers, privately and nev
  const head=await call('/api/fiiu/live',{method:'HEAD'});assert.equal(head.status,200);assert.equal(await head.text(),'');
  const post=await call('/api/fiiu/live',{method:'POST',body:{}});assert.equal(post.status,405);assert.equal(post.headers.get('allow'),'GET, HEAD');
  assert.equal((await call('/api/fiiu/live/x')).status,404,'only the one route');
+});
+
+/* Review Focus 3 over HTTP: what an organiser hides or takes down, and what an author withdraws, leaves the instance's
+   live view at once rather than staying on the band for the rest of its 15 s; a new answer may wait for the next window. */
+test('a hidden, withdrawn or taken-down answer or question leaves the live view at once, not 15 s later',async t=>{
+ const {call,clock}=await app(t);
+ const json=async(path,options)=>{const r=await call(path,options);return {status:r.status,body:await r.json()};};
+ const q=(await json('/api/admin/fiiu/questions',{actor:'admin',method:'POST',body:{activityId:'day1-am',body:'¿Qué te llevas?',status:'open'}})).body.question;
+ const post=async body=>{clock.tick(1);const r=await json(`/api/fiiu/questions/${q.id}/messages`,{method:'POST',body:{clientId:randomUUID(),body}});assert.equal(r.status,201);return r.body.message;};
+ const conversation=async(actor='member')=>(await json('/api/fiiu/live',{actor})).body.conversations.find(c=>c.questionId===q.id)??null;
+ const first=await post('Primera respuesta'),second=await post('Segunda respuesta');
+ assert.equal((await conversation()).latest.body,'Segunda respuesta');
+ assert.equal((await json(`/api/admin/fiiu/messages/${second.id}/hidden`,{actor:'admin',method:'PUT',body:{}})).status,200);
+ const afterHide=await conversation();assert.equal(afterHide.latest.body,'Primera respuesta','an organiser hid it');assert.equal(afterHide.messageCount,1);
+ assert.equal((await json(`/api/fiiu/messages/${first.id}`,{method:'DELETE',body:{}})).status,200);
+ const afterWithdraw=await conversation();assert.equal(afterWithdraw.latest,null,'its author withdrew it');assert.equal(afterWithdraw.messageCount,0);
+ await post('Tercera respuesta');
+ assert.equal((await conversation()).latest,null,'a new answer waits for the next window');
+ clock.tick(15000);assert.equal((await conversation()).latest.body,'Tercera respuesta');
+ const version=(await json('/api/admin/fiiu/questions',{actor:'admin'})).body.questions.find(x=>x.id===q.id).version;
+ assert.equal((await json(`/api/admin/fiiu/questions/${q.id}`,{actor:'admin',method:'PATCH',body:{version,body:'¿Qué te llevas hoy?'}})).status,200);
+ assert.equal((await conversation()).body,'¿Qué te llevas hoy?','an edit of the question shows at once');
+ assert.equal((await json(`/api/admin/fiiu/questions/${q.id}`,{actor:'admin',method:'PATCH',body:{version:version+1,status:'hidden'}})).status,200);
+ assert.equal(await conversation(),null,'a question taken back to a draft');
+ assert.doesNotMatch(JSON.stringify((await json('/api/fiiu/live')).body),/Primera|Segunda|Tercera/);
+});
+
+test('an account deleted with its festival messages leaves the live view at once',async t=>{
+ const {call,clock}=await app(t);
+ const json=async(path,options)=>{const r=await call(path,options);return {status:r.status,body:await r.json()};};
+ const q=(await json('/api/admin/fiiu/questions',{actor:'admin',method:'POST',body:{activityId:'day1-am',body:'¿Qué te llevas?',status:'open'}})).body.question;
+ clock.tick(1);assert.equal((await json(`/api/fiiu/questions/${q.id}/messages`,{method:'POST',body:{clientId:randomUUID(),body:'Una respuesta de Ana'}})).status,201);
+ const latest=async()=>(await json('/api/fiiu/live',{actor:'admin'})).body.conversations.find(c=>c.questionId===q.id).latest;
+ assert.equal((await latest()).body,'Una respuesta de Ana');
+ assert.equal((await call('/api/me',{method:'DELETE',body:{confirmEmail:'member@example.test'}})).status,200);
+ assert.equal(await latest(),null,'her answer and her name are gone from the window too');
 });
 
 test('the live route reuses a verified session for 30 s, as the chat poll does, so polling phones do not each ask the auth provider',async t=>{

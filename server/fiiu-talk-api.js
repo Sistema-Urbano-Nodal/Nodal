@@ -51,6 +51,8 @@ const ROUTES=[
  ['export',/^\/api\/admin\/fiiu\/questions\/([^/]+)\/export$/,['GET','HEAD']],
  ['qr',/^\/api\/admin\/fiiu\/questions\/([^/]+)\/qr$/,['GET','HEAD']],
 ];
+// The writes after which the live window is built again (see the finally below); 'message' is only ever a DELETE.
+const LIVE_CLEARS=new Set(['hidden','message','adminQuestion']);
 const routeOf=path=>{for(const [name,pattern,methods] of ROUTES){const m=path.match(pattern);if(m)return {name,param:m[1],methods};}return null;};
 /* Each write spends its own per-account budget (server.js): a busy chat never blocks likes or moderation. So do file
    reads, so a photo-heavy chat (or the projector and the chat open on one organiser account) never runs the 'read'
@@ -484,7 +486,9 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
    if(typeof err?.code==='string'&&/^[a-z_]+$/.test(err.code)&&err.status>=400&&err.status<500&&err.expose!==false&&!res.headersSent){send(res,err.status,{error:err.message,code:err.code});return true;}
    throw err;
   /* A like answer already carries its count and state, and a score its totals and revision, so these (the busiest
-     writes in a full room) keep the shared since answers rather than make every poll that follows read again. */
-  }finally{if(wrote){pulseMemo=null;if(name!=='like'&&name!=='rating')changesMemo.clear();}}
+     writes in a full room) keep the shared since answers rather than make every poll that follows read again. What
+     takes text out of the conversations (a hide, a withdrawal, a question's edit, close or hide) drops the live view
+     too, so the band never shows it for the rest of its 15 s; a new answer waits for the next window. */
+  }finally{if(wrote){pulseMemo=null;if(name!=='like'&&name!=='rating')changesMemo.clear();if(LIVE_CLEARS.has(name))live?.clear();}}
  };
 }

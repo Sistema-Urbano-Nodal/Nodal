@@ -1733,7 +1733,8 @@ export function createApp({
            restrict it); an upload under way answers 409 to try again shortly. */
         if(talkStore)await assertTalkDataDeletable(talkStore,sessionUser.id,{now:talkClock()});
         if(courseStore)await assertCourseDataDeletable(courseStore,sessionUser.id);
-        if(talkStore)await deleteTalkData(talkStore,sessionUser.id,{now:talkClock()});
+        // The person's answers and name leave this instance's live window at once, as a withdrawal does.
+        if(talkStore){await deleteTalkData(talkStore,sessionUser.id,{now:talkClock()});fiiuLive?.clear();}
         if(courseStore)await deleteCourseData(courseStore,sessionUser.id);
         await repository.deleteUserById(sessionUser.id);
         const result = await repository.logout(req, process.env);

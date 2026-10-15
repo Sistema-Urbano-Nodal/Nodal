@@ -106,5 +106,9 @@ export function createLive({fiiuStore,talkStore,programme={event:async()=>FIIU_E
  return {
   // active: the festival's dates in Lima, or an organiser, who previews the window before and after them.
   async read(user){const {festival,...view}=await shared();return {active:festival||user?.permission==='admin',...view};},
+  /* After a write that takes something out of the conversations (a hide, a withdrawal, a question hidden, closed or
+     edited, an account deleted), so this instance never shows it again; other instances catch up within their 15 s.
+     The last view stays as the outage fallback. */
+  clear(){memo=null;},
  };
 }
