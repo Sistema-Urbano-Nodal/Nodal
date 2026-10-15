@@ -50,6 +50,17 @@ test('the laboratory is a session badge and a milestone only for people who appl
  assert.equal(notApplied.some(badge=>badge.activityId==='day0-lab'||badge.id==='milestone:lab'),false,'no laboratory badge for someone who did not apply');
 });
 
+test('a declined laboratory application shows no laboratory row or milestone, since the server refuses that check-in',()=>{
+ const {festivalBadges}=fiiu();
+ const declined=festivalBadges({...beto,labStatus:'declined'},[row('day1-am')],EVENT);
+ assert.equal(byId(declined,'session:day0-lab'),undefined,'a row that can never unlock is not shown');
+ assert.equal(byId(declined,'milestone:lab'),undefined,'nor a laboratory meter stuck at 0 of 1');
+ assert.deepEqual(ids(declined.filter(badge=>badge.kind==='session')),['session:day1-am','session:day3-am'],'the rest of the plan is unchanged');
+ // A pending application may still be accepted, so it keeps both.
+ const pending=festivalBadges(beto,[],EVENT);
+ assert.ok(byId(pending,'session:day0-lab')&&byId(pending,'milestone:lab'));
+});
+
 test('four milestones count the attended blocks, with a meter while unearned',()=>{
  const {festivalBadges}=fiiu();
  const none=festivalBadges(ana,[],EVENT).filter(badge=>badge.kind==='milestone');
