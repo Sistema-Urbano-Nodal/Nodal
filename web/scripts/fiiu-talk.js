@@ -1069,6 +1069,9 @@
   unwatch();const ticket=++opening;if(page)page.current=id;markCurrent();if(!parts)status(message,'loading');let data;
   try{data=await(read||api(questionPath(id)));}catch(error){if(ticket!==opening)return;status(message,'');return access(error);}
   if(ticket!==opening)return;status(message,'');if(!data?.question?.id)return access(null);
+  // A question under another session's address (a link edited by hand, or a question an organiser moved to another block) opens under its own session.
+  const home=String(data.question.activityId??'');
+  if(page&&!wall&&ID.test(home)&&home!==page.id){history.replaceState(null,'',location.pathname+'?a='+encodeURIComponent(home)+'&q='+encodeURIComponent(data.question.id));return openSession(home,data.question.id,data);}
   show(data);startPolling();if(wall)return wake();
   if(Array.isArray(list))showSiblings(list);else if(list!==false)api(listPath(question.activityId)).then(result=>{if(question?.id===data.question.id)showSiblings(result.questions);},()=>{});
  }

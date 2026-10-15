@@ -1802,3 +1802,13 @@ test('the list’s answer count for the question shown follows the chat, from th
  revision=4;await h.tickTimers();assert.equal(count().textContent,'3 answers');assert.equal(picks(h)[1].querySelector('.f-talk-pick-n').textContent,'7 answers','the others stay as listed');
  assert.equal(sent(h,'GET',LIST).length,1,'no extra read');h.lang('es');assert.equal(count().textContent,'3 respuestas');
 });
+
+test('a question asked for under another session’s address opens under its own session, and the address follows',async()=>{
+ const DAY2=PROGRAMME.event.activities[2],moved={id:Q2,activityId:'day2-am',body:'¿Qué cuidas en tu barrio?',talk:null};
+ const h=await page({...SESSION_ROUTES,['GET /api/fiiu/questions/'+Q2]:thread({question:moved,messages:[]}),'GET /api/fiiu/questions?activityId=day2-am':{activity:DAY2,questions:[question(moved)]},
+  'GET /api/fiiu/pulse':{questions:[[Q,'day1-am',3,'open'],[Q2,'day2-am',3,'open']]}},{search:'?a=day1-am&q='+Q2});
+ assert.deepEqual(h.replaced,['/fiiu-session.html?a=day2-am&q='+Q2]);
+ assert.equal(sessionHead(h).querySelector('h1').textContent,'Cuidar y transformar la ciudad');assert.equal(h.ctx.document.title,'NODAL · Cuidar y transformar la ciudad');
+ assert.equal(qa(h).querySelector('.f-talk-question').textContent,'¿Qué cuidas en tu barrio?');assert.equal(picks(h).length,0,'day2-am’s one question: no day1-am list');
+ await h.tickTimers();assert.equal(sessionHead(h).querySelector('h1').textContent,'Cuidar y transformar la ciudad','the polls keep it');assert.equal(picks(h).length,0);
+});
