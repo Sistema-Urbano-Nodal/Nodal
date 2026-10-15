@@ -149,11 +149,23 @@ const user={id:'00000000-0000-4000-8000-000000000001',email:'ana@example.test',n
 const answers={firstName:'Ana',lastName:'Test',country:'Perú',city:'Lima',profile:'professional',publicOfficial:false,applyLab:false,activities:['day1-am'],externalActivities:[],gender:'prefer_not',age:30,accessibility:['none'],motivation:'learn',previousAttendance:'no',privacyAccepted:true};
 const saved={userId:user.id,id:'00000000-0000-4000-8000-000000000002',version:1,email:user.email,answers,labStatus:'none'};
 const festival=(config={})=>({event:FIIU_EVENT,config:{registrationOpen:true,programUrl:'https://canva.link/ficmkatcg9fudwk',...config},content:[],nextCursor:null});
-async function festivalPage(liveRead,{me=null,when=DURING,config,write=()=>({status:503,data:{error:'unavailable'}})}={}){
- const h=await createFiiuHarness(request=>request.method!=='GET'?write(request):request.path==='/api/fiiu/live'?liveRead(request):request.path.startsWith('/api/fiiu?kind=')?festival(config):request.path==='/api/fiiu/pulse'?{questions:[]}:request.path==='/api/fiiu/registration'?(me||{status:401,data:{error:'sign in required'}}):{status:404,data:{error:'not found'}},{page:'fiiu-live',context:{Date:frozen(when)}});
+// context adds globals of the page: the address (location, see at), sessionStorage, scrollTo and navigation timing for Back and reload.
+async function festivalPage(liveRead,{me=null,when=DURING,config,write=()=>({status:503,data:{error:'unavailable'}}),context={}}={}){
+ const h=await createFiiuHarness(request=>request.method!=='GET'?write(request):request.path==='/api/fiiu/live'?liveRead(request):request.path.startsWith('/api/fiiu?kind=')?festival(config):request.path==='/api/fiiu/pulse'?{questions:[]}:request.path==='/api/fiiu/registration'?(me||{status:401,data:{error:'sign in required'}}):{status:404,data:{error:'not found'}},{page:'fiiu-live',context:{Date:frozen(when),...context}});
  vm.runInContext(read('fiiu'),h.ctx);await flush();return h;
 }
 const paths=h=>h.requests.map(request=>request.path);
+const at=hash=>({location:{hash,search:'',pathname:'/fiiu.html'}});
+// A live read that answers when the test says so (after the page has landed); the reads after it answer the same at once.
+const later=()=>{let answer,given;const first=new Promise(resolve=>{answer=resolve;});return{read:()=>given??first,answer:value=>{given=value;answer(value);}};};
+// Records the nodes scrollIntoView lands on, and lets document.querySelector find a node by its id as a browser does (as tests/fiiu-ui.test.js does).
+function watchScrolls(){
+ const seen=[],{scrollIntoView,querySelectorAll}=Node.prototype;
+ Node.prototype.scrollIntoView=function(){seen.push(this);};
+ Node.prototype.querySelectorAll=function(selector){return /^#[\w-]+$/.test(selector)?descendants(this).filter(node=>node.id===selector.slice(1)):querySelectorAll.call(this,selector);};
+ return{seen,restore(){Node.prototype.scrollIntoView=scrollIntoView;Node.prototype.querySelectorAll=querySelectorAll;}};
+}
+const byId=(node,id)=>descendants(node).find(child=>child.id===id);
 
 test('the festival page carries the band at its top, as #en-vivo, read once the registration is known',async()=>{
  const h=await festivalPage(()=>LIVE(),{me:{user,registration:saved,attendance:[],isAdmin:false}});
@@ -187,6 +199,49 @@ test('a guest’s page and an unregistered account’s page show the line withou
  // The module side: known() is asked at every read, so access granted later (a registration saved on the page) reads at once.
  let known=403;const h=await band(()=>LIVE(),{known:()=>known});assert.equal(reads(h),0);assert.ok(key(h.host,'liveRegister'));
  known=null;await h.live.refresh();await flush();assert.equal(reads(h),1);assert.ok(key(h.host,'liveNow'));
+});
+
+test('the band tells its page when it first draws (the band, its line or nothing), once, and not for a read that failed',async()=>{
+ let calls=0,fail=true;const h=await band(()=>fail?{status:503,data:{error:'unavailable'}}:LIVE(),{onFirstDraw:()=>{calls++;}});
+ assert.equal(calls,0,'a failed read draws nothing');
+ fail=false;await h.tickTimers();await flush();assert.equal(h.host.hidden,false);assert.equal(calls,1);
+ await h.tickTimers();await flush();h.lang('es');assert.equal(calls,1,'once: refreshes and a language switch are not a first draw');
+ for(const [name,respond,options] of [['refused',()=>({status:403,data:{error:'no'}}),{}],['inactive',()=>({active:false,generatedAt:DURING}),{}],['known guest',()=>LIVE(),{known:()=>401}],['before the festival',()=>LIVE(),{when:BEFORE}]]){
+  let n=0;await band(respond,{...options,onFirstDraw:()=>{n++;}});assert.equal(n,1,name);
+ }
+ // A band stopped before its read answers never reports.
+ let n=0,finish;const stopped=await band(()=>new Promise(resolve=>{finish=resolve;}),{onFirstDraw:()=>{n++;}});stopped.live.stop();finish(LIVE());await flush();assert.equal(n,0);
+});
+
+test('a link that lands on the panel, a block to add, the programme or the saved place lands there again once the band first draws above it, unless the reader has moved',async()=>{
+ // only(node): for each scroll so far, whether it landed on that node.
+ const scrolls=watchScrolls(),registered={user,registration:saved,attendance:[],isAdmin:false},only=node=>scrolls.seen.map(seen=>seen===node);
+ try{
+  // "Ver mi inscripción" in the console: the panel once the registration is drawn, and again once the band has moved it down. A refresh never scrolls.
+  let live=later();const h=await festivalPage(live.read,{me:registered,context:at('#registration')});
+  const panel=byId(h.root,'registration');assert.deepEqual(only(panel),[true]);assert.equal(byId(h.root,'en-vivo').hidden,true);
+  live.answer(LIVE());await flush();assert.equal(byId(h.root,'en-vivo').hidden,false);assert.deepEqual(only(panel),[true,true]);
+  await h.tickTimers();await flush();assert.equal(scrolls.seen.length,2,'a refresh never scrolls');
+  // The check-in refusal's "Añadir a mi inscripción": the block's box, ticked and focused, comes back into view, focused.
+  scrolls.seen.length=0;live=later();const add=await festivalPage(live.read,{me:registered,context:at('#add-day1-pm')});
+  const box=descendants(add.root).find(node=>node.name==='activities'&&node.value==='day1-pm');assert.equal(box.checked,true);assert.equal(box.focused,true);assert.deepEqual(only(box),[true]);
+  box.focused=false;live.answer(LIVE());await flush();assert.deepEqual(only(box),[true,true]);assert.equal(box.focused,true);assert.equal(box.checked,true);
+  // The programme: once at once, once after the registration redraw, once after the band.
+  scrolls.seen.length=0;live=later();const programme=await festivalPage(live.read,{me:registered,context:at('#programme')});
+  const target=byId(programme.root,'programme');assert.deepEqual(only(target),[true,true]);live.answer(LIVE());await flush();assert.deepEqual(only(target),[true,true,true]);
+  // Back or a reload: the saved place again, instantly.
+  const storage=new Map([['fiiu.place:/fiiu.html','2080']]),places=[];live=later();
+  await festivalPage(live.read,{me:registered,context:{...at(''),sessionStorage:{getItem:name=>storage.get(name)??null,setItem:(name,value)=>storage.set(name,String(value)),removeItem:name=>storage.delete(name)},scrollTo:options=>places.push({...options}),performance:{getEntriesByType:kind=>kind==='navigation'?[{type:'reload'}]:[]}}});
+  assert.deepEqual(places,[{top:2080,behavior:'instant'}]);live.answer(LIVE());await flush();assert.deepEqual(places,[{top:2080,behavior:'instant'},{top:2080,behavior:'instant'}]);
+  // Someone who scrolled, tapped or typed before the band came stays where they went.
+  for(const type of ['wheel','touchstart','pointerdown','keydown']){
+   scrolls.seen.length=0;live=later();const moved=await festivalPage(live.read,{me:registered,context:at('#registration')});
+   for(const listener of moved.windowListeners[type]||[])listener({type});live.answer(LIVE());await flush();assert.equal(scrolls.seen.length,1,type);
+  }
+  // A band that stays hidden moves nothing, so nothing lands again; nor does a page opened without a place to land.
+  scrolls.seen.length=0;live=later();await festivalPage(live.read,{me:registered,context:at('#registration')});live.answer({active:false,generatedAt:DURING});await flush();assert.equal(scrolls.seen.length,1);
+  scrolls.seen.length=0;live=later();await festivalPage(live.read,{me:registered,context:at('')});live.answer(LIVE());await flush();assert.equal(scrolls.seen.length,0);
+ }finally{scrolls.restore();}
 });
 
 test('fiiu.html and the console load fiiu-live.js after fiiu-ui.js and before the script that mounts it, and it is served and built',()=>{

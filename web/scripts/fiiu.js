@@ -208,13 +208,13 @@
  const emailNotice=(outcome,email)=>outcome==='sent'?{key:'emailSent',email}:outcome==='failed'?'emailNotSent':['uncertain','pending'].includes(outcome)?'emailDelayed':'';
  // The guest panel's sign-in: back to the panel, or with a block to tick on return (#add-<block>).
  const signinTo=id=>'login.html?next='+encodeURIComponent('/fiiu.html#'+(id?'add-'+id:'registration'));
- // Ticks the #add-<block> asked for once the registration is known; saving stays an explicit tap. False while there is nothing to apply.
+ // Ticks the #add-<block> asked for once the registration is known; saving stays an explicit tap. Null while there is nothing to apply; otherwise the
+ // landing it made (to the box, or to the panel), which load makes again once the live band has moved it down.
  // A guest has no form to tick, so the sign-in link carries the block instead: the party email's button is often opened where nobody is signed in.
  function applyAdd(){
-  if(!pendingAdd||me.failed||me.pending)return false;const input=choiceInputs.get(pendingAdd);if(!me.user&&guestSignin)guestSignin.href=signinTo(pendingAdd);pendingAdd=null;
-  if(input&&!input.disabled&&!input.checked&&input.name!=='applyLab'){input.checked=true;if(me.registration)jumpTo(input);syncForm?.(true);edited?.();if(!me.registration)registrationHost.scrollIntoView({block:'start'});}
-  else registrationHost.scrollIntoView({block:'start'});
-  return true;
+  if(!pendingAdd||me.failed||me.pending)return null;const input=choiceInputs.get(pendingAdd),toPanel=()=>registrationHost.scrollIntoView({block:'start'});if(!me.user&&guestSignin)guestSignin.href=signinTo(pendingAdd);pendingAdd=null;
+  if(input&&!input.disabled&&!input.checked&&input.name!=='applyLab'){input.checked=true;if(me.registration)jumpTo(input);syncForm?.(true);edited?.();if(!me.registration){toPanel();return toPanel;}return()=>jumpTo(input);}
+  toPanel();return toPanel;
  }
  // redraw: the same saved registration drawn again (new conversation links), so the notice on screen (the summary email's address) stays.
  function renderPanel(redraw=false){
@@ -531,15 +531,18 @@
    me=await registration;
    if(me.isAdmin)(latestNode||layout).before(link('admin','fiiu-admin.html','f-button secondary f-admin-link'));
    renderRegistration();
+   // The landing: the block to add, the saved place or the hash. land keeps it so it can be made again (null: nowhere to land, or the person has moved).
+   // applyAdd lands by itself; when the registration read failed, the block waits for Try again and the panel is the landing.
+   const toPanel=()=>registrationHost.scrollIntoView({block:'start'});let land;
+   if(pendingAdd){land=applyAdd();if(!land){land=toPanel;land();}}
+   else{land=place?()=>{try{scrollTo({top:place,behavior:'instant'});}catch{/* No scrolling API: stay at the top. */}}:early?(stirred?null:()=>document.querySelector(hash)?.scrollIntoView({block:'start'})):hash==='#f-publicOfficial'?()=>jumpTo(officialInput):hash==='#registration'?toPanel:null;land?.();}
+   stirred=false;
    // The band reads once the registration is known, so it never delays the four requests above; it keeps itself up to date from then on.
    // A guest, or an account without a registration, gets its line without asking; a registration read that failed knows nothing, so the band asks.
+   // Its answer puts it in above the programme, the panel and the feeds, so the landing is made again once it first shows, unless the person has
+   // scrolled, tapped or typed since. Refreshes after that never scroll.
    const liveKnown=()=>me.isAdmin||me.registration||me.failed||me.pending?null:me.user?403:401;
-   if(liveHost){liveBand=window.Fiiu.live.mount(liveHost,{event:festival.event,organiser:Boolean(me.isAdmin),registrationOpen:festival.config.registrationOpen!==false,known:liveKnown});liveHad=Boolean(me.registration);}
-   if(pendingAdd){if(!applyAdd())registrationHost.scrollIntoView({block:'start'});}
-   else if(place)try{scrollTo({top:place,behavior:'instant'});}catch{/* No scrolling API: stay at the top. */}
-   else if(early){if(!stirred)document.querySelector(hash)?.scrollIntoView({block:'start'});}
-   else if(hash==='#f-publicOfficial')jumpTo(officialInput);
-   else if(hash==='#registration')registrationHost.scrollIntoView({block:'start'});
+   if(liveHost){liveBand=window.Fiiu.live.mount(liveHost,{event:festival.event,organiser:Boolean(me.isAdmin),registrationOpen:festival.config.registrationOpen!==false,known:liveKnown,onFirstDraw:()=>{if(land&&!stirred&&!liveHost.hidden)land();}});liveHad=Boolean(me.registration);}
    placeKept=true;lastLook=Date.now();if(!heroTimer&&limaDate()<=festival.event.endsOn)heroTimer=setInterval(followHero,60000);
   }catch(error){status(loadStatus,error.key==='error'?Object.assign(Error(t('loadError')),{key:'loadError'}):error);root.append(button('retry',load),newTabNote());}
   browserRestore(true);

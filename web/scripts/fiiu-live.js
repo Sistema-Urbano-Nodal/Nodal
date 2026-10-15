@@ -102,13 +102,16 @@
  // named: the id of a session the host already shows (the console's "next for you"), read at each draw, which the compact line leaves out.
  // known: the answer the page already knows, asked before every read: 401 for a guest, 403 for an account without a registration. Such a page shows
  // its line without asking the server (the festival page knows from its registration read); null asks.
- function mount(host,{compact=false,event=null,organiser=false,registrationOpen=true,named=()=>null,known=()=>null}={}){
-  let timer=null,stopped=false,busy=false,shownSig='',shownKeys=new Map(),last=null;
+ // onFirstDraw: called once, after the first answer is drawn (the band, the line or nothing; a failed read draws nothing). The band goes in above the
+ // festival page's programme, panel and feeds when its read answers, so the page lands a link (#registration, #add-<block>, a saved place) again then.
+ function mount(host,{compact=false,event=null,organiser=false,registrationOpen=true,named=()=>null,known=()=>null,onFirstDraw=null}={}){
+  let timer=null,stopped=false,busy=false,shownSig='',shownKeys=new Map(),last=null,first=onFirstDraw;
   host.className='f-live'+(compact?' is-compact':'');host.hidden=true;
   const inDates=()=>{const today=limaDate();return !event||(today>=event.startsOn&&today<=event.endsOn);};
   const pause=()=>{if(timer!==null){clearInterval(timer);timer=null;}};
   const follow=()=>{if(timer===null&&!stopped&&document.visibilityState!=='hidden')timer=setInterval(read,REFRESH);};
   const hide=()=>{host.hidden=true;host.replaceChildren();host.removeAttribute?.('aria-labelledby');shownSig='';shownKeys=new Map();};
+  const drawn=()=>{const call=first;first=null;call?.();};
   function show(d){
    const preview=!inDates(),skip=compact?named()||null:null,sig=shape(d,compact,preview,skip),keys=new Map(),tree=build(d,{compact,preview,named:skip},keys);
    if(sig===shownSig){for(const [id,node] of keys){const old=shownKeys.get(id);if(!old||text(old)===text(node))continue;if(node.children.length)old.replaceChildren(...[...node.children]);else old.textContent=node.textContent;}}
@@ -129,15 +132,16 @@
   }
   async function read(){
    if(stopped||busy)return;
-   if(!organiser&&!inDates()){pause();hide();return;}
-   const refused=known();if(refused===401||refused===403){last=null;pause();prompt(refused);return;}
+   if(!organiser&&!inDates()){pause();hide();drawn();return;}
+   const refused=known();if(refused===401||refused===403){last=null;pause();prompt(refused);drawn();return;}
    busy=true;
    try{
     const d=await api('/api/fiiu/live');if(stopped)return;if(!d||typeof d.active!=='boolean')throw Error('live');
-    if(!d.active){last=null;pause();hide();return;}
-    last=d;show(d);follow();
+    if(!d.active){last=null;pause();hide();}
+    else{last=d;show(d);follow();}
+    drawn();
    }
-   catch(error){if(stopped)return;if(error?.status===401||error?.status===403){last=null;pause();prompt(error.status);return;}follow();}
+   catch(error){if(stopped)return;if(error?.status===401||error?.status===403){last=null;pause();prompt(error.status);drawn();return;}follow();}
    finally{busy=false;}
   }
   document.addEventListener?.('visibilitychange',()=>{if(stopped)return;if(document.visibilityState==='hidden')pause();else read();});
