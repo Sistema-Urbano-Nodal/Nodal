@@ -992,7 +992,7 @@
    talk.replaceChildren(none,...names.map(name=>{const option=source('option',name);option.value=name;return option;}));talk.value=names.includes(value)?value:'';talkField.wrap.hidden=!names.length;
   };
   // Shown under the choice when a talk chosen here left the block's list (renamed or removed in the programme), until a talk or block is chosen again.
-  const talkNote=tr('p','questionTalkChanged','f-muted f-talk-changed');talkNote.id=prefix+'-talk-note';talkNote.hidden=true;
+  const talkNote=tr('p','questionTalkChanged','f-talk-changed');talkNote.id=prefix+'-talk-note';talkNote.hidden=true;
   const noteTalk=on=>{talkNote.hidden=!on;if(on)talk.setAttribute('aria-describedby',talkNote.id);else talk.removeAttribute('aria-describedby');};talk.addEventListener('change',()=>noteTalk(false));
   // The programme as saved on this page, or read again after a refusal, rebuilds the talk choice of a form on that block.
   const refillTalks=activityId=>{if((isNew?block.value:start.activityId)!==activityId)return;const before=talk.value;fillTalks(activityId,before,isNew?[]:[start.talk]);if(before&&talk.value!==before)noteTalk(true);};
