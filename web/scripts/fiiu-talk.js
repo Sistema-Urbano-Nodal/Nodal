@@ -258,6 +258,10 @@
   const after=[...parts.log.children].find(child=>child.dataset.pending==='1'||later(views.get(child.dataset.id),next));if(after)after.before(node);else parts.log.append(node);return true;
  }
  function drop(id){rowsById.get(id)?.remove();rowsById.delete(id);views.delete(id);}
+ // The newest message on screen, sent ones only, and the first row the reader can see, with where it is, to keep it there through a rebuild.
+ const newestShown=()=>views.get([...parts?.log.children||[]].filter(child=>child.dataset.id).at(-1)?.dataset.id)||null;
+ function anchorRow(){const row=[...parts?.log.children||[]].find(child=>child.dataset.id&&child.getBoundingClientRect?.().bottom>0);return row?{id:row.dataset.id,top:row.getBoundingClientRect().top}:null;}
+ function restoreAnchor(anchor){const row=anchor&&rowsById.get(anchor.id);if(row?.getBoundingClientRect&&typeof window.scrollBy==='function')window.scrollBy(0,row.getBoundingClientRect().top-anchor.top);}
  function landed(clientId){
   const attempt=attempts.get(clientId);if(!attempt)return;attempt.landed=true;
   if(attempt.state==='sending'){attempt.row?.remove();attempt.row=null;return;}
@@ -410,12 +414,19 @@
   // A read of the same question while a rating is on its way keeps that rating's state; the answer settles it.
   if(question.kind!=='rating')rate=null;
   else{if(rate?.id!==question.id)rate=buildRate(question.id);if(!rate.busy)rate.saved=rate.shown=scoreOf(data.me?.score);}
+  // A rebuild of the rows on screen (a reset after more than 200 changes, or a status the pulse cannot carry) notes first where the reader was (audit #7).
+  const kept=same?{follow:following||nearBottom(),newest:newestShown(),anchor:anchorRow()}:null;
   if(!same)build();renderHead();rowsById.clear();views.clear();parts.log.replaceChildren();
   for(const view of Array.isArray(data.messages)?data.messages:[])if(view?.id)upsert(view);
   restoreUnsent();for(const attempt of attempts.values())if(attempt.row&&attempt.qid===question.id)parts.log.append(attempt.row);
   parts.earlier.hidden=!before;parts.log.setAttribute('aria-label',t('talkPage'));renderDock();rekey(parts.empty,emptyKey());updateEmpty();setTitle();
   // Arriving shows the session and the question first, not the end of the chat (audit #16): the reader follows new answers once they reach the end.
-  if(!same){following=nearBottom();atEnd=ended();lastTop=document.scrollingElement?.scrollTop||0;}
+  if(!same){following=nearBottom();atEnd=ended();lastTop=document.scrollingElement?.scrollTop||0;return;}
+  // After a rebuild a reader who was following goes to the new end; anyone else keeps the message they were reading in place, and gets the pill and
+  // one announcement for the answers that are newer than the newest they had.
+  if(kept.follow)return toBottom(false);
+  restoreAnchor(kept.anchor);const others=kept.newest?[...views.values()].filter(view=>!view.mine&&later(view,kept.newest)):[];
+  if(others.length){parts.pill.hidden=false;announce(others.length===1?fill('talkNewOne',{author:others[0].author||''}):fill('talkNewMany',{n:others.length}));}
  }
 
  // A full read (the question, or earlier messages) may also list the ids of the messages this viewer likes.

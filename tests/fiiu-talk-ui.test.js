@@ -1601,3 +1601,17 @@ test('#4: tapping Send, Attach, Remove or a failed row’s buttons while typing 
  text.value='Otra vez';submit(h);await flush();const discard=key(failed(),'talkDiscardDraft');focusInside(h,discard);text.focused=false;
  await discard.listeners.click({detail:0});assert.equal(text.focused,true,'focus that was in the removed row goes to the text box');
 });
+
+test('#7: after more than 200 changes the chat is rebuilt; a reader who was following goes to the new end, anyone else gets the pill and hears how many are new',async()=>{
+ const newer=[3,4,5].map(i=>message('50000000-0000-4000-8000-00000000000'+i,{author:'Beto Q.',body:'Mientras no mirabas '+i,createdAt:`2026-10-21T14:2${i}:00.000Z`,seq:200+i}));
+ const routes=()=>{let loads=0;return {['GET /api/fiiu/questions/'+Q]:()=>loads++?thread({revision:250,messages:[message(M1),message(M2,{author:'Flavia R.',createdAt:'2026-10-21T14:07:00.000Z',seq:2}),...newer]}):thread(),
+  'GET /api/fiiu/pulse':{questions:[[Q,'day1-am',250,'open']]},['GET '+MESSAGES+'?since=3']:{reset:true,revision:250}};};
+ // Each row is 100 px: three more rows move the conversation's end 300 px down.
+ const h=await page(routes()),scroller=follow(h,()=>(rows(h).length-2)*100);await scrollTo(h,scroller,1900);
+ await h.visible(false);await h.visible(true);await flush();
+ assert.equal(rows(h).length,5);assert.equal(scroller.scrollTop,2200,'still at the end, the newest answers in view');assert.equal(h.root.querySelector('.f-talk-new').hidden,true);
+ const up=await page(routes()),away=follow(up,()=>(rows(up).length-2)*100);await scrollTo(up,away,1900);await scrollTo(up,away,900);
+ await up.visible(false);await up.visible(true);await flush();
+ assert.equal(rows(up).length,5);assert.equal(away.scrollTop,900,'a reader higher up stays where they were');
+ assert.equal(up.root.querySelector('.f-talk-new').hidden,false,'the pill says there is more below');assert.equal(up.root.querySelector('.f-talk-live').textContent,'3 new answers');
+});
