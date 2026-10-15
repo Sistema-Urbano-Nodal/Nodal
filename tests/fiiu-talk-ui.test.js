@@ -1631,3 +1631,17 @@ test('#8/#17: a session that ended meanwhile turns Send, Like, Rate, Delete and 
  const hide=await page({['GET /api/fiiu/questions/'+Q]:thread({me:{organiser:true}}),['PUT /api/admin/fiiu/messages/'+M1+'/hidden']:refusal});await key(row(hide,M1),'talkHide').listeners.click();await flush();signIn(hide);
  assert.equal(send.timers.filter(timer=>!timer.cleared).length,0,'polling stops until the person is back');
 });
+
+test('#9/#14: a message put back in the middle of the list (an organiser unhides it) is placed quietly; only answers newer than the newest shown count as new',async()=>{
+ let revision=3;const at=minute=>`2026-10-21T14:${minute}:00.000Z`;
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({messages:[message(M1,{createdAt:at('05')}),message(M2,{createdAt:at('07'),seq:2}),message(M4,{createdAt:at(11),seq:3})]}),
+  'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),
+  ['GET '+MESSAGES+'?since=3']:since(4,[message(M3,{author:'Beto Q.',body:'Respuesta número 121',createdAt:at('09'),seq:4})]),
+  ['GET '+MESSAGES+'?since=4']:since(5,[message(M5,{author:'Carla V.',body:'Nueva de verdad',createdAt:at(15),seq:5})])});
+ const scroller={scrollHeight:3000,scrollTop:0,clientHeight:800};h.ctx.document.scrollingElement=scroller;await scrollTo(h,scroller,1900);await scrollTo(h,scroller,300);
+ const pill=h.root.querySelector('.f-talk-new'),live=h.root.querySelector('.f-talk-live');
+ revision=4;await h.tickTimers();
+ assert.deepEqual(rows(h).map(node=>node.dataset.id),[M1,M2,M3,M4],'back in its place');assert.equal(pill.hidden,true,'no pill pointing at nothing new');assert.equal(live.textContent,'','and nothing announced');
+ assert.equal(scroller.scrollTop,300);
+ revision=5;await h.tickTimers();assert.equal(pill.hidden,false,'a really new answer still raises the pill');assert.equal(live.textContent,'1 new answer from Carla V.');
+});

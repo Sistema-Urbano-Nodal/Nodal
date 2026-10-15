@@ -544,7 +544,10 @@
    // While earlier pages are not loaded, a change to a message older than the first loaded row (a like or an unhide bumps its seq) waits for
    // "Load earlier", which brings it fresh: shown now it would sit out of context above the gap and raise the pill with nothing new below.
    const first=before?views.get([...parts.log.children].find(child=>child.dataset.id)?.dataset.id):null;
-   patch(note=>{for(const change of list){if(!change?.id)continue;if(change.gone)drop(change.id);else if(!(first&&!rowsById.has(change.id)&&later(first,change)))note(change,upsert(change));}});
+   // Only an answer newer than the newest on screen is new (audit #9, #14): one put back in the middle of the list, an unhidden message or one that fills a
+   // gap, takes its place quietly, with no pill pointing at nothing new and nothing announced.
+   const last=newestShown();
+   patch(note=>{for(const change of list){if(!change?.id)continue;if(change.gone)drop(change.id);else if(!(first&&!rowsById.has(change.id)&&later(first,change)))note(change,upsert(change)&&(!last||later(change,last)));}});
   }
   if(Number.isFinite(data.revision))known=Math.max(known,data.revision);
  }
