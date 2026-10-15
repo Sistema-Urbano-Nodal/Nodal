@@ -1659,3 +1659,20 @@ test('#10: a like whose answer arrives after a sync that already counted it neit
  put.resolve({likeCount:1,liked:true});await flush();assert.equal(count(),'2','the older count does not overwrite the newer one');assert.equal(like()['aria-pressed'],'true');
  await h.tickTimers();assert.equal(sent(h,'GET',MESSAGES+'?since=1').length,1,'and the page checks again from before the tap');assert.equal(count(),'2');
 });
+
+test('#19: a page waiting for a question whose watch ran out after two hours looks again when the tab comes back, or the connection does',async()=>{
+ const Clock=clock(),DAY3={...ACTIVITY,id:'day3-am',date:'2026-10-23'};let pulse=[],list=[];
+ const routes={'GET /api/fiiu/pulse':()=>({questions:pulse}),'GET /api/fiiu/questions?activityId=day3-am':()=>({activity:DAY3,questions:list}),['GET /api/fiiu/questions/'+Q]:thread({question:{activityId:'day3-am'}})};
+ const h=await page(routes,{search:'?a=day3-am',context:{Date:Clock}});
+ assert.ok(key(qa(h),'talkEmptyBlock'));const watch=h.timers.at(-1);
+ Clock.advance(2*3600000+60000);await h.tickTimers();assert.equal(watch.cleared,true,'the watch ran out, the tab pocketed');
+ pulse=[[Q,'day3-am',1,'open']];list=[question({activityId:'day3-am'})];
+ await h.visible(false);await h.visible(true);await flush();
+ assert.ok(composer(h),'back in the tab, the page looks again at once and opens the question that opened meanwhile');
+ // The same for a question not open yet, and for a connection that comes back.
+ let shown=false;pulse=[];
+ const q=await page({['GET /api/fiiu/questions/'+Q]:()=>shown?thread():{status:404,data:{error:'not found',code:'question_unavailable'}},'GET /api/fiiu/pulse':()=>({questions:pulse})},{context:{Date:Clock}});
+ assert.ok(key(q.root,'talkUnavailable'));assert.ok(key(q.root,'talkUnavailableHint'),'it says the conversation opens here by itself');Clock.advance(2*3600000+60000);await q.tickTimers();assert.equal(q.timers.at(-1).cleared,true);
+ shown=true;pulse=[[Q,'day1-am',3,'open']];await Promise.all((q.windowListeners.online||[]).map(listener=>listener({type:'online'})));await flush();
+ assert.ok(composer(q),'the question opens');
+});

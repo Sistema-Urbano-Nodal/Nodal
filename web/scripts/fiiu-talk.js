@@ -22,6 +22,7 @@
   talkDeleteConfirm:['Delete this message for everyone?','¿Eliminar este mensaje para todas las personas?','Apagar esta mensagem para todos?'],talkOrganiser:['FIIU organisers','Organización FIIU','Organização FIIU'],
   talkClosed:['This conversation is closed. You can still read it.','Esta conversación está cerrada. Puedes seguir leyéndola.','Esta conversa está encerrada. Você ainda pode lê-la.'],talkClosedChip:['Closed','Cerrada','Encerrada'],
   talkUnavailable:['This conversation isn’t available.','Esta conversación no está disponible.','Esta conversa não está disponível.'],
+  talkUnavailableHint:['If it opens later, it appears here by itself.','Si se abre más tarde, aparecerá aquí sola.','Se abrir mais tarde, aparecerá aqui sozinha.'],
   talkSignIn:['Sign in to join the conversation','Inicia sesión para participar','Entre para participar da conversa'],
   talkSignInHint:['Conversations are open to people registered for FIIU Fest 11.','Las conversaciones están abiertas a las personas inscritas en el FIIU Fest 11.','As conversas são abertas a quem se inscreveu no FIIU Fest 11.'],
   talkRegister:['Register for FIIU to join','Inscríbete en el FIIU para participar','Inscreva-se no FIIU para participar'],
@@ -411,7 +412,7 @@
   liked.clear();seedLiked(data);
   // The projector is for organisers; anyone else who opens its address gets the chat.
   if(present&&me.organiser)return showWall(data,again);
-  unwall();const same=Boolean(parts)&&again;if(composer&&previous&&!again)stashDraft(previous);
+  unwall();const same=Boolean(parts)&&again;if(composer&&previous&&!again)stashDraft(previous);lastWatch=null;
   // A read of the same question while a rating is on its way keeps that rating's state; the answer settles it.
   if(question.kind!=='rating')rate=null;
   else{if(rate?.id!==question.id)rate=buildRate(question.id);if(!rate.busy)rate.saved=rate.shown=scoreOf(data.me?.score);}
@@ -434,18 +435,22 @@
  function seedLiked(data){for(const id of Array.isArray(data?.liked)?data.liked:[])if(typeof id==='string')liked.add(id);}
 
  // Access states replace the chat (the whole page before a session is known); polling stops until a question is shown again.
- function halt(){if(timer!==null)clearInterval(timer);timer=null;question=null;parts=null;rate=null;dockObserver?.disconnect();dockObserver=null;unwatch();recheck=false;unwall();}
+ function halt(){if(timer!==null)clearInterval(timer);timer=null;question=null;parts=null;rate=null;dockObserver?.disconnect();dockObserver=null;unwatch();lastWatch=null;recheck=false;unwall();}
  // A page with nothing live to follow (a block's list, or a question this viewer cannot see yet) watches the public, CDN-cached pulse every 8 s while
  // the tab is visible, for two hours at most, and acts once its part of the pulse changes. Opening anything stops it.
+ // The last watch stays known after it runs out: a tab that comes back (visible again, or back online) after the two hours watches again and looks at
+ // once, so a question that opened meanwhile still opens by itself (audit #19). Opening anything forgets it.
+ let lastWatch=null;
  function watch(changed,act){
-  unwatch();const w={until:Date.now()+WATCH_FOR,busy:false};
-  w.timer=setInterval(async()=>{
+  unwatch();const w={until:Date.now()+WATCH_FOR,busy:false};lastWatch={changed,act};
+  w.check=async()=>{
    if(watcher!==w||w.busy||document.visibilityState!=='visible')return;if(Date.now()>w.until)return unwatch();w.busy=true;
    try{const data=await api('/api/fiiu/pulse'),list=(Array.isArray(data?.questions)?data.questions:[]).filter(Array.isArray);if(watcher===w&&changed(list)){unwatch();await act();}}
    catch{/* The next round asks again. */}finally{w.busy=false;}
-  },WATCH_MS);
-  watcher=w;
+  };
+  w.timer=setInterval(()=>w.check(),WATCH_MS);watcher=w;return w;
  }
+ function rewatch(){if(question||watcher||!lastWatch)return false;const {changed,act}=lastWatch;watch(changed,act).check();return true;}
  function unwatch(){if(watcher)clearInterval(watcher.timer);watcher=null;}
  // Focus that was on the chat (in the composer, say) moves to the heading that replaces it, which also reads the new state out. Under a session's header
  // the heading is its h2, in the questions area.
@@ -466,8 +471,8 @@
  // A question hidden from this viewer (not opened yet, or hidden since) opens by itself once the pulse lists it, with the composer and its draft:
  // people who scanned the projector early are not stranded.
  function unavailable(){
-  block('talkUnavailable','',link('viewProgramme','fiiu.html#programme','f-button secondary'));
-  const q=new URLSearchParams(location.search).get('q')||'';if(UUID.test(q))watch(list=>list.some(item=>item[0]===q),()=>redraw(start));
+  const q=new URLSearchParams(location.search).get('q')||'';block('talkUnavailable',UUID.test(q)?'talkUnavailableHint':'',link('viewProgramme','fiiu.html#programme','f-button secondary'));
+  if(UUID.test(q))watch(list=>list.some(item=>item[0]===q),()=>redraw(start));
  }
  // An outage is reported as one, never as "signed out" (the fiiu.js rule). Signed out or without a registration, the session's details stay and the
  // questions area says how to take part.
@@ -1062,11 +1067,11 @@
   paintRate();paintWallRating();
  }
  window.nodalI18n?.onChange(relabel);
- document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible')return;if(recheck)return start();wake();if(page&&question)loadMine({fresh:true});nextAt=0;return tick();});
+ document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible')return;if(recheck)return start();if(rewatch())return;wake();if(page&&question)loadMine({fresh:true});nextAt=0;return tick();});
  window.addEventListener('pageshow',event=>{if(event?.persisted&&recheck)start();});
  window.addEventListener('popstate',()=>back());
  // Back online, the chat asks at once instead of waiting out a backoff that can reach a minute.
- window.addEventListener('online',()=>{nextAt=0;return tick();});
+ window.addEventListener('online',()=>{if(rewatch())return;nextAt=0;return tick();});
  document.addEventListener('fullscreenchange',()=>{fitWall();const full=wall?.full;if(!full)return;const name=document.fullscreenElement?'exitFullScreen':'talkFullscreen';full.dataset.fiiuText=name;full.textContent=t(name);});
  window.addEventListener('resize',resized);window.addEventListener('orientationchange',resized);window.visualViewport?.addEventListener?.('resize',resized);
  window.addEventListener('scroll',()=>{track();if(parts&&!parts.pill.hidden&&nearBottom())parts.pill.hidden=true;},{passive:true});
