@@ -282,7 +282,8 @@
  // programme as organisers edited it (the public, CDN-cached /api/fiiu, also read for whether registration is open); the conversation's own copy of the
  // block stands in until it lands, or if it never does. It is read once per page.
  let festival=null,festivalRead=null;
- const programme=()=>festivalRead??=api('/api/fiiu?kind=news').then(data=>{if(Array.isArray(data?.event?.activities))festival=data;return festival;},()=>null);
+ // A failed read is asked again by the next caller (the next session opened, or the registration explanation).
+ const programme=()=>festivalRead??=api('/api/fiiu?kind=news').then(data=>{if(Array.isArray(data?.event?.activities))festival=data;return festival;},()=>{festivalRead=null;return festival;});
  const sessionActivity=()=>!page?null:(festival&&findActivity(festival.event,page.id))||page.activity||null;
  function frame(id){
   const head=el('header','f-talk-session'),mine=el('div','f-talk-mine'),qa=el('section','f-talk-qa'),switcher=el('div','f-talk-switch'),chat=el('div','f-talk-chat');

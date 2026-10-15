@@ -1711,3 +1711,11 @@ test('#11: hiding a question takes it off the projector: no question, no answers
  state='open';await h.tickTimers();
  assert.match(content(head()),/¿Qué te llevas de esta mañana\?/,'back once it opens');assert.equal(cards(h).length,3);assert.equal(wall().querySelector('.f-talk-wall-code').hidden,false);
 });
+
+test('a programme read that failed is asked again by the next session shown, so the organisers’ edits still reach the header',async()=>{
+ let reads=0;const DAY2={...ACTIVITY,id:'day2-am',title:'Cuidar y transformar la ciudad',date:'2026-10-22'};
+ const h=await page({'GET /api/fiiu?kind=news':()=>reads++?PROGRAMME:{status:503,data:{}},'GET /api/fiiu/questions?activityId=day2-am':{activity:DAY2,questions:[]}},{search:'?a=day1-am'});
+ assert.equal(sessionHead(h).querySelector('h1').textContent,'El poder de lo local','the conversation’s copy stands in');
+ h.ctx.location.search='?a=day2-am';await Promise.all(h.windowListeners.popstate.map(listener=>listener({type:'popstate'})));await flush();
+ assert.equal(reads,2);assert.equal(sessionHead(h).querySelector('h1').textContent,'Cuidar y transformar la ciudad');assert.equal(h.ctx.document.title,'NODAL · Cuidar y transformar la ciudad');
+});
