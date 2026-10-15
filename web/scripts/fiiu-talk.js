@@ -422,7 +422,8 @@
   liked.clear();seedLiked(data);
   // The projector is for organisers; anyone else who opens its address gets the chat.
   if(present&&me.organiser)return showWall(data,again);
-  unwall();const same=Boolean(parts)&&again;if(composer&&previous&&!again)stashDraft(previous);lastWatch=null;
+  // What the composer holds belongs to the question it was shown for (draftFor), which is not always the one before: after an access state there is none.
+  unwall();const same=Boolean(parts)&&again;if(composer?.draftFor&&composer.draftFor!==question.id)stashDraft(composer.draftFor);lastWatch=null;
   // A read of the same question while a rating is on its way keeps that rating's state; the answer settles it.
   if(question.kind!=='rating')rate=null;
   else{if(rate?.id!==question.id)rate=buildRate(question.id);if(!rate.busy)rate.saved=rate.shown=scoreOf(data.me?.score);}

@@ -1771,3 +1771,17 @@ test('a ?q= address alone, opened by a guest or by someone without a registratio
  const wall=await page({['GET /api/fiiu/questions/'+Q]:signedOut},{search:'?q='+Q+'&present=1'});
  assert.equal(sessionHead(wall),null);assert.equal(links(wall.root).find(a=>a.href.startsWith('login.html')).href,'login.html?next='+encodeURIComponent('/fiiu-session.html?q='+Q+'&present=1'));
 });
+
+test('a draft stays with its question when that question becomes unavailable: the next question picked starts empty, and the draft is back on return',async()=>{
+ const other=question({id:Q2,body:'¿Nomina a alguien?',talk:null,createdAt:'2026-10-21T13:00:00.000Z'});
+ let hidden=false,pulse=[[Q,'day1-am',3,'open'],[Q2,'day1-am',3,'open']];
+ const h=await page({...SESSION_ROUTES,['GET /api/fiiu/questions/'+Q]:()=>hidden?UNAVAILABLE:thread(),'GET /api/fiiu/pulse':()=>({questions:pulse}),['GET '+LIST]:()=>({activity:ACTIVITY,questions:hidden?[other]:[question(),other]}),
+  ['GET /api/fiiu/questions/'+Q2]:thread({question:{id:Q2,body:'¿Nomina a alguien?',talk:null},messages:[]})},{search:'?a=day1-am'});
+ const text=composer(h).querySelector('textarea');text.value='Respuesta para la valoración';text.listeners.input();
+ hidden=true;pulse=[[Q2,'day1-am',3,'open']];await h.tickTimers();assert.ok(key(qa(h),'talkUnavailable'));
+ tap(picks(h).find(a=>a.dataset.qid===Q2));await flush();
+ assert.equal(qa(h).querySelector('.f-talk-question').textContent,'¿Nomina a alguien?');assert.equal(text.value,'','what was typed for the hidden question does not follow to this one');
+ hidden=false;pulse=[[Q,'day1-am',4,'open'],[Q2,'day1-am',3,'open']];await h.tickTimers();await flush();
+ tap(picks(h).find(a=>a.dataset.qid===Q));await flush();
+ assert.equal(qa(h).querySelector('.f-talk-question').textContent,'¿Qué te llevas de esta mañana?');assert.equal(text.value,'Respuesta para la valoración','the draft is back with its question');
+});
