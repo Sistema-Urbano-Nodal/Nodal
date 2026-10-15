@@ -633,6 +633,10 @@
       add('line', { x1: 12.5, y1: 10.6, x2: 16, y2: 8.6, stroke: 'currentColor', 'stroke-width': 1.8 });
       add('circle', { cx: 9, cy: 12.5, r: 4.5, fill: 'currentColor' });
       add('circle', { cx: 17.5, cy: 7.8, r: 2.6, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8 });
+    } else if (fam === 'fiiu') {
+      // the festival: a check-in square, the session QR's corner mark
+      add('rect', { x: 5.5, y: 5.5, width: 13, height: 13, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8 });
+      add('circle', { cx: 12, cy: 12, r: 3, fill: 'currentColor' });
     } else if (fam === 'recognition') {
       add('circle', { cx: 12, cy: 12, r: 3.6, fill: 'currentColor' });
       [[12, 4.5, 12, 7.5], [12, 16.5, 12, 19.5], [4.5, 12, 7.5, 12], [16.5, 12, 19.5, 12]].forEach(([x1, y1, x2, y2]) =>
@@ -643,6 +647,71 @@
       add('circle', { cx: 16.8, cy: 8.2, r: 3, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8 });
     }
     return svg;
+  }
+
+  /* FIIU Fest 11 attendance, handed over as { registration, attendance, event } by fiiu-hubs.js from the festival
+     block's own two reads, on its first draw and on each refresh, so the ledger makes no request of its own. That
+     file loads after this one, so this listener is in place first. The family shows only for a member with a
+     registration; until the reads succeed, or when they fail, it is simply absent. */
+  let festival = null;
+  document.addEventListener('nodal:fiiu-festival', (event) => {
+    festival = event.detail || null;
+    if (U) renderBadges();
+  });
+
+  /* The festival rows come from Fiiu.festivalBadges (fiiu-ui.js), the rule the check-in page uses too, so a badge it
+     announces is the badge shown here. fiiu-ui.js loads after this file, so it is looked up at drawing time. A session
+     keeps its block's Spanish title; earned, it reads the block's day, time and venue as the programme now stands. */
+  function festivalBadgeData() {
+    const Fiiu = window.Fiiu;
+    if (!festival?.registration || !festival.event || typeof Fiiu?.festivalBadges !== 'function') return [];
+    return Fiiu.festivalBadges(festival.registration, festival.attendance, festival.event).map((b) => {
+      if (b.kind === 'milestone') {
+        const key = b.id.slice('milestone:'.length);
+        return {
+          fam: 'fiiu', id: b.id, state: b.state, meter: b.meter,
+          name: t(`d.badge.fiiu.${key}.name`), req: t(`d.badge.fiiu.${key}.req`), unlock: t(`d.badge.fiiu.${key}.unlock`),
+        };
+      }
+      const a = b.activity;
+      return {
+        fam: 'fiiu', id: b.id, state: b.state, name: a.title, lang: 'es',
+        req: b.state === 'earned' ? blockWhen(Fiiu, a) : t('d.badge.fiiu.checkIn'),
+        // certificate hours as the server counts them; a workshop, a route or an untimed block counts as participation
+        unlock: b.minutes ? t('d.badge.fiiu.hours', { hours: Fiiu.hoursText(b.minutes / 60) }) : t('d.badge.fiiu.participation'),
+      };
+    });
+  }
+  function blockWhen(Fiiu, a) {
+    const parts = [Fiiu.dateNode(a.date, 'span', 'short', 'bl-day')];
+    if (a.time) parts.push(el('span', null, Fiiu.timeLabel(a.time)));
+    if (a.venue) {
+      const venue = el('span', null, a.venue);
+      venue.lang = 'es';
+      parts.push(venue);
+    }
+    return parts;
+  }
+
+  /* "New" marks a festival badge earned since the member last opened the console. The earned ids are kept per account
+     on this device, written as the ledger is drawn, just before its rows go up: storage that throws (private mode,
+     blocked site data), or reads but cannot write, then shows no tag rather than the same tags on every visit. A tag
+     stays through this visit's redraws (a language switch, a refresh) and is gone on the next visit. */
+  const SEEN_KEY = 'nodal.fiiuBadgesSeen.';
+  const newThisVisit = new Set();
+  function newlyEarned(badges) {
+    const earned = badges.filter((b) => b.fam === 'fiiu' && b.state === 'earned').map((b) => b.id);
+    if (!U?.id || !earned.length) return newThisVisit;
+    try {
+      const stored = JSON.parse(localStorage.getItem(SEEN_KEY + U.id) || '[]');
+      const seen = new Set(Array.isArray(stored) ? stored : []);
+      const unseen = earned.filter((id) => !seen.has(id));
+      if (unseen.length) {
+        localStorage.setItem(SEEN_KEY + U.id, JSON.stringify([...seen, ...unseen]));
+        unseen.forEach((id) => newThisVisit.add(id));
+      }
+    } catch { /* no storage, no New tags */ }
+    return newThisVisit;
   }
 
   function badgeData() {
@@ -656,6 +725,7 @@
       meter,
     });
     return [
+      ...festivalBadgeData(),
       B('contribution', 'pioneer', t(U.assessed ? 'd.badge.pioneer.scopeDone' : 'd.badge.pioneer.scopeTodo'), U.assessed ? 'earned' : 'progress'),
       B('contribution', 'first', t('d.badge.first.scope'), 'locked'),
       B('contribution', 'sharer', t('d.badge.sharer.req'), 'locked', { done: 0, total: 5 }),
@@ -672,13 +742,15 @@
 
   /* the registry: one ruled ledger, grouped by family — each badge is a line
      entry with its requirement, what it opens, and (where countable) a tally.
-     The first badge not yet earned carries the "next" tag. */
+     The first badge not yet earned carries the "next" tag. A registrant's
+     FIIU Fest 11 family comes first. */
   function renderBadges() {
     const grid = byId('badgeGrid');
     if (!grid) return;
     const badges = badgeData();
     const next = badges.find((b) => b.state !== 'earned');
-    const families = ['contribution', 'role', 'recognition'];
+    const fresh = newlyEarned(badges);
+    const families = [...(badges.some((b) => b.fam === 'fiiu') ? ['fiiu'] : []), 'contribution', 'role', 'recognition'];
     let index = 0;
 
     grid.replaceChildren(...families.map((famKey) => {
@@ -691,7 +763,7 @@
       const earnedHere = members.filter((b) => b.state === 'earned').length;
       head.append(
         mark,
-        el('span', 'bl-fam', t(`d.badge.fam.${famKey}`)),
+        el('span', 'bl-fam', t(famKey === 'fiiu' ? 'd.badge.fiiu.family' : `d.badge.fam.${famKey}`)),
         el('span', 'bl-count', `${earnedHere}/${members.length}`),
       );
       group.appendChild(head);
@@ -703,9 +775,19 @@
         const idx = el('span', 'bl-idx', String(index).padStart(2, '0'));
 
         const body = el('div', 'bl-body');
-        const name = el('h3', 'bl-name', b.name);
+        const name = el('h3', 'bl-name');
+        if (b.lang) {
+          // a festival block's own title, in Spanish, like the programme
+          const title = el('span', null, b.name);
+          title.lang = b.lang;
+          title.translate = true;
+          name.appendChild(title);
+        } else name.textContent = b.name;
         if (b === next) name.appendChild(el('span', 'bl-next', t('d.badge.next')));
-        const req = el('p', 'bl-req', b.req);
+        if (fresh.has(b.id)) name.appendChild(el('span', 'bl-next bl-new', t('d.badge.fiiu.new')));
+        const req = el('p', 'bl-req');
+        if (Array.isArray(b.req)) b.req.forEach((part, i) => req.append(...(i ? [document.createTextNode(' · '), part] : [part])));
+        else req.textContent = b.req;
         const opens = el('p', 'bl-opens');
         opens.append(el('strong', null, t('d.badge.opens')), b.unlock);
         body.append(name, req, opens);

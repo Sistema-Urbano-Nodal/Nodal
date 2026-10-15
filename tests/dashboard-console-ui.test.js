@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { Node, key, content, flush, descendants } from './helpers/fiiu-ui-harness.js';
 import { FIIU_EVENT } from '../server/fiiu-domain.js';
+import { mergeProgramme } from '../server/fiiu-programme.js';
 
 /* The member console on a phone at the festival: the bell, the globe, the festival block, the news, the profile
    prompt, touch sizes and the globe download. Rules are read from the shipped CSS and behaviour is run from the
@@ -490,3 +491,176 @@ test('globe.js only looks up elements dashboard.html has, now that dashboard.js 
   assert.deepEqual(referenced.filter((id) => !ids.has(id)), []);
 });
 
+
+/* ---------------- FIIU badges in the Recognition ledger ---------------- */
+
+// The recognition section of dashboard.js, run against fiiu-ui.js and the real dictionaries, fed the way fiiu-hubs.js feeds it.
+const festivalPlan = (answers) => ({ id: 'r-1', version: 1, labStatus: 'none', answers: { activities: [], externalActivities: [], applyLab: false, ...answers } });
+const anaPlan = festivalPlan({ activities: ['day1-am', 'day2-am', 'closing-party'], externalActivities: ['workshop-espacios-comunidad'] });
+const attended = (...ids) => ids.map((activityId) => ({ activityId, createdAt: '2026-10-21T14:12:00.000Z', method: activityId.startsWith('day') ? 'qr' : 'staff' }));
+// The programme as the API serves it, with an organiser's venue change on day1-am.
+const EDITED = JSON.parse(JSON.stringify(mergeProgramme([{ id: 'day1-am', data: { venue: 'Auditorio NOS PUCP, San Isidro' } }])));
+const text = (node) => node.textContent + node.children.map(text).join('');
+// The console appends strings and calls appendChild, which the festival harness's Node does not.
+class El extends Node {
+  append(...nodes) { super.append(...nodes.map((n) => (typeof n === 'string' ? Object.assign(new El('#text'), { textContent: n }) : n))); }
+  appendChild(node) { this.append(node); return node; }
+}
+function ledger({ lang = 'en', storage = new Map(), store, fiiuLoaded = true, me = { id: 'ana-id' } } = {}) {
+  const nodes = { badgeGrid: new El('div'), badgesEyebrow: new El('span') }, listeners = {};
+  const document = {
+    documentElement: { lang }, querySelectorAll: () => [], getElementById: (id) => nodes[id] ?? null,
+    createElement: (tag) => new El(tag), createElementNS: (ns, tag) => Object.assign(new El(tag), { namespaceURI: ns }),
+    createTextNode: (value) => Object.assign(new El('#text'), { textContent: value }),
+    addEventListener: (type, fn) => { listeners[type] = fn; },
+  };
+  const i18n = loadI18n(lang);
+  const localStorage = store ?? { getItem: (k) => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, String(v)) };
+  const context = vm.createContext({ document, localStorage, i18n, Intl, Date, Error, JSON, window: { nodalI18n: { lang, onChange() {} } } });
+  if (fiiuLoaded) vm.runInContext(read('web', 'scripts', 'fiiu-ui.js'), context);
+  const source = dashboardJs();
+  const helpers = piece(source, '  const el = (tag, cls, text) => {', 'if (node) node.textContent = text; };');
+  const svg = piece(source, "  const SVGNS = 'http://www.w3.org/2000/svg';", '    return node;\n  };');
+  const recognition = piece(source, '  /* ================= recognition', '  /* ================= self-assessment').replace(/ {2}\/\* =+ self-assessment$/, '');
+  const user = { assessed: false, indicators: { transmission: 'No' }, topics: [], city: 'Lima', ...me };
+  vm.runInContext(`const t = (key, vars) => i18n.t(key, vars);\n${helpers}\n${svg}\nlet U = ${JSON.stringify(user)};\nconst maxLevel = () => 0;\nconst cityLabel = () => U.city;\n${recognition}\nglobalThis.renderBadges = renderBadges; globalThis.familyMark = familyMark;`, context, { filename: 'dashboard-recognition.js' });
+  const grid = nodes.badgeGrid;
+  const groups = () => grid.children.map((group) => ({ family: group.children[0].children[1].textContent, count: group.children[0].children[2].textContent, rows: group.children.filter((n) => n.tagName === 'article') }));
+  return {
+    grid, storage, context, groups,
+    eyebrow: () => nodes.badgesEyebrow.textContent,
+    render: () => context.renderBadges(),
+    hand: (detail) => listeners['nodal:fiiu-festival']?.({ type: 'nodal:fiiu-festival', detail }),
+    lang: (next) => { i18n.apply(next, { persist: false }); context.window.nodalI18n.lang = next; context.renderBadges(); },
+  };
+}
+function view(row) {
+  const [idx, body, status] = row.children;
+  const [name, req, opens] = body.children;
+  const tags = name.children.filter((n) => /\bbl-(next|new)\b/.test(n.className));
+  return {
+    idx: idx.textContent, state: row.className, req: text(req), opens: text(opens),
+    name: name.textContent + name.children.filter((n) => !tags.includes(n)).map(text).join(''),
+    lang: name.children.find((n) => !tags.includes(n))?.lang ?? null,
+    tags: tags.map((n) => n.textContent),
+    check: status.children.find((n) => n.className === 'bl-check')?.['aria-label'] ?? null,
+    meter: status.children.find((n) => n.className === 'bl-frac')?.textContent ?? null,
+  };
+}
+const familyNames = (l) => l.groups().map((g) => g.family);
+
+test('members without a FIIU registration see the ledger exactly as before, and nothing is remembered for them', () => {
+  const l = ledger();
+  l.render();
+  const shown = text(l.grid), eyebrow = l.eyebrow();
+  assert.deepEqual(familyNames(l), ['Contribution', 'Role', 'Recognition']);
+  assert.equal(eyebrow, 'Recognition · 0 of 11');
+  l.hand({ registration: null, attendance: [], event: FIIU_EVENT });
+  assert.equal(text(l.grid), shown);
+  assert.equal(l.eyebrow(), eyebrow);
+  assert.equal(l.storage.size, 0);
+  // Before fiiu-ui.js has run (it loads after dashboard.js) the family is simply absent too, without an error.
+  const early = ledger({ fiiuLoaded: false });
+  early.render();
+  assert.doesNotThrow(() => early.hand({ registration: anaPlan, attendance: attended('day1-am'), event: FIIU_EVENT }));
+  assert.deepEqual(familyNames(early), ['Contribution', 'Role', 'Recognition']);
+});
+
+test('a registrant’s FIIU Fest 11 family heads the ledger: a row per session in the plan, locked until checked in, then dated with its hours', () => {
+  const l = ledger();
+  l.render();
+  l.hand({ registration: anaPlan, attendance: attended('day1-am'), event: EDITED });
+  const [fiiu, contribution] = l.groups();
+  assert.deepEqual(familyNames(l), ['FIIU Fest 11', 'Contribution', 'Role', 'Recognition']);
+  assert.equal(fiiu.count, '2/5');
+  const rows = fiiu.rows.map(view);
+  assert.deepEqual(rows.map((r) => r.idx), ['01', '02', '03', '04', '05']);
+  assert.deepEqual(rows[0], { idx: '01', state: 'bl-row is-earned', name: 'El poder de lo local', lang: 'es', tags: ['New'], check: 'earned', meter: null,
+    req: 'Wed 21 Oct · 09:00–13:00 · Auditorio NOS PUCP, San Isidro', opens: 'Opens: 4 h toward your FIIU certificate' });
+  assert.deepEqual(rows[1], { idx: '02', state: 'bl-row is-locked', name: 'Cuidar y transformar la ciudad', lang: 'es', tags: ['next'], check: 'locked', meter: null,
+    req: 'Check in with the session QR to unlock', opens: 'Opens: 4 h toward your FIIU certificate' });
+  assert.deepEqual(rows.slice(2).map((r) => [r.name, r.state, r.meter ?? r.check, r.tags]), [
+    ['First session', 'bl-row is-earned', 'earned', ['New']],
+    ['Three sessions', 'bl-row is-locked', '1/3', []],
+    ['All five conferences', 'bl-row is-locked', '1/5', []],
+  ]);
+  assert.match(rows[3].req, /Festival sessions attended/);
+  assert.equal(view(contribution.rows[0]).idx, '06', 'the numbering runs on through the ledger');
+  assert.equal(l.eyebrow(), 'Recognition · 2 of 16', 'the band counts the festival badges too');
+  // A refresh with a new check-in redraws the family.
+  l.hand({ registration: anaPlan, attendance: attended('day1-am', 'day2-am'), event: EDITED });
+  assert.equal(l.groups()[0].count, '3/5');
+  assert.equal(l.eyebrow(), 'Recognition · 3 of 16');
+});
+
+test('workshops and routes appear once the team confirms them, without hours; the laboratory and its milestone are listed for applicants', () => {
+  const l = ledger();
+  l.hand({ registration: festivalPlan({ publicOfficial: true, applyLab: true, activities: ['day1-am'] }), attendance: attended('workshop-espacios-comunidad'), event: FIIU_EVENT });
+  const rows = l.groups()[0].rows.map(view);
+  assert.deepEqual(rows.map((r) => [r.name.slice(0, 22), r.state.replace('bl-row ', '')]), [
+    ['Gestión urbana en acci', 'is-locked'], ['El poder de lo local', 'is-locked'], ['Espacios que sostienen', 'is-earned'],
+    ['First session', 'is-earned'], ['Three sessions', 'is-locked'], ['All five conferences', 'is-locked'], ['Laboratory', 'is-locked'],
+  ]);
+  assert.equal(rows[0].opens, 'Opens: a record of your participation in FIIU Fest 11', 'the laboratory has no certificate hours while its length is unknown');
+  assert.equal(rows[2].req, 'Wed 21 Oct · MALI, Cercado de Lima', 'a workshop with no time keeps its day and venue');
+  assert.equal(rows[2].opens, 'Opens: a record of your participation in FIIU Fest 11');
+  assert.equal(rows[6].meter, '0/1');
+  assert.equal(rows[0].tags.join(), 'next', 'the first badge not yet earned, overall');
+  assert.ok(!rows.some((r) => /Fiesta/.test(r.name)), 'the closing party is never a badge');
+});
+
+test('badges earned since the last visit carry a New tag, kept through this visit and gone on the next; without storage there are none', () => {
+  const storage = new Map();
+  const newOnes = (l) => l.groups()[0].rows.map(view).filter((r) => r.tags.length && r.state.endsWith('is-earned')).map((r) => [r.name, r.tags.join()]);
+  const first = ledger({ storage });
+  first.hand({ registration: anaPlan, attendance: attended('day1-am'), event: FIIU_EVENT });
+  assert.deepEqual(newOnes(first), [['El poder de lo local', 'New'], ['First session', 'New']]);
+  assert.deepEqual(JSON.parse(storage.get('nodal.fiiuBadgesSeen.ana-id')).sort(), ['milestone:first', 'session:day1-am'], 'remembered per account once drawn');
+  first.lang('es');
+  assert.deepEqual(newOnes(first), [['El poder de lo local', 'Nueva'], ['Primera sesión', 'Nueva']], 'a redraw in this visit keeps them');
+  const later = ledger({ storage });
+  later.hand({ registration: anaPlan, attendance: attended('day1-am'), event: FIIU_EVENT });
+  assert.deepEqual(newOnes(later), [], 'the next visit shows them as seen');
+  later.hand({ registration: anaPlan, attendance: attended('day1-am', 'day2-am'), event: FIIU_EVENT });
+  assert.deepEqual(newOnes(later), [['Cuidar y transformar la ciudad', 'New']], 'a check-in made meanwhile is new');
+  const other = ledger({ storage, me: { id: 'beto-id' } });
+  other.hand({ registration: anaPlan, attendance: attended('day1-am'), event: FIIU_EVENT });
+  assert.equal(newOnes(other).length, 2, 'another account on the same phone keeps its own list');
+  for (const store of [{ getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); } }, { getItem: () => null, setItem() { throw new Error('quota'); } }]) {
+    const blocked = ledger({ store });
+    assert.doesNotThrow(() => blocked.hand({ registration: anaPlan, attendance: attended('day1-am'), event: FIIU_EVENT }));
+    assert.equal(blocked.groups()[0].family, 'FIIU Fest 11', 'the family still shows');
+    assert.deepEqual(newOnes(blocked), [], 'storage that cannot keep the list shows no tags rather than the same ones on every visit');
+  }
+});
+
+test('the FIIU family reads in English, Spanish and Portuguese, with its own family mark', () => {
+  const dash = { window: {} };
+  vm.runInNewContext(read('web', 'scripts', 'i18n-dashboard.js'), dash);
+  const fiiuKeys = (lang) => Object.keys(dash.window.NODAL_I18N_DASH[lang]).filter((k) => k.startsWith('d.badge.fiiu.')).sort();
+  assert.ok(fiiuKeys('en').length >= 17);
+  for (const lang of ['es', 'pt']) assert.deepEqual(fiiuKeys(lang), fiiuKeys('en'), `${lang} has every FIIU badge string`);
+  for (const lang of ['en', 'es', 'pt']) for (const k of fiiuKeys(lang)) assert.ok(dash.window.NODAL_I18N_DASH[lang][k].trim(), `${lang} ${k}`);
+  const l = ledger({ lang: 'es' });
+  l.hand({ registration: anaPlan, attendance: attended('day1-am'), event: FIIU_EVENT });
+  const rows = l.groups()[0].rows.map(view);
+  assert.equal(l.eyebrow(), 'Reconocimiento · 2 de 16');
+  assert.equal(rows[0].opens, 'Abre: 4 h para tu certificado del FIIU');
+  assert.equal(rows[1].req, 'Registra tu asistencia con el QR de la sesión para desbloquearla');
+  assert.match(rows[0].req, /21/);
+  l.lang('pt');
+  assert.equal(view(l.groups()[0].rows[2]).name, 'Primeira sessão');
+  assert.equal(l.eyebrow(), 'Reconhecimento · 2 de 16');
+  const mark = (fam) => l.context.familyMark(fam).children.map((n) => n.tagName).join();
+  assert.equal(mark('fiiu'), 'rect,circle', 'a check-in square, drawn like the other marks');
+  assert.notEqual(mark('fiiu'), mark('contribution'));
+});
+
+test('the ledger listens before the festival block can hand anything over, and draws no left accent bars', () => {
+  const html = read('web', 'pages', 'dashboard.html');
+  const at = (name) => html.indexOf(`src="${name}?`);
+  assert.ok(at('dashboard.js') > 0 && at('dashboard.js') < at('fiiu-ui.js') && at('fiiu-ui.js') < at('fiiu-hubs.js'), 'dashboard.js runs first, then fiiu-ui.js, then fiiu-hubs.js');
+  assert.match(dashboardJs(), /document\.addEventListener\('nodal:fiiu-festival'/);
+  const sheet = css(), ledgerCss = sheet.slice(sheet.indexOf('/* ============================ recognition'), sheet.indexOf('/* ============================ self-assessment'));
+  assert.doesNotMatch(ledgerCss, /inset \d+px 0 0/, 'state is carried by the check and the ink, not a left bar');
+});
