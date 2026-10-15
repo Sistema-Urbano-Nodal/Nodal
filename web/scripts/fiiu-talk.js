@@ -244,7 +244,6 @@
  function whenLine(a,{day=true}={}){const line=el('p','f-talk-when');if(day&&a.date)line.append(dateNode(a.date,'span','short','f-talk-day'));if(a.time)line.append(timeNode(a.time));if(a.venue)line.append(source('span',a.venue,'f-talk-venue'));return line.children.length?line:null;}
  // General is the festival-wide space: it has no date, time or venue, and its name follows the reader's language. Its lists say "General", not "this session".
  const isGeneral=id=>id==='general',general=(id,key,generalKey)=>isGeneral(id)?generalKey:key;
- const sessionHref=(a,q)=>'fiiu-session.html?a='+encodeURIComponent(a)+(q?'&q='+encodeURIComponent(q):'');
 
  // The session header, for everyone (guests too): "FIIU Fest 11 · <day>", the title, time, venue, the organisers' description and the talks, from the
  // programme as organisers edited it (the public, CDN-cached /api/fiiu, also read for whether registration is open); the conversation's own copy of the
@@ -305,7 +304,7 @@
   if(list.length<2){box.replaceChildren();if(focused)parts?.head.querySelector('h2')?.focus();return;}
   const heading=tr('h2',general(page.id,'talkQuestions','talkQuestionsGeneral'),'f-talk-subhead'),ol=el('ol','f-talk-list');heading.id='f-talk-questions';heading.tabIndex=-1;
   for(const q of list){
-   const li=el('li'),a=el('a','f-talk-pick'),meta=el('span','f-talk-pick-meta');a.href=sessionHref(page.id,q.id);a.dataset.qid=q.id;a.append(source('span',q.body,'f-talk-pick-body'));if(q.talk)a.append(source('span',q.talk,'f-talk-pick-talk'));
+   const li=el('li'),a=el('a','f-talk-pick'),meta=el('span','f-talk-pick-meta');a.href=Fiiu.sessionLink(page.id,q.id);a.dataset.qid=q.id;a.append(source('span',q.body,'f-talk-pick-body'));if(q.talk)a.append(source('span',q.talk,'f-talk-pick-talk'));
    meta.append(tr('span',q.kind==='rating'?'talkScoreChip':'talkKindChat','f-talk-kind'),tr('span',q.status==='open'?'talkOpenChip':q.status==='hidden'?'talkHiddenQuestion':'talkClosedChip','f-talk-state-chip'+(q.status==='open'?' is-open':'')));
    const n=Number(q.messageCount)||0;meta.append(counted('span','f-talk-pick-n',n===1?'talkAnswersOne':'talkAnswers',{n}));a.append(meta);
    a.addEventListener('click',event=>{if(event?.button>0||event?.metaKey||event?.ctrlKey||event?.shiftKey||event?.altKey)return;event?.preventDefault?.();pick(q.id);});
@@ -336,7 +335,7 @@
   // The closed note leads to the block's open question, if there is one, and keeps an unsent answer readable (and copyable) under it.
   if(state==='closed'){
    const open=(parts.siblings||[]).find(q=>q.status==='open'),draft=composer?.textarea.value.trim()||storedDraft(question.id).trim();
-   parts.next.hidden=!open;parts.nextId=open?.id||null;if(open)parts.next.href=sessionHref(question.activityId,open.id);parts.draft.hidden=!draft;parts.draftText.value=draft;
+   parts.next.hidden=!open;parts.nextId=open?.id||null;if(open)parts.next.href=Fiiu.sessionLink(question.activityId,open.id);parts.draft.hidden=!draft;parts.draftText.value=draft;
   }
  }
  // Discarding a kept draft clears it from the composer and the tab; focus on the button, which goes with it, moves to the closed note.
