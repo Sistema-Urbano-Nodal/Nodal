@@ -8,8 +8,8 @@
    Whitespace, not a rule, sets it apart from the questions below; the questions area then fills the screen, so the dock still rests on its bottom edge. */
 .f-talk-session{width:100%;max-width:760px;margin:0 auto;padding:var(--f-sp-5) 0 0}.f-talk-session .f-talk-kicker>:not(:last-child)::after{content:"·";content:"·"/"";margin:0 .55em}
 .f-page .f-talk-desc{max-width:65ch;margin:var(--f-sp-3) 0 0;font-size:.95rem;line-height:1.5;white-space:pre-line;overflow-wrap:anywhere}
-.f-talk-talks{display:grid;gap:2px;margin:var(--f-sp-3) 0 0;padding:0;list-style:none;font-size:.9rem}.f-talk-talks>li{display:flex;flex-wrap:wrap;gap:0 var(--f-sp-3)}
-.f-talk-talks-time{min-width:7.5em;color:var(--f-muted);font-variant-numeric:tabular-nums}.f-talk-talks-title{flex:1 1 12em;overflow-wrap:anywhere}
+.f-talk-session .f-talk-talks{margin:var(--f-sp-2) 0 0}.f-talk-talks>summary{display:flex;align-items:center;gap:0 10px;min-height:44px;font-weight:650;color:var(--f-forest);list-style:none;cursor:pointer}.f-talk-talks>summary::-webkit-details-marker{display:none}
+.f-talk-talks>summary::after{content:"+";content:"+"/"";font-size:1.3rem;font-weight:500;line-height:1}.f-talk-talks[open]>summary::after{content:"−";content:"−"/""}.f-talk-talks .f-session-list{margin-top:0}
 .f-talk-mine{display:flex;flex-wrap:wrap;align-items:center;gap:var(--f-sp-1) var(--f-sp-4);margin:var(--f-sp-4) 0 0}.f-talk-mine .f-pill{white-space:normal}.f-talk-mine-hint{font-size:.84rem;color:var(--f-muted)}
 .f-talk-mine-time{font-variant-numeric:tabular-nums}
 /* On a phone the time and a long venue stack, rather than leave a dot hanging at the end of a line. */

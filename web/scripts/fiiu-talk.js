@@ -5,7 +5,7 @@
  // Live updates poll the public, CDN-cached pulse every 4 s and fetch only the changes since the shown revision, then patch rows in place: the composer,
  // focus and scroll position are never rebuilt. People registered for the festival and organisers take part; anyone else is told how to.
  // Organisers also hide and unhide messages here, and ?q=…&present=1 gives them a projector view of the question with a QR code to join.
- const Fiiu=window.Fiiu,{t,el,tr,button,link,source,api,status,dateNode,timeNode,limaClock,limaDate,newTabNote,locale,findActivity,festivalBadges}=Fiiu;
+ const Fiiu=window.Fiiu,{t,el,tr,button,link,source,api,status,dateNode,timeNode,limaClock,limaDate,newTabNote,locale,findActivity,festivalBadges,countLabel}=Fiiu;
  // Page-only strings join the shared dictionary, so t(), tr() and the language switch in fiiu-ui.js handle them like the rest.
  Object.assign(Fiiu.rows,{
   talkPage:['Conversation','Conversación','Conversa'],talkQuestions:['Questions in this session','Preguntas de esta sesión','Perguntas desta sessão'],
@@ -64,7 +64,7 @@
   // The session page: its tab title until the session is known, the person's status under the header, and the question list's labels.
   talkSessionPage:['Session','Sesión','Sessão'],talkInPlan:['In your registration','En tu inscripción','Na sua inscrição'],talkNotInPlan:['Not in your registration','No está en tu inscripción','Não está na sua inscrição'],
   talkCheckedIn:['Attendance confirmed','Asistencia registrada','Presença confirmada'],talkCheckinHint:['Check in with the QR code in the room','Registra tu asistencia con el QR en la sala','Registre sua presença com o QR da sala'],
-  talkBadgeEarned:['Session badge earned','Insignia de la sesión obtenida','Insígnia da sessão conquistada'],talkBadgeLocked:['Session badge: check in to unlock it','Insignia de la sesión: registra tu asistencia para desbloquearla','Insígnia da sessão: registre sua presença para desbloqueá-la'],
+  talkBadgeEarned:['Session badge earned','Insignia de la sesión obtenida','Insígnia da sessão conquistada'],talkBadgeLocked:['Session badge still to earn','Insignia de la sesión por desbloquear','Insígnia da sessão por desbloquear'],
   talkQuestionLabel:['Question','Pregunta','Pergunta'],talkJumpLatest:['See the latest answers ↓','Ver las últimas respuestas ↓','Ver as últimas respostas ↓'],
   talkKindChat:['Conversation','Conversación','Conversa'],talkOpenChip:['Open','Abierta','Aberta'],talkAnswers:['{n} answers','{n} respuestas','{n} respostas'],talkAnswersOne:['1 answer','1 respuesta','1 resposta'],
   // Rating questions: one tap on 1 to 10 under the question; the results show once the person has rated. {score}, {avg} and {n} are filled in here.
@@ -296,7 +296,13 @@
   else if(a){
    if(a.date)kicker.append(dateNode(a.date,'span','long','f-talk-day'));nodes.push(source('h1',a.title,'f-talk-title'));const line=whenLine(a,{day:false});if(line)nodes.push(line);
    if(a.description)nodes.push(Fiiu.linkify(source('p','','f-talk-desc'),a.description));
-   if(Array.isArray(a.sessions)&&a.sessions.length){const talks=el('ul','f-talk-talks');for(const [time,title] of a.sessions){const li=el('li');li.append(el('span','f-talk-talks-time',time),source('span',title,'f-talk-talks-title'));talks.append(li);}nodes.push(talks);}
+   // The talks, counted as the programme counts them ("3 sesiones"): open on a wide screen, folded on a phone so the question still shows on the first screen.
+   // A fold the person opened or closed keeps that through a redraw.
+   if(Array.isArray(a.sessions)&&a.sessions.length){
+    const was=page.head.querySelector('.f-talk-talks'),fold=el('details','f-sessions f-talk-talks'),summary=el('summary'),list=el('ul','f-session-list');summary.append(countLabel(a.sessions.length,'sessionOne','sessions'));
+    for(const [time,title] of a.sessions){const li=el('li');li.append(el('span','f-session-time',time),source('span',title));list.append(li);}
+    fold.open=was?was.open:!globalThis.matchMedia?.('(max-width:599px)').matches;fold.append(summary,list);nodes.push(fold);
+   }
   }
   page.head.replaceChildren(...nodes,page.mine);setTitle();
  }

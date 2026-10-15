@@ -1387,12 +1387,16 @@ test('a session page shows the session from the programme as organisers edited i
  assert.equal(head.querySelector('h1').textContent,'El poder de lo local, editado','the merged programme wins over the conversation’s copy');
  const when=head.querySelector('.f-talk-when');assert.match(content(when),/09:00–13:00/);assert.match(content(when),/Auditorio MALI/);
  const about=head.querySelector('.f-talk-desc');assert.match(content(about),/ciudadanía activa/);assert.deepEqual(links(about).map(a=>a.href),['https://example.org/barrio']);
- const talks=head.querySelector('.f-talk-talks').querySelectorAll('li');assert.equal(talks.length,2);assert.match(content(talks[1]),/10:00–11:00/);assert.match(content(talks[1]),/Ciudadanía activa/);
+ const fold=head.querySelector('.f-talk-talks'),talks=fold.querySelectorAll('li');assert.equal(talks.length,2);assert.match(content(talks[1]),/10:00–11:00/);assert.match(content(talks[1]),/Ciudadanía activa/);
+ assert.equal(fold.tagName,'details');assert.match(content(fold.querySelector('summary')),/2\s+sessions/,'counted as the programme counts them');assert.equal(fold.open,true,'open on a wide screen');
  assert.equal(h.ctx.document.title,'NODAL · El poder de lo local, editado');
  assert.ok(descendants(qa(h)).includes(composer(h)),'the chat sits below the header, in the questions area');
  assert.equal(qa(h).querySelector('.f-talk-question').textContent,'¿Qué te llevas de esta mañana?');
  // Without the programme the conversation’s own copy of the session stands in.
  const bare=await page({},{search:'?a=day1-am'});assert.equal(sessionHead(bare).querySelector('h1').textContent,'El poder de lo local');assert.equal(sessionHead(bare).querySelector('.f-talk-desc'),null);
+ // On a phone the talks fold under their count, so the question still shows on the first screen; a fold the person opened stays open through a redraw.
+ const phone=await page({...SESSION_ROUTES,'GET /api/fiiu?kind=news':()=>new Promise(resolve=>setImmediate(()=>resolve(PROGRAMME)))},{search:'?a=day1-am',context:{matchMedia:query=>({matches:query==='(max-width:599px)'})}});
+ await flush();const folded=sessionHead(phone).querySelector('.f-talk-talks');assert.equal(folded.open,false);
  // A start time alone reads “From 17:00”.
  const party=await page({...SESSION_ROUTES,'GET /api/fiiu/questions?activityId=closing-party':{activity:{...PROGRAMME.event.activities[3]},questions:[]}},{search:'?a=closing-party'});
  assert.equal(sessionHead(party).querySelector('[data-fiiu-time]').dataset.fiiuTime,'17:00');
