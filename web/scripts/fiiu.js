@@ -1,12 +1,12 @@
 (() => {
  'use strict';
- const {el,tr,t,source,button,link,field,check,api,status,dateNode,rangeNode,timeNode,limaDate,contentCards,badges,findActivity,chronological,typeOf,countLabel,nextFor,underway,hint,describe,newTabNote,revealInRow,hoursLine,pulse,talkLink,linkify}=window.Fiiu;
+ const {sessionLink,el,tr,t,source,button,link,field,check,api,status,dateNode,rangeNode,timeNode,limaDate,contentCards,badges,findActivity,chronological,typeOf,countLabel,nextFor,underway,hint,describe,newTabNote,revealInRow,hoursLine,pulse,talkLink,linkify}=window.Fiiu;
  const root=document.getElementById('fiiuRoot'),loadStatus=document.getElementById('fiiuStatus');
  const TYPES=[['conference','conferenceOne','conferenceMany'],['workshop','workshopOne','workshopMany'],['route','routeOne','routeMany'],['lab','labOne','labOne'],['party','partyOne','partyOne']];
  // Blocks a person adds to their registration: the conferences and the closing party (register only).
  const REGISTERED=['general','social'];
  const CHOICE_NAMES=['activities','externalActivities','applyLab'];
- let festival,me={registration:null,attendance:[],user:null},registrationHost,panelHeading,panelBody,heroHost,programmeHost,openForm=null,officialInput=null,syncForm=null,notice='',dayObserver=null,stepObserver=null,sizeObserver=null,errorSeq=0,guestSignin=null,pendingAdd=null,layoutHost=null,latestNode=null,newsFeed=null;
+ let festival,me={registration:null,attendance:[],user:null},registrationHost,panelHeading,panelBody,heroHost,programmeHost,openForm=null,officialInput=null,syncForm=null,notice='',dayObserver=null,stepObserver=null,sizeObserver=null,errorSeq=0,guestSignin=null,pendingAdd=null,addedFrom=null,layoutHost=null,latestNode=null,newsFeed=null;
  // choiceInputs maps an activity id to its form checkbox, so programme actions can pre-select it.
  // programmeActions maps an activity id to its programme button, so the button can show that the box is now ticked in the form.
  const choiceInputs=new Map(),programmeActions=new Map(),dayChips=new Map(),visibleDays=new Set();
@@ -170,6 +170,9 @@
  function savedSummary(registration,{withBadges=false,prefix='f-it-'}={}){
   const a=registration.answers,event=festival.event,box=el('section','f-saved'),head=el('div','f-saved-head'),heading=tr('h3','saved');box.tabIndex=-1;heading.id=prefix+'saved-heading';box.setAttribute('aria-labelledby',heading.id);
   head.append(heading,el('p','f-saved-who',`${a.firstName} ${a.lastName} · ${registration.email}`));box.append(head);
+  // Sent here from a session page (#add-<block>), a person who has that session in their plan gets the way back to it.
+  const backTo=withBadges&&addedFrom&&findActivity(event,addedFrom);
+  if(backTo&&(a.activities?.includes(backTo.id)||(backTo.registration==='application'&&registration.labStatus!=='none')))head.append(link('backToSession',sessionLink(backTo.id),'f-text-link f-back-session'));
   // Once registration closes there is no Edit button, so the notice points to the organisers instead.
   if(missingAnswers(a))box.append(tr('p',festival.config.registrationOpen?'incompleteNotice':'incompleteClosedNotice','f-notice is-warning'));
   const split=ids=>{const known=[],unknown=[];for(const id of ids||[]){const activity=findActivity(event,id);if(activity)known.push(activity);else unknown.push(id);}return[chronological(known),unknown];};
@@ -523,7 +526,7 @@
    // #registration at once, so a reload after saving does not reopen the form. Someone with no registration yet starts at the top of the form, not past
    // their personal answers; a block already in the plan, the laboratory or a form that is not shown leaves only the scroll to the panel.
    // When the registration read failed, the block waits for the panel's Try again.
-   const hash=location.hash;pendingAdd=/^#add-([a-z0-9-]{1,60})$/.exec(hash)?.[1]||null;
+   const hash=location.hash;pendingAdd=/^#add-([a-z0-9-]{1,60})$/.exec(hash)?.[1]||null;if(pendingAdd)addedFrom=pendingAdd;
    if(pendingAdd)history.replaceState?.(null,'',location.pathname+location.search+'#registration');
    // The programme and the feeds are already in place, so their hashes scroll now; the panel's wait for the registration. Its answer redraws the hero, the programme
    // and the panel, which moves everything under them, so an early hash scrolls again then, unless the person has moved meanwhile.

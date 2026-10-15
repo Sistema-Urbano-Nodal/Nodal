@@ -1369,7 +1369,7 @@ test('each question links to its chat and projector in a new tab, and offers its
  const h=await harness(()=>({content:[],nextCursor:null}),{questionsRead:()=>({questions:[question()]})});
  const row=questionRows(h)[0],text=row.querySelector('.f-question-text');assert.equal(text.id,'f-q-'+QUESTION_ID);
  const chat=key(row,'openChat'),present=key(row,'present'),csv=key(row,'downloadCsv');
- assert.equal(chat.tagName,'a');assert.equal(chat.href,'fiiu-talk.html?q='+QUESTION_ID);assert.equal(present.href,'fiiu-talk.html?q='+QUESTION_ID+'&present=1');
+ assert.equal(chat.tagName,'a');assert.equal(chat.href,'fiiu-session.html?q='+QUESTION_ID);assert.equal(present.href,'fiiu-session.html?q='+QUESTION_ID+'&present=1');
  for(const a of [chat,present]){assert.equal(a.target,'_blank');assert.equal(a.rel,'noopener');assert.equal(a['aria-describedby'],text.id+' f-newtab');}
  assert.equal(csv.tagName,'button');assert.equal(csv.type,'button');assert.equal(csv.href,undefined,'fetched, so a failure is reported instead of a cancelled download');assert.equal(csv['aria-describedby'],text.id);
  assert.equal(key(row,'editQuestion')['aria-describedby'],text.id);

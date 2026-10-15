@@ -1057,3 +1057,15 @@ test('the form’s choose-one hint and error say the closing party alone is enou
  const h=await harness(),{t}=h.ctx.window.Fiiu;
  for(const [lang,party] of [['en',/the closing party/],['es',/la fiesta de cierre/],['pt',/a festa de encerramento/]]){h.lang(lang);assert.match(t('choicesHint'),party,lang);assert.match(t('chooseActivity'),party,lang);}
 });
+
+// Spec 2026-10-15 §1 (audit #15): someone sent from a session page to register or add that session comes back to it after saving.
+test('after saving from an #add-<block> landing, the saved summary offers the way back to that session',async()=>{
+ const at=hash=>({location:{hash,search:'',pathname:'/fiiu.html',reload(){}}});
+ const added={...saved,version:saved.version+1,answers:{...saved.answers,activities:[...saved.answers.activities,'day2-am'].sort()}};
+ const h=await harness({registration:saved,context:at('#add-day2-am'),write:()=>({status:200,data:{registration:added}})});
+ await h.submit();
+ const back=h.root.querySelector('.f-saved').querySelectorAll('a').find(a=>a.dataset.fiiuText==='backToSession');
+ assert.ok(back,'a link back to the session');assert.equal(back.href,'fiiu-session.html?a=day2-am');
+ // A plain visit, with no #add- landing, shows no such link.
+ const plain=await harness({registration:saved});assert.equal(plain.root.querySelector('.f-saved').querySelectorAll('a').some(a=>a.dataset.fiiuText==='backToSession'),false);
+});
