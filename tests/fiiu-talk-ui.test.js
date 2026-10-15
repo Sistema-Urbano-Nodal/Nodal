@@ -1723,3 +1723,30 @@ test('a programme read that failed is asked again by the next session shown, so 
  h.ctx.location.search='?a=day2-am';await Promise.all(h.windowListeners.popstate.map(listener=>listener({type:'popstate'})));await flush();
  assert.equal(reads,2);assert.equal(sessionHead(h).querySelector('h1').textContent,'Cuidar y transformar la ciudad');assert.equal(h.ctx.document.title,'NODAL · Cuidar y transformar la ciudad');
 });
+
+// The session page around its questions: one hidden while it is shown, one the viewer cannot read yet, one under another session's address, and what the
+// list and the composer keep across them.
+const UNAVAILABLE={status:404,data:{error:'not found',code:'question_unavailable'}};
+const live=h=>h.timers.filter(timer=>!timer.cleared).map(timer=>timer.delay);
+test('on a session address, a question hidden while shown leaves the list, and the chat comes back by itself once the pulse lists it again',async()=>{
+ let shown=true,pulse=[[Q,'day1-am',3,'open']];
+ const h=await page({...SESSION_ROUTES,['GET /api/fiiu/questions/'+Q]:()=>shown?thread():UNAVAILABLE,'GET /api/fiiu/pulse':()=>({questions:pulse}),['GET '+LIST]:()=>({activity:ACTIVITY,questions:shown?[question()]:[]})},{search:'?a=day1-am'});
+ assert.ok(composer(h));
+ shown=false;pulse=[];await h.tickTimers();
+ assert.ok(key(qa(h),'talkUnavailable'));assert.ok(key(qa(h),'talkUnavailableHint'),'it says the conversation comes back here by itself');assert.ok(sessionHead(h).querySelector('h1'));
+ assert.deepEqual(live(h),[8000],'the session’s part of the public pulse is watched, slowly');
+ const lists=sent(h,'GET',LIST).length;await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,lists,'nothing moved, nothing is read');
+ shown=true;pulse=[[Q,'day1-am',4,'open']];await h.tickTimers();await flush();
+ assert.ok(composer(h),'the chat comes back by itself');assert.equal(qa(h).querySelector('.f-talk-question').textContent,'¿Qué te llevas de esta mañana?');
+ assert.deepEqual(h.replaced,[],'the session address stays');assert.deepEqual(live(h),[4000],'the chat polls again');
+ // With other questions on the session, the hidden one leaves the list, which still leads to the others; one opening meanwhile reads the session again.
+ const Q3='dddddddd-dddd-4ddd-8ddd-dddddddddddd',older=question({id:Q2,status:'closed',body:'¿Primera pregunta?',talk:null,createdAt:'2026-10-21T13:00:00.000Z'});
+ let hidden=false,list=[question(),older];pulse=[[Q,'day1-am',3,'open'],[Q2,'day1-am',2,'closed']];
+ const many=await page({...SESSION_ROUTES,['GET /api/fiiu/questions/'+Q]:()=>hidden?UNAVAILABLE:thread(),'GET /api/fiiu/pulse':()=>({questions:pulse}),['GET '+LIST]:()=>({activity:ACTIVITY,questions:list}),
+  ['GET /api/fiiu/questions/'+Q3]:thread({question:{id:Q3,body:'¿Y ahora?',talk:null,createdAt:'2026-10-21T15:00:00.000Z'},messages:[]})},{search:'?a=day1-am'});
+ assert.equal(picks(many).length,2);
+ hidden=true;list=[older];pulse=[[Q2,'day1-am',2,'closed']];await many.tickTimers();
+ assert.ok(key(qa(many),'talkUnavailable'));assert.deepEqual(picks(many).map(a=>a.href),['fiiu-session.html?a=day1-am&q='+Q2],'no longer listed as open; the other question is still there');
+ list=[question({id:Q3,body:'¿Y ahora?',talk:null,createdAt:'2026-10-21T15:00:00.000Z'}),older];pulse=[[Q3,'day1-am',1,'open'],[Q2,'day1-am',2,'closed']];await many.tickTimers();await flush();
+ assert.equal(qa(many).querySelector('.f-talk-question').textContent,'¿Y ahora?','the session’s open question opens');assert.ok(composer(many));
+});

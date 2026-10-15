@@ -338,10 +338,11 @@
  // A block's questions as the pulse sees them (ids and statuses, hidden ones left out, as the pulse leaves them out), to notice a change cheaply.
  const blockSig=pairs=>pairs.filter(([,state])=>state!=='hidden').map(([id,state])=>id+':'+state).sort().join(' ');
  // The session's questions, open first: each with its type, status and answer count, as a link to its own address (a new tab works); a tap opens it in place.
- // A single question needs no list. Redrawn when the list changes, the same link keeps focus.
+ // The question shown alone needs no list; one other question still gets it, so a question that is not available still leads to the rest. Redrawn when
+ // the list changes, the same link keeps focus.
  function renderSwitcher(list){
   if(!page)return;page.questions=list;const box=page.switcher,focused=holds(box)?document.activeElement.getAttribute?.('href'):null;
-  if(list.length<2){box.replaceChildren();if(focused)parts?.head.querySelector('h2')?.focus();return;}
+  if(!list.length||(list.length===1&&list[0].id===page.current)){box.replaceChildren();if(focused)parts?.head.querySelector('h2')?.focus();return;}
   const heading=tr('h2',general(page.id,'talkQuestions','talkQuestionsGeneral'),'f-talk-subhead'),ol=el('ol','f-talk-list');heading.id='f-talk-questions';heading.tabIndex=-1;
   for(const q of list){
    const li=el('li'),a=el('a','f-talk-pick'),meta=el('span','f-talk-pick-meta');a.href=Fiiu.sessionLink(page.id,q.id);a.dataset.qid=q.id;a.append(source('span',q.body,'f-talk-pick-body'));if(q.talk)a.append(source('span',q.talk,'f-talk-pick-talk'));
@@ -478,10 +479,15 @@
   const heading=root.querySelector('h1');if(heading){heading.tabIndex=-1;heading.focus();}
  }
  // A question hidden from this viewer (not opened yet, or hidden since) opens by itself once the pulse lists it, with the composer and its draft:
- // people who scanned the projector early are not stranded.
+ // people who scanned the projector early are not stranded. On a session page it is the question asked for (&q=), else the one that was shown (?a=
+ // alone, which every programme card links to): it leaves the list, and the session's part of the pulse is watched, so the question coming back, or
+ // another one opening or closing, reads the session again. ?a= alone then opens whichever question the session leads with.
  function unavailable(){
-  const q=new URLSearchParams(location.search).get('q')||'';block('talkUnavailable',UUID.test(q)?'talkUnavailableHint':'',link('viewProgramme','fiiu.html#programme','f-button secondary'));
-  if(UUID.test(q))watch(list=>list.some(item=>item[0]===q),()=>redraw(start));
+  const asked=new URLSearchParams(location.search).get('q')||'',named=UUID.test(asked),q=named?asked:page?.current||'';
+  if(page)renderSwitcher(page.questions.filter(item=>item.id!==q));
+  block('talkUnavailable',UUID.test(q)?'talkUnavailableHint':'',link('viewProgramme','fiiu.html#programme','f-button secondary'));
+  if(page){const id=page.id;watchBlock(id,blockSig(page.questions.map(item=>[item.id,item.status])),list=>openSession(id,named||list.some(item=>item[0]===q)?q:null));}
+  else if(named)watch(list=>list.some(item=>item[0]===q),()=>redraw(start));
  }
  // An outage is reported as one, never as "signed out" (the fiiu.js rule). Signed out or without a registration, the session's details stay and the
  // questions area says how to take part.
@@ -1019,8 +1025,11 @@
 
  // Questions open first, then newest.
  const sorted=list=>[...list].sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1)||String(b.createdAt).localeCompare(String(a.createdAt)));
- // A session without questions follows the pulse: once one is opened (or the list changes) the session is read again, quietly, and opens it.
- function watchBlock(id,last){watch(list=>{const now=blockSig(list.filter(item=>item[1]===id).map(item=>[item[0],item[3]]));if(now===last)return false;last=now;return true;},()=>redraw(()=>openSession(id)));}
+ // A session without questions follows the pulse: once one is opened (or the list changes) the session is read again, quietly, and opens it. open gets
+ // the pulse that moved.
+ function watchBlock(id,last,open=()=>openSession(id)){
+  let seen=[];watch(list=>{const now=blockSig(list.filter(item=>item[1]===id).map(item=>[item[0],item[3]]));if(now===last)return false;last=now;seen=list;return true;},()=>redraw(()=>open(seen)));
+ }
  const questionPath=id=>'/api/fiiu/questions/'+encodeURIComponent(id),listPath=id=>'/api/fiiu/questions?activityId='+encodeURIComponent(id);
  // The session page: the header first (from the programme, else the questions' answer), then the questions; the one asked for (&q=), else the most recent
  // open one, else the most recent, opens in place. thread: that question's answer, already read; early: its read, already on its way.
