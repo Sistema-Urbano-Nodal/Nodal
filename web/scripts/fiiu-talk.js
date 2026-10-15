@@ -163,10 +163,16 @@
  // Whether the reader follows the end when the chat grows without a new message (a failed send's taller row, a taller dock): a move to the end says
  // yes, and after that the reader's own scrolling decides. A smooth move still on its way down follows; scrolling up, away from the end, stops it.
  let following=true,lastTop=0;
- function track(){const s=document.scrollingElement;if(!s)return;const top=s.scrollTop;following=nearBottom()||(following&&top>=lastTop);lastTop=top;}
+ // atEnd: exactly at the end, not merely near it. A reader there stays there when the screen changes size (the keyboard in a browser that resizes the page, a
+ // rotation, the visual viewport), so the newest answers stay above the composer and the next ones follow (audit #1). Testing it rather than nearBottom()
+ // leaves alone someone scrolling up while a toolbar changes the height.
+ let atEnd=true;
+ const ended=()=>{const s=document.scrollingElement;return !s||s.scrollTop>=end()-2;};
+ function track(){const s=document.scrollingElement;if(!s)return;const top=s.scrollTop;following=nearBottom()||(following&&top>=lastTop);atEnd=ended();lastTop=top;}
+ function resized(){fitWall();if(parts&&atEnd)toBottom(false);}
  // The first paint jumps; later moves follow the page's scroll-behavior, which fiiu-talk.css turns off for reduced motion. Older Safari rejects 'instant'.
  function toBottom(smooth){
-  const s=document.scrollingElement;if(!s)return;const top=parts?.box?.getBoundingClientRect?end():s.scrollHeight;following=true;
+  const s=document.scrollingElement;if(!s)return;const top=parts?.box?.getBoundingClientRect?end():s.scrollHeight;following=true;atEnd=true;
   if(!smooth&&typeof window.scrollTo==='function'){try{window.scrollTo({top,behavior:'instant'});lastTop=s.scrollTop;return;}catch{/* falls through */}}s.scrollTop=top;lastTop=s.scrollTop;
  }
  // The chat grew under a reader who follows it (a taller dock with a paused line, a status, a kept draft or a longer answer): the end moved down, and
@@ -402,7 +408,7 @@
   restoreUnsent();for(const attempt of attempts.values())if(attempt.row&&attempt.qid===question.id)parts.log.append(attempt.row);
   parts.earlier.hidden=!before;parts.log.setAttribute('aria-label',t('talkPage'));renderDock();rekey(parts.empty,emptyKey());updateEmpty();setTitle();
   // Arriving shows the session and the question first, not the end of the chat (audit #16): the reader follows new answers once they reach the end.
-  if(!same){following=nearBottom();lastTop=document.scrollingElement?.scrollTop||0;}
+  if(!same){following=nearBottom();atEnd=ended();lastTop=document.scrollingElement?.scrollTop||0;}
  }
 
  // A full read (the question, or earlier messages) may also list the ids of the messages this viewer likes.
@@ -1016,7 +1022,7 @@
  // Back online, the chat asks at once instead of waiting out a backoff that can reach a minute.
  window.addEventListener('online',()=>{nextAt=0;return tick();});
  document.addEventListener('fullscreenchange',()=>{fitWall();const full=wall?.full;if(!full)return;const name=document.fullscreenElement?'exitFullScreen':'talkFullscreen';full.dataset.fiiuText=name;full.textContent=t(name);});
- window.addEventListener('resize',()=>fitWall());
+ window.addEventListener('resize',resized);window.addEventListener('orientationchange',resized);window.visualViewport?.addEventListener?.('resize',resized);
  window.addEventListener('scroll',()=>{track();if(parts&&!parts.pill.hidden&&nearBottom())parts.pill.hidden=true;},{passive:true});
  start();
 })();

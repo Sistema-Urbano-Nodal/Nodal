@@ -1532,3 +1532,18 @@ test('#18: a page left while a message was sending, whose server copy is already
  const h=await page({['GET /api/fiiu/questions/'+Q]:thread({messages:[message(M1),message(M3,{mine:true,clientId:CLIENT,body:'Mensaje enviado justo antes de volver atrás',seq:4})]})},{context:{sessionStorage}});
  assert.deepEqual(rows(h).map(node=>node.dataset.id),[M1,M3]);assert.equal(rows(h).some(node=>node.dataset.pending),false);assert.equal(sessionStorage.items.has(UNSENT_KEY),false);
 });
+
+test('#1: a reader at the end stays there when the keyboard or a rotation resizes the screen, and new answers then follow; a reader higher up is not moved',async()=>{
+ let revision=3;
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:since(4,[message(M3,{seq:4,createdAt:'2026-10-21T14:10:00.000Z'})])});
+ const scroller=follow(h,()=>0),fire=type=>Promise.all((h.windowListeners[type]||[]).map(listener=>listener({type}))),pill=h.root.querySelector('.f-talk-new');
+ await scrollTo(h,scroller,1900);
+ // The keyboard opens in a browser that resizes the page: 300 px less screen, so the conversation's end is 300 px further down.
+ scroller.clientHeight=500;await fire('resize');assert.equal(scroller.scrollTop,2200,'the newest message stays above the composer');
+ revision=4;await h.tickTimers();assert.equal(pill.hidden,true,'a new answer follows instead of raising the pill');
+ // A rotation back and forth.
+ scroller.clientHeight=360;await fire('orientationchange');assert.equal(scroller.scrollTop,2340);scroller.clientHeight=800;await fire('resize');assert.equal(scroller.scrollTop,1900);
+ // Someone a little above the end (within reach of following, not at it) who scrolls up while a toolbar changes height is left where they are.
+ await scrollTo(h,scroller,1850);scroller.clientHeight=760;await fire('resize');assert.equal(scroller.scrollTop,1850);
+ await scrollTo(h,scroller,900);scroller.clientHeight=500;await fire('resize');assert.equal(scroller.scrollTop,900,'a reader higher up stays');
+});
