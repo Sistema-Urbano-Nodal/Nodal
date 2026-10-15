@@ -133,9 +133,10 @@
    // generic role), and its h3 already heads it.
    if(!compact)host.setAttribute('aria-labelledby','f-live-title');host.hidden=false;
   }
-  /* Without access the festival page shows one line during the festival; the console shows nothing. A guest the page knows (expected) is invited to
-     register in its panel, or once registration closes to sign in; so is an account without a registration (403). A 401 the page did not expect
-     (a session that ended, a sign-out in another tab) asks to sign in again: the panel can still show the person's registration from before. */
+  /* Without access the festival page shows one line during the festival; the console shows nothing. A guest the page knows (expected) and an account
+     without a registration (403) are invited to register in the panel; once registration closes, the guest is asked to sign in and the account sees
+     nothing. A 401 the page did not expect (a session that ended, a sign-out in another tab) asks to sign in again, since the panel can still show
+     the person's registration from before. */
   function prompt(status,expected=false){
    const key=status===401&&(!expected||!registrationOpen)?'liveSignIn':registrationOpen?'liveRegister':'';
    if(compact||!key||!inDates()){hide();return;}
