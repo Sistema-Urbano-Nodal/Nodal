@@ -105,6 +105,10 @@ const scoreOf=score=>{if(!Number.isInteger(score)||score<1||score>10)throw Error
 const storage=()=>fail('attachment storage unavailable',502);
 // Polls and pages are bounded: the caller asks one row over its page (100, or 200 changes) to learn whether more exist.
 const capped=(limit,max=TALK_LIMITS.changes+1)=>{if(!Number.isInteger(limit)||limit<1)throw Error('invalid festival limit');return Math.min(limit,max);};
+/* The projector's "Most liked" wall: the visible messages of the whole question by likes, newest first on a tie (id
+   last, so one order on both backends), never more than 50 rows. The latest page alone (100) left out the early answers
+   of a busy question, which had the most time to collect likes. */
+const TOP_DEFAULT=12,TOP_MAX=50;
 const revisionOf=since=>{if(!Number.isSafeInteger(since)||since<0)fail('invalid revision');return since;};
 const chunks=(list,size=100)=>{const unique=[...new Set(list)],out=[];for(let i=0;i<unique.length;i+=size)out.push(unique.slice(i,i+size));return out;};
 // Account erasure leaves a message's user_id NULL, and the organiser export still asks for its author's email.
@@ -182,6 +186,9 @@ function sqliteTalk(db){
   },
   async messagesSince(questionId,since,{limit=TALK_LIMITS.changes+1}={}){
    return all('SELECT * FROM fiiu_messages WHERE question_id=? AND seq>? ORDER BY seq LIMIT ?',questionId,revisionOf(since),capped(limit)).map(r=>from(MT,r));
+  },
+  async topMessages(questionId,{limit=TOP_DEFAULT}={}){
+   return all('SELECT * FROM fiiu_messages WHERE question_id=? AND deleted_at IS NULL AND hidden_at IS NULL ORDER BY like_count DESC,created_at DESC,id DESC LIMIT ?',questionId,capped(limit,TOP_MAX)).map(r=>from(MT,r));
   },
   async updateMessage(filters,patch){
    if(!filters?.id)throw Error('scoped update required');
@@ -335,6 +342,9 @@ function supabaseTalk(supa,fetchImpl){
   },
   async messagesSince(questionId,since,{limit=TALK_LIMITS.changes+1}={}){
    return (await read(MT.name,{select:select(MT),question_id:`eq.${questionId}`,seq:`gt.${revisionOf(since)}`,order:'seq.asc',limit:capped(limit)})).map(r=>from(MT,r,true));
+  },
+  async topMessages(questionId,{limit=TOP_DEFAULT}={}){
+   return (await read(MT.name,{select:select(MT),question_id:`eq.${questionId}`,deleted_at:'is.null',hidden_at:'is.null',order:'like_count.desc,created_at.desc,id.desc',limit:capped(limit,TOP_MAX)})).map(r=>from(MT,r,true));
   },
   async updateMessage(filters,patch){
    if(!filters?.id)throw Error('scoped update required');checked(MT,filters);const body=to(MT,patch,false);if(!Object.keys(body).length)throw Error('empty festival update');

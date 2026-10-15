@@ -36,6 +36,8 @@ const ROUTES=[
  ['questions',/^\/api\/fiiu\/questions$/,['GET','HEAD']],
  ['question',/^\/api\/fiiu\/questions\/([^/]+)$/,['GET','HEAD']],
  ['messages',/^\/api\/fiiu\/questions\/([^/]+)\/messages$/,['GET','HEAD','POST']],
+ // The projector's "Most liked" wall, for organisers.
+ ['top',/^\/api\/fiiu\/questions\/([^/]+)\/top$/,['GET','HEAD']],
  ['message',/^\/api\/fiiu\/messages\/([^/]+)$/,['DELETE']],
  ['like',/^\/api\/fiiu\/messages\/([^/]+)\/like$/,['PUT','DELETE']],
  ['rating',/^\/api\/fiiu\/questions\/([^/]+)\/rating$/,['PUT']],
@@ -269,6 +271,16 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     send(res,200,{question:questionView(q,{organiser}),activity:activity?activityView(activity):null,messages:list,liked:[...liked],
      before:page.more?encodeCursor(page.rows[0]):null,revision:Number(q.revision),me:{draftKey:draftKey(user.id),organiser,canPost:q.status==='open',...(rating?{score}:{})}});
     return true;
+   }
+   if(name==='top'){
+    /* The visible answers of the whole question with the most likes, ties newest first: the wall ranked only the latest
+       page (100) before, so a busy question's early, most liked answers never made it. Organiser views, as the
+       projector's other reads; a hidden question is the organisers' to show or not. */
+    if(user.permission!=='admin'){send(res,403,{error:'administrator access required'});return true;}
+    const raw=url.searchParams.get('limit'),limit=raw===null?12:/^\d{1,2}$/.test(raw)?Number(raw):0;
+    if(limit<1||limit>50)fail('limit must be a whole number from 1 to 50');
+    const q=await questionFor(param,true);
+    send(res,200,{messages:(await views(await store.topMessages(q.id,{limit}),{viewer:user.id,organiser:true})).list});return true;
    }
    if(name==='messages'&&read){
     const {organiser}=await access(user),since=url.searchParams.get('since'),before=url.searchParams.get('before');

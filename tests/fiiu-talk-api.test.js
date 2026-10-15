@@ -561,6 +561,35 @@ test('an organiser hides a message from participants within one sync and brings 
  assert.equal((await json(`/api/admin/fiiu/messages/${randomUUID()}/hidden`,{actor:'admin',method:'PUT',body:{}})).status,404);
 });
 
+test('organisers read the most liked answers of the whole question for the projector, and nobody else can',async t=>{
+ const {db,json,call,ask,talkStore,users}=await setup(t);
+ const q=await ask(),ids=[];
+ // A busy question: 150 answers, more than the first page of 100, with the most liked one among the earliest.
+ const at=i=>new Date(Date.UTC(2099,0,1,0,0,0,i)).toISOString();
+ for(let i=1;i<=150;i++)ids[i]=(await talkStore.insertMessage({id:randomUUID(),questionId:q.id,userId:users.other.id,authorName:'Ben O.',authorFull:'Ben Otro',organiser:false,body:`Respuesta ${i}`,clientId:randomUUID(),createdAt:at(i)})).id;
+ const likes=(i,n)=>db.prepare('UPDATE fiiu_messages SET like_count=? WHERE id=?').run(n,ids[i]);
+ likes(5,4);likes(148,1);likes(10,9);likes(11,8);
+ assert.equal((await json(`/api/admin/fiiu/messages/${ids[10]}/hidden`,{actor:'admin',method:'PUT',body:{}})).status,200);
+ await talkStore.updateMessage({id:ids[11]},{body:'',deletedAt:at(500)});
+ const top=await json(`/api/fiiu/questions/${q.id}/top`,{actor:'admin'});
+ assert.equal(top.status,200);assert.equal(top.headers.get('cache-control'),'no-store');
+ assert.deepEqual(top.body.messages.map(m=>m.body),['Respuesta 5','Respuesta 148','Respuesta 150','Respuesta 149','Respuesta 147','Respuesta 146','Respuesta 145','Respuesta 144','Respuesta 143','Respuesta 142','Respuesta 141','Respuesta 140'],
+  'twelve by default, the early most liked answer first, ties newest first; hidden and deleted answers never rank');
+ const [first]=top.body.messages;
+ assert.equal(first.likeCount,4);assert.equal(first.author,'Ben O.');assert.equal(first.authorFull,'Ben Otro','the organiser view the projector already reads');assert.equal(first.hidden,false);
+ assert.equal('clientId' in first,false);assert.equal(first.mine,false);assert.deepEqual(first.files,[]);
+ assert.deepEqual((await json(`/api/fiiu/questions/${q.id}/top?limit=2`,{actor:'admin'})).body.messages.map(m=>m.body),['Respuesta 5','Respuesta 148']);
+ assert.equal((await json(`/api/fiiu/questions/${q.id}/top?limit=50`,{actor:'admin'})).body.messages.length,50);
+ for(const limit of ['0','51','abc','','1.5','-3'])assert.equal((await call(`/api/fiiu/questions/${q.id}/top?limit=${limit}`,{actor:'admin'})).status,400,limit);
+ assert.equal((await call(`/api/fiiu/questions/${q.id}/top`,{actor:'admin',method:'HEAD'})).status,200);
+ assert.equal((await call(`/api/fiiu/questions/${q.id}/top`,{actor:'admin',method:'POST',body:{}})).status,405);
+ assert.equal((await call(`/api/fiiu/questions/${randomUUID()}/top`,{actor:'admin'})).status,404);
+ // The wall is the organisers': a registered participant, an unregistered member and a guest are refused.
+ const member=await json(`/api/fiiu/questions/${q.id}/top`);assert.equal(member.status,403);assert.equal(member.body.messages,undefined);
+ assert.equal((await call(`/api/fiiu/questions/${q.id}/top`,{actor:'stranger'})).status,403);
+ assert.equal((await call(`/api/fiiu/questions/${q.id}/top`,{actor:'guest'})).status,401);
+});
+
 test('since answers carry the question, so an edit or a close sharing a sync with message changes still reaches the page',async t=>{
  const {json,ask,post,close}=await setup(t);
  const q=await ask(),baseline=(await json(`/api/fiiu/questions/${q.id}`,{actor:'other'})).body.revision;
@@ -925,7 +954,7 @@ test('rate limit kinds per route, and the pulse branch never asks for one',async
  const routes=[['GET',`/api/fiiu/questions?activityId=day1-am`,'read'],['GET',`/api/fiiu/questions/${q}`,'read'],['GET',`/api/fiiu/questions/${q}/messages`,'read'],['POST',`/api/fiiu/questions/${q}/messages`,'message'],
   ['DELETE',`/api/fiiu/messages/${q}`,'write'],['PUT',`/api/fiiu/messages/${q}/like`,'like'],['DELETE',`/api/fiiu/messages/${q}/like`,'like'],['PUT',`/api/fiiu/questions/${q}/rating`,'like'],['POST','/api/fiiu/files','upload'],['GET',`/api/fiiu/files/${q}`,'file'],
   ['GET','/api/admin/fiiu/questions','read',admin],['POST','/api/admin/fiiu/questions','write',admin],['PATCH',`/api/admin/fiiu/questions/${q}`,'write',admin],
-  ['PUT',`/api/admin/fiiu/messages/${q}/hidden`,'moderate',admin],['DELETE',`/api/admin/fiiu/messages/${q}/hidden`,'moderate',admin],['GET',`/api/admin/fiiu/questions/${q}/export`,'read',admin],['GET',`/api/admin/fiiu/questions/${q}/qr`,'read',admin]];
+  ['PUT',`/api/admin/fiiu/messages/${q}/hidden`,'moderate',admin],['DELETE',`/api/admin/fiiu/messages/${q}/hidden`,'moderate',admin],['GET',`/api/admin/fiiu/questions/${q}/export`,'read',admin],['GET',`/api/admin/fiiu/questions/${q}/qr`,'read',admin],['GET',`/api/fiiu/questions/${q}/top`,'read',admin]];
  for(const [method,path,kind,user] of routes){asked.length=0;assert.equal(await run(method,path,user),true,path);assert.deepEqual(asked.map(a=>a[2]),[kind],`${method} ${path}`);}
  // Paths outside the contract belong to the FIIU API.
  for(const path of ['/api/fiiu','/api/fiiu/registration','/api/fiiu/checkin','/api/admin/fiiu/summary',`/api/fiiu/questions/${q}/other`,'/api/fiiu/pulse/x'])assert.equal(await run('GET',path),false,path);
