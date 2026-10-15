@@ -635,7 +635,7 @@ test('the projector shows the question large with a join QR and the latest answe
  assert.equal(svg.viewBox,'0 0 29 29','a 4-module quiet zone around 21 modules');assert.equal(svg.role,'img');assert.equal(svg['aria-label'],'Scan to join the conversation');
  const paths=svg.querySelectorAll('path');assert.equal(paths.length,1,'the code is one path');assert.equal(paths[0].d,'M4 4h21v1h-21zM24 24h1v1h-1z');
  assert.ok(key(wall,'talkScanToJoin'));
- assert.equal(wall.querySelector('.f-talk-wall-url').textContent,'nodal.example/fiiu-talk.html?a=day1-am','under the code, the block address people can type');
+ assert.equal(wall.querySelector('.f-talk-wall-url').textContent,'nodal.example/fiiu-session.html?a=day1-am','under the code, the block address people can type');
  assert.equal(composer(h),null);assert.equal(h.root.querySelectorAll('form').length,0);assert.equal(h.root.querySelectorAll('.f-talk-like').length,0);
  assert.equal(key(h.root,'talkHide'),undefined);assert.equal(key(h.root,'talkUnhide'),undefined);assert.equal(key(h.root,'talkDelete'),undefined);assert.equal(h.root.querySelector('.f-talk-log'),null);
  assert.deepEqual(order(h),[M3,M2,M1],'latest first, and the hidden message is not projected');
@@ -699,7 +699,7 @@ test('without a QR the projector keeps the question, the address and the answers
  const Clock=clock();let up=false;
  const none=await projector({['GET '+QR_PATH]:{url:JOIN,qr:null}},{},{context:{Date:Clock}});
  assert.equal(none.root.querySelectorAll('svg').length,0);assert.equal(key(none.root,'talkScanToJoin'),undefined,'no "scan" without a code');
- assert.equal(none.root.querySelector('.f-talk-wall-url').textContent,'nodal.example/fiiu-talk.html?a=day1-am');
+ assert.equal(none.root.querySelector('.f-talk-wall-url').textContent,'nodal.example/fiiu-session.html?a=day1-am');
  Clock.advance(60000);await none.tickTimers();await flush();assert.equal(sent(none,'GET',QR_PATH).length,1,'a code the server could not draw is not asked for again');
  const Later=clock();
  const down=await projector({['GET '+QR_PATH]:()=>up?{url:JOIN,qr:QR}:{status:503,data:{error:'unavailable'}}},{},{context:{Date:Later}});
@@ -1013,7 +1013,7 @@ test('the projector shows only whole answers, leaving out every row that would c
  assert.match(css,/\.f-talk-wall-url\{[^}]*font-size:max\(1rem,\.9em\);[^}]*color:var\(--f-ink\)/,'the address can be typed from the back rows');
 });
 
-test('the projector’s code invites joining an open question and reading a closed one, and a hidden question shows no code until it opens',async()=>{
+test('the projector’s code invites joining an open question and reading a closed one, and a hidden question shows no code, nor the question, until it opens',async()=>{
  let revision=3,state='open';
  const h=await projector({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,state]]}),['GET '+MESSAGES+'?since=3']:since(4,[],{status:'closed'})},{messages:[]});
  const code=()=>h.root.querySelector('.f-talk-wall-code');
@@ -1024,10 +1024,11 @@ test('the projector’s code invites joining an open question and reading a clos
  h.lang('es');assert.equal(key(code(),'talkScanToRead').textContent,'Escanea para leer la conversación');assert.equal(h.root.querySelector('svg')['aria-label'],'Escanea para leer la conversación');
  const hidden=await projector({['GET '+MESSAGES+'?since=3']:since(3,[],{status:'hidden'})},{question:{status:'hidden'}});
  const box=hidden.root.querySelector('.f-talk-wall-code');
- assert.equal(hidden.root.querySelectorAll('svg').length,0,'no code to scan yet');assert.equal(box.querySelector('.f-talk-wall-url'),null);assert.ok(key(box,'talkOpensSoon'));assert.equal(box.hidden,false);
+ assert.equal(hidden.root.querySelectorAll('svg').length,0,'no code to scan yet');assert.equal(box.querySelector('.f-talk-wall-url'),null);assert.equal(box.hidden,true);
+ assert.equal(hidden.root.querySelector('.f-talk-wall-question').dataset.fiiuText,'talkWallUnavailable','a prepared question is not shown to the room before it opens');
  const opening=await projector({['GET '+MESSAGES+'?since=3']:since(4,[],{status:'open'})},{question:{status:'hidden'}});
  await opening.tickTimers();assert.equal(opening.root.querySelectorAll('svg').length,1,'the code appears once it opens');assert.ok(key(opening.root,'talkScanToJoin'));
- assert.equal(opening.root.querySelector('.f-talk-wall-url').textContent,'nodal.example/fiiu-talk.html?a=day1-am');
+ assert.equal(opening.root.querySelector('.f-talk-wall-url').textContent,'nodal.example/fiiu-session.html?a=day1-am');
 });
 
 // Following the chat when its own rows and dock grow, and keeping what a page that redraws itself holds.
@@ -1209,7 +1210,7 @@ test('the projector works for a General question: “FIIU General” over the qu
  const wall=h.root.querySelector('.f-talk-wall'),head=wall.querySelector('.f-talk-wall-head');
  assert.equal(key(head,'talkGeneralTitle').textContent,'FIIU General');assert.equal(head.querySelector('.f-talk-when'),null);
  assert.equal(head.querySelector('.f-talk-wall-question').textContent,'¿Qué te llevas de esta mañana?');assert.deepEqual(order(h),[M3,M2,M1]);
- assert.equal(wall.querySelector('.f-talk-wall-url').textContent,'nodal.example/fiiu-talk.html?a=general');
+ assert.equal(wall.querySelector('.f-talk-wall-url').textContent,'nodal.example/fiiu-session.html?a=general');
 });
 
 // Rating questions (kind 'rating'): ten counts, index 0 = score 1. BEFORE is 41 people (average 7.6); AFTER adds an 8 (42 people, average 7.6).
@@ -1675,4 +1676,38 @@ test('#19: a page waiting for a question whose watch ran out after two hours loo
  assert.ok(key(q.root,'talkUnavailable'));assert.ok(key(q.root,'talkUnavailableHint'),'it says the conversation opens here by itself');Clock.advance(2*3600000+60000);await q.tickTimers();assert.equal(q.timers.at(-1).cleared,true);
  shown=true;pulse=[[Q,'day1-am',3,'open']];await Promise.all((q.windowListeners.online||[]).map(listener=>listener({type:'online'})));await flush();
  assert.ok(composer(q),'the question opens');
+});
+
+// The projector's fixes. GET …/top is lane A's: the most liked visible answers of the whole question, organisers only.
+const TOP='/api/fiiu/questions/'+Q+'/top?limit=12';
+test('#5/#12: “Most liked” on the projector ranks the whole question, from the server’s most liked answers, read again as the conversation moves',async()=>{
+ const early=message('60000000-0000-4000-8000-000000000005',{author:'Ana T.',body:'Respuesta 5',createdAt:'2026-10-21T13:00:00.000Z',likeCount:7,seq:5,authorFull:'Ana Test',hidden:false});
+ let revision=3,reads=0;const slow=later();
+ const h=await projector({['GET '+TOP]:()=>{const n=reads++;return n===1?slow.promise:{messages:n?[WALL[0]]:[early,WALL[0]]};},'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),
+  ['GET '+MESSAGES+'?since=3']:since(4,[message(M5,{body:'Nueva',createdAt:'2026-10-21T14:30:00.000Z',seq:4,authorFull:'X',hidden:false})]),
+  ['GET '+MESSAGES+'?since=4']:since(5,[{id:early.id,seq:5,gone:true}])},{messages:WALL});
+ assert.equal(sent(h,'GET',TOP).length,1,'read with the question');
+ key(h.root,'talkTop').listeners.click();assert.deepEqual(order(h).slice(0,3),[early.id,M1,M2],'the most liked answer leads, though it is older than the first page');
+ key(h.root,'talkLatest').listeners.click();assert.equal(order(h)[0],M3,'Latest is unchanged');
+ revision=4;await h.tickTimers();assert.equal(sent(h,'GET',TOP).length,2,'read again when the conversation moves');
+ // The answer is deleted; a slow earlier read that still lists it lands after that: it does not come back.
+ revision=5;await h.tickTimers();assert.equal(sent(h,'GET',TOP).length,3);slow.resolve({messages:[early]});await flush();
+ key(h.root,'talkTop').listeners.click();assert.ok(!order(h).includes(early.id),'a deleted answer does not come back from an older read');
+ // Participants never ask for it.
+ const member=await page({},{search:'?q='+Q+'&present=1'});assert.equal(sent(member,'GET',TOP).length,0);
+});
+
+test('#11: hiding a question takes it off the projector: no question, no answers and no code, only that it is not available, until it opens again',async()=>{
+ let state='open',revision=3;
+ const h=await projector({['GET /api/fiiu/questions/'+Q]:()=>thread({question:{status:state},messages:WALL,me:{organiser:true}}),['GET '+TOP]:{messages:[]},
+  'GET /api/fiiu/pulse':()=>({questions:state==='hidden'?[]:[[Q,'day1-am',revision,state]]}),['GET '+MESSAGES+'?since=3']:()=>since(4,[],{status:state})});
+ const wall=()=>h.root.querySelector('.f-talk-wall'),head=()=>wall().querySelector('.f-talk-wall-head');
+ assert.equal(cards(h).length,3);assert.match(content(head()),/¿Qué te llevas de esta mañana\?/);
+ state='hidden';await h.tickTimers();
+ assert.equal(head().querySelector('h1').dataset.fiiuText,'talkWallUnavailable');assert.doesNotMatch(content(wall()),/¿Qué te llevas de esta mañana\?/,'the question leaves the room’s screen');
+ assert.equal(cards(h).length,0,'and every answer');assert.equal(wall().querySelector('.f-talk-wall-code').hidden,true,'no code to scan');assert.equal(wall().querySelector('.f-talk-wall-empty').hidden,true);
+ assert.ok(key(head(),'talkHiddenQuestion'),'the organiser sees why');assert.match(content(head()),/El poder de lo local/);
+ h.lang('es');assert.equal(head().querySelector('h1').textContent,'Esta pregunta no está disponible');h.lang('en');
+ state='open';await h.tickTimers();
+ assert.match(content(head()),/¿Qué te llevas de esta mañana\?/,'back once it opens');assert.equal(cards(h).length,3);assert.equal(wall().querySelector('.f-talk-wall-code').hidden,false);
 });

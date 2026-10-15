@@ -44,7 +44,9 @@
   talkNotRegistered:['You need a FIIU registration to take part.','Necesitas una inscripción en el FIIU para participar.','Você precisa de uma inscrição no FIIU para participar.'],
   talkPresent:['Projector view','Vista de proyección','Modo de projeção'],talkLatest:['Latest','Recientes','Recentes'],talkTop:['Most liked','Con más me gusta','Mais curtidas'],talkFullscreen:['Full screen','Pantalla completa','Tela cheia'],
   talkScanToJoin:['Scan to join the conversation','Escanea para unirte a la conversación','Escaneie para entrar na conversa'],
-  talkScanToRead:['Scan to read the conversation','Escanea para leer la conversación','Escaneie para ler a conversa'],talkOpensSoon:['The conversation opens soon','La conversación se abrirá en breve','A conversa será aberta em breve'],
+  talkScanToRead:['Scan to read the conversation','Escanea para leer la conversación','Escaneie para ler a conversa'],
+  // A hidden question on the projector: the room sees only this, not the question or its answers (audit #11).
+  talkWallUnavailable:['This question is not available','Esta pregunta no está disponible','Esta pergunta não está disponível'],
   // A question is feminine in Spanish and Portuguese (la pregunta, a pergunta), a message masculine in Spanish (el mensaje): each gets its own chip.
   talkHiddenQuestion:['Hidden','Oculta','Oculta'],
   talkEmptyClosed:['This question closed without answers.','Esta pregunta se cerró sin respuestas.','Esta pergunta foi encerrada sem respostas.'],
@@ -375,7 +377,7 @@
   if(!parts)return;parts.draft.hidden=true;parts.draftText.value='';if(inside)parts.closedNote.focus();
  }
  function setStatus(state){
-  if(!question||!(parts||wall))return;question.status=state;me.canPost=state==='open';if(wall)return renderWallHead();renderHead();renderDock();rekey(parts.empty,emptyKey());
+  if(!question||!(parts||wall))return;question.status=state;me.canPost=state==='open';if(wall){renderWallHead();renderWall();return;}renderHead();renderDock();rekey(parts.empty,emptyKey());
   for(const node of rowsById.values()){const like=node.querySelector('.f-talk-like');if(like)like.disabled=state!=='open';}
  }
  function build(){
@@ -545,7 +547,7 @@
   applyQuestion(data.question);
   const list=Array.isArray(data.changes)?data.changes:[];
   // The projector keeps every change, older ones included: a like on an early answer can lift it into Most liked.
-  if(wall){for(const change of list)if(change?.id){if(change.gone)views.delete(change.id);else views.set(change.id,normal(change));}renderWall();}
+  if(wall){for(const change of list)if(change?.id){if(change.gone)views.delete(change.id);else views.set(change.id,normal(change));}renderWall();loadTop(id);}
   else{
    // While earlier pages are not loaded, a change to a message older than the first loaded row (a like or an unhide bumps its seq) waits for
    // "Load earlier", which brings it fresh: shown now it would sit out of context above the gap and raise the pill with nothing new below.
@@ -904,12 +906,15 @@
   wall={head,code,feed,empty,switches,full,svg:null,address:'',qr:'loading',qrAt:0,cards:new Map()};
   document.fonts?.ready?.then(()=>fitWall(),()=>{});
  }
+ // A hidden question leaves the room's screen (audit #11): the block line and, for the organiser, the Hidden chip stay, with "not available" as the headline;
+ // its text, talk, rating, answers and code come back once it opens.
  function renderWallHead(){
-  const nodes=!activity?[]:isGeneral(activity.id)?[tr('p','talkGeneralTitle','f-talk-wall-block')]:[source('p',activity.title,'f-talk-wall-block'),whenLine(activity)];if(question.talk)nodes.push(source('p',question.talk,'f-talk-talk'));
-  if(question.status!=='open')nodes.push(tr('p',question.status==='hidden'?'talkHiddenQuestion':'talkClosedChip','f-talk-flag'));rekey(wall.empty,emptyKey());
+  const hidden=question.status==='hidden',nodes=!activity?[]:isGeneral(activity.id)?[tr('p','talkGeneralTitle','f-talk-wall-block')]:[source('p',activity.title,'f-talk-wall-block'),whenLine(activity)];if(question.talk&&!hidden)nodes.push(source('p',question.talk,'f-talk-talk'));
+  if(question.status!=='open')nodes.push(tr('p',hidden?'talkHiddenQuestion':'talkClosedChip','f-talk-flag'));rekey(wall.empty,emptyKey());
   // The headline is 3 to 5 % of the screen's width; a long question steps down so the answers still fit under it.
-  nodes.push(source('h1',question.body,'f-talk-wall-question'+(codePoints(question.body)>LONG?' is-long':'')));wall.rating=question.kind==='rating'?wallRating():null;if(wall.rating)nodes.push(wall.rating);
-  wall.head.replaceChildren(...nodes);paintCode();fitWall();
+  if(hidden){nodes.push(tr('h1','talkWallUnavailable','f-talk-wall-question'));wall.rating=null;}
+  else{nodes.push(source('h1',question.body,'f-talk-wall-question'+(codePoints(question.body)>LONG?' is-long':'')));wall.rating=question.kind==='rating'?wallRating():null;if(wall.rating)nodes.push(wall.rating);}
+  wall.head.replaceChildren(...nodes.filter(Boolean));paintCode();fitWall();
  }
  // An answer on the projector: the name, the organiser label and its likes, then the text (four lines at most, in the stylesheet) and thumbnails.
  function wallCard(m){
@@ -930,10 +935,10 @@
  // Latest is newest first; Most liked sorts by likes, then newest. Hidden messages (organisers receive them) never reach the room.
  const newest=(a,b)=>later(a,b)?-1:later(b,a)?1:0;
  function renderWall(){
-  if(!wall)return;const list=[...views.values()].filter(view=>!view.hidden).sort(order==='top'?(a,b)=>(b.likeCount||0)-(a.likeCount||0)||newest(a,b):newest).slice(0,WALL),cards=new Map();
+  if(!wall)return;const list=question?.status==='hidden'?[]:[...views.values()].filter(view=>!view.hidden).sort(order==='top'?(a,b)=>(b.likeCount||0)-(a.likeCount||0)||newest(a,b):newest).slice(0,WALL),cards=new Map();
   // A card is rebuilt only when its message changed (a new seq); the others move as they are, so their thumbnails are not fetched again.
   for(const m of list){const id=m.id+':'+m.seq;cards.set(id,wall.cards.get(id)||wallCard(m));}
-  wall.cards=cards;wall.feed.replaceChildren(...cards.values());wall.empty.hidden=list.length>0;
+  wall.cards=cards;wall.feed.replaceChildren(...cards.values());wall.empty.hidden=list.length>0||question?.status==='hidden';
   for(const b of wall.switches)b.setAttribute('aria-pressed',String(b.dataset.sort===order));fitWall();
  }
  // A projector has no scrolling, so the room sees whole answers only: after each draw, and when the screen changes size or goes full screen, every row
@@ -960,9 +965,9 @@
   back.setAttribute('width',String(side));back.setAttribute('height',String(side));back.setAttribute('fill','#fff');
   path.setAttribute('d',d);path.setAttribute('fill','#000');path.setAttribute('shape-rendering','crispEdges');svg.append(back,path);return svg;
  }
- // Under the code, an address people can type from their seat: the block's (?a=), which lists its questions and opens this one when it is the only one.
- // The code itself carries the exact ?q= address. The server's origin (PUBLIC_BASE_URL) wins; without an answer, this page's own.
- function typedAddress(url){try{const at=new URL(url);return at.host+at.pathname+'?a='+encodeURIComponent(question.activityId);}catch{return '';}}
+ // Under the code, an address people can type from their seat: the session page (?a=), which opens its open question. The code itself carries the exact
+ // ?q= address. The server's origin (PUBLIC_BASE_URL) wins; without an answer, this page's own.
+ function typedAddress(url){try{const at=new URL(url);return at.host+'/fiiu-session.html?a='+encodeURIComponent(question.activityId);}catch{return '';}}
  async function loadQr(id){
   if(!wall)return;wall.qr='loading';let data=null,failed=false;
   try{data=await api('/api/admin/fiiu/questions/'+encodeURIComponent(id)+'/qr');}catch{failed=true;}
@@ -972,18 +977,30 @@
   const svg=drawQr(data?.qr),address=typedAddress(typeof data?.url==='string'?data.url:location.href);Object.assign(wall,{svg,address,qr:failed?'failed':'done',qrAt:Date.now()+60000});
   paintCode();fitWall();
  }
- // The code says what scanning gives: joining an open question, reading a closed one. A hidden question shows no code and no address yet (they would
- // find nothing), only that it opens soon; the code comes back when it opens. renderWallHead() repaints it on every change of status.
+ // The code says what scanning gives: joining an open question, reading a closed one. A hidden question shows no code and no address (they would find
+ // nothing); the code comes back when it opens. renderWallHead() repaints it on every change of status.
  function paintCode(){
   if(!wall)return;const state=question?.status;
-  if(state==='hidden'){wall.code.replaceChildren(tr('p','talkOpensSoon','f-talk-wall-scan'));wall.code.hidden=false;return;}
+  if(state==='hidden'){wall.code.replaceChildren();wall.code.hidden=true;return;}
   if(wall.qr==='loading')return;const label=state==='closed'?'talkScanToRead':'talkScanToJoin',{svg,address}=wall;svg?.setAttribute('aria-label',t(label));
   wall.code.replaceChildren(...(svg?[tr('p',label,'f-talk-wall-scan'),svg]:[]),...(address?[el('p','f-talk-wall-url',address)]:[]));wall.code.hidden=!svg&&!address;
  }
  function showWall(data,again){
   if(!wall||!again){buildWall();loadQr(question.id);}
   views.clear();rowsById.clear();for(const view of Array.isArray(data.messages)?data.messages:[])if(view?.id)views.set(view.id,normal(view));
-  renderWallHead();renderWall();setTitle();
+  renderWallHead();renderWall();setTitle();loadTop(question.id);
+ }
+ // The first page holds the newest 100 answers only, so Most liked also takes the question's most liked answers from the server, read again whenever the
+ // conversation moves (audit #5, #12). An answer the page knows in a later state wins, and an answer to an older read is dropped: it could bring back one
+ // deleted since. A failed read keeps what the wall shows. A hidden question shows no answers, so nothing is read for it.
+ let topRead=0;
+ function loadTop(id){
+  if(!wall||question?.status==='hidden')return;const ticket=++topRead;
+  api('/api/fiiu/questions/'+encodeURIComponent(id)+'/top?limit='+WALL).then(data=>{
+   if(!wall||ticket!==topRead||question?.id!==id)return;
+   for(const view of Array.isArray(data?.messages)?data.messages:[]){if(!view?.id)continue;const had=views.get(view.id);if(!had||Number(view.seq)>=Number(had.seq))views.set(view.id,normal(view));}
+   renderWall();
+  },()=>{});
  }
  // Leaving the projector (for an access state, or the chat once someone is no longer an organiser) gives back the page's layout and the screen lock.
  function unwall(){if(!wall)return;wall=null;document.body.classList.remove('f-talk-present');lock?.release?.()?.catch?.(()=>{});lock=null;}
