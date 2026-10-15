@@ -41,8 +41,8 @@
  const slot=item=>{const a=item?.activity;return a&&typeof a.id==='string'&&typeof a.title==='string'&&typeof a.date==='string'?item:null;};
  const talks=list=>(Array.isArray(list)?list:[]).filter(c=>c&&typeof c.questionId==='string'&&typeof c.activityId==='string'&&typeof c.body==='string');
  const rating=r=>{const n=count(r?.count);return n&&Number.isFinite(r.average)?fill(n===1?'liveRatingOne':'liveRating',{avg:average(r.average),n:number(n)}):t('liveRatingNone');};
- // Everything but the numbers: while it stays the same, a refresh only rewrites the numbers.
- const shape=(d,compact,preview,named)=>JSON.stringify([locale(),compact,preview,named,slot(d.now)?.activity||null,slot(d.next)?.activity||null,Number.isFinite(Date.parse(d.generatedAt)),
+ // Everything but the numbers: while it stays the same, a refresh only rewrites the numbers. The day is in it, since a date is shown only for another day.
+ const shape=(d,compact,preview,named)=>JSON.stringify([locale(),limaDate(),compact,preview,named,slot(d.now)?.activity||null,slot(d.next)?.activity||null,Number.isFinite(Date.parse(d.generatedAt)),
   talks(d.conversations).map(c=>[c.questionId,c.activityId,c.activityTitle,c.body,c.kind,c.latest?[c.latest.author,c.latest.body,c.latest.createdAt]:null])]);
  // A node's text, read through its children (a count is a number and its label).
  const text=node=>node.children.length?[...node.children].map(text).join(''):node.textContent;
@@ -81,7 +81,12 @@
     const item=el('li','f-live-talk'),question=source('a',c.body,'f-live-question'),where=el('p','f-live-meta');question.href=sessionLink(c.activityId,c.questionId);
     where.append(c.activityId==='general'?tr('span','liveGeneral'):source('span',c.activityTitle||''),tally('answers:'+c.questionId,c.messageCount,'liveAnswerOne','liveAnswerMany'));item.append(question,where);
     if(c.kind==='rating')item.append(keep(el('p','f-live-rating',rating(c.rating)),'rating:'+c.questionId));
-    else if(c.latest&&typeof c.latest.body==='string'){const said=el('p','f-live-latest'),time=Date.parse(c.latest.createdAt);said.append(el('strong','f-live-author',c.latest.author||''));if(Number.isFinite(time))said.append(el('span','f-live-at',limaClock(new Date(time))));said.append(el('span','f-live-said',c.latest.body));item.append(said);}
+    // The server lists conversations by their latest activity, so an answer from the evening before can still lead: it carries its day.
+    else if(c.latest&&typeof c.latest.body==='string'){
+     const said=el('p','f-live-latest'),time=Date.parse(c.latest.createdAt);said.append(el('strong','f-live-author',c.latest.author||''));
+     if(Number.isFinite(time)){const at=new Date(time),day=limaDate(at);if(day!==today)said.append(dateNode(day,'span','short','f-live-day'));said.append(el('span','f-live-at',limaClock(at)));}
+     said.append(el('span','f-live-said',c.latest.body));item.append(said);
+    }
     (i<SHOWN?items:rest).append(item);
    }
    chats.append(items);

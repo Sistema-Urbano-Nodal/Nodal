@@ -26,9 +26,9 @@ const LIVE=(over={})=>({active:true,generatedAt:'2026-10-21T15:29:40.000Z',
 const reads=h=>h.requests.filter(request=>request.path==='/api/fiiu/live').length;
 const running=h=>h.timers.filter(timer=>!timer.cleared);
 const linkTo=(node,text)=>node.querySelectorAll('a').find(a=>a.textContent===text);
-// fiiu-ui.js then fiiu-live.js, as the pages load them, with Fiiu.live.mount on a host of the test's own.
-async function band(respond,{when=DURING,sessionLink,...options}={}){
- const h=await createFiiuHarness(request=>request.path==='/api/fiiu/live'?respond(request):{status:404,data:{error:'not found'}},{page:'fiiu-live',context:{Date:frozen(when)}});
+// fiiu-ui.js then fiiu-live.js, as the pages load them, with Fiiu.live.mount on a host of the test's own. time: a Date class (see clock) in place of when.
+async function band(respond,{when=DURING,time,sessionLink,...options}={}){
+ const h=await createFiiuHarness(request=>request.path==='/api/fiiu/live'?respond(request):{status:404,data:{error:'not found'}},{page:'fiiu-live',context:{Date:time||frozen(when)}});
  if(sessionLink)h.ctx.window.Fiiu.sessionLink=sessionLink;
  const host=new Node('section');h.body.append(host);const live=h.ctx.window.Fiiu.live.mount(host,{event:FIIU_EVENT,...options});await flush();
  return{...h,host,live};
@@ -137,6 +137,17 @@ test('the band never announces its refreshes: no live region anywhere in it',asy
   const h=await band(answer);await h.tickTimers();await flush();
   for(const node of [h.host,...descendants(h.host)]){assert.equal(node['aria-live'],undefined,node.tagName);assert.ok(!['status','alert','log'].includes(node.role),node.tagName);assert.notEqual(node.getAttribute('role'),'status');}
  }
+});
+
+test('a newest answer from another day carries its day before its time, also once midnight passes in Lima',async()=>{
+ const talk=LIVE().conversations[0],yesterday={...talk,latest:{...talk.latest,createdAt:'2026-10-21T03:40:00.000Z'}},time=clock(DURING);
+ const h=await band(()=>LIVE({conversations:[yesterday,{...talk,questionId:Q3}]}),{time:time.Date}),said=()=>h.host.querySelectorAll('.f-live-latest');
+ const [old,fresh]=said(),day=old.querySelector('.f-live-day');
+ assert.ok(day,'22:40 the evening before is not 22:40 today');assert.equal(day.dataset.fiiuDate,'2026-10-20');assert.equal(old.querySelector('.f-live-at').textContent,'22:40');
+ assert.ok(old.children.indexOf(day)<old.children.indexOf(old.querySelector('.f-live-at')),'the day comes before the time');
+ assert.equal(fresh.querySelector('.f-live-day'),null,'an answer from today shows its time alone');
+ // 00:30 on 22 Oct: the answer of 10:28 is yesterday's now.
+ time.advance(14*3600000);await h.tickTimers();await flush();assert.equal(said()[1].querySelector('.f-live-day')?.dataset.fiiuDate,'2026-10-21');
 });
 
 test('the band builds its links with Fiiu.sessionLink when the page has it',async()=>{
