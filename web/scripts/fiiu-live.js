@@ -2,7 +2,7 @@
  'use strict';
  /* The festival live window, from GET /api/fiiu/live: the session under way and the next one, the conversations people are in, how many people have earned
     each badge and the day's numbers. Only registered people and organisers may read it (the server answers 401 signed out, 403 without a registration),
-    and every allowed reader gets the same answer, rebuilt at most every 15 s per server instance. fiiu.html shows it as a band at the top of the page
+    and every allowed reader gets the same answer, rebuilt at most every 15 s per server instance. fiiu.html shows it as a band under the page's hero
     (#en-vivo), the console's festival block as one compact line (Fiiu.live.mount(host,{compact:true})).
     It reads every 30 s while the tab is visible, pauses while it is hidden and reads at once on return. A refresh is silent: no live region (it would
     speak every 30 s), and when only numbers changed they change in place, so the links, focus and a screen reader's place stay put. A read that fails on

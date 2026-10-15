@@ -148,10 +148,10 @@ test('the band builds its links with Fiiu.sessionLink when the page has it',asyn
 const user={id:'00000000-0000-4000-8000-000000000001',email:'ana@example.test',name:'Ana Test',city:'Lima'};
 const answers={firstName:'Ana',lastName:'Test',country:'Perú',city:'Lima',profile:'professional',publicOfficial:false,applyLab:false,activities:['day1-am'],externalActivities:[],gender:'prefer_not',age:30,accessibility:['none'],motivation:'learn',previousAttendance:'no',privacyAccepted:true};
 const saved={userId:user.id,id:'00000000-0000-4000-8000-000000000002',version:1,email:user.email,answers,labStatus:'none'};
-const festival=(config={})=>({event:FIIU_EVENT,config:{registrationOpen:true,programUrl:'https://canva.link/ficmkatcg9fudwk',...config},content:[],nextCursor:null});
-// context adds globals of the page: the address (location, see at), sessionStorage, scrollTo and navigation timing for Back and reload.
-async function festivalPage(liveRead,{me=null,when=DURING,config,write=()=>({status:503,data:{error:'unavailable'}}),context={}}={}){
- const h=await createFiiuHarness(request=>request.method!=='GET'?write(request):request.path==='/api/fiiu/live'?liveRead(request):request.path.startsWith('/api/fiiu?kind=')?festival(config):request.path==='/api/fiiu/pulse'?{questions:[]}:request.path==='/api/fiiu/registration'?(me||{status:401,data:{error:'sign in required'}}):{status:404,data:{error:'not found'}},{page:'fiiu-live',context:{Date:frozen(when),...context}});
+const festival=(config={},content=[])=>({event:FIIU_EVENT,config:{registrationOpen:true,programUrl:'https://canva.link/ficmkatcg9fudwk',...config},content,nextCursor:null});
+// content: the feed's items; context adds globals of the page: the address (location, see at), sessionStorage, scrollTo and navigation timing for Back and reload.
+async function festivalPage(liveRead,{me=null,when=DURING,config,content,write=()=>({status:503,data:{error:'unavailable'}}),context={}}={}){
+ const h=await createFiiuHarness(request=>request.method!=='GET'?write(request):request.path==='/api/fiiu/live'?liveRead(request):request.path.startsWith('/api/fiiu?kind=')?festival(config,content):request.path==='/api/fiiu/pulse'?{questions:[]}:request.path==='/api/fiiu/registration'?(me||{status:401,data:{error:'sign in required'}}):{status:404,data:{error:'not found'}},{page:'fiiu-live',context:{Date:frozen(when),...context}});
  vm.runInContext(read('fiiu'),h.ctx);await flush();return h;
 }
 const paths=h=>h.requests.map(request=>request.path);
@@ -167,23 +167,27 @@ function watchScrolls(){
 }
 const byId=(node,id)=>descendants(node).find(child=>child.id===id);
 
-test('the festival page carries the band at its top, as #en-vivo, read once the registration is known',async()=>{
- const h=await festivalPage(()=>LIVE(),{me:{user,registration:saved,attendance:[],isAdmin:false}});
- const live=h.root.children[0];assert.equal(live.tagName,'section');assert.equal(live.id,'en-vivo');assert.match(live.className,/\bf-live\b/);assert.equal(live.hidden,false);
- assert.match(h.root.children[1].className,/\bf-hero\b/,'the hero follows the band');assert.ok(key(live,'liveNow'));
+test('the festival page carries the band under its hero, as #en-vivo, read once the registration is known',async()=>{
+ const news=[{id:'n1',kind:'news',title:'Cambio de sala para el bloque del jueves',body:'Sala B',url:'',createdAt:'2026-10-20T12:00:00.000Z'}];
+ const h=await festivalPage(()=>LIVE(),{me:{user,registration:saved,attendance:[],isAdmin:true},content:news});
+ const live=byId(h.root,'en-vivo');assert.equal(live.tagName,'section');assert.match(live.className,/\bf-live\b/);assert.equal(live.hidden,false);assert.ok(key(live,'liveNow'));
+ // The page's title comes first: the hero (with the h1), the organiser link and the latest news under it, the band, then the programme and the panel.
+ const part=node=>/\bf-hero\b/.test(node.className)?'hero':node.dataset.fiiuText==='admin'?'admin':/\bf-latest\b/.test(node.className)?'latest':node===live?'band':/\bf-layout\b/.test(node.className)?'layout':null;
+ assert.deepEqual(h.root.children.map(part).filter(Boolean),['hero','admin','latest','band','layout']);
+ assert.deepEqual(descendants(h.root).filter(node=>/^h[12]$/.test(node.tagName)).map(node=>node.tagName).slice(0,2),['h1','h2'],'headings in order: the page’s h1, then the band’s h2');
  assert.ok(paths(h).indexOf('/api/fiiu/live')>paths(h).indexOf('/api/fiiu/registration'),'the band waits for the registration read');assert.equal(paths(h).filter(path=>path==='/api/fiiu/live').length,1);
  // A guest during the festival sees the one line, pointing to the registration panel; once registration closes, to sign in.
- const guest=await festivalPage(()=>({status:401,data:{error:'sign in required'}}));assert.ok(key(guest.root.children[0],'liveRegister'));
- const closed=await festivalPage(()=>({status:401,data:{error:'sign in required'}}),{config:{registrationOpen:false}});assert.ok(key(closed.root.children[0],'liveSignIn'));
+ const guest=await festivalPage(()=>({status:401,data:{error:'sign in required'}}));assert.ok(key(byId(guest.root,'en-vivo'),'liveRegister'));
+ const closed=await festivalPage(()=>({status:401,data:{error:'sign in required'}}),{config:{registrationOpen:false}});assert.ok(key(byId(closed.root,'en-vivo'),'liveSignIn'));
  // Before the festival a participant's page does not ask; an organiser's shows the preview.
- const early=await festivalPage(()=>LIVE(),{me:{user,registration:saved,attendance:[],isAdmin:false},when:BEFORE});assert.equal(paths(early).includes('/api/fiiu/live'),false);assert.equal(early.root.children[0].hidden,true);
- const organiser=await festivalPage(()=>LIVE(),{me:{user,registration:null,attendance:[],isAdmin:true},when:BEFORE});assert.ok(key(organiser.root.children[0],'livePreview'));
+ const early=await festivalPage(()=>LIVE(),{me:{user,registration:saved,attendance:[],isAdmin:false},when:BEFORE});assert.equal(paths(early).includes('/api/fiiu/live'),false);assert.equal(byId(early.root,'en-vivo').hidden,true);
+ const organiser=await festivalPage(()=>LIVE(),{me:{user,registration:null,attendance:[],isAdmin:true},when:BEFORE});assert.ok(key(byId(organiser.root,'en-vivo'),'livePreview'));
 });
 
 test('cancelling or saving a registration on the page brings the band in step at once',async()=>{
  let registered=true;
  const h=await festivalPage(()=>registered?LIVE():{status:403,data:{error:'no',code:'not_registered'}},{me:{user,registration:saved,attendance:[],isAdmin:false},write:request=>{if(request.method==='DELETE'){registered=false;return{ok:true};}return{status:503,data:{error:'unavailable'}};}});
- const live=h.root.children[0];assert.ok(key(live,'liveNow'));
+ const live=byId(h.root,'en-vivo');assert.ok(key(live,'liveNow'));
  await key(h.root,'cancel').listeners.click();await flush();
  assert.ok(key(live,'liveRegister'),'the band gives way to the line as the registration goes');assert.equal(paths(h).filter(path=>path==='/api/fiiu/live').length,1,'the page knows the answer, so it does not ask');
  assert.equal(h.timers.filter(timer=>!timer.cleared&&timer.delay===30000).length,0,'and the band stops reading');
@@ -192,10 +196,10 @@ test('cancelling or saving a registration on the page brings the band in step at
 });
 
 test('a guest’s page and an unregistered account’s page show the line without asking the server',async()=>{
- const guest=await festivalPage(()=>({status:401,data:{error:'sign in required'}}));assert.ok(key(guest.root.children[0],'liveRegister'));assert.equal(paths(guest).includes('/api/fiiu/live'),false);
- const member=await festivalPage(()=>({status:403,data:{error:'no'}}),{me:{user,registration:null,attendance:[],isAdmin:false}});assert.ok(key(member.root.children[0],'liveRegister'));assert.equal(paths(member).includes('/api/fiiu/live'),false);
+ const guest=await festivalPage(()=>({status:401,data:{error:'sign in required'}}));assert.ok(key(byId(guest.root,'en-vivo'),'liveRegister'));assert.equal(paths(guest).includes('/api/fiiu/live'),false);
+ const member=await festivalPage(()=>({status:403,data:{error:'no'}}),{me:{user,registration:null,attendance:[],isAdmin:false}});assert.ok(key(byId(member.root,'en-vivo'),'liveRegister'));assert.equal(paths(member).includes('/api/fiiu/live'),false);
  // A registration read that failed knows nothing: the band asks.
- const unknown=await festivalPage(()=>LIVE(),{me:{status:503,data:{error:'unavailable'}}});assert.ok(paths(unknown).includes('/api/fiiu/live'));assert.ok(key(unknown.root.children[0],'liveNow'));
+ const unknown=await festivalPage(()=>LIVE(),{me:{status:503,data:{error:'unavailable'}}});assert.ok(paths(unknown).includes('/api/fiiu/live'));assert.ok(key(byId(unknown.root,'en-vivo'),'liveNow'));
  // The module side: known() is asked at every read, so access granted later (a registration saved on the page) reads at once.
  let known=403;const h=await band(()=>LIVE(),{known:()=>known});assert.equal(reads(h),0);assert.ok(key(h.host,'liveRegister'));
  known=null;await h.live.refresh();await flush();assert.equal(reads(h),1);assert.ok(key(h.host,'liveNow'));
@@ -241,6 +245,19 @@ test('a link that lands on the panel, a block to add, the programme or the saved
   // A band that stays hidden moves nothing, so nothing lands again; nor does a page opened without a place to land.
   scrolls.seen.length=0;live=later();await festivalPage(live.read,{me:registered,context:at('#registration')});live.answer({active:false,generatedAt:DURING});await flush();assert.equal(scrolls.seen.length,1);
   scrolls.seen.length=0;live=later();await festivalPage(live.read,{me:registered,context:at('')});live.answer(LIVE());await flush();assert.equal(scrolls.seen.length,0);
+ }finally{scrolls.restore();}
+});
+
+test('a link to the band (the console’s “Ver en vivo”) lands on it once it shows, the line a guest sees included',async()=>{
+ const scrolls=watchScrolls();
+ try{
+  const live=later(),h=await festivalPage(live.read,{me:{user,registration:saved,attendance:[],isAdmin:false},context:at('#en-vivo')}),strip=byId(h.root,'en-vivo');
+  assert.equal(scrolls.seen.includes(strip),false,'not while it is hidden');
+  live.answer(LIVE());await flush();assert.deepEqual(scrolls.seen.map(node=>node===strip),[true]);
+  scrolls.seen.length=0;const guest=await festivalPage(()=>({status:401,data:{error:'sign in required'}}),{context:at('#en-vivo')});
+  assert.ok(key(byId(guest.root,'en-vivo'),'liveRegister'));assert.equal(scrolls.seen.at(-1),byId(guest.root,'en-vivo'));
+  // Without the band (an inactive answer) the page stays at the top.
+  scrolls.seen.length=0;await festivalPage(()=>({active:false,generatedAt:DURING}),{me:{user,registration:saved,attendance:[],isAdmin:false},context:at('#en-vivo')});assert.equal(scrolls.seen.length,0);
  }finally{scrolls.restore();}
 });
 

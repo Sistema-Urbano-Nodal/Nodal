@@ -193,7 +193,7 @@
   return box;
  }
  function renderRegistration(){renderPanel();renderProgramme();renderHero();liveFollow();}
- // The live window (fiiu-live.js) leads the page as #en-vivo during the festival, and for organisers as a preview (see load). A registration saved or
+ // The live window (fiiu-live.js) follows the hero as #en-vivo during the festival, and for organisers as a preview (see load). A registration saved or
  // cancelled here changes who may read it, so the band reads again at once instead of at the next return to the tab.
  let liveHost=null,liveBand=null,liveHad=null;function liveFollow(){const has=Boolean(me.registration);if(liveBand&&liveHad!==null&&has!==liveHad)liveBand.refresh();liveHad=has;}
  // A notice is a string key, or {key, email} for "We emailed a summary to <address>.": the sentence follows the language, the address stays as it is.
@@ -485,7 +485,7 @@
   const latest=content.find(item=>item.kind==='news');
   if(!latest){latestNode?.remove();latestNode=null;return;}
   const banner=el('a','f-latest');banner.href='#news';banner.append(tr('span','latestUpdate','f-latest-label'),source('span',latest.title,'f-latest-title'));
-  if(latestNode)latestNode.replaceWith(banner);else layoutHost.before(banner);latestNode=banner;
+  if(latestNode)latestNode.replaceWith(banner);else (liveHost||layoutHost).before(banner);latestNode=banner;
  }
  // Coming back to the tab (or to the page from the back/forward cache) picks up what changed meanwhile, at most once a minute: conversations that opened (the
  // pulse is read again, both reads are cached by the CDN) and news that was published. A form being filled in is never redrawn: the programme and hero are,
@@ -513,8 +513,9 @@
    festival=publicData;me=PENDING;
    heroHost=el('section','f-hero');programmeHost=el('section','f-programme');programmeHost.id='programme';
    registrationHost=el('section','f-registration');registrationHost.id='registration';panelHeading=tr('h2','registration');panelHeading.tabIndex=-1;panelBody=el('div','f-panel-body');registrationHost.append(panelHeading,panelNotice,panelBody);
-   liveHost=window.Fiiu.live?el('section'):null;if(liveHost){liveHost.id='en-vivo';liveHost.hidden=true;root.append(liveHost);}
-   const layout=layoutHost=el('div','f-layout');latestNode=null;root.append(heroHost,layout);showLatest(festival.content);
+   // The band goes under the hero, so the page's h1 comes first; the organiser link and the latest news stay with the hero, above it.
+   liveHost=window.Fiiu.live?el('section'):null;if(liveHost){liveHost.id='en-vivo';liveHost.hidden=true;}
+   const layout=layoutHost=el('div','f-layout');latestNode=null;root.append(heroHost,...(liveHost?[liveHost]:[]),layout);showLatest(festival.content);
    layout.append(programmeHost,registrationHost);newsFeed=feed('news','noNews',()=>publicData);
    const updates=el('div','f-updates-grid');updates.append(newsFeed.section,feed('materials','noMaterials',()=>materials).section);layout.append(updates);root.append(newTabNote());
    renderRegistration();status(loadStatus,'');
@@ -529,13 +530,14 @@
    const early=['#news','#materials','#programme'].includes(hash)||/^#day-\d{4}-\d{2}-\d{2}$/.test(hash);
    if(early&&!place){stirred=false;document.querySelector(hash)?.scrollIntoView({block:'start'});}
    me=await registration;
-   if(me.isAdmin)(latestNode||layout).before(link('admin','fiiu-admin.html','f-button secondary f-admin-link'));
+   if(me.isAdmin)(latestNode||liveHost||layout).before(link('admin','fiiu-admin.html','f-button secondary f-admin-link'));
    renderRegistration();
    // The landing: the block to add, the saved place or the hash. land keeps it so it can be made again (null: nowhere to land, or the person has moved).
-   // applyAdd lands by itself; when the registration read failed, the block waits for Try again and the panel is the landing.
+   // applyAdd lands by itself; when the registration read failed, the block waits for Try again and the panel is the landing. #en-vivo (the console's
+   // "Ver en vivo") lands on the band once it shows.
    const toPanel=()=>registrationHost.scrollIntoView({block:'start'});let land;
    if(pendingAdd){land=applyAdd();if(!land){land=toPanel;land();}}
-   else{land=place?()=>{try{scrollTo({top:place,behavior:'instant'});}catch{/* No scrolling API: stay at the top. */}}:early?(stirred?null:()=>document.querySelector(hash)?.scrollIntoView({block:'start'})):hash==='#f-publicOfficial'?()=>jumpTo(officialInput):hash==='#registration'?toPanel:null;land?.();}
+   else{land=place?()=>{try{scrollTo({top:place,behavior:'instant'});}catch{/* No scrolling API: stay at the top. */}}:early?(stirred?null:()=>document.querySelector(hash)?.scrollIntoView({block:'start'})):hash==='#f-publicOfficial'?()=>jumpTo(officialInput):hash==='#registration'?toPanel:hash==='#en-vivo'&&liveHost?()=>{if(!liveHost.hidden)liveHost.scrollIntoView({block:'start'});}:null;land?.();}
    stirred=false;
    // The band reads once the registration is known, so it never delays the four requests above; it keeps itself up to date from then on.
    // A guest, or an account without a registration, gets its line without asking; a registration read that failed knows nothing, so the band asks.
