@@ -80,16 +80,18 @@
   return earned(attendance).filter(badge=>!before.has(badge.id)&&(badge.kind==='session'||MILESTONES[badge.id]));
  }
  // The confirmation shows it, with the way to the console's Recognition ledger. The status line says it once for a screen reader, just after the title takes
- // focus: as plain text, visually hidden, so a redraw or a language switch never says it again.
+ // focus: visually hidden, from plain nodes without data-fiiu-text, so a redraw or a language switch never says it again; the block title keeps lang=es
+ // there too, so a screen reader reads it with a Spanish voice.
  let told='';
  function unlockedNews(id,unlocked){
-  if(!unlocked.length)return null;const box=el('div','f-unlocked'),spoken=[];
+  if(!unlocked.length)return null;const box=el('div','f-unlocked'),spoken=el('span','f-sr-only'),text=value=>document.createTextNode(value);
   for(const badge of unlocked){
-   const line=el('p','f-unlocked-line'),[key,name]=badge.kind==='session'?['badgeUnlocked',source('span',badge.activity.title)]:['milestoneReached',tr('span',MILESTONES[badge.id])];
-   line.append(tr('span',key,'f-unlocked-label'),space(),name);box.append(line);spoken.push(t(key)+' '+name.textContent+'.');
+   const session=badge.kind==='session',key=session?'badgeUnlocked':'milestoneReached',line=el('p','f-unlocked-line');
+   line.append(tr('span',key,'f-unlocked-label'),space(),session?source('span',badge.activity.title):tr('span',MILESTONES[badge.id]));box.append(line);
+   spoken.append(text(t(key)+' '),session?source('span',badge.activity.title):text(t(MILESTONES[badge.id])),text('. '));
   }
   box.append(link('seeInConsole','dashboard.html#badges','f-text-link'));
-  if(told!==id){told=id;Promise.resolve().then(()=>message.replaceChildren(el('span','f-sr-only',spoken.join(' '))));}
+  if(told!==id){told=id;Promise.resolve().then(()=>message.replaceChildren(spoken));}
   return box;
  }
  function success(data,body){

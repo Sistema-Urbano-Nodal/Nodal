@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {FIIU_EVENT} from '../server/fiiu-domain.js';
 import {mergeProgramme} from '../server/fiiu-programme.js';
-import {createFiiuHarness,key,field,flush,content} from './helpers/fiiu-ui-harness.js';
+import {createFiiuHarness,key,field,flush,content,descendants} from './helpers/fiiu-ui-harness.js';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 
@@ -447,7 +447,8 @@ test('the account lookup behind a refusal holds the result only briefly',async()
 
 // What a first scan unlocks, from the console's own rule (Fiiu.festivalBadges): shown in the confirmation, and said once on the page's status line.
 const unlockedLines=h=>(result(h).querySelector('.f-unlocked')?.children||[]).filter(node=>node.tagName==='p').map(node=>content(node).replace(/\s+/g,' ').trim());
-const announced=h=>content(h.message).replace(/\s+/g,' ').trim();
+// What a screen reader hears from the status line: its text run together, as the browser's textContent gives it.
+const spokenText=node=>node.textContent+node.children.map(spokenText).join(''),announced=h=>spokenText(h.message).replace(/\s+/g,' ').trim();
 const rows=(...ids)=>ids.map((activityId,i)=>({activityId,createdAt:`2026-10-2${1+i}T14:12:00.000Z`,method:'qr'}));
 const first=(activityId,list)=>({status:201,data:{result:'checked_in',activityId,checkedInAt:list.find(r=>r.activityId===activityId).createdAt,method:'qr',attendance:list,hours:{minutes:0,hours:0,untimed:[]}}});
 
@@ -460,6 +461,9 @@ test('a first check-in shows the badge it unlocked and the milestone it reached,
  assert.equal(title(h).focused,true,'the title still takes focus first');
  assert.equal(announced(h),'Badge unlocked: El poder de lo local. Milestone reached: First session.');
  assert.equal(h.message.children.length,1);assert.equal(h.message.children[0].className,'f-sr-only','the status line says it; the confirmation shows it');
+ const spoken=descendants(h.message.children[0]),blockTitle=spoken.find(node=>node.lang==='es');
+ assert.equal(blockTitle?.textContent,'El poder de lo local','a screen reader says the Spanish title with a Spanish voice, the rest in the page language');
+ assert.ok(spoken.every(node=>!node.dataset.fiiuText),'plain nodes, so a language switch never says it again');
  h.lang('es');
  assert.deepEqual(unlockedLines(h),['Insignia desbloqueada: El poder de lo local','Hito alcanzado: Primera sesión']);
  assert.doesNotMatch(announced(h),/Insignia/,'a language switch does not say it again');
