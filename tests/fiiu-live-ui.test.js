@@ -173,9 +173,20 @@ test('cancelling or saving a registration on the page brings the band in step at
  const h=await festivalPage(()=>registered?LIVE():{status:403,data:{error:'no',code:'not_registered'}},{me:{user,registration:saved,attendance:[],isAdmin:false},write:request=>{if(request.method==='DELETE'){registered=false;return{ok:true};}return{status:503,data:{error:'unavailable'}};}});
  const live=h.root.children[0];assert.ok(key(live,'liveNow'));
  await key(h.root,'cancel').listeners.click();await flush();
- assert.equal(paths(h).filter(path=>path==='/api/fiiu/live').length,2,'one read as the registration goes');assert.ok(key(live,'liveRegister'));
+ assert.ok(key(live,'liveRegister'),'the band gives way to the line as the registration goes');assert.equal(paths(h).filter(path=>path==='/api/fiiu/live').length,1,'the page knows the answer, so it does not ask');
+ assert.equal(h.timers.filter(timer=>!timer.cleared&&timer.delay===30000).length,0,'and the band stops reading');
  // A redraw that changes nothing about the registration asks nothing.
- h.lang('es');await flush();assert.equal(paths(h).filter(path=>path==='/api/fiiu/live').length,2);
+ h.lang('es');await flush();assert.equal(paths(h).filter(path=>path==='/api/fiiu/live').length,1);
+});
+
+test('a guest’s page and an unregistered account’s page show the line without asking the server',async()=>{
+ const guest=await festivalPage(()=>({status:401,data:{error:'sign in required'}}));assert.ok(key(guest.root.children[0],'liveRegister'));assert.equal(paths(guest).includes('/api/fiiu/live'),false);
+ const member=await festivalPage(()=>({status:403,data:{error:'no'}}),{me:{user,registration:null,attendance:[],isAdmin:false}});assert.ok(key(member.root.children[0],'liveRegister'));assert.equal(paths(member).includes('/api/fiiu/live'),false);
+ // A registration read that failed knows nothing: the band asks.
+ const unknown=await festivalPage(()=>LIVE(),{me:{status:503,data:{error:'unavailable'}}});assert.ok(paths(unknown).includes('/api/fiiu/live'));assert.ok(key(unknown.root.children[0],'liveNow'));
+ // The module side: known() is asked at every read, so access granted later (a registration saved on the page) reads at once.
+ let known=403;const h=await band(()=>LIVE(),{known:()=>known});assert.equal(reads(h),0);assert.ok(key(h.host,'liveRegister'));
+ known=null;await h.live.refresh();await flush();assert.equal(reads(h),1);assert.ok(key(h.host,'liveNow'));
 });
 
 test('fiiu.html and the console load fiiu-live.js after fiiu-ui.js and before the script that mounts it, and it is served and built',()=>{
@@ -203,9 +214,11 @@ async function consoleBlock(respond,{when=DURING}={}){
 }
 const feed=(me,live=()=>LIVE())=>path=>path==='/api/fiiu/live'?live():path==='/api/fiiu?kind=news'?festival():path==='/api/fiiu/registration'?me():path==='/api/fiiu/pulse'?{questions:[]}:path==='/api/admin/fiiu/summary'?{summary:{lab:{pending:0}}}:{status:404,data:{error:'not found'}};
 const registered=()=>({user,registration:saved,attendance:[],isAdmin:false});
+// Registered for day2-am only, so the block's "next for you" is not the session under way.
+const elsewhere=()=>({user,registration:{...saved,answers:{...answers,activities:['day2-am']}},attendance:[],isAdmin:false});
 
 test('the console’s festival block carries one live line for a registered person: what is on, today’s check-ins, the live conversations and a way to the band',async()=>{
- const h=await consoleBlock(feed(registered));
+ const h=await consoleBlock(feed(elsewhere));
  const line=h.line();assert.ok(line,'the line is in the block');assert.match(line.className,/\bis-compact\b/);assert.equal(line.hidden,false);
  const title=key(line,'liveTitle');assert.equal(title.tagName,'h3','under the block’s h2');assert.equal(line['aria-labelledby'],title.id);
  assert.ok(key(line,'liveNow'));const session=linkTo(line,'El poder de lo local');assert.equal(session.href,'fiiu-session.html?a=day1-am');assert.match(content(line),/09:00–13:00/);
@@ -234,4 +247,29 @@ test('a background refresh of the block keeps the same live line without reading
  assert.equal(h.line(),line,'the same node, moved into the redrawn block');assert.equal(line.hidden,false);assert.equal(reads(),2,'only the line’s own read on return');
  me={user,registration:null,attendance:[],isAdmin:false};h.advance(16*60000);await h.visible();
  assert.equal(key(h.widget,'liveTitle'),undefined,'gone with the registration');const before=reads();await Promise.all(h.timers.filter(timer=>!timer.cleared).map(timer=>timer.callback()));assert.equal(reads(),before,'and it stops reading');
+});
+
+test('the three most active conversations show; the rest fold under one control that stays open across refreshes',async()=>{
+ const talk=(n,over={})=>({...LIVE().conversations[0],questionId:'dddddddd-dddd-4ddd-8ddd-dddddddddd'+String(n).padStart(2,'0'),body:'Pregunta '+n,...over});
+ let answer=LIVE({conversations:[1,2,3,4,5].map(n=>talk(n))});const h=await band(()=>answer);
+ const list=h.host.querySelector('.f-live-talk-list'),more=h.host.querySelector('.f-live-more');
+ assert.equal(list.children.filter(node=>node.tagName==='li').length,3);assert.ok(more);assert.equal(more.tagName,'details');assert.ok(!more.open,'folded at first');
+ assert.equal(more.querySelector('summary').textContent,'2 more conversations');assert.deepEqual(more.querySelectorAll('.f-live-talk').map(item=>item.querySelector('a').textContent),['Pregunta 4','Pregunta 5']);
+ assert.equal(linkTo(more,'Pregunta 5').href,'fiiu-session.html?a=day1-am&q='+talk(5).questionId);
+ more.open=true;answer=LIVE({conversations:[talk(6),...[1,2,3,4].map(n=>talk(n))]});await h.tickTimers();await flush();
+ assert.equal(h.host.querySelector('.f-live-more').open,true,'a reader who opened it keeps it open');assert.equal(h.host.querySelector('.f-live-talk-list').querySelector('a').textContent,'Pregunta 6');
+ h.lang('es');assert.equal(h.host.querySelector('.f-live-more').querySelector('summary').textContent,'2 conversaciones más');
+ answer=LIVE({conversations:[1,2,3,4].map(n=>talk(n))});await h.tickTimers();await flush();assert.equal(h.host.querySelector('.f-live-more').querySelector('summary').textContent,'1 conversación más');
+ answer=LIVE();await h.tickTimers();await flush();assert.equal(h.host.querySelector('.f-live-more'),null,'three or fewer: nothing to fold');
+});
+
+test('the console line does not repeat the session the block already names as the person’s next; it names the festival’s next one instead',async()=>{
+ // Ana's plan has day1-am, under way at 10:30: the block already says so, so the live line moves on to day1-pm.
+ const h=await consoleBlock(feed(registered));const line=h.line();
+ assert.match(content(key(h.widget,'nextForYou').parent),/El poder de lo local/);
+ assert.equal(linkTo(line,'El poder de lo local'),undefined);assert.ok(key(line,'liveNext'));assert.equal(linkTo(line,activity('day1-pm').title).href,'fiiu-session.html?a=day1-pm');
+ // With nothing else to name, the line keeps its counts and its way to the band.
+ const only=await consoleBlock(feed(registered,()=>LIVE({next:null})));assert.equal(key(only.line(),'liveNow'),undefined);assert.equal(key(only.line(),'liveDone'),undefined);assert.match(content(only.line()),/87\s+check-ins today/);assert.ok(key(only.line(),'liveOpen'));
+ // Someone whose plan has another block sees the session under way.
+ const other=await consoleBlock(feed(elsewhere));assert.ok(linkTo(other.line(),'El poder de lo local'));
 });

@@ -532,7 +532,9 @@
    if(me.isAdmin)(latestNode||layout).before(link('admin','fiiu-admin.html','f-button secondary f-admin-link'));
    renderRegistration();
    // The band reads once the registration is known, so it never delays the four requests above; it keeps itself up to date from then on.
-   if(liveHost){liveBand=window.Fiiu.live.mount(liveHost,{event:festival.event,organiser:Boolean(me.isAdmin),registrationOpen:festival.config.registrationOpen!==false});liveHad=Boolean(me.registration);}
+   // A guest, or an account without a registration, gets its line without asking; a registration read that failed knows nothing, so the band asks.
+   const liveKnown=()=>me.isAdmin||me.registration||me.failed||me.pending?null:me.user?403:401;
+   if(liveHost){liveBand=window.Fiiu.live.mount(liveHost,{event:festival.event,organiser:Boolean(me.isAdmin),registrationOpen:festival.config.registrationOpen!==false,known:liveKnown});liveHad=Boolean(me.registration);}
    if(pendingAdd){if(!applyAdd())registrationHost.scrollIntoView({block:'start'});}
    else if(place)try{scrollTo({top:place,behavior:'instant'});}catch{/* No scrolling API: stay at the top. */}
    else if(early){if(!stirred)document.querySelector(hash)?.scrollIntoView({block:'start'});}

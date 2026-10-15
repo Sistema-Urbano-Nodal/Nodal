@@ -30,7 +30,7 @@
   /* The live line (fiiu-live.js) for registered people and organisers: what is on, today's check-ins and the live conversations, with a way to the band on
      fiiu.html. It is mounted once and keeps itself up to date; a redraw of the block moves the same node, so it neither reads again nor starts over.
      Without a registration there is none, and no read for it. */
-  const liveLine=el('div');liveLine.hidden=true;let live=null;
+  const liveLine=el('div');liveLine.hidden=true;let live=null,liveNamed=null;
   const stopLive=()=>{live?.stop();live=null;liveLine.hidden=true;liveLine.replaceChildren();};
   const failure=()=>{const box=el('div','f-widget-error'),retry=button('retry',()=>{retry.disabled=true;load();});box.append(tr('p','loadError'),retry);return box;};
   async function load(background=false){
@@ -62,13 +62,14 @@
    }
    // The status stays; the next session and the badges need the event, so a failed news read puts the block's one retry here.
    if(!data){loadedAt=0;state.append(failure());return;}
-   if((registration||me.isAdmin)&&!live&&window.Fiiu.live)live=window.Fiiu.live.mount(liveLine,{compact:true,event:data.event,organiser:Boolean(me.isAdmin)});
+   // The line leaves out the session the block names as the person's next (liveNamed, set below), so it never says the same thing twice.
+   liveNamed=null;if((registration||me.isAdmin)&&!live&&window.Fiiu.live)live=window.Fiiu.live.mount(liveLine,{compact:true,event:data.event,organiser:Boolean(me.isAdmin),named:()=>liveNamed});
    // The console's Recognition ledger draws its FIIU family from these same two reads, so it makes no request of its own: dashboard.js (loaded before
    // this file) listens on document for this event. Only two good reads hand over, on the first draw and on a refresh; after a failed read the ledger
    // keeps what it shows, and without a registration (null) it shows no festival family.
    if(typeof CustomEvent==='function')document.dispatchEvent?.(new CustomEvent('nodal:fiiu-festival',{detail:{registration,attendance:me.attendance,event:data.event}}));
    if(registration){
-    const box=el('div','f-badges');state.append(box);const upcoming=nextFor(registration,data.event);
+    const box=el('div','f-badges');state.append(box);const upcoming=nextFor(registration,data.event);liveNamed=upcoming?.id||null;
     if(upcoming){const line=el('p','f-next');line.append(tr('span','nextForYou','f-next-label'),dateNode(upcoming.date,'span','short','f-next-date'));if(upcoming.time)line.append(timeNode(upcoming.time,'span','f-next-time'));line.append(source('span',upcoming.title,'f-next-title'));if(upcoming.venue)line.append(source('span',upcoming.venue,'f-next-venue'));next.append(line);
      // The next block's conversation, from the same pulse read as the General link above.
      pulse().then(counts=>{const n=counts.get(upcoming.id);if(n)line.append(talkLink(upcoming.id,n));});}
