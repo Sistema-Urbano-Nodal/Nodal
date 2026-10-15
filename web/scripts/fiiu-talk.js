@@ -92,7 +92,7 @@
  // present: the address asked for the projector (?q=…&present=1); wall: its parts while an organiser is shown it; order: 'latest' or 'top'.
  let present=false,wall=null,order='latest',lock=null,waking=false;
  // liked: the messages this viewer likes. Changes carry no liked flag (one answer serves every viewer), so the page keeps its own: seeded by each full read,
- // then moved by its own likes. liking: the outcome each like on its way will show, by message.
+ // then moved by its own likes. liking: each like on its way, by message: the outcome it will show and the message's seq when it was tapped.
  const views=new Map(),rowsById=new Map(),attempts=new Map(),uploads=new Map(),liked=new Set(),liking=new Map(),moderating=new Set();
  const problem=key=>Object.assign(Error(t(key)),{key});
  const fill=(key,vars)=>t(key).replace(/\{(\w+)\}/g,(all,name)=>name in vars?String(vars[name]):all);
@@ -218,10 +218,11 @@
   }
   return box;
  }
- // A like on its way shows its outcome at once over the row's state from the server, which stays as the server last described it until the answer.
+ // A like on its way shows its outcome at once over the row's state from the server, which stays as the server last described it until the answer. A sync
+ // that changed the message since the tap may already count the like, so its count is shown as it is, never one more on top (audit #10).
  function likeShown(m){
-  const want=liking.get(m.id),count=m.likeCount||0;
-  return want===undefined||want===Boolean(m.liked)?{liked:Boolean(m.liked),likeCount:count}:{liked:want,likeCount:Math.max(0,count+(want?1:-1))};
+  const p=liking.get(m.id),count=m.likeCount||0;if(!p||p.want===Boolean(m.liked))return {liked:Boolean(m.liked),likeCount:count};
+  return {liked:p.want,likeCount:Number(m.seq)===p.seq?Math.max(0,count+(p.want?1:-1)):count};
  }
  function likeButton(m){
   const b=el('button','f-talk-like'),shown=likeShown(m);b.type='button';b.setAttribute('aria-pressed',String(shown.liked));b.setAttribute('aria-describedby','f-talk-m-'+m.id);b.disabled=!isOpen();
@@ -758,13 +759,15 @@
   const view=views.get(id),like=rowsById.get(id)?.querySelector('.f-talk-like');if(!view||!like)return;const shown=likeShown(view);
   like.setAttribute('aria-pressed',String(shown.liked));like.querySelector('.f-talk-like-n').textContent=String(shown.likeCount);
  }
- // A like shows at once and the server's answer then wins. A failure shows the row as the server last described it, which may be a count a sync brought
- // while the like was on its way, never the count seen before the tap. One request per message at a time.
+ // A like shows at once and the server's answer then wins, unless a sync changed the message while it was on its way: the answer's count may then be older
+ // than the one on screen (one more like landed between them), so the synced count stays and the changes since the tap are asked for again, which settles
+ // it (audit #10). A failure shows the row as the server last described it, never the count seen before the tap. One request per message at a time.
  async function toggleLike(id){
-  const view=views.get(id);if(!view||view.mine||view.hidden||liking.has(id)||!isOpen())return;const was=Boolean(view.liked);liking.set(id,!was);paintLike(id);
+  const view=views.get(id);if(!view||view.mine||view.hidden||liking.has(id)||!isOpen())return;const was=Boolean(view.liked),tapped=Number(view.seq);liking.set(id,{want:!was,seq:tapped});paintLike(id);
   try{
    const data=await api('/api/fiiu/messages/'+encodeURIComponent(id)+'/like',{},was?'DELETE':'PUT');
-   setLiked(id,Boolean(data.liked));const now=views.get(id);if(now)now.likeCount=Math.max(0,Number(data.likeCount)||0);settled();
+   setLiked(id,Boolean(data.liked));const now=views.get(id);
+   if(now){if(Number(now.seq)===tapped)now.likeCount=Math.max(0,Number(data.likeCount)||0);else if(Number.isFinite(tapped))known=Math.min(known,tapped);}settled();
   }catch(error){
    // 404: hidden or deleted a moment ago, which the next sync would also say.
    if(error?.status===404){gone(id,false);return;}
