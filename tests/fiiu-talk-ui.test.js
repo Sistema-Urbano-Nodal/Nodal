@@ -1615,3 +1615,19 @@ test('#7: after more than 200 changes the chat is rebuilt; a reader who was foll
  assert.equal(rows(up).length,5);assert.equal(away.scrollTop,900,'a reader higher up stays where they were');
  assert.equal(up.root.querySelector('.f-talk-new').hidden,false,'the pill says there is more below');assert.equal(up.root.querySelector('.f-talk-live').textContent,'3 new answers');
 });
+
+test('#8/#17: a session that ended meanwhile turns Send, Like, Rate, Delete and Load earlier into the sign-in, back to this address, keeping what was typed',async()=>{
+ const sessionStorage=memoryStore(),refusal={status:401,data:{error:'sign in required'}},next='login.html?next='+encodeURIComponent('/fiiu-session.html?a=day1-am&q='+Q);
+ const signIn=h=>{const box=qa(h);assert.ok(key(box,'talkSignIn'),'the sign-in, not “sign in again” with no way to');assert.equal(links(box).find(a=>a.href.startsWith('login.html'))?.href,next);assert.ok(sessionHead(h).querySelector('h1'),'the session stays above');};
+ const send=await page({['POST '+MESSAGES]:refusal},{context:{sessionStorage}});
+ composer(send).querySelector('textarea').value='Mi idea: talleres de bicicleta';submit(send);await flush();signIn(send);
+ assert.deepEqual(JSON.parse(sessionStorage.items.get(UNSENT_KEY)),[{clientId:CLIENT,body:'Mi idea: talleres de bicicleta'}],'kept for after the sign-in');
+ const back=await page({},{context:{sessionStorage}});assert.ok(key(rows(back).find(node=>classes(node).includes('is-failed')),'talkRetry'),'back from the sign-in, the message waits with Retry');
+ const like=await page({['PUT /api/fiiu/messages/'+M1+'/like']:refusal},{context:{sessionStorage}});const draft=composer(like).querySelector('textarea');draft.value='a medio escribir';
+ await row(like,M1).querySelector('.f-talk-like').listeners.click();await flush();signIn(like);assert.equal(sessionStorage.items.get(DRAFT_KEY),'a medio escribir','the draft is kept');
+ const rating=await page({['GET /api/fiiu/questions/'+Q]:rated(),['PUT '+RATING]:refusal});scale(rating)[7].listeners.click();await flush();signIn(rating);
+ const erase=await page({['GET /api/fiiu/questions/'+Q]:thread({messages:[message(M1,{mine:true})]}),['DELETE /api/fiiu/messages/'+M1]:refusal});await key(row(erase,M1),'talkDelete').listeners.click();await flush();signIn(erase);
+ const earlier=await page({['GET /api/fiiu/questions/'+Q]:thread({before:'cursor-1'}),['GET '+MESSAGES+'?before=cursor-1']:refusal});await earlier.root.querySelector('.f-talk-earlier').listeners.click();await flush();signIn(earlier);
+ const hide=await page({['GET /api/fiiu/questions/'+Q]:thread({me:{organiser:true}}),['PUT /api/admin/fiiu/messages/'+M1+'/hidden']:refusal});await key(row(hide,M1),'talkHide').listeners.click();await flush();signIn(hide);
+ assert.equal(send.timers.filter(timer=>!timer.cleared).length,0,'polling stops until the person is back');
+});

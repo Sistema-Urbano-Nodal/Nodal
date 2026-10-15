@@ -718,6 +718,7 @@
    if(attempt.landed){forget(attempt);return;}
    // The person moved to another question meanwhile: the attempt waits there as not sent, with Retry, for when they come back.
    if(question?.id!==id){attempt.state='failed';attempt.row=pendingRow(attempt,true);return;}
+   if(expired(error)){attempt.state='failed';return;}
    /* The draft goes back to the composer to be fixed. When something new was typed or attached there meanwhile, it stays as a failed row instead,
       with its text and Discard, so nothing is lost. */
    const c=composer;
@@ -737,6 +738,10 @@
    if(error?.code==='question_closed')closedByServer();
   }
  }
+ // A session that ended meanwhile (signed out on another device, a refresh the provider refused) switches the page to its sign-in where the person acts,
+ // back to this address, with what was typed and what was not sent kept for the tab (audit #8, #17): a quiet room's poll never asks anything that would
+ // say so, so Send, Like or Rate would otherwise keep failing with nothing to sign in with.
+ function expired(error){if(error?.status!==401)return false;keepDraft();keepUnsent();access(error);return true;}
  // Errors from likes, deletions and moderation show next to the composer, or in the dock's status line when there is none (a closed or hidden
  // question); the next action that works clears that line, unless it says updates are paused. The composer's line is cleared only while it still
  // shows that error (audit #2): a draft's own problem, such as its length, stays.
@@ -760,13 +765,13 @@
   }catch(error){
    // 404: hidden or deleted a moment ago, which the next sync would also say.
    if(error?.status===404){gone(id,false);return;}
-   notify(error);if(error?.code==='question_closed')closedByServer();
+   if(expired(error))return;notify(error);if(error?.code==='question_closed')closedByServer();
   }finally{liking.delete(id);paintLike(id);}
  }
  async function erase(id){
   if(!window.confirm(t('talkDeleteConfirm')))return;
   try{await api('/api/fiiu/messages/'+encodeURIComponent(id),{},'DELETE');settled();gone(id);}
-  catch(error){if(error?.status===404)gone(id);else notify(error);}
+  catch(error){if(error?.status===404)gone(id);else if(!expired(error))notify(error);}
  }
  // A row that goes while focus is in it hands focus to the next message's first control, else the previous one's, else the composer (or the log), and
  // the status line says it was deleted (not for a like refused because the message was hidden). The target is picked after the request, since a poll
@@ -782,7 +787,7 @@
  async function moderate(id){
   const view=views.get(id);if(!view||moderating.has(id))return;moderating.add(id);
   try{const data=await api('/api/admin/fiiu/messages/'+encodeURIComponent(id)+'/hidden',{},view.hidden?'DELETE':'PUT');settled();if(data?.message?.id&&parts)patch(note=>note(data.message,upsert(data.message)));}
-  catch(error){if(error?.status===404)gone(id);else notify(error);}
+  catch(error){if(error?.status===404)gone(id);else if(!expired(error))notify(error);}
   finally{moderating.delete(id);}
  }
  async function loadEarlier(){
@@ -794,7 +799,7 @@
    control.hidden=!before;updateEmpty();first?.scrollIntoView?.({block:'start'});
    // The last page takes its button away: focus moves to the newest message it brought, without moving the page again.
    if(lost){const list=[...parts.log.children],newest=list[first?list.indexOf(first)-1:list.length-1];if(newest){newest.tabIndex=-1;newest.focus({preventScroll:true});}}
-  }catch(error){notify(error);}finally{control.disabled=false;}
+  }catch(error){if(!expired(error))notify(error);}finally{control.disabled=false;}
  }
 
  // Rating questions (kind 'rating'): ten numbers under the question in a radiogroup. A tap shows at once and saves (PUT …/rating); a tap made while one is
@@ -862,7 +867,7 @@
    }
    r.shown=r.saved;status(r.note,'');
   }catch(error){
-   if(rate!==r)return;r.next=null;r.shown=r.saved;status(r.note,problem(scoreKey(error)));
+   if(rate!==r||expired(error))return;r.next=null;r.shown=r.saved;status(r.note,problem(scoreKey(error)));
    if(error?.code==='question_closed')closedByServer();
   }finally{if(rate===r){r.busy=false;paintRate();}}
  }
