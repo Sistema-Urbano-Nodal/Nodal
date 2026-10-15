@@ -1032,7 +1032,7 @@
  }
  const questionPath=id=>'/api/fiiu/questions/'+encodeURIComponent(id),listPath=id=>'/api/fiiu/questions?activityId='+encodeURIComponent(id);
  // The session page: the header first (from the programme, else the questions' answer), then the questions; the one asked for (&q=), else the most recent
- // open one, else the most recent, opens in place. thread: that question's answer, already read; early: its read, already on its way.
+ // open one, else the most recent, opens in place. thread: that question's answer, already read (or its refusal); early: its read, already on its way.
  async function openSession(id,q=null,thread=null){
   unwatch();const fresh=page?.id!==id;if(fresh){frame(id);status(message,'loading');}
   const early=q&&!thread?api(questionPath(q)):null;early?.catch(()=>{});let data;
@@ -1071,11 +1071,22 @@
  // under its own address.
  async function openQuestion(id){
   unwatch();status(message,'loading');let data;
-  try{data=await api(questionPath(id));}catch(error){status(message,'');return access(error);}
+  try{data=await api(questionPath(id));}catch(error){return outside(id,error);}
   status(message,'');if(!data?.question?.id||!ID.test(String(data.question.activityId)))return access(null);
   if(present&&data.me?.organiser){show(data);startPolling();return wake();}
   present=false;history.replaceState(null,'',location.pathname+'?a='+encodeURIComponent(data.question.activityId)+'&q='+encodeURIComponent(data.question.id));
   return openSession(data.question.activityId,data.question.id,data);
+ }
+ // A guest, or someone without a registration, who scanned the projector's code or followed an old link cannot read the question, but the public pulse
+ // names its session: the page moves to the session's address, whose header shows above the sign-in or the registration (with this session ticked).
+ // A question the pulse leaves out (hidden, or unknown) and the projector's address (its sign-in comes back to the projector) keep the plain state.
+ async function outside(id,error){
+  const listed=!present&&(error?.status===401||(error?.status===403&&error.code==='not_registered'));let row=null;
+  if(listed)try{const data=await api('/api/fiiu/pulse');row=(Array.isArray(data?.questions)?data.questions:[]).find(item=>Array.isArray(item)&&item[0]===id);}catch{/* The plain state, below. */}
+  const a=String(row?.[1]??'');if(!ID.test(a)){status(message,'');return access(error);}
+  // The refusal stands in for the question's read, so the session page does not ask for it again (an unregistered scan costs a registration lookup).
+  const refused=Promise.reject(error);refused.catch(()=>{});
+  history.replaceState(null,'',location.pathname+'?a='+encodeURIComponent(a)+'&q='+encodeURIComponent(id));return openSession(a,id,refused);
  }
  function start(){
   unwatch();recheck=false;const params=new URLSearchParams(location.search),q=params.get('q')||'',a=(params.get('a')||'').toLowerCase();

@@ -65,11 +65,13 @@ test('an empty conversation invites the first answer',async()=>{
 });
 
 test('a guest is asked to sign in and come back, an account without a registration to register, and a hidden question is unavailable',async()=>{
- const guest=await page({['GET /api/fiiu/questions/'+Q]:{status:401,data:{error:'sign in required'}}});
+ // A question the public pulse does not list has no session to show: the whole page says how to take part (a listed one: see the lane B review tests).
+ const unlisted={'GET /api/fiiu/pulse':{questions:[]}};
+ const guest=await page({...unlisted,['GET /api/fiiu/questions/'+Q]:{status:401,data:{error:'sign in required'}}});
  assert.ok(key(guest.root,'talkSignIn'));assert.ok(key(guest.root,'talkSignInHint'));
  assert.equal(links(guest.root).find(a=>a.href.startsWith('login.html')).href,'login.html?next='+encodeURIComponent('/fiiu-session.html?q='+Q));
  assert.equal(guest.timers.length,0,'nothing polls before access is settled');
- const outsider=await page({['GET /api/fiiu/questions/'+Q]:{status:403,data:{error:'festival registration required',code:'not_registered'}}});
+ const outsider=await page({...unlisted,['GET /api/fiiu/questions/'+Q]:{status:403,data:{error:'festival registration required',code:'not_registered'}}});
  assert.ok(key(outsider.root,'talkRegister'));assert.ok(key(outsider.root,'talkRegisterHint'));assert.ok(links(outsider.root).some(a=>a.href==='fiiu.html#registration'));
  const hidden=await page({['GET /api/fiiu/questions/'+Q]:{status:404,data:{error:'not found',code:'question_unavailable'}}});
  assert.ok(key(hidden.root,'talkUnavailable'));assert.ok(links(hidden.root).some(a=>a.href==='fiiu.html#programme'));
@@ -1749,4 +1751,23 @@ test('on a session address, a question hidden while shown leaves the list, and t
  assert.ok(key(qa(many),'talkUnavailable'));assert.deepEqual(picks(many).map(a=>a.href),['fiiu-session.html?a=day1-am&q='+Q2],'no longer listed as open; the other question is still there');
  list=[question({id:Q3,body:'¿Y ahora?',talk:null,createdAt:'2026-10-21T15:00:00.000Z'}),older];pulse=[[Q3,'day1-am',1,'open'],[Q2,'day1-am',2,'closed']];await many.tickTimers();await flush();
  assert.equal(qa(many).querySelector('.f-talk-question').textContent,'¿Y ahora?','the session’s open question opens');assert.ok(composer(many));
+});
+
+test('a ?q= address alone, opened by a guest or by someone without a registration, shows its session above the way to take part',async()=>{
+ const signedOut={status:401,data:{error:'sign in required'}};
+ const guest=await page({'GET /api/fiiu?kind=news':PROGRAMME,['GET /api/fiiu/questions/'+Q]:signedOut,['GET '+LIST]:signedOut});
+ assert.deepEqual(guest.replaced,['/fiiu-session.html?a=day1-am&q='+Q],'the public pulse names its session');
+ assert.equal(sessionHead(guest).querySelector('h1').textContent,'El poder de lo local, editado');
+ const box=qa(guest);assert.equal(box.querySelector('h2').dataset.fiiuText,'talkSignIn','the sign-in sits in the questions area');
+ assert.equal(links(box).find(a=>a.href.startsWith('login.html')).href,'login.html?next='+encodeURIComponent('/fiiu-session.html?a=day1-am&q='+Q));assert.equal(guest.timers.length,0);
+ assert.equal(sent(guest,'GET','/api/fiiu/questions/'+Q).length,1,'the refusal is not asked for twice');
+ const refusal={status:403,data:{error:'festival registration required',code:'not_registered'}},carla=mine({user:{id:'u-carla',name:'Carla',email:'carla@example.org'},registration:null,attendance:[]});
+ const outsider=await page({...SESSION_ROUTES,'GET /api/fiiu/registration':carla,['GET /api/fiiu/questions/'+Q]:refusal,['GET '+LIST]:refusal});
+ assert.equal(sessionHead(outsider).querySelector('h1').textContent,'El poder de lo local, editado');assert.ok(key(qa(outsider),'talkRegister'));
+ assert.equal(key(qa(outsider),'register').href,'fiiu.html#add-day1-am','the registration opens with this session ticked');assert.equal(sent(outsider,'GET','/api/fiiu/questions/'+Q).length,1);
+ // A question the pulse does not list (hidden, or unknown) keeps the plain state, and the projector's address keeps its own way back after signing in.
+ const unlisted=await page({['GET /api/fiiu/questions/'+Q]:signedOut,'GET /api/fiiu/pulse':{questions:[]}});
+ assert.equal(sessionHead(unlisted),null);assert.ok(key(unlisted.root,'talkSignIn'));assert.deepEqual(unlisted.replaced,[]);
+ const wall=await page({['GET /api/fiiu/questions/'+Q]:signedOut},{search:'?q='+Q+'&present=1'});
+ assert.equal(sessionHead(wall),null);assert.equal(links(wall.root).find(a=>a.href.startsWith('login.html')).href,'login.html?next='+encodeURIComponent('/fiiu-session.html?q='+Q+'&present=1'));
 });
