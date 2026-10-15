@@ -21,7 +21,7 @@ const clock=(iso='2026-10-21T09:30:00-05:00')=>{let at=Date.parse(iso);return cl
 async function page(routes={},{search='?q='+Q,context={}}={}){
  let n=0;const table={['GET /api/fiiu/questions/'+Q]:thread(),['GET /api/fiiu/questions?activityId=day1-am']:{activity:ACTIVITY,questions:[question()]},'GET /api/fiiu/pulse':{questions:[[Q,'day1-am',3,'open']]},...routes};
  return createFiiuHarness(request=>{const answer=table[request.method+' '+request.path];return answer===undefined?{status:404,data:{error:'not found'}}:typeof answer==='function'?answer(request):answer;},
-  {page:'fiiu-talk',search,context:{Date:clock(),crypto:{randomUUID:()=>'cccccccc-cccc-4ccc-8ccc-'+String(n++).padStart(12,'0')},...context}});
+  {page:'fiiu-talk',search,pathname:'/fiiu-session.html',context:{Date:clock(),crypto:{randomUUID:()=>'cccccccc-cccc-4ccc-8ccc-'+String(n++).padStart(12,'0')},...context}});
 }
 const rows=h=>h.root.querySelectorAll('.f-talk-msg');
 const row=(h,id)=>rows(h).find(node=>node.dataset.id===id);
@@ -32,15 +32,19 @@ const submit=h=>composer(h).listeners.submit({preventDefault(){}});
 const later=()=>{let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};};
 const links=node=>node.querySelectorAll('a');
 const MESSAGES='/api/fiiu/questions/'+Q+'/messages';
+// The session page's parts: the header, the questions area, and the question list's links (a tap is a plain click).
+const sessionHead=h=>h.root.querySelector('.f-talk-session'),qa=h=>h.root.querySelector('.f-talk-qa'),picks=h=>h.root.querySelectorAll('.f-talk-pick');
+const tap=node=>node.listeners.click({preventDefault(){node.prevented=true;},button:0});
+const LIST='/api/fiiu/questions?activityId=day1-am';
 // After a refusal that says the question closed, the page reads it again: the first read is the page load, the next ones see the close.
 const closesOnRefusal=()=>{let reads=0;return ()=>reads++?thread({question:{status:'closed',revision:4},me:{canPost:false},revision:4}):thread();};
 
 test('the chat shows the block, the talk and the question, then the messages oldest first with the organiser label and Lima times',async()=>{
  const yesterday=message(M3,{body:'Llegué temprano',createdAt:'2026-10-20T20:00:00.000Z',seq:1});
  const h=await page({['GET /api/fiiu/questions/'+Q]:thread({messages:[yesterday,message(M1,{seq:2}),message(M2,{author:'Flavia R.',organiser:true,body:'Bienvenidas',createdAt:'2026-10-21T14:07:00.000Z',seq:3})]})});
- const box=h.root.querySelector('.f-talk');
- assert.equal(box.querySelector('h1').textContent,'El poder de lo local');
- const when=box.querySelector('.f-talk-when');assert.equal(when.querySelector('[data-fiiu-date]').dataset.fiiuDate,'2026-10-21');assert.match(content(when),/09:00–13:00/);assert.match(content(when),/Auditorio MALI/);
+ const box=h.root.querySelector('.f-talk'),head=sessionHead(h);
+ assert.equal(head.querySelector('h1').textContent,'El poder de lo local');assert.equal(head.querySelector('.f-talk-kicker').querySelector('[data-fiiu-date]').dataset.fiiuDate,'2026-10-21');
+ const when=head.querySelector('.f-talk-when');assert.match(content(when),/09:00–13:00/);assert.match(content(when),/Auditorio MALI/);
  assert.equal(box.querySelector('.f-talk-talk').textContent,'¡Bienvenidos al FIIU 11!');
  const quote=box.querySelector('.f-talk-question');assert.equal(quote.tagName,'blockquote');assert.equal(quote.textContent,'¿Qué te llevas de esta mañana?');
  const log=box.querySelector('.f-talk-log');assert.equal(log.tagName,'ol');assert.equal(log.role,'log');assert.equal(log['aria-live'],'off');assert.equal(log['aria-label'],'Conversation');
@@ -50,7 +54,7 @@ test('the chat shows the block, the talk and the question, then the messages old
  assert.equal(row(h,M1).querySelector('[data-fiiu-date]'),null,'a message from today shows the time only');
  assert.equal(row(h,M3).querySelector('time').querySelector('[data-fiiu-date]').dataset.fiiuDate,'2026-10-20','an older message adds its Lima date');assert.match(content(row(h,M3).querySelector('time')),/15:00/);
  assert.equal(box.querySelector('.f-talk-empty').hidden,true);assert.equal(box.querySelector('.f-talk-earlier').hidden,true);
- assert.equal(h.ctx.document.title,'NODAL · Conversation');assert.equal(h.message.textContent,'');
+ assert.equal(h.ctx.document.title,'NODAL · El poder de lo local','the tab names the session');assert.equal(h.message.textContent,'');
  assert.equal(h.timers.length,1);assert.equal(h.timers[0].delay,4000);
  assert.ok(h.root.querySelectorAll('span').some(node=>node.id==='f-newtab'),'links that open a new tab are described');
 });
@@ -63,7 +67,7 @@ test('an empty conversation invites the first answer',async()=>{
 test('a guest is asked to sign in and come back, an account without a registration to register, and a hidden question is unavailable',async()=>{
  const guest=await page({['GET /api/fiiu/questions/'+Q]:{status:401,data:{error:'sign in required'}}});
  assert.ok(key(guest.root,'talkSignIn'));assert.ok(key(guest.root,'talkSignInHint'));
- assert.equal(links(guest.root).find(a=>a.href.startsWith('login.html')).href,'login.html?next='+encodeURIComponent('/fiiu-talk.html?q='+Q));
+ assert.equal(links(guest.root).find(a=>a.href.startsWith('login.html')).href,'login.html?next='+encodeURIComponent('/fiiu-session.html?q='+Q));
  assert.equal(guest.timers.length,0,'nothing polls before access is settled');
  const outsider=await page({['GET /api/fiiu/questions/'+Q]:{status:403,data:{error:'festival registration required',code:'not_registered'}}});
  assert.ok(key(outsider.root,'talkRegister'));assert.ok(key(outsider.root,'talkRegisterHint'));assert.ok(links(outsider.root).some(a=>a.href==='fiiu.html#registration'));
@@ -154,8 +158,8 @@ test('a reset reloads the conversation and keeps the draft; a question that leav
  const text=composer(h).querySelector('textarea');text.value='sigo escribiendo';text.focus();
  await h.tickTimers();assert.equal(loads,2);assert.deepEqual(rows(h).map(node=>node.dataset.id),[M4]);
  assert.equal(composer(h).querySelector('textarea'),text,'the same composer');assert.equal(text.value,'sigo escribiendo');assert.equal(text.focused,true);
- pulse=[];await h.tickTimers();assert.equal(loads,3);assert.ok(key(h.root,'talkUnavailable'));
- assert.ok(links(h.root).some(a=>a.href==='fiiu-talk.html?a=day1-am'),'the way back names the block');assert.equal(h.timers[0].cleared,true);
+ pulse=[];await h.tickTimers();assert.equal(loads,3);assert.ok(key(qa(h),'talkUnavailable'));
+ assert.equal(sessionHead(h).querySelector('h1').textContent,'El poder de lo local','the session stays above');assert.equal(h.timers[0].cleared,true);
 });
 
 test('new messages below the fold raise the pill instead of scrolling, and near the bottom the page follows them',async()=>{
@@ -332,20 +336,19 @@ test('a refused send reads the question again, so an answer computed before the 
  assert.equal(composer(h),null,'an answer older than the close is ignored');assert.ok(key(h.root,'talkClosed'));
 });
 
-test('a block address lists its questions open first, opens a single one at once, and says when there are none',async()=>{
+test('a session address lists its questions open first and opens the open one, a single one needs no list, and none says so',async()=>{
  const older=question({id:Q2,status:'closed',body:'¿Primera pregunta?',talk:null,createdAt:'2026-10-21T13:00:00.000Z'});
  const h=await page({'GET /api/fiiu/questions?activityId=day1-am':{activity:ACTIVITY,questions:[older,question()]}},{search:'?a=day1-am'});
- assert.deepEqual(links(h.root).filter(a=>a.href.startsWith('fiiu-talk.html?q=')).map(a=>a.href),['fiiu-talk.html?q='+Q,'fiiu-talk.html?q='+Q2]);
- assert.ok(key(h.root,'talkQuestions'));assert.ok(key(h.root,'talkClosedChip'),'a closed question says so');assert.equal(h.root.querySelector('h1').textContent,'El poder de lo local');
- assert.equal(h.replaced.length,0);assert.deepEqual(h.timers.map(timer=>timer.delay),[8000],'the list watches the public pulse, slowly');
+ assert.deepEqual(picks(h).map(a=>a.href),['fiiu-session.html?a=day1-am&q='+Q,'fiiu-session.html?a=day1-am&q='+Q2]);
+ assert.ok(key(h.root,'talkQuestions'));assert.ok(key(h.root.querySelector('.f-talk-switch'),'talkClosedChip'),'a closed question says so');assert.equal(h.root.querySelector('h1').textContent,'El poder de lo local');
+ assert.equal(h.replaced.length,0);assert.ok(composer(h),'the open question’s chat');assert.deepEqual(h.timers.map(timer=>timer.delay),[4000]);
  const one=await page({},{search:'?a=day1-am'});
- assert.deepEqual(one.replaced,['/fiiu-talk.html?q='+Q]);assert.ok(one.root.querySelector('.f-talk-log'));assert.equal(sent(one,'GET','/api/fiiu/questions?activityId=day1-am').length,1,'the list is not asked for twice');
+ assert.deepEqual(one.replaced,[]);assert.ok(one.root.querySelector('.f-talk-log'));assert.equal(sent(one,'GET','/api/fiiu/questions?activityId=day1-am').length,1,'the list is not asked for twice');assert.equal(picks(one).length,0);
  const none=await page({'GET /api/fiiu/questions?activityId=day1-am':{activity:ACTIVITY,questions:[]}},{search:'?a=day1-am'});
  assert.ok(key(none.root,'talkEmptyBlock'));assert.ok(links(none.root).some(a=>a.href==='fiiu.html#programme'));
- const unknown=await page({'GET /api/fiiu/questions?activityId=nope':{status:400,data:{error:'invalid activity',code:'invalid_activity'}}},{search:'?a=nope'});assert.ok(key(unknown.root,'talkUnavailable'));
+ const unknown=await page({'GET /api/fiiu/questions?activityId=nope':{status:400,data:{error:'invalid activity',code:'invalid_activity'}}},{search:'?a=nope'});assert.ok(key(unknown.root,'talkUnavailable'));assert.equal(sessionHead(unknown),null);
  const siblings=await page({'GET /api/fiiu/questions?activityId=day1-am':{activity:ACTIVITY,questions:[question(),older]}});
- const more=siblings.root.querySelector('.f-talk-more');assert.equal(more.tagName,'details');assert.ok(key(more,'talkOtherQuestions'));
- assert.deepEqual(links(more).map(a=>a.href),['fiiu-talk.html?q='+Q2,'fiiu-talk.html?a=day1-am'],'the other question, then the whole block');
+ assert.deepEqual(picks(siblings).map(a=>a.href),['fiiu-session.html?a=day1-am&q='+Q,'fiiu-session.html?a=day1-am&q='+Q2],'every question of the session, this one marked');assert.equal(picks(siblings)[0]['aria-current'],'true');
 });
 
 test('organisers get Hide on each message and the full name; members do not',async()=>{
@@ -410,8 +413,8 @@ test('a close that shares a sync with a like closes the chat even under a stale 
 
 const SPANISH={talkPage:'Conversación',talkEmpty:'Todavía no hay mensajes. Sé la primera persona en responder.',talkPlaceholder:'Escribe tu respuesta…',talkSend:'Enviar',talkOrganiser:'Organización FIIU',
  talkClosed:'Esta conversación está cerrada. Puedes seguir leyéndola.',talkSignIn:'Inicia sesión para participar',talkRegister:'Inscríbete en el FIIU para participar',talkNew:'Mensajes nuevos ↓'};
-const REQUIRED=['talkPage','talkQuestions','talkOtherQuestions','talkEmpty','talkPlaceholder','talkSend','talkSending','talkNotSent','talkRetry','talkAttach','talkRemoveFile','talkUploading','talkFileType','talkFileSize','talkTooManyFiles','talkAllowance','talkCharsLeft',
- 'talkLike','talkLikes','talkDelete','talkDeleteConfirm','talkOrganiser','talkClosed','talkUnavailable','talkSignIn','talkSignInHint','talkRegister','talkRegisterHint','talkNew','talkLoadEarlier','talkPaused','talkHide','talkUnhide','talkHidden','talkBackToBlock','talkOpenFull','talkError','talkRate','talkEmptyBlock',
+const REQUIRED=['talkPage','talkQuestions','talkEmpty','talkPlaceholder','talkSend','talkSending','talkNotSent','talkRetry','talkAttach','talkRemoveFile','talkUploading','talkFileType','talkFileSize','talkTooManyFiles','talkAllowance','talkCharsLeft',
+ 'talkLike','talkLikes','talkDelete','talkDeleteConfirm','talkOrganiser','talkClosed','talkUnavailable','talkSignIn','talkSignInHint','talkRegister','talkRegisterHint','talkNew','talkLoadEarlier','talkPaused','talkHide','talkUnhide','talkHidden','talkOpenFull','talkError','talkRate','talkEmptyBlock',
  'talkPresent','talkLatest','talkTop','talkFullscreen','talkScanToJoin','talkHiddenForYou','talkReused','talkNotRegistered'];
 
 test('every chat string has English, Spanish and Portuguese, the Spanish follows the plan, and a language switch relabels the page',async()=>{
@@ -425,7 +428,7 @@ test('every chat string has English, Spanish and Portuguese, the Spanish follows
  assert.equal(strings.talkCharsLeft[1].includes('{n}'),true);assert.equal(strings.talkUploading[2].includes('{current}')&&strings.talkUploading[2].includes('{total}'),true);
  const text=composer(h).querySelector('textarea');text.value='x'.repeat(990);text.listeners.input();
  h.lang('es');
- assert.equal(h.ctx.document.title,'NODAL · Conversación');assert.equal(text.placeholder,'Escribe tu respuesta…');assert.equal(h.root.querySelector('.f-talk-log')['aria-label'],'Conversación');
+ assert.equal(h.ctx.document.title,'NODAL · El poder de lo local');assert.equal(text.placeholder,'Escribe tu respuesta…');assert.equal(h.root.querySelector('.f-talk-log')['aria-label'],'Conversación');
  assert.equal(composer(h).querySelector('.f-talk-left').textContent,'Quedan 10 caracteres');assert.match(content(row(h,M1)),/3 me gusta/);
  h.lang('pt');assert.match(content(row(h,M1)),/3 curtidas/);
 });
@@ -437,7 +440,7 @@ test('a language switch with an empty composer relabels the placeholder, the fil
  assert.equal(composer(h).querySelector('.f-talk-left').hidden,true,'the counter is not shown yet');assert.equal(size(),'1.2 MB');
  h.lang('pt');
  assert.equal(text.placeholder,'Escreva sua resposta…');assert.equal(size(),'1,2 MB','sizes follow the language’s number format');
- assert.equal(h.root.querySelector('.f-talk-log')['aria-label'],'Conversa');assert.equal(h.ctx.document.title,'NODAL · Conversa');
+ assert.equal(h.root.querySelector('.f-talk-log')['aria-label'],'Conversa');assert.equal(h.ctx.document.title,'NODAL · El poder de lo local');
  assert.equal(composer(h).querySelector('.f-talk-left').hidden,true,'the hidden counter stays hidden');
  h.lang('es');assert.equal(text.placeholder,'Escribe tu respuesta…');
 });
@@ -669,7 +672,7 @@ test('present=1 for a member renders the normal chat and asks for no QR',async()
  const h=await page({},{search:'?q='+Q+'&present=1'});
  assert.ok(composer(h));assert.ok(h.root.querySelector('.f-talk-log'));assert.equal(h.root.querySelector('.f-talk-wall'),null);
  assert.equal(sent(h,'GET',QR_PATH).length,0);assert.equal(h.requests.filter(request=>request.path.startsWith('/api/admin/')).length,0);assert.equal(h.locks.length,0);
- assert.equal(h.ctx.document.title,'NODAL · Conversation');
+ assert.equal(h.ctx.document.title,'NODAL · El poder de lo local');
  const organiser=await page({['GET /api/fiiu/questions/'+Q]:thread({me:{organiser:true}})});
  assert.ok(composer(organiser),'an organiser without present=1 gets the chat');assert.equal(sent(organiser,'GET',QR_PATH).length,0);
 });
@@ -850,22 +853,29 @@ test('without a composer, a failed Hide shows its error in the dock, and the nex
  fail=false;await key(row(h,M1),'talkHide').listeners.click();await flush();assert.equal(note(h).textContent,'');assert.ok(classes(row(h,M1)).includes('is-hidden'));
 });
 
-const LIST='/api/fiiu/questions?activityId=day1-am';
-
 test('when the question closes and another on its block opens, the other questions follow the pulse and the closed note leads to the open one',async()=>{
  let pulse=[[Q,'day1-am',3,'open']],list=[question()];
- const h=await page({'GET /api/fiiu/pulse':()=>({questions:pulse}),['GET '+LIST]:()=>({activity:ACTIVITY,questions:list}),['GET '+MESSAGES+'?since=3']:since(4,[],{status:'closed'})});
- assert.equal(h.root.querySelector('.f-talk-more'),null);await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,1,'an unchanged block is not read again');
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:pulse}),['GET '+LIST]:()=>({activity:ACTIVITY,questions:list}),['GET '+MESSAGES+'?since=3']:since(4,[],{status:'closed'})},{search:'?a=day1-am&q='+Q});
+ assert.equal(picks(h).length,0);await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,1,'an unchanged block is not read again');
  const fresh=question({id:Q2,body:'¿Y mañana?',createdAt:'2026-10-21T15:00:00.000Z'});
  pulse=[[Q2,'day1-am',1,'open'],[Q,'day1-am',4,'closed'],['cccccccc-cccc-4ccc-8ccc-cccccccccccc','day2-am',7,'open']];list=[fresh,question({status:'closed',revision:4})];
  await h.tickTimers();
  assert.equal(sent(h,'GET',LIST).length,2,'one read for the change');assert.equal(composer(h),null);
- assert.deepEqual(links(h.root.querySelector('.f-talk-more')).map(a=>a.href),['fiiu-talk.html?q='+Q2,'fiiu-talk.html?a=day1-am']);
- const next=key(h.root.querySelector('.f-talk-dock'),'talkNextOpen');assert.equal(next.hidden,false);assert.equal(next.href,'fiiu-talk.html?q='+Q2);
+ assert.deepEqual(picks(h).map(a=>a.href),['fiiu-session.html?a=day1-am&q='+Q2,'fiiu-session.html?a=day1-am&q='+Q]);
+ const next=key(h.root.querySelector('.f-talk-dock'),'talkNextOpen');assert.equal(next.hidden,false);assert.equal(next.href,'fiiu-session.html?a=day1-am&q='+Q2);
  await h.tickTimers();await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,2,'the same pulse reads nothing more');
  pulse=[[Q2,'day1-am',2,'closed'],[Q,'day1-am',4,'closed']];list=[question({id:Q2,status:'closed'}),question({status:'closed',revision:4})];await h.tickTimers();
  assert.equal(sent(h,'GET',LIST).length,3);assert.equal(next.hidden,true,'no open question, no link');
  h.lang('es');assert.equal(next.textContent,'Responder la pregunta abierta');
+});
+
+test('the closed note’s way to the open question opens it in place and keeps the address in step, as a pick in the list does',async()=>{
+ const fresh=question({id:Q2,body:'¿Y mañana?',createdAt:'2026-10-21T15:00:00.000Z'});
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({question:{status:'closed'},me:{canPost:false}}),['GET '+LIST]:{activity:ACTIVITY,questions:[fresh,question({status:'closed'})]},
+  ['GET /api/fiiu/questions/'+Q2]:thread({question:{id:Q2,body:'¿Y mañana?'},messages:[]})},{search:'?a=day1-am&q='+Q});
+ const next=key(h.root.querySelector('.f-talk-dock'),'talkNextOpen');assert.equal(next.hidden,false);
+ tap(next);await flush();assert.equal(next.prevented,true);assert.deepEqual(h.pushed,['/fiiu-session.html?a=day1-am&q='+Q2]);
+ assert.equal(qa(h).querySelector('.f-talk-question').textContent,'¿Y mañana?');assert.ok(composer(h));assert.equal(picks(h)[0]['aria-current'],'true');
 });
 
 test('organisers see hidden questions in the block list, which the public pulse leaves out, without reading the list on every poll',async()=>{
@@ -875,7 +885,7 @@ test('organisers see hidden questions in the block list, which the public pulse 
  assert.equal(key(h.root.querySelector('.f-talk-dock'),'talkNextOpen').hidden,true,'a hidden question is no way forward');
 });
 
-test('a block page follows the pulse: an empty block opens its question by itself, and a list picks up a new one without a reload',async()=>{
+test('a session page follows the pulse: an empty session opens its question by itself, and its list picks up a new one without a reload',async()=>{
  let pulse=[],list=[];
  const h=await page({'GET /api/fiiu/pulse':()=>({questions:pulse}),['GET '+LIST]:()=>({activity:ACTIVITY,questions:list})},{search:'?a=day1-am'});
  assert.ok(key(h.root,'talkEmptyBlock'));assert.equal(h.timers.length,1);assert.equal(h.timers[0].delay,8000,'a slow watch of the public pulse');
@@ -884,7 +894,7 @@ test('a block page follows the pulse: an empty block opens its question by itsel
  await h.visible(false);pulse=[[Q,'day1-am',3,'open']];list=[question()];const pulses=sent(h,'GET','/api/fiiu/pulse').length;await h.tickTimers();
  assert.equal(sent(h,'GET','/api/fiiu/pulse').length,pulses,'a hidden tab does not watch');
  await h.visible(true);await h.tickTimers();await flush();
- assert.deepEqual(h.replaced,['/fiiu-talk.html?q='+Q],'the single question opens, as on a first load');assert.ok(composer(h));
+ assert.deepEqual(h.replaced,[],'the session address stays');assert.ok(composer(h),'the question opens, as on a first load');
  assert.equal(h.timers[0].cleared,true,'the watch stops');assert.equal(h.timers.filter(timer=>!timer.cleared).length,1,'the chat polls instead');
  const Q3='dddddddd-dddd-4ddd-8ddd-dddddddddddd',older=question({id:Q3,status:'closed',body:'¿Primera?',createdAt:'2026-10-21T13:00:00.000Z'});
  pulse=[[Q,'day1-am',3,'open'],[Q3,'day1-am',2,'closed']];list=[question(),older];
@@ -892,7 +902,7 @@ test('a block page follows the pulse: an empty block opens its question by itsel
  await many.tickTimers();assert.equal(sent(many,'GET',LIST).length,1);
  pulse=[...pulse,[Q2,'day1-am',1,'open']];list=[...list,question({id:Q2,body:'¿Otra?',createdAt:'2026-10-21T15:00:00.000Z'})];
  await many.tickTimers();await flush();
- assert.deepEqual(links(many.root).filter(a=>a.href.startsWith('fiiu-talk.html?q=')).map(a=>a.href),['fiiu-talk.html?q='+Q2,'fiiu-talk.html?q='+Q,'fiiu-talk.html?q='+Q3],'the new question joins the list');
+ assert.deepEqual(picks(many).map(a=>a.href),['fiiu-session.html?a=day1-am&q='+Q2,'fiiu-session.html?a=day1-am&q='+Q,'fiiu-session.html?a=day1-am&q='+Q3],'the new question joins the list');
  assert.equal(many.message.textContent,'','a refresh shows no loading line');
 });
 
@@ -1065,10 +1075,10 @@ test('a dock that grows (a paused line, a status, a longer draft) keeps a reader
 test('a block list that failed to load with the question is read on the next poll, then only when the block changes',async()=>{
  let fail=true;const other=question({id:Q2,body:'¿Y mañana?',createdAt:'2026-10-21T15:00:00.000Z'});
  const h=await page({'GET /api/fiiu/pulse':{questions:[[Q,'day1-am',3,'open'],[Q2,'day1-am',1,'open']]},['GET '+LIST]:()=>fail?offline():{activity:ACTIVITY,questions:[question(),other]}});
- assert.equal(h.root.querySelector('.f-talk-more'),null);assert.equal(sent(h,'GET',LIST).length,1);
- await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,2,'asked again while the list is unknown');assert.equal(h.root.querySelector('.f-talk-more'),null);
+ assert.equal(picks(h).length,0);assert.equal(sent(h,'GET',LIST).length,1);
+ await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,2,'asked again while the list is unknown');assert.equal(picks(h).length,0);
  fail=false;await h.tickTimers();
- assert.deepEqual(links(h.root.querySelector('.f-talk-more')).map(a=>a.href),['fiiu-talk.html?q='+Q2,'fiiu-talk.html?a=day1-am']);
+ assert.deepEqual(picks(h).map(a=>a.href),['fiiu-session.html?a=day1-am&q='+Q2,'fiiu-session.html?a=day1-am&q='+Q]);
  await h.tickTimers();await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,3,'known now: the same pulse reads nothing more');
 });
 
@@ -1083,15 +1093,15 @@ test('a page that opens or redraws itself keeps focus that was on it: the compos
  // Nobody focused on the page: nothing is moved.
  shown=false;pulse=[];const away=await page({['GET /api/fiiu/questions/'+Q]:()=>shown?thread():{status:404,data:{}},'GET /api/fiiu/pulse':()=>({questions:pulse})});
  shown=true;pulse=[[Q,'day1-am',3,'open']];await away.tickTimers();await flush();assert.notEqual(composer(away).querySelector('textarea').focused,true);
- // A block's list redrawn by the pulse keeps focus on the same question, or gives it to the heading when that question has gone.
+ // A session's list redrawn by the pulse keeps focus on the same question, or gives it to the list's heading when that question has gone.
  const Q3='dddddddd-dddd-4ddd-8ddd-dddddddddddd';let list=[question(),question({id:Q3,status:'closed',body:'¿Primera?',createdAt:'2026-10-21T13:00:00.000Z'})];
  pulse=[[Q,'day1-am',3,'open'],[Q3,'day1-am',2,'closed']];
  const block=await page({'GET /api/fiiu/pulse':()=>({questions:pulse}),['GET '+LIST]:()=>({activity:ACTIVITY,questions:list})},{search:'?a=day1-am'});
- focusInside(block,links(block.root).find(a=>a.href==='fiiu-talk.html?q='+Q3));
+ focusInside(block,picks(block).find(a=>a.href==='fiiu-session.html?a=day1-am&q='+Q3));
  pulse=[...pulse,[Q2,'day1-am',1,'open']];list=[...list,question({id:Q2,body:'¿Otra?',createdAt:'2026-10-21T15:00:00.000Z'})];await block.tickTimers();await flush();
- const same=links(block.root).find(a=>a.href==='fiiu-talk.html?q='+Q3);assert.equal(same.focused,true,'the same question, in the new list');
+ const same=picks(block).find(a=>a.href==='fiiu-session.html?a=day1-am&q='+Q3);assert.equal(same.focused,true,'the same question, in the new list');
  focusInside(block,same);pulse=pulse.filter(item=>item[0]!==Q3);list=list.filter(q=>q.id!==Q3);await block.tickTimers();await flush();
- assert.equal(block.root.querySelector('h1').focused,true,'its question gone, the heading');
+ assert.equal(key(block.root,'talkQuestions').focused,true,'its question gone, the list’s heading');
 });
 
 const UNSENT_KEY='nodal.talkUnsent.viewer-ana.'+Q;
@@ -1177,21 +1187,21 @@ const GENERAL_LIST='/api/fiiu/questions?activityId=general';
 const generalThread=(over={})=>({...thread({...over,question:{activityId:'general',talk:null,...over.question}}),activity:GENERAL});
 
 test('?a=general lists the festival-wide questions under “FIIU General”, with no date line',async()=>{
- const h=await page({['GET '+GENERAL_LIST]:{activity:GENERAL,questions:[question({activityId:'general',talk:null}),question({id:Q2,activityId:'general',talk:null,body:'¿Qué ciudad sueñas?',status:'closed',createdAt:'2026-10-21T12:00:00.000Z'})]}},{search:'?a=general'});
- const head=h.root.querySelector('.f-talk-head'),title=head.querySelector('h1');
+ const h=await page({['GET '+GENERAL_LIST]:{activity:GENERAL,questions:[question({activityId:'general',talk:null}),question({id:Q2,activityId:'general',talk:null,body:'¿Qué ciudad sueñas?',status:'closed',createdAt:'2026-10-21T12:00:00.000Z'})]},['GET /api/fiiu/questions/'+Q]:generalThread()},{search:'?a=general'});
+ const head=sessionHead(h),title=head.querySelector('h1');
  assert.equal(title.dataset.fiiuText,'talkGeneralTitle');assert.equal(title.textContent,'FIIU General');assert.equal(head.querySelector('.f-talk-when'),null,'no date, time or venue line');
  assert.ok(key(h.root,'talkQuestionsGeneral'));assert.equal(key(h.root,'talkQuestions'),undefined);
- assert.deepEqual(links(h.root).map(a=>a.href),['fiiu-talk.html?q='+Q,'fiiu-talk.html?q='+Q2]);
- h.lang('es');assert.equal(title.textContent,'FIIU General');h.lang('pt');assert.equal(title.textContent,'FIIU Geral');
+ assert.deepEqual(picks(h).map(a=>a.href),['fiiu-session.html?a=general&q='+Q,'fiiu-session.html?a=general&q='+Q2]);
+ h.lang('es');assert.equal(title.textContent,'FIIU General');h.lang('pt');assert.equal(title.textContent,'FIIU Geral');assert.equal(h.ctx.document.title,'NODAL · FIIU Geral');
  const none=await page({['GET '+GENERAL_LIST]:{activity:GENERAL,questions:[]}},{search:'?a=general'});assert.ok(key(none.root,'talkEmptyGeneral'));assert.equal(none.root.querySelector('.f-talk-when'),null);
 });
 
-test('a General question shows “FIIU General” in its head, and its back link returns to ?a=general',async()=>{
+test('a General question opens under “FIIU General”, with the festival-wide list',async()=>{
  const h=await page({['GET /api/fiiu/questions/'+Q]:generalThread(),['GET '+GENERAL_LIST]:{activity:GENERAL,questions:[question({activityId:'general',talk:null}),question({id:Q2,activityId:'general',talk:null,body:'¿Qué ciudad sueñas?'})]},'GET /api/fiiu/pulse':{questions:[[Q,'general',3,'open'],[Q2,'general',1,'open']]}});
- const head=h.root.querySelector('.f-talk-head');assert.equal(head.querySelector('h1').textContent,'FIIU General');assert.equal(head.querySelector('.f-talk-when'),null);assert.equal(head.querySelector('.f-talk-talk'),null);
- assert.equal(head.querySelector('.f-talk-question').textContent,'¿Qué te llevas de esta mañana?');assert.ok(composer(h),'people take part as on a block');
- const more=h.root.querySelector('.f-talk-more');assert.ok(key(more,'talkOtherQuestionsGeneral'));assert.equal(key(more,'talkOtherQuestions'),undefined);
- const back=key(more,'talkBackToGeneral');assert.equal(back.href,'fiiu-talk.html?a=general');
+ assert.deepEqual(h.replaced,['/fiiu-session.html?a=general&q='+Q]);
+ const head=sessionHead(h);assert.equal(head.querySelector('h1').textContent,'FIIU General');assert.equal(head.querySelector('.f-talk-when'),null);assert.equal(qa(h).querySelector('.f-talk-talk'),null);
+ assert.equal(qa(h).querySelector('.f-talk-question').textContent,'¿Qué te llevas de esta mañana?');assert.ok(composer(h),'people take part as on a block');
+ assert.ok(key(qa(h),'talkQuestionsGeneral'));assert.equal(key(qa(h),'talkQuestions'),undefined);assert.deepEqual(picks(h).map(a=>a.href),['fiiu-session.html?a=general&q='+Q,'fiiu-session.html?a=general&q='+Q2]);
 });
 
 test('the projector works for a General question: “FIIU General” over the question, with the General address under the code',async()=>{
@@ -1357,4 +1367,137 @@ test('the results line reads as two phrases in copied and spoken text, and stack
 test('chat messages use the shared linkify of fiiu-ui.js, so the URL rule lives in one place',()=>{
  const talk=readFileSync(new URL('../web/scripts/fiiu-talk.js',import.meta.url),'utf8');
  assert.doesNotMatch(talk,/https\?:\\\/\\\//,'no URL pattern of its own');assert.match(talk,/Fiiu\.linkify\(|\blinkify\b[^;]*=window\.Fiiu|,linkify[,}]/);
+});
+
+// The session page (fiiu-session.html): the session's details and the person's status at the top, its questions and the chat below.
+const PROGRAMME={event:{id:'fiiu-2026',title:'FIIU Fest 11',startsOn:'2026-10-20',endsOn:'2026-10-25',activities:[
+ {...ACTIVITY,title:'El poder de lo local, editado',description:'Una mañana sobre ciudadanía activa. Más en https://example.org/barrio',sessions:[['09:00–10:00','¡Bienvenidos al FIIU 11!'],['10:00–11:00','Ciudadanía activa']]},
+ {id:'day0-lab',date:'2026-10-20',period:'lab',registration:'application',title:'Gestión urbana en acción',time:'',venue:'',sessions:[]},
+ {id:'day2-am',date:'2026-10-22',period:'morning',registration:'general',title:'Cuidar y transformar la ciudad',time:'09:00–13:00',venue:'Auditorio NOS PUCP',sessions:[]},
+ {id:'closing-party',date:'2026-10-25',period:'party',registration:'social',title:'¡Fiesta de cierre!',time:'17:00',venue:'La Vermut Bar, Barranco',sessions:[]}]},config:{registrationOpen:true}};
+const programme=(config={})=>({...PROGRAMME,config:{...PROGRAMME.config,...config}});
+const mine=(over={})=>({user:{id:'u-ana',name:'Ana María',email:'ana@example.org'},registration:{id:'r1',version:1,answers:{activities:['day1-am'],externalActivities:[],applyLab:false},labStatus:'none'},attendance:[{activityId:'day1-am',createdAt:'2026-10-21T14:12:00.000Z'}],isAdmin:false,...over});
+const SESSION_ROUTES={'GET /api/fiiu?kind=news':PROGRAMME,'GET /api/fiiu/registration':mine()};
+
+test('a session page shows the session from the programme as organisers edited it: the festival and its date, the title, time, venue, description and talks',async()=>{
+ const h=await page(SESSION_ROUTES,{search:'?a=day1-am'});
+ const head=sessionHead(h);assert.ok(head,'the session header');assert.equal(head.tagName,'header');
+ const kicker=head.querySelector('.f-talk-kicker');assert.match(content(kicker),/FIIU Fest 11/);assert.equal(kicker.querySelector('[data-fiiu-date]').dataset.fiiuDate,'2026-10-21');assert.equal(kicker.querySelector('[data-fiiu-date]').dataset.fiiuDateStyle,undefined,'the long weekday and date');
+ assert.equal(head.querySelector('h1').textContent,'El poder de lo local, editado','the merged programme wins over the conversation’s copy');
+ const when=head.querySelector('.f-talk-when');assert.match(content(when),/09:00–13:00/);assert.match(content(when),/Auditorio MALI/);
+ const about=head.querySelector('.f-talk-desc');assert.match(content(about),/ciudadanía activa/);assert.deepEqual(links(about).map(a=>a.href),['https://example.org/barrio']);
+ const talks=head.querySelector('.f-talk-talks').querySelectorAll('li');assert.equal(talks.length,2);assert.match(content(talks[1]),/10:00–11:00/);assert.match(content(talks[1]),/Ciudadanía activa/);
+ assert.equal(h.ctx.document.title,'NODAL · El poder de lo local, editado');
+ assert.ok(descendants(qa(h)).includes(composer(h)),'the chat sits below the header, in the questions area');
+ assert.equal(qa(h).querySelector('.f-talk-question').textContent,'¿Qué te llevas de esta mañana?');
+ // Without the programme the conversation’s own copy of the session stands in.
+ const bare=await page({},{search:'?a=day1-am'});assert.equal(sessionHead(bare).querySelector('h1').textContent,'El poder de lo local');assert.equal(sessionHead(bare).querySelector('.f-talk-desc'),null);
+ // A start time alone reads “From 17:00”.
+ const party=await page({...SESSION_ROUTES,'GET /api/fiiu/questions?activityId=closing-party':{activity:{...PROGRAMME.event.activities[3]},questions:[]}},{search:'?a=closing-party'});
+ assert.equal(sessionHead(party).querySelector('[data-fiiu-time]').dataset.fiiuTime,'17:00');
+});
+
+test('a signed-in person sees their status for the session: in their registration, checked in with the time, and the session badge',async()=>{
+ const h=await page(SESSION_ROUTES,{search:'?a=day1-am'});
+ const box=sessionHead(h).querySelector('.f-talk-mine');assert.ok(box);
+ assert.ok(key(box,'talkInPlan'));assert.ok(key(box,'talkCheckedIn'));assert.match(content(box),/09:12/,'the Lima time of the check-in');assert.ok(key(box,'talkBadgeEarned'));
+ assert.equal(key(box,'addToRegistration'),undefined);assert.equal(key(box,'talkCheckinHint'),undefined);
+ // In the plan and not checked in yet: how to check in, and the badge still to earn.
+ const planned=await page({...SESSION_ROUTES,'GET /api/fiiu/registration':mine({attendance:[]})},{search:'?a=day1-am'}),waiting=sessionHead(planned).querySelector('.f-talk-mine');
+ assert.ok(key(waiting,'talkCheckinHint'));assert.ok(key(waiting,'talkBadgeLocked'));assert.equal(key(waiting,'talkCheckedIn'),undefined);
+ // Not in the plan: a way to add it while registration is open, nothing to check in to, and no badge row.
+ const other=await page({...SESSION_ROUTES,'GET /api/fiiu/registration':mine({registration:{id:'r1',version:1,answers:{activities:['day2-am'],externalActivities:[]},labStatus:'none'},attendance:[]})},{search:'?a=day1-am'});
+ const outside=sessionHead(other).querySelector('.f-talk-mine');assert.ok(key(outside,'talkNotInPlan'));assert.equal(key(outside,'addToRegistration').href,'fiiu.html#add-day1-am');
+ assert.equal(key(outside,'talkCheckinHint'),undefined);assert.equal(key(outside,'talkBadgeLocked'),undefined);
+ const closed=await page({...SESSION_ROUTES,'GET /api/fiiu?kind=news':programme({registrationOpen:false}),'GET /api/fiiu/registration':mine({registration:{id:'r1',version:1,answers:{activities:[],externalActivities:[]},labStatus:'none'},attendance:[]})},{search:'?a=day1-am'});
+ assert.equal(key(sessionHead(closed),'addToRegistration'),undefined,'no way to add it once registration closes');
+ // The laboratory names the application's state; an organiser without a registration gets no status.
+ const lab=await page({...SESSION_ROUTES,'GET /api/fiiu/questions?activityId=day0-lab':{activity:PROGRAMME.event.activities[1],questions:[]},'GET /api/fiiu/registration':mine({registration:{id:'r1',version:1,answers:{activities:[],externalActivities:[],applyLab:true},labStatus:'pending'},attendance:[]})},{search:'?a=day0-lab'});
+ assert.ok(key(sessionHead(lab),'pendingShort'));
+ const organiser=await page({...SESSION_ROUTES,['GET /api/fiiu/questions/'+Q]:thread({me:{organiser:true}}),'GET /api/fiiu/registration':mine({registration:null,attendance:[],isAdmin:true})},{search:'?a=day1-am'});
+ assert.equal(sessionHead(organiser).querySelector('.f-talk-mine')?.children.length||0,0);
+ h.lang('es');assert.equal(key(box,'talkCheckinHint')?.textContent,undefined);assert.equal(h.ctx.window.Fiiu.t('talkCheckinHint'),'Registra tu asistencia con el QR en la sala');
+});
+
+test('the session’s questions are listed open first with their type, status and answer count; the selected one opens its chat in place, another swaps it and Back returns',async()=>{
+ const closedQ=question({id:Q2,status:'closed',body:'¿Primera pregunta?',talk:null,kind:'rating',messageCount:7,createdAt:'2026-10-21T13:00:00.000Z'});
+ const h=await page({...SESSION_ROUTES,['GET '+LIST]:{activity:ACTIVITY,questions:[closedQ,question()]},['GET /api/fiiu/questions/'+Q2]:thread({question:{id:Q2,status:'closed',body:'¿Primera pregunta?',talk:null},me:{canPost:false},messages:[message(M3,{body:'Respuesta cerrada'})]})},{search:'?a=day1-am'});
+ const list=picks(h);assert.equal(list.length,2);
+ assert.deepEqual(list.map(a=>a.href),['fiiu-session.html?a=day1-am&q='+Q,'fiiu-session.html?a=day1-am&q='+Q2],'open first, as links that work in a new tab');
+ assert.equal(list[0]['aria-current'],'true','the most recent open question is selected');assert.equal(list[1]['aria-current'],undefined);
+ assert.ok(key(list[0],'talkKindChat'));assert.ok(key(list[0],'talkOpenChip'));assert.match(content(list[0]),/2 answers/);
+ assert.ok(key(list[1],'talkScoreChip'));assert.ok(key(list[1],'talkClosedChip'));assert.match(content(list[1]),/7 answers/);
+ assert.equal(qa(h).querySelector('.f-talk-question').textContent,'¿Qué te llevas de esta mañana?');assert.equal(h.replaced.length,0,'a session address stays as it is');
+ tap(list[1]);await flush();
+ assert.equal(list[1].prevented,true);assert.deepEqual(h.pushed,['/fiiu-session.html?a=day1-am&q='+Q2]);
+ assert.equal(qa(h).querySelector('.f-talk-question').textContent,'¿Primera pregunta?');assert.deepEqual(rows(h).map(node=>node.dataset.id),[M3]);assert.equal(composer(h),null,'closed');
+ assert.equal(picks(h)[1]['aria-current'],'true');assert.equal(picks(h)[0]['aria-current'],undefined);assert.ok(sessionHead(h),'the header stays');
+ await h.back();await flush();
+ assert.equal(qa(h).querySelector('.f-talk-question').textContent,'¿Qué te llevas de esta mañana?','Back returns to the previous question');assert.ok(composer(h));assert.equal(picks(h)[0]['aria-current'],'true');
+ assert.equal(h.timers.filter(timer=>!timer.cleared).length,1,'one poll, whatever the switches');
+ // A single question needs no list; none says so and watches for one.
+ const one=await page(SESSION_ROUTES,{search:'?a=day1-am'});assert.equal(picks(one).length,0);assert.ok(composer(one));
+ const none=await page({...SESSION_ROUTES,['GET '+LIST]:{activity:ACTIVITY,questions:[]}},{search:'?a=day1-am'});assert.ok(key(qa(none),'talkEmptyBlock'));assert.ok(sessionHead(none).querySelector('h1'));
+ assert.deepEqual(none.timers.map(timer=>timer.delay),[8000]);
+});
+
+test('a ?q= address alone opens its question and replaces the address with its session, and an activity in capitals is read in lower case',async()=>{
+ const h=await page(SESSION_ROUTES);
+ assert.deepEqual(h.replaced,['/fiiu-session.html?a=day1-am&q='+Q]);assert.equal(sessionHead(h).querySelector('h1').textContent,'El poder de lo local, editado');assert.ok(composer(h));
+ assert.equal(sent(h,'GET','/api/fiiu/questions/'+Q).length,1,'the question is read once');
+ const upper=await page(SESSION_ROUTES,{search:'?a=Day1-AM'});assert.ok(composer(upper));assert.equal(sent(upper,'GET',LIST).length,1);
+});
+
+test('General shows a short description of the festival-wide space instead of session details',async()=>{
+ const h=await page({...SESSION_ROUTES,['GET '+GENERAL_LIST]:{activity:GENERAL,questions:[question({activityId:'general',talk:null})]},['GET /api/fiiu/questions/'+Q]:generalThread()},{search:'?a=general'});
+ const head=sessionHead(h);assert.equal(head.querySelector('h1').dataset.fiiuText,'talkGeneralTitle');assert.ok(key(head,'talkGeneralAbout'));
+ assert.equal(head.querySelector('.f-talk-when'),null);assert.equal(head.querySelector('.f-talk-mine')?.children.length||0,0,'no session status for the whole festival');
+ h.lang('es');assert.equal(key(head,'talkGeneralAbout').textContent,h.ctx.window.Fiiu.rows.talkGeneralAbout[1]);
+});
+
+test('a guest sees the session and, in the questions area, a sign-in that comes back to the same address',async()=>{
+ const h=await page({'GET /api/fiiu?kind=news':PROGRAMME,['GET '+LIST]:{status:401,data:{error:'sign in required'}}},{search:'?a=day1-am'});
+ assert.equal(sessionHead(h).querySelector('h1').textContent,'El poder de lo local, editado');
+ const box=qa(h);assert.ok(key(box,'talkSignIn'));assert.equal(links(box).find(a=>a.href.startsWith('login.html')).href,'login.html?next='+encodeURIComponent('/fiiu-session.html?a=day1-am'));
+ assert.equal(sent(h,'GET','/api/fiiu/registration').length,0,'a guest’s status is not asked for');assert.equal(h.timers.length,0);
+});
+
+test('someone signed in without a registration is told how to register, whether registration is open, with which account, and can switch accounts',async()=>{
+ const refusal={status:403,data:{error:'festival registration required',code:'not_registered'}},carla=mine({user:{id:'u-carla',name:'Carla',email:'carla@example.org'},registration:null,attendance:[]});
+ const h=await page({...SESSION_ROUTES,'GET /api/fiiu/registration':carla,['GET '+LIST]:refusal,'POST /api/auth/logout':{ok:true}},{search:'?a=day1-am'});
+ const box=qa(h);assert.ok(key(box,'talkRegister'));assert.ok(key(box,'talkAccount'));assert.match(content(box),/carla@example\.org/);
+ assert.ok(key(box,'talkRegisterHint'));assert.match(h.ctx.window.Fiiu.t('talkRegisterHint'),/5 minutes/,'the form takes about 5 minutes, as it says');
+ assert.equal(key(box,'register').href,'fiiu.html#add-day1-am','the registration opens with this session ticked');assert.ok(key(box,'talkOtherAccountHint'));
+ await key(box,'talkOtherAccount').listeners.click();await flush();
+ assert.equal(sent(h,'POST','/api/auth/logout').length,1);assert.deepEqual(h.assigned,['/login.html?next='+encodeURIComponent('/fiiu-session.html?a=day1-am')]);
+ const closed=await page({...SESSION_ROUTES,'GET /api/fiiu?kind=news':programme({registrationOpen:false}),'GET /api/fiiu/registration':carla,['GET '+LIST]:refusal},{search:'?a=day1-am'});
+ assert.ok(key(qa(closed),'talkRegisterClosed'));assert.equal(key(qa(closed),'register'),undefined,'no promise registration cannot keep');assert.equal(key(qa(closed),'talkRegisterHint'),undefined);
+ // Registered meanwhile (in another tab, or Back from the form): coming back to the tab opens the conversation.
+ let registered=false;
+ const later=await page({...SESSION_ROUTES,'GET /api/fiiu/registration':carla,['GET '+LIST]:()=>registered?{activity:ACTIVITY,questions:[question()]}:refusal},{search:'?a=day1-am'});
+ registered=true;await later.visible(false);await later.visible(true);await flush();assert.ok(composer(later),'the chat opens once the registration exists');
+});
+
+test('arriving shows the header and the question first, not the end of the chat, with a control that goes to the latest answers',async()=>{
+ const gate=later();
+ const h=await page({...SESSION_ROUTES,['GET '+LIST]:()=>gate.promise.then(()=>({activity:ACTIVITY,questions:[question()]}))},{search:'?a=day1-am'});
+ const scroller={scrollHeight:3000,scrollTop:0,clientHeight:800};h.ctx.document.scrollingElement=scroller;gate.resolve();await flush();
+ assert.ok(composer(h));assert.equal(scroller.scrollTop,0,'the page stays at the top, with the session and the question');
+ const jump=key(qa(h),'talkJumpLatest');assert.ok(jump);assert.equal(jump.hidden,false);
+ await jump.listeners.click();assert.equal(scroller.scrollTop,3000,'the control goes to the end of the conversation');
+ const empty=await page({...SESSION_ROUTES,['GET /api/fiiu/questions/'+Q]:thread({messages:[]})},{search:'?a=day1-am'});assert.equal(key(qa(empty),'talkJumpLatest').hidden,true,'nothing to jump to');
+ h.lang('es');assert.equal(jump.textContent,'Ver las últimas respuestas ↓');
+});
+
+test('fiiu-session.html loads the conversation page’s assets under its own title, resizes for the phone keyboard, and is served and kept out of caches like it',()=>{
+ const read=name=>readFileSync(new URL('../'+name,import.meta.url),'utf8'),html=read('web/pages/fiiu-session.html'),talk=read('web/pages/fiiu-talk.html');
+ const assets=page=>[...page.matchAll(/(?:src|href)="([^"]+\.(?:js|css)\?v=[^"]+)"/g)].map(match=>match[1]);
+ assert.deepEqual(assets(html),assets(talk),'the same scripts and styles, in the same order');
+ assert.match(html,/<title>NODAL · Sesión<\/title>/);assert.match(html,/<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">/);
+ assert.match(html,/<body class="f-page" data-page="fiiu-session">/);assert.match(html,/id="fiiuTalkRoot"/);assert.match(html,/id="fiiuStatus"/);
+ const list=(source,name)=>source.match(new RegExp(`const ${name} = (?:new Set\\()?\\[([^\\]]*)\\]`))?.[1]||'';
+ assert.ok(list(read('server/server.js'),'STATIC_PAGES').includes("'fiiu-session.html'"),'served by the server');assert.ok(list(read('scripts/build-static.js'),'SERVER_PAGES').includes("'fiiu-session.html'"),'never copied to the CDN');
+ const vercel=JSON.parse(read('vercel.json')),headers=Object.fromEntries(vercel.headers.filter(r=>new RegExp(`^${r.source}$`).test('/fiiu-session.html')).flatMap(r=>r.headers.map(({key,value})=>[key,value])));
+ assert.equal(headers['Cache-Control'],'no-store');assert.match(headers['X-Robots-Tag']||'',/noindex/);
+ const css=read('web/styles/fiiu-talk.css');assert.match(css,/data-page="fiiu-session"/,'the conversation layout applies to the session page');
 });
