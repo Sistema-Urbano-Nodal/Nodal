@@ -29,8 +29,8 @@
   liveTalkOne:['live conversation','conversación en vivo','conversa ao vivo'],liveTalkMany:['live conversations','conversaciones en vivo','conversas ao vivo'],
   liveMoreOne:['1 more conversation','1 conversación más','Mais 1 conversa'],liveMoreMany:['{n} more conversations','{n} conversaciones más','Mais {n} conversas'],
  });
- // The three most active conversations show; the others (the server sends five at most) fold under one control, so the band leaves room for the page.
- const REFRESH=30000,SHOWN=3;
+ // The three most active conversations show; the others (the server sends five at most, LISTED) fold under one control, so the band leaves room for the page.
+ const REFRESH=30000,SHOWN=3,LISTED=5;
  // fiiu-ui.js builds the session page's address (Fiiu.sessionLink); the same address is built here while a page loads an older fiiu-ui.js.
  const sessionLink=(activityId,questionId)=>(Fiiu.sessionLink||((a,q)=>'fiiu-session.html?a='+encodeURIComponent(a)+(q?'&q='+encodeURIComponent(q):'')))(activityId,questionId);
  const formats=new Map(),format=(id,options)=>{const k=locale()+'|'+id;if(!formats.has(k))formats.set(k,new Intl.NumberFormat(locale(),options));return formats.get(k);};
@@ -47,7 +47,8 @@
  // A node's text, read through its children (a count is a number and its label).
  const text=node=>node.children.length?[...node.children].map(text).join(''):node.textContent;
  // keys collects the nodes that hold a number, by a name that stays the same from one read to the next.
- function build(d,{compact,preview,named},keys){
+ // open: the open conversations the console line counts when the read lists as many as it can (see read); 0 otherwise.
+ function build(d,{compact,preview,named,open=0},keys){
   const keep=(node,id)=>{keys.set(id,node);return node;},tally=(id,n,one,many,cls)=>keep(countLabel(count(n),one,many,cls),id);
   const now=slot(d.now),next=slot(d.next),list=talks(d.conversations),pulse=d.pulse||{},badges=d.badges||{},today=limaDate();
   const head=el('div','f-live-head'),title=tr(compact?'h3':'h2','liveTitle','f-live-title');title.id=compact?'f-live-line-title':'f-live-title';head.append(title);
@@ -59,7 +60,7 @@
    const item=[now,next].find(slotted=>slotted&&slotted.activity.id!==named)||null,line=el('p','f-live-line'),counts=el('p','f-live-counts');
    if(item){const name=source('a',item.activity.title,'f-live-session-title');name.href=sessionLink(item.activity.id);line.append(tr('span',item===now?'liveNow':'liveNext','f-live-label'));when(line,item.activity,item!==now);line.append(name);}
    else if(!now&&!next)line.append(tr('span','liveDone'));
-   counts.append(tally('today',pulse.checkedInToday,'liveTodayOne','liveTodayMany'),tally('talks',list.length,'liveTalkOne','liveTalkMany'));
+   counts.append(tally('today',pulse.checkedInToday,'liveTodayOne','liveTodayMany'),tally('talks',Math.max(list.length,open),'liveTalkOne','liveTalkMany'));
    return [head,...(line.children.length?[line]:[]),counts,link('liveOpen','fiiu.html#en-vivo','f-text-link f-live-open')];
   }
   const at=Date.parse(d.generatedAt);
@@ -105,7 +106,7 @@
  // onFirstDraw: called once, after the first answer is drawn (the band, the line or nothing; a failed read draws nothing). The band goes in above the
  // festival page's programme, panel and feeds when its read answers, so the page lands a link (#registration, #add-<block>, a saved place) again then.
  function mount(host,{compact=false,event=null,organiser=false,registrationOpen=true,named=()=>null,known=()=>null,onFirstDraw=null}={}){
-  let timer=null,stopped=false,busy=false,shownSig='',shownKeys=new Map(),last=null,first=onFirstDraw;
+  let timer=null,stopped=false,busy=false,shownSig='',shownKeys=new Map(),last=null,first=onFirstDraw,open=0,pulsed=false;
   host.className='f-live'+(compact?' is-compact':'');host.hidden=true;
   const inDates=()=>{const today=limaDate();return !event||(today>=event.startsOn&&today<=event.endsOn);};
   const pause=()=>{if(timer!==null){clearInterval(timer);timer=null;}};
@@ -113,7 +114,7 @@
   const hide=()=>{host.hidden=true;host.replaceChildren();host.removeAttribute?.('aria-labelledby');shownSig='';shownKeys=new Map();};
   const drawn=()=>{const call=first;first=null;call?.();};
   function show(d){
-   const preview=!inDates(),skip=compact?named()||null:null,sig=shape(d,compact,preview,skip),keys=new Map(),tree=build(d,{compact,preview,named:skip},keys);
+   const preview=!inDates(),skip=compact?named()||null:null,sig=shape(d,compact,preview,skip),keys=new Map(),tree=build(d,{compact,preview,named:skip,open},keys);
    if(sig===shownSig){for(const [id,node] of keys){const old=shownKeys.get(id);if(!old||text(old)===text(node))continue;if(node.children.length)old.replaceChildren(...[...node.children]);else old.textContent=node.textContent;}}
    else{
     // A redraw gives focus back to the same link when it was on one in the band, and keeps the folded conversations open for a reader who opened them.
@@ -137,6 +138,12 @@
    busy=true;
    try{
     const d=await api('/api/fiiu/live');if(stopped)return;if(!d||typeof d.active!=='boolean')throw Error('live');
+    /* The read lists five conversations at most. At that cap the console line counts the open ones from the public pulse (cached by the CDN, and
+       shared with the block's conversation links): on the first read the block's own, read a moment before; after that a fresh one, so the count stays
+       live. A pulse that fails keeps its last counts, and the line never says fewer than the read lists. */
+    if(compact&&d.active&&talks(d.conversations).length>=LISTED&&typeof Fiiu.pulse==='function'){const counts=await Fiiu.pulse({fresh:pulsed});if(stopped)return;open=[...(counts?.open?.values()||[])].reduce((sum,n)=>sum+n,0);}
+    else open=0;
+    pulsed=true;
     if(!d.active){last=null;pause();hide();}
     else{last=d;show(d);follow();}
     drawn();

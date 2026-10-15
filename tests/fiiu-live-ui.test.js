@@ -335,6 +335,24 @@ test('the three most active conversations show; the rest fold under one control 
  answer=LIVE();await h.tickTimers();await flush();assert.equal(h.host.querySelector('.f-live-more'),null,'three or fewer: nothing to fold');
 });
 
+test('the console line counts every open conversation, past the five the live read lists, from the public pulse',async()=>{
+ const talk=n=>({...LIVE().conversations[0],questionId:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeee'+String(n).padStart(2,'0'),body:'Pregunta '+n});
+ // The pulse lists every question that is not hidden: n open ones (one of them General) and a closed one.
+ const pulseOf=n=>({questions:[...Array.from({length:n},(_,i)=>[talk(i+1).questionId,i?'day1-am':'general',i+1,'open']),['ffffffff-ffff-4fff-8fff-ffffffffffff','day2-am',20,'closed']]});
+ let questions=pulseOf(7),listed=[1,2,3,4,5];
+ const h=await consoleBlock(path=>path==='/api/fiiu/pulse'?questions:feed(elsewhere,()=>LIVE({conversations:listed.map(talk)}))(path));
+ const pulses=()=>h.requests.filter(path=>path==='/api/fiiu/pulse').length,tick=async()=>{await Promise.all(h.timers.filter(timer=>!timer.cleared).map(timer=>timer.callback()));await flush();};
+ assert.match(content(h.line()),/7\s+live conversations/);assert.equal(pulses(),1,'the first count shares the block’s own pulse read');
+ questions=pulseOf(6);await tick();assert.match(content(h.line()),/6\s+live conversations/,'each refresh at the cap reads it again');assert.equal(pulses(),2);
+ // A pulse that fails or lags never counts fewer than the live read lists.
+ questions={status:503,data:{error:'unavailable'}};await tick();assert.match(content(h.line()),/6\s+live conversations/,'a failed pulse keeps the count shown');
+ questions=pulseOf(3);await tick();assert.match(content(h.line()),/5\s+live conversations/);
+ // Below the cap the list is the whole count, and the pulse is not read for it.
+ listed=[1,2];const before=pulses();await tick();assert.match(content(h.line()),/2\s+live conversations/);assert.equal(pulses(),before);
+ // Back at the cap later, the pulse is read fresh, not taken from when the block was drawn.
+ listed=[1,2,3,4,5];questions=pulseOf(8);await tick();assert.match(content(h.line()),/8\s+live conversations/);assert.equal(pulses(),before+1);
+});
+
 test('the console line does not repeat the session the block already names as the person’s next; it names the festival’s next one instead',async()=>{
  // Ana's plan has day1-am, under way at 10:30: the block already says so, so the live line moves on to day1-pm.
  const h=await consoleBlock(feed(registered));const line=h.line();
