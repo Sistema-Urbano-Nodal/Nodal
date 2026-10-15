@@ -114,6 +114,24 @@ test('the latest page skips deleted messages, hides hidden ones unless asked and
  assert.equal((await store.userMessages(ana.id)).length,7);
 });
 
+test('the most liked page ranks the visible messages of the whole question by likes, newest first on a tie',async()=>{
+ const {db,store,ana,org,question,message}=setup();
+ const q=await question(),other=await question(),ms=[];for(let i=0;i<6;i++)ms.push(await message(q,ana,{body:'m'+i}));
+ await message(other,ana,{body:'elsewhere'});
+ const likes=(m,n)=>db.prepare('UPDATE fiiu_messages SET like_count=? WHERE id=?').run(n,m.id);
+ likes(ms[0],4);likes(ms[2],1);likes(ms[3],1);likes(ms[4],9);likes(ms[5],7);
+ await store.updateMessage({id:ms[4].id},{hiddenAt:at(70),hiddenBy:org.id});await store.updateMessage({id:ms[5].id},{body:'',deletedAt:at(71)});
+ assert.deepEqual((await store.topMessages(q.id,{limit:12})).map(m=>[m.body,m.likeCount]),[['m0',4],['m3',1],['m2',1],['m1',0]],'hidden and deleted messages never rank; m3 is newer than m2');
+ assert.deepEqual((await store.topMessages(q.id,{limit:2})).map(m=>m.body),['m0','m3']);
+ assert.equal((await store.topMessages(q.id)).length,4,'12 by default');
+ // Two messages of one millisecond and one count still have one order.
+ const same=at(90),[a,b]=[randomUUID(),randomUUID()].sort();await message(q,ana,{id:a,createdAt:same,body:'a'});await message(q,ana,{id:b,createdAt:same,body:'b'});
+ assert.deepEqual((await store.topMessages(q.id)).map(m=>m.body).slice(-3),['b','a','m1']);
+ for(const bad of [0,-1,1.5,'12'])await assert.rejects(store.topMessages(q.id,{limit:bad}),/limit/,String(bad));
+ for(let i=0;i<60;i++)await message(q,ana,{body:'x'+i});
+ assert.equal((await store.topMessages(q.id,{limit:500})).length,50,'never more than 50 rows');
+});
+
 test('question edits are compare-and-set on version and only text, talk and status move the revision',async()=>{
  const {store,question}=setup();
  const q=await question();
@@ -364,6 +382,17 @@ test('Supabase messagesSince and the latest page send exact keyset queries and r
  assert.equal(pg.calls[4].query.hidden_at,undefined);assert.equal(pg.calls[4].query.and,`(or(hidden_at.is.null,user_id.eq.${U}))`);assert.match(pg.calls[4].query.or,/^\(created_at\.lt\./);
  await assert.rejects(pg.store.latestMessages(Q,{ownHidden:'x,y'}),/identifier/,'an author id never takes PostgREST syntax');
  await assert.rejects(pg.store.latestMessages(Q,{before:{createdAt:'x),or(id.gt.0',id:M}}),e=>e.status===400,'a cursor cannot inject a filter');
+});
+
+test('Supabase reads the most liked page with the visible filters and one order, capped at 50 rows',async()=>{
+ const pg=supabase(()=>({body:[{id:'b',created_at:'2026-10-21T14:00:02.5+00:00',like_count:'4',organiser:false},{id:'a',created_at:'2026-10-21T14:00:01+00:00',like_count:1,organiser:true}]}));
+ const rows=await pg.store.topMessages(Q,{limit:12});
+ assert.equal(pg.calls[0].path,'/rest/v1/fiiu_messages');assert.equal(pg.calls[0].method,'GET');
+ assert.equal(without(pg.calls[0].params,'select'),`question_id=eq.${Q}&deleted_at=is.null&hidden_at=is.null&order=like_count.desc%2Ccreated_at.desc%2Cid.desc&limit=12`);
+ assert.match(pg.calls[0].query.select,/(^|,)like_count(,|$)/);
+ assert.deepEqual(rows.map(r=>[r.id,r.createdAt]),[['b','2026-10-21T14:00:02.500Z'],['a','2026-10-21T14:00:01.000Z']],'in the order the database ranked them, times in UTC');
+ await pg.store.topMessages(Q,{limit:5000});assert.equal(pg.calls[1].query.limit,'50');
+ await pg.store.topMessages(Q);assert.equal(pg.calls[2].query.limit,'12');
 });
 
 test('Supabase likes ignore duplicates, unlikes return what they removed, and updates turn null filters into IS NULL',async()=>{

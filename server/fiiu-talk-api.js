@@ -12,7 +12,7 @@ const draftKey=userId=>createHash('sha256').update('nodal-talk-draft:'+userId).d
 /* FIIU block conversations over HTTP. The pulse is the one public route: ids, blocks, revisions and statuses, the same
    for everyone, so the CDN answers the 4-second polls of a full auditorium (one venue address) and a phone fetches
    messages only when its question's revision moved. Everything else needs a festival registration or an organiser. */
-const PULSE_CACHE='public, max-age=0, s-maxage=2, stale-while-revalidate=4';
+const PULSE_CACHE='public, max-age=0, s-maxage=2, stale-while-revalidate=4',LIVE_CACHE='private, no-store';
 const PULSE_MS=1000,MEMO_MS=60000,MEMO_MAX=5000,UPLOAD_GRACE_MS=10*60000,RETRY_MS=10*60000,CHANGES_MS=1500,CHANGES_MAX=200;
 const STALE_READY_MS=30*60000,STALE_PENDING_MS=60*60000,THUMBS_MAX=200,THUMBS_BYTES=20*1024*1024;
 const CSV_HEADER=['question','block','talk','createdAtLima','author','email','organiser','text','files','likes','hidden','deleted'];
@@ -33,9 +33,12 @@ const uploadBody=req=>bodyJson(req,4*1024*1024+160*1024);
 const thumbType=bytes=>bytes.toString('ascii',0,4)==='RIFF'&&bytes.toString('ascii',8,12)==='WEBP'?'image/webp':'image/jpeg';
 const ROUTES=[
  ['pulse',/^\/api\/fiiu\/pulse$/,['GET','HEAD']],
+ ['live',/^\/api\/fiiu\/live$/,['GET','HEAD']],
  ['questions',/^\/api\/fiiu\/questions$/,['GET','HEAD']],
  ['question',/^\/api\/fiiu\/questions\/([^/]+)$/,['GET','HEAD']],
  ['messages',/^\/api\/fiiu\/questions\/([^/]+)\/messages$/,['GET','HEAD','POST']],
+ // The projector's "Most liked" wall, for organisers.
+ ['top',/^\/api\/fiiu\/questions\/([^/]+)\/top$/,['GET','HEAD']],
  ['message',/^\/api\/fiiu\/messages\/([^/]+)$/,['DELETE']],
  ['like',/^\/api\/fiiu\/messages\/([^/]+)\/like$/,['PUT','DELETE']],
  ['rating',/^\/api\/fiiu\/questions\/([^/]+)\/rating$/,['PUT']],
@@ -48,6 +51,8 @@ const ROUTES=[
  ['export',/^\/api\/admin\/fiiu\/questions\/([^/]+)\/export$/,['GET','HEAD']],
  ['qr',/^\/api\/admin\/fiiu\/questions\/([^/]+)\/qr$/,['GET','HEAD']],
 ];
+// The writes after which the live window is built again (see the finally below); 'message' is only ever a DELETE.
+const LIVE_CLEARS=new Set(['hidden','message','adminQuestion']);
 const routeOf=path=>{for(const [name,pattern,methods] of ROUTES){const m=path.match(pattern);if(m)return {name,param:m[1],methods};}return null;};
 /* Each write spends its own per-account budget (server.js): a busy chat never blocks likes or moderation. So do file
    reads, so a photo-heavy chat (or the projector and the chat open on one organiser account) never runs the 'read'
@@ -100,7 +105,8 @@ export async function deleteTalkData(store,userId,{now=Date.now()}={}){
 // publicOrigin: the configured site origin (a string or a function of the request) the projector QR points to.
 // downloads: the byte budget shared with the course files (server.js), so one account cannot double its Storage egress.
 // programme: the festival programme as organisers edited it (server/fiiu-programme.js, memoised per instance).
-export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,downloads=createByteBudget(DOWNLOAD_LIMITS),encodeQr=null,publicOrigin=()=>fail('public base URL is not configured',503),clock=Date.now,log=console.error,programme={event:async()=>FIIU_EVENT}}){
+// live: the festival live window (server/fiiu-live.js), or null, which leaves its route unanswered (404).
+export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,downloads=createByteBudget(DOWNLOAD_LIMITS),encodeQr=null,publicOrigin=()=>fail('public base URL is not configured',503),clock=Date.now,log=console.error,programme={event:async()=>FIIU_EVENT},live=null}){
  const now=()=>new Date(clock()).toISOString();
  // A block's title, venue or talks never stop a conversation: if the edits cannot be read, the built-in programme serves.
  const eventOf=async()=>{try{return await programme.event();}catch(error){log('festival programme unavailable:',errorText(error));return FIIU_EVENT;}};
@@ -269,6 +275,23 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     send(res,200,{question:questionView(q,{organiser}),activity:activity?activityView(activity):null,messages:list,liked:[...liked],
      before:page.more?encodeCursor(page.rows[0]):null,revision:Number(q.revision),me:{draftKey:draftKey(user.id),organiser,canPost:q.status==='open',...(rating?{score}:{})}});
     return true;
+   }
+   if(name==='live'){
+    /* The same for every reader it answers (server/fiiu-live.js keeps it 15 s), but only registered people and organisers
+       may see it, so no shared cache may keep it either. */
+    if(!live){send(res,404,{error:'not found'});return true;}
+    await access(user);
+    send(res,200,await live.read(user),{'Cache-Control':LIVE_CACHE});return true;
+   }
+   if(name==='top'){
+    /* The visible answers of the whole question with the most likes, ties newest first: the wall ranked only the latest
+       page (100) before, so a busy question's early, most liked answers never made it. Organiser views, as the
+       projector's other reads; a hidden question is the organisers' to show or not. */
+    if(user.permission!=='admin'){send(res,403,{error:'administrator access required'});return true;}
+    const raw=url.searchParams.get('limit'),limit=raw===null?12:/^\d{1,2}$/.test(raw)?Number(raw):0;
+    if(limit<1||limit>50)fail('limit must be a whole number from 1 to 50');
+    const q=await questionFor(param,true);
+    send(res,200,{messages:(await views(await store.topMessages(q.id,{limit}),{viewer:user.id,organiser:true})).list});return true;
    }
    if(name==='messages'&&read){
     const {organiser}=await access(user),since=url.searchParams.get('since'),before=url.searchParams.get('before');
@@ -453,16 +476,19 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     const rows=[CSV_HEADER,...messages.map(m=>[q.body,block,q.talk??'',limaTime(m.createdAt),m.authorFull||m.authorName,emails.get(m.userId)??'',Boolean(m.organiser),m.body,(names.get(m.id)??[]).join('; '),Number(m.likeCount),Boolean(m.hiddenAt),Boolean(m.deletedAt)])];
     send(res,200,csv(rows),{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="fiiu-conversation-${q.id.slice(0,8)}.csv"`});return true;
    }
-   // name==='qr': the projector's join code, for the configured origin (never the Host header in production).
+   // name==='qr': the projector's join code, for the configured origin (never the Host header in production). It opens
+   // the session page at the question (the page finds its session), not the old address a redirect would cost a room.
    const q=await store.getQuestion(identifier(param));if(!q||q.eventId!==EVENT_ID)unavailable();
-   const link=`${originFor(req)}/fiiu-talk.html?q=${q.id}`;
+   const link=`${originFor(req)}/fiiu-session.html?q=${q.id}`;
    send(res,200,{url:link,qr:qrOf(link)});return true;
   }catch(err){
    // Somebody else's error text (expose: false, as a backend adapter marks it) goes to the global handler, which hides it.
    if(typeof err?.code==='string'&&/^[a-z_]+$/.test(err.code)&&err.status>=400&&err.status<500&&err.expose!==false&&!res.headersSent){send(res,err.status,{error:err.message,code:err.code});return true;}
    throw err;
   /* A like answer already carries its count and state, and a score its totals and revision, so these (the busiest
-     writes in a full room) keep the shared since answers rather than make every poll that follows read again. */
-  }finally{if(wrote){pulseMemo=null;if(name!=='like'&&name!=='rating')changesMemo.clear();}}
+     writes in a full room) keep the shared since answers rather than make every poll that follows read again. What
+     takes text out of the conversations (a hide, a withdrawal, a question's edit, close or hide) drops the live view
+     too, so the band never shows it for the rest of its 15 s; a new answer waits for the next window. */
+  }finally{if(wrote){pulseMemo=null;if(name!=='like'&&name!=='rating')changesMemo.clear();if(LIVE_CLEARS.has(name))live?.clear();}}
  };
 }

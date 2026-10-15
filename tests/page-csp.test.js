@@ -16,6 +16,8 @@ const META=/<meta\b[^>]*http-equiv="Content-Security-Policy"[^>]*>/i;
    frame-ancestors, as a header on every page it serves, so those pages carry no meta. The CDN copies
    (opportunities, privacy) get only frame-ancestors from vercel.json and keep theirs; so does the home page. */
 const KEEPS_META=new Set([...STATIC_PAGES,'index.html']);
+// The old conversation page stays in the repository for links already out there, which the server sends to the session page.
+const MOVED=new Map([['fiiu-talk.html','/fiiu-session.html']]);
 
 async function boot(t){
   const db=createDatabase({filename:':memory:'});
@@ -47,6 +49,7 @@ test('every page is either served by the server or copied to the CDN',()=>{
 test('server pages get their policy from the header and carry no CSP meta that would stall the preload scanner',async t=>{
   const {get}=await boot(t);
   for(const page of SERVER_PAGES){
+    if(MOVED.has(page)){const moved=await get(page,null);assert.equal(moved.status,302,page);assert.equal(moved.headers.get('location'),MOVED.get(page),page);continue;}
     // Sign-in sends a signed-in visitor on, and the staff pages need an organiser.
     let response=await get(page,page==='login.html'?null:'admin');
     if(response.status>=300&&response.status<400)response=await get(page,null);
@@ -75,7 +78,7 @@ test('no page is kept for Back, so signing out never leaves a restorable copy of
     if(!/^text\/html/.test(response.headers.get('content-type')||''))continue;
     assert.equal(response.headers.get('cache-control'),'no-store',`${page} ${actor||'guest'}`);checked.add(page);
   }
-  assert.deepEqual([...checked].sort(),[...SERVER_PAGES].sort());
+  assert.deepEqual([...checked].sort(),SERVER_PAGES.filter(page=>!MOVED.has(page)).sort());
 });
 
 test('pages that keep a CSP meta keep the full policy in it',()=>{

@@ -65,6 +65,21 @@ test('the pulse is public, cacheable and cookie-free while conversations need a 
  assert.equal((await call('/api/fiiu/questions/not-a-route/at-all')).status,404);
 });
 
+test('old conversation links, and loose spellings of the session page typed by hand, redirect to the session page with the query kept',async t=>{
+ const {call}=await setup(t),q=randomUUID();
+ const loose=[['/fiiu-talk.html?a=day1-am','/fiiu-session.html?a=day1-am'],['/fiiu-talk.html?q='+q,'/fiiu-session.html?q='+q],['/fiiu-talk.html?q='+q+'&present=1','/fiiu-session.html?q='+q+'&present=1'],
+  ['/fiiu-talk?a=day1-am','/fiiu-session.html?a=day1-am'],['/fiiu-talk.htm?a=general','/fiiu-session.html?a=general'],['/fiiu-talk.html/?a=general','/fiiu-session.html?a=general'],
+  ['/Fiiu-talk.html?a=general','/fiiu-session.html?a=general'],['/FIIU-TALK.HTML?a=day2-am','/fiiu-session.html?a=day2-am'],['/fiiu-talk/','/fiiu-session.html'],['/fiiu-talk.html','/fiiu-session.html'],
+  // The projector's typed address now names the session page, so its loose spellings are forgiven too.
+  ['/fiiu-session?a=day1-am','/fiiu-session.html?a=day1-am'],['/Fiiu-Session.html?a=general','/fiiu-session.html?a=general'],['/fiiu-session.html/?a=general','/fiiu-session.html?a=general'],['/fiiu-session.htm','/fiiu-session.html']];
+ for(const [path,location] of loose)for(const actor of ['guest','member']){
+  const response=await call(path,{actor});assert.equal(response.status,302,`${path} ${actor}`);assert.equal(response.headers.get('location'),location,path);assert.equal(response.headers.get('cache-control'),'no-store');
+ }
+ const head=await call('/fiiu-talk?a=day1-am',{actor:'guest',method:'HEAD'});assert.equal(head.status,302);assert.equal(head.headers.get('location'),'/fiiu-session.html?a=day1-am');
+ assert.equal((await call('/fiiu-talk.html?a=day1-am',{method:'POST',body:{}})).status,405,'only page loads are redirected');
+ for(const path of ['/fiiu-talks','/fiiu-talk.js.html','/fiiu-sessions','/fiiu-session.js.html'])assert.equal((await call(path,{actor:'guest'})).status,404,path);
+});
+
 test('the General space takes questions and chat like a block, for registered people and organisers only',async t=>{
  const {json,call,ask,post,pulse}=await setup(t);
  const general={id:'general',period:'general',title:'FIIU General',date:null,time:'',venue:'',sessions:[],registration:'general-space'};
@@ -270,7 +285,7 @@ test('participants post with idempotent retries, see display names only, and syn
  const clientId=randomUUID();
  const first=await post(q,'  Hola a todos  ',{clientId});
  assert.equal(first.status,201);
- assert.deepEqual(first.body.message,{id:first.body.message.id,author:'Ana T.',organiser:false,mine:true,body:'Hola a todos',files:[],likeCount:0,liked:false,createdAt:first.body.message.createdAt,seq:1});
+ assert.deepEqual(first.body.message,{id:first.body.message.id,author:'Ana T.',organiser:false,mine:true,clientId,body:'Hola a todos',files:[],likeCount:0,liked:false,createdAt:first.body.message.createdAt,seq:1});
  const again=await post(q,'Hola a todos',{clientId});assert.equal(again.status,200,'an identical retry is the same message');assert.equal(again.body.message.id,first.body.message.id);
  const reused=await post(q,'Otro texto',{clientId});assert.equal(reused.status,409);assert.equal(reused.body.code,'client_id_reused');
  assert.equal((await post(q,'   ')).body.code,'empty_message');
@@ -306,6 +321,39 @@ test('participants post with idempotent retries, see display names only, and syn
  assert.equal(older.status,200);assert.equal(older.body.messages.length,100);assert.equal(older.body.messages.at(-1).body,'m104');assert.ok(older.body.before);
  const oldest=await json(`/api/fiiu/questions/${q.id}/messages?before=${older.body.before}`);
  assert.deepEqual(oldest.body.messages.map(m=>m.body).slice(-5),['m0','m1','m2','m3','m4']);assert.equal(oldest.body.before,null);
+});
+
+/* A send whose answer was lost (a timeout on venue Wi-Fi, a reload or Back while it was sending) left the page a
+   'Not sent' copy beside the stored message, because no view said which draft a message came from. Each person now gets
+   their own clientId back on their own messages, on every answer that carries messages; it is the value their phone
+   made, so it tells them nothing new, and nobody else's is ever sent. */
+test('a person\'s own messages carry their clientId on every read and write answer, and nobody else\'s ever do',async t=>{
+ const {json,ask,post,talkStore,users}=await setup(t);
+ const q=await ask(),mine=randomUUID(),theirs=randomUUID(),staff=randomUUID();
+ const sent=await post(q,'Mi propuesta',{clientId:mine});assert.equal(sent.status,201);assert.equal(sent.body.message.clientId,mine,'the send answer');
+ assert.equal((await post(q,'Mi propuesta',{clientId:mine})).body.message.clientId,mine,'the replay of a lost send');
+ const other=(await post(q,'Otra idea',{actor:'other',clientId:theirs})).body.message;assert.equal(other.clientId,theirs);
+ const organiser=(await post(q,'Gracias',{actor:'admin',clientId:staff})).body.message;assert.equal(organiser.clientId,staff);
+ const byBody=list=>Object.fromEntries(list.map(m=>[m.body,m]));
+ const page=byBody((await json(`/api/fiiu/questions/${q.id}`)).body.messages);
+ assert.equal(page['Mi propuesta'].clientId,mine,'the full read');assert.equal('clientId' in page['Otra idea'],false);assert.equal('clientId' in page.Gracias,false);
+ const since=byBody((await json(`/api/fiiu/questions/${q.id}/messages?since=0`)).body.changes);
+ assert.equal(since['Mi propuesta'].clientId,mine,'a since answer, built per viewer from rows shared between viewers');assert.equal('clientId' in since['Otra idea'],false);
+ const otherSince=byBody((await json(`/api/fiiu/questions/${q.id}/messages?since=0`,{actor:'other'})).body.changes);
+ assert.equal(otherSince['Otra idea'].clientId,theirs);assert.equal('clientId' in otherSince['Mi propuesta'],false,'the same shared rows give the next viewer only their own');
+ const staffPage=byBody((await json(`/api/fiiu/questions/${q.id}`,{actor:'admin'})).body.messages);
+ assert.equal(staffPage.Gracias.clientId,staff);assert.equal('clientId' in staffPage['Mi propuesta'],false,'organisers see everyone\'s messages, never their clientIds');
+ const hidden=await json(`/api/admin/fiiu/messages/${sent.body.message.id}/hidden`,{actor:'admin',method:'PUT',body:{}});
+ assert.equal(hidden.status,200);assert.equal('clientId' in hidden.body.message,false,'nor in the moderation answer');
+ assert.equal(byBody((await json(`/api/fiiu/questions/${q.id}`)).body.messages)['Mi propuesta'].clientId,mine,'an author\'s own hidden message is still theirs');
+ // An earlier page: 100 newer messages push the first ones back.
+ const at=i=>new Date(Date.UTC(2099,0,1,0,0,0,i)).toISOString();
+ for(let i=0;i<100;i++)await talkStore.insertMessage({id:randomUUID(),questionId:q.id,userId:users.other.id,authorName:'Ben O.',authorFull:'Ben Otro',organiser:false,body:`m${i}`,clientId:randomUUID(),createdAt:at(i)});
+ const first=await json(`/api/fiiu/questions/${q.id}`);assert.ok(first.body.before);
+ const earlier=byBody((await json(`/api/fiiu/questions/${q.id}/messages?before=${first.body.before}`)).body.messages);
+ assert.equal(earlier['Mi propuesta'].clientId,mine,'an earlier page');assert.equal('clientId' in earlier['Otra idea'],false);
+ assert.equal(first.body.messages.filter(m=>'clientId' in m).length,0,'none of the 100 messages someone else wrote');
+ assert.doesNotMatch(JSON.stringify(first.body),new RegExp(theirs));
 });
 
 test('a lost send retried with the same clientId never duplicates: concurrent sends, an interrupted attach, a closed question',async t=>{
@@ -511,6 +559,35 @@ test('an organiser hides a message from participants within one sync and brings 
  const back=await json(`/api/fiiu/questions/${q.id}/messages?since=${revision}`,{actor:'other'});
  assert.equal(back.body.changes.length,1);assert.equal(back.body.changes[0].body,'hola');assert.equal(back.body.changes[0].gone,undefined);
  assert.equal((await json(`/api/admin/fiiu/messages/${randomUUID()}/hidden`,{actor:'admin',method:'PUT',body:{}})).status,404);
+});
+
+test('organisers read the most liked answers of the whole question for the projector, and nobody else can',async t=>{
+ const {db,json,call,ask,talkStore,users}=await setup(t);
+ const q=await ask(),ids=[];
+ // A busy question: 150 answers, more than the first page of 100, with the most liked one among the earliest.
+ const at=i=>new Date(Date.UTC(2099,0,1,0,0,0,i)).toISOString();
+ for(let i=1;i<=150;i++)ids[i]=(await talkStore.insertMessage({id:randomUUID(),questionId:q.id,userId:users.other.id,authorName:'Ben O.',authorFull:'Ben Otro',organiser:false,body:`Respuesta ${i}`,clientId:randomUUID(),createdAt:at(i)})).id;
+ const likes=(i,n)=>db.prepare('UPDATE fiiu_messages SET like_count=? WHERE id=?').run(n,ids[i]);
+ likes(5,4);likes(148,1);likes(10,9);likes(11,8);
+ assert.equal((await json(`/api/admin/fiiu/messages/${ids[10]}/hidden`,{actor:'admin',method:'PUT',body:{}})).status,200);
+ await talkStore.updateMessage({id:ids[11]},{body:'',deletedAt:at(500)});
+ const top=await json(`/api/fiiu/questions/${q.id}/top`,{actor:'admin'});
+ assert.equal(top.status,200);assert.equal(top.headers.get('cache-control'),'no-store');
+ assert.deepEqual(top.body.messages.map(m=>m.body),['Respuesta 5','Respuesta 148','Respuesta 150','Respuesta 149','Respuesta 147','Respuesta 146','Respuesta 145','Respuesta 144','Respuesta 143','Respuesta 142','Respuesta 141','Respuesta 140'],
+  'twelve by default, the early most liked answer first, ties newest first; hidden and deleted answers never rank');
+ const [first]=top.body.messages;
+ assert.equal(first.likeCount,4);assert.equal(first.author,'Ben O.');assert.equal(first.authorFull,'Ben Otro','the organiser view the projector already reads');assert.equal(first.hidden,false);
+ assert.equal('clientId' in first,false);assert.equal(first.mine,false);assert.deepEqual(first.files,[]);
+ assert.deepEqual((await json(`/api/fiiu/questions/${q.id}/top?limit=2`,{actor:'admin'})).body.messages.map(m=>m.body),['Respuesta 5','Respuesta 148']);
+ assert.equal((await json(`/api/fiiu/questions/${q.id}/top?limit=50`,{actor:'admin'})).body.messages.length,50);
+ for(const limit of ['0','51','abc','','1.5','-3'])assert.equal((await call(`/api/fiiu/questions/${q.id}/top?limit=${limit}`,{actor:'admin'})).status,400,limit);
+ assert.equal((await call(`/api/fiiu/questions/${q.id}/top`,{actor:'admin',method:'HEAD'})).status,200);
+ assert.equal((await call(`/api/fiiu/questions/${q.id}/top`,{actor:'admin',method:'POST',body:{}})).status,405);
+ assert.equal((await call(`/api/fiiu/questions/${randomUUID()}/top`,{actor:'admin'})).status,404);
+ // The wall is the organisers': a registered participant, an unregistered member and a guest are refused.
+ const member=await json(`/api/fiiu/questions/${q.id}/top`);assert.equal(member.status,403);assert.equal(member.body.messages,undefined);
+ assert.equal((await call(`/api/fiiu/questions/${q.id}/top`,{actor:'stranger'})).status,403);
+ assert.equal((await call(`/api/fiiu/questions/${q.id}/top`,{actor:'guest'})).status,401);
 });
 
 test('since answers carry the question, so an edit or a close sharing a sync with message changes still reaches the page',async t=>{
@@ -877,7 +954,7 @@ test('rate limit kinds per route, and the pulse branch never asks for one',async
  const routes=[['GET',`/api/fiiu/questions?activityId=day1-am`,'read'],['GET',`/api/fiiu/questions/${q}`,'read'],['GET',`/api/fiiu/questions/${q}/messages`,'read'],['POST',`/api/fiiu/questions/${q}/messages`,'message'],
   ['DELETE',`/api/fiiu/messages/${q}`,'write'],['PUT',`/api/fiiu/messages/${q}/like`,'like'],['DELETE',`/api/fiiu/messages/${q}/like`,'like'],['PUT',`/api/fiiu/questions/${q}/rating`,'like'],['POST','/api/fiiu/files','upload'],['GET',`/api/fiiu/files/${q}`,'file'],
   ['GET','/api/admin/fiiu/questions','read',admin],['POST','/api/admin/fiiu/questions','write',admin],['PATCH',`/api/admin/fiiu/questions/${q}`,'write',admin],
-  ['PUT',`/api/admin/fiiu/messages/${q}/hidden`,'moderate',admin],['DELETE',`/api/admin/fiiu/messages/${q}/hidden`,'moderate',admin],['GET',`/api/admin/fiiu/questions/${q}/export`,'read',admin],['GET',`/api/admin/fiiu/questions/${q}/qr`,'read',admin]];
+  ['PUT',`/api/admin/fiiu/messages/${q}/hidden`,'moderate',admin],['DELETE',`/api/admin/fiiu/messages/${q}/hidden`,'moderate',admin],['GET',`/api/admin/fiiu/questions/${q}/export`,'read',admin],['GET',`/api/admin/fiiu/questions/${q}/qr`,'read',admin],['GET',`/api/fiiu/questions/${q}/top`,'read',admin],['GET','/api/fiiu/live','read']];
  for(const [method,path,kind,user] of routes){asked.length=0;assert.equal(await run(method,path,user),true,path);assert.deepEqual(asked.map(a=>a[2]),[kind],`${method} ${path}`);}
  // Paths outside the contract belong to the FIIU API.
  for(const path of ['/api/fiiu','/api/fiiu/registration','/api/fiiu/checkin','/api/admin/fiiu/summary',`/api/fiiu/questions/${q}/other`,'/api/fiiu/pulse/x'])assert.equal(await run('GET',path),false,path);
@@ -943,7 +1020,7 @@ test('the projector QR points at the configured public origin and is for organis
  const {json,ask}=await setup(t);
  const q=await ask();
  const r=await json(`/api/admin/fiiu/questions/${q.id}/qr`,{actor:'admin'});
- assert.equal(r.status,200);assert.equal(r.body.url,`https://nodal.example/fiiu-talk.html?q=${q.id}`);
+ assert.equal(r.status,200);assert.equal(r.body.url,`https://nodal.example/fiiu-session.html?q=${q.id}`,'the join code opens the session page at its question, with no redirect on the way');
  assert.equal(typeof r.body.qr.size,'number');assert.equal(typeof r.body.qr.bits,'string');
  assert.equal((await json(`/api/admin/fiiu/questions/${q.id}/qr`)).status,403);
  assert.equal((await json(`/api/admin/fiiu/questions/${randomUUID()}/qr`,{actor:'admin'})).status,404);
