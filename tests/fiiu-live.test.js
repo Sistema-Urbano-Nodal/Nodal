@@ -137,6 +137,17 @@ test('checked in today starts at midnight in Lima',async t=>{
  assert.deepEqual((await live.read(member)).pulse,{registered:3,checkedInToday:2,checkedInTotal:3,messages:0,ratings:0});
 });
 
+// The band words them so ("Asistencias hoy", "Asistencias en total"); people are the milestone counts.
+test('the day\'s numbers are check-ins, not people: one person at the morning and the evening block counts twice',async t=>{
+ // 19:30 on the 21st in Lima, already the 22nd in UTC.
+ const {live,person,attend}=await world(t,{at:'2026-10-22T00:30:00.000Z'});
+ const ana=await person({activities:['day1-am','day1-pm']});
+ await attend(ana,'day1-am','2026-10-21T14:05:00.000Z');await attend(ana,'day1-pm','2026-10-22T00:10:00.000Z');
+ const view=await live.read(member);
+ assert.deepEqual(view.pulse,{registered:1,checkedInToday:2,checkedInTotal:2,messages:0,ratings:0});
+ assert.equal(view.badges.first,1,'one person');assert.deepEqual(view.now,{activity:block('day1-pm'),checkedIn:1});
+});
+
 test('conversations are the open questions, most recently active first, at most five, with their latest visible answer cut short',async t=>{
  const {talk,live,person,ask,say,clock}=await world(t);
  const ana=await person({activities:['day1-am']});

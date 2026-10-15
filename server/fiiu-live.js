@@ -62,7 +62,9 @@ export function createLive({fiiuStore,talkStore,programme={event:async()=>FIIU_E
   // listQuestions leaves hidden questions out (organisers' drafts), and with them their messages and scores.
   const [event,rows,registered,questions]=await Promise.all([programme.event(),attendance(),fiiuStore.count('registrations',{eventId:EVENT_ID}),talkStore.listQuestions(EVENT_ID)]);
   const today=limaDay(t),minutes=limaMinutes(t),midnight=Date.parse(`${today}T00:00:00${LIMA_OFFSET}`);
-  // Check-ins are rows of a block that can take one: the party never does, and an unknown id is no block.
+  /* Check-ins are rows of a block that can take one: the party never does, and an unknown id is no block. The day's
+     numbers count check-ins, not people (one person at the morning and the evening block is two), and the band says
+     so ("Asistencias hoy"); people are the milestone counts, first among them everyone with a check-in. */
   const known=new Set([...event.activities,...(event.legacyActivities||[])].filter(a=>a.registration!=='social').map(a=>a.id));
   const byActivity=new Map(),byPerson=new Map();let checkedInToday=0,checkedInTotal=0;
   for(const row of rows){
