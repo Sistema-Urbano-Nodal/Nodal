@@ -1785,3 +1785,12 @@ test('a draft stays with its question when that question becomes unavailable: th
  tap(picks(h).find(a=>a.dataset.qid===Q));await flush();
  assert.equal(qa(h).querySelector('.f-talk-question').textContent,'¿Qué te llevas de esta mañana?');assert.equal(text.value,'Respuesta para la valoración','the draft is back with its question');
 });
+
+test('the list’s answer count for the question shown follows the chat, from the count every live update carries',async()=>{
+ let revision=3;const older=question({id:Q2,status:'closed',body:'¿Primera pregunta?',talk:null,messageCount:7,createdAt:'2026-10-21T13:00:00.000Z'});
+ const h=await page({...SESSION_ROUTES,['GET '+LIST]:{activity:ACTIVITY,questions:[question(),older]},'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open'],[Q2,'day1-am',2,'closed']]}),
+  ['GET '+MESSAGES+'?since=3']:since(4,[bare(message(M3,{seq:4,createdAt:'2026-10-21T14:09:00.000Z'}))],{messageCount:3})},{search:'?a=day1-am'});
+ const count=()=>picks(h)[0].querySelector('.f-talk-pick-n');assert.equal(count().textContent,'2 answers');
+ revision=4;await h.tickTimers();assert.equal(count().textContent,'3 answers');assert.equal(picks(h)[1].querySelector('.f-talk-pick-n').textContent,'7 answers','the others stay as listed');
+ assert.equal(sent(h,'GET',LIST).length,1,'no extra read');h.lang('es');assert.equal(count().textContent,'3 respuestas');
+});

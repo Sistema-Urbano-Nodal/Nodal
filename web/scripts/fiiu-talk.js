@@ -339,7 +339,7 @@
  const blockSig=pairs=>pairs.filter(([,state])=>state!=='hidden').map(([id,state])=>id+':'+state).sort().join(' ');
  // The session's questions, open first: each with its type, status and answer count, as a link to its own address (a new tab works); a tap opens it in place.
  // The question shown alone needs no list; one other question still gets it, so a question that is not available still leads to the rest. Redrawn when
- // the list changes, the same link keeps focus.
+ // the list changes, the same link keeps focus. The count of the question shown is the chat's own, which every live update carries.
  function renderSwitcher(list){
   if(!page)return;page.questions=list;const box=page.switcher,focused=holds(box)?document.activeElement.getAttribute?.('href'):null;
   if(!list.length||(list.length===1&&list[0].id===page.current)){box.replaceChildren();if(focused)parts?.head.querySelector('h2')?.focus();return;}
@@ -347,7 +347,7 @@
   for(const q of list){
    const li=el('li'),a=el('a','f-talk-pick'),meta=el('span','f-talk-pick-meta');a.href=Fiiu.sessionLink(page.id,q.id);a.dataset.qid=q.id;a.append(source('span',q.body,'f-talk-pick-body'));if(q.talk)a.append(source('span',q.talk,'f-talk-pick-talk'));
    meta.append(tr('span',q.kind==='rating'?'talkScoreChip':'talkKindChat','f-talk-kind'),tr('span',q.status==='open'?'talkOpenChip':q.status==='hidden'?'talkHiddenQuestion':'talkClosedChip','f-talk-state-chip'+(q.status==='open'?' is-open':'')));
-   const n=Number(q.messageCount)||0;meta.append(counted('span','f-talk-pick-n',n===1?'talkAnswersOne':'talkAnswers',{n}));a.append(meta);
+   meta.append(answers(el('span','f-talk-pick-n f-talk-n'),q.id===question?.id?question:q));a.append(meta);
    a.addEventListener('click',event=>{if(event?.button>0||event?.metaKey||event?.ctrlKey||event?.shiftKey||event?.altKey)return;event?.preventDefault?.();pick(q.id);});
    li.append(a);ol.append(li);
   }
@@ -356,6 +356,12 @@
   if(focused)([...box.querySelectorAll('a')].find(a=>a.getAttribute?.('href')===focused)||heading).focus();
  }
  function markCurrent(){for(const a of page?.switcher.querySelectorAll('a')||[]){if(a.dataset.qid===page.current)a.setAttribute('aria-current','true');else a.removeAttribute('aria-current');}}
+ function answers(node,q){const n=Number(q?.messageCount),count=Number.isSafeInteger(n)&&n>0?n:0;return setCount(node,count===1?'talkAnswersOne':'talkAnswers',{n:count});}
+ // The question shown repaints its own entry in place (no read of the list); the others keep the count they were listed with.
+ function countPick(){
+  if(!page||!question)return;const entry=page.questions.find(item=>item.id===question.id),node=[...page.switcher.querySelectorAll('a')].find(a=>a.dataset.qid===question.id)?.querySelector('.f-talk-pick-n');
+  if(entry)entry.messageCount=question.messageCount;if(node)answers(node,question);
+ }
  // Every question on the session (the list) and the others (the closed note's way to an open one, the pulse's comparison).
  function showSiblings(list){
   if(!parts||!Array.isArray(list))return;const all=sorted(list.filter(q=>q?.id)),others=all.filter(q=>q.id!==question.id);
@@ -432,7 +438,7 @@
   if(!same)build();renderHead();rowsById.clear();views.clear();parts.log.replaceChildren();
   for(const view of Array.isArray(data.messages)?data.messages:[])if(view?.id)upsert(view);
   restoreUnsent();for(const attempt of attempts.values())if(attempt.row&&attempt.qid===question.id)parts.log.append(attempt.row);
-  parts.earlier.hidden=!before;parts.log.setAttribute('aria-label',t('talkPage'));renderDock();rekey(parts.empty,emptyKey());updateEmpty();setTitle();
+  parts.earlier.hidden=!before;parts.log.setAttribute('aria-label',t('talkPage'));renderDock();rekey(parts.empty,emptyKey());updateEmpty();setTitle();countPick();
   // Arriving shows the session and the question first, not the end of the chat (audit #16): the reader follows new answers once they reach the end.
   if(!same){following=nearBottom();atEnd=ended();lastTop=document.scrollingElement?.scrollTop||0;return;}
   // After a rebuild a reader who was following goes to the new end; anyone else keeps the message they were reading in place, and gets the pill and
@@ -578,6 +584,7 @@
   if(!question||fresh?.id!==question.id||typeof fresh.body!=='string')return;
   // An answer older than the question on screen (one in flight across a close, or another instance's shared copy) never undoes it.
   const revision=Number(fresh.revision);if(Number.isFinite(revision)){if(revision<Number(question.revision||0))return;question.revision=revision;}
+  const count=Number(fresh.messageCount);if(Number.isSafeInteger(count)&&count>=0&&count!==question.messageCount){question.messageCount=count;countPick();}
   const talk=fresh.talk??null,edited=fresh.body!==question.body||talk!==(question.talk??null);if(edited)Object.assign(question,{body:fresh.body,talk});
   // A rating question's totals ride on every answer too: they repaint the results (and the projector's) in place, never the chat or the scale.
   const totals=validCounts(fresh.ratingCounts),moved=Boolean(totals)&&String(totals)!==String(question.ratingCounts);if(moved)question.ratingCounts=totals;
