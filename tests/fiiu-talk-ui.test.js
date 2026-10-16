@@ -1865,3 +1865,25 @@ test('a keyboard that shrinks a portrait phone’s screen leaves the composer do
  assert.doesNotMatch(css,/\.f-talk-dock\{position:static\}/,'a phone keyboard alone never lets the dock go');
  assert.match(css,/\.f-shell \.f-talk-dock:not\(:focus-within\)>\.f-talk-new\{position:fixed;/,'the pill floats on its own only while the dock rests');
 });
+
+test('a message stored without its photo (its attach step failed after the insert) stays not sent with Retry, which attaches the photo; it never shows as delivered',async()=>{
+ const sessionStorage=memoryStore(),body='Mi propuesta con plano adjunto',photo={id:F1,name:'plano.jpg',mime:'image/jpeg',size:1000};let revision=3,posts=0;
+ const textOnly=message(M3,{mine:true,clientId:CLIENT,body,files:[],createdAt:'2026-10-21T14:20:00.000Z',seq:4});
+ const routes=post=>({'POST /api/fiiu/files':{status:201,data:{file:{id:F1}}},['POST '+MESSAGES]:post,'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:since(4,[textOnly])});
+ const context={sessionStorage,createImageBitmap:async()=>{throw new Error('x');},FileReader:Reader};
+ const h=await page(routes(()=>posts++?{status:200,data:{message:{...textOnly,files:[photo],seq:5}}}:{status:500,data:{}}),{context});
+ const failed=node=>rows(node).find(item=>classes(item).includes('is-failed'));
+ composer(h).querySelector('textarea').value=body;choose(h,[file('plano.jpg','image/jpeg',1000)]);submit(h);await flush();assert.ok(failed(h));
+ revision=4;await h.tickTimers();assert.ok(row(h,M3),'the copy the server kept shows');
+ assert.ok(failed(h),'its photo is still not sent');assert.ok(key(failed(h),'talkRetry'));assert.match(content(failed(h)),/plano\.jpg/);
+ assert.ok(sessionStorage.items.has(UNSENT_KEY));assert.equal(composerStatus(h),'talkError','and the error stays');
+ await key(failed(h),'talkRetry').listeners.click();await flush();
+ assert.deepEqual(sent(h,'POST',MESSAGES).map(request=>request.body),[{clientId:CLIENT,body,fileIds:[F1]},{clientId:CLIENT,body,fileIds:[F1]}],'Retry is the same message with its photo');
+ assert.equal(sent(h,'POST','/api/fiiu/files').length,1,'uploaded once');assert.equal(failed(h),undefined);assert.equal(row(h,M3).querySelectorAll('img').length,1,'the photo is attached');
+ // Still sending when the file-less copy arrives: the row waits for the answer, and a failure keeps Retry.
+ const gate=later();revision=3;
+ const slow=await page(routes(()=>gate.promise.then(()=>({status:500,data:{}}))),{context:{...context,sessionStorage:memoryStore()}});
+ composer(slow).querySelector('textarea').value=body;choose(slow,[file('plano.jpg','image/jpeg',1000)]);submit(slow);await flush();
+ revision=4;await slow.tickTimers();assert.ok(rows(slow).some(node=>node.dataset.pending),'still on its way with its photo');
+ gate.resolve();await flush();assert.ok(key(failed(slow),'talkRetry'),'the failure keeps Retry');
+});

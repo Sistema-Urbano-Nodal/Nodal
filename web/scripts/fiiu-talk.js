@@ -256,7 +256,7 @@
  // A view without a liked flag (every ?since= change) keeps the one the page has. Your own message carries its clientId, which settles the attempt that
  // sent it (audit #0, #6): one whose answer was lost no longer shows as not sent, and one still sending loses its pending row at once.
  function upsert(view){
-  if(typeof view.liked==='boolean')setLiked(view.id,view.liked);if(view.mine&&typeof view.clientId==='string')landed(view.clientId);
+  if(typeof view.liked==='boolean')setLiked(view.id,view.liked);if(view.mine&&typeof view.clientId==='string')landed(view.clientId,view);
   const next={...normal(view),liked:liked.has(view.id)},node=messageRow(next),old=rowsById.get(next.id);views.set(next.id,next);rowsById.set(next.id,node);
   if(old){const active=document.activeElement,cls=active&&old.contains?.(active)?String(active.className||'').split(' ')[0]:'';old.replaceWith(node);if(cls)node.querySelector('.'+cls)?.focus();return false;}
   const after=[...parts.log.children].find(child=>child.dataset.pending==='1'||later(views.get(child.dataset.id),next));if(after)after.before(node);else parts.log.append(node);return true;
@@ -266,8 +266,10 @@
  const newestShown=()=>views.get([...parts?.log.children||[]].filter(child=>child.dataset.id).at(-1)?.dataset.id)||null;
  function anchorRow(){const row=[...parts?.log.children||[]].find(child=>child.dataset.id&&child.getBoundingClientRect?.().bottom>0);return row?{id:row.dataset.id,top:row.getBoundingClientRect().top}:null;}
  function restoreAnchor(anchor){const row=anchor&&rowsById.get(anchor.id);if(row?.getBoundingClientRect&&typeof window.scrollBy==='function')window.scrollBy(0,row.getBoundingClientRect().top-anchor.top);}
- function landed(clientId){
-  const attempt=attempts.get(clientId);if(!attempt)return;attempt.landed=true;
+ // A copy stored without the attempt's photos or PDFs (the attach step failed after the insert) is not the message delivered: the attempt keeps its row,
+ // Retry and uploads, and Retry, with the same clientId, attaches them (the server finishes that copy). A restored attempt has no files left to wait for.
+ function landed(clientId,view){
+  const attempt=attempts.get(clientId);if(!attempt||(Array.isArray(view?.files)?view.files.length:0)<attempt.files.length)return;attempt.landed=true;
   if(attempt.state==='sending'){attempt.row?.remove();attempt.row=null;return;}
   forget(attempt);const node=composer?.state;if(node&&['talkOfflineSend','talkError','talkRate'].includes(node.dataset.fiiuText))status(node,'');
  }
