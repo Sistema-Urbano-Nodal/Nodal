@@ -197,8 +197,15 @@
  }
  function renderRegistration(){renderPanel();renderProgramme();renderHero();liveFollow();}
  // The live window (fiiu-live.js) follows the hero as #en-vivo during the festival, and for organisers as a preview (see load). A registration saved or
- // cancelled here changes who may read it, so the band reads again at once instead of at the next return to the tab.
- let liveHost=null,liveBand=null,liveHad=null;function liveFollow(){const has=Boolean(me.registration);if(liveBand&&liveHad!==null&&has!==liveHad)liveBand.refresh();liveHad=has;}
+ // cancelled here changes who may read it, so the band reads again at once instead of at the next return to the tab. It then draws above the panel, where
+ // focus has just gone (the saved summary, the panel heading), while the site's smooth scroll to it can still be heading for the old place: once the band
+ // has drawn, what has focus comes back into view, unless the person has scrolled, tapped or typed since.
+ let liveHost=null,liveBand=null,liveHad=null;
+ function liveFollow(){
+  const has=Boolean(me.registration);
+  if(liveBand&&liveHad!==null&&has!==liveHad){const at=stirs;liveBand.refresh().then(()=>{const focused=document.activeElement;if(stirs===at&&registrationHost.contains?.(focused))focused.scrollIntoView?.({block:'start'});});}
+  liveHad=has;
+ }
  // A notice is a string key, or {key, email} for "We emailed a summary to <address>.": the sentence follows the language, the address stays as it is.
  // An email that failed or may not arrive is a warning, not the green confirmation.
  function showNotice(value){
@@ -504,7 +511,7 @@
  }
  document.addEventListener?.('visibilitychange',()=>{if(document.visibilityState==='visible')lookAgain();});
  // Someone who scrolls, taps or types after a link has scrolled the page early keeps their place when the registration redraws the page (see load).
- let stirred=false;for(const type of ['wheel','touchstart','pointerdown','keydown'])window.addEventListener?.(type,()=>{stirred=true;},{passive:true});
+ let stirred=false,stirs=0;for(const type of ['wheel','touchstart','pointerdown','keydown'])window.addEventListener?.(type,()=>{stirred=true;stirs++;},{passive:true});
  window.addEventListener?.('pageshow',event=>{if(event?.persisted)lookAgain();});
  async function load(){
   status(loadStatus,'loading');root.replaceChildren();placeKept=false;const place=savedPlace();if(place)browserRestore(false);liveBand?.stop();liveBand=null;

@@ -139,10 +139,15 @@
   const inDates=()=>{const today=limaDate();return !event||(today>=event.startsOn&&today<=event.endsOn);};
   const pause=()=>{if(timer!==null){clearInterval(timer);timer=null;}};
   const follow=()=>{if(timer===null&&!stopped&&document.visibilityState!=='hidden')timer=setInterval(read,REFRESH);};
-  const hide=()=>{host.hidden=true;host.replaceChildren();host.removeAttribute?.('aria-labelledby');shownSig='';shownKeys=new Map();};
+  /* A redraw that changes the band's height moves everything under it. A browser with scroll anchoring keeps the reader's place itself (the content under
+     the band reads where it was, right after the change); one without it (Safari on iPhone) does not, so when the reader is past the band the page moves by
+     as much as that content did. */
+  const steady=change=>{const below=host.nextElementSibling,top=()=>below?.getBoundingClientRect?.().top,before=top();change();const moved=before<=0?top()-before:0;if(moved)window.scrollBy?.({top:moved,behavior:'instant'});};
+  const hide=()=>steady(()=>{host.hidden=true;host.replaceChildren();host.removeAttribute?.('aria-labelledby');shownSig='';shownKeys=new Map();});
   const drawn=()=>{const call=first;first=null;call?.();};
   function show(answer){
    const d={...answer,...timeline(answer,event)},preview=!inDates(),skip=compact?named()||null:null,sig=shape(d,compact,preview,skip),keys=new Map(),tree=build(d,{compact,preview,named:skip,open},keys);
+   steady(()=>{
    if(sig===shownSig){for(const [id,node] of keys){const old=shownKeys.get(id);if(!old||text(old)===text(node))continue;if(node.children.length)old.replaceChildren(...[...node.children]);else old.textContent=node.textContent;}}
    else{
     // A redraw gives focus back to the same link, or to the folded conversations' control, when it was on one in the band, and keeps the fold open
@@ -154,6 +159,7 @@
    // The band's <section> is named by its h2, which makes it a region. The console's line sits in a plain div, which may not carry a name (the
    // generic role), and its h3 already heads it.
    if(!compact)host.setAttribute('aria-labelledby','f-live-title');host.hidden=false;
+   });
   }
   /* Without access the festival page shows one line during the festival; the console shows nothing. A guest the page knows (expected) and an account
      without a registration (403) are invited to register in the panel; once registration closes, the guest is asked to sign in and the account sees
@@ -163,7 +169,7 @@
    const key=status===401&&(!expected||!registrationOpen)?'liveSignIn':registrationOpen?'liveRegister':'';
    if(compact||!key||!inDates()){hide();return;}
    const line=el('p','f-live-prompt');line.append(tr('span','liveTitle','f-live-label'),link(key,key==='liveSignIn'?SIGN_IN:'#registration','f-text-link'));
-   host.replaceChildren(line);host.removeAttribute?.('aria-labelledby');shownSig='prompt';shownKeys=new Map();host.hidden=false;
+   steady(()=>{host.replaceChildren(line);host.removeAttribute?.('aria-labelledby');shownSig='prompt';shownKeys=new Map();host.hidden=false;});
   }
   async function read(){
    if(stopped||busy)return;

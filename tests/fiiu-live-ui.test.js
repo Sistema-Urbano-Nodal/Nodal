@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 import {FIIU_EVENT} from '../server/fiiu-domain.js';
-import {createFiiuHarness,key,descendants,content,flush,Node} from './helpers/fiiu-ui-harness.js';
+import {createFiiuHarness,key,field,descendants,content,flush,Node} from './helpers/fiiu-ui-harness.js';
 
 /* The live window (web/scripts/fiiu-live.js) against a stubbed GET /api/fiiu/live, in the shape the spec gives (section 3): the band at the top of
    fiiu.html and the compact line in the console's festival block. Lane A serves the real route; these tests only pin what the page does with it. */
@@ -440,4 +440,41 @@ test('a new answer in a listed conversation changes its line in place, and a red
   answer=LIVE({conversations:[talk(6),...[1,2,3,4].map(n=>talk(n))]});await h.tickTimers();await flush();
   const again=h.host.querySelector('.f-live-more');assert.notEqual(again,more);assert.equal(again.open,true);assert.equal(h.ctx.document.activeElement,again.querySelector('summary'));
  }finally{focus.restore();}
+});
+
+// The content under the band as a browser lays it out: base px from the viewport top plus the band's height (10 px a node, nothing while hidden). A browser
+// with scroll anchoring (anchored) moves the page itself, so that content stays where it was. scrolls: the page moves the band asks for.
+function underBand(h,{base=-2000,anchored=false}={}){
+ const below=new Node('div'),scrolls=[],height=()=>h.host.hidden?0:descendants(h.host).length*10,start=height();h.host.nextElementSibling=below;
+ below.getBoundingClientRect=()=>({top:base+(anchored?start:height())});h.ctx.window.scrollBy=options=>scrolls.push({...options});return{scrolls,height};
+}
+
+test('when the band grows, shrinks or goes above where the person is reading, the page moves with it on a browser that does not keep the place itself',async()=>{
+ // Safari on iPhone has no scroll anchoring: someone reading the panel far below the band's one line sees it become the whole band.
+ let known=403,active=true;const h=await band(()=>active?LIVE():{active:false,generatedAt:DURING},{known:()=>known}),page=underBand(h),line=page.height();
+ known=null;await h.live.refresh();await flush();const full=page.height();assert.ok(full>line);
+ assert.deepEqual(page.scrolls,[{top:full-line,behavior:'instant'}],'down by as much as the band grew');
+ active=false;await h.tickTimers();await flush();assert.deepEqual(page.scrolls.at(-1),{top:-full,behavior:'instant'},'and back up when it goes');
+ // A browser that keeps the place itself (scroll anchoring) is left to it; so is a reader above the band or looking at it.
+ for(const options of [{anchored:true},{base:120}]){
+  let refused=403;const other=await band(()=>LIVE(),{known:()=>refused}),seen=underBand(other,options);refused=null;await other.live.refresh();await flush();assert.deepEqual(seen.scrolls,[],JSON.stringify(options));
+ }
+});
+
+test('after saving a first registration on the festival page, the confirmation comes back into view once the band has drawn above it, unless the person has moved',async()=>{
+ const fill=form=>{for(const input of descendants(form).filter(node=>node.name)){const value={...answers,nationalId:'TEST123'}[input.name];if(value!==undefined){if(input.type==='checkbox')input.checked=Array.isArray(value)?value.includes(input.value):value===true;else input.value=String(value);}}field(form,'publicOfficial').value='no';};
+ const scrolls=watchScrolls();
+ try{
+  for(const moved of [false,true]){
+   const live=later(),h=await festivalPage(live.read,{me:{user,registration:null,attendance:[],isAdmin:false},write:()=>({status:200,data:{registration:saved}})}),focus=watchFocus(h);
+   try{
+   assert.ok(key(byId(h.root,'en-vivo'),'liveRegister'));const form=h.root.querySelector('form');fill(form);
+   await form.listeners.submit({preventDefault(){}});const confirmation=h.root.querySelector('.f-saved');assert.equal(confirmation.focused,true);
+   // The band reads now that the person may: it draws above the panel once its answer comes.
+   scrolls.seen.length=0;if(moved)for(const listener of h.windowListeners.touchstart||[])listener({type:'touchstart'});
+   live.answer(LIVE());await flush();assert.ok(key(byId(h.root,'en-vivo'),'liveNow'));
+   assert.deepEqual(scrolls.seen.map(node=>node===confirmation),moved?[]:[true],moved?'someone who moved stays where they went':'the confirmation again');
+   }finally{focus.restore();}
+  }
+ }finally{scrolls.restore();}
 });
