@@ -1,6 +1,8 @@
 (() => {
 'use strict';
 const rows = {
+ // Readings from BUC, Sistema Urbano's open library (buc.js), under the course header for the course's topic.
+ bucReadings:['Readings from BUC','Lecturas de la BUC','Leituras da BUC'],
  // The final survey of Curso Movilidad Nivel 2 (courses.js and teaching.js). Only its chrome is here: the questions are Spanish content from the server.
  finalSurvey:['Final survey','Encuesta final','Pesquisa final'],
  surveyInSpanish:['This survey is in Spanish.','La encuesta está en español.','A pesquisa está em espanhol.'],
