@@ -12,8 +12,13 @@
    grid.append(festival,card('chelas','chelasHint',[['circles','opportunities.html?kind=learning_circle'],['organize','index.html#contact']]),card('events','eventsHint',[['viewProgramme','fiiu.html#programme'],['people','dashboard.html#network']]));
    // Once registration closes, the festival card points to the programme instead; the news page carries the registration settings.
    api('/api/fiiu?kind=news').then(data=>{if(data.config?.registrationOpen===false)register.replaceWith(link('viewProgramme','fiiu.html#programme'));}).catch(()=>{});
-  }else if(page==='knowledge')grid.append(card('courses','coursesHint',[['courses','courses.html']],true),card('masterclasses','masterclassesHint',[['browseResources','opportunities.html?kind=resource,case_study']]),card('materials','hubMaterials',[['open','fiiu.html#materials']]));
-  else{grid.append(card('resources','resourcesTitle',[['opportunities','opportunities.html?kind=opportunity'],['browseResources','opportunities.html?kind=resource,case_study']],true));const updates=el('section','f-updates');updates.append(tr('h2','news'));const list=el('div','f-news');updates.append(list);hub.append(updates);news(list);}
+  }else if(page==='knowledge'){
+   grid.append(card('courses','coursesHint',[['courses','courses.html']],true),card('masterclasses','masterclassesHint',[['browseResources','opportunities.html?kind=resource,case_study']]),card('materials','hubMaterials',[['open','fiiu.html#materials']]));
+   // BUC, Sistema Urbano's open library (buc.js): its categories as links into it and, once it publishes its feed, its newest publications. The block
+   // stays hidden until the readings answer, so a failed read leaves the hub as it was.
+   const library=el('article','f-hub-card f-buc');library.hidden=true;grid.append(library);
+   window.Buc?.mount(library,{context:'knowledge',limit:6,heading:[tr('h2','bucLibrary'),tr('p','bucLibraryHint')]});
+  }else{grid.append(card('resources','resourcesTitle',[['opportunities','opportunities.html?kind=opportunity'],['browseResources','opportunities.html?kind=resource,case_study']],true));const updates=el('section','f-updates');updates.append(tr('h2','news'));const list=el('div','f-news');updates.append(list);hub.append(updates);news(list);}
   hub.append(newTabNote());status(message,'');
  }
  // Dashboard widget: registration state and next step first, then festival news. The h2 in dashboard.html names the festival.

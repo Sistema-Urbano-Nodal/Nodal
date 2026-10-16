@@ -116,6 +116,10 @@ window.NODAL_I18N_DASH = {
     'd.path.stepLeft': '1 step left',
     'd.path.stepsLeft': '{n} steps left',
     'd.path.completeFirst': 'Complete Part C first',
+    // Readings from BUC, the Biblioteca Urbana Colaborativa, in the Learning band (dashboard.js, buc.js).
+    'd.buc.title': 'Readings from BUC',
+    'd.buc.sub': 'Open publications on your topics from the Biblioteca Urbana Colaborativa, Sistema Urbano’s library. They open on BUC.',
+    'd.buc.subNoTopics': 'Choose your topics and readings on them will appear here. Meanwhile, browse the library.',
     'd.common.done': 'Done ✓',
 
     'd.badge.fam.contribution': 'Contribution',
@@ -680,6 +684,9 @@ window.NODAL_I18N_DASH = {
     'd.path.stepLeft': 'Falta 1 paso',
     'd.path.stepsLeft': 'Faltan {n} pasos',
     'd.path.completeFirst': 'Completa antes la Parte C',
+    'd.buc.title': 'Lecturas de la BUC',
+    'd.buc.sub': 'Publicaciones abiertas sobre tus temas en la Biblioteca Urbana Colaborativa de Sistema Urbano. Se abren en la BUC.',
+    'd.buc.subNoTopics': 'Elige tus temas y aquí aparecerán lecturas sobre ellos. Mientras tanto, explora la biblioteca.',
     'd.common.done': 'Listo ✓',
     'd.common.cancel': 'Cancelar',
 
@@ -1393,6 +1400,9 @@ window.NODAL_I18N_DASH = {
     'd.path.stepLeft': 'Falta 1 passo',
     'd.path.stepsLeft': 'Faltam {n} passos',
     'd.path.completeFirst': 'Complete antes a Parte C',
+    'd.buc.title': 'Leituras da BUC',
+    'd.buc.sub': 'Publicações abertas sobre seus temas na Biblioteca Urbana Colaborativa do Sistema Urbano. Abrem na BUC.',
+    'd.buc.subNoTopics': 'Escolha seus temas e aqui aparecerão leituras sobre eles. Enquanto isso, explore a biblioteca.',
     'd.common.done': 'Feito ✓',
     'd.common.cancel': 'Cancelar',
 

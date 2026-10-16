@@ -625,6 +625,29 @@
     });
   }
 
+  /* ================= BUC readings ================= */
+  /* "Lecturas de la BUC" in the Learning band: readings from BUC, Sistema Urbano's open library, for the member's topics
+     (three at most, the highest rated first), drawn by buc.js from NODAL's /api/readings. The topics reach BUC only in
+     the links the member follows. Before any topic is chosen there is one way into BUC instead, and nothing is read.
+     The console redraws often; buc.js keeps a block whose query has not changed. Without buc.js, or when the read
+     fails, the band shows no block. */
+  function renderReadings() {
+    const box = byId('bucReadings');
+    const body = byId('bucReadingsBody');
+    const Buc = window.Buc;
+    if (!box || !body || !Buc) return;
+    const topics = [...U.topics].sort((a, b) => b.level - a.level).slice(0, 3).map((x) => x.name);
+    // data-i18n follows the message, so a language switch re-translates it
+    const sub = byId('bucReadingsSub');
+    if (sub) { sub.dataset.i18n = topics.length ? 'd.buc.sub' : 'd.buc.subNoTopics'; sub.textContent = t(sub.dataset.i18n); }
+    if (!topics.length) { Buc.explore(body, 'console'); box.hidden = false; return; }
+    // An answer overtaken by newer topics resolves false and leaves the block to the newer one.
+    Buc.mount(body, { topics, context: 'console', limit: 4 }).then((shown) => {
+      if (shown) box.hidden = false;
+      else if (body.hidden) box.hidden = true;
+    });
+  }
+
   /* ================= recognition ================= */
   function familyMark(fam) {
     const svg = svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' });
@@ -1532,6 +1555,7 @@
     renderCompleteness();
     renderBadges();
     renderPaths();
+    renderReadings();
     renderWeek();
     renderTimeline();
     renderNotifs();

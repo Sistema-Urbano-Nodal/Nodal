@@ -242,6 +242,10 @@
   // Organisers see every hidden message; a participant sees only their own, told who hid it.
   if(m.organiser)meta.append(tr('span','talkOrganiser','f-talk-org'));if(m.hidden)meta.append(tr('span',me.organiser?'talkHidden':'talkHiddenForYou','f-talk-flag'));
   meta.append(when(m.createdAt));row.append(meta);if(m.body)row.append(linkify(m.body));if(m.files.length)row.append(filesOf(m.files));
+  // A message asking for readings gets a quiet line of BUC suggestions under it (buc.js), from its words and this session's block (General: every category),
+  // for everyone reading the thread; it is never posted, and never shown under a hidden message. A redrawn row asks again, and buc.js answers from the
+  // read it already made, so a row keeps one line and a busy room one read per distinct question.
+  if(!m.hidden&&window.Buc?.asks(m.body)){const slot=el('div','f-talk-buc');slot.hidden=true;row.append(slot);window.Buc.suggest(slot,m.body,{...(page&&!isGeneral(page.id)?{block:page.id}:{}),context:'chat'}).then(shown=>{if(shown)keepEnd();});}
   // Your own message and a hidden one show their likes as text: nobody likes their own, and the server refuses a like on a hidden one.
   if(m.mine||m.hidden){if(m.likeCount>0)actions.append(counted('span','f-talk-likes',m.likeCount===1?'talkLikeOne':'talkLikes',{n:m.likeCount}));}
   else actions.append(likeButton(m));
@@ -294,8 +298,16 @@
  const sessionActivity=()=>!page?null:(festival&&findActivity(festival.event,page.id))||page.activity||null;
  function frame(id){
   const head=el('header','f-talk-session'),mine=el('div','f-talk-mine'),qa=el('section','f-talk-qa'),switcher=el('div','f-talk-switch'),chat=el('div','f-talk-chat');
-  qa.append(switcher,chat);root.replaceChildren(head,qa,newTabNote());page={id,head,mine,qa,switcher,chat,activity:null,questions:[],current:null};
+  qa.append(switcher,chat);root.replaceChildren(head,qa,newTabNote());page={id,head,mine,qa,switcher,chat,activity:null,questions:[],current:null,readings:readingsFold(id)};
   paintSession();programme().then(()=>{if(page?.id===id){paintSession();paintMine();}});
+ }
+ // "Lecturas de la BUC" under the session details (buc.js): links into BUC, Sistema Urbano's open library, for the block's BUC categories, which the server
+ // knows by the block (General asks for every category). Folded on a phone like the talks, so the question still shows on the first screen; hidden until
+ // the readings answer, and for good when they do not.
+ function readingsFold(id){
+  const fold=el('details','f-sessions f-talk-readings');fold.hidden=true;fold.open=!globalThis.matchMedia?.('(max-width:599px)').matches;
+  window.Buc?.mount(fold,{...(isGeneral(id)?{}:{block:id}),context:'session',limit:3,heading:tr('summary','bucReadings')});
+  return fold;
  }
  function paintSession(){
   if(!page)return;const a=sessionActivity(),kicker=el('p','f-talk-kicker'),nodes=[kicker];kicker.append(el('span','',festival?.event?.title||'FIIU Fest 11'));
@@ -311,7 +323,7 @@
     fold.open=was?was.open:!globalThis.matchMedia?.('(max-width:599px)').matches;fold.append(summary,list);nodes.push(fold);
    }
   }
-  page.head.replaceChildren(...nodes,page.mine);setTitle();
+  page.head.replaceChildren(...nodes,page.readings,page.mine);setTitle();
  }
  // The way back after registering, shared with fiiu.js: a link that leaves for the registration (or for another account) keeps this session's address, its
  // question included, for the tab, and fiiu.js offers "Volver a la sesión" to it once the registration is saved, for General, the laboratory and workshops

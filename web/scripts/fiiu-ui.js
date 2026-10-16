@@ -70,6 +70,9 @@
   talkLink:['View session','Ver sesión','Ver sessão'],talkLinkOne:['1 question','1 pregunta','1 pergunta'],talkLinkCount:['{n} questions','{n} preguntas','{n} perguntas'],
   // The festival-wide General space (fiiu-session.html?a=general), linked at the top of the programme and in the console with its open questions.
   talkGeneral:['General conversation','Conversación general','Conversa geral'],
+  // Readings from BUC, Sistema Urbano's open library (buc.js): the session page's fold under the session details, and the knowledge hub's library block.
+  bucReadings:['Readings from BUC','Lecturas de la BUC','Leituras da BUC'],bucLibrary:['Biblioteca Urbana Colaborativa','Biblioteca Urbana Colaborativa','Biblioteca Urbana Colaborativa'],
+  bucLibraryHint:['Open publications on urbanism and cities, gathered by Sistema Urbano. They open on BUC.','Publicaciones abiertas sobre urbanismo y ciudades, reunidas por Sistema Urbano. Se abren en la BUC.','Publicações abertas sobre urbanismo e cidades, reunidas pelo Sistema Urbano. Abrem na BUC.'],
   pendingShort:['Lab: in review','Laboratorio: en revisión','Laboratório: em análise'],acceptedShort:['Lab: accepted','Laboratorio: aceptado/a','Laboratório: aceito/a'],declinedShort:['Lab: not selected','Laboratorio: no seleccionado/a','Laboratório: não selecionado/a'],
   pendingHint:['The organising team is reviewing applications. The decision will appear here.','El equipo organizador está revisando las postulaciones. La decisión aparecerá aquí.','A equipe organizadora está analisando as candidaturas. A decisão aparecerá aqui.'],
   acceptedHint:['Your place in the 20 October laboratory is confirmed.','Tu lugar en el laboratorio del 20 de octubre está confirmado.','Sua vaga no laboratório de 20 de outubro está confirmada.'],

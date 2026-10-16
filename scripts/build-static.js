@@ -13,6 +13,7 @@ export const SERVER_PAGES = ['fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fi
 const STATIC_SCRIPTS = [
   'fiiu-ui.js', 'fiiu-live.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js',
   'news-feed.js',
+  'buc.js',
   'admin.js',
   'app.js',
   'auth.js',
