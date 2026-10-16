@@ -6,6 +6,8 @@
    BUC's search is its own form: GET /busqueda?q=<words>&c=<category id>, where an empty c means any category (the form
    sends both fields, empty or not, and so do these links). */
 
+import {GENERAL_SPACE} from './fiiu-talk-domain.js';
+
 export const BUC_ORIGIN='https://buc.sistemaurbano.org';
 export const BUC_CATEGORIES=Object.freeze({1:'Infancia',2:'Espacio público',3:'Ambiente',4:'Metodologías',5:'Cultura',6:'Gobernanza',7:'Movilidad',8:'Inclusión'});
 const CATEGORY_IDS=Object.keys(BUC_CATEGORIES).map(Number);
@@ -32,7 +34,8 @@ export const isBucTopic=name=>typeof name==='string'&&Object.hasOwn(TOPIC_TO_BUC
 
 /* The BUC categories of every festival block (server/fiiu-domain.js ids, legacy ones included), edited here and only
    here. The conference blocks follow the programme's themes; a workshop or route takes the category closest to its
-   title; the party and the legacy placeholders have none, so their pages show no readings. */
+   title; the party and the legacy placeholders have none, so their pages show no readings. The festival's General
+   space (GENERAL_SPACE, not a programme block) is all of BUC, like the knowledge hub. */
 export const BLOCK_TO_BUC=Object.freeze(Object.fromEntries(Object.entries({
   'day0-lab':[6],                          // Gestión urbana en acción: herramientas para la gestión local
   'day1-am':[6],                           // El poder de lo local; gobernanza colaborativa
@@ -305,10 +308,11 @@ export const READINGS_ERROR='invalid_readings_query';
 const refuse=()=>Object.assign(new Error('invalid readings query'),{status:400,code:READINGS_ERROR});
 
 /* The query string of GET /api/readings: topics (up to 12 names of up to 60 characters; ones NODAL does not know are
-   skipped later, since profile topics are free text), categories (up to 8 BUC ids), block (a festival activity id),
-   q (up to 80 characters), limit (1–12, default 4) and context (where the links are shown, for BUC's analytics). Each
-   at most once; an empty value counts as missing. At least one of topics, categories, block or q is needed, except on
-   the knowledge hub and a session page (the General space), which ask for all of BUC. Throws READINGS_ERROR. */
+   skipped later, since profile topics are free text), categories (up to 8 BUC ids), block (a festival activity id, or
+   the General space's, which is no block: all of BUC), q (up to 80 characters), limit (1–12, default 4) and context
+   (where the links are shown, for BUC's analytics). Each at most once; an empty value counts as missing. At least one
+   of topics, categories, block or q is needed, except on the knowledge hub and a session page, which may ask for all
+   of BUC with nothing. Throws READINGS_ERROR. */
 export function parseReadingsQuery(params){
   const one=name=>{
     const values=params.getAll(name);
@@ -325,7 +329,7 @@ export function parseReadingsQuery(params){
   if(topics.some(name=>name.length>60))throw refuse();
   const categories=list(one('categories'),8).map(part=>{if(!/^[1-8]$/.test(part))throw refuse();return Number(part);});
   const block=one('block');
-  if(block!==null&&!isBucBlock(block))throw refuse();
+  if(block!==null&&block!==GENERAL_SPACE.id&&!isBucBlock(block))throw refuse();
   const q=one('q');
   if(q!==null&&q.length>80)throw refuse();
   const limit=one('limit');
@@ -333,7 +337,7 @@ export function parseReadingsQuery(params){
   const context=one('context');
   if(context!==null&&!READINGS_CONTEXTS.includes(context))throw refuse();
   if(!topics.length&&!categories.length&&block===null&&q===null&&context!=='knowledge'&&context!=='session')throw refuse();
-  return {topics,categories,block,q:q??'',limit:limit===null?4:Number(limit),context:context??undefined};
+  return {topics,categories,block:block===GENERAL_SPACE.id?null:block,q:q??'',limit:limit===null?4:Number(limit),context:context??undefined};
 }
 
 // The feed's answer if it comes within waitMs; null when it is late, fails or has nothing.
@@ -353,10 +357,11 @@ async function feedWithin(feed,request,waitMs){
    `limit` publications, and one "Ver más en la BUC" link (the first search; more: true), or the eight categories. A
    block without categories asked for alone (the party) has no readings at all. */
 export async function bucReadings({topics=[],categories=[],block=null,q='',limit=4,context}={},{feed=null,waitMs=READINGS_FEED_WAIT_MS}={}){
-  const blockCategories=isBucBlock(block)?BLOCK_TO_BUC[block]:[];
-  if(block&&!blockCategories.length&&!topics.length&&!categories.length&&!q)return {source:'links',items:[],links:[]};
+  // Any other block (the General space) is no block at all.
+  const blockCategories=isBucBlock(block)?BLOCK_TO_BUC[block]:null;
+  if(blockCategories?.length===0&&!topics.length&&!categories.length&&!q)return {source:'links',items:[],links:[]};
   const known=topics.filter(isBucTopic);
-  const asked=[...new Set([...categories.filter(isCategory),...blockCategories])];
+  const asked=[...new Set([...categories.filter(isCategory),...blockCategories??[]])];
   const words=searchWords(q);
   const links=bucLinks({topics:known,categories:asked,words,context});
   const items=await feedWithin(feed,{

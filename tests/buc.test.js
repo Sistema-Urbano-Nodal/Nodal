@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {once} from 'node:events';
 import {BUC_CATEGORIES,TOPIC_TO_BUC,BLOCK_TO_BUC,BUC_FEED_LIMITS,READINGS_FEED_WAIT_MS,bucLinks,searchWords,withoutContactDetails,createBucFeed,bucFeedFromEnv,bucReadings} from '../server/buc.js';
 import {ALL_FIIU_ACTIVITIES} from '../server/fiiu-domain.js';
+import {GENERAL_SPACE} from '../server/fiiu-talk-domain.js';
 import {createApp} from '../server/server.js';
 import {createDatabase} from '../server/db.js';
 import {createRepository} from '../server/repository.js';
@@ -403,6 +404,22 @@ test('contact details in a chat message never reach a BUC link or its label', as
     assert.deepEqual(answer.body.links.map(link=>[link.label,link.words]),[['Gobernanza','']],message);
     assert.doesNotMatch(JSON.stringify(answer.body),/juan|perez|gmail|987|654|321|example|mariaq/,message);
   }
+});
+
+test('the General space is all of BUC, on its page and in its chat', async t => {
+  const {read}=await readingsServer(t);
+  const general=GENERAL_SPACE.id;
+  const page=await read(`?block=${general}&context=session`);
+  assert.equal(page.status,200);
+  assert.deepEqual(page.body.links.map(link=>link.category),[1,2,3,4,5,6,7,8]);
+  const chat=await read(`?block=${general}&q=${encodeURIComponent('libros sobre vivienda')}&context=chat`);
+  assert.equal(chat.status,200);
+  assert.deepEqual(chat.body.links.map(link=>[link.category,link.words,params(link).c]),[[null,'vivienda','']]);
+  // A request without subject words is as open as the page.
+  for(const query of [`?block=${general}&q=${encodeURIComponent('¿Algún libro?')}&context=chat`,`?block=${general}&context=chat`])
+    assert.deepEqual((await read(query)).body.links.map(link=>link.category),[1,2,3,4,5,6,7,8],query);
+  // The readings layer itself (the future assistant) agrees: General is not the party.
+  assert.deepEqual((await bucReadings({block:general,context:'session'})).links.map(link=>link.category),[1,2,3,4,5,6,7,8]);
 });
 
 test('the knowledge hub and the General space ask for nothing and get all eight categories', async t => {
