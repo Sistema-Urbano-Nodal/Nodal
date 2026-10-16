@@ -480,3 +480,12 @@ test('after saving a first registration on the festival page, the confirmation c
   }
  }finally{scrolls.restore();}
 });
+
+test('the band’s session titles and questions read as links: underlined like the page’s other text links, thicker on hover',()=>{
+ const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8').replace(/\/\*[\s\S]*?\*\//g,''),rules=[...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([,list,body])=>({list:list.trim(),body}));
+ const body=selector=>rules.filter(rule=>rule.list.split(/,(?![^()]*\))/).includes(selector)).map(rule=>rule.body).join(';');
+ for(const name of ['.f-live-session-title','.f-live-question']){
+  assert.match(body('.f-shell '+name),/text-decoration:underline;text-decoration-thickness:1px/,name);
+  assert.ok(rules.some(rule=>/^\.f-shell :is\([^)]*\)(:hover)$/.test(rule.list)&&rule.list.includes(name)&&/text-decoration-thickness:2px/.test(rule.body)),name+' on hover');
+ }
+});
