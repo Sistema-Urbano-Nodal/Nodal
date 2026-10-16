@@ -436,7 +436,7 @@
  }
  // A reload of the same question (a reset, or a status the pulse cannot carry) rebuilds the rows but keeps the header nodes, the composer and its draft.
  function show(data){
-  const previous=question?.id,again=previous===data.question.id;
+  const previous=question?.id,again=previous===data.question.id,had=Number(question?.messageCount);
   question={...data.question};activity=data.activity||activity;me={draftKey:/^[\w-]{1,64}$/.test(String(data.me?.draftKey))?data.me.draftKey:'',organiser:Boolean(data.me?.organiser),canPost:data.me?.canPost!==false&&question.status==='open'};
   before=typeof data.before==='string'?data.before:null;known=Number(data.revision)||Number(question.revision)||0;
   liked.clear();seedLiked(data);
@@ -462,7 +462,11 @@
   // one announcement for the answers that are newer than the newest they had.
   if(kept.follow)return toBottom(false);
   restoreAnchor(kept.anchor);const others=kept.newest?[...views.values()].filter(view=>!view.mine&&later(view,kept.newest)):[];
-  if(others.length){parts.pill.hidden=false;announce(others.length===1?fill('talkNewOne',{author:others[0].author||''}):fill('talkNewMany',{n:others.length}));}
+  // The rebuilt page holds the newest 100 answers only: when even its oldest is newer than the newest the reader had, more arrived than it shows, and
+  // the question's count, before and after, says how many.
+  const oldest=views.get([...parts.log.children].find(child=>child.dataset.id)?.dataset.id),cut=Boolean(before&&oldest&&kept.newest&&later(oldest,kept.newest));
+  const n=cut?Math.max(others.length,Number(question.messageCount)-had||0):others.length;
+  if(others.length){parts.pill.hidden=false;announce(n===1?fill('talkNewOne',{author:others[0].author||''}):fill('talkNewMany',{n}));}
  }
 
  // A full read (the question, or earlier messages) may also list the ids of the messages this viewer likes.

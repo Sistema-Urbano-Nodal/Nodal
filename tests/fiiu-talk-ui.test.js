@@ -1927,3 +1927,19 @@ test('the links that leave a session for the registration remember its address, 
  const locked=await page({...SESSION_ROUTES,'GET /api/fiiu/registration':carla,['GET '+LIST]:refusal},{search:'?a=day1-am',context:{sessionStorage:blocked}});
  assert.doesNotThrow(()=>key(qa(locked),'register').listeners.click({button:0}));
 });
+
+test('#7: after a rebuild whose newest page holds only part of what arrived, the announcement counts every new answer, not just the page',async()=>{
+ const newer=[0,1,2,3,4].map(i=>message('50000000-0000-4000-8000-00000000001'+i,{author:'Beto Q.',body:'Mientras no mirabas '+i,createdAt:`2026-10-21T15:1${i}:00.000Z`,seq:300+i}));
+ let loads=0;
+ const h=await page({['GET /api/fiiu/questions/'+Q]:()=>loads++?thread({revision:400,before:'cursor-1',question:{messageCount:212,revision:400},messages:newer}):thread(),
+  'GET /api/fiiu/pulse':{questions:[[Q,'day1-am',400,'open']]},['GET '+MESSAGES+'?since=3']:{reset:true,revision:400}});
+ const away=follow(h,()=>0);await scrollTo(h,away,1900);await scrollTo(h,away,900);
+ await h.visible(false);await h.visible(true);await flush();
+ assert.equal(rows(h).length,5);assert.equal(h.root.querySelector('.f-talk-new').hidden,false);
+ assert.equal(h.root.querySelector('.f-talk-live').textContent,'210 new answers','210 arrived, though the page loaded 5');
+ // A rebuild whose page reaches back to what the reader had counts the rows themselves.
+ let again=0;const whole=await page({['GET /api/fiiu/questions/'+Q]:()=>again++?thread({revision:400,before:'cursor-1',question:{messageCount:9,revision:400},messages:[message(M2,{seq:2,createdAt:'2026-10-21T14:07:00.000Z'}),...newer.slice(0,3)]}):thread(),
+  'GET /api/fiiu/pulse':{questions:[[Q,'day1-am',400,'open']]},['GET '+MESSAGES+'?since=3']:{reset:true,revision:400}});
+ const up=follow(whole,()=>0);await scrollTo(whole,up,1900);await scrollTo(whole,up,900);await whole.visible(false);await whole.visible(true);await flush();
+ assert.equal(whole.root.querySelector('.f-talk-live').textContent,'3 new answers');
+});
