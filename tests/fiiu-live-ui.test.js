@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 import {FIIU_EVENT} from '../server/fiiu-domain.js';
-import {createFiiuHarness,key,descendants,content,flush,Node} from './helpers/fiiu-ui-harness.js';
+import {createFiiuHarness,key,field,descendants,content,flush,Node} from './helpers/fiiu-ui-harness.js';
 
 /* The live window (web/scripts/fiiu-live.js) against a stubbed GET /api/fiiu/live, in the shape the spec gives (section 3): the band at the top of
    fiiu.html and the compact line in the console's festival block. Lane A serves the real route; these tests only pin what the page does with it. */
@@ -144,7 +144,8 @@ test('a refresh with new numbers changes them in place; a new conversation rebui
  assert.equal(h.host.querySelectorAll('.f-live-talk').length,3);assert.equal(linkTo(h.host,'¿Qué cambiarías en tu barrio?').href,'fiiu-session.html?a=day1-am&q='+Q3);
  // Nothing open: the part says so.
  answer=LIVE({conversations:[],now:null});await h.tickTimers();await flush();assert.ok(key(h.host,'liveNoTalks'));assert.equal(key(h.host,'liveNow'),undefined);assert.ok(key(h.host,'liveNext'));
- answer=LIVE({conversations:[],now:null,next:null});await h.tickTimers();await flush();assert.ok(key(h.host,'liveDone'));
+ // No block named on the 21st: the festival is not over, the closing party is still to come.
+ answer=LIVE({conversations:[],now:null,next:null});await h.tickTimers();await flush();assert.equal(key(h.host,'liveDone'),undefined);assert.ok(linkTo(h.host,activity('closing-party').title));
 });
 
 test('the band never announces its refreshes: no live region anywhere in it',async()=>{
@@ -325,8 +326,10 @@ test('the console’s festival block carries one live line for a registered pers
  assert.match(content(line),/87\s+check-ins today/);assert.match(content(line),/2\s+live conversations/);
  const open=key(line,'liveOpen');assert.equal(open.tagName,'a');assert.equal(open.href,'fiiu.html#en-vivo');
  assert.equal(line.querySelectorAll('.f-live-part').length,0,'one line, not the band');assert.equal(h.requests.filter(path=>path==='/api/fiiu/live').length,1);
- // It sits with the person's status, after the next session and before the registration button.
- const order=['statusRegistered','liveTitle','viewRegistration'].map(name=>descendants(h.widget).indexOf(key(h.widget,name)));assert.deepEqual([...order].sort((a,b)=>a-b),order);
+ // The status keeps its button and the General link; the line follows as its own group under its h3, before the badges and their heading.
+ const general=await consoleBlock(path=>path==='/api/fiiu/pulse'?{questions:[['eeeeeeee-eeee-4eee-8eee-eeeeeeeeee01','general',1,'open']]}:feed(elsewhere)(path));
+ const order=['statusRegistered','nextForYou','viewRegistration','talkGeneral','liveTitle','badges'].map(name=>descendants(general.widget).indexOf(key(general.widget,name)));
+ assert.ok(order.every(at=>at>=0),JSON.stringify(order));assert.deepEqual([...order].sort((a,b)=>a-b),order);
  // With nothing on now, the next session, with its day when it is another day.
  const later=await consoleBlock(feed(registered,()=>LIVE({now:null,next:{activity:activity('day2-am')}})));assert.ok(key(later.line(),'liveNext'));assert.ok(later.line().querySelector('.f-live-day'));
 });
@@ -386,8 +389,103 @@ test('the console line does not repeat the session the block already names as th
  const h=await consoleBlock(feed(registered));const line=h.line();
  assert.match(content(key(h.widget,'nextForYou').parent),/El poder de lo local/);
  assert.equal(linkTo(line,'El poder de lo local'),undefined);assert.ok(key(line,'liveNext'));assert.equal(linkTo(line,activity('day1-pm').title).href,'fiiu-session.html?a=day1-pm');
- // With nothing else to name, the line keeps its counts and its way to the band.
- const only=await consoleBlock(feed(registered,()=>LIVE({next:null})));assert.equal(key(only.line(),'liveNow'),undefined);assert.equal(key(only.line(),'liveDone'),undefined);assert.match(content(only.line()),/87\s+check-ins today/);assert.ok(key(only.line(),'liveOpen'));
+ // With no other block named by the server, the line moves on to the programme's next timed item (the closing party), and keeps its counts and its way to the band.
+ const only=await consoleBlock(feed(registered,()=>LIVE({next:null})));assert.equal(key(only.line(),'liveNow'),undefined);assert.equal(key(only.line(),'liveDone'),undefined);assert.ok(linkTo(only.line(),activity('closing-party').title));assert.match(content(only.line()),/87\s+check-ins today/);assert.ok(key(only.line(),'liveOpen'));
  // Someone whose plan has another block sees the session under way.
  const other=await consoleBlock(feed(elsewhere));assert.ok(linkTo(other.line(),'El poder de lo local'));
+});
+
+// The server names check-in blocks only; the last, day3-am, ends on 23 Oct at 13:00, and the routes (24–25 Oct) and the closing party (25 Oct from 17:00) follow.
+test('after the last conference the band and the console line name the closing party, never that the festival’s sessions are over while anything is to come',async()=>{
+ const party=activity('closing-party'),empty=()=>LIVE({now:null,next:null}),SUNDAY_MORNING='2026-10-24T16:00:00.000Z';
+ // 24 Oct, 11:00 in Lima: the party is next, with its day and its start.
+ const h=await band(empty,{when:SUNDAY_MORNING}),when=h.host.querySelector('.f-live-when');
+ assert.equal(key(h.host,'liveDone'),undefined);assert.ok(key(when,'liveNext'));assert.equal(linkTo(when,party.title).href,'fiiu-session.html?a=closing-party');
+ assert.equal(when.querySelector('.f-live-day')?.dataset.fiiuDate,'2026-10-25');assert.equal(when.querySelector('.f-live-time')?.dataset.fiiuTime,'17:00');
+ // The console line too; for someone the block already tells about the party, the line keeps its counts and says nothing about the sessions.
+ const line=await consoleBlock(feed(registered,empty),{when:SUNDAY_MORNING});assert.equal(key(line.line(),'liveDone'),undefined);assert.ok(linkTo(line.line(),party.title));
+ const going=()=>({user,registration:{...saved,answers:{...answers,activities:['day1-am','closing-party']}},attendance:[],isAdmin:false});
+ const own=await consoleBlock(feed(going,empty),{when:SUNDAY_MORNING});assert.equal(key(own.line(),'liveDone'),undefined);assert.equal(linkTo(own.line(),party.title),undefined);assert.match(content(own.line()),/87\s+check-ins today/);
+ // 25 Oct, 18:00: the party is under way. It takes no check-in, so no count is shown for it.
+ const on=await band(empty,{when:'2026-10-25T23:00:00.000Z'}),now=on.host.querySelector('.f-live-when');
+ assert.ok(key(now,'liveNow'));assert.ok(linkTo(now,party.title));assert.equal(now.querySelector('.f-live-count'),null);assert.equal(key(on.host,'liveDone'),undefined);
+ // A server's next block still comes first when it starts before the party.
+ const lab=await band(()=>LIVE({now:null,next:{activity:activity('day2-am')}}));assert.ok(linkTo(lab.host,activity('day2-am').title));assert.equal(linkTo(lab.host,party.title),undefined);
+ // Only routes left, none of them timed: nothing to name as now or next, and still no "over".
+ const routesOnly={...FIIU_EVENT,activities:FIIU_EVENT.activities.filter(a=>a.id!=='closing-party')};
+ const routes=await band(empty,{when:SUNDAY_MORNING,event:routesOnly});assert.equal(key(routes.host,'liveDone'),undefined);assert.equal(routes.host.querySelector('.f-live-when'),null);assert.ok(routes.host.querySelector('.f-live-talks'));
+ // Once the last item is over (an organiser's preview the day after), the band says so.
+ const after=await band(empty,{when:'2026-10-26T15:00:00.000Z',organiser:true});assert.ok(key(after.host,'liveDone'));
+ const afterLine=await consoleBlock(feed(()=>({user,registration:null,attendance:[],isAdmin:true}),empty),{when:'2026-10-26T15:00:00.000Z'});assert.ok(key(afterLine.line(),'liveDone'));
+});
+
+// document.activeElement as a browser keeps it: the node focused last while it is still in the page, else the body; contains() as the DOM answers it.
+function watchFocus(h){
+ let active=null;const {focus}=Node.prototype;
+ Node.prototype.focus=function(...args){focus.apply(this,args);active=this;};
+ Node.prototype.contains=function(node){return node===this||descendants(this).includes(node);};
+ Object.defineProperty(h.ctx.document,'activeElement',{configurable:true,get:()=>active&&descendants(h.body).includes(active)?active:h.body});
+ return{restore(){Node.prototype.focus=focus;delete Node.prototype.contains;}};
+}
+
+test('a new answer in a listed conversation changes its line in place, and a redraw gives focus back to the folded conversations’ control',async()=>{
+ const talk=(n,over={})=>({...LIVE().conversations[0],questionId:'dddddddd-dddd-4ddd-8ddd-dddddddddd'+String(n).padStart(2,'0'),body:'Pregunta '+n,...over});
+ let answer=LIVE({conversations:[1,2,3,4,5].map(n=>talk(n))});const h=await band(()=>answer),focus=watchFocus(h);
+ try{
+  const more=h.host.querySelector('.f-live-more'),summary=more.querySelector('summary'),first=linkTo(h.host,'Pregunta 1');more.open=true;summary.focus();
+  // Beto answers the first question: its newest line changes where it is, so the links, the fold and the focus on its control stay put.
+  answer=LIVE({conversations:[talk(1,{messageCount:13,latest:{author:'Beto R.',body:'Más árboles en la avenida.',likeCount:0,createdAt:'2026-10-21T15:30:10.000Z'}}),...[2,3,4,5].map(n=>talk(n))]});
+  await h.tickTimers();await flush();
+  assert.equal(linkTo(h.host,'Pregunta 1'),first,'the same link');assert.equal(h.host.querySelector('.f-live-more'),more,'the same fold');assert.equal(h.ctx.document.activeElement,summary,'focus stays on its control');
+  assert.match(content(first.parent),/Beto R\./);assert.match(content(first.parent),/Más árboles en la avenida\./);assert.match(content(first.parent),/13\s+answers/);
+  // A conversation that joins the list rebuilds it: focus comes back to the new control, which stays open.
+  answer=LIVE({conversations:[talk(6),...[1,2,3,4].map(n=>talk(n))]});await h.tickTimers();await flush();
+  const again=h.host.querySelector('.f-live-more');assert.notEqual(again,more);assert.equal(again.open,true);assert.equal(h.ctx.document.activeElement,again.querySelector('summary'));
+ }finally{focus.restore();}
+});
+
+// The content under the band as a browser lays it out: base px from the viewport top plus the band's height (10 px a node, nothing while hidden). A browser
+// with scroll anchoring (anchored) moves the page itself, so that content stays where it was. scrolls: the page moves the band asks for.
+function underBand(h,{base=-2000,anchored=false}={}){
+ const below=new Node('div'),scrolls=[],height=()=>h.host.hidden?0:descendants(h.host).length*10,start=height();h.host.nextElementSibling=below;
+ below.getBoundingClientRect=()=>({top:base+(anchored?start:height())});h.ctx.window.scrollBy=options=>scrolls.push({...options});return{scrolls,height};
+}
+
+test('when the band grows, shrinks or goes above where the person is reading, the page moves with it on a browser that does not keep the place itself',async()=>{
+ // Safari on iPhone has no scroll anchoring: someone reading the panel far below the band's one line sees it become the whole band.
+ let known=403,active=true;const h=await band(()=>active?LIVE():{active:false,generatedAt:DURING},{known:()=>known}),page=underBand(h),line=page.height();
+ known=null;await h.live.refresh();await flush();const full=page.height();assert.ok(full>line);
+ assert.deepEqual(page.scrolls,[{top:full-line,behavior:'instant'}],'down by as much as the band grew');
+ active=false;await h.tickTimers();await flush();assert.deepEqual(page.scrolls.at(-1),{top:-full,behavior:'instant'},'and back up when it goes');
+ // A browser that keeps the place itself (scroll anchoring) is left to it; so is a reader above the band or looking at it.
+ for(const options of [{anchored:true},{base:120}]){
+  let refused=403;const other=await band(()=>LIVE(),{known:()=>refused}),seen=underBand(other,options);refused=null;await other.live.refresh();await flush();assert.deepEqual(seen.scrolls,[],JSON.stringify(options));
+ }
+});
+
+test('after saving a first registration on the festival page, the confirmation comes back into view once the band has drawn above it, unless the person has moved',async()=>{
+ const fill=form=>{for(const input of descendants(form).filter(node=>node.name)){const value={...answers,nationalId:'TEST123'}[input.name];if(value!==undefined){if(input.type==='checkbox')input.checked=Array.isArray(value)?value.includes(input.value):value===true;else input.value=String(value);}}field(form,'publicOfficial').value='no';};
+ const scrolls=watchScrolls();
+ try{
+  for(const moved of [false,true]){
+   const live=later(),h=await festivalPage(live.read,{me:{user,registration:null,attendance:[],isAdmin:false},write:()=>({status:200,data:{registration:saved}})}),focus=watchFocus(h);
+   try{
+   assert.ok(key(byId(h.root,'en-vivo'),'liveRegister'));const form=h.root.querySelector('form');fill(form);
+   await form.listeners.submit({preventDefault(){}});const confirmation=h.root.querySelector('.f-saved');assert.equal(confirmation.focused,true);
+   // The band reads now that the person may: it draws above the panel once its answer comes.
+   scrolls.seen.length=0;if(moved)for(const listener of h.windowListeners.touchstart||[])listener({type:'touchstart'});
+   live.answer(LIVE());await flush();assert.ok(key(byId(h.root,'en-vivo'),'liveNow'));
+   assert.deepEqual(scrolls.seen.map(node=>node===confirmation),moved?[]:[true],moved?'someone who moved stays where they went':'the confirmation again');
+   }finally{focus.restore();}
+  }
+ }finally{scrolls.restore();}
+});
+
+test('the band’s session titles and questions read as links: underlined like the page’s other text links, thicker on hover',()=>{
+ const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8').replace(/\/\*[\s\S]*?\*\//g,''),rules=[...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([,list,body])=>({list:list.trim(),body}));
+ const body=selector=>rules.filter(rule=>rule.list.split(/,(?![^()]*\))/).includes(selector)).map(rule=>rule.body).join(';');
+ for(const name of ['.f-live-session-title','.f-live-question']){
+  assert.match(body('.f-shell '+name),/text-decoration:underline;text-decoration-thickness:1px/,name);
+  assert.ok(rules.some(rule=>/^\.f-shell :is\([^)]*\)(:hover)$/.test(rule.list)&&rule.list.includes(name)&&/text-decoration-thickness:2px/.test(rule.body)),name+' on hover');
+ }
 });

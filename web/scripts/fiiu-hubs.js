@@ -52,7 +52,7 @@
    if(registration&&registration.labStatus!=='none')chips.append(tr('span',registration.labStatus+'Short','f-pill is-'+registration.labStatus));
    // A registration keeps its way back; without one, the call to action follows the registration settings.
    if(!registration&&!me.isAdmin)stopLive();
-   state.replaceChildren(chips,next,liveLine,registration?link('viewRegistration','fiiu.html#registration','f-button'):data?.config?.registrationOpen===false?link('viewProgramme','fiiu.html#programme','f-button'):link('register','fiiu.html#registration','f-button'));
+   state.replaceChildren(chips,next,registration?link('viewRegistration','fiiu.html#registration','f-button'):data?.config?.registrationOpen===false?link('viewProgramme','fiiu.html#programme','f-button'):link('register','fiiu.html#registration','f-button'));
    // The festival-wide General conversation, with its open questions from the public pulse; nothing while none is open. A refresh reads the pulse again.
    const general=el('p','f-widget-general');general.hidden=true;state.append(general);
    pulse({fresh:background}).then(counts=>{const n=counts.open?.get('general');if(!n)return;general.append(talkLink('general',n,'f-text-link f-talk-link f-talk-general','talkGeneral'));general.hidden=false;});
@@ -60,6 +60,9 @@
     const admin=el('div','f-widget-admin'),pending=el('span');admin.append(link('admin','fiiu-admin.html#participants','f-button secondary f-admin-link'),pending);state.append(admin);
     api('/api/admin/fiiu/summary').then(data=>{const n=data.summary?.lab?.pending;if(Number.isSafeInteger(n)&&n>0)pending.append(countLabel(n,'pendingReviewOne','pendingReviewMany','f-pill is-pending'));}).catch(()=>{});
    }
+   // The live line comes after the status's own actions, as a group under its h3: put between them, it took the registration button and the General link
+   // under "En vivo" in the outline and moved the button away from the status it belongs to.
+   state.append(liveLine);
    // The status stays; the next session and the badges need the event, so a failed news read puts the block's one retry here.
    if(!data){loadedAt=0;state.append(failure());return;}
    // The line leaves out the session the block names as the person's next (liveNamed, set below), so it never says the same thing twice.

@@ -721,7 +721,7 @@ test('programme and registration actions are at least 44px tall on touch screens
  const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8'),touch=[...css.matchAll(/@media\(pointer:coarse\)\{([^\n]*)\}\n/g)].map(match=>match[1]).filter(block=>!/f-attendance-row|data-page="fiiu-admin"|f-segmented/.test(block)).join('');
  const rule=selector=>[...touch.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter(([,list])=>list.split(/,(?![^()]*\))/).includes(selector)).map(([,,body])=>body).join(';');
  for(const selector of ['.f-programme .f-button.secondary.f-small','.f-registration .f-button.f-small','.f-shell .f-steps .f-step','.f-registration .f-form .f-check'])assert.match(rule(selector),/min-height:44px/,selector);
- for(const selector of [':is(.f-hero,.f-compact-actions,.f-activity-foot,.f-external-meta) .f-text-link','.f-itinerary-row>.f-text-link','.f-stepped>fieldset>.f-text-link','.f-updates-grid .f-news-item>.f-text-link'])assert.match(rule(selector),/display:inline-flex;align-items:center;min-height:44px/,selector);
+ for(const selector of [':is(.f-hero,.f-compact-actions,.f-activity-foot,.f-external-meta) .f-text-link','.f-itinerary-row>.f-text-link','.f-stepped>fieldset>.f-text-link','.f-updates-grid .f-news-item>.f-text-link','.f-saved-head>.f-back-session'])assert.match(rule(selector),/display:inline-flex;align-items:center;min-height:44px/,selector);
  // The festival page's own news and materials only: the dashboard and community news cards share .f-news-item and are another page's to size.
  assert.equal(rule('.f-news-item>.f-text-link'),'');
  // The session disclosure grows by padding: display:flex would drop its ▸ marker.
@@ -1068,4 +1068,28 @@ test('after saving from an #add-<block> landing, the saved summary offers the wa
  assert.ok(back,'a link back to the session');assert.equal(back.href,'fiiu-session.html?a=day2-am');
  // A plain visit, with no #add- landing, shows no such link.
  const plain=await harness({registration:saved});assert.equal(plain.root.querySelector('.f-saved').querySelectorAll('a').some(a=>a.dataset.fiiuText==='backToSession'),false);
+});
+
+// The shared way back (fiiu-talk.js keeps it): a session page that sends someone to register stores its own address in the tab under nodal.fiiuReturn.
+test('after registering from a session page, the way back is the address the person left, its question included, from General, the lab, a workshop or a conference',async()=>{
+ const at=hash=>({location:{hash,search:'',pathname:'/fiiu.html',reload(){}}}),Q='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',RETURN='nodal.fiiuReturn';
+ const back=h=>h.root.querySelector('.f-saved')?.querySelectorAll('a').find(a=>a.dataset.fiiuText==='backToSession');
+ for(const [hash,address] of [['#registration','/fiiu-session.html?a=general&q='+Q],['#registration','/fiiu-session.html?a=day0-lab'],['#registration','/fiiu-session.html?a=workshop-bosques-urbanos'],['#add-day1-am','/fiiu-session.html?a=day1-am&q='+Q]]){
+  const storage=tabStorage();storage.setItem(RETURN,address);
+  const h=await harness({context:{...at(hash),sessionStorage:storage},write:()=>({status:200,data:{registration:saved}})});
+  h.fill();await h.submit();
+  const link=back(h);assert.ok(link,address);assert.equal(link.href,address.slice(1));assert.match(link.className,/\bf-back-session\b/);
+  // Following it uses the address up, so a later save in this tab does not offer it again.
+  link.listeners.click();assert.equal(storage.data.has(RETURN),false,address);
+ }
+ // An address kept in the tab is offered only after a save on this visit.
+ const kept=tabStorage();kept.setItem(RETURN,'/fiiu-session.html?a=day1-am');
+ assert.equal(back(await harness({registration:saved,context:{...at(''),sessionStorage:kept}})),undefined);
+ // Only a session page's own address is followed; anything else leaves the #add-<block> way back.
+ const added={...saved,version:saved.version+1,answers:{...saved.answers,activities:['day1-am','day2-am']}};
+ for(const address of ['/dashboard.html','https://example.test/fiiu-session.html?a=day1-am','//example.test/fiiu-session.html?a=day1-am']){
+  const storage=tabStorage();storage.setItem(RETURN,address);
+  const h=await harness({registration:saved,context:{...at('#add-day2-am'),sessionStorage:storage},write:()=>({status:200,data:{registration:added}})});
+  await h.submit();assert.equal(back(h)?.href,'fiiu-session.html?a=day2-am',address);
+ }
 });
