@@ -64,8 +64,9 @@ export const READINGS_CONTEXTS=Object.freeze(['console','knowledge','session','c
 /* Accent- and case-free form for comparisons. */
 export const foldText=value=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 
-/* Words that say "I am asking for readings" or hold a sentence together, in ES/EN/PT (folded). A chat message asking
-   "¿Qué libros me recomiendan sobre vivienda?" searches BUC for "vivienda", not for the whole question. */
+/* Words that say "I am asking for readings" (or for a link, or how to reach someone) or hold a sentence together, in
+   ES/EN/PT (folded). A chat message asking "¿Qué libros me recomiendan sobre vivienda?" searches BUC for "vivienda",
+   not for the whole question. */
 const STOPWORDS=new Set(`
   libro libros lectura lecturas leer lean leyendo bibliografia bibliografias recomendacion recomendaciones recomienda
   recomiendan recomiendas recomiendo recomendar recomendarian recomendarias recomendaria sugerencia sugerencias sugieren
@@ -81,10 +82,27 @@ const STOPWORDS=new Set(`
   livro livros leitura leituras ler leiam recomendam recomenda recomendo recomendar recomendacao recomendacoes
   sugestao sugestoes sugerem textos artigo artigos alguem algum alguma alguns algumas bom boa bons boas melhor
   melhores sobre voce voces vcs obrigado obrigada ola oi tem temos sabem conhecem quem qual quais onde quando
-  pra pro uma umas uns dos das nos nas pelo pela pelos pelas tambem mas porque isso isto esse essa este esta
+  pra pro uma umas uns dos das nos nas pelo pela pelos pelas tambem mas porque isso isto esse essa este esta com
+  necesito necesitamos quiero queria quisiera gustaria busco buscando tienes pasan pasar pasen pasame compartir
+  compartan comparten manden mandar envien enviar enviame escribanme escribeme escribame contacto contactar correo
+  mail email gmail hotmail outlook yahoo arroba punto cel celular telefono tel numero whatsapp wsp link links enlace
+  enlaces menciono mencionaron mencionado mencionada ponente ponentes expositor expositora
+  need want looking share send phone number website mentioned speaker speakers
+  preciso quero gostaria procuro passar passem compartilhar mandem enviem telefone zap mencionou palestrante
 `.trim().split(/\s+/));
 const MAX_SEARCH_WORDS=4,MAX_SEARCH_LENGTH=80;
-const tokens=text=>String(text??'').normalize('NFC').toLowerCase().match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu)??[];
+/* Contact details a chat message may carry never become search words: they would travel to BUC in a link another
+   member follows, and they say nothing about the subject. First every whitespace-separated piece holding an @ (an
+   email address, a handle), a scheme (https://), www. or a domain with a path (bit.ly/x) goes, then every word with a
+   digit (a phone, an ID, a count; a leading + or # with it), except a year from 1900 to 2100. withoutContactDetails is
+   that step alone: a client asking with chat text applies the same rules before cutting it to 80 characters, so the
+   raw message is not in NODAL's request logs or the CDN's cache keys either. The server cleans q again regardless. */
+const CONTACT_PIECE=/\S*(?:@|:\/\/|\bwww\.|[\p{L}\p{N}]\.\p{L}{2,}\/)\S*/giu;
+const WORD=/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu,SIGNED_WORD=/[+#]?[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu;
+const isYear=word=>/^\d{4}$/.test(word)&&Number(word)>=1900&&Number(word)<=2100;
+export const withoutContactDetails=text=>String(text??'').replace(CONTACT_PIECE,' ')
+  .replace(SIGNED_WORD,word=>/\p{N}/u.test(word)&&!isYear(word.replace(/^[+#]/,''))?' ':word).replace(/\s+/g,' ').trim();
+const tokens=text=>withoutContactDetails(String(text??'').normalize('NFC')).toLowerCase().match(WORD)??[];
 // The subject words of a text, once each (by folded form), in order, without the request words or ones under 3 letters.
 export function keywords(text,max=MAX_SEARCH_WORDS){
   const seen=new Set(),out=[];

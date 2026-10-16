@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {once} from 'node:events';
-import {BUC_CATEGORIES,TOPIC_TO_BUC,BLOCK_TO_BUC,BUC_FEED_LIMITS,READINGS_FEED_WAIT_MS,bucLinks,searchWords,createBucFeed,bucFeedFromEnv,bucReadings} from '../server/buc.js';
+import {BUC_CATEGORIES,TOPIC_TO_BUC,BLOCK_TO_BUC,BUC_FEED_LIMITS,READINGS_FEED_WAIT_MS,bucLinks,searchWords,withoutContactDetails,createBucFeed,bucFeedFromEnv,bucReadings} from '../server/buc.js';
 import {ALL_FIIU_ACTIVITIES} from '../server/fiiu-domain.js';
 import {createApp} from '../server/server.js';
 import {createDatabase} from '../server/db.js';
@@ -89,6 +89,25 @@ test('a reading request keeps only its subject words: the request itself and sma
   assert.equal(searchWords('calles plazas parques barrios mercados'),'calles plazas parques barrios','at most four words');
   assert.ok(searchWords('x'.repeat(70)+' '+'y'.repeat(70)).length<=80);
   assert.equal(searchWords(undefined),'');
+});
+
+test('contact details never become search words: addresses, emails, handles and numbers other than years go', () => {
+  assert.equal(searchWords('¿Algún libro? escríbanme a juan.perez@gmail.com o al +51 987 654 321'),'');
+  assert.equal(searchWords('libros sobre Lima 2040 https://x.org/a'),'lima 2040');
+  assert.equal(searchWords('Recomiendan lecturas? mi cel es +51 987 654 321'),'');
+  assert.equal(searchWords('libros en https://example.com/path?x=1'),'');
+  assert.equal(searchWords('libros en example.com/path o www.ejemplo.org.pe'),'','a bare address too');
+  assert.equal(searchWords('Gracias @mariaq y @maríaq, ¿algún libro sobre vivienda? (ana@ejemplo.org)'),'vivienda');
+  // A year is a subject word; any other number (a phone, an ID, a count) is not.
+  assert.equal(searchWords('tel 987-654-321, censo de 1993 y 2017, no 1899 ni 2101 ni 300 hogares'),'censo 1993 2017 hogares');
+  // Asking someone to pass a link is the request, not its subject.
+  assert.equal(searchWords('Hola, ¿me pasan el link del libro que mencionó la ponente?'),'');
+  assert.equal(searchWords('Necesito o quisiera un enlace a lecturas sobre movilidad'),'movilidad');
+  // The same rules on the text itself, which is what a client sends as q (cut to 80 characters).
+  assert.equal(withoutContactDetails('¿Algún libro? escríbanme a juan.perez@gmail.com o al +51 987 654 321'),'¿Algún libro? escríbanme a o al');
+  assert.equal(withoutContactDetails('Libros sobre Lima 2040, #1 en https://x.org/a (gracias @mariaq)'),'Libros sobre Lima 2040, en (gracias');
+  const [link]=bucLinks({categories:[6],words:'¿Algún libro? escríbanme a juan.perez@gmail.com',context:'chat'});
+  assert.deepEqual({label:link.label,words:link.words,q:params(link).q},{label:'Gobernanza',words:'',q:''});
 });
 
 test('categories search with the words, then one words-only link; duplicates collapse; at most four links', () => {
@@ -374,6 +393,16 @@ test('a festival block brings its own BUC categories, which stay on the server',
   const unknown=await read('?block=day9-am&context=session');
   assert.equal(unknown.status,400);assert.deepEqual(unknown.body,{code:'invalid_readings_query'});
   assert.equal((await read('?block=__proto__&context=session')).status,400);
+});
+
+test('contact details in a chat message never reach a BUC link or its label', async t => {
+  const {read}=await readingsServer(t);
+  for(const message of ['¿Algún libro? escríbanme a juan.perez@gmail.com','Recomiendan lecturas? mi cel es +51 987 654 321','libros en https://example.com/path?x=1','¿Algún libro, @mariaq?']){
+    const answer=await read(`?block=day1-am&q=${encodeURIComponent(message)}&context=chat`);
+    assert.equal(answer.status,200,message);
+    assert.deepEqual(answer.body.links.map(link=>[link.label,link.words]),[['Gobernanza','']],message);
+    assert.doesNotMatch(JSON.stringify(answer.body),/juan|perez|gmail|987|654|321|example|mariaq/,message);
+  }
 });
 
 test('the knowledge hub and the General space ask for nothing and get all eight categories', async t => {
