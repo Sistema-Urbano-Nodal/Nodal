@@ -62,7 +62,7 @@ export const isBucBlock=id=>typeof id==='string'&&Object.hasOwn(BLOCK_TO_BUC,id)
 export const READINGS_CONTEXTS=Object.freeze(['console','knowledge','session','course','chat']);
 
 /* Accent- and case-free form for comparisons. */
-export const foldText=value=>String(value??'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+export const foldText=value=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 
 /* Words that say "I am asking for readings" or hold a sentence together, in ES/EN/PT (folded). A chat message asking
    "¿Qué libros me recomiendan sobre vivienda?" searches BUC for "vivienda", not for the whole question. */
@@ -223,7 +223,7 @@ export function createBucFeed({url,fetchImpl=globalThis.fetch,clock=Date.now,log
         }
       }
       let data;
-      try{data=JSON.parse(Buffer.concat(chunks).toString('utf8').replace(/^﻿/,''));}catch{throw new Error('not JSON');}
+      try{data=JSON.parse(Buffer.concat(chunks).toString('utf8').replace(/^\uFEFF/,''));}catch{throw new Error('not JSON');}
       if(!data||typeof data!=='object'||Array.isArray(data)||!Array.isArray(data.items)||(data.version!==undefined&&data.version!==1))throw new Error('not a BUC feed');
       const seen=new Set(),records=[];
       let skipped=0;
@@ -276,3 +276,78 @@ export function createBucFeed({url,fetchImpl=globalThis.fetch,clock=Date.now,log
   };
 }
 export const bucFeedFromEnv=(env=process.env,options={})=>createBucFeed({...options,url:env.BUC_FEED_URL});
+
+/* ---------------------------------------------------------------- readings (GET /api/readings)
+
+   One answer for a request from any placement (and, later, from a NODAL assistant): the BUC search links, and with
+   the feed on, the publications themselves plus one link to see more in BUC. The answer depends on the query only, so
+   it is the same for everyone and safe for the CDN; nothing about the member is sent anywhere. */
+export const READINGS_FEED_WAIT_MS=2000;
+export const READINGS_ERROR='invalid_readings_query';
+const refuse=()=>Object.assign(new Error('invalid readings query'),{status:400,code:READINGS_ERROR});
+
+/* The query string of GET /api/readings: topics (up to 12 names of up to 60 characters; ones NODAL does not know are
+   skipped later, since profile topics are free text), categories (up to 8 BUC ids), block (a festival activity id),
+   q (up to 80 characters), limit (1–12, default 4) and context (where the links are shown, for BUC's analytics). Each
+   at most once; an empty value counts as missing. At least one of topics, categories, block or q is needed, except on
+   the knowledge hub and a session page (the General space), which ask for all of BUC. Throws READINGS_ERROR. */
+export function parseReadingsQuery(params){
+  const one=name=>{
+    const values=params.getAll(name);
+    if(values.length>1)throw refuse();
+    return values[0]?.trim()||null;
+  };
+  const list=(value,max)=>{
+    if(value===null)return [];
+    const parts=value.split(',').map(part=>part.trim());
+    if(parts.length>max||parts.some(part=>!part))throw refuse();
+    return parts;
+  };
+  const topics=list(one('topics'),12);
+  if(topics.some(name=>name.length>60))throw refuse();
+  const categories=list(one('categories'),8).map(part=>{if(!/^[1-8]$/.test(part))throw refuse();return Number(part);});
+  const block=one('block');
+  if(block!==null&&!isBucBlock(block))throw refuse();
+  const q=one('q');
+  if(q!==null&&q.length>80)throw refuse();
+  const limit=one('limit');
+  if(limit!==null&&!/^(?:[1-9]|1[0-2])$/.test(limit))throw refuse();
+  const context=one('context');
+  if(context!==null&&!READINGS_CONTEXTS.includes(context))throw refuse();
+  if(!topics.length&&!categories.length&&block===null&&q===null&&context!=='knowledge'&&context!=='session')throw refuse();
+  return {topics,categories,block,q:q??'',limit:limit===null?4:Number(limit),context:context??undefined};
+}
+
+// The feed's answer if it comes within waitMs; null when it is late, fails or has nothing.
+async function feedWithin(feed,request,waitMs){
+  if(!feed||feed.enabled===false)return null;
+  let timer;
+  try{
+    return await Promise.race([
+      Promise.resolve().then(()=>feed.recommend(request)).catch(()=>null),
+      new Promise(resolve=>{timer=setTimeout(resolve,waitMs,null);}),
+    ]);
+  }finally{clearTimeout(timer);}
+}
+
+/* {source, items, links} for a parsed query. source 'links': the feed is off, failing, late or has no match, items is
+   empty and links are up to four searches (all eight categories when nothing specific was asked). source 'feed': up to
+   `limit` publications, and one "Ver más en la BUC" link (the first search; more: true), or the eight categories. A
+   block without categories asked for alone (the party) has no readings at all. */
+export async function bucReadings({topics=[],categories=[],block=null,q='',limit=4,context}={},{feed=null,waitMs=READINGS_FEED_WAIT_MS}={}){
+  const blockCategories=isBucBlock(block)?BLOCK_TO_BUC[block]:[];
+  if(block&&!blockCategories.length&&!topics.length&&!categories.length&&!q)return {source:'links',items:[],links:[]};
+  const known=topics.filter(isBucTopic);
+  const asked=[...new Set([...categories.filter(isCategory),...blockCategories])];
+  const words=searchWords(q);
+  const links=bucLinks({topics:known,categories:asked,words,context});
+  const items=await feedWithin(feed,{
+    categories:[...new Set([...known.map(name=>TOPIC_TO_BUC[name].category),...asked])],
+    // The topics' own words rank publications only when no words were asked for, as in the links.
+    words:words||known.map(name=>TOPIC_TO_BUC[name].words).join(' '),
+    limit,
+  },waitMs);
+  if(!Array.isArray(items)||!items.length)return {source:'links',items:[],links};
+  const everything=!known.length&&!asked.length&&!words;
+  return {source:'feed',items:items.slice(0,limit),links:everything?links:[{...links[0],label:'Ver más en la BUC',more:true}]};
+}

@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {BUC_CATEGORIES,TOPIC_TO_BUC,BLOCK_TO_BUC,BUC_FEED_LIMITS,bucLinks,searchWords,createBucFeed,bucFeedFromEnv} from '../server/buc.js';
+import {once} from 'node:events';
+import {BUC_CATEGORIES,TOPIC_TO_BUC,BLOCK_TO_BUC,BUC_FEED_LIMITS,READINGS_FEED_WAIT_MS,bucLinks,searchWords,createBucFeed,bucFeedFromEnv,bucReadings} from '../server/buc.js';
 import {ALL_FIIU_ACTIVITIES} from '../server/fiiu-domain.js';
+import {createApp} from '../server/server.js';
+import {createDatabase} from '../server/db.js';
+import {createRepository} from '../server/repository.js';
 
 /* BUC (https://buc.sistemaurbano.org/) is never contacted from these tests: links are only strings, and the feed reader
    runs on fake fetches with fixtures. */
@@ -200,7 +204,7 @@ test('a feed that is not the documented shape is a failed read', async () => {
     assert.equal(log.lines.length,1,body);assert.match(log.lines[0],/^BUC feed read failed/);
   }
   // A version-less feed and a byte order mark are fine.
-  assert.equal((await feedWith(fakeFetch(json('﻿'+JSON.stringify({items:[publication(1)]})))).items()).length,1);
+  assert.equal((await feedWith(fakeFetch(json('\uFEFF'+JSON.stringify({items:[publication(1)]})))).items()).length,1);
 });
 
 test('an unchanged feed (304 to the ETag) keeps the copy for another 6 hours', async () => {
@@ -319,4 +323,134 @@ test('recommendations keep the asked categories and rank by matching words, then
   assert.deepEqual(ids(await feed.recommend({words:'¿libros?',limit:12})),ids(await feed.recommend({limit:12})),'request words are not subject words');
   assert.equal((await feed.recommend({})).length,4,'four by default');
   assert.deepEqual(ids(await feed.recommend({categories:[1]})),[]);
+});
+
+/* ---------------------------------------------------------------- GET /api/readings */
+
+const READINGS_CACHE='public, max-age=0, s-maxage=300, stale-while-revalidate=600';
+const OFF=createBucFeed({});
+async function readingsServer(t,{bucFeed=OFF}={}){
+  const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
+  const repository=createRepository({db});
+  // A session read here would be slow and clear the cookies: the readings route must never get this far.
+  const sessionReads={count:0};
+  repository.resolveSession=async()=>{sessionReads.count++;await new Promise(resolve=>setTimeout(resolve,1500));return {user:null,cookies:['nodal_session=; Max-Age=0; Path=/']};};
+  const server=createApp({db,repository,bucFeed,fiiuConfirmation:null,fiiuPartyNotice:null,citySearch:{search:async()=>({cities:[]})}});
+  server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
+  const base=`http://127.0.0.1:${server.address().port}`;
+  const get=(query,options={})=>fetch(`${base}/api/readings${query}`,options);
+  const read=async(query,options)=>{const res=await get(query,options);return {status:res.status,headers:res.headers,body:await res.json()};};
+  return {get,read,sessionReads};
+}
+const feedServer=(t,items)=>readingsServer(t,{bucFeed:createBucFeed({url:FEED_URL,fetchImpl:fakeFetch(json(feedBody(items))).fetchImpl,log:()=>{}})});
+
+test('readings are public links into BUC, the same for everyone, cached by the CDN and cookie-free', async t => {
+  const {read,sessionReads}=await readingsServer(t);
+  const started=Date.now();
+  const answer=await read('?topics=Mobility,Housing&context=console',{headers:{Cookie:'nodal_session=not-a-session; nodal_refresh=nor-this'}});
+  assert.ok(Date.now()-started<1000,'a stale cookie does not slow it');
+  assert.equal(answer.status,200);
+  assert.equal(answer.headers.get('cache-control'),READINGS_CACHE);
+  assert.equal(answer.headers.get('set-cookie'),null);
+  assert.match(answer.headers.get('content-type'),/^application\/json/);
+  assert.equal(sessionReads.count,0,'the session is never read');
+  assert.deepEqual(answer.body,{source:'links',items:[],links:[
+    {label:'Movilidad',url:`${SEARCH}?q=&c=7&utm_source=nodal&utm_medium=console`,category:7,words:''},
+    {label:'Inclusión',url:`${SEARCH}?q=vivienda&c=8&utm_source=nodal&utm_medium=console`,category:8,words:'vivienda'},
+  ]});
+});
+
+test('a festival block brings its own BUC categories, which stay on the server', async t => {
+  const {read}=await readingsServer(t);
+  const session=await read('?block=day2-am&context=session');
+  assert.deepEqual(session.body.links.map(link=>[link.category,params(link).utm_medium]),[[8,'session'],[7,'session']]);
+  // In the block's chat, a request for books searches the block's categories with its subject words, then all of BUC.
+  const chat=await read(`?block=day2-am&q=${encodeURIComponent('¿Algún libro sobre cuidado infantil?')}&context=chat`);
+  assert.deepEqual(chat.body.links.map(link=>[link.category,link.words]),[[8,'cuidado infantil'],[7,'cuidado infantil'],[null,'cuidado infantil']]);
+  // Categories asked for are added to the block's.
+  assert.deepEqual((await read('?block=day1-pm&categories=3&context=session')).body.links.map(link=>link.category),[3,2]);
+  // The party has no readings.
+  assert.deepEqual((await read('?block=closing-party&context=session')).body,{source:'links',items:[],links:[]});
+  const unknown=await read('?block=day9-am&context=session');
+  assert.equal(unknown.status,400);assert.deepEqual(unknown.body,{code:'invalid_readings_query'});
+  assert.equal((await read('?block=__proto__&context=session')).status,400);
+});
+
+test('the knowledge hub and the General space ask for nothing and get all eight categories', async t => {
+  const {read}=await readingsServer(t);
+  for(const context of ['knowledge','session']){
+    const answer=await read(`?context=${context}`);
+    assert.equal(answer.status,200,context);
+    assert.deepEqual(answer.body.links.map(link=>link.category),[1,2,3,4,5,6,7,8]);
+    assert.ok(answer.body.links.every(link=>params(link).utm_medium===context));
+  }
+});
+
+test('a bad readings query is refused with one code', async t => {
+  const {get,read}=await readingsServer(t);
+  for(const query of [
+    '','?context=console','?context=chat','?context=course',
+    '?categories=0&context=console','?categories=9&context=console','?categories=7x&context=console','?categories=7,,8&context=console','?categories=1,2,3,4,5,6,7,8,1&context=console',
+    `?q=${'x'.repeat(81)}&context=chat`,
+    '?topics=Mobility&limit=0','?topics=Mobility&limit=13','?topics=Mobility&limit=abc','?topics=Mobility&limit=4.5','?topics=Mobility&limit=04',
+    '?topics=Mobility&context=elsewhere','?topics=Mobility&topics=Housing&context=console','?topics=Mobility&context=console&context=chat',
+    `?topics=${Array(13).fill('Mobility').join(',')}&context=console`,`?topics=${'x'.repeat(61)}&context=console`,
+  ]){
+    const answer=await read(query);
+    assert.equal(answer.status,400,query);assert.deepEqual(answer.body,{code:'invalid_readings_query'},query);
+  }
+  assert.equal((await get('?context=chat')).headers.get('cache-control'),'no-store','a refusal is not cached');
+  // Within the rules: 80 characters of words, twelve topics, eight categories, 1 to 12 publications.
+  for(const query of [`?q=${'vivienda '.repeat(9).slice(0,80)}&context=chat`,`?topics=${Array(12).fill('Mobility').join(',')}&context=console`,'?categories=1,2,3,4,5,6,7,8&context=console','?topics=Mobility&limit=1&context=console','?topics=Mobility&limit=12&context=console','?topics=Mobility'])
+    assert.equal((await get(query)).status,200,query);
+  // A topic NODAL does not know (an old free-text one) is skipped rather than failing the whole block.
+  assert.deepEqual((await read('?topics=Transporte,Mobility&context=console')).body.links.map(link=>link.category),[7]);
+  assert.deepEqual((await read('?topics=Transporte&context=console')).body.links.map(link=>link.category),[1,2,3,4,5,6,7,8]);
+});
+
+test('the readings route answers GET and HEAD only', async t => {
+  const {get}=await readingsServer(t);
+  const head=await get('?topics=Mobility&context=console',{method:'HEAD'});
+  assert.equal(head.status,200);assert.equal(head.headers.get('cache-control'),READINGS_CACHE);assert.equal(await head.text(),'');
+  const post=await get('?topics=Mobility&context=console',{method:'POST'});
+  assert.equal(post.status,405);assert.equal(post.headers.get('allow'),'GET, HEAD');
+});
+
+test('with the feed on, readings are publications plus one link to see more in BUC', async t => {
+  const items=[
+    publication('m1',{category:7,year:2024,title:'Calles para caminar'}),
+    publication('m2',{category:7,year:2020,title:'Movilidad del cuidado',summary:'Viajes de cuidado en Lima.'}),
+    publication('c1',{category:3,year:2025,title:'Clima y resiliencia'}),
+  ];
+  const {read}=await feedServer(t,items);
+  const console_=await read('?topics=Mobility&context=console');
+  assert.equal(console_.headers.get('cache-control'),READINGS_CACHE);
+  assert.deepEqual(console_.body,{source:'feed',
+    items:[
+      {id:'m1',title:'Calles para caminar',authors:[],year:2024,country:null,category:7,format:null,url:'https://buc.sistemaurbano.org/publicacion/m1',summary:null},
+      {id:'m2',title:'Movilidad del cuidado',authors:[],year:2020,country:null,category:7,format:null,url:'https://buc.sistemaurbano.org/publicacion/m2',summary:'Viajes de cuidado en Lima.'},
+    ],
+    links:[{label:'Ver más en la BUC',url:`${SEARCH}?q=&c=7&utm_source=nodal&utm_medium=console`,category:7,words:'',more:true}]});
+  assert.deepEqual((await read('?categories=7&q=cuidado&context=chat')).body.items.map(item=>item.id),['m2','m1'],'subject words rank first');
+  assert.deepEqual((await read('?topics=Mobility&limit=1&context=console')).body.items.map(item=>item.id),['m1']);
+  // The knowledge hub gets the newest publications and still all eight categories.
+  const knowledge=await read('?context=knowledge');
+  assert.deepEqual(knowledge.body.items.map(item=>item.id),['c1','m1','m2']);
+  assert.deepEqual(knowledge.body.links.map(link=>link.category),[1,2,3,4,5,6,7,8]);
+  // Nothing in the feed for the request: the search links are more use than an empty list.
+  assert.deepEqual((await read('?topics=Heritage&context=console')).body,{source:'links',items:[],links:[
+    {label:'Cultura',url:`${SEARCH}?q=patrimonio&c=5&utm_source=nodal&utm_medium=console`,category:5,words:'patrimonio'}]});
+});
+
+test('a feed that fails or hangs never breaks readings: they fall back to links', async t => {
+  const {read}=await readingsServer(t,{bucFeed:{recommend:async()=>{throw new Error('boom');}}});
+  assert.deepEqual((await read('?topics=Mobility&context=console')).body.links.map(link=>link.category),[7]);
+  assert.equal(READINGS_FEED_WAIT_MS,2000,'a cold instance waits at most 2 s for its first read');
+  const started=Date.now();
+  const answer=await bucReadings({topics:['Mobility'],context:'console'},{feed:{recommend:()=>new Promise(()=>{})},waitMs:30});
+  assert.ok(Date.now()-started<1000);
+  assert.equal(answer.source,'links');assert.deepEqual(answer.links.map(link=>link.category),[7]);
+  // With the feed off, the readings are links without asking anything.
+  assert.equal((await bucReadings({topics:['Mobility'],context:'console'},{feed:OFF})).source,'links');
+  assert.equal((await bucReadings({topics:['Mobility'],context:'console'})).source,'links','no feed at all');
 });
