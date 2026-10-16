@@ -1886,6 +1886,13 @@ test('a message stored without its photo (its attach step failed after the inser
  composer(slow).querySelector('textarea').value=body;choose(slow,[file('plano.jpg','image/jpeg',1000)]);submit(slow);await flush();
  revision=4;await slow.tickTimers();assert.ok(rows(slow).some(node=>node.dataset.pending),'still on its way with its photo');
  gate.resolve();await flush();assert.ok(key(failed(slow),'talkRetry'),'the failure keeps Retry');
+ // The same photo chosen twice is one upload and one file on the server (it drops the repeated id), so the copy that carries it is the whole message.
+ revision=3;const store=memoryStore(),withPhoto=message(M3,{mine:true,clientId:CLIENT,body,files:[photo],createdAt:'2026-10-21T14:20:00.000Z',seq:4});
+ const twice=await page({...routes(()=>({status:500,data:{}})),['GET '+MESSAGES+'?since=3']:since(4,[withPhoto])},{context:{...context,sessionStorage:store}});
+ composer(twice).querySelector('textarea').value=body;choose(twice,[file('plano.jpg','image/jpeg',1000)]);choose(twice,[file('plano.jpg','image/jpeg',1000)]);submit(twice);await flush();
+ assert.ok(failed(twice));assert.equal(sent(twice,'POST','/api/fiiu/files').length,1,'one upload for the photo chosen twice');
+ revision=4;await twice.tickTimers();assert.ok(row(twice,M3),'the delivered copy shows');
+ assert.equal(failed(twice),undefined,'and settles the attempt');assert.equal(store.items.has(UNSENT_KEY),false,'which is no longer kept as unsent');
 });
 
 test('#17: swapping to another question from deep in a long chat shows the new question, not the middle of its conversation; a swap from the top moves nothing',async()=>{

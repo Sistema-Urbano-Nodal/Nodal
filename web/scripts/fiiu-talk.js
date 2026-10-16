@@ -271,8 +271,10 @@
  function restoreAnchor(anchor){const row=anchor&&rowsById.get(anchor.id);if(row?.getBoundingClientRect&&typeof window.scrollBy==='function')window.scrollBy(0,row.getBoundingClientRect().top-anchor.top);}
  // A copy stored without the attempt's photos or PDFs (the attach step failed after the insert) is not the message delivered: the attempt keeps its row,
  // Retry and uploads, and Retry, with the same clientId, attaches them (the server finishes that copy). A restored attempt has no files left to wait for.
+ // Files count as uploads do, by fileKey: the same photo chosen twice is one upload, and the server keeps one copy of a repeated file id.
  function landed(clientId,view){
-  const attempt=attempts.get(clientId);if(!attempt||(Array.isArray(view?.files)?view.files.length:0)<attempt.files.length)return;attempt.landed=true;
+  const attempt=attempts.get(clientId),need=attempt?new Set(attempt.files.map(fileKey)).size:0;
+  if(!attempt||(Array.isArray(view?.files)?view.files.length:0)<need)return;attempt.landed=true;
   if(attempt.state==='sending'){attempt.row?.remove();attempt.row=null;return;}
   forget(attempt);const node=composer?.state;if(node&&['talkOfflineSend','talkError','talkRate'].includes(node.dataset.fiiuText))status(node,'');
  }
