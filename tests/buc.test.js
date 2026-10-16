@@ -65,7 +65,7 @@ test('the vocabulary: each entry has its ES/EN/PT terms, one BUC category, a Spa
 test('the vocabulary covers the twelve NODAL topics and the festival’s themes, in Spanish, English and Portuguese, singular and plural', () => {
   // Each NODAL topic's English words find an entry in the topic's own BUC category.
   const topicWords={'Mobility':['mobility'],'Public space':['public space'],'Housing':['housing'],'Climate & resilience':['climate','resilience'],'Care & gender':['care','gender'],
-    'Governance & participation':['governance','participation'],'Safety':['safety'],'Informality':['informality'],'Heritage':['heritage'],'Urban data & tech':['data','technology'],
+    'Governance & participation':['governance','participation'],'Safety':['safety'],'Informality':['informality'],'Heritage':['heritage'],'Urban data & tech':['urban data','technology'],
     'Land use & planning':['land use','planning'],'Environment & nature':['environment','nature']};
   assert.deepEqual(Object.keys(topicWords).sort(),Object.keys(TOPIC_TO_BUC).sort());
   for(const [name,words] of Object.entries(topicWords))for(const word of words)assert.equal(entryOf(word)?.category,TOPIC_TO_BUC[name].category,`${name}: ${word}`);
@@ -76,10 +76,12 @@ test('the vocabulary covers the twelve NODAL topics and the festival’s themes,
     3:['clima','climate','cambio climático','climate change','resiliencia','resilience','ambiente','medio ambiente','environment','meio ambiente','naturaleza','nature'],
     6:['gobernanza','governance','governança','participación','participation','participação'],
     5:['patrimonio','heritage','património','patrimônio','cultura','culture','centro histórico'],
-    4:['datos','data','dados','tecnología','technology','planificación','planning','planejamento','uso de suelo','land use','metodología','metodologías','methods'],
+    4:['datos','urban data','open data','big data','data science','dados','tecnología','technology','planificación','planning','planejamento','uso de suelo','land use','metodología','metodologías','methods'],
     1:['infancia','childhood','niñez','infância','niños'],
   };
   for(const [category,terms] of Object.entries(covered))for(const term of terms)assert.equal(entryOf(term)?.category,Number(category),term);
+  // "data" alone is Portuguese for a date ("a data do lançamento") and Spanish "de larga data": the English topic is named as a phrase.
+  assert.equal(entryOf('data'),undefined);
   // Matching is accent- and case-free, so an unaccented or capitalised q is the same q.
   assert.equal(vocabularyEntry('Planificacion')?.q,'planificación');
   assert.equal(vocabularyEntry('  ESPACIO   publico ')?.q,'espacio público');

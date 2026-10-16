@@ -37,7 +37,7 @@
   {terms:['seguridad','seguridad ciudadana','safety','security','segurança'],category:2,q:'seguridad',label:['safety','seguridad','segurança']},
   {terms:['informalidad','informality','informalidade','asentamientos','asentamientos informales','informal settlements','assentamentos','assentamentos informais','favela','favelas'],category:8,q:'asentamientos',label:['informality','informalidad','informalidade']},
   {terms:['patrimonio','heritage','centro histórico','centros históricos','historic centre','historic center'],category:5,q:'histórico',label:['heritage','patrimonio','patrimônio']},
-  {terms:['datos','data','dados','tecnología','tecnologías','technology','technologies'],category:4,q:'datos',label:['data','datos','dados']},
+  {terms:['datos','urban data','open data','big data','data science','dados','tecnología','tecnologías','technology','technologies'],category:4,q:'datos',label:['urban data','datos','dados']},
   {terms:['planificación','planning','planejamento','planeamiento','planeación','uso de suelo','uso del suelo','land use','uso do solo','ordenamiento territorial'],category:4,q:'planificación',label:['planning','planificación','planejamento']},
   {terms:['medio ambiente','ambiente','ambiental','ambientales','environment','environmental','meio ambiente','naturaleza','nature','natureza','árboles','trees','árvores','bosques urbanos','urban forests'],category:3,q:'ambiente',label:['environment','medio ambiente','meio ambiente']},
   {terms:['infancia','childhood','niñez','niños','niñas','children','crianças'],category:1,q:'infancia',label:['childhood','infancia','infância']},

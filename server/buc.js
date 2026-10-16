@@ -33,7 +33,9 @@ export const foldText=value=>String(value??'').normalize('NFD').replace(/[\u0300
      gobernanza c6 13, participación c6 24, gestión urbana c6 1, histórico c5 3 (the review found "patrimonio" 0),
      cultura c5 30, datos c4 6 ("tecnología" 1), planificación c4 8, metodología c4 24, infancia c1 20.
    BUC matches q as one phrase ("vivienda social" finds nothing where "vivienda" finds 21), so a q is one word or a
-   phrase BUC's titles carry. A term can be added freely; a new q is checked the same way first. */
+   phrase BUC's titles carry. A term can be added freely, as long as it means the topic in every language a member
+   may write: "data" alone is Portuguese for a date ("a data do lançamento") and Spanish "de larga data", so English
+   names data as a phrase ("urban data", "open data"). A new q is checked the same way first. */
 export const BUC_VOCABULARY=Object.freeze([
   {terms:['movilidad','mobility','mobilidade','transporte','transportes','transport','transportation'],category:7,q:'movilidad',label:['mobility','movilidad','mobilidade']},
   {terms:['caminabilidad','walkability','caminhabilidade','peatones','pedestrians','pedestres'],category:7,q:'caminabilidad',label:['walkability','caminabilidad','caminhabilidade']},
@@ -50,7 +52,7 @@ export const BUC_VOCABULARY=Object.freeze([
   {terms:['seguridad','seguridad ciudadana','safety','security','segurança'],category:2,q:'seguridad',label:['safety','seguridad','segurança']},
   {terms:['informalidad','informality','informalidade','asentamientos','asentamientos informales','informal settlements','assentamentos','assentamentos informais','favela','favelas'],category:8,q:'asentamientos',label:['informality','informalidad','informalidade']},
   {terms:['patrimonio','heritage','centro histórico','centros históricos','historic centre','historic center'],category:5,q:'histórico',label:['heritage','patrimonio','patrimônio']},
-  {terms:['datos','data','dados','tecnología','tecnologías','technology','technologies'],category:4,q:'datos',label:['data','datos','dados']},
+  {terms:['datos','urban data','open data','big data','data science','dados','tecnología','tecnologías','technology','technologies'],category:4,q:'datos',label:['urban data','datos','dados']},
   {terms:['planificación','planning','planejamento','planeamiento','planeación','uso de suelo','uso del suelo','land use','uso do solo','ordenamiento territorial'],category:4,q:'planificación',label:['planning','planificación','planejamento']},
   {terms:['medio ambiente','ambiente','ambiental','ambientales','environment','environmental','meio ambiente','naturaleza','nature','natureza','árboles','trees','árvores','bosques urbanos','urban forests'],category:3,q:'ambiente',label:['environment','medio ambiente','meio ambiente']},
   {terms:['infancia','childhood','niñez','niños','niñas','children','crianças'],category:1,q:'infancia',label:['childhood','infancia','infância']},

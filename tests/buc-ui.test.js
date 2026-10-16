@@ -460,6 +460,9 @@ test('a suggestion never sends the message’s words: it asks for the vocabulary
   ['Alguma indicação de leitura sobre clima?',{categories:'3',q:'clima'},['indicacao','leitura']],
   ['Can anyone recommend readings on informal settlements?',{categories:'8',q:'asentamientos'},['informal','settlements']],
   ['¿Alguna lectura sobre patrimonio y cultura?',{categories:'5',q:'histórico'},['patrimonio','cultura']],
+  // "data" is a date in Portuguese and in Spanish "de larga data": no topic. Urban data is one.
+  ['Alguém indica um livro para ler antes da data do workshop?',{},['data','workshop']],['Llevo de larga data en vivienda: ¿algún libro?',{categories:'8',q:'vivienda'},['larga','data']],
+  ['Any books on urban data?',{categories:'4',q:'datos'},['urban','books']],
   // Contact details are taken out before the topics are looked for: a site, a handle or an address names nothing.
   ['¿Algún libro sobre vivienda? mi web juanperez.pe, IG juanperez.arq, juan_perez_arq',{categories:'8',q:'vivienda'},['juanperez','arq','perez']],
   ['¿Algún libro? Sígueme en @movilidad_lima o en movilidad.pe',{},['movilidad','sigueme']],
