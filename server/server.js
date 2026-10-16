@@ -1895,18 +1895,22 @@ export function createApp({
               let geocodeBudget = NETWORK_GEOCODE_PER_REQUEST;
               /* Lookups also share a time budget: a slow or hanging provider would
                  otherwise hold the poll for its whole timeout per city. A lookup cut
-                 short keeps running and caches its answer for the next build. */
+                 short keeps running and caches its answer for the next build. Once
+                 the timer has cut one short the budget is spent: the wall clock
+                 Date.now() reads can lag the timer's clock, and would otherwise
+                 leave a few milliseconds for one more lookup. */
               const geocodeDeadline = Date.now() + NETWORK_GEOCODE_BUDGET_MS;
+              let geocodeTimedOut = false;
               const places = [];
               for (const group of groups.values()) {
                 let point = group.point;
                 const remainingMs = geocodeDeadline - Date.now();
-                if (!point && geocodeBudget > 0 && remainingMs > 0) {
+                if (!point && geocodeBudget > 0 && !geocodeTimedOut && remainingMs > 0) {
                   geocodeBudget -= 1;
                   let timer;
                   point = await Promise.race([
                     resolveCity(group.city, req.headers['accept-language']),
-                    new Promise(resolve => { timer = setTimeout(resolve, remainingMs, null); }),
+                    new Promise(resolve => { timer = setTimeout(() => { geocodeTimedOut = true; resolve(null); }, remainingMs); }),
                   ]).finally(() => clearTimeout(timer));
                 }
                 if (!point) continue;

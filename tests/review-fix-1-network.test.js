@@ -96,6 +96,22 @@ test('a slow geocoder cannot hold the globe poll open', async t => {
   assert.equal(lookups, 1, 'no further lookups start once the time budget is spent');
 });
 
+test('a wall clock lagging the timers does not let another lookup start after the budget ran out', async t => {
+  const db = database(t);
+  let lookups = 0;
+  const citySearch = { search: async () => { lookups++; await new Promise(resolve => setTimeout(resolve, 1500)); return { cities: [] }; } };
+  const viewer = member(db, 'Lagging One', { city: 'Slowtown' });
+  for (const city of ['Lagtown', 'Waitville', 'Hangburg']) member(db, `${city} Member`, { city });
+  const base = await boot(t, { db, citySearch });
+  // Date.now() 1% behind the clock setTimeout uses, as a VM whose wall clock is being slewed can be.
+  const realNow = Date.now, origin = realNow();
+  Date.now = () => Math.floor(origin + (realNow() - origin) * 0.99);
+  t.after(() => { Date.now = realNow; });
+  const res = await fetch(`${base}/api/network/places`, { headers: { cookie: viewer.cookie }, signal: AbortSignal.timeout(10_000) });
+  assert.equal(res.status, 200);
+  assert.equal(lookups, 1, 'the timer that cut the first lookup short ends the budget');
+});
+
 test('listing the staff file library does not spend the upload budget', async t => {
   const db = database(t);
   const admin = member(db, 'Course Admin', { role: 'admin' });

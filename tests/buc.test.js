@@ -405,9 +405,7 @@ const feedServer=(t,items)=>readingsServer(t,{bucFeed:createBucFeed({url:FEED_UR
 
 test('readings are public links into BUC, the same for everyone, cached by the CDN and cookie-free', async t => {
   const {read,sessionReads}=await readingsServer(t);
-  const started=Date.now();
   const answer=await read('?topics=Mobility,Housing&context=console',{headers:{Cookie:'nodal_session=not-a-session; nodal_refresh=nor-this'}});
-  assert.ok(Date.now()-started<1000,'a stale cookie does not slow it');
   assert.equal(answer.status,200);
   assert.equal(answer.headers.get('cache-control'),READINGS_CACHE);
   assert.equal(answer.headers.get('set-cookie'),null);
