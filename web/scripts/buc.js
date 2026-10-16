@@ -56,16 +56,24 @@
   const items=(Array.isArray(data.items)?data.items:[]).map(itemOf).filter(Boolean).slice(0,12),links=(Array.isArray(data.links)?data.links:[]).map(linkOf).filter(Boolean).slice(0,12);
   return items.length||links.length?{source:data.source,items,links}:null;
  }
- // Every block asking the same thing shares one read; a failure is remembered too, so a page that redraws never asks again for nothing.
- // The read carries no cookie: the answer is public, the same for everyone.
- const reads=new Map();
+ /* Every block asking the same thing shares one read, and an answer is kept for the life of the page. A failure (a timeout, a lost connection, a 429)
+    is kept for a minute: a page that redraws within it asks nothing again, and a page left open for hours at the venue gets its readings back with the
+    next block or redraw once the connection is. An answer with nothing to show (the party's block) is an answer, and kept. The read carries no cookie:
+    the answer is public, the same for everyone. */
+ const reads=new Map(),RETRY_MS=60000;
+ const current=path=>{const entry=reads.get(path);return entry&&!(entry.failedAt!==undefined&&Date.now()-entry.failedAt>RETRY_MS)?entry:null;};
  function read(path){
-  if(!reads.has(path)){
-   const signal=typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function'?AbortSignal.timeout(10000):undefined;
-   reads.set(path,Promise.resolve().then(()=>fetch(path,{credentials:'omit',...(signal?{signal}:{})})).then(r=>r.ok?r.json():null).then(answer).catch(()=>null));
+  let entry=current(path);
+  if(!entry){
+   const signal=typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function'?AbortSignal.timeout(10000):undefined,own={};
+   own.answer=Promise.resolve().then(()=>fetch(path,{credentials:'omit',...(signal?{signal}:{})})).then(r=>{if(!r.ok)throw new Error('readings '+r.status);return r.json();})
+    .then(answer,()=>{own.failedAt=Date.now();return null;}).catch(()=>null);
+   reads.set(path,entry=own);
   }
-  return reads.get(path);
+  return entry;
  }
+ // A host keeps what it drew while its query and that query's read are the same.
+ const kept=(last,path)=>last?.path===path&&(!last.read||last.read===current(path));
 
  const away=(a,url)=>{a.href=url;a.target='_blank';a.rel='noopener noreferrer';return a;};
  // The separator is text, so screen readers and copied text keep the words apart ("Inclusión · vivienda", "Lima Cómo Vamos · 2025").
@@ -103,13 +111,13 @@
  const drawn=new WeakMap();
  function mount(host,{heading,...filters}={}){
   if(!host)return Promise.resolve(false);
-  const path=query(filters),last=drawn.get(host);if(last?.path===path)return last.done;
-  const done=read(path).then(data=>{
-   if(drawn.get(host)?.path!==path)return false;
+  const path=query(filters),last=drawn.get(host);if(kept(last,path))return last.done;
+  const mine={path,read:read(path)};drawn.set(host,mine);
+  return mine.done=mine.read.answer.then(data=>{
+   if(drawn.get(host)!==mine)return false;
    if(!data){host.replaceChildren();host.hidden=true;return false;}
    host.replaceChildren(...[heading].flat().filter(Boolean),...draw(data));host.hidden=false;return true;
   });
-  drawn.set(host,{path,done});return done;
  }
  // The console before a member has chosen topics: one way into BUC itself, and nothing to read.
  function exploreLink(context,otherwise){const a=away(el('a','buc-link buc-explore'),HOME+'?'+new URLSearchParams({utm_source:'nodal',utm_medium:CONTEXTS.includes(context)?context:otherwise}));a.append(label('explore'));return a;}
@@ -180,7 +188,7 @@
  function suggest(host,text,{context='chat',...filters}={}){
   if(!host)return Promise.resolve(false);
   if(!asks(text)){drawn.delete(host);host.replaceChildren();host.hidden=true;return Promise.resolve(false);}
-  const words=wordsOf(text),path=query({...filters,words,context,limit:3}),last=drawn.get(host);if(last?.path===path)return last.done;
+  const words=wordsOf(text),path=query({...filters,words,context,limit:3}),last=drawn.get(host);if(kept(last,path))return last.done;
   // Nothing to search on (no words of its own, no block, no topic: "¿Alguna bibliografía?" in General): no read, which the server would refuse, and
   // one way into BUC itself.
   const sent=new URLSearchParams(path.slice(path.indexOf('?')+1));
@@ -188,8 +196,9 @@
    const line=el('p','buc-suggest'),done=Promise.resolve(true);line.append(label('suggest','','buc-suggest-label'),exploreLink(context,'chat'));
    drawn.set(host,{path,done});host.replaceChildren(line);host.hidden=false;return done;
   }
-  const done=read(path).then(data=>{
-   if(drawn.get(host)?.path!==path)return false;
+  const mine={path,read:read(path)};drawn.set(host,mine);
+  return mine.done=mine.read.answer.then(data=>{
+   if(drawn.get(host)!==mine)return false;
    if(!data){host.replaceChildren();host.hidden=true;return false;}
    const said=searched(words,data.links),line=el('p','buc-suggest');line.append(said?label('suggestOn',said,'buc-suggest-label'):label('suggest','','buc-suggest-label'));
    if(data.items.length){
@@ -198,7 +207,6 @@
    }else line.append(...data.links.slice(0,3).map(link=>linkNode(link,{own:said,more:link.more})));
    host.replaceChildren(line);host.hidden=false;return true;
   });
-  drawn.set(host,{path,done});return done;
  }
  window.Buc={mount,explore,suggest,asks,rows};
  window.nodalI18n?.onChange?.(relabel);

@@ -33,10 +33,11 @@ const anchors=node=>descendants(node).filter(n=>n.tagName==='a');
 const text=node=>content(node).replace(/\s+/g,' ').trim();
 
 // A page with buc.js alone: a body to draw into, the language switch, and a stubbed fetch (a function answer gets the path; an Error is a lost connection).
-function bucPage(respond=()=>LINKS,{lang='en'}={}){
+// now: a clock for the page (Date.now), when a test moves time.
+function bucPage(respond=()=>LINKS,{lang='en',now=null}={}){
  const body=new Node('body'),requests=[],listeners=[];
  const document={body,documentElement:{lang},createElement:tag=>new Node(tag),querySelectorAll:selector=>body.querySelectorAll(selector)};
- const ctx=vm.createContext({document,window:{nodalI18n:{lang,onChange:fn=>listeners.push(fn)}},URL,URLSearchParams,AbortSignal,
+ const ctx=vm.createContext({document,window:{nodalI18n:{lang,onChange:fn=>listeners.push(fn)}},URL,URLSearchParams,AbortSignal,...(now?{Date:class extends Date{static now(){return now();}}}:{}),
   fetch:async(path,options={})=>{requests.push({path,options});const r=await respond(path);if(r instanceof Error)throw r;return{ok:!r.status||r.status<400,status:r.status||200,json:async()=>{if(r.badJson)throw new SyntaxError('bad json');return r.data??r;}};}});
  vm.runInContext(script('buc'),ctx);
  const host=()=>{const n=new Node('section');n.hidden=true;body.append(n);return n;};
@@ -124,6 +125,26 @@ test('one read per distinct query serves every block, a redraw with the same que
  const first=q.Buc.mount(host,{topics:['Mobility'],context:'console'});const second=q.Buc.mount(host,{topics:['Heritage'],context:'console'});
  assert.equal(await second,true);release();assert.equal(await first,false);
  assert.equal(anchors(host).length,8,'the newer answer stays');
+});
+
+test('a failed read is asked again a minute later, not before, by the next block or redraw; an answer is kept for the life of the page',async()=>{
+ let now=Date.parse('2026-10-21T09:30:00-05:00'),down=true;
+ const p=bucPage(()=>down?{status:429,data:{error:'rate_limited'}}:LINKS,{now:()=>now}),host=p.host(),filters={topics:['Mobility'],context:'console'};
+ assert.equal(await p.Buc.mount(host,filters),false);assert.equal(readingsOf(p.requests).length,1);
+ down=false;now+=30000;
+ assert.equal(await p.Buc.mount(host,filters),false,'a redraw within the minute');const other=p.host();assert.equal(await p.Buc.mount(other,filters),false,'or another block');
+ assert.equal(readingsOf(p.requests).length,1,'asks nothing again');
+ now+=31000;assert.equal(await p.Buc.mount(host,filters),true,'61 s after the failure, the same query is read once more');assert.equal(host.hidden,false);assert.equal(anchors(host).length,2);
+ assert.equal(await p.Buc.mount(other,filters),true,'and every block shares that answer');assert.equal(readingsOf(p.requests).length,2);
+ down=true;now+=3600000;assert.equal(await p.Buc.mount(p.host(),filters),true,'an answer is kept');assert.equal(readingsOf(p.requests).length,2);
+ const empty=bucPage(()=>({source:'links',items:[],links:[]}),{now:()=>now}),party={block:'day1-pm',context:'session'};
+ assert.equal(await empty.Buc.mount(empty.host(),party),false);now+=61000;assert.equal(await empty.Buc.mount(empty.host(),party),false);
+ assert.equal(readingsOf(empty.requests).length,1,'an answer with nothing to show is an answer too');
+ // A line under a message: the same.
+ const chat=bucPage(()=>down?new TypeError('Failed to fetch'):CHAT,{now:()=>now}),slot=chat.host();
+ assert.equal(await chat.Buc.suggest(slot,ASK,{block:'day1-am'}),false);down=false;
+ now+=59000;assert.equal(await chat.Buc.suggest(chat.host(),ASK,{block:'day1-am'}),false);assert.equal(chatReadings(chat.requests).length,1);
+ now+=2000;assert.equal(await chat.Buc.suggest(slot,ASK,{block:'day1-am'}),true);assert.equal(chatReadings(chat.requests).length,2);assert.equal(slot.hidden,false);
 });
 
 test('a readings query sends only valid filters, in one order, with search words cut at 80 characters on a word',async()=>{
