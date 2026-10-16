@@ -50,6 +50,7 @@ Items that break a rule are skipped by NODAL and counted in its logs; the rest a
 
 - At most once every 6 hours per server, with `If-None-Match` when the feed sends an `ETag` (please send one, and `Cache-Control: public, max-age=3600`). A `304 Not Modified` keeps NODAL's copy.
 - 10-second timeout, 5 MB limit. If the feed is slow, broken or missing, NODAL keeps its last good copy, or falls back to links into BUC's search.
+- NODAL follows no redirect: please give the feed's final `https://` address (the host, path and trailing slash it is served at), since a redirect counts as a failed read.
 - Links from NODAL carry `utm_source=nodal&utm_medium=<console|knowledge|session|course|chat>`, so BUC's analytics can see the traffic.
 - Members' data is never sent to BUC.
 

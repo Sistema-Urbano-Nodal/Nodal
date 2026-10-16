@@ -654,7 +654,10 @@ the session, sets no cookie and is cached by the CDN for 5 minutes
   feed never breaks a page: readings fall back to the last good copy, else to
   links. Only an `https` address without credentials is used; any other value
   keeps the feed off and logs `BUC_FEED_URL is not an https address…` once per
-  instance. To turn the feed off, remove the variable and redeploy.
+  instance. It must be the feed's final address: the reader follows no
+  redirect (to a canonical host, a trailing slash or a CDN), and every read of
+  one fails with `BUC feed read failed (unexpected redirect)`, so the feed
+  stays on links. To turn the feed off, remove the variable and redeploy.
 
 ## Security Checklist
 
