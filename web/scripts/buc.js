@@ -164,37 +164,58 @@
  const CONTACT=/\S*(?:@|_|:\/\/|\bwww\.|[\p{L}\p{N}]\.\p{L}{2,})\S*/giu;
  const withoutContacts=text=>String(text).normalize('NFC').replace(CONTACT,' ');
  /* A message asks for readings when one of its sentences names a reading and asks: a question mark, or a word that asks the others ("¿alguien…",
-    "recomiendan", "any", "anyone", "alguém", "busco"). Or when it asks what to read ("¿qué leer?", "¿qué debería leer?", "algo para leer", "o que devo
-    ler", "what should I read", "anything to read", "recomendaciones de lectura"). Whole words only, in any case and with or without accents, so
-    "Booking", "Facebook", "librería" or "lectora" are nothing. A reading named alone is no request: "Mi lectura de la sesión…", "Presentaremos el libro…",
-    "Ya terminé de leer la bibliografía", "Te recomiendo el libro…", "I recommend the book…". Neither is the obligation "hay que leer". The festival's
-    errands use the same words and are taken out first: the QR check-in ("no me funciona la lectura del QR"), the reading of the minutes or the
-    conclusions, the venue's complaints, visitors' or sign-in book ("el libro de reclamaciones"), the reading room, booking a taxi, a room or tickets
-    ("can we book the room?"), and reading something now ("I'm reading the agenda", "who's reading the minutes?"). So a request next to one is still a
-    request, and "book" after a word like "the" or "any" stays a book ("any book the speaker mentioned?"). */
- const READING=/\b(?:libros?|lecturas?|bibliografias?|textos?|articulos?|books?|readings?|papers?|articles?|livros?|leituras?|artigos?)\b/;
- const ASK=/[?¿]|\b(?:recomienda[ns]?|recomiendas|recomienden|sugiere[ns]?|sugieres|alguien|algun[oa]?s?|hay|tienen|tienes|conocen|conoces|me pasan|me pasas|pasenme|compartan|busco|buscamos|recommend|suggest|any|anyone|anybody|know of|looking for|recomendam|recomenda|recomendem|sugerem|alguem|algum|alguma|alguns|algumas|indicam|indiquem|procuro|procuramos)\b/;
- const WHAT_TO_READ=[/(?<!\b(?:hay|tengo|tienes|tiene|tenemos|tienen|lo) )\bque (?:leer|leo)\b/,
+    "recomiendan", "recomiéndame", "anyone", "alguém", "busco"), or "any" opening it ("Any books on housing", "Hi all, any readings…"). Or when it asks
+    what to read ("¿qué leer?", "¿qué debería leer?", "algo para leer", "o que devo ler", "what should I read", "anything to read", "recomendaciones de
+    lectura", "recommendations for books"). Whole words only, in any case and with or without accents, so "Booking", "Facebook", "librería" or "lectora"
+    are nothing. A reading named alone is no request: "Mi lectura de la sesión…", "Presentaremos el libro…", "Ya terminé de leer la bibliografía", "Te
+    recomiendo el libro…", "I recommend the book…". Nor is a reading the venue or an answer states: "hay" and "tienen" only ask with a question mark
+    ("Hay libros gratis en la mesa", "Hay un libro de Gehl que me cambió…"), and the plural "algunos libros…" or "alguns livros…" is a quantity, not a
+    question (the singular "¿algún libro…?" asks). The festival's errands use the same words and are taken out first: an obligation ("hay que leer el
+    libro…", "tienen que leer el texto"), the QR check-in ("no me funciona la lectura del QR"), the reading of the minutes or the conclusions, the
+    venue's complaints, visitors' or sign-in book ("el libro de reclamaciones"), the reading room, booking a taxi, a room or tickets ("can we book the
+    room?", "where do I book?"), reading something now ("I'm reading the agenda", "who's reading the minutes?"), a book's launch, signing, fair, sale,
+    price or where to buy it ("¿a qué hora es la presentación del libro?", "how much is the book?"), a book lost or left behind ("¿alguien vio mi
+    libro?", "alguien dejó un libro en la sala 2"), an article of the rules ("el artículo 5 del reglamento") and paper for the workshop ("paper and
+    markers"). So a request next to one is still a request, and "book" after a word like "the" or "any" stays a book ("any book the speaker
+    mentioned?"). An offer made on a condition ("tengo el libro si alguien lo quiere") still reads as a request: its words are a request's ("si alguien
+    tiene libros sobre vivienda, avísenme"). */
+ const READING=/\b(?:libros?|lecturas?|bibliografias?|textos?|articulos?|books?|readings?|papers?|articles?|bibliograph(?:y|ies)|livros?|leituras?|artigos?)\b/;
+ const ASK=/[?¿]|\b(?:recomienda[ns]?|recomiendas|recomienden|recomiend(?:a|e|en)(?:me|nos)|sugiere[ns]?|sugieres|sugier(?:a|e|an)(?:me|nos)|alguien|algun[oa]?|conocen|conoces|me pasan|me pasas|pasenme|compartan|busco|buscamos|recommend|suggest|anyone|anybody|know of|looking for|recomendam|recomenda|recomendem|sugerem|alguem|algum|alguma|indicam|indiquem|procuro|procuramos)\b/;
+ const OPENING_ANY=/(?:^|[,;:])\s*any\b/;
+ const WHAT_TO_READ=[/(?<!\blo )\bque (?:leer|leo)\b/,
   /\bque (?:me |nos |les |te )?(?:recomienda[ns]?|recomiendas|sugiere[ns]?|sugieres|aconseja[ns]?|aconsejas|deberia(?:mos)?|debo|debemos|puedo|podemos|podria(?:mos)?|conviene)\b[^.?!\n]{0,30}\bleer\b/,
   /\b(?:recomienda[ns]?|recomiendas|recomienden|sugiere[ns]?|sugieres)\b[^.?!\n]{0,40}\bleer\b/,/\balgo (?:para|pra|de|que) (?:leer|ler)\b/,
-  /(?<!\b(?:tem|tenho|temos|tens|do) )\bque (?:ler|leio)\b/,/\bque (?:me |nos )?(?:devo|devemos|posso|podemos|deveria(?:mos)?|voces (?:recomendam|sugerem|indicam))\b[^.?!\n]{0,30}\bler\b/,
+  /(?<!\bdo )\bque (?:ler|leio)\b/,/\bque (?:me |nos )?(?:devo|devemos|posso|podemos|deveria(?:mos)?|voces (?:recomendam|sugerem|indicam))\b[^.?!\n]{0,30}\bler\b/,
   /\b(?:recomenda[ms]?|indica[ms]?|sugere[ms]?)\b[^.?!\n]{0,40}\bler\b/,/\b(?:what|something|anything) to read\b/,/\bwhat (?:should|could|can|would|do|might|shall) (?:i|we|you) (?:\w+ )?read\b/,
   /\brecommend\w*\b[^.?!\n]{0,40}\bread\b/,/(?<!\b(?:mis|nuestras|my|our|minhas|nossas) )\b(?:recomendaciones|sugerencias|recomendacoes|sugestoes|indicacoes) de (?:lecturas?|libros?|leituras?|livros?)\b/,
-  /(?<!\b(?:my|our) )\b(?:book|reading) (?:recommendations|suggestions)\b/];
+  /(?<!\b(?:my|our) )\b(?:book|reading) (?:recommendations|suggestions)\b/,
+  /(?<!\b(?:my|our|your|the|these|those|his|her|their) )\b(?:recommendations?|suggestions?) (?:for|of|on|about) (?:(?:good|some|any|great|new|more|other|a few) )?(?:books?|readings?|papers?|articles?|texts?|bibliograph(?:y|ies))\b/];
  // Reading, and a suggestion asked for, in a question: "Quisiera leer más sobre caminabilidad, ¿alguna sugerencia?".
- const READ=/\b(?:leer|read|ler)\b/,SUGGESTION=/\b(?:sugerencias?|recomendaciones?|suggestions?|recommendations?|sugestao|sugestoes|indicacao|indicacoes|recomendacao|recomendacoes)\b/;
+ const READ=/\b(?:leer|read|ler)\b/,SUGGESTION=/\b(?:sugerencias?|recomendacion(?:es)?|suggestions?|recommendations?|sugestao|sugestoes|indicacao|indicacoes|recomendacao|recomendacoes)\b/;
  const NOUN=new Set('a an the this that any some good great best new old first last one which what whose my your our his her their favourite favorite'.split(' '));
- const ERRANDS=[/\b(?:lectura|leitura) (?:del?|de la|de los|de las|do|da|dos|das) (?:qr|codigo|actas?|atas?|asistencia|presenca|acuerdos?|conclusiones|conclusoes|declaracion|declaracao)\b/g,
+ // A book (libro, book, livro) as the errands name it.
+ const BOOK='(?:libros?|books?|livros?)';
+ const ERRANDS=[/\b(?:hay|tengo|tienes|tiene|tenemos|tienen|tem|tenho|temos|tens) que\b/g,
+  /\b(?:lectura|leitura) (?:del?|de la|de los|de las|do|da|dos|das) (?:qr|codigo|actas?|atas?|asistencia|presenca|acuerdos?|conclusiones|conclusoes|declaracion|declaracao)\b/g,
   /\b(?:libro|livro) de (?:reclamaciones|reclamacoes|actas|atas|visitas|asistencia|presenca|firmas|assinaturas|registro)\b/g,/\b(?:salas? de (?:lectura|leitura)|reading rooms?)\b/g,
-  /\b(?:to|can|could|will|i['’]?ll|we['’]?ll|let['’]?s) book\b/g,/\b(?:i['’]?m|im|i am|we['’]?re|we are|you['’]?re|you are|they['’]?re|they are|is|are|was|were|been) reading\b/g,
+  /\b(?:to|can|could|should|will|i|we|you|they|i['’]?ll|we['’]?ll|let['’]?s) book\b/g,/\b(?:i['’]?m|im|i am|we['’]?re|we are|you['’]?re|you are|they['’]?re|they are|is|are|was|were|been) reading\b/g,
   /\breading (?:the|this|that|these|those|my|your|our|his|her|their|it|them|a|an)\b/g,
-  // Recommending a book yourself answers a request; it does not make one.
-  /\b(?:i|we)(?:['’]d)?(?: [a-z]+)? (?:recommend|suggest)[a-z]*\b/g];
+  // A book's launch, signing, fair or sale, its price, where to buy the one presented, and one's own (lost) book.
+  new RegExp(`\\b(?:presentacion|lanzamiento|lancamento|presentation|feria|feira|venta|venda|firma) (?:del?|de los|de las|de la|do|dos|da|das|of the|of) (?:(?:mi|su|sus|nuestro|nuestros|nuevo|este|meu|seu|nosso|novo|esse|my|our|new|this) )?${BOOK}\\b`,'g'),
+  /\bbooks? (?:launch(?:es)?|signings?|fairs?|sales?|stands?)\b/g,
+  new RegExp(`\\b(?:cuanto (?:cuesta|cuestan|vale|valen)|precios? (?:del?|de los)|how much (?:is|are|does|do|for)|prices? (?:of|for)|quanto (?:custa|custam)|precos? (?:do|dos))\\b[^.?!\\n]{0,20}?\\b${BOOK}\\b`,'g'),
+  new RegExp(`\\b(?:buy|purchase|comprar|compro|compramos|venden|vende|vendem) (?:el|los|la|the|this|that|o|os|ese|este|esse) ${BOOK}\\b`,'g'),
+  new RegExp(`\\b(?:mi|mis|my|meu|meus) ${BOOK}\\b`,'g'),
+  new RegExp(`\\b(?:dejo|dejaron|olvido|olvidaron|perdio|perdi|encontre|encontro|left|forgot|lost|found|deixou|deixaram|esqueceu|esqueceram|perdeu|achei|achou)(?: (?:un|una|el|su|sus|a|an|the|his|her|their|um|uma|o|seu))? ${BOOK}\\b`,'g'),
+  // An article of the rules, and paper as a workshop material ("paper and markers"; "papers" stays a reading).
+  /\b(?:articulos?|articles?|artigos?) \d+/g,/\bpaper (?:and|or|y|e|markers|plates|cups|towels|bags|clips|sheets)\b/g,
+  // Recommending a book yourself answers a request; it does not make one. Only the verb: "I need recommendations for books" asks.
+  /\b(?:i|we)(?:['’](?:d|ll))?(?: (?:would|will|also|can|could|do|did|just|still|always|\w+ly|like to|love to|want to))* (?:recommend|suggest)(?:ed)?\b/g];
  const BOOK_SOMETHING=/(\b[a-z]+ )?\bbook (?:a|an|the|my|our|your|it|them|tickets?|seats?|rooms?)\b/g,SENTENCE=/[^.!?\n]*[.!?\n]+|[^.!?\n]+$/g;
  function asks(text){
   if(typeof text!=='string')return false;
   const rest=ERRANDS.reduce((value,errand)=>value.replace(errand,' '),fold(withoutContacts(text))).replace(BOOK_SOMETHING,(match,before)=>before&&NOUN.has(before.trim())?match:' ');
-  return (rest.match(SENTENCE)||[]).some(sentence=>WHAT_TO_READ.some(pattern=>pattern.test(sentence))||ASK.test(sentence)&&(READING.test(sentence)||READ.test(sentence)&&SUGGESTION.test(sentence)));
+  return (rest.match(SENTENCE)||[]).some(sentence=>WHAT_TO_READ.some(pattern=>pattern.test(sentence))||(ASK.test(sentence)||OPENING_ANY.test(sentence))&&(READING.test(sentence)||READ.test(sentence)&&SUGGESTION.test(sentence)));
  }
  /* The vocabulary topics a message names, in the order it names them, once its contact details are out: "¿libros sobre vivienda y movilidad?" is
     vivienda, then movilidad. Nothing else of the message is used. */

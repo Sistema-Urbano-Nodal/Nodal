@@ -393,10 +393,14 @@ test('a message asks for readings when it names a reading and asks in the same s
   'O que devo ler sobre assentamentos informais?','O que posso ler sobre governança local?','Algo pra ler sobre mobilidade?',
   'Anything to read on climate adaptation?','Any suggestions on what to read about climate?','Something to read before the lab?','What can we read before the lab?',
   // A reading named with an ask: a question, or a word that asks the others.
-  'Busco lecturas sobre movilidad','¿Algún texto sobre gobernanza?','Algún artículo sobre clima','Hay libros sobre el centro histórico','¿Tienen la bibliografía de la sesión?',
+  'Busco lecturas sobre movilidad','¿Algún texto sobre gobernanza?','Algún artículo sobre clima','¿Hay libros sobre el centro histórico?','Hay libros sobre vivienda?','¿Tienen la bibliografía de la sesión?',
   'Me pasan las lecturas de hoy','Compartan sus libros favoritos sobre Lima','Does anyone know of a book on urban forests','Can anyone recommend readings on informal settlements?',
   'Any papers on mobility?','Is there a reading list for this session?','Please suggest a book on walkability','Algum artigo sobre mobilidade?','Alguma indicação de leitura sobre clima?',
   'Procuro livros sobre moradia','Vocês indicam algum texto sobre cuidado?',
+  // "Any" opening a request needs no question mark; a bibliography; a request with its pronoun attached; recommendations asked for, for books.
+  'Any books on housing','Hi all, any readings on public space','Is there a bibliography for the lab?','Does anyone have the bibliography from this morning?','Any bibliography on housing?',
+  'Recomiéndame un libro sobre movilidad','Recomiéndenme lecturas sobre vivienda','Sugiéranme textos sobre vivienda','I need recommendations for books on mobility',
+  "I'd appreciate suggestions for readings on housing",'Quiero leer sobre vivienda, ¿alguna recomendación?',
   // A festival errand next to a request is still a request; a book named after an article is a book.
   'La lectura del QR falla, pero ¿alguien recomienda libros sobre movilidad?','Can we book the room? Also, any readings on housing?','Any book the speaker mentioned?','Who has the book a friend of mine wrote on Lima?'];
  const not=['Hola a todas','¡Gracias por la charla!','La lectora de QR no funciona','Reservé por Booking','Lo vi en Facebook','Hay que leer el contexto local','I read the agenda twice',
@@ -411,6 +415,19 @@ test('a message asks for readings when it names a reading and asks in the same s
   'Presentaremos el libro el jueves a las 6pm en el MALI','Ya terminé de leer la bibliografía, gracias!','Comparto mi lectura del caso de la estación Naranjal',
   'Te recomiendo el libro Muerte y vida de las grandes ciudades','I recommend the book Happy City','We’d recommend the reading on page 4','Recomendo o livro Cidades para Pessoas',
   'Somos un book club','La lectura dramatizada empieza a las 5','O lançamento do livro é amanhã','the reading room is on floor 2','Mis recomendaciones de lectura: Jacobs y Gehl',
+  'I would recommend the book Happy City',"I'd strongly recommend Jacobs's book",'We also suggest the reading on page 4','Thanks for the recommendations of books!',
+  // An obligation, a plural quantifier, or "there are" stated, not asked: the venue's news, and answers to an organiser's "¿qué libro te inspiró?".
+  'Hay que leer el libro de Jacobs antes del taller','Tienen que leer el texto antes del taller','Tienes que leer este libro','Temos que ler o livro antes da oficina',
+  'Algunas lecturas de la mañana me parecieron muy densas','Algunos libros estarán a la venta en el stand de Sistema Urbano','Alguns livros estão na mesa da entrada',
+  'Hay libros gratis en la mesa de Sistema Urbano','En el stand hay libros de la PUCP con descuento','Hay libros sobre el centro histórico',
+  'Hay un libro de Gehl que me cambió la forma de ver la ciudad','Algunos libros de Jacobs, sobre todo Muerte y vida','Hay muchos libros buenos, pero me quedo con Jacobs',
+  'Bring any book you like to the swap table',"We don't have any readings for today",
+  // A question about a book's launch, price or sale, a lost book, an article of the rules, or paper for the workshop: the venue's, not a reading's.
+  '¿A qué hora es la presentación del libro?','What time is the book launch?','A que horas começa o lançamento do livro?','Alguém sabe a data do lançamento do livro?',
+  '¿Vienen a la presentación de nuestro libro?','Where is the book stand?','¿Cuánto cuesta el libro de la editorial?','How much is the book?','Quanto custa o livro?',
+  '¿Alguien vio mi libro? Lo dejé en la sala 2','Has anyone seen my book? I left it in room 2','Alguien dejó un libro en la sala 2','Alguém esqueceu um livro na mesa',
+  'Where can I buy the book?','¿Dónde puedo comprar el libro?','Onde compro o livro?','Is there paper and markers for the workshop?','¿Qué dice el artículo 5 del reglamento?',
+  'Where do I book?',
   // A reading word in an address, or reading as a verb, asked or not.
   'Miren esto: https://fondoeditorial.pucp.edu.pe/libros/ciudad-y-territorio','Les dejo el link: https://books.google.com.pe/books?id=abc','Todo en www.lecturas-urbanas.pe y biblio@libros.pe',
   "Who's reading the minutes?",'Reading the comments, I think we agree','Are you reading this?',
