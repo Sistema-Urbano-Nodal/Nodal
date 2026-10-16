@@ -20,6 +20,12 @@
  const DRAFT='fiiu.draft';let formDirty=()=>false,edited=null,draftChecked=false,panelIdle=()=>false;
  const readDraft=()=>{try{return JSON.parse(sessionStorage.getItem(DRAFT)||'null');}catch{return null;}};
  const dropDraft=()=>{try{sessionStorage.removeItem(DRAFT);}catch{/* No storage, no draft. */}};
+ // The way back to a session page (fiiu-talk.js): a session page that sends someone here to register keeps its own address in the tab, its question
+ // included. A save on this visit (savedHere) offers it, from General, the lab, workshops and conferences alike, and following it uses it up. Only that
+ // page's own address is taken, as the relative link the page uses.
+ const RETURN='nodal.fiiuReturn';let savedHere=false;
+ const returnAddress=()=>{try{const value=sessionStorage.getItem(RETURN);return typeof value==='string'&&value.startsWith('/fiiu-session.html?')?value.slice(1):null;}catch{return null;}};
+ function backLink(href){const a=link('backToSession',href,'f-text-link f-back-session');a.addEventListener('click',()=>{try{sessionStorage.removeItem(RETURN);}catch{/* Without storage there is nothing to use up. */}});return a;}
  // Leaving with unsaved answers asks first. Phones seldom ask (iOS Safari never does), so the draft above is what really keeps the answers.
  window.addEventListener?.('beforeunload',event=>{if(!formDirty())return;event.preventDefault();event.returnValue='';});
  const missingAnswers=a=>['country','city','profile','nationalId','gender','motivation','previousAttendance'].filter(k=>!a[k]).length+(Number.isInteger(a.age)?0:1)+(Array.isArray(a.accessibility)&&a.accessibility.length?0:1)+(typeof a.publicOfficial==='boolean'?0:1);
@@ -170,9 +176,11 @@
  function savedSummary(registration,{withBadges=false,prefix='f-it-'}={}){
   const a=registration.answers,event=festival.event,box=el('section','f-saved'),head=el('div','f-saved-head'),heading=tr('h3','saved');box.tabIndex=-1;heading.id=prefix+'saved-heading';box.setAttribute('aria-labelledby',heading.id);
   head.append(heading,el('p','f-saved-who',`${a.firstName} ${a.lastName} · ${registration.email}`));box.append(head);
-  // Sent here from a session page (#add-<block>), a person who has that session in their plan gets the way back to it.
-  const backTo=withBadges&&addedFrom&&findActivity(event,addedFrom);
-  if(backTo&&(a.activities?.includes(backTo.id)||(backTo.registration==='application'&&registration.labStatus!=='none')))head.append(link('backToSession',sessionLink(backTo.id),'f-text-link f-back-session'));
+  // Sent here from a session page, the person goes back to the address they left once they have saved. Without that address, an #add-<block> landing
+  // leads to that block's page while it is in the plan.
+  const back=withBadges&&savedHere?returnAddress():null,backTo=withBadges&&!back&&addedFrom&&findActivity(event,addedFrom);
+  if(back)head.append(backLink(back));
+  else if(backTo&&(a.activities?.includes(backTo.id)||(backTo.registration==='application'&&registration.labStatus!=='none')))head.append(link('backToSession',sessionLink(backTo.id),'f-text-link f-back-session'));
   // Once registration closes there is no Edit button, so the notice points to the organisers instead.
   if(missingAnswers(a))box.append(tr('p',festival.config.registrationOpen?'incompleteNotice':'incompleteClosedNotice','f-notice is-warning'));
   const split=ids=>{const known=[],unknown=[];for(const id of ids||[]){const activity=findActivity(event,id);if(activity)known.push(activity);else unknown.push(id);}return[chronological(known),unknown];};
@@ -427,7 +435,7 @@
    const prev=me.registration,changed=()=>payload.publicOfficial!==prev.answers.publicOfficial||['firstName','lastName','institution','position'].some(k=>String(payload[k]??'').trim()!==String(prev.answers[k]??''))||Boolean(prev.answers.nationalId&&String(payload.nationalId??'').trim()!==prev.answers.nationalId);
    const ask=prev?.labStatus!=='accepted'?'':!payload.applyLab?'labWithdrawConfirm':changed()?'labReReview':'';if(ask&&!window.confirm(t(ask)))return;
    const unlock=lock();status(message,'saving');conflictBox.replaceChildren();saveState='saving';syncSelection();
-   try{const result=await api('/api/fiiu/registration',payload,'PUT');dropDraft();me.registration=result.registration;notice=emailNotice(result.confirmationEmail,result.registration.email);renderRegistration();registrationHost.querySelector('.f-saved')?.focus();}
+   try{const result=await api('/api/fiiu/registration',payload,'PUT');dropDraft();savedHere=true;me.registration=result.registration;notice=emailNotice(result.confirmationEmail,result.registration.email);renderRegistration();registrationHost.querySelector('.f-saved')?.focus();}
    catch(error){status(message,error);saveState='failed';syncSelection();
     if(error.key==='accountChanged')accountChanged();
     else if(error.status===409)conflictBox.append(button('viewSaved',async()=>{
