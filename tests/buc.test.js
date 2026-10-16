@@ -107,6 +107,10 @@ test('contact details never become search words: addresses, emails, handles and 
   // The same rules on the text itself, which is what a client sends as q (cut to 80 characters).
   assert.equal(withoutContactDetails('¿Algún libro? escríbanme a juan.perez@gmail.com o al +51 987 654 321'),'¿Algún libro? escríbanme a o al');
   assert.equal(withoutContactDetails('Libros sobre Lima 2040, #1 en https://x.org/a (gracias @mariaq)'),'Libros sobre Lima 2040, en (gracias');
+  // A phone written in groups of four digits reads like two years; a run of digit groups is a phone, not a year.
+  assert.equal(searchWords('Libros de movilidad, llámame al 2045 1987'),'movilidad');
+  assert.equal(searchWords('Lecturas sobre vivienda 1990 2020 en Lima'),'vivienda lima');
+  assert.equal(searchWords('Libros sobre el plan Lima 2040'),'plan lima 2040');
   const [link]=bucLinks({categories:[6],words:'¿Algún libro? escríbanme a juan.perez@gmail.com',context:'chat'});
   assert.deepEqual({label:link.label,words:link.words,q:params(link).q},{label:'Gobernanza',words:'',q:''});
 });

@@ -92,6 +92,7 @@ const STOPWORDS=new Set(`
   enlaces menciono mencionaron mencionado mencionada ponente ponentes expositor expositora
   need want looking share send phone number website mentioned speaker speakers
   preciso quero gostaria procuro passar passem compartilhar mandem enviem telefone zap mencionou palestrante
+  llamame llamar llamenme llama llamen liga ligar ligue chama chamar call
 `.trim().split(/\s+/));
 const MAX_SEARCH_WORDS=4,MAX_SEARCH_LENGTH=80;
 /* Contact details a chat message may carry never become search words: they would travel to BUC in a link another
@@ -103,7 +104,9 @@ const MAX_SEARCH_WORDS=4,MAX_SEARCH_LENGTH=80;
 const CONTACT_PIECE=/\S*(?:@|:\/\/|\bwww\.|[\p{L}\p{N}]\.\p{L}{2,}\/)\S*/giu;
 const WORD=/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu,SIGNED_WORD=/[+#]?[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu;
 const isYear=word=>/^\d{4}$/.test(word)&&Number(word)>=1900&&Number(word)<=2100;
-export const withoutContactDetails=text=>String(text??'').replace(CONTACT_PIECE,' ')
+// A run of digit groups ("987 654 321", "2045 1987", "(01) 555-1234") is a phone even when each group could pass for a year; the client drops it the same way.
+const PHONE_RUN=/[+(]*\d[\d\s().-]{5,}\d/g;
+export const withoutContactDetails=text=>String(text??'').replace(CONTACT_PIECE,' ').replace(PHONE_RUN,' ')
   .replace(SIGNED_WORD,word=>/\p{N}/u.test(word)&&!isYear(word.replace(/^[+#]/,''))?' ':word).replace(/\s+/g,' ').trim();
 const tokens=text=>withoutContactDetails(String(text??'').normalize('NFC')).toLowerCase().match(WORD)??[];
 // The subject words of a text, once each (by folded form), in order, without the request words or ones under 3 letters.
