@@ -5,7 +5,7 @@
  // Live updates poll the public, CDN-cached pulse every 4 s and fetch only the changes since the shown revision, then patch rows in place: the composer,
  // focus and scroll position are never rebuilt. People registered for the festival and organisers take part; anyone else is told how to.
  // Organisers also hide and unhide messages here, and ?q=…&present=1 gives them a projector view of the question with a QR code to join.
- const Fiiu=window.Fiiu,{t,el,tr,button,link,source,api,status,dateNode,timeNode,limaClock,limaDate,newTabNote,locale,findActivity,festivalBadges,countLabel}=Fiiu;
+ const Fiiu=window.Fiiu,{t,el,tr,button,link,source,api,status,dateNode,timeNode,limaClock,limaDate,newTabNote,locale,findActivity,festivalBadges,countLabel,checkinState,windowNode}=Fiiu;
  // Page-only strings join the shared dictionary, so t(), tr() and the language switch in fiiu-ui.js handle them like the rest.
  Object.assign(Fiiu.rows,{
   talkPage:['Conversation','Conversación','Conversa'],talkQuestions:['Questions in this session','Preguntas de esta sesión','Perguntas desta sessão'],
@@ -175,11 +175,14 @@
  let following=true,lastTop=0;
  // atEnd: exactly at the end, not merely near it. A reader there stays there when the screen changes size (the keyboard in a browser that resizes the page, a
  // rotation, the visual viewport), so the newest answers stay above the composer and the next ones follow (audit #1). Testing it rather than nearBottom()
- // leaves alone someone scrolling up while a toolbar changes the height.
+ // leaves alone someone scrolling up while a toolbar changes the height, and testing the end itself, not "at or below it", leaves a reader on the footer
+ // there when the toolbar hides on their first flick down.
  let atEnd=true;
- const ended=()=>{const s=document.scrollingElement;return !s||s.scrollTop>=end()-2;};
+ const ended=()=>{const s=document.scrollingElement;return !s||Math.abs(s.scrollTop-end())<=2;};
  function track(){const s=document.scrollingElement;if(!s)return;const top=s.scrollTop;following=nearBottom()||(following&&top>=lastTop);atEnd=ended();lastTop=top;}
  function resized(){fitWall();if(parts&&atEnd)toBottom(false);}
+ // The top of a node at the top of the screen, under the sticky header (the html scroll-padding in fiiu.css), at once. Older Safari rejects 'instant'.
+ function reveal(node){try{node.scrollIntoView({block:'start',behavior:'instant'});}catch{node.scrollIntoView(true);}}
  // The first paint jumps; later moves follow the page's scroll-behavior, which fiiu-talk.css turns off for reduced motion. Older Safari rejects 'instant'.
  function toBottom(smooth){
   const s=document.scrollingElement;if(!s)return;const top=parts?.box?.getBoundingClientRect?end():s.scrollHeight;following=true;atEnd=true;
@@ -256,7 +259,7 @@
  // A view without a liked flag (every ?since= change) keeps the one the page has. Your own message carries its clientId, which settles the attempt that
  // sent it (audit #0, #6): one whose answer was lost no longer shows as not sent, and one still sending loses its pending row at once.
  function upsert(view){
-  if(typeof view.liked==='boolean')setLiked(view.id,view.liked);if(view.mine&&typeof view.clientId==='string')landed(view.clientId);
+  if(typeof view.liked==='boolean')setLiked(view.id,view.liked);if(view.mine&&typeof view.clientId==='string')landed(view.clientId,view);
   const next={...normal(view),liked:liked.has(view.id)},node=messageRow(next),old=rowsById.get(next.id);views.set(next.id,next);rowsById.set(next.id,node);
   if(old){const active=document.activeElement,cls=active&&old.contains?.(active)?String(active.className||'').split(' ')[0]:'';old.replaceWith(node);if(cls)node.querySelector('.'+cls)?.focus();return false;}
   const after=[...parts.log.children].find(child=>child.dataset.pending==='1'||later(views.get(child.dataset.id),next));if(after)after.before(node);else parts.log.append(node);return true;
@@ -266,8 +269,12 @@
  const newestShown=()=>views.get([...parts?.log.children||[]].filter(child=>child.dataset.id).at(-1)?.dataset.id)||null;
  function anchorRow(){const row=[...parts?.log.children||[]].find(child=>child.dataset.id&&child.getBoundingClientRect?.().bottom>0);return row?{id:row.dataset.id,top:row.getBoundingClientRect().top}:null;}
  function restoreAnchor(anchor){const row=anchor&&rowsById.get(anchor.id);if(row?.getBoundingClientRect&&typeof window.scrollBy==='function')window.scrollBy(0,row.getBoundingClientRect().top-anchor.top);}
- function landed(clientId){
-  const attempt=attempts.get(clientId);if(!attempt)return;attempt.landed=true;
+ // A copy stored without the attempt's photos or PDFs (the attach step failed after the insert) is not the message delivered: the attempt keeps its row,
+ // Retry and uploads, and Retry, with the same clientId, attaches them (the server finishes that copy). A restored attempt has no files left to wait for.
+ // Files count as uploads do, by fileKey: the same photo chosen twice is one upload, and the server keeps one copy of a repeated file id.
+ function landed(clientId,view){
+  const attempt=attempts.get(clientId),need=attempt?new Set(attempt.files.map(fileKey)).size:0;
+  if(!attempt||(Array.isArray(view?.files)?view.files.length:0)<need)return;attempt.landed=true;
   if(attempt.state==='sending'){attempt.row?.remove();attempt.row=null;return;}
   forget(attempt);const node=composer?.state;if(node&&['talkOfflineSend','talkError','talkRate'].includes(node.dataset.fiiuText))status(node,'');
  }
@@ -306,6 +313,12 @@
   }
   page.head.replaceChildren(...nodes,page.mine);setTitle();
  }
+ // The way back after registering, shared with fiiu.js: a link that leaves for the registration (or for another account) keeps this session's address, its
+ // question included, for the tab, and fiiu.js offers "Volver a la sesión" to it once the registration is saved, for General, the laboratory and workshops
+ // too, which an #add- hash cannot name. Storage can be blocked: the link then goes all the same, without the way back.
+ const RETURN='nodal.fiiuReturn';
+ function keepReturn(){const back=location.pathname+location.search;if(!back.startsWith('/fiiu-session.html?'))return;try{globalThis.sessionStorage?.setItem(RETURN,back);}catch{/* No way back is offered. */}}
+ const leaving=node=>{node.addEventListener('click',keepReturn);return node;};
  // The person's status under the header, once their registration is read (signed in only; never for General): whether the session is in their registration
  // (with the way to add it while registration is open), their check-in with its Lima time or how to check in, and the session's badge as the console counts it.
  let mineData=null,mineRead=null,mineAt=0;
@@ -317,13 +330,16 @@
   const box=page?.mine;if(!box)return;const a=sessionActivity(),r=mineData?.registration,attendance=Array.isArray(mineData?.attendance)?mineData.attendance:[],items=[];
   if(a&&r&&!isGeneral(page.id)){
    const answers=r.answers||{},planned=(answers.activities||[]).includes(a.id),record=attendance.find(row=>row.activityId===a.id),checkin=!a.legacy&&['general','application'].includes(a.registration);
-   if(['general','social'].includes(a.registration)){items.push(tr('span',planned?'talkInPlan':'talkNotInPlan',planned?'f-pill is-ok':'f-pill'));if(!planned&&festival?.config?.registrationOpen)items.push(link('addToRegistration','fiiu.html#add-'+encodeURIComponent(a.id),'f-text-link'));}
+   if(['general','social'].includes(a.registration)){items.push(tr('span',planned?'talkInPlan':'talkNotInPlan',planned?'f-pill is-ok':'f-pill'));if(!planned&&festival?.config?.registrationOpen)items.push(leaving(link('addToRegistration','fiiu.html#add-'+encodeURIComponent(a.id),'f-text-link')));}
    else if(a.registration==='application')items.push(tr('span',r.labStatus&&r.labStatus!=='none'?r.labStatus+'Short':'talkNotInPlan','f-pill'+(r.labStatus&&r.labStatus!=='none'?' is-'+r.labStatus:'')));
    else if((answers.externalActivities||[]).includes(a.id))items.push(tr('span','interestChip','f-pill is-ok'));
+   // How to check in only while the server still takes check-ins (on any earlier day too, until 30 minutes after the end): once that closed a scan is
+   // refused, so the status says check-in closed, and leaves out the badge a scan can no longer earn.
+   const shut=checkin&&!record&&checkinState(a)==='closed';
    if(checkin&&record){const at=new Date(record.createdAt),done=el('span','f-pill is-ok');done.append(tr('span','talkCheckedIn'),document.createTextNode(' '));if(limaDate(at)!==a.date)done.append(dateNode(limaDate(at),'span','short','f-talk-day'),document.createTextNode(' '));done.append(el('span','f-talk-mine-time',limaClock(at)));items.push(done);}
-   else if(checkin&&(a.registration==='general'?planned:r.labStatus==='accepted'))items.push(tr('span','talkCheckinHint','f-talk-mine-hint'));
+   else if(checkin&&(a.registration==='general'?planned:r.labStatus==='accepted')){const hint=el('span','f-talk-mine-hint');hint.append(shut?windowNode(a,'closed'):tr('span','talkCheckinHint'));items.push(hint);}
    const badge=festival?festivalBadges(r,attendance,festival.event).find(b=>b.id==='session:'+a.id):null;
-   if(badge)items.push(badge.state==='earned'?tr('span','talkBadgeEarned','f-pill is-ok'):tr('span','talkBadgeLocked','f-talk-mine-hint'));
+   if(badge&&!shut)items.push(badge.state==='earned'?tr('span','talkBadgeEarned','f-pill is-ok'):tr('span','talkBadgeLocked','f-talk-mine-hint'));
   }
   box.replaceChildren(...items);box.hidden=!items.length;
  }
@@ -357,7 +373,7 @@
  }
  function markCurrent(){for(const a of page?.switcher.querySelectorAll('a')||[]){if(a.dataset.qid===page.current)a.setAttribute('aria-current','true');else a.removeAttribute('aria-current');}}
  function answers(node,q){const n=Number(q?.messageCount),count=Number.isSafeInteger(n)&&n>0?n:0;return setCount(node,count===1?'talkAnswersOne':'talkAnswers',{n:count});}
- // The question shown repaints its own entry in place (no read of the list); the others keep the count they were listed with.
+ // The question shown repaints its own entry in place, from the count every live update carries; the others follow the pulse (recount, below).
  function countPick(){
   if(!page||!question)return;const entry=page.questions.find(item=>item.id===question.id),node=[...page.switcher.querySelectorAll('a')].find(a=>a.dataset.qid===question.id)?.querySelector('.f-talk-pick-n');
   if(entry)entry.messageCount=question.messageCount;if(node)answers(node,question);
@@ -422,7 +438,7 @@
  }
  // A reload of the same question (a reset, or a status the pulse cannot carry) rebuilds the rows but keeps the header nodes, the composer and its draft.
  function show(data){
-  const previous=question?.id,again=previous===data.question.id;
+  const previous=question?.id,again=previous===data.question.id,had=Number(question?.messageCount);
   question={...data.question};activity=data.activity||activity;me={draftKey:/^[\w-]{1,64}$/.test(String(data.me?.draftKey))?data.me.draftKey:'',organiser:Boolean(data.me?.organiser),canPost:data.me?.canPost!==false&&question.status==='open'};
   before=typeof data.before==='string'?data.before:null;known=Number(data.revision)||Number(question.revision)||0;
   liked.clear();seedLiked(data);
@@ -435,17 +451,24 @@
   else{if(rate?.id!==question.id)rate=buildRate(question.id);if(!rate.busy)rate.saved=rate.shown=scoreOf(data.me?.score);}
   // A rebuild of the rows on screen (a reset after more than 200 changes, or a status the pulse cannot carry) notes first where the reader was (audit #7).
   const kept=same?{follow:following||nearBottom(),newest:newestShown(),anchor:anchorRow()}:null;
+  // A swap to another question keeps the page's scroll position: from deep in the one before (the closed note's way to the open question, a pick or Back
+  // made down there) it would land the reader in the middle of a conversation whose question is far above, so the new question is brought into view.
+  const deep=!same&&parts?.head.getBoundingClientRect?.().top<0;
   if(!same)build();renderHead();rowsById.clear();views.clear();parts.log.replaceChildren();
   for(const view of Array.isArray(data.messages)?data.messages:[])if(view?.id)upsert(view);
   restoreUnsent();for(const attempt of attempts.values())if(attempt.row&&attempt.qid===question.id)parts.log.append(attempt.row);
   parts.earlier.hidden=!before;parts.log.setAttribute('aria-label',t('talkPage'));renderDock();rekey(parts.empty,emptyKey());updateEmpty();setTitle();countPick();
   // Arriving shows the session and the question first, not the end of the chat (audit #16): the reader follows new answers once they reach the end.
-  if(!same){following=nearBottom();atEnd=ended();lastTop=document.scrollingElement?.scrollTop||0;return;}
+  if(!same){if(deep)reveal(parts.head);following=nearBottom();atEnd=ended();lastTop=document.scrollingElement?.scrollTop||0;return;}
   // After a rebuild a reader who was following goes to the new end; anyone else keeps the message they were reading in place, and gets the pill and
   // one announcement for the answers that are newer than the newest they had.
   if(kept.follow)return toBottom(false);
   restoreAnchor(kept.anchor);const others=kept.newest?[...views.values()].filter(view=>!view.mine&&later(view,kept.newest)):[];
-  if(others.length){parts.pill.hidden=false;announce(others.length===1?fill('talkNewOne',{author:others[0].author||''}):fill('talkNewMany',{n:others.length}));}
+  // The rebuilt page holds the newest 100 answers only: when even its oldest is newer than the newest the reader had, more arrived than it shows, and
+  // the question's count, before and after, says how many.
+  const oldest=views.get([...parts.log.children].find(child=>child.dataset.id)?.dataset.id),cut=Boolean(before&&oldest&&kept.newest&&later(oldest,kept.newest));
+  const n=cut?Math.max(others.length,Number(question.messageCount)-had||0):others.length;
+  if(others.length){parts.pill.hidden=false;announce(n===1?fill('talkNewOne',{author:others[0].author||''}):fill('talkNewMany',{n}));}
  }
 
  // A full read (the question, or earlier messages) may also list the ids of the messages this viewer likes.
@@ -467,7 +490,9 @@
   };
   w.timer=setInterval(()=>w.check(),WATCH_MS);watcher=w;return w;
  }
- function rewatch(){if(question||watcher||!lastWatch)return false;const {changed,act}=lastWatch;watch(changed,act).check();return true;}
+ // A watch whose two hours ran out while the tab was hidden (a locked phone) is still set, since its rounds skip a hidden tab before they look at the
+ // clock: it counts as gone, or its next round would stop it instead of the page looking again.
+ function rewatch(){if(question||(watcher&&Date.now()<=watcher.until)||!lastWatch)return false;const {changed,act}=lastWatch;watch(changed,act).check();return true;}
  function unwatch(){if(watcher)clearInterval(watcher.timer);watcher=null;}
  // Focus that was on the chat (in the composer, say) moves to the heading that replaces it, which also reads the new state out. Under a session's header
  // the heading is its h2, in the questions area.
@@ -513,12 +538,12 @@
   const a=sessionActivity(),open=festival?.config?.registrationOpen!==false,account=mineData?.user?.email||'',who=account?el('p','f-talk-account'):null;
   if(who)who.append(tr('span','talkAccount'),document.createTextNode(' '),el('strong','',account));
   const add=a&&['general','social'].includes(a.registration)?'fiiu.html#add-'+encodeURIComponent(a.id):'fiiu.html#registration';
-  blockWith('talkRegister',[who,tr('p',open?'talkRegisterHint':'talkRegisterClosed'),tr('p','talkOtherAccountHint')],[open&&link('register',add,'f-button'),otherAccount()]);recheck=true;
+  blockWith('talkRegister',[who,tr('p',open?'talkRegisterHint':'talkRegisterClosed'),tr('p','talkOtherAccountHint')],[open&&leaving(link('register',add,'f-button')),otherAccount()]);recheck=true;
  }
  function otherAccount(){
   const control=button('talkOtherAccount',async()=>{
    if(control.disabled)return;control.disabled=true;
-   try{await api('/api/auth/logout',{},'POST');location.assign('/login.html?next='+encodeURIComponent(location.pathname+location.search));}catch(error){control.disabled=false;status(message,error);}
+   try{await api('/api/auth/logout',{},'POST');keepReturn();location.assign('/login.html?next='+encodeURIComponent(location.pathname+location.search));}catch(error){control.disabled=false;status(message,error);}
   },'f-button secondary');
   return control;
  }
@@ -554,10 +579,22 @@
  // The pulse is compared with the pulse it last acted on, so a CDN copy a few seconds older than the list cannot make every poll read it. A list that
  // failed to load with the question is unknown, and every poll asks for it until one arrives.
  async function followBlock(list){
-  if(!parts)return;const id=question.id,sig=blockSig(list.filter(item=>item[1]===question.activityId&&item[0]!==id).map(item=>[item[0],item[3]]));
-  if(sig===(parts.pulseSig??parts.listSig)){parts.pulseSig=sig;return;}
-  const data=await api('/api/fiiu/questions?activityId='+encodeURIComponent(question.activityId));
+  if(!parts)return;const id=question.id,others=list.filter(item=>item[1]===question.activityId&&item[0]!==id),sig=blockSig(others.map(item=>[item[0],item[3]]));
+  if(sig===(parts.pulseSig??parts.listSig)){parts.pulseSig=sig;return recount(id,others);}
+  const data=await api(listPath(question.activityId));
   if(question?.id===id&&parts){parts.pulseSig=sig;showSiblings(data.questions);}
+ }
+ // Their answer counts follow too, more slowly: once the pulse has one of them past the revision it was listed with (a busy second question in the same
+ // talk), the list is read again, at most every 30 s, and only the counts are repainted, in place, so a link that has focus keeps it. A list that changed
+ // meanwhile is drawn again, as for any change.
+ const RECOUNT=30000;
+ async function recount(id,others){
+  const listed=new Map((parts.siblings||[]).map(q=>[q.id,Number(q.revision)]));
+  if(Date.now()<(parts.countsAt||0)||!others.some(item=>Number(item[2])>listed.get(item[0])))return;
+  parts.countsAt=Date.now()+RECOUNT;const data=await api(listPath(question.activityId));if(question?.id!==id||!parts||!Array.isArray(data?.questions))return;
+  const fresh=sorted(data.questions.filter(q=>q?.id&&q.id!==id));if(blockSig(fresh.map(q=>[q.id,q.status]))!==parts.listSig)return showSiblings(data.questions);
+  parts.siblings=fresh;const links=[...page?.switcher.querySelectorAll('a')||[]];
+  for(const q of fresh){const entry=page?.questions.find(item=>item.id===q.id),node=links.find(a=>a.dataset.qid===q.id)?.querySelector('.f-talk-pick-n');if(entry)entry.messageCount=q.messageCount;if(node)answers(node,q);}
  }
  async function changes(id){
   const data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages?since='+known);if(question?.id!==id)return;

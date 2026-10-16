@@ -132,8 +132,10 @@
 .f-talk-wall-file{font-size:.85em;font-weight:600;color:var(--f-forest);overflow-wrap:anywhere}.f-talk-wall-empty{grid-column:1/-1;margin:0;color:var(--f-muted)}
 /* An organiser checking the view on a phone or a narrow window gets one column. */
 @media(max-width:900px){.f-talk-wall{grid-template-columns:minmax(0,1fr);grid-template-areas:"head" "code" "tools" "feed"}.f-talk-wall-code{justify-self:center;width:min(100%,360px)}.f-page :is(.f-talk-wall-question,.f-talk-wall-question.is-long){font-size:clamp(1.4rem,6vw,2.4rem)}}
-/* A landscape phone or high zoom leaves too little height for a sticky dock: it rests at the end of the conversation, and the pill floats on its own. */
-@media(max-height:480px){.f-page .f-talk-dock{position:static}.f-talk-log :is(a,button,[tabindex]),.f-talk-earlier{scroll-margin-bottom:0}.f-shell .f-talk-new{position:fixed;z-index:3;bottom:calc(var(--f-sp-3) + env(safe-area-inset-bottom))}}
+/* A landscape phone or high zoom leaves too little height for a sticky dock: it rests at the end of the conversation, and the pill floats on its own.
+   Not while someone types in it: a phone keyboard that resizes the page (fiiu-session.html's interactive-widget=resizes-content) also leaves a portrait
+   phone under 480 px, and a dock let go then would carry the composer, and the reader after it, to the end of the chat, far from the question. */
+@media(max-height:480px){.f-page .f-talk-dock:not(:focus-within){position:static}.f-talk-log :is(a,button,[tabindex]),.f-talk-earlier{scroll-margin-bottom:0}.f-shell .f-talk-dock:not(:focus-within)>.f-talk-new{position:fixed;z-index:3;bottom:calc(var(--f-sp-3) + env(safe-area-inset-bottom))}}
 /* Following new messages scrolls smoothly, unless the reader asked for less motion. */
 html:has(>body.f-page:is([data-page="fiiu-talk"],[data-page="fiiu-session"])){scroll-behavior:smooth}
 @media (prefers-reduced-motion:reduce){html:has(>body.f-page:is([data-page="fiiu-talk"],[data-page="fiiu-session"])){scroll-behavior:auto}}
