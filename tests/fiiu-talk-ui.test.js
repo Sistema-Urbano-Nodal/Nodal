@@ -1812,3 +1812,23 @@ test('a question asked for under another session’s address opens under its own
  assert.equal(qa(h).querySelector('.f-talk-question').textContent,'¿Qué cuidas en tu barrio?');assert.equal(picks(h).length,0,'day2-am’s one question: no day1-am list');
  await h.tickTimers();assert.equal(sessionHead(h).querySelector('h1').textContent,'Cuidar y transformar la ciudad','the polls keep it');assert.equal(picks(h).length,0);
 });
+
+// Review fixes on the session page and the chat (sl-review-findings.json).
+test('the session status says to check in with the room’s QR only while check-in is open; once it closed it says so, and promises no badge a scan can no longer earn',async()=>{
+ // Three days after day1-am (21 Oct 09:00–13:00, check-in until 13:30 Lima).
+ const after={Date:clock('2026-10-24T18:00:00-05:00')},waiting=mine({attendance:[]});
+ const h=await page({...SESSION_ROUTES,'GET /api/fiiu/registration':waiting},{search:'?a=day1-am',context:after}),box=sessionHead(h).querySelector('.f-talk-mine');
+ assert.ok(key(box,'talkInPlan'));assert.equal(key(box,'talkCheckinHint'),undefined,'no QR to scan once check-in closed');
+ assert.ok(key(box,'checkinClosedAt'),'it says check-in closed, and when');assert.match(content(box),/13:30/);
+ assert.equal(key(box,'talkBadgeLocked'),undefined,'no badge left to earn by a scan');
+ h.lang('es');assert.equal(key(box,'checkinClosedAt').textContent,'El registro cerró a las');
+ // Before the session's day check-in is already open (a block takes check-ins on any earlier day): the hint stays.
+ const early=await page({...SESSION_ROUTES,'GET /api/fiiu/registration':waiting},{search:'?a=day1-am',context:{Date:clock('2026-10-19T12:00:00-05:00')}});
+ const ahead=sessionHead(early).querySelector('.f-talk-mine');assert.ok(key(ahead,'talkCheckinHint'));assert.ok(key(ahead,'talkBadgeLocked'));assert.equal(key(ahead,'checkinClosedAt'),undefined);
+ // Checked in: the time and the badge stay after the close.
+ const done=await page(SESSION_ROUTES,{search:'?a=day1-am',context:after}),kept=sessionHead(done).querySelector('.f-talk-mine');
+ assert.ok(key(kept,'talkCheckedIn'));assert.ok(key(kept,'talkBadgeEarned'));assert.equal(key(kept,'checkinClosedAt'),undefined);
+ // The accepted laboratory, untimed, closes at the end of its day.
+ const lab=await page({...SESSION_ROUTES,'GET /api/fiiu/questions?activityId=day0-lab':{activity:PROGRAMME.event.activities[1],questions:[]},'GET /api/fiiu/registration':mine({registration:{id:'r1',version:1,answers:{activities:[],externalActivities:[],applyLab:true},labStatus:'accepted'},attendance:[]})},{search:'?a=day0-lab',context:after});
+ const labBox=sessionHead(lab).querySelector('.f-talk-mine');assert.equal(key(labBox,'talkCheckinHint'),undefined);assert.ok(key(labBox,'checkinClosedAllDay'));
+});

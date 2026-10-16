@@ -5,7 +5,7 @@
  // Live updates poll the public, CDN-cached pulse every 4 s and fetch only the changes since the shown revision, then patch rows in place: the composer,
  // focus and scroll position are never rebuilt. People registered for the festival and organisers take part; anyone else is told how to.
  // Organisers also hide and unhide messages here, and ?q=…&present=1 gives them a projector view of the question with a QR code to join.
- const Fiiu=window.Fiiu,{t,el,tr,button,link,source,api,status,dateNode,timeNode,limaClock,limaDate,newTabNote,locale,findActivity,festivalBadges,countLabel}=Fiiu;
+ const Fiiu=window.Fiiu,{t,el,tr,button,link,source,api,status,dateNode,timeNode,limaClock,limaDate,newTabNote,locale,findActivity,festivalBadges,countLabel,checkinState,windowNode}=Fiiu;
  // Page-only strings join the shared dictionary, so t(), tr() and the language switch in fiiu-ui.js handle them like the rest.
  Object.assign(Fiiu.rows,{
   talkPage:['Conversation','Conversación','Conversa'],talkQuestions:['Questions in this session','Preguntas de esta sesión','Perguntas desta sessão'],
@@ -320,10 +320,13 @@
    if(['general','social'].includes(a.registration)){items.push(tr('span',planned?'talkInPlan':'talkNotInPlan',planned?'f-pill is-ok':'f-pill'));if(!planned&&festival?.config?.registrationOpen)items.push(link('addToRegistration','fiiu.html#add-'+encodeURIComponent(a.id),'f-text-link'));}
    else if(a.registration==='application')items.push(tr('span',r.labStatus&&r.labStatus!=='none'?r.labStatus+'Short':'talkNotInPlan','f-pill'+(r.labStatus&&r.labStatus!=='none'?' is-'+r.labStatus:'')));
    else if((answers.externalActivities||[]).includes(a.id))items.push(tr('span','interestChip','f-pill is-ok'));
+   // How to check in only while the server still takes check-ins (on any earlier day too, until 30 minutes after the end): once that closed a scan is
+   // refused, so the status says check-in closed, and leaves out the badge a scan can no longer earn.
+   const shut=checkin&&!record&&checkinState(a)==='closed';
    if(checkin&&record){const at=new Date(record.createdAt),done=el('span','f-pill is-ok');done.append(tr('span','talkCheckedIn'),document.createTextNode(' '));if(limaDate(at)!==a.date)done.append(dateNode(limaDate(at),'span','short','f-talk-day'),document.createTextNode(' '));done.append(el('span','f-talk-mine-time',limaClock(at)));items.push(done);}
-   else if(checkin&&(a.registration==='general'?planned:r.labStatus==='accepted'))items.push(tr('span','talkCheckinHint','f-talk-mine-hint'));
+   else if(checkin&&(a.registration==='general'?planned:r.labStatus==='accepted')){const hint=el('span','f-talk-mine-hint');hint.append(shut?windowNode(a,'closed'):tr('span','talkCheckinHint'));items.push(hint);}
    const badge=festival?festivalBadges(r,attendance,festival.event).find(b=>b.id==='session:'+a.id):null;
-   if(badge)items.push(badge.state==='earned'?tr('span','talkBadgeEarned','f-pill is-ok'):tr('span','talkBadgeLocked','f-talk-mine-hint'));
+   if(badge&&!shut)items.push(badge.state==='earned'?tr('span','talkBadgeEarned','f-pill is-ok'):tr('span','talkBadgeLocked','f-talk-mine-hint'));
   }
   box.replaceChildren(...items);box.hidden=!items.length;
  }
