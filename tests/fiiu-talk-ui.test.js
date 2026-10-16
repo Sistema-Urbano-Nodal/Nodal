@@ -1832,3 +1832,18 @@ test('the session status says to check in with the room’s QR only while check-
  const lab=await page({...SESSION_ROUTES,'GET /api/fiiu/questions?activityId=day0-lab':{activity:PROGRAMME.event.activities[1],questions:[]},'GET /api/fiiu/registration':mine({registration:{id:'r1',version:1,answers:{activities:[],externalActivities:[],applyLab:true},labStatus:'accepted'},attendance:[]})},{search:'?a=day0-lab',context:after});
  const labBox=sessionHead(lab).querySelector('.f-talk-mine');assert.equal(key(labBox,'talkCheckinHint'),undefined);assert.ok(key(labBox,'checkinClosedAllDay'));
 });
+
+test('the other questions’ answer counts in the list follow the pulse: read again once one of them moves, at most every 30 s, and repainted in place',async()=>{
+ const Clock=clock();let rev=2,count=7;
+ const other=()=>question({id:Q2,body:'¿Y la otra?',talk:null,revision:rev,messageCount:count,createdAt:'2026-10-21T13:00:00.000Z'});
+ const h=await page({...SESSION_ROUTES,['GET '+LIST]:()=>({activity:ACTIVITY,questions:[question(),other()]}),'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',3,'open'],[Q2,'day1-am',rev,'open']]})},{search:'?a=day1-am',context:{Date:Clock}});
+ const pick=()=>picks(h).find(a=>a.dataset.qid===Q2),first=pick(),n=()=>pick().querySelector('.f-talk-pick-n').textContent;
+ assert.equal(n(),'7 answers');await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,1,'nothing moved, nothing is read');
+ rev=6;count=11;await h.tickTimers();
+ assert.equal(n(),'11 answers','the busy question’s count catches up');assert.equal(sent(h,'GET',LIST).length,2);
+ assert.equal(pick(),first,'repainted in place: the same link, so focus on it stays');
+ rev=8;count=12;await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,2,'not again within 30 s');assert.equal(n(),'11 answers');
+ Clock.advance(30000);await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,3);assert.equal(n(),'12 answers');
+ Clock.advance(30000);await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,3,'caught up: nothing more to read');
+ h.lang('es');assert.equal(n(),'12 respuestas');
+});

@@ -360,7 +360,7 @@
  }
  function markCurrent(){for(const a of page?.switcher.querySelectorAll('a')||[]){if(a.dataset.qid===page.current)a.setAttribute('aria-current','true');else a.removeAttribute('aria-current');}}
  function answers(node,q){const n=Number(q?.messageCount),count=Number.isSafeInteger(n)&&n>0?n:0;return setCount(node,count===1?'talkAnswersOne':'talkAnswers',{n:count});}
- // The question shown repaints its own entry in place (no read of the list); the others keep the count they were listed with.
+ // The question shown repaints its own entry in place, from the count every live update carries; the others follow the pulse (recount, below).
  function countPick(){
   if(!page||!question)return;const entry=page.questions.find(item=>item.id===question.id),node=[...page.switcher.querySelectorAll('a')].find(a=>a.dataset.qid===question.id)?.querySelector('.f-talk-pick-n');
   if(entry)entry.messageCount=question.messageCount;if(node)answers(node,question);
@@ -557,10 +557,22 @@
  // The pulse is compared with the pulse it last acted on, so a CDN copy a few seconds older than the list cannot make every poll read it. A list that
  // failed to load with the question is unknown, and every poll asks for it until one arrives.
  async function followBlock(list){
-  if(!parts)return;const id=question.id,sig=blockSig(list.filter(item=>item[1]===question.activityId&&item[0]!==id).map(item=>[item[0],item[3]]));
-  if(sig===(parts.pulseSig??parts.listSig)){parts.pulseSig=sig;return;}
-  const data=await api('/api/fiiu/questions?activityId='+encodeURIComponent(question.activityId));
+  if(!parts)return;const id=question.id,others=list.filter(item=>item[1]===question.activityId&&item[0]!==id),sig=blockSig(others.map(item=>[item[0],item[3]]));
+  if(sig===(parts.pulseSig??parts.listSig)){parts.pulseSig=sig;return recount(id,others);}
+  const data=await api(listPath(question.activityId));
   if(question?.id===id&&parts){parts.pulseSig=sig;showSiblings(data.questions);}
+ }
+ // Their answer counts follow too, more slowly: once the pulse has one of them past the revision it was listed with (a busy second question in the same
+ // talk), the list is read again, at most every 30 s, and only the counts are repainted, in place, so a link that has focus keeps it. A list that changed
+ // meanwhile is drawn again, as for any change.
+ const RECOUNT=30000;
+ async function recount(id,others){
+  const listed=new Map((parts.siblings||[]).map(q=>[q.id,Number(q.revision)]));
+  if(Date.now()<(parts.countsAt||0)||!others.some(item=>Number(item[2])>listed.get(item[0])))return;
+  parts.countsAt=Date.now()+RECOUNT;const data=await api(listPath(question.activityId));if(question?.id!==id||!parts||!Array.isArray(data?.questions))return;
+  const fresh=sorted(data.questions.filter(q=>q?.id&&q.id!==id));if(blockSig(fresh.map(q=>[q.id,q.status]))!==parts.listSig)return showSiblings(data.questions);
+  parts.siblings=fresh;const links=[...page?.switcher.querySelectorAll('a')||[]];
+  for(const q of fresh){const entry=page?.questions.find(item=>item.id===q.id),node=links.find(a=>a.dataset.qid===q.id)?.querySelector('.f-talk-pick-n');if(entry)entry.messageCount=q.messageCount;if(node)answers(node,q);}
  }
  async function changes(id){
   const data=await api('/api/fiiu/questions/'+encodeURIComponent(id)+'/messages?since='+known);if(question?.id!==id)return;
