@@ -112,10 +112,10 @@
   drawn.set(host,{path,done});return done;
  }
  // The console before a member has chosen topics: one way into BUC itself, and nothing to read.
+ function exploreLink(context,otherwise){const a=away(el('a','buc-link buc-explore'),HOME+'?'+new URLSearchParams({utm_source:'nodal',utm_medium:CONTEXTS.includes(context)?context:otherwise}));a.append(label('explore'));return a;}
  function explore(host,context='console'){
   if(!host)return Promise.resolve(false);
-  const a=away(el('a','buc-link buc-explore'),HOME+'?'+new URLSearchParams({utm_source:'nodal',utm_medium:CONTEXTS.includes(context)?context:'console'}));a.append(label('explore'));
-  const done=Promise.resolve(true);drawn.set(host,{path:'explore',done});host.replaceChildren(a);host.hidden=false;return done;
+  const done=Promise.resolve(true);drawn.set(host,{path:'explore',done});host.replaceChildren(exploreLink(context,'console'));host.hidden=false;return done;
  }
 
  /* A message asks for readings when it names books, readings or a bibliography, or asks what to read: "libro(s)", "lectura(s)", "bibliografía",
@@ -181,6 +181,13 @@
   if(!host)return Promise.resolve(false);
   if(!asks(text)){drawn.delete(host);host.replaceChildren();host.hidden=true;return Promise.resolve(false);}
   const words=wordsOf(text),path=query({...filters,words,context,limit:3}),last=drawn.get(host);if(last?.path===path)return last.done;
+  // Nothing to search on (no words of its own, no block, no topic: "¿Alguna bibliografía?" in General): no read, which the server would refuse, and
+  // one way into BUC itself.
+  const sent=new URLSearchParams(path.slice(path.indexOf('?')+1));
+  if(!['topics','categories','block','q'].some(name=>sent.has(name))){
+   const line=el('p','buc-suggest'),done=Promise.resolve(true);line.append(label('suggest','','buc-suggest-label'),exploreLink(context,'chat'));
+   drawn.set(host,{path,done});host.replaceChildren(line);host.hidden=false;return done;
+  }
   const done=read(path).then(data=>{
    if(drawn.get(host)?.path!==path)return false;
    if(!data){host.replaceChildren();host.hidden=true;return false;}

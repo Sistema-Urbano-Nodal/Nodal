@@ -445,6 +445,19 @@ test('a suggestion’s label quotes only the words BUC was asked to search, as t
  assert.equal(params(chatReadings(seeded.p.requests)[0]).q,'movilidad lima');assert.equal(seeded.label,'Sugerencias de la BUC sobre «movilidad lima»');
 });
 
+test('a request with nothing to search on (no words, no block, no topic) reads nothing and points into BUC itself',async()=>{
+ for(const filters of [{},{topics:[]},{topics:[' '],categories:[0],block:'../x'}]){
+  const p=bucPage(()=>CHAT),host=p.host();assert.equal(await p.Buc.suggest(host,'¿Alguna bibliografía?',filters),true,JSON.stringify(filters));
+  assert.equal(readingsOf(p.requests).length,0,'the server would refuse a chat query with nothing in it');assert.equal(host.hidden,false);
+  const links=anchors(host);assert.equal(links.length,1);assert.equal(links[0].href,'https://buc.sistemaurbano.org/?utm_source=nodal&utm_medium=chat');assert.equal(links[0].target,'_blank');
+  assert.equal(text(host.querySelector('.buc-suggest-label')),'BUC suggestions');assert.equal(text(links[0]),'Explore BUC');
+  p.lang('es');assert.equal(text(host),'Sugerencias de la BUC Explora la BUC');
+  const line=host.children[0];await p.Buc.suggest(host,'¿Alguna bibliografía?',filters);assert.equal(host.children[0],line,'drawn again, the same line');
+ }
+ const general=await sessionPage({search:'?a=general',activity:GENERAL,messages:[message(M(2),{body:'¿Alguna bibliografía?'})]});
+ assert.equal(chatReadings(general.requests).length,0);assert.deepEqual(anchors(general.root.querySelector('.f-talk-buc')).map(text),['Explore BUC']);
+});
+
 test('a chat suggestion fails quietly, and General’s messages ask with no block',async()=>{
  const down=await sessionPage({messages:[message(M(2),{body:ASK})],readings:path=>params(path).context==='chat'?{status:503,data:{}}:SESSION_LINKS});
  const slot=down.root.querySelector('.f-talk-buc');assert.ok(slot);assert.equal(slot.hidden,true);assert.equal(slot.children.length,0);
