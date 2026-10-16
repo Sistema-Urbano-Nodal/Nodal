@@ -144,7 +144,8 @@ test('a refresh with new numbers changes them in place; a new conversation rebui
  assert.equal(h.host.querySelectorAll('.f-live-talk').length,3);assert.equal(linkTo(h.host,'¿Qué cambiarías en tu barrio?').href,'fiiu-session.html?a=day1-am&q='+Q3);
  // Nothing open: the part says so.
  answer=LIVE({conversations:[],now:null});await h.tickTimers();await flush();assert.ok(key(h.host,'liveNoTalks'));assert.equal(key(h.host,'liveNow'),undefined);assert.ok(key(h.host,'liveNext'));
- answer=LIVE({conversations:[],now:null,next:null});await h.tickTimers();await flush();assert.ok(key(h.host,'liveDone'));
+ // No block named on the 21st: the festival is not over, the closing party is still to come.
+ answer=LIVE({conversations:[],now:null,next:null});await h.tickTimers();await flush();assert.equal(key(h.host,'liveDone'),undefined);assert.ok(linkTo(h.host,activity('closing-party').title));
 });
 
 test('the band never announces its refreshes: no live region anywhere in it',async()=>{
@@ -386,8 +387,32 @@ test('the console line does not repeat the session the block already names as th
  const h=await consoleBlock(feed(registered));const line=h.line();
  assert.match(content(key(h.widget,'nextForYou').parent),/El poder de lo local/);
  assert.equal(linkTo(line,'El poder de lo local'),undefined);assert.ok(key(line,'liveNext'));assert.equal(linkTo(line,activity('day1-pm').title).href,'fiiu-session.html?a=day1-pm');
- // With nothing else to name, the line keeps its counts and its way to the band.
- const only=await consoleBlock(feed(registered,()=>LIVE({next:null})));assert.equal(key(only.line(),'liveNow'),undefined);assert.equal(key(only.line(),'liveDone'),undefined);assert.match(content(only.line()),/87\s+check-ins today/);assert.ok(key(only.line(),'liveOpen'));
+ // With no other block named by the server, the line moves on to the programme's next timed item (the closing party), and keeps its counts and its way to the band.
+ const only=await consoleBlock(feed(registered,()=>LIVE({next:null})));assert.equal(key(only.line(),'liveNow'),undefined);assert.equal(key(only.line(),'liveDone'),undefined);assert.ok(linkTo(only.line(),activity('closing-party').title));assert.match(content(only.line()),/87\s+check-ins today/);assert.ok(key(only.line(),'liveOpen'));
  // Someone whose plan has another block sees the session under way.
  const other=await consoleBlock(feed(elsewhere));assert.ok(linkTo(other.line(),'El poder de lo local'));
+});
+
+// The server names check-in blocks only; the last, day3-am, ends on 23 Oct at 13:00, and the routes (24–25 Oct) and the closing party (25 Oct from 17:00) follow.
+test('after the last conference the band and the console line name the closing party, never that the festival’s sessions are over while anything is to come',async()=>{
+ const party=activity('closing-party'),empty=()=>LIVE({now:null,next:null}),SUNDAY_MORNING='2026-10-24T16:00:00.000Z';
+ // 24 Oct, 11:00 in Lima: the party is next, with its day and its start.
+ const h=await band(empty,{when:SUNDAY_MORNING}),when=h.host.querySelector('.f-live-when');
+ assert.equal(key(h.host,'liveDone'),undefined);assert.ok(key(when,'liveNext'));assert.equal(linkTo(when,party.title).href,'fiiu-session.html?a=closing-party');
+ assert.equal(when.querySelector('.f-live-day')?.dataset.fiiuDate,'2026-10-25');assert.equal(when.querySelector('.f-live-time')?.dataset.fiiuTime,'17:00');
+ // The console line too; for someone the block already tells about the party, the line keeps its counts and says nothing about the sessions.
+ const line=await consoleBlock(feed(registered,empty),{when:SUNDAY_MORNING});assert.equal(key(line.line(),'liveDone'),undefined);assert.ok(linkTo(line.line(),party.title));
+ const going=()=>({user,registration:{...saved,answers:{...answers,activities:['day1-am','closing-party']}},attendance:[],isAdmin:false});
+ const own=await consoleBlock(feed(going,empty),{when:SUNDAY_MORNING});assert.equal(key(own.line(),'liveDone'),undefined);assert.equal(linkTo(own.line(),party.title),undefined);assert.match(content(own.line()),/87\s+check-ins today/);
+ // 25 Oct, 18:00: the party is under way. It takes no check-in, so no count is shown for it.
+ const on=await band(empty,{when:'2026-10-25T23:00:00.000Z'}),now=on.host.querySelector('.f-live-when');
+ assert.ok(key(now,'liveNow'));assert.ok(linkTo(now,party.title));assert.equal(now.querySelector('.f-live-count'),null);assert.equal(key(on.host,'liveDone'),undefined);
+ // A server's next block still comes first when it starts before the party.
+ const lab=await band(()=>LIVE({now:null,next:{activity:activity('day2-am')}}));assert.ok(linkTo(lab.host,activity('day2-am').title));assert.equal(linkTo(lab.host,party.title),undefined);
+ // Only routes left, none of them timed: nothing to name as now or next, and still no "over".
+ const routesOnly={...FIIU_EVENT,activities:FIIU_EVENT.activities.filter(a=>a.id!=='closing-party')};
+ const routes=await band(empty,{when:SUNDAY_MORNING,event:routesOnly});assert.equal(key(routes.host,'liveDone'),undefined);assert.equal(routes.host.querySelector('.f-live-when'),null);assert.ok(routes.host.querySelector('.f-live-talks'));
+ // Once the last item is over (an organiser's preview the day after), the band says so.
+ const after=await band(empty,{when:'2026-10-26T15:00:00.000Z',organiser:true});assert.ok(key(after.host,'liveDone'));
+ const afterLine=await consoleBlock(feed(()=>({user,registration:null,attendance:[],isAdmin:true}),empty),{when:'2026-10-26T15:00:00.000Z'});assert.ok(key(afterLine.line(),'liveDone'));
 });

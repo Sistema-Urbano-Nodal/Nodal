@@ -7,7 +7,7 @@
     It reads every 30 s while the tab is visible, pauses while it is hidden and reads at once on return. A refresh is silent: no live region (it would
     speak every 30 s), and when only numbers changed they change in place, so the links, focus and a screen reader's place stay put. A read that fails on
     venue Wi-Fi keeps the last view and the next tick tries again. Outside the festival dates only organisers read it, marked as a preview. */
- const Fiiu=window.Fiiu,{t,el,tr,link,source,api,dateNode,timeNode,limaDate,limaClock,locale,countLabel}=Fiiu;
+ const Fiiu=window.Fiiu,{t,el,tr,link,source,api,dateNode,timeNode,limaDate,limaClock,locale,countLabel,underway}=Fiiu;
  Object.assign(Fiiu.rows,{
   liveTitle:['Live','En vivo','Ao vivo'],livePreview:['Preview','Vista previa','Pré-visualização'],liveUpdated:['Updated','Actualizado','Atualizado'],
   liveNow:['Now','Ahora','Agora'],liveNext:['Up next','A continuación','A seguir'],liveDone:['The festival’s sessions are over.','Las sesiones del festival terminaron.','As sessões do festival terminaram.'],
@@ -42,9 +42,26 @@
  const count=n=>Number.isSafeInteger(n)&&n>=0?n:0;
  const slot=item=>{const a=item?.activity;return a&&typeof a.id==='string'&&typeof a.title==='string'&&typeof a.date==='string'?item:null;};
  const talks=list=>(Array.isArray(list)?list:[]).filter(c=>c&&typeof c.questionId==='string'&&typeof c.activityId==='string'&&typeof c.body==='string');
+ /* The server names the check-in blocks only (the conferences and the laboratory). The last of them ends on 23 Oct at 13:00, while the routes and the
+    closing party run until the 25th, so the page adds the rest of its programme: a timed item under way (the party) when no block is, and the earliest timed
+    item still to start as next when it comes first. The festival's sessions are over only once nothing in the programme is still to come; until then a moment
+    with nothing to name (untimed routes) leaves the part out. Such an item takes no check-in, so it carries no count. */
+ const START=/^\s*(\d{1,2}):(\d{2})\s*(?:[–-]|$)/,END=/[–-]\s*(\d{1,2}):(\d{2})\s*$/;
+ const startOf=a=>{const m=START.exec(a.time||'');return m?Number(m[1])*60+Number(m[2]):null;},endOf=a=>{const m=END.exec(a.time||'');return m?Number(m[1])*60+Number(m[2]):1440;};
+ const soonest=(a,b)=>a.date.localeCompare(b.date)||(startOf(a)??-1)-(startOf(b)??-1);
+ function timeline(d,event){
+  const list=(Array.isArray(event?.activities)?event.activities:[]).filter(a=>a&&!a.legacy&&typeof a.id==='string'&&typeof a.title==='string'&&typeof a.date==='string');
+  const today=limaDate(),[hours,mins]=limaClock(new Date()).split(':').map(Number),minutes=hours*60+mins;
+  const item=a=>({activity:{id:a.id,title:a.title,date:a.date,time:a.time||'',venue:a.venue||''},programme:true});
+  const others=list.filter(a=>!['general','application'].includes(a.registration)&&startOf(a)!==null),on=others.filter(a=>underway(a)).sort(soonest)[0];
+  const now=slot(d.now)||(on?item(on):null),named=slot(d.next);
+  const first=[...(named?[named.activity]:[]),...others.filter(a=>a.id!==now?.activity.id&&(a.date>today||(a.date===today&&startOf(a)>minutes)))].sort(soonest)[0];
+  const next=!first?null:first===named?.activity?named:item(first);
+  return{now,next,ended:!now&&!next&&!list.some(a=>a.date>today||(a.date===today&&endOf(a)>minutes))};
+ }
  const rating=r=>{const n=count(r?.count);return n&&Number.isFinite(r.average)?fill(n===1?'liveRatingOne':'liveRating',{avg:average(r.average),n:number(n)}):t('liveRatingNone');};
  // Everything but the numbers: while it stays the same, a refresh only rewrites the numbers. The day is in it, since a date is shown only for another day.
- const shape=(d,compact,preview,named)=>JSON.stringify([locale(),limaDate(),compact,preview,named,slot(d.now)?.activity||null,slot(d.next)?.activity||null,Number.isFinite(Date.parse(d.generatedAt)),
+ const shape=(d,compact,preview,named)=>JSON.stringify([locale(),limaDate(),compact,preview,named,slot(d.now)?.activity||null,slot(d.next)?.activity||null,d.ended,Number.isFinite(Date.parse(d.generatedAt)),
   talks(d.conversations).map(c=>[c.questionId,c.activityId,c.activityTitle,c.body,c.kind,c.latest?[c.latest.author,c.latest.body,c.latest.createdAt]:null])]);
  // A node's text, read through its children (a count is a number and its label).
  const text=node=>node.children.length?[...node.children].map(text).join(''):node.textContent;
@@ -61,7 +78,7 @@
    // A session the block already names (the person's next one) is not repeated: the line moves on to the festival's next.
    const item=[now,next].find(slotted=>slotted&&slotted.activity.id!==named)||null,line=el('p','f-live-line'),counts=el('p','f-live-counts');
    if(item){const name=source('a',item.activity.title,'f-live-session-title');name.href=sessionLink(item.activity.id);line.append(tr('span',item===now?'liveNow':'liveNext','f-live-label'));when(line,item.activity,item!==now);line.append(name);}
-   else if(!now&&!next)line.append(tr('span','liveDone'));
+   else if(d.ended)line.append(tr('span','liveDone'));
    counts.append(tally('today',pulse.checkedInToday,'liveTodayOne','liveTodayMany'),tally('talks',Math.max(list.length,open),'liveTalkOne','liveTalkMany'));
    return [head,...(line.children.length?[line]:[]),counts,link('liveOpen','fiiu.html#en-vivo','f-text-link f-live-open')];
   }
@@ -70,10 +87,10 @@
   const session=(label,item,id)=>{
    const a=item.activity,box=el('div','f-live-session'),name=source('a',a.title,'f-live-session-title'),meta=el('p','f-live-meta');name.href=sessionLink(a.id);
    when(meta,a,label==='liveNext');box.append(tr('h3',label,'f-live-label'),name);if(meta.children.length)box.append(meta);if(a.venue)box.append(source('p',a.venue,'f-live-venue'));
-   if(label==='liveNow')box.append(tally(id,item.checkedIn,'liveCheckedInOne','liveCheckedInMany','f-count f-live-count'));return box;
+   if(label==='liveNow'&&!item.programme)box.append(tally(id,item.checkedIn,'liveCheckedInOne','liveCheckedInMany','f-count f-live-count'));return box;
   };
   const sessions=el('section','f-live-part f-live-when');
-  if(now)sessions.append(session('liveNow',now,'now'));if(next)sessions.append(session('liveNext',next,'next'));if(!now&&!next)sessions.append(tr('h3','liveNow','f-live-label'),tr('p','liveDone','f-muted'));
+  if(now)sessions.append(session('liveNow',now,'now'));if(next)sessions.append(session('liveNext',next,'next'));if(d.ended)sessions.append(tr('h3','liveNow','f-live-label'),tr('p','liveDone','f-muted'));
   // Each conversation opens its question inside its session page, with its newest answer (a rating question: its average).
   const chats=el('section','f-live-part f-live-talks');chats.append(tr('h3','liveTalks','f-live-label'));
   if(!list.length)chats.append(tr('p','liveNoTalks','f-muted'));
@@ -100,7 +117,7 @@
    part.append(items);return part;
   };
   const grid=el('div','f-live-grid');
-  grid.append(sessions,chats,
+  grid.append(...(sessions.children.length?[sessions]:[]),chats,
    figures('f-live-badges','liveBadges',[['badge:first','liveBadgeFirst',badges.first],['badge:three','liveBadgeThree',badges.three],['badge:conferences','liveBadgeConferences',badges.conferences],['badge:lab','liveBadgeLab',badges.lab]],'liveBadgesHint'),
    figures('f-live-pulse','livePulse',[['pulse:registered','livePulseRegistered',pulse.registered],['pulse:today','livePulseToday',pulse.checkedInToday],['pulse:total','livePulseTotal',pulse.checkedInTotal],['pulse:messages','livePulseMessages',pulse.messages],['pulse:ratings','livePulseRatings',pulse.ratings]]));
   return [head,grid];
@@ -120,8 +137,8 @@
   const follow=()=>{if(timer===null&&!stopped&&document.visibilityState!=='hidden')timer=setInterval(read,REFRESH);};
   const hide=()=>{host.hidden=true;host.replaceChildren();host.removeAttribute?.('aria-labelledby');shownSig='';shownKeys=new Map();};
   const drawn=()=>{const call=first;first=null;call?.();};
-  function show(d){
-   const preview=!inDates(),skip=compact?named()||null:null,sig=shape(d,compact,preview,skip),keys=new Map(),tree=build(d,{compact,preview,named:skip,open},keys);
+  function show(answer){
+   const d={...answer,...timeline(answer,event)},preview=!inDates(),skip=compact?named()||null:null,sig=shape(d,compact,preview,skip),keys=new Map(),tree=build(d,{compact,preview,named:skip,open},keys);
    if(sig===shownSig){for(const [id,node] of keys){const old=shownKeys.get(id);if(!old||text(old)===text(node))continue;if(node.children.length)old.replaceChildren(...[...node.children]);else old.textContent=node.textContent;}}
    else{
     // A redraw gives focus back to the same link when it was on one in the band, and keeps the folded conversations open for a reader who opened them.
