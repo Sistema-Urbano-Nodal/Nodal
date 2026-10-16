@@ -66,8 +66,8 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-page .buc-list.is-items{display:grid;gap:10px}
 .pilot-page .buc-link{display:inline-block;padding:6px 0;font-weight:600;line-height:1.45;text-decoration:underline;text-underline-offset:4px}
 .pilot-page .buc-link::after{content:"↗";content:"↗"/"";display:inline-block;margin-left:4px;font-size:.85em}
-.pilot-page .buc-words{font-weight:500;color:var(--muted)}.pilot-page .buc-words::before{content:" · ";content:" · "/""}
-.pilot-page .buc-item{display:grid;gap:1px}.pilot-page .buc-meta{font-size:12px;color:var(--muted)}.pilot-page .buc-meta>:not(:last-child)::after{content:" · ";content:" · "/""}
+.pilot-page :is(.buc-words,.buc-link .buc-sep){font-weight:500;color:var(--muted)}
+.pilot-page .buc-item{display:grid;gap:1px}.pilot-page .buc-meta{font-size:12px;color:var(--muted)}
 @media(pointer:coarse){.pilot-page .buc-link{min-height:44px;padding-block:11px}}
 .pilot-workspace{display:grid;grid-template-columns:235px minmax(0,1fr);gap:64px;align-items:start}
 .pilot-route{position:sticky;top:28px}

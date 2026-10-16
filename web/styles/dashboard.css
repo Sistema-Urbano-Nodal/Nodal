@@ -636,12 +636,10 @@ select:focus-visible, textarea:focus-visible {
 }
 .buc-readings .buc-link:hover { text-decoration-thickness: 2px; }
 .buc-readings .buc-link::after { content: "↗"; content: "↗" / ""; display: inline-block; margin-left: 4px; font-size: .85em; }
-.buc-readings .buc-words { font-weight: 500; color: var(--text-2); }
-.buc-readings .buc-words::before { content: " · "; content: " · " / ""; }
+.buc-readings :is(.buc-words, .buc-link .buc-sep) { font-weight: 500; color: var(--text-2); }
 .buc-readings .buc-item { display: grid; gap: 1px; }
 .buc-readings .buc-title { padding: 2px 0; }
 .buc-readings .buc-meta { font-size: 11.5px; color: var(--muted); }
-.buc-readings .buc-meta > :not(:last-child)::after { content: " · "; content: " · " / ""; }
 
 /* ============================ buttons ============================ */
 .btn-dark, .btn-green, .pill-btn {

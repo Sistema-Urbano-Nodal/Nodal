@@ -6,8 +6,8 @@
     publishes its feed (docs/integrations/buc-feed.md), the publications themselves. The browser never talks to BUC: a member's topics reach it only in
     a link the member chooses to follow. When members ask each other for readings (FIIU chats, course discussions), suggest() puts a quiet line of BUC
     suggestions under the message, built from its own words: shown to everyone reading, never posted. One read per distinct query per page, shared by every
-    block and line; a failed or odd answer draws nothing, so a page without readings looks as it did. The labels are BUC's own (its eight categories and the links into it), shared by every page that loads this file;
-    each page's heading comes from that page's dictionary and is handed over as a node. */
+    block and line; a failed or odd answer draws nothing, so a page without readings looks as it did. The labels here are BUC's own (its eight categories
+    and the links into it), shared by every page that loads this file; each page's heading comes from that page's dictionary and is handed over as a node. */
  const rows={
   cat1:['Childhood','Infancia','Infância'],cat2:['Public space','Espacio público','Espaço público'],cat3:['Environment','Ambiente','Ambiente'],cat4:['Methods','Metodologías','Metodologias'],
   cat5:['Culture','Cultura','Cultura'],cat6:['Governance','Gobernanza','Governança'],cat7:['Mobility','Movilidad','Mobilidade'],cat8:['Inclusion','Inclusión','Inclusão'],
@@ -67,6 +67,8 @@
  }
 
  const away=(a,url)=>{a.href=url;a.target='_blank';a.rel='noopener noreferrer';return a;};
+ // The separator is text, so screen readers and copied text keep the words apart ("Inclusión · vivienda", "Lima Cómo Vamos · 2025").
+ const sep=()=>el('span','buc-sep',' · ');
  const extra=(words,own)=>{const known=new Set(clean(own).toLowerCase().split(' '));return words.split(' ').filter(w=>w&&!known.has(w.toLowerCase())).join(' ');};
  /* A link names its BUC category, then the search words the server added for a topic ("Inclusión · vivienda"); words the reader brought are already said
     around it (own). A link with words only is a search ("Buscar «…» en la BUC"), and the feed's single link the way on ("Ver más en la BUC"). */
@@ -74,15 +76,16 @@
   const a=away(el('a','buc-link'),link.url);
   if(more||(!link.category&&!link.words)){a.className='buc-link buc-more';a.append(label('more'));}
   else if(!link.category)a.append(label('search',link.words));
-  else{a.append(label('cat'+link.category));const words=extra(link.words,own);if(words){const w=el('span','buc-words',words);w.lang='es';a.append(w);}}
+  else{a.append(label('cat'+link.category));const words=extra(link.words,own);if(words){const w=el('span','buc-words',words);w.lang='es';a.append(sep(),w);}}
   return a;
  }
  // A publication: its title (content, so a browser may translate it), then who, when and which category.
  function itemNode(item){
-  const li=el('li','buc-item'),a=away(el('a','buc-link buc-title',item.title),item.url),meta=el('span','buc-meta');a.translate=true;li.append(a);
-  if(item.authors.length)meta.append(el('span','',item.authors.slice(0,2).join(', ')+(item.authors.length>2?' et al.':'')));
-  if(item.year)meta.append(el('span','',String(item.year)));if(item.category)meta.append(label('cat'+item.category));
-  if(meta.children.length)li.append(meta);return li;
+  const li=el('li','buc-item'),a=away(el('a','buc-link buc-title',item.title),item.url),parts=[];a.translate=true;li.append(a);
+  if(item.authors.length)parts.push(el('span','',item.authors.slice(0,2).join(', ')+(item.authors.length>2?' et al.':'')));
+  if(item.year)parts.push(el('span','',String(item.year)));if(item.category)parts.push(label('cat'+item.category));
+  if(parts.length){const meta=el('span','buc-meta');parts.forEach((part,i)=>{if(i)meta.append(sep());meta.append(part);});li.append(meta);}
+  return li;
  }
  // The publications (with the feed) or the links (without it), then the feed's way on.
  function draw(data){

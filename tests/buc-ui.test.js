@@ -56,10 +56,10 @@ test('a readings block draws BUC search links named by category, in the reader�
  const links=anchors(host);
  assert.deepEqual(links.map(a=>a.href),LINKS.links.map(l=>l.url),'the server’s BUC links, as they are (with their utm)');
  assert.ok(links.every(a=>a.target==='_blank'&&a.rel==='noopener noreferrer'),'BUC opens in its own tab');
- assert.deepEqual(links.map(text),['Mobility','Inclusion vivienda'],'a category link names its category, and the search words a topic adds');
+ assert.deepEqual(links.map(text),['Mobility','Inclusion · vivienda'],'a category link names its category, and the search words a topic adds');
  assert.equal(descendants(links[1]).find(n=>n.className==='buc-words').lang,'es','BUC’s search words are Spanish');
- p.lang('es');assert.deepEqual(links.map(text),['Movilidad','Inclusión vivienda']);
- p.lang('pt');assert.deepEqual(links.map(text),['Mobilidade','Inclusão vivienda']);
+ p.lang('es');assert.deepEqual(links.map(text),['Movilidad','Inclusión · vivienda']);
+ p.lang('pt');assert.deepEqual(links.map(text),['Mobilidade','Inclusão · vivienda']);
 });
 
 test('every BUC category id gets its name in English, Spanish and Portuguese, and a link with words only is a search',async()=>{
@@ -80,10 +80,10 @@ test('with BUC’s feed on, the block lists publications (title, authors, year, 
  const [first,second]=items.map(item=>item.querySelector('a'));
  assert.equal(first.href,'https://buc.sistemaurbano.org/publicacion/1234');assert.equal(first.textContent,'Clima y resiliencia en la mirada urbana');assert.equal(first.target,'_blank');
  assert.equal(second.href,'https://www.example.org/calles-infancia','a publication may live on its author’s portal');
- assert.equal(text(items[0].querySelector('.buc-meta')),'Lima Cómo Vamos 2025 Environment');
- assert.equal(text(items[1].querySelector('.buc-meta')),'Ocupa Tu Calle, Fundación Bernard van Leer et al. Childhood','two authors at most, and no year when there is none');
+ assert.equal(text(items[0].querySelector('.buc-meta')),'Lima Cómo Vamos · 2025 · Environment');
+ assert.equal(text(items[1].querySelector('.buc-meta')),'Ocupa Tu Calle, Fundación Bernard van Leer et al. · Childhood','two authors at most, and no year when there is none');
  const more=host.querySelector('.buc-more');assert.ok(more,'one way to see more');assert.equal(more.href,FEED.links[0].url);assert.equal(text(more),'See more on BUC');
- p.lang('es');assert.equal(text(more),'Ver más en la BUC');assert.equal(text(items[0].querySelector('.buc-meta')),'Lima Cómo Vamos 2025 Ambiente');
+ p.lang('es');assert.equal(text(more),'Ver más en la BUC');assert.equal(text(items[0].querySelector('.buc-meta')),'Lima Cómo Vamos · 2025 · Ambiente');
 });
 
 test('a readings block fails quietly: an outage, a lost connection, an odd answer or links that leave BUC draw nothing',async()=>{

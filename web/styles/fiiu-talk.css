@@ -10,7 +10,7 @@
 .f-page .f-talk-desc{max-width:65ch;margin:var(--f-sp-3) 0 0;font-size:.95rem;line-height:1.5;white-space:pre-line;overflow-wrap:anywhere}
 .f-talk-session :is(.f-talk-talks,.f-talk-readings){margin:var(--f-sp-2) 0 0}:is(.f-talk-talks,.f-talk-readings)>summary{display:flex;align-items:center;gap:0 10px;min-height:44px;font-weight:650;color:var(--f-forest);list-style:none;cursor:pointer}:is(.f-talk-talks,.f-talk-readings)>summary::-webkit-details-marker{display:none}
 /* The readings fold (buc.js) folds like the talks: "Lecturas de la BUC +", then BUC's links in a row (fiiu.css). */
-:is(.f-talk-talks,.f-talk-readings)>summary::after{content:"+";content:"+"/"";font-size:1.3rem;font-weight:500;line-height:1}:is(.f-talk-talks,.f-talk-readings)[open]>summary::after{content:"−";content:"−"/""}.f-talk-talks .f-session-list,.f-talk-readings .buc-list{margin-top:0}
+:is(.f-talk-talks,.f-talk-readings)>summary::after{content:"+";content:"+"/"";font-size:1.3rem;font-weight:500;line-height:1}:is(.f-talk-talks,.f-talk-readings)[open]>summary::after{content:"−";content:"−"/""}.f-talk-talks .f-session-list,.f-talk-readings .buc-list{margin-top:0}.f-talk-session .f-talk-talks+.f-talk-readings{margin-top:0}
 .f-talk-mine{display:flex;flex-wrap:wrap;align-items:center;gap:var(--f-sp-1) var(--f-sp-4);margin:var(--f-sp-4) 0 0}.f-talk-mine .f-pill{white-space:normal}.f-talk-mine-hint{font-size:.84rem;color:var(--f-muted)}
 .f-talk-mine-time{font-variant-numeric:tabular-nums}
 /* On a phone the time and a long venue stack, rather than leave a dot hanging at the end of a line. */
