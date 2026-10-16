@@ -147,7 +147,12 @@
   'necesito necesitamos gustaria tienes pasan pasar pasen pasame compartir compartan comparten manden mandar envien enviar enviame escribanme escribeme escribame '+
   'escribir llamame llamenme llamar contacto contactame contactar correo mail email gmail hotmail outlook yahoo arroba punto celular telefono numero whatsapp '+
   'instagram insta tiktok telegram linkedin twitter link links enlace enlaces need want share send call calling contact message phone number website preciso '+
-  'quero gostaria passar passem compartilhar mandem enviem liga ligar ligue chama chamar telefone').split(' '));
+  'quero gostaria passar passem compartilhar mandem enviem liga ligar ligue chama chamar telefone '+
+  // The rest of the server's own list (its STOPWORDS of four letters or more), so the words searched are the words sent, and the line quotes them.
+  'lean leyendo recomendarian recomendarias recomendaria sugiere texto textos articulo articulos material materiales referencia referencias autor autores buen '+
+  'unos unas saben sabe conocen conoce vosotros ellos ellas usted text texts article articles paper papers best whom where when know references leiam recomendo '+
+  'artigo artigos bons boas melhor melhores temos sabem conhecem quem umas pelo pela pelos pelas isto menciono mencionaron mencionado mencionada ponente ponentes '+
+  'expositor expositora mentioned speaker speakers mencionou palestrante').split(' '));
  function wordsOf(text){
   const out=[],seen=new Set();
   for(const word of withoutContacts(text).toLowerCase().match(/[\p{L}\p{N}]+/gu)||[]){
@@ -155,6 +160,9 @@
   }
   return out.join(' ');
  }
+ // The line quotes the message's words that BUC was asked to search, as the answer's links carry them (the server leaves out words of its own): when the
+ // server searched with words, every link has them, and a word it left out, or a topic's own word it added, is not claimed for the message.
+ function searched(words,links){const asked=new Set(fold(links.find(link=>link.words)?.words||'').split(' '));return words.split(' ').filter(word=>word&&asked.has(fold(word))).join(' ');}
  /* host: the slot under one message. text: the message. filters: the session's block, or the course's topics. A message that does not ask clears the slot
     and reads nothing; the same message drawn again (a live update, an edit) keeps its line, and every message with the same words shares one read. The
     caller never calls this for a hidden or withdrawn message. Resolves whether a line is shown. */
@@ -165,11 +173,11 @@
   const done=read(path).then(data=>{
    if(drawn.get(host)?.path!==path)return false;
    if(!data){host.replaceChildren();host.hidden=true;return false;}
-   const line=el('p','buc-suggest');line.append(words?label('suggestOn',words,'buc-suggest-label'):label('suggest','','buc-suggest-label'));
+   const said=searched(words,data.links),line=el('p','buc-suggest');line.append(said?label('suggestOn',said,'buc-suggest-label'):label('suggest','','buc-suggest-label'));
    if(data.items.length){
     for(const item of data.items.slice(0,3)){const a=away(el('a','buc-link buc-title',item.title),item.url);a.translate=true;line.append(a);}
     const more=data.links.find(link=>link.more);if(more)line.append(linkNode(more,{more:true}));
-   }else line.append(...data.links.slice(0,3).map(link=>linkNode(link,{own:words,more:link.more})));
+   }else line.append(...data.links.slice(0,3).map(link=>linkNode(link,{own:said,more:link.more})));
    host.replaceChildren(line);host.hidden=false;return true;
   });
   drawn.set(host,{path,done});return done;

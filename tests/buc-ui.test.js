@@ -423,6 +423,22 @@ test('under a FIIU chat message asking for readings, a quiet “Sugerencias de l
  h.lang('pt');assert.equal(text(again.querySelector('.buc-suggest-label')),'Sugestões da BUC sobre “movilidad lima”');
 });
 
+test('a suggestion’s label quotes only the words BUC was asked to search, as the server’s answer has them',async()=>{
+ const search=(q,category=null)=>({label:'x',url:'https://buc.sistemaurbano.org/busqueda?'+new URLSearchParams({...(q?{q}:{}),...(category?{c:String(category)}:{}),utm_source:'nodal',utm_medium:'chat'}),category});
+ const line=async(message,answer,filters={block:'day1-am'})=>{const p=bucPage(()=>answer,{lang:'es'}),host=p.host();await p.Buc.suggest(host,message,filters);return{p,host,label:text(host.querySelector('.buc-suggest-label')),links:anchors(host).map(text)};};
+ // The server left out a word the message had: the label does too, and the category link says nothing more.
+ const fewer=await line('¿Libros sobre movilidad, plazas y comercio?',{source:'links',items:[],links:[search('movilidad plazas',6),search('movilidad plazas')]});
+ assert.equal(params(chatReadings(fewer.p.requests)[0]).q,'movilidad plazas comercio');
+ assert.equal(fewer.label,'Sugerencias de la BUC sobre «movilidad plazas»');assert.deepEqual(fewer.links,['Gobernanza','Buscar «movilidad plazas» en la BUC']);
+ // The server searched none of them (BUC's categories, or a topic's own word): the label quotes nothing, and the topic's word shows on its link.
+ const none=await line('¿Libros sobre comercio?',{source:'links',items:[],links:ALL.links.slice(0,2)});assert.equal(none.label,'Sugerencias de la BUC');
+ const topic=await line('¿Libros sobre comercio?',{source:'links',items:[],links:[search('vivienda',8)]},{topics:['Housing']});
+ assert.equal(topic.label,'Sugerencias de la BUC');assert.deepEqual(topic.links,['Inclusión · vivienda']);
+ // The words the server leaves out are left out here too, so the label and the search agree from the start.
+ const seeded=await line('¿Algún libro, texto o material sobre movilidad en Lima? Pásame el enlace, escríbanme',CHAT);
+ assert.equal(params(chatReadings(seeded.p.requests)[0]).q,'movilidad lima');assert.equal(seeded.label,'Sugerencias de la BUC sobre «movilidad lima»');
+});
+
 test('a chat suggestion fails quietly, and General’s messages ask with no block',async()=>{
  const down=await sessionPage({messages:[message(M(2),{body:ASK})],readings:path=>params(path).context==='chat'?{status:503,data:{}}:SESSION_LINKS});
  const slot=down.root.querySelector('.f-talk-buc');assert.ok(slot);assert.equal(slot.hidden,true);assert.equal(slot.children.length,0);
