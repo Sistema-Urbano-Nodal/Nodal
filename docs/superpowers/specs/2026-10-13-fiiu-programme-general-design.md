@@ -4,7 +4,7 @@ Source: a message from Flavia Muro (FIIU organisers) relayed on 13 Oct 2026, and
 
 ## Decisions made with the user
 
-- **Closing event:** renamed "¡Fiesta de cierre y Chelas Urbanas!", on **Sun 25 Oct**. Chelas Urbanas 17:00–19:00, the closing party from 19:00 onwards. Venue: La Vermut Bar, Av. Francisco Bolognesi 235, Barranco 15063. Registration goes through NODAL.
+- **Closing event:** renamed "¡Fiesta de cierre y Chelas Urbanas!", on **Sat 24 Oct** (moved from Sun 25 on 16 Oct). Chelas Urbanas 17:00–19:00, the closing party from 19:00 onwards. Venue: La Vermut Bar, Av. Francisco Bolognesi 235, Barranco 15063. Registration goes through NODAL.
 - **Party is register only:** people add it to their festival registration so organisers get a headcount and a list. It never takes a QR check-in and never adds certificate hours.
 - **Party email:** a one-off announcement to every registrant who has not added the party yet, started by an organiser from the panel. No duplicates.
 - **Programme editing:** organisers edit the details of every existing block from the panel. New blocks still come from a code change; there is no adding or removing.
@@ -17,7 +17,7 @@ Source: a message from Flavia Muro (FIIU organisers) relayed on 13 Oct 2026, and
 A new built-in activity in `server/fiiu-domain.js`:
 
 ```js
-{id:'closing-party',date:'2026-10-25',period:'party',registration:'social',
+{id:'closing-party',date:'2026-10-24',period:'party',registration:'social',
  title:'¡Fiesta de cierre y Chelas Urbanas!',time:'17:00',
  venue:'La Vermut Bar, Av. Francisco Bolognesi 235, Barranco 15063',
  sessions:[['17:00–19:00','Chelas Urbanas'],['19:00 en adelante','Fiesta de cierre']]}
@@ -28,7 +28,7 @@ A new built-in activity in `server/fiiu-domain.js`:
 - **Organiser panel:** the party has a headcount and appears in the participant filter and CSV like any block. It has no attendance column.
 - **Conversations:** the party has a block conversation like any other block.
 - **Removed:** the "Closing party / separate registration" aside on `fiiu.html`, its strings (`party`, `partyHint`, `partyRegister`, `partyDetails`), and the `partyUrl` link field in organiser settings. `partyUrl` leaves `DEFAULT_CONFIG` and `normalizeConfig`; a stored value is ignored.
-- **Programme display:** the party sits on the 25 Oct day in time order. A start-only time reads "Desde las 17:00 / From 17:00 / A partir das 17:00".
+- **Programme display:** the party sits on the 24 Oct day in time order. A start-only time reads "Desde las 17:00 / From 17:00 / A partir das 17:00".
 
 ## 2. The editable programme
 

@@ -354,7 +354,7 @@ test('the closing party is a register-only block: people add it alone or with co
  assert.equal((await save({...answers,activities:['day1-am','day1-pm','day2-am','day2-pm','day3-am','closing-party']},'other')).status,200,'all five blocks and the party');
  const s=(await(await call('/api/admin/fiiu/summary',{actor:'admin'})).json()).summary;
  assert.deepEqual(s.activities.find(a=>a.activityId==='closing-party'),{activityId:'closing-party',registrations:2,externalInterests:0,attendance:0,officialAttendance:0});
- assert.deepEqual(s.days.find(d=>d.date==='2026-10-25'),{date:'2026-10-25',registrations:2,attendance:0});
+ assert.deepEqual(s.days.find(d=>d.date==='2026-10-24'),{date:'2026-10-24',registrations:2,attendance:0});
  assert.equal(s.activities.find(a=>a.activityId==='day1-am').registrations,1);
 });
 

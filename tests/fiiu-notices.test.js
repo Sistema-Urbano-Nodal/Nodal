@@ -206,9 +206,9 @@ test('party passes and the summary button running at once never pass the shared 
 test('the party email names the party as the programme has it, with its day, start, session lines, venue and a link to add it, in three languages',()=>{
  const addUrl=`${origin}/fiiu.html#add-closing-party`;
  for(const [language,subject,day,from,heading] of [
-  ['es','¡Fiesta de cierre y Chelas Urbanas! · FIIU Fest 11','Domingo, 25 de octubre','Desde las 17:00','Ven a la fiesta de cierre'],
-  ['en','Closing party: ¡Fiesta de cierre y Chelas Urbanas! · FIIU Fest 11','Sunday 25 October','From 17:00','Come to the closing party'],
-  ['pt','Festa de encerramento: ¡Fiesta de cierre y Chelas Urbanas! · FIIU Fest 11','Domingo, 25 de outubro','A partir das 17:00','Venha para a festa de encerramento']]){
+  ['es','¡Fiesta de cierre y Chelas Urbanas! · FIIU Fest 11','Sábado, 24 de octubre','Desde las 17:00','Ven a la fiesta de cierre'],
+  ['en','Closing party: ¡Fiesta de cierre y Chelas Urbanas! · FIIU Fest 11','Saturday 24 October','From 17:00','Come to the closing party'],
+  ['pt','Festa de encerramento: ¡Fiesta de cierre y Chelas Urbanas! · FIIU Fest 11','Sábado, 24 de outubro','A partir das 17:00','Venha para a festa de encerramento']]){
   const email=partyEmail({event:FIIU_EVENT,language,origin});
   assert.equal(email.subject,subject,language);
   for(const part of ['¡Fiesta de cierre y Chelas Urbanas!',`${day} · ${from}`,'17:00–19:00','Chelas Urbanas','19:00 en adelante','Fiesta de cierre','La Vermut Bar, Av. Francisco Bolognesi 235, Barranco 15063',addUrl,`${origin}/privacy.html`])
