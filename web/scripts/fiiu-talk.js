@@ -242,10 +242,11 @@
   // Organisers see every hidden message; a participant sees only their own, told who hid it.
   if(m.organiser)meta.append(tr('span','talkOrganiser','f-talk-org'));if(m.hidden)meta.append(tr('span',me.organiser?'talkHidden':'talkHiddenForYou','f-talk-flag'));
   meta.append(when(m.createdAt));row.append(meta);if(m.body)row.append(linkify(m.body));if(m.files.length)row.append(filesOf(m.files));
-  // A message asking for readings gets a quiet line of BUC suggestions under it (buc.js), from its words and this session's block (General: every category),
-  // for everyone reading the thread; it is never posted, and never shown under a hidden message. A redrawn row asks again, and buc.js answers from the
-  // read it already made, so a row keeps one line and a busy room one read per distinct question.
-  if(!m.hidden&&window.Buc?.asks(m.body)){const slot=el('div','f-talk-buc');slot.hidden=true;row.append(slot);window.Buc.suggest(slot,m.body,{...(page&&!isGeneral(page.id)?{block:page.id}:{}),context:'chat'}).then(shown=>{if(shown)keepEnd();});}
+  // A message asking for readings gets a quiet line of BUC suggestions under it (buc.js), for the topic it names and this session's block (General: every
+  // category), for everyone reading the thread; it is never posted, and never shown under a hidden message. A redrawn row asks again, and buc.js answers
+  // from the read it already made, so a row keeps one line and a busy room one read per distinct question. The line is drawn once that answer is in:
+  // bucReady says when, for upsert to give focus back to a link in it.
+  if(!m.hidden&&window.Buc?.asks(m.body)){const slot=el('div','f-talk-buc');slot.hidden=true;row.append(slot);row.bucReady=window.Buc.suggest(slot,m.body,{...(page&&!isGeneral(page.id)?{block:page.id}:{}),context:'chat'}).then(shown=>{if(shown)keepEnd();});}
   // Your own message and a hidden one show their likes as text: nobody likes their own, and the server refuses a like on a hidden one.
   if(m.mine||m.hidden){if(m.likeCount>0)actions.append(counted('span','f-talk-likes',m.likeCount===1?'talkLikeOne':'talkLikes',{n:m.likeCount}));}
   else actions.append(likeButton(m));
@@ -265,7 +266,13 @@
  function upsert(view){
   if(typeof view.liked==='boolean')setLiked(view.id,view.liked);if(view.mine&&typeof view.clientId==='string')landed(view.clientId,view);
   const next={...normal(view),liked:liked.has(view.id)},node=messageRow(next),old=rowsById.get(next.id);views.set(next.id,next);rowsById.set(next.id,node);
-  if(old){const active=document.activeElement,cls=active&&old.contains?.(active)?String(active.className||'').split(' ')[0]:'';old.replaceWith(node);if(cls)node.querySelector('.'+cls)?.focus();return false;}
+  if(old){
+   const active=document.activeElement,cls=active&&old.contains?.(active)?String(active.className||'').split(' ')[0]:'';old.replaceWith(node);
+   // A BUC link is the same one by its place in the line, which the new row draws a moment later; focus goes back unless the reader moved on meanwhile.
+   if(cls==='buc-link'){const at=[...old.querySelectorAll('.buc-link')].indexOf(active);Promise.resolve(node.bucReady).then(()=>{if(rowsById.get(next.id)===node&&[document.body,null,undefined].includes(document.activeElement))node.querySelectorAll('.buc-link')[at]?.focus();});}
+   else if(cls)node.querySelector('.'+cls)?.focus();
+   return false;
+  }
   const after=[...parts.log.children].find(child=>child.dataset.pending==='1'||later(views.get(child.dataset.id),next));if(after)after.before(node);else parts.log.append(node);return true;
  }
  function drop(id){rowsById.get(id)?.remove();rowsById.delete(id);views.delete(id);}
