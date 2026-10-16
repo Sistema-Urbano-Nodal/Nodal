@@ -58,6 +58,17 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:20px 0}
 /* Underlined text actions, each a full 44px tap target. */
 .pilot-course-hero .pilot-actions button{display:inline-flex;align-items:center;min-height:44px;padding:0;border:0;border-radius:0;font-size:12px;text-decoration:underline!important;text-underline-offset:4px}
+/* Readings from BUC under the course header (buc.js): a small heading, then BUC's links in one wrapping row, or its publications as a list.
+   The ↗ says the link leaves NODAL. */
+.pilot-buc{margin:0 0 36px}
+.pilot-page .pilot-buc h2{font-size:16px;letter-spacing:0;margin:0 0 4px}
+.pilot-page .buc-list{display:flex;flex-wrap:wrap;gap:0 22px;margin:0;padding:0;list-style:none}
+.pilot-page .buc-list.is-items{display:grid;gap:10px}
+.pilot-page .buc-link{display:inline-block;padding:6px 0;font-weight:600;line-height:1.45;text-decoration:underline;text-underline-offset:4px}
+.pilot-page .buc-link::after{content:"↗";content:"↗"/"";display:inline-block;margin-left:4px;font-size:.85em}
+.pilot-page .buc-words{font-weight:500;color:var(--muted)}.pilot-page .buc-words::before{content:" · ";content:" · "/""}
+.pilot-page .buc-item{display:grid;gap:1px}.pilot-page .buc-meta{font-size:12px;color:var(--muted)}.pilot-page .buc-meta>:not(:last-child)::after{content:" · ";content:" · "/""}
+@media(pointer:coarse){.pilot-page .buc-link{min-height:44px;padding-block:11px}}
 .pilot-workspace{display:grid;grid-template-columns:235px minmax(0,1fr);gap:64px;align-items:start}
 .pilot-route{position:sticky;top:28px}
 .pilot-route h2{color:var(--section-tone);font-size:13px;font-weight:650;letter-spacing:0;margin-bottom:24px}

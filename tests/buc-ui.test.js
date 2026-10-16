@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 import path from 'node:path';
-import {Node,descendants,content,flush,key} from './helpers/fiiu-ui-harness.js';
+import {Node,descendants,content,flush,key,createFiiuHarness} from './helpers/fiiu-ui-harness.js';
 
 /* BUC (Biblioteca Urbana Colaborativa, https://buc.sistemaurbano.org/) as NODAL's source of readings, in the browser: web/scripts/buc.js draws the
    readings that NODAL's GET /api/readings answers (built by the server lane, docs/superpowers/plans/2026-10-16-buc-readings.md), in the console's
@@ -220,4 +220,115 @@ test('every page with readings loads buc.js with its own cache key, after i18n.j
   assert.ok(files.findIndex(f=>f.startsWith('i18n.js?'))<buc,`${page}: buc.js follows the language switch`);
   assert.ok(buc<files.findIndex(f=>f.startsWith(consumer+'?')),`${page}: buc.js comes before ${consumer}`);
  }
+});
+
+/* ================= B2: FIIU session pages ================= */
+
+const Q='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const ACTIVITY={id:'day1-am',title:'El poder de lo local',date:'2026-10-21',time:'09:00–13:00',venue:'Auditorio MALI, Cercado de Lima',sessions:[['09:00–10:00','¡Bienvenidos al FIIU 11!']],registration:'general',period:'morning'};
+const GENERAL={id:'general',period:'general',title:'FIIU General',date:null,time:'',venue:'',sessions:[],registration:'general-space'};
+const question=(over={})=>({id:Q,activityId:'day1-am',talk:'¡Bienvenidos al FIIU 11!',body:'¿Qué te llevas de esta mañana?',status:'open',revision:3,messageCount:2,createdAt:'2026-10-21T13:55:00.000Z',...over});
+const message=(id,over={})=>({id,author:'Ana T.',organiser:false,mine:false,body:'Hola a todas',files:[],likeCount:0,liked:false,createdAt:'2026-10-21T14:05:00.000Z',seq:1,...over});
+const thread=(messages,over={})=>({question:question(over.question),activity:over.activity||ACTIVITY,messages,before:null,revision:3,me:{draftKey:'viewer-ana',organiser:false,canPost:true}});
+const SESSION_LINKS={source:'links',items:[],links:[{label:'Gobernanza',url:'https://buc.sistemaurbano.org/busqueda?c=6&utm_source=nodal&utm_medium=session',category:6}]};
+// A clock frozen on the festival's first morning, as the conversation tests use.
+const clock=(iso='2026-10-21T09:30:00-05:00')=>{const at=Date.parse(iso);return class extends Date{constructor(...args){super(...(args.length?args:[at]));}static now(){return at;}};};
+/* fiiu-session.html: fiiu-ui.js and buc.js through the festival harness, then fiiu-talk.js. routes answer 'METHOD path'; readings(path) answers every
+   /api/readings read. Unknown requests are 404s. */
+async function sessionPage({routes={},readings=()=>SESSION_LINKS,search='?a=day1-am',messages=[message('10000000-0000-4000-8000-000000000001')],activity=ACTIVITY}={}){
+ const id=activity.id,table={['GET /api/fiiu/questions?activityId='+id]:{activity,questions:[question({activityId:id})]},['GET /api/fiiu/questions/'+Q]:thread(messages,{activity,question:{activityId:id}}),
+  'GET /api/fiiu/pulse':{questions:[[Q,id,3,'open']]},'GET /api/fiiu?kind=news':{event:{id:'fiiu-2026',title:'FIIU Fest 11',activities:[ACTIVITY]},config:{registrationOpen:true}},
+  'GET /api/fiiu/registration':{user:{id:'u-ana'},registration:null,attendance:[],isAdmin:false},...routes};
+ let n=0;
+ const h=await createFiiuHarness(request=>{if(request.path.startsWith('/api/readings?'))return readings(request.path);const answer=table[request.method+' '+request.path];return answer===undefined?{status:404,data:{error:'not found'}}:typeof answer==='function'?answer(request):answer;},
+  {page:'buc',search,pathname:'/fiiu-session.html',context:{Date:clock(),crypto:{randomUUID:()=>'cccccccc-cccc-4ccc-8ccc-'+String(n++).padStart(12,'0')}}});
+ vm.runInContext(script('fiiu-talk'),h.ctx);await flush();
+ return h;
+}
+const sessionReadings=h=>readingsOf(h.requests).filter(p=>params(p).context==='session');
+
+test('a session page shows a short “Lecturas de la BUC” fold under the session details, asked for by the block alone',async()=>{
+ const h=await sessionPage();
+ assert.deepEqual(sessionReadings(h).map(params),[{context:'session',block:'day1-am',limit:'3'}],'the block’s BUC categories stay on the server');
+ const head=h.root.querySelector('.f-talk-session'),fold=head.querySelector('.f-talk-readings');
+ assert.ok(fold,'the readings fold');assert.equal(fold.tagName,'details');assert.equal(fold.hidden,false);
+ assert.equal(fold.children[0].tagName,'summary');assert.equal(fold.children[0].dataset.fiiuText,'bucReadings');
+ assert.deepEqual(anchors(fold).map(a=>[text(a),a.href]),[['Governance',SESSION_LINKS.links[0].url]]);
+ const order=head.children;assert.ok(order.indexOf(fold)>order.indexOf(head.querySelector('.f-talk-talks')),'after the talks');assert.ok(order.indexOf(fold)<order.indexOf(head.querySelector('.f-talk-mine')),'before the person’s status');
+ h.lang('es');assert.equal(fold.children[0].textContent,'Lecturas de la BUC');assert.equal(text(anchors(fold)[0]),'Gobernanza');
+});
+
+test('General asks for the session context with no filters, and a session page without readings shows no fold',async()=>{
+ const general=await sessionPage({search:'?a=general',activity:GENERAL});
+ assert.deepEqual(sessionReadings(general).map(params),[{context:'session',limit:'3'}],'every category');
+ const down=await sessionPage({readings:()=>({status:503,data:{}})});
+ const fold=down.root.querySelector('.f-talk-readings');assert.ok(!fold||fold.hidden,'nothing to fold');
+ assert.ok(down.root.querySelector('.f-talk-session').querySelector('h1'),'the session details still show');
+});
+
+/* ================= B2: course pages ================= */
+
+// A DOM node for the course pages, as tests/courses-ui.test.js has it (after, firstElementChild and nextElementSibling, and string children).
+class CNode{
+ constructor(tag='div'){this.tagName=tag;this.children=[];this.dataset={};this.listeners={};this.hidden=false;this.textContent='';this.value='';this.files=[];this.classList={toggle(){}};}
+ append(...nodes){nodes.forEach(n=>{if(typeof n==='object'){cdetach(n);n.parent=this;}this.children.push(n);});}
+ prepend(...nodes){nodes.forEach(n=>{cdetach(n);n.parent=this;});this.children.unshift(...nodes);}
+ after(node){const p=this.parent;if(p){cdetach(node);node.parent=p;p.children.splice(p.children.indexOf(this)+1,0,node);}}
+ get firstElementChild(){return this.children.find(n=>typeof n==='object')||null;}
+ get nextElementSibling(){const siblings=this.parent?.children.filter(n=>typeof n==='object')||[],at=siblings.indexOf(this);return at<0?null:siblings[at+1]||null;}
+ replaceChildren(...nodes){this.children=[];this.append(...nodes);}
+ setAttribute(k,v){this[k]=v;}getAttribute(k){return this[k]??null;}removeAttribute(k){delete this[k];}addEventListener(k,f){this.listeners[k]=f;}
+ querySelectorAll(selector){return cdescendants(this).filter(n=>selector==='button'?n.tagName==='button':selector==='[data-pilot-text]'?n.dataset.pilotText:selector==='[data-module]'?n.dataset.module:selector==='[data-pilot-dynamic]'?n.dataset.pilotDynamic:selector==='[data-pilot-placeholder]'?n.dataset.pilotPlaceholder:selector==='[data-pilot-aria]'?n.dataset.pilotAria:selector[0]==='.'?n.className?.split(' ').includes(selector.slice(1)):selector===n.tagName);}
+ querySelector(selector){return this.querySelectorAll(selector)[0]||null;}
+ replaceWith(node){if(this.parent){node.parent=this.parent;this.parent.children.splice(this.parent.children.indexOf(this),1,node);}}
+ remove(){if(this.parent)this.parent.children=this.parent.children.filter(n=>n!==this);}
+ focus(){this.focused=true;}scrollIntoView(){}
+}
+const cdescendants=node=>(node.children||[]).flatMap(n=>typeof n==='object'?[n,...cdescendants(n)]:[]);
+const cdetach=node=>{if(node.parent)node.parent.children=node.parent.children.filter(n=>n!==node);};
+const MOBILITY={id:'c1',title:'Curso Movilidad Nivel 2',description:'Piloto NODAL: observación en campo.',startsOn:'2026-09-09',endsOn:'2026-09-21',status:'published',enrollmentOpen:true};
+const COURSE_LINKS={source:'links',items:[],links:[{label:'Movilidad',url:'https://buc.sistemaurbano.org/busqueda?c=7&utm_source=nodal&utm_medium=course',category:7}]};
+/* course.html?id=c1: pilot-i18n.js, pilot.js, buc.js and courses.js. The course is enrolled with its intake done, one session module, and posts for its
+   discussion; readings(path) answers every /api/readings read. */
+async function coursePage({course=MOBILITY,posts=[],readings=()=>COURSE_LINKS,lang='en'}={}){
+ const body=new CNode('body');body.dataset.page='course';const ids={};for(const id of ['pilotRoot','pilotStatus','teachingLink']){const n=new CNode();n.id=id;ids[id]=n;body.append(n);}
+ const requests=[],listeners=[];
+ const document={body,documentElement:new CNode('html'),readyState:'loading',createElement:t=>new CNode(t),getElementById:id=>ids[id]||cdescendants(body).find(n=>n.id===id),querySelector:()=>null,querySelectorAll:s=>body.querySelectorAll(s),visibilityState:'visible',addEventListener(){},removeEventListener(){}};
+ const respond=path=>{
+  if(path.startsWith('/api/readings?'))return readings(path);
+  if(path==='/api/auth/me')return{user:{permission:'member'}};if(path.endsWith('/events'))return{ok:true};
+  if(path.split('?')[0].endsWith('/posts'))return{posts,nextCursor:null};
+  if(path.endsWith('/modules/m1'))return{module:{id:'m1',title:'Session',description:'Learning',resources:[]}};
+  return{course,modules:[{id:'m1',title:'Session',sessionDate:'2026-09-09'}],enrollment:{},intake:{fullName:'Member'},isAdmin:false};
+ };
+ const ctx=vm.createContext({document,console,Intl,URL,URLSearchParams,Error,Date,AbortSignal,confirm:()=>true,crypto:{randomUUID:()=>'00000000-0000-4000-8000-000000000001'},history:{replaceState(){}},
+  location:{pathname:'/course.html',search:'?id=c1',href:'https://nodal.test/course.html?id=c1',assign(){},replace(){}},
+  fetch:async(path,opts)=>{requests.push({path,method:opts?.method});const r=await respond(path);return{ok:!r.status||r.status<400,status:r.status||200,json:async()=>r.data??r};},
+  window:{addEventListener(){},nodalI18n:{lang,onChange:f=>listeners.push(f)}}});
+ for(const name of ['pilot-i18n','pilot','buc','courses'])vm.runInContext(script(name),ctx);
+ for(let i=0;i<20;i++)await new Promise(r=>setImmediate(r));
+ return{body,root:ids.pilotRoot,requests,lang:l=>{ctx.window.nodalI18n.lang=l;listeners.forEach(f=>f(l));}};
+}
+const courseReadings=h=>readingsOf(h.requests).filter(p=>params(p).context==='course');
+
+test('a course page shows readings from BUC for the course’s topic, under the course header',async()=>{
+ const h=await coursePage();
+ assert.deepEqual(courseReadings(h).map(params),[{context:'course',topics:'Mobility',limit:'3'}],'Curso Movilidad is the Mobility topic');
+ const hero=h.root.querySelector('.pilot-course-hero'),block=h.root.querySelector('.pilot-buc');
+ assert.ok(block,'the readings block');assert.equal(block.hidden,false);
+ assert.equal(h.root.children[h.root.children.indexOf(hero)+1],block,'right under the course header');
+ assert.equal(block.children[0].tagName,'h2');assert.equal(block.children[0].dataset.pilotText,'bucReadings');
+ assert.deepEqual(anchors(block).map(text),['Mobility']);
+ h.lang('pt');assert.deepEqual(anchors(block).map(text),['Mobilidade']);
+});
+
+test('a course’s topic is read from its title in any of its languages; a title naming no topic, or a failed read, shows no readings',async()=>{
+ const translated=await coursePage({course:{...MOBILITY,title:'Pilot course',translations:{es:{title:'Curso de espacio público'},pt:{title:'Curso de espaço público'}}}});
+ assert.deepEqual(courseReadings(translated).map(q=>params(q).topics),['Public space']);
+ const several=await coursePage({course:{...MOBILITY,title:'Vivienda, clima y movilidad'}});
+ assert.deepEqual(courseReadings(several).map(q=>params(q).topics),['Mobility,Housing,Climate & resilience'],'in the console’s topic order');
+ const none=await coursePage({course:{...MOBILITY,title:'Taller de fotografía'}});
+ assert.equal(courseReadings(none).length,0);assert.equal(none.root.querySelector('.pilot-buc'),null);
+ const down=await coursePage({readings:()=>({status:503,data:{}})});
+ const block=down.root.querySelector('.pilot-buc');assert.ok(!block||block.hidden,'no readings, no block');
 });

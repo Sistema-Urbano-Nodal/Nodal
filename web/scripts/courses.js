@@ -11,6 +11,16 @@ window.addEventListener?.('pageshow',()=>{pageActive=true;conversations.forEach(
 const base=()=>'/api/courses/'+encodeURIComponent(courseId);
 function textSection(key,record){const section=el('section');section.append(tr('h3',key),source('p',record,key));return section;}
 function dates(c){return [date(c.startsOn),date(c.endsOn)].filter(Boolean).join(' – ');}
+/* The NODAL topics a course is about, read from its title in any of its languages ("Curso Movilidad Nivel 2" is Mobility), in the console's topic order:
+   they pick the course's readings from BUC (buc.js) and the suggestions under its discussions. Courses carry no topic of their own. */
+const COURSE_TOPICS=[['Mobility',/\b(?:movilidad|mobility|mobilidade)\b/],['Public space',/\b(?:espacios? publicos?|public spaces?|espacos? publicos?)\b/],['Housing',/\b(?:viviendas?|housing|habitacao|moradias?)\b/],
+  ['Climate & resilience',/\b(?:clima|climate|climaticos?|resiliencia|resilience)\b/],['Care & gender',/\b(?:cuidados?|care|genero|gender)\b/],['Governance & participation',/\b(?:gobernanza|governance|governanca|participacion|participation|participacao)\b/],
+  ['Safety',/\b(?:seguridad|safety|seguranca)\b/],['Informality',/\b(?:informalidad|informality|informalidade)\b/],['Heritage',/\b(?:patrimonio|heritage)\b/],['Urban data & tech',/\b(?:datos|data|dados|tecnologias?|technology)\b/],
+  ['Land use & planning',/\b(?:planificacion|planning|planejamento|uso del suelo|land use|uso do solo)\b/],['Environment & nature',/\b(?:medio ambiente|ambiental|environment|environmental|naturaleza|nature|natureza|meio ambiente)\b/]];
+function courseTopics(c){
+  const titles=[c?.title,...Object.values(c?.translations||{}).map(fields=>fields?.title)].filter(value=>typeof value==='string').join(' \n ').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  return COURSE_TOPICS.filter(([,words])=>words.test(titles)).map(([name])=>name).slice(0,3);
+}
 async function directory(){setPageTitle('courses');const {courses,isAdmin}=await api('/api/courses');document.getElementById('teachingLink').hidden=isAdmin!==true;root.replaceChildren();const hero=el('header','pilot-hero');hero.append(tr('p','courses','pilot-context'),tr('h1','intro'),tr('p','directory'));const list=el('div','pilot-directory');if(!courses.length)list.append(tr('p','emptyCourses','pilot-empty'));courses.forEach(c=>{const row=el('article','pilot-course-row'),meta=el('div'),content=el('div');meta.append(tr('span',c.status,'pilot-tag'),dynamic('div',()=>dates(c),'pilot-date'));if(c.enrollmentOpen===false)meta.append(tr('div','closed','pilot-date'));content.append(source('h2',c,'title'),source('p',c,'description'));const link=tr('a','open','pilot-button');link.href='course.html?id='+encodeURIComponent(c.id);row.append(meta,content,link);list.append(row);});root.append(hero,list);status(msg,'');}
 // course() draws the page again after a save, so the confirmation goes to the status line above the course title, brought
 // into view, and focus to a real element instead of <body>. A session that failed to open keeps its error there.
@@ -25,6 +35,9 @@ async function course(fresh){
   const metadata=el('div','pilot-course-meta');metadata.append(back,dynamic('span',()=>dates(c),'pilot-date'));
   const title=source('h1',c,'title');title.id='courseTitle';title.tabIndex=-1;
   hero.append(metadata,title,source('p',c,'description'));root.append(hero);status(msg,'');
+  // Readings from BUC (buc.js) for the course's topic, right under its header; a course whose title names no topic has none.
+  const topics=courseTopics(c);
+  if(topics.length&&window.Buc){const readings=el('section','pilot-buc');readings.hidden=true;root.append(readings);window.Buc.mount(readings,{topics,context:'course',limit:3,heading:tr('h2','bucReadings')});}
   if(!snapshot.enrollment&&!snapshot.isAdmin){
     // Closed courses keep their route preview but offer no way in.
     if(!c.enrollmentOpen){const closed=el('div','pilot-actions');closed.append(tr('strong','closed'),tr('span','closedNote'));if(new URLSearchParams(location.search).get('encuesta')==='1')closed.append(...otherAccount());hero.append(closed);renderRoutePreview();return;}
