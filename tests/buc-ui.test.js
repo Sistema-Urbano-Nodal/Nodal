@@ -437,6 +437,8 @@ test('a suggestion never sends the message’s words: it asks for the vocabulary
   ['Hola, soy María López, ¿me recomiendan libros sobre vivienda?',{categories:'8',q:'vivienda'},['soy','maria','lopez']],
   ['Sou Pedro Alves, alguém recomenda livros sobre mobilidade?',{categories:'7',q:'movilidad'},['pedro','alves','mobilidade']],
   ['I am John Smith, any books on housing?',{categories:'8',q:'vivienda'},['john','smith','housing']],
+  ['Meu nome é Ana Souza, algum livro sobre mobilidade?',{categories:'7',q:'movilidad'},['nome','ana','souza']],
+  ['Soy María Fernández de la Municipalidad de Surco, ¿alguien tiene la bibliografía de la sesión?',{},['maria','fernandez','municipalidad','surco']],
   ['Hi Sarah, any book recommendations on public space and housing?',{categories:'2,8',q:'espacio público'},['sarah','housing']],
   ['Alguma indicação de leitura sobre clima?',{categories:'3',q:'clima'},['indicacao','leitura']],
   ['Can anyone recommend readings on informal settlements?',{categories:'8',q:'asentamientos'},['informal','settlements']],
@@ -445,6 +447,8 @@ test('a suggestion never sends the message’s words: it asks for the vocabulary
   ['¿Algún libro sobre vivienda? mi web juanperez.pe, IG juanperez.arq, juan_perez_arq',{categories:'8',q:'vivienda'},['juanperez','arq','perez']],
   ['¿Algún libro? Sígueme en @movilidad_lima o en movilidad.pe',{},['movilidad','sigueme']],
   ['¿Alguna bibliografía? https://example.org/vivienda',{},['vivienda','example']],
+  ['¿Alguna bibliografía? mi IG: juanperezlima',{},['juanperezlima']],
+  ['¿Algún libro sobre vivienda? Escríbanme a juan arroba gmail punto com o al +51 987 654 321',{categories:'8',q:'vivienda'},['juan','arroba','gmail','987']],
   // A request naming no topic asks for the block's categories alone, so no filler or name becomes a search.
   ['¿Dónde puedo encontrar el libro que mencionó Jan Gehl?',{},['gehl','puedo','encontrar']],
   ['¿Me recomiendan libros sobre calidad de vida?',{},['calidad','vida']],
