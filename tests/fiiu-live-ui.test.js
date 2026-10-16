@@ -326,8 +326,10 @@ test('the console’s festival block carries one live line for a registered pers
  assert.match(content(line),/87\s+check-ins today/);assert.match(content(line),/2\s+live conversations/);
  const open=key(line,'liveOpen');assert.equal(open.tagName,'a');assert.equal(open.href,'fiiu.html#en-vivo');
  assert.equal(line.querySelectorAll('.f-live-part').length,0,'one line, not the band');assert.equal(h.requests.filter(path=>path==='/api/fiiu/live').length,1);
- // It sits with the person's status, after the next session and before the registration button.
- const order=['statusRegistered','liveTitle','viewRegistration'].map(name=>descendants(h.widget).indexOf(key(h.widget,name)));assert.deepEqual([...order].sort((a,b)=>a-b),order);
+ // The status keeps its button and the General link; the line follows as its own group under its h3, before the badges and their heading.
+ const general=await consoleBlock(path=>path==='/api/fiiu/pulse'?{questions:[['eeeeeeee-eeee-4eee-8eee-eeeeeeeeee01','general',1,'open']]}:feed(elsewhere)(path));
+ const order=['statusRegistered','nextForYou','viewRegistration','talkGeneral','liveTitle','badges'].map(name=>descendants(general.widget).indexOf(key(general.widget,name)));
+ assert.ok(order.every(at=>at>=0),JSON.stringify(order));assert.deepEqual([...order].sort((a,b)=>a-b),order);
  // With nothing on now, the next session, with its day when it is another day.
  const later=await consoleBlock(feed(registered,()=>LIVE({now:null,next:{activity:activity('day2-am')}})));assert.ok(key(later.line(),'liveNext'));assert.ok(later.line().querySelector('.f-live-day'));
 });
