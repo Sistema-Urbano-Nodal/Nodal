@@ -97,11 +97,14 @@ export function createLive({fiiuStore,talkStore,programme={event:async()=>FIIU_E
   };
  }
  /* A failed build serves the last view for the rest of its window (its generatedAt says how old it is), so an outage
-    is not retried by every request; without one it fails, and the next request tries again. */
- let memo=null,last=null;
+    is not retried by every request; without one it fails, and the next request tries again. Builds are numbered and
+    only one started after the build behind the last view replaces it: a slow store finishes them in any order, and an
+    older view finishing late would bring back what a newer one no longer shows. */
+ let memo=null,last=null,started=0,lastBuild=0;
  function shared(){
   const t=clock();if(memo&&t-memo.at<ttlMs)return memo.promise;
-  const entry={at:t,promise:build(t).then(view=>(last=view),error=>{if(!last)throw error;log('festival live view unavailable:',errorText(error));return last;})};
+  const n=++started;
+  const entry={at:t,promise:build(t).then(view=>{if(n>lastBuild){last=view;lastBuild=n;}return view;},error=>{if(!last)throw error;log('festival live view unavailable:',errorText(error));return last;})};
   memo=entry;entry.promise.catch(()=>{if(memo===entry)memo=null;});
   return entry.promise;
  }
@@ -110,7 +113,8 @@ export function createLive({fiiuStore,talkStore,programme={event:async()=>FIIU_E
   async read(user){const {festival,...view}=await shared();return {active:festival||user?.permission==='admin',...view};},
   /* After a write that takes something out of the conversations (a hide, a withdrawal, a question hidden, closed or
      edited, an account deleted), so this instance never shows it again; other instances catch up within their 15 s.
-     The last view stays as the outage fallback. */
-  clear(){memo=null;},
+     The last view, and any build already under way, may hold what was taken out, so neither is the outage fallback:
+     a build failing right after a takedown fails (phones keep the view they drew) until one started since succeeds. */
+  clear(){memo=null;last=null;lastBuild=started;},
  };
 }
