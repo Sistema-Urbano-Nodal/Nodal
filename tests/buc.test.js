@@ -488,6 +488,27 @@ test('with the feed on, readings are publications plus one link to see more in B
     {label:'Cultura',url:`${SEARCH}?q=patrimonio&c=5&utm_source=nodal&utm_medium=console`,category:5,words:'patrimonio'}]});
 });
 
+test('with the feed on, "see more" searches what the publications were drawn from', async t => {
+  const items=[
+    publication('i1',{category:8,year:2024,title:'Cuidado y barrio'}),
+    publication('m1',{category:7,year:2025,title:'Calles para caminar'}),
+    publication('c1',{category:3,year:2026,title:'Clima'}),
+  ];
+  const {read}=await feedServer(t,items);
+  // A block over two categories lists both, so "see more" searches all of BUC rather than only the first.
+  const session=await read('?block=day2-am&context=session');
+  assert.equal(session.body.source,'feed');
+  assert.deepEqual(session.body.items.map(item=>item.id),['m1','i1']);
+  assert.deepEqual(session.body.links,[{label:'Ver más en la BUC',url:`${SEARCH}?q=&c=&utm_source=nodal&utm_medium=session`,category:null,words:'',more:true}]);
+  const chat=await read(`?block=day2-am&q=${encodeURIComponent('¿libros sobre cuidado?')}&context=chat`);
+  assert.deepEqual(chat.body.links.map(link=>[link.url,link.more]),[[`${SEARCH}?q=cuidado&c=&utm_source=nodal&utm_medium=chat`,true]]);
+  // Two profile topics: across BUC when their categories differ, the whole category when they share one.
+  assert.deepEqual(params((await read(`?topics=${encodeURIComponent('Mobility,Care & gender')}&context=console`)).body.links[0]),{q:'',c:'',utm_source:'nodal',utm_medium:'console'});
+  assert.deepEqual(params((await read(`?topics=${encodeURIComponent('Housing,Care & gender')}&context=console`)).body.links[0]),{q:'',c:'8',utm_source:'nodal',utm_medium:'console'});
+  // One topic keeps its own search.
+  assert.deepEqual(params((await read('?topics=Housing&context=console')).body.links[0]),{q:'vivienda',c:'8',utm_source:'nodal',utm_medium:'console'});
+});
+
 test('a feed that fails or hangs never breaks readings: they fall back to links', async t => {
   const {read}=await readingsServer(t,{bucFeed:{recommend:async()=>{throw new Error('boom');}}});
   assert.deepEqual((await read('?topics=Mobility&context=console')).body.links.map(link=>link.category),[7]);

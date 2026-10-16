@@ -354,8 +354,10 @@ async function feedWithin(feed,request,waitMs){
 
 /* {source, items, links} for a parsed query. source 'links': the feed is off, failing, late or has no match, items is
    empty and links are up to four searches (all eight categories when nothing specific was asked). source 'feed': up to
-   `limit` publications, and one "Ver más en la BUC" link (the first search; more: true), or the eight categories. A
-   block without categories asked for alone (the party) has no readings at all. */
+   `limit` publications, and one "Ver más en la BUC" link (more: true), or the eight categories. "See more" searches
+   what the publications were drawn from: their category, or all of BUC when they come from several, with the words
+   asked for, else the topics' own word when they share one. A block without categories asked for alone (the party)
+   has no readings at all. */
 export async function bucReadings({topics=[],categories=[],block=null,q='',limit=4,context}={},{feed=null,waitMs=READINGS_FEED_WAIT_MS}={}){
   // Any other block (the General space) is no block at all.
   const blockCategories=isBucBlock(block)?BLOCK_TO_BUC[block]:null;
@@ -364,13 +366,17 @@ export async function bucReadings({topics=[],categories=[],block=null,q='',limit
   const asked=[...new Set([...categories.filter(isCategory),...blockCategories??[]])];
   const words=searchWords(q);
   const links=bucLinks({topics:known,categories:asked,words,context});
+  const searched=[...new Set([...known.map(name=>TOPIC_TO_BUC[name].category),...asked])];
+  const topicWords=[...new Set(known.map(name=>TOPIC_TO_BUC[name].words))];
   const items=await feedWithin(feed,{
-    categories:[...new Set([...known.map(name=>TOPIC_TO_BUC[name].category),...asked])],
+    categories:searched,
     // The topics' own words rank publications only when no words were asked for, as in the links.
-    words:words||known.map(name=>TOPIC_TO_BUC[name].words).join(' '),
+    words:words||topicWords.join(' '),
     limit,
   },waitMs);
   if(!Array.isArray(items)||!items.length)return {source:'links',items:[],links};
-  const everything=!known.length&&!asked.length&&!words;
-  return {source:'feed',items:items.slice(0,limit),links:everything?links:[{...links[0],label:'Ver más en la BUC',more:true}]};
+  if(!searched.length&&!words)return {source:'feed',items:items.slice(0,limit),links};
+  const category=searched.length===1?searched[0]:null;
+  const more=link(category,words||(category!==null&&topicWords.length===1?topicWords[0]:''),context);
+  return {source:'feed',items:items.slice(0,limit),links:[{...more,label:'Ver más en la BUC',more:true}]};
 }
