@@ -355,6 +355,38 @@ test('an account deleted with its festival messages leaves the live view at once
  assert.equal(await latest(),null,'her answer and her name are gone from the window too');
 });
 
+/* Only a write that took something out builds the view again inside its 15 s. A refused or failed one took nothing
+   out, and anyone signed in can send one (a withdrawal needs no registration), so it must not turn the 15 s memo into
+   a build per request. The clock moves a millisecond before each, so a rebuild would show in generatedAt. */
+test('a refused, failed or empty withdrawal, hide or question edit leaves the live view as it was built',async t=>{
+ const {call,clock}=await app(t);
+ const json=async(path,options)=>{const r=await call(path,options);return {status:r.status,body:await r.json()};};
+ const q=(await json('/api/admin/fiiu/questions',{actor:'admin',method:'POST',body:{activityId:'day1-am',body:'¿Qué te llevas?',status:'open'}})).body.question;
+ clock.tick(1);const answer=(await json(`/api/fiiu/questions/${q.id}/messages`,{method:'POST',body:{clientId:randomUUID(),body:'Una respuesta'}})).body.message;
+ const built=(await json('/api/fiiu/live')).body.generatedAt,unknown='00000000-0000-4000-8000-000000000000';
+ const untouched=[
+  ['stranger','DELETE',`/api/fiiu/messages/${unknown}`,{},404,'someone without a registration withdraws a message that does not exist'],
+  ['stranger','DELETE','/api/fiiu/messages/not-a-uuid',{},400,'or names none'],
+  ['stranger','DELETE',`/api/fiiu/messages/${answer.id}`,{},404,'or withdraws someone else\'s'],
+  ['admin','PUT',`/api/admin/fiiu/messages/${unknown}/hidden`,{},404,'an organiser hides a message that does not exist'],
+  ['admin','DELETE',`/api/admin/fiiu/messages/${answer.id}/hidden`,{},200,'or shows one never hidden'],
+  ['admin','PATCH',`/api/admin/fiiu/questions/${q.id}`,{version:99,body:'¿Otra?'},409,'or saves an edit over a stale version'],
+  ['admin','PATCH',`/api/admin/fiiu/questions/${q.id}`,{body:'¿Otra?'},400,'or without one'],
+ ];
+ for(const [actor,method,path,body,status,why] of untouched){
+  clock.tick(1);assert.equal((await call(path,{actor,method,body})).status,status,why);
+  assert.equal((await json('/api/fiiu/live')).body.generatedAt,built,why);
+ }
+ // An answer shown again waits for the next window, as a new one does.
+ clock.tick(1);assert.equal((await call(`/api/admin/fiiu/messages/${answer.id}/hidden`,{actor:'admin',method:'PUT',body:{}})).status,200);
+ const hidden=(await json('/api/fiiu/live')).body;assert.notEqual(hidden.generatedAt,built,'a hide builds again at once');
+ clock.tick(1);assert.equal((await call(`/api/admin/fiiu/messages/${answer.id}/hidden`,{actor:'admin',method:'DELETE',body:{}})).status,200);
+ assert.equal((await json('/api/fiiu/live')).body.generatedAt,hidden.generatedAt,'showing it again does not');
+ clock.tick(1);assert.equal((await call(`/api/fiiu/messages/${answer.id}`,{method:'DELETE',body:{}})).status,200);
+ const withdrawn=(await json('/api/fiiu/live')).body;
+ assert.notEqual(withdrawn.generatedAt,hidden.generatedAt,'a withdrawal that went through builds again at once');assert.equal(withdrawn.conversations.find(c=>c.questionId===q.id).latest,null);
+});
+
 test('the live route reuses a verified session for 30 s, as the chat poll does, so polling phones do not each ask the auth provider',async t=>{
  const db=createDatabase({filename:':memory:'});
  const repository=createRepository({db}),resolve=repository.resolveSession.bind(repository);let verified=0;
