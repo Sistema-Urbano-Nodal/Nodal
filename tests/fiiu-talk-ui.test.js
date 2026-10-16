@@ -1910,3 +1910,20 @@ test('#1: a reader past the end, on the footer, stays there when the toolbar hid
  await scrollTo(h,scroller,2200);scroller.clientHeight=856;await fire('resize');assert.equal(scroller.scrollTop,2200,'the footer stays on screen');
  scroller.clientHeight=800;await scrollTo(h,scroller,1900);scroller.clientHeight=856;await fire('resize');assert.equal(scroller.scrollTop,1844,'at the end, the end is kept');
 });
+
+test('the links that leave a session for the registration remember its address, question included, for the way back after registering',async()=>{
+ const refusal={status:403,data:{error:'festival registration required',code:'not_registered'}},carla=mine({user:{id:'u-carla',name:'Carla',email:'carla@example.org'},registration:null,attendance:[]});
+ // General has no programme entry to tick: Inscríbete opens the form, and the way back is still kept.
+ const store=memoryStore(),general=await page({...SESSION_ROUTES,'GET /api/fiiu/registration':carla,['GET '+GENERAL_LIST]:refusal,['GET /api/fiiu/questions/'+Q]:refusal,'POST /api/auth/logout':{ok:true}},{search:'?a=general&q='+Q,context:{sessionStorage:store}});
+ const register=key(qa(general),'register');assert.equal(register.href,'fiiu.html#registration');assert.equal(store.items.has('nodal.fiiuReturn'),false,'nothing kept before a link is followed');
+ register.listeners.click({button:0});assert.equal(store.items.get('nodal.fiiuReturn'),'/fiiu-session.html?a=general&q='+Q);
+ // Using another account goes through the sign-in and back: kept too.
+ store.items.clear();await key(qa(general),'talkOtherAccount').listeners.click();await flush();assert.equal(store.items.get('nodal.fiiuReturn'),'/fiiu-session.html?a=general&q='+Q);
+ // "Add to my registration" under the header of a session not in the plan.
+ const added=memoryStore(),other=await page({...SESSION_ROUTES,'GET /api/fiiu/registration':mine({registration:{id:'r1',version:1,answers:{activities:['day2-am'],externalActivities:[]},labStatus:'none'},attendance:[]})},{search:'?a=day1-am&q='+Q,context:{sessionStorage:added}});
+ key(sessionHead(other),'addToRegistration').listeners.click({button:0});assert.equal(added.items.get('nodal.fiiuReturn'),'/fiiu-session.html?a=day1-am&q='+Q);
+ // Storage blocked: the link still goes, without a way back.
+ const blocked={getItem(){throw new Error('blocked');},setItem(){throw new Error('blocked');},removeItem(){throw new Error('blocked');}};
+ const locked=await page({...SESSION_ROUTES,'GET /api/fiiu/registration':carla,['GET '+LIST]:refusal},{search:'?a=day1-am',context:{sessionStorage:blocked}});
+ assert.doesNotThrow(()=>key(qa(locked),'register').listeners.click({button:0}));
+});

@@ -311,6 +311,12 @@
   }
   page.head.replaceChildren(...nodes,page.mine);setTitle();
  }
+ // The way back after registering, shared with fiiu.js: a link that leaves for the registration (or for another account) keeps this session's address, its
+ // question included, for the tab, and fiiu.js offers "Volver a la sesión" to it once the registration is saved, for General, the laboratory and workshops
+ // too, which an #add- hash cannot name. Storage can be blocked: the link then goes all the same, without the way back.
+ const RETURN='nodal.fiiuReturn';
+ function keepReturn(){const back=location.pathname+location.search;if(!back.startsWith('/fiiu-session.html?'))return;try{globalThis.sessionStorage?.setItem(RETURN,back);}catch{/* No way back is offered. */}}
+ const leaving=node=>{node.addEventListener('click',keepReturn);return node;};
  // The person's status under the header, once their registration is read (signed in only; never for General): whether the session is in their registration
  // (with the way to add it while registration is open), their check-in with its Lima time or how to check in, and the session's badge as the console counts it.
  let mineData=null,mineRead=null,mineAt=0;
@@ -322,7 +328,7 @@
   const box=page?.mine;if(!box)return;const a=sessionActivity(),r=mineData?.registration,attendance=Array.isArray(mineData?.attendance)?mineData.attendance:[],items=[];
   if(a&&r&&!isGeneral(page.id)){
    const answers=r.answers||{},planned=(answers.activities||[]).includes(a.id),record=attendance.find(row=>row.activityId===a.id),checkin=!a.legacy&&['general','application'].includes(a.registration);
-   if(['general','social'].includes(a.registration)){items.push(tr('span',planned?'talkInPlan':'talkNotInPlan',planned?'f-pill is-ok':'f-pill'));if(!planned&&festival?.config?.registrationOpen)items.push(link('addToRegistration','fiiu.html#add-'+encodeURIComponent(a.id),'f-text-link'));}
+   if(['general','social'].includes(a.registration)){items.push(tr('span',planned?'talkInPlan':'talkNotInPlan',planned?'f-pill is-ok':'f-pill'));if(!planned&&festival?.config?.registrationOpen)items.push(leaving(link('addToRegistration','fiiu.html#add-'+encodeURIComponent(a.id),'f-text-link')));}
    else if(a.registration==='application')items.push(tr('span',r.labStatus&&r.labStatus!=='none'?r.labStatus+'Short':'talkNotInPlan','f-pill'+(r.labStatus&&r.labStatus!=='none'?' is-'+r.labStatus:'')));
    else if((answers.externalActivities||[]).includes(a.id))items.push(tr('span','interestChip','f-pill is-ok'));
    // How to check in only while the server still takes check-ins (on any earlier day too, until 30 minutes after the end): once that closed a scan is
@@ -526,12 +532,12 @@
   const a=sessionActivity(),open=festival?.config?.registrationOpen!==false,account=mineData?.user?.email||'',who=account?el('p','f-talk-account'):null;
   if(who)who.append(tr('span','talkAccount'),document.createTextNode(' '),el('strong','',account));
   const add=a&&['general','social'].includes(a.registration)?'fiiu.html#add-'+encodeURIComponent(a.id):'fiiu.html#registration';
-  blockWith('talkRegister',[who,tr('p',open?'talkRegisterHint':'talkRegisterClosed'),tr('p','talkOtherAccountHint')],[open&&link('register',add,'f-button'),otherAccount()]);recheck=true;
+  blockWith('talkRegister',[who,tr('p',open?'talkRegisterHint':'talkRegisterClosed'),tr('p','talkOtherAccountHint')],[open&&leaving(link('register',add,'f-button')),otherAccount()]);recheck=true;
  }
  function otherAccount(){
   const control=button('talkOtherAccount',async()=>{
    if(control.disabled)return;control.disabled=true;
-   try{await api('/api/auth/logout',{},'POST');location.assign('/login.html?next='+encodeURIComponent(location.pathname+location.search));}catch(error){control.disabled=false;status(message,error);}
+   try{await api('/api/auth/logout',{},'POST');keepReturn();location.assign('/login.html?next='+encodeURIComponent(location.pathname+location.search));}catch(error){control.disabled=false;status(message,error);}
   },'f-button secondary');
   return control;
  }
