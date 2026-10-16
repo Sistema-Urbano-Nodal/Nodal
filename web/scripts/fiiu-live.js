@@ -5,7 +5,7 @@
     and every allowed reader gets the same answer, rebuilt at most every 15 s per server instance. fiiu.html shows it as a band under the page's hero
     (#en-vivo), the console's festival block as one compact line (Fiiu.live.mount(host,{compact:true})).
     It reads every 30 s while the tab is visible, pauses while it is hidden and reads at once on return. A refresh is silent: no live region (it would
-    speak every 30 s), and when only numbers changed they change in place, so the links, focus and a screen reader's place stay put. A read that fails on
+    speak every 30 s), and when only numbers and the newest answers changed they change in place, so the links, focus and a screen reader's place stay put. A read that fails on
     venue Wi-Fi keeps the last view and the next tick tries again. Outside the festival dates only organisers read it, marked as a preview. */
  const Fiiu=window.Fiiu,{t,el,tr,link,source,api,dateNode,timeNode,limaDate,limaClock,locale,countLabel,underway}=Fiiu;
  Object.assign(Fiiu.rows,{
@@ -60,9 +60,13 @@
   return{now,next,ended:!now&&!next&&!list.some(a=>a.date>today||(a.date===today&&endOf(a)>minutes))};
  }
  const rating=r=>{const n=count(r?.count);return n&&Number.isFinite(r.average)?fill(n===1?'liveRatingOne':'liveRating',{avg:average(r.average),n:number(n)}):t('liveRatingNone');};
- // Everything but the numbers: while it stays the same, a refresh only rewrites the numbers. The day is in it, since a date is shown only for another day.
+ // Everything but the numbers and the newest answers: while it stays the same, a refresh only rewrites those, in place. An answer arrives in some listed
+ // conversation nearly every 30 s during a session, and a redraw would take the focus and a screen reader's place with it. The day is in it, since a date
+ // is shown only for another day.
  const shape=(d,compact,preview,named)=>JSON.stringify([locale(),limaDate(),compact,preview,named,slot(d.now)?.activity||null,slot(d.next)?.activity||null,d.ended,Number.isFinite(Date.parse(d.generatedAt)),
-  talks(d.conversations).map(c=>[c.questionId,c.activityId,c.activityTitle,c.body,c.kind,c.latest?[c.latest.author,c.latest.body,c.latest.createdAt]:null])]);
+  talks(d.conversations).map(c=>[c.questionId,c.activityId,c.activityTitle,c.body,c.kind,Boolean(c.latest&&typeof c.latest.body==='string')])]);
+ // What a redraw gives focus back to: a link by its address, the fold's control by its name.
+ const focusKey=node=>node?.dataset?.liveFocus||node?.getAttribute?.('href')||null;
  // A node's text, read through its children (a count is a number and its label).
  const text=node=>node.children.length?[...node.children].map(text).join(''):node.textContent;
  // keys collects the nodes that hold a number, by a name that stays the same from one read to the next.
@@ -102,14 +106,14 @@
     if(c.kind==='rating')item.append(keep(el('p','f-live-rating',rating(c.rating)),'rating:'+c.questionId));
     // The server lists conversations by their latest activity, so an answer from the evening before can still lead: it carries its day.
     else if(c.latest&&typeof c.latest.body==='string'){
-     const said=el('p','f-live-latest'),time=Date.parse(c.latest.createdAt);said.append(el('strong','f-live-author',c.latest.author||''));
+     const said=keep(el('p','f-live-latest'),'latest:'+c.questionId),time=Date.parse(c.latest.createdAt);said.append(el('strong','f-live-author',c.latest.author||''));
      if(Number.isFinite(time)){const at=new Date(time),day=limaDate(at);if(day!==today)said.append(dateNode(day,'span','short','f-live-day'));said.append(el('span','f-live-at',limaClock(at)));}
      said.append(el('span','f-live-said',c.latest.body));item.append(said);
     }
     (i<SHOWN?items:rest).append(item);
    }
    chats.append(items);
-   if(rest.children.length){const more=el('details','f-live-more'),n=rest.children.length;more.append(el('summary','',n===1?t('liveMoreOne'):fill('liveMoreMany',{n:number(n)})),rest);rest.setAttribute('start',String(SHOWN+1));chats.append(more);}
+   if(rest.children.length){const more=el('details','f-live-more'),n=rest.children.length,toggle=el('summary','',n===1?t('liveMoreOne'):fill('liveMoreMany',{n:number(n)}));toggle.dataset.liveFocus='more';more.append(toggle,rest);rest.setAttribute('start',String(SHOWN+1));chats.append(more);}
   }
   const figures=(cls,heading,rows,hint)=>{
    const part=el('section','f-live-part '+cls),items=el('ul','f-live-figures');part.append(tr('h3',heading,'f-live-label'));if(hint)part.append(tr('p',hint,'f-live-hint'));
@@ -141,10 +145,11 @@
    const d={...answer,...timeline(answer,event)},preview=!inDates(),skip=compact?named()||null:null,sig=shape(d,compact,preview,skip),keys=new Map(),tree=build(d,{compact,preview,named:skip,open},keys);
    if(sig===shownSig){for(const [id,node] of keys){const old=shownKeys.get(id);if(!old||text(old)===text(node))continue;if(node.children.length)old.replaceChildren(...[...node.children]);else old.textContent=node.textContent;}}
    else{
-    // A redraw gives focus back to the same link when it was on one in the band, and keeps the folded conversations open for a reader who opened them.
-    const focused=document.activeElement,mark=host.contains?.(focused)?focused.getAttribute?.('href'):null,opened=Boolean(host.querySelector('.f-live-more')?.open);
+    // A redraw gives focus back to the same link, or to the folded conversations' control, when it was on one in the band, and keeps the fold open
+    // for a reader who opened it.
+    const focused=document.activeElement,mark=host.contains?.(focused)?focusKey(focused):null,opened=Boolean(host.querySelector('.f-live-more')?.open);
     host.replaceChildren(...tree);shownKeys=keys;shownSig=sig;const more=host.querySelector('.f-live-more');if(more&&opened)more.open=true;
-    if(mark)[...host.querySelectorAll('a')].find(a=>a.getAttribute('href')===mark)?.focus({preventScroll:true});
+    if(mark)[...host.querySelectorAll('a,summary')].find(node=>focusKey(node)===mark)?.focus({preventScroll:true});
    }
    // The band's <section> is named by its h2, which makes it a region. The console's line sits in a plain div, which may not carry a name (the
    // generic role), and its h3 already heads it.

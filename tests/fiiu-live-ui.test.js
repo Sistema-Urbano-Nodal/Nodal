@@ -416,3 +416,28 @@ test('after the last conference the band and the console line name the closing p
  const after=await band(empty,{when:'2026-10-26T15:00:00.000Z',organiser:true});assert.ok(key(after.host,'liveDone'));
  const afterLine=await consoleBlock(feed(()=>({user,registration:null,attendance:[],isAdmin:true}),empty),{when:'2026-10-26T15:00:00.000Z'});assert.ok(key(afterLine.line(),'liveDone'));
 });
+
+// document.activeElement as a browser keeps it: the node focused last while it is still in the page, else the body; contains() as the DOM answers it.
+function watchFocus(h){
+ let active=null;const {focus}=Node.prototype;
+ Node.prototype.focus=function(...args){focus.apply(this,args);active=this;};
+ Node.prototype.contains=function(node){return node===this||descendants(this).includes(node);};
+ Object.defineProperty(h.ctx.document,'activeElement',{configurable:true,get:()=>active&&descendants(h.body).includes(active)?active:h.body});
+ return{restore(){Node.prototype.focus=focus;delete Node.prototype.contains;}};
+}
+
+test('a new answer in a listed conversation changes its line in place, and a redraw gives focus back to the folded conversations’ control',async()=>{
+ const talk=(n,over={})=>({...LIVE().conversations[0],questionId:'dddddddd-dddd-4ddd-8ddd-dddddddddd'+String(n).padStart(2,'0'),body:'Pregunta '+n,...over});
+ let answer=LIVE({conversations:[1,2,3,4,5].map(n=>talk(n))});const h=await band(()=>answer),focus=watchFocus(h);
+ try{
+  const more=h.host.querySelector('.f-live-more'),summary=more.querySelector('summary'),first=linkTo(h.host,'Pregunta 1');more.open=true;summary.focus();
+  // Beto answers the first question: its newest line changes where it is, so the links, the fold and the focus on its control stay put.
+  answer=LIVE({conversations:[talk(1,{messageCount:13,latest:{author:'Beto R.',body:'Más árboles en la avenida.',likeCount:0,createdAt:'2026-10-21T15:30:10.000Z'}}),...[2,3,4,5].map(n=>talk(n))]});
+  await h.tickTimers();await flush();
+  assert.equal(linkTo(h.host,'Pregunta 1'),first,'the same link');assert.equal(h.host.querySelector('.f-live-more'),more,'the same fold');assert.equal(h.ctx.document.activeElement,summary,'focus stays on its control');
+  assert.match(content(first.parent),/Beto R\./);assert.match(content(first.parent),/Más árboles en la avenida\./);assert.match(content(first.parent),/13\s+answers/);
+  // A conversation that joins the list rebuilds it: focus comes back to the new control, which stays open.
+  answer=LIVE({conversations:[talk(6),...[1,2,3,4].map(n=>talk(n))]});await h.tickTimers();await flush();
+  const again=h.host.querySelector('.f-live-more');assert.notEqual(again,more);assert.equal(again.open,true);assert.equal(h.ctx.document.activeElement,again.querySelector('summary'));
+ }finally{focus.restore();}
+});
