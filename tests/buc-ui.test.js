@@ -460,6 +460,11 @@ test('a suggestion never sends the message’s words: it asks for the vocabulary
   ['Alguma indicação de leitura sobre clima?',{categories:'3',q:'clima'},['indicacao','leitura']],
   ['Can anyone recommend readings on informal settlements?',{categories:'8',q:'asentamientos'},['informal','settlements']],
   ['¿Alguna lectura sobre patrimonio y cultura?',{categories:'5',q:'histórico'},['patrimonio','cultura']],
+  // Someone's own field, said before the request, does not beat the topic asked about: the reading's topic comes first, the rest of the message after.
+  ['Trabajo en movilidad en la Municipalidad de Lima. ¿Alguna lectura sobre vivienda?',{categories:'8,7',q:'vivienda'},['trabajo','municipalidad','lima']],
+  ['Soy del área de Seguridad Ciudadana, ¿me recomiendan libros sobre espacio público?',{categories:'2',q:'espacio público'},['soy','area','ciudadana']],
+  ['I work on housing at the city, any books on mobility?',{categories:'7,8',q:'movilidad'},['work','city']],['Sobre vivienda, ¿algún libro?',{categories:'8',q:'vivienda'},['sobre','libro']],
+  ['Quisiera leer más sobre caminabilidad, ¿alguna sugerencia?',{categories:'7',q:'caminabilidad'},['quisiera','sugerencia']],
   // "data" is a date in Portuguese and in Spanish "de larga data": no topic. Urban data is one.
   ['Alguém indica um livro para ler antes da data do workshop?',{},['data','workshop']],['Llevo de larga data en vivienda: ¿algún libro?',{categories:'8',q:'vivienda'},['larga','data']],
   ['Any books on urban data?',{categories:'4',q:'datos'},['urban','books']],

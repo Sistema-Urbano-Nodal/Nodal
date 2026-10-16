@@ -212,29 +212,40 @@
   // Recommending a book yourself answers a request; it does not make one. Only the verb: "I need recommendations for books" asks.
   /\b(?:i|we)(?:['’](?:d|ll))?(?: (?:would|will|also|can|could|do|did|just|still|always|\w+ly|like to|love to|want to))* (?:recommend|suggest)(?:ed)?\b/g];
  const BOOK_SOMETHING=/(\b[a-z]+ )?\bbook (?:a|an|the|my|our|your|it|them|tickets?|seats?|rooms?)\b/g,SENTENCE=/[^.!?\n]*[.!?\n]+|[^.!?\n]+$/g;
- function asks(text){
-  if(typeof text!=='string')return false;
+ // The sentences of a message that ask for readings (folded, its contact details and errands out); none when it does not ask.
+ function asking(text){
+  if(typeof text!=='string')return [];
   const rest=ERRANDS.reduce((value,errand)=>value.replace(errand,' '),fold(withoutContacts(text))).replace(BOOK_SOMETHING,(match,before)=>before&&NOUN.has(before.trim())?match:' ');
-  return (rest.match(SENTENCE)||[]).some(sentence=>WHAT_TO_READ.some(pattern=>pattern.test(sentence))||(ASK.test(sentence)||OPENING_ANY.test(sentence))&&(READING.test(sentence)||READ.test(sentence)&&SUGGESTION.test(sentence)));
+  return (rest.match(SENTENCE)||[]).filter(sentence=>WHAT_TO_READ.some(pattern=>pattern.test(sentence))||(ASK.test(sentence)||OPENING_ANY.test(sentence))&&(READING.test(sentence)||READ.test(sentence)&&SUGGESTION.test(sentence)));
  }
- /* The vocabulary topics a message names, in the order it names them, once its contact details are out: "¿libros sobre vivienda y movilidad?" is
-    vivienda, then movilidad. Nothing else of the message is used. */
+ const asks=text=>asking(text).length>0;
+ /* The vocabulary topics a message names, the one it asks about first. A request usually says what it is about after the reading ("¿libros sobre
+    vivienda y movilidad?" is vivienda, then movilidad), and an introduction comes before it ("Soy del área de Seguridad Ciudadana, ¿me recomiendan
+    libros sobre espacio público?", "Trabajo en movilidad. ¿Alguna lectura sobre vivienda?"): so each asking sentence is read from its reading (the
+    noun, or the verb "leer"/"read"/"ler") on, then up to it ("Sobre vivienda, ¿algún libro?"), and the rest of the message last. In each part, in the
+    order it names them. Only what the vocabulary lists is taken, once the contact details are out; nothing else of the message is used. */
  const plainWords=value=>' '+fold(value).replace(/[^a-z0-9]+/g,' ').trim()+' ';
  const TERMS=VOCABULARY.flatMap(entry=>entry.terms.map(term=>[plainWords(term),entry]));
- function topicsIn(text){
-  const words=plainWords(withoutContacts(text)),first=new Map();
-  for(const [term,entry] of TERMS){const at=words.indexOf(term);if(at>=0&&!(first.get(entry)<=at))first.set(entry,at);}
-  return [...first].sort((a,b)=>a[1]-b[1]).map(([entry])=>entry);
+ const READS=new RegExp(`${READING.source}|${READ.source}`);
+ function topicsIn(text,sentences=asking(text)){
+  const parts=sentences.flatMap(sentence=>{const at=Math.max(0,sentence.search(READS));return [sentence.slice(at),sentence.slice(0,at)];}),found=[];
+  for(const part of [...parts,withoutContacts(text)]){
+   const words=plainWords(part),first=new Map();
+   for(const [term,entry] of TERMS){const at=words.indexOf(term);if(at>=0&&!found.includes(entry)&&!(first.get(entry)<=at))first.set(entry,at);}
+   found.push(...[...first].sort((a,b)=>a[1]-b[1]).map(([entry])=>entry));
+  }
+  return found;
  }
  /* host: the slot under one message. text: the message. filters: the session's block, or the course's topics. A message that does not ask clears the slot
-    and reads nothing. One that does asks for the first topic it names (its category and q) and a second topic's category, with the block's or course's
+    and reads nothing. One that does asks for the topic it asks about (its category and q) and a second topic's category, with the block's or course's
     own; one that names no topic asks for those alone. Its words never travel: they could be a name, and BUC would search them as one phrase and find
     nothing. The same message drawn again (a live update, an edit) keeps its line, and every message naming the same topics shares one read. The caller
     never calls this for a hidden or withdrawn message. Resolves whether a line is shown. */
  function suggest(host,text,{context='chat',...filters}={}){
   if(!host)return Promise.resolve(false);
-  if(!asks(text)){drawn.delete(host);host.replaceChildren();host.hidden=true;return Promise.resolve(false);}
-  const [first,second]=topicsIn(text),own=[first,second].filter(Boolean).map(entry=>entry.category);
+  const sentences=asking(text);
+  if(!sentences.length){drawn.delete(host);host.replaceChildren();host.hidden=true;return Promise.resolve(false);}
+  const [first,second]=topicsIn(text,sentences),own=[first,second].filter(Boolean).map(entry=>entry.category);
   const path=query({...filters,categories:[...own,...(Array.isArray(filters.categories)?filters.categories:[])],words:first?.q||'',context,limit:3}),last=drawn.get(host);
   if(kept(last,path))return last.done;
   // Nothing to ask for (no topic named, no block, no topic: "¿Alguna bibliografía?" in General): no read, which the server would refuse, and one way into
