@@ -54,7 +54,7 @@ const validInput={firstName:'Ana',lastName:'Test',country:'Perú',city:'Lima',pr
 
 test('the closing party is a register-only block: never checked in, never counted, valid alone in a registration',()=>{
  const party=FIIU_EVENT.activities.find(a=>a.id==='closing-party');
- assert.deepEqual({date:party.date,registration:party.registration,time:party.time,period:party.period},{date:'2026-10-25',registration:'social',time:'17:00',period:'party'});
+ assert.deepEqual({date:party.date,registration:party.registration,time:party.time,period:party.period},{date:'2026-10-24',registration:'social',time:'17:00',period:'party'});
  assert.equal(party.title,'¡Fiesta de cierre y Chelas Urbanas!');assert.match(party.venue,/La Vermut Bar, Av\. Francisco Bolognesi 235, Barranco 15063/);
  assert.deepEqual(party.sessions,[['17:00–19:00','Chelas Urbanas'],['19:00 en adelante','Fiesta de cierre']]);
  assert.equal(isCheckinActivity(party),false);assert.equal(CHECKIN_ACTIVITIES.some(a=>a.id==='closing-party'),false);

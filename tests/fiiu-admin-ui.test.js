@@ -1612,7 +1612,7 @@ test('programme rows are grouped by day in programme order, each with its time, 
  assert.deepEqual(days.map(day=>day.querySelector('h3').dataset.fiiuDate),['2026-10-20','2026-10-21','2026-10-22','2026-10-23','2026-10-24','2026-10-25']);
  const ids=day=>day.querySelectorAll('.f-programme-title').map(node=>node.id.slice('f-pg-'.length));
  assert.deepEqual(ids(days[1]).slice(0,2),['day1-am','day1-pm'],'the conference blocks first, morning then evening');assert.ok(ids(days[1]).slice(2).every(id=>id.startsWith('workshop-')));
- assert.equal(ids(days[5]).at(-1),'closing-party','the party closes the last day');
+ assert.equal(ids(days[4]).at(-1),'closing-party','the party closes Saturday, after its routes');
  assert.equal(days[1].querySelector('ul')['aria-labelledby'],days[1].querySelector('h3').id);
  const time=id=>content(blockRow(h,id).querySelector('.f-programme-time')).replace(/\s+/g,' ').trim();
  assert.equal(time('day1-am'),'09:00–13:00');assert.equal(time('day0-lab'),'Untimed');assert.equal(time('closing-party'),'From 17:00');

@@ -35,7 +35,7 @@ export const FIIU_EVENT={
   {id:'day2-pm',date:'2026-10-22',period:'evening',registration:'general',title:'El espacio público como escenario para expresar, cuestionar y movilizar',time:'19:00–21:00',venue:'Hall Segundo Piso, MALI, Cercado de Lima',sessions:[]},
   {id:'day3-am',date:'2026-10-23',period:'morning',registration:'general',title:'Territorio, resiliencia y adaptación climática',time:'09:00–13:00',venue:'Auditorio NOS PUCP, Av. Camino Real 1037, San Isidro',sessions:[['09:00–10:30','Decisiones desde el territorio: Transformación y planificación urbana desde la gobernanza colaborativa'],['10:30–11:00','Reporte de percepciones sobre cambio climático y riesgos en Lima y Callao'],['11:00–13:00','Resiliencia urbana y adaptación climática']]},
   // Register only ('social'): people add it to their registration for a headcount; it never takes a check-in or adds hours.
-  {id:'closing-party',date:'2026-10-25',period:'party',registration:'social',title:'¡Fiesta de cierre y Chelas Urbanas!',time:'17:00',venue:'La Vermut Bar, Av. Francisco Bolognesi 235, Barranco 15063',sessions:[['17:00–19:00','Chelas Urbanas'],['19:00 en adelante','Fiesta de cierre']]},
+  {id:'closing-party',date:'2026-10-24',period:'party',registration:'social',title:'¡Fiesta de cierre y Chelas Urbanas!',time:'17:00',venue:'La Vermut Bar, Av. Francisco Bolognesi 235, Barranco 15063',sessions:[['17:00–19:00','Chelas Urbanas'],['19:00 en adelante','Fiesta de cierre']]},
   ...externalActivities,
  ],
 };

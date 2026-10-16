@@ -397,23 +397,23 @@ test('the console line does not repeat the session the block already names as th
 
 // The server names check-in blocks only; the last, day3-am, ends on 23 Oct at 13:00, and the routes (24–25 Oct) and the closing party (25 Oct from 17:00) follow.
 test('after the last conference the band and the console line name the closing party, never that the festival’s sessions are over while anything is to come',async()=>{
- const party=activity('closing-party'),empty=()=>LIVE({now:null,next:null}),SUNDAY_MORNING='2026-10-24T16:00:00.000Z';
- // 24 Oct, 11:00 in Lima: the party is next, with its day and its start.
- const h=await band(empty,{when:SUNDAY_MORNING}),when=h.host.querySelector('.f-live-when');
+ const party=activity('closing-party'),empty=()=>LIVE({now:null,next:null}),SATURDAY_MORNING='2026-10-24T16:00:00.000Z';
+ // Saturday 24 Oct, 11:00 in Lima: the party is next that evening, shown by its start.
+ const h=await band(empty,{when:SATURDAY_MORNING}),when=h.host.querySelector('.f-live-when');
  assert.equal(key(h.host,'liveDone'),undefined);assert.ok(key(when,'liveNext'));assert.equal(linkTo(when,party.title).href,'fiiu-session.html?a=closing-party');
- assert.equal(when.querySelector('.f-live-day')?.dataset.fiiuDate,'2026-10-25');assert.equal(when.querySelector('.f-live-time')?.dataset.fiiuTime,'17:00');
+ assert.equal(when.querySelector('.f-live-day'),null,'the party is that same Saturday, so only its start shows');assert.equal(when.querySelector('.f-live-time')?.dataset.fiiuTime,'17:00');
  // The console line too; for someone the block already tells about the party, the line keeps its counts and says nothing about the sessions.
- const line=await consoleBlock(feed(registered,empty),{when:SUNDAY_MORNING});assert.equal(key(line.line(),'liveDone'),undefined);assert.ok(linkTo(line.line(),party.title));
+ const line=await consoleBlock(feed(registered,empty),{when:SATURDAY_MORNING});assert.equal(key(line.line(),'liveDone'),undefined);assert.ok(linkTo(line.line(),party.title));
  const going=()=>({user,registration:{...saved,answers:{...answers,activities:['day1-am','closing-party']}},attendance:[],isAdmin:false});
- const own=await consoleBlock(feed(going,empty),{when:SUNDAY_MORNING});assert.equal(key(own.line(),'liveDone'),undefined);assert.equal(linkTo(own.line(),party.title),undefined);assert.match(content(own.line()),/87\s+check-ins today/);
- // 25 Oct, 18:00: the party is under way. It takes no check-in, so no count is shown for it.
- const on=await band(empty,{when:'2026-10-25T23:00:00.000Z'}),now=on.host.querySelector('.f-live-when');
+ const own=await consoleBlock(feed(going,empty),{when:SATURDAY_MORNING});assert.equal(key(own.line(),'liveDone'),undefined);assert.equal(linkTo(own.line(),party.title),undefined);assert.match(content(own.line()),/87\s+check-ins today/);
+ // 24 Oct, 18:00: the party is under way. It takes no check-in, so no count is shown for it.
+ const on=await band(empty,{when:'2026-10-24T23:00:00.000Z'}),now=on.host.querySelector('.f-live-when');
  assert.ok(key(now,'liveNow'));assert.ok(linkTo(now,party.title));assert.equal(now.querySelector('.f-live-count'),null);assert.equal(key(on.host,'liveDone'),undefined);
  // A server's next block still comes first when it starts before the party.
  const lab=await band(()=>LIVE({now:null,next:{activity:activity('day2-am')}}));assert.ok(linkTo(lab.host,activity('day2-am').title));assert.equal(linkTo(lab.host,party.title),undefined);
  // Only routes left, none of them timed: nothing to name as now or next, and still no "over".
  const routesOnly={...FIIU_EVENT,activities:FIIU_EVENT.activities.filter(a=>a.id!=='closing-party')};
- const routes=await band(empty,{when:SUNDAY_MORNING,event:routesOnly});assert.equal(key(routes.host,'liveDone'),undefined);assert.equal(routes.host.querySelector('.f-live-when'),null);assert.ok(routes.host.querySelector('.f-live-talks'));
+ const routes=await band(empty,{when:SATURDAY_MORNING,event:routesOnly});assert.equal(key(routes.host,'liveDone'),undefined);assert.equal(routes.host.querySelector('.f-live-when'),null);assert.ok(routes.host.querySelector('.f-live-talks'));
  // Once the last item is over (an organiser's preview the day after), the band says so.
  const after=await band(empty,{when:'2026-10-26T15:00:00.000Z',organiser:true});assert.ok(key(after.host,'liveDone'));
  const afterLine=await consoleBlock(feed(()=>({user,registration:null,attendance:[],isAdmin:true}),empty),{when:'2026-10-26T15:00:00.000Z'});assert.ok(key(afterLine.line(),'liveDone'));

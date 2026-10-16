@@ -68,10 +68,10 @@ test('the laboratory appears only for an application, with its review status',()
 });
 
 test('the closing party is listed on its day as the closing party, never as a conference block, with its start and venue',()=>{
- for(const [language,day,label,from] of [['es','Domingo, 25 de octubre','Fiesta de cierre','Desde las 17:00'],['en','Sunday 25 October','Closing party','From 17:00'],['pt','Domingo, 25 de outubro','Festa de encerramento','A partir das 17:00']]){
-  const {text,html}=render({answers:{activities:['day1-am','closing-party'],externalActivities:['route-arcoiris']}},language);
+ for(const [language,day,label,from] of [['es','Sábado, 24 de octubre','Fiesta de cierre','Desde las 17:00'],['en','Saturday 24 October','Closing party','From 17:00'],['pt','Sábado, 24 de outubro','Festa de encerramento','A partir das 17:00']]){
+  const {text,html}=render({answers:{activities:['day1-am','closing-party'],externalActivities:['route-comunidad-arte-naturaleza']}},language);
   assert.match(text,new RegExp(`${day}\\n(?:[^\\n]*\\n)*?- ${from} · ${label}\\n  ¡Fiesta de cierre y Chelas Urbanas!\\n  La Vermut Bar, Av\\. Francisco Bolognesi 235, Barranco 15063`),language);
-  assert.ok(text.indexOf('Arcoíris sobre ruedas')<text.indexOf('¡Fiesta de cierre'),`${language}: the evening party comes after the day's route`);
+  assert.ok(text.indexOf('Comunidad, Arte y Naturaleza')<text.indexOf('¡Fiesta de cierre'),`${language}: the evening party comes after the day's route`);
   assert.doesNotMatch(text,new RegExp(`· ${EMAIL_ROWS.conference[['en','es','pt'].indexOf(language)]}\\n  ¡Fiesta`),language);
   assert.ok(visible(html).includes(`${from} · ${label}`)||visible(html).includes(from),language);assert.ok(visible(html).includes('La Vermut Bar'),language);
  }
