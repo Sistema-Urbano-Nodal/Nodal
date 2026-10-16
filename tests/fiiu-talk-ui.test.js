@@ -935,7 +935,7 @@ test('the page measures the sticky dock for the stylesheet, so a focused message
  revision=4;await h.tickTimers();assert.equal(observers[0].disconnected,true,'a page that leaves the chat lets the dock go');
  const css=readFileSync(new URL('../web/styles/fiiu-talk.css',import.meta.url),'utf8');
  assert.match(css,/\.f-talk-log :is\(a,button,\[tabindex\]\)[^{]*\{scroll-margin-bottom:calc\(var\(--f-talk-dock-h,140px\) \+ 16px\)\}/);
- assert.match(css,/@media\(max-height:480px\)\{[^\n]*\.f-talk-dock\{position:static\}/,'on a landscape phone or at high zoom the dock stops covering the chat');
+ assert.match(css,/@media\(max-height:480px\)\{[^\n]*\.f-talk-dock:not\(:focus-within\)\{position:static\}/,'on a landscape phone or at high zoom the dock stops covering the chat');
  assert.doesNotMatch(css,/is-hidden[^{]*\.f-talk-body[^{]*\{opacity/,'hidden messages stay readable for the organisers deciding on them');
 });
 
@@ -1857,4 +1857,11 @@ test('#19: a page waiting for a question whose two hours ran out while the phone
  pulse=[[Q,'day3-am',1,'open']];list=[question({activityId:'day3-am'})];
  await h.visible(true);await flush();
  assert.ok(composer(h),'unlocked, the page looks again at once and opens the question that opened meanwhile');
+});
+
+test('a keyboard that shrinks a portrait phone’s screen leaves the composer docked where it was; only a short screen nobody is typing on rests the dock at the end',()=>{
+ const css=readFileSync(new URL('../web/styles/fiiu-talk.css',import.meta.url),'utf8');
+ assert.match(css,/@media\(max-height:480px\)\{\.f-page \.f-talk-dock:not\(:focus-within\)\{position:static\}/,'a short screen still rests the dock, but not while someone types in it');
+ assert.doesNotMatch(css,/\.f-talk-dock\{position:static\}/,'a phone keyboard alone never lets the dock go');
+ assert.match(css,/\.f-shell \.f-talk-dock:not\(:focus-within\)>\.f-talk-new\{position:fixed;/,'the pill floats on its own only while the dock rests');
 });
