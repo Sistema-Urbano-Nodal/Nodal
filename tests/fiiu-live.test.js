@@ -229,16 +229,64 @@ test('the view is built at most every 15 s per instance, concurrent reads share 
  broken.on=false;clock.tick(15000);assert.equal((await live.read(member)).pulse.registered,2,'and the next window reads again');
 });
 
-test('clear() drops the kept view, so the next read builds again inside the 15 s, and a failed build still serves the last one',async t=>{
- const {live,reads,broken,clock,logged,person}=await world(t);
- await person({activities:['day1-am']});
+/* clear() follows a takedown, so the view it drops held what was taken down: it is no outage fallback either. A build
+   that fails right after one fails (phones keep the view they drew) rather than show the removed answer again. */
+test('clear() drops the kept view and its outage fallback, so a failed build after a takedown never shows what was taken down',async t=>{
+ const {talk,live,reads,broken,clock,person,ask,say}=await world(t);
+ const ana=await person({activities:['day1-am']}),answer=await say(await ask('day1-am'),ana,'Texto ofensivo');
  await live.read(member);const perBuild=reads.n;
  await person({activities:['day1-am']});
  live.clear();
  const again=await live.read(member);assert.equal(reads.n,2*perBuild,'read again without the clock moving');assert.equal(again.pulse.registered,2);
  await live.read(member);assert.equal(reads.n,2*perBuild,'and kept for its own 15 s');
- clock.tick(1000);live.clear();broken.on=true;
- const stale=await live.read(member);assert.equal(stale.generatedAt,again.generatedAt,'the outage fallback is untouched');assert.equal(logged.length,1);
+ assert.equal(again.conversations[0].latest.body,'Texto ofensivo');
+ clock.tick(1000);await talk.updateMessage({id:answer.id},{hiddenAt:new Date(clock.at).toISOString()});live.clear();broken.on=true;
+ await assert.rejects(live.read(member),/festival data unavailable/,'an organiser hid it, and the build after fails');
+ clock.tick(20000);await assert.rejects(live.read(member),/festival data unavailable/,'nor in the windows after, while builds keep failing');
+ broken.on=false;clock.tick(15000);
+ const after=await live.read(member);assert.equal(after.conversations[0].latest,null);
+ clock.tick(15000);broken.on=true;
+ assert.equal((await live.read(member)).generatedAt,after.generatedAt,'a view built after the takedown is the fallback again');
+});
+
+/* Builds overlap when a store is slow, and finish in any order: the fallback is the view of the newest build that
+   finished, never an older one finishing late, and never one begun before a takedown. A stub store whose latest
+   answers can be held: a held read answers with what it read when it was asked. */
+test('a slow build never replaces a newer view as the outage fallback, nor does one begun before a takedown',async t=>{
+ let at=Date.parse(AT),failing=false,hold=null,shown;
+ const q={id:randomUUID(),activityId:'day1-am',body:'¿Qué te llevas?',status:'open',kind:'chat',revision:1,createdAt:AT};
+ const unavailable=()=>{if(failing)throw new Error('festival data unavailable');};
+ const talkStore={
+  async listQuestions(){unavailable();return [{...q,messageCount:shown.length}];},
+  async latestMessages(){unavailable();const rows=[...shown],gate=hold;if(gate)await gate;return {rows};},
+ };
+ const live=createLive({fiiuStore:{async find(){unavailable();return [];},async count(){unavailable();return 1;}},talkStore,clock:()=>at,log:()=>{}});
+ // The next build to read the latest answers waits until released; builds started after this call are not held.
+ const slowBuild=async()=>{let release;hold=new Promise(r=>{release=r;});const view=live.read(member);await new Promise(r=>setImmediate(r));hold=null;return {view,release};};
+ const latest=view=>view.conversations[0].latest?.body??null;
+ shown=[{authorName:'Persona P.',body:'Texto ofensivo',likeCount:0,createdAt:AT}];
+ assert.equal(latest(await live.read(member)),'Texto ofensivo');
+ // An older build finishing after a newer one.
+ at+=15000;const older=await slowBuild();
+ at+=15000;const newer=await live.read(member);
+ older.release();assert.notEqual((await older.view).generatedAt,newer.generatedAt);
+ at+=15000;failing=true;
+ assert.equal((await live.read(member)).generatedAt,newer.generatedAt,'the newer view stays the fallback');
+ // A build begun before a takedown finishing after the one that followed it.
+ failing=false;at+=15000;const before=await slowBuild();
+ shown=[];live.clear();at+=1;
+ const taken=await live.read(member);assert.equal(latest(taken),null);
+ before.release();assert.equal(latest(await before.view),'Texto ofensivo','its own readers asked before the takedown');
+ at+=15000;failing=true;
+ const fallback=await live.read(member);
+ assert.equal(fallback.generatedAt,taken.generatedAt);assert.equal(latest(fallback),null,'the hidden answer never comes back');
+ // And one begun before a takedown finishing before any build after it.
+ failing=false;at+=15000;shown=[{authorName:'Persona P.',body:'Otro texto ofensivo',likeCount:0,createdAt:AT}];
+ assert.equal(latest(await live.read(member)),'Otro texto ofensivo');
+ at+=15000;const early=await slowBuild();
+ shown=[];live.clear();early.release();assert.equal(latest(await early.view),'Otro texto ofensivo');
+ at+=1;failing=true;
+ await assert.rejects(live.read(member),/festival data unavailable/,'no fallback until a build started since the takedown succeeds');
 });
 
 /* Over HTTP: member (Ana Test) is registered, stranger is signed in without a registration, admin organises without
