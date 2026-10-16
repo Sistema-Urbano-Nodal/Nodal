@@ -133,3 +133,146 @@ export function bucLinks({topics=[],categories=[],words='',context}={}){
   }
   return links;
 }
+
+/* ---------------------------------------------------------------- the feed (docs/integrations/buc-feed.md)
+
+   When BUC publishes its catalogue as JSON and BUC_FEED_URL points at it, NODAL can show the publications themselves
+   instead of search links. Until then the reader is off and makes no request. On, the whole catalogue is read at most
+   every 6 hours per server instance (If-None-Match with the feed's ETag; a 304 keeps the copy), with a 10 s timeout
+   and a 5 MB cap. Requests arriving during a read share it; a copy past its 6 hours is served while the next is read,
+   so only an instance's very first read is ever waited for. A failed read logs one line, keeps the last good copy and
+   is retried after 15 minutes; with no copy, callers fall back to links. Each publication is checked against the feed
+   spec, and those that break a rule are skipped and counted in the read's log line. */
+export const BUC_FEED_LIMITS=Object.freeze({ttlMs:6*60*60*1000,timeoutMs:10000,maxBytes:5*1024*1024,retryMs:15*60*1000});
+
+function httpsAddress(value){
+  if(typeof value!=='string')return null;
+  try{const url=new URL(value.trim());return url.protocol==='https:'&&!url.username&&!url.password?url.href:null;}catch{return null;}
+}
+const plain=value=>value.replace(/\p{Cc}/gu,' ').replace(/\s+/g,' ').trim();
+const HTML_TAG=/<\/?[a-z][^>]*>/i;
+// An optional plain-text field: null when missing or empty, undefined when it breaks its rule.
+function optionalText(value,max){
+  if(value===undefined||value===null)return null;
+  if(typeof value!=='string')return undefined;
+  const text=plain(value);
+  if(!text)return null;
+  return text.length>max||HTML_TAG.test(text)?undefined:text;
+}
+const searchable=text=>` ${foldText(text).replace(/[^a-z0-9]+/g,' ').trim()} `;
+// One feed publication as NODAL shows it, with what ranking needs, or null when it breaks a rule of the feed spec.
+function feedRecord(raw){
+  if(!raw||typeof raw!=='object'||Array.isArray(raw))return null;
+  const id=typeof raw.id==='string'?raw.id.trim():Number.isSafeInteger(raw.id)&&raw.id>=0?String(raw.id):'';
+  if(!id||id.length>100)return null;
+  const title=typeof raw.title==='string'?plain(raw.title):'';
+  if(!title||title.length>300||HTML_TAG.test(title))return null;
+  if(!isCategory(raw.category))return null;
+  const url=httpsAddress(raw.url);
+  if(!url)return null;
+  const year=raw.year??null;
+  if(year!==null&&!(Number.isInteger(year)&&year>=1900&&year<=2100))return null;
+  const authors=raw.authors??[];
+  if(!Array.isArray(authors)||authors.length>50)return null;
+  const names=authors.map(name=>typeof name==='string'?plain(name):'');
+  if(names.some(name=>!name||name.length>200))return null;
+  const country=optionalText(raw.country,100),format=optionalText(raw.format,60),summary=optionalText(raw.summary,600);
+  if(country===undefined||format===undefined||summary===undefined)return null;
+  if(raw.sourceUrl!=null&&!httpsAddress(raw.sourceUrl))return null;
+  if(raw.language!=null&&!(typeof raw.language==='string'&&/^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i.test(raw.language)))return null;
+  let updated=0;
+  if(raw.updatedAt!=null){
+    updated=typeof raw.updatedAt==='string'&&/^\d{4}-\d{2}-\d{2}/.test(raw.updatedAt)?Date.parse(raw.updatedAt):NaN;
+    if(!Number.isFinite(updated))return null;
+  }
+  const item=Object.freeze({id,title,authors:Object.freeze(names),year,country,category:raw.category,format,url,summary});
+  return {item,text:searchable(`${title} ${summary??''}`),updated};
+}
+const failure=err=>String(err?.cause?.code||err?.cause?.message||err?.message||'error').slice(0,120);
+
+export function createBucFeed({url,fetchImpl=globalThis.fetch,clock=Date.now,log=line=>console.warn(line),...limits}={}){
+  const {ttlMs,timeoutMs,maxBytes,retryMs}={...BUC_FEED_LIMITS,...limits};
+  const given=typeof url==='string'?url.trim():'';
+  const address=given?httpsAddress(given):null;
+  if(given&&!address)log('BUC_FEED_URL is not an https address without credentials; the BUC feed is off');
+  let copy=null,etag=null,nextReadAt=-Infinity,inflight=null;
+
+  async function read(){
+    const controller=new AbortController();
+    let timer,response=null,reader=null;
+    const expired=new Promise((resolve,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('timed out'));},timeoutMs);});
+    expired.catch(()=>{});
+    try{
+      const headers={Accept:'application/json'};
+      if(etag&&copy)headers['If-None-Match']=etag;
+      response=await Promise.race([fetchImpl(address,{method:'GET',headers,redirect:'error',signal:controller.signal}),expired]);
+      if(response.status===304&&copy){nextReadAt=clock()+ttlMs;return;}
+      if(!response.ok)throw new Error(`status ${response.status}`);
+      const declared=Number(response.headers?.get?.('content-length')??NaN);
+      if(Number.isFinite(declared)&&declared>maxBytes)throw new Error('too large');
+      const chunks=[];
+      let size=0;
+      if(response.body){
+        reader=response.body.getReader();
+        for(;;){
+          const {done,value}=await Promise.race([reader.read(),expired]);
+          if(done){reader=null;break;}
+          size+=value.byteLength;
+          if(size>maxBytes)throw new Error('too large');
+          chunks.push(value);
+        }
+      }
+      let data;
+      try{data=JSON.parse(Buffer.concat(chunks).toString('utf8').replace(/^﻿/,''));}catch{throw new Error('not JSON');}
+      if(!data||typeof data!=='object'||Array.isArray(data)||!Array.isArray(data.items)||(data.version!==undefined&&data.version!==1))throw new Error('not a BUC feed');
+      const seen=new Set(),records=[];
+      let skipped=0;
+      for(const raw of data.items){
+        const record=feedRecord(raw);
+        if(!record||seen.has(record.item.id)){skipped++;continue;}
+        seen.add(record.item.id);records.push(record);
+      }
+      copy={records,items:Object.freeze(records.map(record=>record.item))};
+      etag=response.headers?.get?.('etag')||null;
+      nextReadAt=clock()+ttlMs;
+      log(`BUC feed: ${records.length} publication${records.length===1?'':'s'}, ${skipped} skipped`);
+    }catch(err){
+      nextReadAt=clock()+retryMs;
+      log(`BUC feed read failed (${failure(err)}); ${copy?'keeping the last copy':'serving links'}`);
+    }finally{
+      clearTimeout(timer);
+      // A body left unread (a 304, an error status, a timeout or the cap) is released rather than left open.
+      if(reader)reader.cancel().catch(()=>{});
+      else if(response?.body&&!response.bodyUsed)response.body.cancel().catch(()=>{});
+    }
+  }
+  // The current copy, starting a read when one is due; waits only when there is no copy yet.
+  function current(){
+    if(!address)return Promise.resolve(null);
+    if(!inflight&&clock()>=nextReadAt)inflight=read().finally(()=>{inflight=null;});
+    if(copy)return Promise.resolve(copy);
+    return inflight?inflight.then(()=>copy):Promise.resolve(null);
+  }
+  return {
+    enabled:Boolean(address),
+    // Every valid publication, in feed order, or null (off, or no good read yet).
+    items:()=>current().then(found=>found?.items??null),
+    /* Up to `limit` publications in the asked categories (all when none), ranked by how many of the subject words
+       (folded, at word starts) their title and summary contain, then newest year, then latest update. Words without
+       categories keep only publications that match one. Null when there is no copy. */
+    async recommend({categories=[],words='',limit=4}={}){
+      const found=await current();
+      if(!found)return null;
+      const wanted=new Set(categories.filter(isCategory));
+      const keys=keywords(words,8).map(word=>searchable(word).trimEnd());
+      let scored=found.records.filter(record=>!wanted.size||wanted.has(record.item.category))
+        .map((record,index)=>({record,index,score:keys.filter(key=>record.text.includes(key)).length}));
+      if(!wanted.size&&keys.length)scored=scored.filter(entry=>entry.score>0);
+      scored.sort((a,b)=>b.score-a.score||(b.record.item.year??-1)-(a.record.item.year??-1)||b.record.updated-a.record.updated||a.index-b.index);
+      return scored.slice(0,Number.isInteger(limit)&&limit>0?limit:4).map(entry=>entry.record.item);
+    },
+    // Resolves once no read is running (scripts and tests).
+    whenIdle:()=>inflight?inflight.then(()=>{}):Promise.resolve(),
+  };
+}
+export const bucFeedFromEnv=(env=process.env,options={})=>createBucFeed({...options,url:env.BUC_FEED_URL});
