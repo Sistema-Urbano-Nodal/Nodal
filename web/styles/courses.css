@@ -124,6 +124,9 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-post ul{padding-left:18px;margin:8px 0}
 .pilot-post .pilot-button{margin:8px 18px 0 0;padding:0;border:0;background:none;font-size:11px;font-weight:600;text-decoration:underline!important;text-underline-offset:4px}
 .pilot-post.reply{margin-left:24px;border-left:2px solid #e0e8db;padding-left:20px}
+/* The line of BUC suggestions under a contribution asking for readings (buc.js): small and muted, a pointer rather than another contribution. */
+.pilot-post .buc-suggest{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 16px;margin:0 0 6px;font-size:12px;line-height:1.5;color:var(--muted);white-space:normal}
+.pilot-post .buc-suggest-label::after{content:":";content:":"/""}@media(pointer:fine){.pilot-post .buc-suggest .buc-link{padding-block:2px}}
 .pilot-post.reply>a,.pilot-reply-earlier{font-size:12px;color:#65715e}
 .pilot-reply-context{display:flex;gap:12px;align-items:center;border-left:2px solid #6c8f5f;padding:8px 12px;font-size:12px;background:#f7f9f5}
 

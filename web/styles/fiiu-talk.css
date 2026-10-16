@@ -69,6 +69,10 @@
 .f-talk-file-kind{padding:1px 6px;border:1px solid var(--f-forest);border-radius:4px;font-size:.7rem;font-weight:700;letter-spacing:.06em;color:var(--f-forest)}
 .f-talk-file-name{font-weight:600;text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere}.f-talk-size{font-size:.84rem;color:var(--f-muted);white-space:nowrap}
 .f-talk-pending-files{margin:var(--f-sp-1) 0 0;padding:0;list-style:none;font-size:.86rem;color:var(--f-muted);overflow-wrap:anywhere}
+/* The line of BUC suggestions under a message asking for readings (buc.js): smaller and muted, so it reads as a pointer, not a message; its links take
+   the festival pages' BUC link style (fiiu.css), 44 px tall on touch screens. */
+.f-talk-buc{margin:var(--f-sp-1) 0 0}.f-page .buc-suggest{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 var(--f-sp-4);max-width:none;margin:0;font-size:.84rem;line-height:1.4;color:var(--f-muted)}
+.f-page .buc-suggest-label::after{content:":";content:":"/""}@media(pointer:fine){.f-page .buc-suggest .buc-link{padding-block:2px}}
 /* Row actions are quiet text buttons with full 44 px targets. */
 .f-talk-actions{display:flex;flex-wrap:wrap;align-items:center;gap:0 var(--f-sp-4);margin:2px 0 0}.f-talk-actions:empty{display:none}
 .f-shell :is(.f-talk-act,.f-talk-like){display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0;border:0;background:none;color:var(--f-forest);font-size:.86rem;font-weight:600;cursor:pointer}

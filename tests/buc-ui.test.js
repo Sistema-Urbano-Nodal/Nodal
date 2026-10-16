@@ -332,3 +332,83 @@ test('a course’s topic is read from its title in any of its languages; a title
  const down=await coursePage({readings:()=>({status:503,data:{}})});
  const block=down.root.querySelector('.pilot-buc');assert.ok(!block||block.hidden,'no readings, no block');
 });
+
+/* ================= B3: suggestions when members ask each other for readings ================= */
+
+test('a message asks for readings when it names books, readings or a bibliography, or asks what to read, in Spanish, English or Portuguese',()=>{
+ const {Buc}=bucPage();
+ const asking=['¿Qué libros me recomiendan sobre movilidad?','Alguna BIBLIOGRAFÍA sobre gobernanza','Recomendaciones de lectura para el bloque','¿Qué me recomiendan leer antes del taller?',
+  '¿Me recomiendas algo para leer sobre vivienda?','Una lectura sobre cuidado, por favor','LIBRO','Any good books on public space?','Suggested readings for tomorrow?',
+  'What would you recommend I read on housing?','What should I read first?','Any e-books?','Alguém indica livros sobre mobilidade?','Quais leituras vocês sugerem?','Tem bibliografia sobre patrimônio?','O que vocês recomendam ler sobre clima?'];
+ const not=['Hola a todas','¡Gracias por la charla!','La lectora de QR no funciona','Reservé por Booking','Lo vi en Facebook','Hay que leer el contexto local','I read the agenda twice',
+  'Livre acesso ao parque','La librería del centro cierra a las 8','Obrigado pela leitora de QR','Bookstore at the corner','',null,undefined,42];
+ for(const text of asking)assert.equal(Buc.asks(text),true,text);
+ for(const text of not)assert.equal(Buc.asks(text),false,String(text));
+});
+
+const ASK='¿Qué libros me recomiendan sobre movilidad en Lima?';
+const CHAT={source:'links',items:[],links:[
+ {label:'Gobernanza',url:'https://buc.sistemaurbano.org/busqueda?q=movilidad+lima&c=6&utm_source=nodal&utm_medium=chat',category:6},
+ {label:'Buscar',url:'https://buc.sistemaurbano.org/busqueda?q=movilidad+lima&utm_source=nodal&utm_medium=chat',category:null},
+]};
+const chatReadings=requests=>readingsOf(requests).filter(p=>params(p).context==='chat');
+const M=n=>'10000000-0000-4000-8000-00000000000'+n;
+
+test('a suggestion takes the message’s own words, at most three, leaving out the asking and the small words',async()=>{
+ const cases=[[ASK,'movilidad lima'],['Any good books about informal settlements in Bogotá, please?','informal settlements bogotá'],['Alguém indica livros sobre mobilidade ativa?','mobilidade ativa'],
+  ['¿Alguna bibliografía?',undefined],['Recomendaciones de lectura: https://example.org/una/ruta 2026',undefined],['Libros sobre calles, barrios, plazas y parques',"calles barrios plazas"]];
+ for(const [message,words] of cases){
+  const p=bucPage(()=>CHAT),host=p.host();await p.Buc.suggest(host,message,{block:'day1-am'});
+  assert.deepEqual(chatReadings(p.requests).map(params),[{context:'chat',block:'day1-am',...(words?{q:words}:{}),limit:'3'}],message);
+ }
+ const p=bucPage(()=>CHAT),host=p.host();assert.equal(await p.Buc.suggest(host,'Hola a todas',{block:'day1-am'}),false);
+ assert.equal(p.requests.length,0,'a message that does not ask reads nothing');assert.equal(host.hidden,true);
+});
+
+test('under a FIIU chat message asking for readings, a quiet “Sugerencias de la BUC” line, once per message, never under a hidden one',async()=>{
+ let revision=3;
+ const messages=[message(M(1)),message(M(2),{author:'Beto Q.',body:ASK,seq:2,createdAt:'2026-10-21T14:06:00.000Z'}),message(M(3),{body:'¿Alguna bibliografía sobre esto?',hidden:true,mine:true,seq:3,createdAt:'2026-10-21T14:07:00.000Z'}),
+  message(M(4),{author:'Dora P.',body:ASK,seq:4,createdAt:'2026-10-21T14:08:00.000Z'})];
+ const h=await sessionPage({messages,readings:path=>params(path).context==='chat'?CHAT:SESSION_LINKS,routes:{
+  'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),
+  ['GET /api/fiiu/questions/'+Q+'/messages?since=3']:{revision:4,changes:[{...messages[1],likeCount:1,seq:5}],question:question({revision:4})}}});
+ const rowOf=id=>h.root.querySelectorAll('.f-talk-msg').find(node=>node.dataset.id===id),lines=id=>rowOf(id).querySelectorAll('.buc-suggest');
+ assert.deepEqual(chatReadings(h.requests).map(params),[{context:'chat',block:'day1-am',q:'movilidad lima',limit:'3'}],'two messages asking the same: one read');
+ assert.equal(lines(M(1)).length,0,'not under a message that does not ask');assert.equal(lines(M(3)).length,0,'never under a hidden message');
+ assert.equal(lines(M(2)).length,1);assert.equal(lines(M(4)).length,1);
+ const row=rowOf(M(2)),slot=row.querySelector('.f-talk-buc');
+ assert.ok(row.children.indexOf(slot)>row.children.indexOf(row.querySelector('.f-talk-body'))&&row.children.indexOf(slot)<row.children.indexOf(row.querySelector('.f-talk-actions')),'under the message, above its actions');
+ const line=lines(M(2))[0];assert.equal(text(line.querySelector('.buc-suggest-label')),'BUC suggestions on “movilidad lima”');
+ assert.deepEqual(anchors(line).map(a=>[text(a),a.href]),[['Governance',CHAT.links[0].url],['Search “movilidad lima” on BUC',CHAT.links[1].url]],'the reader’s words are said once, in the line');
+ assert.ok(!h.requests.some(r=>r.method!=='GET'),'nothing is posted: the line is not a message');
+ // A live update redraws the row; the new row gets its line from the read already made.
+ revision=4;await h.tickTimers();await flush();
+ assert.equal(rowOf(M(2)).querySelector('.f-talk-like-n').textContent,'1','the row was redrawn');
+ assert.equal(lines(M(2)).length,1);assert.equal(chatReadings(h.requests).length,1,'still one read');
+ h.lang('es');const again=lines(M(2))[0];
+ assert.equal(text(again.querySelector('.buc-suggest-label')),'Sugerencias de la BUC sobre «movilidad lima»');assert.deepEqual(anchors(again).map(text),['Gobernanza','Buscar «movilidad lima» en la BUC']);
+ h.lang('pt');assert.equal(text(again.querySelector('.buc-suggest-label')),'Sugestões da BUC sobre “movilidad lima”');
+});
+
+test('a chat suggestion fails quietly, and General’s messages ask with no block',async()=>{
+ const down=await sessionPage({messages:[message(M(2),{body:ASK})],readings:path=>params(path).context==='chat'?{status:503,data:{}}:SESSION_LINKS});
+ const slot=down.root.querySelector('.f-talk-buc');assert.ok(slot);assert.equal(slot.hidden,true);assert.equal(slot.children.length,0);
+ const general=await sessionPage({search:'?a=general',activity:GENERAL,messages:[message(M(2),{body:'Any books on public space?'})],readings:path=>params(path).context==='chat'?CHAT:SESSION_LINKS});
+ assert.deepEqual(chatReadings(general.requests).map(params),[{context:'chat',q:'public space',limit:'3'}]);
+});
+
+test('under a course discussion contribution asking for readings, BUC suggestions for the course’s topic; none for a submission or once withdrawn',async()=>{
+ const post=(id,over)=>({id,authorName:'Ana',staff:false,createdAt:'2026-09-05T12:00:00Z',kind:'question',body:'Discuss this territory',links:[],attachments:[],canEdit:false,canDelete:false,...over});
+ const posts=[post('p1'),post('p2',{body:'¿Alguna bibliografía sobre planificación urbana?',createdAt:'2026-09-05T12:01:00Z'}),post('p3',{kind:'comment',parentId:'p2',body:'Yo también busco libros sobre planificación.',createdAt:'2026-09-05T12:02:00Z'}),
+  post('p4',{kind:'assignment',body:'Mi entrega: lecturas del barrio',createdAt:'2026-09-05T12:03:00Z'})];
+ const answer={source:'links',items:[],links:[{label:'Movilidad',url:'https://buc.sistemaurbano.org/busqueda?q=planificaci%C3%B3n&c=7&utm_source=nodal&utm_medium=chat',category:7}]};
+ const h=await coursePage({posts,readings:path=>params(path).context==='chat'?answer:COURSE_LINKS});
+ const card=id=>cdescendants(h.body).find(n=>n.id==='post-'+id),lines=id=>card(id).querySelectorAll('.buc-suggest');
+ assert.deepEqual(chatReadings(h.requests).map(params),[{context:'chat',topics:'Mobility',q:'planificación',limit:'3'}],'two contributions asking the same: one read');
+ assert.equal(lines('p1').length,0);assert.equal(lines('p2').length,1);assert.equal(lines('p3').length,1);assert.equal(lines('p4').length,0,'a submission is not a request');
+ const c=card('p2'),slot=c.querySelector('.pilot-post-buc');assert.ok(c.children.indexOf(slot)<c.children.indexOf(c.querySelector('.pilot-post-actions')),'above the contribution’s actions');
+ assert.equal(text(lines('p2')[0].querySelector('.buc-suggest-label')),'BUC suggestions on “planificación”');assert.deepEqual(anchors(lines('p2')[0]).map(text),['Mobility']);
+ h.lang('es');assert.equal(text(lines('p2')[0].querySelector('.buc-suggest-label')),'Sugerencias de la BUC sobre «planificación»');
+ c.updatePost({...posts[1],deleted:true});await flush();
+ assert.equal(lines('p2').length,0,'a withdrawn contribution keeps no suggestion');assert.equal(slot.hidden,true);
+});

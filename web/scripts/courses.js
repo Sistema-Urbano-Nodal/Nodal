@@ -484,8 +484,8 @@ function renderPost(initial,composer,reload,alive){
     card.showParentLink=name=>{const shown=typeof name==='string';parentName=name||'';parent.textContent=label();parent.hidden=!shown;earlier.hidden=shown;card.className='pilot-post'+(shown?' reply':'');};
     card.showParentLink();card.append(line,parent,earlier);
   }
-  const body=el('p'),links=el('ul'),actions=el('div','pilot-post-actions'),local=el('p','pilot-status');local.setAttribute('role','status');
-  card.append(tr('div',p.kind,'pilot-date'),body,links,actions,local);
+  const body=el('p'),links=el('ul'),readings=el('div','pilot-post-buc'),actions=el('div','pilot-post-actions'),local=el('p','pilot-status');local.setAttribute('role','status');readings.hidden=true;
+  card.append(tr('div',p.kind,'pilot-date'),body,links,readings,actions,local);
   const reply=button('reply',()=>{if(!busy)composer.replyTo(p);},true);
   const edit=button('editPost',()=>{
     if(busy||editor||!p.canEdit||!alive())return;
@@ -548,6 +548,9 @@ function renderPost(initial,composer,reload,alive){
       for(const l of p.links||[]){const href=safeUrl(l.url);if(href){const li=el('li'),a=el('a',null,l.title||l.url);a.href=href;a.target='_blank';a.rel='noopener noreferrer';li.append(a);links.append(li);}}
       for(const f of p.attachments||[]){const li=el('li'),a=el('a',null,f.name);a.href='/api/course-attachments/'+encodeURIComponent(f.id);li.append(a);links.append(li);}
     }
+    // A contribution asking for readings gets a quiet line of BUC suggestions under it (buc.js), from its words and the course's topic; a submission
+    // or a withdrawn contribution none. An edit asks again; the same words share one read across the discussion.
+    window.Buc?.suggest(readings,p.deleted||p.kind==='assignment'?'':p.body,{topics:courseTopics(snapshot?.course),context:'chat'});
     reply.hidden=p.deleted;edit.hidden=p.deleted||!p.canEdit||Boolean(editor);remove.hidden=p.deleted||!p.canDelete;moderate.hidden=p.deleted||!snapshot.isAdmin||p.canDelete;
     if(editor&&(p.deleted||!p.canEdit)){editor.blocked=true;editor.review.hidden=true;showCurrent();status(local,t('postEditRemoved'));}
     else if(editor&&p.body!==editor.expectedBody){editor.blocked=true;editor.review.hidden=false;showCurrent();status(local,t('postEditConflict'));}

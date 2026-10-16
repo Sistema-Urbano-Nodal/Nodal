@@ -4,8 +4,9 @@
     of readings. This file draws them where NODAL suggests readings: the console's Learning band, the knowledge hub, FIIU session pages and course pages.
     Everything comes from NODAL's own GET /api/readings (server/buc.js): the topic and festival-block maps, the links into BUC's search and, once BUC
     publishes its feed (docs/integrations/buc-feed.md), the publications themselves. The browser never talks to BUC: a member's topics reach it only in
-    a link the member chooses to follow. One read per distinct query per page, shared by every block; a failed or odd answer draws nothing, so a page
-    without readings looks as it did. The labels are BUC's own (its eight categories and the links into it), shared by every page that loads this file;
+    a link the member chooses to follow. When members ask each other for readings (FIIU chats, course discussions), suggest() puts a quiet line of BUC
+    suggestions under the message, built from its own words: shown to everyone reading, never posted. One read per distinct query per page, shared by every
+    block and line; a failed or odd answer draws nothing, so a page without readings looks as it did. The labels are BUC's own (its eight categories and the links into it), shared by every page that loads this file;
     each page's heading comes from that page's dictionary and is handed over as a node. */
  const rows={
   cat1:['Childhood','Infancia','Infância'],cat2:['Public space','Espacio público','Espaço público'],cat3:['Environment','Ambiente','Ambiente'],cat4:['Methods','Metodologías','Metodologias'],
@@ -13,13 +14,15 @@
   // A link into BUC's search with words and no category, the feed's way on to the rest, and the console's way in before any topic is chosen.
   search:['Search “{words}” on BUC','Buscar «{words}» en la BUC','Buscar “{words}” na BUC'],more:['See more on BUC','Ver más en la BUC','Ver mais na BUC'],
   explore:['Explore BUC','Explora la BUC','Explore a BUC'],
+  // The line under a message asking for readings, with the message's own search words when it has some.
+  suggest:['BUC suggestions','Sugerencias de la BUC','Sugestões da BUC'],suggestOn:['BUC suggestions on “{words}”','Sugerencias de la BUC sobre «{words}»','Sugestões da BUC sobre “{words}”'],
  };
  const LANGS=['en','es','pt'],CONTEXTS=['console','knowledge','session','course','chat'],BLOCK=/^[a-z0-9-]{1,60}$/,WORDS=80,HOME='https://buc.sistemaurbano.org/';
  const lang=()=>window.nodalI18n?.lang||document.documentElement?.lang||'en';
  const say=(key,words='')=>(rows[key]?.[Math.max(0,LANGS.indexOf(lang()))]||key).replace('{words}',words);
  const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
  // A label keeps its key (and the words it quotes) on the node, so the language switch rewrites it in place.
- function label(key,words=''){const n=el('span','buc-t',say(key,words));n.dataset.bucKey=key;if(words)n.dataset.bucWords=words;return n;}
+ function label(key,words='',cls=''){const n=el('span','buc-t'+(cls?' '+cls:''),say(key,words));n.dataset.bucKey=key;if(words)n.dataset.bucWords=words;return n;}
  function relabel(){document.querySelectorAll('.buc-t').forEach(n=>{n.textContent=say(n.dataset.bucKey,n.dataset.bucWords||'');});}
  const clean=value=>typeof value==='string'?value.replace(/\s+/g,' ').trim():'';
  // Search words stop at 80 characters, on a word.
@@ -108,6 +111,51 @@
   const a=away(el('a','buc-link buc-explore'),HOME+'?'+new URLSearchParams({utm_source:'nodal',utm_medium:CONTEXTS.includes(context)?context:'console'}));a.append(label('explore'));
   const done=Promise.resolve(true);drawn.set(host,{path:'explore',done});host.replaceChildren(a);host.hidden=false;return done;
  }
- window.Buc={mount,explore,rows};
+
+ /* A message asks for readings when it names books, readings or a bibliography, or asks what to read: "libro(s)", "lectura(s)", "bibliografía",
+    "¿qué (me) recomiendan leer?", "reading(s)", "book(s)", "livro(s)", "leitura(s)", "bibliografia", in any case and with or without accents. Whole words
+    only, so "Booking", "Facebook", "librería" or "lectora" are not requests. */
+ const fold=value=>String(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+ const ASKS=[/\b(?:libros?|lecturas?|bibliografias?|readings?|books?|livros?|leituras?)\b/,/\brecomienda[ns]?\b[^.?!\n]{0,40}\bleer\b/,
+  /\brecommend\w*\b[^.?!\n]{0,40}\bread\b/,/\bwhat (?:should|could|can) (?:i|we) read\b/,/\b(?:recomenda[ms]?|indica[ms]?|sugere[ms]?)\b[^.?!\n]{0,40}\bler\b/];
+ const asks=text=>typeof text==='string'&&ASKS.some(pattern=>pattern.test(fold(text)));
+ // The message's own words for BUC's search: three at most, in its order, leaving out the asking, the small words and the city words every BUC
+ // publication shares; addresses and bare numbers too. The words are compared without accents and kept as written.
+ const STOP=new Set(('libro libros lectura lecturas bibliografia bibliografias leer recomiendan recomienda recomiendas recomendar recomiendo recomendacion recomendaciones '+
+  'sugieren sugieres sugerir sugerencia sugerencias busco buscan buscando book books ebook ebooks reading readings read recommend recommends recommended recommendation '+
+  'recommendations suggest suggested suggestion suggestions looking livro livros leitura leituras recomendam recomenda recomendacao recomendacoes indicam indica indicar '+
+  'sugerem sugere sugestao sugestoes procuro procurando ciudad ciudades cidade cidades city cities urbano urbana urbanos urbanas urban urbanismo urbanism tema temas topic '+
+  'topics hola gracias favor alguien alguna alguno algunas algunos algun algo sobre acerca para pero como cual cuales donde cuando quien quienes porque tambien esta este '+
+  'esto estas estos ese esos esa esas eso aqui otro otra otros otras todo todos toda todas mucho mucha muchos muchas puede pueden podria podrian quisiera quiero queria '+
+  'bueno buena buenos buenas mejor mejores interesante interesantes tienen tiene tengo nosotros ustedes nuestro nuestra cada entre desde hasta antes despues durante segun '+
+  'hacia what which about anyone someone some good great would could should with from that this these those have please thanks hello there their them they your into '+
+  'also more alguem algum alguma alguns algumas voce voces vcs tambem muito muita obrigado obrigada pessoal gente qual quais onde quando isso essa esse este esta').split(' '));
+ function wordsOf(text){
+  const out=[],seen=new Set();
+  for(const word of String(text).replace(/https?:\/\/\S+/gi,' ').toLowerCase().match(/[\p{L}\p{N}]+/gu)||[]){
+   const key=fold(word);if(key.length<4||/^\d+$/.test(key)||STOP.has(key)||seen.has(key))continue;seen.add(key);out.push(word);if(out.length===3)break;
+  }
+  return out.join(' ');
+ }
+ /* host: the slot under one message. text: the message. filters: the session's block, or the course's topics. A message that does not ask clears the slot
+    and reads nothing; the same message drawn again (a live update, an edit) keeps its line, and every message with the same words shares one read. The
+    caller never calls this for a hidden or withdrawn message. Resolves whether a line is shown. */
+ function suggest(host,text,{context='chat',...filters}={}){
+  if(!host)return Promise.resolve(false);
+  if(!asks(text)){drawn.delete(host);host.replaceChildren();host.hidden=true;return Promise.resolve(false);}
+  const words=wordsOf(text),path=query({...filters,words,context,limit:3}),last=drawn.get(host);if(last?.path===path)return last.done;
+  const done=read(path).then(data=>{
+   if(drawn.get(host)?.path!==path)return false;
+   if(!data){host.replaceChildren();host.hidden=true;return false;}
+   const line=el('p','buc-suggest');line.append(words?label('suggestOn',words,'buc-suggest-label'):label('suggest','','buc-suggest-label'));
+   if(data.items.length){
+    for(const item of data.items.slice(0,3)){const a=away(el('a','buc-link buc-title',item.title),item.url);a.translate=true;line.append(a);}
+    if(data.links[0])line.append(linkNode(data.links[0],{more:true}));
+   }else line.append(...data.links.slice(0,3).map(link=>linkNode(link,{own:words,more:data.source==='feed'&&data.links.length===1})));
+   host.replaceChildren(line);host.hidden=false;return true;
+  });
+  drawn.set(host,{path,done});return done;
+ }
+ window.Buc={mount,explore,suggest,asks,rows};
  window.nodalI18n?.onChange?.(relabel);
 })();

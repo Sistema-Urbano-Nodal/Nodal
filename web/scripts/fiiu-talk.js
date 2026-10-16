@@ -242,6 +242,10 @@
   // Organisers see every hidden message; a participant sees only their own, told who hid it.
   if(m.organiser)meta.append(tr('span','talkOrganiser','f-talk-org'));if(m.hidden)meta.append(tr('span',me.organiser?'talkHidden':'talkHiddenForYou','f-talk-flag'));
   meta.append(when(m.createdAt));row.append(meta);if(m.body)row.append(linkify(m.body));if(m.files.length)row.append(filesOf(m.files));
+  // A message asking for readings gets a quiet line of BUC suggestions under it (buc.js), from its words and this session's block (General: every category),
+  // for everyone reading the thread; it is never posted, and never shown under a hidden message. A redrawn row asks again, and buc.js answers from the
+  // read it already made, so a row keeps one line and a busy room one read per distinct question.
+  if(!m.hidden&&window.Buc?.asks(m.body)){const slot=el('div','f-talk-buc');slot.hidden=true;row.append(slot);window.Buc.suggest(slot,m.body,{...(page&&!isGeneral(page.id)?{block:page.id}:{}),context:'chat'}).then(shown=>{if(shown)keepEnd();});}
   // Your own message and a hidden one show their likes as text: nobody likes their own, and the server refuses a like on a hidden one.
   if(m.mine||m.hidden){if(m.likeCount>0)actions.append(counted('span','f-talk-likes',m.likeCount===1?'talkLikeOne':'talkLikes',{n:m.likeCount}));}
   else actions.append(likeButton(m));
