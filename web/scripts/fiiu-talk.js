@@ -180,6 +180,8 @@
  const ended=()=>{const s=document.scrollingElement;return !s||s.scrollTop>=end()-2;};
  function track(){const s=document.scrollingElement;if(!s)return;const top=s.scrollTop;following=nearBottom()||(following&&top>=lastTop);atEnd=ended();lastTop=top;}
  function resized(){fitWall();if(parts&&atEnd)toBottom(false);}
+ // The top of a node at the top of the screen, under the sticky header (the html scroll-padding in fiiu.css), at once. Older Safari rejects 'instant'.
+ function reveal(node){try{node.scrollIntoView({block:'start',behavior:'instant'});}catch{node.scrollIntoView(true);}}
  // The first paint jumps; later moves follow the page's scroll-behavior, which fiiu-talk.css turns off for reduced motion. Older Safari rejects 'instant'.
  function toBottom(smooth){
   const s=document.scrollingElement;if(!s)return;const top=parts?.box?.getBoundingClientRect?end():s.scrollHeight;following=true;atEnd=true;
@@ -440,12 +442,15 @@
   else{if(rate?.id!==question.id)rate=buildRate(question.id);if(!rate.busy)rate.saved=rate.shown=scoreOf(data.me?.score);}
   // A rebuild of the rows on screen (a reset after more than 200 changes, or a status the pulse cannot carry) notes first where the reader was (audit #7).
   const kept=same?{follow:following||nearBottom(),newest:newestShown(),anchor:anchorRow()}:null;
+  // A swap to another question keeps the page's scroll position: from deep in the one before (the closed note's way to the open question, a pick or Back
+  // made down there) it would land the reader in the middle of a conversation whose question is far above, so the new question is brought into view.
+  const deep=!same&&parts?.head.getBoundingClientRect?.().top<0;
   if(!same)build();renderHead();rowsById.clear();views.clear();parts.log.replaceChildren();
   for(const view of Array.isArray(data.messages)?data.messages:[])if(view?.id)upsert(view);
   restoreUnsent();for(const attempt of attempts.values())if(attempt.row&&attempt.qid===question.id)parts.log.append(attempt.row);
   parts.earlier.hidden=!before;parts.log.setAttribute('aria-label',t('talkPage'));renderDock();rekey(parts.empty,emptyKey());updateEmpty();setTitle();countPick();
   // Arriving shows the session and the question first, not the end of the chat (audit #16): the reader follows new answers once they reach the end.
-  if(!same){following=nearBottom();atEnd=ended();lastTop=document.scrollingElement?.scrollTop||0;return;}
+  if(!same){if(deep)reveal(parts.head);following=nearBottom();atEnd=ended();lastTop=document.scrollingElement?.scrollTop||0;return;}
   // After a rebuild a reader who was following goes to the new end; anyone else keeps the message they were reading in place, and gets the pill and
   // one announcement for the answers that are newer than the newest they had.
   if(kept.follow)return toBottom(false);

@@ -22,7 +22,8 @@ export class Node {
  focus(){this.focused=true;}
  setCustomValidity(message){this.validationMessage=message;}
  reportValidity(){return [this,...descendants(this)].filter(node=>!node.disabled).every(node=>!node.validationMessage&&(!node.required||(node.type==='checkbox'?node.checked:Boolean(node.value))));}
- scrollIntoView(){}
+ // Each call is recorded with its options, so a test can see what a page brought into view.
+ scrollIntoView(options){(this.scrolls??=[]).push(options);}
  // Full screen goes through the harness that owns the document (see createFiiuHarness).
  requestFullscreen(){return Node.fullscreen?Node.fullscreen(this):Promise.resolve();}
 }

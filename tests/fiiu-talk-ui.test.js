@@ -1887,3 +1887,19 @@ test('a message stored without its photo (its attach step failed after the inser
  revision=4;await slow.tickTimers();assert.ok(rows(slow).some(node=>node.dataset.pending),'still on its way with its photo');
  gate.resolve();await flush();assert.ok(key(failed(slow),'talkRetry'),'the failure keeps Retry');
 });
+
+test('#17: swapping to another question from deep in a long chat shows the new question, not the middle of its conversation; a swap from the top moves nothing',async()=>{
+ const closedQ=question({id:Q2,status:'closed',body:'¿Primera pregunta?',talk:null,createdAt:'2026-10-21T13:00:00.000Z'});
+ const routes={...SESSION_ROUTES,['GET '+LIST]:{activity:ACTIVITY,questions:[closedQ,question()]},['GET /api/fiiu/questions/'+Q2]:thread({question:{id:Q2,status:'closed',body:'¿Primera pregunta?',talk:null},me:{canPost:false},messages:[message(M3,{body:'Respuesta cerrada'})]})};
+ const h=await page(routes,{search:'?a=day1-am&q='+Q2});
+ assert.equal(h.root.querySelector('.f-talk-head').scrolls,undefined,'arriving leaves the page at the top');
+ // At the end of the closed chat, its question 12,000 px above the screen.
+ const scroller={scrollHeight:13000,scrollTop:12000,clientHeight:800};h.ctx.document.scrollingElement=scroller;h.root.querySelector('.f-talk-head').getBoundingClientRect=()=>({top:-11300,bottom:-11000});
+ tap(key(qa(h),'talkNextOpen'));await flush();
+ assert.equal(qa(h).querySelector('.f-talk-question').textContent,'¿Qué te llevas de esta mañana?');
+ assert.equal(JSON.stringify(h.root.querySelector('.f-talk-head').scrolls),JSON.stringify([{block:'start',behavior:'instant'}]),'the new question is brought into view, at once');
+ // A pick made at the top, with the question on screen, leaves the page where it is.
+ h.root.querySelector('.f-talk-head').getBoundingClientRect=()=>({top:420,bottom:700});scroller.scrollTop=0;
+ tap(picks(h).find(a=>a.dataset.qid===Q2));await flush();
+ assert.equal(qa(h).querySelector('.f-talk-question').textContent,'¿Primera pregunta?');assert.equal(h.root.querySelector('.f-talk-head').scrolls,undefined);
+});
