@@ -1847,3 +1847,14 @@ test('the other questions’ answer counts in the list follow the pulse: read ag
  Clock.advance(30000);await h.tickTimers();assert.equal(sent(h,'GET',LIST).length,3,'caught up: nothing more to read');
  h.lang('es');assert.equal(n(),'12 respuestas');
 });
+
+test('#19: a page waiting for a question whose two hours ran out while the phone was locked looks again as soon as it is unlocked',async()=>{
+ const Clock=clock(),DAY3={...ACTIVITY,id:'day3-am',date:'2026-10-23'};let pulse=[],list=[];
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:pulse}),'GET /api/fiiu/questions?activityId=day3-am':()=>({activity:DAY3,questions:list}),['GET /api/fiiu/questions/'+Q]:thread({question:{activityId:'day3-am'}})},{search:'?a=day3-am',context:{Date:Clock}});
+ assert.ok(key(qa(h),'talkEmptyBlock'));
+ // Locked: the watch's rounds ask nothing while the two hours run out.
+ await h.visible(false);Clock.advance(2*3600000+60000);await h.tickTimers();assert.equal(sent(h,'GET','/api/fiiu/pulse').length,0);
+ pulse=[[Q,'day3-am',1,'open']];list=[question({activityId:'day3-am'})];
+ await h.visible(true);await flush();
+ assert.ok(composer(h),'unlocked, the page looks again at once and opens the question that opened meanwhile');
+});

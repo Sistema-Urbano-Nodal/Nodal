@@ -470,7 +470,9 @@
   };
   w.timer=setInterval(()=>w.check(),WATCH_MS);watcher=w;return w;
  }
- function rewatch(){if(question||watcher||!lastWatch)return false;const {changed,act}=lastWatch;watch(changed,act).check();return true;}
+ // A watch whose two hours ran out while the tab was hidden (a locked phone) is still set, since its rounds skip a hidden tab before they look at the
+ // clock: it counts as gone, or its next round would stop it instead of the page looking again.
+ function rewatch(){if(question||(watcher&&Date.now()<=watcher.until)||!lastWatch)return false;const {changed,act}=lastWatch;watch(changed,act).check();return true;}
  function unwatch(){if(watcher)clearInterval(watcher.timer);watcher=null;}
  // Focus that was on the chat (in the composer, say) moves to the heading that replaces it, which also reads the new state out. Under a session's header
  // the heading is its h2, in the questions area.
