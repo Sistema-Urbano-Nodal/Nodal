@@ -1,7 +1,8 @@
 /* BUC, the Biblioteca Urbana Colaborativa (https://buc.sistemaurbano.org/), is NODAL's source of readings: wherever
    NODAL suggests readings, and when members ask each other for them. This module is the one place that knows BUC:
-   its categories, which of them each NODAL topic and festival block belongs to, and how to build a link into BUC's
-   search. Only links leave NODAL, and only when a member follows one; nothing here contacts BUC.
+   its categories, which of them each NODAL topic and festival block belongs to, the vocabulary members' questions are
+   matched against, and how to build a link into BUC's search. Only links leave NODAL, and only when a member follows
+   one; nothing here contacts BUC.
 
    BUC's search is its own form: GET /busqueda?q=<words>&c=<category id>, where an empty c means any category (the form
    sends both fields, empty or not, and so do these links). */
@@ -13,19 +14,70 @@ export const BUC_CATEGORIES=Object.freeze({1:'Infancia',2:'Espacio público',3:'
 const CATEGORY_IDS=Object.keys(BUC_CATEGORIES).map(Number);
 const isCategory=value=>Number.isInteger(value)&&Object.hasOwn(BUC_CATEGORIES,value);
 
-/* Each NODAL topic (its canonical English name, the profile's join key) searches one BUC category, some with a Spanish
-   word that narrows it (Housing is BUC's Inclusión, searched for "vivienda"). */
+/* Accent- and case-free form for comparisons. */
+export const foldText=value=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+
+/* What members may ask BUC about, and the only words NODAL ever searches BUC for. A chat message never leaves the
+   browser: web/scripts/buc.js (which carries an identical copy; tests/buc-ui.test.js compares the two) finds these terms
+   in it, as whole words or phrases in ES/EN/PT, singular and plural, accent- and case-free, and asks GET /api/readings
+   with the entry's BUC category and its q. q is the Spanish word or phrase BUC's search finds in that category, or ''
+   when it finds none (the category alone); the server refuses any other q, so no name, handle or free text reaches a
+   BUC link, NODAL's request logs or the CDN's cache keys. label is the topic's name in English, Spanish and Portuguese,
+   for the line under the message.
+
+   Every q was checked by hand on BUC's public search (a plain GET of /busqueda?q=<q>&c=<category>, one request every
+   10 s as its robots.txt asks) on 16 Oct 2026; publications found ("Se encontraron N publicacion(es)"):
+     movilidad c7 58, caminabilidad c7 20, espacio público c2 72, acupuntura c2 1 ("acupuntura urbana" 0), seguridad c2 32,
+     vivienda c8 21, cuidado c8 1 ("cuidados" 0), género c8 17, asentamientos c8 2 (the review found "informalidad" 0),
+     inclusión c8 8, clima c3 14, resiliencia c3 9, ambiente c3 41 ("árboles" 0, "educación ambiental" 0),
+     gobernanza c6 13, participación c6 24, gestión urbana c6 1, histórico c5 3 (the review found "patrimonio" 0),
+     cultura c5 30, datos c4 6 ("tecnología" 1), planificación c4 8, metodología c4 24, infancia c1 20.
+   BUC matches q as one phrase ("vivienda social" finds nothing where "vivienda" finds 21), so a q is one word or a
+   phrase BUC's titles carry. A term can be added freely; a new q is checked the same way first. */
+export const BUC_VOCABULARY=Object.freeze([
+  {terms:['movilidad','mobility','mobilidade','transporte','transportes','transport','transportation'],category:7,q:'movilidad',label:['mobility','movilidad','mobilidade']},
+  {terms:['caminabilidad','walkability','caminhabilidade','peatones','pedestrians','pedestres'],category:7,q:'caminabilidad',label:['walkability','caminabilidad','caminhabilidade']},
+  {terms:['espacio público','espacios públicos','public space','public spaces','espaço público','espaços públicos'],category:2,q:'espacio público',label:['public space','espacio público','espaço público']},
+  {terms:['acupuntura urbana','urban acupuncture','acupuntura'],category:2,q:'acupuntura',label:['urban acupuncture','acupuntura urbana','acupuntura urbana']},
+  {terms:['vivienda','viviendas','housing','moradia','moradias','habitação','habitações'],category:8,q:'vivienda',label:['housing','vivienda','moradia']},
+  {terms:['clima','climate','cambio climático','climate change','mudança climática','mudanças climáticas','climático','climática','climáticos','climáticas'],category:3,q:'clima',label:['climate','clima','clima']},
+  {terms:['resiliencia','resilience','resiliente','resilient'],category:3,q:'resiliencia',label:['resilience','resiliencia','resiliência']},
+  {terms:['cuidado','cuidados','care','cuidar'],category:8,q:'cuidado',label:['care','cuidados','cuidados']},
+  {terms:['género','gender','feminismo','feminism','feminista','feminist'],category:8,q:'género',label:['gender','género','gênero']},
+  {terms:['gobernanza','governance','governança','gobierno local','local government','governo local'],category:6,q:'gobernanza',label:['governance','gobernanza','governança']},
+  {terms:['participación','participation','participação','participativo','participativa','participatory'],category:6,q:'participación',label:['participation','participación','participação']},
+  {terms:['gestión urbana','gestión local','urban management','gestão urbana','gestão local'],category:6,q:'gestión urbana',label:['urban management','gestión urbana','gestão urbana']},
+  {terms:['seguridad','seguridad ciudadana','safety','security','segurança'],category:2,q:'seguridad',label:['safety','seguridad','segurança']},
+  {terms:['informalidad','informality','informalidade','asentamientos','asentamientos informales','informal settlements','assentamentos','assentamentos informais','favela','favelas'],category:8,q:'asentamientos',label:['informality','informalidad','informalidade']},
+  {terms:['patrimonio','heritage','centro histórico','centros históricos','historic centre','historic center'],category:5,q:'histórico',label:['heritage','patrimonio','patrimônio']},
+  {terms:['datos','data','dados','tecnología','tecnologías','technology','technologies'],category:4,q:'datos',label:['data','datos','dados']},
+  {terms:['planificación','planning','planejamento','planeamiento','planeación','uso de suelo','uso del suelo','land use','uso do solo','ordenamiento territorial'],category:4,q:'planificación',label:['planning','planificación','planejamento']},
+  {terms:['medio ambiente','ambiente','ambiental','ambientales','environment','environmental','meio ambiente','naturaleza','nature','natureza','árboles','trees','árvores','bosques urbanos','urban forests'],category:3,q:'ambiente',label:['environment','medio ambiente','meio ambiente']},
+  {terms:['infancia','childhood','niñez','niños','niñas','children','crianças'],category:1,q:'infancia',label:['childhood','infancia','infância']},
+  {terms:['cultura','culturas','culture','cultures','cultural','culturales'],category:5,q:'cultura',label:['culture','cultura','cultura']},
+  {terms:['metodología','metodologías','methodology','methodologies','method','methods','método','métodos'],category:4,q:'metodología',label:['methods','metodologías','metodologias']},
+  {terms:['inclusión','inclusão','diversidad','diversity','diversidade'],category:8,q:'inclusión',label:['inclusion','inclusión','inclusão']},
+].map(entry=>Object.freeze({...entry,terms:Object.freeze(entry.terms),label:Object.freeze(entry.label)})));
+const spaced=value=>foldText(value).replace(/\s+/g,' ').trim();
+const BY_QUERY=new Map(BUC_VOCABULARY.filter(entry=>entry.q).map(entry=>[spaced(entry.q),entry]));
+// The vocabulary entry whose q this is, in any case, accents or spacing; null for anything else.
+export const vocabularyEntry=value=>typeof value==='string'?BY_QUERY.get(spaced(value))??null:null;
+
+/* Each NODAL topic (its canonical English name, the profile's join key) searches one BUC category, some with the
+   topic's own Spanish word where BUC finds it there (Housing is BUC's Inclusión, searched for "vivienda"); Informality
+   and Heritage find nothing for theirs ("informalidad", "patrimonio"), so they open their whole category. A topic's word
+   is always a vocabulary q of the same category, so it was checked like the others. */
 const topic=(category,words='')=>Object.freeze({category,words});
 export const TOPIC_TO_BUC=Object.freeze({
   'Mobility':topic(7),
   'Public space':topic(2),
   'Housing':topic(8,'vivienda'),
   'Climate & resilience':topic(3,'clima'),
-  'Care & gender':topic(8,'cuidado'),
+  'Care & gender':topic(8,'género'),
   'Governance & participation':topic(6),
   'Safety':topic(2,'seguridad'),
-  'Informality':topic(8,'informalidad'),
-  'Heritage':topic(5,'patrimonio'),
+  'Informality':topic(8),
+  'Heritage':topic(5),
   'Urban data & tech':topic(4,'datos'),
   'Land use & planning':topic(4,'planificación'),
   'Environment & nature':topic(3),
@@ -64,69 +116,6 @@ export const isBucBlock=id=>typeof id==='string'&&Object.hasOwn(BLOCK_TO_BUC,id)
 
 export const READINGS_CONTEXTS=Object.freeze(['console','knowledge','session','course','chat']);
 
-/* Accent- and case-free form for comparisons. */
-export const foldText=value=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-
-/* Words that say "I am asking for readings" (or for a link, or how to reach someone) or hold a sentence together, in
-   ES/EN/PT (folded). A chat message asking "¿Qué libros me recomiendan sobre vivienda?" searches BUC for "vivienda",
-   not for the whole question. */
-const STOPWORDS=new Set(`
-  libro libros lectura lecturas leer lean leyendo bibliografia bibliografias recomendacion recomendaciones recomienda
-  recomiendan recomiendas recomiendo recomendar recomendarian recomendarias recomendaria sugerencia sugerencias sugieren
-  sugiere sugerir texto textos articulo articulos material materiales referencia referencias autor autores
-  alguien alguna alguno algunas algunos algun buen buena buenas buenos mejor mejores tema temas acerca sobre para por
-  con sin que cual cuales como donde cuando quien quienes este esta estos estas ese esa esos esas eso esto otro otra
-  otros otras una uno unos unas los las del muy mas tambien pero porque hay tienen tiene tengo saben sabe conocen
-  conoce alguno favor gracias hola ustedes vosotros nosotros ellos ellas usted todo todos toda todas
-  book books reading readings read recommend recommends recommended recommendation recommendations suggest suggestion
-  suggestions text texts article articles paper papers anyone someone any some good great best the and for with about
-  what which who whom where when how that this these those there their them they you your can could would should
-  please thanks hello have has know topic topics references
-  livro livros leitura leituras ler leiam recomendam recomenda recomendo recomendar recomendacao recomendacoes
-  sugestao sugestoes sugerem textos artigo artigos alguem algum alguma alguns algumas bom boa bons boas melhor
-  melhores sobre voce voces vcs obrigado obrigada ola oi tem temos sabem conhecem quem qual quais onde quando
-  pra pro uma umas uns dos das nos nas pelo pela pelos pelas tambem mas porque isso isto esse essa este esta com
-  necesito necesitamos quiero queria quisiera gustaria busco buscando tienes pasan pasar pasen pasame compartir
-  compartan comparten manden mandar envien enviar enviame escribanme escribeme escribame contacto contactar correo
-  mail email gmail hotmail outlook yahoo arroba punto cel celular telefono tel numero whatsapp wsp link links enlace
-  enlaces menciono mencionaron mencionado mencionada ponente ponentes expositor expositora
-  need want looking share send phone number website mentioned speaker speakers
-  preciso quero gostaria procuro passar passem compartilhar mandem enviem telefone zap mencionou palestrante
-  llamame llamar llamenme llama llamen liga ligar ligue chama chamar call
-`.trim().split(/\s+/));
-const MAX_SEARCH_WORDS=4,MAX_SEARCH_LENGTH=80;
-/* Contact details a chat message may carry never become search words: they would travel to BUC in a link another
-   member follows, and they say nothing about the subject. First every whitespace-separated piece holding an @ (an
-   email address, a handle), a scheme (https://), www. or a domain with a path (bit.ly/x) goes, then every word with a
-   digit (a phone, an ID, a count; a leading + or # with it), except a year from 1900 to 2100. withoutContactDetails is
-   that step alone: a client asking with chat text applies the same rules before cutting it to 80 characters, so the
-   raw message is not in NODAL's request logs or the CDN's cache keys either. The server cleans q again regardless. */
-const CONTACT_PIECE=/\S*(?:@|:\/\/|\bwww\.|[\p{L}\p{N}]\.\p{L}{2,}\/)\S*/giu;
-const WORD=/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu,SIGNED_WORD=/[+#]?[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu;
-const isYear=word=>/^\d{4}$/.test(word)&&Number(word)>=1900&&Number(word)<=2100;
-// A run of digit groups ("987 654 321", "2045 1987", "(01) 555-1234") is a phone even when each group could pass for a year; the client drops it the same way.
-const PHONE_RUN=/[+(]*\d[\d\s().-]{5,}\d/g;
-export const withoutContactDetails=text=>String(text??'').replace(CONTACT_PIECE,' ').replace(PHONE_RUN,' ')
-  .replace(SIGNED_WORD,word=>/\p{N}/u.test(word)&&!isYear(word.replace(/^[+#]/,''))?' ':word).replace(/\s+/g,' ').trim();
-const tokens=text=>withoutContactDetails(String(text??'').normalize('NFC')).toLowerCase().match(WORD)??[];
-// The subject words of a text, once each (by folded form), in order, without the request words or ones under 3 letters.
-export function keywords(text,max=MAX_SEARCH_WORDS){
-  const seen=new Set(),out=[];
-  for(const token of tokens(text)){
-    const key=foldText(token);
-    if(key.length<3||STOPWORDS.has(key)||seen.has(key))continue;
-    seen.add(key);out.push(token);
-    if(out.length===max)break;
-  }
-  return out;
-}
-// What a BUC search asks for: at most four subject words, at most 80 characters.
-export function searchWords(text){
-  const words=keywords(text);
-  while(words.join(' ').length>MAX_SEARCH_LENGTH)words.pop();
-  return words.join(' ');
-}
-
 const MAX_LINKS=4;
 export function bucSearchUrl({category=null,words='',context}={}){
   const query=new URLSearchParams({q:words,c:isCategory(category)?String(category):'',utm_source:'nodal'});
@@ -138,20 +127,22 @@ const link=(category,words,context)=>({
   url:bucSearchUrl({category,words,context}),
   category,words,
 });
-/* Links into BUC's search for a request: one per topic (its category and words), one per category, then one for the
-   words alone across every category; duplicates collapse and at most four are kept, in that order. Words asked for
-   replace a topic's own words, so each link stays one short search. A request with nothing specific (no known topic,
-   no category, no subject word) opens all eight categories. Unknown topics and categories are ignored. */
+/* Links into BUC's search for a request: its q (a vocabulary q, or none) in the q's own category, one link per category
+   asked for, one per topic (its category and its own word), then the q alone across every category; duplicates
+   collapse and at most four are kept, in that order. A q goes only where it was checked, its own category or all of
+   BUC, so any other category is opened whole ("vivienda" may find nothing in Gobernanza), and the q's own category is
+   not also opened whole. A request with nothing specific (no known topic, no category, no q) opens all eight
+   categories. Unknown topics and categories are ignored, and so are words that are not a vocabulary q. */
 export function bucLinks({topics=[],categories=[],words='',context}={}){
-  const subject=searchWords(words),pairs=[];
-  for(const name of topics)if(isBucTopic(name))pairs.push([TOPIC_TO_BUC[name].category,subject||TOPIC_TO_BUC[name].words]);
-  for(const category of categories)if(isCategory(category))pairs.push([category,subject]);
-  if(!pairs.length&&!subject)return CATEGORY_IDS.map(category=>link(category,'',context));
+  const entry=vocabularyEntry(words),subject=entry?.q??'',pairs=[];
+  for(const category of [...(entry?[entry.category]:[]),...categories])if(isCategory(category))pairs.push([category,category===entry?.category?subject:'']);
+  for(const name of topics)if(isBucTopic(name))pairs.push([TOPIC_TO_BUC[name].category,TOPIC_TO_BUC[name].words]);
+  if(!pairs.length)return CATEGORY_IDS.map(category=>link(category,'',context));
   if(subject)pairs.push([null,subject]);
   const seen=new Set(),links=[];
   for(const [category,text] of pairs){
     const key=`${category}|${text}`;
-    if(seen.has(key))continue;
+    if(seen.has(key)||(entry&&category===entry.category&&!text))continue;
     seen.add(key);links.push(link(category,text,context));
     if(links.length===MAX_LINKS)break;
   }
@@ -184,6 +175,8 @@ function optionalText(value,max){
   return text.length>max||HTML_TAG.test(text)?undefined:text;
 }
 const searchable=text=>` ${foldText(text).replace(/[^a-z0-9]+/g,' ').trim()} `;
+// Search phrases as the feed's text holds them, each starting at a word: " espacio publico".
+const phrases=value=>[...new Set((Array.isArray(value)?value:[value]).filter(phrase=>typeof phrase==='string').map(phrase=>searchable(phrase).trimEnd()).filter(Boolean))];
 // One feed publication as NODAL shows it, with what ranking needs, or null when it breaks a rule of the feed spec.
 function feedRecord(raw){
   if(!raw||typeof raw!=='object'||Array.isArray(raw))return null;
@@ -281,18 +274,20 @@ export function createBucFeed({url,fetchImpl=globalThis.fetch,clock=Date.now,log
     enabled:Boolean(address),
     // Every valid publication, in feed order, or null (off, or no good read yet).
     items:()=>current().then(found=>found?.items??null),
-    /* Up to `limit` publications in the asked categories (all when none), ranked by how many of the subject words
-       (folded, at word starts) their title and summary contain, then newest year, then latest update. Words without
-       categories keep only publications that match one. Null when there is no copy. */
-    async recommend({categories=[],words='',limit=4}={}){
+    /* Up to `limit` publications in the asked categories (all when none). words (phrases, or one phrase as a string;
+       folded and matched whole at word starts, as BUC's search matches its q) keep only the publications whose title or
+       summary has one, in categories too, so a line about them shows nothing else; more of them rank first. rank
+       (a topic's own words) only puts matches first. Then newest year, then latest update. Null when there is no copy. */
+    async recommend({categories=[],words=[],rank=[],limit=4}={}){
       const found=await current();
       if(!found)return null;
       const wanted=new Set(categories.filter(isCategory));
-      const keys=keywords(words,8).map(word=>searchable(word).trimEnd());
+      const must=phrases(words),also=phrases(rank);
+      const hits=(keys,record)=>keys.filter(key=>record.text.includes(key)).length;
       let scored=found.records.filter(record=>!wanted.size||wanted.has(record.item.category))
-        .map((record,index)=>({record,index,score:keys.filter(key=>record.text.includes(key)).length}));
-      if(!wanted.size&&keys.length)scored=scored.filter(entry=>entry.score>0);
-      scored.sort((a,b)=>b.score-a.score||(b.record.item.year??-1)-(a.record.item.year??-1)||b.record.updated-a.record.updated||a.index-b.index);
+        .map((record,index)=>({record,index,score:hits(must,record),rank:hits(also,record)}));
+      if(must.length)scored=scored.filter(entry=>entry.score>0);
+      scored.sort((a,b)=>b.score-a.score||b.rank-a.rank||(b.record.item.year??-1)-(a.record.item.year??-1)||b.record.updated-a.record.updated||a.index-b.index);
       return scored.slice(0,Number.isInteger(limit)&&limit>0?limit:4).map(entry=>entry.record.item);
     },
     // Resolves once no read is running (scripts and tests).
@@ -312,7 +307,9 @@ const refuse=()=>Object.assign(new Error('invalid readings query'),{status:400,c
 
 /* The query string of GET /api/readings: topics (up to 12 names of up to 60 characters; ones NODAL does not know are
    skipped later, since profile topics are free text), categories (up to 8 BUC ids), block (a festival activity id, or
-   the General space's, which is no block: all of BUC), q (up to 80 characters), limit (1–12, default 4) and context
+   the General space's, which is no block: all of BUC), q (one of the vocabulary's q values, in any case or accents;
+   anything else is refused, so a crafted page cannot put a name or free text into a BUC link, NODAL's logs or the CDN's
+   keys either), limit (1–12, default 4) and context
    (where the links are shown, for BUC's analytics). Each at most once; an empty value counts as missing. At least one
    of topics, categories, block or q is needed, except on the knowledge hub and a session page, which may ask for all
    of BUC with nothing. Throws READINGS_ERROR. */
@@ -333,14 +330,14 @@ export function parseReadingsQuery(params){
   const categories=list(one('categories'),8).map(part=>{if(!/^[1-8]$/.test(part))throw refuse();return Number(part);});
   const block=one('block');
   if(block!==null&&block!==GENERAL_SPACE.id&&!isBucBlock(block))throw refuse();
-  const q=one('q');
-  if(q!==null&&q.length>80)throw refuse();
+  const q=one('q'),entry=q===null?null:vocabularyEntry(q);
+  if(q!==null&&!entry)throw refuse();
   const limit=one('limit');
   if(limit!==null&&!/^(?:[1-9]|1[0-2])$/.test(limit))throw refuse();
   const context=one('context');
   if(context!==null&&!READINGS_CONTEXTS.includes(context))throw refuse();
   if(!topics.length&&!categories.length&&block===null&&q===null&&context!=='knowledge'&&context!=='session')throw refuse();
-  return {topics,categories,block:block===GENERAL_SPACE.id?null:block,q:q??'',limit:limit===null?4:Number(limit),context:context??undefined};
+  return {topics,categories,block:block===GENERAL_SPACE.id?null:block,q:entry?.q??'',limit:limit===null?4:Number(limit),context:context??undefined};
 }
 
 // The feed's answer if it comes within waitMs; null when it is late, fails or has nothing.
@@ -355,31 +352,38 @@ async function feedWithin(feed,request,waitMs){
   }finally{clearTimeout(timer);}
 }
 
+// A publication on BUC's own pages carries the same tags as its search links, for BUC's analytics; one on an author's portal is left as it is.
+function tagged(item,context){
+  const url=new URL(item.url);
+  if(url.origin!==BUC_ORIGIN)return item;
+  url.searchParams.set('utm_source','nodal');
+  if(READINGS_CONTEXTS.includes(context))url.searchParams.set('utm_medium',context);
+  return {...item,url:url.href};
+}
+
 /* {source, items, links} for a parsed query. source 'links': the feed is off, failing, late or has no match, items is
    empty and links are up to four searches (all eight categories when nothing specific was asked). source 'feed': up to
-   `limit` publications, and one "Ver más en la BUC" link (more: true), or the eight categories. "See more" searches
-   what the publications were drawn from: their category, or all of BUC when they come from several, with the words
-   asked for, else the topics' own word when they share one. A block without categories asked for alone (the party)
-   has no readings at all. */
+   `limit` publications, and one "Ver más en la BUC" link (more: true), or the eight categories. A q (a vocabulary q;
+   any other is ignored) brings its own category, keeps only publications that match it, and with none the answer is
+   the links. "See more" searches what the publications were drawn from: their category, or all of BUC when they come
+   from several, with the q, else the topics' own word when they share one. A block without categories asked for alone
+   (the party) has no readings at all. */
 export async function bucReadings({topics=[],categories=[],block=null,q='',limit=4,context}={},{feed=null,waitMs=READINGS_FEED_WAIT_MS}={}){
   // Any other block (the General space) is no block at all.
   const blockCategories=isBucBlock(block)?BLOCK_TO_BUC[block]:null;
-  if(blockCategories?.length===0&&!topics.length&&!categories.length&&!q)return {source:'links',items:[],links:[]};
+  const entry=vocabularyEntry(q),words=entry?.q??'';
+  if(blockCategories?.length===0&&!topics.length&&!categories.length&&!words)return {source:'links',items:[],links:[]};
   const known=topics.filter(isBucTopic);
-  const asked=[...new Set([...categories.filter(isCategory),...blockCategories??[]])];
-  const words=searchWords(q);
+  const asked=[...new Set([...(entry?[entry.category]:[]),...categories.filter(isCategory),...blockCategories??[]])];
   const links=bucLinks({topics:known,categories:asked,words,context});
-  const searched=[...new Set([...known.map(name=>TOPIC_TO_BUC[name].category),...asked])];
+  const searched=[...new Set([...asked,...known.map(name=>TOPIC_TO_BUC[name].category)])];
   const topicWords=[...new Set(known.map(name=>TOPIC_TO_BUC[name].words))];
-  const items=await feedWithin(feed,{
-    categories:searched,
-    // The topics' own words rank publications only when no words were asked for, as in the links.
-    words:words||topicWords.join(' '),
-    limit,
-  },waitMs);
+  // A q must match; the topics' own words only rank, so a member's Mobility publications stay next to the Housing ones.
+  const items=await feedWithin(feed,{categories:searched,words:words?[words]:[],rank:words?[]:topicWords,limit},waitMs);
   if(!Array.isArray(items)||!items.length)return {source:'links',items:[],links};
-  if(!searched.length&&!words)return {source:'feed',items:items.slice(0,limit),links};
+  const shown=items.slice(0,limit).map(item=>tagged(item,context));
+  if(!searched.length&&!words)return {source:'feed',items:shown,links};
   const category=searched.length===1?searched[0]:null;
   const more=link(category,words||(category!==null&&topicWords.length===1?topicWords[0]:''),context);
-  return {source:'feed',items:items.slice(0,limit),links:[{...more,label:'Ver más en la BUC',more:true}]};
+  return {source:'feed',items:shown,links:[{...more,label:'Ver más en la BUC',more:true}]};
 }
