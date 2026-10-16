@@ -175,9 +175,10 @@
  let following=true,lastTop=0;
  // atEnd: exactly at the end, not merely near it. A reader there stays there when the screen changes size (the keyboard in a browser that resizes the page, a
  // rotation, the visual viewport), so the newest answers stay above the composer and the next ones follow (audit #1). Testing it rather than nearBottom()
- // leaves alone someone scrolling up while a toolbar changes the height.
+ // leaves alone someone scrolling up while a toolbar changes the height, and testing the end itself, not "at or below it", leaves a reader on the footer
+ // there when the toolbar hides on their first flick down.
  let atEnd=true;
- const ended=()=>{const s=document.scrollingElement;return !s||s.scrollTop>=end()-2;};
+ const ended=()=>{const s=document.scrollingElement;return !s||Math.abs(s.scrollTop-end())<=2;};
  function track(){const s=document.scrollingElement;if(!s)return;const top=s.scrollTop;following=nearBottom()||(following&&top>=lastTop);atEnd=ended();lastTop=top;}
  function resized(){fitWall();if(parts&&atEnd)toBottom(false);}
  // The top of a node at the top of the screen, under the sticky header (the html scroll-padding in fiiu.css), at once. Older Safari rejects 'instant'.

@@ -1903,3 +1903,10 @@ test('#17: swapping to another question from deep in a long chat shows the new q
  tap(picks(h).find(a=>a.dataset.qid===Q2));await flush();
  assert.equal(qa(h).querySelector('.f-talk-question').textContent,'¿Primera pregunta?');assert.equal(h.root.querySelector('.f-talk-head').scrolls,undefined);
 });
+
+test('#1: a reader past the end, on the footer, stays there when the toolbar hides and the screen grows; a reader at the end still follows it',async()=>{
+ const h=await page(),scroller=follow(h,()=>0),fire=type=>Promise.all((h.windowListeners[type]||[]).map(listener=>listener({type})));
+ // The conversation ends at 1900 on an 800 px screen; the footer below it takes the page to 2200.
+ await scrollTo(h,scroller,2200);scroller.clientHeight=856;await fire('resize');assert.equal(scroller.scrollTop,2200,'the footer stays on screen');
+ scroller.clientHeight=800;await scrollTo(h,scroller,1900);scroller.clientHeight=856;await fire('resize');assert.equal(scroller.scrollTop,1844,'at the end, the end is kept');
+});
