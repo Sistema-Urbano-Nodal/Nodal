@@ -26,6 +26,7 @@ import { createNewsApi } from './news-api.js';
 import { preparePageHtml } from './page-shell.js';
 import {createLocationProvider,validatePosition,validateCityId} from './location.js';
 import { createCourseParticipants } from './course-participants.js';
+import { bucFeedFromEnv, bucReadings, parseReadingsQuery, READINGS_ERROR } from './buc.js';
 import { exportCourseData, assertCourseDataDeletable, deleteCourseData } from './courses-privacy.js';
 import {
   paymentsConfig, createCheckoutSession, verifyStripeWebhook, CYCLES,
@@ -97,7 +98,10 @@ const SUPABASE_REFRESH_COOKIE = 'nodal_refresh';
    The FIIU programme is the same for everyone, so signed-in readers share the
    public per-address budget guests use. The conversation pulse is the same for
    everyone too, and never sets a cookie, so the CDN can answer its polls. */
-const SESSIONLESS_API = new Set(['/api/health', '/api/billing/config', '/api/stripe/webhook', '/api/fiiu', '/api/fiiu/pulse']);
+const SESSIONLESS_API = new Set(['/api/health', '/api/billing/config', '/api/stripe/webhook', '/api/fiiu', '/api/fiiu/pulse', '/api/readings']);
+/* BUC readings (server/buc.js) depend on the query only: the CDN answers repeats for 5 minutes and serves a stale
+   answer for 10 more while it asks again. */
+const READINGS_CACHE_CONTROL = 'public, max-age=0, s-maxage=300, stale-while-revalidate=600';
 // Per-account conversation writes and file reads a minute (server/fiiu-talk-api.js); other reads and writes use the
 // FIIU budgets.
 const TALK_RATE_LIMITS = { message: 10, upload: 6, like: 60, moderate: 120, file: 300 };
@@ -1045,6 +1049,9 @@ export function createApp({
   // The byte windows of the download budget course and festival files share (courses-api.js); tests shrink it.
   downloadLimits = DOWNLOAD_LIMITS,
   newsStore = repository?.database ? createNewsStore({db:repository.database}) : repository?.kind === 'supabase' ? createNewsStore() : null,
+  /* BUC's publication feed (server/buc.js): off, making no request, unless BUC_FEED_URL is an https address. Tests
+     inject a reader with a fake fetch. */
+  bucFeed = bucFeedFromEnv(),
 } = {}) {
   const useDb = Boolean(repository);
   const networkSnapshots = repository ? createNetworkSnapshots(repository) : null;
@@ -1245,6 +1252,8 @@ export function createApp({
   const talkApi=talkStore?createTalkApi({store:talkStore,sameOrigin,send,downloads,encodeQr,publicOrigin:fiiuPublicOrigin,clock:talkClock,programme:fiiuProgramme,live:fiiuLive,
     rateLimit:(req,res,user,pathname,kind)=>throttle({read:fiiuReadLimiter,file:talkFileLimiter,message:talkMessageLimiter,upload:talkUploadLimiter,like:talkLikeLimiter,moderate:talkModerateLimiter}[kind]??fiiuWriteLimiter,res,req,user,`fiiu-talk-${kind}`),
   }):null;
+  // BUC readings come from the CDN for most readers; what reaches an instance gets the venue-Wi-Fi budget of the programme.
+  const readingsLimiter=createWindowRateLimiter({windowMs:60000,limit:600});
   // NODAL news: guests read the public feed from shared venue or office Wi-Fi, so their budget mirrors the FIIU
   // public read one; the desk's writes share a small per-account budget.
   const newsReadLimiter=createWindowRateLimiter({windowMs:60000,limit:120});
@@ -1363,6 +1372,17 @@ export function createApp({
 
       // HEAD too: uptime probes default to it, and a 404 there reads as an outage
       if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/api/health') { send(res, 200, { ok: true }); return; }
+      /* Readings from BUC for a topic, a festival block, a course or a chat request. Public like BUC itself and the
+         same for everyone: the session is never read (SESSIONLESS_API) and no cookie is set. A feed that is off, slow
+         or failing only turns the answer into search links. */
+      if (pathname === '/api/readings') {
+        if (req.method !== 'GET' && req.method !== 'HEAD') { send(res, 405, { error: 'method not allowed' }, { Allow: 'GET, HEAD' }); return; }
+        if (!throttle(readingsLimiter, res, req, null, 'readings')) return;
+        let query;
+        try { query = parseReadingsQuery(url.searchParams); } catch { send(res, 400, { code: READINGS_ERROR }); return; }
+        send(res, 200, await bucReadings(query, { feed: bucFeed }), { 'Cache-Control': READINGS_CACHE_CONTROL });
+        return;
+      }
       if(courseApi && await courseApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
       // Before the FIIU API, which would ask the sessionless pulse to sign in; other paths it does not own fall through.
       if(talkApi && await talkApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;

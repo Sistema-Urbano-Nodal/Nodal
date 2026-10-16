@@ -358,6 +358,13 @@ EMAIL_FROM=FIIU Fest 11 <address the provider lets you send from>
 EMAIL_REPLY_TO=fiiu@ocupatucalle.com
 ```
 
+Optional, for BUC readings (see "BUC readings" below). Leave it unset until
+BUC publishes its feed:
+
+```text
+BUC_FEED_URL=https://buc.sistemaurbano.org/api/publicaciones.json
+```
+
 Add these when Stripe goes live:
 
 ```text
@@ -618,6 +625,39 @@ included), and stops with `"capped": true`, the cap, today's count and
 `resetsAt` once it is reached; rerun it after that time for the rest.
 `--send --ignore-cap` overrides the cap on purpose (Gmail's daily quota also
 carries sign-up and password mail); `--ignore-cap` without `--send` is refused.
+
+## BUC readings
+
+BUC (the Biblioteca Urbana Colaborativa, https://buc.sistemaurbano.org/) is
+NODAL's source of readings. `GET /api/readings` (server/buc.js) answers every
+placement: the console's Learning band, the knowledge hub, festival session
+pages, course pages and the suggestion under a chat message that asks for
+readings. It is public like BUC itself and the same for everyone: it never reads
+the session, sets no cookie and is cached by the CDN for 5 minutes
+(`s-maxage=300, stale-while-revalidate=600`).
+
+- **Without `BUC_FEED_URL`** (today) the answer is links into BUC's own search
+  form (`/busqueda?q=…&c=…`), tagged `utm_source=nodal&utm_medium=<placement>`.
+  NODAL makes no request to BUC at all; members reach BUC only by following a
+  link. Which BUC category each topic and festival block searches is edited in
+  one place, `TOPIC_TO_BUC` and `BLOCK_TO_BUC` in `server/buc.js`.
+- **With `BUC_FEED_URL`** (once BUC publishes the feed in
+  `docs/integrations/buc-feed.md`) the answer also carries the publications
+  themselves. Set it for Production and Preview alike (the feed is public) and
+  redeploy the current build; no release is needed. Each server instance reads
+  the whole catalogue at most every 6 hours (`If-None-Match` with the feed's
+  ETag, 10 s timeout, 5 MB cap) and logs one line per read:
+  `BUC feed: N publications, M skipped` (skipped ones broke a rule of the feed
+  spec), or `BUC feed read failed (reason); keeping the last copy` /
+  `…; serving links`. A failed read is retried after 15 minutes, and readings
+  wait at most 2 s for an instance's first read, so a slow, broken or missing
+  feed never breaks a page: readings fall back to the last good copy, else to
+  links. Only an `https` address without credentials is used; any other value
+  keeps the feed off and logs `BUC_FEED_URL is not an https address…` once per
+  instance. It must be the feed's final address: the reader follows no
+  redirect (to a canonical host, a trailing slash or a CDN), and every read of
+  one fails with `BUC feed read failed (unexpected redirect)`, so the feed
+  stays on links. To turn the feed off, remove the variable and redeploy.
 
 ## Security Checklist
 
