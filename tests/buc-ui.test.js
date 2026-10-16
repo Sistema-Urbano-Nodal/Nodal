@@ -356,13 +356,31 @@ const M=n=>'10000000-0000-4000-8000-00000000000'+n;
 
 test('a suggestion takes the message’s own words, at most three, leaving out the asking and the small words',async()=>{
  const cases=[[ASK,'movilidad lima'],['Any good books about informal settlements in Bogotá, please?','informal settlements bogotá'],['Alguém indica livros sobre mobilidade ativa?','mobilidade ativa'],
-  ['¿Alguna bibliografía?',undefined],['Recomendaciones de lectura: https://example.org/una/ruta 2026',undefined],['Libros sobre calles, barrios, plazas y parques',"calles barrios plazas"]];
+  ['¿Alguna bibliografía?',undefined],['Recomendaciones de lectura: https://example.org/una/ruta 12',undefined],['Libros sobre calles, barrios, plazas y parques',"calles barrios plazas"]];
  for(const [message,words] of cases){
   const p=bucPage(()=>CHAT),host=p.host();await p.Buc.suggest(host,message,{block:'day1-am'});
   assert.deepEqual(chatReadings(p.requests).map(params),[{context:'chat',block:'day1-am',...(words?{q:words}:{}),limit:'3'}],message);
  }
  const p=bucPage(()=>CHAT),host=p.host();assert.equal(await p.Buc.suggest(host,'Hola a todas',{block:'day1-am'}),false);
  assert.equal(p.requests.length,0,'a message that does not ask reads nothing');assert.equal(host.hidden,true);
+});
+
+test('a suggestion never searches with a message’s contact details: emails, handles, web addresses and phone numbers stay out of its words',async()=>{
+ // [message, the words searched, the parts that must not travel]. A year stays a subject word; any other number goes.
+ const cases=[['Libros sobre movilidad, mi IG es @juan_perez_lima','movilidad',['juan','perez']],
+  ['Libros? llámame al +51 987 654 321 o rosa.flores@pucp.edu.pe',undefined,['llamame','rosa','flores','pucp','987','654','321']],
+  ['Busco bibliografía, contacto: www.miblog.pe/juan',undefined,['contacto','miblog','juan']],
+  ['Lecturas sobre vivienda? Escríbanme a ana.torres@gmail.com o por WhatsApp al 987654321','vivienda',['escribanme','ana','torres','gmail','whatsapp','987654321']],
+  ['¿Libros de gobernanza? Todo en miblog.pe/lecturas, wsp 999-888-777, IG juan_perez','gobernanza',['miblog','999','888','777','juan','perez']],
+  ['Any readings on housing? Email me at a.b@uni.edu or call (01) 555-0199','housing',['email','uni','call','555','0199']],
+  ['Livros sobre mobilidade desde 1990? Me liga: 2045 1987','mobilidade 1990',['liga','2045','1987']],
+  ['Bibliografía sobre covid-19 y barrios, código 12345, https://example.org/x','barrios código',['covid','12345','example']]];
+ for(const [message,words,parts] of cases){
+  const p=bucPage(()=>CHAT),host=p.host();await p.Buc.suggest(host,message,{block:'day1-am'});
+  const [request]=chatReadings(p.requests);assert.equal(params(request).q,words,message);
+  const sent=decodeURIComponent(new URL(request,'https://nodal.test').search.replace(/\+/g,' ')).normalize('NFD').replace(/\p{M}/gu,'').toLowerCase();
+  for(const part of parts)assert.ok(!sent.includes(part),`${message}: “${part}” must not be in ${request}`);
+ }
 });
 
 test('under a FIIU chat message asking for readings, a quiet “Sugerencias de la BUC” line, once per message, never under a hidden one',async()=>{

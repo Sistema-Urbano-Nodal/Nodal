@@ -122,8 +122,16 @@
  const ASKS=[/\b(?:libros?|lecturas?|bibliografias?|readings?|books?|livros?|leituras?)\b/,/\brecomienda[ns]?\b[^.?!\n]{0,40}\bleer\b/,
   /\brecommend\w*\b[^.?!\n]{0,40}\bread\b/,/\bwhat (?:should|could|can) (?:i|we) read\b/,/\b(?:recomenda[ms]?|indica[ms]?|sugere[ms]?)\b[^.?!\n]{0,40}\bler\b/];
  const asks=text=>typeof text==='string'&&ASKS.some(pattern=>pattern.test(fold(text)));
- // The message's own words for BUC's search: three at most, in its order, leaving out the asking, the small words and the city words every BUC
- // publication shares; addresses and bare numbers too. The words are compared without accents and kept as written.
+ /* The message's own words for BUC's search: three at most, in its order, leaving out the asking, the small words and the city words every BUC
+    publication shares. The words are compared without accents and kept as written. Contact details never become search words: they would travel to BUC
+    in a link everyone in the thread sees, and into NODAL's logs and the CDN's cache keys. So, as the server does (withoutContactDetails, server/buc.js),
+    every piece holding an @ (an email, a handle), a scheme, www. or a domain with a path (miblog.pe/juan) goes first, then every word with a digit (a
+    phone, an ID; a leading + or # with it) except a year from 1900 to 2100. A little stricter here: a run of digit groups is a phone even when its groups
+    look like years ("2045 1987"), and a word_with_underscores is a handle. The words that ask to be reached (escríbanme, llámame, correo) go with the
+    asking. */
+ const CONTACT=/\S*(?:@|_|:\/\/|\bwww\.|[\p{L}\p{N}]\.\p{L}{2,}\/)\S*/giu,PHONE=/[+(]*\d[\d\s().-]{5,}\d/g,SIGNED=/[+#]?[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu;
+ const year=word=>/^\d{4}$/.test(word)&&Number(word)>=1900&&Number(word)<=2100;
+ const withoutContacts=text=>String(text).normalize('NFC').replace(CONTACT,' ').replace(PHONE,' ').replace(SIGNED,word=>/\p{N}/u.test(word)&&!year(word.replace(/^[+#]/,''))?' ':word);
  const STOP=new Set(('libro libros lectura lecturas bibliografia bibliografias leer recomiendan recomienda recomiendas recomendar recomiendo recomendacion recomendaciones '+
   'sugieren sugieres sugerir sugerencia sugerencias busco buscan buscando book books ebook ebooks reading readings read recommend recommends recommended recommendation '+
   'recommendations suggest suggested suggestion suggestions looking livro livros leitura leituras recomendam recomenda recomendacao recomendacoes indicam indica indicar '+
@@ -132,11 +140,15 @@
   'esto estas estos ese esos esa esas eso aqui otro otra otros otras todo todos toda todas mucho mucha muchos muchas puede pueden podria podrian quisiera quiero queria '+
   'bueno buena buenos buenas mejor mejores interesante interesantes tienen tiene tengo nosotros ustedes nuestro nuestra cada entre desde hasta antes despues durante segun '+
   'hacia what which about anyone someone some good great would could should with from that this these those have please thanks hello there their them they your into '+
-  'also more alguem algum alguma alguns algumas voce voces vcs tambem muito muita obrigado obrigada pessoal gente qual quais onde quando isso essa esse este esta').split(' '));
+  'also more alguem algum alguma alguns algumas voce voces vcs tambem muito muita obrigado obrigada pessoal gente qual quais onde quando isso essa esse este esta '+
+  'necesito necesitamos gustaria tienes pasan pasar pasen pasame compartir compartan comparten manden mandar envien enviar enviame escribanme escribeme escribame '+
+  'escribir llamame llamenme llamar contacto contactame contactar correo mail email gmail hotmail outlook yahoo arroba punto celular telefono numero whatsapp '+
+  'instagram insta tiktok telegram linkedin twitter link links enlace enlaces need want share send call calling contact message phone number website preciso '+
+  'quero gostaria passar passem compartilhar mandem enviem liga ligar ligue chama chamar telefone').split(' '));
  function wordsOf(text){
   const out=[],seen=new Set();
-  for(const word of String(text).replace(/https?:\/\/\S+/gi,' ').toLowerCase().match(/[\p{L}\p{N}]+/gu)||[]){
-   const key=fold(word);if(key.length<4||/^\d+$/.test(key)||STOP.has(key)||seen.has(key))continue;seen.add(key);out.push(word);if(out.length===3)break;
+  for(const word of withoutContacts(text).toLowerCase().match(/[\p{L}\p{N}]+/gu)||[]){
+   const key=fold(word);if(key.length<4||STOP.has(key)||seen.has(key))continue;seen.add(key);out.push(word);if(out.length===3)break;
   }
   return out.join(' ');
  }
