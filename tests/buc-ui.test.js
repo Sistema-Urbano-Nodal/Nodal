@@ -21,7 +21,7 @@ const LINKS={source:'links',items:[],links:[
 const FEED={source:'feed',items:[
  {id:'1234',title:'Clima y resiliencia en la mirada urbana',authors:['Lima Cómo Vamos'],year:2025,country:'Perú',category:3,format:'Documento',url:'https://buc.sistemaurbano.org/publicacion/1234',summary:'Percepciones sobre cambio climático en Lima y Callao.'},
  {id:'88',title:'Calles para la infancia',authors:['Ocupa Tu Calle','Fundación Bernard van Leer','Urban95'],year:null,country:null,category:1,format:'Guía',url:'https://www.example.org/calles-infancia',summary:''},
-],links:[{label:'Ver más en la BUC',url:'https://buc.sistemaurbano.org/busqueda?c=3&utm_source=nodal&utm_medium=console',category:3}]};
+],links:[{label:'Ver más en la BUC',url:'https://buc.sistemaurbano.org/busqueda?c=3&utm_source=nodal&utm_medium=console',category:3,words:'',more:true}]};
 // The knowledge hub with no filters: every BUC category.
 const CATEGORY_IDS=[1,2,3,4,5,6,7,8];
 const ALL={source:'links',items:[],links:CATEGORY_IDS.map(id=>({label:'c'+id,url:'https://buc.sistemaurbano.org/busqueda?c='+id+'&utm_source=nodal&utm_medium=knowledge',category:id}))};
@@ -84,6 +84,21 @@ test('with BUC’s feed on, the block lists publications (title, authors, year, 
  assert.equal(text(items[1].querySelector('.buc-meta')),'Ocupa Tu Calle, Fundación Bernard van Leer et al. · Childhood','two authors at most, and no year when there is none');
  const more=host.querySelector('.buc-more');assert.ok(more,'one way to see more');assert.equal(more.href,FEED.links[0].url);assert.equal(text(more),'See more on BUC');
  p.lang('es');assert.equal(text(more),'Ver más en la BUC');assert.equal(text(items[0].querySelector('.buc-meta')),'Lima Cómo Vamos · 2025 · Ambiente');
+});
+
+test('with the feed on and nothing asked for, the publications come with BUC’s eight categories as a list of their own; “see more” is the server’s word',async()=>{
+ const everything={source:'feed',items:FEED.items,links:ALL.links},p=bucPage(()=>everything),host=p.host();
+ assert.equal(await p.Buc.mount(host,{context:'knowledge',limit:6}),true);
+ const [items,links]=host.querySelectorAll('.buc-list');
+ assert.equal(items.className,'buc-list is-items');assert.equal(links?.className,'buc-list is-links','the categories are a list, not links run together');
+ assert.equal(host.children.length,2);assert.ok(links.children.every(li=>li.tagName==='li'&&li.children.length===1&&li.children[0].tagName==='a'),'one link per item');
+ assert.deepEqual(anchors(links).map(text),NAMES.en);assert.equal(host.querySelector('.buc-more'),null,'no category is taken for “see more”');
+ // One link is not “see more” unless the server says so.
+ const one={source:'feed',items:FEED.items,links:[{label:'Movilidad',url:'https://buc.sistemaurbano.org/busqueda?c=7&utm_source=nodal&utm_medium=console',category:7}]};
+ const q=bucPage(()=>one),h=q.host();await q.Buc.mount(h,{topics:['Mobility'],context:'console'});
+ assert.equal(h.querySelector('.buc-more'),null);assert.deepEqual(anchors(h.querySelector('.is-links')).map(text),['Mobility']);
+ const chat=bucPage(()=>everything),line=chat.host();await chat.Buc.suggest(line,'¿Algún libro sobre movilidad?',{block:'day1-am'});
+ assert.deepEqual(anchors(line).map(text),FEED.items.map(item=>item.title),'a suggestion line takes the publications, and the server’s “see more” only');
 });
 
 test('a readings block fails quietly: an outage, a lost connection, an odd answer or links that leave BUC draw nothing',async()=>{

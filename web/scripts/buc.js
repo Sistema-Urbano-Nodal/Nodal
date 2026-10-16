@@ -43,8 +43,9 @@
   if(Number.isInteger(limit)&&limit>=1&&limit<=12)q.set('limit',String(limit));
   return '/api/readings?'+q;
  }
- // Only what can be drawn safely is kept: links into BUC, publications with a title and an https address.
- function linkOf(raw){const url=safeUrl(raw?.url,true);return url?{url,category:category(raw.category),words:clean(new URL(url).searchParams.get('q')||'')}:null;}
+ // Only what can be drawn safely is kept: links into BUC, publications with a title and an https address. The feed's way on to the rest of BUC is the
+ // link the server marks more.
+ function linkOf(raw){const url=safeUrl(raw?.url,true);return url?{url,category:category(raw.category),words:clean(new URL(url).searchParams.get('q')||''),more:raw.more===true}:null;}
  function itemOf(raw){
   const url=safeUrl(raw?.url,false),title=clean(raw?.title);if(!url||!title||title.length>300)return null;
   const authors=(Array.isArray(raw.authors)?raw.authors:[]).map(clean).filter(Boolean);
@@ -87,11 +88,13 @@
   if(parts.length){const meta=el('span','buc-meta');parts.forEach((part,i)=>{if(i)meta.append(sep());meta.append(part);});li.append(meta);}
   return li;
  }
- // The publications (with the feed) or the links (without it), then the feed's way on.
+ // The publications (with the feed), then the feed's way on; any other links (BUC's categories, when nothing in particular was asked for) are a list of
+ // their own, as they are without the feed.
+ function linkList(links){const list=el('ul','buc-list is-links');for(const link of links){const li=el('li');li.append(linkNode(link,{more:link.more}));list.append(li);}return list;}
  function draw(data){
-  if(data.items.length){const list=el('ul','buc-list is-items');list.append(...data.items.map(itemNode));return [list,...data.links.map(link=>linkNode(link,{more:data.links.length===1}))];}
-  const list=el('ul','buc-list is-links');for(const link of data.links){const li=el('li');li.append(linkNode(link,{more:data.source==='feed'&&data.links.length===1}));list.append(li);}
-  return [list];
+  if(!data.items.length)return [linkList(data.links)];
+  const list=el('ul','buc-list is-items'),more=data.links.find(link=>link.more),rest=data.links.filter(link=>!link.more);list.append(...data.items.map(itemNode));
+  return [list,...(more?[linkNode(more,{more:true})]:[]),...(rest.length?[linkList(rest)]:[])];
  }
 
  /* host: the block a page keeps for its readings, hidden until they arrive. heading: the page's own nodes to put first (a heading, a summary, a hint).
@@ -165,8 +168,8 @@
    const line=el('p','buc-suggest');line.append(words?label('suggestOn',words,'buc-suggest-label'):label('suggest','','buc-suggest-label'));
    if(data.items.length){
     for(const item of data.items.slice(0,3)){const a=away(el('a','buc-link buc-title',item.title),item.url);a.translate=true;line.append(a);}
-    if(data.links[0])line.append(linkNode(data.links[0],{more:true}));
-   }else line.append(...data.links.slice(0,3).map(link=>linkNode(link,{own:words,more:data.source==='feed'&&data.links.length===1})));
+    const more=data.links.find(link=>link.more);if(more)line.append(linkNode(more,{more:true}));
+   }else line.append(...data.links.slice(0,3).map(link=>linkNode(link,{own:words,more:link.more})));
    host.replaceChildren(line);host.hidden=false;return true;
   });
   drawn.set(host,{path,done});return done;
