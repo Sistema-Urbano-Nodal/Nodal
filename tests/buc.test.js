@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {once} from 'node:events';
-import {BUC_CATEGORIES,TOPIC_TO_BUC,BLOCK_TO_BUC,BUC_FEED_LIMITS,READINGS_FEED_WAIT_MS,bucLinks,searchWords,withoutContactDetails,createBucFeed,bucFeedFromEnv,bucReadings} from '../server/buc.js';
+import {BUC_CATEGORIES,TOPIC_TO_BUC,BLOCK_TO_BUC,BUC_VOCABULARY,BUC_FEED_LIMITS,READINGS_FEED_WAIT_MS,bucLinks,vocabularyEntry,foldText,createBucFeed,bucFeedFromEnv,bucReadings} from '../server/buc.js';
 import {ALL_FIIU_ACTIVITIES} from '../server/fiiu-domain.js';
 import {GENERAL_SPACE} from '../server/fiiu-talk-domain.js';
 import {createApp} from '../server/server.js';
@@ -17,21 +17,75 @@ test('the eight BUC categories carry their Spanish names under BUC ids', () => {
   assert.deepEqual({...BUC_CATEGORIES},{1:'Infancia',2:'Espacio público',3:'Ambiente',4:'Metodologías',5:'Cultura',6:'Gobernanza',7:'Movilidad',8:'Inclusión'});
 });
 
-test('every NODAL topic maps onto a BUC category and, where the spec says so, extra Spanish search words', () => {
+test('every NODAL topic maps onto a BUC category and, where BUC finds it there, the topic’s own Spanish word', () => {
   assert.deepEqual(Object.fromEntries(Object.entries(TOPIC_TO_BUC).map(([name,{category,words}])=>[name,[category,words]])),{
     'Mobility':[7,''],
     'Public space':[2,''],
     'Housing':[8,'vivienda'],
     'Climate & resilience':[3,'clima'],
-    'Care & gender':[8,'cuidado'],
+    'Care & gender':[8,'género'],
     'Governance & participation':[6,''],
     'Safety':[2,'seguridad'],
-    'Informality':[8,'informalidad'],
-    'Heritage':[5,'patrimonio'],
+    // BUC finds nothing for "informalidad" or "patrimonio" (checked by hand), so these open the whole category.
+    'Informality':[8,''],
+    'Heritage':[5,''],
     'Urban data & tech':[4,'datos'],
     'Land use & planning':[4,'planificación'],
     'Environment & nature':[3,''],
   });
+  // A topic's word is one the vocabulary checked against BUC, in the same category.
+  for(const [name,{category,words}] of Object.entries(TOPIC_TO_BUC))
+    if(words)assert.equal(vocabularyEntry(words)?.category,category,name);
+});
+
+/* ---------------------------------------------------------------- the vocabulary */
+
+const entryOf=term=>BUC_VOCABULARY.find(entry=>entry.terms.some(own=>foldText(own)===foldText(term)));
+
+test('the vocabulary: each entry has its ES/EN/PT terms, one BUC category, a Spanish q and a name in each language', () => {
+  assert.ok(BUC_VOCABULARY.length>=16);
+  const terms=new Set(),queries=new Set();
+  for(const entry of BUC_VOCABULARY){
+    assert.deepEqual(Object.keys(entry).sort(),['category','label','q','terms'],entry.q);
+    assert.ok(Object.hasOwn(BUC_CATEGORIES,entry.category),entry.q);
+    assert.ok(Array.isArray(entry.terms)&&entry.terms.length>=3,entry.q);
+    for(const term of entry.terms){
+      assert.ok(typeof term==='string'&&term===term.trim()&&term===term.toLowerCase()&&/^[\p{L} ]+$/u.test(term),term);
+      assert.ok(!terms.has(foldText(term)),`${term} is in one entry only`);terms.add(foldText(term));
+    }
+    assert.equal(typeof entry.q,'string');
+    if(entry.q){assert.ok(entry.q.length<=40&&/^[\p{L} ]+$/u.test(entry.q),entry.q);assert.ok(!queries.has(foldText(entry.q)),entry.q);queries.add(foldText(entry.q));}
+    // The name the line shows, in English, Spanish and Portuguese, is one of the entry's own terms (accents aside: "patrimonio" is also "patrimônio").
+    assert.equal(entry.label.length,3,entry.q);
+    for(const name of entry.label)assert.ok(entry.terms.some(own=>foldText(own)===foldText(name)),`${name} is a term of its entry`);
+  }
+  assert.ok(Object.isFrozen(BUC_VOCABULARY)&&BUC_VOCABULARY.every(entry=>Object.isFrozen(entry)&&Object.isFrozen(entry.terms)&&Object.isFrozen(entry.label)));
+});
+
+test('the vocabulary covers the twelve NODAL topics and the festival’s themes, in Spanish, English and Portuguese, singular and plural', () => {
+  // Each NODAL topic's English words find an entry in the topic's own BUC category.
+  const topicWords={'Mobility':['mobility'],'Public space':['public space'],'Housing':['housing'],'Climate & resilience':['climate','resilience'],'Care & gender':['care','gender'],
+    'Governance & participation':['governance','participation'],'Safety':['safety'],'Informality':['informality'],'Heritage':['heritage'],'Urban data & tech':['urban data','technology'],
+    'Land use & planning':['land use','planning'],'Environment & nature':['environment','nature']};
+  assert.deepEqual(Object.keys(topicWords).sort(),Object.keys(TOPIC_TO_BUC).sort());
+  for(const [name,words] of Object.entries(topicWords))for(const word of words)assert.equal(entryOf(word)?.category,TOPIC_TO_BUC[name].category,`${name}: ${word}`);
+  const covered={
+    7:['movilidad','mobility','mobilidade','transporte','transport','caminabilidad','walkability','caminhabilidade'],
+    8:['vivienda','viviendas','housing','moradia','habitação','cuidado','cuidados','care','género','gender','gênero','informalidad','informality','informalidade','asentamientos informales','inclusión','inclusion','inclusão'],
+    2:['espacio público','espacios públicos','public space','public spaces','espaço público','espaços públicos','seguridad','safety','segurança','acupuntura urbana'],
+    3:['clima','climate','cambio climático','climate change','resiliencia','resilience','ambiente','medio ambiente','environment','meio ambiente','naturaleza','nature'],
+    6:['gobernanza','governance','governança','participación','participation','participação'],
+    5:['patrimonio','heritage','património','patrimônio','cultura','culture','centro histórico'],
+    4:['datos','urban data','open data','big data','data science','dados','tecnología','technology','planificación','planning','planejamento','uso de suelo','land use','metodología','metodologías','methods'],
+    1:['infancia','childhood','niñez','infância','niños'],
+  };
+  for(const [category,terms] of Object.entries(covered))for(const term of terms)assert.equal(entryOf(term)?.category,Number(category),term);
+  // "data" alone is Portuguese for a date ("a data do lançamento") and Spanish "de larga data": the English topic is named as a phrase.
+  assert.equal(entryOf('data'),undefined);
+  // Matching is accent- and case-free, so an unaccented or capitalised q is the same q.
+  assert.equal(vocabularyEntry('Planificacion')?.q,'planificación');
+  assert.equal(vocabularyEntry('  ESPACIO   publico ')?.q,'espacio público');
+  for(const other of ['','housing','vivienda social','llamo juan pérez','movilidad lima',undefined,null,42])assert.equal(vocabularyEntry(other),null,String(other));
 });
 
 test('every festival block has its BUC categories, in one place, and only known ids', () => {
@@ -66,65 +120,41 @@ test('a topic link searches its category with its words, labelled with the categ
   assert.deepEqual({label:mobility.label,category:mobility.category,words:mobility.words},{label:'Movilidad',category:7,words:''});
 });
 
-test('words are URL-encoded, accents included, and a words-only link searches every category', () => {
+test('a q is URL-encoded, accents included, and the words-only link searches every category', () => {
   const [land]=bucLinks({topics:['Land use & planning'],context:'console'});
   assert.match(land.url,/\?q=planificaci%C3%B3n&c=4&/);
-  const [only]=bucLinks({words:'espacio público & niñez',context:'chat'});
-  assert.equal(only.url,`${SEARCH}?q=espacio+p%C3%BAblico+ni%C3%B1ez&c=&utm_source=nodal&utm_medium=chat`);
-  assert.deepEqual({label:only.label,category:only.category,words:only.words},{label:'Buscar «espacio público niñez» en la BUC',category:null,words:'espacio público niñez'});
+  const links=bucLinks({words:'espacio público',context:'chat'});
+  assert.deepEqual(links.map(link=>link.url),[`${SEARCH}?q=espacio+p%C3%BAblico&c=2&utm_source=nodal&utm_medium=chat`,`${SEARCH}?q=espacio+p%C3%BAblico&c=&utm_source=nodal&utm_medium=chat`]);
+  assert.deepEqual({label:links[1].label,category:links[1].category,words:links[1].words},{label:'Buscar «espacio público» en la BUC',category:null,words:'espacio público'});
+  // Words that are not a vocabulary q never reach a link, so none can add a parameter either.
   const tricky=bucLinks({words:'calle=plaza&c=7 #barrio ?ruta',categories:[2],context:'chat'});
-  assert.deepEqual(tricky.map(link=>link.words),['calle plaza barrio ruta','calle plaza barrio ruta']);
-  for(const link of tricky){
+  assert.deepEqual(tricky.map(link=>[link.category,link.words]),[[2,'']]);
+  for(const link of [...links,...tricky]){
     const url=new URL(link.url);
     assert.equal(url.origin+url.pathname,SEARCH);assert.equal(url.hash,'');
-    assert.deepEqual([...url.searchParams.keys()],['q','c','utm_source','utm_medium'],'no word can add a parameter');
+    assert.deepEqual([...url.searchParams.keys()],['q','c','utm_source','utm_medium']);
   }
 });
 
-test('a reading request keeps only its subject words: the request itself and small words are dropped', () => {
-  assert.equal(searchWords('¿Qué libros me recomiendan sobre vivienda social?'),'vivienda social');
-  assert.equal(searchWords('Any good books or readings about public space?'),'public space');
-  assert.equal(searchWords('Vocês recomendam livros ou leituras sobre mobilidade urbana?'),'mobilidade urbana');
-  assert.equal(searchWords('Bibliografía de MOVILIDAD, movilidad y Movilidad'),'movilidad','case- and accent-insensitive, once each');
-  assert.equal(searchWords('¿Alguien me recomienda libros?'),'');
-  assert.equal(searchWords('calles plazas parques barrios mercados'),'calles plazas parques barrios','at most four words');
-  assert.ok(searchWords('x'.repeat(70)+' '+'y'.repeat(70)).length<=80);
-  assert.equal(searchWords(undefined),'');
+test('a q searches its own category and all of BUC; any other category is searched whole, a topic with its own word', () => {
+  // "vivienda" was checked in Inclusión (8): the block's Gobernanza (6) is opened whole, not searched for a word BUC may not have there.
+  assert.deepEqual(bucLinks({categories:[6],words:'vivienda',context:'chat'}).map(link=>[link.category,link.words]),[[8,'vivienda'],[6,''],[null,'vivienda']]);
+  // The q's own category asked for again is one link, and it is not also opened whole.
+  assert.deepEqual(bucLinks({categories:[8,7],words:'Vivienda',context:'chat'}).map(link=>[link.category,link.words]),[[8,'vivienda'],[7,''],[null,'vivienda']]);
+  assert.deepEqual(bucLinks({topics:['Mobility'],words:'movilidad',context:'chat'}).map(link=>[link.category,link.words]),[[7,'movilidad'],[null,'movilidad']]);
+  // A topic keeps the word that was checked for it.
+  assert.deepEqual(bucLinks({topics:['Housing'],words:'movilidad',context:'chat'}).map(link=>[link.category,link.words]),[[7,'movilidad'],[8,'vivienda'],[null,'movilidad']]);
+  // Free text, a name or a word the vocabulary only matches on (not its q) is no q at all.
+  for(const words of ['llamo juan pérez','vivienda social','housing','vivienda juanperez'])
+    assert.deepEqual(bucLinks({categories:[6],words,context:'chat'}).map(link=>[link.category,link.words]),[[6,'']],words);
 });
 
-test('contact details never become search words: addresses, emails, handles and numbers other than years go', () => {
-  assert.equal(searchWords('¿Algún libro? escríbanme a juan.perez@gmail.com o al +51 987 654 321'),'');
-  assert.equal(searchWords('libros sobre Lima 2040 https://x.org/a'),'lima 2040');
-  assert.equal(searchWords('Recomiendan lecturas? mi cel es +51 987 654 321'),'');
-  assert.equal(searchWords('libros en https://example.com/path?x=1'),'');
-  assert.equal(searchWords('libros en example.com/path o www.ejemplo.org.pe'),'','a bare address too');
-  assert.equal(searchWords('Gracias @mariaq y @maríaq, ¿algún libro sobre vivienda? (ana@ejemplo.org)'),'vivienda');
-  // A year is a subject word; any other number (a phone, an ID, a count) is not.
-  assert.equal(searchWords('tel 987-654-321, censo de 1993 y 2017, no 1899 ni 2101 ni 300 hogares'),'censo 1993 2017 hogares');
-  // Asking someone to pass a link is the request, not its subject.
-  assert.equal(searchWords('Hola, ¿me pasan el link del libro que mencionó la ponente?'),'');
-  assert.equal(searchWords('Necesito o quisiera un enlace a lecturas sobre movilidad'),'movilidad');
-  // The same rules on the text itself, which is what a client sends as q (cut to 80 characters).
-  assert.equal(withoutContactDetails('¿Algún libro? escríbanme a juan.perez@gmail.com o al +51 987 654 321'),'¿Algún libro? escríbanme a o al');
-  assert.equal(withoutContactDetails('Libros sobre Lima 2040, #1 en https://x.org/a (gracias @mariaq)'),'Libros sobre Lima 2040, en (gracias');
-  // A phone written in groups of four digits reads like two years; a run of digit groups is a phone, not a year.
-  assert.equal(searchWords('Libros de movilidad, llámame al 2045 1987'),'movilidad');
-  assert.equal(searchWords('Lecturas sobre vivienda 1990 2020 en Lima'),'vivienda lima');
-  assert.equal(searchWords('Libros sobre el plan Lima 2040'),'plan lima 2040');
-  const [link]=bucLinks({categories:[6],words:'¿Algún libro? escríbanme a juan.perez@gmail.com',context:'chat'});
-  assert.deepEqual({label:link.label,words:link.words,q:params(link).q},{label:'Gobernanza',words:'',q:''});
-});
-
-test('categories search with the words, then one words-only link; duplicates collapse; at most four links', () => {
-  const links=bucLinks({categories:[8,7],words:'¿libros sobre cuidado?',context:'chat'});
-  assert.deepEqual(links.map(link=>[link.category,link.words]),[[8,'cuidado'],[7,'cuidado'],[null,'cuidado']]);
+test('topics and categories: duplicates collapse, at most four links, in the order asked', () => {
   // A topic and its own category, asked twice, are one link.
   assert.deepEqual(bucLinks({topics:['Mobility','Mobility'],categories:[7,7],context:'course'}).map(link=>link.url),[`${SEARCH}?q=&c=7&utm_source=nodal&utm_medium=course`]);
-  // Words asked with topics replace the topics' own words, so each link stays one short search.
-  assert.deepEqual(bucLinks({topics:['Housing'],words:'Lima',context:'chat'}).map(link=>[link.category,link.words]),[[8,'lima'],[null,'lima']]);
   const many=bucLinks({topics:['Housing','Care & gender','Informality','Heritage','Safety'],context:'console'});
   assert.equal(many.length,4);
-  assert.deepEqual(many.map(link=>link.words),['vivienda','cuidado','informalidad','patrimonio'],'in the order asked');
+  assert.deepEqual(many.map(link=>[link.category,link.words]),[[8,'vivienda'],[8,'género'],[8,''],[5,'']],'in the order asked');
 });
 
 test('unknown topics and categories are ignored; nothing specific opens all eight categories', () => {
@@ -132,7 +162,7 @@ test('unknown topics and categories are ignored; nothing specific opens all eigh
   const all=bucLinks({context:'knowledge'});
   assert.deepEqual(all.map(link=>link.label),Object.values(BUC_CATEGORIES));
   assert.deepEqual(all.map(link=>params(link)),[1,2,3,4,5,6,7,8].map(c=>({q:'',c:String(c),utm_source:'nodal',utm_medium:'knowledge'})));
-  // A request whose words are only the request itself is just as unspecific.
+  // Words that are no q are just as unspecific.
   assert.equal(bucLinks({words:'¿me recomiendan libros?',context:'chat'}).length,8);
 });
 
@@ -324,7 +354,7 @@ test('requests that arrive during a read share it', async () => {
   assert.equal(fetch.calls.length,1);
 });
 
-test('recommendations keep the asked categories and rank by matching words, then newest', async () => {
+test('recommendations keep the asked categories; words asked for must match, ranking words only rank; then newest', async () => {
   const items=[
     publication('old-match',{category:8,year:2010,title:'Vivienda social en Lima'}),
     publication('new',{category:8,year:2024,title:'Barrios y cuidado'}),
@@ -337,14 +367,19 @@ test('recommendations keep the asked categories and rank by matching words, then
   ];
   const feed=feedWith(fakeFetch(json(feedBody(items))));
   const ids=list=>list.map(item=>item.id);
-  // Both words beat none; between equals the newer year wins, then the later update, and an undated one comes last.
-  assert.deepEqual(ids(await feed.recommend({categories:[8],words:'vivienda lima',limit:12})),['two-words','old-match','candidatos','updated','newest','new','undated']);
+  // Words asked for keep only the publications that match one, in a category too, so a line about them shows nothing else; more of them rank first,
+  // then the newer year.
+  assert.deepEqual(ids(await feed.recommend({categories:[8],words:['vivienda','lima'],limit:12})),['two-words','old-match']);
+  assert.deepEqual(ids(await feed.recommend({categories:[8],words:['clima'],limit:12})),[],'nothing in the category matches');
+  // Ranking words (a topic's own) put matches first and keep the rest: between equals the newer year wins, then the later update, and an undated one
+  // comes last.
+  assert.deepEqual(ids(await feed.recommend({categories:[8],rank:['vivienda'],limit:12})),['two-words','old-match','candidatos','updated','newest','new','undated']);
   assert.deepEqual(ids(await feed.recommend({categories:[8],limit:3})),['candidatos','updated','newest'],'no words: newest first');
-  assert.deepEqual(ids(await feed.recommend({categories:[8],words:'Viviénda',limit:2})),['two-words','old-match'],'accents and case are folded; ties go to the newest');
-  // Words alone search every category but keep only publications that match one of them, at word starts.
-  assert.deepEqual(ids(await feed.recommend({words:'vivienda',limit:12})),['other','two-words','old-match']);
-  assert.deepEqual(ids(await feed.recommend({words:'datos',limit:12})),[],'"datos" is not inside "candidatos"');
-  assert.deepEqual(ids(await feed.recommend({words:'¿libros?',limit:12})),ids(await feed.recommend({limit:12})),'request words are not subject words');
+  assert.deepEqual(ids(await feed.recommend({categories:[8],words:'Viviénda',limit:2})),['two-words','old-match'],'accents and case are folded; one string is one phrase');
+  // A phrase is matched whole, at word starts, as BUC's own search matches it.
+  assert.deepEqual(ids(await feed.recommend({words:['vivienda social'],limit:12})),['old-match']);
+  assert.deepEqual(ids(await feed.recommend({words:['vivienda'],limit:12})),['other','two-words','old-match'],'words alone search every category');
+  assert.deepEqual(ids(await feed.recommend({words:['datos'],limit:12})),[],'"datos" is not inside "candidatos"');
   assert.equal((await feed.recommend({})).length,4,'four by default');
   assert.deepEqual(ids(await feed.recommend({categories:[1]})),[]);
 });
@@ -388,9 +423,12 @@ test('a festival block brings its own BUC categories, which stay on the server',
   const {read}=await readingsServer(t);
   const session=await read('?block=day2-am&context=session');
   assert.deepEqual(session.body.links.map(link=>[link.category,params(link).utm_medium]),[[8,'session'],[7,'session']]);
-  // In the block's chat, a request for books searches the block's categories with its subject words, then all of BUC.
-  const chat=await read(`?block=day2-am&q=${encodeURIComponent('¿Algún libro sobre cuidado infantil?')}&context=chat`);
-  assert.deepEqual(chat.body.links.map(link=>[link.category,link.words]),[[8,'cuidado infantil'],[7,'cuidado infantil'],[null,'cuidado infantil']]);
+  // In the block's chat, a request naming a vocabulary topic searches its q in the q's own category, opens the block's other categories whole, then
+  // searches its q across BUC.
+  const chat=await read(`?categories=8&block=day2-am&q=${encodeURIComponent('cuidado')}&context=chat`);
+  assert.deepEqual(chat.body.links.map(link=>[link.category,link.words]),[[8,'cuidado'],[7,''],[null,'cuidado']]);
+  // The q's own category comes with the q even when it was not asked for.
+  assert.deepEqual((await read('?block=day1-am&q=movilidad&context=chat')).body.links.map(link=>[link.category,link.words]),[[7,'movilidad'],[6,''],[null,'movilidad']]);
   // Categories asked for are added to the block's.
   assert.deepEqual((await read('?block=day1-pm&categories=3&context=session')).body.links.map(link=>link.category),[3,2]);
   // The party has no readings.
@@ -400,14 +438,19 @@ test('a festival block brings its own BUC categories, which stay on the server',
   assert.equal((await read('?block=__proto__&context=session')).status,400);
 });
 
-test('contact details in a chat message never reach a BUC link or its label', async t => {
+test('a q that is not one of the vocabulary’s is refused, so no name, handle or free text reaches a BUC link, the logs or the CDN’s keys', async t => {
   const {read}=await readingsServer(t);
-  for(const message of ['¿Algún libro? escríbanme a juan.perez@gmail.com','Recomiendan lecturas? mi cel es +51 987 654 321','libros en https://example.com/path?x=1','¿Algún libro, @mariaq?']){
-    const answer=await read(`?block=day1-am&q=${encodeURIComponent(message)}&context=chat`);
-    assert.equal(answer.status,200,message);
-    assert.deepEqual(answer.body.links.map(link=>[link.label,link.words]),[['Gobernanza','']],message);
-    assert.doesNotMatch(JSON.stringify(answer.body),/juan|perez|gmail|987|654|321|example|mariaq/,message);
+  for(const q of ['llamo juan pérez','soy maría lópez vivienda','john smith housing','vivienda juanperez','juan_perez_arq','¿Algún libro? escríbanme a juan.perez@gmail.com',
+    'Recomiendan lecturas? mi cel es +51 987 654 321','libros en https://example.com/path?x=1','vivienda social','calidad vida','housing','mobilidade','dora pasas mencionaste']){
+    const answer=await read(`?block=day1-am&q=${encodeURIComponent(q)}&context=chat`);
+    assert.equal(answer.status,400,q);assert.deepEqual(answer.body,{code:'invalid_readings_query'},q);
   }
+  // Any spelling of a q is that q, and the links carry it as the vocabulary writes it.
+  for(const q of ['vivienda','VIVIENDA','Vivienda ','planificacion','Espacio Publico']){
+    const answer=await read(`?q=${encodeURIComponent(q)}&context=chat`);
+    assert.equal(answer.status,200,q);assert.ok(answer.body.links.length>=2,q);
+  }
+  assert.deepEqual((await read('?q=planificacion&context=chat')).body.links.map(link=>params(link).q),['planificación','planificación']);
 });
 
 test('the General space is all of BUC, on its page and in its chat', async t => {
@@ -416,12 +459,11 @@ test('the General space is all of BUC, on its page and in its chat', async t => 
   const page=await read(`?block=${general}&context=session`);
   assert.equal(page.status,200);
   assert.deepEqual(page.body.links.map(link=>link.category),[1,2,3,4,5,6,7,8]);
-  const chat=await read(`?block=${general}&q=${encodeURIComponent('libros sobre vivienda')}&context=chat`);
+  const chat=await read(`?block=${general}&categories=8&q=vivienda&context=chat`);
   assert.equal(chat.status,200);
-  assert.deepEqual(chat.body.links.map(link=>[link.category,link.words,params(link).c]),[[null,'vivienda','']]);
-  // A request without subject words is as open as the page.
-  for(const query of [`?block=${general}&q=${encodeURIComponent('¿Algún libro?')}&context=chat`,`?block=${general}&context=chat`])
-    assert.deepEqual((await read(query)).body.links.map(link=>link.category),[1,2,3,4,5,6,7,8],query);
+  assert.deepEqual(chat.body.links.map(link=>[link.category,link.words,params(link).c]),[[8,'vivienda','8'],[null,'vivienda','']]);
+  // A request without a vocabulary topic is as open as the page.
+  assert.deepEqual((await read(`?block=${general}&context=chat`)).body.links.map(link=>link.category),[1,2,3,4,5,6,7,8]);
   // The readings layer itself (the future assistant) agrees: General is not the party.
   assert.deepEqual((await bucReadings({block:general,context:'session'})).links.map(link=>link.category),[1,2,3,4,5,6,7,8]);
 });
@@ -441,7 +483,7 @@ test('a bad readings query is refused with one code', async t => {
   for(const query of [
     '','?context=console','?context=chat','?context=course',
     '?categories=0&context=console','?categories=9&context=console','?categories=7x&context=console','?categories=7,,8&context=console','?categories=1,2,3,4,5,6,7,8,1&context=console',
-    `?q=${'x'.repeat(81)}&context=chat`,
+    `?q=${'x'.repeat(81)}&context=chat`,'?q=lima&context=chat','?q=vivienda&q=clima&context=chat',
     '?topics=Mobility&limit=0','?topics=Mobility&limit=13','?topics=Mobility&limit=abc','?topics=Mobility&limit=4.5','?topics=Mobility&limit=04',
     '?topics=Mobility&context=elsewhere','?topics=Mobility&topics=Housing&context=console','?topics=Mobility&context=console&context=chat',
     `?topics=${Array(13).fill('Mobility').join(',')}&context=console`,`?topics=${'x'.repeat(61)}&context=console`,
@@ -451,7 +493,7 @@ test('a bad readings query is refused with one code', async t => {
   }
   assert.equal((await get('?context=chat')).headers.get('cache-control'),'no-store','a refusal is not cached');
   // Within the rules: 80 characters of words, twelve topics, eight categories, 1 to 12 publications.
-  for(const query of [`?q=${'vivienda '.repeat(9).slice(0,80)}&context=chat`,`?topics=${Array(12).fill('Mobility').join(',')}&context=console`,'?categories=1,2,3,4,5,6,7,8&context=console','?topics=Mobility&limit=1&context=console','?topics=Mobility&limit=12&context=console','?topics=Mobility'])
+  for(const query of ['?q=vivienda&context=chat',`?topics=${Array(12).fill('Mobility').join(',')}&context=console`,'?categories=1,2,3,4,5,6,7,8&context=console','?topics=Mobility&limit=1&context=console','?topics=Mobility&limit=12&context=console','?topics=Mobility'])
     assert.equal((await get(query)).status,200,query);
   // A topic NODAL does not know (an old free-text one) is skipped rather than failing the whole block.
   assert.deepEqual((await read('?topics=Transporte,Mobility&context=console')).body.links.map(link=>link.category),[7]);
@@ -477,11 +519,11 @@ test('with the feed on, readings are publications plus one link to see more in B
   assert.equal(console_.headers.get('cache-control'),READINGS_CACHE);
   assert.deepEqual(console_.body,{source:'feed',
     items:[
-      {id:'m1',title:'Calles para caminar',authors:[],year:2024,country:null,category:7,format:null,url:'https://buc.sistemaurbano.org/publicacion/m1',summary:null},
-      {id:'m2',title:'Movilidad del cuidado',authors:[],year:2020,country:null,category:7,format:null,url:'https://buc.sistemaurbano.org/publicacion/m2',summary:'Viajes de cuidado en Lima.'},
+      {id:'m1',title:'Calles para caminar',authors:[],year:2024,country:null,category:7,format:null,url:'https://buc.sistemaurbano.org/publicacion/m1?utm_source=nodal&utm_medium=console',summary:null},
+      {id:'m2',title:'Movilidad del cuidado',authors:[],year:2020,country:null,category:7,format:null,url:'https://buc.sistemaurbano.org/publicacion/m2?utm_source=nodal&utm_medium=console',summary:'Viajes de cuidado en Lima.'},
     ],
     links:[{label:'Ver más en la BUC',url:`${SEARCH}?q=&c=7&utm_source=nodal&utm_medium=console`,category:7,words:'',more:true}]});
-  assert.deepEqual((await read('?categories=7&q=cuidado&context=chat')).body.items.map(item=>item.id),['m2','m1'],'subject words rank first');
+  assert.deepEqual((await read('?categories=7&q=cuidado&context=chat')).body.items.map(item=>item.id),['m2'],'a q keeps only the publications that match it');
   assert.deepEqual((await read('?topics=Mobility&limit=1&context=console')).body.items.map(item=>item.id),['m1']);
   // The knowledge hub gets the newest publications and still all eight categories.
   const knowledge=await read('?context=knowledge');
@@ -489,7 +531,41 @@ test('with the feed on, readings are publications plus one link to see more in B
   assert.deepEqual(knowledge.body.links.map(link=>link.category),[1,2,3,4,5,6,7,8]);
   // Nothing in the feed for the request: the search links are more use than an empty list.
   assert.deepEqual((await read('?topics=Heritage&context=console')).body,{source:'links',items:[],links:[
-    {label:'Cultura',url:`${SEARCH}?q=patrimonio&c=5&utm_source=nodal&utm_medium=console`,category:5,words:'patrimonio'}]});
+    {label:'Cultura',url:`${SEARCH}?q=&c=5&utm_source=nodal&utm_medium=console`,category:5,words:''}]});
+});
+
+test('with the feed on, a q shows only publications that match it, else the search links', async t => {
+  const items=[
+    publication('g1',{category:6,year:2026,title:'Calidad de vida en Lima'}),
+    publication('v1',{category:8,year:2020,title:'Vivienda social y suelo'}),
+    publication('v2',{category:6,year:2018,title:'Convivienda: un ensayo'}),
+  ];
+  const {read}=await feedServer(t,items);
+  // In the Gobernanza block's chat, a question about vivienda gets the publication about it, never the block's newest one about something else.
+  const chat=await read('?categories=8&block=day1-am&q=vivienda&context=chat&limit=3');
+  assert.equal(chat.body.source,'feed');
+  assert.deepEqual(chat.body.items.map(item=>item.id),['v1'],'"convivienda" is not "vivienda"');
+  assert.deepEqual(chat.body.links.map(link=>[link.category,link.words]),[[null,'vivienda']]);
+  // Nothing matches: the links, which search the q where it was checked.
+  const none=await read('?block=day1-am&q=clima&context=chat');
+  assert.equal(none.body.source,'links');
+  assert.deepEqual(none.body.links.map(link=>[link.category,link.words]),[[3,'clima'],[6,''],[null,'clima']]);
+});
+
+test('with the feed on, a publication on BUC is tagged for BUC’s analytics like its search links; one on an author’s portal is left as it is', async t => {
+  const items=[
+    publication('b1',{category:7,year:2025,url:'https://buc.sistemaurbano.org/publicacion/b1?ref=feed#top'}),
+    publication('a1',{category:7,year:2024,url:'https://www.limacomovamos.org/informe'}),
+  ];
+  const {read}=await feedServer(t,items);
+  for(const context of ['console','knowledge','session','course','chat']){
+    const query=context==='knowledge'?'?context=knowledge':context==='session'?'?block=day1-pm&categories=7&context=session':`?topics=Mobility&context=${context}`;
+    const answer=await read(query);
+    assert.equal(answer.body.source,'feed',context);
+    assert.deepEqual(answer.body.items.map(item=>item.url),[`https://buc.sistemaurbano.org/publicacion/b1?ref=feed&utm_source=nodal&utm_medium=${context}#top`,'https://www.limacomovamos.org/informe'],context);
+  }
+  // Without a context, still from NODAL.
+  assert.equal((await bucReadings({topics:['Mobility']},{feed:createBucFeed({url:FEED_URL,fetchImpl:fakeFetch(json(feedBody(items))).fetchImpl,log:()=>{}})})).items[0].url,'https://buc.sistemaurbano.org/publicacion/b1?ref=feed&utm_source=nodal#top');
 });
 
 test('with the feed on, "see more" searches what the publications were drawn from', async t => {
@@ -504,7 +580,7 @@ test('with the feed on, "see more" searches what the publications were drawn fro
   assert.equal(session.body.source,'feed');
   assert.deepEqual(session.body.items.map(item=>item.id),['m1','i1']);
   assert.deepEqual(session.body.links,[{label:'Ver más en la BUC',url:`${SEARCH}?q=&c=&utm_source=nodal&utm_medium=session`,category:null,words:'',more:true}]);
-  const chat=await read(`?block=day2-am&q=${encodeURIComponent('¿libros sobre cuidado?')}&context=chat`);
+  const chat=await read('?block=day2-am&q=cuidado&context=chat');
   assert.deepEqual(chat.body.links.map(link=>[link.url,link.more]),[[`${SEARCH}?q=cuidado&c=&utm_source=nodal&utm_medium=chat`,true]]);
   // Two profile topics: across BUC when their categories differ, the whole category when they share one.
   assert.deepEqual(params((await read(`?topics=${encodeURIComponent('Mobility,Care & gender')}&context=console`)).body.links[0]),{q:'',c:'',utm_source:'nodal',utm_medium:'console'});

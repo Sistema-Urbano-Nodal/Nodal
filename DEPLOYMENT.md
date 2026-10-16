@@ -640,7 +640,12 @@ the session, sets no cookie and is cached by the CDN for 5 minutes
   form (`/busqueda?q=…&c=…`), tagged `utm_source=nodal&utm_medium=<placement>`.
   NODAL makes no request to BUC at all; members reach BUC only by following a
   link. Which BUC category each topic and festival block searches is edited in
-  one place, `TOPIC_TO_BUC` and `BLOCK_TO_BUC` in `server/buc.js`.
+  one place, `TOPIC_TO_BUC` and `BLOCK_TO_BUC` in `server/buc.js`. The words
+  NODAL may search BUC for are `BUC_VOCABULARY` there: a chat suggestion asks
+  for a topic it names, never the message's words, and `/api/readings`
+  refuses any other `q` (400 `invalid_readings_query`). A new `q` is checked by
+  hand on BUC's search first, and `web/scripts/buc.js` keeps an identical copy
+  (a test compares them).
 - **With `BUC_FEED_URL`** (once BUC publishes the feed in
   `docs/integrations/buc-feed.md`) the answer also carries the publications
   themselves. Set it for Production and Preview alike (the feed is public) and
