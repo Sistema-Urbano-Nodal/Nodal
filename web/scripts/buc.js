@@ -6,8 +6,9 @@
     publishes its feed (docs/integrations/buc-feed.md), the publications themselves. The browser never talks to BUC: a member's topics reach it only in
     a link the member chooses to follow. When members ask each other for readings (FIIU chats, course discussions), suggest() puts a quiet line of BUC
     suggestions under the message, built from its own words: shown to everyone reading, never posted. One read per distinct query per page, shared by every
-    block and line; a failed or odd answer draws nothing, so a page without readings looks as it did. The labels here are BUC's own (its eight categories
-    and the links into it), shared by every page that loads this file; each page's heading comes from that page's dictionary and is handed over as a node. */
+    block and line (a failed one is asked again a minute later); a failed or odd answer draws nothing, so a page without readings looks as it did. The
+    labels here are BUC's own (its eight categories and the links into it), shared by every page that loads this file; each page's heading comes from
+    that page's dictionary and is handed over as a node. */
  const rows={
   cat1:['Childhood','Infancia','Infância'],cat2:['Public space','Espacio público','Espaço público'],cat3:['Environment','Ambiente','Ambiente'],cat4:['Methods','Metodologías','Metodologias'],
   cat5:['Culture','Cultura','Cultura'],cat6:['Governance','Gobernanza','Governança'],cat7:['Mobility','Movilidad','Mobilidade'],cat8:['Inclusion','Inclusión','Inclusão'],
@@ -80,7 +81,7 @@
  const sep=()=>el('span','buc-sep',' · ');
  const extra=(words,own)=>{const known=new Set(clean(own).toLowerCase().split(' '));return words.split(' ').filter(w=>w&&!known.has(w.toLowerCase())).join(' ');};
  /* A link names its BUC category, then the search words the server added for a topic ("Inclusión · vivienda"); words the reader brought are already said
-    around it (own). A link with words only is a search ("Buscar «…» en la BUC"), and the feed's single link the way on ("Ver más en la BUC"). */
+    around it (own). A link with words only is a search ("Buscar «…» en la BUC"), and the link the server marks more the way on ("Ver más en la BUC"). */
  function linkNode(link,{own='',more=false}={}){
   const a=away(el('a','buc-link'),link.url);
   if(more||(!link.category&&!link.words)){a.className='buc-link buc-more';a.append(label('more'));}
@@ -119,7 +120,7 @@
    host.replaceChildren(...[heading].flat().filter(Boolean),...draw(data));host.hidden=false;return true;
   });
  }
- // The console before a member has chosen topics: one way into BUC itself, and nothing to read.
+ // One way into BUC itself, and nothing to read: the console before a member has chosen topics, and a request in a chat with nothing to search on.
  function exploreLink(context,otherwise){const a=away(el('a','buc-link buc-explore'),HOME+'?'+new URLSearchParams({utm_source:'nodal',utm_medium:CONTEXTS.includes(context)?context:otherwise}));a.append(label('explore'));return a;}
  function explore(host,context='console'){
   if(!host)return Promise.resolve(false);
