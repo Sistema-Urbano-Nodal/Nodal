@@ -380,6 +380,9 @@ test('a refused, failed or empty withdrawal, hide or question edit leaves the li
  // An answer shown again waits for the next window, as a new one does.
  clock.tick(1);assert.equal((await call(`/api/admin/fiiu/messages/${answer.id}/hidden`,{actor:'admin',method:'PUT',body:{}})).status,200);
  const hidden=(await json('/api/fiiu/live')).body;assert.notEqual(hidden.generatedAt,built,'a hide builds again at once');
+ // Hiding it twice took nothing more out, so it is a no-op for the window as well.
+ clock.tick(1);assert.equal((await call(`/api/admin/fiiu/messages/${answer.id}/hidden`,{actor:'admin',method:'PUT',body:{}})).status,200);
+ assert.equal((await json('/api/fiiu/live')).body.generatedAt,hidden.generatedAt,'hiding it again does not');
  clock.tick(1);assert.equal((await call(`/api/admin/fiiu/messages/${answer.id}/hidden`,{actor:'admin',method:'DELETE',body:{}})).status,200);
  assert.equal((await json('/api/fiiu/live')).body.generatedAt,hidden.generatedAt,'showing it again does not');
  clock.tick(1);assert.equal((await call(`/api/fiiu/messages/${answer.id}`,{method:'DELETE',body:{}})).status,200);
