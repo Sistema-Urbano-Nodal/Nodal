@@ -120,11 +120,22 @@
 
  /* A message asks for readings when it names books, readings or a bibliography, or asks what to read: "libro(s)", "lectura(s)", "bibliografía",
     "¿qué (me) recomiendan leer?", "reading(s)", "book(s)", "livro(s)", "leitura(s)", "bibliografia", in any case and with or without accents. Whole words
-    only, so "Booking", "Facebook", "librería" or "lectora" are not requests. */
+    only, so "Booking", "Facebook", "librería" or "lectora" are not requests. The festival's errands use the same words and are not requests either: the QR
+    check-in ("no me funciona la lectura del QR"), the venue's complaints or visitors' book ("el libro de reclamaciones"), booking a taxi, a room or tickets
+    ("can we book the room?"), and reading something now ("I'm reading the agenda"). They are taken out first, so a request next to one is still a
+    request, and "book" after a word like "the" or "any" stays a book ("any book the speaker mentioned?"). */
  const fold=value=>String(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
  const ASKS=[/\b(?:libros?|lecturas?|bibliografias?|readings?|books?|livros?|leituras?)\b/,/\brecomienda[ns]?\b[^.?!\n]{0,40}\bleer\b/,
   /\brecommend\w*\b[^.?!\n]{0,40}\bread\b/,/\bwhat (?:should|could|can) (?:i|we) read\b/,/\b(?:recomenda[ms]?|indica[ms]?|sugere[ms]?)\b[^.?!\n]{0,40}\bler\b/];
- const asks=text=>typeof text==='string'&&ASKS.some(pattern=>pattern.test(fold(text)));
+ const NOUN=new Set('a an the this that any some good great best new old first last one which what whose my your our his her their favourite favorite'.split(' '));
+ const ERRANDS=[/\b(?:lectura|leitura) (?:del?|de la|do|da) (?:qr|codigo|acta|ata|asistencia|presenca)\b/g,/\b(?:libro|livro) de (?:reclamaciones|reclamacoes|actas|atas|visitas|asistencia|presenca)\b/g,
+  /\b(?:to|can|could|will|i['’]?ll|we['’]?ll|let['’]?s) book\b/g,/\b(?:i['’]?m|im|i am|we['’]?re|we are|you['’]?re|you are|they['’]?re|they are|is|are|was|were|been) reading\b/g];
+ const BOOK_SOMETHING=/(\b[a-z]+ )?\bbook (?:a|an|the|my|our|your|it|them|tickets?|seats?|rooms?)\b/g;
+ function asks(text){
+  if(typeof text!=='string')return false;
+  const rest=ERRANDS.reduce((value,errand)=>value.replace(errand,' '),fold(text)).replace(BOOK_SOMETHING,(match,before)=>before&&NOUN.has(before.trim())?match:' ');
+  return ASKS.some(pattern=>pattern.test(rest));
+ }
  /* The message's own words for BUC's search: three at most, in its order, leaving out the asking, the small words and the city words every BUC
     publication shares. The words are compared without accents and kept as written. Contact details never become search words: they would travel to BUC
     in a link everyone in the thread sees, and into NODAL's logs and the CDN's cache keys. So, as the server does (withoutContactDetails, server/buc.js),

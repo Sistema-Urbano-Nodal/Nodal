@@ -354,9 +354,15 @@ test('a message asks for readings when it names books, readings or a bibliograph
  const {Buc}=bucPage();
  const asking=['¿Qué libros me recomiendan sobre movilidad?','Alguna BIBLIOGRAFÍA sobre gobernanza','Recomendaciones de lectura para el bloque','¿Qué me recomiendan leer antes del taller?',
   '¿Me recomiendas algo para leer sobre vivienda?','Una lectura sobre cuidado, por favor','LIBRO','Any good books on public space?','Suggested readings for tomorrow?',
-  'What would you recommend I read on housing?','What should I read first?','Any e-books?','Alguém indica livros sobre mobilidade?','Quais leituras vocês sugerem?','Tem bibliografia sobre patrimônio?','O que vocês recomendam ler sobre clima?'];
+  'What would you recommend I read on housing?','What should I read first?','Any e-books?','Alguém indica livros sobre mobilidade?','Quais leituras vocês sugerem?','Tem bibliografia sobre patrimônio?','O que vocês recomendam ler sobre clima?',
+  // A festival errand next to a request is still a request; a book named after an article is a book.
+  'La lectura del QR falla, pero ¿alguien recomienda libros sobre movilidad?','Can we book the room? Also, any readings on housing?','Any book the speaker mentioned?','Who has the book a friend of mine wrote on Lima?'];
  const not=['Hola a todas','¡Gracias por la charla!','La lectora de QR no funciona','Reservé por Booking','Lo vi en Facebook','Hay que leer el contexto local','I read the agenda twice',
-  'Livre acesso ao parque','La librería del centro cierra a las 8','Obrigado pela leitora de QR','Bookstore at the corner','',null,undefined,42];
+  'Livre acesso ao parque','La librería del centro cierra a las 8','Obrigado pela leitora de QR','Bookstore at the corner',
+  // The festival's errands: the QR check-in, the venue's complaints book, booking a taxi or a room, reading the agenda.
+  'No me funciona la lectura del QR','La lectura del código QR falla en la puerta','Hagan la lectura del acta, por favor','¿Dónde está el libro de reclamaciones del MALI?','Firmen el libro de visitas',
+  'Who wants to book a taxi?','Can we book the room?','I’ll book tickets for everyone','Let’s book seats near the front',"I'm reading the agenda now",'We are reading the programme',
+  'A leitura do QR não funciona','Onde fica o livro de reclamações?','',null,undefined,42];
  for(const text of asking)assert.equal(Buc.asks(text),true,text);
  for(const text of not)assert.equal(Buc.asks(text),false,String(text));
 });
