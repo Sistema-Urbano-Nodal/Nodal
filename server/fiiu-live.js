@@ -37,14 +37,19 @@ const OPEN_READ_MAX=30,CONVERSATIONS=5;
 const errorText=error=>error instanceof Error?error.message:String(error??'unknown error');
 
 /* The badge milestones, exactly as Fiiu.festivalBadges (web/scripts/fiiu-ui.js) earns them, from a person's attended
-   activity ids alone: a first block and three (any activity of the programme or the legacy days except the closing
-   party, which never takes a check-in; an id the programme does not know is no block), every conference block, and the
-   laboratory. tests/fixtures/fiiu-badge-cases.json holds the cases both rules are tested against. */
+   activity ids alone: a first activity (any of the programme or the legacy days except the closing party, which never
+   takes a check-in; an id the programme does not know is none), four of the five panel (conference) blocks, all five,
+   and Full FIIU: all five, two workshops and two routes, counted by kind as Fiiu.typeOf counts them. The laboratory has
+   its own badge and no milestone. tests/fixtures/fiiu-badge-cases.json holds the cases both rules are tested against. */
+const FULL_WORKSHOPS=2,FULL_ROUTES=2;
 export function festivalMilestones(attended,event=FIIU_EVENT){
  const ids=new Set(attended),current=event.activities.filter(a=>!a.legacy);
- const blocks=[...event.activities,...(event.legacyActivities||[])].filter(a=>a.registration!=='social'&&ids.has(a.id)).length;
- const conferences=current.filter(a=>a.registration==='general'),lab=current.filter(a=>a.registration==='application');
- return {first:blocks>=1,three:blocks>=3,conferences:conferences.length>0&&conferences.every(a=>ids.has(a.id)),lab:lab.some(a=>ids.has(a.id))};
+ const done=[...event.activities,...(event.legacyActivities||[])].filter(a=>a.registration!=='social'&&ids.has(a.id));
+ const external=period=>done.filter(a=>!['application','general'].includes(a.registration)&&(a.period==='route')===(period==='route')).length;
+ const conferences=current.filter(a=>a.registration==='general'),panels=conferences.filter(a=>ids.has(a.id)).length;
+ const all=conferences.length>0&&panels===conferences.length;
+ return {first:done.length>=1,four:conferences.length>0&&panels>=Math.min(4,conferences.length),conferences:all,
+  full:all&&external('workshop')>=FULL_WORKSHOPS&&external('route')>=FULL_ROUTES};
 }
 
 // fiiuStore: server/fiiu-repository.js; talkStore: server/fiiu-talk-repository.js; programme: the merged programme
@@ -73,7 +78,7 @@ export function createLive({fiiuStore,talkStore,programme={event:async()=>FIIU_E
    byActivity.set(row.activityId,(byActivity.get(row.activityId)??0)+1);
    byPerson.set(row.registrationId,[...(byPerson.get(row.registrationId)??[]),row.activityId]);
   }
-  const badges={first:0,three:0,conferences:0,lab:0};
+  const badges={first:0,four:0,conferences:0,full:0};
   for(const ids of byPerson.values()){const reached=festivalMilestones(ids,event);for(const k of Object.keys(badges))if(reached[k])badges[k]++;}
   const sessions=chronological(event.activities.filter(isCheckinActivity));
   const underway=a=>{const start=startOf(a);return start!==null&&a.date===today&&start<=minutes&&minutes<endOf(a);};

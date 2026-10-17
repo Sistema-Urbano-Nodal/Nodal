@@ -21,7 +21,7 @@ const LIVE=(over={})=>({active:true,generatedAt:'2026-10-21T15:29:40.000Z',
   {questionId:Q1,activityId:'day1-am',activityTitle:'El poder de lo local',body:'¿Qué te llevas de esta charla?',kind:'chat',messageCount:12,latest:{author:'María G.',body:'Que la ciudad se hace entre vecinos.',likeCount:3,createdAt:'2026-10-21T15:28:00.000Z'},rating:null},
   {questionId:Q2,activityId:'general',activityTitle:'General',body:'¿Cómo valoras el festival hasta ahora?',kind:'rating',messageCount:2,latest:null,rating:{average:7.8,count:18}},
  ],
- badges:{first:120,three:14,conferences:0,lab:9},
+ badges:{first:120,four:14,conferences:3,full:1},
  pulse:{registered:540,checkedInToday:87,checkedInTotal:99,messages:1234,ratings:18},...over});
 const reads=h=>h.requests.filter(request=>request.path==='/api/fiiu/live').length;
 // Signing in from the band's line comes back to the band.
@@ -54,7 +54,7 @@ test('the band shows what is under way and next, the live conversations, the bad
  assert.ok(key(items[1],'liveGeneral'),'General is named in the reader’s language');assert.match(content(items[1]),/Average 7\.8 from 18 people/);
  // Insignias and El festival hoy: counts only.
  const badges=h.host.querySelector('.f-live-badges');assert.ok(key(badges,'liveBadges'));
- for(const [label,n] of [['liveBadgeFirst','120'],['liveBadgeThree','14'],['liveBadgeConferences','0'],['liveBadgeLab','9']])assert.equal(key(badges,label).parent.querySelector('.f-live-value').textContent,n,label);
+ for(const [label,n] of [['liveBadgeFirst','120'],['liveBadgeFour','14'],['liveBadgeConferences','3'],['liveBadgeFull','1']])assert.equal(key(badges,label).parent.querySelector('.f-live-value').textContent,n,label);
  const pulse=h.host.querySelector('.f-live-pulse');assert.ok(key(pulse,'livePulse'));
  for(const [label,n] of [['livePulseRegistered','540'],['livePulseToday','87'],['livePulseTotal','99'],['livePulseMessages','1,234'],['livePulseRatings','18']])assert.equal(key(pulse,label).parent.querySelector('.f-live-value').textContent,n,label);
  // Headings in order: the band's h2, then an h3 per part.
@@ -69,6 +69,10 @@ test('the band speaks the reader’s language, numbers and averages included, an
  assert.match(content(h.host),/12\s+respuestas/);
  const rows=h.ctx.window.Fiiu.rows,names=Object.keys(rows).filter(name=>name.startsWith('live'));assert.ok(names.length>=25);
  for(const name of names){assert.equal(rows[name].length,3,name);assert.ok(rows[name].every(text=>typeof text==='string'&&text.trim()),name);}
+ // The milestone names are the console Recognition ledger's (i18n-dashboard.js d.badge.fiiu.*), as on the check-in page.
+ const dash={window:{}};vm.runInNewContext(readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.meta.url),'utf8'),dash);
+ for(const [i,lang] of ['en','es','pt'].entries())for(const [row,id] of [['liveBadgeFirst','first'],['liveBadgeFour','four'],['liveBadgeConferences','conferences'],['liveBadgeFull','full']])
+  assert.equal(rows[row][i],dash.window.NODAL_I18N_DASH[lang][`d.badge.fiiu.${id}.name`],`${lang} ${id}`);
  const one=await band(()=>LIVE({now:{activity:activity('day1-am'),checkedIn:1},conversations:[{...LIVE().conversations[1],rating:{average:9,count:1}}]}));
  assert.match(content(one.host),/1\s+person checked in/);assert.match(content(one.host),/Average 9\.0 from 1 person/);
  const none=await band(()=>LIVE({conversations:[{...LIVE().conversations[1],rating:{average:0,count:0}}]}));assert.match(content(none.host),/No ratings yet/);

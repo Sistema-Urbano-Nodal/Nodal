@@ -61,7 +61,7 @@ Source: the user's review of 15 Oct 2026 ("fix placement so session conversation
  conversations:[{questionId, activityId, activityTitle, body, kind, messageCount,
    latest:{author, body, likeCount, createdAt} | null,          // newest visible message, body cut to 140 characters
    rating:{average, count} | null}],        // ≤ 5 open questions, most recently active first; never hidden questions or hidden/deleted messages
- badges:{first, three, conferences, lab},   // people who reached each milestone (counts only)
+ badges:{first, four, conferences, full},   // people who reached each milestone (counts only); milestones revised 2026-10-17
  pulse:{registered, checkedInToday, checkedInTotal, messages, ratings}}
 ```
 

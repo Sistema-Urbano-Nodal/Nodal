@@ -572,39 +572,41 @@ test('a registrant’s FIIU Fest 11 family heads the ledger: a row per session i
   l.hand({ registration: anaPlan, attendance: attended('day1-am'), event: EDITED });
   const [fiiu, contribution] = l.groups();
   assert.deepEqual(familyNames(l), ['FIIU Fest 11', 'Contribution', 'Role', 'Recognition']);
-  assert.equal(fiiu.count, '2/5');
+  assert.equal(fiiu.count, '2/6');
   const rows = fiiu.rows.map(view);
-  assert.deepEqual(rows.map((r) => r.idx), ['01', '02', '03', '04', '05']);
+  assert.deepEqual(rows.map((r) => r.idx), ['01', '02', '03', '04', '05', '06']);
   assert.deepEqual(rows[0], { idx: '01', state: 'bl-row is-earned', name: 'El poder de lo local', lang: 'es', tags: ['New'], check: 'earned', meter: null,
     req: 'Wed 21 Oct · 09:00–13:00 · Auditorio NOS PUCP, San Isidro', opens: 'Opens: 4 h toward your FIIU certificate' });
   assert.deepEqual(rows[1], { idx: '02', state: 'bl-row is-locked', name: 'Cuidar y transformar la ciudad', lang: 'es', tags: ['next'], check: 'locked', meter: null,
     req: 'Check in with the session QR to unlock', opens: 'Opens: 4 h toward your FIIU certificate' });
   assert.deepEqual(rows.slice(2).map((r) => [r.name, r.state, r.meter ?? r.check, r.tags]), [
-    ['First session', 'bl-row is-earned', 'earned', ['New']],
-    ['Three sessions', 'bl-row is-locked', '1/3', []],
-    ['All five conferences', 'bl-row is-locked', '1/5', []],
+    ['First activity', 'bl-row is-earned', 'earned', ['New']],
+    ['Four panels', 'bl-row is-locked', '1/4', []],
+    ['All five panels', 'bl-row is-locked', '1/5', []],
+    ['Full FIIU', 'bl-row is-locked', '1/9', []],
   ]);
-  assert.match(rows[3].req, /Festival sessions attended/);
-  assert.equal(view(contribution.rows[0]).idx, '06', 'the numbering runs on through the ledger');
-  assert.equal(l.eyebrow(), 'Recognition · 2 of 16', 'the band counts the festival badges too');
+  assert.match(rows[3].req, /Conference blocks attended, 4 of the 5/);
+  assert.match(rows[5].req, /All 5 conference blocks, 2 workshops and 2 urban routes/);
+  assert.equal(view(contribution.rows[0]).idx, '07', 'the numbering runs on through the ledger');
+  assert.equal(l.eyebrow(), 'Recognition · 2 of 17', 'the band counts the festival badges too');
   // A refresh with a new check-in redraws the family.
   l.hand({ registration: anaPlan, attendance: attended('day1-am', 'day2-am'), event: EDITED });
-  assert.equal(l.groups()[0].count, '3/5');
-  assert.equal(l.eyebrow(), 'Recognition · 3 of 16');
+  assert.equal(l.groups()[0].count, '3/6');
+  assert.equal(l.eyebrow(), 'Recognition · 3 of 17');
 });
 
-test('workshops and routes appear once the team confirms them, without hours; the laboratory and its milestone are listed for applicants', () => {
+test('workshops and routes appear once the team confirms them, without hours; the laboratory is listed for applicants, with no milestone of its own', () => {
   const l = ledger();
   l.hand({ registration: festivalPlan({ publicOfficial: true, applyLab: true, activities: ['day1-am'] }), attendance: attended('workshop-espacios-comunidad'), event: FIIU_EVENT });
   const rows = l.groups()[0].rows.map(view);
   assert.deepEqual(rows.map((r) => [r.name.slice(0, 22), r.state.replace('bl-row ', '')]), [
     ['Gestión urbana en acci', 'is-locked'], ['El poder de lo local', 'is-locked'], ['Espacios que sostienen', 'is-earned'],
-    ['First session', 'is-earned'], ['Three sessions', 'is-locked'], ['All five conferences', 'is-locked'], ['Laboratory', 'is-locked'],
+    ['First activity', 'is-earned'], ['Four panels', 'is-locked'], ['All five panels', 'is-locked'], ['Full FIIU', 'is-locked'],
   ]);
   assert.equal(rows[0].opens, 'Opens: a record of your participation in FIIU Fest 11', 'the laboratory has no certificate hours while its length is unknown');
   assert.equal(rows[2].req, 'Wed 21 Oct · MALI, Cercado de Lima', 'a workshop with no time keeps its day and venue');
   assert.equal(rows[2].opens, 'Opens: a record of your participation in FIIU Fest 11');
-  assert.equal(rows[6].meter, '0/1');
+  assert.equal(rows[6].meter, '1/9', 'the confirmed workshop is one of the two Full FIIU asks for');
   assert.equal(rows[0].tags.join(), 'next', 'the first badge not yet earned, overall');
   assert.ok(!rows.some((r) => /Fiesta/.test(r.name)), 'the closing party is never a badge');
 });
@@ -614,10 +616,10 @@ test('badges earned since the last visit carry a New tag, kept through this visi
   const newOnes = (l) => l.groups()[0].rows.map(view).filter((r) => r.tags.length && r.state.endsWith('is-earned')).map((r) => [r.name, r.tags.join()]);
   const first = ledger({ storage });
   first.hand({ registration: anaPlan, attendance: attended('day1-am'), event: FIIU_EVENT });
-  assert.deepEqual(newOnes(first), [['El poder de lo local', 'New'], ['First session', 'New']]);
+  assert.deepEqual(newOnes(first), [['El poder de lo local', 'New'], ['First activity', 'New']]);
   assert.deepEqual(JSON.parse(storage.get('nodal.fiiuBadgesSeen.ana-id')).sort(), ['milestone:first', 'session:day1-am'], 'remembered per account once drawn');
   first.lang('es');
-  assert.deepEqual(newOnes(first), [['El poder de lo local', 'Nueva'], ['Primera sesión', 'Nueva']], 'a redraw in this visit keeps them');
+  assert.deepEqual(newOnes(first), [['El poder de lo local', 'Nueva'], ['Primera actividad', 'Nueva']], 'a redraw in this visit keeps them');
   const later = ledger({ storage });
   later.hand({ registration: anaPlan, attendance: attended('day1-am'), event: FIIU_EVENT });
   assert.deepEqual(newOnes(later), [], 'the next visit shows them as seen');
@@ -644,13 +646,13 @@ test('the FIIU family reads in English, Spanish and Portuguese, with its own fam
   const l = ledger({ lang: 'es' });
   l.hand({ registration: anaPlan, attendance: attended('day1-am'), event: FIIU_EVENT });
   const rows = l.groups()[0].rows.map(view);
-  assert.equal(l.eyebrow(), 'Reconocimiento · 2 de 16');
+  assert.equal(l.eyebrow(), 'Reconocimiento · 2 de 17');
   assert.equal(rows[0].opens, 'Abre: 4 h para tu certificado del FIIU');
   assert.equal(rows[1].req, 'Registra tu asistencia con el QR de la sesión para desbloquearla');
   assert.match(rows[0].req, /21/);
   l.lang('pt');
-  assert.equal(view(l.groups()[0].rows[2]).name, 'Primeira sessão');
-  assert.equal(l.eyebrow(), 'Reconhecimento · 2 de 16');
+  assert.equal(view(l.groups()[0].rows[2]).name, 'Primeira atividade');
+  assert.equal(l.eyebrow(), 'Reconhecimento · 2 de 17');
   const mark = (fam) => l.context.familyMark(fam).children.map((n) => n.tagName).join();
   assert.equal(mark('fiiu'), 'rect,circle', 'a check-in square, drawn like the other marks');
   assert.notEqual(mark('fiiu'), mark('contribution'));

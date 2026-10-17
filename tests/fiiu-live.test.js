@@ -21,7 +21,7 @@ import {createLive,festivalMilestones} from '../server/fiiu-live.js';
 // server's festivalMilestones (the live counts), so the counts the live window shows are the badges people see.
 const CASES=JSON.parse(readFileSync(new URL('./fixtures/fiiu-badge-cases.json',import.meta.url),'utf8'));
 const EVENT=JSON.parse(JSON.stringify(mergeProgramme()));
-const MILESTONES=['first','three','conferences','lab'];
+const MILESTONES=['first','four','conferences','full'];
 function clientBadges(){
  const context={window:{nodalI18n:{lang:'es',onChange(){}}},document:{documentElement:{lang:'es'},querySelectorAll:()=>[]},Intl,Date,Error};
  vm.runInNewContext(readFileSync(new URL('../web/scripts/fiiu-ui.js',import.meta.url),'utf8'),context);
@@ -80,7 +80,7 @@ test('the live view has one shape: now and next, every check-in session, convers
  assert.deepEqual(view.next,{activity:block('day1-pm')});
  assert.deepEqual(view.sessions,[['day0-lab',0],['day1-am',2],['day1-pm',0],['day2-am',0],['day2-pm',0],['day3-am',0]].map(([activityId,checkedIn])=>({activityId,checkedIn})),'every block that takes a check-in, in programme order');
  assert.deepEqual(view.conversations,[]);
- assert.deepEqual(view.badges,{first:2,three:0,conferences:0,lab:0});
+ assert.deepEqual(view.badges,{first:2,four:0,conferences:0,full:0});
  assert.deepEqual(view.pulse,{registered:2,checkedInToday:2,checkedInTotal:2,messages:0,ratings:0});
  assert.doesNotMatch(JSON.stringify(view),new RegExp(`${ana.user.id}|${ana.id}|Persona|p1@example`),'counts only: no person\'s id, registration, name or email');
 });

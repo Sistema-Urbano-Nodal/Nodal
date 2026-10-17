@@ -37,46 +37,59 @@ test('every block in the plan that takes a check-in is a session badge, locked u
  assert.equal(day1.minutes,240,'its certificate minutes come from the shared hours helper');
 });
 
-test('the laboratory is a session badge and a milestone only for people who applied, and attendance earns both',()=>{
+test('the laboratory is a session badge only for people who applied, which attendance earns; it has no milestone of its own',()=>{
  const {festivalBadges}=fiiu();
  const applied=festivalBadges(beto,[],EVENT);
  assert.deepEqual(ids(applied.filter(badge=>badge.kind==='session')),['session:day0-lab','session:day1-am','session:day3-am'],'in programme order, the laboratory first (20 October)');
- assert.deepEqual(byId(applied,'milestone:lab'),{id:'milestone:lab',kind:'milestone',state:'locked',meter:{done:0,total:1}});
  assert.equal(byId(applied,'session:day0-lab').minutes,0,'the laboratory has no certificate minutes while its length is unknown');
  const attended=festivalBadges({...beto,labStatus:'accepted'},[row('day0-lab','staff')],EVENT);
- assert.equal(byId(attended,'session:day0-lab').state,'earned');assert.equal(byId(attended,'milestone:lab').state,'earned');
- assert.equal(byId(attended,'milestone:lab').meter,undefined,'an earned milestone carries no meter');
+ assert.equal(byId(attended,'session:day0-lab').state,'earned');
+ assert.equal(byId(attended,'milestone:first').state,'earned','the laboratory is a first activity like any other');
+ assert.equal(attended.some(badge=>badge.id==='milestone:lab'),false,'the laboratory keeps its own badge and no separate milestone');
  const notApplied=festivalBadges(ana,[row('day1-am')],EVENT);
- assert.equal(notApplied.some(badge=>badge.activityId==='day0-lab'||badge.id==='milestone:lab'),false,'no laboratory badge for someone who did not apply');
+ assert.equal(notApplied.some(badge=>badge.activityId==='day0-lab'),false,'no laboratory badge for someone who did not apply');
 });
 
 test('a declined laboratory application shows no laboratory row or milestone, since the server refuses that check-in',()=>{
  const {festivalBadges}=fiiu();
  const declined=festivalBadges({...beto,labStatus:'declined'},[row('day1-am')],EVENT);
  assert.equal(byId(declined,'session:day0-lab'),undefined,'a row that can never unlock is not shown');
- assert.equal(byId(declined,'milestone:lab'),undefined,'nor a laboratory meter stuck at 0 of 1');
  assert.deepEqual(ids(declined.filter(badge=>badge.kind==='session')),['session:day1-am','session:day3-am'],'the rest of the plan is unchanged');
- // A pending application may still be accepted, so it keeps both.
+ // A pending application may still be accepted, so it keeps its row.
  const pending=festivalBadges(beto,[],EVENT);
- assert.ok(byId(pending,'session:day0-lab')&&byId(pending,'milestone:lab'));
+ assert.ok(byId(pending,'session:day0-lab'));
 });
 
-test('four milestones count the attended blocks, with a meter while unearned',()=>{
+test('four milestones: a first activity, four and five of the five panel blocks, and Full FIIU, with a meter while unearned',()=>{
  const {festivalBadges}=fiiu();
+ const FIVE=['day1-am','day1-pm','day2-am','day2-pm','day3-am'];
  const none=festivalBadges(ana,[],EVENT).filter(badge=>badge.kind==='milestone');
  assert.deepEqual(none,[
   {id:'milestone:first',kind:'milestone',state:'locked',meter:{done:0,total:1}},
-  {id:'milestone:three',kind:'milestone',state:'locked',meter:{done:0,total:3}},
+  {id:'milestone:four',kind:'milestone',state:'locked',meter:{done:0,total:4}},
   {id:'milestone:conferences',kind:'milestone',state:'locked',meter:{done:0,total:5}},
+  {id:'milestone:full',kind:'milestone',state:'locked',meter:{done:0,total:9}},
  ]);
  const one=festivalBadges(ana,[row('day1-am')],EVENT);
- assert.equal(byId(one,'milestone:first').state,'earned');assert.deepEqual(byId(one,'milestone:three').meter,{done:1,total:3});
- // A staff-confirmed workshop is an attended block too; it is not a conference.
- const three=festivalBadges(ana,[row('day1-am'),row('day1-pm'),row('workshop-espacios-comunidad','staff')],EVENT);
- assert.equal(byId(three,'milestone:three').state,'earned');assert.deepEqual(byId(three,'milestone:conferences').meter,{done:2,total:5});
- const five=festivalBadges(ana,['day1-am','day1-pm','day2-am','day2-pm','day3-am'].map(id=>row(id)),EVENT);
- assert.equal(byId(five,'milestone:conferences').state,'earned');
- // The five conferences are the event's 'general' blocks, so the total follows the programme the API serves.
+ assert.equal(byId(one,'milestone:first').state,'earned');assert.deepEqual(byId(one,'milestone:four').meter,{done:1,total:4});
+ // A staff-confirmed workshop is an attended activity, not a panel block; Full FIIU counts it as one of its two workshops.
+ const mixed=festivalBadges(ana,[row('day1-am'),row('day1-pm'),row('workshop-espacios-comunidad','staff')],EVENT);
+ assert.deepEqual(byId(mixed,'milestone:four').meter,{done:2,total:4});assert.deepEqual(byId(mixed,'milestone:conferences').meter,{done:2,total:5});
+ assert.deepEqual(byId(mixed,'milestone:full').meter,{done:3,total:9});
+ const four=festivalBadges(ana,FIVE.slice(0,4).map(id=>row(id)),EVENT);
+ assert.equal(byId(four,'milestone:four').state,'earned');assert.equal(byId(four,'milestone:four').meter,undefined,'an earned milestone carries no meter');
+ assert.deepEqual(byId(four,'milestone:conferences').meter,{done:4,total:5});
+ const five=festivalBadges(ana,FIVE.map(id=>row(id)),EVENT);
+ assert.equal(byId(five,'milestone:four').state,'earned','five of five keeps four of five');assert.equal(byId(five,'milestone:conferences').state,'earned');
+ assert.deepEqual(byId(five,'milestone:full').meter,{done:5,total:9});
+ // Full FIIU: the five panel blocks, two workshops and two routes; a third workshop never stands in for a missing route, nor a third route for a missing workshop.
+ const nearly=festivalBadges(ana,[...FIVE.map(id=>row(id)),...['workshop-calles-gente','workshop-mapa-empatia','workshop-poder-local','route-arcoiris'].map(id=>row(id,'staff'))],EVENT);
+ assert.deepEqual(byId(nearly,'milestone:full').meter,{done:8,total:9});
+ const routes=festivalBadges(ana,[...FIVE.map(id=>row(id)),...['workshop-calles-gente','route-arcoiris','route-lima-cromatica','route-amancaes'].map(id=>row(id,'staff'))],EVENT);
+ assert.deepEqual(byId(routes,'milestone:full').meter,{done:8,total:9},'a third route never stands in for a missing workshop');
+ const full=festivalBadges(ana,[...FIVE.map(id=>row(id)),...['workshop-calles-gente','workshop-mapa-empatia','route-arcoiris','route-lima-cromatica'].map(id=>row(id,'staff'))],EVENT);
+ assert.equal(byId(full,'milestone:full').state,'earned');
+ // The five panel blocks are the event's 'general' blocks, so the totals follow the programme the API serves.
  assert.equal(EVENT.activities.filter(activity=>activity.registration==='general').length,5);
 });
 
@@ -106,17 +119,16 @@ test('an attended block stays earned when it leaves the plan, repeated and unkno
  const badges=festivalBadges(registration({activities:['day3-am']}),[row('day2-am'),row('day2-am','staff'),row('no-such-block'),row('day1-am')],EVENT);
  assert.deepEqual(ids(badges.filter(badge=>badge.kind==='session')),['session:day1-am','session:day2-am','session:day3-am']);
  assert.deepEqual(earned(badges),['session:day1-am','session:day2-am','milestone:first']);
- assert.deepEqual(byId(badges,'milestone:three').meter,{done:2,total:3});
+ assert.deepEqual(byId(badges,'milestone:four').meter,{done:2,total:4});
 });
 
 test('what is earned depends on the attendance alone, so the check-in page, which has no registration, agrees with the console',()=>{
  const {festivalBadges}=fiiu();
  const sets=[[],[row('day1-am')],[row('day0-lab'),row('day1-am'),row('day3-am')],[row('route-amancaes','staff'),row('day2-pm')],['day1-am','day1-pm','day2-am','day2-pm','day3-am'].map(id=>row(id))];
  for(const attendance of sets)for(const person of [ana,beto,null])assert.deepEqual(earned(festivalBadges(person,attendance,EVENT)),earned(festivalBadges(null,attendance,EVENT)));
- // Without a registration the plan is unknown: only attended blocks are listed, and the laboratory milestone once it is attended
- // (only an accepted application checks in to it).
+ // Without a registration the plan is unknown: only attended blocks are listed, then the four milestones.
  const before=festivalBadges(null,[],EVENT),after=festivalBadges(null,[row('day0-lab')],EVENT);
- assert.deepEqual(ids(before),['milestone:first','milestone:three','milestone:conferences']);
- assert.deepEqual(earned(after),['session:day0-lab','milestone:first','milestone:lab']);
+ assert.deepEqual(ids(before),['milestone:first','milestone:four','milestone:conferences','milestone:full']);
+ assert.deepEqual(earned(after),['session:day0-lab','milestone:first']);
  assert.doesNotThrow(()=>festivalBadges(null,undefined,{activities:[]}));
 });

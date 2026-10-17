@@ -382,21 +382,24 @@
  // The FIIU badges, one rule for the console's Recognition ledger and the check-in page, so the badge a scan announces is the one the console shows.
  // A session badge per block in the plan that takes a check-in (the conference blocks ticked, and the laboratory for an applicant not declined), locked until its
  // attendance row exists; any other attended block (a workshop or route the team confirmed, a block that left the plan after its check-in) is listed
- // once earned. The closing party never takes a check-in, so it is never a badge. Then four milestones, with a meter while unearned: a first block,
- // three, every conference block, and the laboratory for those applicants. What is earned depends on the attendance alone; the registration only adds the
- // locked rows, so the check-in page, which passes none, agrees with the console. Without one the laboratory milestone shows once the laboratory is
- // attended: only an accepted application checks in to it. minutes: the block's certificate minutes, as the server counts them (0: participation only).
+ // once earned. The closing party never takes a check-in, so it is never a badge. Then four milestones, with a meter while unearned: a first activity
+ // of any kind, four of the five panel (conference) blocks, all five, and Full FIIU: all five, two workshops and two routes, counted by kind across the
+ // programme and its legacy days. The laboratory, each workshop and each route keep their own badge and no milestone. What is earned depends on the
+ // attendance alone; the registration only adds the locked rows, so the check-in page, which passes none, agrees with the console (server/fiiu-live.js
+ // festivalMilestones is the same rule). minutes: the block's certificate minutes, as the server counts them (0: participation only).
+ const FULL_WORKSHOPS=2,FULL_ROUTES=2;
  function festivalBadges(registration,attendance,event){
   const answers=registration?.answers||{},attended=new Set((attendance||[]).map(record=>record.activityId)),current=event.activities.filter(a=>!a.legacy);
   const lab=current.filter(a=>a.registration==='application'),conferences=current.filter(a=>a.registration==='general');
   // A declined application can never check in to the laboratory (the server answers lab_not_accepted), so it gets no row that never unlocks; a pending one may still be accepted.
   const applied=answers.applyLab===true&&registration?.labStatus!=='declined',planned=new Set([...conferences.filter(a=>(answers.activities||[]).includes(a.id)),...(applied?lab:[])].map(a=>a.id));
   const sessions=chronological([...event.activities,...(event.legacyActivities||[])].filter(a=>a.registration!=='social'&&(attended.has(a.id)||planned.has(a.id)))).map(activity=>({id:'session:'+activity.id,kind:'session',activityId:activity.id,state:attended.has(activity.id)?'earned':'locked',activity,minutes:minutesOf(activity)}));
-  const count=sessions.filter(badge=>badge.state==='earned').length,labDone=lab.some(a=>attended.has(a.id));
+  const earned=sessions.filter(badge=>badge.state==='earned'),panels=conferences.filter(a=>attended.has(a.id)).length;
+  const ofKind=kind=>earned.filter(badge=>typeOf(badge.activity)===kind).length,four=Math.min(4,conferences.length);
   const milestone=(id,done,total)=>({id:'milestone:'+id,kind:'milestone',state:done>=total?'earned':'locked',...(done<total?{meter:{done,total}}:{})});
-  const out=[...sessions,milestone('first',Math.min(count,1),1),milestone('three',Math.min(count,3),3)];
-  if(conferences.length)out.push(milestone('conferences',conferences.filter(a=>attended.has(a.id)).length,conferences.length));
-  if(lab.length&&(applied||labDone))out.push(milestone('lab',labDone?1:0,1));
+  const out=[...sessions,milestone('first',Math.min(earned.length,1),1)];
+  if(conferences.length)out.push(milestone('four',Math.min(panels,four),four),milestone('conferences',panels,conferences.length),
+   milestone('full',panels+Math.min(ofKind('workshop'),FULL_WORKSHOPS)+Math.min(ofKind('route'),FULL_ROUTES),conferences.length+FULL_WORKSHOPS+FULL_ROUTES));
   return out;
  }
  // Scrolls a horizontal chip row just enough to show the item in full, clear of the right-edge fade (fiiu.css); only the row moves, never the page (the rows sit in sticky bars).

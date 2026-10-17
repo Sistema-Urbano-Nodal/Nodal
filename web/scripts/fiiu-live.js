@@ -20,7 +20,7 @@
   liveRatingNone:['No ratings yet','Todavía no hay valoraciones','Ainda não há avaliações'],
   // The milestone names are the console's Recognition ledger's (i18n-dashboard.js d.badge.fiiu.*).
   liveBadges:['Badges','Insignias','Insígnias'],liveBadgesHint:['People who have earned each one','Personas que ya obtuvieron cada una','Pessoas que já conquistaram cada uma'],
-  liveBadgeFirst:['First session','Primera sesión','Primeira sessão'],liveBadgeThree:['Three sessions','Tres sesiones','Três sessões'],liveBadgeConferences:['All five conferences','Las cinco conferencias','As cinco conferências'],liveBadgeLab:['Laboratory','Laboratorio','Laboratório'],
+  liveBadgeFirst:['First activity','Primera actividad','Primeira atividade'],liveBadgeFour:['Four panels','Cuatro paneles','Quatro painéis'],liveBadgeConferences:['All five panels','Los cinco paneles','Os cinco painéis'],liveBadgeFull:['Full FIIU','FIIU completo','FIIU completo'],
   livePulse:['The festival today','El festival hoy','O festival hoje'],livePulseRegistered:['People registered','Personas inscritas','Pessoas inscritas'],livePulseToday:['Check-ins today','Asistencias hoy','Presenças hoje'],
   livePulseTotal:['Check-ins so far','Asistencias en total','Presenças no total'],livePulseMessages:['Messages','Mensajes','Mensagens'],livePulseRatings:['Ratings','Valoraciones','Avaliações'],
   liveRegister:['Register to follow FIIU live','Inscríbete para ver el FIIU en vivo','Inscreva-se para acompanhar o FIIU ao vivo'],
@@ -122,7 +122,7 @@
   };
   const grid=el('div','f-live-grid');
   grid.append(...(sessions.children.length?[sessions]:[]),chats,
-   figures('f-live-badges','liveBadges',[['badge:first','liveBadgeFirst',badges.first],['badge:three','liveBadgeThree',badges.three],['badge:conferences','liveBadgeConferences',badges.conferences],['badge:lab','liveBadgeLab',badges.lab]],'liveBadgesHint'),
+   figures('f-live-badges','liveBadges',[['badge:first','liveBadgeFirst',badges.first],['badge:four','liveBadgeFour',badges.four],['badge:conferences','liveBadgeConferences',badges.conferences],['badge:full','liveBadgeFull',badges.full]],'liveBadgesHint'),
    figures('f-live-pulse','livePulse',[['pulse:registered','livePulseRegistered',pulse.registered],['pulse:today','livePulseToday',pulse.checkedInToday],['pulse:total','livePulseTotal',pulse.checkedInTotal],['pulse:messages','livePulseMessages',pulse.messages],['pulse:ratings','livePulseRatings',pulse.ratings]]));
   return [head,grid];
  }

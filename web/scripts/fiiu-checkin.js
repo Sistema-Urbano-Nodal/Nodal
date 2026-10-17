@@ -13,8 +13,8 @@
   signInBeforeCodeHint:['Sign in first, with the account you registered with. Then type the code.','Primero inicia sesión con la cuenta con la que te inscribiste. Luego escribe el código.','Primeiro entre com a conta com que você se inscreveu. Depois digite o código.'],
   signInTypedCodeHint:['Use the account you registered with. If the code expires meanwhile, type the new code from the screen.','Usa la cuenta con la que te inscribiste. Si el código vence mientras tanto, escribe el código nuevo de la pantalla.','Use a conta com que você se inscreveu. Se o código expirar nesse meio-tempo, digite o código novo da tela.'],
   // What a first scan unlocked. The milestone names are the console's own (d.badge.fiiu.*.name in i18n-dashboard.js, which this page does not load).
-  badgeUnlocked:['Badge unlocked:','Insignia desbloqueada:','Insígnia desbloqueada:'],milestoneReached:['Milestone reached:','Hito alcanzado:','Marco alcançado:'],seeInConsole:['See it in your console','Velo en tu panel','Veja no seu painel'],
-  milestoneFirst:['First session','Primera sesión','Primeira sessão'],milestoneThree:['Three sessions','Tres sesiones','Três sessões'],milestoneConferences:['All five conferences','Las cinco conferencias','As cinco conferências'],milestoneLab:['Laboratory','Laboratorio','Laboratório'],
+  badgeUnlocked:['Badge unlocked:','Insignia desbloqueada:','Insígnia desbloqueada:'],milestoneReached:['Milestone reached:','Hito alcanzado:','Marco alcançado:'],seeInConsole:['See your badges','Ver tus insignias','Ver suas insígnias'],
+  milestoneFirst:['First activity','Primera actividad','Primeira atividade'],milestoneFour:['Four panels','Cuatro paneles','Quatro painéis'],milestoneConferences:['All five panels','Los cinco paneles','Os cinco painéis'],milestoneFull:['Full FIIU','FIIU completo','FIIU completo'],
  });
  const root=document.getElementById('fiiuCheckinRoot'),message=document.getElementById('fiiuStatus');
  const params=new URLSearchParams(location.search),activityId=params.get('a')||'',code=params.get('c')||'';
@@ -73,7 +73,7 @@
  // What this check-in unlocked: the badges earned with it that were not earned without it, by the console's rule (Fiiu.festivalBadges). The page has no
  // registration, which the rule allows, since what is earned follows from the attendance alone. Only a scan that created the attendance unlocks anything
  // (a repeat scan or a reload does not), and nothing is claimed before the programme lands.
- const MILESTONES={'milestone:first':'milestoneFirst','milestone:three':'milestoneThree','milestone:conferences':'milestoneConferences','milestone:lab':'milestoneLab'};
+ const MILESTONES={'milestone:first':'milestoneFirst','milestone:four':'milestoneFour','milestone:conferences':'milestoneConferences','milestone:full':'milestoneFull'};
  function unlockedBy(data,id,attendance){
   if(data.result!=='checked_in'||!festival)return [];
   const earned=list=>festivalBadges(null,list,festival.event).filter(badge=>badge.state==='earned'),before=new Set(earned(attendance.filter(row=>row.activityId!==id)).map(badge=>badge.id));
