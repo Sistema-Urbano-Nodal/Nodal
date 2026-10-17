@@ -179,7 +179,8 @@ function optionalText(value,max){
 const searchable=text=>` ${foldText(text).replace(/[^a-z0-9]+/g,' ').trim()} `;
 // Search phrases as the feed's text holds them, each starting at a word: " espacio publico".
 const phrases=value=>[...new Set((Array.isArray(value)?value:[value]).filter(phrase=>typeof phrase==='string').map(phrase=>searchable(phrase).trimEnd()).filter(Boolean))];
-// One feed publication as NODAL shows it, with what ranking needs, or null when it breaks a rule of the feed spec.
+/* One feed publication as NODAL shows it, with what ranking needs, or null when it breaks a rule of the feed spec.
+   language and sourceUrl are never read: NODAL does not use them, so a malformed one costs nothing. */
 function feedRecord(raw){
   if(!raw||typeof raw!=='object'||Array.isArray(raw))return null;
   const id=typeof raw.id==='string'?raw.id.trim():Number.isSafeInteger(raw.id)&&raw.id>=0?String(raw.id):'';
@@ -197,8 +198,6 @@ function feedRecord(raw){
   if(names.some(name=>!name||name.length>200))return null;
   const country=optionalText(raw.country,100),format=optionalText(raw.format,60),summary=optionalText(raw.summary,600);
   if(country===undefined||format===undefined||summary===undefined)return null;
-  if(raw.sourceUrl!=null&&!httpsAddress(raw.sourceUrl))return null;
-  if(raw.language!=null&&!(typeof raw.language==='string'&&/^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i.test(raw.language)))return null;
   let updated=0;
   if(raw.updatedAt!=null){
     updated=typeof raw.updatedAt==='string'&&/^\d{4}-\d{2}-\d{2}/.test(raw.updatedAt)?Date.parse(raw.updatedAt):NaN;

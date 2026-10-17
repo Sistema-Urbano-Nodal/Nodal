@@ -46,15 +46,15 @@ At the top level, `items` (a list) is required and `version` may be left out; wh
 | `country` | no | Up to 100 characters |
 | `format` | no | Free text, up to 60 characters (for example Documento, Guía, Estudio de caso, Memoria, Experiencia) |
 | `summary` | no | Up to 600 characters. Not shown yet, but NODAL searches it with the title for its Spanish topic words, so a Spanish summary helps a publication be found |
-| `language` | no | One language tag, with a hyphen: `es`, `en`, `pt`, `es-PE` (not `es_PE`, `Español` or `es, en`). NODAL does not use it yet; leave it out if the CMS does not store a tag |
+| `language` | no | Preferably one language tag, with a hyphen: `es`, `en`, `pt`, `es-PE`. NODAL does not use it yet and ignores whatever it holds (`es_PE`, `Español`) |
 | `updatedAt` | no | A date, `2026-09-30`, or a date-time, `2026-09-30T12:00:00Z` |
 
 Rules for every field:
 
 - Texts (`title`, `summary`, `country`, `format`) are plain text, with no HTML tags or entities. If BUC's CMS stores HTML, replace each tag with a space (deleting it glues words: `de<br>movilidad` becomes `demovilidad`) and decode entities (`&oacute;` → ó, `&nbsp;` → space, `&amp;` → &). NODAL does neither: a tag (`<br>`, `<p>`, `<em>`) left in any of these fields skips the whole publication, even in the summary, which is not shown yet, and an entity stays as typed (a title would show `&oacute;`).
 - When a field has no value, leave it out or send `null`, never `""`.
-- A publication with a field that breaks its rule (a text over its limit, an HTML tag in a text, more than 50 authors, a year out of range, a malformed date) is skipped whole and counted in NODAL's log; the rest are used. NODAL truncates nothing, so trim texts on BUC's side.
-- Any other field in a publication is ignored, so BUC may add its own (a PDF link, all its categories). The one exception is `sourceUrl`: when present and not an `https://` address, the publication is skipped, so do not use that name.
+- A publication with a field that breaks its rule (a text over its limit, an HTML tag in a text, more than 50 authors, a year out of range, a malformed date) is skipped whole and counted in NODAL's log; the rest are used. `language` is the exception: NODAL does not check it. NODAL truncates nothing, so trim texts on BUC's side.
+- Any other field in a publication is ignored, so BUC may add its own (a PDF link, the author's portal, all its categories).
 
 ## What members see
 

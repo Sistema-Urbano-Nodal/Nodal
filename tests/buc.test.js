@@ -234,9 +234,9 @@ test('every publication is checked against the feed spec; the rest are used and 
     publication(23,{url:'http://buc.sistemaurbano.org/publicacion/23'}),publication(24,{url:'javascript:alert(1)'}),publication(25,{url:'not a url'}),publication(26,{url:'https://u:p@buc.sistemaurbano.org/x'}),{...publication(27),url:undefined},
     publication(28,{year:1899}),publication(29,{year:2101}),publication(30,{year:'2020'}),publication(31,{year:2020.5}),
     publication(32,{authors:'Lima Cómo Vamos'}),publication(33,{authors:['ok',7]}),publication(34,{authors:['']}),
-    publication(35,{country:12}),publication(36,{format:'x'.repeat(61)}),publication(37,{sourceUrl:'http://insecure.example/'}),
+    publication(35,{country:12}),publication(36,{format:'x'.repeat(61)}),
     publication(38,{summary:'x'.repeat(601)}),publication(39,{summary:'<p>Hola</p>'}),publication(40,{summary:['no']}),
-    publication(41,{language:'Spanish!'}),publication(42,{updatedAt:'yesterday'}),
+    publication(42,{updatedAt:'yesterday'}),
     null,'a string',[1,2],
   ];
   const fetch=fakeFetch(json(feedBody([good,...broken,bare]))),log=logger();
@@ -249,6 +249,18 @@ test('every publication is checked against the feed spec; the rest are used and 
   // A numeric id is a stable id too, and a null optional field is as good as a missing one.
   const numeric=await feedWith(fakeFetch(json(feedBody([{...bare,id:7,year:null,country:null,summary:null,authors:null}])))).items();
   assert.equal(numeric[0].id,'7');
+});
+
+test('language and sourceUrl, which NODAL does not use, never cost a publication, whatever they hold', async () => {
+  const odd=[
+    publication(1,{language:'Spanish!'}),publication(2,{language:'es_PE'}),publication(3,{language:''}),publication(4,{language:7}),publication(5,{language:['es','en']}),
+    publication(6,{sourceUrl:'http://insecure.example/'}),publication(7,{sourceUrl:''}),publication(8,{sourceUrl:'not a url'}),publication(9,{sourceUrl:{}}),
+  ];
+  const log=logger();
+  const items=await feedWith(fakeFetch(json(feedBody(odd))),{log}).items();
+  assert.deepEqual(items.map(item=>item.id),['1','2','3','4','5','6','7','8','9']);
+  assert.deepEqual(log.lines,['BUC feed: 9 publications, 0 skipped']);
+  assert.ok(items.every(item=>!('language' in item)&&!('sourceUrl' in item)),'neither is kept or passed on');
 });
 
 test('a feed that is not the documented shape is a failed read', async () => {
