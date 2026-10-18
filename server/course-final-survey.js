@@ -175,6 +175,8 @@ export function createFinalSurvey({store,send,bodyJson,findOne,all,membersForRow
   const isOpen=()=>clock()<closes,stamp=()=>new Date(clock()).toISOString();
   const errorText=error=>error instanceof Error?error.message:String(error??'unknown error');
   const base=()=>({closesAt:config.closesAt,lastDay,open:isOpen(),contactEmail:config.contactEmail});
+  // On the perk course the survey and certificates stay with the September group: a later enrolment has neither.
+  const joinedLater=(courseId,enrollment)=>perks.applies(courseId)&&!perks.inSeptemberGroup(enrollment);
   async function publishAsFor(user,access) {
     return access.intake?publishName(access.intake):publishName(null,(await store.getMembers([user.id]))[0]?.name);
   }
@@ -190,14 +192,14 @@ export function createFinalSurvey({store,send,bodyJson,findOne,all,membersForRow
   async function snapshot({courseId,user,access}) {
     if(courseId!==surveyCourse)return null;
     if(isStaff(user)){const state=base();return {...state,preview:true,response:null,certificate:null,publishAs:state.open?publishName(access.intake,user.fullName):'',...(state.open?{survey:SURVEY}:{})};}
-    if(!access.enrollment)return null;
+    if(!access.enrollment||joinedLater(courseId,access.enrollment))return null;
     const [row,ready]=await Promise.all([findOne('surveys',{courseId,userId:user.id}),findOne('certificates',{courseId,userId:user.id,status:'ready'})]);
     return participantState(user,access,row,ready);
   }
   // Enrolled people who are not administrators, with their response, ready certificate and course-form name.
   async function roster(courseId,{forms=false}={}) {
-    const [enrollments,responses,certificates,intakes]=await Promise.all([all('enrollments',{courseId}),all('surveys',{courseId}),all('certificates',{courseId,status:'ready'}),forms?all('intakes',{courseId}):[]]);
-    const members=await membersForRows(enrollments),byUser=rows=>new Map(rows.map(row=>[row.userId,row]));
+    const [enrolled,responses,certificates,intakes]=await Promise.all([all('enrollments',{courseId}),all('surveys',{courseId}),all('certificates',{courseId,status:'ready'}),forms?all('intakes',{courseId}):[]]);
+    const enrollments=enrolled.filter(e=>!joinedLater(courseId,e)),members=await membersForRows(enrollments),byUser=rows=>new Map(rows.map(row=>[row.userId,row]));
     const response=byUser(responses),certificate=byUser(certificates),intake=byUser(intakes);
     return enrollments.filter(e=>!members.get(e.userId)?.staff).map(e=>({userId:e.userId,name:members.get(e.userId)?.name??'',email:members.get(e.userId)?.email??'',enrolledAt:e.createdAt,
       formName:intake.get(e.userId)?.answers?.fullName??'',response:response.get(e.userId)??null,certificate:certificate.get(e.userId)??null}))
@@ -223,7 +225,7 @@ export function createFinalSurvey({store,send,bodyJson,findOne,all,membersForRow
   async function upload(req,res,courseId,userId) {
     const input=await bodyJson(req,4*1024*1024+4096);
     const [enrollment,member]=await Promise.all([findOne('enrollments',{courseId,userId}),store.getMembers([userId]).then(rows=>rows[0])]);
-    if(!enrollment||!member||member.staff)refuse(404,'certificate_not_enrolled','this person is not a participant of this course');
+    if(!enrollment||!member||member.staff||joinedLater(courseId,enrollment))refuse(404,'certificate_not_enrolled','this person is not a participant of this course');
     if(input.mime!=='application/pdf'||typeof input.data!=='string')refuse(400,'certificate_invalid','a PDF of up to 3 MB is required');
     let file;
     try { file=decodeAttachment({name:'certificado.pdf',mime:'application/pdf',data:input.data}); }
@@ -260,7 +262,7 @@ export function createFinalSurvey({store,send,bodyJson,findOne,all,membersForRow
     if(adminPath&&!isStaff(user))refuse(403,'admin_required','administrator access required');
     if(courseId!==surveyCourse)refuse(404,'survey_unavailable','survey unavailable');
     if(['start','submit'].includes(name)) {
-      if(isStaff(user)||!access.enrollment)refuse(403,'survey_unavailable','the survey is for enrolled participants');
+      if(isStaff(user)||!access.enrollment||joinedLater(courseId,access.enrollment))refuse(403,'survey_unavailable','the survey is for enrolled participants');
       if(!isOpen())refuse(403,'survey_closed','the survey is closed');
       const body=await bodyJson(req),filters={courseId,userId:user.id};
       if(name==='start') {
