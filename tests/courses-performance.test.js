@@ -101,13 +101,13 @@ test('known member ID batches avoid an empty Supabase request without truncating
   }
 });
 
-test('course directory reports the current viewer role with its existing data response',async()=>{
-  const calls=[];const api=createCourseApi({store:{find:async(name,filter)=>{calls.push(filter);return[course];}}});
+test('course directory reports the current viewer role and enrolments with one read of each',async()=>{
+  const calls=[];const api=createCourseApi({store:{find:async(name,filter)=>{calls.push([name,filter]);return name==='enrollments'?[{id:'enrollment',courseId:COURSE,userId:STAFF,createdAt:stamp}]:[course];}}});
   for(const permission of['admin','member','admin']){
     const result=await invoke(api,'/api/courses',{id:STAFF,permission});
-    assert.equal(result.body.isAdmin,permission==='admin');assert.equal(result.body.courses[0].id,COURSE);
+    assert.equal(result.body.isAdmin,permission==='admin');assert.equal(result.body.courses[0].id,COURSE);assert.equal(result.body.courses[0].enrolled,true);
   }
-  assert.deepEqual(calls,[{status:'published'},{status:'published'},{status:'published'}]);
+  assert.deepEqual(calls,Array(3).fill([['courses',{status:'published'}],['enrollments',{userId:STAFF}]]).flat());
 });
 
 test('course CSV exports read only their own data and do not depend on unrelated reports',async()=>{

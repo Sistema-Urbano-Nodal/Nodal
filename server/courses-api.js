@@ -90,6 +90,14 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     if(content && !isStaff(user) && (!enrollment || !intake))fail('enroll and complete the intake before opening modules',403);
     return {course,enrollment:enrollment?{...enrollment,intakeCompleted:Boolean(intake)}:null,intake:intake?.answers??null};
   }
+  /* How a member who is not enrolled may join the closed perk course (server/course-perks.js): 'fiiu' with an eligible
+     FIIU Fest 11 registration, else 'supporters'; null for staff, an open course and any other course. A failed
+     festival read here counts as not eligible, so the preview never breaks; the join itself lets that error through. */
+  async function joinFor(course,user) {
+    if(isStaff(user)||course.enrollmentOpen||!perks.applies(course.id))return null;
+    try { return await perks.fiiuEligible(user)?'fiiu':'supporters'; }
+    catch(error) { log('course FIIU perk check failed:',errorText(error));return 'supporters'; }
+  }
   async function moduleAccess(courseId,moduleId,user,knownAccess,prefetched) {
     // Reuse checks already performed in this request; never share membership
     // or intake across requests or viewers. prefetched: this request's own read
@@ -221,7 +229,16 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     }
     const root=adminPath?'/api/admin/courses':'/api/courses';
     if(path===root) {
-      if(req.method==='GET') { send(res,200,{courses:await store.find('courses',adminPath?{}:{status:'published'},{limit:100}),isAdmin:isStaff(user)});return true; }
+      if(req.method==='GET'&&adminPath) { send(res,200,{courses:await store.find('courses',{},{limit:100}),isAdmin:isStaff(user)});return true; }
+      if(req.method==='GET') {
+        // One read of the viewer's enrolments marks each card; only the closed perk course can add a festival read.
+        const [courses,enrollments]=await Promise.all([store.find('courses',{status:'published'},{limit:100}),all('enrollments',{userId:user.id})]);
+        const enrolled=new Set(enrollments.map(enrollment=>enrollment.courseId));
+        send(res,200,{courses:await Promise.all(courses.map(async course=>{
+          const join=enrolled.has(course.id)?null:await joinFor(course,user);
+          return {...course,enrolled:enrolled.has(course.id),...(join?{join}:{})};
+        })),isAdmin:isStaff(user)});return true;
+      }
       if(adminPath&&req.method==='POST') {
         const course=await store.insert('courses',{id:newId(),...normalizeCourse(await bodyJson(req)),version:1,createdAt:now(),updatedAt:now()});
         send(res,201,{course});return true;
@@ -290,13 +307,13 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     // The final survey and certificates of one course (server/course-final-survey.js); false for anything else.
     if(await survey.handle({req,res,url,user,access,courseId,suffix,adminPath}))return true;
     if(!suffix&&req.method==='GET') {
-      let [modules,finalSurvey]=await Promise.all([store.find('modules',{courseId,...(isStaff(user)?{}:{status:'published'})},{limit:101,order:['position','sessionDate','id']}),survey.snapshot({courseId,user,access})]);
+      let [modules,finalSurvey,join]=await Promise.all([store.find('modules',{courseId,...(isStaff(user)?{}:{status:'published'})},{limit:101,order:['position','sessionDate','id']}),survey.snapshot({courseId,user,access}),access.enrollment?null:joinFor(access.course,user)]);
       if(!isStaff(user)&&(!access.enrollment||!access.intake)) modules=modules.map(({id,kind,title,position,sessionDate,status,translations={}})=>({
         id,kind,title,position,sessionDate,status,
         // Preview only localized titles; gated teaching content stays private.
         translations:Object.fromEntries(Object.entries(translations).map(([locale,fields])=>[locale,typeof fields.title==='string'?{title:fields.title}:{}])),
       }));
-      send(res,200,{...access,modules,isAdmin:isStaff(user),...(finalSurvey?{finalSurvey}:{})});return true;
+      send(res,200,{...access,modules,isAdmin:isStaff(user),...(finalSurvey?{finalSurvey}:{}),...(join?{join}:{})});return true;
     }
     if(adminPath&&!suffix&&req.method==='PATCH') {
       const input=await bodyJson(req);
@@ -307,7 +324,9 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     }
     if(!adminPath&&suffix==='/enroll'&&req.method==='POST') {
       if(access.enrollment){send(res,200,{enrollment:access.enrollment});return true;}
-      if(!access.course.enrollmentOpen){send(res,403,{error:'enrollment is closed',code:'enrollment_closed'});return true;}
+      // The closed perk course still admits an eligible FIIU Fest 11 registrant; a failed festival read is an error to
+      // retry, never a refusal.
+      if(!access.course.enrollmentOpen&&!(perks.applies(courseId)&&await perks.fiiuEligible(user))){send(res,403,{error:'enrollment is closed',code:'enrollment_closed'});return true;}
       let enrollment;
       try { enrollment=await store.insert('enrollments',{id:newId(),courseId,userId:user.id,createdAt:now()}); }
       catch(err) { if(err.status!==409)throw err;enrollment=await findOne('enrollments',{courseId,userId:user.id});if(!enrollment)throw err; }
