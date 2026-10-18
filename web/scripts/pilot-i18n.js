@@ -194,6 +194,8 @@ const rows = {
  confirmDeleteFile:["Permanently delete this unlinked course file? This cannot be undone.", "¿Borrar definitivamente este archivo sin vincular? Esta acción no se puede deshacer.", "Excluir definitivamente este arquivo não vinculado? Esta ação não pode ser desfeita."],
  fileDeleted:["File deleted.", "Archivo eliminado.", "Arquivo excluído."],
  noUploadedFiles:["No files have been uploaded to this module.", "No se han subido archivos a este módulo.", "Nenhum arquivo foi enviado para este módulo."],
+ // A material only the course's September group sees (teaching.js, on the FIIU perk course only).
+ septemberOnly:['September group only','Solo grupo de septiembre','Só turma de setembro'],
 
  invalidInput:['Review the fields and try again.','Revisa los campos e inténtalo de nuevo.','Revise os campos e tente novamente.'],
  accessDenied:['You do not have access to this action.','No tienes acceso a esta acción.','Você não tem acesso a esta ação.'],

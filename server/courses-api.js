@@ -99,6 +99,8 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     catch(error) { log('course FIIU perk check failed:',errorText(error));return 'supporters'; }
   }
   const newJoinerView=(courseId,user,access)=>perks.applies(courseId)&&!isStaff(user)&&!(access?.enrollment&&perks.inSeptemberGroup(access.enrollment));
+  // Items the teaching team ticked "September group only" reach no one else: not in a module, a file or an event.
+  const withoutSeptemberItems=module=>({...module,resources:module.resources.filter(resource=>!resource.septemberOnly)});
   async function moduleAccess(courseId,moduleId,user,knownAccess,prefetched) {
     // Reuse checks already performed in this request; never share membership
     // or intake across requests or viewers. prefetched: this request's own read
@@ -107,7 +109,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     if(!isStaff(user)&&(!access.enrollment||!access.intake))fail('enroll and complete the intake before opening modules',403);
     const module=await (prefetched??findOne('modules',{id:identifier(moduleId),courseId}));
     if(!module || (!isStaff(user)&&module.status!=='published'))fail('module unavailable',404);
-    return {...access,module};
+    return {...access,module:newJoinerView(courseId,user,access)?withoutSeptemberItems(module):module};
   }
   async function validateMaterials(resources,module) {
     // Normalized resources are bounded to twelve; validate every reference before writing.
@@ -334,7 +336,9 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
         // Preview only localized titles; gated teaching content stays private.
         translations:Object.fromEntries(Object.entries(translations).map(([locale,fields])=>[locale,typeof fields.title==='string'?{title:fields.title}:{}])),
       }));
-      send(res,200,{...access,modules,isAdmin:isStaff(user),...(finalSurvey?{finalSurvey}:{}),...(join?{join}:{})});return true;
+      else if(newJoinerView(courseId,user,access))modules=modules.map(withoutSeptemberItems);
+      // perkCourse tells the teaching workspace to offer the "September group only" tick, on this course alone.
+      send(res,200,{...access,modules,isAdmin:isStaff(user),...(finalSurvey?{finalSurvey}:{}),...(join?{join}:{}),...(isStaff(user)&&perks.applies(courseId)?{perkCourse:true}:{})});return true;
     }
     if(adminPath&&!suffix&&req.method==='PATCH') {
       const input=await bodyJson(req);

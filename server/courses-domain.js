@@ -69,6 +69,8 @@ export function normalizeLinks(value = [], materials = false) {
     ...(materials && item?.attachmentId ? (item.url ? fail('resource must have a URL or attachment, not both') : {attachmentId:identifier(item.attachmentId)}) : {url:httpsUrl(item?.url)}),
     ...(materials && item?.translations !== undefined ? {translations:normalizeTranslations(item.translations,{title:180})} : {}),
     ...(materials ? { kind: choice(item.kind, ['slides', 'reading', 'link', 'recording', 'activity'], 'link', 'resource kind') } : {}),
+    // Ticked "September group only" by the teaching team (server/course-perks.js); an open item stores no flag.
+    ...(materials && item.septemberOnly !== undefined ? (typeof item.septemberOnly !== 'boolean' ? fail('septemberOnly must be true or false') : item.septemberOnly ? { septemberOnly: true } : {}) : {}),
   }));
 }
 export function normalizeModule(input = {}, current = {}) {

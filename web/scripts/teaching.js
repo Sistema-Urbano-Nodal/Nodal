@@ -36,7 +36,8 @@ function translationEditor(record,keys){
   return{section,value:()=>Object.fromEntries(Object.entries(inputs).map(([lang,fields])=>[lang,Object.fromEntries(Object.entries(fields).map(([key,input])=>[key,input.value]))]))};
 }
 
-function makeEditor(record,module,courseId,onSaved){
+// septemberTick: the course has a September group (perkCourse from the server), so each material can be kept to it.
+function makeEditor(record,module,courseId,onSaved,septemberTick=false){
   const form=el('form','pilot-form'),inputs={};
   form.addEventListener('input',e=>{const n=e.target;if(n?.name==='translationLanguage'||n?.type==='file')return;dirty.add(form);});
   const contentKeys=module?['title','description','objectives','instructions']:['title','description'];
@@ -67,10 +68,11 @@ function makeEditor(record,module,courseId,onSaved){
       const row=el('div','pilot-resource-edit'),title=field('title',r.title||''),url=field('url',r.url||'','url'),kind=select('kind',['slides','reading','link','recording','activity'],r.kind||'link');
       title.input.required=true;url.input.required=!r.attachmentId;title.input.maxLength=180;url.input.maxLength=2000;
       const translated=translationEditor(r,['title']),details=el('details');details.append(tr('summary','translations'),translated.section);
-      const entry={title:title.input,url:url.input,attachmentId:r.attachmentId,kind:kind.input,translations:translated.value};resourceInputs.push(entry);
+      const september=septemberTick?field('septemberOnly',r.septemberOnly===true,'checkbox'):null;
+      const entry={title:title.input,url:url.input,attachmentId:r.attachmentId,kind:kind.input,translations:translated.value,septemberOnly:september?.input};resourceInputs.push(entry);
       row.append(title.wrap);
       if(r.attachmentId){const download=tr('a','downloadFile');download.href='/api/course-attachments/'+encodeURIComponent(r.attachmentId);row.append(download);}else row.append(url.wrap);
-      row.append(kind.wrap,details,button('remove',()=>{row.remove();resourceInputs=resourceInputs.filter(x=>x!==entry);dirty.add(form);},true));rows.append(row);
+      row.append(kind.wrap,...(september?[september.wrap]:[]),details,button('remove',()=>{row.remove();resourceInputs=resourceInputs.filter(x=>x!==entry);dirty.add(form);},true));rows.append(row);
     }
     for(const resource of record?.resources||[])add(resource,false);
     resources.append(rows,button('addResource',()=>add(),true));
@@ -123,7 +125,7 @@ function makeEditor(record,module,courseId,onSaved){
     try{
       const body=Object.fromEntries(Object.entries(inputs).map(([key,input])=>[key,input.type==='checkbox'?input.checked:input.type==='number'?Number(input.value):input.value]));
       body.translations=translations.value();if(record)body.version=record.version;
-      if(module){body.resources=resourceInputs.map(r=>({title:r.title.value,...(r.attachmentId?{attachmentId:r.attachmentId}:{url:r.url.value}),kind:r.kind.value,translations:r.translations()}));if(body.resources.some(r=>!r.attachmentId&&!window.nodalPilot.safeUrl(r.url)))throw new Error(t('urlError'));}
+      if(module){body.resources=resourceInputs.map(r=>({title:r.title.value,...(r.attachmentId?{attachmentId:r.attachmentId}:{url:r.url.value}),kind:r.kind.value,translations:r.translations(),...(r.septemberOnly?.checked?{septemberOnly:true}:{})}));if(body.resources.some(r=>!r.attachmentId&&!window.nodalPilot.safeUrl(r.url)))throw new Error(t('urlError'));}
       const path=module?endpoint(courseId)+'/modules'+(record?'/'+record.id:''):endpoint(record?.id);
       const result=await api(path,body,record?'PATCH':'POST'),saved=result.course||result.module;if(record)Object.assign(record,saved);else record=saved;submit.dataset.pilotText='save';submit.textContent=t('save');status(local,t('saved'));dirty.delete(form);await onSaved(saved);await refreshFiles();
     }catch(err){
@@ -134,7 +136,7 @@ function makeEditor(record,module,courseId,onSaved){
           try{
             const result=await api(module?'/api/courses/'+courseId+'/modules/'+record.id:'/api/courses/'+record.id);
             const fresh=result.module||result.course;
-            dirty.delete(form);form.replaceWith(makeEditor(fresh,module,courseId,onSaved));await onSaved(fresh);
+            dirty.delete(form);form.replaceWith(makeEditor(fresh,module,courseId,onSaved,septemberTick));await onSaved(fresh);
           }catch(error){status(local,error);reload.disabled=false;}
         },true);reload.dataset.reload='true';form.append(reload);
       }
@@ -397,7 +399,7 @@ function finalSurveyView(id,version){
   return {element:pane,open(){if(busy||(requested&&Date.now()-loadedAt<60000))return;requested=true;load().then(ok=>{if(!ok)requested=false;});}};
 }
 
-function setupView(course,modules,id,onCourseSaved){
+function setupView(course,modules,id,onCourseSaved,septemberTick=false){
   const pane=el('section','pilot-setup');
   const courseDetails=el('details','pilot-editor-section');
   courseDetails.append(tr('summary','courseSetup'),makeEditor(course,false,null,onCourseSaved));
@@ -413,7 +415,7 @@ function setupView(course,modules,id,onCourseSaved){
       if(current)Object.assign(current,saved);else current=saved;
       updateSummary();
       if(!initial&&!created){created=true;pane.append(moduleEditor());}
-    }));
+    },septemberTick));
     return details;
   }
   for(const module of modules)pane.append(moduleEditor(module));
@@ -423,7 +425,7 @@ function setupView(course,modules,id,onCourseSaved){
 async function showCourse(id,selected='responses',participantNotice=null){
   const version=++selectionVersion;selectedId=id;status(msg,t('loading'));
   try{
-    const [{course,modules,finalSurvey},data]=await Promise.all([api('/api/courses/'+id),api(endpoint(id)+'/report')]);
+    const [{course,modules,finalSurvey,perkCourse},data]=await Promise.all([api('/api/courses/'+id),api(endpoint(id)+'/report')]);
     if(version!==selectionVersion)return;
     workspace.replaceChildren();dirty.clear();
     const header=el('header','pilot-teaching-course');
@@ -455,7 +457,7 @@ async function showCourse(id,selected='responses',participantNotice=null){
     }
     // The course page sends finalSurvey only for the one course that has the survey, so only that course gets the tab.
     const survey=finalSurvey?finalSurveyView(id,version):null;
-    const panes={responses:responseView(data.feedback,id,new Map(modules.map(m=>[m.id,m]))),participants:participantView(data,id,version,participantNotice,refreshParticipants,paneClosed),...(survey?{finalSurvey:survey.element}:{}),courseSetup:setupView(course,modules,id,updateCourse)};
+    const panes={responses:responseView(data.feedback,id,new Map(modules.map(m=>[m.id,m]))),participants:participantView(data,id,version,participantNotice,refreshParticipants,paneClosed),...(survey?{finalSurvey:survey.element}:{}),courseSetup:setupView(course,modules,id,updateCourse,perkCourse===true)};
     const buttons={};
     function activate(key){
       for(const name of Object.keys(panes)){

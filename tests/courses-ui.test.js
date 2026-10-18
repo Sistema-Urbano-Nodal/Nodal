@@ -758,3 +758,26 @@ test('text fields on a phone are 16px so iPhone Safari does not zoom into them',
  const fields=':is(.pilot-form,.pilot-feedback,.pilot-response-filters,.pilot-survey-reminder) :is(input:not([type=file]):not([type=checkbox]):not([type=radio]),textarea,select)';
  assert.equal(styleAt(375,fields)['font-size'],'16px');assert.equal(styleAt(1280,fields)['font-size'],undefined);
 });
+test('the September group tick shows only on the perk course and round-trips through a session save',async()=>{
+ for(const perkCourse of [true,false]){
+  let module={id:'m1',title:'Session',kind:'session',version:1,resources:[{title:'Class recording',url:'https://example.test/recording',kind:'recording',septemberOnly:true},{title:'Reading',url:'https://example.test/reading',kind:'reading'}]};
+  const h=harness((path,opts)=>{
+   if(opts?.method==='PATCH'){module={...module,...JSON.parse(opts.body),version:2};return{module};}
+   if(path==='/api/admin/courses')return{courses:[course]};if(path.endsWith('/report'))return{summary:{},participants:[],feedback:[]};
+   return{course:{...course,version:1},modules:[module],...(perkCourse?{perkCourse}:{})};
+  },{page:'teaching'});h.run('teaching');await flush();
+  const form=descendants(h.body).filter(n=>n.tagName==='form'&&descendants(n).some(x=>x.name==='title'))[1],ticks=descendants(form).filter(n=>n.name==='septemberOnly');
+  if(!perkCourse){
+   assert.equal(ticks.length,0,'other courses have no September group');assert.equal(findKey(form,'septemberOnly'),undefined);
+   await form.listeners.submit({preventDefault(){}});assert.equal(h.requests.find(r=>r.method==='PATCH').body.resources.some(r=>'septemberOnly' in r),false);continue;
+  }
+  assert.deepEqual(ticks.map(n=>[n.type,n.checked]),[['checkbox',true],['checkbox',false]]);
+  const label=findKey(form,'septemberOnly');assert.equal(label.textContent,'September group only');
+  h.lang('es');assert.equal(label.textContent,'Solo grupo de septiembre');h.lang('pt');assert.equal(label.textContent,'Só turma de setembro');
+  ticks[0].checked=false;ticks[1].checked=true;await form.listeners.submit({preventDefault(){}});
+  const patch=h.requests.find(r=>r.method==='PATCH');assert.equal(patch.path,'/api/admin/courses/c1/modules/m1');
+  assert.deepEqual(patch.body.resources.map(r=>[r.title,r.septemberOnly]),[['Class recording',undefined],['Reading',true]]);
+  assert.equal('septemberOnly' in patch.body.resources[0],false,'an open item sends no tick');
+  assert.deepEqual(module.resources.map(r=>r.septemberOnly===true),[false,true]);
+ }
+});
