@@ -99,10 +99,11 @@ test('a new joiner cannot record opening a ticked item, and the September group 
  for(const url of ['https://example.test/reading',`/api/course-attachments/${slides.id}`])assert.equal((await open('joiner','content_open',url)).status,200,url);
 });
 
-test('the tick holds after enrolment reopens, and only staff learn which course has a September group',async t=>{
+test('the tick holds after enrolment reopens, and only the perk course is marked as having a September group',async t=>{
  const {call,store,course}=await setup(t);const perk=await course(FIIU_COURSE_PERK.courseId),other=await course(randomUUID());
  await store.update('courses',{id:perk.id},{enrollmentOpen:true});
  assert.deepEqual(titles((await(await call(`/api/courses/${perk.id}/modules/${perk.module.id}`)).json()).module.resources),OPEN_ITEMS);
  for(const path of [`/api/courses/${perk.id}`,`/api/admin/courses/${perk.id}`])assert.equal((await(await call(path,{actor:'staff'})).json()).perkCourse,true,path);
- for(const [actor,id] of [['staff',other.id],['joiner',perk.id],['september',perk.id]])assert.equal('perkCourse' in await(await call(`/api/courses/${id}`,{actor})).json(),false,actor);
+ for(const actor of ['joiner','september'])assert.equal((await(await call(`/api/courses/${perk.id}`,{actor})).json()).perkCourse,true,actor);
+ for(const actor of ['staff','joiner'])assert.equal('perkCourse' in await(await call(`/api/courses/${other.id}`,{actor})).json(),false,actor);
 });

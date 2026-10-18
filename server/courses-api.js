@@ -342,8 +342,9 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
         translations:Object.fromEntries(Object.entries(translations).map(([locale,fields])=>[locale,typeof fields.title==='string'?{title:fields.title}:{}])),
       }));
       else if(newJoinerView(courseId,user,access))modules=modules.map(withoutSeptemberItems);
-      // perkCourse tells the teaching workspace to offer the "September group only" tick, on this course alone.
-      send(res,200,{...access,modules,isAdmin:isStaff(user),...(finalSurvey?{finalSurvey}:{}),...(join?{join}:{}),...(isStaff(user)&&perks.applies(courseId)?{perkCourse:true}:{})});return true;
+      // perkCourse marks the course with a September group: the teaching workspace offers the "September group only"
+      // tick, and the conversation shows the sharedSince note.
+      send(res,200,{...access,modules,isAdmin:isStaff(user),...(finalSurvey?{finalSurvey}:{}),...(join?{join}:{}),...(perks.applies(courseId)?{perkCourse:true}:{})});return true;
     }
     if(adminPath&&!suffix&&req.method==='PATCH') {
       const input=await bodyJson(req);
