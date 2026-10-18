@@ -84,6 +84,18 @@ test('a new joiner never receives a September post, a reply under one, or their 
  assert.equal((await download(c.staffFile.id,'peer')).status,404);assert.equal((await reply(c.teaching.id,'peer')).status,400);
 });
 
+test('withdrawing an October question leaves the October replies under it with new joiners',async t=>{
+ const {call,course,ids,post,reply}=await setup(t);
+ const question=await post('peer','2026-10-10T10:00:00.000Z');
+ const answer=await post('staff','2026-10-10T12:00:00.000Z',{parentId:question.id});
+ const followUp=await post('joiner','2026-10-11T09:00:00.000Z',{parentId:answer.id});
+ assert.deepEqual(await ids('joiner'),[question.id,answer.id,followUp.id]);
+ // Its author withdraws the question: the teaching team's answer and the joiner's own reply stay in the conversation.
+ assert.equal((await call(`/api/courses/${course.id}/posts/${question.id}`,{actor:'peer',method:'DELETE'})).status,200);
+ assert.deepEqual(await ids('joiner'),[answer.id,followUp.id]);
+ assert.equal((await reply(answer.id)).status,201);
+});
+
 test('new joiners get full pages of October posts, and a page followed only by hidden posts has no next page',async t=>{
  const {call,prefix,post,store}=await setup(t);
  const root=await post('september','2026-09-08T00:00:00.000Z'),visible=[];
@@ -115,7 +127,7 @@ test('the poll reads no posts, and only a new joiner\'s page reads the module co
  for(const actor of ['september','staff']){const listed=await request(actor,'?kind=discussion');assert.equal(listed.posts.length,2);assert.equal(reads.filter(r=>r.name==='posts').length,1);}
  const listed=await request('joiner','?kind=discussion');assert.deepEqual(listed.posts,[]);assert.equal(listed.nextCursor,null);
  const posts=reads.filter(r=>r.name==='posts');
- assert.deepEqual(posts.filter(r=>r.options.limit!==31).map(r=>r.filters),[{courseId:course.id,moduleId:module.id,deletedAt:null}]);
+ assert.deepEqual(posts.filter(r=>r.options.limit!==31).map(r=>r.filters),[{courseId:course.id,moduleId:module.id}]);
 });
 
 test('after enrolment reopens, members who join and earlier new joiners still see the conversation from October only',async t=>{

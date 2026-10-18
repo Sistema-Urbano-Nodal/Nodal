@@ -132,10 +132,11 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
   }
   /* The September conversation stays with the September group (course-perks.js). For a new joiner a post is hidden
      when it was written before October or answers a hidden post, so an October reply in a September thread is hidden
-     too, whoever wrote it. Threads resolve through the module's live posts, read once per request; a parent missing
-     from them (withdrawn) hides its replies, so the rule fails closed. */
+     too, whoever wrote it. Threads resolve through the module's posts, withdrawn ones included (a tombstone keeps its
+     date and parent), read once per request: withdrawing an October question leaves its October replies in place, a
+     withdrawn September post still hides its thread, and a parent missing altogether hides its replies. */
   async function hiddenFromNewJoiner(module) {
-    const posts=new Map((await all('posts',{courseId:module.courseId,moduleId:module.id,deletedAt:null})).map(post=>[post.id,post])),known=new Map();
+    const posts=new Map((await all('posts',{courseId:module.courseId,moduleId:module.id})).map(post=>[post.id,post])),known=new Map();
     return post=>{
       const thread=new Set();let hidden=false;
       for(let current=post;;current=posts.get(current.parentId)) {
