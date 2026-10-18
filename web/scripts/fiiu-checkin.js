@@ -4,7 +4,7 @@
  // The check-in is sent at once and c then leaves the address bar, so a reload or a shared screenshot of the page cannot reuse it;
  // a reload shows the person's confirmation for that block instead (revisit).
  // Every outcome is one ruled block: a title that takes focus, the block it concerns, and the one next step.
- const Fiiu=window.Fiiu,{t,el,tr,button,link,source,field,api,status,dateNode,limaDate,badges,festivalBadges,findActivity,countLabel,hoursLine,limaClock,windowNode,newTabNote,checkinCloses}=Fiiu;
+ const Fiiu=window.Fiiu,{t,el,tr,button,link,source,field,api,status,dateNode,limaDate,badges,festivalBadges,shareText,shareControl,findActivity,countLabel,hoursLine,limaClock,windowNode,newTabNote,checkinCloses}=Fiiu;
  // Page-only strings join the shared dictionary, so t(), tr() and the language switch in fiiu-ui.js handle them like the rest.
  Object.assign(Fiiu.rows,{
   checkinAccount:['Signed in as','Sesión iniciada como','Conectado como'],
@@ -74,6 +74,7 @@
  // registration, which the rule allows, since what is earned follows from the attendance alone. Only a scan that created the attendance unlocks anything
  // (a repeat scan or a reload does not), and nothing is claimed before the programme lands.
  const MILESTONES={'milestone:first':'milestoneFirst','milestone:four':'milestoneFour','milestone:conferences':'milestoneConferences','milestone:full':'milestoneFull'};
+ const SHARE_ORDER=['milestone:full','milestone:conferences','milestone:four','milestone:first'];
  function unlockedBy(data,id,attendance){
   if(data.result!=='checked_in'||!festival)return [];
   const earned=list=>festivalBadges(null,list,festival.event).filter(badge=>badge.state==='earned'),before=new Set(earned(attendance.filter(row=>row.activityId!==id)).map(badge=>badge.id));
@@ -90,6 +91,9 @@
    line.append(tr('span',key,'f-unlocked-label'),space(),session?source('span',badge.activity.title):tr('span',MILESTONES[badge.id]));box.append(line);
    spoken.append(text(t(key)+' '),session?source('span',badge.activity.title):text(t(MILESTONES[badge.id])),text('. '));
   }
+  // One way to share it, the moment people most want to: the furthest milestone this scan reached, else the block itself.
+  const shared=SHARE_ORDER.map(id=>unlocked.find(badge=>badge.id===id)).find(Boolean)||unlocked.find(badge=>badge.kind==='session');
+  if(shared)box.append(shareControl(()=>shareText(shared,unlocked)));
   box.append(link('seeInConsole','dashboard.html#badges','f-text-link'));
   if(told!==id){told=id;Promise.resolve().then(()=>message.replaceChildren(spoken));}
   return box;

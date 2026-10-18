@@ -636,6 +636,63 @@ test('badges earned since the last visit carry a New tag, kept through this visi
   }
 });
 
+test('each earned FIIU badge in the ledger can be shared, and only those: not locked rows, not the other families', async () => {
+  const l = ledger(), shared = [];
+  l.context.navigator = { share: async (data) => { shared.push(JSON.parse(JSON.stringify(data))); } };
+  l.hand({ registration: anaPlan, attendance: attended('day1-am'), event: FIIU_EVENT });
+  const [fiiu, ...others] = l.groups();
+  const share = (row) => row.querySelector('.f-share-button');
+  const byName = (name) => fiiu.rows.find((row) => view(row).name.startsWith(name));
+  assert.deepEqual(fiiu.rows.map((row) => [view(row).name.slice(0, 20), Boolean(share(row))]), [
+    ['El poder de lo local', true], ['Cuidar y transformar', false], ['First activity', true], ['Four panels', false], ['All five panels', false], ['Full FIIU', false],
+  ]);
+  assert.ok(others.every((group) => group.rows.every((row) => !share(row))), 'only FIIU badges have something to share');
+  const session = share(byName('El poder de lo local'));
+  assert.equal(session.textContent, 'Share');
+  assert.equal(session['aria-label'], 'Share: El poder de lo local', 'several buttons on one page, each named by its badge');
+  await session.listeners.click();
+  await share(byName('First activity')).listeners.click();
+  assert.deepEqual(shared.map((data) => data.text), [
+    'I was at “El poder de lo local” at FIIU Fest 11 in Lima. Ideas for the city that start at the local level. Programme: https://fiiu.sistemaurbano.org/ #FIIU11',
+    'My first FIIU Fest 11 activity was “El poder de lo local”. https://fiiu.sistemaurbano.org/ #FIIU11',
+  ]);
+  // The row keeps its three lines (name, requirement, what it opens); the share control comes after them.
+  assert.equal(byName('El poder de lo local').children[1].children.at(-1).className, 'f-share');
+  l.lang('es');
+  assert.equal(share(l.groups()[0].rows[0]).textContent, 'Compartir', 'a language switch redraws it in the new language');
+});
+
+test('First activity names the block actually attended, and Four panels offers no share once all five are earned', async () => {
+  const shared = [], panels = ['day1-am', 'day1-pm', 'day2-am', 'day2-pm', 'day3-am'];
+  const share = (row) => row.querySelector('.f-share-button');
+  const missed = ledger();
+  missed.context.navigator = { share: async (data) => { shared.push(JSON.parse(JSON.stringify(data))); } };
+  missed.hand({ registration: anaPlan, attendance: attended('day2-am'), event: FIIU_EVENT });
+  const rows = missed.groups()[0].rows, byName = (name) => rows.find((row) => view(row).name.startsWith(name));
+  assert.equal(share(byName('El poder de lo local')), null, 'a planned block that was missed has nothing to share');
+  await share(byName('First activity')).listeners.click();
+  assert.equal(shared[0].text, 'My first FIIU Fest 11 activity was “Cuidar y transformar la ciudad”. https://fiiu.sistemaurbano.org/ #FIIU11');
+  const all = ledger();
+  all.hand({ registration: festivalPlan({ activities: panels }), attendance: attended(...panels), event: FIIU_EVENT });
+  const done = all.groups()[0].rows, named = (name) => done.find((row) => view(row).name.startsWith(name));
+  assert.equal(share(named('Four panels')), null, 'four of five would understate five of five');
+  assert.ok(share(named('All five panels')));
+});
+
+test('a ledger redraw (a refresh on the way back from the share sheet, a language switch) gives focus back to the same share button', () => {
+  const l = ledger();
+  l.context.navigator = { share: async () => {} };
+  l.hand({ registration: anaPlan, attendance: attended('day1-am'), event: FIIU_EVENT });
+  const copyOf = () => l.groups()[0].rows[0].querySelector('.f-share').children.filter((n) => n.tagName === 'button')[1];
+  const before = copyOf();
+  l.context.document.activeElement = before;
+  l.hand({ registration: anaPlan, attendance: attended('day1-am'), event: FIIU_EVENT });
+  const after = copyOf();
+  assert.notEqual(after, before, 'the row was drawn again');
+  assert.equal(after.focused, true, 'focus is back on Copy text of the same badge');
+  assert.match(read('web', 'scripts', 'dashboard.js'), /focus\?\.\(\{ preventScroll: true \}\)/, 'without moving the page');
+});
+
 test('the FIIU family reads in English, Spanish and Portuguese, with its own family mark', () => {
   const dash = { window: {} };
   vm.runInNewContext(read('web', 'scripts', 'i18n-dashboard.js'), dash);

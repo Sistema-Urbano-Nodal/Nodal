@@ -212,6 +212,19 @@
   backfillSignIn:['Sign in again, then press the button to continue.','Vuelve a iniciar sesión y pulsa el botón para continuar.','Entre novamente e pressione o botão para continuar.'],
   backfillOff:['Summary emails are off. To turn them on, set EMAIL_SMTP_URL and EMAIL_FROM (and PUBLIC_BASE_URL) in Vercel for Production, then redeploy.','Los correos de resumen están desactivados. Para activarlos, configura EMAIL_SMTP_URL y EMAIL_FROM (y PUBLIC_BASE_URL) en Vercel para Production y vuelve a desplegar.','Os e-mails de resumo estão desativados. Para ativá-los, defina EMAIL_SMTP_URL e EMAIL_FROM (e PUBLIC_BASE_URL) na Vercel para Production e publique de novo.'],
   backfillLoadError:['The summary email status could not be loaded.','No se pudo cargar el estado de los correos de resumen.','Não foi possível carregar o status dos e-mails de resumo.'],
+  // Sharing a badge (Fiiu.shareControl): the button, what it says afterwards, and the text it shares. {session} is a block's own Spanish title,
+  // {site} the public festival site; nothing else goes in, so a shared text never carries a name, an address or a check-in code.
+  shareBadge:['Share','Compartir','Compartilhar'],copyBadgeText:['Copy text','Copiar texto','Copiar texto'],
+  shareCopied:['Text copied. Paste it wherever you like.','Texto copiado. Pégalo donde quieras.','Texto copiado. Cole onde quiser.'],
+  shareManual:['Copy this text:','Copia este texto:','Copie este texto:'],
+  shareTextConference:['I was at “{session}” at FIIU Fest 11 in Lima. Ideas for the city that start at the local level. Programme: {site} #FIIU11','Estuve en «{session}» del FIIU Fest 11 en Lima. Ideas para la ciudad que nacen de lo local. Programa: {site} #FIIU11','Estive em “{session}” no FIIU Fest 11, em Lima. Ideias para a cidade que nascem do que é local. Programação: {site} #FIIU11'],
+  shareTextExternal:['I took part in “{session}” at FIIU Fest 11: learning by doing, out in the city. See the programme: {site} #FIIU11','Participé en «{session}» del FIIU Fest 11: aprender haciendo, en la ciudad. Mira el programa: {site} #FIIU11','Participei de “{session}” no FIIU Fest 11: aprender fazendo, na cidade. Veja a programação: {site} #FIIU11'],
+  shareTextLab:['I took part in the public officials’ laboratory at FIIU Fest 11. Public management thought through from the local level. {site} #FIIU11','Participé en el laboratorio para funcionarios públicos del FIIU Fest 11. Gestión pública pensada desde lo local. {site} #FIIU11','Participei do laboratório para gestores públicos do FIIU Fest 11. Gestão pública pensada a partir do que é local. {site} #FIIU11'],
+  // The ledger offers these at any time, during the festival or long after, so none says "today", "already" or "you can still join".
+  shareTextFirst:['My first FIIU Fest 11 activity was “{session}”. {site} #FIIU11','Mi primera actividad del FIIU Fest 11 fue «{session}». {site} #FIIU11','Minha primeira atividade do FIIU Fest 11 foi “{session}”. {site} #FIIU11'],
+  shareTextFour:['I went to four of the five FIIU Fest 11 panels in Lima. {site} #FIIU11','Asistí a cuatro de los cinco paneles del FIIU Fest 11 en Lima. {site} #FIIU11','Participei de quatro dos cinco painéis do FIIU Fest 11, em Lima. {site} #FIIU11'],
+  shareTextConferences:['I went to all five FIIU Fest 11 panels. Three days of ideas on the power of the local. {site} #FIIU11','Completé los cinco paneles del FIIU Fest 11. Tres días de ideas sobre el poder de lo local. {site} #FIIU11','Completei os cinco painéis do FIIU Fest 11. Três dias de ideias sobre o poder do local. {site} #FIIU11'],
+  shareTextFull:['I completed FIIU Fest 11: all five panels, workshops and urban routes around Lima. {site} #FIIU11','Completé el FIIU Fest 11: los cinco paneles, talleres y rutas urbanas por Lima. {site} #FIIU11','Completei o FIIU Fest 11: os cinco painéis, oficinas e roteiros urbanos por Lima. {site} #FIIU11'],
  };
  const lang=()=>window.nodalI18n?.lang||document.documentElement.lang||'en';
  const t=key=>rows[key]?.[Math.max(0,['en','es','pt'].indexOf(lang()))]||key;
@@ -271,6 +284,8 @@
   document.querySelectorAll('[data-fiiu-range]').forEach(n=>{const [a,b]=n.dataset.fiiuRange.split('/');n.textContent=dateRange(a,b);});
   document.querySelectorAll('[data-fiiu-time]').forEach(n=>{n.textContent=timeLabel(n.dataset.fiiuTime);});
   document.querySelectorAll('.f-talk-spoken').forEach(n=>{n.textContent=talkSpoken(Number(n.dataset.talkCount));});
+  // A text shown to copy by hand follows the language too (its label is the note, which carries data-fiiu-text).
+  document.querySelectorAll('.f-share-text').forEach(area=>{try{if(typeof area.fiiuShare==='function')area.value=area.fiiuShare();}catch{/* keep the text shown */}});
  }
  function dateNode(value,tag='p',style='long',cls='f-date'){const n=el(tag,cls,date(value,style));n.dataset.fiiuDate=value;if(style!=='long')n.dataset.fiiuDateStyle=style;return n;}
  function rangeNode(start,end,tag='span',cls='f-range'){const n=el(tag,cls,dateRange(start,end));n.dataset.fiiuRange=start+'/'+end;return n;}
@@ -402,8 +417,46 @@
    milestone('full',panels+Math.min(ofKind('workshop'),FULL_WORKSHOPS)+Math.min(ofKind('route'),FULL_ROUTES),conferences.length+FULL_WORKSHOPS+FULL_ROUTES));
   return out;
  }
+ /* Sharing an earned badge. The text names the block by its own Spanish title, or the milestone, and links to the public festival site, never to
+    the private console or the page's own address (which may hold a check-in code). badges: the person's list from festivalBadges, so First activity
+    names their first attended block in programme order. */
+ const FIIU_SITE='https://fiiu.sistemaurbano.org/';
+ const SHARE_MILESTONES={first:'shareTextFirst',four:'shareTextFour',conferences:'shareTextConferences',full:'shareTextFull'};
+ function shareText(badge,badges=[]){
+  // One pass, so a title's own "$&" or "{site}" stays as written; a title quoted with “ ” has its own “ ” turned into ‘ ’.
+  const fill=(key,session='')=>{const text=t(key),title=text.includes('“{session}”')?session.replace(/“/g,'‘').replace(/”/g,'’'):session;
+   return text.replace(/\{(session|site)\}/g,(_,part)=>part==='site'?FIIU_SITE:title);};
+  if(badge.kind==='milestone'){
+   const id=badge.id.slice('milestone:'.length),first=badges.find(b=>b.kind==='session'&&b.state==='earned');
+   return fill(SHARE_MILESTONES[id]||'shareTextFirst',id==='first'?first?.activity.title||'':'');
+  }
+  const kind=typeOf(badge.activity);
+  return fill(kind==='conference'?'shareTextConference':kind==='lab'?'shareTextLab':'shareTextExternal',badge.activity.title);
+ }
+ /* Share buttons: "Share" opens the phone's own share sheet (the Web Share API) where the browser has one, and "Copy text" is always there too,
+    since a laptop's share window lists installed apps rather than WhatsApp Web or LinkedIn. A share sheet the person closes, or one already open
+    (a second tap), does nothing more; one that fails copies instead; a refused clipboard shows the text to copy by hand. The press calls the
+    browser at once, keeping the tap's permission. textOf is read at the press, so the text is in the language on screen then. name labels the
+    buttons for a screen reader where a page has several (the console's ledger). The note is emptied, never hidden, so screen readers hear it. */
+ let shareIds=0;
+ function shareControl(textOf,name){
+  const nav=()=>globalThis.navigator,box=el('div','f-share'),note=el('p','f-share-note');
+  note.id='f-share-note-'+(++shareIds);note.setAttribute('role','status');note.setAttribute('aria-live','polite');
+  const say=key=>{note.textContent=key?t(key):'';note.dataset.fiiuText=key;};
+  const make=key=>{const b=button(key,null,'f-share-button');if(name)b.setAttribute('aria-label',t(key)+': '+name);return b;};
+  const byHand=text=>{const area=el('textarea','f-share-text');area.readOnly=true;area.rows=4;area.value=text;area.setAttribute('aria-labelledby',note.id);area.fiiuShare=textOf;say('shareManual');box.append(area);area.focus?.();area.select?.();};
+  const copy=async text=>{try{await nav().clipboard.writeText(text);say('shareCopied');}catch{byHand(text);}};
+  // Each button ignores its own second tap while it works (a share sheet still open, a copy under way), but never the other's: Copy text
+  // works while a share sheet is open.
+  const press=action=>{let busy=false;return async()=>{if(busy)return;busy=true;try{const text=textOf();say('');box.querySelector('.f-share-text')?.remove();await action(text);}finally{busy=false;}};};
+  const buttons=[];
+  if(typeof nav()?.share==='function'){const share=make('shareBadge');share.addEventListener('click',press(async text=>{
+   try{await nav().share({title:'FIIU Fest 11',text});}catch(err){if(err?.name!=='AbortError'&&err?.name!=='InvalidStateError')await copy(text);}}));buttons.push(share);}
+  const copyButton=make('copyBadgeText');copyButton.addEventListener('click',press(copy));buttons.push(copyButton);
+  box.append(...buttons,note);return box;
+ }
  // Scrolls a horizontal chip row just enough to show the item in full, clear of the right-edge fade (fiiu.css); only the row moves, never the page (the rows sit in sticky bars).
  function revealInRow(row,item){const box=item?.getBoundingClientRect?.(),frame=row?.getBoundingClientRect?.();if(!box||!frame)return;const shift=box.left<frame.left+8?box.left-frame.left-8:box.right>frame.right-36?box.right-frame.right+36:0;if(shift)row.scrollBy?.({left:shift});}
- window.Fiiu={rows,t,el,tr,button,link,source,field,check,api,status,dateNode,rangeNode,timeLabel,timeNode,limaDate,locale,contentCards,badges,festivalBadges,findActivity,chronological,typeOf,countLabel,nextFor,underway,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,hoursLine,checkinCloses,checkinState,checkinActivities,limaClock,windowNode,pulse,talkLink,sessionLink,linkify};
+ window.Fiiu={rows,t,el,tr,button,link,source,field,check,api,status,dateNode,rangeNode,timeLabel,timeNode,limaDate,locale,contentCards,badges,festivalBadges,shareText,shareControl,findActivity,chronological,typeOf,countLabel,nextFor,underway,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,hoursLine,checkinCloses,checkinState,checkinActivities,limaClock,windowNode,pulse,talkLink,sessionLink,linkify};
  window.nodalI18n?.onChange(refresh);refresh();
 })();

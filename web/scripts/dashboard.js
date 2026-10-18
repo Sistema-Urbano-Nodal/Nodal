@@ -688,17 +688,22 @@
   function festivalBadgeData() {
     const Fiiu = window.Fiiu;
     if (!festival?.registration || !festival.event || typeof Fiiu?.festivalBadges !== 'function') return [];
-    return Fiiu.festivalBadges(festival.registration, festival.attendance, festival.event).map((b) => {
+    const all = Fiiu.festivalBadges(festival.registration, festival.attendance, festival.event);
+    // An earned badge can be shared (Fiiu.shareControl), with the text of the language on screen when it is pressed. Four panels says four of
+    // five, so once all five are earned only the further milestone offers a share.
+    const allFive = all.some((b) => b.id === 'milestone:conferences' && b.state === 'earned');
+    const shareOf = (b) => (b.state === 'earned' && !(allFive && b.id === 'milestone:four') && typeof Fiiu.shareText === 'function' ? () => Fiiu.shareText(b, all) : null);
+    return all.map((b) => {
       if (b.kind === 'milestone') {
         const key = b.id.slice('milestone:'.length);
         return {
-          fam: 'fiiu', id: b.id, state: b.state, meter: b.meter,
+          fam: 'fiiu', id: b.id, state: b.state, meter: b.meter, share: shareOf(b),
           name: t(`d.badge.fiiu.${key}.name`), req: t(`d.badge.fiiu.${key}.req`), unlock: t(`d.badge.fiiu.${key}.unlock`),
         };
       }
       const a = b.activity;
       return {
-        fam: 'fiiu', id: b.id, state: b.state, name: a.title, lang: 'es',
+        fam: 'fiiu', id: b.id, state: b.state, name: a.title, lang: 'es', share: shareOf(b),
         req: b.state === 'earned' ? blockWhen(Fiiu, a) : t('d.badge.fiiu.checkIn'),
         // certificate hours as the server counts them; a workshop, a route or an untimed block counts as participation
         unlock: b.minutes ? t('d.badge.fiiu.hours', { hours: Fiiu.hoursText(b.minutes / 60) }) : t('d.badge.fiiu.participation'),
@@ -767,9 +772,16 @@
      entry with its requirement, what it opens, and (where countable) a tally.
      The first badge not yet earned carries the "next" tag. A registrant's
      FIIU Fest 11 family comes first. */
+  // The share controls drawn for earned FIIU badges, by badge id, so a redraw (a background refresh on the way back from the share sheet, a
+  // language switch) gives focus back to the same button of the same badge instead of dropping it.
+  const shareBoxes = new Map();
   function renderBadges() {
     const grid = byId('badgeGrid');
     if (!grid) return;
+    const active = document.activeElement;
+    const held = active ? [...shareBoxes].find(([, box]) => [...box.children].includes(active)) : null;
+    const refocus = held ? { id: held[0], at: [...held[1].children].indexOf(active) } : null;
+    shareBoxes.clear();
     const badges = badgeData();
     const next = badges.find((b) => b.state !== 'earned');
     const fresh = newlyEarned(badges);
@@ -814,6 +826,11 @@
         const opens = el('p', 'bl-opens');
         opens.append(el('strong', null, t('d.badge.opens')), b.unlock);
         body.append(name, req, opens);
+        if (b.share && typeof window.Fiiu?.shareControl === 'function') {
+          const control = window.Fiiu.shareControl(b.share, b.name);
+          shareBoxes.set(b.id, control);
+          body.appendChild(control);
+        }
 
         const status = el('div', 'bl-status');
         if (b.meter) {
@@ -841,6 +858,8 @@
       return group;
     }));
 
+    // Without scrolling: the redraw may come while the person reads another part of the console.
+    if (refocus) [...(shareBoxes.get(refocus.id)?.children || [])][refocus.at]?.focus?.({ preventScroll: true });
     const earned = badges.filter((b) => b.state === 'earned').length;
     setText('badgesEyebrow', t('d.eyebrow.recognition', { n: earned, total: badges.length }));
   }
