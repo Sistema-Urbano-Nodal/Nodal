@@ -130,11 +130,91 @@ test('Copy text works next to the share sheet, and a second tap while the sheet 
  assert.equal(h.root.querySelector('.f-share-note').dataset.fiiuText,'shareCopied');
 });
 
+// The WhatsApp link and LinkedIn's "Add licence or certification" form, both opened in a new tab with nothing but the badge.
+const links=h=>Object.fromEntries((h.root.querySelector('.f-share')?.children||[]).filter(node=>node.tagName==='a').map(node=>[node.dataset.fiiuText,node]));
+const query=href=>Object.fromEntries(new URL(href).searchParams);
+
+test('every share offers WhatsApp: a wa.me link with the same text, in a new tab, that follows a language switch',async()=>{
+ const h=await checkin(scan('day1-am',rows('day1-am')),sheet()),wa=links(h).shareWhatsApp;
+ assert.ok(wa,'a WhatsApp link next to Share and Copy text');
+ assert.equal(wa.href,'https://wa.me/?text='+encodeURIComponent(`My first FIIU Fest 11 activity was “El poder de lo local”. ${SITE} #FIIU11`));
+ assert.equal(wa.target,'_blank');assert.equal(wa.rel,'noopener noreferrer');assert.equal(wa.textContent,'Send via WhatsApp');
+ assert.equal(wa['aria-label'],'Send via WhatsApp (opens in a new tab)');
+ assert.ok(!wa.href.includes(CODE),'never the check-in code');
+ h.lang('es');
+ assert.equal(wa.href,'https://wa.me/?text='+encodeURIComponent(`Mi primera actividad del FIIU Fest 11 fue «El poder de lo local». ${SITE} #FIIU11`),'the link follows the language');
+ assert.equal(wa['aria-label'],'Enviar por WhatsApp (se abre en una pestaña nueva)');assert.equal(wa.textContent,'Enviar por WhatsApp');
+});
+
+test('a WhatsApp or LinkedIn link works out its address and label again when pressed, without waiting for a language-switch redraw',async()=>{
+ const h=await checkin(scan('day1-am',rows('day1-am')),sheet()),{shareWhatsApp:wa,shareLinkedIn:add}=links(h);
+ h.ctx.window.nodalI18n.lang='es'; // no listener fires, so only the press can update the links
+ assert.match(wa.href,/My%20first/,'still the English text before the press');
+ await wa.listeners.click();
+ assert.equal(wa.href,'https://wa.me/?text='+encodeURIComponent(`Mi primera actividad del FIIU Fest 11 fue «El poder de lo local». ${SITE} #FIIU11`));
+ assert.equal(wa['aria-label'],'Enviar por WhatsApp (se abre en una pestaña nueva)');
+ await add.listeners.click();
+ assert.equal(query(add.href).name,'FIIU Fest 11 · Primera actividad');
+ assert.equal(add['aria-label'],'Añadir a LinkedIn (se abre en una pestaña nueva)');
+});
+
+test('milestones, the laboratory, workshops and routes offer "Add to LinkedIn" with NODAL as issuer; a panel session does not',async()=>{
+ const first=await checkin(scan('day1-am',rows('day1-am')),sheet()),add=links(first).shareLinkedIn;
+ assert.ok(add,'the first milestone can go on LinkedIn');assert.equal(add.textContent,'Add to LinkedIn');assert.equal(add.target,'_blank');
+ assert.equal(add.href.split('?')[0],'https://www.linkedin.com/profile/add');
+ assert.deepEqual(query(add.href),{startTask:'CERTIFICATION_NAME',name:'FIIU Fest 11 · First activity',organizationName:'NODAL',issueYear:'2026',issueMonth:'10'},'no certId or certUrl until badges have a public page');
+ assert.equal(add.href,'https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=FIIU%20Fest%2011%20%C2%B7%20First%20activity&organizationName=NODAL&issueYear=2026&issueMonth=10','the name is percent-encoded');
+ first.lang('es');assert.equal(query(add.href).name,'FIIU Fest 11 · Primera actividad');assert.equal(add.textContent,'Añadir a LinkedIn');
+ // A second panel reaches no milestone: the panel session itself is shared, which the panel milestones cover on LinkedIn.
+ const panel=await checkin(scan('day1-pm',rows('day1-am','day1-pm')),sheet(),{activity:'day1-pm'});
+ assert.ok(links(panel).shareWhatsApp);assert.equal(links(panel).shareLinkedIn,undefined);
+ // The laboratory, after a panel: its own badge, with its own title.
+ const lab=await checkin(scan('day0-lab',rows('day1-am','day0-lab')),sheet(),{activity:'day0-lab'}),labTitle=EVENT.activities.find(a=>a.id==='day0-lab').title;
+ assert.equal(query(links(lab).shareLinkedIn.href).name,`FIIU Fest 11 · ${labTitle}`);
+ // Organisers can rename an activity (PROGRAMME_FIELDS); a title with & # + % must not cut the form short.
+ const workshop=EVENT.activities.find(a=>a.id==='workshop-calles-gente'),title=workshop.title;
+ workshop.title='Arte & ciudad #1 +50%';
+ try{
+  const odd=await checkin(scan('workshop-calles-gente',rows('day1-am','workshop-calles-gente')),sheet(),{activity:'workshop-calles-gente'});
+  assert.deepEqual(query(links(odd).shareLinkedIn.href),{startTask:'CERTIFICATION_NAME',name:'FIIU Fest 11 · Arte & ciudad #1 +50%',organizationName:'NODAL',issueYear:'2026',issueMonth:'10'},'a renamed title with & # + % keeps the rest of the form');
+ }finally{workshop.title=title;}
+ const Fiiu=fiiu('en'),badges=Fiiu.festivalBadges(null,rows(...FIVE,'day0-lab','workshop-calles-gente','route-arcoiris'),EVENT);
+ assert.deepEqual([...badges.filter(badge=>Fiiu.certifiable(badge)).map(badge=>badge.id)],['session:day0-lab','session:workshop-calles-gente','session:route-arcoiris','milestone:first','milestone:four','milestone:conferences','milestone:full']);
+});
+
+test('every LinkedIn name fits the form’s 100 characters: a long title keeps its part before the colon, or is cut at a word',()=>{
+ const Fiiu=fiiu('es'),session=activity=>({kind:'session',id:'session:'+activity.id,activity});
+ const certifiable=EVENT.activities.filter(activity=>Fiiu.certifiable(session(activity)));
+ assert.ok(certifiable.length>=10,'the workshops, routes and laboratory');
+ const words='Herramientas para el diseño participativo de infraestructuras del cuidado de escala barrial y metropolitana '.repeat(3);
+ for(const activity of [...certifiable,{id:'long',type:'workshop',title:words},{id:'long-colon',type:'route',title:'Ruta: '+words},{id:'one-word',type:'workshop',title:'x'.repeat(300)}]){
+  const name=Fiiu.certificationName(session(activity));
+  assert.ok(name.length<=100,`${activity.id}: ${name.length} ${name}`);
+  assert.ok(name.startsWith('FIIU Fest 11 · '));
+  if(('FIIU Fest 11 · '+activity.title).length<=100)assert.equal(name,'FIIU Fest 11 · '+activity.title,`${activity.id}: a title that fits is kept whole`);
+  else assert.doesNotMatch(name,/[\s,;:·–-]…?$/,`${activity.id}: no dangling space or punctuation`);
+ }
+ assert.equal(Fiiu.certificationName(session({type:'route',title:'Ruta: '+words})),'FIIU Fest 11 · Ruta');
+ assert.ok(Fiiu.certificationName(session({type:'workshop',title:words})).endsWith('…'));
+});
+
+test('the LinkedIn names of the milestones are the console’s, in every language',()=>{
+ const dash={window:{}};vm.runInNewContext(readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.meta.url),'utf8'),dash);
+ for(const lang of ['en','es','pt']){
+  const Fiiu=fiiu(lang),badges=Fiiu.festivalBadges(null,rows(...FIVE,'workshop-calles-gente','workshop-mapa-empatia','route-arcoiris','route-lima-cromatica'),EVENT);
+  for(const id of ['first','four','conferences','full'])assert.equal(Fiiu.certificationName(badges.find(badge=>badge.id==='milestone:'+id)),'FIIU Fest 11 · '+dash.window.NODAL_I18N_DASH[lang][`d.badge.fiiu.${id}.name`],`${lang} ${id}`);
+ }
+});
+
 test('the share control is a 44px target on touch screens, and the text box never makes a phone zoom',()=>{
  const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8');
- assert.match(css,/@media\(pointer:coarse\)\{[^}]*\.f-share-button\{[^}]*min-height:44px;min-width:44px/);
+ assert.match(css,/@media\(pointer:coarse\)\{[^}]*\.f-share>\.f-share-button[^{]*\{[^}]*min-height:44px;min-width:44px/);
  assert.doesNotMatch(css,/\.f-share-note:empty\{display:none\}/,'the status line stays in the accessibility tree, emptied, not hidden');
  assert.match(css,/\.dash-page \.f-share-button:focus-visible/,'the check-in page keeps its own focus ring');
+ assert.match(css,/\.f-share>\.f-share-link\{[^}]*text-decoration:underline/,'the links look like the buttons beside them');
+ assert.match(css,/\.f-share>\.f-share-link::after\{content:"↗";content:"↗"\/""/,'the WhatsApp and LinkedIn links show they leave NODAL, like every other outbound link');
+ assert.match(css,/@media\(pointer:coarse\)\{[^@]*\.f-share>\.f-share-link\{display:inline-block;line-height:44px\}/,'a flex link would carry its underline onto the ↗; a block one keeps it off, still 44px tall');
+ assert.match(css,/@media\(pointer:coarse\)\{[^}]*\.f-share>\.f-share-link[^{]*\{[^}]*min-height:44px/);
  assert.match(css,/\.f-share-text\{[^}]*font-size:16px/);
- assert.match(css,/\.f-share-button\{[^}]*background:none/,'a text button, like the way to the console');
+ assert.match(css,/\.f-share>\.f-share-button[^{]*\{[^}]*background:none/,'a text button, like the way to the console');
 });

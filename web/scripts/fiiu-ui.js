@@ -217,6 +217,10 @@
   shareBadge:['Share','Compartir','Compartilhar'],copyBadgeText:['Copy text','Copiar texto','Copiar texto'],
   shareCopied:['Text copied. Paste it wherever you like.','Texto copiado. Pégalo donde quieras.','Texto copiado. Cole onde quiser.'],
   shareManual:['Copy this text:','Copia este texto:','Copie este texto:'],
+  shareWhatsApp:['Send via WhatsApp','Enviar por WhatsApp','Enviar pelo WhatsApp'],shareLinkedIn:['Add to LinkedIn','Añadir a LinkedIn','Adicionar ao LinkedIn'],
+  // A milestone's name on LinkedIn, as the console's Recognition ledger names it (i18n-dashboard.js d.badge.fiiu.*.name).
+  badgeNameFirst:['First activity','Primera actividad','Primeira atividade'],badgeNameFour:['Four panels','Cuatro paneles','Quatro painéis'],
+  badgeNameConferences:['All five panels','Los cinco paneles','Os cinco painéis'],badgeNameFull:['Full FIIU','FIIU completo','FIIU completo'],
   shareTextConference:['I was at “{session}” at FIIU Fest 11 in Lima. Ideas for the city that start at the local level. Programme: {site} #FIIU11','Estuve en «{session}» del FIIU Fest 11 en Lima. Ideas para la ciudad que nacen de lo local. Programa: {site} #FIIU11','Estive em “{session}” no FIIU Fest 11, em Lima. Ideias para a cidade que nascem do que é local. Programação: {site} #FIIU11'],
   shareTextExternal:['I took part in “{session}” at FIIU Fest 11: learning by doing, out in the city. See the programme: {site} #FIIU11','Participé en «{session}» del FIIU Fest 11: aprender haciendo, en la ciudad. Mira el programa: {site} #FIIU11','Participei de “{session}” no FIIU Fest 11: aprender fazendo, na cidade. Veja a programação: {site} #FIIU11'],
   shareTextLab:['I took part in the public officials’ laboratory at FIIU Fest 11. Public management thought through from the local level. {site} #FIIU11','Participé en el laboratorio para funcionarios públicos del FIIU Fest 11. Gestión pública pensada desde lo local. {site} #FIIU11','Participei do laboratório para gestores públicos do FIIU Fest 11. Gestão pública pensada a partir do que é local. {site} #FIIU11'],
@@ -286,6 +290,7 @@
   document.querySelectorAll('.f-talk-spoken').forEach(n=>{n.textContent=talkSpoken(Number(n.dataset.talkCount));});
   // A text shown to copy by hand follows the language too (its label is the note, which carries data-fiiu-text).
   document.querySelectorAll('.f-share-text').forEach(area=>{try{if(typeof area.fiiuShare==='function')area.value=area.fiiuShare();}catch{/* keep the text shown */}});
+  document.querySelectorAll('.f-share-link').forEach(a=>{try{a.fiiuShareLink?.();}catch{/* keep the address drawn */}});
  }
  function dateNode(value,tag='p',style='long',cls='f-date'){const n=el(tag,cls,date(value,style));n.dataset.fiiuDate=value;if(style!=='long')n.dataset.fiiuDateStyle=style;return n;}
  function rangeNode(start,end,tag='span',cls='f-range'){const n=el(tag,cls,dateRange(start,end));n.dataset.fiiuRange=start+'/'+end;return n;}
@@ -438,8 +443,19 @@
     (a second tap), does nothing more; one that fails copies instead; a refused clipboard shows the text to copy by hand. The press calls the
     browser at once, keeping the tap's permission. textOf is read at the press, so the text is in the language on screen then. name labels the
     buttons for a screen reader where a page has several (the console's ledger). The note is emptied, never hidden, so screen readers hear it. */
+ /* LinkedIn's "Add licence or certification" form, filled in: the badge's name, NODAL as issuer (plain text until there is a LinkedIn page
+    id) and the festival's month. No certId or certUrl until badges have a public page. Offered for the milestones, the laboratory, workshops
+    and routes; the five panel sessions are covered by the panel milestones, so a profile does not fill up with them. */
+ const MILESTONE_NAMES={first:'badgeNameFirst',four:'badgeNameFour',conferences:'badgeNameConferences',full:'badgeNameFull'};
+ const certifiable=badge=>badge?.kind==='milestone'||(badge?.kind==='session'&&typeOf(badge.activity)!=='conference');
+ const CERT_PREFIX='FIIU Fest 11 · ',CERT_NAME_MAX=100; // LinkedIn's certification Name field takes about 100 characters
+ // A title too long for it keeps its part before the first ': ' or '. ', then is cut at a word with an ellipsis.
+ const fitName=(title,max)=>{if(title.length<=max)return title;const head=title.split(/[:.]\s/)[0];if(head.length<=max)return head;
+  const cut=head.slice(0,max-1),space=cut.lastIndexOf(' ');return (space>0?cut.slice(0,space):cut).replace(/[\s,;:·–-]+$/,'')+'…';};
+ const certificationName=badge=>CERT_PREFIX+(badge.kind==='milestone'?t(MILESTONE_NAMES[badge.id.slice('milestone:'.length)]||'badgeNameFirst'):fitName(badge.activity.title,CERT_NAME_MAX-CERT_PREFIX.length));
+ const linkedInForm=title=>'https://www.linkedin.com/profile/add?'+[['startTask','CERTIFICATION_NAME'],['name',title],['organizationName','NODAL'],['issueYear','2026'],['issueMonth','10']].map(([key,value])=>key+'='+encodeURIComponent(value)).join('&');
  let shareIds=0;
- function shareControl(textOf,name){
+ function shareControl(textOf,name,certify){
   const nav=()=>globalThis.navigator,box=el('div','f-share'),note=el('p','f-share-note');
   note.id='f-share-note-'+(++shareIds);note.setAttribute('role','status');note.setAttribute('aria-live','polite');
   const say=key=>{note.textContent=key?t(key):'';note.dataset.fiiuText=key;};
@@ -453,10 +469,17 @@
   if(typeof nav()?.share==='function'){const share=make('shareBadge');share.addEventListener('click',press(async text=>{
    try{await nav().share({title:'FIIU Fest 11',text});}catch(err){if(err?.name!=='AbortError'&&err?.name!=='InvalidStateError')await copy(text);}}));buttons.push(share);}
   const copyButton=make('copyBadgeText');copyButton.addEventListener('click',press(copy));buttons.push(copyButton);
+  // Links that open WhatsApp or LinkedIn in a new tab. Their address and label are worked out again at the press and on a language switch
+  // (refresh), so they always carry the text on screen; the label says the tab is new, as the festival pages' note does.
+  const away=(key,hrefOf)=>{const a=tr('a',key,'f-share-link');a.target='_blank';a.rel='noopener noreferrer';
+   a.fiiuShareLink=()=>{a.href=hrefOf();a.setAttribute('aria-label',t(key)+(name?': '+name:'')+' '+t('newTab'));};
+   a.fiiuShareLink();a.addEventListener('click',()=>{try{a.fiiuShareLink();}catch{/* keep the address drawn */}});buttons.push(a);};
+  away('shareWhatsApp',()=>'https://wa.me/?text='+encodeURIComponent(textOf()));
+  if(typeof certify==='function')away('shareLinkedIn',()=>linkedInForm(certify()));
   box.append(...buttons,note);return box;
  }
  // Scrolls a horizontal chip row just enough to show the item in full, clear of the right-edge fade (fiiu.css); only the row moves, never the page (the rows sit in sticky bars).
  function revealInRow(row,item){const box=item?.getBoundingClientRect?.(),frame=row?.getBoundingClientRect?.();if(!box||!frame)return;const shift=box.left<frame.left+8?box.left-frame.left-8:box.right>frame.right-36?box.right-frame.right+36:0;if(shift)row.scrollBy?.({left:shift});}
- window.Fiiu={rows,t,el,tr,button,link,source,field,check,api,status,dateNode,rangeNode,timeLabel,timeNode,limaDate,locale,contentCards,badges,festivalBadges,shareText,shareControl,findActivity,chronological,typeOf,countLabel,nextFor,underway,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,hoursLine,checkinCloses,checkinState,checkinActivities,limaClock,windowNode,pulse,talkLink,sessionLink,linkify};
+ window.Fiiu={rows,t,el,tr,button,link,source,field,check,api,status,dateNode,rangeNode,timeLabel,timeNode,limaDate,locale,contentCards,badges,festivalBadges,shareText,shareControl,certifiable,certificationName,findActivity,chronological,typeOf,countLabel,nextFor,underway,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,hoursLine,checkinCloses,checkinState,checkinActivities,limaClock,windowNode,pulse,talkLink,sessionLink,linkify};
  window.nodalI18n?.onChange(refresh);refresh();
 })();

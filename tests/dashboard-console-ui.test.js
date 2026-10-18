@@ -679,6 +679,23 @@ test('First activity names the block actually attended, and Four panels offers n
   assert.ok(share(named('All five panels')));
 });
 
+test('in the ledger a panel session offers WhatsApp but not LinkedIn; a milestone or a workshop offers both', () => {
+  const l = ledger();
+  l.hand({ registration: anaPlan, attendance: attended('day1-am', 'workshop-espacios-comunidad'), event: FIIU_EVENT });
+  const rows = l.groups()[0].rows, byName = (name) => rows.find((row) => view(row).name.startsWith(name));
+  const kinds = (row) => (row.querySelector('.f-share')?.children || []).filter((n) => n.tagName === 'a').map((n) => n.dataset.fiiuText);
+  assert.deepEqual(kinds(byName('El poder de lo local')), ['shareWhatsApp']);
+  assert.deepEqual(kinds(byName('Espacios que sostienen')), ['shareWhatsApp', 'shareLinkedIn']);
+  assert.deepEqual(kinds(byName('First activity')), ['shareWhatsApp', 'shareLinkedIn']);
+  const linkedIn = byName('First activity').querySelector('.f-share').children.find((n) => n.dataset.fiiuText === 'shareLinkedIn');
+  assert.equal(linkedIn['aria-label'], 'Add to LinkedIn: First activity (opens in a new tab)', 'named by its badge, and says it opens a new tab');
+  assert.equal(new URL(linkedIn.href).searchParams.get('organizationName'), 'NODAL');
+  const whatsApp = byName('First activity').querySelector('.f-share').children.find((n) => n.dataset.fiiuText === 'shareWhatsApp');
+  assert.equal(whatsApp['aria-label'], 'Send via WhatsApp: First activity (opens in a new tab)');
+  const workshop = byName('Espacios que sostienen').querySelector('.f-share').children.find((n) => n.dataset.fiiuText === 'shareLinkedIn');
+  assert.equal(new URL(workshop.href).searchParams.get('name'), 'FIIU Fest 11 · Espacios que sostienen comunidad', 'a 162-character title keeps its part before the colon');
+});
+
 test('a ledger redraw (a refresh on the way back from the share sheet, a language switch) gives focus back to the same share button', () => {
   const l = ledger();
   l.context.navigator = { share: async () => {} };

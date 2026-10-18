@@ -4,7 +4,7 @@
  // The check-in is sent at once and c then leaves the address bar, so a reload or a shared screenshot of the page cannot reuse it;
  // a reload shows the person's confirmation for that block instead (revisit).
  // Every outcome is one ruled block: a title that takes focus, the block it concerns, and the one next step.
- const Fiiu=window.Fiiu,{t,el,tr,button,link,source,field,api,status,dateNode,limaDate,badges,festivalBadges,shareText,shareControl,findActivity,countLabel,hoursLine,limaClock,windowNode,newTabNote,checkinCloses}=Fiiu;
+ const Fiiu=window.Fiiu,{t,el,tr,button,link,source,field,api,status,dateNode,limaDate,badges,festivalBadges,shareText,shareControl,certifiable,certificationName,findActivity,countLabel,hoursLine,limaClock,windowNode,newTabNote,checkinCloses}=Fiiu;
  // Page-only strings join the shared dictionary, so t(), tr() and the language switch in fiiu-ui.js handle them like the rest.
  Object.assign(Fiiu.rows,{
   checkinAccount:['Signed in as','Sesión iniciada como','Conectado como'],
@@ -93,7 +93,7 @@
   }
   // One way to share it, the moment people most want to: the furthest milestone this scan reached, else the block itself.
   const shared=SHARE_ORDER.map(id=>unlocked.find(badge=>badge.id===id)).find(Boolean)||unlocked.find(badge=>badge.kind==='session');
-  if(shared)box.append(shareControl(()=>shareText(shared,unlocked)));
+  if(shared)box.append(shareControl(()=>shareText(shared,unlocked),null,certifiable(shared)?()=>certificationName(shared):null));
   box.append(link('seeInConsole','dashboard.html#badges','f-text-link'));
   if(told!==id){told=id;Promise.resolve().then(()=>message.replaceChildren(spoken));}
   return box;

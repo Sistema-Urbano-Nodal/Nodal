@@ -693,17 +693,19 @@
     // five, so once all five are earned only the further milestone offers a share.
     const allFive = all.some((b) => b.id === 'milestone:conferences' && b.state === 'earned');
     const shareOf = (b) => (b.state === 'earned' && !(allFive && b.id === 'milestone:four') && typeof Fiiu.shareText === 'function' ? () => Fiiu.shareText(b, all) : null);
+    // Milestones, the laboratory, workshops and routes can also go on LinkedIn (Fiiu.certifiable); the panel sessions are in the panel milestones.
+    const certifyOf = (b) => (shareOf(b) && typeof Fiiu.certifiable === 'function' && Fiiu.certifiable(b) ? () => Fiiu.certificationName(b) : null);
     return all.map((b) => {
       if (b.kind === 'milestone') {
         const key = b.id.slice('milestone:'.length);
         return {
-          fam: 'fiiu', id: b.id, state: b.state, meter: b.meter, share: shareOf(b),
+          fam: 'fiiu', id: b.id, state: b.state, meter: b.meter, share: shareOf(b), certify: certifyOf(b),
           name: t(`d.badge.fiiu.${key}.name`), req: t(`d.badge.fiiu.${key}.req`), unlock: t(`d.badge.fiiu.${key}.unlock`),
         };
       }
       const a = b.activity;
       return {
-        fam: 'fiiu', id: b.id, state: b.state, name: a.title, lang: 'es', share: shareOf(b),
+        fam: 'fiiu', id: b.id, state: b.state, name: a.title, lang: 'es', share: shareOf(b), certify: certifyOf(b),
         req: b.state === 'earned' ? blockWhen(Fiiu, a) : t('d.badge.fiiu.checkIn'),
         // certificate hours as the server counts them; a workshop, a route or an untimed block counts as participation
         unlock: b.minutes ? t('d.badge.fiiu.hours', { hours: Fiiu.hoursText(b.minutes / 60) }) : t('d.badge.fiiu.participation'),
@@ -827,7 +829,7 @@
         opens.append(el('strong', null, t('d.badge.opens')), b.unlock);
         body.append(name, req, opens);
         if (b.share && typeof window.Fiiu?.shareControl === 'function') {
-          const control = window.Fiiu.shareControl(b.share, b.name);
+          const control = window.Fiiu.shareControl(b.share, b.name, b.certify);
           shareBoxes.set(b.id, control);
           body.appendChild(control);
         }
