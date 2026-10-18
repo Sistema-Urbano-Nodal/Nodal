@@ -12,6 +12,7 @@ import { createCache, MemoryCache } from './cache.js';
 import { createNetworkSnapshots } from './network-cache.js';
 import { createCourseStore } from './courses-repository.js';
 import { createCourseApi, createByteBudget, DOWNLOAD_LIMITS } from './courses-api.js';
+import { createCoursePerks } from './course-perks.js';
 import { createFiiuStore } from './fiiu-repository.js';
 import { createFiiuApi, exportFiiuData } from './fiiu-api.js';
 import { createProgramme } from './fiiu-programme.js';
@@ -1263,7 +1264,7 @@ export function createApp({
     rateLimit:(req,res,user)=>['GET','HEAD'].includes(req.method)?throttle(user?newsReadLimiter:newsPublicReadLimiter,res,req,user,'news')
       :throttle(newsWriteLimiter,res,req,user,'news-write'),
   }):null;
-  const courseApi=courseStore?createCourseApi({store:courseStore,userRepository:repository,sameOrigin,send,downloads,
+  const courseApi=courseStore?createCourseApi({store:courseStore,userRepository:repository,sameOrigin,send,downloads,perks:createCoursePerks({fiiuStore}),
     // Only an upload spends the upload budget; staff list the file library after every upload, use and delete.
     rateLimit:(req,res,user,pathname)=>throttle(pathname.endsWith('/invitations')?courseInvitationLimiter:req.method==='POST'&&pathname.endsWith('/attachments')?courseUploadLimiter:['GET','HEAD'].includes(req.method)?courseReadLimiter:courseWriteLimiter,res,req,user,'course'),
   }):null;

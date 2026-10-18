@@ -1,4 +1,5 @@
 import {newId, identifier, decodeAttachment} from './courses-domain.js';
+import {createCoursePerks} from './course-perks.js';
 
 /* The final survey and certificates of one course, Curso Movilidad Nivel 2 (docs/implementation/course-final-survey.md).
    It is not a survey builder: the approved Spanish wording lives here once, the server validates against it, the
@@ -169,7 +170,7 @@ export const surveyStatusCsv = people => [
 const slug = value => String(value??'').normalize('NFD').replace(/\p{M}/gu,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').slice(0,60).replace(/^-+|-+$/g,'');
 const personalFilename = (filename,name,userId) => filename.replace(/\.pdf$/,'')+'-'+(slug(name)||userId.slice(0,8))+'.pdf';
 
-export function createFinalSurvey({store,send,bodyJson,findOne,all,membersForRows,downloads,isStaff,sendCsv,config=FINAL_SURVEY,clock=Date.now,log=console.error}) {
+export function createFinalSurvey({store,send,bodyJson,findOne,all,membersForRows,downloads,isStaff,sendCsv,config=FINAL_SURVEY,clock=Date.now,log=console.error,perks=createCoursePerks()}) {
   const surveyCourse=config.courseId.toLowerCase(),closes=Date.parse(config.closesAt),lastDay=lastDayOf(config.closesAt);
   const isOpen=()=>clock()<closes,stamp=()=>new Date(clock()).toISOString();
   const errorText=error=>error instanceof Error?error.message:String(error??'unknown error');

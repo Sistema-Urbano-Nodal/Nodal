@@ -1,6 +1,7 @@
 import { newId, identifier, fail, normalizeCourse, normalizeModule, normalizeIntake, normalizePost, normalizeFeedback, decodeAttachment, attachmentFilename, text, csv, INTAKE_FIELDS, FEEDBACK_ACTIONS, decodeCursor, encodeCursor } from './courses-domain.js';
 import {createCourseParticipants} from './course-participants.js';
 import {createFinalSurvey, FINAL_SURVEY} from './course-final-survey.js';
+import {createCoursePerks} from './course-perks.js';
 import {createHash} from 'node:crypto';
 
 const now = () => new Date().toISOString();
@@ -64,7 +65,7 @@ function respond(res,status,body,headers={}) {
 }
 
 // finalSurvey and clock exist for tests: the survey's course and deadline are fixed in production.
-export function createCourseApi({store,userRepository,sameOrigin,send=respond,rateLimit=()=>true,downloadLimits=DOWNLOAD_LIMITS,downloads=createByteBudget(downloadLimits),log=console.error,finalSurvey=FINAL_SURVEY,clock=Date.now}={}) {
+export function createCourseApi({store,userRepository,sameOrigin,send=respond,rateLimit=()=>true,downloadLimits=DOWNLOAD_LIMITS,downloads=createByteBudget(downloadLimits),log=console.error,finalSurvey=FINAL_SURVEY,clock=Date.now,perks=createCoursePerks()}={}) {
   const participants=createCourseParticipants({store,userRepository});
   const findOne=async(name,filters)=>(await store.find(name,filters,{limit:1}))[0]??null;
   async function all(name,filters={},max=Infinity) {
@@ -170,7 +171,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     };
   }
   function sendCsv(res,name,rows) { send(res,200,csv(rows),{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="${name}.csv"`}); }
-  const survey=createFinalSurvey({store,send,bodyJson,findOne,all,membersForRows,downloads,isStaff,sendCsv,config:finalSurvey,clock,log});
+  const survey=createFinalSurvey({store,send,bodyJson,findOne,all,membersForRows,downloads,isStaff,sendCsv,config:finalSurvey,clock,log,perks});
 
   return async function handle({req,res,url,user}) {
     const path=url.pathname;
