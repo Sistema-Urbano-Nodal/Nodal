@@ -9,6 +9,8 @@ const SCRIPT=readFileSync(new URL('../web/scripts/i18n.js',import.meta.url),'utf
 const CONSOLE=readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.meta.url),'utf8');
 // These 223 keys and the home hashes are captured from the runtime dictionaries
 // at 6ab93f9, including text created lazily by the original homepage graph.
+// One line moved on purpose since: the free plan stopped offering courses on
+// 18 Oct 2026 (mem.f1 here, y.f1 in the nonhome hashes), so all four were redone.
 const HOME_KEYS=[
   "about.eyebrow",
   "about.lead1",
@@ -236,12 +238,12 @@ const HOME_KEYS=[
 ];
 const SNAPSHOTS={
   "home": {
-    "es": "853f02d6acabeefabad1e5b100ed35f1a9616b9871871e7e9e0d72b113d1e8c6",
-    "pt": "77b244c716beb1956f020d7a452cb20727334b3beed4468028834c7ce83a40f0"
+    "es": "079660e2411ca2fa9e8c0295b913fe7b5fc0f8bf63a8bb726f7bf218e97db9cb",
+    "pt": "26f40677f81266699adc35dcfa26089f09b73c8749cbee8a8a79d2910beefda3"
   },
   "nonhome": {
-    "es": "bdb99eba47e951a598eb1ab91b2a0e746c68d7a4980a0700169d50977bbb76f6",
-    "pt": "f31575be665935bfa608a66e89b65e4a045a4b7003fd647b059622d85602edcf"
+    "es": "c86b92ceabd9185366a45be631735dbd471a7523b0f8d80b43f5042aef21509b",
+    "pt": "660dd0cfc74939fb3455bfc0de4269451941b05494d51c4ba9330097561e158d"
   }
 };
 
@@ -272,8 +274,9 @@ for(const lang of ['es','pt']){
       // the membership and account-deletion refusals (October 3 review) by review-fix-5-integration;
       // the console's loading/failure lines and accessible names (d.aria.*) by dashboard-publishing,
       // the catalog's nothing-published state by catalog-ui, and the console's Show more / Show less (d.news.*) and FIIU badges
-      // (d.badge.fiiu.*) by dashboard-console-ui, and the Learning band's readings from BUC (d.buc.*) by buc-ui.
-      const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','y.alreadyMember','d.uc.deleteSubscription','d.greet.hello','d.greet.loading','d.load.failed','catalog.emptyNothingPublished','catalog.nextFiiu','catalog.nextCourses'].includes(key)||/^(?:ops|news|d\.aria|d\.news|d\.badge\.fiiu|d\.buc)\./.test(key);
+      // (d.badge.fiiu.*) by dashboard-console-ui, the Learning band's readings from BUC (d.buc.*) by buc-ui, and the
+      // Supporter plans' courses line (mem.p7, y.p6) by the plan copy test at the end of this file.
+      const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','y.alreadyMember','d.uc.deleteSubscription','d.greet.hello','d.greet.loading','d.load.failed','catalog.emptyNothingPublished','catalog.nextFiiu','catalog.nextCourses','mem.p7','y.p6'].includes(key)||/^(?:ops|news|d\.aria|d\.news|d\.badge\.fiiu|d\.buc)\./.test(key);
       const actual=Object.entries(dictionaries[lang]).filter(([key])=>!later(key)).sort(([a],[b])=>a.localeCompare(b,'en'));
       assert.equal(hash(actual),SNAPSHOTS.nonhome[lang],String(page));
       assert.equal(api.t('nav.privacy'),lang==='es'?'Política de privacidad':'Política de privacidade');
@@ -312,4 +315,28 @@ test('landing leader titles, lab chips and accessible names switch language inst
   for(const lang of ['es','pt'])for(const key of keys)assert.ok(key in dictionaries[lang],`${key} in ${lang}`);
   api.apply('es');assert.equal(api.t('lead.n3'),'Urbanista');assert.equal(api.t('part.l4'),'Co-crear');assert.equal(api.t('graph.aria'),'Red interactiva de actores');
   api.apply('pt');assert.equal(api.t('part.l6'),'Agir');assert.equal(api.t('platform.tabsLabel'),'Como a NODAL funciona');
+});
+test('the free plans stop offering courses and the Supporter plans list them, in English, Spanish and Portuguese',()=>{
+  // [en, es, pt]; English is the markup's own text.
+  const COPY={
+    'mem.f1':['Open labs and community sessions','Laboratorios abiertos y sesiones comunitarias','Laboratórios abertos e encontros comunitários'],
+    'mem.p7':['Supporter courses with the teaching team','Cursos de la membresía con el equipo docente','Cursos da assinatura com a equipe docente'],
+    'y.f1':['Community sessions and open resources','Sesiones comunitarias y recursos abiertos','Encontros da comunidade e recursos abertos'],
+    'y.p6':['Supporter courses with the teaching team','Cursos de la membresía con el equipo docente','Cursos da assinatura com a equipe docente'],
+  };
+  const page=name=>readFileSync(new URL('../web/pages/'+name,import.meta.url),'utf8');
+  const landing=page('index.html'),payments=page('payments.html');
+  // The <ul> of the plan card with exactly this class.
+  const list=(html,card)=>{const at=html.indexOf(`<article class="${card}">`);assert.notEqual(at,-1,card);return html.slice(html.indexOf('<ul>',at),html.indexOf('</ul>',at));};
+  const keys=part=>[...part.matchAll(/data-i18n="([^"]+)"/g)].map(match=>match[1]);
+  for(const [html,free,pro,order] of [[landing,'plan','plan plan-pro',['mem.p1','mem.p2a','mem.p2b','mem.p3','mem.p4','mem.p5','mem.p7','mem.p6']],[payments,'pay-plan','pay-plan pay-plan-pro',['y.p1','y.p2','y.p3','y.p4','y.p5','y.p6']]]){
+    assert.doesNotMatch(list(html,free),/course/i,free+': the free plan no longer offers courses');
+    assert.deepEqual(keys(list(html,pro)),order,pro);
+  }
+  for(const [key,[en]] of Object.entries(COPY))assert.ok((key.startsWith('mem.')?landing:payments).includes(`<li data-i18n="${key}">${en}</li>`),key);
+  const home=load('home').api,console_=load(undefined,[],{withConsole:true}).api;
+  for(const [index,lang] of [[1,'es'],[2,'pt']]){
+    home.apply(lang);console_.apply(lang);
+    for(const [key,copy] of Object.entries(COPY))assert.equal((key.startsWith('mem.')?home:console_).t(key),copy[index],`${lang} ${key}`);
+  }
 });
