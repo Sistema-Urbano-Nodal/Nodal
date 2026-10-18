@@ -241,6 +241,10 @@ const rows = {
  intakeResponses:['Intake responses','Respuestas del formulario inicial','Respostas do formulário inicial'],
  intakeComplete:['Your intake is complete','Tu formulario está completo','Seu formulário está completo'],
  participant:['Participant','Participante','Participante'],
+ // The FIIU perk course's participants table (teaching.js): who enrolled in September and who joined from October.
+ group:['Group','Grupo','Turma'],
+ groupSeptember:['September 2026','Septiembre 2026','Setembro 2026'],
+ groupOctober:['From October','Desde octubre','Desde outubro'],
  feedbackDate:['Date','Fecha','Data'],
  feedbackAction:['Action','Acción','Ação'],
  skipContent:['Skip to content','Saltar al contenido','Pular para o conteúdo'],

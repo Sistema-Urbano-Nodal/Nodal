@@ -245,10 +245,13 @@ function participantView(data,id,version,notice,onRefresh,closed=false){
     pending.append(list);section.append(pending);
   }
   const wrap=el('div','pilot-table-wrap'),table=el('table','pilot-table'),head=el('tr');
-  ['participant','enrolled','intakeResponses'].forEach(k=>head.append(tr('th',k)));table.append(head);
+  // Only the FIIU perk course reports a group (September 2026 or From October), so only its table has the column.
+  const grouped=data.participants.some(p=>p.group);
+  ['participant','enrolled',...(grouped?['group']:[]),'intakeResponses'].forEach(k=>head.append(tr('th',k)));table.append(head);
   for(const p of data.participants){
     const row=el('tr'),who=el('td');who.append(el('strong',null,p.name||''),el('div','pilot-response-email',p.email||''));
     row.append(who,dynamic('td',()=>new Date(p.enrolledAt).toLocaleDateString(window.nodalI18n?.lang||'en')));
+    if(grouped)row.append(tr('td',p.group==='september'?'groupSeptember':'groupOctober'));
     const intake=el('td');
     if(p.intake){
       const details=el('details','pilot-intake-response'),dl=el('dl');details.append(tr('summary','intakeResponses'));

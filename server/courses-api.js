@@ -178,6 +178,8 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     return rows.map(row=>({...row,name:members.get(row.userId)?.name??'',email:members.get(row.userId)?.email??''}));
   }
   const feedbackCsv = rows => [['date','userId','name','email','action','courseId','moduleId','rating','comment'],...rows.map(f=>[f.createdAt,f.userId,f.name,f.email,f.action,f.courseId,f.moduleId,f.rating,f.comment])];
+  // The group column (perk course only) comes last, so spreadsheets built on the older export keep their column positions.
+  const participantsCsv = (rows,grouped) => [['userId','name','email','enrolledAt','intakeCompleted',...(grouped?['group']:[])],...rows.map(p=>[p.userId,p.name,p.email,p.enrolledAt,Boolean(p.intake),...(grouped?[p.group==='september'?'September 2026':'From October']:[])])];
   async function report(courseId,exportType=null) {
     const max=exportType?Infinity:500;
     const needsParticipants=!exportType||['participants','intake'].includes(exportType);
@@ -189,9 +191,12 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     ]);
     const answers=new Map(intakes.map(row=>[row.userId,row.answers]));
     const members=await membersForRows([...enrollments,...feedback]);
+    // The perk course tells its September group from later joiners by enrolment date, not by FIIU: a reopened course admits anyone.
+    const grouped=perks.applies(courseId);
     const participants=enrollments.map(enrollment=>{
       const user=members.get(enrollment.userId);
-      return {userId:enrollment.userId,name:user?.name??'',email:user?.email??'',enrolledAt:enrollment.createdAt,intake:answers.get(enrollment.userId)??null};
+      return {userId:enrollment.userId,name:user?.name??'',email:user?.email??'',enrolledAt:enrollment.createdAt,intake:answers.get(enrollment.userId)??null,
+        ...(grouped?{group:perks.inSeptemberGroup(enrollment)?'september':'october'}:{})};
     });
     const livePosts=posts.filter(post=>!post.deletedAt&&post.userId);
     return {
@@ -386,7 +391,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
       const result=await report(courseId,suffix==='/export'?type:null);
       if(suffix==='/report') { const {events,posts,...view}=result;send(res,200,view);return true; }
       if(type==='intake')sendCsv(res,'course-intake',[['userId','name','email',...INTAKE_FIELDS],...result.participants.map(p=>[p.userId,p.name,p.email,...INTAKE_FIELDS.map(k=>p.intake?.[k]??'')])]);
-      else if(type==='participants')sendCsv(res,'course-participants',[['userId','name','email','enrolledAt','intakeCompleted'],...result.participants.map(p=>[p.userId,p.name,p.email,p.enrolledAt,Boolean(p.intake)])]);
+      else if(type==='participants')sendCsv(res,'course-participants',participantsCsv(result.participants,perks.applies(courseId)));
       else if(type==='feedback')sendCsv(res,'course-feedback',feedbackCsv(result.feedback));
       else if(type==='activity')sendCsv(res,'course-activity',[['date','userId','moduleId','action','resourceUrl'],...result.events.map(e=>[e.createdAt,e.userId,e.moduleId,e.kind,e.resourceUrl]),...result.posts.map(p=>[p.createdAt,p.userId,p.moduleId,p.kind,''])]);
       else fail('invalid export type');return true;

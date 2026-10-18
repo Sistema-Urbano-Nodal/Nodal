@@ -37,8 +37,8 @@ const course={id:'c1',title:'Mobility course',description:'Course',status:'publi
 const findKey=(node,key)=>descendants(node).find(n=>n.dataset.pilotText===key);
 const byName=(node,name)=>descendants(node).find(n=>n.name===name);
 const participantForm=h=>descendants(h.body).find(n=>n.className==='pilot-form pilot-participant-form');
-function teachingHarness(write,{invitations=[],courses=[course]}={}){
- const h=harness((path,options)=>options?.method==='POST'?write(path,JSON.parse(options.body)):path==='/api/admin/courses'?{courses}:path.endsWith('/report')?{summary:{enrolled:0},participants:[],feedback:[],invitations}:{course:courses.find(c=>path.endsWith('/'+c.id))||course,modules:[]},{page:'teaching'});h.run('teaching');return h;
+function teachingHarness(write,{invitations=[],courses=[course],participants=[]}={}){
+ const h=harness((path,options)=>options?.method==='POST'?write(path,JSON.parse(options.body)):path==='/api/admin/courses'?{courses}:path.endsWith('/report')?{summary:{enrolled:participants.length},participants,feedback:[],invitations}:{course:courses.find(c=>path.endsWith('/'+c.id))||course,modules:[]},{page:'teaching'});h.run('teaching');return h;
 }
 test('adding a participant performs only explicit enrollment and preserves translated success after refresh',async()=>{
  const h=teachingHarness(()=>({result:'enrolled',participant:{id:'u1'}}));await flush();h.ctx.document.getElementById('staff-tab-participants').listeners.click();const form=participantForm(h);assert.notEqual(form.parent.open,true,'the add panel starts closed');byName(form,'email').value=' person@example.test ';await form.listeners.submit({preventDefault(){}});assert.equal(h.requests.filter(r=>r.method==='POST').length,1);assert.equal(h.requests.find(r=>r.method==='POST').path,'/api/admin/courses/c1/participants');assert.deepEqual(h.requests.find(r=>r.method==='POST').body,{email:'person@example.test'});assert.equal(h.ctx.document.getElementById('staff-pane-participants').hidden,false);assert.match(content(h.body),/Participant added with student access/);h.lang('pt');assert.match(content(h.body),/Participante adicionado como estudante/);
@@ -110,6 +110,18 @@ test('saving the Enrollment open toggle refreshes the participants pane and cour
  await again.listeners.submit({preventDefault(){}});await flush();assert.equal(reports.length,2);
  byName(again,'enrollmentOpen').checked=true;await again.listeners.submit({preventDefault(){}});await flush();
  assert.deepEqual(reports,[true,false,true]);assert.ok(participantForm(h));assert.doesNotMatch(content(h.body),/Enrollment closed/);
+});
+test('the perk course table shows each participant\'s group in three languages, and other courses keep three columns',async()=>{
+ const people=[{userId:'u1',name:'Ana',email:'ana@example.test',enrolledAt:'2026-09-05T14:00:00.000Z',intake:null},{userId:'u2',name:'Dora',email:'dora@example.test',enrolledAt:'2026-10-19T15:30:00.000Z',intake:null}];
+ const table=h=>descendants(h.ctx.document.getElementById('staff-pane-participants')).find(n=>n.tagName==='table');
+ const heads=h=>table(h).children[0].children.map(n=>n.textContent),groups=h=>table(h).children.slice(1).map(row=>row.children[2].textContent);
+ const h=teachingHarness(()=>({}),{participants:people.map((p,i)=>({...p,group:['september','october'][i]}))});await flush();
+ assert.deepEqual(heads(h),['Participant','Enrolled','Group','Intake responses']);assert.deepEqual(groups(h),['September 2026','From October']);
+ h.lang('es');assert.deepEqual(heads(h),['Participante','Inscrito','Grupo','Respuestas del formulario inicial']);assert.deepEqual(groups(h),['Septiembre 2026','Desde octubre']);
+ h.lang('pt');assert.deepEqual(heads(h),['Participante','Inscrito','Turma','Respostas do formulário inicial']);assert.deepEqual(groups(h),['Setembro 2026','Desde outubro']);
+ const plain=teachingHarness(()=>({}),{participants:people});await flush();
+ assert.deepEqual(heads(plain),['Participant','Enrolled','Intake responses']);assert.ok(table(plain).children.slice(1).every(row=>row.children.length===3));
+ assert.equal(findKey(plain.body,'group'),undefined);
 });
 
 // transport: errors the next requests' fetch rejects with, in order (a dropped connection, a timeout), before any reply.
