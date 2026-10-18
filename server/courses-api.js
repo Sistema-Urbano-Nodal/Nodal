@@ -98,6 +98,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     try { return await perks.fiiuEligible(user)?'fiiu':'supporters'; }
     catch(error) { log('course FIIU perk check failed:',errorText(error));return 'supporters'; }
   }
+  const newJoinerView=(courseId,user,access)=>perks.applies(courseId)&&!isStaff(user)&&!(access?.enrollment&&perks.inSeptemberGroup(access.enrollment));
   async function moduleAccess(courseId,moduleId,user,knownAccess,prefetched) {
     // Reuse checks already performed in this request; never share membership
     // or intake across requests or viewers. prefetched: this request's own read
@@ -126,6 +127,25 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     const files=ids.length?await store.getPostAttachments({ids,courseId:module.courseId,moduleId:module.id}):[];
     const attachments=new Map(files.map(file=>[file.id.toLowerCase(),file]));
     return Promise.all(posts.map(post=>postView(post,user,attachments)));
+  }
+  /* The September conversation stays with the September group (course-perks.js). For a new joiner a post is hidden
+     when it was written before October or answers a hidden post, so an October reply in a September thread is hidden
+     too, whoever wrote it. Threads resolve through the module's live posts, read once per request; a parent missing
+     from them (withdrawn) hides its replies, so the rule fails closed. */
+  async function hiddenFromNewJoiner(module) {
+    const posts=new Map((await all('posts',{courseId:module.courseId,moduleId:module.id,deletedAt:null})).map(post=>[post.id,post])),known=new Map();
+    return post=>{
+      const thread=new Set();let hidden=false;
+      for(let current=post;;current=posts.get(current.parentId)) {
+        if(!current||thread.has(current.id)){hidden=true;break;}
+        if(known.has(current.id)){hidden=known.get(current.id);break;}
+        thread.add(current.id);
+        if(perks.septemberPost(current)){hidden=true;break;}
+        if(!current.parentId)break;
+      }
+      for(const id of thread)known.set(id,hidden);
+      return hidden;
+    };
   }
   /* After a post is withdrawn (by its author or by staff), its author's files go with it, as the delete confirmation
      promises: unless another live post of theirs still shows a file, the file is marked 'deleting', removed from
@@ -248,11 +268,12 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     if(match&&req.method==='GET') {
       const attachment=await findOne('attachments',{id:identifier(match[1])});
       if(!attachment||attachment.status!=='ready')fail('file unavailable',404);
-      const {module}=await moduleAccess(attachment.courseId,attachment.moduleId,user);
+      const {module,...fileAccess}=await moduleAccess(attachment.courseId,attachment.moduleId,user);
       if(attachment.purpose==='material'&&!isStaff(user)&&!referencesMaterial(module,attachment.id))fail('file unavailable',404);
       if(attachment.purpose!=='material'&&!isStaff(user)&&attachment.userId!==user.id) {
-        const posts=await all('posts',{moduleId:attachment.moduleId,userId:attachment.userId,deletedAt:null});
-        if(!posts.some(post=>!post.deletedAt&&post.attachmentIds.some(id=>sameIdentifier(id,attachment.id))))fail('file unavailable',404);
+        const [posts,hidden]=await Promise.all([all('posts',{moduleId:attachment.moduleId,userId:attachment.userId,deletedAt:null}),newJoinerView(attachment.courseId,user,fileAccess)?hiddenFromNewJoiner(module):null]);
+        // A new joiner gets a file only from a post they can see.
+        if(!posts.some(post=>!post.deletedAt&&post.attachmentIds.some(id=>sameIdentifier(id,attachment.id))&&!hidden?.(post)))fail('file unavailable',404);
       }
       // An id never names other bytes, so after the access checks above the browser may keep the file privately and
       // revalidate with its id: a 304 then costs no Storage read.
@@ -438,7 +459,14 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
         // Keep tombstones for reply integrity and owner conflict recovery, but
         // exclude them before pagination so history pages contain live posts.
         const filters={courseId,moduleId:module.id,deletedAt:null,...(kind?{threadKind:kind}:{})};
-        const rows=await store.find('posts',filters,{limit:31,desc,after:decodeCursor(url.searchParams.get('cursor'))});
+        const read=after=>store.find('posts',filters,{limit:31,desc,after});
+        let [rows,hidden]=await Promise.all([read(decodeCursor(url.searchParams.get('cursor'))),newJoinerView(courseId,user,access)?hiddenFromNewJoiner(module):null]);
+        /* A new joiner's pages leave hidden posts out and stay full: batches of 31 follow the last row read until 31
+           posts are visible or a batch comes back short, and only a visible post ever becomes the cursor. */
+        if(hidden) {
+          let batch=rows;rows=batch.filter(post=>!hidden(post));
+          while(rows.length<31&&batch.length===31){batch=await read({createdAt:batch.at(-1).createdAt,id:batch.at(-1).id});rows.push(...batch.filter(post=>!hidden(post)));}
+        }
         const page=rows.slice(0,30);
         send(res,200,{posts:await postPageView(page,user,module),nextCursor:rows.length>30?encodeCursor(page.at(-1)):null,revision:module.postsRevision});return true;
       }
@@ -452,7 +480,9 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
           send(res,200,{post:await postView(old,user)});return true;
         }
         if(input.parentId) {
-          const parent=await findOne('posts',{id:input.parentId,courseId,moduleId:module.id});if(!parent||parent.deletedAt)fail('parent post unavailable');threadKind=parent.threadKind;
+          const [parent,hidden]=await Promise.all([findOne('posts',{id:input.parentId,courseId,moduleId:module.id}),newJoinerView(courseId,user,access)?hiddenFromNewJoiner(module):null]);
+          // A new joiner cannot answer a post they cannot see; the refusal is the one for a missing post.
+          if(!parent||parent.deletedAt||hidden?.(parent))fail('parent post unavailable');threadKind=parent.threadKind;
         }
         for(const id of input.attachmentIds) if(!await findOne('attachments',{id,userId:user.id,courseId,moduleId:module.id,purpose:'post',status:'ready'}))fail('attachment is unavailable or belongs to another member');
         const record={id:newId(),courseId,moduleId:module.id,userId:user.id,authorName:user.fullName,staff:isStaff(user),...input,threadKind,deletedAt:null,createdAt:now()};
