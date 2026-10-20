@@ -394,6 +394,15 @@ test('the availability switch saves on its own: closing asks first, a declined c
  assert.deepEqual(puts().at(-1).body,{...SETTINGS,programUrl:'https://example.test/programme-unsaved',registrationOpen:true,version:2},'Save sends the link with the saved availability and version');
 });
 
+test('closing registration says plainly that registered people cannot add blocks either, so nobody is checked in to a block outside their registration',async()=>{
+ // The server refuses every registration edit while closed, and a check-in (scan or desk) needs the block in the registration.
+ const h=await harness(()=>({content:[],nextCursor:null})),t=name=>h.ctx.window.Fiiu.t(name),card=h.root.querySelector('.f-switch-card');
+ for(const [lang,words] of [['en',[/new people/i,/add blocks to their registration/,/checked in to a block/,/at the desk/,/saved registrations stay/i]],['es',[/nadie nuevo/i,/añadir bloques a su inscripción/,/registrar (su )?asistencia en un bloque/,/mesa de registro/,/inscripciones guardadas se mantienen/]],['pt',[/novas pessoas/i,/adicionar blocos à sua inscrição/,/registrar (a )?presença em um bloco/,/mesa de credenciamento/,/inscrições salvas continuam/]]]){
+  h.lang(lang);for(const name of ['closeConfirm','registrationOpenHint'])for(const word of words)assert.match(t(name),word,lang+' '+name);
+  assert.equal(key(card,'registrationOpenHint').textContent,t('registrationOpenHint'),'the hint under the switch follows the language');
+ }
+});
+
 test('participant detail masks the national ID, skips empty answers and autosaves attendance without disabling it',async()=>{
  const ana=participant('participant-a','Ana');Object.assign(ana.answers,{nationalId:'12345678',accessibility:['none'],accessibilityOther:'',externalActivities:['route-amancaes']});let finishAttendance;
  const h=await harness(({path,method})=>{
