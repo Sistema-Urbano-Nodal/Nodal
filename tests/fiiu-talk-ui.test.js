@@ -1849,6 +1849,18 @@ test('the list’s status and order for the question shown follow a close or a r
  assert.ok(composer(h));assert.equal(chip(Q),'talkOpenChip');assert.deepEqual(order(),[Q,Q2]);assert.equal(sent(h,'GET',LIST).length,1,'the list is not read again for the question shown');
 });
 
+test('a question the organisers hide while it is on screen is marked hidden in the session list too, not left open',async()=>{
+ let hidden=false;const newer=question({id:Q2,status:'open',body:'¿Segunda pregunta?',talk:null,revision:2,createdAt:'2026-10-21T15:00:00.000Z'});
+ const h=await page({...SESSION_ROUTES,['GET '+LIST]:{activity:ACTIVITY,questions:[question(),newer]},
+  'GET /api/fiiu/pulse':()=>({questions:hidden?[[Q2,'day1-am',2,'open']]:[[Q,'day1-am',3,'open'],[Q2,'day1-am',2,'open']]}),
+  ['GET /api/fiiu/questions/'+Q]:()=>thread({question:question(hidden?{status:'hidden',revision:4}:{}),messages:[]})},{search:'?a=day1-am&q='+Q});
+ const chip=qid=>picks(h).find(a=>a.dataset.qid===qid).querySelector('.f-talk-state-chip').dataset.fiiuText,order=()=>picks(h).map(a=>a.dataset.qid);
+ assert.equal(chip(Q),'talkOpenChip');
+ // The pulse leaves a hidden question out, so the page reads it again and shows it hidden.
+ hidden=true;await h.tickTimers();
+ assert.equal(chip(Q),'talkHiddenQuestion','the list agrees with the header');assert.deepEqual(order(),[Q2,Q],'no longer listed as open first');
+});
+
 test('a question asked for under another session’s address opens under its own session, and the address follows',async()=>{
  const DAY2=PROGRAMME.event.activities[2],moved={id:Q2,activityId:'day2-am',body:'¿Qué cuidas en tu barrio?',talk:null};
  const h=await page({...SESSION_ROUTES,['GET /api/fiiu/questions/'+Q2]:thread({question:moved,messages:[]}),'GET /api/fiiu/questions?activityId=day2-am':{activity:DAY2,questions:[question(moved)]},

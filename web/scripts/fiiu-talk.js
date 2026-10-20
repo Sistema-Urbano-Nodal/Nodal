@@ -397,7 +397,10 @@
  // The question shown repaints its own entry in place, from the count every live update carries; the others follow the pulse (recount, below).
  function countPick(){
   if(!page||!question)return;const entry=page.questions.find(item=>item.id===question.id),node=[...page.switcher.querySelectorAll('a')].find(a=>a.dataset.qid===question.id)?.querySelector('.f-talk-pick-n');
-  if(entry)entry.messageCount=question.messageCount;if(node)answers(node,question);
+  if(entry)entry.messageCount=question.messageCount;
+  // A status the page learnt from a fresh read (a question hidden or closed elsewhere) moves its entry too, as setStatus does.
+  if(entry&&entry.status!==question.status){entry.status=question.status;renderSwitcher(sorted(page.questions));return;}
+  if(node)answers(node,question);
  }
  // Every question on the session (the list) and the others (the closed note's way to an open one, the pulse's comparison).
  function showSiblings(list){
