@@ -21,7 +21,9 @@ const failure = (message = 'database unavailable') => {
   return err;
 };
 
-test('without a valid Sentry DSN nothing is sent and reporting never fails', async () => {
+test('without a valid Sentry DSN nothing is sent and reporting never fails', async (t) => {
+  // An unset dsn falls back to SENTRY_DSN, which a Vercel build has: clear it for this test.
+  const old = process.env.SENTRY_DSN;delete process.env.SENTRY_DSN;t.after(() => { if (old !== undefined) process.env.SENTRY_DSN = old; });
   for (const dsn of [undefined, '', 'not a url', 'http://key@o1.ingest.sentry.io/1', 'https://o1.ingest.sentry.io/1', 'https://key@o1.ingest.sentry.io/', 'https://key@o1.ingest.sentry.io/project']) {
     const { calls, fetchImpl } = recorder();
     const reporter = createErrorReporter({ dsn, fetchImpl });
