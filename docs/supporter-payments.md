@@ -38,4 +38,4 @@ Then redeploy so the settings take effect.
 
 ## Later
 
-This works while there are few Supporters. Once adding and removing people by hand becomes a burden, switch to the full Mercado Pago integration (subscriptions created and checked by NODAL), researched on 19-20 Oct 2026. It needs Mariana's credentials and a webhook.
+This works while there are few Supporters. Once adding and removing people by hand becomes a burden, switch to the full Mercado Pago integration (subscriptions created and checked by NODAL; notes in [integrations/mercadopago-subscriptions.md](integrations/mercadopago-subscriptions.md)). It needs Mariana's credentials and a webhook.
