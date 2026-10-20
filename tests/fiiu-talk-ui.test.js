@@ -1804,6 +1804,19 @@ test('the list’s answer count for the question shown follows the chat, from th
  assert.equal(sent(h,'GET',LIST).length,1,'no extra read');h.lang('es');assert.equal(count().textContent,'3 respuestas');
 });
 
+test('the list’s status and order for the question shown follow a close or a reopen by the organisers, as the dock does',async()=>{
+ let revision=3,state='open';const newer=question({id:Q2,status:'closed',body:'¿Segunda pregunta?',talk:null,revision:2,createdAt:'2026-10-21T15:00:00.000Z'});
+ const h=await page({...SESSION_ROUTES,['GET '+LIST]:{activity:ACTIVITY,questions:[question(),newer]},'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,state],[Q2,'day1-am',2,'closed']]}),
+  ['GET '+MESSAGES+'?since=3']:since(4,[],{status:'closed'}),['GET '+MESSAGES+'?since=4']:since(5,[],{status:'open'})},{search:'?a=day1-am&q='+Q});
+ const chip=qid=>picks(h).find(a=>a.dataset.qid===qid).querySelector('.f-talk-state-chip').dataset.fiiuText,order=()=>picks(h).map(a=>a.dataset.qid);
+ assert.deepEqual(order(),[Q,Q2]);assert.equal(chip(Q),'talkOpenChip');
+ revision=4;state='closed';await h.tickTimers();
+ assert.equal(composer(h),null,'the dock closes');assert.equal(chip(Q),'talkClosedChip','the list agrees with the dock');assert.deepEqual(order(),[Q2,Q],'no longer listed as open first');
+ assert.equal(picks(h).find(a=>a.dataset.qid===Q)['aria-current'],'true','it is still the one shown');
+ revision=5;state='open';await h.tickTimers();
+ assert.ok(composer(h));assert.equal(chip(Q),'talkOpenChip');assert.deepEqual(order(),[Q,Q2]);assert.equal(sent(h,'GET',LIST).length,1,'the list is not read again for the question shown');
+});
+
 test('a question asked for under another session’s address opens under its own session, and the address follows',async()=>{
  const DAY2=PROGRAMME.event.activities[2],moved={id:Q2,activityId:'day2-am',body:'¿Qué cuidas en tu barrio?',talk:null};
  const h=await page({...SESSION_ROUTES,['GET /api/fiiu/questions/'+Q2]:thread({question:moved,messages:[]}),'GET /api/fiiu/questions?activityId=day2-am':{activity:DAY2,questions:[question(moved)]},

@@ -426,9 +426,11 @@
   const inside=holds(parts?.draft);if(composer){composer.textarea.value='';updateLeft();grow();}keepDraft();
   if(!parts)return;parts.draft.hidden=true;parts.draftText.value='';if(inside)parts.closedNote.focus();
  }
+ // The session list's entry for the question shown takes the new status and its place too: the pulse comparison (followBlock) leaves that question out.
  function setStatus(state){
   if(!question||!(parts||wall))return;question.status=state;me.canPost=state==='open';if(wall){renderWallHead();renderWall();return;}renderHead();renderDock();rekey(parts.empty,emptyKey());
   for(const node of rowsById.values()){const like=node.querySelector('.f-talk-like');if(like)like.disabled=state!=='open';}
+  const entry=page?.questions.find(item=>item.id===question.id);if(entry&&entry.status!==state){entry.status=state;renderSwitcher(sorted(page.questions));}
  }
  function build(){
   const box=el('section','f-talk'),head=el('header','f-talk-head'),earlier=button('talkLoadEarlier',()=>loadEarlier(),'f-button secondary f-talk-earlier'),log=el('ol','f-talk-log'),empty=tr('p','talkEmpty','f-talk-empty'),dock=el('div','f-talk-dock');
