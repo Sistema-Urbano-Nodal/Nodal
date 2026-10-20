@@ -249,6 +249,13 @@
  // The server's reason travels with the error: a check-in refusal is told apart by code, and a closed block carries its closesAt.
  const reason=data=>({code:typeof data?.code==='string'?data.code:undefined,activityId:typeof data?.activityId==='string'?data.activityId:undefined,registration:typeof data?.registration==='string'?data.registration:undefined,closesAt:data?.closesAt,registrationOpen:typeof data?.registrationOpen==='boolean'?data.registrationOpen:undefined});
  // options.timeout: how long a request may take, in ms. 20 s suits the JSON calls; a caller sending more (the chat's file uploads) asks for longer.
+ /* A refusal NODAL did not write says nothing about the account: the host's firewall challenge (Vercel's Security Checkpoint, an HTML page marked
+    x-vercel-mitigated, answering every request from a flagged address such as a venue's Wi-Fi for a minute or two), or any 403 without NODAL's JSON.
+    It fails like a lost request, without a status, and carries the wait the host asks for (blocked tells it from a lost connection). */
+ function hostRefusal(response,data){
+  if(response.ok||!(/^(?:challenge|deny)$/i.test(response.headers?.get?.('x-vercel-mitigated')||'')||response.status===403&&typeof data?.error!=='string'&&typeof data?.code!=='string'))return null;
+  const wait=Number(response.headers?.get?.('Retry-After'));return Object.assign(Error(t('error')),{key:'error',blocked:true,...(wait>0?{retryAfter:Math.min(120,wait)}:{})});
+ }
  async function api(path,body,method,{timeout=20000}={}){
   // Safari before 16 (every iOS 15 browser) has no AbortSignal.timeout; there the request simply runs without a limit.
   let response,data;const signal=typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function'?AbortSignal.timeout(timeout):undefined;
@@ -256,10 +263,7 @@
    try{data=await response.json();}catch(error){if(response.ok)throw error;data={};}
   }
   catch{throw Object.assign(Error(t('error')),{key:'error'});}
-  /* A refusal NODAL did not write says nothing about the account: the host's firewall challenge (Vercel's Security Checkpoint, an HTML page marked
-     x-vercel-mitigated, answering every request from a flagged address such as a venue's Wi-Fi for a minute or two), or any 403 without NODAL's JSON.
-     It fails like a lost request, without a status, and carries the wait the host asks for (blocked tells it from a lost connection). */
-  if(!response.ok&&(response.headers?.get?.('x-vercel-mitigated')||response.status===403&&typeof data?.error!=='string'&&typeof data?.code!=='string')){const wait=Number(response.headers?.get?.('Retry-After'));throw Object.assign(Error(t('error')),{key:'error',blocked:true,...(wait>0?{retryAfter:Math.min(120,wait)}:{})});}
+  {const refusal=hostRefusal(response,data);if(refusal)throw refusal;}
   if(!response.ok){const key=response.status===409&&data?.error==='account changed; reload before continuing'?'accountChanged':path.startsWith('/api/admin/')&&response.status===400?'adminInvalid':path.startsWith('/api/admin/')&&response.status===409?'editorConflict':response.status===403&&data?.error==='registration is closed'?'closed':({400:'invalid',401:'unauthorized',403:'forbidden',409:'conflict',410:'expired',429:'rate'})[response.status]||'error';throw Object.assign(Error(t(key)),{key,status:response.status,...reason(data)});}
   if(!data||typeof data!=='object'||Array.isArray(data))throw Object.assign(Error(t('error')),{key:'error'});
   if(path==='/api/fiiu/checkin'&&!['checked_in','already_checked_in','already'].includes(data.result))throw Object.assign(Error(t('error')),{key:'error'});
@@ -484,6 +488,6 @@
  }
  // Scrolls a horizontal chip row just enough to show the item in full, clear of the right-edge fade (fiiu.css); only the row moves, never the page (the rows sit in sticky bars).
  function revealInRow(row,item){const box=item?.getBoundingClientRect?.(),frame=row?.getBoundingClientRect?.();if(!box||!frame)return;const shift=box.left<frame.left+8?box.left-frame.left-8:box.right>frame.right-36?box.right-frame.right+36:0;if(shift)row.scrollBy?.({left:shift});}
- window.Fiiu={rows,t,el,tr,button,link,source,field,check,api,status,dateNode,rangeNode,timeLabel,timeNode,limaDate,locale,contentCards,badges,festivalBadges,shareText,shareControl,certifiable,certificationName,findActivity,chronological,typeOf,countLabel,nextFor,underway,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,hoursLine,checkinCloses,checkinState,checkinActivities,limaClock,windowNode,pulse,talkLink,sessionLink,linkify};
+ window.Fiiu={rows,t,el,tr,button,link,source,field,check,api,hostRefusal,status,dateNode,rangeNode,timeLabel,timeNode,limaDate,locale,contentCards,badges,festivalBadges,shareText,shareControl,certifiable,certificationName,findActivity,chronological,typeOf,countLabel,nextFor,underway,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,hoursLine,checkinCloses,checkinState,checkinActivities,limaClock,windowNode,pulse,talkLink,sessionLink,linkify};
  window.nodalI18n?.onChange(refresh);refresh();
 })();

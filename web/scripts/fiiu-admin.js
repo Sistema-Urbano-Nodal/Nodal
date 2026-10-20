@@ -1,6 +1,6 @@
 (() => {
  'use strict';
- const {rows:strings,t,el,tr,source,button,link,field,check,api,status,dateNode,rangeNode,limaDate,locale,findActivity,chronological,typeOf,countLabel,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,checkinState,checkinActivities,limaClock,windowNode}=window.Fiiu;
+ const {rows:strings,t,el,tr,source,button,link,field,check,api,hostRefusal,status,dateNode,rangeNode,limaDate,locale,findActivity,chronological,typeOf,countLabel,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,checkinState,checkinActivities,limaClock,windowNode}=window.Fiiu;
  // The Conversations section's strings, and the attendance tick's failures, live here, since only this page shows them (the chat page keeps its own).
  // {n} is filled in by this script, so a language switch re-renders those counts.
  Object.assign(strings,{
@@ -608,6 +608,7 @@
    let response,data;const signal=typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function'?AbortSignal.timeout(20000):undefined;
    try{response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),...(signal?{signal}:{})});data=await response.json().catch(()=>null);}
    catch{throw Object.assign(Error(t('error')),{key:'error'});}
+   {const refusal=hostRefusal(response,data);if(refusal)throw refusal;}
    if(!response.ok)throw Object.assign(Error(t('error')),{key:'error',status:response.status,code:typeof data?.code==='string'?data.code:undefined,...(TALLY.every(k=>Number.isSafeInteger(data?.[k])&&data[k]>=0)?{outcome:Object.fromEntries(TALLY.map(k=>[k,data[k]]))}:{})});
    if(!data||typeof data!=='object'||Array.isArray(data))throw Object.assign(Error(t('error')),{key:'error'});
    return data;
@@ -1069,7 +1070,7 @@
  // Safari before 16 has no AbortSignal.timeout; there the download runs without the time limit.
  async function downloadExport(url='/api/admin/fiiu/export',fallback='fiiu-registrations.csv'){
   const failed=key=>Object.assign(Error(t(key)),{key});let blob,name;
-  try{const response=await fetch(url,{signal:globalThis.AbortSignal?.timeout?.(60000)});if(!response.ok)throw Object.assign(failed(({401:'unauthorized',403:'forbidden',429:'rate'})[response.status]||'error'),{status:response.status});name=/filename="([^"]+)"/.exec(response.headers.get('Content-Disposition')||'')?.[1];blob=await response.blob();}
+  try{const response=await fetch(url,{signal:globalThis.AbortSignal?.timeout?.(60000)});if(!response.ok){const refusal=hostRefusal(response,response.status===403?await response.json().catch(()=>null):null);if(refusal)throw refusal;}if(!response.ok)throw Object.assign(failed(({401:'unauthorized',403:'forbidden',429:'rate'})[response.status]||'error'),{status:response.status});name=/filename="([^"]+)"/.exec(response.headers.get('Content-Disposition')||'')?.[1];blob=await response.blob();}
   catch(err){throw err?.key?err:failed('error');}
   saveFile(blob,name||fallback);
  }

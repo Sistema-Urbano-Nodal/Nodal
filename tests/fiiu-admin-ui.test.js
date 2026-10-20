@@ -2190,3 +2190,20 @@ test('the party counts in the activity totals by registrations only, takes no at
  await select(filter,'day3-am');assert.ok(key(h.root,'noMatches'));key(h.root,'showAll').listeners.click();assert.equal(filter.value,'','Show everyone clears the block too');assert.equal(participantNames(h).length,3);
  await select(filter,'closing-party');key(h.root.querySelector('.f-admin-summary'),'reviewPendingAction').listeners.click();assert.equal(filter.value,'','a shortcut shows its whole filter');
 });
+
+test('a firewall challenge on the organisers’ own requests (the summary batch, a CSV) is a failed request to retry, never the organisers-only lock',async()=>{
+ // Vercel's Security Checkpoint: an HTML 403 marked x-vercel-mitigated, sent to every request from a flagged address such as a venue's Wi-Fi.
+ const checkpoint={status:403,html:'<!DOCTYPE html><title>Vercel Security Checkpoint</title>',headers:{'x-vercel-mitigated':'challenge','retry-after':'30'}};
+ let refusal=checkpoint;
+ const h=await harness(request=>request.path==='/api/admin/fiiu/confirmations'?refusal:{content:[],nextCursor:null},{confirmationsRead:()=>emailState({counts:emailCounts({none:3})})});
+ await press(h,'send');backfillAction(h,'confirm').listeners.click();await flush();
+ assert.equal(posts(h).length,1);assert.equal(key(h.root,'organisersOnly'),undefined,'the dashboard is not locked');assert.ok(h.root.querySelector('.f-admin-head'));
+ assert.ok(backfillAction(h,'send'),'the batch can be pressed again');
+ const fetchPage=h.ctx.fetch,html=status=>({ok:false,status,headers:{get:name=>({'x-vercel-mitigated':'challenge','content-type':'text/html'})[name.toLowerCase()]??null},json:async()=>{throw SyntaxError('Unexpected token <');},blob:async()=>{throw Error('not a CSV');}});
+ let reply=html(403);h.ctx.fetch=async(path,options)=>path==='/api/admin/fiiu/export'?reply:fetchPage(path,options);
+ const csv=key(h.root.querySelector('.f-admin-head'),'export');await csv.listeners.click();
+ assert.equal(h.message.dataset.fiiuText,'error','a challenge is not "forbidden"');assert.equal(key(h.root,'organisersOnly'),undefined);
+ // NODAL's own refusal keeps its meaning.
+ refusal={status:403,data:{error:'administrator access required'}};await press(h,'send');backfillAction(h,'confirm').listeners.click();await flush();
+ assert.ok(key(h.root,'organisersOnly'),'a real loss of organiser access still locks the page');
+});
