@@ -37,8 +37,8 @@ const course={id:'c1',title:'Mobility course',description:'Course',status:'publi
 const findKey=(node,key)=>descendants(node).find(n=>n.dataset.pilotText===key);
 const byName=(node,name)=>descendants(node).find(n=>n.name===name);
 const participantForm=h=>descendants(h.body).find(n=>n.className==='pilot-form pilot-participant-form');
-function teachingHarness(write,{invitations=[],courses=[course],participants=[]}={}){
- const h=harness((path,options)=>options?.method==='POST'?write(path,JSON.parse(options.body)):path==='/api/admin/courses'?{courses}:path.endsWith('/report')?{summary:{enrolled:participants.length},participants,feedback:[],invitations}:{course:courses.find(c=>path.endsWith('/'+c.id))||course,modules:[]},{page:'teaching'});h.run('teaching');return h;
+function teachingHarness(write,{invitations=[],courses=[course],participants=[],perk=false}={}){
+ const h=harness((path,options)=>options?.method==='POST'?write(path,JSON.parse(options.body)):path==='/api/admin/courses'?{courses}:path.endsWith('/report')?{summary:{enrolled:participants.length},participants,feedback:[],invitations}:{course:courses.find(c=>path.endsWith('/'+c.id))||course,modules:[],...(perk?{perkCourse:true}:{})},{page:'teaching'});h.run('teaching');return h;
 }
 test('adding a participant performs only explicit enrollment and preserves translated success after refresh',async()=>{
  const h=teachingHarness(()=>({result:'enrolled',participant:{id:'u1'}}));await flush();h.ctx.document.getElementById('staff-tab-participants').listeners.click();const form=participantForm(h);assert.notEqual(form.parent.open,true,'the add panel starts closed');byName(form,'email').value=' person@example.test ';await form.listeners.submit({preventDefault(){}});assert.equal(h.requests.filter(r=>r.method==='POST').length,1);assert.equal(h.requests.find(r=>r.method==='POST').path,'/api/admin/courses/c1/participants');assert.deepEqual(h.requests.find(r=>r.method==='POST').body,{email:'person@example.test'});assert.equal(h.ctx.document.getElementById('staff-pane-participants').hidden,false);assert.match(content(h.body),/Participant added with student access/);h.lang('pt');assert.match(content(h.body),/Participante adicionado como estudante/);
@@ -69,6 +69,16 @@ test('pending enrollment prevents duplicate submissions, and late responses neve
 });
 test('invitation failures and cooldowns are localized and never reported as sent',async()=>{
  for(const code of ['invitation_uncertain','invitation_unavailable','invitation_rate']){const h=teachingHarness(()=>({status:code==='invitation_rate'?429:503,data:{code}}),{invitations:[{email:'person@example.test',deliveryStatus:'uncertain'}]});await flush();h.lang('pt');await findKey(h.body,'resendInvitation').listeners.click();assert.doesNotMatch(content(h.body),/Convite enviado\./);assert.match(content(h.body),/Não foi possível|Aguarde/);assert.equal(participantForm(h)['aria-busy'],'false');}
+});
+test('the closed Supporter course keeps the add form, with a note to add each Supporter who paid on Mercado Pago',async()=>{
+ const closed={...course,enrollmentOpen:false};
+ const h=teachingHarness(()=>({result:'enrolled',participant:{id:'u1'}}),{courses:[closed],perk:true});await flush();
+ const pane=h.ctx.document.getElementById('staff-pane-participants');
+ assert.equal(findKey(pane,'participantsClosed'),undefined,'not the closed note');assert.ok(findKey(pane,'participantsSupporters'));
+ assert.match(content(pane),/Enrollment is closed to the public\. Add each Supporter who paid on Mercado Pago here, with the email of their NODAL account\./);
+ const form=participantForm(h);assert.ok(form);byName(form,'email').value='supporter@example.test';await form.listeners.submit({preventDefault(){}});
+ assert.deepEqual(h.requests.filter(r=>r.method==='POST').map(r=>r.path),['/api/admin/courses/c1/participants']);
+ h.lang('es');assert.match(content(h.ctx.document.getElementById('staff-pane-participants')),/Agrega aquí a cada miembro de apoyo que pagó en Mercado Pago/);
 });
 test('a closed course replaces adding and resending with a note while keeping the lists and exports',async()=>{
  const closed={...course,enrollmentOpen:false};

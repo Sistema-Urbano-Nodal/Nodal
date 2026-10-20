@@ -322,7 +322,8 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
     if(adminPath&&['/participants','/invitations'].includes(suffix)&&req.method==='POST') {
       const input=await bodyJson(req);
       try {
-        const result=suffix==='/participants'?await participants.add(access.course,input.email):await participants.invite(access.course,input.email,user.id);
+        // The perk course is closed to the public, but the team adds each Supporter who paid on Mercado Pago (docs/supporter-payments.md).
+        const result=suffix==='/participants'?await participants.add(access.course,input.email,{whileClosed:perks.applies(courseId)}):await participants.invite(access.course,input.email,user.id);
         send(res,result.result==='invited'?202:result.result==='enrolled'?201:200,result);
       } catch(error) {
         const expected=/^(participant|invitation)_[a-z_]+$/.test(error.code??''),code=expected?error.code:'participant_unavailable',status=error.status??503;

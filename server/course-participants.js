@@ -51,14 +51,15 @@ export function createCourseParticipants({store, userRepository}) {
     }
     return rows;
   }
-  function admitting(course) {
+  /* Closing enrolment closes every way in, before any lookup, email or write, except a staff addition of an existing
+     account to a course closed only to the public: the Supporter course, whose payers the team adds by hand. */
+  function admitting(course,{whileClosed=false}={}) {
     if(course.status!=='published')invitationError('participant_course_unavailable',409);
-    // Closing enrolment closes every way in, before any lookup, email or write.
-    if(course.enrollmentOpen===false)invitationError('participant_enrollment_closed',409);
+    if(course.enrollmentOpen===false&&!whileClosed)invitationError('participant_enrollment_closed',409);
   }
   return {
-    async add(course, rawEmail) {
-      admitting(course);
+    async add(course, rawEmail, {whileClosed=false}={}) {
+      admitting(course,{whileClosed});
       const email=participantEmail(rawEmail), account=await accountFor(email);
       if(!account)invitationError('participant_not_found',404);
       if(!account.confirmed)invitationError('participant_unconfirmed',409);

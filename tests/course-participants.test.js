@@ -52,6 +52,17 @@ test('invites remain pending until verified ownership and preserve intake gating
  assert.equal((await store.find('invitations',{id:result.invitation.id}))[0].acceptedAt!==null,true);
 });
 
+test('the closed Supporter course still takes a staff addition of an existing account, and never an invitation',async t=>{
+ // Supporters pay on Mercado Pago and the team adds each payer by hand (docs/supporter-payments.md), so this closed course admits staff additions.
+ const {participants,store,course,staff,student,sent}=await fixture(t);
+ const closed=await store.update('courses',{id:course.id},{enrollmentOpen:false});
+ assert.equal((await participants.add(closed,student.email,{whileClosed:true})).result,'enrolled');
+ assert.equal(await store.count('enrollments',{courseId:course.id,userId:student.id}),1);
+ await assert.rejects(participants.add(closed,'new@example.test',{whileClosed:true}),{code:'participant_not_found',status:404});
+ await assert.rejects(participants.invite(closed,'new@example.test',staff.id),{code:'participant_enrollment_closed',status:409});
+ assert.equal(sent.length,0);assert.equal(await store.count('invitations',{}),0);
+});
+
 test('a closed course rejects staff additions and invitations before any lookup, email or write',async t=>{
  const {participants,store,course,staff,student,sent,lookups}=await fixture(t);
  const closed=await store.update('courses',{id:course.id},{enrollmentOpen:false});

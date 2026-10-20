@@ -27,7 +27,7 @@ async function setup(t,{fiiu=true}={}) {
  }};
  const register=(user,createdAt,eventId=FIIU_COURSE_PERK.eventId)=>fiiuState.registrations.push({id:randomUUID(),eventId,userId:users[user].id,createdAt});
  const logged=[];
- const api=createCourseApi({store,userRepository:{getUserById:async id=>Object.values(users).find(u=>u.id===id),toApiUser:u=>u},sameOrigin:req=>req.headers.origin===`http://${req.headers.host}`,log:(...args)=>logged.push(args),
+ const api=createCourseApi({store,userRepository:{getUserById:async id=>Object.values(users).find(u=>u.id===id),toApiUser:u=>u,findCourseAccount:async email=>{const u=Object.values(users).find(u=>u.email===email.trim().toLowerCase());return u?{id:u.id,email:u.email,name:u.fullName??u.name,confirmed:true,active:true}:null;}},sameOrigin:req=>req.headers.origin===`http://${req.headers.host}`,log:(...args)=>logged.push(args),
   perks:createCoursePerks({fiiuStore:fiiu?fiiuStore:null,perk:{...FIIU_COURSE_PERK,courseId:PERK}})});
  const server=http.createServer(async(req,res)=>{try{if(!await api({req,res,url:new URL(req.url,`http://${req.headers.host}`),user:users[req.headers.cookie]})){res.writeHead(404);res.end();}}catch(e){res.writeHead(e.status??500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:e.message}));}});
  server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
@@ -144,4 +144,18 @@ test('the course list says who is enrolled and how the closed perk course is joi
  assert.equal((await enroll(PERK,'member')).status,200);
  assert.deepEqual(shape(await list('member'))[PERK],{enrolled:true,join:undefined});
  assert.equal(fiiuState.reads.length,3);
+});
+
+test('the team adds a Supporter who paid on Mercado Pago to the closed perk course, while another closed course still admits no one',async t=>{
+ const {call,store,users,detail}=await setup(t);
+ const added=await call(`/api/admin/courses/${PERK}/participants`,{actor:'staff',method:'POST',body:{email:'outsider@example.test'}});
+ assert.equal(added.status,201);assert.equal((await added.json()).result,'enrolled');
+ assert.equal(await store.count('enrollments',{courseId:PERK,userId:users.outsider.id}),1);
+ const now=await detail(PERK,'outsider');assert.ok(now.enrollment,'the Supporter is in');assert.equal(now.join,undefined);
+ const other=await call(`/api/admin/courses/${CLOSED}/participants`,{actor:'staff',method:'POST',body:{email:'outsider@example.test'}});
+ assert.equal(other.status,409);assert.equal((await other.json()).code,'participant_enrollment_closed');
+ const invited=await call(`/api/admin/courses/${PERK}/invitations`,{actor:'staff',method:'POST',body:{email:'new@example.test'}});
+ assert.equal(invited.status,409,'no invitation links to the closed course');
+ const member=await call(`/api/admin/courses/${PERK}/participants`,{actor:'member',method:'POST',body:{email:'outsider@example.test'}});
+ assert.notEqual(member.status,201,'only staff add');
 });

@@ -77,6 +77,18 @@ test('anyone else sees the closed perk course is for Supporters, with no way to 
  assert.equal(h.requests.some(r=>r.method||r.path.includes('/modules/')),false);
 });
 
+test('once the Supporting membership takes payments on Mercado Pago, the Supporters note says so and links to the payments page',async()=>{
+ const open={checkout:true,provider:'mercadopago',annual:{amount:'S/ 240',per:'/ year'},options:[{id:'once',url:'https://link.mercadopago.com.pe/nodal',amount:'S/ 240'}]};
+ const h=harness(member(path=>path==='/api/billing/config'?open:preview('supporters')));h.run('courses');await flush();
+ for(const key of ['supportersOnly','supportersNoteOpen','becomeSupporter'])assert.ok(keys(h.body).includes(key),key);
+ assert.equal(keys(h.body).includes('supportersNote'),false,'it no longer says the membership opens soon');
+ const join=find(h.body,'becomeSupporter');assert.equal(join.tagName,'a');assert.equal(join.href,'payments.html');
+ assert.match(content(h.body),/This course is part of the Supporting membership\. People already enrolled keep full access\./);assert.match(content(h.body),/Become a Supporter/);
+ h.lang('es');assert.match(content(h.body),/Este curso forma parte de la membresía de apoyo\. Quienes ya están inscritos conservan el acceso completo\./);assert.match(content(h.body),/Hazte miembro de apoyo/);
+ h.lang('pt');assert.match(content(h.body),/Torne-se apoiador/);
+ assert.equal(h.requests.filter(r=>r.path==='/api/billing/config').length,1);assert.equal(h.requests.some(r=>r.method),false);
+});
+
 test('the survey reminder link opened with a FIIU-registered account that is not enrolled offers another account, never Join',async()=>{
  const h=harness(member(()=>preview('fiiu')),{search:'?id=c1&encuesta=1'});h.run('courses');await flush();
  for(const key of ['fiiuIncluded','surveyUnavailable','surveyOtherAccount','switchAccount'])assert.ok(keys(h.body).includes(key),key);

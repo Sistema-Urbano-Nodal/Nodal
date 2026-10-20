@@ -21,6 +21,15 @@ function courseTopics(c){
   const titles=[c?.title,...Object.values(c?.translations||{}).map(fields=>fields?.title)].filter(value=>typeof value==='string').join(' \n ').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
   return COURSE_TOPICS.filter(([,words])=>words.test(titles)).map(([name])=>name).slice(0,3);
 }
+/* The Supporters note on a closed course says the membership opens soon until a Mercado Pago payment link is offered
+   (GET /api/billing/config, read once and only for this note); then it links to the payments page instead. */
+let membershipRead=null;
+const membershipOpen=()=>membershipRead??=fetch('/api/billing/config',{headers:{Accept:'application/json'}}).then(res=>res.ok?res.json():null).then(data=>data?.checkout===true).catch(()=>false);
+function supportersNote(){
+  const note=tr('span','supportersNote');
+  membershipOpen().then(open=>{if(!open||!note.parent)return;const join=tr('a','becomeSupporter','pilot-button');join.href='payments.html';note.dataset.pilotText='supportersNoteOpen';note.textContent=t('supportersNoteOpen');note.after(join);});
+  return [tr('strong','supportersOnly'),note];
+}
 // One label per card: where this viewer stands on the course. Staff see only whether it is closed, as before.
 const cardLabel=(c,staff)=>staff?(c.enrollmentOpen===false?'closed':''):c.enrolled?'enrolledTag':c.join==='fiiu'?'fiiuTag':c.join==='supporters'?'supportersOnly':c.enrollmentOpen===false?'closed':'';
 async function directory(){setPageTitle('courses');const {courses,isAdmin}=await api('/api/courses');document.getElementById('teachingLink').hidden=isAdmin!==true;root.replaceChildren();const hero=el('header','pilot-hero');hero.append(tr('p','courses','pilot-context'),tr('h1','intro'),tr('p','directory'));const list=el('div','pilot-directory');if(!courses.length)list.append(tr('p','emptyCourses','pilot-empty'));courses.forEach(c=>{const row=el('article','pilot-course-row'),meta=el('div'),content=el('div'),label=cardLabel(c,isAdmin===true);meta.append(tr('span',c.status,'pilot-tag'),dynamic('div',()=>dates(c),'pilot-date'));if(label)meta.append(tr('div',label,'pilot-date'));content.append(source('h2',c,'title'),source('p',c,'description'));const link=tr('a','open','pilot-button');link.href='course.html?id='+encodeURIComponent(c.id);row.append(meta,content,link);list.append(row);});root.append(hero,list);status(msg,'');}
@@ -44,7 +53,7 @@ async function course(fresh){
     const fiiu=snapshot.join==='fiiu',reminderLink=new URLSearchParams(location.search).get('encuesta')==='1';
     // Closed courses keep their route preview but offer no way in, except the perk course to a FIIU Fest 11 registrant
     // (server/course-perks.js). Never under the survey's reminder link: a September learner's other account must not join by mistake.
-    if(!c.enrollmentOpen&&(!fiiu||reminderLink)){const closed=el('div','pilot-actions');closed.append(...fiiu?[tr('strong','fiiuIncluded')]:snapshot.join==='supporters'?[tr('strong','supportersOnly'),tr('span','supportersNote')]:[tr('strong','closed'),tr('span','closedNote')]);if(reminderLink)closed.append(...otherAccount());hero.append(closed);renderRoutePreview();return;}
+    if(!c.enrollmentOpen&&(!fiiu||reminderLink)){const closed=el('div','pilot-actions');closed.append(...fiiu?[tr('strong','fiiuIncluded')]:snapshot.join==='supporters'?supportersNote():[tr('strong','closed'),tr('span','closedNote')]);if(reminderLink)closed.append(...otherAccount());hero.append(closed);renderRoutePreview();return;}
     // A FIIU registrant refused here no longer qualifies (a registration cancelled since this page loaded): read the course again.
     const enroll=button(fiiu?'joinCourse':'enroll',async()=>{if(enroll.disabled)return;enroll.disabled=true;try{await api(base()+'/enroll',{});await course();}catch(err){if(err.code==='enrollment_closed'&&fiiu)return course().catch(error=>{status(msg,error);enroll.disabled=false;});if(err.code==='enrollment_closed')return course({...snapshot,course:{...c,enrollmentOpen:false}});status(msg,err);enroll.disabled=false;}});
     if(fiiu){const perk=el('div','pilot-actions');perk.append(tr('strong','fiiuIncluded'));hero.append(perk);}
