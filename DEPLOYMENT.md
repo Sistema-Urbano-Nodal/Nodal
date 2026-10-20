@@ -281,23 +281,28 @@ PAYMENTS_MODE=preview
 PILOT_MODE=true
 ```
 
-Amounts appear only when checkout can actually run. `GET /api/billing/config`
-returns `checkout: true` only when `PILOT_MODE=false` (exactly that value;
-unset, empty, `0` or `off` all keep the pilot on) **and** the four Stripe
-variables below are configured. Otherwise it returns `checkout: false`
-and `Soon` in every price slot, with no period or badge, even when the
-`SUBSCRIPTION_*` labels are set, and the landing page hides its Supporter button.
-So setting the labels alone never publishes a price. Switching to
-`PAYMENTS_MODE=live` is what makes a price mandatory: the deployment then refuses
-to boot until both `*_LABEL` variables are set, so a paid tier can never go live
-nameless:
+The Supporting membership is annual and paid on Mercado Pago, through links
+Mariana creates in her own Mercado Pago account (a payment link for the year,
+and a two-charge subscription plan for two installments). NODAL only shows the
+links; the team adds each payer by hand. The full routine is in
+[docs/supporter-payments.md](docs/supporter-payments.md).
+
+`GET /api/billing/config` returns `checkout: true` and one option per link only
+when the link is an `https` Mercado Pago Peru address (`mercadopago.com.pe` or a
+subdomain, `mpago.la`, `mpago.li`) **and** its price is set. Otherwise it returns
+`checkout: false` and `Soon`, the landing page hides its Supporter button, and the
+course pilot keeps redirecting `/payments.html` to the courses page. A bad link is
+logged once per instance and ignored:
 
 ```text
-SUBSCRIPTION_PRICE_MONTHLY_LABEL=US$10
-SUBSCRIPTION_MONTHLY_PERIOD=/ month
-SUBSCRIPTION_PRICE_ANNUAL_LABEL=US$100
-SUBSCRIPTION_ANNUAL_PERIOD=/ year
+MERCADOPAGO_LINK_ANNUAL=https://link.mercadopago.com.pe/your-link
+SUBSCRIPTION_PRICE_ANNUAL_LABEL=S/ 240
+MERCADOPAGO_LINK_INSTALLMENTS=https://www.mercadopago.com.pe/subscriptions/checkout?preapproval_plan_id=your-plan
+SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL=2 × S/ 120
 ```
+
+Stripe is dormant (it cannot onboard a Peruvian business); its variables below
+only matter if that route is ever revived.
 
 Do not set `NODE_ENV` as a project variable: the Vercel runtime sets it for the
 functions, and a project value also reaches the build, where `npm ci` would then
@@ -740,13 +745,13 @@ the session, sets no cookie and is cached by the CDN for 5 minutes
   under `nodal.lang` and carries into the console, the member profile and the
   membership page. A saved choice takes precedence over `?lang=en|es|pt`;
   the URL language is used when the visitor has not saved a preference.
-- Subscription **amounts** are shown exactly as configured in
-  `SUBSCRIPTION_PRICE_*_LABEL`, in every language, and only while checkout can
-  run; otherwise every language shows its own "Soon!". The wording around the amount
-  (cycle name, period suffix, renewal and cancellation notes) is translated when
-  it matches the English default; set `SUBSCRIPTION_MONTHLY_*` /
-  `SUBSCRIPTION_ANNUAL_*` to anything else and that text is shown verbatim, so
-  write it in the language members should read.
+- Membership **prices** are shown exactly as configured in
+  `SUBSCRIPTION_PRICE_ANNUAL_LABEL` and `SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL`,
+  in every language, and only next to a Mercado Pago link that can take the
+  payment; otherwise every language shows its own "Soon!". The year's period
+  (`SUBSCRIPTION_ANNUAL_PERIOD`, default `/ year`) is translated when it is the
+  English default; anything else is shown verbatim, so write it in the language
+  members should read.
 
 ## Manual External Configuration Still Required
 
