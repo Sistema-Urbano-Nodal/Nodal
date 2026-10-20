@@ -359,6 +359,16 @@ test('organisers get Hide on each message and the full name; members do not',asy
  const member=await page();assert.equal(key(member.root,'talkHide'),undefined);
 });
 
+test('a long name with no spaces wraps in the chat, in the organisers’ full name and on the projector, instead of making a phone pan sideways',async()=>{
+ const long='carolina.fernandez.mendoza.arq@gmail.com T.',full='carolina.fernandez.mendoza.arq@gmail.com Torres-Villanueva';
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({me:{organiser:true},messages:[message(M1,{author:long,authorFull:full,hidden:false})]})});
+ const meta=row(h,M1).querySelector('.f-talk-meta');assert.equal(meta.querySelector('.f-talk-author').textContent,long);assert.equal(meta.querySelector('.f-talk-full').textContent,full);
+ const wall=await projector({},{messages:[message(M1,{author:long})]});assert.equal(wall.root.querySelector('.f-talk-wall-meta').querySelector('.f-talk-author').textContent,long);
+ const css=readFileSync(new URL('../web/styles/fiiu-talk.css',import.meta.url),'utf8'),names=css.match(/(?:^|\})([^{}]*\.f-talk-full[^{}]*)\{([^}]*)\}/m);
+ assert.ok(names,'the full name has a rule');assert.match(names[1],/\.f-talk-author/,'the same rule as the name, in the chat and on the projector');
+ assert.match(names[2],/min-width:0/,'a flex item that may shrink below its longest word');assert.match(names[2],/overflow-wrap:anywhere/,'and breaks inside it');
+});
+
 test('a row replaced by a poll or by moderation keeps focus on the same control, not the first one',async()=>{
  let revision=3;const mine=over=>message(M1,{mine:true,authorFull:'Flavia Rojas',...over});
  const h=await page({['GET /api/fiiu/questions/'+Q]:thread({me:{organiser:true},messages:[mine({seq:1})]}),'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),

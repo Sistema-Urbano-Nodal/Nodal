@@ -55,11 +55,11 @@
 .f-talk-bar-n{padding-top:2px;font-size:.72rem;color:var(--f-muted);text-align:center;font-variant-numeric:tabular-nums}
 /* Messages: your own on a pale tint (not a bubble); sending is faded, a failure names itself in the error colour, a hidden one is muted (only organisers
    and its author see it, the author with "Hidden by the organisers"): its text stays readable at full contrast for the organisers deciding on it, and
-   only its images fade. */
+   only its images fade. A name breaks anywhere, so an address typed as a first name cannot widen the page. */
 .f-talk-earlier{align-self:center;margin:0 0 var(--f-sp-3)}.f-talk-log{display:grid;gap:var(--f-sp-2);margin:0 0 var(--f-sp-4);padding:0;list-style:none}
 .f-talk-msg{min-width:0;padding:var(--f-sp-2) var(--f-sp-3)}.f-talk-msg.is-mine{background:color-mix(in srgb,var(--f-leaf) 10%,transparent)}.f-talk-msg.is-pending{opacity:.6}
 .f-talk-msg.is-failed .f-talk-state{color:var(--f-error);font-weight:650}.f-talk-msg.is-hidden{color:var(--f-muted)}.f-talk-msg.is-hidden .f-talk-image img{opacity:.6}
-.f-page .f-talk-meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px var(--f-sp-2);max-width:none;margin:0;font-size:.84rem;color:var(--f-muted)}.f-talk-author{font-size:.92rem;color:var(--f-ink)}
+.f-page .f-talk-meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px var(--f-sp-2);max-width:none;margin:0;font-size:.84rem;color:var(--f-muted)}.f-talk-author{font-size:.92rem;color:var(--f-ink)}:is(.f-talk-author,.f-talk-full){min-width:0;overflow-wrap:anywhere}
 .f-talk-org{font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--f-forest)}.f-talk-time{margin-left:auto;font-variant-numeric:tabular-nums;white-space:nowrap}
 .f-talk-body{margin:var(--f-sp-1) 0 0;overflow-wrap:anywhere;white-space:pre-wrap}
 /* Thumbnails keep their shape from the width and height attributes before they load; the full image opens in a new tab. */
