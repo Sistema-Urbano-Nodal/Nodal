@@ -10,7 +10,7 @@ const fixture = () => {
     listDirectoryUsers: async () => { reads++; await new Promise(r => setTimeout(r, 3)); return visible; },
     loadGraphStore: async ({ directoryRows }) => { graphs++; return { users: new Map(directoryRows.map(u => [u.id,u])), follows: new Map(), engagement: new Map() }; },
   };
-  return { repo, counts: () => [reads, graphs], revoke: () => { visible = [{id:'a'}]; revision++; } };
+  return { repo, counts: () => [reads, graphs], revoke: () => { visible = [{id:'a'}]; revision++; }, bump: () => { revision++; } };
 };
 
 test('200 concurrent viewers share one revision-checked directory and graph snapshot', async () => {
@@ -32,6 +32,35 @@ test('a revision change makes withdrawn data unreachable immediately and stale i
   const original = g.repo.loadGraphStore;
   g.repo.loadGraphStore = async (...args) => { const value = await original(...args); g.revoke(); g.repo.loadGraphStore = original; return value; };
   assert.deepEqual((await network.createNetworkSnapshots(g.repo).read({ graph: true })).rows.map(u => u.id), ['a']);
+});
+
+test('a revision that moves during every read serves the newest rows instead of failing the network for everyone', async () => {
+  const f = fixture();
+  const snapshots = network.createNetworkSnapshots(f.repo);
+  assert.equal((await snapshots.read({ graph: true })).rows.length, 2);
+  f.revoke();
+  // One member keeps writing (PATCH /api/me, skips, follows): a revision bump lands during every directory read.
+  const list = f.repo.listDirectoryUsers;
+  f.repo.listDirectoryUsers = async () => { const rows = [...await list()]; f.bump(); return rows; };
+  assert.deepEqual((await snapshots.read()).rows.map(u => u.id), ['a'], 'directory and search answer, never with the member withdrawn before the request');
+  assert.deepEqual(await snapshots.run(snapshot => [...snapshot.graph.users.keys()]), ['a'], 'globe and recommendations answer from the same rows');
+  assert.deepEqual([...(await snapshots.read({ graph: true })).graph.users.keys()], ['a']);
+  assert.deepEqual(f.counts(), [10, 3], 'each request reads the directory at most three times and the graph once');
+  f.repo.listDirectoryUsers = list;
+  await snapshots.read(); await snapshots.read();
+  assert.deepEqual(f.counts(), [11, 3], 'unsettled rows are never cached; a settled read is cached again');
+});
+
+test('writes landing during every response build still answer after the last check, which fails closed without a revision', async () => {
+  const f = fixture();
+  const snapshots = network.createNetworkSnapshots(f.repo);
+  let builds = 0;
+  assert.deepEqual(await snapshots.run(snapshot => { builds++; f.bump(); return snapshot.rows.map(u => u.id); }), ['a', 'b']);
+  assert.equal(builds, 3);
+  await assert.rejects(snapshots.run(snapshot => {
+    f.bump(); if (++builds === 6) f.repo.getNetworkRevision = async () => null;
+    return snapshot.rows;
+  }), error => error.status === 503, 'the last attempt still needs an authoritative revision');
 });
 
 test('snapshots expire and unsupported revisions fail closed', async () => {

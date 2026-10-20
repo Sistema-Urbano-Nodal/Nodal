@@ -19,7 +19,6 @@ export function createNetworkSnapshots(repository, { ttlMs = 10 * 60_000, refres
   const pending = new Map();
   // Keyed by the directory rows, which renewed snapshots share, so a renewal never reloads the graph.
   const graphs = new WeakMap();
-  const unstable = () => Object.assign(new Error('Network changed during read; retry shortly'), { status: 503 });
   async function revision() {
     const value = repository.getNetworkRevision ? await repository.getNetworkRevision() : null;
     if (value === null || value === undefined) {
@@ -41,6 +40,7 @@ export function createNetworkSnapshots(repository, { ttlMs = 10 * 60_000, refres
     return cached;
   }
   async function readDirectory() {
+    let snapshot;
     for (let attempt = 0; attempt < 3; attempt++) {
       const key = await revision();
       const valid = current(key);
@@ -52,12 +52,15 @@ export function createNetworkSnapshots(repository, { ttlMs = 10 * 60_000, refres
         pending.set(key, work);
         work.finally(() => { if (pending.get(key) === work) pending.delete(key); }).catch(() => {});
       }
-      const snapshot = await work;
+      snapshot = await work;
       if (await revision() !== key) continue;
       cached = snapshot;
       return snapshot;
     }
-    throw unstable();
+    /* Writes landed during every read. Failing here let one busy member take the globe, search and recommendations
+       down for everyone, so the last rows are served, uncached: they were read after this request began, so they
+       hold every write committed before it (a consent withdrawal included), never an older snapshot. */
+    return { ...snapshot, settled: false };
   }
   async function loadGraph(snapshot) {
     const key = snapshot.rows;
@@ -70,31 +73,31 @@ export function createNetworkSnapshots(repository, { ttlMs = 10 * 60_000, refres
     snapshot.graph = await work;
   }
   async function read({ graph = false } = {}) {
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 1; ; attempt++) {
       const snapshot = await readDirectory();
       if (!graph) return snapshot;
       await loadGraph(snapshot);
-      // A lazily loaded graph may span database writes after directory reading.
-      if (await revision() === snapshot.revision) return snapshot;
+      // A lazily loaded graph may span database writes after directory reading; the last attempt is served as read.
+      if (await revision() === snapshot.revision || attempt === 3 || snapshot.settled === false) return snapshot;
       cached = null;
     }
-    throw unstable();
   }
   return {
     read,
     /* Graph consumers also cover geocoding/cache awaits after acquisition. */
     async run(build) {
-      for (let attempt = 0; attempt < 3; attempt++) {
+      for (let attempt = 1; ; attempt++) {
         const snapshot = await readDirectory();
         await loadGraph(snapshot);
         const value = await build(snapshot);
         // One final authoritative check covers both graph construction and
         // response work; an intermediate check would add a serial round trip
-        // without strengthening the revision boundary before sending.
-        if (await revision() === snapshot.revision) return value;
+        // without strengthening the revision boundary before sending. It still
+        // runs on the last attempt, which is served as built, so a lost
+        // revision fails closed.
+        if (await revision() === snapshot.revision || attempt === 3 || snapshot.settled === false) return value;
         cached = null;
       }
-      throw unstable();
     },
   };
 }
