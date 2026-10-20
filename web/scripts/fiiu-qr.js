@@ -9,7 +9,7 @@
  });
  const root=document.getElementById('fiiuQrRoot'),message=document.getElementById('fiiuStatus'),SVG='http://www.w3.org/2000/svg',REFRESH=30000;
  const id=new URLSearchParams(location.search).get('a')||'';
- let festival=null,activity=null,latest=null,timer=null,stopped=false,busy=false,stale=false,ended=false,lock=null,parts=null,offset=0;
+ let festival=null,activity=null,latest=null,timer=null,stopped=false,busy=false,stale=false,ended=false,lock=null,parts=null,offset=0,windows=[];
  // Codes and the closing time are judged by the server's clock. Each answer carries serverTime, so the screen keeps the offset
  // and reads "now" as server time: a presenter laptop whose clock is off (or a local FIIU_CHECKIN_NOW clock) never keeps a code
  // the server already refuses, nor hides one it still accepts.
@@ -20,17 +20,20 @@
  function meta(activity,cls,withDate=true){const box=el('div',cls),line=el('p','f-meta-when');if(withDate)line.append(dateNode(activity.date,'span','short','f-when-day'));if(activity.time)line.append(el('span','',activity.time));box.append(line,activity.venue?source('p',activity.venue,'f-meta-venue'):tr('p','venuePending','f-meta-venue'));return box;}
  // Without ?a=: one ruled row per block, by day, each opening its own screen.
  function list(){
-  const box=el('section','f-qr-list'),head=el('header','f-qr-head'),blocks=checkinActivities(festival.event);head.append(tr('h1','qrTitle'),tr('p','qrListHint','f-muted'));box.append(head);
+  windows=[];const box=el('section','f-qr-list'),head=el('header','f-qr-head'),blocks=checkinActivities(festival.event);head.append(tr('h1','qrTitle'),tr('p','qrListHint','f-muted'));box.append(head);
   for(const date of [...new Set(blocks.map(block=>block.date))]){
    const day=el('section','f-qr-day'),label=dateNode(date,'h2','long','f-qr-day-label'),rows=el('ul','f-qr-rows');label.id='f-qr-day-'+date;day.setAttribute('aria-labelledby',label.id);
    for(const block of blocks.filter(item=>item.date===date)){
     const row=el('li','f-qr-row'),main=el('div','f-qr-row-main'),title=source('p',block.title,'f-qr-row-title'),when=el('p','f-qr-row-window'),open=link('openCheckinScreen','fiiu-qr.html?a='+encodeURIComponent(block.id),'f-button secondary f-small');
-    title.id='f-qr-'+block.id;open.setAttribute('aria-describedby',title.id);when.append(windowNode(block,checkinState(block)));main.append(title,meta(block,'f-qr-row-meta',false));row.append(main,when,open);rows.append(row);
+    title.id='f-qr-'+block.id;open.setAttribute('aria-describedby',title.id);windows.push({block,when,state:''});main.append(title,meta(block,'f-qr-row-meta',false));row.append(main,when,open);rows.append(row);
    }
    day.append(label,rows);box.append(day);
   }
-  box.append(link('admin','fiiu-admin.html#checkin','f-text-link'));root.replaceChildren(box,newTabNote());
+  box.append(link('admin','fiiu-admin.html#checkin','f-text-link'));root.replaceChildren(box,newTabNote());recheck();
  }
+ // A list left open at the desk re-judges each block's check-in on the clock (every 30 s, on a return to the tab and on a language change) and redraws
+ // only a closing line whose state changed, so a block that closed never reads open and focus keeps its place.
+ function recheck(){for(const row of windows){const state=checkinState(row.block);if(state!==row.state){row.state=state;row.when.replaceChildren(windowNode(row.block,state));}}}
  // The QR code arrives as module bits (row-major, most significant bit first) and is drawn as one SVG path inside a 4-module quiet zone.
  function drawQr(qr){
   const size=qr?.size;if(!Number.isInteger(size)||size<21||size>177||typeof qr.bits!=='string')return null;
@@ -108,13 +111,14 @@
   const first=id?api('/api/admin/fiiu/checkin?activityId='+encodeURIComponent(id)):null;first?.catch(()=>{});
   try{festival=await api('/api/fiiu?kind=news');}
   catch(error){status(message,error.key==='error'?Object.assign(Error(t('loadError')),{key:'loadError'}):error);root.replaceChildren(button('retry',load));return;}
-  status(message,'');if(!id){setTitle();return list();}
+  status(message,'');
+  if(!id){setTitle();list();timer=setInterval(()=>{if(document.visibilityState==='visible')recheck();},REFRESH);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')recheck();});return;}
   // Only the laboratory and the conference blocks have check-in; any other id gets the explanation, never a code.
   activity=checkinActivities(festival.event).find(block=>block.id===id)||null;setTitle();if(!activity)return stop(400);
   screen();refresh(first);wake();
   timer=setInterval(()=>{if(!stopped&&document.visibilityState==='visible')return refresh();},REFRESH);
   document.addEventListener('visibilitychange',()=>{if(stopped||document.visibilityState!=='visible')return;wake();return refresh();});
  }
- window.nodalI18n?.onChange(()=>{setTitle();if(latest&&parts){const was=stale;show(latest,false);if(was)expire();}});
+ window.nodalI18n?.onChange(()=>{setTitle();recheck();if(latest&&parts){const was=stale;show(latest,false);if(was)expire();}});
  load();
 })();

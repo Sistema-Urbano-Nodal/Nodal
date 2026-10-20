@@ -43,6 +43,24 @@ test('the list says until when each block takes check-ins, open on any earlier d
  assert.ok(key(before.root.querySelectorAll('.f-qr-row')[0],'checkinOpenAllDay'));
 });
 
+test('a list left open at the desk re-judges each block every 30 seconds, on a return to the tab and on a language change, without reading again or moving focus',async()=>{
+ let now=Date.parse('2026-10-21T13:29:40-05:00');class Clock extends Date{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}}
+ const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?{event:FIIU_EVENT,config:{registrationOpen:true},content:[],nextCursor:null}:assert.fail('the list needs no organiser data'),{page:'fiiu-qr',search:'',context:{Date:Clock}}),rows=h.root.querySelectorAll('.f-qr-row'),open=rows.map(row=>key(row,'openCheckinScreen'));
+ const states=()=>h.root.querySelectorAll('.f-window').map(node=>node.className.split(' ')[1]);
+ assert.deepEqual(states(),['is-closed','is-open','is-open','is-open','is-open','is-open']);
+ assert.equal(h.timers.length,1);assert.equal(h.timers[0].delay,30000);
+ // 'El poder de lo local' stops taking check-ins at 13:30: the next tick says so.
+ now=Date.parse('2026-10-21T13:30:18-05:00');await h.tickTimers();
+ assert.deepEqual(states(),['is-closed','is-closed','is-open','is-open','is-open','is-open']);assert.ok(key(rows[1],'checkinClosedAt'));
+ // A hidden tab waits; showing it again catches up at once, the next morning included.
+ now=Date.parse('2026-10-22T10:00:00-05:00');await h.visible(false);await h.tickTimers();assert.equal(states()[2],'is-open','a hidden list does not redraw');
+ await h.visible(true);assert.deepEqual(states(),['is-closed','is-closed','is-closed','is-open','is-open','is-open']);
+ // A language change redraws in the new language, on the clock of that moment.
+ now=Date.parse('2026-10-22T13:31:00-05:00');h.lang('es');assert.equal(states()[3],'is-closed');assert.match(content(rows[3]),/El registro cerró a las\s+13:30\s+hora de Lima/);h.lang('en');
+ assert.deepEqual(h.root.querySelectorAll('.f-qr-row').map(row=>key(row,'openCheckinScreen')),open,'the rows and their links stay, so focus keeps its place');
+ assert.equal(h.requests.length,1,'judged on the clock, with no new read');
+});
+
 test('a block screen draws the code as one SVG path inside a 4-module quiet zone, with the typed fallback, the window and the live count',async()=>{
  const h=await page(()=>screen()),stage=h.root.querySelector('.f-qr-stage'),svg=descendants(stage).find(node=>node.tagName==='svg');
  assert.equal(h.requests.find(request=>request.path.startsWith('/api/admin/')).path,'/api/admin/fiiu/checkin?activityId=day1-am');
