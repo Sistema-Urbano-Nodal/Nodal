@@ -7,10 +7,13 @@ import vm from 'node:vm';
 const SCRIPT=readFileSync(new URL('../web/scripts/i18n.js',import.meta.url),'utf8');
 // The console's own strings, which the console pages load just before i18n.js.
 const CONSOLE=readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.meta.url),'utf8');
-// These 223 keys and the home hashes are captured from the runtime dictionaries
+// These 228 keys and the home hashes are captured from the runtime dictionaries
 // at 6ab93f9, including text created lazily by the original homepage graph.
 // One line moved on purpose since: the free plan stopped offering courses on
 // 18 Oct 2026 (mem.f1 here, y.f1 in the nonhome hashes), so all four were redone.
+// On 19 Oct 2026 Prof. Mariana's copy split the hero introduction (hero.sub) into
+// hero.subPre/subMark/subPost and added the collaborative urbanism section (uc.*),
+// so the two home hashes were redone again; the last test in this file pins that copy.
 const HOME_KEYS=[
   "about.eyebrow",
   "about.lead1",
@@ -114,7 +117,9 @@ const HOME_KEYS=[
   "hero.cta1",
   "hero.cta2",
   "hero.infra",
-  "hero.sub",
+  "hero.subMark",
+  "hero.subPost",
+  "hero.subPre",
   "how.foot",
   "how.lead1",
   "how.lead2",
@@ -234,12 +239,15 @@ const HOME_KEYS=[
   "ticker.t2",
   "ticker.t3",
   "ticker.t4",
-  "ticker.t5"
+  "ticker.t5",
+  "uc.eyebrow",
+  "uc.p",
+  "uc.title"
 ];
 const SNAPSHOTS={
   "home": {
-    "es": "079660e2411ca2fa9e8c0295b913fe7b5fc0f8bf63a8bb726f7bf218e97db9cb",
-    "pt": "26f40677f81266699adc35dcfa26089f09b73c8749cbee8a8a79d2910beefda3"
+    "es": "8f807c4cefb324403d44b67c05022bb4a92a4ca75cb17254535a161422967118",
+    "pt": "97309857d91b9c450abdb8fe71c341a395330f0c696f87d31c27767656ee8c1d"
   },
   "nonhome": {
     "es": "c86b92ceabd9185366a45be631735dbd471a7523b0f8d80b43f5042aef21509b",
@@ -292,7 +300,7 @@ test('home overrides preserve current operational recommendation states',()=>{
   for(const lang of ['en','es','pt']){home.api.apply(lang);other.api.apply(lang);for(const key of keys)assert.equal(home.api.t(key),other.api.t(key),lang+': '+key);}
 });
 test('original markup and lazy graph labels switch ES/PT and restore captured English',()=>{
-  const hero={dataset:{i18n:'hero.sub'},textContent:'Original English introduction'};
+  const hero={dataset:{i18n:'hero.subPre'},textContent:'Original English introduction'};
   const nodes=[hero],{api}=load('home',nodes);api.apply('pt');assert.match(hero.textContent,/A NODAL conecta pessoas/);
   const graph={dataset:{i18n:'graph.n.project.k2'},textContent:'Start from real needs and lived experience'};nodes.push(graph);
   api.apply('es');assert.match(hero.textContent,/NODAL conecta personas/);assert.equal(graph.textContent,'Empieza desde necesidades reales y experiencia vivida');
@@ -339,4 +347,28 @@ test('the free plans stop offering courses and the Supporter plans list them, in
     home.apply(lang);console_.apply(lang);
     for(const [key,copy] of Object.entries(COPY))assert.equal((key.startsWith('mem.')?home:console_).t(key),copy[index],`${lang} ${key}`);
   }
+});
+test('the hero ends on collaborative urbanism, highlighted, and a section after Why it matters explains it, in English, Spanish and Portuguese',()=>{
+  // Prof. Mariana's copy, 19 Oct 2026. [en, es, pt]; English is the markup's own text.
+  const COPY={
+    'hero.subPre':['NODAL connects people, knowledge, data and institutions so urban talent across the region can learn, co-create and activate real projects in their cities through ','NODAL conecta personas, conocimiento, datos e instituciones para que el talento urbano de la región pueda aprender, colaborar y activar proyectos reales en sus ciudades a través del ','A NODAL conecta pessoas, conhecimento, dados e instituições para que o talento urbano da região possa aprender, colaborar e ativar projetos reais em suas cidades por meio do '],
+    'hero.subMark':['collaborative urbanism','urbanismo colaborativo','urbanismo colaborativo'],
+    'hero.subPost':['.','.','.'],
+    'uc.eyebrow':['Our approach','Nuestro enfoque','Nossa abordagem'],
+    'uc.title':['Collaborative urbanism','Urbanismo colaborativo','Urbanismo colaborativo'],
+    'uc.p':['Collaborative urbanism transforms the way we make cities: it connects knowledge, talent and resources that today work in isolation and turns them into a collective power for transformation. Because cities do not change through better ideas alone, but when people have the connections, the tools and the capacity to act together. Its principle is simple: the more you share, contribute and help others grow, the more opportunities you create for yourself and the greater your collective capacity to transform our cities.','El urbanismo colaborativo transforma la manera en que hacemos ciudad: conecta conocimientos, talentos y recursos que hoy actúan de forma aislada para convertirlos en poder colectivo de transformación. Porque las ciudades no cambian solamente con mejores ideas, sino cuando las personas tienen las conexiones, las herramientas y la capacidad de actuar juntas. Su principio es simple: cuanto más compartes, contribuyes y ayudas a otros a crecer, más oportunidades generas para ti y mayor es tu capacidad colectiva de transformar nuestras ciudades.','O urbanismo colaborativo transforma a maneira como fazemos cidade: conecta conhecimentos, talentos e recursos que hoje atuam de forma isolada para transformá-los em poder coletivo de transformação. Porque as cidades não mudam apenas com ideias melhores, mas quando as pessoas têm as conexões, as ferramentas e a capacidade de agir juntas. Seu princípio é simples: quanto mais você compartilha, contribui e ajuda os outros a crescer, mais oportunidades gera para si e maior é a sua capacidade coletiva de transformar nossas cidades.'],
+  };
+  const html=readFileSync(new URL('../web/pages/index.html',import.meta.url),'utf8');
+  const hero=html.slice(html.indexOf('<p class="hero-sub">'),html.indexOf('</p>',html.indexOf('<p class="hero-sub">')));
+  assert.equal(hero,`<p class="hero-sub"><span data-i18n="hero.subPre">${COPY['hero.subPre'][0]}</span><mark data-i18n="hero.subMark">${COPY['hero.subMark'][0]}</mark><span data-i18n="hero.subPost">.</span>`);
+  assert.doesNotMatch(html,/data-i18n="hero\.sub"/,'the old single-key introduction is gone');
+  const at=id=>html.indexOf(`id="${id}"`);
+  assert.ok(at('problem')<at('urbanismo')&&at('urbanismo')<at('insight'),'the section sits between Why it matters and Community paths');
+  const section=html.slice(html.lastIndexOf('<section',at('urbanismo')),html.indexOf('</section>',at('urbanismo')));
+  for(const key of ['uc.eyebrow','uc.title','uc.p'])assert.ok(section.includes(`data-i18n="${key}">${COPY[key][0]}<`),key);
+  assert.match(section,/<span class="hl" data-i18n="uc\.title">/,'the title is highlighted like the other section leads');
+  const css=readFileSync(new URL('../web/styles/styles.css',import.meta.url),'utf8');
+  assert.match(css,/\.hero-sub mark\s*\{/,'the hero highlight has its own style, not the browser yellow');
+  const home=load('home').api;
+  for(const [index,lang] of [[1,'es'],[2,'pt']]){home.apply(lang);for(const [key,copy] of Object.entries(COPY))assert.equal(home.t(key),copy[index],`${lang} ${key}`);}
 });
