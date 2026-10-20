@@ -431,9 +431,13 @@ npm start
 9. Create a test account.
 10. Confirm `/dashboard.html` redirects unauthenticated users to `/login.html`.
 11. Confirm profile edits persist after refresh.
-12. Confirm pilot checkout is unavailable while `PILOT_MODE=true`. `PAYMENTS_MODE=preview` alone does not disable checkout when Stripe credentials are configured.
-13. Confirm `/api/billing/config` returns `"checkout": false` and `Soon` while
-    `PILOT_MODE=true`, and that the landing membership card shows "Soon!".
+12. Confirm the dormant Stripe route stays shut: `POST /api/checkout` answers 409 while `PILOT_MODE=true`.
+13. Confirm the membership state matches the Mercado Pago settings. With no
+    `MERCADOPAGO_LINK_*` set, `/api/billing/config` returns `"checkout": false` and
+    `Soon`, the landing card shows "Soon!", and in the pilot `/payments.html`
+    redirects to `/courses.html`. With a link and its price set, it returns
+    `"checkout": true`, `"provider": "mercadopago"` and the configured price, the
+    landing shows the price and its button, and `/payments.html` opens.
 14. Confirm `/api/news` returns 200, and that `/fiiu-qr.html` and
     `/fiiu-admin.html` show "Organisers only" (status 403) to a member account
     and the real pages to an administrator.
@@ -757,6 +761,6 @@ the session, sets no cookie and is cached by the CDN for 5 minutes
 
 - Supabase project creation and SQL migration execution.
 - Supabase Auth email settings.
-- Stripe products, prices, Checkout configuration, and webhook endpoint.
+- The Mercado Pago payment link and two-installment plan in Mariana's account (docs/supporter-payments.md). Stripe is dormant.
 - Vercel project env vars, production domain, TLS, and deployment protection.
 - Optional Redis cache with `rediss://` if remote caching is needed.
