@@ -760,10 +760,11 @@ the session, sets no cookie and is cached by the CDN for 5 minutes
 ## Error reports (optional)
 
 Set `SENTRY_DSN` in Vercel Production to send server errors to Sentry as well as the Vercel logs. Create a free
-Sentry account and a **Node.js** project, then copy its DSN from *Settings → Client Keys (DSN)*. What a report
-contains, and what it never contains, is in [docs/architecture.md](docs/architecture.md#errors-and-monitoring). To
-check it after a deploy, look at Sentry's *Issues* the next time the server answers a 500; nothing is sent while
-everything works.
+Sentry account and a **Node.js** project, then copy its DSN from the project's *Settings → Projects → (the project)
+→ Client Keys (DSN)*; paste it without quotes. What a report contains, and what it never contains, is in
+[docs/architecture.md](docs/architecture.md#errors-and-monitoring). To check it after a redeploy, open the Vercel
+logs: each instance writes `error reports are on (Sentry project …)` when it starts, or a line saying the DSN is not
+valid. Nothing is sent while everything works.
 
 ## Manual External Configuration Still Required
 
