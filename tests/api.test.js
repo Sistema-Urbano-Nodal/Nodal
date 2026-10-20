@@ -603,8 +603,10 @@ test('production runtime config fails closed when deploy-critical env is missing
   }));
 });
 
-// The Supporting membership is sold through Mercado Pago links Mariana creates in her own Mercado Pago (no API, no credentials).
-const LINK_ENV = ['MERCADOPAGO_LINK_ANNUAL', 'MERCADOPAGO_LINK_INSTALLMENTS', 'SUBSCRIPTION_PRICE_ANNUAL_LABEL', 'SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL', 'SUBSCRIPTION_ANNUAL_PERIOD', 'NODE_ENV', 'PAYMENTS_MODE'];
+/* Nodal Fundadores 2027 is sold through Mercado Pago links Mariana creates in her own Mercado Pago (no API, no
+   credentials); tests/membership-fundadores.test.js covers the offer, its states and the acceptances. Every app here
+   gets its own billing settings and clock: Vercel runs the suite with the production environment, on any date. */
+const LINK_ENV = ['MERCADOPAGO_LINK_ANNUAL', 'MERCADOPAGO_LINK_INSTALLMENTS', 'MEMBERSHIP_CONTACT_EMAIL', 'MEMBERSHIP_COMPLAINTS_URL', 'NODE_ENV', 'PAYMENTS_MODE'];
 function withEnv(t, vars) {
   const old = Object.fromEntries(LINK_ENV.map((key) => [key, process.env[key]]));
   for (const key of LINK_ENV) delete process.env[key];
@@ -613,60 +615,72 @@ function withEnv(t, vars) {
 }
 const ONCE = 'https://link.mercadopago.com.pe/nodal';
 const TWICE = 'https://www.mercadopago.com.pe/subscriptions/checkout?preapproval_plan_id=2c938084';
+const MEMBERSHIP_CONTACT = { MEMBERSHIP_CONTACT_EMAIL: 'membresias@nodal.example', MEMBERSHIP_COMPLAINTS_URL: 'https://reclamos.example/nodal' };
+const OFFER_OPEN_AT = Date.parse('2026-10-21T15:00:00.000Z');
+const offerClock = () => OFFER_OPEN_AT;
 
-test('billing config offers the Mercado Pago links set in the environment, with their prices, even during the course pilot', async (t) => {
-  withEnv(t, { MERCADOPAGO_LINK_ANNUAL: ONCE, SUBSCRIPTION_PRICE_ANNUAL_LABEL: 'S/ 240', MERCADOPAGO_LINK_INSTALLMENTS: TWICE, SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL: '2 × S/ 120' });
+test('billing config offers the Fundadores options whose Mercado Pago link is set, without the links, even during the course pilot', async (t) => {
+  const billingEnv = { MERCADOPAGO_LINK_ANNUAL: ONCE, MERCADOPAGO_LINK_INSTALLMENTS: TWICE, ...MEMBERSHIP_CONTACT };
   for (const pilotMode of [true, false]) {
-    const base = await bootApp(t, createApp({ store: createStore(), pilotMode }));
+    const base = await bootApp(t, createApp({ store: createStore(), pilotMode, billingEnv, now: offerClock }));
     const res = await fetch(`${base}/api/billing/config`);
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), {
-      checkout: true, provider: 'mercadopago',
-      annual: { amount: 'S/ 240', per: '/ year' },
-      options: [{ id: 'once', url: ONCE, amount: 'S/ 240' }, { id: 'installments', url: TWICE, amount: '2 × S/ 120' }],
+    const config = await res.json();
+    assert.deepEqual({ ...config, offer: config.offer.version }, {
+      checkout: true, provider: 'mercadopago', state: 'open', offer: 'FUNDADORES-2027-v1',
+      annual: { amount: 'S/ 499', per: '' },
+      options: [{ id: 'once', amount: 'S/ 499' }, { id: 'installments', amount: 'S/ 550', each: 'S/ 275', count: 2, monthsApart: 2 }],
+      contact: { email: 'membresias@nodal.example', complaintsUrl: 'https://reclamos.example/nodal' },
     }, `pilot ${pilotMode}`);
   }
-  // Either option alone is offered by itself; the year's price falls back to the installments when nothing is paid at once.
-  assert.deepEqual(publicBillingConfig({ MERCADOPAGO_LINK_INSTALLMENTS: TWICE, SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL: '2 × S/ 120' }).annual, { amount: '2 × S/ 120', per: '' });
-  assert.deepEqual(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: 'https://mpago.la/2Xh3k', SUBSCRIPTION_PRICE_ANNUAL_LABEL: 'S/ 240', SUBSCRIPTION_ANNUAL_PERIOD: 'al año' }).options.map((o) => o.id), ['once']);
-  assert.equal(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: 'https://mpago.la/2Xh3k', SUBSCRIPTION_PRICE_ANNUAL_LABEL: 'S/ 240', SUBSCRIPTION_ANNUAL_PERIOD: 'al año' }).annual.per, 'al año');
+  // Either option alone is offered by itself; the year's price falls back to the two payments' total when nothing is paid at once.
+  assert.deepEqual(publicBillingConfig({ MERCADOPAGO_LINK_INSTALLMENTS: TWICE, ...MEMBERSHIP_CONTACT }, OFFER_OPEN_AT).annual, { amount: 'S/ 550', per: '' });
+  assert.deepEqual(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: 'https://mpago.la/2Xh3k', ...MEMBERSHIP_CONTACT }, OFFER_OPEN_AT).options.map((o) => o.id), ['once']);
 });
 
-test('only an https Mercado Pago link with its price is offered; anything else keeps the membership at "Soon"', () => {
-  const soon = { checkout: false, provider: null, annual: { amount: 'Soon', per: '' }, options: [] };
-  assert.deepEqual(publicBillingConfig({}), soon, 'nothing configured');
+test('only an https Mercado Pago link is offered; anything else keeps the membership at "Soon"', () => {
+  const soon = (config) => [config.checkout, config.provider, config.state, config.annual, config.options];
+  const closed = [false, null, 'soon', { amount: 'Soon', per: '' }, []];
+  assert.deepEqual(soon(publicBillingConfig({}, OFFER_OPEN_AT)), closed, 'nothing configured');
   for (const link of ['http://link.mercadopago.com.pe/nodal', 'https://evil.example/pay', 'https://mercadopago.com.pe.evil.example/pay', 'https://user:pass@link.mercadopago.com.pe/nodal',
     'javascript:alert(1)', 'not a url', 'https://www.mercadopago.com.ar/subscriptions/checkout?preapproval_plan_id=1', '   ']) {
-    assert.deepEqual(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: link, SUBSCRIPTION_PRICE_ANNUAL_LABEL: 'S/ 240' }), soon, link);
+    assert.deepEqual(soon(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: link, ...MEMBERSHIP_CONTACT }, OFFER_OPEN_AT)), closed, link);
   }
-  assert.deepEqual(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: ONCE }), soon, 'a link without its price');
-  assert.deepEqual(publicBillingConfig({ SUBSCRIPTION_PRICE_ANNUAL_LABEL: 'S/ 240', SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL: '2 × S/ 120' }), soon, 'prices without links');
-  assert.equal(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: ' https://MERCADOPAGO.com.pe/x ', SUBSCRIPTION_PRICE_ANNUAL_LABEL: ' S/ 240 ' }).options[0].url, 'https://mercadopago.com.pe/x', 'trimmed and normalised');
+  assert.deepEqual(soon(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: ONCE }, OFFER_OPEN_AT)), closed, 'a link without the contact');
   // A production deployment without links is fine: the page simply says "Soon".
-  assert.deepEqual(publicBillingConfig({ NODE_ENV: 'production', PAYMENTS_MODE: 'live' }), soon);
+  assert.deepEqual(soon(publicBillingConfig({ NODE_ENV: 'production', PAYMENTS_MODE: 'live' }, OFFER_OPEN_AT)), closed);
   assert.doesNotThrow(() => validateRuntimeConfig({ NODE_ENV: 'production', DATABASE_PATH: '/tmp/nodal-test.sqlite', PUBLIC_BASE_URL: 'https://nodal.example', COOKIE_SECURE: 'true', MERCADOPAGO_LINK_ANNUAL: 'https://evil.example/pay' }));
+});
+
+test('a Mercado Pago link reaches an acceptance trimmed and normalised', async (t) => {
+  const { db, base } = await bootDbHandle(t, { billingEnv: { MERCADOPAGO_LINK_ANNUAL: ' https://MERCADOPAGO.com.pe/x ', ...MEMBERSHIP_CONTACT }, now: offerClock });
+  const member = createUser(db, { fullName: 'Supporter To Be', email: 'supporter@example.test', passwordHash: 'unused' });
+  const res = await postJson(base, '/api/membership/acceptances', { option: 'once', version: 'FUNDADORES-2027-v1', accept: { terms: true, payment: true, renewal: true } },
+    { Cookie: createSession(db, member.id).cookie.split(';')[0], Origin: base });
+  assert.equal(res.status, 201);
+  assert.equal((await res.json()).url, 'https://mercadopago.com.pe/x');
 });
 
 test('an app given its own billing settings ignores the deployment\'s, so a Vercel build with the links set still tests the closed pilot', async (t) => {
   // Vercel runs the suite with the production environment: a test about the closed pilot must not see Mariana's links.
-  withEnv(t, { MERCADOPAGO_LINK_ANNUAL: ONCE, SUBSCRIPTION_PRICE_ANNUAL_LABEL: 'S/ 240' });
+  withEnv(t, { MERCADOPAGO_LINK_ANNUAL: ONCE, MERCADOPAGO_LINK_INSTALLMENTS: TWICE, ...MEMBERSHIP_CONTACT });
   const db = createDatabase({ filename: ':memory:' });
   t.after(() => db.close());
-  const base = await bootApp(t, createApp({ db, pilotMode: true, billingEnv: {} }));
+  const base = await bootApp(t, createApp({ db, pilotMode: true, billingEnv: {}, now: offerClock }));
   const member = createUser(db, { fullName: 'Pilot Member', email: 'pilot@example.test', passwordHash: 'unused' });
   const cookie = createSession(db, member.id).cookie.split(';')[0];
   assert.equal((await fetch(`${base}/payments.html`, { redirect: 'manual', headers: { Cookie: cookie } })).headers.get('location'), '/courses.html');
   assert.equal((await (await fetch(`${base}/api/billing/config`)).json()).checkout, false);
 });
 
-test('the payments page opens during the course pilot once a Mercado Pago link is offered, and still leads to the courses without one', async (t) => {
-  withEnv(t, {});
-  const { db, base } = await bootDbHandle(t, { pilotMode: true });
+test('the payments page opens during the course pilot once the membership is open, and still leads to the courses before', async (t) => {
+  const billingEnv = {};
+  const { db, base } = await bootDbHandle(t, { pilotMode: true, billingEnv, now: offerClock });
   const member = createUser(db, { fullName: 'Supporter To Be', email: 'supporter@example.test', passwordHash: 'unused' });
   const cookie = createSession(db, member.id).cookie.split(';')[0];
   const page = () => fetch(`${base}/payments.html`, { redirect: 'manual', headers: { Cookie: cookie } });
   assert.equal((await page()).headers.get('location'), '/courses.html');
-  Object.assign(process.env, { MERCADOPAGO_LINK_ANNUAL: ONCE, SUBSCRIPTION_PRICE_ANNUAL_LABEL: 'S/ 240' });
+  Object.assign(billingEnv, { MERCADOPAGO_LINK_ANNUAL: ONCE, ...MEMBERSHIP_CONTACT });
   assert.equal((await page()).status, 200);
 });
 

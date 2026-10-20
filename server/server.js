@@ -36,6 +36,8 @@ import { parseCookies, validateEmail, validatePassword } from './auth.js';
 import { createRepository } from './repository.js';
 import { dataBackend, resolveSupabaseEnv } from './supabase.js';
 import { createErrorReporter, routeOf } from './error-report.js';
+import { csv } from './courses-domain.js';
+import { FUNDADORES_2027, OFFER_VIEW, OPTION_VIEWS, OPTION_AMOUNT_TEXT } from './membership-offer.js';
 import {
   decodeCatalogCursor,
   decodeCatalogInterestCursor,
@@ -60,8 +62,8 @@ const MAX_BODY = 32 * 1024;
 // "Sign in to check in" for that session and links to sign-in with the same code. It holds no data, and
 // /api/fiiu/checkin still requires a session.
 const PRIVATE_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html', '/dashboard.html', '/profile.html', '/payments.html', '/admin.html', '/courses.html', '/course.html', '/teaching.html']);
-const STATIC_PAGES = new Set(['fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'privacy.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html']);
-const STATIC_SCRIPTS = new Set(['fiiu-ui.js', 'fiiu-live.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js', 'news-feed.js', 'buc.js', 'admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'i18n-dashboard.js', 'locale.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'hero-network.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js', 'privacy.js']);
+const STATIC_PAGES = new Set(['fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'privacy.html', 'terminos-fundadores.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html']);
+const STATIC_SCRIPTS = new Set(['fiiu-ui.js', 'fiiu-live.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js', 'news-feed.js', 'buc.js', 'admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'i18n-dashboard.js', 'locale.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'hero-network.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js', 'privacy.js', 'membership-terms.js']);
 const ORGANISER_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html']);
 /* The check-in screen shows <host>/checkin for phones that cannot scan. Typed by hand it may come in any case, without
    .html or with a trailing slash; each spelling is sent to the page with its query (?a=&c=) intact. */
@@ -70,7 +72,7 @@ const CHECKIN_ALIASES = new Set(['/checkin', '/fiiu-checkin', '/fiiu-checkin.htm
    projected (fiiu-talk.html?a=, ?q=, &present=1) goes there with its query, in any of the spellings above; so do loose
    spellings of the session page itself, whose address the projector shows for typing. */
 const SESSION_ALIASES = new Set(['/fiiu-talk', '/fiiu-talk.htm', '/fiiu-talk.html', '/fiiu-session', '/fiiu-session.htm', '/fiiu-session.html']);
-const STATIC_STYLES = new Set(['fiiu.css', 'fiiu-talk.css', 'auth.css', 'styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css']);
+const STATIC_STYLES = new Set(['fiiu.css', 'fiiu-talk.css', 'auth.css', 'styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css']);
 const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp']);
 const STATIC_FONTS = new Set(['montserrat-v31-latin-normal.woff2', 'montserrat-v31-latin-ext-normal.woff2', 'montserrat-v31-latin-italic.woff2', 'montserrat-v31-latin-ext-italic.woff2', 'OFL.txt']);
 // The FIIU summary email's logo (server/fiiu-email.js), loaded by mail clients from other origins.
@@ -120,9 +122,9 @@ const POLL_SESSION_MS = 30000, POLL_SESSION_MAX = 5000;
 /* Routes that answer without a member and only personalise when there is one. A
    session-service outage serves them signed out instead of failing them. */
 const OPTIONAL_SESSION_API = /^\/api\/(?:auth\/state|news|catalog(?:\/[a-z0-9-]{1,40})?)$/;
-/* Routes that use only the member's id, email, role and account status, which the
-   profile row carries. The full profile adds two reads to every request. */
-const ID_ONLY_API = /^\/api\/(?:network\/places|users|users\/search|users\/[^/]+\/(?:follow|interactions)|recommendations\/[^/]+|cities|billing\/status|checkout|me\/export|me\/catalog-interests|me\/location\/(?:suggest|accept)|(?:admin\/)?catalog(?:\/.*)?|admin\/interests(?:\/.*)?)$/;
+/* Routes that use only the member's id, email, name, role and account status, which
+   the profile row carries. The full profile adds two reads to every request. */
+const ID_ONLY_API = /^\/api\/(?:network\/places|users|users\/search|users\/[^/]+\/(?:follow|interactions)|recommendations\/[^/]+|cities|billing\/status|checkout|me\/export|me\/catalog-interests|me\/location\/(?:suggest|accept)|(?:admin\/)?catalog(?:\/.*)?|admin\/interests(?:\/.*)?|(?:admin\/)?membership\/acceptances)$/;
 // A Stripe subscription in any of these states exists and can still bill the member.
 const LIVE_SUBSCRIPTION_STATUSES = new Set(['pending', 'active', 'trialing', 'past_due', 'unpaid', 'paused']);
 const INTERACTION_RATE_WINDOW_MS = 60 * 1000;
@@ -347,19 +349,31 @@ function publicBaseUrl(env = process.env) {
 }
 
 /* Shown wherever a price would go while nothing can be paid: a price next to a
-   membership nobody can buy reads as an offer, and a period ("/ year") only
-   means something next to a real amount, so it is suppressed with it. */
+   membership nobody can buy reads as an offer. annual.per stays '' (the offer has
+   no period to show) for pages written for the earlier shape. */
 const PRICE_UNANNOUNCED = 'Soon';
 
-/* The Supporting membership is annual and sold through links Mariana creates in
-   her own Mercado Pago (a payment link for the year, and one for two
-   installments); NODAL only sends members there and the team adds each payer.
-   A link counts only on https and on Mercado Pago Peru or its short-link hosts,
-   so a typo or a foreign address hides the button instead of sending money
-   elsewhere. Each bad value is logged once per instance. */
+/* Nodal Fundadores 2027 (server/membership-offer.js) is sold through links Mariana
+   creates in her own Mercado Pago (a payment link for S/ 499, and a plan of two
+   charges); NODAL only sends members there and the team adds each payer. A link
+   counts only on https and on Mercado Pago Peru or its short-link hosts, so a typo
+   or a foreign address hides the option instead of sending money elsewhere. The
+   amounts are the terms version's, never a setting. */
 const PAYMENT_LINK_HOST = /^(?:[a-z0-9-]+\.)*mercadopago\.com\.pe$|^mpago\.l[ai]$/;
-const PAYMENT_OPTIONS = [['once', 'MERCADOPAGO_LINK_ANNUAL', 'SUBSCRIPTION_PRICE_ANNUAL_LABEL'], ['installments', 'MERCADOPAGO_LINK_INSTALLMENTS', 'SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL']];
-const rejectedPaymentLinks = new Set();
+const PAYMENT_OPTIONS = [['once', 'MERCADOPAGO_LINK_ANNUAL'], ['installments', 'MERCADOPAGO_LINK_INSTALLMENTS']];
+// A plain address, so the page's mailto: link can carry nothing else (no ?subject=, no second recipient).
+const CONTACT_EMAIL = /^[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$/;
+const OFFER_ENDS_AT = Date.parse(FUNDADORES_2027.endsAt);
+// What a Fundadores purchase asks the member to tick (POST /api/membership/acceptances), all three every time.
+const ACCEPTANCES = ['terms', 'payment', 'renewal'];
+// The acceptances CSV holds the newest this many: far more than one offer period sells.
+const MEMBERSHIP_EXPORT_LIMIT = 10000;
+// Each bad value is logged once per instance, by its setting's name only.
+const rejectedSettings = new Set();
+function rejectSetting(key, raw, message) {
+  if (!rejectedSettings.has(key + raw)) { rejectedSettings.add(key + raw); console.warn(`${key} ${message}`); }
+  return null;
+}
 function paymentLink(value, key) {
   const raw = String(value ?? '').trim();
   if (!raw) return null;
@@ -367,21 +381,50 @@ function paymentLink(value, key) {
     const url = new URL(raw);
     if (url.protocol === 'https:' && !url.username && !url.password && PAYMENT_LINK_HOST.test(url.hostname)) return url.href;
   } catch { /* reported below */ }
-  if (!rejectedPaymentLinks.has(key + raw)) { rejectedPaymentLinks.add(key + raw); console.warn(`${key} is not an https Mercado Pago Peru link; its payment option stays hidden`); }
-  return null;
+  return rejectSetting(key, raw, 'is not an https Mercado Pago Peru link; its payment option stays hidden');
 }
+function contactEmail(value, key) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  return raw.length <= 254 && validateEmail(raw) && CONTACT_EMAIL.test(raw) ? raw : rejectSetting(key, raw, 'is not a plain email address; the membership stays closed');
+}
+function complaintsUrl(value, key) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol === 'https:' && url.hostname && !url.username && !url.password) return url.href;
+  } catch { /* reported below */ }
+  return rejectSetting(key, raw, 'is not an https address without credentials; the membership stays closed');
+}
+// The options whose link is set, with the link: [{id, url}]. Only an acceptance hands a link out.
 export function paymentOptions(env = process.env) {
-  return PAYMENT_OPTIONS.flatMap(([id, linkKey, priceKey]) => {
-    const url = paymentLink(env[linkKey], linkKey), amount = String(env[priceKey] ?? '').trim();
-    return url && amount ? [{ id, url, amount }] : [];
+  return PAYMENT_OPTIONS.flatMap(([id, key]) => {
+    const url = paymentLink(env[key], key);
+    return url ? [{ id, url }] : [];
   });
 }
+/* The contact for questions, non-renewal and refunds, and the Libro de Reclamaciones: both or neither, since the
+   terms promise both before anyone pays. */
+function membershipContact(env) {
+  const email = contactEmail(env.MEMBERSHIP_CONTACT_EMAIL, 'MEMBERSHIP_CONTACT_EMAIL');
+  const complaints = complaintsUrl(env.MEMBERSHIP_COMPLAINTS_URL, 'MEMBERSHIP_COMPLAINTS_URL');
+  return email && complaints ? { email, complaintsUrl: complaints } : null;
+}
+/* 'ended' from endsAt on, whatever is set; 'open' before it with an option and the contact; 'soon' otherwise.
+   options are the ones a member may accept now. */
+function membershipState(env, at) {
+  const contact = membershipContact(env), options = paymentOptions(env);
+  const state = at >= OFFER_ENDS_AT ? 'ended' : options.length && contact ? 'open' : 'soon';
+  return { state, contact, options: state === 'open' ? options : [] };
+}
 
-export function publicBillingConfig(env = process.env) {
-  const options = paymentOptions(env), once = options.find((option) => option.id === 'once');
-  if (!options.length) return { checkout: false, provider: null, annual: { amount: PRICE_UNANNOUNCED, per: '' }, options: [] };
-  // The year's price is the single payment's; with only installments offered, their own wording ("2 × S/ 120") stands for it.
-  return { checkout: true, provider: 'mercadopago', annual: { amount: (once ?? options[0]).amount, per: once ? (env.SUBSCRIPTION_ANNUAL_PERIOD || '/ year') : '' }, options };
+export function publicBillingConfig(env = process.env, at = Date.now()) {
+  const { state, contact, options } = membershipState(env, at);
+  if (state !== 'open') return { checkout: false, provider: null, state, offer: OFFER_VIEW, annual: { amount: PRICE_UNANNOUNCED, per: '' }, options: [], contact };
+  // The year's price is the single payment's; with only the two payments offered, their total stands for it.
+  const views = options.map(({ id }) => OPTION_VIEWS[id]);
+  return { checkout: true, provider: 'mercadopago', state, offer: OFFER_VIEW, annual: { amount: (views.find((view) => view.id === 'once') ?? views[0]).amount, per: '' }, options: views, contact };
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -1006,8 +1049,11 @@ export function createApp({
   locationProvider = createLocationProvider(),
   repository = createRepository({ db, store }),
   pilotMode = process.env.PILOT_MODE !== 'false',
-  // Where the Mercado Pago links and prices are read: the deployment's environment, or a test's own (Vercel runs the suite with the former).
+  /* Where the Mercado Pago links and the membership contact are read: the deployment's environment, or a test's own
+     (Vercel runs the suite with the former). */
   billingEnv = process.env,
+  // The membership's clock: whether Nodal Fundadores 2027 has ended, and when an acceptance was given. Tests move it.
+  now = () => Date.now(),
   /* Where server errors are reported besides the log. Only the deployed entry points (api/index.js, npm start) pass
      createErrorReporter(), which sends to Sentry when SENTRY_DSN is set; an app built anywhere else, a test included,
      reports nothing, so a Vercel build running the suite with the production environment sends nothing. */
@@ -1364,8 +1410,8 @@ export function createApp({
           send(res, 403, { error: 'administrator access required' });
           return;
         }
-        // The course pilot keeps the payments page closed until a Mercado Pago link is offered.
-        if(pilotMode && canonical==='/payments.html' && !paymentOptions(billingEnv).length) { redirect(res,'/courses.html');return; }
+        // The course pilot keeps the payments page closed while the membership is 'soon'; once ended it says so.
+        if(pilotMode && canonical==='/payments.html' && membershipState(billingEnv, now()).state === 'soon') { redirect(res,'/courses.html');return; }
         if (useDb && canonical === '/login.html' && sessionUser) {
           redirect(res, safeNext(url.searchParams.get('next')));
           return;
@@ -1593,8 +1639,52 @@ export function createApp({
       }
 
       if (req.method === 'GET' && pathname === '/api/billing/config') {
-        // Amounts are published only next to a link that can take the payment.
-        send(res, 200, publicBillingConfig(billingEnv));
+        // Amounts are published only next to a link that can take the payment; the links themselves never are.
+        send(res, 200, publicBillingConfig(billingEnv, now()));
+        return;
+      }
+
+      /* A Nodal Fundadores purchase starts here. The member's three acceptances for the option they chose are recorded
+         as contract evidence (who, which option and amount, which terms, when) before that option's Mercado Pago link
+         is handed out. The email and name are the account's at that moment; the record outlives the account. */
+      if (useDb && req.method === 'POST' && pathname === '/api/membership/acceptances') {
+        if (!requireAuth(res, sessionUser)) return;
+        if (!sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
+        if (!throttle(writeLimiter, res, req, sessionUser, 'membership')) return;
+        const body = await readJsonBody(req), { accept } = body;
+        const option = typeof body.option === 'string' && Object.hasOwn(OPTION_VIEWS, body.option) ? body.option : null;
+        if (!option || !accept || typeof accept !== 'object' || ACCEPTANCES.some((key) => accept[key] !== true)) { send(res, 400, { code: 'acceptance_invalid' }); return; }
+        if (body.version !== FUNDADORES_2027.version) { send(res, 409, { code: 'terms_changed', version: FUNDADORES_2027.version }); return; }
+        const at = now(), membership = membershipState(billingEnv, at);
+        if (membership.state === 'ended') { send(res, 410, { code: 'offer_ended' }); return; }
+        const offered = membership.options.find((entry) => entry.id === option);
+        if (!offered) { send(res, 503, { code: 'membership_unavailable' }); return; }
+        const account = repository.toApiUser(sessionUser);
+        const record = {
+          id: randomUUID(), userId: account.id, email: account.email, fullName: account.fullName, option,
+          termsVersion: FUNDADORES_2027.version, amountText: OPTION_AMOUNT_TEXT[option],
+          authorizations: Object.fromEntries(ACCEPTANCES.map((key) => [key, true])), acceptedAt: new Date(at).toISOString(),
+        };
+        try {
+          await repository.recordMembershipAcceptance(record);
+        } catch (err) {
+          // No link without its record: the member is asked to try again.
+          await reportAnswer(req, 503, err);
+          send(res, 503, { code: 'membership_unavailable' });
+          return;
+        }
+        send(res, 201, { url: offered.url, acceptance: { id: record.id, option, version: record.termsVersion, acceptedAt: record.acceptedAt } });
+        return;
+      }
+
+      // What the team checks before adding a payer by hand. csv() neutralises formulas in the names people wrote.
+      if (useDb && req.method === 'GET' && pathname === '/api/admin/membership/acceptances') {
+        if (!requireAdmin(res, sessionUser)) return;
+        if (!throttle(readLimiter, res, req, sessionUser, 'membership-export')) return;
+        const acceptances = await repository.listMembershipAcceptances({ limit: MEMBERSHIP_EXPORT_LIMIT });
+        const rows = [['accepted_at', 'full_name', 'email', 'option', 'amount', 'terms_version'],
+          ...acceptances.map((a) => [a.acceptedAt, a.fullName, a.email, a.option, a.amountText, a.termsVersion])];
+        send(res, 200, csv(rows), { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="nodal-fundadores-acceptances.csv"' });
         return;
       }
 

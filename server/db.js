@@ -269,6 +269,26 @@ const MIGRATIONS = [
       }
     },
   },
+  {
+    /* Nodal Fundadores purchase acceptances: contract evidence, so deleting the account only clears user_id and
+       keeps the email and name given at the time. */
+    version: 9,
+    sql: `
+      CREATE TABLE membership_acceptances (
+        id TEXT PRIMARY KEY,
+        user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        email TEXT NOT NULL,
+        full_name TEXT NOT NULL,
+        option TEXT NOT NULL CHECK (option IN ('once', 'installments')),
+        terms_version TEXT NOT NULL,
+        amount_text TEXT NOT NULL,
+        authorizations TEXT NOT NULL,
+        accepted_at TEXT NOT NULL
+      );
+      CREATE INDEX membership_acceptances_user_id_idx ON membership_acceptances(user_id);
+      CREATE INDEX membership_acceptances_accepted_at_idx ON membership_acceptances(accepted_at DESC);
+    `,
+  },
 ];
 
 function normalizeLegacyCatalogDate(value, field) {
@@ -848,7 +868,29 @@ export function exportUserData(db, userId) {
       FROM catalog_interests WHERE user_id = ? ORDER BY created_at ASC, id ASC
     `).all(userId),
     subscription: getSubscriptionStatus(db, userId),
+    membershipAcceptances: db.prepare('SELECT * FROM membership_acceptances WHERE user_id = ? ORDER BY accepted_at ASC, id ASC').all(userId)
+      .map(membershipAcceptanceFromRow).map(({ userId: _owner, ...acceptance }) => acceptance),
   };
+}
+
+function membershipAcceptanceFromRow(row) {
+  return {
+    id: row.id, userId: row.user_id, email: row.email, fullName: row.full_name, option: row.option, termsVersion: row.terms_version,
+    amountText: row.amount_text, authorizations: parseJson(row.authorizations, {}), acceptedAt: row.accepted_at,
+  };
+}
+
+export function recordMembershipAcceptance(db, record) {
+  db.prepare(`
+    INSERT INTO membership_acceptances (id, user_id, email, full_name, option, terms_version, amount_text, authorizations, accepted_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(record.id, record.userId, record.email, record.fullName, record.option, record.termsVersion, record.amountText, json(record.authorizations), record.acceptedAt);
+  return membershipAcceptanceFromRow(db.prepare('SELECT * FROM membership_acceptances WHERE id = ?').get(record.id));
+}
+
+// Newest first.
+export function listMembershipAcceptances(db, { limit = 500 } = {}) {
+  return db.prepare('SELECT * FROM membership_acceptances ORDER BY accepted_at DESC, id DESC LIMIT ?').all(limit).map(membershipAcceptanceFromRow);
 }
 
 export function deleteUserById(db, userId) {

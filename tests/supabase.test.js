@@ -121,7 +121,7 @@ function statefulFetch(state, calls, { expireAccessToken = false, signupResponse
       if (table === 'profile_preferences') return response([state.preferences]);
       if (table === 'onboarding_responses') return response([state.onboarding]);
       if (table === 'catalog_interests') return response(state.catalogInterests || []);
-      if (table === 'member_follows' || table === 'member_interactions' || table === 'stripe_customers') return response([]);
+      if (['member_follows', 'member_interactions', 'stripe_customers', 'membership_acceptances'].includes(table)) return response([]);
     }
     if (table === 'profiles' && method === 'POST') return response([state.profile]);
     if (table === 'profiles' && method === 'PATCH') {

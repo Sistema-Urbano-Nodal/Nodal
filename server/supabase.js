@@ -235,6 +235,14 @@ function userIdQuery(userId) {
   return { user_id: `eq.${userId}`, select: '*' };
 }
 
+// A Nodal Fundadores acceptance (public.membership_acceptances) as the server passes it around.
+function membershipAcceptanceFromSupabase(row) {
+  return {
+    id: row.id, userId: row.user_id ?? null, email: row.email, fullName: row.full_name, option: row.option, termsVersion: row.terms_version,
+    amountText: row.amount_text, authorizations: row.authorizations ?? {}, acceptedAt: new Date(row.accepted_at).toISOString(),
+  };
+}
+
 function profileName(profile = {}) {
   return cleanString(profile.full_name || profile.preferred_name || profile.email?.split('@')[0] || 'Member', 120);
 }
@@ -1178,12 +1186,13 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     },
     async exportUserData(userId) {
       const user = await apiUser(userId);
-      const [follows, followers, interactions, catalogInterests, subscription] = await Promise.all([
+      const [follows, followers, interactions, catalogInterests, subscription, membershipAcceptances] = await Promise.all([
         readPages('member_follows', { user_id: `eq.${userId}`, select: 'target_user_id,created_at', order: 'target_user_id.asc' }),
         readPages('member_follows', { target_user_id: `eq.${userId}`, select: 'user_id,created_at', order: 'user_id.asc' }),
         readPages('member_interactions', { from_user_id: `eq.${userId}`, select: 'to_user_id,type,created_at', order: 'created_at.asc,id.asc' }),
         readPages('catalog_interests', { user_id: `eq.${userId}`, select: '*', order: 'created_at.asc,id.asc' }),
         this.getSubscriptionStatus(userId),
+        readPages('membership_acceptances', { user_id: `eq.${userId}`, select: '*', order: 'accepted_at.asc,id.asc' }),
       ]);
       return {
         exportedAt: nowIso(),
@@ -1201,7 +1210,36 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
           updatedAt: interest.updatedAt,
         })),
         subscription,
+        membershipAcceptances: membershipAcceptances.map(membershipAcceptanceFromSupabase).map(({ userId: _owner, ...acceptance }) => acceptance),
       };
+    },
+    /* Contract evidence: the service role may insert and read these rows, never change them. Erasing the account
+       clears user_id through the profile's foreign key and keeps the rest. */
+    async recordMembershipAcceptance(record) {
+      await admin.rest('membership_acceptances', {
+        method: 'POST',
+        headers: { Prefer: 'return=minimal' },
+        body: [{
+          id: record.id, user_id: record.userId, email: record.email, full_name: record.fullName, option: record.option,
+          terms_version: record.termsVersion, amount_text: record.amountText, authorizations: record.authorizations, accepted_at: record.acceptedAt,
+        }],
+      });
+      return record;
+    },
+    // Newest first, in pages of 500 until the limit (PostgREST caps a response) or the last row.
+    async listMembershipAcceptances({ limit = 500 } = {}) {
+      const rows = [];
+      while (rows.length < limit) {
+        const { rows: page, contentRange } = await admin.rest('membership_acceptances', {
+          includeRange: true,
+          query: { select: '*', order: 'accepted_at.desc,id.desc', limit: Math.min(500, limit - rows.length), offset: rows.length },
+        });
+        if (!Array.isArray(page)) throw new Error('Invalid membership acceptances page');
+        rows.push(...page);
+        // As in readPages: a lower max-rows can shorten a page that is not the last.
+        if (!page.length || (!contentRange && page.length < 500)) break;
+      }
+      return rows.slice(0, limit).map(membershipAcceptanceFromSupabase);
     },
     async deleteUserById(userId) {
       await admin.request(`/auth/v1/admin/users/${encodeURIComponent(userId)}`, { method: 'DELETE' });

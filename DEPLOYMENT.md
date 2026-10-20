@@ -203,6 +203,30 @@ select column_name, column_default from information_schema.columns
 The party announcement uses the summary email's settings and shares its daily
 cap; without them the panel says email is off and nothing is sent.
 
+## Nodal Fundadores acceptances: one migration before `main`
+
+`20261021000000_membership_acceptances.sql` adds the server-only table
+`membership_acceptances`: one row per purchase acceptance (the account's email
+and name at that moment, the option and its amount, the terms version, the three
+authorizations, the time). It is contract evidence: erasing an account only
+clears `user_id`. The server may only insert and read it. It is additive, and
+the code live today never reads it, so applying it first is safe. Deploying the
+code first makes every acceptance answer 503 `membership_unavailable` (no
+Mercado Pago link goes out) and every account export (`/api/me/export`) fail
+until it is applied.
+
+```bash
+npx --no-install supabase db query --linked -f supabase/migrations/20261021000000_membership_acceptances.sql
+npx --no-install supabase migration repair --status applied 20261021000000
+```
+
+```sql
+select rowsecurity from pg_tables where schemaname = 'public' and tablename = 'membership_acceptances';
+-- t
+select has_table_privilege('anon', 'public.membership_acceptances', 'select'),
+       has_table_privilege('service_role', 'public.membership_acceptances', 'update');  -- both false
+```
+
 ## Supabase Setup
 
 1. Create a Supabase project.
@@ -281,25 +305,44 @@ PAYMENTS_MODE=preview
 PILOT_MODE=true
 ```
 
-The Supporting membership is annual and paid on Mercado Pago, through links
-Mariana creates in her own Mercado Pago account (a payment link for the year,
-and a two-charge subscription plan for two installments). NODAL only shows the
-links; the team adds each payer by hand. The full routine is in
-[docs/supporter-payments.md](docs/supporter-payments.md).
+The paid membership is **Nodal Fundadores 2027**, paid on Mercado Pago through
+links Mariana creates in her own Mercado Pago account (a payment link for
+S/ 499, and a two-charge plan for 2 × S/ 275). NODAL only hands out the links;
+the team adds each payer by hand. The full routine is in
+[docs/supporter-payments.md](docs/supporter-payments.md). Prices, dates and the
+seller come from the terms version in `server/membership-offer.js`
+(`FUNDADORES-2027-v1`), never from settings: a price change is a new terms
+version.
 
-`GET /api/billing/config` returns `checkout: true` and one option per link only
-when the link is an `https` Mercado Pago Peru address (`mercadopago.com.pe` or a
-subdomain, `mpago.la`, `mpago.li`) **and** its price is set. Otherwise it returns
-`checkout: false` and `Soon`, the landing page hides its Supporter button, and the
-course pilot keeps redirecting `/payments.html` to the courses page. A bad link is
-logged once per instance and ignored:
+`GET /api/billing/config` answers `state`:
+
+- `open` (`checkout: true`): before 1 Jan 2027 00:00 Lima, with at least one
+  option whose link is an `https` Mercado Pago Peru address (`mercadopago.com.pe`
+  or a subdomain, `mpago.la`, `mpago.li`) **and** both contact settings valid.
+  Only the options with a link are listed, and never the links themselves: a
+  member gets a link only from `POST /api/membership/acceptances`, after their
+  acceptances are recorded.
+- `soon` (`checkout: false`, `Soon`): an option or the contact is missing. The
+  course pilot keeps redirecting `/payments.html` to the courses page.
+- `ended` (`checkout: false`): from 1 Jan 2027 00:00 Lima, whatever is set. The
+  payments page opens and says the offer has closed.
+
+Each bad value is logged once per instance and ignored:
 
 ```text
 MERCADOPAGO_LINK_ANNUAL=https://link.mercadopago.com.pe/your-link
-SUBSCRIPTION_PRICE_ANNUAL_LABEL=S/ 240
 MERCADOPAGO_LINK_INSTALLMENTS=https://www.mercadopago.com.pe/subscriptions/checkout?preapproval_plan_id=your-plan
-SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL=2 × S/ 120
+MEMBERSHIP_CONTACT_EMAIL=membresias@your-domain.example
+MEMBERSHIP_COMPLAINTS_URL=https://your-complaints-book.example/nodal
 ```
+
+`MEMBERSHIP_CONTACT_EMAIL` is a plain address (questions, non-renewal and
+refunds) and `MEMBERSHIP_COMPLAINTS_URL` the `https` Libro de Reclamaciones
+link, without credentials. `SUBSCRIPTION_PRICE_ANNUAL_LABEL`,
+`SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL` and `SUBSCRIPTION_ANNUAL_PERIOD` are no
+longer read and can be removed from Vercel. The acceptances need the migration
+under "Nodal Fundadores acceptances" above. Platform admins download them,
+newest first, from `/api/admin/membership/acceptances` (CSV).
 
 Stripe is dormant (it cannot onboard a Peruvian business); its variables below
 only matter if that route is ever revived.
@@ -432,12 +475,14 @@ npm start
 10. Confirm `/dashboard.html` redirects unauthenticated users to `/login.html`.
 11. Confirm profile edits persist after refresh.
 12. Confirm the dormant Stripe route stays shut: `POST /api/checkout` answers 409 while `PILOT_MODE=true`.
-13. Confirm the membership state matches the Mercado Pago settings. With no
-    `MERCADOPAGO_LINK_*` set, `/api/billing/config` returns `"checkout": false` and
-    `Soon`, the landing card shows "Soon!", and in the pilot `/payments.html`
-    redirects to `/courses.html`. With a link and its price set, it returns
-    `"checkout": true`, `"provider": "mercadopago"` and the configured price, the
-    landing shows the price and its button, and `/payments.html` opens.
+13. Confirm the membership state matches the Mercado Pago and contact settings.
+    With no `MERCADOPAGO_LINK_*`, or without both `MEMBERSHIP_CONTACT_EMAIL` and
+    `MEMBERSHIP_COMPLAINTS_URL`, `/api/billing/config` returns `"state": "soon"`,
+    `"checkout": false` and `Soon`, the landing card shows "Soon!", and in the
+    pilot `/payments.html` redirects to `/courses.html`. With a link and the
+    contact set, it returns `"state": "open"`, `"checkout": true` and S/ 499 (no
+    link in the answer), the landing shows the price and its button, and
+    `/payments.html` opens. From 1 Jan 2027 (Lima) it returns `"state": "ended"`.
 14. Confirm `/api/news` returns 200, and that `/fiiu-qr.html` and
     `/fiiu-admin.html` show "Organisers only" (status 403) to a member account
     and the real pages to an administrator.
@@ -749,13 +794,10 @@ the session, sets no cookie and is cached by the CDN for 5 minutes
   under `nodal.lang` and carries into the console, the member profile and the
   membership page. A saved choice takes precedence over `?lang=en|es|pt`;
   the URL language is used when the visitor has not saved a preference.
-- Membership **prices** are shown exactly as configured in
-  `SUBSCRIPTION_PRICE_ANNUAL_LABEL` and `SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL`,
-  in every language, and only next to a Mercado Pago link that can take the
-  payment; otherwise every language shows its own "Soon!". The year's period
-  (`SUBSCRIPTION_ANNUAL_PERIOD`, default `/ year`) is translated when it is the
-  English default; anything else is shown verbatim, so write it in the language
-  members should read.
+- Membership **prices** are the terms version's (`server/membership-offer.js`:
+  S/ 499, or 2 × S/ 275), the same in every language, and are shown only next to
+  a Mercado Pago link that can take the payment; otherwise every language shows
+  its own "Soon!".
 
 ## Error reports (optional)
 

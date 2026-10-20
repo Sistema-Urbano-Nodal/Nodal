@@ -17,6 +17,8 @@ import {
   listAdminInterests,
   listCatalogInterestsForUser,
   listCatalogItems,
+  listMembershipAcceptances,
+  recordMembershipAcceptance,
   setUserLocation,
   acceptUserLocation,
   loadGraphStore,
@@ -112,6 +114,12 @@ function createSqliteRepository(db, { ownsDb = false } = {}) {
     },
     async applyStripeEvent(args) {
       return applyStripeEvent(db, args);
+    },
+    async recordMembershipAcceptance(record) {
+      return recordMembershipAcceptance(db, record);
+    },
+    async listMembershipAcceptances(query) {
+      return listMembershipAcceptances(db, query);
     },
     async listCatalogItems(query, viewer) {
       return listCatalogItems(db, query, viewer);
