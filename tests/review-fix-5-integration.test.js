@@ -16,85 +16,10 @@ import { createSupabaseRepository } from '../server/supabase.js';
 import { createCourseParticipants } from '../server/course-participants.js';
 
 const script = name => readFileSync(new URL(`../web/scripts/${name}.js`, import.meta.url), 'utf8');
-const flush = async () => { for (let i = 0; i < 10; i++) await new Promise(resolve => setImmediate(resolve)); };
 
-/* ---------- membership page (catalog-news-payments-1, frontend-xss-1) ---------- */
-function paymentsPage({ status = { status: 'none', active: false }, checkout, AbortSignal: signalApi = AbortSignal, search = '' } = {}) {
-  const node = id => ({ id, textContent: '', hidden: true, disabled: false, listeners: {}, attributes: {},
-    classList: { toggle() {} }, setAttribute(k, v) { this.attributes[k] = v; }, addEventListener(k, f) { this.listeners[k] = f; } });
-  const ids = ['cycleMonthly', 'cycleAnnual', 'proPrice', 'proPer', 'proNote', 'sumCycle', 'sumPrice', 'sumRenews', 'cycleAnnualBadge', 'selectPro', 'summaryCheckout', 'payCheckoutNote'];
-  const nodes = Object.fromEntries(ids.map(id => [id, node(id)]));
-  const requests = [], languageListeners = [];
-  let assigned = null;
-  const i18n = { lang: 'en', t: key => `${i18n.lang}:${key}`, onChange: f => languageListeners.push(f) };
-  const context = {
-    window: { nodalI18n: i18n }, URLSearchParams, URL, AbortSignal: signalApi,
-    document: { getElementById: id => nodes[id] ?? null, querySelector: () => ({ scrollIntoView() {} }) },
-    location: { search, pathname: '/payments.html', assign: url => { assigned = url; } },
-    fetch: async (path, options = {}) => {
-      requests.push({ path, options });
-      if (path === '/api/billing/config') return { ok: false, status: 404, json: async () => ({}) };
-      if (path === '/api/billing/status') return { ok: true, status: 200, json: async () => ({ subscription: status }) };
-      const answer = await (checkout ?? (async () => ({ status: 200, body: { url: 'https://checkout.stripe.com/c/pay/cs_x' } })))(options);
-      return { ok: answer.status < 400, status: answer.status, json: async () => answer.body };
-    },
-  };
-  vm.createContext(context);
-  vm.runInContext(script('payments'), context);
-  return {
-    nodes, requests, assigned: () => assigned,
-    click: async () => { await nodes.selectPro.listeners.click(); await flush(); },
-    lang: lang => { i18n.lang = lang; languageListeners.forEach(f => f()); },
-  };
-}
-
-test('frontend-xss-1: membership checkout still starts on Safari before 16, which has no AbortSignal.timeout', async () => {
-  const page = paymentsPage({ AbortSignal: {} });
-  await flush();
-  await page.click();
-  const checkout = page.requests.find(r => r.path === '/api/checkout');
-  assert.ok(checkout, 'the checkout request is sent');
-  assert.equal('signal' in checkout.options, false);
-  assert.equal(page.assigned(), 'https://checkout.stripe.com/c/pay/cs_x');
-});
-
-test('catalog-news-payments-1: a second checkout refused as already_subscribed is explained in the member’s language', async () => {
-  const page = paymentsPage({ checkout: async () => ({ status: 409, body: { error: 'You already have a NODAL membership.', code: 'already_subscribed' } }) });
-  await flush();
-  await page.click();
-  assert.equal(page.assigned(), null);
-  assert.equal(page.nodes.payCheckoutNote.textContent, 'en:y.alreadyMember');
-  assert.equal(page.nodes.payCheckoutNote.hidden, false);
-  assert.equal(page.nodes.selectPro.disabled, true, 'the buttons stay off');
-  page.lang('pt');
-  assert.equal(page.nodes.payCheckoutNote.textContent, 'pt:y.alreadyMember');
-  // Another 409 keeps the old fallback.
-  const other = paymentsPage({ checkout: async () => ({ status: 409, body: { error: 'conflict' } }) });
-  await flush();
-  await other.click();
-  assert.equal(other.nodes.payCheckoutNote.textContent, 'en:y.notConfigured');
-  assert.equal(other.nodes.selectPro.disabled, false);
-});
-
-test('catalog-news-payments-1: a live membership turns checkout off when the page loads', async () => {
-  for (const status of ['pending', 'active', 'trialing', 'past_due', 'unpaid', 'paused']) {
-    const page = paymentsPage({ status: { status, active: status === 'active' } });
-    await flush();
-    assert.equal(page.nodes.selectPro.disabled, true, status);
-    assert.equal(page.nodes.summaryCheckout.disabled, true, status);
-    assert.equal(page.nodes.payCheckoutNote.textContent, 'en:y.alreadyMember', status);
-    await page.click();
-    assert.equal(page.requests.some(r => r.path === '/api/checkout'), false, `${status}: no checkout request`);
-  }
-  for (const status of ['none', 'canceled', 'incomplete_expired']) {
-    const page = paymentsPage({ status: { status, active: false } });
-    await flush();
-    assert.equal(page.nodes.selectPro.disabled, false, status);
-  }
-  // The console's strings are in i18n-dashboard.js, which payments.html and dashboard.html load.
-  const i18n = script('i18n-dashboard');
-  for (const key of ['y.alreadyMember', 'd.uc.deleteSubscription']) assert.equal(i18n.split(`'${key}':`).length - 1, 3, `${key} in EN, ES and PT`);
-});
+/* ---------- membership page ----------
+   The page no longer starts a Stripe checkout: it links to the Mercado Pago payments the team sets
+   (tests/payments-links-ui.test.js). The server's dormant Stripe routes keep their tests below. */
 
 /* ---------- console account deletion (catalog-news-payments-2) ---------- */
 test('catalog-news-payments-2: the console shows a refused deletion in the member’s language', async () => {

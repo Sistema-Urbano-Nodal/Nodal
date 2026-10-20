@@ -12,15 +12,15 @@
   <script src="locale.js?v=20261009a"></script>
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="fonts.css?v=20260911b" />
-  <link rel="stylesheet" href="styles.css?v=33" />
+  <link rel="stylesheet" href="styles.css?v=34" />
   <link rel="stylesheet" href="courses.css?v=20261016b" />
 
-  <script defer src="i18n-dashboard.js?v=20261020a"></script>
+  <script defer src="i18n-dashboard.js?v=20261020b"></script>
   <script defer src="i18n.js?v=20261019a"></script>
-  <script defer src="pilot-i18n.js?v=20261018a"></script>
+  <script defer src="pilot-i18n.js?v=20261020b"></script>
   <script defer src="pilot.js?v=20261005s"></script>
   <script defer src="nav.js?v=20261013b"></script>
-  <script defer src="payments.js?v=18"></script>
+  <script defer src="payments.js?v=20261020b"></script>
 </head>
 <body class="pay-page">
 
@@ -54,11 +54,6 @@
       <div class="wrap pay-grid">
 
         <div class="pay-plans">
-          <div class="cycle" role="group" aria-label="Billing cycle">
-            <button type="button" class="cycle-btn is-on" id="cycleMonthly" aria-pressed="true" data-i18n="y.cycleMonthly">Monthly</button>
-            <button type="button" class="cycle-btn" id="cycleAnnual" aria-pressed="false"><span data-i18n="y.cycleAnnual">Annual</span> <span class="cycle-save" id="cycleAnnualBadge" hidden></span></button>
-          </div>
-
           <article class="pay-plan">
             <header>
               <h2 data-i18n="y.freeName">Community access</h2>
@@ -81,7 +76,7 @@
                 <span class="pay-amount" id="proPrice">Soon</span>
                 <span class="pay-per" id="proPer"></span>
               </p>
-              <p class="pay-price-note" id="proNote">Cancel anytime.</p>
+              <p class="pay-price-note" data-i18n="y.mp.term">Annual membership: 12 months from your payment.</p>
             </header>
             <ul>
               <li data-i18n="y.p1">Everything in Free, plus:</li>
@@ -91,24 +86,24 @@
               <li data-i18n="y.p5">Early access to labs, circles and co-creation formats</li>
               <li data-i18n="y.p6">Supporter courses with the teaching team</li>
             </ul>
-            <button type="button" class="btn btn-primary" id="selectPro" data-i18n="y.support">Support the community</button>
+            <div class="pay-options" id="payOptions"></div>
+            <p class="pay-soon" id="paySoon" data-i18n="y.mp.soonNote">Payments open soon.</p>
           </article>
         </div>
 
-        <aside class="pay-summary" aria-label="Order summary">
-          <p class="pay-summary-kicker" data-i18n="y.summary">Support summary</p>
-          <h2 data-i18n="y.proName">Supporting membership</h2>
-          <dl>
-            <div><dt data-i18n="y.dtCycle">Billing cycle</dt><dd id="sumCycle">Monthly</dd></div>
-            <div><dt data-i18n="y.dtPrice">Price</dt><dd id="sumPrice">Soon</dd></div>
-            <div><dt data-i18n="y.dtRenews">Renews</dt><dd id="sumRenews">Every month, until you cancel</dd></div>
-          </dl>
+        <aside class="pay-summary" aria-labelledby="payHowTitle">
+          <p class="pay-summary-kicker" data-i18n="y.mp.howKicker">Paying on Mercado Pago</p>
+          <h2 id="payHowTitle" data-i18n="y.mp.howTitle">How it works</h2>
+          <ol class="pay-steps">
+            <li><span data-i18n="y.mp.step1">Pay on Mercado Pago with the email of your NODAL account.</span> <span id="payEmailStep" hidden>(<strong id="payEmail"></strong>)</span></li>
+            <li data-i18n="y.mp.step2">Within two working days the NODAL team adds you as a Supporter, and the Supporter courses open on your courses page.</li>
+            <li data-i18n="y.mp.step3">Your membership lasts 12 months from your payment.</li>
+          </ol>
           <div class="pay-methods">
             <p data-i18n="y.payWith">Pay with</p>
-            <span data-i18n="y.card">Card via Stripe</span>
+            <span data-i18n="y.mp.methods">A card or your Mercado Pago balance</span>
           </div>
-          <button type="button" class="btn btn-primary btn-block" id="summaryCheckout" data-i18n="y.checkout">Continue to secure checkout</button>
-          <p class="pay-checkout-note" id="payCheckoutNote" hidden>Checkout is handled by Stripe. NODAL never sees or stores card numbers.</p>
+          <p class="pay-checkout-note" data-i18n="y.mp.never">Mercado Pago opens in a new tab. NODAL never sees or stores card numbers.</p>
         </aside>
       </div>
     </section>
@@ -118,24 +113,24 @@
         <p class="eyebrow" data-i18n="y.faq">FAQ</p>
         <h2 class="section-title" data-i18n="y.faqTitle">Membership questions</h2>
         <details>
-          <summary data-i18n="y.q1">Can I cancel anytime?</summary>
-          <p data-i18n="y.a1">Yes. Monthly plans stop at the end of the paid month; annual plans at the end of the paid year. Your free community account stays active either way.</p>
+          <summary data-i18n="y.mp.q1">How does paying in two installments work?</summary>
+          <p data-i18n="y.mp.a1">Mercado Pago shows both payments and their dates before you confirm. If the second one cannot be charged, the NODAL team writes to you before your membership pauses.</p>
         </details>
         <details>
-          <summary data-i18n="y.q2">What currency will I be charged in?</summary>
-          <p data-i18n="y.a2">The checkout provider shows the final charge before payment.</p>
+          <summary data-i18n="y.mp.q2">What currency will I be charged in?</summary>
+          <p data-i18n="y.mp.a2">Peruvian soles (S/). Mercado Pago shows the final amount before you confirm; with a card from another country, your bank converts it.</p>
         </details>
         <details>
-          <summary data-i18n="y.q3">Will I get a receipt?</summary>
-          <p data-i18n="y.a3">Every charge comes with an emailed receipt, and organization invoices are available on request.</p>
+          <summary data-i18n="y.mp.q3">Will I get a receipt?</summary>
+          <p data-i18n="y.mp.a3">Mercado Pago emails you a payment receipt. If you need an invoice, write to the NODAL team.</p>
         </details>
         <details>
-          <summary data-i18n="y.q4">Is this pricing final?</summary>
-          <p data-i18n="y.a4">No. This is founding-member pricing. Early supporters will keep the launch price they choose.</p>
+          <summary data-i18n="y.mp.q4">What if I paid with a different email?</summary>
+          <p data-i18n="y.mp.a4">Write to the NODAL team with the email you used on Mercado Pago, and they will link your payment to your NODAL account.</p>
         </details>
         <details>
-          <summary data-i18n="y.q5">How will payments be processed?</summary>
-          <p data-i18n="y.a5">Through a certified checkout provider. You pay on their secure page and come straight back; NODAL never sees or stores card numbers.</p>
+          <summary data-i18n="y.mp.q5">Does the membership renew by itself?</summary>
+          <p data-i18n="y.mp.a5">No. It lasts 12 months, and before it ends the NODAL team invites you to renew.</p>
         </details>
       </div>
     </section>

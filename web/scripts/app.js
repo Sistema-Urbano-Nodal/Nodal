@@ -11,11 +11,11 @@
   const NS = 'http://www.w3.org/2000/svg';
 
   /* The membership price slot. A price is shown only while a member could
-     actually pay it: the server sets `checkout` once the pilot is off and
-     Stripe is configured. Until then (and on static hosting with no API) the
-     slot says "Soon!" in the reader's language. A configured amount is printed
-     exactly as the operator set it — only the period suffix and the sentinel
-     are copy. */
+     actually pay it: the server sets `checkout` once a Mercado Pago link for
+     the annual membership is configured. Until then (and on static hosting
+     with no API) the slot says "Soon!" in the reader's language. A configured
+     amount is printed exactly as the operator set it — only the period suffix
+     and the sentinel are copy. */
   const I18N = window.nodalI18n;
   const t = (key) => (I18N ? I18N.t(key) : key);
   const PRICE_COPY = new Map([
@@ -29,10 +29,10 @@
   function renderLandingPrice() {
     const price = document.querySelector('[data-billing-price]');
     if (!price) return;
-    const monthly = billing?.checkout === true ? billing.cycles?.monthly : null;
-    if (!monthly?.amount) { price.textContent = t('mem.priceSoon'); return; }
-    const amount = localisePrice(monthly.amount);
-    const per = monthly.per ? ` ${localisePrice(monthly.per)}` : '';
+    const annual = billing?.checkout === true ? billing.annual : null;
+    if (!annual?.amount) { price.textContent = t('mem.priceSoon'); return; }
+    const amount = localisePrice(annual.amount);
+    const per = annual.per ? ` ${localisePrice(annual.per)}` : '';
     price.textContent = `${amount}${per}`;
   }
 

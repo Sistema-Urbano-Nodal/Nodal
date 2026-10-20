@@ -1,238 +1,83 @@
-/* payments: billing cycle toggle + order summary + provider seam.
-   Stripe checkout is created server-side. The local fallback only appears
-   when the current environment is intentionally not configured for payments. */
+/* payments: the annual Supporting membership, paid on Mercado Pago through the
+   links the team sets in the environment (GET /api/billing/config). NODAL never
+   sees the payment: each offered option opens Mercado Pago in a new tab, and the
+   page says what happens next, with the member's NODAL email to pay with. */
 (() => {
+  'use strict';
   const I18N = window.nodalI18n;
   const t = (key) => (I18N ? I18N.t(key) : key);
 
-  
-  const BILLING_COPY = new Map([
-    ['Monthly', 'y.cycleMonthly'],
-    ['Annual', 'y.cycleAnnual'],
-    ['Free', 'y.free'],
-    ['Soon', 'y.soon'],
-    ['Cancel anytime.', 'y.cancelAnytime'],
-    ['Every month, until you cancel', 'y.renewsMonthly'],
-    ['Every 12 months, until you cancel', 'y.renewsAnnual'],
-    // the period suffix the deploy template suggests; any other wording is the
-    // operator's own and is shown exactly as they wrote it
-    ['/ month', 'y.perMonth'], ['/month', 'y.perMonth'], ['/ mo', 'y.perMonth'],
-    ['/ year', 'y.perYear'], ['/year', 'y.perYear'], ['/ yr', 'y.perYear'],
-  ]);
-  const localise = (value) => (BILLING_COPY.has(value) ? t(BILLING_COPY.get(value)) : value);
-
-  let pricing = {
-    monthly: {
-      label: 'Monthly',
-      amount: 'Soon',
-      per: '',
-      note: 'Cancel anytime.',
-      renews: 'Every month, until you cancel',
-      badge: '',
-    },
-    annual: {
-      label: 'Annual',
-      amount: 'Soon',
-      per: '',
-      note: '',
-      renews: 'Every 12 months, until you cancel',
-      badge: '',
-    },
+  // The deploy template's period wordings; any other is the operator's own and is shown as written.
+  const COPY = new Map([['Soon', 'y.soon'], ['/ year', 'y.perYear'], ['/year', 'y.perYear'], ['/ yr', 'y.perYear']]);
+  const localise = (value) => (COPY.has(value) ? t(COPY.get(value)) : value);
+  const LABELS = { once: 'y.mp.payOnce', installments: 'y.mp.payInstallments' };
+  // The server only offers https Mercado Pago Peru links; the page checks again before making one a button.
+  const MERCADO_PAGO = /^(?:[a-z0-9-]+\.)*mercadopago\.com\.pe$|^mpago\.l[ai]$/;
+  const mercadoPagoLink = (value) => {
+    try { const url = new URL(String(value)); return url.protocol === 'https:' && !url.username && !url.password && MERCADO_PAGO.test(url.hostname) ? url.href : null; } catch { return null; }
   };
 
   const els = {
-    monthly: document.getElementById('cycleMonthly'),
-    annual:  document.getElementById('cycleAnnual'),
-    amount:  document.getElementById('proPrice'),
-    per:     document.getElementById('proPer'),
-    note:    document.getElementById('proNote'),
-    cycle:   document.getElementById('sumCycle'),
-    price:   document.getElementById('sumPrice'),
-    renews:  document.getElementById('sumRenews'),
-    annualBadge: document.getElementById('cycleAnnualBadge'),
+    amount: document.getElementById('proPrice'),
+    per: document.getElementById('proPer'),
+    options: document.getElementById('payOptions'),
+    soon: document.getElementById('paySoon'),
+    email: document.getElementById('payEmail'),
+    emailStep: document.getElementById('payEmailStep'),
   };
   // bail out cleanly if the page structure changes — never throw on load
   if (Object.values(els).some((el) => !el)) return;
 
-  let currentCycle = 'monthly';
+  let annual = { amount: 'Soon', per: '' }, options = [];
 
-  function setCycle(key) {
-    currentCycle = key;
-    const p = pricing[key];
-    const amount = localise(p.amount);
-    els.amount.textContent = amount;
-    const per = localise(p.per);
-    els.per.textContent = per;
-    els.note.textContent = localise(p.note);
-    els.cycle.textContent = localise(p.label);
-    els.price.textContent = [amount, per].filter(Boolean).join(' ');
-    els.renews.textContent = localise(p.renews);
-
-    const on = key === 'monthly';
-    els.monthly.classList.toggle('is-on', on);
-    els.annual.classList.toggle('is-on', !on);
-    els.monthly.setAttribute('aria-pressed', String(on));
-    els.annual.setAttribute('aria-pressed', String(!on));
-    if (els.annualBadge) {
-      els.annualBadge.textContent = pricing.annual.badge || '';
-      els.annualBadge.hidden = !pricing.annual.badge;
-    }
+  function clean(data) {
+    if (!data || typeof data !== 'object' || data.checkout !== true || !Array.isArray(data.options)) return;
+    options = data.options.flatMap((option) => {
+      const url = mercadoPagoLink(option?.url), amount = typeof option?.amount === 'string' ? option.amount.trim() : '';
+      return Object.hasOwn(LABELS, option?.id) && url && amount ? [{ id: option.id, url, amount }] : [];
+    });
+    if (options.length) annual = { amount: String(data.annual?.amount || options[0].amount), per: String(data.annual?.per || '') };
   }
 
-  function cleanCycle(raw, fallback) {
-    const value = raw && typeof raw === 'object' ? raw : {};
-    return {
-      label: String(value.label || fallback.label),
-      amount: String(value.amount || fallback.amount),
-      per: String(value.per || fallback.per),
-      note: String(value.note || fallback.note),
-      renews: String(value.renews || fallback.renews),
-      badge: String(value.badge || fallback.badge),
-    };
+  function render() {
+    const open = options.length > 0;
+    els.amount.textContent = open ? annual.amount : localise('Soon');
+    els.per.textContent = open ? localise(annual.per) : '';
+    els.soon.hidden = open;
+    els.options.replaceChildren(...options.map((option, index) => {
+      const link = document.createElement('a'), label = document.createElement('span'), amount = document.createElement('span');
+      link.className = index === 0 && option.id === 'once' ? 'btn btn-primary' : 'btn btn-ghost';
+      link.href = option.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.dataset.option = option.id;
+      label.textContent = t(LABELS[option.id]); amount.className = 'pay-option-amount'; amount.textContent = option.amount;
+      link.append(label, amount);
+      return link;
+    }));
   }
 
-  async function loadBillingConfig() {
+  async function load() {
     try {
       const res = await fetch('/api/billing/config', { headers: { Accept: 'application/json' } });
-      if (!res.ok) return;
-      const data = await res.json();
-      pricing = {
-        monthly: cleanCycle(data.cycles?.monthly, pricing.monthly),
-        annual: cleanCycle(data.cycles?.annual, pricing.annual),
-      };
-      setCycle(currentCycle);
+      if (res.ok) clean(await res.json());
     } catch {
-      // Static hosting or offline demos keep the neutral "configured at checkout" copy.
+      // Static hosting or offline demos keep "Soon".
     }
+    render();
   }
 
-  els.monthly.addEventListener('click', () => setCycle('monthly'));
-  els.annual.addEventListener('click', () => setCycle('annual'));
-  setCycle(currentCycle);
-  loadBillingConfig();
-
-  /* payment providers, tried in order; the fallback only reports local misconfiguration */
-  const PROVIDERS = [
-    {
-      id: 'stripe',
-      async checkout({ plan, cycle }) {
-        let res;
-        try {
-          // A hung request must not strand the button. Safari before 16 (every iOS 15
-          // browser) has no AbortSignal.timeout; there the request runs without the limit.
-          const signal = typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
-            ? AbortSignal.timeout(8000) : undefined;
-          res = await fetch('/api/checkout', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ plan, cycle }),
-            ...(signal ? { signal } : {}),
-          });
-        } catch { return { status: 'unavailable' }; }       // static hosting / timeout
-        if (res.status === 401) return { status: 'auth' };
-        if (res.status === 409) {
-          // A live membership already exists; a second checkout would bill the member twice.
-          const refusal = await res.json().catch(() => null);
-          if (refusal?.code === 'already_subscribed') return { status: 'member' };
-        }
-        if (!res.ok) return { status: 'unavailable' };       // 501 = not configured
-        const data = await res.json().catch(() => null);
-        if (!data || typeof data.url !== 'string') return { status: 'unavailable' };
-        let host;
-        try { host = new URL(data.url).hostname; } catch { return { status: 'unavailable' }; }
-        if (host !== 'checkout.stripe.com') return { status: 'unavailable' };
-        return { status: 'redirect', url: data.url };
-      },
-    },
-    { id: 'local-fallback', async checkout() { return { status: 'local-fallback' }; } },
-  ];
-
-  const selectPro = document.getElementById('selectPro');
-  const summaryCheckout = document.getElementById('summaryCheckout');
-  const summary = document.querySelector('.pay-summary');
-  const payNote = document.getElementById('payCheckoutNote');
-
-  const setNote = (message) => {
-    if (!payNote) return;
-    payNote.textContent = message;
-    payNote.hidden = false;
-  };
-
-  const setBusy = (busy) => {
-    if (selectPro) selectPro.disabled = busy;
-    if (summaryCheckout) summaryCheckout.disabled = busy;
-  };
-
-  async function refreshBillingStatus() {
+  async function showEmail() {
+    let email = '';
     try {
-      const res = await fetch('/api/billing/status', { headers: { Accept: 'application/json' } });
-      if (res.status === 401) {
-        location.assign(`/login.html?next=${encodeURIComponent(location.pathname)}`);
-        return;
-      }
-      if (!res.ok) throw new Error('status unavailable');
-      const data = await res.json();
-      if (data.subscription?.active) {
-        setNote(t('y.confirmed'));
-      } else if (data.subscription?.status && data.subscription.status !== 'none') {
-        setNote(`${t('y.returned')} ${t('y.pending')} ${data.subscription.status}.`);
-      } else {
-        setNote(t('y.returnedWait'));
-      }
+      const res = await fetch('/api/auth/me', { headers: { Accept: 'application/json' } });
+      if (res.ok) { const data = await res.json(); if (typeof data?.user?.email === 'string') email = data.user.email; }
     } catch {
-      setNote(t('y.returnedUnknown'));
+      // Without it the step still reads correctly, only without the address.
     }
+    els.email.textContent = email;
+    els.emailStep.hidden = !email;
   }
 
-  // returning from a hosted checkout (?checkout=success|cancelled)
-  const backFrom = new URLSearchParams(location.search).get('checkout');
-  if (payNote && (backFrom === 'success' || backFrom === 'cancelled')) {
-    if (backFrom === 'success') refreshBillingStatus();
-    else setNote(t('y.cancelled'));
-  }
-
-  /* A member whose subscription is live (or still being set up) cannot start a
-     second one: the server refuses it, and the buttons say so before a click. */
-  const LIVE_STATUSES = new Set(['pending', 'active', 'trialing', 'past_due', 'unpaid', 'paused']);
-  let member = false;
-  const showMember = () => {
-    member = true;
-    setBusy(true);
-    if (backFrom !== 'success') setNote(t('y.alreadyMember'));
-  };
-  async function checkMembership() {
-    try {
-      const res = await fetch('/api/billing/status', { headers: { Accept: 'application/json' } });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (LIVE_STATUSES.has(data?.subscription?.status)) showMember();
-    } catch {
-      // Without an answer the buttons stay usable; the server still refuses a second checkout.
-    }
-  }
-  checkMembership();
-
-  async function startCheckout() {
-    if (member) return;
-    setBusy(true);
-    for (const provider of PROVIDERS) {
-      const result = await provider.checkout({ plan: 'membership', cycle: currentCycle });
-      if (result.status === 'auth') {
-        location.assign(`/login.html?next=${encodeURIComponent(location.pathname)}`);
-        return;
-      }
-      if (result.status === 'member') { showMember(); setNote(t('y.alreadyMember')); return; }
-      if (result.status === 'redirect') { location.assign(result.url); return; }
-      if (result.status === 'local-fallback') break;
-    }
-    setBusy(false);
-    setNote(t('y.notConfigured'));
-    summary?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
-  selectPro?.addEventListener('click', () => { startCheckout(); });
-  summaryCheckout?.addEventListener('click', () => { startCheckout(); });
-  I18N?.onChange(() => {
-    setCycle(currentCycle);
-    if (member && payNote && !payNote.hidden && backFrom !== 'success') setNote(t('y.alreadyMember'));
-  });
+  render();
+  load();
+  showEmail();
+  I18N?.onChange(render);
 })();

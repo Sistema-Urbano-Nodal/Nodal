@@ -48,27 +48,27 @@ const SOON = { en: 'Soon!', es: '¡Pronto!', pt: 'Em breve!' };
 test('a closed checkout shows the localised "Soon!" and drops the Supporter button', async () => {
   for (const lang of ['en', 'es', 'pt']) {
     // Production on 2026-09-30: a label is configured, but the pilot keeps checkout closed.
-    const page = await landing({ lang, fetchImpl: json({ checkout: false, cycles: { monthly: { amount: 'US$10', per: '/ month' } } }) });
+    const page = await landing({ lang, fetchImpl: json({ checkout: false, annual: { amount: 'S/ 240', per: '/ year' } }) });
     assert.equal(page.price.textContent, SOON[lang], lang);
     assert.equal(page.seenBeforeFetch, SOON[lang], `${lang} readers see the translated fallback before the request returns`);
     assert.equal(page.cta.removed, true, lang);
   }
-  const sentinel = await landing({ fetchImpl: json({ checkout: false, cycles: { monthly: { amount: 'Soon', per: '' } } }) });
+  const sentinel = await landing({ fetchImpl: json({ checkout: false, annual: { amount: 'Soon', per: '' } }) });
   assert.equal(sentinel.price.textContent, 'Soon!');
   assert.equal(sentinel.cta.removed, true);
 });
 
-test('an open checkout prints the configured amount and keeps the Supporter button', async () => {
-  const config = { checkout: true, cycles: { monthly: { amount: 'US$10', per: '/ month' } } };
+test('an open checkout prints the configured annual amount and keeps the Supporter button', async () => {
+  const config = { checkout: true, annual: { amount: 'S/ 240', per: '/ year' } };
   const en = await landing({ fetchImpl: json(config) });
-  assert.equal(en.price.textContent, 'US$10 / month');
+  assert.equal(en.price.textContent, 'S/ 240 / year');
   assert.equal(en.cta.removed, false);
   assert.equal(en.cta.hidden, false, 'the button shipped hidden appears only once checkout is confirmed open');
   const es = await landing({ lang: 'es', fetchImpl: json(config) });
-  assert.equal(es.price.textContent, 'US$10 / mes');
+  assert.equal(es.price.textContent, 'S/ 240 / año');
   assert.equal(es.cta.removed, false);
   // A server without the flag (older deploy) is treated as closed.
-  const legacy = await landing({ fetchImpl: json({ cycles: { monthly: { amount: 'US$10', per: '/ month' } } }) });
+  const legacy = await landing({ fetchImpl: json({ annual: { amount: 'S/ 240', per: '/ year' } }) });
   assert.equal(legacy.price.textContent, 'Soon!');
   assert.equal(legacy.cta.removed, true);
 });
@@ -79,7 +79,7 @@ test('a failed or refused billing request keeps the localised "Soon!" and drops 
     assert.equal(offline.price.textContent, SOON[lang]);
     assert.equal(offline.cta.removed, true);
   }
-  const refused = await landing({ fetchImpl: async () => ({ ok: false, status: 500, async json() { return { checkout: true, cycles: { monthly: { amount: 'US$10' } } }; } }) });
+  const refused = await landing({ fetchImpl: async () => ({ ok: false, status: 500, async json() { return { checkout: true, annual: { amount: 'S/ 240' } }; } }) });
   assert.equal(refused.price.textContent, 'Soon!');
   assert.equal(refused.cta.removed, true);
 });
