@@ -182,6 +182,17 @@ test('Mercado Pago is named, in every language, as the processor of the Supporti
   ]) assert.ok(providers(lang).includes(sentence), lang);
 });
 
+test('Sentry is named, in every language, as the recipient of technical server error reports, and what it never receives', () => {
+  const html = read('web/pages/privacy.html');
+  const articles = Object.fromEntries([...html.matchAll(/<article data-policy-lang="(en|es|pt)"[^>]*>([\s\S]*?)<\/article>/g)].map(([, lang, body]) => [lang, body]));
+  const providers = lang => articles[lang].match(new RegExp(`<section id="${lang}-7">([\\s\\S]*?)</section>`))[1];
+  for (const [lang, receives, never] of [
+    ['en', 'When error tracking is on, Sentry receives technical reports about server errors', 'It never receives passwords, cookies, form contents or IP addresses.'],
+    ['es', 'Cuando el seguimiento de errores está activo, Sentry recibe informes técnicos sobre errores del servidor', 'Nunca recibe contraseñas, cookies, contenidos de formularios ni direcciones IP.'],
+    ['pt', 'Quando o rastreamento de erros está ativo, o Sentry recebe relatórios técnicos sobre erros do servidor', 'Ele nunca recebe senhas, cookies, conteúdos de formulários nem endereços IP.'],
+  ]) { assert.ok(providers(lang).includes(receives), lang); assert.ok(providers(lang).includes(never), lang + ' never'); }
+});
+
 // The stylesheet's rules, with the media query each sits in ('' at the top level).
 function cssRules(css) {
   const rules = [];
