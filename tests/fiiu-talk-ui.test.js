@@ -369,6 +369,15 @@ test('a long name with no spaces wraps in the chat, in the organisers’ full na
  assert.match(names[2],/min-width:0/,'a flex item that may shrink below its longest word');assert.match(names[2],/overflow-wrap:anywhere/,'and breaks inside it');
 });
 
+test('stacked combining marks stay inside their message, in the chat and on the projector, and the text is shown as it was sent',async()=>{
+ const body='a'+'\u0301'.repeat(999);
+ const h=await page({['GET /api/fiiu/questions/'+Q]:thread({messages:[message(M1,{body})]})});assert.equal(content(row(h,M1).querySelector('.f-talk-body')).trim(),body,'nothing is stripped on screen');
+ const css=readFileSync(new URL('../web/styles/fiiu-talk.css',import.meta.url),'utf8');
+ assert.match(css,/\.f-talk-msg\{[^}]*overflow:clip/,'a chat row clips what draws outside it, without becoming a scroll container');
+ assert.match(css,/\.f-talk-wall-msg\{[^}]*overflow:clip/,'so does an answer on the projector, whose name is not inside the clamped text');
+ assert.match(css,/\.f-talk-msg\{[^}]*padding:var\(--f-sp-2\) var\(--f-sp-3\)/,'the row keeps room (8 and 12 px) for the 7 px focus ring of the links and buttons inside it');
+});
+
 test('a row replaced by a poll or by moderation keeps focus on the same control, not the first one',async()=>{
  let revision=3;const mine=over=>message(M1,{mine:true,authorFull:'Flavia Rojas',...over});
  const h=await page({['GET /api/fiiu/questions/'+Q]:thread({me:{organiser:true},messages:[mine({seq:1})]}),'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),

@@ -55,9 +55,10 @@
 .f-talk-bar-n{padding-top:2px;font-size:.72rem;color:var(--f-muted);text-align:center;font-variant-numeric:tabular-nums}
 /* Messages: your own on a pale tint (not a bubble); sending is faded, a failure names itself in the error colour, a hidden one is muted (only organisers
    and its author see it, the author with "Hidden by the organisers"): its text stays readable at full contrast for the organisers deciding on it, and
-   only its images fade. A name breaks anywhere, so an address typed as a first name cannot widen the page. */
+   only its images fade. A row clips what draws outside it (a stack of combining marks) at its padding edge, which leaves room for the focus rings inside it;
+   a name breaks anywhere, so an address typed as a first name cannot widen the page. */
 .f-talk-earlier{align-self:center;margin:0 0 var(--f-sp-3)}.f-talk-log{display:grid;gap:var(--f-sp-2);margin:0 0 var(--f-sp-4);padding:0;list-style:none}
-.f-talk-msg{min-width:0;padding:var(--f-sp-2) var(--f-sp-3)}.f-talk-msg.is-mine{background:color-mix(in srgb,var(--f-leaf) 10%,transparent)}.f-talk-msg.is-pending{opacity:.6}
+.f-talk-msg{min-width:0;padding:var(--f-sp-2) var(--f-sp-3);overflow:clip}.f-talk-msg.is-mine{background:color-mix(in srgb,var(--f-leaf) 10%,transparent)}.f-talk-msg.is-pending{opacity:.6}
 .f-talk-msg.is-failed .f-talk-state{color:var(--f-error);font-weight:650}.f-talk-msg.is-hidden{color:var(--f-muted)}.f-talk-msg.is-hidden .f-talk-image img{opacity:.6}
 .f-page .f-talk-meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px var(--f-sp-2);max-width:none;margin:0;font-size:.84rem;color:var(--f-muted)}.f-talk-author{font-size:.92rem;color:var(--f-ink)}:is(.f-talk-author,.f-talk-full){min-width:0;overflow-wrap:anywhere}
 .f-talk-org{font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--f-forest)}.f-talk-time{margin-left:auto;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -130,7 +131,7 @@
 /* Answers: whitespace between them, no cards; text stops at four lines and images stay small, readable from the back of a room. The room sees whole
    answers only: fiiu-talk.js leaves out every row that would cross the screen's bottom edge, rather than shrink them or cut one in half. */
 .f-talk-wall-feed{grid-area:feed;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,15em),1fr));gap:var(--f-sp-5) var(--f-sp-6);margin:var(--f-sp-3) 0 0;padding:0;list-style:none}
-.f-talk-wall-msg{min-width:0;font-size:.95em}.f-talk-wall-meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 .6em;margin:0;font-size:.85em;color:var(--f-muted)}
+.f-talk-wall-msg{min-width:0;font-size:.95em;overflow:clip}.f-talk-wall-meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 .6em;margin:0;font-size:.85em;color:var(--f-muted)}
 .f-talk-wall-meta .f-talk-author{font-size:1.08em}.f-talk-wall .f-talk-org{font-size:.72em}.f-talk-wall-likes::before{content:"♥ ";content:"♥ "/"";color:var(--f-leaf)}
 .f-talk-wall-body{display:-webkit-box;margin:.2em 0 0;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:4;line-clamp:4;overflow-wrap:anywhere;white-space:pre-wrap}
 .f-talk-wall-files{display:flex;flex-wrap:wrap;align-items:center;gap:.4em;margin:.4em 0 0}.f-talk-wall-files img{display:block;width:auto;max-width:100%;height:auto;max-height:5em;border-radius:6px;background:var(--f-panel)}
