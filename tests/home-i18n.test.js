@@ -339,9 +339,13 @@ test('the free plans stop offering courses and the Supporter plans list them, in
   // The <ul> of the plan card with exactly this class.
   const list=(html,card)=>{const at=html.indexOf(`<article class="${card}">`);assert.notEqual(at,-1,card);return html.slice(html.indexOf('<ul>',at),html.indexOf('</ul>',at));};
   const keys=part=>[...part.matchAll(/data-i18n="([^"]+)"/g)].map(match=>match[1]);
-  for(const [html,free,pro,order] of [[landing,'plan','plan plan-pro',['mem.p1','mem.p2a','mem.p2b','mem.p3','mem.p4','mem.p5','mem.p7','mem.p6']],[payments,'pay-plan','pay-plan pay-plan-pro',['y.p1','y.p2','y.p3','y.p4','y.p5','y.p6']]]){
+  // Since 20 Oct 2026, when the membership started taking payments on Mercado Pago, the Supporter plans list only what a Supporter
+  // gets: the free plan, the Supporter courses and sustaining the network. Curated programmes, guided discovery, a deeper directory
+  // profile and early access to labs (mem.p2a-mem.p5, y.p2-y.p5) return to the lists once they exist.
+  for(const [html,free,pro,order] of [[landing,'plan','plan plan-pro',['mem.p1','mem.p7','mem.p6']],[payments,'pay-plan','pay-plan pay-plan-pro',['y.p1','y.p6','y.mp.sustain']]]){
     assert.doesNotMatch(list(html,free),/course/i,free+': the free plan no longer offers courses');
     assert.deepEqual(keys(list(html,pro)),order,pro);
+    assert.doesNotMatch(list(html,pro),/curated|Guided discovery|deeper|Early access/,pro+': no benefit that nothing grants yet');
   }
   for(const [key,[en]] of Object.entries(COPY))assert.ok((key.startsWith('mem.')?landing:payments).includes(`<li data-i18n="${key}">${en}</li>`),key);
   const home=load('home').api,console_=load(undefined,[],{withConsole:true}).api;

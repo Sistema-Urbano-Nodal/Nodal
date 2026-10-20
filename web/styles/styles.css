@@ -878,6 +878,7 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .btn:focus-visible
 .pay-steps { margin: 22px 0; padding-left: 1.25em; display: grid; gap: 12px; font-size: 14.5px; line-height: 1.5; }
 .pay-steps li::marker { color: var(--green-pastel); font-weight: 800; }
 .pay-steps strong { overflow-wrap: anywhere; }
+.pay-email-line:not([hidden]) { display: block; margin-top: 4px; }
 
 /* plan cards */
 .pay-plan { background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-card);
