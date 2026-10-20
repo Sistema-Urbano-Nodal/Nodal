@@ -271,12 +271,13 @@ async function widgetHarness(respond,context={}){
 const widgetFeed=(path,config=publicData.config)=>path==='/api/fiiu?kind=news'?{...publicData,config,content:[{id:'n1',kind:'news',title:'Festival announcement',body:'Published news',url:'',createdAt:'2026-09-29T12:00:00.000Z'}],nextCursor:null}:path==='/api/fiiu'?{...publicData,content:[{kind:'material',title:'Recent material',body:'',url:''}]}:null;
 
 test('dashboard widget shows registration state, the next activity and the organiser queue before festival news',async()=>{
- const registration={...saved,labStatus:'pending',answers:{...answers,activities:['day1-am']}};
- const {widget,requests}=await widgetHarness(path=>widgetFeed(path)||(path==='/api/fiiu/registration'?{...self(registration),isAdmin:true}:{summary:{lab:{pending:3}}}));
- const text=content(widget),upcoming=new Intl.DateTimeFormat('en-CA',{year:'numeric',month:'2-digit',day:'2-digit',timeZone:'America/Lima'}).format(new Date())<='2026-10-21';
+ // The day before the festival, so day1-am (09:00–13:00 on 21 Oct) is still ahead whatever the real clock says.
+ const registration={...saved,labStatus:'pending',answers:{...answers,activities:['day1-am']}},T=Date.parse('2026-10-20T10:00:00-05:00');class FrozenDate extends Date{constructor(...args){super(...(args.length?args:[T]));}static now(){return T;}}
+ const {widget,requests}=await widgetHarness(path=>widgetFeed(path)||(path==='/api/fiiu/registration'?{...self(registration),isAdmin:true}:{summary:{lab:{pending:3}}}),{Date:FrozenDate});
+ const text=content(widget);
  assert.equal(key(widget,'statusRegistered').className,'f-pill is-ok');assert.equal(key(widget,'pendingShort').className,'f-pill is-pending');
  assert.equal(key(widget,'viewRegistration').href,'fiiu.html#registration');assert.equal(key(widget,'register'),undefined);
- assert.equal(Boolean(key(widget,'nextForYou')),upcoming);if(upcoming)assert.match(text,/El poder de lo local/);
+ assert.ok(key(widget,'nextForYou'));assert.match(text,/El poder de lo local/);
  assert.equal(key(widget,'admin').href,'fiiu-admin.html#participants');assert.ok(key(widget,'pendingReviewMany'));assert.match(text,/\b3\b/);
  assert.equal(key(widget,'allNews').href,'fiiu.html#news');assert.match(text,/Festival announcement/);assert.doesNotMatch(text,/Recent material/);
  assert.ok(key(widget,'badges'));assert.ok(key(widget,'badgesHintShort'),'the widget keeps the badge hint to one short line');assert.equal(key(widget,'badgesHint'),undefined);assert.ok(requests.includes('/api/admin/fiiu/summary'));
