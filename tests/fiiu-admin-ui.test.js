@@ -1545,6 +1545,36 @@ test('a failed attendance tick says the attendance was not saved: an ended sessi
  assert.equal(rows.attendanceSignIn[1],'No se guardó la asistencia: tu sesión terminó.');assert.equal(rows.attendanceNotSaved[1],'No se guardó la asistencia. Revisa la conexión y vuelve a marcarla.');
 });
 
+test('a tick refused for a block outside the person’s plan says so on the row, and a tick on a registration cancelled meanwhile takes it out of the list and the detail',async()=>{
+ const ana=participant('participant-a','Ana'),bruno=participant('participant-b','Bruno');let reply;
+ const h=await harness(({path,method})=>{
+  if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
+  if(method==='PUT')return reply();
+  return{registration:copy(path.endsWith('participant-b')?bruno:ana),attendance:[]};
+ },{participants:[ana,bruno]});
+ await detailButton(h,0).listeners.click();
+ const row=h.root.querySelector('.f-admin-detail').querySelectorAll('.f-attendance-row').find(node=>key(node,'statusRegistered')),input=row.querySelector('input'),note=row.querySelector('.f-inline-status');
+ const tick=async()=>{input.checked=true;await input.listeners.change();};
+ // The plan changed since the detail opened: the server refuses the tick, and the row says why instead of speaking of required fields and links.
+ reply=()=>({status:400,data:{error:'participant is not registered for this activity'}});await tick();
+ assert.equal(input.checked,false,'the tick is undone');assert.equal(note.dataset.fiiuText,'attendanceNotRegistered');
+ for(const [lang,text] of [['es','No se guardó la asistencia: esta persona no está inscrita en este bloque.'],['pt','A presença não foi salva: esta pessoa não está inscrita neste bloco.'],['en','Attendance not saved: this person is not registered for this block.']]){h.lang(lang);assert.equal(note.textContent,text,lang);}
+ // Cancelled since the detail opened: no retry can work, so it goes the way opening it would, and the toast says so, since the row has left the page.
+ reply=()=>({status:404,data:{error:'registration unavailable'}});await tick();
+ assert.deepEqual(participantNames(h),['Bruno Test'],'the cancelled row leaves the list');assert.equal(detailTitle(h),undefined,'and the detail goes');assert.ok(key(h.root.querySelector('.f-admin-detail'),'selectParticipant'));
+ assert.equal(h.message.dataset.fiiuText,'registrationGone');assert.equal(field(h.root,'searchParticipants').focused,true,'focus goes to the search box');
+ // A tick still out when the organiser moved on to someone else: the cancelled row leaves the list, and the person on screen and the focus stay.
+ let answer;const again=await harness(({path,method})=>{
+  if(path==='/api/admin/fiiu/content')return{content:[],nextCursor:null};
+  if(method==='PUT')return new Promise(resolve=>{answer=resolve;});
+  return{registration:copy(path.endsWith('participant-b')?bruno:ana),attendance:[]};
+ },{participants:[ana,bruno]});
+ await detailButton(again,0).listeners.click();const box=again.root.querySelector('.f-admin-detail').querySelectorAll('.f-attendance-row').find(node=>key(node,'statusRegistered')).querySelector('input');
+ box.checked=true;const pending=box.listeners.change();await flush();await detailButton(again,1).listeners.click();assert.equal(detailTitle(again),'Bruno Test');
+ answer({status:404,data:{error:'registration unavailable'}});await pending;
+ assert.deepEqual(participantNames(again),['Bruno Test']);assert.equal(detailTitle(again),'Bruno Test');assert.equal(again.message.dataset.fiiuText,'registrationGone');assert.notEqual(field(again.root,'searchParticipants').focused,true);
+});
+
 test('reloading after a question edit conflict keeps the typed text and talk on the latest version, and shows the other organiser’s text when that changed',async()=>{
  let current=question();
  const h=await harness(({method,body})=>{

@@ -35,6 +35,7 @@
   filterBlock:['Block','Bloque','Bloco'],filterAllBlocks:['All blocks','Todos los bloques','Todos os blocos'],
   attendanceSignIn:['Attendance not saved: your session ended.','No se guardó la asistencia: tu sesión terminó.','A presença não foi salva: sua sessão terminou.'],
   attendanceNotSaved:['Attendance not saved. Check the connection and tick it again.','No se guardó la asistencia. Revisa la conexión y vuelve a marcarla.','A presença não foi salva. Verifique a conexão e marque de novo.'],
+  attendanceNotRegistered:['Attendance not saved: this person is not registered for this block.','No se guardó la asistencia: esta persona no está inscrita en este bloque.','A presença não foi salva: esta pessoa não está inscrita neste bloco.'],
   // The Programme section: each block's details as organisers edit them. "From" and the kind labels sit before data, so they need no {placeholders}.
   programmeSection:['Programme','Programa','Programação'],
   pgHint:['Edit the details of each block. Changes reach the festival page within a minute; adding or removing a block still needs the NODAL team.','Edita los detalles de cada bloque. Los cambios llegan a la página del festival en menos de un minuto; para añadir o quitar un bloque, escribe al equipo de NODAL.','Edite os detalhes de cada bloco. As alterações chegam à página do festival em menos de um minuto; para adicionar ou remover um bloco, fale com a equipe NODAL.'],
@@ -261,10 +262,11 @@
  // carries its own sign-in link instead, so the organiser can act from where they are.
  function reportError(feedback,err){status(feedback,err);if(err?.status===401)feedback.append(document.createTextNode(' '),signInLink());else if(feedback===message)clearLater(message,message.dataset.fiiuText,12000);}
  // "Reload the latest version" re-reads only the record that changed into its form; other unsaved drafts on the page stay.
+ // A registration cancelled meanwhile is told in the toast, as opening it is: the row where it happened has left the page.
  async function action(control,fn,{feedback=message,conflict=null,reload=null,done='changesSaved'}={}){
   if(control)control.disabled=true;status(feedback,'saving');conflict?.replaceChildren();
   try{await fn();status(feedback,done);clearLater(feedback,done);resume();}
-  catch(err){if(guard(err))return;reportError(feedback,err);if(err.key==='editorConflict'&&conflict&&reload){const latest=button('reloadLatest',()=>fetchInto(latest,reload),'f-button secondary f-small');conflict.replaceChildren(latest);}}
+  catch(err){if(guard(err))return;reportError(err.key==='registrationGone'?message:feedback,err);if(err.key==='editorConflict'&&conflict&&reload){const latest=button('reloadLatest',()=>fetchInto(latest,reload),'f-button secondary f-small');conflict.replaceChildren(latest);}}
   finally{if(control)control.disabled=false;}
  }
  // Reads say "Loading…" and then clear; they never report "Changes saved.".
@@ -388,11 +390,12 @@
   label.append(input,text);row.append(label,how);if(chip)row.append(chip);row.append(note);
   // Autosave keeps the checkbox focusable: a toggle while a save is pending is undone instead of disabling the control.
   // A failed save undoes the tick and says so on the row: the shared messages speak of drafts a tick does not have. An outage and a server
-  // error read the same (the page cannot tell them apart); the status travels on, so an ended session still shows its notice.
+  // error read the same (the page cannot tell them apart); the status travels on, so an ended session still shows its notice. A block the server refuses
+  // (the plan changed since the detail opened) says so, and a registration cancelled meanwhile leaves the list and the detail, as opening it would.
   input.addEventListener('change',()=>{
    if(pending){input.checked=!input.checked;return;}
    const wanted=input.checked;pending=true;input.setAttribute('aria-disabled','true');
-   return action(null,async()=>{let result;try{result=await api('/api/admin/fiiu/registrations/'+id+'/attendance',{activityId:activity.id,attended:wanted},'PUT');}catch(err){input.checked=!wanted;const k=err?.status===401?'attendanceSignIn':err?.key==='error'?'attendanceNotSaved':'';throw k?Object.assign(Error(t(k)),{key:k,status:err.status}):err;}saved?.(activity,wanted,result?.attendance);refreshSummary({background:true});},{feedback:note,done:'attendanceSaved'}).finally(()=>{pending=false;input.removeAttribute('aria-disabled');});
+   return action(null,async()=>{let result;try{result=await api('/api/admin/fiiu/registrations/'+id+'/attendance',{activityId:activity.id,attended:wanted},'PUT');}catch(err){input.checked=!wanted;if(err?.status===404){const current=selectedParticipant===id,gone=registrationGone(id,current);if(current)selectedParticipant=shownParticipant;throw gone;}const k=err?.status===401?'attendanceSignIn':err?.status===400?'attendanceNotRegistered':err?.key==='error'?'attendanceNotSaved':'';throw k?Object.assign(Error(t(k)),{key:k,status:err.status}):err;}saved?.(activity,wanted,result?.attendance);refreshSummary({background:true});},{feedback:note,done:'attendanceSaved'}).finally(()=>{pending=false;input.removeAttribute('aria-disabled');});
   });
   return row;
  }
