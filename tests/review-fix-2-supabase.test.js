@@ -76,7 +76,7 @@ test('signing out after the access cookie expired still revokes the session thro
   const { calls, repo } = authFake();
   const result = await repo.logout({ headers: { cookie: 'nodal_refresh=stale-refresh' } });
   assert.ok(cleared(result));
-  assert.deepEqual(calls.map((call) => call.path), ['/auth/v1/token?grant_type=refresh_token', '/auth/v1/logout']);
+  assert.deepEqual(calls.map((call) => call.path), ['/auth/v1/token?grant_type=refresh_token', '/auth/v1/logout?scope=local']);
   assert.deepEqual(calls[0].body, { refresh_token: 'stale-refresh' });
   assert.equal(calls[1].auth, 'Bearer fresh-access', 'the session is revoked with the exchanged access token');
 });
@@ -84,12 +84,12 @@ test('signing out after the access cookie expired still revokes the session thro
 test('an access token GoTrue rejects falls back to the refresh token; a valid one needs nothing more', async () => {
   const rejected = authFake({ logoutStatus: (auth) => (auth === 'Bearer expired-access' ? 401 : 204) });
   assert.ok(cleared(await rejected.repo.logout({ headers: { cookie: 'nodal_session=expired-access; nodal_refresh=r1' } })));
-  assert.deepEqual(rejected.calls.map((call) => call.path), ['/auth/v1/logout', '/auth/v1/token?grant_type=refresh_token', '/auth/v1/logout']);
+  assert.deepEqual(rejected.calls.map((call) => call.path), ['/auth/v1/logout?scope=local', '/auth/v1/token?grant_type=refresh_token', '/auth/v1/logout?scope=local']);
   assert.equal(rejected.calls[2].auth, 'Bearer fresh-access');
 
   const valid = authFake();
   assert.ok(cleared(await valid.repo.logout({ headers: { cookie: 'nodal_session=live-access; nodal_refresh=r1' } })));
-  assert.deepEqual(valid.calls.map((call) => call.path), ['/auth/v1/logout'], 'no refresh token is spent on a session already revoked');
+  assert.deepEqual(valid.calls.map((call) => call.path), ['/auth/v1/logout?scope=local'], 'no refresh token is spent on a session already revoked');
   assert.equal(valid.calls[0].auth, 'Bearer live-access');
 });
 
@@ -102,7 +102,16 @@ test('sign-out always clears the cookies: no cookies, a dead refresh token or an
   assert.equal(dead.calls.length, 1);
   const down = authFake({ logoutStatus: () => 503 });
   assert.ok(cleared(await down.repo.logout({ headers: { cookie: 'nodal_session=a; nodal_refresh=r' } })));
-  assert.deepEqual(down.calls.map((call) => call.path), ['/auth/v1/logout'], 'an outage is not a reason to rotate the refresh token');
+  assert.deepEqual(down.calls.map((call) => call.path), ['/auth/v1/logout?scope=local'], 'an outage is not a reason to rotate the refresh token');
+});
+
+test('signing out ends only this browser session, so the same account stays signed in on the projector and the desk phone', async () => {
+  const live = authFake();
+  await live.repo.logout({ headers: { cookie: 'nodal_session=live-access; nodal_refresh=r1' } });
+  assert.deepEqual(live.calls.map((call) => call.path), ['/auth/v1/logout?scope=local'], 'GoTrue reads a missing scope as global and ends every session of the account');
+  const stale = authFake();
+  await stale.repo.logout({ headers: { cookie: 'nodal_refresh=stale-refresh' } });
+  assert.deepEqual(stale.calls.map((call) => call.path), ['/auth/v1/token?grant_type=refresh_token', '/auth/v1/logout?scope=local'], 'the refresh-redeemed revoke is local too');
 });
 
 /* ---------- the public catalog listing ---------- */

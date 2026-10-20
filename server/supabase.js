@@ -1047,7 +1047,9 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       if (!isActive(user)) return { status: 401, error: 'invalid email or password', cookies: [] };
       return { status: 200, user, cookies: sessionCookies(data, env) };
     },
-    /* Revokes the session at Supabase, not only in this browser. The access
+    /* Revokes this browser's session at Supabase, not only its cookies; scope
+       local keeps the account's other devices (a projector, a desk phone)
+       signed in, where GoTrue's default would end them all. The access
        cookie lives about an hour, so a page left open longer signs out with
        only the refresh token; that token stays redeemable until revoked, so it
        is exchanged once for an access token that can sign the session out. */
@@ -1056,7 +1058,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       const accessToken = cookies.get(ACCESS_COOKIE);
       const refreshToken = cookies.get(REFRESH_COOKIE);
       const revoke = async (token) => {
-        try { await browser.auth('/logout', { method: 'POST', auth: token, signal: AbortSignal.timeout(5000) }); return 'revoked'; }
+        try { await browser.auth('/logout', { method: 'POST', query: { scope: 'local' }, auth: token, signal: AbortSignal.timeout(5000) }); return 'revoked'; }
         catch (error) { return [401, 403].includes(error?.status) ? 'rejected' : 'failed'; }
       };
       const outcome = accessToken ? await revoke(accessToken) : 'rejected';
