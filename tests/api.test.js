@@ -10,7 +10,8 @@ import {
   createApp as createProductionApp, createCitySearch, graphFingerprint, staticSourcePath, validateRuntimeConfig, publicBillingConfig,
 } from '../server/server.js';
 import { createStore } from '../server/store.js';
-import { createDatabase } from '../server/db.js';
+import { createDatabase, createUser } from '../server/db.js';
+import { createSession } from '../server/auth.js';
 import { MemoryCache } from '../server/cache.js';
 import { createRepository } from '../server/repository.js';
 
@@ -561,20 +562,6 @@ test('production runtime config fails closed when deploy-critical env is missing
     PUBLIC_BASE_URL: 'https://nodal.example',
     COOKIE_SECURE: 'true',
     PAYMENTS_MODE: 'live',
-    STRIPE_SECRET_KEY: LIVE_STRIPE_SECRET,
-    STRIPE_PRICE_MONTHLY: 'price_monthly123',
-    STRIPE_PRICE_ANNUAL: 'price_annual123',
-    STRIPE_WEBHOOK_SECRET: LIVE_STRIPE_WEBHOOK_SECRET,
-  }), /SUBSCRIPTION_PRICE_MONTHLY_LABEL/);
-  assert.throws(() => validateRuntimeConfig({
-    NODE_ENV: 'production',
-    DATA_BACKEND: 'supabase',
-    NEXT_PUBLIC_SUPABASE_URL: 'https://project.supabase.co',
-    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_public123',
-    SUPABASE_SECRET_KEY: 'sb_secret_server123',
-    PUBLIC_BASE_URL: 'https://nodal.example',
-    COOKIE_SECURE: 'true',
-    PAYMENTS_MODE: 'live',
     STRIPE_SECRET_KEY: `${LIVE_STRIPE_SECRET} extra`,
     STRIPE_PRICE_MONTHLY: 'price_monthly123',
     STRIPE_PRICE_ANNUAL: 'price_annual123',
@@ -616,98 +603,63 @@ test('production runtime config fails closed when deploy-critical env is missing
   }));
 });
 
-test('billing config is served from environment, not frontend literals', async (t) => {
-  const keys = [
-    'SUBSCRIPTION_PRICE_MONTHLY_LABEL',
-    'SUBSCRIPTION_MONTHLY_PERIOD',
-    'SUBSCRIPTION_PRICE_ANNUAL_LABEL',
-    'SUBSCRIPTION_ANNUAL_PERIOD',
-    'SUBSCRIPTION_ANNUAL_BADGE',
-  ];
-  const old = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
-  process.env.SUBSCRIPTION_PRICE_MONTHLY_LABEL = 'US$12';
-  process.env.SUBSCRIPTION_MONTHLY_PERIOD = '/ month';
-  process.env.SUBSCRIPTION_PRICE_ANNUAL_LABEL = 'US$120';
-  process.env.SUBSCRIPTION_ANNUAL_PERIOD = '/ year';
-  process.env.SUBSCRIPTION_ANNUAL_BADGE = 'configured annual';
-  t.after(() => {
-    for (const key of keys) {
-      if (old[key] === undefined) delete process.env[key];
-      else process.env[key] = old[key];
-    }
-  });
-  // Amounts are published only when checkout can run: outside pilot mode, with Stripe configured.
-  const payments = { config: { secretKey: 'sk_test_x', webhookSecret: 'whsec_x', prices: { monthly: 'price_m', annual: 'price_a' } }, fetchImpl: fetch };
-  const base = await bootApp(t, createApp({ store: createStore(), payments }));
-  const res = await fetch(`${base}/api/billing/config`);
-  assert.equal(res.status, 200);
-  const body = await res.json();
-  assert.equal(body.checkout, true);
-  assert.equal(body.cycles.monthly.amount, 'US$12');
-  assert.equal(body.cycles.monthly.per, '/ month');
-  assert.equal(body.cycles.annual.amount, 'US$120');
-  assert.equal(body.cycles.annual.per, '/ year');
-  assert.equal(body.cycles.annual.badge, 'configured annual');
-});
+// The Supporting membership is sold through Mercado Pago links Mariana creates in her own Mercado Pago (no API, no credentials).
+const LINK_ENV = ['MERCADOPAGO_LINK_ANNUAL', 'MERCADOPAGO_LINK_INSTALLMENTS', 'SUBSCRIPTION_PRICE_ANNUAL_LABEL', 'SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL', 'SUBSCRIPTION_ANNUAL_PERIOD', 'NODE_ENV', 'PAYMENTS_MODE'];
+function withEnv(t, vars) {
+  const old = Object.fromEntries(LINK_ENV.map((key) => [key, process.env[key]]));
+  for (const key of LINK_ENV) delete process.env[key];
+  Object.assign(process.env, vars);
+  t.after(() => { for (const key of LINK_ENV) { if (old[key] === undefined) delete process.env[key]; else process.env[key] = old[key]; } });
+}
+const ONCE = 'https://link.mercadopago.com.pe/nodal';
+const TWICE = 'https://www.mercadopago.com.pe/subscriptions/checkout?preapproval_plan_id=2c938084';
 
-test('configured prices stay "Soon" while checkout cannot run, so the landing page never advertises an unbuyable price', async (t) => {
-  const keys = ['SUBSCRIPTION_PRICE_MONTHLY_LABEL', 'SUBSCRIPTION_MONTHLY_PERIOD', 'SUBSCRIPTION_PRICE_ANNUAL_LABEL', 'SUBSCRIPTION_ANNUAL_PERIOD', 'SUBSCRIPTION_ANNUAL_BADGE', 'SUBSCRIPTION_MONTHLY_BADGE'];
-  const old = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
-  Object.assign(process.env, {
-    SUBSCRIPTION_PRICE_MONTHLY_LABEL: 'US$10', SUBSCRIPTION_MONTHLY_PERIOD: '/ month', SUBSCRIPTION_MONTHLY_BADGE: 'popular',
-    SUBSCRIPTION_PRICE_ANNUAL_LABEL: 'US$100', SUBSCRIPTION_ANNUAL_PERIOD: '/ year', SUBSCRIPTION_ANNUAL_BADGE: '2 months free',
-  });
-  t.after(() => {
-    for (const key of keys) {
-      if (old[key] === undefined) delete process.env[key];
-      else process.env[key] = old[key];
-    }
-  });
-  const stripe = { config: { secretKey: 'sk_test_x', webhookSecret: 'whsec_x', prices: { monthly: 'price_m', annual: 'price_a' } }, fetchImpl: fetch };
-  for (const [name, options] of [['pilot mode', { pilotMode: true, payments: stripe }], ['no Stripe configuration', { pilotMode: false, payments: { config: null, fetchImpl: fetch } }]]) {
-    const base = await bootApp(t, createApp({ store: createStore(), ...options }));
-    const body = await (await fetch(`${base}/api/billing/config`)).json();
-    assert.equal(body.checkout, false, name);
-    for (const cycle of ['monthly', 'annual']) {
-      assert.deepEqual([body.cycles[cycle].amount, body.cycles[cycle].per, body.cycles[cycle].badge], ['Soon', '', ''], `${name} ${cycle}`);
-    }
-    assert.equal(body.cycles.annual.label, 'Annual', 'labels and notes stay');
-    assert.doesNotMatch(JSON.stringify(body), /US\$|2 months free|popular/, name);
+test('billing config offers the Mercado Pago links set in the environment, with their prices, even during the course pilot', async (t) => {
+  withEnv(t, { MERCADOPAGO_LINK_ANNUAL: ONCE, SUBSCRIPTION_PRICE_ANNUAL_LABEL: 'S/ 240', MERCADOPAGO_LINK_INSTALLMENTS: TWICE, SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL: '2 × S/ 120' });
+  for (const pilotMode of [true, false]) {
+    const base = await bootApp(t, createApp({ store: createStore(), pilotMode }));
+    const res = await fetch(`${base}/api/billing/config`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), {
+      checkout: true, provider: 'mercadopago',
+      annual: { amount: 'S/ 240', per: '/ year' },
+      options: [{ id: 'once', url: ONCE, amount: 'S/ 240' }, { id: 'installments', url: TWICE, amount: '2 × S/ 120' }],
+    }, `pilot ${pilotMode}`);
   }
-  // A live deployment must still name its prices even while checkout is off.
-  assert.throws(() => publicBillingConfig({ NODE_ENV: 'production', PAYMENTS_MODE: 'live' }), /SUBSCRIPTION_PRICE_MONTHLY_LABEL/);
-  assert.equal(publicBillingConfig({ SUBSCRIPTION_PRICE_MONTHLY_LABEL: 'US$10' }, { checkout: true }).cycles.monthly.amount, 'US$10');
-  assert.equal(publicBillingConfig({ SUBSCRIPTION_PRICE_MONTHLY_LABEL: 'US$10' }).checkout, false);
+  // Either option alone is offered by itself; the year's price falls back to the installments when nothing is paid at once.
+  assert.deepEqual(publicBillingConfig({ MERCADOPAGO_LINK_INSTALLMENTS: TWICE, SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL: '2 × S/ 120' }).annual, { amount: '2 × S/ 120', per: '' });
+  assert.deepEqual(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: 'https://mpago.la/2Xh3k', SUBSCRIPTION_PRICE_ANNUAL_LABEL: 'S/ 240', SUBSCRIPTION_ANNUAL_PERIOD: 'al año' }).options.map((o) => o.id), ['once']);
+  assert.equal(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: 'https://mpago.la/2Xh3k', SUBSCRIPTION_PRICE_ANNUAL_LABEL: 'S/ 240', SUBSCRIPTION_ANNUAL_PERIOD: 'al año' }).annual.per, 'al año');
 });
 
-test('billing config reports "Soon" while no launch price is configured', async (t) => {
-  const keys = [
-    'SUBSCRIPTION_PRICE_MONTHLY_LABEL',
-    'SUBSCRIPTION_MONTHLY_PERIOD',
-    'SUBSCRIPTION_PRICE_ANNUAL_LABEL',
-    'SUBSCRIPTION_ANNUAL_PERIOD',
-  ];
-  const old = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
-  delete process.env.SUBSCRIPTION_PRICE_MONTHLY_LABEL;
-  delete process.env.SUBSCRIPTION_PRICE_ANNUAL_LABEL;
-  process.env.SUBSCRIPTION_MONTHLY_PERIOD = '/ month';
-  process.env.SUBSCRIPTION_ANNUAL_PERIOD = '/ year';
-  t.after(() => {
-    for (const key of keys) {
-      if (old[key] === undefined) delete process.env[key];
-      else process.env[key] = old[key];
-    }
-  });
-  const base = await boot(t);
-  const res = await fetch(`${base}/api/billing/config`);
-  assert.equal(res.status, 200);
-  const body = await res.json();
-  assert.equal(body.cycles.monthly.amount, 'Soon');
-  assert.equal(body.cycles.annual.amount, 'Soon');
-  // a dangling "/ month" next to "Soon" would read as a price
-  assert.equal(body.cycles.monthly.per, '');
-  assert.equal(body.cycles.annual.per, '');
+test('only an https Mercado Pago link with its price is offered; anything else keeps the membership at "Soon"', () => {
+  const soon = { checkout: false, provider: null, annual: { amount: 'Soon', per: '' }, options: [] };
+  assert.deepEqual(publicBillingConfig({}), soon, 'nothing configured');
+  for (const link of ['http://link.mercadopago.com.pe/nodal', 'https://evil.example/pay', 'https://mercadopago.com.pe.evil.example/pay', 'https://user:pass@link.mercadopago.com.pe/nodal',
+    'javascript:alert(1)', 'not a url', 'https://www.mercadopago.com.ar/subscriptions/checkout?preapproval_plan_id=1', '   ']) {
+    assert.deepEqual(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: link, SUBSCRIPTION_PRICE_ANNUAL_LABEL: 'S/ 240' }), soon, link);
+  }
+  assert.deepEqual(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: ONCE }), soon, 'a link without its price');
+  assert.deepEqual(publicBillingConfig({ SUBSCRIPTION_PRICE_ANNUAL_LABEL: 'S/ 240', SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL: '2 × S/ 120' }), soon, 'prices without links');
+  assert.equal(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: ' https://MERCADOPAGO.com.pe/x ', SUBSCRIPTION_PRICE_ANNUAL_LABEL: ' S/ 240 ' }).options[0].url, 'https://mercadopago.com.pe/x', 'trimmed and normalised');
+  // A production deployment without links is fine: the page simply says "Soon".
+  assert.deepEqual(publicBillingConfig({ NODE_ENV: 'production', PAYMENTS_MODE: 'live' }), soon);
+  assert.doesNotThrow(() => validateRuntimeConfig({ NODE_ENV: 'production', DATABASE_PATH: '/tmp/nodal-test.sqlite', PUBLIC_BASE_URL: 'https://nodal.example', COOKIE_SECURE: 'true', MERCADOPAGO_LINK_ANNUAL: 'https://evil.example/pay' }));
 });
+
+test('the payments page opens during the course pilot once a Mercado Pago link is offered, and still leads to the courses without one', async (t) => {
+  withEnv(t, {});
+  const { db, base } = await bootDbHandle(t, { pilotMode: true });
+  const member = createUser(db, { fullName: 'Supporter To Be', email: 'supporter@example.test', passwordHash: 'unused' });
+  const cookie = createSession(db, member.id).cookie.split(';')[0];
+  const page = () => fetch(`${base}/payments.html`, { redirect: 'manual', headers: { Cookie: cookie } });
+  assert.equal((await page()).headers.get('location'), '/courses.html');
+  Object.assign(process.env, { MERCADOPAGO_LINK_ANNUAL: ONCE, SUBSCRIPTION_PRICE_ANNUAL_LABEL: 'S/ 240' });
+  assert.equal((await page()).status, 200);
+});
+
+
+
 
 test('landing membership price is loaded from billing config instead of a hardcoded amount', async (t) => {
   const base = await boot(t);
@@ -1687,43 +1639,7 @@ test('the globe draws real relationships, filters by topic, and honours a member
   assert.ok(all.body.topics.some((x) => x.name === 'Mobility' && x.members === 2));
 });
 
-test('billing config still answers "Soon" in production while payments are not live', async (t) => {
-  /* The documented pre-launch deployment is NODE_ENV=production with
-     PAYMENTS_MODE=preview and no SUBSCRIPTION_* set. That combination used to
-     throw out of publicBillingConfig and return 500 on every call. */
-  const keys = ['NODE_ENV', 'PAYMENTS_MODE', 'SUBSCRIPTION_PRICE_MONTHLY_LABEL', 'SUBSCRIPTION_PRICE_ANNUAL_LABEL'];
-  const old = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
-  process.env.NODE_ENV = 'production';
-  process.env.PAYMENTS_MODE = 'preview';
-  delete process.env.SUBSCRIPTION_PRICE_MONTHLY_LABEL;
-  delete process.env.SUBSCRIPTION_PRICE_ANNUAL_LABEL;
-  t.after(() => {
-    for (const key of keys) {
-      if (old[key] === undefined) delete process.env[key];
-      else process.env[key] = old[key];
-    }
-  });
-  const base = await boot(t);
-  const res = await fetch(`${base}/api/billing/config`);
-  assert.equal(res.status, 200);
-  const body = await res.json();
-  assert.equal(body.cycles.monthly.amount, 'Soon');
-  assert.equal(body.cycles.annual.amount, 'Soon');
-});
 
-test('a live payments deployment must still name a price', () => {
-  assert.throws(() => validateRuntimeConfig({
-    NODE_ENV: 'production',
-    DATABASE_PATH: '/tmp/nodal-test.sqlite',
-    PUBLIC_BASE_URL: 'https://nodal.example',
-    COOKIE_SECURE: 'true',
-    PAYMENTS_MODE: 'live',
-    STRIPE_SECRET_KEY: LIVE_STRIPE_SECRET,
-    STRIPE_PRICE_MONTHLY: 'price_monthly123',
-    STRIPE_PRICE_ANNUAL: 'price_annual123',
-    STRIPE_WEBHOOK_SECRET: LIVE_STRIPE_WEBHOOK_SECRET,
-  }), /SUBSCRIPTION_PRICE_MONTHLY_LABEL/);
-});
 
 test('a LinkedIn link is validated wherever it arrives, not only inside partC', async (t) => {
   const base = await bootDb(t);

@@ -345,52 +345,42 @@ function publicBaseUrl(env = process.env) {
   }
 }
 
-function readRequiredEnv(env, key, { productionRequired = false } = {}) {
-  const value = String(env[key] ?? '').trim();
-  if (!value && productionRequired) throw new Error(`${key} is required in production`);
-  return value;
-}
-
-/* Shown wherever a price would go while launch pricing is not announced yet,
-   and while checkout cannot run (pilot mode, or no Stripe configuration): a
-   price next to a membership nobody can buy reads as an offer. A period
-   ("/ month") and a badge ("2 months free") are only meaningful next to a real
-   amount, so they are suppressed with it. */
+/* Shown wherever a price would go while nothing can be paid: a price next to a
+   membership nobody can buy reads as an offer, and a period ("/ year") only
+   means something next to a real amount, so it is suppressed with it. */
 const PRICE_UNANNOUNCED = 'Soon';
 
-export function publicBillingConfig(env = process.env, { checkout = false } = {}) {
-  /* Only a live payments deployment must name a price. Requiring one of every
-     production deployment made the "Soon" state above unreachable there — the
-     documented pre-launch setup (NODE_ENV=production, PAYMENTS_MODE=preview,
-     no SUBSCRIPTION_* set) turned this endpoint into a 500 on every call.
-     The labels are still read (and required in live mode) when checkout is
-     off; they are only withheld from the response. */
-  const productionRequired = env.NODE_ENV === 'production' && env.PAYMENTS_MODE === 'live';
-  const monthlyLabel = readRequiredEnv(env, 'SUBSCRIPTION_PRICE_MONTHLY_LABEL', { productionRequired });
-  const annualLabel = readRequiredEnv(env, 'SUBSCRIPTION_PRICE_ANNUAL_LABEL', { productionRequired });
-  const monthlyAmount = checkout ? monthlyLabel : '';
-  const annualAmount = checkout ? annualLabel : '';
-  return {
-    checkout: Boolean(checkout),
-    cycles: {
-      monthly: {
-        label: env.SUBSCRIPTION_MONTHLY_LABEL || 'Monthly',
-        amount: monthlyAmount || PRICE_UNANNOUNCED,
-        per: monthlyAmount ? (env.SUBSCRIPTION_MONTHLY_PERIOD || '') : '',
-        note: env.SUBSCRIPTION_MONTHLY_NOTE || 'Cancel anytime.',
-        renews: env.SUBSCRIPTION_MONTHLY_RENEWS || 'Every month, until you cancel',
-        badge: monthlyAmount ? (env.SUBSCRIPTION_MONTHLY_BADGE || '') : '',
-      },
-      annual: {
-        label: env.SUBSCRIPTION_ANNUAL_LABEL || 'Annual',
-        amount: annualAmount || PRICE_UNANNOUNCED,
-        per: annualAmount ? (env.SUBSCRIPTION_ANNUAL_PERIOD || '') : '',
-        note: env.SUBSCRIPTION_ANNUAL_NOTE || '',
-        renews: env.SUBSCRIPTION_ANNUAL_RENEWS || 'Every 12 months, until you cancel',
-        badge: annualAmount ? (env.SUBSCRIPTION_ANNUAL_BADGE || '') : '',
-      },
-    },
-  };
+/* The Supporting membership is annual and sold through links Mariana creates in
+   her own Mercado Pago (a payment link for the year, and one for two
+   installments); NODAL only sends members there and the team adds each payer.
+   A link counts only on https and on Mercado Pago Peru or its short-link hosts,
+   so a typo or a foreign address hides the button instead of sending money
+   elsewhere. Each bad value is logged once per instance. */
+const PAYMENT_LINK_HOST = /^(?:[a-z0-9-]+\.)*mercadopago\.com\.pe$|^mpago\.l[ai]$/;
+const PAYMENT_OPTIONS = [['once', 'MERCADOPAGO_LINK_ANNUAL', 'SUBSCRIPTION_PRICE_ANNUAL_LABEL'], ['installments', 'MERCADOPAGO_LINK_INSTALLMENTS', 'SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL']];
+const rejectedPaymentLinks = new Set();
+function paymentLink(value, key) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol === 'https:' && !url.username && !url.password && PAYMENT_LINK_HOST.test(url.hostname)) return url.href;
+  } catch { /* reported below */ }
+  if (!rejectedPaymentLinks.has(key + raw)) { rejectedPaymentLinks.add(key + raw); console.warn(`${key} is not an https Mercado Pago Peru link; its payment option stays hidden`); }
+  return null;
+}
+export function paymentOptions(env = process.env) {
+  return PAYMENT_OPTIONS.flatMap(([id, linkKey, priceKey]) => {
+    const url = paymentLink(env[linkKey], linkKey), amount = String(env[priceKey] ?? '').trim();
+    return url && amount ? [{ id, url, amount }] : [];
+  });
+}
+
+export function publicBillingConfig(env = process.env) {
+  const options = paymentOptions(env), once = options.find((option) => option.id === 'once');
+  if (!options.length) return { checkout: false, provider: null, annual: { amount: PRICE_UNANNOUNCED, per: '' }, options: [] };
+  // The year's price is the single payment's; with only installments offered, their own wording ("2 × S/ 120") stands for it.
+  return { checkout: true, provider: 'mercadopago', annual: { amount: (once ?? options[0]).amount, per: once ? (env.SUBSCRIPTION_ANNUAL_PERIOD || '/ year') : '' }, options };
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -547,7 +537,6 @@ export function validateRuntimeConfig(env = process.env) {
   if (env.NODE_ENV === 'production' && String(env.FIIU_CHECKIN_NOW ?? '').trim()) throw new Error('FIIU_CHECKIN_NOW must not be set in production');
   checkinClock(env, backend);
   paymentsConfig(env);
-  if (env.NODE_ENV === 'production' && env.PAYMENTS_MODE === 'live') publicBillingConfig(env);
 }
 
 function send(res, status, body, headers = {}) {
@@ -1360,7 +1349,8 @@ export function createApp({
           send(res, 403, { error: 'administrator access required' });
           return;
         }
-        if(pilotMode && canonical==='/payments.html') { redirect(res,'/courses.html');return; }
+        // The course pilot keeps the payments page closed until a Mercado Pago link is offered.
+        if(pilotMode && canonical==='/payments.html' && !paymentOptions(process.env).length) { redirect(res,'/courses.html');return; }
         if (useDb && canonical === '/login.html' && sessionUser) {
           redirect(res, safeNext(url.searchParams.get('next')));
           return;
@@ -1587,8 +1577,8 @@ export function createApp({
       }
 
       if (req.method === 'GET' && pathname === '/api/billing/config') {
-        // Amounts are published only when checkout could actually run.
-        send(res, 200, publicBillingConfig(process.env, { checkout: !pilotMode && Boolean(payments?.config) }));
+        // Amounts are published only next to a link that can take the payment.
+        send(res, 200, publicBillingConfig(process.env));
         return;
       }
 
