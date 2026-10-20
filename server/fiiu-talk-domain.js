@@ -113,8 +113,10 @@ export function decodeTalkFile(input={}){
  }
  return {name:file.name,mime:file.mime,size:file.size,bytes:file.bytes,width,height,thumb};
 }
-// An image without a thumbnail stands in for one only while it is no larger than a thumbnail may be.
+// A thumbnail is served only while it is no larger than a thumbnail may be; an image without one stands in for it only within the upload limits.
 export const thumbnailSized=(bytes,mime)=>{const found=imageSize(bytes,mime);return Boolean(found)&&Math.max(found.width,found.height)<=TALK_IMAGE_LIMITS.thumbSide;};
+export const drawable=(width,height)=>width>0&&height>0&&Math.max(width,height)<=TALK_IMAGE_LIMITS.side&&width*height<=TALK_IMAGE_LIMITS.pixels;
+export const drawableBytes=(bytes,mime)=>{const found=imageSize(bytes,mime);return Boolean(found)&&drawable(found.width,found.height);};
 /* 'María G.': names are shown to everyone in the chat and on the projector, so control characters become spaces and
    direction overrides go (they could reorder the text after the name); the 60 character cap counts code points. */
 export function displayName(first,last){

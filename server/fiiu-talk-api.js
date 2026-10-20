@@ -3,7 +3,7 @@ import {fail,identifier,csv,attachmentFilename,encodeCursor,decodeCursor} from '
 import {bodyJson,createByteBudget,matchesEtag,DOWNLOAD_LIMITS} from './courses-api.js';
 import {EVENT_ID,FIIU_EVENT} from './fiiu-domain.js';
 import {packBits} from './qr.js';
-import {TALK_LIMITS,TALK_IMAGE_LIMITS,talkActivity,normalizeQuestion,normalizeMessage,decodeTalkFile,thumbnailSized,namesFor,questionView,messageView,goneView,activityView} from './fiiu-talk-domain.js';
+import {TALK_LIMITS,talkActivity,normalizeQuestion,normalizeMessage,decodeTalkFile,thumbnailSized,drawable,drawableBytes,namesFor,questionView,messageView,goneView,activityView} from './fiiu-talk-domain.js';
 
 // The page keeps a viewer's unsent text in the tab under this name, so the next person signing in on a shared phone never gets it. A digest, not the
 // id: a conversation read never carries user ids.
@@ -414,11 +414,12 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     // The file is read beside the registration; its message and question (for someone else's file) depend on it.
     const fileId=identifier(param),[{organiser},file]=await Promise.all([access(user),store.findFile(fileId)]);
     if(!file||file.status!=='ready'||file.eventId!==EVENT_ID||!(organiser||file.userId===user.id||await shownToPeers(file)))fileUnavailable(404);
-    /* A file without a thumbnail (a PDF, or a photo the phone could not decode) answers ?size=thumb with itself, an image
-       only while it is thumbnail sized: every chat row and the projector draw it. The stored size refuses a larger one
-       without a Storage read; the bytes decide for rows stored before sizes were read from them, thumbnails included. */
+    /* A file without a thumbnail (a PDF, or a photo the phone could not redraw and sent as it is) answers ?size=thumb with
+       itself, an image only within the upload limits, since every chat row and the projector draw it; a stored thumbnail
+       only while it is thumbnail sized. A stored size over the limits refuses it without a Storage read; the bytes decide
+       for rows stored before sizes were read from them, thumbnails included. */
     const small=url.searchParams.get('size')==='thumb',thumb=small&&Boolean(file.thumbSize),whole=small&&!thumb&&file.mime.startsWith('image/');
-    if(whole&&Math.max(file.width??0,file.height??0)>TALK_IMAGE_LIMITS.thumbSide)noThumbnail();
+    if(whole&&file.width!=null&&file.height!=null&&!drawable(file.width,file.height))noThumbnail();
     // An id never names other bytes, so the browser keeps the file privately and revalidates for free.
     const etag=`"${file.id}${small?'-thumb':''}"`,caching={'Cache-Control':'private, max-age=86400, immutable',ETag:etag,Vary:'Cookie'};
     if(matchesEtag(req.headers['if-none-match'],etag)){send(res,304,'',caching);return true;}
@@ -426,7 +427,7 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
     const budget=organiser?{ok:true}:downloads.take(`download:${user.id}`,thumb?file.thumbSize:file.size,clock());
     if(!budget.ok){send(res,429,{error:'download limit reached; try again later',code:'download_rate'},{'Retry-After':String(budget.retryAfter)});return true;}
     const bytes=await (thumb?thumbnail(file):store.getBytes(file,'full')),filename=attachmentFilename(file.name,file.mime);
-    if((thumb||whole)&&!thumbnailSized(bytes,thumb?thumbType(bytes):file.mime))noThumbnail();
+    if(thumb?!thumbnailSized(bytes,thumbType(bytes)):whole&&!drawableBytes(bytes,file.mime))noThumbnail();
     // Images open in the tab; PDFs download, because Chrome refuses its PDF viewer under a sandbox CSP.
     const disposition=file.mime==='application/pdf'?'attachment':'inline';
     send(res,200,bytes,{...caching,'Content-Type':thumb?thumbType(bytes):file.mime,'Content-Disposition':`${disposition}; filename="${filename.replace(/[^a-zA-Z0-9._ -]/g,'_')}"; filename*=UTF-8''${encodeURIComponent(filename)}`,

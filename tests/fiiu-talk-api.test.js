@@ -710,7 +710,7 @@ test('festival files: types, sizes, thumbnails, attach rules, download access an
  assert.equal((await call(`/api/fiiu/files/${file.id}`)).status,404);
 });
 
-test('?size=thumb only ever answers with a thumbnail-sized image, whatever size the upload claimed: an image without one is refused when larger',async t=>{
+test('?size=thumb never answers with an image too large to draw, whatever size the upload claimed: a photo sent without a thumbnail stands in for one within the upload limits',async t=>{
  const reads=[];
  const {talkStore,users,call,ask,post,upload}=await setup(t,{wrapTalk:store=>({...store,getBytes:async(file,variant)=>{reads.push(variant);return store.getBytes(file,variant);}})});
  const q=await ask(),png=(width,height)=>pngOf(width,height).toString('base64');
@@ -725,16 +725,22 @@ test('?size=thumb only ever answers with a thumbnail-sized image, whatever size 
  const thumbOf=(id,headers={})=>call(`/api/fiiu/files/${id}?size=thumb`,{actor:'other',headers});
  const served=await thumbOf(small.id);assert.equal(served.status,200);assert.equal(served.headers.get('etag'),`"${small.id}-thumb"`);assert.equal(Buffer.from(await served.arrayBuffer()).toString('base64'),png(400,300));
  reads.length=0;
- const refused=await thumbOf(big.id);assert.equal(refused.status,404);assert.equal((await refused.json()).code,'thumbnail_unavailable');
- assert.deepEqual(reads,[],'its stored size refuses it before Storage is read');
- assert.equal((await call(`/api/fiiu/files/${big.id}`,{actor:'other'})).status,200,'the image itself still opens full size');
+ // A phone that cannot redraw a photo sends it as it is, without a thumbnail: within the upload limits, it is drawn whole.
+ const whole=await thumbOf(big.id);assert.equal(whole.status,200);assert.equal(whole.headers.get('etag'),`"${big.id}-thumb"`);assert.equal(Buffer.from(await whole.arrayBuffer()).toString('base64'),png(2000,1500));
+ assert.equal((await call(`/api/fiiu/files/${big.id}`,{actor:'other'})).status,200,'the image itself opens full size');
  // A row stored before sizes were read from the bytes keeps the size its upload claimed, so the bytes decide.
  const id=randomUUID(),bytes=pngOf(20000,20000);
  const row=await talkStore.reserveFile({id,eventId:'fiiu-2026',userId:users.member.id,name:'old.png',mime:'image/png',size:bytes.length,width:400,height:400,thumbSize:null,storagePath:`fiiu/${users.member.id}/${id}`,createdAt:new Date().toISOString()});
  await talkStore.putBytes(row,'full',bytes);await talkStore.setFileStatus(id,'pending','ready');
  assert.equal((await post(q,'',{fileIds:[id]})).status,201);
- assert.equal((await thumbOf(id)).status,404);
+ reads.length=0;const old=await thumbOf(id);assert.equal(old.status,404);assert.equal((await old.json()).code,'thumbnail_unavailable');assert.deepEqual(reads,['full'],'its claimed size passes, so the bytes refuse it');
  assert.equal((await thumbOf(id,{'If-None-Match':`"${id}"`})).status,404,'a copy cached under the full image’s tag is not confirmed');
+ // A stored size over the limits refuses it before Storage is read.
+ const wide=randomUUID(),panorama=pngOf(9000,1000);
+ const wideRow=await talkStore.reserveFile({id:wide,eventId:'fiiu-2026',userId:users.member.id,name:'wide.png',mime:'image/png',size:panorama.length,width:9000,height:1000,thumbSize:null,storagePath:`fiiu/${users.member.id}/${wide}`,createdAt:new Date().toISOString()});
+ await talkStore.putBytes(wideRow,'full',panorama);await talkStore.setFileStatus(wide,'pending','ready');
+ assert.equal((await post(q,'',{fileIds:[wide]})).status,201);
+ reads.length=0;assert.equal((await thumbOf(wide)).status,404);assert.deepEqual(reads,[]);
  // So does a thumbnail stored then: one declaring 5000 px a side is never served, while its image still opens.
  const legacy=randomUUID(),preview=jpegOf(5000,5000);
  const withThumb=await talkStore.reserveFile({id:legacy,eventId:'fiiu-2026',userId:users.member.id,name:'old.jpg',mime:'image/jpeg',size:41,width:1600,height:900,thumbSize:preview.length,storagePath:`fiiu/${users.member.id}/${legacy}`,createdAt:new Date().toISOString()});
