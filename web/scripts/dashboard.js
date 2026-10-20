@@ -1189,9 +1189,10 @@
       const city = cleanCity(uc.city.value);
       const role = cleanRole(uc.role.value);
       const topics = [...uc.topics.querySelectorAll('input:checked')].map((i) => i.value);
-      if (!name || !city || !role || topics.length === 0) {
+      // The server refuses a name under two characters, and every later save sends the name, so the dialog does too.
+      if (name.length < 2 || !city || !role || topics.length === 0) {
         e.preventDefault();
-        uc.error.textContent = !name ? t('d.uc.errName')
+        uc.error.textContent = name.length < 2 ? t('d.uc.errName')
           : !city ? t('d.uc.errCity')
             : !role ? t('d.uc.errRole')
               : t('d.uc.errTopic');

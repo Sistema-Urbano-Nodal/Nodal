@@ -782,3 +782,20 @@ test('every self-assessment level a member picks is saved and stays on screen, n
   assert.deepEqual([shown(0), shown(1)], [2, 3]);
   assert.equal(c.patches.length, 3);
 });
+
+test('the profile dialog refuses a one-letter name, as the server does, instead of breaking every later save', async () => {
+  const c = memberConsole(ana);
+  await flush();
+  c.ids.userBtn.listeners.click();
+  const submit = () => { let refused = false; c.ids.userForm.listeners.submit({ preventDefault() { refused = true; } }); return refused; };
+  c.ids.ucName.value = ' A ';
+  assert.equal(submit(), true, 'the dialog stays open');
+  assert.equal(c.ids.ucError.hidden, false);
+  assert.equal(c.ids.ucError.textContent, 'Add your name to save your profile.');
+  await flush();
+  assert.equal(c.patches.length, 0, 'nothing the server would refuse is sent');
+  c.ids.ucName.value = 'Al';
+  assert.equal(submit(), false);
+  await flush();
+  assert.deepEqual(c.patches.map((p) => p.fullName), ['Al']);
+});
