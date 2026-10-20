@@ -910,7 +910,9 @@
           btn.title = t('d.assess.referenceLocked');
         }
         btn.addEventListener('click', () => {
-          topic.level = level;
+          // A save replaces U with the server's copy, so the topic is the one in U now, not the object this list was drawn from.
+          const current = U.topics.find((x) => x.name === topic.name);
+          if (current) current.level = level;
           markAssessed();
           renderAssessment();
           renderTrust();

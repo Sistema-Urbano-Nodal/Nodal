@@ -740,3 +740,45 @@ test('the ledger listens before the festival block can hand anything over, and d
   const sheet = css(), ledgerCss = sheet.slice(sheet.indexOf('/* ============================ recognition'), sheet.indexOf('/* ============================ self-assessment'));
   assert.doesNotMatch(ledgerCss, /inset \d+px 0 0/, 'state is carried by the check and the ink, not a left bar');
 });
+
+/* ---------------- self-assessment and the profile dialog, on the whole console ---------------- */
+
+// i18n.js and the whole of dashboard.js with the self-assessment list and the profile dialog. The server keeps what PATCH /api/me sends and answers
+// with its own copy of the member, as the API does.
+function memberConsole(me) {
+  const ids = Object.fromEntries(['assessTopics', 'userDialog', 'userForm', 'userBtn', 'ucName', 'ucCity', 'ucRole', 'ucTopics', 'ucError'].map((id) => [id, new El('div')]));
+  ids.ucTopics.querySelectorAll = (selector) => descendants(ids.ucTopics).filter((n) => n.tagName === 'input' && (selector === 'input' || n.checked));
+  ids.userDialog.showModal = () => { ids.userDialog.open = true; };
+  const stored = JSON.parse(JSON.stringify(me)), patches = [];
+  const location = new URL('https://nodal.test/dashboard.html'), history = { state: null, replaceState() {} };
+  const document = { body: new El('body'), documentElement: {}, addEventListener() {}, querySelectorAll: () => [], querySelector: () => null, getElementById: (id) => ids[id] ?? null, createElement: (tag) => new El(tag) };
+  const context = vm.createContext({ document, location, history, URL, URLSearchParams, console, setTimeout() {}, clearTimeout() {}, localStorage: { getItem: () => null, setItem() {} },
+    fetch: async (url, options = {}) => {
+      if (options.method === 'PATCH') { const { expectedCity, ...fields } = JSON.parse(options.body); patches.push(fields); Object.assign(stored, fields); }
+      return { ok: true, status: 200, json: async () => ({ user: JSON.parse(JSON.stringify(stored)) }) };
+    } });
+  context.window = { location, history, addEventListener() {} };
+  for (const name of ['i18n-dashboard', 'i18n', 'dashboard']) vm.runInContext(read('web', 'scripts', `${name}.js`), context);
+  return { ids, stored, patches };
+}
+const ana = { id: 'ana-id', fullName: 'Ana Quispe', title: 'Planner', city: 'Lima', assessed: false, partC: {},
+  topics: [{ name: 'Mobility', level: 1, validatedAt: 0, endorsedAt: 0 }, { name: 'Housing', level: 1, validatedAt: 0, endorsedAt: 0 }] };
+
+test('every self-assessment level a member picks is saved and stays on screen, not only the first one', async () => {
+  const c = memberConsole(ana);
+  await flush();
+  const levels = (topic) => c.ids.assessTopics.children[topic].children[1].children;
+  const pick = async (topic, level) => { levels(topic)[level - 1].listeners.click(); await flush(); };
+  const shown = (topic) => levels(topic).findIndex((button) => button['aria-pressed'] === 'true') + 1;
+  const saved = () => c.stored.topics.map((x) => `${x.name}:${x.level}`);
+  await pick(0, 3);
+  assert.deepEqual(saved(), ['Mobility:3', 'Housing:1']);
+  // That save gave the console the server's copy of the member; later picks change that copy, so they are sent too.
+  await pick(0, 2);
+  assert.deepEqual(saved(), ['Mobility:2', 'Housing:1']);
+  assert.equal(shown(0), 2);
+  await pick(1, 3);
+  assert.deepEqual(saved(), ['Mobility:2', 'Housing:3']);
+  assert.deepEqual([shown(0), shown(1)], [2, 3]);
+  assert.equal(c.patches.length, 3);
+});
