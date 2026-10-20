@@ -67,7 +67,7 @@ function respond(res,status,body,headers={}) {
 }
 
 // finalSurvey and clock exist for tests: the survey's course and deadline are fixed in production.
-export function createCourseApi({store,userRepository,sameOrigin,send=respond,rateLimit=()=>true,downloadLimits=DOWNLOAD_LIMITS,downloads=createByteBudget(downloadLimits),log=console.error,finalSurvey=FINAL_SURVEY,clock=Date.now,perks=createCoursePerks()}={}) {
+export function createCourseApi({store,userRepository,sameOrigin,send=respond,reportAnswer=async()=>false,rateLimit=()=>true,downloadLimits=DOWNLOAD_LIMITS,downloads=createByteBudget(downloadLimits),log=console.error,finalSurvey=FINAL_SURVEY,clock=Date.now,perks=createCoursePerks()}={}) {
   const participants=createCourseParticipants({store,userRepository});
   const findOne=async(name,filters)=>(await store.find(name,filters,{limit:1}))[0]??null;
   async function all(name,filters={},max=Infinity) {
@@ -332,6 +332,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,ra
         // A provider message can quote the address it refused, so anything shaped like one is masked.
         const masked=value=>errorText(value).replace(/[^\s@"'<>]+@[^\s@"'<>]+/g,'<address>');
         if(!expected||status>=500)log('course participant request failed:',code,status,masked(error),...(error.cause?[masked(error.cause),error.cause.status??'',error.cause.code??'']:[]));
+        await reportAnswer(req,status,error,{logged:true});
         send(res,status,{error:code,code},status===429?{'Retry-After':'60'}:{});
       }
       return true;

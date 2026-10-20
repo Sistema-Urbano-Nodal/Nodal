@@ -1051,6 +1051,14 @@ export function createApp({
   bucFeed = bucFeedFromEnv(),
 } = {}) {
   const useDb = Boolean(repository);
+  /* A provider failure a route answers itself (sign-up, sign-in, password recovery, course invitations and participants)
+     is reported as the global handler would report it. Deliberate "not configured" answers are left out. */
+  const reportAnswer = (req, status, error, { logged = false } = {}) => {
+    if (status < 500) return false;
+    const err = error instanceof Error ? error : new Error(String(error));
+    if (!logged) console.error('request error:', safeErrorMessage(err));
+    return errorReport.report(err, { method: req.method, route: routeOf(req.url), status });
+  };
   const networkSnapshots = repository ? createNetworkSnapshots(repository) : null;
   const placeSnapshots = new WeakMap();
   const fingerprints = new WeakMap();
@@ -1260,7 +1268,7 @@ export function createApp({
     rateLimit:(req,res,user)=>['GET','HEAD'].includes(req.method)?throttle(user?newsReadLimiter:newsPublicReadLimiter,res,req,user,'news')
       :throttle(newsWriteLimiter,res,req,user,'news-write'),
   }):null;
-  const courseApi=courseStore?createCourseApi({store:courseStore,userRepository:repository,sameOrigin,send,downloads,perks:createCoursePerks({fiiuStore}),
+  const courseApi=courseStore?createCourseApi({store:courseStore,userRepository:repository,sameOrigin,send,downloads,reportAnswer,perks:createCoursePerks({fiiuStore}),
     // Only an upload spends the upload budget; staff list the file library after every upload, use and delete.
     rateLimit:(req,res,user,pathname)=>throttle(pathname.endsWith('/invitations')?courseInvitationLimiter:req.method==='POST'&&pathname.endsWith('/attachments')?courseUploadLimiter:['GET','HEAD'].includes(req.method)?courseReadLimiter:courseWriteLimiter,res,req,user,'course'),
   }):null;
@@ -1402,6 +1410,7 @@ export function createApp({
           if(!tokenRate.ok){send(res,429,{code:'invitation_rate'},{'Retry-After':String(tokenRate.retryAfter)});return;}
         }
         const result=await repository.completeCourseInvitation({tokenHash:input.tokenHash,password:input.password,fullName:input.fullName,authorize:courseParticipants.authorize,enroll:courseParticipants.accept});
+        await reportAnswer(req,result.status,new Error(`course invitation: ${result.code||'failed'}`));
         send(res,result.status,{ok:result.status<400,...(result.code?{code:result.code}:{}),...(result.passwordChanged?{passwordChanged:true}:{}),...(result.courseIds?{courseIds:result.courseIds}:{})},result.cookies?.length?{'Set-Cookie':result.cookies}:{});
         return;
       }
@@ -1634,6 +1643,7 @@ export function createApp({
             return;
           }
           if (Number.isInteger(err?.status) && err.status >= 400) {
+            await reportAnswer(req, err.status < 500 ? err.status : 502, err);
             send(res, err.status < 500 ? err.status : 502, {
               error: 'Account creation could not be completed. If you already confirmed your email, sign in.',
             });
@@ -1641,7 +1651,7 @@ export function createApp({
           }
           throw err;
         }
-        if (result.error) { send(res, result.status, { error: result.error }); return; }
+        if (result.error) { await reportAnswer(req, result.status, result.error); send(res, result.status, { error: result.error }); return; }
         send(res, result.status, {
           user: result.user,
           requiresEmailConfirmation: Boolean(result.requiresEmailConfirmation),
@@ -1674,6 +1684,7 @@ export function createApp({
           if (!repository.completePasswordRecovery) { send(res, 503, { code: 'recovery_unavailable' }); return; }
           result = await repository.completePasswordRecovery({ req, code: body.code, password: body.password });
         }
+        await reportAnswer(req, result.status, new Error(`password recovery: ${result.code || 'failed'}`));
         send(res, result.status, { ok: result.status < 400, ...(result.code ? { code: result.code } : {}), ...(result.passwordChanged ? { passwordChanged: true } : {}) }, result.cookies?.length ? { 'Set-Cookie': result.cookies } : {});
         return;
       }
@@ -1701,7 +1712,7 @@ export function createApp({
           if (result?.status !== 401) { authAccountLimiter.release(requesterKey); authAddressLimiter.release(accountKey); }
         }
         if (!result.error && result.status < 400) authAccountLimiter.reset(requesterKey);
-        if (result.error) { send(res, result.status, { error: result.error }); return; }
+        if (result.error) { await reportAnswer(req, result.status, result.error); send(res, result.status, { error: result.error }); return; }
         send(res, result.status, { user: result.user }, result.cookies?.length ? { 'Set-Cookie': result.cookies } : {});
         return;
       }

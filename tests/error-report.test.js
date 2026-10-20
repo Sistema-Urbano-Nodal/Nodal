@@ -128,6 +128,74 @@ test('only the deployed entry points report: an app built in a test stays silent
   assert.deepEqual(sent, [], 'no report from a test app');
   const { readFileSync } = await import('node:fs');
   const source = (file) => readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
-  assert.match(source('api/index.js'), /createApp\(\{[^}]*errorReport: createErrorReporter\(\)/, 'the Vercel function reports');
+  assert.match(source('api/index.js'), /const reporter = createErrorReporter\(\);/, 'the Vercel function reports');
+  assert.match(source('api/index.js'), /createApp\(\{[^}]*errorReport: reporter \}\)/, 'through the app, and on a failed start');
   assert.match(source('server/server.js'), /createApp\(\{ cache, errorReport: createErrorReporter\(\) \}\)/, 'npm start reports');
+});
+
+// Review fixes, 20 Oct 2026 (obs-review): what the first version left out.
+const recording = () => { const reports = []; return { reports, errorReport: { enabled: true, report: async (error, context) => { reports.push({ message: error?.message, ...context }); return true; } } }; };
+async function boot(t, options) {
+  const server = createApp({ citySearch: { search: async () => ({ cities: [] }) }, ...options });
+  server.listen(0, '127.0.0.1');await once(server, 'listening');t.after(() => server.close());
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
+test('provider failures the server answers itself are reported too: sign-up, password recovery and course invitations', async (t) => {
+  const { createDatabase } = await import('../server/db.js');
+  const { createRepository } = await import('../server/repository.js');
+  const db = createDatabase({ filename: ':memory:' });t.after(() => db.close());
+  const repository = createRepository({ db });
+  repository.signup = async () => { throw Object.assign(new Error('Auth provider answered 500'), { status: 500 }); };
+  repository.requestPasswordRecovery = async () => ({ status: 503, code: 'recovery_unavailable', cookies: [] });
+  repository.completeCourseInvitation = async () => ({ status: 503, code: 'invitation_unavailable', cookies: [] });
+  const { reports, errorReport } = recording();
+  const base = await boot(t, { repository, errorReport, courseParticipants: { authorize: async () => true, accept: async () => ({}) } });
+  const post = (path, body) => fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify(body) });
+  assert.equal((await post('/api/auth/signup', { fullName: 'Ana Test', email: 'ana@example.test', password: 'a-long-password-1' })).status, 502);
+  assert.equal((await post('/api/auth/recovery/request', { email: 'ana@example.test' })).status, 503);
+  assert.equal((await post('/api/auth/course-invitation/complete', { tokenHash: 'a'.repeat(64), password: 'a-long-password-1', fullName: 'Ana Test' })).status, 503);
+  assert.deepEqual(reports.map((r) => [r.route, r.status]), [['/api/auth/signup', 502], ['/api/auth/recovery/request', 503], ['/api/auth/course-invitation/complete', 503]]);
+  assert.equal(reports[0].message, 'Auth provider answered 500');assert.match(reports[1].message, /recovery_unavailable/);
+});
+
+test('an invalid SENTRY_DSN says so once in the log, without the value, and a valid one says reports are on', () => {
+  const said = [];
+  createErrorReporter({ dsn: '"https://key@o1.ingest.us.sentry.io/42"', log: (...args) => said.push(args.join(' ')) });
+  createErrorReporter({ dsn: 'https://key@o1.ingest.us.sentry.io/42', log: (...args) => said.push(args.join(' ')) });
+  createErrorReporter({ dsn: '', log: (...args) => said.push(args.join(' ')) });
+  assert.equal(said.length, 2);assert.match(said[0], /SENTRY_DSN is set but is not a valid https Sentry DSN; error reports are off/);
+  assert.match(said[1], /error reports are on \(Sentry project 42\)/);
+  assert.equal(said.join(' ').includes('key@'), false, 'never the DSN itself');
+});
+
+test('routes keep only NODAL\'s own path words, so typed names, numbers and tokens never reach Sentry', () => {
+  for (const [raw, route] of [['/api/users/Juan%20P%C3%A9rez', '/api/users/:id'], ['/api/catalog/+51-987-654-321', '/api/catalog/:id'], ['/api/x;jsessionid=abc', '/api/:id'],
+    ['/api/fiiu/admin/questions', '/api/fiiu/admin/questions'], ['/payments.html', '/payments.html'], ['/fiiu-ui.js', '/fiiu-ui.js'], ['/api/courses/c1/modules', '/api/courses/:id/modules'], ['/API/Courses', '/:id/:id']]) assert.equal(routeOf(raw), route, raw);
+});
+
+test('scrubbing also covers bearer headers, Supabase keys, encoded emails and long numbers, stays fast on huge messages, and never splits a character', () => {
+  for (const [text, expected] of [['Bearer abc.def-ghi', '[token]'], ['key sb_publishable_xyzABC', 'key [token]'], ['for ana%40example.test', 'for [email]'], ['call +51 987 654 321', 'call [number]'], ['DNI 45678912 refused', 'DNI [number] refused'], ["mail (o'brien@example.test)", 'mail [email]'], ['address "ana(trabajo)@gmail.com" refused', 'address "[email]" refused'], ['GET https://x.example/a?token=a1b2&lang=es failed', 'GET https://x.example/a?token=[value]&lang=[value] failed']]) assert.equal(scrub(text), expected, text);
+  const started = Date.now();scrub('a'.repeat(2_000_000));scrub('@'.repeat(500_000));assert.ok(Date.now() - started < 500, 'bounded work');
+  assert.equal(scrub('a'.repeat(499) + '😀').isWellFormed(), true);
+});
+
+test('Sentry asking to slow down pauses reports for as long as it says, and a thrown non-Error carries no empty stack', async () => {
+  let clock = Date.parse('2026-10-20T20:00:00Z');const calls = [];
+  const reporter = createErrorReporter({ dsn: DSN, now: () => clock, fetchImpl: async (url, options) => { calls.push(options.body); return calls.length === 1 ? { ok: false, status: 429, headers: { get: (name) => name.toLowerCase() === 'retry-after' ? '120' : null } } : { ok: true, status: 200 }; } });
+  assert.equal(await reporter.report(failure('first'), { route: '/a' }), false);
+  clock += 60_000;assert.equal(await reporter.report(failure('second'), { route: '/b' }), false);assert.equal(calls.length, 1, 'still waiting');
+  clock += 61_000;assert.equal(await reporter.report('a thrown string', { route: '/c' }), true);
+  const event = JSON.parse(calls[1].split('\n')[2]);assert.equal('stacktrace' in event.exception.values[0], false);assert.equal(event.exception.values[0].value, 'a thrown string');
+});
+
+test('a Vercel instance that cannot start reports why, once per failed start, and still answers 500', async (t) => {
+  const { createHandler } = await import('../api/index.js');
+  const { reports, errorReport } = recording();
+  const handler = createHandler({ boot: async () => { throw new Error('TRUST_PROXY must be "true" or "false"'); }, reporter: errorReport });
+  const { createServer } = await import('node:http');
+  const server = createServer((req, res) => handler(req, res));server.listen(0, '127.0.0.1');await once(server, 'listening');t.after(() => server.close());
+  const res = await fetch(`http://127.0.0.1:${server.address().port}/api/health?x=1`);
+  assert.equal(res.status, 500);assert.deepEqual(await res.json(), { error: 'internal error' });
+  assert.deepEqual(reports, [{ message: 'TRUST_PROXY must be "true" or "false"', method: 'GET', route: '/api/health', status: 500 }]);
 });
