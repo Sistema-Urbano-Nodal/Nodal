@@ -92,7 +92,7 @@
  // Conversations: questions is null until the first read lands; each question's row is built once (questionRows, by id) and updated in place.
  const conversationsHost=el('section','f-admin-conversations'),questionEditorHost=el('div','f-question-editor'),questionList=el('div','f-question-list'),questionAlert=el('div','f-question-alert'),questionRows=new Map();
  let questions=null,questionsFailed=false,questionsBusy=false,questionLayout='',newQuestion=null;
- // Access: a 403 locks the page (participant data leaves the DOM and polling stops); a 401 keeps every draft, shows a sign-in link and pauses timed refreshes until a request succeeds again.
+ // Access: a 403 locks the page (participant data leaves the DOM and polling stops); a 401 keeps every draft, shows a sign-in link and pauses timed refreshes until a request succeeds again (see retrySession).
  let locked=false,sessionLost=false,timer=null,sectionObserver=null;
  // Leaving the page (a nav link, a reload) with an unsaved publication asks first: an edit with changes, or a new one with any text, open or set aside.
  // The same goes for a new question with text and a question edit with changes.
@@ -1119,8 +1119,12 @@
   // fiiu-ui retranslates #fiiuStatus and the row notes through textContent, which drops the expired session's sign-in link.
   for(const node of [message,...root.querySelectorAll('.f-inline-status')])if(['unauthorized','attendanceSignIn'].includes(node.dataset.fiiuText)&&!node.querySelector('a'))node.append(document.createTextNode(' '),signInLink());
   if(locked)return;rowCache=new WeakMap();setTitle();stampUpdated();recount?.();for(const pass of emailPasses)pass.render();newQuestion?.recount();for(const entry of questionRows.values())entry.editor?.recount();for(const entry of programmeRows.values())entry.editor?.recount();renderQuestions();if(lastSummary)renderSummary(lastSummary);else renderCheckin();});
+ // While the session is lost, a return to the tab (from signing in again in the tab the notice opens) and each minute try the totals once in the background:
+ // a read that works clears the notice and brings the questions and the timed refreshes back, with no press needed.
+ function retrySession(){if(!festival||locked||!sessionLost||summaryBusy||document.visibilityState!=='visible')return;return refreshSummary({background:true}).then(()=>refreshQuestions({background:true}));}
+ document.addEventListener('visibilitychange',retrySession);window.addEventListener?.('focus',retrySession);
  timer=setInterval(()=>{
-  if(!festival||locked||sessionLost||document.visibilityState!=='visible')return;
+  if(!festival||locked||document.visibilityState!=='visible')return;if(sessionLost)return retrySession();
   // An email block whose cap has reset reads its state again (a pass that ended at the cap leaves no stale message behind).
   // The question totals follow the summary totals, so a lost session the summary finds pauses them too.
   return Promise.all([...emailPasses.map(pass=>pass.tick()).filter(Boolean),...(autoRefresh.input.checked?[refreshSummary({background:true}).then(()=>refreshQuestions({background:true}))]:[])]);

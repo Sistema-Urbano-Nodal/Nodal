@@ -938,9 +938,26 @@ test('an expired session keeps every draft, shows a sign-in link in a new tab an
  signedOut=true;await h.tickTimers();assert.equal(notice.hidden,false);assert.equal(reads,2);
  const signin=key(notice,'adminSignIn');assert.equal(signin.href,'/login.html?next=%2Ffiiu-admin.html');assert.equal(signin.target,'_blank');
  assert.equal(editorForm(h),draft);assert.equal(field(draft,'title').value,'Unsaved announcement');assert.deepEqual(h.assigned,[]);
- await h.tickTimers();assert.equal(reads,2,'timed refreshes pause while signed out');
+ const asked=h.requests.length;await h.tickTimers();assert.equal(reads,3,'while signed out the minute only tries the totals once');assert.equal(h.requests.length,asked+1,'and nothing else polls');
  signedOut=false;await key(h.root.querySelector('.f-admin-summary'),'refreshSummary').listeners.click();assert.equal(notice.hidden,true,'a request that works again clears the notice');
- await h.tickTimers();assert.equal(reads,4,'and timed refreshes resume');
+ await h.tickTimers();assert.equal(reads,5,'and timed refreshes resume');
+});
+
+test('once the organiser signs in again in the other tab, the dashboard recovers by itself: coming back to the tab, or the next minute, tries the totals once',async()=>{
+ let reads=0,signedOut=false;
+ const h=await harness(()=>({content:[],nextCursor:null}),{summaryRead:()=>{reads++;return signedOut?{status:401,data:{error:'sign in required'}}:{summary:copy(summary)};}});
+ const notice=h.root.querySelector('.f-session-notice'),questionReads=()=>h.requests.filter(request=>request.path==='/api/admin/fiiu/questions').length,focus=()=>Promise.all((h.windowListeners.focus||[]).map(listener=>listener({type:'focus'})));
+ signedOut=true;await h.tickTimers();assert.equal(notice.hidden,false);assert.equal(reads,2);const asked=questionReads();
+ // Still signed out: the minute tries the totals once, and nothing else polls.
+ await h.tickTimers();assert.equal(reads,3);assert.equal(notice.hidden,false);assert.equal(questionReads(),asked,'the questions wait for the session');
+ // Back from signing in: the tab shows again and takes focus at once, and one read clears the notice and brings the questions back.
+ await h.visible(false);signedOut=false;await Promise.all([h.visible(true),focus()]);await flush();
+ assert.equal(reads,4,'one read for both events');assert.equal(notice.hidden,true,'the notice clears on its own');assert.equal(questionReads(),asked+1);
+ // A working session sends nothing extra on a return to the tab.
+ await h.visible(true);await focus();await flush();assert.equal(reads,4);
+ // Signed in again while this tab stays in view (on another device, say): the next minute finds it.
+ signedOut=true;await h.tickTimers();assert.equal(notice.hidden,false);signedOut=false;await h.tickTimers();await flush();
+ assert.equal(notice.hidden,true);await h.tickTimers();assert.equal(reads,7,'and timed refreshes carry on');
 });
 
 test('identical totals still let a block’s check-in close on the next refresh',async()=>{
