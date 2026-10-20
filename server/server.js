@@ -35,6 +35,7 @@ import {
 import { parseCookies, validateEmail, validatePassword } from './auth.js';
 import { createRepository } from './repository.js';
 import { dataBackend, resolveSupabaseEnv } from './supabase.js';
+import { createErrorReporter, routeOf } from './error-report.js';
 import {
   decodeCatalogCursor,
   decodeCatalogInterestCursor,
@@ -1007,6 +1008,10 @@ export function createApp({
   pilotMode = process.env.PILOT_MODE !== 'false',
   // Where the Mercado Pago links and prices are read: the deployment's environment, or a test's own (Vercel runs the suite with the former).
   billingEnv = process.env,
+  /* Where server errors are reported besides the log. Only the deployed entry points (api/index.js, npm start) pass
+     createErrorReporter(), which sends to Sentry when SENTRY_DSN is set; an app built anywhere else, a test included,
+     reports nothing, so a Vercel build running the suite with the production environment sends nothing. */
+  errorReport = { enabled: false, report: async () => false },
   courseStore = repository?.database ? createCourseStore({db:repository.database}) : repository?.kind === 'supabase' ? createCourseStore() : null,
   fiiuStore = repository?.database ? createFiiuStore({db:repository.database}) : repository?.kind === 'supabase' ? createFiiuStore() : null,
   /* {secret, now} for the rotating FIIU check-in codes: FIIU_CHECKIN_SECRET, else derived from the Supabase server
@@ -1321,7 +1326,7 @@ export function createApp({
              left alone; the rest fail closed, a private page as a page. */
           if (err?.status !== 503) throw err;
           if (!optionalSession) {
-            if (!isApiRequest) { console.error('request error:', safeErrorMessage(err)); sendUnavailablePage(req, res); return; }
+            if (!isApiRequest) { console.error('request error:', safeErrorMessage(err)); await errorReport.report(err, { method: req.method, route: routeOf(req.url), status: 503 }); sendUnavailablePage(req, res); return; }
             throw err;
           }
           console.error('session unavailable, serving signed out:', safeErrorMessage(err));
@@ -2156,7 +2161,11 @@ export function createApp({
       /* Only our own wording goes back. A backend's message (marked
          expose: false where it is raised) names columns, constraints and
          internal state, and this is the one place it would reach a caller. */
-      if (status >= 500 || err?.expose === false) console.error('request error:', safeErrorMessage(err));
+      if (status >= 500 || err?.expose === false) {
+        console.error('request error:', safeErrorMessage(err));
+        // Before answering: on Vercel the function may be frozen once the response ends. The report waits at most 1.5 s.
+        await errorReport.report(err, { method: req.method, route: routeOf(req.url), status });
+      }
       const body = status >= 500 ? 'internal error' : (err?.expose === false ? 'request failed' : safeErrorMessage(err));
       if (!res.headersSent) send(res, status, { error: body });
       else res.end();
@@ -2174,7 +2183,7 @@ if (isMain) {
   validateRuntimeConfig();
   const port = Number(process.env.PORT || 4173);
   const cache = await createCache();
-  createApp({ cache }).listen(port, () => {
+  createApp({ cache, errorReport: createErrorReporter() }).listen(port, () => {
     console.log(`NODAL serving site + API on http://localhost:${port}`);
   });
 }
