@@ -647,6 +647,18 @@ test('only an https Mercado Pago link with its price is offered; anything else k
   assert.doesNotThrow(() => validateRuntimeConfig({ NODE_ENV: 'production', DATABASE_PATH: '/tmp/nodal-test.sqlite', PUBLIC_BASE_URL: 'https://nodal.example', COOKIE_SECURE: 'true', MERCADOPAGO_LINK_ANNUAL: 'https://evil.example/pay' }));
 });
 
+test('an app given its own billing settings ignores the deployment\'s, so a Vercel build with the links set still tests the closed pilot', async (t) => {
+  // Vercel runs the suite with the production environment: a test about the closed pilot must not see Mariana's links.
+  withEnv(t, { MERCADOPAGO_LINK_ANNUAL: ONCE, SUBSCRIPTION_PRICE_ANNUAL_LABEL: 'S/ 240' });
+  const db = createDatabase({ filename: ':memory:' });
+  t.after(() => db.close());
+  const base = await bootApp(t, createApp({ db, pilotMode: true, billingEnv: {} }));
+  const member = createUser(db, { fullName: 'Pilot Member', email: 'pilot@example.test', passwordHash: 'unused' });
+  const cookie = createSession(db, member.id).cookie.split(';')[0];
+  assert.equal((await fetch(`${base}/payments.html`, { redirect: 'manual', headers: { Cookie: cookie } })).headers.get('location'), '/courses.html');
+  assert.equal((await (await fetch(`${base}/api/billing/config`)).json()).checkout, false);
+});
+
 test('the payments page opens during the course pilot once a Mercado Pago link is offered, and still leads to the courses without one', async (t) => {
   withEnv(t, {});
   const { db, base } = await bootDbHandle(t, { pilotMode: true });

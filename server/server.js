@@ -1005,6 +1005,8 @@ export function createApp({
   locationProvider = createLocationProvider(),
   repository = createRepository({ db, store }),
   pilotMode = process.env.PILOT_MODE !== 'false',
+  // Where the Mercado Pago links and prices are read: the deployment's environment, or a test's own (Vercel runs the suite with the former).
+  billingEnv = process.env,
   courseStore = repository?.database ? createCourseStore({db:repository.database}) : repository?.kind === 'supabase' ? createCourseStore() : null,
   fiiuStore = repository?.database ? createFiiuStore({db:repository.database}) : repository?.kind === 'supabase' ? createFiiuStore() : null,
   /* {secret, now} for the rotating FIIU check-in codes: FIIU_CHECKIN_SECRET, else derived from the Supabase server
@@ -1350,7 +1352,7 @@ export function createApp({
           return;
         }
         // The course pilot keeps the payments page closed until a Mercado Pago link is offered.
-        if(pilotMode && canonical==='/payments.html' && !paymentOptions(process.env).length) { redirect(res,'/courses.html');return; }
+        if(pilotMode && canonical==='/payments.html' && !paymentOptions(billingEnv).length) { redirect(res,'/courses.html');return; }
         if (useDb && canonical === '/login.html' && sessionUser) {
           redirect(res, safeNext(url.searchParams.get('next')));
           return;
@@ -1578,7 +1580,7 @@ export function createApp({
 
       if (req.method === 'GET' && pathname === '/api/billing/config') {
         // Amounts are published only next to a link that can take the payment.
-        send(res, 200, publicBillingConfig(process.env));
+        send(res, 200, publicBillingConfig(billingEnv));
         return;
       }
 

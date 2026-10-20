@@ -18,7 +18,7 @@ test('real application protects pilot pages, disables checkout, exports and eras
   const module=(await store.find('modules',{courseId:course.id,kind:'session'}))[0];
   const member=createUser(db,{fullName:'Participant',email:'participant@example.test',passwordHash:'unused'});
   const cookie=createSession(db,member.id).cookie.split(';')[0];
-  const server=createApp({db,pilotMode:true});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
+  const server=createApp({db,pilotMode:true,billingEnv:{}});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
   const base=`http://127.0.0.1:${server.address().port}`;
   const call=(path,method='GET',body)=>fetch(base+path,{method,redirect:'manual',headers:{Cookie:cookie,Origin:base,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
   assert.deepEqual(await(await fetch(base+'/api/config')).json(),{pilotMode:true});
