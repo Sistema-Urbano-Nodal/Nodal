@@ -1,0 +1,81 @@
+/* The commercial terms of Nodal Fundadores (terminos-fundadores.html). The privacy page's reading layout (privacy.css):
+   one readable column of Montserrat, brand greens for links and headings, whitespace rather than rules between parts. */
+*{box-sizing:border-box}
+html{scroll-padding-top:24px}
+body{margin:0;background:#fff;color:#29352a;font:400 16px/1.85 Montserrat,sans-serif}
+a{color:#3d5c38;text-decoration-color:#59bc53;text-underline-offset:4px;text-decoration-thickness:1px}
+a:hover{text-decoration-thickness:2px}
+:focus-visible{outline:2px solid #3d5c38;outline-offset:5px}
+.terms-header{max-width:1120px;margin:auto;min-height:100px;padding:24px 32px;display:flex;align-items:center;gap:32px;border-bottom:1px solid #e2e7df}
+.terms-brand{display:block;line-height:0}
+.terms-brand img{width:112px;height:auto;filter:brightness(.2)}
+.terms-home{margin-left:auto;font-size:13px;text-decoration:none}
+.terms-main{max-width:780px;margin:0 auto;padding:56px 32px 80px}
+/* The binding text is Spanish: a quiet note for English and Portuguese readers, not a warning. */
+.terms-language{background:#f2ecec;color:#4a4545;padding:14px 18px;margin:0 0 44px;font-size:13px;line-height:1.7}
+.terms-language p{margin:0}
+.terms-language p+p{margin-top:4px}
+h1{font-size:clamp(30px,5vw,44px);font-weight:600;line-height:1.2;letter-spacing:-1.2px;color:#293e25;margin:0 0 18px}
+.terms-meta{font-size:13px;color:#5b6857;margin:0}
+.terms-meta strong{font-weight:600;color:#34472e;letter-spacing:.2px}
+.terms-contents{margin:40px 0 52px}
+.terms-contents h2{font-size:15px;font-weight:600;letter-spacing:0;color:#293e25;margin:0 0 10px}
+.terms-contents ol{margin:0;padding-left:26px;font-size:13px;line-height:1.6;columns:2;column-gap:40px}
+.terms-contents li{break-inside:avoid;padding:3px 0}
+.terms-contents li::marker{color:#5b6857}
+.terms-contents a{text-decoration:none}
+.terms-contents a:hover{text-decoration:underline}
+section{margin:0 0 44px;scroll-margin-top:24px}
+h2{font-size:21px;line-height:1.4;letter-spacing:-.3px;color:#3d5c38;font-weight:600;margin:0 0 18px}
+h3{font-size:16px;line-height:1.5;color:#293e25;font-weight:600;margin:28px 0 8px}
+h2+h3{margin-top:0}
+p{margin:0 0 18px}
+strong{font-weight:600}
+section ul{padding-left:24px;margin:0 0 20px}
+section li{padding-left:4px;margin-bottom:10px}
+section li::marker{color:#59bc53}
+/* The provider block reads as an address, without bullets. */
+section .terms-provider{list-style:none;padding:0}
+section .terms-provider li{padding:0;margin:0}
+/* Shown until the settings are published; the filled-in link reads as normal text. */
+.terms-pending{color:#5b6857;font-style:italic}
+.terms-pending a{font-style:normal;overflow-wrap:anywhere}
+.terms-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.terms-table{margin:8px 0 26px}
+table{width:100%;border-collapse:collapse;font-size:15px;line-height:1.6}
+caption{text-align:left;font-weight:600;color:#293e25;padding:0 0 8px}
+th,td{text-align:left;vertical-align:top;padding:10px 16px 10px 0;width:50%}
+th{color:#3d5c38;font-weight:600;font-size:13px;border-bottom:1px solid #addea8}
+td{border-bottom:1px solid #eef1ec}
+.terms-top{font-size:13px}
+.terms-footer{max-width:1120px;margin:auto;border-top:1px solid #e2e7df;padding:28px 32px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-size:12px;color:#5b6857}
+.terms-skip{position:absolute;left:16px;top:-120px;padding:8px 16px;background:#fff;z-index:2}
+.terms-skip:focus{top:12px}
+@media(max-width:600px){
+  body{font-size:15px;line-height:1.8}
+  .terms-header{padding:20px;gap:18px;min-height:80px}
+  .terms-brand img{width:94px}
+  .terms-main{padding:36px 20px 56px}
+  .terms-language{margin-bottom:36px}
+  .terms-contents ol{columns:1;font-size:15px}
+  h2{font-size:19px}
+  th,td{padding-right:12px}
+  td{font-size:15px}
+  .terms-footer{padding:24px 20px}
+}
+/* Fingers need 44px. */
+@media(max-width:600px),(pointer:coarse){
+  .terms-contents li{padding:0}
+  .terms-contents a{display:block;min-height:44px;padding:10px 0}
+  .terms-home,.terms-footer a,.terms-top{display:inline-flex;align-items:center;min-height:44px}
+}
+@media print{
+  .terms-header,.terms-footer,.terms-contents,.terms-top,.terms-skip{display:none}
+  .terms-main{padding:0;max-width:none}
+  body{font-size:11pt;color:#000}
+  h1{font-size:22pt}h2{font-size:14pt;break-after:avoid}
+  tr{break-inside:avoid}
+  a{color:inherit}
+  /* A printed copy keeps the address of the Libro de Reclamaciones. */
+  .terms-text a[href^="https:"]::after{content:" (" attr(href) ")";font-size:9pt;overflow-wrap:anywhere}
+}

@@ -6,7 +6,7 @@ import { preparePageHtml } from '../server/page-shell.js';
 const ROOT = path.resolve(import.meta.dirname, '..');
 const WEB_ROOT = path.join(ROOT, 'web');
 const OUTPUT = path.join(ROOT, 'public');
-export const STATIC_PAGES = ['opportunities.html', 'privacy.html'];
+export const STATIC_PAGES = ['opportunities.html', 'privacy.html', 'terminos-fundadores.html'];
 // These pages stay on the Node server for authorization, recovery redirects,
 // and runtime configuration. Validate them without copying them to the CDN.
 export const SERVER_PAGES = ['fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html'];
@@ -38,12 +38,13 @@ const STATIC_SCRIPTS = [
   'pilot-i18n.js',
   'profile.js',
   'privacy.js',
+  'membership-terms.js',
   'recs.js',
   'script.js',
   'hero-network.js',
   'teaching.js',
 ];
-const STATIC_STYLES = ['fiiu.css', 'fiiu-talk.css', 'auth.css', 'admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'styles.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css'];
+const STATIC_STYLES = ['fiiu.css', 'fiiu-talk.css', 'auth.css', 'admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'styles.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css'];
 const STATIC_ASSETS = [
   'latam-map.webp',
   'nodal-community.webp',

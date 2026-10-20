@@ -37,7 +37,7 @@
       ]
     },
     {
-      "source": "/(fiiu|fiiu-ui|fiiu-live|fiiu-admin|fiiu-hubs|fiiu-checkin|fiiu-qr|fiiu-talk|news-feed|buc|admin|app|auth|password-recovery|recovery-i18n|accept-invitation|invitation-i18n|catalog|courses|coastline|dashboard|globe|globe-geo|i18n|i18n-dashboard|locale|location-i18n|location-check|nav|payments|pilot|pilot-i18n|profile|recs|script|teaching|privacy|hero-network).js",
+      "source": "/(fiiu|fiiu-ui|fiiu-live|fiiu-admin|fiiu-hubs|fiiu-checkin|fiiu-qr|fiiu-talk|news-feed|buc|admin|app|auth|password-recovery|recovery-i18n|accept-invitation|invitation-i18n|catalog|courses|coastline|dashboard|globe|globe-geo|i18n|i18n-dashboard|locale|location-i18n|location-check|nav|payments|pilot|pilot-i18n|profile|recs|script|teaching|privacy|membership-terms|hero-network).js",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=3600, stale-while-revalidate=86400" },
         { "key": "Cross-Origin-Resource-Policy", "value": "same-origin" },
@@ -45,7 +45,7 @@
       ]
     },
     {
-      "source": "/(fiiu|fiiu-talk|styles|dashboard|catalog|courses|admin|recovery|auth|fonts|locale|privacy).css",
+      "source": "/(fiiu|fiiu-talk|styles|dashboard|catalog|courses|admin|recovery|auth|fonts|locale|privacy|terms).css",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=3600, stale-while-revalidate=86400" },
         { "key": "Cross-Origin-Resource-Policy", "value": "same-origin" },
@@ -53,7 +53,7 @@
       ]
     },
     {
-      "source": "/(opportunities|privacy).html",
+      "source": "/(opportunities|privacy|terminos-fundadores).html",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=300, stale-while-revalidate=3600" },
         { "key": "Cross-Origin-Resource-Policy", "value": "same-origin" },
