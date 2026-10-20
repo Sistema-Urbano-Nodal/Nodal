@@ -256,6 +256,10 @@
    try{data=await response.json();}catch(error){if(response.ok)throw error;data={};}
   }
   catch{throw Object.assign(Error(t('error')),{key:'error'});}
+  /* A refusal NODAL did not write says nothing about the account: the host's firewall challenge (Vercel's Security Checkpoint, an HTML page marked
+     x-vercel-mitigated, answering every request from a flagged address such as a venue's Wi-Fi for a minute or two), or any 403 without NODAL's JSON.
+     It fails like a lost request, without a status, and carries the wait the host asks for (blocked tells it from a lost connection). */
+  if(!response.ok&&(response.headers?.get?.('x-vercel-mitigated')||response.status===403&&typeof data?.error!=='string'&&typeof data?.code!=='string')){const wait=Number(response.headers?.get?.('Retry-After'));throw Object.assign(Error(t('error')),{key:'error',blocked:true,...(wait>0?{retryAfter:Math.min(120,wait)}:{})});}
   if(!response.ok){const key=response.status===409&&data?.error==='account changed; reload before continuing'?'accountChanged':path.startsWith('/api/admin/')&&response.status===400?'adminInvalid':path.startsWith('/api/admin/')&&response.status===409?'editorConflict':response.status===403&&data?.error==='registration is closed'?'closed':({400:'invalid',401:'unauthorized',403:'forbidden',409:'conflict',410:'expired',429:'rate'})[response.status]||'error';throw Object.assign(Error(t(key)),{key,status:response.status,...reason(data)});}
   if(!data||typeof data!=='object'||Array.isArray(data))throw Object.assign(Error(t('error')),{key:'error'});
   if(path==='/api/fiiu/checkin'&&!['checked_in','already_checked_in','already'].includes(data.result))throw Object.assign(Error(t('error')),{key:'error'});

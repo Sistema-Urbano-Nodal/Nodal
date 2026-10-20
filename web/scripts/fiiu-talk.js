@@ -111,7 +111,8 @@
  // The server's refusal codes, each with its own explanation; anything else is "Something went wrong" (a Map, so no code can name an Object property).
  const CODES=new Map(Object.entries({upload_allowance:'talkAllowance',file_type:'talkFileType',too_many_files:'talkTooManyFiles',file_size:'talkFileSize',image_size:'talkImageSize',question_closed:'talkClosed',not_registered:'talkNotRegistered',client_id_reused:'talkReused'}));
  // api() reports a request that never got an answer (no signal, a timeout, a captive portal's page) as key 'error' with no status: a lost connection.
- const keyOf=error=>error?.status===429?'talkRate':CODES.get(error?.code)||(error?.status===413?'talkFileSize':error?.status===401?'unauthorized':/^talk[A-Z]/.test(error?.key||'')?error.key:error?.key==='error'&&!error.status?'talkOffline':'talkError');
+ // One the host's firewall stopped (blocked) has signal, so it reads as an outage.
+ const keyOf=error=>error?.status===429?'talkRate':CODES.get(error?.code)||(error?.status===413?'talkFileSize':error?.status===401?'unauthorized':/^talk[A-Z]/.test(error?.key||'')?error.key:error?.key==='error'&&!error.status&&!error.blocked?'talkOffline':'talkError');
  const PAUSED=['talkPaused','talkPausedOffline'];
  const isOpen=()=>question?.status==='open';
  // Whether focus is inside a node; harness nodes and old browsers may lack contains().
@@ -570,7 +571,8 @@
   return control;
  }
 
- // Polling. A tick is skipped while the tab is hidden, while one is running and during the backoff after errors (4 s doubling to at most 60 s).
+ // Polling. A tick is skipped while the tab is hidden, while one is running and during the backoff after errors (4 s doubling to at most 60 s, or the
+ // longer wait a firewall challenge asks for).
  function startPolling(){if(timer===null)timer=setInterval(()=>tick(),POLL);}
  async function tick(){
   if(!question||busy||document.visibilityState!=='visible'||Date.now()<nextAt)return;
@@ -592,7 +594,7 @@
    if(wall?.qr==='failed'&&Date.now()>=wall.qrAt)loadQr(id);
   }catch(error){
    if([401,403,404].includes(error?.status))return access(error);
-   failures++;nextAt=Date.now()+Math.min(60000,POLL*2**failures);paused(keyOf(error)==='talkOffline'?'talkPausedOffline':'talkPaused');
+   failures++;nextAt=Date.now()+Math.max(Math.min(60000,POLL*2**failures),(error?.retryAfter||0)*1000);paused(keyOf(error)==='talkOffline'?'talkPausedOffline':'talkPaused');
   }finally{busy=false;}
  }
  // The chat says it is paused in its dock; the projector, which has none, at the top of its page.

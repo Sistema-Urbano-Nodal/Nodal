@@ -42,6 +42,7 @@ export const content=node=>[node.textContent,...node.children.map(content)].join
 // the last two update location.search; back() goes to the previous pushed address and fires popstate, as a browser's Back does.
 // document listeners (visibilitychange, fullscreenchange) run through fire(); visible() fires visibilitychange; wake-lock requests are recorded in locks.
 // window listeners (beforeunload) are kept in windowListeners by type.
+// respond answers {status, data} (or the data alone); headers (by lower-case name) and an html body in place of JSON stand in for a page the host serves.
 export async function createFiiuHarness(respond,{page='fiiu',context={},search='',pathname='/'+page+'.html'}={}){
  const body=new Node('body'),root=new Node(),message=new Node(),requests=[],languageListeners=[],timers=[],assigned=[],replaced=[],pushed=[],trail=[],locks=[],documentListeners={},windowListeners={};body.append(root,message);let reloads=0;
  const fire=type=>Promise.all((documentListeners[type]||[]).map(listener=>listener({type})));
@@ -56,7 +57,7 @@ export async function createFiiuHarness(respond,{page='fiiu',context={},search='
   navigator:{wakeLock:{request:async type=>{const lock=sentinel();locks.push({type,lock});return lock;}}},
   window:{confirm:()=>true,nodalI18n:{lang:'en',onChange:listener=>languageListeners.push(listener)},addEventListener:(type,listener)=>{(windowListeners[type]??=[]).push(listener);}},fetch:async(path,options={})=>{
   const request={path,method:options.method||'GET',body:options.body?JSON.parse(options.body):undefined};requests.push(request);const result=await respond(request);
-  return{ok:!result.status||result.status<400,status:result.status||200,json:async()=>result.data??result};
+  return{ok:!result.status||result.status<400,status:result.status||200,headers:{get:name=>result.headers?.[name.toLowerCase()]??null},json:async()=>typeof result.html==='string'?JSON.parse(result.html):result.data??result};
  }};
  vm.createContext(Object.assign(ctx,context));for(const name of ['fiiu-ui',page])vm.runInContext(source(name),ctx);await flush();
  const back=()=>{location.search=trail.pop()??location.search;return Promise.all((windowListeners.popstate||[]).map(listener=>listener({type:'popstate'})));};

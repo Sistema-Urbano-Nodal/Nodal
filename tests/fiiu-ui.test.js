@@ -314,6 +314,12 @@ test('a running or failed save is visible beside Save, and focus moves to the fe
  const closed=await harness({write:()=>({status:403,data:{error:'registration is closed'}})});closed.fill();await closed.submit();assert.equal(key(closed.form(),'closed').focused,true);
 });
 
+test('a firewall challenge on save asks to try again and never says the account cannot register',async()=>{
+ const h=await harness({write:()=>({status:403,html:'<!DOCTYPE html><title>Vercel Security Checkpoint</title>',headers:{'x-vercel-mitigated':'challenge','retry-after':'30'}})});h.fill();await h.submit();
+ const note=key(h.form(),'error');assert.ok(note,'the request failed: the answers are still here, try again');assert.equal(note.focused,true);
+ assert.equal(key(h.form(),'forbidden'),undefined);assert.equal(key(h.form(),'closed'),undefined);assert.ok(key(h.form().querySelector('.f-selection'),'saveFailed'));
+});
+
 test('free text saved without Other stays shown, optional and is sent again, so a later save keeps it',async()=>{
  const legacy={...saved,answers:{...answers,accessibility:['mobility'],accessibilityOther:'Uso silla de ruedas: necesito acceso sin escalones',motivation:'learn',motivationOther:'Conocer a gestores de otras ciudades'}};
  const h=await harness({registration:legacy,write:request=>({registration:{...legacy,version:2,answers:request.body}})});key(h.root,'edit').listeners.click();

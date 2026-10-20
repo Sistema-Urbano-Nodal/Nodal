@@ -134,7 +134,7 @@
  // onFirstDraw: called once, after the first answer is drawn (the band, the line or nothing; a failed read draws nothing). The band goes in above the
  // festival page's programme, panel and feeds when its read answers, so the page lands a link (#registration, #add-<block>, a saved place) again then.
  function mount(host,{compact=false,event=null,organiser=false,registrationOpen=true,named=()=>null,known=()=>null,onFirstDraw=null}={}){
-  let timer=null,stopped=false,busy=false,shownSig='',shownKeys=new Map(),last=null,first=onFirstDraw,open=0,pulsed=false;
+  let timer=null,stopped=false,busy=false,shownSig='',shownKeys=new Map(),last=null,first=onFirstDraw,open=0,pulsed=false,skip=0;
   host.className='f-live'+(compact?' is-compact':'');host.hidden=true;
   const inDates=()=>{const today=limaDate();return !event||(today>=event.startsOn&&today<=event.endsOn);};
   const pause=()=>{if(timer!==null){clearInterval(timer);timer=null;}};
@@ -173,6 +173,8 @@
   }
   async function read(){
    if(stopped||busy)return;
+   // A host that asked for a longer wait than the refresh (Retry-After on a firewall challenge) gets the reads it covers skipped.
+   if(skip>0){skip--;follow();return;}
    if(!organiser&&!inDates()){pause();hide();drawn();return;}
    const refused=known();if(refused===401||refused===403){last=null;pause();prompt(refused,true);drawn();return;}
    busy=true;
@@ -188,7 +190,7 @@
     else{last=d;show(d);follow();}
     drawn();
    }
-   catch(error){if(stopped)return;if(error?.status===401||error?.status===403){last=null;pause();prompt(error.status);drawn();return;}follow();}
+   catch(error){if(stopped)return;if(error?.status===401||error?.status===403){last=null;pause();prompt(error.status);drawn();return;}skip=Math.max(0,Math.ceil((error?.retryAfter||0)*1000/REFRESH)-1);follow();}
    finally{busy=false;}
   }
   document.addEventListener?.('visibilitychange',()=>{if(stopped)return;if(document.visibilityState==='hidden')pause();else read();});

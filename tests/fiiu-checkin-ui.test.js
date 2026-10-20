@@ -175,6 +175,16 @@ test('a rate limit or a lost connection offers to send the same check-in again',
  assert.ok(posts(h).every(request=>request.body.code===CODE&&request.body.activityId==='day1-am'));assert.equal(posts(h).length,3);
 });
 
+test('a firewall challenge (the host’s 403 page) offers to send the same check-in again and never blames the account',async()=>{
+ const checkpoint={status:403,html:'<!DOCTYPE html><title>Vercel Security Checkpoint</title>',headers:{'x-vercel-mitigated':'challenge','retry-after':'30'}};
+ const replies=[checkpoint,checkedIn],h=await page(()=>replies.shift());
+ assert.equal(title(h).dataset.fiiuText,'checkinFailedTitle');assert.equal(result(h).className,'f-checkin is-error');assert.ok(key(result(h),'checkinError'));assert.equal(key(result(h),'forbidden'),undefined);
+ await key(result(h),'retry').listeners.click();assert.equal(title(h).dataset.fiiuText,'checkedInTitle');assert.equal(posts(h).length,2);
+ // A reload that only looks the block up says the lookup failed, with Retry.
+ const lookup=await page(request=>request.path==='/api/fiiu/registration'?checkpoint:assert.fail('nothing is sent without a code'),{search:'?a=day1-am'});
+ assert.equal(title(lookup).dataset.fiiuText,'checkinLoadFailed');assert.ok(key(result(lookup),'checkinLoadFailedHint'));assert.ok(key(result(lookup),'retry'));assert.equal(key(result(lookup),'forbidden'),undefined);
+});
+
 test('workshops and routes have no check-in, and an incomplete link sends nothing',async()=>{
  const external=await page(()=>({status:400,data:{code:'invalid_activity'}}),{search:`?a=workshop-calles-gente&c=${CODE}`});
  assert.equal(title(external).dataset.fiiuText,'noCheckin');assert.ok(key(result(external),'noCheckinHint'));

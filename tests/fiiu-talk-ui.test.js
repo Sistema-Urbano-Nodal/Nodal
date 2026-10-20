@@ -153,6 +153,19 @@ test('a failing pulse backs off exponentially, says in the dock that updates are
  await h.tickTimers();assert.equal(pulses(),4,'success resets the backoff');
 });
 
+test('a firewall challenge pauses the chat like an outage, waits as long as it asks, and never takes the conversation away',async()=>{
+ // Vercel's Security Checkpoint answers every request from a flagged address (a venue's Wi-Fi) with its own 403 page for a minute or two.
+ const Clock=clock(),checkpoint={status:403,html:'<!DOCTYPE html><title>Vercel Security Checkpoint</title>',headers:{'x-vercel-mitigated':'challenge','retry-after':'30'}};let blocked=true;
+ const h=await page({'GET /api/fiiu/pulse':()=>blocked?checkpoint:{questions:[[Q,'day1-am',3,'open']]},['POST '+MESSAGES]:checkpoint},{context:{Date:Clock}});
+ const pulses=()=>sent(h,'GET','/api/fiiu/pulse').length,paused=()=>h.root.querySelector('.f-talk-dock').querySelector('.f-talk-note');
+ await h.tickTimers();assert.equal(pulses(),1);
+ assert.equal(paused().dataset.fiiuText,'talkPaused','updates are paused: not the reader’s connection, not their account');assert.equal(rows(h).length,2,'the conversation stays');assert.ok(composer(h),'and so does the composer');
+ const text=composer(h).querySelector('textarea');text.value='Desde la sala';submit(h);await flush();
+ assert.equal(composerStatus(h),'talkError');assert.ok(rows(h).find(node=>classes(node).includes('is-failed')),'the message waits with Retry');
+ Clock.advance(29000);await h.tickTimers();assert.equal(pulses(),1,'the backoff alone would try after 8 s; the checkpoint asked for 30');
+ Clock.advance(1000);blocked=false;await h.tickTimers();assert.equal(pulses(),2);assert.equal(paused().textContent,'');
+});
+
 test('a reset reloads the conversation and keeps the draft; a question that leaves the pulse becomes unavailable and polling stops',async()=>{
  let loads=0,pulse=[[Q,'day1-am',4,'open']];
  const h=await page({['GET /api/fiiu/questions/'+Q]:()=>{loads++;return loads===3?{status:404,data:{code:'question_unavailable'}}:thread({revision:loads===2?250:3,messages:loads===2?[message(M4,{seq:250})]:undefined});},

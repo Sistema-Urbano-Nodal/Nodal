@@ -136,6 +136,21 @@ test('the band reads every 30 s while the tab is visible, pauses while hidden an
  h.live.stop();await h.visible(false);await h.visible(true);await flush();assert.equal(reads(h),4);assert.equal(running(h).length,0);
 });
 
+test('a firewall challenge keeps the band and its refresh, never asks a registered person to register, and waits as long as it asks',async()=>{
+ // Vercel's Security Checkpoint answers every request from a flagged address (a venue's Wi-Fi) with its own 403 page for a minute or two.
+ const checkpoint=wait=>({status:403,html:'<!DOCTYPE html><title>Vercel Security Checkpoint</title>',headers:{'x-vercel-mitigated':'challenge','retry-after':wait}});
+ let blocked=null;const h=await band(()=>blocked?checkpoint(blocked):LIVE());
+ blocked='30';await h.tickTimers();await flush();assert.equal(reads(h),2);
+ assert.equal(key(h.host,'liveRegister'),undefined);assert.equal(key(h.host,'liveSignIn'),undefined);assert.ok(linkTo(h.host,'El poder de lo local'),'the last view stays');
+ assert.equal(running(h).length,1,'and the band keeps reading');await h.tickTimers();await flush();assert.equal(reads(h),3,'30 s is the band’s own pace');
+ // A longer wait skips the reads it covers: 90 s is the next two.
+ blocked='90';await h.tickTimers();await flush();assert.equal(reads(h),4);
+ await h.tickTimers();await flush();await h.tickTimers();await flush();assert.equal(reads(h),4,'no read inside the wait');assert.equal(running(h).length,1);
+ blocked=null;await h.tickTimers();await flush();assert.equal(reads(h),5);assert.ok(linkTo(h.host,'El poder de lo local'));
+ // A first read caught by it draws nothing yet and reads again.
+ const first=await band(()=>checkpoint('30'));assert.equal(first.host.hidden,true);assert.equal(key(first.host,'liveRegister'),undefined);assert.deepEqual(running(first).map(timer=>timer.delay),[30000]);
+});
+
 test('a refresh with new numbers changes them in place; a new conversation rebuilds the list',async()=>{
  let answer=LIVE();const h=await band(()=>answer);
  const session=linkTo(h.host,'El poder de lo local'),question=linkTo(h.host,'¿Qué te llevas de esta charla?');

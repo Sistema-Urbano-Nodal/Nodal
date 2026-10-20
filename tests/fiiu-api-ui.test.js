@@ -9,10 +9,30 @@ function apiFor(response){
  vm.runInNewContext(source,context);return context.window.Fiiu.api;
 }
 test('festival errors retain HTTP recovery guidance when hosting returns HTML',async()=>{
- for(const [status,key] of [[401,'unauthorized'],[403,'forbidden'],[409,'conflict'],[429,'rate'],[503,'error']]){
+ // A 403 page is the host's, not NODAL's refusal of the account: see the firewall test below.
+ for(const [status,key] of [[401,'unauthorized'],[409,'conflict'],[429,'rate'],[503,'error']]){
   const api=apiFor(new Response('<html>hosting error</html>',{status}));
   await assert.rejects(api('/api/fiiu/registration'),error=>error.status===status&&error.key===key);
  }
+});
+test('a firewall challenge reads as a failed request with the wait it asks for, never as a refusal of the account',async()=>{
+ // Vercel's Security Checkpoint: an HTML page, marked x-vercel-mitigated, answering every request from a flagged address (a venue's Wi-Fi) for a minute or two.
+ const checkpoint=(status=403,headers={})=>new Response('<!DOCTYPE html><title>Vercel Security Checkpoint</title>',{status,headers:{'Content-Type':'text/html','x-vercel-mitigated':'challenge','Retry-After':'30',...headers}});
+ for(const [path,body] of [['/api/fiiu/checkin',{activityId:'day1-am',code:'x'}],['/api/fiiu/registration',{version:1}],['/api/fiiu/live',undefined]]){
+  await assert.rejects(apiFor(checkpoint())(path,body,body&&path==='/api/fiiu/registration'?'PUT':undefined),error=>error.key==='error'&&error.status===undefined&&error.blocked===true&&error.retryAfter===30&&error.message==='We could not complete the request. Your answers are still here. Try again.',path);
+ }
+ // Any answer the firewall marks is its own, JSON or not, refusal or rate limit; a wait past two minutes is read as two minutes, and one that is not a number of seconds is left out.
+ await assert.rejects(apiFor(new Response(JSON.stringify({error:'blocked'}),{status:403,headers:{'x-vercel-mitigated':'deny'}}))('/api/fiiu/live'),error=>error.key==='error'&&error.status===undefined&&!('retryAfter' in error));
+ await assert.rejects(apiFor(checkpoint(429,{'Retry-After':'3600'}))('/api/fiiu/pulse'),error=>error.key==='error'&&error.status===undefined&&error.retryAfter===120);
+ await assert.rejects(apiFor(checkpoint(403,{'Retry-After':'Wed, 21 Oct 2026 15:00:00 GMT'}))('/api/fiiu/live'),error=>error.key==='error'&&!('retryAfter' in error));
+ // An unmarked 403 that is not NODAL's JSON (a proxy's page, an empty body) is not a refusal either.
+ for(const response of [new Response('<html>Forbidden</html>',{status:403}),new Response('',{status:403}),Response.json({},{status:403}),Response.json([],{status:403})]){
+  await assert.rejects(apiFor(response)('/api/fiiu/live'),error=>error.key==='error'&&error.status===undefined&&error.blocked===true);
+ }
+ // NODAL's own refusals still speak for the account.
+ await assert.rejects(apiFor(Response.json({error:'administrator access required'},{status:403}))('/api/admin/fiiu/summary'),error=>error.key==='forbidden'&&error.status===403);
+ await assert.rejects(apiFor(Response.json({error:'festival registration required',code:'not_registered'},{status:403}))('/api/fiiu/live'),error=>error.key==='forbidden'&&error.status===403&&error.code==='not_registered');
+ await assert.rejects(apiFor(Response.json({error:'registration is closed'},{status:403}))('/api/fiiu/registration',{version:1},'PUT'),error=>error.key==='closed'&&error.status===403);
 });
 test('account-switch conflicts have distinct guidance from stale registration versions',async()=>{
  const api=apiFor(Response.json({error:'account changed; reload before continuing'},{status:409}));
