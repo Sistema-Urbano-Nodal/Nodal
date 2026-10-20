@@ -24,11 +24,12 @@ function loadI18n(lang) {
 }
 
 // app.js returns before the graph when the page has no #graph, so the price
-// slot and the Supporter button are the only nodes it touches here.
+// slot, the two-payment line and the Nodal Fundadores button are the only nodes it touches here.
 async function landing({ lang = 'en', fetchImpl }) {
   const price = { textContent: 'Soon!' };
+  const split = { textContent: '', hidden: true };
   const cta = { removed: false, hidden: true, remove() { this.removed = true; } };
-  const nodes = new Map([['[data-billing-price]', price], ['[data-billing-cta]', cta]]);
+  const nodes = new Map([['[data-billing-price]', price], ['[data-billing-split]', split], ['[data-billing-cta]', cta]]);
   const document = {
     querySelector: (selector) => (selector === '[data-billing-cta]' && cta.removed ? null : nodes.get(selector) ?? null),
     querySelectorAll: () => [],
@@ -39,8 +40,15 @@ async function landing({ lang = 'en', fetchImpl }) {
   const context = { document, window: { nodalI18n: i18n }, fetch: async (...args) => { seen.push(price.textContent); return fetchImpl(...args); }, console };
   vm.runInNewContext(APP, context, { filename: 'app.js' });
   for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
-  return { price, cta, i18n, seenBeforeFetch: seen[0] };
+  return { price, split, cta, i18n, seenBeforeFetch: seen[0] };
 }
+
+// The /api/billing/config answers of docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md.
+const OFFER = { name: 'Nodal Fundadores 2027', version: 'FUNDADORES-2027-v1', endsAt: '2027-01-01T05:00:00.000Z' };
+const ONCE = { id: 'once', amount: 'S/ 499' };
+const TWICE = { id: 'installments', amount: 'S/ 550', each: 'S/ 275', count: 2, monthsApart: 2 };
+const FUNDADORES = { checkout: true, provider: 'mercadopago', state: 'open', offer: OFFER, annual: { amount: 'S/ 499', per: '' }, options: [ONCE, TWICE], contact: { email: 'membresia@sistemaurbano.org', complaintsUrl: 'https://reclamos.example.pe' } };
+const CLOSED = (state) => ({ checkout: false, provider: null, state, offer: OFFER, annual: { amount: 'Soon', per: '' }, options: [], contact: null });
 
 const json = (payload) => async () => ({ ok: true, status: 200, async json() { return payload; } });
 const SOON = { en: 'Soon!', es: '¡Pronto!', pt: 'Em breve!' };
@@ -84,16 +92,71 @@ test('a failed or refused billing request keeps the localised "Soon!" and drops 
   assert.equal(refused.cta.removed, true);
 });
 
-test('the landing markup carries no price and ships the Supporter button hidden until checkout is confirmed', () => {
+test('Nodal Fundadores prints the year’s price from the offer and, when the two-payment option is offered, its payments', async () => {
+  const LINE = { en: 'or 2 payments of S/ 275', es: 'o 2 pagos de S/ 275', pt: 'ou 2 pagamentos de S/ 275' };
+  for (const lang of ['en', 'es', 'pt']) {
+    const page = await landing({ lang, fetchImpl: json(FUNDADORES) });
+    assert.equal(page.price.textContent, 'S/ 499', lang);
+    assert.equal(page.split.textContent, LINE[lang], lang);
+    assert.equal(page.split.hidden, false, lang);
+    assert.equal(page.cta.removed, false, lang);
+    assert.equal(page.cta.hidden, false, lang);
+  }
+  // The line follows a language switch.
+  const page = await landing({ fetchImpl: json(FUNDADORES) });
+  page.i18n.apply('pt');
+  assert.equal(page.split.textContent, LINE.pt);
+  // With only the single payment offered there is no second line.
+  const once = await landing({ lang: 'es', fetchImpl: json({ ...FUNDADORES, options: [ONCE] }) });
+  assert.equal(once.price.textContent, 'S/ 499');
+  assert.equal(once.split.textContent, '');
+  assert.equal(once.split.hidden, true);
+  // An installments option without its amount per payment says nothing it cannot back.
+  const partial = await landing({ fetchImpl: json({ ...FUNDADORES, options: [ONCE, { id: 'installments', amount: 'S/ 550' }] }) });
+  assert.equal(partial.split.hidden, true);
+});
+
+test('before sign-ups open the card says "Soon!", after the offer closed it says so, and neither leads to the payments page', async () => {
+  const ENDED = { en: 'Offer closed', es: 'Oferta cerrada', pt: 'Oferta encerrada' };
+  for (const lang of ['en', 'es', 'pt']) {
+    const soon = await landing({ lang, fetchImpl: json(CLOSED('soon')) });
+    assert.equal(soon.price.textContent, SOON[lang], lang);
+    assert.equal(soon.split.hidden, true, lang);
+    assert.equal(soon.cta.removed, true, lang);
+    const ended = await landing({ lang, fetchImpl: json(CLOSED('ended')) });
+    assert.equal(ended.price.textContent, ENDED[lang], lang);
+    assert.equal(ended.split.hidden, true, lang);
+    assert.equal(ended.cta.removed, true, lang);
+  }
+});
+
+test('the landing card is Nodal Fundadores: its four pillars, early access, the 20% discount and a button to learn more', () => {
+  const html = read('web', 'pages', 'index.html');
+  const card = html.slice(html.indexOf('<article class="plan plan-pro">'), html.indexOf('</article>', html.indexOf('<article class="plan plan-pro">')));
+  assert.match(card, /<h3>Nodal Fundadores<\/h3>/, 'the name is the same in every language');
+  assert.match(card, /<p class="plan-split" data-billing-split hidden><\/p>/);
+  const keys = [...card.matchAll(/data-i18n="(mem\.fund\.[^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(keys, ['mem.fund.flag', 'mem.fund.connect', 'mem.fund.connectText', 'mem.fund.find', 'mem.fund.findText', 'mem.fund.learn', 'mem.fund.learnText', 'mem.fund.visible', 'mem.fund.visibleText', 'mem.fund.early', 'mem.fund.discount', 'mem.fund.cta']);
+  assert.doesNotMatch(card, /Supporter|Supporting|mem\.p\d|mem\.proName|mem\.proCta/);
+  const es = loadI18n('es'), pt = loadI18n('pt');
+  assert.equal(es.t('mem.fund.cta'), 'Conoce Nodal Fundadores');
+  assert.equal(pt.t('mem.fund.cta'), 'Conheça o Nodal Fundadores');
+  assert.match(card, /data-i18n="mem\.fund\.cta">Discover Nodal Fundadores<\/a>/);
+  for (const [key, text] of [['mem.fund.connect', 'Conecta:'], ['mem.fund.find', 'Encuentra oportunidades:'], ['mem.fund.learn', 'Aprende:'], ['mem.fund.visible', 'Haz visible tu trabajo:']]) assert.equal(es.t(key), text, key);
+  for (const key of keys) for (const [lang, api] of [['es', es], ['pt', pt]]) assert.notEqual(api.t(key), key, `${key} in ${lang}`);
+});
+
+test('the landing markup carries no price and ships the Nodal Fundadores button hidden until checkout is confirmed', () => {
   const html = read('web', 'pages', 'index.html');
   // Hidden in the markup: without JavaScript, and while /api/billing/config is in flight, no button leads to a closed checkout.
-  assert.match(html, /<a class="btn btn-primary" href="payments\.html" data-billing-cta hidden data-i18n="mem\.proCta">/);
+  assert.match(html, /<a class="btn btn-primary" href="payments\.html" data-billing-cta hidden data-i18n="mem\.fund\.cta">/);
   // .btn sets display, so the stylesheet must let the hidden attribute win.
   assert.match(read('web', 'styles', 'styles.css'), /\.btn\[hidden\]\s*\{\s*display:\s*none;?\s*\}/);
   assert.match(html, /<p class="price" data-billing-price>Soon!<\/p>/);
   assert.doesNotMatch(html, /US\$\s?\d+|\$\s?\d+\s?(?:USD|\/)/);
+  // The prices of Nodal Fundadores come from the server's terms version, never from the markup or the dictionaries.
   for (const page of ['index.html', 'payments.html', 'dashboard.html', 'profile.html']) {
-    assert.doesNotMatch(read('web', 'pages', page), /US\$\s?\d/, `${page} must not hardcode a price`);
+    assert.doesNotMatch(read('web', 'pages', page), /US\$\s?\d|S\/\s?\d/, `${page} must not hardcode a price`);
   }
-  for (const file of ['i18n.js', 'i18n-dashboard.js']) assert.doesNotMatch(read('web', 'scripts', file), /US\$\s?\d/, `${file} must not hardcode a price`);
+  for (const file of ['i18n.js', 'i18n-dashboard.js', 'app.js', 'payments.js']) assert.doesNotMatch(read('web', 'scripts', file), /US\$\s?\d|S\/\s?\d/, `${file} must not hardcode a price`);
 });

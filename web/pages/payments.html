@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
-  <meta name="description" content="NODAL supporting membership: help sustain the community while keeping access open." />
+  <meta name="description" content="Nodal Fundadores 2027: the NODAL annual membership, its benefits, payment options and conditions." />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cline x1='20' y1='22' x2='44' y2='42' stroke='%2359bc53' stroke-width='5'/%3E%3Ccircle cx='20' cy='22' r='11' fill='%233d5c38'/%3E%3Ccircle cx='44' cy='42' r='8' fill='%2359bc53'/%3E%3C/svg%3E" />
-  <title data-i18n="y.title">NODAL · Supporting membership</title>
+  <title>NODAL · Nodal Fundadores</title>
 
   <link rel="stylesheet" href="locale.css?v=20260929a" />
   <script src="locale.js?v=20261009a"></script>
@@ -43,91 +43,151 @@
   <main>
     <section class="pay-hero">
       <div class="wrap">
-        <p class="eyebrow" data-i18n="y.eyebrow">Supporting membership</p>
-        <h1 class="pay-title"><span data-i18n="y.titleA">Keep access open.</span><br/><em data-i18n="y.titleB">Support the community.</em></h1>
-        <p class="pay-sub" data-i18n="y.sub">NODAL starts free. Supporting membership helps sustain the shared civic work behind courses, community circles and regional opportunities.</p>
-        <span class="pay-flag" data-i18n="y.secure">Secure checkout</span>
+        <p class="eyebrow" data-i18n="y.fund.eyebrow">Annual membership 2027</p>
+        <h1 class="pay-title">Nodal <em>Fundadores</em></h1>
+        <p class="pay-sub" data-i18n="y.fund.intro">Be part of the community building a new way to connect, collaborate and transform our cities through Collaborative Urbanism.</p>
       </div>
     </section>
 
     <section class="pay-body">
-      <div class="wrap pay-grid">
+      <form class="wrap pay-grid" id="fundForm" novalidate>
+        <section class="pay-block" id="modalidad" hidden>
+          <fieldset class="pay-choices">
+            <legend><h2 class="pay-block-title" data-i18n="y.fund.chooseTitle">Choose how to pay</h2></legend>
+            <label class="pay-choice" id="payChoiceOnce">
+              <input type="radio" id="payOptionOnce" name="option" value="once" />
+              <span class="pay-choice-head"><span class="pay-choice-name" data-i18n="y.fund.onceName">Single payment</span> <span class="pay-choice-amount" id="payOnceAmount"></span></span>
+              <span class="pay-choice-text" data-i18n="y.fund.onceText">One payment when you sign up, for your annual membership.</span>
+            </label>
+            <label class="pay-choice" id="payChoiceInstallments">
+              <input type="radio" id="payOptionInstallments" name="option" value="installments" />
+              <span class="pay-choice-head"><span class="pay-choice-name" data-i18n="y.fund.twiceName">Two payments</span> <span class="pay-choice-amount" id="payInstallmentsTotal"></span></span>
+              <span class="pay-choice-text" id="payInstallmentsText"></span>
+            </label>
+          </fieldset>
+          <p class="pay-note" data-i18n="y.fund.sameBenefits">Both options include the same benefits. All prices include IGV, Peru’s sales tax.</p>
+          <p class="pay-note" data-i18n="y.fund.notMonthly">The two-payment option is one annual membership. It is not a monthly subscription or a two-month membership.</p>
+        </section>
 
-        <div class="pay-plans">
-          <article class="pay-plan">
-            <header>
-              <h2 data-i18n="y.freeName">Community access</h2>
-              <p class="pay-price"><span class="pay-amount" data-i18n="y.free">Free</span></p>
-            </header>
-            <ul>
-              <li data-i18n="y.f1">Community sessions and open resources</li>
-              <li data-i18n="y.f2">Library resources and shared reading circles</li>
-              <li data-i18n="y.f3">Learning and opportunity updates</li>
-              <li data-i18n="y.f4">Calls and opportunities in your region</li>
-            </ul>
-            <a class="btn btn-ghost" href="login.html?next=/dashboard.html" data-i18n="y.joinFree">Join free</a>
-          </article>
+        <section class="pay-block" id="beneficios">
+          <h2 class="pay-block-title" data-i18n="y.fund.includesTitle">Your membership includes</h2>
+          <ul class="pay-benefits">
+            <li><strong data-i18n="y.fund.b1t">Early access:</strong> <span data-i18n="y.fund.b1">from the approval of your first payment until 31 December 2026, in the Early Access format.</span></li>
+            <li><strong data-i18n="y.fund.b2t">Annual membership:</strong> <span data-i18n="y.fund.b2">from 1 January to 31 December 2027.</span></li>
+            <li><strong data-i18n="y.fund.b3t">Connect:</strong> <span data-i18n="y.fund.b3">access to the community, curated connections and introductions, and networking spaces.</span></li>
+            <li><strong data-i18n="y.fund.b4t">Find opportunities:</strong> <span data-i18n="y.fund.b4">access to selected opportunities, with search and curation tools.</span></li>
+            <li><strong data-i18n="y.fund.b5t">Learn:</strong> <span data-i18n="y.fund.b5">one course and one masterclass included during 2027, and access to the Nodal library and resources.</span></li>
+            <li><strong data-i18n="y.fund.b6t">Make your work visible:</strong> <span data-i18n="y.fund.b6">an expanded profile and opportunities to share your work, linked to your participation and contributions.</span></li>
+            <li><strong data-i18n="y.fund.b7t">Further training:</strong> <span data-i18n="y.fund.b7">20% off additional courses and masterclasses during 2027, not combinable with other promotions or special rates. The most favourable rate applies.</span></li>
+          </ul>
+          <p class="pay-note" data-i18n="y.fund.courseNote">The included course and masterclass open from the approval of your first payment, also if you choose to pay in two parts. The activities will run during 2027, subject to the programme and available places. You do not need to complete the second payment to open these benefits; you must keep your membership up to date under its conditions.</p>
+        </section>
 
-          <article class="pay-plan pay-plan-pro">
-            <div class="plan-flag" data-i18n="y.supporter">Supporter</div>
-            <header>
-              <h2 data-i18n="y.proName">Supporting membership</h2>
-              <p class="pay-price">
-                <span class="pay-amount" id="proPrice">Soon</span>
-                <span class="pay-per" id="proPer"></span>
-              </p>
-              <p class="pay-price-note" data-i18n="y.mp.term">Annual membership: 12 months from your payment.</p>
-            </header>
-            <ul>
-              <li data-i18n="y.p1">Everything in Free, plus:</li>
-              <li data-i18n="y.p6">Supporter courses with the teaching team</li>
-              <li data-i18n="y.mp.sustain">Help sustain the care, data and coordination behind the regional network</li>
-            </ul>
-            <div class="pay-options" id="payOptions"></div>
-            <p class="pay-soon" id="paySoon" data-i18n="y.mp.soonNote">Payments open soon.</p>
-          </article>
+        <div class="pay-terms">
+          <section class="pay-block" aria-labelledby="payTermTitle">
+            <h2 class="pay-block-title" id="payTermTitle" data-i18n="y.fund.termTitle">Validity and payments</h2>
+            <p data-i18n="y.fund.term1">The Nodal Fundadores 2027 offer is open to people who sign up and have their first payment approved by 31 December 2026.</p>
+            <p data-i18n="y.fund.term2">Once the single payment, or both payments of the option you chose, are complete, there are no further charges for that membership cycle. Your access continues until 31 December 2027.</p>
+          </section>
+          <section class="pay-block" aria-labelledby="payRenewTitle">
+            <h2 class="pay-block-title" id="payRenewTitle" data-i18n="y.fund.renewTitle">Automatic renewal</h2>
+            <p data-i18n="y.fund.renew1">Your membership renews on 1 January 2028, unless you ask for it not to renew before that date.</p>
+            <p data-i18n="y.fund.renew2">The renewal price will be the regular rate in force for your payment option, with a 5% discount while you keep your Founder status active. The renewal price may differ from the 2027 promotional price.</p>
+            <p data-i18n="y.fund.renew3">Before renewing, we will tell you the price that applies, the charge dates and how to ask for it not to renew. Charges are subject to your valid authorization and to the features the payment provider enables.</p>
+            <p data-i18n="y.fund.renew4">Before you confirm your purchase you can review the total price, the payment schedule, the benefits and the automatic renewal conditions.</p>
+            <a class="link-arrow" href="terminos-fundadores.html" data-i18n="y.fund.termsLink">Nodal Fundadores commercial terms (in Spanish)</a>
+          </section>
         </div>
 
-        <aside class="pay-summary" aria-labelledby="payHowTitle">
-          <p class="pay-summary-kicker" data-i18n="y.mp.howKicker">Paying on Mercado Pago</p>
-          <h2 id="payHowTitle" data-i18n="y.mp.howTitle">How it works</h2>
-          <ol class="pay-steps">
-            <li><span data-i18n="y.mp.step1">Pay on Mercado Pago with the email of your NODAL account.</span> <span class="pay-email-line" id="payEmailStep" hidden><span data-i18n="y.mp.yourEmail">Your NODAL email:</span> <strong id="payEmail"></strong></span></li>
-            <li data-i18n="y.mp.step2">Within two working days the NODAL team adds you as a Supporter, and the Supporter courses open on your courses page.</li>
-            <li data-i18n="y.mp.step3">Your membership lasts 12 months from your payment.</li>
-          </ol>
-          <div class="pay-methods">
-            <p data-i18n="y.payWith">Pay with</p>
-            <span data-i18n="y.mp.methods">A card or your Mercado Pago balance</span>
+        <section class="pay-block" id="gratis">
+          <h2 class="pay-block-title"><span data-i18n="y.freeName">Community access</span> · <span data-i18n="y.free">Free</span></h2>
+          <p data-i18n="y.fund.freeNote">Your NODAL account already includes it. Signing up for free does not, by itself, make you a Founder member.</p>
+          <ul class="pay-benefits">
+            <li data-i18n="y.f1">Community sessions and open resources</li>
+            <li data-i18n="y.f2">Library resources and shared reading circles</li>
+            <li data-i18n="y.f3">Learning and opportunity updates</li>
+            <li data-i18n="y.f4">Calls and opportunities in your region</li>
+          </ul>
+        </section>
+
+        <section class="pay-block pay-seller" aria-labelledby="paySellerTitle">
+          <h2 class="pay-block-title" id="paySellerTitle"><span data-i18n="y.fund.sellerBy">Service provided by</span> <span id="paySellerName">Sistema Urbano</span></h2>
+          <dl>
+            <div><dt>RUC</dt><dd id="paySellerRuc">20605878815</dd></div>
+            <div><dt data-i18n="y.fund.address">Address</dt><dd id="paySellerAddress">Calle General Varela 154 A, Miraflores</dd></div>
+            <div><dt data-i18n="y.fund.contactEmail">Contact email</dt><dd><a id="payContactEmail" hidden></a><span id="payContactPending" data-i18n="y.fund.pending">pending publication</span></dd></div>
+            <div><dt data-i18n="y.fund.complaints">Libro de Reclamaciones (complaints book)</dt><dd><a id="payComplaints" target="_blank" rel="noopener noreferrer" hidden data-i18n="y.fund.complaintsOpen">File a claim or complaint ↗</a><span id="payComplaintsPending" data-i18n="y.fund.pending">pending publication</span></dd></div>
+          </dl>
+        </section>
+
+        <aside class="pay-summary pay-checkout" aria-labelledby="payCheckoutTitle">
+          <p class="pay-summary-kicker" data-i18n="y.fund.checkoutKicker">Paying on Mercado Pago</p>
+          <h2 id="payCheckoutTitle" data-i18n="y.fund.checkoutTitle">Your sign-up</h2>
+          <p class="pay-closed" id="payClosed">Sign-ups open soon.</p>
+          <div class="pay-purchase" id="payPurchase" hidden>
+            <div class="pay-check-group">
+              <p class="pay-check-head" data-i18n="y.fund.acceptHead">Acceptance of conditions</p>
+              <label class="pay-check">
+                <input type="checkbox" id="payAcceptTerms" name="terms" />
+                <span><span data-i18n="y.fund.acceptPre">I have read and accept the </span><a href="terminos-fundadores.html" target="_blank" rel="noopener" data-i18n="y.fund.termsLink">Nodal Fundadores commercial terms (in Spanish)</a><span data-i18n="y.fund.acceptPost">, including the membership benefits, its validity, the total price, the payment schedule and the automatic renewal conditions.</span></span>
+              </label>
+            </div>
+            <div class="pay-check-group">
+              <p class="pay-check-head" data-i18n="y.fund.authHead">Authorization for the option you chose</p>
+              <p class="pay-check-hint" id="payPaymentHint" data-i18n="y.fund.chooseFirst">Choose how to pay to see its payment authorization.</p>
+              <label class="pay-check" id="payPaymentRow" hidden>
+                <input type="checkbox" id="payAcceptPayment" name="payment" />
+                <span id="payPaymentText"></span>
+              </label>
+            </div>
+            <div class="pay-check-group">
+              <p class="pay-check-head" data-i18n="y.fund.renewTitle">Automatic renewal</p>
+              <label class="pay-check">
+                <input type="checkbox" id="payAcceptRenewal" name="renewal" />
+                <span data-i18n="y.fund.authRenew">I authorize the automatic renewal of my membership from 1 January 2028, and every 1 January after that, unless I ask for it not to renew before the next period starts. I understand that the regular rate in force for my payment option will apply, with a 5% discount while I keep my Founder status active, and that the price and the charge dates will be sent to me before the renewal.</span>
+              </label>
+            </div>
+            <p class="pay-email-line" id="payEmailStep" hidden><span data-i18n="y.fund.payWithEmail">Pay on Mercado Pago with the email of your NODAL account:</span> <strong id="payEmail"></strong></p>
+            <button type="submit" class="btn btn-primary btn-block" id="payContinue" disabled aria-describedby="payHint" data-i18n="y.fund.continue">Continue to Mercado Pago</button>
+            <p class="pay-hint" id="payHint" data-i18n="y.fund.hint">Choose an option and tick the three boxes to continue.</p>
+            <p class="pay-status" id="payStatus" role="status" aria-live="polite"></p>
+            <p class="pay-checkout-note" data-i18n="y.fund.never">Mercado Pago opens in this tab. NODAL never sees or stores card numbers.</p>
           </div>
-          <p class="pay-checkout-note" data-i18n="y.mp.never">Mercado Pago opens in a new tab. NODAL never sees or stores card numbers.</p>
         </aside>
-      </div>
+      </form>
     </section>
 
     <section class="pay-faq">
       <div class="wrap">
         <p class="eyebrow" data-i18n="y.faq">FAQ</p>
-        <h2 class="section-title" data-i18n="y.faqTitle">Membership questions</h2>
+        <h2 class="section-title" data-i18n="y.fund.faqTitle">Questions about Nodal Fundadores</h2>
         <details>
-          <summary data-i18n="y.mp.q1">How does paying in two installments work?</summary>
-          <p data-i18n="y.mp.a1">Mercado Pago shows the amount and how often it is charged before you confirm. If the second payment cannot be charged, or you cancel it, the NODAL team writes to you before removing your access to the Supporter courses.</p>
+          <summary data-i18n="y.fund.q1">How do the two payments work?</summary>
+          <p data-i18n="y.fund.a1">You pay the first of two equal payments when you sign up. The second is charged automatically two calendar months after the date your first payment is approved, or on the last day of that month if it has no such day. Once your first payment is approved, NODAL confirms the exact date of the second.</p>
         </details>
         <details>
-          <summary data-i18n="y.mp.q2">What currency will I be charged in?</summary>
-          <p data-i18n="y.mp.a2">Peruvian soles (S/). Mercado Pago shows the final amount before you confirm.</p>
+          <summary data-i18n="y.fund.q2">What if an automatic payment fails?</summary>
+          <p data-i18n="y.fund.a2">NODAL lets you know, and you keep your benefits during a grace period of ten calendar days from the failed charge. Retries of the same payment do not restart that period or add charges. If the payment is not settled within it, the Nodal Fundadores benefits may be suspended until it is paid.</p>
         </details>
         <details>
-          <summary data-i18n="y.mp.q3">Will I get a receipt?</summary>
-          <p data-i18n="y.mp.a3">Mercado Pago emails you a payment receipt. If you need an invoice, write to the NODAL team.</p>
+          <summary data-i18n="y.fund.q3">What currency will I be charged in?</summary>
+          <p data-i18n="y.fund.a3">Peruvian soles (S/). All prices include IGV, and Mercado Pago shows the final amount before you confirm.</p>
         </details>
         <details>
-          <summary data-i18n="y.mp.q4">What if I paid with a different email?</summary>
-          <p data-i18n="y.mp.a4">Write to the NODAL team with the email you used on Mercado Pago, and they will link your payment to your NODAL account.</p>
+          <summary data-i18n="y.fund.q4">Will I get a receipt?</summary>
+          <p data-i18n="y.fund.a4">Mercado Pago emails you a receipt for each payment. If you need an invoice, write to the contact email on this page.</p>
         </details>
         <details>
-          <summary data-i18n="y.mp.q5">Does the membership renew by itself?</summary>
-          <p data-i18n="y.mp.a5">No. It lasts 12 months, and before it ends the NODAL team invites you to renew.</p>
+          <summary data-i18n="y.fund.q5">What if I paid with a different email?</summary>
+          <p data-i18n="y.fund.a5">Write to the contact email with the email you used on Mercado Pago, and the team will link your payment to your NODAL account.</p>
+        </details>
+        <details>
+          <summary data-i18n="y.fund.q6">Does the membership renew?</summary>
+          <p data-i18n="y.fund.a6">Yes. It renews automatically on 1 January 2028, and every 1 January after that, at the regular rate for your payment option with a 5% discount while you keep your Founder status. Before renewing, NODAL tells you the price and the charge dates. If you do not want it to renew, write to the contact email before 1 January 2028.</p>
+        </details>
+        <details>
+          <summary data-i18n="y.fund.q7">Can I get a refund?</summary>
+          <p data-i18n="y.fund.a7">Asking for your membership not to renew does not cancel the payments still due for the current annual period, and does not by itself give a right to a refund. Requests for a refund or early termination are assessed under the conditions you accepted and the applicable consumer protection rules; send them to the contact email. None of this excludes a refund or any other right the law gives you.</p>
         </details>
       </div>
     </section>

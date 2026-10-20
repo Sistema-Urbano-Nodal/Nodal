@@ -283,9 +283,10 @@ for(const lang of ['es','pt']){
       // the console's loading/failure lines and accessible names (d.aria.*) by dashboard-publishing,
       // the catalog's nothing-published state by catalog-ui, and the console's Show more / Show less (d.news.*) and FIIU badges
       // (d.badge.fiiu.*) by dashboard-console-ui, the Learning band's readings from BUC (d.buc.*) by buc-ui, and the
-      // Supporter plans' courses line (mem.p7, y.p6) by the plan copy test at the end of this file, and the console's two-character
-      // name refusal (d.uc.errNameShort) just below and by dashboard-console-ui, and the Mercado Pago payments page (y.mp.*) by payments-links-ui.
-      const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','y.alreadyMember','d.uc.deleteSubscription','d.greet.hello','d.greet.loading','d.load.failed','catalog.emptyNothingPublished','catalog.nextFiiu','catalog.nextCourses','mem.p7','y.p6','d.uc.errNameShort'].includes(key)||/^(?:ops|news|d\.aria|d\.news|d\.badge\.fiiu|d\.buc|y\.mp)\./.test(key);
+      // console's two-character name refusal (d.uc.errNameShort) just below and by dashboard-console-ui, and Nodal Fundadores 2027
+      // (y.fund.* on the payments page, mem.fund.* on the landing card) by payments-links-ui, landing-membership and the plan copy
+      // test at the end of this file. The Supporter courses lines (mem.p7, y.p6) and the Mercado Pago links page (y.mp.*) they replaced are gone.
+      const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','y.alreadyMember','d.uc.deleteSubscription','d.greet.hello','d.greet.loading','d.load.failed','catalog.emptyNothingPublished','catalog.nextFiiu','catalog.nextCourses','d.uc.errNameShort'].includes(key)||/^(?:ops|news|d\.aria|d\.news|d\.badge\.fiiu|d\.buc|y\.fund|mem\.fund)\./.test(key);
       const actual=Object.entries(dictionaries[lang]).filter(([key])=>!later(key)).sort(([a],[b])=>a.localeCompare(b,'en'));
       assert.equal(hash(actual),SNAPSHOTS.nonhome[lang],String(page));
       assert.equal(api.t('nav.privacy'),lang==='es'?'Política de privacidad':'Política de privacidade');
@@ -326,28 +327,25 @@ test('landing leader titles, lab chips and accessible names switch language inst
   api.apply('es');assert.equal(api.t('lead.n3'),'Urbanista');assert.equal(api.t('part.l4'),'Co-crear');assert.equal(api.t('graph.aria'),'Red interactiva de actores');
   api.apply('pt');assert.equal(api.t('part.l6'),'Agir');assert.equal(api.t('platform.tabsLabel'),'Como a NODAL funciona');
 });
-test('the free plans stop offering courses and the Supporter plans list them, in English, Spanish and Portuguese',()=>{
+test('the free plans offer no courses and Nodal Fundadores lists its own benefits, in English, Spanish and Portuguese',()=>{
   // [en, es, pt]; English is the markup's own text.
   const COPY={
     'mem.f1':['Open labs and community sessions','Laboratorios abiertos y sesiones comunitarias','Laboratórios abertos e encontros comunitários'],
-    'mem.p7':['Supporter courses with the teaching team','Cursos de la membresía con el equipo docente','Cursos da assinatura com a equipe docente'],
+    'mem.fund.early':['Early access from your first payment until 31 December 2026','Acceso anticipado desde tu primer pago hasta el 31 de diciembre de 2026','Acesso antecipado desde o primeiro pagamento até 31 de dezembro de 2026'],
     'y.f1':['Community sessions and open resources','Sesiones comunitarias y recursos abiertos','Encontros da comunidade e recursos abertos'],
-    'y.p6':['Supporter courses with the teaching team','Cursos de la membresía con el equipo docente','Cursos da assinatura com a equipe docente'],
   };
   const page=name=>readFileSync(new URL('../web/pages/'+name,import.meta.url),'utf8');
   const landing=page('index.html'),payments=page('payments.html');
-  // The <ul> of the plan card with exactly this class.
-  const list=(html,card)=>{const at=html.indexOf(`<article class="${card}">`);assert.notEqual(at,-1,card);return html.slice(html.indexOf('<ul>',at),html.indexOf('</ul>',at));};
+  // The first <ul> after the opening tag that carries this attribute text.
+  const list=(html,mark)=>{const at=html.indexOf(mark);assert.notEqual(at,-1,mark);return html.slice(html.indexOf('<ul',at),html.indexOf('</ul>',at));};
   const keys=part=>[...part.matchAll(/data-i18n="([^"]+)"/g)].map(match=>match[1]);
-  // Since 20 Oct 2026, when the membership started taking payments on Mercado Pago, the Supporter plans list only what a Supporter
-  // gets: the free plan, the Supporter courses and sustaining the network. Curated programmes, guided discovery, a deeper directory
-  // profile and early access to labs (mem.p2a-mem.p5, y.p2-y.p5) return to the lists once they exist.
-  for(const [html,free,pro,order] of [[landing,'plan','plan plan-pro',['mem.p1','mem.p7','mem.p6']],[payments,'pay-plan','pay-plan pay-plan-pro',['y.p1','y.p6','y.mp.sustain']]]){
-    assert.doesNotMatch(list(html,free),/course/i,free+': the free plan no longer offers courses');
-    assert.deepEqual(keys(list(html,pro)),order,pro);
-    assert.doesNotMatch(list(html,pro),/curated|Guided discovery|deeper|Early access/,pro+': no benefit that nothing grants yet');
-  }
-  for(const [key,[en]] of Object.entries(COPY))assert.ok((key.startsWith('mem.')?landing:payments).includes(`<li data-i18n="${key}">${en}</li>`),key);
+  // Since 21 Oct 2026 the paid membership is Nodal Fundadores 2027: the landing card lists its four pillars, early access and
+  // the discount on further courses; the payments page lists the seven benefits of the terms (payments-links-ui checks those).
+  assert.doesNotMatch(list(landing,'<article class="plan">'),/course/i,'the landing free plan offers no courses');
+  assert.doesNotMatch(list(payments,'id="gratis"'),/course/i,'the payments page free access offers no courses');
+  assert.deepEqual(keys(list(landing,'<article class="plan plan-pro">')).filter(key=>!/Text$/.test(key)),['mem.fund.connect','mem.fund.find','mem.fund.learn','mem.fund.visible','mem.fund.early','mem.fund.discount']);
+  assert.ok(landing.includes(`<li data-i18n="mem.f1">${COPY['mem.f1'][0]}</li>`)&&landing.includes(`<li data-i18n="mem.fund.early">${COPY['mem.fund.early'][0]}</li>`));
+  assert.ok(payments.includes(`<li data-i18n="y.f1">${COPY['y.f1'][0]}</li>`));
   const home=load('home').api,console_=load(undefined,[],{withConsole:true}).api;
   for(const [index,lang] of [[1,'es'],[2,'pt']]){
     home.apply(lang);console_.apply(lang);

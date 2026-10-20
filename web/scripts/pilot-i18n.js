@@ -158,10 +158,12 @@ const rows = {
  // Curso Movilidad Nivel 2 after its September group (server/course-perks.js): who may still join, and the shared conversation.
  fiiuIncluded:['Included with your FIIU Fest 11 registration.','Incluido con tu inscripción al FIIU Fest 11.','Incluído na sua inscrição no FIIU Fest 11.'],
  joinCourse:['Join the course','Unirme al curso','Entrar no curso'],
- supportersOnly:['For Supporters','Para la membresía de apoyo','Para a assinatura de apoio'],
- supportersNote:['This course is part of the Supporting membership, which opens soon. People already enrolled keep full access.','Este curso forma parte de la membresía de apoyo, que abre pronto. Quienes ya están inscritos conservan el acceso completo.','Este curso faz parte da assinatura de apoio, que abre em breve. Quem já está inscrito mantém o acesso completo.'],
- supportersNoteOpen:['This course is part of the Supporting membership. People already enrolled keep full access.','Este curso forma parte de la membresía de apoyo. Quienes ya están inscritos conservan el acceso completo.','Este curso faz parte da assinatura de apoio. Quem já está inscrito mantém o acesso completo.'],
- becomeSupporter:['Become a Supporter','Hazte miembro de apoyo','Torne-se apoiador'],
+ // The paid membership is Nodal Fundadores 2027 (docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md).
+ supportersOnly:['For Nodal Fundadores members','Para miembros de Nodal Fundadores','Para membros do Nodal Fundadores'],
+ supportersNote:['This course is part of the Nodal Fundadores membership, which opens soon. People already enrolled keep full access.','Este curso forma parte de la membresía Nodal Fundadores, que abre pronto. Quienes ya están inscritos conservan el acceso completo.','Este curso faz parte da membresia Nodal Fundadores, que abre em breve. Quem já está inscrito mantém o acesso completo.'],
+ supportersNoteOpen:['This course is part of the Nodal Fundadores membership. People already enrolled keep full access.','Este curso forma parte de la membresía Nodal Fundadores. Quienes ya están inscritos conservan el acceso completo.','Este curso faz parte da membresia Nodal Fundadores. Quem já está inscrito mantém o acesso completo.'],
+ supportersNoteEnded:['This course is part of the Nodal Fundadores 2027 membership, whose offer closed on 31 December 2026. People already enrolled keep full access.','Este curso forma parte de la membresía Nodal Fundadores 2027, cuya oferta cerró el 31 de diciembre de 2026. Quienes ya están inscritos conservan el acceso completo.','Este curso faz parte da membresia Nodal Fundadores 2027, cuja oferta foi encerrada em 31 de dezembro de 2026. Quem já está inscrito mantém o acesso completo.'],
+ becomeSupporter:['Join Nodal Fundadores','Únete a Nodal Fundadores','Junte-se ao Nodal Fundadores'],
  fiiuTag:['Included with FIIU','Incluido con el FIIU','Incluído com o FIIU'],
  enrolledTag:['Enrolled','Inscrito','Inscrito'],
  sharedSince:['Since October, new participants join this conversation. Contributions from September stay visible to the September group only.','Desde octubre se suman nuevas personas a esta conversación. Las contribuciones de septiembre solo las ve el grupo de septiembre.','Desde outubro, novas pessoas entram nesta conversa. As contribuições de setembro ficam visíveis só para a turma de setembro.'],

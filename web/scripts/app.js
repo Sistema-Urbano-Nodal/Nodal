@@ -10,14 +10,15 @@
   'use strict';
   const NS = 'http://www.w3.org/2000/svg';
 
-  /* The membership price slot. A price is shown only while a member could
-     actually pay it: the server sets `checkout` once a Mercado Pago link for
-     the annual membership is configured. Until then (and on static hosting
-     with no API) the slot says "Soon!" in the reader's language. A configured
-     amount is printed exactly as the operator set it — only the period suffix
-     and the sentinel are copy. */
+  /* The Nodal Fundadores price slot. A price is shown only while a member could
+     actually pay it: the server sets `checkout` while sign-ups are open
+     (docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md). Until then
+     (and on static hosting with no API) the slot says "Soon!" in the reader's
+     language, and once the offer has ended it says so. The amounts are the
+     server's, printed as sent; only the period suffix, the sentinel and the
+     two-payment line around its amount are copy. */
   const I18N = window.nodalI18n;
-  const t = (key) => (I18N ? I18N.t(key) : key);
+  const t = (key, vars) => (I18N ? I18N.t(key, vars) : key);
   const PRICE_COPY = new Map([
     ['Soon', 'mem.priceSoon'],
     ['/ month', 'y.perMonth'], ['/month', 'y.perMonth'], ['/ mo', 'y.perMonth'],
@@ -29,8 +30,15 @@
   function renderLandingPrice() {
     const price = document.querySelector('[data-billing-price]');
     if (!price) return;
-    const annual = billing?.checkout === true ? billing.annual : null;
-    if (!annual?.amount) { price.textContent = t('mem.priceSoon'); return; }
+    const open = billing?.checkout === true, annual = open ? billing.annual : null;
+    // "o 2 pagos de …", only while the two-payment option is offered with its amount per payment.
+    const split = document.querySelector('[data-billing-split]');
+    const twice = open && Array.isArray(billing.options) ? billing.options.find((option) => option?.id === 'installments' && typeof option.each === 'string' && option.each.trim()) : null;
+    if (split) {
+      split.textContent = twice ? t('mem.fund.split', { count: Number.isInteger(twice.count) && twice.count > 1 ? twice.count : 2, each: twice.each.trim() }) : '';
+      split.hidden = !twice;
+    }
+    if (!annual?.amount) { price.textContent = t(billing?.state === 'ended' ? 'mem.fund.ended' : 'mem.priceSoon'); return; }
     const amount = localisePrice(annual.amount);
     const per = annual.per ? ` ${localisePrice(annual.per)}` : '';
     price.textContent = `${amount}${per}`;

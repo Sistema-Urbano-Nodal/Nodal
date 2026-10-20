@@ -627,6 +627,9 @@ h1, h2, h3 {
   padding: 7px 14px; border: 2px solid var(--green-bright); border-radius: 5px;
   letter-spacing: .08em; transform: rotate(2deg); box-shadow: 2px 2px 0 rgba(37,52,31,.45); }
 .plan header h3 { font-size: 24px; } .plan .price { font-size: 16px; opacity: .8; margin-top: 4px; margin-bottom: 22px; }
+/* Nodal Fundadores' two-payment line, right under the year's price */
+.plan .plan-split { margin: -18px 0 22px; font-size: 14.5px; opacity: .8; }
+.plan li strong { font-weight: 700; }
 .plan ul { list-style: none; display: grid; gap: 12px; margin-bottom: 28px; }
 .plan li { position: relative; padding-left: 26px; line-height: 1.45; font-size: 15.5px; }
 .plan li::before { content: "✓"; position: absolute; left: 0; color: var(--green-bright); font-weight: 800; }
@@ -747,8 +750,8 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .btn:focus-visible
   box-shadow: 6px 6px 0 rgba(89,188,83,.5); }
 
 /* hover grammar — boxed plates lift onto a hard shadow; quiet elements answer the cursor */
-.pay-plan, .match-card { transition: transform .3s cubic-bezier(.16,1,.3,1), box-shadow .3s cubic-bezier(.16,1,.3,1), border-color .25s ease; }
-.pay-plan:hover, .match-card:hover { transform: translate(-2px,-2px); box-shadow: 5px 5px 0 rgba(61,92,56,.10); }
+.match-card { transition: transform .3s cubic-bezier(.16,1,.3,1), box-shadow .3s cubic-bezier(.16,1,.3,1), border-color .25s ease; }
+.match-card:hover { transform: translate(-2px,-2px); box-shadow: 5px 5px 0 rgba(61,92,56,.10); }
 .stat { transition: border-color .25s ease; }
 .stat:hover { border-top-color: var(--green-bright); }
 .step { transition: transform .3s cubic-bezier(.16,1,.3,1); }
@@ -756,13 +759,13 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .btn:focus-visible
 
 /* registration ticks — corner marks that brand boxed cards as atlas plates */
 .match-card, .pf-hero-card, .pf-panel { position: relative; }
-.plan::before, .pay-plan::before, .pay-summary::before,
+.plan::before, .pay-summary::before,
 .match-card::before, .pf-hero-card::before, .pf-panel::before {
   content: ""; position: absolute; top: 0; left: 0; width: 13px; height: 13px; z-index: 2;
   border-top: 2px solid var(--green-bright); border-left: 2px solid var(--green-bright);
   pointer-events: none;
 }
-.plan::after, .pay-plan::after, .pay-summary::after,
+.plan::after, .pay-summary::after,
 .match-card::after, .pf-hero-card::after, .pf-panel::after {
   content: ""; position: absolute; bottom: 0; right: 0; width: 13px; height: 13px; z-index: 2;
   border-bottom: 2px solid var(--green-bright); border-right: 2px solid var(--green-bright);
@@ -859,64 +862,82 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .btn:focus-visible
   background: radial-gradient(42% 70% at 88% 20%, rgba(173,222,168,.35), transparent 70%); }
 .pay-title { font-size: clamp(40px, 6vw, 80px); font-weight: 800; line-height: 1.02; letter-spacing: -.025em; color: var(--ink); }
 .pay-title em { font-style: italic; font-weight: 600; color: var(--green-bright); }
-.pay-sub { margin-top: 22px; max-width: 560px; font-size: clamp(16px, 1.5vw, 19px); line-height: 1.6; color: var(--ink-2); }
-.pay-flag { display: inline-block; margin-top: 22px; font-family: var(--font-mono); font-size: 11.5px;
-  font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--green-deep);
-  border: 2px solid var(--green-bright); border-radius: 5px; padding: 8px 16px;
-  transform: rotate(-1.5deg); box-shadow: 2px 2px 0 rgba(61,92,56,.2); }
+.pay-sub { margin-top: 22px; max-width: 620px; font-size: clamp(16px, 1.5vw, 19px); line-height: 1.6; color: var(--ink-2); }
 
-/* plans + summary layout */
-.pay-body { padding: clamp(50px, 7vh, 90px) 0; }
-.pay-grid { display: grid; grid-template-columns: 1.55fr 1fr; gap: clamp(24px, 3.5vw, 48px); align-items: start; }
+/* Nodal Fundadores: the membership on the left, the purchase box beside the options. The markup keeps the terms'
+   order (options, benefits, conditions, seller, then the purchase), which is what a phone shows. */
+.pay-page [hidden] { display: none !important; }
+.pay-body { padding: clamp(44px, 6vh, 80px) 0 clamp(56px, 8vh, 96px); }
+.pay-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  grid-template-areas: "choose checkout" "benefits checkout" "terms terms" "free seller";
+  gap: clamp(36px, 5vh, 56px) clamp(28px, 4vw, 56px); align-items: start; }
+/* before sign-ups open and after the offer closed there are no options, and no empty row for them */
+.pay-grid:has(> #modalidad[hidden]) { grid-template-areas: "benefits checkout" "terms terms" "free seller"; }
+/* the box is then one short message, which may follow the reader down the column (the purchase box is too tall to) */
+.pay-grid:has(> #modalidad[hidden]) .pay-checkout { position: sticky; top: 104px; }
+#modalidad { grid-area: choose; } #beneficios { grid-area: benefits; } .pay-terms { grid-area: terms; }
+#gratis { grid-area: free; } .pay-seller { grid-area: seller; } .pay-checkout { grid-area: checkout; }
+.pay-block-title { font-size: clamp(22px, 2.2vw, 28px); line-height: 1.15; color: var(--ink); margin-bottom: 18px; }
+.pay-block p { max-width: 68ch; font-size: 16px; line-height: 1.6; color: var(--ink-2); }
+.pay-block p + p { margin-top: 12px; }
+.pay-block .pay-note { margin-top: 16px; font-size: 14.5px; }
+.pay-block .link-arrow { margin-top: 20px; font-size: 16px; }
 
-/* billing toggle */
-/* the Supporter card's Mercado Pago options: one per link the team set, the year first */
-.pay-options { display: grid; gap: 10px; }
-.pay-options .btn { display: flex; justify-content: space-between; align-items: center; gap: 14px; text-align: left; }
-.pay-option-amount { font-family: var(--font-num); font-weight: 800; white-space: nowrap; }
-.pay-soon { font-size: 14px; font-weight: 600; color: var(--muted); }
-.pay-steps { margin: 22px 0; padding-left: 1.25em; display: grid; gap: 12px; font-size: 14.5px; line-height: 1.5; }
-.pay-steps li::marker { color: var(--green-pastel); font-weight: 800; }
-.pay-steps strong { overflow-wrap: anywhere; }
-.pay-email-line:not([hidden]) { display: block; margin-top: 4px; }
+/* the payment options: a radio group whose whole plate is the label */
+.pay-choices { border: 0; min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 14px; }
+.pay-choices legend { padding: 0; }
+.pay-choice { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 6px 14px; align-content: start;
+  padding: 22px 22px 24px; background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-card);
+  cursor: pointer; transition: border-color .2s ease, box-shadow .2s ease; }
+.pay-choice:hover { border-color: var(--green-bright); }
+/* chosen: a 2px green edge all round, drawn inside so nothing moves */
+.pay-choice:has(input:checked) { border-color: var(--green-bright); box-shadow: inset 0 0 0 1px var(--green-bright); }
+.pay-choice input { grid-row: 1 / span 2; width: 20px; height: 20px; margin: 4px 0 0; accent-color: var(--green-deep); cursor: pointer; }
+.pay-choice-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 14px; }
+.pay-choice-name { font-size: 18px; font-weight: 700; color: var(--ink); }
+.pay-choice-amount { font-family: var(--font-num); font-size: clamp(24px, 2.4vw, 30px); font-weight: 800; letter-spacing: -.01em; color: var(--ink); white-space: nowrap; }
+.pay-choice-text { font-size: 14.5px; line-height: 1.55; color: var(--ink-2); }
 
-/* plan cards */
-.pay-plan { background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-card);
-  padding: 32px 30px; position: relative; transition: border-color .25s ease; }
-.pay-plan + .pay-plan { margin-top: 22px; }
-.pay-plan:hover { border-color: var(--green-bright); }
-.pay-plan h2 { font-size: 24px; color: var(--ink); }
-.pay-price { margin-top: 10px; display: flex; align-items: baseline; gap: 8px; }
-.pay-amount { font-family: var(--font-num); font-size: clamp(34px, 3.6vw, 46px); font-weight: 800; letter-spacing: -.02em; color: var(--ink); line-height: 1; }
-.pay-per { font-size: 16px; font-weight: 600; color: var(--muted); }
-.pay-price-note { margin-top: 8px; font-size: 14px; color: var(--muted); }
-.pay-plan ul { list-style: none; margin: 22px 0 26px; display: grid; gap: 11px; }
-.pay-plan li { position: relative; padding-left: 26px; line-height: 1.45; font-size: 15.5px; color: var(--ink-2); }
-.pay-plan li::before { content: "✓"; position: absolute; left: 0; color: var(--green-bright); font-weight: 800; }
-.pay-plan-pro { background: #fff; border: 2px solid var(--green-bright); }
+/* what the membership includes, two columns where they fit */
+.pay-benefits { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap: 14px 32px; }
+.pay-benefits li { position: relative; padding-left: 26px; font-size: 15.5px; line-height: 1.5; color: var(--ink-2); }
+.pay-benefits li::before { content: "✓"; position: absolute; left: 0; color: var(--green-bright); font-weight: 800; }
+.pay-benefits strong { font-weight: 700; color: var(--ink); }
+#gratis p + .pay-benefits { margin-top: 18px; }
+.pay-terms { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: clamp(28px, 4vw, 56px); }
 
-/* order summary */
-.pay-summary { position: sticky; top: 110px; background: var(--ink); color: #fff;
-  border-radius: var(--r-card); padding: 30px 28px; }
+/* the seller, as the terms identify it */
+.pay-seller dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 16px 28px; }
+.pay-seller dt { margin-bottom: 4px; font-family: var(--font-mono); font-size: 11.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2); }
+.pay-seller dd { font-size: 15.5px; line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; }
+.pay-seller a { font-weight: 600; color: var(--green-deep); text-decoration: underline; text-underline-offset: 3px; }
+
+/* the purchase box */
+.pay-summary { position: relative; background: var(--ink); color: #fff; border-radius: var(--r-card); padding: 30px 28px; }
 .pay-summary-kicker { font-family: var(--font-mono); font-size: 11px; font-weight: 600;
   letter-spacing: .16em; text-transform: uppercase; color: var(--green-pastel); margin-bottom: 10px; }
 .pay-summary h2 { font-size: 26px; color: #fff; }
-.pay-summary dl { margin: 22px 0; display: grid; gap: 12px; }
-.pay-summary dl div { display: flex; justify-content: space-between; gap: 16px;
-  border-bottom: 1px solid rgba(255,255,255,.16); padding-bottom: 12px; }
-.pay-summary dt { font-size: 14px; color: rgba(255,255,255,.65); }
-.pay-summary dd { font-size: 14.5px; font-weight: 700; text-align: right; }
-.pay-methods { margin: 18px 0 22px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.pay-methods p { width: 100%; font-size: 13px; color: rgba(255,255,255,.65); margin-bottom: 2px; }
-.pay-methods span { font-size: 12.5px; font-weight: 700; border: 1px solid rgba(255,255,255,.35);
-  border-radius: var(--r-pill); padding: 6px 12px; }
+.pay-closed { margin-top: 16px; font-size: 17px; font-weight: 600; line-height: 1.5; color: var(--green-pastel); }
+.pay-purchase { margin-top: 22px; display: grid; gap: 20px; }
+.pay-check-head { margin-bottom: 8px; font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--green-pastel); }
+.pay-check { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 12px; align-items: start; cursor: pointer;
+  font-size: 14.5px; line-height: 1.55; color: rgba(255,255,255,.92); }
+.pay-check input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--green-bright); cursor: pointer; }
+.pay-check a { font-weight: 600; color: var(--green-pastel); text-decoration: underline; text-underline-offset: 3px; }
+.pay-check-hint { font-size: 14.5px; line-height: 1.55; color: rgba(255,255,255,.72); }
+.pay-choice input:focus-visible { outline: 2px solid var(--green-deep); outline-offset: 3px; }
+.pay-check input:focus-visible { outline: 2px solid var(--green-pastel); outline-offset: 3px; }
+.pay-email-line { font-size: 14.5px; line-height: 1.5; color: rgba(255,255,255,.85); }
+.pay-email-line strong { color: #fff; overflow-wrap: anywhere; }
+.pay-hint { margin-top: -8px; font-size: 13.5px; line-height: 1.5; color: rgba(255,255,255,.72); }
+.pay-status { font-size: 14.5px; font-weight: 600; line-height: 1.5; color: var(--green-pastel); }
+.pay-status[data-tone="error"] { color: var(--beige); }
 .btn-block { width: 100%; }
 /* ink panel — the hard shadow needs a green tint to read against the dark */
 .pay-summary .btn-primary { box-shadow: 4px 4px 0 rgba(89,188,83,.35); }
 .pay-summary .btn-primary:hover { box-shadow: 6px 6px 0 rgba(89,188,83,.35); }
 .pay-summary .btn-primary:active { box-shadow: 1px 1px 0 rgba(89,188,83,.35); }
-.pay-secure { margin-top: 16px; font-size: 12.5px; line-height: 1.55; color: rgba(255,255,255,.6); }
-.pay-checkout-note { margin-top: 12px; font-size: 13px; font-weight: 600; color: var(--green-pastel); }
+.pay-checkout-note { font-size: 13px; font-weight: 600; line-height: 1.5; color: var(--green-pastel); }
 
 /* faq */
 .pay-faq { background: #fff; border-top: 1px solid var(--hairline); padding: clamp(50px, 7vh, 90px) 0 clamp(70px, 9vh, 110px); }
@@ -1123,6 +1144,9 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .btn:focus-visible
   .pf-grid { grid-template-columns: 1fr; }
   .pf-actions { margin-left: 0; align-items: flex-start; }
   .pf-match { text-align: left; }
-  .pay-grid { grid-template-columns: 1fr; }
-  .pay-summary { position: static; }
+  .pay-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "choose" "benefits" "terms" "free" "seller" "checkout"; }
+  /* with nothing to buy, the box only says when sign-ups open or that the offer closed: say it first */
+  .pay-grid:has(> #modalidad[hidden]) { grid-template-areas: "checkout" "benefits" "terms" "free" "seller"; }
+  .pay-grid:has(> #modalidad[hidden]) .pay-checkout { position: relative; top: auto; }
+  .pay-summary { padding: 26px 22px; }
 }

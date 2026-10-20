@@ -21,13 +21,18 @@ function courseTopics(c){
   const titles=[c?.title,...Object.values(c?.translations||{}).map(fields=>fields?.title)].filter(value=>typeof value==='string').join(' \n ').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
   return COURSE_TOPICS.filter(([,words])=>words.test(titles)).map(([name])=>name).slice(0,3);
 }
-/* The Supporters note on a closed course says the membership opens soon until a Mercado Pago payment link is offered
-   (GET /api/billing/config, read once and only for this note); then it links to the payments page instead. */
+/* The Nodal Fundadores note on a closed course says the membership opens soon until sign-ups open (GET /api/billing/config,
+   read once and only for this note); then it links to the payments page instead, and once the offer has ended it says so. */
 let membershipRead=null;
-const membershipOpen=()=>membershipRead??=fetch('/api/billing/config',{headers:{Accept:'application/json'}}).then(res=>res.ok?res.json():null).then(data=>data?.checkout===true).catch(()=>false);
+const membershipState=()=>membershipRead??=fetch('/api/billing/config',{headers:{Accept:'application/json'}}).then(res=>res.ok?res.json():null).then(data=>data?.checkout===true?'open':data?.state==='ended'?'ended':'soon').catch(()=>'soon');
 function supportersNote(){
   const note=tr('span','supportersNote');
-  membershipOpen().then(open=>{if(!open)return;const join=tr('a','becomeSupporter','pilot-button');join.href='payments.html';join.dataset.supporterLink='';note.dataset.pilotText='supportersNoteOpen';note.textContent=t('supportersNoteOpen');note.after(join);});
+  membershipState().then(state=>{
+    if(state==='soon')return;
+    note.dataset.pilotText=state==='open'?'supportersNoteOpen':'supportersNoteEnded';note.textContent=t(note.dataset.pilotText);
+    if(state!=='open')return;
+    const join=tr('a','becomeSupporter','pilot-button');join.href='payments.html';join.dataset.supporterLink='';note.after(join);
+  });
   return [tr('strong','supportersOnly'),note];
 }
 // One label per card: where this viewer stands on the course. Staff see only whether it is closed, as before.
