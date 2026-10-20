@@ -704,9 +704,11 @@
         };
       }
       const a = b.activity;
+      // Once its check-in has closed the server refuses every scan, so a block missed stays locked, says so as the session page does, and is never next.
+      const closed = b.state !== 'earned' && Fiiu.checkinState(a) === 'closed';
       return {
-        fam: 'fiiu', id: b.id, state: b.state, name: a.title, lang: 'es', share: shareOf(b), certify: certifyOf(b),
-        req: b.state === 'earned' ? blockWhen(Fiiu, a) : t('d.badge.fiiu.checkIn'),
+        fam: 'fiiu', id: b.id, state: b.state, closed, name: a.title, lang: 'es', share: shareOf(b), certify: certifyOf(b),
+        req: b.state === 'earned' ? blockWhen(Fiiu, a) : closed ? [Fiiu.dateNode(a.date, 'span', 'short', 'bl-day'), Fiiu.windowNode(a, 'closed')] : t('d.badge.fiiu.checkIn'),
         // certificate hours as the server counts them; a workshop, a route or an untimed block counts as participation
         unlock: b.minutes ? t('d.badge.fiiu.hours', { hours: Fiiu.hoursText(b.minutes / 60) }) : t('d.badge.fiiu.participation'),
       };
@@ -772,7 +774,7 @@
 
   /* the registry: one ruled ledger, grouped by family — each badge is a line
      entry with its requirement, what it opens, and (where countable) a tally.
-     The first badge not yet earned carries the "next" tag. A registrant's
+     The first badge not yet earned that can still be earned carries the "next" tag. A registrant's
      FIIU Fest 11 family comes first. */
   // The share controls drawn for earned FIIU badges, by badge id, so a redraw (a background refresh on the way back from the share sheet, a
   // language switch) gives focus back to the same button of the same badge instead of dropping it.
@@ -785,7 +787,7 @@
     const refocus = held ? { id: held[0], at: [...held[1].children].indexOf(active) } : null;
     shareBoxes.clear();
     const badges = badgeData();
-    const next = badges.find((b) => b.state !== 'earned');
+    const next = badges.find((b) => b.state !== 'earned' && !b.closed);
     const fresh = newlyEarned(badges);
     const families = [...(badges.some((b) => b.fam === 'fiiu') ? ['fiiu'] : []), 'contribution', 'role', 'recognition'];
     let index = 0;

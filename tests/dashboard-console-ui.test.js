@@ -547,7 +547,8 @@ class El extends Node {
   append(...nodes) { super.append(...nodes.map((n) => (typeof n === 'string' ? Object.assign(new El('#text'), { textContent: n }) : n))); }
   appendChild(node) { this.append(node); return node; }
 }
-function ledger({ lang = 'en', storage = new Map(), store, fiiuLoaded = true, me = { id: 'ana-id' } } = {}) {
+// now: the page clock. A check-in window closes for good, so the ledger runs on a fixed day, before the festival unless a test says otherwise.
+function ledger({ lang = 'en', storage = new Map(), store, fiiuLoaded = true, me = { id: 'ana-id' }, now = '2026-10-15T10:00:00-05:00' } = {}) {
   const nodes = { badgeGrid: new El('div'), badgesEyebrow: new El('span') }, listeners = {};
   const document = {
     documentElement: { lang }, querySelectorAll: () => [], getElementById: (id) => nodes[id] ?? null,
@@ -557,7 +558,7 @@ function ledger({ lang = 'en', storage = new Map(), store, fiiuLoaded = true, me
   };
   const i18n = loadI18n(lang);
   const localStorage = store ?? { getItem: (k) => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, String(v)) };
-  const context = vm.createContext({ document, localStorage, i18n, Intl, Date, Error, JSON, window: { nodalI18n: { lang, onChange() {} } } });
+  const context = vm.createContext({ document, localStorage, i18n, Intl, Date: clock(now).Date, Error, JSON, window: { nodalI18n: { lang, onChange() {} } } });
   if (fiiuLoaded) vm.runInContext(read('web', 'scripts', 'fiiu-ui.js'), context);
   const source = dashboardJs();
   const helpers = piece(source, '  const el = (tag, cls, text) => {', 'if (node) node.textContent = text; };');
@@ -650,6 +651,25 @@ test('workshops and routes appear once the team confirms them, without hours; th
   assert.equal(rows[6].meter, '1/9', 'the confirmed workshop is one of the two Full FIIU asks for');
   assert.equal(rows[0].tags.join(), 'next', 'the first badge not yet earned, overall');
   assert.ok(!rows.some((r) => /Fiesta/.test(r.name)), 'the closing party is never a badge');
+});
+
+test('a planned block whose check-in has closed is not the next badge and no longer asks for a scan; the badge still in reach is next', () => {
+  // Wed 21 Oct, 15:00 in Lima: day1-am's check-in closed at 13:30 and the server refuses its scans; day2-am's is open.
+  const l = ledger({ now: '2026-10-21T15:00:00-05:00' });
+  l.hand({ registration: anaPlan, attendance: [], event: FIIU_EVENT });
+  const [missed, open] = l.groups()[0].rows.map(view);
+  assert.deepEqual([missed.name, missed.state, missed.tags], ['El poder de lo local', 'bl-row is-locked', []]);
+  assert.doesNotMatch(missed.req, /QR/);
+  assert.match(missed.req, /^Wed 21 Oct · Check-in closed at\s*13:30\s*Lima time$/);
+  assert.deepEqual([open.name, open.tags, open.req], ['Cuidar y transformar la ciudad', ['next'], 'Check in with the session QR to unlock']);
+  l.lang('es');
+  assert.match(view(l.groups()[0].rows[0]).req, /El registro cerró a las\s*13:30/);
+  // A pending laboratory applicant on the first conference morning: the laboratory's check-in closed at midnight.
+  const lab = ledger({ now: '2026-10-21T08:00:00-05:00' });
+  lab.hand({ registration: festivalPlan({ applyLab: true, activities: ['day1-am'] }), attendance: [], event: FIIU_EVENT });
+  const rows = lab.groups()[0].rows.map(view);
+  assert.deepEqual(rows.slice(0, 2).map((r) => [r.name.slice(0, 22), r.tags]), [['Gestión urbana en acci', []], ['El poder de lo local', ['next']]]);
+  assert.match(rows[0].req, /Check-in closed at the end of the day, Lima time/);
 });
 
 test('badges earned since the last visit carry a New tag, kept through this visit and gone on the next; without storage there are none', () => {
