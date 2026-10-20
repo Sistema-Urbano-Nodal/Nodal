@@ -259,11 +259,11 @@ test('the sticky step bar uses short names while the fieldsets keep full legends
  assert.equal(field(form,'gender').autocomplete,'sex');assert.equal(field(form,'institution').autocomplete,'organization');assert.equal(field(form,'position').autocomplete,'organization-title');
 });
 
-// context adds or replaces globals (a Date frozen at a festival hour).
+// context adds or replaces globals (a Date frozen at a festival hour). The block's once-a-minute check gets a timer that never fires.
 async function widgetHarness(respond,context={}){
  const body=new Node('body'),widget=new Node(),requests=[];body.append(widget);
  const document={body,documentElement:{lang:'en'},getElementById:id=>id==='fiiuDashboardBody'?widget:null,createElement:tag=>new Node(tag),querySelectorAll:selector=>body.querySelectorAll(selector)};
- const ctx={document,window:{nodalI18n:{lang:'en',onChange(){}}},Intl,Date,Error,AbortSignal,fetch:async path=>{requests.push(path);const result=await respond(path);return{ok:!result.status||result.status<400,status:result.status||200,json:async()=>result.data??result};},...context};
+ const ctx={document,window:{nodalI18n:{lang:'en',onChange(){}}},Intl,Date,Error,AbortSignal,setInterval:()=>1,clearInterval(){},fetch:async path=>{requests.push(path);const result=await respond(path);return{ok:!result.status||result.status<400,status:result.status||200,json:async()=>result.data??result};},...context};
  vm.createContext(ctx);for(const name of ['fiiu-ui','fiiu-hubs'])vm.runInContext(readFileSync(new URL('../web/scripts/'+name+'.js',import.meta.url),'utf8'),ctx);await flush();
  return{widget,requests};
 }
@@ -625,7 +625,7 @@ test('the dashboard widget names the venue of the next block',async()=>{
  const T=Date.parse('2026-10-21T15:00:00-05:00');class FrozenDate extends Date{constructor(...args){super(...(args.length?args:[T]));}static now(){return T;}}
  const registration={...saved,answers:{...answers,activities:['day1-pm']}},body=new Node('body'),widget=new Node();body.append(widget);
  const document={body,documentElement:{lang:'en'},getElementById:id=>id==='fiiuDashboardBody'?widget:null,createElement:tag=>new Node(tag),querySelectorAll:selector=>body.querySelectorAll(selector)};
- const ctx={document,window:{nodalI18n:{lang:'en',onChange(){}}},Intl,Date:FrozenDate,Error,AbortSignal,fetch:async path=>{const result=widgetFeed(path)||self(registration);return{ok:true,status:200,json:async()=>result};}};
+ const ctx={document,window:{nodalI18n:{lang:'en',onChange(){}}},Intl,Date:FrozenDate,Error,AbortSignal,setInterval:()=>1,clearInterval(){},fetch:async path=>{const result=widgetFeed(path)||self(registration);return{ok:true,status:200,json:async()=>result};}};
  vm.createContext(ctx);for(const name of ['fiiu-ui','fiiu-hubs'])vm.runInContext(readFileSync(new URL('../web/scripts/'+name+'.js',import.meta.url),'utf8'),ctx);await flush();
  assert.match(content(widget.querySelector('.f-next').querySelector('.f-next-venue')),/Museo Metropolitano de Lima/);
 });

@@ -1,6 +1,6 @@
 (() => {
  'use strict';
- const {el,tr,link,button,source,api,status,dateNode,timeNode,contentCards,badges,countLabel,nextFor,newTabNote,hoursLine,pulse,talkLink}=window.Fiiu;
+ const {el,tr,link,button,source,api,status,dateNode,timeNode,contentCards,badges,countLabel,nextFor,underway,limaDate,newTabNote,hoursLine,pulse,talkLink}=window.Fiiu;
  const hub=document.getElementById('fiiuHub'),widget=document.getElementById('fiiuDashboardBody'),message=document.getElementById('fiiuStatus');
  // A link is given as [key, url], or as a node when the caller updates it later.
  function card(title,copy,links,featured=false){const box=el('article','f-hub-card'+(featured?' featured':''));box.append(tr('h2',title),tr('p',copy));const actions=el('div','f-actions');for(const item of links)actions.append(Array.isArray(item)?link(...item):item);box.append(actions);return box;}
@@ -32,6 +32,13 @@
      first turned a working block into the error box and collapsed it while it read. Only two good reads redraw it, in one step; a failed refresh
      keeps the block and the old loadedAt, so the next return tries again. */
   let loading=false,loadedAt=0;
+  /* "Next for you" reads "Happening now" while that block is under way, as on fiiu.html. shown: the plan and programme last drawn and what the line said
+     (the block's id, ':live' while under way). During the festival a check once a minute reads the block again when that changes, as a block starts or
+     ends, while the console is on screen; it stops after the last day. */
+  let shown=null,timer=null;
+  const mark=(registration,event)=>{const next=nextFor(registration,event);return next?next.id+(underway(next)?':live':''):'';};
+  const moved=()=>Boolean(shown)&&mark(shown.registration,shown.event)!==shown.mark;
+  const follow=()=>{if(!shown||limaDate()>shown.event.endsOn){clearInterval(timer);timer=null;return;}if(document.visibilityState!=='hidden'&&moved())load(true);};
   /* The live line (fiiu-live.js) for registered people and organisers: what is on, today's check-ins and the live conversations, with a way to the band on
      fiiu.html. It is mounted once and keeps itself up to date; a redraw of the block moves the same node, so it neither reads again nor starts over.
      Without a registration there is none, and no read for it. */
@@ -49,7 +56,7 @@
    updates.hidden=!data;
    // Without the registration there is no status to show, so the error stands in for it, with the festival page as the way round.
    if(mine.status!=='fulfilled'){stopLive();state.replaceChildren(failure(),link('registration','fiiu.html','f-text-link'));return;}
-   loadedAt=Date.now();
+   loadedAt=Date.now();shown=null;
    const me=mine.value,registration=me.registration,chips=el('div','f-widget-chips'),next=el('div','f-widget-next');
    // dashboard.js places the block by this on a phone: first for a registrant, after the greeting for an invitation to register.
    widget.dataset.registered=String(Boolean(registration));
@@ -77,8 +84,9 @@
    // keeps what it shows, and without a registration (null) it shows no festival family.
    if(typeof CustomEvent==='function')document.dispatchEvent?.(new CustomEvent('nodal:fiiu-festival',{detail:{registration,attendance:me.attendance,event:data.event}}));
    if(registration){
-    const box=el('div','f-badges');state.append(box);const upcoming=nextFor(registration,data.event);liveNamed=upcoming?.id||null;
-    if(upcoming){const line=el('p','f-next');line.append(tr('span','nextForYou','f-next-label'),dateNode(upcoming.date,'span','short','f-next-date'));if(upcoming.time)line.append(timeNode(upcoming.time,'span','f-next-time'));line.append(source('span',upcoming.title,'f-next-title'));if(upcoming.venue)line.append(source('span',upcoming.venue,'f-next-venue'));next.append(line);
+    const box=el('div','f-badges');state.append(box);const upcoming=nextFor(registration,data.event),now=Boolean(upcoming&&underway(upcoming));liveNamed=upcoming?.id||null;
+    shown={registration,event:data.event,mark:upcoming?upcoming.id+(now?':live':''):''};if(!timer&&limaDate()<=data.event.endsOn)timer=setInterval(follow,60000);
+    if(upcoming){const line=el('p','f-next');line.append(tr('span',now?'nowForYou':'nextForYou','f-next-label'),dateNode(upcoming.date,'span','short','f-next-date'));if(upcoming.time)line.append(timeNode(upcoming.time,'span','f-next-time'));line.append(source('span',upcoming.title,'f-next-title'));if(upcoming.venue)line.append(source('span',upcoming.venue,'f-next-venue'));next.append(line);
      // The next block's session page, with its questions, from the same pulse read as the General link above.
      pulse().then(counts=>{const n=counts.get(upcoming.id);if(n)line.append(talkLink(upcoming.id,n));});}
     // One short line until attendance is confirmed keeps the widget compact; fiiu.html carries the full explanation. Confirmed sessions add their hours.
@@ -86,7 +94,7 @@
    }
   }
   load();
-  // "Next for you" is worked out when the block is drawn. A phone left on the console between sessions reads it again when it comes back after a while.
-  document.addEventListener?.('visibilitychange',()=>{if(document.visibilityState==='visible'&&loadedAt&&Date.now()-loadedAt>15*60000)return load(true);});
+  // A phone left on the console between sessions reads the block again when it comes back after a while, or at once when its session started or ended meanwhile.
+  document.addEventListener?.('visibilitychange',()=>{if(document.visibilityState==='visible'&&loadedAt&&(Date.now()-loadedAt>15*60000||moved()))return load(true);});
  }
 })();

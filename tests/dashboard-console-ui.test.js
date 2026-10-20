@@ -133,17 +133,24 @@ test('the globe turns from the finger position, and a scroll the browser takes o
 const user = { id: '00000000-0000-4000-8000-000000000001', email: 'ana@example.test', name: 'Ana Test', city: 'Lima' };
 const registration = { userId: user.id, id: '00000000-0000-4000-8000-000000000002', version: 1, email: user.email, labStatus: 'none', answers: { firstName: 'Ana', lastName: 'Test', activities: ['day1-am'], externalActivities: [] } };
 const feed = { event: FIIU_EVENT, config: { registrationOpen: true }, content: [{ id: 'n1', kind: 'news', title: 'Cambio de sala', body: 'El bloque del jueves será en el Auditorio NOS PUCP.', url: '', createdAt: '2026-09-29T12:00:00.000Z' }], nextCursor: null };
-async function widget(respond) {
-  const body = new Node('body'), host = new Node(), requests = [], listeners = {}, events = [];
+// A page clock frozen at iso; set() moves it on.
+function clock(iso) {
+  let at = Date.parse(iso);
+  return { Date: class extends Date { constructor(...args) { super(...(args.length ? args : [at])); } static now() { return at; } }, set: (next) => { at = Date.parse(next); } };
+}
+// time: a clock(); without one the block runs on the real date. timers: what the block set with setInterval, cleared ones marked.
+async function widget(respond, { time } = {}) {
+  const body = new Node('body'), host = new Node(), requests = [], listeners = {}, events = [], timers = [];
   body.append(host);
   // events: what the block dispatches on document for the console (dashboard.js) to pick up.
   const document = { body, documentElement: { lang: 'en' }, visibilityState: 'visible', getElementById: (id) => (id === 'fiiuDashboardBody' ? host : null), createElement: (tag) => new Node(tag), querySelectorAll: (selector) => body.querySelectorAll(selector), addEventListener: (type, fn) => { listeners[type] = fn; }, dispatchEvent: (event) => { events.push(event); return true; } };
   const CustomEvent = class { constructor(type, init = {}) { this.type = type; this.detail = init.detail; } };
-  const context = vm.createContext({ document, CustomEvent, window: { nodalI18n: { lang: 'en', onChange() {} } }, Intl, Date, Error, AbortSignal, Promise,
+  const context = vm.createContext({ document, CustomEvent, window: { nodalI18n: { lang: 'en', onChange() {} } }, Intl, Date: time?.Date ?? Date, Error, AbortSignal, Promise,
+    setInterval: (callback, delay) => timers.push({ callback, delay }), clearInterval: (id) => { if (timers[id - 1]) timers[id - 1].cleared = true; },
     fetch: async (url) => { requests.push(url); const result = await respond(url, requests.filter((r) => r === url).length); return { ok: !result.status || result.status < 400, status: result.status || 200, json: async () => result.data ?? result }; } });
   for (const name of ['fiiu-ui', 'fiiu-hubs']) vm.runInContext(read('web', 'scripts', `${name}.js`), context);
   await flush();
-  return { host, requests, listeners, document, events };
+  return { host, requests, listeners, document, events, timers };
 }
 const errors = (host) => descendants(host).filter((node) => node.dataset.fiiuText === 'loadError');
 const retries = (host) => descendants(host).filter((node) => node.dataset.fiiuText === 'retry');
@@ -274,6 +281,40 @@ test('the festival block hands its registration, attendance and programme to the
   assert.equal(guest.events[0].detail.registration, null);
   const failed = await widget((url) => (url === '/api/fiiu?kind=news' ? { status: 503, data: { error: 'unavailable' } } : url === '/api/fiiu/registration' ? { user, registration, attendance, isAdmin: false } : { questions: [] }));
   assert.equal(failed.events.length, 0);
+});
+
+test('the member’s session under way reads Happening now, and the block follows the clock to the next one without a reload', async () => {
+  // Wed 21 Oct, 10:10 in Lima: day1-am (09:00–13:00) is on; the compact live line skips it and names day1-pm as up next.
+  const time = clock('2026-10-21T10:10:00-05:00');
+  const plan = { ...registration, answers: { ...registration.answers, activities: ['day1-am', 'day1-pm'] } };
+  const w = await widget((url) => (url === '/api/fiiu/registration' ? { user, registration: plan, attendance: [], isAdmin: false } : url === '/api/fiiu?kind=news' ? feed : { questions: [] }), { time });
+  const next = () => { const line = w.host.querySelector('.f-next'); return line && [line.children[0].dataset.fiiuText, content(line.querySelector('.f-next-title')).trim()]; };
+  const reads = () => w.requests.filter((r) => r === '/api/fiiu/registration').length;
+  const tick = async (at) => { time.set(at); await Promise.all(w.timers.filter((timer) => !timer.cleared).map((timer) => timer.callback())); await flush(); };
+  assert.deepEqual(next(), ['nowForYou', 'El poder de lo local']);
+  assert.deepEqual(w.timers.map((timer) => timer.delay), [60000], 'one check a minute');
+  await tick('2026-10-21T10:11:00-05:00');
+  assert.equal(reads(), 1, 'a minute with nothing new reads nothing');
+  // 13:00:30: the morning block is over. A phone in a pocket reads nothing; back on screen, the block moves on at once.
+  w.document.visibilityState = 'hidden';
+  await tick('2026-10-21T13:00:30-05:00');
+  assert.equal(reads(), 1);
+  w.document.visibilityState = 'visible';
+  await w.listeners.visibilitychange();
+  await flush();
+  assert.equal(reads(), 2);
+  assert.equal(next()[0], 'nextForYou');
+  assert.match(next()[1], /^Intervenir para activar/);
+  await tick('2026-10-21T19:00:30-05:00');
+  assert.equal(next()[0], 'nowForYou', 'the evening block, once it starts');
+  assert.match(next()[1], /^Intervenir para activar/);
+  await tick('2026-10-21T21:00:30-05:00');
+  assert.equal(next(), null, 'nothing left in the plan');
+  assert.equal(reads(), 4);
+  assert.equal(w.timers.length, 1, 'redraws do not stack checks');
+  // After the last day the check stops.
+  await tick('2026-10-26T09:00:00-05:00');
+  assert.equal(w.timers[0].cleared, true);
 });
 
 /* ---------------- news read in place (finding 33) ---------------- */

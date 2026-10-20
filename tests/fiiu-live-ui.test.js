@@ -404,9 +404,9 @@ test('the console line counts every open conversation, past the five the live re
 });
 
 test('the console line does not repeat the session the block already names as the person’s next; it names the festival’s next one instead',async()=>{
- // Ana's plan has day1-am, under way at 10:30: the block already says so, so the live line moves on to day1-pm.
+ // Ana's plan has day1-am, under way at 10:30: the block already says so (Happening now), so the live line moves on to day1-pm.
  const h=await consoleBlock(feed(registered));const line=h.line();
- assert.match(content(key(h.widget,'nextForYou').parent),/El poder de lo local/);
+ assert.match(content(key(h.widget,'nowForYou').parent),/El poder de lo local/);assert.equal(key(h.widget,'nextForYou'),undefined);
  assert.equal(linkTo(line,'El poder de lo local'),undefined);assert.ok(key(line,'liveNext'));assert.equal(linkTo(line,activity('day1-pm').title).href,'fiiu-session.html?a=day1-pm');
  // With no other block named by the server, the line moves on to the programme's next timed item (the closing party), and keeps its counts and its way to the band.
  const only=await consoleBlock(feed(registered,()=>LIVE({next:null})));assert.equal(key(only.line(),'liveNow'),undefined);assert.equal(key(only.line(),'liveDone'),undefined);assert.ok(linkTo(only.line(),activity('closing-party').title));assert.match(content(only.line()),/87\s+check-ins today/);assert.ok(key(only.line(),'liveOpen'));
