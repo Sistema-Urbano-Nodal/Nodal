@@ -219,8 +219,10 @@ function participantView(data,id,version,notice,onRefresh,closed=false,supporter
       await onRefresh(key);
     }catch(err){
       if(!current())return;
-      status(local,err.name==='TimeoutError'||err.name==='AbortError'?new Error(t(sending?'invitationUncertain':'participantAddUncertain')):err);
-      if(!sending&&['participant_not_found','participant_unconfirmed'].includes(err.code))invite.hidden=false;
+      // The Supporter course takes no invitation, so an unknown or unconfirmed email asks for the payer's own NODAL email instead.
+      const supporterRefusal=supporters&&({participant_not_found:'supportersNotFound',participant_unconfirmed:'supportersUnconfirmed'})[err.code];
+      status(local,supporterRefusal?t(supporterRefusal):err.name==='TimeoutError'||err.name==='AbortError'?new Error(t(sending?'invitationUncertain':'participantAddUncertain')):err);
+      if(!sending&&!supporters&&['participant_not_found','participant_unconfirmed'].includes(err.code))invite.hidden=false;
     }finally{setBusy(false,sending);}
   }
   email.input.addEventListener('input',()=>{invite.hidden=true;status(local,'');});
@@ -240,7 +242,7 @@ function participantView(data,id,version,notice,onRefresh,closed=false,supporter
       const row=el('li'),details=el('div','pilot-invitation-person');
       details.append(el('strong',null,invitation.email),tr('span',({sent:'invitationDeliverySent',failed:'invitationDeliveryFailed',uncertain:'invitationDeliveryUncertain',pending:'invitationDeliveryPending'})[invitation.deliveryStatus]||'invitationDeliveryPending','pilot-data-note'));
       row.append(details);list.append(row);
-      if(closed)continue;
+      if(closed||supporters)continue;
       const resend=button('resendInvitation',()=>{email.input.value=invitation.email;add.open=true;return mutate(true,invitation.email);},true);invitationButtons.push(resend);
       row.append(resend);
     }
@@ -439,21 +441,21 @@ async function showCourse(id,selected='responses',participantNotice=null){
     const tabs=el('div','pilot-tabs');tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label',t('teaching'));
     tabs.dataset.pilotAria='teaching';
     const closedToAll=()=>course.enrollmentOpen===false&&perkCourse!==true,supportersOnly=()=>course.enrollmentOpen===false&&perkCourse===true;
-    let paneClosed=closedToAll();
+    let paneClosed=closedToAll(),paneSupporters=supportersOnly();
     const updateCourse=async saved=>{
       Object.assign(course,saved);
       title.replaceChildren(courseState(course,'pilot-tag'),source('h2',course,'title'));
       courses=courses.map(item=>item.id===course.id?{...item,...saved}:item);
       await refreshList(false);
-      if(closedToAll()!==paneClosed)await refreshParticipants();
+      if(closedToAll()!==paneClosed||supportersOnly()!==paneSupporters)await refreshParticipants();
     };
     let activity=activityView(data,id);
     async function refreshParticipants(notice){
       try{
         const fresh=await api(endpoint(id)+'/report');
         if(version!==selectionVersion||selectedId!==id)return;
-        paneClosed=closedToAll();
-        const previous=panes.participants,next=participantView(fresh,id,version,notice,refreshParticipants,paneClosed,supportersOnly());
+        paneClosed=closedToAll();paneSupporters=supportersOnly();
+        const previous=panes.participants,next=participantView(fresh,id,version,notice,refreshParticipants,paneClosed,paneSupporters);
         next.id=previous.id;next.setAttribute('role','tabpanel');next.setAttribute('aria-labelledby','staff-tab-participants');next.hidden=previous.hidden;
         previous.replaceWith(next);panes.participants=next;
         const active=document.activeElement;if(notice&&!next.hidden&&(!active||active===document.body))next.focusEmail?.();
@@ -463,7 +465,7 @@ async function showCourse(id,selected='responses',participantNotice=null){
     }
     // The course page sends finalSurvey only for the one course that has the survey, so only that course gets the tab.
     const survey=finalSurvey?finalSurveyView(id,version):null;
-    const panes={responses:responseView(data.feedback,id,new Map(modules.map(m=>[m.id,m]))),participants:participantView(data,id,version,participantNotice,refreshParticipants,paneClosed,supportersOnly()),...(survey?{finalSurvey:survey.element}:{}),courseSetup:setupView(course,modules,id,updateCourse,perkCourse===true)};
+    const panes={responses:responseView(data.feedback,id,new Map(modules.map(m=>[m.id,m]))),participants:participantView(data,id,version,participantNotice,refreshParticipants,paneClosed,paneSupporters),...(survey?{finalSurvey:survey.element}:{}),courseSetup:setupView(course,modules,id,updateCourse,perkCourse===true)};
     const buttons={};
     function activate(key){
       for(const name of Object.keys(panes)){

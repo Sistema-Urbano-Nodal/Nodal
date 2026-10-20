@@ -80,6 +80,19 @@ test('the closed Supporter course keeps the add form, with a note to add each Su
  assert.deepEqual(h.requests.filter(r=>r.method==='POST').map(r=>r.path),['/api/admin/courses/c1/participants']);
  h.lang('es');assert.match(content(h.ctx.document.getElementById('staff-pane-participants')),/Agrega aquí a cada miembro de apoyo que pagó en Mercado Pago/);
 });
+test('on the closed Supporter course an unknown or unconfirmed email asks for the payer’s NODAL email, never offers an invitation or a resend',async()=>{
+ const closed={...course,enrollmentOpen:false};
+ for(const [code,status,text] of [['participant_not_found',404,/No NODAL account uses this email\. Ask the payer which email their NODAL account uses, then add that one\./],['participant_unconfirmed',409,/This NODAL account has not confirmed its email yet\. Ask the payer to confirm it, then add them again\./]]){
+  const h=teachingHarness(()=>({status,data:{code}}),{courses:[closed],perk:true,invitations:[{email:'old@example.test',deliveryStatus:'sent'}]});await flush();
+  const pane=()=>h.ctx.document.getElementById('staff-pane-participants');
+  assert.equal(findKey(pane(),'resendInvitation'),undefined,'no resend: the closed course takes no invitation');
+  const form=participantForm(h);byName(form,'email').value='payer@example.test';await form.listeners.submit({preventDefault(){}});
+  assert.match(content(pane()),text,code);assert.equal(findKey(form,'sendInvitation').hidden,true,code);
+  assert.doesNotMatch(content(pane()),/Enrollment open/,'never advises opening the paid course to everyone');
+  assert.deepEqual(h.requests.filter(r=>r.method==='POST').map(r=>r.path),['/api/admin/courses/c1/participants']);
+ }
+});
+
 test('a closed course replaces adding and resending with a note while keeping the lists and exports',async()=>{
  const closed={...course,enrollmentOpen:false};
  const h=teachingHarness(()=>({result:'invited'}),{courses:[closed],invitations:[{email:'pending@example.test',deliveryStatus:'sent'}]});await flush();
@@ -99,6 +112,22 @@ test('closure and unpublished-course refusals are translated, not reported as ed
   h.lang('pt');assert.doesNotMatch(content(h.body),/Alguém alterou este registro/);
  }
 });
+test('opening or closing enrollment on the Supporter course brings its note in or out of the participants pane',async()=>{
+ let open=false;const reports=[];
+ const h=harness((path,options)=>{
+  if(options?.method==='PATCH'){const body=JSON.parse(options.body);open=body.enrollmentOpen;return{course:{...course,enrollmentOpen:open,version:body.version+1}};}
+  if(path==='/api/admin/courses')return{courses:[{...course,enrollmentOpen:open}]};
+  if(path.endsWith('/report')){reports.push(open);return{summary:{enrolled:0},participants:[],feedback:[],invitations:[]};}
+  return{course:{...course,enrollmentOpen:open},modules:[],perkCourse:true};
+ },{page:'teaching'});h.run('teaching');await flush();
+ const pane=()=>h.ctx.document.getElementById('staff-pane-participants');
+ assert.ok(findKey(pane(),'participantsSupporters'));
+ const toggle=async value=>{const editor=descendants(h.body).find(n=>n.tagName==='form'&&descendants(n).some(x=>x.name==='enrollmentOpen'));byName(editor,'enrollmentOpen').checked=value;await editor.listeners.submit({preventDefault(){}});await flush();};
+ await toggle(true);assert.equal(findKey(pane(),'participantsSupporters'),undefined,'open to everyone: no Supporter note');assert.ok(participantForm(h));
+ await toggle(false);assert.ok(findKey(pane(),'participantsSupporters'),'closed again: the note is back');assert.ok(participantForm(h));
+ assert.deepEqual(reports,[false,true,false]);
+});
+
 test('saving the Enrollment open toggle refreshes the participants pane and course labels at once',async()=>{
  let open=true;const reports=[];
  const h=harness((path,options)=>{
