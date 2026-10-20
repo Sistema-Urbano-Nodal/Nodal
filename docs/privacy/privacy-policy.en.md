@@ -71,7 +71,7 @@ This draft does not authorize new uses for identifiable academic research, gener
 
 ## 7. Providers and international transfers
 
-The architecture uses Vercel to serve the application and Supabase for authentication, the database and file storage. Emails, such as password recovery, invitations and the FIIU registration summary, are sent through the email service NODAL uses to send messages, which receives the recipient's address and the message. GeoDB handles city queries. The definitive list must identify the services actually active and their roles, including any other contracted providers:
+The architecture uses Vercel to serve the application and Supabase for authentication, the database and file storage. Emails, such as password recovery, invitations and the FIIU registration summary, are sent through the email service NODAL uses to send messages, which receives the recipient's address and the message. GeoDB handles city queries. Mercado Pago processes the Supporting membership payments: you pay on its page and give your payment details to Mercado Pago, never to NODAL. The NODAL team sees the payer's name, email and payment status in Mercado Pago, to add the membership to the right account. The definitive list must identify the services actually active and their roles, including any other contracted providers:
 
 **{{FORNECEDORES_TRANSFERENCIAS}}**
 

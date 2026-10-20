@@ -171,6 +171,17 @@ test('rating answers and one-off festival notices are described in every languag
   }
 });
 
+test('Mercado Pago is named, in every language, as the processor of the Supporting membership payments', () => {
+  const html = read('web/pages/privacy.html');
+  const articles = Object.fromEntries([...html.matchAll(/<article data-policy-lang="(en|es|pt)"[^>]*>([\s\S]*?)<\/article>/g)].map(([, lang, body]) => [lang, body]));
+  const providers = lang => articles[lang].match(new RegExp(`<section id="${lang}-7">([\\s\\S]*?)</section>`))[1];
+  for (const [lang, sentence] of [
+    ['en', 'Mercado Pago processes the Supporting membership payments: you pay on its page and give your payment details to Mercado Pago, never to NODAL.'],
+    ['es', 'Mercado Pago procesa los pagos de la membresía de apoyo: pagas en su página y entregas tus datos de pago a Mercado Pago, nunca a NODAL.'],
+    ['pt', 'O Mercado Pago processa os pagamentos da assinatura de apoio: você paga na página dele e entrega seus dados de pagamento ao Mercado Pago, nunca à NODAL.'],
+  ]) assert.ok(providers(lang).includes(sentence), lang);
+});
+
 // The stylesheet's rules, with the media query each sits in ('' at the top level).
 function cssRules(css) {
   const rules = [];
