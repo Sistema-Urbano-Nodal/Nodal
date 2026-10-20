@@ -757,6 +757,14 @@ the session, sets no cookie and is cached by the CDN for 5 minutes
   English default; anything else is shown verbatim, so write it in the language
   members should read.
 
+## Error reports (optional)
+
+Set `SENTRY_DSN` in Vercel Production to send server errors to Sentry as well as the Vercel logs. Create a free
+Sentry account and a **Node.js** project, then copy its DSN from *Settings → Client Keys (DSN)*. What a report
+contains, and what it never contains, is in [docs/architecture.md](docs/architecture.md#errors-and-monitoring). To
+check it after a deploy, look at Sentry's *Issues* the next time the server answers a 500; nothing is sent while
+everything works.
+
 ## Manual External Configuration Still Required
 
 - Supabase project creation and SQL migration execution.
