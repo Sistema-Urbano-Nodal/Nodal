@@ -852,6 +852,9 @@ test('the profile dialog refuses a one-letter name, as the server does, instead 
   c.ids.ucName.value = ' A ';
   assert.equal(submit(), true, 'the dialog stays open');
   assert.equal(c.ids.ucError.hidden, false);
+  assert.equal(c.ids.ucError.textContent, 'Enter your name using at least 2 characters.', 'it says why, not to add a name already typed');
+  c.ids.ucName.value = '';
+  assert.equal(submit(), true);
   assert.equal(c.ids.ucError.textContent, 'Add your name to save your profile.');
   await flush();
   assert.equal(c.patches.length, 0, 'nothing the server would refuse is sent');

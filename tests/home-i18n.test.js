@@ -283,11 +283,13 @@ for(const lang of ['es','pt']){
       // the console's loading/failure lines and accessible names (d.aria.*) by dashboard-publishing,
       // the catalog's nothing-published state by catalog-ui, and the console's Show more / Show less (d.news.*) and FIIU badges
       // (d.badge.fiiu.*) by dashboard-console-ui, the Learning band's readings from BUC (d.buc.*) by buc-ui, and the
-      // Supporter plans' courses line (mem.p7, y.p6) by the plan copy test at the end of this file.
-      const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','y.alreadyMember','d.uc.deleteSubscription','d.greet.hello','d.greet.loading','d.load.failed','catalog.emptyNothingPublished','catalog.nextFiiu','catalog.nextCourses','mem.p7','y.p6'].includes(key)||/^(?:ops|news|d\.aria|d\.news|d\.badge\.fiiu|d\.buc)\./.test(key);
+      // Supporter plans' courses line (mem.p7, y.p6) by the plan copy test at the end of this file, and the console's two-character
+      // name refusal (d.uc.errNameShort) just below and by dashboard-console-ui.
+      const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','y.alreadyMember','d.uc.deleteSubscription','d.greet.hello','d.greet.loading','d.load.failed','catalog.emptyNothingPublished','catalog.nextFiiu','catalog.nextCourses','mem.p7','y.p6','d.uc.errNameShort'].includes(key)||/^(?:ops|news|d\.aria|d\.news|d\.badge\.fiiu|d\.buc)\./.test(key);
       const actual=Object.entries(dictionaries[lang]).filter(([key])=>!later(key)).sort(([a],[b])=>a.localeCompare(b,'en'));
       assert.equal(hash(actual),SNAPSHOTS.nonhome[lang],String(page));
       assert.equal(api.t('nav.privacy'),lang==='es'?'Política de privacidad':'Política de privacidade');
+      assert.equal(api.t('d.uc.errNameShort'),lang==='es'?'Escribe tu nombre con al menos 2 caracteres.':'Digite seu nome com pelo menos 2 caracteres.');
       assert.equal(api.t('nav.opportunities'),lang==='es'?'Trabajo abierto':'Trabalhos abertos');
       assert.notEqual(api.t('catalog.title'),'catalog.title');assert.notEqual(api.t('d.nav.overview'),'d.nav.overview');
     }
