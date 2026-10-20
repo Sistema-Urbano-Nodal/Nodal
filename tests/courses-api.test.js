@@ -95,6 +95,23 @@ test('assignment, private upload, reply, idempotency, moderation and staff repor
  assert.equal((await call(`/api/course-attachments/${attachment.id}`,{actor:'other'})).status,404);
 });
 
+test('a resent post with links replays the saved post when Postgres jsonb returns the link keys reordered',async t=>{
+ const {call,course,module,enter,store}=await setup(t);await enter();
+ // jsonb keeps object keys shorter first, then bytewise, so production reads {url,title} back for a {title,url} link.
+ const jsonb=value=>Array.isArray(value)?value.map(jsonb):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.length-b.length||(a<b?-1:a>b?1:0)).map(([key,item])=>[key,jsonb(item)])):value;
+ const find=store.find.bind(store),insert=store.insert.bind(store);
+ store.find=async(name,...rest)=>{const rows=await find(name,...rest);return name==='posts'?rows.map(row=>({...row,links:jsonb(row.links)})):rows;};
+ const path=`/api/courses/${course.id}/modules/${module.id}/posts`,body={clientId:randomUUID(),kind:'question',body:'Where is the station?',links:[{title:'example.org',url:'https://example.org/a'}],attachmentIds:[]};
+ const first=await call(path,{method:'POST',body});assert.equal(first.status,201);const {post}=await first.json();
+ assert.deepEqual(Object.keys((await store.find('posts',{id:post.id}))[0].links[0]),['url','title']);
+ const retry=await call(path,{method:'POST',body});assert.equal(retry.status,200,await retry.clone().text());assert.equal((await retry.json()).post.id,post.id);
+ assert.equal((await call(path,{method:'POST',body:{...body,links:[{title:'example.org',url:'https://example.org/b'}]}})).status,409);
+ // A double submit that loses the insert race reads the winner back and must recognise it as the same post.
+ store.insert=async(name,record)=>{if(name!=='posts')return insert(name,record);await insert(name,record);throw Object.assign(new Error('record already exists'),{status:409});};
+ const raced={...body,clientId:randomUUID()},lost=await call(path,{method:'POST',body:raced});assert.equal(lost.status,201,await lost.clone().text());
+ const saved=await store.find('posts',{clientId:raced.clientId});assert.equal(saved.length,1);assert.equal((await lost.json()).post.id,saved[0].id);
+});
+
 test('version conflicts, forged events and invalid feedback fail without writes',async t=>{
  const {call,course,module,enter}=await setup(t);await enter();
  assert.equal((await call(`/api/admin/courses/${course.id}`,{actor:'staff',method:'PATCH',body:{version:1,title:'Updated'}})).status,200);

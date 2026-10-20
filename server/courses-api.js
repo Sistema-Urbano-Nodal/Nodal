@@ -47,10 +47,12 @@ function eventId({userId,courseId,moduleId,kind,resourceUrl,createdAt}) {
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-8${hex.slice(13,16)}-${(8|parseInt(hex[16],16)&3).toString(16)}${hex.slice(17,20)}-${hex.slice(20,32)}`;
 }
 const errorText = error => error instanceof Error ? error.message : String(error ?? 'unknown error');
+// Postgres jsonb hands object keys back shorter first ({url,title}), so stored and resent links are compared with keys sorted.
+const sortedJson = value => JSON.stringify(value, (key, item) => item && typeof item === 'object' && !Array.isArray(item) ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a < b ? -1 : 1)) : item);
 function samePost(post, input, courseId, moduleId) {
   return post && post.courseId === courseId && post.moduleId === moduleId &&
     ['kind','body','parentId'].every(key => post[key] === input[key]) &&
-    ['links','attachmentIds'].every(key => JSON.stringify(post[key]) === JSON.stringify(input[key]));
+    ['links','attachmentIds'].every(key => sortedJson(post[key]) === sortedJson(input[key]));
 }
 export async function bodyJson(req, limit = 64 * 1024) {
   if (!String(req.headers['content-type'] || '').toLowerCase().startsWith('application/json')) fail('JSON request required',415);
