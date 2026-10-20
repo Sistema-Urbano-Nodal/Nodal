@@ -14,6 +14,7 @@
   talkPlaceholder:['Write your answer…','Escribe tu respuesta…','Escreva sua resposta…'],talkSend:['Send','Enviar','Enviar'],talkSending:['Sending…','Enviando…','Enviando…'],talkNotSent:['Not sent','No enviado','Não enviada'],talkRetry:['Retry','Reintentar','Tentar de novo'],talkYou:['You','Tú','Você'],
   talkAttach:['Add image or PDF','Adjuntar imagen o PDF','Anexar imagem ou PDF'],talkRemoveFile:['Remove','Quitar','Remover'],talkUploading:['Uploading {current} of {total}…','Subiendo {current} de {total}…','Enviando {current} de {total}…'],
   talkFileType:['Use JPG, PNG, WebP or PDF.','Usa JPG, PNG, WebP o PDF.','Use JPG, PNG, WebP ou PDF.'],talkFileSize:['Each file can be up to 3 MB.','Cada archivo puede pesar hasta 3 MB.','Cada arquivo pode ter até 3 MB.'],
+  talkImageSize:['This image is too large to share here. Try a smaller version of it.','Esta imagen es demasiado grande para compartirla aquí. Prueba con una versión más pequeña.','Esta imagem é grande demais para compartilhar aqui. Tente uma versão menor.'],
   talkTooManyFiles:['Up to 3 files per message.','Hasta 3 archivos por mensaje.','Até 3 arquivos por mensagem.'],
   talkAllowance:['You have reached the festival upload limit (30 files or 30 MB).','Llegaste al límite de archivos del festival (30 archivos o 30 MB).','Você atingiu o limite de arquivos do festival (30 arquivos ou 30 MB).'],
   talkCharsLeft:['{n} characters left','Quedan {n} caracteres','Restam {n} caracteres'],talkCharLeft:['1 character left','Queda 1 carácter','Resta 1 caractere'],talkCharsOver:['{n} characters over the limit','{n} caracteres por encima del límite','{n} caracteres acima do limite'],
@@ -84,7 +85,7 @@
  const WALL=12,LONG=160,FIT_MARGIN=8,SVG='http://www.w3.org/2000/svg';
  // A file refused for what it is (type, size, the festival allowance), or a sender without a registration, is the draft's problem: the row goes and the
  // composer says why, since Retry cannot help.
- const DRAFT=['talkFileType','talkFileSize','talkAllowance','talkTooManyFiles','talkNotRegistered'];
+ const DRAFT=['talkFileType','talkFileSize','talkImageSize','talkAllowance','talkTooManyFiles','talkNotRegistered'];
  let question=null,activity=null,me={organiser:false,canPost:false},before=null,known=0,parts=null,composer=null;
  // page: the session frame ({id, head, mine, qa, switcher, chat, activity, questions, current}); the chat and the access states are drawn in its chat
  // host, so the header and the question list stay while the conversation changes. null before a session is known, and on the projector.
@@ -108,7 +109,7 @@
  // The tab says which session it is; the projector says what it is for.
  const setTitle=()=>{const a=page&&!wall?sessionActivity():null;document.title='NODAL · '+(wall?t('talkPresent'):page&&isGeneral(page.id)?t('talkGeneralTitle'):a?.title||t(page?'talkSessionPage':'talkPage'));};
  // The server's refusal codes, each with its own explanation; anything else is "Something went wrong" (a Map, so no code can name an Object property).
- const CODES=new Map(Object.entries({upload_allowance:'talkAllowance',file_type:'talkFileType',too_many_files:'talkTooManyFiles',file_size:'talkFileSize',question_closed:'talkClosed',not_registered:'talkNotRegistered',client_id_reused:'talkReused'}));
+ const CODES=new Map(Object.entries({upload_allowance:'talkAllowance',file_type:'talkFileType',too_many_files:'talkTooManyFiles',file_size:'talkFileSize',image_size:'talkImageSize',question_closed:'talkClosed',not_registered:'talkNotRegistered',client_id_reused:'talkReused'}));
  // api() reports a request that never got an answer (no signal, a timeout, a captive portal's page) as key 'error' with no status: a lost connection.
  const keyOf=error=>error?.status===429?'talkRate':CODES.get(error?.code)||(error?.status===413?'talkFileSize':error?.status===401?'unauthorized':/^talk[A-Z]/.test(error?.key||'')?error.key:error?.key==='error'&&!error.status?'talkOffline':'talkError');
  const PAUSED=['talkPaused','talkPausedOffline'];
@@ -211,7 +212,7 @@
   const at=new Date(value),node=el('time','f-talk-time');if(!Number.isFinite(at.getTime()))return node;node.dateTime=at.toISOString();
   const day=limaDate(at);if(day===limaDate(new Date()))node.textContent=limaClock(at);else node.append(dateNode(day,'span','short','f-talk-day'),document.createTextNode(' '+limaClock(at)));return node;
  }
- // Images open full size in a new tab from a lazy thumbnail (the server serves the full image when there is none); PDFs download.
+ // Images open full size in a new tab from a lazy thumbnail (the server serves a thumbnail-sized image itself when there is none); PDFs download.
  function filesOf(files){
   const box=el('div','f-talk-files');
   for(const file of files){

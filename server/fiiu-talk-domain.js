@@ -6,6 +6,9 @@ import {FIIU_EVENT} from './fiiu-domain.js';
 // once base64 makes it ~4 MB, and the per-person allowance counts pending uploads too.
 export const TALK_LIMITS={question:500,talk:180,message:1000,files:3,fileBytes:3*1024*1024,thumbBytes:100*1024,quotaFiles:30,quotaBytes:30*1024*1024,page:100,changes:200};
 export const TALK_FILE_TYPES=['image/jpeg','image/png','image/webp','application/pdf'];
+/* A browser draws an image at width × height × 4 bytes whatever the file weighs. The page redraws photos at 1600 px with
+   a 480 px preview, and sends one it cannot redraw as it is: a 12 MP phone photo fits, a 48 KB PNG of 20000 px does not. */
+export const TALK_IMAGE_LIMITS={side:8192,pixels:4096*4096,thumbSide:640};
 // A question is a conversation or a 1–10 rating (with the chat below it); the type is chosen when it is created.
 export const QUESTION_KINDS=['chat','rating'];
 /* The festival-wide space beside the blocks: a pseudo-block that is neither in the programme nor in a registration,
@@ -31,9 +34,35 @@ function shortName(name){
  let stem='';for(const ch of clean.slice(0,clean.length-ext.length)){if(stem.length+ch.length+ext.length>160)break;stem+=ch;}
  return stem.trimEnd()+ext;
 }
-const dimension=value=>Number.isInteger(value)&&value>=1&&value<=20000?value:null;
-// Width and height only size the image box before it loads, so one without the other is dropped with it.
-const dimensions=(input,image)=>{const width=image?dimension(input?.width):null,height=image?dimension(input?.height):null;return width&&height?{width,height}:{width:null,height:null};};
+/* The pixel size an image decodes to, from its header: the PNG IHDR, the WebP VP8X canvas or VP8L/VP8 frame, the first
+   JPEG frame (SOF0-15 but DHT C4, JPG C8 and DAC CC), reached segment by segment as a decoder does. null without one. */
+export function imageSize(bytes,mime){
+ const size=(width,height)=>width>=1&&height>=1?{width,height}:null;
+ if(mime==='image/png')return bytes.length>=24&&bytes.toString('ascii',12,16)==='IHDR'?size(bytes.readUInt32BE(16),bytes.readUInt32BE(20)):null;
+ if(mime==='image/webp'){
+  const chunk=bytes.toString('ascii',12,16);
+  if(chunk==='VP8X'&&bytes.length>=30)return size(1+bytes.readUIntLE(24,3),1+bytes.readUIntLE(27,3));
+  if(chunk==='VP8L'&&bytes.length>=25&&bytes[20]===0x2f){const bits=bytes.readUInt32LE(21);return size(1+(bits&0x3fff),1+(bits>>>14&0x3fff));}
+  return chunk==='VP8 '&&bytes.length>=30&&bytes[23]===0x9d&&bytes[24]===0x01&&bytes[25]===0x2a?size(bytes.readUInt16LE(26)&0x3fff,bytes.readUInt16LE(28)&0x3fff):null;
+ }
+ if(mime!=='image/jpeg')return null;
+ for(let i=2;i+3<bytes.length;){
+  const marker=bytes[i+1];
+  if(bytes[i]!==0xff||[0xd8,0xd9,0xda].includes(marker))return null;
+  if(marker===0xff||marker===0x01||marker>=0xd0&&marker<=0xd7){i+=marker===0xff?1:2;continue;}
+  const length=bytes.readUInt16BE(i+2);
+  if(marker>=0xc0&&marker<=0xcf&&![0xc4,0xc8,0xcc].includes(marker))return length>=8&&i+8<bytes.length?size(bytes.readUInt16BE(i+7),bytes.readUInt16BE(i+5)):null;
+  if(length<2)return null;
+  i+=2+length;
+ }
+ return null;
+}
+// Bytes with the right signature but no readable size are not an image; one too large to draw safely is refused by its size.
+function pixels(bytes,mime,side,most=side*side){
+ const found=imageSize(bytes,mime);if(!found)failCode('file content does not match its type','file_type');
+ if(Math.max(found.width,found.height)>side||found.width*found.height>most)failCode('image is too large','image_size',413);
+ return found;
+}
 
 /* Create (no current): the activity must be live, the status open or hidden (a hidden question is a prepared draft).
    Edit: the merged row is re-checked, the activity cannot move, and closed becomes possible. A talk is re-checked only
@@ -71,17 +100,21 @@ export function normalizeMessage(input={}){
  return {clientId,body,fileIds};
 }
 // The phone sends the full image and, for images it could decode, a small JPEG or WebP preview (never for PDFs).
+// Every chat row and the projector draw them, so their width and height come from the bytes, never from the request.
 export function decodeTalkFile(input={}){
  const file=decodeAttachment({...input,name:shortName(input.name)},{types:TALK_FILE_TYPES,max:TALK_LIMITS.fileBytes}),image=file.mime.startsWith('image/');
+ const {width,height}=image?pixels(file.bytes,file.mime,TALK_IMAGE_LIMITS.side,TALK_IMAGE_LIMITS.pixels):{width:null,height:null};
  let thumb=null;
  if(input.thumb!==undefined&&input.thumb!==null){
   if(!image)fail('only images have a thumbnail');
   if(typeof input.thumb!=='object'||Array.isArray(input.thumb))fail('invalid thumbnail');
   const decoded=decodeAttachment({name:'thumb.jpg',mime:input.thumb.mime??'image/jpeg',data:input.thumb.data},{types:['image/jpeg','image/webp'],max:TALK_LIMITS.thumbBytes});
-  thumb={bytes:decoded.bytes,size:decoded.size,...dimensions(input.thumb,true)};
+  thumb={bytes:decoded.bytes,size:decoded.size,...pixels(decoded.bytes,decoded.mime,TALK_IMAGE_LIMITS.thumbSide)};
  }
- return {name:file.name,mime:file.mime,size:file.size,bytes:file.bytes,...dimensions(input,image),thumb};
+ return {name:file.name,mime:file.mime,size:file.size,bytes:file.bytes,width,height,thumb};
 }
+// An image without a thumbnail stands in for one only while it is no larger than a thumbnail may be.
+export const thumbnailSized=(bytes,mime)=>{const found=imageSize(bytes,mime);return Boolean(found)&&Math.max(found.width,found.height)<=TALK_IMAGE_LIMITS.thumbSide;};
 /* 'María G.': names are shown to everyone in the chat and on the projector, so control characters become spaces and
    direction overrides go (they could reorder the text after the name); the 60 character cap counts code points. */
 export function displayName(first,last){

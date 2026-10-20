@@ -13,8 +13,11 @@ import {createTalkApi,exportTalkData,deleteTalkData} from '../server/fiiu-talk-a
 import {FIIU_EVENT} from '../server/fiiu-domain.js';
 
 const answers={firstName:'Ana',lastName:'Test',country:'Perú',city:'Lima',profile:'professional',publicOfficial:false,activities:['day1-am'],externalActivities:[],nationalId:'TEST-ID',gender:'prefer_not',age:30,accessibility:['none'],motivation:'learn',previousAttendance:'no',privacyAccepted:true};
-const jpeg=Buffer.from([255,216,255,224,...Array(60).fill(0)]).toString('base64');
-const thumb=Buffer.from([255,216,255,224,7,7,7]).toString('base64');
+// Header-only images: the server reads the pixel size from the header (JFIF then the frame, or IHDR) and nothing after it.
+const jpegOf=(width,height,pad=0)=>Buffer.concat([Buffer.from([255,216,255,224,0,16,74,70,73,70,0,1,1,0,0,1,0,1,0,0,255,192,0,17,8,height>>8,height&255,width>>8,width&255,3,1,34,0,2,17,1,3,17,1]),Buffer.alloc(pad),Buffer.from([255,217])]);
+const jpeg=jpegOf(1600,900,23).toString('base64');
+const thumb=jpegOf(480,270).toString('base64');
+const pngOf=(width,height)=>{const b=Buffer.from([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0]);b.writeUInt32BE(width,16);b.writeUInt32BE(height,20);return b;};
 const pdf=Buffer.from('%PDF-1.4 festival notes').toString('base64');
 const PULSE_CACHE='public, max-age=0, s-maxage=2, stale-while-revalidate=4';
 
@@ -707,6 +710,40 @@ test('festival files: types, sizes, thumbnails, attach rules, download access an
  assert.equal((await call(`/api/fiiu/files/${file.id}`)).status,404);
 });
 
+test('?size=thumb only ever answers with a thumbnail-sized image, whatever size the upload claimed: an image without one is refused when larger',async t=>{
+ const reads=[];
+ const {talkStore,users,call,ask,post,upload}=await setup(t,{wrapTalk:store=>({...store,getBytes:async(file,variant)=>{reads.push(variant);return store.getBytes(file,variant);}})});
+ const q=await ask(),png=(width,height)=>pngOf(width,height).toString('base64');
+ const small=(await upload({name:'a.png',mime:'image/png',data:png(400,300),width:4000,height:3000})).body.file;
+ assert.deepEqual([small.width,small.height,small.thumb],[400,300,false],'the size in the bytes, not the claim');
+ const big=(await upload({name:'b.png',mime:'image/png',data:png(2000,1500),width:400,height:400})).body.file;
+ assert.deepEqual([big.width,big.height],[2000,1500]);
+ // The audit's 48 KB PNG of 20000 × 20000 pixels without a thumbnail: every chat row and the projector would draw it whole.
+ const bomb=await upload({name:'p.png',mime:'image/png',data:Buffer.concat([pngOf(20000,20000),Buffer.alloc(48000)]).toString('base64'),width:400,height:400});
+ assert.equal(bomb.status,413);assert.equal(bomb.body.code,'image_size');
+ assert.equal((await post(q,'',{fileIds:[small.id,big.id]})).status,201);
+ const thumbOf=(id,headers={})=>call(`/api/fiiu/files/${id}?size=thumb`,{actor:'other',headers});
+ const served=await thumbOf(small.id);assert.equal(served.status,200);assert.equal(served.headers.get('etag'),`"${small.id}-thumb"`);assert.equal(Buffer.from(await served.arrayBuffer()).toString('base64'),png(400,300));
+ reads.length=0;
+ const refused=await thumbOf(big.id);assert.equal(refused.status,404);assert.equal((await refused.json()).code,'thumbnail_unavailable');
+ assert.deepEqual(reads,[],'its stored size refuses it before Storage is read');
+ assert.equal((await call(`/api/fiiu/files/${big.id}`,{actor:'other'})).status,200,'the image itself still opens full size');
+ // A row stored before sizes were read from the bytes keeps the size its upload claimed, so the bytes decide.
+ const id=randomUUID(),bytes=pngOf(20000,20000);
+ const row=await talkStore.reserveFile({id,eventId:'fiiu-2026',userId:users.member.id,name:'old.png',mime:'image/png',size:bytes.length,width:400,height:400,thumbSize:null,storagePath:`fiiu/${users.member.id}/${id}`,createdAt:new Date().toISOString()});
+ await talkStore.putBytes(row,'full',bytes);await talkStore.setFileStatus(id,'pending','ready');
+ assert.equal((await post(q,'',{fileIds:[id]})).status,201);
+ assert.equal((await thumbOf(id)).status,404);
+ assert.equal((await thumbOf(id,{'If-None-Match':`"${id}"`})).status,404,'a copy cached under the full image’s tag is not confirmed');
+ // So does a thumbnail stored then: one declaring 5000 px a side is never served, while its image still opens.
+ const legacy=randomUUID(),preview=jpegOf(5000,5000);
+ const withThumb=await talkStore.reserveFile({id:legacy,eventId:'fiiu-2026',userId:users.member.id,name:'old.jpg',mime:'image/jpeg',size:41,width:1600,height:900,thumbSize:preview.length,storagePath:`fiiu/${users.member.id}/${legacy}`,createdAt:new Date().toISOString()});
+ await talkStore.putBytes(withThumb,'full',jpegOf(1600,900));await talkStore.putBytes(withThumb,'thumb',preview);await talkStore.setFileStatus(legacy,'pending','ready');
+ assert.equal((await post(q,'',{fileIds:[legacy]})).status,201);
+ const bomb2=await thumbOf(legacy);assert.equal(bomb2.status,404);assert.equal((await bomb2.json()).code,'thumbnail_unavailable');
+ assert.equal((await call(`/api/fiiu/files/${legacy}`,{actor:'other'})).status,200);
+});
+
 test('a thumbnail is read from Storage once per instance for every viewer, while access is still checked on each request',async t=>{
  const reads=[];
  const {json,call,ask,post,upload}=await setup(t,{wrapTalk:store=>({...store,getBytes:async(file,variant)=>{reads.push(variant);return store.getBytes(file,variant);}})});
@@ -731,13 +768,13 @@ test('the thumbnail cache keeps at most 200 thumbnails and 20 MB, least recently
   const gets=[];let registered=false;
   const store={findRegistration:async()=>{await new Promise(r=>setTimeout(r,5));registered=true;return {firstName:'Ana',lastName:'Test'};},
    findFile:async fileId=>({id:fileId,eventId:'fiiu-2026',userId:'u',status:'ready',thumbSize:5,mime:'image/jpeg',name:'a.jpg',size:10,messageId:null,registeredFirst:registered}),
-   getBytes:async file=>{gets.push(file.id);return Buffer.alloc(size,255);}};
+   getBytes:async file=>{gets.push(file.id);const bytes=Buffer.alloc(size);jpegOf(480,270).copy(bytes);return bytes;}};
   const sent=[];
   const api=createTalkApi({store,sameOrigin:()=>true,send:(res,status)=>sent.push(status),clock:()=>1000});
   const get=i=>api({req:{method:'GET',headers:{}},res:{},url:new URL(`http://x/api/fiiu/files/${id(i)}?size=thumb`),user:{id:'u',permission:'member'}});
   return {gets,sent,get,store};
  };
- const many=make(10);
+ const many=make(64);
  const first=many.store.findFile;let registeredFirst;many.store.findFile=async fileId=>{const f=await first(fileId);registeredFirst=f.registeredFirst;return f;};
  await many.get(0);assert.equal(registeredFirst,false,'the file is read while the registration is');assert.deepEqual(many.sent,[200]);
  for(let i=1;i<=200;i++)await many.get(i);

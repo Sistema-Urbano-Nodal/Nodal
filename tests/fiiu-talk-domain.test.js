@@ -97,33 +97,63 @@ test('a message has a client id, trimmed text and up to three distinct file ids'
  assert.throws(()=>normalizeMessage({clientId,body:{}}),e=>e.status===400,'text must be text');
  assert.throws(()=>normalizeMessage({clientId}),e=>e.code==='empty_message');
 });
+// Header-only images: the server reads the pixel size from the header (JFIF then the frame, IHDR, the WebP chunk) and nothing after it.
+const jpegOf=(width,height,pad=0)=>Buffer.concat([Buffer.from([255,216,255,224,0,16,74,70,73,70,0,1,1,0,0,1,0,1,0,0,255,192,0,17,8,height>>8,height&255,width>>8,width&255,3,1,34,0,2,17,1,3,17,1]),Buffer.alloc(pad),Buffer.from([255,217])]);
+const pngOf=(width,height)=>{const b=Buffer.from([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0]);b.writeUInt32BE(width,16);b.writeUInt32BE(height,20);return b;};
+function webpOf(chunk,width,height){
+ const b=Buffer.alloc(30);b.write('RIFF',0,'ascii');b.writeUInt32LE(22,4);b.write('WEBP',8,'ascii');b.write(chunk,12,'ascii');b.writeUInt32LE(10,16);
+ if(chunk==='VP8X'){b.writeUIntLE(width-1,24,3);b.writeUIntLE(height-1,27,3);}else if(chunk==='VP8L'){b[20]=0x2f;b.writeUInt32LE((width-1)|(height-1)<<14,21);}else{b.set([0x9d,0x01,0x2a],23);b.writeUInt16LE(width,26);b.writeUInt16LE(height,28);}
+ return b;
+}
 test('festival files are images or PDFs within 3 MB, and a thumbnail is a small JPEG or WebP of an image',()=>{
- const jpeg=Buffer.from([255,216,255,224,0,16]).toString('base64'),pdf=Buffer.from('%PDF-1.4').toString('base64');
- const f=decodeTalkFile({name:'a.jpg',mime:'image/jpeg',data:jpeg,width:1600,height:900,thumb:{mime:'image/jpeg',data:jpeg}});
- assert.equal(f.thumb.size,6);assert.equal(f.width,1600);
+ const jpeg=jpegOf(1600,900).toString('base64'),small=jpegOf(480,270).toString('base64'),pdf=Buffer.from('%PDF-1.4').toString('base64');
+ const f=decodeTalkFile({name:'a.jpg',mime:'image/jpeg',data:jpeg,width:1600,height:900,thumb:{mime:'image/jpeg',data:small}});
+ assert.equal(f.thumb.size,41);assert.equal(f.width,1600);
  assert.throws(()=>decodeTalkFile({name:'a.txt',mime:'text/plain',data:Buffer.from('hi').toString('base64')}),e=>e.code==='file_type');
- assert.throws(()=>decodeTalkFile({name:'a.pdf',mime:'application/pdf',data:pdf,thumb:{mime:'image/jpeg',data:jpeg}}),e=>e.status===400,'PDFs carry no thumbnail');
- assert.equal(decodeTalkFile({name:'a.jpg',mime:'image/jpeg',data:jpeg,width:0}).width,null);
+ assert.throws(()=>decodeTalkFile({name:'a.pdf',mime:'application/pdf',data:pdf,thumb:{mime:'image/jpeg',data:small}}),e=>e.status===400,'PDFs carry no thumbnail');
+ assert.equal(decodeTalkFile({name:'a.jpg',mime:'image/jpeg',data:jpeg,width:0}).width,1600,'a claim never sets the size');
 });
 test('file sizes, dimensions and thumbnails are checked against the festival limits',()=>{
- const jpeg=Buffer.from([255,216,255,224,0,16]).toString('base64'),webp=Buffer.from('RIFF\0\0\0\0WEBPVP8 ').toString('base64'),png=Buffer.from([137,80,78,71,13,10,26,10,0,0]).toString('base64');
+ const jpeg=jpegOf(480,270).toString('base64'),webp=webpOf('VP8 ',1600,900).toString('base64'),png=pngOf(1600,900).toString('base64');
  const big=Buffer.alloc(TALK_LIMITS.fileBytes+1,0);big[0]=255;big[1]=216;big[2]=255;
  assert.throws(()=>decodeTalkFile({name:'a.jpg',mime:'image/jpeg',data:big.toString('base64')}),e=>e.status===413&&e.code==='file_size');
- const full=Buffer.alloc(TALK_LIMITS.fileBytes,0);full[0]=255;full[1]=216;full[2]=255;
+ const full=Buffer.alloc(TALK_LIMITS.fileBytes,0);jpegOf(1600,900).copy(full);
  assert.equal(decodeTalkFile({name:'a.jpg',mime:'image/jpeg',data:full.toString('base64')}).size,TALK_LIMITS.fileBytes,'exactly 3 MB is allowed');
  const thumb=Buffer.alloc(TALK_LIMITS.thumbBytes+1,0);thumb[0]=255;thumb[1]=216;thumb[2]=255;
  assert.throws(()=>decodeTalkFile({name:'a.png',mime:'image/png',data:png,thumb:{data:thumb.toString('base64')}}),e=>e.status===413&&e.code==='file_size','a thumbnail is at most 100 KB');
  assert.throws(()=>decodeTalkFile({name:'a.png',mime:'image/png',data:png,thumb:{mime:'image/png',data:png}}),e=>e.code==='file_type','a thumbnail is JPEG or WebP');
  assert.throws(()=>decodeTalkFile({name:'a.png',mime:'image/png',data:png,thumb:'x'}),e=>e.status===400);
  const p=decodeTalkFile({name:'a.png',mime:'image/png',data:png,width:1600,height:900.5,thumb:{data:jpeg,width:480,height:270}});
- assert.deepEqual({name:p.name,mime:p.mime,size:p.size,width:p.width,height:p.height},{name:'a.png',mime:'image/png',size:10,width:null,height:null},'dimensions are whole numbers, and come as a pair');
- assert.equal(decodeTalkFile({name:'a.png',mime:'image/png',data:png,width:'1600',height:'900'}).width,null,'numbers, not numeric text');
- assert.deepEqual({size:p.thumb.size,width:p.thumb.width,height:p.thumb.height},{size:6,width:480,height:270});assert.ok(Buffer.isBuffer(p.thumb.bytes));
- const w=decodeTalkFile({name:'a.webp',mime:'image/webp',data:webp,width:20000,height:1,thumb:{mime:'image/webp',data:webp,width:20001,height:1}});
- assert.deepEqual([w.width,w.height,w.thumb.width,w.thumb.height],[20000,1,null,null]);
+ assert.deepEqual({name:p.name,mime:p.mime,size:p.size,width:p.width,height:p.height},{name:'a.png',mime:'image/png',size:33,width:1600,height:900},'the size is read from the bytes, whatever was claimed');
+ assert.deepEqual({size:p.thumb.size,width:p.thumb.width,height:p.thumb.height},{size:41,width:480,height:270});assert.ok(Buffer.isBuffer(p.thumb.bytes));
+ const w=decodeTalkFile({name:'a.webp',mime:'image/webp',data:webp,width:20000,height:1,thumb:{mime:'image/webp',data:webpOf('VP8 ',480,270).toString('base64'),width:20001,height:1}});
+ assert.deepEqual([w.width,w.height,w.thumb.width,w.thumb.height],[1600,900,480,270]);
  const d=decodeTalkFile({name:'notes',mime:'application/pdf',data:Buffer.from('%PDF-1.4').toString('base64'),width:10,height:10,thumb:null});
  assert.deepEqual({name:d.name,width:d.width,height:d.height,thumb:d.thumb},{name:'notes.pdf',width:null,height:null,thumb:null},'a PDF has no dimensions; a null thumbnail is no thumbnail');
  assert.deepEqual(TALK_FILE_TYPES,['image/jpeg','image/png','image/webp','application/pdf']);
+});
+test('an image’s pixel size is read from its bytes: a small file declaring a huge picture is refused, and the claimed width and height are ignored',()=>{
+ const b64=bytes=>bytes.toString('base64'),file=(mime,bytes,extra={})=>decodeTalkFile({name:'a',mime,data:b64(bytes),...extra});
+ // The audit's 48 KB PNG of 20000 × 20000 pixels (about 1.5 GB to draw), sent with a modest claim and no thumbnail.
+ assert.throws(()=>file('image/png',Buffer.concat([pngOf(20000,20000),Buffer.alloc(48000)]),{width:400,height:400}),e=>e.status===413&&e.code==='image_size');
+ const j=file('image/jpeg',jpegOf(1600,900),{width:400,height:400});assert.deepEqual([j.width,j.height],[1600,900],'the size in the bytes, not the claim');
+ const p=file('image/png',pngOf(1200,800));assert.deepEqual([p.width,p.height],[1200,800],'a size without a claim');
+ for(const [chunk,w,h] of [['VP8X',3000,2000],['VP8L',800,600],['VP8 ',1600,1200]]){const x=file('image/webp',webpOf(chunk,w,h));assert.deepEqual([x.width,x.height],[w,h],chunk);}
+ assert.throws(()=>file('image/webp',webpOf('VP8L',16383,16383)),e=>e.code==='image_size','a lossless WebP of 16383 px a side');
+ // A progressive frame after a Huffman table (C4 is not a frame) and a fill byte; an Exif preview inside APP1 is skipped with its segment.
+ const progressive=file('image/jpeg',Buffer.from([255,216,255,196,0,5,1,2,3,255,255,194,0,17,8,1,44,1,144,3,1,34,0,2,17,1,3,17,1]));assert.deepEqual([progressive.width,progressive.height],[400,300]);
+ const exif=file('image/jpeg',Buffer.from([255,216,255,225,0,11,255,192,0,17,8,78,32,78,32,255,192,0,17,8,0,100,0,120,3,1,34,0,2,17,1,3,17,1]));assert.deepEqual([exif.width,exif.height],[120,100]);
+ // At most 8192 px a side and 16.7 million pixels: the page sends 1600 px at most, and a 12 MP phone photo it could not redraw still fits.
+ assert.equal(file('image/jpeg',jpegOf(8192,2048)).width,8192);assert.equal(file('image/jpeg',jpegOf(4032,3024)).width,4032);
+ for(const [w,h] of [[8193,1],[1,8193],[4097,4096]])assert.throws(()=>file('image/jpeg',jpegOf(w,h)),e=>e.status===413&&e.code==='image_size',`${w}×${h}`);
+ // The right first few bytes without a readable size are not an image.
+ for(const [mime,bytes] of [['image/jpeg',Buffer.from([255,216,255,224,0,16])],['image/jpeg',jpegOf(0,10)],['image/png',pngOf(10,10).subarray(0,20)],['image/webp',Buffer.from('RIFF\0\0\0\0WEBPVP8 ')]])assert.throws(()=>file(mime,bytes),e=>e.status===400&&e.code==='file_type',b64(bytes));
+ // A thumbnail is read the same way and is at most 640 px a side (the page sends 480).
+ const t=file('image/jpeg',jpegOf(1600,900),{thumb:{mime:'image/jpeg',data:b64(jpegOf(480,270)),width:20000,height:20000}});assert.deepEqual([t.thumb.width,t.thumb.height],[480,270]);
+ assert.equal(file('image/jpeg',jpegOf(1600,900),{thumb:{mime:'image/webp',data:b64(webpOf('VP8 ',640,360))}}).thumb.width,640);
+ assert.throws(()=>file('image/jpeg',jpegOf(1600,900),{thumb:{mime:'image/webp',data:b64(webpOf('VP8L',16383,16383))}}),e=>e.code==='image_size');
+ assert.throws(()=>file('image/jpeg',jpegOf(1600,900),{thumb:{mime:'image/jpeg',data:b64(jpegOf(641,10))}}),e=>e.code==='image_size');
+ assert.throws(()=>file('image/jpeg',jpegOf(1600,900),{thumb:{mime:'image/jpeg',data:b64(Buffer.from([255,216,255]))}}),e=>e.code==='file_type','the audit’s three-byte thumbnail');
 });
 test('message views never reveal ids and show organisers the full name and hidden state',()=>{
  const m={id:'m',userId:'u',authorName:'Ana T.',authorFull:'Ana Test',organiser:0,body:'hola',clientId:'c-ana',likeCount:2,createdAt:'2026-10-21T14:00:00.000Z',seq:7,hiddenAt:null};
@@ -184,7 +214,7 @@ test('control characters are stripped from messages and questions before the lim
  assert.throws(()=>normalizeQuestion({activityId:'day1-am',body:'\u0000'}),e=>e.status===400,'a question of control characters has no body');
 });
 test('a file name over 160 characters is shortened, keeping its extension, rather than refused',()=>{
- const jpeg=Buffer.from([255,216,255,224,0,16]).toString('base64'),pdf=Buffer.from('%PDF-1.4').toString('base64');
+ const jpeg=jpegOf(1600,900).toString('base64'),pdf=Buffer.from('%PDF-1.4').toString('base64');
  const report=decodeTalkFile({name:'Informe '.repeat(30)+'final.pdf',mime:'application/pdf',data:pdf});
  assert.equal(report.name.length,160);assert.ok(report.name.endsWith('.pdf'));assert.ok(report.name.startsWith('Informe Informe'));
  const photo=decodeTalkFile({name:'😀'.repeat(100)+'.jpeg',mime:'image/jpeg',data:jpeg});

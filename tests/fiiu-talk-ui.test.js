@@ -594,6 +594,7 @@ test('refusals of a send say what happened in the person’s language, and only 
   ['file',{status:413,data:{error:'festival upload allowance reached',code:'upload_allowance'}},'talkAllowance',false],
   ['file',{status:400,data:{error:'unsupported file type',code:'file_type'}},'talkFileType',false],
   ['file',{status:413,data:{error:'file exceeds 3 MB',code:'file_size'}},'talkFileSize',false],
+  ['file',{status:413,data:{error:'image is too large',code:'image_size'}},'talkImageSize',false],
  ];
  for(const [where,answer,expected,retry] of cases){
   const h=await page({'POST /api/fiiu/files':where==='file'?answer:{status:201,data:{file:{id:F1,name:'a.pdf',mime:'application/pdf',size:1,width:null,height:null,thumb:false}}},['POST '+MESSAGES]:where==='message'?answer:{status:500,data:{}}},{context:{FileReader:Reader}});
