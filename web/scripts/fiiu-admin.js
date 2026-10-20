@@ -254,7 +254,7 @@
   if(error?.status===401&&!sessionLost){sessionLost=true;sessionPanel();sessionNotice.hidden=false;}
   return false;
  }
- function resume(){if(!sessionLost)return;sessionLost=false;sessionNotice.hidden=true;}
+ function resume(){if(!sessionLost)return;sessionLost=false;sessionNotice.hidden=true;if(message.dataset.fiiuText==='unauthorized')status(message,'');}
  function sessionPanel(){sessionNotice.replaceChildren(tr('span','adminSignInAgain'),document.createTextNode(' '),signInLink());return sessionNotice;}
  // Feedback: #fiiuStatus is shown as a toast (fiiu.css) so saves are visible wherever the organiser is working.
  function clearLater(node,key,delay=6000){if(typeof setTimeout!=='function')return;clearTimeout(clearTimers.get(node));clearTimers.set(node,setTimeout(()=>{clearTimers.delete(node);if(node.dataset.fiiuText===key)status(node,'');},delay));}

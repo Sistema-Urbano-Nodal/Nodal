@@ -2207,3 +2207,14 @@ test('a firewall challenge on the organisers’ own requests (the summary batch,
  refusal={status:403,data:{error:'administrator access required'}};await press(h,'send');backfillAction(h,'confirm').listeners.click();await flush();
  assert.ok(key(h.root,'organisersOnly'),'a real loss of organiser access still locks the page');
 });
+
+test('once the dashboard recovers by itself after a lost session, the toast no longer asks to sign in again',async()=>{
+ const ana=participant('participant-a','Ana');let signedOut=true;
+ const h=await harness(({path})=>path==='/api/admin/fiiu/content'?{content:[],nextCursor:null}:{status:401,data:{error:'sign in required'}},{participants:[ana],summaryRead:()=>signedOut?{status:401,data:{error:'sign in required'}}:{summary:copy(summary)}});
+ await detailButton(h,0).listeners.click();assert.equal(h.message.dataset.fiiuText,'unauthorized');
+ await h.tickTimers();assert.equal(h.root.querySelector('.f-session-notice').hidden,false);
+ signedOut=false;await h.visible(false);await h.visible(true);await flush();
+ assert.equal(h.root.querySelector('.f-session-notice').hidden,true);assert.equal(h.message.dataset.fiiuText,'','the sign-in toast goes with the notice');
+ // Another toast stays.
+ signedOut=true;await h.tickTimers();h.ctx.window.Fiiu.status(h.message,'error');signedOut=false;await h.tickTimers();await flush();assert.equal(h.message.dataset.fiiuText,'error');
+});
