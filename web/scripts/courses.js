@@ -27,7 +27,7 @@ let membershipRead=null;
 const membershipOpen=()=>membershipRead??=fetch('/api/billing/config',{headers:{Accept:'application/json'}}).then(res=>res.ok?res.json():null).then(data=>data?.checkout===true).catch(()=>false);
 function supportersNote(){
   const note=tr('span','supportersNote');
-  membershipOpen().then(open=>{if(!open||!note.parent)return;const join=tr('a','becomeSupporter','pilot-button');join.href='payments.html';note.dataset.pilotText='supportersNoteOpen';note.textContent=t('supportersNoteOpen');note.after(join);});
+  membershipOpen().then(open=>{if(!open)return;const join=tr('a','becomeSupporter','pilot-button');join.href='payments.html';join.dataset.supporterLink='';note.dataset.pilotText='supportersNoteOpen';note.textContent=t('supportersNoteOpen');note.after(join);});
   return [tr('strong','supportersOnly'),note];
 }
 // One label per card: where this viewer stands on the course. Staff see only whether it is closed, as before.

@@ -318,7 +318,7 @@ test('Supabase Data API smoke exercises reads, constrained inserts, updates, and
 test('changed one-hour-cached clients use new URLs on every consuming page', () => {
   const pages = Object.fromEntries(['index.html', 'opportunities.html', 'dashboard.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'course.html', 'courses.html', 'teaching.html', 'accept-invitation.html', 'fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'knowledge.html', 'resources.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
-  const pilot = { 'pilot-i18n.js': '20261020b', 'pilot.js': '20261005s', 'courses.css': '20261016b' };
+  const pilot = { 'pilot-i18n.js': '20261020b', 'pilot.js': '20261005s', 'courses.css': '20261020b' };
   const festival = { 'fiiu.css': '20261018b', 'fiiu-ui.js': '20261020a' };
   const required = {
     'index.html': { 'styles.css': '34', 'i18n.js': '20261019a', 'app.js': '20261020b', 'recs.js': '5', 'script.js': '18', 'hero-network.js': '2' },

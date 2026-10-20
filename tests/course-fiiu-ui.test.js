@@ -83,6 +83,10 @@ test('once the Supporting membership takes payments on Mercado Pago, the Support
  for(const key of ['supportersOnly','supportersNoteOpen','becomeSupporter'])assert.ok(keys(h.body).includes(key),key);
  assert.equal(keys(h.body).includes('supportersNote'),false,'it no longer says the membership opens soon');
  const join=find(h.body,'becomeSupporter');assert.equal(join.tagName,'a');assert.equal(join.href,'payments.html');
+ // The course pilot hides every link to the payments page (courses.css) except this one, which exists only while a link takes payments.
+ assert.equal(join.dataset.supporterLink,'');
+ const css=readFileSync(new URL('../web/styles/courses.css',import.meta.url),'utf8');
+ assert.match(css,/html:not\(\[data-pilot="false"\]\) a\[href\*="payments\.html"\]:not\(\[data-supporter-link\]\)/);
  assert.match(content(h.body),/This course is part of the Supporting membership\. People already enrolled keep full access\./);assert.match(content(h.body),/Become a Supporter/);
  h.lang('es');assert.match(content(h.body),/Este curso forma parte de la membresía de apoyo\. Quienes ya están inscritos conservan el acceso completo\./);assert.match(content(h.body),/Hazte miembro de apoyo/);
  h.lang('pt');assert.match(content(h.body),/Torne-se apoiador/);

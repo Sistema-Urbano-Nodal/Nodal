@@ -1,6 +1,7 @@
-/* Billing is hidden before configuration loads; the legacy mode opts it back in. */
+/* Billing is hidden before configuration loads; the legacy mode opts it back in. The Supporter course's
+   link to the payments page is the exception: it only exists while a Mercado Pago link takes payments. */
 html:not([data-pilot="false"]) [data-billing-only],
-html:not([data-pilot="false"]) a[href*="payments.html"],
+html:not([data-pilot="false"]) a[href*="payments.html"]:not([data-supporter-link]),
 html:not([data-pilot="false"]) [data-billing-price],
 html:not([data-pilot="false"]) .membership-support,
 html[data-pilot="false"] [data-pilot-only]{display:none!important}
