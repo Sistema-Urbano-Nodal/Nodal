@@ -483,6 +483,10 @@ test('participant detail lists interests whose activity left the catalogue and n
  const others=detail.querySelectorAll('summary').filter(node=>node.dataset.fiiuText==='otherActivities'),dates=new Set(detail.querySelectorAll('.f-attendance-date').map(node=>node.id));
  assert.ok(others.length>=2);assert.equal(new Set(others.map(node=>node['aria-describedby'])).size,others.length,'each disclosure is described by its own day');
  assert.ok(others.every(node=>dates.has(node['aria-describedby'])));
+ // A conference block outside the plan sits in the same disclosure, so its summary names blocks first.
+ for(const lang of ['en','es','pt']){
+  h.lang(lang);assert.equal(content(others[0]).trim(),{en:'Other blocks, workshops and routes this day',es:'Otros bloques, talleres y rutas de este día',pt:'Outros blocos, oficinas e roteiros deste dia'}[lang],lang);
+ }
 });
 
 test('an empty filtered list offers a reset that shows everyone again',async()=>{

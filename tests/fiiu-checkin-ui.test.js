@@ -77,7 +77,8 @@ test('a check-in days before the session is confirmed with the real message and 
 test('reloading after an early check-in shows the same dated confirmation, while a same-day one keeps "Checked in at"',async()=>{
  const early=[{activityId:'day1-am',createdAt:'2026-10-07T15:00:00.000Z',method:'qr'}];
  const h=await page(request=>request.path==='/api/fiiu/registration'?{registration:{id:'r1',version:1,answers:{activities:['day1-am']}},attendance:early,hours:{minutes:240,hours:4,untimed:[]},user:{id:'u1',email:'member@example.test'}}:assert.fail('a reload sends no check-in'),{search:'?a=day1-am',now:'2026-10-09T18:00:00-05:00'});
- assert.equal(title(h).dataset.fiiuText,'alreadyCheckedIn');const when=result(h).querySelector('.f-checkin-facts');
+ // The first fact is the check-in time; the account it was recorded for follows it.
+ assert.equal(title(h).dataset.fiiuText,'alreadyCheckedIn');const when=result(h).querySelector('.f-checkin-fact');
  languages(h,lang=>assert.match(content(when).trim(),{en:/^Checked in on\s+Wed 7 Oct\s+at\s+10:00$/,es:/^Registrada el\s+Mié, 7 oct\.\s+a las\s+10:00$/,pt:/^Registrada em\s+Qua\., 7 de out\.\s+às\s+10:00$/}[lang]));
  const same=await page(()=>checkedIn),fact=result(same).querySelector('.f-checkin-facts');assert.equal(fact.querySelector('.f-when-day'),null);
  languages(same,lang=>assert.match(content(fact).trim(),{en:/^Checked in at\s+09:12$/,es:/^Registrada a las\s+09:12$/,pt:/^Registrada às\s+09:12$/}[lang]));
@@ -452,6 +453,36 @@ test('a “not registered” refusal names the signed-in account and offers anot
  assert.equal(title(reload).dataset.fiiuText,'notRegistered');assert.match(content(result(reload).querySelector('.f-checkin-facts')),/carla\.someone/);
  assert.equal(reload.requests.filter(request=>request.path==='/api/fiiu/registration').length,1);
  await key(result(reload),'useOtherAccount').listeners.click();assert.deepEqual(reload.assigned,['/login.html?next='+encodeURIComponent('/fiiu-checkin.html?a=day0-lab')]);
+});
+
+test('a confirmation names the account it was recorded for and offers another, so a borrowed phone never checks in the wrong person unnoticed',async()=>{
+ const named={status:201,data:{...checkedIn.data,account:'ana.lent.her.phone@example.test'}};
+ const h=await page(request=>request.path==='/api/fiiu/checkin'?named:request.path==='/api/auth/logout'?{ok:true}:assert.fail(request.path)),box=result(h);
+ assert.equal(title(h).dataset.fiiuText,'checkedInTitle');
+ const rows=box.querySelectorAll('.f-checkin-fact');assert.deepEqual(rows.map(row=>row.children[0].dataset.fiiuText),['checkedInAt','checkinAccount'],'the time, then the account');
+ assert.match(content(rows[1]),/ana\.lent\.her\.phone@example\.test/,'the whole address');
+ const view=key(box,'viewRegistration'),other=key(box,'useOtherAccount');assert.equal(view.className,'f-button','the registration stays the main action');assert.equal(other.className,'f-button secondary');
+ languages(h,lang=>{
+  assert.match(content(rows[1]).trim(),{en:/^Signed in as\s+ana/,es:/^Sesión iniciada como\s+ana/,pt:/^Conectado como\s+ana/}[lang]);
+  assert.equal(content(other).trim(),{en:'Use another account',es:'Usar otra cuenta',pt:'Usar outra conta'}[lang]);
+ });
+ await other.listeners.click();
+ assert.deepEqual(h.requests.filter(request=>request.path==='/api/auth/logout').map(request=>request.method),['POST'],'signs out first');
+ assert.deepEqual(h.assigned,['/login.html?next='+encodeURIComponent(`/fiiu-checkin.html?a=day1-am&c=${CODE}`)],'the other account comes back to the same block and code');
+ // A repeat scan names the account too.
+ const again=await page(()=>({status:200,data:{...named.data,result:'already_checked_in'}}));
+ assert.equal(title(again).dataset.fiiuText,'alreadyCheckedIn');assert.match(content(result(again).querySelector('.f-checkin-facts')),/ana\.lent/);assert.ok(key(result(again),'useOtherAccount'));
+ // A reload names the account from its lookup and comes back to the block, since the code has left the address.
+ const reload=await page(request=>request.path==='/api/fiiu/registration'?{registration:{id:'r1',version:1,answers:{activities:['day1-am']}},attendance,hours:{minutes:240,hours:4,untimed:[]},user:{id:'u1',email:'ana.lent.her.phone@example.test'}}:request.path==='/api/auth/logout'?{ok:true}:assert.fail(request.path),{search:'?a=day1-am'});
+ assert.equal(title(reload).dataset.fiiuText,'alreadyCheckedIn');assert.match(content(result(reload).querySelector('.f-checkin-facts')),/ana\.lent/);
+ await key(result(reload),'useOtherAccount').listeners.click();assert.deepEqual(reload.assigned,['/login.html?next='+encodeURIComponent('/fiiu-checkin.html?a=day1-am')]);
+ // A typed code comes back as the typed code.
+ const typed=await page(request=>request.path==='/api/fiiu/checkin'?named:request.path==='/api/auth/state'?{authenticated:true}:request.path==='/api/auth/logout'?{ok:true}:assert.fail(request.path),{search:''});
+ const form=result(typed).querySelector('form');field(form,'checkinCode').value='k7m 4px';form.listeners.submit({preventDefault(){}});await flush();
+ assert.equal(title(typed).dataset.fiiuText,'checkedInTitle');await key(result(typed),'useOtherAccount').listeners.click();
+ assert.deepEqual(typed.assigned,['/login.html?next='+encodeURIComponent('/fiiu-checkin.html?c=K7M4PX')]);
+ // An answer without the account (an older server) shows only the time.
+ const older=await page(()=>checkedIn);assert.deepEqual(result(older).querySelectorAll('.f-checkin-fact').map(row=>row.children[0].dataset.fiiuText),['checkedInAt']);
 });
 
 test('the account lookup behind a refusal holds the result only briefly',async()=>{

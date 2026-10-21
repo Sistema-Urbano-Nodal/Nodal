@@ -190,7 +190,8 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    // The confirmation names the block it recorded (as the programme stands), so the page can say which one even before, or without, the programme.
    const block={id:activityId,title:activity.title,date:activity.date,time:activity.time??'',venue:activity.venue??''};
    // joined: what this scan added before checking in ('registration' at the door, 'plan' for the block), so the page can say so.
-   const confirmed=(created,attendance,joined=null)=>{const row=attendance.find(a=>a.activityId===activityId);return reply(created?201:200,{result:created?'checked_in':'already_checked_in',activityId,checkedInAt:row?.createdAt??null,method:row?.method??null,attendance:attendance.map(attendanceView),hours:attendanceHours(attendance,all),activity:block,...(joined?{joined}:{})});};
+   // account: the signed-in email the attendance belongs to, so a phone lent to someone else says whose check-in this is.
+   const confirmed=(created,attendance,joined=null)=>{const row=attendance.find(a=>a.activityId===activityId);return reply(created?201:200,{result:created?'checked_in':'already_checked_in',activityId,checkedInAt:row?.createdAt??null,method:row?.method??null,attendance:attendance.map(attendanceView),hours:attendanceHours(attendance,all),activity:block,account:user.email,...(joined?{joined}:{})});};
    const registrationOpen=async()=>(await config()).registrationOpen;
    const notRegistered=async()=>reply(404,{error:'registration unavailable',code:'not_registered',activityId,registration:activity.registration,registrationOpen:await registrationOpen()});
    let registration=await one('registrations',{eventId:EVENT_ID,userId:user.id});

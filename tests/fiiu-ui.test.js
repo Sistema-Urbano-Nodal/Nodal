@@ -897,6 +897,15 @@ test('a link to the news, the materials, the programme or a day lands there agai
  }finally{scrolls.restore();}
 });
 
+test('on every festival page the menu’s “Programme” opens the festival programme, not the membership plans',()=>{
+ for(const name of ['fiiu','fiiu-session','fiiu-checkin','fiiu-talk','fiiu-qr','fiiu-admin']){
+  const html=readFileSync(new URL(`../web/pages/${name}.html`,import.meta.url),'utf8'),menu=html.match(/<nav class="nav-main"[^>]*>([\s\S]*?)<\/nav>/)?.[1];
+  assert.ok(menu,name);const first=menu.match(/<a href="([^"]+)" data-i18n="([^"]+)">/);
+  assert.deepEqual([first[1],first[2]],[name==='fiiu'?'#programme':'fiiu.html#programme','nav.program'],name);
+  assert.doesNotMatch(menu,/index\.html#membership/,name);
+ }
+});
+
 test('Back after a link inside the page is the browser’s own restore: only a Back or reload being rebuilt turns it off, and only until the page is drawn',async()=>{
  const storage=tabStorage(),scrolls=[];storage.setItem('fiiu.place:/fiiu.html','2080');
  const page=(type,read)=>harness({registration:saved,read,context:{sessionStorage:storage,scrollTo:options=>scrolls.push({...options}),performance:{getEntriesByType:kind=>kind==='navigation'?[{type}]:[]}}});

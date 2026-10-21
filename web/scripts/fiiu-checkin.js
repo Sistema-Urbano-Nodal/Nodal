@@ -116,7 +116,11 @@
   const news=unlockedNews(id,unlockedBy(data,id,attendance));
   // What the scan added first: a registration made at the door, or this block joining the plan.
   const joined=data.joined==='registration'?hintOf('joinedRegistration'):data.joined==='plan'?hintOf('joinedPlan'):null;
-  return completeLater(block(data.result==='checked_in'?'checkedInTitle':'alreadyCheckedIn','ok',about(activity),when&&facts([day?'checkedInOn':'checkedInAt',when]),joined,news,hours,earned,actions(link('viewRegistration','fiiu.html#registration','f-button'))),()=>success(data,body));
+  // The account the attendance belongs to, and another one: a phone lent to someone checks in its owner, so the screen says whose check-in it is.
+  // Another account comes back to the same code (a scan or a typed one) while it lasts; a reload, which has no code, to the block.
+  const account=typeof data.account==='string'&&data.account?['checkinAccount',dd(el('span','',data.account))]:null,pairs=[when&&[day?'checkedInOn':'checkedInAt',when],account].filter(Boolean);
+  const next=body.code?returnTo(body):'/fiiu-checkin.html?a='+encodeURIComponent(id);
+  return completeLater(block(data.result==='checked_in'?'checkedInTitle':'alreadyCheckedIn','ok',about(activity),pairs.length&&facts(...pairs),joined,news,hours,earned,actions(link('viewRegistration','fiiu.html#registration','f-button'),otherAccount(next))),()=>success(data,body));
  }
  // A refusal drawn before the programme arrived has only the block's id (a typed code, or slow Wi-Fi); the programme names the block later.
  function failure(error,body,account){
@@ -196,7 +200,7 @@
   // Only the lookup failed: nothing was sent, and a check-in already made is saved.
   if(problem)return block('checkinLoadFailed','error',about(activity),problem.key==='rate'?reasonOf(problem):hintOf('checkinLoadFailedHint'),actions(button('retry',()=>revisit(id).then(next=>next?.title.focus()))));
   const attendance=Array.isArray(data?.attendance)?data.attendance:[],record=attendance.find(row=>row.activityId===id);
-  if(record)return success({result:'already_checked_in',activityId:id,checkedInAt:record.createdAt,attendance,hours:data.hours},{activityId:id});
+  if(record)return success({result:'already_checked_in',activityId:id,checkedInAt:record.createdAt,attendance,hours:data.hours,account:data.user.email},{activityId:id});
   if(activity?.registration==='external')return block('noCheckin','warn',hintOf('noCheckinHint'),actions(link('viewProgramme','fiiu.html#programme','f-button secondary')));
   // In the server's order: closed (by the server's clock in this answer; an answer without it judges nothing), then no registration, then the plan.
   // Without the programme the block is unknown, so the screen code lets the server judge.

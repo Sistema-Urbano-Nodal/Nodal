@@ -58,7 +58,8 @@
    const full=button('fullScreen',()=>document.fullscreenElement?document.exitFullscreen?.():stage.requestFullscreen()?.catch?.(()=>{}),'f-button');controls.append(full);
    document.addEventListener('fullscreenchange',()=>{const key=document.fullscreenElement?'exitFullScreen':'fullScreen';full.dataset.fiiuText=key;full.textContent=t(key);});
   }
-  controls.append(link('allScreens','fiiu-qr.html','f-text-link'));
+  // A screen may stand at the door, signed in as an organiser: it links nowhere, and f-presenter hides the site menu (fiiu.css). The list keeps both.
+  document.body.classList.toggle('f-presenter',true);
   box.append(stage,controls,note);root.replaceChildren(box,newTabNote());parts={code,windowLine,address,short,count,typed,kicker,note};
  }
  // fresh is false when a language change redraws the last answer: its serverTime is old by then, so the clock offset is kept.
@@ -74,7 +75,7 @@
   // the queue reads that check-in closed and where to go, and polling carries on, so a screen opened by mistake (yesterday's block) is plain to see.
   ended=state==='closed';parts.typed.hidden=ended;parts.note.hidden=ended;
   const kicker=ended?'qrClosedKicker':'scanToCheckIn';parts.kicker.dataset.fiiuText=kicker;parts.kicker.textContent=t(kicker);
-  if(ended){const notice=el('div','f-qr-closed');notice.append(tr('p','checkinEndedTitle','f-qr-closed-title'),tr('p','askDesk','f-qr-closed-hint'),link('allScreens','fiiu-qr.html','f-text-link'));parts.code.replaceChildren(notice);return;}
+  if(ended){const notice=el('div','f-qr-closed');notice.append(tr('p','checkinEndedTitle','f-qr-closed-title'),tr('p','askDesk','f-qr-closed-hint'));parts.code.replaceChildren(notice);return;}
   parts.code.replaceChildren(drawQr(data.qr)||tr('p','qrUnavailable','f-qr-missing'));
   // People type the address letter by letter, so the screen shows the short /checkin, which the server sends on to the page.
   let url=data.url;try{url=new URL(data.url).host+'/checkin';}catch{url=data.url.split('?')[0];}

@@ -543,8 +543,9 @@ test('attendees check themselves in with the session QR once and only until chec
  clock.set('2026-10-21T14:10:00Z');const issued=code();clock.set('2026-10-21T14:14:00Z');
  response=await scan(call,{activityId:'day1-am',code:issued});assert.equal(response.status,201);
  const first=await response.json();
- // The answer names the block it recorded, so a typed code (or a programme that has not arrived) still shows which one.
- assert.deepEqual(first,{result:'checked_in',activityId:'day1-am',checkedInAt:'2026-10-21T14:14:00.000Z',method:'qr',attendance:[{activityId:'day1-am',createdAt:'2026-10-21T14:14:00.000Z',method:'qr'}],hours:{minutes:240,hours:4,untimed:[]},activity:{id:'day1-am',title:'El poder de lo local',date:'2026-10-21',time:'09:00–13:00',venue:'Auditorio MALI, Cercado de Lima'}});
+ // The answer names the block it recorded, so a typed code (or a programme that has not arrived) still shows which one, and the account it
+ // recorded it for, so a phone lent to someone else says whose attendance this is.
+ assert.deepEqual(first,{result:'checked_in',activityId:'day1-am',checkedInAt:'2026-10-21T14:14:00.000Z',method:'qr',attendance:[{activityId:'day1-am',createdAt:'2026-10-21T14:14:00.000Z',method:'qr'}],hours:{minutes:240,hours:4,untimed:[]},activity:{id:'day1-am',title:'El poder de lo local',date:'2026-10-21',time:'09:00–13:00',venue:'Auditorio MALI, Cercado de Lima'},account:'member@example.test'});
  assert.deepEqual({...db.prepare('SELECT confirmed_by,method FROM fiiu_attendance').get()},{confirmed_by:users.member.id,method:'qr'});
  clock.set('2026-10-21T14:20:00Z');response=await scan(call,{activityId:'day1-am',code:code()});assert.equal(response.status,200);
  const second=await response.json();assert.equal(second.result,'already_checked_in');assert.equal(second.checkedInAt,first.checkedInAt);
@@ -564,17 +565,17 @@ test('a member and an organiser checking in days before the session are recorded
  const {clock,codes,options}=festivalClock('2026-10-07T15:00:00Z');// 10:00 in Lima on 7 October, two weeks before the blocks
  const {call,save,db,users}=await setup(t,undefined,options);
  const answered=[],send=async(actor,body)=>{const response=await scan(call,body,actor),json=await response.json();answered.push(json);return [response.status,json];};
- const code=id=>codes.current(id).code,recorded=at=>({result:'checked_in',activityId:'day1-am',checkedInAt:at,method:'qr',attendance:[{activityId:'day1-am',createdAt:at,method:'qr'}],hours:{minutes:240,hours:4,untimed:[]},activity:{id:'day1-am',title:'El poder de lo local',date:'2026-10-21',time:'09:00–13:00',venue:'Auditorio MALI, Cercado de Lima'}});
+ const code=id=>codes.current(id).code,recorded=(at,actor)=>({result:'checked_in',activityId:'day1-am',checkedInAt:at,method:'qr',attendance:[{activityId:'day1-am',createdAt:at,method:'qr'}],hours:{minutes:240,hours:4,untimed:[]},activity:{id:'day1-am',title:'El poder de lo local',date:'2026-10-21',time:'09:00–13:00',venue:'Auditorio MALI, Cercado de Lima'},account:users[actor].email});
  // An organiser goes through the real check-in: with no registration yet, the real refusal.
  let [status,body]=await send('admin',{activityId:'day1-am',code:code('day1-am')});assert.deepEqual([status,body.code],[404,'not_registered']);
  await save();await save({...answers,activities:['day1-am','day1-pm']},'admin');await save({...answers,activities:['day1-am','day1-pm']},'other');
- for(const actor of ['member','admin']){[status,body]=await send(actor,{activityId:'day1-am',code:code('day1-am')});assert.equal(status,201,actor);assert.deepEqual(body,recorded('2026-10-07T15:00:00.000Z'),actor);}
+ for(const actor of ['member','admin']){[status,body]=await send(actor,{activityId:'day1-am',code:code('day1-am')});assert.equal(status,201,actor);assert.deepEqual(body,recorded('2026-10-07T15:00:00.000Z',actor),actor);}
  assert.deepEqual(db.prepare('SELECT confirmed_by,activity_id,method FROM fiiu_attendance').all().map(row=>({...row})).sort((a,b)=>a.confirmed_by.localeCompare(b.confirmed_by)),
   [users.member.id,users.admin.id].sort().map(id=>({confirmed_by:id,activity_id:'day1-am',method:'qr'})));
  // The typed screen code works days ahead too, and a block outside an organiser's plan joins it, as anyone's does.
  [status,body]=await send('admin',{code:codes.current('day2-am').shortCode});assert.deepEqual([status,body.result,body.joined],[201,'checked_in','plan']);
  // At the 13:30 close itself the scan still counts; a second later it does not, for the member and the organiser alike.
- clock.set('2026-10-21T18:30:00Z');[status,body]=await send('other',{activityId:'day1-am',code:code('day1-am')});assert.equal(status,201);assert.deepEqual(body,recorded('2026-10-21T18:30:00.000Z'));
+ clock.set('2026-10-21T18:30:00Z');[status,body]=await send('other',{activityId:'day1-am',code:code('day1-am')});assert.equal(status,201);assert.deepEqual(body,recorded('2026-10-21T18:30:00.000Z','other'));
  clock.set('2026-10-22T02:30:01Z');
  for(const actor of ['other','admin']){
   [status,body]=await send(actor,{activityId:'day1-pm',code:code('day1-pm')});assert.equal(status,409,actor);
@@ -589,7 +590,7 @@ test('a repeat scan keeps the first confirmation after check-in closes, the bloc
  const {call,save,db}=await setup(t,undefined,options);
  const {registration}=await(await save()).json();
  let response=await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code});assert.equal(response.status,201);
- const first=await response.json(),kept={result:'already_checked_in',activityId:'day1-am',checkedInAt:'2026-10-21T14:10:00.000Z',method:'qr',attendance:first.attendance,hours:{minutes:240,hours:4,untimed:[]},activity:{id:'day1-am',title:'El poder de lo local',date:'2026-10-21',time:'09:00–13:00',venue:'Auditorio MALI, Cercado de Lima'}};
+ const first=await response.json(),kept={result:'already_checked_in',activityId:'day1-am',checkedInAt:'2026-10-21T14:10:00.000Z',method:'qr',attendance:first.attendance,hours:{minutes:240,hours:4,untimed:[]},activity:{id:'day1-am',title:'El poder de lo local',date:'2026-10-21',time:'09:00–13:00',venue:'Auditorio MALI, Cercado de Lima'},account:'member@example.test'};
  // 13:35 in Lima, after the 13:30 close: a fresh code from the screen, which keeps drawing one, still confirms the stored check-in.
  clock.set('2026-10-21T18:35:00Z');response=await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code});
  assert.equal(response.status,200);assert.deepEqual(await response.json(),kept);
@@ -1256,7 +1257,7 @@ test('someone with a NODAL account but no festival registration is registered at
  }
  assert.equal(count('fiiu_registrations'),0);
  let response=await as({activityId:'day1-am',code:code('day1-am'),join:true,language:'pt'});assert.equal(response.status,201);
- assert.deepEqual(await response.json(),{result:'checked_in',activityId:'day1-am',checkedInAt:'2026-10-21T14:00:00.000Z',method:'qr',attendance:[{activityId:'day1-am',createdAt:'2026-10-21T14:00:00.000Z',method:'qr'}],hours:{minutes:240,hours:4,untimed:[]},activity:{id:'day1-am',title:'El poder de lo local',date:'2026-10-21',time:'09:00–13:00',venue:'Auditorio MALI, Cercado de Lima'},joined:'registration'});
+ assert.deepEqual(await response.json(),{result:'checked_in',activityId:'day1-am',checkedInAt:'2026-10-21T14:00:00.000Z',method:'qr',attendance:[{activityId:'day1-am',createdAt:'2026-10-21T14:00:00.000Z',method:'qr'}],hours:{minutes:240,hours:4,untimed:[]},activity:{id:'day1-am',title:'El poder de lo local',date:'2026-10-21',time:'09:00–13:00',venue:'Auditorio MALI, Cercado de Lima'},account:'walkin@example.test',joined:'registration'});
  const row=db.prepare('SELECT * FROM fiiu_registrations').get();
  assert.deepEqual(JSON.parse(row.answers),{firstName:'María',lastName:'José Quispe',country:'',city:'Lima',activities:['day1-am'],externalActivities:[],accessibility:[],applyLab:false,walkIn:true},'no privacyAccepted: the form asks before the private answers');
  assert.deepEqual([row.user_id,row.email,row.lab_status,row.version,row.confirmation_status,row.confirmation_language],[walker.id,'walkin@example.test','none',1,'skipped','pt'],'a reserved test domain is skipped for good, as a first registration online is');

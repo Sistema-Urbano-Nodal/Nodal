@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {FIIU_EVENT} from '../server/fiiu-domain.js';
 import {createFiiuHarness,key,descendants,content,flush} from './helpers/fiiu-ui-harness.js';
+import {readFileSync} from 'node:fs';
 
 // A 21-module grid: the whole first row dark and the bottom-right module dark, packed row-major, most significant bit first.
 function bits(size,dark){const bytes=Buffer.alloc(Math.ceil(size*size/8));for(let y=0;y<size;y++)for(let x=0;x<size;x++)if(dark(x,y)){const i=y*size+x;bytes[i>>3]|=0x80>>(i&7);}return bytes.toString('base64');}
@@ -195,7 +196,7 @@ test('once check-in has closed the screen drops the QR code and the typed code f
  const stage=h.root.querySelector('.f-qr-stage'),slot=()=>h.root.querySelector('.f-qr-code'),svg=()=>descendants(slot()).some(node=>node.tagName==='svg');
  const closedNow=()=>{
   assert.equal(svg(),false,'no QR code');assert.equal(h.root.querySelector('.f-qr-typed').hidden,true,'no address or short code to type');
-  assert.ok(key(slot(),'checkinEndedTitle'));assert.ok(key(slot(),'askDesk'));assert.equal(key(slot(),'allScreens').href,'fiiu-qr.html');
+  assert.ok(key(slot(),'checkinEndedTitle'));assert.ok(key(slot(),'askDesk'));assert.equal(key(slot(),'allScreens'),undefined,'no way to the other screens from the door');
   assert.equal(stage.querySelector('.f-qr-kicker').dataset.fiiuText,'qrClosedKicker','the kicker no longer says scan');
   assert.equal(h.root.querySelector('.f-qr-note').hidden,true,'nor "keep this screen open"');
   assert.match(content(h.root.querySelector('.f-qr-count')),/\b12\b/,'the final count stays for the organisers');
@@ -216,4 +217,46 @@ test('once check-in has closed the screen drops the QR code and the typed code f
  reply=()=>screen({serverTime:'2026-10-21T18:31:00.000Z',window:{closesAt:'2026-10-21T19:30:00.000Z',open:true}});await h.tickTimers();
  assert.equal(svg(),true);assert.equal(h.root.querySelector('.f-qr-typed').hidden,false);assert.equal(stage.querySelector('.f-qr-kicker').dataset.fiiuText,'scanToCheckIn');
  assert.equal(h.root.querySelector('.f-qr-note').hidden,false);assert.equal(key(slot(),'checkinEndedTitle'),undefined);
+});
+
+// The door: a block screen may stand where the queue can reach it, signed in as an organiser. It offers no way back to the other screens or the
+// organiser pages, and the site menu goes away (the body's f-presenter class); the list, used by the team, keeps its links and the menu.
+// The body's class list is recorded from the moment the programme arrives, which is when the page draws a screen or the list.
+async function door(answer,search){
+ let finish;const added=new Set();
+ const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?new Promise(resolve=>{finish=resolve;}):answer(request),{page:'fiiu-qr',search});
+ h.body.classList={add:name=>added.add(name),remove:name=>added.delete(name),toggle:(name,on)=>{if(on??!added.has(name))added.add(name);else added.delete(name);return added.has(name);},contains:name=>added.has(name)};
+ finish({event:FIIU_EVENT,config:{registrationOpen:true},content:[],nextCursor:null});await flush();return Object.assign(h,{added});
+}
+
+test('a block screen links nowhere and hides the site menu, open or closed, in every language, while the list keeps its links',async()=>{
+ let reply=()=>screen();const h=await door(()=>reply(),'?a=day1-am');
+ const nowhere=()=>{
+  assert.deepEqual(h.root.querySelectorAll('a').map(a=>a.href),[],'no link on the screen');
+  for(const name of ['allScreens','admin','backToConsole'])assert.equal(key(h.root,name),undefined,name);
+ };
+ assert.ok(h.root.querySelector('.f-qr-stage'));assert.ok(key(h.root,'fullScreen'),'full screen stays');assert.ok(h.added.has('f-presenter'),'the site menu goes away');nowhere();
+ reply=()=>screen({serverTime:'2026-10-21T18:31:00.000Z',window:{closesAt:'2026-10-21T18:30:00.000Z',open:false}});await h.tickTimers();
+ assert.ok(key(h.root.querySelector('.f-qr-code'),'checkinEndedTitle'));assert.ok(key(h.root.querySelector('.f-qr-code'),'askDesk'));
+ for(const lang of ['en','es','pt']){h.lang(lang);nowhere();}
+ assert.ok(h.added.has('f-presenter'));
+ const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8');
+ assert.match(css,/\.f-page\.f-presenter>\.navbar\{display:none\}/,'presenter mode hides the site menu');
+ // The list is for the team: it keeps its screens, the organiser dashboard and the site menu.
+ const list=await door(()=>assert.fail('the list needs no organiser data'),'');
+ assert.equal(list.added.has('f-presenter'),false);assert.equal(key(list.root,'admin').href,'fiiu-admin.html#checkin');
+ assert.equal(list.root.querySelectorAll('.f-qr-row').length,6);
+ // A link to a block that has no screen still leads back to the list.
+ const none=await door(()=>({status:400,data:{error:'invalid activity',code:'invalid_activity'}}),'?a=workshop-calles-gente');
+ assert.equal(key(none.root,'allScreens').href,'fiiu-qr.html');
+});
+
+test('the list says a screen goes on a projector or a tablet held by the team, never left alone, as it is signed in as an organiser, in every language',async()=>{
+ const h=await page(()=>assert.fail('the list needs no organiser data'),{search:''}),hint=()=>content(key(h.root,'qrListHint'));
+ for(const lang of ['en','es','pt']){
+  h.lang(lang);
+  assert.match(hint(),{en:/projector, or on a tablet held by a staff member/,es:/proyector o en una tablet que sostenga alguien del equipo/,pt:/projetor ou em um tablet segurado por alguém da equipe/}[lang]);
+  assert.match(hint(),{en:/signed in with an organiser account.*never leave it unattended/,es:/sesión iniciada con una cuenta de organización.*nunca lo dejes sin supervisión/,pt:/conectado com uma conta da organização.*nunca o deixe sem supervisão/}[lang]);
+  assert.match(hint(),{en:/no participant data/,es:/datos de participantes/,pt:/dados de participantes/}[lang]);
+ }
 });
