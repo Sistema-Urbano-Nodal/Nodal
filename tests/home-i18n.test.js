@@ -14,6 +14,11 @@ const CONSOLE=readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.met
 // On 19 Oct 2026 Prof. Mariana's copy split the hero introduction (hero.sub) into
 // hero.subPre/subMark/subPost and added the collaborative urbanism section (uc.*),
 // so the two home hashes were redone again; the last test in this file pins that copy.
+// On 20 Oct 2026 the landing card stopped printing a price, so its slot's copy (mem.priceSoon,
+// y.perMonth, y.perYear) left the dictionaries, and Portuguese calls the paid plan a membresia,
+// not an assinatura (res.link here, d.nav.membership in the console), so the Spanish and
+// Portuguese nonhome hashes and the Portuguese home hash were redone; tests/fundadores-copy.test.js
+// pins those lines.
 const HOME_KEYS=[
   "about.eyebrow",
   "about.lead1",
@@ -247,11 +252,11 @@ const HOME_KEYS=[
 const SNAPSHOTS={
   "home": {
     "es": "8f807c4cefb324403d44b67c05022bb4a92a4ca75cb17254535a161422967118",
-    "pt": "97309857d91b9c450abdb8fe71c341a395330f0c696f87d31c27767656ee8c1d"
+    "pt": "b9a077e4b2055212490393a2498292f0d20156b6f1d4e34f8d7b063179e71d3b"
   },
   "nonhome": {
-    "es": "c86b92ceabd9185366a45be631735dbd471a7523b0f8d80b43f5042aef21509b",
-    "pt": "660dd0cfc74939fb3455bfc0de4269451941b05494d51c4ba9330097561e158d"
+    "es": "a2589311d8d7711455cd28275a6671ed24ba975fc3f6f3ba59590413be80df5f",
+    "pt": "675654d3b739d29050e63689a2eb78452be289c255e7acecdb18de9890677da9"
   }
 };
 
@@ -331,7 +336,8 @@ test('the free plans offer no courses and Nodal Fundadores lists its own benefit
   // [en, es, pt]; English is the markup's own text.
   const COPY={
     'mem.f1':['Open labs and community sessions','Laboratorios abiertos y sesiones comunitarias','Laboratórios abertos e encontros comunitários'],
-    'mem.fund.early':['Early access from your first payment until 31 December 2026','Acceso anticipado desde tu primer pago hasta el 31 de diciembre de 2026','Acesso antecipado desde o primeiro pagamento até 31 de dezembro de 2026'],
+    // Early access starts when the first payment is approved (terms, section 8).
+    'mem.fund.early':['Early access from the approval of your first payment until 31 December 2026','Acceso anticipado desde la aprobación de tu primer pago hasta el 31 de diciembre de 2026','Acesso antecipado desde a aprovação do primeiro pagamento até 31 de dezembro de 2026'],
     'y.f1':['Community sessions and open resources','Sesiones comunitarias y recursos abiertos','Encontros da comunidade e recursos abertos'],
   };
   const page=name=>readFileSync(new URL('../web/pages/'+name,import.meta.url),'utf8');

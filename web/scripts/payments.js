@@ -12,9 +12,13 @@
   const TERMS = 'FUNDADORES-2027-v1';
   const OPTIONS = ['once', 'installments'];
   const AUTHORIZATION = { once: 'y.fund.authOnce', installments: 'y.fund.authTwice' };
-  const CLOSED = { soon: 'y.fund.soon', ended: 'y.fund.ended', outdated: 'y.fund.outdated' };
+  // What the box says when there is nothing to buy. Until the offer is read it says only that it is loading.
+  const CLOSED = { loading: 'y.fund.loading', failed: 'y.fund.loadError', soon: 'y.fund.soon', ended: 'y.fund.ended', outdated: 'y.fund.outdated' };
   const EMAIL = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
   const text = (value) => (typeof value === 'string' ? value.trim() : '');
+  // An amount is printed with no-break spaces, so a line never ends between the currency sign and its number.
+  const amountText = (value) => text(value).replace(/\s+/g, '\u00a0');
+  const nothing = (state) => ({ state, offers: {}, contact: null, seller: null, version: null });
   const httpsUrl = (value) => {
     try { const url = new URL(String(value)); return url.protocol === 'https:' && !url.username && !url.password ? url.href : null; } catch { return null; }
   };
@@ -24,7 +28,7 @@
     choiceOnce: 'payChoiceOnce', choiceInstallments: 'payChoiceInstallments', radioOnce: 'payOptionOnce', radioInstallments: 'payOptionInstallments',
     onceAmount: 'payOnceAmount', installmentsTotal: 'payInstallmentsTotal', installmentsText: 'payInstallmentsText',
     terms: 'payAcceptTerms', payment: 'payAcceptPayment', renewal: 'payAcceptRenewal', paymentRow: 'payPaymentRow', paymentText: 'payPaymentText', paymentHint: 'payPaymentHint',
-    email: 'payEmail', emailStep: 'payEmailStep', submit: 'payContinue', hint: 'payHint', status: 'payStatus',
+    email: 'payEmail', emailStep: 'payEmailStep', submit: 'payContinue', hint: 'payHint', status: 'payStatus', retry: 'payRetry',
     seller: 'paySellerName', ruc: 'paySellerRuc', address: 'paySellerAddress', contact: 'payContactEmail', contactPending: 'payContactPending', complaints: 'payComplaints', complaintsPending: 'payComplaintsPending',
   };
   const els = Object.fromEntries(Object.entries(IDS).map(([name, id]) => [name, document.getElementById(id)]));
@@ -32,8 +36,10 @@
   if (Object.values(els).some((el) => !el)) return;
   const choice = { once: els.choiceOnce, installments: els.choiceInstallments }, radio = { once: els.radioOnce, installments: els.radioInstallments };
   const boxes = [els.terms, els.payment, els.renewal];
+  // Every acceptance is ticked on the visit that sends it: never one a browser brings back from an earlier visit.
+  const untick = () => { for (const input of [...boxes, ...Object.values(radio)]) input.checked = false; };
 
-  let offer = { state: 'soon', offers: {}, contact: null, seller: null, version: null }, notice = '', busy = false;
+  let offer = nothing('loading'), notice = '', busy = false;
 
   // What the page may sell from an answer: only this page's terms version, with an offered option and both contact details.
   function read(data) {
@@ -42,7 +48,7 @@
     const contact = valid && EMAIL.test(email) && complaints ? { email, complaints } : null;
     const offers = {};
     for (const option of valid && Array.isArray(data.options) ? data.options : []) {
-      const amount = text(option?.amount), each = text(option?.each);
+      const amount = amountText(option?.amount), each = amountText(option?.each);
       if (option?.id === 'once' && amount) offers.once = { amount };
       if (option?.id === 'installments' && amount && each) offers.installments = { total: amount, each };
     }
@@ -65,6 +71,7 @@
     els.purchase.hidden = !open;
     els.closed.hidden = open;
     els.closed.textContent = open ? '' : t(CLOSED[state]);
+    els.retry.hidden = state !== 'failed';
     for (const option of OPTIONS) {
       choice[option].hidden = !offers[option];
       radio[option].disabled = !offers[option];
@@ -91,17 +98,31 @@
 
   function say(key) { notice = key; render(); }
 
+  // After an answer that changes the box under the member, focus moves to the message that says what happened: the
+  // button they pressed is off or gone, and the page body would say nothing.
+  const focusMessage = () => (els.purchase.hidden ? els.closed : els.status).focus();
+
   async function load() {
-    let data = null;
+    let next;
     try {
       const res = await fetch('/api/billing/config', { headers: { Accept: 'application/json' } });
-      if (res.ok) data = await res.json();
+      // Static hosting has no API, and reads as sign-ups opening soon. Any other refusal is a failure the member can retry.
+      next = res.ok ? read(await res.json()) : res.status === 404 ? read(null) : nothing('failed');
     } catch {
-      // Static hosting or offline demos read as sign-ups opening soon.
+      next = nothing('failed');   // offline, or an answer that is not JSON
     }
-    offer = read(data);
+    offer = next;
     render();
   }
+
+  els.retry.addEventListener('click', async () => {
+    offer = nothing('loading');
+    render();
+    els.closed.focus();   // the button is hidden while the offer loads
+    await load();
+    if (!els.purchase.hidden) (radio.once.disabled ? radio.installments : radio.once).focus();
+    else els.closed.focus();
+  });
 
   async function accept(option) {
     try {
@@ -136,13 +157,26 @@
     busy = false;
     if (status === 409) {
       // The terms changed since the page read them: nothing accepted before stands.
-      for (const input of [...boxes, ...Object.values(radio)]) input.checked = false;
+      untick();
       notice = 'y.fund.changed';
       await load();
-      return;
+    } else if (status === 410) {
+      offer = { ...offer, state: 'ended', offers: {} };
+      say('');
+    } else {
+      say('y.fund.error');
     }
-    if (status === 410) { offer = { ...offer, state: 'ended', offers: {} }; say(''); return; }
-    say('y.fund.error');
+    focusMessage();
+  });
+
+  // A page brought back from the back/forward cache (Back from Mercado Pago) keeps its script state: its ticks, and the
+  // button off while the browser was leaving. The member starts the acceptance again.
+  window.addEventListener('pageshow', (event) => {
+    if (!event.persisted) return;
+    untick();
+    busy = false;
+    notice = '';
+    render();
   });
 
   async function showEmail() {
@@ -157,6 +191,8 @@
     els.emailStep.hidden = !email;
   }
 
+  // A browser that restored the form's saved state did so while parsing it, before this deferred script.
+  untick();
   render();
   load();
   showEmail();

@@ -71,9 +71,10 @@ test('anyone else sees the closed perk course is for Nodal Fundadores members, w
  for(const key of ['supportersOnly','supportersNote'])assert.ok(keys(h.body).includes(key),key);
  for(const key of ['enroll','joinCourse','fiiuIncluded','closed','closedNote','switchAccount'])assert.equal(keys(h.body).includes(key),false,key);
  assert.deepEqual(descendants(h.body).filter(n=>n.tagName==='a').map(n=>n.href),['courses.html']);
- assert.match(content(h.body),/For Nodal Fundadores members/);assert.match(content(h.body),/This course is part of the Nodal Fundadores membership, which opens soon\. People already enrolled keep full access\./);assert.match(content(h.body),/1\. Published session/);
- h.lang('es');assert.match(content(h.body),/Para miembros de Nodal Fundadores/);assert.match(content(h.body),/Este curso forma parte de la membresía Nodal Fundadores, que abre pronto\. Quienes ya están inscritos conservan el acceso completo\./);
- h.lang('pt');assert.match(content(h.body),/Para membros do Nodal Fundadores/);assert.match(content(h.body),/Este curso faz parte da membresia Nodal Fundadores, que abre em breve\. Quem já está inscrito mantém o acesso completo\./);
+ assert.match(content(h.body),/For Nodal Fundadores members/);// The course is a 2026 one: members join it during their early access, and it is not the course the membership includes in 2027 (terms, sections 4 and 15).
+ assert.match(content(h.body),/Nodal Fundadores members can join this course during their 2026 early access, which opens soon; it is not the course included in 2027\. People already enrolled keep full access\./);assert.match(content(h.body),/1\. Published session/);
+ h.lang('es');assert.match(content(h.body),/Para miembros de Nodal Fundadores/);assert.match(content(h.body),/Los miembros de Nodal Fundadores pueden sumarse a este curso durante su acceso anticipado de 2026, que abre pronto; no reemplaza el curso incluido en 2027\. Quienes ya están inscritos conservan el acceso completo\./);
+ h.lang('pt');assert.match(content(h.body),/Para membros do Nodal Fundadores/);assert.match(content(h.body),/Os membros do Nodal Fundadores podem entrar neste curso durante o acesso antecipado de 2026, que abre em breve; ele não substitui o curso incluído em 2027\. Quem já está inscrito mantém o acesso completo\./);
  assert.doesNotMatch(content(h.body),/Supporter|membresía de apoyo|assinatura de apoio/);
  assert.equal(h.requests.some(r=>r.method||r.path.includes('/modules/')),false);
 });
@@ -84,9 +85,9 @@ test('after the Nodal Fundadores 2027 offer closed, the note says so and links n
  for(const key of ['supportersOnly','supportersNoteEnded'])assert.ok(keys(h.body).includes(key),key);
  for(const key of ['supportersNote','supportersNoteOpen','becomeSupporter'])assert.equal(keys(h.body).includes(key),false,key);
  assert.deepEqual(descendants(h.body).filter(n=>n.tagName==='a').map(n=>n.href),['courses.html']);
- assert.match(content(h.body),/This course is part of the Nodal Fundadores 2027 membership, whose offer closed on 31 December 2026\. People already enrolled keep full access\./);
- h.lang('es');assert.match(content(h.body),/Este curso forma parte de la membresía Nodal Fundadores 2027, cuya oferta cerró el 31 de diciembre de 2026\. Quienes ya están inscritos conservan el acceso completo\./);
- h.lang('pt');assert.match(content(h.body),/Este curso faz parte da membresia Nodal Fundadores 2027, cuja oferta foi encerrada em 31 de dezembro de 2026\. Quem já está inscrito mantém o acesso completo\./);
+ assert.match(content(h.body),/Nodal Fundadores members could join this course during their 2026 early access, which ended on 31 December 2026; it is not the course included in 2027\. People already enrolled keep full access\./);
+ h.lang('es');assert.match(content(h.body),/Los miembros de Nodal Fundadores podían sumarse a este curso durante su acceso anticipado de 2026, que terminó el 31 de diciembre de 2026; no reemplaza el curso incluido en 2027\. Quienes ya están inscritos conservan el acceso completo\./);
+ h.lang('pt');assert.match(content(h.body),/Os membros do Nodal Fundadores podiam entrar neste curso durante o acesso antecipado de 2026, encerrado em 31 de dezembro de 2026; ele não substitui o curso incluído em 2027\. Quem já está inscrito mantém o acesso completo\./);
 });
 
 test('while Nodal Fundadores sign-ups are open, the note says so and its button leads to the payments page',async()=>{
@@ -99,9 +100,9 @@ test('while Nodal Fundadores sign-ups are open, the note says so and its button 
  assert.equal(join.dataset.supporterLink,'');
  const css=readFileSync(new URL('../web/styles/courses.css',import.meta.url),'utf8');
  assert.match(css,/html:not\(\[data-pilot="false"\]\) a\[href\*="payments\.html"\]:not\(\[data-supporter-link\]\)/);
- assert.match(content(h.body),/This course is part of the Nodal Fundadores membership\. People already enrolled keep full access\./);assert.equal(join.textContent,'Join Nodal Fundadores');
- h.lang('es');assert.match(content(h.body),/Este curso forma parte de la membresía Nodal Fundadores\. Quienes ya están inscritos conservan el acceso completo\./);assert.equal(join.textContent,'Únete a Nodal Fundadores');
- h.lang('pt');assert.match(content(h.body),/Este curso faz parte da membresia Nodal Fundadores\. Quem já está inscrito mantém o acesso completo\./);assert.equal(join.textContent,'Junte-se ao Nodal Fundadores');
+ assert.match(content(h.body),/Nodal Fundadores members can join this course during their 2026 early access; it is not the course included in 2027\. People already enrolled keep full access\./);assert.equal(join.textContent,'Join the Founder Membership');
+ h.lang('es');assert.match(content(h.body),/Los miembros de Nodal Fundadores pueden sumarse a este curso durante su acceso anticipado de 2026; no reemplaza el curso incluido en 2027\. Quienes ya están inscritos conservan el acceso completo\./);assert.equal(join.textContent,'Únete a la Membresía Fundador');
+ h.lang('pt');assert.match(content(h.body),/Os membros do Nodal Fundadores podem entrar neste curso durante o acesso antecipado de 2026; ele não substitui o curso incluído em 2027\. Quem já está inscrito mantém o acesso completo\./);assert.equal(join.textContent,'Junte-se à Membresia Fundador');
  assert.equal(h.requests.filter(r=>r.path==='/api/billing/config').length,1);assert.equal(h.requests.some(r=>r.method),false);
 });
 

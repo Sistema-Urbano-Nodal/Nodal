@@ -19,6 +19,11 @@ const OPEN={checkout:true,provider:'mercadopago',state:'open',offer:OFFER,annual
 const CLOSED=state=>({checkout:false,provider:null,state,offer:OFFER,annual:{amount:'Soon',per:''},options:[],contact:state==='ended'?CONTACT:null});
 const MP='https://www.mercadopago.com.pe/subscriptions/checkout?preapproval_plan_id=2c938084';
 const CREATED={status:201,data:{url:MP,acceptance:{id:'a1',option:'installments',version:VERSION,acceptedAt:'2026-10-21T15:00:00.000Z'}}};
+// An amount as the page prints it: "S/" and its number held together by a no-break space.
+const NB='\u00a0';
+// A /api/billing/config answer with an HTTP status other than 200.
+const STATUS=Symbol('status');
+const http=(status,data={})=>({[STATUS]:status,data});
 
 // Every element of payments.html that carries an id, as the page script finds it, with the attributes it reads from the markup.
 function elements(){
@@ -32,18 +37,25 @@ function elements(){
  return nodes;
 }
 
-// config: the /api/billing/config answer (or a function of the request count); answers: what each acceptance POST gets, in turn.
-async function page({config=OPEN,me={user:{email:'ana@example.test'}},answers=[CREATED],i18n:dictionary}={}){
- const nodes=elements(),requests=[],assigned=[],listeners=[];let configs=0;
+// config: the /api/billing/config answer (or a function of the request count, or a promise of it); answers: what each acceptance
+// POST gets, in turn; restored: the ids of the inputs a browser ticks again from its saved form state before the page script runs.
+async function page({config=OPEN,me={user:{email:'ana@example.test'}},answers=[CREATED],i18n:dictionary,restored=[]}={}){
+ const nodes=elements(),requests=[],assigned=[],listeners=[],windowListeners={},focused=[];let configs=0;
+ for(const id of restored)nodes[id].checked=true;
+ for(const node of Object.values(nodes))node.focus=()=>focused.push(node.id);
  const fake={lang:'en',t:(key,vars)=>`${fake.lang}:${key}`+(vars?' '+Object.entries(vars).map(([name,value])=>`${name}=${value}`).join(' '):''),onChange:listener=>listeners.push(listener)};
  const i18n=dictionary??fake;
  const queue=[...answers];
- const context={window:{nodalI18n:i18n},URL,JSON,
+ const context={window:{nodalI18n:i18n,addEventListener:(type,listener)=>(windowListeners[type]??=[]).push(listener)},URL,JSON,
   location:{pathname:'/payments.html',search:'',assign:url=>assigned.push(url)},
   document:{getElementById:id=>nodes[id]??null,createElement:tag=>new Node(tag)},
   fetch:async(path,options={})=>{
    const request={path,method:options.method||'GET',credentials:options.credentials,headers:options.headers,body:options.body===undefined?undefined:JSON.parse(options.body)};requests.push(request);
-   if(path==='/api/billing/config'){const answer=typeof config==='function'?config(++configs):config;if(answer instanceof Error)throw answer;return{ok:true,status:200,json:async()=>answer};}
+   if(path==='/api/billing/config'){
+    const answer=await (typeof config==='function'?config(++configs):config);if(answer instanceof Error)throw answer;
+    if(answer?.[STATUS])return{ok:answer[STATUS]<400,status:answer[STATUS],json:async()=>answer.data};
+    return{ok:true,status:200,json:async()=>answer};
+   }
    if(path==='/api/auth/me')return me?{ok:true,status:200,json:async()=>me}:{ok:false,status:401,json:async()=>({error:'sign in required'})};
    if(path==='/api/membership/acceptances'){const answer=await (queue.length>1?queue.shift():queue[0]);if(answer instanceof Error)throw answer;return{ok:answer.status<400,status:answer.status,json:async()=>answer.data??{}};}
    throw Error('unexpected request '+path);
@@ -53,12 +65,18 @@ async function page({config=OPEN,me={user:{email:'ana@example.test'}},answers=[C
  const change=target=>nodes.fundForm.listeners.change({target});
  return{nodes,requests,assigned,radios,boxes,
   posts:()=>requests.filter(request=>request.method==='POST'),
+  configs:()=>requests.filter(request=>request.path==='/api/billing/config').length,
+  // The id of the element the page last moved focus to.
+  focused:()=>focused.at(-1),
+  // A browser fires pageshow on every show, with persisted true when it brings the page back from its back/forward cache.
+  pageshow:persisted=>Promise.all((windowListeners.pageshow||[]).map(listener=>listener({type:'pageshow',persisted}))),
   lang:lang=>{fake.lang=lang;listeners.forEach(listener=>listener());},
   // A browser checks one radio of the group and unchecks the other, then fires change on the one checked.
   choose:option=>{for(const [id,radio] of Object.entries(radios))radio.checked=id===option;change(radios[option]);},
   tick:(box,value=true)=>{box.checked=value;change(box);},
   tickAll(){for(const box of boxes)this.tick(box);},
   submit:()=>nodes.fundForm.listeners.submit({preventDefault(){}}),
+  retry:()=>nodes.payRetry.listeners.click({}),
  };
 }
 const visible=node=>!node.hidden;
@@ -67,9 +85,9 @@ test('an open offer shows the offered options with their amounts and a purchase 
  const p=await page(),n=p.nodes;
  assert.ok(visible(n.modalidad)&&visible(n.payPurchase),'the choice and the purchase box show');assert.equal(n.payClosed.hidden,true);
  assert.ok(visible(n.payChoiceOnce)&&visible(n.payChoiceInstallments));
- assert.equal(n.payOnceAmount.textContent,'S/ 499');
- assert.equal(n.payInstallmentsTotal.textContent,'en:y.fund.twiceTotal total=S/ 550');
- assert.equal(n.payInstallmentsText.textContent,'en:y.fund.twiceText each=S/ 275');
+ assert.equal(n.payOnceAmount.textContent,'S/\u00a0499');
+ assert.equal(n.payInstallmentsTotal.textContent,'en:y.fund.twiceTotal total=S/\u00a0550');
+ assert.equal(n.payInstallmentsText.textContent,'en:y.fund.twiceText each=S/\u00a0275');
  assert.deepEqual(Object.values(p.radios).map(radio=>[radio.checked,radio.disabled]),[[false,false],[false,false]]);
  assert.deepEqual(p.boxes.map(box=>box.checked),[false,false,false]);
  assert.equal(n.payContinue.disabled,true);assert.equal(n.payHint.hidden,false,'the hint says what turns the button on');
@@ -90,16 +108,16 @@ test('only the chosen option’s payment authorization shows, and choosing the o
  const p=await page(),n=p.nodes;
  p.choose('once');
  assert.equal(n.payPaymentRow.hidden,false);assert.equal(n.payPaymentHint.hidden,true);
- assert.equal(n.payPaymentText.textContent,'en:y.fund.authOnce amount=S/ 499');
+ assert.equal(n.payPaymentText.textContent,'en:y.fund.authOnce amount=S/\u00a0499');
  p.tickAll();assert.equal(n.payContinue.disabled,false);
  p.choose('installments');
- assert.equal(n.payPaymentText.textContent,'en:y.fund.authTwice total=S/ 550 each=S/ 275');
+ assert.equal(n.payPaymentText.textContent,'en:y.fund.authTwice total=S/\u00a0550 each=S/\u00a0275');
  assert.equal(n.payAcceptPayment.checked,false,'an authorization for another amount is never carried over');
  assert.deepEqual([n.payAcceptTerms.checked,n.payAcceptRenewal.checked],[true,true],'the other two acceptances stay');
  assert.equal(n.payContinue.disabled,true);
  // A language switch translates the authorization without changing what was ticked.
  p.tick(n.payAcceptPayment);p.lang('es');
- assert.equal(n.payPaymentText.textContent,'es:y.fund.authTwice total=S/ 550 each=S/ 275');assert.equal(n.payAcceptPayment.checked,true);assert.equal(n.payContinue.disabled,false);
+ assert.equal(n.payPaymentText.textContent,'es:y.fund.authTwice total=S/\u00a0550 each=S/\u00a0275');assert.equal(n.payAcceptPayment.checked,true);assert.equal(n.payContinue.disabled,false);
 });
 
 test('continuing records the acceptance with exactly the chosen option, the terms version and three true flags, then opens the Mercado Pago link in this tab',async()=>{
@@ -140,11 +158,14 @@ test('changed terms reload the configuration, clear every tick and say so',async
  assert.equal(p.requests.filter(request=>request.path==='/api/billing/config').length,2,'the configuration is read again');
  assert.deepEqual([...Object.values(p.radios),...p.boxes].map(input=>input.checked),[false,false,false,false,false],'nothing accepted before stands');
  assert.equal(p.nodes.payStatus.textContent,'en:y.fund.changed');assert.equal(p.nodes.payContinue.disabled,true);assert.deepEqual(p.assigned,[]);
+ // The button the member pressed is off, so focus moves to the message that says why, not to the page body.
+ assert.equal(p.focused(),'payStatus');
  // A server on terms this page does not carry is not sold from it: the member reloads the page to read them.
  const newer=await page({config:count=>count===1?OPEN:{...OPEN,offer:{...OFFER,version:'FUNDADORES-2027-v2'}},answers:[{status:409,data:{code:'terms_changed',version:'FUNDADORES-2027-v2'}}]});
  newer.choose('once');newer.tickAll();await newer.submit();await flush();
  assert.equal(newer.nodes.payPurchase.hidden,true);assert.equal(newer.nodes.modalidad.hidden,true);
  assert.equal(newer.nodes.payClosed.hidden,false);assert.equal(newer.nodes.payClosed.textContent,'en:y.fund.outdated');
+ assert.equal(newer.focused(),'payClosed','the purchase box and its live region are gone: focus goes to the message that replaced them');
 });
 
 test('an offer that ended meanwhile shows the closed offer, and a signed-out member goes to sign in and back',async()=>{
@@ -152,6 +173,9 @@ test('an offer that ended meanwhile shows the closed offer, and a signed-out mem
  ended.choose('once');ended.tickAll();await ended.submit();await flush();
  assert.equal(ended.nodes.payPurchase.hidden,true);assert.equal(ended.nodes.modalidad.hidden,true);
  assert.equal(ended.nodes.payClosed.textContent,'en:y.fund.ended');assert.deepEqual(ended.assigned,[]);
+ // The purchase box held the focused button and the live region: the closed message is itself a status, and takes the focus.
+ assert.equal(ended.focused(),'payClosed');
+ assert.match(html,/<p class="pay-closed" id="payClosed" role="status" tabindex="-1"><\/p>/);
  const out=await page({answers:[{status:401,data:{error:'authentication required'}}]});
  out.choose('once');out.tickAll();await out.submit();await flush();
  assert.deepEqual(out.assigned,['/login.html?next=%2Fpayments.html']);
@@ -163,14 +187,17 @@ test('any other refusal, or no answer, keeps the choices and says in the live re
   p.choose('installments');p.tickAll();await p.submit();await flush();
   assert.equal(p.nodes.payStatus.textContent,'en:y.fund.error',label);assert.deepEqual(p.assigned,[],label);
   assert.deepEqual(p.boxes.map(box=>box.checked),[true,true,true],label);assert.equal(p.nodes.payContinue.disabled,false,label);
+  assert.equal(p.focused(),'payStatus',label);
   p.lang('pt');assert.equal(p.nodes.payStatus.textContent,'pt:y.fund.error','the message follows the language');
   await p.submit();await flush();assert.equal(p.posts().length,2,label);assert.deepEqual(p.assigned,[MP],label);
  }
- assert.match(html,/<p class="[^"]*" id="payStatus" role="status" aria-live="polite"><\/p>/);
+ assert.match(html,/<p class="[^"]*" id="payStatus" role="status" aria-live="polite" tabindex="-1"><\/p>/);
 });
 
 test('before sign-ups open, after the offer closed, and without an answer, there is no purchase box, only what the state is',async()=>{
- for(const [config,key] of [[CLOSED('soon'),'y.fund.soon'],[CLOSED('ended'),'y.fund.ended'],[new TypeError('Failed to fetch'),'y.fund.soon'],[null,'y.fund.soon'],
+ for(const [config,key] of [[CLOSED('soon'),'y.fund.soon'],[CLOSED('ended'),'y.fund.ended'],[null,'y.fund.soon'],
+  // Static hosting has no API at all.
+  [http(404,{error:'not found'}),'y.fund.soon'],
   // The shape before Nodal Fundadores, and an open answer missing what the page needs, read as opening soon.
   [{checkout:true,provider:'mercadopago',annual:{amount:'S/ 240',per:'/ year'},options:[{id:'once',url:MP,amount:'S/ 240'}]},'y.fund.soon'],[{...OPEN,contact:null},'y.fund.soon'],[{...OPEN,options:[]},'y.fund.soon'],
   [{...OPEN,contact:{email:'not an email',complaintsUrl:CONTACT.complaintsUrl}},'y.fund.soon'],[{...OPEN,contact:{email:CONTACT.email,complaintsUrl:'http://reclamos.example'}},'y.fund.soon'],
@@ -178,8 +205,75 @@ test('before sign-ups open, after the offer closed, and without an answer, there
   const p=await page({config}),label=JSON.stringify(config)?.slice(0,80);
   assert.equal(p.nodes.payPurchase.hidden,true,label);assert.equal(p.nodes.modalidad.hidden,true,label);
   assert.equal(p.nodes.payClosed.hidden,false,label);assert.equal(p.nodes.payClosed.textContent,'en:'+key,label);
-  assert.equal(p.nodes.payContinue.disabled,true,label);
+  assert.equal(p.nodes.payContinue.disabled,true,label);assert.equal(p.nodes.payRetry.hidden,true,label);
   await p.submit();await flush();assert.equal(p.posts().length,0,label);
+ }
+});
+
+test('while the offer loads the box says so, never that sign-ups open soon',async()=>{
+ let answer;const pending=new Promise(resolve=>{answer=resolve;});
+ const p=await page({config:pending}),n=p.nodes;
+ assert.equal(n.payClosed.textContent,'en:y.fund.loading');assert.equal(n.payClosed.hidden,false);
+ assert.equal(n.payPurchase.hidden,true);assert.equal(n.modalidad.hidden,true);assert.equal(n.payRetry.hidden,true);assert.equal(n.payContinue.disabled,true);
+ answer(OPEN);await flush();
+ assert.equal(n.payPurchase.hidden,false);assert.equal(n.payClosed.hidden,true);assert.equal(n.payClosed.textContent,'');
+ // The markup ships no state: without the answer there is nothing true to say.
+ assert.doesNotMatch(html,/Sign-ups open soon/);
+});
+
+test('an offer that cannot be read says so with a button to try again, which loads it',async()=>{
+ for(const failure of [new TypeError('Failed to fetch'),http(500),http(503,{code:'unavailable'}),http(429),http(502,'<html>')]){
+  const label=failure instanceof Error?failure.message:String(failure[STATUS]);
+  const p=await page({config:count=>count===1?failure:OPEN}),n=p.nodes;
+  assert.equal(n.payClosed.textContent,'en:y.fund.loadError',label);assert.equal(n.payRetry.hidden,false,label);
+  assert.equal(n.payPurchase.hidden,true,label);assert.equal(n.payContinue.disabled,true,label);
+  await p.retry();await flush();
+  assert.equal(p.configs(),2,label);
+  assert.equal(n.payPurchase.hidden,false,label);assert.equal(n.payRetry.hidden,true,label);assert.equal(n.payClosed.hidden,true,label);
+  // The button that was pressed is gone: focus goes to the first choice of the box that replaced it.
+  assert.equal(p.focused(),'payOptionOnce',label);
+ }
+ // A retry that fails again keeps the button and the focus on the message.
+ const again=await page({config:new TypeError('Failed to fetch')});
+ await again.retry();await flush();
+ assert.equal(again.configs(),2);assert.equal(again.nodes.payClosed.textContent,'en:y.fund.loadError');assert.equal(again.nodes.payRetry.hidden,false);
+ assert.equal(again.focused(),'payClosed');
+ assert.match(html,/<button type="button" class="btn btn-ghost-dark pay-retry" id="payRetry" hidden data-i18n="y\.fund\.retry">Try again<\/button>/);
+});
+
+test('coming back from Mercado Pago never brings the acceptances back ticked',async()=>{
+ // A browser that restores the form's saved state ticks the boxes before the page script runs; the script unticks them.
+ const restored=await page({restored:['payAcceptTerms','payAcceptRenewal','payAcceptPayment','payOptionInstallments']});
+ assert.deepEqual([...Object.values(restored.radios),...restored.boxes].map(input=>input.checked),[false,false,false,false,false]);
+ assert.equal(restored.nodes.payContinue.disabled,true);assert.equal(restored.nodes.payPaymentRow.hidden,true);
+ // …and the form asks browsers not to save it in the first place.
+ assert.match(html,/<form class="[^"]*" id="fundForm" novalidate autocomplete="off">/);
+ // A page brought back from the back/forward cache keeps its script state: the ticks, and the button off while it was leaving.
+ const p=await page(),n=p.nodes;
+ p.choose('installments');p.tickAll();await p.submit();await flush();
+ assert.deepEqual(p.assigned,[MP]);assert.equal(n.payContinue.disabled,true);
+ await p.pageshow(true);
+ assert.deepEqual([...Object.values(p.radios),...p.boxes].map(input=>input.checked),[false,false,false,false,false],'every acceptance is ticked again on this visit');
+ assert.equal(n.payStatus.textContent,'');assert.equal(n.payContinue.disabled,true);assert.equal(n.payHint.hidden,false);
+ p.choose('once');p.tickAll();assert.equal(n.payContinue.disabled,false,'the button is no longer stuck off');
+ await p.submit();await flush();
+ assert.equal(p.posts().length,2);assert.equal(p.posts()[1].body.option,'once');assert.deepEqual(p.assigned,[MP,MP]);
+ // An ordinary show (the first load) leaves what the member ticked.
+ const first=await page();first.choose('once');first.tickAll();await first.pageshow(false);
+ assert.deepEqual(first.boxes.map(box=>box.checked),[true,true,true]);assert.equal(first.nodes.payContinue.disabled,false);
+});
+
+test('next to the button the member reads what happens once the payment is approved',()=>{
+ const box=html.slice(html.indexOf('id="payPurchase"'),html.indexOf('</aside>'));
+ assert.match(box,/<p class="pay-checkout-note" data-i18n="y\.fund\.next">When your payment is approved, we activate your membership within two working days and write to the email of your NODAL account\.<\/p>/);
+ assert.ok(box.indexOf('id="payContinue"')<box.indexOf('data-i18n="y.fund.next"'),'it follows the button');
+});
+
+test('an amount is never split between "S/" and its number at the end of a line',async()=>{
+ const p=await page(),n=p.nodes;
+ p.choose('installments');
+ for(const node of [n.payOnceAmount,n.payInstallmentsTotal,n.payInstallmentsText,n.payPaymentText]){
+  assert.match(node.textContent,new RegExp(`S/${NB}\\d`),node.id);assert.doesNotMatch(node.textContent,/S\/ \d/,node.id);
  }
 });
 
@@ -217,19 +311,23 @@ test('in Spanish the authorizations read as the terms’ section 3 with the amou
  vm.createContext(context);vm.runInContext(read('web/scripts/i18n-dashboard.js'),context);vm.runInContext(read('web/scripts/i18n.js'),context);
  const i18n=context.window.nodalI18n;i18n.apply('es',{persist:false});
  const p=await page({i18n}),n=p.nodes;
- assert.equal(n.payInstallmentsTotal.textContent,'S/ 550 en total');
- assert.equal(n.payInstallmentsText.textContent,'S/ 275 al inscribirte y un segundo cobro automático de S/ 275 dos meses calendario después de la fecha de aprobación del primer pago. (Si el mes de destino no tiene el día correspondiente, el segundo pago vencerá el último día de ese mes).');
- p.choose('once');assert.equal(n.payPaymentText.textContent,'Autorizo el cobro de S/ 499, incluido IGV, por mi membresía Nodal Fundadores 2027.');
+ assert.equal(n.payInstallmentsTotal.textContent,'S/\u00a0550 en total');
+ assert.equal(n.payInstallmentsText.textContent,'S/\u00a0275 al inscribirte y un segundo cobro automático de S/\u00a0275 dos meses calendario después de la fecha de aprobación del primer pago. (Si el mes de destino no tiene el día correspondiente, el segundo pago vencerá el último día de ese mes).');
+ p.choose('once');assert.equal(n.payPaymentText.textContent,'Autorizo el cobro de S/\u00a0499, incluido IGV, por mi membresía Nodal Fundadores 2027.');
  p.choose('installments');
- assert.equal(n.payPaymentText.textContent,'Autorizo dos cobros de S/ 275 cada uno, por un total de S/ 550, incluido IGV: el primero al inscribirme y el segundo automáticamente dos meses calendario después de la fecha de aprobación del primer pago. Si el mes de destino no tiene el día correspondiente, el segundo pago vencerá el último día de ese mes.');
+ assert.equal(n.payPaymentText.textContent,'Autorizo dos cobros de S/\u00a0275 cada uno, por un total de S/\u00a0550, incluido IGV: el primero al inscribirme y el segundo automáticamente dos meses calendario después de la fecha de aprobación del primer pago. Si el mes de destino no tiene el día correspondiente, el segundo pago vencerá el último día de ese mes.');
  for(const [key,es] of [['y.fund.soon','Las inscripciones abren pronto.'],['y.fund.ended','La oferta Nodal Fundadores 2027 cerró el 31 de diciembre de 2026.'],['y.fund.continue','Continuar a Mercado Pago'],
+  // What happens after paying, from the team's routine (docs/supporter-payments.md: each payer is added within two working days).
+  ['y.fund.next','Cuando tu pago sea aprobado, activamos tu membresía en un plazo de dos días hábiles y te escribimos al correo de tu cuenta de NODAL.'],
+  // Mercado Pago's notice is not a SUNAT comprobante: the seller issues the boleta for each sale.
+  ['y.fund.a4','Mercado Pago te envía por correo la constancia de cada pago, y Sistema Urbano emite la boleta de venta electrónica correspondiente. Si necesitas factura, escribe al correo de atención con tu RUC.'],
   ['y.fund.authRenew','Autorizo la renovación automática de mi membresía a partir del 1 de enero de 2028, y posteriormente cada 1 de enero, salvo que solicite su no renovación antes del inicio del siguiente período. Entiendo que se aplicará la tarifa regular vigente correspondiente a mi modalidad, con un 5% de descuento mientras conserve activa mi condición de Fundador, y que el precio y las fechas de cobro se me comunicarán antes de la renovación.']])
   assert.equal(i18n.t(key),es,key);
  assert.equal([i18n.t('y.fund.acceptPre'),i18n.t('y.fund.termsLink'),i18n.t('y.fund.acceptPost')].join(''),'He leído y acepto los Términos comerciales de Nodal Fundadores, incluidos los beneficios de la membresía, su vigencia, el precio total, el calendario de pagos y las condiciones de renovación automática.');
 });
 
 test('the markup is a real form: a labelled radio group, three unticked checkboxes bound to their text, and a button off until JavaScript turns it on',()=>{
- const form=html.slice(html.indexOf('<form'),html.indexOf('</form>'));assert.match(form,/<form class="[^"]*" id="fundForm" novalidate>/);
+ const form=html.slice(html.indexOf('<form'),html.indexOf('</form>'));assert.match(form,/<form class="[^"]*" id="fundForm" novalidate autocomplete="off">/);
  const group=form.slice(form.indexOf('<fieldset'),form.indexOf('</fieldset>'));
  assert.match(group,/<legend>[\s\S]*data-i18n="y\.fund\.chooseTitle"/,'the group is named by its legend');
  for(const [id,value] of [['payOptionOnce','once'],['payOptionInstallments','installments']])assert.match(group,new RegExp(`<label class="pay-choice" id="payChoice\\w+">\\s*<input type="radio" id="${id}" name="option" value="${value}" />`),id);

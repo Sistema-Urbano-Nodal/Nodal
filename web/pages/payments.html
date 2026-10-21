@@ -50,7 +50,7 @@
     </section>
 
     <section class="pay-body">
-      <form class="wrap pay-grid" id="fundForm" novalidate>
+      <form class="wrap pay-grid" id="fundForm" novalidate autocomplete="off">
         <section class="pay-block" id="modalidad" hidden>
           <fieldset class="pay-choices">
             <legend><h2 class="pay-block-title" data-i18n="y.fund.chooseTitle">Choose how to pay</h2></legend>
@@ -123,7 +123,8 @@
         <aside class="pay-summary pay-checkout" aria-labelledby="payCheckoutTitle">
           <p class="pay-summary-kicker" data-i18n="y.fund.checkoutKicker">Paying on Mercado Pago</p>
           <h2 id="payCheckoutTitle" data-i18n="y.fund.checkoutTitle">Your sign-up</h2>
-          <p class="pay-closed" id="payClosed">Sign-ups open soon.</p>
+          <p class="pay-closed" id="payClosed" role="status" tabindex="-1"></p>
+          <button type="button" class="btn btn-ghost-dark pay-retry" id="payRetry" hidden data-i18n="y.fund.retry">Try again</button>
           <div class="pay-purchase" id="payPurchase" hidden>
             <div class="pay-check-group">
               <p class="pay-check-head" data-i18n="y.fund.acceptHead">Acceptance of conditions</p>
@@ -150,8 +151,9 @@
             <p class="pay-email-line" id="payEmailStep" hidden><span data-i18n="y.fund.payWithEmail">Pay on Mercado Pago with the email of your NODAL account:</span> <strong id="payEmail"></strong></p>
             <button type="submit" class="btn btn-primary btn-block" id="payContinue" disabled aria-describedby="payHint" data-i18n="y.fund.continue">Continue to Mercado Pago</button>
             <p class="pay-hint" id="payHint" data-i18n="y.fund.hint">Choose an option and tick the three boxes to continue.</p>
-            <p class="pay-status" id="payStatus" role="status" aria-live="polite"></p>
+            <p class="pay-status" id="payStatus" role="status" aria-live="polite" tabindex="-1"></p>
             <p class="pay-checkout-note" data-i18n="y.fund.never">Mercado Pago opens in this tab. NODAL never sees or stores card numbers.</p>
+            <p class="pay-checkout-note" data-i18n="y.fund.next">When your payment is approved, we activate your membership within two working days and write to the email of your NODAL account.</p>
           </div>
         </aside>
       </form>
@@ -175,7 +177,7 @@
         </details>
         <details>
           <summary data-i18n="y.fund.q4">Will I get a receipt?</summary>
-          <p data-i18n="y.fund.a4">Mercado Pago emails you a receipt for each payment. If you need an invoice, write to the contact email on this page.</p>
+          <p data-i18n="y.fund.a4">Mercado Pago emails you a notice of each payment, and Sistema Urbano issues the matching electronic sales receipt (boleta de venta). If you need an invoice (factura), write to the contact email with your RUC.</p>
         </details>
         <details>
           <summary data-i18n="y.fund.q5">What if I paid with a different email?</summary>

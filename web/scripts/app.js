@@ -10,59 +10,44 @@
   'use strict';
   const NS = 'http://www.w3.org/2000/svg';
 
-  /* The Nodal Fundadores price slot. A price is shown only while a member could
-     actually pay it: the server sets `checkout` while sign-ups are open
-     (docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md). Until then
-     (and on static hosting with no API) the slot says "Soon!" in the reader's
-     language, and once the offer has ended it says so. The amounts are the
-     server's, printed as sent; only the period suffix, the sentinel and the
-     two-payment line around its amount are copy. */
+  /* The Founder Membership card (Nodal Fundadores 2027,
+     docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md) shows no
+     price in any state: the team found the figure off-putting on the landing
+     page, so its name, the line on what it supports, its benefits and the
+     link to the terms are all markup, and the prices stay on the payments
+     page beside their conditions. GET /api/billing/config decides only
+     whether the button to that page shows (the server sets `checkout` while
+     sign-ups are open) and, once the offer has ended, the note saying so. */
   const I18N = window.nodalI18n;
   const t = (key, vars) => (I18N ? I18N.t(key, vars) : key);
-  const PRICE_COPY = new Map([
-    ['Soon', 'mem.priceSoon'],
-    ['/ month', 'y.perMonth'], ['/month', 'y.perMonth'], ['/ mo', 'y.perMonth'],
-    ['/ year', 'y.perYear'], ['/year', 'y.perYear'], ['/ yr', 'y.perYear'],
-  ]);
-  const localisePrice = (value) => (PRICE_COPY.has(value) ? t(PRICE_COPY.get(value)) : value);
 
   let billing = null;
-  function renderLandingPrice() {
-    const price = document.querySelector('[data-billing-price]');
-    if (!price) return;
-    const open = billing?.checkout === true, annual = open ? billing.annual : null;
-    // "o 2 pagos de …", only while the two-payment option is offered with its amount per payment.
-    const split = document.querySelector('[data-billing-split]');
-    const twice = open && Array.isArray(billing.options) ? billing.options.find((option) => option?.id === 'installments' && typeof option.each === 'string' && option.each.trim()) : null;
-    if (split) {
-      split.textContent = twice ? t('mem.fund.split', { count: Number.isInteger(twice.count) && twice.count > 1 ? twice.count : 2, each: twice.each.trim() }) : '';
-      split.hidden = !twice;
-    }
-    if (!annual?.amount) { price.textContent = t(billing?.state === 'ended' ? 'mem.fund.ended' : 'mem.priceSoon'); return; }
-    const amount = localisePrice(annual.amount);
-    const per = annual.per ? ` ${localisePrice(annual.per)}` : '';
-    price.textContent = `${amount}${per}`;
+  function renderMembershipNote() {
+    const note = document.querySelector('[data-billing-state]');
+    if (!note) return;
+    const ended = billing?.state === 'ended';
+    note.textContent = ended ? t('mem.fund.ended') : '';
+    note.hidden = !ended;
   }
 
   async function loadLandingBillingConfig() {
-    if (!document.querySelector('[data-billing-price]')) return;
-    renderLandingPrice();   // the static fallback is English; translate it before the request returns
+    if (!document.querySelector('[data-billing-state]')) return;
     try {
       const res = await fetch('/api/billing/config', { headers: { Accept: 'application/json' } });
       if (res.ok) billing = await res.json();
     } catch {
-      // static previews have no API; the translated fallback still applies
+      // static previews have no API: the card keeps its markup and drops the button
     }
-    // The Supporter button ships hidden (also without JavaScript, and while
-    // this request is in flight) and appears only when checkout can run.
+    // The button ships hidden (also without JavaScript, and while this
+    // request is in flight) and appears only when checkout can run.
     // While checkout is closed it leads nowhere, so it is removed outright.
     const cta = document.querySelector('[data-billing-cta]');
     if (billing?.checkout === true) { if (cta) cta.hidden = false; } else cta?.remove();
-    renderLandingPrice();
+    renderMembershipNote();
   }
 
   loadLandingBillingConfig();
-  I18N?.onChange(renderLandingPrice);
+  I18N?.onChange(renderMembershipNote);
 
   /* ---------- section tabs ---------- */
   const tabs = [...document.querySelectorAll('.plat-tab')];

@@ -68,30 +68,47 @@ test('the payments page Spanish is the team document’s section 1 and section 3
  assert.match(payments,/<span id="paySellerName">Sistema Urbano<\/span>[\s\S]*<dd id="paySellerRuc">20605878815<\/dd>[\s\S]*<dd id="paySellerAddress">Calle General Varela 154 A, Miraflores<\/dd>/);
 });
 
-test('the landing card and the course note name Nodal Fundadores in all three languages',()=>{
+test('the landing card names the Founder Membership and the course note Nodal Fundadores, in all three languages',()=>{
  const used=[...new Set([...landing.matchAll(/data-i18n="(mem\.fund\.[^"]+)"/g),...read('web/scripts/app.js').matchAll(/'(mem\.fund\.[A-Za-z0-9]+)'/g)].map(match=>match[1]))];
- assert.deepEqual(used.sort(),['mem.fund.connect','mem.fund.connectText','mem.fund.cta','mem.fund.discount','mem.fund.early','mem.fund.ended','mem.fund.find','mem.fund.findText','mem.fund.flag','mem.fund.learn','mem.fund.learnText','mem.fund.split','mem.fund.visible','mem.fund.visibleText']);
+ assert.deepEqual(used.sort(),['mem.fund.connect','mem.fund.connectText','mem.fund.cta','mem.fund.discount','mem.fund.early','mem.fund.ended','mem.fund.find','mem.fund.findText','mem.fund.flag','mem.fund.learn','mem.fund.learnText','mem.fund.name','mem.fund.tagline','mem.fund.terms','mem.fund.visible','mem.fund.visibleText']);
  const api=Object.fromEntries(LANGS.map(lang=>[lang,shared(lang)]));
  for(const key of used){
   for(const lang of ['es','pt'])assert.notEqual(api[lang].t(key),key,`${key} in ${lang}`);
   // English is the markup's own text, or i18n.js's for the lines app.js writes.
   assert.ok(markup(landing,key).length===1||api.en.t(key)!==key,`${key} in English`);
  }
- assert.equal(placeholders(api.es.t('mem.fund.split')),'count,each');assert.equal(placeholders(api.pt.t('mem.fund.split')),'count,each');assert.equal(placeholders(api.en.t('mem.fund.split')),'count,each');
+ for(const key of used)assert.equal(placeholders(api.es.t(key)),'',key);
  const rows=pilot();
- for(const key of ['supportersOnly','supportersNote','supportersNoteOpen','supportersNoteEnded','becomeSupporter']){
+ for(const key of ['supportersOnly','supportersNote','supportersNoteOpen','supportersNoteEnded']){
   assert.equal(rows[key].length,3,key);
   for(const text of rows[key])assert.match(text,/Nodal Fundadores/,key);
  }
- assert.deepEqual([...rows.becomeSupporter],['Join Nodal Fundadores','Únete a Nodal Fundadores','Junte-se ao Nodal Fundadores']);
+ // The course note's button names the membership as the landing card does.
+ assert.deepEqual([...rows.becomeSupporter],['Join the Founder Membership','Únete a la Membresía Fundador','Junte-se à Membresia Fundador']);
+ // The course is a 2026 one: members join it during their early access, and it is not the course included in 2027 (sections 4, 8 and 15).
+ assert.deepEqual([...rows.supportersNoteOpen],['Nodal Fundadores members can join this course during their 2026 early access; it is not the course included in 2027. People already enrolled keep full access.',
+  'Los miembros de Nodal Fundadores pueden sumarse a este curso durante su acceso anticipado de 2026; no reemplaza el curso incluido en 2027. Quienes ya están inscritos conservan el acceso completo.',
+  'Os membros do Nodal Fundadores podem entrar neste curso durante o acesso antecipado de 2026; ele não substitui o curso incluído em 2027. Quem já está inscrito mantém o acesso completo.']);
+ assert.deepEqual([...rows.supportersNote],['Nodal Fundadores members can join this course during their 2026 early access, which opens soon; it is not the course included in 2027. People already enrolled keep full access.',
+  'Los miembros de Nodal Fundadores pueden sumarse a este curso durante su acceso anticipado de 2026, que abre pronto; no reemplaza el curso incluido en 2027. Quienes ya están inscritos conservan el acceso completo.',
+  'Os membros do Nodal Fundadores podem entrar neste curso durante o acesso antecipado de 2026, que abre em breve; ele não substitui o curso incluído em 2027. Quem já está inscrito mantém o acesso completo.']);
+ for(const text of rows.supportersNoteEnded)assert.match(text,/2026/);
+ // The teaching team adds each member whose payment was approved, not "each Supporter who paid".
+ assert.deepEqual([...rows.participantsSupporters],['Enrollment is closed to the public. Add here each Nodal Fundadores member whose payment was approved on Mercado Pago, with the email of their NODAL account.',
+  'Las inscripciones están cerradas al público. Agrega aquí a cada miembro de Nodal Fundadores cuyo pago fue aprobado en Mercado Pago, con el correo de su cuenta de NODAL.',
+  'As inscrições estão fechadas ao público. Adicione aqui cada membro do Nodal Fundadores cujo pagamento foi aprovado no Mercado Pago, com o e-mail da conta dele na NODAL.']);
 });
 
 test('no copy left from the Supporting membership contradicts the terms: no twelve months from the payment, no membership that does not renew',()=>{
  const dict=console_(),rows=pilot();
  const texts=[payments,landing,...LANGS.flatMap(lang=>Object.entries(dict[lang]).filter(([key])=>key.startsWith('y.fund.')).map(([,value])=>value)),
-  ...['es','pt'].flatMap(lang=>{const api=shared(lang);return ['mem.fund.flag','mem.fund.early','mem.fund.discount','mem.fund.cta','mem.fund.split','mem.fund.ended'].map(key=>api.t(key));}),
-  ...['supportersOnly','supportersNote','supportersNoteOpen','supportersNoteEnded','becomeSupporter'].flatMap(key=>rows[key])];
+  ...['es','pt'].flatMap(lang=>{const api=shared(lang);return ['mem.fund.flag','mem.fund.name','mem.fund.tagline','mem.fund.early','mem.fund.discount','mem.fund.cta','mem.fund.terms','mem.fund.ended'].map(key=>api.t(key));}),
+  ...['supportersOnly','supportersNote','supportersNoteOpen','supportersNoteEnded','becomeSupporter','participantsSupporters'].flatMap(key=>rows[key])];
  for(const text of texts)assert.doesNotMatch(text,/12 months from|12 meses desde|12 meses a partir|doesn['’]t renew|does not renew by itself|no se renueva sola|não renova sozinha|Supporting membership|membresía de apoyo|assinatura de apoio/i,text.slice(0,80));
  // The dictionaries no longer carry the Mercado Pago links page or the Supporter courses lines.
  for(const lang of LANGS)assert.deepEqual(Object.keys(dict[lang]).filter(key=>key.startsWith('y.mp.')||key==='y.p6'),[],lang);
+ // Nor the landing card's price slot: its period suffixes, its "Soon!" and its two-payment line.
+ for(const lang of LANGS){const api=shared(lang);for(const key of ['mem.fund.split','mem.priceSoon','y.perMonth','y.perYear'])assert.equal(api.t(key),key,`${lang} ${key}`);}
+ // In Portuguese the paid plan is a membresia, as on the landing card, not an assinatura (a subscription).
+ assert.equal(dict.pt['d.nav.membership'],'Membresia');assert.equal(shared('pt').t('res.link'),'Conheça a membresia');
 });
