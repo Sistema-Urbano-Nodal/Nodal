@@ -74,7 +74,7 @@ test('the payments page Spanish is the team document’s section 1 and section 3
 
 test('the landing card and the course note name the Founder Membership, in all three languages',()=>{
  const used=[...new Set([...landing.matchAll(/data-i18n="(mem\.fund\.[^"]+)"/g),...read('web/scripts/app.js').matchAll(/'(mem\.fund\.[A-Za-z0-9]+)'/g)].map(match=>match[1]))];
- assert.deepEqual(used.sort(),['mem.fund.connect','mem.fund.connectText','mem.fund.cta','mem.fund.discount','mem.fund.early','mem.fund.ended','mem.fund.find','mem.fund.findText','mem.fund.flag','mem.fund.learn','mem.fund.learnText','mem.fund.name','mem.fund.soon','mem.fund.tagline','mem.fund.terms','mem.fund.visible','mem.fund.visibleText']);
+ assert.deepEqual(used.sort(),['mem.fund.connect','mem.fund.connectText','mem.fund.discount','mem.fund.early','mem.fund.ended','mem.fund.find','mem.fund.findText','mem.fund.flag','mem.fund.join','mem.fund.learn','mem.fund.learnText','mem.fund.name','mem.fund.soon','mem.fund.tagline','mem.fund.visible','mem.fund.visibleText']);
  const api=Object.fromEntries(LANGS.map(lang=>[lang,shared(lang)]));
  for(const key of used){
   for(const lang of ['es','pt'])assert.notEqual(api[lang].t(key),key,`${key} in ${lang}`);
@@ -106,13 +106,24 @@ test('the landing card and the course note name the Founder Membership, in all t
 
 /* 20 Oct 2026, the team: the membership is the "Membresía Fundador" everywhere, translated (Founder Membership,
    Membresia Fundador). It is feminine in Spanish and Portuguese, so the old name's articles and contractions changed
-   with it. Internal identifiers keep the old word: FUNDADORES-2027-v1, FUNDADORES_2027, terminos-fundadores.html. */
+   with it. Internal identifiers keep the old word: FUNDADORES-2027-v1, FUNDADORES_2027, terminos-fundadores.html.
+   21 Oct 2026: "Nodal Fundadores" is back only as the name of the join page, as the team's landing text is titled
+   ("Texto Para Landing Page de Nodal Fundadores"): the landing card's button to it and the page's own tab title. Those
+   exact strings are the only ones allowed; the membership itself is never called that. */
+const PAGE_NAME={
+ 'web/pages/index.html':['>Join Nodal Fundadores<'],
+ 'web/scripts/i18n.js':["'Únete a Nodal Fundadores'","'Junte-se ao Nodal Fundadores'"],
+ 'web/pages/fundadores.html':['<title>Nodal Fundadores · Membresía Fundador 2027</title>'],
+ 'web/scripts/fundadores.js':["'Nodal Fundadores · Membresía Fundador 2027'","'Nodal Fundadores · Founder Membership 2027'","'Nodal Fundadores · Membresia Fundador 2027'"],
+};
 test('no page, dictionary or offer the member sees calls the membership Nodal Fundadores, and the new name takes its articles',async()=>{
  const {OFFER_VIEW}=await import('../server/membership-offer.js');
  assert.equal(OFFER_VIEW.name,'Membresía Fundador 2027');
- const files=['web/pages/payments.html','web/pages/index.html','web/pages/terminos-fundadores.html','web/pages/privacy.html','web/scripts/i18n-dashboard.js','web/scripts/i18n.js','web/scripts/pilot-i18n.js','web/scripts/payments.js','web/scripts/app.js','web/scripts/courses.js','web/scripts/membership-terms.js'];
+ const files=['web/pages/payments.html','web/pages/index.html','web/pages/terminos-fundadores.html','web/pages/privacy.html','web/pages/fundadores.html','web/scripts/i18n-dashboard.js','web/scripts/i18n.js','web/scripts/pilot-i18n.js','web/scripts/payments.js','web/scripts/app.js','web/scripts/courses.js','web/scripts/membership-terms.js','web/scripts/fundadores.js'];
  for(const file of files){
-  const text=read(file);
+  const allowed=PAGE_NAME[file]||[];
+  for(const name of allowed)assert.equal(read(file).split(name).length,2,`${file}: ${name} once`);
+  const text=allowed.reduce((value,name)=>value.split(name).join(''),read(file));
   assert.doesNotMatch(text,/Nodal Fundadores|Nodal <em>Fundadores/i,file);
   // Spanish: la Membresía Fundador (never el/del/al/un, nor "membresía Membresía").
   assert.doesNotMatch(text,/\b(?:el|del|al|un) Membresía|membresía Membresía/i,file);
@@ -136,7 +147,7 @@ test('no page, dictionary or offer the member sees calls the membership Nodal Fu
 test('no copy left from the Supporting membership contradicts the terms: no twelve months from the payment, no membership that does not renew',()=>{
  const dict=console_(),rows=pilot();
  const texts=[payments,landing,...LANGS.flatMap(lang=>Object.entries(dict[lang]).filter(([key])=>key.startsWith('y.fund.')).map(([,value])=>value)),
-  ...['es','pt'].flatMap(lang=>{const api=shared(lang);return ['mem.fund.flag','mem.fund.name','mem.fund.tagline','mem.fund.early','mem.fund.discount','mem.fund.cta','mem.fund.terms','mem.fund.ended'].map(key=>api.t(key));}),
+  ...['es','pt'].flatMap(lang=>{const api=shared(lang);return ['mem.fund.flag','mem.fund.name','mem.fund.tagline','mem.fund.early','mem.fund.discount','mem.fund.join','mem.fund.ended'].map(key=>api.t(key));}),
   ...['supportersOnly','supportersNote','supportersNoteOpen','supportersNoteEnded','becomeSupporter','participantsSupporters'].flatMap(key=>rows[key])];
  for(const text of texts)assert.doesNotMatch(text,/12 months from|12 meses desde|12 meses a partir|doesn['’]t renew|does not renew by itself|no se renueva sola|não renova sozinha|Supporting membership|membresía de apoyo|assinatura de apoio/i,text.slice(0,80));
  // The dictionaries no longer carry the Mercado Pago links page or the Supporter courses lines.

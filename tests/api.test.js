@@ -687,14 +687,16 @@ test('the payments page opens during the course pilot once the membership is ope
 
 
 
-// 20 Oct 2026: the landing card shows no price in any state; app.js reads the billing config only for its button and note.
-test('the landing membership card carries its billing state hook and no price', async (t) => {
+// 20 Oct 2026: the landing card shows no price in any state; app.js reads the billing config only for its note. Since
+// 21 Oct its one button leads to the public join page (/fundadores.html), in every state.
+test('the landing membership card carries its billing state hook, its button to the join page and no price', async (t) => {
   const base = await boot(t);
   const res = await fetch(`${base}/`);
   assert.equal(res.status, 200);
   const html = await res.text();
   assert.match(html, /<p class="plan-note" data-billing-state hidden><\/p>/);
-  assert.match(html, /data-billing-cta hidden/);
+  assert.match(html, /<a class="btn btn-primary" href="fundadores\.html" data-i18n="mem\.fund\.join">Join Nodal Fundadores<\/a>/);
+  assert.doesNotMatch(html, /data-billing-cta/);
   assert.doesNotMatch(html, /data-billing-price/);
   assert.doesNotMatch(html, /US\$\d+|S\/\s?\d/);
 });

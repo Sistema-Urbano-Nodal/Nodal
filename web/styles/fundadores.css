@@ -1,0 +1,120 @@
+/* The join page of the Founder Membership 2027 (fundadores.html), on the landing page's tokens, buttons, header and
+   footer (styles.css). Each language is one <article>; only the one named by <html lang> shows. Sections part by their
+   paper (beige, white, the pale green of the Founder badge, the green of the closing band), not by rules: the only
+   lines are the payment table's. */
+[data-fund-lang] { display: none; }
+html[lang="es"] [data-fund-lang="es"], html[lang="en"] [data-fund-lang="en"], html[lang="pt"] [data-fund-lang="pt"] { display: revert; }
+
+.fund-skip { position: absolute; left: 16px; top: -120px; z-index: 30; padding: 10px 18px; border-radius: var(--r-btn);
+  background: #fff; color: var(--green-deep); font-weight: 600; }
+.fund-skip:focus { top: 12px; }
+/* The bright ring is under 3:1 on the beige and white papers; forest keeps it at about 7:1, ink on the green band. */
+.fund-page main :is(a, button):focus-visible { outline-color: var(--green-deep); }
+.fund-page .fund-join :is(a, button):focus-visible { outline-color: var(--ink); }
+
+.fund-band { position: relative; padding: clamp(64px, 11vh, 128px) 0; }
+.fund-title { max-width: 20ch; font-size: clamp(28px, 3.4vw, 46px); font-weight: 700; line-height: 1.08; letter-spacing: -.022em; color: var(--ink); }
+.fund-intro p, .fund-prose p, .fund-benefit-list p { max-width: 62ch; font-size: 17px; line-height: 1.7; color: var(--ink-2); }
+.fund-prose p + p { margin-top: 18px; }
+
+/* hero: the landing's survey grid and its map of the region, faint, behind the title */
+.fund-hero { position: relative; overflow: hidden; isolation: isolate; padding: clamp(56px, 11vh, 132px) 0 clamp(64px, 12vh, 136px);
+  background:
+    radial-gradient(56% 70% at 6% 92%, rgba(173,222,168,.34), transparent 64%),
+    repeating-linear-gradient(0deg, transparent 0 63px, rgba(61,92,56,.05) 63px 64px),
+    repeating-linear-gradient(90deg, transparent 0 63px, rgba(61,92,56,.05) 63px 64px),
+    var(--paper); }
+.fund-map { position: absolute; z-index: -1; top: 50%; right: max(-60px, calc((100vw - 1180px) / 2 - 110px));
+  width: min(44vw, 600px); height: auto; transform: translateY(-47%); opacity: .38; pointer-events: none; -webkit-user-select: none; user-select: none; }
+.fund-kicker { display: inline-flex; align-items: center; gap: .8em; margin-bottom: 26px;
+  font-size: 13px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: #5b6857; }
+.fund-kicker::before { content: ""; width: 28px; height: 1px; background: var(--green-bright); }
+.fund-hero h1 { max-width: 12.5ch; font-size: clamp(42px, 6.4vw, 90px); font-weight: 800; line-height: .98; letter-spacing: -.03em; color: var(--green-deep); }
+.fund-hero h1 mark { padding: 0 .06em; border-radius: 4px; color: var(--green-deep);
+  background: linear-gradient(180deg, transparent 15%, rgba(173,222,168,.92) 15% 90%, transparent 90%);
+  -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.fund-lead { max-width: 36ch; margin-top: 30px; font-size: clamp(20px, 2.1vw, 27px); font-weight: 600; line-height: 1.3; color: var(--ink); }
+.fund-intro { display: grid; gap: 16px; max-width: 600px; margin-top: 28px; }
+.fund-intro p { font-size: 17.5px; }
+
+/* a year of benefits: four short leads, two by two where they fit */
+.fund-benefits { background: #fff; }
+.fund-benefit-list { list-style: none; counter-reset: benefit; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(40px, 6vh, 60px) clamp(32px, 6vw, 96px); margin-top: clamp(40px, 7vh, 72px); }
+.fund-benefit-list li { counter-increment: benefit; }
+.fund-benefit-list li::before { content: counter(benefit, decimal-leading-zero); display: block; margin-bottom: 14px;
+  font-size: 12.5px; font-weight: 700; letter-spacing: .16em; color: var(--green-deep); }
+.fund-benefit-list h3 { max-width: 26ch; margin-bottom: 10px; font-size: clamp(19px, 1.7vw, 22px); line-height: 1.3; color: var(--ink); }
+
+/* the heading beside its paragraphs */
+.fund-split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(28px, 6vw, 96px); align-items: start; }
+
+/* the Founder badge, pressed on like the landing card's flag */
+.fund-founder { background: var(--green-soft); }
+.fund-founder-head { display: grid; justify-items: start; gap: 40px; }
+.fund-badge { display: inline-flex; align-items: center; gap: 12px; padding: 12px 22px 12px 14px;
+  background: var(--beige); color: var(--green-deep); border: 2px solid var(--green-deep); border-radius: 6px;
+  font-size: 15px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase;
+  transform: rotate(-3deg); box-shadow: 3px 3px 0 rgba(37,52,31,.45); }
+.fund-badge-mark { width: 26px; height: 28px; flex-shrink: 0; color: var(--green-hover); }
+.fund-prose .fund-say { font-size: clamp(20px, 2vw, 25px); font-weight: 600; line-height: 1.35; color: var(--ink); }
+
+/* the year's price: one row per way to pay */
+.fund-price { background: #fff; }
+.fund-price .fund-title { max-width: 26ch; }
+.fund-price-intro { max-width: 62ch; margin-top: 22px; font-size: 18px; line-height: 1.6; color: var(--ink-2); }
+.fund-table { width: 100%; max-width: 1040px; margin-top: clamp(28px, 5vh, 48px); border-collapse: collapse; }
+.fund-table th, .fund-table td { text-align: left; vertical-align: top; }
+.fund-table thead th { padding: 0 28px 14px 0; border-bottom: 1px solid rgba(61,92,56,.4);
+  font-size: 12.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2); }
+.fund-table tbody th, .fund-table td { padding: 28px 28px 30px 0; border-bottom: 1px solid var(--hairline); }
+.fund-table :is(th, td):last-child { padding-right: 0; }
+.fund-table thead th:first-child { width: 30%; }
+.fund-table thead th:last-child { width: 22%; }
+.fund-option { display: block; margin-bottom: 8px; font-size: 15px; font-weight: 600; color: var(--ink-2); }
+.fund-amount { font-size: clamp(34px, 3.6vw, 48px); font-weight: 800; line-height: 1; letter-spacing: -.02em; color: var(--ink); }
+.fund-total { font-size: 15px; font-weight: 600; color: var(--ink-2); }
+.fund-table td { font-size: 16.5px; line-height: 1.6; color: var(--ink-2); }
+.fund-table .fund-monthly { font-size: 19px; font-weight: 700; color: var(--green-deep); }
+.fund-same { margin-top: 30px; font-size: 17px; font-weight: 600; line-height: 1.5; color: var(--ink); }
+.fund-note { max-width: 74ch; margin-top: 10px; font-size: 14.5px; line-height: 1.6; color: #5b6857; }
+/* the asterisk of "Equivalente mensual*" */
+.fund-note::before { content: "* "; }
+
+/* the closing line and the one action, on the landing's green band (.cta-band) */
+.fund-join h2 { max-width: 30ch; margin: 0 auto; font-size: clamp(26px, 3.1vw, 42px); line-height: 1.15; letter-spacing: -.015em; }
+.fund-action { display: flex; justify-content: center; margin-top: 36px; }
+.fund-join .fund-state { margin: 0; font-size: 18px; font-weight: 600; line-height: 1.5; color: var(--ink); }
+
+/* the conditions of the offer, small and last */
+.fund-fine { background: var(--plaster-2); padding: clamp(44px, 7vh, 72px) 0 clamp(52px, 8vh, 88px); }
+.fund-fine p { max-width: 76ch; font-size: 14.5px; line-height: 1.65; color: #4f5b4a; }
+.fund-fine p + p { margin-top: 12px; }
+.fund-fine .fund-terms { margin-top: 24px; font-size: 15px; line-height: 1.4; }
+
+@media (max-width: 820px) {
+  .fund-split, .fund-benefit-list { grid-template-columns: minmax(0, 1fr); }
+  .fund-founder-head { gap: 28px; }
+  .fund-map { right: -32vw; width: 82vw; opacity: .16; }
+}
+/* On a phone each way to pay stacks: the option and its price, then each cell under the name of its column. The header
+   row stays for screen readers, and the roles keep the table a table once its parts are blocks. */
+@media (max-width: 680px) {
+  .fund-table, .fund-table tbody, .fund-table tr, .fund-table th, .fund-table td { display: block; width: auto; }
+  .fund-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  .fund-table tbody tr { padding: 26px 0; border-bottom: 1px solid var(--hairline); }
+  .fund-table tbody tr:first-child { border-top: 1px solid rgba(61,92,56,.4); }
+  .fund-table tbody th, .fund-table td { padding: 0; border: 0; }
+  .fund-table td { margin-top: 16px; }
+  .fund-table td::before { content: attr(data-label); display: block; margin-bottom: 4px;
+    font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2); }
+  .fund-intro p, .fund-prose p, .fund-benefit-list p { font-size: 16.5px; }
+  .fund-action .btn { max-width: 100%; white-space: normal; line-height: 1.25; text-align: center; }
+}
+
+@media print {
+  .navbar, .footer, .fund-skip, .fund-map, .fund-action { display: none; }
+  .fund-hero, .fund-band, .fund-join, .fund-fine { padding: 20px 0; background: none; }
+  .fund-badge { box-shadow: none; }
+  .fund-table tr { break-inside: avoid; }
+}

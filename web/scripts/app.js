@@ -13,13 +13,14 @@
   /* The Founder Membership card (Membresía Fundador 2027,
      docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md) shows no
      price in any state: the team found the figure off-putting on the landing
-     page, so its name, the line on what it supports, its benefits and the
-     link to the terms are all markup, and the prices stay on the payments
-     page beside their conditions. GET /api/billing/config decides only
-     whether the button to that page shows (the server sets `checkout` while
-     sign-ups are open) and the note: once the offer has ended, that it has;
-     while sign-ups are not open, or the settings cannot be read, that they
-     open soon (eve audit #17). Nothing is said while the request is in flight. */
+     page, so its name, the line on what it supports, its benefits and its one
+     button are all markup. The button leads, in every state, to the join page
+     (/fundadores.html), which explains the benefits and the ways to pay and
+     links to the payments page while sign-ups are open. GET
+     /api/billing/config decides only the note: once the offer has ended, that
+     it has; while sign-ups are not open (the server sets `checkout` while they
+     are), or the settings cannot be read, that they open soon (eve audit #17).
+     Nothing is said while the request is in flight. */
   const I18N = window.nodalI18n;
   const t = (key, vars) => (I18N ? I18N.t(key, vars) : key);
 
@@ -38,14 +39,9 @@
       const res = await fetch('/api/billing/config', { headers: { Accept: 'application/json' } });
       if (res.ok) billing = await res.json();
     } catch {
-      // static previews have no API: the card keeps its markup and drops the button
+      // static previews have no API: the card keeps its markup and says sign-ups open soon
     }
     billingRead = true;
-    // The button ships hidden (also without JavaScript, and while this
-    // request is in flight) and appears only when checkout can run.
-    // While checkout is closed it leads nowhere, so it is removed outright.
-    const cta = document.querySelector('[data-billing-cta]');
-    if (billing?.checkout === true) { if (cta) cta.hidden = false; } else cta?.remove();
     renderMembershipNote();
   }
 

@@ -40,7 +40,7 @@ async function landing({ lang = 'en', fetchImpl }) {
   const context = { document, window: { nodalI18n: i18n }, fetch: fetchImpl, console };
   vm.runInNewContext(APP, context, { filename: 'app.js' });
   for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
-  return { note: node('[data-billing-state]'), cta: node('[data-billing-cta]'), nodes: [...nodes.values()], i18n };
+  return { note: node('[data-billing-state]'), nodes: [...nodes.values()], i18n };
 }
 
 // The /api/billing/config answers of docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md.
@@ -79,19 +79,17 @@ test('the Founder Membership card shows no amount in any state, whatever the off
   }
 });
 
-test('while sign-ups are open the card keeps its button to the payments page, shipped hidden; otherwise the button is removed', async () => {
-  for (const name of ['open', 'installmentsOnly', 'onceOnly', 'legacy']) {
+/* 21 Oct 2026, the team's landing text: the card leads to the join page (/fundadores.html), which explains the benefits and the
+   payment options and has the only button to the payments page. So the card has one way in, in every state, and app.js
+   touches only its note. */
+test('in every state the card’s one button leads to the join page, and app.js never touches it', async () => {
+  for (const name of Object.keys(ANSWERS)) {
     const page = await landing({ fetchImpl: ANSWERS[name] });
-    assert.equal(page.cta.removed, false, name);
-    assert.equal(page.cta.hidden, false, `${name}: the button appears only once checkout is confirmed open`);
+    // The note is the only part of the card it looks up (.gc-pool is the graph's copy, which it reads for its labels).
+    assert.deepEqual(page.nodes.map((written) => written.selector).filter((selector) => selector !== '.gc-pool'), ['[data-billing-state]'], `${name}: app.js looks up only the note`);
   }
-  for (const name of ['soon', 'ended', 'refused', 'offline']) {
-    const page = await landing({ fetchImpl: ANSWERS[name] });
-    assert.equal(page.cta.removed, true, `${name}: a closed checkout leads nowhere`);
-  }
-  // A server without the flag (older deploy) is treated as closed.
-  const unflagged = await landing({ fetchImpl: json({ annual: { amount: 'S/ 240', per: '/ year' } }) });
-  assert.equal(unflagged.cta.removed, true);
+  const code = APP.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+  assert.doesNotMatch(code, /data-billing-cta|fundadores\.html|mem\.fund\.join|payments\.html/, 'app.js has no button to show or remove');
 });
 
 test('once the offer has ended the card says so in the reader’s language, and while sign-ups are open it has no note', async () => {
@@ -135,20 +133,20 @@ test('before sign-ups open, or when the settings cannot be read, the card says s
   assert.equal(waiting.note.textContent, ENDED.es);
 });
 
-test('the landing card is the Founder Membership: its name, what it supports, its benefits, the terms and a button to learn more', () => {
+test('the landing card is the Founder Membership: its name, what it supports, its benefits and a button to the join page', () => {
   const html = read('web', 'pages', 'index.html');
   const card = html.slice(html.indexOf('<article class="plan plan-pro">'), html.indexOf('</article>', html.indexOf('<article class="plan plan-pro">')));
   // Where the price used to be, the line on what the membership supports.
   assert.match(card, /<header><h3 data-i18n="mem\.fund\.name">Founder Membership<\/h3><p class="price" data-i18n="mem\.fund\.tagline">Supporting the community's growth<\/p><p class="plan-note" data-billing-state hidden><\/p><\/header>/);
   const keys = [...card.matchAll(/data-i18n="(mem\.fund\.[^"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(keys, ['mem.fund.flag', 'mem.fund.name', 'mem.fund.tagline', 'mem.fund.connect', 'mem.fund.connectText', 'mem.fund.find', 'mem.fund.findText', 'mem.fund.learn', 'mem.fund.learnText', 'mem.fund.visible', 'mem.fund.visibleText', 'mem.fund.early', 'mem.fund.discount', 'mem.fund.cta', 'mem.fund.terms']);
+  assert.deepEqual(keys, ['mem.fund.flag', 'mem.fund.name', 'mem.fund.tagline', 'mem.fund.connect', 'mem.fund.connectText', 'mem.fund.find', 'mem.fund.findText', 'mem.fund.learn', 'mem.fund.learnText', 'mem.fund.visible', 'mem.fund.visibleText', 'mem.fund.early', 'mem.fund.discount', 'mem.fund.join']);
   assert.doesNotMatch(card, /Supporter|Supporting membership|mem\.p\d|mem\.proName|mem\.proCta|data-billing-price|data-billing-split/);
   const es = loadI18n('es'), pt = loadI18n('pt');
   for (const [key, en, esText, ptText] of [
     ['mem.fund.name', 'Founder Membership', 'Membresía Fundador', 'Membresia Fundador'],
     ['mem.fund.tagline', 'Supporting the community\'s growth', 'Apoyo al crecimiento de la comunidad', 'Apoio ao crescimento da comunidade'],
-    ['mem.fund.cta', 'Discover the Founder Membership', 'Conoce la Membresía Fundador', 'Conheça a Membresia Fundador'],
-    ['mem.fund.terms', 'Commercial terms (in Spanish)', 'Términos comerciales', 'Termos comerciais (em espanhol)'],
+    // The join page is "Nodal Fundadores", the name of the team's landing text; the membership it sells keeps its name.
+    ['mem.fund.join', 'Join Nodal Fundadores', 'Únete a Nodal Fundadores', 'Junte-se ao Nodal Fundadores'],
     // Early access starts when the first payment is approved (terms, section 8), not when it is made.
     ['mem.fund.early', 'Early access from the approval of your first payment until 31 December 2026', 'Acceso anticipado desde la aprobación de tu primer pago hasta el 31 de diciembre de 2026', 'Acesso antecipado desde a aprovação do primeiro pagamento até 31 de dezembro de 2026'],
   ]) {
@@ -160,20 +158,18 @@ test('the landing card is the Founder Membership: its name, what it supports, it
   for (const key of keys) for (const [lang, api] of [['es', es], ['pt', pt]]) assert.notEqual(api.t(key), key, `${key} in ${lang}`);
 });
 
-test('the binding terms are one link away from the public landing card in every state', () => {
+test('the card ends on its one button, always shown, to the public join page', () => {
   const html = read('web', 'pages', 'index.html');
   const card = html.slice(html.indexOf('<article class="plan plan-pro">'), html.indexOf('</article>', html.indexOf('<article class="plan plan-pro">')));
-  // Its own element, after the button app.js removes while checkout is closed; the page is public and in Spanish.
-  assert.match(card, /<\/a>\s*<a class="plan-terms" href="terminos-fundadores\.html" hreflang="es" data-i18n="mem\.fund\.terms">Commercial terms \(in Spanish\)<\/a>\s*$/);
-  assert.doesNotMatch(APP, /plan-terms|terminos-fundadores/, 'app.js never touches the terms link');
+  // No hidden attribute: the join page explains the offer in every state, and the terms are one link away from it.
+  assert.match(card, /<\/ul>\s*<a class="btn btn-primary" href="fundadores\.html" data-i18n="mem\.fund\.join">Join Nodal Fundadores<\/a>\s*$/);
+  assert.equal((card.match(/<a\b/g) || []).length, 1, 'one way in');
+  assert.doesNotMatch(card, /data-billing-cta|plan-terms|payments\.html|terminos-fundadores/);
+  assert.match(read('web', 'pages', 'fundadores.html'), /href="terminos-fundadores\.html"/);
 });
 
-test('the landing markup carries no price and ships the button hidden until checkout is confirmed', () => {
+test('the landing markup carries no price', () => {
   const html = read('web', 'pages', 'index.html');
-  // Hidden in the markup: without JavaScript, and while /api/billing/config is in flight, no button leads to a closed checkout.
-  assert.match(html, /<a class="btn btn-primary" href="payments\.html" data-billing-cta hidden data-i18n="mem\.fund\.cta">Discover the Founder Membership<\/a>/);
-  // .btn sets display, so the stylesheet must let the hidden attribute win.
-  assert.match(read('web', 'styles', 'styles.css'), /\.btn\[hidden\]\s*\{\s*display:\s*none;?\s*\}/);
   assert.doesNotMatch(html, /US\$\s?\d+|\$\s?\d+\s?(?:USD|\/)/);
   // The prices of the Founder Membership come from the server's terms version, never from the markup or the dictionaries,
   // and the landing card prints none of them.

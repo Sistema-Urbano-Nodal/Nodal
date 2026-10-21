@@ -22,10 +22,10 @@ test('rebuild removes stale scripts and server pages, preserves .gitkeep, and co
     await assert.rejects(access(path.join(output, file)), { code: 'ENOENT' });
   }
   assert.equal(await readFile(path.join(output, '.gitkeep'), 'utf8'), 'old output');
-  for (const file of ['i18n.js', 'locale.js', 'locale.css', 'styles.css', 'membership-terms.js', 'terms.css', 'assets/nodal-wordmark.webp', 'assets/fonts/montserrat-v31-latin-normal.woff2']) {
+  for (const file of ['i18n.js', 'locale.js', 'locale.css', 'styles.css', 'membership-terms.js', 'terms.css', 'fundadores.js', 'fundadores.css', 'assets/nodal-wordmark.webp', 'assets/latam-map.webp', 'assets/nodal-community.webp', 'assets/fonts/montserrat-v31-latin-normal.woff2']) {
     await access(path.join(output, file));
   }
-  assert.deepEqual((await readdir(output)).filter(file => file.endsWith('.html')).sort(), ['opportunities.html', 'privacy.html', 'terminos-fundadores.html']);
+  assert.deepEqual((await readdir(output)).filter(file => file.endsWith('.html')).sort(), ['fundadores.html', 'opportunities.html', 'privacy.html', 'terminos-fundadores.html']);
   assert.match(await readFile(path.join(output, 'opportunities.html'), 'utf8'), /data-pilot="true"/);
   const first = (await readdir(output)).sort();
   await buildStatic({ output, pilotMode: false });

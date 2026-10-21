@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<!-- The join page of the Membresía Fundador 2027. Spanish: the team's landing text of 21 Oct 2026, word for word
+     (tests/fundadores-page.test.js holds it). English and Portuguese: NODAL's translations. One <article> per language;
+     fundadores.css shows the one named by <html lang>, which locale.js and i18n.js set as on every other page. -->
+<html lang="es" translate="no">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta name="description" content="Súmate a Nodal con la Membresía Fundador 2027: un año para conectar, aprender y hacer crecer tus ideas, con acceso anticipado desde 2026. En un pago o en dos; todos los precios incluyen IGV.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cline x1='20' y1='22' x2='44' y2='42' stroke='%2359bc53' stroke-width='5'/%3E%3Ccircle cx='20' cy='22' r='11' fill='%233d5c38'/%3E%3Ccircle cx='44' cy='42' r='8' fill='%2359bc53'/%3E%3C/svg%3E">
+  <title>Nodal Fundadores · Membresía Fundador 2027</title>
+  <link rel="stylesheet" href="locale.css?v=20260929a">
+  <script src="locale.js?v=20261009a"></script>
+  <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="fonts.css?v=20260911b">
+  <link rel="stylesheet" href="styles.css?v=35">
+  <link rel="stylesheet" href="fundadores.css?v=20261021c">
+  <script defer src="nav.js?v=20261013b"></script>
+  <script defer src="i18n.js?v=20261021c"></script>
+  <script defer src="fundadores.js?v=20261021c"></script>
+</head>
+<body class="fund-page">
+  <a class="fund-skip" href="#contenido"><span data-fund-lang="es" lang="es">Ir al contenido</span><span data-fund-lang="en" lang="en">Skip to content</span><span data-fund-lang="pt" lang="pt">Ir para o conteúdo</span></a>
+  <header class="navbar" id="top">
+    <a class="brand" href="index.html" id="brand" title="NODAL"><svg class="brand-mark" viewBox="0 0 120 130" aria-hidden="true"><g fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><line x1="30" y1="18" x2="40" y2="72" /><line x1="66" y1="28" x2="40" y2="72" /><line x1="66" y1="28" x2="92" y2="60" /><line x1="92" y1="60" x2="74" y2="94" /><line x1="40" y1="72" x2="74" y2="94" /><line x1="74" y1="94" x2="44" y2="116" /></g><g fill="#fff"><circle cx="30" cy="18" r="6.5" /><circle cx="66" cy="28" r="7.5" /><circle cx="92" cy="60" r="5.5" /><circle cx="40" cy="72" r="12" /><circle cx="74" cy="94" r="10" /><circle cx="44" cy="116" r="6" /></g></svg><img class="brand-wordmark" src="assets/nodal-wordmark.webp" width="360" height="143" alt="NODAL · Nodos Urbanos de América Latina"></a>
+    <nav class="nav-main" aria-label="Main navigation" data-i18n-aria-label="nav.mainLabel"><a href="index.html#membership" data-i18n="nav.program">Programme</a><a href="community.html" data-i18n="nav.community">Community</a><a href="resources.html" data-i18n="nav.resources">Resources</a><a href="knowledge.html" data-i18n="nav.learn">Knowledge</a></nav>
+    <nav class="nav-account" aria-label="Account and language" data-i18n-aria-label="nav.accountLabel"><div class="lang-switch" role="group" aria-label="Language" data-i18n-aria-label="nav.languageLabel"><button type="button" class="lang-btn" data-lang="en" aria-label="English">EN</button><button type="button" class="lang-btn" data-lang="es" aria-label="Español">ES</button><button type="button" class="lang-btn" data-lang="pt" aria-label="Português">PT</button></div><a class="btn btn-pill btn-nav" href="dashboard.html" data-i18n="nav.panel">My console</a></nav>
+    <button type="button" class="nav-toggle" id="navToggle" aria-label="Menu" data-i18n-aria-label="nav.menuLabel"><span></span><span></span><span></span></button>
+  </header>
+
+  <main id="contenido">
+    <article class="fund-copy" data-fund-lang="es" lang="es">
+      <section class="fund-hero" aria-labelledby="es-titulo">
+        <img class="fund-map" src="assets/latam-map.webp" width="1953" height="2385" alt="">
+        <div class="wrap fund-hero-inner">
+          <p class="fund-kicker">Membresía Fundador 2027</p>
+          <h1 id="es-titulo">Las ciudades cambian cuando nos <mark>conectamos</mark></h1>
+          <p class="fund-lead">Súmate a Nodal y sé parte desde el comienzo.</p>
+          <div class="fund-intro">
+            <p>Si te apasionan las ciudades y quieres aportar a transformarlas, aquí puedes encontrar personas con quienes compartir ideas, aprender y dar el siguiente paso.</p>
+            <p>Nodal es una comunidad para conectar, colaborar y transformar nuestras ciudades desde el Urbanismo Colaborativo. Con tu Membresía Fundador accedes a conocimientos, herramientas y oportunidades para impulsar tu trabajo, y formas parte de la comunidad que está construyendo este espacio desde el inicio.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="fund-band fund-benefits" aria-labelledby="es-beneficios">
+        <div class="wrap">
+          <h2 class="fund-title" id="es-beneficios">Un año para conectar, aprender y hacer crecer tus ideas</h2>
+          <ul class="fund-benefit-list">
+            <li><h3>Conecta con personas que comparten tus intereses.</h3><p>Amplía tu red, participa en espacios de encuentro y descubre posibles colaboraciones a través de conexiones e introducciones curadas.</p></li>
+            <li><h3>Encuentra oportunidades para dar el siguiente paso.</h3><p>Explora convocatorias, empleos, fondos y otras oportunidades seleccionadas para la comunidad.</p></li>
+            <li><h3>Sigue aprendiendo.</h3><p>Tu membresía incluye un curso y una masterclass durante 2027, además de acceso a la biblioteca y los recursos de Nodal. También tienes 20% de descuento en cursos y masterclasses adicionales, no acumulable con otras promociones o tarifas especiales; se aplica la tarifa más favorable.</p></li>
+            <li><h3>Haz visible lo que haces.</h3><p>Comparte tu experiencia, proyectos y contribuciones con un perfil ampliado y oportunidades de difusión vinculadas a tu participación.</p></li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="fund-band fund-early" aria-labelledby="es-antes">
+        <div class="wrap fund-split">
+          <h2 class="fund-title" id="es-antes">Entra antes y ayúdanos a darle forma a Nodal</h2>
+          <div class="fund-prose">
+            <p>Al sumarte durante 2026, accedes a la plataforma desde la aprobación de tu primer pago, sin costo adicional hasta el 31 de diciembre.</p>
+            <p>Este acceso anticipado es también una invitación a construir juntos: explora la plataforma, prueba sus herramientas y comparte qué te resulta útil, qué mejorarías y qué te gustaría encontrar. Tus ideas y tu experiencia contribuirán a darle forma a Nodal para que responda mejor a las necesidades de su comunidad.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="fund-band fund-founder" aria-labelledby="es-historia">
+        <div class="wrap fund-split">
+          <div class="fund-founder-head">
+            <h2 class="fund-title" id="es-historia">Tu lugar en la historia de Nodal</h2>
+            <div class="fund-badge" aria-hidden="true"><svg class="fund-badge-mark" viewBox="0 0 120 130" focusable="false"><g fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"><line x1="30" y1="18" x2="40" y2="72" /><line x1="66" y1="28" x2="40" y2="72" /><line x1="66" y1="28" x2="92" y2="60" /><line x1="92" y1="60" x2="74" y2="94" /><line x1="40" y1="72" x2="74" y2="94" /><line x1="74" y1="94" x2="44" y2="116" /></g><g fill="currentColor"><circle cx="30" cy="18" r="10" /><circle cx="66" cy="28" r="11" /><circle cx="92" cy="60" r="9" /><circle cx="40" cy="72" r="16" /><circle cx="74" cy="94" r="14" /><circle cx="44" cy="116" r="9.5" /></g></svg><span>Founder</span></div>
+          </div>
+          <div class="fund-prose">
+            <p class="fund-say">Ser Fundador es estar desde el comienzo y aportar a lo que viene.</p>
+            <p>Al sumarte, recibirás el badge Founder, una insignia que permanecerá en tu perfil como reconocimiento por haber sido parte de la comunidad fundadora. Aunque en el futuro decidas no renovar tu membresía, conservarás esta distinción mientras mantengas tu cuenta en Nodal.</p>
+            <p>La insignia reconoce tu historia en la comunidad. Los beneficios de pago y el descuento de renovación dependen de que mantengas activa tu membresía conforme a sus condiciones.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="fund-band fund-price" id="es-precio" aria-labelledby="es-precio-titulo">
+        <div class="wrap">
+          <h2 class="fund-title" id="es-precio-titulo">Todo un año, desde el equivalente a S/41.58 al mes</h2>
+          <p class="fund-price-intro" id="es-modalidades">La Membresía Fundador 2027 es anual y puedes pagarla en una o dos partes:</p>
+          <table class="fund-table" role="table" aria-labelledby="es-modalidades">
+            <thead role="rowgroup"><tr role="row"><th scope="col" role="columnheader">Modalidad</th><th scope="col" role="columnheader">¿Cómo pagas?</th><th scope="col" role="columnheader">Equivalente mensual*</th></tr></thead>
+            <tbody role="rowgroup">
+              <tr role="row"><th scope="row" role="rowheader"><span class="fund-option">Pago único:</span> <span class="fund-amount">S/499</span></th><td role="cell" data-label="¿Cómo pagas?">Un solo pago al inscribirte.</td><td role="cell" class="fund-monthly" data-label="Equivalente mensual*">S/41.58 al mes</td></tr>
+              <tr role="row"><th scope="row" role="rowheader"><span class="fund-option">Pago dividido:</span> <span class="fund-amount">S/550</span> <span class="fund-total">en total</span></th><td role="cell" data-label="¿Cómo pagas?">S/275 al inscribirte y S/275 automáticamente dos meses calendario después de la aprobación del primer pago.</td><td role="cell" class="fund-monthly" data-label="Equivalente mensual*">S/45.83 al mes</td></tr>
+            </tbody>
+          </table>
+          <p class="fund-same">Los mismos beneficios en ambas opciones. Todos los precios incluyen IGV.</p>
+          <p class="fund-note">El equivalente mensual resulta de dividir el precio total entre los 12 meses de membresía y está redondeado a dos decimales. Es una referencia del costo: no se realizan cobros mensuales.</p>
+        </div>
+      </section>
+
+      <section class="fund-band fund-year" aria-labelledby="es-2027">
+        <div class="wrap fund-split">
+          <h2 class="fund-title" id="es-2027">Empieza a explorar hoy. Disfruta de tu membresía durante todo 2027.</h2>
+          <div class="fund-prose">
+            <p>Tu membresía anual estará vigente del 1 de enero al 31 de diciembre de 2027, además del acceso anticipado que recibes al sumarte en 2026.</p>
+            <p>El curso y la masterclass incluidos se habilitan desde el primer pago: no necesitas completar el segundo para acceder a ellos. Las actividades se realizarán durante 2027, según programación y disponibilidad de cupos, y debes mantener tu membresía al día.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="cta-band fund-join" aria-labelledby="es-unete">
+        <div class="wrap">
+          <h2 id="es-unete">Trae tus ideas, tu experiencia y tus ganas de colaborar. Construyamos juntos nuevas posibilidades para nuestras ciudades.</h2>
+          <div class="fund-action">
+            <a class="btn btn-primary btn-lg" href="payments.html" data-fund-join hidden>Quiero ser parte de Nodal</a>
+            <p class="fund-state" data-fund-state="es" hidden></p>
+          </div>
+        </div>
+      </section>
+
+      <div class="fund-fine">
+        <div class="wrap">
+          <p>Oferta disponible para quienes se inscriban y tengan su primer pago aprobado hasta el 31 de diciembre de 2026.</p>
+          <p>Tu membresía tiene renovación automática el 1 de enero de 2028, salvo que solicites su no renovación antes de esa fecha. Mientras conserves activa tu condición de Fundador, tendrás 5% de descuento sobre la tarifa regular vigente de tu modalidad. Antes de la renovación te informaremos el precio y las fechas de cobro.</p>
+          <a class="link-arrow fund-terms" href="terminos-fundadores.html" hreflang="es">Conoce los términos y condiciones de la Membresía Fundador</a>
+        </div>
+      </div>
+    </article>
+
+    <article class="fund-copy" data-fund-lang="en" lang="en">
+      <section class="fund-hero" aria-labelledby="en-titulo">
+        <img class="fund-map" src="assets/latam-map.webp" width="1953" height="2385" alt="">
+        <div class="wrap fund-hero-inner">
+          <p class="fund-kicker">Founder Membership 2027</p>
+          <h1 id="en-titulo">Cities change when we <mark>connect</mark></h1>
+          <p class="fund-lead">Join Nodal and be part of it from the very beginning.</p>
+          <div class="fund-intro">
+            <p>If you are passionate about cities and want to help transform them, here you can find people to share ideas with, learn with and take the next step.</p>
+            <p>Nodal is a community for connecting, collaborating and transforming our cities through Collaborative Urbanism. With your Founder Membership you get knowledge, tools and opportunities to drive your work forward, and you become part of the community that is building this space from the start.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="fund-band fund-benefits" aria-labelledby="en-beneficios">
+        <div class="wrap">
+          <h2 class="fund-title" id="en-beneficios">A year to connect, learn and grow your ideas</h2>
+          <ul class="fund-benefit-list">
+            <li><h3>Connect with people who share your interests.</h3><p>Widen your network, take part in gatherings and discover possible collaborations through curated connections and introductions.</p></li>
+            <li><h3>Find opportunities to take the next step.</h3><p>Explore open calls, jobs, funding and other opportunities selected for the community.</p></li>
+            <li><h3>Keep learning.</h3><p>Your membership includes one course and one masterclass during 2027, as well as access to the Nodal library and resources. You also get 20% off additional courses and masterclasses, not combinable with other promotions or special rates; the most favourable rate applies.</p></li>
+            <li><h3>Make what you do visible.</h3><p>Share your experience, projects and contributions with an expanded profile and opportunities to showcase your work linked to your participation.</p></li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="fund-band fund-early" aria-labelledby="en-antes">
+        <div class="wrap fund-split">
+          <h2 class="fund-title" id="en-antes">Come in early and help us shape Nodal</h2>
+          <div class="fund-prose">
+            <p>When you join during 2026, you can use the platform from the approval of your first payment, at no extra cost, until 31 December.</p>
+            <p>This early access is also an invitation to build together: explore the platform, try its tools and tell us what you find useful, what you would improve and what you would like to find. Your ideas and your experience will help shape Nodal so that it better meets the needs of its community.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="fund-band fund-founder" aria-labelledby="en-historia">
+        <div class="wrap fund-split">
+          <div class="fund-founder-head">
+            <h2 class="fund-title" id="en-historia">Your place in Nodal's story</h2>
+            <div class="fund-badge" aria-hidden="true"><svg class="fund-badge-mark" viewBox="0 0 120 130" focusable="false"><g fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"><line x1="30" y1="18" x2="40" y2="72" /><line x1="66" y1="28" x2="40" y2="72" /><line x1="66" y1="28" x2="92" y2="60" /><line x1="92" y1="60" x2="74" y2="94" /><line x1="40" y1="72" x2="74" y2="94" /><line x1="74" y1="94" x2="44" y2="116" /></g><g fill="currentColor"><circle cx="30" cy="18" r="10" /><circle cx="66" cy="28" r="11" /><circle cx="92" cy="60" r="9" /><circle cx="40" cy="72" r="16" /><circle cx="74" cy="94" r="14" /><circle cx="44" cy="116" r="9.5" /></g></svg><span>Founder</span></div>
+          </div>
+          <div class="fund-prose">
+            <p class="fund-say">Being a Founder means being there from the start and contributing to what comes next.</p>
+            <p>When you join, you will receive the Founder badge, a mark that will stay on your profile in recognition of having been part of the founding community. Even if you later decide not to renew your membership, you will keep this distinction for as long as you keep your Nodal account.</p>
+            <p>The badge recognises your history in the community. The paid benefits and the renewal discount depend on keeping your membership active under its conditions.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="fund-band fund-price" id="en-precio" aria-labelledby="en-precio-titulo">
+        <div class="wrap">
+          <h2 class="fund-title" id="en-precio-titulo">A whole year, from the equivalent of S/41.58 a month</h2>
+          <p class="fund-price-intro" id="en-modalidades">The Founder Membership 2027 is annual, and you can pay for it in one or two parts:</p>
+          <table class="fund-table" role="table" aria-labelledby="en-modalidades">
+            <thead role="rowgroup"><tr role="row"><th scope="col" role="columnheader">Option</th><th scope="col" role="columnheader">How do you pay?</th><th scope="col" role="columnheader">Monthly equivalent*</th></tr></thead>
+            <tbody role="rowgroup">
+              <tr role="row"><th scope="row" role="rowheader"><span class="fund-option">Single payment:</span> <span class="fund-amount">S/499</span></th><td role="cell" data-label="How do you pay?">One payment when you sign up.</td><td role="cell" class="fund-monthly" data-label="Monthly equivalent*">S/41.58 a month</td></tr>
+              <tr role="row"><th scope="row" role="rowheader"><span class="fund-option">Split payment:</span> <span class="fund-amount">S/550</span> <span class="fund-total">in total</span></th><td role="cell" data-label="How do you pay?">S/275 when you sign up and S/275 automatically two calendar months after your first payment is approved.</td><td role="cell" class="fund-monthly" data-label="Monthly equivalent*">S/45.83 a month</td></tr>
+            </tbody>
+          </table>
+          <p class="fund-same">The same benefits with either option. All prices include IGV.</p>
+          <p class="fund-note">The monthly equivalent is the total price divided by the 12 months of membership, rounded to two decimal places. It is a reference for the cost: no monthly charges are made.</p>
+        </div>
+      </section>
+
+      <section class="fund-band fund-year" aria-labelledby="en-2027">
+        <div class="wrap fund-split">
+          <h2 class="fund-title" id="en-2027">Start exploring today. Enjoy your membership throughout 2027.</h2>
+          <div class="fund-prose">
+            <p>Your annual membership runs from 1 January to 31 December 2027, in addition to the early access you get when you join in 2026.</p>
+            <p>The included course and masterclass are unlocked from your first payment: you do not need to complete the second one to access them. The activities will take place during 2027, subject to scheduling and available places, and you must keep your membership up to date.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="cta-band fund-join" aria-labelledby="en-unete">
+        <div class="wrap">
+          <h2 id="en-unete">Bring your ideas, your experience and your eagerness to collaborate. Let's build new possibilities for our cities together.</h2>
+          <div class="fund-action">
+            <a class="btn btn-primary btn-lg" href="payments.html" data-fund-join hidden>I want to be part of Nodal</a>
+            <p class="fund-state" data-fund-state="en" hidden></p>
+          </div>
+        </div>
+      </section>
+
+      <div class="fund-fine">
+        <div class="wrap">
+          <p>Offer available to those who sign up and have their first payment approved by 31 December 2026.</p>
+          <p>Your membership renews automatically on 1 January 2028, unless you ask for it not to be renewed before that date. As long as you keep your Founder status active, you will get 5% off the regular rate then in force for your payment option. Before the renewal we will let you know the price and the payment dates.</p>
+          <a class="link-arrow fund-terms" href="terminos-fundadores.html" hreflang="es">Read the Founder Membership terms and conditions (in Spanish)</a>
+        </div>
+      </div>
+    </article>
+
+    <article class="fund-copy" data-fund-lang="pt" lang="pt">
+      <section class="fund-hero" aria-labelledby="pt-titulo">
+        <img class="fund-map" src="assets/latam-map.webp" width="1953" height="2385" alt="">
+        <div class="wrap fund-hero-inner">
+          <p class="fund-kicker">Membresia Fundador 2027</p>
+          <h1 id="pt-titulo">As cidades mudam quando nos <mark>conectamos</mark></h1>
+          <p class="fund-lead">Junte-se à Nodal e faça parte desde o começo.</p>
+          <div class="fund-intro">
+            <p>Se as cidades são a sua paixão e você quer contribuir para transformá-las, aqui você encontra pessoas com quem compartilhar ideias, aprender e dar o próximo passo.</p>
+            <p>A Nodal é uma comunidade para conectar, colaborar e transformar nossas cidades a partir do Urbanismo Colaborativo. Com a sua Membresia Fundador, você tem acesso a conhecimentos, ferramentas e oportunidades para impulsionar o seu trabalho e faz parte da comunidade que está construindo este espaço desde o início.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="fund-band fund-benefits" aria-labelledby="pt-beneficios">
+        <div class="wrap">
+          <h2 class="fund-title" id="pt-beneficios">Um ano para conectar, aprender e fazer as suas ideias crescerem</h2>
+          <ul class="fund-benefit-list">
+            <li><h3>Conecte-se com pessoas que compartilham os seus interesses.</h3><p>Amplie a sua rede, participe de espaços de encontro e descubra possíveis colaborações por meio de conexões e apresentações com curadoria.</p></li>
+            <li><h3>Encontre oportunidades para dar o próximo passo.</h3><p>Explore editais, vagas, fundos e outras oportunidades selecionadas para a comunidade.</p></li>
+            <li><h3>Continue aprendendo.</h3><p>A sua membresia inclui um curso e uma masterclass durante 2027, além de acesso à biblioteca e aos recursos da Nodal. Você também tem 20% de desconto em cursos e masterclasses adicionais, não cumulativo com outras promoções ou tarifas especiais; aplica-se a tarifa mais favorável.</p></li>
+            <li><h3>Dê visibilidade ao que você faz.</h3><p>Compartilhe a sua experiência, projetos e contribuições com um perfil ampliado e oportunidades de divulgação ligadas à sua participação.</p></li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="fund-band fund-early" aria-labelledby="pt-antes">
+        <div class="wrap fund-split">
+          <h2 class="fund-title" id="pt-antes">Entre antes e ajude a dar forma à Nodal</h2>
+          <div class="fund-prose">
+            <p>Ao entrar durante 2026, você acessa a plataforma desde a aprovação do seu primeiro pagamento, sem custo adicional, até 31 de dezembro.</p>
+            <p>Este acesso antecipado também é um convite para construirmos juntos: explore a plataforma, teste as suas ferramentas e conte o que é útil para você, o que você melhoraria e o que gostaria de encontrar. As suas ideias e a sua experiência vão ajudar a dar forma à Nodal, para que ela responda melhor às necessidades da sua comunidade.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="fund-band fund-founder" aria-labelledby="pt-historia">
+        <div class="wrap fund-split">
+          <div class="fund-founder-head">
+            <h2 class="fund-title" id="pt-historia">O seu lugar na história da Nodal</h2>
+            <div class="fund-badge" aria-hidden="true"><svg class="fund-badge-mark" viewBox="0 0 120 130" focusable="false"><g fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"><line x1="30" y1="18" x2="40" y2="72" /><line x1="66" y1="28" x2="40" y2="72" /><line x1="66" y1="28" x2="92" y2="60" /><line x1="92" y1="60" x2="74" y2="94" /><line x1="40" y1="72" x2="74" y2="94" /><line x1="74" y1="94" x2="44" y2="116" /></g><g fill="currentColor"><circle cx="30" cy="18" r="10" /><circle cx="66" cy="28" r="11" /><circle cx="92" cy="60" r="9" /><circle cx="40" cy="72" r="16" /><circle cx="74" cy="94" r="14" /><circle cx="44" cy="116" r="9.5" /></g></svg><span>Founder</span></div>
+          </div>
+          <div class="fund-prose">
+            <p class="fund-say">Ser Fundador é estar presente desde o começo e contribuir para o que vem pela frente.</p>
+            <p>Ao entrar, você recebe o badge Founder, uma insígnia que ficará no seu perfil como reconhecimento por ter feito parte da comunidade fundadora. Mesmo que no futuro você decida não renovar a sua membresia, manterá essa distinção enquanto mantiver a sua conta na Nodal.</p>
+            <p>A insígnia reconhece a sua história na comunidade. Os benefícios pagos e o desconto de renovação dependem de você manter a sua membresia ativa conforme as suas condições.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="fund-band fund-price" id="pt-precio" aria-labelledby="pt-precio-titulo">
+        <div class="wrap">
+          <h2 class="fund-title" id="pt-precio-titulo">Um ano inteiro, a partir do equivalente a S/41.58 por mês</h2>
+          <p class="fund-price-intro" id="pt-modalidades">A Membresia Fundador 2027 é anual e você pode pagá-la em uma ou duas partes:</p>
+          <table class="fund-table" role="table" aria-labelledby="pt-modalidades">
+            <thead role="rowgroup"><tr role="row"><th scope="col" role="columnheader">Modalidade</th><th scope="col" role="columnheader">Como você paga?</th><th scope="col" role="columnheader">Equivalente mensal*</th></tr></thead>
+            <tbody role="rowgroup">
+              <tr role="row"><th scope="row" role="rowheader"><span class="fund-option">Pagamento único:</span> <span class="fund-amount">S/499</span></th><td role="cell" data-label="Como você paga?">Um só pagamento ao se inscrever.</td><td role="cell" class="fund-monthly" data-label="Equivalente mensal*">S/41.58 por mês</td></tr>
+              <tr role="row"><th scope="row" role="rowheader"><span class="fund-option">Pagamento dividido:</span> <span class="fund-amount">S/550</span> <span class="fund-total">no total</span></th><td role="cell" data-label="Como você paga?">S/275 ao se inscrever e S/275 automaticamente dois meses-calendário após a aprovação do primeiro pagamento.</td><td role="cell" class="fund-monthly" data-label="Equivalente mensal*">S/45.83 por mês</td></tr>
+            </tbody>
+          </table>
+          <p class="fund-same">Os mesmos benefícios nas duas opções. Todos os preços incluem IGV.</p>
+          <p class="fund-note">O equivalente mensal resulta da divisão do preço total pelos 12 meses de membresia e é arredondado para duas casas decimais. É uma referência do custo: não são feitas cobranças mensais.</p>
+        </div>
+      </section>
+
+      <section class="fund-band fund-year" aria-labelledby="pt-2027">
+        <div class="wrap fund-split">
+          <h2 class="fund-title" id="pt-2027">Comece a explorar hoje. Aproveite a sua membresia durante todo o ano de 2027.</h2>
+          <div class="fund-prose">
+            <p>A sua membresia anual estará vigente de 1º de janeiro a 31 de dezembro de 2027, além do acesso antecipado que você recebe ao entrar em 2026.</p>
+            <p>O curso e a masterclass incluídos são liberados a partir do primeiro pagamento: você não precisa completar o segundo para acessá-los. As atividades acontecerão durante 2027, conforme a programação e a disponibilidade de vagas, e você deve manter a sua membresia em dia.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="cta-band fund-join" aria-labelledby="pt-unete">
+        <div class="wrap">
+          <h2 id="pt-unete">Traga as suas ideias, a sua experiência e a sua vontade de colaborar. Vamos construir juntos novas possibilidades para as nossas cidades.</h2>
+          <div class="fund-action">
+            <a class="btn btn-primary btn-lg" href="payments.html" data-fund-join hidden>Quero fazer parte da Nodal</a>
+            <p class="fund-state" data-fund-state="pt" hidden></p>
+          </div>
+        </div>
+      </section>
+
+      <div class="fund-fine">
+        <div class="wrap">
+          <p>Oferta disponível para quem se inscrever e tiver o primeiro pagamento aprovado até 31 de dezembro de 2026.</p>
+          <p>A sua membresia tem renovação automática em 1º de janeiro de 2028, a menos que você solicite a não renovação antes dessa data. Enquanto mantiver ativa a sua condição de Fundador, você terá 5% de desconto sobre a tarifa regular vigente da sua modalidade. Antes da renovação, informaremos o preço e as datas de cobrança.</p>
+          <a class="link-arrow fund-terms" href="terminos-fundadores.html" hreflang="es">Conheça os termos e condições da Membresia Fundador (em espanhol)</a>
+        </div>
+      </div>
+    </article>
+  </main>
+
+  <footer class="footer" id="contact">
+    <div class="footer-blob" aria-hidden="true"></div>
+    <div class="footer-top"></div>
+    <div class="footer-bottom">
+      <div class="wrap">
+        <h2 data-i18n="foot.touch">Let's talk</h2>
+        <p class="footer-rights" data-i18n="foot.rights">2026 All Rights Reserved</p>
+        <a class="footer-email" href="mailto:fmuro@sistemaurbano.org">fmuro@sistemaurbano.org</a>
+        <span> | </span>
+        <a class="footer-email" href="mailto:malegre@sistemaurbano.org">malegre@sistemaurbano.org</a>
+        <a class="footer-old" href="https://sistemaurbano.org/nodal/" target="_blank" rel="noopener noreferrer" data-i18n="foot.old">NODAL at Sistema Urbano ↗</a>
+        <a class="footer-old" href="privacy.html" data-i18n="nav.privacy">Privacy policy</a>
+        <div class="footer-divider"></div>
+        <nav class="socials" aria-label="NODAL · Sistema Urbano · FIIU Fest">
+<a href="https://www.instagram.com/nodal.urbano/" target="_blank" rel="noopener noreferrer" aria-label="NODAL · Instagram" title="NODAL · Instagram"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc. --><path fill="currentColor" d="M224.3 141a115 115 0 1 0 -.6 230 115 115 0 1 0 .6-230zm-.6 40.4a74.6 74.6 0 1 1 .6 149.2 74.6 74.6 0 1 1 -.6-149.2zm93.4-45.1a26.8 26.8 0 1 1 53.6 0 26.8 26.8 0 1 1 -53.6 0zm129.7 27.2c-1.7-35.9-9.9-67.7-36.2-93.9-26.2-26.2-58-34.4-93.9-36.2-37-2.1-147.9-2.1-184.9 0-35.8 1.7-67.6 9.9-93.9 36.1s-34.4 58-36.2 93.9c-2.1 37-2.1 147.9 0 184.9 1.7 35.9 9.9 67.7 36.2 93.9s58 34.4 93.9 36.2c37 2.1 147.9 2.1 184.9 0 35.9-1.7 67.7-9.9 93.9-36.2 26.2-26.2 34.4-58 36.2-93.9 2.1-37 2.1-147.8 0-184.8zM399 388c-7.8 19.6-22.9 34.7-42.6 42.6-29.5 11.7-99.5 9-132.1 9s-102.7 2.6-132.1-9c-19.6-7.8-34.7-22.9-42.6-42.6-11.7-29.5-9-99.5-9-132.1s-2.6-102.7 9-132.1c7.8-19.6 22.9-34.7 42.6-42.6 29.5-11.7 99.5-9 132.1-9s102.7-2.6 132.1 9c19.6 7.8 34.7 22.9 42.6 42.6 11.7 29.5 9 99.5 9 132.1s2.7 102.7-9 132.1z"/></svg></a>
+<a href="https://www.linkedin.com/company/sistema-urbano/" target="_blank" rel="noopener noreferrer" aria-label="Sistema Urbano · LinkedIn" title="Sistema Urbano · LinkedIn"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc. --><path fill="currentColor" d="M100.3 448l-92.9 0 0-299.1 92.9 0 0 299.1zM53.8 108.1C24.1 108.1 0 83.5 0 53.8 0 39.5 5.7 25.9 15.8 15.8s23.8-15.8 38-15.8 27.9 5.7 38 15.8 15.8 23.8 15.8 38c0 29.7-24.1 54.3-53.8 54.3zM447.9 448l-92.7 0 0-145.6c0-34.7-.7-79.2-48.3-79.2-48.3 0-55.7 37.7-55.7 76.7l0 148.1-92.8 0 0-299.1 89.1 0 0 40.8 1.3 0c12.4-23.5 42.7-48.3 87.9-48.3 94 0 111.3 61.9 111.3 142.3l0 164.3-.1 0z"/></svg></a>
+<a href="https://www.instagram.com/fiiufest/" target="_blank" rel="noopener noreferrer" aria-label="FIIU Fest · Instagram" title="FIIU Fest · Instagram"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc. --><path fill="currentColor" d="M224.3 141a115 115 0 1 0 -.6 230 115 115 0 1 0 .6-230zm-.6 40.4a74.6 74.6 0 1 1 .6 149.2 74.6 74.6 0 1 1 -.6-149.2zm93.4-45.1a26.8 26.8 0 1 1 53.6 0 26.8 26.8 0 1 1 -53.6 0zm129.7 27.2c-1.7-35.9-9.9-67.7-36.2-93.9-26.2-26.2-58-34.4-93.9-36.2-37-2.1-147.9-2.1-184.9 0-35.8 1.7-67.6 9.9-93.9 36.1s-34.4 58-36.2 93.9c-2.1 37-2.1 147.9 0 184.9 1.7 35.9 9.9 67.7 36.2 93.9s58 34.4 93.9 36.2c37 2.1 147.9 2.1 184.9 0 35.9-1.7 67.7-9.9 93.9-36.2 26.2-26.2 34.4-58 36.2-93.9 2.1-37 2.1-147.8 0-184.8zM399 388c-7.8 19.6-22.9 34.7-42.6 42.6-29.5 11.7-99.5 9-132.1 9s-102.7 2.6-132.1-9c-19.6-7.8-34.7-22.9-42.6-42.6-11.7-29.5-9-99.5-9-132.1s-2.6-102.7 9-132.1c7.8-19.6 22.9-34.7 42.6-42.6 29.5-11.7 99.5-9 132.1-9s102.7-2.6 132.1 9c19.6 7.8 34.7 22.9 42.6 42.6 11.7 29.5 9 99.5 9 132.1s2.7 102.7-9 132.1z"/></svg></a>
+<a href="https://www.tiktok.com/@fiiu.fest" target="_blank" rel="noopener noreferrer" aria-label="FIIU Fest · TikTok" title="FIIU Fest · TikTok"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc. --><path fill="currentColor" d="M448.5 209.9c-44 .1-87-13.6-122.8-39.2l0 178.7c0 33.1-10.1 65.4-29 92.6s-45.6 48-76.6 59.6-64.8 13.5-96.9 5.3-60.9-25.9-82.7-50.8-35.3-56-39-88.9 2.9-66.1 18.6-95.2 40-52.7 69.6-67.7 62.9-20.5 95.7-16l0 89.9c-15-4.7-31.1-4.6-46 .4s-27.9 14.6-37 27.3-14 28.1-13.9 43.9 5.2 31 14.5 43.7 22.4 22.1 37.4 26.9 31.1 4.8 46-.1 28-14.4 37.2-27.1 14.2-28.1 14.2-43.8l0-349.4 88 0c-.1 7.4 .6 14.9 1.9 22.2 3.1 16.3 9.4 31.9 18.7 45.7s21.3 25.6 35.2 34.6c19.9 13.1 43.2 20.1 67 20.1l0 87.4z"/></svg></a>
+<a href="https://www.youtube.com/channel/UCz3iDE0KDuBl4SfPs2ge2ow" target="_blank" rel="noopener noreferrer" aria-label="FIIU Fest · YouTube" title="FIIU Fest · YouTube"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc. --><path fill="currentColor" d="M549.7 124.1C543.5 100.4 524.9 81.8 501.4 75.5 458.9 64 288.1 64 288.1 64S117.3 64 74.7 75.5C51.2 81.8 32.7 100.4 26.4 124.1 15 167 15 256.4 15 256.4s0 89.4 11.4 132.3c6.3 23.6 24.8 41.5 48.3 47.8 42.6 11.5 213.4 11.5 213.4 11.5s170.8 0 213.4-11.5c23.5-6.3 42-24.2 48.3-47.8 11.4-42.9 11.4-132.3 11.4-132.3s0-89.4-11.4-132.3zM232.2 337.6l0-162.4 142.7 81.2-142.7 81.2z"/></svg></a>
+<a href="https://twitter.com/fiiufest" target="_blank" rel="noopener noreferrer" aria-label="FIIU Fest · X" title="FIIU Fest · X"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc. --><path fill="currentColor" d="M357.2 48L427.8 48 273.6 224.2 455 464 313 464 201.7 318.6 74.5 464 3.8 464 168.7 275.5-5.2 48 140.4 48 240.9 180.9 357.2 48zM332.4 421.8l39.1 0-252.4-333.8-42 0 255.3 333.8z"/></svg></a>
+</nav>
+      </div>
+    </div>
+    <img class="footer-illu" src="assets/nodal-community.webp" width="1061" height="1001" loading="lazy" alt="">
+  </footer>
+</body>
+</html>

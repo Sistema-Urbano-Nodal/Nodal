@@ -489,17 +489,22 @@ npm start
 13. Confirm the membership state matches the Mercado Pago and contact settings.
     In every state the landing card shows the Membresía Fundador (Founder
     Membership), the line "Apoyo al crecimiento de la comunidad" ("Supporting
-    the community's growth"), its benefits and the link to the commercial
-    terms, and never a price. With no `MERCADOPAGO_LINK_*`, or without both
+    the community's growth"), its benefits and its button "Únete a Nodal
+    Fundadores" to the public join page `/fundadores.html`, and never a price.
+    The join page (served signed out, from the CDN) carries the team's text,
+    the two ways to pay with their amounts, and the link to the commercial
+    terms. With no `MERCADOPAGO_LINK_*`, or without both
     `MEMBERSHIP_CONTACT_EMAIL` and `MEMBERSHIP_COMPLAINTS_URL`,
     `/api/billing/config` returns `"state": "soon"`, `"checkout": false` and
-    `Soon`, the card has no button, and in the pilot `/payments.html` redirects
+    `Soon`, the card says "Las inscripciones abren pronto", the join page has
+    no button and says the same, and in the pilot `/payments.html` redirects
     to `/courses.html`. With a link and the contact set, from 21 Oct 2026
     (Lima) it returns `"state": "open"`, `"checkout": true` and S/ 499 (no link
-    in the answer), the card shows its button to the payments page ("Conoce la
-    Membresía Fundador"), and `/payments.html` opens; before that date it stays
-    `"soon"`. From 1 Jan 2027 (Lima) it returns `"state": "ended"`, and the
-    card says "Oferta cerrada" ("Offer closed") with no button.
+    in the answer), the join page shows its button to the payments page
+    ("Quiero ser parte de Nodal"), and `/payments.html` opens; before that date
+    it stays `"soon"`. From 1 Jan 2027 (Lima) it returns `"state": "ended"`,
+    the card says "Oferta cerrada" ("Offer closed"), and the join page has no
+    button and says the offer closed on 31 December 2026.
 14. Confirm `/api/news` returns 200, and that `/fiiu-qr.html` and
     `/fiiu-admin.html` show "Organisers only" (status 403) to a member account
     and the real pages to an administrator.
@@ -813,7 +818,9 @@ the session, sets no cookie and is cached by the CDN for 5 minutes
   the URL language is used when the visitor has not saved a preference.
 - Membership **prices** are the terms version's (`server/membership-offer.js`:
   S/ 499, or 2 × S/ 275), the same in every language, and are shown only on the
-  payments page, next to an option whose Mercado Pago link can take the payment;
+  payments page, next to an option whose Mercado Pago link can take the payment,
+  and on the join page (`/fundadores.html`), which explains them before sign-ups
+  open (tests/fundadores-page.test.js ties its amounts to the terms version);
   the landing card never shows one. Until sign-ups open, the payments page says
   so in each language ("Las inscripciones abren pronto").
 
