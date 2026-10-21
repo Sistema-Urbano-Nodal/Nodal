@@ -28,7 +28,7 @@
     choiceOnce: 'payChoiceOnce', choiceInstallments: 'payChoiceInstallments', radioOnce: 'payOptionOnce', radioInstallments: 'payOptionInstallments',
     onceAmount: 'payOnceAmount', installmentsTotal: 'payInstallmentsTotal', installmentsText: 'payInstallmentsText',
     terms: 'payAcceptTerms', payment: 'payAcceptPayment', renewal: 'payAcceptRenewal', paymentRow: 'payPaymentRow', paymentText: 'payPaymentText', paymentHint: 'payPaymentHint',
-    email: 'payEmail', emailStep: 'payEmailStep', submit: 'payContinue', hint: 'payHint', status: 'payStatus', retry: 'payRetry',
+    email: 'payEmail', emailStep: 'payEmailStep', submit: 'payContinue', hint: 'payHint', status: 'payStatus', retry: 'payRetry', choices: 'payChoices',
     seller: 'paySellerName', ruc: 'paySellerRuc', address: 'paySellerAddress', contact: 'payContactEmail', contactPending: 'payContactPending', complaints: 'payComplaints', complaintsPending: 'payComplaintsPending',
   };
   const els = Object.fromEntries(Object.entries(IDS).map(([name, id]) => [name, document.getElementById(id)]));
@@ -39,7 +39,10 @@
   // Every acceptance is ticked on the visit that sends it: never one a browser brings back from an earlier visit.
   const untick = () => { for (const input of [...boxes, ...Object.values(radio)]) input.checked = false; };
 
-  let offer = nothing('loading'), notice = '', busy = false;
+  // The messages that say something went wrong; the others say what is happening.
+  const ERRORS = new Set(['y.fund.error', 'y.fund.tooMany', 'y.fund.unavailable']);
+  // leaving: the fallback armed once the page should be on its way to Mercado Pago (see the submit handler).
+  let offer = nothing('loading'), notice = '', busy = false, leaving = null;
 
   // What the page may sell from an answer: only this page's terms version, with an offered option and both contact details.
   function read(data) {
@@ -63,6 +66,8 @@
     const ready = offer.state === 'open' && Boolean(chosen()) && boxes.every((box) => box.checked);
     els.submit.disabled = busy || !ready;
     els.hint.hidden = ready;
+    // The hint describes the button only while it shows.
+    if (ready) els.submit.removeAttribute('aria-describedby'); else els.submit.setAttribute('aria-describedby', els.hint.id);
   }
 
   function render() {
@@ -93,11 +98,25 @@
     // '%' is the only character EMAIL allows that a mailto: URL would read as an escape (RFC 6068).
     if (contact) { els.contact.href = `mailto:${contact.email.replace(/%/g, '%25')}`; els.contact.textContent = contact.email; els.complaints.href = contact.complaints; }
     els.status.textContent = notice ? t(notice) : '';
-    els.status.dataset.tone = notice === 'y.fund.error' ? 'error' : '';
+    els.status.dataset.tone = ERRORS.has(notice) ? 'error' : '';
     gate();
   }
 
   function say(key) { notice = key; render(); }
+
+  // While an acceptance is saving, the choice and the boxes cannot change under it. The fieldset, not each radio, is
+  // disabled, so chosen() still reads the choice and render() keeps its authorization.
+  const lock = (on) => { els.choices.disabled = on; for (const box of boxes) box.disabled = on; };
+
+  // A fresh box: nothing ticked, nothing pending, and no fallback left to fire later.
+  function reset() {
+    if (leaving) { clearTimeout(leaving.timer); document.removeEventListener('visibilitychange', leaving.back); leaving = null; }
+    untick();
+    busy = false;
+    notice = '';
+    lock(false);
+    render();
+  }
 
   // After an answer that changes the box under the member, focus moves to the message that says what happened: the
   // button they pressed is off or gone, and the page body would say nothing.
@@ -149,13 +168,23 @@
     const option = chosen();
     if (busy || els.submit.disabled || !option) return;
     busy = true;
+    lock(true);
     say('y.fund.sending');
     const { status, data } = await accept(option);
     // The server only answers with Mercado Pago links; the page still follows nothing but https. The button stays off while the browser leaves.
     const url = status === 201 ? httpsUrl(data?.url) : null;
-    if (url) { location.assign(url); return; }
+    if (url) {
+      location.assign(url);
+      // A page that stays (the Mercado Pago app took the link, or the member stopped the load) starts afresh once it is
+      // shown again, or after a while; a page that leaves takes this with it.
+      const back = () => { if (document.visibilityState === 'visible') reset(); };
+      leaving = { back, timer: setTimeout(reset, 10000) };
+      document.addEventListener('visibilitychange', back);
+      return;
+    }
     if (status === 401) { location.assign(`/login.html?next=${encodeURIComponent(location.pathname)}`); return; }
     busy = false;
+    lock(false);
     if (status === 409) {
       // The terms changed since the page read them: nothing accepted before stands.
       untick();
@@ -164,6 +193,12 @@
     } else if (status === 410) {
       offer = { ...offer, state: 'ended', offers: {} };
       say('');
+    } else if (status === 429) {
+      say('y.fund.tooMany');
+    } else if (status === 503) {
+      // The option or the contact may have been withdrawn: the offer is read again and the page shows what stands.
+      notice = 'y.fund.unavailable';
+      await load();
     } else {
       say('y.fund.error');
     }
@@ -172,13 +207,7 @@
 
   // A page brought back from the back/forward cache (Back from Mercado Pago) keeps its script state: its ticks, and the
   // button off while the browser was leaving. The member starts the acceptance again.
-  window.addEventListener('pageshow', (event) => {
-    if (!event.persisted) return;
-    untick();
-    busy = false;
-    notice = '';
-    render();
-  });
+  window.addEventListener('pageshow', (event) => { if (event.persisted) reset(); });
 
   async function showEmail() {
     let email = '';

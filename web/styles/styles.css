@@ -878,7 +878,6 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .btn:focus-visible
 /* before sign-ups open and after the offer closed there are no options, and no empty row for them */
 .pay-grid:has(> #modalidad[hidden]) { grid-template-areas: "benefits checkout" "terms terms" "free seller"; }
 /* the box is then one short message, which may follow the reader down the column (the purchase box is too tall to) */
-.pay-grid:has(> #modalidad[hidden]) .pay-checkout { position: sticky; top: 104px; }
 #modalidad { grid-area: choose; } #beneficios { grid-area: benefits; } .pay-terms { grid-area: terms; }
 #gratis { grid-area: free; } .pay-seller { grid-area: seller; } .pay-checkout { grid-area: checkout; }
 .pay-block-title { font-size: clamp(22px, 2.2vw, 28px); line-height: 1.15; color: var(--ink); margin-bottom: 18px; }
@@ -1154,6 +1153,5 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .btn:focus-visible
   .pay-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "choose" "benefits" "terms" "free" "seller" "checkout"; }
   /* with nothing to buy, the box only says when sign-ups open or that the offer closed: say it first */
   .pay-grid:has(> #modalidad[hidden]) { grid-template-areas: "checkout" "benefits" "terms" "free" "seller"; }
-  .pay-grid:has(> #modalidad[hidden]) .pay-checkout { position: relative; top: auto; }
   .pay-summary { padding: 26px 22px; }
 }

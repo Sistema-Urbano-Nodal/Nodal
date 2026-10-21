@@ -40,7 +40,7 @@ function elements(){
 // config: the /api/billing/config answer (or a function of the request count, or a promise of it); answers: what each acceptance
 // POST gets, in turn; restored: the ids of the inputs a browser ticks again from its saved form state before the page script runs.
 async function page({config=OPEN,me={user:{email:'ana@example.test'}},answers=[CREATED],i18n:dictionary,restored=[]}={}){
- const nodes=elements(),requests=[],assigned=[],listeners=[],windowListeners={},focused=[];let configs=0;
+ const nodes=elements(),requests=[],assigned=[],listeners=[],windowListeners={},documentListeners={},timers=[],focused=[];let configs=0;
  for(const id of restored)nodes[id].checked=true;
  for(const node of Object.values(nodes))node.focus=()=>focused.push(node.id);
  const fake={lang:'en',t:(key,vars)=>`${fake.lang}:${key}`+(vars?' '+Object.entries(vars).map(([name,value])=>`${name}=${value}`).join(' '):''),onChange:listener=>listeners.push(listener)};
@@ -48,7 +48,9 @@ async function page({config=OPEN,me={user:{email:'ana@example.test'}},answers=[C
  const queue=[...answers];
  const context={window:{nodalI18n:i18n,addEventListener:(type,listener)=>(windowListeners[type]??=[]).push(listener)},URL,JSON,
   location:{pathname:'/payments.html',search:'',assign:url=>assigned.push(url)},
-  document:{getElementById:id=>nodes[id]??null,createElement:tag=>new Node(tag)},
+  document:{getElementById:id=>nodes[id]??null,createElement:tag=>new Node(tag),visibilityState:'visible',
+   addEventListener:(type,listener)=>(documentListeners[type]??=[]).push(listener),removeEventListener:(type,listener)=>{documentListeners[type]=(documentListeners[type]||[]).filter(other=>other!==listener);}},
+  setTimeout:(fn,ms)=>timers.push({fn,ms,cleared:false}),clearTimeout:id=>{if(timers[id-1])timers[id-1].cleared=true;},
   fetch:async(path,options={})=>{
    const request={path,method:options.method||'GET',credentials:options.credentials,headers:options.headers,body:options.body===undefined?undefined:JSON.parse(options.body)};requests.push(request);
    if(path==='/api/billing/config'){
@@ -70,6 +72,11 @@ async function page({config=OPEN,me={user:{email:'ana@example.test'}},answers=[C
   focused:()=>focused.at(-1),
   // A browser fires pageshow on every show, with persisted true when it brings the page back from its back/forward cache.
   pageshow:persisted=>Promise.all((windowListeners.pageshow||[]).map(listener=>listener({type:'pageshow',persisted}))),
+  // The tab hidden or shown again (another app took over, then the member came back).
+  visibility:state=>{context.document.visibilityState=state;for(const listener of [...(documentListeners.visibilitychange||[])])listener({type:'visibilitychange'});},
+  // Every timer still armed fires, as if its delay had passed.
+  wait:()=>{for(const timer of timers.filter(timer=>!timer.cleared)){timer.cleared=true;timer.fn();}},
+  timers,
   lang:lang=>{fake.lang=lang;listeners.forEach(listener=>listener());},
   // A browser checks one radio of the group and unchecks the other, then fires change on the one checked.
   choose:option=>{for(const [id,radio] of Object.entries(radios))radio.checked=id===option;change(radios[option]);},
@@ -182,7 +189,7 @@ test('an offer that ended meanwhile shows the closed offer, and a signed-out mem
 });
 
 test('any other refusal, or no answer, keeps the choices and says in the live region that it can be tried again',async()=>{
- for(const answer of [{status:400,data:{code:'acceptance_invalid'}},{status:503,data:{code:'membership_unavailable'}},{status:429,data:{}},{status:500,data:{}},{status:403,data:{}},TypeError('Failed to fetch')]){
+ for(const answer of [{status:400,data:{code:'acceptance_invalid'}},{status:500,data:{}},{status:403,data:{}},TypeError('Failed to fetch')]){
   const p=await page({answers:[answer,CREATED]}),label=answer.status??answer.message;
   p.choose('installments');p.tickAll();await p.submit();await flush();
   assert.equal(p.nodes.payStatus.textContent,'en:y.fund.error',label);assert.deepEqual(p.assigned,[],label);
@@ -265,7 +272,7 @@ test('coming back from Mercado Pago never brings the acceptances back ticked',as
 
 test('next to the button the member reads what happens once the payment is approved',()=>{
  const box=html.slice(html.indexOf('id="payPurchase"'),html.indexOf('</aside>'));
- assert.match(box,/<p class="pay-checkout-note" data-i18n="y\.fund\.next">When your payment is approved, we activate your membership within two working days and write to the email of your NODAL account\.<\/p>/);
+ assert.match(box,/<p class="pay-checkout-note" data-i18n="y\.fund\.next">Your benefits count from the approval of your payment\. The NODAL team activates your membership and writes to the email of your NODAL account\.<\/p>/);
  assert.ok(box.indexOf('id="payContinue"')<box.indexOf('data-i18n="y.fund.next"'),'it follows the button');
 });
 
@@ -327,8 +334,8 @@ test('in Spanish the authorizations read as the terms’ section 3 with the amou
  p.choose('installments');
  assert.equal(n.payPaymentText.textContent,'Autorizo dos cobros de S/\u00a0275 cada uno, por un total de S/\u00a0550, incluido IGV: el primero al inscribirme y el segundo automáticamente dos meses calendario después de la fecha de aprobación del primer pago. Si el mes de destino no tiene el día correspondiente, el segundo pago vencerá el último día de ese mes.');
  for(const [key,es] of [['y.fund.soon','Las inscripciones abren pronto.'],['y.fund.ended','La oferta Membresía Fundador 2027 cerró el 31 de diciembre de 2026.'],['y.fund.continue','Continuar a Mercado Pago'],
-  // What happens after paying, from the team's routine (docs/supporter-payments.md: each payer is added within two working days).
-  ['y.fund.next','Cuando tu pago sea aprobado, activamos tu membresía en un plazo de dos días hábiles y te escribimos al correo de tu cuenta de NODAL.'],
+  // What happens after paying: the benefits count from approval (terms §4 and §8), with no other deadline.
+  ['y.fund.next','Tus beneficios cuentan desde la aprobación de tu pago. El equipo de NODAL activa tu membresía y te escribe al correo de tu cuenta de NODAL.'],
   // Mercado Pago's notice is not a SUNAT comprobante: the seller issues the boleta for each sale.
   ['y.fund.a4','Mercado Pago te envía por correo la constancia de cada pago, y Sistema Urbano emite la boleta de venta electrónica correspondiente. Si necesitas factura, escribe al correo de atención con tu RUC.'],
   ['y.fund.authRenew','Autorizo la renovación automática de mi membresía a partir del 1 de enero de 2028, y posteriormente cada 1 de enero, salvo que solicite su no renovación antes del inicio del siguiente período. Entiendo que se aplicará la tarifa regular vigente correspondiente a mi modalidad, con un 5% de descuento mientras conserve activa mi condición de Fundador, y que el precio y las fechas de cobro se me comunicarán antes de la renovación.']])
@@ -353,4 +360,53 @@ test('the markup is a real form: a labelled radio group, three unticked checkbox
  assert.doesNotMatch(html,/12 months|doesn['’]t renew|does not renew|y\.mp\.|data-option=|Stripe/i);
  // Prices come from the offer at runtime.
  assert.doesNotMatch(html,/S\/\s?\d|US\$\s?\d/,'no price in the markup');
+});
+
+test('a page that stays after the link (the Mercado Pago app took it, or the load was stopped) starts afresh once shown again or after a while',async()=>{
+ const p=await page(),n=p.nodes;
+ p.choose('installments');p.tickAll();await p.submit();await flush();
+ assert.deepEqual(p.assigned,[MP]);assert.equal(n.payContinue.disabled,true);assert.equal(n.payStatus.textContent,'en:y.fund.sending');
+ p.visibility('hidden');assert.equal(n.payContinue.disabled,true,'leaving: nothing changes');
+ p.visibility('visible');
+ assert.deepEqual([...Object.values(p.radios),...p.boxes].map(input=>input.checked),[false,false,false,false,false]);assert.equal(n.payStatus.textContent,'');
+ p.choose('once');p.tickAll();assert.equal(n.payContinue.disabled,false);
+ p.wait();assert.deepEqual(p.boxes.map(box=>box.checked),[true,true,true],'the fallback was disarmed once the page was shown again');
+ // Without a show, the fallback starts afresh after a while.
+ const q=await page();q.choose('once');q.tickAll();await q.submit();await flush();assert.equal(q.nodes.payContinue.disabled,true);
+ assert.ok(q.timers.some(timer=>!timer.cleared&&timer.ms>=5000));q.wait();
+ assert.deepEqual(q.boxes.map(box=>box.checked),[false,false,false]);q.choose('once');q.tickAll();assert.equal(q.nodes.payContinue.disabled,false);
+ // Back from the back/forward cache disarms it too, so it never unticks what the member is ticking.
+ const r=await page();r.choose('once');r.tickAll();await r.submit();await flush();await r.pageshow(true);
+ r.choose('installments');r.tickAll();r.wait();assert.deepEqual(r.boxes.map(box=>box.checked),[true,true,true]);
+});
+
+test('while the acceptance is saving, the choices and boxes are locked; a refusal unlocks them',async()=>{
+ let answer;const pending=new Promise(resolve=>{answer=resolve;});
+ const p=await page({answers:[pending,CREATED]}),n=p.nodes;
+ p.choose('installments');p.tickAll();const sent=p.submit();await flush();
+ assert.equal(n.payChoices.disabled,true);assert.deepEqual(p.boxes.map(box=>box.disabled),[true,true,true]);
+ assert.equal(p.radios.installments.disabled,false,'the radio itself stays enabled, so the choice still reads');
+ answer({status:500,data:{}});await sent;await flush();
+ assert.equal(n.payChoices.disabled,false);assert.deepEqual(p.boxes.map(box=>box.disabled),[false,false,false]);
+ assert.deepEqual(p.boxes.map(box=>box.checked),[true,true,true]);
+});
+
+test('a limit says to wait, and a withdrawn option or contact reloads the offer instead of blaming the connection',async()=>{
+ const limited=await page({answers:[{status:429,data:{error:'too many requests'}}]});
+ limited.choose('once');limited.tickAll();await limited.submit();await flush();
+ assert.equal(limited.nodes.payStatus.textContent,'en:y.fund.tooMany');assert.equal(limited.focused(),'payStatus');assert.equal(limited.nodes.payStatus.dataset.tone,'error');
+ const withdrawn=await page({config:count=>count===1?OPEN:CLOSED('soon'),answers:[{status:503,data:{code:'membership_unavailable'}}]});
+ withdrawn.choose('once');withdrawn.tickAll();await withdrawn.submit();await flush();
+ assert.equal(withdrawn.configs(),2,'the offer is read again');assert.equal(withdrawn.nodes.payPurchase.hidden,true);assert.equal(withdrawn.nodes.payClosed.textContent,'en:y.fund.soon');
+ const failedInsert=await page({answers:[{status:503,data:{code:'membership_unavailable'}}]});
+ failedInsert.choose('installments');failedInsert.tickAll();await failedInsert.submit();await flush();
+ assert.equal(failedInsert.nodes.payStatus.textContent,'en:y.fund.unavailable');assert.deepEqual(failedInsert.boxes.map(box=>box.checked),[true,true,true]);
+ assert.equal(failedInsert.nodes.payContinue.disabled,false);
+});
+
+test('the button is described by the "tick the three boxes" hint only while that hint shows',async()=>{
+ const p=await page(),n=p.nodes;
+ assert.equal(n.payContinue.getAttribute('aria-describedby'),'payHint');
+ p.choose('once');p.tickAll();assert.equal(n.payHint.hidden,true);assert.equal(n.payContinue.getAttribute('aria-describedby'),null);
+ p.tick(p.boxes[0],false);assert.equal(n.payContinue.getAttribute('aria-describedby'),'payHint');
 });

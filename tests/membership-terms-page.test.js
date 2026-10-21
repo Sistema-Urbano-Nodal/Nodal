@@ -66,18 +66,19 @@ test('the terms page carries all 18 numbered sections of the team’s terms, wit
   for (const file of [PAGE, SOURCE]) assert.doesNotMatch(read(file).replace(/<!--[\s\S]*?-->/g, ''), /Nodal Fundadores/, file);
 });
 
-/* The page is public, so it links only to public pages: the payments page and the courses sit behind sign-in (and the
-   course pilot sends the payments page to the courses while sign-ups are not open). */
-test('the terms link to the public membership benefits and the privacy policy, and name the 2026 programme and the general conditions without a link', () => {
+/* The page is public, so the benefits link to the public landing card rather than the payments page behind sign-in. "Aquí
+   puedes ver … la programación 2026" keeps its link to the courses: whoever buys is signed in, and a signed-out reader is
+   asked to sign in first. */
+test('the terms link to the public membership benefits, the 2026 programme and the privacy policy, and name the general conditions without a link', () => {
   const html = read(PAGE), text = article(html);
   const links = pageLinks(text);
   const hrefs = new Set(links.map(([href]) => href));
-  assert.deepEqual([...hrefs].sort(), ['/#membership', '/privacy.html'], 'no other link in the legal text');
+  assert.deepEqual([...hrefs].sort(), ['/#membership', '/courses.html', '/privacy.html'], 'no other link in the legal text');
   const benefits = section(text, 3);
   assert.match(benefits, /<li>Acceso Comunitario: <a href="\/#membership">[^<]+<\/a>\.<\/li>/);
   assert.match(benefits, /<li>Membresía Fundador: <a href="\/#membership">beneficios de la Membresía Fundador en la página de inicio de Nodal<\/a>\.<\/li>/);
   assert.ok(read('web/pages/index.html').includes('<section class="section membership" id="membership">'), 'the landing page’s membership section');
-  assert.ok(section(text, 4).includes('Aquí puedes ver, a modo de ejemplo, la programación 2026.'), 'named, without a link to the member-only courses');
+  assert.ok(section(text, 4).includes('Aquí puedes ver, a modo de ejemplo, <a href="/courses.html">la programación 2026</a>.'), 'the sentence says “aquí”, so it links');
   const complementary = section(text, 18);
   assert.match(complementary, /<li>Condiciones generales de uso de la plataforma\.<\/li>/, 'kept, but promising no link NODAL does not have');
   assert.match(complementary, /<li><a href="\/privacy\.html">Política de privacidad<\/a>\.<\/li>/);

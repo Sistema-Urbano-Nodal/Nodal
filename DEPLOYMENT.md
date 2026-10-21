@@ -347,7 +347,9 @@ MEMBERSHIP_COMPLAINTS_URL=https://your-complaints-book.example/nodal
 refunds) and `MEMBERSHIP_COMPLAINTS_URL` the `https` Libro de Reclamaciones
 link, without credentials. `SUBSCRIPTION_PRICE_ANNUAL_LABEL`,
 `SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL` and `SUBSCRIPTION_ANNUAL_PERIOD` are no
-longer read and can be removed from Vercel. The acceptances need the migration
+longer read and can be removed from Vercel. Vercel applies settings only to new
+deployments: set them before pushing `main`, or redeploy after adding them. The
+acceptances need the migration
 under "Founder Membership acceptances" above. Platform admins download them,
 newest first, from `/api/admin/membership/acceptances` (CSV), each time both in
 UTC (`accepted_at`) and in Lima time (`accepted_at_lima`).
@@ -469,8 +471,9 @@ npm start
 ## Production Deployment Steps
 
 1. Confirm `.env`, `.env.local`, `.env.production`, `.vercel/`, and `data/` are not committed.
-2. Apply every pending Supabase migration (the three listed under "October 1
-   release" and the one under "FIIU registration summary email" above) one file
+2. Apply every pending Supabase migration (every file in the release sections
+   above, most recently `20261021000000_membership_acceptances.sql` under
+   "Founder Membership acceptances", before pushing `main`) one file
    at a time as described in "SQL Migration Steps" (never `supabase db push`
    against production) and confirm them.
 3. Configure Vercel environment variables.

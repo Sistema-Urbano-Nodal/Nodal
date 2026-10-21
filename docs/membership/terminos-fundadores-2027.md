@@ -7,7 +7,7 @@ The text is section 2, "Términos comerciales completos de membresías 2027", of
 - the seller's address as on the membership page, "Calle General Varela 154 A, Miraflores" (section 2 of the document said "154");
 - both benefit links go to the landing page's membership section (/#membership), which lists each access's
   benefits: the page is public, and the payments page and the courses sit behind sign-in;
-- "la programación 2026" is named without a link, for the same reason; the privacy policy links to /privacy.html;
+- "la programación 2026" links to /courses.html: the sentence says "aquí", whoever buys is signed in, and a signed-out reader is asked to sign in; the privacy policy links to /privacy.html;
 - the general conditions of use are named without a link, since NODAL has not published any yet;
 - the paid membership is named "Membresía Fundador" where the document said "Nodal Fundadores" (the team's
   decision of 20 Oct 2026), with the article Spanish needs ("de la Membresía Fundador"). "Fundador" alone, the
@@ -73,7 +73,7 @@ Determinadas funcionalidades, reconocimientos y espacios de participación podr�
 
 ## 4. Curso y masterclass incluidos durante 2027
 
-La Membresía Fundador 2027 incluye un curso y una masterclass, que podrán elegirse entre las actividades identificadas por Nodal como elegibles para este beneficio, según la programación de 2027 y la disponibilidad de cupos. Aquí puedes ver, a modo de ejemplo, la programación 2026.
+La Membresía Fundador 2027 incluye un curso y una masterclass, que podrán elegirse entre las actividades identificadas por Nodal como elegibles para este beneficio, según la programación de 2027 y la disponibilidad de cupos. Aquí puedes ver, a modo de ejemplo, [la programación 2026](/courses.html).
 
 El derecho a acceder a ambos beneficios se habilita desde la aprobación del primer pago, tanto en la modalidad de pago único como en la modalidad de dos pagos. No se exige completar el segundo pago para habilitar el curso o la masterclass.
 
