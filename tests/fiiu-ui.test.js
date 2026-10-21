@@ -11,6 +11,8 @@ const user={id:'00000000-0000-4000-8000-000000000001',email:'ana@example.test',n
 const saved={userId:user.id,id:'00000000-0000-4000-8000-000000000002',version:1,email:user.email,answers,labStatus:'none'};
 const self=registration=>({user,registration,attendance:[],isAdmin:false});
 const publicData={event:FIIU_EVENT,config:{registrationOpen:true,programUrl:'https://canva.link/ficmkatcg9fudwk'},content:[],nextCursor:null};
+// A clock before the laboratory's day (20 Oct), for tests that need its application offered: from 21 Oct the page offers none (eve audit #6).
+const LAB_OPEN=(()=>{const T=Date.parse('2026-10-15T10:00:00-05:00');return {Date:class extends Date{constructor(...args){super(...(args.length?args:[T]));}static now(){return T;}}};})();
 // The page reads the news page (which carries the event and settings) and the materials page separately.
 // The conversation pulse answers on its own path, so it never uses up one of the registration reads a test counts.
 async function harness({registration=null,write=async()=>({status:503,data:{error:'unavailable'}}),read,publicRead=()=>publicData,materialsRead=()=>publicData,pulseRead=()=>({questions:[]}),context}={}){
@@ -69,7 +71,7 @@ test('only a registration 401 becomes a guest view; service failures remain retr
 });
 
 test('the programme is a prominent action and the laboratory card omits unknown time and venue',async()=>{
- const h=await harness(),actions=h.root.querySelector('.f-hero-copy').querySelector('.f-actions');
+ const h=await harness({context:LAB_OPEN}),actions=h.root.querySelector('.f-hero-copy').querySelector('.f-actions');
  assert.equal(key(actions,'officialProgram').href,'https://canva.link/ficmkatcg9fudwk');
  const lab=h.root.querySelectorAll('.f-activity').find(node=>content(node).includes('Gestión urbana en acción'));
  assert.ok(key(lab,'apply'));assert.equal(key(lab,'timePending'),undefined);assert.equal(key(lab,'venuePending'),undefined);
@@ -219,7 +221,7 @@ test('a materials feed that fails leaves the programme, registration and news wo
 });
 
 test('answers hidden again drop their error, so the save bar and status never report a problem the person cannot see',async()=>{
- const h=await harness();h.fill();const form=h.form(),official=field(form,'publicOfficial'),apply=field(form,'applyLab'),institution=field(form,'institution'),motivation=field(form,'motivation'),other=field(form,'motivationOther'),selection=form.querySelector('.f-selection');
+ const h=await harness({context:LAB_OPEN});h.fill();const form=h.form(),official=field(form,'publicOfficial'),apply=field(form,'applyLab'),institution=field(form,'institution'),motivation=field(form,'motivation'),other=field(form,'motivationOther'),selection=form.querySelector('.f-selection');
  official.value='yes';official.listeners.change();apply.checked=true;apply.listeners.change();motivation.value='other';motivation.listeners.change();
  for(const control of [institution,other]){control.validity={valueMissing:true};form.listeners.invalid({target:control});delete control.validity;}
  assert.equal(institution['aria-invalid'],'true');assert.equal(institution.validationMessage,h.ctx.window.Fiiu.t('requiredField'));
@@ -290,6 +292,19 @@ test('dashboard widget invites members without a registration to register and sk
  assert.equal(key(widget,'statusNotRegistered').className,'f-pill');assert.equal(key(widget,'register').href,'fiiu.html#registration');
  assert.equal(key(widget,'viewRegistration'),undefined);assert.equal(key(widget,'nextForYou'),undefined);assert.equal(key(widget,'admin'),undefined);
  assert.deepEqual(requests.filter(path=>path!=='/api/fiiu?kind=news').sort(),['/api/fiiu/pulse','/api/fiiu/registration'],'only the public pulse, for the General link');
+});
+
+// Eve audit #7: a registration made at the door holds a name, an email, a city and the block, so the console says it needs completing, as fiiu.html's
+// hero does (the same rule), and its button leads to the registration on fiiu.html.
+test('dashboard widget marks an incomplete registration as needing action and leads to the registration',async()=>{
+ const door={...saved,answers:{firstName:'Ana',lastName:'Test',country:'',city:'Lima',activities:['day1-am'],externalActivities:[],accessibility:[],applyLab:false,walkIn:true}};
+ const {widget}=await widgetHarness(path=>widgetFeed(path)||self(door));
+ const chips=widget.querySelector('.f-widget-chips');assert.ok(key(chips,'statusRegistered'));assert.equal(key(chips,'actionNeeded').className,'f-pill is-pending');
+ assert.equal(key(widget,'viewRegistration').href,'fiiu.html#registration');
+ // Each missing answer counts on its own: only the age left is still incomplete; a complete registration gets no such mark.
+ const noAge={...answers};delete noAge.age;
+ const almost=await widgetHarness(path=>widgetFeed(path)||self({...saved,answers:noAge}));assert.ok(key(almost.widget,'actionNeeded'));
+ const complete=await widgetHarness(path=>widgetFeed(path)||self(saved));assert.equal(key(complete.widget,'actionNeeded'),undefined);assert.ok(key(complete.widget,'statusRegistered'));
 });
 
 test('the page loads and saves where AbortSignal has no timeout (Safari before 16, every iOS 15 browser)',async()=>{
@@ -877,6 +892,27 @@ function watchScrolls(){
 // Node.contains as a browser has it, for the code that checks where focus is.
 function withContains(){const had=Object.hasOwn(Node.prototype,'contains'),before=Node.prototype.contains;Node.prototype.contains=function(node){for(let n=node;n;n=n.parent)if(n===this)return true;return false;};return()=>{if(had)Node.prototype.contains=before;else delete Node.prototype.contains;};}
 const at=hash=>({location:{hash,search:'',pathname:'/fiiu.html'}});
+
+// Eve audit #6: the laboratory is one day, 20 Oct. From the next Lima day the page offers no new application: not on the lab card, not in the form (nor
+// the line under "Public official?" that promises one, nor the guest checklist). An application already made stays, and can still be edited.
+test('after the laboratory’s day no new application is offered, while one already made stays visible and editable',async()=>{
+ const after={Date:movableClock('2026-10-21T10:00:00-05:00').Date},lab=h=>h.root.querySelectorAll('.f-activity').find(node=>content(node).includes('Gestión urbana en acción'));
+ const h=await harness({context:after});
+ assert.equal(key(lab(h),'apply'),undefined,'no Apply on the card');
+ h.fill();const form=h.form(),official=field(form,'publicOfficial'),apply=field(form,'applyLab');official.value='yes';official.listeners.change();
+ assert.equal(apply.disabled,true);assert.equal(apply.checked,false);assert.equal(form.querySelector('.f-laboratory').hidden,true);assert.equal(key(form,'labQuestionHint').hidden,true);
+ await h.submit();assert.equal(h.requests.find(request=>request.method==='PUT').body.applyLab,false);
+ const guest=await harness({read:()=>({status:401,data:{error:'sign in required'}}),context:after});assert.ok(key(guest.root,'canConferences'));assert.equal(key(guest.root,'canLab'),undefined);
+ // An application made before stays on the card and in the form, and can still be changed.
+ const applied={...saved,labStatus:'pending',answers:{...answers,publicOfficial:true,applyLab:true,institution:'Municipalidad de Lima',position:'Planner'}};
+ const kept=await harness({registration:applied,context:after}),keptForm=kept.form(),keptApply=field(keptForm,'applyLab');
+ assert.ok(key(lab(kept),'pendingShort'));assert.equal(keptForm.querySelector('.f-laboratory').hidden,false);assert.equal(key(keptForm,'labQuestionHint').hidden,false);
+ assert.equal(keptApply.disabled,false);assert.equal(keptApply.checked,true);assert.equal(field(keptForm,'institution').disabled,false);
+ // On the laboratory's own day it is still offered.
+ const day=await harness({context:{Date:movableClock('2026-10-20T08:00:00-05:00').Date}}),dayOfficial=field(day.form(),'publicOfficial');assert.ok(key(lab(day),'apply'));assert.ok(key(day.form(),'labQuestionHint'));
+ dayOfficial.value='yes';dayOfficial.listeners.change();assert.equal(field(day.form(),'applyLab').disabled,false);assert.equal(day.form().querySelector('.f-laboratory').hidden,false);
+ const dayGuest=await harness({read:()=>({status:401,data:{error:'sign in required'}}),context:{Date:movableClock('2026-10-20T08:00:00-05:00').Date}});assert.ok(key(dayGuest.root,'canLab'));
+});
 
 test('a link to the news, the materials, the programme or a day lands there again once the registration redraws the page above it, unless the person has moved',async()=>{
  const scrolls=watchScrolls();

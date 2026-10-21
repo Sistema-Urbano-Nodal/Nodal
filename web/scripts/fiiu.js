@@ -28,6 +28,10 @@
  function backLink(href){const a=link('backToSession',href,'f-text-link f-back-session');a.addEventListener('click',()=>{try{sessionStorage.removeItem(RETURN);}catch{/* Without storage there is nothing to use up. */}});return a;}
  // Leaving with unsaved answers asks first. Phones seldom ask (iOS Safari never does), so the draft above is what really keeps the answers.
  window.addEventListener?.('beforeunload',event=>{if(!formDirty())return;event.preventDefault();event.returnValue='';});
+ // The laboratory is one day (the 'application' block's date, 20 Oct). Once that Lima day has passed the page offers no new application: the lab card's
+ // Apply, the form's box and its promise under "Public official?", the guest checklist line. An application already made stays and can still be edited
+ // (eve audit #6).
+ const labOver=()=>{const lab=festival.event.activities.find(x=>x.registration==='application');return Boolean(lab?.date)&&limaDate()>lab.date;};
  const missingAnswers=a=>['country','city','profile','nationalId','gender','motivation','previousAttendance'].filter(k=>!a[k]).length+(Number.isInteger(a.age)?0:1)+(Array.isArray(a.accessibility)&&a.accessibility.length?0:1)+(typeof a.publicOfficial==='boolean'?0:1);
  function jumpTo(input,event){event?.preventDefault?.();if(!input)return;openForm?.();const fold=input.closest?.('details');if(fold)fold.open=true;input.focus();input.scrollIntoView?.({block:'center'});}
  // Session links ("Ver sesión · 2", to the block's page with its questions) come from the public pulse, which never holds up the page: a block drawn
@@ -100,7 +104,7 @@
  function labCard(activity,labStatus){
   const card=el('article','f-activity is-lab'),title=source('h4',activity.title),about=description(activity);title.id='f-act-'+activity.id+'-title';card.append(title,tr('p','labType','f-lab-type'));if(about)card.append(about);
   if(labStatus!=='none')card.append(tr('p',labStatus+'Short','f-pill is-'+labStatus));
-  else if(festival.config.registrationOpen&&!me.pending){
+  else if(festival.config.registrationOpen&&!me.pending&&!labOver()){
    const apply=describe(link('apply',officialInput?'#f-publicOfficial':'#registration','f-button secondary f-small'),title.id);
    if(officialInput)apply.addEventListener('click',event=>{const lab=choiceInputs.get(activity.id);jumpTo(lab&&!lab.disabled?lab:officialInput,event);});
    card.append(apply);
@@ -143,7 +147,8 @@
  }
  // Marks the day in view (the last one crossing the band under the sticky navigation) and, on narrow screens, scrolls the chip row so that chip stays visible.
  function markDay(){
-  const current=[...dayChips.keys()].filter(day=>visibleDays.has(day)).at(-1);
+  // The last one by its index: iOS 15.0–15.3 has no Array.prototype.at (eve audit #8).
+  const shown=[...dayChips.keys()].filter(day=>visibleDays.has(day)),current=shown[shown.length-1];
   // While a chip has keyboard focus the row stays where the browser put it, so the focused chip is never scrolled out of view.
   for(const [day,chip] of dayChips){if(day!==current){chip.removeAttribute('aria-current');continue;}if(chip.getAttribute('aria-current')==='true')continue;chip.setAttribute('aria-current','true');const row=chip.parentElement?.parentElement;if(row&&!row.contains(document.activeElement))revealInRow(row,chip);}
  }
@@ -248,7 +253,7 @@
    const open=festival.config.registrationOpen;
    if(!open)panelBody.append(tr('p','closed','f-notice'));
    panelBody.append(open?tr('p','signinHint'):tr('p','signinClosedHint','f-closed-hint'));
-   if(open){const list=el('ul','f-checklist');for(const key of ['canConferences','canLab','canInterests'])list.append(tr('li',key));panelBody.append(list,tr('p','formDuration','f-muted'));}
+   if(open){const list=el('ul','f-checklist');for(const key of ['canConferences',...(labOver()?[]:['canLab']),'canInterests'])list.append(tr('li',key));panelBody.append(list,tr('p','formDuration','f-muted'));}
    guestSignin=link('signin',signinTo(),'f-button');panelBody.append(guestSignin);if(open)panelBody.append(tr('p','privateHint','f-muted f-guest-privacy'));return;
   }
   const expectedUserId=me.user.id,conflictBox=el('div','f-conflict');let busy=false,saveState='',dirty=false;
@@ -323,13 +328,15 @@
   const official=field('publicOfficial',{value:typeof a.publicOfficial==='boolean'?(a.publicOfficial?'yes':'no'):'',required:true,options:['yes','no']});
   // The hint sits inside the label for layout but is hidden from the label text; it is exposed once, as the description.
   const labQuestion=tr('span','labQuestionHint','f-hint');labQuestion.id='f-hint-labQuestionHint';labQuestion.setAttribute('aria-hidden','true');official.wrap.append(labQuestion);official.input.setAttribute('aria-describedby',labQuestion.id);officialInput=official.input;
+  // labClosed: the laboratory's day has passed and this registration has not applied, so the box and its promise are not offered (eve audit #6).
+  const labClosed=labOver()&&a.applyLab!==true;if(labClosed){labQuestion.hidden=true;official.input.removeAttribute('aria-describedby');}
   for(const f of [profile,official]){f.wrap.className='f-field f-field-wide';grid.append(f.wrap);}personal.append(grid);
   choices.setAttribute('aria-describedby','f-hint-choicesHint');choices.append(hint('choicesHint'));
   const laboratory=el('div','f-laboratory'),apply=check('applyLab','applyLab','yes',a.applyLab),institution=field('institution',{value:a.institution,max:200}),position=field('position',{value:a.position,max:200});
   apply.input.setAttribute('aria-describedby','f-hint-labHint');laboratory.append(apply.wrap,hint('labHint'),institution.wrap,position.wrap);choices.append(laboratory);
   for(const activity of festival.event.activities.filter(x=>x.registration==='application'))choiceInputs.set(activity.id,apply.input);
   // A field that is hidden again also drops its error, so the save bar never reports a problem the person cannot see.
-  const syncLab=()=>{laboratory.hidden=official.input.value!=='yes';apply.input.disabled=laboratory.hidden;if(laboratory.hidden)apply.input.checked=false;for(const f of [institution,position]){f.wrap.hidden=laboratory.hidden||!apply.input.checked;f.input.disabled=f.wrap.hidden;f.setRequired(!f.wrap.hidden);if(f.wrap.hidden)clearLocalised(f.input);}};
+  const syncLab=()=>{laboratory.hidden=labClosed||official.input.value!=='yes';apply.input.disabled=laboratory.hidden;if(laboratory.hidden)apply.input.checked=false;for(const f of [institution,position]){f.wrap.hidden=laboratory.hidden||!apply.input.checked;f.input.disabled=f.wrap.hidden;f.setRequired(!f.wrap.hidden);if(f.wrap.hidden)clearLocalised(f.input);}};
   institution.input.autocomplete='organization';position.input.autocomplete='organization-title';
   official.input.addEventListener('change',syncLab);apply.input.addEventListener('change',syncLab);
   // A programmatic answer fires no event on the select, so its earlier error is cleared here.

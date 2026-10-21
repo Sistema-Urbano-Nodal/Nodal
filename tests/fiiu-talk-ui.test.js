@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
 import {createFiiuHarness,descendants,key,flush,content} from './helpers/fiiu-ui-harness.js';
 
 const Q='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',Q2='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -139,6 +140,19 @@ test('polling asks for changes only when the pulse moves, patches rows in place 
  await h.tickTimers();assert.equal(sent(h,'GET',/since=/).length,1,'the known revision moved to 5');
  await h.visible(false);await h.tickTimers();assert.equal(sent(h,'GET','/api/fiiu/pulse').length,3,'a hidden tab does not poll');
  await h.visible(true);await flush();assert.equal(sent(h,'GET','/api/fiiu/pulse').length,4,'coming back polls at once');
+});
+
+// Eve audit #8: iOS 15.0–15.3 and old Android WebViews have no Array.prototype.at, so a poll that used it threw and the chat stopped updating.
+test('the live chat keeps updating on a phone without Array.prototype.at (iOS 15.0–15.3)',async()=>{
+ let revision=3;
+ const h=await page({'GET /api/fiiu/pulse':()=>({questions:[[Q,'day1-am',revision,'open']]}),['GET '+MESSAGES+'?since=3']:since(5,[message(M3,{body:'Nuevo',createdAt:'2026-10-21T14:30:00.000Z',seq:4})])});
+ vm.runInContext('delete Array.prototype.at',h.ctx);
+ revision=5;await h.tickTimers();
+ assert.deepEqual(rows(h).map(node=>node.dataset.id),[M1,M2,M3],'the new answer arrives');assert.equal(key(h.root,'talkPaused'),undefined,'and the updates are not paused');
+});
+
+test('no script of the festival pages calls Array.prototype.at, which iOS 15.0–15.3 lacks',()=>{
+ for(const name of ['fiiu-ui','fiiu','fiiu-talk','fiiu-hubs','fiiu-live','fiiu-checkin','fiiu-qr'])assert.doesNotMatch(readFileSync(new URL('../web/scripts/'+name+'.js',import.meta.url),'utf8'),/\.at\(/,name);
 });
 
 test('a failing pulse backs off exponentially, says in the dock that updates are paused, and recovers',async()=>{
@@ -286,6 +300,22 @@ test('a decoded photo is redrawn on white as a JPEG of at most 1600 px with a th
  assert.deepEqual(sent(h,'POST',MESSAGES)[0].body.fileIds,[F1,F2]);
  const shown=row(h,M3);assert.equal(shown.querySelector('img').width,1600);assert.equal(shown.querySelector('img').height,1200);
  const pdfLink=shown.querySelector('.f-talk-file');assert.equal(pdfLink.href,'/api/fiiu/files/'+F2);assert.match(content(pdfLink),/programa\.pdf/);assert.match(content(pdfLink),/1\.2 MB/);
+});
+
+// Eve audit #13: a browser without the 'from-image' orientation (iOS 15, which those iPhones cannot leave) refuses the option. The photo is still
+// redrawn, read without it (current engines turn it upright by its EXIF anyway), instead of going up full size or being refused over 3 MB.
+test('a browser that refuses the orientation option still redraws the photo, so a large camera photo is shared resized',async()=>{
+ const opened=[];
+ const canvas=()=>({width:0,height:0,getContext:()=>({set fillStyle(value){},fillRect(){},drawImage(){}}),toBlob(callback,type,quality){callback({type,size:quality===0.85?400*1024:60*1024,label:`${this.width}x${this.height}@${quality}`});}});
+ const h=await page({'POST /api/fiiu/files':request=>({status:201,data:{file:{id:F1,name:request.body.name,mime:request.body.mime,size:1,width:request.body.width??null,height:request.body.height??null,thumb:Boolean(request.body.thumb)}}}),
+  ['POST '+MESSAGES]:{status:201,data:{message:message(M3,{mine:true,body:'',seq:4,files:[{id:F1,name:'foto.jpg',mime:'image/jpeg',size:409600,width:1600,height:1200,thumb:true}]})}}},
+  {context:{createImageBitmap:async(source,options)=>{opened.push(options);if(options)throw new TypeError('The provided value is not a valid enum value of type ImageOrientation.');return {width:4000,height:3000,close(){}};},FileReader:Reader}});
+ h.ctx.document.createElement=(make=>tag=>tag==='canvas'?canvas():make(tag))(h.ctx.document.createElement);
+ choose(h,[file('IMG_0001.jpg','image/jpeg',4*1024*1024)]);submit(h);await flush();
+ assert.deepEqual(opened.map(options=>options?.imageOrientation??null),['from-image',null],'tried with the option, then without it');
+ const [photo]=sent(h,'POST','/api/fiiu/files').map(request=>request.body);
+ assert.deepEqual(photo,{name:'IMG_0001.jpg',mime:'image/jpeg',data:b64('1600x1200@0.85'),width:1600,height:1200,thumb:{mime:'image/jpeg',data:b64('480x360@0.7'),width:480,height:360}});
+ assert.notEqual(composerStatus(h),'talkFileSize');assert.ok(row(h,M3));
 });
 
 test('uploads show their progress, are not repeated by a retry, and the festival allowance is explained',async()=>{
@@ -1457,6 +1487,27 @@ test('a signed-in person sees their status for the session: in their registratio
  const organiser=await page({...SESSION_ROUTES,['GET /api/fiiu/questions/'+Q]:thread({me:{organiser:true}}),'GET /api/fiiu/registration':mine({registration:null,attendance:[],isAdmin:true})},{search:'?a=day1-am'});
  assert.equal(sessionHead(organiser).querySelector('.f-talk-mine')?.children.length||0,0);
  h.lang('es');assert.equal(key(box,'talkCheckinHint')?.textContent,undefined);assert.equal(h.ctx.window.Fiiu.t('talkCheckinHint'),'Registra tu asistencia con el QR en la sala');
+});
+
+// Eve audit #21: one scan at a conference block's door checks a registered person in and adds the block to their registration (while registration
+// is open), so the session page says that first, and keeps the form as the second way.
+test('a conference block outside the plan says that scanning the code at the door checks the person in and adds it, before Add to my registration',async()=>{
+ const elsewhere=mine({registration:{id:'r1',version:1,answers:{activities:['day2-am'],externalActivities:[]},labStatus:'none'},attendance:[]});
+ const h=await page({...SESSION_ROUTES,'GET /api/fiiu/registration':elsewhere},{search:'?a=day1-am'}),box=sessionHead(h).querySelector('.f-talk-mine');
+ const hint=key(box,'talkCheckinAdds'),add=key(box,'addToRegistration');assert.ok(key(box,'talkNotInPlan'));assert.ok(hint);assert.equal(add.href,'fiiu.html#add-day1-am');
+ assert.ok(box.children.indexOf(hint)<box.children.indexOf(add),'the scan comes first, the form second');assert.equal(key(box,'talkCheckinHint'),undefined);
+ assert.equal(hint.textContent,'Scan the QR code at the door to check in: this block is added to your registration.');
+ h.lang('es');assert.equal(hint.textContent,'Escanea el QR en la puerta para registrar tu asistencia: el bloque se añadirá a tu inscripción.');
+ h.lang('pt');assert.equal(hint.textContent,'Escaneie o QR na porta para registrar sua presença: o bloco será adicionado à sua inscrição.');
+ // Registration closed: a scan no longer adds a block, so neither way is offered.
+ const closed=await page({...SESSION_ROUTES,'GET /api/fiiu?kind=news':programme({registrationOpen:false}),'GET /api/fiiu/registration':elsewhere},{search:'?a=day1-am'});
+ assert.equal(key(sessionHead(closed),'talkCheckinAdds'),undefined);assert.equal(key(sessionHead(closed),'addToRegistration'),undefined);
+ // Check-in closed for the block: no scan to promise, the form stays.
+ const late=await page({...SESSION_ROUTES,'GET /api/fiiu/registration':elsewhere},{search:'?a=day1-am',context:{Date:clock('2026-10-24T18:00:00-05:00')}});
+ assert.equal(key(sessionHead(late),'talkCheckinAdds'),undefined);assert.ok(key(sessionHead(late),'addToRegistration'));
+ // The closing party takes no check-in: only the form.
+ const party=await page({...SESSION_ROUTES,'GET /api/fiiu/questions?activityId=closing-party':{activity:{...PROGRAMME.event.activities[3]},questions:[]},'GET /api/fiiu/registration':elsewhere},{search:'?a=closing-party'});
+ assert.equal(key(sessionHead(party),'talkCheckinAdds'),undefined);assert.ok(key(sessionHead(party),'addToRegistration'));
 });
 
 test('the session’s questions are listed open first with their type, status and answer count; the selected one opens its chat in place, another swaps it and Back returns',async()=>{

@@ -793,6 +793,25 @@ test('the FIIU family reads in English, Spanish and Portuguese, with its own fam
   assert.notEqual(mark('fiiu'), mark('contribution'));
 });
 
+// Eve audit #19: next to the Membresía Fundador, a locked "Founding Member · by invitation · founding price" badge read as if the membership were
+// invitation-only, or its price not the founders' one. The badge is the first cohort's, and says nothing about a founder price.
+test('the Recognition family’s locked badge is the first cohort’s, and never names a founder membership or a founder price', () => {
+  const COPY = {
+    en: { name: 'First cohort', req: 'The community’s first members · by invitation', opens: 'Opens: early community formats' },
+    es: { name: 'Primera cohorte', req: 'Primeras personas de la comunidad · por invitación', opens: 'Abre: formatos comunitarios tempranos' },
+    pt: { name: 'Primeira turma', req: 'Primeiras pessoas da comunidade · por convite', opens: 'Abre: formatos comunitários iniciais' },
+  };
+  const l = ledger();
+  l.render();
+  for (const lang of ['en', 'es', 'pt']) {
+    l.lang(lang);
+    const recognition = l.groups().at(-1).rows.map(view), badge = recognition.at(-1);
+    assert.deepEqual({ name: badge.name, req: badge.req, opens: badge.opens }, COPY[lang], lang);
+    assert.equal(badge.state, 'bl-row is-locked', lang);
+    for (const row of recognition) assert.doesNotMatch(`${row.name} ${row.req} ${row.opens}`, /fundador|founding|founder|precio|preço|price/i, lang);
+  }
+});
+
 test('the ledger listens before the festival block can hand anything over, and draws no left accent bars', () => {
   const html = read('web', 'pages', 'dashboard.html');
   const at = (name) => html.indexOf(`src="${name}?`);

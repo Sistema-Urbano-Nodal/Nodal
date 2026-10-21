@@ -17,17 +17,19 @@
      link to the terms are all markup, and the prices stay on the payments
      page beside their conditions. GET /api/billing/config decides only
      whether the button to that page shows (the server sets `checkout` while
-     sign-ups are open) and, once the offer has ended, the note saying so. */
+     sign-ups are open) and the note: once the offer has ended, that it has;
+     while sign-ups are not open, or the settings cannot be read, that they
+     open soon (eve audit #17). Nothing is said while the request is in flight. */
   const I18N = window.nodalI18n;
   const t = (key, vars) => (I18N ? I18N.t(key, vars) : key);
 
-  let billing = null;
+  let billing = null, billingRead = false;
   function renderMembershipNote() {
     const note = document.querySelector('[data-billing-state]');
     if (!note) return;
-    const ended = billing?.state === 'ended';
-    note.textContent = ended ? t('mem.fund.ended') : '';
-    note.hidden = !ended;
+    const key = !billingRead ? '' : billing?.state === 'ended' ? 'mem.fund.ended' : billing?.checkout === true ? '' : 'mem.fund.soon';
+    note.textContent = key ? t(key) : '';
+    note.hidden = !key;
   }
 
   async function loadLandingBillingConfig() {
@@ -38,6 +40,7 @@
     } catch {
       // static previews have no API: the card keeps its markup and drops the button
     }
+    billingRead = true;
     // The button ships hidden (also without JavaScript, and while this
     // request is in flight) and appears only when checkout can run.
     // While checkout is closed it leads nowhere, so it is removed outright.

@@ -19,6 +19,9 @@ const CONSOLE=readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.met
 // not an assinatura (res.link here, d.nav.membership in the console), so the Spanish and
 // Portuguese nonhome hashes and the Portuguese home hash were redone; tests/fundadores-copy.test.js
 // pins those lines.
+// On 21 Oct 2026 the console's locked "Founding Member" badge (d.badge.founding.*), whose "by invitation" and
+// "founding price" contradicted the Founder Membership, became the first cohort's (eve audit #19), so the two nonhome
+// hashes were redone; only those three lines moved, and tests/dashboard-console-ui.test.js pins them.
 const HOME_KEYS=[
   "about.eyebrow",
   "about.lead1",
@@ -255,8 +258,8 @@ const SNAPSHOTS={
     "pt": "b9a077e4b2055212490393a2498292f0d20156b6f1d4e34f8d7b063179e71d3b"
   },
   "nonhome": {
-    "es": "a2589311d8d7711455cd28275a6671ed24ba975fc3f6f3ba59590413be80df5f",
-    "pt": "675654d3b739d29050e63689a2eb78452be289c255e7acecdb18de9890677da9"
+    "es": "2446274259073583848789e44b39f632d8b5d9cbbd856292fd95ae5218e375ba",
+    "pt": "4a3df4bfc031f79e8368cadb069ae8a57d3602de79694d492c31b4a93cc5f108"
   }
 };
 

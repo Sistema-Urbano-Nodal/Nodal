@@ -65,6 +65,7 @@
   // The session page: its tab title until the session is known, the person's status under the header, and the question list's labels.
   talkSessionPage:['Session','Sesión','Sessão'],talkInPlan:['In your registration','En tu inscripción','Na sua inscrição'],talkNotInPlan:['Not in your registration','No está en tu inscripción','Não está na sua inscrição'],
   talkCheckedIn:['Attendance confirmed','Asistencia registrada','Presença confirmada'],talkCheckinHint:['Check in with the QR code in the room','Registra tu asistencia con el QR en la sala','Registre sua presença com o QR da sala'],
+  talkCheckinAdds:['Scan the QR code at the door to check in: this block is added to your registration.','Escanea el QR en la puerta para registrar tu asistencia: el bloque se añadirá a tu inscripción.','Escaneie o QR na porta para registrar sua presença: o bloco será adicionado à sua inscrição.'],
   talkBadgeEarned:['Session badge earned','Insignia de la sesión obtenida','Insígnia da sessão conquistada'],talkBadgeLocked:['Session badge still to earn','Insignia de la sesión por desbloquear','Insígnia da sessão por desbloquear'],
   talkQuestionLabel:['Question','Pregunta','Pergunta'],talkJumpLatest:['See the latest answers ↓','Ver las últimas respuestas ↓','Ver as últimas respostas ↓'],
   talkKindChat:['Conversation','Conversación','Conversa'],talkOpenChip:['Open','Abierta','Aberta'],talkAnswers:['{n} answers','{n} respuestas','{n} respostas'],talkAnswersOne:['1 answer','1 respuesta','1 resposta'],
@@ -279,7 +280,8 @@
  }
  function drop(id){rowsById.get(id)?.remove();rowsById.delete(id);views.delete(id);}
  // The newest message on screen, sent ones only, and the first row the reader can see, with where it is, to keep it there through a rebuild.
- const newestShown=()=>views.get([...parts?.log.children||[]].filter(child=>child.dataset.id).at(-1)?.dataset.id)||null;
+ // The last one by its index: iOS 15.0–15.3 has no Array.prototype.at, and every poll would throw there (eve audit #8).
+ const newestShown=()=>{const listed=[...parts?.log.children||[]].filter(child=>child.dataset.id);return views.get(listed[listed.length-1]?.dataset.id)||null;};
  function anchorRow(){const row=[...parts?.log.children||[]].find(child=>child.dataset.id&&child.getBoundingClientRect?.().bottom>0);return row?{id:row.dataset.id,top:row.getBoundingClientRect().top}:null;}
  function restoreAnchor(anchor){const row=anchor&&rowsById.get(anchor.id);if(row?.getBoundingClientRect&&typeof window.scrollBy==='function')window.scrollBy(0,row.getBoundingClientRect().top-anchor.top);}
  // A copy stored without the attempt's photos or PDFs (the attach step failed after the insert) is not the message delivered: the attempt keeps its row,
@@ -351,12 +353,20 @@
   const box=page?.mine;if(!box)return;const a=sessionActivity(),r=mineData?.registration,attendance=Array.isArray(mineData?.attendance)?mineData.attendance:[],items=[];
   if(a&&r&&!isGeneral(page.id)){
    const answers=r.answers||{},planned=(answers.activities||[]).includes(a.id),record=attendance.find(row=>row.activityId===a.id),checkin=!a.legacy&&['general','application'].includes(a.registration);
-   if(['general','social'].includes(a.registration)){items.push(tr('span',planned?'talkInPlan':'talkNotInPlan',planned?'f-pill is-ok':'f-pill'));if(!planned&&festival?.config?.registrationOpen)items.push(leaving(link('addToRegistration','fiiu.html#add-'+encodeURIComponent(a.id),'f-text-link')));}
-   else if(a.registration==='application')items.push(tr('span',r.labStatus&&r.labStatus!=='none'?r.labStatus+'Short':'talkNotInPlan','f-pill'+(r.labStatus&&r.labStatus!=='none'?' is-'+r.labStatus:'')));
-   else if((answers.externalActivities||[]).includes(a.id))items.push(tr('span','interestChip','f-pill is-ok'));
    // How to check in only while the server still takes check-ins (on any earlier day too, until 30 minutes after the end): once that closed a scan is
    // refused, so the status says check-in closed, and leaves out the badge a scan can no longer earn.
    const shut=checkin&&!record&&checkinState(a)==='closed';
+   if(['general','social'].includes(a.registration)){
+    items.push(tr('span',planned?'talkInPlan':'talkNotInPlan',planned?'f-pill is-ok':'f-pill'));
+    if(!planned&&festival?.config?.registrationOpen){
+     // A conference block's door scan checks a registered person in and adds the block (the server's addToPlan) while registration is open, so that
+     // comes first; the form stays as the second way (eve audit #21).
+     if(checkin&&a.registration==='general'&&!record&&!shut)items.push(tr('span','talkCheckinAdds','f-talk-mine-hint'));
+     items.push(leaving(link('addToRegistration','fiiu.html#add-'+encodeURIComponent(a.id),'f-text-link')));
+    }
+   }
+   else if(a.registration==='application')items.push(tr('span',r.labStatus&&r.labStatus!=='none'?r.labStatus+'Short':'talkNotInPlan','f-pill'+(r.labStatus&&r.labStatus!=='none'?' is-'+r.labStatus:'')));
+   else if((answers.externalActivities||[]).includes(a.id))items.push(tr('span','interestChip','f-pill is-ok'));
    if(checkin&&record){const at=new Date(record.createdAt),done=el('span','f-pill is-ok');done.append(tr('span','talkCheckedIn'),document.createTextNode(' '));if(limaDate(at)!==a.date)done.append(dateNode(limaDate(at),'span','short','f-talk-day'),document.createTextNode(' '));done.append(el('span','f-talk-mine-time',limaClock(at)));items.push(done);}
    else if(checkin&&(a.registration==='general'?planned:r.labStatus==='accepted')){const hint=el('span','f-talk-mine-hint');hint.append(shut?windowNode(a,'closed'):tr('span','talkCheckinHint'));items.push(hint);}
    const badge=festival?festivalBadges(r,attendance,festival.event).find(b=>b.id==='session:'+a.id):null;
@@ -735,7 +745,9 @@
   if(!/^image\//.test(type))throw problem('talkFileType');
   let full,thumb=null,width,height;
   try{
-   const bitmap=await createImageBitmap(file,{imageOrientation:'from-image'});
+   // A browser without the 'from-image' orientation (iOS 15) refuses the option: the photo is read without it, which current engines turn upright by
+   // its EXIF anyway, rather than going up full size or being refused over 3 MB (eve audit #13).
+   let bitmap;try{bitmap=await createImageBitmap(file,{imageOrientation:'from-image'});}catch{bitmap=await createImageBitmap(file);}
    try{const big=scaled(bitmap,1600),small=scaled(bitmap,480);width=big.width;height=big.height;full=await jpeg(big,0.85);let blob=await jpeg(small,0.7);if(blob.size>THUMB)blob=await jpeg(small,0.5);if(blob.size<=THUMB)thumb={blob,width:small.width,height:small.height};}
    finally{bitmap.close?.();}
   }catch{

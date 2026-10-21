@@ -21,6 +21,8 @@
   }else{grid.append(card('resources','resourcesTitle',[['opportunities','opportunities.html?kind=opportunity'],['browseResources','opportunities.html?kind=resource,case_study']],true));const updates=el('section','f-updates');updates.append(tr('h2','news'));const list=el('div','f-news');updates.append(list);hub.append(updates);news(list);}
   hub.append(newTabNote());status(message,'');
  }
+ // The answers a complete registration has, the same rule as missingAnswers in fiiu.js: a count of those still missing.
+ const missingAnswers=a=>['country','city','profile','nationalId','gender','motivation','previousAttendance'].filter(k=>!a[k]).length+(Number.isInteger(a.age)?0:1)+(Array.isArray(a.accessibility)&&a.accessibility.length?0:1)+(typeof a.publicOfficial==='boolean'?0:1);
  // Dashboard widget: registration state and next step first, then festival news. The h2 in dashboard.html names the festival.
  if(widget){
   const meta=el('p','f-widget-meta'),state=el('div','f-widget-status'),updates=el('section','f-widget-news'),newsHost=el('div','f-news');
@@ -61,6 +63,9 @@
    // dashboard.js places the block by this on a phone: first for a registrant, after the greeting for an invitation to register.
    widget.dataset.registered=String(Boolean(registration));
    chips.append(registration?tr('span','statusRegistered','f-pill is-ok'):tr('span','statusNotRegistered','f-pill'));
+   // A registration made at the door holds only a name, an email, a city and the block: it says it needs completing, as fiiu.html's hero does, and the
+   // button below leads to it (eve audit #7).
+   if(registration&&missingAnswers(registration.answers||{}))chips.append(tr('span','actionNeeded','f-pill is-pending'));
    if(registration&&registration.labStatus!=='none')chips.append(tr('span',registration.labStatus+'Short','f-pill is-'+registration.labStatus));
    // A registration keeps its way back; without one, the call to action follows the registration settings.
    if(!registration&&!me.isAdmin)stopLive();

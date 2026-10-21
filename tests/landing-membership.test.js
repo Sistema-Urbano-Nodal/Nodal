@@ -52,6 +52,8 @@ const CLOSED = (state) => ({ checkout: false, provider: null, state, offer: OFFE
 
 const json = (payload) => async () => ({ ok: true, status: 200, async json() { return payload; } });
 const ENDED = { en: 'Offer closed', es: 'Oferta cerrada', pt: 'Oferta encerrada' };
+// Eve audit #17: while sign-ups are not open yet, or the settings cannot be read, the card says so instead of leaving a card with no button.
+const SOON = { en: 'Sign-ups open soon', es: 'Las inscripciones abren pronto', pt: 'As inscrições abrem em breve' };
 // Every answer the card may get: open with both options, with one of them, the shape before the Founder Membership, closed, ended, refused, offline.
 const ANSWERS = {
   open: json(FUNDADORES),
@@ -92,7 +94,7 @@ test('while sign-ups are open the card keeps its button to the payments page, sh
   assert.equal(unflagged.cta.removed, true);
 });
 
-test('once the offer has ended the card says so in the reader’s language, and before that it has no such note', async () => {
+test('once the offer has ended the card says so in the reader’s language, and while sign-ups are open it has no note', async () => {
   for (const lang of ['en', 'es', 'pt']) {
     const ended = await landing({ lang, fetchImpl: ANSWERS.ended });
     assert.equal(ended.note.textContent, ENDED[lang], lang);
@@ -101,11 +103,36 @@ test('once the offer has ended the card says so in the reader’s language, and 
   const page = await landing({ fetchImpl: ANSWERS.ended });
   page.i18n.apply('pt');
   assert.equal(page.note.textContent, ENDED.pt, 'the note follows a language switch');
-  for (const name of ['open', 'soon', 'refused', 'offline']) {
+  for (const name of ['open', 'installmentsOnly', 'onceOnly', 'legacy']) {
     const other = await landing({ fetchImpl: ANSWERS[name] });
     assert.equal(other.note.hidden, true, name);
     assert.equal(other.note.textContent, '', name);
   }
+});
+
+test('before sign-ups open, or when the settings cannot be read, the card says sign-ups open soon, never a price', async () => {
+  for (const name of ['soon', 'refused', 'offline']) {
+    for (const lang of ['en', 'es', 'pt']) {
+      const page = await landing({ lang, fetchImpl: ANSWERS[name] });
+      assert.equal(page.note.textContent, SOON[lang], `${name} ${lang}`);
+      assert.equal(page.note.hidden, false, `${name} ${lang}`);
+    }
+  }
+  // A server without the flag (older deploy) is treated as closed, as its button is.
+  const unflagged = await landing({ fetchImpl: json({ annual: { amount: 'S/ 240', per: '/ year' } }) });
+  assert.equal(unflagged.note.textContent, SOON.en);
+  const page = await landing({ lang: 'es', fetchImpl: ANSWERS.soon });
+  page.i18n.apply('pt');
+  assert.equal(page.note.textContent, SOON.pt, 'the note follows a language switch');
+  // A language switch while the settings are still on their way says nothing yet.
+  let answer;
+  const waiting = await landing({ fetchImpl: () => new Promise((resolve) => { answer = resolve; }) });
+  waiting.i18n.apply('es');
+  assert.equal(waiting.note.hidden, true);
+  assert.equal(waiting.note.textContent, '');
+  answer({ ok: true, status: 200, async json() { return CLOSED('ended'); } });
+  for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(waiting.note.textContent, ENDED.es);
 });
 
 test('the landing card is the Founder Membership: its name, what it supports, its benefits, the terms and a button to learn more', () => {
