@@ -5,8 +5,9 @@ The text is section 2, "Términos comerciales completos de membresías 2027", of
 "Condiciones de pago y membresía de pago" (21 Oct 2026), with its bracketed fields filled:
 - version FUNDADORES-2027-v1, in force for new purchases from 21 October 2026;
 - the seller's address as on the membership page, "Calle General Varela 154 A, Miraflores" (section 2 of the document said "154");
-- the benefit links: the landing page's membership section and the Fundadores benefits on the payments page;
-- "la programación 2026" links to the courses page; the privacy policy to /privacy.html;
+- both benefit links go to the landing page's membership section (/#membership), which lists each access's
+  benefits: the page is public, and the payments page and the courses sit behind sign-in;
+- "la programación 2026" is named without a link, for the same reason; the privacy policy links to /privacy.html;
 - the general conditions of use are named without a link, since NODAL has not published any yet.
 
 The contact email and the Libro de Reclamaciones link are filled in on the page when it loads, from the settings
@@ -54,7 +55,7 @@ La oferta Nodal Fundadores está disponible para las personas que se inscriban y
 Los beneficios, funcionalidades, límites de uso y condiciones de acceso se detallan en:
 
 - Acceso Comunitario: [membresías en la página de inicio de Nodal](/#membership).
-- Nodal Fundadores: [beneficios de Nodal Fundadores](/payments.html#beneficios).
+- Nodal Fundadores: [beneficios de Nodal Fundadores en la página de inicio de Nodal](/#membership).
 
 La membresía Nodal Fundadores se organiza en cuatro pilares:
 
@@ -69,7 +70,7 @@ Determinadas funcionalidades, reconocimientos y espacios de participación podr�
 
 ## 4. Curso y masterclass incluidos durante 2027
 
-La membresía Nodal Fundadores 2027 incluye un curso y una masterclass, que podrán elegirse entre las actividades identificadas por Nodal como elegibles para este beneficio, según la programación de 2027 y la disponibilidad de cupos. Aquí puedes ver, a modo de ejemplo, [la programación 2026](/courses.html).
+La membresía Nodal Fundadores 2027 incluye un curso y una masterclass, que podrán elegirse entre las actividades identificadas por Nodal como elegibles para este beneficio, según la programación de 2027 y la disponibilidad de cupos. Aquí puedes ver, a modo de ejemplo, la programación 2026.
 
 El derecho a acceder a ambos beneficios se habilita desde la aprobación del primer pago, tanto en la modalidad de pago único como en la modalidad de dos pagos. No se exige completar el segundo pago para habilitar el curso o la masterclass.
 

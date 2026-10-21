@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 import {Node, descendants} from './helpers/fiiu-ui-harness.js';
+import {publicBillingConfig} from '../server/server.js';
 
 const script = readFileSync(new URL('../web/scripts/membership-terms.js', import.meta.url), 'utf8');
 const PENDING = 'pendiente de publicación';
@@ -79,6 +80,23 @@ test('an implausible email is never shown or linked, and the Libro de Reclamacio
     const p = await page({config: {contact: {email, complaintsUrl: BOOK}}});
     assert.ok(p.email.every(pending), JSON.stringify(email));
     assert.ok(p.complaints.every(slot => slot.children[0]?.href === BOOK), JSON.stringify(email));
+  }
+});
+
+/* The server publishes the contact email only once it passes its own check (MEMBERSHIP_CONTACT_EMAIL), and opens sales
+   with it; the terms page must then show that same address, and never one the server would not publish. */
+test('the page accepts exactly the contact emails the server publishes', async (t) => {
+  const warn = console.warn;
+  console.warn = () => {};
+  t.after(() => { console.warn = warn; });
+  const env = {MERCADOPAGO_LINK_ANNUAL: 'https://link.mercadopago.com.pe/nodal', MEMBERSHIP_COMPLAINTS_URL: BOOK};
+  for (const email of [EMAIL, 'atencion%lima@sistemaurbano.pe', 'a.b+c_d-e@sub.sistemaurbano.pe', `${'a'.repeat(64)}@x.pe`, `${'a'.repeat(65)}@x.pe`,
+    'ana@-x.pe', 'ana@x-.pe', 'ana@x..pe', 'ana@x.p', 'ana@x.p3', 'ana@x.pe.', '.ana@x.pe', 'ana@x_y.pe', 'ana!@x.pe', 'ana@localhost', 'ana maria@x.pe']) {
+    const published = publicBillingConfig({...env, MEMBERSHIP_CONTACT_EMAIL: email}, Date.parse('2026-11-01T15:00:00.000Z')).contact?.email ?? null;
+    const p = await page({config: {contact: {email, complaintsUrl: BOOK}}});
+    const shown = p.email.every(slot => slot.children[0]?.href === `mailto:${email.replace(/%/g, '%25')}` && text(slot.children[0]) === email);
+    assert.equal(shown, published === email, `${email}: server ${published === email ? 'publishes' : 'refuses'} it`);
+    if (!shown) assert.ok(p.email.every(pending), email);
   }
 });
 

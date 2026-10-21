@@ -363,11 +363,18 @@ const PAYMENT_LINK_HOST = /^(?:[a-z0-9-]+\.)*mercadopago\.com\.pe$|^mpago\.l[ai]
 const PAYMENT_OPTIONS = [['once', 'MERCADOPAGO_LINK_ANNUAL'], ['installments', 'MERCADOPAGO_LINK_INSTALLMENTS']];
 // A plain address, so the page's mailto: link can carry nothing else (no ?subject=, no second recipient).
 const CONTACT_EMAIL = /^[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$/;
-const OFFER_ENDS_AT = Date.parse(FUNDADORES_2027.endsAt);
+const OFFER_STARTS_AT = Date.parse(FUNDADORES_2027.effectiveFromAt), OFFER_ENDS_AT = Date.parse(FUNDADORES_2027.endsAt);
 // What a Fundadores purchase asks the member to tick (POST /api/membership/acceptances), all three every time.
 const ACCEPTANCES = ['terms', 'payment', 'renewal'];
 // The acceptances CSV holds the newest this many: far more than one offer period sells.
 const MEMBERSHIP_EXPORT_LIMIT = 10000;
+/* Mercado Pago shows the team Lima time (UTC-05:00 all year), so the CSV gives each acceptance's time there too,
+   as "YYYY-MM-DD HH:MM", beside the exact UTC instant. */
+const LIMA_OFFSET_MS = 5 * 60 * 60 * 1000;
+function limaMinute(iso) {
+  const at = Date.parse(iso);
+  return Number.isFinite(at) ? new Date(at - LIMA_OFFSET_MS).toISOString().slice(0, 16).replace('T', ' ') : '';
+}
 // Each bad value is logged once per instance, by its setting's name only.
 const rejectedSettings = new Set();
 function rejectSetting(key, raw, message) {
@@ -411,11 +418,11 @@ function membershipContact(env) {
   const complaints = complaintsUrl(env.MEMBERSHIP_COMPLAINTS_URL, 'MEMBERSHIP_COMPLAINTS_URL');
   return email && complaints ? { email, complaintsUrl: complaints } : null;
 }
-/* 'ended' from endsAt on, whatever is set; 'open' before it with an option and the contact; 'soon' otherwise.
-   options are the ones a member may accept now. */
+/* 'ended' from endsAt on, whatever is set; 'open' from the terms' effective date until then, with an option and the
+   contact; 'soon' otherwise, before that date too. options are the ones a member may accept now. */
 function membershipState(env, at) {
   const contact = membershipContact(env), options = paymentOptions(env);
-  const state = at >= OFFER_ENDS_AT ? 'ended' : options.length && contact ? 'open' : 'soon';
+  const state = at >= OFFER_ENDS_AT ? 'ended' : at >= OFFER_STARTS_AT && options.length && contact ? 'open' : 'soon';
   return { state, contact, options: state === 'open' ? options : [] };
 }
 
@@ -1224,6 +1231,9 @@ export function createApp({
      search. The browser refreshes every 15 seconds with jitter. */
   const networkLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: envInt('NETWORK_RATE_LIMIT', 40) });
   const writeLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: WRITE_RATE_LIMIT });
+  /* Each Fundadores acceptance stores a row that outlives the account, and the team reads them all in one CSV: a
+     member records at most this many an hour, far more than choosing an option and changing one's mind needs. */
+  const membershipAcceptanceLimiter = createWindowRateLimiter({ windowMs: 60 * 60 * 1000, limit: 10 });
   const locationLimiter = createWindowRateLimiter({windowMs:60000,limit:6});
   const costlyLimiter = createWindowRateLimiter({ windowMs: COSTLY_RATE_WINDOW_MS, limit: COSTLY_RATE_LIMIT });
   /* Keyed by session when there is one, by address otherwise, so a limit
@@ -1659,6 +1669,8 @@ export function createApp({
         if (membership.state === 'ended') { send(res, 410, { code: 'offer_ended' }); return; }
         const offered = membership.options.find((entry) => entry.id === option);
         if (!offered) { send(res, 503, { code: 'membership_unavailable' }); return; }
+        // Only an acceptance that would be stored spends the hourly budget, and one that fails to be gives it back.
+        if (!throttle(membershipAcceptanceLimiter, res, req, sessionUser, 'membership-acceptance')) return;
         const account = repository.toApiUser(sessionUser);
         const record = {
           id: randomUUID(), userId: account.id, email: account.email, fullName: account.fullName, option,
@@ -1669,6 +1681,7 @@ export function createApp({
           await repository.recordMembershipAcceptance(record);
         } catch (err) {
           // No link without its record: the member is asked to try again.
+          membershipAcceptanceLimiter.release(`membership-acceptance:${sessionUser.id}`);
           await reportAnswer(req, 503, err);
           send(res, 503, { code: 'membership_unavailable' });
           return;
@@ -1682,8 +1695,8 @@ export function createApp({
         if (!requireAdmin(res, sessionUser)) return;
         if (!throttle(readLimiter, res, req, sessionUser, 'membership-export')) return;
         const acceptances = await repository.listMembershipAcceptances({ limit: MEMBERSHIP_EXPORT_LIMIT });
-        const rows = [['accepted_at', 'full_name', 'email', 'option', 'amount', 'terms_version'],
-          ...acceptances.map((a) => [a.acceptedAt, a.fullName, a.email, a.option, a.amountText, a.termsVersion])];
+        const rows = [['accepted_at', 'accepted_at_lima', 'full_name', 'email', 'option', 'amount', 'terms_version'],
+          ...acceptances.map((a) => [a.acceptedAt, limaMinute(a.acceptedAt), a.fullName, a.email, a.option, a.amountText, a.termsVersion])];
         send(res, 200, csv(rows), { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="nodal-fundadores-acceptances.csv"' });
         return;
       }

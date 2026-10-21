@@ -5,8 +5,9 @@
    text and attributes. */
 (() => {
   'use strict';
-  // The server checks both settings; the page checks again before making either one a link.
-  const EMAIL = /^[A-Za-z0-9._+-]+@(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}$/;
+  /* The server checks both settings; the page checks again before making either one a link. EMAIL is the server's
+     own rule (CONTACT_EMAIL in server/server.js), so every address it publishes, and so sells with, is shown here. */
+  const EMAIL = /^[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$/;
   const email = (value) => (typeof value === 'string' && value.length <= 254 && EMAIL.test(value) ? value : null);
   const complaintsUrl = (value) => {
     if (typeof value !== 'string' || !value.startsWith('https://')) return null;
@@ -15,7 +16,8 @@
 
   function mailLink(address) {
     const link = document.createElement('a');
-    link.href = `mailto:${address}`;
+    // '%' is the only character the rule allows that a mailto: URL would read as an escape (RFC 6068).
+    link.href = `mailto:${address.replace(/%/g, '%25')}`;
     link.textContent = address;
     return link;
   }

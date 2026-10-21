@@ -18,6 +18,7 @@ const TWICE = 'https://www.mercadopago.com.pe/subscriptions/checkout?preapproval
 const CONTACT = { MEMBERSHIP_CONTACT_EMAIL: 'membresias@nodal.example', MEMBERSHIP_COMPLAINTS_URL: 'https://reclamos.example/nodal' };
 const OPEN = { MERCADOPAGO_LINK_ANNUAL: ONCE, MERCADOPAGO_LINK_INSTALLMENTS: TWICE, ...CONTACT };
 const BEFORE = Date.parse('2026-10-21T15:00:00.000Z');
+const STARTS = Date.parse('2026-10-21T05:00:00.000Z');
 const ENDS = Date.parse('2027-01-01T05:00:00.000Z');
 const VERSION = 'FUNDADORES-2027-v1';
 const OFFER = {
@@ -55,6 +56,7 @@ const rows = (db) => db.prepare('SELECT * FROM membership_acceptances ORDER BY a
 test('the offer in code is the terms version FUNDADORES-2027-v1, frozen', () => {
   assert.equal(FUNDADORES_2027.version, VERSION);
   assert.equal(FUNDADORES_2027.endsAt, '2027-01-01T05:00:00.000Z', '31 Dec 2026, 23:59:59 in Lima is the last moment');
+  assert.equal(FUNDADORES_2027.effectiveFromAt, `${FUNDADORES_2027.effectiveFrom}T05:00:00.000Z`, '00:00 in Lima on the day the terms take effect');
   assert.deepEqual(FUNDADORES_2027.options, { once: { amount: 'S/ 499' }, installments: { each: 'S/ 275', total: 'S/ 550', count: 2, monthsApart: 2 } });
   assert.deepEqual(FUNDADORES_2027.seller, OFFER.seller);
   for (const value of [FUNDADORES_2027, FUNDADORES_2027.options, FUNDADORES_2027.options.once, FUNDADORES_2027.options.installments, FUNDADORES_2027.seller]) assert.ok(Object.isFrozen(value));
@@ -89,6 +91,12 @@ test('billing config stays "soon" until an option and the whole contact are set,
   assert.deepEqual(publicBillingConfig({ ...CONTACT, MERCADOPAGO_LINK_ANNUAL: 'https://evil.example/pay', MERCADOPAGO_LINK_INSTALLMENTS: 'http://link.mercadopago.com.pe/x' }, BEFORE), closed('soon', CONTACT_VIEW), 'only bad links');
   // The default clock is the real one.
   assert.equal(publicBillingConfig({}).offer.version, VERSION);
+});
+
+test('billing config stays "soon" before the terms take effect (21 Oct 2026, 00:00 Lima), whatever is configured', () => {
+  assert.deepEqual(publicBillingConfig(OPEN, STARTS - 1), closed('soon', CONTACT_VIEW), 'the last millisecond of 20 Oct 2026 in Lima');
+  assert.deepEqual(publicBillingConfig(OPEN, Date.parse('2026-10-20T15:00:00.000Z')), closed('soon', CONTACT_VIEW), 'the day before');
+  assert.equal(publicBillingConfig(OPEN, STARTS).state, 'open', 'exactly when the terms take effect');
 });
 
 test('billing config says "ended" from endsAt on, whatever is configured, and offers nothing', () => {
@@ -163,6 +171,16 @@ test('an acceptance is refused with 410 from endsAt on and with 503 while its op
   assert.equal(missing.status, 503);
   assert.deepEqual(await missing.json(), { code: 'membership_unavailable' });
   assert.deepEqual([rows(ended.db), rows(noContact.db)], [[], []]);
+  // Before the terms take effect nothing can be accepted under them.
+  let at = STARTS - 1;
+  const early = await boot(t, { now: () => at });
+  const earlyCookie = early.member().cookie;
+  const tooEarly = await accept(early.base, earlyCookie, valid('once'));
+  assert.equal(tooEarly.status, 503);
+  assert.deepEqual(await tooEarly.json(), { code: 'membership_unavailable' });
+  assert.deepEqual(rows(early.db), []);
+  at = STARTS;
+  assert.equal((await accept(early.base, earlyCookie, valid('once'))).status, 201);
 });
 
 test('acceptances spend the write budget profile saves use, so a loop answers 429', async (t) => {
@@ -176,6 +194,21 @@ test('acceptances spend the write budget profile saves use, so a loop answers 42
   }
   assert.ok(limited, 'rate limited');
   assert.ok(Number(limited.headers.get('retry-after')) > 0);
+});
+
+test('a member records at most 10 acceptances an hour, so a loop cannot flood the acceptances CSV', async (t) => {
+  const { db, base, member } = await boot(t);
+  const ana = member('Ana Fundadora', 'ana@example.test'), beatriz = member('Beatriz', 'beatriz@example.test');
+  // Refusals store nothing and spend none of it.
+  for (let i = 0; i < 5; i += 1) assert.equal((await accept(base, ana.cookie, { ...valid(), version: 'FUNDADORES-2027-v0' })).status, 409);
+  for (let i = 0; i < 10; i += 1) assert.equal((await accept(base, ana.cookie, valid(i % 2 ? 'installments' : 'once'))).status, 201, `acceptance ${i + 1}`);
+  const limited = await accept(base, ana.cookie, valid('once'));
+  assert.equal(limited.status, 429);
+  assert.deepEqual(await limited.json(), { error: 'too many requests' });
+  const retryAfter = Number(limited.headers.get('retry-after'));
+  assert.ok(retryAfter > 3500 && retryAfter <= 3600, `about an hour, not a minute: ${retryAfter}`);
+  assert.equal(rows(db).length, 10, 'the eleventh is not stored');
+  assert.equal((await accept(base, beatriz.cookie, valid('once'))).status, 201, 'per member');
 });
 
 test('an acceptance stores who accepted what and when, and answers the Mercado Pago link of that option', async (t) => {
@@ -222,17 +255,23 @@ test('a storage failure is answered 503 and reported; a deliberate refusal is no
   assert.deepEqual(body, { code: 'membership_unavailable' });
   assert.ok(!('url' in body), 'no link without a record');
   assert.deepEqual(reports, [{ message: 'membership insert failed', method: 'POST', route: '/api/membership/acceptances', status: 503 }]);
+  // A failed insert gives its unit of the hourly budget back: the member is asked to try again.
+  for (let i = 0; i < 10; i += 1) assert.equal((await accept(base, cookie, valid('once'))).status, 503, `retry ${i + 1}`);
 });
 
-test('the acceptances CSV is for platform admins, newest first, with formulas neutralised', async (t) => {
+test('the acceptances CSV is for platform admins, newest first, with Lima time beside UTC and formulas neutralised', async (t) => {
   let at = BEFORE;
   const { base, member } = await boot(t, { now: () => at });
   const admin = member('Admin Persona', 'admin@example.test', 'admin');
   const plain = member('Beatriz', 'beatriz@example.test');
   const hostile = member('=HYPERLINK("https://evil.example","x")', 'hostile@example.test');
+  const late = member('Carla', 'carla@example.test');
   assert.equal((await accept(base, hostile.cookie, valid('once'))).status, 201);
   at += 60000;
   assert.equal((await accept(base, plain.cookie, valid('installments'))).status, 201);
+  // 21:10 on 31 Dec 2026 in Lima is already 1 Jan 2027 in UTC: Mercado Pago shows the Lima date.
+  at = Date.parse('2027-01-01T02:10:00.000Z');
+  assert.equal((await accept(base, late.cookie, valid('once'))).status, 201);
   const csvUrl = `${base}/api/admin/membership/acceptances`;
   assert.equal((await fetch(csvUrl)).status, 401);
   assert.equal((await fetch(csvUrl, { headers: { Cookie: plain.cookie } })).status, 403);
@@ -244,9 +283,10 @@ test('the acceptances CSV is for platform admins, newest first, with formulas ne
   const bytes = Buffer.from(await res.arrayBuffer());
   assert.deepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf], 'a byte order mark, so Excel reads it as UTF-8');
   assert.deepEqual(bytes.subarray(3).toString('utf8').split('\r\n'), [
-    '"accepted_at","full_name","email","option","amount","terms_version"',
-    `"2026-10-21T15:01:00.000Z","Beatriz","beatriz@example.test","installments","2 × S/ 275 (S/ 550)","${VERSION}"`,
-    `"2026-10-21T15:00:00.000Z","'=HYPERLINK(""https://evil.example"",""x"")","hostile@example.test","once","S/ 499","${VERSION}"`,
+    '"accepted_at","accepted_at_lima","full_name","email","option","amount","terms_version"',
+    `"2027-01-01T02:10:00.000Z","2026-12-31 21:10","Carla","carla@example.test","once","S/ 499","${VERSION}"`,
+    `"2026-10-21T15:01:00.000Z","2026-10-21 10:01","Beatriz","beatriz@example.test","installments","2 × S/ 275 (S/ 550)","${VERSION}"`,
+    `"2026-10-21T15:00:00.000Z","2026-10-21 10:00","'=HYPERLINK(""https://evil.example"",""x"")","hostile@example.test","once","S/ 499","${VERSION}"`,
   ]);
   assert.equal((await fetch(csvUrl, { method: 'POST', headers: { Cookie: admin.cookie, Origin: base } })).status, 404, 'read only');
 });
@@ -281,6 +321,8 @@ test('the course pilot keeps the payments page closed only while the membership 
   assert.equal((await page()).headers.get('location'), '/courses.html', 'links without a contact');
   Object.assign(billingEnv, CONTACT);
   assert.equal((await page()).status, 200, 'open');
+  at = STARTS - 1;
+  assert.equal((await page()).headers.get('location'), '/courses.html', 'everything set, before the terms take effect');
   at = ENDS;
   assert.equal((await page()).status, 200, 'ended: the page says the offer closed');
   for (const key of Object.keys(billingEnv)) delete billingEnv[key];
@@ -364,6 +406,13 @@ test('the Supabase table is server-only contract evidence that outlives the prof
   assert.match(raw, /npx --no-install supabase db query --linked -f supabase\/migrations\/20261021000000_membership_acceptances\.sql/);
   assert.match(raw, /supabase migration repair --status applied 20261021000000/);
   assert.match(raw, /Never `db push`/);
+  // Applied before main is pushed: until then the acceptances, the account export and the admin CSV fail on Supabase.
+  assert.match(raw, /BEFORE pushing `main`/);
+  for (const route of ['/api/membership/acceptances', '/api/me/export', '/api/admin/membership/acceptances']) assert.ok(raw.includes(route), route);
+  const deployment = readFileSync(path.join(ROOT, 'DEPLOYMENT.md'), 'utf8');
+  const step = deployment.slice(deployment.indexOf('## Nodal Fundadores acceptances'), deployment.indexOf('## Supabase Setup'));
+  assert.match(step, /before pushing `main`/);
+  for (const route of ['/api/me/export', '/api/admin/membership/acceptances']) assert.ok(step.includes(route), `DEPLOYMENT.md: ${route}`);
   const statements = raw.replace(/--[^\n]*/g, '').split(';').map((part) => part.replace(/\s+/g, ' ').trim()).filter(Boolean);
   assert.equal(statements[0], 'BEGIN');
   assert.equal(statements.at(-1), 'COMMIT');

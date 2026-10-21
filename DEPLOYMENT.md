@@ -210,10 +210,14 @@ cap; without them the panel says email is off and nothing is sent.
 and name at that moment, the option and its amount, the terms version, the three
 authorizations, the time). It is contract evidence: erasing an account only
 clears `user_id`. The server may only insert and read it. It is additive, and
-the code live today never reads it, so applying it first is safe. Deploying the
-code first makes every acceptance answer 503 `membership_unavailable` (no
-Mercado Pago link goes out) and every account export (`/api/me/export`) fail
-until it is applied.
+the code live today never reads it, so applying it first is safe.
+
+**Apply it before pushing `main`:** Vercel deploys on push, and until the table
+exists the new code fails on Supabase. Every acceptance
+(`POST /api/membership/acceptances`) answers 503 `membership_unavailable`, so no
+Mercado Pago link goes out; every member's data download (`/api/me/export`)
+fails; and so does the team's acceptances CSV
+(`/api/admin/membership/acceptances`).
 
 ```bash
 npx --no-install supabase db query --linked -f supabase/migrations/20261021000000_membership_acceptances.sql
@@ -316,14 +320,16 @@ version.
 
 `GET /api/billing/config` answers `state`:
 
-- `open` (`checkout: true`): before 1 Jan 2027 00:00 Lima, with at least one
+- `open` (`checkout: true`): from 21 Oct 2026 00:00 Lima, when the terms take
+  effect (`effectiveFromAt`), until 1 Jan 2027 00:00 Lima, with at least one
   option whose link is an `https` Mercado Pago Peru address (`mercadopago.com.pe`
   or a subdomain, `mpago.la`, `mpago.li`) **and** both contact settings valid.
   Only the options with a link are listed, and never the links themselves: a
   member gets a link only from `POST /api/membership/acceptances`, after their
   acceptances are recorded.
-- `soon` (`checkout: false`, `Soon`): an option or the contact is missing. The
-  course pilot keeps redirecting `/payments.html` to the courses page.
+- `soon` (`checkout: false`, `Soon`): an option or the contact is missing, or
+  the terms have not taken effect yet. The course pilot keeps redirecting
+  `/payments.html` to the courses page.
 - `ended` (`checkout: false`): from 1 Jan 2027 00:00 Lima, whatever is set. The
   payments page opens and says the offer has closed.
 
@@ -342,7 +348,8 @@ link, without credentials. `SUBSCRIPTION_PRICE_ANNUAL_LABEL`,
 `SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL` and `SUBSCRIPTION_ANNUAL_PERIOD` are no
 longer read and can be removed from Vercel. The acceptances need the migration
 under "Nodal Fundadores acceptances" above. Platform admins download them,
-newest first, from `/api/admin/membership/acceptances` (CSV).
+newest first, from `/api/admin/membership/acceptances` (CSV), each time both in
+UTC (`accepted_at`) and in Lima time (`accepted_at_lima`).
 
 Stripe is dormant (it cannot onboard a Peruvian business); its variables below
 only matter if that route is ever revived.
@@ -480,9 +487,10 @@ npm start
     `MEMBERSHIP_COMPLAINTS_URL`, `/api/billing/config` returns `"state": "soon"`,
     `"checkout": false` and `Soon`, the landing card shows "Soon!", and in the
     pilot `/payments.html` redirects to `/courses.html`. With a link and the
-    contact set, it returns `"state": "open"`, `"checkout": true` and S/ 499 (no
-    link in the answer), the landing shows the price and its button, and
-    `/payments.html` opens. From 1 Jan 2027 (Lima) it returns `"state": "ended"`.
+    contact set, from 21 Oct 2026 (Lima) it returns `"state": "open"`,
+    `"checkout": true` and S/ 499 (no link in the answer), the landing shows the
+    price and its button, and `/payments.html` opens; before that date it stays
+    `"soon"`. From 1 Jan 2027 (Lima) it returns `"state": "ended"`.
 14. Confirm `/api/news` returns 200, and that `/fiiu-qr.html` and
     `/fiiu-admin.html` show "Organisers only" (status 403) to a member account
     and the real pages to an administrator.

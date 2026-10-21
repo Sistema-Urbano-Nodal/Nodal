@@ -178,35 +178,45 @@ test('Mercado Pago is named, in every language, as the processor of the Nodal Fu
   for (const [lang, sentence] of [
     ['en', 'Mercado Pago processes the Nodal Fundadores membership payments: you pay on its page and give your payment details to Mercado Pago, never to NODAL.'],
     ['es', 'Mercado Pago procesa los pagos de la membresía Nodal Fundadores: pagas en su página y entregas tus datos de pago a Mercado Pago, nunca a NODAL.'],
-    ['pt', 'O Mercado Pago processa os pagamentos da assinatura Nodal Fundadores: você paga na página dele e entrega seus dados de pagamento ao Mercado Pago, nunca à NODAL.'],
+    ['pt', 'O Mercado Pago processa os pagamentos da membresia Nodal Fundadores: você paga na página dele e entrega seus dados de pagamento ao Mercado Pago, nunca à NODAL.'],
   ]) assert.ok(providers(lang).includes(sentence), lang);
+  // In Portuguese too it is a membership (membresia), the terms' word, never a subscription.
+  assert.doesNotMatch(providers('pt'), /assinatura/i);
 });
 
 /* Before paying for Nodal Fundadores a member accepts its terms, and NODAL keeps that record as contract evidence
    (docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md): deleting the account removes only its link to the account. */
-test('the Nodal Fundadores acceptance record is described in every language: what is kept and why, and that it outlives account deletion', () => {
+test('the Nodal Fundadores acceptance record is described in every language: what is kept and why, who sees it, how long, and that it outlives account deletion', () => {
   const html = read('web/pages/privacy.html');
   const articles = Object.fromEntries([...html.matchAll(/<article data-policy-lang="(en|es|pt)"[^>]*>([\s\S]*?)<\/article>/g)].map(([, lang, body]) => [lang, body]));
   const section = (lang, n) => articles[lang].match(new RegExp(`<section id="${lang}-${n}">([\\s\\S]*?)</section>`))[1];
-  for (const [lang, category, kept, why, deletion] of [
+  for (const [lang, category, kept, why, deletion, seen, retention] of [
     ['en', 'Nodal Fundadores membership',
       'your name, your account email, the option you chose and its amount, the terms version, the three authorizations you ticked (the terms, the payment and automatic renewal) and the date and time',
       'as evidence of the contract you accepted before paying',
-      'The record of your Nodal Fundadores acceptance is kept after you delete your account, as evidence of the contract you accepted, with your name and email but without its link to the account.'],
+      'The record of your Nodal Fundadores acceptance is kept after you delete your account, as evidence of the contract you accepted, with your name and email but without its link to the account.',
+      'Only NODAL administrators see it, and they can download it as a list (name, email, option, amount, terms version and date) to match payments to accounts. Your account export includes it.',
+      'It is kept for as long as it is needed to evidence the contract and to answer claims about it, and is then deleted.'],
     ['es', 'Membresía Nodal Fundadores',
       'tu nombre, el correo de tu cuenta, la modalidad elegida y su importe, la versión de los términos, las tres autorizaciones que marcaste (los términos, el pago y la renovación automática) y la fecha y la hora',
       'como prueba del contrato que aceptaste antes de pagar',
-      'El registro de tu aceptación de Nodal Fundadores se conserva después de eliminar tu cuenta, como prueba del contrato que aceptaste, con tu nombre y tu correo pero sin su vínculo con la cuenta.'],
-    ['pt', 'Assinatura Nodal Fundadores',
+      'El registro de tu aceptación de Nodal Fundadores se conserva después de eliminar tu cuenta, como prueba del contrato que aceptaste, con tu nombre y tu correo pero sin su vínculo con la cuenta.',
+      'Solo las personas administradoras de NODAL lo ven, y pueden descargarlo como lista (nombre, correo, modalidad, importe, versión de los términos y fecha) para vincular los pagos con las cuentas. La exportación de tu cuenta lo incluye.',
+      'Se conserva mientras sea necesario para acreditar el contrato y atender reclamos sobre él, y luego se elimina.'],
+    ['pt', 'Membresia Nodal Fundadores',
       'seu nome, o e-mail da sua conta, a modalidade escolhida e o valor, a versão dos termos, as três autorizações que você marcou (os termos, o pagamento e a renovação automática) e a data e a hora',
       'como prova do contrato que você aceitou antes de pagar',
-      'O registro da sua aceitação do Nodal Fundadores é mantido depois que você exclui sua conta, como prova do contrato que você aceitou, com seu nome e e-mail, mas sem o vínculo com a conta.'],
+      'O registro da sua aceitação do Nodal Fundadores é mantido depois que você exclui sua conta, como prova do contrato que você aceitou, com seu nome e e-mail, mas sem o vínculo com a conta.',
+      'Somente administradores da NODAL o veem, e podem baixá-lo como lista (nome, e-mail, modalidade, valor, versão dos termos e data) para vincular os pagamentos às contas. A exportação da conta o inclui.',
+      'Ele é mantido enquanto for necessário para comprovar o contrato e responder a reclamações sobre ele, e depois é excluído.'],
   ]) {
     const row = section(lang, 2).match(new RegExp(`<tr role="row"><td role="cell">${category}</td><td role="cell">([^<]*)</td></tr>`))?.[1];
     assert.ok(row, `${lang}: a data row for the acceptance record`);
     assert.ok(row.includes(kept), `${lang}: what is kept`);
     assert.ok(row.includes(why), `${lang}: why`);
     assert.ok(section(lang, 9).includes(deletion), `${lang}: section 9 says it outlives account deletion`);
+    assert.ok(row.includes(seen), `${lang}: who sees it, the list and the export`);
+    assert.ok(row.includes(retention) && section(lang, 9).includes(retention), `${lang}: how long, in the row and in section 9`);
   }
 });
 
