@@ -34,10 +34,13 @@ export function createHandler({ boot, reporter }) {
 }
 
 const reporter = createErrorReporter();
+/* Payments stay closed in this release: the Mercado Pago links are already set in Vercel for the Membresía Fundador
+   release, whose terms and acceptances replace this payments page. That release removes this guard. */
+const PAYMENTS_CLOSED = Object.freeze({});
 export default createHandler({
   reporter,
   boot: async () => {
     validateRuntimeConfig();
-    return createApp({ cache: await createCache(), errorReport: reporter });
+    return createApp({ cache: await createCache(), billingEnv: PAYMENTS_CLOSED, errorReport: reporter });
   },
 });

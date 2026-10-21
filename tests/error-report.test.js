@@ -130,6 +130,8 @@ test('only the deployed entry points report: an app built in a test stays silent
   const source = (file) => readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
   assert.match(source('api/index.js'), /const reporter = createErrorReporter\(\);/, 'the Vercel function reports');
   assert.match(source('api/index.js'), /createApp\(\{[^}]*errorReport: reporter \}\)/, 'through the app, and on a failed start');
+  // Until the Membresía Fundador release, the deployed app reads no payment links, whatever Vercel holds.
+  assert.match(source('api/index.js'), /createApp\(\{[^}]*billingEnv: PAYMENTS_CLOSED,[^}]*\}\)/);assert.match(source('api/index.js'), /const PAYMENTS_CLOSED = Object\.freeze\(\{\}\);/);
   assert.match(source('server/server.js'), /createApp\(\{ cache, errorReport: createErrorReporter\(\) \}\)/, 'npm start reports');
 });
 
