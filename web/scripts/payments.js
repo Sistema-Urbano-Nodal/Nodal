@@ -44,7 +44,7 @@
   // leaving: the fallback armed once the page should be on its way to Mercado Pago (see the submit handler).
   let offer = nothing('loading'), notice = '', busy = false, leaving = null;
 
-  // What the page may sell from an answer: only this page's terms version, with an offered option and both contact details.
+  // What the page may sell from an answer: only this page's terms version, with an offered option and the contact email.
   function read(data) {
     const valid = Boolean(data) && typeof data === 'object';
     const email = text(data?.contact?.email), complaints = httpsUrl(data?.contact?.complaintsUrl);

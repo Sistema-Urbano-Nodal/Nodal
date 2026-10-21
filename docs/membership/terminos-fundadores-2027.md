@@ -14,8 +14,8 @@ The text is section 2, "Términos comerciales completos de membresías 2027", of
   member's status ("condición de Fundador"), is unchanged.
 
 The contact email and the Libro de Reclamaciones link are filled in on the page when it loads, from the settings
-MEMBERSHIP_CONTACT_EMAIL and MEMBERSHIP_COMPLAINTS_URL (GET /api/billing/config, `contact`). Until both are set, the
-page says "pendiente de publicación", as this file does.
+MEMBERSHIP_CONTACT_EMAIL and MEMBERSHIP_COMPLAINTS_URL (GET /api/billing/config, `contact`). Each says "pendiente de
+publicación", as this file does, until its setting is set.
 
 Edit this file and the page together: tests/membership-terms-page.test.js checks that they carry the same text and links.
 A change to the prices, the payment calendar or the benefits is a new terms version (server/membership-offer.js).

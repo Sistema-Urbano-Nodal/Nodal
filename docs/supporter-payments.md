@@ -82,7 +82,7 @@ Questions, non-renewal, changes of payment option and refund requests come to th
 
 - **Non-renewal:** note it and confirm it in writing. The membership stays until 31 December 2027. It does not cancel payments still due for 2027 and does not by itself mean a refund.
 - **Refunds or early termination:** decide with Mariana under the accepted terms and consumer law; the terms never exclude a refund the law gives. A refund is made from the payment in Mercado Pago.
-- **Complaints:** they arrive through the Libro de Reclamaciones, which has its own legal deadline for the answer (15 working days in Peru at the time of writing; check it with the accountant).
+- **Complaints:** they arrive through the Libro de Reclamaciones, which has its own legal deadline for the answer (15 working days in Peru at the time of writing; check it with the accountant). Until `MEMBERSHIP_COMPLAINTS_URL` is set they can only arrive at the contact email: log each one with its date and answer it within the same deadline.
 
 ## 7. Once a month
 

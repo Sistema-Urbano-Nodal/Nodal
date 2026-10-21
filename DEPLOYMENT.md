@@ -324,7 +324,7 @@ version.
 - `open` (`checkout: true`): from 21 Oct 2026 00:00 Lima, when the terms take
   effect (`effectiveFromAt`), until 1 Jan 2027 00:00 Lima, with at least one
   option whose link is an `https` Mercado Pago Peru address (`mercadopago.com.pe`
-  or a subdomain, `mpago.la`, `mpago.li`) **and** both contact settings valid.
+  or a subdomain, `mpago.la`, `mpago.li`) **and** a valid `MEMBERSHIP_CONTACT_EMAIL`.
   Only the options with a link are listed, and never the links themselves: a
   member gets a link only from `POST /api/membership/acceptances`, after their
   acceptances are recorded.
