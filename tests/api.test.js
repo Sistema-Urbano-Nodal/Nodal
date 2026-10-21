@@ -695,8 +695,7 @@ test('the landing membership card carries its billing state hook, its button to 
   assert.equal(res.status, 200);
   const html = await res.text();
   assert.match(html, /<p class="plan-note" data-billing-state hidden><\/p>/);
-  assert.match(html, /<a class="btn btn-primary" href="fundadores\.html" data-i18n="mem\.fund\.join">Join Nodal Fundadores<\/a>/);
-  assert.doesNotMatch(html, /data-billing-cta/);
+  assert.match(html, /<a class="btn btn-primary" href="fundadores\.html" data-billing-cta data-i18n="mem\.fund\.join">Join Nodal Fundadores<\/a>/);
   assert.doesNotMatch(html, /data-billing-price/);
   assert.doesNotMatch(html, /US\$\d+|S\/\s?\d/);
 });

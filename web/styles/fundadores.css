@@ -73,11 +73,13 @@ html[lang="es"] [data-fund-lang="es"], html[lang="en"] [data-fund-lang="en"], ht
 .fund-table thead th:last-child { width: 22%; }
 .fund-option { display: block; margin-bottom: 8px; font-size: 15px; font-weight: 600; color: var(--ink-2); }
 .fund-amount { font-size: clamp(34px, 3.6vw, 48px); font-weight: 800; line-height: 1; letter-spacing: -.02em; color: var(--ink); }
-.fund-total { font-size: 15px; font-weight: 600; color: var(--ink-2); }
+.fund-total { font-size: 15px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
 .fund-table td { font-size: 16.5px; line-height: 1.6; color: var(--ink-2); }
-.fund-table .fund-monthly { font-size: 19px; font-weight: 700; color: var(--green-deep); }
+.fund-table .fund-monthly { font-size: 19px; font-weight: 700; color: var(--green-deep); white-space: nowrap; }
 .fund-same { margin-top: 30px; font-size: 17px; font-weight: 600; line-height: 1.5; color: var(--ink); }
-.fund-note { max-width: 74ch; margin-top: 10px; font-size: 14.5px; line-height: 1.6; color: #5b6857; }
+.fund-note { max-width: 74ch; margin-top: 10px; font-size: 14.5px; line-height: 1.6; color: #5b6857; font-style: italic; }
+/* The team's document sets these phrases in bold. */
+.fund-copy strong { font-weight: 700; color: var(--ink); }
 /* the asterisk of "Equivalente mensual*" */
 .fund-note::before { content: "* "; }
 
@@ -106,7 +108,8 @@ html[lang="es"] [data-fund-lang="es"], html[lang="en"] [data-fund-lang="en"], ht
   .fund-table tbody tr:first-child { border-top: 1px solid rgba(61,92,56,.4); }
   .fund-table tbody th, .fund-table td { padding: 0; border: 0; }
   .fund-table td { margin-top: 16px; }
-  .fund-table td::before { content: attr(data-label); display: block; margin-bottom: 4px;
+  /* The label is visual only: the column header already names the cell for screen readers. */
+  .fund-table td::before { content: attr(data-label); content: attr(data-label) / ""; display: block; margin-bottom: 4px;
     font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2); }
   .fund-intro p, .fund-prose p, .fund-benefit-list p { font-size: 16.5px; }
   .fund-action .btn { max-width: 100%; white-space: normal; line-height: 1.25; text-align: center; }

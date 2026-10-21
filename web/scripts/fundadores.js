@@ -32,7 +32,9 @@
 
   function render(config) {
     const state = config && typeof config === 'object' ? config.state : null;
-    if (state === 'open') {
+    // The page offers both ways to pay, so it sends people on only while both are on sale; one link alone reads as soon.
+    const offered = new Set((Array.isArray(config?.options) ? config.options : []).map((option) => option?.id));
+    if (state === 'open' && offered.has('once') && offered.has('installments')) {
       document.querySelectorAll('[data-fund-join]').forEach((link) => { link.hidden = false; });
       return;
     }

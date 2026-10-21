@@ -744,6 +744,8 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .btn:focus-visible
 /* the bright ring is under 2:1 on the pastel glass header; forest keeps it at about 6:1
    (over a dark section, nav.js sets .nav-dark and the bright ring stays) */
 .navbar:not(.nav-dark) :is(a, button):focus-visible { outline-color: var(--green-deep); }
+/* The membership cards sit on beige next to a green border, where the bright ring is hard to see. */
+.plan-pro :is(a, button):focus-visible { outline-color: var(--green-deep); }
 
 /* hover states */
 .plan { transition: border-color .25s ease, transform .3s cubic-bezier(.16,1,.3,1),

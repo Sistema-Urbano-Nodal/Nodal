@@ -233,6 +233,9 @@ test('before sign-ups open, without an answer, or on static hosting, there is no
     notJson: async () => ({ok: true, status: 200, async json() { throw new SyntaxError('Unexpected token <'); }}),
     // An older server said only whether checkout ran; the page reads the state.
     legacy: json({checkout: true, annual: {amount: 'S/ 240', per: '/ year'}}),
+    // The page offers both ways to pay: with one link set, the other could not be bought, so it waits for both.
+    onceOnly: json({...SERVER.open, options: SERVER.open.options.filter((option) => option.id === 'once')}),
+    installmentsOnly: json({...SERVER.open, options: SERVER.open.options.filter((option) => option.id === 'installments')}),
     empty: json(null),
   };
   for (const [name, answer] of Object.entries(answers)) {
@@ -293,7 +296,7 @@ test('the page works under the strict CSP: no inline script, style or handler, a
   assert.ok(scripts.every(([, , body]) => body === ''), 'no inline script');
   assert.ok(html.lastIndexOf('<script') < html.indexOf('</head>'));
   const sheets = [...html.matchAll(/<link rel="stylesheet" href="([^"]+)">/g)].map(match => match[1]);
-  assert.deepEqual(sheets, ['locale.css?v=20260929a', 'fonts.css?v=20260911b', 'styles.css?v=35', 'fundadores.css?v=20261021c']);
+  assert.deepEqual(sheets, ['locale.css?v=20260929a', 'fonts.css?v=20260911b', 'styles.css?v=36', 'fundadores.css?v=20261021c']);
 });
 
 test('the page has a description, the NODAL icon, and the site’s header and footer', () => {
@@ -354,4 +357,13 @@ test('a signed-out visitor reads the page, and its button takes them to sign in 
   const payments = await fetch(`${base}/payments.html`, {redirect: 'manual'});
   assert.equal(payments.status, 302);
   assert.equal(payments.headers.get('location'), `/login.html?next=${encodeURIComponent('/payments.html')}`);
+});
+
+test('the team’s emphasis is kept: the bold phrases of their document, and the italic note under the prices', () => {
+  const html = read(PAGE), css = read('web/styles/fundadores.css');
+  const strong = [...html.matchAll(/<strong>([^<]+)<\/strong>/g)].map((match) => match[1]);
+  for (const phrase of ['Nodal es una comunidad para conectar, colaborar y transformar nuestras ciudades desde el Urbanismo Colaborativo.', 'badge Founder', '1 de enero al 31 de diciembre de 2027', '5% de descuento sobre la tarifa regular vigente', 'no necesitas completar el segundo para acceder a ellos'])
+    assert.ok(strong.includes(phrase), phrase);
+  assert.equal(strong.length % 3, 0, 'the same phrases in each language');
+  assert.match(css, /\.fund-note \{[^}]*font-style: italic;/);
 });

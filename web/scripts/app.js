@@ -42,6 +42,8 @@
       // static previews have no API: the card keeps its markup and says sign-ups open soon
     }
     billingRead = true;
+    // Once the offer has ended the card says so, and no longer invites anyone to join.
+    if (billing?.state === 'ended') document.querySelector('[data-billing-cta]')?.remove();
     renderMembershipNote();
   }
 

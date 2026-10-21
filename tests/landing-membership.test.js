@@ -82,14 +82,17 @@ test('the Founder Membership card shows no amount in any state, whatever the off
 /* 21 Oct 2026, the team's landing text: the card leads to the join page (/fundadores.html), which explains the benefits and the
    payment options and has the only button to the payments page. So the card has one way in, in every state, and app.js
    touches only its note. */
-test('in every state the card’s one button leads to the join page, and app.js never touches it', async () => {
+test('the card’s one button to the join page stays in every state but one: once the offer has ended it is removed', async () => {
   for (const name of Object.keys(ANSWERS)) {
     const page = await landing({ fetchImpl: ANSWERS[name] });
-    // The note is the only part of the card it looks up (.gc-pool is the graph's copy, which it reads for its labels).
-    assert.deepEqual(page.nodes.map((written) => written.selector).filter((selector) => selector !== '.gc-pool'), ['[data-billing-state]'], `${name}: app.js looks up only the note`);
+    const button = page.nodes.find((written) => written.selector === '[data-billing-cta]');
+    // The note is all it writes (.gc-pool is the graph's copy, which it reads for its labels); the button is only ever removed.
+    if (name === 'ended') assert.equal(button?.removed, true, 'an ended offer invites nobody to join');
+    else assert.equal(button?.removed ?? false, false, `${name}: the button stays`);
+    for (const written of page.nodes) if (written.selector !== '[data-billing-state]') assert.equal(written.textContent, '', `${name}: ${written.selector} is never written`);
   }
   const code = APP.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
-  assert.doesNotMatch(code, /data-billing-cta|fundadores\.html|mem\.fund\.join|payments\.html/, 'app.js has no button to show or remove');
+  assert.doesNotMatch(code, /fundadores\.html|mem\.fund\.join|payments\.html/, 'app.js never changes where the button goes');
 });
 
 test('once the offer has ended the card says so in the reader’s language, and while sign-ups are open it has no note', async () => {
@@ -162,9 +165,9 @@ test('the card ends on its one button, always shown, to the public join page', (
   const html = read('web', 'pages', 'index.html');
   const card = html.slice(html.indexOf('<article class="plan plan-pro">'), html.indexOf('</article>', html.indexOf('<article class="plan plan-pro">')));
   // No hidden attribute: the join page explains the offer in every state, and the terms are one link away from it.
-  assert.match(card, /<\/ul>\s*<a class="btn btn-primary" href="fundadores\.html" data-i18n="mem\.fund\.join">Join Nodal Fundadores<\/a>\s*$/);
+  assert.match(card, /<\/ul>\s*<a class="btn btn-primary" href="fundadores\.html" data-billing-cta data-i18n="mem\.fund\.join">Join Nodal Fundadores<\/a>\s*$/);
   assert.equal((card.match(/<a\b/g) || []).length, 1, 'one way in');
-  assert.doesNotMatch(card, /data-billing-cta|plan-terms|payments\.html|terminos-fundadores/);
+  assert.doesNotMatch(card, /plan-terms|payments\.html|terminos-fundadores/);
   assert.match(read('web', 'pages', 'fundadores.html'), /href="terminos-fundadores\.html"/);
 });
 
