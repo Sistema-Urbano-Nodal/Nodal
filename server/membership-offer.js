@@ -1,10 +1,11 @@
-/* Nodal Fundadores 2027, the paid membership as its commercial terms fix it (web/pages/terminos-fundadores.html,
-   spec docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md). Prices, dates and the seller come from this
-   terms version, never from a setting: a change is a new version, which every acceptance records. Lima is UTC-05:00
-   all year. effectiveFromAt is the first moment of effectiveFrom there: the terms apply to purchases from then on, so
-   nothing is sold before it. endsAt is the first moment of 1 Jan 2027; first payments are accepted until just before it. */
+/* The Founder Membership 2027 (Membresía Fundador 2027), the paid membership as its commercial terms fix it
+   (web/pages/terminos-fundadores.html, spec docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md). Prices,
+   dates and the seller come from this terms version, never from a setting: a change is a new version, which every
+   acceptance records. Lima is UTC-05:00 all year. effectiveFromAt is the first moment of effectiveFrom there: the
+   terms apply to purchases from then on, so nothing is sold before it. endsAt is the first moment of 1 Jan 2027;
+   first payments are accepted until just before it. */
 export const FUNDADORES_2027 = Object.freeze({
-  name: 'Nodal Fundadores 2027', version: 'FUNDADORES-2027-v1', effectiveFrom: '2026-10-21', effectiveFromAt: '2026-10-21T05:00:00.000Z',
+  name: 'Membresía Fundador 2027', version: 'FUNDADORES-2027-v1', effectiveFrom: '2026-10-21', effectiveFromAt: '2026-10-21T05:00:00.000Z',
   endsAt: '2027-01-01T05:00:00.000Z', earlyAccessUntil: '2026-12-31', membershipFrom: '2027-01-01', membershipTo: '2027-12-31',
   renewalFrom: '2028-01-01', renewalDiscountPercent: 5, gracePeriodDays: 10, additionalTrainingDiscountPercent: 20,
   options: Object.freeze({

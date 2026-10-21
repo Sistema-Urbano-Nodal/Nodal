@@ -270,7 +270,7 @@ const MIGRATIONS = [
     },
   },
   {
-    /* Nodal Fundadores purchase acceptances: contract evidence, so deleting the account only clears user_id and
+    /* Founder Membership purchase acceptances: contract evidence, so deleting the account only clears user_id and
        keeps the email and name given at the time. */
     version: 9,
     sql: `

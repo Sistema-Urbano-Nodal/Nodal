@@ -603,7 +603,7 @@ test('production runtime config fails closed when deploy-critical env is missing
   }));
 });
 
-/* Nodal Fundadores 2027 is sold through Mercado Pago links Mariana creates in her own Mercado Pago (no API, no
+/* The Founder Membership 2027 is sold through Mercado Pago links Mariana creates in her own Mercado Pago (no API, no
    credentials); tests/membership-fundadores.test.js covers the offer, its states and the acceptances. Every app here
    gets its own billing settings and clock: Vercel runs the suite with the production environment, on any date. */
 const LINK_ENV = ['MERCADOPAGO_LINK_ANNUAL', 'MERCADOPAGO_LINK_INSTALLMENTS', 'MEMBERSHIP_CONTACT_EMAIL', 'MEMBERSHIP_COMPLAINTS_URL', 'NODE_ENV', 'PAYMENTS_MODE'];
@@ -619,7 +619,7 @@ const MEMBERSHIP_CONTACT = { MEMBERSHIP_CONTACT_EMAIL: 'membresias@nodal.example
 const OFFER_OPEN_AT = Date.parse('2026-10-21T15:00:00.000Z');
 const offerClock = () => OFFER_OPEN_AT;
 
-test('billing config offers the Fundadores options whose Mercado Pago link is set, without the links, even during the course pilot', async (t) => {
+test('billing config offers the Founder Membership options whose Mercado Pago link is set, without the links, even during the course pilot', async (t) => {
   const billingEnv = { MERCADOPAGO_LINK_ANNUAL: ONCE, MERCADOPAGO_LINK_INSTALLMENTS: TWICE, ...MEMBERSHIP_CONTACT };
   for (const pilotMode of [true, false]) {
     const base = await bootApp(t, createApp({ store: createStore(), pilotMode, billingEnv, now: offerClock }));
@@ -687,13 +687,16 @@ test('the payments page opens during the course pilot once the membership is ope
 
 
 
-test('landing membership price is loaded from billing config instead of a hardcoded amount', async (t) => {
+// 20 Oct 2026: the landing card shows no price in any state; app.js reads the billing config only for its button and note.
+test('the landing membership card carries its billing state hook and no price', async (t) => {
   const base = await boot(t);
   const res = await fetch(`${base}/`);
   assert.equal(res.status, 200);
   const html = await res.text();
-  assert.match(html, /data-billing-price/);
-  assert.doesNotMatch(html, /US\$\d+/);
+  assert.match(html, /<p class="plan-note" data-billing-state hidden><\/p>/);
+  assert.match(html, /data-billing-cta hidden/);
+  assert.doesNotMatch(html, /data-billing-price/);
+  assert.doesNotMatch(html, /US\$\d+|S\/\s?\d/);
 });
 
 test('city search proxies global city provider for authenticated profile autocomplete', async (t) => {

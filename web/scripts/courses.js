@@ -21,7 +21,7 @@ function courseTopics(c){
   const titles=[c?.title,...Object.values(c?.translations||{}).map(fields=>fields?.title)].filter(value=>typeof value==='string').join(' \n ').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
   return COURSE_TOPICS.filter(([,words])=>words.test(titles)).map(([name])=>name).slice(0,3);
 }
-/* The Nodal Fundadores note on a closed course says the membership opens soon until sign-ups open (GET /api/billing/config,
+/* The Founder Membership note on a closed course says the membership opens soon until sign-ups open (GET /api/billing/config,
    read once and only for this note); then it links to the payments page instead, and once the offer has ended it says so. */
 let membershipRead=null;
 const membershipState=()=>membershipRead??=fetch('/api/billing/config',{headers:{Accept:'application/json'}}).then(res=>res.ok?res.json():null).then(data=>data?.checkout===true?'open':data?.state==='ended'?'ended':'soon').catch(()=>'soon');

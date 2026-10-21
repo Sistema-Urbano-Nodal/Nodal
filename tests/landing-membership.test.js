@@ -44,7 +44,7 @@ async function landing({ lang = 'en', fetchImpl }) {
 }
 
 // The /api/billing/config answers of docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md.
-const OFFER = { name: 'Nodal Fundadores 2027', version: 'FUNDADORES-2027-v1', endsAt: '2027-01-01T05:00:00.000Z' };
+const OFFER = { name: 'Membresía Fundador 2027', version: 'FUNDADORES-2027-v1', endsAt: '2027-01-01T05:00:00.000Z' };
 const ONCE = { id: 'once', amount: 'S/ 499' };
 const TWICE = { id: 'installments', amount: 'S/ 550', each: 'S/ 275', count: 2, monthsApart: 2 };
 const FUNDADORES = { checkout: true, provider: 'mercadopago', state: 'open', offer: OFFER, annual: { amount: 'S/ 499', per: '' }, options: [ONCE, TWICE], contact: { email: 'membresia@sistemaurbano.org', complaintsUrl: 'https://reclamos.example.pe' } };
@@ -52,7 +52,7 @@ const CLOSED = (state) => ({ checkout: false, provider: null, state, offer: OFFE
 
 const json = (payload) => async () => ({ ok: true, status: 200, async json() { return payload; } });
 const ENDED = { en: 'Offer closed', es: 'Oferta cerrada', pt: 'Oferta encerrada' };
-// Every answer the card may get: open with both options, with one of them, the shape before Nodal Fundadores, closed, ended, refused, offline.
+// Every answer the card may get: open with both options, with one of them, the shape before the Founder Membership, closed, ended, refused, offline.
 const ANSWERS = {
   open: json(FUNDADORES),
   installmentsOnly: json({ ...FUNDADORES, annual: { amount: 'S/ 550', per: '' }, options: [TWICE] }),
@@ -148,7 +148,7 @@ test('the landing markup carries no price and ships the button hidden until chec
   // .btn sets display, so the stylesheet must let the hidden attribute win.
   assert.match(read('web', 'styles', 'styles.css'), /\.btn\[hidden\]\s*\{\s*display:\s*none;?\s*\}/);
   assert.doesNotMatch(html, /US\$\s?\d+|\$\s?\d+\s?(?:USD|\/)/);
-  // The prices of Nodal Fundadores come from the server's terms version, never from the markup or the dictionaries,
+  // The prices of the Founder Membership come from the server's terms version, never from the markup or the dictionaries,
   // and the landing card prints none of them.
   for (const page of ['index.html', 'payments.html', 'dashboard.html', 'profile.html']) {
     assert.doesNotMatch(read('web', 'pages', page), /US\$\s?\d|S\/\s?\d/, `${page} must not hardcode a price`);

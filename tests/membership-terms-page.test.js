@@ -1,20 +1,23 @@
-/* The public commercial terms of Nodal Fundadores 2027 (/terminos-fundadores.html), from section 2 of the team's
-   document "Condiciones de pago y membresía de pago" (docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md).
+/* The public commercial terms of the Membresía Fundador 2027 (/terminos-fundadores.html), from section 2 of the team's
+   document "Condiciones de pago y membresía de pago" (docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md),
+   with the product renamed from Nodal Fundadores as the team decided on 20 Oct 2026.
    docs/membership/terminos-fundadores-2027.md is the reviewable source of the same text. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {STATIC_PAGES} from '../scripts/build-static.js';
+import {renamed} from './helpers/membership-name.js';
 
 const read = file => readFileSync(new URL('../' + file, import.meta.url), 'utf8');
 const PAGE = 'web/pages/terminos-fundadores.html', SOURCE = 'docs/membership/terminos-fundadores-2027.md';
+// The section titles as the team's document has them; the page carries them with the product renamed.
 const SECTIONS = [
   'Identificación del proveedor', 'Modalidades de acceso', 'Beneficios de las membresías', 'Curso y masterclass incluidos durante 2027',
   'Descuento en formación adicional', 'Precio de Nodal Fundadores 2027', 'Cálculo del vencimiento del segundo pago', 'Acceso anticipado y vigencia',
   'Autorización de pagos automáticos', 'Contrataciones anteriores con segundo pago a seis meses', 'Renovación automática',
   'No renovación, cancelación y solicitudes de devolución', 'Pagos rechazados y período de gracia', 'Conservación del perfil y condición de Fundador',
   'Servicios y actividades adicionales', 'Información contractual y aceptación', 'Atención y reclamaciones', 'Condiciones complementarias',
-];
+].map(renamed);
 const PENDING = 'pendiente de publicación';
 // The legal text, without the page around it or its table of contents.
 const article = html => html.match(/<article class="terms-text" lang="es">([\s\S]*?)<\/article>/)[1].replace(/<nav\b[\s\S]*?<\/nav>/, '');
@@ -54,6 +57,13 @@ test('the terms page carries all 18 numbered sections of the team’s terms, wit
   assert.doesNotMatch(html, /Varela 154,/);
   // A word joined across a PDF line break in the source ("pagos.No") is separated again.
   assert.ok(section(text, 4).includes('modalidad de dos pagos. No se exige'));
+  // The paid access is the Membresía Fundador, heading its section like the free one ("Acceso Comunitario — Gratuito").
+  assert.ok(section(text, 2).includes('<h3>Acceso Comunitario — Gratuito</h3>'));
+  assert.ok(section(text, 2).includes('<h3>Membresía Fundador — Anual de pago</h3>'));
+  assert.ok(section(text, 2).includes('<p>La Membresía Fundador incluye los beneficios de Acceso Comunitario'));
+  // "Fundador" alone is the member's status, which keeps its name.
+  assert.ok(section(text, 14).includes('<h2>14. Conservación del perfil y condición de Fundador</h2>'));
+  for (const file of [PAGE, SOURCE]) assert.doesNotMatch(read(file).replace(/<!--[\s\S]*?-->/g, ''), /Nodal Fundadores/, file);
 });
 
 /* The page is public, so it links only to public pages: the payments page and the courses sit behind sign-in (and the
@@ -65,7 +75,7 @@ test('the terms link to the public membership benefits and the privacy policy, a
   assert.deepEqual([...hrefs].sort(), ['/#membership', '/privacy.html'], 'no other link in the legal text');
   const benefits = section(text, 3);
   assert.match(benefits, /<li>Acceso Comunitario: <a href="\/#membership">[^<]+<\/a>\.<\/li>/);
-  assert.match(benefits, /<li>Nodal Fundadores: <a href="\/#membership">beneficios de Nodal Fundadores[^<]*<\/a>\.<\/li>/);
+  assert.match(benefits, /<li>Membresía Fundador: <a href="\/#membership">beneficios de la Membresía Fundador en la página de inicio de Nodal<\/a>\.<\/li>/);
   assert.ok(read('web/pages/index.html').includes('<section class="section membership" id="membership">'), 'the landing page’s membership section');
   assert.ok(section(text, 4).includes('Aquí puedes ver, a modo de ejemplo, la programación 2026.'), 'named, without a link to the member-only courses');
   const complementary = section(text, 18);
@@ -131,7 +141,7 @@ test('the page works under the strict CSP: no inline script, style or handler, a
 test('the page has a title, a description and the NODAL icon', () => {
   const html = read(PAGE), privacy = read('web/pages/privacy.html');
   assert.match(html, /<title>NODAL · Términos comerciales de membresías 2027<\/title>/);
-  assert.match(html, /<meta name="description" content="[^"]*Nodal Fundadores 2027[^"]*">/);
+  assert.match(html, /<meta name="description" content="Términos comerciales de la Membresía Fundador 2027:[^"]*">/);
   const icon = page => page.match(/<link rel="icon" href="[^"]+">/)[0];
   assert.equal(icon(html), icon(privacy));
 });

@@ -10,7 +10,7 @@
   'use strict';
   const NS = 'http://www.w3.org/2000/svg';
 
-  /* The Founder Membership card (Nodal Fundadores 2027,
+  /* The Founder Membership card (Membresía Fundador 2027,
      docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md) shows no
      price in any state: the team found the figure off-putting on the landing
      page, so its name, the line on what it supports, its benefits and the

@@ -8,7 +8,10 @@ The text is section 2, "Términos comerciales completos de membresías 2027", of
 - both benefit links go to the landing page's membership section (/#membership), which lists each access's
   benefits: the page is public, and the payments page and the courses sit behind sign-in;
 - "la programación 2026" is named without a link, for the same reason; the privacy policy links to /privacy.html;
-- the general conditions of use are named without a link, since NODAL has not published any yet.
+- the general conditions of use are named without a link, since NODAL has not published any yet;
+- the paid membership is named "Membresía Fundador" where the document said "Nodal Fundadores" (the team's
+  decision of 20 Oct 2026), with the article Spanish needs ("de la Membresía Fundador"). "Fundador" alone, the
+  member's status ("condición de Fundador"), is unchanged.
 
 The contact email and the Libro de Reclamaciones link are filled in on the page when it loads, from the settings
 MEMBERSHIP_CONTACT_EMAIL and MEMBERSHIP_COMPLAINTS_URL (GET /api/billing/config, `contact`). Until both are set, the
@@ -42,22 +45,22 @@ Estos términos regulan las condiciones comerciales de las membresías de Nodal 
 
 Permite participar en la comunidad Nodal y utilizar las funcionalidades disponibles para esta modalidad, de acuerdo con las condiciones de uso, participación y contribución de la plataforma.
 
-### Nodal Fundadores — Membresía anual de pago
+### Membresía Fundador — Anual de pago
 
 Dirigida a quienes desean formar parte de la comunidad fundadora de Nodal, acceder a funcionalidades y beneficios adicionales y contribuir al desarrollo de una plataforma basada en el urbanismo colaborativo.
 
-La membresía Nodal Fundadores incluye los beneficios de Acceso Comunitario y los beneficios exclusivos establecidos para esta modalidad.
+La Membresía Fundador incluye los beneficios de Acceso Comunitario y los beneficios exclusivos establecidos para esta modalidad.
 
-La oferta Nodal Fundadores está disponible para las personas que se inscriban y tengan su primer pago aprobado hasta el 31 de diciembre de 2026. El registro gratuito, por sí solo, no otorga la condición de miembro Fundador.
+La oferta Membresía Fundador está disponible para las personas que se inscriban y tengan su primer pago aprobado hasta el 31 de diciembre de 2026. El registro gratuito, por sí solo, no otorga la condición de miembro Fundador.
 
 ## 3. Beneficios de las membresías
 
 Los beneficios, funcionalidades, límites de uso y condiciones de acceso se detallan en:
 
 - Acceso Comunitario: [membresías en la página de inicio de Nodal](/#membership).
-- Nodal Fundadores: [beneficios de Nodal Fundadores en la página de inicio de Nodal](/#membership).
+- Membresía Fundador: [beneficios de la Membresía Fundador en la página de inicio de Nodal](/#membership).
 
-La membresía Nodal Fundadores se organiza en cuatro pilares:
+La Membresía Fundador se organiza en cuatro pilares:
 
 - **Conecta:** comunidad, conexiones e introducciones curadas y espacios de networking.
 - **Encuentra oportunidades:** acceso a oportunidades seleccionadas y funcionalidades de búsqueda y curaduría.
@@ -70,7 +73,7 @@ Determinadas funcionalidades, reconocimientos y espacios de participación podr�
 
 ## 4. Curso y masterclass incluidos durante 2027
 
-La membresía Nodal Fundadores 2027 incluye un curso y una masterclass, que podrán elegirse entre las actividades identificadas por Nodal como elegibles para este beneficio, según la programación de 2027 y la disponibilidad de cupos. Aquí puedes ver, a modo de ejemplo, la programación 2026.
+La Membresía Fundador 2027 incluye un curso y una masterclass, que podrán elegirse entre las actividades identificadas por Nodal como elegibles para este beneficio, según la programación de 2027 y la disponibilidad de cupos. Aquí puedes ver, a modo de ejemplo, la programación 2026.
 
 El derecho a acceder a ambos beneficios se habilita desde la aprobación del primer pago, tanto en la modalidad de pago único como en la modalidad de dos pagos. No se exige completar el segundo pago para habilitar el curso o la masterclass.
 
@@ -82,13 +85,13 @@ Los beneficios incluidos son personales, no transferibles y no canjeables por di
 
 ## 5. Descuento en formación adicional
 
-Durante 2027, los miembros activos de Nodal Fundadores tendrán un 20% de descuento sobre la tarifa general vigente de cursos y masterclasses adicionales.
+Durante 2027, los miembros activos de la Membresía Fundador tendrán un 20% de descuento sobre la tarifa general vigente de cursos y masterclasses adicionales.
 
 El descuento no se acumula con otras promociones ni tarifas especiales. Cuando exista más de una tarifa aplicable, se utilizará la más favorable para el miembro.
 
 Este beneficio corresponde a actividades adicionales al curso y a la masterclass incluidos en la membresía. Las actividades adicionales se contratan y pagan por separado, conforme a sus condiciones particulares.
 
-## 6. Precio de Nodal Fundadores 2027
+## 6. Precio de la Membresía Fundador 2027
 
 La membresía corresponde a un único período anual y puede adquirirse mediante una de las siguientes modalidades:
 
@@ -132,7 +135,7 @@ Una vez aprobado el primer pago, Nodal confirmará la fecha exacta del segundo v
 
 ## 8. Acceso anticipado y vigencia
 
-La membresía Nodal Fundadores 2027 tendrá vigencia desde el 1 de enero hasta el 31 de diciembre de 2027.
+La Membresía Fundador 2027 tendrá vigencia desde el 1 de enero hasta el 31 de diciembre de 2027.
 
 Quienes adquieran la membresía y tengan su primer pago aprobado hasta el 31 de diciembre de 2026 recibirán acceso anticipado desde esa aprobación hasta el cierre de 2026, sin costo adicional.
 
@@ -168,7 +171,7 @@ Nodal conservará el registro de las condiciones y del calendario correspondient
 
 ## 11. Renovación automática
 
-La membresía Nodal Fundadores se renovará automáticamente al finalizar cada período anual, salvo que el usuario solicite su no renovación antes del inicio del siguiente período.
+La Membresía Fundador se renovará automáticamente al finalizar cada período anual, salvo que el usuario solicite su no renovación antes del inicio del siguiente período.
 
 La primera renovación será el 1 de enero de 2028 y las siguientes, cada 1 de enero.
 
@@ -176,7 +179,7 @@ En las renovaciones se conservará la modalidad de pago elegida —pago único o
 
 Mientras mantenga activa su condición de miembro Fundador, el usuario recibirá un descuento del 5% sobre la tarifa regular vigente correspondiente a su modalidad de pago.
 
-El precio de renovación podrá ser diferente del precio promocional de Nodal Fundadores 2027. El descuento del 5% se calcula sobre la tarifa regular vigente, no sobre el precio promocional de 2027.
+El precio de renovación podrá ser diferente del precio promocional de la Membresía Fundador 2027. El descuento del 5% se calcula sobre la tarifa regular vigente, no sobre el precio promocional de 2027.
 
 Antes de la renovación, Nodal comunicará el precio total aplicable, los importes y fechas de cobro, las condiciones del siguiente período y el mecanismo para solicitar la no renovación.
 
@@ -204,7 +207,7 @@ Durante este período, el usuario conservará temporalmente sus beneficios de pa
 
 Los reintentos de cobro de la misma obligación no reiniciarán el período de gracia ni constituirán cargos adicionales al importe pendiente.
 
-Si el pago no se regulariza dentro del plazo establecido, los beneficios de Nodal Fundadores podrán suspenderse hasta que se complete el pago pendiente.
+Si el pago no se regulariza dentro del plazo establecido, los beneficios de la Membresía Fundador podrán suspenderse hasta que se complete el pago pendiente.
 
 La suspensión no elimina automáticamente las obligaciones de pago del período contratado, sujetas a la normativa aplicable.
 
@@ -234,7 +237,7 @@ Se exceptúan el curso y la masterclass expresamente incluidos para 2027 conform
 
 La contratación de actividades adicionales estará sujeta a los precios y condiciones particulares informados antes de cada compra.
 
-Los descuentos de Nodal Fundadores se aplicarán únicamente a las actividades y períodos expresamente indicados.
+Los descuentos de la Membresía Fundador se aplicarán únicamente a las actividades y períodos expresamente indicados.
 
 ## 16. Información contractual y aceptación
 

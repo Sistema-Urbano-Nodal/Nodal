@@ -353,7 +353,7 @@ function publicBaseUrl(env = process.env) {
    no period to show) for pages written for the earlier shape. */
 const PRICE_UNANNOUNCED = 'Soon';
 
-/* Nodal Fundadores 2027 (server/membership-offer.js) is sold through links Mariana
+/* The Founder Membership 2027 (server/membership-offer.js) is sold through links Mariana
    creates in her own Mercado Pago (a payment link for S/ 499, and a plan of two
    charges); NODAL only sends members there and the team adds each payer. A link
    counts only on https and on Mercado Pago Peru or its short-link hosts, so a typo
@@ -364,7 +364,7 @@ const PAYMENT_OPTIONS = [['once', 'MERCADOPAGO_LINK_ANNUAL'], ['installments', '
 // A plain address, so the page's mailto: link can carry nothing else (no ?subject=, no second recipient).
 const CONTACT_EMAIL = /^[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$/;
 const OFFER_STARTS_AT = Date.parse(FUNDADORES_2027.effectiveFromAt), OFFER_ENDS_AT = Date.parse(FUNDADORES_2027.endsAt);
-// What a Fundadores purchase asks the member to tick (POST /api/membership/acceptances), all three every time.
+// What a Founder Membership purchase asks the member to tick (POST /api/membership/acceptances), all three every time.
 const ACCEPTANCES = ['terms', 'payment', 'renewal'];
 // The acceptances CSV holds the newest this many: far more than one offer period sells.
 const MEMBERSHIP_EXPORT_LIMIT = 10000;
@@ -1059,7 +1059,7 @@ export function createApp({
   /* Where the Mercado Pago links and the membership contact are read: the deployment's environment, or a test's own
      (Vercel runs the suite with the former). */
   billingEnv = process.env,
-  // The membership's clock: whether Nodal Fundadores 2027 has ended, and when an acceptance was given. Tests move it.
+  // The membership's clock: whether the Founder Membership 2027 offer has ended, and when an acceptance was given. Tests move it.
   now = () => Date.now(),
   /* Where server errors are reported besides the log. Only the deployed entry points (api/index.js, npm start) pass
      createErrorReporter(), which sends to Sentry when SENTRY_DSN is set; an app built anywhere else, a test included,
@@ -1231,7 +1231,7 @@ export function createApp({
      search. The browser refreshes every 15 seconds with jitter. */
   const networkLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: envInt('NETWORK_RATE_LIMIT', 40) });
   const writeLimiter = createWindowRateLimiter({ windowMs: 60 * 1000, limit: WRITE_RATE_LIMIT });
-  /* Each Fundadores acceptance stores a row that outlives the account, and the team reads them all in one CSV: a
+  /* Each Founder Membership acceptance stores a row that outlives the account, and the team reads them all in one CSV: a
      member records at most this many an hour, far more than choosing an option and changing one's mind needs. */
   const membershipAcceptanceLimiter = createWindowRateLimiter({ windowMs: 60 * 60 * 1000, limit: 10 });
   const locationLimiter = createWindowRateLimiter({windowMs:60000,limit:6});
@@ -1654,7 +1654,7 @@ export function createApp({
         return;
       }
 
-      /* A Nodal Fundadores purchase starts here. The member's three acceptances for the option they chose are recorded
+      /* A Founder Membership purchase starts here. The member's three acceptances for the option they chose are recorded
          as contract evidence (who, which option and amount, which terms, when) before that option's Mercado Pago link
          is handed out. The email and name are the account's at that moment; the record outlives the account. */
       if (useDb && req.method === 'POST' && pathname === '/api/membership/acceptances') {
@@ -1697,7 +1697,7 @@ export function createApp({
         const acceptances = await repository.listMembershipAcceptances({ limit: MEMBERSHIP_EXPORT_LIMIT });
         const rows = [['accepted_at', 'accepted_at_lima', 'full_name', 'email', 'option', 'amount', 'terms_version'],
           ...acceptances.map((a) => [a.acceptedAt, limaMinute(a.acceptedAt), a.fullName, a.email, a.option, a.amountText, a.termsVersion])];
-        send(res, 200, csv(rows), { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="nodal-fundadores-acceptances.csv"' });
+        send(res, 200, csv(rows), { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="membresia-fundador-acceptances.csv"' });
         return;
       }
 

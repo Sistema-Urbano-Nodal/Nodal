@@ -70,15 +70,16 @@ test('pending enrollment prevents duplicate submissions, and late responses neve
 test('invitation failures and cooldowns are localized and never reported as sent',async()=>{
  for(const code of ['invitation_uncertain','invitation_unavailable','invitation_rate']){const h=teachingHarness(()=>({status:code==='invitation_rate'?429:503,data:{code}}),{invitations:[{email:'person@example.test',deliveryStatus:'uncertain'}]});await flush();h.lang('pt');await findKey(h.body,'resendInvitation').listeners.click();assert.doesNotMatch(content(h.body),/Convite enviado\./);assert.match(content(h.body),/Não foi possível|Aguarde/);assert.equal(participantForm(h)['aria-busy'],'false');}
 });
-test('the closed Supporter course keeps the add form, with a note to add each Supporter who paid on Mercado Pago',async()=>{
+test('the closed Supporter course keeps the add form, with a note to add each member of the Founder Membership whose payment was approved',async()=>{
  const closed={...course,enrollmentOpen:false};
  const h=teachingHarness(()=>({result:'enrolled',participant:{id:'u1'}}),{courses:[closed],perk:true});await flush();
  const pane=h.ctx.document.getElementById('staff-pane-participants');
  assert.equal(findKey(pane,'participantsClosed'),undefined,'not the closed note');assert.ok(findKey(pane,'participantsSupporters'));
- assert.match(content(pane),/Enrollment is closed to the public\. Add each Supporter who paid on Mercado Pago here, with the email of their NODAL account\./);
+ assert.match(content(pane),/Enrollment is closed to the public\. Add here each member of the Founder Membership whose payment was approved on Mercado Pago, with the email of their NODAL account\./);
  const form=participantForm(h);assert.ok(form);byName(form,'email').value='supporter@example.test';await form.listeners.submit({preventDefault(){}});
  assert.deepEqual(h.requests.filter(r=>r.method==='POST').map(r=>r.path),['/api/admin/courses/c1/participants']);
- h.lang('es');assert.match(content(h.ctx.document.getElementById('staff-pane-participants')),/Agrega aquí a cada miembro de apoyo que pagó en Mercado Pago/);
+ h.lang('es');assert.match(content(h.ctx.document.getElementById('staff-pane-participants')),/Agrega aquí a cada miembro de la Membresía Fundador cuyo pago fue aprobado en Mercado Pago, con el correo de su cuenta de NODAL\./);
+ h.lang('pt');assert.match(content(h.ctx.document.getElementById('staff-pane-participants')),/Adicione aqui cada membro da Membresia Fundador cujo pagamento foi aprovado no Mercado Pago, com o e-mail da conta dele na NODAL\./);
 });
 test('on the closed Supporter course an unknown or unconfirmed email asks for the payer’s NODAL email, never offers an invitation or a resend',async()=>{
  const closed={...course,enrollmentOpen:false};

@@ -10,7 +10,7 @@ import { createRepository } from '../server/repository.js';
 import { createSupabaseRepository } from '../server/supabase.js';
 import { FUNDADORES_2027 } from '../server/membership-offer.js';
 
-/* Nodal Fundadores 2027 (docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md). Every app here gets its own
+/* The Founder Membership 2027 (docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md). Every app here gets its own
    billing settings and clock: Vercel runs the suite with the production environment, and on any date. */
 const ROOT = path.resolve(import.meta.dirname, '..');
 const ONCE = 'https://link.mercadopago.com.pe/nodal-fundadores';
@@ -22,7 +22,7 @@ const STARTS = Date.parse('2026-10-21T05:00:00.000Z');
 const ENDS = Date.parse('2027-01-01T05:00:00.000Z');
 const VERSION = 'FUNDADORES-2027-v1';
 const OFFER = {
-  name: 'Nodal Fundadores 2027', version: VERSION, effectiveFrom: '2026-10-21', endsAt: '2027-01-01T05:00:00.000Z',
+  name: 'Membresía Fundador 2027', version: VERSION, effectiveFrom: '2026-10-21', endsAt: '2027-01-01T05:00:00.000Z',
   earlyAccessUntil: '2026-12-31', membershipFrom: '2027-01-01', membershipTo: '2027-12-31', renewalFrom: '2028-01-01',
   seller: { name: 'Sistema Urbano', ruc: '20605878815', address: 'Calle General Varela 154 A, Miraflores' },
 };
@@ -278,7 +278,7 @@ test('the acceptances CSV is for platform admins, newest first, with Lima time b
   const res = await fetch(csvUrl, { headers: { Cookie: admin.cookie } });
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('content-type'), 'text/csv; charset=utf-8');
-  assert.match(res.headers.get('content-disposition'), /^attachment; filename="nodal-fundadores-acceptances\.csv"$/);
+  assert.match(res.headers.get('content-disposition'), /^attachment; filename="membresia-fundador-acceptances\.csv"$/);
   assert.equal(res.headers.get('cache-control'), 'no-store');
   const bytes = Buffer.from(await res.arrayBuffer());
   assert.deepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf], 'a byte order mark, so Excel reads it as UTF-8');
@@ -410,7 +410,7 @@ test('the Supabase table is server-only contract evidence that outlives the prof
   assert.match(raw, /BEFORE pushing `main`/);
   for (const route of ['/api/membership/acceptances', '/api/me/export', '/api/admin/membership/acceptances']) assert.ok(raw.includes(route), route);
   const deployment = readFileSync(path.join(ROOT, 'DEPLOYMENT.md'), 'utf8');
-  const step = deployment.slice(deployment.indexOf('## Nodal Fundadores acceptances'), deployment.indexOf('## Supabase Setup'));
+  const step = deployment.slice(deployment.indexOf('## Founder Membership acceptances'), deployment.indexOf('## Supabase Setup'));
   assert.match(step, /before pushing `main`/);
   for (const route of ['/api/me/export', '/api/admin/membership/acceptances']) assert.ok(step.includes(route), `DEPLOYMENT.md: ${route}`);
   const statements = raw.replace(/--[^\n]*/g, '').split(';').map((part) => part.replace(/\s+/g, ' ').trim()).filter(Boolean);

@@ -93,7 +93,7 @@
     'mem.p5': 'Acceso temprano a laboratorios, rutas temáticas y formatos de cocreación',
     'mem.p6': 'Ayuda a sostener el cuidado, los datos y la coordinación detrás de la red regional',
     'mem.proCta': 'Ver membresía de apoyo',
-    // The Founder Membership card, Nodal Fundadores 2027 (docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md).
+    // The Founder Membership card, Membresía Fundador 2027 (docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md).
     // It shows no price: the team found the figure off-putting on the landing page.
     'mem.fund.flag': 'Membresía 2027',
     'mem.fund.name': 'Membresía Fundador',

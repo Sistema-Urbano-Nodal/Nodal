@@ -235,7 +235,7 @@ function userIdQuery(userId) {
   return { user_id: `eq.${userId}`, select: '*' };
 }
 
-// A Nodal Fundadores acceptance (public.membership_acceptances) as the server passes it around.
+// A Founder Membership acceptance (public.membership_acceptances) as the server passes it around.
 function membershipAcceptanceFromSupabase(row) {
   return {
     id: row.id, userId: row.user_id ?? null, email: row.email, fullName: row.full_name, option: row.option, termsVersion: row.terms_version,

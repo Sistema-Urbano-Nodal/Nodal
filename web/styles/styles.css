@@ -868,7 +868,7 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .btn:focus-visible
 .pay-title em { font-style: italic; font-weight: 600; color: var(--green-bright); }
 .pay-sub { margin-top: 22px; max-width: 620px; font-size: clamp(16px, 1.5vw, 19px); line-height: 1.6; color: var(--ink-2); }
 
-/* Nodal Fundadores: the membership on the left, the purchase box beside the options. The markup keeps the terms'
+/* The Founder Membership page: the membership on the left, the purchase box beside the options. The markup keeps the terms'
    order (options, benefits, conditions, seller, then the purchase), which is what a phone shows. */
 .pay-page [hidden] { display: none !important; }
 .pay-body { padding: clamp(44px, 6vh, 80px) 0 clamp(56px, 8vh, 96px); }

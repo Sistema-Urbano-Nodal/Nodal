@@ -171,42 +171,42 @@ test('rating answers and one-off festival notices are described in every languag
   }
 });
 
-test('Mercado Pago is named, in every language, as the processor of the Nodal Fundadores membership payments', () => {
+test('Mercado Pago is named, in every language, as the processor of the Founder Membership payments', () => {
   const html = read('web/pages/privacy.html');
   const articles = Object.fromEntries([...html.matchAll(/<article data-policy-lang="(en|es|pt)"[^>]*>([\s\S]*?)<\/article>/g)].map(([, lang, body]) => [lang, body]));
   const providers = lang => articles[lang].match(new RegExp(`<section id="${lang}-7">([\\s\\S]*?)</section>`))[1];
   for (const [lang, sentence] of [
-    ['en', 'Mercado Pago processes the Nodal Fundadores membership payments: you pay on its page and give your payment details to Mercado Pago, never to NODAL.'],
-    ['es', 'Mercado Pago procesa los pagos de la membresía Nodal Fundadores: pagas en su página y entregas tus datos de pago a Mercado Pago, nunca a NODAL.'],
-    ['pt', 'O Mercado Pago processa os pagamentos da membresia Nodal Fundadores: você paga na página dele e entrega seus dados de pagamento ao Mercado Pago, nunca à NODAL.'],
+    ['en', 'Mercado Pago processes the Founder Membership payments: you pay on its page and give your payment details to Mercado Pago, never to NODAL.'],
+    ['es', 'Mercado Pago procesa los pagos de la Membresía Fundador: pagas en su página y entregas tus datos de pago a Mercado Pago, nunca a NODAL.'],
+    ['pt', 'O Mercado Pago processa os pagamentos da Membresia Fundador: você paga na página dele e entrega seus dados de pagamento ao Mercado Pago, nunca à NODAL.'],
   ]) assert.ok(providers(lang).includes(sentence), lang);
   // In Portuguese too it is a membership (membresia), the terms' word, never a subscription.
   assert.doesNotMatch(providers('pt'), /assinatura/i);
 });
 
-/* Before paying for Nodal Fundadores a member accepts its terms, and NODAL keeps that record as contract evidence
+/* Before paying for the Founder Membership a member accepts its terms, and NODAL keeps that record as contract evidence
    (docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md): deleting the account removes only its link to the account. */
-test('the Nodal Fundadores acceptance record is described in every language: what is kept and why, who sees it, how long, and that it outlives account deletion', () => {
+test('the Founder Membership acceptance record is described in every language: what is kept and why, who sees it, how long, and that it outlives account deletion', () => {
   const html = read('web/pages/privacy.html');
   const articles = Object.fromEntries([...html.matchAll(/<article data-policy-lang="(en|es|pt)"[^>]*>([\s\S]*?)<\/article>/g)].map(([, lang, body]) => [lang, body]));
   const section = (lang, n) => articles[lang].match(new RegExp(`<section id="${lang}-${n}">([\\s\\S]*?)</section>`))[1];
   for (const [lang, category, kept, why, deletion, seen, retention] of [
-    ['en', 'Nodal Fundadores membership',
+    ['en', 'Founder Membership',
       'your name, your account email, the option you chose and its amount, the terms version, the three authorizations you ticked (the terms, the payment and automatic renewal) and the date and time',
       'as evidence of the contract you accepted before paying',
-      'The record of your Nodal Fundadores acceptance is kept after you delete your account, as evidence of the contract you accepted, with your name and email but without its link to the account.',
+      'The record of your Founder Membership acceptance is kept after you delete your account, as evidence of the contract you accepted, with your name and email but without its link to the account.',
       'Only NODAL administrators see it, and they can download it as a list (name, email, option, amount, terms version and date) to match payments to accounts. Your account export includes it.',
       'It is kept for as long as it is needed to evidence the contract and to answer claims about it, and is then deleted.'],
-    ['es', 'Membresía Nodal Fundadores',
+    ['es', 'Membresía Fundador',
       'tu nombre, el correo de tu cuenta, la modalidad elegida y su importe, la versión de los términos, las tres autorizaciones que marcaste (los términos, el pago y la renovación automática) y la fecha y la hora',
       'como prueba del contrato que aceptaste antes de pagar',
-      'El registro de tu aceptación de Nodal Fundadores se conserva después de eliminar tu cuenta, como prueba del contrato que aceptaste, con tu nombre y tu correo pero sin su vínculo con la cuenta.',
+      'El registro de tu aceptación de la Membresía Fundador se conserva después de eliminar tu cuenta, como prueba del contrato que aceptaste, con tu nombre y tu correo pero sin su vínculo con la cuenta.',
       'Solo las personas administradoras de NODAL lo ven, y pueden descargarlo como lista (nombre, correo, modalidad, importe, versión de los términos y fecha) para vincular los pagos con las cuentas. La exportación de tu cuenta lo incluye.',
       'Se conserva mientras sea necesario para acreditar el contrato y atender reclamos sobre él, y luego se elimina.'],
-    ['pt', 'Membresia Nodal Fundadores',
+    ['pt', 'Membresia Fundador',
       'seu nome, o e-mail da sua conta, a modalidade escolhida e o valor, a versão dos termos, as três autorizações que você marcou (os termos, o pagamento e a renovação automática) e a data e a hora',
       'como prova do contrato que você aceitou antes de pagar',
-      'O registro da sua aceitação do Nodal Fundadores é mantido depois que você exclui sua conta, como prova do contrato que você aceitou, com seu nome e e-mail, mas sem o vínculo com a conta.',
+      'O registro da sua aceitação da Membresia Fundador é mantido depois que você exclui sua conta, como prova do contrato que você aceitou, com seu nome e e-mail, mas sem o vínculo com a conta.',
       'Somente administradores da NODAL o veem, e podem baixá-lo como lista (nome, e-mail, modalidade, valor, versão dos termos e data) para vincular os pagamentos às contas. A exportação da conta o inclui.',
       'Ele é mantido enquanto for necessário para comprovar o contrato e responder a reclamações sobre ele, e depois é excluído.'],
   ]) {

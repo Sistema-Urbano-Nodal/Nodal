@@ -203,7 +203,7 @@ select column_name, column_default from information_schema.columns
 The party announcement uses the summary email's settings and shares its daily
 cap; without them the panel says email is off and nothing is sent.
 
-## Nodal Fundadores acceptances: one migration before `main`
+## Founder Membership acceptances: one migration before `main`
 
 `20261021000000_membership_acceptances.sql` adds the server-only table
 `membership_acceptances`: one row per purchase acceptance (the account's email
@@ -309,9 +309,10 @@ PAYMENTS_MODE=preview
 PILOT_MODE=true
 ```
 
-The paid membership is **Nodal Fundadores 2027**, paid on Mercado Pago through
-links Mariana creates in her own Mercado Pago account (a payment link for
-S/ 499, and a two-charge plan for 2 × S/ 275). NODAL only hands out the links;
+The paid membership is the **Founder Membership 2027** (*Membresía Fundador
+2027*), paid on Mercado Pago through links Mariana creates in her own Mercado
+Pago account (a payment link for S/ 499, and a two-charge plan for
+2 × S/ 275). NODAL only hands out the links;
 the team adds each payer by hand. The full routine is in
 [docs/supporter-payments.md](docs/supporter-payments.md). Prices, dates and the
 seller come from the terms version in `server/membership-offer.js`
@@ -347,7 +348,7 @@ refunds) and `MEMBERSHIP_COMPLAINTS_URL` the `https` Libro de Reclamaciones
 link, without credentials. `SUBSCRIPTION_PRICE_ANNUAL_LABEL`,
 `SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL` and `SUBSCRIPTION_ANNUAL_PERIOD` are no
 longer read and can be removed from Vercel. The acceptances need the migration
-under "Nodal Fundadores acceptances" above. Platform admins download them,
+under "Founder Membership acceptances" above. Platform admins download them,
 newest first, from `/api/admin/membership/acceptances` (CSV), each time both in
 UTC (`accepted_at`) and in Lima time (`accepted_at_lima`).
 
@@ -483,14 +484,19 @@ npm start
 11. Confirm profile edits persist after refresh.
 12. Confirm the dormant Stripe route stays shut: `POST /api/checkout` answers 409 while `PILOT_MODE=true`.
 13. Confirm the membership state matches the Mercado Pago and contact settings.
-    With no `MERCADOPAGO_LINK_*`, or without both `MEMBERSHIP_CONTACT_EMAIL` and
-    `MEMBERSHIP_COMPLAINTS_URL`, `/api/billing/config` returns `"state": "soon"`,
-    `"checkout": false` and `Soon`, the landing card shows "Soon!", and in the
-    pilot `/payments.html` redirects to `/courses.html`. With a link and the
-    contact set, from 21 Oct 2026 (Lima) it returns `"state": "open"`,
-    `"checkout": true` and S/ 499 (no link in the answer), the landing shows the
-    price and its button, and `/payments.html` opens; before that date it stays
-    `"soon"`. From 1 Jan 2027 (Lima) it returns `"state": "ended"`.
+    In every state the landing card shows the Membresía Fundador (Founder
+    Membership), the line "Apoyo al crecimiento de la comunidad" ("Supporting
+    the community's growth"), its benefits and the link to the commercial
+    terms, and never a price. With no `MERCADOPAGO_LINK_*`, or without both
+    `MEMBERSHIP_CONTACT_EMAIL` and `MEMBERSHIP_COMPLAINTS_URL`,
+    `/api/billing/config` returns `"state": "soon"`, `"checkout": false` and
+    `Soon`, the card has no button, and in the pilot `/payments.html` redirects
+    to `/courses.html`. With a link and the contact set, from 21 Oct 2026
+    (Lima) it returns `"state": "open"`, `"checkout": true` and S/ 499 (no link
+    in the answer), the card shows its button to the payments page ("Conoce la
+    Membresía Fundador"), and `/payments.html` opens; before that date it stays
+    `"soon"`. From 1 Jan 2027 (Lima) it returns `"state": "ended"`, and the
+    card says "Oferta cerrada" ("Offer closed") with no button.
 14. Confirm `/api/news` returns 200, and that `/fiiu-qr.html` and
     `/fiiu-admin.html` show "Organisers only" (status 403) to a member account
     and the real pages to an administrator.
@@ -803,9 +809,10 @@ the session, sets no cookie and is cached by the CDN for 5 minutes
   membership page. A saved choice takes precedence over `?lang=en|es|pt`;
   the URL language is used when the visitor has not saved a preference.
 - Membership **prices** are the terms version's (`server/membership-offer.js`:
-  S/ 499, or 2 × S/ 275), the same in every language, and are shown only next to
-  a Mercado Pago link that can take the payment; otherwise every language shows
-  its own "Soon!".
+  S/ 499, or 2 × S/ 275), the same in every language, and are shown only on the
+  payments page, next to an option whose Mercado Pago link can take the payment;
+  the landing card never shows one. Until sign-ups open, the payments page says
+  so in each language ("Las inscripciones abren pronto").
 
 ## Error reports (optional)
 

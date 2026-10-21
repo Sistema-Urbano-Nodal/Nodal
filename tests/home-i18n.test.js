@@ -288,7 +288,7 @@ for(const lang of ['es','pt']){
       // the console's loading/failure lines and accessible names (d.aria.*) by dashboard-publishing,
       // the catalog's nothing-published state by catalog-ui, and the console's Show more / Show less (d.news.*) and FIIU badges
       // (d.badge.fiiu.*) by dashboard-console-ui, the Learning band's readings from BUC (d.buc.*) by buc-ui, and the
-      // console's two-character name refusal (d.uc.errNameShort) just below and by dashboard-console-ui, and Nodal Fundadores 2027
+      // console's two-character name refusal (d.uc.errNameShort) just below and by dashboard-console-ui, and the Founder Membership 2027
       // (y.fund.* on the payments page, mem.fund.* on the landing card) by payments-links-ui, landing-membership and the plan copy
       // test at the end of this file. The Supporter courses lines (mem.p7, y.p6) and the Mercado Pago links page (y.mp.*) they replaced are gone.
       const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','y.alreadyMember','d.uc.deleteSubscription','d.greet.hello','d.greet.loading','d.load.failed','catalog.emptyNothingPublished','catalog.nextFiiu','catalog.nextCourses','d.uc.errNameShort'].includes(key)||/^(?:ops|news|d\.aria|d\.news|d\.badge\.fiiu|d\.buc|y\.fund|mem\.fund)\./.test(key);
@@ -332,7 +332,7 @@ test('landing leader titles, lab chips and accessible names switch language inst
   api.apply('es');assert.equal(api.t('lead.n3'),'Urbanista');assert.equal(api.t('part.l4'),'Co-crear');assert.equal(api.t('graph.aria'),'Red interactiva de actores');
   api.apply('pt');assert.equal(api.t('part.l6'),'Agir');assert.equal(api.t('platform.tabsLabel'),'Como a NODAL funciona');
 });
-test('the free plans offer no courses and Nodal Fundadores lists its own benefits, in English, Spanish and Portuguese',()=>{
+test('the free plans offer no courses and the Founder Membership lists its own benefits, in English, Spanish and Portuguese',()=>{
   // [en, es, pt]; English is the markup's own text.
   const COPY={
     'mem.f1':['Open labs and community sessions','Laboratorios abiertos y sesiones comunitarias','Laboratórios abertos e encontros comunitários'],
@@ -345,7 +345,7 @@ test('the free plans offer no courses and Nodal Fundadores lists its own benefit
   // The first <ul> after the opening tag that carries this attribute text.
   const list=(html,mark)=>{const at=html.indexOf(mark);assert.notEqual(at,-1,mark);return html.slice(html.indexOf('<ul',at),html.indexOf('</ul>',at));};
   const keys=part=>[...part.matchAll(/data-i18n="([^"]+)"/g)].map(match=>match[1]);
-  // Since 21 Oct 2026 the paid membership is Nodal Fundadores 2027: the landing card lists its four pillars, early access and
+  // Since 21 Oct 2026 the paid membership is the Founder Membership 2027: the landing card lists its four pillars, early access and
   // the discount on further courses; the payments page lists the seven benefits of the terms (payments-links-ui checks those).
   assert.doesNotMatch(list(landing,'<article class="plan">'),/course/i,'the landing free plan offers no courses');
   assert.doesNotMatch(list(payments,'id="gratis"'),/course/i,'the payments page free access offers no courses');

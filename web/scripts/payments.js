@@ -1,4 +1,4 @@
-/* payments: Nodal Fundadores 2027, the annual membership paid on Mercado Pago
+/* payments: the Founder Membership 2027 (Membresía Fundador 2027), the annual membership paid on Mercado Pago
    (docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md). The page carries the text of one terms version;
    GET /api/billing/config says whether sign-ups are open, which payment options are offered at what amounts, and the
    contact details. Continuing records the member's three acceptances (POST /api/membership/acceptances), whose answer
@@ -90,7 +90,8 @@
     for (const [el, value] of [[els.seller, seller?.name], [els.ruc, seller?.ruc], [els.address, seller?.address]]) if (text(value)) el.textContent = text(value);
     els.contact.hidden = els.complaints.hidden = !contact;
     els.contactPending.hidden = els.complaintsPending.hidden = Boolean(contact);
-    if (contact) { els.contact.href = `mailto:${contact.email}`; els.contact.textContent = contact.email; els.complaints.href = contact.complaints; }
+    // '%' is the only character EMAIL allows that a mailto: URL would read as an escape (RFC 6068).
+    if (contact) { els.contact.href = `mailto:${contact.email.replace(/%/g, '%25')}`; els.contact.textContent = contact.email; els.complaints.href = contact.complaints; }
     els.status.textContent = notice ? t(notice) : '';
     els.status.dataset.tone = notice === 'y.fund.error' ? 'error' : '';
     gate();

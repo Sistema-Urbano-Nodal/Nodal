@@ -1,4 +1,4 @@
-/* The payments page for Nodal Fundadores 2027 (docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md): the member picks
+/* The payments page for the Founder Membership 2027 (docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md): the member picks
    a payment option, ticks the three acceptances of the terms' section 3, and the acceptance the server records answers with
    the Mercado Pago link for that option, opened in the same tab. */
 import test from 'node:test';
@@ -11,7 +11,7 @@ const read=path=>readFileSync(new URL('../'+path,import.meta.url),'utf8');
 const script=read('web/scripts/payments.js'),html=read('web/pages/payments.html');
 const flush=async()=>{for(let i=0;i<10;i++)await new Promise(resolve=>setImmediate(resolve));};
 const VERSION='FUNDADORES-2027-v1';
-const OFFER={name:'Nodal Fundadores 2027',version:VERSION,effectiveFrom:'2026-10-21',endsAt:'2027-01-01T05:00:00.000Z',earlyAccessUntil:'2026-12-31',membershipFrom:'2027-01-01',membershipTo:'2027-12-31',renewalFrom:'2028-01-01',
+const OFFER={name:'Membresía Fundador 2027',version:VERSION,effectiveFrom:'2026-10-21',endsAt:'2027-01-01T05:00:00.000Z',earlyAccessUntil:'2026-12-31',membershipFrom:'2027-01-01',membershipTo:'2027-12-31',renewalFrom:'2028-01-01',
  seller:{name:'Sistema Urbano',ruc:'20605878815',address:'Calle General Varela 154 A, Miraflores'}};
 const CONTACT={email:'membresia@sistemaurbano.org',complaintsUrl:'https://reclamos.sistemaurbano.org/nodal'};
 const OPEN={checkout:true,provider:'mercadopago',state:'open',offer:OFFER,annual:{amount:'S/ 499',per:''},
@@ -198,7 +198,7 @@ test('before sign-ups open, after the offer closed, and without an answer, there
  for(const [config,key] of [[CLOSED('soon'),'y.fund.soon'],[CLOSED('ended'),'y.fund.ended'],[null,'y.fund.soon'],
   // Static hosting has no API at all.
   [http(404,{error:'not found'}),'y.fund.soon'],
-  // The shape before Nodal Fundadores, and an open answer missing what the page needs, read as opening soon.
+  // The shape before the Founder Membership, and an open answer missing what the page needs, read as opening soon.
   [{checkout:true,provider:'mercadopago',annual:{amount:'S/ 240',per:'/ year'},options:[{id:'once',url:MP,amount:'S/ 240'}]},'y.fund.soon'],[{...OPEN,contact:null},'y.fund.soon'],[{...OPEN,options:[]},'y.fund.soon'],
   [{...OPEN,contact:{email:'not an email',complaintsUrl:CONTACT.complaintsUrl}},'y.fund.soon'],[{...OPEN,contact:{email:CONTACT.email,complaintsUrl:'http://reclamos.example'}},'y.fund.soon'],
   [{...OPEN,offer:{...OFFER,version:'FUNDADORES-2027-v2'}},'y.fund.outdated']]){
@@ -299,6 +299,16 @@ test('the seller block links the contact email and opens the Libro de Reclamacio
  assert.match(html,/href="terminos-fundadores\.html"/);
 });
 
+test('a contact email with a "%" stays the same address in its mail link',async()=>{
+ // EMAIL allows '%', which a mailto: URL reads as the start of an escape (RFC 6068): "%25" is the character itself.
+ const p=await page({config:{...OPEN,contact:{...CONTACT,email:'membresia%lima@sistemaurbano.org'}}}),n=p.nodes;
+ assert.equal(n.payContactEmail.href,'mailto:membresia%25lima@sistemaurbano.org');assert.equal(n.payContactEmail.textContent,'membresia%lima@sistemaurbano.org');
+ assert.equal(decodeURIComponent(n.payContactEmail.href.slice('mailto:'.length)),'membresia%lima@sistemaurbano.org');
+ assert.equal(n.payPurchase.hidden,false,'the address is valid, so the offer stays open');
+ const twice=await page({config:{...OPEN,contact:{...CONTACT,email:'a%41%b@sistemaurbano.org'}}});
+ assert.equal(twice.nodes.payContactEmail.href,'mailto:a%2541%25b@sistemaurbano.org','every "%" is escaped, also one that looks like an escape');
+});
+
 test('the purchase box shows the email of the member’s NODAL account to pay with',async()=>{
  const p=await page();
  assert.equal(p.nodes.payEmail.textContent,'ana@example.test');assert.equal(p.nodes.payEmailStep.hidden,false);
@@ -313,17 +323,17 @@ test('in Spanish the authorizations read as the terms’ section 3 with the amou
  const p=await page({i18n}),n=p.nodes;
  assert.equal(n.payInstallmentsTotal.textContent,'S/\u00a0550 en total');
  assert.equal(n.payInstallmentsText.textContent,'S/\u00a0275 al inscribirte y un segundo cobro automático de S/\u00a0275 dos meses calendario después de la fecha de aprobación del primer pago. (Si el mes de destino no tiene el día correspondiente, el segundo pago vencerá el último día de ese mes).');
- p.choose('once');assert.equal(n.payPaymentText.textContent,'Autorizo el cobro de S/\u00a0499, incluido IGV, por mi membresía Nodal Fundadores 2027.');
+ p.choose('once');assert.equal(n.payPaymentText.textContent,'Autorizo el cobro de S/\u00a0499, incluido IGV, por mi Membresía Fundador 2027.');
  p.choose('installments');
  assert.equal(n.payPaymentText.textContent,'Autorizo dos cobros de S/\u00a0275 cada uno, por un total de S/\u00a0550, incluido IGV: el primero al inscribirme y el segundo automáticamente dos meses calendario después de la fecha de aprobación del primer pago. Si el mes de destino no tiene el día correspondiente, el segundo pago vencerá el último día de ese mes.');
- for(const [key,es] of [['y.fund.soon','Las inscripciones abren pronto.'],['y.fund.ended','La oferta Nodal Fundadores 2027 cerró el 31 de diciembre de 2026.'],['y.fund.continue','Continuar a Mercado Pago'],
+ for(const [key,es] of [['y.fund.soon','Las inscripciones abren pronto.'],['y.fund.ended','La oferta Membresía Fundador 2027 cerró el 31 de diciembre de 2026.'],['y.fund.continue','Continuar a Mercado Pago'],
   // What happens after paying, from the team's routine (docs/supporter-payments.md: each payer is added within two working days).
   ['y.fund.next','Cuando tu pago sea aprobado, activamos tu membresía en un plazo de dos días hábiles y te escribimos al correo de tu cuenta de NODAL.'],
   // Mercado Pago's notice is not a SUNAT comprobante: the seller issues the boleta for each sale.
   ['y.fund.a4','Mercado Pago te envía por correo la constancia de cada pago, y Sistema Urbano emite la boleta de venta electrónica correspondiente. Si necesitas factura, escribe al correo de atención con tu RUC.'],
   ['y.fund.authRenew','Autorizo la renovación automática de mi membresía a partir del 1 de enero de 2028, y posteriormente cada 1 de enero, salvo que solicite su no renovación antes del inicio del siguiente período. Entiendo que se aplicará la tarifa regular vigente correspondiente a mi modalidad, con un 5% de descuento mientras conserve activa mi condición de Fundador, y que el precio y las fechas de cobro se me comunicarán antes de la renovación.']])
   assert.equal(i18n.t(key),es,key);
- assert.equal([i18n.t('y.fund.acceptPre'),i18n.t('y.fund.termsLink'),i18n.t('y.fund.acceptPost')].join(''),'He leído y acepto los Términos comerciales de Nodal Fundadores, incluidos los beneficios de la membresía, su vigencia, el precio total, el calendario de pagos y las condiciones de renovación automática.');
+ assert.equal([i18n.t('y.fund.acceptPre'),i18n.t('y.fund.termsLink'),i18n.t('y.fund.acceptPost')].join(''),'He leído y acepto los Términos comerciales de la Membresía Fundador, incluidos los beneficios de la membresía, su vigencia, el precio total, el calendario de pagos y las condiciones de renovación automática.');
 });
 
 test('the markup is a real form: a labelled radio group, three unticked checkboxes bound to their text, and a button off until JavaScript turns it on',()=>{

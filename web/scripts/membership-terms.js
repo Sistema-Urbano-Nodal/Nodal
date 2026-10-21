@@ -1,4 +1,4 @@
-/* membership-terms: the commercial terms of Nodal Fundadores (/terminos-fundadores.html) name a contact email and a
+/* membership-terms: the commercial terms of the Founder Membership (/terminos-fundadores.html) name a contact email and a
    Libro de Reclamaciones that the team sets in the environment (MEMBERSHIP_CONTACT_EMAIL, MEMBERSHIP_COMPLAINTS_URL).
    GET /api/billing/config answers them as `contact` ({email, complaintsUrl}, or null until both are set). Each field
    on the page says "pendiente de publicación" until this script finds a value it trusts; values only ever become

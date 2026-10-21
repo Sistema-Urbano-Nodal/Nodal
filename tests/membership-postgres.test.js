@@ -6,7 +6,7 @@ import {promisify} from 'node:util';
 /* Runs only against an empty disposable local database (NODAL_MEMBERSHIP_TEST_DATABASE_URL, e.g.
    postgres://127.0.0.1:54329/nodal_membership_test_1), like the FIIU PostgreSQL checks. */
 const databaseUrl=process.env.NODAL_MEMBERSHIP_TEST_DATABASE_URL;
-test('PostgreSQL keeps Nodal Fundadores acceptances server-only, insert-only for the server, and past the profile they name',{skip:!databaseUrl,timeout:30000},async()=>{
+test('PostgreSQL keeps Founder Membership acceptances server-only, insert-only for the server, and past the profile they name',{skip:!databaseUrl,timeout:30000},async()=>{
  const url=new URL(databaseUrl);
  assert.ok(['127.0.0.1','localhost','[::1]'].includes(url.hostname));
  assert.match(url.pathname,/^\/nodal_membership_test_[a-z0-9_]+$/);assert.equal(url.search,'');

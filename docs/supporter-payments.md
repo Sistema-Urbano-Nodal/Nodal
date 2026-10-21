@@ -1,6 +1,6 @@
-# Nodal Fundadores payments (Mercado Pago links)
+# Founder Membership payments (Mercado Pago links)
 
-**Nodal Fundadores 2027** is NODAL's paid annual membership. Its commercial terms are at `/terminos-fundadores.html` (version `FUNDADORES-2027-v1`, source text in [membership/terminos-fundadores-2027.md](membership/terminos-fundadores-2027.md)). This routine follows them. "Section 7" and the like are sections of the terms.
+The **Founder Membership 2027** (*Membresía Fundador 2027* in Spanish, *Membresia Fundador 2027* in Portuguese) is NODAL's paid annual membership. Its commercial terms are at `/terminos-fundadores.html` (version `FUNDADORES-2027-v1`, source text in [membership/terminos-fundadores-2027.md](membership/terminos-fundadores-2027.md)). This routine follows them. "Section 7" and the like are sections of the terms.
 
 - **Pago único:** S/ 499, through a Mercado Pago payment link.
 - **Dos pagos:** S/ 275 at sign-up and S/ 275 two calendar months after the first payment is approved, S/ 550 in total, through a Mercado Pago subscription plan that stops after 2 charges.
@@ -12,7 +12,7 @@ Members pay on Mercado Pago, through links Mariana creates in her own Mercado Pa
 
 - **Pago único:** create a payment link (*Link de pago*) for **S/ 499**. At checkout Mercado Pago may offer "hasta 3 cuotas con interés" on a credit card. That is Mercado Pago's card option, with any interest between the payer and Mercado Pago or their card. It is not NODAL's two-payment option: for NODAL it is still one payment of S/ 499. A member who asks to split the price can be pointed to *Dos pagos*.
 - **Dos pagos:** create a subscription plan (*Suscripciones → Crear plan*) that charges **S/ 275 every 2 months** (bimestral) and stops after **2 charges**. A plan accepts cards and Mercado Pago balance.
-- Give each a clear title, such as "NODAL · Nodal Fundadores 2027 · Pago único" and "NODAL · Nodal Fundadores 2027 · Dos pagos". Mercado Pago shows the title at checkout.
+- Give each a clear title, such as "NODAL · Membresía Fundador 2027 · Pago único" and "NODAL · Membresía Fundador 2027 · Dos pagos". Mercado Pago shows the title at checkout.
 - Before publishing, open each link in a private window (signed out of Mercado Pago) and check that it shows the right amount in soles. A subscription plan may ask the payer to sign in to Mercado Pago.
 - **Check the second-charge date once.** The terms promise the date in section 7 (see *Add each payer*, step 4). On the first real subscription, look at the next charge date Mercado Pago shows for that subscriber and check that it is the same, especially for a first payment on the 29th, 30th or 31st of a month. If Mercado Pago would charge on a different day, tell the developer before the next sale.
 
@@ -72,7 +72,7 @@ The offer is for first payments approved by 31 December 2026. From 1 January 202
 
 - **On each second-charge date,** check *Suscripciones* for the charge.
 - **A failed charge:** write to the member the same day. They have a **grace period of 10 calendar days** counted from the date of the failed charge, and they keep their benefits during it. Mercado Pago's retries of the same charge don't restart the 10 days and are not extra charges.
-- **Still unpaid after the 10 days:** the Fundadores benefits can be suspended until the payment is made (see *Removing someone*). The suspension doesn't cancel what the member owes for 2027. They keep their account and the free community access (section 14).
+- **Still unpaid after the 10 days:** the Founder Membership benefits can be suspended until the payment is made (see *Removing someone*). The suspension doesn't cancel what the member owes for 2027. They keep their account and the free community access (section 14).
 - **A subscription cancelled before the second charge:** the second payment is still part of the annual membership (sections 6 and 12), but Mercado Pago will not try to charge it. Write to the member the same day. If they want to end the membership early, handle it as an early-termination request (section 12) with Mariana. Otherwise send them a one-off S/ 275 payment link; the 10-day grace period runs from the second payment's due date (section 7), and benefits can be suspended only after it (section 13).
 
 ## 6. Requests to the contact email (sections 11, 12 and 17)
@@ -86,7 +86,7 @@ Questions, non-renewal, changes of payment option and refund requests come to th
 ## 7. Once a month
 
 - **Receipts:** Mercado Pago emails each payer a payment notice, which is not a SUNAT comprobante. For each approved payment the accountant issues an electronic *boleta de venta*, or a *factura* when the payer gives a RUC (confirm timing with the accountant).
-- **Removing someone:** the teaching workspace cannot remove a participant yet. Ask the developer, who removes the enrollment in the database. A second charge can fail from late December 2026, and its grace period ends 10 days later, so a remove button is needed by then. The 2027 period ends on 31 December 2027; from 1 January 2028 only members who asked for non-renewal, or whose renewal was not paid after the grace period, lose the Fundadores benefits (sections 11–14).
+- **Removing someone:** the teaching workspace cannot remove a participant yet. Ask the developer, who removes the enrollment in the database. A second charge can fail from late December 2026, and its grace period ends 10 days later, so a remove button is needed by then. The 2027 period ends on 31 December 2027; from 1 January 2028 only members who asked for non-renewal, or whose renewal was not paid after the grace period, lose the Founder Membership benefits (sections 11–14).
 - **Renewal on 1 January 2028:** the terms promise to tell each member, before the renewal, the total price (the regular rate for their payment option with 5% off), the amounts and charge dates, the conditions of the next period and how to ask for non-renewal (section 11). The renewal keeps their payment option unless they ask to change it, and it needs their valid authorization in Mercado Pago; the notice does not replace it. Neither link can charge in 2028: the payment link is one-off and the plan stops after 2 charges. The renewal needs its own setup, and a message to members, well before December 2027.
 
 ## Later

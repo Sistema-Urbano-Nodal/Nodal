@@ -1,10 +1,12 @@
-/* The Nodal Fundadores 2027 copy across the payments page, the landing card and the course note
-   (docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md): every new string in English, Spanish and Portuguese,
-   the Spanish of the team's document word for word, and nothing left from the Supporting membership that contradicts the terms. */
+/* The Founder Membership 2027 copy (Membresía Fundador, Membresia Fundador) across the payments page, the landing card
+   and the course note (docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md, written when it was called Nodal
+   Fundadores): every new string in English, Spanish and Portuguese, the Spanish of the team's document word for word
+   once the product is renamed, and nothing left from the Supporting membership that contradicts the terms. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
+import {renamed} from './helpers/membership-name.js';
 
 const read=path=>readFileSync(new URL('../'+path,import.meta.url),'utf8');
 const payments=read('web/pages/payments.html'),landing=read('web/pages/index.html');
@@ -20,7 +22,7 @@ const placeholders=value=>[...String(value).matchAll(/\{(\w+)\}/g)].map(match=>m
 // The markup's own text of a data-i18n element, entities as written.
 const markup=(html,key)=>[...html.matchAll(new RegExp(`data-i18n="${key.replace(/\./g,'\\.')}">([^<]*)<`,'g'))].map(match=>match[1]);
 
-test('every Nodal Fundadores string of the payments page is in English, Spanish and Portuguese, and the markup reads as the English',()=>{
+test('every Founder Membership string of the payments page is in English, Spanish and Portuguese, and the markup reads as the English',()=>{
  const dict=console_();
  const used=new Set([...payments.matchAll(/data-i18n="(y\.fund\.[^"]+)"/g),...read('web/scripts/payments.js').matchAll(/'(y\.fund\.[A-Za-z0-9]+)'/g)].map(match=>match[1]));
  assert.ok(used.size>=70,`${used.size} keys`);
@@ -35,8 +37,9 @@ test('every Nodal Fundadores string of the payments page is in English, Spanish 
  for(const lang of LANGS)for(const key of Object.keys(dict[lang]).filter(key=>key.startsWith('y.fund.')))assert.ok(used.has(key),`${lang} ${key} is unused`);
 });
 
-test('the payments page Spanish is the team document’s section 1 and section 3 word for word',()=>{
+test('the payments page Spanish is the team document’s section 1 and section 3 word for word, with the product renamed',()=>{
  const es=console_().es;
+ // The document's own text: the comparison renames the product in it (tests/helpers/membership-name.js) and nothing else.
  const SECTION={
   'y.fund.intro':'Forma parte de la comunidad que está construyendo una nueva manera de conectar, colaborar y transformar nuestras ciudades desde el Urbanismo Colaborativo.',
   'y.fund.chooseTitle':'Elige tu modalidad de pago','y.fund.onceName':'Pago único','y.fund.onceText':'Un solo pago al inscribirte por tu membresía anual.','y.fund.twiceName':'Dos pagos',
@@ -63,12 +66,13 @@ test('the payments page Spanish is the team document’s section 1 and section 3
   'y.fund.acceptHead':'Aceptación de condiciones','y.fund.authHead':'Autorización correspondiente a la modalidad seleccionada',
   'y.fund.payWithEmail':'Paga en Mercado Pago con el correo de tu cuenta de NODAL:',
  };
- for(const [key,text] of Object.entries(SECTION))assert.equal(es[key],text,key);
+ for(const [key,text] of Object.entries(SECTION))assert.equal(es[key],renamed(text),key);
+ assert.equal(es['y.fund.term1'],'La oferta Membresía Fundador 2027 está disponible para quienes se inscriban y tengan su primer pago aprobado hasta el 31 de diciembre de 2026.');
  // The seller as section 1 names it, with "154 A" (the spec's choice where section 2 says 154).
  assert.match(payments,/<span id="paySellerName">Sistema Urbano<\/span>[\s\S]*<dd id="paySellerRuc">20605878815<\/dd>[\s\S]*<dd id="paySellerAddress">Calle General Varela 154 A, Miraflores<\/dd>/);
 });
 
-test('the landing card names the Founder Membership and the course note Nodal Fundadores, in all three languages',()=>{
+test('the landing card and the course note name the Founder Membership, in all three languages',()=>{
  const used=[...new Set([...landing.matchAll(/data-i18n="(mem\.fund\.[^"]+)"/g),...read('web/scripts/app.js').matchAll(/'(mem\.fund\.[A-Za-z0-9]+)'/g)].map(match=>match[1]))];
  assert.deepEqual(used.sort(),['mem.fund.connect','mem.fund.connectText','mem.fund.cta','mem.fund.discount','mem.fund.early','mem.fund.ended','mem.fund.find','mem.fund.findText','mem.fund.flag','mem.fund.learn','mem.fund.learnText','mem.fund.name','mem.fund.tagline','mem.fund.terms','mem.fund.visible','mem.fund.visibleText']);
  const api=Object.fromEntries(LANGS.map(lang=>[lang,shared(lang)]));
@@ -79,24 +83,54 @@ test('the landing card names the Founder Membership and the course note Nodal Fu
  }
  for(const key of used)assert.equal(placeholders(api.es.t(key)),'',key);
  const rows=pilot();
- for(const key of ['supportersOnly','supportersNote','supportersNoteOpen','supportersNoteEnded']){
+ for(const key of ['supportersOnly','supportersNote','supportersNoteOpen','supportersNoteEnded','participantsSupporters']){
   assert.equal(rows[key].length,3,key);
-  for(const text of rows[key])assert.match(text,/Nodal Fundadores/,key);
+  [/the Founder Membership/,/la Membresía Fundador/,/da Membresia Fundador/].forEach((name,index)=>assert.match(rows[key][index],name,`${key} ${LANGS[index]}`));
  }
  // The course note's button names the membership as the landing card does.
  assert.deepEqual([...rows.becomeSupporter],['Join the Founder Membership','Únete a la Membresía Fundador','Junte-se à Membresia Fundador']);
  // The course is a 2026 one: members join it during their early access, and it is not the course included in 2027 (sections 4, 8 and 15).
- assert.deepEqual([...rows.supportersNoteOpen],['Nodal Fundadores members can join this course during their 2026 early access; it is not the course included in 2027. People already enrolled keep full access.',
-  'Los miembros de Nodal Fundadores pueden sumarse a este curso durante su acceso anticipado de 2026; no reemplaza el curso incluido en 2027. Quienes ya están inscritos conservan el acceso completo.',
-  'Os membros do Nodal Fundadores podem entrar neste curso durante o acesso antecipado de 2026; ele não substitui o curso incluído em 2027. Quem já está inscrito mantém o acesso completo.']);
- assert.deepEqual([...rows.supportersNote],['Nodal Fundadores members can join this course during their 2026 early access, which opens soon; it is not the course included in 2027. People already enrolled keep full access.',
-  'Los miembros de Nodal Fundadores pueden sumarse a este curso durante su acceso anticipado de 2026, que abre pronto; no reemplaza el curso incluido en 2027. Quienes ya están inscritos conservan el acceso completo.',
-  'Os membros do Nodal Fundadores podem entrar neste curso durante o acesso antecipado de 2026, que abre em breve; ele não substitui o curso incluído em 2027. Quem já está inscrito mantém o acesso completo.']);
+ assert.deepEqual([...rows.supportersOnly],['For members of the Founder Membership','Para miembros de la Membresía Fundador','Para membros da Membresia Fundador']);
+ assert.deepEqual([...rows.supportersNoteOpen],['Members of the Founder Membership can join this course during their 2026 early access; it is not the course included in 2027. People already enrolled keep full access.',
+  'Los miembros de la Membresía Fundador pueden sumarse a este curso durante su acceso anticipado de 2026; no reemplaza el curso incluido en 2027. Quienes ya están inscritos conservan el acceso completo.',
+  'Os membros da Membresia Fundador podem entrar neste curso durante o acesso antecipado de 2026; ele não substitui o curso incluído em 2027. Quem já está inscrito mantém o acesso completo.']);
+ assert.deepEqual([...rows.supportersNote],['Members of the Founder Membership can join this course during their 2026 early access, which opens soon; it is not the course included in 2027. People already enrolled keep full access.',
+  'Los miembros de la Membresía Fundador pueden sumarse a este curso durante su acceso anticipado de 2026, que abre pronto; no reemplaza el curso incluido en 2027. Quienes ya están inscritos conservan el acceso completo.',
+  'Os membros da Membresia Fundador podem entrar neste curso durante o acesso antecipado de 2026, que abre em breve; ele não substitui o curso incluído em 2027. Quem já está inscrito mantém o acesso completo.']);
  for(const text of rows.supportersNoteEnded)assert.match(text,/2026/);
  // The teaching team adds each member whose payment was approved, not "each Supporter who paid".
- assert.deepEqual([...rows.participantsSupporters],['Enrollment is closed to the public. Add here each Nodal Fundadores member whose payment was approved on Mercado Pago, with the email of their NODAL account.',
-  'Las inscripciones están cerradas al público. Agrega aquí a cada miembro de Nodal Fundadores cuyo pago fue aprobado en Mercado Pago, con el correo de su cuenta de NODAL.',
-  'As inscrições estão fechadas ao público. Adicione aqui cada membro do Nodal Fundadores cujo pagamento foi aprovado no Mercado Pago, com o e-mail da conta dele na NODAL.']);
+ assert.deepEqual([...rows.participantsSupporters],['Enrollment is closed to the public. Add here each member of the Founder Membership whose payment was approved on Mercado Pago, with the email of their NODAL account.',
+  'Las inscripciones están cerradas al público. Agrega aquí a cada miembro de la Membresía Fundador cuyo pago fue aprobado en Mercado Pago, con el correo de su cuenta de NODAL.',
+  'As inscrições estão fechadas ao público. Adicione aqui cada membro da Membresia Fundador cujo pagamento foi aprovado no Mercado Pago, com o e-mail da conta dele na NODAL.']);
+});
+
+/* 20 Oct 2026, the team: the membership is the "Membresía Fundador" everywhere, translated (Founder Membership,
+   Membresia Fundador). It is feminine in Spanish and Portuguese, so the old name's articles and contractions changed
+   with it. Internal identifiers keep the old word: FUNDADORES-2027-v1, FUNDADORES_2027, terminos-fundadores.html. */
+test('no page, dictionary or offer the member sees calls the membership Nodal Fundadores, and the new name takes its articles',async()=>{
+ const {OFFER_VIEW}=await import('../server/membership-offer.js');
+ assert.equal(OFFER_VIEW.name,'Membresía Fundador 2027');
+ const files=['web/pages/payments.html','web/pages/index.html','web/pages/terminos-fundadores.html','web/pages/privacy.html','web/scripts/i18n-dashboard.js','web/scripts/i18n.js','web/scripts/pilot-i18n.js','web/scripts/payments.js','web/scripts/app.js','web/scripts/courses.js','web/scripts/membership-terms.js'];
+ for(const file of files){
+  const text=read(file);
+  assert.doesNotMatch(text,/Nodal Fundadores|Nodal <em>Fundadores/i,file);
+  // Spanish: la Membresía Fundador (never el/del/al/un, nor "membresía Membresía").
+  assert.doesNotMatch(text,/\b(?:el|del|al|un) Membresía|membresía Membresía/i,file);
+  // Portuguese: a Membresia Fundador (never o/do/no/ao/pelo/um, nor "membresia Membresia").
+  assert.doesNotMatch(text,/\b(?:o|do|no|ao|pelo|um) Membresia|membresia Membresia/i,file);
+  assert.doesNotMatch(text,/Founder Membership membership|\bthe the\b/i,file);
+ }
+ // The payments page is named in the language it shows.
+ const dict=console_();
+ assert.match(payments,/<title data-i18n="y\.fund\.pageTitle">NODAL · Founder Membership<\/title>/);
+ assert.match(payments,/<h1 class="pay-title"><span data-i18n="y\.fund\.titleA">Founder<\/span> <em data-i18n="y\.fund\.titleB">Membership<\/em><\/h1>/);
+ assert.deepEqual(LANGS.map(lang=>[dict[lang]['y.fund.pageTitle'],`${dict[lang]['y.fund.titleA']} ${dict[lang]['y.fund.titleB']}`]),
+  [['NODAL · Founder Membership','Founder Membership'],['NODAL · Membresía Fundador','Membresía Fundador'],['NODAL · Membresia Fundador','Membresia Fundador']]);
+ // Where the old name followed "membresía" or "membership", the sentence names it once.
+ assert.deepEqual(LANGS.map(lang=>dict[lang]['y.fund.authOnce']),['I authorize the charge of {amount}, IGV included, for my Founder Membership 2027.',
+  'Autorizo el cobro de {amount}, incluido IGV, por mi Membresía Fundador 2027.','Autorizo a cobrança de {amount}, com IGV incluído, pela minha Membresia Fundador 2027.']);
+ assert.deepEqual(LANGS.map(lang=>dict[lang]['y.fund.termsLink']),['Founder Membership commercial terms (in Spanish)','Términos comerciales de la Membresía Fundador','Termos comerciais da Membresia Fundador (em espanhol)']);
+ assert.deepEqual(LANGS.map(lang=>dict[lang]['y.fund.faqTitle']),['Questions about the Founder Membership','Preguntas sobre la Membresía Fundador','Dúvidas sobre a Membresia Fundador']);
 });
 
 test('no copy left from the Supporting membership contradicts the terms: no twelve months from the payment, no membership that does not renew',()=>{
