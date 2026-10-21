@@ -46,14 +46,14 @@
  function facts(...pairs){const list=el('dl','f-checkin-facts');for(const [key,value] of pairs){const row=el('div','f-checkin-fact');row.append(tr('dt',key),value);list.append(row);}return list;}
  const dd=(...nodes)=>{const node=el('dd');node.append(...nodes);return node;};
  // The code form is the fallback for phones that cannot read the QR code: it sends the 6-character code shown under it.
- function codeForm(){
+ function codeForm(extra={}){
   const form=el('form','f-form f-code-form'),entry=field('checkinCode',{max:9,required:true}),submit=button('checkinSubmit'),problem=el('p','f-status');submit.type='submit';form.noValidate=true;
   entry.input.autocomplete='off';entry.input.spellcheck=false;entry.input.setAttribute('autocapitalize','characters');entry.input.setAttribute('aria-invalid','false');problem.id='f-code-problem';problem.setAttribute('role','status');
   form.append(entry.wrap,submit,problem);form.addEventListener('input',()=>{entry.input.setAttribute('aria-invalid','false');status(problem,'');});
   form.addEventListener('submit',event=>{
    event.preventDefault();const value=typedCode(entry.input.value);
    if(!SHORT.test(value)){entry.input.setAttribute('aria-invalid','true');entry.input.setAttribute('aria-describedby',problem.id);status(problem,Object.assign(Error(t('checkinCodeInvalid')),{key:'checkinCodeInvalid'}));entry.input.focus();return;}
-   run({code:value});
+   run({code:value,...extra});
   });
   return form;
  }
@@ -134,7 +134,8 @@
   if(error.status===404)return error.walkIn===true&&!lab?joinAtDoor(activity,body,account):unregistered(activity,{open,lab,addHref,account,next:returnTo(body)});
   if(error.code==='lab_not_accepted'||error.code==='not_in_plan')return outsidePlan(activity,{open,lab:lab||error.code==='lab_not_accepted',addHref});
   if(error.code==='outside_window')return ended(activity,error);
-  if(error.status===410)return block('codeExpired','warn',about(activity),hintOf('expiredHint'),codeForm());
+  // A code that expired while the person read the door confirmation keeps their yes: the screen's new code joins at once.
+  if(error.status===410)return block('codeExpired','warn',about(activity),hintOf('expiredHint'),codeForm(body.join===true?{join:true,language:body.language}:{}));
   if(error.code==='invalid_activity')return block('noCheckin','warn',hintOf('noCheckinHint'),actions(link('viewProgramme','fiiu.html#programme','f-button secondary')));
   if(error.status===400)return block('invalidLink','warn',hintOf('invalidLinkHint'),codeForm());
   // A rate limit, an outage or a lost connection: the same check-in can simply be sent again.
@@ -144,12 +145,17 @@
  // The laboratory is not a block anyone can add: only an accepted application checks in, so no refusal for it links to the registration.
  // Someone without a registration may be signed in to another account than the one they registered with (a work and a personal email): the refusal
  // names this account and offers another, so nobody registers twice and splits their hours. account is '' when the lookup did not answer in time.
- const unregistered=(activity,{open,lab,addHref,account,next})=>block('notRegistered','warn',about(activity),account&&facts(['checkinAccount',dd(el('span','',account))]),
+ const accountFact=account=>account?facts(['checkinAccount',dd(el('span','',account))]):null;
+ const unregistered=(activity,{open,lab,addHref,account,next})=>block('notRegistered','warn',about(activity),accountFact(account),
   hintOf(lab?'labNotAcceptedHint':open?'notRegisteredHint':'askDesk'),hintOf('otherAccountHint'),actions(open&&!lab&&link('register',addHref,'f-button'),otherAccount(next)));
  // At a conference block the server registers someone at the door once they say so (join): the block says what that shares and with which account,
  // and still offers another account, so nobody who registered with another email registers twice. The same code goes again (codes last 5 minutes).
- const joinAtDoor=(activity,body,account)=>block('joinAtDoorTitle','',about(activity),account&&facts(['checkinAccount',dd(el('span','',account))]),hintOf('joinAtDoorHint'),hintOf('otherAccountHint'),
-  actions(button('joinAtDoor',()=>run({...body,join:true,language:window.nodalI18n?.lang||document.documentElement.lang||''})),link('privacy','privacy.html','f-text-link'),otherAccount(returnTo(body))));
+ // The privacy policy opens in a new tab, so reading it never costs the code on this one.
+ const joinAtDoor=(activity,body,account)=>{
+  const privacy=link('privacy','privacy.html','f-text-link');privacy.target='_blank';privacy.rel='noopener';privacy.setAttribute('aria-describedby','f-newtab');
+  return block('joinAtDoorTitle','',about(activity),accountFact(account),hintOf('joinAtDoorHint'),hintOf('otherAccountHint'),
+   actions(button('joinAtDoor',()=>run({...body,join:true,language:window.nodalI18n?.lang||document.documentElement.lang||''})),privacy,otherAccount(returnTo(body))));
+ };
  // Another account means signing out first; sign-in then comes back to next (the same block, and the code while it lasts: 5 minutes, then the code form).
  function otherAccount(next){
   const control=button('useOtherAccount',async()=>{
@@ -169,7 +175,9 @@
   try{data=await api('/api/fiiu/checkin',body);}catch(err){error=err;}
   // A "not registered" refusal names the signed-in account; like the programme, that lookup holds the result only briefly.
   const who=error?.status===404?api('/api/fiiu/registration').then(reply=>{account=reply.user.email;},()=>{}):null;
-  await Promise.all([shortly(1500),who&&within(who,1500)]);(data?success(data,body):failure(error,body,account)).title.focus();
+  await Promise.all([shortly(1500),who&&within(who,1500)]);const shownNow=(data?success(data,body):failure(error,body,account));shownNow.title.focus();
+  // A lookup slower than that names the account once it answers, on the refusal or the door confirmation still on screen.
+  if(who&&!account)who.then(()=>{const box=shown;if(!account||!box||box.querySelector('.f-checkin-facts'))return;box.querySelector('.f-checkin-hint')?.before(accountFact(account));});
  }
  // After a check-in the address keeps only a, so a reload (or a phone restoring the tab) lands here without a code, as does a new account back from
  // its confirmation email. A block already in the person's attendance shows its confirmation again; signed out, the page asks for sign-in first;

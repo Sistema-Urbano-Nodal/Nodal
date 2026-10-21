@@ -551,3 +551,17 @@ test('someone signed in without a registration confirms once at a conference blo
  const other=await page(request=>request.path==='/api/fiiu/checkin'?join:request.path==='/api/fiiu/registration'?lookup:request.path==='/api/auth/logout'?{ok:true}:assert.fail(request.path));
  await key(result(other),'useOtherAccount').listeners.click();assert.deepEqual(other.assigned,['/login.html?next='+encodeURIComponent(`/fiiu-checkin.html?a=day1-am&c=${CODE}`)]);
 });
+
+test('the door confirmation opens the privacy policy in a new tab, names a slow account once it answers, and an expired code keeps the yes',async()=>{
+ const join={status:404,data:{error:'registration unavailable',code:'not_registered',activityId:'day1-am',registration:'general',registrationOpen:true,walkIn:true}};
+ let answerLookup;const lookup={registration:null,attendance:[],hours:{minutes:0,hours:0,untimed:[]},user:{id:'u3',email:'slow@example.test'},serverTime:'2026-10-21T14:12:00.000Z'};
+ const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?publicData():request.path==='/api/fiiu/registration'?new Promise(resolve=>{answerLookup=()=>resolve(lookup);}):request.path==='/api/fiiu/checkin'?(request.body.join===true?{status:410,data:{error:'check-in code expired',code:'expired'}}:join):assert.fail(request.path),{page:'fiiu-checkin',search:`?a=day1-am&c=${CODE}`,context:{Date:frozen('2026-10-21T09:12:00-05:00'),setTimeout:fn=>fn()}});
+ assert.equal(title(h).dataset.fiiuText,'joinAtDoorTitle');assert.equal(result(h).querySelector('.f-checkin-facts'),null,'the lookup has not answered');
+ const privacy=key(result(h),'privacy');assert.equal(privacy.target,'_blank');assert.equal(privacy.rel,'noopener');
+ answerLookup();await flush();
+ assert.match(content(result(h).querySelector('.f-checkin-facts')),/slow@example\.test/,'named once the lookup answers');
+ // The tap meets an expired code: the screen's new code, typed, joins without asking again.
+ await key(result(h),'joinAtDoor').listeners.click();await flush();assert.equal(title(h).dataset.fiiuText,'codeExpired');
+ const form=result(h).querySelector('form');field(form,'checkinCode').value='K7M4PX';form.listeners.submit({preventDefault(){}});await flush();
+ assert.deepEqual(h.requests.filter(request=>request.path==='/api/fiiu/checkin').at(-1).body,{code:'K7M4PX',join:true,language:'en'});
+});

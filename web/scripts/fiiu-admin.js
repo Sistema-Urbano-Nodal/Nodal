@@ -414,8 +414,9 @@
   for(const id of [...interests].filter(id=>!findActivity(festival.event,id))){const row=el('p','f-attendance-row f-unknown-interest');row.append(el('span','f-attendance-title',id),tr('span','interestChip','f-pill'));box.append(row);}
   const plan=activity=>activity.registration==='external'?interests.has(activity.id)&&'interest':activity.registration==='application'?r.labStatus==='accepted'&&'lab':a.activities.includes(activity.id)&&'registered';
   const own=activity=>attended.has(activity.id)||Boolean(plan(activity)),chip=activity=>({registered:()=>tr('span','statusRegistered','f-pill is-ok'),lab:()=>tr('span','acceptedShort','f-pill is-accepted'),interest:()=>tr('span','interestChip','f-pill')})[plan(activity)]?.();
-  // The party takes no check-in, so it has no tick here (the answers below list it).
-  const list=chronological([...festival.event.activities,...(festival.event.legacyActivities||[]).filter(activity=>attended.has(activity.id)||interests.has(activity.id))].filter(activity=>activity.registration!=='social'&&(activity.registration==='external'||own(activity))));
+  // The party takes no check-in, so it has no tick here (the answers below list it). A conference block outside the plan is under the day's other
+ // activities: ticking it adds it to the plan while registration is open, as a scan at its door does.
+  const list=chronological([...festival.event.activities,...(festival.event.legacyActivities||[]).filter(activity=>attended.has(activity.id)||interests.has(activity.id))].filter(activity=>activity.registration!=='social'&&(activity.registration==='external'||activity.registration==='general'||own(activity))));
   for(const date of [...new Set(list.map(activity=>activity.date))]){
    const day=list.filter(activity=>activity.date===date),others=day.filter(activity=>!own(activity)),group=el('div','f-attendance-day'),dayLabel=dateNode(date,'p','long','f-attendance-date');dayLabel.id='f-att-'+date;group.append(dayLabel);
    for(const activity of day.filter(own))group.append(rowFor(activity,attended.has(activity.id),chip(activity)));

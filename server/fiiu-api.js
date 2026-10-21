@@ -78,7 +78,8 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
     second tap, another tab) stands instead. */
  async function registerAtDoor(user,activityId,input,req){
   const [firstName='',...rest]=String(user.name??'').trim().split(/\s+/),at=now();
-  const answers={firstName:firstName.slice(0,100),lastName:rest.join(' ').slice(0,120),country:'',city:String(user.city??'').trim().slice(0,160),activities:[activityId],externalActivities:[],accessibility:[],applyLab:false,privacyAccepted:true,walkIn:true};
+  // No privacyAccepted: the tap agreed to share these three, so the form still asks before the private answers are added.
+  const answers={firstName:firstName.slice(0,100),lastName:rest.join(' ').slice(0,120),country:'',city:String(user.city??'').trim().slice(0,160),activities:[activityId],externalActivities:[],accessibility:[],applyLab:false,walkIn:true};
   let registration=null;
   try{registration=await store.insert('registrations',{id:randomUUID(),eventId:EVENT_ID,userId:user.id,email:user.email,answers,labStatus:'none',version:1,createdAt:at,updatedAt:at,confirmationStatus:confirmation&&isReservedRecipient(user.email)?'skipped':'none',confirmationLanguage:registrationLanguage(input,req),confirmationSentAt:null});}
   catch(err){if(err.status!==409)throw err;}
@@ -138,7 +139,8 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    if(req.method==='PUT'){
     const [settings,input,existing]=await Promise.all([config(),body(req),one('registrations',{eventId:EVENT_ID,userId:user.id})]);
     if(!settings.registrationOpen)fail('registration is closed',403);
-    sameAccount(input,user);const expected=version(input.version),answers=normalizeRegistration(input);
+    // A registration made at a block's door keeps that mark once its person completes it, for the organisers' list and export.
+    sameAccount(input,user);const expected=version(input.version),answers={...normalizeRegistration(input),...(existing?.answers?.walkIn===true?{walkIn:true}:{})};
     if((existing?.version??0)!==expected||(existing?.id??null)!==(input.registrationId??null))fail('registration changed; reload before saving',409);
     const patch={email:user.email,answers,labStatus:applicationStatus(answers,existing),version:expected+1,updatedAt:now()};
     if(existing){
@@ -295,7 +297,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
   }
   let match=path.match(/^\/api\/admin\/fiiu\/registrations\/([^/]+)(\/attendance)?$/);
   if(match){
-   const registration=await one('registrations',{id:identifier(match[1]),eventId:EVENT_ID});if(!registration)fail('registration unavailable',404);
+   let registration=await one('registrations',{id:identifier(match[1]),eventId:EVENT_ID});if(!registration)fail('registration unavailable',404);
    if(!match[2]&&req.method==='GET'){const [attendance,{all}]=await Promise.all([store.find('attendance',{registrationId:registration.id}),live()]);send(res,200,{registration,attendance,hours:attendanceHours(attendance,all)});return true;}
    if(!match[2]&&req.method==='PATCH'){
     const input=await body(req),expected=version(input.version);
@@ -306,6 +308,8 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    if(match[2]&&req.method==='PUT'){
     const [input,{all}]=await Promise.all([body(req),live()]),activity=all.find(a=>a.id===input.activityId);
     if(!activity||typeof input.attended!=='boolean')fail('invalid attendance');
+    // As at the door, a conference block outside the plan joins it while registration is open; once closed, only blocks in the plan.
+    if(input.attended&&activity.registration==='general'&&!planned(registration,activity.id)&&(await config()).registrationOpen)registration=await addToPlan(registration,activity.id);
     if(input.attended&&!canAttend(registration,activity))fail('participant is not registered for this activity');
     // Unticking removes the row whichever way it was recorded, so staff can correct a QR check-in.
     if(!input.attended)await store.remove('attendance',{registrationId:registration.id,activityId:activity.id});

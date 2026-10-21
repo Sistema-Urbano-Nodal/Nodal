@@ -208,7 +208,7 @@ test('only staff can confirm eligible attendance and badges are separate from pr
  const {call,save}=await setup(t);const {registration}=await(await save()).json();
  const route=`/api/admin/fiiu/registrations/${registration.id}/attendance`;
  assert.equal((await call(route,{method:'PUT',body:{activityId:'day1-am',attended:true}})).status,403);
- assert.equal((await call(route,{actor:'admin',method:'PUT',body:{activityId:'day2-am',attended:true}})).status,400);
+ assert.equal((await call(route,{actor:'admin',method:'PUT',body:{activityId:'closing-party',attended:true}})).status,400,'the party takes no attendance');
  assert.equal((await call(route,{actor:'admin',method:'PUT',body:{activityId:'day0-lab',attended:true}})).status,400);
  const confirmed=await call(route,{actor:'admin',method:'PUT',body:{activityId:'day1-am',attended:true}});assert.equal(confirmed.status,200);
  assert.deepEqual((await confirmed.json()).hours,{minutes:240,hours:4,untimed:[]});
@@ -1258,7 +1258,7 @@ test('someone with a NODAL account but no festival registration is registered at
  let response=await as({activityId:'day1-am',code:code('day1-am'),join:true,language:'pt'});assert.equal(response.status,201);
  assert.deepEqual(await response.json(),{result:'checked_in',activityId:'day1-am',checkedInAt:'2026-10-21T14:00:00.000Z',method:'qr',attendance:[{activityId:'day1-am',createdAt:'2026-10-21T14:00:00.000Z',method:'qr'}],hours:{minutes:240,hours:4,untimed:[]},activity:{id:'day1-am',title:'El poder de lo local',date:'2026-10-21',time:'09:00–13:00',venue:'Auditorio MALI, Cercado de Lima'},joined:'registration'});
  const row=db.prepare('SELECT * FROM fiiu_registrations').get();
- assert.deepEqual(JSON.parse(row.answers),{firstName:'María',lastName:'José Quispe',country:'',city:'Lima',activities:['day1-am'],externalActivities:[],accessibility:[],applyLab:false,privacyAccepted:true,walkIn:true});
+ assert.deepEqual(JSON.parse(row.answers),{firstName:'María',lastName:'José Quispe',country:'',city:'Lima',activities:['day1-am'],externalActivities:[],accessibility:[],applyLab:false,walkIn:true},'no privacyAccepted: the form asks before the private answers');
  assert.deepEqual([row.user_id,row.email,row.lab_status,row.version,row.confirmation_status,row.confirmation_language],[walker.id,'walkin@example.test','none',1,'skipped','pt'],'a reserved test domain is skipped for good, as a first registration online is');
  assert.equal(sent,0,'no summary email at the door; it stays for the organisers’ “Send the summary”');
  // A second scan keeps the first confirmation and registers nobody again.
@@ -1323,4 +1323,32 @@ test('a registered person scanning a conference block outside their plan has it 
  const saved=db.prepare('SELECT answers,version FROM fiiu_registrations').get(),kept=JSON.parse(saved.answers);
  assert.equal(raced,true,'the other tab saved between the read and the write');
  assert.deepEqual(kept.activities,['day1-am','day2-am']);assert.equal(kept.city,'Cusco','the other tab’s save stands');assert.equal(saved.version,3);
+});
+
+test('a walk-in who completes the form keeps the door mark, and two door registrations racing make one',async t=>{
+ const {codes,options}=festivalClock('2026-10-21T14:00:00Z');
+ let raced=false;
+ // Another tap (or tab) registers this account between this request's lookup and its insert: the insert then meets the unique (event, user) row.
+ const {call,save,db}=await setup(t,store=>({...store,async insert(name,record){
+  if(name==='registrations'&&record.answers?.walkIn&&!raced){raced=true;await store.insert(name,{...record,id:randomUUID()});}
+  return store.insert(name,record);
+ }}),options);
+ const response=await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code,join:true});
+ assert.equal(raced,true);assert.equal(response.status,201);const body=await response.json();assert.equal(body.result,'checked_in');assert.equal('joined' in body,false,'the other request registered them');
+ assert.deepEqual([db.prepare('SELECT count(*) AS n FROM fiiu_registrations').get().n,db.prepare('SELECT count(*) AS n FROM fiiu_attendance').get().n],[1,1]);
+ const me=await(await call('/api/fiiu/registration')).json();
+ const saved=await save({...answers,activities:['day2-am'],version:me.registration.version,registrationId:me.registration.id});assert.equal(saved.status,200);
+ const {registration}=await saved.json();assert.equal(registration.answers.walkIn,true,'completing the form keeps the mark');assert.equal(registration.answers.nationalId,'TEST-ID');
+ const csv=(await(await call('/api/admin/fiiu/export',{actor:'admin'})).text()).trim().split(/\r?\n/);assert.match(csv[1],/,"true"$/);
+});
+
+test('a staff tick on a conference block outside the plan adds it while registration is open, and is refused once it closes',async t=>{
+ const {call,save,db}=await setup(t);const {registration}=await(await save()).json();
+ const route=`/api/admin/fiiu/registrations/${registration.id}/attendance`;
+ let response=await call(route,{actor:'admin',method:'PUT',body:{activityId:'day2-am',attended:true}});assert.equal(response.status,200);
+ assert.deepEqual((await response.json()).attendance.map(a=>a.activityId),['day2-am']);
+ assert.deepEqual(JSON.parse(db.prepare('SELECT answers FROM fiiu_registrations').get().answers).activities,['day1-am','day2-am']);
+ assert.equal((await call('/api/admin/fiiu/config',{actor:'admin',method:'PUT',body:{version:0,registrationOpen:false}})).status,200);
+ assert.equal((await call(route,{actor:'admin',method:'PUT',body:{activityId:'day3-am',attended:true}})).status,400);
+ assert.deepEqual(JSON.parse(db.prepare('SELECT answers FROM fiiu_registrations').get().answers).activities,['day1-am','day2-am']);
 });

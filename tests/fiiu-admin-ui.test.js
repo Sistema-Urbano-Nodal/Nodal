@@ -2218,3 +2218,12 @@ test('once the dashboard recovers by itself after a lost session, the toast no l
  // Another toast stays.
  signedOut=true;await h.tickTimers();h.ctx.window.Fiiu.status(h.message,'error');signedOut=false;await h.tickTimers();await flush();assert.equal(h.message.dataset.fiiuText,'error');
 });
+
+test('a registration made at a block’s door is marked in the organisers’ list',async()=>{
+ const walkIn={...participant('w1','María'),labStatus:'none',answers:{firstName:'María',lastName:'Quispe',country:'',city:'Lima',activities:['day1-am'],externalActivities:[],accessibility:[],applyLab:false,walkIn:true}};
+ const h=await harness(()=>({content:[],nextCursor:null}),{participants:[walkIn,participant('p2','Bruno')]});await flush();
+ const rows=h.root.querySelectorAll('.f-participant');assert.equal(rows.length,2);
+ const marked=rows.find(row=>row.querySelector('strong').textContent==='María Quispe'),plain=rows.find(row=>row!==marked);
+ assert.ok(key(marked,'walkInShort'));assert.equal(key(plain,'walkInShort'),undefined);
+ h.lang('es');assert.equal(content(key(marked,'walkInShort')).trim(),'En la puerta');
+});
