@@ -1273,6 +1273,11 @@ export function createApp({
   const courseInvitationLimiter=createWindowRateLimiter({windowMs:60000,limit:6});
   const courseParticipants=courseStore?createCourseParticipants({store:courseStore,userRepository:repository}):null;
   const fiiuReadLimiter=createWindowRateLimiter({windowMs:60000,limit:120});
+  // Organiser reads: at the door rush one organiser account polls /api/admin/fiiu/* from two or three desk devices, the
+  // dashboards and the QR screens together, which outran 120 a minute. Platform administrators read those on a budget of
+  // their own; members, the organiser's own member reads and the full-table export keep the per-account one above.
+  const fiiuOrganiserReadLimiter=createWindowRateLimiter({windowMs:60000,limit:600});
+  const organiserRead=(user,pathname)=>user?.permission==='admin'&&pathname.startsWith('/api/admin/fiiu/')&&pathname!=='/api/admin/fiiu/export';
   // Festival attendees may open the public programme from the same venue Wi-Fi.
   // Keep that shared-IP budget separate from private per-account operations.
   const fiiuPublicReadLimiter=createWindowRateLimiter({windowMs:60000,limit:600});
@@ -1296,7 +1301,7 @@ export function createApp({
   const fiiuPublicOrigin=req=>{try{return publicBaseUrl();}catch(err){if(process.env.NODE_ENV==='production')throw err;return new URL(`http://${req.headers.host}`).origin;}};
   const fiiuApi=fiiuStore?createFiiuApi({store:fiiuStore,sameOrigin,send,checkin:fiiuCheckin??{},encodeQr,publicOrigin:fiiuPublicOrigin,
     confirmation:fiiuConfirmation,emailAllowed:user=>fiiuEmailLimiter.take(`fiiu-email:${user.id}`).ok&&fiiuEmailCeiling.take('fiiu-email:all').ok,backfill:fiiuBackfill,partyNotice:fiiuPartyNotice,programme:fiiuProgramme,
-    rateLimit:(req,res,user,pathname)=>['GET','HEAD'].includes(req.method)?throttle(user?fiiuReadLimiter:fiiuPublicReadLimiter,res,req,user,'fiiu')
+    rateLimit:(req,res,user,pathname)=>['GET','HEAD'].includes(req.method)?(organiserRead(user,pathname)?throttle(fiiuOrganiserReadLimiter,res,req,user,'fiiu-organiser'):throttle(user?fiiuReadLimiter:fiiuPublicReadLimiter,res,req,user,'fiiu'))
       :req.method==='PUT'&&/^\/api\/admin\/fiiu\/registrations\/[^/]+\/attendance$/.test(pathname)?throttle(fiiuCheckInLimiter,res,req,user,'fiiu-checkin')
       :req.method==='POST'&&pathname==='/api/fiiu/checkin'?throttle(fiiuSelfCheckInLimiter,res,req,user,'fiiu-self-checkin')
       :throttle(fiiuWriteLimiter,res,req,user,'fiiu'),
@@ -1743,6 +1748,14 @@ export function createApp({
           if (Number.isInteger(err?.status) && err.status >= 400 && err.status < 500) signupEmailCeiling.release('signup-email:all');
           if (err?.status === 429) {
             send(res, 429, { error: 'Confirmation email is temporarily unavailable. Please try again later.' });
+            return;
+          }
+          /* The provider's mail server refused the confirmation (supabase.js signup): no account and no email exist,
+             so the slot goes back and the person is told the email is unavailable, never "sign in". */
+          if (err?.emailUnavailable) {
+            signupEmailCeiling.release('signup-email:all');
+            await reportAnswer(req, 503, err);
+            send(res, 503, { error: 'Confirmation email is temporarily unavailable. Please try again later.' }, { 'Retry-After': '300' });
             return;
           }
           if (Number.isInteger(err?.status) && err.status >= 400) {

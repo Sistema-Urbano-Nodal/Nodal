@@ -337,6 +337,22 @@ test('temporary auth outages do not turn valid sessions into signed-out users or
   }
 });
 
+// The on-call log line must tell a GoTrue rate limit (raise it in the dashboard) from an outage (wait it out).
+test('a session outage names the upstream status and code in its log line, never the provider wording', async () => {
+  for (const cookie of ['nodal_session=valid-access', 'nodal_refresh=valid-refresh']) {
+    const limited = createSupabaseRepository({ env: testEnv(), fetchImpl: async () => response({ error_code: 'over_request_rate_limit', msg: 'Request rate limit reached' }, 429) });
+    await assert.rejects(limited.resolveSession({ headers: { cookie } }), error => {
+      assert.equal(error.status, 503); assert.equal(error.expose, false);
+      assert.match(error.message, /^Session service temporarily unavailable/);
+      assert.match(error.message, /upstream 429 over_request_rate_limit/);
+      assert.doesNotMatch(error.message, /Request rate limit reached/);
+      return true;
+    });
+    const down = createSupabaseRepository({ env: testEnv(), fetchImpl: async () => { throw new TypeError('fetch failed'); } });
+    await assert.rejects(down.resolveSession({ headers: { cookie } }), error => /upstream TypeError/.test(error.message));
+  }
+});
+
 test('Supabase session repairs missing preferences without overwriting profile data', async () => {
   const state = profileState();
   state.preferences = null;

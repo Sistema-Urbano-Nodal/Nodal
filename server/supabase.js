@@ -970,7 +970,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
           return { user, cookies: [] };
         } catch (err) {
           if (!err?.status || err.status >= 500 || err.status === 429) {
-            throw Object.assign(new Error('Session service temporarily unavailable'), { status: 503, expose: false });
+            throw Object.assign(new Error(`Session service temporarily unavailable: upstream ${err?.status || err?.name || 'error'}${err?.code ? ` ${err.code}` : ''}`), { status: 503, expose: false });
           }
           if (!refreshToken || ![401, 403].includes(err?.status)) {
             return { user: null, cookies: err?.status === 401 ? clearSessionCookies(env) : [] };
@@ -992,7 +992,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         return { user, cookies: sessionCookies(session, env) };
       } catch (err) {
         if (!err?.status || err.status >= 500 || err.status === 429) {
-          throw Object.assign(new Error('Session service temporarily unavailable'), { status: 503, expose: false });
+          throw Object.assign(new Error(`Session service temporarily unavailable: upstream ${err?.status || err?.name || 'error'}${err?.code ? ` ${err.code}` : ''}`), { status: 503, expose: false });
         }
         return { user: null, cookies: clearSessionCookies(env) };
       }
@@ -1002,11 +1002,20 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       // (a check-in, say). Without a configured origin, Supabase keeps its own Site URL.
       let confirmTo = null;
       try { confirmTo = emailLinkOrigin() + '/login.html'; } catch { /* origin not configured */ }
-      const data = await browser.auth('/signup', {
-        method: 'POST',
-        ...(confirmTo ? { query: { redirect_to: confirmTo } } : {}),
-        body: { email, password, data: { full_name: fullName } },
-      });
+      let data;
+      try {
+        data = await browser.auth('/signup', {
+          method: 'POST',
+          ...(confirmTo ? { query: { redirect_to: confirmTo } } : {}),
+          body: { email, password, data: { full_name: fullName } },
+        });
+      } catch (err) {
+        /* GoTrue sends the confirmation inside the sign-up and rolls the account back when the mail server refuses it
+           ("Error sending confirmation email", a sending quota say): no account exists, so the route says the email is
+           unavailable rather than "sign in". */
+        if (err?.status >= 500 && /error sending .*mail/i.test(err.message)) err.emailUnavailable = true;
+        throw err;
+      }
       const authUser = data.user || (data.id ? data : null);
       const session = data.session || (data.access_token ? data : null);
       /* No session means the address must be confirmed first. GoTrue answers

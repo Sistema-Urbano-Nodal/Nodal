@@ -42,8 +42,11 @@
     let response;
     try{response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(body),...(signal?{signal}:{})});}
     catch(error){throw {lost:error?.name==='TypeError'||globalThis.navigator?.onLine===false?'offline':'timeout'};}
+    // Vercel's Security Checkpoint (x-vercel-mitigated) or another non-JSON 403 stopped the request before NODAL: only a
+    // page load passes it, so the page says to reload, as sign-in does.
+    if(response.headers?.get('x-vercel-mitigated'))return {status:response.status,code:'recovery_forbidden'};
     try{return {status:response.status,...await response.json()};}
-    catch{throw {lost:'unreadable'};}
+    catch{if(response.status===403)return {status:403,code:'recovery_forbidden'};throw {lost:'unreadable'};}
   }
   // The submit button is disabled while sending, which drops focus to the page; give it back unless the person moved on.
   // gone: a form just hidden. Chrome leaves focus on its button until the next frame, then drops it to the page.

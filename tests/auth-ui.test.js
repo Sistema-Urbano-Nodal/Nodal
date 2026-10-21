@@ -201,3 +201,20 @@ test('the sign-in buttons use the page font, not the browser default for buttons
  const rule=css.match(/\.auth-page \.auth-card \.btn \{([^}]*)\}/);assert.ok(rule,'the auth card button rule');
  assert.match(rule[1],/font-family:\s*inherit/);
 });
+// A confirmation link opened in a mail app's own browser loses the way back to the check-in; the person is told to scan again.
+test('a confirmed email tells someone checking in at the FIIU to scan the screen again after signing in',()=>{
+ const h=harness(undefined,'',null,'#access_token=a.b.c&refresh_token=r&type=signup');
+ assert.match(h.nodes.loginError.textContent,/^Email confirmed\. Sign in to continue\. If you were checking in at the FIIU, scan the screen again \(or type its code\) after signing in\.$/);
+ h.lang('es');assert.match(h.nodes.loginError.textContent,/^Correo confirmado\. Inicia sesión para continuar\. Si estabas registrando tu asistencia en el FIIU, vuelve a escanear la pantalla \(o escribe su código\) después de iniciar sesión\.$/);
+ h.lang('pt');assert.match(h.nodes.loginError.textContent,/^E-mail confirmado\. Entre para continuar\. Se você estava registrando sua presença no FIIU, escaneie a tela de novo \(ou digite o código dela\) depois de entrar\.$/);
+ assert.equal(h.nodes.loginError.classes.has('is-ok'),true);
+});
+// GoTrue rolls a sign-up back when its confirmation email cannot be sent: no account exists, so "sign in" would be wrong.
+test('a sign-up whose confirmation email could not be sent says so, and never to sign in',async()=>{
+ for(const [lang,expected] of [['en',/^We could not send the confirmation email right now\. Try again in a few minutes\. At the FIIU, ask the registration desk for help\.$/],['es',/^No pudimos enviar el correo de confirmación en este momento\. Inténtalo de nuevo en unos minutos\. En el FIIU, pide ayuda en la mesa de registro\.$/],['pt',/^Não foi possível enviar o e-mail de confirmação agora\. Tente novamente em alguns minutos\. No FIIU, peça ajuda na mesa de credenciamento\.$/]]){
+  const h=harness(async()=>({ok:false,status:503,data:{error:'Confirmation email is temporarily unavailable. Please try again later.'}}));h.valid();h.lang(lang);
+  await h.submit('signupForm');assert.match(h.nodes.signupError.textContent,expected,lang);
+  assert.doesNotMatch(h.nodes.signupError.textContent,/sign in|inicia sesión|entre\b/i,lang);assert.equal(h.nodes.signupError.classes.has('is-ok'),false);
+  assert.equal(h.nodes.signupForm.button.disabled,false);assert.equal(h.assigned(),'');
+ }
+});
