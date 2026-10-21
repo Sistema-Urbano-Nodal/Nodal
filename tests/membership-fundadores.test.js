@@ -82,10 +82,13 @@ test('billing config is open, with the offer and both options but never a link, 
   assert.deepEqual(publicBillingConfig({ ...OPEN, SUBSCRIPTION_PRICE_ANNUAL_LABEL: 'S/ 240', SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL: '2 × S/ 120', SUBSCRIPTION_ANNUAL_PERIOD: '/ year' }, BEFORE), open);
 });
 
-test('billing config stays "soon" until an option and the whole contact are set, and shows the contact whenever it is valid', () => {
+test('billing config stays "soon" until an option and the contact email are set; the Libro de Reclamaciones link is optional', () => {
   assert.deepEqual(publicBillingConfig({}, BEFORE), closed('soon'), 'nothing configured');
   assert.deepEqual(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: ONCE, MERCADOPAGO_LINK_INSTALLMENTS: TWICE }, BEFORE), closed('soon'), 'links without a contact');
-  assert.deepEqual(publicBillingConfig({ ...OPEN, MEMBERSHIP_COMPLAINTS_URL: '' }, BEFORE), closed('soon'), 'no complaints book');
+  // 21 Oct 2026, the user's decision: sales open with the contact email alone until Sistema Urbano's book exists.
+  const withoutBook = publicBillingConfig({ ...OPEN, MEMBERSHIP_COMPLAINTS_URL: '' }, BEFORE);
+  assert.equal(withoutBook.state, 'open', 'no complaints book yet');assert.equal(withoutBook.checkout, true);
+  assert.deepEqual(withoutBook.contact, { email: CONTACT_VIEW.email, complaintsUrl: null });
   assert.deepEqual(publicBillingConfig({ ...OPEN, MEMBERSHIP_CONTACT_EMAIL: '  ' }, BEFORE), closed('soon'), 'no contact email');
   assert.deepEqual(publicBillingConfig(CONTACT, BEFORE), closed('soon', CONTACT_VIEW), 'a contact without links');
   assert.deepEqual(publicBillingConfig({ ...CONTACT, MERCADOPAGO_LINK_ANNUAL: 'https://evil.example/pay', MERCADOPAGO_LINK_INSTALLMENTS: 'http://link.mercadopago.com.pe/x' }, BEFORE), closed('soon', CONTACT_VIEW), 'only bad links');
@@ -106,7 +109,7 @@ test('billing config says "ended" from endsAt on, whatever is configured, and of
   assert.deepEqual(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: ONCE }, ENDS), closed('ended'), 'a link without a contact');
 });
 
-test('a contact setting that is not a plain email or an https address keeps the membership closed, and is logged once', (t) => {
+test('a contact email that is not a plain address keeps the membership closed, a complaints link that is not https is left out, and each is logged once', (t) => {
   const warnings = [];
   const original = console.warn;
   console.warn = (...args) => warnings.push(args.join(' '));
@@ -117,7 +120,8 @@ test('a contact setting that is not a plain email or an https address keeps the 
   }
   for (const url of ['http://reclamos.example/nodal', 'https://user:pass@reclamos.example/nodal', 'https://user@reclamos.example/nodal', 'javascript:alert(1)',
     'not a url', '//reclamos.example/nodal', 'ftp://reclamos.example/nodal', 'data:text/html,hi']) {
-    assert.deepEqual(publicBillingConfig({ ...OPEN, MEMBERSHIP_COMPLAINTS_URL: url }, BEFORE), closed('soon'), url);
+    const config = publicBillingConfig({ ...OPEN, MEMBERSHIP_COMPLAINTS_URL: url }, BEFORE);
+    assert.equal(config.state, 'open', url);assert.deepEqual(config.contact, { email: CONTACT_VIEW.email, complaintsUrl: null }, url);
   }
   assert.equal(warnings.filter((w) => w.includes('MEMBERSHIP_CONTACT_EMAIL')).length, 10);
   assert.equal(warnings.filter((w) => w.includes('MEMBERSHIP_COMPLAINTS_URL')).length, 8);
@@ -166,11 +170,14 @@ test('an acceptance is refused with 410 from endsAt on and with 503 while its op
   assert.equal(unavailable.status, 503);
   assert.deepEqual(await unavailable.json(), { code: 'membership_unavailable' });
   assert.equal((await accept(onlyOnce.base, cookie, valid('once'))).status, 201);
-  const noContact = await boot(t, { billingEnv: { MERCADOPAGO_LINK_ANNUAL: ONCE, MERCADOPAGO_LINK_INSTALLMENTS: TWICE, MEMBERSHIP_CONTACT_EMAIL: CONTACT.MEMBERSHIP_CONTACT_EMAIL } });
+  // Without the contact email nothing is sold; without the complaints book alone it is (the user's decision, 21 Oct 2026).
+  const noContact = await boot(t, { billingEnv: { MERCADOPAGO_LINK_ANNUAL: ONCE, MERCADOPAGO_LINK_INSTALLMENTS: TWICE, MEMBERSHIP_COMPLAINTS_URL: CONTACT.MEMBERSHIP_COMPLAINTS_URL } });
   const missing = await accept(noContact.base, noContact.member().cookie, valid('once'));
   assert.equal(missing.status, 503);
   assert.deepEqual(await missing.json(), { code: 'membership_unavailable' });
   assert.deepEqual([rows(ended.db), rows(noContact.db)], [[], []]);
+  const noBook = await boot(t, { billingEnv: { MERCADOPAGO_LINK_ANNUAL: ONCE, MERCADOPAGO_LINK_INSTALLMENTS: TWICE, MEMBERSHIP_CONTACT_EMAIL: CONTACT.MEMBERSHIP_CONTACT_EMAIL } });
+  assert.equal((await accept(noBook.base, noBook.member().cookie, valid('once'))).status, 201);
   // Before the terms take effect nothing can be accepted under them.
   let at = STARTS - 1;
   const early = await boot(t, { now: () => at });

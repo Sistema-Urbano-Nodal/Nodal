@@ -344,8 +344,11 @@ MEMBERSHIP_COMPLAINTS_URL=https://your-complaints-book.example/nodal
 ```
 
 `MEMBERSHIP_CONTACT_EMAIL` is a plain address (questions, non-renewal and
-refunds) and `MEMBERSHIP_COMPLAINTS_URL` the `https` Libro de Reclamaciones
-link, without credentials. `SUBSCRIPTION_PRICE_ANNUAL_LABEL`,
+refunds), required to sell; `MEMBERSHIP_COMPLAINTS_URL` is the `https` Libro de
+Reclamaciones link, without credentials, shown on the payments and terms pages
+once set (checkout opens without it, by the team's decision of 21 Oct 2026;
+Peruvian consumer rules require it for online sales, so add it as soon as it
+exists). `SUBSCRIPTION_PRICE_ANNUAL_LABEL`,
 `SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL` and `SUBSCRIPTION_ANNUAL_PERIOD` are no
 longer read and can be removed from Vercel. Vercel applies settings only to new
 deployments: set them before pushing `main`, or redeploy after adding them. The
@@ -493,8 +496,8 @@ npm start
     Fundadores" to the public join page `/fundadores.html`, and never a price.
     The join page (served signed out, from the CDN) carries the team's text,
     the two ways to pay with their amounts, and the link to the commercial
-    terms. With no `MERCADOPAGO_LINK_*`, or without both
-    `MEMBERSHIP_CONTACT_EMAIL` and `MEMBERSHIP_COMPLAINTS_URL`,
+    terms. With no `MERCADOPAGO_LINK_*`, or without
+    `MEMBERSHIP_CONTACT_EMAIL`,
     `/api/billing/config` returns `"state": "soon"`, `"checkout": false` and
     `Soon`, the card says "Las inscripciones abren pronto", the join page has
     no button and says the same, and in the pilot `/payments.html` redirects

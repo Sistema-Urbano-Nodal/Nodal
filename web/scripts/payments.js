@@ -29,7 +29,7 @@
     onceAmount: 'payOnceAmount', installmentsTotal: 'payInstallmentsTotal', installmentsText: 'payInstallmentsText',
     terms: 'payAcceptTerms', payment: 'payAcceptPayment', renewal: 'payAcceptRenewal', paymentRow: 'payPaymentRow', paymentText: 'payPaymentText', paymentHint: 'payPaymentHint',
     email: 'payEmail', emailStep: 'payEmailStep', submit: 'payContinue', hint: 'payHint', status: 'payStatus', retry: 'payRetry', choices: 'payChoices',
-    seller: 'paySellerName', ruc: 'paySellerRuc', address: 'paySellerAddress', contact: 'payContactEmail', contactPending: 'payContactPending', complaints: 'payComplaints', complaintsPending: 'payComplaintsPending',
+    seller: 'paySellerName', ruc: 'paySellerRuc', address: 'paySellerAddress', contact: 'payContactEmail', contactPending: 'payContactPending', complaints: 'payComplaints', complaintsPending: 'payComplaintsPending', complaintsRow: 'payComplaintsRow',
   };
   const els = Object.fromEntries(Object.entries(IDS).map(([name, id]) => [name, document.getElementById(id)]));
   // bail out cleanly if the page structure changes — never throw on load
@@ -48,7 +48,8 @@
   function read(data) {
     const valid = Boolean(data) && typeof data === 'object';
     const email = text(data?.contact?.email), complaints = httpsUrl(data?.contact?.complaintsUrl);
-    const contact = valid && EMAIL.test(email) && complaints ? { email, complaints } : null;
+    // The contact email is required; the Libro de Reclamaciones link is optional until Sistema Urbano's book exists.
+    const contact = valid && EMAIL.test(email) ? { email, complaints } : null;
     const offers = {};
     for (const option of valid && Array.isArray(data.options) ? data.options : []) {
       const amount = amountText(option?.amount), each = amountText(option?.each);
@@ -93,10 +94,15 @@
     els.paymentText.textContent = option ? t(AUTHORIZATION[option], offers[option]) : '';
     // The seller's details come with the offer; the markup's copy stands in on static hosting.
     for (const [el, value] of [[els.seller, seller?.name], [els.ruc, seller?.ruc], [els.address, seller?.address]]) if (text(value)) el.textContent = text(value);
-    els.contact.hidden = els.complaints.hidden = !contact;
-    els.contactPending.hidden = els.complaintsPending.hidden = Boolean(contact);
+    els.contact.hidden = !contact;
+    els.contactPending.hidden = Boolean(contact);
+    // Without a link the line says pending while nothing is sold, and is left out once the contact is set.
+    els.complaintsRow.hidden = Boolean(contact && !contact.complaints);
+    els.complaints.hidden = !contact?.complaints;
+    els.complaintsPending.hidden = Boolean(contact);
     // '%' is the only character EMAIL allows that a mailto: URL would read as an escape (RFC 6068).
-    if (contact) { els.contact.href = `mailto:${contact.email.replace(/%/g, '%25')}`; els.contact.textContent = contact.email; els.complaints.href = contact.complaints; }
+    if (contact) { els.contact.href = `mailto:${contact.email.replace(/%/g, '%25')}`; els.contact.textContent = contact.email; }
+    if (contact?.complaints) els.complaints.href = contact.complaints;
     els.status.textContent = notice ? t(notice) : '';
     els.status.dataset.tone = ERRORS.has(notice) ? 'error' : '';
     gate();

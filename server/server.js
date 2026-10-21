@@ -402,7 +402,7 @@ function complaintsUrl(value, key) {
     const url = new URL(raw);
     if (url.protocol === 'https:' && url.hostname && !url.username && !url.password) return url.href;
   } catch { /* reported below */ }
-  return rejectSetting(key, raw, 'is not an https address without credentials; the membership stays closed');
+  return rejectSetting(key, raw, 'is not an https address without credentials; the Libro de Reclamaciones link stays hidden');
 }
 // The options whose link is set, with the link: [{id, url}]. Only an acceptance hands a link out.
 export function paymentOptions(env = process.env) {
@@ -411,12 +411,14 @@ export function paymentOptions(env = process.env) {
     return url ? [{ id, url }] : [];
   });
 }
-/* The contact for questions, non-renewal and refunds, and the Libro de Reclamaciones: both or neither, since the
-   terms promise both before anyone pays. */
+/* The contact for questions, non-renewal and refunds, and the Libro de Reclamaciones. The terms promise both; the
+   email is required to sell, the book's link is shown once it is set. */
 function membershipContact(env) {
   const email = contactEmail(env.MEMBERSHIP_CONTACT_EMAIL, 'MEMBERSHIP_CONTACT_EMAIL');
   const complaints = complaintsUrl(env.MEMBERSHIP_COMPLAINTS_URL, 'MEMBERSHIP_COMPLAINTS_URL');
-  return email && complaints ? { email, complaintsUrl: complaints } : null;
+  // 21 Oct 2026, the user's decision: sales open with the contact email alone; the Libro de Reclamaciones link joins
+  // the pages once Sistema Urbano's book exists (null until then).
+  return email ? { email, complaintsUrl: complaints } : null;
 }
 /* 'ended' from endsAt on, whatever is set; 'open' from the terms' effective date until then, with an option and the
    contact; 'soon' otherwise, before that date too. options are the ones a member may accept now. */

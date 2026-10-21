@@ -207,7 +207,7 @@ test('before sign-ups open, after the offer closed, and without an answer, there
   [http(404,{error:'not found'}),'y.fund.soon'],
   // The shape before the Founder Membership, and an open answer missing what the page needs, read as opening soon.
   [{checkout:true,provider:'mercadopago',annual:{amount:'S/ 240',per:'/ year'},options:[{id:'once',url:MP,amount:'S/ 240'}]},'y.fund.soon'],[{...OPEN,contact:null},'y.fund.soon'],[{...OPEN,options:[]},'y.fund.soon'],
-  [{...OPEN,contact:{email:'not an email',complaintsUrl:CONTACT.complaintsUrl}},'y.fund.soon'],[{...OPEN,contact:{email:CONTACT.email,complaintsUrl:'http://reclamos.example'}},'y.fund.soon'],
+  [{...OPEN,contact:{email:'not an email',complaintsUrl:CONTACT.complaintsUrl}},'y.fund.soon'],
   [{...OPEN,offer:{...OFFER,version:'FUNDADORES-2027-v2'}},'y.fund.outdated']]){
   const p=await page({config}),label=JSON.stringify(config)?.slice(0,80);
   assert.equal(p.nodes.payPurchase.hidden,true,label);assert.equal(p.nodes.modalidad.hidden,true,label);
@@ -409,4 +409,15 @@ test('the button is described by the "tick the three boxes" hint only while that
  assert.equal(n.payContinue.getAttribute('aria-describedby'),'payHint');
  p.choose('once');p.tickAll();assert.equal(n.payHint.hidden,true);assert.equal(n.payContinue.getAttribute('aria-describedby'),null);
  p.tick(p.boxes[0],false);assert.equal(n.payContinue.getAttribute('aria-describedby'),'payHint');
+});
+
+test('with the contact email alone the purchase opens and the Libro de Reclamaciones line is left out until its link is set',async()=>{
+ for(const complaintsUrl of [null,'','http://reclamos.example']){
+  const p=await page({config:{...OPEN,contact:{email:CONTACT.email,complaintsUrl}}}),n=p.nodes,label=String(complaintsUrl);
+  assert.equal(n.payPurchase.hidden,false,label);assert.equal(n.payContactEmail.hidden,false,label);assert.equal(n.payContactEmail.href,'mailto:membresia@sistemaurbano.org',label);
+  assert.equal(n.payComplaintsRow.hidden,true,label);
+  p.choose('once');p.tickAll();assert.equal(n.payContinue.disabled,false,label);
+ }
+ // With the link, and while nothing is open, the line is there.
+ assert.equal((await page()).nodes.payComplaintsRow.hidden,false);assert.equal((await page({config:CLOSED('soon')})).nodes.payComplaintsRow.hidden,false);
 });
