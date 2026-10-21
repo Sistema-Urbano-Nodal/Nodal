@@ -136,6 +136,7 @@
   selectParticipant:['Select a participant to see their answers, lab review and attendance.','Selecciona un participante para ver sus respuestas, la revisión del laboratorio y la asistencia.','Selecione um participante para ver suas respostas, a análise do laboratório e a presença.'],
   registrationGone:['This registration was cancelled and is no longer in the list.','Esta inscripción fue cancelada y ya no está en la lista.','Esta inscrição foi cancelada e não está mais na lista.'],
   backToList:['Back to the list','Volver a la lista','Voltar para a lista'],allAnswers:['All answers','Todas las respuestas','Todas as respostas'],
+  walkInAdmin:['Registered at the door','Inscripción en la puerta','Inscrição na porta'],walkInShort:['At the door','En la puerta','Na porta'],
   profileAdmin:['Profile','Perfil','Perfil'],publicOfficialAdmin:['Public official','Funcionario/a público/a','Gestor/a público/a'],applyLabAdmin:['Laboratory application','Postulación al laboratorio','Candidatura ao laboratório'],institutionAdmin:['Institution','Institución','Instituição'],
   previousAttendanceAdmin:['Previous editions','Ediciones anteriores','Edições anteriores'],accessibilityOtherAdmin:['Support details','Detalle del apoyo','Detalhes do apoio'],motivationOtherAdmin:['Other motivation','Otra motivación','Outra motivação'],
   externalInterestAdminHint:['Interest only. Facilitators register people through their own Google Form.','Solo interés. Cada facilitador inscribe a las personas con su propio Google Form.','Apenas interesse. Cada facilitador inscreve as pessoas pelo próprio Google Forms.'],
@@ -247,7 +248,7 @@
  }
  function check(key,name,value,checked=false){const wrap=el('label','f-check'),input=el('input');input.type='checkbox';input.name=name;input.value=value;input.checked=checked;wrap.append(input,tr('span',key));return{wrap,input};}
  // The server's reason travels with the error: a check-in refusal is told apart by code, and a closed block carries its closesAt.
- const reason=data=>({code:typeof data?.code==='string'?data.code:undefined,activityId:typeof data?.activityId==='string'?data.activityId:undefined,registration:typeof data?.registration==='string'?data.registration:undefined,closesAt:data?.closesAt,registrationOpen:typeof data?.registrationOpen==='boolean'?data.registrationOpen:undefined});
+ const reason=data=>({code:typeof data?.code==='string'?data.code:undefined,activityId:typeof data?.activityId==='string'?data.activityId:undefined,registration:typeof data?.registration==='string'?data.registration:undefined,closesAt:data?.closesAt,registrationOpen:typeof data?.registrationOpen==='boolean'?data.registrationOpen:undefined,walkIn:data?.walkIn===true||undefined});
  // options.timeout: how long a request may take, in ms. 20 s suits the JSON calls; a caller sending more (the chat's file uploads) asks for longer.
  /* A refusal NODAL did not write says nothing about the account: the host's firewall challenge (Vercel's Security Checkpoint, an HTML page marked
     x-vercel-mitigated, answering every request from a flagged address such as a venue's Wi-Fi for a minute or two), or any 403 without NODAL's JSON.

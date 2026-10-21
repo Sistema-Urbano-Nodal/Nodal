@@ -14,6 +14,12 @@
   signInTypedCodeHint:['Use the account you registered with. If the code expires meanwhile, type the new code from the screen.','Usa la cuenta con la que te inscribiste. Si el código vence mientras tanto, escribe el código nuevo de la pantalla.','Use a conta com que você se inscreveu. Se o código expirar nesse meio-tempo, digite o código novo da tela.'],
   // What a first scan unlocked. The milestone names are the console's own (d.badge.fiiu.*.name in i18n-dashboard.js, which this page does not load).
   badgeUnlocked:['Badge unlocked:','Insignia desbloqueada:','Insígnia desbloqueada:'],milestoneReached:['Milestone reached:','Hito alcanzado:','Marco alcançado:'],seeInConsole:['See your badges','Ver tus insignias','Ver suas insígnias'],
+  // A conference block takes anyone signed in: someone without a registration confirms joining at the door first (the server's walkIn).
+  joinAtDoorTitle:['Confirm your attendance','Confirma tu asistencia','Confirme sua presença'],
+  joinAtDoorHint:['You are not registered for FIIU yet. Confirm and we register you with this NODAL account and record your attendance. Your name, email and city are shared with the FIIU organising team to manage your participation.','Aún no tienes inscripción al FIIU. Al confirmar, te inscribimos con esta cuenta de NODAL y registramos tu asistencia. Tu nombre, correo y ciudad se comparten con el equipo organizador del FIIU para gestionar tu participación.','Você ainda não tem inscrição no FIIU. Ao confirmar, inscrevemos você com esta conta da NODAL e registramos sua presença. Seu nome, e-mail e cidade são compartilhados com a equipe organizadora do FIIU para gerenciar sua participação.'],
+  joinAtDoor:['Confirm attendance','Confirmar asistencia','Confirmar presença'],
+  joinedRegistration:['You are now registered for FIIU with this account. Complete your registration on the FIIU page when you can.','Ya tienes inscripción al FIIU con esta cuenta. Complétala en la página del FIIU cuando puedas.','Agora você tem inscrição no FIIU com esta conta. Complete-a na página do FIIU quando puder.'],
+  joinedPlan:['This block was added to your registration.','Añadimos este bloque a tu inscripción.','Adicionamos este bloco à sua inscrição.'],
   milestoneFirst:['First activity','Primera actividad','Primeira atividade'],milestoneFour:['Four panels','Cuatro paneles','Quatro painéis'],milestoneConferences:['All five panels','Los cinco paneles','Os cinco painéis'],milestoneFull:['Full FIIU','FIIU completo','FIIU completo'],
  });
  const root=document.getElementById('fiiuCheckinRoot'),message=document.getElementById('fiiuStatus');
@@ -108,7 +114,9 @@
   if(!festival&&Number.isSafeInteger(data.hours?.hours)){hours=el('p','f-hours');hours.append(countLabel(data.hours.hours,'hoursConfirmed','hoursConfirmed'));}
   const earned=festival?el('div','f-badges'):null;if(earned)badges(earned,attendance,festival.event,{heading:'h2'});
   const news=unlockedNews(id,unlockedBy(data,id,attendance));
-  return completeLater(block(data.result==='checked_in'?'checkedInTitle':'alreadyCheckedIn','ok',about(activity),when&&facts([day?'checkedInOn':'checkedInAt',when]),news,hours,earned,actions(link('viewRegistration','fiiu.html#registration','f-button'))),()=>success(data,body));
+  // What the scan added first: a registration made at the door, or this block joining the plan.
+  const joined=data.joined==='registration'?hintOf('joinedRegistration'):data.joined==='plan'?hintOf('joinedPlan'):null;
+  return completeLater(block(data.result==='checked_in'?'checkedInTitle':'alreadyCheckedIn','ok',about(activity),when&&facts([day?'checkedInOn':'checkedInAt',when]),joined,news,hours,earned,actions(link('viewRegistration','fiiu.html#registration','f-button'))),()=>success(data,body));
  }
  // A refusal drawn before the programme arrived has only the block's id (a typed code, or slow Wi-Fi); the programme names the block later.
  function failure(error,body,account){
@@ -123,7 +131,7 @@
   // A typed code came from someone whose camera could not scan, so their hint points to the screen's new code rather than a fresh scan.
   if(error.status===401)return signIn(activity,returnTo(body),body.activityId?'signInCheckinHint':'signInTypedCodeHint');
   const lab=(activity?.registration??error?.registration)==='application';
-  if(error.status===404)return unregistered(activity,{open,lab,addHref,account,next:returnTo(body)});
+  if(error.status===404)return error.walkIn===true&&!lab?joinAtDoor(activity,body,account):unregistered(activity,{open,lab,addHref,account,next:returnTo(body)});
   if(error.code==='lab_not_accepted'||error.code==='not_in_plan')return outsidePlan(activity,{open,lab:lab||error.code==='lab_not_accepted',addHref});
   if(error.code==='outside_window')return ended(activity,error);
   if(error.status===410)return block('codeExpired','warn',about(activity),hintOf('expiredHint'),codeForm());
@@ -138,6 +146,10 @@
  // names this account and offers another, so nobody registers twice and splits their hours. account is '' when the lookup did not answer in time.
  const unregistered=(activity,{open,lab,addHref,account,next})=>block('notRegistered','warn',about(activity),account&&facts(['checkinAccount',dd(el('span','',account))]),
   hintOf(lab?'labNotAcceptedHint':open?'notRegisteredHint':'askDesk'),hintOf('otherAccountHint'),actions(open&&!lab&&link('register',addHref,'f-button'),otherAccount(next)));
+ // At a conference block the server registers someone at the door once they say so (join): the block says what that shares and with which account,
+ // and still offers another account, so nobody who registered with another email registers twice. The same code goes again (codes last 5 minutes).
+ const joinAtDoor=(activity,body,account)=>block('joinAtDoorTitle','',about(activity),account&&facts(['checkinAccount',dd(el('span','',account))]),hintOf('joinAtDoorHint'),hintOf('otherAccountHint'),
+  actions(button('joinAtDoor',()=>run({...body,join:true,language:window.nodalI18n?.lang||document.documentElement.lang||''})),link('privacy','privacy.html','f-text-link'),otherAccount(returnTo(body))));
  // Another account means signing out first; sign-in then comes back to next (the same block, and the code while it lasts: 5 minutes, then the code form).
  function otherAccount(next){
   const control=button('useOtherAccount',async()=>{
@@ -184,11 +196,13 @@
    const now=Date.parse(data.serverTime),closesAt=checkinCloses(activity),registration=data.registration;
    const open=festival.config?.registrationOpen===true,lab=activity.registration==='application',addHref='fiiu.html#add-'+encodeURIComponent(id);
    if(Number.isFinite(now)&&now>closesAt)return ended(activity,{closesAt});
-   if(!registration)return unregistered(activity,{open,lab,addHref,account:data.user.email,next:'/fiiu-checkin.html?a='+encodeURIComponent(id)});
-   // The server's rule (canAttend): a conference block must be in the plan, the laboratory needs an accepted application.
-   if(activity.registration==='general'?!registration.answers.activities.includes(id):lab&&registration.labStatus!=='accepted')return outsidePlan(activity,{open,lab,addHref});
+   // The server's rule: the laboratory needs an accepted application; while registration is open a conference block takes anyone signed in (the
+   // scan registers them at the door or adds the block to their plan), and once it closes only a block in the registration.
+   const joinable=open&&!lab;
+   if(!registration&&!joinable)return unregistered(activity,{open,lab,addHref,account:data.user.email,next:'/fiiu-checkin.html?a='+encodeURIComponent(id)});
+   if(registration&&(lab?registration.labStatus!=='accepted':!joinable&&!registration.answers.activities.includes(id)))return outsidePlan(activity,{open,lab,addHref});
   }
-  // Signed in, registered for an open block and not yet checked in: the address alone cannot check in, so ask for the screen code.
+  // Signed in for an open block and not yet checked in: the address alone cannot check in, so ask for the screen code.
   return block('scanAgainTitle','warn',about(activity),hintOf('scanAgainHint'),codeForm());
  }
  setTitle();window.nodalI18n?.onChange(setTitle);status(message,'');
