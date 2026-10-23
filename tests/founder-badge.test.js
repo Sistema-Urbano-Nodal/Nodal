@@ -414,18 +414,27 @@ test('Supabase profile updates never write founder_since, whatever the patch say
   assert.ok(writes.every((c) => !JSON.stringify(c.body).includes('founder')), 'no founder field in any write');
 });
 
-test('Supabase course members carry the badge from founder_since', async () => {
+test('Supabase course stores read the badge apart from the members, so nothing else needs the column', async () => {
   const calls = [];
   const store = createCourseStore({ clients: { admin: { rest: async (table, args) => {
     calls.push({ table, ...args });
-    return { rows: [{ id: 'a', full_name: 'Ana', email: 'ana@example.test', app_role: 'member', founder_since: '2026-10-23T15:00:00+00:00' }, { id: 'b', full_name: 'Bruno', email: 'bruno@example.test', app_role: 'admin', founder_since: null }], contentRange: '0-1/2' };
+    return args.query.select === 'id'
+      ? { rows: [{ id: 'a' }], contentRange: '0-0/1' }
+      : { rows: [{ id: 'a', full_name: 'Ana', email: 'ana@example.test', app_role: 'member' }, { id: 'b', full_name: 'Bruno', email: 'bruno@example.test', app_role: 'admin' }], contentRange: '0-1/2' };
   } } } });
-  assert.deepEqual(await store.getMembers(['a', 'b']), [
-    { id: 'a', name: 'Ana', email: 'ana@example.test', staff: false, founder: true },
-    { id: 'b', name: 'Bruno', email: 'bruno@example.test', staff: true, founder: false },
-  ]);
+  assert.deepEqual(await store.getFounders(['a', 'b']), ['a']);
   assert.equal(calls[0].table, 'profiles');
-  assert.equal(calls[0].query.select, 'id,full_name,email,app_role,founder_since');
+  assert.equal(calls[0].query.id, 'in.(a,b)');
+  assert.equal(calls[0].query.founder_since, 'not.is.null');
+  assert.equal(calls[0].query.select, 'id');
+  // getMembers (deletion, export, surveys, certificates) never asks for founder_since: those keep working before the migration.
+  assert.deepEqual(await store.getMembers(['a', 'b']), [
+    { id: 'a', name: 'Ana', email: 'ana@example.test', staff: false },
+    { id: 'b', name: 'Bruno', email: 'bruno@example.test', staff: true },
+  ]);
+  assert.equal(calls[1].query.select, 'id,full_name,email,app_role');
+  assert.deepEqual(await store.getFounders([]), []);
+  assert.equal(calls.length, 2);
 });
 
 test('the Supabase migration only adds the nullable column, applied by hand before main', () => {

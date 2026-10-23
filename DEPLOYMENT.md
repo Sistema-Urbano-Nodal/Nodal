@@ -243,13 +243,12 @@ so applying it first is safe. No grant changes: `service_role`'s table-level
 `SELECT, INSERT, UPDATE` on `profiles` covers the new column, the browser roles
 hold nothing on the table, and `public_profiles` lists its columns by name.
 
-**Apply it before pushing `main`:** the new server selects `founder_since`
-whenever it names course members, so until the column exists every member's
-data download (`/api/me/export`) and account deletion (`DELETE /api/me`, which
-by then has already erased the member's festival conversation data) fail on
-Supabase, as do the teaching report and its CSVs and the final survey's lists
-and certificates. The badge desk (`/api/admin/membership/founders`) answers 503
-`founder_unavailable`, and course posts show no badge.
+**Apply it before pushing `main`:** until the column exists, the badge desk
+(`/api/admin/membership/founders`) answers 503 `founder_unavailable`, and
+course posts and the teaching report show no badge (their badge read is
+separate from the member read, so it fails alone and is logged). Nothing else
+names the column: account deletion, the data download, the reports' CSVs and
+the final survey keep working.
 
 ```bash
 npx --no-install supabase db query --linked -f supabase/migrations/20261023000000_founder_badge.sql

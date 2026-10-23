@@ -145,8 +145,7 @@ test('Supabase survey rows, unique update conflicts and organiser flags',async()
  const [row]=await store.find('surveys',{courseId:'course',userId:'member',submittedAt:null},{limit:1});
  assert.deepEqual(row,{id:'r',courseId:'course',userId:'member',answers:{overall:'buena'},submittedAt:null,createdAt:'2026-10-10T15:00:00.000Z',updatedAt:'2026-10-10T15:00:00.000Z'});
  assert.equal(calls[1].table,'course_survey_responses');assert.equal(calls[1].query.submitted_at,'is.null');assert.equal(calls[1].query.select,'id,course_id,user_id,answers,submitted_at,created_at,updated_at');
- // Members carry whether they are organisers, so survey counts and certificates leave administrators out, and whether
- // they hold the Founder badge (founder_since), which their course posts show.
- assert.deepEqual(await store.getMembers(['a','b']),[{id:'a',name:'Ana',email:'ana@example.test',staff:true,founder:false},{id:'b',name:null,email:'b@example.test',staff:false,founder:false}]);
- assert.equal(calls[2].query.select,'id,full_name,email,app_role,founder_since');
+ // Members carry whether they are organisers, so survey counts and certificates leave administrators out.
+ assert.deepEqual(await store.getMembers(['a','b']),[{id:'a',name:'Ana',email:'ana@example.test',staff:true},{id:'b',name:null,email:'b@example.test',staff:false}]);
+ assert.equal(calls[2].query.select,'id,full_name,email,app_role');
 });

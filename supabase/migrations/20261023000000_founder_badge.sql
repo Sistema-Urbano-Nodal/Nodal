@@ -12,10 +12,8 @@
 -- Apply it BEFORE pushing `main` (Vercel deploys on push), with
 -- `npx --no-install supabase db query --linked -f supabase/migrations/20261023000000_founder_badge.sql`,
 -- then `supabase migration repair --status applied 20261023000000`. Never `db push` (history differs).
--- Until it is applied, the deployed code fails on Supabase wherever it names course members, because it selects
--- founder_since: every member's data download (GET /api/me/export) and account deletion (DELETE /api/me), the teaching
--- report and its CSVs, and the final survey's lists and certificates. The badge desk
--- (/api/admin/membership/founders) answers 503, and course posts show no badge.
+-- Until it is applied, the badge desk (/api/admin/membership/founders) answers 503, and course posts and the teaching
+-- report show no badge (their badge read fails apart, logged). Nothing else reads the column by name.
 BEGIN;
 
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS founder_since timestamptz;

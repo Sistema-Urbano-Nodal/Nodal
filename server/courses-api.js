@@ -127,14 +127,20 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
       if(!await findOne('attachments',{id:resource.attachmentId,courseId:module.courseId,moduleId:module.id,purpose:'material',status:'ready'}))fail('official resource attachment unavailable');
     }));
   }
-  /* Whether each author holds the Founder badge now, so a badge given (or removed) later shows on older posts too: the
-     viewer's own from the session, anyone else's from one members read. The badge only decorates a post, so a failed
-     read shows none rather than failing the conversation. */
+  /* Which of these members hold the Founder badge now (a Set of ids). The badge only decorates a post or a report row,
+     so a failed read shows none rather than failing the page. */
+  async function foundersAmong(ids) {
+    const founders=new Set(),unique=[...new Set(ids)];
+    try { for(let offset=0;offset<unique.length;offset+=100)for(const id of await store.getFounders(unique.slice(offset,offset+100)))founders.add(id); }
+    catch(error) { log('course founder lookup failed:',errorText(error)); }
+    return founders;
+  }
+  /* Whether each author holds the badge now, so a badge given (or removed) later shows on older posts too: the viewer's
+     own from the session, anyone else's from one read. */
   async function postFounders(posts,user) {
     const founders=new Map(user?.id?[[user.id,Boolean(user.founder)]]:[]);
-    const ids=[...new Set(posts.filter(post=>!post.deletedAt&&post.userId&&!founders.has(post.userId)).map(post=>post.userId))];
-    try { for(let offset=0;offset<ids.length;offset+=100)for(const member of await store.getMembers(ids.slice(offset,offset+100)))founders.set(member.id,Boolean(member.founder)); }
-    catch(error) { log('course post founder lookup failed:',errorText(error)); }
+    const others=await foundersAmong(posts.filter(post=>!post.deletedAt&&post.userId&&!founders.has(post.userId)).map(post=>post.userId));
+    for(const post of posts)if(post.userId&&!founders.has(post.userId))founders.set(post.userId,others.has(post.userId));
     return founders;
   }
   async function postView(post,user,knownAttachments,knownFounders) {
@@ -212,12 +218,13 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
       exportType?[]:all('invitations',{courseId,acceptedAt:null},500),
     ]);
     const answers=new Map(intakes.map(row=>[row.userId,row.answers]));
-    const members=await membersForRows([...enrollments,...feedback]);
+    // The organisers' screen shows who holds the Founder badge; the exports leave it out.
+    const [members,founders]=await Promise.all([membersForRows([...enrollments,...feedback]),exportType?new Set():foundersAmong(enrollments.map(enrollment=>enrollment.userId))]);
     // The perk course tells its September group from later joiners by enrolment date, not by FIIU: a reopened course admits anyone.
     const grouped=perks.applies(courseId);
     const participants=enrollments.map(enrollment=>{
       const user=members.get(enrollment.userId);
-      return {userId:enrollment.userId,name:user?.name??'',email:user?.email??'',founder:Boolean(user?.founder),enrolledAt:enrollment.createdAt,intake:answers.get(enrollment.userId)??null,
+      return {userId:enrollment.userId,name:user?.name??'',email:user?.email??'',founder:founders.has(enrollment.userId),enrolledAt:enrollment.createdAt,intake:answers.get(enrollment.userId)??null,
         ...(grouped?{group:perks.inSeptemberGroup(enrollment)?'september':'october'}:{})};
     });
     const livePosts=posts.filter(post=>!post.deletedAt&&post.userId);

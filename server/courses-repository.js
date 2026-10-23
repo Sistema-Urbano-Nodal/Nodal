@@ -105,8 +105,10 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
         const unique=postAttachmentIds(ids);if(!unique.length)return [];
         return db.prepare(`SELECT * FROM course_attachments WHERE course_id=? AND module_id=? AND status='ready' AND id IN (${unique.map(()=>'?').join(',')})`).all(courseId,moduleId,...unique).map(row=>fromRow(tableInfo('attachments'),row));
       },
-      // staff marks administrators, who organise courses and are never counted as participants; founder, the Founder badge.
-      async getMembers(ids) { if(!ids.length)return [];return db.prepare(`SELECT id,full_name AS name,email,role,founder_since FROM users WHERE id IN (${ids.map(()=>'?').join(',')})`).all(...ids).map(({role,founder_since,...member})=>({...member,staff:role==='admin',founder:Boolean(founder_since)})); },
+      // staff marks administrators, who organise courses and are never counted as participants.
+      async getMembers(ids) { if(!ids.length)return [];return db.prepare(`SELECT id,full_name AS name,email,role FROM users WHERE id IN (${ids.map(()=>'?').join(',')})`).all(...ids).map(({role,...member})=>({...member,staff:role==='admin'})); },
+      // Which of these members hold the Founder badge, read apart from getMembers so nothing else depends on the column.
+      async getFounders(ids) { if(!ids.length)return [];return db.prepare(`SELECT id FROM users WHERE founder_since IS NOT NULL AND id IN (${ids.map(()=>'?').join(',')})`).all(...ids).map(row=>row.id); },
       async count(name, filters = {}) { const info=tableInfo(name),where=whereSql(info,filters);return db.prepare(`SELECT count(*) AS n FROM ${info.table}${where.sql}`).get(...where.params).n; },
       async find(name, filters = {}, options = {}) {
         const info = tableInfo(name), opts = optionsFor(info,options), where = whereSql(info,filters,opts);
@@ -204,7 +206,8 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
       query.id=`in.(${unique.join(',')})`;
       return (await readPage(info.table,query,'id')).map(row=>fromRow(info,row));
     },
-    async getMembers(ids) { if(!ids.length)return [];return (await readPage('profiles',{id:`in.(${ids.join(',')})`,select:'id,full_name,email,app_role,founder_since',order:'id.asc',limit:Math.min(500,new Set(ids).size)},'id')).map(row=>({id:row.id,name:row.full_name,email:row.email,staff:row.app_role==='admin',founder:Boolean(row.founder_since)})); },
+    async getMembers(ids) { if(!ids.length)return [];return (await readPage('profiles',{id:`in.(${ids.join(',')})`,select:'id,full_name,email,app_role',order:'id.asc',limit:Math.min(500,new Set(ids).size)},'id')).map(row=>({id:row.id,name:row.full_name,email:row.email,staff:row.app_role==='admin'})); },
+    async getFounders(ids) { if(!ids.length)return [];return (await readPage('profiles',{id:`in.(${ids.join(',')})`,founder_since:'not.is.null',select:'id',order:'id.asc',limit:Math.min(500,new Set(ids).size)},'id')).map(row=>row.id); },
     async count(name,filters={}) {
       const info=tableInfo(name),query=queryFor(info,filters,{limit:1});query.select='id';delete query.order;
       const credentials=supa.env;
