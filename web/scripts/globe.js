@@ -589,7 +589,10 @@
     ctx.clearRect(0, 0, W, H);
   }
 
+  // The last answer about the member's own place, so a language switch can say it again in the new language.
+  let lastYou = null;
   function sayWhereYouStand(you) {
+    lastYou = you;
     const note = document.getElementById('globeYou');
     const cta = document.getElementById('globeYouCta');
     if (!note || !cta) return;
@@ -826,6 +829,7 @@
   I18N?.onChange(() => {
     showCount();
     showPlace(state.picked >= 0 ? PLACES[state.picked] : null);
+    sayWhereYouStand(lastYou);
   });
   resize();
   syncAnimation();

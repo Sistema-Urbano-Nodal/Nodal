@@ -176,7 +176,7 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 .pilot-teaching-course{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:26px}
 .pilot-teaching-course h2{font-size:26px;letter-spacing:-.6px;max-width:30ch;margin:8px 0 0}
 .pilot-teaching-course>.pilot-text-link{font-size:11px;white-space:nowrap;margin-top:5px}
-.pilot-tabs{display:flex;gap:28px;border-bottom:1px solid #becdb6;margin-bottom:30px}
+.pilot-tabs{display:flex;flex-wrap:wrap;column-gap:28px;border-bottom:1px solid #becdb6;margin-bottom:30px}
 .pilot-tabs>.pilot-button{border:0;border-bottom:2px solid transparent;border-radius:0;padding:10px 0 13px;margin-bottom:-1px;background:none;color:var(--muted)!important;font-size:12px;font-weight:500}
 .pilot-tabs>.pilot-button[aria-selected="true"]{border-bottom-color:#3d5c38;color:#293e25!important;font-weight:650}
 .pilot-section-heading{display:flex;justify-content:space-between;align-items:baseline;gap:20px;margin:0 0 22px}
