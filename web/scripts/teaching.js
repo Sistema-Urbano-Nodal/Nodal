@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const {t,el,tr,api,status,button,field,select,date,limaDate,bind,dynamic,source,setPageTitle}=window.nodalPilot;
+const {t,el,tr,api,status,button,field,select,date,limaDate,bind,dynamic,source,setPageTitle,founderBadge}=window.nodalPilot;
 const root=document.getElementById('pilotRoot'),msg=document.getElementById('pilotStatus');
 let courses=[],selectedId=null,workspace,selectionVersion=0;
 // Course and session editors with unsaved changes: switching course, opening All feedback or New course asks first.
@@ -253,7 +253,8 @@ function participantView(data,id,version,notice,onRefresh,closed=false,supporter
   const grouped=data.participants.some(p=>p.group);
   ['participant','enrolled',...(grouped?['group']:[]),'intakeResponses'].forEach(k=>head.append(tr('th',k)));table.append(head);
   for(const p of data.participants){
-    const row=el('tr'),who=el('td');who.append(el('strong',null,p.name||''),el('div','pilot-response-email',p.email||''));
+    // Organisers see who has the Founder badge of the Membresía Fundador (the report's founder), after the name.
+    const row=el('tr'),who=el('td');who.append(el('strong',null,p.name||''),...(p.founder===true?[founderBadge()]:[]),el('div','pilot-response-email',p.email||''));
     row.append(who,dynamic('td',()=>new Date(p.enrolledAt).toLocaleDateString(window.nodalI18n?.lang||'en')));
     if(grouped)row.append(tr('td',p.group==='september'?'groupSeptember':'groupOctober'));
     const intake=el('td');

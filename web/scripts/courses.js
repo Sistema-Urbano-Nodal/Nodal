@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const {t,el,tr,api,status,button,field,select,safeUrl,recordingPreview,date,limaDate,feedback,localized,hasLocalized,bind,dynamic,source,setPageTitle}=window.nodalPilot;
+const {t,el,tr,api,status,button,field,select,safeUrl,recordingPreview,date,limaDate,feedback,localized,hasLocalized,bind,dynamic,source,setPageTitle,founderBadge}=window.nodalPilot;
 const root=document.getElementById('pilotRoot'),msg=document.getElementById('pilotStatus');
 const courseId=new URLSearchParams(location.search).get('id');
 let snapshot,activeId,loadSequence=0,navigationSequence=0,navigationPending=false;
@@ -497,7 +497,8 @@ function renderPost(initial,composer,reload,alive){
   let p=initial,editor=null,busy=false;
   const card=el('article','pilot-post');card.id='post-'+p.id;card.createdAt=p.createdAt;
   card.isLivePost=()=>!p.deleted;card.authorName=()=>p.authorName||'';
-  const author=el('strong',null,p.authorName||''),staffTag=tr('span','staff','pilot-tag');staffTag.hidden=!p.staff;card.append(author,staffTag);
+  // The author's Founder badge (founder: their badge now, read by the server for every post) sits after the name, before the teaching-team tag.
+  const author=el('strong',null,p.authorName||''),founderTag=founderBadge(),staffTag=tr('span','staff','pilot-tag');founderTag.hidden=p.founder!==true;staffTag.hidden=!p.staff;card.append(author,founderTag,staffTag);
   card.append(dynamic('small',()=>new Date(p.createdAt).toLocaleString(window.nodalI18n?.lang||'en')));
   if(p.parentId){
     // Indented under its contribution with that author's name, or flat with a plain note while it is not on the page.
@@ -564,7 +565,7 @@ function renderPost(initial,composer,reload,alive){
   }
   card.hasDraft=()=>Boolean(editor);
   card.updatePost=next=>{
-    p=next;author.textContent=p.deleted?'':p.authorName||'';staffTag.hidden=p.deleted||!p.staff;body.textContent=p.deleted?'':p.body;
+    p=next;author.textContent=p.deleted?'':p.authorName||'';founderTag.hidden=p.deleted||p.founder!==true;staffTag.hidden=p.deleted||!p.staff;body.textContent=p.deleted?'':p.body;
     links.replaceChildren();
     if(!p.deleted){
       for(const l of p.links||[]){const href=safeUrl(l.url);if(href){const li=el('li'),a=el('a',null,l.title||l.url);a.href=href;a.target='_blank';a.rel='noopener noreferrer';li.append(a);links.append(li);}}

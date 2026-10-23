@@ -1,4 +1,4 @@
-/* Publishing desk: NODAL news, the verified catalog and the interest queue.
+/* Publishing desk: NODAL news, the verified catalog, the interest queue and the Founder badge of the Membresía Fundador.
    The server validates authorization, publication requirements, optimistic
    versions, and every persisted value; this page only shows what is still
    missing. Copy goes through nodalI18n (ops.* keys); server error text is shown
@@ -85,7 +85,16 @@
     tabNews: byId('adminTabNews'),
     tabCatalog: byId('adminTabCatalog'),
     tabInterests: byId('adminTabInterests'),
+    tabFounders: byId('adminTabFounders'),
     tabList: byId('adminTabList'),
+    foundersBand: byId('founders'),
+    founderForm: byId('adminFounderForm'),
+    founderEmail: byId('adminFounderEmail'),
+    founderGrant: byId('adminFounderGrant'),
+    founderStatus: byId('adminFounderStatus'),
+    founderListTitle: byId('adminFounderListTitle'),
+    founderListStatus: byId('adminFounderListStatus'),
+    founderList: byId('adminFounderList'),
   };
 
   if (Object.values(elements).some((element) => !element)) return;
@@ -965,6 +974,154 @@
     }
   }
 
+  /* ---------------- Membresía Fundador: the Founder badge ----------------
+     Members pay on Mercado Pago links, outside NODAL, which never sees the payment. So the badge is given here, by an
+     administrator, to the NODAL account with the member's email, once Mercado Pago approved the payment and the acceptance
+     (the CSV above) was checked: never from a course enrollment or an acceptance alone. It stays for as long as the member
+     keeps their account; Remove is there to correct a mistake. Every message is the desk's own, in the page language:
+     the server's text is never shown. The list is read when the band is first seen, and again after each change. */
+  const founders = { items: [], loaded: false, request: 0, busy: false, buttons: [] };
+  const FOUNDER_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const FOUNDER_REFUSALS = { founder_email_invalid: 'ops.founders.invalid', founder_not_found: 'ops.founders.notFound', founder_account_conflict: 'ops.founders.conflict' };
+  const founderName = (founder) => text(founder?.name) || text(founder?.email);
+  // The day the member got the badge, as it reads in Lima, where the Membresía Fundador is sold, in the page language.
+  const founderDate = (value) => {
+    const date = value ? new Date(value) : null;
+    return date && Number.isFinite(date.getTime())
+      ? new Intl.DateTimeFormat(localeTag(), { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Lima' }).format(date) : '';
+  };
+
+  function founderRow(founder) {
+    const row = create('li', 'admin-founder');
+    const who = create('div', 'admin-founder-who');
+    who.append(create('strong', null, founderName(founder)), create('span', 'admin-founder-email', text(founder.email)));
+    const date = founderDate(founder.founderSince);
+    const since = create('span', 'admin-founder-since', date ? t('ops.founders.since', { date }) : '');
+    const remove = create('button', 'admin-textbutton admin-textbutton-warning', t('ops.founders.remove'));
+    remove.type = 'button';
+    // Every row has a Remove: its accessible name starts with the visible label (so voice control finds it) and says whose badge it is.
+    remove.setAttribute('aria-label', t('ops.founders.removeNamed', { name: founderName(founder) }));
+    remove.disabled = founders.busy;
+    remove.addEventListener('click', () => removeFounder(founder, remove));
+    founders.buttons.push(remove);
+    row.append(who, since, remove);
+    return row;
+  }
+
+  function renderFounders() {
+    if (!founders.loaded) return;
+    say(elements.founderListTitle, 'ops.founders.listTitle', { n: founders.items.length });
+    founders.buttons = [];
+    elements.founderList.replaceChildren(...founders.items.map(founderRow));
+  }
+
+  async function loadFounders() {
+    const sequence = founders.request + 1;
+    founders.request = sequence;
+    say(elements.founderListStatus, 'ops.founders.loading');
+    elements.founderList.setAttribute('aria-busy', 'true');
+    try {
+      const { response, data } = await request('/api/admin/membership/founders');
+      if (sequence !== founders.request) return false;
+      if (!response.ok || !Array.isArray(data.founders)) throw new Error('founders unavailable');
+      founders.items = data.founders.filter((founder) => founder && typeof founder.id === 'string');
+      founders.loaded = true;
+      renderFounders();
+      say(elements.founderListStatus, founders.items.length ? null : 'ops.founders.empty');
+      return true;
+    } catch {
+      if (sequence !== founders.request) return false;
+      say(elements.founderListStatus, 'ops.founders.loadFailed');
+      return false;
+    } finally {
+      if (sequence === founders.request) elements.founderList.setAttribute('aria-busy', 'false');
+    }
+  }
+
+  function setFoundersBusy(value) {
+    founders.busy = value;
+    elements.founderForm.setAttribute('aria-busy', String(value));
+    elements.founderGrant.disabled = value;
+    for (const button of founders.buttons) button.disabled = value;
+  }
+
+  async function grantFounder(event) {
+    event?.preventDefault?.();
+    if (founders.busy) return false;
+    const email = text(elements.founderEmail.value);
+    if (email.length > 254 || !FOUNDER_EMAIL.test(email)) {
+      elements.founderEmail.setAttribute('aria-invalid', 'true');
+      say(elements.founderStatus, 'ops.founders.invalid');
+      elements.founderEmail.focus();
+      return false;
+    }
+    elements.founderEmail.removeAttribute('aria-invalid');
+    const trigger = document.activeElement;
+    setFoundersBusy(true);
+    say(elements.founderStatus, 'ops.founders.saving');
+    let refusal = 'ops.founders.failed';
+    try {
+      const { response, data } = await request('/api/admin/membership/founders', { method: 'POST', body: JSON.stringify({ email }) });
+      if (response.ok && (data.result === 'granted' || data.result === 'already')) {
+        say(elements.founderStatus, data.result === 'granted' ? 'ops.founders.granted' : 'ops.founders.already', { name: founderName(data.founder) || email });
+        elements.founderEmail.value = '';
+        await loadFounders();
+        return true;
+      }
+      if (!response.ok) refusal = FOUNDER_REFUSALS[data.code] || (response.status === 400 ? 'ops.founders.invalid' : refusal);
+    } catch { /* offline or cut off: nothing is known to have changed */ } finally {
+      setFoundersBusy(false);
+      restoreFocus(trigger, elements.founderEmail);
+    }
+    if (refusal === 'ops.founders.invalid') elements.founderEmail.setAttribute('aria-invalid', 'true');
+    say(elements.founderStatus, refusal);
+    return false;
+  }
+
+  async function removeFounder(founder, trigger) {
+    if (founders.busy) return false;
+    const name = founderName(founder);
+    if (!window.confirm(t('ops.founders.confirm', { name }))) return false;
+    setFoundersBusy(true);
+    say(elements.founderStatus, 'ops.founders.removing', { name });
+    try {
+      const { response, data } = await request(`/api/admin/membership/founders/${encodeURIComponent(founder.id)}`, { method: 'DELETE' });
+      // A 404 is a badge that is gone already (another administrator removed it, or the account was deleted): the list catches up.
+      if (response.ok && data.result === 'removed') say(elements.founderStatus, 'ops.founders.removed', { name });
+      else if (response.status === 404) say(elements.founderStatus, 'ops.founders.gone', { name });
+      else { say(elements.founderStatus, 'ops.founders.failed'); return false; }
+      await loadFounders();
+      return true;
+    } catch {
+      say(elements.founderStatus, 'ops.founders.failed');
+      return false;
+    } finally {
+      setFoundersBusy(false);
+      // The row is gone after a removal, so focus goes to the list's title.
+      restoreFocus(trigger, elements.founderListTitle);
+    }
+  }
+
+  /* The list is read the first time the band is seen: scrolled to, opened from its tab or from an address ending in #founders.
+     Without IntersectionObserver it is read at once. */
+  function watchFounders() {
+    let seen = false;
+    const view = () => {
+      if (seen) return null;
+      seen = true;
+      return loadFounders();
+    };
+    elements.tabFounders.addEventListener('click', view);
+    if (location.hash === '#founders' || !('IntersectionObserver' in window)) return view();
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      observer.disconnect();
+      view();
+    });
+    observer.observe(elements.foundersBand);
+    return null;
+  }
+
   /* ---------------- wiring ---------------- */
   let filterTimer = null;
   function refreshCatalogNow() {
@@ -1022,6 +1179,8 @@
     elements.newsTitle.focus();
   });
   elements.newsMore.addEventListener('click', () => loadNews({ append: true }));
+  elements.founderForm.addEventListener('submit', grantFounder);
+  elements.founderEmail.addEventListener('input', () => elements.founderEmail.removeAttribute('aria-invalid'));
   elements.newsPublish.addEventListener('click', () => saveNews('published'));
   elements.newsDraft.addEventListener('click', () => saveNews('draft'));
   elements.newsDelete.addEventListener('click', () => deleteNews());
@@ -1092,6 +1251,7 @@
     renderInterestList();
     renderNewsList();
     renderNewsEditor();
+    renderFounders();
     if (!elements.previewPanel.hidden) renderPreview({ scroll: false });
   });
 
@@ -1101,7 +1261,7 @@
      reached its end and that tab is marked instead. */
   function trackSections() {
     if (!('IntersectionObserver' in window)) return;
-    const tabs = new Map([['news', elements.tabNews], ['catalog', elements.tabCatalog], ['interests', elements.tabInterests]]);
+    const tabs = new Map([['news', elements.tabNews], ['catalog', elements.tabCatalog], ['interests', elements.tabInterests], ['founders', elements.tabFounders]]);
     const sections = [...tabs.keys()].map((id) => byId(id)).filter(Boolean);
     if (sections.length !== tabs.size) return;
     const crossing = new Set();
@@ -1131,9 +1291,10 @@
   async function bootstrap() {
     fillEditor(blankRecord());
     fillNews(null);
+    say(elements.founderListTitle, 'ops.founders.listHead');
     trackSections();
     watchLayout();
-    await Promise.allSettled([loadNews(), loadCatalog(), loadInterests()]);
+    await Promise.allSettled([loadNews(), loadCatalog(), loadInterests(), watchFounders()]);
   }
 
   bootstrap();

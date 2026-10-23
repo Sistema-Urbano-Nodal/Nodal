@@ -6,9 +6,9 @@ import {readFileSync} from 'node:fs';
 const read=file=>readFileSync(new URL('../web/scripts/'+file,import.meta.url),'utf8');
 const flush=async()=>{for(let i=0;i<10;i++)await new Promise(r=>setImmediate(r));};
 
-// Just enough DOM for profile.js: ids, class lookups, closest() and replaceWith().
+// Just enough DOM for profile.js and pilot.js (which draws the Founder badge): ids, class lookups, closest() and replaceWith().
 class Node {
- constructor(tag='div',className=''){this.tagName=tag;this.className=className;this.children=[];this.attributes={};this.listeners={};this.hidden=false;this._text='';this.href='';this.style={};}
+ constructor(tag='div',className=''){this.tagName=tag;this.className=className;this.children=[];this.attributes={};this.listeners={};this.hidden=false;this._text='';this.href='';this.style={};this.dataset={};}
  get textContent(){return this._text+this.children.map(n=>typeof n==='string'?n:n.textContent).join('');}
  set textContent(value){this._text=String(value);this.children=[];}
  append(...nodes){for(const n of nodes){if(typeof n==='object')n.parent=this;this.children.push(n);}}
@@ -28,7 +28,7 @@ function page({lang='es',me,other,people=[]}={}){
  const add=(parent,tag,className='',id)=>{const n=new Node(tag,className);if(id){n.id=id;ids[id]=n;}parent.append(n);return n;};
  const hero=add(body,'section','pf-hero'),card=add(hero,'div','pf-hero-card');
  add(card,'span','pf-coord','pfCoord');const avatar=add(card,'div','pf-avatar');add(avatar,'span','leader-initial','pfInitial').textContent='N';
- const id=add(card,'div','pf-id');for(const [tag,cls,key] of [['p','pf-kicker','pfKicker'],['h1','','pfName'],['p','pf-role','pfRole'],['div','tags','pfTags'],['p','pf-meta','pfMeta']])add(id,tag,cls,key);
+ const id=add(card,'div','pf-id');for(const [tag,cls,key] of [['p','pf-kicker','pfKicker'],['h1','','pfName'],['div','pf-founder','pfFounder'],['p','pf-role','pfRole'],['div','tags','pfTags'],['p','pf-meta','pfMeta']])add(id,tag,cls,key);ids.pfFounder.hidden=true;
  const li=add(id,'a','pf-linkedin','pfLinkedin');add(li,'span','','pfLinkedinText');
  const actions=add(card,'div','pf-actions');add(actions,'span','pf-match','pfMatch').textContent='…';add(actions,'div','pf-btns','pfBtns');
  const grid=add(add(body,'section','pf-body'),'div','wrap pf-grid'),main=add(grid,'div','pf-main');
@@ -38,7 +38,8 @@ function page({lang='es',me,other,people=[]}={}){
  const side=add(grid,'aside','pf-side');const activity=add(side,'div','pf-panel');for(const key of ['pfActConn','pfActProj','pfActCourses','pfActSince'])add(activity,'dd','',key);
  add(add(side,'div','pf-panel'),'ul','pf-links','pfConnList');
  const listeners=[],dict={};
- const context={window:{},document:{title:'',body,createElement:tag=>new Node(tag),getElementById:key=>all(body).find(n=>n.id===key)||null,querySelector:selector=>all(body).find(n=>n.matches(selector))||null},
+ const context={window:{},document:{title:'',body,documentElement:{dataset:{pilot:'false'}},readyState:'complete',createElement:tag=>new Node(tag),getElementById:key=>all(body).find(n=>n.id===key)||null,querySelector:selector=>all(body).find(n=>n.matches(selector))||null,
+  querySelectorAll:selector=>all(body).filter(n=>selector==='[data-pilot-text]'?n.dataset.pilotText:selector==='[data-pilot-dynamic]'?n.dataset.pilotDynamic:false)},
   URL,URLSearchParams,setTimeout,location:{origin:'https://nodal.test',pathname:'/profile.html',search:other?'?id='+other:'',assign(){}},navigator:{clipboard:{writeText:async()=>{}}},
   fetch:async path=>{
    const reply=path==='/api/auth/me'?{status:200,data:{user:me,self:true}}:path.startsWith('/api/users?')?{status:200,data:{users:people}}:path===`/api/users/${other}`&&me?{status:200,data:{user:me,self:false}}:{status:404,data:{error:'unknown user'}};
@@ -47,7 +48,7 @@ function page({lang='es',me,other,people=[]}={}){
  vm.createContext(context);vm.runInContext(read('i18n-dashboard.js'),context);Object.assign(dict,context.window.NODAL_I18N_DASH);
  const state={lang};
  context.window.nodalI18n={get lang(){return state.lang;},t:(key,vars)=>String(dict[state.lang][key]??dict.en[key]??key).replace(/\{(\w+)\}/g,(m,k)=>vars&&k in vars?vars[k]:m),onChange:fn=>listeners.push(fn)};
- vm.runInContext(read('profile.js'),context);
+ for(const file of ['pilot-i18n.js','pilot.js','profile.js'])vm.runInContext(read(file),context);
  return {ids,body,side,actions,grid,locked,context,setLang(value){state.lang=value;listeners.forEach(fn=>fn(value));},buttons:()=>all(ids.pfBtns).filter(n=>n.tagName==='button'),cards:()=>all(main).filter(n=>n.matches('.pf-card'))};
 }
 const ana={id:'ana-id',fullName:'Ana María Gonzales',title:'Member',role:'Member',city:'Lima',partC:{consent:false}};
@@ -96,4 +97,35 @@ test('the profile page carries no unbacked online dot, and its footer link follo
  const html=readFileSync(new URL('../web/pages/profile.html',import.meta.url),'utf8');
  assert.doesNotMatch(html,/pf-online/);
  assert.match(html,/<a class="footer-old" href="https:\/\/sistemaurbano\.org\/nodal\/"[^>]*data-i18n="foot\.old">/);
+});
+
+/* The Founder badge (fundadores.html: it stays on the profile for as long as the member keeps their NODAL account): the server's
+   founder flag, on your own card (GET /api/auth/me) and on another member's (GET /api/users/:id), shows the large stamp with a caption. */
+test('a Founder member’s profile shows the large Founder badge and its caption, on their own card and to other members',async()=>{
+ const badge=h=>all(h.ids.pfFounder).find(n=>n.className==='founder-badge is-large');
+ const caption=h=>all(h.ids.pfFounder).find(n=>n.className==='pf-founder-note');
+ for(const other of [undefined,'ana-id']){
+  const h=page({me:{...ana,founder:true,founderSince:'2026-10-21T15:00:00.000Z'},other});await flush();
+  assert.equal(h.ids.pfFounder.hidden,false,String(other));
+  assert.equal(badge(h).textContent,'Founder');assert.equal(badge(h).title,'Founder · parte de la comunidad fundadora de Nodal');
+  assert.equal(caption(h).textContent,'Parte de la comunidad fundadora');
+  assert.deepEqual(h.ids.pfFounder.children.map(n=>n.className),['founder-badge is-large','pf-founder-note'],'the stamp, then its caption');
+  h.setLang('pt');
+  assert.equal(caption(h).textContent,'Parte da comunidade fundadora');assert.equal(badge(h).title,'Founder · parte da comunidade fundadora da Nodal');
+  assert.equal(badge(h).textContent,'Founder','the word stays Founder in every language');
+  assert.equal(all(h.ids.pfFounder).filter(n=>n.className==='founder-badge is-large').length,1,'a language change does not repeat the badge');
+  h.setLang('en');assert.equal(caption(h).textContent,'Part of the founding community');
+ }
+});
+
+test('a member without the Founder badge, or a profile that is not found, shows no badge',async()=>{
+ for(const me of [ana,{...ana,founder:false,founderSince:null},{...ana,founder:'true'}]){
+  for(const other of [undefined,'ana-id']){
+   const h=page({me,other});await flush();
+   assert.equal(h.ids.pfFounder.hidden,true,JSON.stringify(me.founder)+' '+other);assert.equal(all(h.ids.pfFounder).length,0);
+  }
+ }
+ // A profile that is not found describes nobody, so it never shows a badge.
+ const missing=page({other:'hidden-id'});await flush();assert.equal(missing.ids.pfFounder.hidden,true);
+ assert.doesNotMatch(missing.body.textContent,/Founder/);
 });

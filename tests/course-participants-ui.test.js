@@ -261,3 +261,16 @@ test('courses-5: the feedback limit is shown in the member’s language, not the
  const node=new Node();h.body.append(node);h.ctx.window.nodalPilot.status(node,error);
  assert.match(content(node),/reached the feedback limit/);h.lang('es');assert.match(content(node),/límite de comentarios/);h.lang('pt');assert.match(content(node),/limite de feedback/);
 });
+// Organisers check who has the Founder badge (GET /api/admin/courses/:id/report participants rows carry founder) in the participants table.
+test('the participants table marks each Founder member with the small badge after their name',async()=>{
+ const participants=[{id:'u1',name:'Ana Founder',email:'ana@example.test',enrolledAt:'2026-10-01T12:00:00Z',founder:true},{id:'u2',name:'Beto Quispe',email:'beto@example.test',enrolledAt:'2026-10-02T12:00:00Z',founder:false},{id:'u3',name:'Carla Ruiz',email:'carla@example.test',enrolledAt:'2026-10-03T12:00:00Z'}];
+ const h=teachingHarness(()=>({}),{participants});await flush();
+ const pane=h.ctx.document.getElementById('staff-pane-participants');
+ const people=descendants(pane).filter(n=>n.tagName==='tr').slice(1).map(row=>row.children[0]);
+ assert.equal(people.length,3);
+ const badges=cell=>descendants(cell).filter(n=>n.className==='founder-badge');
+ assert.deepEqual(people[0].children.map(n=>n.className||n.tagName),['strong','founder-badge','pilot-response-email'],'name, badge, then email');
+ assert.equal(badges(people[0])[0].textContent,'Founder');assert.equal(badges(people[0])[0].title,'Founder · part of the Nodal founding community');
+ assert.deepEqual([badges(people[1]).length,badges(people[2]).length],[0,0],'no badge without the flag');
+ h.lang('es');assert.equal(badges(people[0])[0].title,'Founder · parte de la comunidad fundadora de Nodal');assert.equal(badges(people[0])[0].textContent,'Founder');
+});

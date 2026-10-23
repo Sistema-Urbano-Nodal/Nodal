@@ -13,13 +13,13 @@
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="fonts.css?v=20260911b" />
   <link rel="stylesheet" href="styles.css?v=36" />
-  <link rel="stylesheet" href="admin.css?v=5" />
+  <link rel="stylesheet" href="admin.css?v=20261023a" />
 
   <script defer src="nav.js?v=20261013b"></script>
   <script defer src="script.js?v=18"></script>
-  <script defer src="i18n-dashboard.js?v=20261022a"></script>
+  <script defer src="i18n-dashboard.js?v=20261023a"></script>
   <script defer src="i18n.js?v=20261022a"></script>
-  <script defer src="admin.js?v=6"></script>
+  <script defer src="admin.js?v=20261023a"></script>
 </head>
 <body class="admin-page" data-page="admin">
   <a class="admin-skip" href="#adminMain" data-i18n="ops.skip">Skip to content</a>
@@ -56,6 +56,7 @@
         <li><a href="#news" id="adminTabNews" aria-current="true" data-i18n="ops.index.news">NODAL news</a></li>
         <li><a href="#catalog" id="adminTabCatalog" data-i18n="ops.index.catalog">Opportunities and catalog</a></li>
         <li><a href="#interests" id="adminTabInterests" data-i18n="ops.index.interests">Interest requests</a></li>
+        <li><a href="#founders" id="adminTabFounders" data-i18n="ops.index.founders">Founder Membership</a></li>
         <li class="admin-tabs-split"><a href="fiiu-admin.html#content" class="is-away"><span data-i18n="ops.index.festival">Festival news</span><span aria-hidden="true"> →</span><span class="admin-sr" data-i18n="ops.index.festivalHint">FIIU Fest posts and materials, in the organiser dashboard</span></a></li>
         <li><a href="teaching.html" class="is-away"><span data-i18n="ops.index.courses">Courses</span><span aria-hidden="true"> →</span><span class="admin-sr" data-i18n="ops.index.coursesHint">Sessions, participants and invitations, in the teaching workspace</span></a></li>
       </ul>
@@ -223,6 +224,28 @@
       <p class="admin-live" id="adminInterestStatus" role="status" aria-live="polite">Loading member interests…</p>
       <div class="admin-interest-list" id="adminInterestList" aria-busy="true"></div>
       <button class="admin-button admin-more" id="adminInterestMore" type="button" hidden data-i18n="ops.interest.more">Load more interests</button>
+    </section>
+
+    <section class="admin-band" id="founders" aria-labelledby="foundersTitle">
+      <div class="admin-section-head">
+        <div>
+          <h2 id="foundersTitle" data-i18n="ops.founders.title">Founder Membership</h2>
+          <p class="admin-field-note" data-i18n="ops.founders.lead">Give the Founder badge to each member whose payment Mercado Pago approved, after you check their acceptance. It shows on their profile, console and course posts, and stays for as long as they keep their NODAL account.</p>
+        </div>
+        <a class="admin-textbutton admin-download" id="adminFoundersCsv" href="/api/admin/membership/acceptances" download data-i18n="ops.founders.csv">Download the acceptances (CSV)</a>
+      </div>
+      <div class="admin-founders">
+        <form class="admin-founder-form" id="adminFounderForm" novalidate>
+          <label><span data-i18n="ops.founders.email">Email of the member’s NODAL account</span><input id="adminFounderEmail" type="email" inputmode="email" maxlength="254" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="adminFounderStatus" /></label>
+          <button class="admin-button admin-button-accent" id="adminFounderGrant" type="submit" data-i18n="ops.founders.grant">Give the Founder badge</button>
+          <p class="admin-live" id="adminFounderStatus" role="status" aria-live="polite"></p>
+        </form>
+        <div class="admin-founder-index">
+          <h3 id="adminFounderListTitle" tabindex="-1">Members with the badge</h3>
+          <p class="admin-live" id="adminFounderListStatus" role="status" aria-live="polite"></p>
+          <ul class="admin-founder-list" id="adminFounderList" aria-labelledby="adminFounderListTitle"></ul>
+        </div>
+      </div>
     </section>
   </main>
 

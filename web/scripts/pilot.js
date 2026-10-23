@@ -116,6 +116,10 @@ function recordingPreview(resource,onOpen){
   preview.append(trigger);element.append(preview,closeButton);
   return {element,close};
 }
+/* The Founder badge of the Membresía Fundador (fundadores.html): the word Founder in every language, as on that page, with a note
+   in the interface language. Only an administrator gives it; the server sends it as `founder`. Styled in courses.css; large is the
+   tilted stamp of the profile, small sits in a line of text (console, course posts, the teaching participants table). */
+function founderBadge({large=false}={}){const badge=el('span','founder-badge'+(large?' is-large':''),'Founder');return bind(badge,()=>{badge.title=t('founderNote');});}
 function date(value){return value?new Intl.DateTimeFormat(window.nodalI18n?.lang||'en',{dateStyle:'medium',timeZone:'UTC'}).format(new Date(value+'T12:00:00Z')):'';}
 // An instant as it reads in Lima (UTC-05:00 all year), where the courses run, in the interface language.
 function limaDate(value,options){return value?new Intl.DateTimeFormat(language(),{...options,timeZone:'America/Lima'}).format(new Date(value)):'';}
@@ -199,7 +203,7 @@ function feedback(action,context={}) {
   history.addEventListener('toggle',()=>{if(history.open&&!loaded)return loadHistory();});
   box.append(newForm(),history);return box;
 }
-window.nodalPilot={t,el,tr,api,status,button,field,select,safeUrl,recordingEmbed,recordingPreview,date,limaDate,feedback,localized,hasLocalized,bind,dynamic,source,setPageTitle};
+window.nodalPilot={t,el,tr,api,status,button,field,select,safeUrl,recordingEmbed,recordingPreview,date,limaDate,feedback,localized,hasLocalized,bind,dynamic,source,setPageTitle,founderBadge};
 window.nodalI18n?.onChange(translate);
 function showPilot(pilot){
   document.documentElement.dataset.pilot=String(pilot);

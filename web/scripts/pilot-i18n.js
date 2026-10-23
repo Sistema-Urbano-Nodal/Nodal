@@ -1,6 +1,9 @@
 (() => {
 'use strict';
 const rows = {
+ // The Founder badge (pilot.js founderBadge): its word is Founder in every language; the note is its title, the caption sits beside it on the profile.
+ founderNote:['Founder · part of the Nodal founding community','Founder · parte de la comunidad fundadora de Nodal','Founder · parte da comunidade fundadora da Nodal'],
+ founderCaption:['Part of the founding community','Parte de la comunidad fundadora','Parte da comunidade fundadora'],
  // Readings from BUC, Sistema Urbano's open library (buc.js), under the course header for the course's topic.
  bucReadings:['Readings from BUC','Lecturas de la BUC','Leituras da BUC'],
  // The final survey of Curso Movilidad Nivel 2 (courses.js and teaching.js). Only its chrome is here: the questions are Spanish content from the server.

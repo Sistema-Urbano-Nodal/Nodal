@@ -228,6 +228,25 @@ textarea { resize: vertical; }
 .admin-interest-controls { display: flex; gap: var(--f-sp-2); align-items: end; }
 .admin-interest-controls label { flex: 1 1 auto; }
 
+/* ---------- Membresía Fundador: give the Founder badge, and who has it ----------
+   The form beside the list, as News sits beside its editor; members are set apart by whitespace, not rules. */
+.admin-download { display: inline-flex; align-items: center; flex: 0 0 auto; white-space: nowrap; }
+.admin-founders { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(0, 1.5fr); gap: var(--f-sp-6); align-items: start; }
+.admin-founders > * { min-width: 0; }
+.admin-founder-form { display: grid; gap: var(--f-sp-3); justify-items: start; }
+.admin-founder-form label { width: 100%; max-width: 32rem; }
+.admin-founder-form .admin-live { margin: 0; }
+.admin-founder-index h3 { min-height: 36px; display: flex; align-items: center; font-size: 1.15rem; font-weight: 700; }
+.admin-founder-index .admin-live { margin: 0 0 var(--f-sp-1); }
+.admin-founder-index .admin-live:empty { min-height: 0; }
+.admin-founder-list { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--f-sp-1); }
+.admin-founder-list:empty { display: none; }
+.admin-founder { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--f-sp-1) var(--f-sp-5); align-items: center; padding: var(--f-sp-2) 0; }
+.admin-founder-who { display: grid; gap: 2px; min-width: 0; }
+.admin-founder-who strong { font-size: .9375rem; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }
+.admin-founder-email { color: var(--text-2); font-size: .875rem; overflow-wrap: anywhere; }
+.admin-founder-since { color: var(--muted); font-size: var(--f-fs-hint); white-space: nowrap; }
+
 @media (max-width: 1180px) {
   .admin-workspace { grid-template-columns: 300px minmax(0, 1fr); }
   .admin-locale-grid { grid-template-columns: 1fr; }
@@ -236,7 +255,7 @@ textarea { resize: vertical; }
 }
 
 @media (max-width: 960px) {
-  .admin-news { grid-template-columns: 1fr; }
+  .admin-news, .admin-founders { grid-template-columns: 1fr; }
   .admin-news-list { max-height: 22rem; }
 }
 
@@ -250,7 +269,10 @@ textarea { resize: vertical; }
 
 @media (max-width: 560px) {
   :root { --top: 87px; }
-  .admin-grid-3, .admin-grid-4, .admin-interest, .admin-news-row, .admin-gate-list li { grid-template-columns: 1fr; }
+  .admin-grid-3, .admin-grid-4, .admin-interest, .admin-news-row, .admin-gate-list li, .admin-founder { grid-template-columns: 1fr; }
+  .admin-founder { gap: 2px; }
+  .admin-founder-since { white-space: normal; }
+  .admin-founder .admin-textbutton { justify-self: start; }
   .admin-gate-list li { gap: 0; padding: var(--f-sp-1) 0 var(--f-sp-2); }
   .admin-span-2 { grid-column: auto; }
   .admin-section-head, .admin-editor-head { align-items: stretch; flex-direction: column; }

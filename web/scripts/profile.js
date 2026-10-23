@@ -58,12 +58,26 @@
       interests: Array.isArray(user.interests) ? user.interests : [],
       topics: Array.isArray(user.topics) ? user.topics : [],
       partC: { ...DEFAULT_PART_C, ...(user.partC || {}) },
+      // Only an administrator gives the Founder badge; the server sends it on your own card and on another member's.
+      founder: user.founder === true,
     };
+  }
+
+  /* The Founder badge of the Membresía Fundador, which stays on the profile for as long as the member keeps their NODAL account
+     (fundadores.html): pilot.js draws the large stamp, and its caption comes from the same rows, so both follow a language switch. */
+  function renderFounder(user) {
+    const line = $('pfFounder');
+    if (!line) return;
+    const pilot = window.nodalPilot;
+    const shown = Boolean(user?.founder && pilot?.founderBadge);
+    line.replaceChildren(...(shown ? [pilot.founderBadge({ large: true }), pilot.tr('span', 'founderCaption', 'pf-founder-note')] : []));
+    line.hidden = !shown;
   }
 
   function render(user, isSelf) {
     document.title = `${user.fullName} · ${t('p.title')}`;
     set('pfName', user.fullName);
+    renderFounder(user);
     set('pfKicker', t(isSelf ? 'p.kickerSelf' : 'p.kicker'));
     set('pfRole', `${roleLabel(user.title)}${user.city ? ` · ${user.city}` : ''}`);
     const parts = user.fullName.trim().split(/\s+/);
@@ -204,6 +218,7 @@
   function renderFailure() {
     document.title = t('p.title');
     set('pfName', t('p.notFound'));
+    renderFounder(null);
     set('pfKicker', t('p.kicker'));
     set('pfRole', t('p.notFoundWhy'));
     set('pfAbout', t('p.notFoundBody'));

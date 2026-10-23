@@ -49,6 +49,8 @@
       requests: user.requests && typeof user.requests === 'object' ? user.requests : {},
       mentorApplied: Boolean(user.mentorApplied),
       notifRead: Boolean(user.notifRead),
+      // The Founder badge: only an administrator gives it, so it is read here and never sent back (serializeUser leaves it out).
+      founder: user.founder === true,
     };
   }
 
@@ -226,6 +228,14 @@
     setText('userName', U.name || t('d.role.member'));
     setText('sheetCity', cityLabel());
     setText('sheetRole', U.role === 'Member' ? t('d.role.member') : U.role);   // 'Member' is the server's no-title sentinel
+    /* The Membresía Fundador's Founder badge (pilot.js draws it), after the role. Its " · " comes with it, so a member
+       without the badge sees no separator left over. */
+    const founder = byId('sheetFounder');
+    if (founder) {
+      const badge = U.founder ? window.nodalPilot?.founderBadge?.() : null;
+      founder.replaceChildren(...(badge ? [' · ', badge] : []));
+      founder.hidden = !badge;
+    }
     setText('metaTopics', String(U.topics.length));
     setText('metaLevel', U.assessed && maxLevel() > 0 ? levelName(maxLevel()) : t('d.meta.levelNone'));
     const avatar = byId('userBtn');

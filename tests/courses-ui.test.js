@@ -781,3 +781,29 @@ test('the September group tick shows only on the perk course and round-trips thr
   assert.deepEqual(module.resources.map(r=>r.septemberOnly===true),[false,true]);
  }
 });
+/* Each post carries its author's current Founder badge (founder, read by the server at read time). The small badge sits right after
+   the author's name, before the teaching-team tag, and follows the post wherever courses.js refreshes it (an edit, a poll). */
+test('a contribution by a Founder member shows the badge after the author, before the teaching-team tag, and an edit keeps it current',async()=>{
+ const at='2026-10-21T15:00:00Z';
+ const posts=[{id:'p1',authorName:'Ana',founder:true,createdAt:at,kind:'question',body:'From a founder',links:[],attachments:[]},
+  {id:'p2',authorName:'Teacher',staff:true,founder:false,canEdit:true,createdAt:at,kind:'question',body:'Staff question',links:[],attachments:[]},
+  {id:'p3',authorName:'Beto',createdAt:at,kind:'question',body:'No flag at all',links:[],attachments:[]}];
+ let reads=0;
+ const h=harness((path,opts)=>{
+  if(opts?.method==='PATCH'&&path.endsWith('/posts/p2'))return{post:{...posts[1],body:'Edited question',founder:true}};
+  // The edit reloads the conversation; holding that read back leaves only the card's own refresh on screen.
+  if(path.includes('/posts')){reads++;return reads>1?new Promise(()=>{}):{posts,nextCursor:null,revision:'r1'};}
+  return learningFixture(path,opts);
+ },{page:'course',search:'?id=c1'});h.run('courses');await flush();
+ const card=id=>h.ctx.document.getElementById('post-'+id),badge=id=>card(id).children.find(n=>n.className==='founder-badge');
+ assert.deepEqual(card('p1').children.slice(0,3).map(n=>n.tagName==='strong'?'author':n.className),['author','founder-badge','pilot-tag'],'author, badge, then the teaching-team tag');
+ assert.equal(badge('p1').hidden,false);assert.equal(badge('p1').textContent,'Founder');assert.equal(badge('p1').title,'Founder · part of the Nodal founding community');
+ assert.equal(badge('p2').hidden,true,'not a Founder');assert.equal(badge('p3').hidden,true,'no flag reads as no badge');
+ h.lang('pt');assert.equal(badge('p1').title,'Founder · parte da comunidade fundadora da Nodal');assert.equal(badge('p1').textContent,'Founder');h.lang('en');
+ // The author was given the badge after writing: the edited post the server returns says so, and the card shows it at once.
+ findKey(card('p2'),'editPost').listeners.click();
+ const editor=descendants(card('p2')).find(n=>n.tagName==='form');inputNamed(editor,'body').value='Edited question';
+ editor.listeners.submit({preventDefault(){}});await flush();
+ assert.ok(h.requests.some(r=>r.method==='PATCH'&&r.path.endsWith('/posts/p2')));
+ assert.equal(badge('p2').hidden,false);assert.equal(card('p2').children.find(n=>n.className==='pilot-tag').hidden,false,'the staff tag stays');
+});

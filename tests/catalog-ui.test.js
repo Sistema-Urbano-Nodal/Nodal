@@ -1149,8 +1149,9 @@ test('admin client serializes translations atomically and preserves edits on sta
   assert.match(source, /\/api\/admin\/interests/);
   assert.match(source, /status\s*===\s*409/);
   assert.match(source, /new URLSearchParams/);
-  // Catalog records are archived, never deleted; only a NODAL news post can be deleted.
-  assert.deepEqual([...source.matchAll(/request\(([^,]+), \{ method: 'DELETE' \}\)/g)].map((match) => match[1]), ['`/api/admin/news/${encodeURIComponent(current.id)}`']);
+  // Catalog records are archived, never deleted; only a NODAL news post can be deleted, and a Founder badge given by mistake removed
+  // (the member's account stays: tests/founders-desk-ui.test.js).
+  assert.deepEqual([...source.matchAll(/request\(([^,]+), \{ method: 'DELETE' \}\)/g)].map((match) => match[1]), ['`/api/admin/news/${encodeURIComponent(current.id)}`', '`/api/admin/membership/founders/${encodeURIComponent(founder.id)}`']);
   assert.doesNotMatch(source, /\/api\/admin\/catalog[^\n]*'DELETE'/);
 
   for (const lang of ['en', 'es', 'pt']) {
@@ -1692,8 +1693,9 @@ test('late interest success or failure cannot reopen a closed detail or overwrit
 
 test('publishing desk links every editor, keeps the review queue and loads the translator first', () => {
   const html = adminPage();
-  for (const id of ['news', 'catalog', 'interests']) assert.match(html, new RegExp(`<section class="admin-band" id="${id}"`), `${id} section`);
-  // One tab row like the organiser's: the three sections on this page, then the two editors that live elsewhere.
+  for (const id of ['news', 'catalog', 'interests', 'founders']) assert.match(html, new RegExp(`<section class="admin-band" id="${id}"`), `${id} section`);
+  // One tab row like the organiser's: the four sections on this page, then the two editors that live elsewhere.
+  assert.match(html, /<a href="#founders" id="adminTabFounders" data-i18n="ops\.index\.founders">/);
   assert.match(html, /<nav class="admin-tabs" aria-label="On this desk" data-i18n-aria-label="ops\.index\.title">/);
   assert.match(html, /<a href="#news" id="adminTabNews" aria-current="true" data-i18n="ops\.index\.news">/);
   assert.match(html, /<a href="#catalog" id="adminTabCatalog" data-i18n="ops\.index\.catalog">/);

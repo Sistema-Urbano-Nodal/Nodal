@@ -825,21 +825,23 @@ test('the ledger listens before the festival block can hand anything over, and d
 
 // i18n.js and the whole of dashboard.js with the self-assessment list and the profile dialog. The server keeps what PATCH /api/me sends and answers
 // with its own copy of the member, as the API does.
-function memberConsole(me) {
-  const ids = Object.fromEntries(['assessTopics', 'userDialog', 'userForm', 'userBtn', 'ucName', 'ucCity', 'ucRole', 'ucTopics', 'ucError'].map((id) => [id, new El('div')]));
+// pilot: also load pilot-i18n.js and pilot.js, as dashboard.html does, for what they draw on the console (the Founder badge).
+function memberConsole(me, { pilot = false } = {}) {
+  const ids = Object.fromEntries(['assessTopics', 'userDialog', 'userForm', 'userBtn', 'ucName', 'ucCity', 'ucRole', 'ucTopics', 'ucError', 'sheetCity', 'sheetRole', 'sheetFounder'].map((id) => [id, new El('div')]));
+  ids.sheetFounder.hidden = true;
   ids.ucTopics.querySelectorAll = (selector) => descendants(ids.ucTopics).filter((n) => n.tagName === 'input' && (selector === 'input' || n.checked));
   ids.userDialog.showModal = () => { ids.userDialog.open = true; };
   const stored = JSON.parse(JSON.stringify(me)), patches = [];
   const location = new URL('https://nodal.test/dashboard.html'), history = { state: null, replaceState() {} };
-  const document = { body: new El('body'), documentElement: {}, addEventListener() {}, querySelectorAll: () => [], querySelector: () => null, getElementById: (id) => ids[id] ?? null, createElement: (tag) => new El(tag) };
+  const document = { body: new El('body'), documentElement: pilot ? { dataset: { pilot: 'false' } } : {}, addEventListener() {}, querySelectorAll: () => [], querySelector: () => null, getElementById: (id) => ids[id] ?? null, createElement: (tag) => new El(tag) };
   const context = vm.createContext({ document, location, history, URL, URLSearchParams, console, setTimeout() {}, clearTimeout() {}, localStorage: { getItem: () => null, setItem() {} },
     fetch: async (url, options = {}) => {
       if (options.method === 'PATCH') { const { expectedCity, ...fields } = JSON.parse(options.body); patches.push(fields); Object.assign(stored, fields); }
       return { ok: true, status: 200, json: async () => ({ user: JSON.parse(JSON.stringify(stored)) }) };
     } });
   context.window = { location, history, addEventListener() {} };
-  for (const name of ['i18n-dashboard', 'i18n', 'dashboard']) vm.runInContext(read('web', 'scripts', `${name}.js`), context);
-  return { ids, stored, patches };
+  for (const name of ['i18n-dashboard', 'i18n', ...(pilot ? ['pilot-i18n', 'pilot'] : []), 'dashboard']) vm.runInContext(read('web', 'scripts', `${name}.js`), context);
+  return { ids, stored, patches, i18n: context.window.nodalI18n };
 }
 const ana = { id: 'ana-id', fullName: 'Ana Quispe', title: 'Planner', city: 'Lima', assessed: false, partC: {},
   topics: [{ name: 'Mobility', level: 1, validatedAt: 0, endorsedAt: 0 }, { name: 'Housing', level: 1, validatedAt: 0, endorsedAt: 0 }] };
@@ -881,4 +883,39 @@ test('the profile dialog refuses a one-letter name, as the server does, instead 
   assert.equal(submit(), false);
   await flush();
   assert.deepEqual(c.patches.map((p) => p.fullName), ['Al']);
+});
+
+/* ---------------- the Founder badge on the sheet line ---------------- */
+
+// Membresía Fundador members keep the badge for as long as they keep their account (fundadores.html). The console shows the small
+// badge on the title block's sheet line, after the role, with its own " · " so nothing dangles when there is none.
+test('a Founder member’s console shows the small Founder badge after the role, and keeps it through a profile save', async () => {
+  const c = memberConsole({ ...ana, founder: true, founderSince: '2026-10-21T15:00:00.000Z' }, { pilot: true });
+  await flush();
+  const founder = c.ids.sheetFounder;
+  const badge = () => founder.children.find((n) => n.className === 'founder-badge');
+  assert.equal(founder.hidden, false);
+  assert.equal(text(founder), ' · Founder', 'a separator, then the badge');
+  assert.equal(badge().title, 'Founder · part of the Nodal founding community');
+  assert.equal(c.ids.sheetRole.textContent, 'Planner');
+  c.i18n.apply('es', { persist: false });
+  assert.equal(founder.children.filter((n) => n.className === 'founder-badge').length, 1, 'a language change redraws, never repeats, the badge');
+  assert.equal(badge().textContent, 'Founder');
+  assert.equal(badge().title, 'Founder · parte de la comunidad fundadora de Nodal');
+  // A self-assessment pick saves the profile; the server's copy of the member it answers with still carries the badge.
+  c.ids.assessTopics.children[0].children[1].children[2].listeners.click();
+  await flush();
+  assert.equal(c.patches.length, 1);
+  assert.equal('founder' in c.patches[0] || 'founderSince' in c.patches[0], false, 'the console never sends the badge: only an administrator sets it');
+  assert.equal(founder.hidden, false);
+  assert.ok(badge());
+});
+
+test('a member without the Founder badge has no badge and no dangling separator on the sheet line', async () => {
+  for (const me of [ana, { ...ana, founder: false, founderSince: null }]) {
+    const c = memberConsole(me, { pilot: true });
+    await flush();
+    assert.equal(c.ids.sheetFounder.hidden, true);
+    assert.equal(text(c.ids.sheetFounder), '');
+  }
 });

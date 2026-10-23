@@ -409,3 +409,20 @@ html[data-pilot="false"] [data-pilot-only]{display:none!important}
 /* iPhone Safari zooms into a focused field under 16px and stays zoomed, so on a phone every text field is 16px (labels
    keep their size). The final survey's fields have their own rule above. */
 @media(max-width:760px){:is(.pilot-form,.pilot-feedback,.pilot-response-filters,.pilot-survey-reminder) :is(input:not([type=file]):not([type=checkbox]):not([type=radio]),textarea,select){font-size:16px}}
+/* The Founder badge of the Membresía Fundador (pilot.js founderBadge), the stamp of fundadores.html in small: beige plate, forest ink
+   and the network mark. Small in a line of text (the console's sheet line, course posts, the teaching participants table); large and
+   tilted on the profile, with its caption beside it. Every page that shows it loads this file. */
+.founder-badge{display:inline-flex;align-items:center;gap:5px;padding:2px 7px 2px 5px;border:1.5px solid #3d5c38;border-radius:4px;background:#f2ecec;color:#3d5c38;font:inherit;font-size:10px;font-weight:700;line-height:1.4;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap;vertical-align:middle}
+.founder-badge::before{content:'';flex:none;width:10px;height:11px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 130'%3E%3Cg fill='none' stroke='%233f8f43' stroke-width='10' stroke-linecap='round'%3E%3Cpath d='M30 18 40 72M66 28 40 72M66 28 92 60M92 60 74 94M40 72 74 94M74 94 44 116'/%3E%3C/g%3E%3Cg fill='%233f8f43'%3E%3Ccircle cx='30' cy='18' r='11'/%3E%3Ccircle cx='66' cy='28' r='12'/%3E%3Ccircle cx='92' cy='60' r='10'/%3E%3Ccircle cx='40' cy='72' r='17'/%3E%3Ccircle cx='74' cy='94' r='15'/%3E%3Ccircle cx='44' cy='116' r='10.5'/%3E%3C/g%3E%3C/svg%3E") center/contain no-repeat}
+.founder-badge.is-large{gap:8px;padding:6px 13px 6px 9px;border-width:2px;border-radius:6px;font-size:12px;letter-spacing:.16em;transform:rotate(-3deg);box-shadow:2px 2px 0 rgba(37,52,31,.45)}
+.founder-badge.is-large::before{width:16px;height:17px}
+.pilot-post>.founder-badge,.pilot-table .founder-badge{margin-left:8px}
+/* The profile's line under the name: the tilted stamp, then its caption; the margins keep the stamp's corners and shadow off the
+   name above and the role line below. */
+.pf-founder{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin:14px 0 6px}
+.pf-founder[hidden]{display:none}
+.pf-founder-note{color:#5f6b6e;font-size:12.5px;font-weight:600;line-height:1.4}
+/* On paper the stamp keeps its plate and mark (browsers drop backgrounds unless asked), without the shadow. */
+@media print{.founder-badge,.founder-badge::before{-webkit-print-color-adjust:exact;print-color-adjust:exact}.founder-badge.is-large{box-shadow:none}}
+/* Forced colours drop the beige plate: the outline comes back in the system ink, and the word stays. */
+@media (forced-colors:active){.founder-badge{border-color:CanvasText}}
