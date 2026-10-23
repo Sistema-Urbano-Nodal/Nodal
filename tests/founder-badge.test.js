@@ -441,14 +441,16 @@ test('the Supabase migration only adds the nullable column, applied by hand befo
   const dir = path.join(ROOT, 'supabase', 'migrations');
   const name = readdirSync(dir).find((file) => file.endsWith('_founder_badge.sql'));
   assert.equal(name, '20261023000000_founder_badge.sql');
-  assert.ok(readdirSync(dir).filter((file) => file.endsWith('.sql')).sort().at(-1) === name, 'the newest migration');
+  assert.ok(name.slice(0, 14) > '20261021000000', 'sorts after the membership acceptances migration');
   const raw = readFileSync(path.join(dir, name), 'utf8');
   assert.match(raw, /npx --no-install supabase db query --linked -f supabase\/migrations\/20261023000000_founder_badge\.sql/);
   assert.match(raw, /supabase migration repair --status applied 20261023000000/);
   assert.match(raw, /Never `db push`/);
   assert.match(raw, /BEFORE pushing `main`/);
   assert.match(raw, /Additive/);
-  for (const route of ['/api/admin/membership/founders', '/api/me/export']) assert.ok(raw.includes(route), route);
+  // Deployed first, only the badge is missing: the header says so.
+  assert.ok(raw.includes('/api/admin/membership/founders'));
+  assert.match(raw, /Nothing else reads the column by name/);
   // The header says why no grant or view change is needed.
   assert.match(raw, /service_role/);
   assert.match(raw, /public_profiles/);
@@ -461,7 +463,8 @@ test('the Supabase migration only adds the nullable column, applied by hand befo
   assert.ok(step.length > 200, 'DEPLOYMENT.md has the step');
   assert.match(step, /before pushing `main`/);
   assert.ok(step.includes('20261023000000_founder_badge.sql') && step.includes('migration repair --status applied 20261023000000'));
-  for (const route of ['/api/admin/membership/founders', '/api/me/export']) assert.ok(step.includes(route), `DEPLOYMENT.md: ${route}`);
+  assert.ok(step.includes('/api/admin/membership/founders'));
+  assert.match(step, /account deletion, the data download, the reports' CSVs\s+and\s+the final survey keep working/);
 });
 
 test('the payments routine gives the badge on the admin desk after adding a payer, and again for a re-created account', () => {

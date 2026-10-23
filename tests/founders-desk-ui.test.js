@@ -58,8 +58,8 @@ function deskI18n(lang) {
 /* founders: what GET answers; write(method, url, body) answers the POST and DELETE. observer: give the page an IntersectionObserver
    (the band then loads when it comes into view). hash: the address's #fragment. */
 function desk({ lang = 'en', founders = [], write = () => response({}, 500), confirm = () => true, observer = false, hash = '', list } = {}) {
-  const ids = new Map([...adminPage().matchAll(/\bid="([^"]+)"/g)].map((match) => [match[1], new FakeNode(match[1])]));
-  const requests = [], confirms = [], observed = [];
+  const ids = new Map([...adminPage().matchAll(/\bid="([^"]+)"/g)].map((match) => [match[1], Object.assign(new FakeNode(match[1]), { id: match[1] })]));
+  const requests = [], confirms = [], observed = [], windowListeners = {};
   const fetchImpl = async (url, options = {}) => {
     const method = options.method || 'GET';
     requests.push({ url, method, body: options.body ? JSON.parse(options.body) : undefined, credentials: options.credentials, headers: options.headers });
@@ -84,10 +84,12 @@ function desk({ lang = 'en', founders = [], write = () => response({}, 500), con
   };
   if (observer) {
     context.IntersectionObserver = class {
-      constructor(callback) { this.callback = callback; observed.push(this); }
-      observe(target) { this.target = target; }
+      constructor(callback, options) { this.callback = callback; this.options = options; this.targets = []; observed.push(this); }
+      observe(target) { this.target = target; this.targets.push(target); }
       disconnect() { this.disconnected = true; }
     };
+    context.addEventListener = (type, handler) => { (windowListeners[type] ??= []).push(handler); };
+    context.innerHeight = 800;
   }
   context.window = context;
   vm.runInNewContext(read('web', 'scripts', 'admin.js'), context, { filename: 'admin.js' });
@@ -100,7 +102,7 @@ function desk({ lang = 'en', founders = [], write = () => response({}, 500), con
   const removeButton = (row) => descendants(row).find((n) => n.tagName === 'button');
   // Everything the band writes at run time: its two status lines, the list title and the list.
   const shown = () => ['adminFounderStatus', 'adminFounderListStatus', 'adminFounderListTitle', 'adminFounderList'].map((id) => rendered(node(id))).join(' ');
-  return { ids, node, requests, founderRequests, confirms, i18n, scrollToBand, grant, rows, removeButton, shown };
+  return { ids, node, requests, founderRequests, confirms, i18n, scrollToBand, grant, rows, removeButton, shown, observed, windowListeners };
 }
 
 const ana = { id: '11111111-1111-4111-8111-111111111111', name: 'Ana Quispe', email: 'ana@example.test', founderSince: '2026-10-22T03:30:00.000Z' };
@@ -359,4 +361,38 @@ test('the band follows the desk’s sheet: whitespace between members, no left b
   assert.doesNotMatch(band, /text-transform|box-shadow/);
   assert.match(band, /\.admin-founder-list:empty\s*\{\s*display:\s*none;/);
   assert.match(css, /@media \(max-width: 560px\)[\s\S]*\.admin-founder\b[^{]*\{[^}]*grid-template-columns:\s*1fr/);
+});
+
+/* Founder Membership is the desk's last band and Interest requests the short one before it: on a tall screen the page
+   cannot scroll Interest requests up to the band a third of the way down, and the Founder list loading makes the page
+   taller. The tab the administrator clicked keeps its mark while its band is on screen, until they scroll by hand. */
+test('a clicked tab keeps its mark while its band is on screen, until the reader scrolls', async () => {
+  const d = desk({ observer: true });
+  await flush();
+  const band = d.observed.find((o) => o.options?.rootMargin);
+  const end = d.observed.find((o) => o.options?.threshold);
+  assert.ok(band && end, 'the tab row follows the reader');
+  const current = () => ['adminTabNews', 'adminTabCatalog', 'adminTabInterests', 'adminTabFounders'].filter((id) => d.node(id).getAttribute('aria-current') === 'true');
+  d.node('interests').getBoundingClientRect = () => ({ top: 120, bottom: 420 });
+  band.callback([{ target: d.node('interests'), isIntersecting: true }]);
+  assert.deepEqual(current(), ['adminTabInterests']);
+  end.callback([{ target: d.node('founders'), intersectionRatio: 1 }]);
+  assert.deepEqual(current(), ['adminTabFounders'], 'reaching the end marks the last band');
+  d.node('adminTabList').listeners.get('click')({ target: { closest: () => d.node('adminTabInterests') } });
+  assert.deepEqual(current(), ['adminTabInterests'], 'the clicked tab, whose band is on screen');
+  end.callback([{ target: d.node('founders'), intersectionRatio: 1 }]);
+  assert.deepEqual(current(), ['adminTabInterests'], 'still the clicked tab once the scroll settles');
+  // The Founder list loads and the page grows: no longer at its end, with Opportunities crossing the band.
+  end.callback([{ target: d.node('founders'), intersectionRatio: 0.9 }]);
+  band.callback([{ target: d.node('interests'), isIntersecting: false }, { target: d.node('catalog'), isIntersecting: true }]);
+  assert.deepEqual(current(), ['adminTabInterests'], 'the clicked tab, not the band the page happens to stop on');
+  // Scrolling by hand gives the mark back to the page position.
+  for (const handler of d.windowListeners.wheel ?? []) handler();
+  end.callback([{ target: d.node('founders'), intersectionRatio: 1 }]);
+  assert.deepEqual(current(), ['adminTabFounders']);
+  // A clicked tab whose band has left the screen does not keep the mark.
+  d.node('adminTabList').listeners.get('click')({ target: { closest: () => d.node('adminTabInterests') } });
+  d.node('interests').getBoundingClientRect = () => ({ top: -900, bottom: -40 });
+  end.callback([{ target: d.node('founders'), intersectionRatio: 1 }]);
+  assert.deepEqual(current(), ['adminTabFounders']);
 });

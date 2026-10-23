@@ -1258,16 +1258,23 @@
   /* The tab row follows the reader, as on the organiser dashboard: the section
      crossing a thin band a third of the way down the screen is the current one.
      The last section is short, so once it is wholly on screen the page has
-     reached its end and that tab is marked instead. */
+     reached its end and that tab is marked instead. A short section near the
+     end (Interest requests) may never reach the band, so a tab the
+     administrator clicked keeps the mark while its section is on screen, until
+     they scroll by hand. */
   function trackSections() {
     if (!('IntersectionObserver' in window)) return;
     const tabs = new Map([['news', elements.tabNews], ['catalog', elements.tabCatalog], ['interests', elements.tabInterests], ['founders', elements.tabFounders]]);
     const sections = [...tabs.keys()].map((id) => byId(id)).filter(Boolean);
     if (sections.length !== tabs.size) return;
     const crossing = new Set();
-    let atEnd = false;
+    let atEnd = false, chosen = null;
+    const onScreen = (id) => {
+      const box = byId(id).getBoundingClientRect();
+      return box.bottom > 0 && box.top < window.innerHeight;
+    };
     const mark = () => {
-      const current = atEnd ? sections.at(-1).id : [...tabs.keys()].find((id) => crossing.has(id));
+      const current = chosen && onScreen(chosen) ? chosen : atEnd ? sections.at(-1).id : [...tabs.keys()].find((id) => crossing.has(id));
       if (!current) return;
       for (const [id, tab] of tabs) {
         if (id === current) tab.setAttribute('aria-current', 'true');
@@ -1282,6 +1289,14 @@
       mark();
     }, { rootMargin: '-35% 0px -64% 0px' });
     for (const section of sections) band.observe(section);
+    elements.tabList.addEventListener('click', (event) => {
+      const link = event.target.closest?.('a');
+      const id = [...tabs].find(([, tab]) => tab === link)?.[0];
+      if (!id) return;
+      chosen = id;
+      mark();
+    });
+    for (const type of ['wheel', 'touchmove', 'keydown']) window.addEventListener(type, () => { chosen = null; }, { passive: true });
     new IntersectionObserver(([entry]) => {
       atEnd = entry.intersectionRatio > 0.99;
       mark();

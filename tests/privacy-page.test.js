@@ -220,6 +220,27 @@ test('the Founder Membership acceptance record is described in every language: w
   }
 });
 
+// The Founder badge an administrator gives each Membresía Fundador payer is shown to other people, so the policy says where.
+test('the Founder badge is described in every language: who gives it, where it shows, the export, and how it goes', () => {
+  const html = read('web/pages/privacy.html');
+  const articles = Object.fromEntries([...html.matchAll(/<article data-policy-lang="(en|es|pt)"[^>]*>([\s\S]*?)<\/article>/g)].map(([, lang, body]) => [lang, body]));
+  const section = (lang, n) => articles[lang].match(new RegExp(`<section id="${lang}-${n}">([\\s\\S]*?)</section>`))[1];
+  for (const [lang, category, given, shown, posts, directory] of [
+    ['en', 'Founder badge', 'an administrator gives your account the Founder badge, and we store the date it was given',
+      'on your course posts, older ones included', 'If you hold the Founder badge, it shows next to your name on your posts, whether or not you appear in the directory.', 'professional links and the Founder badge'],
+    ['es', 'Badge Founder', 'una persona administradora da a tu cuenta el badge Founder, y guardamos la fecha en que se dio',
+      'en tus publicaciones de los cursos, incluidas las anteriores', 'Si tienes el badge Founder, aparece junto a tu nombre en tus publicaciones, aparezcas o no en el directorio.', 'enlaces profesionales y el badge Founder'],
+    ['pt', 'Badge Founder', 'um administrador dá à sua conta o badge Founder, e guardamos a data em que ele foi dado',
+      'nas suas publicações nos cursos, inclusive as anteriores', 'Se você tem o badge Founder, ele aparece junto ao seu nome nas suas publicações, apareça você ou não no diretório.', 'links profissionais e o badge Founder'],
+  ]) {
+    const row = section(lang, 2).match(new RegExp(`<tr role="row"><td role="cell">${category}</td><td role="cell">([^<]*)</td></tr>`))?.[1];
+    assert.ok(row, `${lang}: a data row for the badge`);
+    assert.ok(row.includes(given) && row.includes(shown), `${lang}: who gives it and where it shows`);
+    assert.ok(section(lang, 4).includes(posts), `${lang}: course participants see it on posts`);
+    assert.ok(section(lang, 4).includes(directory), `${lang}: directory members see it on the profile`);
+  }
+});
+
 test('Sentry is named, in every language, as the recipient of technical server error reports, and what it never receives', () => {
   const html = read('web/pages/privacy.html');
   const articles = Object.fromEntries([...html.matchAll(/<article data-policy-lang="(en|es|pt)"[^>]*>([\s\S]*?)<\/article>/g)].map(([, lang, body]) => [lang, body]));
