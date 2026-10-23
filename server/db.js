@@ -290,6 +290,16 @@ const MIGRATIONS = [
       CREATE INDEX membership_acceptances_accepted_at_idx ON membership_acceptances(accepted_at DESC);
     `,
   },
+  {
+    /* The Founder badge /fundadores.html promises Membresía Fundador members: when an administrator gave it (an ISO
+       string), or null for none. Set only through /api/admin/membership/founders, never from a request body; it goes
+       with the account. Added only where it is missing, as the course store upgrades its tables. */
+    version: 10,
+    apply(db) {
+      const columns = db.prepare('PRAGMA table_info(users)').all();
+      if (columns.length && !columns.some((column) => column.name === 'founder_since')) db.exec('ALTER TABLE users ADD COLUMN founder_since TEXT');
+    },
+  },
 ];
 
 function normalizeLegacyCatalogDate(value, field) {
@@ -378,6 +388,8 @@ export function toApiUser(row) {
     mentorApplied: Boolean(row.mentor_applied),
     assessed: Boolean(row.assessed),
     notifRead: Boolean(row.notif_read),
+    founder: Boolean(row.founder_since),
+    founderSince: row.founder_since || null,
     createdAt: row.created_at,
     location: Number.isFinite(row.city_lat) && Number.isFinite(row.city_lon)
       ? { lat: row.city_lat, lon: row.city_lon, label: row.city_label || row.city }
@@ -893,6 +905,26 @@ export function recordMembershipAcceptance(db, record) {
 // Newest first.
 export function listMembershipAcceptances(db, { limit = 500 } = {}) {
   return db.prepare('SELECT * FROM membership_acceptances ORDER BY accepted_at DESC, id DESC LIMIT ?').all(limit).map(membershipAcceptanceFromRow);
+}
+
+const founderFromRow = (row) => ({ id: row.id, name: row.full_name, email: row.email, founderSince: row.founder_since });
+
+// Newest badge first.
+export function listFounders(db, { limit = 2000 } = {}) {
+  return db.prepare('SELECT id, full_name, email, founder_since FROM users WHERE founder_since IS NOT NULL ORDER BY founder_since DESC, id DESC LIMIT ?')
+    .all(limit).map(founderFromRow);
+}
+
+// Fills the date only while it is empty, so a second grant keeps the first. null when there is no such account.
+export function grantFounder(db, userId, atIso) {
+  const at = new Date(atIso).toISOString();
+  const granted = db.prepare('UPDATE users SET founder_since = ? WHERE id = ? AND founder_since IS NULL').run(at, userId).changes > 0;
+  const row = db.prepare('SELECT id, full_name, email, founder_since FROM users WHERE id = ?').get(userId);
+  return row?.founder_since ? { founder: founderFromRow(row), result: granted ? 'granted' : 'already' } : null;
+}
+
+export function removeFounder(db, userId) {
+  return db.prepare('UPDATE users SET founder_since = NULL WHERE id = ? AND founder_since IS NOT NULL').run(userId).changes > 0;
 }
 
 export function deleteUserById(db, userId) {

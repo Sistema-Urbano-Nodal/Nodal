@@ -124,7 +124,7 @@ const POLL_SESSION_MS = 30000, POLL_SESSION_MAX = 5000;
 const OPTIONAL_SESSION_API = /^\/api\/(?:auth\/state|news|catalog(?:\/[a-z0-9-]{1,40})?)$/;
 /* Routes that use only the member's id, email, name, role and account status, which
    the profile row carries. The full profile adds two reads to every request. */
-const ID_ONLY_API = /^\/api\/(?:network\/places|users|users\/search|users\/[^/]+\/(?:follow|interactions)|recommendations\/[^/]+|cities|billing\/status|checkout|me\/export|me\/catalog-interests|me\/location\/(?:suggest|accept)|(?:admin\/)?catalog(?:\/.*)?|admin\/interests(?:\/.*)?|(?:admin\/)?membership\/acceptances)$/;
+const ID_ONLY_API = /^\/api\/(?:network\/places|users|users\/search|users\/[^/]+\/(?:follow|interactions)|recommendations\/[^/]+|cities|billing\/status|checkout|me\/export|me\/catalog-interests|me\/location\/(?:suggest|accept)|(?:admin\/)?catalog(?:\/.*)?|admin\/interests(?:\/.*)?|(?:admin\/)?membership\/acceptances|admin\/membership\/founders(?:\/[^/]+)?)$/;
 // A Stripe subscription in any of these states exists and can still bill the member.
 const LIVE_SUBSCRIPTION_STATUSES = new Set(['pending', 'active', 'trialing', 'past_due', 'unpaid', 'paused']);
 // The account deletion's upload refusals, by their wording, and the code the console translates each one by.
@@ -374,6 +374,8 @@ const OFFER_STARTS_AT = Date.parse(FUNDADORES_2027.effectiveFromAt), OFFER_ENDS_
 const ACCEPTANCES = ['terms', 'payment', 'renewal'];
 // The acceptances CSV holds the newest this many: far more than one offer period sells.
 const MEMBERSHIP_EXPORT_LIMIT = 10000;
+// The admin desk lists at most this many Founder badges, newest first: more than one offer period sells.
+const FOUNDER_LIST_LIMIT = 2000;
 // The downloads with the most personal data, each logged with who and when (see the request handler).
 const LOGGED_DOWNLOADS = new Set(['/api/admin/fiiu/export', '/api/admin/membership/acceptances']);
 /* Mercado Pago shows the team Lima time (UTC-05:00 all year), so the CSV gives each acceptance's time there too,
@@ -803,9 +805,10 @@ function sendNotModified(res, etag) {
 
 function sanitizeProfilePatch(body) {
   if (!body || typeof body !== 'object') throw Object.assign(new Error('invalid profile payload'), { status: 400 });
-  if ('app_role' in body || 'appRole' in body || 'role' in body || 'permission' in body) {
-    throw Object.assign(new Error('app_role cannot be changed through profile updates'), { status: 400 });
-  }
+  /* Server-owned: the role, and the Founder badge only an administrator gives (/api/admin/membership/founders). */
+  const owned = ['app_role', 'appRole', 'role', 'permission'].some((key) => key in body) ? 'app_role'
+    : ['founder', 'founderSince', 'founder_since'].some((key) => key in body) ? 'founder_since' : null;
+  if (owned) throw Object.assign(new Error(`${owned} cannot be changed through profile updates`), { status: 400 });
   /* The name is a string, the other text fields a string or null (stored as empty). JSON can send an object instead,
      and String() of one such as {"toString":1} throws: refused here, with the field's own message, not a 500 below. */
   const text = (value) => value === undefined || value === null || typeof value === 'string';
@@ -1737,6 +1740,61 @@ export function createApp({
         return;
       }
 
+      /* The Founder badge /fundadores.html promises each Membresía Fundador member, for as long as they keep their NODAL
+         account. NODAL never sees the Mercado Pago payment, so only the team gives it, by the email of the payer's
+         account, once the payment and its acceptance are checked (docs/supporter-payments.md): never inferred from the
+         Supporter course (FIIU registrants are enrolled too) nor from an acceptance (given before paying). Unconfirmed
+         and suspended accounts can hold it. A second grant keeps the first date; removing one corrects a mistake. The
+         log names the administrator and the member by id, never by email. */
+      if (useDb && pathname === '/api/admin/membership/founders' && (req.method === 'GET' || req.method === 'POST')) {
+        if (!requireAdmin(res, sessionUser)) return;
+        if (req.method === 'GET') {
+          if (!throttle(readLimiter, res, req, sessionUser, 'membership-founders')) return;
+          let founders;
+          try { founders = await repository.listFounders({ limit: FOUNDER_LIST_LIMIT }); }
+          catch (err) { await reportAnswer(req, 503, err); send(res, 503, { code: 'founder_unavailable' }); return; }
+          send(res, 200, { founders });
+          return;
+        }
+        if (!sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
+        if (!throttle(writeLimiter, res, req, sessionUser, 'membership-founder')) return;
+        const body = await readJsonBody(req);
+        const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+        if (email.length > 254 || !validateEmail(email)) { send(res, 400, { code: 'founder_email_invalid' }); return; }
+        let granted;
+        try {
+          // Exact, case-insensitive: the course participant lookup, which refuses an address two profiles share.
+          const account = await repository.findCourseAccount(email);
+          if (!account) { send(res, 404, { code: 'founder_not_found' }); return; }
+          granted = await repository.grantFounder(account.id, new Date(now()).toISOString());
+        } catch (err) {
+          // The lookup's own refusals carry no expose flag; a provider's answer always has expose: false.
+          if (err?.status === 400 && err.expose !== false) { send(res, 400, { code: 'founder_email_invalid' }); return; }
+          if (err?.status === 409 && err.expose !== false) { send(res, 409, { code: 'founder_account_conflict' }); return; }
+          await reportAnswer(req, 503, err);
+          send(res, 503, { code: 'founder_unavailable' });
+          return;
+        }
+        if (!granted) { send(res, 404, { code: 'founder_not_found' }); return; }
+        if (granted.result === 'granted') console.info(`founder badge granted to ${granted.founder.id} by ${sessionUser.id}`);
+        send(res, granted.result === 'granted' ? 201 : 200, { result: granted.result, founder: granted.founder });
+        return;
+      }
+
+      const founderPath = pathname.match(/^\/api\/admin\/membership\/founders\/([^/]+)$/);
+      if (useDb && req.method === 'DELETE' && founderPath) {
+        if (!requireAdmin(res, sessionUser)) return;
+        if (!sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
+        if (!throttle(writeLimiter, res, req, sessionUser, 'membership-founder')) return;
+        let removed;
+        try { removed = await repository.removeFounder(founderPath[1]); }
+        catch (err) { await reportAnswer(req, 503, err); send(res, 503, { code: 'founder_unavailable' }); return; }
+        if (!removed) { send(res, 404, { code: 'founder_not_found' }); return; }
+        console.info(`founder badge removed from ${founderPath[1]} by ${sessionUser.id}`);
+        send(res, 200, { result: 'removed' });
+        return;
+      }
+
       if (req.method === 'GET' && pathname === '/api/cities') {
         if (useDb && !requireAuth(res, sessionUser)) return;
         if (!throttle(readLimiter, res, req, sessionUser, 'cities')) return;
@@ -2210,6 +2268,7 @@ export function createApp({
             interests: user.interests,
             topics: user.topics,
             assessed: user.assessed,
+            founder: Boolean(user.founder),
             linkedin: user.linkedin,
             createdAt: user.createdAt,
             partC: { bio: user.partC?.bio || '', linkedin: user.linkedin, availability: user.partC?.availability || '', consent: true, portfolio: '', references: '' },

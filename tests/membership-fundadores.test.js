@@ -436,7 +436,7 @@ test('the Supabase table is server-only contract evidence that outlives the prof
   assert.match(raw, /BEFORE pushing `main`/);
   for (const route of ['/api/membership/acceptances', '/api/me/export', '/api/admin/membership/acceptances']) assert.ok(raw.includes(route), route);
   const deployment = readFileSync(path.join(ROOT, 'DEPLOYMENT.md'), 'utf8');
-  const step = deployment.slice(deployment.indexOf('## Founder Membership acceptances'), deployment.indexOf('## Supabase Setup'));
+  const step = deployment.slice(deployment.indexOf('## Founder Membership acceptances'), deployment.indexOf('## Founder badge'));
   assert.match(step, /before pushing `main`/);
   for (const route of ['/api/me/export', '/api/admin/membership/acceptances']) assert.ok(step.includes(route), `DEPLOYMENT.md: ${route}`);
   const statements = raw.replace(/--[^\n]*/g, '').split(';').map((part) => part.replace(/\s+/g, ' ').trim()).filter(Boolean);

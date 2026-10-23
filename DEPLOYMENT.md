@@ -231,6 +231,39 @@ select has_table_privilege('anon', 'public.membership_acceptances', 'select'),
        has_table_privilege('service_role', 'public.membership_acceptances', 'update');  -- both false
 ```
 
+## Founder badge: one migration before `main`
+
+`20261023000000_founder_badge.sql` adds the nullable column
+`profiles.founder_since`: when an administrator gave the member the Founder
+badge that `/fundadores.html` promises, or null for none. Only the admin desk's
+**Membresía Fundador** tab sets it (`/api/admin/membership/founders`), never a
+request body, and the badge goes with the account. It is additive: existing
+rows read as no badge, and the code live today reads profiles with `select=*`,
+so applying it first is safe. No grant changes: `service_role`'s table-level
+`SELECT, INSERT, UPDATE` on `profiles` covers the new column, the browser roles
+hold nothing on the table, and `public_profiles` lists its columns by name.
+
+**Apply it before pushing `main`:** the new server selects `founder_since`
+whenever it names course members, so until the column exists every member's
+data download (`/api/me/export`) and account deletion (`DELETE /api/me`, which
+by then has already erased the member's festival conversation data) fail on
+Supabase, as do the teaching report and its CSVs and the final survey's lists
+and certificates. The badge desk (`/api/admin/membership/founders`) answers 503
+`founder_unavailable`, and course posts show no badge.
+
+```bash
+npx --no-install supabase db query --linked -f supabase/migrations/20261023000000_founder_badge.sql
+npx --no-install supabase migration repair --status applied 20261023000000
+```
+
+```sql
+select data_type, is_nullable, column_default from information_schema.columns
+ where table_schema = 'public' and table_name = 'profiles' and column_name = 'founder_since';
+-- timestamp with time zone | YES | (null)
+select has_column_privilege('service_role', 'public.profiles', 'founder_since', 'update'),
+       has_column_privilege('authenticated', 'public.profiles', 'founder_since', 'update');  -- true, false
+```
+
 ## Supabase Setup
 
 1. Create a Supabase project.

@@ -127,18 +127,29 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
       if(!await findOne('attachments',{id:resource.attachmentId,courseId:module.courseId,moduleId:module.id,purpose:'material',status:'ready'}))fail('official resource attachment unavailable');
     }));
   }
-  async function postView(post,user,knownAttachments) {
+  /* Whether each author holds the Founder badge now, so a badge given (or removed) later shows on older posts too: the
+     viewer's own from the session, anyone else's from one members read. The badge only decorates a post, so a failed
+     read shows none rather than failing the conversation. */
+  async function postFounders(posts,user) {
+    const founders=new Map(user?.id?[[user.id,Boolean(user.founder)]]:[]);
+    const ids=[...new Set(posts.filter(post=>!post.deletedAt&&post.userId&&!founders.has(post.userId)).map(post=>post.userId))];
+    try { for(let offset=0;offset<ids.length;offset+=100)for(const member of await store.getMembers(ids.slice(offset,offset+100)))founders.set(member.id,Boolean(member.founder)); }
+    catch(error) { log('course post founder lookup failed:',errorText(error)); }
+    return founders;
+  }
+  async function postView(post,user,knownAttachments,knownFounders) {
     const deleted=Boolean(post.deletedAt)||!post.userId;
     const owned=!deleted&&post.userId===user?.id;
     const attachments=deleted?[]:(await Promise.all((post.attachmentIds??[]).map(id=>knownAttachments?knownAttachments.get(id.toLowerCase()):findOne('attachments',{id,courseId:post.courseId,moduleId:post.moduleId,userId:post.userId,status:'ready'}))))
       .filter(file=>file&&file.courseId===post.courseId&&file.moduleId===post.moduleId&&file.userId===post.userId&&file.status==='ready').map(attachmentView);
-    return {id:post.id,courseId:post.courseId,moduleId:post.moduleId,userId:deleted?null:post.userId,authorName:deleted?'':post.authorName,staff:deleted?false:post.staff,parentId:post.parentId,kind:post.kind,body:deleted?'':post.body,links:deleted?[]:post.links,attachments,createdAt:post.createdAt,deleted,canEdit:owned,canDelete:owned};
+    const founder=!deleted&&Boolean((knownFounders??await postFounders([post],user)).get(post.userId));
+    return {id:post.id,courseId:post.courseId,moduleId:post.moduleId,userId:deleted?null:post.userId,authorName:deleted?'':post.authorName,staff:deleted?false:post.staff,founder,parentId:post.parentId,kind:post.kind,body:deleted?'':post.body,links:deleted?[]:post.links,attachments,createdAt:post.createdAt,deleted,canEdit:owned,canDelete:owned};
   }
   async function postPageView(posts,user,module) {
     const ids=[...new Set(posts.filter(post=>!post.deletedAt&&post.userId).flatMap(post=>post.attachmentIds??[]))];
-    const files=ids.length?await store.getPostAttachments({ids,courseId:module.courseId,moduleId:module.id}):[];
+    const [files,founders]=await Promise.all([ids.length?store.getPostAttachments({ids,courseId:module.courseId,moduleId:module.id}):[],postFounders(posts,user)]);
     const attachments=new Map(files.map(file=>[file.id.toLowerCase(),file]));
-    return Promise.all(posts.map(post=>postView(post,user,attachments)));
+    return Promise.all(posts.map(post=>postView(post,user,attachments,founders)));
   }
   /* The September conversation stays with the September group (course-perks.js). For a new joiner a post is hidden
      when it was written before October or answers a hidden post, so an October reply in a September thread is hidden
@@ -206,7 +217,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
     const grouped=perks.applies(courseId);
     const participants=enrollments.map(enrollment=>{
       const user=members.get(enrollment.userId);
-      return {userId:enrollment.userId,name:user?.name??'',email:user?.email??'',enrolledAt:enrollment.createdAt,intake:answers.get(enrollment.userId)??null,
+      return {userId:enrollment.userId,name:user?.name??'',email:user?.email??'',founder:Boolean(user?.founder),enrolledAt:enrollment.createdAt,intake:answers.get(enrollment.userId)??null,
         ...(grouped?{group:perks.inSeptemberGroup(enrollment)?'september':'october'}:{})};
     });
     const livePosts=posts.filter(post=>!post.deletedAt&&post.userId);

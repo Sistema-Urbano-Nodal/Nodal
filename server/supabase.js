@@ -279,6 +279,12 @@ function profileName(profile = {}) {
   return cleanString(profile.full_name || profile.preferred_name || profile.email?.split('@')[0] || 'Member', 120);
 }
 
+// The Founder badge's columns and the admin desk's view of them (/api/admin/membership/founders).
+const FOUNDER_COLUMNS = 'id,email,full_name,preferred_name,founder_since';
+function founderFromSupabase(row) {
+  return { id: row.id, name: profileName(row), email: cleanString(row.email, 320), founderSince: canonicalTimestamp(row.founder_since) };
+}
+
 function toApiUserFromSupabase({ profile, preferences, onboarding }) {
   if (!profile) return null;
   const raw = onboarding?.raw_answers && typeof onboarding.raw_answers === 'object' ? onboarding.raw_answers : {};
@@ -325,6 +331,9 @@ function toApiUserFromSupabase({ profile, preferences, onboarding }) {
     location: Number.isFinite(profile.city_lat) && Number.isFinite(profile.city_lon)
       ? { lat: profile.city_lat, lon: profile.city_lon, label: profile.city_label || cleanString(profile.city_region, 120) }
       : null,
+    // Given only by an administrator (founder_since); a value that is not a date counts as no badge.
+    founder: canonicalTimestamp(profile.founder_since) !== null,
+    founderSince: canonicalTimestamp(profile.founder_since),
     createdAt: profile.created_at,
     updatedAt: profile.updated_at,
   };
@@ -1286,6 +1295,46 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         if (!page.length || (!contentRange && page.length < 500)) break;
       }
       return rows.slice(0, limit).map(membershipAcceptanceFromSupabase);
+    },
+    /* The Founder badge (profiles.founder_since), given and removed only by an administrator. Ids that cannot be a
+       profile's are answered without a request. Newest first, in pages of 500 as listMembershipAcceptances reads. */
+    async listFounders({ limit = 2000 } = {}) {
+      const rows = [];
+      while (rows.length < limit) {
+        const { rows: page, contentRange } = await admin.rest('profiles', {
+          includeRange: true,
+          query: { select: FOUNDER_COLUMNS, founder_since: 'not.is.null', order: 'founder_since.desc,id.desc', limit: Math.min(500, limit - rows.length), offset: rows.length },
+        });
+        if (!Array.isArray(page)) throw new Error('Invalid founders page');
+        rows.push(...page);
+        if (!page.length || (!contentRange && page.length < 500)) break;
+      }
+      return rows.slice(0, limit).map(founderFromSupabase);
+    },
+    // The PATCH fills the date only while it is empty, so a second grant (or two at once) keeps the first.
+    async grantFounder(userId, atIso) {
+      if (!courseUserId(userId)) return null;
+      const at = new Date(atIso).toISOString();
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const granted = await first(admin.rest('profiles', {
+          method: 'PATCH', query: { id: `eq.${userId}`, founder_since: 'is.null', select: FOUNDER_COLUMNS },
+          headers: { Prefer: 'return=representation' }, body: { founder_since: at },
+        }));
+        if (granted) return { founder: founderFromSupabase(granted), result: 'granted' };
+        const current = await first(admin.rest('profiles', { query: { id: `eq.${userId}`, select: FOUNDER_COLUMNS } }));
+        if (!current) return null;
+        if (current.founder_since) return { founder: founderFromSupabase(current), result: 'already' };
+        // Removed between the two requests: the grant is tried once more.
+      }
+      throw Object.assign(new Error('Founder badge changed during the grant'), { status: 503, expose: false });
+    },
+    async removeFounder(userId) {
+      if (!courseUserId(userId)) return false;
+      const rows = await admin.rest('profiles', {
+        method: 'PATCH', query: { id: `eq.${userId}`, founder_since: 'not.is.null', select: 'id' },
+        headers: { Prefer: 'return=representation' }, body: { founder_since: null },
+      });
+      return Array.isArray(rows) && rows.length > 0;
     },
     async deleteUserById(userId) {
       await admin.request(`/auth/v1/admin/users/${encodeURIComponent(userId)}`, { method: 'DELETE' });

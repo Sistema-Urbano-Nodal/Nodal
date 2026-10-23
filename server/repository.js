@@ -13,12 +13,15 @@ import {
   getCatalogInterestById,
   getUserByEmail,
   getUserById,
+  grantFounder,
   listDirectoryUsers,
   listAdminInterests,
   listCatalogInterestsForUser,
   listCatalogItems,
+  listFounders,
   listMembershipAcceptances,
   recordMembershipAcceptance,
+  removeFounder,
   setUserLocation,
   acceptUserLocation,
   loadGraphStore,
@@ -120,6 +123,15 @@ function createSqliteRepository(db, { ownsDb = false } = {}) {
     },
     async listMembershipAcceptances(query) {
       return listMembershipAcceptances(db, query);
+    },
+    async listFounders(query) {
+      return listFounders(db, query);
+    },
+    async grantFounder(userId, atIso) {
+      return grantFounder(db, userId, atIso);
+    },
+    async removeFounder(userId) {
+      return removeFounder(db, userId);
     },
     async listCatalogItems(query, viewer) {
       return listCatalogItems(db, query, viewer);
