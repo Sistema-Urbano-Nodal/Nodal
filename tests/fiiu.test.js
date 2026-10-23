@@ -87,7 +87,7 @@ test('a scanned check-in link opens the check-in page for everyone, and its sign
  assert.equal((await call('/fiiu-checkin.html',{actor:'guest'})).status,200,'the code form loads signed out too');
  // The page's sign-in link: login sends a signed-in visitor straight back to the same block and code.
  const back=await call('/login.html?next='+encodeURIComponent(page));assert.equal(back.status,302,'a signed-in visitor of the login page is sent on');
- assert.equal(back.headers.get('location'),page);
+ assert.equal(back.headers.get('location'),page+'#','an empty fragment, so tokens in the login address never carry over');
  // The check-in itself still needs an account.
  const anonymous=await call('/api/fiiu/checkin',{actor:'guest',method:'POST',body:{activityId:'day1-am',code:'x'.repeat(22)}});
  assert.equal(anonymous.status,401);

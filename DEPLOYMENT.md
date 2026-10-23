@@ -355,7 +355,8 @@ deployments: set them before pushing `main`, or redeploy after adding them. The
 acceptances need the migration
 under "Founder Membership acceptances" above. Platform admins download them,
 newest first, from `/api/admin/membership/acceptances` (CSV), each time both in
-UTC (`accepted_at`) and in Lima time (`accepted_at_lima`).
+UTC (`accepted_at`) and in Lima time (`accepted_at_lima`), with a last column
+`account_deleted` (`yes` once the payer deleted their NODAL account).
 
 Stripe is dormant (it cannot onboard a Peruvian business); its variables below
 only matter if that route is ever revived.

@@ -30,7 +30,7 @@ test('catalog-news-payments-2: the console shows a refused deletion in the membe
   assert.ok(api.length > 100 && handler.length > 100, 'the code is where the test expects it');
   for (const [answer, shown] of [
     [{ status: 409, body: { error: 'Cancel your NODAL membership before deleting your account.', code: 'subscription_active' } }, 'd.uc.deleteSubscription'],
-    [{ status: 400, body: { error: 'account deletion requires email confirmation' } }, 'account deletion requires email confirmation'],
+    [{ status: 400, body: { error: 'account deletion requires email confirmation' } }, 'd.uc.deleteFail'],
   ]) {
     let click;
     const context = vm.createContext({

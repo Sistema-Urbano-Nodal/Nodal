@@ -204,7 +204,8 @@ window.nodalI18n?.onChange(translate);
 function showPilot(pilot){
   document.documentElement.dataset.pilot=String(pilot);
   let notice=document.querySelector('[data-pilot-banner]');
-  if(!notice&&pilot){
+  // A page that sells something real (the Membresía Fundador checkout) opts out with <body data-no-pilot-banner>.
+  if(!notice&&pilot&&document.body?.dataset?.noPilotBanner===undefined){
     notice=el('div','pilot-notice');notice.dataset.pilotBanner='';
     notice.append(tr('strong','prototype'),tr('span','notice'));
     const dashboardWork=document.querySelector('.dash-page .work'),header=document.querySelector('.pilot-header,.navbar');

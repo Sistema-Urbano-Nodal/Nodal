@@ -14,7 +14,8 @@ const META=/<meta\b[^>]*http-equiv="Content-Security-Policy"[^>]*>/i;
 /* In Chromium a CSP <meta> in the head stops the preload scanner, so every stylesheet, font and deferred script
    waited for the blocking locale.js: one more round trip on each cold load. The server sends the same policy, plus
    frame-ancestors, as a header on every page it serves, so those pages carry no meta. The CDN copies
-   (opportunities, privacy) get only frame-ancestors from vercel.json and keep theirs; so does the home page. */
+   (opportunities, privacy, terminos-fundadores, fundadores) get the same policy as a header from vercel.json and
+   keep their meta too; so does the home page. */
 const KEEPS_META=new Set([...STATIC_PAGES,'index.html']);
 // The old conversation page stays in the repository for links already out there, which the server sends to the session page.
 const MOVED=new Map([['fiiu-talk.html','/fiiu-session.html']]);

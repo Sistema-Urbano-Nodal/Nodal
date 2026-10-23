@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 
-function startup(mode) {
+function startup(mode, { banner: withBanner = true, optOut = false } = {}) {
   const nodes = [];
   const node = (tag = 'div') => {
     const n = { tagName: tag, dataset: {}, children: [], hidden: false, classList: { contains: () => false, toggle() {} },
@@ -11,14 +11,15 @@ function startup(mode) {
       after(child) { nodes.push(child); }, setAttribute(k, v) { this[k] = v; }, querySelector() { return null; } };
     nodes.push(n); return n;
   };
-  const banner = node(); banner.dataset.pilotBanner = ''; banner.hidden = true;
-  const heading = node('strong'); heading.dataset.pilotText = 'prototype'; heading.textContent = 'Course pilot · Prototype'; banner.append(heading);
+  const banner = withBanner ? node() : null; if (banner) { banner.dataset.pilotBanner = ''; banner.hidden = true; }
+  const heading = node('strong'); heading.dataset.pilotText = 'prototype'; heading.textContent = 'Course pilot · Prototype'; banner?.append(heading);
   const status = node('p'); status.id = 'pilotStatus'; status.textContent = 'Loading…';
   const nav = node('nav');
   const html = node('html'); if (mode !== undefined) html.dataset.pilot = mode;
   let resolveConfig; const pending = new Promise(resolve => { resolveConfig = resolve; });
   const requests = [];
-  const ctx = { console, URL, URLSearchParams, Intl, document: { readyState: 'complete', documentElement: html, body: node('body'),
+  const body = node('body'); if (optOut) body.dataset.noPilotBanner = '';
+  const ctx = { console, URL, URLSearchParams, Intl, document: { readyState: 'complete', documentElement: html, body,
     getElementById(id) { return nodes.find(n => n.id === id) || null; },
     querySelector(selector) { return selector === '[data-pilot-banner]' ? banner : selector === '.pilot-header nav,.side-nav,.nav-main' ? nav : null; },
     querySelectorAll(selector) { return selector === '[data-pilot-text]' ? nodes.filter(n => n.dataset.pilotText) : selector === '[data-pilot-dynamic]' ? nodes.filter(n => n.dataset.pilotDynamic) : []; }, createElement: node },
@@ -62,4 +63,13 @@ test('legacy pages reconcile configuration after showing their initial translate
   assert.equal(h.html.dataset.pilot, 'false');
   assert.equal(h.banner.hidden, true);
   assert.equal(h.nav.children.length, 1);
+});
+
+// 22 Oct 2026: the Membresía Fundador checkout sells a real membership, so it opts out of the course-pilot banner, which
+// pilot.js would otherwise add to a page without one.
+test('a page that opts out of the pilot banner never gets one added, and other pages still do', () => {
+  const kept = startup('true', { banner: false, optOut: true });
+  assert.equal(kept.nodes.filter(n => n.dataset?.pilotBanner !== undefined).length, 0, 'no banner on the opted-out page');
+  const added = startup('true', { banner: false });
+  assert.equal(added.nodes.filter(n => n.dataset?.pilotBanner !== undefined).length, 1, 'a page without the markup still gets one');
 });

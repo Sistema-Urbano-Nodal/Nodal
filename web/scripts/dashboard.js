@@ -1734,7 +1734,7 @@
   (function loadGlobeOnApproach() {
     const band = byId('network');
     if (!band || !byId('globeCanvas')) return;
-    const scripts = ['coastline.js?v=3', 'globe-geo.js?v=1', 'globe.js?v=30'];
+    const scripts = ['coastline.js?v=3', 'globe-geo.js?v=1', 'globe.js?v=31'];
     let observer = null;
     const load = () => {
       observer?.disconnect();

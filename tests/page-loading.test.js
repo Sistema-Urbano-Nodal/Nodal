@@ -95,9 +95,10 @@ test('Montserrat is available locally before first use, with no external font st
   assert.match(readFileSync(path.join(ROOT,'web/assets/fonts/OFL.txt'),'utf8'),/SIL OPEN FONT LICENSE/);
 });
 
-test('pilot pages reserve a single banner in the initial HTML without adding one to the public home',()=>{
+test('pilot pages reserve a single banner in the initial HTML without adding one to the public home or the paid checkout',()=>{
   for(const [name,html] of pages()){
-    const hasPilot=/<script\b[^>]*src="pilot\.js[?"]/.test(html);
+    // The Membresía Fundador checkout sells a real membership: it carries no course-pilot "prototype" banner (22 Oct 2026).
+    const hasPilot=/<script\b[^>]*src="pilot\.js[?"]/.test(html)&&name!=='payments.html';
     assert.equal((html.match(/data-pilot-banner/g)||[]).length,hasPilot?1:0,name);
     if(!hasPilot)continue;
     assert.match(html,/<div class="pilot-notice" data-pilot-banner hidden>/,`${name}: server decides initial banner visibility`);
