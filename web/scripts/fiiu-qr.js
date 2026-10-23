@@ -2,10 +2,12 @@
  'use strict';
  // The check-in screen shown at the door (organisers only; the server gates the page). Without ?a= it lists the NODAL blocks. With ?a= it shows that block's
  // rotating QR code, the 6-character code and address for phones that cannot scan, when check-in closes and a live count. It never shows participant data.
- const Fiiu=window.Fiiu,{t,el,tr,button,link,source,api,status,dateNode,checkinActivities,checkinState,windowNode,countLabel,newTabNote}=Fiiu;
+ const Fiiu=window.Fiiu,{t,el,tr,button,link,source,api,status,dateNode,checkinActivities,checkinState,windowNode,countLabel,newTabNote,limaDate,locale}=Fiiu;
  // Page-only strings join the shared dictionary, so t(), tr() and the language switch in fiiu-ui.js handle them like the rest.
  Object.assign(Fiiu.rows,{
   qrClosedKicker:['Check-in closed','Registro cerrado','Registro encerrado'],
+  // The amber line of a screen opened away from its block's time: {day} is the block's long date, {time} its start, both in Lima.
+  qrBlockOnAt:['This block is on {day} at {time}','Este bloque es el {day}, a las {time}','Este bloco é {day}, às {time}'],qrBlockOn:['This block is on {day}','Este bloque es el {day}','Este bloco é {day}'],
  });
  const root=document.getElementById('fiiuQrRoot'),message=document.getElementById('fiiuStatus'),SVG='http://www.w3.org/2000/svg',REFRESH=30000;
  const id=new URLSearchParams(location.search).get('a')||'';
@@ -46,21 +48,32 @@
   back.setAttribute('width',String(side));back.setAttribute('height',String(side));back.setAttribute('fill','#fff');
   path.setAttribute('d',d);path.setAttribute('fill','#000');path.setAttribute('shape-rendering','crispEdges');svg.append(back,path);return svg;
  }
- // With ?a=: the parts that never change are built once; each refresh replaces only the code, the closing line and the count, so focus stays on the controls.
+ // With ?a=: the parts that never change are built once; each refresh replaces only the code, the closing and amber lines and the count, so focus stays on the controls.
  function screen(){
   const box=el('section','f-qr'),stage=el('div','f-qr-stage'),code=el('div','f-qr-code'),side=el('div','f-qr-side'),title=source('h1',activity.title,'f-qr-title');
-  const windowLine=el('p','f-qr-window'),typed=el('div','f-qr-typed'),address=el('p','f-qr-url'),short=el('p','f-qr-short'),count=el('p','f-qr-count'),controls=el('div','f-actions f-qr-controls');
+  const windowLine=el('p','f-qr-window'),when=el('p','f-qr-when'),typed=el('div','f-qr-typed'),address=el('p','f-qr-url'),short=el('p','f-qr-short'),count=el('p','f-qr-count'),controls=el('div','f-actions f-qr-controls');
   const kicker=tr('p','scanToCheckIn','f-qr-kicker'),note=tr('p','codeRotates','f-muted f-qr-note');
-  count.setAttribute('role','status');count.setAttribute('aria-live','polite');typed.append(tr('p','orTypeCode','f-qr-type-label'),address,short);
-  side.append(kicker,title,meta(activity,'f-qr-meta'),windowLine,typed,count);stage.append(code,side);
+  when.hidden=true;count.setAttribute('role','status');count.setAttribute('aria-live','polite');typed.append(tr('p','orTypeCode','f-qr-type-label'),address,short);
+  side.append(kicker,title,meta(activity,'f-qr-meta'),windowLine,when,typed,count);stage.append(code,side);
   // Full screen where the browser allows it (not on iPhone); the label follows the state, including Esc.
   if(typeof stage.requestFullscreen==='function'&&document.fullscreenEnabled!==false){
    const full=button('fullScreen',()=>document.fullscreenElement?document.exitFullscreen?.():stage.requestFullscreen()?.catch?.(()=>{}),'f-button');controls.append(full);
    document.addEventListener('fullscreenchange',()=>{const key=document.fullscreenElement?'exitFullScreen':'fullScreen';full.dataset.fiiuText=key;full.textContent=t(key);});
   }
-  // A screen may stand at the door, signed in as an organiser: it links nowhere, and f-presenter hides the site menu (fiiu.css). The list keeps both.
+  // A screen may stand at the door, signed in as an organiser: it links nowhere, and f-presenter hides the site menu and the footer (fiiu.css), whose privacy
+  // link opens in the same tab. The list keeps its links, the menu and the footer.
   document.body.classList.toggle('f-presenter',true);
-  box.append(stage,controls,note);root.replaceChildren(box,newTabNote());parts={code,windowLine,address,short,count,typed,kicker,note};
+  box.append(stage,controls,note);root.replaceChildren(box,newTabNote());parts={code,windowLine,when,address,short,count,typed,kicker,note};
+ }
+ // A screen takes check-ins for its own block whenever it is open, so one opened for another block (the evening block in the morning, tomorrow's the day
+ // before) says in amber when its block is: on another Lima day, or more than an hour before it starts, by the server's clock. The line goes in the hour
+ // before the start and stays away once the block is under way; the untimed laboratory counts its day only.
+ const START=/^\s*(\d{1,2}):(\d{2})/,HOUR=36e5;
+ function awayLine(now){
+  const start=START.exec(activity.time||''),clock=start?start[1].padStart(2,'0')+':'+start[2]:'',begins=start?Date.parse(`${activity.date}T${clock}:00-05:00`):NaN;
+  if(activity.date===limaDate(new Date(now))&&!(begins-now>HOUR))return '';
+  const day=new Intl.DateTimeFormat(locale(),{weekday:'long',day:'numeric',month:'long',timeZone:'America/Lima'}).format(new Date(activity.date+'T12:00:00-05:00'));
+  return (start?t('qrBlockOnAt').replace('{time}',clock):t('qrBlockOn')).replace('{day}',day);
  }
  // fresh is false when a language change redraws the last answer: its serverTime is old by then, so the clock offset is kept.
  function show(data,fresh=true){
@@ -70,6 +83,7 @@
   // Open or closed, as the server judged it; an answer without that verdict is judged on the server's clock.
   const state=typeof data.window?.open==='boolean'?(data.window.open?'open':'closed'):checkinState(shown,serverNow());
   parts.windowLine.replaceChildren(windowNode(shown,state));
+  const away=awayLine(serverNow());parts.when.textContent=away;parts.when.hidden=!away;
   parts.count.replaceChildren(...(Number.isSafeInteger(data.checkedIn)?[countLabel(data.checkedIn,'checkedInOne','checkedInMany')]:[]));
   // Once check-in has closed the server refuses every scan, though it still sends a code: nothing scannable or typeable stays on the projector,
   // the queue reads that check-in closed and where to go, and polling carries on, so a screen opened by mistake (yesterday's block) is plain to see.

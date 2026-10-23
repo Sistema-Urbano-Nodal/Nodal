@@ -2231,3 +2231,20 @@ test('a registration made at a block’s door is marked in the organisers’ lis
  assert.ok(key(marked,'walkInShort'));assert.equal(key(plain,'walkInShort'),undefined);
  h.lang('es');assert.equal(content(key(marked,'walkInShort')).trim(),'En la puerta');
 });
+
+// Audit 22 F2: iOS and iPadOS 15.0–15.3 have no Array.prototype.at, and the dashboard grouped its tables, its programme and its questions with it, so on
+// those iPads the organisers' dashboard never drew. Here the page's own realm loses .at as soon as fiiu-ui.js registers for language changes, before the
+// dashboard's script runs.
+test('the dashboard draws its check-in, programme and questions, and Load more keeps focus, without Array.prototype.at (iOS 15.0–15.3)',async()=>{
+ const window={confirm:()=>true,addEventListener(){},nodalI18n:{lang:'en',onChange:listener=>listener.constructor('delete Array.prototype.at')()}};
+ const posts=[{id:'new1',version:1,title:'Newest news',body:'',url:'',kind:'news',status:'published',activityId:''},{id:'old1',version:1,title:'Old material',body:'',url:'https://example.test/material',kind:'material',status:'published',activityId:''}];
+ const h=await harness(({path})=>path==='/api/admin/fiiu/content'?{content:[copy(posts[0])],nextCursor:'new1'}:{content:[copy(posts[1])],nextCursor:null},{questionsRead:()=>({questions:[question()]}),context:{window}});
+ assert.equal(vm.runInContext('typeof [].at',h.ctx),'undefined');assert.equal(h.message.dataset.fiiuText,'');
+ assert.deepEqual(h.root.querySelector('.f-admin-checkin').querySelectorAll('.f-group-date').map(node=>node.dataset.fiiuDate),['2026-10-20','2026-10-21','2026-10-22','2026-10-23'],'check-in blocks by day');
+ assert.ok(h.root.querySelector('.f-summary-body').querySelector('table'),'the totals');
+ assert.equal(programmeSection(h).querySelectorAll('.f-programme-day').length,6,'the programme by day');
+ assert.equal(conversations(h).querySelectorAll('.f-question-group').length,1,'the questions by block');
+ await key(h.root.querySelector('.f-admin-content'),'loadMore').listeners.click();
+ assert.deepEqual(publicationTitles(h),['Newest news','Old material']);assert.equal(h.message.dataset.fiiuText,'');
+ assert.equal(h.root.querySelectorAll('.f-pub')[1].querySelector('button').focused,true,'focus goes to the last publication once every page is shown');
+});

@@ -722,17 +722,19 @@ test('by default the check-in screen carries the real QR of its link, packed row
  assert.equal(body.qr.bits,packBits(qr));assert.equal(Buffer.from(body.qr.bits,'base64').length,Math.ceil(qr.size*qr.size/8));
 });
 
-test('the staff export appends attendance, certificate hours, methods, Lima check-in times per NODAL block and the summary email status',async t=>{
+test('the staff export appends attendance, certificate hours, methods, Lima check-in times per NODAL block, the summary email status and the Lima registration time',async t=>{
  const {codes,options}=festivalClock('2026-10-21T14:12:00Z');// 09:12 in Lima
- const {call,save}=await setup(t,undefined,options);
+ const {call,save,db}=await setup(t,undefined,options);
  const {registration}=await(await save({...answers,activities:['day1-am','day2-am']})).json();await save(answers,'other');
+ // Registered at 22:07 in Lima on 1 October, which is already 2 October in UTC.
+ db.prepare('UPDATE fiiu_registrations SET created_at=? WHERE id=?').run('2026-10-02T03:07:41.000Z',registration.id);
  assert.equal((await scan(call,{activityId:'day1-am',code:codes.current('day1-am').code})).status,201);
  assert.equal((await call(`/api/admin/fiiu/registrations/${registration.id}/attendance`,{actor:'admin',method:'PUT',body:{activityId:'day2-am',attended:true}})).status,200);
  const text=(await(await call('/api/admin/fiiu/export',{actor:'admin'})).text()).replace(/^﻿/,'');
  const [header,...rows]=text.split('\r\n').map(line=>line.slice(1,-1).split('","'));
  const blocks=['day0-lab','day1-am','day1-pm','day2-am','day2-pm','day3-am'];
- assert.deepEqual(header.slice(22),['attendedActivities','attendedDays','attendedMinutes','certificateHours','checkInMethods',...blocks.map(id=>`checkInLima_${id}`),'confirmationEmail','registeredAtDoor']);
- assert.equal(header.length,35);assert.ok(rows.every(row=>row.length===35));
+ assert.deepEqual(header.slice(22),['attendedActivities','attendedDays','attendedMinutes','certificateHours','checkInMethods',...blocks.map(id=>`checkInLima_${id}`),'confirmationEmail','registeredAtDoor','registeredAtLima']);
+ assert.equal(header.length,36);assert.ok(rows.every(row=>row.length===36));
  const field=(row,name)=>row[header.indexOf(name)],mine=rows.find(row=>row[0]===registration.id),theirs=rows.find(row=>row[0]!==registration.id);
  assert.deepEqual(['attendedActivities','attendedDays','attendedMinutes','certificateHours','checkInMethods','checkInLima_day1-am','checkInLima_day1-pm'].map(name=>field(mine,name)),
   ['day1-am; day2-am','2026-10-21; 2026-10-22','480','8','day1-am:qr; day2-am:staff','2026-10-21 09:12','']);
@@ -740,6 +742,9 @@ test('the staff export appends attendance, certificate hours, methods, Lima chec
  assert.deepEqual(['attendedActivities','attendedMinutes','certificateHours','checkInLima_day1-am'].map(name=>field(theirs,name)),['','0','0','']);
  assert.deepEqual(rows.map(row=>field(row,'confirmationEmail')),['none','none'],'no email is sent without a configured sender');
  assert.deepEqual(rows.map(row=>field(row,'registeredAtDoor')),['false','false'],'both registered online');
+ // registeredAt stays UTC for the spreadsheets that read it; registeredAtLima comes last, in the check-in columns' Lima time.
+ assert.equal(field(mine,'registeredAt'),'2026-10-02T03:07:41.000Z');assert.equal(field(mine,'registeredAtLima'),'2026-10-01 22:07');
+ assert.match(field(theirs,'registeredAtLima'),/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
 });
 
 // The summary email: an outbox stands in for the SMTP sender. Accounts here use fiiu-inbox.dev, a placeholder outside
@@ -772,7 +777,7 @@ test('the first registration emails a summary once, to the account address, in t
  assert.equal((await(await call('/api/fiiu/registration')).json()).registration.confirmationStatus,'sent');
  assert.equal((await(await call('/api/me/export')).json()).data.fiiu.registration.confirmationStatus,'sent');
  assert.equal((await(await call(`/api/admin/fiiu/registrations/${registration.id}`,{actor:'admin'})).json()).registration.confirmationSentAt,'2026-10-02T15:00:00.000Z');
- const csvText=await(await call('/api/admin/fiiu/export',{actor:'admin'})).text();assert.match(csvText.split('\r\n')[1],/,"sent","false"$/);
+ const csvText=await(await call('/api/admin/fiiu/export',{actor:'admin'})).text();assert.match(csvText.split('\r\n')[1],/,"sent","false","\d{4}-\d{2}-\d{2} \d{2}:\d{2}"$/);
 });
 
 test('the summary language falls back from the page to the site language cookie to Spanish',async t=>{
@@ -1276,7 +1281,7 @@ test('someone with a NODAL account but no festival registration is registered at
  assert.equal(me.registration.answers.walkIn,true);assert.deepEqual(me.attendance.map(a=>a.activityId).sort(),['day1-am','day1-pm']);
  // The organisers' export marks them in a last column, so existing spreadsheets keep their positions.
  const csv=(await(await call('/api/admin/fiiu/export',{actor:'admin'})).text()).replace(/^﻿/,'').trim().split(/\r?\n/);
- assert.match(csv[0],/,"confirmationEmail","registeredAtDoor"$/);assert.match(csv[1],/,"skipped","true"$/);
+ assert.match(csv[0],/,"confirmationEmail","registeredAtDoor","registeredAtLima"$/);assert.match(csv[1],/,"skipped","true","\d{4}-\d{2}-\d{2} \d{2}:\d{2}"$/);
  // Once a block's check-in closes, nobody is registered for it.
  clock.set('2026-10-22T02:31:00Z');const other=createUser(db,{fullName:'Late Comer',email:'late@example.test',passwordHash:'unused',role:'member'}),late=createSession(db,other.id).cookie.split(';')[0];
  response=await call('/api/fiiu/checkin',{actor:'guest',method:'POST',body:{activityId:'day1-pm',code:code('day1-pm'),join:true},headers:{Cookie:late}});
@@ -1340,7 +1345,7 @@ test('a walk-in who completes the form keeps the door mark, and two door registr
  const me=await(await call('/api/fiiu/registration')).json();
  const saved=await save({...answers,activities:['day2-am'],version:me.registration.version,registrationId:me.registration.id});assert.equal(saved.status,200);
  const {registration}=await saved.json();assert.equal(registration.answers.walkIn,true,'completing the form keeps the mark');assert.equal(registration.answers.nationalId,'TEST-ID');
- const csv=(await(await call('/api/admin/fiiu/export',{actor:'admin'})).text()).trim().split(/\r?\n/);assert.match(csv[1],/,"true"$/);
+ const csv=(await(await call('/api/admin/fiiu/export',{actor:'admin'})).text()).trim().split(/\r?\n/);assert.match(csv[1],/,"true","\d{4}-\d{2}-\d{2} \d{2}:\d{2}"$/);
 });
 
 test('a staff tick on a conference block outside the plan adds it while registration is open, and is refused once it closes',async t=>{

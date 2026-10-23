@@ -143,7 +143,8 @@
   }
   scroll.append(table);return scroll;
  }
- function byDate(entries){const groups=[];for(const {date,row} of entries){if(!groups.length||groups.at(-1).date!==date)groups.push({date,rows:[]});groups.at(-1).rows.push(row);}return groups;}
+ // Groups take their last entry by its index, here and below: iOS 15.0–15.3 has no Array.prototype.at, and the dashboard never drew there (audit 22 F2).
+ function byDate(entries){const groups=[];for(const {date,row} of entries){if(!groups.length||groups[groups.length-1].date!==date)groups.push({date,rows:[]});groups[groups.length-1].rows.push(row);}return groups;}
  function renderSummary(summary){
   const invalid=()=>Object.assign(new Error(),{key:'error'}),number=new Intl.NumberFormat(locale()),percent=new Intl.NumberFormat(locale(),{style:'percent',maximumFractionDigits:0});
   const count=value=>{if(!Number.isSafeInteger(value)||value<0)throw invalid();return el('span','f-summary-count'+(value?'':' is-zero'),number.format(value));};
@@ -713,7 +714,7 @@
   // The same blocks on the same days are only updated, so a save never moves focus or the open form.
   const layout=JSON.stringify(sorted.map(a=>[a.date,a.id]));if(layout===programmeLayout)return;programmeLayout=layout;
   const active=document.activeElement,refocus=active?.id&&programmeList.contains?.(active)?active.id:'',days=[];
-  for(const a of sorted){if(days.at(-1)?.date!==a.date)days.push({date:a.date,rows:[]});days.at(-1).rows.push(programmeRows.get(a.id).row);}
+  for(const a of sorted){if(days[days.length-1]?.date!==a.date)days.push({date:a.date,rows:[]});days[days.length-1].rows.push(programmeRows.get(a.id).row);}
   programmeList.replaceChildren(...days.map(({date,rows})=>{const day=el('div','f-programme-day'),heading=dateNode(date,'h3','long','f-programme-date'),list=el('ul','f-programme-blocks');heading.id='f-pgd-'+date;list.setAttribute('aria-labelledby',heading.id);list.append(...rows);day.append(heading,list);return day;}));
   if(refocus)document.getElementById(refocus)?.focus({preventScroll:true});
  }
@@ -879,7 +880,7 @@
  function renderContent(){
   pubList.replaceChildren(...publications.map(record=>publicationRow(record)));
   if(!publications.length)pubList.append(tr('p','noNews','f-muted f-empty'));
-  if(contentCursor){const more=button('loadMore',()=>fetchInto(more,async()=>{await loadMoreContent();(contentHost.querySelector('.f-load-more')||[...contentHost.querySelectorAll('.f-pub')].at(-1)?.querySelector('button'))?.focus();}),'f-button secondary f-load-more');more.setAttribute('aria-describedby','f-h-content');pubList.append(more);}
+  if(contentCursor){const more=button('loadMore',()=>fetchInto(more,async()=>{await loadMoreContent();const pubs=contentHost.querySelectorAll('.f-pub');(contentHost.querySelector('.f-load-more')||pubs[pubs.length-1]?.querySelector('button'))?.focus();}),'f-button secondary f-load-more');more.setAttribute('aria-describedby','f-h-content');pubList.append(more);}
  }
  function contentPanel(){const heading=tr('h2','content'),layout=el('div','f-content-layout');heading.id='f-h-content';layout.append(editorHost,pubList);contentHost.id='content';contentHost.replaceChildren(heading,layout);setAside=null;newEditor();renderContent();return contentHost;}
  // Conversations: a question on a block (optionally tied to one of its talks) opens a live chat on its session page (fiiu-session.html) for registered participants;
@@ -917,7 +918,7 @@
   // The same questions in the same places are only updated, so a timed refresh never moves focus or an open edit.
   const layout=JSON.stringify(sorted.map(q=>[q.activityId,q.id]));if(layout===questionLayout)return;questionLayout=layout;
   const active=document.activeElement,refocus=active?.id&&questionList.contains?.(active)?active.id:'',groups=[];
-  for(const q of sorted){if(groups.at(-1)?.activityId!==q.activityId)groups.push({activityId:q.activityId,rows:[]});groups.at(-1).rows.push(questionRows.get(q.id).row);}
+  for(const q of sorted){if(groups[groups.length-1]?.activityId!==q.activityId)groups.push({activityId:q.activityId,rows:[]});groups[groups.length-1].rows.push(questionRows.get(q.id).row);}
   questionList.replaceChildren(...groups.map(({activityId,rows})=>{
    const group=el('div','f-question-group'),heading=el('h3','f-question-block'),list=el('ul','f-questions'),activity=findActivity(festival.event,activityId);heading.id='f-qb-'+activityId;
    if(activityId==='general')heading.append(tr('span','questionGeneral'));else if(activity)heading.append(dateNode(activity.date,'span','short','f-question-day'),source('span',activity.title));else heading.append(el('span','',activityId));

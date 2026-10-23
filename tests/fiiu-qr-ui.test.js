@@ -190,6 +190,39 @@ test('the block screen says until when check-in is open, and when it closed once
  }
 });
 
+// Audit 22 F1: a screen takes check-ins for its own block whenever it is opened, so a screen opened for the wrong block (the evening block in the morning,
+// tomorrow's block the day before) counts the queue for a block it is not at. An amber line says when the block is, judged on the server's clock in Lima,
+// until the hour before it starts; the rest of the screen, code included, stays as it was.
+test('a screen for a block on another day, or more than an hour before it starts, says in amber when the block is, in every language, on the server clock',async()=>{
+ const when=h=>h.root.querySelector('.f-qr-when'),svg=h=>descendants(h.root.querySelector('.f-qr-code')).some(node=>node.tagName==='svg');
+ const at=(activityId,serverTime,open=true)=>()=>screen({activityId,serverTime,window:{closesAt:{'day2-pm':'2026-10-23T02:30:00.000Z','day3-am':'2026-10-23T18:30:00.000Z','day0-lab':'2026-10-21T05:00:00.000Z'}[activityId],open}});
+ // 09:30 in Lima on 22 October by the server, while the presenter laptop reads 19:30: the evening block's screen, opened by mistake in the morning.
+ let reply=at('day2-pm','2026-10-22T14:30:00.000Z');const h=await page(()=>reply(),{search:'?a=day2-pm',now:'2026-10-22T19:30:00-05:00'});
+ assert.equal(when(h).hidden,false);assert.ok(svg(h),'the code stays: the screen still works for its block');assert.equal(h.root.querySelector('.f-qr-typed').hidden,false);
+ for(const lang of ['en','es','pt']){
+  h.lang(lang);assert.equal(when(h).textContent,{en:'This block is on Thursday 22 October at 19:00',es:'Este bloque es el jueves, 22 de octubre, a las 19:00',pt:'Este bloco é quinta-feira, 22 de outubro, às 19:00'}[lang]);
+  assert.equal(when(h).hidden,false,lang);
+ }
+ h.lang('en');
+ // 17:59 is still more than an hour before 19:00; from 18:00 the line goes, and it stays away once the block is under way.
+ reply=at('day2-pm','2026-10-22T22:59:00.000Z');await h.tickTimers();assert.equal(when(h).hidden,false);
+ reply=at('day2-pm','2026-10-22T23:00:00.000Z');await h.tickTimers();assert.equal(when(h).hidden,true,'the hour before it starts');
+ h.lang('es');assert.equal(when(h).hidden,true,'a language change keeps it away');h.lang('en');
+ reply=at('day2-pm','2026-10-23T00:30:00.000Z');await h.tickTimers();assert.equal(when(h).hidden,true,'under way');assert.ok(svg(h));
+ // Tomorrow's block is flagged however close the clock is to midnight, and on its own day only until the hour before it starts.
+ reply=at('day3-am','2026-10-23T04:30:00.000Z');const tomorrow=await page(()=>reply(),{search:'?a=day3-am'});
+ assert.equal(when(tomorrow).hidden,false);assert.equal(when(tomorrow).textContent,'This block is on Friday 23 October at 09:00');
+ reply=at('day3-am','2026-10-23T12:30:00.000Z');await tomorrow.tickTimers();assert.equal(when(tomorrow).hidden,false,'07:30 on the day: 90 minutes before');
+ reply=at('day3-am','2026-10-23T13:00:00.000Z');await tomorrow.tickTimers();assert.equal(when(tomorrow).hidden,true,'08:00 on the day: the hour before');
+ // The untimed laboratory has no start: only its day counts. Opened on another day (closed by then), the line names the day alone.
+ reply=at('day0-lab','2026-10-22T14:30:00.000Z',false);const lab=await page(()=>reply(),{search:'?a=day0-lab'});
+ assert.ok(key(lab.root.querySelector('.f-qr-code'),'checkinEndedTitle'));assert.equal(when(lab).hidden,false);
+ for(const lang of ['en','es','pt']){lab.lang(lang);assert.equal(when(lab).textContent,{en:'This block is on Tuesday 20 October',es:'Este bloque es el martes, 20 de octubre',pt:'Este bloco é terça-feira, 20 de outubro'}[lang]);}
+ reply=at('day0-lab','2026-10-20T13:00:00.000Z');const labDay=await page(()=>reply(),{search:'?a=day0-lab'});assert.equal(when(labDay).hidden,true,'on its day');
+ // Today's block, under way, never shows it.
+ const today=await page(()=>screen({serverTime:'2026-10-21T14:30:00.000Z'}));assert.equal(when(today).hidden,true);
+});
+
 test('once check-in has closed the screen drops the QR code and the typed code for a large notice, and keeps it through refreshes and language changes',async()=>{
  // The server still sends a valid code after the close, but refuses every scan of it: nothing scannable may stay on the projector.
  let reply=()=>screen({serverTime:'2026-10-21T18:31:00.000Z',window:{closesAt:'2026-10-21T18:30:00.000Z',open:false}});const h=await page(()=>reply());
@@ -220,7 +253,7 @@ test('once check-in has closed the screen drops the QR code and the typed code f
 });
 
 // The door: a block screen may stand where the queue can reach it, signed in as an organiser. It offers no way back to the other screens or the
-// organiser pages, and the site menu goes away (the body's f-presenter class); the list, used by the team, keeps its links and the menu.
+// organiser pages, and the site menu and the footer go away (the body's f-presenter class); the list, used by the team, keeps its links, the menu and the footer.
 // The body's class list is recorded from the moment the programme arrives, which is when the page draws a screen or the list.
 async function door(answer,search){
  let finish;const added=new Set();
@@ -229,7 +262,7 @@ async function door(answer,search){
  finish({event:FIIU_EVENT,config:{registrationOpen:true},content:[],nextCursor:null});await flush();return Object.assign(h,{added});
 }
 
-test('a block screen links nowhere and hides the site menu, open or closed, in every language, while the list keeps its links',async()=>{
+test('a block screen links nowhere and hides the site menu and the footer, open or closed, in every language, while the list keeps its links',async()=>{
  let reply=()=>screen();const h=await door(()=>reply(),'?a=day1-am');
  const nowhere=()=>{
   assert.deepEqual(h.root.querySelectorAll('a').map(a=>a.href),[],'no link on the screen');
@@ -242,6 +275,10 @@ test('a block screen links nowhere and hides the site menu, open or closed, in e
  assert.ok(h.added.has('f-presenter'));
  const css=readFileSync(new URL('../web/styles/fiiu.css',import.meta.url),'utf8');
  assert.match(css,/\.f-page\.f-presenter>\.navbar\{display:none\}/,'presenter mode hides the site menu');
+ // Audit 22 F4: the footer's privacy link opened in the same tab, from where the signed-in site menu led to the console and the organiser pages.
+ assert.match(css,/\.f-page\.f-presenter>\.f-footer\{display:none\}/,'and the footer, whose links lead away from the screen');
+ const html=readFileSync(new URL('../web/pages/fiiu-qr.html',import.meta.url),'utf8');
+ assert.match(html,/<body class="f-page"[^>]*>/);assert.match(html,/<\/main><footer class="f-footer">[^]*<\/footer><\/body>/,'the footer is a child of the body the rule names');
  // The list is for the team: it keeps its screens, the organiser dashboard and the site menu.
  const list=await door(()=>assert.fail('the list needs no organiser data'),'');
  assert.equal(list.added.has('f-presenter'),false);assert.equal(key(list.root,'admin').href,'fiiu-admin.html#checkin');

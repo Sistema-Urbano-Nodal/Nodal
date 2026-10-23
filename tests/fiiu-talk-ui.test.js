@@ -152,7 +152,7 @@ test('the live chat keeps updating on a phone without Array.prototype.at (iOS 15
 });
 
 test('no script of the festival pages calls Array.prototype.at, which iOS 15.0–15.3 lacks',()=>{
- for(const name of ['fiiu-ui','fiiu','fiiu-talk','fiiu-hubs','fiiu-live','fiiu-checkin','fiiu-qr'])assert.doesNotMatch(readFileSync(new URL('../web/scripts/'+name+'.js',import.meta.url),'utf8'),/\.at\(/,name);
+ for(const name of ['fiiu-ui','fiiu','fiiu-talk','fiiu-hubs','fiiu-live','fiiu-checkin','fiiu-qr','fiiu-admin'])assert.doesNotMatch(readFileSync(new URL('../web/scripts/'+name+'.js',import.meta.url),'utf8'),/\.at\(/,name);
 });
 
 test('a failing pulse backs off exponentially, says in the dock that updates are paused, and recovers',async()=>{

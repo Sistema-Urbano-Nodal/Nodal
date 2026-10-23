@@ -229,12 +229,15 @@ html:has(>body.f-page){scroll-padding-top:176px}.f-page :where(section,footer)[i
 .f-code-form{display:flex;flex-wrap:wrap;align-items:flex-end;gap:var(--f-sp-3);margin-top:var(--f-sp-4)}.f-code-form .f-field{flex:1 1 12rem;margin:0}.f-code-form .f-field input{font-size:1.35rem;font-weight:650;letter-spacing:.18em;text-transform:uppercase;font-variant-numeric:tabular-nums}.f-code-form>.f-status{flex-basis:100%;margin:0}
 /* Check-in screen: the code as large as the viewport allows beside the block, window, typed fallback and live count. Full screen keeps only the stage. */
 .f-page[data-page="fiiu-qr"] #fiiuQrRoot{max-width:1760px}.f-qr{padding:var(--f-sp-4) 0 var(--f-sp-5)}
-/* A block screen may stand at the door, signed in as an organiser: fiiu-qr.js puts f-presenter on the body, which drops the site menu (and its height). */
-.f-page.f-presenter{--f-header:0px}.f-page.f-presenter>.navbar{display:none}
+/* A block screen may stand at the door, signed in as an organiser: fiiu-qr.js puts f-presenter on the body, which drops the site menu (and its height) and the
+   footer, whose privacy link opens in the same tab. */
+.f-page.f-presenter{--f-header:0px}.f-page.f-presenter>.navbar{display:none}.f-page.f-presenter>.f-footer{display:none}
 .f-qr-stage{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--f-sp-5) var(--f-sp-7);align-items:center;padding:var(--f-sp-4) 0;border-block:2px solid var(--f-ink);background:#fff}
 .f-qr-code{width:min(calc(100vh - var(--f-header) - 120px),50vw,1080px);min-width:220px;aspect-ratio:1}.f-qr-svg{display:block;width:100%;height:100%}.f-qr-missing{margin:0;font-weight:600;color:var(--f-amber)}
 .f-qr-side{display:grid;gap:var(--f-sp-3);align-content:center;min-width:0}.f-qr-kicker{margin:0;font-size:.85rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--f-forest)}.f-page .f-qr-title{max-width:24ch;margin:0;font-size:clamp(1.8rem,3vw,3.2rem);hyphens:manual}
 .f-qr-meta{font-size:1.05rem;color:var(--f-muted)}:is(.f-qr-meta,.f-qr-row-meta) p{margin:0}:is(.f-qr-meta,.f-qr-row-meta) .f-meta-when{display:flex;flex-wrap:wrap;font-weight:600;color:var(--f-ink)}:is(.f-qr-meta,.f-qr-row-meta) .f-meta-when>:not(:last-child)::after{content:"·";content:"·"/"";margin:0 .55em}.f-meta-venue{overflow-wrap:anywhere}.f-qr-window{margin:0;font-size:1.05rem}.f-qr-window .f-window.is-open .f-window-label{font-weight:650;color:var(--f-ok)}
+/* A screen opened away from its block's time says when the block is, in amber (fiiu-qr.js). */
+.f-page .f-qr-when{justify-self:start;margin:0;padding:var(--f-sp-1) var(--f-sp-2);background:var(--f-amber-bg);color:var(--f-amber);font-size:1.05rem;font-weight:650}
 .f-qr-typed{display:grid;gap:var(--f-sp-1);padding:var(--f-sp-3) 0;border-block:1px solid var(--f-line)}.f-qr-type-label,.f-qr-url{margin:0}.f-qr-url{font-size:1.15rem;font-weight:600;overflow-wrap:anywhere}.f-page .f-qr-short{margin:var(--f-sp-1) 0 0;font-size:clamp(2.6rem,5vw,4.6rem);font-weight:750;line-height:1;letter-spacing:.12em;font-variant-numeric:tabular-nums}
 .f-qr-count{margin:0;font-size:1.4rem;font-weight:700;color:var(--f-forest)}.f-qr-count:empty{display:none}.f-qr-controls{margin-top:var(--f-sp-4)}.f-qr-note{margin:var(--f-sp-2) 0 0;font-size:var(--f-fs-hint);text-wrap:balance}
 .f-qr-stage:fullscreen{height:100vh;padding:4vh 4vw;border:0;align-content:center}.f-qr-stage:fullscreen .f-qr-code{width:min(90vh,56vw)}.f-qr-stage::backdrop{background:#fff}

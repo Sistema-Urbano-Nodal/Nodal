@@ -282,9 +282,10 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
   if(path==='/api/admin/fiiu/export'&&req.method==='GET'){
    // Attendance columns follow the registration columns, so existing spreadsheets keep their column positions:
    // what each person attended, certificate minutes and rounded hours, how each block was confirmed, and one Lima
-   // check-in time per NODAL block. confirmationEmail (the summary email's status), then registeredAtDoor, come last for the same reason.
+   // check-in time per NODAL block. confirmationEmail (the summary email's status), then registeredAtDoor, then registeredAtLima (registeredAt, which stays
+   // UTC, in the check-in columns' Lima time), come last for the same reason.
    const {all,checkin:nodal}=await live(),blocks=nodal.map(a=>a.id);
-   const rows=[['registrationId','email','firstName','lastName','country','city','profile','publicOfficial','activities','externalActivities','labStatus','institution','position','nationalId','gender','age','accessibility','accessibilityOther','motivation','motivationOther','previousAttendance','registeredAt','attendedActivities','attendedDays','attendedMinutes','certificateHours','checkInMethods',...blocks.map(id=>`checkInLima_${id}`),'confirmationEmail','registeredAtDoor']];let after;
+   const rows=[['registrationId','email','firstName','lastName','country','city','profile','publicOfficial','activities','externalActivities','labStatus','institution','position','nationalId','gender','age','accessibility','accessibilityOther','motivation','motivationOther','previousAttendance','registeredAt','attendedActivities','attendedDays','attendedMinutes','certificateHours','checkInMethods',...blocks.map(id=>`checkInLima_${id}`),'confirmationEmail','registeredAtDoor','registeredAtLima']];let after;
    const list=value=>Array.isArray(value)?value.join('; '):'';
    const attended=new Map(),order=id=>{const i=all.findIndex(a=>a.id===id);return i<0?all.length:i;};
    do{const page=await store.find('attendance',{},{after});for(const row of page)attended.set(row.registrationId,[...(attended.get(row.registrationId)??[]),row]);after=page.length===200?page.at(-1).id:null;}while(after);
@@ -292,7 +293,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
     const a=r.answers,done=(attended.get(r.id)??[]).sort((x,y)=>order(x.activityId)-order(y.activityId)||(x.activityId<y.activityId?-1:1)),hours=attendanceHours(done,all),byId=new Map(done.map(x=>[x.activityId,x]));
     const days=[...new Set(done.map(x=>all.find(y=>y.id===x.activityId)?.date).filter(Boolean))].sort();
     rows.push([r.id,r.email,a.firstName,a.lastName,a.country,a.city,a.profile,a.publicOfficial,list(a.activities),list(a.externalActivities),r.labStatus,a.institution,a.position,a.nationalId,a.gender,a.age,list(a.accessibility),a.accessibilityOther,a.motivation,a.motivationOther,a.previousAttendance,r.createdAt,
-     list(done.map(x=>x.activityId)),list(days),hours.minutes,hours.hours,list(done.map(x=>`${x.activityId}:${x.method??'staff'}`)),...blocks.map(id=>limaTime(byId.get(id)?.createdAt)),r.confirmationStatus??'none',a.walkIn===true]);
+     list(done.map(x=>x.activityId)),list(days),hours.minutes,hours.hours,list(done.map(x=>`${x.activityId}:${x.method??'staff'}`)),...blocks.map(id=>limaTime(byId.get(id)?.createdAt)),r.confirmationStatus??'none',a.walkIn===true,limaTime(r.createdAt)]);
    }after=page.length===200?page.at(-1).id:null;}while(after);
    send(res,200,csv(rows),{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="fiiu-2026-registrations.csv"'});return true;
   }
