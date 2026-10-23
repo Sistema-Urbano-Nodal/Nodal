@@ -20,6 +20,7 @@ import {
   cleanRequests,
   cleanTopics,
   normalizePartC,
+  plainText,
 } from './profile-policy.js';
 
 const ROOT_ROLE = 'Member';
@@ -39,7 +40,7 @@ const SUBSCRIPTION_STATUSES = new Set([
 
 const nowIso = () => new Date().toISOString();
 const asArray = (value) => (Array.isArray(value) ? value : []);
-const cleanString = (value, max = 220) => String(value ?? '').trim().slice(0, max);
+const cleanString = (value, max = 220) => plainText(value).trim().slice(0, max);
 const cleanStatus = (value) => (SUBSCRIPTION_STATUSES.has(String(value)) ? String(value) : 'pending');
 
 const ACCOUNT_STATUSES = new Set(['active', 'disabled', 'pending']);
@@ -131,6 +132,26 @@ function responseError(status, payload, fallback) {
   });
 }
 
+/* No answer (the 15 s timeout, a dropped connection) or an answer that is not JSON: the provider is unavailable for
+   now, never refusing. 503 tells the routes to say "try again shortly" (with Retry-After) instead of a 500; every
+   check that treats a missing status, a 5xx or a 429 as an outage treats this one the same. `upstream` names the
+   failure for the log line (TimeoutError, TypeError, SyntaxError). */
+function unavailableError(cause) {
+  const upstream = cause?.name || 'Error';
+  return Object.assign(new Error(`Supabase unavailable: ${upstream}`), { status: 503, expose: false, code: '', upstream, cause });
+}
+
+/* Only GoTrue's answers about the access or refresh token can mean signed out. A session that could not be checked
+   (GoTrue down or rate limiting, or any failure reading the member's profile rows, whose PostgREST 401/403/404 say
+   nothing about the session) is an outage: 503 with the cookies kept, so the refresh token is never spent on it. The
+   log line names the upstream status and code, or the failure, never the provider's wording. */
+function sessionUnavailable(err) {
+  return Object.assign(new Error(`Session service temporarily unavailable: upstream ${err?.upstream || err?.status || err?.name || 'error'}${err?.code ? ` ${err.code}` : ''}`), { status: 503, expose: false });
+}
+async function sessionProfile(read) {
+  try { return await read(); } catch (err) { throw sessionUnavailable(err); }
+}
+
 function createRestClient({ url, key, fetchImpl = fetch, authToken = key }) {
   async function request(path, {
     method = 'GET',
@@ -153,9 +174,20 @@ function createRestClient({ url, key, fetchImpl = fetch, authToken = key }) {
       finalHeaders['Content-Type'] = 'application/json';
       payload = JSON.stringify(body);
     }
-    const res = await fetchImpl(fullUrl, { method, headers: finalHeaders, body: payload, signal: signal || AbortSignal.timeout(15000) });
-    const text = await res.text();
-    const json = text ? JSON.parse(text) : null;
+    let res, text;
+    try {
+      res = await fetchImpl(fullUrl, { method, headers: finalHeaders, body: payload, signal: signal || AbortSignal.timeout(15000) });
+      text = await res.text();
+    } catch (err) {
+      throw unavailableError(err);
+    }
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch (err) {
+      // A refusal's HTML error page keeps its status for the code that branches on it; a success nobody can read is an outage.
+      if (res.ok) throw unavailableError(err);
+    }
     if (!res.ok) throw responseError(res.status, json, 'Supabase request failed');
     return includeRange ? { rows: json, contentRange: res.headers?.get('content-range') || '' } : json;
   }
@@ -948,6 +980,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       const accessToken = cookies.get(ACCESS_COOKIE);
       const refreshToken = cookies.get(REFRESH_COOKIE);
       if (accessToken) {
+        let authUser, verified = false, profileRead = null, claimed = null;
         try {
           /* Authorization needs only the profile row, so the row of the id the
              token claims is read while GoTrue checks the token. It is used only
@@ -956,46 +989,49 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
              the server drops that cookie once an address runs out of refresh failures,
              so forged access tokens alone never buy a second upstream read. */
           const verifying = authUserFromToken(accessToken);
-          const claimed = authorizationOnly && refreshToken ? unverifiedUuidSub(accessToken) : null;
-          const early = claimed ? first(admin.rest('profiles', { query: profileQuery(claimed) })).catch(() => null) : null;
-          const authUser = await verifying;
+          claimed = authorizationOnly && refreshToken ? unverifiedUuidSub(accessToken) : null;
+          profileRead = claimed ? first(admin.rest('profiles', { query: profileQuery(claimed) })).catch(() => null) : null;
+          authUser = await verifying;
+          verified = true;
+        } catch (err) {
+          if (!err?.status || err.status >= 500 || err.status === 429) throw sessionUnavailable(err);
+          if (!refreshToken || ![401, 403].includes(err?.status)) {
+            return { user: null, cookies: err?.status === 401 ? clearSessionCookies(env) : [] };
+          }
+        }
+        // GoTrue refused this access token (401/403) and a refresh token remains: the refresh below decides.
+        if (verified) {
           if (!authUser?.id) return { user: null, cookies: clearSessionCookies(env) };
-          const profile = early && authUser.id === claimed ? await early : null;
-          const user = profile ? toApiUserFromSupabase({ profile }) : await existingOrEnsureProfile(authUser, { authorizationOnly });
+          const user = await sessionProfile(async () => {
+            const profile = profileRead && authUser.id === claimed ? await profileRead : null;
+            return profile ? toApiUserFromSupabase({ profile }) : existingOrEnsureProfile(authUser, { authorizationOnly });
+          });
           /* A suspended member's token is still valid as far as the auth
              provider is concerned, so this is the only thing standing between
              them and every authenticated route. Their cookies go too, or the
              browser keeps replaying a session the server will not honour. */
           if (!isActive(user)) return { user: null, cookies: clearSessionCookies(env) };
           return { user, cookies: [] };
-        } catch (err) {
-          if (!err?.status || err.status >= 500 || err.status === 429) {
-            throw Object.assign(new Error(`Session service temporarily unavailable: upstream ${err?.status || err?.name || 'error'}${err?.code ? ` ${err.code}` : ''}`), { status: 503, expose: false });
-          }
-          if (!refreshToken || ![401, 403].includes(err?.status)) {
-            return { user: null, cookies: err?.status === 401 ? clearSessionCookies(env) : [] };
-          }
         }
       }
       if (!refreshToken) return { user: null, cookies: [] };
+      let session, authUser;
       try {
-        const session = await browser.auth('/token', {
+        session = await browser.auth('/token', {
           method: 'POST',
           query: { grant_type: 'refresh_token' },
           body: { refresh_token: refreshToken },
         });
-        const authUser = session?.user || await authUserFromToken(session?.access_token);
-        if (!authUser?.id) return { user: null, cookies: clearSessionCookies(env) };
-        const user = await existingOrEnsureProfile(authUser, { authorizationOnly });
-        // a refresh must not hand a suspended member a fresh pair of cookies
-        if (!isActive(user)) return { user: null, cookies: clearSessionCookies(env) };
-        return { user, cookies: sessionCookies(session, env) };
+        authUser = session?.user || await authUserFromToken(session?.access_token);
       } catch (err) {
-        if (!err?.status || err.status >= 500 || err.status === 429) {
-          throw Object.assign(new Error(`Session service temporarily unavailable: upstream ${err?.status || err?.name || 'error'}${err?.code ? ` ${err.code}` : ''}`), { status: 503, expose: false });
-        }
+        if (!err?.status || err.status >= 500 || err.status === 429) throw sessionUnavailable(err);
         return { user: null, cookies: clearSessionCookies(env) };
       }
+      if (!authUser?.id) return { user: null, cookies: clearSessionCookies(env) };
+      const user = await sessionProfile(() => existingOrEnsureProfile(authUser, { authorizationOnly }));
+      // a refresh must not hand a suspended member a fresh pair of cookies
+      if (!isActive(user)) return { user: null, cookies: clearSessionCookies(env) };
+      return { user, cookies: sessionCookies(session, env) };
     },
     async signup({ fullName, email, password }) {
       // The confirmation email returns to sign-in, where the browser still remembers the page that asked for it
@@ -1098,8 +1134,9 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     toApiUser(user) {
       return user;
     },
+    // Profiles key on the auth user's uuid: any other id cannot exist, and PostgREST would refuse it (22P02).
     async getUserById(id) {
-      return apiUser(id);
+      return courseUserId(id) ? apiUser(id) : null;
     },
     async updateUserProfile(id, patch) {
       const current = await apiUser(id);
@@ -1326,6 +1363,8 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       return { items: page, nextCursor };
     },
     async getCatalogItem(id, viewer = null) {
+      // catalog_items.id is a uuid: a guessed slug is missing, without a provider call PostgREST would refuse (22P02).
+      if (typeof id !== 'string' || !CATALOG_UUID.test(id)) return null;
       const options = catalogListQuery({ limit: 1 }, viewer, { batchSize: 1 });
       options.query.id = `eq.${id}`;
       const item = catalogItemFromSupabase(await first(admin.rest('catalog_items', { query: options.query })));

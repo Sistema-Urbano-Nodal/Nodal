@@ -127,6 +127,12 @@ const OPTIONAL_SESSION_API = /^\/api\/(?:auth\/state|news|catalog(?:\/[a-z0-9-]{
 const ID_ONLY_API = /^\/api\/(?:network\/places|users|users\/search|users\/[^/]+\/(?:follow|interactions)|recommendations\/[^/]+|cities|billing\/status|checkout|me\/export|me\/catalog-interests|me\/location\/(?:suggest|accept)|(?:admin\/)?catalog(?:\/.*)?|admin\/interests(?:\/.*)?|(?:admin\/)?membership\/acceptances)$/;
 // A Stripe subscription in any of these states exists and can still bill the member.
 const LIVE_SUBSCRIPTION_STATUSES = new Set(['pending', 'active', 'trialing', 'past_due', 'unpaid', 'paused']);
+// The account deletion's upload refusals, by their wording, and the code the console translates each one by.
+const DELETION_REFUSALS = [
+  [/^An upload is in progress\b/, 'upload_in_progress'],
+  [/^A course certificate is being uploaded\b/, 'certificate_upload_in_progress'],
+  [/^An upload is awaiting reconciliation\b/, 'upload_awaiting_reconciliation'],
+];
 const INTERACTION_RATE_WINDOW_MS = 60 * 1000;
 const INTERACTION_RATE_LIMIT = envInt('INTERACTION_RATE_LIMIT', 60);
 const LINKEDIN_RE = /^https:\/\/(www\.)?linkedin\.com\/(in|company)\/[A-Za-z0-9_-]+/;
@@ -368,6 +374,8 @@ const OFFER_STARTS_AT = Date.parse(FUNDADORES_2027.effectiveFromAt), OFFER_ENDS_
 const ACCEPTANCES = ['terms', 'payment', 'renewal'];
 // The acceptances CSV holds the newest this many: far more than one offer period sells.
 const MEMBERSHIP_EXPORT_LIMIT = 10000;
+// The downloads with the most personal data, each logged with who and when (see the request handler).
+const LOGGED_DOWNLOADS = new Set(['/api/admin/fiiu/export', '/api/admin/membership/acceptances']);
 /* Mercado Pago shows the team Lima time (UTC-05:00 all year), so the CSV gives each acceptance's time there too,
    as "YYYY-MM-DD HH:MM", beside the exact UTC instant. */
 const LIMA_OFFSET_MS = 5 * 60 * 60 * 1000;
@@ -646,20 +654,26 @@ function sameOrigin(req) {
   return true;
 }
 
+/* An oversized body is answered 413 while the rest of it is read and dropped: destroying the request reset the
+   connection, which a browser reports as a network failure instead of the answer. Nothing past the cap is kept. */
+const tooLarge = () => Object.assign(new Error('request too large'), { status: 413 });
+
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     if (!/^application\/json/.test(req.headers['content-type'] ?? '')) {
       reject(Object.assign(new Error('expected application/json'), { status: 415 }));
       return;
     }
-    let size = 0;
+    let size = 0, over = false;
     const chunks = [];
     req.on('data', (c) => {
+      if (over) return;
       size += c.length;
-      if (size > MAX_BODY) { req.destroy(); reject(Object.assign(new Error('body too large'), { status: 413 })); return; }
+      if (size > MAX_BODY) { over = true; chunks.length = 0; reject(tooLarge()); return; }
       chunks.push(c);
     });
     req.on('end', () => {
+      if (over) return;
       try {
         const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
         if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('expected object');
@@ -673,18 +687,15 @@ function readJsonBody(req) {
 
 function readRawBody(req, { max = 128 * 1024 } = {}) {
   return new Promise((resolve, reject) => {
-    let size = 0;
+    let size = 0, over = false;
     const chunks = [];
     req.on('data', (c) => {
+      if (over) return;
       size += c.length;
-      if (size > max) {
-        req.destroy();
-        reject(Object.assign(new Error('body too large'), { status: 413 }));
-        return;
-      }
+      if (size > max) { over = true; chunks.length = 0; reject(tooLarge()); return; }
       chunks.push(c);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('end', () => { if (!over) resolve(Buffer.concat(chunks).toString('utf8')); });
     req.on('error', reject);
   });
 }
@@ -795,7 +806,10 @@ function sanitizeProfilePatch(body) {
   if ('app_role' in body || 'appRole' in body || 'role' in body || 'permission' in body) {
     throw Object.assign(new Error('app_role cannot be changed through profile updates'), { status: 400 });
   }
-  if ('fullName' in body && String(body.fullName).trim().length < 2) {
+  /* The name is a string, the other text fields a string or null (stored as empty). JSON can send an object instead,
+     and String() of one such as {"toString":1} throws: refused here, with the field's own message, not a 500 below. */
+  const text = (value) => value === undefined || value === null || typeof value === 'string';
+  if ('fullName' in body && (typeof body.fullName !== 'string' || body.fullName.trim().length < 2)) {
     throw Object.assign(new Error('full name is required'), { status: 400 });
   }
   /* Both places a LinkedIn URL can arrive are checked, and each on its own:
@@ -803,13 +817,16 @@ function sanitizeProfilePatch(body) {
      to skip the check entirely and let an arbitrary top-level `linkedin` — a
      javascript: URL among them — be stored and served to other members. */
   for (const li of [body.partC?.linkedin, body.linkedin]) {
-    if (li && !LINKEDIN_RE.test(String(li))) {
+    if (!text(li) || (li && !LINKEDIN_RE.test(li))) {
       throw Object.assign(new Error('LinkedIn link must use https://linkedin.com/in/...'), { status: 400 });
     }
   }
   const portfolio = body.partC?.portfolio ?? '';
-  if (portfolio && !/^https?:\/\/\S+\.\S+/.test(String(portfolio))) {
+  if (!text(portfolio) || (portfolio && !/^https?:\/\/\S+\.\S+/.test(portfolio))) {
     throw Object.assign(new Error('portfolio link must start with http:// or https://'), { status: 400 });
+  }
+  if (![body.title, body.city, body.partC?.bio, body.partC?.references, body.partC?.availability, body.indicators?.leadership, body.indicators?.transmission].every(text)) {
+    throw Object.assign(new Error('invalid profile payload'), { status: 400 });
   }
   return body;
 }
@@ -1430,7 +1447,10 @@ export function createApp({
         // The course pilot keeps the payments page closed while the membership is 'soon'; once ended it says so.
         if(pilotMode && canonical==='/payments.html' && membershipState(billingEnv, now()).state === 'soon') { redirect(res,'/courses.html');return; }
         if (useDb && canonical === '/login.html' && sessionUser) {
-          redirect(res, safeNext(url.searchParams.get('next')));
+          /* A confirmation link opens sign-in with the new account's tokens in its fragment, and a Location without one
+             keeps it (RFC 9110 §10.2.2): an explicit empty fragment leaves them out of the next page's address. */
+          const to = safeNext(url.searchParams.get('next'));
+          redirect(res, to.includes('#') ? to : `${to}#`);
           return;
         }
         if (['GET', 'HEAD'].includes(req.method) && canonical !== '/fiiu-checkin.html' && CHECKIN_ALIASES.has(canonical.toLowerCase().replace(/\/+$/, ''))) { redirect(res, `/fiiu-checkin.html${url.search}`); return; }
@@ -1451,6 +1471,11 @@ export function createApp({
         try { query = parseReadingsQuery(url.searchParams); } catch { send(res, 400, { code: READINGS_ERROR }); return; }
         send(res, 200, await bucReadings(query, { feed: bucFeed }), { 'Cache-Control': READINGS_CACHE_CONTROL });
         return;
+      }
+      /* Who downloaded every festival registration (national ids among them) or every Founder Membership acceptance,
+         and when: the account id and the time, nothing else, once the download has been served. */
+      if (sessionUser && req.method === 'GET' && LOGGED_DOWNLOADS.has(pathname)) {
+        res.on('finish', () => { if (res.statusCode === 200) console.info(`download ${pathname} by ${sessionUser.id} at ${new Date().toISOString()}`); });
       }
       if(courseApi && await courseApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
       // Before the FIIU API, which would ask the sessionless pulse to sign in; other paths it does not own fall through.
@@ -1503,6 +1528,8 @@ export function createApp({
         const suppliedLang = oneQueryValue(url.searchParams, 'lang');
         const lang = suppliedLang || 'en';
         if (suppliedLang === '' || !['en', 'es', 'pt'].includes(lang) || [...url.searchParams.keys()].some((key) => key !== 'lang')) throw badRequest('catalog detail query is invalid');
+        // The list's budget: guessing ids one by one costs what paging through the catalog does.
+        if (!throttle(catalogReadLimiter, res, req, sessionUser, 'catalog-read')) return;
         const item = await repository.getCatalogItem(catalogMatch[1], catalogPublicViewer(sessionUser));
         if (!item) { send(res, 404, { error: 'catalog item not found' }); return; }
         let interestStatus;
@@ -1697,13 +1724,15 @@ export function createApp({
         return;
       }
 
-      // What the team checks before adding a payer by hand. csv() neutralises formulas in the names people wrote.
+      /* What the team checks before adding a payer by hand. csv() neutralises formulas in the names people wrote.
+         account_deleted (last, so spreadsheets built on the earlier CSV keep their columns) is "yes" once the account
+         is gone: Mercado Pago still charges a pending second payment, so the team contacts that payer. */
       if (useDb && req.method === 'GET' && pathname === '/api/admin/membership/acceptances') {
         if (!requireAdmin(res, sessionUser)) return;
         if (!throttle(readLimiter, res, req, sessionUser, 'membership-export')) return;
         const acceptances = await repository.listMembershipAcceptances({ limit: MEMBERSHIP_EXPORT_LIMIT });
-        const rows = [['accepted_at', 'accepted_at_lima', 'full_name', 'email', 'option', 'amount', 'terms_version'],
-          ...acceptances.map((a) => [a.acceptedAt, limaMinute(a.acceptedAt), a.fullName, a.email, a.option, a.amountText, a.termsVersion])];
+        const rows = [['accepted_at', 'accepted_at_lima', 'full_name', 'email', 'option', 'amount', 'terms_version', 'account_deleted'],
+          ...acceptances.map((a) => [a.acceptedAt, limaMinute(a.acceptedAt), a.fullName, a.email, a.option, a.amountText, a.termsVersion, a.userId == null ? 'yes' : ''])];
         send(res, 200, csv(rows), { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="membresia-fundador-acceptances.csv"' });
         return;
       }
@@ -1729,7 +1758,9 @@ export function createApp({
         if (!authAllowed(authIpLimiter, clientIp(req), res)) return;
         const body = await readJsonBody(req);
         if (!body || typeof body !== 'object' || Array.isArray(body)) { send(res, 400, { error: 'JSON object required' }); return; }
-        const fullName = String(body.fullName ?? body.name ?? '').trim();
+        // Text only: String() of a JSON object such as {"toString":1} throws.
+        const givenName = body.fullName ?? body.name;
+        const fullName = typeof givenName === 'string' ? givenName.trim() : '';
         const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
         const password = typeof body.password === 'string' ? body.password : '';
         if (fullName.length < 2) { send(res, 400, { error: 'full name is required' }); return; }
@@ -1758,6 +1789,16 @@ export function createApp({
             signupEmailCeiling.release('signup-email:all');
             await reportAnswer(req, 503, err);
             send(res, 503, { error: 'Confirmation email is temporarily unavailable. Please try again later.' }, { 'Retry-After': '300' });
+            return;
+          }
+          /* The provider's own address and password checks, said as the form's own: "sign in" would send a typo or a
+             breached password to a sign-in that cannot work. */
+          if (['email_address_invalid', 'validation_failed'].includes(err?.code) && err.status >= 400 && err.status < 500) {
+            send(res, 400, { error: 'valid email is required' });
+            return;
+          }
+          if (err?.code === 'weak_password' && err.status >= 400 && err.status < 500) {
+            send(res, 400, { error: 'password is too weak', code: 'weak_password' });
             return;
           }
           if (Number.isInteger(err?.status) && err.status >= 400) {
@@ -1863,8 +1904,11 @@ export function createApp({
         if (!requireAuth(res, sessionUser)) return;
         if (!sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
         const body = await readJsonBody(req);
-        if (String(body.confirmEmail || '').trim().toLowerCase() !== String(sessionUser.email).toLowerCase()) {
-          send(res, 400, { error: 'account deletion requires email confirmation' });
+        /* Each refusal below carries a code, so the console says it in the member's language; the English text stays
+           for pages loaded before the codes existed. */
+        const confirmEmail = typeof body.confirmEmail === 'string' ? body.confirmEmail.trim().toLowerCase() : '';
+        if (confirmEmail !== String(sessionUser.email).toLowerCase()) {
+          send(res, 400, { error: 'account deletion requires email confirmation', code: 'confirm_email_mismatch' });
           return;
         }
         /* Deleting the account removes the only record that ties a Stripe
@@ -1878,11 +1922,19 @@ export function createApp({
         /* Every refusal is checked before anything is erased: one after the festival data went would leave an active
            account without its messages, files and likes. Festival files then go before the account (their rows
            restrict it); an upload under way answers 409 to try again shortly. */
-        if(talkStore)await assertTalkDataDeletable(talkStore,sessionUser.id,{now:talkClock()});
-        if(courseStore)await assertCourseDataDeletable(courseStore,sessionUser.id);
-        // The person's answers and name leave this instance's live window at once, as a withdrawal does.
-        if(talkStore){await deleteTalkData(talkStore,sessionUser.id,{now:talkClock()});fiiuLive?.clear();}
-        if(courseStore)await deleteCourseData(courseStore,sessionUser.id);
+        try {
+          if(talkStore)await assertTalkDataDeletable(talkStore,sessionUser.id,{now:talkClock()});
+          if(courseStore)await assertCourseDataDeletable(courseStore,sessionUser.id);
+          // The person's answers and name leave this instance's live window at once, as a withdrawal does.
+          if(talkStore){await deleteTalkData(talkStore,sessionUser.id,{now:talkClock()});fiiuLive?.clear();}
+          if(courseStore)await deleteCourseData(courseStore,sessionUser.id);
+        } catch (err) {
+          // Only the checks' own 409s (fiiu-talk-api.js, courses-privacy.js); anything else is the global handler's.
+          const code = err?.status === 409 && err.expose !== false && DELETION_REFUSALS.find(([wording]) => wording.test(err.message))?.[1];
+          if (!code) throw err;
+          send(res, 409, { error: err.message, code });
+          return;
+        }
         await repository.deleteUserById(sessionUser.id);
         const result = await repository.logout(req, process.env);
         send(res, 200, { ok: true }, result.cookies?.length ? { 'Set-Cookie': result.cookies } : {});
@@ -2136,6 +2188,7 @@ export function createApp({
       let m = pathname.match(/^\/api\/users\/([^/]+)$/);
       if (useDb && m && req.method === 'GET') {
         if (!requireAuth(res, sessionUser)) return;
+        if (!throttle(readLimiter, res, req, sessionUser, 'member-card')) return;
         const id = m[1];
         if (!ID_RE.test(id)) { send(res, 400, { error: 'invalid user id' }); return; }
         // The session was freshly resolved for this request, including role
@@ -2286,17 +2339,21 @@ export function createApp({
 
       send(res, 404, { error: 'not found' });
     } catch (err) {
-      const status = err.status ?? 500;
-      /* Only our own wording goes back. A backend's message (marked
-         expose: false where it is raised) names columns, constraints and
-         internal state, and this is the one place it would reach a caller. */
-      if (status >= 500 || err?.expose === false) {
+      let status = err.status ?? 500;
+      /* A provider's refusal (marked expose: false where it is raised) answers the request NODAL made, not the
+         visitor's: passed through, its 401 read as signed out, its 403 as a locked page, its 404 as a missing item.
+         It is a failed upstream (502), and an upstream rate limit is a short outage (503). */
+      if (err?.expose === false && status < 500) status = status === 429 ? 503 : 502;
+      /* Only our own wording goes back. A backend's message names columns, constraints and internal state, and this
+         is the one place it would reach a caller. Our own refusals (4xx) are answers, not errors to report. */
+      if (status >= 500) {
         console.error('request error:', safeErrorMessage(err));
         // Before answering: on Vercel the function may be frozen once the response ends. The report waits at most 1.5 s.
         await errorReport.report(err, { method: req.method, route: routeOf(req.url), status });
       }
-      const body = status >= 500 ? 'internal error' : (err?.expose === false ? 'request failed' : safeErrorMessage(err));
-      if (!res.headersSent) send(res, status, { error: body });
+      const body = status >= 500 ? 'internal error' : safeErrorMessage(err);
+      // An outage (a provider timeout, a rate limit, the session service) asks the client to come back shortly.
+      if (!res.headersSent) send(res, status, { error: body }, status === 503 ? { 'Retry-After': '30' } : {});
       else res.end();
     }
   });

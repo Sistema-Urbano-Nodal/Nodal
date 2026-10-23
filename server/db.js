@@ -23,6 +23,7 @@ import {
   cleanTopics,
   normalizeIndicators,
   normalizePartC,
+  plainText,
 } from './profile-policy.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -442,12 +443,12 @@ export function updateUserProfile(db, id, patch) {
     indicators: nextIndicators,
   });
   const allowed = {
-    fullName: ['full_name', (v) => String(v).trim().slice(0, 80)],
-    title: ['title', (v) => String(v).trim().slice(0, 80)],
-    city: ['city', (v) => String(v).trim().slice(0, 120)],
+    fullName: ['full_name', (v) => plainText(v).trim().slice(0, 80)],
+    title: ['title', (v) => plainText(v).trim().slice(0, 80)],
+    city: ['city', (v) => plainText(v).trim().slice(0, 120)],
     interests: ['interests_json', (v) => json(cleanProfileList(v, 12))],
     active: ['active_json', (v) => json(cleanProfileList(v, 6))],
-    linkedin: ['linkedin', (v) => String(v || '').trim().slice(0, 220)],
+    linkedin: ['linkedin', (v) => plainText(v || '').trim().slice(0, 220)],
     topics: ['topics_json', () => json(nextTopics)],
     skills: ['skills_json', (v) => json(cleanProfileList(v, 12))],
     indicators: ['indicators_json', () => json(nextIndicators)],
@@ -460,7 +461,8 @@ export function updateUserProfile(db, id, patch) {
   const assignments = [];
   const values = [];
   for (const [key, value] of Object.entries(patch)) {
-    if (!(key in allowed)) continue;
+    // Own keys only: `in` also finds constructor, toString and the rest, whose values are functions, not columns.
+    if (!Object.hasOwn(allowed, key)) continue;
     const [column, clean] = allowed[key];
     assignments.push(`${column} = ?`);
     values.push(clean(value));

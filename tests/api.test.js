@@ -1253,7 +1253,8 @@ test('malformed metadata and backslash next values fail safely', async (t) => {
     redirect: 'manual',
   });
   assert.equal(redirect.status, 302);
-  assert.equal(redirect.headers.get('location'), '/dashboard.html');
+  // The empty fragment keeps a confirmation link's tokens out of the next page's address.
+  assert.equal(redirect.headers.get('location'), '/dashboard.html#');
 
   const malformedCookie = await fetch(`${base}/api/health`, { headers: { Cookie: 'nodal_session=%E0%A4%A' } });
   assert.equal(malformedCookie.status, 200);
@@ -1271,7 +1272,7 @@ test('signing in from a course link preserves the selected course, session and d
   assert.equal(new URL(login, base).searchParams.get('next'), destination);
   const signup = await postJson(base, '/api/auth/signup', { fullName: 'Course Visitor', email: 'course-visitor@example.test', password: 'course-visitor-test' });
   const signedIn = await fetch(base + login, { redirect: 'manual', headers: { Cookie: cookiePair(signup) } });
-  assert.equal(signedIn.headers.get('location'), destination);
+  assert.equal(signedIn.headers.get('location'), `${destination}#`);
 });
 
 test('a signed-out private link that names a supported language opens sign-in in that language', async (t) => {
@@ -1741,7 +1742,8 @@ test('GET and HEAD both report health', async (t) => {
 test('a backend error never reaches the caller, on any route', async (t) => {
   /* Signup and login wrap their own provider errors. Every other route lets a
      4xx fall through to the request handler, which used to echo err.message —
-     and a PostgREST message names columns, constraints and hints. */
+     and a PostgREST message names columns, constraints and hints. The provider's
+     status belongs to the request NODAL made, so it answers 502 (audit 22 Oct). */
   const backendError = Object.assign(
     new Error('column profiles.city_lat does not exist'),
     { status: 400, expose: false },
@@ -1755,9 +1757,9 @@ test('a backend error never reaches the caller, on any route', async (t) => {
   };
   const base = await bootApp(t, createApp({ repository }));
   const res = await fetch(`${base}/api/users`, { headers: { Cookie: 'nodal_session=x' } });
-  assert.equal(res.status, 400);
+  assert.equal(res.status, 502);
   const body = await res.json();
-  assert.equal(body.error, 'request failed');
+  assert.equal(body.error, 'internal error');
   assert.doesNotMatch(body.error, /profiles|city_lat|column/i);
 });
 

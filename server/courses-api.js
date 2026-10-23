@@ -15,6 +15,8 @@ const writeMethods = new Set(['POST','PUT','PATCH','DELETE']);
 // Stored feedback per account. The form is one rating per course, session or area, so this is far above real use,
 // and it keeps one account from filling the shared database with 2,000-character comments.
 export const FEEDBACK_LIMIT = 200;
+// The most rows one unbounded read (a course or feedback export) gathers: the network snapshot's ceiling.
+const ALL_ROWS_MAX = 50_000;
 /* Bytes of course files one member account may download, per server instance: a short window and a day (staff are
    not budgeted; see the download route). Attachments are immutable per id and the browser keeps them, so ordinary
    repeat views cost nothing; the budget only stops one account from turning Supabase Storage egress (5 GB a month
@@ -70,15 +72,21 @@ function respond(res,status,body,headers={}) {
 export function createCourseApi({store,userRepository,sameOrigin,send=respond,reportAnswer=async()=>false,rateLimit=()=>true,downloadLimits=DOWNLOAD_LIMITS,downloads=createByteBudget(downloadLimits),log=console.error,finalSurvey=FINAL_SURVEY,clock=Date.now,perks=createCoursePerks()}={}) {
   const participants=createCourseParticipants({store,userRepository});
   const findOne=async(name,filters)=>(await store.find(name,filters,{limit:1}))[0]??null;
+  /* An unbounded read (an export) fails past ALL_ROWS_MAX rows, as the network snapshot does (supabase.js readPages),
+     rather than grow without limit or hand out a silently cut export. */
   async function all(name,filters={},max=Infinity) {
     let rows=[],after=null;
-    while(rows.length<max) {
+    const cap=Math.min(max,ALL_ROWS_MAX+1);
+    while(rows.length<cap) {
       const order=name==='intakes'?['id']:['createdAt','id'];
-      const limit=Math.min(500,max-rows.length);
+      const limit=Math.min(500,cap-rows.length);
       const page=await store.find(name,filters,{limit,order,...(after?{after}:{})});
+      // A store that did not apply the cursor answers the page it already gave: stop rather than repeat it forever.
+      if(after&&page.length&&page.at(-1).id===after.id)break;
       // The store already fills logical pages across smaller provider row caps.
       rows.push(...page);if(page.length<limit)break;after={...(name==='intakes'?{}:{createdAt:page.at(-1).createdAt}),id:page.at(-1).id};
     }
+    if(rows.length>ALL_ROWS_MAX)fail('course data exceeds supported size',503);
     return rows;
   }
   async function courseAccess(id,user,{content=false}={}) {

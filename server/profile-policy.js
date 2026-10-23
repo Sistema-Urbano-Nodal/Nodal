@@ -9,6 +9,12 @@ export const DEFAULT_PART_C = {
 
 export const DEFAULT_INDICATORS = { leadership: 'No', transmission: 'No' };
 
+/* String(value), except that a JSON object which cannot become text (one such as {"toString":1}, whose toString is not
+   a function, or an array holding one) is no text at all rather than an exception: a request body can send anything. */
+export function plainText(value) {
+  try { return String(value ?? ''); } catch { return ''; }
+}
+
 /* Profile word lists (interests, availability slots, skills) are served to every other member through the directory,
    recommendations and profile tags, so, like topic names (cleanTopics below), each item is plain text of at most 80
    characters; blank and repeated items are dropped and the list keeps its count. Applied on write and again on read,
@@ -49,7 +55,7 @@ export function normalizePartC(value, current = DEFAULT_PART_C) {
   const merged = { ...DEFAULT_PART_C, ...current, ...incoming };
   const out = {};
   for (const [key, max] of Object.entries(PART_C_TEXT_LIMITS)) {
-    out[key] = String(merged[key] ?? '').slice(0, max);
+    out[key] = plainText(merged[key]).slice(0, max);
   }
   out.consent = merged.consent === true;
   /* absent means named — an older profile predates the opt-out and never
@@ -65,7 +71,7 @@ export function normalizeIndicators(value) {
 export function cleanIndicators(value) {
   const merged = normalizeIndicators(value);
   return Object.fromEntries(Object.entries(DEFAULT_INDICATORS).map(([key, fallback]) => {
-    const candidate = String(merged[key] ?? fallback);
+    const candidate = plainText(merged[key] ?? fallback);
     return [key, INDICATOR_VALUES[key].has(candidate) ? candidate : fallback];
   }));
 }
@@ -75,12 +81,12 @@ export function cleanTopics(value, currentTopics = []) {
   if (!Array.isArray(value)) return [];
   return value.slice(0, 12).map((item) => {
     const rawName = typeof item === 'object' && item ? item.name : item;
-    const name = String(rawName ?? '').trim().slice(0, 80);
+    const name = plainText(rawName).trim().slice(0, 80);
     if (!name) return null;
     const prior = previous.get(name.toLowerCase()) ?? {};
     const priorValidated = Number(prior.validatedAt) || 0;
     const priorEndorsed = Number(prior.endorsedAt) || 0;
-    const requestedLevel = Number(item?.level) || 1;
+    const requestedLevel = Number(typeof item?.level === 'object' ? NaN : item?.level) || 1;
     const maxSelfAssignedLevel = priorValidated >= 4 ? 4 : 3;
     return {
       name,

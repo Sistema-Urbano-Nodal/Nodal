@@ -14,14 +14,18 @@ function plainString(value, name, max, { required = false } = {}) {
   }
   if (typeof value !== 'string') throw new Error(`${name} must be plain text`);
   const normalized = value.trim();
-  if (/<(?:[a-z!/]|\?xml)[^>]*>/i.test(normalized)) throw new Error(`${name} must be plain text`);
+  // Length first: the tag check is quadratic on text such as "<a<a<a…", so it only ever sees text of an allowed size.
   if (normalized.length > max) throw new Error(`${name} must be at most ${max} characters`);
+  if (/<(?:[a-z!/]|\?xml)[^>]*>/i.test(normalized)) throw new Error(`${name} must be plain text`);
   if (required && !normalized) throw new Error(`${name} is required`);
   return normalized;
 }
 
+// Every allowed value is a string; anything else (an object such as {"toString":1}, whose String() throws) is invalid.
+const enumText = (value, fallback) => (value === undefined || value === null || value === '' ? fallback : typeof value === 'string' ? value.trim() : undefined);
+
 function enumValue(value, name, values, fallback = '') {
-  const normalized = value === undefined || value === null || value === '' ? fallback : String(value).trim();
+  const normalized = enumText(value, fallback);
   if (!values.has(normalized)) throw new Error(`${name} is invalid`);
   return normalized;
 }
@@ -103,7 +107,7 @@ function normalizeTopics(value) {
 export function validateCatalogDraft(input = {}) {
   const source = readObject(input, 'catalog item');
   const kind = enumValue(source.kind, 'kind', KINDS, 'resource');
-  const subtype = source.subtype === undefined || source.subtype === null || source.subtype === '' ? null : String(source.subtype).trim();
+  const subtype = enumText(source.subtype, null);
   if (subtype !== null && (!OPPORTUNITY_SUBTYPES.has(subtype) || kind !== 'opportunity')) throw new Error('subtype is invalid');
   const record = {
     kind,

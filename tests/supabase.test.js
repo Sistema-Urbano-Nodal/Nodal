@@ -9,6 +9,8 @@ import {
 import { decodeCatalogCursor, decodeCatalogInterestCursor, localizeCatalogItem } from '../server/catalog.js';
 
 const TEST_USER_ID = '00000000-0000-0000-0000-000000000001';
+// catalog_items.id is a uuid: getCatalogItem answers any other id as missing without a provider call.
+const CATALOG_ITEM_ID = '00000000-0000-4000-8000-0000000c0001';
 
 const testEnv = () => ({
   NEXT_PUBLIC_SUPABASE_URL: 'https://project.supabase.co',
@@ -709,7 +711,7 @@ test('Supabase account deletion delegates once to Auth Admin without unsafe tabl
 test('Supabase catalog adapter sends equivalent filters, ordering, cursor, and version guard', async () => {
   const calls = [];
   const item = {
-    id: 'catalog-1', kind: 'opportunity', subtype: 'job', status: 'published', visibility: 'public',
+    id: CATALOG_ITEM_ID, kind: 'opportunity', subtype: 'job', status: 'published', visibility: 'public',
     translations: { en: { title: 'Urban role', summary: 'Summary', body: 'Body', cta: 'Apply' }, es: { title: 'Rol urbano', summary: 'Resumen', body: 'Cuerpo', cta: 'Postularse' }, pt: { title: 'Cargo urbano', summary: 'Resumo', body: 'Corpo', cta: 'Candidate-se' } },
     organization: 'Cities', location: 'Lima', topics: ['mobility'], action_mode: 'external', action_url: 'https://cities.example.test/apply',
     source_label: 'Cities official source', source_url: 'https://cities.example.test/source', source_verified_at: '2030-05-01T00:00:00.000Z',
@@ -723,7 +725,7 @@ test('Supabase catalog adapter sends equivalent filters, ordering, cursor, and v
     throw new Error(`unexpected request ${options.method} ${url.pathname}`);
   };
   const repo = createSupabaseRepository({ env: testEnv(), fetchImpl });
-  const cursor = Buffer.from(JSON.stringify([1, '2030-05-20T00:00:00.000Z', '2030-05-01T00:00:00.000Z', 'catalog-0'])).toString('base64url');
+  const cursor = Buffer.from(JSON.stringify([1, '2030-05-20T00:00:00.000Z', '2030-05-01T00:00:00.000Z', '00000000-0000-4000-8000-0000000c0000'])).toString('base64url');
   const list = await repo.listCatalogItems({ kind: 'opportunity', featured: true, limit: 2, cursor, state: 'all' }, null);
   assert.equal(list.items[0].translations.en.title, 'Urban role');
   assert.equal(list.items[0].sourceLabel, 'Cities official source');
@@ -742,7 +744,7 @@ test('Supabase catalog adapter sends equivalent filters, ordering, cursor, and v
   const updated = await repo.updateCatalogItem(item.id, { ...list.items[0], featured: false }, 1, TEST_USER_ID);
   assert.equal(updated.version, 2);
   const write = calls.find((call) => call.options.method === 'PATCH');
-  assert.equal(write.url.searchParams.get('id'), 'eq.catalog-1');
+  assert.equal(write.url.searchParams.get('id'), `eq.${CATALOG_ITEM_ID}`);
   assert.equal(write.url.searchParams.get('version'), 'eq.1');
   assert.equal(JSON.parse(write.options.body).source_label, 'Cities official source');
 });
@@ -817,16 +819,17 @@ test('Supabase catalog cursor preserves PostgREST microseconds that determine da
 });
 
 test('Supabase publication transitions refresh audit metadata while published edits preserve it', async () => {
+  const ARCHIVED_ID = '00000000-0000-4000-8000-0000000a0001', PUBLISHED_ID = '00000000-0000-4000-8000-0000000b0001';
   const rows = new Map([
-    ['archived', {
-      id: 'archived', kind: 'opportunity', subtype: 'job', status: 'archived', visibility: 'public',
+    [ARCHIVED_ID, {
+      id: ARCHIVED_ID, kind: 'opportunity', subtype: 'job', status: 'archived', visibility: 'public',
       translations: { en: { title: 'Role', summary: 'Summary', body: 'Body', cta: 'Apply' }, es: { title: 'Rol', summary: 'Resumen', body: 'Cuerpo', cta: 'Aplicar' }, pt: { title: 'Cargo', summary: 'Resumo', body: 'Corpo', cta: 'Aplicar' } },
       organization: 'Cities', location: 'Lima', topics: ['Mobility'], starts_at: '2030-06-01T00:00:00.000Z', deadline_at: '2030-05-20T00:00:00.000Z',
       source_label: 'Official source', source_url: 'https://cities.example.test/source', source_verified_at: '2030-05-01T00:00:00.000Z', action_mode: 'none', action_url: '', featured: false,
       version: 2, published_by: 'old-publisher', published_at: '2029-01-01T00:00:00.000Z',
     }],
-    ['published', {
-      id: 'published', kind: 'opportunity', subtype: 'job', status: 'published', visibility: 'public',
+    [PUBLISHED_ID, {
+      id: PUBLISHED_ID, kind: 'opportunity', subtype: 'job', status: 'published', visibility: 'public',
       translations: { en: { title: 'Role', summary: 'Summary', body: 'Body', cta: 'Apply' }, es: { title: 'Rol', summary: 'Resumen', body: 'Cuerpo', cta: 'Aplicar' }, pt: { title: 'Cargo', summary: 'Resumo', body: 'Corpo', cta: 'Aplicar' } },
       organization: 'Cities', location: 'Lima', topics: ['Mobility'], starts_at: '2030-06-01T00:00:00.000Z', deadline_at: '2030-05-20T00:00:00.000Z',
       source_label: 'Official source', source_url: 'https://cities.example.test/source', source_verified_at: '2030-05-01T00:00:00.000Z', action_mode: 'none', action_url: '', featured: false,
@@ -843,10 +846,10 @@ test('Supabase publication transitions refresh audit metadata while published ed
     }
     throw new Error(`unexpected request ${options.method} ${url.pathname}`);
   } });
-  const archived = rows.get('archived');
-  await repo.updateCatalogItem('archived', { ...archived, status: 'published', sourceLabel: archived.source_label, sourceUrl: archived.source_url, sourceVerifiedAt: archived.source_verified_at, startsAt: archived.starts_at, deadlineAt: archived.deadline_at, actionMode: 'none', actionUrl: '' }, 2, TEST_USER_ID);
-  const published = rows.get('published');
-  await repo.updateCatalogItem('published', { ...published, sourceLabel: published.source_label, sourceUrl: published.source_url, sourceVerifiedAt: published.source_verified_at, startsAt: published.starts_at, deadlineAt: published.deadline_at, actionMode: 'none', actionUrl: '' }, 4, TEST_USER_ID);
+  const archived = rows.get(ARCHIVED_ID);
+  await repo.updateCatalogItem(ARCHIVED_ID, { ...archived, status: 'published', sourceLabel: archived.source_label, sourceUrl: archived.source_url, sourceVerifiedAt: archived.source_verified_at, startsAt: archived.starts_at, deadlineAt: archived.deadline_at, actionMode: 'none', actionUrl: '' }, 2, TEST_USER_ID);
+  const published = rows.get(PUBLISHED_ID);
+  await repo.updateCatalogItem(PUBLISHED_ID, { ...published, sourceLabel: published.source_label, sourceUrl: published.source_url, sourceVerifiedAt: published.source_verified_at, startsAt: published.starts_at, deadlineAt: published.deadline_at, actionMode: 'none', actionUrl: '' }, 4, TEST_USER_ID);
   assert.equal(writes[0].body.published_by, TEST_USER_ID);
   assert.notEqual(writes[0].body.published_at, '2029-01-01T00:00:00.000Z');
   assert.equal(writes[1].body.published_by, 'old-publisher');
@@ -966,7 +969,7 @@ test('Supabase rejects invalid cursors before issuing a catalog request', async 
 test('Supabase preserves an identical active interest without issuing a PATCH', async () => {
   // A retry of the same PUT must not advance version/audit state or generate an admin conflict.
   const item = {
-    id: 'catalog-1', kind: 'resource', subtype: null, status: 'published', visibility: 'public',
+    id: CATALOG_ITEM_ID, kind: 'resource', subtype: null, status: 'published', visibility: 'public',
     translations: { en: { title: 'Guide', summary: 'Summary', body: 'Body', cta: 'Read' } }, organization: 'NODAL', location: '', topics: [],
     action_mode: 'interest', action_url: '', featured: false, version: 1, deadline_at: '2030-05-20T00:00:00.000Z', published_at: '2030-05-01T00:00:00.000Z',
   };
@@ -993,7 +996,7 @@ test('Supabase preserves an identical active interest without issuing a PATCH', 
 
 test('Supabase concurrent duplicate interest writes converge idempotently', async (t) => {
   const item = {
-    id: 'catalog-1', kind: 'resource', subtype: null, status: 'published', visibility: 'public',
+    id: CATALOG_ITEM_ID, kind: 'resource', subtype: null, status: 'published', visibility: 'public',
     translations: { en: { title: 'Guide', summary: 'Summary', body: 'Body', cta: 'Read' } }, organization: 'NODAL', location: '', topics: [],
     action_mode: 'interest', action_url: '', featured: false, version: 1, deadline_at: '2030-05-20T00:00:00.000Z', published_at: '2030-05-01T00:00:00.000Z',
   };
@@ -1115,7 +1118,7 @@ test('Supabase concurrent duplicate interest writes converge idempotently', asyn
 
 test('Supabase bounds insert-race retries without masking a non-convergent database error', async () => {
   const item = {
-    id: 'catalog-1', kind: 'resource', subtype: null, status: 'published', visibility: 'public',
+    id: CATALOG_ITEM_ID, kind: 'resource', subtype: null, status: 'published', visibility: 'public',
     translations: { en: { title: 'Guide', summary: 'Summary', body: 'Body', cta: 'Read' } }, organization: 'NODAL', location: '', topics: [],
     action_mode: 'interest', action_url: '', featured: false, version: 1, deadline_at: '2030-05-20T00:00:00.000Z', published_at: '2030-05-01T00:00:00.000Z',
   };

@@ -290,10 +290,10 @@ test('the acceptances CSV is for platform admins, newest first, with Lima time b
   const bytes = Buffer.from(await res.arrayBuffer());
   assert.deepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf], 'a byte order mark, so Excel reads it as UTF-8');
   assert.deepEqual(bytes.subarray(3).toString('utf8').split('\r\n'), [
-    '"accepted_at","accepted_at_lima","full_name","email","option","amount","terms_version"',
-    `"2027-01-01T02:10:00.000Z","2026-12-31 21:10","Carla","carla@example.test","once","S/ 499","${VERSION}"`,
-    `"2026-10-21T15:01:00.000Z","2026-10-21 10:01","Beatriz","beatriz@example.test","installments","2 × S/ 275 (S/ 550)","${VERSION}"`,
-    `"2026-10-21T15:00:00.000Z","2026-10-21 10:00","'=HYPERLINK(""https://evil.example"",""x"")","hostile@example.test","once","S/ 499","${VERSION}"`,
+    '"accepted_at","accepted_at_lima","full_name","email","option","amount","terms_version","account_deleted"',
+    `"2027-01-01T02:10:00.000Z","2026-12-31 21:10","Carla","carla@example.test","once","S/ 499","${VERSION}",""`,
+    `"2026-10-21T15:01:00.000Z","2026-10-21 10:01","Beatriz","beatriz@example.test","installments","2 × S/ 275 (S/ 550)","${VERSION}",""`,
+    `"2026-10-21T15:00:00.000Z","2026-10-21 10:00","'=HYPERLINK(""https://evil.example"",""x"")","hostile@example.test","once","S/ 499","${VERSION}",""`,
   ]);
   assert.equal((await fetch(csvUrl, { method: 'POST', headers: { Cookie: admin.cookie, Origin: base } })).status, 404, 'read only');
 });
@@ -315,6 +315,25 @@ test('a member\'s export includes their acceptances, and deleting the account ke
   assert.deepEqual({ ...kept }, { user_id: null, email: 'ana@example.test', full_name: 'Ana Fundadora', option: 'installments' }, 'contract evidence outlives the account');
   assert.equal(deleteUserById(db, other.user.id), true);
   assert.deepEqual(rows(db).map((row) => [row.user_id, row.email]), [[null, 'ana@example.test'], [null, 'otra@example.test']]);
+});
+
+/* A Founder member who deletes their account is still charged the second S/ 275 by Mercado Pago, which knows nothing of
+   NODAL accounts: the CSV says which acceptances lost their account, so the team can contact the payer (audit 22 Oct). */
+test('the acceptances CSV marks the rows whose account was deleted', async (t) => {
+  let at = BEFORE;
+  const { base, member } = await boot(t, { now: () => at });
+  const admin = member('Admin Persona', 'admin@example.test', 'admin');
+  const ana = member('Ana Fundadora', 'ana@example.test');
+  const kept = member('Beatriz', 'beatriz@example.test');
+  assert.equal((await accept(base, ana.cookie, valid('installments'))).status, 201);
+  at += 60000;
+  assert.equal((await accept(base, kept.cookie, valid('once'))).status, 201);
+  const deleted = await fetch(`${base}/api/me`, { method: 'DELETE', headers: { Cookie: ana.cookie, Origin: base, 'Content-Type': 'application/json' }, body: JSON.stringify({ confirmEmail: 'ana@example.test' }) });
+  assert.equal(deleted.status, 200);
+  const text = (await (await fetch(`${base}/api/admin/membership/acceptances`, { headers: { Cookie: admin.cookie } })).text()).replace(/^\uFEFF/, '');
+  const [header, ...lines] = text.split('\r\n');
+  assert.match(header, /,"account_deleted"$/, 'the last column, so spreadsheets built on the earlier CSV keep their positions');
+  assert.deepEqual(lines.map((line) => [line.split(',')[3], line.split(',').at(-1)]), [['"beatriz@example.test"', '""'], ['"ana@example.test"', '"yes"']]);
 });
 
 test('the course pilot keeps the payments page closed only while the membership is "soon"', async (t) => {

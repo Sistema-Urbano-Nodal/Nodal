@@ -171,10 +171,13 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
     const keyset = row => order === 'createdAt,id' ? {and:`(or(created_at.${op}.${row.created_at},and(created_at.eq.${row.created_at},id.${op}.${row.id})))`}
       : order === 'id' ? {and:`(id.${op}.${row.id})`} : {offset:rows.length};
     let total = null, cursor = {}, first = true;
+    const keyed = order === 'createdAt,id' || order === 'id';
     while (rows.length < limit) {
       const want = limit-rows.length, counting = first && want > 1;first = false;
       const page = await supa.admin.rest(table, {query:{...query,...cursor,limit:want},includeRange:true,...(counting?{headers:{Prefer:'count=exact'}}:{})});
       if (!Array.isArray(page.rows)) fail('course data unavailable',502);
+      // A provider that ignored the keyset answers the rows already read again: stop instead of repeating them.
+      if (keyed && rows.length && page.rows.length && page.rows.at(-1).id === rows.at(-1).id) break;
       rows.push(...page.rows);
       const counted = page.contentRange?.split('/')[1];
       if (counting && /^\d+$/.test(counted ?? '')) total = Number(counted);
