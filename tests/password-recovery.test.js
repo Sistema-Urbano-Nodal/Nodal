@@ -332,7 +332,7 @@ test('reset UI refuses passwords over the provider limit of 72 UTF-8 bytes befor
   assert.doesNotMatch(html,/maxlength="160"/);assert.match(html,/id="recoveryPassword"[^>]*maxlength="72"/);
 });
 // Vercel's Security Checkpoint answers a flagged venue address with its own page; only a page load passes it.
-test('a request stopped by the Vercel checkpoint or another non-JSON 403 says to reload the page, as sign-in does',async()=>{
+test('a request stopped by the Vercel checkpoint or another non-JSON 403 says to reload the page, as sign-in does, or at the reset step to open the email link again',async()=>{
   const checkpoint=()=>new Response('<html>Vercel Security Checkpoint</html>',{status:403,headers:{'content-type':'text/html','x-vercel-mitigated':'challenge'}});
   const plain403=()=>new Response('<html>Forbidden</html>',{status:403,headers:{'content-type':'text/html'}});
   const mitigatedOther=()=>new Response('<html>Too many requests</html>',{status:429,headers:{'content-type':'text/html','x-vercel-mitigated':'deny'}});
@@ -343,10 +343,17 @@ test('a request stopped by the Vercel checkpoint or another non-JSON 403 says to
     h.lang('pt');assert.equal(h.nodes.get('recoveryMessage').textContent,'Recarregue esta página e tente novamente.');
     assert.equal(h.nodes.get('recoveryEmail').value,'member@example.test');assert.equal(h.nodes.get('recoveryRequestButton').disabled,false);
   }
-  // On the reset form the request never reached NODAL: no "may already be saved", and the form and code stay.
-  const h=ui(async()=>checkpoint());h.nodes.get('recoveryPassword').value=h.nodes.get('recoveryConfirm').value='safe-new-password';
-  await h.submit('recoveryReset');assert.equal(h.nodes.get('recoveryMessage').textContent,'Reload this page and try again.');
-  assert.equal(h.nodes.get('recoveryReset').hidden,false);assert.equal(h.nodes.get('recoveryRequest').hidden,true);
+  // On the reset form the request never reached NODAL: no "may already be saved", and the form and code stay. The code
+  // already left the address, so a reload would only show the request form: the page says to open the email link again
+  // (audit 22 Oct, A4), whose page load passes the checkpoint.
+  for(const answer of [checkpoint,plain403,()=>response({code:'recovery_forbidden'},403)]){
+    const h=ui(async()=>answer());h.nodes.get('recoveryPassword').value=h.nodes.get('recoveryConfirm').value='safe-new-password';
+    await h.submit('recoveryReset');assert.equal(h.nodes.get('recoveryMessage').textContent,'Open the link in your email again, in this same browser, and choose your password there. If it says the link expired, request a new one.');
+    assert.doesNotMatch(h.nodes.get('recoveryMessage').textContent,/[Rr]eload/);
+    h.lang('es');assert.equal(h.nodes.get('recoveryMessage').textContent,'Vuelve a abrir el enlace de tu correo, en este mismo navegador, y elige tu contraseña ahí. Si dice que el enlace venció, solicita otro.');
+    h.lang('pt');assert.equal(h.nodes.get('recoveryMessage').textContent,'Abra de novo o link do seu e-mail, neste mesmo navegador, e escolha sua senha lá. Se ele disser que o link expirou, solicite outro.');
+    assert.equal(h.nodes.get('recoveryReset').hidden,false);assert.equal(h.nodes.get('recoveryRequest').hidden,true);
+  }
   // Any other unreadable answer keeps its wording.
   const gateway=ui(async()=>new Response('<html>Bad gateway</html>',{status:502}),{search:''});gateway.nodes.get('recoveryEmail').value='member@example.test';
   await gateway.submit('recoveryRequest');assert.match(gateway.nodes.get('recoveryMessage').textContent,/temporarily unavailable/);

@@ -53,6 +53,8 @@
     name:['Enter your name using at least 2 characters.','Escribe tu nombre con al menos 2 caracteres.','Digite seu nome com pelo menos 2 caracteres.'],
     passwordRequired:['Enter your password.','Escribe tu contraseña.','Digite sua senha.'],
     passwordLength:['Use 8–72 characters for your password (fewer with accents or emoji).','Usa entre 8 y 72 caracteres en tu contraseña (menos con tildes o emojis).','Use entre 8 e 72 caracteres na sua senha (menos com acentos ou emojis).'],
+    // The auth provider refuses a password that is short for its policy or known from leaks; the server says weak_password.
+    weakPassword:['Choose a stronger password: make it longer and avoid common passwords.','Elige una contraseña más segura: que sea más larga y no una contraseña común.','Escolha uma senha mais forte: mais longa e que não seja uma senha comum.'],
     invalidCredentials:['Email or password is incorrect.','Correo o contraseña incorrectos.','E-mail ou senha incorretos.'],
     confirmEmail:["Confirm your email before signing in. Didn't get the email? Check spam, or use Create account again with the same email and password to get a new link.",'Confirma tu correo antes de iniciar sesión. ¿No te llegó? Revisa el spam o vuelve a usar Crear cuenta con el mismo correo y contraseña para recibir otro enlace.','Confirme seu e-mail antes de entrar. Não recebeu? Confira o spam ou use Criar conta de novo com o mesmo e-mail e senha para receber outro link.'],
     // A confirmation opened in a mail app's own browser loses the way back to a check-in, so the person is told to scan again.
@@ -97,7 +99,7 @@
   const setBusy = (state,value) => {
     state.busy=value;state.submit.disabled=value;state.form.setAttribute('aria-busy',String(value));render();
   };
-  function errorKey(status,detail,signup){
+  function errorKey(status,detail,signup,code){
     if(/confirm your email before signing in/i.test(detail))return 'confirmEmail';
     if(/confirmation email is temporarily unavailable/i.test(detail))return 'confirmationUnavailable';
     if(status===429)return 'rate';
@@ -105,6 +107,7 @@
     if(/full name is required/i.test(detail))return 'name';
     if(/valid email is required/i.test(detail))return 'email';
     if(/password must be/i.test(detail))return 'passwordLength';
+    if(code==='weak_password'||/password is too weak/i.test(detail))return 'weakPassword';
     if(!signup&&[400,401,422].includes(status))return 'invalidCredentials';
     return signup?'signupFailure':'unavailable';
   }
@@ -122,7 +125,7 @@
         data={};
       }
     }catch(error){throw {key:['AbortError','TimeoutError'].includes(error.name)?'timeout':'connection'};}
-    if(!res.ok)throw {key:errorKey(res.status,String(data?.error||''),signup)};
+    if(!res.ok)throw {key:errorKey(res.status,String(data?.error||''),signup,data?.code)};
     if(!data?.requiresEmailConfirmation&&!data?.user)throw {key:signup?'signupFailure':'unavailable'};
     return data;
   }
@@ -152,7 +155,7 @@
       }catch(error){
         const key=error.key||'connection';
         // A refusal about one field sends the person back to it; a wrong password is selected, ready to retype.
-        field=({invalidCredentials:password,passwordLength:password,email,name})[key]||null;
+        field=({invalidCredentials:password,passwordLength:password,weakPassword:password,email,name})[key]||null;
         show(state.error,key,field);if(key==='invalidCredentials')password.select();
       }
       finally{

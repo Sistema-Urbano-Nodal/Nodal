@@ -22,6 +22,9 @@ const CONSOLE=readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.met
 // On 21 Oct 2026 the console's locked "Founding Member" badge (d.badge.founding.*), whose "by invitation" and
 // "founding price" contradicted the Founder Membership, became the first cohort's (eve audit #19), so the two nonhome
 // hashes were redone; only those three lines moved, and tests/dashboard-console-ui.test.js pins them.
+// On 22 Oct 2026 the console's account-deletion prompt gained the Founder Membership's pending-payment line and its
+// refusals their own lines (d.uc.deletePrompt, deleteEmailMismatch, deleteUploading, deleteCertificateUploading), so the
+// two nonhome hashes were redone; only those four keys moved, and tests/dashboard-account-errors.test.js pins them.
 const HOME_KEYS=[
   "about.eyebrow",
   "about.lead1",
@@ -258,8 +261,8 @@ const SNAPSHOTS={
     "pt": "b9a077e4b2055212490393a2498292f0d20156b6f1d4e34f8d7b063179e71d3b"
   },
   "nonhome": {
-    "es": "2446274259073583848789e44b39f632d8b5d9cbbd856292fd95ae5218e375ba",
-    "pt": "4a3df4bfc031f79e8368cadb069ae8a57d3602de79694d492c31b4a93cc5f108"
+    "es": "068fc1f698a183f5b813f1ce55153c886b7600624b2cf473e887899dc6bc087a",
+    "pt": "ac9a8c45aca52c58642e8e946a909fbf6bcd513d48f58548de904fa59cb229c0"
   }
 };
 

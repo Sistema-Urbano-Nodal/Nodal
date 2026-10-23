@@ -1228,8 +1228,9 @@
         // Safari and some Firefox setups start a blob download after click() returns;
         // revoking the URL in the same tick can cancel it, so it is released later.
         setTimeout(() => URL.revokeObjectURL(url), 60000);
-      } catch (err) {
-        uc.error.textContent = err.message || t('d.uc.exportFail');
+      } catch {
+        // The server's reasons are in English; the member reads the failure in their own language.
+        uc.error.textContent = t('d.uc.exportFail');
         uc.error.hidden = false;
       }
     });
@@ -1241,8 +1242,15 @@
         await api('/api/me', { method: 'DELETE', body: JSON.stringify({ confirmEmail: email }) });
         location.assign('/login.html');
       } catch (err) {
-        // The server explains a refusal in English; a known code is shown in the member's language.
-        uc.error.textContent = err.code === 'subscription_active' ? t('d.uc.deleteSubscription') : err.message || t('d.uc.deleteFail');
+        // The server explains a refusal in English; a known code is shown in the member's language, anything else as a
+        // plain failure, never the server's sentence.
+        const refusals = new Map([
+          ['subscription_active', 'd.uc.deleteSubscription'],
+          ['confirm_email_mismatch', 'd.uc.deleteEmailMismatch'],
+          ['upload_in_progress', 'd.uc.deleteUploading'],
+          ['certificate_upload_in_progress', 'd.uc.deleteCertificateUploading'],
+        ]);
+        uc.error.textContent = t(refusals.get(err?.code) || 'd.uc.deleteFail');
         uc.error.hidden = false;
       }
     });

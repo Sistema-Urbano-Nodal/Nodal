@@ -218,3 +218,17 @@ test('a sign-up whose confirmation email could not be sent says so, and never to
   assert.equal(h.nodes.signupForm.button.disabled,false);assert.equal(h.assigned(),'');
  }
 });
+// Audit 22 Oct, A2: the provider's own refusals at sign-up reach the page as the field to fix, not "sign in instead".
+test('a sign-up the provider refuses for a weak password or an invalid address says which, in the page language',async()=>{
+ for(const [lang,expected] of [['en',/^Choose a stronger password: make it longer and avoid common passwords\.$/],['es',/^Elige una contraseña más segura: que sea más larga y no una contraseña común\.$/],['pt',/^Escolha uma senha mais forte: mais longa e que não seja uma senha comum\.$/]]){
+  const h=harness(async()=>({ok:false,status:400,data:{error:'password is too weak',code:'weak_password'}}));h.valid();h.context.document.activeElement=h.context.document.body;h.lang(lang);
+  await h.submit('signupForm');assert.equal(h.requests.length,1);assert.match(h.nodes.signupError.textContent,expected,lang);
+  assert.doesNotMatch(h.nodes.signupError.textContent,/sign in|inicia sesión|entre\b/i,lang);
+  assert.equal(h.nodes.signupPassword.focused,true);assert.equal(h.nodes.signupPassword['aria-invalid'],'true');assert.equal(h.nodes.signupForm.button.disabled,false);assert.equal(h.assigned(),'');
+ }
+ // The code alone is enough; the English sentence is only a fallback for an older server.
+ const coded=harness(async()=>({ok:false,status:400,data:{code:'weak_password'}}));coded.valid();await coded.submit('signupForm');assert.match(coded.nodes.signupError.textContent,/stronger password/);
+ // An address the provider refuses reads as the address to fix.
+ const address=harness(async()=>({ok:false,status:400,data:{error:'valid email is required'}}));address.valid();address.lang('pt');await address.submit('signupForm');
+ assert.equal(address.nodes.signupError.textContent,'Digite um e-mail válido.');assert.equal(address.nodes.signupEmail['aria-invalid'],'true');
+});

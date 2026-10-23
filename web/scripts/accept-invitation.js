@@ -29,7 +29,10 @@
       let response;
       try{response=await fetch('/api/auth/course-invitation/complete',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(body),...(signal?{signal}:{})});}
       catch(error){throw {lost:error?.name==='TypeError'||globalThis.navigator?.onLine===false?'offline':'timeout'};}
-      try{return await response.json();}catch{throw {lost:'unreadable'};}
+      // Vercel's Security Checkpoint (x-vercel-mitigated) or another non-JSON 403 stopped the request before NODAL: only a
+      // page load passes it, and this address no longer holds the token, so the page says to open it from the email again.
+      if(response.headers?.get('x-vercel-mitigated'))return {code:'invitation_forbidden'};
+      try{return await response.json();}catch{if(response.status===403)return {code:'invitation_forbidden'};throw {lost:'unreadable'};}
     }
     function invalid(input,key){
       input.setAttribute('aria-invalid','true');input.setAttribute('aria-describedby','recoveryMessage');show(key);input.focus();

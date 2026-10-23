@@ -32,6 +32,8 @@
     recovery_rate:['Too many attempts. Wait a few minutes and try again.','Demasiados intentos. Espera unos minutos y vuelve a intentarlo.','Muitas tentativas. Aguarde alguns minutos e tente novamente.'],
     recovery_email:['Enter a valid email address.','Escribe un correo electrónico válido.','Digite um e-mail válido.'],
     recovery_forbidden:['Reload this page and try again.','Recarga esta página e inténtalo de nuevo.','Recarregue esta página e tente novamente.'],
+    // At the reset step the code has left the address, so a reload cannot bring it back; the email link's page load passes the checkpoint.
+    recovery_forbidden_reset:['Open the link in your email again, in this same browser, and choose your password there. If it says the link expired, request a new one.','Vuelve a abrir el enlace de tu correo, en este mismo navegador, y elige tu contraseña ahí. Si dice que el enlace venció, solicita otro.','Abra de novo o link do seu e-mail, neste mesmo navegador, e escolha sua senha lá. Se ele disser que o link expirou, solicite outro.'],
     signIn:['Back to sign in','Volver a iniciar sesión','Voltar para entrar'],
     another:['Request another link','Solicitar otro enlace','Solicitar outro link'],
   };
