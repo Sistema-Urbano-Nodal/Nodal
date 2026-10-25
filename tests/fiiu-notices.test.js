@@ -265,7 +265,7 @@ test('organisers announce the party from the panel batch by batch, with the prog
  const {sent:mail,notify}=outbox();
  const {db,store,call}=await app(t,{notice:notify});
  await people(db,store,Array.from({length:6},(_,i)=>({email:`p${i}@fiiu-inbox.dev`,...(i===5?{activities:['closing-party']}:{})})));
- assert.deepEqual(await(await call('/api/admin/fiiu/notices/closing-party')).json(),{configured:true,counts:{waiting:5,pending:0,sent:0,failed:0,uncertain:0,skipped:0},dailyCap:150,sentToday:0,resetsAt:'2026-10-15T00:00:00.000Z'});
+ assert.deepEqual(await(await call('/api/admin/fiiu/notices/closing-party')).json(),{configured:true,counts:{waiting:5,pending:0,sent:0,failed:0,uncertain:0,skipped:0},dailyCap:150,sentToday:0,resetsAt:'2026-10-15T00:00:00.000Z',closed:null});
  // The organisers renamed the party: the announcement says so.
  const party=FIIU_EVENT.activities.find(a=>a.id==='closing-party');
  assert.equal((await call('/api/admin/fiiu/programme/closing-party',{method:'PUT',body:{title:'Fiesta final',date:party.date,time:party.time,venue:party.venue,description:'',sessions:party.sessions,version:0}})).status,200);
@@ -297,6 +297,34 @@ test('the announcement is for organisers only, same-origin, validated, answers 5
  assert.deepEqual(await capped.json(),{error:'daily email limit reached',code:'daily_cap',dailyCap:1,sentToday:1,resetsAt:'2026-10-15T00:00:00.000Z',counts:{waiting:1,pending:0,sent:1,failed:0,uncertain:0,skipped:0},sent:0,failed:0,uncertain:0,skipped:0,claimedElsewhere:0});
  assert.equal(mail.length,1);
  assert.equal((await call('/api/admin/fiiu/notices/other-kind',{method:'POST',body:{}})).status,404);
+});
+
+/* The announcement asks people to add the party to their registration, so it closes once the party starts (its start in
+   Lima, as the programme has it) and while registration is closed, when nobody could add it: a press after the party
+   would invite everyone to one that is over. */
+test('the announcement closes once the party starts, and while registration is closed: nobody is emailed then',async t=>{
+ const {sent:mail,notify}=outbox();let clock=Date.parse('2026-10-24T21:59:00.000Z');
+ const {db,store,call}=await app(t,{notice:notify,backfill:{now:()=>clock}});
+ await people(db,store,[{email:'one@fiiu-inbox.dev'},{email:'two@fiiu-inbox.dev'}]);
+ const closed=async()=>(await(await call('/api/admin/fiiu/notices/closing-party')).json()).closed;
+ const post=body=>call('/api/admin/fiiu/notices/closing-party',{method:'POST',body});
+ assert.equal(await closed(),null,'16:59 in Lima, a minute before the party');
+ assert.equal((await call('/api/admin/fiiu/config',{method:'PUT',body:{version:0,registrationOpen:false}})).status,200);
+ assert.equal(await closed(),'registration');
+ let refused=await post({});assert.equal(refused.status,409);
+ assert.deepEqual(await refused.json(),{error:'the announcement is closed',code:'notice_closed',closed:'registration',counts:{waiting:2,pending:0,sent:0,failed:0,uncertain:0,skipped:0}});
+ assert.equal((await call('/api/admin/fiiu/config',{method:'PUT',body:{version:1,registrationOpen:true}})).status,200);
+ clock=Date.parse('2026-10-24T22:00:00.000Z');
+ assert.equal(await closed(),'started','17:00 in Lima');
+ for(const body of [{},{retryFailed:true}]){refused=await post(body);assert.equal(refused.status,409);assert.equal((await refused.json()).closed,'started');}
+ clock=Date.parse('2026-10-26T15:00:00.000Z');assert.equal(await closed(),'started','and every day after');
+ assert.equal(mail.length,0);assert.equal(db.prepare('SELECT count(*) AS n FROM fiiu_notices').get().n,0,'nobody was claimed');
+ // Organisers who move the party later reopen the announcement until its new start.
+ clock=Date.parse('2026-10-24T22:30:00.000Z');
+ const party=FIIU_EVENT.activities.find(a=>a.id==='closing-party');
+ assert.equal((await call('/api/admin/fiiu/programme/closing-party',{method:'PUT',body:{title:party.title,date:party.date,time:'18:00',venue:party.venue,description:'',sessions:party.sessions,version:0}})).status,200);
+ assert.equal(await closed(),null);
+ const sent=await post({});assert.equal(sent.status,200);assert.equal((await sent.json()).sent,2);
 });
 
 test('a party batch another sender stops at today’s cap answers 429 with the announcements it did send, for the panel’s report',async t=>{

@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import {EVENT_ID} from './fiiu-domain.js';
+import {EVENT_ID,LIMA_OFFSET} from './fiiu-domain.js';
 import {emailLanguage} from './fiiu-email.js';
 import {sendingDay,sentSince,settledSentAt,overCap,twice,BATCH_SIZE,DAILY_CAP} from './fiiu-confirmations.js';
 
@@ -19,6 +19,15 @@ export const NOTICE_STATUSES=['pending','sent','failed','uncertain','skipped'];
 const OUTCOMES=['sent','failed','uncertain','skipped'];
 const planned=(registration,activityId)=>Array.isArray(registration.answers?.activities)&&registration.answers.activities.includes(activityId);
 
+/* The announcement asks people to add the party to their registration, so it is closed ('started') from the party's
+   start in Lima as the programme has it (the end of its day when it has no time, or when the programme lacks it), and
+   ('registration') while registration is closed, when nobody could add it; null while it may go out. */
+export function noticeClosed({event,registrationOpen,now=Date.now(),notice=PARTY_NOTICE}){
+ const party=event?.activities?.find(activity=>activity.id===notice.activityId),start=/^(\d{1,2}):(\d{2})/.exec(String(party?.time??'').trim());
+ const startsAt=party?Date.parse(`${party.date}T${start?`${start[1].padStart(2,'0')}:${start[2]}`:'23:59'}:00${LIMA_OFFSET}`):NaN;
+ if(!Number.isFinite(startsAt)||now>=startsAt)return 'started';
+ return registrationOpen===false?'registration':null;
+}
 // Who is waiting, and how many notices are in each state: counted, no private answers downloaded.
 export async function noticeCounts(store,{kind,activityId}=PARTY_NOTICE){
  const [waiting,...values]=await Promise.all([store.noticeWaiting(EVENT_ID,{kind,activityId}),...NOTICE_STATUSES.map(status=>store.count('notices',{eventId:EVENT_ID,kind,status}))]);

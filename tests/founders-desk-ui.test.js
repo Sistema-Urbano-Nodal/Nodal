@@ -130,7 +130,7 @@ test('the desk has a Founder Membership tab and band after Interest requests, be
   assert.doesNotMatch(html, /pilot\.js|pilot-i18n\.js|courses\.css/);
   assert.match(html, /href="admin\.css\?v=20261023a"/);
   assert.match(html, /src="admin\.js\?v=20261023a"/);
-  assert.match(html, /src="i18n-dashboard\.js\?v=20261023a"/);
+  assert.match(html, /src="i18n-dashboard\.js\?v=20261024a"/);
 });
 
 test('the band’s copy is the desk’s own in English, Spanish and Portuguese, and keeps the word Founder', () => {

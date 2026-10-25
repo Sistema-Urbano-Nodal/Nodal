@@ -722,7 +722,7 @@ test('by default the check-in screen carries the real QR of its link, packed row
  assert.equal(body.qr.bits,packBits(qr));assert.equal(Buffer.from(body.qr.bits,'base64').length,Math.ceil(qr.size*qr.size/8));
 });
 
-test('the staff export appends attendance, certificate hours, methods, Lima check-in times per NODAL block, the summary email status and the Lima registration time',async t=>{
+test('the staff export appends attendance, certificate hours, methods, Lima check-in times per NODAL block, the summary email status, the Lima registration time and the blocks whose hours are pending',async t=>{
  const {codes,options}=festivalClock('2026-10-21T14:12:00Z');// 09:12 in Lima
  const {call,save,db}=await setup(t,undefined,options);
  const {registration}=await(await save({...answers,activities:['day1-am','day2-am']})).json();await save(answers,'other');
@@ -733,8 +733,8 @@ test('the staff export appends attendance, certificate hours, methods, Lima chec
  const text=(await(await call('/api/admin/fiiu/export',{actor:'admin'})).text()).replace(/^﻿/,'');
  const [header,...rows]=text.split('\r\n').map(line=>line.slice(1,-1).split('","'));
  const blocks=['day0-lab','day1-am','day1-pm','day2-am','day2-pm','day3-am'];
- assert.deepEqual(header.slice(22),['attendedActivities','attendedDays','attendedMinutes','certificateHours','checkInMethods',...blocks.map(id=>`checkInLima_${id}`),'confirmationEmail','registeredAtDoor','registeredAtLima']);
- assert.equal(header.length,36);assert.ok(rows.every(row=>row.length===36));
+ assert.deepEqual(header.slice(22),['attendedActivities','attendedDays','attendedMinutes','certificateHours','checkInMethods',...blocks.map(id=>`checkInLima_${id}`),'confirmationEmail','registeredAtDoor','registeredAtLima','hoursPending']);
+ assert.equal(header.length,37);assert.ok(rows.every(row=>row.length===37));
  const field=(row,name)=>row[header.indexOf(name)],mine=rows.find(row=>row[0]===registration.id),theirs=rows.find(row=>row[0]!==registration.id);
  assert.deepEqual(['attendedActivities','attendedDays','attendedMinutes','certificateHours','checkInMethods','checkInLima_day1-am','checkInLima_day1-pm'].map(name=>field(mine,name)),
   ['day1-am; day2-am','2026-10-21; 2026-10-22','480','8','day1-am:qr; day2-am:staff','2026-10-21 09:12','']);
@@ -745,6 +745,13 @@ test('the staff export appends attendance, certificate hours, methods, Lima chec
  // registeredAt stays UTC for the spreadsheets that read it; registeredAtLima comes last, in the check-in columns' Lima time.
  assert.equal(field(mine,'registeredAt'),'2026-10-02T03:07:41.000Z');assert.equal(field(mine,'registeredAtLima'),'2026-10-01 22:07');
  assert.match(field(theirs,'registeredAtLima'),/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+ assert.deepEqual(rows.map(row=>field(row,'hoursPending')),['',''],'nobody attended an untimed block');
+ // The lab has no hours until its time is set: its attendees show 0 hours, and the last column says which block is pending.
+ const other=rows.find(row=>row[0]!==registration.id)[0];
+ db.prepare("INSERT INTO fiiu_attendance (id,registration_id,activity_id,confirmed_by,created_at,method) VALUES ('lab-row',?,'day0-lab',NULL,'2026-10-20T18:21:00.000Z','staff')").run(other);
+ const again=(await(await call('/api/admin/fiiu/export',{actor:'admin'})).text()).replace(/^\uFEFF/,'').split('\r\n').map(line=>line.slice(1,-1).split('","'));
+ const lab=again.find(row=>row[0]===other);
+ assert.deepEqual(['attendedActivities','certificateHours','hoursPending'].map(name=>lab[again[0].indexOf(name)]),['day0-lab','0','day0-lab']);
 });
 
 // The summary email: an outbox stands in for the SMTP sender. Accounts here use fiiu-inbox.dev, a placeholder outside
@@ -777,7 +784,7 @@ test('the first registration emails a summary once, to the account address, in t
  assert.equal((await(await call('/api/fiiu/registration')).json()).registration.confirmationStatus,'sent');
  assert.equal((await(await call('/api/me/export')).json()).data.fiiu.registration.confirmationStatus,'sent');
  assert.equal((await(await call(`/api/admin/fiiu/registrations/${registration.id}`,{actor:'admin'})).json()).registration.confirmationSentAt,'2026-10-02T15:00:00.000Z');
- const csvText=await(await call('/api/admin/fiiu/export',{actor:'admin'})).text();assert.match(csvText.split('\r\n')[1],/,"sent","false","\d{4}-\d{2}-\d{2} \d{2}:\d{2}"$/);
+ const csvText=await(await call('/api/admin/fiiu/export',{actor:'admin'})).text();assert.match(csvText.split('\r\n')[1],/,"sent","false","\d{4}-\d{2}-\d{2} \d{2}:\d{2}",""$/);
 });
 
 test('the summary language falls back from the page to the site language cookie to Spanish',async t=>{
@@ -1281,7 +1288,7 @@ test('someone with a NODAL account but no festival registration is registered at
  assert.equal(me.registration.answers.walkIn,true);assert.deepEqual(me.attendance.map(a=>a.activityId).sort(),['day1-am','day1-pm']);
  // The organisers' export marks them in a last column, so existing spreadsheets keep their positions.
  const csv=(await(await call('/api/admin/fiiu/export',{actor:'admin'})).text()).replace(/^﻿/,'').trim().split(/\r?\n/);
- assert.match(csv[0],/,"confirmationEmail","registeredAtDoor","registeredAtLima"$/);assert.match(csv[1],/,"skipped","true","\d{4}-\d{2}-\d{2} \d{2}:\d{2}"$/);
+ assert.match(csv[0],/,"confirmationEmail","registeredAtDoor","registeredAtLima","hoursPending"$/);assert.match(csv[1],/,"skipped","true","\d{4}-\d{2}-\d{2} \d{2}:\d{2}",""$/);
  // Once a block's check-in closes, nobody is registered for it.
  clock.set('2026-10-22T02:31:00Z');const other=createUser(db,{fullName:'Late Comer',email:'late@example.test',passwordHash:'unused',role:'member'}),late=createSession(db,other.id).cookie.split(';')[0];
  response=await call('/api/fiiu/checkin',{actor:'guest',method:'POST',body:{activityId:'day1-pm',code:code('day1-pm'),join:true},headers:{Cookie:late}});
@@ -1345,16 +1352,29 @@ test('a walk-in who completes the form keeps the door mark, and two door registr
  const me=await(await call('/api/fiiu/registration')).json();
  const saved=await save({...answers,activities:['day2-am'],version:me.registration.version,registrationId:me.registration.id});assert.equal(saved.status,200);
  const {registration}=await saved.json();assert.equal(registration.answers.walkIn,true,'completing the form keeps the mark');assert.equal(registration.answers.nationalId,'TEST-ID');
- const csv=(await(await call('/api/admin/fiiu/export',{actor:'admin'})).text()).trim().split(/\r?\n/);assert.match(csv[1],/,"true","\d{4}-\d{2}-\d{2} \d{2}:\d{2}"$/);
+ const csv=(await(await call('/api/admin/fiiu/export',{actor:'admin'})).text()).trim().split(/\r?\n/);assert.match(csv[1],/,"true","\d{4}-\d{2}-\d{2} \d{2}:\d{2}",""$/);
 });
 
-test('a staff tick on a conference block outside the plan adds it while registration is open, and is refused once it closes',async t=>{
+// After the festival organisers confirm attendance from their own records: a desk tick adds the block whether or not
+// registration is open, while a scan outside the plan still needs it open (the walk-in tests).
+test('a staff tick on a conference block outside the plan adds it, while registration is open and once it closes',async t=>{
  const {call,save,db}=await setup(t);const {registration}=await(await save()).json();
  const route=`/api/admin/fiiu/registrations/${registration.id}/attendance`;
  let response=await call(route,{actor:'admin',method:'PUT',body:{activityId:'day2-am',attended:true}});assert.equal(response.status,200);
  assert.deepEqual((await response.json()).attendance.map(a=>a.activityId),['day2-am']);
  assert.deepEqual(JSON.parse(db.prepare('SELECT answers FROM fiiu_registrations').get().answers).activities,['day1-am','day2-am']);
  assert.equal((await call('/api/admin/fiiu/config',{actor:'admin',method:'PUT',body:{version:0,registrationOpen:false}})).status,200);
- assert.equal((await call(route,{actor:'admin',method:'PUT',body:{activityId:'day3-am',attended:true}})).status,400);
+ response=await call(route,{actor:'admin',method:'PUT',body:{activityId:'day3-am',attended:true}});assert.equal(response.status,200);
+ assert.deepEqual((await response.json()).attendance.map(a=>a.activityId).sort(),['day2-am','day3-am']);
+ assert.deepEqual(JSON.parse(db.prepare('SELECT answers FROM fiiu_registrations').get().answers).activities,['day1-am','day2-am','day3-am']);
+ // The party takes no attendance, open or closed.
+ assert.equal((await call(route,{actor:'admin',method:'PUT',body:{activityId:'closing-party',attended:true}})).status,400);
+ // A mistaken tick is undone by unticking: the block the desk added leaves the plan again, one the person chose stays.
+ response=await call(route,{actor:'admin',method:'PUT',body:{activityId:'day3-am',attended:false}});assert.equal(response.status,200);
+ assert.deepEqual((await response.json()).attendance.map(a=>a.activityId),['day2-am']);
  assert.deepEqual(JSON.parse(db.prepare('SELECT answers FROM fiiu_registrations').get().answers).activities,['day1-am','day2-am']);
+ assert.equal((await call(route,{actor:'admin',method:'PUT',body:{activityId:'day1-am',attended:true}})).status,200);
+ assert.equal((await call(route,{actor:'admin',method:'PUT',body:{activityId:'day1-am',attended:false}})).status,200);
+ const plan=JSON.parse(db.prepare('SELECT answers FROM fiiu_registrations').get().answers);
+ assert.deepEqual(plan.activities,['day1-am','day2-am'],'day1-am was the person’s own choice');assert.deepEqual(plan.deskAdded,['day2-am']);
 });

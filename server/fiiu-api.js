@@ -8,7 +8,7 @@ import {packBits} from './qr.js';
 import {isReservedRecipient,EMAIL_LANGUAGES} from './fiiu-email.js';
 import {parseCookies} from './auth.js';
 import {confirmationState,confirmationCounts,sendConfirmationBatch,deliverConfirmation,BATCH_SIZE,DAILY_CAP} from './fiiu-confirmations.js';
-import {noticeState,noticeCounts,sendNoticeBatch,PARTY_NOTICE} from './fiiu-notices.js';
+import {noticeState,noticeCounts,noticeClosed,sendNoticeBatch,PARTY_NOTICE} from './fiiu-notices.js';
 const now=()=>new Date().toISOString();
 const attendanceView=({activityId,createdAt,method})=>({activityId,createdAt,method});
 // CSV check-in times are Lima wall-clock time (UTC-05:00 all year), e.g. '2026-10-21 09:12'.
@@ -90,16 +90,32 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
  }
  // A conference block scanned at its door joins the person's plan, so the plan, the organisers' block lists and the
  // summary agree with the attendance. A save racing it (another tab) is read again and keeps its answers.
- async function addToPlan(registration,activityId){
+ // byDesk: an organiser's tick, remembered in deskAdded so unticking it takes the block out again (dropFromPlan).
+ async function addToPlan(registration,activityId,{byDesk=false}={}){
   for(let attempt=0;attempt<3;attempt++){
    const activities=[...new Set([...(Array.isArray(registration.answers?.activities)?registration.answers.activities:[]),activityId])].sort();
-   const saved=await store.update('registrations',{id:registration.id,userId:registration.userId,version:registration.version},{answers:{...registration.answers,activities},version:registration.version+1,updatedAt:now()});
+   const desk=byDesk?{deskAdded:[...new Set([...deskAdded(registration),activityId])].sort()}:{};
+   const saved=await store.update('registrations',{id:registration.id,userId:registration.userId,version:registration.version},{answers:{...registration.answers,activities,...desk},version:registration.version+1,updatedAt:now()});
    if(saved)return saved;
    registration=await one('registrations',{eventId:EVENT_ID,userId:registration.userId});
    if(!registration)fail('registration unavailable',404);
    if(planned(registration,activityId))return registration;
   }
   fail('registration changed; scan again',409);
+ }
+ /* A block the desk added (deskAdded) leaves the plan when its tick is undone, so a mistaken tick leaves nothing behind
+    while the person cannot edit their registration; a block they chose themselves stays. Their own save drops the list. */
+ const deskAdded=registration=>Array.isArray(registration.answers?.deskAdded)?registration.answers.deskAdded:[];
+ async function dropFromPlan(registration,activityId){
+  for(let attempt=0;attempt<3;attempt++){
+   if(!deskAdded(registration).includes(activityId))return registration;
+   const without=list=>list.filter(id=>id!==activityId),answers={...registration.answers,activities:without(registration.answers.activities??[]),deskAdded:without(deskAdded(registration))};
+   const saved=await store.update('registrations',{id:registration.id,userId:registration.userId,version:registration.version},{answers,version:registration.version+1,updatedAt:now()});
+   if(saved)return saved;
+   registration=await one('registrations',{eventId:EVENT_ID,userId:registration.userId});
+   if(!registration)fail('registration unavailable',404);
+  }
+  fail('registration changed; reload before saving',409);
  }
  const dropFailedNotice=async userId=>{try{await store.remove('notices',{eventId:EVENT_ID,userId,kind:PARTY_NOTICE.kind,status:'failed'});}catch{/* see above */}};
  const config=async()=>{const row=await one('config',{id:EVENT_ID});return {...configView(row?.data),version:row?.version??0};};
@@ -258,13 +274,17 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
   if(path==='/api/admin/fiiu/notices/closing-party'){
    // The closing-party announcement, once to every registrant who has not added the party, one small batch per request
    // as the summary button sends (server/fiiu-notices.js); it shares the summary emails' daily cap.
-   if(read){send(res,200,{configured:Boolean(partyNotice),...await noticeState(store,{dailyCap,now:today()})});return true;}
+   // Closed once the party starts or while registration is closed (noticeClosed): read with the state, refused before any claim.
+   const closed=async at=>{const [{event},settings]=await Promise.all([live(),config()]);return {event,closed:noticeClosed({event,registrationOpen:settings.registrationOpen,now:at})};};
+   if(read){const at=today(),[state,{closed:shut}]=await Promise.all([noticeState(store,{dailyCap,now:at}),closed(at)]);send(res,200,{configured:Boolean(partyNotice),...state,closed:shut});return true;}
    if(req.method==='POST'){
     const input=await body(req);
     if(input.retryFailed!==undefined&&typeof input.retryFailed!=='boolean')fail('invalid retryFailed');
     const after=input.after===undefined||input.after===null?null:identifier(input.after);
     if(!partyNotice){send(res,503,{error:'email is not configured',code:'email_not_configured'});return true;}
-    const batch=await sendNoticeBatch({store,notify:partyNotice,event:(await live()).event,retryFailed:input.retryFailed===true,after,size:batchSize,dailyCap,now:today()});
+    const at=today(),{event,closed:shut}=await closed(at);
+    if(shut){send(res,409,{error:'the announcement is closed',code:'notice_closed',closed:shut,counts:await noticeCounts(store)});return true;}
+    const batch=await sendNoticeBatch({store,notify:partyNotice,event,retryFailed:input.retryFailed===true,after,size:batchSize,dailyCap,now:at});
     const counts=await noticeCounts(store);
     if(batch.capped){send(res,429,capReply('daily email limit reached',batch,counts));return true;}
     send(res,200,{...batch,counts});return true;
@@ -283,9 +303,9 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    // Attendance columns follow the registration columns, so existing spreadsheets keep their column positions:
    // what each person attended, certificate minutes and rounded hours, how each block was confirmed, and one Lima
    // check-in time per NODAL block. confirmationEmail (the summary email's status), then registeredAtDoor, then registeredAtLima (registeredAt, which stays
-   // UTC, in the check-in columns' Lima time), come last for the same reason.
+   // UTC, in the check-in columns' Lima time), then hoursPending (the attended blocks without a time yet, so their hours count 0), come last for the same reason.
    const {all,checkin:nodal}=await live(),blocks=nodal.map(a=>a.id);
-   const rows=[['registrationId','email','firstName','lastName','country','city','profile','publicOfficial','activities','externalActivities','labStatus','institution','position','nationalId','gender','age','accessibility','accessibilityOther','motivation','motivationOther','previousAttendance','registeredAt','attendedActivities','attendedDays','attendedMinutes','certificateHours','checkInMethods',...blocks.map(id=>`checkInLima_${id}`),'confirmationEmail','registeredAtDoor','registeredAtLima']];let after;
+   const rows=[['registrationId','email','firstName','lastName','country','city','profile','publicOfficial','activities','externalActivities','labStatus','institution','position','nationalId','gender','age','accessibility','accessibilityOther','motivation','motivationOther','previousAttendance','registeredAt','attendedActivities','attendedDays','attendedMinutes','certificateHours','checkInMethods',...blocks.map(id=>`checkInLima_${id}`),'confirmationEmail','registeredAtDoor','registeredAtLima','hoursPending']];let after;
    const list=value=>Array.isArray(value)?value.join('; '):'';
    const attended=new Map(),order=id=>{const i=all.findIndex(a=>a.id===id);return i<0?all.length:i;};
    do{const page=await store.find('attendance',{},{after});for(const row of page)attended.set(row.registrationId,[...(attended.get(row.registrationId)??[]),row]);after=page.length===200?page.at(-1).id:null;}while(after);
@@ -293,7 +313,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
     const a=r.answers,done=(attended.get(r.id)??[]).sort((x,y)=>order(x.activityId)-order(y.activityId)||(x.activityId<y.activityId?-1:1)),hours=attendanceHours(done,all),byId=new Map(done.map(x=>[x.activityId,x]));
     const days=[...new Set(done.map(x=>all.find(y=>y.id===x.activityId)?.date).filter(Boolean))].sort();
     rows.push([r.id,r.email,a.firstName,a.lastName,a.country,a.city,a.profile,a.publicOfficial,list(a.activities),list(a.externalActivities),r.labStatus,a.institution,a.position,a.nationalId,a.gender,a.age,list(a.accessibility),a.accessibilityOther,a.motivation,a.motivationOther,a.previousAttendance,r.createdAt,
-     list(done.map(x=>x.activityId)),list(days),hours.minutes,hours.hours,list(done.map(x=>`${x.activityId}:${x.method??'staff'}`)),...blocks.map(id=>limaTime(byId.get(id)?.createdAt)),r.confirmationStatus??'none',a.walkIn===true,limaTime(r.createdAt)]);
+     list(done.map(x=>x.activityId)),list(days),hours.minutes,hours.hours,list(done.map(x=>`${x.activityId}:${x.method??'staff'}`)),...blocks.map(id=>limaTime(byId.get(id)?.createdAt)),r.confirmationStatus??'none',a.walkIn===true,limaTime(r.createdAt),list(hours.untimed)]);
    }after=page.length===200?page.at(-1).id:null;}while(after);
    send(res,200,csv(rows),{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="fiiu-2026-registrations.csv"'});return true;
   }
@@ -310,11 +330,12 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    if(match[2]&&req.method==='PUT'){
     const [input,{all}]=await Promise.all([body(req),live()]),activity=all.find(a=>a.id===input.activityId);
     if(!activity||typeof input.attended!=='boolean')fail('invalid attendance');
-    // As at the door, a conference block outside the plan joins it while registration is open; once closed, only blocks in the plan.
-    if(input.attended&&activity.registration==='general'&&!planned(registration,activity.id)&&(await config()).registrationOpen)registration=await addToPlan(registration,activity.id);
+    // A conference block outside the plan joins it: organisers confirm attendance from their own records, also once
+    // registration is closed (a scan outside the plan still needs it open).
+    if(input.attended&&activity.registration==='general'&&!planned(registration,activity.id))registration=await addToPlan(registration,activity.id,{byDesk:true});
     if(input.attended&&!canAttend(registration,activity))fail('participant is not registered for this activity');
     // Unticking removes the row whichever way it was recorded, so staff can correct a QR check-in.
-    if(!input.attended)await store.remove('attendance',{registrationId:registration.id,activityId:activity.id});
+    if(!input.attended){await store.remove('attendance',{registrationId:registration.id,activityId:activity.id});await dropFromPlan(registration,activity.id);}
     const attendance=input.attended?(await recordAttendance(registration,activity,{by:user.id,method:'staff'})).attendance:await store.find('attendance',{registrationId:registration.id});
     send(res,200,{attendance,hours:attendanceHours(attendance,all)});return true;
    }

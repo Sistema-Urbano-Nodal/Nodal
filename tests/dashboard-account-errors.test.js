@@ -90,11 +90,12 @@ test('A3: every new refusal is translated in the three languages', () => {
   }
 });
 
-test('P1: the deletion prompt tells Founder members to write to the contact email first to stop a pending payment', async () => {
+// The festival's registration and attendance (its certificate hours) go with the account, so the prompt says so (24 Oct 2026).
+test('P1: the deletion prompt tells Founder members to write to the contact email first to stop a pending payment, and FIIU registrants that their hours go too', async () => {
   const expected = {
-    en: 'Type your account email to delete your NODAL account. If you are a Founder Membership member and want to stop a pending payment, write to the contact email in the membership terms first.',
-    es: 'Escribe el correo de tu cuenta para eliminar tu cuenta NODAL. Si eres miembro de la Membresía Fundador y quieres detener un pago pendiente, escribe primero al correo de atención de los términos de la membresía.',
-    pt: 'Digite o e-mail da sua conta para excluir sua conta NODAL. Se você é membro da Membresia Fundador e quer interromper um pagamento pendente, escreva primeiro para o e-mail de atendimento dos termos da membresia.',
+    en: 'Type your account email to delete your NODAL account. If you are a Founder Membership member and want to stop a pending payment, write to the contact email in the membership terms first. If you registered for FIIU, your festival registration, attendance and certificate hours are deleted too: use Export my data first if you want a copy.',
+    es: 'Escribe el correo de tu cuenta para eliminar tu cuenta NODAL. Si eres miembro de la Membresía Fundador y quieres detener un pago pendiente, escribe primero al correo de atención de los términos de la membresía. Si te inscribiste en el FIIU, también se eliminan tu inscripción al festival, tu asistencia y tus horas para el certificado: usa Exportar mis datos antes si quieres una copia.',
+    pt: 'Digite o e-mail da sua conta para excluir sua conta NODAL. Se você é membro da Membresia Fundador e quer interromper um pagamento pendente, escreva primeiro para o e-mail de atendimento dos termos da membresia. Se você se inscreveu no FIIU, sua inscrição no festival, sua presença e suas horas para o certificado também são excluídas: use Exportar meus dados antes se quiser uma cópia.',
   };
   for (const lang of LANGS) {
     assert.equal(dictionaries[lang]['d.uc.deletePrompt'], expected[lang], lang);

@@ -79,6 +79,8 @@
   noticeCap:['Today’s limit of {cap} emails is reached (summary and sign-up emails included). Sending can continue after {time} Lima time.','Se alcanzó el límite de hoy: {cap} correos (incluidos los de resumen e inscripción). Se puede seguir enviando después de las {time}, hora de Lima.','O limite de hoje foi atingido: {cap} e-mails (incluindo os de resumo e de inscrição). O envio pode continuar depois das {time}, horário de Lima.'],
   noticeOff:['Emails are off, so the announcement cannot be sent. To turn them on, set EMAIL_SMTP_URL and EMAIL_FROM (and PUBLIC_BASE_URL) in Vercel for Production, then redeploy.','Los correos están desactivados, así que el anuncio no se puede enviar. Para activarlos, configura EMAIL_SMTP_URL y EMAIL_FROM (y PUBLIC_BASE_URL) en Vercel para Production y vuelve a desplegar.','Os e-mails estão desativados, então o anúncio não pode ser enviado. Para ativá-los, defina EMAIL_SMTP_URL e EMAIL_FROM (e PUBLIC_BASE_URL) na Vercel para Production e publique de novo.'],
   noticeLoadError:['The announcement status could not be loaded.','No se pudo cargar el estado del anuncio.','Não foi possível carregar o status do anúncio.'],
+  noticeClosedStarted:['The party has started, so the announcement is closed.','La fiesta ya empezó, así que el anuncio está cerrado.','A festa já começou, então o anúncio está encerrado.'],
+  noticeClosedRegistration:['Registration is closed, so nobody could add the party: the announcement is paused until it opens again.','La inscripción está cerrada, así que nadie podría añadir la fiesta: el anuncio queda en pausa hasta que se vuelva a abrir.','As inscrições estão encerradas, então ninguém poderia adicionar a festa: o anúncio fica em pausa até que sejam reabertas.'],
   // The summary emails' cap line: the party announcement now counts toward the same daily limit (the shared backfillCap names sign-up emails only).
   summaryCap:['Today’s limit of {cap} emails is reached (sign-up emails and the party announcement included). Sending can continue after {time} Lima time.','Se alcanzó el límite de hoy: {cap} correos (incluidos los de inscripción y el anuncio de la fiesta). Se puede seguir enviando después de las {time}, hora de Lima.','O limite de hoje foi atingido: {cap} e-mails (incluindo os de inscrição e o anúncio da festa). O envio pode continuar depois das {time}, horário de Lima.'],
   // The settings keep one public link, the programme's.
@@ -479,11 +481,11 @@
    if(pending){open.input.checked=!open.input.checked;return;}
    const wanted=open.input.checked;if(config.registrationOpen&&!wanted&&!window.confirm(t('closeConfirm'))){open.input.checked=true;return;}
    pending=true;open.input.setAttribute('aria-disabled','true');
-   return action(save,async()=>{try{config=(await api('/api/admin/fiiu/config',{...savedSettings(),registrationOpen:wanted,version:config.version},'PUT')).config;}catch(err){open.input.checked=config.registrationOpen;throw err;}finally{renderRegistrationPill();}},{feedback:switchNote,conflict:switchConflict,reload:reloadSwitch}).finally(()=>{pending=false;open.input.removeAttribute('aria-disabled');});
+   return action(save,async()=>{try{config=(await api('/api/admin/fiiu/config',{...savedSettings(),registrationOpen:wanted,version:config.version},'PUT')).config;}catch(err){open.input.checked=config.registrationOpen;throw err;}finally{renderRegistrationPill();partyNotice.reread();}},{feedback:switchNote,conflict:switchConflict,reload:reloadSwitch}).finally(()=>{pending=false;open.input.removeAttribute('aria-disabled');});
   });
   // The switch's own conflict re-reads the settings for the switch alone: links typed and not yet saved stay in their fields, waiting for Save.
   async function reloadSwitch(){
-   config=(await api('/api/admin/fiiu/config')).config;open.input.checked=config.registrationOpen;renderRegistrationPill();
+   config=(await api('/api/admin/fiiu/config')).config;open.input.checked=config.registrationOpen;renderRegistrationPill();partyNotice.reread();
    status(switchNote,'');switchConflict.replaceChildren();open.input.focus();
   }
   form.addEventListener('submit',async event=>{
@@ -541,7 +543,7 @@
   async function askFor(mode){
    if(asking||run)return;asking=true;result=null;host.setAttribute('aria-busy','true');render();let fresh;
    try{fresh=await load();}finally{asking=false;host.setAttribute('aria-busy','false');}
-   if(fresh&&!locked&&!run&&state.configured&&!capReached()&&(mode==='retry'?state.counts.failed:state.counts[waiting]))ask=mode;
+   if(fresh&&!locked&&!run&&state.configured&&!state.closed&&!capReached()&&(mode==='retry'?state.counts.failed:state.counts[waiting]))ask=mode;
    render(ask?'confirm':undefined);
   }
   const capReached=()=>Number.isSafeInteger(state?.dailyCap)&&Number.isSafeInteger(state?.sentToday)&&state.sentToday>=state.dailyCap;
@@ -554,6 +556,8 @@
    const handled=tally.sent+tally.failed+tally.uncertain+tally.skipped,base=tallyText(tally);
    if(end==='done')return base+(tally.failed?' — '+t('backfillDoneRetry'):'');
    if(end==='stopped')return t('backfillStopped')+' '+base;
+   // Closed by the server partway (the party started): what went out, then render adds why nothing more can.
+   if(end==='closed')return handled?base+'.':'';
    const reason={cap:capText(),session:t('backfillSignIn'),error:t('backfillError')}[end]||'';
    return handled?base+'. '+reason:reason;
   }
@@ -580,7 +584,10 @@
      if(asking)status=t('loading');
      else if(result){status=resultText(result);error=['session','error'].includes(result.end);}
      else if(loadFailed){status=t(keys.loadError);error=true;}
-     if(capReached()&&(counts[waiting]||counts.failed)){if(result?.end!=='cap'&&!asking)status=(status?status+' ':'')+capText();}
+     // A closed announcement (the party has started, or registration is closed) offers nothing and says why.
+     const closedKey=keys.closed?.[state.closed];
+     if(closedKey)status=(status?status+' ':'')+t(closedKey);
+     else if(capReached()&&(counts[waiting]||counts.failed)){if(result?.end!=='cap'&&!asking)status=(status?status+' ':'')+capText();}
      else{
       if(counts[waiting])shown.push(textButton(plural(keys.send,counts[waiting]),'send','f-button'));
       if(counts.failed)shown.push(textButton(fill('backfillRetry',{n:nf(counts.failed)}),'retry'));
@@ -612,7 +619,7 @@
    try{response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),...(signal?{signal}:{})});data=await response.json().catch(()=>null);}
    catch{throw Object.assign(Error(t('error')),{key:'error'});}
    {const refusal=hostRefusal(response,data);if(refusal)throw refusal;}
-   if(!response.ok)throw Object.assign(Error(t('error')),{key:'error',status:response.status,code:typeof data?.code==='string'?data.code:undefined,...(TALLY.every(k=>Number.isSafeInteger(data?.[k])&&data[k]>=0)?{outcome:Object.fromEntries(TALLY.map(k=>[k,data[k]]))}:{})});
+   if(!response.ok)throw Object.assign(Error(t('error')),{key:'error',status:response.status,code:typeof data?.code==='string'?data.code:undefined,...(TALLY.every(k=>Number.isSafeInteger(data?.[k])&&data[k]>=0)?{outcome:Object.fromEntries(TALLY.map(k=>[k,data[k]]))}:{}),...(typeof data?.closed==='string'?{closed:data.closed}:{}),...(validCounts(data?.counts)?{counts:data.counts}:{})});
    if(!data||typeof data!=='object'||Array.isArray(data))throw Object.assign(Error(t('error')),{key:'error'});
    return data;
   }
@@ -647,8 +654,10 @@
     if(guard(error)){run=null;return;}
     // What the batch that met the cap sent still counts in this pass's report.
     if(error.code==='daily_cap'&&error.outcome)for(const k of TALLY)pass.tally[k]+=error.outcome[k];
-    end=error.code==='daily_cap'?'cap':error.code==='email_not_configured'?'off':error.status===401?'session':'error';
+    end=error.code==='daily_cap'?'cap':error.code==='notice_closed'?'closed':error.code==='email_not_configured'?'off':error.status===401?'session':'error';
     if(end==='off')state={...state,configured:false};
+    // The server's reason (and counts) stand at once, so no button comes back while the state is read again.
+    if(end==='closed')state={...state,closed:error.closed||'started',...(error.counts?{counts:error.counts}:{})};
    }
    run=null;result=end==='off'?null:{end,tally:pass.tally};render();
    // The counts behind the buttons and the overview from the server; the other block's cap counter has moved too.
@@ -656,14 +665,17 @@
   }
   const self={host,render,load,running:()=>Boolean(run),
    // The minute timer: once the cap has reset, a pass that ended at the cap leaves no stale message, and the state is read again.
-   tick(){if(!capLifted())return null;if(result?.end==='cap')result=null;return load();},
+   // A closed announcement may reopen (registration opened, the party moved later), here or in another tab: it is read again each minute.
+   tick(){if(state?.closed&&!run&&!ask&&!asking)return load();if(!capLifted())return null;if(result?.end==='cap')result=null;return load();},
+   // Read again after a change on this page that may reopen it, unless a pass or a question is under way.
+   reread(){return run||ask||asking?null:load();},
    lock(){if(run){run.stopping=true;run.wake?.();}state=null;ask=result=null;line.textContent=note.textContent='';actions.replaceChildren();}};
   return self;
  }
  const summaryEmails=emailPass({id:'backfill',endpoint:'/api/admin/fiiu/confirmations',waiting:'none',remaining:true,keys:{title:'backfillTitle',hint:'backfillHint',waiting:'backfillWaiting',noneWaiting:'backfillNoneWaiting',send:'backfillSend',confirmHint:'backfillConfirmHint',cap:'summaryCap',off:'backfillOff',loadError:'backfillLoadError'}});
  // The announcement sits under the party's row in the Programme section, so it is read only when the programme has the party; its heading is an
  // h4, a part of the party's day (an h3).
- const partyNotice=emailPass({id:'party-notice',endpoint:'/api/admin/fiiu/notices/closing-party',waiting:'waiting',left:true,level:'h4',active:()=>Boolean(festival&&findActivity(festival.event,'closing-party')),keys:{title:'noticeTitle',hint:'noticeHint',waiting:'noticeWaiting',noneWaiting:'noticeNoneWaiting',send:'noticeSend',confirmHint:'noticeConfirmHint',cap:'noticeCap',off:'noticeOff',loadError:'noticeLoadError'}});
+ const partyNotice=emailPass({id:'party-notice',endpoint:'/api/admin/fiiu/notices/closing-party',waiting:'waiting',left:true,level:'h4',active:()=>Boolean(festival&&findActivity(festival.event,'closing-party')),keys:{title:'noticeTitle',hint:'noticeHint',waiting:'noticeWaiting',noneWaiting:'noticeNoneWaiting',send:'noticeSend',confirmHint:'noticeConfirmHint',cap:'noticeCap',off:'noticeOff',loadError:'noticeLoadError',closed:{started:'noticeClosedStarted',registration:'noticeClosedRegistration'}}});
  const emailPasses=[summaryEmails,partyNotice];
  // Programme: every block's details as organisers edit them (the server keeps one row per edited block, with its own version); adding or removing a block is
  // still a code change. Blocks are grouped by day in programme order; each row is built once (programmeRows, by id) and updated in place, and one block's
@@ -696,6 +708,8 @@
  function applyBlock(item){
   if(programme)programme=programme.map(a=>a.id===item.id?item:a);
   const {version,original,checkedIn,...block}=item;festival.event={...festival.event,activities:festival.event.activities.map(a=>a.id===block.id?{...a,...block}:a)};
+  // The party's time decides when its announcement closes.
+  if(block.id==='closing-party')partyNotice.reread();
   // The question forms on this block list its talks as saved; a talk chosen under a name the block no longer has is cleared, with a note.
   for(const editor of [newQuestion,...[...questionRows.values()].map(entry=>entry.editor)])editor?.refillTalks(block.id);
   // Every block picker on the page names it as saved: the participant filter, the new question's and the open publication editor's.

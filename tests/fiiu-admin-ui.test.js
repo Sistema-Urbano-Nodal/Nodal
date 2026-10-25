@@ -394,10 +394,10 @@ test('the availability switch saves on its own: closing asks first, a declined c
  assert.deepEqual(puts().at(-1).body,{...SETTINGS,programUrl:'https://example.test/programme-unsaved',registrationOpen:true,version:2},'Save sends the link with the saved availability and version');
 });
 
-test('closing registration says plainly that registered people cannot add blocks either, so nobody is checked in to a block outside their registration',async()=>{
- // The server refuses every registration edit while closed, and a check-in (scan or desk) needs the block in the registration.
+test('closing registration says plainly that registered people cannot add blocks either, so no scan reaches a block outside their registration, while the desk still can',async()=>{
+ // The server refuses every registration edit while closed and a scan needs the block in the registration; an organiser's desk tick adds it (24 Oct 2026).
  const h=await harness(()=>({content:[],nextCursor:null})),t=name=>h.ctx.window.Fiiu.t(name),card=h.root.querySelector('.f-switch-card');
- for(const [lang,words] of [['en',[/new people/i,/add blocks to their registration/,/checked in to a block/,/at the desk/,/saved registrations stay/i]],['es',[/nadie nuevo/i,/añadir bloques a su inscripción/,/registrar (su )?asistencia en un bloque/,/mesa de registro/,/inscripciones guardadas se mantienen/]],['pt',[/novas pessoas/i,/adicionar blocos à sua inscrição/,/registrar (a )?presença em um bloco/,/mesa de credenciamento/,/inscrições salvas continuam/]]]){
+ for(const [lang,words] of [['en',[/new people/i,/add blocks to their registration/,/check in with the code to a block/,/confirm attendance at the desk, which adds the block/,/saved registrations stay/i]],['es',[/nadie nuevo/i,/añadir bloques a su inscripción/,/registrar asistencia con el código en un bloque/,/confirmar la asistencia en la mesa de registro, lo que añade el bloque/,/inscripciones guardadas se mantienen/]],['pt',[/novas pessoas/i,/adicionar blocos à sua inscrição/,/registrar presença pelo código em um bloco/,/confirmar a presença na mesa de credenciamento, o que adiciona o bloco/,/inscrições salvas continuam/]]]){
   h.lang(lang);for(const name of ['closeConfirm','registrationOpenHint'])for(const word of words)assert.match(t(name),word,lang+' '+name);
   assert.equal(key(card,'registrationOpenHint').textContent,t('registrationOpenHint'),'the hint under the switch follows the language');
  }
@@ -1959,6 +1959,65 @@ test('under the party’s row, Announce the party says who is waiting, how many 
  assert.equal(noticeLine(none),'Nobody is waiting for the announcement · 80 sent · 2 test addresses skipped · 70 left today');assert.equal(noticeButtons(none).length,0);
  // The summary emails keep their own block, under the settings.
  assert.ok(h.root.querySelector('.f-admin-settings').children.includes(h.root.querySelector('.f-backfill')));
+});
+
+// Once the party has started, or while registration is closed, the server refuses the announcement (closed): the panel
+// keeps the counts, offers no button and says why, in three languages.
+test('a closed announcement offers no button and says why: the party has started, or registration is closed',async()=>{
+ const h=await harness(()=>({content:[],nextCursor:null}),{noticesRead:()=>noticeState({counts:noticeCounts({waiting:240,sent:5,failed:1}),sentToday:5,closed:'started'})});
+ assert.equal(noticeLine(h),'240 registrants have not added the party · 5 sent · 1 failed · 145 left today');
+ assert.deepEqual(noticeButtons(h),[]);
+ assert.equal(noticeNote(h),'The party has started, so the announcement is closed.');
+ h.lang('es');assert.equal(noticeNote(h),'La fiesta ya empezó, así que el anuncio está cerrado.');
+ h.lang('pt');assert.equal(noticeNote(h),'A festa já começou, então o anúncio está encerrado.');
+ const shut=await harness(()=>({content:[],nextCursor:null}),{noticesRead:()=>noticeState({counts:noticeCounts({waiting:3}),closed:'registration'})});
+ assert.deepEqual(noticeButtons(shut),[]);
+ assert.equal(noticeNote(shut),'Registration is closed, so nobody could add the party: the announcement is paused until it opens again.');
+ for(const name of ['noticeClosedStarted','noticeClosedRegistration']){const rows=h.ctx.window.Fiiu.rows[name];assert.equal(rows?.length,3,name);assert.equal(new Set(rows).size,3,name);}
+});
+
+// A pass that meets the party's start (409 notice_closed) stops, keeps its report and reads the state again: no button is left.
+test('a pass the server closes partway keeps what it sent and offers no button after',async()=>{
+ let state=noticeState({counts:noticeCounts({waiting:6})});
+ const h=await harness(request=>{
+  if(request.path!==NOTICES)return{content:[],nextCursor:null};
+  if(noticePosts(h).length===1)return noticeBatch({sent:4,next:'reg-4',sentToday:4,counts:noticeCounts({waiting:2,sent:4})});
+  state=noticeState({counts:noticeCounts({waiting:2,sent:4}),sentToday:4,closed:'started'});
+  return{status:409,data:{error:'the announcement is closed',code:'notice_closed',closed:'started',counts:noticeCounts({waiting:2,sent:4})}};
+ },{noticesRead:()=>state});
+ await pressNotice(h,'send');await pressNotice(h,'confirm');await flush();
+ assert.equal(noticePosts(h).length,2);
+ assert.deepEqual(noticeButtons(h),[]);
+ assert.equal(noticeNote(h),'Sent 4 · Failed 0. The party has started, so the announcement is closed.');
+});
+
+// A closed announcement is read again when it may reopen: the registration switch turned back on, the party moved later
+// in the Programme, or each minute (another organiser's change in another tab).
+test('a closed announcement is read again when registration reopens, when the party moves and each minute',async()=>{
+ let open=false,moved=false,reads=0;
+ const h=await harness(({method,body})=>method==='GET'?{content:[],nextCursor:null}:body?.registrationOpen!==undefined?(open=body.registrationOpen,{config:{...body,version:body.version+1}}):{status:500,data:{}},
+  {configRead:()=>({config:{...DEFAULT_CONFIG,registrationOpen:false,version:0}}),noticesRead:()=>{reads++;return noticeState({counts:noticeCounts({waiting:3}),closed:moved||open?null:'registration'});}});
+ assert.deepEqual(noticeButtons(h),[]);const first=reads;
+ const form=h.root.querySelector('.f-admin-settings').querySelector('form'),toggle=field(form,'registrationOpen');
+ toggle.checked=true;await toggle.listeners.change();await flush();
+ assert.ok(reads>first,'read again after the switch');assert.equal(noticeAction(h,'send').textContent,'Announce the party to 3 people');
+ // Closing registration again closes it at once; another organiser moving the party later (another tab) reopens it within a minute.
+ h.ctx.window.confirm=()=>true;toggle.checked=false;await toggle.listeners.change();await flush();
+ assert.deepEqual(noticeButtons(h),[],'closed again with registration');
+ moved=true;await h.tickTimers();await flush();assert.ok(noticeAction(h,'send'),'the minute read sees the party moved');
+});
+
+// A pass the server closes keeps the reason it gave: no button comes back while the state is read again, and a failed
+// read still shows why.
+test('a pass closed by the server shows its reason at once, even when the read after it fails',async()=>{
+ let fail=false;
+ const h=await harness(request=>{
+  if(request.path!==NOTICES)return{content:[],nextCursor:null};
+  fail=true;return{status:409,data:{error:'the announcement is closed',code:'notice_closed',closed:'registration',counts:noticeCounts({waiting:6})}};
+ },{noticesRead:()=>{if(fail)return{status:503,data:{}};return noticeState({counts:noticeCounts({waiting:6})});}});
+ await pressNotice(h,'send');await pressNotice(h,'confirm');await flush();
+ assert.deepEqual(noticeButtons(h).filter(b=>['send','retry','confirm'].includes(b.dataset.action)),[]);
+ assert.match(noticeNote(h),/Registration is closed, so nobody could add the party/);
 });
 
 test('announcing asks first with the number waiting, then sends batch after batch from the previous cursor until there is no next one',async()=>{
