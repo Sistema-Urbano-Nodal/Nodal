@@ -230,8 +230,9 @@ test('a confirmed email tells someone checking in at the FIIU to scan the screen
  assert.equal(h.nodes.loginError.classes.has('is-ok'),true);
 });
 // GoTrue rolls a sign-up back when its confirmation email cannot be sent: no account exists, so "sign in" would be wrong.
+// The FIIU is over, so it no longer points to the festival's registration desk.
 test('a sign-up whose confirmation email could not be sent says so, and never to sign in',async()=>{
- for(const [lang,expected] of [['en',/^We could not send the confirmation email right now\. Try again in a few minutes\. At the FIIU, ask the registration desk for help\.$/],['es',/^No pudimos enviar el correo de confirmación en este momento\. Inténtalo de nuevo en unos minutos\. En el FIIU, pide ayuda en la mesa de registro\.$/],['pt',/^Não foi possível enviar o e-mail de confirmação agora\. Tente novamente em alguns minutos\. No FIIU, peça ajuda na mesa de credenciamento\.$/]]){
+ for(const [lang,expected] of [['en',/^We could not send the confirmation email right now\. Try again in a few minutes\.$/],['es',/^No pudimos enviar el correo de confirmación en este momento\. Inténtalo de nuevo en unos minutos\.$/],['pt',/^Não foi possível enviar o e-mail de confirmação agora\. Tente novamente em alguns minutos\.$/]]){
   const h=harness(async()=>({ok:false,status:503,data:{error:'Confirmation email is temporarily unavailable. Please try again later.'}}));h.valid();h.lang(lang);
   await h.submit('signupForm');assert.match(h.nodes.signupError.textContent,expected,lang);
   assert.doesNotMatch(h.nodes.signupError.textContent,/sign in|inicia sesión|entre\b/i,lang);assert.equal(h.nodes.signupError.classes.has('is-ok'),false);
