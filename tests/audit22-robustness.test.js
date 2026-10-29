@@ -4,13 +4,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { once } from 'node:events';
+import { Readable } from 'node:stream';
 import { createApp } from '../server/server.js';
 import { createDatabase, createUser } from '../server/db.js';
 import { createSession } from '../server/auth.js';
 import { createSupabaseRepository } from '../server/supabase.js';
 import { validateCatalogInterestMessage, validateCatalogDraft } from '../server/catalog.js';
 import { normalizePartC, cleanIndicators, cleanTopics } from '../server/profile-policy.js';
-import { createCourseApi } from '../server/courses-api.js';
+import { createCourseApi, bodyJson } from '../server/courses-api.js';
 import { createCourseStore } from '../server/courses-repository.js';
 
 async function listen(t, server) {
@@ -205,6 +206,31 @@ test('an oversized body answers 413, and the connection stays usable', async t =
   assert.equal(webhook.status, 413);
   assert.deepEqual(await webhook.json(), { error: 'request too large' });
   assert.equal((await fetch(`${base}/api/health`)).status, 200);
+});
+/* The course, festival and news routes read their bodies with bodyJson, which left its read loop at the cap: that
+   destroyed the request, and a fresh connection (no keep-alive, as http.request with agent:false) got EPIPE or a reset. */
+test('an oversized body on a course, festival or news route answers 413 too, never a reset connection', async t => {
+  const { base, account } = await bootDb(t, { now: () => Date.parse('2026-10-29T12:00:00Z') });
+  const { cookie } = account();
+  const post = (path, body) => new Promise((resolve, reject) => {
+    const req = http.request(base + path, { method: 'POST', agent: false, headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Origin: base, Cookie: cookie } }, res => {
+      const chunks = []; res.on('data', chunk => chunks.push(chunk)); res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString() }));
+    });
+    req.on('error', reject); req.end(body);
+  });
+  for (const size of [200 * 1024, 1024 * 1024, 4 * 1024 * 1024]) {
+    const answer = await post('/api/feedback', JSON.stringify({ action: 'idea', message: 'x'.repeat(size) }));
+    assert.equal(answer.status, 413, String(size));
+    assert.deepEqual(JSON.parse(answer.body), { error: 'request too large' });
+  }
+  assert.equal((await fetch(`${base}/api/health`)).status, 200);
+});
+test('bodyJson reads an over-cap body to its end before refusing it, and keeps none of it', async () => {
+  const stream = Readable.from(Array.from({ length: 8 }, () => Buffer.alloc(16 * 1024, 'x')));
+  stream.headers = { 'content-type': 'application/json' };
+  await assert.rejects(bodyJson(stream, 64 * 1024), error => error.status === 413 && error.message === 'request too large');
+  assert.equal(stream.readableEnded, true, 'the rest of the body was read');
+  assert.equal(stream.destroyed && !stream.readableEnded, false, 'the request was not destroyed before its end');
 });
 
 /* R6. The tag check ran before the length check, and on "<a<a<a…" it is quadratic: one 32 KB message held the event

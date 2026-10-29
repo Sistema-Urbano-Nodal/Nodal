@@ -58,8 +58,10 @@ function samePost(post, input, courseId, moduleId) {
 }
 export async function bodyJson(req, limit = 64 * 1024) {
   if (!String(req.headers['content-type'] || '').toLowerCase().startsWith('application/json')) fail('JSON request required',415);
-  let length=0;const chunks=[];
-  for await(const chunk of req) { length+=chunk.length;if(length>limit) fail('request too large',413);chunks.push(chunk); }
+  let length=0,over=false;const chunks=[];
+  // Past the cap the rest is read and dropped: leaving the loop destroys the request and resets the connection (server.js tooLarge).
+  for await(const chunk of req) { if(over)continue;length+=chunk.length;if(length>limit){over=true;chunks.length=0;continue;}chunks.push(chunk); }
+  if(over)fail('request too large',413);
   try { const body=JSON.parse(Buffer.concat(chunks).toString('utf8'));if(!body || typeof body!=='object' || Array.isArray(body))fail('JSON object required');return body; }
   catch(err) { if(err.status)throw err;fail('invalid JSON'); }
 }
