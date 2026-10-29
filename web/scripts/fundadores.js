@@ -44,6 +44,8 @@
     if (state === 'ended') document.documentElement.dataset.fundEnded = '';
     const lines = LINES[state === 'ended' ? 'ended' : 'soon'];
     document.querySelectorAll('[data-fund-state]').forEach((slot) => {
+      // The line under the title only ever says the offer has closed; "soon" stays where the button would be.
+      if (state !== 'ended' && 'fundEndedOnly' in slot.dataset) return;
       slot.textContent = lines[language(slot.dataset.fundState)];
       slot.hidden = false;
     });

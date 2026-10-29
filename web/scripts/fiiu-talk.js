@@ -27,6 +27,7 @@
   talkSignIn:['Sign in to join the conversation','Inicia sesión para participar','Entre para participar da conversa'],
   talkSignInHint:['Conversations are open to people registered for FIIU Fest 11.','Las conversaciones están abiertas a las personas inscritas en el FIIU Fest 11.','As conversas são abertas a quem se inscreveu no FIIU Fest 11.'],
   talkRegister:['Register for FIIU to join','Inscríbete en el FIIU para participar','Inscreva-se no FIIU para participar'],
+  talkRegisterEnded:['The festival’s conversations have ended','Las conversaciones del festival terminaron','As conversas do festival terminaram'],
   talkRegisterHint:['Registering is free and takes about 5 minutes. Then come back here.','La inscripción es gratuita y toma unos 5 minutos. Luego vuelve aquí.','A inscrição é gratuita e leva cerca de 5 minutos. Depois volte aqui.'],
   talkRegisterClosed:['Registration is closed for now. If you are at the festival, ask at the FIIU desk or write to fiiu@ocupatucalle.com.','La inscripción está cerrada por ahora. Si estás en el festival, consulta en el mostrador del FIIU o escribe a fiiu@ocupatucalle.com.','As inscrições estão encerradas por enquanto. Se estiver no festival, pergunte no balcão do FIIU ou escreva para fiiu@ocupatucalle.com.'],
   // After the festival there is no desk; {contact} is the organisers' address as the programme carries it (Fiiu.contactLine).
@@ -577,8 +578,8 @@
   if(who)who.append(tr('span','talkAccount'),document.createTextNode(' '),el('strong','',account));
   const add=a&&['general','social'].includes(a.registration)?'fiiu.html#add-'+encodeURIComponent(a.id):'fiiu.html#registration';
   // After the festival a closed registration says it ended, with the organisers' address and no desk.
-  const how=!open&&festival&&festivalOver(festival.event)&&contactLine('talkRegisterOver',festival.event.contact,'')||tr('p',open?'talkRegisterHint':'talkRegisterClosed');
-  blockWith('talkRegister',[who,how,tr('p','talkOtherAccountHint')],[open&&leaving(link('register',add,'f-button')),otherAccount()]);recheck=true;
+  const over=!open&&festival&&festivalOver(festival.event),how=over&&contactLine('talkRegisterOver',festival.event.contact,'')||tr('p',open?'talkRegisterHint':'talkRegisterClosed');
+  blockWith(over?'talkRegisterEnded':'talkRegister',[who,how,tr('p','talkOtherAccountHint')],[open&&leaving(link('register',add,'f-button')),otherAccount()]);recheck=true;
  }
  function otherAccount(){
   const control=button('talkOtherAccount',async()=>{

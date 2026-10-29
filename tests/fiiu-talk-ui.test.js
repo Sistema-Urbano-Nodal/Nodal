@@ -1579,13 +1579,15 @@ test('after the festival someone without a registration is told it ended, with t
  const ended={...programme({registrationOpen:false}),event:{...PROGRAMME.event,contact:'fiiu@ocupatucalle.com'}},routes={...SESSION_ROUTES,'GET /api/fiiu?kind=news':ended,'GET /api/fiiu/registration':carla,['GET '+LIST]:refusal};
  const h=await page(routes,{search:'?a=day1-am',context:{Date:clock('2026-10-29T10:00:00-05:00')}}),box=qa(h),line=box.querySelector('.f-contact-line');
  assert.equal(key(box,'talkRegisterClosed'),undefined);assert.equal(key(box,'register'),undefined);assert.ok(key(box,'talkOtherAccount'),'another account is still offered');
+ // The heading no longer asks them to register: it says the festival's conversations have ended.
+ assert.equal(key(box,'talkRegister'),undefined);assert.ok(key(box,'talkRegisterEnded'));
  assert.equal(line.dataset.fiiuContact,'talkRegisterOver');assert.equal(line.querySelector('a').href,'mailto:fiiu@ocupatucalle.com');
  for(const [lang,words] of [['en',/FIIU Fest 11 ended on 25 October.*write to fiiu@ocupatucalle\.com/],['es',/el FIIU Fest 11 terminó el 25 de octubre.*escribe a fiiu@ocupatucalle\.com/],['pt',/o FIIU Fest 11 terminou em 25 de outubro.*escreva para fiiu@ocupatucalle\.com/]]){
   h.lang(lang);assert.match(content(line).replace(/\s+/g,' '),words,lang);assert.doesNotMatch(content(box),/desk|mostrador|balcão/i,lang);
  }
  // On 24 October, the festival's last days, the desk is still there.
  const during=await page(routes,{search:'?a=day1-am',context:{Date:clock('2026-10-24T10:00:00-05:00')}});
- assert.ok(key(qa(during),'talkRegisterClosed'));assert.equal(qa(during).querySelector('.f-contact-line'),null);
+ assert.ok(key(qa(during),'talkRegisterClosed'));assert.equal(qa(during).querySelector('.f-contact-line'),null);assert.ok(key(qa(during),'talkRegister'));
 });
 
 test('arriving shows the header and the question first, not the end of the chat, with a control that goes to the latest answers',async()=>{

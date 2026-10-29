@@ -271,7 +271,7 @@ test('after 23 October the form is closed: one line, no form, no buttons',async(
 
 test('after 23 October a member who never sent it but has a certificate is told whom to write to, with no download',async()=>{
  const h=participant(closed({certificate:'missed'}));await flush();const section=h.section();
- assert.match(visible(section),/The survey closed on October 23\.\s+The certificate was enabled by sending the survey\. For questions about yours, write to:\s+observatorio@limacomovamos\.org/);
+ assert.match(visible(section),/The survey closed on October 23\.\s+Certificates were released only to people who sent the survey\. For questions about yours, write to:\s+observatorio@limacomovamos\.org/);
  const mail=descendants(section).find(n=>n.href==='mailto:observatorio@limacomovamos.org');assert.equal(mail.textContent,'observatorio@limacomovamos.org');
  assert.equal(findKey(section,'downloadCertificate'),undefined);assert.equal(findKey(section,'myCertificate'),undefined);
  assert.equal(descendants(section).some(n=>['form','button','input'].includes(n.tagName)),false);

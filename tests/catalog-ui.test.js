@@ -1455,6 +1455,29 @@ test('dashboard People search sends what was typed in a POST body, never in the 
   assert.equal(harness.pop.children[0].href, 'profile.html?id=person-1');
 });
 
+// The catalog scopes search with a GET (the public, cacheable catalog): an address typed in the box is never sent there,
+// so it cannot reach a URL when the member switches chip or language with it still typed.
+test('dashboard catalog scopes never put a typed address in the catalog URL', async () => {
+  const requests = [];
+  const harness = dashboardSearchHarness(async (url, options = {}) => {
+    requests.push({ url, options });
+    if (url === '/api/users/search') return { users: [] };
+    return { items: [{ id: 'project-1', title: 'Current project', kind: 'project' }] };
+  });
+  harness.input.value = 'ana@example.test';
+  harness.api.runSearch();
+  await harness.runNextTimer();
+  harness.activate('Projects');
+  assert.equal(harness.pendingTimers(), 0, 'no catalog lookup is even scheduled');
+  assert.deepEqual(requests.map(({ url }) => url), ['/api/users/search'], 'only the People POST');
+  assert.equal(harness.pop.hidden, false, 'the scope shows its empty state');
+  assert.doesNotMatch(renderedText(harness.pop), /Current project/);
+  harness.input.value = 'housing';
+  harness.api.runSearch();
+  await harness.runNextTimer();
+  assert.ok(requests.some(({ url }) => url.startsWith('/api/catalog?') && url.includes('q=housing')), 'words still search the catalog');
+});
+
 test('dashboard catalog scopes use the public API while People remains consent-gated', () => {
   const source = read('web', 'scripts', 'dashboard.js');
   assert.doesNotMatch(source, /function catalogue\(|d\.find\.[pko]\d/);

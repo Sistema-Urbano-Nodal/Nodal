@@ -1496,6 +1496,8 @@
       paint(null);
       return;
     }
+    // The catalog is searched with a GET: an address left in the box (switching from People) is never put in its URL.
+    if (typed.includes('@')) { if (catalogAbort) catalogAbort.abort(); catalogSequence += 1; paint([]); return; }
     if (catalogReady && catalogScope === scope && catalogQuery === q) { paint(catalogHits); return; }
     lookUpCatalog(scope, typed);
     paint(null);

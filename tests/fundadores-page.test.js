@@ -185,7 +185,8 @@ test('every amount on the page is the offer’s: S/499 once, or S/550 as two of 
 async function run({lang = 'es', answer, i18n = true} = {}) {
   const node = extra => ({hidden: true, removed: false, textContent: '', dataset: {}, ...extra, remove() { this.removed = true; }});
   const joins = LANGS.map(() => node({}));
-  const states = LANGS.flatMap(language => [node({dataset: {fundState: language}}), node({dataset: {fundState: language}})]);
+  // Per language: the line under the title (only for a closed offer) and the one in the closing band.
+  const states = LANGS.flatMap(language => [node({dataset: {fundState: language, fundEndedOnly: ''}}), node({dataset: {fundState: language}})]);
   const listeners = [], requests = [];
   const document = {
     documentElement: {lang, dataset: {}},
@@ -254,7 +255,12 @@ test('before sign-ups open, without an answer, or on static hosting, there is no
   for (const [name, answer] of Object.entries(answers)) {
     const page = await run({answer});
     for (const link of page.joins) assert.equal(link.removed, true, `${name}: a closed checkout leads nowhere`);
-    for (const slot of page.states) { assert.equal(slot.textContent, SOON[slot.dataset.fundState], `${name} ${slot.dataset.fundState}`); assert.equal(slot.hidden, false, name); }
+    // "Sign-ups open soon" belongs where the button would be; the line under the title waits for a closed offer.
+    for (const slot of page.states) {
+      const top = 'fundEndedOnly' in slot.dataset;
+      assert.equal(slot.textContent, top ? '' : SOON[slot.dataset.fundState], `${name} ${slot.dataset.fundState}`);
+      assert.equal(slot.hidden, top, name);
+    }
     assert.equal('fundEnded' in page.document.documentElement.dataset, false, `${name}: nothing has ended`);
   }
 });
@@ -290,11 +296,11 @@ test('the script writes text, never markup', () => {
 test('the button and the lines ship hidden in every language, and the terms link is always there', () => {
   const html = read(PAGE);
   for (const lang of LANGS) {
-    const part = block(html, lang), line = `<p class="fund-state" data-fund-state="${lang}" hidden></p>`;
+    const part = block(html, lang), line = `<p class="fund-state" data-fund-state="${lang}" hidden></p>`, top = `<p class="fund-state" data-fund-state="${lang}" data-fund-ended-only hidden></p>`;
     assert.match(part, /<a class="btn btn-primary btn-lg" href="payments\.html" data-fund-join hidden>[^<]+<\/a>/, `${lang} button`);
     // One line under the title, so a closed offer says so first, and one where the button would be.
     assert.equal(part.split('data-fund-state=').length - 1, 2, `${lang} two lines`);
-    assert.ok(part.match(/<section class="fund-hero"[\s\S]*?<\/section>/)[0].includes(line), `${lang} line under the title`);
+    assert.ok(part.match(/<section class="fund-hero"[\s\S]*?<\/section>/)[0].includes(top), `${lang} line under the title, for a closed offer only`);
     assert.ok(part.match(/<section class="cta-band fund-join"[\s\S]*?<\/section>/)[0].includes(line), `${lang} line in the closing band`);
     assert.match(part, /<a class="link-arrow fund-terms" href="terminos-fundadores\.html" hreflang="es">[^<]+<\/a>/, `${lang} terms`);
   }
