@@ -1047,12 +1047,16 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       // (a check-in, say). Without a configured origin, Supabase keeps its own Site URL.
       let confirmTo = null;
       try { confirmTo = emailLinkOrigin() + '/login.html'; } catch { /* origin not configured */ }
+      /* A PKCE challenge makes the link come back with ?code= instead of a session's tokens in the fragment, which the
+         browser's history kept (a refresh token that never expired). Sign-in is explicit, so the code is never
+         exchanged and its verifier is not kept anywhere: confirming on another device works the same. */
+      const challenge = createHash('sha256').update(randomBytes(32).toString('base64url')).digest('base64url');
       let data;
       try {
         data = await browser.auth('/signup', {
           method: 'POST',
           ...(confirmTo ? { query: { redirect_to: confirmTo } } : {}),
-          body: { email, password, data: { full_name: fullName } },
+          body: { email, password, data: { full_name: fullName }, code_challenge: challenge, code_challenge_method: 's256' },
         });
       } catch (err) {
         /* GoTrue sends the confirmation inside the sign-up and rolls the account back when the mail server refuses it

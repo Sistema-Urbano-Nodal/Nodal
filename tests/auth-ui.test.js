@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 const source=readFileSync(new URL('../web/scripts/auth.js',import.meta.url),'utf8');
-function harness(reply=async()=>({ok:true,status:200,data:{user:{id:'u1'}}}),search='',storage=null,hash=''){
+function harness(reply=async()=>({ok:true,status:200,data:{user:{id:'u1'}}}),search='',storage=null,hash='',now=null){
  const nodes={},listeners=[],requests=[];let assigned='',timeout;
  for(const id of ['loginForm','signupForm','loginError','signupError','loginEmail','loginPassword','signupName','signupEmail','signupPassword','signupLink'])nodes[id]={id,value:'',textContent:'',hidden:true,listeners:{},dataset:{},classes:new Set(),classList:{toggle(k,on){on?nodes[id].classes.add(k):nodes[id].classes.delete(k);}},setAttribute(k,v){this[k]=v;},removeAttribute(k){delete this[k];},addEventListener(k,f){this.listeners[k]=f;},focus(){this.focused=true;},select(){this.selected=true;}};
  for(const id of ['loginForm','signupForm']){nodes[id].button={disabled:true,textContent:'',dataset:{},setAttribute(k,v){this[k]=v;},focus(){this.focused=true;}};nodes[id].querySelector=()=>nodes[id].button;}
  nodes.authGrid={setAttribute(k,v){this[k]=v;}};
- const context={document:{getElementById:id=>nodes[id],querySelector:selector=>selector==='.auth-grid'?nodes.authGrid:null,body:{}},URL,URLSearchParams,Error,window:{nodalI18n:{lang:'en',onChange:f=>listeners.push(f)}},location:{origin:'https://nodal.test',pathname:'/login.html',search,hash,assign:path=>assigned=path},history:{calls:[],replaceState(state,title,url){this.calls.push(url);}},...(storage?{localStorage:storage}:{}),AbortSignal:{timeout:ms=>{timeout=ms;return{timeout:ms};}},fetch:async(path,options)=>{requests.push({path,options,body:JSON.parse(options.body)});const result=await reply(path,options);return{ok:result.ok,status:result.status,json:async()=>{if(result.jsonError)throw result.jsonError;return result.data;}};}};
+ const context={document:{getElementById:id=>nodes[id],querySelector:selector=>selector==='.auth-grid'?nodes.authGrid:null,body:{}},URL,URLSearchParams,Error,window:{nodalI18n:{lang:'en',onChange:f=>listeners.push(f)}},location:{origin:'https://nodal.test',pathname:'/login.html',search,hash,assign:path=>assigned=path},history:{calls:[],replaceState(state,title,url){this.calls.push(url);}},...(storage?{localStorage:storage}:{}),...(now?{Date:{now}}:{}),AbortSignal:{timeout:ms=>{timeout=ms;return{timeout:ms};}},fetch:async(path,options)=>{requests.push({path,options,body:JSON.parse(options.body)});const result=await reply(path,options);return{ok:result.ok,status:result.status,json:async()=>{if(result.jsonError)throw result.jsonError;return result.data;}};}};
  vm.createContext(context);vm.runInContext(source,context);
  const submit=id=>nodes[id].listeners.submit({preventDefault(){}});
  const valid=()=>{nodes.loginEmail.value='member@example.test';nodes.loginPassword.value='password123';nodes.signupName.value='Test Member';nodes.signupEmail.value='new@example.test';nodes.signupPassword.value='newpassword123';};
@@ -147,6 +147,26 @@ test('a confirmation link’s session tokens are removed from the address bar at
  const plain=harness(undefined,'',null,'#signup');assert.deepEqual(plain.context.history.calls,[]);assert.equal(plain.nodes.loginError.hidden,true);
  // A recovery or invitation fragment is not a signup confirmation.
  assert.equal(harness(undefined,'',null,'#access_token=a.b.c&type=recovery').nodes.loginError.hidden,true);
+});
+/* Since 29 Oct the link is PKCE: it comes back as ?code= (worth nothing, its verifier was never kept), or with the error
+   in the query and the fragment. Either way the outcome shows, the link's parameters leave the address, and next= stays. */
+test('a PKCE confirmation link reads as confirmed or expired, and leaves only next= in the address',async()=>{
+ const now=()=>Date.parse('2026-10-29T12:00:00Z');
+ const confirmed=harness(undefined,'?next=%2Ffiiu.html&code=0b6f6d8e-1c1a-4c2e-9d5e-2f0e1f7a9b3c',null,'',now);
+ assert.deepEqual(confirmed.context.history.calls,['/login.html?next=%2Ffiiu.html']);
+ assert.equal(confirmed.nodes.loginError.hidden,false);assert.match(confirmed.nodes.loginError.textContent,/^Email confirmed\./);assert.equal(confirmed.nodes.loginError.classes.has('is-ok'),true);
+ assert.equal(confirmed.nodes.loginEmail.focused,true);
+ confirmed.lang('es');assert.match(confirmed.nodes.loginError.textContent,/^Correo confirmado\./);
+ confirmed.valid();await confirmed.submit('loginForm');assert.equal(confirmed.assigned(),'/fiiu.html','the sign-in that follows still returns where it was asked to');
+ const bare=harness(undefined,'?code=0b6f6d8e-1c1a-4c2e-9d5e-2f0e1f7a9b3c',null,'',now);assert.deepEqual(bare.context.history.calls,['/login.html']);assert.match(bare.nodes.loginError.textContent,/^Email confirmed\./);
+ const error='error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired';
+ for(const [search,hash,left] of [['?'+error,'#'+error,'/login.html'],['?next=%2Ffiiu.html&'+error,'#'+error,'/login.html?next=%2Ffiiu.html'],['?error_code=otp_expired&next=%2Ffiiu.html','','/login.html?next=%2Ffiiu.html'],['?code=x&'+error,'','/login.html']]){
+  const h=harness(undefined,search,null,hash,now);assert.deepEqual(h.context.history.calls,[left],search);
+  assert.match(h.nodes.loginError.textContent,/expired or was already used/,search);assert.equal(h.nodes.loginError.classes.has('is-ok'),false,search);
+  h.lang('pt');assert.match(h.nodes.loginError.textContent,/expirou ou já foi usado/,search);
+ }
+ // A sign-in page without a link's parameters keeps its address, fragment included, and shows nothing.
+ for(const [search,hash] of [['?next=%2Ffiiu.html',''],['?next=%2Ffiiu.html','#signupForm'],['?lang=es','']]){const h=harness(undefined,search,null,hash,now);assert.deepEqual(h.context.history.calls,[],search+hash);assert.equal(h.nodes.loginError.hidden,true,search+hash);}
 });
 test('a successful signup reads as good news, fills sign-in, and a quick second tap sends no second email',async()=>{
  const h=harness(async()=>({ok:true,status:202,data:{requiresEmailConfirmation:true}}));h.valid();h.nodes.loginEmail.value='';h.lang('es');

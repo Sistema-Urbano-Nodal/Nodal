@@ -1,10 +1,16 @@
 (() => {
   'use strict';
 
-  // A signup confirmation link lands here with the session tokens (or an error) in the fragment. Sign-in never
-  // uses them, so they leave the address bar and the history entry before anything else runs; only the outcome is kept.
-  const arrival = (() => { const f = new URLSearchParams((location.hash || '').slice(1)); return f.has('error') || f.has('error_code') ? 'linkExpired' : f.has('access_token') && f.get('type') === 'signup' ? 'confirmed' : null; })();
-  if (/(?:^#|&)(?:access_token|refresh_token|error)=/.test(location.hash || '')) history.replaceState(null, '', location.pathname + location.search);
+  // A signup confirmation link lands here with ?code= (PKCE since 29 Oct: worthless, nobody kept its verifier) or an error
+  // in the query and the fragment; older links carry the session tokens in the fragment. Sign-in never uses them, so they
+  // leave the address bar and the history entry before anything else runs, next= stays; only the outcome is kept.
+  const linkQuery = new URLSearchParams(location.search), linkKeys = ['code', 'error', 'error_code', 'error_description'].filter(key => linkQuery.has(key));
+  const linkFragment = /(?:^#|&)(?:access_token|refresh_token|error)=/.test(location.hash || '');
+  const arrival = (() => { const f = new URLSearchParams((location.hash || '').slice(1)); return [linkQuery, f].some(p => p.has('error') || p.has('error_code')) ? 'linkExpired' : linkQuery.has('code') || f.has('access_token') && f.get('type') === 'signup' ? 'confirmed' : null; })();
+  if (linkKeys.length || linkFragment) {
+    linkKeys.forEach(key => linkQuery.delete(key));const rest = String(linkQuery);
+    history.replaceState(null, '', location.pathname + (linkKeys.length ? (rest ? '?' + rest : '') : location.search) + (linkFragment ? '' : location.hash));
+  }
 
   // Bytes of UTF-8 the auth provider counts (it accepts at most 72): accents take two, most emoji four.
   const utf8Bytes=value=>{let n=0;for(const ch of value){const c=ch.codePointAt(0);n+=c<0x80?1:c<0x800?2:c<0x10000?3:4;}return n;};

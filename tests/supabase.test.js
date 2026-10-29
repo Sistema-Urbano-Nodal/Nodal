@@ -281,6 +281,36 @@ test('signup confirmation links come back to sign-in on the configured site, nev
   }
 });
 
+/* Without a PKCE challenge GoTrue confirms through the implicit flow: the link opens sign-in with a session's refresh token
+   in the fragment, which the browser's history keeps. With one it answers ?code=, worth nothing without the verifier,
+   and the verifier is never kept: sign-in is explicit, so the code is never exchanged. */
+test('signup asks for a PKCE confirmation link and keeps no verifier, on every resend too', async () => {
+  const state = profileState();
+  const calls = [];
+  const repo = createSupabaseRepository({
+    env: { ...testEnv(), PUBLIC_BASE_URL: 'https://nodal.example' },
+    fetchImpl: statefulFetch(state, calls, { signupResponse: { id: TEST_USER_ID, email: state.profile.email, user_metadata: {}, confirmation_sent_at: '2026-10-29T12:00:00.000Z' } }),
+  });
+  // A second sign-up with the same address and password is how an unconfirmed member asks for a new link.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const result = await repo.signup({ fullName: state.profile.full_name, email: state.profile.email, password: 'correct-horse' });
+    assert.equal(result.status, 202);
+    assert.equal(result.requiresEmailConfirmation, true);
+    assert.deepEqual(result.cookies, [], 'no verifier cookie: nothing will redeem the code');
+  }
+  const bodies = calls.filter((call) => call.url.pathname === '/auth/v1/signup').map((call) => call.body);
+  assert.equal(bodies.length, 2);
+  for (const body of bodies) {
+    assert.deepEqual(Object.keys(body).sort(), ['code_challenge', 'code_challenge_method', 'data', 'email', 'password']);
+    assert.match(body.code_challenge, /^[A-Za-z0-9_-]{43}$/);
+    assert.equal(body.code_challenge_method, 's256');
+    assert.equal(body.email, state.profile.email);
+    assert.deepEqual(body.data, { full_name: state.profile.full_name });
+  }
+  assert.notEqual(bodies[0].code_challenge, bodies[1].code_challenge, 'each link gets its own challenge');
+  assert.equal(calls[0].url.searchParams.get('redirect_to'), 'https://nodal.example/login.html');
+});
+
 test('Supabase env rejects secret-looking keys in public config', () => {
   assert.throws(() => publicSupabaseConfig({
     NEXT_PUBLIC_SUPABASE_URL: 'https://project.supabase.co',
