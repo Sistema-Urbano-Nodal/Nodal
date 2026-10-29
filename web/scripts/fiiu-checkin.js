@@ -4,7 +4,7 @@
  // The check-in is sent at once and c then leaves the address bar, so a reload or a shared screenshot of the page cannot reuse it;
  // a reload shows the person's confirmation for that block instead (revisit).
  // Every outcome is one ruled block: a title that takes focus, the block it concerns, and the one next step.
- const Fiiu=window.Fiiu,{t,el,tr,button,link,source,field,api,status,dateNode,limaDate,badges,festivalBadges,shareText,shareControl,certifiable,certificationName,findActivity,countLabel,hoursLine,limaClock,windowNode,newTabNote,checkinCloses}=Fiiu;
+ const Fiiu=window.Fiiu,{t,el,tr,button,link,source,field,api,status,dateNode,limaDate,badges,festivalBadges,shareText,shareControl,certifiable,certificationName,findActivity,countLabel,hoursLine,limaClock,windowNode,newTabNote,checkinCloses,festivalOver,contactLine}=Fiiu;
  // Page-only strings join the shared dictionary, so t(), tr() and the language switch in fiiu-ui.js handle them like the rest.
  Object.assign(Fiiu.rows,{
   checkinAccount:['Signed in as','Sesión iniciada como','Conectado como'],
@@ -43,6 +43,9 @@
   box.append(source('p',activity.title,'f-checkin-block'),when);if(activity.venue)box.append(source('p',activity.venue,'f-checkin-venue'));return box;
  }
  const hintOf=key=>tr('p',key,'f-checkin-hint'),actions=(...nodes)=>{const box=el('div','f-actions');box.append(...nodes.filter(Boolean));return box;};
+ // After the festival there is no desk and no screen to scan: the result says how to claim a block attended without checking in, by writing to the organisers'
+ // address that came with the programme. Only the day matters, so the phone's clock decides it.
+ const missed=()=>festival&&festivalOver(festival.event)?contactLine('missedAttendance',festival.event.contact,'f-checkin-hint'):null,deskOr=key=>missed()||hintOf(key);
  function facts(...pairs){const list=el('dl','f-checkin-facts');for(const [key,value] of pairs){const row=el('div','f-checkin-fact');row.append(tr('dt',key),value);list.append(row);}return list;}
  const dd=(...nodes)=>{const node=el('dd');node.append(...nodes);return node;};
  // The code form is the fallback for phones that cannot read the QR code: it sends the 6-character code shown under it.
@@ -138,8 +141,9 @@
   if(error.status===404)return error.walkIn===true&&!lab?joinAtDoor(activity,body,account):unregistered(activity,{open,lab,addHref,account,next:returnTo(body)});
   if(error.code==='lab_not_accepted'||error.code==='not_in_plan')return outsidePlan(activity,{open,lab:lab||error.code==='lab_not_accepted',addHref});
   if(error.code==='outside_window')return ended(activity,error);
-  // A code that expired while the person read the door confirmation keeps their yes: the screen's new code joins at once.
-  if(error.status===410)return block('codeExpired','warn',about(activity),hintOf('expiredHint'),codeForm(body.join===true?{join:true,language:body.language}:{}));
+  // A code that expired while the person read the door confirmation keeps their yes: the screen's new code joins at once. After the festival no screen
+  // shows a code, so a photo of one gets the organisers' address instead of the form.
+  if(error.status===410){const late=missed();return block('codeExpired','warn',about(activity),late||hintOf('expiredHint'),!late&&codeForm(body.join===true?{join:true,language:body.language}:{}));}
   if(error.code==='invalid_activity')return block('noCheckin','warn',hintOf('noCheckinHint'),actions(link('viewProgramme','fiiu.html#programme','f-button secondary')));
   if(error.status===400)return block('invalidLink','warn',hintOf('invalidLinkHint'),codeForm());
   // A rate limit, an outage or a lost connection: the same check-in can simply be sent again.
@@ -151,7 +155,7 @@
  // names this account and offers another, so nobody registers twice and splits their hours. account is '' when the lookup did not answer in time.
  const accountFact=account=>account?facts(['checkinAccount',dd(el('span','',account))]):null;
  const unregistered=(activity,{open,lab,addHref,account,next})=>block('notRegistered','warn',about(activity),accountFact(account),
-  hintOf(lab?'labNotAcceptedHint':open?'notRegisteredHint':'askDesk'),hintOf('otherAccountHint'),actions(open&&!lab&&link('register',addHref,'f-button'),otherAccount(next)));
+  lab||!open?deskOr(lab?'labNotAcceptedHint':'askDesk'):hintOf('notRegisteredHint'),hintOf('otherAccountHint'),actions(open&&!lab&&link('register',addHref,'f-button'),otherAccount(next)));
  // At a conference block the server registers someone at the door once they say so (join): the block says what that shares and with which account,
  // and still offers another account, so nobody who registered with another email registers twice. The same code goes again (codes last 5 minutes).
  // The privacy policy opens in a new tab, so reading it never costs the code on this one.
@@ -170,8 +174,8 @@
  }
  // Where a sign-in comes back to: the same code, with the block when the link named one.
  const returnTo=body=>'/fiiu-checkin.html?'+(body.activityId?'a='+encodeURIComponent(body.activityId)+'&':'')+'c='+encodeURIComponent(body.code);
- const outsidePlan=(activity,{open,lab,addHref})=>lab?block('labNotAccepted','warn',about(activity),hintOf('labNotAcceptedHint')):block('notInPlan','warn',about(activity),hintOf(open?'notInPlanHint':'askDesk'),open&&actions(link('addToRegistration',addHref,'f-button')));
- const ended=(activity,data)=>block('checkinEndedTitle','warn',about(activity),closedLine(activity,data),hintOf('askDesk'));
+ const outsidePlan=(activity,{open,lab,addHref})=>lab?block('labNotAccepted','warn',about(activity),deskOr('labNotAcceptedHint')):block('notInPlan','warn',about(activity),open?hintOf('notInPlanHint'):deskOr('askDesk'),open&&actions(link('addToRegistration',addHref,'f-button')));
+ const ended=(activity,data)=>block('checkinEndedTitle','warn',about(activity),closedLine(activity,data),deskOr('askDesk'));
  function reasonOf(error){const reason=el('p','f-checkin-hint');reason.dataset.fiiuText=!error?.key||error.key==='error'?'checkinError':error.key;reason.textContent=t(reason.dataset.fiiuText);return reason;}
  const signIn=(activity,next,hint)=>block('signInToCheckIn','warn',about(activity),hintOf(hint),actions(link('signin','login.html?next='+encodeURIComponent(next),'f-button')));
  async function run(body){

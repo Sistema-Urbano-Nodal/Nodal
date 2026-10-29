@@ -1574,6 +1574,20 @@ test('someone signed in without a registration is told how to register, whether 
  assert.ok(composer(restored),'Back from the form, out of the page cache');assert.ok(key(sessionHead(restored).querySelector('.f-talk-mine'),'talkInPlan'));
 });
 
+test('after the festival someone without a registration is told it ended, with the organisers’ address and no desk',async()=>{
+ const refusal={status:403,data:{error:'festival registration required',code:'not_registered'}},carla=mine({user:{id:'u-carla',name:'Carla',email:'carla@example.org'},registration:null,attendance:[]});
+ const ended={...programme({registrationOpen:false}),event:{...PROGRAMME.event,contact:'fiiu@ocupatucalle.com'}},routes={...SESSION_ROUTES,'GET /api/fiiu?kind=news':ended,'GET /api/fiiu/registration':carla,['GET '+LIST]:refusal};
+ const h=await page(routes,{search:'?a=day1-am',context:{Date:clock('2026-10-29T10:00:00-05:00')}}),box=qa(h),line=box.querySelector('.f-contact-line');
+ assert.equal(key(box,'talkRegisterClosed'),undefined);assert.equal(key(box,'register'),undefined);assert.ok(key(box,'talkOtherAccount'),'another account is still offered');
+ assert.equal(line.dataset.fiiuContact,'talkRegisterOver');assert.equal(line.querySelector('a').href,'mailto:fiiu@ocupatucalle.com');
+ for(const [lang,words] of [['en',/FIIU Fest 11 ended on 25 October.*write to fiiu@ocupatucalle\.com/],['es',/el FIIU Fest 11 terminó el 25 de octubre.*escribe a fiiu@ocupatucalle\.com/],['pt',/o FIIU Fest 11 terminou em 25 de outubro.*escreva para fiiu@ocupatucalle\.com/]]){
+  h.lang(lang);assert.match(content(line).replace(/\s+/g,' '),words,lang);assert.doesNotMatch(content(box),/desk|mostrador|balcão/i,lang);
+ }
+ // On 24 October, the festival's last days, the desk is still there.
+ const during=await page(routes,{search:'?a=day1-am',context:{Date:clock('2026-10-24T10:00:00-05:00')}});
+ assert.ok(key(qa(during),'talkRegisterClosed'));assert.equal(qa(during).querySelector('.f-contact-line'),null);
+});
+
 test('arriving shows the header and the question first, not the end of the chat, with a control that goes to the latest answers',async()=>{
  const gate=later();
  const h=await page({...SESSION_ROUTES,['GET '+LIST]:()=>gate.promise.then(()=>({activity:ACTIVITY,questions:[question()]}))},{search:'?a=day1-am'});

@@ -672,6 +672,41 @@ test('a planned block whose check-in has closed is not the next badge and no lon
   assert.match(rows[0].req, /Check-in closed at the end of the day, Lima time/);
 });
 
+test('a FIIU milestone that can no longer be reached is never the next badge, so the next one in reach is; earned ones and meters stay as a record', () => {
+  const nextOf = (l, word = 'next') => l.groups().flatMap((g) => g.rows.map(view)).filter((r) => r.tags.includes(word)).map((r) => r.name);
+  const fiiuRows = (l) => l.groups()[0].rows.map(view).map((r) => [r.name.slice(0, 22), r.state.replace('bl-row ', ''), r.meter ?? r.check, r.tags]);
+  // 29 Oct: the festival ended on the 25th. Nothing in the family can be earned now, so the member's next step is in Contribution.
+  const after = ledger({ now: '2026-10-29T10:00:00-05:00' });
+  after.hand({ registration: anaPlan, attendance: [], event: FIIU_EVENT });
+  assert.deepEqual(nextOf(after), ['Profile Pioneer']);
+  assert.deepEqual(fiiuRows(after).slice(2), [
+    ['First activity', 'is-locked', '0/1', []], ['Four panels', 'is-locked', '0/4', []], ['All five panels', 'is-locked', '0/5', []], ['Full FIIU', 'is-locked', '0/9', []],
+  ]);
+  after.hand({ registration: anaPlan, attendance: attended('day1-am', 'day2-am'), event: FIIU_EVENT });
+  assert.deepEqual(nextOf(after), ['Profile Pioneer']);
+  assert.deepEqual(fiiuRows(after).map((r) => r.slice(1, 3)), [['is-earned', 'earned'], ['is-earned', 'earned'], ['is-earned', 'earned'], ['is-locked', '2/4'], ['is-locked', '2/5'], ['is-locked', '2/9']], 'the meters stay');
+  after.lang('es');
+  assert.deepEqual(nextOf(after, 'siguiente'), ['Perfil pionero']);
+  // All five panels and still no workshop or route: Full FIIU is out of reach once the festival is over too.
+  const five = ledger({ now: '2026-10-29T10:00:00-05:00' });
+  five.hand({ registration: anaPlan, attendance: attended('day1-am', 'day1-pm', 'day2-am', 'day2-pm', 'day3-am'), event: FIIU_EVENT });
+  assert.deepEqual(nextOf(five), ['Profile Pioneer']);
+  // 24 Oct: the last panel's check-in closed on the 23rd, but the routes run on the 24th and 25th and the team still confirms them.
+  const routes = ledger({ now: '2026-10-24T10:00:00-05:00' });
+  routes.hand({ registration: anaPlan, attendance: [], event: FIIU_EVENT });
+  assert.deepEqual(nextOf(routes), ['First activity'], 'a route can still be the first activity');
+  routes.hand({ registration: anaPlan, attendance: attended('day1-am'), event: FIIU_EVENT });
+  assert.deepEqual(nextOf(routes), ['Profile Pioneer'], 'four panels, all five and Full FIIU all need panels that have closed');
+  routes.hand({ registration: anaPlan, attendance: attended('day1-am', 'day1-pm', 'day2-am', 'day2-pm', 'day3-am'), event: FIIU_EVENT });
+  assert.deepEqual(nextOf(routes), ['Full FIIU'], 'with all five panels, routes can still complete it');
+  // During the conference days the panel milestones are still in reach.
+  const panels = ledger({ now: '2026-10-22T08:00:00-05:00' });
+  panels.hand({ registration: anaPlan, attendance: attended('day1-am'), event: FIIU_EVENT });
+  assert.deepEqual(nextOf(panels), ['Cuidar y transformar la ciudad']);
+  panels.hand({ registration: festivalPlan({ activities: ['day1-am'] }), attendance: attended('day1-am'), event: FIIU_EVENT });
+  assert.deepEqual(nextOf(panels), ['Four panels']);
+});
+
 test('badges earned since the last visit carry a New tag, kept through this visit and gone on the next; without storage there are none', () => {
   const storage = new Map();
   const newOnes = (l) => l.groups()[0].rows.map(view).filter((r) => r.tags.length && r.state.endsWith('is-earned')).map((r) => [r.name, r.tags.join()]);

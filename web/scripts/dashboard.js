@@ -705,11 +705,16 @@
     const shareOf = (b) => (b.state === 'earned' && !(allFive && b.id === 'milestone:four') && typeof Fiiu.shareText === 'function' ? () => Fiiu.shareText(b, all) : null);
     // Milestones, the laboratory, workshops and routes can also go on LinkedIn (Fiiu.certifiable); the panel sessions are in the panel milestones.
     const certifyOf = (b) => (shareOf(b) && typeof Fiiu.certifiable === 'function' && Fiiu.certifiable(b) ? () => Fiiu.certificationName(b) : null);
+    /* A milestone out of reach is never next; unearned, it keeps its meter as a record. The panel milestones go once the last panel's check-in has
+       closed, and Full FIIU with them unless all five are in; First activity and Full FIIU go with the festival, as the team confirms a route on its day. */
+    const panelsShut = festival.event.activities.filter((a) => a.registration === 'general' && !a.legacy).every((a) => Fiiu.checkinState(a) === 'closed');
+    const over = Fiiu.festivalOver(festival.event);
+    const shut = { first: over, four: panelsShut, conferences: panelsShut, full: over || (panelsShut && !allFive) };
     return all.map((b) => {
       if (b.kind === 'milestone') {
         const key = b.id.slice('milestone:'.length);
         return {
-          fam: 'fiiu', id: b.id, state: b.state, meter: b.meter, share: shareOf(b), certify: certifyOf(b),
+          fam: 'fiiu', id: b.id, state: b.state, closed: b.state !== 'earned' && shut[key] === true, meter: b.meter, share: shareOf(b), certify: certifyOf(b),
           name: t(`d.badge.fiiu.${key}.name`), req: t(`d.badge.fiiu.${key}.req`), unlock: t(`d.badge.fiiu.${key}.unlock`),
         };
       }

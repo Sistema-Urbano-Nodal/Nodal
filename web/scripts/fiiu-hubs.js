@@ -1,6 +1,6 @@
 (() => {
  'use strict';
- const {el,tr,link,button,source,api,status,dateNode,timeNode,contentCards,badges,countLabel,nextFor,underway,limaDate,newTabNote,hoursLine,pulse,talkLink}=window.Fiiu;
+ const {el,tr,link,button,source,api,status,dateNode,timeNode,contentCards,badges,countLabel,nextFor,underway,festivalOver,contactLine,limaDate,newTabNote,hoursLine,pulse,talkLink}=window.Fiiu;
  const hub=document.getElementById('fiiuHub'),widget=document.getElementById('fiiuDashboardBody'),message=document.getElementById('fiiuStatus');
  // A link is given as [key, url], or as a node when the caller updates it later.
  function card(title,copy,links,featured=false){const box=el('article','f-hub-card'+(featured?' featured':''));box.append(tr('h2',title),tr('p',copy));const actions=el('div','f-actions');for(const item of links)actions.append(Array.isArray(item)?link(...item):item);box.append(actions);return box;}
@@ -9,9 +9,12 @@
  if(hub){const page=hub.dataset.hub;const intro=el('div','f-hub-intro');intro.append(tr('h1',page+'Title'));if(page==='community')intro.append(tr('p','communityIntro'));hub.append(intro);const grid=el('div','f-hub-grid');hub.append(grid);
   if(page==='community'){
    const register=link('register','fiiu.html'),festival=card('dates','intro',[register,['website','https://fiiu.sistemaurbano.org/']],true);festival.prepend(el('p','f-festival-name','FIIU Fest 11'),tr('span','spanishContent','content-language'));
-   grid.append(festival,card('chelas','chelasHint',[['circles','opportunities.html?kind=learning_circle'],['organize','index.html#contact']]),card('events','eventsHint',[['viewProgramme','fiiu.html#programme'],['people','dashboard.html#network']]));
-   // Once registration closes, the festival card points to the programme instead; the news page carries the registration settings.
-   api('/api/fiiu?kind=news').then(data=>{if(data.config?.registrationOpen===false)register.replaceWith(link('viewProgramme','fiiu.html#programme'));}).catch(()=>{});
+   const events=card('events','eventsHint',[['viewProgramme','fiiu.html#programme'],['people','dashboard.html#network']]);
+   grid.append(festival,card('chelas','chelasHint',[['circles','opportunities.html?kind=learning_circle'],['organize','index.html#contact']]),events);
+   // Once registration closes, the festival card points to the programme instead; the news page carries the registration settings and the event, so after
+   // the festival both cards speak of it in the past.
+   const past=(box,key,next)=>[...box.children].find(node=>node.dataset?.fiiuText===key)?.replaceWith(tr('p',next));
+   api('/api/fiiu?kind=news').then(data=>{if(data.config?.registrationOpen===false)register.replaceWith(link('viewProgramme','fiiu.html#programme'));if(festivalOver(data.event)){past(festival,'intro','introPast');past(events,'eventsHint','eventsHintPast');}}).catch(()=>{});
   }else if(page==='knowledge'){
    grid.append(card('courses','coursesHint',[['courses','courses.html']],true),card('masterclasses','masterclassesHint',[['browseResources','opportunities.html?kind=resource,case_study']]),card('materials','hubMaterials',[['open','fiiu.html#materials']]));
    // BUC, Sistema Urbano's open library (buc.js): its categories as links into it and, once it publishes its feed, its newest publications. The block
@@ -95,7 +98,9 @@
      // The next block's session page, with its questions, from the same pulse read as the General link above.
      pulse().then(counts=>{const n=counts.get(upcoming.id);if(n)line.append(talkLink(upcoming.id,n));});}
     // One short line until attendance is confirmed keeps the widget compact; fiiu.html carries the full explanation. Confirmed sessions add their hours.
-    badges(box,me.attendance,data.event,{hint:'badgesHintShort'});const hours=hoursLine(me.attendance,data.event);if(hours)box.append(hours);
+    // After the festival there is no QR to scan, so the line says how to claim a block attended without checking in.
+    const missed=festivalOver(data.event)&&contactLine('missedAttendance',data.event.contact);
+    badges(box,me.attendance,data.event,{hint:missed||'badgesHintShort'});const hours=hoursLine(me.attendance,data.event);if(hours)box.append(hours);
    }
   }
   load();

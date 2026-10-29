@@ -596,3 +596,45 @@ test('the door confirmation opens the privacy policy in a new tab, names a slow 
  const form=result(h).querySelector('form');field(form,'checkinCode').value='K7M4PX';form.listeners.submit({preventDefault(){}});await flush();
  assert.deepEqual(h.requests.filter(request=>request.path==='/api/fiiu/checkin').at(-1).body,{code:'K7M4PX',join:true,language:'en'});
 });
+
+/* After the festival (it ended on Sun 25 Oct, Lima) there is no desk and no screen to scan: every result that sent people to the desk names the organisers'
+   address instead (the event's own, as the page receives it), so someone who attended a block without checking in can still claim it. On 24 October,
+   while the routes still run, the desk stays. */
+const AFTER='2026-10-29T10:00:00-05:00',ROUTES_DAY='2026-10-24T10:00:00-05:00';
+const missed=h=>result(h).querySelector('.f-contact-line'),flat=node=>content(node).replace(/\s+/g,' ').trim();
+const NO_DESK=/desk|mesa de registro|credenciamento/i;
+
+test('after the festival a reloaded link to a block the person missed tells them to write to the organisers with the block and day, not to a desk',async()=>{
+ const lookup={registration:{id:'r1',version:1,answers:{activities:['day2-pm']}},attendance:[],hours:{minutes:0,hours:0,untimed:[]},user:{id:'u1',email:'beto@example.test'},serverTime:'2026-10-29T15:00:00.000Z'};
+ const h=await page(request=>request.path==='/api/fiiu/registration'?lookup:assert.fail('a reload sends no check-in'),{search:'?a=day2-pm',registrationOpen:false,now:AFTER});
+ assert.equal(title(h).dataset.fiiuText,'checkinEndedTitle');assert.equal(key(result(h),'askDesk'),undefined);assert.match(content(result(h).querySelector('.f-checkin-window')),/21:30/);
+ const line=missed(h);assert.equal(line.dataset.fiiuContact,'missedAttendance');assert.match(line.className,/\bf-checkin-hint\b/);assert.equal(line.querySelector('a').href,'mailto:fiiu@ocupatucalle.com');
+ languages(h,lang=>{
+  assert.match(flat(line),{en:/^Attended a block without checking in\? Write to fiiu@ocupatucalle\.com with the block and day/,es:/^¿Asististe a un bloque y no registraste tu asistencia\? Escribe a fiiu@ocupatucalle\.com con el bloque y el día/,pt:/^Participou de um bloco sem registrar presença\? Escreva para fiiu@ocupatucalle\.com com o bloco e o dia/}[lang]);
+  assert.doesNotMatch(content(h.root),NO_DESK,lang);
+ });
+ // The address is the one the programme carries.
+ const moved=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?{...publicData(false),event:{...FIIU_EVENT,contact:'equipo@fiiu.test'}}:lookup,{page:'fiiu-checkin',search:'?a=day2-pm',context:{Date:frozen(AFTER)}});
+ assert.equal(missed(moved).querySelector('a').href,'mailto:equipo@fiiu.test');
+});
+
+test('after the festival a scan’s refusals and an expired photo of the code name the organisers’ address, and offer no code to type',async()=>{
+ const after={registrationOpen:false,now:AFTER},ended={status:409,data:{code:'outside_window',activityId:'day3-am',closesAt:'2026-10-23T18:30:00.000Z'}};
+ const shown=[
+  await page(()=>ended,{search:`?a=day3-am&c=${CODE}`,...after}),
+  await page(()=>({status:404,data:{code:'not_registered',activityId:'day1-am',registrationOpen:false}}),after),
+  await page(()=>({status:403,data:{code:'not_in_plan',activityId:'day1-am',registrationOpen:false}}),after),
+  await page(()=>({status:403,data:{code:'lab_not_accepted',activityId:'day0-lab'}}),{search:`?a=day0-lab&c=${CODE}`,...after}),
+  await page(()=>({status:410,data:{error:'check-in code expired',code:'expired'}}),after),
+ ];
+ assert.deepEqual(shown.map(h=>title(h).dataset.fiiuText),['checkinEndedTitle','notRegistered','notInPlan','labNotAccepted','codeExpired']);
+ for(const h of shown){
+  const box=result(h);assert.ok(missed(h),title(h).dataset.fiiuText);
+  for(const name of ['askDesk','labNotAcceptedHint','expiredHint'])assert.equal(key(box,name),undefined,name);
+  assert.equal(field(box,'checkinCode'),undefined,'no screen code to type after the festival');languages(h,lang=>assert.doesNotMatch(content(h.root),NO_DESK,lang));
+ }
+ // On 24 October the routes still run: a closed block still points to the desk, and an expired code to the screen.
+ const during={registrationOpen:false,now:ROUTES_DAY};
+ const closed=await page(()=>ended,{search:`?a=day3-am&c=${CODE}`,...during});assert.ok(key(result(closed),'askDesk'));assert.equal(missed(closed),null);
+ const expired=await page(()=>({status:410,data:{error:'check-in code expired',code:'expired'}}),during);assert.ok(key(result(expired),'expiredHint'));assert.ok(field(result(expired),'checkinCode'));assert.equal(missed(expired),null);
+});

@@ -21,7 +21,7 @@
   resources:['Resources','Recursos','Recursos'],
   skip:['Skip to content','Ir al contenido','Ir para o conteúdo'],loading:['Loading…','Cargando…','Carregando…'],retry:['Try again','Reintentar','Tentar novamente'],
   intro:['Connect with the people shaping our cities. Choose your conference blocks and manage your FIIU participation in NODAL.','Conecta con quienes transforman nuestras ciudades. Elige tus bloques de conferencias y gestiona tu participación en FIIU desde NODAL.','Conecte-se com quem transforma nossas cidades. Escolha seus blocos de conferências e gerencie sua participação no FIIU pela NODAL.'],
-  dates:['20–25 October 2026','20–25 de octubre de 2026','20–25 de outubro de 2026'],register:['Register','Inscríbete','Inscreva-se'],website:['Festival website','Web del festival','Site do festival'],officialProgram:['View the live programme','Ver el programa en vivo','Ver a programação ao vivo'],
+  dates:['20–25 October 2026','20–25 de octubre de 2026','20–25 de outubro de 2026'],register:['Register','Inscríbete','Inscreva-se'],website:['Festival website','Web del festival','Site do festival'],officialProgram:['View the official programme','Ver el programa oficial','Ver a programação oficial'],
   programmeTitle:['Make room for the city','Haz espacio para la ciudad','Abra espaço para a cidade'],programmeHint:['Times are in Lima. The programme may change; admission is subject to each venue’s capacity.','Horarios de Lima. El programa está sujeto a cambios y el ingreso depende del aforo de cada espacio.','Horários de Lima. A programação pode mudar e a entrada depende da capacidade de cada espaço.'],
   morning:['Morning block','Bloque de mañana','Bloco da manhã'],evening:['Evening block','Bloque de noche','Bloco da noite'],lab:['Public-officials laboratory','Laboratorio para funcionarios','Laboratório para gestores públicos'],workshop:['Workshops','Talleres','Oficinas'],route:['Urban routes','Rutas urbanas','Roteiros urbanos'],venuePending:['Venue to be confirmed','Lugar por confirmar','Local a confirmar'],timePending:['Time to be confirmed','Horario por confirmar','Horário a confirmar'],
   external:['Separate registration','Inscripción independiente','Inscrição separada'],
@@ -64,6 +64,12 @@
   cancelClosed:['Registration is closed, so you will not be able to register again.','La inscripción está cerrada: no podrás volver a inscribirte.','As inscrições estão encerradas: você não poderá se inscrever de novo.'],
   closedChanges:['To change your registration, write to fiiu@ocupatucalle.com.','Para cambiar tu inscripción, escribe a fiiu@ocupatucalle.com.','Para alterar sua inscrição, escreva para fiiu@ocupatucalle.com.'],
   externalInterestClosedHint:['Complete each activity’s Google Form to register with its facilitator. Interest in NODAL does not confirm that registration or attendance.','Completa el Google Form de cada actividad para inscribirte con su facilitador. El interés en NODAL no confirma esa inscripción ni la asistencia.','Preencha o Google Forms de cada atividade para se inscrever com o facilitador. O interesse na NODAL não confirma essa inscrição nem a presença.'],
+  // After the festival (festivalOver): the hero and community cards in the past, the closed panel, and the way to claim a block attended without checking in,
+  // now that there is no desk. {contact} is the organisers' address as the page receives it with the event (contactLine).
+  introPast:['FIIU Fest 11 brought together the people shaping our cities from 20 to 25 October. Review your participation, your badges and the festival materials in NODAL.','El FIIU Fest 11 reunió del 20 al 25 de octubre a quienes transforman nuestras ciudades. Revisa tu participación, tus insignias y los materiales del festival desde NODAL.','O FIIU Fest 11 reuniu de 20 a 25 de outubro quem transforma nossas cidades. Confira sua participação, suas insígnias e os materiais do festival pela NODAL.'],
+  eventsHintPast:['Look back on the FIIU talks, workshops and urban routes, and keep meeting the people of the network.','Revive las charlas, talleres y rutas urbanas del FIIU, y sigue conectando con las personas de la red.','Reveja as palestras, oficinas e roteiros urbanos do FIIU e continue conhecendo as pessoas da rede.'],
+  closedOver:['FIIU Fest 11 ended on 25 October. Registration is closed.','El FIIU Fest 11 terminó el 25 de octubre. La inscripción está cerrada.','O FIIU Fest 11 terminou em 25 de outubro. As inscrições estão encerradas.'],
+  missedAttendance:['Attended a block without checking in? Write to {contact} with the block and day so the team can confirm it.','¿Asististe a un bloque y no registraste tu asistencia? Escribe a {contact} con el bloque y el día para que el equipo la confirme.','Participou de um bloco sem registrar presença? Escreva para {contact} com o bloco e o dia para que a equipe a confirme.'],
   // The hero's block while it is under way ("Next for you" otherwise).
   nowForYou:['Happening now','Ahora','Agora'],
   // Session links on festival blocks (talkLink below), to the session page with its questions: "Ver sesión · 2" on screen, "Ver sesión, 2 preguntas" for assistive technology.
@@ -289,6 +295,8 @@
  function dateRange(start,end){const f=limaFormat(locale(),'range',{day:'numeric',month:'long',year:'numeric'}),a=limaNoon(start),b=limaNoon(end);return f.formatRange?f.formatRange(a,b):f.format(a)+' – '+f.format(b);}
  const limaDate=(value=new Date())=>limaFormat('en-CA','day',{year:'numeric',month:'2-digit',day:'2-digit'}).format(value);
  const limaMinutes=(value=new Date())=>{const [hours,minutes]=limaFormat('en-GB','clock',{hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(value).split(':').map(Number);return hours*60+minutes;};
+ // The festival is over from the Lima day after its last one (endsOn): the pages then speak of it in the past and send nobody to the desk. now: another moment.
+ const festivalOver=(event,now=new Date())=>Boolean(event?.endsOn)&&limaDate(now)>event.endsOn;
  function refresh(){
   // The organisers-only page has no script of its own (the server serves it in place of organiser pages), so its tab title is set here.
   if(document.body?.dataset?.page==='organisers-only')document.title='NODAL · '+t('organisersOnly');
@@ -300,6 +308,7 @@
   // A text shown to copy by hand follows the language too (its label is the note, which carries data-fiiu-text).
   document.querySelectorAll('.f-share-text').forEach(area=>{try{if(typeof area.fiiuShare==='function')area.value=area.fiiuShare();}catch{/* keep the text shown */}});
   document.querySelectorAll('.f-share-link').forEach(a=>{try{a.fiiuShareLink?.();}catch{/* keep the address drawn */}});
+  document.querySelectorAll('.f-contact-line').forEach(line=>line.fiiuContact?.());
  }
  function dateNode(value,tag='p',style='long',cls='f-date'){const n=el(tag,cls,date(value,style));n.dataset.fiiuDate=value;if(style!=='long')n.dataset.fiiuDateStyle=style;return n;}
  function rangeNode(start,end,tag='span',cls='f-range'){const n=el(tag,cls,dateRange(start,end));n.dataset.fiiuRange=start+'/'+end;return n;}
@@ -388,6 +397,12 @@
   return node;
  }
  function hint(key,cls='f-muted'){const p=tr('p',key,cls);p.id='f-hint-'+key;return p;}
+ // A sentence naming the organisers' address ({contact} in its row): the event's own, as the page receives it, as a link to write to it. refresh() rewrites
+ // the words around it in the reader's language. Without an address there is no line.
+ function contactLine(key,contact,cls='f-muted'){
+  if(!contact)return null;const line=el('p',(cls?cls+' ':'')+'f-contact-line'),address=el('a','f-text-link',contact);address.href='mailto:'+contact;line.dataset.fiiuContact=key;
+  line.fiiuContact=()=>{const [head,tail='']=t(key).split('{contact}');line.replaceChildren(el('span','',head),address,el('span','',tail));};line.fiiuContact();return line;
+ }
  function describe(node,...ids){node.setAttribute('aria-describedby',[...ids,...(node.target==='_blank'?['f-newtab']:[])].join(' '));return node;}
  // The note is only ever a description (aria-describedby reads hidden nodes), so it is hidden: as text it would be read after the page's last control, out of place.
  function newTabNote(){const n=tr('span','newTab','f-sr-only');n.id='f-newtab';n.hidden=true;return n;}
@@ -404,9 +419,9 @@
   }
  }
  const findActivity=(event,id)=>[...event.activities,...(event.legacyActivities||[])].find(activity=>activity.id===id);
- // The heading level follows the host (h4 inside the saved summary's h3 section); the dashboard widget uses the short hint.
+ // The heading level follows the host (h4 inside the saved summary's h3 section); the dashboard widget uses the short hint, or after the festival a node of its own.
  // Badges follow the programme (date, then period and time, then catalogue order), never the order the store returns the attendance in.
- function badges(container,attendance,event,{heading='h3',hint='badgesHint'}={}){container.replaceChildren();container.append(tr(heading,'badges'));if(!attendance.length){container.append(tr('p',hint,'f-muted'));return;}
+ function badges(container,attendance,event,{heading='h3',hint='badgesHint'}={}){container.replaceChildren();container.append(tr(heading,'badges'));if(!attendance.length){container.append(typeof hint==='string'?tr('p',hint,'f-muted'):hint);return;}
   const attended=new Set(attendance.map(record=>record.activityId));for(const a of chronological([...event.activities,...(event.legacyActivities||[])].filter(a=>attended.has(a.id))))container.append(source('p','✓ '+a.title,'f-badge'));}
  // The FIIU badges, one rule for the console's Recognition ledger and the check-in page, so the badge a scan announces is the one the console shows.
  // A session badge per block in the plan that takes a check-in (the conference blocks ticked, and the laboratory for an applicant not declined), locked until its
@@ -489,6 +504,6 @@
  }
  // Scrolls a horizontal chip row just enough to show the item in full, clear of the right-edge fade (fiiu.css); only the row moves, never the page (the rows sit in sticky bars).
  function revealInRow(row,item){const box=item?.getBoundingClientRect?.(),frame=row?.getBoundingClientRect?.();if(!box||!frame)return;const shift=box.left<frame.left+8?box.left-frame.left-8:box.right>frame.right-36?box.right-frame.right+36:0;if(shift)row.scrollBy?.({left:shift});}
- window.Fiiu={rows,t,el,tr,button,link,source,field,check,api,hostRefusal,status,dateNode,rangeNode,timeLabel,timeNode,limaDate,locale,contentCards,badges,festivalBadges,shareText,shareControl,certifiable,certificationName,findActivity,chronological,typeOf,countLabel,nextFor,underway,hint,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,hoursLine,checkinCloses,checkinState,checkinActivities,limaClock,windowNode,pulse,talkLink,sessionLink,linkify};
+ window.Fiiu={rows,t,el,tr,button,link,source,field,check,api,hostRefusal,status,dateNode,rangeNode,timeLabel,timeNode,limaDate,locale,contentCards,badges,festivalBadges,shareText,shareControl,certifiable,certificationName,findActivity,chronological,typeOf,countLabel,nextFor,underway,festivalOver,hint,contactLine,describe,newTabNote,revealInRow,minutesOf,hoursOf,hoursText,hoursLine,checkinCloses,checkinState,checkinActivities,limaClock,windowNode,pulse,talkLink,sessionLink,linkify};
  window.nodalI18n?.onChange(refresh);refresh();
 })();

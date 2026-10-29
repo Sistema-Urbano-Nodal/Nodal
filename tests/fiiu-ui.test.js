@@ -13,6 +13,8 @@ const self=registration=>({user,registration,attendance:[],isAdmin:false});
 const publicData={event:FIIU_EVENT,config:{registrationOpen:true,programUrl:'https://canva.link/ficmkatcg9fudwk'},content:[],nextCursor:null};
 // A clock before the laboratory's day (20 Oct), for tests that need its application offered: from 21 Oct the page offers none (eve audit #6).
 const LAB_OPEN=(()=>{const T=Date.parse('2026-10-15T10:00:00-05:00');return {Date:class extends Date{constructor(...args){super(...(args.length?args:[T]));}static now(){return T;}}};})();
+// A clock on the first conference day, for tests of the pages as they read during the festival: after it they speak of it in the past and drop the activity forms.
+const DURING=(()=>{const T=Date.parse('2026-10-21T10:00:00-05:00');return {Date:class extends Date{constructor(...args){super(...(args.length?args:[T]));}static now(){return T;}}};})();
 // The page reads the news page (which carries the event and settings) and the materials page separately.
 // The conversation pulse answers on its own path, so it never uses up one of the registration reads a test counts.
 async function harness({registration=null,write=async()=>({status:503,data:{error:'unavailable'}}),read,publicRead=()=>publicData,materialsRead=()=>publicData,pulseRead=()=>({questions:[]}),context}={}){
@@ -82,7 +84,7 @@ test('the programme is a prominent action and the laboratory card omits unknown 
 test('external-only interest saves separately from conferences and keeps its required Google Form link',async()=>{
  const activity={id:'workshop-test',date:'2026-10-22',period:'workshop',registration:'external',title:'Taller de prueba',time:'',venue:'',sessions:[],formUrl:'https://forms.gle/testActivity'};
  const event={...FIIU_EVENT,activities:[...FIIU_EVENT.activities.filter(item=>item.registration!=='external'),activity]};
- const h=await harness({publicRead:()=>({...publicData,event}),write:request=>({registration:{...saved,answers:request.body}})});h.fill();
+ const h=await harness({publicRead:()=>({...publicData,event}),write:request=>({registration:{...saved,answers:request.body}}),context:DURING});h.fill();
  for(const input of descendants(h.form()).filter(node=>node.name==='activities'))input.checked=false;
  const interest=field(h.form(),'externalActivities');assert.ok(interest);interest.checked=true;
  const activityLink=h.form().querySelectorAll('a').find(node=>node.href===activity.formUrl);
@@ -150,7 +152,7 @@ test('programme cards reflect the saved registration and pre-select a conference
 });
 
 test('external links are described as opening a new tab and the note exists once',async()=>{
- const h=await harness(),notes=descendants(h.root).filter(node=>node.id==='f-newtab');assert.equal(notes.length,1);
+ const h=await harness({context:DURING}),notes=descendants(h.root).filter(node=>node.id==='f-newtab');assert.equal(notes.length,1);
  const external=descendants(h.root).filter(node=>node.tagName==='a'&&node.target==='_blank');assert.ok(external.length>14);
  for(const node of external)assert.ok(node['aria-describedby'].split(' ').includes('f-newtab'),node.href);
  const forms=h.root.querySelector('.f-programme').querySelectorAll('a').filter(node=>node.dataset.fiiuText==='activityForm');
@@ -417,10 +419,11 @@ test('the festival date range follows a language change',async()=>{
  h.lang('es');assert.match(range.textContent,/octubre de 2026/);h.lang('pt');assert.match(range.textContent,/outubro de 2026/);h.lang('en');assert.equal(range.textContent,english);
 });
 
-async function hubHarness(page,respond){
+// context adds or replaces globals, as widgetHarness's does (a Date frozen at a festival hour).
+async function hubHarness(page,respond,context={}){
  const body=new Node('body'),hub=new Node(),message=new Node(),requests=[];hub.dataset.hub=page;body.append(hub,message);
  const document={body,documentElement:{lang:'en'},getElementById:id=>({fiiuHub:hub,fiiuStatus:message})[id]||null,createElement:tag=>new Node(tag),querySelectorAll:selector=>body.querySelectorAll(selector)};
- const ctx={document,window:{nodalI18n:{lang:'en',onChange(){}}},Intl,Date,Error,AbortSignal,fetch:async path=>{requests.push(path);const result=await respond(path);return{ok:!result.status||result.status<400,status:result.status||200,json:async()=>result.data??result};}};
+ const ctx={document,window:{nodalI18n:{lang:'en',onChange(){}}},Intl,Date,Error,AbortSignal,fetch:async path=>{requests.push(path);const result=await respond(path);return{ok:!result.status||result.status<400,status:result.status||200,json:async()=>result.data??result};},...context};
  vm.createContext(ctx);for(const name of ['fiiu-ui','fiiu-hubs'])vm.runInContext(readFileSync(new URL('../web/scripts/'+name+'.js',import.meta.url),'utf8'),ctx);await flush();
  return{hub,requests};
 }
@@ -444,7 +447,7 @@ test('badge hints say badges come from the session QR code or the team, in every
 
 test('the saved registration shows the confirmed hours under the badges, and cancelling warns that attendance goes too',async()=>{
  const registration={...saved,answers:{...answers,activities:['day1-am','day1-pm']}};let asked='';
- const h=await harness({registration,read:()=>({...self(registration),attendance:[{activityId:'day1-am',createdAt:'2026-10-21T14:12:00.000Z',method:'qr'},{activityId:'day1-pm',createdAt:'2026-10-22T00:40:00.000Z',method:'staff'}]}),write:()=>({ok:true})});
+ const h=await harness({registration,read:()=>({...self(registration),attendance:[{activityId:'day1-am',createdAt:'2026-10-21T14:12:00.000Z',method:'qr'},{activityId:'day1-pm',createdAt:'2026-10-22T00:40:00.000Z',method:'staff'}]}),write:()=>({ok:true}),context:DURING});
  const box=h.root.querySelector('.f-saved').querySelector('.f-badges'),hours=box.querySelector('.f-hours');
  assert.equal(box.children.at(-1),hours,'the hours line closes the badges');assert.ok(key(hours,'hoursConfirmed'));assert.match(content(hours),/\b6\b/);assert.equal(key(hours,'labHoursPending'),undefined);
  h.ctx.window.confirm=message=>{asked=message;return false;};await key(h.root,'cancel').listeners.click();
@@ -496,7 +499,7 @@ test('dashboard widget adds the confirmed hours under its badges once a session 
  const registration={...saved,answers:{...answers,activities:['day1-am']}};
  const {widget}=await widgetHarness(path=>widgetFeed(path)||{...self(registration),attendance:[{activityId:'day1-am',createdAt:'2026-10-21T14:12:00.000Z',method:'qr'}]});
  const box=widget.querySelector('.f-badges');assert.match(content(box),/✓ El poder de lo local/);assert.ok(key(box.querySelector('.f-hours'),'hoursConfirmed'));assert.match(content(box.querySelector('.f-hours')),/\b4\b/);
- const empty=await widgetHarness(path=>widgetFeed(path)||self(registration));assert.equal(empty.widget.querySelector('.f-hours'),null,'no hours line before any confirmed session');assert.ok(key(empty.widget,'badgesHintShort'));
+ const empty=await widgetHarness(path=>widgetFeed(path)||self(registration),DURING);assert.equal(empty.widget.querySelector('.f-hours'),null,'no hours line before any confirmed session');assert.ok(key(empty.widget,'badgesHintShort'));
 });
 
 test('the organisers-only page names itself in the reader language, in the tab title too',()=>{
@@ -631,7 +634,7 @@ test('a guest who opens an #add- link (the party email’s button) keeps that bl
 });
 
 test('the community events card has its own copy and leads to the festival programme',async()=>{
- const {hub}=await hubHarness('community',path=>widgetFeed(path)),events=hub.querySelectorAll('.f-hub-card').find(node=>key(node,'events'));
+ const {hub}=await hubHarness('community',path=>widgetFeed(path),DURING),events=hub.querySelectorAll('.f-hub-card').find(node=>key(node,'events'));
  assert.ok(key(events,'eventsHint'));assert.equal(key(events,'communityIntro'),undefined,'the intro is not repeated');assert.equal(key(events,'viewProgramme').href,'fiiu.html#programme');assert.equal(key(events,'circles'),undefined);
  assert.equal(hub.querySelectorAll('[data-fiiu-text]').filter(node=>node.dataset.fiiuText==='communityIntro').length,1);
 });
@@ -831,14 +834,14 @@ test('Back to my registration asks before dropping unsaved edits, and an edit re
 
 test('with registration closed, cancelling warns there is no way back, the summary points to the organisers, and the interests hint drops the save step',async()=>{
  const closed={...publicData,config:{...publicData.config,registrationOpen:false}},registration={...saved,answers:{...answers,externalActivities:['workshop-calles-gente']}};let question='';
- const h=await harness({registration,publicRead:()=>closed});h.ctx.window.confirm=text=>{question=text;return false;};const {t,rows}=h.ctx.window.Fiiu;
+ const h=await harness({registration,publicRead:()=>closed,context:DURING});h.ctx.window.confirm=text=>{question=text;return false;};const {t,rows}=h.ctx.window.Fiiu;
  await key(h.root,'cancel').listeners.click();assert.ok(question.endsWith(' '+t('cancelClosed')),question);assert.ok(question.startsWith(t('cancelConfirm')));
  const summary=h.root.querySelector('.f-saved');assert.ok(key(summary,'externalInterestClosedHint'));assert.equal(key(summary,'externalInterestHint'),undefined);assert.ok(key(summary,'closedChanges'));
  assert.equal(rows.cancelClosed[1],'La inscripción está cerrada: no podrás volver a inscribirte.');assert.doesNotMatch(rows.externalInterestClosedHint[1],/Guarda/);
- const open=await harness({registration});open.ctx.window.confirm=text=>{question=text;return false;};await key(open.root,'cancel').listeners.click();
+ const open=await harness({registration,context:DURING});open.ctx.window.confirm=text=>{question=text;return false;};await key(open.root,'cancel').listeners.click();
  assert.ok(!question.includes(t('cancelClosed')));assert.ok(key(open.root.querySelector('.f-saved'),'externalInterestHint'));assert.equal(key(open.root,'closedChanges'),undefined);
  // An incomplete registration already names the address in its notice, so it is not repeated.
- const old=await harness({registration:{...saved,answers:{firstName:'Ana',lastName:'Test',activities:['day1-am'],privacyAccepted:true}},publicRead:()=>closed});
+ const old=await harness({registration:{...saved,answers:{firstName:'Ana',lastName:'Test',activities:['day1-am'],privacyAccepted:true}},publicRead:()=>closed,context:DURING});
  assert.ok(key(old.root,'incompleteClosedNotice'));assert.equal(key(old.root,'closedChanges'),undefined);
 });
 
@@ -1144,4 +1147,77 @@ test('after registering from a session page, the way back is the address the per
   const h=await harness({registration:saved,context:{...at('#add-day2-am'),sessionStorage:storage},write:()=>({status:200,data:{registration:added}})});
   await h.submit();assert.equal(back(h)?.href,'fiiu-session.html?a=day2-am',address);
  }
+});
+
+/* After the festival (FIIU Fest 11 ended on Sun 25 Oct, Lima): the pages speak of it in the past, an activity's facilitator form goes once its day has
+   passed, and a member who attended a block without checking in is told to write to the organisers' address, the event's own. Every case runs on a frozen
+   clock: 24 October, while the routes still run, and 29 October, after the festival. */
+const AFTER='2026-10-29T10:00:00-05:00',ROUTES_DAY='2026-10-24T10:00:00-05:00';
+const closedFeed={...publicData,config:{...publicData.config,registrationOpen:false}};
+const contactLine=node=>node?.querySelector('.f-contact-line')??null,flat=node=>content(node).replace(/\s+/g,' ').trim();
+const formLinks=node=>node.querySelectorAll('a').filter(a=>a.dataset.fiiuText==='activityForm');
+const MISSED={en:/^Attended a block without checking in\? Write to fiiu@ocupatucalle\.com with the block and day so the team can confirm it\.$/,es:/^¿Asististe a un bloque y no registraste tu asistencia\? Escribe a fiiu@ocupatucalle\.com con el bloque y el día para que el equipo la confirme\.$/,pt:/^Participou de um bloco sem registrar presença\? Escreva para fiiu@ocupatucalle\.com com o bloco e o dia para que a equipe a confirme\.$/};
+
+test('the festival is over from the Lima day after it ends, and the new copy reads in every language without a desk or a live programme',()=>{
+ const fiiu=iso=>{const context={window:{nodalI18n:{lang:'en',onChange(){}}},document:{documentElement:{lang:'en'},querySelectorAll:()=>[]},Intl,Date:movableClock(iso).Date,Error};vm.runInNewContext(readFileSync(new URL('../web/scripts/fiiu-ui.js',import.meta.url),'utf8'),context);return context.window.Fiiu;};
+ assert.equal(fiiu('2026-10-25T23:59:00-05:00').festivalOver(FIIU_EVENT),false,'the last day is still the festival');
+ const after=fiiu('2026-10-26T00:00:00-05:00');assert.equal(after.festivalOver(FIIU_EVENT),true,'midnight in Lima, though 05:00 UTC');
+ assert.equal(after.festivalOver(FIIU_EVENT,new Date('2026-10-24T12:00:00-05:00')),false,'a given moment wins over the clock');assert.equal(after.festivalOver({}),false,'an event without dates is never over');
+ const {rows}=after;
+ for(const name of ['missedAttendance','introPast','closedOver','eventsHintPast','officialProgram'])assert.equal(rows[name]?.length,3,name);
+ assert.ok(rows.missedAttendance.every(text=>text.includes('{contact}')),'the address is the event’s own, filled in where it is shown');
+ assert.ok(rows.closedOver.every(text=>/\b25\b/.test(text)));
+ for(const name of ['missedAttendance','introPast','closedOver','eventsHintPast'])assert.ok(rows[name].every(text=>!/desk|mesa|balcão|credenciamento/i.test(text)),name);
+ assert.ok(rows.officialProgram.every(text=>!/live|vivo/i.test(text)),'the programme link no longer says it is live');
+});
+
+test('after the festival fiiu.html speaks of it in the past, drops the activity forms and tells a member how to claim a block attended without checking in',async()=>{
+ const registration={...saved,answers:{...answers,externalActivities:['workshop-calles-gente','route-arcoiris']}},after={Date:movableClock(AFTER).Date};
+ const h=await harness({registration,publicRead:()=>closedFeed,context:after}),hero=h.root.querySelector('.f-hero'),summary=h.root.querySelector('.f-saved');
+ assert.ok(key(hero,'introPast'));assert.equal(key(hero,'intro'),undefined);
+ assert.deepEqual(formLinks(h.root),[],'no facilitator form for an activity whose day has passed');
+ assert.equal(key(summary,'externalFormNext'),undefined);assert.equal(key(summary,'externalInterestClosedHint'),undefined,'no hint to complete forms that are gone');assert.match(content(summary),/Arcoíris sobre ruedas/,'the interests stay listed');
+ const panel=h.root.querySelector('.f-registration');assert.ok(key(panel,'closedOver'));assert.equal(key(panel,'closed'),undefined);
+ const missed=contactLine(summary.querySelector('.f-badges'));assert.equal(missed.dataset.fiiuContact,'missedAttendance');assert.equal(missed.querySelector('a').href,'mailto:fiiu@ocupatucalle.com');
+ for(const lang of ['en','es','pt']){h.lang(lang);assert.match(flat(missed),MISSED[lang]);}
+ // The address is the one the page receives with the event; a member with some attendance is told too, since they may have missed another block.
+ const moved={...closedFeed,event:{...FIIU_EVENT,contact:'equipo@fiiu.test'}};
+ const some=await harness({read:()=>({...self(registration),attendance:[{activityId:'day1-am',createdAt:'2026-10-21T14:12:00.000Z',method:'qr'}]}),publicRead:()=>moved,context:after});
+ const box=some.root.querySelector('.f-saved').querySelector('.f-badges');assert.match(content(box),/✓ El poder de lo local/);assert.equal(contactLine(box).querySelector('a').href,'mailto:equipo@fiiu.test');assert.match(flat(contactLine(box)),/equipo@fiiu\.test/);
+ // A guest is told the festival ended, not that registration is closed for now.
+ const guest=await harness({read:()=>({status:401,data:{error:'sign in required'}}),publicRead:()=>closedFeed,context:after});
+ assert.ok(key(guest.root.querySelector('.f-registration'),'closedOver'));assert.equal(key(guest.root,'closed'),undefined);assert.ok(key(guest.root.querySelector('.f-hero'),'introPast'));
+});
+
+test('on 24 October, while the routes still run, only the activities whose day has passed lose their forms and the festival copy stays as it was',async()=>{
+ const during={Date:movableClock(ROUTES_DAY).Date},still=FIIU_EVENT.activities.filter(a=>a.formUrl&&a.date>='2026-10-24').map(a=>a.formUrl).sort();
+ const registration={...saved,answers:{...answers,externalActivities:['workshop-calles-gente','route-arcoiris']}};
+ const h=await harness({registration,publicRead:()=>closedFeed,context:during}),summary=h.root.querySelector('.f-saved');
+ assert.ok(key(h.root.querySelector('.f-hero'),'intro'));assert.equal(key(h.root,'introPast'),undefined);
+ assert.equal(still.length,5);assert.deepEqual(formLinks(h.root.querySelector('.f-programme')).map(a=>a.href).sort(),still,'the 24 and 25 October routes keep their forms');
+ assert.deepEqual(summary.querySelectorAll('a').filter(a=>a.dataset.fiiuText==='externalFormNext').map(a=>a.href),[FIIU_EVENT.activities.find(a=>a.id==='route-arcoiris').formUrl],'only the route still ahead asks for its form');
+ assert.ok(key(summary,'externalInterestClosedHint'));assert.equal(contactLine(summary),null);
+ assert.ok(key(h.root.querySelector('.f-registration'),'closed'));assert.equal(key(h.root,'closedOver'),undefined);assert.ok(key(h.root.querySelector('.f-hero'),'officialProgram'));
+ // The registration form's interest list follows the same rule.
+ const open=await harness({context:during});assert.deepEqual(formLinks(open.form()).map(a=>a.href).sort(),still);
+});
+
+test('after the festival the console block tells a member without a check-in how to claim one instead of the QR hint',async()=>{
+ const registration={...saved,answers:{...answers,activities:['day1-am','day2-pm']}},after={Date:movableClock(AFTER).Date};
+ const empty=await widgetHarness(path=>widgetFeed(path,closedFeed.config)||self(registration),after),box=empty.widget.querySelector('.f-badges');
+ assert.equal(key(box,'badgesHintShort'),undefined);const missed=contactLine(box);assert.equal(missed.dataset.fiiuContact,'missedAttendance');assert.equal(missed.querySelector('a').href,'mailto:fiiu@ocupatucalle.com');assert.match(flat(missed),MISSED.en);
+ // With a confirmed block the console keeps to its badges and hours; fiiu.html carries the line.
+ const some=await widgetHarness(path=>widgetFeed(path,closedFeed.config)||{...self(registration),attendance:[{activityId:'day1-am',createdAt:'2026-10-21T14:12:00.000Z',method:'qr'}]},after);
+ assert.match(content(some.widget.querySelector('.f-badges')),/✓ El poder de lo local/);assert.equal(contactLine(some.widget),null);
+ const during=await widgetHarness(path=>widgetFeed(path,closedFeed.config)||self(registration),{Date:movableClock(ROUTES_DAY).Date});
+ assert.ok(key(during.widget,'badgesHintShort'));assert.equal(contactLine(during.widget),null);
+});
+
+test('after the festival the community page’s festival and events cards speak of it in the past',async()=>{
+ const cards=hub=>hub.querySelectorAll('.f-hub-card'),festival=hub=>cards(hub).find(node=>key(node,'dates')),events=hub=>cards(hub).find(node=>key(node,'events'));
+ const {hub}=await hubHarness('community',path=>widgetFeed(path,closedFeed.config),{Date:movableClock(AFTER).Date});
+ assert.ok(key(festival(hub),'introPast'));assert.equal(key(festival(hub),'intro'),undefined);assert.equal(key(festival(hub),'viewProgramme').href,'fiiu.html#programme');
+ assert.ok(key(events(hub),'eventsHintPast'));assert.equal(key(events(hub),'eventsHint'),undefined);
+ const during=await hubHarness('community',path=>widgetFeed(path,closedFeed.config),{Date:movableClock(ROUTES_DAY).Date});
+ assert.ok(key(festival(during.hub),'intro'));assert.ok(key(events(during.hub),'eventsHint'));assert.equal(key(during.hub,'introPast'),undefined);
 });

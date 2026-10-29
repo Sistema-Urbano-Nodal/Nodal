@@ -1,6 +1,6 @@
 (() => {
  'use strict';
- const {sessionLink,el,tr,t,source,button,link,field,check,api,status,dateNode,rangeNode,timeNode,limaDate,contentCards,badges,findActivity,chronological,typeOf,countLabel,nextFor,underway,hint,describe,newTabNote,revealInRow,hoursLine,pulse,talkLink,linkify}=window.Fiiu;
+ const {sessionLink,el,tr,t,source,button,link,field,check,api,status,dateNode,rangeNode,timeNode,limaDate,contentCards,badges,findActivity,chronological,typeOf,countLabel,nextFor,underway,festivalOver,hint,contactLine,describe,newTabNote,revealInRow,hoursLine,pulse,talkLink,linkify}=window.Fiiu;
  const root=document.getElementById('fiiuRoot'),loadStatus=document.getElementById('fiiuStatus');
  const TYPES=[['conference','conferenceOne','conferenceMany'],['workshop','workshopOne','workshopMany'],['route','routeOne','routeMany'],['lab','labOne','labOne'],['party','partyOne','partyOne']];
  // Blocks a person adds to their registration: the conferences and the closing party (register only).
@@ -32,6 +32,8 @@
  // Apply, the form's box and its promise under "Public official?", the guest checklist line. An application already made stays and can still be edited
  // (eve audit #6).
  const labOver=()=>{const lab=festival.event.activities.find(x=>x.registration==='application');return Boolean(lab?.date)&&limaDate()>lab.date;};
+ // A workshop's or route's facilitator form is offered until its Lima day has passed, in the programme, the form and the saved summary alike.
+ const formOpen=activity=>activity.date>=limaDate();
  const missingAnswers=a=>['country','city','profile','nationalId','gender','motivation','previousAttendance'].filter(k=>!a[k]).length+(Number.isInteger(a.age)?0:1)+(Array.isArray(a.accessibility)&&a.accessibility.length?0:1)+(typeof a.publicOfficial==='boolean'?0:1);
  function jumpTo(input,event){event?.preventDefault?.();if(!input)return;openForm?.();const fold=input.closest?.('details');if(fold)fold.open=true;input.focus();input.scrollIntoView?.({block:'center'});}
  // Session links ("Ver sesión · 2", to the block's page with its questions) come from the public pulse, which never holds up the page: a block drawn
@@ -62,7 +64,7 @@
   kicker.append(el('span','',event.title),source('span',event.city));title.append(kicker,source('span',event.theme,'f-hero-theme'));
   const meta=el('p','f-hero-meta'),counts=el('p','f-hero-counts');
   meta.append(rangeNode(event.startsOn,event.endsOn),tr('span',config.registrationOpen?'registrationOpenNow':'registrationClosedNow',config.registrationOpen?'is-open':''));counts.append(...typeCounts(event.activities));
-  copy.append(title,tr('span','spanishContent','content-language'),tr('p','intro','f-hero-intro'),meta,counts);
+  copy.append(title,tr('span','spanishContent','content-language'),tr('p',festivalOver(event)?'introPast':'intro','f-hero-intro'),meta,counts);
   if(registration){
    // The party is counted apart: it is not a conference block.
    const a=registration.answers,pills=el('p','f-hero-status'),interests=a.externalActivities?.length||0,party=a.activities.filter(id=>findActivity(event,id)?.registration==='social').length,conferences=a.activities.length-party;pills.append(tr('span','statusRegistered','f-pill is-ok'));
@@ -141,7 +143,7 @@
    // Built-in workshops and routes have no time; one the organisers set (often a start only, "Desde las 10:00") shows above the venue, with any session lines under it.
    const sessions=sessionList(activity,title.id);main.append(title);if(about)main.append(about);if(activity.time)main.append(timeNode(activity.time,'p','f-compact-time'));if(where)main.append(where);if(sessions)main.append(sessions);
    const action=choiceAction(activity,mine,'interestChip','saveInterest',title.id);if(action)actions.append(action);
-   actions.append(describe(link('activityForm',activity.formUrl||festival.event.website,'f-text-link'),title.id));withTalk(activity,title.id,link=>actions.append(link));row.append(main,actions);list.append(row);
+   if(formOpen(activity))actions.append(describe(link('activityForm',activity.formUrl||festival.event.website,'f-text-link'),title.id));withTalk(activity,title.id,link=>actions.append(link));row.append(main,actions);list.append(row);
   }
   group.append(head,list);return group;
  }
@@ -200,12 +202,14 @@
   plan.append(...unknownActivities.map(unknownRow));if(plan.children.length)box.append(tr('h4','myPlan'),plan);
   if(a.externalActivities?.length){
    const [interests,unknownInterests]=split(a.externalActivities),list=el('ol','f-itinerary');
-   for(const activity of interests){const row=itineraryRow(activity,prefix),where=venueLine(activity,'f-itinerary-venue');row.append(tr('span','interestChip','f-pill'));if(where)row.append(where);if(activity.formUrl)row.append(describe(link('externalFormNext',activity.formUrl,'f-text-link'),prefix+activity.id));withTalk(activity,prefix+activity.id,link=>row.append(link));list.append(row);}
-   list.append(...unknownInterests.map(unknownRow));box.append(tr('h4','externalActivities'),tr('p',festival.config.registrationOpen?'externalInterestHint':'externalInterestClosedHint','f-muted'),list);
+   for(const activity of interests){const row=itineraryRow(activity,prefix),where=venueLine(activity,'f-itinerary-venue');row.append(tr('span','interestChip','f-pill'));if(where)row.append(where);if(activity.formUrl&&formOpen(activity))row.append(describe(link('externalFormNext',activity.formUrl,'f-text-link'),prefix+activity.id));withTalk(activity,prefix+activity.id,link=>row.append(link));list.append(row);}
+   // After the festival no form is left to complete, so the interests stand as a list.
+   list.append(...unknownInterests.map(unknownRow));box.append(tr('h4','externalActivities'));if(!festivalOver(event))box.append(tr('p',festival.config.registrationOpen?'externalInterestHint':'externalInterestClosedHint','f-muted'));box.append(list);
   }
   box.append(tr('p','savedHint','f-muted'));
-  // Badges, then the hours they add up to for the certificate.
-  if(withBadges){if(me.attendance.length||limaDate()>=event.startsOn){const badgeBox=el('div','f-badges'),hours=hoursLine(me.attendance,event);badges(badgeBox,me.attendance,event,{heading:'h4'});if(hours)badgeBox.append(hours);box.append(badgeBox);}else box.append(tr('p','badgesHint','f-muted'));}
+  // Badges, then the hours they add up to for the certificate. After the festival, the way to claim a block attended without checking in, even with some
+  // attendance: another block may be missing.
+  if(withBadges){if(me.attendance.length||limaDate()>=event.startsOn){const badgeBox=el('div','f-badges'),hours=hoursLine(me.attendance,event),missed=festivalOver(event)&&contactLine('missedAttendance',event.contact);badges(badgeBox,me.attendance,event,{heading:'h4'});if(hours)badgeBox.append(hours);if(missed)badgeBox.append(missed);box.append(badgeBox);}else box.append(tr('p','badgesHint','f-muted'));}
   return box;
  }
  function renderRegistration(){renderPanel();renderProgramme();renderHero();liveFollow();}
@@ -249,9 +253,9 @@
    panelBody.append(message,button('retry',async()=>{if(retrying)return;retrying=true;status(message,'loading');try{me=await api('/api/fiiu/registration');}catch(error){me=unread(error);}renderRegistration();if(!applyAdd())panelHeading.focus();},'f-button secondary'));return;
   }
   if(!me.user){
-   // Once registration closes, the guest panel only leads people who already registered back to their registration.
+   // Once registration closes, the guest panel only leads people who already registered back to their registration; after the festival it says it ended.
    const open=festival.config.registrationOpen;
-   if(!open)panelBody.append(tr('p','closed','f-notice'));
+   if(!open)panelBody.append(tr('p',festivalOver(festival.event)?'closedOver':'closed','f-notice'));
    panelBody.append(open?tr('p','signinHint'):tr('p','signinClosedHint','f-closed-hint'));
    if(open){const list=el('ul','f-checklist');for(const key of ['canConferences',...(labOver()?[]:['canLab']),'canInterests'])list.append(tr('li',key));panelBody.append(list,tr('p','formDuration','f-muted'));}
    guestSignin=link('signin',signinTo(),'f-button');panelBody.append(guestSignin);if(open)panelBody.append(tr('p','privateHint','f-muted f-guest-privacy'));return;
@@ -291,7 +295,7 @@
    if(!festival.config.registrationOpen&&!missingAnswers(existing.answers))summary.append(tr('p','closedChanges','f-muted'));
   }
   // A panel showing an error with its recovery action is not idle: a redraw would drop both.
-  if(!festival.config.registrationOpen){panelBody.append(tr('p','closed','f-notice'),message,conflictBox);if(existing)panelIdle=()=>!busy&&!conflictBox.children.length;return;}
+  if(!festival.config.registrationOpen){panelBody.append(tr('p',festivalOver(festival.event)?'closedOver':'closed','f-notice'),message,conflictBox);if(existing)panelIdle=()=>!busy&&!conflictBox.children.length;return;}
   const a=existing?.answers??{},form=el('form','f-form'),feedback=el('div','f-form-feedback');form.hidden=!!existing;let currentVersion=existing?.version??0,currentId=existing?.id??null;
   // Validation state. localised: controls carrying a message set by onInvalid; customKeys: the "choose one" and accessibility rules; errorNotes: the persistent text cue
   // shown beside each flagged answer (the native bubble fades, and colour alone is not enough). The note sits inside the label, hidden from its name, and describes the control.
@@ -353,7 +357,7 @@
    const group=el('fieldset','f-external-day');group.append(dateNode(day,'legend','long','f-external-day-label'));
    for(const activity of externals.filter(item=>item.date===day)){
     const row=el('div','f-external-choice'),label=el('label','f-check'),input=el('input'),title=source('span',activity.title,'f-choice-title');input.type='checkbox';input.name='externalActivities';input.value=activity.id;input.id='f-act-'+activity.id;input.checked=a.externalActivities?.includes(activity.id)||false;title.id='f-choice-'+activity.id+'-title';
-    const meta=el('p','f-external-meta');label.append(input,title);meta.append(tr('span',typeOf(activity)==='route'?'routeType':'workshopType','f-chip'));if(activity.time)meta.append(timeNode(activity.time,'span','f-external-time'));meta.append(describe(link('activityForm',activity.formUrl||festival.event.website,'f-text-link'),title.id));row.append(label,meta);group.append(row);choiceInputs.set(activity.id,input);
+    const meta=el('p','f-external-meta');label.append(input,title);meta.append(tr('span',typeOf(activity)==='route'?'routeType':'workshopType','f-chip'));if(activity.time)meta.append(timeNode(activity.time,'span','f-external-time'));if(formOpen(activity))meta.append(describe(link('activityForm',activity.formUrl||festival.event.website,'f-text-link'),title.id));row.append(label,meta);group.append(row);choiceInputs.set(activity.id,input);
    }
    externalChoices.append(group);
   }

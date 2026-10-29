@@ -5,7 +5,7 @@
  // Live updates poll the public, CDN-cached pulse every 4 s and fetch only the changes since the shown revision, then patch rows in place: the composer,
  // focus and scroll position are never rebuilt. People registered for the festival and organisers take part; anyone else is told how to.
  // Organisers also hide and unhide messages here, and ?q=…&present=1 gives them a projector view of the question with a QR code to join.
- const Fiiu=window.Fiiu,{t,el,tr,button,link,source,api,status,dateNode,timeNode,limaClock,limaDate,newTabNote,locale,findActivity,festivalBadges,countLabel,checkinState,windowNode}=Fiiu;
+ const Fiiu=window.Fiiu,{t,el,tr,button,link,source,api,status,dateNode,timeNode,limaClock,limaDate,newTabNote,locale,findActivity,festivalBadges,countLabel,checkinState,windowNode,festivalOver,contactLine}=Fiiu;
  // Page-only strings join the shared dictionary, so t(), tr() and the language switch in fiiu-ui.js handle them like the rest.
  Object.assign(Fiiu.rows,{
   talkPage:['Conversation','Conversación','Conversa'],talkQuestions:['Questions in this session','Preguntas de esta sesión','Perguntas desta sessão'],
@@ -29,6 +29,8 @@
   talkRegister:['Register for FIIU to join','Inscríbete en el FIIU para participar','Inscreva-se no FIIU para participar'],
   talkRegisterHint:['Registering is free and takes about 5 minutes. Then come back here.','La inscripción es gratuita y toma unos 5 minutos. Luego vuelve aquí.','A inscrição é gratuita e leva cerca de 5 minutos. Depois volte aqui.'],
   talkRegisterClosed:['Registration is closed for now. If you are at the festival, ask at the FIIU desk or write to fiiu@ocupatucalle.com.','La inscripción está cerrada por ahora. Si estás en el festival, consulta en el mostrador del FIIU o escribe a fiiu@ocupatucalle.com.','As inscrições estão encerradas por enquanto. Se estiver no festival, pergunte no balcão do FIIU ou escreva para fiiu@ocupatucalle.com.'],
+  // After the festival there is no desk; {contact} is the organisers' address as the programme carries it (Fiiu.contactLine).
+  talkRegisterOver:['Registration is closed: FIIU Fest 11 ended on 25 October. For anything about your participation, write to {contact}.','La inscripción está cerrada: el FIIU Fest 11 terminó el 25 de octubre. Para cualquier consulta sobre tu participación, escribe a {contact}.','As inscrições estão encerradas: o FIIU Fest 11 terminou em 25 de outubro. Para qualquer dúvida sobre sua participação, escreva para {contact}.'],
   talkAccount:['Signed in as','Sesión iniciada como','Conectado como'],talkOtherAccount:['Use another account','Usar otra cuenta','Usar outra conta'],
   talkOtherAccountHint:['Registered with another email? Sign in with that account.','¿Te inscribiste con otro correo? Inicia sesión con esa cuenta.','Você se inscreveu com outro e-mail? Entre com essa conta.'],
   talkNew:['New messages ↓','Mensajes nuevos ↓','Novas mensagens ↓'],
@@ -574,7 +576,9 @@
   const a=sessionActivity(),open=festival?.config?.registrationOpen!==false,account=mineData?.user?.email||'',who=account?el('p','f-talk-account'):null;
   if(who)who.append(tr('span','talkAccount'),document.createTextNode(' '),el('strong','',account));
   const add=a&&['general','social'].includes(a.registration)?'fiiu.html#add-'+encodeURIComponent(a.id):'fiiu.html#registration';
-  blockWith('talkRegister',[who,tr('p',open?'talkRegisterHint':'talkRegisterClosed'),tr('p','talkOtherAccountHint')],[open&&leaving(link('register',add,'f-button')),otherAccount()]);recheck=true;
+  // After the festival a closed registration says it ended, with the organisers' address and no desk.
+  const how=!open&&festival&&festivalOver(festival.event)&&contactLine('talkRegisterOver',festival.event.contact,'')||tr('p',open?'talkRegisterHint':'talkRegisterClosed');
+  blockWith('talkRegister',[who,how,tr('p','talkOtherAccountHint')],[open&&leaving(link('register',add,'f-button')),otherAccount()]);recheck=true;
  }
  function otherAccount(){
   const control=button('talkOtherAccount',async()=>{
