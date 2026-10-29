@@ -27,6 +27,10 @@ async function signup(base, email = 'member@example.test') {
   return { user: (await response.clone().json()).user, cookie: cookiePair(response) };
 }
 
+/* Open deadlines sit far past any build date: isCatalogItemClosed reads the real clock, and createApp gives the catalog
+   none to inject (Vercel's build runs this suite on whatever day it deploys). A deadline never falls after its start. */
+const OPEN_DEADLINE = '2099-12-31T00:00:00.000Z', OPEN_STARTS = '2100-01-02T00:00:00.000Z';
+
 function completeItem(overrides = {}) {
   return {
     kind: 'opportunity', subtype: 'job', status: 'published', visibility: 'public',
@@ -36,7 +40,7 @@ function completeItem(overrides = {}) {
       pt: { title: 'Vaga portuguesa', summary: 'Resumo português', body: 'Corpo português', cta: 'Participar' },
     },
     organization: 'NODAL', location: 'São Paulo', topics: ['Mobility', 'Climate'],
-    startsAt: '2031-01-02T00:00:00.000Z', deadlineAt: '2030-12-31T00:00:00.000Z', endDate: null,
+    startsAt: OPEN_STARTS, deadlineAt: OPEN_DEADLINE, endDate: null,
     sourceLabel: 'NODAL official source',
     sourceUrl: 'https://example.test/source', sourceVerifiedAt: '2030-01-01T00:00:00.000Z',
     actionMode: 'external', actionUrl: 'https://example.test/apply', featured: false,
@@ -65,7 +69,7 @@ test('GET /api/catalog validates query values and filters localized visible reco
   assert.equal(payload.items.length, 1);
   assert.deepEqual(payload.items[0], {
     id: publicItem.id, kind: 'opportunity', subtype: 'job', title: 'Puesto español', summary: 'Resumen español', body: 'Cuerpo español', cta: 'Aplicar',
-    organization: 'NODAL', location: 'São Paulo', topics: ['Mobility', 'Climate'], startsAt: '2031-01-02T00:00:00.000Z', deadlineAt: '2030-12-31T00:00:00.000Z', endDate: null,
+    organization: 'NODAL', location: 'São Paulo', topics: ['Mobility', 'Climate'], startsAt: OPEN_STARTS, deadlineAt: OPEN_DEADLINE, endDate: null,
     sourceLabel: 'NODAL official source', sourceUrl: 'https://example.test/source', sourceVerifiedAt: '2030-01-01T00:00:00.000Z', actionMode: 'external', actionUrl: 'https://example.test/apply', featured: true, isClosed: false,
   });
   assert.equal((await fetch(`${base}/api/catalog?lang=es&kind=opportunity,resource&subtype=job&topic=Mobility&location=s%C3%A3o&q=espa%C3%B1ol&featured=true&state=all&limit=24`, { headers: { 'If-None-Match': etag } })).status, 304);
@@ -130,8 +134,8 @@ test('GET /api/catalog/:id uses stable cursors and never discloses invisible rec
   // An unstable continuation, draft disclosure, or public detail leakage must fail this test.
   const { db, repo, base } = await bootCatalogApp(t);
   const admin = createUser(db, { fullName: 'Catalog Admin', email: 'admin@example.test', passwordHash: 'hash', role: 'admin' });
-  const one = await repo.createCatalogItem(completeItem({ featured: true, deadlineAt: '2030-01-02T00:00:00.000Z' }), admin.id);
-  const two = await repo.createCatalogItem(completeItem({ deadlineAt: '2030-01-03T00:00:00.000Z' }), admin.id);
+  const one = await repo.createCatalogItem(completeItem({ featured: true, deadlineAt: '2099-01-02T00:00:00.000Z' }), admin.id);
+  const two = await repo.createCatalogItem(completeItem({ deadlineAt: '2099-01-03T00:00:00.000Z' }), admin.id);
   const draft = await repo.createCatalogItem(completeItem({ status: 'draft', translations: { en: { title: 'Draft' } } }), admin.id);
   const memberOnly = await repo.createCatalogItem(completeItem({ visibility: 'members' }), admin.id);
 

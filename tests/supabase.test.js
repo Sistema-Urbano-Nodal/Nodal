@@ -907,17 +907,18 @@ test('Supabase applies case-insensitive topic and full operational-text search a
 });
 
 test('Supabase scans beyond a raw fetch window before applying open-state and text filtering', async () => {
+  // The open deadlines sit far past any build date: the repository reads the real clock for the open state.
   const closedOrUnmatched = Array.from({ length: 25 }, (_, index) => ({
     id: `catalog-${index}`, kind: 'resource', subtype: null, status: 'published', visibility: 'public',
     translations: { en: { title: index === 0 ? 'Target but closed' : 'Unrelated', summary: '', body: '', cta: '' } },
     organization: 'NODAL', location: '', topics: [], action_mode: 'none', action_url: '', featured: false, version: 1,
-    deadline_at: index === 0 ? '2000-01-01T00:00:00.000Z' : '2030-05-20T00:00:00.000Z', published_at: '2030-05-01T00:00:00.000Z',
+    deadline_at: index === 0 ? '2000-01-01T00:00:00.000Z' : '2099-05-20T00:00:00.000Z', published_at: '2030-05-01T00:00:00.000Z',
   }));
   const matching = [{
     id: 'catalog-target', kind: 'resource', subtype: null, status: 'published', visibility: 'public',
     translations: { en: { title: 'Target opportunity', summary: '', body: '', cta: '' } },
     organization: 'NODAL', location: '', topics: [], action_mode: 'none', action_url: '', featured: false, version: 1,
-    deadline_at: '2030-05-21T00:00:00.000Z', published_at: '2030-05-01T00:00:00.000Z',
+    deadline_at: '2099-05-21T00:00:00.000Z', published_at: '2030-05-01T00:00:00.000Z',
   }];
   const calls = [];
   const repo = createSupabaseRepository({
