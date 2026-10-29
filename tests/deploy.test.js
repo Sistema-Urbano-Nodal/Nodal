@@ -318,32 +318,32 @@ test('Supabase Data API smoke exercises reads, constrained inserts, updates, and
 test('changed one-hour-cached clients use new URLs on every consuming page', () => {
   const pages = Object.fromEntries(['index.html', 'fundadores.html', 'opportunities.html', 'dashboard.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'course.html', 'courses.html', 'teaching.html', 'accept-invitation.html', 'fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'knowledge.html', 'resources.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
-  const pilot = { 'pilot-i18n.js': '20261023a', 'pilot.js': '20261023a', 'courses.css': '20261023a' };
-  const festival = { 'fiiu.css': '20261022a', 'fiiu-ui.js': '20261024a' };
+  const pilot = { 'pilot-i18n.js': '20261029a', 'pilot.js': '20261023a', 'courses.css': '20261023a' };
+  const festival = { 'fiiu.css': '20261022a', 'fiiu-ui.js': '20261029a' };
   const required = {
     'index.html': { 'styles.css': '36', 'i18n.js': '20261022a', 'app.js': '20261021c', 'recs.js': '5', 'script.js': '18', 'hero-network.js': '2' },
-    'fundadores.html': { 'styles.css': '36', 'i18n.js': '20261022a', 'nav.js': '20261013b', 'locale.js': '20261009a', 'fundadores.js': '20261021c', 'fundadores.css': '20261021c' },
+    'fundadores.html': { 'styles.css': '36', 'i18n.js': '20261022a', 'nav.js': '20261013b', 'locale.js': '20261009a', 'fundadores.js': '20261029a', 'fundadores.css': '20261029a' },
     'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20261022a', 'catalog.js': '7', ...pilot },
-    'dashboard.html': { 'buc.js': '20261016c', 'i18n-dashboard.js': '20261024a', 'i18n.js': '20261022a', ...festival, 'fiiu-live.js': '20261020a', 'fiiu-hubs.js': '20261021b', 'news-feed.js': '20261001b', 'dashboard.js': '20261023a', 'dashboard.css': '41', 'location-check.js': '20260908b', ...pilot },
-    'login.html': { 'i18n.js': '20261022a', 'auth.js': '20261022a', 'recovery-i18n.js': '20261022a' },
+    'dashboard.html': { 'buc.js': '20261016c', 'i18n-dashboard.js': '20261024a', 'i18n.js': '20261022a', ...festival, 'fiiu-live.js': '20261020a', 'fiiu-hubs.js': '20261029a', 'news-feed.js': '20261001b', 'dashboard.js': '20261029a', 'dashboard.css': '41', 'location-check.js': '20260908b', ...pilot },
+    'login.html': { 'i18n.js': '20261022a', 'auth.js': '20261029a', 'recovery-i18n.js': '20261022a' },
     'reset-password.html': { 'i18n.js': '20261022a', 'recovery-i18n.js': '20261022a', 'password-recovery.js': '20261022a' },
     'payments.html': { 'i18n-dashboard.js': '20261024a', 'i18n.js': '20261022a', 'payments.js': '20261021c', ...pilot },
     'profile.html': { 'i18n-dashboard.js': '20261024a', 'i18n.js': '20261022a', 'profile.js': '20261023a', 'styles.css': '36', ...pilot },
     'admin.html': { 'i18n-dashboard.js': '20261024a', 'styles.css': '36', 'admin.css': '20261023a', 'admin.js': '20261023a', 'i18n.js': '20261022a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20261013b', 'script.js': '18' },
-    'course.html': { 'buc.js': '20261016c', 'i18n.js': '20261022a', 'courses.js': '20261023a', ...pilot },
-    'courses.html': { 'buc.js': '20261016c', 'i18n.js': '20261022a', 'courses.js': '20261023a', ...pilot },
+    'course.html': { 'buc.js': '20261016c', 'i18n.js': '20261022a', 'courses.js': '20261029a', ...pilot },
+    'courses.html': { 'buc.js': '20261016c', 'i18n.js': '20261022a', 'courses.js': '20261029a', ...pilot },
     'teaching.html': { 'i18n.js': '20261022a', 'teaching.js': '20261023a', ...pilot },
     'accept-invitation.html': { 'accept-invitation.js': '20261022a', 'invitation-i18n.js': '20261013b' },
-    'fiiu.html': { 'styles.css': '36', 'i18n.js': '20261022a', ...festival, 'fiiu-live.js': '20261020a', 'fiiu.js': '20261021b' },
+    'fiiu.html': { 'styles.css': '36', 'i18n.js': '20261022a', ...festival, 'fiiu-live.js': '20261020a', 'fiiu.js': '20261029a' },
     'fiiu-admin.html': { 'styles.css': '36', 'i18n.js': '20261022a', ...festival, 'fiiu-admin.js': '20261024a' },
     'fiiu-qr.html': { 'i18n.js': '20261022a', ...festival, 'fiiu-qr.js': '20261022a' },
-    'fiiu-checkin.html': { 'i18n.js': '20261022a', ...festival, 'fiiu-checkin.js': '20261021b' },
-    'fiiu-talk.html': { 'buc.js': '20261016c', 'i18n.js': '20261022a', ...festival, 'fiiu-talk.js': '20261021b', 'fiiu-talk.css': '20261020a' },
-    'fiiu-session.html': { 'buc.js': '20261016c', 'i18n.js': '20261022a', ...festival, 'fiiu-talk.js': '20261021b', 'fiiu-talk.css': '20261020a' },
+    'fiiu-checkin.html': { 'i18n.js': '20261022a', ...festival, 'fiiu-checkin.js': '20261029a' },
+    'fiiu-talk.html': { 'buc.js': '20261016c', 'i18n.js': '20261022a', ...festival, 'fiiu-talk.js': '20261029a', 'fiiu-talk.css': '20261020a' },
+    'fiiu-session.html': { 'buc.js': '20261016c', 'i18n.js': '20261022a', ...festival, 'fiiu-talk.js': '20261029a', 'fiiu-talk.css': '20261020a' },
     'organisers-only.html': { 'i18n.js': '20261022a', ...festival },
-    'community.html': { 'styles.css': '36', 'script.js': '18', 'i18n.js': '20261022a', ...festival, 'fiiu-hubs.js': '20261021b', 'news-feed.js': '20261001b' },
-    'knowledge.html': { 'buc.js': '20261016c', 'styles.css': '36', 'script.js': '18', 'i18n.js': '20261022a', ...festival, 'fiiu-hubs.js': '20261021b' },
-    'resources.html': { 'styles.css': '36', 'script.js': '18', 'i18n.js': '20261022a', ...festival, 'fiiu-hubs.js': '20261021b' },
+    'community.html': { 'styles.css': '36', 'script.js': '18', 'i18n.js': '20261022a', ...festival, 'fiiu-hubs.js': '20261029a', 'news-feed.js': '20261001b' },
+    'knowledge.html': { 'buc.js': '20261016c', 'styles.css': '36', 'script.js': '18', 'i18n.js': '20261022a', ...festival, 'fiiu-hubs.js': '20261029a' },
+    'resources.html': { 'styles.css': '36', 'script.js': '18', 'i18n.js': '20261022a', ...festival, 'fiiu-hubs.js': '20261029a' },
   };
   for (const [page, assets] of Object.entries(required)) {
     for (const [asset, version] of Object.entries(assets)) {

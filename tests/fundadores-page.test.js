@@ -309,11 +309,11 @@ test('the page works under the strict CSP: no inline script, style or handler, a
   assert.doesNotMatch(html, /<style\b|\sstyle="|\son[a-z]+=|javascript:/i);
   const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)];
   const i18n = read('web/pages/index.html').match(/src="i18n\.js\?v=([^"]+)"/)[1];
-  assert.deepEqual(scripts.map(([, attributes]) => attributes.trim()), ['src="locale.js?v=20261009a"', 'defer src="nav.js?v=20261013b"', `defer src="i18n.js?v=${i18n}"`, 'defer src="fundadores.js?v=20261021c"']);
+  assert.deepEqual(scripts.map(([, attributes]) => attributes.trim()), ['src="locale.js?v=20261009a"', 'defer src="nav.js?v=20261013b"', `defer src="i18n.js?v=${i18n}"`, 'defer src="fundadores.js?v=20261029a"']);
   assert.ok(scripts.every(([, , body]) => body === ''), 'no inline script');
   assert.ok(html.lastIndexOf('<script') < html.indexOf('</head>'));
   const sheets = [...html.matchAll(/<link rel="stylesheet" href="([^"]+)">/g)].map(match => match[1]);
-  assert.deepEqual(sheets, ['locale.css?v=20260929a', 'fonts.css?v=20260911b', 'styles.css?v=36', 'fundadores.css?v=20261021c']);
+  assert.deepEqual(sheets, ['locale.css?v=20260929a', 'fonts.css?v=20260911b', 'styles.css?v=36', 'fundadores.css?v=20261029a']);
 });
 
 test('the page has a description, the NODAL icon, and the site’s header and footer', () => {
