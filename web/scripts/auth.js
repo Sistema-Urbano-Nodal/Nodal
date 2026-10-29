@@ -1,8 +1,8 @@
 (() => {
   'use strict';
 
-  // A signup confirmation link lands here with ?code= (PKCE since 29 Oct: worthless, nobody kept its verifier) or an error
-  // in the query and the fragment; older links carry the session tokens in the fragment. Sign-in never uses them, so they
+  // A signup confirmation link lands here with ?code= (PKCE: worthless, nobody kept its verifier) or an error in the query
+  // and the fragment; links sent before PKCE carry the session tokens in the fragment. Sign-in never uses them, so they
   // leave the address bar and the history entry before anything else runs, next= stays; only the outcome is kept.
   const linkQuery = new URLSearchParams(location.search), linkKeys = ['code', 'error', 'error_code', 'error_description'].filter(key => linkQuery.has(key));
   const linkFragment = /(?:^#|&)(?:access_token|refresh_token|error)=/.test(location.hash || '');

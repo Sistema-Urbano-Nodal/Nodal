@@ -148,8 +148,8 @@ test('a confirmation link’s session tokens are removed from the address bar at
  // A recovery or invitation fragment is not a signup confirmation.
  assert.equal(harness(undefined,'',null,'#access_token=a.b.c&type=recovery').nodes.loginError.hidden,true);
 });
-/* Since 29 Oct the link is PKCE: it comes back as ?code= (worth nothing, its verifier was never kept), or with the error
-   in the query and the fragment. Either way the outcome shows, the link's parameters leave the address, and next= stays. */
+/* The link is PKCE now: it comes back as ?code= (worth nothing, its verifier was never kept), or with the error in the
+   query and the fragment. Either way the outcome shows, the link's parameters leave the address, and next= stays. */
 test('a PKCE confirmation link reads as confirmed or expired, and leaves only next= in the address',async()=>{
  const now=()=>Date.parse('2026-10-29T12:00:00Z');
  const confirmed=harness(undefined,'?next=%2Ffiiu.html&code=0b6f6d8e-1c1a-4c2e-9d5e-2f0e1f7a9b3c',null,'',now);
