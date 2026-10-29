@@ -271,6 +271,25 @@ test('the form closes at the end of 23 October in Lima, and certificates stay do
  assert.equal((await call(p+'/certificate')).status,200,'still downloadable long after the close');
 });
 
+test('after the close, a participant whose certificate is ready but who never sent the survey is told so, and it stays unavailable',async t=>{
+ const {clock,snapshot,start,submit,put,json,p}=await setup(t);
+ clock.now=CLOSES-1;
+ // Ana sends it in time, Bruno only starts it, Carla never opens it; each has a certificate before the close.
+ await start('ana');await submit('ana');await start('bruno');
+ for(const key of ['ana','bruno','carla'])assert.equal((await put('staff',key,upload(pdf(key)))).status,201,key);
+ for(const key of ['bruno','carla'])assert.equal((await snapshot(key)).certificate,null,`${key}: while open the survey can still be sent`);
+ clock.now=CLOSES;
+ assert.equal((await snapshot('ana')).certificate,'ready');
+ for(const key of ['bruno','carla']){
+  const state=await snapshot(key);assert.deepEqual([state.open,state.certificate,state.contactEmail,'survey' in state],[false,'missed',FINAL_SURVEY.contactEmail,false],key);
+  // The survey gate is the organiser's: the file itself is still not served.
+  const refused=await json(p+'/certificate',{actor:key});assert.deepEqual([refused.status,refused.body.code],[404,'certificate_unavailable'],key);
+ }
+ // No ready certificate, or an organiser's preview: nothing was missed.
+ assert.equal((await snapshot('nameless')).certificate,null);
+ assert.equal((await snapshot('staff')).certificate,null);
+});
+
 test('certificates are PDFs for participants only, downloadable by their owner, replaceable and deletable',async t=>{
  const {store,users,course,call,json,p,admin,snapshot,start,submit,put,bytesRows}=await setup(t,{downloadLimits:[{windowMs:60000,bytes:30}]});
  for(const key of ['outsider','teacher','staff']){const refused=await put('staff',key,upload(pdf('x')));assert.deepEqual([refused.status,refused.body.code],[404,'certificate_not_enrolled'],key);}

@@ -265,6 +265,18 @@ test('after 23 October the form is closed: one line, no form, no buttons',async(
  h.lang('es');assert.match(visible(section),/La encuesta cerró el 23 de octubre\./);h.lang('pt');assert.match(visible(section),/A pesquisa foi encerrada em 23 de outubro\./);
  // A person who sent it before the close keeps the certificate.
  const kept=participant({...sent('ready'),open:false});await flush();assert.ok(findKey(kept.section(),'downloadCertificate'));
+ // Without a certificate waiting, nothing more is said.
+ assert.equal(findKey(section,'certificateMissedNote'),undefined);assert.equal(descendants(section).some(n=>n.href?.startsWith('mailto:')),false);
+});
+
+test('after 23 October a member who never sent it but has a certificate is told whom to write to, with no download',async()=>{
+ const h=participant(closed({certificate:'missed'}));await flush();const section=h.section();
+ assert.match(visible(section),/The survey closed on October 23\.\s+The certificate was enabled by sending the survey\. For questions about yours, write to:\s+observatorio@limacomovamos\.org/);
+ const mail=descendants(section).find(n=>n.href==='mailto:observatorio@limacomovamos.org');assert.equal(mail.textContent,'observatorio@limacomovamos.org');
+ assert.equal(findKey(section,'downloadCertificate'),undefined);assert.equal(findKey(section,'myCertificate'),undefined);
+ assert.equal(descendants(section).some(n=>['form','button','input'].includes(n.tagName)),false);
+ h.lang('es');assert.match(visible(section),/La encuesta cerró el 23 de octubre\.\s+El certificado se habilitaba al enviar la encuesta\. Para consultas sobre el tuyo, escribe a:/);
+ h.lang('pt');assert.match(visible(section),/A pesquisa foi encerrada em 23 de outubro\.\s+O certificado era liberado ao enviar a pesquisa\. Para dúvidas sobre o seu, escreva para:/);
 });
 
 test('organisers get a read-only preview: the screens move locally and nothing can be sent',async()=>{
@@ -390,7 +402,7 @@ test('screen 2 answers survive a reload of the tab as a draft, never reach anoth
 
 test('every interface key the survey section renders exists in English, Spanish and Portuguese',async()=>{
  const keys=new Set();const collect=node=>descendants(node).forEach(n=>{if(n.dataset.pilotText)keys.add(n.dataset.pilotText);});
- for(const state of [open(),closed(),sent('ready'),sent('preparing'),open({preview:true}),closed({preview:true})]){const h=participant(state);await flush();collect(h.section());}
+ for(const state of [open(),closed(),closed({certificate:'missed'}),sent('ready'),sent('preparing'),open({preview:true}),closed({preview:true})]){const h=participant(state);await flush();collect(h.section());}
  const h=await onScreenTwo();await submit(h.section());collect(h.section());
  const rows=h.ctx.window.pilotI18n.rows;
  for(const key of keys)assert.ok(rows[key]?.length===3&&rows[key].every(v=>typeof v==='string'&&v.trim()),key);

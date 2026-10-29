@@ -181,11 +181,12 @@ export function createFinalSurvey({store,send,bodyJson,findOne,all,membersForRow
     return access.intake?publishName(access.intake):publishName(null,(await store.getMembers([user.id]))[0]?.name);
   }
   /* What a participant sees. Q1's value is never sent back: screen 2 says only that the first answer was saved.
-     The survey itself travels only while it can still be answered. */
+     The survey itself travels only while it can still be answered. 'missed': the form closed unsent over a ready
+     certificate, which stays unserved (the organiser's rule) while the page says whom to write to. */
   async function participantState(user,access,row,ready) {
     const state=base(),submitted=Boolean(row?.submittedAt),answering=state.open&&!submitted;
     return {...state,preview:false,response:row?{startedAt:row.createdAt,submittedAt:row.submittedAt??null}:null,
-      certificate:submitted?(ready?'ready':'preparing'):null,publishAs:answering?await publishAsFor(user,access):'',...(answering?{survey:SURVEY}:{})};
+      certificate:submitted?(ready?'ready':'preparing'):!state.open&&ready?'missed':null,publishAs:answering?await publishAsFor(user,access):'',...(answering?{survey:SURVEY}:{})};
   }
   /* GET /api/courses/:id adds this for the survey course only. Administrators are organisers: they get a read-only
      preview (the closed state after the deadline) and never the form. Members who are not enrolled get nothing. */

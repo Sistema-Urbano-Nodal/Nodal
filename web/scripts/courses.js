@@ -195,7 +195,8 @@ function createSurvey(initial){
     const phase=surveyPhase(state);
     if(phase==='sent'){renderSent();return;}
     if(state.preview)body.append(tr('p','surveyPreview','pilot-survey-note'));
-    if(!state.open){dropDraft();body.append(dynamic('p',()=>t('surveyClosedOn').replace('{date}',closedOn()),'pilot-closeout-lead'));return;}
+    // Closed and unsent with a ready certificate ('missed'): the file stays unserved, so a note says whom to write to.
+    if(!state.open){dropDraft();body.append(dynamic('p',()=>t('surveyClosedOn').replace('{date}',closedOn()),'pilot-closeout-lead'));if(state.certificate==='missed')body.append(contactNote('certificateMissedNote'));return;}
     const intro=el('p','pilot-closeout-intro',state.survey.intro),language=el('p','pilot-survey-note');intro.lang='es';
     bind(language,()=>{language.textContent=t('surveyInSpanish');language.hidden=(window.nodalI18n?.lang||'en')==='es';});
     opener=button(state.preview?'previewSurvey':phase==='started'?'resumeSurvey':'startSurvey',()=>show(surveyPhase(state)==='started'?2:1));opener.className+=' pilot-plate';
@@ -206,9 +207,9 @@ function createSurvey(initial){
     dropDraft();const mine=tr('h3','myCertificate','pilot-certificate-title'),line=el('p','pilot-certificate');mine.id='encuestaFinalCertificate';mine.tabIndex=-1;view.certificate=mine;
     body.append(dynamic('p',()=>t('surveySentOn').replace('{date}',limaDate(state.response.submittedAt,{day:'numeric',month:'long',year:'numeric'})),'pilot-closeout-lead'),mine,line);
     if(state.certificate==='ready'){const link=tr('a','downloadCertificate','pilot-button pilot-plate');link.href=base()+'/certificate';line.append(tr('strong','certificateReady','pilot-certificate-state is-ready'));body.append(link);return;}
-    const note=el('p','pilot-survey-note'),mail=el('a',null,state.contactEmail);mail.href='mailto:'+state.contactEmail;
-    line.append(tr('strong','certificatePreparing','pilot-certificate-state is-preparing'));note.append(tr('span','certificatePreparingNote'),' ',mail);body.append(note);
+    line.append(tr('strong','certificatePreparing','pilot-certificate-state is-preparing'));body.append(contactNote('certificatePreparingNote'));
   }
+  function contactNote(key){const note=el('p','pilot-survey-note'),mail=el('a',null,state.contactEmail);mail.href='mailto:'+state.contactEmail;note.append(tr('span',key),' ',mail);return note;}
   function show(n,focus=true){screens[n]??=n===1?screenOne():screenTwo();area.replaceChildren(screens[n].form);area.hidden=false;opener.hidden=true;if(focus)screens[n].step.focus();}
   // A refusal that means the state moved on (closed, sent elsewhere, locked) re-reads it; the rest of the page stays.
   async function reload(error,local){

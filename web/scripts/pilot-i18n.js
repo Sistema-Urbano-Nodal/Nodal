@@ -36,6 +36,7 @@ const rows = {
  certificateReady:['Ready','Listo','Pronto'],
  certificatePreparing:['Being prepared','Se está preparando','Em preparação'],
  certificatePreparingNote:['Come back to this page in a few days. Questions:','Vuelve a esta página en unos días. Consultas:','Volte a esta página em alguns dias. Dúvidas:'],
+ certificateMissedNote:['The certificate was enabled by sending the survey. For questions about yours, write to:','El certificado se habilitaba al enviar la encuesta. Para consultas sobre el tuyo, escribe a:','O certificado era liberado ao enviar a pesquisa. Para dúvidas sobre o seu, escreva para:'],
  downloadCertificate:['Download my certificate (PDF)','Descargar mi certificado (PDF)','Baixar meu certificado (PDF)'],
  surveyUnavailable:['This survey is only for people enrolled in this course.','Esta encuesta es solo para quienes están inscritos en este curso.','Esta pesquisa é apenas para pessoas inscritas neste curso.'],
  surveyOtherAccount:['If the reminder reached a different email, sign out and sign in with that account.','Si el recordatorio llegó a otro correo, cierra sesión y entra con esa cuenta.','Se o lembrete chegou a outro e-mail, saia e entre com essa conta.'],
