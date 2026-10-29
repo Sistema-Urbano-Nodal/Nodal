@@ -1382,7 +1382,8 @@
       const controller = new AbortController();
       peopleAbort = controller;
       try {
-        const data = await api(`/api/users/search?q=${encodeURIComponent(query)}`, { signal: controller.signal });
+        // What was typed (an address, say) goes in the body: a URL ends up in the platform's request logs.
+        const data = await api('/api/users/search', { method: 'POST', body: JSON.stringify({ q: query }), signal: controller.signal });
         if (sequence !== peopleSequence || activeScope() !== 'People'
           || searchInput.value.trim().toLowerCase() !== normalizedQuery) return;
         const hits = (Array.isArray(data.users) ? data.users : []).map((u) => ({

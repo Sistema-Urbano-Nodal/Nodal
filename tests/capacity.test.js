@@ -217,7 +217,7 @@ test('directory and search stay usable when graph reads exceed the supported cap
   const base=`http://127.0.0.1:${server.address().port}`;
   const directory=await fetch(`${base}/api/users?limit=1`,{headers:{cookie}});
   assert.equal(directory.status,200);assert.equal((await directory.json()).users.length,1);
-  const search=await fetch(`${base}/api/users/search?q=Visible`,{headers:{cookie}});
+  const search=await fetch(`${base}/api/users/search`,{method:'POST',headers:{cookie,'Content-Type':'application/json'},body:JSON.stringify({q:'Visible'})});
   assert.equal(search.status,200);assert.equal((await search.json()).users[0].id,users[1].id);
   assert.equal(graphCalls,0,'directory and search must never invoke the graph loader');
   const recs=await fetch(`${base}/api/recommendations/me`,{headers:{cookie}});

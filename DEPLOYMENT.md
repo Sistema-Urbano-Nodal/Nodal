@@ -783,12 +783,16 @@ the session, sets no cookie and is cached by the CDN for 5 minutes
 - RLS remains enabled on all Supabase tables.
 - Public directory data is served only from intentional fields.
 - Member directory visibility is opt-in: only members whose Part C `consent` is
-  true appear in `GET /api/users`, `GET /api/users/search` and `GET /api/users/:id`.
+  true appear in `GET /api/users`, `POST /api/users/search` and `GET /api/users/:id`.
   A member who never consented returns 404 from the card endpoint, so it cannot be
   used to confirm that an account exists.
-- `GET /api/users/search` matches name, role and city on substring but requires a
-  full registration email to match by address, and never returns an email. It is
-  rate limited per session (`MEMBER_SEARCH_RATE_LIMIT`, default 40/min).
+- `POST /api/users/search` (JSON body `{q}`, same-origin only) matches name, role
+  and city on substring but requires a full registration email to match by address,
+  and never returns an email. It is rate limited per session
+  (`MEMBER_SEARCH_RATE_LIMIT`, default 40/min). The query is in the body so a typed
+  address never lands in a URL or the platform's request logs; the older
+  `GET ?q=` form remains for dashboards loaded before the change and refuses any
+  query containing `@`.
 - Every globe node represents a member's saved profile city. A member can edit
   that city manually or accept an optional location suggestion. The dashboard
   requests browser location permission, rounds coordinates to two decimal places

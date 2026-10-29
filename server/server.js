@@ -2218,15 +2218,20 @@ export function createApp({
       /* Directory search. Members opt in through Part C consent; everyone else
          stays unlisted. Name, role and city match on substring; email must match
          in full — so you can reach someone whose address you already know
-         without the endpoint ever disclosing an address. */
-      if (useDb && req.method === 'GET' && pathname === '/api/users/search') {
+         without the endpoint ever disclosing an address. The query comes in a
+         POST body, so a typed address never sits in a URL (the platform logs
+         those); GET is kept for dashboards loaded before that, and refuses '@'. */
+      if (useDb && (req.method === 'POST' || req.method === 'GET') && pathname === '/api/users/search') {
         if (!requireAuth(res, sessionUser)) return;
+        if (req.method === 'POST' && !sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
         const rate = searchLimiter.take(sessionUser.id);
         if (!rate.ok) {
           send(res, 429, { error: 'too many searches' }, { 'Retry-After': String(rate.retryAfter) });
           return;
         }
-        const raw = String(url.searchParams.get('q') || '').trim().slice(0, CITY_SEARCH_MAX_QUERY);
+        const typed = req.method === 'POST' ? (await readJsonBody(req)).q : url.searchParams.get('q');
+        const raw = (typeof typed === 'string' ? typed : '').trim().slice(0, CITY_SEARCH_MAX_QUERY);
+        if (req.method === 'GET' && raw.includes('@')) { send(res, 400, { error: 'search by email must be sent in the request body' }); return; }
         const q = raw.toLowerCase();
         if (q.length < MEMBER_SEARCH_MIN_QUERY) { send(res, 200, { users: [] }); return; }
         const rows = (await networkSnapshots.read()).rows;

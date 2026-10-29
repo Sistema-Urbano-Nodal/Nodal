@@ -1377,9 +1377,9 @@ test('successful interest update preserves the honest error from a failed filter
 
 test('dashboard cancels a pending People debounce before entering a catalog scope', async () => {
   const calls = [];
-  const harness = dashboardSearchHarness(async (url) => {
+  const harness = dashboardSearchHarness(async (url, options = {}) => {
     calls.push(url);
-    if (url.startsWith('/api/users/search?')) return { users: [{ id: 'person-1', name: 'Late person' }] };
+    if (url === '/api/users/search' && options.method === 'POST') return { users: [{ id: 'person-1', name: 'Late person' }] };
     if (url.startsWith('/api/catalog?')) return { items: [{ id: 'project-1', title: 'Current project', kind: 'project' }] };
     throw new Error(`unexpected request ${url}`);
   });
@@ -1391,7 +1391,7 @@ test('dashboard cancels a pending People debounce before entering a catalog scop
   assert.equal(harness.pendingTimers(), 1, 'switching scope must replace, not retain, the People timer');
   await harness.runNextTimer();
 
-  assert.equal(calls.some((url) => url.startsWith('/api/users/search?')), false);
+  assert.equal(calls.some((url) => url.startsWith('/api/users/search')), false);
   const catalogCalls = calls.filter((url) => url.startsWith('/api/catalog?'));
   assert.equal(catalogCalls.length, 1);
   assert.equal(new URL(catalogCalls[0], 'https://nodal.test').searchParams.get('kind'), 'project');
@@ -1409,7 +1409,7 @@ test('dashboard ignores an abort-insensitive People response after entering a ca
       rejectPeople = reject;
     });
     const harness = dashboardSearchHarness((url, options = {}) => {
-      if (url.startsWith('/api/users/search?')) {
+      if (url === '/api/users/search' && options.method === 'POST') {
         peopleSignal = options.signal;
         return peopleResponse;
       }
@@ -1436,6 +1436,25 @@ test('dashboard ignores an abort-insensitive People response after entering a ca
   });
 });
 
+// A typed address would otherwise sit in a URL, and so in the platform's request logs: People posts it in the body.
+test('dashboard People search sends what was typed in a POST body, never in the URL', async () => {
+  const requests = [];
+  const harness = dashboardSearchHarness(async (url, options = {}) => {
+    requests.push({ url, options });
+    return { users: [{ id: 'person-1', name: 'Ana Pereira', role: 'Planner', city: 'Lima' }] };
+  });
+  harness.input.value = 'ana@example.test';
+  harness.api.runSearch();
+  await harness.runNextTimer();
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, '/api/users/search');
+  assert.equal(requests[0].options.method, 'POST');
+  assert.deepEqual(JSON.parse(requests[0].options.body), { q: 'ana@example.test' });
+  assert.ok(requests[0].options.signal, 'the lookup can still be cancelled');
+  assert.match(renderedText(harness.pop), /Ana Pereira/);
+  assert.equal(harness.pop.children[0].href, 'profile.html?id=person-1');
+});
+
 test('dashboard catalog scopes use the public API while People remains consent-gated', () => {
   const source = read('web', 'scripts', 'dashboard.js');
   assert.doesNotMatch(source, /function catalogue\(|d\.find\.[pko]\d/);
@@ -1446,7 +1465,8 @@ test('dashboard catalog scopes use the public API while People remains consent-g
   assert.match(source, /new URLSearchParams\(\{\s*id:\s*item\.id\s*\}\)/);
   assert.match(source, /new AbortController\(\)/);
   assert.match(source, /catalogTimer\s*=\s*setTimeout\([\s\S]*?\},\s*220\);/);
-  assert.match(source, /\/api\/users\/search\?q=/, 'People must keep the consent-filtered directory API');
+  assert.match(source, /api\('\/api\/users\/search', \{ method: 'POST'/, 'People must keep the consent-filtered directory API');
+  assert.doesNotMatch(source, /\/api\/users\/search\?/, 'what is typed in People never goes into a URL');
   assert.match(source, /d\.search\.catalogSearching/);
   assert.match(source, /d\.search\.catalogUnavailable/);
   assert.match(source, /d\.search\.catalogEmpty/);

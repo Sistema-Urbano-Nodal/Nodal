@@ -1366,31 +1366,56 @@ const getJson = async (base, path, cookie) => {
   const res = await fetch(`${base}${path}`, cookie ? { headers: { Cookie: cookie } } : undefined);
   return { status: res.status, body: await res.json().catch(() => ({})) };
 };
+// The People search sends what was typed in a POST body, so an address never sits in a URL (or a request log).
+const searchPeople = async (base, q, cookie, headers = {}) => {
+  const res = await postJson(base, '/api/users/search', { q }, { ...(cookie ? { Cookie: cookie } : {}), ...headers });
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+};
 
 test('member search needs a session, skips you and anyone who never consented, and never returns an email', async (t) => {
   const base = await bootDb(t);
   const ana = await consentingMember(base, { name: 'Ana Pereira', email: 'ana@example.test' });
   const bruno = await consentingMember(base, { name: 'Bruno Dias', email: 'bruno@example.test', city: 'Recife', consent: false });
 
-  assert.equal((await getJson(base, '/api/users/search?q=ana')).status, 401);
+  assert.equal((await searchPeople(base, 'ana')).status, 401);
 
-  const byName = await getJson(base, '/api/users/search?q=ana', bruno.cookie);
+  const byName = await searchPeople(base, 'ana', bruno.cookie);
   assert.equal(byName.status, 200);
   assert.deepEqual(byName.body.users.map((u) => u.name), ['Ana Pereira']);
   assert.deepEqual(Object.keys(byName.body.users[0]).sort(), ['city', 'id', 'name', 'role']);
 
   // a full registration address resolves; a fragment of one must not
-  const exact = await getJson(base, `/api/users/search?q=${encodeURIComponent('ana@example.test')}`, bruno.cookie);
+  const exact = await searchPeople(base, 'ana@example.test', bruno.cookie);
   assert.deepEqual(exact.body.users.map((u) => u.id), [ana.id]);
-  const fragment = await getJson(base, '/api/users/search?q=%40example.test', bruno.cookie);
+  const fragment = await searchPeople(base, '@example.test', bruno.cookie);
   assert.deepEqual(fragment.body.users, []);
 
   // you never find yourself, and an unlisted member is never found
-  assert.deepEqual((await getJson(base, '/api/users/search?q=ana', ana.cookie)).body.users, []);
-  assert.deepEqual((await getJson(base, '/api/users/search?q=bruno', ana.cookie)).body.users, []);
+  assert.deepEqual((await searchPeople(base, 'ana', ana.cookie)).body.users, []);
+  assert.deepEqual((await searchPeople(base, 'bruno', ana.cookie)).body.users, []);
 
   // below the minimum query length nothing is scanned
-  assert.deepEqual((await getJson(base, '/api/users/search?q=a', bruno.cookie)).body.users, []);
+  assert.deepEqual((await searchPeople(base, 'a', bruno.cookie)).body.users, []);
+});
+
+test('member search reads its query from a POST body sent by this site, and a GET never looks up an address', async (t) => {
+  const base = await bootDb(t);
+  const ana = await consentingMember(base, { name: 'Ana Pereira', email: 'ana@example.test' });
+  const bruno = await consentingMember(base, { name: 'Bruno Dias', email: 'bruno@example.test', consent: false });
+
+  assert.equal((await searchPeople(base, 'ana', bruno.cookie, { Origin: 'https://attacker.test' })).status, 403);
+  // A query that is not text, or no query at all, is an empty search.
+  for (const q of [['ana'], { q: 'ana' }, 42, undefined]) assert.deepEqual((await searchPeople(base, q, bruno.cookie)).body.users, [], JSON.stringify(q));
+  const invalid = await fetch(`${base}/api/users/search`, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: bruno.cookie }, body: '{"q":' });
+  assert.equal(invalid.status, 400);
+
+  // A dashboard loaded before the search moved to POST still finds a name by GET; an address there is refused.
+  assert.deepEqual((await getJson(base, '/api/users/search?q=ana', bruno.cookie)).body.users.map((u) => u.id), [ana.id]);
+  for (const q of ['ana@example.test', 'ana@']) {
+    const byAddress = await getJson(base, `/api/users/search?q=${encodeURIComponent(q)}`, bruno.cookie);
+    assert.equal(byAddress.status, 400, q);
+    assert.equal(byAddress.body.users, undefined, q);
+  }
 });
 
 test('a member card shows directory fields only, and hides members who never consented', async (t) => {
@@ -1426,7 +1451,7 @@ test('member search is rate limited per session', async (t) => {
   const ana = await consentingMember(base, { name: 'Ana Pereira', email: 'ana@example.test' });
   let limited = null;
   for (let i = 0; i < 60 && !limited; i += 1) {
-    const res = await fetch(`${base}/api/users/search?q=ana`, { headers: { Cookie: ana.cookie } });
+    const res = await postJson(base, '/api/users/search', { q: 'ana' }, { Cookie: ana.cookie });
     if (res.status === 429) limited = res;
     else await res.arrayBuffer();
   }
