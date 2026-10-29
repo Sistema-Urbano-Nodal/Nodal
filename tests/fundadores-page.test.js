@@ -24,7 +24,7 @@ const plain = html => words(html.replace(/<[^>]+>/g, ''));
 // One language's copy of the page: an <article> that holds no other article.
 const block = (html, lang) => html.match(new RegExp(`<article class="fund-copy" data-fund-lang="${lang}" lang="${lang}">([\\s\\S]*?)</article>`))?.[1];
 /* What a reader reads, in order: headings, paragraphs, table cells and links. The page's own additions are marked and
-   left out: the kicker over the title and the line app state writes under the closing heading. */
+   left out: the kicker over the title and the lines app state writes under the title and the closing heading. */
 const ELEMENTS = /<(h1|h2|h3|p|th|td|a)\b([^>]*)>([\s\S]*?)<\/\1>/g;
 const sequence = part => [...part.matchAll(ELEMENTS)]
   .filter(([, , attributes]) => !/class="fund-kicker"|data-fund-state/.test(attributes))
@@ -181,14 +181,14 @@ test('every amount on the page is the offer’s: S/499 once, or S/550 as two of 
   }
 });
 
-// fundadores.js against a page that has a button and a status line in each language. Every node it touches is kept.
+// fundadores.js against a page that has a button and two status lines (under the title, in the closing band) in each language. Every node it touches is kept.
 async function run({lang = 'es', answer, i18n = true} = {}) {
   const node = extra => ({hidden: true, removed: false, textContent: '', dataset: {}, ...extra, remove() { this.removed = true; }});
   const joins = LANGS.map(() => node({}));
-  const states = LANGS.map(language => node({dataset: {fundState: language}}));
+  const states = LANGS.flatMap(language => [node({dataset: {fundState: language}}), node({dataset: {fundState: language}})]);
   const listeners = [], requests = [];
   const document = {
-    documentElement: {lang},
+    documentElement: {lang, dataset: {}},
     title: '',
     querySelectorAll: selector => (selector === '[data-fund-join]' ? joins.filter(link => !link.removed) : selector === '[data-fund-state]' ? states : []),
   };
@@ -217,12 +217,25 @@ test('while sign-ups are open the button to the payments page appears, and nothi
   assert.deepEqual(page.requests, [{path: '/api/billing/config', method: 'GET', accept: 'application/json'}]);
   for (const link of page.joins) { assert.equal(link.removed, false); assert.equal(link.hidden, false); }
   for (const slot of page.states) { assert.equal(slot.hidden, true); assert.equal(slot.textContent, ''); }
+  assert.equal('fundEnded' in page.document.documentElement.dataset, false, 'the 2026 sections stay');
 });
 
-test('once the offer has ended there is no button, and each language says when it closed', async () => {
+test('once the offer has ended there is no button, each language says when it closed, and the page is marked ended', async () => {
   const page = await run({answer: json(SERVER.ended)});
   for (const link of page.joins) assert.equal(link.removed, true);
+  assert.equal(page.states.length, LANGS.length * 2);
   for (const slot of page.states) { assert.equal(slot.textContent, ENDED[slot.dataset.fundState]); assert.equal(slot.hidden, false); }
+  // <html data-fund-ended>: fundadores.css then hides the sections that still sell the 2026 offer.
+  assert.equal(page.document.documentElement.dataset.fundEnded, '');
+});
+
+test('once the offer has ended the stylesheet hides early access, prices and the 2027 year, and nothing else', () => {
+  const css = read(STYLE), html = read(PAGE);
+  const hidden = [...css.matchAll(/([^{}]*\[data-fund-ended\][^{}]*)\{([^}]*)\}/g)]
+    .filter(([, , body]) => /display:\s*none/.test(body)).flatMap(([, selector]) => selector.match(/\.fund-[a-z-]+/g) || []);
+  assert.deepEqual([...new Set(hidden)].sort(), ['.fund-early', '.fund-price', '.fund-year']);
+  // Every language has those three sections, so the rule hides the same ones in each.
+  for (const lang of LANGS) for (const name of ['fund-early', 'fund-price', 'fund-year']) assert.match(block(html, lang), new RegExp(`<section class="fund-band ${name}"`), `${lang} ${name}`);
 });
 
 test('before sign-ups open, without an answer, or on static hosting, there is no button and sign-ups open soon', async () => {
@@ -242,6 +255,7 @@ test('before sign-ups open, without an answer, or on static hosting, there is no
     const page = await run({answer});
     for (const link of page.joins) assert.equal(link.removed, true, `${name}: a closed checkout leads nowhere`);
     for (const slot of page.states) { assert.equal(slot.textContent, SOON[slot.dataset.fundState], `${name} ${slot.dataset.fundState}`); assert.equal(slot.hidden, false, name); }
+    assert.equal('fundEnded' in page.document.documentElement.dataset, false, `${name}: nothing has ended`);
   }
 });
 
@@ -273,12 +287,15 @@ test('the script writes text, never markup', () => {
   assert.match(js, /textContent/);
 });
 
-test('the button and the line ship hidden in every language, and the terms link is always there', () => {
+test('the button and the lines ship hidden in every language, and the terms link is always there', () => {
   const html = read(PAGE);
   for (const lang of LANGS) {
-    const part = block(html, lang);
+    const part = block(html, lang), line = `<p class="fund-state" data-fund-state="${lang}" hidden></p>`;
     assert.match(part, /<a class="btn btn-primary btn-lg" href="payments\.html" data-fund-join hidden>[^<]+<\/a>/, `${lang} button`);
-    assert.ok(part.includes(`<p class="fund-state" data-fund-state="${lang}" hidden></p>`), `${lang} line`);
+    // One line under the title, so a closed offer says so first, and one where the button would be.
+    assert.equal(part.split('data-fund-state=').length - 1, 2, `${lang} two lines`);
+    assert.ok(part.match(/<section class="fund-hero"[\s\S]*?<\/section>/)[0].includes(line), `${lang} line under the title`);
+    assert.ok(part.match(/<section class="cta-band fund-join"[\s\S]*?<\/section>/)[0].includes(line), `${lang} line in the closing band`);
     assert.match(part, /<a class="link-arrow fund-terms" href="terminos-fundadores\.html" hreflang="es">[^<]+<\/a>/, `${lang} terms`);
   }
   // .btn sets display, so the stylesheet must let the hidden attribute win (styles.css does).

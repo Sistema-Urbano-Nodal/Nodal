@@ -1,9 +1,11 @@
 /* fundadores: the join page of the Founder Membership 2027 (/fundadores.html). The page carries its text in each
    language (fundadores.css shows the one on <html lang>), so this script only names the tab and decides the closing
    action from GET /api/billing/config: while sign-ups are open ('open'), the button to the payments page, which
-   sends a signed-out visitor to sign in and back; once the offer has ended ('ended'), a line that says so; otherwise
-   (not open yet, no answer, static hosting), a line that sign-ups open soon. The button ships hidden and is removed
-   wherever it would lead nowhere; nothing shows while the request is in flight. Text is set with textContent only. */
+   sends a signed-out visitor to sign in and back; once the offer has ended ('ended'), a line that says so, under the
+   title and in the closing band, and <html data-fund-ended>, on which fundadores.css hides the sections that still sell
+   the 2026 offer; otherwise (not open yet, no answer, static hosting), a line that sign-ups open soon. The button ships
+   hidden and is removed wherever it would lead nowhere; nothing shows while the request is in flight. Text is set with
+   textContent only. */
 (() => {
   'use strict';
   const TITLES = {
@@ -39,6 +41,7 @@
       return;
     }
     document.querySelectorAll('[data-fund-join]').forEach((link) => link.remove());
+    if (state === 'ended') document.documentElement.dataset.fundEnded = '';
     const lines = LINES[state === 'ended' ? 'ended' : 'soon'];
     document.querySelectorAll('[data-fund-state]').forEach((slot) => {
       slot.textContent = lines[language(slot.dataset.fundState)];

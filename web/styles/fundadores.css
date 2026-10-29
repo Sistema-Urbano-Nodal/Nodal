@@ -34,6 +34,8 @@ html[lang="es"] [data-fund-lang="es"], html[lang="en"] [data-fund-lang="en"], ht
   background: linear-gradient(180deg, transparent 15%, rgba(173,222,168,.92) 15% 90%, transparent 90%);
   -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .fund-lead { max-width: 36ch; margin-top: 30px; font-size: clamp(20px, 2.1vw, 27px); font-weight: 600; line-height: 1.3; color: var(--ink); }
+/* once the offer has ended (fundadores.js), the line that says so, first thing under the title */
+.fund-hero .fund-state { max-width: 40ch; margin-top: 22px; font-size: clamp(18px, 1.7vw, 21px); font-weight: 700; line-height: 1.4; color: var(--green-deep); }
 .fund-intro { display: grid; gap: 16px; max-width: 600px; margin-top: 28px; }
 .fund-intro p { font-size: 17.5px; }
 
@@ -82,6 +84,10 @@ html[lang="es"] [data-fund-lang="es"], html[lang="en"] [data-fund-lang="en"], ht
 .fund-copy strong { font-weight: 700; color: var(--ink); }
 /* the asterisk of "Equivalente mensual*" */
 .fund-note::before { content: "* "; }
+
+/* Once the offer has ended (<html data-fund-ended>, set by fundadores.js) the sections that sell it go: the 2026 early
+   access, the prices and the year it starts. The team's text stays as written; the closing lines say it has closed. */
+html[data-fund-ended] :is(.fund-early, .fund-price, .fund-year) { display: none; }
 
 /* the closing line and the one action, on the landing's green band (.cta-band) */
 .fund-join h2 { max-width: 30ch; margin: 0 auto; font-size: clamp(26px, 3.1vw, 42px); line-height: 1.15; letter-spacing: -.015em; }
