@@ -325,7 +325,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     'fundadores.html': { 'styles.css': '36', 'i18n.js': '20261022a', 'nav.js': '20261013b', 'locale.js': '20261009a', 'fundadores.js': '20261029a', 'fundadores.css': '20261029a' },
     'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20261022a', 'catalog.js': '7', ...pilot },
     'dashboard.html': { 'buc.js': '20261016c', 'i18n-dashboard.js': '20261024a', 'i18n.js': '20261022a', ...festival, 'fiiu-live.js': '20261020a', 'fiiu-hubs.js': '20261029a', 'news-feed.js': '20261001b', 'dashboard.js': '20261029a', 'dashboard.css': '41', 'location-check.js': '20260908b', ...pilot },
-    'login.html': { 'i18n.js': '20261022a', 'auth.js': '20261029a', 'recovery-i18n.js': '20261022a' },
+    'login.html': { 'i18n.js': '20261022a', 'auth.js': '20261031a', 'recovery-i18n.js': '20261022a' },
     'reset-password.html': { 'i18n.js': '20261022a', 'recovery-i18n.js': '20261022a', 'password-recovery.js': '20261022a' },
     'payments.html': { 'i18n-dashboard.js': '20261024a', 'i18n.js': '20261022a', 'payments.js': '20261021c', ...pilot },
     'profile.html': { 'i18n-dashboard.js': '20261024a', 'i18n.js': '20261022a', 'profile.js': '20261023a', 'styles.css': '36', ...pilot },

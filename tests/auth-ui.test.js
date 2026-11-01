@@ -221,12 +221,12 @@ test('the sign-in buttons use the page font, not the browser default for buttons
  const rule=css.match(/\.auth-page \.auth-card \.btn \{([^}]*)\}/);assert.ok(rule,'the auth card button rule');
  assert.match(rule[1],/font-family:\s*inherit/);
 });
-// A confirmation link opened in a mail app's own browser loses the way back to the check-in; the person is told to scan again.
-test('a confirmed email tells someone checking in at the FIIU to scan the screen again after signing in',()=>{
- const h=harness(undefined,'',null,'#access_token=a.b.c&refresh_token=r&type=signup');
- assert.match(h.nodes.loginError.textContent,/^Email confirmed\. Sign in to continue\. If you were checking in at the FIIU, scan the screen again \(or type its code\) after signing in\.$/);
- h.lang('es');assert.match(h.nodes.loginError.textContent,/^Correo confirmado\. Inicia sesión para continuar\. Si estabas registrando tu asistencia en el FIIU, vuelve a escanear la pantalla \(o escribe su código\) después de iniciar sesión\.$/);
- h.lang('pt');assert.match(h.nodes.loginError.textContent,/^E-mail confirmado\. Entre para continuar\. Se você estava registrando sua presença no FIIU, escaneie a tela de novo \(ou digite o código dela\) depois de entrar\.$/);
+// The FIIU's check-ins are closed, so a confirmed email no longer tells anyone to scan a festival screen again.
+test('a confirmed email says only to sign in, with nothing about checking in at the FIIU',()=>{
+ const h=harness(undefined,'?code=0b6f6d8e-1c1a-4c2e-9d5e-2f0e1f7a9b3c',null,'');
+ assert.equal(h.nodes.loginError.textContent,'Email confirmed. Sign in to continue.');
+ h.lang('es');assert.equal(h.nodes.loginError.textContent,'Correo confirmado. Inicia sesión para continuar.');
+ h.lang('pt');assert.equal(h.nodes.loginError.textContent,'E-mail confirmado. Entre para continuar.');
  assert.equal(h.nodes.loginError.classes.has('is-ok'),true);
 });
 // GoTrue rolls a sign-up back when its confirmation email cannot be sent: no account exists, so "sign in" would be wrong.
