@@ -111,15 +111,17 @@ function replies(socket){
  return ()=>new Promise((resolve,reject)=>{waiting={resolve,reject};settle();});
 }
 
-/* {send({to, subject, text, html, language})} → {messageId, response}, or null when the env does not configure
+/* {send({to, subject, text, html, language, replyTo, fromName})} → {messageId, response}, or null when the env does not configure
    email. connect(options) opens the socket; tests replace it (options: host, port, servername, secure). */
 export function createMailTransport({env=process.env,connect=null,timeoutMs=SMTP_TIMEOUT_MS,clientName='[127.0.0.1]'}={}){
  const config=smtpConfig(env);if(!config)return null;
  const open=connect??(({host,port,servername,secure})=>secure?tls.connect({host,port,servername,minVersion:'TLSv1.2'}):net.connect({host,port}));
  const messageDomain=config.from.address.split('@')[1];
- async function send({to,subject,text,html,language,replyTo=config.replyTo}){
+ async function send({to,subject,text,html,language,replyTo=config.replyTo,fromName}){
   const messageId=`<${randomBytes(16).toString('hex')}@${messageDomain}>`;
-  const message=buildMessage({from:config.from,to,replyTo,subject,text,html,language,messageId});
+  // fromName swaps only the display name; the address (and so the envelope sender) stays EMAIL_FROM's.
+  const from=typeof fromName==='string'&&fromName?{name:fromName,address:config.from.address}:config.from;
+  const message=buildMessage({from,to,replyTo,subject,text,html,language,messageId});
   // SNI only for names: an IP literal is not a valid server name.
   const socket=open({host:config.host,port:config.port,servername:net.isIP(config.host)?undefined:config.host,secure:config.secure});
   // flushed: whether the whole message, its final "." included, left this process (null until it is written). The

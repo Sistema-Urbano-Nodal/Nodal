@@ -128,3 +128,31 @@ test('addresses and headers cannot be injected',async t=>{
  await createMailTransport({env:env(smtp.port)}).send({...letter,subject:'Hi\r\nBcc: x@example.org'});
  const parsed=parseMessage(smtp.messages[0].data);assert.equal(parsed.headers.bcc,undefined);assert.equal(parsed.subject,'Hi Bcc: x@example.org');
 });
+
+test('fromName replaces only the From display name',async t=>{
+ const smtp=await startFakeSmtp();t.after(smtp.close);
+ await createMailTransport({env:env(smtp.port)}).send({...letter,fromName:'NODAL'});
+ const [message]=smtp.messages,parsed=parseMessage(message.data);
+ assert.match(parsed.headers.from,/^"?NODAL"? <fiiu@example\.org>$/);assert.equal(message.from,'fiiu@example.org','the envelope sender is unchanged');
+ assert.ok(smtp.transcript.includes('MAIL FROM:<fiiu@example.org>'));
+});
+
+test('fromName with CR/LF or non-ASCII stays one encoded header line',async t=>{
+ const smtp=await startFakeSmtp();t.after(smtp.close);
+ await createMailTransport({env:env(smtp.port)}).send({...letter,fromName:'Núcleo\r\nBcc: x@y.z'});
+ const [message]=smtp.messages,parsed=parseMessage(message.data),head=message.data.split('\r\n\r\n')[0];
+ assert.doesNotMatch(head.replace(/\r\n(?=[^\r\n])/g,''),/[\r\n]/,'no bare CR or LF inside a header');
+ assert.equal(parsed.headers.bcc,undefined);assert.match(parsed.headers.from,/^=\?UTF-8\?B\?.+\?= <fiiu@example\.org>$/);
+ const word=parsed.headers.from.slice(0,parsed.headers.from.lastIndexOf(' <')).split(/\r\n /).map(w=>Buffer.from(w.slice(10,-2),'base64').toString('utf8')).join('');
+ assert.equal(word,'Núcleo Bcc: x@y.z');
+});
+
+test('no fromName keeps EMAIL_FROM as it is',async t=>{
+ const smtp=await startFakeSmtp();t.after(smtp.close);
+ const transport=createMailTransport({env:env(smtp.port)});
+ await transport.send(letter);await transport.send({...letter,fromName:''});
+ for(const message of smtp.messages){
+  const from=parseMessage(message.data).headers.from;
+  assert.equal(Buffer.from(from.slice(10,from.indexOf('?= <')),'base64').toString('utf8'),'FIIU Fest 11 · NODAL');assert.ok(from.endsWith(' <fiiu@example.org>'));
+ }
+});
