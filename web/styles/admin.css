@@ -228,6 +228,20 @@ textarea { resize: vertical; }
 .admin-interest-controls { display: flex; gap: var(--f-sp-2); align-items: end; }
 .admin-interest-controls label { flex: 1 1 auto; }
 
+/* ---------- organization node requests: the interest rows' layout, with the team-email warning in the alert colour ---------- */
+.admin-node { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(220px, auto); gap: var(--f-sp-2) var(--f-sp-5); align-items: start; padding: var(--f-sp-3) 0; }
+.admin-node + .admin-node { border-top: 1px solid var(--rule); }
+.admin-node > * { min-width: 0; }
+.admin-node-who, .admin-node-body { display: grid; gap: 2px; }
+.admin-node h3 { font-size: .9375rem; font-weight: 700; overflow-wrap: anywhere; }
+.admin-node p, .admin-node a { color: var(--text-2); font-size: .875rem; overflow-wrap: anywhere; }
+.admin-node .admin-node-meta { color: var(--muted); font-size: var(--f-fs-hint); }
+/* the visitor's line breaks, as typed */
+.admin-node-message { white-space: pre-wrap; }
+.admin-node .admin-node-warning { color: var(--alert); font-weight: 600; }
+.admin-node-controls { display: flex; flex-wrap: wrap; gap: var(--f-sp-2); align-items: end; }
+.admin-node-controls label { flex: 1 1 auto; }
+
 /* ---------- Membresía Fundador: give the Founder badge, and who has it ----------
    The form beside the list, as News sits beside its editor; members are set apart by whitespace, not rules. */
 .admin-download { display: inline-flex; align-items: center; flex: 0 0 auto; white-space: nowrap; }
@@ -251,7 +265,7 @@ textarea { resize: vertical; }
   .admin-workspace { grid-template-columns: 300px minmax(0, 1fr); }
   .admin-locale-grid { grid-template-columns: 1fr; }
   .admin-grid-4, .admin-grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .admin-interest { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .admin-interest, .admin-node { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
 
 @media (max-width: 960px) {
@@ -269,7 +283,7 @@ textarea { resize: vertical; }
 
 @media (max-width: 560px) {
   :root { --top: 87px; }
-  .admin-grid-3, .admin-grid-4, .admin-interest, .admin-news-row, .admin-gate-list li, .admin-founder { grid-template-columns: 1fr; }
+  .admin-grid-3, .admin-grid-4, .admin-interest, .admin-node, .admin-news-row, .admin-gate-list li, .admin-founder { grid-template-columns: 1fr; }
   .admin-founder { gap: 2px; }
   .admin-founder-since { white-space: normal; }
   .admin-founder .admin-textbutton { justify-self: start; }

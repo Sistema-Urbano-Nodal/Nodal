@@ -70,6 +70,7 @@ function desk({ lang = 'en', founders = [], write = () => response({}, 500), con
     if (url.startsWith('/api/admin/news')) return response({ items: [], nextCursor: null });
     if (url.startsWith('/api/admin/catalog')) return response({ items: [], nextCursor: null });
     if (url.startsWith('/api/admin/interests')) return response({ interests: [], nextCursor: null });
+    if (url.startsWith('/api/admin/node-requests')) return response({ requests: [], nextCursor: null });
     return response({ error: 'not found' }, 404);
   };
   const i18n = deskI18n(lang);
@@ -108,12 +109,12 @@ function desk({ lang = 'en', founders = [], write = () => response({}, 500), con
 const ana = { id: '11111111-1111-4111-8111-111111111111', name: 'Ana Quispe', email: 'ana@example.test', founderSince: '2026-10-22T03:30:00.000Z' };
 const beto = { id: '22222222-2222-4222-8222-222222222222', name: 'Beto Ruiz', email: 'beto@example.test', founderSince: '2026-10-21T15:00:00.000Z' };
 
-test('the desk has a Founder Membership tab and band after Interest requests, before the links away', () => {
+test('the desk has a Founder Membership tab and band after Interest requests and Nodes, before the links away', () => {
   const html = adminPage();
   const tabs = [...html.matchAll(/<li[^>]*><a href="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(tabs, ['#news', '#catalog', '#interests', '#founders', 'fiiu-admin.html#content', 'teaching.html']);
+  assert.deepEqual(tabs, ['#news', '#catalog', '#interests', '#nodes', '#founders', 'fiiu-admin.html#content', 'teaching.html']);
   assert.match(html, /<a href="#founders" id="adminTabFounders" data-i18n="ops\.index\.founders">Founder Membership<\/a>/);
-  assert.ok(html.indexOf('id="interests"') < html.indexOf('id="founders"'), 'the band follows Interest requests');
+  assert.ok(html.indexOf('id="interests"') < html.indexOf('id="nodes"') && html.indexOf('id="nodes"') < html.indexOf('id="founders"'), 'the band follows Interest requests and the node requests');
   assert.match(html, /<section class="admin-band" id="founders" aria-labelledby="foundersTitle">/);
   assert.match(html, /<h2 id="foundersTitle" data-i18n="ops\.founders\.title">Founder Membership<\/h2>/);
   // The acceptances CSV the administrator checks before giving the badge: a download, not a page.
@@ -128,9 +129,9 @@ test('the desk has a Founder Membership tab and band after Interest requests, be
   assert.doesNotMatch(html, /id="adminFounderListTitle"[^>]*data-i18n=/, 'the list title carries its count, so admin.js writes it');
   // Still the desk's own assets: no course-pilot script or stylesheet comes with the band.
   assert.doesNotMatch(html, /pilot\.js|pilot-i18n\.js|courses\.css/);
-  assert.match(html, /href="admin\.css\?v=20261023a"/);
-  assert.match(html, /src="admin\.js\?v=20261023a"/);
-  assert.match(html, /src="i18n-dashboard\.js\?v=20261024a"/);
+  assert.match(html, /href="admin\.css\?v=20261103b"/);
+  assert.match(html, /src="admin\.js\?v=20261103b"/);
+  assert.match(html, /src="i18n-dashboard\.js\?v=20261103b"/);
 });
 
 test('the band’s copy is the desk’s own in English, Spanish and Portuguese, and keeps the word Founder', () => {
@@ -363,16 +364,16 @@ test('the band follows the desk’s sheet: whitespace between members, no left b
   assert.match(css, /@media \(max-width: 560px\)[\s\S]*\.admin-founder\b[^{]*\{[^}]*grid-template-columns:\s*1fr/);
 });
 
-/* Founder Membership is the desk's last band and Interest requests the short one before it: on a tall screen the page
-   cannot scroll Interest requests up to the band a third of the way down, and the Founder list loading makes the page
-   taller. The tab the administrator clicked keeps its mark while its band is on screen, until they scroll by hand. */
+/* Founder Membership is the desk's last band, with short ones (Interest requests, the node requests) before it: on a
+   tall screen the page cannot scroll Interest requests up to the band a third of the way down, and the Founder list
+   loading makes the page taller. The tab the administrator clicked keeps its mark while its band is on screen, until they scroll by hand. */
 test('a clicked tab keeps its mark while its band is on screen, until the reader scrolls', async () => {
   const d = desk({ observer: true });
   await flush();
   const band = d.observed.find((o) => o.options?.rootMargin);
   const end = d.observed.find((o) => o.options?.threshold);
   assert.ok(band && end, 'the tab row follows the reader');
-  const current = () => ['adminTabNews', 'adminTabCatalog', 'adminTabInterests', 'adminTabFounders'].filter((id) => d.node(id).getAttribute('aria-current') === 'true');
+  const current = () => ['adminTabNews', 'adminTabCatalog', 'adminTabInterests', 'adminTabNodes', 'adminTabFounders'].filter((id) => d.node(id).getAttribute('aria-current') === 'true');
   d.node('interests').getBoundingClientRect = () => ({ top: 120, bottom: 420 });
   band.callback([{ target: d.node('interests'), isIntersecting: true }]);
   assert.deepEqual(current(), ['adminTabInterests']);

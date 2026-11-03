@@ -1116,7 +1116,8 @@ test('admin workspace exposes a complete trilingual editor without destructive c
     'adminTopicsError', 'adminEndDate', 'adminSourceLabel', 'adminSourceUrl', 'adminSourceVerifiedAt', 'adminActionMode',
     'adminActionUrl', 'adminFeatured', 'adminSaveDraft', 'adminPublish', 'adminArchive',
     'adminPreview', 'adminConflictReload', 'adminEditorStatus', 'adminPreviewPanel',
-    'adminInterestFilter', 'adminInterestList', 'adminInterestStatus', 'adminInterestMore', 'adminSignOut',
+    'adminInterestFilter', 'adminInterestList', 'adminInterestStatus', 'adminInterestMore',
+    'adminNodeFilter', 'adminNodeList', 'adminNodeStatus', 'adminNodeMore', 'adminSignOut',
   ]) assert.match(html, new RegExp(`id="${id}"`), `${id} must be present`);
 
   for (const lang of ['En', 'Es', 'Pt']) {
@@ -1149,9 +1150,11 @@ test('admin client serializes translations atomically and preserves edits on sta
   assert.match(source, /\/api\/admin\/interests/);
   assert.match(source, /status\s*===\s*409/);
   assert.match(source, /new URLSearchParams/);
-  // Catalog records are archived, never deleted; only a NODAL news post can be deleted, and a Founder badge given by mistake removed
-  // (the member's account stays: tests/founders-desk-ui.test.js).
-  assert.deepEqual([...source.matchAll(/request\(([^,]+), \{ method: 'DELETE' \}\)/g)].map((match) => match[1]), ['`/api/admin/news/${encodeURIComponent(current.id)}`', '`/api/admin/membership/founders/${encodeURIComponent(founder.id)}`']);
+  // Catalog records are archived, never deleted; only an organization's node request can be deleted, when someone asks to
+  // be forgotten (tests/node-requests-desk-ui.test.js), a NODAL news post, and a Founder badge given by mistake removed (the
+  // member's account stays: tests/founders-desk-ui.test.js).
+  assert.deepEqual([...source.matchAll(/request\(([^,]+), \{ method: 'DELETE' \}\)/g)].map((match) => match[1]), ['nodeRequestPath(nodeRequest)', '`/api/admin/news/${encodeURIComponent(current.id)}`', '`/api/admin/membership/founders/${encodeURIComponent(founder.id)}`']);
+  assert.match(source, /const nodeRequestPath = \(nodeRequest\) => `\/api\/admin\/node-requests\/\$\{encodeURIComponent\(nodeRequest\.id\)\}`;/);
   assert.doesNotMatch(source, /\/api\/admin\/catalog[^\n]*'DELETE'/);
 
   for (const lang of ['en', 'es', 'pt']) {
@@ -1736,13 +1739,14 @@ test('late interest success or failure cannot reopen a closed detail or overwrit
 
 test('publishing desk links every editor, keeps the review queue and loads the translator first', () => {
   const html = adminPage();
-  for (const id of ['news', 'catalog', 'interests', 'founders']) assert.match(html, new RegExp(`<section class="admin-band" id="${id}"`), `${id} section`);
-  // One tab row like the organiser's: the four sections on this page, then the two editors that live elsewhere.
+  for (const id of ['news', 'catalog', 'interests', 'nodes', 'founders']) assert.match(html, new RegExp(`<section class="admin-band" id="${id}"`), `${id} section`);
+  // One tab row like the organiser's: the five sections on this page, then the two editors that live elsewhere.
   assert.match(html, /<a href="#founders" id="adminTabFounders" data-i18n="ops\.index\.founders">/);
   assert.match(html, /<nav class="admin-tabs" aria-label="On this desk" data-i18n-aria-label="ops\.index\.title">/);
   assert.match(html, /<a href="#news" id="adminTabNews" aria-current="true" data-i18n="ops\.index\.news">/);
   assert.match(html, /<a href="#catalog" id="adminTabCatalog" data-i18n="ops\.index\.catalog">/);
   assert.match(html, /<a href="#interests" id="adminTabInterests" data-i18n="ops\.index\.interests">/);
+  assert.match(html, /<a href="#nodes" id="adminTabNodes" data-i18n="ops\.index\.nodes">/);
   for (const [href, key] of [['fiiu-admin.html#content', 'festival'], ['teaching.html', 'courses']]) {
     assert.match(html, new RegExp(`<a href="${href.replace('.', '\\.')}" class="is-away"><span data-i18n="ops\\.index\\.${key}">[^<]+</span><span aria-hidden="true"> →</span><span class="admin-sr" data-i18n="ops\\.index\\.${key}Hint">`), `${href} desk link`);
   }
@@ -1764,7 +1768,7 @@ test('publishing desk links every editor, keeps the review queue and loads the t
   assert.match(html, /id="adminNewsBody" maxlength="2000"/);
   assert.match(html, /id="adminNewsUrl" type="url" inputmode="url" maxlength="500"/);
   // Status lines are written by admin.js; a data-i18n on them would be reset to "Loading…" on every language switch.
-  for (const id of ['adminNewsListStatus', 'adminCatalogListStatus', 'adminInterestStatus', 'adminEditorStatus', 'adminNewsStatus', 'adminRecordState', 'adminNewsState']) {
+  for (const id of ['adminNewsListStatus', 'adminCatalogListStatus', 'adminInterestStatus', 'adminNodeStatus', 'adminEditorStatus', 'adminNewsStatus', 'adminRecordState', 'adminNewsState']) {
     assert.doesNotMatch(html, new RegExp(`id="${id}"[^>]*data-i18n=`), `${id} is runtime text`);
   }
 });
@@ -1818,7 +1822,7 @@ test('desk shows "New post" and the record-only actions only when an existing it
   assert.equal(h.ids.get('adminKind').focused, true, 'focus lands in the editor, not on the hidden button');
   // Without IntersectionObserver (old browsers, this harness) the scrollspy stays off: bootstrap still completes and no tab is touched.
   await h.api.bootstrap();
-  for (const id of ['adminTabNews', 'adminTabCatalog', 'adminTabInterests']) assert.equal(h.ids.get(id).getAttribute('aria-current'), null);
+  for (const id of ['adminTabNews', 'adminTabCatalog', 'adminTabInterests', 'adminTabNodes']) assert.equal(h.ids.get(id).getAttribute('aria-current'), null);
 });
 
 test('publishing desk chrome switches to Spanish and Portuguese and every key resolves', () => {
@@ -1857,6 +1861,7 @@ test('publishing desk chrome switches to Spanish and Portuguese and every key re
     ...['draft', 'published', 'archived'].map((status) => `ops.status.${status}`),
     'ops.visibility.public', 'ops.visibility.members', 'ops.lang.en', 'ops.lang.es', 'ops.lang.pt',
     ...['new', 'contacted', 'closed', 'withdrawn'].map((status) => `ops.interest.${status}`),
+    ...['new', 'contacted', 'closed'].map((status) => `ops.nodes.${status}`),
     ...['title', 'summary', 'body', 'cta', 'organization', 'sourceLabel', 'sourceUrl', 'sourceVerifiedAt', 'subtype', 'deadlineAt', 'actionUrl'].map((field) => `ops.field.${field}`),
   ];
   assert.ok(literal.length > 80, `expected the desk copy to be keyed, found ${literal.length}`);

@@ -1,4 +1,5 @@
-/* Publishing desk: NODAL news, the verified catalog, the interest queue and the Founder badge of the Membresía Fundador.
+/* Publishing desk: NODAL news, the verified catalog, the interest queue, the organization node requests and the Founder
+   badge of the Membresía Fundador.
    The server validates authorization, publication requirements, optimistic
    versions, and every persisted value; this page only shows what is still
    missing. Copy goes through nodalI18n (ops.* keys); server error text is shown
@@ -57,6 +58,10 @@
     interestList: byId('adminInterestList'),
     interestStatus: byId('adminInterestStatus'),
     interestMore: byId('adminInterestMore'),
+    nodeFilter: byId('adminNodeFilter'),
+    nodeList: byId('adminNodeList'),
+    nodeStatus: byId('adminNodeStatus'),
+    nodeMore: byId('adminNodeMore'),
     newsNew: byId('adminNewsNew'),
     newsList: byId('adminNewsList'),
     newsListStatus: byId('adminNewsListStatus'),
@@ -85,6 +90,7 @@
     tabNews: byId('adminTabNews'),
     tabCatalog: byId('adminTabCatalog'),
     tabInterests: byId('adminTabInterests'),
+    tabNodes: byId('adminTabNodes'),
     tabFounders: byId('adminTabFounders'),
     tabList: byId('adminTabList'),
     foundersBand: byId('founders'),
@@ -102,16 +108,21 @@
   const state = {
     items: [],
     interests: [],
+    nodeRequests: [],
     current: null,
     conflictCurrent: null,
     catalogController: null,
     interestController: null,
+    nodeController: null,
     catalogRequest: 0,
     interestRequest: 0,
+    nodeLoad: 0,
     catalogCursor: null,
     interestCursor: null,
+    nodeCursor: null,
     catalogFilterKey: null,
     interestFilterKey: null,
+    nodeFilterKey: null,
     busy: false,
     // Missing fields read as "still to fill" until a Publish attempt, or on a record that is already published.
     gateStrict: false,
@@ -178,6 +189,12 @@
     const offset = date.getTimezoneOffset() * 60 * 1000;
     const local = new Date(date.getTime() - offset).toISOString();
     return includeTime ? local.slice(0, 16) : local.slice(0, 10);
+  };
+  // A day as it reads in Lima, in the page language.
+  const limaDate = (value) => {
+    const date = value ? new Date(value) : null;
+    return date && Number.isFinite(date.getTime())
+      ? new Intl.DateTimeFormat(localeTag(), { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Lima' }).format(date) : '';
   };
   const apiDate = (value, includeTime = false) => {
     if (!value) return null;
@@ -703,6 +720,165 @@
     }
   }
 
+  /* ---------------- organization node requests ----------------
+     Sent from the landing page's form by anyone, without an account (server/node-requests-api.js), and emailed to the
+     team. Every field is the visitor's own text, so it is only ever written as text; the email was checked by the server
+     and becomes a mailto: link. Status changes compare versions, as the interest queue does. Delete is for someone who
+     asks to be forgotten: the team's two email copies are deleted by hand. */
+  const NODE_EMAIL_WARNINGS = { off: 'ops.nodes.emailOff', failed: 'ops.nodes.emailFailed', partial: 'ops.nodes.emailPartial', uncertain: 'ops.nodes.emailUncertain' };
+  // Anything but 'sent' warns: null is a send that has not finished, or whose outcome was never written.
+  const nodeEmailWarning = (status) => (status === 'sent' ? '' : NODE_EMAIL_WARNINGS[status] || 'ops.nodes.emailPending');
+  const nodeRequestPath = (nodeRequest) => `/api/admin/node-requests/${encodeURIComponent(nodeRequest.id)}`;
+
+  function renderNodeRequest(nodeRequest) {
+    const article = create('article', 'admin-node');
+    const organization = text(nodeRequest.organization);
+    const who = create('div', 'admin-node-who');
+    who.append(create('h3', null, organization), create('p', 'admin-node-name', text(nodeRequest.name)));
+    const address = text(nodeRequest.email);
+    const email = create('a', null, address);
+    if (address) email.href = `mailto:${encodeURIComponent(address)}`;
+    who.append(email);
+    if (text(nodeRequest.phone)) who.append(create('p', 'admin-node-phone', t('ops.nodes.phone', { phone: text(nodeRequest.phone) })));
+    const body = create('div', 'admin-node-body');
+    body.append(
+      create('p', 'admin-node-meta', t('ops.nodes.meta', { date: limaDate(nodeRequest.createdAt), language: label('ops.lang', nodeRequest.language) })),
+      create('p', 'admin-node-message', text(nodeRequest.message)),
+    );
+    const warning = nodeEmailWarning(nodeRequest.emailStatus);
+    if (warning) body.append(create('p', 'admin-node-warning', t(warning)));
+    const controls = create('div', 'admin-node-controls');
+    const field = create('label');
+    field.append(create('span', null, t('ops.nodes.status')));
+    const select = create('select');
+    for (const status of ['new', 'contacted', 'closed']) {
+      const option = create('option', null, t(`ops.nodes.${status}`));
+      option.value = status;
+      option.selected = status === nodeRequest.status;
+      select.append(option);
+    }
+    field.append(select);
+    const save = create('button', 'admin-button', t('ops.nodes.update'));
+    save.type = 'button';
+    const remove = create('button', 'admin-textbutton admin-textbutton-warning', t('ops.nodes.delete'));
+    remove.type = 'button';
+    // Every request has a Delete: its accessible name starts with the visible label and says which request it removes.
+    remove.setAttribute('aria-label', t('ops.nodes.deleteNamed', { organization }));
+    // One write per request at a time: no delete while its status is being saved, and the other way round.
+    const setBusy = (value) => { save.disabled = value; remove.disabled = value; };
+    save.addEventListener('click', async () => {
+      setBusy(true);
+      say(elements.nodeStatus, 'ops.nodes.updating');
+      try {
+        const { response, data } = await request(nodeRequestPath(nodeRequest), {
+          method: 'PATCH', body: JSON.stringify({ status: select.value, version: nodeRequest.version }),
+        });
+        // Someone else changed it first, so nothing was saved: the reloaded list shows the status they set.
+        // A failed list refresh reports itself; it must not read as a failed update.
+        if (response.status === 409) {
+          if (await loadNodeRequests().catch(() => false)) say(elements.nodeStatus, 'ops.nodes.changed');
+          return;
+        }
+        if (!response.ok) throw apiError(data, 'ops.nodes.updateFailed', response.status);
+        if (data.request) Object.assign(nodeRequest, data.request);
+        if (await loadNodeRequests().catch(() => false)) say(elements.nodeStatus, 'ops.nodes.updated');
+      } catch (error) {
+        report(elements.nodeStatus, error, 'ops.nodes.notUpdated');
+      } finally {
+        setBusy(false);
+      }
+    });
+    remove.addEventListener('click', async () => {
+      if (!window.confirm(t('ops.nodes.confirmDelete', { organization }))) return;
+      setBusy(true);
+      say(elements.nodeStatus, 'ops.nodes.deleting');
+      try {
+        // A request that is already gone answers 204 as well.
+        const { response, data } = await request(nodeRequestPath(nodeRequest), { method: 'DELETE' });
+        if (!response.ok) throw apiError(data, 'ops.nodes.deleteFailed', response.status);
+        if (await loadNodeRequests().catch(() => false)) say(elements.nodeStatus, 'ops.nodes.deleted');
+      } catch (error) {
+        report(elements.nodeStatus, error, 'ops.nodes.notDeleted');
+      } finally {
+        setBusy(false);
+      }
+    });
+    controls.append(field, save, remove);
+    article.append(who, body, controls);
+    return article;
+  }
+
+  function renderNodeRequestList() {
+    elements.nodeList.replaceChildren(...state.nodeRequests.map(renderNodeRequest));
+    elements.nodeList.setAttribute('aria-busy', 'false');
+  }
+
+  function nodeFilterSnapshot() {
+    return { status: text(elements.nodeFilter.value) };
+  }
+
+  function invalidateNodePagination() {
+    state.nodeController?.abort();
+    state.nodeController = null;
+    state.nodeLoad += 1;
+    state.nodeCursor = null;
+    state.nodeFilterKey = null;
+    elements.nodeMore.hidden = true;
+    elements.nodeList.setAttribute('aria-busy', 'false');
+  }
+
+  // The interest queue's loader: the server answers 400 to an empty parameter, so only the ones with a value are sent.
+  async function loadNodeRequests({ append = false, filters = nodeFilterSnapshot() } = {}) {
+    const snapshot = { ...filters };
+    const snapshotKey = filterKey(snapshot);
+    if (append && (!state.nodeCursor || state.nodeFilterKey !== snapshotKey)) return false;
+    const cursor = append ? state.nodeCursor : null;
+    if (!append) {
+      state.nodeCursor = null;
+      state.nodeFilterKey = snapshotKey;
+      elements.nodeMore.hidden = true;
+    }
+    state.nodeController?.abort();
+    const controller = new AbortController();
+    state.nodeController = controller;
+    const sequence = state.nodeLoad + 1;
+    state.nodeLoad = sequence;
+    const params = new URLSearchParams({ limit: '24' });
+    if (snapshot.status) params.set('status', snapshot.status);
+    if (cursor) params.set('cursor', cursor);
+    say(elements.nodeStatus, 'ops.nodes.loading');
+    elements.nodeList.setAttribute('aria-busy', 'true');
+    try {
+      const { response, data } = await request(`/api/admin/node-requests?${params}`, { signal: controller.signal });
+      if (sequence !== state.nodeLoad || state.nodeFilterKey !== snapshotKey
+        || filterKey(nodeFilterSnapshot()) !== snapshotKey) return false;
+      if (!response.ok) throw apiError(data, 'ops.nodes.failed', response.status);
+      const nodeRequests = Array.isArray(data.requests) ? data.requests : [];
+      state.nodeRequests = append ? [...state.nodeRequests, ...nodeRequests] : nodeRequests;
+      state.nodeCursor = data.nextCursor || null;
+      elements.nodeMore.hidden = !state.nodeCursor;
+      renderNodeRequestList();
+      if (state.nodeRequests.length) say(elements.nodeStatus, state.nodeRequests.length === 1 ? 'ops.nodes.countOne' : 'ops.nodes.count', { n: state.nodeRequests.length });
+      else say(elements.nodeStatus, snapshot.status ? 'ops.nodes.empty' : 'ops.nodes.none');
+      return true;
+    } catch (error) {
+      if (error.name === 'AbortError' || sequence !== state.nodeLoad || state.nodeFilterKey !== snapshotKey) return false;
+      if (!append) {
+        state.nodeRequests = [];
+        state.nodeCursor = null;
+        elements.nodeMore.hidden = true;
+        renderNodeRequestList();
+      } else elements.nodeList.setAttribute('aria-busy', 'false');
+      report(elements.nodeStatus, error, 'ops.nodes.unavailable');
+      throw error;
+    } finally {
+      if (sequence === state.nodeLoad && state.nodeFilterKey === snapshotKey) {
+        elements.nodeList.setAttribute('aria-busy', 'false');
+        if (state.nodeController === controller) state.nodeController = null;
+      }
+    }
+  }
+
   /* ---------------- NODAL news ----------------
      A new post carries a client id, so a retried POST after a lost response
      returns the stored post instead of creating a second one. A retry with
@@ -984,18 +1160,13 @@
   const FOUNDER_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const FOUNDER_REFUSALS = { founder_email_invalid: 'ops.founders.invalid', founder_not_found: 'ops.founders.notFound', founder_account_conflict: 'ops.founders.conflict' };
   const founderName = (founder) => text(founder?.name) || text(founder?.email);
-  // The day the member got the badge, as it reads in Lima, where the Membresía Fundador is sold, in the page language.
-  const founderDate = (value) => {
-    const date = value ? new Date(value) : null;
-    return date && Number.isFinite(date.getTime())
-      ? new Intl.DateTimeFormat(localeTag(), { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Lima' }).format(date) : '';
-  };
 
   function founderRow(founder) {
     const row = create('li', 'admin-founder');
     const who = create('div', 'admin-founder-who');
     who.append(create('strong', null, founderName(founder)), create('span', 'admin-founder-email', text(founder.email)));
-    const date = founderDate(founder.founderSince);
+    // The day the member got the badge, in Lima, where the Membresía Fundador is sold.
+    const date = limaDate(founder.founderSince);
     const since = create('span', 'admin-founder-since', date ? t('ops.founders.since', { date }) : '');
     const remove = create('button', 'admin-textbutton admin-textbutton-warning', t('ops.founders.remove'));
     remove.type = 'button';
@@ -1139,6 +1310,14 @@
     return refresh;
   }
 
+  function refreshNodeRequestsNow() {
+    const filters = nodeFilterSnapshot();
+    invalidateNodePagination();
+    const refresh = loadNodeRequests({ filters });
+    refresh.catch(() => {});
+    return refresh;
+  }
+
   elements.filters.addEventListener('submit', (event) => { event.preventDefault(); return refreshCatalogNow(); });
   elements.query.addEventListener('input', () => {
     clearTimeout(filterTimer);
@@ -1149,8 +1328,10 @@
   elements.kindFilter.addEventListener('change', refreshCatalogNow);
   elements.statusFilter.addEventListener('change', refreshCatalogNow);
   elements.interestFilter.addEventListener('change', refreshInterestsNow);
+  elements.nodeFilter.addEventListener('change', refreshNodeRequestsNow);
   elements.catalogMore.addEventListener('click', () => loadCatalog({ append: true }));
   elements.interestMore.addEventListener('click', () => loadInterests({ append: true }));
+  elements.nodeMore.addEventListener('click', () => loadNodeRequests({ append: true }));
   elements.kind.addEventListener('change', updateConditionalFields);
   elements.actionMode.addEventListener('change', updateConditionalFields);
   elements.newItem.addEventListener('click', () => {
@@ -1249,6 +1430,7 @@
     renderCatalogList();
     renderGate();
     renderInterestList();
+    renderNodeRequestList();
     renderNewsList();
     renderNewsEditor();
     renderFounders();
@@ -1259,12 +1441,12 @@
      crossing a thin band a third of the way down the screen is the current one.
      The last section is short, so once it is wholly on screen the page has
      reached its end and that tab is marked instead. A short section near the
-     end (Interest requests) may never reach the band, so a tab the
+     end (Interest requests, Node requests) may never reach the band, so a tab the
      administrator clicked keeps the mark while its section is on screen, until
      they scroll by hand. */
   function trackSections() {
     if (!('IntersectionObserver' in window)) return;
-    const tabs = new Map([['news', elements.tabNews], ['catalog', elements.tabCatalog], ['interests', elements.tabInterests], ['founders', elements.tabFounders]]);
+    const tabs = new Map([['news', elements.tabNews], ['catalog', elements.tabCatalog], ['interests', elements.tabInterests], ['nodes', elements.tabNodes], ['founders', elements.tabFounders]]);
     const sections = [...tabs.keys()].map((id) => byId(id)).filter(Boolean);
     if (sections.length !== tabs.size) return;
     const crossing = new Set();
@@ -1309,7 +1491,7 @@
     say(elements.founderListTitle, 'ops.founders.listHead');
     trackSections();
     watchLayout();
-    await Promise.allSettled([loadNews(), loadCatalog(), loadInterests(), watchFounders()]);
+    await Promise.allSettled([loadNews(), loadCatalog(), loadInterests(), loadNodeRequests(), watchFounders()]);
   }
 
   bootstrap();
