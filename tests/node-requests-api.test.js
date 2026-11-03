@@ -117,6 +117,36 @@ test('names the field for each invalid input',async t=>{
  assert.equal(rows()[0].phone.length,40);
 });
 
+// The team answers through Reply-To, so an address the mailer would not write there is refused with the form's field:
+// otherwise the mailer falls back to its default Reply-To and a reply reaches the FIIU inbox, not the organisation.
+test('refuses an address the mailer cannot reply to, checking its length once lower-cased',async t=>{
+ const notice=notifier(),{post,rows}=await setup(t,{notice,limits:{perAddress:1000}});
+ // İ lower-cases to two UTF-16 units: 254 typed, 496 stored, which the table's CHECK would refuse with a 503.
+ const growing=`${'İ'.repeat(242)}@example.org`;assert.equal(growing.length,254);
+ for(const email of ['ana@colectivo.pe;','josé@muni.pe','ana..quispe@colectivo.pe','ana@colectivo_viva.pe','ana@-colectivo.pe','"ana"@colectivo.pe'])
+  assert.deepEqual(await post(valid({email})),{status:400,body:{error:'email is invalid',field:'email'}},email);
+ assert.deepEqual(await post(valid({email:growing})),{status:400,body:{error:'email is too long',field:'email'}},'measured as stored');
+ assert.equal(rows().length,0);assert.equal(notice.calls.length,0);
+ assert.equal((await post(valid({email:'  Ana.Quispe+nodo@Colectivo-Viva.PE '}))).status,202);assert.equal(rows()[0].email,'ana.quispe+nodo@colectivo-viva.pe');
+});
+
+// NUL makes PostgreSQL refuse the row (a 503 for a typo), and bidi overrides turn the desk's and the email's text around.
+test('refuses control and text-direction characters, keeping the message’s line breaks and tabs',async t=>{
+ const notice=notifier(),{post,rows}=await setup(t,{notice,limits:{perAddress:1000}});
+ const UNSAFE=['\u0000','\u0007','\u001b','\u007f','\u0085','\u009f','‪','‮','⁦','⁩'];
+ for(const field of ['name','organization','message'])for(const char of UNSAFE){
+  const answer=await post(valid({[field]:`Ciudad${char}Viva`}));
+  assert.equal(answer.status,400,`${field} ${JSON.stringify(char)}`);assert.equal(answer.body.field,field,`${field} ${JSON.stringify(char)}`);
+ }
+ for(const field of ['name','organization'])for(const char of ['\n','\r','\t'])assert.equal((await post(valid({[field]:`Ciudad${char}Viva`}))).body.field,field,`${field} ${JSON.stringify(char)}`);
+ for(const [field,value] of [['phone','+51\u0000999'],['email','ana\u0000@colectivo.pe'],['phone','999‮111']])assert.equal((await post(valid({[field]:value}))).body.field,field,`${field} ${JSON.stringify(value)}`);
+ assert.equal(rows().length,0);assert.equal(notice.calls.length,0);
+ // Line breaks and tabs stay in the message; the visible joiners of emoji and scripts are not controls.
+ const message='Hola,\r\n\tqueremos un Nodo.\nGracias \u{1F469}\u200d\u{1F469}\u200d\u{1F467} \u200eok';
+ assert.equal((await post(valid({message,name:'Ana Quispe 🌱',organization:'Colectivo Ciudad'}))).status,202);
+ assert.deepEqual([rows()[0].message,rows()[0].organization],[message,'Colectivo Ciudad']);
+});
+
 test('answers a filled honeypot like a success and stores nothing',async t=>{
  const notice=notifier(),{post,rows}=await setup(t,{notice});
  const email='bot@spam.example';

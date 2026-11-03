@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createNodeRequestNotice,NODE_REQUEST_RECIPIENTS} from '../server/node-requests-email.js';
-import {smtpError} from '../server/mailer.js';
+import {smtpError,createMailTransport,DEFAULT_REPLY_TO} from '../server/mailer.js';
 import {startFakeSmtp,parseMessage} from './helpers/fake-smtp.js';
 
 const origin='https://nodal.example.org';
@@ -37,11 +37,24 @@ test('sends one message to each team address with the organisation as Reply-To a
  }
 });
 
-test('says "no indicado" without a phone and skips Reply-To for an address the mailer rejects',async()=>{
- const transport=stub(()=>({}));const notify=createNodeRequestNotice({transport,origin,log:()=>{}});
- assert.equal(await notify({request:{...request,phone:null,email:'not an address'}}),'sent');
- assert.match(transport.sent[0].text,/Teléfono: no indicado/);assert.ok(!('replyTo' in transport.sent[0]));assert.equal(transport.sent[0].fromName,'NODAL');
- assert.deepEqual(transport.sent.map(m=>m.to),[...NODE_REQUEST_RECIPIENTS]);
+// The API refuses such an address, but the notice must not lean on that: left out, the mailer's own Reply-To (the
+// FIIU inbox by default) would take the team's replies. Through the real transport, so the header itself is checked.
+test('says "no indicado" without a phone and writes no Reply-To at all for an address the mailer rejects',async t=>{
+ const smtp=await startFakeSmtp();t.after(smtp.close);
+ for(const [env,fallback] of [[{...smtpEnv(smtp.port),EMAIL_REPLY_TO:'Equipo FIIU <fiiu-team@example.org>'},'fiiu-team@example.org'],[smtpEnv(smtp.port),DEFAULT_REPLY_TO]]){
+  assert.equal(createMailTransport({env}).replyTo.address,fallback,'the configured default the notice must not fall back to');
+  const notify=createNodeRequestNotice({env,loopbackOnly:true,log:()=>{}});smtp.messages.length=0;
+  for(const email of ['ana@colectivo.pe;','josé@muni.pe','not an address'])assert.equal(await notify({request:{...request,phone:null,email}}),'sent',email);
+  assert.equal(smtp.messages.length,6);
+  for(const raw of smtp.messages){
+   const message=parseMessage(raw.data);
+   assert.equal(message.headers['reply-to'],undefined,'no Reply-To header');assert.ok(!raw.data.includes(fallback),fallback);
+   assert.match(message.text,/Teléfono: no indicado/);assert.match(message.headers.from,/^"NODAL" </);
+  }
+  assert.deepEqual(smtp.messages.slice(0,2).map(m=>m.to[0]).sort(),[...NODE_REQUEST_RECIPIENTS].sort());
+ }
+ const transport=stub(()=>({}));await createNodeRequestNotice({transport,origin,log:()=>{}})({request:{...request,email:'not an address'}});
+ assert.ok(transport.sent.every(m=>m.replyTo===null),'replyTo is null, not left out, so the transport cannot fill in its default');
 });
 
 test('reports partial, uncertain and failed outcomes',async()=>{

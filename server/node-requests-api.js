@@ -2,6 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {fail,identifier} from './courses-domain.js';
 import {bodyJson} from './courses-api.js';
 import {validateEmail} from './auth.js';
+import {validAddress} from './mailer.js';
 import {encodeNewsCursor,decodeNewsCursor} from './news-api.js';
 
 /* Organisation node requests: the landing page's no-account form (spec: docs/superpowers/specs/2026-11-03-organisation-
@@ -19,21 +20,27 @@ const retentionCutoff=ms=>{const day=new Date(ms);day.setUTCMonth(day.getUTCMont
 // The desk's view: everything the team needs to answer, not who changed it last.
 export const nodeRequestAdminView=({id,name,organization,email,phone,message,language,status,emailStatus,createdAt,updatedAt,version})=>({id,name,organization,email,phone,message,language,status,emailStatus,createdAt,updatedAt,version});
 
-// Strings are trimmed first; a missing or blank required field is "required", the rest name what is wrong.
-function text(input,field,required=true){
+// C0 and C1 controls and the bidi embeddings, overrides and isolates: PostgreSQL refuses a NUL (a 503 for a typo) and
+// the others turn the desk's and the team email's text around. Only the message keeps its line breaks and tabs.
+const UNSAFE=/[\p{Cc}\u202A-\u202E\u2066-\u2069]/u,UNSAFE_IN_LINES=/(?![\n\r\t])[\p{Cc}\u202A-\u202E\u2066-\u2069]/u;
+// Strings are trimmed (and lower-cased when asked) before the length check; a missing or blank required field is
+// "required", the rest name what is wrong.
+function text(input,field,{required=true,lower=false}={}){
  const value=input[field];
  if(value==null){if(required)invalid(field,`${field} is required`);return '';}
  if(typeof value!=='string')invalid(field,`${field} must be text`);
- const clean=value.trim();
+ const clean=lower?value.trim().toLowerCase():value.trim();
  if(required&&!clean)invalid(field,`${field} is required`);
+ if((field==='message'?UNSAFE_IN_LINES:UNSAFE).test(clean))invalid(field,`${field} has a control or text-direction character`);
  if(clean.length>NODE_REQUEST_LIMITS[field])invalid(field,`${field} is too long`);
  return clean;
 }
 // The fields in the form's order, so the first problem reported is the first one the visitor sees.
 function normalizeNodeRequest(input){
  const name=text(input,'name'),organization=text(input,'organization');
- const email=text(input,'email').toLowerCase();if(!validateEmail(email))invalid('email','email is invalid');
- let phone=text(input,'phone',false);
+ // The mailer's rule too: the team replies through Reply-To, and an address it refuses would leave its default there.
+ const email=text(input,'email',{lower:true});if(!validateEmail(email)||!validAddress(email))invalid('email','email is invalid');
+ let phone=text(input,'phone',{required:false});
  if(phone&&!/^[0-9+() -]+$/.test(phone))invalid('phone','phone may hold only digits, spaces and + ( ) -');
  // A phone without a digit ("+", "( )") carries nothing to call.
  if(!/\d/.test(phone))phone=null;

@@ -29,8 +29,9 @@ export function createNodeRequestNotice({env=process.env,transport,origin=emailO
  return async function notify({request}){
   try{
    const message=noticeMessage(request,gate.origin);
-   const replyTo=validAddress(request.email)?{name:oneLine(request.name),address:request.email}:undefined;
-   const results=await Promise.allSettled(recipients.map(to=>gate.transport.send({to,...message,language:'es',fromName:'NODAL',...(replyTo?{replyTo}:{})})));
+   // null, never left out: the transport would fill in its own default Reply-To (the FIIU inbox) and take the replies.
+   const replyTo=validAddress(request.email)?{name:oneLine(request.name),address:request.email}:null;
+   const results=await Promise.allSettled(recipients.map(to=>gate.transport.send({to,...message,language:'es',fromName:'NODAL',replyTo})));
    const accepted=results.filter(r=>r.status==='fulfilled').length,refused=results.filter(r=>r.status==='rejected');
    const outcome=accepted===results.length?'sent':accepted?'partial':refused.some(r=>r.reason?.delivery!=='no')?'uncertain':'failed';
    if(outcome!=='sent')log(`Node request email ${outcome} for request ${request.id}${refused.map(r=>describe(r.reason)).join(',')}`);
