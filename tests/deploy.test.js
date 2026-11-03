@@ -329,7 +329,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     'reset-password.html': { 'i18n.js': '20261103a', 'recovery-i18n.js': '20261022a', 'password-recovery.js': '20261022a' },
     'payments.html': { 'i18n-dashboard.js': '20261104a', 'i18n.js': '20261103a', 'payments.js': '20261021c', ...pilot },
     'profile.html': { 'i18n-dashboard.js': '20261104a', 'i18n.js': '20261103a', 'profile.js': '20261023a', 'styles.css': '36', ...pilot },
-    'admin.html': { 'i18n-dashboard.js': '20261104a', 'styles.css': '36', 'admin.css': '20261103b', 'admin.js': '20261103b', 'i18n.js': '20261103a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20261013b', 'script.js': '18' },
+    'admin.html': { 'i18n-dashboard.js': '20261104a', 'styles.css': '36', 'admin.css': '20261104a', 'admin.js': '20261103b', 'i18n.js': '20261103a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20261013b', 'script.js': '18' },
     'course.html': { 'buc.js': '20261016c', 'i18n.js': '20261103a', 'courses.js': '20261029a', ...pilot },
     'courses.html': { 'buc.js': '20261016c', 'i18n.js': '20261103a', 'courses.js': '20261029a', ...pilot },
     'teaching.html': { 'i18n.js': '20261103a', 'teaching.js': '20261023a', ...pilot },

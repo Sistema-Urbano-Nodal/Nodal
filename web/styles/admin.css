@@ -228,9 +228,10 @@ textarea { resize: vertical; }
 .admin-interest-controls { display: flex; gap: var(--f-sp-2); align-items: end; }
 .admin-interest-controls label { flex: 1 1 auto; }
 
-/* ---------- organization node requests: the interest rows' layout, with the team-email warning in the alert colour ---------- */
-.admin-node { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(220px, auto); gap: var(--f-sp-2) var(--f-sp-5); align-items: start; padding: var(--f-sp-3) 0; }
-.admin-node + .admin-node { border-top: 1px solid var(--rule); }
+/* ---------- organization node requests: the interest rows' layout, with the team-email warning in the alert colour ----------
+   Requests are set apart by whitespace, not a rule on every row. */
+.admin-node-list { display: grid; gap: var(--f-sp-4); }
+.admin-node { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(220px, auto); gap: var(--f-sp-2) var(--f-sp-5); align-items: start; padding: var(--f-sp-2) 0; }
 .admin-node > * { min-width: 0; }
 .admin-node-who, .admin-node-body { display: grid; gap: 2px; }
 .admin-node h3 { font-size: .9375rem; font-weight: 700; overflow-wrap: anywhere; }

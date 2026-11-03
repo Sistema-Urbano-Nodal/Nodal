@@ -309,6 +309,17 @@ test('warns when the team email was not sent', async () => {
   assert.match(read('web', 'styles', 'admin.css'), /\.admin-node \.admin-node-warning\s*\{[^}]*color:\s*var\(--alert\)/);
 });
 
+// The owner's rule for the desk's sheet: whitespace between requests, as in the Founder band, never a rule on every row.
+test('sets requests apart by whitespace, not a rule between every two', () => {
+  const css = read('web', 'styles', 'admin.css');
+  const band = css.slice(css.indexOf('/* ---------- organization node requests'), css.indexOf('/* ---------- Membresía Fundador'));
+  assert.ok(band.length > 200, 'the band has its own block');
+  assert.doesNotMatch(band, /border-left|border-top|border-bottom|\bborder:/, 'requests are separated by whitespace, not rules');
+  assert.doesNotMatch(band, /text-transform|box-shadow/);
+  assert.match(band, /\.admin-node-list\s*\{\s*display:\s*grid;\s*gap:\s*var\(--f-sp-4\);\s*\}/);
+  assert.match(adminPage(), /href="admin\.css\?v=20261104a"/);
+});
+
 test('re-renders the band when the language changes', async () => {
   const request = view({ organization: 'Colectivo <b>Ciudad</b>', name: 'Ana 🌱', phone: '999 888 777', language: 'en', status: 'closed', emailStatus: 'off' });
   const d = desk({ nodes: () => response({ requests: [request], nextCursor: null }) });
