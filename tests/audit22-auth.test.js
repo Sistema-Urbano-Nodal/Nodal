@@ -43,7 +43,7 @@ async function signupAgainst(t, status, payload) {
     if (new URL(raw).pathname === '/auth/v1/signup') return new Response(JSON.stringify(payload), { status, headers: { 'content-type': 'application/json' } });
     throw new Error('unexpected provider call ' + raw);
   };
-  const base = await listen(t, createApp({ repository: createSupabaseRepository({ env: goTrueEnv, fetchImpl }), courseStore: null, fiiuStore: null, newsStore: null }));
+  const base = await listen(t, createApp({ repository: createSupabaseRepository({ env: goTrueEnv, fetchImpl }), courseStore: null, fiiuStore: null, newsStore: null, nodeRequestStore: null }));
   return fetch(base + '/api/auth/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fullName: 'Ana Pérez', email: 'ana@gmail.con', password: 'password123' }) });
 }
 

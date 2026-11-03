@@ -234,6 +234,17 @@ member and staff data:
 - `GET|POST /api/admin/catalog` and `PATCH /api/admin/catalog/:id` provide the protected, optimistic-versioned editorial workflow.
 - `GET /api/admin/interests?status=new&cursor=...` and `PATCH /api/admin/interests/:id` provide the protected, paginated review queue.
 
+Organisation node requests come from the landing page's "Para organizaciones NODAL" form, sent without an account,
+stored first and then emailed to the two team members (`server/node-requests-email.js`):
+
+- `POST /api/node-requests` `{name, organization, email, phone?, message, language?}` answers `202 {ok:true}`, 400
+  `{error, field}` naming the field, 429 (20 an hour per client address, 3 a day per email address) or 503 when the
+  request cannot be stored (nothing sent). It never reads the session. At most 40 requests a Lima day are emailed;
+  the rest are stored with the email `off`.
+- `GET /api/admin/node-requests?status=&limit=&cursor=` (24 a page), `PATCH|DELETE /api/admin/node-requests/:id`
+  back the desk's Nodos band, with optimistic versions (409 `version_conflict` carries the current request). Closed
+  requests are deleted 12 months after their last change, when the desk lists or a new request arrives.
+
 Before a production release, staff must publish real, sourced, trilingual
 records covering at least one case study, one open opportunity, one project,
 and one learning circle or resource. Do not use fabricated records or fallback

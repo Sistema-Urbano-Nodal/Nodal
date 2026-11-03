@@ -203,6 +203,40 @@ select column_name, column_default from information_schema.columns
 The party announcement uses the summary email's settings and shares its daily
 cap; without them the panel says email is off and nothing is sent.
 
+## Organisation node requests: one migration before `main`
+
+`20261103000000_node_requests.sql` adds the server-only table `node_requests`:
+one row per request sent through the landing page's "Para organizaciones NODAL"
+form, with or without an account (name, organisation, email, optional phone,
+message and language, the desk's status, and how the team email ended). The
+server may read, insert, update and delete it: the desk deletes a request on
+demand, and closed requests are purged 12 months after their last change. It is
+additive, and the code live today never reads it, so applying it first is safe.
+
+**Apply it before pushing `main`:** Vercel deploys on push, and until the table
+exists the new code fails on Supabase. Every node request
+(`POST /api/node-requests`) answers 503 (nothing stored, nothing sent), and the
+desk's Nodos band (`/api/admin/node-requests`) fails to load. Nothing else reads
+the table.
+
+```bash
+npx --no-install supabase db query --linked -f supabase/migrations/20261103000000_node_requests.sql
+npx --no-install supabase migration repair --status applied 20261103000000
+```
+
+```sql
+select rowsecurity from pg_tables where schemaname = 'public' and tablename = 'node_requests';
+-- t
+select has_table_privilege('anon', 'public.node_requests', 'select'),
+       has_table_privilege('service_role', 'public.node_requests', 'delete');  -- false, true
+```
+
+The team email needs nothing new in Vercel: it goes out through the production
+mail account (`EMAIL_SMTP_URL`, `EMAIL_FROM`, `PUBLIC_BASE_URL`) to the two
+addresses in `server/node-requests-email.js`, at most 40 requests a day in Lima
+time. On a Preview, or without those settings, requests are still stored and
+listed in the desk with the email `off`.
+
 ## Founder Membership acceptances: one migration before `main`
 
 `20261021000000_membership_acceptances.sql` adds the server-only table

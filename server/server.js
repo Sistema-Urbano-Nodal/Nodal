@@ -24,6 +24,9 @@ import { createRegistrationConfirmation, createPartyNotice } from './fiiu-email.
 import { encodeQr as encodeQrCode } from './qr.js';
 import { createNewsStore } from './news-repository.js';
 import { createNewsApi } from './news-api.js';
+import { createNodeRequestStore } from './node-requests-repository.js';
+import { createNodeRequestApi } from './node-requests-api.js';
+import { createNodeRequestNotice } from './node-requests-email.js';
 import { preparePageHtml } from './page-shell.js';
 import {createLocationProvider,validatePosition,validateCityId} from './location.js';
 import { createCourseParticipants } from './course-participants.js';
@@ -101,14 +104,19 @@ const SUPABASE_REFRESH_COOKIE = 'nodal_refresh';
 /* Routes that never read the session: resolving one would only cost provider calls.
    The FIIU programme is the same for everyone, so signed-in readers share the
    public per-address budget guests use. The conversation pulse is the same for
-   everyone too, and never sets a cookie, so the CDN can answer its polls. */
-const SESSIONLESS_API = new Set(['/api/health', '/api/billing/config', '/api/stripe/webhook', '/api/fiiu', '/api/fiiu/pulse', '/api/readings']);
+   everyone too, and never sets a cookie, so the CDN can answer its polls. An organisation's node request is sent
+   without an account, so it never waits on (or fails with) the session service. */
+const SESSIONLESS_API = new Set(['/api/health', '/api/billing/config', '/api/stripe/webhook', '/api/fiiu', '/api/fiiu/pulse', '/api/readings', '/api/node-requests']);
 /* BUC readings (server/buc.js) depend on the query only: the CDN answers repeats for 5 minutes and serves a stale
    answer for 10 more while it asks again. */
 const READINGS_CACHE_CONTROL = 'public, max-age=0, s-maxage=300, stale-while-revalidate=600';
 // Per-account conversation writes and file reads a minute (server/fiiu-talk-api.js); other reads and writes use the
 // FIIU budgets.
 const TALK_RATE_LIMITS = { message: 10, upload: 6, like: 60, moderate: 120, file: 300 };
+/* Organisation node requests (POST /api/node-requests, no account): per client address an hour, generous because a
+   room on shared Wi-Fi or a mobile carrier's NAT shares one address, and per email address a day. The 40 emailed a
+   Lima day are counted in the database instead (server/node-requests-api.js). */
+const NODE_REQUEST_RATE_LIMITS = { perAddress: 20, perEmail: 3 };
 /* Every phone in a room polls GET /api/fiiu/questions/:id/messages every few seconds, and on Supabase each request
    costs a GoTrue /user call and a profile read before the conversation's own reads. For that one read route, a session
    that resolved without changing any cookie is remembered per instance for 30 seconds (never past the access token's
@@ -124,7 +132,7 @@ const POLL_SESSION_MS = 30000, POLL_SESSION_MAX = 5000;
 const OPTIONAL_SESSION_API = /^\/api\/(?:auth\/state|news|catalog(?:\/[a-z0-9-]{1,40})?)$/;
 /* Routes that use only the member's id, email, name, role and account status, which
    the profile row carries. The full profile adds two reads to every request. */
-const ID_ONLY_API = /^\/api\/(?:network\/places|users|users\/search|users\/[^/]+\/(?:follow|interactions)|recommendations\/[^/]+|cities|billing\/status|checkout|me\/export|me\/catalog-interests|me\/location\/(?:suggest|accept)|(?:admin\/)?catalog(?:\/.*)?|admin\/interests(?:\/.*)?|(?:admin\/)?membership\/acceptances|admin\/membership\/founders(?:\/[^/]+)?)$/;
+const ID_ONLY_API = /^\/api\/(?:network\/places|users|users\/search|users\/[^/]+\/(?:follow|interactions)|recommendations\/[^/]+|cities|billing\/status|checkout|me\/export|me\/catalog-interests|me\/location\/(?:suggest|accept)|(?:admin\/)?catalog(?:\/.*)?|admin\/interests(?:\/.*)?|admin\/node-requests(?:\/.*)?|(?:admin\/)?membership\/acceptances|admin\/membership\/founders(?:\/[^/]+)?)$/;
 // A Stripe subscription in any of these states exists and can still bill the member.
 const LIVE_SUBSCRIPTION_STATUSES = new Set(['pending', 'active', 'trialing', 'past_due', 'unpaid', 'paused']);
 // The account deletion's upload refusals, by their wording, and the code the console translates each one by.
@@ -1081,7 +1089,8 @@ export function createApp({
   /* Where the Mercado Pago links and the membership contact are read: the deployment's environment, or a test's own
      (Vercel runs the suite with the former). */
   billingEnv = process.env,
-  // The membership's clock: whether the Founder Membership 2027 offer has ended, and when an acceptance was given. Tests move it.
+  /* The membership's clock: whether the Founder Membership 2027 offer has ended, and when an acceptance was given. Node
+     requests read it too: their stamps, the Lima day of the email ceiling and the 12-month purge. Tests move it. */
   now = () => Date.now(),
   /* Where server errors are reported besides the log. Only the deployed entry points (api/index.js, npm start) pass
      createErrorReporter(), which sends to Sentry when SENTRY_DSN is set; an app built anywhere else, a test included,
@@ -1121,6 +1130,13 @@ export function createApp({
   // The byte windows of the download budget course and festival files share (courses-api.js); tests shrink it.
   downloadLimits = DOWNLOAD_LIMITS,
   newsStore = repository?.database ? createNewsStore({db:repository.database}) : repository?.kind === 'supabase' ? createNewsStore() : null,
+  // Organisation node requests from the landing page (server/node-requests-api.js), on the same backend as the news.
+  nodeRequestStore = repository?.database ? createNodeRequestStore({db:repository.database}) : repository?.kind === 'supabase' ? createNodeRequestStore() : null,
+  /* The team's email for each node request (server/node-requests-email.js), or null (stored as 'off'). Gated like the
+     FIIU summary: a local SQLite server only sends to a loopback mail catcher. Tests inject a notifier. */
+  nodeRequestNotice = nodeRequestStore ? createNodeRequestNotice({ loopbackOnly: repository?.kind !== 'supabase' }) : null,
+  // Overrides for NODE_REQUEST_RATE_LIMITS; tests raise them to send more than twenty requests from one address.
+  nodeRequestLimits = NODE_REQUEST_RATE_LIMITS,
   /* BUC's publication feed (server/buc.js): off, making no request, unless BUC_FEED_URL is an https address. Tests
      inject a reader with a fake fetch. */
   bucFeed = bucFeedFromEnv(),
@@ -1351,6 +1367,21 @@ export function createApp({
     rateLimit:(req,res,user)=>['GET','HEAD'].includes(req.method)?throttle(user?newsReadLimiter:newsPublicReadLimiter,res,req,user,'news')
       :throttle(newsWriteLimiter,res,req,user,'news-write'),
   }):null;
+  /* Node requests: the public form's budgets per client address and per email address (sha256, like the sign-up's
+     account key), and the desk's writes on a per-account budget like the news desk's. */
+  const nodeRequestLimit={...NODE_REQUEST_RATE_LIMITS,...nodeRequestLimits};
+  const nodeRequestIpLimiter=createWindowRateLimiter({windowMs:60*60*1000,limit:nodeRequestLimit.perAddress});
+  const nodeRequestEmailLimiter=createWindowRateLimiter({windowMs:24*60*60*1000,limit:nodeRequestLimit.perEmail});
+  const nodeRequestWriteLimiter=createWindowRateLimiter({windowMs:60000,limit:30});
+  const nodeRequestApi=nodeRequestStore?createNodeRequestApi({store:nodeRequestStore,notify:nodeRequestNotice,sameOrigin,send,now,
+    ipAllowed:(req,res)=>throttle(nodeRequestIpLimiter,res,req,null,'node-request'),
+    emailAllowed:(email,res)=>{
+      const rate=nodeRequestEmailLimiter.take(`node-request-email:${createHash('sha256').update(email).digest('hex')}`);
+      if(rate.ok)return true;
+      send(res,429,{error:'too many requests'},{'Retry-After':String(rate.retryAfter)});return false;
+    },
+    adminRateLimit:(req,res,user)=>throttle(nodeRequestWriteLimiter,res,req,user,'node-request-write'),
+  }):null;
   const courseApi=courseStore?createCourseApi({store:courseStore,userRepository:repository,sameOrigin,send,downloads,reportAnswer,perks:createCoursePerks({fiiuStore}),
     // Only an upload spends the upload budget; staff list the file library after every upload, use and delete.
     rateLimit:(req,res,user,pathname)=>throttle(pathname.endsWith('/invitations')?courseInvitationLimiter:req.method==='POST'&&pathname.endsWith('/attachments')?courseUploadLimiter:['GET','HEAD'].includes(req.method)?courseReadLimiter:courseWriteLimiter,res,req,user,'course'),
@@ -1485,6 +1516,7 @@ export function createApp({
       if(talkApi && await talkApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
       if(fiiuApi && await fiiuApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
       if(newsApi && await newsApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
+      if(nodeRequestApi && await nodeRequestApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
 
       if(req.method==='POST'&&pathname==='/api/auth/course-invitation/complete') {
         if(!sameOrigin(req)){send(res,403,{code:'invitation_forbidden'});return;}

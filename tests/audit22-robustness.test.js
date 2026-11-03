@@ -56,7 +56,7 @@ function provider({ user = 200, rest } = {}) {
   };
   return { calls, repository: createSupabaseRepository({ env: ENV, fetchImpl }) };
 }
-const bootSupabase = (t, repository, options = {}) => listen(t, createApp({ repository, courseStore: null, fiiuStore: null, talkStore: null, newsStore: null, citySearch: { search: async () => ({ cities: [] }) }, ...options }));
+const bootSupabase = (t, repository, options = {}) => listen(t, createApp({ repository, courseStore: null, fiiuStore: null, talkStore: null, newsStore: null, nodeRequestStore: null, citySearch: { search: async () => ({ cities: [] }) }, ...options }));
 const POSTGREST_REFUSALS = [
   [401, { code: 'PGRST301', message: 'JWT expired' }],
   [403, { code: '42501', message: 'permission denied for table profiles' }],

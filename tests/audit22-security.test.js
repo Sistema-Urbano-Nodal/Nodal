@@ -88,7 +88,7 @@ test('Supabase answers a catalog item or a member that cannot exist without aski
   assert.equal(await repository.getUserById({ toString: 1 }), null);
   assert.deepEqual(calls, []);
   const reports = [], errors = capture(t, 'error');
-  const base = await listen(t, createApp({ repository, courseStore: null, fiiuStore: null, newsStore: null, errorReport: { enabled: true, report: async (_err, context) => { reports.push(context); return true; } } }));
+  const base = await listen(t, createApp({ repository, courseStore: null, fiiuStore: null, newsStore: null, nodeRequestStore: null, errorReport: { enabled: true, report: async (_err, context) => { reports.push(context); return true; } } }));
   for (let i = 0; i < 5; i += 1) assert.equal((await fetch(`${base}/api/catalog/probe${i}`)).status, 404);
   assert.deepEqual(calls, []);
   assert.deepEqual(reports, []);
