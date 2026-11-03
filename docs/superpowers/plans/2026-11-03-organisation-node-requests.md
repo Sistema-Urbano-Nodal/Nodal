@@ -171,6 +171,6 @@
 
 ### Finish
 
-- [ ] `npm run lint` → exit 0; `npm test` → 0 failures; then the Vercel-like run `env VERCEL=1 VERCEL_ENV=production PUBLIC_BASE_URL=https://example.org npm run build` → same failures as `main` before this work (record any pre-existing ones by name).
+- [ ] `npm run lint` → exit 0; `npm test` → 0 failures; then the Vercel-like run `env VERCEL=1 VERCEL_ENV=production PUBLIC_BASE_URL=https://example.org EMAIL_SMTP_URL='smtps://user:pass@smtp.example.invalid:465' EMAIL_FROM='FIIU Fest 11 <fest@example.invalid>' npm run build` (dummy mail settings, as Vercel has real ones: every gate that is off logs) → same failures as `main` before this work (record any pre-existing ones by name).
 - [ ] Local preview on 127.0.0.1 with a loopback mail catcher: send a request in ES and EN, see the desk band, update and delete; screenshot the card at 1280, 900 and 375 px.
 - [ ] Hand the owner the migration commands; push only on their word, then verify the deploy and one live request (theirs).

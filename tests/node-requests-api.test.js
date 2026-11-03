@@ -230,8 +230,9 @@ test('answers 503 and sends nothing when the store refuses the insert',async t=>
   assert.equal(response.status,503,refusal.message);assert.deepEqual(await response.json(),{error:'service unavailable'});
   assert.equal(notice.calls.length,0);assert.equal(app.rows().length,0);
  }
+ // Only this feature's lines: with Vercel's real mail settings each createApp also logs the FIIU gates being off.
  const lines=logged.mock.calls.map(c=>c.arguments.join(' '));
- assert.equal(lines.length,3);assert.ok(lines.every(l=>!l.includes('ana@')&&!l.includes('Ana Quispe')),lines.join('\n'));
+ assert.equal(lines.filter(l=>/^Node request/.test(l)).length,3,lines.join('\n'));assert.ok(lines.every(l=>!l.includes('ana@')&&!l.includes('Ana Quispe')),lines.join('\n'));
 });
 
 test('refuses a cross-origin post',async t=>{
