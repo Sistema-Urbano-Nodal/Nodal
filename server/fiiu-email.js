@@ -302,7 +302,7 @@ export function partyEmail({event=FIIU_EVENT,language,origin}){
    but a loopback mail catcher, or on any Vercel deployment other than Production: a Preview runs unreviewed branch
    code and may share the production database, so even if the mail credentials are scoped to it by mistake it never
    emails registrants. Shared by the summary and the notices. */
-function mailGate({env,transport,origin,loopbackOnly,log,label}){
+export function mailGate({env,transport,origin,loopbackOnly,log,label}){
  if(transport===undefined&&env.VERCEL&&env.VERCEL_ENV!=='production'){log(`${label} is off outside Vercel Production`);return null;}
  if(transport===undefined){try{transport=createMailTransport({env});}catch(err){log(`${label} is off: ${err.message}`);return null;}}
  if(!transport)return null;
