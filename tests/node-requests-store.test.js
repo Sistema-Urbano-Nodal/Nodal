@@ -46,11 +46,11 @@ test('update is a compare-and-swap on version',async t=>{
  db.prepare('DELETE FROM users WHERE id=?').run(admin.id);assert.equal((await store.get(uuid(1))).updatedBy,null,'a vanished administrator is cleared');
 });
 
-test('counts only requests whose email was attempted since a time',async t=>{
+test('counts every request not marked off since a time, sends still in flight (null) included',async t=>{
  const {store}=sqlite(t);
  await store.insert(record(1,{emailStatus:'sent'}));await store.insert(record(2,{emailStatus:'off'}));await store.insert(record(3));
  await store.insert(record(4,{emailStatus:'uncertain'}));await store.insert(record(5,{emailStatus:'failed'}));await store.insert(record(6,{emailStatus:'partial'}));
- assert.equal(await store.countEmailedSince('2026-10-01T00:00:00.000Z'),4);
+ assert.equal(await store.countEmailedSince('2026-10-01T00:00:00.000Z'),5,'everything but off, the null of request 3 included');
  assert.equal(await store.countEmailedSince('2026-10-05T10:00:00.000Z'),2,'the boundary instant counts');
  assert.equal(await store.countEmailedSince('2026-11-01T00:00:00.000Z'),0);
 });
@@ -86,13 +86,14 @@ test('the CHECKs refuse an oversized message and an unknown status',async t=>{
  assert.deepEqual(await store.list({limit:10}).then(rows=>rows.map(r=>r.id)),[uuid(8),uuid(7)]);
 });
 
-// In-memory PostgREST for node_requests: eq/lt/gte/neq/not.is leaves inside and()/or() trees, order, limit and exact
+// In-memory PostgREST for node_requests: eq/lt/gte/neq/is/not.is leaves inside and()/or() trees, order, limit and exact
 // counts, with timestamps printed the way PostgreSQL does (+00:00) and the table's own CHECKs for the status enum.
 function postgrest(){
  const rows=[],calls=[],stamp=key=>key.endsWith('_at');
  const cmp=(key,a,b)=>a===b?0:a==null?-1:b==null?1:Math.sign(stamp(key)?Date.parse(a)-Date.parse(b):a<b?-1:1);
  const split=text=>{const out=[];let depth=0,start=0;for(let i=0;i<text.length;i++){if(text[i]==='(')depth++;else if(text[i]===')')depth--;else if(text[i]===','&&!depth){out.push(text.slice(start,i));start=i+1;}}return [...out,text.slice(start)];};
  const leaf=(row,key,expr)=>{
+  if(expr==='is.null')return row[key]==null;
   if(expr==='not.is.null')return row[key]!=null;
   const [op,...rest]=expr.split('.'),value=rest.join('.'),actual=row[key]==null?null:String(row[key]);
   if(actual===null&&op!=='eq')return false;const c=cmp(key,actual,value);
@@ -153,9 +154,11 @@ test('the Supabase store updates on the version it loaded, records the email out
  assert.equal(await store.setEmailStatus(uuid(1),'sent'),undefined);
  assert.deepEqual(pg.calls.at(-1).query,{id:`eq.${uuid(1)}`});assert.deepEqual(pg.calls.at(-1).body,{email_status:'sent'});assert.equal((await store.get(uuid(1))).version,2);
  await store.insert(record(2,{emailStatus:'off'}));await store.insert(record(3));await store.insert(record(4,{emailStatus:'failed'}));
- assert.equal(await store.countEmailedSince('2026-10-01T00:00:00.000Z'),2);
- const count=pg.calls.at(-1);assert.equal(count.headers.Prefer,'count=exact');assert.equal(count.query.created_at,'gte.2026-10-01T00:00:00.000Z');assert.equal(count.query.and,'(email_status.not.is.null,email_status.neq.off)');
- assert.equal(await store.countEmailedSince('2026-10-02T00:00:00.000Z'),1);assert.equal(await store.countEmailedSince('2026-11-01T00:00:00.000Z'),0);
+ // Everything but off: request 3 (null, its send still in flight) counts; PostgreSQL's neq alone would drop the null.
+ assert.equal(await store.countEmailedSince('2026-10-01T00:00:00.000Z'),3);
+ const count=pg.calls.at(-1);assert.equal(count.headers.Prefer,'count=exact');assert.equal(count.query.created_at,'gte.2026-10-01T00:00:00.000Z');
+ assert.equal(count.query.or,'(email_status.is.null,email_status.neq.off)');assert.equal(count.query.and,undefined);
+ assert.equal(await store.countEmailedSince('2026-10-02T00:00:00.000Z'),2);assert.equal(await store.countEmailedSince('2026-11-01T00:00:00.000Z'),0);
  await store.insert(record(5,{status:'closed',updatedAt:'2026-01-01T00:00:00.000Z'}));await store.insert(record(6,{status:'closed',updatedAt:'2026-10-20T00:00:00.000Z'}));await store.insert(record(7,{updatedAt:'2026-01-01T00:00:00.000Z'}));
  assert.equal(await store.purgeClosedBefore('2026-06-01T00:00:00.000Z'),1);
  assert.deepEqual(pg.calls.at(-1).query,{status:'eq.closed',updated_at:'lt.2026-06-01T00:00:00.000Z'});assert.equal(pg.calls.at(-1).method,'DELETE');

@@ -147,10 +147,11 @@ test('limits requests per address and per email',async t=>{
 test('stores off and sends nothing past 40 emailed requests in a Lima day',async t=>{
  const logged=t.mock.method(console,'warn',()=>{});
  const notice=notifier(),{post,seed,rows,clock}=await setup(t,{notice,start:'2026-11-03T23:00:00.000Z'});
- // 39 attempted sends since 00:00 in Lima (05:00 UTC), whatever their outcome; none of the others counts.
+ // 38 attempted sends since 00:00 in Lima (05:00 UTC), whatever their outcome, and one still in flight (null): with the
+ // new request's own row that makes 40. Neither the previous Lima day nor off counts.
  const outcomes=['sent','partial','failed','uncertain'];
  await seed([
-  ...Array.from({length:39},(_,n)=>stored(n,{createdAt:'2026-11-03T05:00:00.000Z',emailStatus:outcomes[n%4]})),
+  ...Array.from({length:38},(_,n)=>stored(n,{createdAt:'2026-11-03T05:00:00.000Z',emailStatus:outcomes[n%4]})),
   ...Array.from({length:10},(_,n)=>stored(100+n,{createdAt:'2026-11-03T04:59:59.999Z'})), // the previous Lima day, the same UTC day
   stored(200,{emailStatus:'off'}),stored(201,{emailStatus:null}),
  ]);
@@ -163,6 +164,22 @@ test('stores off and sends nothing past 40 emailed requests in a Lima day',async
  assert.equal(await statusOf(valid()),'off');assert.equal(notice.calls.length,1);
  clock.at=Date.parse('2026-11-04T05:00:00.000Z');// midnight in Lima
  assert.equal(await statusOf(valid()),'sent');assert.equal(notice.calls.length,2);
+});
+
+test('counts the sends still in flight, so the 41st of a burst is stored off',async t=>{
+ t.mock.method(console,'warn',()=>{});
+ let release;const gate=new Promise(resolve=>{release=resolve;});t.after(()=>release());
+ // The first two sends stay in flight (email_status null) until the gate opens, as when instances answer at once.
+ const notice=notifier((request,n)=>n<=2?gate.then(()=>'sent'):'sent'),{post,seed,rows}=await setup(t,{notice});
+ await seed(Array.from({length:38},(_,n)=>stored(n)));
+ const inFlight=async n=>{const answer=post(valid()),started=Date.now();
+  while(notice.calls.length<n&&Date.now()-started<5000)await pause(5);assert.equal(notice.calls.length,n);return {answer};};
+ const first=await inFlight(1),second=await inFlight(2);// the 39th and the 40th of the Lima day
+ assert.deepEqual(rows().slice(38).map(r=>r.email_status),[null,null],'both sends are in flight');
+ const last=valid();assert.deepEqual(await post(last),{status:202,body:{ok:true}});
+ assert.equal(rows().find(r=>r.email===last.email).email_status,'off','the 41st counts both sends in flight');assert.equal(notice.calls.length,2);
+ release();assert.deepEqual([await first.answer,await second.answer],[{status:202,body:{ok:true}},{status:202,body:{ok:true}}]);
+ assert.deepEqual(rows().slice(38).map(r=>r.email_status),['sent','sent','off']);
 });
 
 test('stores the outcome the notifier reports, and off when email is gated',async t=>{

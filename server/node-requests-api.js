@@ -58,10 +58,11 @@ export function createNodeRequestApi({store,notify,sameOrigin,send,now=()=>Date.
  // Closed requests leave 12 calendar months after their last change. Best effort: a failure never fails the request.
  const purge=async()=>{try{await store.purgeClosedBefore(retentionCutoff(now()));}catch(err){log(`Node request purge failed${reason(err)}`);}};
  // 'off' without a notifier (email gated or not configured) or past the day's ceiling, counted in the database so it
- // holds across instances. The row being sent is not counted yet: its email_status is still null.
+ // holds across instances. The count takes in this request's own row (inserted before) and every send still in flight
+ // (null), so concurrent requests never email more than 40 a Lima day.
  async function emailOutcome(request){
   if(!notify)return 'off';
-  try{if(await store.countEmailedSince(limaDayStart(now()))>=NODE_REQUEST_LIMITS.emailsPerDay){log(`Node request email off for request ${request.id}: ${NODE_REQUEST_LIMITS.emailsPerDay} requests already emailed today in Lima`);return 'off';}}
+  try{if(await store.countEmailedSince(limaDayStart(now()))>NODE_REQUEST_LIMITS.emailsPerDay){log(`Node request email off for request ${request.id}: ${NODE_REQUEST_LIMITS.emailsPerDay} requests already emailed today in Lima`);return 'off';}}
   catch(err){log(`Node request email off for request ${request.id}: the day's count is unavailable${reason(err)}`);return 'off';}
   try{return await notify({request});}catch{log(`Node request email failed for request ${request.id}`);return 'failed';}
  }

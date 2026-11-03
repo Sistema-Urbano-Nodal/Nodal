@@ -64,10 +64,12 @@ export function createNodeRequestStore({db,env=process.env,clients,fetchImpl=fet
    const result=await supa.admin.rest('node_requests',{method:'PATCH',query:{id:`eq.${id}`},headers:{Prefer:'return=representation'},body:{email_status:emailStatus}});
    if(!Array.isArray(result))fail('node request save unavailable',502);
   },
-  // The daily email budget: requests whose send was attempted (anything but null or 'off') since `iso`.
+  // The daily email budget: every request since `iso` not marked 'off', the null of a send still in flight included, so
+  // a burst across instances cannot slip past it. A null left by a failed setEmailStatus counts too: the safe side.
   async countEmailedSince(iso){
-   if(db)return db.prepare("SELECT count(*) AS n FROM node_requests WHERE created_at>=? AND email_status IS NOT NULL AND email_status<>'off'").get(iso).n;
-   const page=await supa.admin.rest('node_requests',{query:{select:'id',created_at:`gte.${iso}`,and:'(email_status.not.is.null,email_status.neq.off)',limit:1},includeRange:true,headers:{Prefer:'count=exact'}});
+   if(db)return db.prepare("SELECT count(*) AS n FROM node_requests WHERE created_at>=? AND (email_status IS NULL OR email_status<>'off')").get(iso).n;
+   // neq alone would drop the nulls (PostgreSQL's three-valued logic), hence the or().
+   const page=await supa.admin.rest('node_requests',{query:{select:'id',created_at:`gte.${iso}`,or:'(email_status.is.null,email_status.neq.off)',limit:1},includeRange:true,headers:{Prefer:'count=exact'}});
    const total=Number(page?.contentRange?.split('/')[1]);if(!Array.isArray(page?.rows)||!Number.isInteger(total))fail('node requests unavailable',502);return total;
   },
   async remove(id){
