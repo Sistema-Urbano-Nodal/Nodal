@@ -241,6 +241,34 @@ test('the Founder badge is described in every language: who gives it, where it s
   }
 });
 
+// Organisation node requests are stored without an account and emailed to two inboxes, so the policy says who sees them and what deletion really covers.
+test('the policy describes organisation node requests in all three languages', () => {
+  const html = read('web/pages/privacy.html');
+  const articles = Object.fromEntries([...html.matchAll(/<article data-policy-lang="(en|es|pt)"[^>]*>([\s\S]*?)<\/article>/g)].map(([, lang, body]) => [lang, body]));
+  const section = (lang, n) => articles[lang].match(new RegExp(`<section id="${lang}-${n}">([\\s\\S]*?)</section>`))[1];
+  for (const [lang, category, fields, noAccount, inboxes, onRequest, closed, notExport, retention] of [
+    ['en', 'Organisation node requests', 'the name, organisation, email, phone (optional) and message you write', 'no account is needed',
+      'fmuro@sistemaurbano.org and malegre@sistemaurbano.org, through the outgoing email account NODAL uses, so copies also sit in those two inboxes and in the Sent folder of that account',
+      'You can ask us to delete your request, and the team deletes it and the email copies by hand.', 'Closed requests are deleted automatically 12 months after their last change',
+      'Requests are not part of any account export or account deletion.', 'The two emails sent to the team are not deleted automatically: the team deletes those copies by hand when you ask.'],
+    ['es', 'Solicitudes de Nodo de organizaciones', 'el nombre, la organización, el correo, el teléfono (opcional) y el mensaje que escribes', 'no hace falta una cuenta',
+      'fmuro@sistemaurbano.org y malegre@sistemaurbano.org, desde la cuenta de correo saliente de NODAL, de modo que también quedan copias en esas dos bandejas y en la carpeta de enviados de esa cuenta',
+      'Puedes pedirnos que eliminemos tu solicitud, y el equipo la elimina junto con las copias de los correos, a mano.', 'Las solicitudes cerradas se eliminan automáticamente 12 meses después de su último cambio',
+      'Las solicitudes no forman parte de la exportación de ninguna cuenta ni de su eliminación.', 'Los dos correos enviados al equipo no se eliminan automáticamente: el equipo elimina esas copias a mano cuando lo pides.'],
+    ['pt', 'Solicitações de Nó de organizações', 'o nome, a organização, o e-mail, o telefone (opcional) e a mensagem que você escreve', 'não é preciso ter conta',
+      'fmuro@sistemaurbano.org e malegre@sistemaurbano.org, pela conta de e-mail de saída da NODAL, de modo que também ficam cópias nessas duas caixas de entrada e na pasta de enviados dessa conta',
+      'Você pode pedir que excluamos a sua solicitação, e a equipe a exclui junto com as cópias dos e-mails, manualmente.', 'As solicitações encerradas são excluídas automaticamente 12 meses depois da última alteração',
+      'As solicitações não fazem parte da exportação de nenhuma conta nem da sua exclusão.', 'Os dois e-mails enviados à equipe não são excluídos automaticamente: a equipe exclui essas cópias manualmente quando você pede.'],
+  ]) {
+    const row = section(lang, 2).match(new RegExp(`<tr role="row"><td role="cell">${category}</td><td role="cell">([^<]*)</td></tr>`))?.[1];
+    assert.ok(row, `${lang}: a data row for node requests`);
+    for (const [what, text] of [['fields', fields], ['no account', noAccount], ['the two inboxes and the Sent folder', inboxes], ['deletion on request', onRequest], ['12-month deletion of closed requests', closed], ['not in the export', notExport]]) assert.ok(row.includes(text), `${lang}: ${what}`);
+    assert.ok(/12 (months|meses)/.test(section(lang, 9)), `${lang}: section 9 gives the 12 months`);
+    assert.ok(section(lang, 9).includes(retention), `${lang}: section 9 says the email copies are deleted by hand`);
+    assert.ok(section(lang, 4).includes('fmuro') === false && /organi[sz]ation|organizaci|organizaç/i.test(section(lang, 4)), `${lang}: section 4 names who sees the requests`);
+  }
+});
+
 test('Sentry is named, in every language, as the recipient of technical server error reports, and what it never receives', () => {
   const html = read('web/pages/privacy.html');
   const articles = Object.fromEntries([...html.matchAll(/<article data-policy-lang="(en|es|pt)"[^>]*>([\s\S]*?)<\/article>/g)].map(([, lang, body]) => [lang, body]));
