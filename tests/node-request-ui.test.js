@@ -106,17 +106,23 @@ async function mount({ lang = 'en', hash = '', fetchImpl = async () => answer(20
   const replaced = [];
   const history = { state: { kept: true }, replaceState(state, title, url) { replaced.push({ state, url }); location.hash = ''; } };
   const requests = [];
+  // The request's time limit runs on these timers, fired by hand: expire() runs every one not cleared.
+  const timers = [];
   const context = {
     document,
     window: { nodalI18n: i18n, location, history },
     fetch: (url, options) => { requests.push({ url, options }); return fetchImpl(url, options); },
+    setTimeout: (run, ms) => timers.push({ run, ms, cleared: false }),
+    clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].cleared = true; },
+    AbortController,
     console,
   };
   vm.runInNewContext(script(), context, { filename: 'node-request.js' });
   await settle();
   const $ = (id) => byId.get(id);
   return {
-    $, document, nodes, i18n, requests, replaced, location,
+    $, document, nodes, i18n, requests, replaced, location, timers,
+    async expire() { for (const timer of timers) if (!timer.cleared) { timer.cleared = true; timer.run(); } await settle(); },
     dialog: $('nodeRequest'), form, error: $('nodeRequestError'), send: $('nodeRequestSend'), thanks: $('nodeRequestThanks'),
     labelled: (key) => nodes.find((node) => node.dataset.i18n === key),
     type(values) { for (const [field, value] of Object.entries(values)) $(FIELDS[field]).value = value; },
@@ -168,10 +174,14 @@ test('the landing page has a third card that links to #nodos and a dialog with e
   assert.deepEqual([close.tag, close.type, close['data-i18n-aria-label']], ['button', 'button', 'mem.org.close']);
   const thanks = between(DIALOG, '<div class="nr-thanks" id="nodeRequestThanks" hidden>', '</div>');
   assert.match(thanks, /<button[^>]*id="nodeRequestDone"[^>]*type="button"/, 'the thank-you has its own close button');
+  // Focus lands on that button, so it carries the thanks as its description: a screen reader says both.
+  const done = element(DIALOG, 'nodeRequestDone');
+  assert.ok(done['aria-describedby'], 'the close button is described');
+  assert.deepEqual([element(thanks, done['aria-describedby']).tag, element(thanks, done['aria-describedby'])['data-i18n']], ['p', 'mem.org.thanks'], 'by the thanks paragraph');
   assert.match(DIALOG, /<a href="privacy\.html"[^>]*data-i18n="nav\.privacy">Privacy policy<\/a>/, 'the privacy line links the policy');
   // The page loads the window's style after the site's and its script after the dictionaries.
-  assert.ok(HTML.indexOf('href="styles.css?v=') < HTML.indexOf('href="node-request.css?v=20261103a"'));
-  assert.ok(HTML.indexOf('src="i18n.js?v=') < HTML.indexOf('<script defer src="node-request.js?v=20261103a"></script>'));
+  assert.ok(HTML.indexOf('href="styles.css?v=') < HTML.indexOf('href="node-request.css?v=20261104a"'));
+  assert.ok(HTML.indexOf('src="i18n.js?v=') < HTML.indexOf('<script defer src="node-request.js?v=20261104a"></script>'));
 });
 
 test('the card and the window say the team’s words in Spanish, and English and Portuguese in the same register', () => {
@@ -179,9 +189,9 @@ test('the card and the window say the team’s words in Spanish, and English and
   const COPY = {
     'mem.org.name': ['NODAL for organizations', 'Para organizaciones NODAL', 'Para organizações NODAL'],
     'mem.org.tagline': ['Activate a territorial and/or thematic Node', 'Activa un Nodo territorial y/o temático', 'Ative um Nó territorial e/ou temático'],
-    'mem.org.p': ['If your organization wants to promote a node in its area of influence and/or help give visibility to an urban issue, contact us to talk it over.', 'Si eres una organización interesada en promover un nodo en tu área de influencia y/o quieres contribuir a dar visibilidad a un tema urbano. Contáctanos para conversar.', 'Se você é uma organização interessada em promover um nó na sua área de influência e/ou quer contribuir para dar visibilidade a um tema urbano, fale com a gente para conversar.'],
+    'mem.org.p': ['If your organization wants to promote a node in its area of influence and/or help give visibility to an urban issue, contact us to talk it over.', 'Si eres una organización interesada en promover un nodo en tu área de influencia y/o quieres contribuir a dar visibilidad a un tema urbano. Contáctanos para conversar.', 'Se você é uma organização interessada em promover um nó na sua área de influência e/ou quer contribuir para dar visibilidade a um tema urbano, entre em contato para conversarmos.'],
     'mem.org.cta': ['Contact us', 'Contáctanos', 'Fale com a gente'],
-    'mem.org.intro': ['Tell us who you are and what interests you; we will write back to talk it over.', 'Cuéntanos quién eres y qué te interesa; te escribiremos para conversar.', 'Conte quem você é e o que te interessa; vamos escrever para conversar.'],
+    'mem.org.intro': ['Tell us who you are and what interests you; we will write back to talk it over.', 'Cuéntanos quién eres y qué te interesa; te escribiremos para conversar.', 'Conte quem você é e o que te interessa; vamos te escrever para conversar.'],
     'mem.org.fName': ['Full name', 'Nombre y apellido', 'Nome e sobrenome'],
     'mem.org.fOrg': ['Organization', 'Organización', 'Organização'],
     'mem.org.fEmail': ['Email', 'Correo electrónico', 'E-mail'],
@@ -269,6 +279,9 @@ test('sends one POST with the typed fields and the page language, and thanks', a
   assert.equal(page.thanks.hidden, false);
   assert.equal(page.labelled('mem.org.thanks').textContent, 'Gracias. Recibimos tu mensaje y te escribiremos pronto.');
   assert.equal(page.document.activeElement, page.$('nodeRequestDone'));
+  const description = page.$(page.document.activeElement.getAttribute('aria-describedby'));
+  assert.equal(description?.textContent, 'Gracias. Recibimos tu mensaje y te escribiremos pronto.', 'the focused button announces the thanks');
+  assert.equal(description.hidden, false);
   assert.equal(page.error.hidden, true);
   assert.equal(page.send.disabled, false);
   assert.equal(page.send.textContent, 'Enviar');
@@ -340,6 +353,7 @@ test('shows the field error for a 400 and keeps what was typed', async () => {
     assert.equal(page.error.textContent, text, field);
     assert.equal(page.document.activeElement, page.$(FIELDS[field]), `${field} gets the focus`);
     assert.equal(page.$(FIELDS[field]).getAttribute('aria-invalid'), 'true', field);
+    assert.equal(page.$(FIELDS[field]).getAttribute('aria-describedby'), 'nodeRequestError', `${field} is described by the reason`);
     assert.deepEqual(page.typed(), FILLED, `${field}: what was typed stays`);
     assert.deepEqual([page.form.hidden, page.thanks.hidden], [false, true]);
     // The next try starts clean.
@@ -351,10 +365,28 @@ test('shows the field error for a 400 and keeps what was typed', async () => {
   fixed.type({ ...FILLED, email: 'ana' });
   await fixed.submit();
   assert.equal(fixed.$('nodeRequestEmail').getAttribute('aria-invalid'), 'true');
+  assert.equal(fixed.$('nodeRequestEmail').getAttribute('aria-describedby'), 'nodeRequestError');
   fixed.type({ email: 'ana@calleviva.example' });
   await fixed.submit();
   assert.equal(fixed.$('nodeRequestEmail').getAttribute('aria-invalid'), null);
+  assert.equal(fixed.$('nodeRequestEmail').getAttribute('aria-describedby'), null, 'no longer pointed at a hidden reason');
   assert.equal(fixed.thanks.hidden, false);
+  // Both go as soon as the next submit starts, while it is on its way.
+  const replies = [];
+  const pending = await mount({ fetchImpl: () => { const reply = later(); replies.push(reply); return reply.promise; } });
+  const marks = () => ['aria-invalid', 'aria-describedby'].map((name) => pending.$('nodeRequestName').getAttribute(name));
+  pending.open();
+  pending.type(FILLED);
+  await pending.submit();
+  replies[0].resolve(answer(400, { field: 'name' }));
+  await settle();
+  assert.deepEqual(marks(), ['true', 'nodeRequestError']);
+  await pending.submit();
+  assert.equal(replies.length, 2);
+  assert.deepEqual(marks(), [null, null], 'cleared while the next answer is awaited');
+  replies[1].resolve(answer(202, { ok: true }));
+  await settle();
+  assert.deepEqual(marks(), [null, null]);
 
   // No field to point at, or not the API's answer: the service is unavailable, and nothing typed is lost.
   const UNAVAILABLE = 'The service is not available right now. Try again in a few minutes.';
@@ -402,6 +434,90 @@ test('shows the team addresses on 429 and when the API is unreachable', async ()
   spanish.open();
   await spanish.submit();
   assert.equal(spanish.error.textContent, 'Demasiados intentos. Intenta de nuevo más tarde o escríbenos a fmuro@sistemaurbano.org o malegre@sistemaurbano.org.');
+});
+
+test('gives up after 25 seconds as when the API is unreachable, and frees the button', async () => {
+  const UNREACHABLE = 'We could not send your message from here. Write to us at fmuro@sistemaurbano.org or malegre@sistemaurbano.org.';
+  // A request that never ends, as on a stalled network: the visitor is never left with a disabled button.
+  const stalled = await mount({ fetchImpl: () => new Promise(() => {}) });
+  stalled.open();
+  stalled.type(FILLED);
+  await stalled.submit();
+  const { signal } = stalled.requests[0].options;
+  assert.equal(stalled.send.disabled, true);
+  assert.deepEqual(stalled.timers.filter((timer) => !timer.cleared).map((timer) => timer.ms), [25000], 'one 25-second limit for the request');
+  assert.equal(signal?.aborted, false);
+  await stalled.expire();
+  assert.equal(signal.aborted, true, 'the request is cancelled');
+  assert.equal(stalled.error.hidden, false);
+  assert.equal(stalled.error.textContent, UNREACHABLE);
+  assert.deepEqual(links(stalled.error).map((link) => link.href), TEAM.map((address) => `mailto:${address}`));
+  assert.deepEqual([stalled.send.disabled, stalled.send.textContent, stalled.thanks.hidden], [false, 'Send', true]);
+  assert.deepEqual(stalled.typed(), FILLED, 'nothing typed is lost');
+  await stalled.submit();
+  assert.equal(stalled.requests.length, 2, 'the visitor can try again');
+
+  // A fetch that honours the signal (the browser's) rejects with an AbortError: the same line.
+  const aborting = await mount({ fetchImpl: (url, { signal: own }) => new Promise((resolve, reject) => own.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')))) });
+  aborting.open();
+  aborting.type(FILLED);
+  await aborting.submit();
+  await aborting.expire();
+  assert.deepEqual([aborting.error.textContent, aborting.send.disabled], [UNREACHABLE, false]);
+
+  // An answer in time clears the limit, so it never fires afterwards.
+  const quick = await mount();
+  quick.open();
+  quick.type(FILLED);
+  await quick.submit();
+  assert.equal(quick.thanks.hidden, false);
+  assert.ok(quick.timers.length === 1 && quick.timers.every((timer) => timer.cleared), 'cleared once answered');
+  assert.equal(quick.requests[0].options.signal.aborted, false);
+});
+
+test('keeps the thank-you for a window closed while sending, and shows it when opened again', async () => {
+  const reply = later();
+  const page = await mount({ lang: 'es', fetchImpl: () => reply.promise });
+  page.open();
+  page.type(FILLED);
+  await page.submit();
+  page.$('nodeRequestClose').dispatch('click');
+  assert.equal(page.dialog.open, false);
+  reply.resolve(answer(202, { ok: true }));
+  await settle();
+  assert.equal(page.dialog.open, false, 'nothing opens by itself');
+  assert.equal(page.document.activeElement, page.$('nodeRequestOpen'), 'the focus stays where closing put it');
+  page.open();
+  assert.deepEqual([page.form.hidden, page.thanks.hidden], [true, false], 'the thanks waits for the visitor');
+  assert.equal(page.document.activeElement, page.$('nodeRequestDone'));
+  assert.deepEqual(Object.values(page.typed()), ['', '', '', '', ''], 'and nothing typed stays behind');
+  page.$('nodeRequestDone').dispatch('click');
+  page.open();
+  assert.deepEqual([page.form.hidden, page.thanks.hidden], [false, true], 'once seen, the next opening is a new form');
+  assert.equal(page.document.activeElement, page.$('nodeRequestName'));
+
+  // An error that comes back while the window is closed keeps what was typed and its line.
+  const failing = later();
+  const other = await mount({ fetchImpl: () => failing.promise });
+  other.open();
+  other.type(FILLED);
+  await other.submit();
+  other.dialog.escape();
+  failing.resolve(answer(400, { field: 'email' }));
+  await settle();
+  other.open();
+  assert.deepEqual(other.typed(), FILLED);
+  assert.deepEqual([other.error.textContent, other.form.hidden, other.thanks.hidden], ['Write a valid email address.', false, true]);
+});
+
+test('the window’s hints read at 4.5:1 on its paper', () => {
+  const css = read('web', 'styles', 'node-request.css'), site = read('web', 'styles', 'styles.css');
+  assert.match(css, /\.node-request \{[^}]*background: var\(--paper\);/);
+  assert.match(css, /\.nr-hint \{[^}]*color: var\(--ink-2\);/);
+  const token = (name) => { const value = site.match(new RegExp(`--${name}:\\s*([^;]+);`))[1].trim(); const ref = /^var\(--([\w-]+)\)$/.exec(value); return ref ? token(ref[1]) : value; };
+  const luminance = (hex) => { const [r, g, b] = hex.match(/[\da-f]{2}/gi).map((pair) => parseInt(pair, 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+  const [light, dark] = [luminance(token('paper')), luminance(token('ink-2'))];
+  assert.ok((light + 0.05) / (dark + 0.05) >= 4.5, `ink-2 on paper: ${((light + 0.05) / (dark + 0.05)).toFixed(2)}:1`);
 });
 
 test('re-renders labels and the shown error when the language changes', async () => {

@@ -17,6 +17,9 @@
   const FIELDS = new Map([['name', byId('nodeRequestName')], ['organization', byId('nodeRequestOrganization')], ['email', byId('nodeRequestEmail')], ['phone', byId('nodeRequestPhone')], ['message', byId('nodeRequestMessage')]]);
   // The two addresses of the site footer, for when the window cannot send.
   const TEAM = ['fmuro@sistemaurbano.org', 'malegre@sistemaurbano.org'];
+  // A request still unanswered after this long is given up, as if the API were unreachable (the server's own mail
+  // timeout is 8 s a send, so a stored request answers well before).
+  const TIMEOUT_MS = 25000;
 
   const LANGS = ['en', 'es', 'pt'];
   // [en, es, pt]
@@ -39,6 +42,7 @@
 
   let busy = false;
   let shown = null; // null, a FIELDS key, 'tooMany', 'unreachable' or 'unavailable'
+  let unseen = false; // a thank-you that came while the window was closed
 
   function mailto(address) {
     const link = document.createElement('a');
@@ -55,9 +59,11 @@
   }
 
   function openWindow() {
-    // A request already thanked for: opened again, it is a new form.
-    if (!thanks.hidden) { thanks.hidden = true; form.hidden = false; }
+    // A request already thanked for: opened again, it is a new form, unless the visitor closed the window while it
+    // was sending and has not seen the thanks yet.
+    if (!thanks.hidden && !unseen) { thanks.hidden = true; form.hidden = false; }
     if (!dialog.open) dialog.showModal();
+    if (unseen) { unseen = false; done.focus(); return; }
     FIELDS.get('name').focus();
   }
   opener.setAttribute('aria-haspopup', 'dialog');
@@ -86,13 +92,17 @@
     busy = true;
     send.disabled = true;
     shown = null;
-    for (const input of FIELDS.values()) input.removeAttribute('aria-invalid');
+    for (const input of FIELDS.values()) { input.removeAttribute('aria-invalid'); input.removeAttribute('aria-describedby'); }
     render();
     const body = { ...Object.fromEntries([...FIELDS].map(([field, input]) => [field, input.value])), language: lang(), website: trap ? trap.value : '' };
-    let response = null;
+    let response = null, timer;
+    const controller = new AbortController();
+    // Raced as well as aborted, so the limit holds even for a fetch that ignores its signal.
+    const expired = new Promise((resolve) => { timer = setTimeout(() => { controller.abort(); resolve(null); }, TIMEOUT_MS); });
     try {
-      response = await fetch('/api/node-requests', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
-    } catch { /* offline: the error line gives the team's addresses */ }
+      response = await Promise.race([fetch('/api/node-requests', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body), signal: controller.signal }), expired]);
+    } catch { /* offline or aborted: the error line gives the team's addresses */ }
+    clearTimeout(timer);
     const result = response?.status === 202 ? 'thanked' : await outcome(response);
     busy = false;
     send.disabled = false;
@@ -101,7 +111,9 @@
       render();
       form.hidden = true;
       thanks.hidden = false;
+      // The close button is described by the thanks, so focusing it reads both; closed meanwhile, it waits for the next opening.
       if (dialog.open) done.focus();
+      else unseen = true;
       return;
     }
     shown = result;
@@ -109,6 +121,7 @@
     const input = FIELDS.get(result);
     if (!input) return;
     input.setAttribute('aria-invalid', 'true');
+    input.setAttribute('aria-describedby', error.id);
     if (dialog.open) input.focus();
   });
 

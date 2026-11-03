@@ -48,7 +48,7 @@
 .nr-form { display: grid; gap: 16px; margin-top: 14px; }
 .nr-intro { color: var(--ink-2); font-size: 15.5px; line-height: 1.5; }
 .nr-form label { display: grid; gap: 6px; font-size: 14px; font-weight: 600; color: var(--ink); }
-.nr-hint { font-weight: 500; color: var(--muted); }
+.nr-hint { font-weight: 500; color: var(--ink-2); }   /* 6.9:1 on the paper; --muted was 3.87:1 */
 .nr-form input, .nr-form textarea {
   width: 100%; font: inherit; font-size: 16px; font-weight: 500; color: var(--ink);   /* 16px: no zoom on iOS */
   background: #fff; border: 1px solid var(--muted); border-radius: var(--r-btn); padding: 11px 12px;
