@@ -7,8 +7,8 @@
 -- Apply it BEFORE pushing `main` (Vercel deploys on push), with
 -- `npx --no-install supabase db query --linked -f supabase/migrations/20261103000000_node_requests.sql`,
 -- then `supabase migration repair --status applied 20261103000000`. Never `db push` (history differs).
--- Until it is applied, the deployed code fails on Supabase in two places only: POST /api/node-requests and the desk's
--- Nodos band. Nothing else reads the table.
+-- Until it is applied, the deployed code fails on Supabase: every POST /api/node-requests answers 503 (nothing stored,
+-- nothing sent) and the desk's Nodos band fails to load. Nothing else reads the table.
 BEGIN;
 
 CREATE TABLE public.node_requests (

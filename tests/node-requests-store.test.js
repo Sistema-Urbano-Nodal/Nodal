@@ -175,7 +175,7 @@ test('the node_requests migration is server-only, additive and documented',()=>{
  assert.match(raw,/Never `db push`/);assert.match(raw,/BEFORE pushing `main`/);
  const header=raw.slice(0,raw.indexOf('BEGIN;'));
  for(const where of ['POST /api/node-requests','Nodos band'])assert.ok(header.includes(where),where);
- assert.doesNotMatch(header,/\b503\b/,'the desk list would fail as a 500, so no status is promised');
+ assert.match(header,/POST \/api\/node-requests answers 503/,'the POST failure status is promised next to the route');
  const statements=raw.replace(/--[^\n]*/g,'').split(';').map(part=>part.replace(/\s+/g,' ').trim()).filter(Boolean);
  assert.equal(statements[0],'BEGIN');assert.equal(statements.at(-1),'COMMIT');
  const table=statements.find(s=>/^CREATE TABLE public\.node_requests /i.test(s));assert.ok(table,'the table');
