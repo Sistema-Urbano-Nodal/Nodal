@@ -64,7 +64,7 @@
   - `list({status = null, after = null, limit}) → record[]` newest first by `(createdAt DESC, id DESC)`; `after = {createdAt, id}` of the previous page's last row; `status` filters when given.
   - `update(id, version, patch) → record | null` (compare-and-swap on `version`; `null` on mismatch or missing; `patch` may hold `status`, `updatedAt`, `updatedBy`, `version`).
   - `setEmailStatus(id, emailStatus) → void` (no version change).
-  - `countEmailedSince(iso) → number`: rows with `created_at >= iso` and `email_status IS NOT NULL AND email_status <> 'off'`.
+  - `countEmailedSince(iso) → number`: rows with `created_at >= iso` whose `email_status IS DISTINCT FROM 'off'` (null = a send in flight counts; ruling during Task 4).
   - `remove(id) → void` (no error when already gone).
   - `purgeClosedBefore(iso) → number`: deletes rows with `status = 'closed' AND updated_at < iso`, returns how many.
 - Table `node_requests` exactly as the spec's Storage section: CHECKs repeat the Global Constraints limits and the two enums; `updated_by` references `users(id)` in SQLite and `public.profiles(id)` in Supabase, `ON DELETE SET NULL`; Supabase uses `uuid` + `gen_random_uuid()`, `timestamptz`, the `set_updated_at` trigger; indexes `(created_at DESC, id DESC)` and `(status, created_at DESC, id DESC)`.
