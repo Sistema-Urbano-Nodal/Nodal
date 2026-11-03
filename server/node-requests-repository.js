@@ -58,10 +58,11 @@ export function createNodeRequestStore({db,env=process.env,clients,fetchImpl=fet
    const result=await supa.admin.rest('node_requests',{method:'PATCH',query:{id:`eq.${id}`,version:`eq.${version}`},headers:{Prefer:'return=representation'},body:row});
    if(!Array.isArray(result))fail('node request save unavailable',502);return from(result[0]);
   },
-  // The outcome of the team email, written after the attempt ends; it is not an admin change, so the version stays.
+  // The outcome of the team email, written after the attempt ends; it is not an admin change, so the version and the
+  // purge clock (updated_at) stay. The writes below ask for the id back only: no name, address or message on the wire.
   async setEmailStatus(id,emailStatus){
    if(db){db.prepare('UPDATE node_requests SET email_status=? WHERE id=?').run(emailStatus,id);return;}
-   const result=await supa.admin.rest('node_requests',{method:'PATCH',query:{id:`eq.${id}`},headers:{Prefer:'return=representation'},body:{email_status:emailStatus}});
+   const result=await supa.admin.rest('node_requests',{method:'PATCH',query:{select:'id',id:`eq.${id}`},headers:{Prefer:'return=representation'},body:{email_status:emailStatus}});
    if(!Array.isArray(result))fail('node request save unavailable',502);
   },
   // The daily email budget: every request since `iso` not marked 'off', the null of a send still in flight included, so
@@ -74,12 +75,12 @@ export function createNodeRequestStore({db,env=process.env,clients,fetchImpl=fet
   },
   async remove(id){
    if(db){db.prepare('DELETE FROM node_requests WHERE id=?').run(id);return;}
-   const deleted=await supa.admin.rest('node_requests',{method:'DELETE',headers:{Prefer:'return=representation'},query:{id:`eq.${id}`}});
+   const deleted=await supa.admin.rest('node_requests',{method:'DELETE',headers:{Prefer:'return=representation'},query:{select:'id',id:`eq.${id}`}});
    if(!Array.isArray(deleted))fail('node request deletion unavailable',502);
   },
   async purgeClosedBefore(iso){
    if(db)return db.prepare("DELETE FROM node_requests WHERE status='closed' AND updated_at<?").run(iso).changes;
-   const deleted=await supa.admin.rest('node_requests',{method:'DELETE',headers:{Prefer:'return=representation'},query:{status:'eq.closed',updated_at:`lt.${iso}`}});
+   const deleted=await supa.admin.rest('node_requests',{method:'DELETE',headers:{Prefer:'return=representation'},query:{select:'id',status:'eq.closed',updated_at:`lt.${iso}`}});
    if(!Array.isArray(deleted))fail('node request deletion unavailable',502);return deleted.length;
   },
  };

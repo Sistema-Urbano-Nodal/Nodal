@@ -79,7 +79,6 @@ export function createNodeRequestApi({store,notify,sameOrigin,send,now=()=>Date.
   const input=await body(req),fields=normalizeNodeRequest(input);
   if(trapped(input)){send(res,202,{ok:true});return;}
   if(!emailAllowed(fields.email,res))return;
-  await purge();
   const at=new Date(now()).toISOString();
   let request;
   try{request=await store.insert({id:randomUUID(),...fields,status:'new',emailStatus:null,createdAt:at,updatedAt:at,updatedBy:null,version:1});}
@@ -87,6 +86,8 @@ export function createNodeRequestApi({store,notify,sameOrigin,send,now=()=>Date.
   // Awaited: Vercel gives no work time after the response. The visitor's request is stored whatever happens next.
   const outcome=await emailOutcome(request);
   try{await store.setEmailStatus(request.id,outcome);}catch(err){log(`Node request ${request.id}: the email status '${outcome}' could not be saved${reason(err)}`);}
+  // Last, so a slow purge never holds back the visitor's request; still awaited, for the same reason as the email.
+  await purge();
   send(res,202,{ok:true});
  }
  // Same rules as the Interests queue: known keys once each, a status from the list, at most a page, a valid cursor.

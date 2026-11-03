@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync,readdirSync} from 'node:fs';
 import {createDatabase,createUser} from '../server/db.js';
 import {createNodeRequestStore,NODE_REQUEST_FIELDS} from '../server/node-requests-repository.js';
+import {nodeRequestsPostgrest as postgrest,pgStamp} from './helpers/node-requests-postgrest.js';
 
 const uuid=n=>`${n}0000000-0000-4000-8000-000000000000`;
 const record=(n,over={})=>({id:uuid(n),name:'Ana',organization:'Colectivo '+n,email:'ana@example.test',phone:null,message:'Hola',language:'es',status:'new',emailStatus:null,
@@ -86,44 +87,7 @@ test('the CHECKs refuse an oversized message and an unknown status',async t=>{
  assert.deepEqual(await store.list({limit:10}).then(rows=>rows.map(r=>r.id)),[uuid(8),uuid(7)]);
 });
 
-// In-memory PostgREST for node_requests: eq/lt/gte/neq/is/not.is leaves inside and()/or() trees, order, limit and exact
-// counts, with timestamps printed the way PostgreSQL does (+00:00) and the table's own CHECKs for the status enum.
-function postgrest(){
- const rows=[],calls=[],stamp=key=>key.endsWith('_at');
- const cmp=(key,a,b)=>a===b?0:a==null?-1:b==null?1:Math.sign(stamp(key)?Date.parse(a)-Date.parse(b):a<b?-1:1);
- const split=text=>{const out=[];let depth=0,start=0;for(let i=0;i<text.length;i++){if(text[i]==='(')depth++;else if(text[i]===')')depth--;else if(text[i]===','&&!depth){out.push(text.slice(start,i));start=i+1;}}return [...out,text.slice(start)];};
- const leaf=(row,key,expr)=>{
-  if(expr==='is.null')return row[key]==null;
-  if(expr==='not.is.null')return row[key]!=null;
-  const [op,...rest]=expr.split('.'),value=rest.join('.'),actual=row[key]==null?null:String(row[key]);
-  if(actual===null&&op!=='eq')return false;const c=cmp(key,actual,value);
-  return op==='eq'?c===0:op==='neq'?c!==0:op==='lt'?c<0:op==='gte'?c>=0:assert.fail('unsupported filter '+expr);};
- const node=(row,text)=>{const m=/^(and|or)\((.*)\)$/.exec(text);if(m)return split(m[2])[m[1]==='and'?'every':'some'](part=>node(row,part));const [key,...expr]=text.split('.');return leaf(row,key,expr.join('.'));};
- const matches=(row,query)=>Object.entries(query).every(([key,expr])=>['select','order','limit'].includes(key)||(key==='or'||key==='and'?node(row,`${key}${expr}`):leaf(row,key,expr)));
- const sorter=order=>(a,b)=>{for(const part of order.split(',')){const [key,dir]=part.split('.'),c=cmp(key,a[key],b[key]);if(c)return dir==='desc'?-c:c;}return 0;};
- const pg=row=>Object.fromEntries(Object.entries(row).map(([k,v])=>[k,stamp(k)&&v?new Date(v).toISOString().replace('Z','+00:00'):v]));
- const error=(code,message)=>Object.assign(Error(message),{status:409,expose:false,code});
- async function rest(table,options={}){
-  assert.equal(table,'node_requests');calls.push(structuredClone(options));const query=options.query??{};
-  if(query.offset!==undefined)assert.fail('never OFFSET');
-  if(!options.method){
-   const found=rows.filter(row=>matches(row,query)).sort(sorter(query.order??'id.asc')),page=found.slice(0,query.limit??Infinity).map(pg);
-   return options.includeRange?{rows:page,contentRange:`${page.length?`0-${page.length-1}`:'*'}/${options.headers?.Prefer==='count=exact'?found.length:'*'}`}:page;
-  }
-  if(options.method==='POST'){
-   const row=structuredClone(options.body);
-   if(rows.some(r=>r.id===row.id))throw error('23505','duplicate key value violates unique constraint');
-   if(!['new','contacted','closed'].includes(row.status))throw error('23514','violates check constraint');
-   rows.push(row);return [pg(row)];
-  }
-  const hit=rows.filter(row=>matches(row,query));
-  if(options.method==='PATCH'){hit.forEach(row=>Object.assign(row,structuredClone(options.body)));return hit.map(pg);}
-  for(const row of hit)rows.splice(rows.indexOf(row),1);return hit.map(pg);
- }
- return {rows,calls,clients:{admin:{rest}}};
-}
 const snakeRow=r=>Object.fromEntries(Object.entries(r).map(([k,v])=>[k.replace(/[A-Z]/g,c=>'_'+c.toLowerCase()),v]));
-const pgStamp=iso=>iso.replace('Z','+00:00');
 
 test('the Supabase store inserts, reads and pages node requests newest first by keyset',async()=>{
  const pg=postgrest(),store=createNodeRequestStore({clients:pg.clients});
@@ -152,7 +116,8 @@ test('the Supabase store updates on the version it loaded, records the email out
  assert.deepEqual(patch.body,{status:'contacted',updated_at:'2026-10-05T00:00:00.000Z',updated_by:null,version:2});
  assert.equal(await store.update(uuid(1),1,{status:'closed',version:2}),null);assert.equal((await store.get(uuid(1))).status,'contacted');
  assert.equal(await store.setEmailStatus(uuid(1),'sent'),undefined);
- assert.deepEqual(pg.calls.at(-1).query,{id:`eq.${uuid(1)}`});assert.deepEqual(pg.calls.at(-1).body,{email_status:'sent'});assert.equal((await store.get(uuid(1))).version,2);
+ // The writes that need no row back ask for the id only: no name, address or message on the wire.
+ assert.deepEqual(pg.calls.at(-1).query,{select:'id',id:`eq.${uuid(1)}`});assert.equal(pg.calls.at(-1).headers.Prefer,'return=representation');assert.deepEqual(pg.calls.at(-1).body,{email_status:'sent'});assert.equal((await store.get(uuid(1))).version,2);
  await store.insert(record(2,{emailStatus:'off'}));await store.insert(record(3));await store.insert(record(4,{emailStatus:'failed'}));
  // Everything but off: request 3 (null, its send still in flight) counts; PostgreSQL's neq alone would drop the null.
  assert.equal(await store.countEmailedSince('2026-10-01T00:00:00.000Z'),3);
@@ -161,9 +126,9 @@ test('the Supabase store updates on the version it loaded, records the email out
  assert.equal(await store.countEmailedSince('2026-10-02T00:00:00.000Z'),2);assert.equal(await store.countEmailedSince('2026-11-01T00:00:00.000Z'),0);
  await store.insert(record(5,{status:'closed',updatedAt:'2026-01-01T00:00:00.000Z'}));await store.insert(record(6,{status:'closed',updatedAt:'2026-10-20T00:00:00.000Z'}));await store.insert(record(7,{updatedAt:'2026-01-01T00:00:00.000Z'}));
  assert.equal(await store.purgeClosedBefore('2026-06-01T00:00:00.000Z'),1);
- assert.deepEqual(pg.calls.at(-1).query,{status:'eq.closed',updated_at:'lt.2026-06-01T00:00:00.000Z'});assert.equal(pg.calls.at(-1).method,'DELETE');
+ assert.deepEqual(pg.calls.at(-1).query,{select:'id',status:'eq.closed',updated_at:'lt.2026-06-01T00:00:00.000Z'});assert.equal(pg.calls.at(-1).method,'DELETE');
  assert.deepEqual(pg.rows.map(r=>r.id).sort(),[1,2,3,4,6,7].map(uuid));
- assert.equal(await store.remove(uuid(1)),undefined);assert.deepEqual(pg.calls.at(-1).query,{id:`eq.${uuid(1)}`});assert.equal(await store.remove(uuid(1)),undefined);
+ assert.equal(await store.remove(uuid(1)),undefined);assert.deepEqual(pg.calls.at(-1).query,{select:'id',id:`eq.${uuid(1)}`});assert.equal(await store.remove(uuid(1)),undefined);
  const broken=createNodeRequestStore({clients:{admin:{async rest(){return {};}}}});
  for(const call of [()=>broken.get(uuid(1)),()=>broken.list({limit:2}),()=>broken.update(uuid(1),1,{version:2}),()=>broken.setEmailStatus(uuid(1),'sent'),()=>broken.countEmailedSince('x'),()=>broken.remove(uuid(1)),()=>broken.purgeClosedBefore('x'),()=>broken.insert(record(1))])
   await assert.rejects(call(),error=>error.status===502);
@@ -189,7 +154,8 @@ test('the node_requests migration is server-only, additive and documented',()=>{
   'updated_by uuid REFERENCES public.profiles(id) ON DELETE SET NULL','version integer NOT NULL DEFAULT 1 CHECK(version>0)'])assert.ok(table.includes(part),part);
  assert.ok(statements.includes('CREATE INDEX node_requests_recent ON public.node_requests(created_at DESC,id DESC)'));
  assert.ok(statements.includes('CREATE INDEX node_requests_status ON public.node_requests(status,created_at DESC,id DESC)'));
- assert.ok(statements.some(s=>/^CREATE TRIGGER \w+ BEFORE UPDATE ON public\.node_requests FOR EACH ROW EXECUTE FUNCTION public\.set_updated_at\(\)$/.test(s)),'set_updated_at trigger');
+ // Only an admin change restarts the purge clock: not the email outcome, nor ON DELETE SET NULL of updated_by.
+ assert.ok(statements.includes('CREATE TRIGGER node_requests_updated_at BEFORE UPDATE OF status, version ON public.node_requests FOR EACH ROW EXECUTE FUNCTION public.set_updated_at()'),'set_updated_at trigger');
  assert.ok(statements.includes('ALTER TABLE public.node_requests ENABLE ROW LEVEL SECURITY'));
  assert.ok(statements.includes('REVOKE ALL ON TABLE public.node_requests FROM PUBLIC,anon,authenticated,service_role'));
  assert.ok(statements.includes('GRANT SELECT,INSERT,UPDATE,DELETE ON TABLE public.node_requests TO service_role'));

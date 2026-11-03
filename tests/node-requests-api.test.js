@@ -10,6 +10,7 @@ import {createNodeRequestStore} from '../server/node-requests-repository.js';
 import {createNodeRequestNotice,NODE_REQUEST_RECIPIENTS} from '../server/node-requests-email.js';
 import {NODE_REQUEST_LIMITS,limaDayStart,nodeRequestAdminView} from '../server/node-requests-api.js';
 import {startFakeSmtp,parseMessage} from './helpers/fake-smtp.js';
+import {nodeRequestsPostgrest} from './helpers/node-requests-postgrest.js';
 
 const VIEW_KEYS=['createdAt','email','emailStatus','id','language','message','name','organization','phone','status','updatedAt','version'];
 const START='2026-11-03T15:00:00.000Z';
@@ -366,6 +367,53 @@ test('purges closed requests older than 12 months when the desk lists or a reque
  const failing=await setup(t,{store:db=>({...createNodeRequestStore({db}),purgeClosedBefore:async()=>{throw Object.assign(Error('node request deletion unavailable'),{status:502,expose:false});}})});
  assert.equal((await failing.list()).status,200);assert.equal((await failing.post(valid())).status,202);assert.equal(failing.rows().length,1);
  assert.equal(logged.mock.calls.filter(c=>/purge/i.test(c.arguments.join(' '))).length,2);
+});
+
+test('purges only after the new request and its email outcome are stored, so a slow purge never holds them back',async t=>{
+ let release;const gate=new Promise(resolve=>{release=resolve;});t.after(()=>release());
+ const order=[];
+ const {post,rows}=await setup(t,{store:db=>{const own=createNodeRequestStore({db});return {...own,
+  insert:async record=>{order.push('insert');return own.insert(record);},
+  setEmailStatus:async(id,status)=>{order.push(`email ${status}`);return own.setEmailStatus(id,status);},
+  purgeClosedBefore:async iso=>{order.push('purge');await gate;return own.purgeClosedBefore(iso);}};}});
+ const request=valid(),answer=post(request),started=Date.now();
+ while(!order.includes('purge')&&Date.now()-started<5000)await pause(5);
+ assert.deepEqual(order,['insert','email sent','purge']);
+ assert.deepEqual(rows().map(r=>[r.email,r.email_status]),[[request.email,'sent']],'stored with its outcome while the purge is still running');
+ // Still awaited before the answer: Vercel gives no work time after the response.
+ release();assert.deepEqual(await answer,{status:202,body:{ok:true}});
+});
+
+// The Supabase store behind the whole API, on the in-memory PostgREST: requests stored in the same millisecond page
+// by id, cursors carry PostgreSQL's +00:00 stamps (to the microsecond, as the database's now() writes them), and
+// the desk's compare-and-swap and deletions hold.
+test('runs on the Supabase store: same-millisecond requests page to the exact set, then update, conflict and delete',async t=>{
+ const pg=nodeRequestsPostgrest(),{post,list,patch,remove,clock}=await setup(t,{store:()=>createNodeRequestStore({clients:pg.clients})});
+ clock.at=Date.parse('2026-11-03T15:00:00.123Z');
+ for(let n=0;n<5;n++)assert.deepEqual(await post(valid()),{status:202,body:{ok:true}});
+ const posted=pg.rows.map(r=>r.id);
+ assert.deepEqual([...new Set(pg.rows.map(r=>r.created_at))],['2026-11-03T15:00:00.123Z'],'five requests in one millisecond');
+ assert.deepEqual(pg.rows.map(r=>r.email_status),Array(5).fill('sent'));
+ const snakeRow=record=>Object.fromEntries(Object.entries(record).map(([k,v])=>[k.replace(/[A-Z]/g,c=>'_'+c.toLowerCase()),v]));
+ const newer=stored(1,{createdAt:'2026-11-03T15:00:00.123456+00:00'}),older=stored(2,{createdAt:'2026-11-03T15:00:00.122999+00:00'});
+ pg.rows.push(snakeRow(newer),snakeRow(older));
+ const pages=[];let cursor='';
+ do{const page=await list(`?limit=1${cursor?`&cursor=${cursor}`:''}`);assert.equal(page.status,200);pages.push(page.body.requests);cursor=page.body.nextCursor;}while(cursor&&pages.length<20);
+ assert.deepEqual(pages.flat().map(r=>r.id),[newer.id,...[...posted].sort().reverse(),older.id],'each request once, newest first, ties by id');
+ assert.deepEqual(pages.map(page=>page.length),Array(7).fill(1),'no empty last page');
+ assert.deepEqual(pages.flat().map(r=>r.createdAt),['2026-11-03T15:00:00.123456+00:00',...Array(5).fill('2026-11-03T15:00:00.123+00:00'),'2026-11-03T15:00:00.122999+00:00']);
+ const first=(await list('?limit=1')).body.nextCursor;
+ assert.deepEqual(JSON.parse(Buffer.from(first,'base64url').toString()),['2026-11-03T15:00:00.123456+00:00',newer.id],'the cursor keeps the microseconds');
+ // The desk's writes, through the same store.
+ const target=pages[2][0];clock.at=Date.parse('2026-11-05T10:00:00.000Z');
+ const updated=await patch(target.id,{status:'contacted',version:1});
+ assert.deepEqual(updated,{status:200,body:{request:{...target,status:'contacted',version:2,updatedAt:'2026-11-05T10:00:00+00:00'}}});
+ assert.deepEqual(await patch(target.id,{status:'closed',version:1}),{status:409,body:{error:'node request changed; reload before saving',code:'version_conflict',request:updated.body.request}});
+ assert.deepEqual(await remove(target.id),{status:204,body:''});assert.deepEqual(await remove(target.id),{status:204,body:''},'deleting again is not an error');
+ assert.equal((await patch(target.id,{status:'closed',version:2})).status,404);
+ assert.equal(pg.rows.some(r=>r.id===target.id),false);assert.equal(pg.rows.length,6);
+ // Only the insert and the desk's update ask for the row back: every other write asks for ids, never names or messages.
+ for(const call of pg.calls.filter(c=>c.method&&c.method!=='POST'&&!(c.method==='PATCH'&&c.query.version)))assert.equal(call.query.select,'id',JSON.stringify(call));
 });
 
 test('README names every node-request endpoint',()=>{

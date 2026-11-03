@@ -32,7 +32,9 @@ CREATE INDEX node_requests_recent ON public.node_requests(created_at DESC,id DES
 CREATE INDEX node_requests_status ON public.node_requests(status,created_at DESC,id DESC);
 -- Account erasure sets updated_by to NULL without scanning the table.
 CREATE INDEX node_requests_updated_by ON public.node_requests(updated_by);
-CREATE TRIGGER node_requests_updated_at BEFORE UPDATE ON public.node_requests FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+-- updated_at is the 12-month purge clock: only an admin change (status, version) restarts it, not the team email's
+-- outcome nor the ON DELETE SET NULL of updated_by when an administrator's account is erased.
+CREATE TRIGGER node_requests_updated_at BEFORE UPDATE OF status, version ON public.node_requests FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 ALTER TABLE public.node_requests ENABLE ROW LEVEL SECURITY;
 -- service_role too: Supabase's default privileges give it everything on a new table, and it keeps only these four.
