@@ -248,7 +248,7 @@ test('updates the status with the version and reloads on a conflict', async () =
   assert.equal(d.button(reloaded, 'Update').disabled, false);
 });
 
-test('deletes after a confirm that mentions the team emails', async () => {
+test('deletes after a confirm that mentions the team emails and their Sent-folder copies', async () => {
   let listed = [view({ id: A, organization: 'Colectivo Ciudad' })];
   let answer = false;
   const nodes = (call) => {
@@ -266,7 +266,7 @@ test('deletes after a confirm that mentions the team emails', async () => {
 
   answer = true;
   await remove.listeners.get('click')();
-  assert.deepEqual(d.confirms, Array(2).fill('Delete the request from Colectivo Ciudad? This cannot be undone. Remember to delete the two team emails about it as well.'));
+  assert.deepEqual(d.confirms, Array(2).fill('Delete the request from Colectivo Ciudad? This cannot be undone. Remember to delete the two team emails about it, and their copies in the sending account’s Sent folder.'));
   assert.deepEqual(d.requests.filter((r) => r.method === 'DELETE'), [{ url: `/api/admin/node-requests/${A}`, method: 'DELETE', body: undefined }]);
   assert.equal(d.gets().length, 2, 'the list reloads after the delete');
   assert.equal(d.rows().length, 0);
@@ -275,9 +275,8 @@ test('deletes after a confirm that mentions the team emails', async () => {
   const es = desk({ lang: 'es', confirm: () => false, nodes: () => response({ requests: [view({ organization: 'Colectivo Ciudad' })], nextCursor: null }) });
   await flush();
   await es.button(es.rows()[0], 'Eliminar solicitud').listeners.get('click')();
-  assert.equal(es.confirms[0], '¿Eliminar la solicitud de Colectivo Ciudad? No se puede deshacer. Recuerda eliminar también los dos correos que recibió el equipo sobre ella.');
-  const pt = deskI18n('pt');
-  assert.match(pt.t('ops.nodes.confirmDelete', { organization: 'X' }), /os dois e-mails/);
+  assert.equal(es.confirms[0], '¿Eliminar la solicitud de Colectivo Ciudad? No se puede deshacer. Recuerda eliminar también los dos correos que recibió el equipo sobre ella y sus copias en la carpeta de enviados de la cuenta que los envió.');
+  assert.equal(deskI18n('pt').t('ops.nodes.confirmDelete', { organization: 'X' }), 'Excluir a solicitação de X? Não é possível desfazer. Lembre-se de excluir também os dois e-mails que a equipe recebeu sobre ela e as cópias deles na pasta de enviados da conta que os enviou.');
 });
 
 test('warns when the team email was not sent', async () => {
@@ -294,13 +293,15 @@ test('warns when the team email was not sent', async () => {
     'Warning: the team email failed for both team members.',
     'Warning: it is not known whether the team email arrived.',
     'Warning: the team email was not sent (email is off, or the day’s limit was reached).',
-    'Warning: the team email has no result yet.',
+    'Warning: the team email has no recorded result.',
   ]);
   const spanish = await warnings('es');
   assert.equal(spanish[0], null);
   assert.match(spanish[4], /no se envió el correo al equipo/);
-  assert.match(spanish[5], /aún sin resultado/);
+  // null is what a failed write of the outcome leaves too, so it never reads as temporary.
+  assert.equal(spanish[5], 'Aviso: correo al equipo sin resultado registrado.');
   const portuguese = await warnings('pt');
+  assert.equal(portuguese[5], 'Aviso: o e-mail para a equipe não tem resultado registrado.');
   for (const lines of [spanish, portuguese]) {
     assert.equal(new Set(lines.slice(1)).size, 5, 'one wording per outcome');
     assert.ok(lines.slice(1).every((line) => /^Aviso: /.test(line)), lines.join(' | '));

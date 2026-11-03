@@ -246,26 +246,37 @@ test('the policy describes organisation node requests in all three languages', (
   const html = read('web/pages/privacy.html');
   const articles = Object.fromEntries([...html.matchAll(/<article data-policy-lang="(en|es|pt)"[^>]*>([\s\S]*?)<\/article>/g)].map(([, lang, body]) => [lang, body]));
   const section = (lang, n) => articles[lang].match(new RegExp(`<section id="${lang}-${n}">([\\s\\S]*?)</section>`))[1];
-  for (const [lang, category, fields, noAccount, inboxes, onRequest, closed, notExport, retention] of [
+  const escape = text => text.replace(/'/g, '&#39;');
+  for (const [lang, category, fields, noAccount, inboxes, onRequest, closed, notExport, retention, schedule, audience] of [
     ['en', 'Organisation node requests', 'the name, organisation, email, phone (optional) and message you write', 'no account is needed',
       'fmuro@sistemaurbano.org and malegre@sistemaurbano.org, through the outgoing email account NODAL uses, so copies also sit in those two inboxes and in the Sent folder of that account',
       'You can ask us to delete your request, and the team deletes it and the email copies by hand.', 'Closed requests are deleted automatically 12 months after their last change',
-      'Requests are not part of any account export or account deletion.', 'The two emails sent to the team are not deleted automatically: the team deletes those copies by hand when you ask.'],
+      'Requests are not part of any account export or account deletion.',
+      "Organisation node requests are deleted automatically 12 months after they are closed, counted from their last change; requests never closed stay until an administrator closes or deletes them, and an administrator can delete one at any time. The emails sent to the team, and their copies in the sending account's Sent folder, are not deleted automatically: the team deletes them by hand when you ask.",
+      'feedback, Founder Membership acceptances, organisation node requests, unaccepted invitations,',
+      '<strong>Organisations that write to us:</strong> the request you send through the landing page form is seen by two NODAL team members, by the administrators in the organiser desk and by the email service that delivers it, as described in section 2. It is not shown to other members.'],
     ['es', 'Solicitudes de Nodo de organizaciones', 'el nombre, la organización, el correo, el teléfono (opcional) y el mensaje que escribes', 'no hace falta una cuenta',
       'fmuro@sistemaurbano.org y malegre@sistemaurbano.org, desde la cuenta de correo saliente de NODAL, de modo que también quedan copias en esas dos bandejas y en la carpeta de enviados de esa cuenta',
       'Puedes pedirnos que eliminemos tu solicitud, y el equipo la elimina junto con las copias de los correos, a mano.', 'Las solicitudes cerradas se eliminan automáticamente 12 meses después de su último cambio',
-      'Las solicitudes no forman parte de la exportación de ninguna cuenta ni de su eliminación.', 'Los dos correos enviados al equipo no se eliminan automáticamente: el equipo elimina esas copias a mano cuando lo pides.'],
+      'Las solicitudes no forman parte de la exportación de ninguna cuenta ni de su eliminación.',
+      'Las solicitudes de Nodo de organizaciones se eliminan automáticamente 12 meses después de cerrarse, contados desde su último cambio; las que nunca se cierran permanecen hasta que una persona administradora las cierra o las elimina, y una persona administradora puede eliminar una en cualquier momento. Los correos enviados al equipo, y sus copias en la carpeta de enviados de la cuenta que los envía, no se eliminan automáticamente: el equipo los elimina a mano cuando lo pides.',
+      'feedback, aceptaciones de la Membresía Fundador, solicitudes de Nodo de organizaciones, invitaciones no aceptadas,',
+      '<strong>Organizaciones que nos escriben:</strong> la solicitud que envías con el formulario de la página de inicio la ven dos personas del equipo de NODAL, las personas administradoras en el panel de organización y el servicio de correo que la entrega, como se describe en la sección 2. No se muestra a otras personas de la red.'],
     ['pt', 'Solicitações de Nó de organizações', 'o nome, a organização, o e-mail, o telefone (opcional) e a mensagem que você escreve', 'não é preciso ter conta',
       'fmuro@sistemaurbano.org e malegre@sistemaurbano.org, pela conta de e-mail de saída da NODAL, de modo que também ficam cópias nessas duas caixas de entrada e na pasta de enviados dessa conta',
       'Você pode pedir que excluamos a sua solicitação, e a equipe a exclui junto com as cópias dos e-mails, manualmente.', 'As solicitações encerradas são excluídas automaticamente 12 meses depois da última alteração',
-      'As solicitações não fazem parte da exportação de nenhuma conta nem da sua exclusão.', 'Os dois e-mails enviados à equipe não são excluídos automaticamente: a equipe exclui essas cópias manualmente quando você pede.'],
+      'As solicitações não fazem parte da exportação de nenhuma conta nem da sua exclusão.',
+      'As solicitações de Nó de organizações são excluídas automaticamente 12 meses depois de encerradas, contados a partir da última alteração; as que nunca são encerradas permanecem até que um administrador as encerre ou exclua, e um administrador pode excluir uma a qualquer momento. Os e-mails enviados à equipe, e as cópias deles na pasta de enviados da conta que os envia, não são excluídos automaticamente: a equipe os exclui manualmente quando você pede.',
+      'feedback, aceitações da Membresia Fundador, solicitações de Nó de organizações, convites não aceitos,',
+      '<strong>Organizações que nos escrevem:</strong> a solicitação que você envia pelo formulário da página inicial é vista por duas pessoas da equipe da NODAL, pelos administradores no painel de organização e pelo serviço de e-mail que a entrega, como descrito na seção 2. Ela não é exibida a outros membros.'],
   ]) {
     const row = section(lang, 2).match(new RegExp(`<tr role="row"><td role="cell">${category}</td><td role="cell">([^<]*)</td></tr>`))?.[1];
     assert.ok(row, `${lang}: a data row for node requests`);
     for (const [what, text] of [['fields', fields], ['no account', noAccount], ['the two inboxes and the Sent folder', inboxes], ['deletion on request', onRequest], ['12-month deletion of closed requests', closed], ['not in the export', notExport]]) assert.ok(row.includes(text), `${lang}: ${what}`);
-    assert.ok(/12 (months|meses)/.test(section(lang, 9)), `${lang}: section 9 gives the 12 months`);
-    assert.ok(section(lang, 9).includes(retention), `${lang}: section 9 says the email copies are deleted by hand`);
-    assert.ok(section(lang, 4).includes('fmuro') === false && /organi[sz]ation|organizaci|organizaç/i.test(section(lang, 4)), `${lang}: section 4 names who sees the requests`);
+    assert.ok(section(lang, 9).includes(`<p>${escape(retention)}</p>`), `${lang}: section 9 gives node requests their own paragraph, Sent-folder copies included`);
+    assert.ok(section(lang, 9).includes(escape(schedule)), `${lang}: section 9's schedule names node requests`);
+    assert.ok(!section(lang, 9).match(/<p>[^<]*(?:When you delete your account|Al eliminar tu cuenta|Ao excluir sua conta)[^<]*<\/p>/)[0].match(/Nod[oe]|Nó/), `${lang}: not inside the account-deletion paragraph`);
+    assert.ok(section(lang, 4).includes(`<li>${audience}</li>`), `${lang}: section 4 names who sees the requests`);
   }
 });
 
