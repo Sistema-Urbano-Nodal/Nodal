@@ -241,6 +241,9 @@ test('opens on Contáctanos and on #nodos, and gives focus back when closed', as
   assert.equal(old.open().defaultPrevented, false);
   assert.equal(old.dialog.open, false);
   assert.equal(old.$('nodeRequestOpen').getAttribute('aria-haspopup'), null);
+  // and the window stays out of sight: only browsers with <dialog> hide a closed one themselves, and a form shown
+  // there with no script behind it would send its fields as a GET, into the address bar and the host's logs.
+  assert.match(read('web', 'styles', 'node-request.css'), /\.node-request:not\(\[open\]\) \{ display: none; \}/, 'a closed window is hidden without <dialog> too');
 });
 
 test('sends one POST with the typed fields and the page language, and thanks', async () => {

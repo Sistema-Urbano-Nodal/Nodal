@@ -30,6 +30,9 @@
   background: var(--paper); color: var(--ink);
   box-shadow: 10px 10px 0 rgba(37,52,31,.18);
 }
+/* browsers without <dialog> have no dialog:not([open]) rule and would show the form inline, where a submit with no
+   script behind it goes out as a GET with the fields in the URL; they never set [open], so this hides it for good */
+.node-request:not([open]) { display: none; }
 .node-request::backdrop { background: rgba(37,52,31,.55); }
 .node-request [hidden] { display: none !important; }
 .node-request :is(a, button, input, textarea):focus-visible { outline: 2px solid var(--green-deep); outline-offset: 2px; }
