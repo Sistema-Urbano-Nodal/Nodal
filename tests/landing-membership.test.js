@@ -182,3 +182,28 @@ test('the landing markup carries no price', () => {
   for (const file of ['i18n.js', 'i18n-dashboard.js', 'app.js', 'payments.js']) assert.doesNotMatch(read('web', 'scripts', file), /US\$\s?\d|S\/\s?\d/, `${file} must not hardcode a price`);
   assert.doesNotMatch(APP, /annual|amount|options|mem\.fund\.split|mem\.priceSoon/, 'app.js reads no price from the offer');
 });
+
+/* 3 Nov 2026, the team (docs/superpowers/specs/2026-11-03-organisation-node-requests-design.md): a third way in, for
+   organisations, beside the two cards and the same size. The two cards stay as they were; the third has no price and no
+   list, and its one button opens the request window (tests/node-request-ui.test.js), a plain #nodos link without it. */
+test('the membership section has three cards: the two ways in unchanged, then one for organisations', () => {
+  const html = read('web', 'pages', 'index.html');
+  const plans = html.slice(html.indexOf('<div class="plans">'), html.indexOf('</section>', html.indexOf('<div class="plans">')));
+  assert.deepEqual([...plans.matchAll(/<article class="([^"]+)">/g)].map((match) => match[1]), ['plan', 'plan plan-pro', 'plan plan-org']);
+  const card = (mark) => plans.slice(plans.indexOf(mark), plans.indexOf('</article>', plans.indexOf(mark)) + '</article>'.length);
+  const free = card('<article class="plan">');
+  assert.deepEqual([...free.matchAll(/data-i18n="([^"]+)"/g)].map((match) => match[1]), ['mem.freeName', 'mem.freePrice', 'mem.f1', 'mem.f2', 'mem.f3', 'mem.f4', 'mem.f5a', 'mem.f5b', 'mem.freeCta']);
+  assert.match(free, /<a class="btn btn-ghost-dark" href="login\.html\?next=\/dashboard\.html" data-i18n="mem\.freeCta">Join free<\/a>\s*<\/article>$/);
+  assert.match(card('<article class="plan plan-pro">'), /<a class="btn btn-primary" href="fundadores\.html" data-billing-cta data-i18n="mem\.fund\.join">Join Nodal Fundadores<\/a>\s*<\/article>$/);
+  const org = card('<article class="plan plan-org">');
+  assert.match(org, /^<article class="plan plan-org">\s*<header><h3 data-i18n="mem\.org\.name">NODAL for organizations<\/h3><p class="price" data-i18n="mem\.org\.tagline">Activate a territorial and\/or thematic Node<\/p><\/header>\s*<p class="plan-text" data-i18n="mem\.org\.p">[^<]+<\/p>\s*<a class="btn btn-ghost-dark" id="nodeRequestOpen" href="#nodos" data-i18n="mem\.org\.cta">Contact us<\/a>\s*<\/article>$/);
+  assert.doesNotMatch(org, /<ul|data-billing|S\/|US\$|>[^<]*\d/, 'no checklist and no price');
+  assert.equal((org.match(/<a\b/g) || []).length, 1, 'one way in');
+  // The Founder Membership stays the highlighted card: the new one is outlined, with the pastel-green accent.
+  const css = read('web', 'styles', 'node-request.css');
+  assert.match(css, /\.plan-org \{[^}]*border-color: var\(--green-pastel\);/);
+  assert.doesNotMatch(css, /\.plan-org[^{]*\{[^}]*background:\s*var\(--beige\)/);
+  assert.match(css, /\.membership \.plans \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
+  assert.match(css, /@media \(max-width: 980px\) \{[^@]*\.membership \.plans \{ grid-template-columns: 1fr 1fr; \}[^@]*\.plan-org \{ grid-column: 1 \/ -1; \}/, 'two plus the third across both columns');
+  assert.match(css, /@media \(max-width: 820px\) \{\s*\.membership \.plans \{ grid-template-columns: 1fr; \}/);
+});

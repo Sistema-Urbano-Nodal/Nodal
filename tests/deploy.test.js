@@ -321,29 +321,29 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
   const pilot = { 'pilot-i18n.js': '20261029a', 'pilot.js': '20261023a', 'courses.css': '20261023a' };
   const festival = { 'fiiu.css': '20261022a', 'fiiu-ui.js': '20261029a' };
   const required = {
-    'index.html': { 'styles.css': '36', 'i18n.js': '20261022a', 'app.js': '20261021c', 'recs.js': '5', 'script.js': '18', 'hero-network.js': '2' },
-    'fundadores.html': { 'styles.css': '36', 'i18n.js': '20261022a', 'nav.js': '20261013b', 'locale.js': '20261009a', 'fundadores.js': '20261029a', 'fundadores.css': '20261029a' },
-    'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20261022a', 'catalog.js': '7', ...pilot },
-    'dashboard.html': { 'buc.js': '20261016c', 'i18n-dashboard.js': '20261024a', 'i18n.js': '20261022a', ...festival, 'fiiu-live.js': '20261020a', 'fiiu-hubs.js': '20261029a', 'news-feed.js': '20261001b', 'dashboard.js': '20261029a', 'dashboard.css': '41', 'location-check.js': '20260908b', ...pilot },
-    'login.html': { 'i18n.js': '20261022a', 'auth.js': '20261031a', 'recovery-i18n.js': '20261022a' },
-    'reset-password.html': { 'i18n.js': '20261022a', 'recovery-i18n.js': '20261022a', 'password-recovery.js': '20261022a' },
-    'payments.html': { 'i18n-dashboard.js': '20261024a', 'i18n.js': '20261022a', 'payments.js': '20261021c', ...pilot },
-    'profile.html': { 'i18n-dashboard.js': '20261024a', 'i18n.js': '20261022a', 'profile.js': '20261023a', 'styles.css': '36', ...pilot },
-    'admin.html': { 'i18n-dashboard.js': '20261024a', 'styles.css': '36', 'admin.css': '20261023a', 'admin.js': '20261023a', 'i18n.js': '20261022a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20261013b', 'script.js': '18' },
-    'course.html': { 'buc.js': '20261016c', 'i18n.js': '20261022a', 'courses.js': '20261029a', ...pilot },
-    'courses.html': { 'buc.js': '20261016c', 'i18n.js': '20261022a', 'courses.js': '20261029a', ...pilot },
-    'teaching.html': { 'i18n.js': '20261022a', 'teaching.js': '20261023a', ...pilot },
+    'index.html': { 'styles.css': '36', 'i18n.js': '20261103a', 'app.js': '20261021c', 'recs.js': '5', 'script.js': '18', 'hero-network.js': '2', 'node-request.js': '20261103a', 'node-request.css': '20261103a' },
+    'fundadores.html': { 'styles.css': '36', 'i18n.js': '20261103a', 'nav.js': '20261013b', 'locale.js': '20261009a', 'fundadores.js': '20261029a', 'fundadores.css': '20261029a' },
+    'opportunities.html': { 'catalog.css': '7', 'i18n.js': '20261103a', 'catalog.js': '7', ...pilot },
+    'dashboard.html': { 'buc.js': '20261016c', 'i18n-dashboard.js': '20261024a', 'i18n.js': '20261103a', ...festival, 'fiiu-live.js': '20261020a', 'fiiu-hubs.js': '20261029a', 'news-feed.js': '20261001b', 'dashboard.js': '20261029a', 'dashboard.css': '41', 'location-check.js': '20260908b', ...pilot },
+    'login.html': { 'i18n.js': '20261103a', 'auth.js': '20261031a', 'recovery-i18n.js': '20261022a' },
+    'reset-password.html': { 'i18n.js': '20261103a', 'recovery-i18n.js': '20261022a', 'password-recovery.js': '20261022a' },
+    'payments.html': { 'i18n-dashboard.js': '20261024a', 'i18n.js': '20261103a', 'payments.js': '20261021c', ...pilot },
+    'profile.html': { 'i18n-dashboard.js': '20261024a', 'i18n.js': '20261103a', 'profile.js': '20261023a', 'styles.css': '36', ...pilot },
+    'admin.html': { 'i18n-dashboard.js': '20261024a', 'styles.css': '36', 'admin.css': '20261023a', 'admin.js': '20261023a', 'i18n.js': '20261103a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20261013b', 'script.js': '18' },
+    'course.html': { 'buc.js': '20261016c', 'i18n.js': '20261103a', 'courses.js': '20261029a', ...pilot },
+    'courses.html': { 'buc.js': '20261016c', 'i18n.js': '20261103a', 'courses.js': '20261029a', ...pilot },
+    'teaching.html': { 'i18n.js': '20261103a', 'teaching.js': '20261023a', ...pilot },
     'accept-invitation.html': { 'accept-invitation.js': '20261022a', 'invitation-i18n.js': '20261013b' },
-    'fiiu.html': { 'styles.css': '36', 'i18n.js': '20261022a', ...festival, 'fiiu-live.js': '20261020a', 'fiiu.js': '20261029a' },
-    'fiiu-admin.html': { 'styles.css': '36', 'i18n.js': '20261022a', ...festival, 'fiiu-admin.js': '20261024a' },
-    'fiiu-qr.html': { 'i18n.js': '20261022a', ...festival, 'fiiu-qr.js': '20261022a' },
-    'fiiu-checkin.html': { 'i18n.js': '20261022a', ...festival, 'fiiu-checkin.js': '20261029a' },
-    'fiiu-talk.html': { 'buc.js': '20261016c', 'i18n.js': '20261022a', ...festival, 'fiiu-talk.js': '20261029a', 'fiiu-talk.css': '20261020a' },
-    'fiiu-session.html': { 'buc.js': '20261016c', 'i18n.js': '20261022a', ...festival, 'fiiu-talk.js': '20261029a', 'fiiu-talk.css': '20261020a' },
-    'organisers-only.html': { 'i18n.js': '20261022a', ...festival },
-    'community.html': { 'styles.css': '36', 'script.js': '18', 'i18n.js': '20261022a', ...festival, 'fiiu-hubs.js': '20261029a', 'news-feed.js': '20261001b' },
-    'knowledge.html': { 'buc.js': '20261016c', 'styles.css': '36', 'script.js': '18', 'i18n.js': '20261022a', ...festival, 'fiiu-hubs.js': '20261029a' },
-    'resources.html': { 'styles.css': '36', 'script.js': '18', 'i18n.js': '20261022a', ...festival, 'fiiu-hubs.js': '20261029a' },
+    'fiiu.html': { 'styles.css': '36', 'i18n.js': '20261103a', ...festival, 'fiiu-live.js': '20261020a', 'fiiu.js': '20261029a' },
+    'fiiu-admin.html': { 'styles.css': '36', 'i18n.js': '20261103a', ...festival, 'fiiu-admin.js': '20261024a' },
+    'fiiu-qr.html': { 'i18n.js': '20261103a', ...festival, 'fiiu-qr.js': '20261022a' },
+    'fiiu-checkin.html': { 'i18n.js': '20261103a', ...festival, 'fiiu-checkin.js': '20261029a' },
+    'fiiu-talk.html': { 'buc.js': '20261016c', 'i18n.js': '20261103a', ...festival, 'fiiu-talk.js': '20261029a', 'fiiu-talk.css': '20261020a' },
+    'fiiu-session.html': { 'buc.js': '20261016c', 'i18n.js': '20261103a', ...festival, 'fiiu-talk.js': '20261029a', 'fiiu-talk.css': '20261020a' },
+    'organisers-only.html': { 'i18n.js': '20261103a', ...festival },
+    'community.html': { 'styles.css': '36', 'script.js': '18', 'i18n.js': '20261103a', ...festival, 'fiiu-hubs.js': '20261029a', 'news-feed.js': '20261001b' },
+    'knowledge.html': { 'buc.js': '20261016c', 'styles.css': '36', 'script.js': '18', 'i18n.js': '20261103a', ...festival, 'fiiu-hubs.js': '20261029a' },
+    'resources.html': { 'styles.css': '36', 'script.js': '18', 'i18n.js': '20261103a', ...festival, 'fiiu-hubs.js': '20261029a' },
   };
   for (const [page, assets] of Object.entries(required)) {
     for (const [asset, version] of Object.entries(assets)) {
@@ -597,6 +597,21 @@ test('public catalog assets are served, built, cached, and deployment-covered', 
   assert.match(buildSource, /'catalog\.css'/);
   assert.ok(vercel.headers.some((route) => new RegExp(route.source).test('/catalog.js')));
   assert.ok(vercel.headers.some((route) => new RegExp(route.source).test('/catalog.css')));
+});
+
+// The landing page's organisations window: its script and stylesheet are served, built and cached like the page's others.
+test('the organisations request window ships its script and stylesheet everywhere the landing page does', () => {
+  const serverSource = readFileSync(path.join(ROOT, 'server', 'server.js'), 'utf8');
+  const buildSource = readFileSync(path.join(ROOT, 'scripts', 'build-static.js'), 'utf8');
+  const vercel = JSON.parse(readFileSync(path.join(ROOT, 'vercel.json'), 'utf8'));
+  const list = (source, name) => source.match(new RegExp(`const ${name} = (?:new Set\\()?\\[([^\\]]*)\\]`))?.[1] || '';
+  const merged = (url) => Object.fromEntries(vercel.headers.filter((r) => new RegExp(`^${r.source}$`).test(url)).flatMap((r) => r.headers.map(({ key, value }) => [key, value])));
+  for (const [file, lists, like] of [['node-request.js', 'STATIC_SCRIPTS', '/app.js'], ['node-request.css', 'STATIC_STYLES', '/styles.css']]) {
+    assert.ok(existsSync(path.join(ROOT, 'web', file.endsWith('.js') ? 'scripts' : 'styles', file)), `${file} is missing`);
+    assert.ok(list(serverSource, lists).includes(`'${file}'`), `${file}: server.js ${lists}`);
+    assert.ok(list(buildSource, lists).includes(`'${file}'`), `${file}: build-static.js ${lists}`);
+    assert.deepEqual(merged(`/${file}`), merged(like), `${file}: vercel.json headers as ${like}`);
+  }
 });
 
 test('protected catalog administration crosses every serving and build boundary', () => {

@@ -835,6 +835,23 @@
     'quote.p1': '“Los proyectos no fracasan por falta de dinero. Fracasan cuando las personas correctas ',
     'quote.p2': '.”',
     'res.link': 'Explora la membresía',
+    // The organisations card and its request window (3 Nov 2026): the team's words; node-request.js writes its own lines.
+    'mem.org.name': 'Para organizaciones NODAL',
+    'mem.org.tagline': 'Activa un Nodo territorial y/o temático',
+    'mem.org.p': 'Si eres una organización interesada en promover un nodo en tu área de influencia y/o quieres contribuir a dar visibilidad a un tema urbano. Contáctanos para conversar.',
+    'mem.org.cta': 'Contáctanos',
+    'mem.org.intro': 'Cuéntanos quién eres y qué te interesa; te escribiremos para conversar.',
+    'mem.org.fName': 'Nombre y apellido',
+    'mem.org.fOrg': 'Organización',
+    'mem.org.fEmail': 'Correo electrónico',
+    'mem.org.fPhone': 'Teléfono',
+    'mem.org.optional': '(opcional)',
+    'mem.org.fMessage': '¿Qué te interesa?',
+    'mem.org.fMessageHint': '(Cuéntanos brevemente)',
+    'mem.org.privacy': 'Usamos estos datos solo para responderte.',
+    'mem.org.send': 'Enviar',
+    'mem.org.thanks': 'Gracias. Recibimos tu mensaje y te escribiremos pronto.',
+    'mem.org.close': 'Cerrar',
   };
 
   const HOME_PT = {
@@ -958,6 +975,22 @@
     'quote.p1': '“Projetos não fracassam por falta de dinheiro. Fracassam quando as pessoas certas ',
     'quote.p2': '.”',
     'res.link': 'Conheça a membresia',
+    'mem.org.name': 'Para organizações NODAL',
+    'mem.org.tagline': 'Ative um Nó territorial e/ou temático',
+    'mem.org.p': 'Se você é uma organização interessada em promover um nó na sua área de influência e/ou quer contribuir para dar visibilidade a um tema urbano, fale com a gente para conversar.',
+    'mem.org.cta': 'Fale com a gente',
+    'mem.org.intro': 'Conte quem você é e o que te interessa; vamos escrever para conversar.',
+    'mem.org.fName': 'Nome e sobrenome',
+    'mem.org.fOrg': 'Organização',
+    'mem.org.fEmail': 'E-mail',
+    'mem.org.fPhone': 'Telefone',
+    'mem.org.optional': '(opcional)',
+    'mem.org.fMessage': 'O que te interessa?',
+    'mem.org.fMessageHint': '(Conte brevemente)',
+    'mem.org.privacy': 'Usamos estes dados apenas para responder a você.',
+    'mem.org.send': 'Enviar',
+    'mem.org.thanks': 'Obrigado. Recebemos sua mensagem e vamos escrever para você em breve.',
+    'mem.org.close': 'Fechar',
   };
 
   // English is whatever the page ships with — captured lazily, because some
