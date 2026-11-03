@@ -170,16 +170,17 @@ All of these, none of them visible to a real visitor:
   the request is stored *before* the email is attempted, and the stored outcome is updated after.
 - `GET /api/admin/node-requests?status=&limit=&cursor=` (admin): `{requests, nextCursor}`, same query rules as
   `/api/admin/interests`.
-- `PATCH /api/admin/node-requests/:id` (admin, sameOrigin, throttled): `{status, version}` → `{request:{id,version,
-  status}}`, 404, or 409 `{error, current}`.
-- `DELETE /api/admin/node-requests/:id` (admin, sameOrigin, throttled): 204 or 404.
+- `PATCH /api/admin/node-requests/:id` (admin, sameOrigin, throttled): `{status, version}` → `{request}`, 404, or
+  409 `{error, code:'version_conflict', request}` (the news desk's shape).
+- `DELETE /api/admin/node-requests/:id` (admin, sameOrigin, throttled): 204, also when it was already gone (as news).
 - Admin routes go in `ID_ONLY_API`. All endpoints are listed in README.md where the catalog Interest endpoints are.
 
 ## Storage
 
 A new table, `node_requests`, in both backends:
 
-- SQLite: the next entry in `server/db.js` `MIGRATIONS` (version 11).
+- SQLite: the table's own schema in its own store module, the way `server/news-repository.js` declares
+  `nodal_news` (`CREATE TABLE IF NOT EXISTS` run by the store), not a new `server/db.js` `MIGRATIONS` entry.
 - Supabase: a new file `supabase/migrations/<14-digit timestamp>_node_requests.sql`, sorted after `20261023000000`,
   in the latest header style (server-only: RLS on, no client policies; `REVOKE ALL … FROM PUBLIC, anon,
   authenticated, service_role`; `GRANT SELECT, INSERT, UPDATE, DELETE … TO service_role`; additive; apply before
@@ -191,8 +192,7 @@ A new table, `node_requests`, in both backends:
   `created_at`/`updated_at` (timestamptz, `set_updated_at` trigger), `updated_by` (FK to profiles, `on delete set
   null`). Length checks matching the limits above. Index for the desk list `(created_at desc, id)` and for the status
   filter.
-- Repository methods in both backends with the same names: `createNodeRequest`, `setNodeRequestEmailStatus`,
-  `countNodeRequestEmailsSince`, `listAdminNodeRequests`, `updateNodeRequest` (CAS), `deleteNodeRequest`.
+- One store module serving both backends, like `createNewsStore` (see the plan for its methods).
 
 ## Privacy
 
