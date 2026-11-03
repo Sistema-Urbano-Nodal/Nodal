@@ -84,3 +84,17 @@ test('never logs an address, name or message',async()=>{
  assert.equal(logs.length,1);assert.match(logs[0],new RegExp(request.id));assert.match(logs[0],/at recipient \(SMTP 550\)/);
  for(const secret of ['ana@','colectivo','Quispe','Ciudad Viva','Arequipa','sistemaurbano'])assert.ok(!logs[0].includes(secret),secret);
 });
+
+test('carries every validated field in full, past the 100 characters a first name is cut to',async()=>{
+ const long={...request,name:'N'.repeat(120),organization:'O'.repeat(160),email:`${'a'.repeat(60)}@${'b'.repeat(58)}.org`};
+ const transport=stub(()=>({}));
+ assert.equal(await createNodeRequestNotice({transport,origin,log:()=>{}})({request:long}),'sent');
+ for(const message of transport.sent){
+  assert.equal(message.subject,`Solicitud de Nodo: ${long.organization}`);
+  for(const body of [message.text,message.html]){
+   assert.ok(body.includes(`Nombre: ${long.name}`)||body.includes(`>${long.name}<`),'name');
+   assert.ok(body.includes(long.organization),'organization');assert.ok(body.includes(long.email),'email');
+  }
+  assert.equal(message.replyTo.name,long.name);assert.equal(message.replyTo.address,long.email);
+ }
+});

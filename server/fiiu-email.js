@@ -65,10 +65,10 @@ export const emailLanguage=value=>EMAIL_LANGUAGES.includes(value)?value:'es';
 const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 // A first name made safe for any context it lands in: control characters (CR/LF included) and line breaks become
 // spaces, and invisible format characters (bidi overrides among them) are dropped, except the joiners and emoji tags that
-// spell names and emoji (ZWNJ, ZWJ, U+E0020–E007F); single spaces, at most 100 characters, never half of one. A name
+// spell names and emoji (ZWNJ, ZWJ, U+E0020–E007F); single spaces, at most `max` characters (100 for a first name; pass Infinity for a field validated elsewhere), never half of one. A name
 // with nothing visible left is empty, so the plain greeting is used.
-export const safeName=value=>{
- const name=[...String(value??'').replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu,' ').replace(/(?![\u200C\u200D\u{E0020}-\u{E007F}])\p{Cf}/gu,'').replace(/\s+/g,' ').trim()].slice(0,100).join('');
+export const safeName=(value,max=100)=>{
+ const name=[...String(value??'').replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu,' ').replace(/(?![\u200C\u200D\u{E0020}-\u{E007F}])\p{Cf}/gu,'').replace(/\s+/g,' ').trim()].slice(0,max).join('');
  return /[^\p{Cf}\s]/u.test(name)?name:'';
 };
 const httpsLink=value=>{try{const url=new URL(String(value??''));return url.protocol==='https:'&&!url.username&&!url.password?url.href:'';}catch{return '';}};
