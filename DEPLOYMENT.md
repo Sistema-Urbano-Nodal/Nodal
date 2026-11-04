@@ -432,6 +432,15 @@ functions, and a project value also reaches the build, where `npm ci` would then
 skip the devDependencies the build runs (ESLint and the tests). `vercel.json`
 installs with `npm ci --include=dev` so a stray value cannot break the build.
 
+CI ends with `npm audit --audit-level=low`, so a red CI run whose tests all pass
+usually means a new advisory. `package.json` `overrides` gives ESLint (and
+`@eslint/config-array` beneath it) `minimatch` `^11.0.1`, because ESLint 10
+still asks for 10.x, which GHSA-g3hv-75wg-m249 covers. The override reaches
+nothing outside ESLint. Remove it when you upgrade ESLint to a release whose
+`eslint` and `@eslint/config-array` both depend on `minimatch` 11.0.1 or later
+(eslint/eslint#21463, eslint/rewrite#533), then run `npm install`, `npm run lint`
+and `npm audit --audit-level=low`.
+
 The server refuses to boot on Vercel Production (`VERCEL_ENV=production`) unless
 `TRUST_PROXY=true` and `PUBLIC_BASE_URL` (or `NEXT_PUBLIC_APP_URL`) is an
 explicit `https` origin without credentials; `VERCEL_URL` does not count there.
