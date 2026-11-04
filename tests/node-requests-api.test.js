@@ -431,4 +431,7 @@ test('DEPLOYMENT.md applies the node_requests migration before main, outside the
  assert.ok(step.includes('npx --no-install supabase db query --linked -f supabase/migrations/20261103000000_node_requests.sql'));
  assert.ok(step.includes('npx --no-install supabase migration repair --status applied 20261103000000'));
  assert.match(step,/before pushing `main`/);assert.ok(step.includes('/api/node-requests')&&step.includes('/api/admin/node-requests'));
+ // The release checklist names it as the newest migration to apply.
+ const steps=deployment.slice(deployment.indexOf('## Production Deployment Steps')),apply=steps.slice(steps.indexOf('\n2. '),steps.indexOf('\n3. ')).replace(/\s+/g,' ');
+ assert.match(apply,/most recently `20261103000000_node_requests\.sql` under "Organisation node requests", before pushing `main`/,apply);
 });

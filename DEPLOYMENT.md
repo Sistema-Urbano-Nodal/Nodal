@@ -542,8 +542,8 @@ npm start
 
 1. Confirm `.env`, `.env.local`, `.env.production`, `.vercel/`, and `data/` are not committed.
 2. Apply every pending Supabase migration (every file in the release sections
-   above, most recently `20261021000000_membership_acceptances.sql` under
-   "Founder Membership acceptances", before pushing `main`) one file
+   above, most recently `20261103000000_node_requests.sql` under
+   "Organisation node requests", before pushing `main`) one file
    at a time as described in "SQL Migration Steps" (never `supabase db push`
    against production) and confirm them.
 3. Configure Vercel environment variables.
