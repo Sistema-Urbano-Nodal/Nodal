@@ -34,6 +34,10 @@ test('sends one message to each team address with the organisation as Reply-To a
    for(const part of ['Colectivo Ciudad Viva','ana@colectivo-inbox.dev','+51 999 111 222','Português','2026-11-03 10:07','http://localhost:4186/admin.html#nodes'])assert.ok(body.includes(part),part);
   }
   assert.ok(message.text.includes('Queremos un Nodo en Arequipa.\nGracias.')||message.text.includes('Queremos un Nodo en Arequipa.\r\nGracias.'));
+  // The organisation wants to talk about a node, not to join NODAL.
+  assert.match(message.text,/^Una organización quiere conversar sobre un Nodo\.\r?\n/);
+  assert.ok(message.html.includes('<p>Una organización quiere conversar sobre un Nodo.</p>'));
+  for(const body of [message.text,message.html])assert.doesNotMatch(body,/pidió ser parte/);
  }
 });
 

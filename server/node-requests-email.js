@@ -16,8 +16,8 @@ function noticeMessage(request,origin){
  const rows=[['Nombre',oneLine(request.name)],['Organización',oneLine(request.organization)],['Correo',oneLine(request.email)],
   ['Teléfono',oneLine(request.phone)||'no indicado'],['Idioma',LANGUAGES[request.language]??LANGUAGES.es],['Recibida (hora de Lima)',limaTime(request.createdAt)]];
  const message=String(request.message??'');
- const text=['Una organización pidió ser parte de NODAL.','',...rows.map(([label,value])=>`${label}: ${value}`),'','Mensaje:',message,'',`Verla en el panel: ${deskLink}`].join('\n');
- const html=`<!doctype html><html lang="es"><body><p>Una organización pidió ser parte de NODAL.</p><table>${rows.map(([label,value])=>`<tr><th align="left">${label}</th><td>${escapeHtml(value)}</td></tr>`).join('')}</table><p>Mensaje:</p><p style="white-space:pre-wrap">${escapeHtml(message)}</p><p><a href="${escapeHtml(deskLink)}">Verla en el panel</a></p></body></html>`;
+ const text=['Una organización quiere conversar sobre un Nodo.','',...rows.map(([label,value])=>`${label}: ${value}`),'','Mensaje:',message,'',`Verla en el panel: ${deskLink}`].join('\n');
+ const html=`<!doctype html><html lang="es"><body><p>Una organización quiere conversar sobre un Nodo.</p><table>${rows.map(([label,value])=>`<tr><th align="left">${label}</th><td>${escapeHtml(value)}</td></tr>`).join('')}</table><p>Mensaje:</p><p style="white-space:pre-wrap">${escapeHtml(message)}</p><p><a href="${escapeHtml(deskLink)}">Verla en el panel</a></p></body></html>`;
  return {subject:`Solicitud de Nodo: ${oneLine(request.organization)}`,text,html};
 }
 // Only a plain stage name, an SMTP status and an error code are logged, never free text.
