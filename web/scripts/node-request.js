@@ -1,11 +1,14 @@
-/* The landing page's request window for organisations (spec: docs/superpowers/specs/2026-11-03-organisation-node-
-   requests-design.md). "Contáctanos" on the third membership card opens #nodeRequest as a modal, and so does arriving at
-   /#nodos, the link the team shares; closing it gives the focus back to the card and drops #nodos from the address.
-   Without <dialog> (or without this script) the button stays a plain #nodos link and the footer's two addresses are
-   the way in. The form posts once to /api/node-requests, with the page's language, and thanks in place. Labels are
-   the page's data-i18n copy; the lines this script writes (sending, errors) are the rows below, re-rendered when the
-   language changes. Nothing the visitor typed or the server answered is put on the page: the error line is chosen by
-   the answer's status and a known field, and the team's addresses are constants. */
+/* The landing page's request window for organisations (specs: docs/superpowers/specs/2026-11-03-organisation-node-
+   requests-design.md and, for the kind question and the sponsor fields, 2026-11-09-sponsored-memberships-design.md).
+   "Contáctanos" on the third membership card opens #nodeRequest as a modal with no kind chosen; arriving at /#nodos or
+   /#patrocinio (the links the team shares), or the address changing to one of them, opens it with that kind chosen.
+   Closing it gives the focus back to the card and drops the hash from the address. Without <dialog> (or without this
+   script) the button stays a plain #nodos link and the footer's two addresses are the way in. The form's first question
+   is the kind: a Nodo request, or sponsoring memberships, which shows two more fields (community, how many) and
+   relabels the message as the topic. The form posts once to /api/node-requests, with the page's language, and thanks in
+   place. Labels are the page's data-i18n copy; the lines this script writes (sending, errors) are the rows below,
+   re-rendered when the language changes. Nothing the visitor typed or the server answered is put on the page: the error
+   line is chosen by the answer's status and a known field, and the team's addresses are constants. */
 (() => {
   'use strict';
   const byId = (id) => document.getElementById(id);
@@ -13,8 +16,16 @@
   if (!opener || !dialog || !form || typeof dialog.showModal !== 'function') return;
   const error = byId('nodeRequestError'), send = byId('nodeRequestSend'), thanks = byId('nodeRequestThanks');
   const done = byId('nodeRequestDone'), trap = byId('nodeRequestWebsite');
-  // The server's field names, in the form's order; a 400 names one of them.
-  const FIELDS = new Map([['name', byId('nodeRequestName')], ['organization', byId('nodeRequestOrganization')], ['email', byId('nodeRequestEmail')], ['phone', byId('nodeRequestPhone')], ['message', byId('nodeRequestMessage')]]);
+  // The kind question: the fieldset, its two radios, the sponsor-only fields and the message's two labels.
+  const kindGroup = byId('nodeRequestKind'), sponsor = byId('nodeRequestSponsor');
+  const RADIOS = new Map([['node', byId('nodeRequestKindNode')], ['sponsorship', byId('nodeRequestKindSponsor')]]);
+  const messageLabel = byId('nodeRequestMessageLabel'), topicLabel = byId('nodeRequestTopicLabel');
+  // The server's field names, in the form's order; a 400 names one of them. The sponsor fields are sent only on a sponsorship.
+  const FIELDS = new Map([['name', byId('nodeRequestName')], ['organization', byId('nodeRequestOrganization')], ['email', byId('nodeRequestEmail')], ['phone', byId('nodeRequestPhone')],
+    ['community', byId('nodeRequestCommunity')], ['memberships', byId('nodeRequestMemberships')], ['message', byId('nodeRequestMessage')]]);
+  const SPONSOR_FIELDS = ['community', 'memberships'];
+  // The addresses that open the window with a kind chosen.
+  const HASHES = new Map([['#nodos', 'node'], ['#patrocinio', 'sponsorship']]);
   // The two addresses of the site footer, for when the window cannot send.
   const TEAM = ['fmuro@sistemaurbano.org', 'malegre@sistemaurbano.org'];
   // A request still unanswered after this long is given up, as if the API were unreachable (the server's own mail
@@ -25,10 +36,13 @@
   // [en, es, pt]
   const ROWS = {
     sending: ['Sending…', 'Enviando…', 'Enviando…'],
+    kind: ['Choose whether you want to activate a Node or sponsor memberships.', 'Elige si quieren activar un Nodo o patrocinar membresías.', 'Escolha se querem ativar um Nó ou patrocinar membresias.'],
     name: ['Write your full name, up to 120 characters.', 'Escribe tu nombre y apellido, hasta 120 caracteres.', 'Escreva seu nome e sobrenome, até 120 caracteres.'],
     organization: ['Write the name of your organization, up to 160 characters.', 'Escribe el nombre de tu organización, hasta 160 caracteres.', 'Escreva o nome da sua organização, até 160 caracteres.'],
     email: ['Write a valid email address.', 'Escribe un correo electrónico válido.', 'Escreva um e-mail válido.'],
     phone: ['The phone number can only have digits, spaces and + ( ) -, up to 40 characters.', 'El teléfono solo puede tener números, espacios y + ( ) -, hasta 40 caracteres.', 'O telefone só pode ter números, espaços e + ( ) -, até 40 caracteres.'],
+    community: ['Write the community you would like to support, up to 200 characters.', 'Escribe la comunidad que quieren apoyar, hasta 200 caracteres.', 'Escreva a comunidade que querem apoiar, até 200 caracteres.'],
+    memberships: ['Choose roughly how many memberships.', 'Elige cuántas membresías, aproximadamente.', 'Escolha quantas membresias, aproximadamente.'],
     message: ['Tell us what you are interested in, in up to 1000 characters.', 'Cuéntanos qué te interesa, en hasta 1000 caracteres.', 'Conte o que te interessa, em até 1000 caracteres.'],
     tooMany: ['Too many attempts. Try again later, or write to us at', 'Demasiados intentos. Intenta de nuevo más tarde o escríbenos a', 'Muitas tentativas. Tente novamente mais tarde ou escreva para'],
     unreachable: ['We could not send your message from here. Write to us at', 'No pudimos enviar tu mensaje desde aquí. Escríbenos a', 'Não conseguimos enviar sua mensagem daqui. Escreva para'],
@@ -41,8 +55,22 @@
   const sendLabel = send.textContent;
 
   let busy = false;
-  let shown = null; // null, a FIELDS key, 'tooMany', 'unreachable' or 'unavailable'
+  let shown = null; // null, 'kind', a FIELDS key, 'tooMany', 'unreachable' or 'unavailable'
   let unseen = false; // a thank-you that came while the window was closed
+
+  // The kind chosen, or null; choosing shows or hides the sponsor fields and swaps the message's label.
+  const chosen = () => [...RADIOS].find(([, radio]) => radio.checked)?.[0] ?? null;
+  function choose(kind) {
+    for (const [name, radio] of RADIOS) radio.checked = name === kind;
+    showKind();
+  }
+  function showKind() {
+    const sponsorship = chosen() === 'sponsorship';
+    if (sponsor) sponsor.hidden = !sponsorship;
+    if (messageLabel) messageLabel.hidden = sponsorship;
+    if (topicLabel) topicLabel.hidden = !sponsorship;
+  }
+  for (const radio of RADIOS.values()) radio?.addEventListener('change', showKind);
 
   function mailto(address) {
     const link = document.createElement('a');
@@ -57,21 +85,36 @@
     else if (shown === 'tooMany' || shown === 'unreachable') error.replaceChildren(`${say(shown)} `, mailto(TEAM[0]), ` ${say('or')} `, mailto(TEAM[1]), '.');
     else error.textContent = say(shown);
   }
+  // The control a problem is about: the kind group for 'kind', else the field; marked as invalid and described by the line.
+  const control = (key) => (key === 'kind' ? kindGroup : FIELDS.get(key));
+  function clearMarks() {
+    for (const node of [kindGroup, ...FIELDS.values()]) { node?.removeAttribute('aria-invalid'); node?.removeAttribute('aria-describedby'); }
+  }
+  function mark(key) {
+    const node = control(key);
+    if (!node) return;
+    node.setAttribute('aria-invalid', 'true');
+    node.setAttribute('aria-describedby', error.id);
+    if (dialog.open) (key === 'kind' ? RADIOS.get('node') : node).focus();
+  }
 
-  function openWindow() {
+  function openWindow(kind) {
     // A request already thanked for: opened again, it is a new form, unless the visitor closed the window while it
     // was sending and has not seen the thanks yet.
     if (!thanks.hidden && !unseen) { thanks.hidden = true; form.hidden = false; }
+    // A link's kind wins over an unsent one; the card chooses nothing, so an unsent choice stays.
+    if (kind) choose(kind);
     if (!dialog.open) dialog.showModal();
     if (unseen) { unseen = false; done.focus(); return; }
-    FIELDS.get('name').focus();
+    // The first question still open, or the first field once it is answered.
+    (chosen() ? FIELDS.get('name') : RADIOS.get('node')).focus();
   }
   opener.setAttribute('aria-haspopup', 'dialog');
   opener.addEventListener('click', (event) => { event.preventDefault(); openWindow(); });
   // Every way out (×, Escape, the thank-you's button) ends in the dialog's close event.
   dialog.addEventListener('close', () => {
     opener.focus();
-    if (window.location.hash !== '#nodos') return;
+    if (!HASHES.has(window.location.hash)) return;
     try { window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`); } catch { /* the window is closed either way */ }
   });
   byId('nodeRequestClose').addEventListener('click', () => dialog.close());
@@ -84,17 +127,21 @@
     if (response.status !== 400) return 'unavailable';
     let field = null;
     try { field = (await response.json())?.field; } catch { /* not the API's answer */ }
-    return FIELDS.has(field) ? field : 'unavailable';
+    return field === 'kind' || FIELDS.has(field) ? field : 'unavailable';
   };
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (busy) return;
+    const kind = chosen();
+    clearMarks();
+    // The first question unanswered: nothing is sent (the server would take a missing kind as a Nodo request).
+    if (!kind) { shown = 'kind'; render(); mark('kind'); return; }
     busy = true;
     send.disabled = true;
     shown = null;
-    for (const input of FIELDS.values()) { input.removeAttribute('aria-invalid'); input.removeAttribute('aria-describedby'); }
     render();
-    const body = { ...Object.fromEntries([...FIELDS].map(([field, input]) => [field, input.value])), language: lang(), website: trap ? trap.value : '' };
+    const fields = [...FIELDS].filter(([field]) => kind === 'sponsorship' || !SPONSOR_FIELDS.includes(field));
+    const body = { kind, ...Object.fromEntries(fields.map(([field, input]) => [field, input.value])), language: lang(), website: trap ? trap.value : '' };
     let response = null, timer;
     const controller = new AbortController();
     // Raced as well as aborted, so the limit holds even for a fetch that ignores its signal.
@@ -108,6 +155,7 @@
     send.disabled = false;
     if (result === 'thanked') {
       form.reset();
+      showKind();
       render();
       form.hidden = true;
       thanks.hidden = false;
@@ -118,13 +166,12 @@
     }
     shown = result;
     render();
-    const input = FIELDS.get(result);
-    if (!input) return;
-    input.setAttribute('aria-invalid', 'true');
-    input.setAttribute('aria-describedby', error.id);
-    if (dialog.open) input.focus();
+    mark(result);
   });
 
   window.nodalI18n?.onChange(render);
-  if (window.location.hash === '#nodos') openWindow();
+  // The links the team shares, on arrival and when the address changes while the page is open.
+  const fromHash = () => { const kind = HASHES.get(window.location.hash); if (kind) openWindow(kind); };
+  window.addEventListener?.('hashchange', fromHash);
+  fromHash();
 })();

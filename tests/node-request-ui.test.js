@@ -16,7 +16,9 @@ const DIALOG = between(HTML, '<dialog', '</dialog>');
 // Read when a test runs, so a missing script fails each test rather than the whole file.
 const script = () => read('web', 'scripts', 'node-request.js');
 const TEAM = ['fmuro@sistemaurbano.org', 'malegre@sistemaurbano.org'];
-const FIELDS = { name: 'nodeRequestName', organization: 'nodeRequestOrganization', email: 'nodeRequestEmail', phone: 'nodeRequestPhone', message: 'nodeRequestMessage' };
+const FIELDS = { name: 'nodeRequestName', organization: 'nodeRequestOrganization', email: 'nodeRequestEmail', phone: 'nodeRequestPhone', community: 'nodeRequestCommunity', memberships: 'nodeRequestMemberships', message: 'nodeRequestMessage' };
+// The form's first question: which kind of request (spec: docs/superpowers/specs/2026-11-09-sponsored-memberships-design.md).
+const RADIOS = { node: 'nodeRequestKindNode', sponsorship: 'nodeRequestKindSponsor' };
 
 const attributesOf = (source) => Object.fromEntries([...source.matchAll(/([a-z][\w-]*)(?:="([^"]*)")?/g)].map(([, name, value]) => [name, value ?? '']));
 function element(html, id) {
@@ -30,6 +32,7 @@ class Element {
     Object.assign(this, { ownerDocument: document, tagName: tag, attributes: {}, dataset: {}, children: [], listeners: new Map(), own: '', value: '', disabled: false });
     for (const [name, value] of Object.entries(attributes)) this.setAttribute(name, value);
     this.hidden = 'hidden' in attributes;
+    this.checked = 'checked' in attributes;
     this.id = attributes.id || '';
   }
   get textContent() { return this.own + this.children.map((child) => (typeof child === 'string' ? child : child.textContent)).join(''); }
@@ -99,18 +102,20 @@ async function mount({ lang = 'en', hash = '', fetchImpl = async () => answer(20
   const nodes = [...elements(document, CARD), ...elements(document, DIALOG)];
   const byId = new Map(nodes.filter((node) => node.id).map((node) => [node.id, node]));
   const form = byId.get('nodeRequestForm');
-  if (form) form.reset = () => { for (const node of nodes) if (['input', 'textarea'].includes(node.tagName)) node.value = ''; };
+  // As a browser resets a form: text back to empty, radios back to unchecked (none has a checked attribute), selects to their first option.
+  if (form) form.reset = () => { for (const node of nodes) { if (['input', 'textarea', 'select'].includes(node.tagName)) node.value = ''; if (node.attributes.type === 'radio') node.checked = false; } };
   if (!dialogs && byId.get('nodeRequest')) byId.get('nodeRequest').showModal = undefined;
   const i18n = loadI18n(nodes, lang);
   const location = { pathname: '/', search: '?lang=es', hash };
   const replaced = [];
   const history = { state: { kept: true }, replaceState(state, title, url) { replaced.push({ state, url }); location.hash = ''; } };
+  const hashHandlers = [];
   const requests = [];
   // The request's time limit runs on these timers, fired by hand: expire() runs every one not cleared.
   const timers = [];
   const context = {
     document,
-    window: { nodalI18n: i18n, location, history },
+    window: { nodalI18n: i18n, location, history, addEventListener: (type, handler) => { if (type === 'hashchange') hashHandlers.push(handler); } },
     fetch: (url, options) => { requests.push({ url, options }); return fetchImpl(url, options); },
     setTimeout: (run, ms) => timers.push({ run, ms, cleared: false }),
     clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].cleared = true; },
@@ -125,13 +130,20 @@ async function mount({ lang = 'en', hash = '', fetchImpl = async () => answer(20
     async expire() { for (const timer of timers) if (!timer.cleared) { timer.cleared = true; timer.run(); } await settle(); },
     dialog: $('nodeRequest'), form, error: $('nodeRequestError'), send: $('nodeRequestSend'), thanks: $('nodeRequestThanks'),
     labelled: (key) => nodes.find((node) => node.dataset.i18n === key),
-    type(values) { for (const [field, value] of Object.entries(values)) $(FIELDS[field]).value = value; },
-    typed: () => Object.fromEntries(Object.entries(FIELDS).map(([field, id]) => [field, $(id).value])),
+    chosen: () => Object.keys(RADIOS).find((kind) => $(RADIOS[kind]).checked) ?? null,
+    // Checking one radio unchecks the other of its group, as a browser does, and the change reaches the script.
+    choose(kind) { for (const [name, id] of Object.entries(RADIOS)) $(id).checked = name === kind; if (kind) $(RADIOS[kind]).dispatch('change'); },
+    type(values) { for (const [field, value] of Object.entries(values)) { if (field === 'kind') this.choose(value); else $(FIELDS[field]).value = value; } },
+    // What a visitor sees: the kind, the shared fields and, on a sponsorship, the sponsor fields.
+    typed() { const kind = this.chosen(); return Object.fromEntries([['kind', kind], ...Object.entries(FIELDS).filter(([field]) => kind === 'sponsorship' || !['community', 'memberships'].includes(field)).map(([field, id]) => [field, $(id).value])]); },
+    hashchange(hash) { location.hash = hash; for (const handler of hashHandlers) handler({ type: 'hashchange' }); },
     open() { return $('nodeRequestOpen').dispatch('click'); },
     async submit() { const event = form.dispatch('submit'); await settle(); return event; },
   };
 }
-const FILLED = { name: ' Ana Pérez ', organization: 'Colectivo Calle Viva', email: 'ana@calleviva.example', phone: '+51 (1) 555-0100', message: 'Queremos un nodo en Arequipa.\nY dar visibilidad a la movilidad activa.' };
+const FILLED = { kind: 'node', name: ' Ana Pérez ', organization: 'Colectivo Calle Viva', email: 'ana@calleviva.example', phone: '+51 (1) 555-0100', message: 'Queremos un nodo en Arequipa.\nY dar visibilidad a la movilidad activa.' };
+const SPONSOR = { ...FILLED, kind: 'sponsorship', organization: 'SPDA', community: 'Ciclistas de Lima', memberships: '11-25', message: 'Movilidad activa.' };
+const EMPTY = { kind: null, name: '', organization: '', email: '', phone: '', message: '' };;
 const links = (node) => node.children.filter((child) => typeof child !== 'string');
 
 test('the landing page has a third card that links to #nodos and a dialog with every field', () => {
@@ -152,17 +164,19 @@ test('the landing page has a third card that links to #nodos and a dialog with e
     nodeRequestOrganization: { tag: 'input', name: 'organization', type: 'text', autocomplete: 'organization', required: '' },
     nodeRequestEmail: { tag: 'input', name: 'email', type: 'email', autocomplete: 'email', required: '' },
     nodeRequestPhone: { tag: 'input', name: 'phone', type: 'tel', autocomplete: 'tel' },
+    nodeRequestCommunity: { tag: 'input', name: 'community', type: 'text', maxlength: '200', required: '' },
+    nodeRequestMemberships: { tag: 'select', name: 'memberships', required: '' },
     nodeRequestMessage: { tag: 'textarea', name: 'message', maxlength: '1000', required: '' },
   };
   for (const [id, want] of Object.entries(expected)) {
     const got = element(DIALOG, id);
     for (const [name, value] of Object.entries(want)) assert.equal(got[name], value, `#${id} ${name}`);
     assert.ok(DIALOG.includes(`<label for="${id}">`), `#${id} has a label`);
-    // Only the message mirrors a server limit; the server answers the others by field.
-    if (id !== 'nodeRequestMessage') assert.ok(!('maxlength' in got), `#${id} has no maxlength`);
+    // Only the message and the community mirror a server limit; the server answers the others by field.
+    if (!['nodeRequestMessage', 'nodeRequestCommunity'].includes(id)) assert.ok(!('maxlength' in got), `#${id} has no maxlength`);
   }
   assert.ok(!('required' in element(DIALOG, 'nodeRequestPhone')), 'the phone is optional');
-  assert.deepEqual([...DIALOG.matchAll(/\bname="([a-z]+)"/g)].map((match) => match[1]), ['name', 'organization', 'email', 'phone', 'message', 'website'], 'the spec’s order, then the trap');
+  assert.deepEqual([...DIALOG.matchAll(/\bname="([a-z]+)"/g)].map((match) => match[1]), ['kind', 'kind', 'name', 'organization', 'email', 'phone', 'community', 'memberships', 'message', 'website'], 'the spec’s order, then the trap');
   const trap = element(DIALOG, 'nodeRequestWebsite');
   assert.deepEqual([trap.tag, trap.name, trap.type, trap.tabindex, trap.autocomplete], ['input', 'website', 'text', '-1', 'off']);
   assert.match(DIALOG, /<div class="nr-trap" aria-hidden="true">(?:(?!<\/div>)[\s\S])*id="nodeRequestWebsite"/, 'the trap sits in a wrapper screen readers skip');
@@ -180,8 +194,8 @@ test('the landing page has a third card that links to #nodos and a dialog with e
   assert.deepEqual([element(thanks, done['aria-describedby']).tag, element(thanks, done['aria-describedby'])['data-i18n']], ['p', 'mem.org.thanks'], 'by the thanks paragraph');
   assert.match(DIALOG, /<a href="privacy\.html"[^>]*data-i18n="nav\.privacy">Privacy policy<\/a>/, 'the privacy line links the policy');
   // The page loads the window's style after the site's and its script after the dictionaries.
-  assert.ok(HTML.indexOf('href="styles.css?v=') < HTML.indexOf('href="node-request.css?v=20261104a"'));
-  assert.ok(HTML.indexOf('src="i18n.js?v=') < HTML.indexOf('<script defer src="node-request.js?v=20261104a"></script>'));
+  assert.ok(HTML.indexOf('href="styles.css?v=') < HTML.indexOf('href="node-request.css?v=20261109a"'));
+  assert.ok(HTML.indexOf('src="i18n.js?v=') < HTML.indexOf('<script defer src="node-request.js?v=20261109a"></script>'));
 });
 
 test('the card and the window say the team’s words in Spanish, and English and Portuguese in the same register', () => {
@@ -189,7 +203,21 @@ test('the card and the window say the team’s words in Spanish, and English and
   const COPY = {
     'mem.org.name': ['NODAL for organizations', 'Para organizaciones NODAL', 'Para organizações NODAL'],
     'mem.org.tagline': ['Activate a territorial and/or thematic Node', 'Activa un Nodo territorial y/o temático', 'Ative um Nó territorial e/ou temático'],
-    'mem.org.p': ['If your organization wants to promote a node in its area of influence and/or help give visibility to an urban issue, contact us to talk it over.', 'Si eres una organización interesada en promover un nodo en tu área de influencia y/o quieres contribuir a dar visibilidad a un tema urbano. Contáctanos para conversar.', 'Se você é uma organização interessada em promover um nó na sua área de influência e/ou quer contribuir para dar visibilidade a um tema urbano, entre em contato para conversarmos.'],
+    'mem.org.p': ['If your organization wants to promote a node in its area of influence and/or help give visibility to an urban issue, contact us to talk it over. You can also sponsor memberships for a community.', 'Si eres una organización interesada en promover un nodo en tu área de influencia y/o quieres contribuir a dar visibilidad a un tema urbano. Contáctanos para conversar. También puedes patrocinar membresías para una comunidad.', 'Se você é uma organização interessada em promover um nó na sua área de influência e/ou quer contribuir para dar visibilidade a um tema urbano, entre em contato para conversarmos. Você também pode patrocinar membresias para uma comunidade.'],
+    'mem.org.kind': ['What are you interested in?', '¿Qué les interesa?', 'O que interessa a vocês?'],
+    'mem.org.kindNode': ['Activate a Node', 'Activar un Nodo', 'Ativar um Nó'],
+    'mem.org.kindSponsor': ['Sponsor memberships', 'Patrocinar membresías', 'Patrocinar membresias'],
+    'mem.org.kindSponsorLine': ['Support a community. Activate a network.', 'Apoya una comunidad. Activa una red.', 'Apoie uma comunidade. Ative uma rede.'],
+    'mem.org.fCommunity': ['Which community would you like to support?', '¿A qué comunidad les gustaría apoyar?', 'Que comunidade vocês gostariam de apoiar?'],
+    'mem.org.fCommunityHint': ['(for example: cyclists in Lima, your team, a professional network)', '(por ejemplo: ciclistas de Lima, su equipo, una red profesional)', '(por exemplo: ciclistas de Lima, sua equipe, uma rede profissional)'],
+    'mem.org.fMemberships': ['Roughly how many memberships?', '¿Cuántas membresías, aproximadamente?', 'Quantas membresias, aproximadamente?'],
+    'mem.org.mChoose': ['Choose one', 'Elige una opción', 'Escolha uma opção'],
+    'mem.org.m1': ['1 to 10', '1 a 10', '1 a 10'],
+    'mem.org.m2': ['11 to 25', '11 a 25', '11 a 25'],
+    'mem.org.m3': ['26 to 50', '26 a 50', '26 a 50'],
+    'mem.org.m4': ['More than 50', 'Más de 50', 'Mais de 50'],
+    'mem.org.mUnsure': ['We don’t know yet', 'Aún no lo sabemos', 'Ainda não sabemos'],
+    'mem.org.fTopic': ['What topic or urban challenge do you care about?', '¿Qué tema o desafío urbano les interesa?', 'Que tema ou desafio urbano interessa a vocês?'],
     'mem.org.cta': ['Contact us', 'Contáctanos', 'Fale com a gente'],
     'mem.org.intro': ['Tell us who you are and what interests you; we will write back to talk it over.', 'Cuéntanos quién eres y qué te interesa; te escribiremos para conversar.', 'Conte quem você é e o que te interessa; vamos te escrever para conversar.'],
     'mem.org.fName': ['Full name', 'Nombre y apellido', 'Nome e sobrenome'],
@@ -223,7 +251,7 @@ test('opens on Contáctanos and on #nodos, and gives focus back when closed', as
   assert.equal(opener.getAttribute('aria-haspopup'), 'dialog');
   assert.equal(page.open().defaultPrevented, true, 'the link does not add #nodos to the address');
   assert.equal(page.dialog.open, true);
-  assert.equal(page.document.activeElement, page.$('nodeRequestName'), 'focus goes to the first field');
+  assert.equal(page.document.activeElement, page.$(RADIOS.node), 'focus goes to the first question, the kind');
   page.open();
   assert.equal(page.dialog.open, true, 'a second click while open is harmless');
   page.$('nodeRequestClose').dispatch('click');
@@ -238,7 +266,7 @@ test('opens on Contáctanos and on #nodos, and gives focus back when closed', as
   // The link the team shares: the window is open on arrival, and closing it drops #nodos and keeps the rest.
   const shared = await mount({ hash: '#nodos' });
   assert.equal(shared.dialog.open, true);
-  assert.equal(shared.document.activeElement, shared.$('nodeRequestName'));
+  assert.equal(shared.document.activeElement, shared.$('nodeRequestName'), 'the kind is chosen, so the first field');
   shared.dialog.escape();
   assert.equal(shared.document.activeElement, shared.$('nodeRequestOpen'));
   assert.deepEqual(shared.replaced, [{ state: { kept: true }, url: '/?lang=es' }]);
@@ -254,6 +282,173 @@ test('opens on Contáctanos and on #nodos, and gives focus back when closed', as
   // and the window stays out of sight: only browsers with <dialog> hide a closed one themselves, and a form shown
   // there with no script behind it would send its fields as a GET, into the address bar and the host's logs.
   assert.match(read('web', 'styles', 'node-request.css'), /\.node-request:not\(\[open\]\) \{ display: none; \}/, 'a closed window is hidden without <dialog> too');
+});
+
+// The form's first question (spec: docs/superpowers/specs/2026-11-09-sponsored-memberships-design.md, "The window").
+test('the window asks for the kind first, with the sponsor fields hidden until sponsorship is chosen', () => {
+  // A fixed heading, the card's title; the kicker that repeated it is gone.
+  assert.match(DIALOG, /<h2 class="nr-title" id="nodeRequestTitle" data-i18n="mem\.org\.name">NODAL for organizations<\/h2>/);
+  assert.ok(!DIALOG.includes('nr-kicker'), 'no kicker');
+  const group = element(DIALOG, 'nodeRequestKind');
+  assert.equal(group.tag, 'fieldset');
+  const fieldset = between(DIALOG, '<fieldset', '</fieldset>');
+  assert.match(fieldset, /<legend[^>]*data-i18n="mem\.org\.kind">What are you interested in\?<\/legend>/);
+  assert.ok(DIALOG.indexOf('id="nodeRequestKind"') < DIALOG.indexOf('id="nodeRequestName"'), 'before the name');
+  for (const [kind, id, value, line] of [['node', RADIOS.node, 'node', 'mem.org.tagline'], ['sponsorship', RADIOS.sponsorship, 'sponsorship', 'mem.org.kindSponsorLine']]) {
+    const radio = element(fieldset, id);
+    assert.deepEqual([radio.tag, radio.type, radio.name, radio.value, 'required' in radio, 'checked' in radio], ['input', 'radio', 'kind', value, true, false], `${kind}: a required radio, nothing preselected`);
+    assert.ok(fieldset.includes(`<label class="nr-choice" for="${id}">`), `${kind} has a label`);
+    const option = between(fieldset, `<label class="nr-choice" for="${id}">`, '</label>');
+    assert.ok(option.includes(`data-i18n="${line}"`), `${kind}: its own line, ${line}`);
+  }
+  const sponsor = element(DIALOG, 'nodeRequestSponsor');
+  assert.deepEqual([sponsor.tag, 'hidden' in sponsor], ['div', true], 'the sponsor fields are hidden by the attribute, not only by style');
+  const wrapper = between(DIALOG, '<div class="nr-sponsor" id="nodeRequestSponsor" hidden>', '</select>');
+  assert.ok(wrapper.includes('id="nodeRequestCommunity"') && wrapper.includes('id="nodeRequestMemberships"'), 'both sponsor fields inside it');
+  assert.ok(DIALOG.indexOf('id="nodeRequestPhone"') < DIALOG.indexOf('id="nodeRequestSponsor"') && DIALOG.indexOf('id="nodeRequestSponsor"') < DIALOG.indexOf('id="nodeRequestMessage"'), 'after the phone, before the message');
+  const options = [...between(DIALOG, '<select id="nodeRequestMemberships"', '</select>').matchAll(/<option value="([^"]*)" data-i18n="([^"]+)">/g)].map((m) => [m[1], m[2]]);
+  assert.deepEqual(options, [['', 'mem.org.mChoose'], ['1-10', 'mem.org.m1'], ['11-25', 'mem.org.m2'], ['26-50', 'mem.org.m3'], ['50+', 'mem.org.m4'], ['unsure', 'mem.org.mUnsure']]);
+  // Two labels for the message, one shown at a time.
+  const message = between(DIALOG, '<label for="nodeRequestMessage">', '</label>');
+  assert.match(message, /<span id="nodeRequestMessageLabel" data-i18n="mem\.org\.fMessage">What are you interested in\?<\/span>/);
+  assert.match(message, /<span id="nodeRequestTopicLabel" hidden data-i18n="mem\.org\.fTopic">What topic or urban challenge do you care about\?<\/span>/);
+  // The card keeps one button, and no price anywhere.
+  assert.equal((CARD.match(/<a class="btn/g) || []).length, 1);
+  assert.doesNotMatch(CARD + DIALOG, /S\/\s?\d|US\$\s?\d/);
+});
+
+test('opens with no choice from the card, Nodo from #nodos, sponsorship from #patrocinio', async () => {
+  const page = await mount();
+  page.open();
+  assert.equal(page.chosen(), null);
+  assert.equal(page.$('nodeRequestSponsor').hidden, true);
+  assert.equal(page.$('nodeRequestKind').getAttribute('aria-invalid'), null);
+  const nodo = await mount({ hash: '#nodos' });
+  assert.equal(nodo.chosen(), 'node');
+  assert.equal(nodo.$('nodeRequestSponsor').hidden, true);
+  const sponsor = await mount({ hash: '#patrocinio' });
+  assert.equal(sponsor.dialog.open, true);
+  assert.equal(sponsor.chosen(), 'sponsorship');
+  assert.equal(sponsor.$('nodeRequestSponsor').hidden, false);
+  assert.equal(sponsor.document.activeElement, sponsor.$('nodeRequestName'));
+  sponsor.dialog.escape();
+  assert.deepEqual(sponsor.replaced, [{ state: { kept: true }, url: '/?lang=es' }], 'closing drops #patrocinio');
+  assert.equal(sponsor.location.hash, '');
+  // The address changing while the page is open opens the window too, with that choice.
+  const live = await mount();
+  assert.equal(live.dialog.open, false);
+  live.hashchange('#patrocinio');
+  assert.equal(live.dialog.open, true);
+  assert.equal(live.chosen(), 'sponsorship');
+  live.dialog.escape();
+  live.hashchange('#nodos');
+  assert.equal(live.dialog.open, true);
+  assert.equal(live.chosen(), 'node');
+  assert.equal(live.$('nodeRequestSponsor').hidden, true);
+  live.dialog.escape();
+  live.hashchange('#membership');
+  assert.equal(live.dialog.open, false, 'another address opens nothing');
+});
+
+test('asks for a choice before sending', async () => {
+  const page = await mount({ lang: 'es' });
+  page.open();
+  page.type({ ...FILLED, kind: null });
+  page.choose(null);
+  const event = await page.submit();
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(page.requests.length, 0, 'nothing is sent without a kind');
+  assert.equal(page.error.hidden, false);
+  assert.equal(page.error.textContent, 'Elige si quieren activar un Nodo o patrocinar membresías.');
+  assert.equal(page.$('nodeRequestKind').getAttribute('aria-invalid'), 'true');
+  assert.equal(page.$('nodeRequestKind').getAttribute('aria-describedby'), 'nodeRequestError');
+  assert.equal(page.document.activeElement, page.$(RADIOS.node), 'focus goes to the first radio');
+  assert.equal(page.send.disabled, false);
+  assert.deepEqual(page.typed(), { ...FILLED, kind: null }, 'nothing typed is lost');
+  page.i18n.apply('pt');
+  assert.equal(page.error.textContent, 'Escolha se querem ativar um Nó ou patrocinar membresias.');
+  page.i18n.apply('en');
+  assert.equal(page.error.textContent, 'Choose whether you want to activate a Node or sponsor memberships.');
+  // Choosing and sending clears the mark.
+  page.choose('node');
+  await page.submit();
+  assert.equal(page.requests.length, 1);
+  assert.equal(page.$('nodeRequestKind').getAttribute('aria-invalid'), null);
+  assert.equal(page.$('nodeRequestKind').getAttribute('aria-describedby'), null);
+  assert.equal(page.thanks.hidden, false);
+});
+
+test('sends a sponsorship with its community and range', async () => {
+  const page = await mount({ lang: 'es' });
+  page.open();
+  page.type(SPONSOR);
+  assert.equal(page.$('nodeRequestSponsor').hidden, false);
+  await page.submit();
+  assert.equal(page.requests.length, 1);
+  assert.deepEqual(JSON.parse(page.requests[0].options.body), { ...SPONSOR, language: 'es', website: '' });
+  assert.equal(page.thanks.hidden, false);
+  assert.deepEqual(page.typed(), EMPTY);
+  assert.equal(page.$('nodeRequestCommunity').value, '');
+  assert.equal(page.$('nodeRequestMemberships').value, '');
+  assert.equal(page.$('nodeRequestSponsor').hidden, true, 'a fresh form hides the sponsor fields again');
+});
+
+test('switching to Nodo sends no sponsor fields, and switching back keeps what was typed', async () => {
+  const page = await mount();
+  page.open();
+  page.type(SPONSOR);
+  page.choose('node');
+  assert.equal(page.$('nodeRequestSponsor').hidden, true);
+  await page.submit();
+  const body = JSON.parse(page.requests[0].options.body);
+  assert.equal(body.kind, 'node');
+  assert.ok(!('community' in body) && !('memberships' in body), 'no sponsor fields on a Nodo request');
+  // Not thanked yet (the stub answers 202, so it is), so mount again: switch and switch back.
+  const other = await mount({ fetchImpl: async () => answer(400, { field: 'name' }) });
+  other.open();
+  other.type(SPONSOR);
+  other.choose('node');
+  other.choose('sponsorship');
+  assert.equal(other.$('nodeRequestSponsor').hidden, false);
+  assert.deepEqual(other.typed(), SPONSOR, 'the sponsor fields come back as typed');
+});
+
+test('swaps the message label with the choice', async () => {
+  const page = await mount();
+  page.open();
+  const [message, topic] = [page.$('nodeRequestMessageLabel'), page.$('nodeRequestTopicLabel')];
+  assert.deepEqual([message.hidden, topic.hidden], [false, true], 'no choice: the general question');
+  page.choose('sponsorship');
+  assert.deepEqual([message.hidden, topic.hidden], [true, false]);
+  page.choose('node');
+  assert.deepEqual([message.hidden, topic.hidden], [false, true]);
+  const sponsor = await mount({ hash: '#patrocinio' });
+  assert.deepEqual([sponsor.$('nodeRequestMessageLabel').hidden, sponsor.$('nodeRequestTopicLabel').hidden], [true, false]);
+});
+
+test('a fresh form after thanks has no choice; an unsent one keeps it', async () => {
+  const page = await mount();
+  page.open();
+  page.type(SPONSOR);
+  await page.submit();
+  assert.equal(page.thanks.hidden, false);
+  page.$('nodeRequestDone').dispatch('click');
+  page.open();
+  assert.equal(page.chosen(), null);
+  assert.equal(page.$('nodeRequestSponsor').hidden, true);
+  // Closed before sending: the choice and the text wait.
+  const kept = await mount();
+  kept.open();
+  kept.type(SPONSOR);
+  kept.dialog.escape();
+  kept.open();
+  assert.equal(kept.chosen(), 'sponsorship');
+  assert.deepEqual(kept.typed(), SPONSOR);
+  assert.equal(kept.document.activeElement, kept.$('nodeRequestName'), 'a chosen kind sends the focus to the name');
+  // Opened from a link, the link's kind wins over the unsent one.
+  kept.dialog.escape();
+  kept.hashchange('#nodos');
+  assert.equal(kept.chosen(), 'node');
 });
 
 test('sends one POST with the typed fields and the page language, and thanks', async () => {
@@ -285,14 +480,14 @@ test('sends one POST with the typed fields and the page language, and thanks', a
   assert.equal(page.error.hidden, true);
   assert.equal(page.send.disabled, false);
   assert.equal(page.send.textContent, 'Enviar');
-  assert.deepEqual(Object.values(page.typed()), ['', '', '', '', ''], 'nothing typed stays behind on a shared computer');
+  assert.deepEqual(page.typed(), EMPTY, 'nothing typed stays behind on a shared computer');
   page.$('nodeRequestDone').dispatch('click');
   assert.equal(page.dialog.open, false);
   assert.equal(page.document.activeElement, page.$('nodeRequestOpen'));
-  // Opened again, it is a new form.
+  // Opened again, it is a new form, with no kind chosen.
   page.open();
   assert.deepEqual([page.form.hidden, page.thanks.hidden], [false, true]);
-  assert.equal(page.document.activeElement, page.$('nodeRequestName'));
+  assert.equal(page.document.activeElement, page.$(RADIOS.node));
 
   // The page's language is the one sent, whatever it is when Send is pressed.
   const english = await mount({ lang: 'en' });
@@ -342,19 +537,22 @@ test('shows the field error for a 400 and keeps what was typed', async () => {
     organization: 'Write the name of your organization, up to 160 characters.',
     email: 'Write a valid email address.',
     phone: 'The phone number can only have digits, spaces and + ( ) -, up to 40 characters.',
+    community: 'Write the community you would like to support, up to 200 characters.',
+    memberships: 'Choose roughly how many memberships.',
     message: 'Tell us what you are interested in, in up to 1000 characters.',
   };
   for (const [field, text] of Object.entries(MESSAGES)) {
     const page = await mount({ fetchImpl: async () => answer(400, { error: `${field} is invalid`, field }) });
     page.open();
-    page.type(FILLED);
+    const typed = ['community', 'memberships'].includes(field) ? SPONSOR : FILLED;
+    page.type(typed);
     await page.submit();
     assert.equal(page.error.hidden, false, field);
     assert.equal(page.error.textContent, text, field);
     assert.equal(page.document.activeElement, page.$(FIELDS[field]), `${field} gets the focus`);
     assert.equal(page.$(FIELDS[field]).getAttribute('aria-invalid'), 'true', field);
     assert.equal(page.$(FIELDS[field]).getAttribute('aria-describedby'), 'nodeRequestError', `${field} is described by the reason`);
-    assert.deepEqual(page.typed(), FILLED, `${field}: what was typed stays`);
+    assert.deepEqual(page.typed(), typed, `${field}: what was typed stays`);
     assert.deepEqual([page.form.hidden, page.thanks.hidden], [false, true]);
     // The next try starts clean.
     await page.submit();
@@ -432,6 +630,7 @@ test('shows the team addresses on 429 and when the API is unreachable', async ()
   }
   const spanish = await mount({ lang: 'es', fetchImpl: async () => answer(429) });
   spanish.open();
+  spanish.choose('node');
   await spanish.submit();
   assert.equal(spanish.error.textContent, 'Demasiados intentos. Intenta de nuevo más tarde o escríbenos a fmuro@sistemaurbano.org o malegre@sistemaurbano.org.');
 });
@@ -490,11 +689,11 @@ test('keeps the thank-you for a window closed while sending, and shows it when o
   page.open();
   assert.deepEqual([page.form.hidden, page.thanks.hidden], [true, false], 'the thanks waits for the visitor');
   assert.equal(page.document.activeElement, page.$('nodeRequestDone'));
-  assert.deepEqual(Object.values(page.typed()), ['', '', '', '', ''], 'and nothing typed stays behind');
+  assert.deepEqual(page.typed(), EMPTY, 'and nothing typed stays behind');
   page.$('nodeRequestDone').dispatch('click');
   page.open();
   assert.deepEqual([page.form.hidden, page.thanks.hidden], [false, true], 'once seen, the next opening is a new form');
-  assert.equal(page.document.activeElement, page.$('nodeRequestName'));
+  assert.equal(page.document.activeElement, page.$(RADIOS.node));
 
   // An error that comes back while the window is closed keeps what was typed and its line.
   const failing = later();
@@ -542,6 +741,7 @@ test('re-renders labels and the shown error when the language changes', async ()
   // The addresses line keeps its links in the new language.
   const busy = await mount({ fetchImpl: async () => answer(429) });
   busy.open();
+  busy.choose('node');
   await busy.submit();
   busy.i18n.apply('pt');
   assert.equal(busy.error.textContent, 'Muitas tentativas. Tente novamente mais tarde ou escreva para fmuro@sistemaurbano.org ou malegre@sistemaurbano.org.');
@@ -574,7 +774,7 @@ test('puts untrusted text on the page as text only', async () => {
     await page.submit();
     assert.equal(page.error.textContent, 'The service is not available right now. Try again in a few minutes.', field);
     assert.ok(page.error.children.every((child) => typeof child === 'string'), field);
-    assert.equal(page.document.activeElement, page.$('nodeRequestName'), `${field}: focus stays where it was`);
+    assert.equal(page.document.activeElement, page.$(RADIOS.node), `${field}: focus stays where it was`);
   }
   // What the visitor typed goes to the server as JSON text and is never written back to the page.
   const typed = await mount({ fetchImpl: async () => answer(400, { field: 'message' }) });
@@ -586,6 +786,7 @@ test('puts untrusted text on the page as text only', async () => {
   // The team's links are built from constants, as elements with text.
   const busy = await mount({ fetchImpl: async () => answer(429) });
   busy.open();
+  busy.choose('node');
   await busy.submit();
   for (const link of links(busy.error)) {
     assert.ok(link instanceof Element);

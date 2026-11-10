@@ -838,7 +838,7 @@
     // The organisations card and its request window (3 Nov 2026): the team's words; node-request.js writes its own lines.
     'mem.org.name': 'Para organizaciones NODAL',
     'mem.org.tagline': 'Activa un Nodo territorial y/o temático',
-    'mem.org.p': 'Si eres una organización interesada en promover un nodo en tu área de influencia y/o quieres contribuir a dar visibilidad a un tema urbano. Contáctanos para conversar.',
+    'mem.org.p': 'Si eres una organización interesada en promover un nodo en tu área de influencia y/o quieres contribuir a dar visibilidad a un tema urbano. Contáctanos para conversar. También puedes patrocinar membresías para una comunidad.',
     'mem.org.cta': 'Contáctanos',
     'mem.org.intro': 'Cuéntanos quién eres y qué te interesa; te escribiremos para conversar.',
     'mem.org.fName': 'Nombre y apellido',
@@ -852,6 +852,21 @@
     'mem.org.send': 'Enviar',
     'mem.org.thanks': 'Gracias. Recibimos tu mensaje y te escribiremos pronto.',
     'mem.org.close': 'Cerrar',
+    // The window's first question and the sponsor fields (9 Nov 2026, sponsored memberships).
+    'mem.org.kind': '¿Qué les interesa?',
+    'mem.org.kindNode': 'Activar un Nodo',
+    'mem.org.kindSponsor': 'Patrocinar membresías',
+    'mem.org.kindSponsorLine': 'Apoya una comunidad. Activa una red.',
+    'mem.org.fCommunity': '¿A qué comunidad les gustaría apoyar?',
+    'mem.org.fCommunityHint': '(por ejemplo: ciclistas de Lima, su equipo, una red profesional)',
+    'mem.org.fMemberships': '¿Cuántas membresías, aproximadamente?',
+    'mem.org.mChoose': 'Elige una opción',
+    'mem.org.m1': '1 a 10',
+    'mem.org.m2': '11 a 25',
+    'mem.org.m3': '26 a 50',
+    'mem.org.m4': 'Más de 50',
+    'mem.org.mUnsure': 'Aún no lo sabemos',
+    'mem.org.fTopic': '¿Qué tema o desafío urbano les interesa?',
   };
 
   const HOME_PT = {
@@ -977,7 +992,7 @@
     'res.link': 'Conheça a membresia',
     'mem.org.name': 'Para organizações NODAL',
     'mem.org.tagline': 'Ative um Nó territorial e/ou temático',
-    'mem.org.p': 'Se você é uma organização interessada em promover um nó na sua área de influência e/ou quer contribuir para dar visibilidade a um tema urbano, entre em contato para conversarmos.',
+    'mem.org.p': 'Se você é uma organização interessada em promover um nó na sua área de influência e/ou quer contribuir para dar visibilidade a um tema urbano, entre em contato para conversarmos. Você também pode patrocinar membresias para uma comunidade.',
     'mem.org.cta': 'Fale com a gente',
     'mem.org.intro': 'Conte quem você é e o que te interessa; vamos te escrever para conversar.',
     'mem.org.fName': 'Nome e sobrenome',
@@ -991,6 +1006,20 @@
     'mem.org.send': 'Enviar',
     'mem.org.thanks': 'Obrigado. Recebemos sua mensagem e vamos escrever para você em breve.',
     'mem.org.close': 'Fechar',
+    'mem.org.kind': 'O que interessa a vocês?',
+    'mem.org.kindNode': 'Ativar um Nó',
+    'mem.org.kindSponsor': 'Patrocinar membresias',
+    'mem.org.kindSponsorLine': 'Apoie uma comunidade. Ative uma rede.',
+    'mem.org.fCommunity': 'Que comunidade vocês gostariam de apoiar?',
+    'mem.org.fCommunityHint': '(por exemplo: ciclistas de Lima, sua equipe, uma rede profissional)',
+    'mem.org.fMemberships': 'Quantas membresias, aproximadamente?',
+    'mem.org.mChoose': 'Escolha uma opção',
+    'mem.org.m1': '1 a 10',
+    'mem.org.m2': '11 a 25',
+    'mem.org.m3': '26 a 50',
+    'mem.org.m4': 'Mais de 50',
+    'mem.org.mUnsure': 'Ainda não sabemos',
+    'mem.org.fTopic': 'Que tema ou desafio urbano interessa a vocês?',
   };
 
   // English is whatever the page ships with — captured lazily, because some

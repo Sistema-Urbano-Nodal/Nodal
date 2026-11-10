@@ -15,14 +15,14 @@
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="fonts.css?v=20260911b" />
   <link rel="stylesheet" href="styles.css?v=36" />
-  <link rel="stylesheet" href="node-request.css?v=20261104a" />
+  <link rel="stylesheet" href="node-request.css?v=20261109a" />
 
   <script defer src="nav.js?v=20261013b"></script>
-  <script defer src="i18n.js?v=20261104a"></script>
+  <script defer src="i18n.js?v=20261109a"></script>
   <script defer src="script.js?v=18"></script>
   <script defer src="hero-network.js?v=2"></script>
   <script defer src="app.js?v=20261021c"></script>
-  <script defer src="node-request.js?v=20261104a"></script>
+  <script defer src="node-request.js?v=20261109a"></script>
   <script defer src="recs.js?v=5"></script>
 </head>
 <body data-page="home">
@@ -485,20 +485,32 @@
 
         <article class="plan plan-org">
           <header><h3 data-i18n="mem.org.name">NODAL for organizations</h3><p class="price" data-i18n="mem.org.tagline">Activate a territorial and/or thematic Node</p></header>
-          <p class="plan-text" data-i18n="mem.org.p">If your organization wants to promote a node in its area of influence and/or help give visibility to an urban issue, contact us to talk it over.</p>
+          <p class="plan-text" data-i18n="mem.org.p">If your organization wants to promote a node in its area of influence and/or help give visibility to an urban issue, contact us to talk it over. You can also sponsor memberships for a community.</p>
           <a class="btn btn-ghost-dark" id="nodeRequestOpen" href="#nodos" data-i18n="mem.org.cta">Contact us</a>
         </article>
       </div>
     </div>
   </section>
 
-  <!-- the organisations card's request window: node-request.js opens it, and /#nodos opens it on arrival -->
+  <!-- the organisations card's request window: node-request.js opens it, and /#nodos or /#patrocinio opens it on arrival
+       with that kind chosen. The first question is the kind: a Nodo, or sponsoring memberships (the sponsor fields show
+       only then). -->
   <dialog class="node-request" id="nodeRequest" aria-labelledby="nodeRequestTitle">
     <button class="nr-close" id="nodeRequestClose" type="button" aria-label="Close" data-i18n-aria-label="mem.org.close"><span aria-hidden="true">×</span></button>
-    <p class="nr-kicker" data-i18n="mem.org.name">NODAL for organizations</p>
-    <h2 class="nr-title" id="nodeRequestTitle" data-i18n="mem.org.tagline">Activate a territorial and/or thematic Node</h2>
+    <h2 class="nr-title" id="nodeRequestTitle" data-i18n="mem.org.name">NODAL for organizations</h2>
     <form class="nr-form" id="nodeRequestForm" method="dialog" novalidate>
       <p class="nr-intro" data-i18n="mem.org.intro">Tell us who you are and what interests you; we will write back to talk it over.</p>
+      <fieldset class="nr-kind" id="nodeRequestKind">
+        <legend data-i18n="mem.org.kind">What are you interested in?</legend>
+        <label class="nr-choice" for="nodeRequestKindNode">
+          <input id="nodeRequestKindNode" name="kind" type="radio" value="node" required />
+          <span class="nr-choice-text"><span class="nr-choice-name" data-i18n="mem.org.kindNode">Activate a Node</span> <span class="nr-choice-line" data-i18n="mem.org.tagline">Activate a territorial and/or thematic Node</span></span>
+        </label>
+        <label class="nr-choice" for="nodeRequestKindSponsor">
+          <input id="nodeRequestKindSponsor" name="kind" type="radio" value="sponsorship" required />
+          <span class="nr-choice-text"><span class="nr-choice-name" data-i18n="mem.org.kindSponsor">Sponsor memberships</span> <span class="nr-choice-line" data-i18n="mem.org.kindSponsorLine">Support a community. Activate a network.</span></span>
+        </label>
+      </fieldset>
       <label for="nodeRequestName"><span data-i18n="mem.org.fName">Full name</span>
         <input id="nodeRequestName" name="name" type="text" autocomplete="name" required /></label>
       <label for="nodeRequestOrganization"><span data-i18n="mem.org.fOrg">Organization</span>
@@ -507,7 +519,20 @@
         <input id="nodeRequestEmail" name="email" type="email" autocomplete="email" required /></label>
       <label for="nodeRequestPhone"><span><span data-i18n="mem.org.fPhone">Phone</span> <span class="nr-hint" data-i18n="mem.org.optional">(optional)</span></span>
         <input id="nodeRequestPhone" name="phone" type="tel" autocomplete="tel" /></label>
-      <label for="nodeRequestMessage"><span><span data-i18n="mem.org.fMessage">What are you interested in?</span> <span class="nr-hint" data-i18n="mem.org.fMessageHint">(Tell us briefly)</span></span>
+      <div class="nr-sponsor" id="nodeRequestSponsor" hidden>
+        <label for="nodeRequestCommunity"><span><span data-i18n="mem.org.fCommunity">Which community would you like to support?</span> <span class="nr-hint" data-i18n="mem.org.fCommunityHint">(for example: cyclists in Lima, your team, a professional network)</span></span>
+          <input id="nodeRequestCommunity" name="community" type="text" maxlength="200" required /></label>
+        <label for="nodeRequestMemberships"><span data-i18n="mem.org.fMemberships">Roughly how many memberships?</span>
+          <select id="nodeRequestMemberships" name="memberships" required>
+            <option value="" data-i18n="mem.org.mChoose">Choose one</option>
+            <option value="1-10" data-i18n="mem.org.m1">1 to 10</option>
+            <option value="11-25" data-i18n="mem.org.m2">11 to 25</option>
+            <option value="26-50" data-i18n="mem.org.m3">26 to 50</option>
+            <option value="50+" data-i18n="mem.org.m4">More than 50</option>
+            <option value="unsure" data-i18n="mem.org.mUnsure">We don’t know yet</option>
+          </select></label>
+      </div>
+      <label for="nodeRequestMessage"><span><span id="nodeRequestMessageLabel" data-i18n="mem.org.fMessage">What are you interested in?</span><span id="nodeRequestTopicLabel" hidden data-i18n="mem.org.fTopic">What topic or urban challenge do you care about?</span> <span class="nr-hint" data-i18n="mem.org.fMessageHint">(Tell us briefly)</span></span>
         <textarea id="nodeRequestMessage" name="message" rows="5" maxlength="1000" required></textarea></label>
       <div class="nr-trap" aria-hidden="true"><label for="nodeRequestWebsite">Website</label><input id="nodeRequestWebsite" name="website" type="text" tabindex="-1" autocomplete="off" /></div>
       <p class="nr-privacy"><span data-i18n="mem.org.privacy">We use these details only to reply to you.</span> <a href="privacy.html" target="_blank" rel="noopener noreferrer" data-i18n="nav.privacy">Privacy policy</a></p>

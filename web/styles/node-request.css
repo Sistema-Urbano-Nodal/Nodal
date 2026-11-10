@@ -43,19 +43,30 @@
   font: inherit; font-size: 28px; line-height: 1; cursor: pointer; border-radius: var(--r-btn);
 }
 .nr-close:hover { background: var(--green-soft); }
-.nr-kicker { font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--green-deep); padding-right: 44px; }
-.nr-title { margin-top: 6px; padding-right: 44px; font-size: clamp(22px, 3vw, 26px); line-height: 1.2; color: var(--ink); }
+.nr-title { padding-right: 44px; font-size: clamp(22px, 3vw, 26px); line-height: 1.2; color: var(--ink); }
 .nr-form { display: grid; gap: 16px; margin-top: 14px; }
 .nr-intro { color: var(--ink-2); font-size: 15.5px; line-height: 1.5; }
 .nr-form label { display: grid; gap: 6px; font-size: 14px; font-weight: 600; color: var(--ink); }
 .nr-hint { font-weight: 500; color: var(--ink-2); }   /* 6.9:1 on the paper; --muted was 3.87:1 */
-.nr-form input, .nr-form textarea {
+.nr-form input, .nr-form textarea, .nr-form select {
   width: 100%; font: inherit; font-size: 16px; font-weight: 500; color: var(--ink);   /* 16px: no zoom on iOS */
   background: #fff; border: 1px solid var(--muted); border-radius: var(--r-btn); padding: 11px 12px;
 }
 .nr-form textarea { min-height: 120px; resize: vertical; line-height: 1.5; }
-.nr-form :is(input, textarea):focus-visible { border-color: var(--green-deep); outline-offset: 1px; }
+.nr-form :is(input, textarea, select):focus-visible { border-color: var(--green-deep); outline-offset: 1px; }
 .nr-form [aria-invalid="true"] { border-color: #8c1d18; }
+/* the first question: two stacked options, each with its own line under the name, read as a question and not a tab bar */
+.nr-kind { display: grid; gap: 10px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.nr-kind legend { padding: 0; margin-bottom: 4px; font-size: 14px; font-weight: 600; color: var(--ink); }
+.nr-kind[aria-invalid="true"] .nr-choice { border-color: #8c1d18; }
+.nr-choice { grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; padding: 12px 14px; border: 1px solid var(--muted); border-radius: var(--r-btn); cursor: pointer; }
+.nr-choice:has(input:checked) { border-color: var(--green-deep); background: var(--green-soft); }
+.nr-form .nr-choice input[type="radio"] { width: 18px; height: 18px; margin: 3px 0 0; padding: 0; border: 0; background: transparent; accent-color: var(--green-deep); cursor: pointer; }
+.nr-choice-text { display: grid; gap: 2px; }
+.nr-choice-name { font-size: 16px; font-weight: 600; }
+.nr-choice-line { font-size: 14px; font-weight: 500; line-height: 1.4; color: var(--ink-2); }
+/* the sponsor fields, shown once sponsorship is chosen; the same gap as the form's other fields */
+.nr-sponsor { display: grid; gap: 16px; }
 /* the field people never see: bots fill it in, and the server then sends nothing */
 .nr-trap { position: absolute; left: -10000px; top: auto; width: 1px; height: 1px; overflow: hidden; }
 .nr-privacy { font-size: 13.5px; line-height: 1.5; color: var(--ink-2); }
