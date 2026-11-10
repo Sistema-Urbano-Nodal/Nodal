@@ -46,14 +46,14 @@ How NODAL is built, where it runs, how it protects accounts and data, and what i
 | Follows and other interactions | 60 a minute |
 | Exports and other costly actions | 10 every 10 minutes |
 | Globe polls | 40 a minute |
-| Organisation node requests (landing page form, no account; fixed in code) | 20 per client address an hour, 3 per email address a day |
+| Organisation requests, a Nodo or sponsoring memberships (landing page form, no account; fixed in code) | 20 per client address an hour, 3 per email address a day |
 | | 40 emailed to the team a day (Lima time), counted in the database, so it holds across instances |
 
 Supabase Auth applies its own limits on sign-ins and token renewals (raised to 600 every 5 minutes on 7 Sep 2026). Every sign-in reaches Supabase from NODAL's servers, so those limits are shared by all visitors rather than kept per visitor.
 
 Other protections:
 - **CSRF:** every request that changes something must come from NODAL's own pages.
-- **Request size:** most request bodies are capped at 32 KB, course requests at 64 KB, organisation node requests at 16 KB, and uploads have their own size and type checks.
+- **Request size:** most request bodies are capped at 32 KB, course requests at 64 KB, organisation requests at 16 KB, and uploads have their own size and type checks.
 - **Known gap:** the counters are kept in each server instance's memory. Under heavy traffic Vercel runs several instances, so the limits are per instance, not global. Redis (`REDIS_URL`) is used only for caching today; making the limits global would need the limiter to keep its counters there too.
 
 ## Browser security
@@ -74,7 +74,7 @@ Payments don't need any change to these rules. The Supporting membership is paid
 |---|---|---|
 | Vercel | hosting and CDN | every request |
 | Supabase | database, sign-in, file storage | all stored data |
-| Email over SMTP (`EMAIL_SMTP_URL`) | confirmations, password recovery, festival emails, and each organisation node request to the two team members (`server/node-requests-email.js`) | the recipient's address and the message; a node request's notice carries everything the organisation sent |
+| Email over SMTP (`EMAIL_SMTP_URL`) | confirmations, password recovery, festival emails, and each organisation request, a Nodo or a sponsorship of memberships, to the two team members (`server/node-requests-email.js`) | the recipient's address and the message; a request's notice carries everything the organisation sent, a sponsor's community and range included |
 | GeoDB Cities | city search and placing members on the map | the typed city or approximate coordinates |
 | Mercado Pago | Supporting membership payments, on its own page | what the payer enters there; NODAL sends nothing |
 | Sentry (optional) | server error reports | see *Errors and monitoring* |
