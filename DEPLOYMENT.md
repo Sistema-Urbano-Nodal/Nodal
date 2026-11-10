@@ -237,6 +237,35 @@ addresses in `server/node-requests-email.js`, at most 40 requests a day in Lima
 time. On a Preview, or without those settings, requests are still stored and
 listed in the desk with the email `off`.
 
+## Sponsorship requests: one migration before `main`
+
+`20261109000000_node_request_kinds.sql` lets the landing page's "Para
+organizaciones NODAL" form carry sponsorship requests as well as Nodo
+requests. It adds three columns to `node_requests`: `kind` (`node` or
+`sponsorship`; every existing row becomes `node`), and the `community` a sponsor
+wants to support and roughly how many `memberships` (`1-10`, `11-25`, `26-50`,
+`50+` or `unsure`), both empty on a Nodo request. It also adds an index for the
+desk's kind filter. It is additive, and the code live today inserts no kind, so
+its rows get the `node` default: applying it first is safe.
+
+**Apply it before pushing `main`:** Vercel deploys on push, and until the
+columns exist the new code fails on Supabase. Every request
+(`POST /api/node-requests`) answers 503 (nothing stored, nothing sent), and the
+desk's organisations band (`/api/admin/node-requests`) fails to load.
+
+```bash
+npx --no-install supabase db query --linked -f supabase/migrations/20261109000000_node_request_kinds.sql
+npx --no-install supabase migration repair --status applied 20261109000000
+```
+
+```sql
+select count(*) from public.node_requests where kind is null;  -- 0
+select kind, count(*) from public.node_requests group by kind;  -- node only, until the first sponsorship
+```
+
+Nothing changes in Vercel: sponsorship requests use the same team email, the
+same two recipients and the same 40-a-day ceiling as Nodo requests.
+
 ## Founder Membership acceptances: one migration before `main`
 
 `20261021000000_membership_acceptances.sql` adds the server-only table
@@ -551,8 +580,8 @@ npm start
 
 1. Confirm `.env`, `.env.local`, `.env.production`, `.vercel/`, and `data/` are not committed.
 2. Apply every pending Supabase migration (every file in the release sections
-   above, most recently `20261103000000_node_requests.sql` under
-   "Organisation node requests", before pushing `main`) one file
+   above, most recently `20261109000000_node_request_kinds.sql` under
+   "Sponsorship requests", before pushing `main`) one file
    at a time as described in "SQL Migration Steps" (never `supabase db push`
    against production) and confirm them.
 3. Configure Vercel environment variables.

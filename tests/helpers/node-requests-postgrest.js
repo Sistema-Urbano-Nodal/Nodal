@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 
 /* An in-memory PostgREST for node_requests, behind createNodeRequestStore({clients}) in the store and API tests:
-   eq/lt/gte/neq/is/not.is leaves inside and()/or() trees, select, order, limit and exact counts, and the table's
-   status CHECK. Timestamps are compared to the microsecond and printed the way PostgreSQL's to_json does (+00:00, the
+   eq/lt/gte/neq/is/not.is leaves inside and()/or() trees, select, order, limit and exact counts, the table's status
+   and kind CHECKs, and the defaults of kind, community and memberships. Timestamps are compared to the microsecond and printed the way PostgreSQL's to_json does (+00:00, the
    fraction's trailing zeros dropped), so cursors and filters are exercised in the production format. */
 const STAMP=/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(Z|[+-]\d{2}:\d{2})$/;
 export const micros=value=>{const m=STAMP.exec(value);assert.ok(m,`a timestamp: ${value}`);return BigInt(Date.parse(m[1]+m[3]))*1000n+BigInt((m[2]??'').padEnd(6,'0'));};
@@ -35,7 +35,9 @@ export function nodeRequestsPostgrest(){
   if(options.method==='POST'){
    const row=structuredClone(options.body);
    if(rows.some(r=>r.id===row.id))throw error('23505','duplicate key value violates unique constraint');
-   if(!['new','contacted','closed'].includes(row.status))throw error('23514','violates check constraint');
+   // PostgreSQL's defaults for the columns an older insert leaves out, then its CHECKs.
+   row.kind??='node';row.community??=null;row.memberships??=null;
+   if(!['new','contacted','closed'].includes(row.status)||!['node','sponsorship'].includes(row.kind))throw error('23514','violates check constraint');
    rows.push(row);return [pg(row,query.select)];
   }
   const hit=rows.filter(row=>matches(row,query));

@@ -431,7 +431,18 @@ test('DEPLOYMENT.md applies the node_requests migration before main, outside the
  assert.ok(step.includes('npx --no-install supabase db query --linked -f supabase/migrations/20261103000000_node_requests.sql'));
  assert.ok(step.includes('npx --no-install supabase migration repair --status applied 20261103000000'));
  assert.match(step,/before pushing `main`/);assert.ok(step.includes('/api/node-requests')&&step.includes('/api/admin/node-requests'));
- // The release checklist names it as the newest migration to apply.
+});
+
+test('DEPLOYMENT.md applies the node_request_kinds migration before main, and names it newest in the release checklist',()=>{
+ const deployment=readFileSync(new URL('../DEPLOYMENT.md',import.meta.url),'utf8');
+ const start=deployment.indexOf('## Sponsorship requests: one migration before `main`');assert.ok(start>0);
+ const end=deployment.indexOf('\n## ',start+1),step=deployment.slice(start,end);
+ for(const [from,to] of [['## Founder Membership acceptances','## Founder badge'],['## Founder badge','## Supabase Setup']]){
+  const a=deployment.indexOf(from),b=deployment.indexOf(to);assert.ok(start<a||start>=b,`outside ${from}`);
+ }
+ assert.ok(step.includes('npx --no-install supabase db query --linked -f supabase/migrations/20261109000000_node_request_kinds.sql'));
+ assert.ok(step.includes('npx --no-install supabase migration repair --status applied 20261109000000'));
+ assert.match(step,/before pushing `main`/);assert.ok(step.includes('/api/node-requests')&&step.includes('/api/admin/node-requests'));
  const steps=deployment.slice(deployment.indexOf('## Production Deployment Steps')),apply=steps.slice(steps.indexOf('\n2. '),steps.indexOf('\n3. ')).replace(/\s+/g,' ');
- assert.match(apply,/most recently `20261103000000_node_requests\.sql` under "Organisation node requests", before pushing `main`/,apply);
+ assert.match(apply,/most recently `20261109000000_node_request_kinds\.sql` under "Sponsorship requests", before pushing `main`/,apply);
 });

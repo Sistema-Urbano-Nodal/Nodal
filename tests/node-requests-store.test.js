@@ -6,13 +6,13 @@ import {createNodeRequestStore,NODE_REQUEST_FIELDS} from '../server/node-request
 import {nodeRequestsPostgrest as postgrest,pgStamp} from './helpers/node-requests-postgrest.js';
 
 const uuid=n=>`${n}0000000-0000-4000-8000-000000000000`;
-const record=(n,over={})=>({id:uuid(n),name:'Ana',organization:'Colectivo '+n,email:'ana@example.test',phone:null,message:'Hola',language:'es',status:'new',emailStatus:null,
+const record=(n,over={})=>({id:uuid(n),kind:'node',name:'Ana',organization:'Colectivo '+n,email:'ana@example.test',phone:null,community:null,memberships:null,message:'Hola',language:'es',status:'new',emailStatus:null,
  createdAt:`2026-10-${String(n).padStart(2,'0')}T10:00:00.000Z`,updatedAt:`2026-10-${String(n).padStart(2,'0')}T10:00:00.000Z`,updatedBy:null,version:1,...over});
 const sqlite=t=>{const db=createDatabase({filename:':memory:'});t.after(()=>db.close());return {db,store:createNodeRequestStore({db})};};
 
 test('stores, reads and lists node requests newest first, by page',async t=>{
  const {store}=sqlite(t);
- assert.deepEqual(NODE_REQUEST_FIELDS,['id','name','organization','email','phone','message','language','status','emailStatus','createdAt','updatedAt','updatedBy','version']);
+ assert.deepEqual(NODE_REQUEST_FIELDS,['id','kind','name','organization','email','phone','community','memberships','message','language','status','emailStatus','createdAt','updatedAt','updatedBy','version']);
  assert.equal(store.kind,'sqlite');
  for(const n of [3,1,2])assert.deepEqual(await store.insert(record(n)),record(n));
  // Two requests in the same instant are ordered by id, descending.
@@ -99,7 +99,7 @@ test('the Supabase store inserts, reads and pages node requests newest first by 
  await assert.rejects(store.insert(record(2,{status:'archived'})),error=>error.code==='23514');
  for(const n of [2,3,4])await store.insert(record(n,n===3?{status:'closed'}:{}));
  assert.equal((await store.get(uuid(2))).id,uuid(2));assert.equal(await store.get(uuid(9)),null);
- assert.deepEqual(pg.calls.at(-1).query,{select:'id,name,organization,email,phone,message,language,status,email_status,created_at,updated_at,updated_by,version',id:`eq.${uuid(9)}`,limit:1});
+ assert.deepEqual(pg.calls.at(-1).query,{select:'id,kind,name,organization,email,phone,community,memberships,message,language,status,email_status,created_at,updated_at,updated_by,version',id:`eq.${uuid(9)}`,limit:1});
  const first=await store.list({limit:2});assert.deepEqual(first.map(r=>r.id),[uuid(4),uuid(3)]);
  assert.equal(pg.calls.at(-1).query.order,'created_at.desc,id.desc');assert.equal(pg.calls.at(-1).query.limit,2);assert.equal(pg.calls.at(-1).query.or,undefined);
  const second=await store.list({after:first.at(-1),limit:2});assert.deepEqual(second.map(r=>r.id),[uuid(2),uuid(1)]);
@@ -161,4 +161,91 @@ test('the node_requests migration is server-only, additive and documented',()=>{
  assert.ok(statements.includes('GRANT SELECT,INSERT,UPDATE,DELETE ON TABLE public.node_requests TO service_role'));
  assert.ok(!statements.some(s=>/^CREATE POLICY/i.test(s)),'no client policy');
  assert.equal(statements.length,10,'nothing else');
+});
+
+// Sponsorship requests (spec: docs/superpowers/specs/2026-11-09-sponsored-memberships-design.md, "Storage").
+const sponsor=(n,over={})=>record(n,{kind:'sponsorship',community:'Ciclistas de Lima',memberships:'11-25',...over});
+
+test('rows written without kind are Nodo rows',async t=>{
+ const {db,store}=sqlite(t);
+ // What the code live before this release inserts: none of the new columns.
+ db.prepare('INSERT INTO node_requests (id,name,organization,email,message,language,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)')
+  .run(uuid(1),'Ana','Colectivo','ana@example.test','Hola','es','2026-10-01T10:00:00.000Z','2026-10-01T10:00:00.000Z');
+ const row=await store.get(uuid(1));
+ assert.deepEqual([row.kind,row.community,row.memberships],['node',null,null]);
+});
+
+test('stores a sponsorship and refuses a mixed row',async t=>{
+ const {store}=sqlite(t);
+ assert.deepEqual(await store.insert(sponsor(1)),sponsor(1));
+ for(const code of ['1-10','26-50','50+','unsure'])assert.equal((await store.insert(sponsor(2+['1-10','26-50','50+','unsure'].indexOf(code),{memberships:code}))).memberships,code);
+ assert.equal((await store.insert(sponsor(6,{community:'x'.repeat(200)}))).community.length,200);
+ await assert.rejects(store.insert(record(7,{community:'Ciclistas'})),/CHECK constraint/,'a Nodo row with a community');
+ await assert.rejects(store.insert(record(8,{memberships:'1-10'})),/CHECK constraint/,'a Nodo row with a range');
+ await assert.rejects(store.insert(sponsor(9,{memberships:null})),/CHECK constraint/,'a sponsorship without a range');
+ await assert.rejects(store.insert(sponsor(10,{community:null})),/CHECK constraint/,'a sponsorship without a community');
+ await assert.rejects(store.insert(sponsor(11,{community:''})),/CHECK constraint/);
+ await assert.rejects(store.insert(sponsor(12,{memberships:'5'})),/CHECK constraint/);
+ await assert.rejects(store.insert(sponsor(13,{community:'x'.repeat(201)})),/CHECK constraint/);
+ await assert.rejects(store.insert(record(14,{kind:'patrocinio'})),/CHECK constraint/);
+});
+
+test('filters by kind and status together, by page',async t=>{
+ const {store}=sqlite(t);
+ await store.insert(sponsor(1));await store.insert(record(2));await store.insert(sponsor(3,{status:'closed'}));await store.insert(sponsor(4));await store.insert(record(5));
+ assert.deepEqual((await store.list({kind:'node',limit:10})).map(r=>r.id),[uuid(5),uuid(2)]);
+ const first=await store.list({kind:'sponsorship',status:'new',limit:1});assert.deepEqual(first.map(r=>r.id),[uuid(4)]);
+ const next=await store.list({kind:'sponsorship',status:'new',after:first.at(-1),limit:1});assert.deepEqual(next.map(r=>r.id),[uuid(1)]);
+ assert.deepEqual(await store.list({kind:'sponsorship',status:'new',after:next.at(-1),limit:1}),[]);
+ const pg=postgrest(),remote=createNodeRequestStore({clients:pg.clients});
+ for(const row of [sponsor(1),record(2),sponsor(3,{status:'closed'})])await remote.insert(row);
+ assert.deepEqual((await remote.list({kind:'sponsorship',status:'new',limit:5})).map(r=>r.id),[uuid(1)]);
+ assert.equal(pg.calls.at(-1).query.kind,'eq.sponsorship');assert.equal(pg.calls.at(-1).query.status,'eq.new');
+ assert.equal((await remote.list({limit:5}),pg.calls.at(-1).query.kind),undefined,'no kind, no filter');
+});
+
+test('the fake PostgREST fills the defaults and refuses an unknown kind, as PostgreSQL does',async()=>{
+ const pg=postgrest(),store=createNodeRequestStore({clients:pg.clients});
+ await assert.rejects(store.insert(record(1,{kind:'patrocinio'})),error=>error.code==='23514');
+ const {kind,community,memberships,...old}=record(2);
+ await pg.clients.admin.rest('node_requests',{method:'POST',body:snakeRow(old)});
+ const row=await store.get(uuid(2));assert.deepEqual([row.kind,row.community,row.memberships],['node',null,null]);
+});
+
+test('upgrades an existing local table in place',async t=>{
+ const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
+ // NODE_REQUESTS_SQLITE_SCHEMA as released on 4 November 2026, before requests had a kind.
+ db.exec(`CREATE TABLE IF NOT EXISTS node_requests (
+ id TEXT PRIMARY KEY,name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 120),organization TEXT NOT NULL CHECK(length(organization) BETWEEN 1 AND 160),
+ email TEXT NOT NULL CHECK(length(email)<=254),phone TEXT CHECK(phone IS NULL OR length(phone)<=40),message TEXT NOT NULL CHECK(length(message) BETWEEN 1 AND 1000),
+ language TEXT NOT NULL CHECK(language IN ('es','en','pt')),status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new','contacted','closed')),
+ email_status TEXT CHECK(email_status IS NULL OR email_status IN ('sent','partial','failed','uncertain','off')),
+ created_at TEXT NOT NULL,updated_at TEXT NOT NULL,updated_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+ version INTEGER NOT NULL DEFAULT 1 CHECK(version>0)
+);`);
+ db.prepare('INSERT INTO node_requests (id,name,organization,email,message,language,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)')
+  .run(uuid(1),'Ana','Colectivo','ana@example.test','Hola','es','2026-10-01T10:00:00.000Z','2026-10-01T10:00:00.000Z');
+ const store=createNodeRequestStore({db});
+ const old=await store.get(uuid(1));assert.deepEqual([old.kind,old.community,old.memberships],['node',null,null]);
+ assert.deepEqual(await store.insert(sponsor(2)),sponsor(2));
+ await assert.rejects(store.insert(record(3,{community:'Ciclistas'})),/CHECK constraint/,'the tying check holds on an upgraded table');
+ await assert.rejects(store.insert(sponsor(4,{memberships:'5'})),/CHECK constraint/);
+ assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='node_requests_kind'").get(),'the kind index');
+ // A second store on the same database changes nothing.
+ assert.equal((await createNodeRequestStore({db}).get(uuid(2))).kind,'sponsorship');
+});
+
+test('the node_request_kinds migration is additive, server-only and documented',()=>{
+ const dir=new URL('../supabase/migrations/',import.meta.url),names=readdirSync(dir).sort(),name='20261109000000_node_request_kinds.sql';
+ assert.ok(names.includes(name));assert.equal(names.at(-1),name,'the newest migration');assert.ok(name>'20261103000000_node_requests.sql');
+ const raw=readFileSync(new URL(name,dir),'utf8'),header=raw.slice(0,raw.indexOf('BEGIN;'));
+ assert.match(header,/npx --no-install supabase db query --linked -f supabase\/migrations\/20261109000000_node_request_kinds\.sql/);
+ assert.match(header,/supabase migration repair --status applied 20261109000000/);
+ assert.match(header,/Never `db push`/);assert.match(header,/BEFORE pushing `main`/);
+ assert.match(header,/POST \/api\/node-requests answers 503/);assert.ok(header.includes('band fails to load'));
+ const statements=raw.replace(/--[^\n]*/g,'').split(';').map(part=>part.replace(/\s+/g,' ').trim()).filter(Boolean);
+ assert.deepEqual(statements,['BEGIN',
+  "ALTER TABLE public.node_requests ADD COLUMN kind text NOT NULL DEFAULT 'node' CHECK(kind IN ('node','sponsorship')), ADD COLUMN community text, ADD COLUMN memberships text, "+
+  "ADD CONSTRAINT node_requests_kind_fields CHECK((kind='node' AND community IS NULL AND memberships IS NULL) OR (kind='sponsorship' AND community IS NOT NULL AND memberships IS NOT NULL AND char_length(community) BETWEEN 1 AND 200 AND memberships IN ('1-10','11-25','26-50','50+','unsure')))",
+  'CREATE INDEX node_requests_kind ON public.node_requests(kind,created_at DESC,id DESC)','COMMIT']);
 });
