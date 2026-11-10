@@ -129,9 +129,9 @@ test('the desk has a Founder Membership tab and band after Interest requests and
   assert.doesNotMatch(html, /id="adminFounderListTitle"[^>]*data-i18n=/, 'the list title carries its count, so admin.js writes it');
   // Still the desk's own assets: no course-pilot script or stylesheet comes with the band.
   assert.doesNotMatch(html, /pilot\.js|pilot-i18n\.js|courses\.css/);
-  assert.match(html, /href="admin\.css\?v=20261104a"/);
-  assert.match(html, /src="admin\.js\?v=20261103b"/);
-  assert.match(html, /src="i18n-dashboard\.js\?v=20261104a"/);
+  assert.match(html, /href="admin\.css\?v=20261109a"/);
+  assert.match(html, /src="admin\.js\?v=20261109a"/);
+  assert.match(html, /src="i18n-dashboard\.js\?v=20261109a"/);
 });
 
 test('the band’s copy is the desk’s own in English, Spanish and Portuguese, and keeps the word Founder', () => {

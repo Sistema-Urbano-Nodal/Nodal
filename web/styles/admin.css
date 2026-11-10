@@ -237,8 +237,11 @@ textarea { resize: vertical; }
 .admin-node h3 { font-size: .9375rem; font-weight: 700; overflow-wrap: anywhere; }
 .admin-node p, .admin-node a { color: var(--text-2); font-size: .875rem; overflow-wrap: anywhere; }
 .admin-node .admin-node-meta { color: var(--muted); font-size: var(--f-fs-hint); }
+/* the request's kind, a small word above the organization */
+.admin-node .admin-node-kind { color: var(--green-deep); font-size: var(--f-fs-hint); font-weight: 700; letter-spacing: .04em; }
 /* the visitor's line breaks, as typed */
 .admin-node-message { white-space: pre-wrap; }
+.admin-node-community { white-space: pre-wrap; }
 .admin-node .admin-node-warning { color: var(--alert); font-weight: 600; }
 .admin-node-controls { display: flex; flex-wrap: wrap; gap: var(--f-sp-2); align-items: end; }
 .admin-node-controls label { flex: 1 1 auto; }

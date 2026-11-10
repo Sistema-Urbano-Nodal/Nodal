@@ -105,8 +105,9 @@ function desk({ lang = 'en', nodes = () => response({ requests: [], nextCursor: 
   const gets = () => requests.filter((r) => r.url.startsWith('/api/admin/node-requests') && r.method === 'GET').map((r) => r.url);
   const status = () => node('adminNodeStatus').textContent;
   const filter = async (value) => { node('adminNodeFilter').value = value; await node('adminNodeFilter').listeners.get('change')(); await flush(); };
+  const kindFilter = async (value) => { node('adminNodeKind').value = value; await node('adminNodeKind').listeners.get('change')(); await flush(); };
   const more = async () => { await node('adminNodeMore').listeners.get('click')(); await flush(); };
-  return { ids, node, requests, confirms, i18n, observed, windowListeners, rows, part, tag, button, gets, status, filter, more };
+  return { ids, node, requests, confirms, i18n, observed, windowListeners, rows, part, tag, button, gets, status, filter, kindFilter, more };
 }
 
 const A = '11111111-1111-4111-8111-111111111111';
@@ -114,7 +115,7 @@ const B = '22222222-2222-4222-8222-222222222222';
 const C = '33333333-3333-4333-8333-333333333333';
 // Task 4's nodeRequestAdminView.
 const view = (overrides = {}) => ({
-  id: A, name: 'Ana Quispe', organization: 'Colectivo Ciudad', email: 'ana@example.test', phone: null,
+  id: A, kind: 'node', name: 'Ana Quispe', organization: 'Colectivo Ciudad', email: 'ana@example.test', phone: null, community: null, memberships: null,
   message: 'Queremos activar un nodo en Arequipa.', language: 'es', status: 'new', emailStatus: 'sent',
   createdAt: '2026-11-03T04:30:00.000Z', updatedAt: '2026-11-03T04:30:00.000Z', version: 1, ...overrides,
 });
@@ -189,7 +190,7 @@ test('filters by status and pages with the cursor', async () => {
   await d.filter('closed');
   assert.deepEqual(organizations(), []);
   assert.equal(d.node('adminNodeMore').hidden, true);
-  assert.equal(d.status(), 'No node requests match this status.');
+  assert.equal(d.status(), 'No requests match these filters.');
   await d.filter('');
   assert.deepEqual(organizations(), ['Colectivo Ciudad']);
   assert.equal(d.node('adminNodeMore').hidden, false);
@@ -310,6 +311,75 @@ test('warns when the team email was not sent', async () => {
 });
 
 // The owner's rule for the desk's sheet: whitespace between requests, as in the Founder band, never a rule on every row.
+// Sponsorship requests in the band (spec: docs/superpowers/specs/2026-11-09-sponsored-memberships-design.md, "Desk").
+test('labels each request with its kind and shows a sponsor’s community and range as text', async () => {
+  const nodo = view({ id: A, createdAt: '2026-11-09T15:00:00.000Z' });
+  const sponsor = view({ id: B, kind: 'sponsorship', organization: 'SPDA', community: '<b>Ciclistas</b> de Lima\r\n🚲', memberships: 'unsure', message: 'Movilidad activa', createdAt: '2026-11-08T15:00:00.000Z' });
+  const d = desk({ lang: 'es', nodes: () => response({ requests: [nodo, sponsor], nextCursor: null }) });
+  await flush();
+  const [first, second] = d.rows();
+  assert.equal(d.part(first, 'admin-node-kind').textContent, 'Nodo');
+  assert.equal(d.part(second, 'admin-node-kind').textContent, 'Patrocinio');
+  assert.ok(descendants(second).indexOf(d.part(second, 'admin-node-kind')) < descendants(second).indexOf(d.tag(second, 'h3')), 'the kind comes before the organization');
+  assert.equal(d.part(second, 'admin-node-community').textContent, 'Comunidad: <b>Ciclistas</b> de Lima\r\n🚲', 'as text, line breaks and all');
+  assert.equal(d.part(second, 'admin-node-memberships').textContent, 'Membresías: Aún no lo saben');
+  const body = descendants(second);
+  assert.ok(body.indexOf(d.part(second, 'admin-node-community')) < body.indexOf(d.part(second, 'admin-node-message')), 'above the message');
+  assert.equal(d.part(first, 'admin-node-community'), undefined, 'no sponsor lines on a Nodo request');
+  assert.equal(d.part(first, 'admin-node-memberships'), undefined);
+  for (const n of descendants(d.node('adminNodeList'))) assert.ok(!['b', 'script'].includes(n.tagName), n.tagName);
+  // Every range in words, in each language.
+  for (const [code, words] of [['1-10', ['1 to 10', '1 a 10', '1 a 10']], ['11-25', ['11 to 25', '11 a 25', '11 a 25']], ['26-50', ['26 to 50', '26 a 50', '26 a 50']], ['50+', ['More than 50', 'Más de 50', 'Mais de 50']], ['unsure', ['They don’t know yet', 'Aún no lo saben', 'Ainda não sabem']]]) {
+    const one = desk({ nodes: () => response({ requests: [view({ kind: 'sponsorship', community: 'Vecinos', memberships: code })], nextCursor: null }) });
+    await flush();
+    for (const [i, lang] of ['en', 'es', 'pt'].entries()) {
+      one.i18n.apply(lang);
+      assert.equal(one.part(one.rows()[0], 'admin-node-memberships').textContent, `${['Memberships', 'Membresías', 'Membresias'][i]}: ${words[i]}`, `${code} in ${lang}`);
+      assert.equal(one.part(one.rows()[0], 'admin-node-kind').textContent, ['Sponsorship', 'Patrocinio', 'Patrocínio'][i]);
+    }
+  }
+  assert.match(read('web', 'styles', 'admin.css'), /\.admin-node-community\s*\{[^}]*white-space:\s*pre-wrap/, 'the community keeps its line breaks like the message');
+});
+
+test('filters by kind, together with the status, and pages inside both', async () => {
+  const html = adminPage();
+  assert.match(html, /<label class="admin-inline-filter"><span data-i18n="ops\.nodes\.kindShow">Type<\/span><select id="adminNodeKind"><option value="" data-i18n="ops\.nodes\.allKinds">All types<\/option><option value="node" data-i18n="ops\.nodes\.kind\.node">Node<\/option><option value="sponsorship" data-i18n="ops\.nodes\.kind\.sponsorship">Sponsorship<\/option><\/select><\/label>/);
+  assert.ok(html.indexOf('id="adminNodeFilter"') < html.indexOf('id="adminNodeKind"'), 'beside the status filter');
+  const pages = {
+    '/api/admin/node-requests?limit=24': { requests: [view({ id: A })], nextCursor: null },
+    '/api/admin/node-requests?limit=24&kind=sponsorship': { requests: [view({ id: B, kind: 'sponsorship', organization: 'SPDA', community: 'Ciclistas', memberships: '1-10' })], nextCursor: 'sp-2' },
+    '/api/admin/node-requests?limit=24&kind=sponsorship&cursor=sp-2': { requests: [view({ id: C, kind: 'sponsorship', organization: 'Fundación X', community: 'Vecinos', memberships: '50+' })], nextCursor: null },
+    '/api/admin/node-requests?limit=24&status=new&kind=sponsorship': { requests: [view({ id: B, kind: 'sponsorship', organization: 'SPDA', community: 'Ciclistas', memberships: '1-10' })], nextCursor: null },
+    '/api/admin/node-requests?limit=24&status=closed&kind=sponsorship': { requests: [], nextCursor: null },
+    '/api/admin/node-requests?limit=24&status=closed': { requests: [], nextCursor: null },
+  };
+  const d = desk({ nodes: ({ url }) => (pages[url] ? response(pages[url]) : response({ error: 'query is invalid', field: 'query' }, 400)) });
+  const organizations = () => d.rows().map((row) => d.tag(row, 'h3').textContent);
+  await flush();
+  assert.deepEqual(organizations(), ['Colectivo Ciudad']);
+  await d.kindFilter('sponsorship');
+  assert.deepEqual(organizations(), ['SPDA']);
+  assert.equal(d.node('adminNodeMore').hidden, false);
+  await d.more();
+  assert.deepEqual(organizations(), ['SPDA', 'Fundación X'], 'the next page keeps the kind');
+  await d.filter('new');
+  assert.deepEqual(organizations(), ['SPDA'], 'both filters together');
+  await d.filter('closed');
+  assert.deepEqual(organizations(), []);
+  assert.equal(d.status(), 'No requests match these filters.');
+  await d.kindFilter('');
+  assert.deepEqual(organizations(), []);
+  assert.equal(d.status(), 'No requests match these filters.', 'a status filter alone is a filter too');
+  assert.deepEqual(d.gets(), [
+    '/api/admin/node-requests?limit=24',
+    '/api/admin/node-requests?limit=24&kind=sponsorship',
+    '/api/admin/node-requests?limit=24&kind=sponsorship&cursor=sp-2',
+    '/api/admin/node-requests?limit=24&status=new&kind=sponsorship',
+    '/api/admin/node-requests?limit=24&status=closed&kind=sponsorship',
+    '/api/admin/node-requests?limit=24&status=closed',
+  ]);
+});
+
 test('sets requests apart by whitespace, not a rule between every two', () => {
   const css = read('web', 'styles', 'admin.css');
   const band = css.slice(css.indexOf('/* ---------- organization node requests'), css.indexOf('/* ---------- Membresía Fundador'));
@@ -317,7 +387,7 @@ test('sets requests apart by whitespace, not a rule between every two', () => {
   assert.doesNotMatch(band, /border-left|border-top|border-bottom|\bborder:/, 'requests are separated by whitespace, not rules');
   assert.doesNotMatch(band, /text-transform|box-shadow/);
   assert.match(band, /\.admin-node-list\s*\{\s*display:\s*grid;\s*gap:\s*var\(--f-sp-4\);\s*\}/);
-  assert.match(adminPage(), /href="admin\.css\?v=20261104a"/);
+  assert.match(adminPage(), /href="admin\.css\?v=20261109a"/);
 });
 
 test('re-renders the band when the language changes', async () => {
@@ -328,6 +398,7 @@ test('re-renders the band when the language changes', async () => {
     const row = d.rows()[0];
     const select = d.tag(row, 'select');
     return {
+      kind: d.part(row, 'admin-node-kind').textContent,
       organization: d.tag(row, 'h3').textContent,
       name: d.part(row, 'admin-node-name').textContent,
       phone: d.part(row, 'admin-node-phone').textContent,
@@ -342,7 +413,7 @@ test('re-renders the band when the language changes', async () => {
     };
   };
   assert.deepEqual(shown(), {
-    organization: 'Colectivo <b>Ciudad</b>', name: 'Ana 🌱', phone: 'Phone: 999 888 777',
+    kind: 'Node', organization: 'Colectivo <b>Ciudad</b>', name: 'Ana 🌱', phone: 'Phone: 999 888 777',
     meta: 'Received 2 November 2026 · Language: English',
     warning: 'Warning: the team email was not sent (email is off, or the day’s limit was reached).',
     field: 'Status', options: ['New', 'Contacted', 'Closed'], selected: 'closed',
@@ -350,7 +421,7 @@ test('re-renders the band when the language changes', async () => {
   });
   d.i18n.apply('es');
   assert.deepEqual(shown(), {
-    organization: 'Colectivo <b>Ciudad</b>', name: 'Ana 🌱', phone: 'Teléfono: 999 888 777',
+    kind: 'Nodo', organization: 'Colectivo <b>Ciudad</b>', name: 'Ana 🌱', phone: 'Teléfono: 999 888 777',
     meta: 'Recibida el 2 de noviembre de 2026 · Idioma: Inglés',
     warning: 'Aviso: no se envió el correo al equipo (el correo está desactivado o se alcanzó el tope del día).',
     field: 'Estado', options: ['Nueva', 'Contactada', 'Cerrada'], selected: 'closed',
@@ -358,7 +429,7 @@ test('re-renders the band when the language changes', async () => {
   });
   d.i18n.apply('pt');
   assert.deepEqual(shown(), {
-    organization: 'Colectivo <b>Ciudad</b>', name: 'Ana 🌱', phone: 'Telefone: 999 888 777',
+    kind: 'Nó', organization: 'Colectivo <b>Ciudad</b>', name: 'Ana 🌱', phone: 'Telefone: 999 888 777',
     meta: 'Recebida em 2 de novembro de 2026 · Idioma: Inglês',
     warning: 'Aviso: o e-mail para a equipe não foi enviado (o e-mail está desligado ou o limite do dia foi atingido).',
     field: 'Status', options: ['Nova', 'Contatada', 'Encerrada'], selected: 'closed',
@@ -367,9 +438,9 @@ test('re-renders the band when the language changes', async () => {
   assert.equal(d.gets().length, 1, 'a language switch re-renders what is loaded, without a new read');
 });
 
-test('marks the Nodos tab while its band is on screen', async () => {
+test('marks the Organizations tab while its band is on screen', async () => {
   const html = adminPage();
-  assert.match(html, /<li><a href="#nodes" id="adminTabNodes" data-i18n="ops\.index\.nodes">Nodes<\/a><\/li>/);
+  assert.match(html, /<li><a href="#nodes" id="adminTabNodes" data-i18n="ops\.index\.nodes">Organizations<\/a><\/li>/);
   const at = (needle) => html.indexOf(needle);
   assert.ok(at('id="adminTabInterests"') < at('id="adminTabNodes"') && at('id="adminTabNodes"') < at('id="adminTabFounders"'), 'the tab sits between Interest requests and Founder Membership');
   assert.match(html, /<section class="admin-band" id="nodes" aria-labelledby="nodesTitle">/);
@@ -377,7 +448,9 @@ test('marks the Nodos tab while its band is on screen', async () => {
   assert.match(html, /<p class="admin-live" id="adminNodeStatus" role="status" aria-live="polite">[^<]*<\/p>/);
   assert.doesNotMatch(html, /id="adminNodeStatus"[^>]*data-i18n=/, 'the status line is runtime text');
   assert.match(html, /<div class="admin-node-list" id="adminNodeList" aria-busy="true"><\/div>/);
-  assert.deepEqual(['en', 'es', 'pt'].map((lang) => deskI18n(lang).t('ops.index.nodes')), ['Nodes', 'Nodos', 'Nós']);
+  assert.deepEqual(['en', 'es', 'pt'].map((lang) => deskI18n(lang).t('ops.index.nodes')), ['Organizations', 'Organizaciones', 'Organizações']);
+  assert.deepEqual(['en', 'es', 'pt'].map((lang) => deskI18n(lang).t('ops.nodes.title')), ['Organization requests', 'Solicitudes de organizaciones', 'Solicitações de organizações']);
+  for (const [lang, words] of [['en', 'or about sponsoring memberships'], ['es', 'o por patrocinar membresías'], ['pt', 'ou por patrocinar membresias']]) assert.ok(deskI18n(lang).t('ops.nodes.lead').includes(words), lang);
 
   const d = desk({ observer: true });
   await flush();

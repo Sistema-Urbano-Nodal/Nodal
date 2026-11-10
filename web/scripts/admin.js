@@ -59,6 +59,7 @@
     interestStatus: byId('adminInterestStatus'),
     interestMore: byId('adminInterestMore'),
     nodeFilter: byId('adminNodeFilter'),
+    nodeKind: byId('adminNodeKind'),
     nodeList: byId('adminNodeList'),
     nodeStatus: byId('adminNodeStatus'),
     nodeMore: byId('adminNodeMore'),
@@ -720,31 +721,39 @@
     }
   }
 
-  /* ---------------- organization node requests ----------------
+  /* ---------------- organization requests: a Nodo, or sponsoring memberships ----------------
      Sent from the landing page's form by anyone, without an account (server/node-requests-api.js), and emailed to the
-     team. Every field is the visitor's own text, so it is only ever written as text; the email was checked by the server
+     team. A sponsorship names the community to support and roughly how many memberships (a range code, shown in words). Every field is the visitor's own text, so it is only ever written as text; the email was checked by the server
      and becomes a mailto: link. Status changes compare versions, as the interest queue does. Delete is for someone who
      asks to be forgotten: the team's two email copies are deleted by hand. */
   const NODE_EMAIL_WARNINGS = { off: 'ops.nodes.emailOff', failed: 'ops.nodes.emailFailed', partial: 'ops.nodes.emailPartial', uncertain: 'ops.nodes.emailUncertain' };
   // Anything but 'sent' warns: null is a send that has not finished, or whose outcome was never written.
   const nodeEmailWarning = (status) => (status === 'sent' ? '' : NODE_EMAIL_WARNINGS[status] || 'ops.nodes.emailPending');
   const nodeRequestPath = (nodeRequest) => `/api/admin/node-requests/${encodeURIComponent(nodeRequest.id)}`;
+  // The server's range codes, to the desk's words (ops.nodes.m1 … mUnsure).
+  const NODE_RANGES = { '1-10': 'm1', '11-25': 'm2', '26-50': 'm3', '50+': 'm4', unsure: 'mUnsure' };
+  const nodeKind = (nodeRequest) => (nodeRequest.kind === 'sponsorship' ? 'sponsorship' : 'node');
 
   function renderNodeRequest(nodeRequest) {
     const article = create('article', 'admin-node');
     const organization = text(nodeRequest.organization);
     const who = create('div', 'admin-node-who');
-    who.append(create('h3', null, organization), create('p', 'admin-node-name', text(nodeRequest.name)));
+    who.append(create('p', 'admin-node-kind', t(`ops.nodes.kind.${nodeKind(nodeRequest)}`)), create('h3', null, organization), create('p', 'admin-node-name', text(nodeRequest.name)));
     const address = text(nodeRequest.email);
     const email = create('a', null, address);
     if (address) email.href = `mailto:${encodeURIComponent(address)}`;
     who.append(email);
     if (text(nodeRequest.phone)) who.append(create('p', 'admin-node-phone', t('ops.nodes.phone', { phone: text(nodeRequest.phone) })));
     const body = create('div', 'admin-node-body');
-    body.append(
-      create('p', 'admin-node-meta', t('ops.nodes.meta', { date: limaDate(nodeRequest.createdAt), language: label('ops.lang', nodeRequest.language) })),
-      create('p', 'admin-node-message', text(nodeRequest.message)),
-    );
+    body.append(create('p', 'admin-node-meta', t('ops.nodes.meta', { date: limaDate(nodeRequest.createdAt), language: label('ops.lang', nodeRequest.language) })));
+    if (nodeKind(nodeRequest) === 'sponsorship') {
+      const range = NODE_RANGES[nodeRequest.memberships];
+      body.append(
+        create('p', 'admin-node-community', t('ops.nodes.community', { community: text(nodeRequest.community) })),
+        create('p', 'admin-node-memberships', t('ops.nodes.memberships', { range: range ? t(`ops.nodes.${range}`) : text(nodeRequest.memberships) })),
+      );
+    }
+    body.append(create('p', 'admin-node-message', text(nodeRequest.message)));
     const warning = nodeEmailWarning(nodeRequest.emailStatus);
     if (warning) body.append(create('p', 'admin-node-warning', t(warning)));
     const controls = create('div', 'admin-node-controls');
@@ -814,7 +823,7 @@
   }
 
   function nodeFilterSnapshot() {
-    return { status: text(elements.nodeFilter.value) };
+    return { status: text(elements.nodeFilter.value), kind: text(elements.nodeKind.value) };
   }
 
   function invalidateNodePagination() {
@@ -845,6 +854,7 @@
     state.nodeLoad = sequence;
     const params = new URLSearchParams({ limit: '24' });
     if (snapshot.status) params.set('status', snapshot.status);
+    if (snapshot.kind) params.set('kind', snapshot.kind);
     if (cursor) params.set('cursor', cursor);
     say(elements.nodeStatus, 'ops.nodes.loading');
     elements.nodeList.setAttribute('aria-busy', 'true');
@@ -859,7 +869,7 @@
       elements.nodeMore.hidden = !state.nodeCursor;
       renderNodeRequestList();
       if (state.nodeRequests.length) say(elements.nodeStatus, state.nodeRequests.length === 1 ? 'ops.nodes.countOne' : 'ops.nodes.count', { n: state.nodeRequests.length });
-      else say(elements.nodeStatus, snapshot.status ? 'ops.nodes.empty' : 'ops.nodes.none');
+      else say(elements.nodeStatus, snapshot.status || snapshot.kind ? 'ops.nodes.empty' : 'ops.nodes.none');
       return true;
     } catch (error) {
       if (error.name === 'AbortError' || sequence !== state.nodeLoad || state.nodeFilterKey !== snapshotKey) return false;
@@ -1329,6 +1339,7 @@
   elements.statusFilter.addEventListener('change', refreshCatalogNow);
   elements.interestFilter.addEventListener('change', refreshInterestsNow);
   elements.nodeFilter.addEventListener('change', refreshNodeRequestsNow);
+  elements.nodeKind.addEventListener('change', refreshNodeRequestsNow);
   elements.catalogMore.addEventListener('click', () => loadCatalog({ append: true }));
   elements.interestMore.addEventListener('click', () => loadInterests({ append: true }));
   elements.nodeMore.addEventListener('click', () => loadNodeRequests({ append: true }));

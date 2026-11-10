@@ -1862,6 +1862,8 @@ test('publishing desk chrome switches to Spanish and Portuguese and every key re
     'ops.visibility.public', 'ops.visibility.members', 'ops.lang.en', 'ops.lang.es', 'ops.lang.pt',
     ...['new', 'contacted', 'closed', 'withdrawn'].map((status) => `ops.interest.${status}`),
     ...['new', 'contacted', 'closed'].map((status) => `ops.nodes.${status}`),
+    ...['node', 'sponsorship'].map((kind) => `ops.nodes.kind.${kind}`),
+    ...['m1', 'm2', 'm3', 'm4', 'mUnsure'].map((range) => `ops.nodes.${range}`),
     ...['title', 'summary', 'body', 'cta', 'organization', 'sourceLabel', 'sourceUrl', 'sourceVerifiedAt', 'subtype', 'deadlineAt', 'actionUrl'].map((field) => `ops.field.${field}`),
   ];
   assert.ok(literal.length > 80, `expected the desk copy to be keyed, found ${literal.length}`);
