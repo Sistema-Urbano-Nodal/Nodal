@@ -115,3 +115,63 @@ test('carries every validated field in full, past the 100 characters a first nam
   assert.equal(message.replyTo.name,long.name);assert.equal(message.replyTo.address,long.email);
  }
 });
+
+// Sponsorship requests (spec: docs/superpowers/specs/2026-11-09-sponsored-memberships-design.md, "Email").
+const sponsorship={...request,kind:'sponsorship',organization:'SPDA',community:'Ciclistas de Lima',memberships:'11-25',message:'Movilidad activa.\nY seguridad vial.'};
+
+test('writes a sponsorship notice with its own subject, opening line and rows',async t=>{
+ const smtp=await startFakeSmtp();t.after(smtp.close);
+ const notify=createNodeRequestNotice({env:smtpEnv(smtp.port),loopbackOnly:true,log:()=>{}});
+ assert.equal(await notify({request:sponsorship}),'sent');
+ assert.equal(smtp.messages.length,2);
+ for(const message of smtp.messages.map(m=>parseMessage(m.data))){
+  assert.equal(message.subject,'Patrocinio de membresías: SPDA');
+  assert.match(message.text,/^Una organización quiere patrocinar membresías\.\r?\n/);
+  assert.ok(message.html.includes('<p>Una organización quiere patrocinar membresías.</p>'));
+  // The two sponsor rows come right after the phone, and the message block is the topic.
+  assert.match(message.text,/Teléfono: \+51 999 111 222\r?\nComunidad a apoyar: Ciclistas de Lima\r?\nMembresías \(aprox\.\): 11 a 25\r?\n/);
+  assert.match(message.text,/Tema o desafío urbano:\r?\nMovilidad activa\.\r?\nY seguridad vial\./);
+  assert.doesNotMatch(message.text,/Mensaje:/);assert.doesNotMatch(message.text,/sobre un Nodo/);
+  assert.ok(message.html.includes('<th align="left">Comunidad a apoyar</th><td>Ciclistas de Lima</td>'));
+  assert.ok(message.html.includes('<th align="left">Membresías (aprox.)</th><td>11 a 25</td>'));
+  assert.ok(message.html.includes('<p>Tema o desafío urbano:</p>'));
+  assert.ok(message.text.includes('http://localhost:4186/admin.html#nodes'),'the same desk band');
+ }
+});
+
+test('words every range, and escapes the community in html',async()=>{
+ const transport=stub(()=>({}));
+ const notify=createNodeRequestNotice({transport,origin,log:()=>{}});
+ for(const [code,words] of [['1-10','1 a 10'],['11-25','11 a 25'],['26-50','26 a 50'],['50+','Más de 50'],['unsure','Aún no lo saben']]){
+  transport.sent.length=0;
+  assert.equal(await notify({request:{...sponsorship,memberships:code}}),'sent');
+  assert.ok(transport.sent[0].text.includes(`Membresías (aprox.): ${words}`),code);
+  assert.ok(transport.sent[0].html.includes(`<td>${words}</td>`),code);
+ }
+ transport.sent.length=0;
+ await notify({request:{...sponsorship,community:'<b>Ciclistas</b> & "vecinos"'}});
+ assert.ok(transport.sent[0].html.includes('<td>&lt;b&gt;Ciclistas&lt;/b&gt; &amp; &quot;vecinos&quot;</td>'));
+ assert.ok(transport.sent[0].text.includes('Comunidad a apoyar: <b>Ciclistas</b> & "vecinos"'));
+});
+
+test('a Nodo notice is unchanged, with or without an explicit kind',async()=>{
+ const transport=stub(()=>({}));
+ const notify=createNodeRequestNotice({transport,origin,log:()=>{}});
+ for(const nodo of [request,{...request,kind:'node',community:null,memberships:null}]){
+  transport.sent.length=0;
+  assert.equal(await notify({request:nodo}),'sent');
+  const [message]=transport.sent;
+  assert.equal(message.subject,'Solicitud de Nodo: Colectivo Ciudad Viva');
+  assert.match(message.text,/^Una organización quiere conversar sobre un Nodo\.\n/);
+  assert.ok(message.text.includes('\nMensaje:\n'));
+  for(const body of [message.text,message.html])for(const part of ['Comunidad','Membresías','patrocinar','Tema o desafío'])assert.ok(!body.includes(part),part);
+ }
+});
+
+test('never logs a sponsor’s community',async()=>{
+ const logs=[];
+ const err=Object.assign(smtpError('refused',{stage:'recipient',status:550}),{code:'EREFUSED'});
+ const notify=createNodeRequestNotice({transport:stub(()=>{throw err;}),origin,log:line=>logs.push(line)});
+ assert.equal(await notify({request:{...sponsorship,community:'SENTINEL-COMMUNITY-7731'}}),'failed');
+ assert.equal(logs.length,1);assert.ok(!logs[0].includes('SENTINEL'));assert.ok(!logs[0].includes('SPDA'));
+});
