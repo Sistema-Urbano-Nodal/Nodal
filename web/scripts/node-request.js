@@ -71,6 +71,10 @@
     if (topicLabel) topicLabel.hidden = !sponsorship;
   }
   for (const radio of RADIOS.values()) radio?.addEventListener('change', showKind);
+  // A browser may restore a checked radio before this script runs (Firefox does on a soft reload, and a page shown
+  // again from the back-forward cache keeps it): the sponsor fields follow the radio, not the markup's `hidden`.
+  showKind();
+  window.addEventListener?.('pageshow', showKind);
 
   function mailto(address) {
     const link = document.createElement('a');

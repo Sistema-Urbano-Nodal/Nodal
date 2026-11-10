@@ -97,10 +97,12 @@ function later() {
   return { promise, resolve, reject };
 }
 
-async function mount({ lang = 'en', hash = '', fetchImpl = async () => answer(202, { ok: true }), dialogs = true } = {}) {
+async function mount({ lang = 'en', hash = '', fetchImpl = async () => answer(202, { ok: true }), dialogs = true, restored = null } = {}) {
   const document = { activeElement: null, createElement: (tag) => new Element(document, tag), getElementById: (id) => byId.get(id) ?? null };
   const nodes = [...elements(document, CARD), ...elements(document, DIALOG)];
   const byId = new Map(nodes.filter((node) => node.id).map((node) => [node.id, node]));
+  // Form state a browser restored before the script ran (Firefox does on a soft reload): a radio already checked.
+  if (restored) byId.get(RADIOS[restored]).checked = true;
   const form = byId.get('nodeRequestForm');
   // As a browser resets a form: text back to empty, radios back to unchecked (none has a checked attribute), selects to their first option.
   if (form) form.reset = () => { for (const node of nodes) { if (['input', 'textarea', 'select'].includes(node.tagName)) node.value = ''; if (node.attributes.type === 'radio') node.checked = false; } };
@@ -348,6 +350,18 @@ test('opens with no choice from the card, Nodo from #nodos, sponsorship from #pa
   live.dialog.escape();
   live.hashchange('#membership');
   assert.equal(live.dialog.open, false, 'another address opens nothing');
+});
+
+test('shows the sponsor fields for a choice the browser restored before the script ran', async () => {
+  const page = await mount({ restored: 'sponsorship' });
+  assert.equal(page.chosen(), 'sponsorship');
+  assert.equal(page.$('nodeRequestSponsor').hidden, false, 'the sponsor fields follow the restored radio');
+  assert.deepEqual([page.$('nodeRequestMessageLabel').hidden, page.$('nodeRequestTopicLabel').hidden], [true, false]);
+  page.open();
+  assert.equal(page.document.activeElement, page.$('nodeRequestName'));
+  const nodo = await mount({ restored: 'node' });
+  assert.equal(nodo.$('nodeRequestSponsor').hidden, true);
+  assert.deepEqual([nodo.$('nodeRequestMessageLabel').hidden, nodo.$('nodeRequestTopicLabel').hidden], [false, true]);
 });
 
 test('asks for a choice before sending', async () => {
