@@ -8,18 +8,18 @@ import {createApp} from '../server/server.js';
 import {createMailTransport} from '../server/mailer.js';
 import {createNodeRequestStore} from '../server/node-requests-repository.js';
 import {createNodeRequestNotice,NODE_REQUEST_RECIPIENTS} from '../server/node-requests-email.js';
-import {NODE_REQUEST_LIMITS,limaDayStart,nodeRequestAdminView} from '../server/node-requests-api.js';
+import {NODE_REQUEST_LIMITS,NODE_REQUEST_KINDS,SPONSOR_MEMBERSHIPS,limaDayStart,nodeRequestAdminView} from '../server/node-requests-api.js';
 import {startFakeSmtp,parseMessage} from './helpers/fake-smtp.js';
 import {nodeRequestsPostgrest} from './helpers/node-requests-postgrest.js';
 
-const VIEW_KEYS=['createdAt','email','emailStatus','id','language','message','name','organization','phone','status','updatedAt','version'];
+const VIEW_KEYS=['community','createdAt','email','emailStatus','id','kind','language','memberships','message','name','organization','phone','status','updatedAt','version'];
 const START='2026-11-03T15:00:00.000Z';
 let serial=0;
 // A valid request with its own address, so the per-email budget (3 a day) never decides a test that is not about it.
 const valid=(over={})=>({name:'Ana Quispe',organization:'Colectivo Ciudad Viva',email:`ana${++serial}@colectivo.example`,phone:'+51 999 111 222',
  message:'Queremos activar un Nodo en Arequipa.',language:'pt',...over});
-const stored=(n,over={})=>{const createdAt=over.createdAt??'2026-11-03T12:00:00.000Z';return {id:crypto.randomUUID(),name:`Persona ${n}`,organization:`Organización ${n}`,
- email:`p${n}@example.org`,phone:null,message:'Hola',language:'es',status:'new',emailStatus:'sent',createdAt,updatedAt:createdAt,updatedBy:null,version:1,...over};};
+const stored=(n,over={})=>{const createdAt=over.createdAt??'2026-11-03T12:00:00.000Z';return {id:crypto.randomUUID(),kind:'node',name:`Persona ${n}`,organization:`Organización ${n}`,
+ email:`p${n}@example.org`,phone:null,community:null,memberships:null,message:'Hola',language:'es',status:'new',emailStatus:'sent',createdAt,updatedAt:createdAt,updatedBy:null,version:1,...over};};
 // A notifier double: records each request it is handed and answers the outcome it is given (or computes it).
 const notifier=(outcome='sent')=>{const calls=[];return Object.assign(async({request})=>{calls.push(request);return typeof outcome==='function'?outcome(request,calls.length):outcome;},{calls});};
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -49,7 +49,8 @@ const smtpNotice=(smtp,options={})=>createNodeRequestNotice({env:{EMAIL_SMTP_URL
  origin:'https://nodal.example.org',loopbackOnly:true,log:()=>{},...options});
 
 test('exports the limits, the Lima day and the desk view',()=>{
- assert.deepEqual(NODE_REQUEST_LIMITS,{name:120,organization:160,email:254,phone:40,message:1000,page:24,emailsPerDay:40,retentionMonths:12});
+ assert.deepEqual(NODE_REQUEST_LIMITS,{name:120,organization:160,email:254,phone:40,community:200,message:1000,page:24,emailsPerDay:40,retentionMonths:12});
+ assert.deepEqual(NODE_REQUEST_KINDS,['node','sponsorship']);assert.deepEqual(SPONSOR_MEMBERSHIPS,['1-10','11-25','26-50','50+','unsure']);
  // Lima is UTC-05:00 all year: its day starts at 05:00 UTC.
  assert.equal(limaDayStart(Date.parse('2026-11-03T04:59:59.999Z')),'2026-11-02T05:00:00.000Z');
  assert.equal(limaDayStart(Date.parse('2026-11-03T05:00:00.000Z')),'2026-11-03T05:00:00.000Z');
@@ -69,15 +70,15 @@ test('accepts a request without an account, stores it and emails the team once',
  assert.equal(response.headers.get('cache-control'),'no-store');
  const [row]=rows();
  assert.match(row.id,/^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[\da-f]{4}-[\da-f]{12}$/);
- assert.deepEqual({...row,id:0},{id:0,name:'Ana Quispe',organization:'Colectivo Ciudad Viva',email:'ana@colectivo.example',phone:'+51 999 111 222',
-  message:'Queremos activar un Nodo en Arequipa.',language:'pt',status:'new',email_status:'sent',created_at:new Date(clock.at).toISOString(),updated_at:new Date(clock.at).toISOString(),updated_by:null,version:1});
+ assert.deepEqual({...row,id:0},{id:0,kind:'node',name:'Ana Quispe',organization:'Colectivo Ciudad Viva',email:'ana@colectivo.example',phone:'+51 999 111 222',
+  community:null,memberships:null,message:'Queremos activar un Nodo en Arequipa.',language:'pt',status:'new',email_status:'sent',created_at:new Date(clock.at).toISOString(),updated_at:new Date(clock.at).toISOString(),updated_by:null,version:1});
  assert.equal(smtp.messages.length,2,'one message to each team member');
  const messages=smtp.messages.map(m=>parseMessage(m.data));
  assert.deepEqual(messages.map(m=>m.headers.to).sort(),[...NODE_REQUEST_RECIPIENTS].sort());
  for(const message of messages){assert.equal(message.headers['reply-to'],'"Ana Quispe" <ana@colectivo.example>');assert.equal(message.subject,'Solicitud de Nodo: Colectivo Ciudad Viva');}
  const desk=await list();assert.equal(desk.status,200);
- assert.deepEqual(desk.body,{requests:[{id:row.id,name:'Ana Quispe',organization:'Colectivo Ciudad Viva',email:'ana@colectivo.example',phone:'+51 999 111 222',
-  message:'Queremos activar un Nodo en Arequipa.',language:'pt',status:'new',emailStatus:'sent',createdAt:row.created_at,updatedAt:row.updated_at,version:1}],nextCursor:null});
+ assert.deepEqual(desk.body,{requests:[{id:row.id,kind:'node',name:'Ana Quispe',organization:'Colectivo Ciudad Viva',email:'ana@colectivo.example',phone:'+51 999 111 222',
+  community:null,memberships:null,message:'Queremos activar un Nodo en Arequipa.',language:'pt',status:'new',emailStatus:'sent',createdAt:row.created_at,updatedAt:row.updated_at,version:1}],nextCursor:null});
  // A signed-in member is not linked to the request either.
  assert.deepEqual(await post(valid(),{actor:'member'}),{status:202,body:{ok:true}});
  assert.equal(rows()[1].updated_by,null);
@@ -221,7 +222,7 @@ test('stores the outcome the notifier reports, and off when email is gated',asyn
  for(let n=0;n<4;n++)assert.equal((await app.post(valid())).status,202);
  assert.deepEqual(app.rows().map(r=>r.email_status),outcomes);
  assert.deepEqual(seen,[null,null,null,null],'each request is stored before the team is emailed');
- assert.deepEqual(Object.keys(notice.calls[0]).sort(),['createdAt','email','emailStatus','id','language','message','name','organization','phone','status','updatedAt','updatedBy','version']);
+ assert.deepEqual(Object.keys(notice.calls[0]).sort(),['community','createdAt','email','emailStatus','id','kind','language','memberships','message','name','organization','phone','status','updatedAt','updatedBy','version']);
  // Gated (here a Vercel Preview with mail settings): the notifier factory gives null, and the request is stored as off.
  const logs=[];
  const gated=createNodeRequestNotice({env:{VERCEL:'1',VERCEL_ENV:'preview',EMAIL_SMTP_URL:'smtps://u:p@smtp.example.org',EMAIL_FROM:'a@example.org',PUBLIC_BASE_URL:'https://nodal.example.org'},log:line=>logs.push(line)});
@@ -414,6 +415,80 @@ test('runs on the Supabase store: same-millisecond requests page to the exact se
  assert.equal(pg.rows.some(r=>r.id===target.id),false);assert.equal(pg.rows.length,6);
  // Only the insert and the desk's update ask for the row back: every other write asks for ids, never names or messages.
  for(const call of pg.calls.filter(c=>c.method&&c.method!=='POST'&&!(c.method==='PATCH'&&c.query.version)))assert.equal(call.query.select,'id',JSON.stringify(call));
+});
+
+// Sponsorship requests (spec: docs/superpowers/specs/2026-11-09-sponsored-memberships-design.md, "API").
+const sponsorship=(over={})=>valid({kind:'sponsorship',community:'Ciclistas de Lima',memberships:'11-25',message:'Movilidad activa en Lima.',...over});
+
+test('stores a sponsorship request with its community and range',async t=>{
+ const notice=notifier(),{post,rows}=await setup(t,{notice});
+ assert.deepEqual(await post(sponsorship({community:'  Ciclistas de Lima '})),{status:202,body:{ok:true}});
+ const [row]=rows();
+ assert.deepEqual([row.kind,row.community,row.memberships,row.message],['sponsorship','Ciclistas de Lima','11-25','Movilidad activa en Lima.']);
+ assert.deepEqual([notice.calls[0].kind,notice.calls[0].community,notice.calls[0].memberships],['sponsorship','Ciclistas de Lima','11-25'],'the team notice gets the sponsor fields');
+ for(const memberships of SPONSOR_MEMBERSHIPS)assert.equal((await post(sponsorship({memberships}))).status,202,memberships);
+ assert.deepEqual(rows().slice(1).map(r=>r.memberships),SPONSOR_MEMBERSHIPS);
+ // Every limit is inclusive.
+ assert.equal((await post(sponsorship({community:'c'.repeat(200)}))).status,202);assert.equal(rows().at(-1).community.length,200);
+});
+
+test('a request without kind is a Nodo request',async t=>{
+ const {post,rows}=await setup(t);
+ // What a landing page cached before this release sends.
+ const old=valid();assert.equal('kind' in old,false);
+ assert.equal((await post(old)).status,202);
+ assert.deepEqual(rows().map(r=>[r.kind,r.community,r.memberships]),[['node',null,null]]);
+ assert.equal((await post(valid({kind:null}))).status,202,'null is missing too');
+});
+
+test('ignores sponsor fields on a Nodo request',async t=>{
+ const notice=notifier(),{post,rows}=await setup(t,{notice});
+ assert.equal((await post(valid({kind:'node',community:'Ciclistas',memberships:'50+'}))).status,202);
+ // Even ones that would be refused on a sponsorship.
+ assert.equal((await post(valid({kind:'node',community:'x'.repeat(500),memberships:7}))).status,202);
+ assert.deepEqual(rows().map(r=>[r.kind,r.community,r.memberships]),[['node',null,null],['node',null,null]]);
+ assert.deepEqual(notice.calls.map(r=>[r.community,r.memberships]),[[null,null],[null,null]]);
+});
+
+test('refuses a bad kind, a missing community or range, an unsafe or oversized community',async t=>{
+ const notice=notifier(),{post,rows}=await setup(t,{notice,limits:{perAddress:1000}});
+ const cases=[
+  [valid({kind:'patrocinio'}),'kind'],[valid({kind:'Sponsorship'}),'kind'],[valid({kind:1}),'kind'],[valid({kind:['node']}),'kind'],[valid({kind:''}),'kind'],
+  [sponsorship({community:undefined}),'community'],[sponsorship({community:null}),'community'],[sponsorship({community:'   '}),'community'],
+  [sponsorship({community:'a'.repeat(201)}),'community'],[sponsorship({community:'Lima\nNorte'}),'community'],[sponsorship({community:'‮abc'}),'community'],
+  [sponsorship({community:'Lima\tNorte'}),'community'],[sponsorship({community:42}),'community'],
+  [sponsorship({memberships:undefined}),'memberships'],[sponsorship({memberships:'5'}),'memberships'],[sponsorship({memberships:11}),'memberships'],
+  [sponsorship({memberships:' 11-25'}),'memberships'],[sponsorship({memberships:'UNSURE'}),'memberships'],[sponsorship({memberships:['1-10']}),'memberships'],
+ ];
+ for(const [input,field] of cases){
+  const answer=await post(input);
+  assert.equal(answer.status,400,JSON.stringify(input));assert.equal(answer.body.field,field,JSON.stringify(input));
+ }
+ assert.equal(rows().length,0);assert.equal(notice.calls.length,0);
+});
+
+test('reports the first problem in form order',async t=>{
+ const {post}=await setup(t,{limits:{perAddress:1000}});
+ assert.equal((await post(valid({kind:'x',name:''}))).body.field,'kind','kind is the form’s first question');
+ assert.equal((await post(sponsorship({email:'ana',community:undefined}))).body.field,'email');
+ assert.equal((await post(sponsorship({phone:'llámame',community:undefined}))).body.field,'phone');
+ assert.equal((await post(sponsorship({community:undefined,memberships:'5'}))).body.field,'community');
+ assert.equal((await post(sponsorship({memberships:'5',message:''}))).body.field,'memberships');
+});
+
+test('filters the desk list by kind',async t=>{
+ const {seed,list}=await setup(t);
+ const records=[stored(1,{createdAt:'2026-11-03T10:00:00.000Z'}),stored(2,{kind:'sponsorship',community:'Ciclistas',memberships:'unsure',createdAt:'2026-11-03T11:00:00.000Z'}),
+  stored(3,{kind:'sponsorship',community:'Vecinos',memberships:'1-10',status:'closed',createdAt:'2026-11-03T12:00:00.000Z'})];
+ await seed(records);
+ const sponsors=await list('?kind=sponsorship');assert.equal(sponsors.status,200);
+ assert.deepEqual(sponsors.body.requests,[records[2],records[1]].map(nodeRequestAdminView));
+ assert.deepEqual([sponsors.body.requests[1].kind,sponsors.body.requests[1].community,sponsors.body.requests[1].memberships],['sponsorship','Ciclistas','unsure']);
+ assert.deepEqual((await list('?kind=node')).body.requests.map(r=>r.id),[records[0].id]);
+ assert.deepEqual((await list('?kind=sponsorship&status=new')).body.requests.map(r=>r.id),[records[1].id]);
+ const paged=await list('?kind=sponsorship&limit=1');assert.deepEqual(paged.body.requests.map(r=>r.id),[records[2].id]);
+ assert.deepEqual((await list(`?kind=sponsorship&limit=1&cursor=${encodeURIComponent(paged.body.nextCursor)}`)).body.requests.map(r=>r.id),[records[1].id],'the next page stays in the kind');
+ for(const query of ['?kind=x','?kind=','?kind=node&kind=node','?kind=Sponsorship'])assert.deepEqual([(await list(query)).status,(await list(query)).body.field],[400,'kind'],query);
 });
 
 test('README names every node-request endpoint',()=>{

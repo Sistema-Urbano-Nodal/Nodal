@@ -5,11 +5,15 @@ import {validateEmail} from './auth.js';
 import {validAddress} from './mailer.js';
 import {encodeNewsCursor,decodeNewsCursor} from './news-api.js';
 
-/* Organisation node requests: the landing page's no-account form (spec: docs/superpowers/specs/2026-11-03-organisation-
-   node-requests-design.md). A request is stored first, then the team notice (server/node-requests-email.js) runs inside
+/* Organisation requests: the landing page's no-account form (spec: docs/superpowers/specs/2026-11-03-organisation-
+   node-requests-design.md), which since 9 November 2026 asks whether the organisation wants to activate a Nodo or to
+   sponsor memberships (docs/superpowers/specs/2026-11-09-sponsored-memberships-design.md). A request is stored first, then the team notice (server/node-requests-email.js) runs inside
    the request, bounded by the mailer's timeout, and its outcome is written on the row. */
-export const NODE_REQUEST_LIMITS={name:120,organization:160,email:254,phone:40,message:1000,page:24,emailsPerDay:40,retentionMonths:12};
-const STATUSES=['new','contacted','closed'],LANGUAGES=['es','en','pt'],QUERY_KEYS=['status','limit','cursor'];
+export const NODE_REQUEST_LIMITS={name:120,organization:160,email:254,phone:40,community:200,message:1000,page:24,emailsPerDay:40,retentionMonths:12};
+// A missing kind is a Nodo request (a landing page cached before sponsorships still posts without one). A sponsorship
+// names the community to support and roughly how many memberships, as one of these codes; a Nodo request stores neither.
+export const NODE_REQUEST_KINDS=['node','sponsorship'],SPONSOR_MEMBERSHIPS=['1-10','11-25','26-50','50+','unsure'];
+const STATUSES=['new','contacted','closed'],LANGUAGES=['es','en','pt'],QUERY_KEYS=['status','kind','limit','cursor'];
 const CHANGED='node request changed; reload before saving';
 const invalid=(field,message=`${field} is invalid`)=>{throw Object.assign(new Error(message),{status:400,field});};
 const requestId=value=>{try{return identifier(value);}catch{return invalid('id');}};
@@ -18,7 +22,7 @@ const LIMA_MS=5*3600000,DAY_MS=86400000;
 export const limaDayStart=ms=>new Date(Math.floor((ms-LIMA_MS)/DAY_MS)*DAY_MS+LIMA_MS).toISOString();
 const retentionCutoff=ms=>{const day=new Date(ms);day.setUTCMonth(day.getUTCMonth()-NODE_REQUEST_LIMITS.retentionMonths);return day.toISOString();};
 // The desk's view: everything the team needs to answer, not who changed it last.
-export const nodeRequestAdminView=({id,name,organization,email,phone,message,language,status,emailStatus,createdAt,updatedAt,version})=>({id,name,organization,email,phone,message,language,status,emailStatus,createdAt,updatedAt,version});
+export const nodeRequestAdminView=({id,kind,name,organization,email,phone,community,memberships,message,language,status,emailStatus,createdAt,updatedAt,version})=>({id,kind,name,organization,email,phone,community,memberships,message,language,status,emailStatus,createdAt,updatedAt,version});
 
 // C0 and C1 controls and the bidi embeddings, overrides and isolates: PostgreSQL refuses a NUL (a 503 for a typo) and
 // the others turn the desk's and the team email's text around. Only the message keeps its line breaks and tabs.
@@ -35,8 +39,11 @@ function text(input,field,{required=true,lower=false}={}){
  if(clean.length>NODE_REQUEST_LIMITS[field])invalid(field,`${field} is too long`);
  return clean;
 }
-// The fields in the form's order, so the first problem reported is the first one the visitor sees.
+// The fields in the form's order (the kind is its first question), so the first problem reported is the first one the
+// visitor sees. The sponsor fields are read only on a sponsorship: on a Nodo request whatever was sent in them is dropped.
 function normalizeNodeRequest(input){
+ const kind=input.kind==null?'node':input.kind;
+ if(!NODE_REQUEST_KINDS.includes(kind))invalid('kind','kind must be node or sponsorship');
  const name=text(input,'name'),organization=text(input,'organization');
  // The mailer's rule too: the team replies through Reply-To, and an address it refuses would leave its default there.
  const email=text(input,'email',{lower:true});if(!validateEmail(email)||!validAddress(email))invalid('email','email is invalid');
@@ -44,19 +51,26 @@ function normalizeNodeRequest(input){
  if(phone&&!/^[0-9+() -]+$/.test(phone))invalid('phone','phone may hold only digits, spaces and + ( ) -');
  // A phone without a digit ("+", "( )") carries nothing to call.
  if(!/\d/.test(phone))phone=null;
+ let community=null,memberships=null;
+ if(kind==='sponsorship'){
+  community=text(input,'community');
+  if(!SPONSOR_MEMBERSHIPS.includes(input.memberships))invalid('memberships',`memberships must be one of ${SPONSOR_MEMBERSHIPS.join(', ')}`);
+  memberships=input.memberships;
+ }
  const message=text(input,'message');
  const language=input.language==null?'es':typeof input.language==='string'?input.language.trim():input.language;
  if(!LANGUAGES.includes(language))invalid('language','language must be es, en or pt');
- return {name,organization,email,phone,message,language};
+ return {kind,name,organization,email,phone,community,memberships,message,language};
 }
 // The honeypot: a field people never see. Anything in it but blank text is a bot.
 const trapped=({website})=>typeof website==='string'?Boolean(website.trim()):website!=null;
 // Logs carry the request id and an error's status only: never an address, a name, a phone or the message.
 const reason=err=>Number.isInteger(err?.status)?` (status ${err.status})`:'';
 
-// Public:  POST /api/node-requests {name,organization,email,phone?,message,language?,website?} → 202 {ok:true} (also for a
-//          filled honeypot) | 400 {error,field} | 403 | 429 | 503 {error:'service unavailable'} (nothing stored or sent)
-// Admin:   GET|HEAD /api/admin/node-requests?status=&limit=&cursor= → 200 {requests:[nodeRequestAdminView], nextCursor|null}
+// Public:  POST /api/node-requests {kind?,name,organization,email,phone?,community?,memberships?,message,language?,website?}
+//          → 202 {ok:true} (also for a filled honeypot) | 400 {error,field} | 403 | 429 | 503 {error:'service unavailable'}
+//          (nothing stored or sent); community and memberships are required for kind 'sponsorship', dropped otherwise
+// Admin:   GET|HEAD /api/admin/node-requests?status=&kind=&limit=&cursor= → 200 {requests:[nodeRequestAdminView], nextCursor|null}
 //          PATCH /api/admin/node-requests/:id {status,version} → 200 {request} | 409 {error,code:'version_conflict',request} | 404
 //          DELETE /api/admin/node-requests/:id → 204 (also when it was already gone)
 // ipAllowed(req,res), emailAllowed(email,res) and adminRateLimit(req,res,user) answer the 429 themselves when they refuse.
@@ -96,13 +110,14 @@ export function createNodeRequestApi({store,notify,sameOrigin,send,now=()=>Date.
   const params=url.searchParams;
   if([...params.keys()].some(key=>!QUERY_KEYS.includes(key)))invalid('query','query is invalid');
   const one=key=>{const values=params.getAll(key);if(values.length>1)invalid(key);return values[0];};
-  const status=one('status'),rawLimit=one('limit'),cursor=one('cursor');
+  const status=one('status'),kind=one('kind'),rawLimit=one('limit'),cursor=one('cursor');
   if(status!==undefined&&!STATUSES.includes(status))invalid('status');
+  if(kind!==undefined&&!NODE_REQUEST_KINDS.includes(kind))invalid('kind');
   if(rawLimit!==undefined&&(!/^[1-9]\d{0,2}$/.test(rawLimit)||Number(rawLimit)>NODE_REQUEST_LIMITS.page))invalid('limit');
   const limit=rawLimit===undefined?NODE_REQUEST_LIMITS.page:Number(rawLimit),after=cursor===undefined?null:decodeNewsCursor(cursor,false);
   await purge();
   // One extra row tells whether another page exists, so the last page never hands out an empty follow-up cursor.
-  const rows=await store.list({status:status??null,after,limit:limit+1}),requests=rows.slice(0,limit);
+  const rows=await store.list({status:status??null,kind:kind??null,after,limit:limit+1}),requests=rows.slice(0,limit);
   return {requests:requests.map(nodeRequestAdminView),nextCursor:rows.length>limit?encodeNewsCursor(requests.at(-1),false):null};
  }
  const conflicted=(res,request)=>{send(res,409,{error:CHANGED,code:'version_conflict',request:nodeRequestAdminView(request)});return true;};
