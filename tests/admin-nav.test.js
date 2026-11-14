@@ -192,3 +192,43 @@ test('admin-nav.css is served, built and cached like the desk stylesheet', () =>
   assert.ok(list(buildSource, 'STATIC_STYLES').includes("'admin-nav.css'"));
   assert.deepEqual(merged('/admin-nav.css'), merged('/admin.css'));
 });
+
+const STAFF_PAGES = { 'admin.html': 'desk', 'fiiu-admin.html': 'festival', 'teaching.html': 'courses' };
+const page = (name) => read('web', 'pages', name);
+
+test('the bar is the same on every staff page but for aria-current, and is the element just before <main>', () => {
+  assert.doesNotMatch(BAR, /<li\b|data-i18n|\bid=/);
+  for (const [name, own] of Object.entries(STAFF_PAGES)) {
+    const html = page(name);
+    const bars = html.match(/<nav class="staff-nav"[\s\S]*?<\/nav>/g) || [];
+    assert.equal(bars.length, 1, name);
+    assert.equal(bars[0].replace(` data-staff="${own}" aria-current="page"`, ` data-staff="${own}"`), BAR, name);
+    assert.equal((bars[0].match(/aria-current/g) || []).length, 1, name);
+    const at = html.indexOf(bars[0]);
+    assert.match(html.slice(at + bars[0].length), /^\s*<main\b/, `${name}: <main> follows the bar`);
+    const before = name === 'teaching.html'
+      ? /<div class="pilot-notice" data-pilot-banner hidden>[\s\S]*?<\/div>\s*$/
+      : /<\/header>\s*$/;
+    assert.match(html.slice(0, at), before, `${name}: what the bar follows`);
+  }
+  // The pilot banner keeps its place (tests/page-loading.test.js:107) and the public header its first link (tests/fiiu-ui.test.js:939-946).
+  assert.match(page('teaching.html'), /<\/header>\s*<div class="pilot-notice" data-pilot-banner/);
+});
+
+test('each staff page loads admin-nav.js deferred before the dictionaries and admin-nav.css last', () => {
+  for (const name of Object.keys(STAFF_PAGES)) {
+    const html = page(name);
+    const head = html.slice(0, html.indexOf('</head>'));
+    assert.match(head, /<script defer src="admin-nav\.js\?v=20261114a"><\/script>/, name);
+    const scripts = [...head.matchAll(/<script\b[^>]*\bsrc="([^"?]+)/g)].map((m) => m[1]);
+    const next = name === 'admin.html' ? 'i18n-dashboard.js' : 'i18n.js';
+    assert.equal(scripts[scripts.indexOf('admin-nav.js') + 1], next, `${name}: directly before ${next}`);
+    assert.ok(scripts.indexOf('admin-nav.js') < scripts.indexOf('i18n.js'), name);
+    const sheets = [...head.matchAll(/<link rel="stylesheet" href="([^"]+)"/g)].map((m) => m[1]);
+    assert.equal(sheets.at(-1), 'admin-nav.css?v=20261114a', name);
+  }
+});
+
+test('the door-screen list has no bar', () => {
+  assert.doesNotMatch(page('fiiu-qr.html'), /staff-nav|admin-nav\.(?:js|css)/);
+});
