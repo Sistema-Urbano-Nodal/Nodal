@@ -371,3 +371,42 @@ test('the data table keeps explicit table roles, so its stacked phone layout is 
   assert.equal(count(/<th role="columnheader" scope="col">/g), count(/<th[\s>]/g));
   assert.equal(count(/<td role="cell">/g), count(/<td[\s>]/g));
 });
+
+// R1 visit counter: the policy says what is stored, what is not, the staff marker and how long totals are kept.
+test('visit counting is described in every language: what is stored, what is not, the staff marker and how long totals are kept', () => {
+  const html = read('web/pages/privacy.html');
+  const articles = Object.fromEntries([...html.matchAll(/<article data-policy-lang="(en|es|pt)"[^>]*>([\s\S]*?)<\/article>/g)].map(([, lang, body]) => [lang, body]));
+  const section = (lang, n) => articles[lang].match(new RegExp(`<section id="${lang}-${n}">([\\s\\S]*?)</section>`))[1];
+  const escape = text => text.replace(/'/g, '&#39;');
+  for (const [lang, category, cell, technical, usage, marker, list, retention] of [
+    ['en', 'Visit counts',
+      'When a NODAL page opens, a small script from NODAL itself tells our server which page was opened and the name of the site you came from, which our server reduces at once to a kind of source (a search engine, a social network, a link the team shared, or directly) and does not store. We add one to that day\'s total for the page and for that kind of source. We store only these daily totals: no cookie, no IP address, no visitor or account identifier. They count page openings and arrivals, not people, cannot be linked to you, and so are not part of an account export or deletion. Password-reset, invitation and staff pages are not counted.',
+      'Our server uses the IP address of a request briefly to limit abuse and does not save it with visit counts.',
+      'Visit counts are part of that usage analysis.',
+      'Visit counting uses no cookie. On browsers used to open NODAL\'s staff pages, a marker is saved in browser storage so the team\'s own visits are not counted; it has no expiry, stays in that browser and is removed when the sign-in page is opened there.',
+      'usage events, daily visit totals, logs',
+      'Daily visit totals contain no personal data and are kept without a time limit.'],
+    ['es', 'Conteo de visitas',
+      'Cuando se abre una página de NODAL, un pequeño script de la propia NODAL le indica a nuestro servidor qué página se abrió y el nombre del sitio desde el que llegaste, que nuestro servidor reduce de inmediato a un tipo de origen (un buscador, una red social, un enlace compartido por el equipo o directamente) y no guarda. Sumamos uno al total de ese día para la página y para ese tipo de origen. Guardamos solo esos totales diarios: sin cookie, sin dirección IP, sin identificador de visitante ni de cuenta. Cuentan aperturas de página y llegadas, no personas, no pueden vincularse contigo y por eso no forman parte de la exportación ni de la eliminación de una cuenta. Las páginas de restablecimiento de contraseña, de invitación y del equipo no se cuentan.',
+      'Nuestro servidor usa brevemente la dirección IP de una solicitud para limitar abusos y no la guarda con los conteos de visitas.',
+      'Los conteos de visitas forman parte de ese análisis de uso.',
+      'El conteo de visitas no usa cookies. En los navegadores con los que se abren las páginas del equipo de NODAL se guarda una marca en el almacenamiento del navegador para que las visitas del propio equipo no se cuenten; no tiene vencimiento, permanece en ese navegador y se elimina cuando se abre allí la página de inicio de sesión.',
+      'eventos de uso, totales diarios de visitas, registros técnicos',
+      'Los totales diarios de visitas no contienen datos personales y se conservan sin límite de tiempo.'],
+    ['pt', 'Contagem de visitas',
+      'Quando uma página da NODAL é aberta, um pequeno script da própria NODAL informa ao nosso servidor qual página foi aberta e o nome do site de onde você veio, que o nosso servidor reduz imediatamente a um tipo de origem (um buscador, uma rede social, um link compartilhado pela equipe ou diretamente) e não guarda. Somamos um ao total daquele dia para a página e para esse tipo de origem. Guardamos apenas esses totais diários: sem cookie, sem endereço IP, sem identificador de visitante ou de conta. Eles contam aberturas de página e chegadas, não pessoas, não podem ser vinculados a você e, por isso, não fazem parte da exportação nem da exclusão de uma conta. As páginas de redefinição de senha, de convite e da equipe não são contadas.',
+      'Nosso servidor usa brevemente o endereço IP de uma requisição para limitar abusos e não o guarda com as contagens de visitas.',
+      'As contagens de visitas fazem parte dessa análise de uso.',
+      'A contagem de visitas não usa cookies. Nos navegadores usados para abrir as páginas da equipe da NODAL, uma marca é salva no armazenamento do navegador para que as visitas da própria equipe não sejam contadas; ela não expira, fica nesse navegador e é removida quando a página de login é aberta nele.',
+      'eventos de uso, totais diários de visitas, logs',
+      'Os totais diários de visitas não contêm dados pessoais e são mantidos sem limite de tempo.'],
+  ]) {
+    assert.ok(section(lang, 2).includes(`<td role="cell">${category}</td><td role="cell">${escape(cell)}</td>`), `${lang}: section 2 has the visit counts row`);
+    assert.ok(section(lang, 2).includes(escape(technical)), `${lang}: the technical information row says the IP is not saved with counts`);
+    assert.ok(section(lang, 3).includes(escape(usage)), `${lang}: section 3 names visit counts as usage analysis`);
+    assert.ok(section(lang, 8).includes(escape(marker)), `${lang}: section 8 says no cookie and describes the staff marker`);
+    assert.ok(section(lang, 9).includes(escape(list)), `${lang}: section 9 lists daily visit totals`);
+    assert.ok(section(lang, 9).includes(`<p>${escape(retention)}</p>`), `${lang}: section 9 gives totals their own paragraph`);
+  }
+  assert.ok(!/saved daily totals|reports of totals/.test(articles.en), 'no readings or reports of totals yet');
+});

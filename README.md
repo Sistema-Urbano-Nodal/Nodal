@@ -246,6 +246,10 @@ stored first and then emailed to the two team members (`server/node-requests-ema
   back the desk's Nodos band, with optimistic versions (409 `version_conflict` carries the current request). Closed
   requests are deleted 12 months after their last change, when the desk lists or a new request arrives.
 
+Visits are counted by a first-party script, without cookies:
+
+- `POST /api/visit` `{p, r, v}` (page, referrer host, `via` value) answers 204 whether the visit was counted or ignored, and also 403, 405, 415 or 429. It never reads the session and stores daily totals only (`server/visits-api.js`, `server/visits-repository.js`).
+
 Before a production release, staff must publish real, sourced, trilingual
 records covering at least one case study, one open opportunity, one project,
 and one learning circle or resource. Do not use fabricated records or fallback

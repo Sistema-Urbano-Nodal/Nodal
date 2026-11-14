@@ -19,7 +19,7 @@ How NODAL is built, where it runs, how it protects accounts and data, and what i
 
 - **Server:** a Node.js HTTP server with no runtime dependencies (`server/`), deployed through `api/index.js`. Supabase, GeoDB and Sentry are called with plain `fetch`; email goes out over a TLS connection to the SMTP server, and the optional Redis cache through a small built-in client.
 - **Pages:** HTML in `web/pages` and plain JavaScript in `web/scripts`, with no framework and no third-party scripts.
-- **Build:** each Vercel deploy runs lint and the whole test suite (about 1,900 tests) with the production environment, then builds the static files. A failing test stops the deploy.
+- **Build:** each Vercel deploy runs lint and the whole test suite (about 2,270 tests) with the production environment, then builds the static files. A failing test stops the deploy.
 - **Development:** locally the same server runs on SQLite instead of Supabase.
 
 ## Accounts, sign-in and sessions
@@ -48,12 +48,13 @@ How NODAL is built, where it runs, how it protects accounts and data, and what i
 | Globe polls | 40 a minute |
 | Organisation requests, a Nodo or sponsoring memberships (landing page form, no account; fixed in code) | 20 per client address an hour, 3 per email address a day |
 | | 40 emailed to the team a day (Lima time), counted in the database, so it holds across instances |
+| Visit counts (every public and member page, no account; fixed in code) | 600 a minute per client address; 1,200 counted a minute per instance, the rest answered and not counted |
 
 Supabase Auth applies its own limits on sign-ins and token renewals (raised to 600 every 5 minutes on 7 Sep 2026). Every sign-in reaches Supabase from NODAL's servers, so those limits are shared by all visitors rather than kept per visitor.
 
 Other protections:
 - **CSRF:** every request that changes something must come from NODAL's own pages.
-- **Request size:** most request bodies are capped at 32 KB, course requests at 64 KB, organisation requests at 16 KB, and uploads have their own size and type checks.
+- **Request size:** most request bodies are capped at 32 KB, course requests at 64 KB, organisation requests at 16 KB, visit counts at 1 KB, and uploads have their own size and type checks.
 - **Known gap:** the counters are kept in each server instance's memory. Under heavy traffic Vercel runs several instances, so the limits are per instance, not global. Redis (`REDIS_URL`) is used only for caching today; making the limits global would need the limiter to keep its counters there too.
 
 ## Browser security
@@ -105,7 +106,7 @@ The privacy policy (`docs/privacy/`, published at `/privacy.html`) names each of
 
 1. **Two-factor sign-in,** for organiser and admin accounts first.
 2. **Global rate limits** through Redis.
-3. **Aggregate, cookie-free analytics** (Plausible or Vercel Web Analytics): page views and clicks on the payment buttons, with no tracking of individuals. It needs a privacy policy update.
+3. **Aggregate, cookie-free analytics** (shipped, first-party): page views and arrivals are counted as daily totals (`web/scripts/visit.js`, `server/visits-api.js`, table `visit_counts`), with no tracking of individuals and no clicks on the payment buttons. The privacy policy describes it. No third-party analytics (Plausible, Vercel Web Analytics) is planned.
 4. **A way for staff to remove a course participant.** It's needed before the first memberships end, around 2027.
 5. **The full Mercado Pago integration,** once Supporters are too many to add by hand ([integrations/mercadopago-subscriptions.md](integrations/mercadopago-subscriptions.md)).
 6. **A load test** against a preview deployment, never production.
