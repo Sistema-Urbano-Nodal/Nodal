@@ -333,7 +333,7 @@ goes out; visit figures exist from R1):
 Indicadores   Publicación   Festival   Cursos                                              Cerrar sesión
 Indicadores de NODAL                                 [Descargar CSV]  [Imprimir o guardar como PDF]
 Datos al 14 nov 2026, 08:36 (hora de Lima) · Actualizar
-Últimos 7 días: 8–14 nov · Últimos 30 días: 16 oct–14 nov · 19 días sin cuentas nuevas (última: 26 oct)
+Últimos 7 días: 8–14 nov · Últimos 30 días: 16 oct–14 nov · 21 días sin cuentas nuevas (última: 24 oct)
 
 VISITAS            REGISTROS         PERFILES                ACTIVIDAD               MEMBRESÍAS
 n llegadas, 30 d   525 cuentas       n con perfil básico     n miembros con          0 Fundadores
@@ -346,7 +346,7 @@ Visitas (desde el <día de R1>)      30 días  7 días      Registros           
   Páginas vistas                       n        n          Cuentas                       525     n       0
   Llegadas                             n        n          Con correo confirmado         494
   Más vistas: Inicio n · FIIU n · …                        Entraron al menos una vez     486     n       n
-  De dónde llegan: directo n · buscadores n · WhatsApp n · …        Por mes: jul 9 · ago 0 · sep 40 · oct 476 · nov 0
+  De dónde llegan: directo n · buscadores n · WhatsApp n · …        Por mes: jul 9 · ago 0 · sep 43 · oct 473 · nov 0
                                                            Incluye 5 cuentas del equipo
 Perfiles (de 486 que entraron)       Total              Actividad                      30 días  7 días
   Perfil básico completo                n                 Miembros con actividad, sin el equipo  n     n

@@ -21,10 +21,10 @@ laboratorio.
 En el orden del encargo. Las cifras son las del 14 de noviembre de 2026.
 
 1. **Visitas:** llegadas al sitio en los últimos 30 días. Todavía no se cuenta; empieza el día en que se active.
-2. **Registros:** 525 cuentas creadas. Ninguna nueva desde el 26 de octubre.
-3. **Perfiles:** personas con el perfil básico completo (ciudad e intereses). Cifra por confirmar; al lado, 33
+2. **Registros:** 525 cuentas creadas. Ninguna nueva desde el 24 de octubre.
+3. **Perfiles:** personas con el perfil básico completo (ciudad e intereses): 210 el 14 de noviembre; al lado, 33
    personas hicieron la autoevaluación.
-4. **Actividad:** miembros que hicieron algo en los últimos 30 días, sin contar al equipo. Cifra por calcular.
+4. **Actividad:** miembros que hicieron algo en los últimos 30 días, sin contar al equipo: 280 el 14 de noviembre (0 en los últimos 7 días).
 5. **Membresías:** 0 Fundadores confirmados. Al lado: 1 aceptación de los términos antes de pagar.
 
 Donde hay fechas se verá también el número de los últimos 7 días (los perfiles muestran solo el estado de hoy).
@@ -68,10 +68,10 @@ como un salto en un día y se corrige a mano.
 Se cuentan sobre las 486 personas que entraron.
 
 - **Perfil básico completo.** Tiene ciudad y al menos un interés: dos de las cuatro cosas que pide el primer
-  formulario al entrar (también pide nombre y rol). *No dice* si el perfil es bueno. Cifra por confirmar.
-- **Con ciudad:** 210. **Con intereses:** por confirmar. **Con biografía:** 17.
+  formulario al entrar (también pide nombre y rol). *No dice* si el perfil es bueno. 210 el 14 de noviembre.
+- **Con ciudad:** 210. **Con intereses:** 210. **Con biografía:** 17.
 - **Autoevaluación hecha:** 33. Se cuenta desde la primera respuesta, así que *no dice* si la terminaron ni cuándo.
-- **Visibles en el directorio.** Personas que aceptaron aparecer y tienen la cuenta activa. Cifra por calcular.
+- **Visibles en el directorio.** Personas que aceptaron aparecer y tienen la cuenta activa: 14 el 14 de noviembre.
 - **Perfil guardado:** 210. Personas que guardaron algo en su consola alguna vez. Ojo: basta con marcar los avisos
   como leídos. Por eso **210 no son autoevaluaciones**, y este número no va entre los principales.
 
@@ -128,9 +128,9 @@ Son los mismos números del panel del festival, para que las dos pantallas nunca
   aquí son las entregas publicadas en el curso.
 - **Personas inscritas, sin el equipo:** 18.
 - **Abrieron contenido.** Personas inscritas (sin el equipo) que abrieron al menos una sesión o material. *No
-  dice* si lo leyeron o lo vieron completo. Cifra por calcular.
+  dice* si lo leyeron o lo vieron completo. 17 el 14 de noviembre.
 - **Encuesta final y certificados,** como en el espacio docente (grupo de septiembre, sin el equipo):
-  respondieron 9 de N; certificados subidos 17. N está por confirmar (17 o 18): no cuenta a quien se sumó desde
+  respondieron 9 de 17; certificados subidos 17. El 17 no cuenta a quien se sumó desde
   octubre.
 
 ### Seguimiento mes a mes
