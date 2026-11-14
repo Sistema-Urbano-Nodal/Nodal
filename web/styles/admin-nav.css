@@ -1,0 +1,78 @@
+/* Self-contained on purpose: the teaching page loads no site stylesheet, so the staff bar brings every value it needs. */
+.staff-nav {
+  --staff-gutter: clamp(20px, 4vw, 56px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 24px;
+  padding: 0 var(--staff-gutter);
+  font: 500 .9375rem/1.4 Montserrat, sans-serif;
+  color: #3d5c38;
+}
+
+.pilot-page .staff-nav {
+  --staff-gutter: max(28px, calc((100vw - 1320px) / 2));
+}
+
+@media (max-width: 760px) {
+  .pilot-page .staff-nav {
+    --staff-gutter: 20px;
+  }
+}
+
+.staff-nav a,
+.staff-nav button {
+  display: inline-flex;
+  align-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.staff-nav a:hover,
+.staff-nav button:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 6px;
+}
+
+.staff-nav a[aria-current="page"] {
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 6px;
+}
+
+.staff-nav button {
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
+.staff-nav button:disabled {
+  opacity: .5;
+  cursor: wait;
+}
+
+.staff-nav :focus-visible {
+  outline: 2px solid #286998;
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.staff-nav [data-staff-status] {
+  flex-basis: 100%;
+  padding-bottom: 8px;
+  font-size: .875rem;
+  text-align: right;
+}
+
+.staff-nav [data-staff-status]:empty {
+  padding-bottom: 0;
+}

@@ -77,7 +77,7 @@ const CHECKIN_ALIASES = new Set(['/checkin', '/fiiu-checkin', '/fiiu-checkin.htm
    projected (fiiu-talk.html?a=, ?q=, &present=1) goes there with its query, in any of the spellings above; so do loose
    spellings of the session page itself, whose address the projector shows for typing. */
 const SESSION_ALIASES = new Set(['/fiiu-talk', '/fiiu-talk.htm', '/fiiu-talk.html', '/fiiu-session', '/fiiu-session.htm', '/fiiu-session.html']);
-const STATIC_STYLES = new Set(['fiiu.css', 'fiiu-talk.css', 'auth.css', 'styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css', 'fundadores.css', 'node-request.css']);
+const STATIC_STYLES = new Set(['fiiu.css', 'fiiu-talk.css', 'auth.css', 'styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css', 'fundadores.css', 'node-request.css', 'admin-nav.css']);
 const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp']);
 const STATIC_FONTS = new Set(['montserrat-v31-latin-normal.woff2', 'montserrat-v31-latin-ext-normal.woff2', 'montserrat-v31-latin-italic.woff2', 'montserrat-v31-latin-ext-italic.woff2', 'OFL.txt']);
 // The FIIU summary email's logo (server/fiiu-email.js), loaded by mail clients from other origins.

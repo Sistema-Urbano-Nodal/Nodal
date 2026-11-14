@@ -160,3 +160,35 @@ test('admin-nav.js is served, built and cached like the desk script', () => {
   assert.ok(list(buildSource, 'STATIC_SCRIPTS').includes("'admin-nav.js'"));
   assert.deepEqual(merged('/admin-nav.js'), merged('/admin.js'));
 });
+
+test('admin-nav.css is scoped to the bar, self-contained, wraps and never sticks or folds', () => {
+  const css = read('web', 'styles', 'admin-nav.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  const selectors = [...css.replace(/@media[^{]*\{/g, '').matchAll(/([^{}]+)\{/g)].flatMap((m) => m[1].split(',')).map((s) => s.trim());
+  assert.ok(selectors.length >= 9);
+  for (const selector of selectors) assert.match(selector, /\.staff-nav\b/, selector);
+  // Not sticky (the offsets at admin.css:24 and fiiu.css:74 hold), nothing clipped, no borrowed variable, no accent bar.
+  assert.doesNotMatch(css, /position\s*:|overflow|nowrap/);
+  assert.doesNotMatch(css, /border-left|box-shadow|@import|url\(|!important|var\(--(?!staff-gutter\))/);
+  assert.match(css, /\.staff-nav\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;/);
+  assert.match(css, /\.staff-nav\s*\{[^}]*font:\s*500 \.9375rem\/1\.4 Montserrat, sans-serif;/);
+  assert.match(css, /\.staff-nav\s*\{[^}]*--staff-gutter:\s*clamp\(20px, 4vw, 56px\);/);
+  assert.match(css, /\.pilot-page \.staff-nav\s*\{\s*--staff-gutter:\s*max\(28px, calc\(\(100vw - 1320px\) \/ 2\)\);\s*\}/);
+  assert.match(css, /@media \(max-width: 760px\)\s*\{\s*\.pilot-page \.staff-nav\s*\{\s*--staff-gutter:\s*20px;\s*\}\s*\}/);
+  assert.match(css, /\.staff-nav a,\s*\.staff-nav button\s*\{[^}]*min-width:\s*44px;\s*min-height:\s*44px;[^}]*border:\s*0;[^}]*background:\s*none;[^}]*font:\s*inherit;/);
+  assert.match(css, /\.staff-nav a\[aria-current="page"\]\s*\{\s*font-weight:\s*700;\s*text-decoration:\s*underline;\s*text-decoration-thickness:\s*1px;/);
+  assert.match(css, /\.staff-nav button\s*\{\s*margin-left:\s*auto;\s*justify-content:\s*flex-end;\s*\}/);
+  assert.match(css, /\.staff-nav :focus-visible\s*\{\s*outline:\s*2px solid #286998;/);
+  assert.match(css, /\.staff-nav \[data-staff-status\]:empty\s*\{\s*padding-bottom:\s*0;\s*\}/);
+  assert.doesNotMatch(css, /display:\s*none|visibility\s*:/, 'nothing is hidden: the bar never folds and the status line stays a rendered live region');
+});
+
+test('admin-nav.css is served, built and cached like the desk stylesheet', () => {
+  const serverSource = read('server', 'server.js');
+  const buildSource = read('scripts', 'build-static.js');
+  const vercel = JSON.parse(read('vercel.json'));
+  const list = (source, name) => source.match(new RegExp(`const ${name} = (?:new Set\\()?\\[([^\\]]*)\\]`))?.[1] || '';
+  const merged = (url) => Object.fromEntries(vercel.headers.filter((r) => new RegExp(`^${r.source}$`).test(url)).flatMap((r) => r.headers.map(({ key, value }) => [key, value])));
+  assert.ok(list(serverSource, 'STATIC_STYLES').includes("'admin-nav.css'"));
+  assert.ok(list(buildSource, 'STATIC_STYLES').includes("'admin-nav.css'"));
+  assert.deepEqual(merged('/admin-nav.css'), merged('/admin.css'));
+});

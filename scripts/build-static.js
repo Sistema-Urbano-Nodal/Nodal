@@ -48,7 +48,7 @@ const STATIC_SCRIPTS = [
   'visit.js',
   'admin-nav.js',
 ];
-const STATIC_STYLES = ['fiiu.css', 'fiiu-talk.css', 'auth.css', 'admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'styles.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css', 'fundadores.css', 'node-request.css'];
+const STATIC_STYLES = ['fiiu.css', 'fiiu-talk.css', 'auth.css', 'admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'styles.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css', 'fundadores.css', 'node-request.css', 'admin-nav.css'];
 const STATIC_ASSETS = [
   'latam-map.webp',
   'nodal-community.webp',
