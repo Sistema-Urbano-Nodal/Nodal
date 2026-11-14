@@ -133,6 +133,13 @@ which only they see. The page and every `/api/admin/*` request independently
 require a server-owned `admin` role; there is no separate publisher role.
 Catalog records are archived rather than deleted.
 
+The three staff pages (`/admin.html`, `/fiiu-admin.html`, `/teaching.html`)
+carry the same staff bar under their header, with Publishing, Festival,
+Courses and Sign out in EN/ES/PT. Its labels live in
+`web/scripts/admin-nav.js`, not in the dictionaries, and its styles in
+`web/styles/admin-nav.css`. The door-screen list (`/fiiu-qr.html`) has no bar.
+The desk asks before a page with unsaved news is left.
+
 NODAL news posts (title up to 160 characters, text up to 2,000, an optional
 https link, an optional pin, draft or published) appear on the member console
 and in the community page's news section. A post is shown to every reader
