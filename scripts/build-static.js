@@ -46,6 +46,7 @@ const STATIC_SCRIPTS = [
   'node-request.js',
   'teaching.js',
   'visit.js',
+  'admin-nav.js',
 ];
 const STATIC_STYLES = ['fiiu.css', 'fiiu-talk.css', 'auth.css', 'admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'styles.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css', 'fundadores.css', 'node-request.css'];
 const STATIC_ASSETS = [
