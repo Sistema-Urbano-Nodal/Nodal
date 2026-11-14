@@ -319,7 +319,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
   const pages = Object.fromEntries(['index.html', 'fundadores.html', 'opportunities.html', 'dashboard.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'course.html', 'courses.html', 'teaching.html', 'accept-invitation.html', 'fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'knowledge.html', 'resources.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
   const pilot = { 'pilot-i18n.js': '20261029a', 'pilot.js': '20261023a', 'courses.css': '20261023a' };
-  const visit = { 'visit.js': '20261114a' };
+  const visit = { 'visit.js': '20261114b' };
   const festival = { 'fiiu.css': '20261022a', 'fiiu-ui.js': '20261029a' };
   const required = {
     'index.html': { 'styles.css': '36', 'i18n.js': '20261109a', 'app.js': '20261021c', 'recs.js': '5', 'script.js': '18', 'hero-network.js': '2', 'node-request.js': '20261109a', 'node-request.css': '20261109a' , ...visit },

@@ -181,7 +181,8 @@ Three releases, each shippable alone, each migration applied by hand before its 
    Every sign-out lands there (`web/scripts/admin.js:1404`, `dashboard.js:1279`, `courses.js:118`,
    `fiiu-checkin.js:171`, `fiiu-talk.js:587`) and a signed-in browser never sees that page
    (`server/server.js:1483`), so the marker is cleared on sign-out without editing any handler.
-3. Unless the marker is set, `navigator.webdriver` is true or the page is prerendering:
+3. Unless the marker is set or `navigator.webdriver` is true (a prerendering page waits for its
+   `prerenderingchange` event, so it sends once when the visitor opens it, and never if nobody does):
 
 ```js
 fetch('/api/visit',{method:'POST',keepalive:true,credentials:'omit',
@@ -223,7 +224,12 @@ the server redirects it to `/fiiu-session.html` (`:1491`). So 15 tagged files gi
 by referrer host (`search`, the six networks, `sistemaurbano`, `other`); else `direct`. An unknown or malformed
 `via` is treated as absent: the hit still counts, with the source taken from the referrer. No raw host is stored.
 `?via=` exists because WhatsApp and mail apps send no referrer: the team shares `…/fundadores.html?via=whatsapp`
-and the arrival is attributed.
+and the arrival is attributed. Three cases count a view without an arrival, because the referrer they carry is
+not a new arrival: a reload and a back/forward navigation (the script sends `r: 'self'` when the Navigation Timing
+type is `reload` or `back_forward`; a browser without that API sends the referrer as usual), and a return from the
+payment provider (the server treats `mercadopago.com`, `mercadopago.com.pe`, `mercadolibre.com` and
+`mercadolibre.com.pe` and their subdomains like `'self'`). The bot pattern matches `bot` only as a word or a
+crawler's name token (`Googlebot/`, `AhrefsBot;`, `TelegramBot (`), so a phone model such as `CUBOT X30` counts.
 
 **Storage.** `supabase/migrations/<ts>_visit_counts.sql`, with the house header (apply and repair commands, what
 fails until applied), wrapped in `BEGIN; … COMMIT;` so each object is created and closed to PUBLIC, anon and

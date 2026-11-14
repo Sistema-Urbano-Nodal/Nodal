@@ -315,7 +315,7 @@ test('the page works under the strict CSP: no inline script, style or handler, a
   assert.doesNotMatch(html, /<style\b|\sstyle="|\son[a-z]+=|javascript:/i);
   const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)];
   const i18n = read('web/pages/index.html').match(/src="i18n\.js\?v=([^"]+)"/)[1];
-  assert.deepEqual(scripts.map(([, attributes]) => attributes.trim()), ['src="locale.js?v=20261009a"', 'defer src="nav.js?v=20261013b"', `defer src="i18n.js?v=${i18n}"`, 'defer src="fundadores.js?v=20261029a"', 'defer src="visit.js?v=20261114a"']);
+  assert.deepEqual(scripts.map(([, attributes]) => attributes.trim()), ['src="locale.js?v=20261009a"', 'defer src="nav.js?v=20261013b"', `defer src="i18n.js?v=${i18n}"`, 'defer src="fundadores.js?v=20261029a"', 'defer src="visit.js?v=20261114b"']);
   assert.ok(scripts.every(([, , body]) => body === ''), 'no inline script');
   assert.ok(html.lastIndexOf('<script') < html.indexOf('</head>'));
   const sheets = [...html.matchAll(/<link rel="stylesheet" href="([^"]+)">/g)].map(match => match[1]);

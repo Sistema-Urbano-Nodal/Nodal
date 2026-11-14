@@ -458,7 +458,7 @@ npx --no-install supabase migration repair --status applied 20261114000000
 ```
 
   Expected from the check before the repair: `rls_on` true · `browser_grants` 0 · `functions_invoker` 2 · `functions_closed` 0 · `migration_row` 0 · `last_7_days` "no visits yet"; `migration_row` is 1 when the check is run again after the repair. The code live before the push never calls these objects, so applying first is safe.
-- [ ] **Step 4: Owner merges and pushes `main`.** Then: the Vercel Production deployment status is `success` (not only a 200); `https://sistema-urbano-nodal-ten.vercel.app/visit.js?v=20261114a` answers 200; opening the landing page in a browser that never opened a staff page sends `POST /api/visit` → 204; the check file run again shows today's Lima day in `last_7_days`; `/privacy.html` shows the new row in three languages.
+- [ ] **Step 4: Owner merges and pushes `main`.** Then: the Vercel Production deployment status is `success` (not only a 200); `https://sistema-urbano-nodal-ten.vercel.app/visit.js?v=20261114b` answers 200 (the key moved to `b` with the whole-branch review fixes); opening the landing page in a browser that never opened a staff page sends `POST /api/visit` → 204; the check file run again shows today's Lima day in `last_7_days`; `/privacy.html` shows the new row in three languages.
 - [ ] **Step 5: Owner, the same day — the baseline and the sheet.** It reads production and changes nothing, so it does not gate step 4 and may be done before it:
 
 ```bash

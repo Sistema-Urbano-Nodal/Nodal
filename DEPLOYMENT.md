@@ -272,7 +272,8 @@ same two recipients and the same 40-a-day ceiling as Nodo requests.
 `visit_counts` table (one row per Lima day, kind, page and source, a daily total
 and never a visitor, cookie, address or referrer) and two functions,
 `count_visit` (adds a view and, for an arrival, its source) and `visit_totals`
-(the totals the desk reads). Everything is server-only: row-level security with
+(returns the daily, page and source totals, read by the check file below and, from
+R3, by the admin home). Everything is server-only: row-level security with
 no policy, and `anon` and `authenticated` hold nothing. It is additive, so
 applying it first is safe.
 
@@ -290,7 +291,25 @@ Then check it took (read-only, one row):
 npx --no-install supabase db query --linked -f docs/ops/2026-11-14-visit-counts-check.sql
 ```
 
+Expected, after the repair above: `rls_on` true · `browser_grants` 0 ·
+`functions_invoker` 2 · `functions_closed` 0 · `migration_row` 1 ·
+`last_7_days` "no visits yet".
+
 Nothing changes in Vercel.
+
+### After the push
+
+- The Vercel Production deployment status is `success` (not only a 200).
+- `https://sistema-urbano-nodal-ten.vercel.app/visit.js?v=20261114b` answers 200.
+- The landing page, opened in a browser that never opened a staff page, sends
+  `POST /api/visit` and gets 204.
+- The check file above, run again, shows today's Lima day in `last_7_days`.
+- The same day, the read-only baseline for the indicator sheet (it changes
+  nothing, so it may also run before the push):
+
+```bash
+npx --no-install supabase db query --linked -f docs/ops/2026-11-14-metrics-baseline.sql
+```
 
 ## Founder Membership acceptances: one migration before `main`
 

@@ -123,6 +123,7 @@ test('the ops files: one read-only check, and a correction that fails until a da
  assert.equal(check.length,1);assert.match(check[0],/^select /i);
  assert.doesNotMatch(check[0].replace(/'[^']*'/g,"''"),/\b(insert|update|delete|truncate|alter|drop|grant|revoke|create)\b/i);   // quoted text emptied first: the privilege names below are literals, not statements
  for(const alias of ['rls_on','browser_grants','functions_invoker','functions_closed','migration_row','last_7_days'])assert.match(check[0],new RegExp(` as ${alias}\\b`));
+ assert.match(check[0],/coalesce\(sum\(n\) filter \(where kind = 'view'\), 0\) as views/,'a day with arrivals but no views still prints');
  assert.match(read('docs/ops/2026-11-14-visit-counts-check.sql'),/npx --no-install supabase db query --linked -f docs\/ops\/2026-11-14-visit-counts-check\.sql/);
  const correct=strip(read('docs/ops/2026-11-14-visit-counts-correct.sql'));
  assert.equal(correct.length,1);assert.ok(correct[0].includes("'<YYYY-MM-DD>'::date"),'fails on the cast until edited');

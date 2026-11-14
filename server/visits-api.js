@@ -8,7 +8,8 @@ const PAGES=['login','fundadores','opportunities','community','resources','knowl
 export const VISIT_PAGES=Object.freeze({'/':'index.html','/index.html':'index.html',...Object.fromEntries(PAGES.map(name=>[`/${name}.html`,`${name}.html`]))});
 export const VISIT_SOURCES=Object.freeze(['direct','search','whatsapp','email','linkedin','instagram','facebook','x','qr','sistemaurbano','other']);
 export const VISIT_VIAS=Object.freeze(['whatsapp','email','linkedin','instagram','facebook','x','qr']);
-const IGNORED_AGENT=/bot|crawl|spider|slurp|headless|lighthouse|pingdom|uptimerobot|facebookexternalhit|whatsapp\/|curl\/|wget\/|python-requests|go-http-client/i;
+// "bot" only as its own word or a crawler's name token (Googlebot/, AhrefsBot;, TelegramBot (): a phone model such as CUBOT X30 still counts.
+const IGNORED_AGENT=/\bbot\b|bot\/|bot;|bot \(|crawl|spider|slurp|headless|lighthouse|pingdom|uptimerobot|facebookexternalhit|whatsapp\/|curl\/|wget\/|python-requests|go-http-client/i;
 const GOOGLE=/(^|\.)google\.[a-z]{2,3}(\.[a-z]{2})?$/;
 // In the order they are tried: the mail hosts that sit under a search host come before it.
 const HOSTS=[
@@ -22,6 +23,8 @@ const HOSTS=[
  ['sistemaurbano',['sistemaurbano.org']],
 ];
 const under=(host,domain)=>host===domain||host.endsWith(`.${domain}`);
+// A return from the payment provider (a Founder back on /payments.html or /fundadores.html) is a view, not a new arrival.
+const RETURN_HOSTS=['mercadopago.com','mercadopago.com.pe','mercadolibre.com','mercadolibre.com.pe'];
 function sourceOf(referrer){
  if(referrer==='')return 'direct';
  if(!/^[a-z0-9.-]+$/.test(referrer))return 'other';
@@ -37,9 +40,10 @@ export function classifyVisit(input,userAgent){
  if(!Object.hasOwn(VISIT_PAGES,input.p))return null;
  if(typeof userAgent!=='string'||userAgent===''||IGNORED_AGENT.test(userAgent))return null;
  const page=VISIT_PAGES[input.p];
- if(input.r==='self')return {page,arrival:false,source:''};
+ const referrer=input.r.trim().toLowerCase();
+ if(input.r==='self'||RETURN_HOSTS.some(domain=>under(referrer,domain)))return {page,arrival:false,source:''};
  const via=input.v.trim().toLowerCase();
- return {page,arrival:true,source:VISIT_VIAS.includes(via)?via:sourceOf(input.r.trim().toLowerCase())};
+ return {page,arrival:true,source:VISIT_VIAS.includes(via)?via:sourceOf(referrer)};
 }
 export const visitDay=ms=>limaDayStart(ms).slice(0,10);
 
@@ -56,9 +60,9 @@ export function createVisitApi({store,send,sameOrigin,now,addressAllowed,ceiling
    if(!sameSite){send(res,403,{error:'cross-origin request rejected'});return true;}
    if(!addressAllowed(req,res))return true;
    let body;
-   try{body=await bodyJson(req,1024);}catch(err){send(res,err.status??400,{error:err.message});return true;}
+   try{body=await bodyJson(req,1024);}catch(err){send(res,err.status??400,err.status?{error:err.message}:{error:'bad request'});return true;}
    const hit=classifyVisit(body,req.headers['user-agent']);
-   if(!hit||now()<pausedUntil||!ceilingAllowed()||!store){done(res);return true;}
+   if(!hit||!store||now()<pausedUntil||!ceilingAllowed()){done(res);return true;}
    let timer;
    try{
     await Promise.race([store.count({day:visitDay(now()),...hit}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Object.assign(new Error('visit count timed out'),{code:'VISIT_TIMEOUT'})),writeMs);})]);

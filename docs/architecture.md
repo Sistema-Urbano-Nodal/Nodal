@@ -19,7 +19,7 @@ How NODAL is built, where it runs, how it protects accounts and data, and what i
 
 - **Server:** a Node.js HTTP server with no runtime dependencies (`server/`), deployed through `api/index.js`. Supabase, GeoDB and Sentry are called with plain `fetch`; email goes out over a TLS connection to the SMTP server, and the optional Redis cache through a small built-in client.
 - **Pages:** HTML in `web/pages` and plain JavaScript in `web/scripts`, with no framework and no third-party scripts.
-- **Build:** each Vercel deploy runs lint and the whole test suite (about 2,270 tests) with the production environment, then builds the static files. A failing test stops the deploy.
+- **Build:** each Vercel deploy runs lint and the whole test suite (about 2,280 tests) with the production environment, then builds the static files. A failing test stops the deploy.
 - **Development:** locally the same server runs on SQLite instead of Supabase.
 
 ## Accounts, sign-in and sessions

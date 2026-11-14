@@ -408,5 +408,6 @@ test('visit counting is described in every language: what is stored, what is not
     assert.ok(section(lang, 9).includes(escape(list)), `${lang}: section 9 lists daily visit totals`);
     assert.ok(section(lang, 9).includes(`<p>${escape(retention)}</p>`), `${lang}: section 9 gives totals their own paragraph`);
   }
-  assert.ok(!/saved daily totals|reports of totals/.test(articles.en), 'no readings or reports of totals yet');
+  for (const [lang, words] of [['en', /saved daily totals|reports of totals/], ['es', /totales diarios guardados|informes de totales/], ['pt', /totais diários salvos|relatórios de totais/]])
+    assert.ok(!words.test(articles[lang]), `${lang}: no readings or reports of totals yet`);
 });

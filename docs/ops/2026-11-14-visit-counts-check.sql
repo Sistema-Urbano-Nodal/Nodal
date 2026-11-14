@@ -19,5 +19,5 @@ select
    and has_function_privilege(r.role, p.oid, 'EXECUTE')) as functions_closed,
  (select count(*) from supabase_migrations.schema_migrations where version = '20261114000000') as migration_row,
  coalesce((select string_agg(d.day || ':' || d.views || '/' || d.arrivals, ', ' order by d.day desc)
-   from (select day, sum(n) filter (where kind = 'view') as views, coalesce(sum(n) filter (where kind = 'arrival'), 0) as arrivals
+   from (select day, coalesce(sum(n) filter (where kind = 'view'), 0) as views, coalesce(sum(n) filter (where kind = 'arrival'), 0) as arrivals
      from public.visit_counts where day >= (now() at time zone 'America/Lima')::date - 6 group by day) d), 'no visits yet') as last_7_days;

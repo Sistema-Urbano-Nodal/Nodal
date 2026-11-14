@@ -4,17 +4,19 @@ import {once} from 'node:events';
 import {existsSync} from 'node:fs';
 import path from 'node:path';
 import {request} from 'node:http';
+import {Readable} from 'node:stream';
 import {fileURLToPath} from 'node:url';
 import {createDatabase} from '../server/db.js';
 import {createApp} from '../server/server.js';
 import {createStore} from '../server/store.js';
 import {createVisitStore as createVisitStoreFor} from '../server/visits-repository.js';
-import {VISIT_PAGES,VISIT_SOURCES,VISIT_VIAS} from '../server/visits-api.js';
+import {VISIT_PAGES,VISIT_SOURCES,VISIT_VIAS,createVisitApi} from '../server/visits-api.js';
 
 const ROOT=path.join(path.dirname(fileURLToPath(import.meta.url)),'..');
 const START='2026-11-14T15:00:00.000Z';
 const CHROME='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
-const statuses=[];
+// Every answer of this route is checked here, in the test that asked: the route never answers 5xx.
+const below500=status=>{assert.ok(status<500,`answered ${status}`);return status;};
 
 // The whole server (createApp) on SQLite with an injected clock; hit() posts to /api/visit.
 async function setup(t,{options={},limits}={}){
@@ -26,11 +28,11 @@ async function setup(t,{options={},limits}={}){
  const hit=async(body,{origin=base,type='application/json',ua=CHROME,headers={},method='POST'}={})=>{
   const response=await fetch(`${base}/api/visit`,{method,headers:{...(origin?{Origin:origin}:{}),'Content-Type':type,...(ua===null?{}:{'User-Agent':ua}),...headers},
    body:method==='GET'?undefined:typeof body==='string'?body:JSON.stringify(body)});
-  statuses.push(response.status);return response;
+  below500(response.status);return response;
  };
  // For what fetch will not send as given: no Origin, or a Sec-Fetch-Site of our choosing.
  const raw=(headers,body='{"p":"/","r":"","v":""}',method='POST')=>new Promise((resolve,reject)=>{
-  const req=request(`${base}/api/visit`,{method,headers:Object.fromEntries(Object.entries({'Content-Type':'application/json','User-Agent':CHROME,...headers}).filter(([,value])=>value!==undefined))},res=>{res.resume();res.on('end',()=>{statuses.push(res.statusCode);resolve(res.statusCode);});});
+  const req=request(`${base}/api/visit`,{method,headers:Object.fromEntries(Object.entries({'Content-Type':'application/json','User-Agent':CHROME,...headers}).filter(([,value])=>value!==undefined))},res=>{res.resume();res.on('end',()=>resolve(below500(res.statusCode)));});
   req.on('error',reject);req.end(body);
  });
  const rows=()=>db.prepare('SELECT day,kind,page,source,n FROM visit_counts ORDER BY kind DESC,page,source').all().map(Object.values);
@@ -108,12 +110,12 @@ test('a hit is counted on its Lima day',async t=>{
 
 test('counts in-app browsers and ignores previewers and crawlers',async t=>{
  const {hit,raw,rows,base}=await setup(t);
- for(const ua of ['Mozilla/5.0 (iPhone) Instagram 300.0.0.0','Mozilla/5.0 [FBAN/FBIOS;FBAV/400]','Mozilla/5.0 LinkedInApp'])assert.equal((await hit({p:'/',r:'self',v:''},{ua})).status,204);
- assert.equal(rows()[0][4],3);
- for(const ua of ['facebookexternalhit/1.1','WhatsApp/2.23','Googlebot/2.1','HeadlessChrome',''])assert.equal((await hit({p:'/',r:'self',v:''},{ua})).status,204,String(ua));
+ for(const ua of ['Mozilla/5.0 (iPhone) Instagram 300.0.0.0','Mozilla/5.0 [FBAN/FBIOS;FBAV/400]','Mozilla/5.0 LinkedInApp','Mozilla/5.0 (Linux; Android 10; CUBOT X30) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'])assert.equal((await hit({p:'/',r:'self',v:''},{ua})).status,204);
+ assert.equal(rows()[0][4],4);
+ for(const ua of ['facebookexternalhit/1.1','WhatsApp/2.23','Googlebot/2.1','Mozilla/5.0 (compatible; bingbot/2.0)','Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)','TelegramBot (like TwitterBot)','HeadlessChrome',''])assert.equal((await hit({p:'/',r:'self',v:''},{ua})).status,204,String(ua));
  // fetch always sends some User-Agent, so a request with none goes through node:http.
  assert.equal(await raw({Origin:base,'User-Agent':undefined}),204);
- assert.equal(rows()[0][4],3);
+ assert.equal(rows()[0][4],4);
 });
 
 test('refuses other methods, other origins and other content types',async t=>{
@@ -182,7 +184,7 @@ test('never resolves a session',async t=>{
  server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
  const base=`http://127.0.0.1:${server.address().port}`;
  const response=await fetch(`${base}/api/visit`,{method:'POST',headers:{Origin:base,'Content-Type':'application/json','User-Agent':CHROME,Cookie:'nodal_session=stale; nodal_refresh=stale'},body:JSON.stringify({p:'/',r:'self',v:''})});
- statuses.push(response.status);
+ below500(response.status);
  assert.equal(response.status,204);assert.equal(lookups,0);
  assert.equal(db.prepare('SELECT n FROM visit_counts').get().n,1);
 });
@@ -192,11 +194,55 @@ test('an app with no database answers 204',async t=>{
  server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
  const base=`http://127.0.0.1:${server.address().port}`;
  const response=await fetch(`${base}/api/visit`,{method:'POST',headers:{Origin:base,'Content-Type':'application/json','User-Agent':CHROME},body:JSON.stringify({p:'/',r:'self',v:''})});
- statuses.push(response.status);
+ below500(response.status);
  assert.equal(response.status,204);
 });
 
-test('never answers 5xx',()=>{
- assert.ok(statuses.length>20);
- assert.ok(statuses.every(status=>status<500),statuses.filter(status=>status>=500).join());
+test('a return from a payment page counts as a view, not a new arrival',async t=>{
+ const {hit,rows}=await setup(t);
+ for(const r of ['www.mercadopago.com.pe','mercadopago.com','www.mercadopago.com','www.mercadolibre.com'])assert.equal((await hit({p:'/payments.html',r,v:''})).status,204,r);
+ await hit({p:'/fundadores.html',r:'www.mercadopago.com.pe',v:'whatsapp'});
+ assert.deepEqual(rows(),[['2026-11-14','view','fundadores.html','',1],['2026-11-14','view','payments.html','',4]]);
+ assert.equal(await source(await setup(t),'notmercadopago.com'),'other');
+});
+
+// The route on its own, with a request object of our making.
+function direct({store=null,ceiling=()=>true,body}={}){
+ const sent=[];
+ const api=createVisitApi({store,send:(res,status,payload)=>sent.push([status,payload]),sameOrigin:()=>true,now:()=>Date.parse(START),addressAllowed:()=>true,ceilingAllowed:ceiling});
+ const req=Object.assign(body??Readable.from([Buffer.from('{"p":"/","r":"self","v":""}')]),{method:'POST',headers:{origin:'http://h.example',host:'h.example','content-type':'application/json','user-agent':CHROME}});
+ return {sent,go:()=>api({req,res:{headersSent:false},url:new URL('http://h.example/api/visit')})};
+}
+
+test('a body error without a status answers a fixed message',async()=>{
+ const body=new Readable({read(){this.destroy(new Error('internal detail /var/secret'));}});
+ const {sent,go}=direct({body});
+ assert.equal(await go(),true);
+ assert.deepEqual(sent,[[400,{error:'bad request'}]]);
+});
+
+test('an app without a store spends no ceiling',async()=>{
+ let taken=0;
+ const {sent,go}=direct({ceiling:()=>{taken++;return true;}});
+ await go();
+ assert.deepEqual(sent,[[204,'']]);assert.equal(taken,0);
+});
+
+test('on Supabase the default store counts through rpc/count_visit',async t=>{
+ const keys=['NEXT_PUBLIC_SUPABASE_URL','NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY','NEXT_PUBLIC_SUPABASE_ANON_KEY','SUPABASE_SECRET_KEY','SUPABASE_SERVICE_ROLE_KEY'];
+ const saved=Object.fromEntries(keys.map(key=>[key,process.env[key]]));
+ t.after(()=>{for(const key of keys){if(saved[key]===undefined)delete process.env[key];else process.env[key]=saved[key];}});
+ for(const key of keys)delete process.env[key];
+ Object.assign(process.env,{NEXT_PUBLIC_SUPABASE_URL:'https://project.supabase.co',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'public-test-key',SUPABASE_SECRET_KEY:'server-test-key'});
+ const realFetch=globalThis.fetch,calls=[];
+ t.mock.method(globalThis,'fetch',async(url,init)=>{
+  if(!String(url).startsWith('https://project.supabase.co'))return realFetch(url,init);
+  calls.push([new URL(url).pathname,JSON.parse(init.body)]);return new Response('',{status:204});
+ });
+ const server=createApp({repository:{kind:'supabase'},courseStore:null,fiiuStore:null,newsStore:null,nodeRequestStore:null,now:()=>Date.parse(START)});
+ server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
+ const base=`http://127.0.0.1:${server.address().port}`;
+ const response=await realFetch(`${base}/api/visit`,{method:'POST',headers:{Origin:base,'Content-Type':'application/json','User-Agent':CHROME},body:JSON.stringify({p:'/',r:'',v:''})});
+ assert.equal(response.status,204);
+ assert.deepEqual(calls,[['/rest/v1/rpc/count_visit',{p_hit:{day:'2026-11-14',page:'index.html',arrival:true,source:'direct'}}]]);
 });

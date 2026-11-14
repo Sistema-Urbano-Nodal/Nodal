@@ -248,7 +248,7 @@ stored first and then emailed to the two team members (`server/node-requests-ema
 
 Visits are counted by a first-party script, without cookies:
 
-- `POST /api/visit` `{p, r, v}` (page, referrer host, `via` value) answers 204 whether the visit was counted or ignored, and also 403, 405, 415 or 429. It never reads the session and stores daily totals only (`server/visits-api.js`, `server/visits-repository.js`).
+- `POST /api/visit` `{p, r, v}` (page, referrer host, `via` value) answers 204 whether the visit was counted or ignored, and also 400, 403, 405, 413, 415 or 429. It never reads the session and stores daily totals only (`server/visits-api.js`, `server/visits-repository.js`).
 
 Before a production release, staff must publish real, sourced, trilingual
 records covering at least one case study, one open opportunity, one project,
