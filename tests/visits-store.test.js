@@ -115,3 +115,16 @@ test('DEPLOYMENT.md applies the visit_counts migration before main, outside the 
  assert.match(step,/before pushing `main`/);assert.ok(step.includes('/api/visit'));
  assert.ok(step.includes('docs/ops/2026-11-14-visit-counts-check.sql'));
 });
+
+test('the ops files: one read-only check, and a correction that fails until a day is typed',()=>{
+ const read=p=>readFileSync(new URL('../'+p,import.meta.url),'utf8');
+ const strip=sql=>sql.replace(/--[^\n]*/g,'').split(';').map(s=>s.replace(/\s+/g,' ').trim()).filter(Boolean);
+ const check=strip(read('docs/ops/2026-11-14-visit-counts-check.sql'));
+ assert.equal(check.length,1);assert.match(check[0],/^select /i);
+ assert.doesNotMatch(check[0].replace(/'[^']*'/g,"''"),/\b(insert|update|delete|truncate|alter|drop|grant|revoke|create)\b/i);   // quoted text emptied first: the privilege names below are literals, not statements
+ for(const alias of ['rls_on','browser_grants','functions_invoker','functions_closed','migration_row','last_7_days'])assert.match(check[0],new RegExp(` as ${alias}\\b`));
+ assert.match(read('docs/ops/2026-11-14-visit-counts-check.sql'),/npx --no-install supabase db query --linked -f docs\/ops\/2026-11-14-visit-counts-check\.sql/);
+ const correct=strip(read('docs/ops/2026-11-14-visit-counts-correct.sql'));
+ assert.equal(correct.length,1);assert.ok(correct[0].includes("'<YYYY-MM-DD>'::date"),'fails on the cast until edited');
+ assert.match(correct[0],/^delete from public\.visit_counts where day = /i);assert.match(correct[0],/ returning /i);
+});

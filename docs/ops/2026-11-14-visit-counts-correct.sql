@@ -1,0 +1,19 @@
+-- Remove a day that a script inflated from public.visit_counts (owner runs this by hand, as `postgres`, after review).
+--
+-- WHAT
+--   A script or a loop can push a day's totals far above real traffic (spec "Privacy and security": the counter is
+--   first-party and unauthenticated, so it can be inflated, and daily totals cannot be told apart per visitor).
+--   Read the day in the last_7_days column of docs/ops/2026-11-14-visit-counts-check.sql, then delete that day here.
+--
+-- NOT A MIGRATION
+--   It is not in supabase/migrations and is never applied by the repair command. Run it from the repository root:
+--     npx --no-install supabase db query --linked -f docs/ops/2026-11-14-visit-counts-correct.sql
+--   Replace <YYYY-MM-DD> with the Lima day first. Until you do, the statement fails on the date cast, on purpose.
+--
+-- READINGS
+--   Nothing else is touched: every visit figure is summed again from this table on each request, so the totals,
+--   pages and sources of the other days stay as they are.
+--
+-- TO SET ONE ROW INSTEAD of removing the day, use this in place of the statement below:
+--   update public.visit_counts set n = <n> where day = '<YYYY-MM-DD>'::date and kind = '<view|arrival>' and page = '<page.html>' and source = '<source>' returning *;
+delete from public.visit_counts where day = '<YYYY-MM-DD>'::date returning kind, page, source, n;
