@@ -266,6 +266,32 @@ select kind, count(*) from public.node_requests group by kind;  -- node only, un
 Nothing changes in Vercel: sponsorship requests use the same team email, the
 same two recipients and the same 40-a-day ceiling as Nodo requests.
 
+## Visit counter: one migration before `main`
+
+`20261114000000_visit_counts.sql` stores the first-party visit counter: the
+`visit_counts` table (one row per Lima day, kind, page and source, a daily total
+and never a visitor, cookie, address or referrer) and two functions,
+`count_visit` (adds a view and, for an arrival, its source) and `visit_totals`
+(the totals the desk reads). Everything is server-only: row-level security with
+no policy, and `anon` and `authenticated` hold nothing. It is additive, so
+applying it first is safe.
+
+**Apply it before pushing `main`:** until the table exists, `POST /api/visit`
+answers 204 and counts nothing, and every day lost stays lost.
+
+```bash
+npx --no-install supabase db query --linked -f supabase/migrations/20261114000000_visit_counts.sql
+npx --no-install supabase migration repair --status applied 20261114000000
+```
+
+Then check it took (read-only, one row):
+
+```bash
+npx --no-install supabase db query --linked -f docs/ops/2026-11-14-visit-counts-check.sql
+```
+
+Nothing changes in Vercel.
+
 ## Founder Membership acceptances: one migration before `main`
 
 `20261021000000_membership_acceptances.sql` adds the server-only table
@@ -580,8 +606,8 @@ npm start
 
 1. Confirm `.env`, `.env.local`, `.env.production`, `.vercel/`, and `data/` are not committed.
 2. Apply every pending Supabase migration (every file in the release sections
-   above, most recently `20261109000000_node_request_kinds.sql` under
-   "Sponsorship requests", before pushing `main`) one file
+   above, most recently `20261114000000_visit_counts.sql` under
+   "Visit counter", before pushing `main`) one file
    at a time as described in "SQL Migration Steps" (never `supabase db push`
    against production) and confirm them.
 3. Configure Vercel environment variables.

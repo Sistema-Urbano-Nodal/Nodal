@@ -38,6 +38,7 @@ async function run({ env = process.env, fetchImpl = fetch, output = process.stdo
   const readable = [
     'profiles', 'profile_preferences', 'onboarding_responses', 'member_follows',
     'member_interactions', 'stripe_customers', 'catalog_items', 'catalog_interests',
+    'visit_counts',
   ];
   for (const table of readable) {
     assertAllowed(await request(`${table}?select=*&limit=0`), `SELECT ${table}`);

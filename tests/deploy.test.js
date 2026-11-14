@@ -292,7 +292,7 @@ test('Supabase Data API smoke exercises reads, constrained inserts, updates, and
     output: { write(value) { output += value; } },
   });
   assert.match(output, /least-privilege smoke passed/i);
-  assert.equal(calls.filter(({ options }) => options.method === 'GET').length, 8);
+  assert.equal(calls.filter(({ options }) => options.method === 'GET').length, 9);
   assert.equal(calls.filter(({ options }) => options.method === 'POST').length, 7);
   assert.equal(calls.filter(({ options }) => options.method === 'PATCH').length, 5);
   assert.equal(calls.filter(({ options }) => options.method === 'DELETE').length, 2);
@@ -695,4 +695,13 @@ test('pilot pages stay behind authentication while course assets are delivered s
     assert.ok(build.includes(`'${file}'`));
     assert.ok(config.headers.some(r=>new RegExp(`^${r.source}$`).test('/'+file)));
   }
+});
+
+test("DEPLOYMENT.md's release checklist names the newest migration", () => {
+  const newest = readdirSync(path.join(ROOT, 'supabase', 'migrations')).filter((f) => f.endsWith('.sql')).sort().at(-1);
+  const deployment = readFileSync(path.join(ROOT, 'DEPLOYMENT.md'), 'utf8');
+  const steps = deployment.slice(deployment.indexOf('## Production Deployment Steps'));
+  const apply = steps.slice(steps.indexOf('\n2. '), steps.indexOf('\n3. ')).replace(/\s+/g, ' ');
+  assert.ok(apply.includes(`most recently \`${newest}\``), apply);
+  assert.ok(deployment.includes(`supabase/migrations/${newest}`), 'a release section applies it');
 });

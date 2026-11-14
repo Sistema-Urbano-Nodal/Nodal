@@ -237,7 +237,7 @@ test('upgrades an existing local table in place',async t=>{
 
 test('the node_request_kinds migration is additive, server-only and documented',()=>{
  const dir=new URL('../supabase/migrations/',import.meta.url),names=readdirSync(dir).sort(),name='20261109000000_node_request_kinds.sql';
- assert.ok(names.includes(name));assert.equal(names.at(-1),name,'the newest migration');assert.ok(name>'20261103000000_node_requests.sql');
+ assert.ok(names.includes(name));assert.ok(name>'20261103000000_node_requests.sql');
  const raw=readFileSync(new URL(name,dir),'utf8'),header=raw.slice(0,raw.indexOf('BEGIN;'));
  assert.match(header,/npx --no-install supabase db query --linked -f supabase\/migrations\/20261109000000_node_request_kinds\.sql/);
  assert.match(header,/supabase migration repair --status applied 20261109000000/);
