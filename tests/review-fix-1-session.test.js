@@ -55,7 +55,7 @@ function provider({ userStatus = 200, tokenStatus = 200 } = {}) {
 
 async function boot(t, repository, options = {}) {
   const server = createApp({
-    repository, courseStore: null, fiiuStore: null, talkStore: null, newsStore: null, nodeRequestStore: null,
+    repository, courseStore: null, fiiuStore: null, talkStore: null, newsStore: null, nodeRequestStore: null, visitStore: null,
     citySearch: { search: async () => ({ cities: [] }) },
     ...options,
   });

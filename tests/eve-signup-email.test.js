@@ -21,7 +21,7 @@ function goTrue(answers) {
   return { calls, repository: createSupabaseRepository({ env, fetchImpl }) };
 }
 async function boot(t, repository) {
-  const server = createApp({ repository, courseStore: null, fiiuStore: null, newsStore: null, nodeRequestStore: null });
+  const server = createApp({ repository, courseStore: null, fiiuStore: null, newsStore: null, nodeRequestStore: null, visitStore: null });
   server.listen(0, '127.0.0.1'); await once(server, 'listening'); t.after(() => server.close());
   return 'http://127.0.0.1:' + server.address().port;
 }

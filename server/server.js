@@ -27,6 +27,8 @@ import { createNewsApi } from './news-api.js';
 import { createNodeRequestStore } from './node-requests-repository.js';
 import { createNodeRequestApi } from './node-requests-api.js';
 import { createNodeRequestNotice } from './node-requests-email.js';
+import { createVisitStore, VISIT_WRITE_MS } from './visits-repository.js';
+import { createVisitApi } from './visits-api.js';
 import { preparePageHtml } from './page-shell.js';
 import {createLocationProvider,validatePosition,validateCityId} from './location.js';
 import { createCourseParticipants } from './course-participants.js';
@@ -105,8 +107,8 @@ const SUPABASE_REFRESH_COOKIE = 'nodal_refresh';
    The FIIU programme is the same for everyone, so signed-in readers share the
    public per-address budget guests use. The conversation pulse is the same for
    everyone too, and never sets a cookie, so the CDN can answer its polls. An organisation's node request is sent
-   without an account, so it never waits on (or fails with) the session service. */
-const SESSIONLESS_API = new Set(['/api/health', '/api/billing/config', '/api/stripe/webhook', '/api/fiiu', '/api/fiiu/pulse', '/api/readings', '/api/node-requests']);
+   without an account, so it never waits on (or fails with) the session service. A visit is counted without reading the session either. */
+const SESSIONLESS_API = new Set(['/api/health', '/api/billing/config', '/api/stripe/webhook', '/api/fiiu', '/api/fiiu/pulse', '/api/readings', '/api/node-requests', '/api/visit']);
 /* BUC readings (server/buc.js) depend on the query only: the CDN answers repeats for 5 minutes and serves a stale
    answer for 10 more while it asks again. */
 const READINGS_CACHE_CONTROL = 'public, max-age=0, s-maxage=300, stale-while-revalidate=600';
@@ -117,6 +119,9 @@ const TALK_RATE_LIMITS = { message: 10, upload: 6, like: 60, moderate: 120, file
    room on shared Wi-Fi or a mobile carrier's NAT shares one address, and per email address a day. The 40 emailed a
    Lima day are counted in the database instead (server/node-requests-api.js). */
 const NODE_REQUEST_RATE_LIMITS = { perAddress: 20, perEmail: 3 };
+/* Visit counts (POST /api/visit, server/visits-api.js): a minute's hits per client address, the accepted writes a minute
+   one instance makes (well above real traffic), the store call's limit and the pause after the store fails. */
+const VISIT_RATE_LIMITS = { perAddress: 600, ceiling: 1200, writeMs: VISIT_WRITE_MS, pauseMs: 60000 };
 /* Every phone in a room polls GET /api/fiiu/questions/:id/messages every few seconds, and on Supabase each request
    costs a GoTrue /user call and a profile read before the conversation's own reads. For that one read route, a session
    that resolved without changing any cookie is remembered per instance for 30 seconds (never past the access token's
@@ -1137,6 +1142,10 @@ export function createApp({
   nodeRequestNotice = nodeRequestStore ? createNodeRequestNotice({ loopbackOnly: repository?.kind !== 'supabase' }) : null,
   // Overrides for NODE_REQUEST_RATE_LIMITS; tests raise them to send more than twenty requests from one address.
   nodeRequestLimits = NODE_REQUEST_RATE_LIMITS,
+  // Daily visit totals (server/visits-api.js), on the same backend as the news; null leaves the route answering 204.
+  visitStore = repository?.database ? createVisitStore({db:repository.database}) : repository?.kind === 'supabase' ? createVisitStore() : null,
+  // Overrides for VISIT_RATE_LIMITS; tests lower them.
+  visitLimits = VISIT_RATE_LIMITS,
   /* BUC's publication feed (server/buc.js): off, making no request, unless BUC_FEED_URL is an https address. Tests
      inject a reader with a fake fetch. */
   bucFeed = bucFeedFromEnv(),
@@ -1382,6 +1391,13 @@ export function createApp({
     },
     adminRateLimit:(req,res,user)=>throttle(nodeRequestWriteLimiter,res,req,user,'node-request-write'),
   }):null;
+  const visitLimit={...VISIT_RATE_LIMITS,...visitLimits};
+  const visitAddressLimiter=createWindowRateLimiter({windowMs:60000,limit:visitLimit.perAddress});
+  const visitCeiling=createWindowRateLimiter({windowMs:60000,limit:visitLimit.ceiling});
+  const visitApi=createVisitApi({store:visitStore,send,sameOrigin,now,writeMs:visitLimit.writeMs,pauseMs:visitLimit.pauseMs,
+    addressAllowed:(req,res)=>throttle(visitAddressLimiter,res,req,null,'visit'),
+    ceilingAllowed:()=>visitCeiling.take('visit:all').ok,
+  });
   const courseApi=courseStore?createCourseApi({store:courseStore,userRepository:repository,sameOrigin,send,downloads,reportAnswer,perks:createCoursePerks({fiiuStore}),
     // Only an upload spends the upload budget; staff list the file library after every upload, use and delete.
     rateLimit:(req,res,user,pathname)=>throttle(pathname.endsWith('/invitations')?courseInvitationLimiter:req.method==='POST'&&pathname.endsWith('/attachments')?courseUploadLimiter:['GET','HEAD'].includes(req.method)?courseReadLimiter:courseWriteLimiter,res,req,user,'course'),
@@ -1506,6 +1522,8 @@ export function createApp({
         send(res, 200, await bucReadings(query, { feed: bucFeed }), { 'Cache-Control': READINGS_CACHE_CONTROL });
         return;
       }
+      // A page view and its arrival source, counted without an account (server/visits-api.js).
+      if (await visitApi({ req, res, url })) return;
       /* Who downloaded every festival registration (national ids among them) or every Founder Membership acceptance,
          and when: the account id and the time, nothing else, once the download has been served. */
       if (sessionUser && req.method === 'GET' && LOGGED_DOWNLOADS.has(pathname)) {
