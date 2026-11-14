@@ -915,6 +915,11 @@
     };
   }
   const newsDirty = () => JSON.stringify(readNews()) !== news.snapshot;
+  window.addEventListener?.('beforeunload', (event) => {
+    if (!newsDirty()) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
 
   function newsFieldError(field, key, raw) {
     const [input, error] = NEWS_FIELDS[field].map((name) => elements[name]);

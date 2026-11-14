@@ -173,7 +173,7 @@ function deskI18n(lang = 'en', nodes = []) {
   return context.window.nodalI18n;
 }
 
-function adminHarness(fetchImpl = () => Promise.reject(new Error('network must not run in the editor unit test')), { lang = 'en', confirm = () => true } = {}) {
+function adminHarness(fetchImpl = () => Promise.reject(new Error('network must not run in the editor unit test')), { lang = 'en', confirm = () => true, windowListeners = null } = {}) {
   const ids = new Map([...adminPage().matchAll(/\bid="([^"]+)"/g)].map((match) => [match[1], new FakeNode(match[1])]));
   const document = {
     getElementById: (id) => ids.get(id) ?? null,
@@ -197,6 +197,7 @@ function adminHarness(fetchImpl = () => Promise.reject(new Error('network must n
     confirm: (message) => { confirms.push(message); return confirm(message); },
     setTimeout,
   };
+  if (windowListeners) context.addEventListener = (name, handler) => windowListeners.set(name, handler);
   context.window = context;
   const source = adminScript();
   const instrumented = source.replace(
@@ -2118,6 +2119,43 @@ test('desk deletes a news post only after confirmation and guards unsaved edits'
   assert.equal(h.api.news.current, null);
   assert.equal(h.ids.get('adminNewsTitle').value, '');
   assert.equal(h.ids.get('adminNewsStatus').textContent, 'Post deleted.');
+});
+
+test('the desk asks before leaving only while the news editor has unsaved text', () => {
+  const listeners = new Map();
+  const h = adminHarness(undefined, { windowListeners: listeners });
+  const leave = () => {
+    const event = { prevented: false, preventDefault() { this.prevented = true; } };
+    listeners.get('beforeunload')(event);
+    return event;
+  };
+  h.api.fillNews(null);
+  assert.equal(leave().prevented, false, 'an untouched editor lets the page go');
+  assert.equal('returnValue' in leave(), false);
+  h.ids.get('adminNewsTitle').value = 'Borrador';
+  const asked = leave();
+  assert.deepEqual([asked.prevented, asked.returnValue], [true, ''], 'unsaved news asks');
+  h.api.fillNews(newsItem('n1'));
+  assert.equal(leave().prevented, false, 'a loaded post with no edit lets the page go');
+  // M11: the prompt covers the news editor only.
+  h.ids.get('adminOrganization').value = 'Unsaved catalog text';
+  assert.equal(leave().prevented, false);
+  // Deleted elsewhere: the text is still on screen and unsaved.
+  h.api.news.snapshot = '';
+  assert.equal(leave().prevented, true);
+});
+
+test('the desk still loads where window has no addEventListener, and its own sign-out is hidden, not removed', () => {
+  const js = adminScript();
+  const at = js.indexOf("window.addEventListener?.('beforeunload'");
+  assert.ok(at > js.indexOf('const newsDirty = ') && at < js.lastIndexOf('\n  bootstrap();'), 'after newsDirty, before bootstrap()');
+  assert.equal(js.split("'beforeunload'").length, 2, 'one listener');
+  assert.match(js, /\n  bootstrap\(\);\s*\n\}\)\(\);\s*$/);
+  assert.ok(adminHarness().api, 'no window.addEventListener in this context');
+  const html = adminPage();
+  assert.match(html, /<button class="admin-textbutton" id="adminSignOut" type="button" data-i18n="ops\.signOut" hidden>Sign out<\/button>/);
+  assert.match(html, /<div class="admin-head-side">[\s\S]*?id="adminSignOut"[\s\S]*?<\/div>/);
+  assert.match(adminStyles(), /\[hidden\] \{ display: none !important; \}/);
 });
 
 test('catalog editor lists what is still missing before publishing, in the reader language', async () => {
