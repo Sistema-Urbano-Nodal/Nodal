@@ -553,7 +553,7 @@ as Lima days and they are corrected here if they differ.
 | Registros | Cuentas | Rows in `auth.users`, the team's and any non-active account included (all 486 profiles are active today) | `metrics_account_days` | same (`users`) | People who came in. A deleted account leaves the total | 525 |
 | Registros | Con correo confirmado | `email_confirmed_at` not null | `auth.users` | SQLite = Cuentas | Use | 494 |
 | Registros | Entraron al menos una vez | Rows in `profiles` (written at the first session); new by `created_at` in 7 and 30 days | `profiles` | SQLite = Cuentas | That they came back | 486 · windows n (39 accounts have not entered yet) |
-| Registros | Cuentas nuevas | `auth.users.created_at` in 7 and 30 days, and by Lima month; latest day and days since | `auth.users` | same | Why they joined | 7 d: 0 · Jul 9, Sep 40, Oct 476, Nov 0 · last 26 Oct |
+| Registros | Cuentas nuevas | `auth.users.created_at` in 7 and 30 days, and by Lima month; latest day and days since | `auth.users` | same | Why they joined | 7 d: 0 · Jul 9, Sep 43, Oct 473 (Lima months; latest 24 Oct), Nov 0 · last 26 Oct |
 | Registros | Cuentas del equipo | `profiles.app_role = 'admin'` | `profiles` / `users.role` | same | — | 5 |
 | Perfiles | Perfil básico completo | City not blank AND at least one interest: two of the four things the first-run dialog demands (it also requires a name and a role, `web/scripts/dashboard.js:1210`) | `profiles`, `onboarding_responses` / `users` | same | Quality | n (210 expected, to confirm) |
 | Perfiles | Con ciudad | `btrim(coalesce(city_region,'')) <> ''` / `trim(city) <> ''` | `profiles` / `users` | same | That the city is placed on the map | 210 |
