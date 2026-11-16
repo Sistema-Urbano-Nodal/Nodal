@@ -1,114 +1,281 @@
 /* The admin home (spec: docs/superpowers/specs/2026-11-14-admin-front-door-metrics-design.md, "R3. The home").
-   The desk's sheet (admin.css) and its spacing scale (--f-sp-*): no cards and no shadows, whitespace before lines, a
-   hairline only under a table's header row, numbers in tabular figures and right-aligned. Text never goes below the
-   desk's secondary size (.875rem). Under 640px the tables stack; print hides the chrome and opens the definitions. */
+   ROUTE: the member path is the page's one bold element, a forest line with a node per stop and each stop's count
+   standing on it as a pastel column (one scale for all stops); a dotted segment leads to a stop that is not one more
+   step. Everything else is quiet: a figure always comes first, right-aligned in tabular figures, then its name with the
+   window in words; ranked rows carry thin pastel bars; month series are small bars on one baseline; a definition opens
+   under its own row. No cards, no shadows, no radius, no rule between rows: a line only under a chart, the route itself
+   and the Seguimiento table's header. Text never goes below .875rem. Spacing on the desk's --f-sp-* scale. */
 
-/* ---------- head ---------- */
-#homeMain .admin-head { align-items: flex-start; }
-#homeMain .admin-head-title { display: flex; flex: 1 1 36rem; flex-direction: column; }
-#homePrintHead { display: none; order: -1; }
-#homeAsOf { order: 1; margin-top: var(--f-sp-2); color: var(--text-2); font-size: .9375rem; font-weight: 500; }
-.home-tools { gap: 0 var(--f-sp-5); padding-top: var(--f-sp-2); }
-#homeWindows { flex-basis: 100%; order: 5; color: var(--text-2); font-size: .9375rem; text-align: right; }
-#homeWindows > span { display: inline; }
-#homeWindows > span + span::before { content: " · "; color: var(--muted); }
+/* ---------- head: title and tools on one line ---------- */
+#homeMain .home-head { display: grid; grid-template-columns: max-content minmax(0, 1fr); grid-template-areas: "print print" "title tools" "asof asof"; align-items: baseline; gap: var(--f-sp-1) var(--f-sp-6); padding-bottom: 0; }
+.home-head .admin-head-title { display: contents; }
+#homePrintHead { display: none; grid-area: print; }
+#homeTitle { grid-area: title; }
+.home-asof { display: flex; flex-wrap: wrap; grid-area: asof; gap: 2px var(--f-sp-5); color: var(--text-2); font-size: .9375rem; font-weight: 500; }
+#homeWindows { display: contents; }
+#homeWindows .home-num { color: var(--ink); font-weight: 700; }
+.home-tools { grid-area: tools; justify-content: flex-end; align-items: baseline; gap: 0 var(--f-sp-5); }
+.home-csv { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--f-sp-2); }
+.home-csv-label { color: var(--text-2); font-size: .9375rem; font-weight: 600; }
+.home-csv-buttons { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--f-sp-3); }
 #homeStatus { color: var(--ink); font-size: .9375rem; }
 #homeStatus:empty { min-height: 0; margin: 0; }
 .home-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--f-sp-5); }
+.home-actions:not(:has(> :not([hidden]))) { display: none; }
 .home-actions a { font-weight: 600; }
 
 /* ---------- figures ---------- */
 .home-num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
 .home-num.is-zero, .home-dash { color: var(--muted); }
-.home-reason { margin-left: .5em; color: var(--muted); font-size: .875rem; font-weight: 500; }
+.home-reason { color: var(--muted); font-size: .875rem; font-weight: 500; }
+.home-note { max-width: 70ch; margin-top: var(--f-sp-1); color: var(--text-2); font-size: .875rem; }
 
-/* the five lead numbers, standing on whitespace */
-#homeLead { display: grid; order: 2; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: var(--f-sp-5) var(--f-sp-6); max-width: none; margin-top: var(--f-sp-6); color: var(--ink); }
-.home-lead-item { display: flex; flex-direction: column; gap: var(--f-sp-1); min-width: 0; }
-.home-lead-main { display: flex; flex-direction: column; margin-bottom: var(--f-sp-1); }
-.home-lead-main .home-num { font-size: clamp(2rem, 3.2vw, 2.75rem); font-weight: 750; line-height: 1.05; letter-spacing: -.02em; }
-.home-lead-main .home-lead-name { font-size: .9375rem; font-weight: 650; }
-.home-lead-main .home-reason { margin: var(--f-sp-1) 0 0; }
-.home-lead-second { color: var(--text-2); font-size: .9375rem; }
-.home-lead-second .home-num { color: var(--ink); font-weight: 700; }
+/* A figure row: the figure in a right-aligned column, then the name; the other windows on a second line. */
+.home-figs { --num: minmax(3.4rem, max-content); display: grid; grid-template-columns: var(--num) minmax(0, 1fr); column-gap: var(--f-sp-3); row-gap: 6px; margin: var(--f-sp-3) 0 0; padding: 0; list-style: none; }
+.home-fig { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: baseline; margin: 0; }
+.home-fig > .home-num, .home-of { font-size: 1.125rem; font-weight: 700; line-height: 1.3; text-align: right; }
+.home-of { white-space: nowrap; }
+.home-of-word { font-weight: 500; }
+.home-fig-body { min-width: 0; }
+.home-fig-name { font-size: .9375rem; font-weight: 500; line-height: 1.4; }
+.home-fig-more { display: block; color: var(--text-2); font-size: .875rem; line-height: 1.4; }
+.home-win .home-num { color: var(--ink); font-weight: 700; }
+.home-win .home-num.is-zero { color: var(--muted); }
 
-/* the queues waiting on the team */
-#homePending { margin: var(--f-sp-5) 0 0; font-size: .9375rem; }
-.home-pending-name { margin-right: var(--f-sp-2); font-weight: 700; }
-.home-pending-link .home-num { font-weight: 700; }
+/* ---------- top: the route, the other lead figures and the queues ---------- */
+.home-top { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: "route" "lead" "pending"; gap: var(--f-sp-5) var(--f-sp-6); align-items: start; margin-top: var(--f-sp-6); }
+.home-top.is-waiting { grid-template-areas: "pending" "route" "lead"; }
+.home-route { grid-area: route; min-width: 0; }
+.home-lead { display: flex; flex-direction: column; grid-area: lead; gap: var(--f-sp-4); }
+.home-pending { grid-area: pending; }
+.home-route-title, .home-pending-title, .home-block-title { font-size: 1.25rem; font-weight: 750; letter-spacing: -.01em; line-height: 1.25; }
+.home-route-note { max-width: 78ch; margin-top: var(--f-sp-1); color: var(--text-2); font-size: .875rem; line-height: 1.45; }
+/* the dotted segments said in words, after a sample of the line drawn like the route's own */
+.home-key-dash { display: inline-block; width: 1.75rem; height: 3px; margin: 0 .45em 0 .15em; vertical-align: .3em; background: repeating-linear-gradient(90deg, var(--forest) 0 6px, transparent 6px 10px); }
 
-/* ---------- blocks ---------- */
-#homeBlocks { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 30rem), 1fr)); gap: var(--f-sp-7); margin-top: var(--f-sp-7); }
+/* the route: one column per stop, the count on top of its column, the node on the line, the name under it */
+.home-stops { --bar: clamp(72px, 8.6vw, 128px); --fig-h: 3rem; container-type: inline-size; display: grid; grid-template-columns: repeat(var(--stops, 7), minmax(0, 1fr)); grid-template-rows: repeat(4, auto); margin: var(--f-sp-4) 0 0; padding: 0; list-style: none; }
+.home-stop { position: relative; display: grid; grid-row: span 4; grid-template-rows: subgrid; justify-items: center; min-width: 0; padding: 0 2px; text-align: center; }
+.home-stop-fig { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: calc(var(--fig-h) + var(--bar)); }
+.home-stop-mores { justify-self: stretch; padding-top: var(--f-sp-1); }
+.home-stop-mores.is-wide { justify-self: start; width: calc(100% * var(--span, 1)); text-align: left; }
+/* the figures shrink to their stop when the counts grow to five digits (--digits, from the script) */
+.home-stop-n { font-size: clamp(1.6rem, 2.75vw, 2.5rem); font-size: min(clamp(1.6rem, 2.75vw, 2.5rem), calc((100cqi / var(--stops, 7) - 6px) / (var(--digits, 3) * .7))); font-weight: 750; line-height: 1; letter-spacing: -.02em; }
+.home-stop-bar { width: min(56px, 50%); height: calc(var(--bar) * var(--f, 0)); margin-top: var(--f-sp-2); background: var(--pastel); }
+.home-stop-node { position: relative; z-index: 1; display: block; width: 18px; height: 18px; margin-top: -9px; overflow: visible; }
+.home-stop-node circle { fill: #fff; stroke: var(--forest); stroke-width: 3px; }
+.home-stop.is-window .home-stop-node circle { fill: var(--green); }
+.home-stop:not(:last-child)::after { content: ""; position: absolute; top: calc(var(--fig-h) + var(--bar) - 1.5px); left: 50%; width: 100%; height: 3px; background: var(--forest); }
+.home-stop.to-apart::after { background: repeating-linear-gradient(90deg, var(--forest) 0 8px, transparent 8px 14px); }
+.home-stop-name { margin-top: var(--f-sp-2); font-size: .875rem; font-weight: 650; line-height: 1.3; overflow-wrap: break-word; hyphens: manual; }
+/* what moved this week, under the stops, in ink with its figure in bold */
+.home-stop-more { display: block; color: var(--ink); font-size: .875rem; line-height: 1.45; }
+.home-stop-more .home-num { font-weight: 750; }
+.home-stop-why { margin: var(--f-sp-1) 0 var(--f-sp-4); line-height: 1.35; }
+
+/* beside the route: figures at lead size, the queues at row size, one number column each */
+.home-lead-item { display: grid; grid-template-columns: minmax(3.6rem, max-content) minmax(0, 1fr); column-gap: var(--f-sp-3); row-gap: 2px; }
+.home-lead-main > .home-num { font-size: 1.75rem; font-weight: 750; line-height: 1.1; letter-spacing: -.02em; }
+.home-lead-main .home-fig-name { font-weight: 650; }
+.home-lead-second > .home-num { font-size: .9375rem; }
+.home-lead-second .home-fig-name { color: var(--text-2); font-size: .875rem; }
+/* every queue is a link to where it is worked on; one with something in it is said in alert ink */
+.home-queues { --num: minmax(3.6rem, max-content); margin-top: var(--f-sp-2); row-gap: 0; }
+.home-queues > li { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; }
+.home-queue { align-items: baseline; min-height: 32px; padding: 2px 0; color: var(--text-2); text-decoration: none; }
+.home-queue > .home-num { font-weight: 600; }
+.home-queue .home-fig-name { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; }
+.home-queue:hover .home-fig-name { text-decoration-thickness: 2px; }
+.is-waiting > .home-queue { color: var(--alert); }
+.is-waiting > .home-queue > .home-num { color: var(--alert); font-size: 1.375rem; font-weight: 750; }
+.is-waiting > .home-queue .home-fig-name { font-weight: 700; }
+
+/* ---------- the seven families: explicit columns that keep the catalogue's order (admin-home.js cuts them) ---------- */
+.home-blocks { --cols: 1; display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: var(--f-sp-6) var(--f-sp-7); align-items: start; margin-top: var(--f-sp-7); }
+.home-col { display: flex; flex-direction: column; gap: var(--f-sp-6); min-width: 0; }
 .home-block { min-width: 0; }
-.home-block-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: var(--f-sp-1) var(--f-sp-4); }
-.home-block-title { font-size: 1.125rem; font-weight: 750; letter-spacing: -.01em; }
-.home-see { font-size: .9375rem; font-weight: 600; }
-.home-note { margin-top: var(--f-sp-1); color: var(--text-2); font-size: .9375rem; }
+.home-block-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--f-sp-3); }
+.home-block-head .admin-textbutton, .home-see { font-size: .875rem; font-weight: 600; }
+.home-block-head .home-see { margin-left: auto; }
 
-.home-table { width: 100%; margin-top: var(--f-sp-3); border-collapse: collapse; font-size: .9375rem; }
-.home-table th, .home-table td { padding: var(--f-sp-1) 0; vertical-align: baseline; font-weight: 500; text-align: left; }
-.home-table thead th { padding-bottom: var(--f-sp-2); border-bottom: 1px solid var(--rule); color: var(--text-2); font-size: .875rem; font-weight: 600; }
-.home-table thead th:not(:first-child), .home-table td { padding-left: var(--f-sp-4); text-align: right; white-space: nowrap; }
-.home-table tbody tr:first-child > * { padding-top: var(--f-sp-2); }
-.home-table td.home-failed { white-space: normal; }
+/* "How it is counted": each definition, its source and its limits under its own row (all open in print) */
+.home-def { display: none; max-width: 68ch; margin: 2px 0 var(--f-sp-2); color: var(--text-2); font-size: .875rem; line-height: 1.5; }
+.home-block.is-explained .home-def { display: block; }
+.home-blocks.is-measuring .home-def { display: none; }
+.home-def-meta { margin-top: 2px; color: var(--muted); }
+.home-def-name { color: var(--ink); font-weight: 700; }
+.home-list > .home-def { margin-top: var(--f-sp-1); }
 
-.home-list, .home-series { margin-top: var(--f-sp-2); font-size: .9375rem; }
-.home-list-name { margin-right: var(--f-sp-2); font-weight: 650; }
-.home-list-name::after { content: ":"; }
-/* the gap between a label and its number, and the " · " between items, are real text (admin-home.js) */
-.home-sep { color: var(--muted); }
+/* ranked rows: figure, label, a thin bar on the list's own scale */
+.home-list { margin-top: var(--f-sp-5); }
+.home-sub { font-size: .9375rem; font-weight: 700; line-height: 1.35; }
+.home-list > .home-fig { grid-template-columns: 3.4rem minmax(0, 1fr); column-gap: var(--f-sp-3); margin-top: var(--f-sp-2); }
+.home-rank { display: grid; grid-template-columns: minmax(3.4rem, max-content) minmax(0, 1fr) minmax(3rem, 34%); column-gap: var(--f-sp-3); row-gap: 3px; margin: var(--f-sp-2) 0 0; padding: 0; list-style: none; }
+.home-rank > li { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: baseline; }
+.home-rank > li > .home-num { font-size: .9375rem; font-weight: 650; text-align: right; }
+.home-rank-label { font-size: .9375rem; line-height: 1.35; }
+.home-rank-more { display: inline-block; color: var(--text-2); font-size: .875rem; white-space: nowrap; }
+.home-rank-bar { align-self: start; justify-self: start; width: calc(100% * var(--f, 0)); height: 6px; margin-top: .55em; background: var(--pastel); }
+/* a week with nothing in any row, said once under the list's title */
+.home-list > .home-none-week { color: var(--muted); }
 
-/* "How it is counted": closed on screen, opened for print by the script */
-.home-how { margin-top: var(--f-sp-3); font-size: .9375rem; }
-.home-how > summary { width: fit-content; min-height: 32px; padding: 4px 0; color: var(--forest); font-weight: 600; cursor: pointer; }
-.home-how > summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
-.home-def { max-width: 72ch; margin-top: var(--f-sp-3); color: var(--ink); }
-.home-def-name { font-size: .9375rem; font-weight: 700; }
-.home-def-source, .home-def-caveat { margin-top: var(--f-sp-1); color: var(--text-2); }
+/* month series: small bars standing on one baseline, the value on top, the month under it */
+.home-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--months, 5) * 2.5rem)), 1fr)); align-items: end; gap: var(--f-sp-5) var(--f-sp-6); margin-top: var(--f-sp-5); }
+.home-chart { min-width: 0; }
+.home-chart.is-missing { align-self: start; }
+.home-chart-why { margin-top: var(--f-sp-1); }
+.home-months { display: grid; grid-template-columns: repeat(var(--n, 5), minmax(0, 3.25rem)); align-items: end; margin: var(--f-sp-2) 0 0; padding: 0; list-style: none; }
+.home-month { display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.home-month > .home-num { order: 1; font-size: .875rem; font-weight: 650; line-height: 1.3; }
+.home-month-bar { order: 2; width: 58%; height: calc(56px * var(--f, 0)); margin-top: 2px; background: var(--pastel); }
+.home-month-label { order: 3; align-self: stretch; padding-top: 3px; border-top: 1px solid var(--rule-2); color: var(--muted); font-size: .875rem; line-height: 1.25; text-align: center; }
+.home-month-year { display: block; }
+.home-months.has-years .home-month-label { min-height: 2.6em; }
 
-/* ---------- tracking ---------- */
-#homeTracking { margin-top: var(--f-sp-7); }
-.home-scroll { max-width: 100%; overflow-x: auto; }
-.home-tracking-table { width: auto; min-width: min(100%, 36rem); }
-.home-tracking-table thead th { vertical-align: bottom; }
-.home-month { display: block; color: var(--ink); }
+/* ---------- Seguimiento ---------- */
+.home-tracking { margin-top: var(--f-sp-7); }
+.home-tracking.home-block { margin-top: 0; }
+.home-tracking:empty { display: none; }
+.home-reading { margin-top: var(--f-sp-3); font-size: .9375rem; }
+.home-reading > summary { width: fit-content; min-height: 32px; padding: 4px 0; color: var(--forest); font-weight: 600; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; cursor: pointer; }
+.home-reading > summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
+.home-reading-list { display: block; columns: 17rem 4; column-gap: var(--f-sp-7); }
+.home-reading-list > .home-fig { grid-template-columns: 3.4rem minmax(0, 1fr); column-gap: var(--f-sp-3); margin-bottom: 6px; break-inside: avoid; }
+.home-read-month { display: block; color: var(--ink); font-weight: 700; }
 .home-read-on { display: block; font-weight: 500; }
-#homeReadingsCsv, #homeMonthsCsv { margin-top: var(--f-sp-2); }
+.home-reading .home-read { display: inline; }
+.home-reading .home-read > span { display: inline; }
+.home-reading .home-read > span + span::before { content: ", "; }
+/* the month table: names and family labels stay at the left edge while the months scroll under them */
+.home-scroll { max-width: 100%; margin-top: var(--f-sp-4); overflow-x: auto; }
+.home-scroll:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
+.home-table { border-collapse: collapse; font-size: .9375rem; }
+.home-table th, .home-table td { padding: 3px 0; font-weight: 500; text-align: left; vertical-align: baseline; }
+.home-table thead th { padding-bottom: var(--f-sp-2); border-bottom: 1px solid var(--rule-2); color: var(--text-2); font-size: .875rem; font-weight: 600; vertical-align: bottom; }
+.home-table thead th:not(:first-child), .home-table td { padding-left: var(--f-sp-6); text-align: right; white-space: nowrap; }
+.home-table tbody th[scope="row"] { padding-right: var(--f-sp-3); }
+.home-tracking-table :is(thead th:first-child, tbody th[scope="row"]) { position: sticky; left: 0; z-index: 1; background: #fff; }
+/* the months that scroll under the names fade out at their edge instead of showing a sliver of a figure */
+.home-tracking-table :is(thead th:first-child, tbody th[scope="row"])::after { content: ""; position: absolute; top: 0; right: -16px; bottom: 0; width: 16px; background: linear-gradient(90deg, #fff, rgba(255, 255, 255, 0)); pointer-events: none; }
+.home-group th { padding-top: var(--f-sp-3); color: var(--ink); font-weight: 700; }
+.home-tracking-table tbody:first-of-type .home-group th { padding-top: var(--f-sp-2); }
+.home-group-name { position: sticky; left: 0; display: inline-block; }
 
-/* ---------- phones: the tables stack ---------- */
+/* ---------- widths ---------- */
+@media (min-width: 700px) { .home-blocks { --cols: 2; } }
+@media (min-width: 1180px) { .home-blocks { --cols: 3; } }
+
+/* from 1280px the route has room for its seven stops beside a column for the other lead figures and the queues */
+@media (min-width: 1280px) {
+  .home-top { grid-template-columns: minmax(0, 1fr) clamp(19.5rem, 24%, 24rem); grid-template-rows: auto 1fr; grid-template-areas: "route lead" "route pending"; }
+  .home-top.is-waiting { grid-template-areas: "route pending" "route lead"; }
+}
+/* under it the route takes the whole width; the queues come first only when one waits, laid out in a row */
+@media (min-width: 641px) and (max-width: 1279px) {
+  .home-top { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); grid-template-areas: "route route" "lead pending"; }
+  .home-top.is-waiting { grid-template-areas: "pending pending" "route route" "lead lead"; }
+  .home-lead { flex-flow: row wrap; gap: var(--f-sp-4) var(--f-sp-6); }
+  .home-lead-item { flex: 1 1 14rem; }
+  .home-top.is-waiting .home-queues { display: flex; flex-wrap: wrap; gap: 0 var(--f-sp-6); }
+  .home-top.is-waiting .home-queues > li, .home-top.is-waiting .home-queue { display: flex; align-items: baseline; gap: 0 var(--f-sp-2); }
+}
+
+/* an answer without a path: the lead figures in a row beside the queues */
+@media (min-width: 641px) {
+  .home-top.no-route, .home-top.no-route.is-waiting { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "lead pending"; }
+  .home-top.no-route .home-lead { flex-flow: row wrap; gap: var(--f-sp-4) var(--f-sp-6); }
+  .home-top.no-route .home-lead-item { flex: 1 1 14rem; }
+}
+
+/* under 900px the head stacks */
+@media (max-width: 899px) {
+  #homeMain .home-head { grid-template-columns: minmax(0, 1fr); grid-template-areas: "print" "title" "asof" "tools"; }
+  .home-tools { justify-content: flex-start; padding-top: var(--f-sp-1); }
+  .home-top { grid-template-columns: minmax(0, 1fr) auto; }
+}
+/* and on a screen the route turns down the left edge, as the member console's spine does (2px, the bars lying down
+   beside the names); a printed page keeps the route across, whatever the paper's width */
+@media screen and (max-width: 899px) {
+  .home-stops { --nc: 14px; grid-template-columns: 18px max-content minmax(0, 1fr); grid-template-rows: none; column-gap: var(--f-sp-3); }
+  .home-stop { grid-column: 1 / -1; grid-row: auto; grid-template-columns: subgrid; grid-template-rows: none; justify-items: stretch; align-items: baseline; padding: 0 0 var(--f-sp-3); text-align: left; }
+  .home-stop-mores, .home-stop-mores.is-wide { grid-column: 3; justify-self: stretch; width: auto; padding-top: 2px; text-align: left; }
+  .home-stop-why { grid-column: 3; grid-row: 2; margin: 0; }
+  .home-stop-fig { display: contents; }
+  .home-stop-node { grid-area: 1 / 1; align-self: start; margin-top: calc(var(--nc) - 9px); }
+  .home-stop-n { grid-area: 1 / 2; font-size: 1.5rem; line-height: 1.15; text-align: right; }
+  .home-stop-name { grid-area: 1 / 3; margin: 0; }
+  .home-stop-bar { grid-column: 3; grid-row: 2; align-self: start; justify-self: start; width: calc(100% * var(--f, 0)); height: 6px; margin-top: 4px; }
+  .home-stop:not(:last-child)::after { top: var(--nc); left: 8px; width: 2px; height: 100%; }
+  .home-stop.to-apart::after { background: repeating-linear-gradient(180deg, var(--forest) 0 7px, transparent 7px 12px); }
+}
+
+/* phones: one column, 44px targets, one queue per line */
 @media (max-width: 640px) {
-  #homeLead { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--f-sp-5) var(--f-sp-4); }
-  #homeWindows { text-align: left; }
-  .home-tools { justify-content: flex-start; }
-  #homeBlocks { grid-template-columns: minmax(0, 1fr); gap: var(--f-sp-6); }
-  .home-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .home-table, .home-table tbody, .home-table tr, .home-table th, .home-table td { display: block; }
-  .home-table tr { padding: var(--f-sp-2) 0; }
-  .home-table tbody tr:first-child > * { padding-top: 0; }
-  .home-table th[scope="row"] { font-weight: 650; }
-  .home-table td { display: flex; justify-content: space-between; gap: var(--f-sp-3); padding: 0; }
-  .home-table td::before { content: attr(data-label); color: var(--text-2); }
-  .home-table td:empty { display: none; }
-  .home-table td.home-failed { justify-content: flex-start; }
-  .home-tracking-table { min-width: 0; }
-  /* touch targets: 44px for every control and link of the sheet, one waiting queue per line */
-  #homeMain .admin-textbutton, .home-see, .home-pending-link { display: inline-flex; align-items: center; min-height: 44px; }
-  .home-how > summary { min-height: 44px; padding: 11px 0; }
-  .home-pending-link { gap: .3em; }
-  #homePending .home-item { display: block; }
-  #homePending .home-sep { display: none; }
+  .home-top, .home-top.is-waiting { grid-template-columns: minmax(0, 1fr); }
+  .home-asof { flex-direction: column; }
+  .home-tools { column-gap: var(--f-sp-4); }
+  .home-csv-buttons { column-gap: var(--f-sp-4); }
+  .home-blocks { margin-top: var(--f-sp-6); }
+  #homeMain .admin-textbutton, .home-see, .home-actions a, .home-compare { display: inline-flex; align-items: center; min-height: 44px; }
+  /* the head's 44px targets reach into the whitespace around a 1.125rem title instead of pushing the figures down */
+  .home-block-title { font-size: 1.125rem; }
+  .home-block-head .home-how, .home-block-head .home-see { margin: -6px 0; }
+  .home-col { gap: var(--f-sp-5); }
+  .home-top { row-gap: var(--f-sp-3); }
+  .home-rank { grid-template-columns: minmax(3.4rem, max-content) minmax(0, 1fr) minmax(2.5rem, 27%); }
+  .home-queue { min-height: 44px; align-items: center; }
+  .home-reading > summary { min-height: 44px; padding: 11px 0; }
+  .home-reading-list { columns: auto; }
+  .home-figs { row-gap: 2px; margin-top: var(--f-sp-2); }
+  .home-fig > .home-num { line-height: 1.25; }
+  .home-fig-name { line-height: 1.3; }
+  .home-fig-more { line-height: 1.3; }
+  .home-list { margin-top: var(--f-sp-3); }
+  .home-rank { row-gap: 0; }
+  .home-rank-label { line-height: 1.25; }
+  .home-rank > li > .home-num { line-height: 1.25; }
+  .home-charts { grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--months, 5) * 1.9rem)), 1fr)); gap: var(--f-sp-4); margin-top: var(--f-sp-4); }
+  .home-month-bar { height: calc(40px * var(--f, 0)); }
+  .home-table thead th:not(:first-child), .home-table td { padding-left: var(--f-sp-3); }
+  .home-tracking-table tbody th[scope="row"] { min-width: 10rem; max-width: 10.5rem; white-space: normal; }
+}
+/* the spine a little tighter on a phone's screen */
+@media screen and (max-width: 640px) {
+  .home-stops { margin-top: var(--f-sp-3); }
+  .home-stop { padding-bottom: 3px; }
+  .home-stop-n { font-size: 1.375rem; }
 }
 
 /* ---------- print: the sheet explains itself ---------- */
 @media print {
-  .navbar, .staff-nav, .admin-skip, button, .admin-textbutton, .home-actions, #homePending, #homeStatus, .home-see { display: none !important; }
+  @page { size: A4; margin: 14mm 12mm; }
+  .navbar, .staff-nav, .admin-skip, .home-tools, .home-actions, #homePending, #homeStatus, .home-see, button { display: none !important; }
   #homePrintHead { display: block; margin-bottom: var(--f-sp-2); font-size: 1rem; font-weight: 700; }
   .admin-shell { max-width: none; padding: 0; }
-  #homeWindows { text-align: left; }
-  #homeBlocks { display: block; }
-  .home-block { margin-top: var(--f-sp-6); break-inside: avoid-page; }
-  .home-how > summary { list-style: none; color: var(--ink); }
-  .home-how > summary::-webkit-details-marker { display: none; }
+  .home-top { display: block; }
+  /* the route across at any paper width (the spine is a narrow screen's): a stop is never narrower than its longest
+     word, and the line runs in halves, edge to node and node to edge, so it meets at every node whatever the widths */
+  .home-stops { grid-template-columns: repeat(var(--stops, 7), minmax(min-content, 1fr)); }
+  .home-stop:not(:last-child)::after { width: 50%; }
+  .home-stop:not(:first-child)::before { content: ""; position: absolute; top: calc(var(--fig-h) + var(--bar) - 1.5px); left: 0; width: 50%; height: 3px; background: var(--forest); }
+  .home-stop.to-apart::after { background: linear-gradient(90deg, var(--forest) 8px, transparent 8px) right / 14px 100% repeat-x; }
+  .home-stop.to-apart + .home-stop::before { background: linear-gradient(90deg, var(--forest) 8px, transparent 8px) left / 14px 100% repeat-x; }
+  .home-lead { flex-flow: row wrap; gap: var(--f-sp-4) var(--f-sp-7); margin-top: var(--f-sp-5); }
+  .home-blocks { --cols: 1; display: flex; flex-direction: column; gap: var(--f-sp-6); }
+  .home-col { display: contents; }
+  .home-def { display: block !important; }
+  /* each family's rows, every one with its definition under it, run in two columns */
+  .home-block > .home-figs { display: block; columns: 2; column-gap: var(--f-sp-6); }
+  .home-block > .home-figs > .home-fig { display: grid; grid-template-columns: minmax(3.4rem, max-content) minmax(0, 1fr); column-gap: var(--f-sp-3); margin-bottom: var(--f-sp-2); }
+  /* a ranked bar starts right after the list's longest label */
+  .home-list { max-width: 40rem; }
+  .home-rank { grid-template-columns: minmax(3.4rem, max-content) minmax(0, max-content) minmax(3rem, 14rem); }
+  .home-fig, .home-rank > li, .home-def, .home-chart, .home-stop, .home-list { break-inside: avoid; }
+  .home-block-head, .home-block-title, .home-sub, .home-route-title, .home-block > .home-note { break-after: avoid; }
+  .home-stop-bar, .home-rank-bar, .home-month-bar, .home-stop::before, .home-stop::after, .home-key-dash { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .home-reading > summary { display: none; }
   .home-scroll { overflow: visible; }
+  .home-tracking-table :is(thead th:first-child, tbody th[scope="row"]), .home-group-name { position: static; }
+  .home-tracking-table :is(thead th:first-child, tbody th[scope="row"])::after { content: none; }
   a { color: inherit; text-decoration: none; }
 }
