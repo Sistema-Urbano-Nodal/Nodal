@@ -157,7 +157,8 @@
  function renderProgramme(){
   const event=festival.event,registration=me.registration,mine=new Set(registration?.answers.activities||[]),interests=new Set(registration?.answers.externalActivities||[]),labStatus=registration?.labStatus||'none';
   const head=el('div','f-section-head'),nav=el('nav','f-day-nav'),navLabel=tr('span','dayNav','f-sr-only'),chips=el('ol','f-day-chips'),sections=[];
-  head.append(tr('h2','programmeTitle'),tr('p','programmeHint','f-muted'));
+  // After the festival nothing in it can change and no venue admits anyone any more: only the time zone is left to say.
+  head.append(tr('h2','programmeTitle'),tr('p',festivalOver(event)?'programmeHintOver':'programmeHint','f-muted'));
   // The festival-wide General conversation leads the programme while it has an open question.
   withGeneral(link=>{const line=el('p','f-programme-general');line.append(link);head.append(line);});
   navLabel.id='f-day-nav-label';nav.setAttribute('aria-labelledby',navLabel.id);nav.append(navLabel,chips);chips.addEventListener('focusin',event=>{const chip=event?.target?.closest?.('a');if(chip)revealInRow(chips,chip);});
@@ -206,7 +207,8 @@
    // After the festival no form is left to complete, so the interests stand as a list.
    list.append(...unknownInterests.map(unknownRow));box.append(tr('h4','externalActivities'));if(!festivalOver(event))box.append(tr('p',festival.config.registrationOpen?'externalInterestHint':'externalInterestClosedHint','f-muted'));box.append(list);
   }
-  box.append(tr('p','savedHint','f-muted'));
+  // Venue capacity no longer decides any admission after the festival, so the reminder goes with it.
+  if(!festivalOver(event))box.append(tr('p','savedHint','f-muted'));
   // Badges, then the hours they add up to for the certificate. After the festival, the way to claim a block attended without checking in, even with some
   // attendance: another block may be missing.
   if(withBadges){if(me.attendance.length||limaDate()>=event.startsOn){const badgeBox=el('div','f-badges'),hours=hoursLine(me.attendance,event),missed=festivalOver(event)&&contactLine('missedAttendance',event.contact);badges(badgeBox,me.attendance,event,{heading:'h4'});if(hours)badgeBox.append(hours);if(missed)badgeBox.append(missed);box.append(badgeBox);}else box.append(tr('p','badgesHint','f-muted'));}

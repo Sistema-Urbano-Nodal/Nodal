@@ -1189,6 +1189,19 @@ test('after the festival fiiu.html speaks of it in the past, drops the activity 
  assert.ok(key(guest.root.querySelector('.f-registration'),'closedOver'));assert.equal(key(guest.root,'closed'),undefined);assert.ok(key(guest.root.querySelector('.f-hero'),'introPast'));
 });
 
+test('after the festival fiiu.html no longer says the programme may change or that admission depends on venue capacity, and still says times are Lima’s',async()=>{
+ const h=await harness({registration:saved,publicRead:()=>closedFeed,context:{Date:movableClock(AFTER).Date}}),head=h.root.querySelector('.f-programme').querySelector('.f-section-head');
+ assert.ok(key(head,'programmeHintOver'));assert.equal(key(h.root,'programmeHint'),undefined);
+ assert.ok(h.root.querySelector('.f-saved'),'the saved registration is still shown');assert.equal(key(h.root,'savedHint'),undefined);
+ for(const lang of ['en','es','pt']){
+  h.lang(lang);assert.equal(content(key(head,'programmeHintOver')).trim(),{en:'Times are in Lima.',es:'Horarios de Lima.',pt:'Horários de Lima.'}[lang]);
+  assert.doesNotMatch(content(h.root),/may change|capacity|sujeto a cambios|aforo|pode mudar|capacidade/i,lang);
+ }
+ // While the festival runs, both still say so.
+ const during=await harness({registration:saved,publicRead:()=>closedFeed,context:{Date:movableClock(ROUTES_DAY).Date}});
+ assert.ok(key(during.root.querySelector('.f-programme'),'programmeHint'));assert.ok(key(during.root.querySelector('.f-saved'),'savedHint'));assert.equal(key(during.root,'programmeHintOver'),undefined);
+});
+
 test('on 24 October, while the routes still run, only the activities whose day has passed lose their forms and the festival copy stays as it was',async()=>{
  const during={Date:movableClock(ROUTES_DAY).Date},still=FIIU_EVENT.activities.filter(a=>a.formUrl&&a.date>='2026-10-24').map(a=>a.formUrl).sort();
  const registration={...saved,answers:{...answers,externalActivities:['workshop-calles-gente','route-arcoiris']}};
