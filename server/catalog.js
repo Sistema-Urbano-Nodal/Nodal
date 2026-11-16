@@ -247,5 +247,3 @@ export function isCatalogItemClosed(item, now = new Date()) {
   const endDate = item?.endDate ? endDateClosesAt(item.endDate) : NaN;
   return Number.isFinite(endDate) && endDate < new Date(now).getTime();
 }
-
-export const CATALOG_LIMITS = Object.freeze({ ...LIMITS });
