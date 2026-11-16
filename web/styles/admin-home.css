@@ -1,1 +1,108 @@
-/* The admin home (Task 10 writes the rules). */
+/* The admin home (spec: docs/superpowers/specs/2026-11-14-admin-front-door-metrics-design.md, "R3. The home").
+   The desk's sheet (admin.css) and its spacing scale (--f-sp-*): no cards and no shadows, whitespace before lines, a
+   hairline only under a table's header row, numbers in tabular figures and right-aligned. Text never goes below the
+   desk's secondary size (.875rem). Under 640px the tables stack; print hides the chrome and opens the definitions. */
+
+/* ---------- head ---------- */
+#homeMain .admin-head { align-items: flex-start; }
+#homeMain .admin-head-title { display: flex; flex: 1 1 36rem; flex-direction: column; }
+#homePrintHead { display: none; order: -1; }
+#homeAsOf { order: 1; margin-top: var(--f-sp-2); color: var(--text-2); font-size: .9375rem; font-weight: 500; }
+.home-tools { gap: 0 var(--f-sp-5); padding-top: var(--f-sp-2); }
+#homeWindows { flex-basis: 100%; order: 5; color: var(--text-2); font-size: .9375rem; text-align: right; }
+#homeWindows > span { display: inline; }
+#homeWindows > span + span::before { content: " · "; color: var(--muted); }
+#homeStatus { color: var(--ink); font-size: .9375rem; }
+#homeStatus:empty { min-height: 0; margin: 0; }
+.home-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--f-sp-5); }
+.home-actions a { font-weight: 600; }
+
+/* ---------- figures ---------- */
+.home-num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+.home-num.is-zero, .home-dash { color: var(--muted); }
+.home-reason { margin-left: .5em; color: var(--muted); font-size: .875rem; font-weight: 500; }
+
+/* the five lead numbers, standing on whitespace */
+#homeLead { display: grid; order: 2; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: var(--f-sp-5) var(--f-sp-6); max-width: none; margin-top: var(--f-sp-6); color: var(--ink); }
+.home-lead-item { display: flex; flex-direction: column; gap: var(--f-sp-1); min-width: 0; }
+.home-lead-main { display: flex; flex-direction: column; margin-bottom: var(--f-sp-1); }
+.home-lead-main .home-num { font-size: clamp(2rem, 3.2vw, 2.75rem); font-weight: 750; line-height: 1.05; letter-spacing: -.02em; }
+.home-lead-main .home-lead-name { font-size: .9375rem; font-weight: 650; }
+.home-lead-main .home-reason { margin: var(--f-sp-1) 0 0; }
+.home-lead-second { color: var(--text-2); font-size: .9375rem; }
+.home-lead-second .home-num { margin-right: .35em; color: var(--ink); font-weight: 700; }
+
+/* the queues waiting on the team */
+#homePending { margin: var(--f-sp-5) 0 0; font-size: .9375rem; }
+.home-pending-name { margin-right: var(--f-sp-2); font-weight: 700; }
+.home-pending-link .home-num { margin-right: .3em; font-weight: 700; }
+
+/* ---------- blocks ---------- */
+#homeBlocks { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 30rem), 1fr)); gap: var(--f-sp-7); margin-top: var(--f-sp-7); }
+.home-block { min-width: 0; }
+.home-block-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: var(--f-sp-1) var(--f-sp-4); }
+.home-block-title { font-size: 1.125rem; font-weight: 750; letter-spacing: -.01em; }
+.home-see { font-size: .9375rem; font-weight: 600; }
+.home-note { margin-top: var(--f-sp-1); color: var(--text-2); font-size: .9375rem; }
+
+.home-table { width: 100%; margin-top: var(--f-sp-3); border-collapse: collapse; font-size: .9375rem; }
+.home-table th, .home-table td { padding: var(--f-sp-1) 0; vertical-align: baseline; font-weight: 500; text-align: left; }
+.home-table thead th { padding-bottom: var(--f-sp-2); border-bottom: 1px solid var(--rule); color: var(--text-2); font-size: .875rem; font-weight: 600; }
+.home-table thead th:not(:first-child), .home-table td { padding-left: var(--f-sp-4); text-align: right; white-space: nowrap; }
+.home-table tbody tr:first-child > * { padding-top: var(--f-sp-2); }
+.home-table td.home-failed { white-space: normal; }
+
+.home-list, .home-series { margin-top: var(--f-sp-2); font-size: .9375rem; }
+.home-list-name { margin-right: var(--f-sp-2); font-weight: 650; }
+.home-list-name::after { content: ":"; }
+.home-item .home-num { margin-left: .3em; }
+.home-item + .home-item::before { content: " · "; color: var(--muted); }
+
+/* "How it is counted": closed on screen, opened for print by the script */
+.home-how { margin-top: var(--f-sp-3); font-size: .9375rem; }
+.home-how > summary { width: fit-content; min-height: 32px; padding: 4px 0; color: var(--forest); font-weight: 600; cursor: pointer; }
+.home-how > summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
+.home-def { max-width: 72ch; margin-top: var(--f-sp-3); color: var(--ink); }
+.home-def-name { font-size: .9375rem; font-weight: 700; }
+.home-def-source, .home-def-caveat { margin-top: var(--f-sp-1); color: var(--text-2); }
+
+/* ---------- tracking ---------- */
+#homeTracking { margin-top: var(--f-sp-7); }
+.home-scroll { max-width: 100%; overflow-x: auto; }
+.home-tracking-table { width: auto; min-width: min(100%, 36rem); }
+.home-tracking-table thead th { vertical-align: bottom; }
+.home-month { display: block; color: var(--ink); }
+.home-read-on { display: block; font-weight: 500; }
+#homeReadingsCsv { margin-top: var(--f-sp-2); }
+
+/* ---------- phones: the tables stack ---------- */
+@media (max-width: 640px) {
+  #homeLead { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--f-sp-5) var(--f-sp-4); }
+  #homeWindows { text-align: left; }
+  .home-tools { justify-content: flex-start; }
+  #homeBlocks { grid-template-columns: minmax(0, 1fr); gap: var(--f-sp-6); }
+  .home-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .home-table, .home-table tbody, .home-table tr, .home-table th, .home-table td { display: block; }
+  .home-table tr { padding: var(--f-sp-2) 0; }
+  .home-table tbody tr:first-child > * { padding-top: 0; }
+  .home-table th[scope="row"] { font-weight: 650; }
+  .home-table td { display: flex; justify-content: space-between; gap: var(--f-sp-3); padding: 0; }
+  .home-table td::before { content: attr(data-label); color: var(--text-2); }
+  .home-table td:empty { display: none; }
+  .home-table td.home-failed { justify-content: flex-start; }
+  .home-tracking-table { min-width: 0; }
+}
+
+/* ---------- print: the sheet explains itself ---------- */
+@media print {
+  .navbar, .staff-nav, .admin-skip, button, .admin-textbutton, .home-actions, #homePending, #homeStatus, .home-see { display: none !important; }
+  #homePrintHead { display: block; margin-bottom: var(--f-sp-2); font-size: 1rem; font-weight: 700; }
+  .admin-shell { max-width: none; padding: 0; }
+  #homeWindows { text-align: left; }
+  #homeBlocks { display: block; }
+  .home-block { margin-top: var(--f-sp-6); break-inside: avoid-page; }
+  .home-how > summary { list-style: none; color: var(--ink); }
+  .home-how > summary::-webkit-details-marker { display: none; }
+  .home-scroll { overflow: visible; }
+  a { color: inherit; text-decoration: none; }
+}
