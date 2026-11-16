@@ -1291,8 +1291,6 @@ export function createApp({
   const membershipAcceptanceLimiter = createWindowRateLimiter({ windowMs: 60 * 60 * 1000, limit: 10 });
   const locationLimiter = createWindowRateLimiter({windowMs:60000,limit:6});
   const costlyLimiter = createWindowRateLimiter({ windowMs: COSTLY_RATE_WINDOW_MS, limit: COSTLY_RATE_LIMIT });
-  /* Keyed by session when there is one, by address otherwise, so a limit
-     follows the account rather than a shared office IP. */
   /* City names change hands rarely and cities never move, so a resolved point
      is cached for a month. Returns null when the provider cannot place it —
      the member is told, rather than being dropped somewhere wrong. */
@@ -1316,6 +1314,8 @@ export function createApp({
     return point;
   }
 
+  /* Keyed by session when there is one, by address otherwise, so a limit
+     follows the account rather than a shared office IP. */
   const throttle = (limiter, res2, req2, user, scope) => {
     const rate = limiter.take(`${scope}:${user?.id || clientIp(req2)}`);
     if (rate.ok) return true;
