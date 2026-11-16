@@ -1,6 +1,8 @@
 import {pathToFileURL} from 'node:url';
 import {createRepository} from '../server/repository.js';
 import {createCourseStore} from '../server/courses-repository.js';
+import {defaultDatabasePath} from '../server/db.js';
+import {dataBackend,resolveSupabaseEnv} from '../server/supabase.js';
 
 const DAY_MS=24*60*60*1000;
 
@@ -74,11 +76,23 @@ export async function reconcileCourseCertificates(store,{apply=false,now=Date.no
   }
   return result;
 }
+/* The data a run reads, chosen as the server chooses it (DATA_BACKEND, else Supabase on Vercel, else the local SQLite
+   file): {backend:'supabase', host} or {backend:'sqlite', database}. The report starts with it. */
+export function reconcileSource(env=process.env){
+  return dataBackend(env)==='supabase'
+    ?{backend:'supabase',host:new URL(resolveSupabaseEnv(env).url).host}
+    :{backend:'sqlite',database:defaultDatabasePath(env)};
+}
+/* `npm run uploads:reconcile` (add `-- --apply` to act) prints one JSON report. Production's leftovers are in Supabase,
+   so run it with the production Supabase variables loaded. Without them it reads the local SQLite file (creating it if
+   missing), whose empty report says nothing about production; it says so on stderr. */
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
+  const source=reconcileSource();
+  if(source.backend==='sqlite')console.error(`Reading the local SQLite file ${source.database}, not production. To check production, run it with DATA_BACKEND=supabase, NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY and SUPABASE_SECRET_KEY set.`);
   const repository=createRepository();
   try{
     const store=createCourseStore({db:repository.database}),options={apply:process.argv.includes('--apply')};
-    console.log(JSON.stringify({...await reconcileCourseUploads(store,options),certificates:await reconcileCourseCertificates(store,options)}));
+    console.log(JSON.stringify({...source,...await reconcileCourseUploads(store,options),certificates:await reconcileCourseCertificates(store,options)}));
   }
   finally{repository.close?.();}
 }
