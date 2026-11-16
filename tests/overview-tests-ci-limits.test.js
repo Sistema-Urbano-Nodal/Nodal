@@ -33,5 +33,6 @@ test('limits',()=>{assert.equal(process.env.AUTH_IP_RATE_LIMIT,undefined);assert
  delete env.NODE_TEST_CONTEXT;
  const result=await run(process.execPath,args.slice(1).map(arg=>arg==='tests/*.test.js'?probe:arg),{cwd:ROOT,env}).catch(err=>err);
  assert.equal(result.code??0,0,String(result.stdout));
- assert.match(String(result.stdout),/# pass 1\b/);
+ // The probe ran: the summary line is "# pass 1" from the TAP reporter (Node 22 when piped) or "ℹ pass 1" from spec.
+ assert.match(String(result.stdout),/^(?:#|ℹ) pass 1$/m);
 });
