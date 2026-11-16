@@ -329,10 +329,10 @@ h1, h2, h3 {
   box-decoration-break: clone;
 }
 .hero-cta { margin-top: 30px; display: flex; gap: 14px; flex-wrap: wrap; opacity: 1; transform: none; }
-.headline.in ~ .hero-sub { animation: rise .7s cubic-bezier(.2,.8,.2,1) .9s forwards; }
-.headline.in ~ .hero-cta { animation: rise .7s cubic-bezier(.2,.8,.2,1) 1.05s forwards; }
 
+/* the headline lines rise in once script.js adds .in; with scripts off nothing adds it, so they rest in place */
 .headline > span { opacity: 0; transform: translateY(18px); }
+@media (scripting: none) { .headline > span { opacity: 1; transform: none; } }
 .headline.in .word-building { animation: rise .7s cubic-bezier(.2,.8,.2,1) .1s forwards; }
 .headline.in .word-infra    { animation: rise .7s cubic-bezier(.2,.8,.2,1) .25s forwards; }
 .headline.in .word-collab   { animation: rise .7s cubic-bezier(.2,.8,.2,1) .4s forwards; }
