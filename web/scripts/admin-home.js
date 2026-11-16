@@ -105,7 +105,8 @@
   let statusRow = 'loading';
   let loading = false;
   let readingSentFor = null;
-  let downloadFailed = false;
+  // The status the page had before a download failed (null: no download has failed since); a download that works puts it back.
+  let beforeDownload = null;
   let details = [];
   let openBeforePrint = null;
 
@@ -446,7 +447,7 @@
     if (typeof outcome === 'object') {
       answer = outcome;
       statusRow = '';
-      downloadFailed = false;
+      beforeDownload = null;
       el.retry.hidden = true;
       el.signIn.hidden = true;
       render();
@@ -454,7 +455,7 @@
       return;
     }
     const row = rowFor(outcome);
-    downloadFailed = false;
+    beforeDownload = null;
     // Figures already on screen stay there; only a page with none offers the retry.
     el.retry.hidden = answer !== null || row === 'expired' || row === 'notHere' || row === 'denied';
     report(row);
@@ -490,14 +491,20 @@
     renderTracking();
   }
 
+  function downloadFailed(row) {
+    if (beforeDownload === null) beforeDownload = statusRow;
+    report(row);
+  }
+
   async function download(button, table) {
     if (!button || button.disabled) return;
     button.disabled = true;
     try {
       const res = await fetch(`/api/admin/metrics/export?table=${table}&lang=${lang()}`, { credentials: 'same-origin' });
-      if (!res.ok) { downloadFailed = true; report(rowFor(res.status)); return; }
-      // What an earlier failed download said no longer holds.
-      if (downloadFailed) { downloadFailed = false; report(''); }
+      if (!res.ok) { downloadFailed(rowFor(res.status)); return; }
+      // What an earlier failed download said no longer holds: the page says again what it said before (a first load
+      // that failed keeps its words beside the retry button; a page with figures is quiet).
+      if (beforeDownload !== null) { const row = beforeDownload; beforeDownload = null; report(row); }
       const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? `nodal-${table}.csv`;
       const url = URL.createObjectURL(await res.blob());
       const link = document.createElement('a');
@@ -509,8 +516,7 @@
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch {
-      downloadFailed = true;
-      report('failed');
+      downloadFailed('failed');
     } finally {
       button.disabled = false;
     }

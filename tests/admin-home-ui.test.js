@@ -687,6 +687,36 @@ test('the CSV is fetched as a blob and failures are said on the page', async () 
   await flush();
   assert.equal(stale.id('homeStatus').textContent, STATUS.tooMany);
 
+  // On a page whose first load failed, a download that works after one that failed gives the retry button its words back.
+  for (const failure of [() => Promise.resolve(response({ error: 'x' }, 429)), () => Promise.reject(new Error('offline'))]) {
+    let works = false;
+    const gate = deferred();
+    let gets = 0;
+    const empty = home({ get: () => { gets += 1; return gets === 1 ? Promise.resolve(response({ error: 'x' }, 500)) : gate.promise; },
+      download: () => (works ? Promise.resolve(response('', 200, { 'content-disposition': `attachment; filename="${name}"` })) : failure()) });
+    await flush();
+    assert.equal(empty.id('homeStatus').textContent, STATUS.failed);
+    assert.equal(empty.id('homeRetry').hidden, false);
+    // Twice: the status kept is the one from before the first failure, not a failed download's own.
+    for (let i = 0; i < 2; i += 1) { await empty.id('homeCsv').click(); await flush(); }
+    works = true;
+    await empty.id('homeCsv').click();
+    await flush();
+    assert.equal(empty.created.filter((n) => n.tagName === 'a' && n.clicked).length, 1);
+    assert.equal(empty.id('homeStatus').textContent, STATUS.failed, 'the load failure is said again');
+    assert.equal(empty.id('homeRetry').hidden, false);
+    assert.equal(empty.id('homeBlocks').children.length, 0);
+    // A retry that works leaves nothing of it behind, and a later download keeps the status empty.
+    empty.id('homeRetry').click();
+    gate.resolve(response(fixture()));
+    await flush();
+    assert.equal(empty.id('homeStatus').textContent, '');
+    await empty.id('homeCsv').click();
+    await flush();
+    assert.equal(empty.id('homeStatus').textContent, '');
+    assert.equal(empty.id('homeRetry').hidden, true);
+  }
+
   const months = home({ download: () => Promise.resolve(response('', 200, { 'content-disposition': 'attachment; filename="nodal-indicadores-por-mes-2026-11-14.csv"' })) });
   await flush();
   assert.equal(months.id('homeMonthsCsv').textContent, 'Descargar por mes CSV');
