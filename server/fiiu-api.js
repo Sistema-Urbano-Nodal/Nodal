@@ -35,7 +35,7 @@ export async function exportFiiuData(store,userId){
 // A block's built-in values, which "Restore original" brings back.
 const originalOf=({title,date,time,venue,description='',sessions,registration,formUrl})=>({title,date,time,venue,description,sessions,...(registration==='external'?{formUrl}:{})});
 // The summary email's language: the page's own (sent with the registration), else the site language cookie, else Spanish.
-export function registrationLanguage(input,req){
+function registrationLanguage(input,req){
  if(EMAIL_LANGUAGES.includes(input?.language))return input.language;
  const cookie=parseCookies(req?.headers?.cookie??'').get('nodal.lang');
  return EMAIL_LANGUAGES.includes(cookie)?cookie:'es';

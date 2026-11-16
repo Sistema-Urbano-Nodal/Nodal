@@ -44,7 +44,8 @@ export const FIIU_EVENT={
 // workshops and routes through their Google Forms. Check-in has no opening time: the rotating code on the organisers'
 // screen is the gate, so a scan on any earlier day counts like one at the door. It closes 30 minutes after the block
 // ends; an untimed block (the lab, until its hours are known) closes at the end of its Lima day.
-export const LIMA_OFFSET='-05:00',CHECKIN_CLOSES_AFTER_MS=30*60000;
+export const LIMA_OFFSET='-05:00';
+const CHECKIN_CLOSES_AFTER_MS=30*60000;
 const span=time=>{const m=/^(\d{1,2}):(\d{2})\s*[–-]\s*(\d{1,2}):(\d{2})$/.exec(String(time??'').trim());if(!m)return null;const start=m[1]*60+ +m[2],end=m[3]*60+ +m[4];return end>start&&end<=1440?[start,end]:null;};
 export const activityMinutes=activity=>{const s=span(activity?.time);return s?s[1]-s[0]:null;};
 export const isCheckinActivity=activity=>Boolean(activity)&&!activity.legacy&&['general','application'].includes(activity.registration);
