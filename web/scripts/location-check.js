@@ -7,6 +7,9 @@
   const current = node('locationCurrent'), check = node('locationCheckNow'), preference = node('locationAutomatic');
   const suggestion = node('locationSuggestion'), proposed = node('locationProposed'), use = node('locationUse'), keep = node('locationKeep');
   const message = node('locationStatus'), cancel = node('locationCancel'), attribution = node('locationAttribution');
+  // The status line stays on the page and empties rather than hiding: a live region that reappears may not be announced
+  // (Current city kept. after Keep). Empty, it takes no room, as its margin folds into the section's.
+  message.hidden = false;
   let user = null, enabled = false, lastCheckedDay = '', phase = 'idle', statusKey = '', candidate = null, expectedCity = '';
   let externalSaving = false, accepting = false, blocked = false, visible = false, active = true, generation = 0;
   let controller = null, cancelPosition = null, permissionPending = null;
@@ -14,6 +17,18 @@
   const storageKey = () => 'nodal.location-check.v1:' + user.id;
   const day = () => { const now = new Date(); return [now.getFullYear(), now.getMonth() + 1, now.getDate()].join('-'); };
   const busy = () => phase !== 'idle';
+  // Disabling or hiding the button a person pressed drops focus to the page (Chrome leaves it on a hidden button until the
+  // next task). After a check, a save, Keep or Cancel started from that button, focus comes back unless the person moved
+  // on: to Update when a city is suggested (its group is named by the suggestion, which is read with it), otherwise to
+  // Verify. It comes back without scrolling, as a check can take a while and the person may have scrolled on. An automatic
+  // check moves no focus: nobody pressed anything, and it would take focus from whatever the person is doing.
+  const pressed = control => document.activeElement === control ? control : null;
+  function refocus(from) {
+    const focused = document.activeElement;
+    if (!from || focused && focused !== document.body && focused !== from && !(cancel.hidden && focused === cancel) && !(suggestion.hidden && suggestion.contains(focused))) return;
+    const target = candidate && !use.disabled ? use : check;
+    if (!target.disabled) target.focus({ preventScroll: true });
+  }
   const sameCity = (a, b) => String(a || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLowerCase() === String(b || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLowerCase();
   function persist() {
     if (!user) return;
@@ -56,7 +71,6 @@
     attribution.hidden = !candidate;
     const key = phase !== 'idle' ? phase : externalSaving && candidate ? 'profileBusy' : statusKey;
     message.textContent = key ? lt(key, { city: user.city || lt('missing') }) : '';
-    message.hidden = !key;
   }
   async function request(path, body) {
     controller = new AbortController();
@@ -79,7 +93,8 @@
       catch (error) { complete(reject, error); }
     });
   }
-  async function detect() {
+  // from: the button a person pressed to start this, which held focus then (none for an automatic check).
+  async function detect(from = null) {
     if (!user || busy() || externalSaving || !active) return;
     if (!navigator.geolocation?.getCurrentPosition) { statusKey = 'unsupported'; render(); return; }
     const operation = ++generation, id = user.id;
@@ -103,9 +118,9 @@
     } catch (error) {
       if (operation !== generation || user?.id !== id) return;
       statusKey = error.code === 1 ? 'denied' : error.code === 2 ? 'unavailable' : error.code === 3 ? 'timeout' : errorKey(error);
-    } finally { if (operation === generation) { phase = 'idle'; render(); } }
+    } finally { if (operation === generation) { phase = 'idle'; render(); refocus(from); } }
   }
-  async function accept() {
+  async function accept(from = null) {
     if (!user || !candidate || busy() || blocked || externalSaving || !active) return;
     const operation = ++generation, id = user.id, cityId = candidate.id;
     phase = 'saving'; statusKey = ''; announceSaving(true); render();
@@ -118,7 +133,7 @@
     } catch (error) {
       if (operation !== generation || user?.id !== id) return;
       statusKey = errorKey(error); blocked = error.status === 409;
-    } finally { if (operation === generation) { phase = 'idle'; announceSaving(false); render(); } }
+    } finally { if (operation === generation) { phase = 'idle'; announceSaving(false); render(); refocus(from); } }
   }
   async function automatic() {
     if (!user || !enabled || lastCheckedDay === day() || !visible || document.hidden || !active || busy() || externalSaving || permissionPending || !navigator.permissions?.query) return;
@@ -135,9 +150,9 @@
     if (!enabled) { stop(); candidate = null; blocked = false; statusKey = ''; }
     persist(); render(); if (enabled) automatic();
   });
-  check.addEventListener('click', detect); use.addEventListener('click', accept);
-  keep.addEventListener('click', () => { if (accepting) return; stop(); candidate = null; blocked = false; statusKey = 'unchanged'; lastCheckedDay = day(); persist(); render(); });
-  cancel.addEventListener('click', () => { stop(); candidate = null; statusKey = 'unchanged'; render(); });
+  check.addEventListener('click', () => detect(pressed(check))); use.addEventListener('click', () => accept(pressed(use)));
+  keep.addEventListener('click', () => { if (accepting) return; const from = pressed(keep); stop(); candidate = null; blocked = false; statusKey = 'unchanged'; lastCheckedDay = day(); persist(); render(); refocus(from); });
+  cancel.addEventListener('click', () => { const from = pressed(cancel); stop(); candidate = null; statusKey = 'unchanged'; render(); refocus(from); });
   const controllerApi = {
     setUser(next) {
       const previousId = user?.id, previousCity = user?.city;
