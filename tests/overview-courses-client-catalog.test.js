@@ -171,3 +171,31 @@ test('leaving a typed search to open a result or load more does not run the sear
   assert.equal(h.listReads().at(-1).get('state'), 'all');
   assert.equal(h.listReads().length, 6);
 });
+
+test('a language switch reads the open listing again where it is and keeps the message being written', async () => {
+  const h = catalogPage({ search: '?id=a' });
+  await flush();
+  const detail = h.ids.get('catalogDetail');
+  const message = h.ids.get('catalogInterestMessage');
+  assert.equal(detail.hidden, false);
+  assert.equal(h.ids.get('detailTitle').textContent, 'en: Title a');
+  assert.equal(detail.scrolls, 1);
+  message.value = 'I can map the bus stops near my school.';
+  detail.hiddenLog.length = 0;
+
+  h.i18n.lang = 'es';
+  await h.i18n.change('es');
+  await flush();
+  assert.equal(h.ids.get('detailTitle').textContent, 'es: Title a');
+  assert.equal(message.value, 'I can map the bus stops near my school.');
+  assert.equal(detail.hiddenLog.includes(true), false, 'the pane stays on screen while it is read again');
+  assert.equal(detail.scrolls, 1, 'the page does not jump back to the pane');
+  assert.equal(h.ids.get('catalogInterestForm').hidden, false);
+
+  // Opening another listing still starts with an empty message, brought into view.
+  await h.titleButton('Title b').dispatch('click');
+  await flush();
+  assert.equal(h.ids.get('detailTitle').textContent, 'es: Title b');
+  assert.equal(message.value, '');
+  assert.equal(detail.scrolls, 2);
+});

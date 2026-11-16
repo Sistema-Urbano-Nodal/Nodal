@@ -293,6 +293,8 @@
   }
 
   function renderDetail(item) {
+    // A message is for one listing: a different listing starts empty, the same one read again keeps what was written.
+    const sameListing = byId('catalogInterestForm').dataset.itemId === item.id;
     page.detailItem = item;
     byId('catalogDetailKind').textContent = t(kindKey(item.kind));
     byId('detailTitle').textContent = item.title;
@@ -309,12 +311,13 @@
     }
     const official = item.actionMode === 'external' && !item.isClosed ? officialAnchor(item) : null;
     if (official) actions.append(official);
-    renderInterestControls(item, { resetMessage: true });
+    renderInterestControls(item, { resetMessage: !sameListing });
     page.detail.hidden = false;
     page.detailStatus.textContent = '';
   }
 
-  async function selectDetail(id, trigger = null) {
+  // quiet: the listing on screen is read again (in another language) where it is, neither hidden nor scrolled to.
+  async function selectDetail(id, trigger = null, { quiet = false } = {}) {
     if (!page.detail || !page.detailStatus) return;
     page.detailVersion++;
     page.detailTrigger = trigger;
@@ -324,7 +327,7 @@
     page.detailController?.abort();
     const controller = new AbortController();
     page.detailController = controller;
-    page.detail.hidden = true;
+    if (!quiet) page.detail.hidden = true;
     page.detailStatus.textContent = t('catalog.detailLoading');
     try {
       const response = await jsonRequest(`/api/catalog/${encodeURIComponent(id)}?lang=${encodeURIComponent(I18N?.lang || 'en')}`, { signal: controller.signal });
@@ -335,7 +338,7 @@
       if (trigger && (!document.activeElement || document.activeElement === trigger)) {
         byId('detailTitle').focus({ preventScroll: true });
       }
-      page.detail.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+      if (!quiet) page.detail.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     } catch (error) {
       const isCurrent = page.detailController === controller && page.selectedId === id;
       if (error.name !== 'AbortError' && isCurrent) page.detailStatus.textContent = t('catalog.detailUnavailable');
@@ -535,7 +538,7 @@
       page.nextCursor = null;
       if (page.more) page.more.hidden = true;
       requests.push(loadResults());
-      if (page.selectedId) requests.push(selectDetail(page.selectedId));
+      if (page.selectedId) requests.push(selectDetail(page.selectedId, null, { quiet: !page.detail.hidden }));
       if (!byId('catalogMyInterests').hidden) requests.push(loadMyInterests());
     }
     return Promise.all(requests);
