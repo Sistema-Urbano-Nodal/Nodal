@@ -53,11 +53,11 @@
           const courseId=Array.isArray(result.courseIds)?result.courseIds.find(id=>typeof id==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id)):null;
           if(result.code==='invitation_enrollment_closed'){finish('invitation_enrollment_closed','doneTitle');return;}
           if(courseId)signIn.href='/login.html?next='+encodeURIComponent('/course.html?id='+courseId);
-          finish(!courseId||['invitation_enrollment_pending','invitation_partial'].includes(result.code)?'invitation_enrollment_pending':'done','doneTitle');
+          finish(!courseId||result.code==='invitation_partial'?'invitation_enrollment_pending':'done','doneTitle');
         }else{
           // After a try that got no answer, "already used" most likely means that try went through.
           const key=unsure&&result.code==='invitation_invalid'?'invitation_uncertain':Object.hasOwn(rows,result.code)?result.code:'invitation_uncertain';
-          if(['invitation_password_length','invitation_rate','invitation_forbidden','invitation_name'].includes(key))show(key);
+          if(['invitation_rate','invitation_forbidden'].includes(key))show(key);
           else finish(key);
         }
       }catch(error){
