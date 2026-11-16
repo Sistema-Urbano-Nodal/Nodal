@@ -502,7 +502,12 @@
     readBrowserQuery();
     page.form.addEventListener('submit', (event) => { event.preventDefault(); page.userFiltered = true; runFilters(); });
     page.form.addEventListener('input', debounceFilters);
-    page.form.addEventListener('change', debounceFilters);
+    // A typed field has already searched on 'input'. Its 'change' comes again when it loses focus, which is the first
+    // click on a result or on Load more, and searching again then closed that listing or refused that page.
+    page.form.addEventListener('change', (event) => {
+      if (['text', 'search'].includes(event.target?.type)) return;
+      debounceFilters();
+    });
     page.more.addEventListener('click', () => loadResults({ append: true }));
     byId('catalogDetailClose').addEventListener('click', () => closeDetail({ restoreFocus: true }));
     page.detail.addEventListener('keydown', (event) => {
