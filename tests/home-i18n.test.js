@@ -27,6 +27,8 @@ const CONSOLE=readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.met
 // two nonhome hashes were redone; only those four keys moved, and tests/dashboard-account-errors.test.js pins them.
 // On 24 Oct 2026 the deletion prompt (d.uc.deletePrompt) added that a FIIU registration, attendance and certificate hours
 // go with the account, so the two nonhome hashes were redone; only that key moved, and the same test pins it.
+// On 16 Nov 2026 the code overview's console fixes changed console copy, so the two nonhome hashes were redone. Only these
+// keys moved: d.spine.profileTodo (the route's first stop before Part A is done), pinned by tests/overview-console-dashboard.test.js.
 const HOME_KEYS=[
   "about.eyebrow",
   "about.lead1",
@@ -263,8 +265,8 @@ const SNAPSHOTS={
     "pt": "b9a077e4b2055212490393a2498292f0d20156b6f1d4e34f8d7b063179e71d3b"
   },
   "nonhome": {
-    "es": "12ad258f84180d3a8f764b5d1c55acb05f3b83f7f922265194ebead6d689dbbb",
-    "pt": "81d8ec46f2c3fad296904c1a5819f4040e8cb04aab5b068bbf90d7fc121320c7"
+    "es": "2db0813f3b054567c33887f2b517d1ff533308a73282745adeccf802bad26025",
+    "pt": "98064db70f78c575bf13e82952d54546a15eb067e749b0ff82ad3110e95ef107"
   }
 };
 

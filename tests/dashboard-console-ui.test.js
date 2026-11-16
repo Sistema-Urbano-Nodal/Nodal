@@ -424,7 +424,8 @@ test('Cancel and Escape on the profile dialog both count as closing the prompt',
   const source = dashboardJs();
   assert.match(source, /byId\('ucCancel'\)\?\.addEventListener\('click', \(\) => \{ declinePrompt\(\); userDialog\.close\(\); \}\);/);
   assert.match(source, /userDialog\.addEventListener\('cancel', declinePrompt\);/);
-  assert.match(source, /if \(\(!U\.city \|\| !U\.role \|\| U\.topics\.length === 0\) && !promptDeclined\(\)\) openUserDialog\(\);/);
+  // Part A (a city and a topic) is what the prompt asks for; tests/overview-console-dashboard.test.js runs it.
+  assert.match(source, /if \(!partADone\(\) && !promptDeclined\(\)\) openUserDialog\(\);/);
 });
 
 // dashboard-publishing.test.js runs placeFestival(); here, the spacing it gets in its place.

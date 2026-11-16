@@ -264,11 +264,12 @@
     const mentorReady = U.assessed && maxLevel() >= 3 && U.indicators.transmission !== 'No';
     // the API returns every branch key, most of them false — count real ones
     const roleRequested = Object.values(U.requests).some(Boolean) || U.mentorApplied;
+    const core = partADone();
     return [
       {
-        label: t('d.spine.profile'),
-        meta: t('d.spine.profileMeta'),
-        done: true,
+        label: t(core ? 'd.spine.profile' : 'd.uc.titleNew'),
+        meta: t(core ? 'd.spine.profileMeta' : 'd.spine.profileTodo'),
+        done: core,
         go: () => openUserDialog(),
       },
       {
@@ -1000,7 +1001,7 @@
   const partCDone = () => partCCount() === partCTotal;
 
   function renderCompleteness() {
-    const pct = 30 + (U.assessed ? 30 : 0) + Math.round(40 * (partCCount() / partCTotal));
+    const pct = (partADone() ? 30 : 0) + (U.assessed ? 30 : 0) + Math.round(40 * (partCCount() / partCTotal));
     const ringVal = byId('ringVal');
     if (ringVal) {
       const C = 2 * Math.PI * 34;
@@ -1010,6 +1011,7 @@
     setText('ringText', `${pct}%`);
     byId('ringSvg')?.setAttribute('aria-label', t('d.ring.aria', { n: pct }));
 
+    byId('partAStatus')?.classList.toggle('done', partADone());
     const partB = byId('partBStatus');
     if (partB) {
       partB.classList.toggle('done', U.assessed);
@@ -1091,6 +1093,11 @@
      profile dialog opened by itself on every visit, over the festival block they came for. It now opens by itself
      until the member closes it once on this device; after that the route's first stop, the completeness block and
      the avatar still open it. */
+  /* Part A, the core profile, is that complete profile: a city and at least one topic (the role always has a value, the
+     server's 'Member' sentinel when no title is set). The prompt, the profile dialog's wording, the route's first stop, the
+     completeness ring and the timeline all read it, so none of them calls a registrant's profile done while another asks
+     to complete it. */
+  const partADone = () => Boolean(U.city && U.topics.length);
   const PROMPT_KEY = 'nodal.profilePrompt.dismissed';
   const promptDeclined = () => {
     try { return Boolean(U?.id) && localStorage.getItem(PROMPT_KEY) === String(U.id); } catch { return false; }
@@ -1178,7 +1185,7 @@
       if (!U) return;
       uc.error.hidden = true;
       // members edit in place; a fresh account completes its profile first
-      editing = Boolean(U.city && U.role && U.topics.length);
+      editing = partADone();
       relabelUserDialog();
       /* Export and deletion belong to every loaded account, complete or not: they are the only way to either, and a festival
          registrant (no NODAL topics) must not have to add more personal data before taking theirs or leaving. */
@@ -1285,8 +1292,9 @@
   /* ================= this week + timeline ================= */
   function timelineData() {
     const first = U.topics[0] ? topicLabel(U.topics[0].name) : t('d.tl.yourTopic');
+    const core = partADone();
     return [
-      { time: t('d.tl.today'), name: t('d.tl.createdName'), sub: t('d.tl.createdSub'), cls: 'tl-strong' },
+      { time: t('d.tl.today'), name: t(core ? 'd.tl.createdName' : 'd.uc.titleNew'), sub: t(core ? 'd.tl.createdSub' : 'd.spine.profileTodo'), cls: 'tl-strong' },
       { time: t('d.tl.next'), name: t(U.assessed ? 'd.tl.assessedName' : 'd.tl.assessName'), sub: t('d.tl.assessSub') },
       { time: t('d.tl.suggested'), name: t('d.tl.feedName', { topic: first }), sub: t('d.tl.feedSub') },
       { time: t('d.tl.suggested'), name: t('d.tl.circleName', { city: cityLabel() }), sub: t('d.tl.circleSub'), cls: 'tl-soft' },
@@ -1661,7 +1669,7 @@
       const retry = byId('loadRetry');
       if (retry) retry.hidden = true;
       applyAll();
-      if ((!U.city || !U.role || U.topics.length === 0) && !promptDeclined()) openUserDialog();
+      if (!partADone() && !promptDeclined()) openUserDialog();
     } catch (error) {
       // api() handles the login redirect for 401. Any other failure says so and
       // offers a retry instead of leaving the loading line up forever.

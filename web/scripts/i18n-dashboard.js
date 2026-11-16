@@ -29,6 +29,7 @@ window.NODAL_I18N_DASH = {
 
     'd.spine.profile': 'Profile created',
     'd.spine.profileMeta': 'Part A · done',
+    'd.spine.profileTodo': 'Part A · city and topics',
     'd.spine.assess': 'Self-assessment',
     'd.spine.assessDone': 'Part B · done',
     'd.spine.assessTodo': 'Part B · 4 minutes',
@@ -791,6 +792,7 @@ window.NODAL_I18N_DASH = {
 
     'd.spine.profile': 'Perfil creado',
     'd.spine.profileMeta': 'Parte A · lista',
+    'd.spine.profileTodo': 'Parte A · ciudad y temas',
     'd.spine.assess': 'Autoevaluación',
     'd.spine.assessDone': 'Parte B · lista',
     'd.spine.assessTodo': 'Parte B · 4 minutos',
@@ -1670,6 +1672,7 @@ window.NODAL_I18N_DASH = {
 
     'd.spine.profile': 'Perfil criado',
     'd.spine.profileMeta': 'Parte A · concluída',
+    'd.spine.profileTodo': 'Parte A · cidade e temas',
     'd.spine.assess': 'Autoavaliação',
     'd.spine.assessDone': 'Parte B · concluída',
     'd.spine.assessTodo': 'Parte B · 4 minutos',

@@ -228,3 +228,53 @@ test('before a member is loaded there is no dialog to open, so the account tools
   assert.equal(c.byId('userDialog').open, false);
   assert.equal(c.byId('ucDataControls').hidden, true, 'the markup ships them hidden');
 });
+
+/* ---------------- M50: Part A is the profile the prompt asks for ---------------- */
+
+const stop = (c, i) => { const button = c.byId('spineStops').children[i].querySelector('button'); return { button, label: button.querySelector('b').textContent, meta: button.querySelector('em').textContent }; };
+const timelineFirst = (c) => c.byId('tline').children[0].children.map((node) => node.textContent);
+
+test('a profile without topics is not shown as Part A done or 30% complete, and completing it in the dialog ticks Part A', async () => {
+  const c = consoleFor(registrant);
+  await flush();
+  let first = stop(c, 0);
+  assert.equal(first.button.classList.contains('is-done'), false, 'the first stop of the route is not ticked');
+  assert.equal(first.button.classList.contains('is-now'), true, 'it is where the member is');
+  assert.deepEqual([first.label, first.meta], ['Complete your profile', 'Part A · city and topics']);
+  assert.equal(c.text('ringText'), '0%');
+  assert.equal(c.byId('partAStatus').classList.contains('done'), false, 'Part A · Core is not ticked');
+  assert.deepEqual(timelineFirst(c), ['Today', 'Complete your profile', 'Part A · city and topics']);
+
+  c.byId('ucCity').value = 'Lima';
+  c.byId('ucRole').value = 'Urbanista';
+  c.byId('ucTopics').querySelectorAll('input')[0].checked = true;
+  c.byId('userForm').fire('submit');
+  await flush();
+  first = stop(c, 0);
+  assert.equal(first.button.classList.contains('is-done'), true);
+  assert.deepEqual([first.label, first.meta], ['Profile created', 'Part A · done']);
+  assert.equal(c.text('ringText'), '30%');
+  assert.equal(c.byId('partAStatus').classList.contains('done'), true);
+  assert.deepEqual(timelineFirst(c), ['Today', 'Profile created · Part A complete', 'Counts toward Profile Pioneer']);
+  assert.deepEqual(c.patches().map((p) => [p.city, p.interests]), [['Lima', ['mobility']]]);
+});
+
+test('a city alone is not Part A either, and the route reads in Spanish and Portuguese', async () => {
+  const c = consoleFor({ ...registrant, city: 'Cusco' }, { lang: 'es' });
+  await flush();
+  assert.deepEqual([stop(c, 0).label, stop(c, 0).meta], ['Completa tu perfil', 'Parte A · ciudad y temas']);
+  assert.equal(c.text('ringText'), '0%');
+  c.i18n.apply('pt', { persist: false });
+  assert.deepEqual([stop(c, 0).label, stop(c, 0).meta], ['Complete seu perfil', 'Parte A · cidade e temas']);
+  // The markup ships Part A unticked: until the member is loaded nothing says it is done.
+  assert.doesNotMatch(read('web', 'pages', 'dashboard.html'), /<li class="done" data-i18n="d\.ctx\.partA"/);
+});
+
+test('a complete profile keeps Part A done and its 30%', async () => {
+  const c = consoleFor(ana);
+  await flush();
+  assert.equal(stop(c, 0).button.classList.contains('is-done'), true);
+  assert.equal(stop(c, 1).button.classList.contains('is-now'), true, 'the self-assessment is next');
+  assert.equal(c.text('ringText'), '30%');
+  assert.equal(c.byId('partAStatus').classList.contains('done'), true);
+});
