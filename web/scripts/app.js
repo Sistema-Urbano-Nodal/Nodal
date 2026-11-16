@@ -236,8 +236,9 @@
     el.g.addEventListener('pointerdown', (e) => {
       if (dragging) return;   // one drag at a time — a second finger must not steal the slot
       e.preventDefault();
-      // rect cached for the drag's lifetime: no layout read per move
-      dragging = { i, moved: 0, px: e.clientX, py: e.clientY, rect: svg.getBoundingClientRect() };
+      // rect cached for the drag's lifetime: no layout read per move. The pointer id ties the drag to its own
+      // finger: another finger moving or lifting must not take it over or end it.
+      dragging = { i, pointerId: e.pointerId, moved: 0, px: e.clientX, py: e.clientY, rect: svg.getBoundingClientRect() };
       N[i].fixed = true;
       el.g.classList.add('is-drag');
       try { el.g.setPointerCapture(e.pointerId); } catch { /* pointer already inactive (Safari) */ }
@@ -245,7 +246,7 @@
       wake();
     });
     el.g.addEventListener('pointermove', (e) => {
-      if (!dragging || dragging.i !== i) return;
+      if (!dragging || dragging.i !== i || e.pointerId !== dragging.pointerId) return;
       dragging.moved += Math.hypot(e.clientX - dragging.px, e.clientY - dragging.py);
       dragging.px = e.clientX; dragging.py = e.clientY;
       const r = dragging.rect;
@@ -254,7 +255,7 @@
       if (reduced) renderFrame(); else wake();
     });
     const release = (e) => {
-      if (!dragging || dragging.i !== i) return;
+      if (!dragging || dragging.i !== i || e.pointerId !== dragging.pointerId) return;
       const tap = dragging.moved < 6;
       dragging = null;
       N[i].fixed = false;
@@ -278,8 +279,8 @@
   });
   // safety net: if pointer capture failed (Safari) and the release landed off
   // the node, never leave a node frozen with a stuck drag
-  document.addEventListener('pointerup', () => {
-    if (!dragging) return;
+  document.addEventListener('pointerup', (e) => {
+    if (!dragging || e.pointerId !== dragging.pointerId) return;
     const stuck = dragging;
     dragging = null;
     N[stuck.i].fixed = false;
