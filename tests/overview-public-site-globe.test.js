@@ -156,3 +156,22 @@ test('picking a topic and going back to all topics announces nobody, and a real 
   assert.match(feed(), /Dan/);
   assert.doesNotMatch(feed(), /Ana|Bob|Cid/);
 });
+
+/* ---------- M155: the topic chips say which one is on ---------- */
+
+test('the topic chips tell a screen reader which filter is on, through a pick and a language switch', async () => {
+  const everyone = snapshot([city('Lima', [member('a', 'Ana'), member('b', 'Bea')])]);
+  const h = harness(everyone);
+  await flush();
+  const pressed = () => h.chips().map((chip) => chip.getAttribute('aria-pressed'));
+  assert.deepEqual(pressed(), ['true', 'false'], 'all topics is the filter on at first');
+  h.chips()[1].dispatchEvent({ type: 'click' });
+  await flush();
+  assert.deepEqual(pressed(), ['false', 'true']);
+  assert.match(h.chips()[1].className, /\bis-on\b/, 'the colour and the pressed state agree');
+  h.language('es');
+  assert.deepEqual(pressed(), ['false', 'true']);
+  h.chips()[1].dispatchEvent({ type: 'click' });   // the same chip again turns the filter off
+  await flush();
+  assert.deepEqual(pressed(), ['true', 'false']);
+});

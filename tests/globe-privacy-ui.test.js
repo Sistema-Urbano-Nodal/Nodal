@@ -11,6 +11,7 @@ class Element {
   replaceChildren(...nodes) { this.children.forEach(node=>{node.parent=null;});this.children=[];this.append(...nodes); }
   remove() { if(this.parent)this.parent.children=this.parent.children.filter(node=>node!==this); }
   get lastElementChild() { return this.children.at(-1); }
+  setAttribute(name,value) { this[name]=String(value); }
   removeAttribute(name) { if(name==='hidden')this.hidden=false;else delete this[name]; }
   addEventListener(type,listener) { this.listeners[type]=listener; }
   dispatchEvent(event) { return this.listeners[event.type]?.(event); }

@@ -743,6 +743,7 @@
       const b = document.createElement('button');
       b.type = 'button';
       b.className = `globe-chip${state.topic === name ? ' is-on' : ''}`;
+      b.setAttribute('aria-pressed', String(state.topic === name));   // the filter that is on, said as well as coloured
       b.textContent = count === null ? label : `${label} · ${count}`;
       b.addEventListener('click', () => {
         state.topic = state.topic === name ? '' : name;
