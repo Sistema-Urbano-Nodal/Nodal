@@ -1700,7 +1700,7 @@ test('the globe draws real relationships, filters by topic, and honours a member
 test('a topic nobody in your city holds does not say your city is off the map', async (t) => {
   const citySearch = {
     async search(query) {
-      const known = { trujillo: [-8.11, -79.03], lima: [-12.04, -77.03] };
+      const known = { trujillo: [-8.11, -79.03], lima: [-12.04, -77.03], arequipa: [-16.4, -71.54] };
       const hit = known[String(query).toLowerCase()];
       return { cities: hit ? [{ label: String(query), lat: hit[0], lon: hit[1] }] : [] };   // Atlantis cannot be placed
     },
@@ -1718,8 +1718,11 @@ test('a topic nobody in your city holds does not say your city is off the map', 
   const pedro = await member('Pedro', 'Trujillo', 'Housing');
   await member('Ana', 'Lima', 'Mobility');
   const nadia = await member('Nadia', 'Atlantis', 'Housing');
+  const lucia = await member('Lucia', 'Arequipa', 'Housing');
   // Pedro saved his profile while the city provider was down: his own pin is missing, Rosa's places Trujillo.
   db.prepare('UPDATE users SET city_lat = NULL, city_lon = NULL WHERE id = ?').run(pedro.id);
+  // Nobody in Arequipa kept a pin: the whole map places it through the provider's remembered point.
+  db.prepare('UPDATE users SET city_lat = NULL, city_lon = NULL WHERE id = ?').run(lucia.id);
   const you = async (who, query = '') => (await getJson(base, `/api/network/places${query}`, who.cookie)).body.you;
 
   for (const who of [rosa, pedro]) {
@@ -1729,6 +1732,8 @@ test('a topic nobody in your city holds does not say your city is off the map', 
     assert.deepEqual(filtered.body.you, { listed: true, hasCity: true, onMap: true, city: 'Trujillo' });
     assert.deepEqual(Object.keys(filtered.body).sort(), ['links', 'members', 'places', 'topics', 'you'], 'nothing else is sent');
   }
+  assert.equal((await you(lucia)).onMap, true);
+  assert.equal((await you(lucia, '?topic=Mobility')).onMap, true, 'a city the provider places, left out by the topic');
   // A city nobody can place is still reported, with or without a topic.
   assert.equal((await you(nadia)).onMap, false);
   assert.equal((await you(nadia, '?topic=Mobility')).onMap, false);

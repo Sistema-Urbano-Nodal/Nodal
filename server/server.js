@@ -1294,8 +1294,9 @@ export function createApp({
   /* City names change hands rarely and cities never move, so a resolved point
      is cached for a month. Returns null when the provider cannot place it —
      the member is told, rather than being dropped somewhere wrong. */
+  const placeKey = (city) => `place:v1:${String(city).trim().toLowerCase()}`;
   async function resolveCity(city, acceptLanguage) {
-    const key = `place:v1:${String(city).trim().toLowerCase()}`;
+    const key = placeKey(city);
     const remembered = await cache.get(key);
     /* A miss is remembered too, for a shorter time. Otherwise every rebuild of the
        globe's places asked a failing (or rate-limited) provider about the same
@@ -1312,6 +1313,13 @@ export function createApp({
       await cache.set(key, point ? JSON.stringify(point) : 'null', point ? PLACE_TTL_MS : PLACE_MISS_TTL_MS);
     } catch { /* an unavailable cache only costs a later lookup */ }
     return point;
+  }
+  // Whether resolveCity remembers a point for the city, from the cache alone: never a request to the provider.
+  async function cityPlaced(city) {
+    try {
+      const remembered = await cache.get(placeKey(city));
+      return Boolean(remembered && remembered !== 'null' && JSON.parse(remembered));
+    } catch { return false; }
   }
 
   /* Keyed by session when there is one, by address otherwise, so a limit
@@ -2165,8 +2173,7 @@ export function createApp({
               const groups = new Map();
               const cityOf = new Map();
               const topics = new Map();
-              /* Cities where a listed member saved a point: the unfiltered map places them without the geocoder. A topic
-                 leaves out every city where nobody holds it, so a viewer's city counts as on the map if it is here. */
+              // Cities where a listed member saved a point: the unfiltered map places them without the geocoder.
               const located = new Set();
               for (const row of rows) {
                 const user = repository.toApiUser(row);
@@ -2278,11 +2285,16 @@ export function createApp({
           const viewerRow = snapshot.rows.find(row => row.id === sessionUser.id);
           const viewer = viewerRow ? repository.toApiUser(viewerRow) : null;
           const city = String(viewer?.city || '').trim();
-          // onMap answers for the whole map, whatever the topic: the console asks a member it is false for to retype the city.
-          const onMap = city !== '' && (located.has(city.toLowerCase()) || shared.places.some(p => p.city.toLowerCase() === city.toLowerCase()));
+          const cityKey = city.toLowerCase();
+          /* onMap answers for the whole map, whatever the topic: the console asks a member it is false for to retype the
+             city. A topic leaves out every city where nobody holds it, so the city also counts when the unfiltered map
+             places it without a new lookup: a listed member there saved a point, or the provider's point is remembered. */
+          const onMap = Boolean(viewer) && city !== '' && (located.has(cityKey)
+            || shared.places.some(p => p.city.toLowerCase() === cityKey)
+            || (topic !== '' && await cityPlaced(city)));
           return JSON.stringify({ ...shared, you: {
             listed: Boolean(viewer), hasCity: city !== '',
-            onMap: Boolean(viewer) && onMap,
+            onMap,
             city,
           } });
         });
