@@ -532,10 +532,9 @@
     PLACES = FULL.places
       .map((L, original) => {
         const people = (L.people || []).filter(keepPerson);
-        // a place that nobody had joined yet simply was not there then
-        const members = sinceCut
-          ? people.length + Math.max(0, (L.members - (L.people || []).length)) * 0
-          : L.members;
+        // a place that nobody had joined yet simply was not there then. Only the people listed by name carry a
+        // join date, so a cut in time counts them alone: an unnamed member has no date to place them by.
+        const members = sinceCut ? people.length : L.members;
         return { L, original, people, members };
       })
       .filter((row) => (sinceCut ? row.people.length > 0 : row.members > 0))
