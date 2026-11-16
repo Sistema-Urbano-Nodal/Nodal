@@ -110,3 +110,22 @@ test('a globe with nothing to filter, or signed out, stays without chips and tim
   assert.equal(h.ids.globeSinceLabel.hidden, true);
   assert.equal(h.ids.globeSinceLabel.textContent, '');
 });
+
+/* ---------- M96: the arrow keys start from either end ---------- */
+
+test('with no city picked, ArrowLeft opens the last city and ArrowRight the first', async () => {
+  const places = ['Lima', 'Bogotá', 'Quito', 'Santiago'].map((name, i) => city(name, [member(`m${i}`, `Member ${i}`)], -80 + i * 5));
+  const h = harness(snapshot(places));
+  await flush();
+  h.key('ArrowLeft');
+  assert.equal(h.ids.globeCity.textContent, 'Santiago', 'the last city, not the one before it');
+  h.key('ArrowLeft');
+  assert.equal(h.ids.globeCity.textContent, 'Quito');
+  h.key('ArrowRight'); h.key('ArrowRight');
+  assert.equal(h.ids.globeCity.textContent, 'Lima', 'past the last city the steps wrap to the first');
+
+  const fresh = harness(snapshot(places));
+  await flush();
+  fresh.key('ArrowRight');
+  assert.equal(fresh.ids.globeCity.textContent, 'Lima');
+});

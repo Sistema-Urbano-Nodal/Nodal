@@ -478,7 +478,11 @@
     // the canvas is focusable, and an empty globe has nothing to step through
     if (!PLACES.length) return;
     ev.preventDefault();
-    state.picked = (state.picked + (ev.key === 'ArrowRight' ? 1 : -1) + PLACES.length) % PLACES.length;
+    const step = ev.key === 'ArrowRight' ? 1 : -1;
+    // with nothing picked (-1) ArrowLeft starts from the last city, as ArrowRight starts from the first
+    state.picked = state.picked < 0
+      ? (step > 0 ? 0 : PLACES.length - 1)
+      : (state.picked + step + PLACES.length) % PLACES.length;
     const p = PLACES[state.picked];
     state.yaw = Math.atan2(p.v[2], p.v[0]) - Math.PI / 2;   // centre = yaw + 90°
     showPlace(p);
