@@ -12,7 +12,6 @@
     decision: ['Use this city for your profile and network map?', '¿Usar esta ciudad en tu perfil y en el mapa de la red?', 'Usar esta cidade no seu perfil e no mapa da rede?'],
     use: ["Update", "Actualizar", "Atualizar"],
     keep: ["Keep current", "Mantener actual", "Manter atual"],
-    keepUnset: ["Keep current", "Mantener actual", "Manter atual"],
     locating: ["Locating…", "Localizando…", "Localizando…"],
     lookup: ["Finding city…", "Buscando ciudad…", "Buscando cidade…"],
     saving: ["Updating…", "Actualizando…", "Atualizando…"],

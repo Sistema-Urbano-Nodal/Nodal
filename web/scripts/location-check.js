@@ -49,8 +49,8 @@
     suggestion.hidden = !candidate;
     if (candidate) {
       proposed.textContent = lt('suggested', { city: candidate.label });
-      use.textContent = lt('use', { city: candidate.name });
-      keep.textContent = user.city ? lt('keep', { city: user.city }) : lt('keepUnset');
+      use.textContent = lt('use');
+      keep.textContent = lt('keep');
     }
     use.disabled = busy() || externalSaving || blocked; keep.disabled = accepting;
     attribution.hidden = !candidate;
@@ -99,7 +99,7 @@
       if (!city) { statusKey = 'none'; return; }
       if (!['string', 'number'].includes(typeof city.id) || !city.name || !city.label) throw new Error('invalid city');
       if (sameCity(city.label, user.city) || sameCity(city.name, user.city)) { statusKey = 'same'; return; }
-      candidate = { id: city.id, name: String(city.name), label: String(city.label) };
+      candidate = { id: city.id, label: String(city.label) };
     } catch (error) {
       if (operation !== generation || user?.id !== id) return;
       statusKey = error.code === 1 ? 'denied' : error.code === 2 ? 'unavailable' : error.code === 3 ? 'timeout' : errorKey(error);
