@@ -327,62 +327,66 @@ side link (`web/pages/dashboard.html:72-74`) keeps `id="publishLink"` and key `d
 Admin / Administração. `/admin.html`, `#nodes` and `#founders` keep working.
 
 **Sketch**, in Spanish, with the figures of 14 November 2026 (`n` = filled by the baseline file before the sheet
-goes out; visit figures exist from R1):
+goes out; visit figures exist from R1), as the home was redesigned on 16 November: one sheet read in three passes
+(the members' path, then the seven areas built the same way, then the reporting tools beside the title):
 
 ```
-Indicadores   Publicación   Festival   Cursos                                              Cerrar sesión
-Indicadores de NODAL                                 [Descargar CSV]  [Imprimir o guardar como PDF]
-Datos al 14 nov 2026, 08:36 (hora de Lima) · Actualizar
-Últimos 7 días: 8–14 nov · Últimos 30 días: 16 oct–14 nov · 21 días sin cuentas nuevas (última: 24 oct)
+Indicadores   Publicación   Festival   Cursos                                                   Cerrar sesión
+Indicadores de NODAL     Actualizar  Imprimir o guardar como PDF  Descargar CSV: Indicadores  Por mes  Lecturas
+Datos al 14 nov 2026, 08:36 (hora de Lima)   Últimos 30 días: 16 oct–14 nov   Últimos 7 días: 8–14 nov
 
-VISITAS            REGISTROS         PERFILES                ACTIVIDAD               MEMBRESÍAS
-n llegadas, 30 d   525 cuentas       n con perfil básico     n miembros con          0 Fundadores
-se cuenta desde    0 nuevas en 7 d   (ciudad e intereses)    actividad, 30 d         1 aceptación antes de
-el <día de R1>     494 confirmadas   33 con autoevaluación   7 d: n                  pagar (no es un pago)
+Recorrido de los miembros                                                      n  Llegadas en 30 días
+Conteos por etapa, no tasas de paso: una etapa no siempre contiene a la           Se cuenta desde el <día de R1>
+siguiente. - - - Tramo punteado: no es un paso más. El directorio es por       0  Fundadores (insignias)
+consentimiento; la actividad se cuenta en 30 días.                             1  Aceptaciones antes de pagar
+    525        494        486         n                                n          (veces)
+    ███        ███        ███        ▆▆▆        33          n         ▅▅▅
+     o──────────o──────────o──────────o──────────o - - - - -o - - - - -●       Nada por atender
+  Cuentas  Con correo  Entraron    Perfil    Autoeva-   Visibles   Miembros    0  Solicitudes de interés
+           confirmado  al menos    básico     luación     en el       con      0  Solicitudes de organizaciones
+                        una vez   completo     hecha   directorio  actividad   n  Postulaciones al laboratorio
+                                                                  en 30 días
+0 Cuentas nuevas en 7 días                                        n en 7 días
+21 días sin cuentas nuevas (última: 24 oct)
 
-Por atender: 0 solicitudes de interés → · 0 solicitudes de organizaciones → · n postulaciones al laboratorio →
-
-Visitas (desde el <día de R1>)      30 días  7 días      Registros                     Total  30 días  7 días
-  Páginas vistas                       n        n          Cuentas                       525     n       0
-  Llegadas                             n        n          Con correo confirmado         494
-  Más vistas: Inicio n · FIIU n · …                        Entraron al menos una vez     486     n       n
-  De dónde llegan: directo n · buscadores n · WhatsApp n · …        Por mes: jul 9 · ago 0 · sep 43 · oct 473 · nov 0
-                                                           Incluye 5 cuentas del equipo
-Perfiles (de 486 que entraron)       Total              Actividad                      30 días  7 días
-  Perfil básico completo                n                 Miembros con actividad, sin el equipo  n     n
-  Con ciudad                          210                   perfil n · red n · oportunidades n ·
-  Con intereses                         n                   festival n · cursos n · membresía n
-  Con biografía                        17                 Con el equipo:
-  Autoevaluación hecha                 33                   Conexiones (seguir)    total 14   0        0
-  Visibles en el directorio             n                   Solicitudes de interés total 0    0        0
-  Perfil guardado (cualquier formulario) 210
-
-Membresías                           Total  30 días     Festival · FIIU Fest 2026            Ver en Festival →
-  Fundadores (insignias)                0      0          Inscripciones 375 (incluye 2 del equipo)
-  Aceptaciones antes de pagar (veces)   1      1          Inscripciones a bloques n · Horas de asistencia n · Postulaciones al laboratorio n
-  Personas que aceptaron                1                 Personas con asistencia registrada 62 · asistencias 90
-  Aceptaciones sin insignia (personas)  1                 Tipo de perfil: profesional 82 · estudiante 76 ·
-  Solicitudes de organizaciones         0                   organización 53 · función pública 39 · otro 34 ·
-  Vistas: Fundadores n · página de pago n                   investigación 33 · academia 32 · emprendimiento 13 ·
-                                                            activismo 12 · otros (menos de 3) 1
-Cursos · Movilidad Nivel 2            Ver en Cursos →     País: Perú 333 o más · Lima 8 · Colombia 7 ·
-  Con el equipo, como en el espacio docente:                México 4 · otros (menos de 3) n
-    Participantes 21 · Formularios completos n · Accesos a módulos n · Accesos a materiales n ·
-    Accesos a grabaciones n · Actividades n · Comentarios n
-  Personas inscritas, sin el equipo: 18 · abrieron contenido n
-  Encuesta final (grupo de septiembre): respondieron 9 de N · certificados subidos 17
-
-Seguimiento                          nov 2026 (leído el 14)   dic 2026 …    una columna por mes
-  Cuentas                               525
-  Con ciudad                            210
-  … unas 20 filas …                  Lecturas desde <mes de R3>.  [Descargar lecturas CSV]
+Visitas  Cómo se cuenta           Perfiles  Cómo se cuenta               Festival  Cómo se cuenta   Ver en Festival
+Se cuenta desde el <día de R1>       n  Perfil básico completo            375  Inscripciones (incluye 2 del
+   n  Páginas vistas en 30 días    210  Con ciudad …                           equipo)
+      n en 7 días, n en nov 2026                                            n  Inscripciones a bloques …
+   n  Llegadas en 30 días …       Actividad  Cómo se cuenta              Tipo de perfil
+Páginas más vistas en 30 días        n  Miembros con actividad en 30 días  82  profesional  ██████████ …
+   n  Inicio  ██████████ …              n en 7 días …                    Inscripciones al festival, por mes
+                                  Actividad por tipo en 30 días            barras de jul a nov
+Registros  Cómo se cuenta         0 en 7 días en todos los tipos
+ 525  Cuentas                        n  perfil (…)  ███ …                Cursos  Cómo se cuenta     Ver en Cursos
+ 494  Con correo confirmado …                                            Un curso: Movilidad Nivel 2
+Cuentas nuevas, por mes           Membresías  Cómo se cuenta               21  Participantes …
+  barras: jul 9 · ago 0 · sept 43 ·   0  Fundadores (insignias) …         9 de 17  Encuesta final: respondieron
+          oct 473 · nov 0                                                  17  Certificados subidos …
+                                  Seguimiento
+                                  Una lectura guardada por mes, para
+                                  comparar los meses.
+                                  ▸ Ver la lectura de nov 2026
 ```
 
-Under each block a "Cómo se cuenta" `<details>` holds its definitions, sources and "no dice" lines. Rules of the
-screen (M12): the five lead numbers stand on whitespace, not in cards; Montserrat with `tabular-nums`,
-right-aligned; a hairline only under a table's header row; no thick left bars; spacing on the `--f-sp-*` scale;
-body text never smaller than the desk's. A zero prints as `0` in muted ink; a figure that could not be computed
-prints as a dash with its reason. No percentage change anywhere. Under 640px the tables stack.
+The members' path (`#homeRoute`) is the page's one bold element, drawn from the answer's `route`: a forest line
+with a ringed node per stop, each stop's count standing on a pastel column, every column on one scale; its caption
+says these are counts per stage, never conversion rates. The segment into a stop marked `'apart'` is dotted and
+`texts[lang].routeApart` says why, after a sample of the line; the 30-day stop's node is the page's only `--green`.
+The lead figures that are not stops stand beside it (`#homeLead`), with the queues ("Por atender"): every queue
+is a link, also at 0, and one with something in it is said in `--alert` and comes first. Below, the seven families
+stand in explicit columns that keep the catalogue's order: the script only chooses where each column ends and
+remembers that cut in the viewer's `localStorage`. Each area is built the same way: the figure first,
+right-aligned in Montserrat `tabular-nums`, then its name with its window in words ("58 en 30 días"); ranked lists
+with thin pastel bars (activity by kind adds each kind's 7 days, or says once that the week had none); each month
+series as small bars in the family of the indicator it splits (`seriesIndicator`); a `pairs` entry as one row
+("9 de 17"). "Cómo se cuenta" opens each definition, source and limit under its own row. "Seguimiento" is a
+folded list with one reading and, with two or more, the page's one table: a column per month, the rows grouped by
+family. No cards, shadows or rounded corners, no thick left bars and no rule between rows: a line only for the
+path, a chart's baseline and the table's header row; spacing on the `--f-sp-*` scale; body text never smaller
+than the desk's. A zero prints as `0` in muted ink; a figure that could not be computed prints as a dash with
+its reason. No percentage change anywhere. Under 900px the path runs down the left edge of the screen (printed,
+it stays across the page at any paper width); under 640px the page is one column in the catalogue's order.
 
 **Catalogue.** `server/metrics-catalog.js` holds per indicator: key, family, order, name, definition, source and
 "does not tell", in ES, EN and PT; the labels of the reserved list keys `_other` and `_none` and of the fixed
@@ -514,23 +518,26 @@ without a time limit), and so do visit figures, which are always summed again fr
 day touches no reading. "Complete" means every part of a fixed `READING_PARTS` list answered; a partial answer
 is never stored, and while today has no reading "Seguimiento" says "La lectura de hoy aún no se guardó: <parte>
 no disponible. Se guardará al abrir esta página con todos los datos." "Seguimiento" shows about 20 of the keys
-(accounts, the profile rows, active members, connections, Founders, acceptances, festival and course totals), one
-column per Lima month that has a reading, holding that month's latest reading and headed with its date; a month
-read under an older `DEFS` carries the footnote "leído con definiciones anteriores". Dated series (accounts,
-first entries, festival registrations, and visits from R1) are also shown per month back to July 2026, so the
-page is not empty on day one. A reading is never edited: it stays under its `DEFS`, or the owner deletes its day.
+(accounts, the profile rows, active members, connections, Founders, acceptances, festival and course totals): one
+reading as a folded list, two or more as one column per Lima month that has a reading, holding that month's latest
+reading and headed with its date; a month read under an older `DEFS` carries the footnote "leído con definiciones
+anteriores". Dated series (accounts, first entries, festival registrations, and visits from R1) are also shown per
+month back to July 2026, each in the family of the indicator it splits, so the page is not empty on day one. A
+reading is never edited: it stays under its `DEFS`, or the owner deletes its day.
 
-**Export and print (M6).** "Descargar CSV" fetches the file as a blob, so an expired session or a 429 is reported
-on the page. `indicators`: one row per indicator and one per list item; columns key, state, family, indicator,
-total, 30 days, 7 days, definition, source, what it does not tell, read at (Lima); headers and texts in the chosen
-language; `key` and `state` stable. A row whose part is not `ok` carries the state text of the table above, in
-words (`csv()` prefixes a leading hyphen), in each numeric cell it normally fills, never `''` or `0`; its list
-rows are absent. `months`: one row per Lima month, one column per dated series; a failed series carries the state
-text in every cell. `readings`: one row per saved day, with `defs`; if that table cannot be read the route
-answers 503, never a headers-only file. "Imprimir o guardar como PDF" calls `window.print()`; `admin-home.js`
-opens every definition block on `beforeprint` and restores it on `afterprint`, because a stylesheet cannot open a
-closed `<details>` in every browser. `@media print` in `admin-home.css` hides the header, the bar, the buttons and
-"Por atender"; the page starts with "NODAL · Reporte de indicadores", the Lima date and time and both periods.
+**Export and print (M6).** Each download under "Descargar CSV:" (Indicadores, Por mes, Lecturas) fetches its file
+as a blob, so an expired session or a 429 is reported on the page. `indicators`: one row per indicator and one per
+list item; columns key, state, family, indicator, total, 30 days, 7 days, definition, source, what it does not
+tell, read at (Lima); headers and texts in the chosen language; `key` and `state` stable. A row whose part is not
+`ok` carries the state text of the table above, in words (`csv()` prefixes a leading hyphen), in each numeric cell
+it normally fills, never `''` or `0`; its list rows are absent. `months`: one row per Lima month, one column per
+dated series; a failed series carries the state text in every cell. `readings`: one row per saved day, with
+`defs`; if that table cannot be read the route answers 503, never a headers-only file. "Imprimir o guardar como
+PDF" calls `window.print()`; `admin-home.js` opens every family's definitions and the folded reading on
+`beforeprint` and puts both back on `afterprint`, because a stylesheet cannot open a closed `<details>` in every
+browser. `@media print` in `admin-home.css` hides the header, the bar, the buttons and "Por atender"; the page
+starts with "NODAL · Reporte de indicadores", the Lima date and time and both periods, and the members' path runs
+across the page at any paper width.
 
 **Local preview (M13).** `scripts/seed-dev.js` builds the festival and course stores and adds registrations,
 check-ins, enrolments, course events, one acceptance, one Founder badge, bios and visit rows, and back-dates some
