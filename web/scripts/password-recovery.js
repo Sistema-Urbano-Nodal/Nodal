@@ -73,7 +73,7 @@
     const button=resetForm.querySelector('button[type="submit"]');setBusy(resetForm,true);clear();button.dataset.recoveryText='saving';apply();
     try{
       const result=await post('/api/auth/recovery/complete',{code,password:password.value});
-      if(result.passwordChanged){code='';resetForm.hidden=true;password.value='';confirm.value='';heading('doneTitle');show(result.code||'done');}
+      if(result.passwordChanged){code='';resetForm.hidden=true;another.hidden=true;password.value='';confirm.value='';heading('doneTitle');show(result.code||'done');}
       else{
         // After a save that got no answer, "already used" most likely means that save went through. A refused request
         // never reached the provider, but the code is no longer in the address, so a reload would lose it.
