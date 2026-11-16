@@ -29,8 +29,8 @@
     .map(([selector, id]) => { const group = nav.querySelector(selector); if (group && !group.id) group.id = id; return group?.id; })
     .filter(Boolean);
   if (groups.length) toggle.setAttribute('aria-controls', groups.join(' '));
-  // Every header ships its toggle's translated name (data-i18n-aria-label) and its "My console" link (nav.panel)
-  // in the markup, and i18n.js translates both; there is no session to wait for.
+  // The toggle's name (data-i18n-aria-label) and the "My console" link (nav.panel) are in every header's markup and
+  // i18n.js translates them: nav.js neither renames them nor asks for the session.
 
   // wordmark contrast: white while a dark section is under the glass bar, black otherwise
   // (.platform, "How it works", is white since the landing restyle, and .cta-band is bright green with ink
