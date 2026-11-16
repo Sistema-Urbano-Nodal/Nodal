@@ -2,13 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {once} from 'node:events';
 import {readFileSync} from 'node:fs';
+import {Readable} from 'node:stream';
 import {createDatabase,createUser} from '../server/db.js';
 import {createSession} from '../server/auth.js';
 import {createApp} from '../server/server.js';
 import {createMailTransport} from '../server/mailer.js';
 import {createNodeRequestStore} from '../server/node-requests-repository.js';
 import {createNodeRequestNotice,NODE_REQUEST_RECIPIENTS} from '../server/node-requests-email.js';
-import {NODE_REQUEST_LIMITS,NODE_REQUEST_KINDS,SPONSOR_MEMBERSHIPS,limaDayStart,nodeRequestAdminView} from '../server/node-requests-api.js';
+import {NODE_REQUEST_LIMITS,NODE_REQUEST_KINDS,SPONSOR_MEMBERSHIPS,limaDayStart,nodeRequestAdminView,createNodeRequestApi} from '../server/node-requests-api.js';
 import {startFakeSmtp,parseMessage} from './helpers/fake-smtp.js';
 import {nodeRequestsPostgrest} from './helpers/node-requests-postgrest.js';
 
@@ -265,6 +266,27 @@ test('answers 503 and sends nothing when the store refuses the insert',async t=>
  // Only this feature's lines: with Vercel's real mail settings each createApp also logs the FIIU gates being off.
  const lines=logged.mock.calls.map(c=>c.arguments.join(' '));
  assert.equal(lines.filter(l=>/^Node request/.test(l)).length,3,lines.join('\n'));assert.ok(lines.every(l=>!l.includes('ana@')&&!l.includes('Ana Quispe')),lines.join('\n'));
+});
+
+test('a request that could not be stored gives its email unit back',async t=>{
+ const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
+ const real=createNodeRequestStore({db});let refusals=3;
+ const store={...real,insert:async record=>{if(refusals>0){refusals--;throw Object.assign(Error('node request save unavailable'),{status:502});}return real.insert(record);}};
+ // The per-email budget as server.js keeps it: three a day, each taken before the insert.
+ const spent=new Map(),given=[],answers=[];
+ const api=createNodeRequestApi({store,sameOrigin:()=>true,send:(res,status,body)=>answers.push([status,body]),log:()=>{},
+  emailAllowed:email=>{const n=spent.get(email)??0;if(n>=3){answers.push([429,{error:'too many requests'}]);return false;}spent.set(email,n+1);return true;},
+  emailRelease:email=>{given.push(email);spent.set(email,spent.get(email)-1);}});
+ const post=async fields=>{
+  const req=Object.assign(Readable.from([Buffer.from(JSON.stringify(fields))]),{method:'POST',headers:{'content-type':'application/json'}});
+  await api({req,res:{},url:new URL('http://127.0.0.1/api/node-requests'),user:null});return answers.at(-1);
+ };
+ for(let n=0;n<3;n++)assert.deepEqual(await post(valid({email:'ana@colectivo.example'})),[503,{error:'service unavailable'}],`attempt ${n+1}`);
+ assert.deepEqual(given,Array(3).fill('ana@colectivo.example'),'each 503 gives back the unit it took, under the same address');
+ assert.deepEqual(await post(valid({email:'  ANA@Colectivo.example '})),[202,{ok:true}],'so the fourth attempt is not refused');
+ assert.equal(given.length,3,'a stored request keeps its unit');
+ assert.equal(spent.get('ana@colectivo.example'),1);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM node_requests').get().n,1);
 });
 
 test('refuses a cross-origin post',async t=>{
