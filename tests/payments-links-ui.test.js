@@ -452,3 +452,11 @@ test('a request that never answers gives up after 45 seconds, and the member can
  const old=await page({abortSignal:{}});old.choose('once');old.tickAll();await old.submit();await flush();
  assert.deepEqual(old.requests.filter(request=>request.path!=='/api/auth/me').map(request=>request.signal),[undefined,undefined]);assert.deepEqual(old.assigned,[MP]);
 });
+
+// The footer's email link has no translation, so it shows the addresses alone, as the landing and Founder pages do: an
+// "Email:" label would stay English beside the translated "Let's talk" and rights line.
+test('the footer shows the contact addresses with no label left in English',()=>{
+ const footer=html.slice(html.indexOf('<footer'),html.indexOf('</footer>'));
+ assert.match(footer,/<a class="footer-email" href="mailto:fmuro@sistemaurbano\.org,malegre@sistemaurbano\.org">fmuro@sistemaurbano\.org, malegre@sistemaurbano\.org<\/a>/);
+ assert.doesNotMatch(footer,/Email:/);
+});
