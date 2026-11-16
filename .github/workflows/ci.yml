@@ -60,6 +60,9 @@ jobs:
           CREATE DATABASE nodal_fiiu_test_ci TEMPLATE template0 ENCODING 'UTF8';
           CREATE DATABASE nodal_news_test_ci TEMPLATE template0 ENCODING 'UTF8';
           CREATE DATABASE nodal_metrics_test_ci TEMPLATE template0 ENCODING 'UTF8';
+          CREATE DATABASE nodal_membership_test_ci TEMPLATE template0 ENCODING 'UTF8';
+          CREATE DATABASE nodal_fiiu_test_talk_ci TEMPLATE template0 ENCODING 'UTF8';
+          CREATE DATABASE nodal_erasure_test_ci TEMPLATE template0 ENCODING 'UTF8';
           SQL
 
       - name: Lint, test, and build
@@ -69,6 +72,9 @@ jobs:
           NODAL_FIIU_TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/nodal_fiiu_test_ci
           NODAL_NEWS_TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/nodal_news_test_ci
           NODAL_METRICS_TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/nodal_metrics_test_ci
+          NODAL_MEMBERSHIP_TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/nodal_membership_test_ci
+          NODAL_FIIU_TALK_TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/nodal_fiiu_test_talk_ci
+          NODAL_ERASURE_TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/nodal_erasure_test_ci
         run: npm run build
 
       - name: Audit dependencies
