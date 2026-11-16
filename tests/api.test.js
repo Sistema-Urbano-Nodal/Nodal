@@ -626,28 +626,29 @@ test('billing config offers the Founder Membership options whose Mercado Pago li
     const res = await fetch(`${base}/api/billing/config`);
     assert.equal(res.status, 200);
     const config = await res.json();
+    // Only what the pages read: no provider name and no single "annual" price beside the options' own amounts.
     assert.deepEqual({ ...config, offer: config.offer.version }, {
-      checkout: true, provider: 'mercadopago', state: 'open', offer: 'FUNDADORES-2027-v1',
-      annual: { amount: 'S/ 499', per: '' },
+      checkout: true, state: 'open', offer: 'FUNDADORES-2027-v1',
       options: [{ id: 'once', amount: 'S/ 499' }, { id: 'installments', amount: 'S/ 550', each: 'S/ 275', count: 2, monthsApart: 2 }],
       contact: { email: 'membresias@nodal.example', complaintsUrl: 'https://reclamos.example/nodal' },
     }, `pilot ${pilotMode}`);
   }
-  // Either option alone is offered by itself; the year's price falls back to the two payments' total when nothing is paid at once.
-  assert.deepEqual(publicBillingConfig({ MERCADOPAGO_LINK_INSTALLMENTS: TWICE, ...MEMBERSHIP_CONTACT }, OFFER_OPEN_AT).annual, { amount: 'S/ 550', per: '' });
+  // Either option alone is offered by itself.
+  assert.deepEqual(publicBillingConfig({ MERCADOPAGO_LINK_INSTALLMENTS: TWICE, ...MEMBERSHIP_CONTACT }, OFFER_OPEN_AT).options.map((o) => o.id), ['installments']);
   assert.deepEqual(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: 'https://mpago.la/2Xh3k', ...MEMBERSHIP_CONTACT }, OFFER_OPEN_AT).options.map((o) => o.id), ['once']);
 });
 
-test('only an https Mercado Pago link is offered; anything else keeps the membership at "Soon"', () => {
-  const soon = (config) => [config.checkout, config.provider, config.state, config.annual, config.options];
-  const closed = [false, null, 'soon', { amount: 'Soon', per: '' }, []];
+test('only an https Mercado Pago link is offered; anything else keeps the membership "soon"', () => {
+  const soon = (config) => [config.checkout, config.state, config.options];
+  const closed = [false, 'soon', []];
+  assert.deepEqual(Object.keys(publicBillingConfig({}, OFFER_OPEN_AT)).sort(), ['checkout', 'contact', 'offer', 'options', 'state'], 'no "Soon" price slot');
   assert.deepEqual(soon(publicBillingConfig({}, OFFER_OPEN_AT)), closed, 'nothing configured');
   for (const link of ['http://link.mercadopago.com.pe/nodal', 'https://evil.example/pay', 'https://mercadopago.com.pe.evil.example/pay', 'https://user:pass@link.mercadopago.com.pe/nodal',
     'javascript:alert(1)', 'not a url', 'https://www.mercadopago.com.ar/subscriptions/checkout?preapproval_plan_id=1', '   ']) {
     assert.deepEqual(soon(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: link, ...MEMBERSHIP_CONTACT }, OFFER_OPEN_AT)), closed, link);
   }
   assert.deepEqual(soon(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: ONCE }, OFFER_OPEN_AT)), closed, 'a link without the contact');
-  // A production deployment without links is fine: the page simply says "Soon".
+  // A production deployment without links is fine: the membership simply stays "soon".
   assert.deepEqual(soon(publicBillingConfig({ NODE_ENV: 'production', PAYMENTS_MODE: 'live' }, OFFER_OPEN_AT)), closed);
   assert.doesNotThrow(() => validateRuntimeConfig({ NODE_ENV: 'production', DATABASE_PATH: '/tmp/nodal-test.sqlite', PUBLIC_BASE_URL: 'https://nodal.example', COOKIE_SECURE: 'true', MERCADOPAGO_LINK_ANNUAL: 'https://evil.example/pay' }));
 });

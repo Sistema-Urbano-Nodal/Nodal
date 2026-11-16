@@ -370,11 +370,6 @@ function publicBaseUrl(env = process.env) {
   }
 }
 
-/* Shown wherever a price would go while nothing can be paid: a price next to a
-   membership nobody can buy reads as an offer. annual.per stays '' (the offer has
-   no period to show) for pages written for the earlier shape. */
-const PRICE_UNANNOUNCED = 'Soon';
-
 /* The Founder Membership 2027 (server/membership-offer.js) is sold through links Mariana
    creates in her own Mercado Pago (a payment link for S/ 499, and a plan of two
    charges); NODAL only sends members there and the team adds each payer. A link
@@ -454,12 +449,11 @@ function membershipState(env, at) {
   return { state, contact, options: state === 'open' ? options : [] };
 }
 
+// The pages read state, checkout, offer, options (with their amounts) and contact; nothing else is sent.
 export function publicBillingConfig(env = process.env, at = Date.now()) {
   const { state, contact, options } = membershipState(env, at);
-  if (state !== 'open') return { checkout: false, provider: null, state, offer: OFFER_VIEW, annual: { amount: PRICE_UNANNOUNCED, per: '' }, options: [], contact };
-  // The year's price is the single payment's; with only the two payments offered, their total stands for it.
-  const views = options.map(({ id }) => OPTION_VIEWS[id]);
-  return { checkout: true, provider: 'mercadopago', state, offer: OFFER_VIEW, annual: { amount: (views.find((view) => view.id === 'once') ?? views[0]).amount, per: '' }, options: views, contact };
+  if (state !== 'open') return { checkout: false, state, offer: OFFER_VIEW, options: [], contact };
+  return { checkout: true, state, offer: OFFER_VIEW, options: options.map(({ id }) => OPTION_VIEWS[id]), contact };
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

@@ -526,7 +526,7 @@ version.
   Only the options with a link are listed, and never the links themselves: a
   member gets a link only from `POST /api/membership/acceptances`, after their
   acceptances are recorded.
-- `soon` (`checkout: false`, `Soon`): an option or the contact is missing, or
+- `soon` (`checkout: false`, no options): an option or the contact is missing, or
   the terms have not taken effect yet. The course pilot keeps redirecting
   `/payments.html` to the courses page.
 - `ended` (`checkout: false`): from 1 Jan 2027 00:00 Lima, whatever is set. The
@@ -707,7 +707,7 @@ npm start
     terms. With no `MERCADOPAGO_LINK_*`, or without
     `MEMBERSHIP_CONTACT_EMAIL`,
     `/api/billing/config` returns `"state": "soon"`, `"checkout": false` and
-    `Soon`, the card says "Las inscripciones abren pronto", the join page has
+    no options, the card says "Las inscripciones abren pronto", the join page has
     no button and says the same, and in the pilot `/payments.html` redirects
     to `/courses.html`. With a link and the contact set, from 21 Oct 2026
     (Lima) it returns `"state": "open"`, `"checkout": true` and S/ 499 (no link
