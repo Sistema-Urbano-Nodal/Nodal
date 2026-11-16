@@ -448,6 +448,13 @@ test('the resources hub card says what it leads to instead of repeating the page
  assert.equal(rows.resourcesHint.length,3);rows.resourcesHint.forEach((text,i)=>{assert.ok(text.trim());assert.notEqual(text,rows.resourcesTitle[i]);});
 });
 
+test('the English festival strings spell organiser the British way, as the page names the organiser dashboard',()=>{
+ const context={window:{nodalI18n:{lang:'en',onChange(){}}},document:{documentElement:{lang:'en'},querySelectorAll:()=>[]},Intl,Date,Error};
+ vm.runInNewContext(readFileSync(new URL('../web/scripts/fiiu-ui.js',import.meta.url),'utf8'),context);const {rows}=context.window.Fiiu;
+ assert.deepEqual(Object.entries(rows).filter(([,[english]])=>/\borganiz/i.test(english)).map(([name])=>name),[]);
+ assert.match(rows.editorConflict[0],/^Another organiser changed this information\./);
+});
+
 test('badge hints say badges come from the session QR code or the team, in every language',()=>{
  const context={window:{nodalI18n:{lang:'en',onChange(){}}},document:{documentElement:{lang:'en'},querySelectorAll:()=>[]},Intl,Date,Error};
  vm.runInNewContext(readFileSync(new URL('../web/scripts/fiiu-ui.js',import.meta.url),'utf8'),context);const {rows}=context.window.Fiiu;
