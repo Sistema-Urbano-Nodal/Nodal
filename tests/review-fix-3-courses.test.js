@@ -114,6 +114,23 @@ test('courses-3: a file another live post still shows stays, and a Storage failu
  assert.ok(f.logs.some(([message,id])=>/attachment cleanup failed/.test(message)&&id===stuck.id));
 });
 
+test('courses-3: a failed read of the author\'s live posts still answers the withdrawal and leaves the files for reconciliation',async t=>{
+ const f=await setup(t);await f.enter();
+ const ownFile=await f.upload('Own'),own=await f.post([ownFile.id]),moderatedFile=await f.upload('Moderated'),moderated=await f.post([moderatedFile.id]);
+ // Only the cleanup's read of the author's live posts fails, as a provider timeout would, after the post is withdrawn.
+ const find=f.store.find;
+ f.store.find=async(name,filters={},options)=>name==='posts'&&filters.deletedAt===null&&!filters.id?Promise.reject(Object.assign(new Error('Supabase unavailable: TimeoutError'),{status:503})):find.call(f.store,name,filters,options);
+ assert.equal((await f.call(`/api/courses/${f.course.id}/posts/${own.id}`,{method:'DELETE'})).status,200,'the withdrawal itself succeeded');
+ assert.equal((await f.call(`/api/admin/courses/${f.course.id}/posts/${moderated.id}`,{actor:'staff',method:'DELETE'})).status,200,'so did the moderation');
+ f.store.find=find;
+ for(const [post,file] of [[own,ownFile],[moderated,moderatedFile]]) {
+  assert.ok((await f.store.find('posts',{id:post.id}))[0].deletedAt);
+  assert.equal((await f.store.find('attachments',{id:file.id}))[0].status,'ready','nothing is removed without knowing the file is free');
+  assert.ok(f.logs.some(([message,ids])=>/attachment cleanup failed/.test(message)&&ids===file.id));
+ }
+ assert.equal((await f.call(`/api/courses/${f.course.id}/posts/${own.id}`,{method:'DELETE'})).status,404,'already withdrawn');
+});
+
 test('courses-4: authors read and withdraw their own posts after deleting the intake, unpublishing or archiving',async t=>{
  const f=await setup(t);await f.enter();
  const [a,b,c,d]=[await f.post(),await f.post(),await f.post(),await f.post()];

@@ -171,12 +171,15 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
   /* After a post is withdrawn (by its author or by staff), its author's files go with it, as the delete confirmation
      promises: unless another live post of theirs still shows a file, the file is marked 'deleting', removed from
      Storage and then from the table, which also returns it to the author's upload allowance. A Storage failure leaves
-     the row 'deleting' (never downloadable, and erased with the account) for scripts/reconcile-course-uploads.js;
-     the withdrawal itself has already succeeded, so it is reported, not undone. */
+     the row 'deleting' (never downloadable, and erased with the account) for scripts/reconcile-course-uploads.js, and a
+     failed read of the author's live posts leaves every file as it is for the same script; the withdrawal itself has
+     already succeeded, so either failure is reported, not undone. */
   async function releasePostFiles(post) {
     const ids=[...new Set((post.attachmentIds??[]).map(id=>id.toLowerCase()))];
     if(!ids.length||!post.userId)return;
-    const live=await all('posts',{moduleId:post.moduleId,userId:post.userId,deletedAt:null});
+    let live;
+    try { live=await all('posts',{moduleId:post.moduleId,userId:post.userId,deletedAt:null}); }
+    catch(error) { log('course attachment cleanup failed:',ids.join(','),errorText(error));return; }
     for(const id of ids) {
       if(live.some(other=>other.id!==post.id&&(other.attachmentIds??[]).some(reference=>sameIdentifier(reference,id))))continue;
       try {
