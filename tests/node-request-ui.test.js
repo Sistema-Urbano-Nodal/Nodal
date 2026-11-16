@@ -185,6 +185,10 @@ test('the landing page has a third card that links to #nodos and a dialog with e
   assert.match(read('web', 'styles', 'node-request.css'), /\.nr-trap \{[^}]*position: absolute;[^}]*left: -10000px;/, 'and people never see');
   const error = element(DIALOG, 'nodeRequestError');
   assert.deepEqual([error.tag, error.role, 'hidden' in error], ['p', 'alert', true]);
+  // The kind's line sits right under its question, where the focus goes, outside the radio group; the others sit by Send.
+  const kindError = element(DIALOG, 'nodeRequestKindError');
+  assert.deepEqual([kindError.tag, kindError.role, kindError.class, 'hidden' in kindError], ['p', 'alert', 'nr-error', true]);
+  assert.match(DIALOG, /<\/fieldset>\s*<p class="nr-error" id="nodeRequestKindError" role="alert" hidden><\/p>\s*<label for="nodeRequestName">/);
   assert.equal(element(DIALOG, 'nodeRequestSend').type, 'submit');
   const close = element(DIALOG, 'nodeRequestClose');
   assert.deepEqual([close.tag, close.type, close['data-i18n-aria-label']], ['button', 'button', 'mem.org.close']);
@@ -293,6 +297,7 @@ test('the window asks for the kind first, with the sponsor fields hidden until s
   assert.ok(!DIALOG.includes('nr-kicker'), 'no kicker');
   const group = element(DIALOG, 'nodeRequestKind');
   assert.equal(group.tag, 'fieldset');
+  assert.equal(group.role, 'radiogroup', 'a radio group, where screen readers expose aria-invalid');
   const fieldset = between(DIALOG, '<fieldset', '</fieldset>');
   assert.match(fieldset, /<legend[^>]*data-i18n="mem\.org\.kind">What are you interested in\?<\/legend>/);
   assert.ok(DIALOG.indexOf('id="nodeRequestKind"') < DIALOG.indexOf('id="nodeRequestName"'), 'before the name');
@@ -372,24 +377,41 @@ test('asks for a choice before sending', async () => {
   const event = await page.submit();
   assert.equal(event.defaultPrevented, true);
   assert.equal(page.requests.length, 0, 'nothing is sent without a kind');
-  assert.equal(page.error.hidden, false);
-  assert.equal(page.error.textContent, 'Elige si quieren activar un Nodo o patrocinar membresías.');
+  const line = page.$('nodeRequestKindError');
+  assert.equal(line.hidden, false);
+  assert.equal(line.textContent, 'Elige si quieren activar un Nodo o patrocinar membresías.');
+  assert.deepEqual([page.error.hidden, page.error.textContent], [true, ''], 'the reason sits under the question, not by Send');
   assert.equal(page.$('nodeRequestKind').getAttribute('aria-invalid'), 'true');
-  assert.equal(page.$('nodeRequestKind').getAttribute('aria-describedby'), 'nodeRequestError');
+  assert.equal(page.$('nodeRequestKind').getAttribute('aria-describedby'), 'nodeRequestKindError');
   assert.equal(page.document.activeElement, page.$(RADIOS.node), 'focus goes to the first radio');
   assert.equal(page.send.disabled, false);
   assert.deepEqual(page.typed(), { ...FILLED, kind: null }, 'nothing typed is lost');
   page.i18n.apply('pt');
-  assert.equal(page.error.textContent, 'Escolha se querem ativar um Nó ou patrocinar membresias.');
+  assert.equal(line.textContent, 'Escolha se querem ativar um Nó ou patrocinar membresias.');
   page.i18n.apply('en');
-  assert.equal(page.error.textContent, 'Choose whether you want to activate a Node or sponsor memberships.');
+  assert.equal(line.textContent, 'Choose whether you want to activate a Node or sponsor memberships.');
   // Choosing and sending clears the mark.
   page.choose('node');
   await page.submit();
   assert.equal(page.requests.length, 1);
   assert.equal(page.$('nodeRequestKind').getAttribute('aria-invalid'), null);
   assert.equal(page.$('nodeRequestKind').getAttribute('aria-describedby'), null);
+  assert.deepEqual([line.hidden, line.textContent], [true, '']);
   assert.equal(page.thanks.hidden, false);
+
+  // A kind the server refuses is said under the question too; the next line about a field is said by Send alone.
+  const answers = [answer(400, { field: 'kind' }), answer(400, { field: 'name' })];
+  const refused = await mount({ fetchImpl: async () => answers.shift() });
+  refused.open();
+  refused.type(FILLED);
+  await refused.submit();
+  const kindLine = refused.$('nodeRequestKindError');
+  assert.deepEqual([kindLine.hidden, kindLine.textContent, refused.error.hidden], [false, 'Choose whether you want to activate a Node or sponsor memberships.', true]);
+  assert.equal(refused.document.activeElement, refused.$(RADIOS.node));
+  await refused.submit();
+  assert.deepEqual([kindLine.hidden, kindLine.textContent], [true, '']);
+  assert.deepEqual([refused.error.hidden, refused.error.textContent], [false, 'Write your full name, up to 120 characters.']);
+  assert.equal(refused.$('nodeRequestName').getAttribute('aria-describedby'), 'nodeRequestError');
 });
 
 test('sends a sponsorship with its community and range', async () => {
