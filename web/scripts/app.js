@@ -144,7 +144,8 @@
     t.setAttribute('class', 'glabel');
     t.setAttribute('data-i18n', `graph.n.${n.id}.t`);
     t.textContent = labelOf(n.id);
-    // no aria-label: role=button names itself from the (i18n-translated) text child
+    // the visible label; the node's accessible name is its aria-label above, which i18n.js keeps translated
+    // through data-i18n-aria-label
     g.append(ring, c, t);
     svg.appendChild(g);
     return { g, c, ring, t };
