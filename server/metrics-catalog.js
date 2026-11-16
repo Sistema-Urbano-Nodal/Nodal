@@ -81,6 +81,21 @@ export const TRACKED = Object.freeze([
 
 export const MONTH_SERIES = Object.freeze(['accounts', 'entered', 'registrations', 'views', 'arrivals']);
 
+/* The lists the home is laid out by, as keys, sent in the answer so the page holds no copy of them; frozen inside and
+   out. ROUTE: the members' path drawn under the title, one stop per [key, field] in this order. 'apart' marks a stop
+   that is not one more step after the one before it (the directory is by consent; the last stop is a 30-day window):
+   the segment into it is dotted, and texts[lang].routeApart says why. That sentence names these two stops, so it
+   changes with them. SERIES_INDICATOR: the indicator each month series splits by month (keys in MONTH_SERIES order);
+   its chart stands in that indicator's family. PAIRS: [part, whole], two totals of one family where the part is truly
+   inside the whole, printed as one row ("9 de 17"). */
+const frozenRows = rows => Object.freeze(rows.map(row => Object.freeze(row)));
+export const ROUTE = frozenRows([
+  ['signups.accounts', 'total'], ['signups.confirmed', 'total'], ['signups.entered', 'total'], ['profiles.basic', 'total'],
+  ['profiles.assessed', 'total'], ['profiles.directory', 'total', 'apart'], ['activity.members', 'd30', 'apart'],
+]);
+export const SERIES_INDICATOR = Object.freeze({ accounts: 'signups.new', entered: 'signups.entered', registrations: 'festival.registrations', views: 'visits.views', arrivals: 'visits.arrivals' });
+export const PAIRS = frozenRows([['courses.surveyAnswered', 'courses.surveyTotal']]);
+
 // Texts per indicator: [name, definition, source, caveat], in es, en, pt.
 const X = {
   'visits.views': [
@@ -367,6 +382,12 @@ const SERIES = {
   en: ['New accounts', 'First entries', 'Festival registrations', 'Page views', 'Arrivals'],
   pt: ['Contas novas', 'Primeiras entradas', 'Inscrições no festival', 'Páginas vistas', 'Chegadas'],
 };
+// Why ROUTE's dotted segments are not one more step: it names its two 'apart' stops (the directory, the 30-day window).
+const ROUTE_APART = {
+  es: 'Tramo punteado: no es un paso más. El directorio es por consentimiento; la actividad se cuenta en 30 días.',
+  en: 'Dotted segment: not one more step. The directory is by consent; activity is counted over 30 days.',
+  pt: 'Trecho pontilhado: não é mais um passo. O diretório é por consentimento; a atividade é contada em 30 dias.',
+};
 
 const pageKeys = [...new Set(Object.values(VISIT_PAGES))];
 const pick = (map, keys, i) => Object.fromEntries(keys.map(k => [k, map[k][i]]));
@@ -389,6 +410,7 @@ function build(lang, i) {
     states: { ...STATES[lang] },
     csv: CSV[lang],
     series: Object.fromEntries(MONTH_SERIES.map((k, n) => [k, SERIES[lang][n]])),
+    routeApart: ROUTE_APART[lang],
   };
 }
 

@@ -1,4 +1,4 @@
-import {DEFS,FAMILIES,INDICATORS,LEAD,LEAD_SECOND,TRACKED,TEXTS,MONTH_SERIES} from './metrics-catalog.js';
+import {DEFS,FAMILIES,INDICATORS,LEAD,LEAD_SECOND,TRACKED,TEXTS,MONTH_SERIES,ROUTE,SERIES_INDICATOR,PAIRS} from './metrics-catalog.js';
 import {FIRST_MONTH,READING_PARTS,limaDay,limaStamp,windowsFor,sumSeries,foldCountries,smallGroups,validPart,figureKey,figuresOf} from './metrics-domain.js';
 import {csv} from './courses-domain.js';
 import {festivalSummary,festivalHours} from './fiiu-summary.js';
@@ -8,12 +8,13 @@ import {FINAL_SURVEY,finalSurveyCounts} from './course-final-survey.js';
 /* The admin home's figures (spec: docs/superpowers/specs/2026-11-14-admin-front-door-metrics-design.md, "R3. The home").
    GET /api/admin/metrics computes six parts in parallel, each able to fail alone (accounts, members, festival, courses,
    visits, readings), and answers 200 with what it has: an indicator whose part failed carries a state and no figure.
-   The answer is language-neutral (keys and numbers; a typed country as {text, n}); the catalogue's texts, lead row and
-   tracked rows travel beside it, attached after the memo. */
+   The answer is language-neutral (keys and numbers; a typed country as {text, n}); the catalogue's texts and the lists
+   the page is laid out by (lead row, tracked rows, route, each month series' indicator, nested pairs) travel beside it,
+   attached after the memo. */
 
 // The catalogue's constants, built once: the same objects on every answer, never part of the memo or of a reading.
 const LEAD_ROW=Object.freeze(LEAD.map(([key,field])=>Object.freeze({key,field,second:LEAD_SECOND[key]??[]})));
-const CATALOGUE=Object.freeze({texts:TEXTS,lead:LEAD_ROW,tracked:TRACKED});
+const CATALOGUE=Object.freeze({texts:TEXTS,lead:LEAD_ROW,tracked:TRACKED,route:ROUTE,seriesIndicator:SERIES_INDICATOR,pairs:PAIRS});
 
 const NOT_ACTIVATED_CODES=new Set(['PGRST202','42883','PGRST205','42P01']);
 const SIGNAL_PARTS=new Set(['accounts','members','readings','visits']);
@@ -118,8 +119,8 @@ function monthsOf(series,state){
  return series?{...series.months}:{state:'unavailable'};
 }
 
-/* One computation of the whole answer (without texts, lead and tracked): what the memo, the export and the POST share.
-   deps: {store, visitStore, fiiuStore, fiiuProgramme, courseStore, deadlineMs, onFailure(part, outcome)}. */
+/* One computation of the whole answer (without the catalogue's texts and lists): what the memo, the export and the POST
+   share. deps: {store, visitStore, fiiuStore, fiiuProgramme, courseStore, deadlineMs, onFailure(part, outcome)}. */
 export async function computeAnswer(deps,at){
  const {store,visitStore,fiiuStore,fiiuProgramme,courseStore,deadlineMs=6000,onFailure=()=>{}}=deps;
  const day=limaDay(at),windows=windowsFor(day);
@@ -289,9 +290,9 @@ function readingRows(readings,lang){
 // Complete: every part answered (visits not yet counted is an answer). Only a complete answer is kept 5 minutes or saved.
 export const answerComplete=answer=>answer.unavailable.length===0&&answer.notActivated.length===0;
 
-/* GET /api/admin/metrics[?fresh=1] → 200 the answer above with texts, lead and tracked | 401 | 403 | 405 | 429.
-   rateLimit(req,res,user,'read'|'heavy') answers the 429 itself; report(error, part) gets each refused part (once per
-   instance and part) and each unexpected throw. */
+/* GET /api/admin/metrics[?fresh=1] → 200 the answer above with texts, lead, tracked, route, seriesIndicator and pairs
+   | 401 | 403 | 405 | 429. rateLimit(req,res,user,'read'|'heavy') answers the 429 itself; report(error, part) gets each
+   refused part (once per instance and part) and each unexpected throw. */
 export function createMetricsApi({store,visitStore,fiiuStore,fiiuProgramme,courseStore,sameOrigin,send,now=()=>Date.now(),rateLimit=()=>true,
  report=async()=>false,deadlineMs=6000,memoMs=300000,partialMemoMs=30000}){
  const refused=new Set();
