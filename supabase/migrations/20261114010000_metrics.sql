@@ -41,7 +41,8 @@ GRANT EXECUTE ON FUNCTION public.metrics_account_days() TO service_role;
 -- row per day with a count; countries by n descending, then by text in byte order. 7 days are the Lima days
 -- p_today-6 ... p_today and 30 days p_today-29 ... p_today, each from 05:00:00 UTC, both ending before p_today+1 at
 -- 05:00:00 UTC. Course and feedback dates are 24-character ISO text, compared as text against the same bounds.
--- Activity (C2): user_id not null and the account's current role not admin. Left out on purpose:
+-- Activity (C2): user_id not null and the account's current role not admin, as docs/ops/2026-11-14-metrics-baseline.sql
+-- counts it: the account has a profiles row whose app_role is not admin. Left out on purpose:
 -- fiiu_registrations.updated_at, attendance by staff, 'follow' interactions, catalog updates by staff,
 -- profiles.updated_at, course_enrollments, certificates.
 CREATE FUNCTION public.metrics_member_days(p_today date) RETURNS jsonb
@@ -58,6 +59,7 @@ bounds AS (
   pg_catalog.to_char(p_today + 1, 'YYYY-MM-DD') || 'T05:00:00.000Z' AS te
 ),
 admins AS (SELECT p.id FROM public.profiles p WHERE p.app_role = 'admin'),
+members AS (SELECT p.id FROM public.profiles p WHERE p.app_role <> 'admin'),
 -- Sources dated with timestamptz.
 stamped (user_id, kind, at) AS (
  SELECT o.user_id, 'profile', o.created_at FROM public.onboarding_responses o
@@ -93,7 +95,7 @@ hits AS (
 ),
 member_hits AS (
  SELECT h.user_id, h.kind, h.in7 FROM hits h
- WHERE h.user_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM admins x WHERE x.id = h.user_id)
+ WHERE h.user_id IS NOT NULL AND EXISTS (SELECT 1 FROM members x WHERE x.id = h.user_id)
 ),
 -- Dated series per Lima day, every row (the team's included).
 dated (series, at) AS (
@@ -137,10 +139,10 @@ SELECT pg_catalog.jsonb_build_object(
   'basic', (SELECT pg_catalog.count(*) FROM onboarding x
    WHERE pg_catalog.btrim(COALESCE(x.city_region, '')) <> '' AND COALESCE(pg_catalog.cardinality(x.interests), 0) > 0),
   'city', (SELECT pg_catalog.count(*) FROM onboarding x WHERE pg_catalog.btrim(COALESCE(x.city_region, '')) <> ''),
-  'interests', (SELECT pg_catalog.count(*) FROM onboarding x WHERE COALESCE(pg_catalog.cardinality(x.interests), 0) > 0),
+  'interests', (SELECT pg_catalog.count(DISTINCT o.user_id) FROM public.onboarding_responses o WHERE pg_catalog.cardinality(o.interests) > 0),
   'bio', (SELECT pg_catalog.count(*) FROM onboarding x
    WHERE pg_catalog.btrim(COALESCE(NULLIF(pg_catalog.btrim(COALESCE(x.bio, '')), ''), x.raw_answers->'partC'->>'bio', '')) <> ''),
-  'assessed', (SELECT pg_catalog.count(*) FROM onboarding x WHERE x.raw_answers->'assessed' = 'true'::jsonb),
+  'assessed', (SELECT pg_catalog.count(DISTINCT o.user_id) FROM public.onboarding_responses o WHERE o.raw_answers->'assessed' = 'true'::jsonb),
   'directory', (SELECT pg_catalog.count(*) FROM onboarding x
    WHERE x.account_status = 'active' AND (x.data_consent->'directoryPublic' = 'true'::jsonb
     OR (NOT COALESCE(x.data_consent ? 'directoryPublic', false) AND x.raw_answers->'partC'->'consent' = 'true'::jsonb))),
@@ -152,9 +154,9 @@ SELECT pg_catalog.jsonb_build_object(
   'interestsNew', (SELECT pg_catalog.count(*) FROM public.catalog_interests c WHERE c.status = 'new'),
   'orgRequestsNew', (SELECT pg_catalog.count(*) FROM public.node_requests n WHERE n.status = 'new'),
   'learners', (SELECT pg_catalog.count(DISTINCT e.user_id) FROM public.course_enrollments e
-   WHERE NOT EXISTS (SELECT 1 FROM admins x WHERE x.id = e.user_id)),
+   WHERE EXISTS (SELECT 1 FROM members x WHERE x.id = e.user_id)),
   'openers', (SELECT pg_catalog.count(DISTINCT e.user_id) FROM public.course_events e
-   WHERE NOT EXISTS (SELECT 1 FROM admins x WHERE x.id = e.user_id)),
+   WHERE EXISTS (SELECT 1 FROM members x WHERE x.id = e.user_id)),
   'teamRegistrations', (SELECT pg_catalog.count(*) FROM public.fiiu_registrations r
    WHERE EXISTS (SELECT 1 FROM admins x WHERE x.id = r.user_id))
  ),

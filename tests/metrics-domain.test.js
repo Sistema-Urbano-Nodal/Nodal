@@ -17,6 +17,12 @@ test('sums a per-day series into windows and Lima months', () => {
   assert.equal(sumSeries([['2026-11-15', 5]], '2026-11-14').total, 5, 'a later day still counts in the total, in no window');
 });
 test('a series that was not read stays missing, never zeros', () => { assert.equal(sumSeries(null, '2026-11-14'), null); });
+test('a row that is not a day and a finite count is a failed read, never a wrong number', () => {
+  for (const row of [['2026-11-14', '7'], ['2026-11-14', Number.NaN], ['2026-11-14', null], ['2026-11-14'], ['14/11/2026', 1], [20261114, 1], null]) {
+    assert.throws(() => sumSeries([['2026-11-13', 1], row], '2026-11-14'), TypeError, JSON.stringify(row));
+  }
+  assert.equal(sumSeries([['2026-11-14', 0]], '2026-11-14').total, 0, 'a zero is a count');
+});
 test('folds, labels and guards festival countries', () => {
   assert.deepEqual(foldCountries([['perú', 230], ['peru', 103], ['Perú', 2], ['lima', 8], ['Colombia', 7], ['méxico', 2], ['Mexico', 2],
     ['Chile', 2], ['x'.repeat(41), 5], ['Per1', 4], ['', 1]]),
@@ -41,6 +47,15 @@ test('validates by version and required keys, ignoring extras', () => {
   assert.equal(validPart('members', { v: 1, days: {}, now: {}, active: { d7: {}, d30: {} }, lists: {} }), true);
   assert.equal(validPart('visits', { v: 1, days: [], pages: {}, sources: {} }), true);
   assert.equal(validPart('visits', null), false);
+  // Every per-day row is [Lima day, finite counts]: two counts for accounts and visits, one for each member series.
+  assert.equal(validPart('accounts', { v: 1, days: [['2026-11-14', 2, 1]] }), true);
+  for (const row of [['2026-11-14', 2], ['2026-11-14', '2', 1], ['2026-11-14', 2, Number.NaN], ['14/11/2026', 2, 1], null]) {
+    assert.equal(validPart('accounts', { v: 1, days: [row] }), false, JSON.stringify(row));
+    assert.equal(validPart('visits', { v: 1, days: [row], pages: {}, sources: {} }), false, JSON.stringify(row));
+  }
+  const members = days => ({ v: 1, days, now: {}, active: { d7: {}, d30: {} }, lists: {} });
+  assert.equal(validPart('members', members({ entered: [['2026-11-14', 3]], later: 'ignored' })), true);
+  assert.equal(validPart('members', members({ entered: [['2026-11-14', 3]], follows: [['2026-11-14', '3']] })), false);
 });
 test('builds the flat figures map and refuses a partial reading', () => {
   assert.deepEqual(figuresOf([{ key: 'signups.accounts', total: 525 }, { key: 'signups.entered', total: 486, d30: 2, d7: 0 },

@@ -14,11 +14,20 @@ import {createVisitStore} from '../server/visits-repository.js';
 import {FINAL_SURVEY} from '../server/course-final-survey.js';
 import {DEFS,FAMILIES,INDICATORS,LEAD,LEAD_SECOND,TRACKED,TEXTS,MONTH_SERIES} from '../server/metrics-catalog.js';
 import {windowsFor,figuresOf} from '../server/metrics-domain.js';
-import {loadSqlite,expectedMemberDays,sqliteProfile} from './fixtures/metrics-fixture.js';
+import {loadSqlite,freezeUserClock,expectedMemberDays,sqliteProfile} from './fixtures/metrics-fixture.js';
 
 const START='2026-11-14T13:36:00.000Z';
 const MINUTE=60000;
-const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const deferred=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};};
+/* Two requests inside one computation, without a timer: after arm(), memberDays waits until the API has let two
+   requests in (it asks rateLimit for 'read' once per request, before the computation), then answers. Unarmed, it answers at once. */
+function together(){
+ const state={calls:0,seen:0,gate:null,wait:null};
+ return {state,arm(){state.seen=0;state.gate=deferred();state.wait=state.gate.promise;},
+  options:{rateLimit:(req,res,user,kind)=>{if(kind==='read'&&++state.seen===2)state.gate?.resolve();return true;}},
+  // Only the first computation after arm() waits; a later one (fresh=1, another day) answers at once.
+  store:({metrics})=>wrap(metrics,{memberDays:async(today,options,real)=>{state.calls++;const wait=state.wait;state.wait=null;await wait;return real(today,options);}})};
+}
 // A store double: the real one with some methods replaced (each replacement gets the real method as its last argument).
 const wrap=(real,over)=>{
  const out=Object.create(null);
@@ -40,6 +49,10 @@ async function setup(t,{metricsStore,fiiuStore,courseStore,visitStore,metricsOpt
   // Outside both windows, so the seeded figures are the fixture's own.
   db.prepare('UPDATE users SET created_at = ? WHERE id = ?').run('2026-07-01T15:00:00.000Z',users[name].id);
  }
+ // That UPDATE fired users_updated_at, which stamps the wall clock: this test database drops the trigger and gives both
+ // accounts a fixed updated_at, so neither is ever "profile activity", whatever day the tests run.
+ freezeUserClock(db);
+ db.prepare('UPDATE users SET updated_at = ?').run('2026-07-01T15:00:00.000Z');
  const own={db,fiiu:createFiiuStore({db}),course:createCourseStore({db}),nodeRequest:createNodeRequestStore({db})};
  own.talk=createTalkStore({db});own.visit=createVisitStore({db});own.metrics=createMetricsStore({db});
  const pick=(option,fallback)=>option===undefined?fallback:option===null?null:option(own);
@@ -115,11 +128,74 @@ test('the memoised data holds no display word',async t=>{
  assert.ok(indicator(body,'festival.countries').items.some(item=>'text' in item),'a typed country travels as {text, n}');
 });
 
+/* Every indicator on the fixture's rows (tests/fixtures/metrics-fixture.js), worked by hand: the eight fixture accounts
+   plus the harness's two (one admin), made in July. A figure read from the wrong place shows here. */
+const COURSE=FINAL_SURVEY.courseId,perCourse=n=>({total:n,items:[{key:COURSE,n}]});
+const SEEDED={
+ 'visits.views':{d30:2,d7:2},
+ 'visits.arrivals':{d30:2,d7:2},
+ 'visits.topPages':{items:[{key:'index.html',n:2}]},
+ 'visits.sources':{items:[{key:'search',n:2}]},
+ 'signups.accounts':{total:10},
+ 'signups.confirmed':{total:10}, // the local copy has no confirmation: equal to accounts
+ 'signups.new':{d30:4,d7:2,last:'2026-11-14',daysSince:0}, // m3 m4 m5 m6; m5 m6
+ 'signups.entered':{total:10,d30:4,d7:2},
+ 'signups.team':{total:3}, // a1, a2 and the harness's admin
+ 'profiles.basic':{total:4}, // a1 m1 m4 m5
+ 'profiles.city':{total:5}, // a1 m1 m3 m4 m5
+ 'profiles.interests':{total:5}, // a1 m1 m2 m4 m5
+ 'profiles.bio':{total:3}, // a1 m1 m5
+ 'profiles.assessed':{total:3}, // a1 m1 m4
+ 'profiles.directory':{total:4}, // a1 m1 m2 m5; m3 consents but is disabled
+ 'profiles.saved':{total:0}, // production only
+ 'activity.members':{d30:6,d7:5}, // m2 did nothing in the 7 days
+ 'activity.kinds':{items:[{key:'profile',n:3,d7:2},{key:'network',n:5,d7:3},{key:'opportunities',n:3,d7:1},{key:'festival',n:6,d7:4},{key:'courses',n:6,d7:2},{key:'membership',n:1,d7:1}]},
+ 'activity.follows':{total:5,d30:3,d7:2}, // one of the five is dated after the day
+ 'activity.interests':{total:5,d30:3,d7:2}, // six rows, one withdrawn
+ 'memberships.founders':{total:2,d30:2,d7:1},
+ 'memberships.acceptances':{total:4,d30:2,d7:1},
+ 'memberships.acceptors':{total:3}, // m1, m5 and the acceptance whose account is gone
+ 'memberships.unbadged':{total:2}, // m5 and the one whose account is gone
+ 'memberships.orgRequests':{total:3},
+ 'memberships.views':{items:[{key:'fundadores.html',n:0},{key:'payments.html',n:0}]},
+ 'festival.registrations':{total:8,team:2},
+ 'festival.blockRegistrations':{total:0}, // no registration ticks a block
+ 'festival.attendances':{total:5},
+ 'festival.attendedPeople':{total:4}, // m3 m4 m5 a1
+ 'festival.qrPeople':{total:3}, // m4 m5 a1; m3 was checked in by staff
+ 'festival.hours':{total:20}, // five attendances of four-hour mornings
+ 'festival.labApplications':{total:2}, // one pending, one accepted
+ 'festival.profileTypes':{items:[{key:'student',n:3},{key:'_other',n:5}]}, // organization 2, academic 1, professional 1, blank 1
+ 'festival.countries':{items:[{text:'Perú',n:5},{key:'_other',n:3}]}, // Colombia 1, Lima 1, blank 1
+ 'courses.enrolled':perCourse(5),
+ 'courses.intakeCompleted':perCourse(0),
+ 'courses.moduleOpens':perCourse(3),
+ 'courses.contentOpens':perCourse(1),
+ 'courses.recordingOpens':perCourse(1),
+ 'courses.assignments':perCourse(0),
+ 'courses.comments':perCourse(3), // four comments, one deleted
+ 'courses.surveyTotal':{total:3}, // m1 m2 m3: m4 joined in November
+ 'courses.surveyAnswered':{total:1}, // m3
+ 'courses.certificates':{total:0},
+ 'courses.learners':{total:4},
+ 'courses.openers':{total:3},
+};
+
 test('counts on seeded rows',async t=>{
  const {get,own}=await setup(t,{fixture:true});
  for(const day of ['2026-11-10','2026-11-13'])await own.visit.count({day,page:'index.html',arrival:true,source:'search'});
  const {body}=await get();
  assert.deepEqual(body.unavailable,[]);assert.deepEqual(body.notActivated,[]);
+ assert.deepEqual(Object.keys(SEEDED),INDICATORS.map(i=>i.key),'one expected row per indicator');
+ const got=Object.fromEntries(body.families.flatMap(f=>f.indicators).map(({key,vocabulary,...figures})=>{void vocabulary;return [key,figures];}));
+ assert.deepEqual(got,SEEDED);
+ // The member figures are the stores' own (the same rows answer PostgreSQL in tests/metrics-postgres.test.js).
+ const now=expectedMemberDays.now;
+ for(const [key,field] of [['signups.team','admins'],['profiles.basic','basic'],['profiles.city','city'],['profiles.interests','interests'],['profiles.bio','bio'],
+  ['profiles.assessed','assessed'],['profiles.directory','directory'],['memberships.acceptors','acceptors'],['courses.learners','learners'],['courses.openers','openers']]){
+  assert.equal(SEEDED[key].total,now[field]+(field==='admins'?1:0),key);
+ }
+ assert.equal(body.pending.lab,1,'pending only, not every application');
  // Eight fixture accounts and the harness's two.
  assert.equal(indicator(body,'signups.accounts').total,10);
  assert.equal(indicator(body,'signups.entered').d30,4);
@@ -139,7 +215,9 @@ test('counts on seeded rows',async t=>{
  assert.deepEqual(indicator(body,'courses.enrolled').items,[{key:FINAL_SURVEY.courseId,n:5}]);
  assert.equal(body.visitsSince,'2026-11-10');
  assert.deepEqual(indicator(body,'visits.arrivals'),{key:'visits.arrivals',d30:2,d7:2});
- assert.deepEqual(body.pending,{interests:expectedMemberDays.now.interestsNew,orgRequests:expectedMemberDays.now.orgRequestsNew,lab:0});
+ assert.deepEqual(body.pending,{interests:expectedMemberDays.now.interestsNew,orgRequests:expectedMemberDays.now.orgRequestsNew,lab:1});
+ assert.deepEqual(body.months.series,{accounts:{'2026-07':3,'2026-08':0,'2026-09':2,'2026-10':2,'2026-11':3},entered:{'2026-07':3,'2026-08':0,'2026-09':2,'2026-10':2,'2026-11':3},
+  registrations:{'2026-07':0,'2026-08':0,'2026-09':4,'2026-10':3,'2026-11':1},views:{'2026-11':2},arrivals:{'2026-11':2}});
 });
 
 test('agrees with the tools',async t=>{
@@ -157,19 +235,20 @@ test('agrees with the tools',async t=>{
 });
 
 test('memoises for five minutes and shares one computation',async t=>{
- let calls=0;
- const {get,clock}=await setup(t,{metricsStore:({metrics})=>wrap(metrics,{memberDays:async(today,options,real)=>{calls++;await pause(30);return real(today,options);}})});
- assert.equal((await get()).status,200);assert.equal(calls,1);
+ const pair=together(),{state}=pair;
+ const {get,clock}=await setup(t,{metricsStore:pair.store,metricsOptions:pair.options});
+ assert.equal((await get()).status,200);assert.equal(state.calls,1);
  clock.at+=10000;
- assert.equal((await get()).status,200);assert.equal(calls,1,'10 seconds later: the memo');
+ assert.equal((await get()).status,200);assert.equal(state.calls,1,'10 seconds later: the memo');
  clock.at=Date.parse(START)+5*MINUTE+1;
- await get();assert.equal(calls,2,'5 minutes and 1 ms later: computed again');
- await Promise.all([get(),get()]);assert.equal(calls,2,'two at once inside the memo');
+ await get();assert.equal(state.calls,2,'5 minutes and 1 ms later: computed again');
+ await Promise.all([get(),get()]);assert.equal(state.calls,2,'two at once inside the memo');
  clock.at+=5*MINUTE+1;
+ pair.arm(); // the computation ends only once both requests are in
  const both=await Promise.all([get(),get()]);
- assert.equal(calls,3,'two at once share one computation');
+ assert.equal(state.calls,3,'two at once share one computation');
  assert.deepEqual(both[0].body,both[1].body);
- await get('/api/admin/metrics?fresh=1');assert.equal(calls,4,'fresh=1 skips the memo');
+ await get('/api/admin/metrics?fresh=1');assert.equal(state.calls,4,'fresh=1 skips the memo');
 });
 
 test('limits',async t=>{
@@ -177,6 +256,11 @@ test('limits',async t=>{
  for(let i=0;i<60;i++)assert.equal((await call('/api/admin/metrics')).status,200,`GET ${i+1}`);
  const refused=await call('/api/admin/metrics');
  assert.equal(refused.status,429);assert.ok(Number(refused.headers.get('retry-after'))>0);
+ const exports=await setup(t);
+ for(let i=0;i<60;i++)assert.equal((await exports.call('/api/admin/metrics/export?table=months&lang=es')).status,200,`export ${i+1}`);
+ const late=await exports.call('/api/admin/metrics/export?table=months&lang=es');
+ assert.equal(late.status,429);assert.ok(Number(late.headers.get('retry-after'))>0);
+ assert.equal(late.headers.get('content-disposition'),null);
  const other=await setup(t);
  for(let i=0;i<6;i++)assert.equal((await other.call('/api/admin/metrics?fresh=1')).status,200,`fresh ${i+1}`);
  assert.equal((await other.call('/api/admin/metrics?fresh=1')).status,429);
@@ -257,6 +341,35 @@ test('each state: an unexpected throw',async t=>{
  assert.deepEqual(JSON.parse(text).unavailable,[{part:'members',reason:'error'}]);
  assert.deepEqual(reports,[{message:'boom',part:'members'}]);
  assert.doesNotMatch(text,/boom/);
+});
+
+test('each state: a part that answers rows of the wrong shape fails alone',async t=>{
+ for(const [part,over,filled] of [
+  ['accounts',{accountDays:async()=>({v:1,days:[['2026-11-14','7',7]]})},'profiles.city'],
+  ['accounts',{accountDays:async()=>({v:1,days:[['2026-11-14',Number.NaN,1]]})},'profiles.city'],
+  ['accounts',{accountDays:async()=>({v:1,days:[['14/11/2026',1,1]]})},'profiles.city'],
+  ['members',{memberDays:async(today,options,real)=>{const value=await real(today,options);value.days.entered=[['2026-11-14',null]];return value;}},'signups.accounts'],
+ ]){
+  const {get,call,own,reports}=await setup(t,{metricsStore:({metrics})=>wrap(metrics,over)});
+  const {status,body}=await get();
+  assert.equal(status,200,part);
+  assert.deepEqual(body.unavailable,[{part,reason:'error'}]);
+  for(const key of byPart(part)){const ind=indicator(body,key);assert.equal(ind.state,'unavailable',key);assert.equal('total' in ind||'d30' in ind,false,key);}
+  assert.equal(typeof indicator(body,filled).total,'number','the other blocks stay filled');
+  assert.deepEqual(body.months.series[part==='accounts'?'accounts':'entered'],{state:'unavailable'});
+  assert.doesNotMatch(JSON.stringify(body.families),/NaN|"7"/);
+  assert.deepEqual(reports,[],'a wrong shape is an outage of that part');
+  assert.deepEqual(await (await call('/api/admin/metrics/readings',{method:'POST'})).json(),{saved:false,day:'2026-11-14'});
+  assert.deepEqual(await own.metrics.readings(),[]);
+ }
+ const visits=await setup(t,{visitStore:()=>({kind:'sqlite',count:async()=>{},totals:async()=>({v:1,days:[['2026-11-10','5',2]],pages:{},sources:{}})})});
+ const {status,body}=await visits.get();
+ assert.equal(status,200);
+ assert.deepEqual(body.unavailable,[{part:'visits',reason:'error'}]);
+ assert.equal(indicator(body,'visits.views').state,'unavailable');
+ assert.equal(body.visitsSince,null);
+ assert.deepEqual(body.months.series.views,{state:'unavailable'});
+ assert.equal(typeof indicator(body,'signups.accounts').total,'number');
 });
 
 test('each state: no visit counted yet',async t=>{
@@ -427,6 +540,9 @@ test('indicators CSV, byte for byte',async t=>{
  const peru=cellsOf(lineOf(es.lines,'festival.countries#Perú'));
  assert.deepEqual(peru.slice(0,7),['festival.countries#Perú','ok','Festival','Perú','5','','']);
  assert.deepEqual(cellsOf(lineOf(es.lines,'festival.countries#_other')).slice(3,5),[TEXTS.es.lists.reserved._other,'3']);
+ // Answers given by fewer than three people never leave the server apart: one row for them all.
+ for(const small of ['organization','academic','professional','_none'])assert.equal(lineOf(es.lines,`festival.profileTypes#${small}`),undefined,small);
+ assert.deepEqual(cellsOf(lineOf(es.lines,'festival.profileTypes#_other')).slice(3,5),[TEXTS.es.lists.reserved._other,'5']);
  const student=indicator(body,'festival.profileTypes').items.find(item=>item.key==='student');
  assert.ok(student,'the fixture has a student group');
  assert.deepEqual(cellsOf(lineOf(es.lines,'festival.profileTypes#student')).slice(0,7),
@@ -552,6 +668,33 @@ test('the readings CSV with its table down',async t=>{
  assert.deepEqual(await response.json(),{error:'metrics unavailable'});
 });
 
+test('a reading the store cannot save',async t=>{
+ const {call,get,own,reports}=await setup(t,{metricsStore:({metrics})=>wrap(metrics,{saveReading:reject({status:503})})});
+ const post=await call('/api/admin/metrics/readings',{method:'POST'});
+ assert.equal(post.status,503);
+ assert.deepEqual(await post.json(),{error:'metrics unavailable'});
+ assert.deepEqual(own.db.prepare('SELECT day FROM metrics_readings').all(),[]);
+ assert.deepEqual(reports,[],'an outage is not reported');
+ const {status,body}=await get();
+ assert.equal(status,200);
+ assert.equal(body.readings.today,false);
+ assert.deepEqual(body.unavailable,[]);
+});
+
+test('a saved reading that cannot be read fails the readings alone',async t=>{
+ const {get,call,own}=await setup(t);
+ own.db.prepare('INSERT INTO metrics_readings (day,taken_at,defs,figures) VALUES (?,?,?,?)').run('2026-11-01','2026-11-01T14:00:00.000Z',1,'{"signups.accounts":');
+ await assert.rejects(own.metrics.readings(),error=>error.status===502&&error.message==='metrics readings unavailable');
+ const {status,body}=await get();
+ assert.equal(status,200);
+ assert.deepEqual(body.readings,{today:false,months:[],state:'unavailable'});
+ assert.deepEqual(body.unavailable,[{part:'readings',reason:'error'}]);
+ assert.equal(typeof indicator(body,'signups.accounts').total,'number');
+ const response=await call('/api/admin/metrics/export?table=readings&lang=es');
+ assert.equal(response.status,503);
+ assert.deepEqual(await response.json(),{error:'metrics unavailable'});
+});
+
 test('saves the first complete reading of the day',async t=>{
  const {call,get,own}=await setup(t,{fixture:true});
  const {body}=await get();
@@ -619,18 +762,18 @@ test('never saves a partial answer',async t=>{
 });
 
 test('the reading uses the memo or the shared computation',async t=>{
- let calls=0;
- const slow=({metrics})=>wrap(metrics,{memberDays:async(today,options,real)=>{calls++;await pause(30);return real(today,options);}});
- const {call,get}=await setup(t,{metricsStore:slow});
- await get();assert.equal(calls,1);
+ const first=together();
+ const {call,get}=await setup(t,{metricsStore:first.store,metricsOptions:first.options});
+ await get();assert.equal(first.state.calls,1);
  assert.deepEqual(await (await call('/api/admin/metrics/readings',{method:'POST'})).json(),{saved:true,day:'2026-11-14'});
- assert.equal(calls,1,'the POST read the memo');
- calls=0;
- const other=await setup(t,{metricsStore:slow});
+ assert.equal(first.state.calls,1,'the POST read the memo');
+ const pair=together();
+ const other=await setup(t,{metricsStore:pair.store,metricsOptions:pair.options});
+ pair.arm(); // the computation ends only once the POST and the GET are both in
  const [post,read]=await Promise.all([other.call('/api/admin/metrics/readings',{method:'POST'}).then(r=>r.json()),other.get()]);
  assert.deepEqual(post,{saved:true,day:'2026-11-14'});
  assert.equal(read.status,200);
- assert.equal(calls,1,'one computation for both');
+ assert.equal(pair.state.calls,1,'one computation for both');
 });
 
 test('never saves one day\'s figures under the next day',async t=>{

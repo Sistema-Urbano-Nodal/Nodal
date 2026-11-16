@@ -7,6 +7,11 @@ export const SMALL_GROUP = 3;
 export const READING_PARTS = ['accounts', 'members', 'festival', 'courses', 'visits', 'readings'];
 
 const DAY_MS = 86400000;
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const finite = v => typeof v === 'number' && Number.isFinite(v);
+// One row of a per-day series: a Lima day, then `width` finite counts.
+const seriesRow = (row, width) => Array.isArray(row) && typeof row[0] === 'string' && DAY.test(row[0]) && row.length > width && row.slice(1, 1 + width).every(finite);
+const seriesRows = (rows, width) => rows.every(row => seriesRow(row, width));
 const dayMs = day => Date.parse(`${day}T00:00:00Z`);
 const dayAt = (day, back) => new Date(dayMs(day) - back * DAY_MS).toISOString().slice(0, 10);
 
@@ -17,8 +22,10 @@ export function windowsFor(day) {
   return { d7: { from: dayAt(day, 6), to: day }, d30: { from: dayAt(day, 29), to: day } };
 }
 
+// A row that is not [Lima day, finite count] is a failed read: it throws, so the figure shows a dash, never a wrong number.
 export function sumSeries(rows, day) {
   if (!Array.isArray(rows)) return null;
+  for (const row of rows) if (!seriesRow(row, 1)) throw new TypeError('metrics series row is not [day, count]');
   const { d7, d30 } = windowsFor(day);
   const months = {};
   const lastMonth = day.slice(0, 7);
@@ -97,10 +104,12 @@ export function smallGroups(items) {
 
 const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
 const REQUIRED = {
-  accounts: v => Array.isArray(v.days),
-  members: v => isObj(v.days) && isObj(v.now) && isObj(v.active) && isObj(v.active.d7) && isObj(v.active.d30) && isObj(v.lists),
-  visits: v => Array.isArray(v.days) && isObj(v.pages) && isObj(v.sources),
+  accounts: v => Array.isArray(v.days) && seriesRows(v.days, 2),
+  members: v => isObj(v.days) && isObj(v.now) && isObj(v.active) && isObj(v.active.d7) && isObj(v.active.d30) && isObj(v.lists)
+    && Object.values(v.days).every(rows => !Array.isArray(rows) || seriesRows(rows, 1)),
+  visits: v => Array.isArray(v.days) && seriesRows(v.days, 2) && isObj(v.pages) && isObj(v.sources),
 };
+// The version, the required containers, and every per-day row as [Lima day, finite counts].
 export function validPart(name, value) {
   return isObj(value) && value.v === 1 && !!REQUIRED[name]?.(value);
 }

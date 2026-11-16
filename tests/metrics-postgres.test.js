@@ -97,6 +97,19 @@ test('PostgreSQL visit counts and metrics: server-only objects, atomic increment
  await assert.rejects(sql(`SET ROLE service_role; INSERT INTO public.metrics_readings(day,taken_at,defs,figures) VALUES('2026-11-15',now(),1,'[]');`),/check constraint/);
 
  // twin equality: the fixture's rows, answered by the function the server calls, as the server.
- await loadPostgres(sql);
- assert.deepEqual(JSON.parse(await sql(`SET ROLE service_role; SELECT public.metrics_member_days('${METRICS_TODAY}');`)),expectedMemberDays);
+ const {users}=await loadPostgres(sql);
+ const memberDays=async()=>JSON.parse(await sql(`SET ROLE service_role; SELECT public.metrics_member_days('${METRICS_TODAY}');`));
+ // As the baseline counts (docs/ops/2026-11-14-metrics-baseline.sql): a member is an account with a profiles row whose
+ // role is not admin. The accounts made above have no profile; a skip by one of them, inside 7 days, is nobody's activity.
+ const stray=n=>`00000000-0000-4000-8999-00000000000${n}`;
+ await sql(`INSERT INTO public.member_interactions(from_user_id,to_user_id,type,created_at) VALUES('${stray(1)}','${users.get('m1')}','skip','2026-11-10T15:00:00Z');`);
+ assert.deepEqual(await memberDays(),expectedMemberDays);
+ // Its saved answers count where the baseline counts rows of onboarding_responses (interests, self-assessment and the
+ // saves per day), and nowhere a profile is asked for.
+ await sql(`INSERT INTO public.onboarding_responses(user_id,interests,raw_answers,created_at,updated_at)
+  VALUES('${stray(2)}',ARRAY['datos']::text[],'{"assessed":true,"partC":{"bio":"Sin perfil","consent":true}}'::jsonb,'2026-09-21T15:00:00Z','2026-11-10T15:00:00Z');`);
+ const withStray=structuredClone(expectedMemberDays);
+ withStray.now.interests+=1;withStray.now.assessed+=1;
+ withStray.days.profileSaves=[['2026-09-20',2],['2026-09-21',1],...expectedMemberDays.days.profileSaves.slice(1)];
+ assert.deepEqual(await memberDays(),withStray);
 });

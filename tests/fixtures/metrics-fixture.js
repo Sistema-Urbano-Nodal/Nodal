@@ -4,7 +4,9 @@
    Each row carries only what the metrics read: `user` (a key of `users`, or null), its instants as ISO strings under the
    column's name in camel case, and the field the SQL filters on. Lima is UTC-5 all year; METRICS_TODAY's 7 days are the
    Lima days 2026-11-08 ... 2026-11-14 (from 2026-11-08T05:00:00Z) and its 30 days 2026-10-16 ... 2026-11-14 (from
-   2026-10-16T05:00:00Z), both ending before 2026-11-15T05:00:00Z. */
+   2026-10-16T05:00:00Z), both ending before 2026-11-15T05:00:00Z.
+   Every rule that leaves a row out is proved by a row that only that rule keeps out: the member it belongs to has no
+   other activity of that kind in the window, so dropping the rule changes a count. */
 import {randomUUID} from 'node:crypto';
 import {FINAL_SURVEY} from '../../server/course-final-survey.js';
 import {addFollowDb, createUser, grantFounder, recordInteractionDb, recordMembershipAcceptance, updateCatalogInterest,
@@ -22,17 +24,20 @@ const EDGE30 = '2026-10-16T05:00:00.000Z';   // Lima 2026-10-16, the first insta
 const BEFORE30 = '2026-10-16T04:59:59.000Z'; // Lima 2026-10-15: outside
 const OLD = '2026-09-20T15:00:00.000Z';      // Lima 2026-09-20: outside
 const LATER = '2026-10-25T15:00:00.000Z';    // Lima 2026-10-25: inside 30 days only
+const AFTER = '2026-11-15T05:00:00.000Z';    // Lima 2026-11-15, the first instant after both windows
+const NEVER_SAVED = '2026-07-01T15:00:00.000Z'; // SQLite users.updated_at of an account with no profile save
 
-const profile = (city, interests, bio, assessed, directory) => ({city, interests, bio, assessed, directory});
+const profile = (city, interests, bio, assessed, directory, status = 'active') => ({city, interests, bio, assessed, directory, status});
 
 export const metricsFixture = Object.freeze({
- // One row feeds auth.users and profiles (Postgres) or users (SQLite). Two admins, six members.
+ // One row feeds auth.users and profiles (Postgres) or users (SQLite). Two admins, six members. m3 consents to the
+ // directory but the account is disabled: the directory count leaves it out.
  users: [
   {key: 'a1', role: 'admin', createdAt: '2026-07-10T15:00:00.000Z', confirmedAt: '2026-07-10T16:00:00.000Z', profile: profile('Lima', ['movilidad'], 'Equipo NODAL', true, true), founderSince: null},
   {key: 'a2', role: 'admin', createdAt: '2026-09-01T15:00:00.000Z', confirmedAt: null, profile: profile('', [], '', false, false), founderSince: null},
   {key: 'm1', role: 'member', createdAt: OLD, confirmedAt: OLD, profile: profile('Cusco', ['transporte', 'datos'], 'Urbanista', true, true), founderSince: IN30},
   {key: 'm2', role: 'member', createdAt: BEFORE30, confirmedAt: BEFORE30, profile: profile('  ', ['datos'], '', false, true), founderSince: null},
-  {key: 'm3', role: 'member', createdAt: EDGE30, confirmedAt: null, profile: profile('Arequipa', [], '  ', false, false), founderSince: null},
+  {key: 'm3', role: 'member', createdAt: EDGE30, confirmedAt: null, profile: profile('Arequipa', [], '  ', false, true, 'disabled'), founderSince: null},
   {key: 'm4', role: 'member', createdAt: BEFORE7, confirmedAt: BEFORE7, profile: profile('Lima', ['movilidad'], '', true, false), founderSince: IN7},
   {key: 'm5', role: 'member', createdAt: EDGE7, confirmedAt: EDGE7, profile: profile('Bogotá', ['datos'], 'Investigadora', false, true), founderSince: null},
   {key: 'm6', role: 'member', createdAt: '2026-11-14T15:00:00.000Z', confirmedAt: null, profile: profile('', [], '', false, false), founderSince: null},
@@ -64,6 +69,7 @@ export const metricsFixture = Object.freeze({
   {user: 'm2', target: 'm3', createdAt: IN30},
   {user: 'm3', target: 'm1', createdAt: OLD},
   {user: 'a1', target: 'm1', createdAt: IN7},
+  {user: 'm6', target: 'm2', createdAt: AFTER},  // after the windows: m6 has no other network row in 7 days
  ],
  // Red: type 'skip' only. Left out on purpose: 'follow' (the follow trigger's copies) and the other types.
  member_interactions: [
@@ -83,34 +89,37 @@ export const metricsFixture = Object.freeze({
   {user: 'm5', status: 'closed', createdAt: OLD, updatedAt: OLD, updatedBy: 'm5'},
   {user: 'a2', status: 'new', createdAt: IN7, updatedAt: IN7, updatedBy: 'a2'},
  ],
- // Festival: created_at only (updated_at moves on staff review: left out). Five spellings of one country.
+ // Festival: created_at only (updated_at moves on staff review: left out; r-m4's is inside 7 days, where m4 has no
+ // festival row). Five spellings of one country. One laboratory application pending and one accepted.
  fiiu_registrations: [
-  {key: 'r-a1', user: 'a1', createdAt: OLD, updatedAt: OLD, country: 'Perú', profileType: 'organization'},
-  {key: 'r-a2', user: 'a2', createdAt: OLD, updatedAt: OLD, country: 'Perú', profileType: 'organization'},
-  {key: 'r-m1', user: 'm1', createdAt: IN7, updatedAt: IN7, country: 'peru', profileType: 'student'},
-  {key: 'r-m2', user: 'm2', createdAt: OLD, updatedAt: IN7, country: ' Perú ', profileType: 'student'},
-  {key: 'r-m3', user: 'm3', createdAt: IN30, updatedAt: IN30, country: 'Colombia', profileType: 'academic'},
-  {key: 'r-m4', user: 'm4', createdAt: BEFORE30, updatedAt: BEFORE30, country: 'PERU', profileType: 'student'},
-  {key: 'r-m5', user: 'm5', createdAt: OLD, updatedAt: OLD, country: 'Lima', profileType: 'professional'},
-  {key: 'r-m6', user: 'm6', createdAt: EDGE30, updatedAt: EDGE30, country: '', profileType: ''},
+  {key: 'r-a1', user: 'a1', createdAt: OLD, updatedAt: OLD, country: 'Perú', profileType: 'organization', labStatus: 'none'},
+  {key: 'r-a2', user: 'a2', createdAt: OLD, updatedAt: OLD, country: 'Perú', profileType: 'organization', labStatus: 'none'},
+  {key: 'r-m1', user: 'm1', createdAt: IN7, updatedAt: IN7, country: 'peru', profileType: 'student', labStatus: 'none'},
+  {key: 'r-m2', user: 'm2', createdAt: OLD, updatedAt: IN7, country: ' Perú ', profileType: 'student', labStatus: 'none'},
+  {key: 'r-m3', user: 'm3', createdAt: IN30, updatedAt: IN30, country: 'Colombia', profileType: 'academic', labStatus: 'pending'},
+  {key: 'r-m4', user: 'm4', createdAt: BEFORE30, updatedAt: IN7, country: 'PERU', profileType: 'student', labStatus: 'none'},
+  {key: 'r-m5', user: 'm5', createdAt: OLD, updatedAt: OLD, country: 'Lima', profileType: 'professional', labStatus: 'accepted'},
+  {key: 'r-m6', user: 'm6', createdAt: EDGE30, updatedAt: EDGE30, country: '', profileType: '', labStatus: 'none'},
  ],
- // Festival: method 'qr' only; a check-in by staff is left out.
+ // Festival: method 'qr' only; a check-in by staff is left out (m4's is its only festival row in 7 days). The blocks
+ // are two of the programme's four-hour mornings.
  fiiu_attendance: [
-  {user: 'm5', activity: 'conferencia-1', method: 'qr', createdAt: IN7},
-  {user: 'm4', activity: 'conferencia-1', method: 'qr', createdAt: IN30},
-  {user: 'm2', activity: 'conferencia-1', method: 'staff', createdAt: IN7},
-  {user: 'a1', activity: 'conferencia-1', method: 'qr', createdAt: IN7},
-  {user: 'm3', activity: 'conferencia-1', method: 'qr', createdAt: OLD},
+  {user: 'm5', activity: 'day1-am', method: 'qr', createdAt: IN7},
+  {user: 'm4', activity: 'day1-am', method: 'qr', createdAt: IN30},
+  {user: 'm4', activity: 'day2-am', method: 'staff', createdAt: IN7},
+  {user: 'a1', activity: 'day1-am', method: 'qr', createdAt: IN7},
+  {user: 'm3', activity: 'day1-am', method: 'staff', createdAt: OLD},  // attended, without a QR code of their own
  ],
  // The parents of the conversation rows below (not read by the metrics).
  fiiu_questions: [
   {key: 'q-chat', kind: 'chat', activity: 'conferencia-1', user: 'a1', createdAt: OLD},
   {key: 'q-rating', kind: 'rating', activity: 'conferencia-1', user: 'a1', createdAt: OLD},
  ],
- // Festival: organiser false only.
+ // Festival: organiser false only (msg-m4 is written as an organiser by a member account).
  fiiu_messages: [
   {key: 'msg-m6', question: 'q-chat', user: 'm6', organiser: false, createdAt: IN7},
   {key: 'msg-a1', question: 'q-chat', user: 'a1', organiser: true, createdAt: IN7},
+  {key: 'msg-m4', question: 'q-chat', user: 'm4', organiser: true, createdAt: IN7},
   {key: 'msg-m1', question: 'q-chat', user: 'm1', organiser: false, createdAt: IN30},
   {key: 'msg-m2', question: 'q-chat', user: 'm2', organiser: false, createdAt: OLD},
  ],
@@ -119,9 +128,10 @@ export const metricsFixture = Object.freeze({
   {message: 'msg-m6', user: 'm5', createdAt: BEFORE7},
   {message: 'msg-m6', user: 'm4', createdAt: OLD},
  ],
- // Festival: created_at or updated_at.
+ // Festival: created_at or updated_at (m2's change of score is its only festival row in 30 days; m2 has no activity of
+ // any kind in 7 days, so the two windows differ).
  fiiu_ratings: [
-  {question: 'q-rating', user: 'm2', createdAt: OLD, updatedAt: IN7},
+  {question: 'q-rating', user: 'm2', createdAt: OLD, updatedAt: LATER},
   {question: 'q-rating', user: 'm6', createdAt: IN30, updatedAt: IN30},
   {question: 'q-rating', user: 'm1', createdAt: OLD, updatedAt: OLD},
   {question: 'q-rating', user: 'a2', createdAt: IN7, updatedAt: IN7},
@@ -142,18 +152,20 @@ export const metricsFixture = Object.freeze({
   {user: 'm2', kind: 'content_open', createdAt: BEFORE7},
   {user: 'm3', kind: 'recording_open', createdAt: OLD},
   {user: 'a1', kind: 'module_open', createdAt: IN7},
+  {user: 'm3', kind: 'module_open', createdAt: AFTER},  // after the windows: m3 has no other course row in 7 days
  ],
- // Cursos: staff false, deleted ones included.
+ // Cursos: staff false, deleted ones included (m4's staff post is its only course row in 7 days).
  course_posts: [
   {user: 'm5', staff: false, deletedAt: LATER, createdAt: IN30},
   {user: 'a1', staff: true, deletedAt: null, createdAt: IN7},
   {user: 'm6', staff: false, deletedAt: null, createdAt: OLD},
+  {user: 'm4', staff: true, deletedAt: null, createdAt: IN7},
  ],
- // Cursos: created_at or submitted_at.
+ // Cursos: created_at or submitted_at, never updated_at (m3's is inside 7 days, where m3 has no course row).
  course_survey_responses: [
   {user: 'm6', createdAt: OLD, updatedAt: IN7, submittedAt: IN7},
   {user: 'm2', createdAt: IN30, updatedAt: IN30, submittedAt: null},
-  {user: 'm3', createdAt: OLD, updatedAt: OLD, submittedAt: OLD},
+  {user: 'm3', createdAt: OLD, updatedAt: IN7, submittedAt: OLD},
  ],
  // Membresía: two acceptances by one person, and one whose account is gone.
  membership_acceptances: [
@@ -170,14 +182,14 @@ export const metricsFixture = Object.freeze({
 });
 
 /* What metrics_member_days('2026-11-14') answers on Postgres for the rows above (worked by hand from the catalogue):
-   7 days  - Perfil m1 m4 · Red m1 m3 m5 · Oportunidades m1 · Festival m1 m2 m3 m5 m6 · Cursos m1 m6 · Membresía m1
+   7 days  - Perfil m1 m4 · Red m1 m3 m5 · Oportunidades m1 · Festival m1 m3 m5 m6 · Cursos m1 m6 · Membresía m1 (all but m2)
    30 days - Perfil m1 m2 m4 m5 · Red m1 m2 m3 m5 m6 · Oportunidades m1 m2 m4 · Festival and Cursos all six · Membresía m1 */
 export const expectedMemberDays = Object.freeze({
  v: 1,
  days: {
   entered: [['2026-07-10', 1], ['2026-09-01', 1], ['2026-09-20', 1], ['2026-10-15', 1], ['2026-10-16', 1], ['2026-11-07', 1], ['2026-11-08', 1], ['2026-11-14', 1]],
   profileSaves: [['2026-09-20', 2], ['2026-10-15', 1], ['2026-10-20', 1], ['2026-11-08', 1], ['2026-11-10', 1]],
-  follows: [['2026-09-20', 1], ['2026-10-20', 1], ['2026-11-10', 2]],
+  follows: [['2026-09-20', 1], ['2026-10-20', 1], ['2026-11-10', 2], ['2026-11-15', 1]],
   interests: [['2026-09-20', 2], ['2026-10-20', 1], ['2026-11-10', 2]],
   registrations: [['2026-09-20', 4], ['2026-10-15', 1], ['2026-10-16', 1], ['2026-10-20', 1], ['2026-11-10', 1]],
   acceptances: [['2026-09-20', 1], ['2026-10-15', 1], ['2026-10-20', 1], ['2026-11-10', 1]],
@@ -189,7 +201,7 @@ export const expectedMemberDays = Object.freeze({
   acceptors: 3, unbadged: 2, interestsNew: 3, orgRequestsNew: 1, learners: 4, openers: 3, teamRegistrations: 2,
  },
  active: {
-  d7: {members: 6, profile: 2, network: 3, opportunities: 1, festival: 5, courses: 2, membership: 1},
+  d7: {members: 5, profile: 2, network: 3, opportunities: 1, festival: 4, courses: 2, membership: 1},
   d30: {members: 6, profile: 4, network: 5, opportunities: 3, festival: 6, courses: 6, membership: 1},
  },
  lists: {
@@ -197,10 +209,11 @@ export const expectedMemberDays = Object.freeze({
  },
 });
 
-/* The twin reads the profile kind from users.updated_at, which the users_updated_at trigger (server/db.js) stamps with
-   the wall clock on every UPDATE of users, so it always lands after METRICS_TODAY: profile is 0 in both windows, and
-   members loses m4, whose only activity in 7 days is a profile save. */
-export const sqliteProfile = Object.freeze({d7: {profile: 0, members: 5}, d30: {profile: 0, members: 6}});
+/* The twin reads the profile kind from users.updated_at only (SQLite has no onboarding_responses, and it does not read
+   pilot_feedback 'profile' rows). loadSqlite sets that column to the row's onboarding updatedAt, so the twin sees the
+   saves of m1 and m4 in 7 days and of m1, m2 and m4 in 30; m5, whose only profile row in 30 days is a feedback row, is
+   the one difference from Postgres. a1's save is inside 7 days too and is left out as the team's. */
+export const sqliteProfile = Object.freeze({d7: {profile: 2, members: 5}, d30: {profile: 3, members: 6}});
 
 // Deterministic ids for Postgres: users, then every other keyed row.
 const uuid = (group, n) => `00000000-0000-4000-8${String(group).padStart(3, '0')}-${String(n).padStart(12, '0')}`;
@@ -218,8 +231,8 @@ export async function loadPostgres(sql) {
  const statements = [];
  const add = (table, columns, rows) => { if (rows.length) statements.push(`INSERT INTO ${table} (${columns.join(',')}) VALUES ${rows.map(r => `(${r.join(',')})`).join(',')};`); };
  add('auth.users', ['id', 'email', 'created_at', 'email_confirmed_at'], f.users.map(r => [u(r.key), lit(`${r.key}@example.test`), lit(r.createdAt), lit(r.confirmedAt)]));
- add('public.profiles', ['id', 'full_name', 'email', 'city_region', 'bio', 'app_role', 'founder_since', 'created_at', 'updated_at'],
-  f.users.map(r => [u(r.key), lit(`Persona ${r.key}`), lit(`${r.key}@example.test`), lit(r.profile.city), lit(r.profile.bio), lit(r.role), lit(r.founderSince), lit(r.createdAt), lit(r.createdAt)]));
+ add('public.profiles', ['id', 'full_name', 'email', 'city_region', 'bio', 'app_role', 'account_status', 'founder_since', 'created_at', 'updated_at'],
+  f.users.map(r => [u(r.key), lit(`Persona ${r.key}`), lit(`${r.key}@example.test`), lit(r.profile.city), lit(r.profile.bio), lit(r.role), lit(r.profile.status), lit(r.founderSince), lit(r.createdAt), lit(r.createdAt)]));
  add('public.profile_preferences', ['user_id', 'data_consent'], f.users.map(r => [u(r.key), jsonLit({directoryPublic: r.profile.directory})]));
  const byKey = new Map(f.users.map(r => [r.key, r]));
  add('public.onboarding_responses', ['user_id', 'interests', 'raw_answers', 'created_at', 'updated_at'], f.onboarding_responses.map(r => {
@@ -231,7 +244,7 @@ export async function loadPostgres(sql) {
  statements.push(`INSERT INTO public.catalog_items (id, kind, status, action_mode) VALUES (${lit(ITEM_ID)}, 'opportunity', 'published', 'interest');`);
  add('public.catalog_interests', ['item_id', 'user_id', 'status', 'created_at', 'updated_at', 'updated_by'], f.catalog_interests.map(r => [lit(ITEM_ID), u(r.user), lit(r.status), lit(r.createdAt), lit(r.updatedAt), u(r.updatedBy)]));
  add('public.fiiu_registrations', ['id', 'event_id', 'user_id', 'email', 'answers', 'lab_status', 'version', 'created_at', 'updated_at'], f.fiiu_registrations.map(r =>
-  [lit(registrations.get(r.key)), lit(EVENT), u(r.user), lit(`${r.user}@example.test`), jsonLit({country: r.country, profile: r.profileType}), "'none'", '1', lit(r.createdAt), lit(r.updatedAt)]));
+  [lit(registrations.get(r.key)), lit(EVENT), u(r.user), lit(`${r.user}@example.test`), jsonLit({country: r.country, profile: r.profileType}), lit(r.labStatus), '1', lit(r.createdAt), lit(r.updatedAt)]));
  const registrationOf = new Map(f.fiiu_registrations.map(r => [r.user, registrations.get(r.key)]));
  add('public.fiiu_attendance', ['id', 'registration_id', 'activity_id', 'method', 'created_at'], f.fiiu_attendance.map((r, i) => [lit(uuid(5, i + 1)), lit(registrationOf.get(r.user)), lit(r.activity), lit(r.method), lit(r.createdAt)]));
  add('public.fiiu_questions', ['id', 'event_id', 'activity_id', 'body', 'status', 'kind', 'rating_counts', 'created_by', 'version', 'created_at', 'updated_at'], f.fiiu_questions.map(r =>
@@ -260,18 +273,25 @@ export async function loadPostgres(sql) {
 }
 
 /* Loads the same rows into the app's SQLite database through the repository's and the stores' own functions, then sets
-   with direct UPDATEs the dates those functions do not take (they stamp the wall clock). Never sets users.updated_at:
-   the users_updated_at trigger rewrites it on every UPDATE of users (see sqliteProfile). Returns the ids by key. */
+   with direct UPDATEs the dates those functions do not take (they stamp the wall clock). The users_updated_at trigger
+   (server/db.js) would rewrite users.updated_at with the wall clock on every UPDATE of users, so this test database
+   drops it (production keeps it) and every account gets a fixed updated_at: its onboarding row's updatedAt, or
+   NEVER_SAVED. No expected figure depends on the day the tests run. Returns the ids by key. */
+export function freezeUserClock(db) { db.exec('DROP TRIGGER IF EXISTS users_updated_at'); }
+
 export async function loadSqlite({db, fiiuStore, courseStore, nodeRequestStore, talkStore = createTalkStore({db})}) {
  const f = metricsFixture;
  const users = new Map();
+ const savedAt = new Map(f.onboarding_responses.map(r => [r.user, r.updatedAt]));
  for (const r of f.users) {
   const row = createUser(db, {fullName: `Persona ${r.key}`, email: `${r.key}@example.test`, passwordHash: 'unused', role: r.role});
   users.set(r.key, row.id);
   updateUserProfile(db, row.id, {city: r.profile.city, interests: r.profile.interests, assessed: r.profile.assessed, partC: {bio: r.profile.bio, consent: r.profile.directory}});
   if (r.founderSince) grantFounder(db, row.id, r.founderSince);
-  db.prepare('UPDATE users SET created_at = ? WHERE id = ?').run(r.createdAt, row.id);
+  if (r.profile.status !== 'active') db.prepare('UPDATE users SET account_status = ? WHERE id = ?').run(r.profile.status, row.id);
  }
+ freezeUserClock(db);
+ for (const r of f.users) db.prepare('UPDATE users SET created_at = ?, updated_at = ? WHERE id = ?').run(r.createdAt, savedAt.get(r.key) ?? NEVER_SAVED, users.get(r.key));
  const u = key => key === null ? null : users.get(key);
  for (const r of f.member_follows) {
   addFollowDb(db, u(r.user), u(r.target));
@@ -296,9 +316,10 @@ export async function loadSqlite({db, fiiuStore, courseStore, nodeRequestStore, 
  const registrations = new Map();
  for (const r of f.fiiu_registrations) {
   const saved = await fiiuStore.insert('registrations', {id: randomUUID(), eventId: 'fiiu-2026', userId: u(r.user), email: `${r.user}@example.test`,
-   answers: {country: r.country, profile: r.profileType}, labStatus: 'none', version: 1, createdAt: r.createdAt, updatedAt: r.updatedAt});
+   answers: {country: r.country, profile: r.profileType}, labStatus: r.labStatus, version: 1, createdAt: r.createdAt, updatedAt: r.updatedAt});
   registrations.set(r.user, saved.id);
  }
+ // The stores stamp nothing on a later UPDATE: every date below is the fixture's own.
  for (const r of f.fiiu_attendance) {
   await fiiuStore.insert('attendance', {id: randomUUID(), registrationId: registrations.get(r.user), activityId: r.activity, method: r.method, createdAt: r.createdAt});
  }

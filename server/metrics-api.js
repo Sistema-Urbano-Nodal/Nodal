@@ -48,7 +48,11 @@ async function runPart(name,fn,deadlineMs){
  finally{clearTimeout(timer);}
 }
 
-const pairs=(rows,i)=>Array.isArray(rows)?rows.map(row=>[row[0],Number(row[i])||0]):null;
+// No coercion: a count that is not a finite number makes sumSeries throw, so it is never read as 0.
+const pairs=(rows,i)=>Array.isArray(rows)?rows.map(row=>[row?.[0],row?.[i]]):null;
+// A part's answer of the wrong shape (the version, a container, or a row that is not [Lima day, finite counts]) fails that part.
+const shaped=(part,value)=>{if(!validPart(part,value))throw Object.assign(new Error(`metrics ${part} unavailable`),{status:502});return value;};
+const once=fn=>{let done=false,value;return()=>{if(!done){value=fn();done=true;}return value;};};
 const dayCount=(from,to)=>Math.round((Date.parse(`${to}T00:00:00Z`)-Date.parse(`${from}T00:00:00Z`))/DAY_MS);
 const topItems=(object,max=Infinity)=>Object.entries(object??{}).map(([key,n])=>({key,n:Number(n)||0}))
  .sort((a,b)=>b.n-a.n||(a.key<b.key?-1:a.key>b.key?1:0)).slice(0,max);
@@ -60,20 +64,21 @@ function readers({accounts,members,festival,courses,visits,day}){
  const days=members?.days,now=members?.now,active=members?.active;
  const memberSeries=key=>Array.isArray(days?.[key])?sumSeries(pairs(days[key],1),day):null;
  const nowValue=key=>isNum(now?.[key])?{total:now[key]}:null;
- const created=accounts?sumSeries(pairs(accounts.days,1),day):null,confirmed=accounts?sumSeries(pairs(accounts.days,2),day):null;
- const views=visits?sumSeries(pairs(visits.days,1),day):null,arrivals=visits?sumSeries(pairs(visits.days,2),day):null;
+ // Summed on first use, inside the indicator that asks: a throw blanks that indicator, not the answer.
+ const created=once(()=>accounts?sumSeries(pairs(accounts.days,1),day):null),confirmed=once(()=>accounts?sumSeries(pairs(accounts.days,2),day):null);
+ const views=once(()=>visits?sumSeries(pairs(visits.days,1),day):null),arrivals=once(()=>visits?sumSeries(pairs(visits.days,2),day):null);
  const summary=festival?.summary,activities=Array.isArray(summary?.activities)?summary.activities:null;
  const courseTotal=key=>courses?{total:courses.list.reduce((t,c)=>t+(Number(courses.summaries[c.id]?.[key])||0),0),
   items:courses.list.map(c=>({key:c.id,n:Number(courses.summaries[c.id]?.[key])||0}))}:null;
  const survey=key=>isNum(courses?.survey?.[key])?{total:courses.survey[key]}:null;
  const out={
-  'visits.views':()=>fields(views,['d30','d7']),
-  'visits.arrivals':()=>fields(arrivals,['d30','d7']),
+  'visits.views':()=>fields(views(),['d30','d7']),
+  'visits.arrivals':()=>fields(arrivals(),['d30','d7']),
   'visits.topPages':()=>visits?{items:topItems(visits.pages,10)}:null,
   'visits.sources':()=>visits?{items:topItems(visits.sources).filter(item=>item.n>0)}:null,
-  'signups.accounts':()=>created?{total:created.total}:null,
-  'signups.confirmed':()=>confirmed?{total:confirmed.total}:null,
-  'signups.new':()=>created?{d30:created.d30,d7:created.d7,last:created.last,daysSince:created.last?dayCount(created.last,day):null}:null,
+  'signups.accounts':()=>created()?{total:created().total}:null,
+  'signups.confirmed':()=>confirmed()?{total:confirmed().total}:null,
+  'signups.new':()=>{const c=created();return c?{d30:c.d30,d7:c.d7,last:c.last,daysSince:c.last?dayCount(c.last,day):null}:null;},
   'signups.entered':()=>fields(memberSeries('entered'),['total','d30','d7']),
   'signups.team':()=>nowValue('admins'),
   'profiles.saved':()=>fields(memberSeries('profileSaves'),['total']),
@@ -119,8 +124,8 @@ export async function computeAnswer(deps,at){
  const {store,visitStore,fiiuStore,fiiuProgramme,courseStore,deadlineMs=6000,onFailure=()=>{}}=deps;
  const day=limaDay(at),windows=windowsFor(day);
  const parts={
-  accounts:signal=>{if(!store)throw offStore('accounts');return store.accountDays({signal});},
-  members:signal=>{if(!store)throw offStore('members');return store.memberDays(day,{signal});},
+  accounts:async signal=>{if(!store)throw offStore('accounts');return shaped('accounts',await store.accountDays({signal}));},
+  members:async signal=>{if(!store)throw offStore('members');return shaped('members',await store.memberDays(day,{signal}));},
   festival:async()=>{
    if(!fiiuStore||!fiiuProgramme)throw offStore('festival');
    return festivalSummary({store:fiiuStore,programme:fiiuProgramme});
@@ -137,9 +142,7 @@ export async function computeAnswer(deps,at){
   },
   visits:async signal=>{
    if(!visitStore)throw offStore('visits');
-   const value=await visitStore.totals(windows.d30.from,day,{signal});
-   if(!validPart('visits',value))throw Object.assign(new Error('metrics visits unavailable'),{status:502});
-   return value;
+   return shaped('visits',await visitStore.totals(windows.d30.from,day,{signal}));
   },
   readings:signal=>{if(!store)throw offStore('readings');return store.readings({signal});},
  };
@@ -156,11 +159,21 @@ export async function computeAnswer(deps,at){
  const visitsSince=visits?(visits.days.find(row=>(Number(row[1])||0)+(Number(row[2])||0)>0)?.[0]??null):null;
  // Visits before their first counted day are not counted, not zero.
  if(visits&&(visitsSince===null||visitsSince>day))states.visits='not_yet_counted';
+ /* Everything worked out after the parts answered fails alone too: a throw blanks that figure or series, marks its part
+    unavailable once (so the answer is partial: kept 30 seconds, no reading saved) and is reported. */
+ const broken=new Set();
+ const derived=(part,fn,fallback)=>{
+  try{return fn();}
+  catch(error){
+   if(!broken.has(part)){broken.add(part);unavailable.push({part,reason:'error'});onFailure(part,{error,report:'always'});}
+   return fallback;
+  }
+ };
  const read=readers({accounts:value('accounts'),members:value('members'),festival:value('festival'),courses:value('courses'),visits:states.visits==='ok'?visits:null,day});
  const families=FAMILIES.map(key=>({key,indicators:INDICATORS.filter(ind=>ind.family===key).map(ind=>{
   const base={key:ind.key,...(ind.vocabulary?{vocabulary:ind.vocabulary}:{})};
   if(states[ind.part]!=='ok')return {...base,state:states[ind.part]};
-  const got=read[ind.key]();
+  const got=derived(ind.part,()=>read[ind.key](),null);
   return got?{...base,...got}:{...base,state:'unavailable'};
  })}));
  const members=value('members'),accounts=value('accounts');
@@ -168,12 +181,12 @@ export async function computeAnswer(deps,at){
  let views={},arrivals={};
  if(states.visits==='ok'){
   const first=visitsSince.slice(0,7),cut=months=>Object.fromEntries(Object.entries(months).filter(([month])=>month>=first));
-  views=cut(series(visits.days,1).months);arrivals=cut(series(visits.days,2).months);
+  [views,arrivals]=derived('visits',()=>[cut(series(visits.days,1).months),cut(series(visits.days,2).months)],[{state:'unavailable'},{state:'unavailable'}]);
  }else if(states.visits!=='not_yet_counted')views=arrivals={state:states.visits};
  const months={from:FIRST_MONTH,series:{
-  accounts:monthsOf(accounts&&series(accounts.days,1),states.accounts),
-  entered:monthsOf(members&&series(members.days?.entered,1),states.members),
-  registrations:monthsOf(members&&series(members.days?.registrations,1),states.members),
+  accounts:derived('accounts',()=>monthsOf(accounts&&series(accounts.days,1),states.accounts),{state:'unavailable'}),
+  entered:derived('members',()=>monthsOf(members&&series(members.days?.entered,1),states.members),{state:'unavailable'}),
+  registrations:derived('members',()=>monthsOf(members&&series(members.days?.registrations,1),states.members),{state:'unavailable'}),
   views,arrivals,
  }};
  let readings;
@@ -312,14 +325,15 @@ export function createMetricsApi({store,visitStore,fiiuStore,fiiuProgramme,cours
   const [table]=tables,[lang]=langs;
   let rows,day=limaDay(now());
   if(table==='readings'){
-   try{rows=readingRows(await store.readings(),lang);}
+   // The same deadline as a part of the GET, so a slow table never holds the request for rest's own 15 seconds.
+   try{rows=readingRows(await store.readings({signal:AbortSignal.timeout(deadlineMs)}),lang);}
    catch(error){onFailure('readings',{error,report:classify(error,false).report});send(res,503,{error:'metrics unavailable'});return;}
   }else{
    let answer;
    try{answer=await current();}catch(error){unavailableAnswer(res,error);return;}
    // The file is named after the day its figures belong to.
    day=answer.limaDay;
-   rows=table==='indicators'?indicatorRows(answer,lang):monthRows(answer,lang);
+   try{rows=table==='indicators'?indicatorRows(answer,lang):monthRows(answer,lang);}catch(error){unavailableAnswer(res,error);return;}
   }
   send(res,200,csv(rows),{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="${EXPORT_TABLES[table]}-${day}.csv"`});
  }

@@ -54,7 +54,8 @@ const SERIES=[
  ['founders','users','founder_since'],
  ['orgRequests','node_requests','created_at'],
 ];
-const NOT_ADMIN=column=>`${column} NOT IN (SELECT id FROM users WHERE role='admin')`;
+// As the baseline (docs/ops/2026-11-14-metrics-baseline.sql): an account that exists and whose role is not admin.
+const NOT_ADMIN=column=>`${column} IN (SELECT id FROM users WHERE role<>'admin')`;
 const BIO="trim(COALESCE(json_extract(part_c_json,'$.bio'),''))<>''";
 const NOW=[
  ['admins',['users'],"SELECT count(*) FROM users WHERE role='admin'"],
@@ -127,8 +128,13 @@ export function createMetricsStore({db,env=process.env,clients,fetchImpl=fetch}=
   // Oldest first. The Data API cuts a table read at the project's row cap with no error, so it pages by day until an
   // empty page (as server/fiiu-repository.js scans).
   async readings({signal}={}){
-   if(db)return db.prepare('SELECT day,taken_at,defs,figures FROM metrics_readings ORDER BY day').all()
-    .map(r=>({day:r.day,takenAt:r.taken_at,defs:r.defs,figures:JSON.parse(r.figures)}));
+   if(db)return db.prepare('SELECT day,taken_at,defs,figures FROM metrics_readings ORDER BY day').all().map(r=>{
+    // A cell that is not a JSON object fails the read as the Data API would, never as a bare SyntaxError.
+    let figures;
+    try{figures=JSON.parse(r.figures);}catch{figures=null;}
+    if(figures===null||typeof figures!=='object'||Array.isArray(figures))unavailable('readings');
+    return {day:r.day,takenAt:r.taken_at,defs:r.defs,figures};
+   });
    const out=[];
    for(let cursor=null;;){
     const page=await supa.admin.rest('metrics_readings',{query:{select:'day,taken_at,defs,figures',order:'day.asc',limit:PAGE,...(cursor?{day:`gt.${cursor}`}:{})},signal});
