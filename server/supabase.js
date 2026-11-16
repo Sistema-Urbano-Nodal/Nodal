@@ -1088,10 +1088,10 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       }
       const user = await ensureProfile(authUser, fullName);
       return {
-        status: session?.access_token ? 201 : 202,
+        status: 201,
         user,
         cookies: sessionCookies(session, env),
-        requiresEmailConfirmation: !session?.access_token,
+        requiresEmailConfirmation: false,
       };
     },
     /* Answers in the same shape the sqlite backend does. Letting a rejected
