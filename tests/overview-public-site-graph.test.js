@@ -93,3 +93,20 @@ test('the page-wide safety net still ends a drag whose own pointer was released 
   node.fire('pointermove', { pointerId: 7, clientX: 600, clientY: 300 });
   assert.notEqual(node.children[1].getAttribute('cx'), '600.0', 'the released node no longer follows the pointer');
 });
+
+/* ---------- M100: the node card's tabs say which pane is showing ---------- */
+
+test('the node card tabs tell a screen reader which pane is showing', () => {
+  const g = graphPage();
+  g.nodes[1].fire('keydown', { key: 'Enter' });
+  const tabs = () => g.card.children.find((child) => child.className === 'gc-tabs').children;
+  const pressed = () => tabs().map((tab) => tab.getAttribute('aria-pressed'));
+  const panes = () => g.card.children.filter((child) => child.className === 'gc-pane').map((pane) => !pane.hidden);
+  assert.deepEqual(pressed(), ['true', 'false', 'false']);
+  tabs()[2].fire('click');
+  assert.deepEqual(pressed(), ['false', 'false', 'true']);
+  assert.deepEqual(panes(), [false, false, true], 'the pressed tab is the pane on show');
+  assert.equal(tabs()[2].classList.contains('is-on'), true, 'the colour and the pressed state agree');
+  g.nodes[4].fire('keydown', { key: 'Enter' });   // another node's card opens on its first pane
+  assert.deepEqual(pressed(), ['true', 'false', 'false']);
+});

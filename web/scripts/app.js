@@ -395,9 +395,13 @@
     const btns = labels.map((lab, k) => {
       const b = el('button', 'gc-tab' + (k === cardTab ? ' is-on' : ''), lab);
       b.type = 'button';
+      b.setAttribute('aria-pressed', String(k === cardTab));   // the pane on show, said as well as coloured
       b.addEventListener('click', () => {
         cardTab = k;
-        btns.forEach((bb, kk) => bb.classList.toggle('is-on', kk === k));
+        btns.forEach((bb, kk) => {
+          bb.classList.toggle('is-on', kk === k);
+          bb.setAttribute('aria-pressed', String(kk === k));
+        });
         panes.forEach((p, kk) => { p.hidden = kk !== k; });
       });
       return b;
