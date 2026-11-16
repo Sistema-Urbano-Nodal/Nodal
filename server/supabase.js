@@ -655,6 +655,8 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
   }
 
   async function readOwnedCatalogInterest(itemId, userId) {
+    // catalog_interests.item_id is a uuid: a guessed id has no interest, without a provider call PostgREST would refuse (22P02).
+    if (typeof itemId !== 'string' || !CATALOG_UUID.test(itemId)) return null;
     return catalogInterestFromSupabase(await first(admin.rest('catalog_interests', {
       query: { item_id: `eq.${itemId}`, user_id: `eq.${userId}`, select: '*' },
     })));
@@ -672,7 +674,10 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     if (cursor) {
       const [updatedAt, id] = cursor;
       const comparison = direction === 'desc' ? 'lt' : 'gt';
-      restQuery.or = `(updated_at.${comparison}.${updatedAt},and(updated_at.eq.${updatedAt},id.gt.${id}))`;
+      // As in catalogAfterCursor: an id that is not a uuid cannot come from this server, so it widens the filter
+      // rather than send Postgres a value it rejects, and the exact comparison below decides.
+      const idAfter = CATALOG_UUID.test(id) ? `id.gt.${id}` : 'id.not.is.null';
+      restQuery.or = `(updated_at.${comparison}.${updatedAt},and(updated_at.eq.${updatedAt},${idAfter}))`;
     }
     const rows = await admin.rest('catalog_interests', { query: restQuery });
     const matching = rows.map(catalogInterestFromSupabase)
@@ -1509,6 +1514,8 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       return readOwnedCatalogInterest(itemId, userId);
     },
     async getCatalogInterestById(id) {
+      // catalog_interests.id is a uuid, as in readOwnedCatalogInterest.
+      if (typeof id !== 'string' || !CATALOG_UUID.test(id)) return null;
       return catalogInterestFromSupabase(await first(admin.rest('catalog_interests', {
         query: { id: `eq.${id}`, select: '*' },
       })));
