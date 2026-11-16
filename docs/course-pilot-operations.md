@@ -4,7 +4,7 @@ The course pilot adds persistent enrollment, private intake, editable modules, a
 
 ## Internal team: forms and feedback
 
-Sign in with a NODAL administrator account and open `/teaching.html`. The bar under the header leads to the Publishing desk and the festival panel, and signs out. Members cannot open this page or its reporting APIs.
+Sign in with a NODAL administrator account and open `/teaching.html`. The bar under the header leads to the admin home, the Publishing desk and the festival panel, and signs out. The workspace is also reached from the admin menu. Members cannot open this page or its reporting APIs.
 
 - **Responses** shows ratings and comments from course actions. **All platform feedback** includes profile and matching feedback too.
 - **Participants** shows enrollments and the eight intake answers for each person.

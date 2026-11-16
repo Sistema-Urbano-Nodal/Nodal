@@ -19,7 +19,7 @@ How NODAL is built, where it runs, how it protects accounts and data, and what i
 
 - **Server:** a Node.js HTTP server with no runtime dependencies (`server/`), deployed through `api/index.js`. Supabase, GeoDB and Sentry are called with plain `fetch`; email goes out over a TLS connection to the SMTP server, and the optional Redis cache through a small built-in client.
 - **Pages:** HTML in `web/pages` and plain JavaScript in `web/scripts`, with no framework and no third-party scripts.
-- **Build:** each Vercel deploy runs lint and the whole test suite (about 2,280 tests) with the production environment, then builds the static files. A failing test stops the deploy.
+- **Build:** each Vercel deploy runs lint and the whole test suite (about 2,390 tests) with the production environment, then builds the static files. A failing test stops the deploy.
 - **Development:** locally the same server runs on SQLite instead of Supabase.
 
 ## Accounts, sign-in and sessions
@@ -48,6 +48,7 @@ How NODAL is built, where it runs, how it protects accounts and data, and what i
 | Globe polls | 40 a minute |
 | Organisation requests, a Nodo or sponsoring memberships (landing page form, no account; fixed in code) | 20 per client address an hour, 3 per email address a day |
 | | 40 emailed to the team a day (Lima time), counted in the database, so it holds across instances |
+| Admin home figures (`GET /api/admin/metrics`, administrators only) | 60 a minute per account; 6 a minute per account for a recomputation (`?fresh=1`) and for saving a reading (`POST /api/admin/metrics/readings`) |
 | Visit counts (every public and member page, no account; fixed in code) | 600 a minute per client address; 1,200 counted a minute per instance, the rest answered and not counted |
 
 Supabase Auth applies its own limits on sign-ins and token renewals (raised to 600 every 5 minutes on 7 Sep 2026). Every sign-in reaches Supabase from NODAL's servers, so those limits are shared by all visitors rather than kept per visitor.
@@ -107,6 +108,7 @@ The privacy policy (`docs/privacy/`, published at `/privacy.html`) names each of
 1. **Two-factor sign-in,** for organiser and admin accounts first.
 2. **Global rate limits** through Redis.
 3. **Aggregate, cookie-free analytics** (shipped, first-party): page views and arrivals are counted as daily totals (`web/scripts/visit.js`, `server/visits-api.js`, table `visit_counts`), with no tracking of individuals and no clicks on the payment buttons. The privacy policy describes it. No third-party analytics (Plausible, Vercel Web Analytics) is planned.
-4. **A way for staff to remove a course participant.** It's needed before the first memberships end, around 2027.
+4. **The admin home** (shipped): `/admin-home.html` shows NODAL's indicators with their definitions, from `GET /api/admin/metrics` (`server/metrics-api.js`, `server/metrics-repository.js`). The answer is computed as six parts that can each fail alone (accounts, members, festival, courses, visits, readings), each with a 6-second deadline, and shared in a 5-minute memo (30 seconds when anything was unavailable). It adds `GET /api/admin/metrics/export` (CSV) and `POST /api/admin/metrics/readings`, which saves at most one reading of the totals per Lima day for the month-by-month comparison; a reading with anything unavailable is never saved. Limits per account: 60 a minute, and 6 a minute for `fresh=1` and the POST. Only totals are shown: no names, emails or individual answers, and a country or attendee profile given by fewer than three people is grouped as "other". The privacy policy describes it.
+5. **A way for staff to remove a course participant.** It's needed before the first memberships end, around 2027.
 5. **The full Mercado Pago integration,** once Supporters are too many to add by hand ([integrations/mercadopago-subscriptions.md](integrations/mercadopago-subscriptions.md)).
 6. **A load test** against a preview deployment, never production.

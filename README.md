@@ -130,7 +130,9 @@ studies; and the member interest review queue. It also links to the festival
 news editor (`/fiiu-admin.html#content`) and to courses (`/teaching.html`).
 Administrators reach it from the "Admin" link in the console's Tools rail,
 which only they see; it opens the admin home (`/admin`, `/admin-home.html`),
-whose menu leads to the desk. The page and every `/api/admin/*` request independently
+whose menu leads to the desk. The home shows the indicators with their
+definitions, can export them as CSV or print them, and saves at most one
+reading of the totals per Lima day. The page and every `/api/admin/*` request independently
 require a server-owned `admin` role; there is no separate publisher role.
 Catalog records are archived rather than deleted.
 
@@ -253,6 +255,12 @@ stored first and then emailed to the two team members (`server/node-requests-ema
 - `GET /api/admin/node-requests?status=&limit=&cursor=` (24 a page), `PATCH|DELETE /api/admin/node-requests/:id`
   back the desk's Nodos band, with optimistic versions (409 `version_conflict` carries the current request). Closed
   requests are deleted 12 months after their last change, when the desk lists or a new request arrives.
+
+The admin home reads three protected routes (administrators only, never cached, no GET changes state):
+
+- `GET /api/admin/metrics` answers the indicators in six parts that can each fail alone; `?fresh=1` recomputes instead of using the 5-minute memo (6 a minute per account; 60 a minute otherwise).
+- `GET /api/admin/metrics/export` answers the same figures as CSV.
+- `POST /api/admin/metrics/readings` saves one reading of the totals for the current Lima day, at most once a day, and never one with anything unavailable (6 a minute per account).
 
 Visits are counted by a first-party script, without cookies:
 
