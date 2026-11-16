@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { limaDay, limaStamp, windowsFor, sumSeries, foldCountries, smallGroups, validPart, figuresOf, figureKey, readingComplete, READING_PARTS } from '../server/metrics-domain.js';
+import { limaDay, limaStamp, windowsFor, sumSeries, foldCountries, smallGroups, validPart, figuresOf, figureKey } from '../server/metrics-domain.js';
 
 test('a Lima day turns at 05:00:00 UTC', () => {
   assert.equal(limaDay(Date.parse('2026-11-14T04:59:59.999Z')), '2026-11-13');
@@ -57,7 +57,7 @@ test('validates by version and required keys, ignoring extras', () => {
   assert.equal(validPart('members', members({ entered: [['2026-11-14', 3]], later: 'ignored' })), true);
   assert.equal(validPart('members', members({ entered: [['2026-11-14', 3]], follows: [['2026-11-14', '3']] })), false);
 });
-test('builds the flat figures map and refuses a partial reading', () => {
+test('builds the flat figures map, leaving out a figure that has a state', () => {
   assert.deepEqual(figuresOf([{ key: 'signups.accounts', total: 525 }, { key: 'signups.entered', total: 486, d30: 2, d7: 0 },
     { key: 'activity.kinds', items: [{ key: 'profile', n: 4, d7: 1 }] }, { key: 'visits.views', d30: 9, d7: 1 },
     { key: 'memberships.views', items: [{ key: 'payments.html', n: 3 }] }, { key: 'festival.countries', items: [{ text: 'Per\u00FA', n: 335 }] },
@@ -67,9 +67,4 @@ test('builds the flat figures map and refuses a partial reading', () => {
   assert.equal(figureKey('a.b', 'total'), 'a.b');
   assert.equal(figureKey('a.b', 'd30'), 'a.b.d30');
   assert.equal(figuresOf([{ key: 'signups.entered', state: 'unavailable', total: 1 }])['signups.entered'], undefined);
-  const ok = Object.fromEntries(READING_PARTS.map(p => [p, 'ok']));
-  assert.equal(readingComplete(ok), true);
-  assert.equal(readingComplete({ ...ok, visits: 'not_yet_counted' }), true);
-  for (const state of ['unavailable', 'not_activated']) assert.equal(readingComplete({ ...ok, courses: state }), false);
-  assert.equal(readingComplete({ ...ok, members: undefined }), false);
 });

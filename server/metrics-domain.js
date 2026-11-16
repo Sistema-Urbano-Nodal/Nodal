@@ -132,7 +132,3 @@ export function figuresOf(indicators) {
   }
   return out;
 }
-
-export function readingComplete(states) {
-  return READING_PARTS.every(p => states?.[p] === 'ok' || (p === 'visits' && states?.[p] === 'not_yet_counted'));
-}
