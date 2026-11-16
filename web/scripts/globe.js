@@ -839,9 +839,9 @@
     showPlace(state.picked >= 0 ? PLACES[state.picked] : null);
     sayWhereYouStand(lastYou);
     /* The chips and the time label are written in the language too, and an unchanged directory answers 304, so
-       they are redrawn here. '' rather than null: a globe with no topics (or signed out) still draws no chips. */
-    topicsDrawn = '';
-    renderTopics(FULL.topics);
+       they are redrawn here: whichever chips are on show, a lone "All topics" included, and none where the bar
+       is empty (no topics, or signed out). */
+    if (topicBar?.children.length) { topicsDrawn = null; renderTopics(FULL.topics); }
     renderTimeline();
   });
   resize();

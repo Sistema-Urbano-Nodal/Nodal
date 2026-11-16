@@ -111,6 +111,17 @@ test('a globe with nothing to filter, or signed out, stays without chips and tim
   assert.equal(h.ids.globeSinceLabel.textContent, '');
 });
 
+test('a lone "All topics" chip, left after the last topic went, follows a language switch too', async () => {
+  const lima = [city('Lima', [member('a', 'Ana')])];
+  const h = harness(snapshot(lima));
+  await flush();
+  h.respond(() => reply(snapshot(lima, [])));
+  h.poll(); await flush();
+  assert.deepEqual(h.chipText(), ['All topics'], 'the chip that clears a filter stays when nobody lists a topic');
+  h.language('es');
+  assert.deepEqual(h.chipText(), ['Todos los temas']);
+});
+
 /* ---------- M96: the arrow keys start from either end ---------- */
 
 test('with no city picked, ArrowLeft opens the last city and ArrowRight the first', async () => {
