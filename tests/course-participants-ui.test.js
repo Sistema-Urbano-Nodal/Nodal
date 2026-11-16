@@ -168,6 +168,9 @@ test('the perk course table shows each participant\'s group in three languages, 
 function acceptanceHarness({hash='#token_hash='+ 'a'.repeat(56),reply=async()=>({passwordChanged:true,courseIds:['00000000-0000-4000-8000-000000000001']}),transport=[]}={}){
  const body=new Node('body'),nodes={},listeners={},requests=[],historyCalls=[],stored=[];
  for(const id of ['invitationForm','recoveryMessage','invitationTitle','invitationName','invitationPassword','invitationConfirm','invitationSubmit','invitationSignIn']){const node=new Node(id==='invitationForm'?'form':'div');node.id=id;nodes[id]=node;body.append(node);}
+ // The fields start with the descriptions accept-invitation.html gives them, which the page reads back as a browser does.
+ for(const [,id,described] of readFileSync(new URL('../web/pages/accept-invitation.html',import.meta.url),'utf8').matchAll(/<input id="(\w+)"[^>]*\saria-describedby="([^"]+)"/g))if(nodes[id])nodes[id]['aria-describedby']=described;
+ for(const node of Object.values(nodes))node.getAttribute=key=>node[key]??null;
  nodes.invitationForm.hidden=true;nodes.invitationSubmit.dataset.invitationText='accept';const languageGroup=new Node('div');languageGroup.className='recovery-languages';body.append(languageGroup);for(const lang of ['en','es','pt']){const b=new Node('button');b.className='lang-btn';b.dataset.lang=lang;languageGroup.append(b);}
  const document={body,documentElement:{},readyState:'loading',getElementById:id=>nodes[id],querySelector:selector=>body.querySelector(selector),querySelectorAll:selector=>selector==='[data-invitation-text]'?descendants(body).filter(n=>n.dataset.invitationText):body.querySelectorAll(selector),addEventListener:(key,fn)=>{listeners[key]=fn;}};
  const ctx={document,URLSearchParams,AbortSignal,window:{},location:{hash,search:'?ignored=1'},history:{replaceState:(_state,_title,path)=>{historyCalls.push(path);}},localStorage:{getItem:()=>null,setItem:(key,value)=>stored.push({key,value})},fetch:async(path,options)=>{requests.push({path,body:JSON.parse(options.body),options});const lost=transport.shift();if(lost)throw lost;return{json:async()=>await reply()};}};
@@ -248,6 +251,19 @@ test('acceptance refuses passwords over the provider limit of 72 UTF-8 bytes bef
  for(const password of ['x'.repeat(73),'é'.repeat(37),'\u{1F600}'.repeat(19)]){const h=acceptanceHarness();h.valid();h.nodes.invitationPassword.value=h.nodes.invitationConfirm.value=password;await h.submit();assert.equal(h.requests.length,0);assert.match(h.nodes.recoveryMessage.textContent,/8.72/);}
  for(const password of ['x'.repeat(72),'é'.repeat(36)]){const h=acceptanceHarness();h.valid();h.nodes.invitationPassword.value=h.nodes.invitationConfirm.value=password;await h.submit();assert.equal(h.requests.length,1);}
  const html=readFileSync(new URL('../web/pages/accept-invitation.html',import.meta.url),'utf8');assert.doesNotMatch(html,/maxlength="160"/);assert.match(html,/id="invitationPassword"[^>]*maxlength="72"/);
+});
+/* The password field is described by its rule (8–72 characters). A refusal adds the message to a field's description
+   and the next try puts it back as it was, so the rule is still read after the first try. */
+test('the invitation password keeps its rule as its description through refused tries',async()=>{
+ const h=acceptanceHarness({reply:async()=>({code:'invitation_rate'})}),name=h.nodes.invitationName,password=h.nodes.invitationPassword;
+ assert.equal(password['aria-describedby'],'invitationPasswordNote','as in the markup');
+ h.valid();name.value='A';await h.submit();
+ assert.equal(name['aria-describedby'],'recoveryMessage');assert.equal(password['aria-describedby'],'invitationPasswordNote');
+ h.valid();password.value=h.nodes.invitationConfirm.value='short';await h.submit();
+ assert.equal(password['aria-describedby'],'invitationPasswordNote recoveryMessage');assert.equal(password['aria-invalid'],'true');assert.equal(password.focused,true);
+ assert.equal(name['aria-describedby'],undefined);assert.equal(name['aria-invalid'],undefined);
+ h.valid();await h.submit();assert.equal(h.requests.length,1);assert.match(h.nodes.recoveryMessage.textContent,/Too many attempts/);
+ assert.equal(password['aria-describedby'],'invitationPasswordNote','the form stays, and so does the rule');assert.equal(password['aria-invalid'],undefined);
 });
 test('frontend-xss-1: adding a participant works where AbortSignal has no timeout (Safari before 16)',async()=>{
  const h=teachingHarness(()=>({result:'enrolled',participant:{id:'u1'}}));await flush();h.ctx.AbortSignal={};

@@ -13,6 +13,8 @@
     const form=document.getElementById('invitationForm'),message=document.getElementById('recoveryMessage'),title=document.getElementById('invitationTitle');
     const name=document.getElementById('invitationName'),password=document.getElementById('invitationPassword'),confirmation=document.getElementById('invitationConfirm');
     const submit=document.getElementById('invitationSubmit'),signIn=document.getElementById('invitationSignIn');
+    // A field's own description (the password's 8–72 rule) stays; a refusal adds the message after it until the next try.
+    const fields=[name,password,confirmation],described=new Map(fields.map(input=>[input,input.getAttribute('aria-describedby')||'']));
     // unsure: an earlier try got no answer, so the invitation may already have been used to save the password.
     let busy=false,unsure=false;
     function show(key){message.dataset.invitationText=key;message.textContent=t(key);message.hidden=false;}
@@ -34,13 +36,13 @@
       try{return await response.json();}catch{if(response.status===403)return {code:'invitation_forbidden'};throw {lost:'unreadable'};}
     }
     function invalid(input,key){
-      input.setAttribute('aria-invalid','true');input.setAttribute('aria-describedby','recoveryMessage');show(key);input.focus();
+      input.setAttribute('aria-invalid','true');input.setAttribute('aria-describedby',[described.get(input),'recoveryMessage'].filter(Boolean).join(' '));show(key);input.focus();
     }
     if(tokenHash){form.hidden=false;}else finish('invitation_invalid');
     form.addEventListener('submit',async event=>{
       event.preventDefault();if(busy)return;
       if(!tokenHash){finish('invitation_invalid');return;}
-      for(const input of [name,password,confirmation]){input.removeAttribute('aria-invalid');input.removeAttribute('aria-describedby');}
+      for(const input of fields){input.removeAttribute('aria-invalid');if(described.get(input))input.setAttribute('aria-describedby',described.get(input));else input.removeAttribute('aria-describedby');}
       if(name.value.trim().length<2||name.value.trim().length>120||/[\u0000-\u001f\u007f]/.test(name.value)){invalid(name,'nameLength');return;}
       if(password.value.length<8||utf8Bytes(password.value)>72){invalid(password,'invitation_password_length');return;}
       if(password.value!==confirmation.value){invalid(confirmation,'mismatch');return;}

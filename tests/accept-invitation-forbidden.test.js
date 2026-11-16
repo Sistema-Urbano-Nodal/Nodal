@@ -12,6 +12,7 @@ class Node {
   constructor(tag = 'div') { this.tagName = tag; this.children = []; this.dataset = {}; this.listeners = {}; this.hidden = false; this.textContent = ''; this.value = ''; this.classList = { toggle() {} }; }
   append(...nodes) { nodes.forEach(n => { n.parent = this; this.children.push(n); }); }
   setAttribute(k, v) { this[k] = v; }
+  getAttribute(k) { return this[k] ?? null; }
   removeAttribute(k) { delete this[k]; }
   addEventListener(k, f) { this.listeners[k] = f; }
   focus() { this.focused = true; }
