@@ -5,7 +5,7 @@ export const LEGACY_FIIU_ACTIVITIES=[
  ...[1,2,3].map(day=>({id:`workshop-day${day}`,date:`2026-10-${20+day}`,period:'workshop',registration:'external',title:'Talleres',time:'',venue:'',sessions:[],legacy:true})),
  ...[4,5].map(day=>({id:`route-day${day}`,date:`2026-10-${20+day}`,period:'route',registration:'external',title:'Rutas urbanas',time:'',venue:'',sessions:[],legacy:true})),
 ];
-// Venues and route starting points follow the organisers' live programme (Canva, 30 Sep 2026); 21 Oct evening is still to be confirmed there.
+// Venues and route starting points follow the organisers' live programme (Canva, 30 Sep 2026; the 21 Oct evening venue was confirmed on 2 Oct).
 const externalActivities=[
  ['workshop-espacios-comunidad','2026-10-21','workshop','Espacios que sostienen comunidad. Herramientas ecopsicológicas para fortalecer vínculo, participación y sostenibilidad social en el espacio público','FXAqd25wao7QpcPA6','MALI, Cercado de Lima'],
  ['workshop-bosques-urbanos','2026-10-21','workshop','Bosques urbanos que respiran: estimando servicios ecosistémicos con i-Tree Canopy','797LUygbLnP4uYvH6','MALI, Cercado de Lima'],

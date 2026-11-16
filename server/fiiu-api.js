@@ -147,7 +147,10 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
   if(!rateLimit(req,res,user,path))return true;
   if(path==='/api/fiiu'){
    const [settings,page,{event}]=await Promise.all([config(),publications(url,true),live()]);
-   // The same answer for everyone and no cookies: the CDN serves repeat reads (a door rush on one venue address), at most ~15 s old.
+   // The same answer for everyone and no cookies: the CDN serves repeat reads (a door rush on one venue address). A copy is
+   // fresh for 15 s, but after a quiet spell the next reader may get one up to ~75 s old while the CDN refreshes it in the
+   // background (stale-while-revalidate). A registration save reads the switch again, so a stale copy saying registration is
+   // open never lets anyone register after it closed.
    send(res,200,{event,config:settings,...page},{'Cache-Control':'public, max-age=0, s-maxage=15, stale-while-revalidate=60'});return true;
   }
   if(path==='/api/fiiu/registration'){
