@@ -316,7 +316,7 @@ test('Supabase Data API smoke exercises reads, constrained inserts, updates, and
 });
 
 test('changed one-hour-cached clients use new URLs on every consuming page', () => {
-  const pages = Object.fromEntries(['index.html', 'fundadores.html', 'opportunities.html', 'dashboard.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'course.html', 'courses.html', 'teaching.html', 'accept-invitation.html', 'fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'knowledge.html', 'resources.html']
+  const pages = Object.fromEntries(['index.html', 'fundadores.html', 'opportunities.html', 'dashboard.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'admin-home.html', 'course.html', 'courses.html', 'teaching.html', 'accept-invitation.html', 'fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'knowledge.html', 'resources.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
   const pilot = { 'pilot-i18n.js': '20261029a', 'pilot.js': '20261023a', 'courses.css': '20261023a' };
   const visit = { 'visit.js': '20261114b' };
@@ -331,6 +331,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     'payments.html': { 'i18n-dashboard.js': '20261109a', 'i18n.js': '20261109a', 'payments.js': '20261021c', ...pilot , ...visit },
     'profile.html': { 'i18n-dashboard.js': '20261109a', 'i18n.js': '20261109a', 'profile.js': '20261023a', 'styles.css': '36', ...pilot , ...visit },
     'admin.html': { 'admin-nav.js': '20261114a', 'admin-nav.css': '20261114a', 'i18n-dashboard.js': '20261109a', 'styles.css': '36', 'admin.css': '20261109a', 'admin.js': '20261114a', 'i18n.js': '20261109a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20261013b', 'script.js': '18' , ...visit },
+    'admin-home.html': { 'admin-home.css': '20261115a', 'admin-home.js': '20261115a', 'styles.css': '36', 'admin.css': '20261109a', 'admin-nav.js': '20261114a', 'admin-nav.css': '20261114a', 'i18n.js': '20261109a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20261013b', 'script.js': '18', ...visit },
     'course.html': { 'buc.js': '20261016c', 'i18n.js': '20261109a', 'courses.js': '20261029a', ...pilot , ...visit },
     'courses.html': { 'buc.js': '20261016c', 'i18n.js': '20261109a', 'courses.js': '20261029a', ...pilot , ...visit },
     'teaching.html': { 'admin-nav.js': '20261114a', 'admin-nav.css': '20261114a', 'i18n.js': '20261109a', 'teaching.js': '20261023a', ...pilot , ...visit },
@@ -639,7 +640,28 @@ test('protected catalog administration crosses every serving and build boundary'
   const page = vercel.headers.find((route) => new RegExp(`^${route.source}$`).test('/admin.html'));
   assert.ok(page, 'admin page needs an explicit cache and security policy');
   assert.ok(page.headers.some((header) => header.key === 'Cache-Control' && header.value === 'no-store'));
-  assert.match(serverSource, /\['\/admin\.html','\/teaching\.html','\/fiiu-admin\.html','\/fiiu-qr\.html'\]\.includes\(canonical\)[\s\S]*administrator access required/);
+  assert.match(serverSource, /\['\/admin\.html','\/teaching\.html','\/fiiu-admin\.html','\/fiiu-qr\.html','\/admin-home\.html'\]\.includes\(canonical\)[\s\S]*administrator access required/);
+});
+
+test('the admin home is served, built, cached and gated like the desk', () => {
+  const serverSource = readFileSync(path.join(ROOT, 'server', 'server.js'), 'utf8');
+  const buildSource = readFileSync(path.join(ROOT, 'scripts', 'build-static.js'), 'utf8');
+  const vercel = JSON.parse(readFileSync(path.join(ROOT, 'vercel.json'), 'utf8'));
+  const list = (source, name) => source.match(new RegExp(`const ${name} = (?:new Set\\()?\\[([^\\]]*)\\]`))?.[1] || '';
+  const merged = (url) => Object.fromEntries(vercel.headers.filter((r) => new RegExp(`^${r.source}$`).test(url)).flatMap((r) => r.headers.map(({ key, value }) => [key, value])));
+  for (const [file, lists, like] of [['admin-home.js', 'STATIC_SCRIPTS', '/admin.js'], ['admin-home.css', 'STATIC_STYLES', '/admin.css']]) {
+    assert.ok(existsSync(path.join(ROOT, 'web', file.endsWith('.js') ? 'scripts' : 'styles', file)), `${file} is missing`);
+    assert.ok(list(serverSource, lists).includes(`'${file}'`), `${file}: server.js ${lists}`);
+    assert.ok(list(buildSource, lists).includes(`'${file}'`), `${file}: build-static.js ${lists}`);
+    assert.deepEqual(merged(`/${file}`), merged(like), `${file}: vercel.json headers as ${like}`);
+  }
+  assert.ok(list(serverSource, 'STATIC_PAGES').includes("'admin-home.html'"));
+  assert.ok(list(buildSource, 'SERVER_PAGES').includes("'admin-home.html'"));
+  assert.ok(!list(buildSource, 'STATIC_PAGES').includes("'admin-home.html'"), 'protected HTML is never copied to public');
+  assert.match(serverSource, /PRIVATE_PAGES = new Set\([^\n]*'\/admin-home\.html'/);
+  const headers = merged('/admin-home.html');
+  assert.equal(headers['Cache-Control'], 'no-store');
+  assert.match(headers['X-Robots-Tag'] || '', /noindex/);
 });
 
 test('festival organiser and check-in pages cross every serving and build boundary', () => {

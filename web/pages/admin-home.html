@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en" translate="no">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>NODAL · Metrics</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cline x1='20' y1='22' x2='44' y2='42' stroke='%2359bc53' stroke-width='5'/%3E%3Ccircle cx='20' cy='22' r='11' fill='%233d5c38'/%3E%3Ccircle cx='44' cy='42' r='8' fill='%2359bc53'/%3E%3C/svg%3E" />
+
+  <link rel="stylesheet" href="locale.css?v=20260929a" />
+  <script src="locale.js?v=20261009a"></script>
+  <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="fonts.css?v=20260911b" />
+  <link rel="stylesheet" href="styles.css?v=36" />
+  <link rel="stylesheet" href="admin.css?v=20261109a" />
+  <link rel="stylesheet" href="admin-home.css?v=20261115a" />
+  <link rel="stylesheet" href="admin-nav.css?v=20261114a" />
+
+  <script defer src="nav.js?v=20261013b"></script>
+  <script defer src="script.js?v=18"></script>
+  <script defer src="admin-nav.js?v=20261114a"></script>
+  <script defer src="admin-home.js?v=20261115a"></script>
+  <script defer src="i18n.js?v=20261109a"></script>
+  <script defer src="visit.js?v=20261114b" data-staff></script>
+</head>
+<body class="admin-page" data-page="admin-home">
+  <a class="admin-skip" href="#homeMain">Skip to content</a>
+  <header class="navbar">
+    <a class="brand" href="index.html#top" id="brand">
+      <svg id="net" class="brand-mark" viewBox="0 0 120 130" aria-hidden="true"></svg>
+      <img class="brand-wordmark" src="assets/nodal-wordmark.webp" width="360" height="143"
+           alt="NODAL · Nodos Urbanos de América Latina" />
+    </a>
+
+    <nav class="nav-main" aria-label="Main navigation" data-i18n-aria-label="nav.mainLabel"><a href="index.html#membership" data-i18n="nav.program">Programme</a><a href="community.html" data-i18n="nav.community">Community</a><a href="resources.html" data-i18n="nav.resources">Resources</a><a href="knowledge.html" data-i18n="nav.learn">Knowledge</a></nav>
+
+    <nav class="nav-account" aria-label="Account and language" data-i18n-aria-label="nav.accountLabel"><div class="lang-switch" role="group" aria-label="Language" data-i18n-aria-label="nav.languageLabel"><button type="button" class="lang-btn" data-lang="en" aria-label="English">EN</button><button type="button" class="lang-btn" data-lang="es" aria-label="Español">ES</button><button type="button" class="lang-btn" data-lang="pt" aria-label="Português">PT</button></div><a class="btn btn-pill btn-nav" href="dashboard.html" data-i18n="nav.panel">My console</a></nav>
+
+    <button type="button" class="nav-toggle" id="navToggle" aria-label="Menu" data-i18n-aria-label="nav.menuLabel">
+      <span></span><span></span><span></span>
+    </button>
+  </header>
+
+  <nav class="staff-nav" data-staff-nav aria-label="Administration"><a href="admin-home.html" data-staff="home" aria-current="page">Metrics</a><a href="admin.html" data-staff="desk">Publishing</a><a href="fiiu-admin.html" data-staff="festival">Festival</a><a href="teaching.html" data-staff="courses">Courses</a><button type="button" data-staff="signOut">Sign out</button><span role="status" aria-live="polite" data-staff-status></span></nav>
+  <main class="admin-shell" id="homeMain">
+    <header class="admin-head">
+      <div class="admin-head-title">
+        <h1 id="homeTitle">Metrics</h1>
+        <p class="admin-head-lead" id="homeLead"></p>
+        <p class="home-asof" id="homeAsOf"></p>
+        <p class="home-print-head" id="homePrintHead"></p>
+      </div>
+      <div class="admin-head-side home-tools">
+        <button class="admin-textbutton" id="homeRefresh" type="button">Refresh</button>
+        <div id="homeWindows" role="group" aria-label="Window"></div>
+        <button class="admin-textbutton" id="homeCsv" type="button">Download CSV</button>
+        <button class="admin-textbutton" id="homePrint" type="button">Print</button>
+      </div>
+    </header>
+
+    <p class="admin-live" id="homeStatus" role="status" aria-live="polite">Loading…</p>
+    <p class="home-actions">
+      <button class="admin-textbutton" id="homeRetry" type="button" hidden>Try again</button>
+      <a id="homeSignIn" href="login.html?next=%2Fadmin-home.html" hidden>Sign in</a>
+    </p>
+    <p id="homePending" hidden></p>
+    <div id="homeBlocks"></div>
+    <section id="homeTracking" aria-live="polite"></section>
+    <p><button class="admin-textbutton" id="homeReadingsCsv" type="button" hidden>Download readings CSV</button></p>
+  </main>
+</body>
+</html>

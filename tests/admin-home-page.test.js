@@ -1,0 +1,74 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { createApp } from '../server/server.js';
+import { createDatabase } from '../server/db.js';
+
+const ROOT = path.resolve(import.meta.dirname, '..');
+const page = (name) => readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8');
+const IDS = ['homeMain', 'homeTitle', 'homeAsOf', 'homeRefresh', 'homeWindows', 'homeStatus', 'homeRetry', 'homeSignIn', 'homeCsv', 'homePrint', 'homeLead', 'homePending', 'homeBlocks', 'homeTracking', 'homeReadingsCsv', 'homePrintHead'];
+
+test('the page is the desk\'s frame with the home\'s assets', () => {
+  const html = page('admin-home.html');
+  const head = html.slice(0, html.indexOf('</head>'));
+  assert.match(html, /<body class="admin-page" data-page="admin-home">/);
+  const header = (source) => source.match(/<header class="navbar">[\s\S]*?<\/header>/)[0];
+  assert.equal(header(html), header(page('admin.html')));
+  const after = html.slice(html.indexOf(header(html)) + header(html).length);
+  assert.match(after, /^\s*<nav class="staff-nav"[\s\S]*?<\/nav>\s*<main class="admin-shell" id="homeMain">/);
+  const sheets = [...head.matchAll(/<link rel="stylesheet" href="([^"?]+)/g)].map((m) => m[1]);
+  assert.deepEqual(sheets, ['locale.css', 'fonts.css', 'styles.css', 'admin.css', 'admin-home.css', 'admin-nav.css']);
+  assert.match(head, /<script src="locale\.js\?v=\d+[a-z]?"><\/script>/);
+  const deferred = [...head.matchAll(/<script defer src="([^"?]+)[^>]*>/g)].map((m) => m[1]);
+  assert.deepEqual(deferred, ['nav.js', 'script.js', 'admin-nav.js', 'admin-home.js', 'i18n.js', 'visit.js']);
+  assert.match(head, /<script defer src="visit\.js\?v=\d+[a-z]?" data-staff><\/script>\s*$/);
+  assert.doesNotMatch(html, /i18n-dashboard/);
+  assert.doesNotMatch(html, /data-i18n="(?:ops|d|p|y)\./);
+  assert.ok(head.includes('<meta name="robots" content="noindex, nofollow" />'));
+  for (const id of IDS) assert.equal((html.match(new RegExp(`\\bid="${id}"`, 'g')) || []).length, 1, id);
+  assert.match(html, /id="homeStatus" role="status"/);
+  assert.match(html, /id="homeRetry"[^>]*\bhidden\b/);
+  assert.match(html, /id="homeSignIn"[^>]*\bhidden\b/);
+});
+
+test('the staff bar on the home marks Metrics as current', () => {
+  const bar = page('admin-home.html').match(/<nav class="staff-nav"[\s\S]*?<\/nav>/)[0];
+  assert.ok(bar.includes('<nav class="staff-nav" data-staff-nav aria-label="Administration"><a href="admin-home.html" data-staff="home" aria-current="page">Metrics</a><a href="admin.html" data-staff="desk">Publishing</a><a href="fiiu-admin.html" data-staff="festival">Festival</a><a href="teaching.html" data-staff="courses">Courses</a><button type="button" data-staff="signOut">Sign out</button><span role="status" aria-live="polite" data-staff-status></span></nav>'));
+  assert.doesNotMatch(bar, /<li\b|data-i18n|\bid=/);
+});
+
+test('the home is gated like the desk', async (t) => {
+  const saved = process.env.PILOT_MODE;
+  t.after(() => { if (saved === undefined) delete process.env.PILOT_MODE; else process.env.PILOT_MODE = saved; });
+  process.env.PILOT_MODE = 'false';
+  const db = createDatabase({ filename: ':memory:' });
+  t.after(() => db.close());
+  const server = createApp({ db, citySearch: { search: async () => ({ cities: [] }) } });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const signedOut = await fetch(`${base}/admin-home.html`, { redirect: 'manual' });
+  assert.equal(signedOut.status, 302);
+  assert.equal(signedOut.headers.get('location'), '/login.html?next=%2Fadmin-home.html');
+
+  const signUp = async (email) => {
+    const res = await fetch(`${base}/api/auth/signup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fullName: 'Home Tester', email, password: 'correct-horse' }) });
+    assert.ok(res.ok, `sign-up ${res.status}`);
+    return { cookie: res.headers.get('set-cookie').split(';')[0], id: (await res.json()).user.id };
+  };
+  const member = await signUp('home-member@example.com');
+  const denied = await fetch(`${base}/admin-home.html`, { headers: { Cookie: member.cookie }, redirect: 'manual' });
+  assert.equal(denied.status, 403);
+  assert.deepEqual(await denied.json(), { error: 'administrator access required' });
+
+  const admin = await signUp('home-admin@example.com');
+  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.id);
+  const ok = await fetch(`${base}/admin-home.html`, { headers: { Cookie: admin.cookie }, redirect: 'manual' });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.headers.get('cache-control'), 'no-store');
+  assert.match(await ok.text(), /id="homeMain"/);
+});

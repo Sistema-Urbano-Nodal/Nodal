@@ -7,8 +7,8 @@ import vm from 'node:vm';
 const ROOT = path.resolve(import.meta.dirname, '..');
 const read = (...parts) => readFileSync(path.join(ROOT, ...parts), 'utf8');
 const script = () => read('web', 'scripts', 'admin-nav.js');
-// The spec's markup, byte for byte (R2: three links).
-const BAR = '<nav class="staff-nav" data-staff-nav aria-label="Administration"><a href="admin.html" data-staff="desk">Publishing</a><a href="fiiu-admin.html" data-staff="festival">Festival</a><a href="teaching.html" data-staff="courses">Courses</a><button type="button" data-staff="signOut">Sign out</button><span role="status" aria-live="polite" data-staff-status></span></nav>';
+// The spec's markup, byte for byte (R3: four links).
+const BAR = '<nav class="staff-nav" data-staff-nav aria-label="Administration"><a href="admin-home.html" data-staff="home">Metrics</a><a href="admin.html" data-staff="desk">Publishing</a><a href="fiiu-admin.html" data-staff="festival">Festival</a><a href="teaching.html" data-staff="courses">Courses</a><button type="button" data-staff="signOut">Sign out</button><span role="status" aria-live="polite" data-staff-status></span></nav>';
 const WORDS = {
   en: [['Publishing', 'Festival', 'Courses', 'Sign out'], 'Administration', 'Signing out…', 'Sign out failed.', 'Metrics'],
   es: [['Publicación', 'Festival', 'Cursos', 'Cerrar sesión'], 'Administración', 'Cerrando sesión…', 'No se pudo cerrar la sesión.', 'Indicadores'],
@@ -77,7 +77,7 @@ test('subscribes once the document is ready and follows the real i18n.js', () =>
 });
 
 test('already names the home link R3 adds, and leaves an unknown key alone', () => {
-  const bar = BAR.replace('<a href="admin.html"', '<a href="admin-home.html" data-staff="home">Metrics</a><a href="x.html" data-staff="later">Later</a><a href="admin.html"');
+  const bar = BAR.replace('<a href="admin.html"', '<a href="x.html" data-staff="later">Later</a><a href="admin.html"');
   for (const lang of ['en', 'es', 'pt']) {
     const h = mount({ bar, lang });
     assert.equal(h.by('home').textContent, WORDS[lang][4], lang);
@@ -193,8 +193,19 @@ test('admin-nav.css is served, built and cached like the desk stylesheet', () =>
   assert.deepEqual(merged('/admin-nav.css'), merged('/admin.css'));
 });
 
-const STAFF_PAGES = { 'admin.html': 'desk', 'fiiu-admin.html': 'festival', 'teaching.html': 'courses' };
+const STAFF_PAGES = { 'admin-home.html': 'home', 'admin.html': 'desk', 'fiiu-admin.html': 'festival', 'teaching.html': 'courses' };
 const page = (name) => read('web', 'pages', name);
+
+test('the bar has four links in order, and the real dictionary names the first Metrics or Indicadores', () => {
+  const keys = [...BAR.matchAll(/data-staff="([A-Za-z]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(keys, ['home', 'desk', 'festival', 'courses', 'signOut']);
+  for (const [lang, word] of [['es', 'Indicadores'], ['en', 'Metrics'], ['pt', 'Indicadores']]) {
+    const h = mount({ lang: 'en', withI18n: true });
+    h.ready[0].fn();
+    h.context.nodalI18n.apply(lang);
+    assert.equal(h.by('home').textContent, word, lang);
+  }
+});
 
 test('the bar is the same on every staff page but for aria-current, and is the element just before <main>', () => {
   assert.doesNotMatch(BAR, /<li\b|data-i18n|\bid=/);
@@ -221,7 +232,7 @@ test('each staff page loads admin-nav.js deferred before the dictionaries and ad
     const head = html.slice(0, html.indexOf('</head>'));
     assert.match(head, /<script defer src="admin-nav\.js\?v=20261114a"><\/script>/, name);
     const scripts = [...head.matchAll(/<script\b[^>]*\bsrc="([^"?]+)/g)].map((m) => m[1]);
-    const next = name === 'admin.html' ? 'i18n-dashboard.js' : 'i18n.js';
+    const next = name === 'admin.html' ? 'i18n-dashboard.js' : name === 'admin-home.html' ? 'admin-home.js' : 'i18n.js';
     assert.equal(scripts[scripts.indexOf('admin-nav.js') + 1], next, `${name}: directly before ${next}`);
     assert.ok(scripts.indexOf('admin-nav.js') < scripts.indexOf('i18n.js'), name);
     const sheets = [...head.matchAll(/<link rel="stylesheet" href="([^"]+)"/g)].map((m) => m[1]);

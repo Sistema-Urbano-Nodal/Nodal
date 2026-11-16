@@ -9,7 +9,7 @@ const OUTPUT = path.join(ROOT, 'public');
 export const STATIC_PAGES = ['opportunities.html', 'privacy.html', 'terminos-fundadores.html', 'fundadores.html'];
 // These pages stay on the Node server for authorization, recovery redirects,
 // and runtime configuration. Validate them without copying them to the CDN.
-export const SERVER_PAGES = ['fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html'];
+export const SERVER_PAGES = ['fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html', 'admin-home.html'];
 const STATIC_SCRIPTS = [
   'fiiu-ui.js', 'fiiu-live.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js',
   'news-feed.js',
@@ -47,8 +47,9 @@ const STATIC_SCRIPTS = [
   'teaching.js',
   'visit.js',
   'admin-nav.js',
+  'admin-home.js',
 ];
-const STATIC_STYLES = ['fiiu.css', 'fiiu-talk.css', 'auth.css', 'admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'styles.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css', 'fundadores.css', 'node-request.css', 'admin-nav.css'];
+const STATIC_STYLES = ['fiiu.css', 'fiiu-talk.css', 'auth.css', 'admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'styles.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css', 'fundadores.css', 'node-request.css', 'admin-nav.css', 'admin-home.css'];
 const STATIC_ASSETS = [
   'latam-map.webp',
   'nodal-community.webp',

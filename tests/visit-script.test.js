@@ -135,7 +135,7 @@ test('the tag is on exactly the listed pages, last in the head, and the page map
   const PLAIN_TAG = '<script defer src="visit.js?v=20261114b"></script>';
   const STAFF_TAG = '<script defer src="visit.js?v=20261114b" data-staff></script>';
   const plain = ['community', 'course', 'courses', 'dashboard', 'fiiu-session', 'fiiu-talk', 'fiiu', 'fundadores', 'index', 'knowledge', 'login', 'opportunities', 'payments', 'profile', 'resources'].map((n) => `${n}.html`).sort();
-  const staff = ['admin', 'fiiu-admin', 'fiiu-qr', 'teaching'].map((n) => `${n}.html`).sort();
+  const staff = ['admin', 'admin-home', 'fiiu-admin', 'fiiu-qr', 'teaching'].map((n) => `${n}.html`).sort();
   const withTag = { plain: [], staff: [] };
   for (const file of readdirSync(path.join(ROOT, 'web/pages')).filter((f) => f.endsWith('.html')).sort()) {
     const html = read(`web/pages/${file}`);
