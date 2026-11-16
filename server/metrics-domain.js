@@ -40,9 +40,9 @@ export function sumSeries(rows, day) {
   return out;
 }
 
-const ZERO_WIDTH = /[​-‍﻿]/g;
+const ZERO_WIDTH = /[\u200B-\u200D\uFEFF]/g;
 const UNICODE_SPACE = /[\p{Z}\s]+/gu;
-const ALLOWED = /^[\p{L}\p{M} \-'’.]+$/u;
+const ALLOWED = /^[\p{L}\p{M} \-'\u2019.]+$/u;
 const byLabel = (a, b) => a.localeCompare(b, 'es');
 
 function foldKey(text) { return text.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase('es'); }

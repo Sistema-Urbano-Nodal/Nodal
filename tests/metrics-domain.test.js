@@ -20,13 +20,13 @@ test('a series that was not read stays missing, never zeros', () => { assert.equ
 test('folds, labels and guards festival countries', () => {
   assert.deepEqual(foldCountries([['perú', 230], ['peru', 103], ['Perú', 2], ['lima', 8], ['Colombia', 7], ['méxico', 2], ['Mexico', 2],
     ['Chile', 2], ['x'.repeat(41), 5], ['Per1', 4], ['', 1]]),
-    [{ text: 'Perú', n: 335 }, { text: 'Lima', n: 8 }, { text: 'Colombia', n: 7 }, { text: 'Mexico', n: 4 }, { key: '_other', n: 12 }]);
+    [{ text: 'Per\u00FA', n: 335 }, { text: 'Lima', n: 8 }, { text: 'Colombia', n: 7 }, { text: 'Mexico', n: 4 }, { key: '_other', n: 12 }]);
   assert.deepEqual(foldCountries([['', 3], ["Côte d'Ivoire", 3], ['St. Lucia', 3], ['Guinea-Bissau', 3]]).map(i => i.text ?? i.key),
     ["Côte d'Ivoire", 'Guinea-Bissau', 'St. Lucia', '_none']);
 });
 test('folds Unicode spellings of one country together', () => {
   // Written as escapes on purpose: a combining accent, a non-breaking space, a zero-width space. Never paste the characters themselves.
-  assert.deepEqual(foldCountries([['Perú', 1], ['Perú ', 1], ['Peru​', 1]]), [{ text: 'Perú', n: 3 }]);
+  assert.deepEqual(foldCountries([['Peru\u0301', 1], ['Per\u00FA\u00A0', 1], ['Peru\u200B', 1]]), [{ text: 'Per\u00FA', n: 3 }]);
 });
 test('groups small values, and a profile "other" of 3 or more stays apart from _other', () => {
   assert.deepEqual(smallGroups([{ key: 'professional', n: 82 }, { key: 'other', n: 34 }, { key: 'activist', n: 2 }, { key: '', n: 1 }]),
@@ -45,7 +45,7 @@ test('validates by version and required keys, ignoring extras', () => {
 test('builds the flat figures map and refuses a partial reading', () => {
   assert.deepEqual(figuresOf([{ key: 'signups.accounts', total: 525 }, { key: 'signups.entered', total: 486, d30: 2, d7: 0 },
     { key: 'activity.kinds', items: [{ key: 'profile', n: 4, d7: 1 }] }, { key: 'visits.views', d30: 9, d7: 1 },
-    { key: 'memberships.views', items: [{ key: 'payments.html', n: 3 }] }, { key: 'festival.countries', items: [{ text: 'Perú', n: 335 }] },
+    { key: 'memberships.views', items: [{ key: 'payments.html', n: 3 }] }, { key: 'festival.countries', items: [{ text: 'Per\u00FA', n: 335 }] },
     { key: 'festival.registrations', total: 375, team: 2 }, { key: 'signups.new', d30: 0, d7: 0, last: '2026-10-26', daysSince: 19 }]),
     { 'signups.accounts': 525, 'signups.entered': 486, 'signups.entered.d30': 2, 'signups.entered.d7': 0, 'activity.kinds.profile.d30': 4,
       'activity.kinds.profile.d7': 1, 'festival.registrations': 375, 'signups.new.d30': 0, 'signups.new.d7': 0 });
