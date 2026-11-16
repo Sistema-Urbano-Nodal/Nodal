@@ -91,12 +91,6 @@
     return anchor;
   }
 
-  function detailPermalink(item, className = 'dispatch-details') {
-    const link = create('a', className, t('catalog.viewDetails'));
-    link.href = `opportunities.html?${new URLSearchParams({ id: item.id })}`;
-    return link;
-  }
-
   function renderDispatch(item, onSelect) {
     const row = create('article', `dispatch-row${item.isClosed ? ' is-closed' : ''}`);
     const rail = create('div', 'dispatch-rail');
@@ -106,12 +100,10 @@
     const main = create('div', 'dispatch-main');
     const kind = create('p', 'dispatch-kind', t(kindKey(item.kind)));
     const title = create('h3', 'dispatch-title');
-    if (onSelect) {
-      const button = create('button', 'dispatch-title-button', item.title);
-      button.type = 'button';
-      button.addEventListener('click', () => onSelect(item.id, button));
-      title.append(button);
-    } else title.textContent = item.title;
+    const button = create('button', 'dispatch-title-button', item.title);
+    button.type = 'button';
+    button.addEventListener('click', () => onSelect(item.id, button));
+    title.append(button);
     main.append(kind, title, create('p', 'dispatch-summary', item.summary || ''));
     const meta = create('div', 'dispatch-meta');
     addMeta(meta, t('catalog.organization'), item.organization);
@@ -123,75 +115,12 @@
       create('span', 'source-date', dateText(item.sourceVerifiedAt, { civil: true })));
     const action = item.actionMode === 'external' ? officialAnchor(item, true) : null;
     if (action && !item.isClosed) source.append(action);
-    if (onSelect) {
-      const details = create('button', 'dispatch-details', t('catalog.viewDetails'));
-      details.type = 'button';
-      details.addEventListener('click', () => onSelect(item.id, details));
-      source.append(details);
-    } else source.append(detailPermalink(item));
+    const details = create('button', 'dispatch-details', t('catalog.viewDetails'));
+    details.type = 'button';
+    details.addEventListener('click', () => onSelect(item.id, details));
+    source.append(details);
     row.append(rail, main, source);
     return row;
-  }
-
-  function renderCase(item, onSelect) {
-    const article = create('article', 'case-record');
-    article.append(create('p', 'dispatch-kind', t(kindKey(item.kind))), create('h3', '', item.title),
-      create('p', '', item.summary || ''));
-    const meta = create('div', 'dispatch-meta');
-    addMeta(meta, t('catalog.organization'), item.organization);
-    addMeta(meta, t('catalog.location'), item.location);
-    article.append(meta, sourceAnchor(item));
-    if (onSelect) {
-      const button = create('button', 'catalog-text-button', t('catalog.viewDetails'));
-      button.type = 'button';
-      button.addEventListener('click', () => onSelect(item.id, button));
-      article.append(button);
-    } else {
-      article.append(detailPermalink(item, 'catalog-text-link'));
-    }
-    return article;
-  }
-
-  let landingController;
-  let landingRequest = 0;
-  async function loadLandingRegion({ container, status, params, emptyKey, controller, requestId, cases = false }) {
-    if (!container || !status) return;
-    const isCurrent = () => landingRequest === requestId && landingController === controller;
-    status.textContent = t(cases ? 'catalog.loadingCases' : 'catalog.loading');
-    container.setAttribute('aria-busy', 'true');
-    try {
-      const response = await jsonRequest(`/api/catalog?${params}`,
-        { signal: controller.signal });
-      if (!response.ok) throw new Error('catalog read failed');
-      const payload = await response.json();
-      if (!isCurrent()) return;
-      clear(container);
-      payload.items.forEach((item) => container.append(cases ? renderCase(item) : renderDispatch(item)));
-      status.textContent = payload.items.length ? '' : t(emptyKey);
-    } catch (error) {
-      if (error.name !== 'AbortError' && isCurrent()) {
-        clear(container);
-        status.textContent = t(cases ? 'catalog.casesError' : 'catalog.error');
-      }
-    } finally {
-      if (isCurrent()) container.setAttribute('aria-busy', 'false');
-    }
-  }
-
-  async function loadLanding() {
-    const open = byId('landingOpenWork');
-    const cases = byId('landingCases');
-    if (!open && !cases) return;
-    landingController?.abort();
-    const controller = new AbortController();
-    const requestId = ++landingRequest;
-    landingController = controller;
-    const lang = encodeURIComponent(I18N?.lang || 'en');
-    await Promise.all([
-      loadLandingRegion({ container: open, status: byId('landingOpenWorkStatus'), params: `lang=${lang}&kind=opportunity%2Cproject%2Clearning_circle%2Cresource&featured=true&state=open&limit=4`, emptyKey: 'catalog.empty', controller, requestId }),
-      loadLandingRegion({ container: cases, status: byId('landingCasesStatus'), params: `lang=${lang}&kind=case_study&state=all&limit=3`, emptyKey: 'catalog.casesEmpty', controller, requestId, cases: true }),
-    ]);
-    if (landingController === controller) landingController = null;
   }
 
   let authenticated = false;
@@ -210,14 +139,6 @@
     if (requestId !== authRequest) return authenticated;
     authenticated = nextAuthenticated;
     authResolved = true;
-    const primary = byId('heroPrimary');
-    const secondary = byId('heroSecondary');
-    if (primary && secondary && authenticated) {
-      primary.href = 'opportunities.html?view=interests';
-      primary.textContent = t('catalog.myInterests');
-      secondary.href = 'opportunities.html';
-      secondary.textContent = t('hero.browse');
-    }
     const toggle = byId('catalogMyInterestsToggle');
     if (toggle) toggle.hidden = !authenticated;
     if (page.detailItem) renderInterestControls(page.detailItem);
@@ -605,7 +526,7 @@
   }
 
   function refetchForLanguage() {
-    const requests = [loadAuthState(), loadLanding()];
+    const requests = [loadAuthState()];
     if (page.form) {
       page.nextCursor = null;
       if (page.more) page.more.hidden = true;
@@ -618,6 +539,5 @@
 
   window.nodalI18n.onChange(refetchForLanguage);
   loadAuthState();
-  loadLanding();
   initCatalogPage();
 })();
