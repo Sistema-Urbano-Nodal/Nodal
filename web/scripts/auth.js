@@ -98,9 +98,13 @@
     feedback.set(node,key);node.textContent=t(key);node.hidden=false;node.classList.toggle('is-ok',okKeys.has(key));
     if(input){input.setAttribute('aria-invalid','true');input.focus();}
   };
+  // The status line is hidden while a request is sent, and a live region that reappears may not be announced. An answer
+  // about one field is read with that field (focus goes there, and the line describes it); any other answer also
+  // describes the button, where focus returns, until the next try.
+  const tell = (state,key) => {show(state.error,key);state.submit.setAttribute('aria-describedby',state.error.id);};
   const clear = state => {
     feedback.delete(state.error);state.error.textContent='';state.error.hidden=true;
-    state.inputs.forEach(input=>input.removeAttribute('aria-invalid'));
+    state.inputs.forEach(input=>input.removeAttribute('aria-invalid'));state.submit.removeAttribute('aria-describedby');
   };
   const setBusy = (state,value) => {
     state.busy=value;state.submit.disabled=value;state.form.setAttribute('aria-busy',String(value));render();
@@ -149,20 +153,20 @@
       // The auth provider accepts at most 72 bytes of UTF-8 (bcrypt); accents and emoji take two to four each.
       if(signup&&(password.value.length<8||utf8Bytes(password.value)>72)){show(state.error,'passwordLength',password);return;}
       // A second tap right after the email went out would only hit the provider's resend cooldown; after a minute it resends.
-      const sent=state.sent;if(signup&&sent&&sent.email===email.value.trim().toLowerCase()&&Date.now()-sent.at<60000){show(state.error,'confirmation');return;}
+      const sent=state.sent;if(signup&&sent&&sent.email===email.value.trim().toLowerCase()&&Date.now()-sent.at<60000){tell(state,'confirmation');return;}
       setBusy(state,true);let redirecting=false,field=null;
       try{
         const data=await post('/api/auth/'+(signup?'signup':'login'),{email:email.value.trim(),password:password.value,...(signup?{fullName:name.value.trim()}:{})},signup);
         if(signup&&data.requiresEmailConfirmation){
           state.sent={email:email.value.trim().toLowerCase(),at:Date.now()};const le=$('loginEmail');if(le&&!le.value)le.value=email.value.trim();
-          show(state.error,'confirmation');return;
+          tell(state,'confirmation');return;
         }
         redirecting=true;forgetReturn();location.assign(safeNext);
       }catch(error){
         const key=error.key||'connection';
         // A refusal about one field sends the person back to it; a wrong password is selected, ready to retype.
         field=({invalidCredentials:password,passwordLength:password,weakPassword:password,email,name})[key]||null;
-        show(state.error,key,field);if(key==='invalidCredentials')password.select();
+        if(field)show(state.error,key,field);else tell(state,key);if(key==='invalidCredentials')password.select();
       }
       finally{
         if(!redirecting){
