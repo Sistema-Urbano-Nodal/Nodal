@@ -4,7 +4,6 @@
   // before any other page script, link or resource can use the URL.
   const fragment=new URLSearchParams(location.hash.slice(1));
   let tokenHash=!fragment.has('access_token')&&!fragment.has('refresh_token')?fragment.get('token_hash')||'':'';
-  for(const key of [...fragment.keys()])fragment.delete(key);
   if(!/^[a-zA-Z0-9_-]{32,512}$/.test(tokenHash))tokenHash='';
   history.replaceState(null,'','/accept-invitation.html');
   // Bytes of UTF-8 the auth provider counts (it accepts at most 72): accents take two, most emoji four.
