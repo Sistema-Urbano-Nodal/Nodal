@@ -716,9 +716,10 @@ npm start
     it stays `"soon"`. From 1 Jan 2027 (Lima) it returns `"state": "ended"`,
     the card says "Oferta cerrada" ("Offer closed"), and the join page has no
     button and says the offer closed on 31 December 2026.
-14. Confirm `/api/news` returns 200, and that `/fiiu-qr.html` and
-    `/fiiu-admin.html` show "Organisers only" (status 403) to a member account
-    and the real pages to an administrator.
+14. Confirm `/api/news` returns 200, and that `/fiiu-qr.html`,
+    `/fiiu-admin.html`, `/admin.html`, `/teaching.html` and `/admin-home.html`
+    show "Organisers only" (status 403) to a member account and the real pages
+    to an administrator.
 
 ## FIIU check-in on the day
 

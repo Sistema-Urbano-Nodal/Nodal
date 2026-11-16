@@ -71,7 +71,6 @@ const MAX_BODY = 32 * 1024;
 const PRIVATE_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html', '/dashboard.html', '/profile.html', '/payments.html', '/admin.html', '/courses.html', '/course.html', '/teaching.html', '/admin-home.html']);
 const STATIC_PAGES = new Set(['fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'privacy.html', 'terminos-fundadores.html', 'fundadores.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html', 'admin-home.html']);
 const STATIC_SCRIPTS = new Set(['fiiu-ui.js', 'fiiu-live.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js', 'news-feed.js', 'buc.js', 'admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'i18n-dashboard.js', 'locale.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'hero-network.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js', 'privacy.js', 'membership-terms.js', 'fundadores.js', 'node-request.js', 'visit.js', 'admin-nav.js', 'admin-home.js']);
-const ORGANISER_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html']);
 /* /admin is the short address of the administrators' front door, the metrics home. */
 const ADMIN_ALIASES = new Set(['/admin']);
 /* The check-in screen shows <host>/checkin for phones that cannot scan. Typed by hand it may come in any case, without
@@ -1507,8 +1506,9 @@ export function createApp({
           return;
         }
         if (useDb && ['/admin.html','/teaching.html','/fiiu-admin.html','/fiiu-qr.html','/admin-home.html'].includes(canonical) && (sessionUser?.permission || sessionUser?.role) !== 'admin') {
-          // A member who follows an organiser link gets a page that explains it, carrying no organiser data or script.
-          if (ORGANISER_PAGES.has(canonical) && ['GET','HEAD'].includes(req.method)) { await serveStatic(req, res, '/organisers-only.html', pilotMode, { status: 403 }); return; }
+          /* A member who follows a staff link (an organiser page, the desk, teaching, or the admin home that /admin opens)
+             gets a page that explains it, carrying no staff data or script, instead of raw JSON. */
+          if (['GET','HEAD'].includes(req.method)) { await serveStatic(req, res, '/organisers-only.html', pilotMode, { status: 403 }); return; }
           send(res, 403, { error: 'administrator access required' });
           return;
         }

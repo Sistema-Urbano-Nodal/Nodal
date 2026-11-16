@@ -690,8 +690,8 @@ test('festival organiser and check-in pages cross every serving and build bounda
   }
   // The check-in page loads signed out, so a scan explains itself before asking for sign-in (its API needs a session).
   for (const page of ['/organisers-only.html', '/fiiu-checkin.html', '/fiiu-talk.html']) assert.ok(!list(serverSource, 'PRIVATE_PAGES').includes(`'${page}'`), page);
-  assert.match(serverSource, /const ORGANISER_PAGES = new Set\(\['\/fiiu-admin\.html', '\/fiiu-qr\.html'\]\)/);
-  assert.match(serverSource, /ORGANISER_PAGES\.has\(canonical\)[^\n]*serveStatic\(req, res, '\/organisers-only\.html', pilotMode, \{ status: 403 \}\)/);
+  // Members get the organisers-only page, with 403, in place of every staff page (tests/fiiu.test.js checks which pages).
+  assert.match(serverSource, /\['GET','HEAD'\]\.includes\(req\.method\)\) \{ await serveStatic\(req, res, '\/organisers-only\.html', pilotMode, \{ status: 403 \}\)/);
   assert.match(serverSource, /safeNext\(canonical \+ url\.search\)/);
   for (const script of ['fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js', 'news-feed.js']) {
     assert.ok(existsSync(path.join(ROOT, 'web', 'scripts', script)), `${script} is missing`);

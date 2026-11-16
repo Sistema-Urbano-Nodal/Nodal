@@ -64,9 +64,13 @@ test('the home is gated like the desk', async (t) => {
     return { cookie: res.headers.get('set-cookie').split(';')[0], id: (await res.json()).user.id };
   };
   const member = await signUp('home-member@example.com');
+  // A member who types /admin (or follows a shared link) gets the page that says the area is for the team, not raw JSON.
   const denied = await fetch(`${base}/admin-home.html`, { headers: { Cookie: member.cookie }, redirect: 'manual' });
   assert.equal(denied.status, 403);
-  assert.deepEqual(await denied.json(), { error: 'administrator access required' });
+  assert.match(denied.headers.get('content-type'), /^text\/html/);
+  const deniedPage = await denied.text();
+  assert.match(deniedPage, /data-fiiu-text="organisersOnly"/);
+  assert.doesNotMatch(deniedPage, /admin-home\.js|id="homeMain"/);
 
   const admin = await signUp('home-admin@example.com');
   db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.id);

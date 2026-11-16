@@ -66,9 +66,14 @@ test('organiser pages send guests to sign-in and show members an organisers-only
   assert.doesNotMatch(html,/fiiu-admin\.js|fiiu-qr\.js|\/api\/admin|example\.test/,page);
  }
  const head=await call('/fiiu-qr.html',{method:'HEAD'});assert.equal(head.status,403);assert.equal(await head.text(),'');
- // Non-page methods and the other staff pages keep the JSON refusal.
- const post=await call('/fiiu-admin.html',{method:'POST',body:{}});assert.equal(post.status,403);assert.deepEqual(await post.json(),{error:'administrator access required'});
- for(const page of ['/admin.html','/teaching.html']){const r=await call(page);assert.equal(r.status,403,page);assert.deepEqual(await r.json(),{error:'administrator access required'});}
+ // The other staff pages (the desk, teaching, the admin home behind /admin) show members the same page, never their own.
+ for(const page of ['/admin.html','/teaching.html','/admin-home.html']){
+  const member=await call(page);assert.equal(member.status,403,page);assert.match(member.headers.get('content-type'),/^text\/html/,page);
+  const html=await member.text();assert.match(html,/data-fiiu-text="organisersOnly"/,page);
+  assert.doesNotMatch(html,/admin\.js|admin-home\.js|admin-nav\.js|teaching\.js|\/api\/admin|example\.test/,page);
+ }
+ // Non-page methods keep the JSON refusal.
+ for(const page of ['/fiiu-admin.html','/admin-home.html']){const post=await call(page,{method:'POST',body:{}});assert.equal(post.status,403,page);assert.deepEqual(await post.json(),{error:'administrator access required'},page);}
  for(const [page,script] of [['/fiiu-qr.html?a=day1-am','fiiu-qr.js'],['/fiiu-admin.html','fiiu-admin.js']]){
   const admin=await call(page,{actor:'admin'});assert.equal(admin.status,200,page);assert.match(await admin.text(),new RegExp(`src="${script.replace('.','\\.')}\\?v=`));
  }
