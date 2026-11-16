@@ -105,7 +105,7 @@ test('names the field for each invalid input',async t=>{
   [{name:''},'name'],[{name:'   '},'name'],[{name:'x'.repeat(121)},'name'],[{name:7},'name'],[{name:undefined},'name'],
   [{organization:''},'organization'],[{organization:'x'.repeat(161)},'organization'],[{organization:['Org']},'organization'],[{organization:undefined},'organization'],
   [{email:''},'email'],[{email:'ana'},'email'],[{email:'ana@colectivo'},'email'],[{email:'ana @colectivo.example'},'email'],[{email:`${'x'.repeat(243)}@example.org`},'email'],[{email:5},'email'],[{email:undefined},'email'],
-  [{phone:'llámame'},'phone'],[{phone:'999#111'},'phone'],[{phone:'+51\t999'},'phone'],[{phone:'1'.repeat(41)},'phone'],[{phone:51999},'phone'],
+  [{phone:'llámame'},'phone'],[{phone:'999#111'},'phone'],[{phone:'1'.repeat(41)},'phone'],[{phone:51999},'phone'],
   [{message:'x'.repeat(1001)},'message'],[{message:undefined},'message'],[{message:{text:'hola'}},'message'],
   [{language:'fr'},'language'],[{language:'ES'},'language'],[{language:''},'language'],[{language:3},'language'],
  ];
@@ -141,7 +141,7 @@ test('refuses control and text-direction characters, keeping the message’s lin
   const answer=await post(valid({[field]:`Ciudad${char}Viva`}));
   assert.equal(answer.status,400,`${field} ${JSON.stringify(char)}`);assert.equal(answer.body.field,field,`${field} ${JSON.stringify(char)}`);
  }
- for(const field of ['name','organization'])for(const char of ['\n','\r','\t'])assert.equal((await post(valid({[field]:`Ciudad${char}Viva`}))).body.field,field,`${field} ${JSON.stringify(char)}`);
+ for(const field of ['name','organization'])for(const char of ['\n','\r'])assert.equal((await post(valid({[field]:`Ciudad${char}Viva`}))).body.field,field,`${field} ${JSON.stringify(char)}`);
  for(const [field,value] of [['phone','+51\u0000999'],['email','ana\u0000@colectivo.pe'],['phone','999‮111']])assert.equal((await post(valid({[field]:value}))).body.field,field,`${field} ${JSON.stringify(value)}`);
  assert.equal(rows().length,0);assert.equal(notice.calls.length,0);
  // Line breaks and tabs stay in the message; the visible joiners of emoji and scripts are not controls.
@@ -478,7 +478,7 @@ test('refuses a bad kind, a missing community or range, an unsafe or oversized c
   [valid({kind:'patrocinio'}),'kind'],[valid({kind:'Sponsorship'}),'kind'],[valid({kind:1}),'kind'],[valid({kind:['node']}),'kind'],[valid({kind:''}),'kind'],
   [sponsorship({community:undefined}),'community'],[sponsorship({community:null}),'community'],[sponsorship({community:'   '}),'community'],
   [sponsorship({community:'a'.repeat(201)}),'community'],[sponsorship({community:'Lima\nNorte'}),'community'],[sponsorship({community:'‮abc'}),'community'],
-  [sponsorship({community:'Lima\tNorte'}),'community'],[sponsorship({community:42}),'community'],
+  [sponsorship({community:42}),'community'],
   [sponsorship({memberships:undefined}),'memberships'],[sponsorship({memberships:'5'}),'memberships'],[sponsorship({memberships:11}),'memberships'],
   [sponsorship({memberships:' 11-25'}),'memberships'],[sponsorship({memberships:'UNSURE'}),'memberships'],[sponsorship({memberships:['1-10']}),'memberships'],
  ];
@@ -487,6 +487,21 @@ test('refuses a bad kind, a missing community or range, an unsafe or oversized c
   assert.equal(answer.status,400,JSON.stringify(input));assert.equal(answer.body.field,field,JSON.stringify(input));
  }
  assert.equal(rows().length,0);assert.equal(notice.calls.length,0);
+});
+
+test('turns a tab pasted into a one-line field into a space, and still refuses the other controls',async t=>{
+ const {post,rows}=await setup(t,{limits:{perAddress:1000}});
+ // Two spreadsheet cells pasted into one field: the tab is invisible, so a refusal could not say what to change.
+ assert.equal((await post(valid({name:'Ana\tQuispe',organization:'Lima\tCómo Vamos',phone:'+51\t999 111 222'}))).status,202);
+ assert.equal((await post(sponsorship({community:'Ciclistas\tde Lima',message:'Hola,\n\tqueremos apoyar.'}))).status,202);
+ assert.deepEqual(rows().map(r=>[r.name,r.organization,r.phone,r.community]),[['Ana Quispe','Lima Cómo Vamos','+51 999 111 222',null],
+  ['Ana Quispe','Colectivo Ciudad Viva','+51 999 111 222','Ciclistas de Lima']]);
+ assert.equal(rows()[1].message,'Hola,\n\tqueremos apoyar.','the message keeps its tabs');
+ for(const [input,field] of [[valid({organization:'Lima\u000bCómo Vamos'}),'organization'],[valid({name:'Ana\nQuispe'}),'name'],
+  [sponsorship({community:'Ciclistas‮de Lima'}),'community'],[valid({email:'ana\t@colectivo.example'}),'email']]){
+  assert.equal((await post(input)).body.field,field,JSON.stringify(input));
+ }
+ assert.equal(rows().length,2);
 });
 
 test('reports the first problem in form order',async t=>{

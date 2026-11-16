@@ -25,15 +25,18 @@ const retentionCutoff=ms=>{const day=new Date(ms);day.setUTCMonth(day.getUTCMont
 export const nodeRequestAdminView=({id,kind,name,organization,email,phone,community,memberships,message,language,status,emailStatus,createdAt,updatedAt,version})=>({id,kind,name,organization,email,phone,community,memberships,message,language,status,emailStatus,createdAt,updatedAt,version});
 
 // C0 and C1 controls and the bidi embeddings, overrides and isolates: PostgreSQL refuses a NUL (a 503 for a typo) and
-// the others turn the desk's and the team email's text around. Only the message keeps its line breaks and tabs.
+// the others turn the desk's and the team email's text around. Only the message keeps its line breaks and tabs; text()
+// has already turned a one-line field's tabs into spaces.
 const UNSAFE=/[\p{Cc}\u202A-\u202E\u2066-\u2069]/u,UNSAFE_IN_LINES=/(?![\n\r\t])[\p{Cc}\u202A-\u202E\u2066-\u2069]/u;
 // Strings are trimmed (and lower-cased when asked) before the length check; a missing or blank required field is
-// "required", the rest name what is wrong.
+// "required", the rest name what is wrong. A tab in a one-line field (two spreadsheet cells pasted together) is a
+// space: it cannot be seen, so a refusal could not say what to change.
 function text(input,field,{required=true,lower=false}={}){
  const value=input[field];
  if(value==null){if(required)invalid(field,`${field} is required`);return '';}
  if(typeof value!=='string')invalid(field,`${field} must be text`);
- const clean=lower?value.trim().toLowerCase():value.trim();
+ const line=field==='message'?value:value.replaceAll('\t',' ');
+ const clean=lower?line.trim().toLowerCase():line.trim();
  if(required&&!clean)invalid(field,`${field} is required`);
  if((field==='message'?UNSAFE_IN_LINES:UNSAFE).test(clean))invalid(field,`${field} has a control or text-direction character`);
  if(clean.length>NODE_REQUEST_LIMITS[field])invalid(field,`${field} is too long`);
