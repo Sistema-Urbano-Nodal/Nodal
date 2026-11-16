@@ -746,6 +746,10 @@
       b.textContent = count === null ? label : `${label} · ${count}`;
       b.addEventListener('click', () => {
         state.topic = state.topic === name ? '' : name;
+        /* The next answer lists another set of people: it rebuilds the roster without announcing anyone, or
+           everyone outside the old filter would arrive in the feed although nobody joined. */
+        roster.clear();
+        started = false;
         topicsDrawn = '';
         refreshPlaces();
       });

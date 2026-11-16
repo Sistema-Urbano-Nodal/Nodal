@@ -129,3 +129,30 @@ test('with no city picked, ArrowLeft opens the last city and ArrowRight the firs
   fresh.key('ArrowRight');
   assert.equal(fresh.ids.globeCity.textContent, 'Lima');
 });
+
+/* ---------- M142: a filtered answer is not a list of arrivals ---------- */
+
+test('picking a topic and going back to all topics announces nobody, and a real arrival still is', async () => {
+  const ana = member('ana', 'Ana'); const bob = member('bob', 'Bob'); const cid = member('cid', 'Cid');
+  const everyone = snapshot([city('Boston', [ana, bob]), city('Lima', [cid], -77)]);
+  const h = harness(everyone);
+  await flush();
+  h.respond((path) => reply(path.endsWith('?topic=Mobility') ? snapshot([city('Boston', [ana])]) : everyone));
+
+  h.chips()[1].dispatchEvent({ type: 'click' });   // Mobility: Boston [Ana]
+  await flush();
+  assert.equal(h.requests.at(-1).path, '/api/network/places?topic=Mobility');
+  h.chips()[0].dispatchEvent({ type: 'click' });   // All topics again
+  await flush();
+  assert.equal(h.requests.at(-1).path, '/api/network/places');
+  const feed = () => [h.ids.globeFeed.textContent, ...h.ids.globeFeed.children.map((row) => row.children.map((cell) => cell.textContent).join(' '))].join(' ');
+  assert.equal(h.ids.globeFeed.children.length, 0, `nobody joined, yet the feed reads: ${feed()}`);
+  assert.equal(h.ids.globeFeed.hidden, true);
+  assert.equal(h.ids.globeCard.hidden, true, 'the globe does not spin to a member who was there all along');
+
+  h.respond(() => reply(snapshot([city('Boston', [ana, bob, member('dan', 'Dan')]), city('Lima', [cid], -77)])));
+  h.poll();
+  await flush();
+  assert.match(feed(), /Dan/);
+  assert.doesNotMatch(feed(), /Ana|Bob|Cid/);
+});

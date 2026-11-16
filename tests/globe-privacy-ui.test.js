@@ -104,7 +104,9 @@ test('topic changes invalidate an in-flight snapshot and immediately fetch the s
   assert.doesNotMatch(content(h.ids.globeFeed)+content(h.ids.globePeople)+content(h.ids.globeCity),/Stale/);
   fresh.resolve(reply(snapshot([city('Current city',[member('current','Current name')])])));await flush();
   assert.doesNotMatch(content(h.ids.globeFeed)+content(h.ids.globePeople)+content(h.ids.globeCity),/Stale/);
-  assert.match(content(h.ids.globePeople),/Current name/);
+  // A filtered answer announces nobody and does not spin the globe (M142): the fresh city is there to pick.
+  assert.equal(h.ids.globeFeed.children.length,0);h.key();
+  assert.equal(h.ids.globeCity.textContent,'Current city');assert.match(content(h.ids.globePeople),/Current name/);
 });
 
 
