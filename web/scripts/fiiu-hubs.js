@@ -1,6 +1,6 @@
 (() => {
  'use strict';
- const {el,tr,link,button,source,api,status,dateNode,timeNode,contentCards,badges,countLabel,nextFor,underway,festivalOver,contactLine,limaDate,newTabNote,hoursLine,pulse,talkLink}=window.Fiiu;
+ const {el,tr,link,button,source,api,status,dateNode,timeNode,contentCards,badges,countLabel,nextFor,underway,festivalOver,contactLine,limaDate,newTabNote,hoursLine,pulse,talkLink,checkinActivities,checkinState}=window.Fiiu;
  const hub=document.getElementById('fiiuHub'),widget=document.getElementById('fiiuDashboardBody'),message=document.getElementById('fiiuStatus');
  // A link is given as [key, url], or as a node when the caller updates it later.
  function card(title,copy,links,featured=false){const box=el('article','f-hub-card'+(featured?' featured':''));box.append(tr('h2',title),tr('p',copy));const actions=el('div','f-actions');for(const item of links)actions.append(Array.isArray(item)?link(...item):item);box.append(actions);return box;}
@@ -37,11 +37,13 @@
      first turned a working block into the error box and collapsed it while it read. Only two good reads redraw it, in one step; a failed refresh
      keeps the block and the old loadedAt, so the next return tries again. */
   let loading=false,loadedAt=0;
-  /* "Next for you" reads "Happening now" while that block is under way, as on fiiu.html. shown: the plan and programme last drawn and what the line said
-     (the block's id, ':live' while under way). During the festival a check once a minute reads the block again when that changes, as a block starts or
-     ends, while the console is on screen; it stops after the last day. */
+  /* "Next for you" reads "Happening now" while that block is under way, as on fiiu.html. shown: the plan and programme last drawn and their mark: what the
+     line said (the block's id, ':live' while under way) and which blocks' check-in had closed. During the festival a check once a minute reads the block
+     again when the mark changes, as a block starts or ends, or as a block's check-in closes, 30 minutes after it ends: the console's Recognition ledger
+     (dashboard.js) then stops offering a block missed, though the line may not move. It runs while the console is on screen and stops after the last day. */
   let shown=null,timer=null;
-  const mark=(registration,event)=>{const next=nextFor(registration,event);return next?next.id+(underway(next)?':live':''):'';};
+  const markOf=(next,live,event)=>(next?next.id+(live?':live':''):'')+'|'+checkinActivities(event).filter(activity=>checkinState(activity)==='closed').map(activity=>activity.id).join(',');
+  const mark=(registration,event)=>{const next=nextFor(registration,event);return markOf(next,Boolean(next&&underway(next)),event);};
   const moved=()=>Boolean(shown)&&mark(shown.registration,shown.event)!==shown.mark;
   const follow=()=>{if(!shown||limaDate()>shown.event.endsOn){clearInterval(timer);timer=null;return;}if(document.visibilityState!=='hidden'&&moved())load(true);};
   /* The live line (fiiu-live.js) for registered people and organisers: what is on, today's check-ins and the live conversations, with a way to the band on
@@ -93,7 +95,7 @@
    if(typeof CustomEvent==='function')document.dispatchEvent?.(new CustomEvent('nodal:fiiu-festival',{detail:{registration,attendance:me.attendance,event:data.event}}));
    if(registration){
     const box=el('div','f-badges');state.append(box);const upcoming=nextFor(registration,data.event),now=Boolean(upcoming&&underway(upcoming));liveNamed=upcoming?.id||null;
-    shown={registration,event:data.event,mark:upcoming?upcoming.id+(now?':live':''):''};if(!timer&&limaDate()<=data.event.endsOn)timer=setInterval(follow,60000);
+    shown={registration,event:data.event,mark:markOf(upcoming,now,data.event)};if(!timer&&limaDate()<=data.event.endsOn)timer=setInterval(follow,60000);
     if(upcoming){const line=el('p','f-next');line.append(tr('span',now?'nowForYou':'nextForYou','f-next-label'),dateNode(upcoming.date,'span','short','f-next-date'));if(upcoming.time)line.append(timeNode(upcoming.time,'span','f-next-time'));line.append(source('span',upcoming.title,'f-next-title'));if(upcoming.venue)line.append(source('span',upcoming.venue,'f-next-venue'));next.append(line);
      // The next block's session page, with its questions, from the same pulse read as the General link above.
      pulse().then(counts=>{const n=counts.get(upcoming.id);if(n)line.append(talkLink(upcoming.id,n));});}
