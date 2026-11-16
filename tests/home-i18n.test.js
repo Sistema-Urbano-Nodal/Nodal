@@ -27,6 +27,8 @@ const CONSOLE=readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.met
 // two nonhome hashes were redone; only those four keys moved, and tests/dashboard-account-errors.test.js pins them.
 // On 24 Oct 2026 the deletion prompt (d.uc.deletePrompt) added that a FIIU registration, attendance and certificate hours
 // go with the account, so the two nonhome hashes were redone; only that key moved, and the same test pins it.
+// On 16 Nov 2026 the sign-up hint (a.hint) gained the upper limit sign-up already enforced (8–72), in the invitation page's
+// words, so the two nonhome hashes were redone; only that key moved, and tests/overview-forms-signup-hint.test.js pins it.
 const HOME_KEYS=[
   "about.eyebrow",
   "about.lead1",
@@ -263,8 +265,8 @@ const SNAPSHOTS={
     "pt": "b9a077e4b2055212490393a2498292f0d20156b6f1d4e34f8d7b063179e71d3b"
   },
   "nonhome": {
-    "es": "12ad258f84180d3a8f764b5d1c55acb05f3b83f7f922265194ebead6d689dbbb",
-    "pt": "81d8ec46f2c3fad296904c1a5819f4040e8cb04aab5b068bbf90d7fc121320c7"
+    "es": "7c974d3ada380255b0e6899ddadb2e2ca1b905b7f20ab0138aca40462ecebd2f",
+    "pt": "004da2e431908fe64fbc6459c8098137021faeb8d47de0172618f083c0932024"
   }
 };
 
