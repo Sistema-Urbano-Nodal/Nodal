@@ -112,14 +112,14 @@ test('the console shows the Publishing link to admins only', async () => {
 test('the Publishing link sits in the Tools rail, hidden until dashboard.js reveals it', () => {
   const html = read('web', 'pages', 'dashboard.html');
   const tools = html.slice(html.indexOf('data-i18n="d.nav.tools"'), html.indexOf('</nav>', html.indexOf('data-i18n="d.nav.tools"')));
-  assert.match(tools, /<a class="side-link" href="admin\.html" id="publishLink" hidden>\s*<svg viewBox="0 0 24 24" aria-hidden="true">[\s\S]*?<\/svg>\s*<span data-i18n="d\.nav\.publish">Publishing<\/span><\/a>/);
+  assert.match(tools, /<a class="side-link" href="admin-home\.html" id="publishLink" hidden>\s*<svg viewBox="0 0 24 24" aria-hidden="true">[\s\S]*?<\/svg>\s*<span data-i18n="d\.nav\.publish">Admin<\/span><\/a>/);
   // .side-link sets display:flex, which would override the hidden attribute without this rule.
   assert.match(read('web', 'styles', 'dashboard.css'), /\.side-link\[hidden\][^{]*\{\s*display:\s*none;?\s*\}/);
   assert.match(read('web', 'scripts', 'dashboard.js'), /publish\.hidden = data\.user\?\.permission !== 'admin'/);
 });
 
 test('the Publishing link and the news heading read in Spanish and Portuguese', () => {
-  const expected = { en: ['Publishing', 'NODAL news'], es: ['Publicar', 'Noticias NODAL'], pt: ['Publicar', 'Notícias NODAL'] };
+  const expected = { en: ['Admin', 'NODAL news'], es: ['Administración', 'Noticias NODAL'], pt: ['Administração', 'Notícias NODAL'] };
   for (const [lang, [link, news]] of Object.entries(expected)) {
     const i18n = loadI18n(lang);
     assert.equal(i18n.t('d.nav.publish'), link, lang);

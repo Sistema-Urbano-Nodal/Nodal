@@ -72,3 +72,38 @@ test('the home is gated like the desk', async (t) => {
   assert.equal(ok.headers.get('cache-control'), 'no-store');
   assert.match(await ok.text(), /id="homeMain"/);
 });
+
+test('/admin opens the home', async (t) => {
+  const saved = process.env.PILOT_MODE;
+  t.after(() => { if (saved === undefined) delete process.env.PILOT_MODE; else process.env.PILOT_MODE = saved; });
+  process.env.PILOT_MODE = 'false';
+  const db = createDatabase({ filename: ':memory:' });
+  t.after(() => db.close());
+  const server = createApp({ db, citySearch: { search: async () => ({ cities: [] }) } });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const res = await fetch(`${base}/api/auth/signup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fullName: 'Door Admin', email: 'door-admin@example.com', password: 'correct-horse' }) });
+  assert.ok(res.ok);
+  const cookie = res.headers.get('set-cookie').split(';')[0];
+  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run((await res.json()).user.id);
+  for (const p of ['/admin', '/admin/', '/ADMIN']) for (const method of ['GET', 'HEAD']) {
+    const r = await fetch(`${base}${p}`, { method, headers: { Cookie: cookie }, redirect: 'manual' });
+    assert.equal(r.status, 302, `${method} ${p}`);
+    assert.equal(r.headers.get('location'), '/admin-home.html', `${method} ${p}`);
+  }
+  const out = await fetch(`${base}/admin`, { redirect: 'manual' });
+  assert.equal(out.status, 302);
+  assert.equal(out.headers.get('location'), '/admin-home.html');
+  const next = await fetch(`${base}/admin-home.html`, { redirect: 'manual' });
+  assert.equal(next.status, 302);
+  assert.equal(next.headers.get('location'), '/login.html?next=%2Fadmin-home.html');
+  const post = await fetch(`${base}/admin`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: '{}', redirect: 'manual' });
+  assert.notEqual(post.status, 302, 'only page loads are redirected');
+  for (const p of ['/admin.html', '/admin.html#nodes', '/admin.html#founders']) {
+    const r = await fetch(`${base}${p}`, { headers: { Cookie: cookie }, redirect: 'manual' });
+    assert.equal(r.status, 200, p);
+    assert.match(await r.text(), /Publishing/);
+  }
+});

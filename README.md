@@ -128,14 +128,15 @@ Core flows:
 NODAL news; opportunities, projects, learning circles, resources and case
 studies; and the member interest review queue. It also links to the festival
 news editor (`/fiiu-admin.html#content`) and to courses (`/teaching.html`).
-Administrators reach it from the "Publishing" link in the console's Tools rail,
-which only they see. The page and every `/api/admin/*` request independently
+Administrators reach it from the "Admin" link in the console's Tools rail,
+which only they see; it opens the admin home (`/admin`, `/admin-home.html`),
+whose menu leads to the desk. The page and every `/api/admin/*` request independently
 require a server-owned `admin` role; there is no separate publisher role.
 Catalog records are archived rather than deleted.
 
-The three staff pages (`/admin.html`, `/fiiu-admin.html`, `/teaching.html`)
-carry the same staff bar under their header, with Publishing, Festival,
-Courses and Sign out in EN/ES/PT. Its labels live in
+The four staff pages (`/admin-home.html`, `/admin.html`, `/fiiu-admin.html`,
+`/teaching.html`) carry the same staff bar under their header, with Metrics,
+Publishing, Festival, Courses and Sign out in EN/ES/PT. Its labels live in
 `web/scripts/admin-nav.js`, not in the dictionaries, and its styles in
 `web/styles/admin-nav.css`. The door-screen list (`/fiiu-qr.html`) has no bar.
 The desk asks before a page with unsaved news is left.
