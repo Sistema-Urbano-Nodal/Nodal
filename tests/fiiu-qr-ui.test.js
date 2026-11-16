@@ -78,6 +78,16 @@ test('a block screen draws the code as one SVG path inside a 4-module quiet zone
  assert.doesNotMatch(content(h.root),/@|nationalId|Ab3dEf6h/,'no participant data and no raw code text on the screen');
 });
 
+test('a screen reader hears the short code one character at a time from a hidden line, not from an aria-label on the grouped code',async()=>{
+ let reply=()=>screen();const h=await page(()=>reply()),typed=()=>h.root.querySelector('.f-qr-typed'),short=()=>typed().querySelector('.f-qr-short');
+ // A paragraph cannot carry a name (ARIA 1.2), so screen readers read "K7M 4PX" as written: the grouped code is hidden from them instead.
+ assert.equal(short().textContent,'K7M 4PX');assert.equal(short()['aria-hidden'],'true');assert.equal(short()['aria-label'],undefined);
+ const spelled=()=>typed().querySelectorAll('.f-sr-only');assert.deepEqual(spelled().map(node=>node.textContent),['K 7 M 4 P X']);
+ // The next code is spelled out as it replaces the last one.
+ reply=()=>screen({shortCode:'Q2W9ZR'});await h.tickTimers();
+ assert.equal(short().textContent,'Q2W 9ZR');assert.deepEqual(spelled().map(node=>node.textContent),['Q 2 W 9 Z R']);
+});
+
 test('the screen refreshes every 30 seconds only while visible, catches up when shown again, and keeps the screen awake',async()=>{
  let n=0;const h=await page(()=>screen({checkedIn:12+n++}));
  assert.equal(h.timers.length,1);assert.equal(h.timers[0].delay,30000);assert.equal(reads(h),1);
