@@ -226,7 +226,6 @@
       page.nextCursor = payload.nextCursor;
       page.more.hidden = !page.nextCursor;
       const count = page.results.children.length;
-      // kind and state come from hub links; with no search of its own, adjusting filters cannot help
       // A kind or state arriving from a hub link is not the visitor's own filter; one they changed here is.
       const searched = page.userFiltered || ['q', 'topic', 'location'].some((name) => params.has(name));
       page.status.textContent = count ? t('catalog.resultsReady', { n: count }) : searched ? t('catalog.empty') : t('catalog.emptyNothingPublished');
