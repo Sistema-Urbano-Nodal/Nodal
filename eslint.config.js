@@ -4,7 +4,7 @@ import globals from 'globals';
 export default [
   { ignores: ['node_modules/**', 'public/**', 'output/**'] },
   {
-    files: ['server/**/*.js', 'api/**/*.js', 'scripts/**/*.js', 'web/scripts/**/*.js', 'tests/**/*.js', 'eslint.config.js'],
+    files: ['server/**/*.js', 'api/**/*.js', 'scripts/**/*.{js,mjs}', 'web/scripts/**/*.js', 'tests/**/*.js', 'eslint.config.js'],
     languageOptions: { ecmaVersion: 'latest' },
     rules: {
       'no-undef': 'error',
@@ -19,7 +19,7 @@ export default [
     },
   },
   {
-    files: ['server/**/*.js', 'api/**/*.js', 'scripts/**/*.js', 'tests/**/*.js', 'eslint.config.js'],
+    files: ['server/**/*.js', 'api/**/*.js', 'scripts/**/*.{js,mjs}', 'tests/**/*.js', 'eslint.config.js'],
     languageOptions: { globals: globals.node },
   },
   {
