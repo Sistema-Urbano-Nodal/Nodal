@@ -574,10 +574,14 @@ nothing outside ESLint. Remove it when you upgrade ESLint to a release whose
 and `npm audit --audit-level=low`.
 
 The server refuses to boot on Vercel Production (`VERCEL_ENV=production`) unless
-`TRUST_PROXY=true` and `PUBLIC_BASE_URL` (or `NEXT_PUBLIC_APP_URL`) is an
-explicit `https` origin without credentials; `VERCEL_URL` does not count there.
-Anywhere, `TRUST_PROXY` must be `true`, `false` or unset: any other spelling
-would key every per-client limit on the platform's own address.
+`PUBLIC_BASE_URL` (or `NEXT_PUBLIC_APP_URL`) is an explicit `https` origin
+without credentials; `VERCEL_URL` does not count there. `TRUST_PROXY` never
+stops a Vercel boot: there the proxy's address headers are trusted unless it is
+`false`, so `TRUST_PROXY=true` above is harmless but optional. Never set it to
+`false` on Vercel: the instance still boots, with one warning in the log, but
+every visitor then shares one rate-limit bucket. Off Vercel, `TRUST_PROXY` must
+be `true`, `false` or unset (any other spelling stops the boot), and only `true`
+trusts the headers.
 
 Optional limits (defaults shown; each is per server instance):
 
@@ -1012,8 +1016,9 @@ the session, sets no cookie and is cached by the CDN for 5 minutes
   directory, profile saves, data export and Stripe checkout. Limits are keyed by
   account when there is one, by address otherwise.
 - Rate limits are keyed on `X-Real-IP`, or the rightmost `X-Forwarded-For` hop -
-  never the leftmost, which the caller controls. `TRUST_PROXY=true` is required
-  behind Vercel for this to read the real address.
+  never the leftmost, which the caller controls. On Vercel these headers are
+  trusted unless `TRUST_PROXY=false`, which makes every visitor share one
+  bucket; behind any other proxy only `TRUST_PROXY=true` reads the real address.
 - **Serverless caveat:** rate-limit buckets live in the function instance's
   memory, so limits apply per warm instance rather than globally. `REDIS_URL`
   shares recommendation/city cache values only; it does not share request
