@@ -29,22 +29,8 @@
     .map(([selector, id]) => { const group = nav.querySelector(selector); if (group && !group.id) group.id = id; return group?.id; })
     .filter(Boolean);
   if (groups.length) toggle.setAttribute('aria-controls', groups.join(' '));
-  // Older headers (payments.html) shipped a toggle named "Menu" in every language.
-  if (!toggle.dataset.i18nAriaLabel) {
-    toggle.dataset.i18nAriaLabel = 'nav.menuLabel';
-    window.nodalI18n?.refresh(toggle);
-  }
-
-  /* Keep account navigation stable while the session is loading. Current
-     pages ship nav.panel; normalize older markup synchronously as well.
-     The protected dashboard route handles sign-in when it is needed. */
-  const joinCta = nav.querySelector('[data-i18n="nav.join"]');
-  if (joinCta) {
-    joinCta.href = '/dashboard.html';
-    joinCta.textContent = 'My console';
-    joinCta.dataset.i18n = 'nav.panel';
-    window.nodalI18n?.refresh(joinCta);
-  }
+  // Every header ships its toggle's translated name (data-i18n-aria-label) and its "My console" link (nav.panel)
+  // in the markup, and i18n.js translates both; there is no session to wait for.
 
   // wordmark contrast: white while a dark section is under the glass bar, black otherwise
   // (.platform, "How it works", is white since the landing restyle, and .cta-band is bright green with ink
