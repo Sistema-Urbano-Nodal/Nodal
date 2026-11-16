@@ -38,28 +38,31 @@ function elements(){
 }
 
 // config: the /api/billing/config answer (or a function of the request count, or a promise of it); answers: what each acceptance
-// POST gets, in turn; restored: the ids of the inputs a browser ticks again from its saved form state before the page script runs.
-async function page({config=OPEN,me={user:{email:'ana@example.test'}},answers=[CREATED],i18n:dictionary,restored=[]}={}){
+// POST gets, in turn; restored: the ids of the inputs a browser ticks again from its saved form state before the page script runs;
+// abortSignal: the page's AbortSignal (by default it has none, as Safari before 16 has no AbortSignal.timeout).
+async function page({config=OPEN,me={user:{email:'ana@example.test'}},answers=[CREATED],i18n:dictionary,restored=[],abortSignal}={}){
  const nodes=elements(),requests=[],assigned=[],listeners=[],windowListeners={},documentListeners={},timers=[],focused=[];let configs=0;
  for(const id of restored)nodes[id].checked=true;
  for(const node of Object.values(nodes))node.focus=()=>focused.push(node.id);
  const fake={lang:'en',t:(key,vars)=>`${fake.lang}:${key}`+(vars?' '+Object.entries(vars).map(([name,value])=>`${name}=${value}`).join(' '):''),onChange:listener=>listeners.push(listener)};
  const i18n=dictionary??fake;
  const queue=[...answers];
- const context={window:{nodalI18n:i18n,addEventListener:(type,listener)=>(windowListeners[type]??=[]).push(listener)},URL,JSON,
+ const context={window:{nodalI18n:i18n,addEventListener:(type,listener)=>(windowListeners[type]??=[]).push(listener)},URL,JSON,...(abortSignal?{AbortSignal:abortSignal}:{}),
   location:{pathname:'/payments.html',search:'',assign:url=>assigned.push(url)},
   document:{getElementById:id=>nodes[id]??null,createElement:tag=>new Node(tag),visibilityState:'visible',
    addEventListener:(type,listener)=>(documentListeners[type]??=[]).push(listener),removeEventListener:(type,listener)=>{documentListeners[type]=(documentListeners[type]||[]).filter(other=>other!==listener);}},
   setTimeout:(fn,ms)=>timers.push({fn,ms,cleared:false}),clearTimeout:id=>{if(timers[id-1])timers[id-1].cleared=true;},
   fetch:async(path,options={})=>{
-   const request={path,method:options.method||'GET',credentials:options.credentials,headers:options.headers,body:options.body===undefined?undefined:JSON.parse(options.body)};requests.push(request);
+   const request={path,method:options.method||'GET',credentials:options.credentials,headers:options.headers,body:options.body===undefined?undefined:JSON.parse(options.body),signal:options.signal};requests.push(request);
+   // A request whose signal aborts (its time limit passed) fails as a browser's does, whatever the answer would have been.
+   const settle=answer=>options.signal?Promise.race([answer,new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(options.signal.reason),{once:true}))]):answer;
    if(path==='/api/billing/config'){
-    const answer=await (typeof config==='function'?config(++configs):config);if(answer instanceof Error)throw answer;
+    const answer=await settle(typeof config==='function'?config(++configs):config);if(answer instanceof Error)throw answer;
     if(answer?.[STATUS])return{ok:answer[STATUS]<400,status:answer[STATUS],json:async()=>answer.data};
     return{ok:true,status:200,json:async()=>answer};
    }
    if(path==='/api/auth/me')return me?{ok:true,status:200,json:async()=>me}:{ok:false,status:401,json:async()=>({error:'sign in required'})};
-   if(path==='/api/membership/acceptances'){const answer=await (queue.length>1?queue.shift():queue[0]);if(answer instanceof Error)throw answer;return{ok:answer.status<400,status:answer.status,json:async()=>answer.data??{}};}
+   if(path==='/api/membership/acceptances'){const answer=await settle(queue.length>1?queue.shift():queue[0]);if(answer instanceof Error)throw answer;return{ok:answer.status<400,status:answer.status,json:async()=>answer.data??{}};}
    throw Error('unexpected request '+path);
   }};
  vm.createContext(context);vm.runInContext(script,context);await flush();
@@ -420,4 +423,32 @@ test('with the contact email alone the purchase opens and the Libro de Reclamaci
  }
  // With the link, and while nothing is open, the line is there.
  assert.equal((await page()).nodes.payComplaintsRow.hidden,false);assert.equal((await page({config:CLOSED('soon')})).nodes.payComplaintsRow.hidden,false);
+});
+
+/* Venue Wi-Fi can swallow a request without ever failing it. As on sign-in, the offer and the acceptance give up after
+   45 s: a stalled acceptance unlocks the box with its ticks and says it can be tried again, and a stalled offer shows
+   Try again, instead of a box locked until the member reloads. */
+test('a request that never answers gives up after 45 seconds, and the member can try again',async()=>{
+ const limits=[];
+ // AbortSignal.timeout as in a browser, except that the test says when the time has passed.
+ const abortSignal={timeout:ms=>{const controller=new AbortController();limits.push({ms,signal:controller.signal,expire:()=>controller.abort(Object.assign(new Error('signal timed out'),{name:'TimeoutError'}))});return controller.signal;}};
+ const stalled=new Promise(()=>{});
+ const p=await page({answers:[stalled,CREATED],abortSignal}),n=p.nodes;
+ assert.deepEqual(limits.map(limit=>limit.ms),[45000],'the offer is read with a time limit');assert.equal(p.requests.find(request=>request.path==='/api/billing/config').signal,limits[0].signal);
+ p.choose('once');p.tickAll();const sent=p.submit();await flush();
+ assert.equal(n.payStatus.textContent,'en:y.fund.sending');assert.equal(n.payChoices.disabled,true);
+ assert.equal(limits[1].ms,45000);assert.equal(p.posts()[0].signal,limits[1].signal,'and so is the acceptance');
+ limits[1].expire();await sent;await flush();
+ assert.equal(n.payStatus.textContent,'en:y.fund.error');assert.equal(p.focused(),'payStatus');
+ assert.equal(n.payChoices.disabled,false);assert.deepEqual(p.boxes.map(box=>[box.disabled,box.checked]),[[false,true],[false,true],[false,true]]);
+ assert.equal(n.payContinue.disabled,false);
+ await p.submit();await flush();assert.deepEqual(p.assigned,[MP],'the next try goes through');
+ const offer=await page({config:count=>count===1?stalled:OPEN,abortSignal});
+ assert.equal(offer.nodes.payClosed.textContent,'en:y.fund.loading');
+ limits.at(-1).expire();await flush();
+ assert.equal(offer.nodes.payClosed.textContent,'en:y.fund.loadError');assert.equal(offer.nodes.payRetry.hidden,false);
+ await offer.retry();await flush();assert.equal(offer.nodes.payPurchase.hidden,false);
+ // Without AbortSignal.timeout (Safari before 16) both requests still go out, with no limit.
+ const old=await page({abortSignal:{}});old.choose('once');old.tickAll();await old.submit();await flush();
+ assert.deepEqual(old.requests.filter(request=>request.path!=='/api/auth/me').map(request=>request.signal),[undefined,undefined]);assert.deepEqual(old.assigned,[MP]);
 });
