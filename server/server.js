@@ -2165,15 +2165,19 @@ export function createApp({
               const groups = new Map();
               const cityOf = new Map();
               const topics = new Map();
+              /* Cities where a listed member saved a point: the unfiltered map places them without the geocoder. A topic
+                 leaves out every city where nobody holds it, so a viewer's city counts as on the map if it is here. */
+              const located = new Set();
               for (const row of rows) {
                 const user = repository.toApiUser(row);
                 (user.topics || []).forEach((entry) => {
                   const name = String(entry?.name || entry || '').trim();
                   if (name) topics.set(name, (topics.get(name) || 0) + 1);
                 });
+                const city = String(user.city || '').trim();
+                if (city && user.location) located.add(city.toLowerCase());
                 // the filter narrows who is counted, never who exists
                 if (topic && !(user.topics || []).some((entry) => String(entry?.name || entry || '').trim().toLowerCase() === topic.toLowerCase())) continue;
-                const city = String(user.city || '').trim();
                 if (!city) continue;
                 const key = city.toLowerCase();
                 if (!groups.has(key)) groups.set(key, { city, point: user.location || null, members: [] });
@@ -2264,18 +2268,21 @@ export function createApp({
                 places,
                 links,
                 topics: [...topics].sort((x, y) => y[1] - x[1]).map(([name, n]) => ({ name, members: n })),
+                located,
               };
             })();
             variants.set(variant, work);
             work.catch(() => { if (variants.get(variant) === work) variants.delete(variant); });
           }
-          const shared = await work;
+          const { located, ...shared } = await work;
           const viewerRow = snapshot.rows.find(row => row.id === sessionUser.id);
           const viewer = viewerRow ? repository.toApiUser(viewerRow) : null;
           const city = String(viewer?.city || '').trim();
+          // onMap answers for the whole map, whatever the topic: the console asks a member it is false for to retype the city.
+          const onMap = city !== '' && (located.has(city.toLowerCase()) || shared.places.some(p => p.city.toLowerCase() === city.toLowerCase()));
           return JSON.stringify({ ...shared, you: {
             listed: Boolean(viewer), hasCity: city !== '',
-            onMap: Boolean(viewer) && city !== '' && shared.places.some(p => p.city.toLowerCase() === city.toLowerCase()),
+            onMap: Boolean(viewer) && onMap,
             city,
           } });
         });

@@ -1695,6 +1695,46 @@ test('the globe draws real relationships, filters by topic, and honours a member
   assert.ok(all.body.topics.some((x) => x.name === 'Mobility' && x.members === 2));
 });
 
+/* you.onMap drives the console's "We could not place <city> on the map" note, which asks the member to retype the city.
+   A topic filter leaves out every city where nobody holds the topic; that must not read as a city the map cannot place. */
+test('a topic nobody in your city holds does not say your city is off the map', async (t) => {
+  const citySearch = {
+    async search(query) {
+      const known = { trujillo: [-8.11, -79.03], lima: [-12.04, -77.03] };
+      const hit = known[String(query).toLowerCase()];
+      return { cities: hit ? [{ label: String(query), lat: hit[0], lon: hit[1] }] : [] };   // Atlantis cannot be placed
+    },
+  };
+  const { db, base } = await bootDbHandle(t, { citySearch });
+  const member = async (who, city, topic) => {
+    const m = await consentingMember(base, { name: who, email: `${who.toLowerCase()}@example.test`, city });
+    await patchJson(base, '/api/me', {
+      topics: [{ name: topic, level: 3 }], assessed: true,
+      partC: { bio: '', linkedin: '', portfolio: '', references: '', availability: '', consent: true },
+    }, { Cookie: m.cookie });
+    return m;
+  };
+  const rosa = await member('Rosa', 'Trujillo', 'Housing');
+  const pedro = await member('Pedro', 'Trujillo', 'Housing');
+  await member('Ana', 'Lima', 'Mobility');
+  const nadia = await member('Nadia', 'Atlantis', 'Housing');
+  // Pedro saved his profile while the city provider was down: his own pin is missing, Rosa's places Trujillo.
+  db.prepare('UPDATE users SET city_lat = NULL, city_lon = NULL WHERE id = ?').run(pedro.id);
+  const you = async (who, query = '') => (await getJson(base, `/api/network/places${query}`, who.cookie)).body.you;
+
+  for (const who of [rosa, pedro]) {
+    assert.equal((await you(who)).onMap, true);
+    const filtered = await getJson(base, '/api/network/places?topic=Mobility', who.cookie);
+    assert.deepEqual(filtered.body.places.map((p) => p.city), ['Lima'], 'the filter still narrows the map');
+    assert.deepEqual(filtered.body.you, { listed: true, hasCity: true, onMap: true, city: 'Trujillo' });
+    assert.deepEqual(Object.keys(filtered.body).sort(), ['links', 'members', 'places', 'topics', 'you'], 'nothing else is sent');
+  }
+  // A city nobody can place is still reported, with or without a topic.
+  assert.equal((await you(nadia)).onMap, false);
+  assert.equal((await you(nadia, '?topic=Mobility')).onMap, false);
+  assert.equal((await you(nadia, '?topic=Housing')).onMap, false);
+});
+
 
 
 test('a LinkedIn link is validated wherever it arrives, not only inside partC', async (t) => {
