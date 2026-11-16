@@ -187,7 +187,6 @@ const CITY_SEARCH_MIN_INTERVAL_MS = envInt('CITY_SEARCH_MIN_INTERVAL_MS', 1000);
 const CITY_SEARCH_BASE_URL = process.env.CITY_SEARCH_URL || 'https://geodb-free-service.wirefreethought.com/v1/geo/cities';
 const CITY_SEARCH_ATTRIBUTION = 'GeoDB Cities';
 const STATIC_CACHE_CONTROL = 'public, max-age=3600, stale-while-revalidate=86400';
-const CITY_ADDRESS_KEYS = ['city', 'town', 'village', 'municipality', 'hamlet', 'county', 'city_district'];
 const BASE_CSP = [
   "default-src 'self'",
   "script-src 'self'",
@@ -470,51 +469,26 @@ function cleanCityQuery(value) {
   return String(value || '').trim().replace(/\s+/g, ' ').slice(0, CITY_SEARCH_MAX_QUERY);
 }
 
-function cityNameFromAddress(address = {}, fallback = '') {
-  for (const key of CITY_ADDRESS_KEYS) {
-    const value = String(address[key] || '').trim();
-    if (value) return value;
-  }
-  return String(fallback || '').trim();
-}
-
 const cityCoordinate = (value, bound) => value !== null && value !== undefined && value !== ''
   && Number.isFinite(Number(value)) && Math.abs(Number(value)) <= bound ? Number(value) : null;
 
+// One GeoDB city row (createCitySearch asks GeoDB only); a row without a name is dropped.
 function cityResultFromPlace(place) {
-  if (place?.city || (place?.name && place?.countryCode)) {
-    const name = String(place.city || place.name || '').trim();
-    if (!name) return null;
-    const region = String(place.region || '').trim();
-    const country = String(place.country || '').trim();
-    const label = [...new Set([name, region, country].filter(Boolean))].join(', ');
-    return {
-      name,
-      label: label || name,
-      region,
-      country,
-      countryCode: String(place.countryCode || '').toUpperCase(),
-      lat: cityCoordinate(place.latitude, 90),
-      lon: cityCoordinate(place.longitude, 180),
-      source: 'geodb',
-    };
-  }
-
-  const address = place?.address || {};
-  const name = cityNameFromAddress(address, place?.name);
+  if (!place?.city && !(place?.name && place?.countryCode)) return null;
+  const name = String(place.city || place.name || '').trim();
   if (!name) return null;
-  const region = String(address.state || address.region || address.county || '').trim();
-  const country = String(address.country || '').trim();
+  const region = String(place.region || '').trim();
+  const country = String(place.country || '').trim();
   const label = [...new Set([name, region, country].filter(Boolean))].join(', ');
   return {
     name,
     label: label || name,
     region,
     country,
-    countryCode: String(address.country_code || '').toUpperCase(),
-    lat: cityCoordinate(place.lat, 90),
-    lon: cityCoordinate(place.lon, 180),
-    source: 'openstreetmap',
+    countryCode: String(place.countryCode || '').toUpperCase(),
+    lat: cityCoordinate(place.latitude, 90),
+    lon: cityCoordinate(place.longitude, 180),
+    source: 'geodb',
   };
 }
 

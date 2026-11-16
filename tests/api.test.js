@@ -711,8 +711,6 @@ test('city search proxies global city provider for authenticated profile autocom
         ok: true,
         json: async () => ([
           {
-            lat: '-21.4647310',
-            lon: '-47.0024050',
             name: 'Mococa',
             city: 'Mococa',
             region: 'São Paulo',
@@ -720,7 +718,6 @@ test('city search proxies global city provider for authenticated profile autocom
             countryCode: 'BR',
             latitude: -21.4647310,
             longitude: -47.0024050,
-            address: { municipality: 'Mococa', state: 'São Paulo', country: 'Brasil', country_code: 'br' },
           },
         ]),
       };
