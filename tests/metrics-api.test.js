@@ -12,7 +12,7 @@ import {createTalkStore} from '../server/fiiu-talk-repository.js';
 import {createMetricsStore} from '../server/metrics-repository.js';
 import {createVisitStore} from '../server/visits-repository.js';
 import {FINAL_SURVEY} from '../server/course-final-survey.js';
-import {DEFS,FAMILIES,INDICATORS,LEAD,LEAD_SECOND,TRACKED} from '../server/metrics-catalog.js';
+import {DEFS,FAMILIES,INDICATORS,LEAD,LEAD_SECOND,TRACKED,TEXTS,MONTH_SERIES} from '../server/metrics-catalog.js';
 import {windowsFor,figuresOf} from '../server/metrics-domain.js';
 import {loadSqlite,expectedMemberDays,sqliteProfile} from './fixtures/metrics-fixture.js';
 
@@ -54,8 +54,10 @@ async function setup(t,{metricsStore,fiiuStore,courseStore,visitStore,metricsOpt
  const server=createApp(options);
  server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
  const base=`http://127.0.0.1:${server.address().port}`;
- const call=(path,{actor='admin',method='GET',body,origin=base}={})=>fetch(base+path,{method,redirect:'manual',
-  headers:{...(cookies[actor]?{Cookie:cookies[actor]}:{}),Origin:origin,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
+ // raw sends a body as given (with headers overriding the JSON content type); body is sent as JSON.
+ const call=(path,{actor='admin',method='GET',body,raw,headers={},origin=base}={})=>fetch(base+path,{method,redirect:'manual',
+  headers:{...(cookies[actor]?{Cookie:cookies[actor]}:{}),Origin:origin,'Content-Type':'application/json',...headers},
+  body:raw!==undefined?raw:body===undefined?undefined:JSON.stringify(body)});
  const get=async(path='/api/admin/metrics',options)=>{const response=await call(path,options);return {status:response.status,headers:response.headers,body:await response.json()};};
  return {db,own,clock,users,base,call,get,reports};
 }
@@ -283,7 +285,7 @@ test('a failed part reaches error reporting through the app',async t=>{
 });
 
 test('an indicator whose own source is missing does not blank its part',async t=>{
- const {get,reports}=await setup(t,{
+ const {get,call,own,reports}=await setup(t,{
   courseStore:({course})=>wrap(course,{find:async(name,filters,options,real)=>(await real(name,filters,options)).filter(row=>name!=='courses'||row.id!==FINAL_SURVEY.courseId)}),
   fiiuStore:({fiiu})=>wrap(fiiu,{summary:async(eventId,activities,real)=>{const {attendedPeople,qrPeople,...rest}=await real(eventId,activities);void attendedPeople;void qrPeople;return rest;}}),
  });
@@ -298,6 +300,10 @@ test('an indicator whose own source is missing does not blank its part',async t=
  const figures=figuresOf(body.families.flatMap(f=>f.indicators));
  for(const key of missing)assert.equal(key in figures,false,key);
  assert.equal(typeof figures['courses.enrolled'],'number');
+ const post=await call('/api/admin/metrics/readings',{method:'POST'});
+ assert.deepEqual(await post.json(),{saved:true,day:'2026-11-14'});
+ const [row]=await own.metrics.readings();
+ assert.deepEqual(row.figures,figures);
 });
 
 test('a partial result is kept 30 seconds',async t=>{
@@ -368,4 +374,274 @@ test('the readings of each month: the latest one, and whether today has one',asy
   {month:'2026-10',day:'2026-10-31',defs:1,figures:{'signups.accounts':6}},
   {month:'2026-11',day:'2026-11-14',defs:1,figures:{'signups.accounts':7}},
  ]});
+});
+
+/* Task 8: the CSV export and the daily reading. */
+const q=text=>`"${String(text).replaceAll('"','""')}"`;
+const row=cells=>cells.map(q).join(',');
+// A small reader for csv()'s output: every cell quoted, rows joined by CRLF.
+const cellsOf=line=>[...line.matchAll(/"((?:[^"]|"")*)"/g)].map(m=>m[1].replaceAll('""','"'));
+async function download(call,path,options){
+ const response=await call(path,options);
+ // Read the bytes: fetch's text() would drop the byte order mark.
+ const text=Buffer.from(await response.arrayBuffer()).toString('utf8');
+ return {status:response.status,headers:response.headers,text,lines:text.replace(/^﻿/,'').split('\r\n')};
+}
+const lineOf=(lines,key)=>lines.find(line=>line.startsWith(`${q(key)},`));
+const savedRow=async own=>(await own.metrics.readings());
+
+test('the export is for administrators and needs both parameters',async t=>{
+ const {call}=await setup(t);
+ const path='/api/admin/metrics/export';
+ assert.equal((await call(`${path}?table=indicators&lang=es`,{actor:'guest'})).status,401);
+ assert.equal((await call(`${path}?table=indicators&lang=es`,{actor:'member'})).status,403);
+ for(const query of ['?lang=es','?table=&lang=es','?table=people&lang=es','?table=indicators','?table=indicators&lang=fr','?table=indicators&lang=',
+  '?table=indicators&lang=es&lang=en','?table=indicators&table=months&lang=es']){
+  const response=await call(path+query);
+  assert.equal(response.status,400,query);
+  assert.match(response.headers.get('content-type'),/application\/json/,query);
+ }
+ const post=await call(`${path}?table=indicators&lang=es`,{method:'POST',body:{}});
+ assert.equal(post.status,405);
+ assert.equal((await call('/api/admin/metrics/readings')).status,405,'the reading is a POST');
+});
+
+test('indicators CSV, byte for byte',async t=>{
+ const {call,get}=await setup(t,{fixture:true});
+ const {body}=await get();
+ const es=await download(call,'/api/admin/metrics/export?table=indicators&lang=es');
+ assert.equal(es.status,200);
+ assert.equal(es.headers.get('content-type'),'text/csv; charset=utf-8');
+ assert.equal(es.headers.get('content-disposition'),'attachment; filename="nodal-indicadores-2026-11-14.csv"');
+ assert.equal(es.headers.get('cache-control'),'no-store');
+ assert.ok(es.text.startsWith('﻿'),'the byte order mark');
+ assert.equal(TEXTS.es.csv.indicators.length,11);
+ assert.equal(es.lines[0],row(TEXTS.es.csv.indicators));
+ const accounts=TEXTS.es.indicators['signups.accounts'];
+ assert.equal(accounts.name,'Cuentas');
+ assert.equal(lineOf(es.lines,'signups.accounts'),row(['signups.accounts','ok','Registros','Cuentas',String(indicator(body,'signups.accounts').total),'','',
+  accounts.definition,accounts.source,accounts.caveat,'2026-11-14 08:36']));
+ // One row per indicator, in the catalogue's order, then its list items under it.
+ const keys=es.lines.slice(1).map(line=>cellsOf(line)[0]);
+ assert.deepEqual(keys.filter(key=>!key.includes('#')),INDICATORS.map(i=>i.key));
+ const peru=cellsOf(lineOf(es.lines,'festival.countries#Perú'));
+ assert.deepEqual(peru.slice(0,7),['festival.countries#Perú','ok','Festival','Perú','5','','']);
+ assert.deepEqual(cellsOf(lineOf(es.lines,'festival.countries#_other')).slice(3,5),[TEXTS.es.lists.reserved._other,'3']);
+ const student=indicator(body,'festival.profileTypes').items.find(item=>item.key==='student');
+ assert.ok(student,'the fixture has a student group');
+ assert.deepEqual(cellsOf(lineOf(es.lines,'festival.profileTypes#student')).slice(0,7),
+  ['festival.profileTypes#student','ok','Festival',TEXTS.es.lists.profileTypes.student,String(student.n),'','']);
+ const profile=indicator(body,'activity.kinds').items.find(item=>item.key==='profile');
+ assert.deepEqual(cellsOf(lineOf(es.lines,'activity.kinds#profile')).slice(3,7),[TEXTS.es.lists.kinds.profile,'',String(profile.n),String(profile.d7)]);
+ assert.deepEqual(cellsOf(lineOf(es.lines,`courses.enrolled#${FINAL_SURVEY.courseId}`)).slice(3,5),['Curso de movilidad urbana','5']);
+ const pt=await download(call,'/api/admin/metrics/export?table=indicators&lang=pt');
+ assert.equal(pt.lines[0],row(TEXTS.pt.csv.indicators));
+ assert.notEqual(pt.lines[0],es.lines[0]);
+ assert.equal(cellsOf(lineOf(pt.lines,'signups.accounts'))[7],TEXTS.pt.indicators['signups.accounts'].definition);
+ const stable=lines=>lines.slice(1).map(line=>cellsOf(line).slice(0,2));
+ assert.deepEqual(stable(pt.lines),stable(es.lines),'key and state do not change with the language');
+});
+
+test('a failed part is written in words',async t=>{
+ const notActivated=await setup(t,{metricsStore:({metrics})=>wrap(metrics,{memberDays:reject({code:'42P01'})})});
+ const one=await download(notActivated.call,'/api/admin/metrics/export?table=indicators&lang=es');
+ const city=cellsOf(lineOf(one.lines,'profiles.city'));
+ assert.equal(city[1],'not_activated');
+ assert.equal(city[4],'Aún no está activado en la base de datos');
+ assert.ok(!one.lines.some(line=>line.startsWith('"festival.countries#')),'a failed list has no item rows');
+ assert.equal(cellsOf(lineOf(one.lines,'activity.kinds'))[5],'Aún no está activado en la base de datos');
+
+ const down=await setup(t,{metricsStore:({metrics})=>wrap(metrics,{accountDays:reject({status:503})})});
+ const two=await download(down.call,'/api/admin/metrics/export?table=indicators&lang=es');
+ const fresh=cellsOf(lineOf(two.lines,'signups.new'));
+ assert.equal(fresh[1],'unavailable');
+ assert.deepEqual(fresh.slice(4,7),['','No disponible en este momento','No disponible en este momento']);
+ assert.equal(cellsOf(lineOf(two.lines,'signups.accounts'))[4],'No disponible en este momento');
+
+ const empty=await setup(t,{visitStore:()=>({kind:'sqlite',count:async()=>{},totals:async()=>({v:1,days:[],pages:{},sources:{}})})});
+ const views=cellsOf(lineOf((await download(empty.call,'/api/admin/metrics/export?table=indicators&lang=es')).lines,'visits.views'));
+ assert.equal(views[1],'not_yet_counted');
+ assert.deepEqual(views.slice(5,7),['Aún no hay visitas contadas','Aún no hay visitas contadas']);
+
+ const later=await setup(t,{visitStore:()=>({kind:'sqlite',count:async()=>{},totals:async()=>({v:1,days:[['2026-11-17',3,1]],pages:{},sources:{}})})});
+ const lines=(await download(later.call,'/api/admin/metrics/export?table=indicators&lang=es')).lines;
+ const since=cellsOf(lineOf(lines,'visits.views'));
+ assert.equal(since[1],'not_yet_counted');
+ assert.deepEqual(since.slice(5,7),['Se cuenta desde el 17 nov 2026','Se cuenta desde el 17 nov 2026']);
+ assert.equal(cellsOf(lineOf((await download(later.call,'/api/admin/metrics/export?table=indicators&lang=en')).lines,'visits.views'))[5],'Counted since Nov 17, 2026');
+});
+
+test('the formula guard holds',async t=>{
+ const {call,own}=await setup(t);
+ await own.course.insert('courses',{id:'c-formula',title:'=HYPERLINK("x")',status:'published',createdAt:START,updatedAt:START});
+ const {text,lines}=await download(call,'/api/admin/metrics/export?table=indicators&lang=es');
+ assert.ok(lines.some(line=>line.startsWith('"courses.enrolled#c-formula","ok","Cursos","\'=HYPERLINK(""x"")","0"')),text);
+ assert.ok(!text.includes(',"=HYPERLINK'),'no cell starts with the formula');
+});
+
+test('months CSV',async t=>{
+ const {call}=await setup(t);
+ const {status,headers,lines}=await download(call,'/api/admin/metrics/export?table=months&lang=es');
+ assert.equal(status,200);
+ assert.equal(headers.get('content-disposition'),'attachment; filename="nodal-indicadores-por-mes-2026-11-14.csv"');
+ assert.equal(lines[0],row(TEXTS.es.csv.months));
+ assert.equal(TEXTS.es.csv.months.length,1+MONTH_SERIES.length);
+ assert.deepEqual(lines.slice(1).map(line=>cellsOf(line)[0]),['2026-07','2026-08','2026-09','2026-10','2026-11']);
+ // The harness's two accounts were made in July; no visit has been counted yet; a zero prints as 0.
+ assert.deepEqual(cellsOf(lines[1]).slice(0,2),['2026-07','2']);
+ assert.equal(cellsOf(lines[1])[3],'0');
+ for(const line of lines.slice(1))assert.deepEqual(cellsOf(line).slice(4),['Aún no hay visitas contadas','Aún no hay visitas contadas']);
+
+ const failed=await setup(t,{metricsStore:({metrics})=>wrap(metrics,{memberDays:reject({status:503})})});
+ const down=(await download(failed.call,'/api/admin/metrics/export?table=months&lang=es')).lines;
+ for(const line of down.slice(1)){
+  const cells=cellsOf(line);
+  assert.deepEqual(cells.slice(2,4),['No disponible en este momento','No disponible en este momento'],line);
+ }
+
+ const counted=await setup(t,{visitStore:()=>({kind:'sqlite',count:async()=>{},totals:async()=>({v:1,days:[['2026-10-20',10,4],['2026-11-10',5,2]],pages:{},sources:{}})})});
+ const rows=(await download(counted.call,'/api/admin/metrics/export?table=months&lang=es')).lines.slice(1).map(cellsOf);
+ for(const cells of rows.slice(0,3))assert.deepEqual(cells.slice(4),['Se cuenta desde el 20 oct 2026','Se cuenta desde el 20 oct 2026'],cells[0]);
+ assert.deepEqual(rows[3].slice(4),['10','4']);
+ assert.deepEqual(rows[4].slice(4),['5','2']);
+});
+
+test('readings CSV',async t=>{
+ const {call,own}=await setup(t);
+ await own.metrics.saveReading('2026-10-30','2026-10-30T14:00:00.000Z',{'signups.accounts':5,'activity.kinds.profile.d7':2},1);
+ await own.metrics.saveReading('2026-11-14','2026-11-14T13:36:00.000Z',{'signups.accounts':7,'courses.openers':0},1);
+ const {status,headers,lines}=await download(call,'/api/admin/metrics/export?table=readings&lang=es');
+ assert.equal(status,200);
+ assert.equal(headers.get('content-disposition'),'attachment; filename="nodal-indicadores-lecturas-2026-11-14.csv"');
+ const head=cellsOf(lines[0]);
+ assert.deepEqual(head.slice(0,3),TEXTS.es.csv.readings);
+ const keys=head.slice(3);
+ assert.equal(keys.length,63);
+ assert.equal(new Set(keys).size,63);
+ assert.deepEqual(keys.slice(0,4),['signups.accounts','signups.confirmed','signups.new.d30','signups.new.d7']);
+ assert.ok(keys.every(key=>!key.startsWith('visits.')&&!key.startsWith('memberships.views')));
+ assert.deepEqual(keys.filter(key=>key.startsWith('activity.kinds.')).slice(0,2),['activity.kinds.profile.d30','activity.kinds.profile.d7']);
+ assert.equal(keys.at(-1),'courses.openers');
+ assert.equal(lines.length,3,'one row per saved day');
+ const first=cellsOf(lines[1]),second=cellsOf(lines[2]);
+ assert.deepEqual(first.slice(0,3),['2026-10-30','2026-10-30 09:00','1']);
+ const at=key=>3+keys.indexOf(key);
+ assert.equal(first[at('signups.accounts')],'5');
+ assert.equal(first[at('activity.kinds.profile.d7')],'2');
+ assert.equal(second[at('courses.openers')],'0','a zero prints as 0');
+ assert.equal(TEXTS.pt.csv.readings.length,3);
+});
+
+test('a reading without a key leaves the cell blank',async t=>{
+ const {call,own}=await setup(t);
+ await own.metrics.saveReading('2026-10-30','2026-10-30T14:00:00.000Z',{'signups.accounts':5},1);
+ const {lines}=await download(call,'/api/admin/metrics/export?table=readings&lang=es');
+ const keys=cellsOf(lines[0]).slice(3),cells=cellsOf(lines[1]);
+ assert.equal(cells[3+keys.indexOf('profiles.saved')],'');
+ assert.ok(lines[1].includes(',"",'),'an empty quoted cell');
+ assert.ok(!cells.slice(3).some(cell=>cell==='undefined'||cell==='null'));
+ assert.equal(cells.slice(3).filter(cell=>cell!=='').length,1);
+});
+
+test('the readings CSV with its table down',async t=>{
+ const {call}=await setup(t,{metricsStore:({metrics})=>wrap(metrics,{readings:reject({status:503})})});
+ const response=await call('/api/admin/metrics/export?table=readings&lang=es');
+ assert.equal(response.status,503);
+ assert.match(response.headers.get('content-type'),/application\/json/);
+ assert.equal(response.headers.get('content-disposition'),null);
+ assert.deepEqual(await response.json(),{error:'metrics unavailable'});
+});
+
+test('saves the first complete reading of the day',async t=>{
+ const {call,get,own}=await setup(t,{fixture:true});
+ const {body}=await get();
+ const post=await call('/api/admin/metrics/readings',{method:'POST'});
+ assert.equal(post.status,200);
+ assert.deepEqual(await post.json(),{saved:true,day:'2026-11-14'});
+ const saved=await savedRow(own);
+ assert.equal(saved.length,1);
+ const [reading]=saved;
+ assert.equal(reading.day,'2026-11-14');
+ assert.equal(reading.defs,1);
+ assert.equal(reading.takenAt,START);
+ const expected=figuresOf(body.families.flatMap(f=>f.indicators));
+ assert.deepEqual(reading.figures,expected);
+ const keys=Object.keys(reading.figures);
+ assert.equal(keys.length,63);
+ assert.ok(keys.every(key=>!key.startsWith('visits.')&&!key.startsWith('memberships.views')));
+ assert.ok(Object.values(reading.figures).every(Number.isInteger),'numbers only, no list text');
+ const again=await call('/api/admin/metrics/readings',{method:'POST'});
+ assert.deepEqual(await again.json(),{saved:false,day:'2026-11-14'});
+ assert.deepEqual(await savedRow(own),saved,'the first reading wins');
+ assert.equal((await get()).body.readings.today,true);
+});
+
+test('the reading ignores its body',async t=>{
+ const json=await setup(t,{fixture:true});
+ const {body}=await json.get();
+ const expected=figuresOf(body.families.flatMap(f=>f.indicators));
+ const one=await json.call('/api/admin/metrics/readings',{method:'POST',body:{figures:{'signups.accounts':1}}});
+ assert.equal(one.status,200);
+ assert.deepEqual((await savedRow(json.own))[0].figures,expected);
+ const plain=await setup(t,{fixture:true});
+ const two=await plain.call('/api/admin/metrics/readings',{method:'POST',raw:'x',headers:{'Content-Type':'text/plain'}});
+ assert.equal(two.status,200);
+ assert.deepEqual(await two.json(),{saved:true,day:'2026-11-14'});
+ assert.deepEqual((await savedRow(plain.own))[0].figures,expected);
+});
+
+test('the reading refuses another origin and limits',async t=>{
+ const {call,own}=await setup(t);
+ const evil=await call('/api/admin/metrics/readings',{method:'POST',origin:'https://evil.example'});
+ assert.equal(evil.status,403);
+ assert.deepEqual(await savedRow(own),[]);
+ assert.equal((await call('/api/admin/metrics/readings',{method:'POST',actor:'guest'})).status,401);
+ assert.equal((await call('/api/admin/metrics/readings',{method:'POST',actor:'member'})).status,403);
+ assert.deepEqual(await savedRow(own),[]);
+ for(let i=0;i<6;i++)assert.equal((await call('/api/admin/metrics/readings',{method:'POST'})).status,200,`POST ${i+1}`);
+ const refused=await call('/api/admin/metrics/readings',{method:'POST'});
+ assert.equal(refused.status,429);
+ assert.ok(Number(refused.headers.get('retry-after'))>0);
+});
+
+test('never saves a partial answer',async t=>{
+ for(const failure of [{accountDays:reject({status:503})},{memberDays:reject({code:'PGRST202'})},{readings:reject({status:503})}]){
+  let saves=0;
+  const {call,own}=await setup(t,{metricsStore:({metrics})=>wrap(metrics,{...failure,saveReading:async(...args)=>{saves++;return args.at(-1)(...args.slice(0,-1));}})});
+  const post=await call('/api/admin/metrics/readings',{method:'POST'});
+  assert.equal(post.status,200);
+  assert.deepEqual(await post.json(),{saved:false,day:'2026-11-14'},Object.keys(failure)[0]);
+  assert.equal(saves,0,Object.keys(failure)[0]);
+  assert.deepEqual(await own.db.prepare('SELECT day FROM metrics_readings').all(),[]);
+ }
+ const {call}=await setup(t,{courseStore:null});
+ assert.deepEqual(await (await call('/api/admin/metrics/readings',{method:'POST'})).json(),{saved:false,day:'2026-11-14'});
+});
+
+test('the reading uses the memo or the shared computation',async t=>{
+ let calls=0;
+ const slow=({metrics})=>wrap(metrics,{memberDays:async(today,options,real)=>{calls++;await pause(30);return real(today,options);}});
+ const {call,get}=await setup(t,{metricsStore:slow});
+ await get();assert.equal(calls,1);
+ assert.deepEqual(await (await call('/api/admin/metrics/readings',{method:'POST'})).json(),{saved:true,day:'2026-11-14'});
+ assert.equal(calls,1,'the POST read the memo');
+ calls=0;
+ const other=await setup(t,{metricsStore:slow});
+ const [post,read]=await Promise.all([other.call('/api/admin/metrics/readings',{method:'POST'}).then(r=>r.json()),other.get()]);
+ assert.deepEqual(post,{saved:true,day:'2026-11-14'});
+ assert.equal(read.status,200);
+ assert.equal(calls,1,'one computation for both');
+});
+
+test('never saves one day\'s figures under the next day',async t=>{
+ const days=[];
+ const {call,get,own,clock}=await setup(t,{start:'2026-11-15T04:59:00.000Z',metricsStore:({metrics})=>wrap(metrics,{memberDays:async(today,options,real)=>{days.push(today);return real(today,options);}})});
+ assert.equal((await get()).body.limaDay,'2026-11-14');
+ assert.deepEqual(days,['2026-11-14']);
+ clock.at=Date.parse('2026-11-15T05:00:30.000Z');
+ const post=await call('/api/admin/metrics/readings',{method:'POST'});
+ assert.deepEqual(await post.json(),{saved:true,day:'2026-11-15'});
+ assert.deepEqual(days,['2026-11-14','2026-11-15'],'computed again for the new day');
+ const saved=await savedRow(own);
+ assert.deepEqual(saved.map(r=>[r.day,r.takenAt]),[['2026-11-15','2026-11-15T05:00:30.000Z']]);
 });

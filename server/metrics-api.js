@@ -1,5 +1,6 @@
-import {DEFS,FAMILIES,INDICATORS,LEAD,LEAD_SECOND,TRACKED,TEXTS} from './metrics-catalog.js';
-import {FIRST_MONTH,READING_PARTS,limaDay,windowsFor,sumSeries,foldCountries,smallGroups,validPart} from './metrics-domain.js';
+import {DEFS,FAMILIES,INDICATORS,LEAD,LEAD_SECOND,TRACKED,TEXTS,MONTH_SERIES} from './metrics-catalog.js';
+import {FIRST_MONTH,READING_PARTS,limaDay,limaStamp,windowsFor,sumSeries,foldCountries,smallGroups,validPart,figureKey,figuresOf} from './metrics-domain.js';
+import {csv} from './courses-domain.js';
 import {festivalSummary,festivalHours} from './fiiu-summary.js';
 import {courseSummary,COURSE_SUMMARY_KEYS} from './courses-api.js';
 import {FINAL_SURVEY,finalSurveyCounts} from './course-final-survey.js';
@@ -191,6 +192,87 @@ export async function computeAnswer(deps,at){
  return {asOf:new Date(at).toISOString(),limaDay:day,defs:DEFS,windows,families,courseNames,months,readings,pending,visitsSince,unavailable,notActivated};
 }
 
+/* The CSV export (spec: "Export and print (M6)"): the language-neutral answer joined with TEXTS[lang] for one language.
+   csv() adds the byte order mark and the formula guard. A figure that could not be computed is written as its state's
+   text in each numeric cell it normally fills, never '' or 0; a failed list has no item rows. */
+export const EXPORT_TABLES=Object.freeze({indicators:'nodal-indicadores',months:'nodal-indicadores-por-mes',readings:'nodal-indicadores-lecturas'});
+const EXPORT_LANGS=Object.keys(TEXTS);
+const WINDOW_FIELDS=['total','d30','d7'];
+const VISIT_LISTS=new Set(['visits.topPages','visits.sources','memberships.views']);
+// The saved figures, in catalogue order (one column each in the readings CSV): every total and window whose part is not
+// visits, and the six activity kinds for both windows, named by the one key rule figuresOf uses.
+export const SAVED_KEYS=Object.freeze(INDICATORS.filter(ind=>ind.part!=='visits').flatMap(ind=>ind.key==='activity.kinds'
+ ?KINDS.flatMap(kind=>['d30','d7'].map(field=>figureKey(`${ind.key}.${kind}`,field)))
+ :WINDOW_FIELDS.filter(field=>ind.fields.includes(field)).map(field=>figureKey(ind.key,field))));
+
+const formatDay=(day,lang)=>new Intl.DateTimeFormat(lang,{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}).format(Date.parse(`${day}T00:00:00Z`));
+// The words for a state; visits not yet counted name their first day, or say none is counted yet.
+function stateText(state,texts,lang,visitsSince){
+ if(state==='not_yet_counted')return visitsSince?texts.states.not_yet_counted.replace('{day}',formatDay(visitsSince,lang)):texts.states.no_visits_yet;
+ return texts.states[state]??texts.states.unavailable;
+}
+// The numeric cells a row fills: its own fields, or for a list the cells its items fill (kinds: 30 and 7 days; the visit
+// lists count 30 days; the other lists a total).
+function cellsFilled(ind){
+ const own=WINDOW_FIELDS.filter(field=>ind.fields.includes(field));
+ if(own.length)return own;
+ return ind.key==='activity.kinds'?['d30','d7']:VISIT_LISTS.has(ind.key)?['d30']:['total'];
+}
+function itemLabel(ind,item,texts,courseNames){
+ if('text' in item)return item.text;
+ if(item.key in texts.lists.reserved)return texts.lists.reserved[item.key];
+ if(ind.vocabulary)return texts.lists[ind.vocabulary]?.[item.key]??item.key;
+ if(ind.family==='courses')return courseNames[item.key]??item.key;
+ return item.key;
+}
+
+function indicatorRows(answer,lang){
+ const texts=TEXTS[lang],readAt=limaStamp(Date.parse(answer.asOf));
+ const byKey=new Map(answer.families.flatMap(f=>f.indicators).map(ind=>[ind.key,ind]));
+ const rows=[texts.csv.indicators];
+ for(const ind of INDICATORS){
+  const got=byKey.get(ind.key)??{state:'unavailable'},words=texts.indicators[ind.key],family=texts.families[ind.family];
+  const filled=cellsFilled(ind),state=got.state??'ok';
+  const cell=field=>!filled.includes(field)?'':got.state?stateText(got.state,texts,lang,answer.visitsSince):ind.fields.includes(field)?got[field]:'';
+  rows.push([ind.key,state,family,words.name,cell('total'),cell('d30'),cell('d7'),words.definition,words.source,words.caveat,readAt]);
+  if(got.state||!Array.isArray(got.items))continue;
+  for(const item of got.items){
+   const label=itemLabel(ind,item,texts,answer.courseNames);
+   const counts=ind.key==='activity.kinds'?['',item.n,item.d7]:VISIT_LISTS.has(ind.key)?['',item.n,'']:[item.n,'',''];
+   rows.push([`${ind.key}#${item.key??item.text}`,'ok',family,label,...counts,'','','',readAt]);
+  }
+ }
+ return rows;
+}
+
+function monthRows(answer,lang){
+ const texts=TEXTS[lang],{series}=answer.months,rows=[texts.csv.months];
+ const last=answer.limaDay.slice(0,7);
+ for(let [y,m]=answer.months.from.split('-').map(Number);;m++){
+  if(m>12){m=1;y++;}
+  const month=`${y}-${String(m).padStart(2,'0')}`;
+  if(month>last)break;
+  rows.push([month,...MONTH_SERIES.map(name=>{
+   const values=series[name]??{state:'unavailable'};
+   if(values.state)return stateText(values.state,texts,lang,answer.visitsSince);
+   if(month in values)return values[month];
+   // A visit month before the first counted day (or before any): its words, never 0.
+   return stateText(name==='views'||name==='arrivals'?'not_yet_counted':'unavailable',texts,lang,answer.visitsSince);
+  })]);
+ }
+ return rows;
+}
+
+function readingRows(readings,lang){
+ const rows=[[...TEXTS[lang].csv.readings,...SAVED_KEYS]];
+ for(const r of readings){
+  const figures=r.figures&&typeof r.figures==='object'?r.figures:{};
+  // A reading saved before a key existed leaves its cell blank, never 0.
+  rows.push([r.day,limaStamp(Date.parse(r.takenAt)),r.defs,...SAVED_KEYS.map(key=>isNum(figures[key])?figures[key]:'')]);
+ }
+ return rows;
+}
+
 // Complete: every part answered (visits not yet counted is an answer). Only a complete answer is kept 5 minutes or saved.
 export const answerComplete=answer=>answer.unavailable.length===0&&answer.notActivated.length===0;
 
@@ -219,13 +301,58 @@ export function createMetricsApi({store,visitStore,fiiuStore,fiiuProgramme,cours
   memo=entry;
   return entry.promise;
  }
+ const unavailableAnswer=(res,error)=>{onFailure('answer',{error,report:'always'});send(res,503,{error:'metrics unavailable'});};
+
+ // GET export?table=&lang=: exactly one of each, else 400. readings reads the table itself, not the memo's month view.
+ async function exportCsv(req,res,url,user){
+  const tables=url.searchParams.getAll('table'),langs=url.searchParams.getAll('lang');
+  if(tables.length!==1||!Object.hasOwn(EXPORT_TABLES,tables[0])){send(res,400,{error:'table must be indicators, months or readings'});return;}
+  if(langs.length!==1||!EXPORT_LANGS.includes(langs[0])){send(res,400,{error:'lang must be es, en or pt'});return;}
+  if(!rateLimit(req,res,user,'read'))return;
+  const [table]=tables,[lang]=langs;
+  let rows,day=limaDay(now());
+  if(table==='readings'){
+   try{rows=readingRows(await store.readings(),lang);}
+   catch(error){onFailure('readings',{error,report:classify(error,false).report});send(res,503,{error:'metrics unavailable'});return;}
+  }else{
+   let answer;
+   try{answer=await current();}catch(error){unavailableAnswer(res,error);return;}
+   // The file is named after the day its figures belong to.
+   day=answer.limaDay;
+   rows=table==='indicators'?indicatorRows(answer,lang):monthRows(answer,lang);
+  }
+  send(res,200,csv(rows),{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="${EXPORT_TABLES[table]}-${day}.csv"`});
+ }
+
+ /* POST readings: today's reading from the memo or the shared computation, never from the body (which is not read). The
+    day is the answer's own limaDay, and the memo never serves another Lima day, so one day's figures are never saved
+    under the next. Only a complete answer is saved, first write wins; after a save the memo is dropped. */
+ async function saveReading(req,res,user){
+  req.resume();
+  if(!sameOrigin(req)){send(res,403,{error:'cross-origin request rejected'});return;}
+  if(!rateLimit(req,res,user,'read')||!rateLimit(req,res,user,'heavy'))return;
+  let answer;
+  try{answer=await current();}catch(error){unavailableAnswer(res,error);return;}
+  const day=answer.limaDay;
+  if(!answerComplete(answer)||answer.readings.today){send(res,200,{saved:false,day});return;}
+  let saved;
+  try{saved=await store.saveReading(day,answer.asOf,figuresOf(answer.families.flatMap(f=>f.indicators)),answer.defs);}
+  catch(error){onFailure('readings',{error,report:classify(error,false).report});send(res,503,{error:'metrics unavailable'});return;}
+  if(saved)memo=null;
+  send(res,200,{saved:!!saved,day});
+ }
  return async({req,res,url,user})=>{
   const path=url.pathname;
   if(path!=='/api/admin/metrics'&&!path.startsWith('/api/admin/metrics/'))return false;
   if(!user){send(res,401,{error:'sign in required'});return true;}
   if(user.permission!=='admin'){send(res,403,{error:'administrator access required'});return true;}
-  if(path!=='/api/admin/metrics'){send(res,404,{error:'not found'});return true;}
+  if(path==='/api/admin/metrics/readings'){
+   if(req.method!=='POST'){send(res,405,{error:'method not allowed'},{Allow:'POST'});return true;}
+   await saveReading(req,res,user);return true;
+  }
+  if(path!=='/api/admin/metrics'&&path!=='/api/admin/metrics/export'){send(res,404,{error:'not found'});return true;}
   if(!['GET','HEAD'].includes(req.method)){send(res,405,{error:'method not allowed'},{Allow:'GET, HEAD'});return true;}
+  if(path==='/api/admin/metrics/export'){await exportCsv(req,res,url,user);return true;}
   const fresh=url.searchParams.get('fresh')==='1';
   if(!rateLimit(req,res,user,'read'))return true;
   if(fresh&&!rateLimit(req,res,user,'heavy'))return true;
