@@ -649,6 +649,55 @@ test('shows the team addresses on 429 and when the API is unreachable', async ()
   assert.equal(spanish.error.textContent, 'Demasiados intentos. Intenta de nuevo más tarde o escríbenos a fmuro@sistemaurbano.org o malegre@sistemaurbano.org.');
 });
 
+// As a browser does: disabling the focused Send drops the focus to the page's body.
+function dropsFocus(page) {
+  const body = page.document.createElement('body');
+  page.document.body = body;
+  let disabled = false;
+  Object.defineProperty(page.send, 'disabled', { get: () => disabled, set(value) { disabled = value; if (value && page.document.activeElement === page.send) page.document.activeElement = body; } });
+}
+
+test('gives the focus back to Send after an answer with no field to point at', async () => {
+  for (const [name, fetchImpl] of [
+    ['unavailable', async () => answer(503, { error: 'service unavailable' })],
+    ['too many', async () => answer(429, { error: 'too many requests' })],
+    ['offline', async () => { throw new TypeError('Failed to fetch'); }],
+  ]) {
+    const page = await mount({ fetchImpl });
+    dropsFocus(page);
+    page.open();
+    page.type(FILLED);
+    page.send.focus();
+    await page.submit();
+    assert.equal(page.error.hidden, false, name);
+    assert.equal(page.document.activeElement, page.send, `${name}: the next Tab starts from Send again`);
+  }
+  // Closed while sending: the focus stays on Contáctanos, where closing put it.
+  const late = later();
+  const closed = await mount({ fetchImpl: () => late.promise });
+  dropsFocus(closed);
+  closed.open();
+  closed.type(FILLED);
+  closed.send.focus();
+  await closed.submit();
+  closed.dialog.escape();
+  late.resolve(answer(503));
+  await settle();
+  assert.equal(closed.document.activeElement, closed.$('nodeRequestOpen'));
+  // Moved on while waiting: the focus stays where the visitor put it.
+  const slow = later();
+  const moved = await mount({ fetchImpl: () => slow.promise });
+  dropsFocus(moved);
+  moved.open();
+  moved.type(FILLED);
+  moved.send.focus();
+  await moved.submit();
+  moved.$('nodeRequestMessage').focus();
+  slow.resolve(answer(503));
+  await settle();
+  assert.equal(moved.document.activeElement, moved.$('nodeRequestMessage'));
+});
+
 test('gives up after 25 seconds as when the API is unreachable, and frees the button', async () => {
   const UNREACHABLE = 'We could not send your message from here. Write to us at fmuro@sistemaurbano.org or malegre@sistemaurbano.org.';
   // A request that never ends, as on a stalled network: the visitor is never left with a disabled button.

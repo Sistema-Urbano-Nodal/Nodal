@@ -171,6 +171,9 @@
     shown = result;
     render();
     mark(result);
+    // Disabling Send while it sent dropped the focus out of the window: an answer with no field to point at gives it
+    // back to Send, unless the visitor moved on or closed the window meanwhile.
+    if (!control(result) && dialog.open && (!document.activeElement || document.activeElement === document.body)) send.focus();
   });
 
   window.nodalI18n?.onChange(render);
