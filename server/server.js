@@ -1006,16 +1006,17 @@ function resolveUserId(param, sessionUser, useDb) {
 }
 
 /* A browser asking for a page that does not exist (an address typed by hand, an
-   old link) gets a small page with a way on instead of raw JSON; scripts, styles,
+   old link) gets a small page with a way on (the home page, and the console, which
+   asks a signed-out visitor to sign in first) instead of raw JSON; scripts, styles,
    images and other clients keep the JSON answer. The page has no script and never
    echoes the address. Its language follows the site's: a language picked on the
    site (an unmarked 'en' is the old automatic save), else the browser's, else
    Spanish. Its stylesheets carry no ?v= key, so right after a deploy they may be
    an hour old: harmless on a page this small. */
 const NOT_FOUND_TEXT = {
-  es: ['Página no encontrada', 'No encontramos esta página', 'Puede que la dirección tenga un error o que la página ya no exista.', 'Ir al registro de asistencia', 'Ir a la página del FIIU'],
-  en: ['Page not found', 'We could not find this page', 'The address may have a typo, or the page may no longer exist.', 'Go to session check-in', 'Go to the FIIU page'],
-  pt: ['Página não encontrada', 'Não encontramos esta página', 'O endereço pode ter um erro, ou a página pode não existir mais.', 'Ir para o registro de presença', 'Ir para a página do FIIU'],
+  es: ['Página no encontrada', 'No encontramos esta página', 'Puede que la dirección tenga un error o que la página ya no exista.', 'Ir a la página de inicio', 'Ir a Mi panel'],
+  en: ['Page not found', 'We could not find this page', 'The address may have a typo, or the page may no longer exist.', 'Go to the home page', 'Go to my console'],
+  pt: ['Página não encontrada', 'Não encontramos esta página', 'O endereço pode ter um erro, ou a página pode não existir mais.', 'Ir para a página inicial', 'Ir para o painel'],
 };
 function notFoundLanguage(req) {
   const cookies = parseCookies(req.headers.cookie), saved = cookies.get('nodal.lang');
@@ -1024,12 +1025,12 @@ function notFoundLanguage(req) {
 }
 function notFound(req, res) {
   if (!/\btext\/html\b/.test(req.headers.accept || '')) { send(res, 404, { error: 'not found' }); return; }
-  const lang = notFoundLanguage(req), [title, heading, hint, checkin, festival] = NOT_FOUND_TEXT[lang];
+  const lang = notFoundLanguage(req), [title, heading, hint, home, panel] = NOT_FOUND_TEXT[lang];
   res.writeHead(404, { ...htmlSecurityHeaders(), 'Content-Type': MIME['.html'], 'Cache-Control': 'no-store' });
   res.end(req.method === 'HEAD' ? undefined : `<!DOCTYPE html>
 <html lang="${lang}" translate="no"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>NODAL · ${title}</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cline x1='20' y1='22' x2='44' y2='42' stroke='%2359bc53' stroke-width='5'/%3E%3Ccircle cx='20' cy='22' r='11' fill='%233d5c38'/%3E%3Ccircle cx='44' cy='42' r='8' fill='%2359bc53'/%3E%3C/svg%3E"><link rel="stylesheet" href="/fonts.css"><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/fiiu.css"></head>
-<body class="f-page"><main class="f-shell"><section class="f-locked"><h1>${heading}</h1><p>${hint}</p><div class="f-actions"><a class="f-button" href="/fiiu-checkin.html">${checkin}</a><a class="f-button secondary" href="/fiiu.html">${festival}</a></div></section></main></body></html>
+<body class="f-page"><main class="f-shell"><section class="f-locked"><h1>${heading}</h1><p>${hint}</p><div class="f-actions"><a class="f-button" href="/">${home}</a><a class="f-button secondary" href="/dashboard.html">${panel}</a></div></section></main></body></html>
 `);
 }
 
