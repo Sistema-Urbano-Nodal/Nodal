@@ -1,4 +1,4 @@
-import {newId, identifier, decodeAttachment} from './courses-domain.js';
+import {newId, identifier, decodeAttachment, fail} from './courses-domain.js';
 import {createCoursePerks} from './course-perks.js';
 
 /* The final survey and certificates of one course, Curso Movilidad Nivel 2 (docs/implementation/course-final-survey.md).
@@ -12,6 +12,44 @@ export const FINAL_SURVEY = Object.freeze({
   contactEmail:'observatorio@limacomovamos.org',
   certificateFilename:'certificado-curso-movilidad-nivel-2.pdf',
 });
+// The most rows one unbounded read (a course or feedback export) gathers: the network snapshot's ceiling.
+export const ALL_ROWS_MAX = 50_000;
+/* An unbounded read (an export) fails past ALL_ROWS_MAX rows, as the network snapshot does (supabase.js readPages),
+   rather than grow without limit or hand out a silently cut export. */
+export async function allRows(store,name,filters={},max=Infinity) {
+  let rows=[],after=null;
+  const cap=Math.min(max,ALL_ROWS_MAX+1);
+  while(rows.length<cap) {
+    const order=name==='intakes'?['id']:['createdAt','id'];
+    const limit=Math.min(500,cap-rows.length);
+    const page=await store.find(name,filters,{limit,order,...(after?{after}:{})});
+    // A store that did not apply the cursor answers the page it already gave: stop rather than repeat it forever.
+    if(after&&page.length&&page.at(-1).id===after.id)break;
+    // The store already fills logical pages across smaller provider row caps.
+    rows.push(...page);if(page.length<limit)break;after={...(name==='intakes'?{}:{createdAt:page.at(-1).createdAt}),id:page.at(-1).id};
+  }
+  if(rows.length>ALL_ROWS_MAX)fail('course data exceeds supported size',503);
+  return rows;
+}
+export async function membersForRows(store,rows) {
+  const ids=[...new Set(rows.map(row=>row.userId))],members=new Map();
+  for(let offset=0;offset<ids.length;offset+=100)for(const member of await store.getMembers(ids.slice(offset,offset+100)))members.set(member.id,member);
+  return members;
+}
+// Enrolled people who are not administrators, on the perk course the September group only: the survey's participants.
+async function participantsOf({courseId,enrolled,perks,members}) {
+  const enrollments=enrolled.filter(e=>!(perks.applies(courseId)&&!perks.inSeptemberGroup(e)));
+  const known=await members(enrollments);
+  return {enrollments:enrollments.filter(e=>!known.get(e.userId)?.staff),members:known};
+}
+/* Four counts only (no name, no email), the ones the organiser status route sends: the admin home reads them here. */
+export async function finalSurveyCounts({store,courseId,perks=createCoursePerks()}) {
+  const all=(name,filters)=>allRows(store,name,filters),members=rows=>membersForRows(store,rows);
+  const [{enrollments},responses,certificates]=await Promise.all([all('enrollments',{courseId}).then(enrolled=>participantsOf({courseId,enrolled,perks,members})),all('surveys',{courseId}),all('certificates',{courseId,status:'ready'})]);
+  const response=new Map(responses.map(row=>[row.userId,row])),certificate=new Set(certificates.map(row=>row.userId));
+  const answered=enrollments.filter(e=>response.get(e.userId)?.submittedAt).length;
+  return {total:enrollments.length,answered,started:enrollments.filter(e=>response.has(e.userId)).length-answered,certificates:enrollments.filter(e=>certificate.has(e.userId)).length};
+}
 const LIMA_OFFSET_MS=5*60*60*1000;
 // 'YYYY-MM-DD HH:MM' in Lima, for the organiser CSVs.
 export const limaTime = iso => iso ? new Date(Date.parse(iso)-LIMA_OFFSET_MS).toISOString().slice(0,16).replace('T',' ') : '';
@@ -200,9 +238,9 @@ export function createFinalSurvey({store,send,bodyJson,findOne,all,membersForRow
   // Enrolled people who are not administrators, with their response, ready certificate and course-form name.
   async function roster(courseId,{forms=false}={}) {
     const [enrolled,responses,certificates,intakes]=await Promise.all([all('enrollments',{courseId}),all('surveys',{courseId}),all('certificates',{courseId,status:'ready'}),forms?all('intakes',{courseId}):[]]);
-    const enrollments=enrolled.filter(e=>!joinedLater(courseId,e)),members=await membersForRows(enrollments),byUser=rows=>new Map(rows.map(row=>[row.userId,row]));
+    const {enrollments,members}=await participantsOf({courseId,enrolled,perks,members:membersForRows}),byUser=rows=>new Map(rows.map(row=>[row.userId,row]));
     const response=byUser(responses),certificate=byUser(certificates),intake=byUser(intakes);
-    return enrollments.filter(e=>!members.get(e.userId)?.staff).map(e=>({userId:e.userId,name:members.get(e.userId)?.name??'',email:members.get(e.userId)?.email??'',enrolledAt:e.createdAt,
+    return enrollments.map(e=>({userId:e.userId,name:members.get(e.userId)?.name??'',email:members.get(e.userId)?.email??'',enrolledAt:e.createdAt,
       formName:intake.get(e.userId)?.answers?.fullName??'',response:response.get(e.userId)??null,certificate:certificate.get(e.userId)??null}))
       .sort((a,b)=>a.name.localeCompare(b.name,'es')||a.email.localeCompare(b.email,'es'));
   }
@@ -301,8 +339,8 @@ export function createFinalSurvey({store,send,bodyJson,findOne,all,membersForRow
       await sendPdf(res,certificate);return true;
     }
     if(name==='status') {
-      const people=await roster(courseId),view=({response,certificate,formName,...person})=>({...person,startedAt:response?.createdAt??null,submittedAt:response?.submittedAt??null,certificate:certificate?{id:certificate.id,size:certificate.size,createdAt:certificate.createdAt}:null});
-      send(res,200,{...base(),total:people.length,answered:people.filter(p=>p.response?.submittedAt).length,started:people.filter(p=>p.response&&!p.response.submittedAt).length,certificates:people.filter(p=>p.certificate).length,participants:people.map(view)});
+      const [people,counts]=await Promise.all([roster(courseId),finalSurveyCounts({store,courseId,perks})]),view=({response,certificate,formName,...person})=>({...person,startedAt:response?.createdAt??null,submittedAt:response?.submittedAt??null,certificate:certificate?{id:certificate.id,size:certificate.size,createdAt:certificate.createdAt}:null});
+      send(res,200,{...base(),...counts,participants:people.map(view)});
       return true;
     }
     if(name==='survey'){sendCsv(res,'encuesta-final-respuestas',surveyResponsesCsv(await roster(courseId)));return true;}

@@ -3,6 +3,7 @@ import {fail,identifier,csv} from './courses-domain.js';
 import {bodyJson} from './courses-api.js';
 import {EVENT_ID,FIIU_EVENT,LEGACY_FIIU_ACTIVITIES,configView,normalizeRegistration,applicationStatus,version,normalizeContent,contentView,normalizeConfig,canAttend,checkinWindow,attendanceHours,isCheckinActivity,normalizeProgrammeEdit} from './fiiu-domain.js';
 import {createProgramme,mergeActivity} from './fiiu-programme.js';
+import {festivalSummary} from './fiiu-summary.js';
 import {createCheckinCodes} from './fiiu-checkin.js';
 import {packBits} from './qr.js';
 import {isReservedRecipient,EMAIL_LANGUAGES} from './fiiu-email.js';
@@ -291,8 +292,7 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
    }
   }
   if(path==='/api/admin/fiiu/summary'&&req.method==='GET'){
-   // The summary tags every ticked block 'general' (the Postgres function too), so the party joins the catalogue as one.
-   send(res,200,{summary:await store.summary(EVENT_ID,(await live()).all.map(a=>a.registration==='social'?{...a,registration:'general'}:a))});return true;
+   send(res,200,{summary:(await festivalSummary({store,programme})).summary});return true;
   }
   if(path==='/api/admin/fiiu/registrations'&&req.method==='GET'){
    const cursor=url.searchParams.get('cursor'),after=cursor?identifier(cursor):undefined;

@@ -1,6 +1,6 @@
 import { newId, identifier, fail, normalizeCourse, normalizeModule, normalizeIntake, normalizePost, normalizeFeedback, decodeAttachment, attachmentFilename, text, csv, INTAKE_FIELDS, FEEDBACK_ACTIONS, decodeCursor, encodeCursor } from './courses-domain.js';
 import {createCourseParticipants} from './course-participants.js';
-import {createFinalSurvey, FINAL_SURVEY} from './course-final-survey.js';
+import {createFinalSurvey, FINAL_SURVEY, allRows, membersForRows as membersOf} from './course-final-survey.js';
 import {createCoursePerks} from './course-perks.js';
 import {createHash} from 'node:crypto';
 
@@ -15,8 +15,6 @@ const writeMethods = new Set(['POST','PUT','PATCH','DELETE']);
 // Stored feedback per account. The form is one rating per course, session or area, so this is far above real use,
 // and it keeps one account from filling the shared database with 2,000-character comments.
 export const FEEDBACK_LIMIT = 200;
-// The most rows one unbounded read (a course or feedback export) gathers: the network snapshot's ceiling.
-const ALL_ROWS_MAX = 50_000;
 /* Bytes of course files one member account may download, per server instance: a short window and a day (staff are
    not budgeted; see the download route). Attachments are immutable per id and the browser keeps them, so ordinary
    repeat views cost nothing; the budget only stops one account from turning Supabase Storage egress (5 GB a month
@@ -70,27 +68,18 @@ function respond(res,status,body,headers={}) {
   res.end(typeof body==='string'||Buffer.isBuffer(body)?body:JSON.stringify(body));
 }
 
+// The seven counts of a course the organiser report opens with; the admin home sums them over the courses.
+export const COURSE_SUMMARY_KEYS = ['enrolled','intakeCompleted','moduleOpens','contentOpens','recordingOpens','assignments','comments'];
+export async function courseSummary(store,courseId) {
+  const counts=await Promise.all([store.count('enrollments',{courseId}),store.count('intakes',{courseId}),...['module_open','content_open','recording_open'].map(kind=>store.count('events',{courseId,kind})),...['assignment','comment'].map(kind=>store.count('posts',{courseId,kind,deletedAt:null}))]);
+  return Object.fromEntries(COURSE_SUMMARY_KEYS.map((key,i)=>[key,counts[i]]));
+}
+
 // finalSurvey and clock exist for tests: the survey's course and deadline are fixed in production.
 export function createCourseApi({store,userRepository,sameOrigin,send=respond,reportAnswer=async()=>false,rateLimit=()=>true,downloadLimits=DOWNLOAD_LIMITS,downloads=createByteBudget(downloadLimits),log=console.error,finalSurvey=FINAL_SURVEY,clock=Date.now,perks=createCoursePerks()}={}) {
   const participants=createCourseParticipants({store,userRepository});
   const findOne=async(name,filters)=>(await store.find(name,filters,{limit:1}))[0]??null;
-  /* An unbounded read (an export) fails past ALL_ROWS_MAX rows, as the network snapshot does (supabase.js readPages),
-     rather than grow without limit or hand out a silently cut export. */
-  async function all(name,filters={},max=Infinity) {
-    let rows=[],after=null;
-    const cap=Math.min(max,ALL_ROWS_MAX+1);
-    while(rows.length<cap) {
-      const order=name==='intakes'?['id']:['createdAt','id'];
-      const limit=Math.min(500,cap-rows.length);
-      const page=await store.find(name,filters,{limit,order,...(after?{after}:{})});
-      // A store that did not apply the cursor answers the page it already gave: stop rather than repeat it forever.
-      if(after&&page.length&&page.at(-1).id===after.id)break;
-      // The store already fills logical pages across smaller provider row caps.
-      rows.push(...page);if(page.length<limit)break;after={...(name==='intakes'?{}:{createdAt:page.at(-1).createdAt}),id:page.at(-1).id};
-    }
-    if(rows.length>ALL_ROWS_MAX)fail('course data exceeds supported size',503);
-    return rows;
-  }
+  const all=(name,filters={},max=Infinity)=>allRows(store,name,filters,max);
   async function courseAccess(id,user,{content=false}={}) {
     identifier(id);
     // Independent reads share only this request; always validate access before
@@ -198,11 +187,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
       } catch(error) { log('course attachment cleanup failed:',id,errorText(error)); }
     }
   }
-  async function membersForRows(rows) {
-    const ids=[...new Set(rows.map(row=>row.userId))],members=new Map();
-    for(let offset=0;offset<ids.length;offset+=100)for(const member of await store.getMembers(ids.slice(offset,offset+100)))members.set(member.id,member);
-    return members;
-  }
+  const membersForRows=rows=>membersOf(store,rows);
   async function feedbackForStaff(rows,members=undefined) {
     members??=await membersForRows(rows);
     return rows.map(row=>({...row,name:members.get(row.userId)?.name??'',email:members.get(row.userId)?.email??''}));
@@ -216,7 +201,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
     const needsFeedback=!exportType||exportType==='feedback';
     const [enrollments,intakes,events,posts,feedback,counts,invitations]=await Promise.all([
       needsParticipants?all('enrollments',{courseId},max):[],needsParticipants?all('intakes',{courseId}):[],exportType==='activity'?all('events',{courseId}):[],exportType==='activity'?all('posts',{courseId}):[],needsFeedback?all('feedback',{courseId},max):[],
-      exportType?[]:Promise.all([store.count('enrollments',{courseId}),store.count('intakes',{courseId}),...['module_open','content_open','recording_open'].map(kind=>store.count('events',{courseId,kind})),...['assignment','comment'].map(kind=>store.count('posts',{courseId,kind,deletedAt:null})),store.count('feedback',{courseId})]),
+      exportType?null:Promise.all([courseSummary(store,courseId),store.count('feedback',{courseId})]),
       exportType?[]:all('invitations',{courseId,acceptedAt:null},500),
     ]);
     const answers=new Map(intakes.map(row=>[row.userId,row.answers]));
@@ -231,9 +216,9 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
     });
     const livePosts=posts.filter(post=>!post.deletedAt&&post.userId);
     return {
-      summary:Object.fromEntries(['enrolled','intakeCompleted','moduleOpens','contentOpens','recordingOpens','assignments','comments'].map((key,i)=>[key,counts[i]])),
+      summary:counts?.[0]??{},
       participants,feedback:await feedbackForStaff(feedback,members),events,posts:livePosts,invitations,
-      truncated:!exportType&&(counts[0]>500||counts[7]>500),
+      truncated:!exportType&&(counts[0].enrolled>500||counts[1]>500),
     };
   }
   function sendCsv(res,name,rows) { send(res,200,csv(rows),{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="${name}.csv"`}); }
