@@ -26,9 +26,10 @@ test('the dev seed gives every block of the admin home something to show', async
   const directory = await mkdtemp(path.join(tmpdir(), 'nodal-seed-home-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const file = path.join(directory, 'seed.sqlite');
+  // Both runs seed from the same instant, never the real clock: a run either side of midnight adds no visit day.
   const run = () => execute(process.execPath, ['scripts/seed-dev.js'], {
     cwd: new URL('..', import.meta.url),
-    env: { ...process.env, NODE_ENV: 'development', DATABASE_PATH: file, SEED_ADMIN_PASSWORD: 'seed-test-password-1', SEED_ADMIN_EMAIL: 'admin@nodal.local' },
+    env: { ...process.env, NODE_ENV: 'development', DATABASE_PATH: file, SEED_ADMIN_PASSWORD: 'seed-test-password-1', SEED_ADMIN_EMAIL: 'admin@nodal.local', SEED_NOW: '2026-11-14T15:00:00.000Z' },
   });
   const count = db => Object.fromEntries(['users', 'fiiu_registrations', 'fiiu_attendance', 'pilot_courses', 'course_enrollments', 'course_events', 'membership_acceptances', 'visit_counts']
     .map(name => [name, db.prepare(`SELECT count(*) AS n FROM ${name}`).get().n]));
@@ -38,7 +39,7 @@ test('the dev seed gives every block of the admin home something to show', async
   const before = count(db);
   // Never the real clock: the seed's last visit day is its "today".
   const today = db.prepare('SELECT max(day) AS day FROM visit_counts').get().day;
-  assert.match(today, /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(today, '2026-11-14');
   createFiiuStore({ db }); createCourseStore({ db });
   const members = await createMetricsStore({ db }).memberDays(today);
   assert.ok(members.days.registrations.length > 0);

@@ -359,10 +359,15 @@ Expected, after the repair above: `account_days_definer` true ·
 `owner_reads_auth_users` true · `service_role_cannot_read` "none" ·
 `readings_rls` true · `migration_row` 1, and counts at or above those of 14
 November 2026 (accounts 525, confirmed 494, profiles 486, registrations 375).
-If `owner_reads_auth_users` is false, the Registros block stays "not
-activated": the function must belong to `postgres`.
+`migration_row` is 0 until the repair command has run. If
+`owner_reads_auth_users` is false, Cuentas, Con correo confirmado and Cuentas
+nuevas show "No disponible en este momento" (the server is refused, and one
+error report is sent) until the function belongs to `postgres`.
 
-Nothing changes in Vercel.
+No Vercel variable changes. Confirm in the project settings that the
+function's maximum duration is at least 10 seconds (a part of the home may
+take 6). On the day the home is first opened, run
+`docs/ops/2026-11-14-metrics-baseline.sql` again and compare it with the home.
 
 ## Founder Membership acceptances: one migration before `main`
 

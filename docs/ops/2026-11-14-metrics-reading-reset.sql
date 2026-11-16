@@ -5,6 +5,8 @@
 --   (service_role holds SELECT and INSERT only). If a reading is wrong (a figure later found miscounted, a day saved
 --   under a definition since corrected), delete that day here; the next opening of the home that day saves it again,
 --   and a past day simply stays without a reading in "Seguimiento" and in the readings CSV.
+--   The server remembers for up to 5 minutes that today was saved: wait 5 minutes, or press "Actualizar" on the home
+--   (fresh=1), before expecting the new reading.
 --
 -- NOT A MIGRATION
 --   It is not in supabase/migrations and is never applied by the repair command. Run it from the repository root:

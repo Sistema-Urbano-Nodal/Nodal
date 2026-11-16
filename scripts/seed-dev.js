@@ -73,13 +73,15 @@ for (const interaction of seed.interactions) {
 }
 
 // Rows for every block of the admin home (/admin-home.html), so the local preview shows numbers, not dashes. Fixed ids and
-// INSERT OR IGNORE make a second run add nothing; dates are relative to this run, in whole days.
+// INSERT OR IGNORE make a second run add nothing; dates are relative to this run, in whole days. SEED_NOW (an ISO
+// instant) fixes "this run" so two runs seed the same days (the seed's test passes it; never needed by hand).
 createFiiuStore({ db });
 createCourseStore({ db });
 createVisitStore({ db });
 createMetricsStore({ db });
 const DAY_MS = 86400000;
-const startedAt = Date.now();
+const startedAt = process.env.SEED_NOW ? Date.parse(process.env.SEED_NOW) : Date.now();
+if (!Number.isFinite(startedAt)) throw new Error('SEED_NOW must be an ISO instant');
 const ago = (days) => new Date(startedAt - days * DAY_MS).toISOString();
 const limaDay = (days) => new Date(startedAt - days * DAY_MS - 5 * 3600000).toISOString().slice(0, 10);
 const personas = [...idMap.values()];
@@ -98,8 +100,8 @@ const insertRegistration = db.prepare(`INSERT OR IGNORE INTO fiiu_registrations 
 const insertAttendance = db.prepare('INSERT OR IGNORE INTO fiiu_attendance (id, registration_id, activity_id, created_at, method) VALUES (?, ?, ?, ?, ?)');
 personas.forEach((userId, i) => {
   const id = `seed-registration-${i}`;
-  const at = ago([1, 1, 2, 3, 3, 4, 5, 6, 8, 9, 12][i]);
-  const answers = { country: countries[i], city: 'Lima', profile: i % 3 === 0 ? 'student' : 'professional', activities: ['day1-am', 'day2-am'] };
+  const at = ago([1, 1, 2, 3, 3, 4, 5, 6, 8, 9, 12][i % 11]);
+  const answers = { country: countries[i % countries.length], city: 'Lima', profile: i % 3 === 0 ? 'student' : 'professional', activities: ['day1-am', 'day2-am'] };
   insertRegistration.run(id, EVENT_ID, userId, `${userId}@seed.nodal.local`, JSON.stringify(answers), i === 0 ? 'pending' : 'none', at, at);
   if (i < 7) insertAttendance.run(`seed-attendance-${i}-a`, id, 'day1-am', at, 'qr');
   if (i < 4) insertAttendance.run(`seed-attendance-${i}-b`, id, 'day2-am', at, 'staff');

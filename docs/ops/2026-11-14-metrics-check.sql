@@ -10,8 +10,10 @@
 --   accounts 525 · confirmed 494 · profiles 486 · admins 5 · with_city 210 · with_bio 17 · assessed 33 ·
 --   onboarding_rows 210 · registrations 375 · checkins 90 · checkin_people 62 · enrolments 21 · admin_enrolments 3 ·
 --   surveys_submitted 9 · certificates_ready 17 · follows 14 · acceptances 1 · badges 0.
--- owner_reads_auth_users false means metrics_account_days cannot read the accounts: the home's Registros block shows
--- "Aún no está activado en la base de datos" until the function belongs to a role that can (postgres).
+-- migration_row is 0 until that repair command has run; every other value holds as soon as the file is applied.
+-- owner_reads_auth_users false means metrics_account_days cannot read the accounts: Cuentas, Con correo confirmado and
+-- Cuentas nuevas show "No disponible en este momento" (the server is refused, and one error report is sent) until the
+-- function belongs to a role that can (postgres).
 -- service_role_cannot_read names every table metrics_member_days reads that the server role cannot: the function runs
 -- as the caller, so each one named there fails the whole members part.
 -- If the migration is missing the query fails with "function public.metrics_account_days() does not exist" instead.

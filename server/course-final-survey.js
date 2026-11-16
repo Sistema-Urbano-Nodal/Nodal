@@ -42,13 +42,18 @@ async function participantsOf({courseId,enrolled,perks,members}) {
   const known=await members(enrollments);
   return {enrollments:enrollments.filter(e=>!known.get(e.userId)?.staff),members:known};
 }
+// The four counts of the participants, each carrying its response and ready certificate (or none): one rule for the
+// organiser status route (from the roster it already read) and for the admin home.
+const countsOf=people=>{
+  const answered=people.filter(p=>p.response?.submittedAt).length;
+  return {total:people.length,answered,started:people.filter(p=>p.response).length-answered,certificates:people.filter(p=>p.certificate).length};
+};
 /* Four counts only (no name, no email), the ones the organiser status route sends: the admin home reads them here. */
 export async function finalSurveyCounts({store,courseId,perks=createCoursePerks()}) {
   const all=(name,filters)=>allRows(store,name,filters),members=rows=>membersForRows(store,rows);
   const [{enrollments},responses,certificates]=await Promise.all([all('enrollments',{courseId}).then(enrolled=>participantsOf({courseId,enrolled,perks,members})),all('surveys',{courseId}),all('certificates',{courseId,status:'ready'})]);
   const response=new Map(responses.map(row=>[row.userId,row])),certificate=new Set(certificates.map(row=>row.userId));
-  const answered=enrollments.filter(e=>response.get(e.userId)?.submittedAt).length;
-  return {total:enrollments.length,answered,started:enrollments.filter(e=>response.has(e.userId)).length-answered,certificates:enrollments.filter(e=>certificate.has(e.userId)).length};
+  return countsOf(enrollments.map(e=>({response:response.get(e.userId)??null,certificate:certificate.has(e.userId)})));
 }
 const LIMA_OFFSET_MS=5*60*60*1000;
 // 'YYYY-MM-DD HH:MM' in Lima, for the organiser CSVs.
@@ -339,7 +344,8 @@ export function createFinalSurvey({store,send,bodyJson,findOne,all,membersForRow
       await sendPdf(res,certificate);return true;
     }
     if(name==='status') {
-      const [people,counts]=await Promise.all([roster(courseId),finalSurveyCounts({store,courseId,perks})]),view=({response,certificate,formName,...person})=>({...person,startedAt:response?.createdAt??null,submittedAt:response?.submittedAt??null,certificate:certificate?{id:certificate.id,size:certificate.size,createdAt:certificate.createdAt}:null});
+      // One read of the course's rows: the counts come from the same roster.
+      const people=await roster(courseId),counts=countsOf(people),view=({response,certificate,formName,...person})=>({...person,startedAt:response?.createdAt??null,submittedAt:response?.submittedAt??null,certificate:certificate?{id:certificate.id,size:certificate.size,createdAt:certificate.createdAt}:null});
       send(res,200,{...base(),...counts,participants:people.map(view)});
       return true;
     }
