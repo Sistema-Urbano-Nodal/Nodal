@@ -91,8 +91,12 @@ const AUTH_RATE_LIMIT = envInt('AUTH_RATE_LIMIT', 10);
 // bounding aggregate signup/login work independently (1–10,000 per window).
 const AUTH_IP_RATE_LIMIT = Math.min(10000, Math.max(1, Math.floor(envInt('AUTH_IP_RATE_LIMIT', 800))));
 /* Failed sign-ins are counted per account and requester (AUTH_RATE_LIMIT), so
-   somebody else's wrong guesses never lock the owner out, and per account across
-   every requester against distributed guessing. Successes count for neither. */
+   wrong guesses from one other address never lock the owner out, and per account
+   across every requester (this limit) against distributed guessing. That shared
+   count is checked before the password, so wrong guesses spread over several
+   addresses can still close the account's sign-in to everyone, its owner
+   included, for the rest of the 5-minute window (per server instance).
+   Successes count for neither. */
 const AUTH_ACCOUNT_RATE_LIMIT = envInt('AUTH_ACCOUNT_RATE_LIMIT', 5 * AUTH_RATE_LIMIT);
 /* Every anonymous sign-up can make the auth provider send an email, and that
    quota (300 an hour on the Supabase project, over the same Gmail account as
