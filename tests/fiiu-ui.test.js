@@ -438,6 +438,16 @@ test('the dashboard widget and the community card follow the registration settin
  const offline=await hubHarness('community',()=>({status:503,data:{error:'unavailable'}}));assert.equal(key(offline.hub,'register').href,'fiiu.html','without the settings the card keeps Register');
 });
 
+test('the resources hub card says what it leads to instead of repeating the page heading, in every language',async()=>{
+ const {hub}=await hubHarness('resources',path=>widgetFeed(path)),heading=hub.querySelector('h1'),card=hub.querySelector('.f-hub-card');
+ assert.equal(heading.dataset.fiiuText,'resourcesTitle');assert.equal(key(card,'resources').tagName,'h2');
+ assert.deepEqual(card.querySelectorAll('p').map(node=>node.dataset.fiiuText),['resourcesHint']);
+ assert.deepEqual(card.querySelectorAll('a').map(a=>a.href),['opportunities.html?kind=opportunity','opportunities.html?kind=resource,case_study']);
+ const context={window:{nodalI18n:{lang:'en',onChange(){}}},document:{documentElement:{lang:'en'},querySelectorAll:()=>[]},Intl,Date,Error};
+ vm.runInNewContext(readFileSync(new URL('../web/scripts/fiiu-ui.js',import.meta.url),'utf8'),context);const {rows}=context.window.Fiiu;
+ assert.equal(rows.resourcesHint.length,3);rows.resourcesHint.forEach((text,i)=>{assert.ok(text.trim());assert.notEqual(text,rows.resourcesTitle[i]);});
+});
+
 test('badge hints say badges come from the session QR code or the team, in every language',()=>{
  const context={window:{nodalI18n:{lang:'en',onChange(){}}},document:{documentElement:{lang:'en'},querySelectorAll:()=>[]},Intl,Date,Error};
  vm.runInNewContext(readFileSync(new URL('../web/scripts/fiiu-ui.js',import.meta.url),'utf8'),context);const {rows}=context.window.Fiiu;

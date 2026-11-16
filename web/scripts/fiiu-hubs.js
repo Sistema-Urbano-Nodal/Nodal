@@ -21,7 +21,7 @@
    // stays hidden until the readings answer, so a failed read leaves the hub as it was.
    const library=el('article','f-hub-card f-buc');library.hidden=true;grid.append(library);
    window.Buc?.mount(library,{context:'knowledge',limit:6,heading:[tr('h2','bucLibrary'),tr('p','bucLibraryHint')]});
-  }else{grid.append(card('resources','resourcesTitle',[['opportunities','opportunities.html?kind=opportunity'],['browseResources','opportunities.html?kind=resource,case_study']],true));const updates=el('section','f-updates');updates.append(tr('h2','news'));const list=el('div','f-news');updates.append(list);hub.append(updates);news(list);}
+  }else{grid.append(card('resources','resourcesHint',[['opportunities','opportunities.html?kind=opportunity'],['browseResources','opportunities.html?kind=resource,case_study']],true));const updates=el('section','f-updates');updates.append(tr('h2','news'));const list=el('div','f-news');updates.append(list);hub.append(updates);news(list);}
   hub.append(newTabNote());status(message,'');
  }
  // The answers a complete registration has, the same rule as missingAnswers in fiiu.js: a count of those still missing.
