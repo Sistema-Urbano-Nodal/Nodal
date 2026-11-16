@@ -29,6 +29,8 @@ import { createNodeRequestApi } from './node-requests-api.js';
 import { createNodeRequestNotice } from './node-requests-email.js';
 import { createVisitStore, VISIT_WRITE_MS } from './visits-repository.js';
 import { createVisitApi } from './visits-api.js';
+import { createMetricsStore } from './metrics-repository.js';
+import { createMetricsApi } from './metrics-api.js';
 import { preparePageHtml } from './page-shell.js';
 import {createLocationProvider,validatePosition,validateCityId} from './location.js';
 import { createCourseParticipants } from './course-participants.js';
@@ -137,7 +139,7 @@ const POLL_SESSION_MS = 30000, POLL_SESSION_MAX = 5000;
 const OPTIONAL_SESSION_API = /^\/api\/(?:auth\/state|news|catalog(?:\/[a-z0-9-]{1,40})?)$/;
 /* Routes that use only the member's id, email, name, role and account status, which
    the profile row carries. The full profile adds two reads to every request. */
-const ID_ONLY_API = /^\/api\/(?:network\/places|users|users\/search|users\/[^/]+\/(?:follow|interactions)|recommendations\/[^/]+|cities|billing\/status|checkout|me\/export|me\/catalog-interests|me\/location\/(?:suggest|accept)|(?:admin\/)?catalog(?:\/.*)?|admin\/interests(?:\/.*)?|admin\/node-requests(?:\/.*)?|(?:admin\/)?membership\/acceptances|admin\/membership\/founders(?:\/[^/]+)?)$/;
+const ID_ONLY_API = /^\/api\/(?:network\/places|users|users\/search|users\/[^/]+\/(?:follow|interactions)|recommendations\/[^/]+|cities|billing\/status|checkout|me\/export|me\/catalog-interests|me\/location\/(?:suggest|accept)|(?:admin\/)?catalog(?:\/.*)?|admin\/interests(?:\/.*)?|admin\/node-requests(?:\/.*)?|admin\/metrics(?:\/.*)?|(?:admin\/)?membership\/acceptances|admin\/membership\/founders(?:\/[^/]+)?)$/;
 // A Stripe subscription in any of these states exists and can still bill the member.
 const LIVE_SUBSCRIPTION_STATUSES = new Set(['pending', 'active', 'trialing', 'past_due', 'unpaid', 'paused']);
 // The account deletion's upload refusals, by their wording, and the code the console translates each one by.
@@ -1146,6 +1148,10 @@ export function createApp({
   visitStore = repository?.database ? createVisitStore({db:repository.database}) : repository?.kind === 'supabase' ? createVisitStore() : null,
   // Overrides for VISIT_RATE_LIMITS; tests lower them.
   visitLimits = VISIT_RATE_LIMITS,
+  /* The admin home's figures (server/metrics-repository.js), built last so the other stores' SQLite tables exist; null
+     leaves GET /api/admin/metrics to the 404. metricsOptions is spread into createMetricsApi (tests shorten deadlineMs). */
+  metricsStore = repository?.database ? createMetricsStore({db:repository.database}) : repository?.kind === 'supabase' ? createMetricsStore() : null,
+  metricsOptions = {},
   /* BUC's publication feed (server/buc.js): off, making no request, unless BUC_FEED_URL is an https address. Tests
      inject a reader with a fake fetch. */
   bucFeed = bucFeedFromEnv(),
@@ -1398,6 +1404,15 @@ export function createApp({
     addressAllowed:(req,res)=>throttle(visitAddressLimiter,res,req,null,'visit'),
     ceilingAllowed:()=>visitCeiling.take('visit:all').ok,
   });
+  /* The admin home's indicators: 60 reads a minute per account, and 6 a minute for a recomputation (?fresh=1). A failed
+     part is reported under the metrics route: the computation is shared, so the request that started it is not named. */
+  const metricsReadLimiter=createWindowRateLimiter({windowMs:60000,limit:60});
+  const metricsHeavyLimiter=createWindowRateLimiter({windowMs:60000,limit:6});
+  const metricsApi=useDb&&metricsStore?createMetricsApi({store:metricsStore,visitStore,fiiuStore,fiiuProgramme,courseStore,sameOrigin,send,now,
+    rateLimit:(req,res,user,kind)=>throttle(kind==='heavy'?metricsHeavyLimiter:metricsReadLimiter,res,req,user,kind==='heavy'?'metrics-heavy':'metrics'),
+    report:error=>reportAnswer({method:'GET',url:'/api/admin/metrics'},503,error),
+    ...metricsOptions,
+  }):null;
   const courseApi=courseStore?createCourseApi({store:courseStore,userRepository:repository,sameOrigin,send,downloads,reportAnswer,perks:createCoursePerks({fiiuStore}),
     // Only an upload spends the upload budget; staff list the file library after every upload, use and delete.
     rateLimit:(req,res,user,pathname)=>throttle(pathname.endsWith('/invitations')?courseInvitationLimiter:req.method==='POST'&&pathname.endsWith('/attachments')?courseUploadLimiter:['GET','HEAD'].includes(req.method)?courseReadLimiter:courseWriteLimiter,res,req,user,'course'),
@@ -1535,6 +1550,7 @@ export function createApp({
       if(fiiuApi && await fiiuApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
       if(newsApi && await newsApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
       if(nodeRequestApi && await nodeRequestApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
+      if(metricsApi && await metricsApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
 
       if(req.method==='POST'&&pathname==='/api/auth/course-invitation/complete') {
         if(!sameOrigin(req)){send(res,403,{code:'invitation_forbidden'});return;}

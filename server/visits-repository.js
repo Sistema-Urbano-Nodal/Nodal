@@ -34,13 +34,14 @@ export function createVisitStore({db,env=process.env,clients,fetchImpl=fetch}={}
    }
    await supa.admin.rest('rpc/count_visit',{method:'POST',body:{p_hit:hit},signal:AbortSignal.timeout(VISIT_WRITE_MS)});
   },
-  async totals(fromDay,toDay){
+  // signal: the admin home's part deadline (server/metrics-api.js); R1's two-argument calls are unchanged.
+  async totals(fromDay,toDay,{signal}={}){
    if(db){
     const days=db.prepare("SELECT day,sum(CASE WHEN kind='view' THEN n ELSE 0 END) AS views,sum(CASE WHEN kind='arrival' THEN n ELSE 0 END) AS arrivals FROM visit_counts GROUP BY day ORDER BY day").all().map(r=>[r.day,r.views,r.arrivals]);
     const tally=(kind,column)=>Object.fromEntries(db.prepare(`SELECT ${column} AS k,sum(n) AS n FROM visit_counts WHERE kind=? AND day BETWEEN ? AND ? GROUP BY ${column} ORDER BY n DESC,${column}`).all(kind,fromDay,toDay).map(r=>[r.k,r.n]));
     return {v:1,days,pages:tally('view','page'),sources:tally('arrival','source')};
    }
-   const answer=await supa.admin.rest('rpc/visit_totals',{method:'POST',body:{p_range:{from:fromDay,to:toDay}}});
+   const answer=await supa.admin.rest('rpc/visit_totals',{method:'POST',body:{p_range:{from:fromDay,to:toDay}},...(signal?{signal}:{})});
    if(!plain(answer)||answer.v!==1||!Array.isArray(answer.days)||!plain(answer.pages)||!plain(answer.sources))fail('visit totals unavailable',502);
    return answer;
   }
