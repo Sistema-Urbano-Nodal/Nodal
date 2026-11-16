@@ -73,9 +73,10 @@ export function attendanceHours(attendance,activities=ALL_FIIU_ACTIVITIES){
  for(const id of new Set(attendance.map(row=>row.activityId))){const activity=activities.find(a=>a.id===id);if(!isCheckinActivity(activity))continue;const m=activityMinutes(activity);if(m===null)untimed.push(id);else minutes+=m;}
  return {minutes,hours:Math.floor(minutes/60+0.5),untimed};
 }
-export const DEFAULT_CONFIG={registrationOpen:true,programUrl:'https://canva.link/ficmkatcg9fudwk',workshopsUrl:'',routesUrl:''};
-// The stored settings as the pages see them: only the settings that exist today (a party link saved before the party
-// joined the NODAL registration is dropped), each defaulting to its built-in value.
+export const DEFAULT_CONFIG={registrationOpen:true,programUrl:'https://canva.link/ficmkatcg9fudwk'};
+// The stored settings as the pages see them: only the settings that exist today, each defaulting to its built-in value. A
+// party link saved before the party joined the NODAL registration, and the workshop and route links saved before each of
+// those activities carried its own form, are dropped here, and from the stored row by its next save.
 export const configView=data=>Object.fromEntries(Object.keys(DEFAULT_CONFIG).map(key=>[key,data?.[key]??DEFAULT_CONFIG[key]]));
 // The blocks a person ticks in the NODAL registration: the conference blocks and the closing party.
 export const REGISTERED_KINDS=['general','social'];
