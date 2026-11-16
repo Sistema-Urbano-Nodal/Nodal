@@ -125,8 +125,39 @@ test('localization exposes only the requested visitor fields', () => {
 test('closure is derived from deadline or end date rather than stored state', () => {
   const now = new Date('2030-06-01T00:00:00.000Z');
   assert.equal(isCatalogItemClosed({ deadlineAt: '2030-05-31T23:59:59.000Z' }, now), true);
-  assert.equal(isCatalogItemClosed({ endDate: '2030-05-31' }, now), true);
+  // 19:00 on 31 May in Lima: an end date of 31 May is still open (next test), one of 30 May is not.
+  assert.equal(isCatalogItemClosed({ endDate: '2030-05-30' }, now), true);
   assert.equal(isCatalogItemClosed({ deadlineAt: '2030-06-02T00:00:00.000Z', endDate: '2030-05-01' }, now), false);
+});
+
+/* The desk sends an end date as a day (a date field), stored as the end of that UTC day. Lima is the business clock
+   (UTC-05:00 all year), so the item stays open until the end of that day there, not until 19:00. */
+const LAST_EVENING = '2026-11-30T19:30:00-05:00', NEXT_MIDNIGHT = '2026-12-01T00:00:01-05:00';
+
+test('a date-only end date closes at the end of that day in Lima', () => {
+  const { endDate } = validateCatalogDraft({ kind: 'project', endDate: '2026-11-30' });
+  assert.equal(endDate, '2026-11-30T23:59:59.999Z', 'the stored form is unchanged');
+  for (const form of [endDate, '2026-11-30']) {
+    assert.equal(isCatalogItemClosed({ endDate: form }, new Date(LAST_EVENING)), false, form);
+    assert.equal(isCatalogItemClosed({ endDate: form }, new Date('2026-11-30T23:59:59.999-05:00')), false, form);
+    assert.equal(isCatalogItemClosed({ endDate: form }, new Date(NEXT_MIDNIGHT)), true, form);
+  }
+  // An end date sent as an exact instant still closes at that instant.
+  assert.equal(isCatalogItemClosed({ endDate: '2026-11-30T20:00:00.000Z' }, new Date('2026-11-30T20:00:00.001Z')), true);
+});
+
+test('a date-only end date admits a start or deadline on the evening of that day in Lima', () => {
+  const circle = { kind: 'learning_circle', endDate: '2026-11-20' }, call = { kind: 'opportunity', endDate: '2026-11-20' };
+  // 20:00 and 23:59 on 20 Nov in Lima, as the desk's date-and-time fields send them
+  assert.equal(validateCatalogDraft({ ...circle, startsAt: '2026-11-21T01:00:00.000Z' }).startsAt, '2026-11-21T01:00:00.000Z');
+  assert.equal(validateCatalogDraft({ ...call, deadlineAt: '2026-11-21T04:59:00.000Z' }).deadlineAt, '2026-11-21T04:59:00.000Z');
+  // Midnight in Lima is already the next day
+  assert.throws(() => validateCatalogDraft({ ...circle, startsAt: '2026-11-21T05:00:00.000Z' }), /start must be on or before end/);
+  assert.throws(() => validateCatalogDraft({ ...call, deadlineAt: '2026-11-21T05:00:00.000Z' }), /deadline must be on or before end/);
+  // Days against days still compare as days
+  assert.doesNotThrow(() => validateCatalogDraft({ ...circle, startsAt: '2026-11-20' }));
+  assert.throws(() => validateCatalogDraft({ ...circle, startsAt: '2026-11-21' }), /start must be on or before end/);
+  assert.throws(() => validateCatalogDraft({ ...call, deadlineAt: '2026-11-21' }), /deadline must be on or before end/);
 });
 
 function sqliteCatalogRepo(t) {
@@ -379,4 +410,16 @@ test('SQLite export includes interests while account deletion cascades interests
   assert.equal(audit.updated_by, null);
   assert.equal(audit.published_by, null);
   assert.equal(await repo.getCatalogItem(item.id, { id: admin.id, permission: 'admin' }).then((row) => row.id), item.id);
+});
+
+test('SQLite lists a date-only end date until midnight in Lima and refuses it after', async (t) => {
+  const { repo, admin } = sqliteCatalogRepo(t);
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-20T12:00:00-05:00') });
+  const item = await repo.createCatalogItem(completeCatalogInput({ kind: 'project', subtype: null, deadlineAt: null, endDate: '2026-11-30', actionMode: 'none', actionUrl: '' }), admin.id);
+  assert.equal(item.endDate, '2026-11-30T23:59:59.999Z');
+  t.mock.timers.setTime(Date.parse(LAST_EVENING));
+  assert.deepEqual((await repo.listCatalogItems({}, null)).items.map((row) => row.id), [item.id]);
+  t.mock.timers.setTime(Date.parse(NEXT_MIDNIGHT));
+  assert.deepEqual((await repo.listCatalogItems({}, null)).items, []);
+  assert.deepEqual((await repo.listCatalogItems({ state: 'all' }, null)).items.map((row) => row.id), [item.id], 'history still sees it');
 });

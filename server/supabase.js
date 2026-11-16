@@ -5,6 +5,7 @@ import { recordInteraction } from './store.js';
 import {
   decodeCatalogCursor,
   decodeCatalogInterestCursor,
+  earliestOpenEndDate,
   encodeCatalogCursor,
   encodeCatalogInterestCursor,
   isCatalogItemClosed,
@@ -482,12 +483,15 @@ function compareInterestTuples(left, right, direction) {
 const CATALOG_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /* The open-state check of isCatalogItemClosed, as a PostgREST filter: a deadline
-   decides; without one, end_date does. end_date is a date column compared by UTC
-   day, so the day an item ends is still read here and dropped by the exact check
-   in matchesCatalogList. Expired items no longer reach the server at all. */
+   decides; without one, end_date does. end_date is a timestamptz, and a date-only
+   end date (stored as the end of its UTC day) stays open until the end of that
+   day in Lima, so its bound sits Lima's five hours back (earliestOpenEndDate).
+   An exact end date that passed within those hours is still read here and
+   dropped by the exact check in matchesCatalogList; anything older never
+   reaches the server. */
 function catalogOpenFilter(now) {
   const instant = now.toISOString();
-  return `(deadline_at.gte.${instant},and(deadline_at.is.null,end_date.is.null),and(deadline_at.is.null,end_date.gte.${instant.slice(0, 10)}))`;
+  return `(deadline_at.gte.${instant},and(deadline_at.is.null,end_date.is.null),and(deadline_at.is.null,end_date.gte.${earliestOpenEndDate(now)}))`;
 }
 
 /* Rows strictly after a decoded cursor in the listing order (featured.desc,
