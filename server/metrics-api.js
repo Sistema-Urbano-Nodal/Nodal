@@ -207,7 +207,8 @@ export async function computeAnswer(deps,at){
 
 /* The CSV export (spec: "Export and print (M6)"): the language-neutral answer joined with TEXTS[lang] for one language.
    csv() adds the byte order mark and the formula guard. A figure that could not be computed is written as its state's
-   text in each numeric cell it normally fills, never '' or 0; a failed list has no item rows. */
+   text in each numeric cell it normally fills, never '' or 0; a failed list has no item rows. A visit figure whose
+   counter started inside a window it fills keeps its number, and its caveat says from which day it is counted. */
 export const EXPORT_TABLES=Object.freeze({indicators:'nodal-indicadores',months:'nodal-indicadores-por-mes',readings:'nodal-indicadores-lecturas'});
 const EXPORT_LANGS=Object.keys(TEXTS);
 const WINDOW_FIELDS=['total','d30','d7'];
@@ -243,11 +244,15 @@ function indicatorRows(answer,lang){
  const texts=TEXTS[lang],readAt=limaStamp(Date.parse(answer.asOf));
  const byKey=new Map(answer.families.flatMap(f=>f.indicators).map(ind=>[ind.key,ind]));
  const rows=[texts.csv.indicators];
+ // As the home: a window that starts before the counter's first day ("Se cuenta desde el …"), said in the caveat so the
+ // numeric cells stay numbers for a spreadsheet.
+ const young=filled=>typeof answer.visitsSince==='string'&&filled.some(field=>answer.windows[field]&&answer.visitsSince>answer.windows[field].from);
  for(const ind of INDICATORS){
   const got=byKey.get(ind.key)??{state:'unavailable'},words=texts.indicators[ind.key],family=texts.families[ind.family];
   const filled=cellsFilled(ind),state=got.state??'ok';
   const cell=field=>!filled.includes(field)?'':got.state?stateText(got.state,texts,lang,answer.visitsSince):ind.fields.includes(field)?got[field]:'';
-  rows.push([ind.key,state,family,words.name,cell('total'),cell('d30'),cell('d7'),words.definition,words.source,words.caveat,readAt]);
+  const caveat=state==='ok'&&ind.part==='visits'&&young(filled)?`${words.caveat} ${stateText('not_yet_counted',texts,lang,answer.visitsSince)}.`:words.caveat;
+  rows.push([ind.key,state,family,words.name,cell('total'),cell('d30'),cell('d7'),words.definition,words.source,caveat,readAt]);
   if(got.state||!Array.isArray(got.items))continue;
   for(const item of got.items){
    const label=itemLabel(ind,item,texts,answer.courseNames);
