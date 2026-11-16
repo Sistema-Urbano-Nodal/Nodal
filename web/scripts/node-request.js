@@ -67,10 +67,12 @@
     showKind();
   }
   function showKind() {
-    const sponsorship = chosen() === 'sponsorship';
+    const kind = chosen(), sponsorship = kind === 'sponsorship';
     if (sponsor) sponsor.hidden = !sponsorship;
     if (messageLabel) messageLabel.hidden = sponsorship;
     if (topicLabel) topicLabel.hidden = !sponsorship;
+    // The line asking for a kind once one is chosen, or one about a sponsor field now hidden, goes with its mark.
+    if ((shown === 'kind' && kind) || (!sponsorship && SPONSOR_FIELDS.includes(shown))) { shown = null; clearMarks(); render(); }
   }
   for (const radio of RADIOS.values()) radio?.addEventListener('change', showKind);
   // A browser may restore a checked radio before this script runs (Firefox does on a soft reload, and a page shown

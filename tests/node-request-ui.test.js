@@ -449,6 +449,51 @@ test('switching to Nodo sends no sponsor fields, and switching back keeps what w
   assert.deepEqual(other.typed(), SPONSOR, 'the sponsor fields come back as typed');
 });
 
+test('switching to Nodo drops the line about a sponsor field it hides, and choosing a kind drops the line asking for one', async () => {
+  for (const [field, text] of [['community', 'Write the community you would like to support, up to 200 characters.'], ['memberships', 'Choose roughly how many memberships.']]) {
+    const page = await mount({ fetchImpl: async () => answer(400, { field }) });
+    page.open();
+    page.type(SPONSOR);
+    await page.submit();
+    const marks = () => ['aria-invalid', 'aria-describedby'].map((name) => page.$(FIELDS[field]).getAttribute(name));
+    assert.deepEqual([page.error.hidden, page.error.textContent, ...marks()], [false, text, 'true', 'nodeRequestError'], field);
+    page.choose('sponsorship');
+    assert.deepEqual([page.error.hidden, ...marks()], [false, 'true', 'nodeRequestError'], `${field}: still on screen, so its line stays`);
+    page.choose('node');
+    assert.equal(page.$('nodeRequestSponsor').hidden, true);
+    assert.deepEqual([page.error.hidden, page.error.textContent, ...marks()], [true, '', null, null], `${field}: no line about a field out of sight`);
+    page.choose('sponsorship');
+    assert.deepEqual([page.error.hidden, ...marks()], [true, null, null], `${field}: back on screen, it waits for the next answer`);
+    assert.deepEqual(page.typed(), SPONSOR, `${field}: nothing typed is lost`);
+  }
+  // A line about a field still on screen stays.
+  const named = await mount({ fetchImpl: async () => answer(400, { field: 'name' }) });
+  named.open();
+  named.type(SPONSOR);
+  await named.submit();
+  named.choose('node');
+  assert.deepEqual([named.error.hidden, named.error.textContent, named.$(FIELDS.name).getAttribute('aria-invalid')], [false, 'Write your full name, up to 120 characters.', 'true']);
+  // A link to #nodos chooses Nodo as the radio does.
+  const linked = await mount({ fetchImpl: async () => answer(400, { field: 'community' }) });
+  linked.open();
+  linked.type(SPONSOR);
+  await linked.submit();
+  linked.dialog.escape();
+  linked.hashchange('#nodos');
+  assert.deepEqual([linked.dialog.open, linked.chosen(), linked.error.hidden, linked.$(FIELDS.community).getAttribute('aria-invalid')], [true, 'node', true, null]);
+  // The line asking for a kind goes once one is chosen; choosing sends nothing.
+  const unasked = await mount();
+  unasked.open();
+  unasked.type({ ...FILLED, kind: null });
+  await unasked.submit();
+  const line = unasked.$('nodeRequestKindError');
+  const group = () => ['aria-invalid', 'aria-describedby'].map((name) => unasked.$('nodeRequestKind').getAttribute(name));
+  assert.deepEqual([line.hidden, ...group()], [false, 'true', 'nodeRequestKindError']);
+  unasked.choose('sponsorship');
+  assert.deepEqual([line.hidden, line.textContent, ...group()], [true, '', null, null]);
+  assert.equal(unasked.requests.length, 0);
+});
+
 test('swaps the message label with the choice', async () => {
   const page = await mount();
   page.open();
