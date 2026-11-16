@@ -199,3 +199,34 @@ test('a language switch reads the open listing again where it is and keeps the m
   assert.equal(message.value, '');
   assert.equal(detail.scrolls, 2);
 });
+
+test('a deadline set on the desk reads as its Lima day for every visitor, and the detail gives its Lima time', async () => {
+  // A visitor in São Paulo (UTC−3): a date formatted without a zone falls on their own calendar day.
+  const saoPaulo = {
+    DateTimeFormat: function DateTimeFormat(lang, options = {}) {
+      return new Intl.DateTimeFormat(lang, { timeZone: 'America/Sao_Paulo', ...options });
+    },
+  };
+  const deadlineAt = '2026-12-01T04:59:00.000Z'; // 30 Nov at 23:59 in Lima, as the desk saves a datetime-local
+  const startsAt = '2026-11-02T14:00:00.000Z'; // 2 Nov at 09:00 in Lima
+  const h = catalogPage({
+    lang: 'es',
+    intl: saoPaulo,
+    list: () => ({ items: [catalogItem('a', { deadlineAt })], nextCursor: null }),
+    detail: (id) => catalogItem(id, { deadlineAt, startsAt, endDate: '2026-12-15T23:59:59.999Z', sourceVerifiedAt: '2026-11-01T00:00:00.000Z' }),
+  });
+  await flush();
+  const rail = descendants(h.ids.get('catalogResults')).find((node) => node.className === 'dispatch-deadline');
+  assert.equal(rail.textContent, '30 nov 2026');
+
+  await h.titleButton('Title a').dispatch('click');
+  await flush();
+  const meta = Object.fromEntries(h.ids.get('catalogDetailMeta').children
+    .filter((node) => node.className === 'dispatch-meta-item')
+    .map((row) => [row.children[0].textContent, row.children[1].textContent]));
+  assert.match(meta['catalog.deadline'], /^30 nov 2026, 23:59 GMT[-−]5$/);
+  assert.match(meta['catalog.startsAt'], /^2 nov 2026, 9:00 GMT[-−]5$/);
+  // Calendar days read the same everywhere and stay days.
+  assert.equal(meta['catalog.endDate'], '15 dic 2026');
+  assert.equal(meta['catalog.sourceVerified'], '1 nov 2026');
+});

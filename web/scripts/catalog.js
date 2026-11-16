@@ -50,15 +50,20 @@
     window.location.assign(loginHref(itemId));
   }
 
-  function dateText(value, { civil = false } = {}) {
+  /* A calendar day (a date, or a day stored as a UTC boundary) reads the same everywhere. An instant set on the desk
+     (a deadline, a start) reads in Lima, the business clock, so no visitor sees another day; with time, as in the
+     detail, it also gives the hour and its offset. */
+  function dateText(value, { civil = false, time = false } = {}) {
     if (!value) return t('catalog.noDeadline');
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return t('catalog.noDeadline');
     const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
     const utcCivilBoundary = /^\d{4}-\d{2}-\d{2}T(?:00:00:00(?:\.000)?|23:59:59\.999)Z$/.test(value);
-    return new Intl.DateTimeFormat(I18N?.lang || 'en', {
-      dateStyle: 'medium', ...(civil || dateOnly || utcCivilBoundary ? { timeZone: 'UTC' } : {}),
-    }).format(date);
+    const lang = I18N?.lang || 'en';
+    if (civil || dateOnly || utcCivilBoundary) return new Intl.DateTimeFormat(lang, { dateStyle: 'medium', timeZone: 'UTC' }).format(date);
+    return new Intl.DateTimeFormat(lang, time
+      ? { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/Lima', timeZoneName: 'short' }
+      : { dateStyle: 'medium', timeZone: 'America/Lima' }).format(date);
   }
 
   function addMeta(container, label, value) {
@@ -251,8 +256,8 @@
     addMeta(box, t('catalog.organization'), item.organization);
     addMeta(box, t('catalog.location'), item.location);
     if (item.subtype) addMeta(box, t('catalog.subtype'), t(`catalog.subtype.${item.subtype}`));
-    if (item.startsAt) addMeta(box, t('catalog.startsAt'), dateText(item.startsAt));
-    if (item.deadlineAt) addMeta(box, t('catalog.deadline'), dateText(item.deadlineAt));
+    if (item.startsAt) addMeta(box, t('catalog.startsAt'), dateText(item.startsAt, { time: true }));
+    if (item.deadlineAt) addMeta(box, t('catalog.deadline'), dateText(item.deadlineAt, { time: true }));
     if (item.endDate) addMeta(box, t('catalog.endDate'), dateText(item.endDate));
     if (item.sourceVerifiedAt) addMeta(box, t('catalog.sourceVerified'), dateText(item.sourceVerifiedAt, { civil: true }));
     if (item.topics?.length) addMeta(box, t('catalog.topics'), item.topics.join(' · '));
