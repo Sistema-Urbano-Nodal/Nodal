@@ -97,3 +97,14 @@ test('the festival conversation tables are server-only, and their migration only
  assert.match(sql,/user_id uuid NOT NULL REFERENCES public\.profiles\(id\) ON DELETE RESTRICT,\s*message_id uuid REFERENCES public\.fiiu_messages\(id\) ON DELETE RESTRICT/);
  assert.match(sql,/storage_path text NOT NULL UNIQUE CHECK\(storage_path LIKE 'fiiu\/%'\)/);
 });
+
+test('the metrics functions and the readings table are closed to the browser roles',()=>{
+ for(const role of ['anon','authenticated']){
+  assert.equal(stateFor('function','public.metrics_account_days()',role),'revoked');
+  assert.equal(stateFor('function','public.metrics_member_days(date)',role),'revoked');
+  assert.equal(stateFor('table','public.metrics_readings',role),'revoked');
+ }
+ assert.equal(stateFor('function','public.metrics_account_days()','service_role'),'granted');
+ assert.equal(stateFor('function','public.metrics_member_days(date)','service_role'),'granted');
+ assert.equal(stateFor('table','public.metrics_readings','service_role'),'granted');
+});

@@ -1,0 +1,14 @@
+-- Remove one saved reading of the admin home from public.metrics_readings (owner runs this by hand, as `postgres`).
+--
+-- WHAT
+--   The home saves one reading per Lima day, the first complete one, and the server can never change or delete it
+--   (service_role holds SELECT and INSERT only). If a reading is wrong (a figure later found miscounted, a day saved
+--   under a definition since corrected), delete that day here; the next opening of the home that day saves it again,
+--   and a past day simply stays without a reading in "Seguimiento" and in the readings CSV.
+--
+-- NOT A MIGRATION
+--   It is not in supabase/migrations and is never applied by the repair command. Run it from the repository root:
+--     npx --no-install supabase db query --linked -f docs/ops/2026-11-14-metrics-reading-reset.sql
+--   Replace <day> with the Lima day (YYYY-MM-DD) first. Until you do, the statement fails on the date cast, on purpose.
+--   It prints the day and time of the reading it removed; no row printed means there was none.
+delete from public.metrics_readings where day = '<day>' returning day, taken_at;

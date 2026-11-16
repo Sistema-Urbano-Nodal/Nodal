@@ -292,7 +292,7 @@ test('Supabase Data API smoke exercises reads, constrained inserts, updates, and
     output: { write(value) { output += value; } },
   });
   assert.match(output, /least-privilege smoke passed/i);
-  assert.equal(calls.filter(({ options }) => options.method === 'GET').length, 9);
+  assert.equal(calls.filter(({ options }) => options.method === 'GET').length, 10);
   assert.equal(calls.filter(({ options }) => options.method === 'POST').length, 7);
   assert.equal(calls.filter(({ options }) => options.method === 'PATCH').length, 5);
   assert.equal(calls.filter(({ options }) => options.method === 'DELETE').length, 2);

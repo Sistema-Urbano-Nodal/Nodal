@@ -311,6 +311,59 @@ Nothing changes in Vercel.
 npx --no-install supabase db query --linked -f docs/ops/2026-11-14-metrics-baseline.sql
 ```
 
+## Admin home and metrics: one migration before `main`
+
+`20261114010000_metrics.sql` holds what the admin home (`/admin-home.html`, read
+through `/api/admin/metrics`) needs from Supabase: two functions and one table,
+all server-only (`anon` and `authenticated` hold nothing; `service_role` may
+execute the functions, and read and add readings but never change or delete
+one).
+
+- `metrics_account_days()` counts accounts per Lima day (created, and of those
+  the ones with a confirmed email). It is the only function that reads
+  `auth.users`, so it runs as its owner (`postgres`, who applies the file) with
+  an empty search path, and answers counts only.
+- `metrics_member_days(p_today)` runs as the server on public tables: first
+  entries, profile saves, follows, interest requests, festival registrations,
+  acceptances, Founder badges and organisation requests per Lima day; the
+  current profile, team, membership and course counts; members with recorded
+  activity in the last 7 and 30 Lima days, per kind; and the festival country
+  answers by trimmed text. No grant is added on any table.
+- `metrics_readings` keeps one saved reading per Lima day (row-level security
+  with no policy). A wrong reading is removed by hand with
+  `docs/ops/2026-11-14-metrics-reading-reset.sql`.
+
+It is additive, so applying it first is safe.
+
+**Apply it before pushing `main`:** until it is applied, the home answers but
+shows "Aún no está activado en la base de datos" in the blocks that read the
+accounts or the members (Registros, Perfiles, Actividad, Membresías, the
+festival countries and the course learners and openers) and saves no reading, so the day
+is lost for "Seguimiento".
+
+```bash
+npx --no-install supabase db query --linked -f supabase/migrations/20261114010000_metrics.sql
+npx --no-install supabase migration repair --status applied 20261114010000
+```
+
+Then check it took, and compare the raw counts with the home the same Lima
+day (read-only, one row):
+
+```bash
+npx --no-install supabase db query --linked -f docs/ops/2026-11-14-metrics-check.sql
+```
+
+Expected, after the repair above: `account_days_definer` true ·
+`member_days_invoker` true · `functions_closed` 0 · `readings_browser_grants`
+0 · `readings_server` "SELECT, INSERT" · `account_days_owner` postgres ·
+`owner_reads_auth_users` true · `service_role_cannot_read` "none" ·
+`readings_rls` true · `migration_row` 1, and counts at or above those of 14
+November 2026 (accounts 525, confirmed 494, profiles 486, registrations 375).
+If `owner_reads_auth_users` is false, the Registros block stays "not
+activated": the function must belong to `postgres`.
+
+Nothing changes in Vercel.
+
 ## Founder Membership acceptances: one migration before `main`
 
 `20261021000000_membership_acceptances.sql` adds the server-only table
@@ -625,8 +678,8 @@ npm start
 
 1. Confirm `.env`, `.env.local`, `.env.production`, `.vercel/`, and `data/` are not committed.
 2. Apply every pending Supabase migration (every file in the release sections
-   above, most recently `20261114000000_visit_counts.sql` under
-   "Visit counter", before pushing `main`) one file
+   above, most recently `20261114010000_metrics.sql` under
+   "Admin home and metrics", before pushing `main`) one file
    at a time as described in "SQL Migration Steps" (never `supabase db push`
    against production) and confirm them.
 3. Configure Vercel environment variables.

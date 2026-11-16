@@ -5,12 +5,14 @@ import {promisify} from 'node:util';
 import {readdirSync} from 'node:fs';
 import {createDatabase} from '../server/db.js';
 import {createVisitStore} from '../server/visits-repository.js';
+import {expectedMemberDays,loadPostgres,METRICS_TODAY} from './fixtures/metrics-fixture.js';
 
 // Opt-in only: supply an EMPTY disposable local database named nodal_metrics_test_<suffix>. The test installs every migration itself.
 // NODAL_METRICS_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/nodal_metrics_test_run node --test tests/metrics-postgres.test.js
+// One test, one empty database per run: R1's visit counts first, then R3's metrics functions and readings table.
 const databaseUrl=process.env.NODAL_METRICS_TEST_DATABASE_URL;
 const migrationsDir=new URL('../supabase/migrations/',import.meta.url);
-test('PostgreSQL visit counts: server-only table, atomic increments, summed totals',{skip:!databaseUrl,timeout:120000},async()=>{
+test('PostgreSQL visit counts and metrics: server-only objects, atomic increments, summed totals, the fixture answered',{skip:!databaseUrl,timeout:120000},async()=>{
  const url=new URL(databaseUrl);
  assert.ok(['127.0.0.1','localhost','[::1]'].includes(url.hostname),'only a local disposable PostgreSQL server is permitted');
  assert.match(url.pathname,/^\/nodal_metrics_test_[a-z0-9_]+$/);assert.equal(url.search,'');
@@ -23,7 +25,7 @@ test('PostgreSQL visit counts: server-only table, atomic increments, summed tota
  IF NOT EXISTS(SELECT FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN BYPASSRLS; END IF;
  END $$;
  CREATE SCHEMA auth; CREATE SCHEMA storage;
- CREATE TABLE auth.users(id uuid PRIMARY KEY,email text);
+ CREATE TABLE auth.users(id uuid PRIMARY KEY,email text,created_at timestamptz NOT NULL DEFAULT now(),email_confirmed_at timestamptz);
  CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS 'SELECT NULL::uuid';
  CREATE TABLE storage.buckets(id text PRIMARY KEY,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
  GRANT USAGE ON SCHEMA public TO anon,authenticated,service_role;`);
@@ -64,4 +66,37 @@ test('PostgreSQL visit counts: server-only table, atomic increments, summed tota
 
  await assert.rejects(sql(`SET ROLE service_role; DELETE FROM public.visit_counts;`),/permission denied/);
  await assert.rejects(sql(`SET ROLE service_role; INSERT INTO public.visit_counts VALUES('2026-11-14','click','index.html','',1);`),/check constraint/);
+ // R3: the metrics functions and the readings table (supabase/migrations/20261114010000_metrics.sql).
+ for(const [fn,definer] of [['public.metrics_account_days()','true'],['public.metrics_member_days(date)','false']]){
+  assert.equal(await sql(`SELECT provolatile::text||':'||prosecdef::text FROM pg_proc WHERE oid='${fn}'::regprocedure`),`s:${definer}`);
+  assert.equal(await sql(`SELECT proconfig=ARRAY['search_path=""'] FROM pg_proc WHERE oid='${fn}'::regprocedure`),'t');
+  for(const role of ['anon','authenticated'])assert.equal(await sql(`SELECT has_function_privilege('${role}','${fn}','EXECUTE')`),'f',`${role} ${fn}`);
+  assert.equal(await sql(`SELECT has_function_privilege('service_role','${fn}','EXECUTE')`),'t');
+ }
+ assert.equal(await sql(`SELECT relrowsecurity FROM pg_class WHERE oid='public.metrics_readings'::regclass`),'t');
+ for(const role of ['anon','authenticated']){
+  await assert.rejects(sql(`SET ROLE ${role}; SELECT public.metrics_account_days();`),/permission denied for function metrics_account_days/);
+  await assert.rejects(sql(`SET ROLE ${role}; SELECT public.metrics_member_days('${METRICS_TODAY}');`),/permission denied for function metrics_member_days/);
+  await assert.rejects(sql(`SET ROLE ${role}; SELECT * FROM public.metrics_readings;`),/permission denied for table metrics_readings/);
+ }
+ assert.deepEqual(JSON.parse(await sql('SET ROLE service_role; SELECT public.metrics_account_days();')),{v:1,days:[]});
+ // Three accounts either side of 05:00:00Z: Lima days 13 and 14 November, confirmed counted on the day of creation.
+ await sql(`INSERT INTO auth.users(id,email,created_at,email_confirmed_at) VALUES
+  ('00000000-0000-4000-8999-000000000001','one@example.test','2026-11-14T04:59:59Z',NULL),
+  ('00000000-0000-4000-8999-000000000002','two@example.test','2026-11-14T05:00:00Z','2026-11-14T06:00:00Z'),
+  ('00000000-0000-4000-8999-000000000003','three@example.test','2026-11-14T05:00:01Z',NULL);`);
+ assert.deepEqual(JSON.parse(await sql('SET ROLE service_role; SELECT public.metrics_account_days();')),{v:1,days:[['2026-11-13',1,0],['2026-11-14',2,1]]});
+
+ // Readings: the server inserts and reads, never updates or deletes; one per day.
+ const reading=`SET ROLE service_role; INSERT INTO public.metrics_readings(day,taken_at,defs,figures) VALUES('2026-11-14','2026-11-14T13:36:00Z',1,'{"signups.accounts":525}');`;
+ await sql(reading);
+ assert.equal(await sql(`SET ROLE service_role; SELECT day||' '||defs||' '||(figures->>'signups.accounts') FROM public.metrics_readings;`),'2026-11-14 1 525');
+ await assert.rejects(sql(reading),/duplicate key value violates unique constraint "metrics_readings_pkey"/);
+ await assert.rejects(sql(`SET ROLE service_role; UPDATE public.metrics_readings SET defs=2;`),/permission denied for table metrics_readings/);
+ await assert.rejects(sql(`SET ROLE service_role; DELETE FROM public.metrics_readings;`),/permission denied for table metrics_readings/);
+ await assert.rejects(sql(`SET ROLE service_role; INSERT INTO public.metrics_readings(day,taken_at,defs,figures) VALUES('2026-11-15',now(),1,'[]');`),/check constraint/);
+
+ // twin equality: the fixture's rows, answered by the function the server calls, as the server.
+ await loadPostgres(sql);
+ assert.deepEqual(JSON.parse(await sql(`SET ROLE service_role; SELECT public.metrics_member_days('${METRICS_TODAY}');`)),expectedMemberDays);
 });
