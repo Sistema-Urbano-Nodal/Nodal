@@ -78,7 +78,12 @@ test('every page header names its menu toggle in markup, and nav.js leaves the n
   assert.deepEqual(harness().refreshed,[],'nav.js translates nothing itself');
   const headers=readdirSync(new URL('../web/pages/',import.meta.url)).filter(page=>page.endsWith('.html')&&read('pages/'+page).includes('id="navToggle"'));
   for(const page of ['login.html','profile.html','payments.html'])assert.ok(headers.includes(page),page+' has the shared header');
-  for(const page of headers)assert.match(read('pages/'+page),/<button type="button" class="nav-toggle" id="navToggle" aria-label="Menu" data-i18n-aria-label="nav\.menuLabel">/,page);
+  // the toggle's own tag, whatever order its attributes come in
+  for(const page of headers){
+    const tag=read('pages/'+page).match(/<button\b[^>]*\sid="navToggle"[^>]*>/)?.[0]??'';
+    assert.match(tag,/\sdata-i18n-aria-label="nav\.menuLabel"[\s>]/,page);
+    assert.match(tag,/\saria-label="Menu"[\s>]/,page+' names the toggle before i18n.js runs');
+  }
 });
 
 // Finding 39: the white wordmark disappeared over the white "How it works" section.
