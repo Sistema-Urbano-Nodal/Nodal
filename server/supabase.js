@@ -106,11 +106,6 @@ export function resolveSupabaseEnv(env = process.env, { requireServer = false } 
   return { url, publishableKey, serverKey };
 }
 
-export function publicSupabaseConfig(env = process.env) {
-  const { url, publishableKey } = resolveSupabaseEnv(env, { requireServer: false });
-  return { url, publishableKey };
-}
-
 function encodeQuery(query = {}) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
@@ -153,13 +148,13 @@ async function sessionProfile(read) {
   try { return await read(); } catch (err) { throw sessionUnavailable(err); }
 }
 
-function createRestClient({ url, key, fetchImpl = fetch, authToken = key }) {
+function createRestClient({ url, key, fetchImpl = fetch }) {
   async function request(path, {
     method = 'GET',
     query,
     body,
     headers = {},
-    auth = authToken,
+    auth = key,
     includeRange = false,
     signal,
   } = {}) {
@@ -208,17 +203,8 @@ export function createSupabaseClients({ env = process.env, fetchImpl = fetch } =
   const resolved = resolveSupabaseEnv(env, { requireServer: true });
   return {
     env: resolved,
-    publicConfig: { url: resolved.url, publishableKey: resolved.publishableKey },
     browser: createRestClient({ url: resolved.url, key: resolved.publishableKey, fetchImpl }),
     admin: createRestClient({ url: resolved.url, key: resolved.serverKey, fetchImpl }),
-    user(accessToken) {
-      return createRestClient({
-        url: resolved.url,
-        key: resolved.publishableKey,
-        authToken: accessToken,
-        fetchImpl,
-      });
-    },
   };
 }
 

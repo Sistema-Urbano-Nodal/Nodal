@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {
   createSupabaseRepository,
   createSupabaseClients,
-  publicSupabaseConfig,
   resolveSupabaseEnv,
 } from '../server/supabase.js';
 import { decodeCatalogCursor, decodeCatalogInterestCursor, localizeCatalogItem } from '../server/catalog.js';
@@ -153,16 +152,20 @@ test('Supabase env accepts publishable key and keeps the secret server-only', ()
     SUPABASE_SECRET_KEY: 'test-server-key',
   };
 
-  assert.deepEqual(publicSupabaseConfig(env), {
+  // The public settings resolve on their own: without requireServer no server key is needed, and none is invented.
+  assert.deepEqual(resolveSupabaseEnv({
+    NEXT_PUBLIC_SUPABASE_URL: env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+  }, { requireServer: false }), {
     url: 'https://project.supabase.co',
     publishableKey: 'test-public-key',
+    serverKey: '',
   });
 
   const resolved = resolveSupabaseEnv(env, { requireServer: true });
   assert.equal(resolved.url, 'https://project.supabase.co');
   assert.equal(resolved.publishableKey, 'test-public-key');
   assert.equal(resolved.serverKey, 'test-server-key');
-  assert.equal(JSON.stringify(publicSupabaseConfig(env)).includes('test-server-key'), false);
 });
 
 test('Supabase env supports legacy anon/service_role names without browser exposure', () => {
@@ -175,9 +178,10 @@ test('Supabase env supports legacy anon/service_role names without browser expos
   const resolved = resolveSupabaseEnv(env, { requireServer: true });
   assert.equal(resolved.publishableKey, 'legacy-anon-jwt');
   assert.equal(resolved.serverKey, 'legacy-service-role-jwt');
-  assert.deepEqual(publicSupabaseConfig(env), {
+  assert.deepEqual(resolveSupabaseEnv(env, { requireServer: false }), {
     url: 'https://legacy.supabase.co',
     publishableKey: 'legacy-anon-jwt',
+    serverKey: 'legacy-service-role-jwt',
   });
 });
 
@@ -314,10 +318,10 @@ test('signup asks for a PKCE confirmation link and keeps no verifier, on every r
 });
 
 test('Supabase env rejects secret-looking keys in public config', () => {
-  assert.throws(() => publicSupabaseConfig({
+  assert.throws(() => resolveSupabaseEnv({
     NEXT_PUBLIC_SUPABASE_URL: 'https://project.supabase.co',
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ['sb', 'secret', 'wrongplace'].join('_'),
-  }), /public Supabase key must not be a secret key/);
+  }, { requireServer: false }), /public Supabase key must not be a secret key/);
 });
 
 test('Supabase session reads an existing profile without initialization writes', async () => {
