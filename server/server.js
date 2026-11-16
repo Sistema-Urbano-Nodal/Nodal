@@ -201,16 +201,13 @@ const BASE_CSP = [
   "frame-ancestors 'none'",
 ];
 
+// The types of the files the STATIC_* allowlists serve; a new kind of file needs its entry here too.
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.webp': 'image/webp',
-  '.jpg': 'image/jpeg',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
   '.txt': 'text/plain; charset=utf-8',
   '.woff2': 'font/woff2',
 };
