@@ -25,8 +25,8 @@ const noThumbnail=()=>failCode('thumbnail unavailable',404,'thumbnail_unavailabl
 const errorText=error=>error instanceof Error?error.message:String(error??'unknown error');
 // CSV times are Lima wall-clock time (UTC-05:00 all year), as in the registration export.
 const limaTime=value=>{const t=Date.parse(value??'');return Number.isFinite(t)?new Date(t-5*3600000).toISOString().slice(0,16).replace('T',' '):'';};
-// The encoder returns {size, modules} (row-major 0/1) or already-packed {size, bits}, as on the check-in screen.
-const qrView=qr=>typeof qr?.bits==='string'?{size:qr.size,bits:qr.bits}:{size:qr.size,bits:packBits(qr)};
+// The encoder returns {size, modules} (row-major 0/1), sent as base64 bits as on the check-in screen (fiiu-api.js).
+const qrView=qr=>({size:qr.size,bits:packBits(qr)});
 const body=req=>bodyJson(req,24576);
 // A 3 MB file is ~4 MiB of base64; the 100 KB thumbnail and the JSON around them fit in the extra 160 KiB.
 const uploadBody=req=>bodyJson(req,4*1024*1024+160*1024);

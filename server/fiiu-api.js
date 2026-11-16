@@ -14,9 +14,9 @@ const now=()=>new Date().toISOString();
 const attendanceView=({activityId,createdAt,method})=>({activityId,createdAt,method});
 // CSV check-in times are Lima wall-clock time (UTC-05:00 all year), e.g. '2026-10-21 09:12'.
 const limaTime=value=>{const t=Date.parse(value??'');return Number.isFinite(t)?new Date(t-5*3600000).toISOString().slice(0,16).replace('T',' '):'';};
-// The injected encoder returns {size, modules} (row-major 0/1) or already-packed {size, bits}; the browser receives
-// base64 bits, row-major, most significant bit first.
-const qrView=qr=>typeof qr?.bits==='string'?{size:qr.size,bits:qr.bits}:{size:qr.size,bits:packBits(qr)};
+// The injected encoder (server/qr.js encodeQr) returns {size, modules} (row-major 0/1); the browser receives base64 bits,
+// row-major, most significant bit first. Any other answer throws here, and qrOf leaves the screen its address and code.
+const qrView=qr=>({size:qr.size,bits:packBits(qr)});
 // Bind an open browser form to the account that loaded it. Ownership is still
 // derived from the session; older clients can omit this additional guard.
 function sameAccount(input,user){if(input.expectedUserId!==undefined&&input.expectedUserId!==user.id)fail('account changed; reload before continuing',409);}
