@@ -10,6 +10,7 @@ import {createCourseStore} from '../server/courses-repository.js';
 import {createNodeRequestStore} from '../server/node-requests-repository.js';
 import {createTalkStore} from '../server/fiiu-talk-repository.js';
 import {createMetricsStore} from '../server/metrics-repository.js';
+import {computeAnswer} from '../server/metrics-api.js';
 import {createVisitStore} from '../server/visits-repository.js';
 import {FINAL_SURVEY} from '../server/course-final-survey.js';
 import {DEFS,FAMILIES,INDICATORS,LEAD,LEAD_SECOND,TRACKED,TEXTS,MONTH_SERIES} from '../server/metrics-catalog.js';
@@ -218,6 +219,135 @@ test('counts on seeded rows',async t=>{
  assert.deepEqual(body.pending,{interests:expectedMemberDays.now.interestsNew,orgRequests:expectedMemberDays.now.orgRequestsNew,lab:1});
  assert.deepEqual(body.months.series,{accounts:{'2026-07':3,'2026-08':0,'2026-09':2,'2026-10':2,'2026-11':3},entered:{'2026-07':3,'2026-08':0,'2026-09':2,'2026-10':2,'2026-11':3},
   registrations:{'2026-07':0,'2026-08':0,'2026-09':4,'2026-10':3,'2026-11':1},views:{'2026-11':2},arrivals:{'2026-11':2}});
+});
+
+/* No reader takes another's figure. The seeded rows above repeat small counts (two 4s, three 3s...), so there a reader
+   pointed at a neighbour's source can still pass. Here computeAnswer is fed stub stores in which every source field
+   carries its own value, each indicator must show the value planted in its own source (the table in
+   .superpowers/sdd/2026-11-14-admin-r3-metrics-home/constraints.md, "Indicator keys"), and the test itself proves that
+   no two expected numbers are equal: a later edit cannot bring a coincidence back. */
+test('every indicator reads its own source: no two planted figures are equal',async()=>{
+ const AT=Date.parse(START); // Lima day 2026-11-14: the 30 days start on 16 Oct, the 7 days on 8 Nov
+ // One per-day series from one number: before both windows, inside the 30 days only, inside the 7 days.
+ const OLD='2026-08-03',MID='2026-10-20',RECENT='2026-11-10';
+ const rows=(...ns)=>[OLD,MID,RECENT].map((day,i)=>[day,...ns.map(n=>n*[10000,100,1][i])]);
+ const sums=n=>({total:n*10101,d30:n*101,d7:n});
+ // Field values: the primes from 101 up, each handed out once.
+ const isPrime=n=>{for(let d=2;d*d<=n;d++)if(n%d===0)return false;return true;};
+ let last=100;
+ const plant=()=>{do last++;while(!isPrime(last));return last;};
+ const planted=names=>Object.fromEntries(names.map(name=>[name,plant()]));
+ const KIND_NAMES=['profile','network','opportunities','festival','courses','membership'];
+ const S={created:11,confirmed:13,views:17,arrivals:19,entered:23,profileSaves:29,follows:31,interests:37,founders:41,acceptances:43,orgRequests:47,registrations:53};
+ const now=planted(['admins','basic','city','interests','bio','assessed','directory','acceptors','unbadged','learners','openers','teamRegistrations','interestsNew','orgRequestsNew']);
+ const active={d30:planted(['members',...KIND_NAMES]),d7:planted(['members',...KIND_NAMES])};
+ const countries=[['Perú',plant()],['Colombia',plant()]];
+ const members={v:1,days:Object.fromEntries(['entered','profileSaves','follows','interests','founders','acceptances','orgRequests','registrations'].map(k=>[k,rows(S[k])])),now,active,lists:{countries}};
+ // Twelve pages: the ten most seen are listed, and the two membership pages are not among them.
+ const pages={...planted(['index.html','fiiu.html','courses.html','network.html','profile.html','login.html','about.html','map.html','privacy.html','terms.html']),'fundadores.html':61,'payments.html':59};
+ const sources={...planted(['search','direct','social']),qr:0};
+ const visits={v:1,days:[MID,RECENT].map((day,i)=>[day,S.views*[100,1][i],S.arrivals*[100,1][i]]),pages,sources};
+ // Three blocks: two take a check-in (90 and 240 minutes), the workshop does not, so its attendance earns no hours.
+ const event={activities:[{id:'talk',registration:'general',minutes:90},{id:'lab',registration:'application',minutes:240},{id:'workshop',registration:'external',minutes:60}]};
+ const summary={...planted(['totalRegistrations','attendedPeople','qrPeople']),
+  activities:[{activityId:'talk',registrations:plant(),attendance:120},{activityId:'lab',registrations:plant(),attendance:150},{activityId:'workshop',registrations:plant(),attendance:170}],
+  lab:planted(['pending','accepted','declined']),profiles:[{profile:'student',count:plant()},{profile:'academic',count:plant()}]};
+ const OTHER='00000000-0000-4000-8000-000000000002';
+ const SUMMARY_KEYS=['enrolled','intakeCompleted','moduleOpens','contentOpens','recordingOpens','assignments','comments'];
+ const counts={[COURSE]:planted(SUMMARY_KEYS),[OTHER]:planted(SUMMARY_KEYS)};
+ // The survey course's roster: 13 September participants, 7 answered, 3 only started, 5 certificates ready.
+ const roster=Array.from({length:13},(_,i)=>({id:`e${i}`,courseId:COURSE,userId:`u${i}`,createdAt:`2026-09-${String(i+1).padStart(2,'0')}T15:00:00.000Z`}));
+ const tables={
+  courses:()=>[{id:COURSE,title:'Survey course'},{id:OTHER,title:'Other course'}],
+  enrollments:f=>f.courseId===COURSE?roster:[],
+  surveys:f=>f.courseId===COURSE?roster.slice(0,10).map((e,i)=>({id:`s${i}`,userId:e.userId,createdAt:e.createdAt,submittedAt:i<7?'2026-10-20T15:00:00.000Z':null})):[],
+  certificates:f=>f.courseId===COURSE&&f.status==='ready'?roster.slice(0,5).map((e,i)=>({id:`c${i}`,userId:e.userId,createdAt:e.createdAt})):[],
+ };
+ const countKey={enrollments:()=>'enrolled',intakes:()=>'intakeCompleted',events:f=>({module_open:'moduleOpens',content_open:'contentOpens',recording_open:'recordingOpens'})[f.kind],
+  posts:f=>({assignment:'assignments',comment:'comments'})[f.kind]};
+ const failures=[];
+ const answer=await computeAnswer({
+  store:{accountDays:async()=>({v:1,days:rows(S.created,S.confirmed)}),memberDays:async()=>members,readings:async()=>[]},
+  visitStore:{totals:async()=>visits},
+  fiiuStore:{summary:async()=>summary},fiiuProgramme:{event:async()=>event},
+  // The counts are planted apart from the roster on purpose: what a summary shows and what the survey shows are different sources.
+  courseStore:{find:async(name,filters)=>tables[name](filters),count:async(name,filters)=>counts[filters.courseId][countKey[name](filters)],getMembers:async ids=>ids.map(id=>({id,staff:false}))},
+  onFailure:(part,outcome)=>failures.push([part,String(outcome.error)]),
+ },AT);
+ assert.deepEqual(failures,[]);assert.deepEqual(answer.unavailable,[]);assert.deepEqual(answer.notActivated,[]);
+
+ const total=n=>({total:n}),desc=items=>[...items].sort((a,b)=>b.n-a.n);
+ const perCourses=key=>({total:counts[COURSE][key]+counts[OTHER][key],items:[{key:COURSE,n:counts[COURSE][key]},{key:OTHER,n:counts[OTHER][key]}]});
+ const [talk,lab,workshop]=summary.activities;
+ const window=n=>({d30:n*101,d7:n});
+ const PLANTED={
+  'visits.views':window(S.views),
+  'visits.arrivals':window(S.arrivals),
+  'visits.topPages':{items:desc(Object.entries(pages).filter(([page])=>!['fundadores.html','payments.html'].includes(page)).map(([key,n])=>({key,n})))},
+  'visits.sources':{items:desc(['search','direct','social'].map(key=>({key,n:sources[key]})))},
+  'signups.accounts':total(sums(S.created).total),
+  'signups.confirmed':total(sums(S.confirmed).total),
+  'signups.new':{...window(S.created),last:RECENT,daysSince:4},
+  'signups.entered':sums(S.entered),
+  'signups.team':total(now.admins),
+  'profiles.basic':total(now.basic),
+  'profiles.city':total(now.city),
+  'profiles.interests':total(now.interests),
+  'profiles.bio':total(now.bio),
+  'profiles.assessed':total(now.assessed),
+  'profiles.directory':total(now.directory),
+  'profiles.saved':total(sums(S.profileSaves).total),
+  'activity.members':{d30:active.d30.members,d7:active.d7.members},
+  'activity.kinds':{items:KIND_NAMES.map(key=>({key,n:active.d30[key],d7:active.d7[key]}))},
+  'activity.follows':sums(S.follows),
+  'activity.interests':sums(S.interests),
+  'memberships.founders':sums(S.founders),
+  'memberships.acceptances':sums(S.acceptances),
+  'memberships.acceptors':total(now.acceptors),
+  'memberships.unbadged':total(now.unbadged),
+  'memberships.orgRequests':total(sums(S.orgRequests).total),
+  'memberships.views':{items:[{key:'fundadores.html',n:61},{key:'payments.html',n:59}]},
+  'festival.registrations':{total:summary.totalRegistrations,team:now.teamRegistrations},
+  'festival.blockRegistrations':total(talk.registrations+lab.registrations+workshop.registrations),
+  'festival.attendances':total(440), // 120 + 150 + 170
+  'festival.attendedPeople':total(summary.attendedPeople),
+  'festival.qrPeople':total(summary.qrPeople),
+  'festival.hours':total(780), // 120 x 90 min + 150 x 240 min = 46 800 min
+  'festival.labApplications':total(summary.lab.pending+summary.lab.accepted+summary.lab.declined),
+  'festival.profileTypes':{items:desc(summary.profiles.map(p=>({key:p.profile,n:p.count})))},
+  'festival.countries':{items:desc(countries.map(([text,n])=>({text,n})))},
+  ...Object.fromEntries(SUMMARY_KEYS.map(key=>[`courses.${key}`,perCourses(key)])),
+  'courses.surveyTotal':total(13),
+  'courses.surveyAnswered':total(7),
+  'courses.certificates':total(5),
+  'courses.learners':total(now.learners),
+  'courses.openers':total(now.openers),
+ };
+ assert.deepEqual(Object.keys(PLANTED),INDICATORS.map(i=>i.key),'one planted row per indicator');
+ // Each figure the catalogue promises is planted, so none is left out of the comparison below.
+ for(const ind of INDICATORS)for(const field of ind.fields)assert.ok(field in PLANTED[ind.key],`${ind.key} ${field}`);
+ const got=Object.fromEntries(answer.families.flatMap(f=>f.indicators).map(({key,vocabulary,...figures})=>{void vocabulary;return [key,figures];}));
+ for(const key of Object.keys(PLANTED))assert.deepEqual(got[key],PLANTED[key],key);
+ assert.deepEqual(answer.pending,{interests:now.interestsNew,orgRequests:now.orgRequestsNew,lab:summary.lab.pending});
+
+ /* Pairwise distinct: every number an indicator shows (totals, windows, the team's share, days since, list rows) and
+    every planted number no indicator shows whole (the pending counts, the registrations series, each lab state, each
+    block's registrations and attendance, the survey's "started"). Two equal ones would let a swapped reader pass. */
+ const seen=new Map();
+ const claim=(value,where)=>{
+  assert.equal(Number.isInteger(value),true,`${where} is a whole number`);
+  assert.equal(seen.has(value),false,`${where} and ${seen.get(value)} are both ${value}`);
+  seen.set(value,where);
+ };
+ const walk=(value,where)=>{
+  if(typeof value==='number')claim(value,where);
+  else if(Array.isArray(value))value.forEach((item,i)=>walk(item,`${where}[${item?.key??item?.text??i}]`));
+  else if(value&&typeof value==='object')for(const [k,v] of Object.entries(value))if(k!=='key'&&k!=='text'&&k!=='last')walk(v,`${where}.${k}`);
+ };
+ walk(PLANTED,'shown');
+ walk({pendingInterests:now.interestsNew,pendingOrgRequests:now.orgRequestsNew,registrationsSeries:sums(S.registrations),lab:summary.lab,
+  blocks:summary.activities.map(a=>({key:a.activityId,registrations:a.registrations,attendance:a.attendance})),surveyStarted:3},'planted');
+ assert.ok(seen.size>=100,`${seen.size} distinct figures`);
 });
 
 test('agrees with the tools',async t=>{
