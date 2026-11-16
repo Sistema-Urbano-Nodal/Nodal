@@ -354,9 +354,6 @@ function parseJson(value, fallback) {
 
 const json = (value) => JSON.stringify(value ?? null);
 
-// cleanProfileList lives in profile-policy.js so the Supabase repository applies the same cap without loading node:sqlite.
-export { cleanProfileList, PROFILE_LIST_ITEM_MAX } from './profile-policy.js';
-
 function isDirectoryVisible(row) {
   return normalizePartC(parseJson(row.part_c_json, DEFAULT_PART_C)).consent === true;
 }

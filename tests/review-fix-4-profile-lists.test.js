@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {once} from 'node:events';
-import {createDatabase,createUser,updateUserProfile,getUserById,toApiUser,cleanProfileList} from '../server/db.js';
+import {createDatabase,createUser,updateUserProfile,getUserById,toApiUser} from '../server/db.js';
+import {cleanProfileList} from '../server/profile-policy.js';
 import {createSession} from '../server/auth.js';
 import {createApp} from '../server/server.js';
 
