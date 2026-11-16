@@ -188,6 +188,8 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
     }
   }
   const membersForRows=rows=>membersOf(store,rows);
+  // The screens list the newest 500 responses, still in date order, so a new rating always shows; only the CSV exports read every row.
+  const newestFeedback=async filters=>(await store.find('feedback',filters,{limit:500,desc:true})).reverse();
   async function feedbackForStaff(rows,members=undefined) {
     members??=await membersForRows(rows);
     return rows.map(row=>({...row,name:members.get(row.userId)?.name??'',email:members.get(row.userId)?.email??''}));
@@ -200,7 +202,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
     const needsParticipants=!exportType||['participants','intake'].includes(exportType);
     const needsFeedback=!exportType||exportType==='feedback';
     const [enrollments,intakes,events,posts,feedback,counts,invitations]=await Promise.all([
-      needsParticipants?all('enrollments',{courseId},max):[],needsParticipants?all('intakes',{courseId}):[],exportType==='activity'?all('events',{courseId}):[],exportType==='activity'?all('posts',{courseId}):[],needsFeedback?all('feedback',{courseId},max):[],
+      needsParticipants?all('enrollments',{courseId},max):[],needsParticipants?all('intakes',{courseId}):[],exportType==='activity'?all('events',{courseId}):[],exportType==='activity'?all('posts',{courseId}):[],needsFeedback?(exportType?all('feedback',{courseId}):newestFeedback({courseId})):[],
       exportType?null:Promise.all([courseSummary(store,courseId),store.count('feedback',{courseId})]),
       exportType?[]:all('invitations',{courseId,acceptedAt:null},500),
     ]);
@@ -264,7 +266,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
     }
     if(path.startsWith('/api/admin/feedback')&&req.method==='GET') {
       const exporting=path==='/api/admin/feedback/export';
-      const feedback=await feedbackForStaff(await all('feedback',{},exporting?Infinity:500));
+      const feedback=await feedbackForStaff(exporting?await all('feedback'):await newestFeedback({}));
       if(path==='/api/admin/feedback/export')sendCsv(res,'nodal-feedback',feedbackCsv(feedback));
       else if(path==='/api/admin/feedback')send(res,200,{feedback,truncated:(await store.count('feedback'))>500});
       else send(res,404,{error:'not found'});

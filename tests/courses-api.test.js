@@ -150,6 +150,21 @@ test('staff feedback exports include all rows beyond the display limit and intak
  }
 });
 
+// Past 500 responses the screens used to keep the oldest 500, so a new rating or comment never appeared there.
+test('the on-screen feedback lists show the newest 500 responses in date order, while the exports keep every row',async t=>{
+ const {call,course,enter,store,users}=await setup(t);await enter();
+ const start=Date.parse('2026-09-01T12:00:00.000Z');
+ for(let i=0;i<503;i++)await store.insert('feedback',{id:randomUUID(),userId:users.student.id,action:'course',courseId:course.id,moduleId:null,rating:4,comment:`response-${i}`,createdAt:new Date(start+i*60000).toISOString()});
+ for(const path of ['/api/admin/feedback',`/api/admin/courses/${course.id}/report`]) {
+   const {feedback,truncated}=await(await call(path,{actor:'staff'})).json();
+   assert.equal(truncated,true,path);
+   assert.deepEqual(feedback.map(row=>row.comment),Array.from({length:500},(_,i)=>`response-${i+3}`),path);
+   assert.equal(feedback.at(-1).name,'student',path);
+ }
+ const exported=await(await call(`/api/admin/courses/${course.id}/export?type=feedback`,{actor:'staff'})).text();
+ assert.equal(exported.split('\r\n').length,504);assert.ok(exported.indexOf('response-0')<exported.indexOf('response-502'),'the export stays in date order from the first row');
+});
+
 test('general discussion is unique, gated, immutable in kind and uses existing post rules',async t=>{
  const {call,course,enter,store}=await setup(t);
  const discussions=await store.find('modules',{courseId:course.id,kind:'discussion'});assert.equal(discussions.length,1);
