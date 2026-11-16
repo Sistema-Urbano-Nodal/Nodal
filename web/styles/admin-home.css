@@ -30,12 +30,12 @@
 .home-lead-main .home-lead-name { font-size: .9375rem; font-weight: 650; }
 .home-lead-main .home-reason { margin: var(--f-sp-1) 0 0; }
 .home-lead-second { color: var(--text-2); font-size: .9375rem; }
-.home-lead-second .home-num { margin-right: .35em; color: var(--ink); font-weight: 700; }
+.home-lead-second .home-num { color: var(--ink); font-weight: 700; }
 
 /* the queues waiting on the team */
 #homePending { margin: var(--f-sp-5) 0 0; font-size: .9375rem; }
 .home-pending-name { margin-right: var(--f-sp-2); font-weight: 700; }
-.home-pending-link .home-num { margin-right: .3em; font-weight: 700; }
+.home-pending-link .home-num { font-weight: 700; }
 
 /* ---------- blocks ---------- */
 #homeBlocks { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 30rem), 1fr)); gap: var(--f-sp-7); margin-top: var(--f-sp-7); }
@@ -55,8 +55,8 @@
 .home-list, .home-series { margin-top: var(--f-sp-2); font-size: .9375rem; }
 .home-list-name { margin-right: var(--f-sp-2); font-weight: 650; }
 .home-list-name::after { content: ":"; }
-.home-item .home-num { margin-left: .3em; }
-.home-item + .home-item::before { content: " · "; color: var(--muted); }
+/* the gap between a label and its number, and the " · " between items, are real text (admin-home.js) */
+.home-sep { color: var(--muted); }
 
 /* "How it is counted": closed on screen, opened for print by the script */
 .home-how { margin-top: var(--f-sp-3); font-size: .9375rem; }
@@ -73,7 +73,7 @@
 .home-tracking-table thead th { vertical-align: bottom; }
 .home-month { display: block; color: var(--ink); }
 .home-read-on { display: block; font-weight: 500; }
-#homeReadingsCsv { margin-top: var(--f-sp-2); }
+#homeReadingsCsv, #homeMonthsCsv { margin-top: var(--f-sp-2); }
 
 /* ---------- phones: the tables stack ---------- */
 @media (max-width: 640px) {
@@ -91,6 +91,12 @@
   .home-table td:empty { display: none; }
   .home-table td.home-failed { justify-content: flex-start; }
   .home-tracking-table { min-width: 0; }
+  /* touch targets: 44px for every control and link of the sheet, one waiting queue per line */
+  #homeMain .admin-textbutton, .home-see, .home-pending-link { display: inline-flex; align-items: center; min-height: 44px; }
+  .home-how > summary { min-height: 44px; padding: 11px 0; }
+  .home-pending-link { gap: .3em; }
+  #homePending .home-item { display: block; }
+  #homePending .home-sep { display: none; }
 }
 
 /* ---------- print: the sheet explains itself ---------- */

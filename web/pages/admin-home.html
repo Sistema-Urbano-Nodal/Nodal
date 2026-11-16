@@ -53,7 +53,7 @@
       </div>
       <div class="admin-head-side home-tools">
         <button class="admin-textbutton" id="homeRefresh" type="button">Refresh</button>
-        <div id="homeWindows" role="group" aria-label="Window"></div>
+        <div id="homeWindows"></div>
         <button class="admin-textbutton" id="homeCsv" type="button">Download CSV</button>
         <button class="admin-textbutton" id="homePrint" type="button">Print</button>
       </div>
@@ -66,8 +66,9 @@
     </p>
     <p id="homePending" hidden></p>
     <div id="homeBlocks"></div>
-    <section id="homeTracking" aria-live="polite"></section>
-    <p><button class="admin-textbutton" id="homeReadingsCsv" type="button" hidden>Download readings CSV</button></p>
+    <section id="homeTracking"></section>
+    <p class="home-actions"><button class="admin-textbutton" id="homeMonthsCsv" type="button">Download monthly CSV</button>
+      <button class="admin-textbutton" id="homeReadingsCsv" type="button" hidden>Download readings CSV</button></p>
   </main>
 </body>
 </html>

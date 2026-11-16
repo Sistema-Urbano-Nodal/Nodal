@@ -8,7 +8,7 @@ import { createDatabase } from '../server/db.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const page = (name) => readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8');
-const IDS = ['homeMain', 'homeTitle', 'homeAsOf', 'homeRefresh', 'homeWindows', 'homeStatus', 'homeRetry', 'homeSignIn', 'homeCsv', 'homePrint', 'homeLead', 'homePending', 'homeBlocks', 'homeTracking', 'homeReadingsCsv', 'homePrintHead'];
+const IDS = ['homeMain', 'homeTitle', 'homeAsOf', 'homeRefresh', 'homeWindows', 'homeStatus', 'homeRetry', 'homeSignIn', 'homeCsv', 'homePrint', 'homeLead', 'homePending', 'homeBlocks', 'homeTracking', 'homeReadingsCsv', 'homeMonthsCsv', 'homePrintHead'];
 
 test('the page is the desk\'s frame with the home\'s assets', () => {
   const html = page('admin-home.html');
@@ -29,6 +29,9 @@ test('the page is the desk\'s frame with the home\'s assets', () => {
   assert.ok(head.includes('<meta name="robots" content="noindex, nofollow" />'));
   for (const id of IDS) assert.equal((html.match(new RegExp(`\\bid="${id}"`, 'g')) || []).length, 1, id);
   assert.match(html, /id="homeStatus" role="status"/);
+  // One live region (the status line), and no accessible name the script cannot translate.
+  assert.equal((html.slice(html.indexOf('<main')).match(/aria-live=/g) || []).length, 1);
+  assert.doesNotMatch(html.slice(html.indexOf('<main')), /aria-label=/);
   assert.match(html, /id="homeRetry"[^>]*\bhidden\b/);
   assert.match(html, /id="homeSignIn"[^>]*\bhidden\b/);
 });

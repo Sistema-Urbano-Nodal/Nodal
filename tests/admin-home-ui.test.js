@@ -294,6 +294,81 @@ test('the lead row and the tracking rows come from the answer', async () => {
   assert.ok(!source.includes("'memberships.acceptors'"));
 });
 
+test('a visit figure younger than its window says since when it is counted', async () => {
+  // The counter began on 1 Nov: inside the 30 days (from 16 Oct), before the 7 days (from 8 Nov).
+  const answer = fixture();
+  answer.lead = [{ key: 'visits.arrivals', field: 'd30', second: [['visits.views', 'd7']] }, ...answer.lead.slice(1)];
+  const page = home({ answer });
+  await flush();
+  const [arrivals, accounts] = page.id('homeLead').children;
+  assert.match(rendered(arrivals.children[0]), /^52 Llegadas · 30 días Se cuenta desde el 1 nov 2026$/);
+  assert.equal(rendered(arrivals.children[1]), '1 Páginas vistas · 7 días', 'the 7 days are all counted');
+  assert.doesNotMatch(rendered(accounts), /Se cuenta desde/, 'only visit figures');
+  const views = rendered(byList(page.id('homeBlocks'), 'memberships.views'));
+  assert.match(views, /· 30 días/);
+  assert.match(views, /Se cuenta desde el 1 nov 2026$/);
+
+  const old = fixture();
+  old.visitsSince = '2026-10-16';
+  const whole = home({ answer: old });
+  await flush();
+  assert.equal(rendered(whole.id('homeLead').children[0].children[0]), '52 Llegadas · 30 días');
+  assert.doesNotMatch(rendered(byList(whole.id('homeBlocks'), 'memberships.views')), /Se cuenta desde/);
+  const en = home({ lang: 'en', answer: fixture() });
+  await flush();
+  assert.match(rendered(en.id('homeLead').children[0].children[0]), /Counted since Nov 1, 2026$/);
+});
+
+test('the festival registrations say how many are the team\'s', async () => {
+  const answer = fixture();
+  indicator(answer, 'festival.registrations').team = 2;
+  const page = home({ answer });
+  await flush();
+  const total = indicator(answer, 'festival.registrations').total;
+  assert.equal(rendered(byKey(page.id('homeBlocks'), 'festival.registrations')), `Inscripciones (incluye 2 del equipo) ${total}`);
+  page.ready();
+  page.apply('en');
+  await flush();
+  assert.ok(rendered(byKey(page.id('homeBlocks'), 'festival.registrations')).includes('(includes 2 from the team)'));
+  page.apply('pt');
+  await flush();
+  assert.ok(rendered(byKey(page.id('homeBlocks'), 'festival.registrations')).includes('(inclui 2 da equipe)'));
+  for (const team of [0, undefined]) {
+    const none = fixture();
+    indicator(none, 'festival.registrations').team = team;
+    const bare = home({ answer: none });
+    await flush();
+    assert.equal(rendered(byKey(bare.id('homeBlocks'), 'festival.registrations')), `Inscripciones ${total}`);
+  }
+});
+
+test('a list names its window, and an empty list is a zero', async () => {
+  const answer = fixture();
+  indicator(answer, 'visits.sources').items = [];
+  indicator(answer, 'signups.new').daysSince = 1;
+  const page = home({ answer });
+  await flush();
+  const blocks = page.id('homeBlocks');
+  assert.equal(rendered(byList(blocks, 'visits.sources')), 'De dónde llegan · 30 días 0');
+  assert.match(rendered(byList(blocks, 'visits.topPages')), /^Páginas más vistas · 30 días Inicio 40 · FIIU Fest 12$/);
+  assert.match(rendered(byList(blocks, 'activity.kinds')), /^Actividad por tipo · 30 días perfil/);
+  assert.match(rendered(byList(blocks, 'festival.countries')), /^País \(respuesta de inscripción\) Perú 335/, 'a total list has no window');
+  // Label and number are joined by real text, never by a stylesheet.
+  const [first] = byList(blocks, 'visits.topPages').children.filter((n) => n && n.className === 'home-item');
+  assert.deepEqual(first.children.map((n) => (typeof n === 'string' ? n : n.textContent)), ['Inicio', ' ', '40']);
+  assert.ok(byList(blocks, 'visits.topPages').children.some((n) => n && n.className === 'home-sep' && n.textContent === ' · '));
+  assert.doesNotMatch(STYLE(), /\.home-item[^{]*::before/);
+  assert.ok(rendered(page.id('homeWindows')).includes('1 día sin cuentas nuevas (última: 26 oct)'), rendered(page.id('homeWindows')));
+  for (const block of blocks.children) {
+    const table = descendants(block).find((n) => n.tagName === 'table');
+    const title = descendants(block).find((n) => n.tagName === 'h2');
+    if (table) assert.equal(table['aria-labelledby'], title.id, block.dataset.family);
+  }
+  const how = rendered(descendants(blocks).find((n) => n.tagName === 'details'));
+  assert.ok(how.includes('Límites: No dice cuántas personas fueron.'), how.slice(0, 400));
+  assert.doesNotMatch(how, /No dice: No dice/);
+});
+
 test('lists are labelled after the fact', async () => {
   const page = home();
   await flush();
@@ -359,7 +434,7 @@ test('the reading is sent only when today has none and the answer is complete', 
   await flush();
   assert.equal(done.posts().length, 0);
 
-  const notSaved = (part) => `La lectura de hoy aún no se guardó: ${part} no disponible. Se guardará al abrir esta página con todos los datos.`;
+  const notSaved = (part) => `La lectura de hoy aún no se guardó. Falta: ${part}. Se guardará al abrir esta página con todos los datos.`;
   for (const [change, part] of [
     [(a) => { a.unavailable = [{ part: 'courses', reason: 'timeout' }]; }, 'cursos'],
     [(a) => { a.notActivated = ['members']; }, 'datos de miembros'],
@@ -390,7 +465,23 @@ test('the reading is sent only when today has none and the answer is complete', 
   assert.equal(rejected.gets().length, 2);
   assert.equal(rejected.posts().length, 1);
   assert.equal(rejected.id('homeStatus').textContent, '');
-  assert.ok(!rendered(rejected.id('homeTracking')).includes('read on the'));
+  assert.ok(!rendered(rejected.id('homeTracking')).includes('read on day'));
+
+  // A page left open into the next Lima day sends that day's reading on its next refresh, once.
+  let day = '2026-11-14';
+  const open = home({ get: () => { const next = fixture(); next.limaDay = day; return Promise.resolve(response(next)); },
+    post: () => Promise.resolve(response({ saved: false, day })) });
+  await flush();
+  open.id('homeRefresh').click();
+  await flush();
+  assert.equal(open.posts().length, 1, 'the same day: no second reading');
+  day = '2026-11-15';
+  open.id('homeRefresh').click();
+  await flush();
+  assert.equal(open.posts().length, 2, 'the next Lima day: its own reading');
+  open.id('homeRefresh').click();
+  await flush();
+  assert.equal(open.posts().length, 2);
 });
 
 test('a saved reading appears in Seguimiento at once', async () => {
@@ -411,7 +502,7 @@ test('a saved reading appears in Seguimiento at once', async () => {
   page.ready();
   page.apply('pt');
   await flush();
-  assert.ok(rendered(page.id('homeTracking')).includes('lido em 14'));
+  assert.ok(rendered(page.id('homeTracking')).includes('lido no dia 14'));
   assert.equal(page.calls.length, 2);
 
   for (const post of [
@@ -465,7 +556,9 @@ test('tracking shows one column per month that has a reading', async () => {
   assert.ok(!rendered(tracking).includes('undefined'));
 
   const series = (name) => rendered(descendants(tracking).find((n) => n.dataset.series === name));
-  assert.match(series('accounts'), /^Cuentas nuevas jul 9 ago 0 sept 43 oct 473 nov 0$/);
+  assert.match(series('accounts'), /^Cuentas nuevas jul 9 · ago 0 · sept 43 · oct 473 · nov 0$/);
+  const scroller = descendants(tracking).find((n) => n.className === 'home-scroll');
+  assert.deepEqual([scroller.tabindex, scroller.role, scroller['aria-label']], ['0', 'region', 'Seguimiento']);
   assert.equal(series('registrations'), 'Inscripciones al festival — No disponible en este momento');
   assert.match(series('views'), /^Páginas vistas nov 40$/);
   assert.equal(page.posts().length, 0);
@@ -475,6 +568,7 @@ const STATUS = {
   failed: 'No se pudieron cargar los indicadores.',
   tooMany: 'Demasiadas solicitudes. Espera un minuto e inténtalo de nuevo.',
   expired: 'Tu sesión terminó. Inicia sesión de nuevo.',
+  denied: 'Tu cuenta ya no tiene acceso de administración.',
   notHere: 'Los indicadores no están disponibles en esta instalación.',
 };
 
@@ -496,6 +590,7 @@ test('the whole answer failed', async () => {
     assert.equal(page.id('homeBlocks').children.length, 0);
     page.id('homeRetry').click();
     assert.equal(page.id('homeRetry').disabled, true);
+    assert.equal(page.id('homeStatus').textContent, 'Cargando…', 'a retry says it is working');
     page.id('homeRetry').click();
     assert.equal(page.gets().length, 2);
     assert.equal(page.gets()[1].url, '/api/admin/metrics');
@@ -513,6 +608,12 @@ test('the whole answer failed', async () => {
   assert.equal(expired.id('homeSignIn').hidden, false);
   assert.equal(expired.id('homeSignIn').href, 'login.html?next=%2Fadmin-home.html');
   assert.equal(expired.id('homeRetry').hidden, true);
+
+  const denied = home({ get: () => Promise.resolve(response({ error: 'administrator access required' }, 403)) });
+  await flush();
+  assert.equal(denied.id('homeStatus').textContent, STATUS.denied);
+  assert.equal(denied.id('homeRetry').hidden, true, 'a retry could never succeed');
+  assert.equal(denied.id('homeSignIn').hidden, true);
 
   const missing = home({ get: () => Promise.resolve(response({ error: 'not found' }, 404)) });
   await flush();
@@ -562,6 +663,36 @@ test('the CSV is fetched as a blob and failures are said on the page', async () 
     assert.equal(page.id('homeBlocks').children.length, FAMILIES.length);
     if (status === 401) assert.equal(page.id('homeSignIn').hidden, false);
   }
+
+  // A later success takes back what the failed download said.
+  let status = 401;
+  const again = home({ download: () => Promise.resolve(status === 200 ? response('', 200, { 'content-disposition': `attachment; filename="${name}"` }) : response({ error: 'x' }, status)) });
+  await flush();
+  await again.id('homeCsv').click();
+  await flush();
+  assert.equal(again.id('homeStatus').textContent, STATUS.expired);
+  assert.equal(again.id('homeSignIn').hidden, false);
+  status = 200;
+  await again.id('homeCsv').click();
+  await flush();
+  assert.equal(again.id('homeStatus').textContent, '');
+  assert.equal(again.id('homeSignIn').hidden, true);
+  // What a failed refresh said is not a download's to clear.
+  const stale = home({ get: (url) => Promise.resolve(url.includes('fresh') ? response({ error: 'slow down' }, 429) : response(fixture())),
+    download: () => Promise.resolve(response('', 200, { 'content-disposition': `attachment; filename="${name}"` })) });
+  await flush();
+  stale.id('homeRefresh').click();
+  await flush();
+  await stale.id('homeCsv').click();
+  await flush();
+  assert.equal(stale.id('homeStatus').textContent, STATUS.tooMany);
+
+  const months = home({ download: () => Promise.resolve(response('', 200, { 'content-disposition': 'attachment; filename="nodal-indicadores-por-mes-2026-11-14.csv"' })) });
+  await flush();
+  assert.equal(months.id('homeMonthsCsv').textContent, 'Descargar por mes CSV');
+  await months.id('homeMonthsCsv').click();
+  await flush();
+  assert.equal(months.calls.find((c) => c.url.startsWith('/api/admin/metrics/export')).url, '/api/admin/metrics/export?table=months&lang=es');
 
   const readings = home({ download: () => Promise.resolve(response('', 200, { 'content-disposition': 'attachment; filename="nodal-indicadores-lecturas-2026-11-14.csv"' })) });
   await flush();

@@ -1,8 +1,8 @@
 /* The admin home (spec: docs/superpowers/specs/2026-11-14-admin-front-door-metrics-design.md, "R3. The home").
    One GET of /api/admin/metrics, rendered in the page language; the answer brings every indicator's words (texts), the
    lead row (lead) and the rows of "Seguimiento" (tracked), so this file holds only its own chrome as [en, es, pt] rows.
-   A language change re-renders the held answer and never asks again. Today's reading is sent once per page view, only
-   after a complete answer whose day has none. DOM built with createElement/textContent only. */
+   A language change re-renders the held answer and never asks again. Today's reading is sent once per Lima day of the
+   page view, only after a complete answer whose day has none. DOM built with createElement/textContent only. */
 (() => {
   const el = {
     title: document.getElementById('homeTitle'),
@@ -19,6 +19,7 @@
     blocks: document.getElementById('homeBlocks'),
     tracking: document.getElementById('homeTracking'),
     readingsCsv: document.getElementById('homeReadingsCsv'),
+    monthsCsv: document.getElementById('homeMonthsCsv'),
     printHead: document.getElementById('homePrintHead'),
   };
   if (!el.blocks || !el.tracking || !el.lead) return;
@@ -35,24 +36,28 @@
     last7: ['Last 7 days: {range}', 'Últimos 7 días: {range}', 'Últimos 7 dias: {range}'],
     last30: ['Last 30 days: {range}', 'Últimos 30 días: {range}', 'Últimos 30 dias: {range}'],
     noNew: ['{n} days without new accounts (last: {day})', '{n} días sin cuentas nuevas (última: {day})', '{n} dias sem contas novas (última: {day})'],
-    pending: ['To attend to', 'Por atender', 'Para atender'],
+    noNewOne: ['1 day without new accounts (last: {day})', '1 día sin cuentas nuevas (última: {day})', '1 dia sem contas novas (última: {day})'],
+    pending: ['Needs attention', 'Por atender', 'Para atender'],
+    team: ['includes {n} from the team', 'incluye {n} del equipo', 'inclui {n} da equipe'],
     howCounted: ['How it is counted', 'Cómo se cuenta', 'Como se conta'],
-    notTell: ['It does not tell', 'No dice', 'Não diz'],
+    limits: ['Limits', 'Límites', 'Limites'],
     tracking: ['Tracking', 'Seguimiento', 'Acompanhamento'],
-    readOn: ['read on the {day}', 'leído el {day}', 'lido em {day}'],
+    readOn: ['read on day {day}', 'leído el {day}', 'lido no dia {day}'],
     olderDefs: ['read with earlier definitions', 'leído con definiciones anteriores', 'lido com definições anteriores'],
     readingsSince: ['Readings since {month}.', 'Lecturas desde {month}.', 'Leituras desde {month}.'],
     noReadings: ['No reading has been saved yet.', 'Aún no hay lecturas guardadas.', 'Ainda não há leituras salvas.'],
     readingsCsv: ['Download readings CSV', 'Descargar lecturas CSV', 'Baixar leituras CSV'],
+    monthsCsv: ['Download monthly CSV', 'Descargar por mes CSV', 'Baixar por mês CSV'],
     notSaved: [
-      'Today\'s reading has not been saved yet: {part} not available. It will be saved when this page is opened with all the data.',
-      'La lectura de hoy aún no se guardó: {part} no disponible. Se guardará al abrir esta página con todos los datos.',
-      'A leitura de hoje ainda não foi salva: {part} não disponível. Será salva ao abrir esta página com todos os dados.',
+      'Today\'s reading has not been saved yet. Missing: {part}. It will be saved when this page is opened with all the data.',
+      'La lectura de hoy aún no se guardó. Falta: {part}. Se guardará al abrir esta página con todos los datos.',
+      'A leitura de hoje ainda não foi salva. Falta: {part}. Será salva ao abrir esta página com todos os dados.',
     ],
     failed: ['The metrics could not be loaded.', 'No se pudieron cargar los indicadores.', 'Não foi possível carregar os indicadores.'],
     retry: ['Try again', 'Reintentar', 'Tentar de novo'],
     expired: ['Your session ended. Sign in again.', 'Tu sesión terminó. Inicia sesión de nuevo.', 'Sua sessão terminou. Entre de novo.'],
     signIn: ['Sign in', 'Iniciar sesión', 'Entrar'],
+    denied: ['Your account no longer has admin access.', 'Tu cuenta ya no tiene acceso de administración.', 'Sua conta não tem mais acesso de administração.'],
     tooMany: ['Too many requests. Wait a minute and try again.', 'Demasiadas solicitudes. Espera un minuto e inténtalo de nuevo.', 'Muitas solicitações. Espere um minuto e tente de novo.'],
     notHere: ['Metrics are not available in this installation.', 'Los indicadores no están disponibles en esta instalación.', 'Os indicadores não estão disponíveis nesta instalação.'],
     printHead: ['NODAL · Metrics report', 'NODAL · Reporte de indicadores', 'NODAL · Relatório de indicadores'],
@@ -65,6 +70,8 @@
   // Where a block or a waiting queue is worked on.
   const SEE = { festival: ['fiiu-admin.html', 'seeFestival'], courses: ['teaching.html', 'seeCourses'] };
   const PENDING = [['interests', 'activity.interests', 'admin.html#interests'], ['orgRequests', 'memberships.orgRequests', 'admin.html#nodes'], ['lab', 'festival.labApplications', 'fiiu-admin.html']];
+  // The lists that count the last 30 days: their name says so, under tables that have a total and two windows.
+  const D30_LISTS = new Set(['activity.kinds', 'visits.topPages', 'visits.sources', 'memberships.views']);
   const FIELDS = ['total', 'd30', 'd7'];
   const WINDOWED = /^(.+)\.(d30|d7)$/;
 
@@ -97,7 +104,8 @@
   let answer = null;
   let statusRow = 'loading';
   let loading = false;
-  let readingSent = false;
+  let readingSentFor = null;
+  let downloadFailed = false;
   let details = [];
   let openBeforePrint = null;
 
@@ -105,6 +113,10 @@
   const indicators = () => new Map(answer.families.flatMap((family) => family.indicators).map((ind) => [ind.key, ind]));
   const nameOf = (key) => words().indicators[key]?.name ?? key;
   const withField = (key, field) => (field === 'total' ? nameOf(key) : `${nameOf(key)} · ${say(field)}`);
+  const separator = () => make('span', 'home-sep', ' · ');
+  // Visit figures while the counter is younger than the window they are printed under.
+  const visitFamily = (key) => answer.families.some((family) => family.key === 'visits' && family.indicators.some((ind) => ind.key === key));
+  const youngCounter = (field) => typeof answer.visitsSince === 'string' && own(answer.windows, field) && answer.visitsSince > answer.windows[field].from;
 
   // The words for a state; visits not yet counted name their first day, or say none is counted yet.
   function reason(state) {
@@ -141,7 +153,7 @@
     document.title = title;
     const skip = document.querySelector('.admin-skip');
     if (skip) skip.textContent = say('skip');
-    for (const [node, row] of [[el.csv, 'csv'], [el.print, 'print'], [el.refresh, 'refresh'], [el.retry, 'retry'], [el.readingsCsv, 'readingsCsv'], [el.printHead, 'printHead'], [el.signIn, 'signIn']]) {
+    for (const [node, row] of [[el.csv, 'csv'], [el.print, 'print'], [el.refresh, 'refresh'], [el.retry, 'retry'], [el.readingsCsv, 'readingsCsv'], [el.monthsCsv, 'monthsCsv'], [el.printHead, 'printHead'], [el.signIn, 'signIn']]) {
       if (node) node.textContent = say(row);
     }
     paintStatus();
@@ -151,15 +163,17 @@
     el.asOf.textContent = say('asOf', { when: dates({ day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(Date.parse(answer.asOf)) });
     const lines = [make('span', '', say('last7', { range: range(answer.windows.d7) })), make('span', '', say('last30', { range: range(answer.windows.d30) }))];
     const latest = answer.families.flatMap((family) => family.indicators).find((ind) => isNum(ind.daysSince));
-    if (latest && !latest.state && latest.daysSince > 0 && latest.last) lines.push(make('span', '', say('noNew', { n: number(latest.daysSince), day: shortDay(latest.last) })));
+    if (latest && !latest.state && latest.daysSince > 0 && latest.last) lines.push(make('span', '', say(latest.daysSince === 1 ? 'noNewOne' : 'noNew', { n: number(latest.daysSince), day: shortDay(latest.last) })));
     el.windows.replaceChildren(...lines);
   }
 
   function leadLine(map, key, field, className) {
     const ind = map.get(key) ?? { state: 'unavailable' };
     const line = make('span', className);
-    line.append(figure(ind.state ? undefined : ind[field]), make('span', 'home-lead-name', withField(key, field)));
-    if (ind.state) line.append(make('span', 'home-reason', reason(ind.state)));
+    line.append(figure(ind.state ? undefined : ind[field]), ' ', make('span', 'home-lead-name', withField(key, field)));
+    if (ind.state) line.append(' ', make('span', 'home-reason', reason(ind.state)));
+    // A visit figure never stands under "30 días" or "7 días" without the day its count began.
+    else if (visitFamily(key) && youngCounter(field)) line.append(' ', make('span', 'home-reason', reason('not_yet_counted')));
     return line;
   }
 
@@ -178,12 +192,12 @@
     const links = PENDING.filter(([field]) => isNum(pending[field])).map(([field, key, href]) => {
       const link = make('a', 'home-pending-link');
       link.href = href;
-      link.append(figure(pending[field]), make('span', '', `${nameOf(key)} →`));
+      link.append(figure(pending[field]), ' ', make('span', '', `${nameOf(key)} →`));
       const item = make('span', 'home-item');
       item.append(link);
       return item;
     });
-    el.pending.replaceChildren(make('span', 'home-pending-name', say('pending')), ...links);
+    el.pending.replaceChildren(make('span', 'home-pending-name', say('pending')), ' ', ...links.flatMap((link, i) => (i ? [separator(), link] : [link])));
     el.pending.hidden = links.length === 0;
   }
 
@@ -196,11 +210,12 @@
     return String(item.key);
   }
 
+  // Label, a real space, number; a real " · " between items, so copied text and screen readers get them apart.
   function items(list) {
-    return list.map(({ label, n }) => {
+    return list.flatMap(({ label, n }, i) => {
       const item = make('span', 'home-item');
-      item.append(make('span', '', label), figure(n));
-      return item;
+      item.append(make('span', '', label), ' ', figure(n));
+      return i ? [separator(), item] : [item];
     });
   }
 
@@ -213,7 +228,7 @@
       const text = words().indicators[ind.key];
       if (!text) continue;
       const entry = make('div', 'home-def');
-      entry.append(make('h3', 'home-def-name', text.name), make('p', '', text.definition), make('p', 'home-def-source', text.source), make('p', 'home-def-caveat', `${say('notTell')}: ${text.caveat}`));
+      entry.append(make('h3', 'home-def-name', text.name), make('p', '', text.definition), make('p', 'home-def-source', text.source), make('p', 'home-def-caveat', `${say('limits')}: ${text.caveat}`));
       box.append(entry);
     }
     details.push(box);
@@ -224,7 +239,9 @@
     const section = make('section', 'home-block');
     section.dataset.family = family.key;
     const head = make('div', 'home-block-head');
-    head.append(make('h2', 'home-block-title', words().families[family.key] ?? family.key));
+    const title = make('h2', 'home-block-title', words().families[family.key] ?? family.key);
+    title.id = `home-h-${family.key}`;
+    head.append(title);
     if (own(SEE, family.key)) {
       const [href, row] = SEE[family.key];
       const link = make('a', 'home-see', say(row));
@@ -243,6 +260,7 @@
     const columns = FIELDS.filter((f) => family.indicators.some((ind) => isNum(ind[f])));
     if (rows.length) {
       const table = make('table', 'home-table');
+      table.setAttribute('aria-labelledby', title.id);
       const headRow = make('tr');
       headRow.append(make('th', 'home-corner'), ...columns.map((f) => { const th = make('th', '', say(f)); th.setAttribute('scope', 'col'); return th; }));
       const thead = make('thead');
@@ -253,6 +271,8 @@
         row.dataset.key = ind.key;
         const name = make('th', '', nameOf(ind.key));
         name.setAttribute('scope', 'row');
+        // The team's own rows inside a figure that is not filtered (the festival's registrations).
+        if (!ind.state && isNum(ind.team) && ind.team > 0) name.append(' ', make('span', 'home-reason', `(${say('team', { n: number(ind.team) })})`));
         row.append(name);
         if (ind.state) {
           const cell = make('td', 'home-failed');
@@ -280,7 +300,12 @@
       if (isNum(ind.total) && ind.items.length < 2) continue;
       const line = make('p', 'home-list');
       line.dataset.list = ind.key;
-      line.append(make('span', 'home-list-name', nameOf(ind.key)), ...items(ind.items.map((item) => ({ label: itemLabel(ind, item), n: item.n }))));
+      line.append(make('span', 'home-list-name', D30_LISTS.has(ind.key) ? withField(ind.key, 'd30') : nameOf(ind.key)), ' ');
+      // An empty list is a zero, never a bare name.
+      if (ind.items.length) line.append(...items(ind.items.map((item) => ({ label: itemLabel(ind, item), n: item.n }))));
+      else line.append(figure(0));
+      // The Founders and payment page views, outside the Visitas block, carry the counter's first day themselves.
+      if (ind.key === 'memberships.views' && youngCounter('d30')) line.append(' ', make('span', 'home-reason', reason('not_yet_counted')));
       section.append(line);
     }
     section.append(definitions(family, opened.has(family.key)));
@@ -307,7 +332,7 @@
       const values = series[name];
       const line = make('p', 'home-series');
       line.dataset.series = name;
-      line.append(make('span', 'home-list-name', labels[name]));
+      line.append(make('span', 'home-list-name', labels[name]), ' ');
       const months = Object.keys(values).filter((key) => /^\d{4}-\d{2}$/.test(key)).sort();
       if (values.state || !months.length) {
         line.append(figure(undefined), make('span', 'home-reason', reason(values.state ?? 'not_yet_counted')));
@@ -355,6 +380,10 @@
       const table = make('table', 'home-table home-tracking-table');
       table.append(thead, tbody);
       const scroller = make('div', 'home-scroll');
+      // A wide table scrolls sideways: reachable and named for the keyboard.
+      scroller.setAttribute('tabindex', '0');
+      scroller.setAttribute('role', 'region');
+      scroller.setAttribute('aria-label', say('tracking'));
       scroller.append(table);
       parts.push(scroller);
     }
@@ -382,7 +411,7 @@
     && typeof body.limaDay === 'string' && body.windows?.d7 && body.windows?.d30 && Array.isArray(body.unavailable) && Array.isArray(body.notActivated)
     && body.readings && Array.isArray(body.readings.months);
   const complete = (held) => held.unavailable.length === 0 && held.notActivated.length === 0;
-  const rowFor = (status) => ({ 401: 'expired', 404: 'notHere', 429: 'tooMany' })[status] ?? 'failed';
+  const rowFor = (status) => ({ 401: 'expired', 403: 'denied', 404: 'notHere', 429: 'tooMany' })[status] ?? 'failed';
 
   function report(row) {
     statusRow = row;
@@ -401,6 +430,8 @@
     if (loading) return;
     loading = true;
     busy(true);
+    // A retry on an empty page says it is working.
+    if (answer === null) report('loading');
     let outcome = 'failed';
     try {
       const res = await fetch(fresh ? '/api/admin/metrics?fresh=1' : '/api/admin/metrics', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
@@ -415,6 +446,7 @@
     if (typeof outcome === 'object') {
       answer = outcome;
       statusRow = '';
+      downloadFailed = false;
       el.retry.hidden = true;
       el.signIn.hidden = true;
       render();
@@ -422,16 +454,19 @@
       return;
     }
     const row = rowFor(outcome);
+    downloadFailed = false;
     // Figures already on screen stay there; only a page with none offers the retry.
-    el.retry.hidden = answer !== null || row === 'expired' || row === 'notHere';
+    el.retry.hidden = answer !== null || row === 'expired' || row === 'notHere' || row === 'denied';
     report(row);
   }
 
-  /* Today's reading, at most once per page view: only for a complete answer whose day has none. A failure is silent and
-     retried on the next load. A saved reading of the held answer's own day joins "Seguimiento" without a second GET. */
+  /* The reading of the held answer's Lima day, sent at most once per day of this page view: only for a complete answer
+     whose day has none. A failure is silent and is not sent again for that day from this page view (the next opening of
+     the page sends it); a page left open into the next Lima day sends that day's on its next refresh. A saved reading of
+     the held answer's own day joins "Seguimiento" without a second GET. */
   async function saveReading() {
-    if (readingSent || !complete(answer) || answer.readings.today) return;
-    readingSent = true;
+    if (readingSentFor === answer.limaDay || !complete(answer) || answer.readings.today) return;
+    readingSentFor = answer.limaDay;
     let saved;
     try {
       const res = await fetch('/api/admin/metrics/readings', { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' } });
@@ -460,7 +495,9 @@
     button.disabled = true;
     try {
       const res = await fetch(`/api/admin/metrics/export?table=${table}&lang=${lang()}`, { credentials: 'same-origin' });
-      if (!res.ok) { report(rowFor(res.status)); return; }
+      if (!res.ok) { downloadFailed = true; report(rowFor(res.status)); return; }
+      // What an earlier failed download said no longer holds.
+      if (downloadFailed) { downloadFailed = false; report(''); }
       const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? `nodal-${table}.csv`;
       const url = URL.createObjectURL(await res.blob());
       const link = document.createElement('a');
@@ -472,6 +509,7 @@
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch {
+      downloadFailed = true;
       report('failed');
     } finally {
       button.disabled = false;
@@ -482,6 +520,7 @@
   el.refresh.addEventListener('click', () => load(true));
   el.csv.addEventListener('click', () => download(el.csv, 'indicators'));
   el.readingsCsv?.addEventListener('click', () => download(el.readingsCsv, 'readings'));
+  el.monthsCsv?.addEventListener('click', () => download(el.monthsCsv, 'months'));
   el.print.addEventListener('click', () => window.print());
   // A stylesheet cannot open a closed <details> in every browser: open them all for print, then put each back.
   window.addEventListener('beforeprint', () => {
