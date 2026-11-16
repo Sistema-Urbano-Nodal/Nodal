@@ -55,7 +55,6 @@ export function checkinWindow(activity){
 // The browser never parses times: every current activity carries its certificate minutes (null when it does not count
 // or its duration is unknown) and when its check-in closes (null for workshops and routes). Legacy activities are untouched.
 for(const activity of FIIU_EVENT.activities)Object.assign(activity,{minutes:isCheckinActivity(activity)?activityMinutes(activity):null,checkin:isCheckinActivity(activity)?checkinWindow(activity):null});
-export const CHECKIN_ACTIVITIES=FIIU_EVENT.activities.filter(isCheckinActivity);
 export const ALL_FIIU_ACTIVITIES=[...FIIU_EVENT.activities,...LEGACY_FIIU_ACTIVITIES];
 // The organiser rule for confirming attendance, shared by the staff checkbox and the QR check-in: a conference block
 // must be in the person's plan, the lab needs an accepted application, the party never (it is register only), and
