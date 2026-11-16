@@ -474,6 +474,18 @@ test('a draft published later is listed and dated from its first publication, wh
  assert.equal((await call(`/api/admin/fiiu/content/${a.id}`,{actor:'admin',method:'PATCH',body:{...base,title:'Stale',status:'draft',version:1}})).status,409);
 });
 
+test('editing a publication that does not exist, or that belongs to another event, is unavailable (404), not a conflict',async t=>{
+ const {call,db}=await setup(t);const store=createFiiuStore({db});
+ const body={title:'Ghost',body:'',kind:'news',url:'',activityId:'',status:'draft',version:1};
+ const missing=await call(`/api/admin/fiiu/content/${randomUUID()}`,{actor:'admin',method:'PATCH',body});
+ assert.equal(missing.status,404);assert.equal((await missing.json()).error,'content unavailable');
+ const foreign=await store.insert('content',{id:randomUUID(),eventId:'another-event',data:{title:'Elsewhere',body:'',kind:'news',url:'',activityId:''},status:'draft',version:1,createdAt:'2026-09-28T12:00:00.000Z',updatedAt:'2026-09-28T12:00:00.000Z'});
+ assert.equal((await call(`/api/admin/fiiu/content/${foreign.id}`,{actor:'admin',method:'PATCH',body})).status,404);
+ assert.deepEqual({...db.prepare('SELECT event_id,status,version FROM fiiu_content WHERE id=?').get(foreign.id)},{event_id:'another-event',status:'draft',version:1},'another event keeps its row');
+ // A publication that fails validation is still refused as such first.
+ assert.equal((await call(`/api/admin/fiiu/content/${randomUUID()}`,{actor:'admin',method:'PATCH',body:{...body,title:''}})).status,400);
+});
+
 test('a publication retried with its editor id is stored once and the retry returns the saved row',async t=>{
  const {call,db}=await setup(t);const store=createFiiuStore({db});const id=crypto.randomUUID();
  const post=body=>call('/api/admin/fiiu/content',{actor:'admin',method:'POST',body});

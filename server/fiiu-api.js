@@ -397,7 +397,9 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
   match=path.match(/^\/api\/admin\/fiiu\/content\/([^/]+)$/);
   if(match&&req.method==='PATCH'){
    const input=await body(req),expected=version(input.version),id=identifier(match[1]),next=normalizeContent(input),current=await one('content',{id,eventId:EVENT_ID});
-   if(current?.version!==expected)fail('content changed; reload before saving',409);
+   // No publication under that id here (none stored, or another event's) is unavailable, not a change to reload for.
+   if(!current)fail('content unavailable',404);
+   if(current.version!==expected)fail('content changed; reload before saving',409);
    // Feeds are ordered and dated by createdAt, so a publication's first move to 'published' restamps it: a draft written
    // earlier then appears, and is dated, where it went public. data.publishedAt remembers that moment across later edits,
    // archiving and republishing (rows published before the marker existed keep their createdAt). No schema change needed.
