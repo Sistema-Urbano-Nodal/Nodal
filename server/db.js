@@ -13,6 +13,7 @@ import {
   validateCatalogDraft,
   validateCatalogPublication,
 } from './catalog.js';
+import { PROFILE_NAME_MAX } from './domain.js';
 import {
   DEFAULT_INDICATORS,
   DEFAULT_PART_C,
@@ -427,7 +428,7 @@ export function createUser(db, { fullName, email, passwordHash, role = 'member',
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
-    fullName.trim(),
+    fullName.trim().slice(0, PROFILE_NAME_MAX),
     email.trim().toLowerCase(),
     passwordHash,
     role,
@@ -452,7 +453,7 @@ export function updateUserProfile(db, id, patch) {
     indicators: nextIndicators,
   });
   const allowed = {
-    fullName: ['full_name', (v) => plainText(v).trim().slice(0, 80)],
+    fullName: ['full_name', (v) => plainText(v).trim().slice(0, PROFILE_NAME_MAX)],
     title: ['title', (v) => plainText(v).trim().slice(0, 80)],
     city: ['city', (v) => plainText(v).trim().slice(0, 120)],
     interests: ['interests_json', (v) => json(cleanProfileList(v, 12))],

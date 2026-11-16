@@ -6,6 +6,7 @@ import {
   resolveSupabaseEnv,
 } from '../server/supabase.js';
 import { decodeCatalogCursor, decodeCatalogInterestCursor, localizeCatalogItem } from '../server/catalog.js';
+import { PROFILE_NAME_MAX } from '../server/domain.js';
 
 const TEST_USER_ID = '00000000-0000-0000-0000-000000000001';
 // catalog_items.id is a uuid: getCatalogItem answers any other id as missing without a provider call.
@@ -457,6 +458,15 @@ test('Supabase profile updates preserve validation markers and enforce mentor el
     endorsedAt: 0,
   }]);
   assert.equal(updated.mentorApplied, false);
+});
+
+// The SQLite twin keeps the same PROFILE_NAME_MAX (tests/overview-data-courses-profile-name.test.js).
+test('Supabase keeps a full name of up to PROFILE_NAME_MAX characters, the cap the SQLite twin applies too', async () => {
+  const state = profileState();
+  const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: statefulFetch(state, []) });
+  const updated = await repo.updateUserProfile(TEST_USER_ID, { fullName: 'x'.repeat(PROFILE_NAME_MAX + 1) });
+  assert.equal(state.profile.full_name, 'x'.repeat(PROFILE_NAME_MAX));
+  assert.equal(updated.fullName, 'x'.repeat(PROFILE_NAME_MAX));
 });
 
 test('Supabase session resolution refreshes an expired access token', async () => {

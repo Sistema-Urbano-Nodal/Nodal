@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { parseCookies, sessionCookie, validateEmail, validatePassword } from './auth.js';
-import { defaultProfilePreferences } from './domain.js';
+import { defaultProfilePreferences, PROFILE_NAME_MAX } from './domain.js';
 import { recordInteraction } from './store.js';
 import {
   decodeCatalogCursor,
@@ -263,7 +263,7 @@ function membershipAcceptanceFromSupabase(row) {
 }
 
 function profileName(profile = {}) {
-  return cleanString(profile.full_name || profile.preferred_name || profile.email?.split('@')[0] || 'Member', 120);
+  return cleanString(profile.full_name || profile.preferred_name || profile.email?.split('@')[0] || 'Member', PROFILE_NAME_MAX);
 }
 
 // The Founder badge's columns and the admin desk's view of them (/api/admin/membership/founders).
@@ -728,7 +728,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     if (!userId) throw Object.assign(new Error('Supabase auth did not return a user'), { status: 502 });
     const metadata = authUser.user_metadata || {};
     const email = cleanString(authUser.email, 320);
-    const fullName = cleanString(fallbackName || metadata.full_name || metadata.name || email.split('@')[0] || 'Member', 120);
+    const fullName = cleanString(fallbackName || metadata.full_name || metadata.name || email.split('@')[0] || 'Member', PROFILE_NAME_MAX);
     await Promise.all([
       admin.rest('profiles', {
         method: 'POST',
@@ -766,7 +766,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     if (!current) throw Object.assign(new Error('profile not found'), { status: 404 });
     const partC = 'partC' in patch ? normalizePartC(patch.partC, current.partC) : current.partC;
     const title = 'title' in patch ? cleanString(patch.title, 80) : current.title;
-    const fullName = 'fullName' in patch ? cleanString(patch.fullName, 120) : current.fullName;
+    const fullName = 'fullName' in patch ? cleanString(patch.fullName, PROFILE_NAME_MAX) : current.fullName;
     const city = 'city' in patch ? cleanString(patch.city, 120) : current.city;
     const topics = 'topics' in patch ? cleanTopics(patch.topics, current.topics) : current.topics;
     const indicators = 'indicators' in patch ? cleanIndicators(patch.indicators) : current.indicators;
@@ -865,7 +865,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       const name = typeof fullName === 'string' ? fullName.trim() : '';
       const failure = (code = 'invitation_invalid', status = 400) => ({ status, code, cookies: clearSessionCookies(env) });
       if (typeof tokenHash !== 'string' || !/^[A-Za-z0-9_-]{32,512}$/.test(tokenHash)
-        || !validatePassword(password) || name.length < 2 || name.length > 120 || /[\u0000-\u001f\u007f]/.test(name)
+        || !validatePassword(password) || name.length < 2 || name.length > PROFILE_NAME_MAX || /[\u0000-\u001f\u007f]/.test(name)
         || typeof authorize !== 'function' || typeof enroll !== 'function') return { status: 400, code: 'invitation_invalid', cookies: [] };
       let session;
       try {
