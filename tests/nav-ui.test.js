@@ -81,10 +81,13 @@ test('a toggle without a translated name gets one (payments.html), and the login
 });
 
 // Finding 39: the white wordmark disappeared over the white "How it works" section.
-test('the wordmark turns white only over dark sections, and the white platform section is not one',()=>{
+// M94: it also went white (about 1.8:1) over the bright green FIIU and closing bands, which carry ink text.
+test('the wordmark turns white only over dark sections, and the white platform and green bands are not ones',()=>{
   const selector=harness().darkSelector();
   assert.match(selector,/\.problem/);assert.doesNotMatch(selector,/\.platform\b/);
   assert.match(read('styles/styles.css'),/\.platform\s*\{\s*background:\s*#fff/,'the platform section is white');
+  assert.doesNotMatch(selector,/\.cta-band\b/);
+  assert.match(read('styles/styles.css'),/\.cta-band\s*\{\s*background:\s*var\(--green-bright\);\s*color:\s*var\(--ink\)/,'the band is light, with ink text');
 });
 
 /* ---------------- shared header CSS (findings 36, 39, 52) ---------------- */

@@ -47,9 +47,10 @@
   }
 
   // wordmark contrast: white while a dark section is under the glass bar, black otherwise
-  // (.platform, "How it works", is white since the landing restyle, so it is not listed)
+  // (.platform, "How it works", is white since the landing restyle, and .cta-band is bright green with ink
+  // text, where a white wordmark reads at under 2:1, so neither is listed)
   const darkSections = document.querySelectorAll(
-    '.problem, .quote, .membership, .partners, .cta-band, .footer-bottom');
+    '.problem, .membership, .partners, .footer-bottom');
   if (darkSections.length) {
     const checkDark = () => {
       const navH = nav.offsetHeight;
