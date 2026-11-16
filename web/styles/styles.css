@@ -295,7 +295,7 @@ h1, h2, h3 {
 
 .hero-kicker {
   font-family: var(--font-mono); font-size: 13px; letter-spacing: .14em; text-transform: uppercase;
-  color: var(--concrete); margin-bottom: 24px; display: inline-flex; align-items: center; gap: .8em;
+  color: var(--ink-2); margin-bottom: 24px; display: inline-flex; align-items: center; gap: .8em;
   opacity: 0; transform: translateY(12px); animation: rise .7s cubic-bezier(.2,.8,.2,1) .05s forwards;
 }
 .hero-kicker::before { content: ""; width: 28px; height: 1px; background: var(--green-bright); }
@@ -434,7 +434,7 @@ h1, h2, h3 {
   text-transform: uppercase; letter-spacing: .16em; font-size: 11px; font-weight: 600; color: var(--concrete); }
 #graph { width: 100%; height: auto; display: block; }
 .graph-hint { font-family: var(--font-mono); text-transform: uppercase; letter-spacing: .14em; font-weight: 600;
-  font-size: 11px; color: var(--concrete); margin-top: 14px; text-align: right; }
+  font-size: 11px; color: var(--muted); margin-top: 14px; text-align: right; }
 .gnode { cursor: grab; outline: none; transition: opacity .25s ease; touch-action: none; }
 .gnode.is-drag { cursor: grabbing; }
 .gnode circle { transform-box: fill-box; transform-origin: center; }

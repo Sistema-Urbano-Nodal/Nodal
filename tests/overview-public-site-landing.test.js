@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-/* The landing's own stylesheet, read as the browser would apply it: comments out. */
+/* The landing's own stylesheet, read as the browser would apply it: comments out, the colour tokens resolved. */
 const css = readFileSync(new URL('../web/styles/styles.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 
 // every block that opens with `header`, braces balanced, joined (a sheet may hold several `@media (scripting: none)`)
@@ -24,6 +24,31 @@ function rule(selector) {
   assert.ok(found.length, `${selector} has a rule`);
   return found.join(';');
 }
+const root = rule(':root');
+function resolve(value) {
+  let v = value.trim();
+  while (v.startsWith('var(')) {
+    const name = v.slice(4, -1).trim();
+    const token = root.match(new RegExp(`(?:^|[;\\s])${name}:\\s*([^;]+);`));
+    assert.ok(token, `${name} is a token`);
+    v = token[1].trim();
+  }
+  return v.replace(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/i, '#$1$1$2$2$3$3');
+}
+const declared = (selector, property) => {
+  const values = [...rule(selector).matchAll(new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+);`, 'g'))];
+  assert.ok(values.length, `${selector} sets ${property}`);
+  return resolve(values.at(-1)[1]);
+};
+const luminance = (hex) => {
+  const [r, g, b] = hex.slice(1).match(/../g).map((part) => parseInt(part, 16) / 255)
+    .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a, b) => {
+  const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (light + 0.05) / (dark + 0.05);
+};
 
 /* ---------- M95: the headline is there without JavaScript ---------- */
 
@@ -37,4 +62,16 @@ test('the hero headline shows when scripts are off, and still rises in when scri
   // the kicker, the subtitle and the buttons need no script: the kicker's rise is CSS alone, the other two rest visible
   assert.match(rule('.hero-kicker'), /animation: rise /);
   for (const selector of ['.hero-sub', '.hero-cta']) assert.doesNotMatch(rule(selector), /opacity: 0/, selector);
+});
+
+/* ---------- M98: the landing captions reach WCAG AA ---------- */
+
+test('the graph hint on the white platform and the hero kicker on plaster read at 4.5:1 or more', () => {
+  const white = declared('.platform', 'background');
+  const plaster = declared('body', 'background');
+  assert.equal(white, '#ffffff');
+  for (const [selector, ground] of [['.graph-hint', white], ['.hero-kicker', plaster]]) {
+    const ratio = contrast(declared(selector, 'color'), ground);
+    assert.ok(ratio >= 4.5, `${selector} reads at ${ratio.toFixed(2)}:1`);
+  }
 });
