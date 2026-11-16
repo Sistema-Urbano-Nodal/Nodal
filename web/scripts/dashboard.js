@@ -1180,7 +1180,9 @@
       // members edit in place; a fresh account completes its profile first
       editing = Boolean(U.city && U.role && U.topics.length);
       relabelUserDialog();
-      if (uc.dataControls) uc.dataControls.hidden = !editing;
+      /* Export and deletion belong to every loaded account, complete or not: they are the only way to either, and a festival
+         registrant (no NODAL topics) must not have to add more personal data before taking theirs or leaving. */
+      if (uc.dataControls) uc.dataControls.hidden = false;
       uc.name.value = U.name;
       uc.city.value = U.city;
       uc.role.value = U.kind === 'member' && U.role !== 'Member' ? U.role : '';
