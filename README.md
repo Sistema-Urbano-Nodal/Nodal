@@ -101,7 +101,7 @@ Production schema migrations live in:
 supabase/migrations/
 ```
 
-Apply them in order with the Supabase CLI. They create the app tables, enable RLS, and install the forward security hardening for existing projects.
+They create the app tables, enable RLS, and install the forward security hardening for existing projects. **Never run `supabase db push` against production**: its migration history records the schema under other versions, and forcing it re-runs applied files. In production, apply only the new files, one at a time and in timestamp order, with `npx --no-install supabase db query --linked -f supabase/migrations/<file>.sql`, then the project owner records them with `npx supabase migration repair --status applied <version>` (see "SQL Migration Steps" in [DEPLOYMENT.md](DEPLOYMENT.md)). `db push` is only for a fresh preview project whose history matches these files from the start.
 
 ## Run Locally
 
