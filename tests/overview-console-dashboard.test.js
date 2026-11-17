@@ -501,3 +501,22 @@ test('picking a self-assessment level keeps the keyboard on that level of that t
   assert.equal(focused.focusOptions?.preventScroll, true, 'the page does not jump');
   assert.deepEqual([focused.dataset.topic, focused.dataset.level], ['Housing', '3']);
 });
+
+/* ---------------- M53/M155: the picked scope and the picked path, said to assistive technology ---------------- */
+
+test('the search scope chips and the path rows say which one is picked with aria-pressed, from the markup on', async () => {
+  const c = consoleFor(ana);
+  const chips = c.byId('searchChips').querySelectorAll('.chip');
+  const rows = c.byId('pathList').querySelectorAll('.path-row');
+  const pressed = (list) => list.map((node) => node.getAttribute('aria-pressed'));
+  // before any script has run on them: the page's own markup
+  assert.deepEqual(pressed(chips), ['true', 'false', 'false', 'false'], 'People is the scope the page opens on');
+  assert.deepEqual(pressed(rows), ['true', 'false', 'false', 'false'], 'Knowledge is the path the panel opens on');
+  await flush();
+  scopeChip(c, 'Opportunities').click();
+  assert.deepEqual(pressed(chips), ['false', 'false', 'false', 'true']);
+  assert.deepEqual(chips.map((chip) => chip.classList.contains('is-on')), [false, false, false, true]);
+  rows[2].click();
+  assert.deepEqual(pressed(rows), ['false', 'false', 'true', 'false']);
+  assert.deepEqual(rows.map((row) => row.classList.contains('is-on')), [false, false, true, false]);
+});

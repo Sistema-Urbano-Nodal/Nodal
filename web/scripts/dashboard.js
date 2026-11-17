@@ -655,7 +655,11 @@
     pathList.querySelectorAll('.path-row').forEach((row) => {
       row.addEventListener('click', () => {
         if (!U) return;
-        pathList.querySelectorAll('.path-row').forEach((r) => r.classList.toggle('is-on', r === row));
+        // the picked path is said by aria-pressed as well as by colour
+        pathList.querySelectorAll('.path-row').forEach((r) => {
+          r.classList.toggle('is-on', r === row);
+          r.setAttribute('aria-pressed', String(r === row));
+        });
         showBranch(row.dataset.branch);
       });
     });
@@ -1569,7 +1573,11 @@
     searchInput.addEventListener('keydown', (e) => { if (e.key === 'Escape') searchPop.hidden = true; });
     chipHost.querySelectorAll('.chip').forEach((chip) => {
       chip.addEventListener('click', () => {
-        chipHost.querySelectorAll('.chip').forEach((c) => c.classList.toggle('is-on', c === chip));
+        // the picked scope is said by aria-pressed as well as by colour
+        chipHost.querySelectorAll('.chip').forEach((c) => {
+          c.classList.toggle('is-on', c === chip);
+          c.setAttribute('aria-pressed', String(c === chip));
+        });
         runSearch();
         searchInput.focus();
       });
