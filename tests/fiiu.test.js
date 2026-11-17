@@ -1075,9 +1075,11 @@ test('end to end: a mail server that takes every message but answers too late st
 });
 
 test('the summary button is for organisers only, same-origin, validated, and answers 503 while email is off',async t=>{
- const off=await mailSetup(t,{confirmation:null});
+ // One clock reading for the server and the expectation, so a run across 00:00 UTC cannot expect the next day's reset.
+ const NOW=Date.now();
+ const off=await mailSetup(t,{confirmation:null,app:{fiiuBackfill:{now:()=>NOW}}});
  const [id]=await earlier(off.db,off.store,[{email:'early@fiiu-inbox.dev'}]);
- assert.deepEqual(await(await off.call('/api/admin/fiiu/confirmations',{actor:'admin'})).json(),{configured:false,counts:{none:1,pending:0,sent:0,failed:0,uncertain:0,skipped:0},dailyCap:150,sentToday:0,resetsAt:new Date(Math.floor(Date.now()/864e5)*864e5+864e5).toISOString()});
+ assert.deepEqual(await(await off.call('/api/admin/fiiu/confirmations',{actor:'admin'})).json(),{configured:false,counts:{none:1,pending:0,sent:0,failed:0,uncertain:0,skipped:0},dailyCap:150,sentToday:0,resetsAt:new Date(Math.floor(NOW/864e5)*864e5+864e5).toISOString()});
  const refused=await off.call('/api/admin/fiiu/confirmations',{actor:'admin',method:'POST',body:{}});
  assert.equal(refused.status,503);assert.deepEqual(await refused.json(),{error:'email is not configured',code:'email_not_configured'});assert.equal(statusOf(off.db,id),'none');
  const {db,store,call,outbox}=await mailSetup(t);const [waiting]=await earlier(db,store,[{email:'early@fiiu-inbox.dev'}]);
