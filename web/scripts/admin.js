@@ -127,6 +127,8 @@
     busy: false,
     // Missing fields read as "still to fill" until a Publish attempt, or on a record that is already published.
     gateStrict: false,
+    // The editor's fields as they were last filled (a record opened, a blank one, a save's answer): anything else is unsaved.
+    catalogSnapshot: '',
   };
 
   const create = (tag, className, text) => {
@@ -403,7 +405,13 @@
     updateConditionalFields();
     renderCatalogList();
     say(elements.editorStatus, item.id ? 'ops.record.loaded' : 'ops.record.ready');
+    state.catalogSnapshot = JSON.stringify(serializeEditor(null));
   }
+
+  const catalogDirty = () => JSON.stringify(serializeEditor(null)) !== state.catalogSnapshot;
+  // Opening another record, or a blank one, replaces every field, all three translations included: unsaved edits go only once staff agree.
+  // Reloading the server's version after a conflict is a choice already made, so it does not ask.
+  const keepCatalogEdits = () => catalogDirty() && !window.confirm(t('ops.catalog.discard'));
 
   function catalogLabel(item) {
     return item.translations?.en?.title || item.translations?.es?.title || item.translations?.pt?.title || t('ops.record.untitled');
@@ -430,7 +438,9 @@
         if (value) meta.append(create('span', className || null, value));
       }
       button.append(meta);
-      button.addEventListener('click', () => fillEditor(item));
+      button.addEventListener('click', () => {
+        if (!keepCatalogEdits()) fillEditor(item);
+      });
       return button;
     });
     elements.list.replaceChildren(...nodes);
@@ -1351,6 +1361,7 @@
   elements.kind.addEventListener('change', updateConditionalFields);
   elements.actionMode.addEventListener('change', updateConditionalFields);
   elements.newItem.addEventListener('click', () => {
+    if (keepCatalogEdits()) return;
     fillEditor(blankRecord());
     // The button hides itself on a blank record, so focus moves to the editor's first field instead of falling to the page.
     elements.kind.focus();
