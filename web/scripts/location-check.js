@@ -19,14 +19,18 @@
   const busy = () => phase !== 'idle';
   // Disabling or hiding the button a person pressed drops focus to the page (Chrome leaves it on a hidden button until the
   // next task). After a check, a save, Keep or Cancel started from that button, focus comes back unless the person moved
-  // on: to Update when a city is suggested (its group is named by the suggestion, which is read with it), otherwise to
-  // Verify. It comes back without scrolling, as a check can take a while and the person may have scrolled on. An automatic
-  // check moves no focus: nobody pressed anything, and it would take focus from whatever the person is doing.
+  // on. The button has focus when pressed from the keyboard, but also when clicked in Chrome, Edge and Firefox outside
+  // macOS, which show no ring for it, so the target must commit nothing on a stray key such as Space to scroll. A check that
+  // finds a city focuses the suggestion group, which is read through its name (Approximate city: ...). Update gets focus
+  // back only after a refused Update, where the person pressed it. Otherwise Verify. Focus comes back without scrolling,
+  // as a check can take a while and the person may have scrolled on. An automatic check moves no focus: nobody pressed
+  // anything, and it would take focus from whatever the person is doing.
   const pressed = control => document.activeElement === control ? control : null;
   function refocus(from) {
     const focused = document.activeElement;
     if (!from || focused && focused !== document.body && focused !== from && !(cancel.hidden && focused === cancel) && !(suggestion.hidden && suggestion.contains(focused))) return;
-    const target = candidate && !use.disabled ? use : check;
+    const target = !candidate ? check : from === use ? (use.disabled ? check : use) : suggestion;
+    if (target === suggestion) suggestion.tabIndex = -1;
     if (!target.disabled) target.focus({ preventScroll: true });
   }
   const sameCity = (a, b) => String(a || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLowerCase() === String(b || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLowerCase();

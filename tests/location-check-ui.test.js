@@ -45,9 +45,11 @@ function harness({ respond, saved = {}, storageFailure = false, permission = 'pr
     view(value) { observer([{ isIntersecting: value }]); }, hidden(value) { document.hidden = value; listeners.visibilitychange(); },
     nextDay() { timestamp += 86400000; }, language(value) { context.window.nodalI18n.lang = value; changes.forEach(fn => fn()); },
     async suggest() { const pending = this.click('locationCheckNow'); this.geo(); await pending; },
-    // Keyboard use: the button has focus when it is pressed. drop() is the browser moving focus to the page a task after
-    // the focused button was disabled or hidden; focused() names what has focus.
+    // The button has focus when it is pressed: from the keyboard, or by a click in Chrome, Edge and Firefox outside macOS.
+    // drop() is the browser moving focus to the page a task after the focused button was disabled or hidden; focused()
+    // names what has focus, and activate() is Enter or Space on it (only buttons act on them).
     press(id) { nodes[id].focus(); return this.click(id); }, drop() { document.activeElement = document.body; }, focused: () => document.activeElement.id,
+    activate() { return document.activeElement.listeners?.click?.(); },
   };
 }
 
@@ -169,13 +171,15 @@ test('location markup and dynamic copy have all EN/ES/PT translations and no bac
 });
 
 /* Pressing Verify disables it, and Keep, Cancel or a saved city hide the button pressed: either drops focus to the page.
-   After a check, a save, Keep or Cancel the person started from the keyboard, focus comes back: to Update when a city is
-   suggested (its group is named by the suggestion, which is read with it), otherwise to Verify. */
+   After a check, a save, Keep or Cancel started from the focused button, focus comes back: to the suggestion when a check
+   finds a city (the group is named by it, so it is read; a key press there commits nothing), to Update after a refused
+   Update, otherwise to Verify. */
 test('focus comes back after a check, a save, Keep or Cancel started from the button', async () => {
   const h = harness();h.api.setUser(member);
   let pending = h.press('locationCheckNow');assert.equal(h.nodes.locationCheckNow.disabled, true);h.drop();h.geo();await pending;
-  assert.equal(h.nodes.locationSuggestion.hidden, false);assert.equal(h.focused(), 'locationUse', 'a suggestion takes focus to Update');
-  assert.equal(h.nodes.locationUse.focusOptions?.preventScroll, true, 'without scrolling: the person may have scrolled on while the check ran');
+  assert.equal(h.nodes.locationSuggestion.hidden, false);assert.equal(h.focused(), 'locationSuggestion', 'a suggestion takes focus to its group');
+  assert.equal(h.nodes.locationSuggestion.tabIndex, -1, 'focusable by script only, never in the Tab order');
+  assert.equal(h.nodes.locationSuggestion.focusOptions?.preventScroll, true, 'without scrolling: the person may have scrolled on while the check ran');
   h.press('locationKeep');assert.equal(h.nodes.locationSuggestion.hidden, true);assert.equal(h.focused(), 'locationCheckNow', 'Keep hid the button focus was on');
   for (const [finish, expected] of [[() => h.geoError(2), /unavailable/], [() => h.geo({ ...coordinates, accuracy: 10001 }), /imprecise/]]) {
     pending = h.press('locationCheckNow');h.drop();finish();await pending;
@@ -215,4 +219,20 @@ test('the status line stays on the page and empties rather than hiding', async (
   h.click('locationKeep');assert.equal(h.nodes.locationStatus.textContent, 'Current city kept.');assert.equal(h.nodes.locationStatus.hidden, false);
   const [id, timer] = [...h.timers.entries()].find(([, value]) => value.ms === 5000);h.timers.delete(id);timer.fn();
   assert.equal(h.nodes.locationStatus.textContent, '');assert.equal(h.nodes.locationStatus.hidden, false);
+});
+
+/* A click focuses the button in Chrome, Edge and Firefox outside macOS, and they show no ring for it, so a mouse user's
+   focus comes back too. A Space pressed to scroll the page must then commit nothing: after a check focus is on the
+   suggestion, not on Update, also when that check started from Verify after Keep. */
+test('a key pressed after a check never saves the suggested city', async () => {
+  const h = harness();h.api.setUser(member);
+  let pending = h.press('locationCheckNow');h.drop();h.geo();await pending;
+  assert.equal(h.nodes.locationSuggestion.hidden, false);await h.activate();await flush();
+  assert.equal(h.requests.some(request => request.path === '/api/me/location/accept'), false, 'Space after a check');
+  assert.equal(h.nodes.locationSuggestion.hidden, false);assert.equal(h.events.length, 0);
+  h.press('locationKeep');assert.equal(h.focused(), 'locationCheckNow');
+  pending = h.activate();h.drop();h.geo();await pending;assert.equal(h.positions.length, 2, 'Space on Verify starts another check');
+  assert.equal(h.nodes.locationSuggestion.hidden, false);await h.activate();await flush();
+  assert.equal(h.requests.some(request => request.path === '/api/me/location/accept'), false, 'Space after Keep, then a check');
+  assert.equal(h.events.length, 0);assert.match(h.nodes.locationCurrent.textContent, /Lima/);
 });
