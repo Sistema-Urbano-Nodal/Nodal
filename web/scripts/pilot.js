@@ -36,6 +36,10 @@ function requestError(data,statusCode){
   if(/pending uploads must be reconciled/.test(detail))return translatedError('filePending',statusCode);
   if(/parent post unavailable/.test(detail))return translatedError('replyUnavailable',statusCode);
   if(/post identifier is already used/.test(detail))return translatedError('alreadySubmitted',statusCode);
+  // A file that is not what its type says (a phone photo renamed to .jpg, text not saved as UTF-8) passes the page's own check.
+  if(/file content does not match its type|unsupported file type/.test(detail))return translatedError('fileType',statusCode);
+  // An id cut short or with a stray character (a link pasted from a chat) points at nothing.
+  if(/^invalid identifier$/.test(detail))return translatedError('notAvailable',statusCode);
   const field=detail.match(/^(fullName|profession|city|motivation|experience|expectations|caseStudy|digitalFamiliarity|title|description|objectives|instructions|post) (is required|is too long)/);
   if(field)return translatedError(field[2]==='is required'?'requiredField':'longField',statusCode,field[1]==='post'?'body':field[1]);
   return translatedError(({400:'invalidInput',403:'accessDenied',404:'notAvailable',409:'conflict',413:'fileError',415:'fileError',429:'tooManyRequests'})[statusCode]||'error',statusCode);
@@ -133,7 +137,8 @@ function feedback(action,context={}) {
   const more=button('moreFeedback',()=>loadHistory(true),true);more.hidden=true;
   function updateEmpty(){empty.remove();if(!cards.size&&!cursor)list.append(empty);}
   function formFor(record,onSaved,onCancel) {
-    let busy=false;const form=el('form'),score=el('fieldset','pilot-rating');score.append(tr('legend','rating'));
+    // The submit handler says a star is missing, in the interface language; the browser's own check would stop it first.
+    let busy=false;const form=el('form'),score=el('fieldset','pilot-rating');form.noValidate=true;score.append(tr('legend','rating'));
     const group='rating-'+crypto.randomUUID(),ratings=[];
     for(let i=1;i<=5;i++) {
       const label=el('label'),input=el('input');input.type='radio';input.name=group;input.value=String(i);input.required=true;

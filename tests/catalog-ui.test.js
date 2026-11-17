@@ -128,7 +128,7 @@ function catalogHarness(fetchImpl, { intl = Intl, assumeAuthenticated = true } =
 
   const instrumented = catalogScript().replace(
     /\n\}\)\(\);\s*$/,
-    `\nwindow.__catalogTest = { dateText, renderDispatch, renderDetail, selectDetail, closeDetail, runFilters, debounceFilters, refetchForLanguage, loadAuthState, loadResults, loadLanding, submitInterest, withdrawInterest, loadMyInterests, page, setAuthenticated(value) { authenticated = value; } };\n})();`,
+    `\nwindow.__catalogTest = { dateText, renderDispatch, renderDetail, selectDetail, closeDetail, runFilters, debounceFilters, refetchForLanguage, loadAuthState, loadResults, submitInterest, withdrawInterest, loadMyInterests, page, setAuthenticated(value) { authenticated = value; } };\n})();`,
   );
   vm.runInNewContext(instrumented, context, { filename: 'catalog.js' });
   if (assumeAuthenticated) context.window.__catalogTest.setAuthenticated(true);
@@ -147,12 +147,6 @@ function mountCatalogList(harness) {
     status: harness.ids.get('catalogStatus'),
     more: harness.ids.get('catalogMore'),
   });
-}
-
-function mountLandingCatalog(harness) {
-  for (const id of ['landingOpenWork', 'landingOpenWorkStatus', 'landingCases', 'landingCasesStatus']) {
-    harness.ids.set(id, new FakeNode(id));
-  }
 }
 
 // The real dictionaries (non-home pages), optionally applying markup nodes on a language switch.
@@ -364,10 +358,6 @@ function dictionaryKeys(source, name) {
   return new Set(Object.keys(vm.runInNewContext(`(${match[1]})`)));
 }
 
-const optionalLandingTargets = new Set([
-  'landingOpenWork', 'landingOpenWorkStatus', 'landingCases', 'landingCasesStatus', 'heroPrimary', 'heroSecondary',
-]);
-
 test('homepage preserves the original network story and section order', () => {
   const html = index();
   assert.match(html, /<body data-page="home">/);
@@ -426,8 +416,7 @@ test('catalog head and shared graph accessibility labels follow EN, ES, and PT',
   assert.equal(graphHarness.close.getAttribute('aria-label'), 'Fechar');
 });
 
-test('legacy landing catalog widgets are optional and absent widgets issue no catalog reads', async () => {
-  for (const id of optionalLandingTargets) assert.doesNotMatch(index(), new RegExp(`id="${id}"`));
+test('catalog startup only checks the session where no catalog list is mounted', async () => {
   assert.match(catalogPage(), /<script[^>]+src="catalog\.js/);
   const requests = [];
   const harness = catalogHarness((url) => {
@@ -435,16 +424,9 @@ test('legacy landing catalog widgets are optional and absent widgets issue no ca
     assert.equal(url, '/api/auth/state');
     return Promise.resolve(response({ authenticated: true }));
   });
-  // Script startup checks authentication even when no landing widgets are mounted.
-  assert.deepEqual(requests, ['/api/auth/state']);
-  await harness.api.loadLanding();
   assert.deepEqual(requests, ['/api/auth/state']);
   assert.equal(await harness.api.loadAuthState(), true);
   assert.deepEqual(requests, ['/api/auth/state', '/api/auth/state']);
-  const source = catalogScript();
-  assert.match(source, /if \(!open && !cases\) return/);
-  assert.match(source, /if \(!container \|\| !status\) return/);
-  assert.match(source, /if \(primary && secondary && authenticated\)/);
 });
 
 test('landing restores the live recommendation deck as an honest translated state', () => {
@@ -458,7 +440,7 @@ test('landing restores the live recommendation deck as an honest translated stat
   assert.doesNotMatch(deck, /data-user|member-id|@[\w.-]+|Urban (?:planner|leader)|member since/i, 'static sign-in UI must not pose as a member record');
 });
 
-test('landing dispatches always link safely to details and detail metadata uses source-backed localized actions', () => {
+test('result rows open their details in place and detail metadata uses source-backed localized actions', () => {
   const harness = catalogHarness((url) => {
     if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
     throw new Error(`unexpected request ${url}`);
@@ -467,12 +449,16 @@ test('landing dispatches always link safely to details and detail metadata uses 
     subtype: 'grant', cta: 'Join this call', sourceLabel: 'Official call page', sourceUrl: 'https://example.test/source',
     startsAt: '2030-05-21T00:00:00.000Z', deadlineAt: '2030-05-20T00:00:00.000Z', endDate: '2030-05-30T23:59:59.999Z',
   });
-  const landingRow = harness.api.renderDispatch(internal);
-  assert.ok(descendants(landingRow).some((node) => node.href === 'opportunities.html?id=internal-item'));
-  const externalRow = harness.api.renderDispatch({ ...internal, id: 'external-item', actionMode: 'external', actionUrl: 'https://example.test/apply' });
-  const externalLinks = descendants(externalRow).filter((node) => node.href);
-  assert.ok(externalLinks.some((node) => node.href === 'opportunities.html?id=external-item'));
-  assert.ok(externalLinks.some((node) => node.href === 'https://example.test/apply'));
+  const opened = [];
+  const row = harness.api.renderDispatch(internal, (id) => opened.push(id));
+  const controls = descendants(row).filter((node) => node.type === 'button');
+  assert.deepEqual(controls.map((node) => node.className), ['dispatch-title-button', 'dispatch-details']);
+  controls.forEach((node) => node.listeners.get('click')());
+  assert.deepEqual(opened, ['internal-item', 'internal-item']);
+  const externalRow = harness.api.renderDispatch({ ...internal, id: 'external-item', actionMode: 'external', actionUrl: 'https://example.test/apply' }, () => {});
+  const apply = descendants(externalRow).find((node) => node.href === 'https://example.test/apply');
+  assert.equal(apply?.target, '_blank');
+  assert.equal(apply?.rel, 'noopener noreferrer');
 
   harness.api.renderDetail(internal);
   const meta = renderedText(harness.ids.get('catalogDetailMeta'));
@@ -799,49 +785,6 @@ test('catalog language change synchronously invalidates the prior language curso
   assert.doesNotMatch(renderedText(harness.ids.get('catalogResults')), /Late English page/);
 });
 
-test('landing catalog regions ignore abort-ignoring language races and stale finalizers', async (t) => {
-  for (const outcome of ['success', 'failure']) {
-    await t.test(`Portuguese landing survives stale English ${outcome}`, async () => {
-      const requests = new Map();
-      const harness = catalogHarness((url, options = {}) => {
-        if (url === '/api/auth/state') return Promise.resolve(response({ authenticated: true }));
-        const parsed = new URL(url, 'https://nodal.test');
-        const key = `${parsed.searchParams.get('lang')}:${parsed.searchParams.get('kind') === 'case_study' ? 'cases' : 'open'}`;
-        const request = deferredResponse(options.signal, { honorAbort: false });
-        requests.set(key, request);
-        return request.promise;
-      });
-      mountLandingCatalog(harness);
-
-      const english = harness.api.loadLanding();
-      harness.i18nState.lang = 'pt';
-      const portuguese = harness.api.loadLanding();
-
-      const oldOpen = requests.get('en:open');
-      if (outcome === 'success') oldOpen.resolve(response({ items: [catalogItem('en-open', { title: 'English open' })], nextCursor: null }));
-      else oldOpen.reject(new Error('stale English open failure'));
-      await Promise.resolve();
-      assert.equal(harness.ids.get('landingOpenWork').getAttribute('aria-busy'), 'true', 'stale landing finally must not clear current busy state');
-
-      requests.get('pt:open').resolve(response({ items: [catalogItem('pt-open', { title: 'Trabalho português' })], nextCursor: null }));
-      requests.get('pt:cases').resolve(response({ items: [catalogItem('pt-case', { kind: 'case_study', title: 'Caso português' })], nextCursor: null }));
-      await portuguese;
-
-      const oldCases = requests.get('en:cases');
-      if (outcome === 'success') oldCases.resolve(response({ items: [catalogItem('en-case', { kind: 'case_study', title: 'English case' })], nextCursor: null }));
-      else oldCases.reject(new Error('stale English cases failure'));
-      await english;
-
-      assert.match(renderedText(harness.ids.get('landingOpenWork')), /Trabalho português/);
-      assert.match(renderedText(harness.ids.get('landingCases')), /Caso português/);
-      assert.doesNotMatch(renderedText(harness.ids.get('landingOpenWork')), /English open/);
-      assert.doesNotMatch(renderedText(harness.ids.get('landingCases')), /English case/);
-      assert.equal(harness.ids.get('landingOpenWorkStatus').textContent, '');
-      assert.equal(harness.ids.get('landingCasesStatus').textContent, '');
-    });
-  }
-});
-
 test('close and filter state survive abort-ignoring stale detail success and failure', async (t) => {
   for (const action of ['close', 'filter']) {
     for (const outcome of ['success', 'failure']) {
@@ -1078,7 +1021,7 @@ test('every required catalog client target exists on a page that loads it', () =
   const references = new Set([
     ...catalogScript().matchAll(/(?:getElementById|byId)\(\s*'([^']+)'/g),
   ].map((match) => match[1]));
-  for (const id of references) assert.ok(ids.has(id) || optionalLandingTargets.has(id), `catalog.js target #${id} is absent`);
+  for (const id of references) assert.ok(ids.has(id), `catalog.js target #${id} is absent`);
 });
 
 test('catalog dynamic and visible states resolve in EN, ES, and PT', () => {

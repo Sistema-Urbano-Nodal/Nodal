@@ -395,10 +395,6 @@ test('every element a script looks up exists on a page that loads the script', (
   }
   assert.ok(pagesForScript.size >= 10, 'expected every page to declare its scripts');
 
-  // Legacy landing widgets are guarded; catalog-ui.test.js exercises their absence.
-  const optionalTargets = new Map([['catalog.js', new Set([
-    'landingOpenWork', 'landingOpenWorkStatus', 'landingCases', 'landingCasesStatus', 'heroPrimary', 'heroSecondary',
-  ])]]);
   const dangling = [];
   for (const [script, pages] of pagesForScript) {
     const js = readFileSync(path.join(ROOT, 'web', 'scripts', script), 'utf8');
@@ -409,7 +405,7 @@ test('every element a script looks up exists on a page that loads the script', (
     ]);
     const createdIds = new Set([...js.matchAll(/\.id\s*=\s*['"]([^'"]+)['"]/g)].map(m=>m[1]));
     for (const id of referenced) {
-      if (!createdIds.has(id) && !optionalTargets.get(script)?.has(id) && !pages.some((page) => idsOnPage.get(page).has(id))) dangling.push(`${script} -> #${id}`);
+      if (!createdIds.has(id) && !pages.some((page) => idsOnPage.get(page).has(id))) dangling.push(`${script} -> #${id}`);
     }
   }
   assert.deepEqual(dangling, [], `scripts reference ids no page they load on defines:\n${dangling.join('\n')}`);
