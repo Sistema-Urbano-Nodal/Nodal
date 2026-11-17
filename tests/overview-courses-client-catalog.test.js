@@ -252,3 +252,20 @@ test('My interests opens in view, below the results, with focus on its heading',
   await flush();
   assert.equal(section.scrolls, 1);
 });
+
+test('the sticky detail pane scrolls on its own, so a long listing keeps its interest form reachable', () => {
+  const css = read('web/styles/catalog.css');
+  // The declarations of the first rule for `selector` in `source`, as a map.
+  const rule = (source, selector) => {
+    const body = source.match(new RegExp(`(?:^|\\n)\\s*${selector.replace(/[.#]/g, '\\$&')}\\s*\\{([^}]*)\\}`))?.[1] || '';
+    return Object.fromEntries(body.split(';').map((part) => part.split(':').map((side) => side.trim())).filter(([name]) => name));
+  };
+  const wide = rule(css, '.catalog-detail-pane');
+  assert.equal(wide.position, 'sticky');
+  assert.equal(wide.top, '7rem');
+  assert.equal(wide['max-height'], 'calc(100vh - 8rem)');
+  assert.equal(wide['overflow-y'], 'auto');
+  // Below 1100px the pane follows the results and grows with its listing.
+  const narrow = rule(css.slice(css.indexOf('@media (max-width: 1100px)')), '.catalog-detail-pane');
+  assert.deepEqual(narrow, { position: 'static', 'max-height': 'none', 'overflow-y': 'visible' });
+});
