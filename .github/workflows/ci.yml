@@ -60,6 +60,9 @@ jobs:
           CREATE DATABASE nodal_fiiu_test_ci TEMPLATE template0 ENCODING 'UTF8';
           CREATE DATABASE nodal_news_test_ci TEMPLATE template0 ENCODING 'UTF8';
           CREATE DATABASE nodal_metrics_test_ci TEMPLATE template0 ENCODING 'UTF8';
+          CREATE DATABASE nodal_membership_test_ci TEMPLATE template0 ENCODING 'UTF8';
+          CREATE DATABASE nodal_fiiu_test_talk_ci TEMPLATE template0 ENCODING 'UTF8';
+          CREATE DATABASE nodal_erasure_test_ci TEMPLATE template0 ENCODING 'UTF8';
           SQL
 
       - name: Lint, test, and build
@@ -69,7 +72,54 @@ jobs:
           NODAL_FIIU_TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/nodal_fiiu_test_ci
           NODAL_NEWS_TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/nodal_news_test_ci
           NODAL_METRICS_TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/nodal_metrics_test_ci
+          NODAL_MEMBERSHIP_TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/nodal_membership_test_ci
+          NODAL_FIIU_TALK_TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/nodal_fiiu_test_talk_ci
+          NODAL_ERASURE_TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/nodal_erasure_test_ci
         run: npm run build
 
       - name: Audit dependencies
         run: npm audit --audit-level=low
+
+  # Vercel deploys only what its own `npm run build` passes, and that build runs the suite with Vercel's system variables
+  # and the project's Production settings (DEPLOYMENT.md, "Vercel Environment Variables"), which the job above never
+  # sets. This job runs the same build with stand-ins: no secret, every server and address on a .invalid name (the
+  # Mercado Pago links must name Mercado Pago's hosts; nothing opens them), no PostgreSQL (those suites skip, as on
+  # Vercel). A test that relies on one of these being unset fails here instead of failing the deploy.
+  vercel-env:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint, test, and build with Vercel Production's variables
+        env:
+          VERCEL: '1'
+          VERCEL_ENV: production
+          VERCEL_URL: nodal-ci.vercel.invalid
+          VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
+          DATA_BACKEND: supabase
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-project.supabase.invalid
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+          SUPABASE_SECRET_KEY: sb_secret_ci_placeholder
+          PUBLIC_BASE_URL: https://nodal-ci.invalid
+          NEXT_PUBLIC_APP_URL: https://nodal-ci.invalid
+          TRUST_PROXY: 'true'
+          COOKIE_SECURE: 'true'
+          PILOT_MODE: 'true'
+          PAYMENTS_MODE: preview
+          EMAIL_SMTP_URL: smtps://ci:ci@smtp.nodal-ci.invalid:465
+          EMAIL_FROM: FIIU CI <fiiu@nodal-ci.invalid>
+          MERCADOPAGO_LINK_ANNUAL: https://mpago.la/nodal-ci
+          MERCADOPAGO_LINK_INSTALLMENTS: https://www.mercadopago.com.pe/subscriptions/checkout?preapproval_plan_id=nodal-ci
+          MEMBERSHIP_CONTACT_EMAIL: membresias@nodal-ci.invalid
+        run: npm run build

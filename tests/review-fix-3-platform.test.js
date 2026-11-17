@@ -81,13 +81,14 @@ test('auth-8: passwords over 72 bytes are refused before any one-time provider t
 
 test('email-qr-scripts-4: the command-line backfill stops at the daily cap the dashboard enforces',async t=>{
  const db=createDatabase({filename:':memory:'});t.after(()=>db.close());const store=createFiiuStore({db});
- const today=new Date().toISOString();let n=0;
+ // One reading of the clock for the stamps and the script's day: two readings could fall either side of 00:00 UTC.
+ const NOW=Date.now(),today=new Date(NOW).toISOString();let n=0;
  const register=async(confirmationStatus,confirmationSentAt=null)=>{const id=`r${String(++n).padStart(4,'0')}`,email=`${id}@fiiu-inbox.dev`,user=createUser(db,{fullName:id,email,passwordHash:'unused'});
   await store.insert('registrations',{id,eventId:'fiiu-2026',userId:user.id,email,answers:{firstName:'Ana'},labStatus:'none',version:1,createdAt:today,updatedAt:today,confirmationStatus,confirmationLanguage:'es',confirmationSentAt});return id;};
  for(let i=0;i<DAILY_CAP-1;i++)await register('sent',today);
  const waiting=[await register('none'),await register('none'),await register('none')];
  const sent=[],confirm=async({registration})=>{sent.push(registration.id);return {status:'sent',sentAt:new Date().toISOString()};};
- const first=await sendConfirmations({store,confirm,send:true,delayMs:0,log:()=>{}});
+ const first=await sendConfirmations({store,confirm,send:true,delayMs:0,log:()=>{},clock:()=>NOW});
  assert.deepEqual(sent,[waiting[0]],'one send left today');
  assert.equal(first.capped,true);assert.equal(first.sent,1);assert.equal(first.listed,1);assert.equal(first.sentToday,DAILY_CAP);assert.equal(first.dailyCap,DAILY_CAP);
  assert.equal(first.resetsAt,new Date(new Date(today).setUTCHours(24,0,0,0)).toISOString());
@@ -96,7 +97,7 @@ test('email-qr-scripts-4: the command-line backfill stops at the daily cap the d
  // A dry run still lists everyone waiting; it sends nothing.
  assert.equal((await sendConfirmations({store,log:()=>{}})).listed,2);
  // Tomorrow the cap has room again.
- const tomorrow=()=>Date.now()+864e5;
+ const tomorrow=()=>NOW+864e5;
  const next=await sendConfirmations({store,confirm,send:true,delayMs:0,log:()=>{},clock:tomorrow});
  assert.equal(next.capped,undefined);assert.equal(next.sent,2);
  // An explicit override is the operator's to make.

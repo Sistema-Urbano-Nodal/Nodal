@@ -349,9 +349,8 @@ test('the news migration keeps the table behind the server: RLS on, no browser g
  assert.deepEqual([...privileges].sort(),['delete','insert','select','update']);
 });
 
-// Runs once server.js dispatches the news API (the integration step wires it next to the festival API).
-const wired=readFileSync(new URL('../server/server.js',import.meta.url),'utf8').includes('createNewsApi');
-test('createApp serves the news API with the shared sessions, origin guard and error handling',{skip:!wired&&'server.js does not dispatch the news API yet'},async t=>{
+// The only test that reaches /api/news and /api/admin/news through createApp: it fails if server.js stops dispatching them.
+test('createApp serves the news API with the shared sessions, origin guard and error handling',async t=>{
  const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
  const {cookies}=actors(db),server=createApp({db});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
  const {call,json,post,patch,feed}=client(`http://127.0.0.1:${server.address().port}`,cookies);

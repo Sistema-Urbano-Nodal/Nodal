@@ -78,14 +78,6 @@ export function curve({ a, b, bow }) {
   return { x1, y1, cx, cy, x2, y2, d: `M${x1} ${y1}Q${cx} ${cy} ${x2} ${y2}` };
 }
 
-// arc length in css px at 1440×900 (64-segment polyline)
-export function lref(g) {
-  const at = (t) => [(1 - t) ** 2 * g.x1 + 2 * (1 - t) * t * g.cx + t * t * g.x2, (1 - t) ** 2 * g.y1 + 2 * (1 - t) * t * g.cy + t * t * g.y2];
-  let s = 0, p = at(0);
-  for (let i = 1; i <= 64; i++) { const n = at(i / 64); s += Math.hypot(n[0] - p[0], n[1] - p[1]); p = n; }
-  return s / K;
-}
-
 export const degree = Object.fromEntries(CITIES.map((c) => [c.id, EDGES.filter((e) => e.a === c.id || e.b === c.id).length]));
 export const rOf = (d) => Math.max(3.5, Math.min(2.6 + 0.9 * d, 9));
 

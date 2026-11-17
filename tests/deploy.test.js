@@ -90,6 +90,8 @@ test('repository layout separates deployable code, source assets, operations, an
   }
 
   assert.match(packageJson.scripts.test, /tests\/\*\.test\.js/);
+  // Every test file starts with the server's default limits, whatever the Vercel build's environment sets.
+  assert.match(packageJson.scripts.test, /^node --import \.\/tests\/setup\/clear-limits\.js --test /);
   assert.match(readme, /## Repository Layout/);
   assert.match(readme, /`web\/pages\/`/);
   assert.match(deployment, /generated `public\/` assets/);
