@@ -569,6 +569,10 @@
       await loadCatalog();
     } catch (error) {
       report(elements.editorStatus, error, 'ops.record.notSaved');
+      // A new record whose save got no answer at all may still have been stored. The list is read again before the buttons come
+      // back, so a copy that landed shows there before anyone presses Publish a second time. (A lost edit is safe: its version
+      // makes the retry a conflict.)
+      if (!editing && !error?.key) await loadCatalog();
     } finally {
       setBusy(false);
       restoreFocus(trigger, elements.publish);

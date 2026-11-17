@@ -287,3 +287,43 @@ test('M66: a Load more that fails is reported on its band and settles, never lef
   assert.equal(d.node('adminNodeStatus').textContent, 'cursor expired', 'a refusal in the server’s words');
   assert.equal(d.node('adminNodeList').children.length, 1);
 });
+
+test('M144: a new record whose save got no answer reloads the catalog list before Publish comes back; refusals and edits do not', async () => {
+  let stored = [];
+  let post = () => response({ error: 'unexpected' }, 500);
+  let patch = () => response({ error: 'unexpected' }, 500);
+  const d = desk({ routes: { catalog: (call) => (call.method === 'POST' ? post(call) : call.method === 'PATCH' ? patch(call) : response({ items: stored, nextCursor: null })) } });
+  await flush();
+  const reads = () => d.requests.filter((r) => r.url.startsWith('/api/admin/catalog?')).length;
+  const first = reads();
+  d.node('adminTitleEn').value = 'Open call for street labs';
+  // The server stores the record, but its answer never arrives.
+  let publishBack;
+  post = (call) => {
+    stored = [{ ...record('landed', 'Open call for street labs'), ...call.body, id: 'landed' }];
+    publishBack = d.node('adminPublish').disabled;
+    return Promise.reject(new TypeError('Failed to fetch'));
+  };
+  const loaded = d.node('adminCatalogListStatus');
+  const pending = d.node('adminPublish').listeners.get('click')();
+  await pending;
+  assert.equal(publishBack, true, 'Publish is off while the save runs');
+  assert.equal(reads(), first + 1, 'the list is read again');
+  assert.ok(catalogRow(d, 'landed'), 'the copy that landed is on the list');
+  assert.equal(loaded.textContent, '1 record loaded.');
+  assert.equal(d.node('adminEditorStatus').textContent, 'The record could not be saved.');
+  assert.equal(d.node('adminPublish').disabled, false);
+  assert.equal(d.node('adminTitleEn').value, 'Open call for street labs', 'the editor keeps the text');
+
+  // A refusal stored nothing: no reload.
+  post = () => response({ error: 'organization is required to publish', field: 'organization' }, 400);
+  await d.node('adminPublish').listeners.get('click')();
+  assert.equal(reads(), first + 1);
+  assert.equal(d.node('adminEditorStatus').textContent, 'organization is required to publish');
+  // An edit whose answer is lost is caught by its version on the next save: no reload either.
+  catalogRow(d, 'landed').listeners.get('click')();
+  patch = () => Promise.reject(new TypeError('Failed to fetch'));
+  await d.node('adminSaveDraft').listeners.get('click')();
+  assert.equal(reads(), first + 1);
+  assert.equal(d.requests.filter((r) => r.method === 'POST').length, 2);
+});
