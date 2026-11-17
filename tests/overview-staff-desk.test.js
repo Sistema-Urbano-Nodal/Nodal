@@ -396,10 +396,13 @@ test('M149: an organization request write keeps its own result on the band while
   listing = down;
   control('select').value = 'contacted';
   await control('button', 'Update').listeners.get('click')();
-  assert.equal(status(), `${t('ops.nodes.changed')} ${failed()}`);
+  // Only what the write did: "the list shows its current status" would be untrue of the list the failed reload emptied.
+  assert.equal(status(), 'Someone else changed this request first, so nothing was saved. Organization requests are unavailable (503).');
   assert.equal(d.node('adminNodeList').children.length, 0, 'the list it could not read is emptied, as before');
   d.i18n.apply('pt');
-  assert.equal(status(), `${t('ops.nodes.changed')} ${failed()}`, 'both parts follow a language switch');
+  assert.equal(status(), `Outra pessoa mudou esta solicitação antes, então nada foi salvo. ${failed()}`, 'both parts follow a language switch');
+  d.i18n.apply('es');
+  assert.equal(status(), `Otra persona cambió esta solicitud antes, así que no se guardó nada. ${failed()}`);
   d.i18n.apply('en');
 
   // Updated, then the reload fails: the update is not lost from the line.
@@ -408,14 +411,19 @@ test('M149: an organization request write keeps its own result on the band while
   listing = down;
   control('select').value = 'contacted';
   await control('button', 'Update').listeners.get('click')();
-  assert.equal(status(), `${t('ops.nodes.updated')} ${failed()}`);
+  assert.equal(status(), 'Request status updated. Organization requests are unavailable (503).', 'no "active filter has been reapplied" over an empty list');
+  d.i18n.apply('es');
+  assert.equal(status(), `Estado actualizado. ${failed()}`);
+  d.i18n.apply('pt');
+  assert.equal(status(), `Status atualizado. ${failed()}`);
+  d.i18n.apply('en');
 
   // Deleted, then the reload fails.
   await relist();
   write = () => response(null, 204);
   listing = down;
   await control('button', 'Delete request').listeners.get('click')();
-  assert.equal(status(), `${t('ops.nodes.deleted')} ${failed()}`);
+  assert.equal(status(), 'Request deleted. Organization requests are unavailable (503).');
 
   // While the list reloads, the line already says what the write did, and keeps saying it.
   await relist();

@@ -823,12 +823,12 @@
         // Someone else changed it first, so nothing was saved: the reloaded list shows the status they set.
         // A failed list refresh reports itself; it must not read as a failed update.
         if (response.status === 409) {
-          await reloadNodeRequests('ops.nodes.changed');
+          await reloadNodeRequests('ops.nodes.changed', 'ops.nodes.changedShort');
           return;
         }
         if (!response.ok) throw apiError(data, 'ops.nodes.updateFailed', response.status);
         if (data.request) Object.assign(nodeRequest, data.request);
-        await reloadNodeRequests('ops.nodes.updated');
+        await reloadNodeRequests('ops.nodes.updated', 'ops.nodes.updatedShort');
       } catch (error) {
         report(elements.nodeStatus, error, 'ops.nodes.notUpdated');
       } finally {
@@ -878,8 +878,9 @@
     elements.nodeList.setAttribute('aria-busy', 'false');
   }
 
-  // The interest queue's loader, outcome included: the server answers 400 to an empty parameter, so only the ones with a value are sent.
-  async function loadNodeRequests({ append = false, filters = nodeFilterSnapshot(), outcome = '' } = {}) {
+  /* The interest queue's loader, outcome included: the server answers 400 to an empty parameter, so only the ones with a value are
+     sent. alone is the outcome without its sentence about the list, for the line of a reload that failed and emptied the list. */
+  async function loadNodeRequests({ append = false, filters = nodeFilterSnapshot(), outcome = '', alone = outcome } = {}) {
     const snapshot = { ...filters };
     const snapshotKey = filterKey(snapshot);
     if (append && (!state.nodeCursor || state.nodeFilterKey !== snapshotKey)) return false;
@@ -922,7 +923,7 @@
         elements.nodeMore.hidden = true;
         renderNodeRequestList();
       } else elements.nodeList.setAttribute('aria-busy', 'false');
-      if (outcome) sayAfter(elements.nodeStatus, outcome, error, 'ops.nodes.unavailable');
+      if (outcome) sayAfter(elements.nodeStatus, alone, error, 'ops.nodes.unavailable');
       else report(elements.nodeStatus, error, 'ops.nodes.unavailable');
       throw error;
     } finally {
@@ -933,8 +934,9 @@
     }
   }
   /* After a write the list is read again behind the write's own result (refused, updated, deleted). The result is said at once and
-     kept, so it shows even when a second write's reload overtakes this one, and a reload that fails adds its reason after it. */
-  const reloadNodeRequests = (outcome) => loadNodeRequests({ outcome }).catch(() => false);
+     kept, so it shows even when a second write's reload overtakes this one. A reload that fails adds its reason after the result
+     alone: "the list shows its current status" would be untrue of the list it has just emptied. */
+  const reloadNodeRequests = (outcome, alone = outcome) => loadNodeRequests({ outcome, alone }).catch(() => false);
 
   /* ---------------- NODAL news ----------------
      A new post carries a client id, so a retried POST after a lost response
