@@ -397,32 +397,33 @@
   function renderTrust() {
     const list = byId('trustList');
     if (!list) return;
-    const groups = [[t('d.trust.topics'), U.topics]];
-    if (U.skills.length) groups.push([t('d.trust.skills'), U.skills]);
-    const items = [];
-    groups.forEach(([title, entries]) => {
-      const cap = document.createElement('li');
-      cap.className = 't-group';
-      cap.textContent = title;
-      items.push(cap);
-      entries.forEach((topic) => {
+    const items = [el('li', 't-group', t('d.trust.topics'))];
+    U.topics.forEach((topic) => {
+      const row = document.createElement('li');
+      const stage = stageOf(topic);
+      const dots = el('span', 't-dots');
+      dots.setAttribute('aria-label', t('d.trust.aria', { n: topic.level, stage: stageName(stage) }));
+      for (let i = 1; i <= 4; i += 1) {
+        const dot = document.createElement('i');
+        dot.className = i <= topic.validatedAt ? 'f' : i <= topic.endorsedAt ? 'h' : i <= topic.level ? 'd' : 'o';
+        dots.appendChild(dot);
+      }
+      row.append(
+        el('span', 't-name', topicLabel(topic.name)),
+        dots,
+        el('span', `t-level tag-${stage}`, `${levelName(topic.level)} · ${stageName(stage)}`),
+      );
+      items.push(row);
+    });
+    // Skills are words (domain.js: string[]), not topics: no level or stage to draw, so each is listed as written.
+    if (U.skills.length) {
+      items.push(el('li', 't-group', t('d.trust.skills')));
+      U.skills.forEach((skill) => {
         const row = document.createElement('li');
-        const stage = stageOf(topic);
-        const dots = el('span', 't-dots');
-        dots.setAttribute('aria-label', t('d.trust.aria', { n: topic.level, stage: stageName(stage) }));
-        for (let i = 1; i <= 4; i += 1) {
-          const dot = document.createElement('i');
-          dot.className = i <= topic.validatedAt ? 'f' : i <= topic.endorsedAt ? 'h' : i <= topic.level ? 'd' : 'o';
-          dots.appendChild(dot);
-        }
-        row.append(
-          el('span', 't-name', topicLabel(topic.name)),
-          dots,
-          el('span', `t-level tag-${stage}`, `${levelName(topic.level)} · ${stageName(stage)}`),
-        );
+        row.append(el('span', 't-name', String(skill)));
         items.push(row);
       });
-    });
+    }
     list.replaceChildren(...items);
   }
 

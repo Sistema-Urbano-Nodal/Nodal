@@ -448,3 +448,20 @@ test('an empty catalog search reads correctly in Spanish and Portuguese, whateve
     }
   }
 });
+
+/* ---------------- M49: skills are words, not topics ---------------- */
+
+test('skills are listed as they were written, with no level, dots or stage, and nothing reads undefined', async () => {
+  const c = consoleFor({ ...ana, skills: ['GIS', 'Survey design'] });
+  await flush();
+  const rows = c.byId('trustList').children;
+  assert.deepEqual(rows.map((row) => [row.className, row.querySelector('.t-name')?.textContent ?? row.textContent]), [
+    ['t-group', 'Topics · what'], ['', 'Mobility'], ['', 'Housing'], ['t-group', 'Skills · how'], ['', 'GIS'], ['', 'Survey design'],
+  ]);
+  for (const row of rows.slice(4)) assert.equal(row.querySelector('.t-dots') ?? row.querySelector('.t-level'), null, row.textContent);
+  assert.doesNotMatch(c.text('trustList'), /undefined/);
+  assert.equal(c.byId('trustList').querySelectorAll('.t-dots').length, 2, 'the two topics keep their level dots');
+  const none = consoleFor(ana);
+  await flush();
+  assert.doesNotMatch(none.text('trustList'), /Skills/, 'no skills, no group');
+});
