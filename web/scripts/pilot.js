@@ -133,7 +133,8 @@ function feedback(action,context={}) {
   const more=button('moreFeedback',()=>loadHistory(true),true);more.hidden=true;
   function updateEmpty(){empty.remove();if(!cards.size&&!cursor)list.append(empty);}
   function formFor(record,onSaved,onCancel) {
-    let busy=false;const form=el('form'),score=el('fieldset','pilot-rating');score.append(tr('legend','rating'));
+    // The submit handler says a star is missing, in the interface language; the browser's own check would stop it first.
+    let busy=false;const form=el('form'),score=el('fieldset','pilot-rating');form.noValidate=true;score.append(tr('legend','rating'));
     const group='rating-'+crypto.randomUUID(),ratings=[];
     for(let i=1;i<=5;i++) {
       const label=el('label'),input=el('input');input.type='radio';input.name=group;input.value=String(i);input.required=true;

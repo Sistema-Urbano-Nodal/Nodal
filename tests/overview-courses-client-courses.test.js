@@ -95,3 +95,17 @@ test('an empty conversation that keeps failing to load offers one Try again, how
   assert.equal(retries().length, 0);
   assert.match(content(pane), /Start the conversation/);
 });
+
+test('a feedback form without a star says so in the interface language instead of leaving it to the browser', async () => {
+  const h = harness(() => ({ feedback: { id: 'saved' } }));
+  h.lang('pt');
+  const box = h.ctx.window.nodalPilot.feedback('matching');
+  h.body.append(box);
+  const form = descendants(box).find((n) => n.tagName === 'form');
+  // As a browser submits: unless the form opts out of validation, a required star left empty stops the submit event, and
+  // the browser shows its own bubble, in the browser's language, on a radio that cannot be seen.
+  const unanswered = descendants(form).some((n) => n.required && n.type === 'radio' && !descendants(form).some((m) => m.name === n.name && m.checked));
+  if (form.noValidate || !unanswered) await form.listeners.submit({ preventDefault() {}, stopPropagation() {} });
+  assert.match(content(box), /Escolha uma avaliação de 1 a 5\./);
+  assert.equal(h.requests.length, 0);
+});
