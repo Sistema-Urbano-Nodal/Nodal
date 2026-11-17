@@ -75,7 +75,8 @@
     source: ['Source', 'Fuente', 'Fonte'],
     limits: ['Limits', 'Límites', 'Limites'],
     tracking: ['Tracking', 'Seguimiento', 'Acompanhamento'],
-    trackingIntro: ['One reading saved a month, to compare months.', 'Una lectura guardada por mes, para comparar los meses.', 'Uma leitura salva por mês, para comparar os meses.'],
+    trackingIntro: ['Each month\'s latest saved reading, to compare months.', 'La última lectura guardada de cada mes, para comparar los meses.', 'A última leitura salva de cada mês, para comparar os meses.'],
+    monthsTable: ['Months table', 'Tabla por mes', 'Tabela por mês'],
     seeReading: ['See the {month} reading', 'Ver la lectura de {month}', 'Ver a leitura de {month}'],
     indicator: ['Indicator', 'Indicador', 'Indicador'],
     readOn: ['read on day {day}', 'leído el {day}', 'lido no dia {day}'],
@@ -368,10 +369,15 @@
     // The caption says what the path is not; the dotted segments are said in the answer's own words (they change with
     // its route), after a sample of the line. Without those words there is no key.
     const note = make('p', 'home-route-note', say('routeNote'));
-    const apart = words().routeApart;
-    if (typeof apart === 'string' && apart.trim() && route.some((stop, i) => i > 0 && stop[2] === 'apart')) {
+    const apart = typeof words().routeApart === 'string' ? words().routeApart.trim() : '';
+    if (apart && route.some((stop, i) => i > 0 && stop[2] === 'apart')) {
+      // The sample and the sentence's first word never part at a line end.
+      const cut = apart.indexOf(' ');
+      const lead = make('span', 'home-key-lead');
+      lead.append(hide(make('span', 'home-key-dash')), cut < 0 ? apart : apart.slice(0, cut));
       const key = make('span', 'home-route-key');
-      key.append(hide(make('span', 'home-key-dash')), apart);
+      key.append(lead);
+      if (cut >= 0) key.append(apart.slice(cut));
       note.append(' ', key);
     }
     el.route.replaceChildren(title, note, stops);
@@ -398,22 +404,29 @@
   }
 
   // The queues waiting on the team: one line each, the figure first, the name a link to where it is worked on. A queue
-  // with something in it is said in alert ink; an empty one stays a quiet link.
+  // with something in it is said in alert ink; an empty one stays a quiet link. A queue whose part is not activated is
+  // not drawn; one that could not be read is a dash with its reason, and then nothing claims that none waits.
   function renderPending() {
     const pending = answer.pending ?? {};
-    const queues = PENDING.filter(([field]) => isNum(pending[field]));
-    const waiting = queues.some(([field]) => pending[field] > 0);
+    const map = indicators();
+    const queues = PENDING.filter(([, key]) => map.get(key)?.state !== 'not_activated');
+    const known = queues.filter(([field]) => isNum(pending[field]));
+    const waiting = known.some(([field]) => pending[field] > 0);
     el.top.classList.toggle('is-waiting', waiting);
-    if (!queues.length) { el.pending.replaceChildren(); el.pending.hidden = true; return false; }
-    const title = make('h2', 'home-pending-title', say(waiting ? 'pending' : 'nothingPending'));
+    if (!known.length) { el.pending.replaceChildren(); el.pending.hidden = true; return false; }
+    const title = make('h2', 'home-pending-title', say(waiting || known.length < queues.length ? 'pending' : 'nothingPending'));
     title.id = 'homePendingTitle';
     const list = make('ul', 'home-figs home-queues');
     list.setAttribute('aria-labelledby', title.id);
     for (const [field, key, href] of queues) {
-      const item = make('li', pending[field] > 0 ? 'is-waiting' : '');
+      const count = pending[field];
+      const item = make('li', isNum(count) && count > 0 ? 'is-waiting' : '');
       const link = make('a', 'home-fig home-queue');
       link.href = href;
-      link.append(figure(pending[field]), make('span', 'home-fig-name', nameOf(key)));
+      const body = make('span', 'home-fig-body');
+      body.append(make('span', 'home-fig-name', nameOf(key)));
+      if (!isNum(count)) body.append(' ', make('span', 'home-reason', reason(map.get(key)?.state || 'unavailable')));
+      link.append(figure(count), body);
       item.append(link);
       list.append(item);
     }
@@ -564,7 +577,21 @@
     });
   }
 
-  function chart({ name, label, values, months }) {
+  /* A chart draws a series' latest twelve months (the CSV keeps them all). No month's column is narrower than its
+     widest figure: --mw, that figure's count of characters, reaches the stylesheet beside the count of months. */
+  const MAX_MONTHS = 12;
+  function drawn({ values, months }) {
+    const shown = months.slice(-MAX_MONTHS);
+    return {
+      shown,
+      crosses: shown.length > 1 && shown[0].slice(0, 4) !== shown[shown.length - 1].slice(0, 4),
+      widest: shown.reduce((most, month) => Math.max(most, isNum(values[month]) ? number(values[month]).length : 1), 1),
+    };
+  }
+
+  function chart(series) {
+    const { name, label, values } = series;
+    const { shown: months, crosses, widest } = drawn(series);
     const wrap = make('div', 'home-chart');
     wrap.dataset.series = name;
     const title = make('h3', 'home-sub', say('perMonth', { name: label }));
@@ -573,8 +600,8 @@
     const list = make('ol', 'home-months');
     list.setAttribute('aria-labelledby', title.id);
     list.style.setProperty('--n', String(months.length));
+    list.style.setProperty('--mw', String(widest));
     // A series inside one year reads its year from the date at the top; one that crosses a year names each year once.
-    const crosses = months[0].slice(0, 4) !== months[months.length - 1].slice(0, 4);
     if (crosses) list.classList.add('has-years');
     months.forEach((month, i) => {
       const item = make('li', 'home-month');
@@ -585,8 +612,23 @@
       item.append(when, figure(values[month]), bar);
       list.append(item);
     });
-    wrap.append(title, list);
+    // Wider than its column (a long series on a phone), the months scroll in their own box, opened on the latest.
+    const box = make('div', 'home-months-box');
+    box.dataset.title = title.id;
+    box.append(list);
+    wrap.append(title, box);
     return wrap;
+  }
+
+  // The charts of a family (or of Seguimiento) side by side: as many in a row as their months and figures leave room for.
+  function chartRow(charts, series) {
+    const shapes = series.map(drawn);
+    const box = make('div', 'home-charts');
+    box.style.setProperty('--months', String(shapes.reduce((most, shape) => Math.max(most, shape.shown.length), 1)));
+    box.style.setProperty('--mw', String(shapes.reduce((most, shape) => Math.max(most, shape.widest), 1)));
+    if (shapes.some((shape) => shape.crosses)) box.classList.add('has-years');
+    box.append(...charts);
+    return box;
   }
 
   function missingChart({ name, label }, why) {
@@ -678,13 +720,7 @@
       section.append(rankList(ind, isList(ind)));
     }
     const charts = familyCharts(family, notes);
-    if (charts.length) {
-      const box = make('div', 'home-charts');
-      const months = family.indicators.map((ind) => seriesOf(ind.key)).filter(Boolean).map((series) => series.months.length);
-      box.style.setProperty('--months', String(months.reduce((most, n) => Math.max(most, n), 1)));
-      box.append(...charts);
-      section.append(box);
-    }
+    if (charts.length) section.append(chartRow(charts, family.indicators.map((ind) => seriesOf(ind.key)).filter((series) => series && !series.values.state)));
     switches.push({ section, toggle });
     explain(section, toggle, openFamilies.has(family.key));
     return section;
@@ -786,16 +822,44 @@
     });
   }
 
+  /* A layout pass (a render, a new width, the fonts): the columns, then each box that scrolls sideways opened on its
+     latest months. */
+  function layout() {
+    balance();
+    for (const box of document.querySelectorAll('#homeMain .home-months-box')) placeMonths(box);
+    placeTable();
+  }
+
   let measuredWidth = 0;
   if (typeof ResizeObserver === 'function') {
     new ResizeObserver((entries) => {
       const width = Math.round(entries[0].contentRect.width);
       if (width === measuredWidth) return;
       measuredWidth = width;
-      requestAnimationFrame(balance);
+      requestAnimationFrame(layout);
     }).observe(el.blocks);
   }
-  document.fonts?.ready.then(() => { if (answer) balance(); });
+  document.fonts?.ready.then(() => { if (answer) layout(); });
+
+  /* A month chart wider than its column scrolls: then it is reachable and named for the keyboard, and opens on its
+     latest whole months, with room after the last month (--tail) when the scroll cannot reach that far, as the month
+     table does. One that fits is no stop for the keyboard. */
+  function placeMonths(box) {
+    box.style.removeProperty('--tail');
+    if (box.scrollWidth <= box.clientWidth) {
+      for (const name of ['tabindex', 'role', 'aria-labelledby']) box.removeAttribute(name);
+      return;
+    }
+    box.setAttribute('tabindex', '0');
+    box.setAttribute('role', 'group');
+    box.setAttribute('aria-labelledby', box.dataset.title);
+    const months = [...box.querySelectorAll('.home-month')];
+    const first = months.find((month) => box.scrollWidth - month.offsetLeft <= box.clientWidth) ?? months[months.length - 1];
+    const reach = box.scrollWidth - box.clientWidth;
+    const target = first ? first.offsetLeft : reach;
+    if (target > reach) box.style.setProperty('--tail', `${Math.ceil(target - reach)}px`);
+    box.scrollLeft = target;
+  }
 
   /* ---------- Seguimiento ---------- */
 
@@ -813,15 +877,13 @@
     const map = seriesIndicator();
     const series = answer.months?.series ?? {};
     const labels = words().series ?? {};
-    const charts = Object.keys(series).filter((name) => own(labels, name) && !(own(map, name) && keys.has(map[name]))).map((name) => {
+    const strays = Object.keys(series).filter((name) => own(labels, name) && !(own(map, name) && keys.has(map[name]))).map((name) => {
       const values = series[name] ?? {};
-      const stray = { name, label: labels[name], values, months: monthKeys(values) };
-      return values.state || stray.months.length === 0 ? missingChart(stray, reason(values.state ?? 'not_yet_counted')) : chart(stray);
+      return { name, label: labels[name], values, months: monthKeys(values) };
     });
-    if (!charts.length) return [];
-    const box = make('div', 'home-charts');
-    box.append(...charts);
-    return [box];
+    if (!strays.length) return [];
+    const charts = strays.map((stray) => (stray.values.state || stray.months.length === 0 ? missingChart(stray, reason(stray.values.state ?? 'not_yet_counted')) : chart(stray)));
+    return [chartRow(charts, strays.filter((stray) => !stray.values.state))];
   }
 
   // A reading's month and the day it was read ("nov 2026, leído el 16"), and a note when older definitions applied.
@@ -894,10 +956,10 @@
       table.append(body);
     }
     const scroller = make('div', 'home-scroll');
-    // A wide table scrolls sideways: reachable and named for the keyboard.
+    // A wide table scrolls sideways: reachable and named for the keyboard, inside the Seguimiento region (no second one).
     scroller.setAttribute('tabindex', '0');
-    scroller.setAttribute('role', 'region');
-    scroller.setAttribute('aria-label', say('tracking'));
+    scroller.setAttribute('role', 'group');
+    scroller.setAttribute('aria-label', say('monthsTable'));
     scroller.append(table);
     return missing ? [scroller, make('p', 'home-note', say('notReadThen'))] : [scroller];
   }
@@ -954,7 +1016,7 @@
 
   /* With one reading or none, "Seguimiento" is a few lines: it joins the columns as one more block (it closes the
      shortest column, and print keeps it last). With two or more it is the month table across the whole width, opened on
-     its latest months when it is wider than the screen. Either way the columns are laid out again. */
+     its latest months when it is wider than the screen. Either way the page is laid out again. */
   function placeTracking(compact) {
     const index = answer.families.length;
     if (compact) {
@@ -968,15 +1030,25 @@
       el.tracking.style.removeProperty('order');
       if (el.tracking.previousElementSibling !== el.blocks) el.blocks.after(el.tracking);
     }
-    balance();
-    const scroller = compact ? null : el.tracking.querySelector('.home-scroll');
-    if (scroller && scroller.scrollWidth > scroller.clientWidth) {
-      // Opened on the latest months: the first month shown starts right where the names that stay at the left end.
-      const names = scroller.querySelector('thead th')?.getBoundingClientRect().width ?? 0;
-      const heads = [...scroller.querySelectorAll('thead th[data-month]')];
-      const first = heads.find((th) => scroller.scrollWidth - th.offsetLeft <= scroller.clientWidth - names) ?? heads[heads.length - 1];
-      if (first) scroller.scrollLeft = Math.max(0, first.offsetLeft - names);
-    }
+    layout();
+  }
+
+  /* The month table wider than the screen opens on its latest whole months: the first month shown starts right where
+     the names that stay at the left end. When the scroll cannot reach that far, the table gets that much room after its
+     last month (--tail), so no sliver of the month before shows beside the names. */
+  function placeTable() {
+    const scroller = el.tracking.querySelector('.home-scroll');
+    if (!scroller) return;
+    scroller.style.removeProperty('--tail');
+    if (scroller.scrollWidth <= scroller.clientWidth) return;
+    const names = scroller.querySelector('thead th')?.getBoundingClientRect().width ?? 0;
+    const heads = [...scroller.querySelectorAll('thead th[data-month]')];
+    const first = heads.find((th) => scroller.scrollWidth - th.offsetLeft <= scroller.clientWidth - names) ?? heads[heads.length - 1];
+    if (!first) return;
+    const target = Math.max(0, first.offsetLeft - names);
+    const reach = scroller.scrollWidth - scroller.clientWidth;
+    if (target > reach) scroller.style.setProperty('--tail', `${Math.ceil(target - reach)}px`);
+    scroller.scrollLeft = target;
   }
 
   function render() {

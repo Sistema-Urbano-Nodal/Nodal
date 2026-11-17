@@ -51,6 +51,7 @@
 .home-route-title, .home-pending-title, .home-block-title { font-size: 1.25rem; font-weight: 750; letter-spacing: -.01em; line-height: 1.25; }
 .home-route-note { max-width: 78ch; margin-top: var(--f-sp-1); color: var(--text-2); font-size: .875rem; line-height: 1.45; }
 /* the dotted segments said in words, after a sample of the line drawn like the route's own */
+.home-key-lead { white-space: nowrap; }
 .home-key-dash { display: inline-block; width: 1.75rem; height: 3px; margin: 0 .45em 0 .15em; vertical-align: .3em; background: repeating-linear-gradient(90deg, var(--forest) 0 6px, transparent 6px 10px); }
 
 /* the route: one column per stop, the count on top of its column, the node on the line, the name under it */
@@ -74,7 +75,7 @@
 .home-stop-why { margin: var(--f-sp-1) 0 var(--f-sp-4); line-height: 1.35; }
 
 /* beside the route: figures at lead size, the queues at row size, one number column each */
-.home-lead-item { display: grid; grid-template-columns: minmax(3.6rem, max-content) minmax(0, 1fr); column-gap: var(--f-sp-3); row-gap: 2px; }
+.home-lead-item { display: grid; grid-template-columns: minmax(3.6rem, max-content) minmax(0, 1fr); align-content: start; column-gap: var(--f-sp-3); row-gap: 2px; }
 .home-lead-main > .home-num { font-size: 1.75rem; font-weight: 750; line-height: 1.1; letter-spacing: -.02em; }
 .home-lead-main .home-fig-name { font-weight: 650; }
 .home-lead-second > .home-num { font-size: .9375rem; }
@@ -119,18 +120,27 @@
 /* a week with nothing in any row, said once under the list's title */
 .home-list > .home-none-week { color: var(--muted); }
 
-/* month series: small bars standing on one baseline, the value on top, the month under it */
-.home-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--months, 5) * 2.5rem)), 1fr)); align-items: end; gap: var(--f-sp-5) var(--f-sp-6); margin-top: var(--f-sp-5); }
+/* month series: small bars standing on one baseline, the value on top, the month under it. A month's column is never
+   narrower than its widest figure (--mw, its characters, from the script; a tabular digit is .7em of the .875rem
+   figure) nor than a month's name (2rem), or its year when the series crosses one (2.125rem); a row holds as many
+   charts as fit at that width, and a chart still wider than its column scrolls in its box */
+.home-charts, .home-months { --col: max(2rem, calc(var(--mw, 3) * .6125rem + 2px)); }
+.home-charts.has-years, .home-months.has-years { --col: max(2.125rem, calc(var(--mw, 3) * .6125rem + 2px)); }
+.home-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--months, 5) * max(2.5rem, var(--col)))), 1fr)); align-items: end; gap: var(--f-sp-5) var(--f-sp-6); margin-top: var(--f-sp-5); }
 .home-chart { min-width: 0; }
 .home-chart.is-missing { align-self: start; }
 .home-chart-why { margin-top: var(--f-sp-1); }
-.home-months { display: grid; grid-template-columns: repeat(var(--n, 5), minmax(0, 3.25rem)); align-items: end; margin: var(--f-sp-2) 0 0; padding: 0; list-style: none; }
+.home-months-box { position: relative; padding-inline-end: var(--tail, 0px); overflow-x: auto; }
+.home-months-box:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
+/* as wide as its months, so a box that scrolls ends after them (and after its --tail) */
+.home-months { display: grid; grid-template-columns: repeat(var(--n, 5), minmax(var(--col), 3.25rem)); align-items: end; width: fit-content; margin: var(--f-sp-2) 0 0; padding: 0; list-style: none; }
 .home-month { display: flex; flex-direction: column; align-items: center; min-width: 0; }
 .home-month > .home-num { order: 1; font-size: .875rem; font-weight: 650; line-height: 1.3; }
 .home-month-bar { order: 2; width: 58%; height: calc(56px * var(--f, 0)); margin-top: 2px; background: var(--pastel); }
 .home-month-label { order: 3; align-self: stretch; padding-top: 3px; border-top: 1px solid var(--rule-2); color: var(--muted); font-size: .875rem; line-height: 1.25; text-align: center; }
 .home-month-year { display: block; }
-.home-months.has-years .home-month-label { min-height: 2.6em; }
+/* two line boxes, its padding and its rule: a month with its year stands on the same baseline as one without */
+.home-months.has-years .home-month-label { min-height: calc(2.5em + 4px); }
 
 /* ---------- Seguimiento ---------- */
 .home-tracking { margin-top: var(--f-sp-7); }
@@ -147,7 +157,7 @@
 .home-reading .home-read > span { display: inline; }
 .home-reading .home-read > span + span::before { content: ", "; }
 /* the month table: names and family labels stay at the left edge while the months scroll under them */
-.home-scroll { max-width: 100%; margin-top: var(--f-sp-4); overflow-x: auto; }
+.home-scroll { max-width: 100%; margin-top: var(--f-sp-4); padding-inline-end: var(--tail, 0px); overflow-x: auto; }
 .home-scroll:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
 .home-table { border-collapse: collapse; font-size: .9375rem; }
 .home-table th, .home-table td { padding: 3px 0; font-weight: 500; text-align: left; vertical-align: baseline; }
@@ -217,9 +227,11 @@
   .home-csv-buttons { column-gap: var(--f-sp-4); }
   .home-blocks { margin-top: var(--f-sp-6); }
   #homeMain .admin-textbutton, .home-see, .home-actions a, .home-compare { display: inline-flex; align-items: center; min-height: 44px; }
-  /* the head's 44px targets reach into the whitespace around a 1.125rem title instead of pushing the figures down */
+  /* the head's 44px targets reach into the whitespace around a 1.125rem title instead of pushing the figures down; a
+     head that wraps keeps its two targets apart (they touch, never overlap) */
   .home-block-title { font-size: 1.125rem; }
-  .home-block-head .home-how, .home-block-head .home-see { margin: -6px 0; }
+  .home-block-head { row-gap: 12px; }
+  .home-block-head .home-how, .home-block-head .home-see { margin-block: -6px; }
   .home-col { gap: var(--f-sp-5); }
   .home-top { row-gap: var(--f-sp-3); }
   .home-rank { grid-template-columns: minmax(3.4rem, max-content) minmax(0, 1fr) minmax(2.5rem, 27%); }
@@ -234,10 +246,18 @@
   .home-rank { row-gap: 0; }
   .home-rank-label { line-height: 1.25; }
   .home-rank > li > .home-num { line-height: 1.25; }
-  .home-charts { grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--months, 5) * 1.9rem)), 1fr)); gap: var(--f-sp-4); margin-top: var(--f-sp-4); }
+  .home-charts { grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--months, 5) * max(1.9rem, var(--col)))), 1fr)); gap: var(--f-sp-4); margin-top: var(--f-sp-4); }
   .home-month-bar { height: calc(40px * var(--f, 0)); }
   .home-table thead th:not(:first-child), .home-table td { padding-left: var(--f-sp-3); }
   .home-tracking-table tbody th[scope="row"] { min-width: 10rem; max-width: 10.5rem; white-space: normal; }
+}
+/* a touch screen of any width (a phone held sideways, a tablet) gets the phone's 44px targets, not its layout */
+@media (pointer: coarse) {
+  #homeMain .admin-textbutton, .home-see, .home-actions a, .home-compare { display: inline-flex; align-items: center; min-height: 44px; }
+  .home-queue { min-height: 44px; align-items: center; }
+  .home-reading > summary { min-height: 44px; padding: 11px 0; }
+  .home-block-head { row-gap: 12px; }
+  .home-block-head .home-how, .home-block-head .home-see { margin-block: -6px; }
 }
 /* the spine a little tighter on a phone's screen */
 @media screen and (max-width: 640px) {
@@ -272,9 +292,13 @@
   .home-rank { grid-template-columns: minmax(3.4rem, max-content) minmax(0, max-content) minmax(3rem, 14rem); }
   .home-fig, .home-rank > li, .home-def, .home-chart, .home-stop, .home-list { break-inside: avoid; }
   .home-block-head, .home-block-title, .home-sub, .home-route-title, .home-block > .home-note { break-after: avoid; }
+  /* a family's rows in the month table stay on one page with their label, and the table with its heading */
+  .home-tracking-table tbody, .home-tracking-table tr { break-inside: avoid; }
+  .home-group { break-after: avoid; }
+  .home-tracking-head { break-inside: avoid; break-after: avoid; }
   .home-stop-bar, .home-rank-bar, .home-month-bar, .home-stop::before, .home-stop::after, .home-key-dash { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .home-reading > summary { display: none; }
-  .home-scroll { overflow: visible; }
+  .home-scroll, .home-months-box { padding-inline-end: 0; overflow: visible; }
   .home-tracking-table :is(thead th:first-child, tbody th[scope="row"]), .home-group-name { position: static; }
   .home-tracking-table :is(thead th:first-child, tbody th[scope="row"])::after { content: none; }
   a { color: inherit; text-decoration: none; }

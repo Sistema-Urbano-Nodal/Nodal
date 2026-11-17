@@ -17,7 +17,8 @@ const SCRIPT = () => read('web', 'scripts', 'admin-home.js');
 const STYLE = () => read('web', 'styles', 'admin-home.css');
 const SVG = 'http://www.w3.org/2000/svg';
 
-const classesOf = (node) => String(node.className || '').split(/\s+/).filter(Boolean);
+// An SVG element's className is an object ({ baseVal }), as in a browser.
+const classesOf = (node) => String((typeof node.className === 'object' ? node.className?.baseVal : node.className) || '').split(/\s+/).filter(Boolean);
 const camel = (name) => name.replace(/-([a-z0-9])/g, (match, letter) => letter.toUpperCase());
 
 class FakeNode {
@@ -77,6 +78,19 @@ class FakeNode {
   querySelector(selector) { return select(this, selector)[0] ?? null; }
   click() { this.clicked += 1; return this.listeners.get('click')?.(); }
 }
+/* An SVG element as a browser makes it: its class is an attribute, and className is an SVGAnimatedString that drops an
+   assignment (a non-strict script assigning it fails silently), so only setAttribute('class', …) gives it a class. */
+class FakeSvgNode extends FakeNode {
+  constructor(tag, measure) {
+    super(tag, measure);
+    this.attributes = new Map();
+  }
+  get className() { return { baseVal: this.attributes?.get('class') ?? '' }; }
+  set className(value) { /* read-only in a browser */ }
+  setAttribute(name, value) { this.attributes.set(name, String(value)); }
+  getAttribute(name) { return this.attributes.has(name) ? this.attributes.get(name) : null; }
+  removeAttribute(name) { this.attributes.delete(name); }
+}
 const descendants = (node) => (node?.children || []).flatMap((child) => (child && typeof child === 'object' ? [child, ...descendants(child)] : []));
 
 /* As much of CSS selectors as the script and i18n.js use: compound selectors (tag, #id, .class, [attr], [attr=value])
@@ -91,7 +105,11 @@ function compound(text) {
   }
   return part;
 }
-const attributeOf = (node, name) => (name.startsWith('data-') ? node.dataset[camel(name.slice(5))] : node[name === 'class' ? 'className' : name]);
+const attributeOf = (node, name) => {
+  if (name.startsWith('data-')) return node.dataset[camel(name.slice(5))];
+  if (node instanceof FakeSvgNode) return node.getAttribute(name);
+  return node[name === 'class' ? 'className' : name];
+};
 function matches(node, part) {
   return (!part.tag || String(node.tagName).toLowerCase() === part.tag) && (!part.id || node.id === part.id)
     && part.classes.every((name) => classesOf(node).includes(name))
@@ -154,6 +172,8 @@ function textOf(node, defs) {
 }
 const rendered = (node) => textOf(node, true);
 const closed = (node) => textOf(node, false);
+// The text exactly as a browser joins it, nothing added between nodes: a space a sentence needs must be in its strings.
+const flat = (node) => (typeof node === 'string' ? node : (node.textContent || '') + node.children.map(flat).join(''));
 const byKey = (node, key) => descendants(node).find((child) => child.dataset.key === key);
 const byList = (node, key) => descendants(node).find((child) => child.dataset.list === key);
 const bySeries = (node, name) => descendants(node).find((child) => child.dataset.series === name);
@@ -234,10 +254,13 @@ const indicator = (answer, key) => answer.families.flatMap((f) => f.indicators).
 
 /* lang: the page language at evaluation (locale.js sets it before the deferred scripts run). get(url), post() and
    download(url) answer fetch; each defaults to the fixture, {saved: false} and a 500. cols and gap stand for what the
-   stylesheet gives the family columns (--cols, the column's row gap); measure(node, what) for a browser's layout figure
-   (height, width, offsetLeft, scrollWidth, clientWidth: 0 when not given). storage stands for localStorage: 'throws'
-   is storage the browser blocks, null none at all. */
+   stylesheet gives the family columns (--cols, the column's row gap; setCols changes the first, as a new width does);
+   measure(node, what) for a browser's layout figure (height, width, offsetLeft, scrollWidth, clientWidth: 0 when not
+   given). storage stands for localStorage: 'throws' is storage the browser blocks, null none at all. resized(width)
+   calls the page's ResizeObserver as a new width of the families would, a frame runs at once, and fonts.resolve()
+   says the fonts have loaded. */
 function home({ lang = 'es', answer = fixture(), get, post, download, cols = 1, gap = 0, measure = () => 0, storage = memoryStorage() } = {}) {
+  let columnCount = cols;
   const created = [];
   const node = (tag) => new FakeNode(tag, measure);
   const body = parseBody(read('web', 'pages', 'admin-home.html'), node);
@@ -253,8 +276,11 @@ function home({ lang = 'es', answer = fixture(), get, post, download, cols = 1, 
     title: '',
     getElementById: (id) => ids.get(id) ?? null,
     createElement: (tag) => { const made = node(tag); created.push(made); return made; },
-    createElementNS: (namespace, tag) => { const made = node(tag); made.namespaceURI = namespace; created.push(made); return made; },
+    createElementNS: (namespace, tag) => { const made = namespace === SVG ? new FakeSvgNode(tag, measure) : node(tag); made.namespaceURI = namespace; created.push(made); return made; },
   });
+  const fonts = deferred();
+  document.fonts = { ready: fonts.promise };
+  let observed = null;
   const calls = [];
   const fetch = (url, init = {}) => {
     calls.push({ url, init });
@@ -271,7 +297,9 @@ function home({ lang = 'es', answer = fixture(), get, post, download, cols = 1, 
     nodalLocale: { read: () => lang, save() {}, chosen: () => false },
     addEventListener: (name, handler) => windowListeners.set(name, handler),
     print: () => printed.push(true),
-    getComputedStyle: (target) => ({ getPropertyValue: (name) => (name === '--cols' && target === ids.get('homeBlocks') ? ` ${cols}` : ''), rowGap: `${gap}px` }),
+    getComputedStyle: (target) => ({ getPropertyValue: (name) => (name === '--cols' && target === ids.get('homeBlocks') ? ` ${columnCount}` : ''), rowGap: `${gap}px` }),
+    ResizeObserver: class { constructor(callback) { observed = callback; } observe() {} },
+    requestAnimationFrame: (callback) => callback(),
   };
   if (storage === 'throws') Object.defineProperty(context, 'localStorage', { get() { throw new Error('SecurityError: the storage is blocked'); } });
   else if (storage) context.localStorage = storage;
@@ -280,7 +308,9 @@ function home({ lang = 'es', answer = fixture(), get, post, download, cols = 1, 
   vm.runInNewContext(read('web', 'scripts', 'i18n.js'), context, { filename: 'i18n.js' });
   const id = (name) => ids.get(name);
   return {
-    ids, id, calls, created, printed, document, context,
+    ids, id, calls, created, printed, document, context, fonts,
+    setCols: (n) => { columnCount = n; },
+    resized: (width) => observed([{ contentRect: { width } }]),
     skip: select(body, '.admin-skip')[0],
     gets: () => calls.filter((c) => c.url.startsWith('/api/admin/metrics') && !c.url.startsWith('/api/admin/metrics/')),
     posts: () => calls.filter((c) => c.url === '/api/admin/metrics/readings'),
@@ -352,6 +382,9 @@ for (const lang of ['es', 'en', 'pt']) {
     assert.deepEqual(mores('signups.accounts'), [`7 ${words.indicators['signups.new'].name} ${IN7[lang]}`]);
     assert.deepEqual(mores('activity.members'), [`17 ${IN7[lang]}`]);
     assert.deepEqual(mores('profiles.basic'), []);
+    // As a browser joins them: the figure and its words are one sentence, never "17en 7 días".
+    assert.equal(flat(select(stops[6], '.home-stop-more')[0]), `17 ${IN7[lang]}`);
+    assert.equal(flat(select(stops[0], 'span.home-stop-more[data-key=signups.new]')[0]), `7 ${words.indicators['signups.new'].name} ${IN7[lang]}`);
     // Beside the route: the lead figures that are not stops, each with its own second lines.
     const lead = page.id('homeLead');
     const others = answer.lead.filter(({ key, field }) => !ROUTE.some(([k, f]) => k === key && f === field)).map((entry) => entry.key);
@@ -432,10 +465,15 @@ test('a zero is 0 and a failure is a dash with its reason', async () => {
     const quiet = fixture();
     quiet.visitsSince = since;
     for (const ind of quiet.families.find((family) => family.key === 'visits').indicators) { for (const f of ['d30', 'd7', 'items']) delete ind[f]; ind.state = 'not_yet_counted'; }
+    // What the server sends then: no month of either visit series.
+    quiet.months.series.views = {};
+    quiet.months.series.arrivals = {};
     const visits = home({ answer: quiet });
     await flush();
     const block = visits.section('visits');
+    // The reason is said once for the block: neither series says it again where its chart would stand.
     assert.equal(count(closed(block), heading), 1, closed(block));
+    assert.equal(select(block, '.home-chart').length, 0);
     assert.doesNotMatch(closed(byKey(block, 'visits.views')), /\d/);
     if (!since) assert.doesNotMatch(rendered(block), /Se cuenta desde el/);
   }
@@ -445,13 +483,17 @@ test('the lead, the route and the tracking rows come from the answer', async () 
   const answer = fixture();
   answer.lead = answer.lead.slice().reverse().slice(0, 3);
   answer.tracked = ['courses.enrolled', 'signups.accounts'];
-  answer.readings = { today: true, months: [{ month: '2026-11', day: '2026-11-14', defs: DEFS, figures: { 'courses.enrolled': 21, 'signups.accounts': 525 } }] };
+  // The one reading was saved before signups.accounts was tracked.
+  answer.readings = { today: true, months: [{ month: '2026-11', day: '2026-11-14', defs: DEFS, figures: { 'courses.enrolled': 21 } }] };
   const page = home({ answer });
   await flush();
   // Founders, the 30-day members and the basic profile: only the founders are not a stop of the path.
   assert.deepEqual(page.id('homeLead').elements.map((g) => g.dataset.key), ['memberships.founders']);
   const reading = select(page.id('homeTracking'), 'details.home-reading')[0];
-  assert.deepEqual(select(reading, 'li.home-fig[data-key]').map((row) => [row.dataset.key, closed(row)]), [['courses.enrolled', '21 Participantes'], ['signups.accounts', '525 Cuentas']]);
+  assert.deepEqual(select(reading, 'li.home-fig[data-key]').map((row) => [row.dataset.key, closed(row)]), [['courses.enrolled', '21 Participantes'], ['signups.accounts', '— Cuentas']]);
+  // A key the reading lacks is a dash, never 0.
+  assert.equal(closed(byKey(reading, 'signups.accounts')), '— Cuentas');
+  assert.equal(select(byKey(reading, 'signups.accounts'), '.home-dash').length, 1);
   assert.equal(select(page.id('homeTracking'), 'tr[data-key]').length, 0, 'one reading is a list, not a table');
 
   const empty = fixture();
@@ -487,6 +529,8 @@ test('a visit figure younger than its window says since when it is counted', asy
   assert.equal(title.textContent, 'Vistas de Fundadores y de la página de pago en 30 días');
   assert.ok(def.classList.contains('home-def'), 'the note follows the list\'s definition');
   assert.deepEqual([note.className, note.textContent], ['home-note', 'Se cuenta desde el 1 nov 2026']);
+  // The Visitas block says it once, under its head.
+  assert.equal(count(closed(page.section('visits')), 'Se cuenta desde el 1 nov 2026'), 1);
 
   const old = fixture();
   old.visitsSince = '2026-10-16';
@@ -499,6 +543,18 @@ test('a visit figure younger than its window says since when it is counted', asy
   assert.match(closed(byKey(en.id('homeLead'), 'visits.arrivals').elements[0]), /Counted since Nov 1, 2026$/);
 });
 
+test('a lead figure that could not be computed is a dash with its reason', async () => {
+  const answer = fixture();
+  const founders = indicator(answer, 'memberships.founders');
+  for (const f of ['total', 'd30', 'd7']) delete founders[f];
+  founders.state = 'unavailable';
+  const page = home({ answer });
+  await flush();
+  const [main] = byKey(page.id('homeLead'), 'memberships.founders').elements;
+  assert.equal(closed(main), `— ${TEXTS.es.indicators['memberships.founders'].name} No disponible en este momento`);
+  assert.equal(select(main, '.home-dash').length, 1);
+});
+
 test('the festival registrations say how many are the team\'s', async () => {
   const answer = fixture();
   indicator(answer, 'festival.registrations').team = 2;
@@ -506,6 +562,7 @@ test('the festival registrations say how many are the team\'s', async () => {
   await flush();
   const total = indicator(answer, 'festival.registrations').total;
   assert.equal(closed(byKey(page.id('homeBlocks'), 'festival.registrations')), `${total} Inscripciones (incluye 2 del equipo)`);
+  assert.equal(flat(select(byKey(page.id('homeBlocks'), 'festival.registrations'), '.home-fig-name')[0]), 'Inscripciones (incluye 2 del equipo)');
   page.ready();
   page.apply('en');
   await flush();
@@ -546,6 +603,17 @@ test('a list names its window, ranks its rows on its own scale, and an empty lis
   const views = select(byKey(blocks, 'visits.views'), '.home-def')[0];
   assert.ok(rendered(views).includes('Límites: No dice cuántas personas fueron.'), rendered(views));
   assert.doesNotMatch(rendered(blocks), /No dice: No dice/);
+});
+
+test('a day with a new account says no days without one', async () => {
+  const answer = fixture();
+  indicator(answer, 'signups.new').daysSince = 0;
+  indicator(answer, 'signups.new').last = '2026-11-14';
+  const page = home({ answer });
+  await flush();
+  assert.equal(select(page.id('homeRoute'), '.home-silence').length, 0);
+  assert.doesNotMatch(rendered(page.id('homeRoute')), /sin cuentas nuevas/);
+  assert.deepEqual(page.id('homeWindows').elements.map((span) => rendered(span)), ['Últimos 30 días: 16 oct–14 nov', 'Últimos 7 días: 8–14 nov']);
 });
 
 test('lists are labelled after the fact', async () => {
@@ -764,18 +832,39 @@ test('two readings or more make the month table, grouped by family; the month se
   assert.ok(rendered(tracking).includes('—: no se leía ese mes'));
   assert.ok(rendered(tracking).includes('Lecturas desde nov 2026.'));
   assert.ok(!rendered(tracking).includes('undefined'));
+  // The table scrolls inside the Seguimiento region, named apart from it, as a group (not a second region).
   const scroller = select(tracking, '.home-scroll')[0];
-  assert.deepEqual([scroller.tabindex, scroller.role, scroller['aria-label']], ['0', 'region', 'Seguimiento']);
+  assert.deepEqual([scroller.tabindex, scroller.role, scroller['aria-label']], ['0', 'group', 'Tabla por mes']);
   // Two months or more: a chart in the indicator's family; one month: said on its row; in a state: its reason.
   const accounts = bySeries(page.section('signups'), 'accounts');
   assert.equal(closed(accounts), 'Cuentas nuevas, por mes jul 9 ago 0 sept 43 oct 473 nov 0');
   assert.deepEqual(select(accounts, '.home-month-bar').map((bar) => bar.style['--f']), ['0.0190', '0.0000', '0.0909', '1.0000', '0.0000']);
+  // Each chart is a list named by its title, its bars hidden from a screen reader; the stylesheet gets its months.
+  for (const chart of select(page.section('signups'), '.home-chart')) {
+    assert.equal(select(chart, 'ol.home-months')[0]['aria-labelledby'], select(chart, 'h3')[0].id, chart.dataset.series);
+    assert.ok(select(chart, '.home-month-bar').every((bar) => bar['aria-hidden'] === 'true'), chart.dataset.series);
+  }
+  assert.equal(select(accounts, 'ol.home-months')[0].style['--n'], '5');
+  assert.equal(select(page.section('signups'), '.home-charts')[0].style['--months'], '5');
   const registrations = bySeries(page.section('festival'), 'registrations');
   assert.ok(registrations.classList.contains('is-missing'));
   assert.equal(closed(registrations), 'Inscripciones al festival, por mes — No disponible en este momento');
+  assert.equal(flat(select(registrations, '.home-chart-why')[0]), '— No disponible en este momento');
   assert.equal(closed(select(byKey(page.section('visits'), 'visits.views'), '.home-fig-more')[0]), '1 en 7 días, 40 en nov 2026');
   assert.equal(select(tracking, '.home-chart').length, 0, 'no series is left over for Seguimiento');
   assert.equal(page.posts().length, 0);
+});
+
+test('a month table with every key in every reading has no note about dashes', async () => {
+  const answer = fixture();
+  const figures = Object.fromEntries(TRACKED.map((key) => [key, 1]));
+  answer.readings = { today: true, months: [{ month: '2026-11', day: '2026-11-14', defs: DEFS, figures }, { month: '2026-12', day: '2026-12-02', defs: DEFS, figures }] };
+  const page = home({ answer });
+  await flush();
+  const tracking = page.id('homeTracking');
+  assert.equal(select(tracking, 'th[data-month]').length, 2);
+  assert.equal(select(tracking, '.home-dash').length, 0);
+  assert.ok(!rendered(tracking).includes('no se leía ese mes'), rendered(tracking));
 });
 
 test('a month table wider than the screen opens on its latest whole months', async () => {
@@ -791,10 +880,94 @@ test('a month table wider than the screen opens on its latest whole months', asy
   const wide = home({ answer, measure: layout(1000) });
   await flush();
   // 420px of months beside the names: the last three fit whole, so the first of them starts right after the names.
-  assert.equal(select(wide.id('homeTracking'), '.home-scroll')[0].scrollLeft, 420);
+  const exact = select(wide.id('homeTracking'), '.home-scroll')[0];
+  assert.equal(exact.scrollLeft, 420);
+  assert.equal(exact.style['--tail'], undefined, 'an exact fit needs no room after the last month');
   const fits = home({ answer: structuredClone(answer), measure: layout(580) });
   await flush();
   assert.equal(select(fits.id('homeTracking'), '.home-scroll')[0].scrollLeft, 0);
+
+  // 360px beside the names: two months fit whole and 80px are left. The scroll reaches only 480px, which would show
+  // 80px of the month before beside the names; the table gets those 80px after its last month instead, and the first
+  // whole month starts right after the names.
+  let clientWidth = 520;
+  const loose = (node, what) => {
+    if (node.classList.contains('home-scroll')) return { scrollWidth: 1000, clientWidth }[what] ?? 0;
+    return layout(1000)(node, what);
+  };
+  const phone = home({ answer: structuredClone(answer), measure: loose });
+  await flush();
+  const scroller = select(phone.id('homeTracking'), '.home-scroll')[0];
+  assert.equal(scroller.scrollLeft, 560);
+  assert.equal(scroller.style['--tail'], '80px');
+  // A new width places it again, from no room: now three months fit whole.
+  clientWidth = 580;
+  phone.resized(900);
+  assert.equal(scroller.scrollLeft, 420);
+  assert.equal(scroller.style['--tail'], undefined);
+});
+
+test('a month series that crosses a year names each year once', async () => {
+  const answer = fixture();
+  answer.months.series.accounts = { '2026-11': 1, '2026-12': 2, '2027-01': 3 };
+  const page = home({ answer });
+  await flush();
+  const chart = bySeries(page.section('signups'), 'accounts');
+  assert.ok(select(chart, 'ol.home-months')[0].classList.contains('has-years'));
+  assert.deepEqual(select(chart, '.home-month-year').map((year) => year.textContent), ['2026', '2027']);
+  assert.deepEqual(select(chart, 'li.home-month').map((month) => select(month, '.home-month-year').length), [1, 0, 1]);
+  assert.equal(closed(chart), 'Cuentas nuevas, por mes nov 2026 1 dic 2 ene 2027 3');
+  // The row of charts makes room for a year; a series inside one year names none.
+  assert.ok(select(page.section('signups'), '.home-charts')[0].classList.contains('has-years'));
+  const entered = bySeries(page.section('signups'), 'entered');
+  assert.equal(select(entered, 'ol.home-months')[0].classList.contains('has-years'), false);
+  assert.equal(select(entered, '.home-month-year').length, 0);
+});
+
+test('a month chart draws the latest twelve months, as wide as their widest figure, and scrolls when wider than its column', async () => {
+  // Thirteen months, July 2026 to July 2027: the oldest (12.000 in Spanish, six characters) is left to the CSV.
+  const months = Array.from({ length: 13 }, (_, i) => `${2026 + Math.floor((6 + i) / 12)}-${String(((6 + i) % 12) + 1).padStart(2, '0')}`);
+  assert.deepEqual([months[0], months[12]], ['2026-07', '2027-07']);
+  const answer = fixture();
+  answer.months.series.accounts = Object.fromEntries(months.map((month, i) => [month, i === 0 ? 12000 : 1000 + i]));
+  let wide = false;
+  // The accounts chart's box: twelve 50px months (600px) in a 358px column, until the column is wide enough. A month's
+  // offsetLeft is read from the box.
+  const accountsBox = (node) => { let at = node; while (at && !at.dataset.title) at = at.parent; return at?.dataset.title === 'home-s-accounts'; };
+  const measure = (node, what) => {
+    if (node.dataset.title === 'home-s-accounts') return { scrollWidth: 600, clientWidth: wide ? 640 : 358 }[what] ?? 0;
+    if (what === 'offsetLeft' && node.classList.contains('home-month') && accountsBox(node)) return 50 * node.parent.elements.indexOf(node);
+    return 0;
+  };
+  const page = home({ answer, measure });
+  await flush();
+  const chart = bySeries(page.section('signups'), 'accounts');
+  const list = select(chart, 'ol.home-months')[0];
+  assert.equal(select(list, 'li.home-month').length, 12);
+  assert.equal(list.style['--n'], '12');
+  assert.equal(list.style['--mw'], '4', 'the widest figure drawn: 1012, four characters');
+  assert.ok(closed(chart).startsWith('Cuentas nuevas, por mes ago 2026 1001 sept 1002'), closed(chart));
+  assert.ok(!closed(chart).includes('12.000'));
+  assert.equal(select(list, '.home-month-bar').at(-1).style['--f'], '1.0000', 'the scale is the months drawn');
+  const row = select(page.section('signups'), '.home-charts')[0];
+  assert.deepEqual([row.style['--months'], row.style['--mw'], row.classList.contains('has-years')], ['12', '4', true]);
+  // Wider than its column: a named group the keyboard reaches, opened on its latest whole months. The last seven fit
+  // (350px from the sixth month's start): the scroll reaches only 242px, so the box gets 8px after the last month and
+  // no sliver of the month before shows at its left edge.
+  const box = select(chart, '.home-months-box')[0];
+  assert.equal(list.parent, box);
+  assert.deepEqual([box.tabindex, box.role, box['aria-labelledby'], box.scrollLeft, box.style['--tail']], ['0', 'group', 'home-s-accounts', 250, '8px']);
+  const entered = select(bySeries(page.section('signups'), 'entered'), '.home-months-box')[0];
+  assert.deepEqual([entered.tabindex, entered.role], [undefined, undefined], 'a chart that fits is no stop for the keyboard');
+  // At a width where it fits it is no stop either.
+  wide = true;
+  page.resized(1400);
+  assert.deepEqual([box.tabindex, box.role, box['aria-labelledby'], box.style['--tail']], [undefined, undefined, undefined, undefined]);
+  // In English the same figures are five characters ("1,012").
+  const en = home({ lang: 'en', answer: structuredClone(answer) });
+  await flush();
+  assert.equal(select(bySeries(en.section('signups'), 'accounts'), 'ol.home-months')[0].style['--mw'], '5');
+  assert.equal(select(en.section('signups'), '.home-charts')[0].style['--mw'], '5');
 });
 
 test('the route draws every stop on one scale and dots the segment into a stop that is not one more step', async () => {
@@ -812,22 +985,38 @@ test('the route draws every stop on one scale and dots the segment into a stop t
   // The stop before each 'apart' stop dots its segment; the 30-day stop is the window.
   assert.deepEqual(stops.map((stop) => stop.classList.contains('to-apart')), [false, false, false, false, true, true, false]);
   assert.deepEqual(stops.map((stop) => stop.classList.contains('is-window')), [false, false, false, false, false, false, true]);
-  // Each node is an SVG ring that a screen reader skips.
+  // Each node is an SVG ring that a screen reader skips, its class set as an SVG element takes one.
   const nodes = stops.map((stop) => select(stop, 'svg')[0]);
-  assert.ok(nodes.every((svg) => svg.namespaceURI === SVG && svg.className === 'home-stop-node' && svg['aria-hidden'] === 'true'), 'svg nodes');
+  assert.ok(nodes.every((svg) => svg.namespaceURI === SVG && svg.getAttribute('class') === 'home-stop-node' && svg.getAttribute('aria-hidden') === 'true'), 'svg nodes');
   assert.ok(nodes.every((svg) => svg.elements.length === 1 && svg.elements[0].tagName === 'circle'));
+  // A stop's second lines run right under the stops that have none (three at most): the accounts' over three stops.
+  const wide = select(stops[0], '.home-stop-mores')[0];
+  assert.ok(wide.classList.contains('is-wide'));
+  assert.equal(wide.style['--span'], '3');
   // The caption says what the path is not; the key, a sample of the dotted line and the answer's own sentence for it.
   const note = select(page.id('homeRoute'), 'p.home-route-note')[0];
   assert.equal(rendered(note), `${ROUTE_NOTE} ${TEXTS.es.routeApart}`);
+  assert.equal(flat(note), `${ROUTE_NOTE} ${TEXTS.es.routeApart}`);
   const key = select(note, '.home-route-key')[0];
   assert.equal(select(key, '.home-key-dash')[0]['aria-hidden'], 'true');
-  assert.equal(key.children.at(-1), TEXTS.es.routeApart);
+  assert.equal(flat(key), TEXTS.es.routeApart);
+  // The sample and the sentence's first word never part at a line end: they stand together in one unbroken span.
+  const lead = select(key, '.home-key-lead')[0];
+  assert.equal(lead.parent, key);
+  assert.equal(lead.elements[0].className, 'home-key-dash');
+  assert.equal(flat(lead), TEXTS.es.routeApart.split(' ')[0]);
 
   const said = fixture();
   said.texts.es.routeApart = 'Otra frase del servidor.';
   const other = home({ answer: said });
   await flush();
-  assert.equal(rendered(select(other.id('homeRoute'), '.home-route-key')[0]), 'Otra frase del servidor.');
+  assert.equal(flat(select(other.id('homeRoute'), '.home-route-key')[0]), 'Otra frase del servidor.');
+  assert.equal(flat(select(other.id('homeRoute'), '.home-key-lead')[0]), 'Otra');
+  const word = fixture();
+  word.texts.es.routeApart = ' Punteado ';
+  const single = home({ answer: word });
+  await flush();
+  assert.equal(flat(select(single.id('homeRoute'), '.home-route-key')[0]), 'Punteado');
   // Without the answer's sentence there is no key; the segments stay dotted.
   for (const missing of [undefined, '', '   ']) {
     const answer = fixture();
@@ -886,6 +1075,7 @@ test('a stop that could not be counted says why where its column would stand, an
   const second = home({ answer: other });
   await flush();
   assert.equal(closed(select(second.stops()[0], 'span.home-stop-more[data-key=signups.new]')[0]), '— Cuentas nuevas en 7 días Aún no está activado en la base de datos');
+  assert.equal(flat(select(second.stops()[0], 'span.home-stop-more[data-key=signups.new]')[0]), '— Cuentas nuevas en 7 días Aún no está activado en la base de datos');
 });
 
 test('an answer without a path keeps every lead figure in a row beside the queues', async () => {
@@ -1017,6 +1207,9 @@ test('every queue is a link, and the waiting ones lead the top', async () => {
   assert.equal(top.classList.contains('is-waiting'), false);
   const pending = quiet.id('homePending');
   assert.equal(select(pending, 'h2')[0].textContent, 'Nada por atender');
+  // The section is named by its heading, under the id the markup gives it.
+  assert.equal(select(pending, 'h2')[0].id, 'homePendingTitle');
+  assert.equal(pending['aria-labelledby'], 'homePendingTitle');
   assert.equal(select(pending, 'ul.home-queues')[0]['aria-labelledby'], select(pending, 'h2')[0].id);
   assert.deepEqual(select(pending, 'li').map((li) => [li.className, closed(li), select(li, 'a')[0].href]), [
     ['', '0 Solicitudes de interés', 'admin.html#interests'],
@@ -1037,12 +1230,44 @@ test('every queue is a link, and the waiting ones lead the top', async () => {
   await flush();
   assert.deepEqual(page.id('homeTop').elements.map((node) => node.id), ['homeRoute', 'homeLead', 'homePending']);
   assert.equal(page.id('homeTop').classList.contains('is-waiting'), false);
-  // A queue the answer does not know is not drawn; with none known the queues are gone.
+  // A queue the answer could not read is a dash with its reason, still a link; the others say theirs.
   const partial = fixture();
   partial.pending = { interests: 1 };
   const one = home({ answer: partial });
   await flush();
-  assert.deepEqual(select(one.id('homePending'), 'a').map((a) => [a.href, closed(a)]), [['admin.html#interests', '1 Solicitudes de interés']]);
+  assert.equal(select(one.id('homePending'), 'h2')[0].textContent, 'Por atender');
+  assert.deepEqual(select(one.id('homePending'), 'a').map((a) => [a.href, closed(a)]), [
+    ['admin.html#interests', '1 Solicitudes de interés'],
+    ['admin.html#nodes', '— Solicitudes de organizaciones No disponible en este momento'],
+    ['fiiu-admin.html', '— Postulaciones al laboratorio No disponible en este momento'],
+  ]);
+  // The festival part failed (its deadline passed): the lab queue is unknown, so nothing claims that none waits.
+  const late = fixture();
+  late.pending = { interests: 0, orgRequests: 0, lab: null };
+  for (const ind of late.families.find((family) => family.key === 'festival').indicators) { for (const f of ['total', 'd30', 'd7', 'items', 'team']) delete ind[f]; ind.state = 'unavailable'; }
+  late.unavailable = [{ part: 'festival', reason: 'timeout' }];
+  const slow = home({ answer: late });
+  await flush();
+  const queues = slow.id('homePending');
+  assert.equal(select(queues, 'h2')[0].textContent, 'Por atender');
+  assert.equal(slow.id('homeTop').classList.contains('is-waiting'), false, 'nothing known waits');
+  const lab = select(queues, 'li')[2];
+  assert.equal(closed(lab), '— Postulaciones al laboratorio No disponible en este momento');
+  // The name and its reason are one line beside the figure's own cell.
+  assert.equal(flat(select(lab, '.home-fig-body')[0]), 'Postulaciones al laboratorio No disponible en este momento');
+  assert.equal(select(lab, 'a')[0].href, 'fiiu-admin.html');
+  assert.equal(select(lab, '.home-dash').length, 1);
+  assert.equal(lab.className, '');
+  // A festival not activated has no lab queue to read: the two others are all there is, and they are calm.
+  const off = fixture();
+  off.pending = { interests: 0, orgRequests: 0, lab: null };
+  for (const ind of off.families.find((family) => family.key === 'festival').indicators) { for (const f of ['total', 'd30', 'd7', 'items', 'team']) delete ind[f]; ind.state = 'not_activated'; }
+  off.notActivated = ['festival'];
+  const unset = home({ answer: off });
+  await flush();
+  assert.equal(select(unset.id('homePending'), 'h2')[0].textContent, 'Nada por atender');
+  assert.deepEqual(select(unset.id('homePending'), 'a').map((a) => a.href), ['admin.html#interests', 'admin.html#nodes']);
+  // With no queue known the queues are gone.
   const unknown = fixture();
   delete unknown.pending;
   const none = home({ answer: unknown });
@@ -1141,6 +1366,73 @@ test('twelve families in three columns weigh the 55 contiguous cuts, no more', a
   assert.deepEqual(page.columns().map((column) => column.filter((name) => name !== 'homeTracking')), [keys.slice(0, cut[1]), keys.slice(cut[1], cut[2]), keys.slice(cut[2])]);
 });
 
+test('a cut within 24px of the shortest tallest column wins when its ends are more even', async () => {
+  const heights = { visits: 320, signups: 540, profiles: 340, activity: 240, memberships: 260, festival: 560, courses: 680 };
+  // [0, 3, 6, 7] has the shortest tallest column (1248px, spread 568); [0, 2, 5, 7] is 16px taller, spread 380.
+  assert.deepEqual(bestCut(FAMILIES.map((family) => heights[family]), 3, 24), [0, 2, 5, 7]);
+  const page = home({ cols: 3, gap: 24, measure: tall(heights), storage: null });
+  await flush();
+  assert.deepEqual(page.columns().map((column) => column.filter((name) => name !== 'homeTracking')), [['visits', 'signups'], ['profiles', 'activity', 'memberships'], ['festival', 'courses']]);
+});
+
+test('a remembered cut is kept within 120px of the best even where 15% is less', async () => {
+  // Short columns: the best cut [0, 4, 7] has a 592px column; the remembered [0, 3, 7] one of 692px, 100px over. 15%
+  // would allow 88.8px, the 120px floor allows it.
+  const heights = { visits: 200, signups: 100, profiles: 100, activity: 120, memberships: 100, festival: 160, courses: 240 };
+  assert.deepEqual(bestCut(FAMILIES.map((family) => heights[family]), 2, 24), [0, 4, 7]);
+  const storage = memoryStorage({ 'nodal.home.cuts': JSON.stringify({ '2:7': [0, 3, 7] }) });
+  const page = home({ cols: 2, gap: 24, measure: tall(heights), storage });
+  await flush();
+  assert.deepEqual(page.columns().map((column) => column.filter((name) => name !== 'homeTracking')), [['visits', 'signups', 'profiles'], ['activity', 'memberships', 'festival', 'courses']]);
+  assert.deepEqual(JSON.parse(storage.data.get('nodal.home.cuts')), { '2:7': [0, 3, 7] });
+});
+
+test('a new width or the loaded fonts lay the columns out again, and the same width does not', async () => {
+  const page = home({ cols: 3, gap: 24, measure: tall(HEIGHTS), storage: null });
+  await flush();
+  assert.equal(page.columns().length, 3);
+  // The stylesheet now gives two columns (the window narrowed past 1180px): the observer lays them out again.
+  page.setCols(2);
+  page.resized(1000);
+  const cut = bestCut(FAMILIES.map((family) => HEIGHTS[family]), 2, 24);
+  assert.deepEqual(page.columns().map((column) => column.filter((name) => name !== 'homeTracking')), [FAMILIES.slice(0, cut[1]), FAMILIES.slice(cut[1])]);
+  assert.ok(page.id('homeBlocks').elements.every((column) => column.className === 'home-col'));
+  // The same width again: nothing is laid out.
+  const replaced = page.id('homeBlocks').replaced;
+  page.setCols(3);
+  page.resized(1000);
+  assert.equal(page.id('homeBlocks').replaced, replaced);
+  assert.equal(page.columns().length, 2);
+  // The fonts load: the columns are measured and cut again.
+  page.fonts.resolve();
+  await flush();
+  assert.equal(page.columns().length, 3);
+  assert.deepEqual(page.sections().map((section) => section.dataset.family), FAMILIES);
+});
+
+test('the columns are measured with every definition closed, so opening one never moves a family', async () => {
+  // A family whose definitions are open is 900px taller, except while #homeBlocks measures with them closed.
+  const blocksOf = (node) => { let at = node; while (at && at.id !== 'homeBlocks') at = at.parent; return at; };
+  const measure = (node, what) => {
+    if (what !== 'height' || !node.dataset.family) return 0;
+    const open = node.classList.contains('is-explained') && !blocksOf(node)?.classList.contains('is-measuring');
+    return HEIGHTS[node.dataset.family] + (open ? 900 : 0);
+  };
+  // Measured open, Festival would take another cut.
+  assert.notDeepEqual(bestCut(FAMILIES.map((family) => HEIGHTS[family] + (family === 'festival' ? 900 : 0)), 3, 24), bestCut(FAMILIES.map((family) => HEIGHTS[family]), 3, 24));
+  const page = home({ cols: 3, gap: 24, measure, storage: null });
+  await flush();
+  const before = page.columns();
+  select(page.section('festival'), 'button.home-how')[0].click();
+  assert.ok(page.section('festival').classList.contains('is-explained'));
+  page.ready();
+  page.apply('pt');
+  await flush();
+  assert.ok(page.section('festival').classList.contains('is-explained'), 'still open after the re-render');
+  assert.deepEqual(page.columns(), before);
+  assert.equal(page.id('homeBlocks').classList.contains('is-measuring'), false);
+});
+
 test('a remembered cut is kept while its tallest column stays near the best, and replaced when it does not', async () => {
   // [0, 4, 5, 7] leaves a 1672px column: 128px over the best cut's 1544px, inside max(15%, 120px) = 232px.
   const near = memoryStorage({ 'nodal.home.cuts': JSON.stringify({ '3:7': [0, 4, 5, 7], '2:7': [0, 3, 7] }) });
@@ -1205,6 +1497,8 @@ test('the whole answer failed', async () => {
     [() => Promise.resolve(response(new SyntaxError('not json'))), 'failed'],
     [() => Promise.resolve(response({ error: 'slow down' }, 429)), 'tooMany'],
     [() => Promise.resolve(response({ error: 'x' }, 503)), 'failed'],
+    // A 200 that is not the answer.
+    [() => Promise.resolve(response({})), 'failed'],
   ]) {
     const gate = deferred();
     let n = 0;
@@ -1346,6 +1640,19 @@ test('the CSV is fetched as a blob and failures are said on the page', async () 
     assert.equal(empty.id('homeRetry').hidden, true);
   }
 
+  // The CSV comes in the page's language, and a double click asks once.
+  const english = home({ download: () => Promise.resolve(response('', 200, { 'content-disposition': `attachment; filename="${name}"` })) });
+  await flush();
+  english.ready();
+  english.apply('en');
+  await flush();
+  english.id('homeCsv').click();
+  english.id('homeCsv').click();
+  await flush();
+  const exports = english.calls.filter((c) => c.url.startsWith('/api/admin/metrics/export'));
+  assert.deepEqual(exports.map((c) => c.url), ['/api/admin/metrics/export?table=indicators&lang=en']);
+  assert.equal(english.created.filter((n) => n.tagName === 'a' && n.clicked).length, 1);
+
   const months = home({ download: () => Promise.resolve(response('', 200, { 'content-disposition': 'attachment; filename="nodal-indicadores-por-mes-2026-11-14.csv"' })) });
   await flush();
   assert.equal(months.id('homeMonthsCsv').textContent, 'Por mes');
@@ -1387,6 +1694,34 @@ test('printing opens every definition and the folded reading, then puts each bac
   assert.equal(page.printed.length, 1);
 });
 
+test('the folded reading the reader opened stays open across a re-render', async () => {
+  const answer = fixture();
+  answer.readings = { today: true, months: [{ month: '2026-11', day: '2026-11-14', defs: DEFS, figures: { 'signups.accounts': 105 } }] };
+  const page = home({ answer });
+  await flush();
+  const reading = select(page.id('homeTracking'), 'details.home-reading')[0];
+  assert.equal(reading.open, false);
+  reading.open = true;
+  reading.listeners.get('toggle')();
+  page.ready();
+  page.apply('pt');
+  await flush();
+  const again = select(page.id('homeTracking'), 'details.home-reading')[0];
+  assert.notEqual(again, reading, 'the reading was drawn again');
+  assert.equal(again.open, true);
+  assert.equal(select(again, 'summary')[0].textContent, 'Ver a leitura de nov. de 2026');
+  // Folded again by the reader, it stays folded.
+  again.open = false;
+  again.listeners.get('toggle')();
+  page.apply('en');
+  await flush();
+  assert.equal(select(page.id('homeTracking'), 'details.home-reading')[0].open, false);
+});
+
+// A length in px (rem and em at the desk's 16px).
+const pixels = (value) => { const m = /^(-?[\d.]+)(px|rem|em)$/.exec(value.trim()); return m ? Number(m[1]) * (m[2] === 'px' ? 1 : 16) : null; };
+// The innermost rules of a stylesheet (inside @media too): [selectors, declarations].
+const rules = (css) => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => [m[1].split(',').map((selector) => selector.trim()), m[2]]);
 function block(css, start) {
   const open = css.indexOf('{', start);
   let depth = 0;
@@ -1407,15 +1742,66 @@ test('source rules', () => {
   assert.doesNotMatch(js, /\.style\s*=[^=]|setAttribute\('style'|cssText/);
   assert.match(js, /createElementNS\(SVG, 'svg'\)/);
   const css = STYLE().replace(/\/\*[\s\S]*?\*\//g, '');
-  for (const m of css.matchAll(/border-left(?:-width)?\s*:\s*([\d.]+)px/g)) assert.ok(Number(m[1]) < 3, m[0]);
+  // No thick left bar, whatever the order of the values or the unit.
+  for (const m of css.matchAll(/border(?:-left|-inline-start|-inline)?(?:-width)?\s*:\s*([^;}]+)/g)) {
+    assert.doesNotMatch(m[1], /\b(?:medium|thick)\b/, m[0]);
+    for (const token of m[1].split(/\s+/)) { const length = pixels(token); if (length !== null) assert.ok(length < 3, m[0]); }
+  }
+  // Text never below .875rem: every size, and the floor of each clamp(). The route's figure is min(clamp(…), calc(…)):
+  // its clamp() floor counts, and calc() only fits five digits to their stop.
+  let route = 0;
+  for (const m of css.matchAll(/font-size\s*:\s*([^;}]+)/g)) {
+    const value = m[1].trim();
+    if (value === 'inherit') continue;
+    const fitted = /^min\((clamp\([^)]*\)),\s*calc\(.+\)\)$/.exec(value);
+    if (fitted) route += 1;
+    const floor = /^clamp\(([^,]+),/.exec(fitted ? fitted[1] : value)?.[1] ?? value;
+    assert.ok(pixels(floor) >= 14, m[0]);
+  }
+  assert.equal(route, 1, 'only the route\'s figure is fitted to its stop');
+  // No tinted tiles: no beige, no background on a family, a lead item or a column.
+  assert.ok(!css.includes('--beige'));
+  for (const [selectors, body] of rules(css)) {
+    if (selectors.some((selector) => /(?:^|\s)\.home-(?:block|lead-item|col)$/.test(selector))) assert.doesNotMatch(body, /background/, selectors.join());
+  }
   assert.doesNotMatch(css, /box-shadow/);
   assert.doesNotMatch(css, /border-radius/);
   for (const m of css.matchAll(/font-family\s*:\s*([^;}]+)/g)) assert.equal(m[1].trim(), 'inherit');
   assert.match(css, /font-variant-numeric:\s*tabular-nums/);
   assert.ok(css.includes('@media (max-width: 640px)'));
+  // 44px targets on a phone, and on any touch screen whatever its width; a wrapped block head keeps them apart.
+  for (const media of ['@media (max-width: 640px)', '@media (pointer: coarse)']) {
+    const touch = rules(block(css, css.indexOf(media)));
+    const has = (selector, declaration) => touch.some(([selectors, body]) => selectors.includes(selector) && declaration.test(body));
+    for (const selector of ['#homeMain .admin-textbutton', '.home-see', '.home-compare', '.home-actions a', '.home-queue']) assert.ok(has(selector, /min-height:\s*44px/), `${media} ${selector}`);
+    assert.ok(has('.home-reading > summary', /min-height:\s*44px/), media);
+    assert.ok(has('.home-block-head', /row-gap:\s*12px/), `${media}: wrapped head targets touch, never overlap`);
+    assert.ok(has('.home-block-head .home-see', /margin-block:\s*-6px/), media);
+    assert.ok(!touch.some(([selectors, body]) => selectors.includes('.home-block-head .home-see') && /margin(?:-left|-inline-start)?\s*:/.test(body)), `${media}: "Ver en" keeps its margin-left: auto`);
+  }
+  // A lead item's lines stand at its top, never spread over a stretched row.
+  assert.ok(rules(css).some(([selectors, body]) => selectors.includes('.home-lead-item') && /align-content:\s*start/.test(body)));
+  // A month column is never narrower than its widest figure (--mw) or a month's name, and a year's label is two whole
+  // line boxes with its padding and rule, so every month stands on one baseline.
+  assert.match(css, /\.home-months\s*\{[^}]*grid-template-columns:\s*repeat\(var\(--n, 5\), minmax\(var\(--col\), 3\.25rem\)\)/);
+  assert.match(css, /--col:\s*max\(2rem, calc\(var\(--mw, 3\) \* \.6125rem \+ 2px\)\)/);
+  assert.match(css, /\.home-charts\s*\{[^}]*calc\(var\(--months, 5\) \* max\(2\.5rem, var\(--col\)\)\)/);
+  assert.match(css, /\.home-months\.has-years \.home-month-label\s*\{\s*min-height:\s*calc\(2\.5em \+ 4px\)/);
+  assert.match(css, /\.home-months-box\s*\{[^}]*padding-inline-end:\s*var\(--tail, 0px\)[^}]*overflow-x:\s*auto/);
+  assert.match(css, /\.home-charts\.has-years, \.home-months\.has-years\s*\{\s*--col:\s*max\(2\.125rem,/);
+  assert.match(css, /\.home-scroll\s*\{[^}]*padding-inline-end:\s*var\(--tail, 0px\)/);
+  assert.match(css, /\.home-key-lead\s*\{\s*white-space:\s*nowrap/);
+  // The columns are measured with every definition closed: the rule comes after the one that opens them.
+  const explained = css.search(/\.home-block\.is-explained \.home-def\s*\{/);
+  const measuring = css.search(/\.home-blocks\.is-measuring \.home-def\s*\{\s*display:\s*none/);
+  assert.ok(explained >= 0 && measuring > explained, 'is-measuring hides the definitions after is-explained shows them');
   const print = block(css, css.indexOf('@media print'));
   assert.ok(css.includes('@media print'));
-  for (const selector of ['.navbar', '.staff-nav', 'button', '#homePending']) assert.ok(print.includes(selector), selector);
+  for (const selector of ['.navbar', '.staff-nav', 'button', '#homePending', '.home-tools']) assert.ok(print.includes(selector), selector);
+  // A family's rows in the month table never continue on a page without their label.
+  assert.ok(rules(print).some(([selectors, body]) => selectors.includes('.home-tracking-table tbody') && selectors.includes('.home-tracking-table tr') && /break-inside:\s*avoid/.test(body)));
+  assert.ok(rules(print).some(([selectors, body]) => selectors.includes('.home-group') && /break-after:\s*avoid/.test(body)));
+  assert.ok(rules(print).some(([selectors, body]) => selectors.includes('.home-tracking-head') && /break-inside:\s*avoid/.test(body) && /break-after:\s*avoid/.test(body)));
   assert.match(print, /#homePrintHead\s*\{[^}]*display:\s*block/);
   assert.match(print, /\.home-def\s*\{[^}]*display:\s*block\s*!important/);
   // The route turns down the left edge only on a narrow screen: printed, it runs across at any paper width.
