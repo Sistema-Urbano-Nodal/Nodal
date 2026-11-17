@@ -31,7 +31,7 @@ test('admin enrollment is normalized, idempotent across races and never fabricat
  assert.equal(await store.count('intakes',{}),0);assert.equal(sent.length,0);
  assert.equal((await participants.add(course,student.email)).result,'already_enrolled');
  await assert.rejects(participants.add({...course,status:'draft'},student.email),{code:'participant_course_unavailable'});
- for(const email of ['',null,'bad','a'.repeat(260)+'@example.test'])await assert.rejects(participants.add(course,email),{code:'participant_email'});
+ for(const email of ['',null,'bad','a'.repeat(260)+'@example.test'])await assert.rejects(participants.add(course,email),{code:'invitation_email'});
  await assert.rejects(participants.add(course,'missing@example.test'),{code:'participant_not_found'});
  f.accounts.get(student.email).confirmed=false;await assert.rejects(participants.add(course,student.email),{code:'participant_unconfirmed'});
  f.accounts.get(student.email).active=false;await assert.rejects(participants.add(course,student.email),{code:'participant_unavailable'});
@@ -138,6 +138,8 @@ test('course enrollment API requires admin and same origin; members see no invit
  assert.equal((await call(path,student)).status,403);
  assert.equal((await call(path,staff,'POST',{},'https://evil.test')).status,403);
  const missing=await call(path,staff,'POST',{email:'missing@example.test'});assert.equal(missing.status,404);assert.equal(missing.body.code,'participant_not_found');
+ // The browser's email field accepts an address without a dot in the domain; the server refuses it with the code the page translates.
+ for(const suffix of ['/participants','/invitations']){const malformed=await call(`/api/admin/courses/${course.id}${suffix}`,staff,'POST',{email:'maria@gmail'});assert.equal(malformed.status,400);assert.equal(malformed.body.code,'invitation_email');}
  assert.equal((await call(path,staff)).status,201);
  const detail=await call(`/api/courses/${course.id}`,student,'GET');assert.equal(detail.body.enrollment.intakeCompleted,false);assert.equal(detail.body.intake,null);assert.equal(detail.body.invitations,undefined);
  assert.equal((await call(`/api/admin/courses/${course.id}/report`,student,'GET')).status,403);

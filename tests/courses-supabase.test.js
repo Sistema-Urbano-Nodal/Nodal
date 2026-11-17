@@ -70,6 +70,18 @@ test('Supabase totals and private storage use server credentials and preserve bi
   await assert.rejects(failing.deleteFile(attachment),{status:502});
 });
 
+// No answer at all (a dropped connection, the 15 s timeout) is an outage for a count as for every other course read:
+// a 503 the server answers with Retry-After, not a statusless error it turns into a 500.
+test('Supabase totals treat a provider that does not answer as unavailable, as the other course reads do',async()=>{
+  const env={NEXT_PUBLIC_SUPABASE_URL:'https://project.supabase.co',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'test-public-key',SUPABASE_SECRET_KEY:'test-server-key'};
+  for(const failure of [new TypeError('fetch failed'),new DOMException('The operation was aborted due to timeout','TimeoutError')]) {
+    const store=createCourseStore({env,fetchImpl:async()=>{throw failure;}});
+    const outage={status:503,expose:false,upstream:failure.name};
+    await assert.rejects(store.find('enrollments',{courseId:'course'}),outage);
+    await assert.rejects(store.count('enrollments',{courseId:'course'}),outage);
+  }
+});
+
 test('Supabase descending filtered post cursor uses both timestamp and ID, and material conflicts are retryable',async()=>{
  const calls=[];
  const store=createCourseStore({clients:{admin:{rest:async(table,args)=>{

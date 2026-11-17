@@ -33,6 +33,23 @@ function enumValue(value, name, values, fallback = '') {
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
 const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/;
 
+/* Lima is the business clock (UTC-05:00 all year, no DST). A date-only end date is stored as the end of its UTC day
+   (T23:59:59.999Z), the form the pages read back as a calendar date; that day ends in Lima five hours later. */
+const LIMA_OFFSET_MS = 5 * 60 * 60 * 1000;
+const UTC_END_OF_DAY = /^\d{4}-\d{2}-\d{2}T23:59:59\.999Z$/;
+
+// The instant an end date closes its item: the end of that day in Lima for a date-only end date, otherwise the instant itself.
+function endDateClosesAt(endDate) {
+  const text = String(endDate).trim();
+  const stored = DATE_ONLY.test(text) ? `${text}T23:59:59.999Z` : text;
+  return Date.parse(stored) + (UTC_END_OF_DAY.test(stored) ? LIMA_OFFSET_MS : 0);
+}
+
+// The earliest stored end date that can still be open at `now`: a listing may leave out anything that ends before it.
+export function earliestOpenEndDate(now = new Date()) {
+  return new Date(new Date(now).getTime() - LIMA_OFFSET_MS).toISOString();
+}
+
 function validCalendarDate(year, month, day) {
   const candidate = new Date(Date.UTC(year, month - 1, day));
   return candidate.getUTCFullYear() === year && candidate.getUTCMonth() === month - 1 && candidate.getUTCDate() === day;
@@ -130,10 +147,12 @@ export function validateCatalogDraft(input = {}) {
   };
   const deadline = record.deadlineAt ? Date.parse(record.deadlineAt) : null;
   const start = record.startsAt ? Date.parse(record.startsAt) : null;
-  const end = record.endDate ? Date.parse(record.endDate) : null;
+  const end = record.endDate ? endDateClosesAt(record.endDate) : null;
+  // Measured against that Lima end, a date-only start or deadline is the start of its day in Lima too.
+  const inLima = (time, raw) => (DATE_ONLY.test(String(raw).trim()) ? time + LIMA_OFFSET_MS : time);
   if (deadline !== null && start !== null && deadline > start) throw new Error('deadline must be on or before start');
-  if (start !== null && end !== null && start > end) throw new Error('start must be on or before end');
-  if (deadline !== null && end !== null && deadline > end) throw new Error('deadline must be on or before end');
+  if (start !== null && end !== null && inLima(start, source.startsAt) > end) throw new Error('start must be on or before end');
+  if (deadline !== null && end !== null && inLima(deadline, source.deadlineAt) > end) throw new Error('deadline must be on or before end');
   return record;
 }
 
@@ -225,8 +244,6 @@ export function decodeCatalogInterestCursor(value) {
 export function isCatalogItemClosed(item, now = new Date()) {
   const deadline = item?.deadlineAt ? Date.parse(item.deadlineAt) : NaN;
   if (Number.isFinite(deadline)) return deadline < new Date(now).getTime();
-  const endDate = item?.endDate ? Date.parse(item.endDate) : NaN;
+  const endDate = item?.endDate ? endDateClosesAt(item.endDate) : NaN;
   return Number.isFinite(endDate) && endDate < new Date(now).getTime();
 }
-
-export const CATALOG_LIMITS = Object.freeze({ ...LIMITS });

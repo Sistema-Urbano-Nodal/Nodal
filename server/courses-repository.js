@@ -1,5 +1,5 @@
 import { COURSE_TABLES, COURSE_SQLITE_SCHEMA, COURSE_SQLITE_DISCUSSION_SCHEMA, snake } from './courses-schema.js';
-import { createSupabaseClients } from './supabase.js';
+import { createSupabaseClients, unavailableError } from './supabase.js';
 import { randomUUID } from 'node:crypto';
 import { fail, identifier } from './courses-domain.js';
 import { createObjectStorage } from './object-storage.js';
@@ -211,7 +211,10 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
     async count(name,filters={}) {
       const info=tableInfo(name),query=queryFor(info,filters,{limit:1});query.select='id';delete query.order;
       const credentials=supa.env;
-      const response=await fetchImpl(`${credentials.url}/rest/v1/${info.table}?${new URLSearchParams(query)}`,{method:'HEAD',headers:{apikey:credentials.serverKey,Authorization:`Bearer ${credentials.serverKey}`,Prefer:'count=exact'},signal:AbortSignal.timeout(15000)});
+      let response;
+      // No answer (the timeout, a dropped connection) is an outage, a 503 as from every other course read, not a 500.
+      try { response=await fetchImpl(`${credentials.url}/rest/v1/${info.table}?${new URLSearchParams(query)}`,{method:'HEAD',headers:{apikey:credentials.serverKey,Authorization:`Bearer ${credentials.serverKey}`,Prefer:'count=exact'},signal:AbortSignal.timeout(15000)}); }
+      catch(error) { throw unavailableError(error); }
       const total=response.headers.get('content-range')?.split('/')[1];
       if(!response.ok||!/^\d+$/.test(total??''))fail('course totals unavailable',502);
       return Number(total);

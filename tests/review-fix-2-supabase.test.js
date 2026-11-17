@@ -145,8 +145,11 @@ function condition(expr) {
     const parts = split(logic[2]).map(condition);
     return logic[1] === 'and' ? (r) => parts.every((p) => p(r)) : (r) => parts.some((p) => p(r));
   }
-  const [, field, op, value] = /^([a-z_]+)\.(not\.is|is|eq|gt|gte|lt)\.(.*)$/.exec(expr);
-  const read = (r) => (field === 'end_date' ? r.end_date?.slice(0, 10) ?? null : field === 'featured' ? String(r.featured) : r[field]);
+  const [, field, op, raw] = /^([a-z_]+)\.(not\.is|is|eq|gt|gte|lt)\.(.*)$/.exec(expr);
+  // end_date is a timestamptz: Postgres compares it with the filter's value as an instant, whatever its text form.
+  const instant = field === 'end_date';
+  const read = (r) => (instant ? (r.end_date == null ? null : Date.parse(r.end_date)) : field === 'featured' ? String(r.featured) : r[field]);
+  const value = instant ? Date.parse(raw) : raw;
   return (r) => {
     const v = read(r);
     if (op === 'is') return v === null;
@@ -182,13 +185,15 @@ function catalogRows() {
   const rows = [];
   // 400 published opportunities whose deadline passed, and some that ended without one
   for (let n = 1; n <= 400; n += 1) rows.push(row(n, { deadline_at: micro(iso(-1 - (n % 90))), featured: n % 7 === 0 }));
-  for (let n = 401; n <= 420; n += 1) rows.push(row(n, { end_date: iso(-3 - (n % 5)).slice(0, 10) }));
+  // A date-only end date is stored as the end of its UTC day.
+  const endOfDay = (offsetDays) => micro(`${iso(offsetDays).slice(0, 10)}T23:59:59.999Z`);
+  for (let n = 401; n <= 420; n += 1) rows.push(row(n, { end_date: endOfDay(-3 - (n % 5)) }));
   // 70 open ones: featured and not, with and without deadlines, sharing deadlines and publication times
   for (let n = 501; n <= 570; n += 1) {
     rows.push(row(n, {
       featured: n % 5 === 0,
       deadline_at: n % 4 === 0 ? null : micro(iso(1 + (n % 6))),
-      end_date: n % 8 === 0 ? iso(30).slice(0, 10) : null,
+      end_date: n % 8 === 0 ? endOfDay(30) : null,
       published_at: n % 9 === 0 ? null : `2030-05-0${1 + (n % 3)}T00:00:00.12${n % 10}${n % 4}00Z`,
       translations: { en: { title: n % 3 === 0 ? `Needle ${n}` : `Item ${n}`, summary: '', body: '', cta: '' } },
     }));
@@ -265,6 +270,18 @@ test('the keyset filter sends only valid PostgREST values, including for null de
   await repo.listCatalogItems({ cursor: Buffer.from(JSON.stringify([0, '￿', '', 'catalog-1'])).toString('base64url'), state: 'all' }, null);
   assert.doesNotMatch(reads[2].params.and, /catalog-1/);
   assert.doesNotThrow(() => decodeCatalogCursor(Buffer.from(JSON.stringify([0, '￿', '', uuid(8)])).toString('base64url')));
+});
+
+/* A date-only end date (stored as the end of its UTC day) stays open until midnight in Lima, UTC-05:00 all year: PostgREST
+   still returns it on the evening of its last day, and the exact check then keeps it. */
+test('a date-only end date is listed until midnight in Lima, and PostgREST still returns it that evening', async (t) => {
+  const { reads, repo } = fakePostgrest([row(1, { end_date: '2026-11-30T23:59:59.999+00:00' })]);
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-30T19:30:00-05:00') });
+  assert.deepEqual((await repo.listCatalogItems({ limit: 24 }, null)).items.map((item) => item.id), [uuid(1)]);
+  assert.match(reads.at(-1).params.or, /end_date\.gte\.2026-11-30T19:30:00\.000Z\)\)$/, 'the bound sits five hours back');
+  t.mock.timers.setTime(Date.parse('2026-12-01T00:00:01-05:00'));
+  assert.deepEqual((await repo.listCatalogItems({ limit: 24 }, null)).items, []);
+  assert.deepEqual(reads.at(-1).rows, [], 'from midnight in Lima the row is no longer read');
 });
 
 test('the detail read does not inherit the open-state filter', async () => {

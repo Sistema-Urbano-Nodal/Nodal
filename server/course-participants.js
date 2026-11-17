@@ -4,9 +4,11 @@ import {validateEmail} from './auth.js';
 const stamp = () => new Date().toISOString();
 // The provider's own error is kept as the cause, so the server log can say why an invitation failed.
 const invitationError = (code, status, cause) => { throw Object.assign(new Error(code), {code, status, ...(cause ? {cause} : {})}); };
+// The teaching page translates invitation_email ("Enter a valid email address", web/scripts/pilot.js), for an addition
+// and an invitation alike.
 export function participantEmail(value) {
   const email = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (email.length > 254 || !validateEmail(email)) invitationError('participant_email', 400);
+  if (email.length > 254 || !validateEmail(email)) invitationError('invitation_email', 400);
   return email;
 }
 
