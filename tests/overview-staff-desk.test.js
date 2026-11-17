@@ -263,3 +263,27 @@ test('M61/M141: Sign out with an unsaved post asks before the session closes, an
   assert.deepEqual(clean.confirms, [], 'nothing unsaved: no question');
   assert.equal(clean.context.location.assigned, '/login.html');
 });
+
+const interest = (id, overrides = {}) => ({
+  id, version: 1, status: 'new', message: 'Hola', member: { name: 'Ana', email: 'ana@example.test' },
+  item: { itemId: 'r1', title: 'Fondo para calles', kind: 'opportunity', organization: 'NODAL' }, ...overrides,
+});
+const nodeView = (id, overrides = {}) => ({
+  id, kind: 'node', name: 'Ana Quispe', organization: `Colectivo ${id}`, email: 'ana@example.test', phone: null, community: null, memberships: null,
+  message: 'Queremos activar un nodo.', language: 'es', status: 'new', emailStatus: 'sent',
+  createdAt: '2026-11-03T04:30:00.000Z', updatedAt: '2026-11-03T04:30:00.000Z', version: 1, ...overrides,
+});
+
+test('M66: a Load more that fails is reported on its band and settles, never left as an unhandled rejection', async () => {
+  const d = desk({ routes: {
+    interests: (call) => (call.url.includes('cursor=') ? Promise.reject(new TypeError('Failed to fetch')) : response({ interests: [interest('i1')], nextCursor: 'later-interests' })),
+    nodes: (call) => (call.url.includes('cursor=') ? response({ error: 'cursor expired' }, 400) : response({ requests: [nodeView('n1')], nextCursor: 'later-requests' })),
+  } });
+  await flush();
+  await assert.doesNotReject(d.node('adminInterestMore').listeners.get('click')());
+  assert.equal(d.node('adminInterestStatus').textContent, 'Member interests are unavailable.');
+  assert.equal(d.node('adminInterestList').children.length, 1, 'the page already loaded stays');
+  await assert.doesNotReject(d.node('adminNodeMore').listeners.get('click')());
+  assert.equal(d.node('adminNodeStatus').textContent, 'cursor expired', 'a refusal in the server’s words');
+  assert.equal(d.node('adminNodeList').children.length, 1);
+});

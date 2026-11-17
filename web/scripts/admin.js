@@ -1358,8 +1358,9 @@
   elements.nodeFilter.addEventListener('change', refreshNodeRequestsNow);
   elements.nodeKind.addEventListener('change', refreshNodeRequestsNow);
   elements.catalogMore.addEventListener('click', () => loadCatalog({ append: true }));
-  elements.interestMore.addEventListener('click', () => loadInterests({ append: true }));
-  elements.nodeMore.addEventListener('click', () => loadNodeRequests({ append: true }));
+  // Both loaders report a failure on their band, then rethrow for the writes that wait on them: a click has nothing more to do with it.
+  elements.interestMore.addEventListener('click', () => loadInterests({ append: true }).catch(() => {}));
+  elements.nodeMore.addEventListener('click', () => loadNodeRequests({ append: true }).catch(() => {}));
   elements.kind.addEventListener('change', updateConditionalFields);
   elements.actionMode.addEventListener('change', updateConditionalFields);
   elements.newItem.addEventListener('click', () => {
