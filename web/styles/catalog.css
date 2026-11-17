@@ -69,7 +69,7 @@
 .catalog-detail-kind { color: var(--catalog-green); font-size: 0.7rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
 .catalog-detail-pane h2 { clear: both; margin: 0.5rem 0; font-size: 2rem; line-height: 1.08; color: var(--catalog-ink); }
 .catalog-detail-summary { color: var(--catalog-muted); font-weight: 600; line-height: 1.55; }
-#catalogDetail { scroll-margin-top: 7.5rem; }
+#catalogMyInterests, #catalogDetail { scroll-margin-top: 7.5rem; }
 .catalog-detail-meta { display: grid; gap: 0; margin: 1.25rem 0; }
 .catalog-detail-meta .dispatch-meta-item { display: grid; gap: 0.2rem; padding: 0.65rem 0; border-bottom: 1px solid var(--catalog-rule); line-height: 1.45; }
 .catalog-detail-meta .dispatch-meta-value { overflow-wrap: anywhere; }
@@ -83,7 +83,7 @@
 .catalog-more { margin-top: 1.5rem; }
 .catalog-retry { margin-bottom: 1.5rem; }
 .catalog-page button:disabled { opacity: 0.55; cursor: wait; }
-#detailTitle:focus, #resultsTitle:focus { outline: 3px solid var(--catalog-green); outline-offset: 4px; }
+#detailTitle:focus, #resultsTitle:focus, #myInterestsTitle:focus { outline: 3px solid var(--catalog-green); outline-offset: 4px; }
 
 .my-interests { margin-top: 3rem; padding: 2rem; border: 1px solid var(--catalog-map); background: #fff; }
 .interest-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--catalog-rule); border-left: 1px solid var(--catalog-rule); }
@@ -115,7 +115,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .kind-fieldset { display: grid; grid-template-columns: 1fr 1fr; }
   .kind-fieldset legend { grid-column: 1 / -1; }
   .catalog-detail-pane, .my-interests { padding: 1.1rem; }
-  #catalogDetail { scroll-margin-top: 6.5rem; }
+  #catalogMyInterests, #catalogDetail { scroll-margin-top: 6.5rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {

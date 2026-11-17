@@ -230,3 +230,25 @@ test('a deadline set on the desk reads as its Lima day for every visitor, and th
   assert.equal(meta['catalog.endDate'], '15 dic 2026');
   assert.equal(meta['catalog.sourceVerified'], '1 nov 2026');
 });
+
+test('My interests opens in view, below the results, with focus on its heading', async () => {
+  assert.match(pageHtml, /<h2 id="myInterestsTitle" tabindex="-1"/);
+  assert.match(read('web/styles/catalog.css'), /#myInterestsTitle:focus/);
+  const h = catalogPage();
+  await flush();
+  const section = h.ids.get('catalogMyInterests');
+  const toggle = h.ids.get('catalogMyInterestsToggle');
+  assert.equal(toggle.hidden, false);
+
+  await toggle.dispatch('click');
+  await flush();
+  assert.equal(section.hidden, false);
+  assert.equal(section.scrolls, 1);
+  assert.equal(h.ids.get('myInterestsTitle').focused, true);
+
+  // Reading the list again in another language leaves the page where it is.
+  h.i18n.lang = 'pt';
+  await h.i18n.change('pt');
+  await flush();
+  assert.equal(section.scrolls, 1);
+});

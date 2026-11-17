@@ -414,7 +414,8 @@
     return updateInterest(itemId, { method: 'DELETE' });
   }
 
-  async function loadMyInterests() {
+  // reveal: the member pressed My interests, whose section sits below the results, so the page goes there.
+  async function loadMyInterests({ reveal = false } = {}) {
     const section = byId('catalogMyInterests');
     const status = byId('catalogMyInterestsStatus');
     const list = byId('catalogMyInterestsList');
@@ -426,6 +427,10 @@
     section.hidden = false;
     status.textContent = t('catalog.loadingInterests');
     clear(list);
+    if (reveal) {
+      byId('myInterestsTitle')?.focus({ preventScroll: true });
+      section.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    }
     try {
       const interests = [];
       const cursors = new Set();
@@ -526,7 +531,7 @@
     });
     byId('catalogInterestForm').addEventListener('submit', submitInterest);
     byId('catalogWithdrawInterest').addEventListener('click', withdrawInterest);
-    byId('catalogMyInterestsToggle').addEventListener('click', loadMyInterests);
+    byId('catalogMyInterestsToggle').addEventListener('click', () => loadMyInterests({ reveal: true }));
     byId('catalogMyInterestsClose').addEventListener('click', () => {
       page.interestsController?.abort();
       page.interestsController = null;
