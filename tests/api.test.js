@@ -1703,9 +1703,10 @@ test('the globe draws real relationships, filters by topic, and honours a member
 test('a topic nobody in your city holds does not say your city is off the map', async (t) => {
   const citySearch = {
     async search(query) {
-      const known = { trujillo: [-8.11, -79.03], lima: [-12.04, -77.03], arequipa: [-16.4, -71.54] };
+      // The provider places neither Trujillo nor Atlantis: their profile saves remember a miss and keep no pin.
+      const known = { lima: [-12.04, -77.03], arequipa: [-16.4, -71.54] };
       const hit = known[String(query).toLowerCase()];
-      return { cities: hit ? [{ label: String(query), lat: hit[0], lon: hit[1] }] : [] };   // Atlantis cannot be placed
+      return { cities: hit ? [{ label: String(query), lat: hit[0], lon: hit[1] }] : [] };
     },
   };
   const { db, base } = await bootDbHandle(t, { citySearch });
@@ -1722,8 +1723,9 @@ test('a topic nobody in your city holds does not say your city is off the map', 
   await member('Ana', 'Lima', 'Mobility');
   const nadia = await member('Nadia', 'Atlantis', 'Housing');
   const lucia = await member('Lucia', 'Arequipa', 'Housing');
-  // Pedro saved his profile while the city provider was down: his own pin is missing, Rosa's places Trujillo.
-  db.prepare('UPDATE users SET city_lat = NULL, city_lon = NULL WHERE id = ?').run(pedro.id);
+  /* Rosa's pin was saved earlier, on another instance or over a month ago, so this instance's cache only remembers the
+     provider's miss. Pedro has no pin. Under a topic, only Rosa's saved pin places Trujillo. */
+  db.prepare('UPDATE users SET city_lat = -8.11, city_lon = -79.03 WHERE id = ?').run(rosa.id);
   // Nobody in Arequipa kept a pin: the whole map places it through the provider's remembered point.
   db.prepare('UPDATE users SET city_lat = NULL, city_lon = NULL WHERE id = ?').run(lucia.id);
   const you = async (who, query = '') => (await getJson(base, `/api/network/places${query}`, who.cookie)).body.you;
