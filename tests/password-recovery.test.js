@@ -260,6 +260,16 @@ test('when a server answer ends the reset, focus goes to the heading rather than
   const done=ui(async()=>response({passwordChanged:true}));done.nodes.get('recoveryPassword').value=done.nodes.get('recoveryConfirm').value='safe-new-password';
   await done.submit('recoveryReset');assert.equal(done.nodes.get('recoveryTitle').focused,true,'and after the password is saved');
 });
+// Once the password is saved no link is left to replace: "Request another link" would bring the request form back as
+// if the change had not taken, so only "Back to sign in" stays.
+test('a saved password leaves only the way back to sign in, not a request for another link',async()=>{
+  for(const reply of [{passwordChanged:true},{passwordChanged:true,code:'recovery_changed'}]){
+    const h=ui(async()=>response(reply));assert.equal(h.nodes.get('recoveryAnother').hidden,false,'offered while the link is in use');
+    h.nodes.get('recoveryPassword').value=h.nodes.get('recoveryConfirm').value='safe-new-password';
+    await h.submit('recoveryReset');
+    assert.equal(h.nodes.get('recoveryTitle').textContent,'Password updated');assert.equal(h.nodes.get('recoveryAnother').hidden,true,JSON.stringify(reply));
+  }
+});
 /* The message is a live region. Two lost answers in a row write the same words, which screen readers may not
    announce again, so the message empties while each request is sent and every answer arrives as new text. */
 test('the message empties while a request is sent, so a repeated answer is announced again',async()=>{

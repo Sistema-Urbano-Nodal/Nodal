@@ -37,6 +37,9 @@ const CONSOLE=readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.met
 // retired Supporting membership page and checkout lines (y.* other than y.free, y.freeName, y.f1-f4, y.faq and y.fund.*,
 // which payments.html uses), the old globe panel's d.globe.title/sub/hint/working/roles, d.search.regional and the
 // d.badge.sharer/connector/consistent.scope lines the .req lines replaced.
+// On 16 Nov 2026 the sign-up hint (a.hint) gained the upper limit sign-up already enforced (8–72), in the invitation page's
+// words; only that key moved, and tests/overview-forms-signup-hint.test.js pins it. The two nonhome hashes were redone once
+// for both changes when they were merged.
 const HOME_KEYS=[
   "about.eyebrow",
   "about.lead1",
@@ -273,8 +276,8 @@ const SNAPSHOTS={
     "pt": "b9a077e4b2055212490393a2498292f0d20156b6f1d4e34f8d7b063179e71d3b"
   },
   "nonhome": {
-    "es": "c078d5db1188923e7431625bdb144185cf47ca9f9a5760c8bce06bb57edc804f",
-    "pt": "3365ec50ba307a773ad4bbecece67b1161c6753f65b87a3cdf1845f585e25071"
+    "es": "3e52253218a19a55ce0eebc57b3c37203a9e8ec46498c7bfbcfea3e650c46e86",
+    "pt": "cf2875ee0e112c4c7dc1d2cbdf3e940cc44de48ac9bca28b08d7f278a6a4d38c"
   }
 };
 

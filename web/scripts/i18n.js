@@ -577,7 +577,7 @@
     'a.signinBtn': 'Entrar',
     'a.create': 'Crear cuenta',
     'a.name': 'Nombre completo',
-    'a.hint': 'Usa al menos 8 caracteres. Tu contraseña se protege antes de guardarse.',
+    'a.hint': 'Usa entre 8 y 72 caracteres (menos con tildes o emojis). Tu contraseña se protege antes de guardarse.',
     'a.createBtn': 'Crear cuenta',
     'a.confirm': 'Revisa tu correo para confirmar la cuenta. Si ya la confirmaste, inicia sesión.',
 
@@ -646,7 +646,7 @@
     'a.signinBtn': 'Entrar',
     'a.create': 'Criar conta',
     'a.name': 'Nome completo',
-    'a.hint': 'Use pelo menos 8 caracteres. Sua senha é protegida antes de ser armazenada.',
+    'a.hint': 'Use entre 8 e 72 caracteres (menos com acentos ou emojis). Sua senha é protegida antes de ser armazenada.',
     'a.createBtn': 'Criar conta',
     'a.confirm': 'Confira seu e-mail para confirmar a conta. Se já confirmou, faça login.',
 

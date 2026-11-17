@@ -28,6 +28,7 @@ class Element {
 function invitation({ AbortSignalImpl }) {
   const nodes = {}, listeners = {}, requests = [];
   for (const id of ['invitationForm', 'recoveryMessage', 'invitationTitle', 'invitationName', 'invitationPassword', 'invitationConfirm', 'invitationSubmit', 'invitationSignIn']) nodes[id] = new Element(id === 'invitationForm' ? 'form' : 'div');
+  for (const node of Object.values(nodes)) node.getAttribute = key => node[key] ?? null;
   nodes.invitationForm.hidden = true;
   const document = { readyState: 'loading', documentElement: {}, getElementById: id => nodes[id] || null, querySelector: () => null, querySelectorAll: () => [], addEventListener: (type, fn) => { listeners[type] = fn; } };
   const ctx = vm.createContext({

@@ -63,7 +63,7 @@
     weakPassword:['Choose a stronger password: make it longer and avoid common passwords.','Elige una contraseña más segura: que sea más larga y no una contraseña común.','Escolha uma senha mais forte: mais longa e que não seja uma senha comum.'],
     invalidCredentials:['Email or password is incorrect.','Correo o contraseña incorrectos.','E-mail ou senha incorretos.'],
     confirmEmail:["Confirm your email before signing in. Didn't get the email? Check spam, or use Create account again with the same email and password to get a new link.",'Confirma tu correo antes de iniciar sesión. ¿No te llegó? Revisa el spam o vuelve a usar Crear cuenta con el mismo correo y contraseña para recibir otro enlace.','Confirme seu e-mail antes de entrar. Não recebeu? Confira o spam ou use Criar conta de novo com o mesmo e-mail e senha para receber outro link.'],
-    // A confirmation opened in a mail app's own browser loses the way back to a check-in, so the person is told to scan again.
+    // A signup confirmation link lands here (see the top of this file): the account is confirmed, so the person signs in.
     confirmed:['Email confirmed. Sign in to continue.','Correo confirmado. Inicia sesión para continuar.','E-mail confirmado. Entre para continuar.'],
     linkExpired:['This link expired or was already used. Try signing in. If we ask you to confirm your email, use Create account again with the same email and password to get a new link.','Este enlace venció o ya se usó. Intenta iniciar sesión; si te pedimos confirmar tu correo, vuelve a usar Crear cuenta con el mismo correo y contraseña para recibir otro.','Este link expirou ou já foi usado. Tente entrar; se pedirmos para confirmar seu e-mail, use Criar conta de novo com o mesmo e-mail e senha para receber outro.'],
     confirmation:['Check your email and confirm your account. If you already confirmed it, sign in.','Revisa tu correo y confirma tu cuenta. Si ya la confirmaste, inicia sesión.','Confira seu e-mail e confirme sua conta. Se já confirmou, entre.'],
@@ -98,9 +98,13 @@
     feedback.set(node,key);node.textContent=t(key);node.hidden=false;node.classList.toggle('is-ok',okKeys.has(key));
     if(input){input.setAttribute('aria-invalid','true');input.focus();}
   };
+  // The status line is hidden while a request is sent, and a live region that reappears may not be announced. An answer
+  // about one field is read with that field (focus goes there, and the line describes it); any other answer also
+  // describes the button, where focus returns, until the next try.
+  const tell = (state,key) => {show(state.error,key);state.submit.setAttribute('aria-describedby',state.error.id);};
   const clear = state => {
     feedback.delete(state.error);state.error.textContent='';state.error.hidden=true;
-    state.inputs.forEach(input=>input.removeAttribute('aria-invalid'));
+    state.inputs.forEach(input=>input.removeAttribute('aria-invalid'));state.submit.removeAttribute('aria-describedby');
   };
   const setBusy = (state,value) => {
     state.busy=value;state.submit.disabled=value;state.form.setAttribute('aria-busy',String(value));render();
@@ -149,20 +153,20 @@
       // The auth provider accepts at most 72 bytes of UTF-8 (bcrypt); accents and emoji take two to four each.
       if(signup&&(password.value.length<8||utf8Bytes(password.value)>72)){show(state.error,'passwordLength',password);return;}
       // A second tap right after the email went out would only hit the provider's resend cooldown; after a minute it resends.
-      const sent=state.sent;if(signup&&sent&&sent.email===email.value.trim().toLowerCase()&&Date.now()-sent.at<60000){show(state.error,'confirmation');return;}
+      const sent=state.sent;if(signup&&sent&&sent.email===email.value.trim().toLowerCase()&&Date.now()-sent.at<60000){tell(state,'confirmation');return;}
       setBusy(state,true);let redirecting=false,field=null;
       try{
         const data=await post('/api/auth/'+(signup?'signup':'login'),{email:email.value.trim(),password:password.value,...(signup?{fullName:name.value.trim()}:{})},signup);
         if(signup&&data.requiresEmailConfirmation){
           state.sent={email:email.value.trim().toLowerCase(),at:Date.now()};const le=$('loginEmail');if(le&&!le.value)le.value=email.value.trim();
-          show(state.error,'confirmation');return;
+          tell(state,'confirmation');return;
         }
         redirecting=true;forgetReturn();location.assign(safeNext);
       }catch(error){
         const key=error.key||'connection';
         // A refusal about one field sends the person back to it; a wrong password is selected, ready to retype.
         field=({invalidCredentials:password,passwordLength:password,weakPassword:password,email,name})[key]||null;
-        show(state.error,key,field);if(key==='invalidCredentials')password.select();
+        if(field)show(state.error,key,field);else tell(state,key);if(key==='invalidCredentials')password.select();
       }
       finally{
         if(!redirecting){

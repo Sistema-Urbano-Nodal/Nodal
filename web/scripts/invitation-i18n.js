@@ -11,7 +11,6 @@
     accept:['Accept invitation','Aceptar invitación','Aceitar convite'],
     saving:['Preparing your account…','Preparando tu cuenta…','Preparando sua conta…'],
     nameLength:['Enter your full name using 2–120 characters.','Escribe tu nombre completo con entre 2 y 120 caracteres.','Digite seu nome completo com entre 2 e 120 caracteres.'],
-    invitation_name:['Check your name and try again.','Revisa tu nombre e inténtalo de nuevo.','Confira seu nome e tente novamente.'],
     invitation_password_length:['Use 8–72 characters for your password (fewer with accents or emoji).','Usa entre 8 y 72 caracteres en tu contraseña (menos con tildes o emojis).','Use entre 8 e 72 caracteres na senha (menos com acentos ou emojis).'],
     mismatch:['The passwords do not match.','Las contraseñas no coinciden.','As senhas não coincidem.'],
     invalidTitle:['Let’s get you into NODAL','Vamos a entrar a NODAL','Vamos entrar na NODAL'],

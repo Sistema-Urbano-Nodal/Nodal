@@ -128,14 +128,19 @@
   // button they pressed is off or gone, and the page body would say nothing.
   const focusMessage = () => (els.purchase.hidden ? els.closed : els.status).focus();
 
+  // As on sign-in, a request gives up after 45 s, so one a connection swallows (venue Wi-Fi) ends in a failure the member
+  // can retry, not a locked box. Safari before 16 (every iOS 15 browser) has no AbortSignal.timeout; there the request
+  // simply runs without the time limit.
+  const limit = () => (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? { signal: AbortSignal.timeout(45000) } : {});
+
   async function load() {
     let next;
     try {
-      const res = await fetch('/api/billing/config', { headers: { Accept: 'application/json' } });
+      const res = await fetch('/api/billing/config', { headers: { Accept: 'application/json' }, ...limit() });
       // Static hosting has no API, and reads as sign-ups opening soon. Any other refusal is a failure the member can retry.
       next = res.ok ? read(await res.json()) : res.status === 404 ? read(null) : nothing('failed');
     } catch {
-      next = nothing('failed');   // offline, or an answer that is not JSON
+      next = nothing('failed');   // offline, no answer within the limit, or an answer that is not JSON
     }
     offer = next;
     render();
@@ -156,6 +161,7 @@
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ option, version: offer.version, accept: { terms: true, payment: true, renewal: true } }),
+        ...limit(),
       });
       return { status: res.status, data: await res.json().catch(() => null) };
     } catch {

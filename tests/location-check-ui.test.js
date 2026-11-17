@@ -10,14 +10,18 @@ const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(resolv
 function harness({ respond, saved = {}, storageFailure = false, permission = 'prompt', geolocation = true } = {}) {
   const nodes = {}, listeners = {}, windowListeners = {}, changes = [], requests = [], positions = [], events = [], timers = new Map();
   const storage = new Map(Object.entries(saved)); let timerId = 0, observer, timestamp = Date.UTC(2026, 8, 8, 16), permissionReads = 0;
+  const document = { hidden: false, body: { id: 'body' }, getElementById: id => nodes[id], addEventListener: (type, fn) => { listeners[type] = fn; } };
+  document.activeElement = document.body;
   for (const id of ['locationCheck', 'locationCurrent', 'locationCheckNow', 'locationAutomatic', 'locationSuggestion', 'locationProposed', 'locationUse', 'locationKeep', 'locationStatus', 'locationCancel', 'locationAttribution', 'network']) nodes[id] = {
     id, hidden: false, disabled: false, checked: false, textContent: '', dataset: {}, listeners: {},
     setAttribute(key, value) { this[key] = value; }, addEventListener(type, fn) { this.listeners[type] = fn; },
     querySelectorAll() { return Object.values(nodes).filter(n => n.dataset.locationText); },
+    focus(options) { document.activeElement = this; this.focusOptions = options; }, contains(other) { for (let n = other; n; n = n.parent) if (n === this) return true; return false; },
   };
+  for (const id of ['locationProposed', 'locationUse', 'locationKeep', 'locationAttribution']) nodes[id].parent = nodes.locationSuggestion;
   nodes.locationAttribution.dataset.locationText = 'source';
+  nodes.locationStatus.hidden = true; // as dashboard.html has it
   class MockDate extends Date { constructor(...args) { super(...(args.length ? args : [timestamp])); } static now() { return timestamp; } }
-  const document = { hidden: false, getElementById: id => nodes[id], addEventListener: (type, fn) => { listeners[type] = fn; } };
   const context = {
     Date: MockDate, AbortController, console,
     localStorage: { getItem(key) { if (storageFailure) throw new Error('blocked'); return storage.get(key) || null; }, setItem(key, value) { if (storageFailure) throw new Error('blocked'); storage.set(key, value); } },
@@ -41,6 +45,11 @@ function harness({ respond, saved = {}, storageFailure = false, permission = 'pr
     view(value) { observer([{ isIntersecting: value }]); }, hidden(value) { document.hidden = value; listeners.visibilitychange(); },
     nextDay() { timestamp += 86400000; }, language(value) { context.window.nodalI18n.lang = value; changes.forEach(fn => fn()); },
     async suggest() { const pending = this.click('locationCheckNow'); this.geo(); await pending; },
+    // The button has focus when it is pressed: from the keyboard, or by a click in Chrome, Edge and Firefox outside macOS.
+    // drop() is the browser moving focus to the page a task after the focused button was disabled or hidden; focused()
+    // names what has focus, and activate() is Enter or Space on it (only buttons act on them).
+    press(id) { nodes[id].focus(); return this.click(id); }, drop() { document.activeElement = document.body; }, focused: () => document.activeElement.id,
+    activate() { return document.activeElement.listeners?.click?.(); },
   };
 }
 
@@ -141,7 +150,7 @@ test('brief success, kept-city and same-city messages dismiss after five seconds
     if (outcome === 'updated') await h.click('locationUse');else if (outcome === 'unchanged') h.click('locationKeep');
     const timer = [...h.timers.entries()].find(([, value]) => value.ms === 5000);assert.ok(timer, outcome);assert.equal(h.nodes.locationStatus.hidden, false);
     for (const language of ['en', 'es', 'pt']) { h.language(language);assert.ok(h.nodes.locationStatus.textContent.split(/\s+/).length <= 4);assert.equal([...h.timers.entries()].find(([, value]) => value.ms === 5000)[0], timer[0]); }
-    h.timers.delete(timer[0]);timer[1].fn();assert.equal(h.nodes.locationStatus.hidden, true);assert.equal(h.nodes.locationStatus.textContent, '');
+    h.timers.delete(timer[0]);timer[1].fn();assert.equal(h.nodes.locationStatus.hidden, false, 'emptied, not hidden');assert.equal(h.nodes.locationStatus.textContent, '');
   }
 });
 
@@ -159,4 +168,71 @@ test('location markup and dynamic copy have all EN/ES/PT translations and no bac
   for (const match of source.matchAll(/\blt\('([^']+)'/g)) assert.ok(rows[match[1]], match[1]);
   assert.doesNotMatch(source, /watchPosition/);assert.ok(markup.indexOf('src="location-check.js?') < markup.indexOf('src="dashboard.js?'));
   assert.match(markup, /id="locationAutomatic" aria-describedby="locationAutomaticHint locationPrivacy"/);
+});
+
+/* Pressing Verify disables it, and Keep, Cancel or a saved city hide the button pressed: either drops focus to the page.
+   After a check, a save, Keep or Cancel started from the focused button, focus comes back: to the suggestion when a check
+   finds a city (the group is named by it, so it is read; a key press there commits nothing), to Update after a refused
+   Update, otherwise to Verify. */
+test('focus comes back after a check, a save, Keep or Cancel started from the button', async () => {
+  const h = harness();h.api.setUser(member);
+  let pending = h.press('locationCheckNow');assert.equal(h.nodes.locationCheckNow.disabled, true);h.drop();h.geo();await pending;
+  assert.equal(h.nodes.locationSuggestion.hidden, false);assert.equal(h.focused(), 'locationSuggestion', 'a suggestion takes focus to its group');
+  assert.equal(h.nodes.locationSuggestion.tabIndex, -1, 'focusable by script only, never in the Tab order');
+  assert.equal(h.nodes.locationSuggestion.focusOptions?.preventScroll, true, 'without scrolling: the person may have scrolled on while the check ran');
+  h.press('locationKeep');assert.equal(h.nodes.locationSuggestion.hidden, true);assert.equal(h.focused(), 'locationCheckNow', 'Keep hid the button focus was on');
+  for (const [finish, expected] of [[() => h.geoError(2), /unavailable/], [() => h.geo({ ...coordinates, accuracy: 10001 }), /imprecise/]]) {
+    pending = h.press('locationCheckNow');h.drop();finish();await pending;
+    assert.match(h.nodes.locationStatus.textContent, expected);assert.equal(h.focused(), 'locationCheckNow');
+  }
+  pending = h.press('locationCheckNow');h.drop();h.press('locationCancel');
+  assert.equal(h.nodes.locationCancel.hidden, true);assert.equal(h.focused(), 'locationCheckNow', 'Cancel hid the button focus was on');
+  h.geo();await pending;assert.equal(h.focused(), 'locationCheckNow');assert.equal(h.requests.length, 1);
+  // Update: a saved city closes the suggestion (focus to Verify); a refusal keeps it for another try (focus to Update),
+  // unless the city changed elsewhere and Update stays off (focus to Verify).
+  for (const [status, expected] of [[200, 'locationCheckNow'], [503, 'locationUse'], [409, 'locationCheckNow']]) {
+    const q = harness({ respond: path => path.endsWith('/suggest') ? { city } : status === 200 ? { user: { ...member, city: city.label } } : { status } });q.api.setUser(member);await q.suggest();
+    pending = q.press('locationUse');assert.equal(q.nodes.locationUse.disabled, true);q.drop();await pending;
+    assert.equal(q.nodes.locationSuggestion.hidden, status === 200);assert.equal(q.focused(), expected, String(status));
+  }
+});
+
+// Focus moves only to give back what a press took: never after an automatic check (it would scroll the page and take focus
+// from whatever the person is doing), nor after a click that left focus elsewhere, nor once the person has moved on.
+test('automatic checks, clicks that never focused the button and a person who moved on keep focus where it is', async () => {
+  const auto = harness({ permission: 'granted', saved: { 'nodal.location-check.v1:u1': '{"enabled":true,"lastCheckedDay":""}' } });auto.api.setUser(member);
+  auto.nodes.locationCheckNow.focus();auto.view(true);await flush();assert.equal(auto.positions.length, 1);assert.equal(auto.nodes.locationCheckNow.disabled, true);
+  auto.drop();auto.geo();await flush();assert.equal(auto.nodes.locationSuggestion.hidden, false);assert.equal(auto.focused(), 'body', 'an automatic check never moves focus');
+  // A mouse click in Safari leaves the button unfocused, so nothing was lost.
+  const click = harness();click.api.setUser(member);await click.suggest();assert.equal(click.focused(), 'body');
+  click.click('locationKeep');assert.equal(click.focused(), 'body');
+  // While the check runs the person tabs on to the Automatic switch, and the answer leaves them there.
+  const moved = harness();moved.api.setUser(member);const pending = moved.press('locationCheckNow');moved.drop();moved.nodes.locationAutomatic.focus();
+  moved.geo();await pending;assert.equal(moved.nodes.locationSuggestion.hidden, false);assert.equal(moved.focused(), 'locationAutomatic');
+});
+
+/* The status line is a live region. It stays on the page and empties rather than hiding, so a message that follows an empty
+   line, such as Current city kept. after Keep, is announced: a live region that reappears may not be. */
+test('the status line stays on the page and empties rather than hiding', async () => {
+  const h = harness();assert.equal(h.nodes.locationStatus.hidden, false, 'shown once the script runs, though the markup hides it');
+  h.api.setUser(member);await h.suggest();assert.equal(h.nodes.locationStatus.textContent, '');assert.equal(h.nodes.locationStatus.hidden, false);
+  h.click('locationKeep');assert.equal(h.nodes.locationStatus.textContent, 'Current city kept.');assert.equal(h.nodes.locationStatus.hidden, false);
+  const [id, timer] = [...h.timers.entries()].find(([, value]) => value.ms === 5000);h.timers.delete(id);timer.fn();
+  assert.equal(h.nodes.locationStatus.textContent, '');assert.equal(h.nodes.locationStatus.hidden, false);
+});
+
+/* A click focuses the button in Chrome, Edge and Firefox outside macOS, and they show no ring for it, so a mouse user's
+   focus comes back too. A Space pressed to scroll the page must then commit nothing: after a check focus is on the
+   suggestion, not on Update, also when that check started from Verify after Keep. */
+test('a key pressed after a check never saves the suggested city', async () => {
+  const h = harness();h.api.setUser(member);
+  let pending = h.press('locationCheckNow');h.drop();h.geo();await pending;
+  assert.equal(h.nodes.locationSuggestion.hidden, false);await h.activate();await flush();
+  assert.equal(h.requests.some(request => request.path === '/api/me/location/accept'), false, 'Space after a check');
+  assert.equal(h.nodes.locationSuggestion.hidden, false);assert.equal(h.events.length, 0);
+  h.press('locationKeep');assert.equal(h.focused(), 'locationCheckNow');
+  pending = h.activate();h.drop();h.geo();await pending;assert.equal(h.positions.length, 2, 'Space on Verify starts another check');
+  assert.equal(h.nodes.locationSuggestion.hidden, false);await h.activate();await flush();
+  assert.equal(h.requests.some(request => request.path === '/api/me/location/accept'), false, 'Space after Keep, then a check');
+  assert.equal(h.events.length, 0);assert.match(h.nodes.locationCurrent.textContent, /Lima/);
 });
