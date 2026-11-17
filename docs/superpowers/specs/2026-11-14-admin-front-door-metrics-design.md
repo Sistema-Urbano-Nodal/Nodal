@@ -886,10 +886,12 @@ M3, M5, M7, M8, M9, M11 and M13 differ from their first wording: see Departures.
 - **Counter.** A required `Origin`, a per-instance ceiling, a pause after a failure, totals summed in SQL and a
   hand-run correction file: a script can still inflate a day, so the design makes that visible and correctable.
 - **Retention.** Visit totals and saved readings are kept without a time limit (open question 1).
-- **Menu.** The desk's own sign-out button is hidden, not removed. The Festival link opens the panel as it is
+- **Menu.** The desk's own sign-out button was hidden in R2 and removed by the 16 Nov code overview; the bar's Sign out
+  is the only one, and it asks first when the page has unsaved work. The Festival link opens the panel as it is
   today, loading every registration's answers on each open. R2 shows its names before sheet question 7 is
   answered.
-- **Home.** A member gets the desk's plain 403. The public header plus the bar, like the desk. A "Por atender"
+- **Home.** A member gets the organisers-only page with status 403 (the JSON 403 stays for other methods), since the
+  16 Nov code overview. The public header plus the bar, like the desk. A "Por atender"
   row. No percentage change. Metrics downloads are not logged like the two personal-data exports.
 - **Home.** Three indicators nobody asked for: "Visibles en el directorio", "Cuentas del equipo", "Personas que
   aceptaron" (acceptances are rows, so times and people are shown apart).
