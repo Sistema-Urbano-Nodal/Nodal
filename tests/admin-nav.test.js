@@ -16,7 +16,8 @@ const WORDS = {
 };
 
 // The bar as fake elements, admin-nav.js run in a vm, and optionally the real i18n.js after it in the same context.
-function mount({ bar = BAR, lang = 'en', fetch = async () => ({ ok: true, status: 200 }), removeItem = null, withI18n = false } = {}) {
+// unsaved stands for the tool's window.nodalUnsaved (left out: a page without one, like admin-home.html); confirm answers the browser's dialog.
+function mount({ bar = BAR, lang = 'en', fetch = async () => ({ ok: true, status: 200 }), removeItem = null, withI18n = false, unsaved, confirm = () => true } = {}) {
   const node = (tag, attributes, text) => {
     const attrs = Object.fromEntries([...attributes.matchAll(/([a-z-]+)(?:="([^"]*)")?/g)].map((m) => [m[1], m[2] ?? '']));
     return { tag, attrs, textContent: text, disabled: false, listeners: new Map(),
@@ -31,6 +32,7 @@ function mount({ bar = BAR, lang = 'en', fetch = async () => ({ ok: true, status
   }) : null;
   const ready = [];
   const removed = [];
+  const asked = [];
   const document = {
     body: { dataset: {} }, documentElement: { lang, dataset: {} },
     querySelector: (selector) => (selector === '[data-staff-nav]' ? nav : null),
@@ -39,12 +41,14 @@ function mount({ bar = BAR, lang = 'en', fetch = async () => ({ ok: true, status
   };
   const context = { URLSearchParams, document, console, fetch,
     localStorage: { getItem: () => lang, setItem() {}, removeItem: removeItem || ((key) => { removed.push(key); }) },
-    location: { search: '', assigned: '', assign(value) { this.assigned = value; } } };
+    location: { search: '', assigned: '', assign(value) { this.assigned = value; } },
+    confirm: (message) => { asked.push(message); return confirm(message); } };
+  if (unsaved) context.nodalUnsaved = unsaved;
   context.window = context;
   vm.runInNewContext(script(), context, { filename: 'admin-nav.js' });
   if (withI18n) vm.runInNewContext(read('web', 'scripts', 'i18n.js'), context, { filename: 'i18n.js' });
   const by = (key) => children.find((child) => child.dataset.staff === key);
-  return { context, nav, ready, removed, by, location: context.location,
+  return { context, nav, ready, removed, asked, by, location: context.location,
     labels: () => ['desk', 'festival', 'courses', 'signOut'].map((key) => by(key).textContent),
     status: () => children.find((child) => 'staffStatus' in child.dataset).textContent,
     press: () => by('signOut').listeners.get('click')() };
@@ -103,9 +107,58 @@ test('sign-out POSTs, clears the staff marker and opens the sign-in page', async
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [['/api/auth/logout', { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' } }]]);
   assert.deepEqual(h.removed, ['nodal.staff']);
   assert.equal(h.location.assigned, '/login.html');
-  // If a tool's leave prompt is answered "Stay", this is what remains on screen (Review Focus 6).
+  assert.deepEqual(h.asked, [], 'nothing unsaved, nothing asked');
+  // The tool's own leave prompt stays quiet from here: the session is closed, so "Stay" could save nothing (Review Focus 6).
+  assert.equal(h.context.nodalSignedOut, true);
   assert.equal(h.by('signOut').disabled, true);
   assert.equal(h.status(), 'Cerrando sesión…');
+});
+
+test('with unsaved work the bar asks before the session closes, and Cancel keeps the session and the button', async () => {
+  for (const [lang, question] of [['en', 'Sign out and discard your unsaved changes?'], ['es', '¿Cerrar sesión y descartar los cambios sin guardar?'], ['pt', 'Sair e descartar as alterações não salvas?']]) {
+    let calls = 0;
+    const h = mount({ lang, unsaved: () => true, confirm: () => false, fetch: async () => { calls += 1; return { ok: true, status: 200 }; } });
+    await h.press();
+    assert.deepEqual(h.asked, [question], lang);
+    assert.equal(calls, 0, `${lang}: no logout request`);
+    assert.equal(h.by('signOut').disabled, false);
+    assert.equal(h.status(), '');
+    assert.equal(h.location.assigned, '');
+    assert.deepEqual(h.removed, [], 'the staff marker stays');
+    assert.equal(h.context.nodalSignedOut, undefined, 'the tool still guards its work when the person leaves another way');
+  }
+});
+
+test('with unsaved work and the person agreeing, the bar signs out once and the tool asks nothing more', async () => {
+  const calls = [];
+  const h = mount({ unsaved: () => true, fetch: async (url) => { calls.push(url); return { ok: true, status: 200 }; } });
+  await h.press();
+  assert.deepEqual(h.asked, ['Sign out and discard your unsaved changes?']);
+  assert.deepEqual(calls, ['/api/auth/logout']);
+  assert.equal(h.location.assigned, '/login.html');
+  assert.equal(h.context.nodalSignedOut, true);
+});
+
+test('a tool that reports nothing unsaved, or a page with no hook (admin-home.html), signs out without a question', async () => {
+  for (const unsaved of [() => false, undefined]) {
+    const h = mount({ unsaved, confirm: () => false });
+    await h.press();
+    assert.deepEqual(h.asked, []);
+    assert.equal(h.location.assigned, '/login.html');
+  }
+});
+
+test('a refused sign-out after the question leaves the tool guarding its work, and a hook that fails is asked about', async () => {
+  const refused = mount({ unsaved: () => true, fetch: async () => ({ ok: false, status: 500 }) });
+  await refused.press();
+  assert.equal(refused.asked.length, 1);
+  assert.equal(refused.context.nodalSignedOut, undefined);
+  assert.equal(refused.by('signOut').disabled, false);
+  assert.equal(refused.status(), 'Sign out failed.');
+  const broken = mount({ unsaved: () => { throw new TypeError('not ready'); }, confirm: () => false });
+  await broken.press();
+  assert.equal(broken.asked.length, 1, 'asked rather than signed out silently');
+  assert.equal(broken.location.assigned, '');
 });
 
 test('a second press while signing out sends nothing', async () => {

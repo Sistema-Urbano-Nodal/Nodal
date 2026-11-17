@@ -6,7 +6,9 @@ let courses=[],selectedId=null,workspace,selectionVersion=0;
 // Course and session editors with unsaved changes: switching course, opening All feedback or New course asks first.
 const dirty=new Set();
 const leave=()=>{if(dirty.size&&!confirm(t('discardEdits')))return false;dirty.clear();return true;};
-window.addEventListener?.('beforeunload',e=>{if(dirty.size){e.preventDefault();e.returnValue='';}});
+// The staff bar (admin-nav.js) asks before it signs out while an editor has unsaved changes; once signed out, nothing could be saved, so leaving asks nothing more.
+window.nodalUnsaved=()=>dirty.size>0;
+window.addEventListener?.('beforeunload',e=>{if(dirty.size&&!window.nodalSignedOut){e.preventDefault();e.returnValue='';}});
 const endpoint=id=>'/api/admin/courses'+(id?'/'+id:'');
 // Publication status plus a closed-enrollment marker, re-read on language change.
 const courseState=(c,cls)=>dynamic(cls?'span':'small',()=>t(c.status)+(c.enrollmentOpen===false?' · '+t('closed'):''),cls);
@@ -266,6 +268,8 @@ function participantView(data,id,version,notice,onRefresh,closed=false,supporter
     row.append(intake);table.append(row);
   }
   wrap.append(table);section.append(data.participants.length?wrap:tr('p','noParticipants','pilot-empty'));
+  // The report lists at most 500 enrolments, oldest first, while the summary counts them all: a cut list says so and points to the CSV.
+  if(data.participants.length<data.summary?.enrolled)section.append(tr('p','limitNote','pilot-data-note'));
   const footer=el('div','pilot-section-footer');footer.append(csvLink(id,'intake','downloadIntake'),tr('p','intakePrivateStaff','pilot-data-note'));section.append(footer);return section;
 }
 
@@ -517,14 +521,17 @@ async function start(){status(msg,t('loading'));
     const hero=el('header','pilot-hero pilot-teaching-hero');hero.append(tr('h1','teaching'),tr('p','teachingIntro'));
     const layout=el('div','pilot-staff-layout'),nav=el('aside','pilot-staff-nav'),list=el('div','pilot-staff-list');list.id='staffCourses';workspace=el('div','pilot-staff-work');
     const create=button('newCourse',()=>{
-      if(!leave())return;selectionVersion++;selectedId=null;workspace.replaceChildren();const section=el('section','pilot-setup');
+      if(!leave())return;selectionVersion++;selectedId=null;workspace.replaceChildren();status(msg,'');const section=el('section','pilot-setup');
       try{history.replaceState(null,'',location.pathname);}catch{/* The view works without it. */}
-      section.append(tr('h2','newCourse'),makeEditor(null,false,null,async c=>{await refreshList();await showCourse(c.id,'courseSetup');}));workspace.append(section);
+      // The course is created once the POST answers: a list that cannot be read again right after must not read as a failed save
+      // (staff would create it twice), so the list shows the course as the server returned it, and the course opens.
+      section.append(tr('h2','newCourse'),makeEditor(null,false,null,async c=>{try{await refreshList();}catch{courses=[...courses.filter(x=>x.id!==c.id),c];await refreshList(false);}await showCourse(c.id,'courseSetup');}));workspace.append(section);
     },true);
     nav.append(tr('h2','courses'),list,button('allFeedback',()=>{if(leave())allFeedback();},true),create);layout.append(nav,workspace);root.append(hero,layout);
     await refreshList(false);
     const q=new URLSearchParams(location.search),wanted=courses.find(c=>c.id===q.get('course'))?.id||courses[0]?.id;
-    if(wanted)await showCourse(wanted,q.get('tab')||undefined);else create.click();status(msg,'');
+    // showCourse clears the line once the course is drawn, and leaves its error there when it cannot be; New course clears it itself.
+    if(wanted)await showCourse(wanted,q.get('tab')||undefined);else create.click();
   }catch(err){status(msg,err);}
 }
 start();

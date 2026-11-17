@@ -87,7 +87,6 @@
     newsDraft: byId('adminNewsDraft'),
     newsDelete: byId('adminNewsDelete'),
     newsStatus: byId('adminNewsStatus'),
-    signOut: byId('adminSignOut'),
     tabNews: byId('adminTabNews'),
     tabCatalog: byId('adminTabCatalog'),
     tabInterests: byId('adminTabInterests'),
@@ -127,6 +126,8 @@
     busy: false,
     // Missing fields read as "still to fill" until a Publish attempt, or on a record that is already published.
     gateStrict: false,
+    // The editor's fields as they were last filled (a record opened, a blank one, a save's answer): anything else is unsaved.
+    catalogSnapshot: '',
   };
 
   const create = (tag, className, text) => {
@@ -136,13 +137,19 @@
     return node;
   };
 
-  /* Status lines remember their message so a language switch re-renders them.
+  /* Status lines remember how to write their message so a language switch re-renders them.
      Server error text is shown as sent and is left alone. */
   const messages = new Map();
+  function show(node, render) {
+    messages.set(node, render);
+    node.textContent = render();
+  }
   function say(node, key, vars) {
-    if (key) messages.set(node, [key, vars]);
-    else messages.delete(node);
-    node.textContent = key ? t(key, vars) : '';
+    if (key) show(node, () => t(key, vars));
+    else {
+      messages.delete(node);
+      node.textContent = '';
+    }
   }
   function sayRaw(node, message) {
     messages.delete(node);
@@ -167,6 +174,10 @@
     if (error?.server) sayRaw(node, error.server);
     else if (error?.key) say(node, error.key, { status: error.status });
     else say(node, fallback);
+  }
+  // A write's own result, then why the list behind it could not be read again (in the server's words, or the desk's).
+  function sayAfter(node, key, error, fallback) {
+    show(node, () => `${t(key)} ${error?.server || (error?.key ? t(error.key, { status: error.status }) : t(fallback))}`);
   }
 
   const text = (value) => String(value ?? '').trim();
@@ -403,7 +414,13 @@
     updateConditionalFields();
     renderCatalogList();
     say(elements.editorStatus, item.id ? 'ops.record.loaded' : 'ops.record.ready');
+    state.catalogSnapshot = JSON.stringify(serializeEditor(null));
   }
+
+  const catalogDirty = () => JSON.stringify(serializeEditor(null)) !== state.catalogSnapshot;
+  // Opening another record, or a blank one, replaces every field, all three translations included: unsaved edits go only once staff agree.
+  // Reloading the server's version after a conflict is a choice already made, so it does not ask.
+  const keepCatalogEdits = () => catalogDirty() && !window.confirm(t('ops.catalog.discard'));
 
   function catalogLabel(item) {
     return item.translations?.en?.title || item.translations?.es?.title || item.translations?.pt?.title || t('ops.record.untitled');
@@ -430,7 +447,9 @@
         if (value) meta.append(create('span', className || null, value));
       }
       button.append(meta);
-      button.addEventListener('click', () => fillEditor(item));
+      button.addEventListener('click', () => {
+        if (!keepCatalogEdits()) fillEditor(item);
+      });
       return button;
     });
     elements.list.replaceChildren(...nodes);
@@ -560,6 +579,11 @@
       await loadCatalog();
     } catch (error) {
       report(elements.editorStatus, error, 'ops.record.notSaved');
+      // A new record whose save got no answer may still have been stored: no answer at all, or a 5xx from the edge or the
+      // server after the row was written. The list is read again before the buttons come back, so a copy that landed shows
+      // there before anyone presses Publish a second time. A 4xx stored nothing. (A lost edit is safe: its version makes the
+      // retry a conflict.)
+      if (!editing && (!error?.key || error.status >= 500)) await loadCatalog();
     } finally {
       setBusy(false);
       restoreFocus(trigger, elements.publish);
@@ -630,9 +654,10 @@
           method: 'PATCH', body: JSON.stringify({ status: select.value, version: interest.version }),
         });
         // A failed queue refresh reports itself; it must not read as a failed update.
+        // Someone else changed it first, so nothing was saved: that line stays while the queue reloads to show their status,
+        // and a reload that fails adds its reason after it.
         if (response.status === 409) {
-          say(elements.interestStatus, 'ops.interest.changed');
-          await loadInterests().catch(() => false);
+          await loadInterests({ outcome: 'ops.interest.changed' }).catch(() => false);
           return;
         }
         if (!response.ok) throw apiError(data, 'ops.interest.updateFailed', response.status);
@@ -670,7 +695,9 @@
     elements.interestList.setAttribute('aria-busy', 'false');
   }
 
-  async function loadInterests({ append = false, filters = interestFilterSnapshot() } = {}) {
+  /* outcome: the result of the write that asked for this reload. It stays on the band's line in place of "Loading…" and the
+     count, and a reload that fails adds its reason after it rather than replacing it. */
+  async function loadInterests({ append = false, filters = interestFilterSnapshot(), outcome = '' } = {}) {
     const snapshot = { ...filters };
     const snapshotKey = filterKey(snapshot);
     if (append && (!state.interestCursor || state.interestFilterKey !== snapshotKey)) return false;
@@ -688,7 +715,7 @@
     const params = new URLSearchParams({ limit: '24' });
     if (snapshot.status) params.set('status', snapshot.status);
     if (cursor) params.set('cursor', cursor);
-    say(elements.interestStatus, 'ops.interest.loading');
+    say(elements.interestStatus, outcome || 'ops.interest.loading');
     elements.interestList.setAttribute('aria-busy', 'true');
     try {
       const { response, data } = await request(`/api/admin/interests?${params}`, { signal: controller.signal });
@@ -700,6 +727,7 @@
       state.interestCursor = data.nextCursor || null;
       elements.interestMore.hidden = !state.interestCursor;
       renderInterestList();
+      if (outcome) return true;
       if (state.interests.length) say(elements.interestStatus, state.interests.length === 1 ? 'ops.interest.countOne' : 'ops.interest.count', { n: state.interests.length });
       else say(elements.interestStatus, snapshot.status ? 'ops.interest.empty' : 'ops.interest.none');
       return true;
@@ -711,7 +739,8 @@
         elements.interestMore.hidden = true;
         renderInterestList();
       } else elements.interestList.setAttribute('aria-busy', 'false');
-      report(elements.interestStatus, error, 'ops.interest.unavailable');
+      if (outcome) sayAfter(elements.interestStatus, outcome, error, 'ops.interest.unavailable');
+      else report(elements.interestStatus, error, 'ops.interest.unavailable');
       throw error;
     } finally {
       if (sequence === state.interestRequest && state.interestFilterKey === snapshotKey) {
@@ -767,6 +796,7 @@
       select.append(option);
     }
     field.append(select);
+    nodeSelects.set(nodeRequest.id, select);
     const save = create('button', 'admin-button', t('ops.nodes.update'));
     save.type = 'button';
     const remove = create('button', 'admin-textbutton admin-textbutton-warning', t('ops.nodes.delete'));
@@ -775,7 +805,15 @@
     remove.setAttribute('aria-label', t('ops.nodes.deleteNamed', { organization }));
     // One write per request at a time: no delete while its status is being saved, and the other way round.
     const setBusy = (value) => { save.disabled = value; remove.disabled = value; };
+    /* A write that reaches the server redraws the list, which takes the pressed button off the page. Focus then goes to this
+       request's status in the new list, or to the band's line once the request is gone (deleted, or no longer in the filter).
+       A write refused before any redraw gives focus back to the pressed button, as restoreFocus does everywhere. */
+    const done = (trigger) => {
+      setBusy(false);
+      restoreFocus(trigger, nodeSelects.get(nodeRequest.id) || elements.nodeStatus);
+    };
     save.addEventListener('click', async () => {
+      const trigger = document.activeElement;
       setBusy(true);
       say(elements.nodeStatus, 'ops.nodes.updating');
       try {
@@ -785,19 +823,20 @@
         // Someone else changed it first, so nothing was saved: the reloaded list shows the status they set.
         // A failed list refresh reports itself; it must not read as a failed update.
         if (response.status === 409) {
-          if (await loadNodeRequests().catch(() => false)) say(elements.nodeStatus, 'ops.nodes.changed');
+          await reloadNodeRequests('ops.nodes.changed', 'ops.nodes.changedShort');
           return;
         }
         if (!response.ok) throw apiError(data, 'ops.nodes.updateFailed', response.status);
         if (data.request) Object.assign(nodeRequest, data.request);
-        if (await loadNodeRequests().catch(() => false)) say(elements.nodeStatus, 'ops.nodes.updated');
+        await reloadNodeRequests('ops.nodes.updated', 'ops.nodes.updatedShort');
       } catch (error) {
         report(elements.nodeStatus, error, 'ops.nodes.notUpdated');
       } finally {
-        setBusy(false);
+        done(trigger);
       }
     });
     remove.addEventListener('click', async () => {
+      const trigger = document.activeElement;
       if (!window.confirm(t('ops.nodes.confirmDelete', { organization }))) return;
       setBusy(true);
       say(elements.nodeStatus, 'ops.nodes.deleting');
@@ -805,11 +844,11 @@
         // A request that is already gone answers 204 as well.
         const { response, data } = await request(nodeRequestPath(nodeRequest), { method: 'DELETE' });
         if (!response.ok) throw apiError(data, 'ops.nodes.deleteFailed', response.status);
-        if (await loadNodeRequests().catch(() => false)) say(elements.nodeStatus, 'ops.nodes.deleted');
+        await reloadNodeRequests('ops.nodes.deleted');
       } catch (error) {
         report(elements.nodeStatus, error, 'ops.nodes.notDeleted');
       } finally {
-        setBusy(false);
+        done(trigger);
       }
     });
     controls.append(field, save, remove);
@@ -817,7 +856,10 @@
     return article;
   }
 
+  // Each drawn request's status select, by request id, so focus can find the request again in a redrawn list.
+  let nodeSelects = new Map();
   function renderNodeRequestList() {
+    nodeSelects = new Map();
     elements.nodeList.replaceChildren(...state.nodeRequests.map(renderNodeRequest));
     elements.nodeList.setAttribute('aria-busy', 'false');
   }
@@ -836,8 +878,9 @@
     elements.nodeList.setAttribute('aria-busy', 'false');
   }
 
-  // The interest queue's loader: the server answers 400 to an empty parameter, so only the ones with a value are sent.
-  async function loadNodeRequests({ append = false, filters = nodeFilterSnapshot() } = {}) {
+  /* The interest queue's loader, outcome included: the server answers 400 to an empty parameter, so only the ones with a value are
+     sent. alone is the outcome without its sentence about the list, for the line of a reload that failed and emptied the list. */
+  async function loadNodeRequests({ append = false, filters = nodeFilterSnapshot(), outcome = '', alone = outcome } = {}) {
     const snapshot = { ...filters };
     const snapshotKey = filterKey(snapshot);
     if (append && (!state.nodeCursor || state.nodeFilterKey !== snapshotKey)) return false;
@@ -856,7 +899,7 @@
     if (snapshot.status) params.set('status', snapshot.status);
     if (snapshot.kind) params.set('kind', snapshot.kind);
     if (cursor) params.set('cursor', cursor);
-    say(elements.nodeStatus, 'ops.nodes.loading');
+    say(elements.nodeStatus, outcome || 'ops.nodes.loading');
     elements.nodeList.setAttribute('aria-busy', 'true');
     try {
       const { response, data } = await request(`/api/admin/node-requests?${params}`, { signal: controller.signal });
@@ -868,6 +911,7 @@
       state.nodeCursor = data.nextCursor || null;
       elements.nodeMore.hidden = !state.nodeCursor;
       renderNodeRequestList();
+      if (outcome) return true;
       if (state.nodeRequests.length) say(elements.nodeStatus, state.nodeRequests.length === 1 ? 'ops.nodes.countOne' : 'ops.nodes.count', { n: state.nodeRequests.length });
       else say(elements.nodeStatus, snapshot.status || snapshot.kind ? 'ops.nodes.empty' : 'ops.nodes.none');
       return true;
@@ -879,7 +923,8 @@
         elements.nodeMore.hidden = true;
         renderNodeRequestList();
       } else elements.nodeList.setAttribute('aria-busy', 'false');
-      report(elements.nodeStatus, error, 'ops.nodes.unavailable');
+      if (outcome) sayAfter(elements.nodeStatus, alone, error, 'ops.nodes.unavailable');
+      else report(elements.nodeStatus, error, 'ops.nodes.unavailable');
       throw error;
     } finally {
       if (sequence === state.nodeLoad && state.nodeFilterKey === snapshotKey) {
@@ -888,6 +933,10 @@
       }
     }
   }
+  /* After a write the list is read again behind the write's own result (refused, updated, deleted). The result is said at once and
+     kept, so it shows even when a second write's reload overtakes this one. A reload that fails adds its reason after the result
+     alone: "the list shows its current status" would be untrue of the list it has just emptied. */
+  const reloadNodeRequests = (outcome, alone = outcome) => loadNodeRequests({ outcome, alone }).catch(() => false);
 
   /* ---------------- NODAL news ----------------
      A new post carries a client id, so a retried POST after a lost response
@@ -915,8 +964,11 @@
     };
   }
   const newsDirty = () => JSON.stringify(readNews()) !== news.snapshot;
+  // The staff bar (admin-nav.js) asks before it signs out while a post or a catalog record has unsaved edits. Once it has
+  // signed out the session is closed, so nothing could be saved: leaving then asks nothing more.
+  window.nodalUnsaved = () => newsDirty() || catalogDirty();
   window.addEventListener?.('beforeunload', (event) => {
-    if (!newsDirty()) return;
+    if (!newsDirty() || window.nodalSignedOut) return;
     event.preventDefault();
     event.returnValue = '';
   });
@@ -1346,11 +1398,13 @@
   elements.nodeFilter.addEventListener('change', refreshNodeRequestsNow);
   elements.nodeKind.addEventListener('change', refreshNodeRequestsNow);
   elements.catalogMore.addEventListener('click', () => loadCatalog({ append: true }));
-  elements.interestMore.addEventListener('click', () => loadInterests({ append: true }));
-  elements.nodeMore.addEventListener('click', () => loadNodeRequests({ append: true }));
+  // Both loaders report a failure on their band, then rethrow for the writes that wait on them: a click has nothing more to do with it.
+  elements.interestMore.addEventListener('click', () => loadInterests({ append: true }).catch(() => {}));
+  elements.nodeMore.addEventListener('click', () => loadNodeRequests({ append: true }).catch(() => {}));
   elements.kind.addEventListener('change', updateConditionalFields);
   elements.actionMode.addEventListener('change', updateConditionalFields);
   elements.newItem.addEventListener('click', () => {
+    if (keepCatalogEdits()) return;
     fillEditor(blankRecord());
     // The button hides itself on a blank record, so focus moves to the editor's first field instead of falling to the page.
     elements.kind.focus();
@@ -1398,21 +1452,6 @@
     return saveNews(news.pending);
   });
 
-  elements.signOut.addEventListener('click', async () => {
-    elements.signOut.disabled = true;
-    say(elements.editorStatus, 'ops.signingOut');
-    try {
-      const response = await fetch('/api/auth/logout', {
-        method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' },
-      });
-      if (!response.ok) throw apiError({}, 'ops.signOutFailed', response.status);
-      location.assign('/login.html');
-    } catch (error) {
-      elements.signOut.disabled = false;
-      report(elements.editorStatus, error, 'ops.signOutUnavailable');
-    }
-  });
-
   /* The tab row scrolls sideways when its labels do not fit (phones; tablets in Spanish or Portuguese).
      It is then marked, so CSS fades the edge that hides more tabs. When everything fits, the last tab
      sits at the row's end (8px padding), so its edge tells whether the labels overflow, whatever end
@@ -1440,7 +1479,7 @@
   }
 
   I18N?.onChange(() => {
-    for (const [node, [key, vars]] of messages) node.textContent = t(key, vars);
+    for (const [node, render] of messages) node.textContent = render();
     updateTabRow();
     renderRecordState();
     renderCatalogList();

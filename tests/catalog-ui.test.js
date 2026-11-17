@@ -1118,7 +1118,7 @@ test('admin workspace exposes a complete trilingual editor without destructive c
     'adminActionUrl', 'adminFeatured', 'adminSaveDraft', 'adminPublish', 'adminArchive',
     'adminPreview', 'adminConflictReload', 'adminEditorStatus', 'adminPreviewPanel',
     'adminInterestFilter', 'adminInterestList', 'adminInterestStatus', 'adminInterestMore',
-    'adminNodeFilter', 'adminNodeList', 'adminNodeStatus', 'adminNodeMore', 'adminSignOut',
+    'adminNodeFilter', 'adminNodeList', 'adminNodeStatus', 'adminNodeMore',
   ]) assert.match(html, new RegExp(`id="${id}"`), `${id} must be present`);
 
   for (const lang of ['En', 'Es', 'Pt']) {
@@ -1136,8 +1136,6 @@ test('admin workspace exposes a complete trilingual editor without destructive c
   assert.match(html, /<body class="admin-page" data-page="admin">/, 'data-page keeps script.js from running the landing float loop');
   for (const asset of ['nav.js', 'script.js']) assert.match(html, new RegExp(`<script defer src="${asset.replace('.', '\\.')}\\?v=`), `${asset} is deferred`);
   assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=[^"]+" \/>\s*<link rel="stylesheet" href="admin\.css/, 'the desk styles load after the site styles');
-  // Sign out lives in the desk head, so the header stays identical to every other page and never overflows in Spanish.
-  assert.match(html, /<div class="admin-head-side">[\s\S]*?id="adminSignOut"[\s\S]*?<\/div>/);
   assert.doesNotMatch(adminStyles(), /\.admin-topbar|\.lang-btn/, 'no one-off header or language switch rules override the site header');
   // An empty record list reserves no blank band once the index stacks above the editor on phones.
   assert.match(adminStyles(), /\.admin-record-list:empty \{ min-height: 0; \}/);
@@ -1209,14 +1207,13 @@ test('admin client serializes translations atomically and preserves edits on sta
   assert.ok(harness.ids.get('adminConflictReload').listeners.has('click'), 'explicit reload control must own conflict replacement');
 });
 
-test('admin workspace validates topics before preview or writes, paginates both queues, reloads filtered updates, and signs out', async () => {
+test('admin workspace validates topics before preview or writes, paginates both queues and reloads filtered updates', async () => {
   const requests = [];
   let catalogPage = 0;
   let interestPage = 0;
   let interestReloaded = false;
   const fetchImpl = async (url, options = {}) => {
     requests.push({ url, options });
-    if (url === '/api/auth/logout') return response({ ok: true });
     if (url.startsWith('/api/admin/catalog?')) {
       catalogPage += 1;
       return catalogPage === 1
@@ -1268,12 +1265,6 @@ test('admin workspace validates topics before preview or writes, paginates both 
   select.value = 'contacted';
   await update.listeners.get('click')();
   assert.equal(harness.ids.get('adminInterestList').children.length, 0, 'updated records must disappear when they no longer match the active filter');
-
-  await harness.ids.get('adminSignOut').listeners.get('click')();
-  const logout = requests.find((entry) => entry.url === '/api/auth/logout');
-  assert.equal(logout.options.method, 'POST');
-  assert.equal(logout.options.credentials, 'same-origin');
-  assert.equal(harness.location.assigned, '/login.html');
 });
 
 test('admin filter changes synchronously invalidate old catalog and interest cursors and late pages', async () => {
@@ -2145,16 +2136,20 @@ test('the desk asks before leaving only while the news editor has unsaved text',
   assert.equal(leave().prevented, true);
 });
 
-test('the desk still loads where window has no addEventListener, and its own sign-out is hidden, not removed', () => {
+test('the desk still loads where window has no addEventListener, and leaves sign-out to the staff bar', () => {
   const js = adminScript();
   const at = js.indexOf("window.addEventListener?.('beforeunload'");
   assert.ok(at > js.indexOf('const newsDirty = ') && at < js.lastIndexOf('\n  bootstrap();'), 'after newsDirty, before bootstrap()');
   assert.equal(js.split("'beforeunload'").length, 2, 'one listener');
   assert.match(js, /\n  bootstrap\(\);\s*\n\}\)\(\);\s*$/);
   assert.ok(adminHarness().api, 'no window.addEventListener in this context');
+  // The bar's Sign out (admin-nav.js, tests/admin-nav.test.js) is the desk's only one: no hidden copy, no second handler.
   const html = adminPage();
-  assert.match(html, /<button class="admin-textbutton" id="adminSignOut" type="button" data-i18n="ops\.signOut" hidden>Sign out<\/button>/);
-  assert.match(html, /<div class="admin-head-side">[\s\S]*?id="adminSignOut"[\s\S]*?<\/div>/);
+  assert.doesNotMatch(html, /adminSignOut|ops\.signOut/);
+  assert.doesNotMatch(js, /\/api\/auth\/logout|adminSignOut|ops\.sign/);
+  assert.match(html, /<div class="admin-head-side">\s*<a href="opportunities\.html" data-i18n="ops\.nav\.catalog">View public catalog<\/a>\s*<\/div>/);
+  assert.match(html, /<nav class="staff-nav" data-staff-nav [^>]*>[\s\S]*?<button type="button" data-staff="signOut">Sign out<\/button>/);
+  // The desk's toggled controls (New post, Archive, the conflict panels…) stay hidden whatever their display rule.
   assert.match(adminStyles(), /\[hidden\] \{ display: none !important; \}/);
 });
 

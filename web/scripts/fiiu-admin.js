@@ -101,7 +101,10 @@
  const hasText=draft=>Boolean(draft&&(draft.title||draft.body||draft.url));
  // So does a settings link typed but not saved (the availability switch saves on its own).
  // And so does an open programme block with changes.
- window.addEventListener?.('beforeunload',event=>{if(locked)return;const editor=currentEditor();if(hasText(setAside)||(editor?.isNew?hasText(editor.draft()):editor?.dirty())||questionDraft()||settingsDirty()||programmeDraft()){event.preventDefault();event.returnValue='';}});
+ const unsavedWork=()=>{if(locked)return false;const editor=currentEditor();return Boolean(hasText(setAside)||(editor?.isNew?hasText(editor.draft()):editor?.dirty())||questionDraft()||settingsDirty()||programmeDraft());};
+ // The staff bar (admin-nav.js) asks before it signs out while any of it is unsaved; once signed out, nothing could be saved, so leaving asks nothing more.
+ window.nodalUnsaved=unsavedWork;
+ window.addEventListener?.('beforeunload',event=>{if(window.nodalSignedOut||!unsavedWork())return;event.preventDefault();event.returnValue='';});
  const signInUrl=()=>'/login.html?next='+encodeURIComponent(location.pathname+location.hash),sessionNotice=el('p','f-notice is-warning f-session-notice');sessionNotice.hidden=true;sessionNotice.setAttribute('role','alert');
  const signInLink=()=>{const a=link('adminSignIn',signInUrl(),'f-text-link');a.target='_blank';a.rel='noopener';return describe(a);};
  // Once the dashboard is up, a tap dismisses the toast; "Loading…" and "Saving…" stay until their request ends.
@@ -225,8 +228,8 @@
  // participant data). The section is rebuilt only when a count, a block's check-in closing or the language changes, so a focused link keeps its place.
  function checkedInCell(n,number){const cell=el('span','f-summary-count'+(n?'':' is-zero'),number.format(n));cell.append(document.createTextNode(' '),tr('span',n===1?'checkedInOne':'checkedInMany','f-cell-unit'));return cell;}
  function renderCheckin(summary=lastSummary){
-  // checkinActivities leaves out only workshops and routes; the party (a register-only block) takes no check-in either.
-  if(!festival)return;const stats=new Map((summary?.activities||[]).map(row=>[row.activityId,row])),blocks=checkinActivities(festival.event).filter(takesCheckin),states=blocks.map(activity=>checkinState(activity));
+  // checkinActivities (fiiu-ui.js) already keeps only the blocks that take check-in, the conferences and the laboratory: no party, workshop, route or legacy block.
+  if(!festival)return;const stats=new Map((summary?.activities||[]).map(row=>[row.activityId,row])),blocks=checkinActivities(festival.event),states=blocks.map(activity=>checkinState(activity));
   const key=JSON.stringify([blocks.map(a=>stats.get(a.id)?.attendance??null),states,locale()]);if(key===lastCheckinKey)return;lastCheckinKey=key;
   const active=document.activeElement,refocus=active?.id&&checkinBody.contains?.(active)?active.id:'',number=new Intl.NumberFormat(locale());
   const rows=blocks.map((activity,i)=>{
