@@ -51,9 +51,12 @@
  // With ?a=: the parts that never change are built once; each refresh replaces only the code, the closing and amber lines and the count, so focus stays on the controls.
  function screen(){
   const box=el('section','f-qr'),stage=el('div','f-qr-stage'),code=el('div','f-qr-code'),side=el('div','f-qr-side'),title=source('h1',activity.title,'f-qr-title');
-  const windowLine=el('p','f-qr-window'),when=el('p','f-qr-when'),typed=el('div','f-qr-typed'),address=el('p','f-qr-url'),short=el('p','f-qr-short'),count=el('p','f-qr-count'),controls=el('div','f-actions f-qr-controls');
+  const windowLine=el('p','f-qr-window'),when=el('p','f-qr-when'),typed=el('div','f-qr-typed'),address=el('p','f-qr-url'),short=el('p','f-qr-short'),spelled=el('p','f-sr-only'),count=el('p','f-qr-count'),controls=el('div','f-actions f-qr-controls');
   const kicker=tr('p','scanToCheckIn','f-qr-kicker'),note=tr('p','codeRotates','f-muted f-qr-note');
-  when.hidden=true;count.setAttribute('role','status');count.setAttribute('aria-live','polite');typed.append(tr('p','orTypeCode','f-qr-type-label'),address,short);
+  // A screen reader reads the grouped code as written ("K7M" as one word) and ignores a name on a paragraph, so it gets the code spelled out, one
+  // character at a time, from a visually hidden line instead.
+  short.setAttribute('aria-hidden','true');
+  when.hidden=true;count.setAttribute('role','status');count.setAttribute('aria-live','polite');typed.append(tr('p','orTypeCode','f-qr-type-label'),address,short,spelled);
   side.append(kicker,title,meta(activity,'f-qr-meta'),windowLine,when,typed,count);stage.append(code,side);
   // Full screen where the browser allows it (not on iPhone); the label follows the state, including Esc.
   if(typeof stage.requestFullscreen==='function'&&document.fullscreenEnabled!==false){
@@ -63,7 +66,7 @@
   // A screen may stand at the door, signed in as an organiser: it links nowhere, and f-presenter hides the site menu and the footer (fiiu.css), whose privacy
   // link opens in the same tab. The list keeps its links, the menu and the footer.
   document.body.classList.toggle('f-presenter',true);
-  box.append(stage,controls,note);root.replaceChildren(box,newTabNote());parts={code,windowLine,when,address,short,count,typed,kicker,note};
+  box.append(stage,controls,note);root.replaceChildren(box,newTabNote());parts={code,windowLine,when,address,short,spelled,count,typed,kicker,note};
  }
  // A screen takes check-ins for its own block whenever it is open, so one opened for another block (the evening block in the morning, tomorrow's the day
  // before) says in amber when its block is: on another Lima day, or more than an hour before it starts, by the server's clock. The line goes in the hour
@@ -93,7 +96,7 @@
   parts.code.replaceChildren(drawQr(data.qr)||tr('p','qrUnavailable','f-qr-missing'));
   // People type the address letter by letter, so the screen shows the short /checkin, which the server sends on to the page.
   let url=data.url;try{url=new URL(data.url).host+'/checkin';}catch{url=data.url.split('?')[0];}
-  parts.address.textContent=url;parts.short.textContent=data.shortCode.slice(0,3)+' '+data.shortCode.slice(3);parts.short.setAttribute('aria-label',data.shortCode.split('').join(' '));
+  parts.address.textContent=url;parts.short.textContent=data.shortCode.slice(0,3)+' '+data.shortCode.slice(3);parts.spelled.textContent=data.shortCode.split('').join(' ');
  }
  // An expired code is dead in both forms: the QR gives way to the notice and the typed code is hidden, so nobody types it at the door.
  // A closed block shows no code at all, so its notice stays.

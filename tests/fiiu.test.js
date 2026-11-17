@@ -235,8 +235,8 @@ test('published news and safe external links are managed by staff; drafts stay p
  assert.equal((await(await call('/api/fiiu',{actor:'guest'})).json()).content.length,0);
  assert.equal((await call(`/api/admin/fiiu/content/${content.id}`,{actor:'admin',method:'PATCH',body:{...draft,version:1,status:'published'}})).status,200);
  assert.equal((await(await call('/api/fiiu',{actor:'guest'})).json()).content[0].title,'Programme update');
- assert.equal((await call('/api/admin/fiiu/config',{actor:'admin',method:'PUT',body:{version:0,registrationOpen:true,workshopsUrl:'javascript:alert(1)'}})).status,400);
- assert.equal((await call('/api/admin/fiiu/config',{actor:'admin',method:'PUT',body:{version:0,registrationOpen:false,workshopsUrl:'https://example.test/workshops'}})).status,200);
+ assert.equal((await call('/api/admin/fiiu/config',{actor:'admin',method:'PUT',body:{version:0,registrationOpen:true,programUrl:'javascript:alert(1)'}})).status,400);
+ assert.equal((await call('/api/admin/fiiu/config',{actor:'admin',method:'PUT',body:{version:0,registrationOpen:false,programUrl:'https://example.test/programme'}})).status,200);
  assert.equal((await call('/api/fiiu/registration',{method:'PUT',body:{version:0,...answers}})).status,403);
 });
 
@@ -479,6 +479,18 @@ test('a draft published later is listed and dated from its first publication, wh
  for(const [status,version] of [['archived',1],['published',2]])assert.equal((await write('PATCH',`/api/admin/fiiu/content/${legacy.id}`,{...base,title:'Legacy',status,version})).createdAt,legacy.createdAt);
  assert.deepEqual(await feed(),['A edited','B','Legacy']);
  assert.equal((await call(`/api/admin/fiiu/content/${a.id}`,{actor:'admin',method:'PATCH',body:{...base,title:'Stale',status:'draft',version:1}})).status,409);
+});
+
+test('editing a publication that does not exist, or that belongs to another event, is unavailable (404), not a conflict',async t=>{
+ const {call,db}=await setup(t);const store=createFiiuStore({db});
+ const body={title:'Ghost',body:'',kind:'news',url:'',activityId:'',status:'draft',version:1};
+ const missing=await call(`/api/admin/fiiu/content/${randomUUID()}`,{actor:'admin',method:'PATCH',body});
+ assert.equal(missing.status,404);assert.equal((await missing.json()).error,'content unavailable');
+ const foreign=await store.insert('content',{id:randomUUID(),eventId:'another-event',data:{title:'Elsewhere',body:'',kind:'news',url:'',activityId:''},status:'draft',version:1,createdAt:'2026-09-28T12:00:00.000Z',updatedAt:'2026-09-28T12:00:00.000Z'});
+ assert.equal((await call(`/api/admin/fiiu/content/${foreign.id}`,{actor:'admin',method:'PATCH',body})).status,404);
+ assert.deepEqual({...db.prepare('SELECT event_id,status,version FROM fiiu_content WHERE id=?').get(foreign.id)},{event_id:'another-event',status:'draft',version:1},'another event keeps its row');
+ // A publication that fails validation is still refused as such first.
+ assert.equal((await call(`/api/admin/fiiu/content/${randomUUID()}`,{actor:'admin',method:'PATCH',body:{...body,title:''}})).status,400);
 });
 
 test('a publication retried with its editor id is stored once and the retry returns the saved row',async t=>{
@@ -1234,14 +1246,18 @@ test('the closing party never takes a check-in: not by QR, not by staff, not on 
  assert.deepEqual((await(await call('/api/fiiu/registration')).json()).attendance,[]);
 });
 
-test('the settings no longer carry a party link: a stored one is dropped and a sent one is not saved',async t=>{
+// The party now registers through NODAL, and each workshop and route carries its own form, so none of their old links is a setting any more.
+const RETIRED_LINKS=['partyUrl','workshopsUrl','routesUrl'];
+test('the settings no longer carry a party, workshop or route link: a stored one is dropped and a sent one is not saved',async t=>{
  const {call,db}=await setup(t);
- await createFiiuStore({db}).insert('config',{id:'fiiu-2026',data:{registrationOpen:true,programUrl:'https://canva.link/x',workshopsUrl:'',routesUrl:'',partyUrl:'https://example.org/party'},version:1});
- assert.equal(Object.hasOwn((await(await call('/api/fiiu',{actor:'guest'})).json()).config,'partyUrl'),false);
- const admin=(await(await call('/api/admin/fiiu/config',{actor:'admin'})).json()).config;assert.equal(Object.hasOwn(admin,'partyUrl'),false);assert.equal(admin.programUrl,'https://canva.link/x');
- const saved=await call('/api/admin/fiiu/config',{actor:'admin',method:'PUT',body:{...admin,partyUrl:'https://example.org/party2'}});assert.equal(saved.status,200);
- assert.equal(Object.hasOwn((await saved.json()).config,'partyUrl'),false);
- assert.equal(Object.hasOwn(JSON.parse(db.prepare("SELECT data FROM fiiu_config").get().data),'partyUrl'),false);
+ await createFiiuStore({db}).insert('config',{id:'fiiu-2026',data:{registrationOpen:true,programUrl:'https://canva.link/x',workshopsUrl:'https://example.org/workshops',routesUrl:'https://example.org/routes',partyUrl:'https://example.org/party'},version:1});
+ const shown=(await(await call('/api/fiiu',{actor:'guest'})).json()).config;for(const name of RETIRED_LINKS)assert.equal(Object.hasOwn(shown,name),false,name);
+ const admin=(await(await call('/api/admin/fiiu/config',{actor:'admin'})).json()).config;for(const name of RETIRED_LINKS)assert.equal(Object.hasOwn(admin,name),false,name);assert.equal(admin.programUrl,'https://canva.link/x');
+ // A value the old checks refused is ignored too, since nothing reads it.
+ const saved=await call('/api/admin/fiiu/config',{actor:'admin',method:'PUT',body:{...admin,partyUrl:'https://example.org/party2',workshopsUrl:'javascript:alert(1)',routesUrl:'https://example.org/routes2'}});assert.equal(saved.status,200);
+ const answer=(await saved.json()).config,stored=JSON.parse(db.prepare("SELECT data FROM fiiu_config").get().data);
+ for(const name of RETIRED_LINKS){assert.equal(Object.hasOwn(answer,name),false,name);assert.equal(Object.hasOwn(stored,name),false,name);}
+ assert.deepEqual(stored,{registrationOpen:true,programUrl:'https://canva.link/x'});
 });
 
 test('the personal export lists the festival notices sent to the person, and deleting accounts removes them and keeps programme edits without the editor',async t=>{

@@ -185,7 +185,7 @@ test('a newest answer from another day carries its day before its time, also onc
  time.advance(14*3600000);await h.tickTimers();await flush();assert.equal(said()[1].querySelector('.f-live-day')?.dataset.fiiuDate,'2026-10-21');
 });
 
-test('the band builds its links with Fiiu.sessionLink when the page has it',async()=>{
+test('the band builds its links with Fiiu.sessionLink, the one place that writes the session page address',async()=>{
  const h=await band(()=>LIVE(),{sessionLink:(activityId,questionId)=>'session/'+activityId+(questionId?'/'+questionId:'')});
  assert.equal(linkTo(h.host,'El poder de lo local').href,'session/day1-am');assert.equal(linkTo(h.host,'¿Qué te llevas de esta charla?').href,'session/day1-am/'+Q1);
 });

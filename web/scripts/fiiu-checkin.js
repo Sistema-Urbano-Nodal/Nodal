@@ -126,8 +126,9 @@
   return completeLater(block(data.result==='checked_in'?'checkedInTitle':'alreadyCheckedIn','ok',about(activity),pairs.length&&facts(...pairs),joined,news,hours,earned,actions(link('viewRegistration','fiiu.html#registration','f-button'),otherAccount(next))),()=>success(data,body));
  }
  // A refusal drawn before the programme arrived has only the block's id (a typed code, or slow Wi-Fi); the programme names the block later.
+ // account() reads the signed-in email at each draw, so an account lookup that answered in between stays named on the redraw.
  function failure(error,body,account){
-  const result=refusal(error,body,account);return body.activityId||error.activityId?completeLater(result,()=>failure(error,body,account)):result;
+  const result=refusal(error,body,account());return body.activityId||error.activityId?completeLater(result,()=>failure(error,body,account)):result;
  }
  function refusal(error,body,account){
   // A typed code names no block, so the block comes from the server's answer when it has one.
@@ -183,7 +184,7 @@
   try{data=await api('/api/fiiu/checkin',body);}catch(err){error=err;}
   // A "not registered" refusal names the signed-in account; like the programme, that lookup holds the result only briefly.
   const who=error?.status===404?api('/api/fiiu/registration').then(reply=>{account=reply.user.email;},()=>{}):null;
-  await Promise.all([shortly(1500),who&&within(who,1500)]);const shownNow=(data?success(data,body):failure(error,body,account));shownNow.title.focus();
+  await Promise.all([shortly(1500),who&&within(who,1500)]);const shownNow=(data?success(data,body):failure(error,body,()=>account));shownNow.title.focus();
   // A lookup slower than that names the account once it answers, on the refusal or the door confirmation still on screen.
   if(who&&!account)who.then(()=>{const box=shown;if(!account||!box||box.querySelector('.f-checkin-facts'))return;box.querySelector('.f-checkin-hint')?.before(accountFact(account));});
  }

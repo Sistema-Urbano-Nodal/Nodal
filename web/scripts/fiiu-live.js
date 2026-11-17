@@ -33,8 +33,8 @@
  const REFRESH=30000,SHOWN=3,LISTED=5;
  // Signing in from the band's line comes back to the band (fiiu.js lands #en-vivo on it).
  const SIGN_IN='login.html?next='+encodeURIComponent('/fiiu.html#en-vivo');
- // fiiu-ui.js builds the session page's address (Fiiu.sessionLink); the same address is built here while a page loads an older fiiu-ui.js.
- const sessionLink=(activityId,questionId)=>(Fiiu.sessionLink||((a,q)=>'fiiu-session.html?a='+encodeURIComponent(a)+(q?'&q='+encodeURIComponent(q):'')))(activityId,questionId);
+ // The session page's address is built in one place, fiiu-ui.js (Fiiu.sessionLink), which every page loads before this file.
+ const sessionLink=(activityId,questionId)=>Fiiu.sessionLink(activityId,questionId);
  const formats=new Map(),format=(id,options)=>{const k=locale()+'|'+id;if(!formats.has(k))formats.set(k,new Intl.NumberFormat(locale(),options));return formats.get(k);};
  const number=n=>format('n').format(n),average=n=>format('avg',{minimumFractionDigits:1,maximumFractionDigits:1}).format(n);
  const fill=(key,values)=>t(key).replace(/\{(\w+)\}/g,(match,name)=>values[name]??match);

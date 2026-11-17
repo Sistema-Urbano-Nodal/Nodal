@@ -5,7 +5,7 @@ export const LEGACY_FIIU_ACTIVITIES=[
  ...[1,2,3].map(day=>({id:`workshop-day${day}`,date:`2026-10-${20+day}`,period:'workshop',registration:'external',title:'Talleres',time:'',venue:'',sessions:[],legacy:true})),
  ...[4,5].map(day=>({id:`route-day${day}`,date:`2026-10-${20+day}`,period:'route',registration:'external',title:'Rutas urbanas',time:'',venue:'',sessions:[],legacy:true})),
 ];
-// Venues and route starting points follow the organisers' live programme (Canva, 30 Sep 2026); 21 Oct evening is still to be confirmed there.
+// Venues and route starting points follow the organisers' live programme (Canva, 30 Sep 2026; the 21 Oct evening venue was confirmed on 2 Oct).
 const externalActivities=[
  ['workshop-espacios-comunidad','2026-10-21','workshop','Espacios que sostienen comunidad. Herramientas ecopsicológicas para fortalecer vínculo, participación y sostenibilidad social en el espacio público','FXAqd25wao7QpcPA6','MALI, Cercado de Lima'],
  ['workshop-bosques-urbanos','2026-10-21','workshop','Bosques urbanos que respiran: estimando servicios ecosistémicos con i-Tree Canopy','797LUygbLnP4uYvH6','MALI, Cercado de Lima'],
@@ -44,7 +44,8 @@ export const FIIU_EVENT={
 // workshops and routes through their Google Forms. Check-in has no opening time: the rotating code on the organisers'
 // screen is the gate, so a scan on any earlier day counts like one at the door. It closes 30 minutes after the block
 // ends; an untimed block (the lab, until its hours are known) closes at the end of its Lima day.
-export const LIMA_OFFSET='-05:00',CHECKIN_CLOSES_AFTER_MS=30*60000;
+export const LIMA_OFFSET='-05:00';
+const CHECKIN_CLOSES_AFTER_MS=30*60000;
 const span=time=>{const m=/^(\d{1,2}):(\d{2})\s*[–-]\s*(\d{1,2}):(\d{2})$/.exec(String(time??'').trim());if(!m)return null;const start=m[1]*60+ +m[2],end=m[3]*60+ +m[4];return end>start&&end<=1440?[start,end]:null;};
 export const activityMinutes=activity=>{const s=span(activity?.time);return s?s[1]-s[0]:null;};
 export const isCheckinActivity=activity=>Boolean(activity)&&!activity.legacy&&['general','application'].includes(activity.registration);
@@ -55,7 +56,6 @@ export function checkinWindow(activity){
 // The browser never parses times: every current activity carries its certificate minutes (null when it does not count
 // or its duration is unknown) and when its check-in closes (null for workshops and routes). Legacy activities are untouched.
 for(const activity of FIIU_EVENT.activities)Object.assign(activity,{minutes:isCheckinActivity(activity)?activityMinutes(activity):null,checkin:isCheckinActivity(activity)?checkinWindow(activity):null});
-export const CHECKIN_ACTIVITIES=FIIU_EVENT.activities.filter(isCheckinActivity);
 export const ALL_FIIU_ACTIVITIES=[...FIIU_EVENT.activities,...LEGACY_FIIU_ACTIVITIES];
 // The organiser rule for confirming attendance, shared by the staff checkbox and the QR check-in: a conference block
 // must be in the person's plan, the lab needs an accepted application, the party never (it is register only), and
@@ -73,9 +73,10 @@ export function attendanceHours(attendance,activities=ALL_FIIU_ACTIVITIES){
  for(const id of new Set(attendance.map(row=>row.activityId))){const activity=activities.find(a=>a.id===id);if(!isCheckinActivity(activity))continue;const m=activityMinutes(activity);if(m===null)untimed.push(id);else minutes+=m;}
  return {minutes,hours:Math.floor(minutes/60+0.5),untimed};
 }
-export const DEFAULT_CONFIG={registrationOpen:true,programUrl:'https://canva.link/ficmkatcg9fudwk',workshopsUrl:'',routesUrl:''};
-// The stored settings as the pages see them: only the settings that exist today (a party link saved before the party
-// joined the NODAL registration is dropped), each defaulting to its built-in value.
+export const DEFAULT_CONFIG={registrationOpen:true,programUrl:'https://canva.link/ficmkatcg9fudwk'};
+// The stored settings as the pages see them: only the settings that exist today, each defaulting to its built-in value. A
+// party link saved before the party joined the NODAL registration, and the workshop and route links saved before each of
+// those activities carried its own form, are dropped here, and from the stored row by its next save.
 export const configView=data=>Object.fromEntries(Object.keys(DEFAULT_CONFIG).map(key=>[key,data?.[key]??DEFAULT_CONFIG[key]]));
 // The blocks a person ticks in the NODAL registration: the conference blocks and the closing party.
 export const REGISTERED_KINDS=['general','social'];

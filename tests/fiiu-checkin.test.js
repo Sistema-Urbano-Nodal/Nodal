@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHmac} from 'node:crypto';
 import {createCheckinCodes,resolveCheckinSecret,checkinClock,SHORT_CODE_ALPHABET,CODE_LENGTH,SHORT_CODE_LENGTH} from '../server/fiiu-checkin.js';
-import {CHECKIN_ACTIVITIES} from '../server/fiiu-domain.js';
+import {FIIU_EVENT,isCheckinActivity} from '../server/fiiu-domain.js';
 import {validateRuntimeConfig} from '../server/server.js';
 
 const SECRET='a-fixed-test-secret-of-32-characters!';
+const checkinBlocks=FIIU_EVENT.activities.filter(isCheckinActivity);
 const at=(iso)=>{const clock={now:Date.parse(iso)};return {clock,codes:createCheckinCodes({secret:SECRET,now:()=>clock.now})};};
 const SUPABASE={NEXT_PUBLIC_SUPABASE_URL:'https://project.supabase.co',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'sb_publishable_public123',SUPABASE_SECRET_KEY:'sb_secret_server123'};
 
@@ -25,8 +26,8 @@ test('a code belongs to one activity block and one secret',()=>{
  assert.equal(codes.verify('day1-pm',code),null);assert.equal(codes.verify('day1-pm',shortCode),null);
  const other=createCheckinCodes({secret:'another-fixed-secret-of-32-characters',now:()=>Date.parse('2026-10-21T14:00:00Z')});
  assert.equal(other.verify('day1-am',code),null);assert.notEqual(other.current('day1-am').code,code);
- assert.deepEqual(codes.find(shortCode,CHECKIN_ACTIVITIES),{activity:CHECKIN_ACTIVITIES.find(a=>a.id==='day1-am'),slot:codes.current('day1-am').slot});
- assert.equal(codes.find(shortCode,CHECKIN_ACTIVITIES.filter(a=>a.id!=='day1-am')),null);
+ assert.deepEqual(codes.find(shortCode,checkinBlocks),{activity:checkinBlocks.find(a=>a.id==='day1-am'),slot:codes.current('day1-am').slot});
+ assert.equal(codes.find(shortCode,checkinBlocks.filter(a=>a.id!=='day1-am')),null);
  assert.throws(()=>createCheckinCodes({secret:'short'}),/at least 32/);
 });
 
