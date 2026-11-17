@@ -501,7 +501,7 @@
     <h2 class="nr-title" id="nodeRequestTitle" data-i18n="mem.org.name">NODAL for organizations</h2>
     <form class="nr-form" id="nodeRequestForm" method="dialog" novalidate>
       <p class="nr-intro" data-i18n="mem.org.intro">Tell us who you are and what interests you; we will write back to talk it over.</p>
-      <fieldset class="nr-kind" id="nodeRequestKind">
+      <fieldset class="nr-kind" id="nodeRequestKind" role="radiogroup">
         <legend data-i18n="mem.org.kind">What are you interested in?</legend>
         <label class="nr-choice" for="nodeRequestKindNode">
           <input id="nodeRequestKindNode" name="kind" type="radio" value="node" required />
@@ -512,6 +512,7 @@
           <span class="nr-choice-text"><span class="nr-choice-name" data-i18n="mem.org.kindSponsor">Sponsor memberships</span> <span class="nr-choice-line" data-i18n="mem.org.kindSponsorLine">Support a community. Activate a network.</span></span>
         </label>
       </fieldset>
+      <p class="nr-error" id="nodeRequestKindError" role="alert" hidden></p>
       <label for="nodeRequestName"><span data-i18n="mem.org.fName">Full name</span>
         <input id="nodeRequestName" name="name" type="text" autocomplete="name" required /></label>
       <label for="nodeRequestOrganization"><span data-i18n="mem.org.fOrg">Organization</span>

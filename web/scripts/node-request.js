@@ -8,13 +8,15 @@
    relabels the message as the topic. The form posts once to /api/node-requests, with the page's language, and thanks in
    place. Labels are the page's data-i18n copy; the lines this script writes (sending, errors) are the rows below,
    re-rendered when the language changes. Nothing the visitor typed or the server answered is put on the page: the error
-   line is chosen by the answer's status and a known field, and the team's addresses are constants. */
+   line is chosen by the answer's status and a known field, and the team's addresses are constants. The kind's line sits
+   right under its question, where the focus goes; every other line sits by Send. */
 (() => {
   'use strict';
   const byId = (id) => document.getElementById(id);
   const opener = byId('nodeRequestOpen'), dialog = byId('nodeRequest'), form = byId('nodeRequestForm');
   if (!opener || !dialog || !form || typeof dialog.showModal !== 'function') return;
   const error = byId('nodeRequestError'), send = byId('nodeRequestSend'), thanks = byId('nodeRequestThanks');
+  const kindError = byId('nodeRequestKindError') ?? error;
   const done = byId('nodeRequestDone'), trap = byId('nodeRequestWebsite');
   // The kind question: the fieldset, its two radios, the sponsor-only fields and the message's two labels.
   const kindGroup = byId('nodeRequestKind'), sponsor = byId('nodeRequestSponsor');
@@ -65,10 +67,12 @@
     showKind();
   }
   function showKind() {
-    const sponsorship = chosen() === 'sponsorship';
+    const kind = chosen(), sponsorship = kind === 'sponsorship';
     if (sponsor) sponsor.hidden = !sponsorship;
     if (messageLabel) messageLabel.hidden = sponsorship;
     if (topicLabel) topicLabel.hidden = !sponsorship;
+    // The line asking for a kind once one is chosen, or one about a sponsor field now hidden, goes with its mark.
+    if ((shown === 'kind' && kind) || (!sponsorship && SPONSOR_FIELDS.includes(shown))) { shown = null; clearMarks(); render(); }
   }
   for (const radio of RADIOS.values()) radio?.addEventListener('change', showKind);
   // A browser may restore a checked radio before this script runs (Firefox does on a soft reload, and a page shown
@@ -84,12 +88,14 @@
   }
   function render() {
     send.textContent = busy ? say('sending') : (window.nodalI18n?.t('mem.org.send') ?? sendLabel);
-    error.hidden = !shown;
-    if (!shown) error.replaceChildren();
-    else if (shown === 'tooMany' || shown === 'unreachable') error.replaceChildren(`${say(shown)} `, mailto(TEAM[0]), ` ${say('or')} `, mailto(TEAM[1]), '.');
-    else error.textContent = say(shown);
+    const line = shown === 'kind' ? kindError : error;
+    for (const other of [error, kindError]) if (other !== line) { other.hidden = true; other.replaceChildren(); }
+    line.hidden = !shown;
+    if (!shown) line.replaceChildren();
+    else if (shown === 'tooMany' || shown === 'unreachable') line.replaceChildren(`${say(shown)} `, mailto(TEAM[0]), ` ${say('or')} `, mailto(TEAM[1]), '.');
+    else line.textContent = say(shown);
   }
-  // The control a problem is about: the kind group for 'kind', else the field; marked as invalid and described by the line.
+  // The control a problem is about: the kind group for 'kind', else the field; marked as invalid and described by its line.
   const control = (key) => (key === 'kind' ? kindGroup : FIELDS.get(key));
   function clearMarks() {
     for (const node of [kindGroup, ...FIELDS.values()]) { node?.removeAttribute('aria-invalid'); node?.removeAttribute('aria-describedby'); }
@@ -98,7 +104,7 @@
     const node = control(key);
     if (!node) return;
     node.setAttribute('aria-invalid', 'true');
-    node.setAttribute('aria-describedby', error.id);
+    node.setAttribute('aria-describedby', (key === 'kind' ? kindError : error).id);
     if (dialog.open) (key === 'kind' ? RADIOS.get('node') : node).focus();
   }
 
@@ -171,6 +177,9 @@
     shown = result;
     render();
     mark(result);
+    // Disabling Send while it sent dropped the focus out of the window: an answer with no field to point at gives it
+    // back to Send, unless the visitor moved on or closed the window meanwhile.
+    if (!control(result) && dialog.open && (!document.activeElement || document.activeElement === document.body)) send.focus();
   });
 
   window.nodalI18n?.onChange(render);

@@ -36,7 +36,8 @@ export const NODE_REQUEST_FIELDS=['id','kind','name','organization','email','pho
 const checked=record=>{for(const k of Object.keys(record))if(!NODE_REQUEST_FIELDS.includes(k))throw Error('unknown node request field');return record;};
 const from=row=>row?Object.fromEntries(NODE_REQUEST_FIELDS.map(k=>[k,row[snake(k)]??null])):null;
 const to=record=>Object.fromEntries(Object.entries(checked(record)).map(([k,v])=>[snake(k),v]));
-// A reused id is a conflict the API resolves as an idempotent retry.
+// A duplicate id is refused as 409. There is no retry by id: the API makes a new id for every request and answers any
+// failed insert, this one included, with 503.
 const conflict=err=>{if(err.code==='23505'||/UNIQUE constraint/.test(err.message))fail('node request already exists',409);throw err;};
 const SELECT=NODE_REQUEST_FIELDS.map(snake).join(',');
 // The desk reads the newest first, optionally of one status and one kind; `after` is the last row of the previous page ({createdAt,id}), which the API validates.
