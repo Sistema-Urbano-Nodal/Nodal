@@ -228,8 +228,8 @@
  // participant data). The section is rebuilt only when a count, a block's check-in closing or the language changes, so a focused link keeps its place.
  function checkedInCell(n,number){const cell=el('span','f-summary-count'+(n?'':' is-zero'),number.format(n));cell.append(document.createTextNode(' '),tr('span',n===1?'checkedInOne':'checkedInMany','f-cell-unit'));return cell;}
  function renderCheckin(summary=lastSummary){
-  // checkinActivities leaves out only workshops and routes; the party (a register-only block) takes no check-in either.
-  if(!festival)return;const stats=new Map((summary?.activities||[]).map(row=>[row.activityId,row])),blocks=checkinActivities(festival.event).filter(takesCheckin),states=blocks.map(activity=>checkinState(activity));
+  // checkinActivities (fiiu-ui.js) already keeps only the blocks that take check-in, the conferences and the laboratory: no party, workshop, route or legacy block.
+  if(!festival)return;const stats=new Map((summary?.activities||[]).map(row=>[row.activityId,row])),blocks=checkinActivities(festival.event),states=blocks.map(activity=>checkinState(activity));
   const key=JSON.stringify([blocks.map(a=>stats.get(a.id)?.attendance??null),states,locale()]);if(key===lastCheckinKey)return;lastCheckinKey=key;
   const active=document.activeElement,refocus=active?.id&&checkinBody.contains?.(active)?active.id:'',number=new Intl.NumberFormat(locale());
   const rows=blocks.map((activity,i)=>{
