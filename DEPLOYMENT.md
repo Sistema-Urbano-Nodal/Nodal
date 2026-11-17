@@ -167,7 +167,11 @@ Afterwards:
   should stay downloadable.
 - If an upload or a deletion of a certificate failed with a Storage error, run
   `npm run uploads:reconcile` (dry run; see its `certificates` part), then
-  `npm run uploads:reconcile -- --apply`.
+  `npm run uploads:reconcile -- --apply`. Run it with `DATA_BACKEND=supabase`,
+  `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and
+  `SUPABASE_SECRET_KEY` loaded, as for `setup:course-pilot`: its report starts
+  with the backend it read (`backend` plus `host` or `database`), and it warns on
+  stderr when it read a local SQLite file instead of production.
 - Retention of the responses (including started-only rows) is not decided yet;
   record the decision with the other course categories in `docs/privacy/`.
 

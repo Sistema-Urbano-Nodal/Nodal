@@ -44,20 +44,27 @@ unused variables, duplicate keys, and unreachable code, runs the tests, then
 rebuilds the static output. `npm run lint` runs just the source checks; CI runs
 the full build plus the dependency audit.
 
-CI also starts a disposable PostgreSQL 15 service with five empty UTF-8 databases,
-so the interaction-retention, course-upload-quota, FIIU, NODAL news and visit-count integration
+CI also starts a disposable PostgreSQL 15 service with eight empty UTF-8 databases,
+so the interaction-retention, course-upload-quota, FIIU, NODAL news, visit-count,
+Founder Membership acceptance, festival conversation and account-erasure integration
 tests run on every pull request and CI push. These tests exercise migrations, database
 permissions, and concurrent writes using independent PostgreSQL sessions.
 The shared test roles are created before the suite to avoid racing during setup.
+A second CI job runs the same build without PostgreSQL and with stand-ins for Vercel
+Production's variables (placeholder values on `.invalid` hosts, no secrets), so a test
+that only passes while those variables are unset fails in CI instead of in the deploy.
 
 Local and Vercel builds still work without PostgreSQL. To include the integrations
 locally, provide `NODAL_INTERACTION_TEST_DATABASE_URL`,
 `NODAL_COURSE_QUOTA_TEST_DATABASE_URL`, `NODAL_FIIU_TEST_DATABASE_URL`,
-`NODAL_NEWS_TEST_DATABASE_URL` and `NODAL_METRICS_TEST_DATABASE_URL`, pointing
-respectively to **empty disposable local databases** named
-`nodal_interaction_test_<suffix>`, `nodal_course_quota_test_<suffix>`,
-`nodal_fiiu_test_<suffix>`, `nodal_news_test_<suffix>` and
-`nodal_metrics_test_<suffix>` on 127.0.0.1, localhost or [::1], then run
+`NODAL_NEWS_TEST_DATABASE_URL`, `NODAL_METRICS_TEST_DATABASE_URL`,
+`NODAL_MEMBERSHIP_TEST_DATABASE_URL`, `NODAL_FIIU_TALK_TEST_DATABASE_URL` and
+`NODAL_ERASURE_TEST_DATABASE_URL`, pointing respectively to **empty disposable
+local databases** named `nodal_interaction_test_<suffix>`,
+`nodal_course_quota_test_<suffix>`, `nodal_fiiu_test_<suffix>`,
+`nodal_news_test_<suffix>`, `nodal_metrics_test_<suffix>`,
+`nodal_membership_test_<suffix>`, `nodal_fiiu_test_talk_<suffix>` and
+`nodal_erasure_test_<suffix>` on 127.0.0.1, localhost or [::1], then run
 `npm run build`. The tests install fixtures and require fresh databases for each
 run; never use production data. Each variable is optional; a suite without its
 database is skipped. The `psql` client must be available, and the databases must
