@@ -681,10 +681,17 @@
     renderTimeline();
     sayWhereYouStand(data.you);
 
+    /* The roster follows the whole answer, not the view: a cut in time (the scrub, or a Play sweep) shows fewer
+       people, and a roster cut down to them would announce everyone after the cut once the scrub is back at today.
+       Only someone the view shows is announced; someone new outside the cut is simply on the map at today. */
     const arrivals = [];
-    PLACES.forEach((place) => {
-      const added = newcomers(normalise(place.name), place.people || []);
-      if (started) added.forEach((person) => arrivals.push({ person, place }));
+    FULL.places.forEach((L) => {
+      const added = newcomers(normalise(L.city), L.people || []);
+      if (!started) return;
+      const place = PLACES.find((p) => p.name === L.city);
+      added.forEach((person) => {
+        if (place?.people.some((m) => m.id === person.id)) arrivals.push({ person, place });
+      });
     });
     started = true;
 

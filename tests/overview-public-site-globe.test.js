@@ -168,6 +168,53 @@ test('picking a topic and going back to all topics announces nobody, and a real 
   assert.doesNotMatch(feed(), /Ana|Bob|Cid/);
 });
 
+/* A cut in time (the scrub, or a Play sweep moving it) shows fewer people than the answer lists. The roster of
+   who is already there follows the whole answer, or everyone after the cut arrives once the scrub is back. */
+const joinedBy = (day) => `2026-${day}T00:00:00Z`;
+const feedNames = (h) => h.ids.globeFeed.children.map((row) => row.children[0].textContent);
+
+test('an answer that lands while the scrub is back in time announces only the people who are new', async () => {
+  const ana = member('ana', 'Ana', joinedBy('08-01')); const bob = member('bob', 'Bob', joinedBy('09-01'));
+  const cid = member('cid', 'Cid', joinedBy('10-01'));
+  const lima = (...more) => city('Lima', [ana, bob, cid, ...more], -77);
+  const h = harness(snapshot([lima()]));
+  await flush();
+  h.scrubTo(0);   // 1 Aug: Lima shows Ana alone
+  // Quinn joined in July and has only now listed themselves, so they are on the map at that date: a real arrival.
+  // Eve joined today: not on the map at that date, so not announced there.
+  const quinn = member('quinn', 'Quinn', joinedBy('07-15'));
+  const eve = member('eve', 'Eve', joinedBy('11-15'));
+  h.respond(() => reply(snapshot([lima(eve), city('Quito', [quinn], -78)])));
+  h.poll(); await flush();
+  assert.deepEqual(feedNames(h), ['Quinn']);
+
+  h.scrubTo(Number(h.ids.globeSince.max));   // back to today
+  assert.equal(h.ids.globeSinceLabel.textContent, 'Today');
+  h.respond(() => reply(snapshot([lima(eve, member('rui', 'Rui', joinedBy('11-16'))), city('Quito', [quinn], -78)])));
+  h.poll(); await flush();
+  assert.deepEqual(feedNames(h), ['Rui', 'Quinn'], 'Bob, Cid and Eve were in the last answer, so none of them just joined');
+});
+
+test('a topic picked while the scrub is back in time rebuilds the roster from the whole answer, not the cut', async () => {
+  const ana = member('ana', 'Ana', joinedBy('08-01')); const bob = member('bob', 'Bob', joinedBy('09-01'));
+  const cid = member('cid', 'Cid', joinedBy('10-01'));
+  const lima = (...more) => city('Lima', [ana, bob, cid, ...more], -77);
+  let answer = snapshot([lima()]);
+  const h = harness(answer);
+  h.respond(() => reply(answer));
+  await flush();
+  h.scrubTo(0);
+  h.chips()[1].dispatchEvent({ type: 'click' });   // Mobility, everyone in Lima lists it
+  await flush();
+  assert.equal(h.requests.at(-1).path, '/api/network/places?topic=Mobility');
+  assert.deepEqual(feedNames(h), []);
+
+  h.scrubTo(Number(h.ids.globeSince.max));
+  answer = snapshot([lima(member('dan', 'Dan', joinedBy('11-16')))]);
+  h.poll(); await flush();
+  assert.deepEqual(feedNames(h), ['Dan'], 'Bob and Cid were in the answer the topic brought, only after the cut');
+});
+
 /* ---------- M155: the topic chips say which one is on ---------- */
 
 test('the topic chips tell a screen reader which filter is on, through a pick and a language switch', async () => {
