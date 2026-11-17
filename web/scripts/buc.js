@@ -1,7 +1,7 @@
 (() => {
  'use strict';
  /* BUC, the Biblioteca Urbana Colaborativa (https://buc.sistemaurbano.org/), Sistema Urbano's open library of urbanism publications, is NODAL's source
-    of readings. This file draws them where NODAL suggests readings: the console's Learning band, the knowledge hub, FIIU session pages and course pages.
+    of readings. This file draws them where NODAL suggests readings: the console's Community paths (#growth), the knowledge hub, FIIU session pages and course pages.
     Everything comes from NODAL's own GET /api/readings (server/buc.js): the topic and festival-block maps, the links into BUC's search and, once BUC
     publishes its feed (docs/integrations/buc-feed.md), the publications themselves. The browser never talks to BUC: a member's topics reach it only in
     a link the member chooses to follow. When members ask each other for readings (FIIU chats, course discussions), suggest() puts a quiet line of BUC
