@@ -15,7 +15,7 @@
   /* ================= persisted state ================= */
   const DEFAULT_PART_C = { bio: '', linkedin: '', portfolio: '', references: '', availability: '', consent: false };
   const DEFAULT_INDICATORS = { leadership: 'No', transmission: 'No' };
-  const state = { user: null, notifRead: false };
+  const state = { notifRead: false };
   let confirmedCity = '';
 
   async function api(path, options = {}) {
@@ -35,7 +35,6 @@
   function normalizeApiUser(user) {
     const partC = { ...DEFAULT_PART_C, ...(user.partC || {}) };
     return {
-      kind: 'member',
       id: user.id,
       name: user.fullName || user.name || '',
       role: user.title || user.role || 'Member',
@@ -87,31 +86,17 @@
   ]);
   const TAXONOMY = [...TOPIC_KEYS.keys()];
   const topicLabel = (name) => (TOPIC_KEYS.has(name) ? t(`d.topic.${TOPIC_KEYS.get(name)}`) : name);
-  const blankPartC = () => ({ bio: '', linkedin: '', portfolio: '', references: '', availability: '', consent: false });
   const makeTopic = (name, level = 1) => ({ name, level, validatedAt: 0, endorsedAt: 0 });
   const cleanCity = (value) => String(value || '').trim().replace(/\s+/g, ' ').slice(0, 120);
   const cleanRole = (value) => String(value || '').trim().replace(/\s+/g, ' ').slice(0, 80);
-
-  function newUser(name, city, role, topicNames) {
-    return {
-      kind: 'member',
-      name, role, city,
-      assessed: false,
-      topics: topicNames.map((n) => makeTopic(n)),
-      skills: [],
-      indicators: { leadership: 'No', transmission: 'No' },
-      partC: blankPartC(),
-      requests: {}, mentorApplied: false,
-    };
-  }
 
   let U = null;
   const maxLevel = () => Math.max(0, ...U.topics.map((x) => x.level));
   const cityLabel = () => U.city || t('d.sheet.cityPending');
 
-  function setUser(user, persist = true) {
+  function setUser(user) {
     U = user;
-    if (persist) { state.user = user; touchUser(); }
+    touchUser();
     applyAll();
   }
   /* Profile saves are serialized so each city edit uses the last confirmed
@@ -145,10 +130,38 @@
     U.city = detail.city;
     const cityInput = document.getElementById('ucCity');
     if (cityInput?.value === previousCity) cityInput.value = detail.city;
-    state.user = U;
+    if (keptCity !== null && detail.city !== keptCity) dropCityNotice();
     applyAll();
     window.dispatchEvent(new CustomEvent('nodal:profile-location-changed', { detail: { userId: U.id } }));
   });
+  /* The stored city changed in another tab or on another device after this tab read it, so the server refused the city
+     this tab sent, and the rest of the patch with it (409 location_conflict). Every later save would carry the same stale
+     guard and be refused too. The console takes the stored city instead (in the profile editor too, unless something
+     else has been typed there since), says so in the save box, and sends the other changes once more, without a city.
+     If the session now belongs to another account, nothing of it is taken: the save fails as it would have.
+     The notice names keptCity only while that is the stored city: a save or the location check storing another one
+     drops it, and a newer city typed meanwhile (sent in the second patch) never raises it. */
+  let keptCity = null;
+  function dropCityNotice() {
+    keptCity = null;
+    // Hide the box only while it shows the notice: a failed save stays up with its Try again.
+    const box = document.getElementById('saveAlert');
+    if (box && document.getElementById('saveClose')?.hidden === false) box.hidden = true;
+  }
+  async function keepStoredCity(refusedCity, refusal) {
+    const { user } = await api('/api/auth/me');
+    if (!user || user.id !== U.id) throw refusal;
+    const city = user.city || '';
+    confirmedCity = city;
+    if (U.city === refusedCity) U.city = city;
+    const cityInput = document.getElementById('ucCity');
+    if (cityInput?.value === refusedCity) cityInput.value = city;
+    window.nodalLocationCheck?.setUser(user);
+    if (U.city === city) keptCity = city;
+    applyAll();
+    window.dispatchEvent(new CustomEvent('nodal:profile-location-changed', { detail: { userId: U.id } }));
+    return api('/api/me', { method: 'PATCH', body: JSON.stringify(serializeUser(U)) });
+  }
   async function saveProfile() {
     if (!U) return;
     const seq = saveSeq + 1;
@@ -164,9 +177,13 @@
       // inadvertently move the map back to the old city.
       if (locationSave) await locationSave;
       const submittedCity = U.city;
-      const data = await api('/api/me', { method: 'PATCH', body: JSON.stringify(serializeUser(U)) });
+      const data = await api('/api/me', { method: 'PATCH', body: JSON.stringify(serializeUser(U)) }).catch((error) => {
+        if (error?.status === 409 && error.message === 'location_conflict') return keepStoredCity(submittedCity, error);
+        throw error;
+      });
       const previousCity = confirmedCity;
       confirmedCity = data.user.city || '';
+      if (keptCity !== null && confirmedCity !== keptCity) keptCity = null;
       if (U.city === submittedCity) U.city = confirmedCity;
       window.nodalLocationCheck?.setUser(data.user);
       if (previousCity !== confirmedCity) {
@@ -175,7 +192,6 @@
       }
       if (seq !== saveSeq) return;
       U = normalizeApiUser(data.user);
-      state.user = U;
       state.notifRead = U.notifRead;
       if (U.assessed && partCCount() === partCTotal && window.nodalPilot && !document.getElementById('profileFeedback')) {
         const feedback = window.nodalPilot.feedback('profile');
@@ -189,17 +205,25 @@
     }
   }
   /* A failed PATCH used to be swallowed: the change stayed on screen and never
-     reached the server, which reads exactly like success. Now it says so. */
+     reached the server, which reads exactly like success. Now it says so. A city
+     kept from another tab or device is said in the same box, with Close instead of
+     Try again, and stays until the member closes it or another city is stored: a later
+     save of anything else does not hide it. */
   function reportSave(ok, retrying) {
     const box = document.getElementById('saveAlert');
     if (!box) return;
-    if (ok) { box.hidden = true; return; }
-    setText('saveAlertText', t(retrying ? 'd.save.stillFailing' : 'd.save.failed'));
+    const notice = ok && keptCity !== null;
+    if (ok && !notice) { box.hidden = true; return; }
+    setText('saveAlertText', notice ? t('d.save.cityKept', { city: keptCity || t('d.sheet.cityPending') })
+      : t(retrying ? 'd.save.stillFailing' : 'd.save.failed'));
     setText('saveRetry', t('d.save.retry'));
+    const retry = document.getElementById('saveRetry');
+    const close = document.getElementById('saveClose');
+    if (retry) retry.hidden = notice;
+    if (close) close.hidden = !notice;
     box.hidden = false;
   }
   function touchUser() {
-    if (state.user) state.user = U;
     saveProfile().then(() => reportSave(true)).catch(() => reportSave(false));
   }
 
@@ -264,11 +288,12 @@
     const mentorReady = U.assessed && maxLevel() >= 3 && U.indicators.transmission !== 'No';
     // the API returns every branch key, most of them false — count real ones
     const roleRequested = Object.values(U.requests).some(Boolean) || U.mentorApplied;
+    const core = partADone();
     return [
       {
-        label: t('d.spine.profile'),
-        meta: t('d.spine.profileMeta'),
-        done: true,
+        label: t(core ? 'd.spine.profile' : 'd.uc.titleNew'),
+        meta: t(core ? 'd.spine.profileMeta' : 'd.spine.profileTodo'),
+        done: core,
         go: () => openUserDialog(),
       },
       {
@@ -367,32 +392,33 @@
   function renderTrust() {
     const list = byId('trustList');
     if (!list) return;
-    const groups = [[t('d.trust.topics'), U.topics]];
-    if (U.skills.length) groups.push([t('d.trust.skills'), U.skills]);
-    const items = [];
-    groups.forEach(([title, entries]) => {
-      const cap = document.createElement('li');
-      cap.className = 't-group';
-      cap.textContent = title;
-      items.push(cap);
-      entries.forEach((topic) => {
+    const items = [el('li', 't-group', t('d.trust.topics'))];
+    U.topics.forEach((topic) => {
+      const row = document.createElement('li');
+      const stage = stageOf(topic);
+      const dots = el('span', 't-dots');
+      dots.setAttribute('aria-label', t('d.trust.aria', { n: topic.level, stage: stageName(stage) }));
+      for (let i = 1; i <= 4; i += 1) {
+        const dot = document.createElement('i');
+        dot.className = i <= topic.validatedAt ? 'f' : i <= topic.endorsedAt ? 'h' : i <= topic.level ? 'd' : 'o';
+        dots.appendChild(dot);
+      }
+      row.append(
+        el('span', 't-name', topicLabel(topic.name)),
+        dots,
+        el('span', `t-level tag-${stage}`, `${levelName(topic.level)} · ${stageName(stage)}`),
+      );
+      items.push(row);
+    });
+    // Skills are words (domain.js: string[]), not topics: no level or stage to draw, so each is listed as written.
+    if (U.skills.length) {
+      items.push(el('li', 't-group', t('d.trust.skills')));
+      U.skills.forEach((skill) => {
         const row = document.createElement('li');
-        const stage = stageOf(topic);
-        const dots = el('span', 't-dots');
-        dots.setAttribute('aria-label', t('d.trust.aria', { n: topic.level, stage: stageName(stage) }));
-        for (let i = 1; i <= 4; i += 1) {
-          const dot = document.createElement('i');
-          dot.className = i <= topic.validatedAt ? 'f' : i <= topic.endorsedAt ? 'h' : i <= topic.level ? 'd' : 'o';
-          dots.appendChild(dot);
-        }
-        row.append(
-          el('span', 't-name', topicLabel(topic.name)),
-          dots,
-          el('span', `t-level tag-${stage}`, `${levelName(topic.level)} · ${stageName(stage)}`),
-        );
+        row.append(el('span', 't-name', String(skill)));
         items.push(row);
       });
-    });
+    }
     list.replaceChildren(...items);
   }
 
@@ -591,7 +617,6 @@
 
   function renderPaths() {
     const defs = branchDefs();
-    let open = 0;
     document.querySelectorAll('#pathList .path-row').forEach((row) => {
       const def = defs[row.dataset.branch];
       if (!def) return;
@@ -608,24 +633,31 @@
               : t('d.path.stepsLeft', { n: remaining });
           cls = remaining === 0 ? 'st-ready' : 'st-next';
         }
-        if (cls === 'st-ready') open += 1;
         pill.textContent = label;
         pill.className = `path-state ${cls}`;
       }
     });
-    setText('pathsEyebrow', t('d.eyebrow.paths', { n: Object.keys(defs).length, ready: open }));
+    setText('pathsEyebrow', t('d.eyebrow.paths', { n: Object.keys(defs).length }));
     showBranch(currentBranch);
   }
 
+  /* These controls are in the page before the member is loaded, and stay there if loading fails: until a member is in
+     hand they do nothing, rather than show a choice that is never stored. */
   const pathList = byId('pathList');
   if (pathList && pd.criteria && pd.cta) {
     pathList.querySelectorAll('.path-row').forEach((row) => {
       row.addEventListener('click', () => {
-        pathList.querySelectorAll('.path-row').forEach((r) => r.classList.toggle('is-on', r === row));
+        if (!U) return;
+        // the picked path is said by aria-pressed as well as by colour
+        pathList.querySelectorAll('.path-row').forEach((r) => {
+          r.classList.toggle('is-on', r === row);
+          r.setAttribute('aria-pressed', String(r === row));
+        });
         showBranch(row.dataset.branch);
       });
     });
     pd.cta.addEventListener('click', () => {
+      if (!U) return;
       if (currentBranch === 'project' && !partCDone()) { openPartC(); return; }
       if (currentBranch === 'community') { goTo('badges'); return; }
       U.requests[currentBranch] = true;
@@ -636,7 +668,7 @@
   }
 
   /* ================= BUC readings ================= */
-  /* "Lecturas de la BUC" in the Learning band: readings from BUC, Sistema Urbano's open library, for the member's topics
+  /* "Lecturas de la BUC" under Community paths (#growth): readings from BUC, Sistema Urbano's open library, for the member's topics
      (three at most, the highest rated first), drawn by buc.js from NODAL's /api/readings. The topics reach BUC only in
      the links the member follows. Before any topic is chosen there is one way into BUC instead, and nothing is read.
      The console redraws often; buc.js keeps a block whose query has not changed. Without buc.js, or when the read
@@ -921,6 +953,8 @@
         const level = i + 1;
         const btn = el('button', level === topic.level ? 'is-on' : null, t(levelKey));
         btn.type = 'button';
+        btn.dataset.topic = topic.name;
+        btn.dataset.level = String(level);
         btn.setAttribute('aria-pressed', String(level === topic.level));
         if (level === 4 && topic.validatedAt < 4) {
           btn.disabled = true;
@@ -932,6 +966,9 @@
           if (current) current.level = level;
           markAssessed();
           renderAssessment();
+          // The rows are drawn again, so the button that had focus is gone: focus goes to its new copy, without scrolling.
+          [...host.querySelectorAll('button')].find((b) => b.dataset.topic === topic.name && b.dataset.level === String(level))
+            ?.focus({ preventScroll: true });
           renderTrust();
           evaluateTrack();
           renderCompleteness();
@@ -956,12 +993,13 @@
         btn.setAttribute('aria-pressed', String(on));
       });
     });
-    setText('assessEyebrow', t('d.eyebrow.assessment', { n: U.topics.length }));
+    setText('assessEyebrow', t(U.topics.length === 1 ? 'd.eyebrow.assessmentOne' : 'd.eyebrow.assessment', { n: U.topics.length }));
   }
 
   document.querySelectorAll('.seg[data-ind]').forEach((seg) => {
     seg.querySelectorAll('button').forEach((btn) => {
       btn.addEventListener('click', () => {
+        if (!U) return;   // before the member is loaded, or when loading failed
         seg.querySelectorAll('button').forEach((b) => {
           b.classList.toggle('is-on', b === btn);
           b.setAttribute('aria-pressed', String(b === btn));
@@ -1000,7 +1038,7 @@
   const partCDone = () => partCCount() === partCTotal;
 
   function renderCompleteness() {
-    const pct = 30 + (U.assessed ? 30 : 0) + Math.round(40 * (partCCount() / partCTotal));
+    const pct = (partADone() ? 30 : 0) + (U.assessed ? 30 : 0) + Math.round(40 * (partCCount() / partCTotal));
     const ringVal = byId('ringVal');
     if (ringVal) {
       const C = 2 * Math.PI * 34;
@@ -1010,6 +1048,7 @@
     setText('ringText', `${pct}%`);
     byId('ringSvg')?.setAttribute('aria-label', t('d.ring.aria', { n: pct }));
 
+    byId('partAStatus')?.classList.toggle('done', partADone());
     const partB = byId('partBStatus');
     if (partB) {
       partB.classList.toggle('done', U.assessed);
@@ -1091,6 +1130,11 @@
      profile dialog opened by itself on every visit, over the festival block they came for. It now opens by itself
      until the member closes it once on this device; after that the route's first stop, the completeness block and
      the avatar still open it. */
+  /* Part A, the core profile, is that complete profile: a city and at least one topic (the role always has a value, the
+     server's 'Member' sentinel when no title is set). The prompt, the profile dialog's wording, the route's first stop, the
+     completeness ring and the timeline all read it, so none of them calls a registrant's profile done while another asks
+     to complete it. */
+  const partADone = () => Boolean(U.city && U.topics.length);
   const PROMPT_KEY = 'nodal.profilePrompt.dismissed';
   const promptDeclined = () => {
     try { return Boolean(U?.id) && localStorage.getItem(PROMPT_KEY) === String(U.id); } catch { return false; }
@@ -1178,12 +1222,14 @@
       if (!U) return;
       uc.error.hidden = true;
       // members edit in place; a fresh account completes its profile first
-      editing = Boolean(U.city && U.role && U.topics.length);
+      editing = partADone();
       relabelUserDialog();
-      if (uc.dataControls) uc.dataControls.hidden = !editing;
+      /* Export and deletion belong to every loaded account, complete or not: they are the only way to either, and a festival
+         registrant (no NODAL topics) must not have to add more personal data before taking theirs or leaving. */
+      if (uc.dataControls) uc.dataControls.hidden = false;
       uc.name.value = U.name;
       uc.city.value = U.city;
-      uc.role.value = U.kind === 'member' && U.role !== 'Member' ? U.role : '';
+      uc.role.value = U.role !== 'Member' ? U.role : '';
       setCityOptions(U.city ? [{ name: U.city, label: U.city }] : []);
       const current = new Set(U.topics.map((x) => x.name));
       uc.topics.querySelectorAll('input').forEach((i) => { i.checked = current.has(i.value); });
@@ -1216,17 +1262,13 @@
         uc.error.hidden = false;
         return;
       }
-      if (U.kind === 'member') {
-        // edit in place — keep levels and validation for topics that stay
-        U.name = name;
-        U.city = city;
-        U.role = role;
-        const byName = new Map(U.topics.map((x) => [x.name, x]));
-        U.topics = topics.map((n) => byName.get(n) ?? makeTopic(n));
-        setUser(U);
-      } else {
-        setUser(newUser(name, city, role, topics));
-      }
+      // edit in place — keep levels and validation for topics that stay
+      U.name = name;
+      U.city = city;
+      U.role = role;
+      const byName = new Map(U.topics.map((x) => [x.name, x]));
+      U.topics = topics.map((n) => byName.get(n) ?? makeTopic(n));
+      setUser(U);
     });
 
     uc.exportData?.addEventListener('click', async () => {
@@ -1264,6 +1306,8 @@
           ['confirm_email_mismatch', 'd.uc.deleteEmailMismatch'],
           ['upload_in_progress', 'd.uc.deleteUploading'],
           ['certificate_upload_in_progress', 'd.uc.deleteCertificateUploading'],
+          // a pending course upload waits for the teaching team, so trying again alone never helps
+          ['upload_awaiting_reconciliation', 'd.uc.deleteReconciling'],
         ]);
         uc.error.textContent = t(refusals.get(err?.code) || 'd.uc.deleteFail');
         uc.error.hidden = false;
@@ -1283,8 +1327,9 @@
   /* ================= this week + timeline ================= */
   function timelineData() {
     const first = U.topics[0] ? topicLabel(U.topics[0].name) : t('d.tl.yourTopic');
+    const core = partADone();
     return [
-      { time: t('d.tl.today'), name: t('d.tl.createdName'), sub: t('d.tl.createdSub'), cls: 'tl-strong' },
+      { time: t('d.tl.today'), name: t(core ? 'd.tl.createdName' : 'd.uc.titleNew'), sub: t(core ? 'd.tl.createdSub' : 'd.spine.profileTodo'), cls: 'tl-strong' },
       { time: t('d.tl.next'), name: t(U.assessed ? 'd.tl.assessedName' : 'd.tl.assessName'), sub: t('d.tl.assessSub') },
       { time: t('d.tl.suggested'), name: t('d.tl.feedName', { topic: first }), sub: t('d.tl.feedSub') },
       { time: t('d.tl.suggested'), name: t('d.tl.circleName', { city: cityLabel() }), sub: t('d.tl.circleSub'), cls: 'tl-soft' },
@@ -1393,7 +1438,8 @@
           || searchInput.value.trim().toLowerCase() !== normalizedQuery) return;
         const hits = (Array.isArray(data.users) ? data.users : []).map((u) => ({
           label: u.name,
-          meta: [u.role, u.city].filter(Boolean).join(' · '),
+          // 'Member' is the server's no-title sentinel. Read when drawn, so a kept answer follows a language switch.
+          get meta() { return [u.role === 'Member' ? t('d.role.member') : u.role, u.city].filter(Boolean).join(' · '); },
           href: `profile.html?id=${encodeURIComponent(u.id)}`,
         }));
         peopleHits = hits;
@@ -1403,9 +1449,16 @@
         if (err.name === 'AbortError' || sequence !== peopleSequence
           || activeScope() !== 'People'
           || searchInput.value.trim().toLowerCase() !== normalizedQuery) return;
-        peopleQuery = normalizedQuery;
-        peopleHits = [];
-        paint([]);                       // static hosting has no directory
+        if (err.status === 404 || err.status === 405) {
+          // static hosting has no directory: nobody can be found, which is the answer
+          peopleQuery = normalizedQuery;
+          peopleHits = [];
+          paint([]);
+          return;
+        }
+        // An outage, the 40-searches-a-minute limit or a dropped connection is not "no matches": it says so and keeps
+        // nothing, so the next look at these words asks again.
+        paint([], 'people-error');
       } finally {
         if (peopleAbort === controller) peopleAbort = null;
       }
@@ -1458,8 +1511,9 @@
       searchPop.hidden = false;
       return;
     }
-    if (mode === 'catalog-error') {
-      searchPop.replaceChildren(el('p', 'search-empty', t('d.search.catalogUnavailable')));
+    if (mode === 'catalog-error' || mode === 'people-error') {
+      const key = mode === 'catalog-error' ? 'd.search.catalogUnavailable' : 'd.search.directoryUnavailable';
+      searchPop.replaceChildren(el('p', 'search-empty', t(key)));
       searchPop.hidden = false;
       return;
     }
@@ -1508,7 +1562,11 @@
     searchInput.addEventListener('keydown', (e) => { if (e.key === 'Escape') searchPop.hidden = true; });
     chipHost.querySelectorAll('.chip').forEach((chip) => {
       chip.addEventListener('click', () => {
-        chipHost.querySelectorAll('.chip').forEach((c) => c.classList.toggle('is-on', c === chip));
+        // the picked scope is said by aria-pressed as well as by colour
+        chipHost.querySelectorAll('.chip').forEach((c) => {
+          c.classList.toggle('is-on', c === chip);
+          c.setAttribute('aria-pressed', String(c === chip));
+        });
         runSearch();
         searchInput.focus();
       });
@@ -1550,6 +1608,7 @@
       notifBtn.setAttribute('aria-expanded', String(!notifPop.hidden));
     });
     notifClear?.addEventListener('click', () => {
+      if (!U) return;   // before the member is loaded, or when loading failed
       state.notifRead = true;
       touchUser();
       renderNotifs();
@@ -1620,6 +1679,7 @@
       .catch(() => reportSave(false, true))
       .finally(() => { saveRetry.disabled = false; });
   });
+  byId('saveClose')?.addEventListener('click', dropCityNotice);
 
   document.querySelectorAll('.side-link, .side-out').forEach((btn) => {
     btn.addEventListener('pointerdown', (e) => {
@@ -1653,13 +1713,12 @@
       const publish = byId('publishLink');
       if (publish) publish.hidden = data.user?.permission !== 'admin';
       confirmedCity = U.city;
-      state.user = U;
       state.notifRead = U.notifRead;
       window.nodalLocationCheck?.setUser(data.user);
       const retry = byId('loadRetry');
       if (retry) retry.hidden = true;
       applyAll();
-      if ((!U.city || !U.role || U.topics.length === 0) && !promptDeclined()) openUserDialog();
+      if (!partADone() && !promptDeclined()) openUserDialog();
     } catch (error) {
       // api() handles the login redirect for 401. Any other failure says so and
       // offers a retry instead of leaving the loading line up forever.

@@ -18,6 +18,9 @@
   const topicLabel = (name) => (TOPIC_KEYS.has(name) ? t(`d.topic.${TOPIC_KEYS.get(name)}`) : name);
   // 'Member' is the server's no-title sentinel; the console shows it translated too.
   const roleLabel = (role) => (!role || role === 'Member' ? t('d.role.member') : role);
+  // Availability is stored as the console's option value, in English: those three read in the page language, anything else as written.
+  const AVAILABILITY_KEYS = new Map([['2 h / month', 'd.pc.avail2'], ['4 h / month', 'd.pc.avail4'], ['8+ h / month', 'd.pc.avail8']]);
+  const availabilityLabel = (value) => (AVAILABILITY_KEYS.has(value) ? t(AVAILABILITY_KEYS.get(value)) : value);
   /* One profile-only line in en/es/pt, picked by the page language like auth.js's messages, so the console
      dictionary and its cache key stay as they are. */
   const SHARE_HIDDEN = [
@@ -170,14 +173,14 @@
       fresh.append(num, el('h2', '', t('p.signals')));
       const none = t('p.notAdded');
       const rows = isSelf ? [
-        [t('p.sAvail'), user.partC.availability || t('p.notDeclared')],
+        [t('p.sAvail'), availabilityLabel(user.partC.availability) || t('p.notDeclared')],
         [t('p.sRefs'), user.partC.references ? t('p.onFile') : none],
         [t('p.sPortfolio'), user.partC.portfolio || none],
         ['LinkedIn', liUrl ? t('p.linked') : none],
         [t('p.sConsent'), t(user.partC.consent ? 'p.listed' : 'p.unlistedShort')],
       ] : [
         [t('p.sCity'), user.city || t('p.notShared')],
-        [t('p.sAvail'), user.partC.availability || t('p.notDeclared')],
+        [t('p.sAvail'), availabilityLabel(user.partC.availability) || t('p.notDeclared')],
         ['LinkedIn', liUrl ? t('p.linked') : none],
       ];
       rows.forEach(([k, v]) => {

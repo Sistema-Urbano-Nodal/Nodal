@@ -27,6 +27,16 @@ const CONSOLE=readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.met
 // two nonhome hashes were redone; only those four keys moved, and tests/dashboard-account-errors.test.js pins them.
 // On 24 Oct 2026 the deletion prompt (d.uc.deletePrompt) added that a FIIU registration, attendance and certificate hours
 // go with the account, so the two nonhome hashes were redone; only that key moved, and the same test pins it.
+// On 16 Nov 2026 the code overview's console fixes changed console copy, so the two nonhome hashes were redone. Only these
+// keys moved, pinned by tests/overview-console-dashboard.test.js unless named otherwise: d.spine.profileTodo (the route's
+// first stop before Part A is done), d.save.cityKept and d.save.close (a city changed in another tab or on another device),
+// d.uc.deleteReconciling (a deletion refused for a course upload, pinned by tests/dashboard-account-errors.test.js),
+// d.search.directoryUnavailable (a People search that failed), d.eyebrow.assessmentOne (one topic, in the singular),
+// d.search.catalogEmpty (reworded so it reads right around any scope's name) and p.signalsSelf (which signals other members
+// see on your profile, pinned by tests/profile-ui.test.js). Keys nothing used left both dictionaries the same day: the
+// retired Supporting membership page and checkout lines (y.* other than y.free, y.freeName, y.f1-f4, y.faq and y.fund.*,
+// which payments.html uses), the old globe panel's d.globe.title/sub/hint/working/roles, d.search.regional and the
+// d.badge.sharer/connector/consistent.scope lines the .req lines replaced.
 const HOME_KEYS=[
   "about.eyebrow",
   "about.lead1",
@@ -263,8 +273,8 @@ const SNAPSHOTS={
     "pt": "b9a077e4b2055212490393a2498292f0d20156b6f1d4e34f8d7b063179e71d3b"
   },
   "nonhome": {
-    "es": "12ad258f84180d3a8f764b5d1c55acb05f3b83f7f922265194ebead6d689dbbb",
-    "pt": "81d8ec46f2c3fad296904c1a5819f4040e8cb04aab5b068bbf90d7fc121320c7"
+    "es": "c078d5db1188923e7431625bdb144185cf47ca9f9a5760c8bce06bb57edc804f",
+    "pt": "3365ec50ba307a773ad4bbecece67b1161c6753f65b87a3cdf1845f585e25071"
   }
 };
 
@@ -292,14 +302,14 @@ for(const lang of ['es','pt']){
       const{api,dictionaries}=load(page,[],{withConsole:true});api.apply(lang);
       // Later additions have their own translation coverage; preserve the original copy baseline.
       // The publishing desk (ops.*), NODAL news (news.*) and the console's desk link are covered by catalog-ui and news-ui;
-      // the membership and account-deletion refusals (October 3 review) by review-fix-5-integration;
+      // the account-deletion refusal (October 3 review) by review-fix-5-integration;
       // the console's loading/failure lines and accessible names (d.aria.*) by dashboard-publishing,
       // the catalog's nothing-published state by catalog-ui, and the console's Show more / Show less (d.news.*) and FIIU badges
-      // (d.badge.fiiu.*) by dashboard-console-ui, the Learning band's readings from BUC (d.buc.*) by buc-ui, and the
+      // (d.badge.fiiu.*) by dashboard-console-ui, the console's readings from BUC under Community paths (d.buc.*) by buc-ui, and the
       // console's two-character name refusal (d.uc.errNameShort) just below and by dashboard-console-ui, and the Founder Membership 2027
       // (y.fund.* on the payments page, mem.fund.* on the landing card) by payments-links-ui, landing-membership and the plan copy
       // test at the end of this file. The Supporter courses lines (mem.p7, y.p6) and the Mercado Pago links page (y.mp.*) they replaced are gone.
-      const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','y.alreadyMember','d.uc.deleteSubscription','d.greet.hello','d.greet.loading','d.load.failed','catalog.emptyNothingPublished','catalog.nextFiiu','catalog.nextCourses','d.uc.errNameShort','page.community.title','page.knowledge.title','page.resources.title'].includes(key)||/^(?:ops|news|d\.aria|d\.news|d\.badge\.fiiu|d\.buc|y\.fund|mem\.fund)\./.test(key);
+      const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','d.uc.deleteSubscription','d.greet.hello','d.greet.loading','d.load.failed','catalog.emptyNothingPublished','catalog.nextFiiu','catalog.nextCourses','d.uc.errNameShort','page.community.title','page.knowledge.title','page.resources.title'].includes(key)||/^(?:ops|news|d\.aria|d\.news|d\.badge\.fiiu|d\.buc|y\.fund|mem\.fund)\./.test(key);
       const actual=Object.entries(dictionaries[lang]).filter(([key])=>!later(key)).sort(([a],[b])=>a.localeCompare(b,'en'));
       assert.equal(hash(actual),SNAPSHOTS.nonhome[lang],String(page));
       assert.equal(api.t('nav.privacy'),lang==='es'?'Política de privacidad':'Política de privacidade');
