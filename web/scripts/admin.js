@@ -137,13 +137,19 @@
     return node;
   };
 
-  /* Status lines remember their message so a language switch re-renders them.
+  /* Status lines remember how to write their message so a language switch re-renders them.
      Server error text is shown as sent and is left alone. */
   const messages = new Map();
+  function show(node, render) {
+    messages.set(node, render);
+    node.textContent = render();
+  }
   function say(node, key, vars) {
-    if (key) messages.set(node, [key, vars]);
-    else messages.delete(node);
-    node.textContent = key ? t(key, vars) : '';
+    if (key) show(node, () => t(key, vars));
+    else {
+      messages.delete(node);
+      node.textContent = '';
+    }
   }
   function sayRaw(node, message) {
     messages.delete(node);
@@ -168,6 +174,10 @@
     if (error?.server) sayRaw(node, error.server);
     else if (error?.key) say(node, error.key, { status: error.status });
     else say(node, fallback);
+  }
+  // A write's own result, then why the list behind it could not be read again (in the server's words, or the desk's).
+  function sayAfter(node, key, error, fallback) {
+    show(node, () => `${t(key)} ${error?.server || (error?.key ? t(error.key, { status: error.status }) : t(fallback))}`);
   }
 
   const text = (value) => String(value ?? '').trim();
@@ -643,9 +653,10 @@
           method: 'PATCH', body: JSON.stringify({ status: select.value, version: interest.version }),
         });
         // A failed queue refresh reports itself; it must not read as a failed update.
+        // Someone else changed it first, so nothing was saved: that line stays while the queue reloads to show their status,
+        // and a reload that fails adds its reason after it.
         if (response.status === 409) {
-          say(elements.interestStatus, 'ops.interest.changed');
-          await loadInterests().catch(() => false);
+          await loadInterests({ outcome: 'ops.interest.changed' }).catch(() => false);
           return;
         }
         if (!response.ok) throw apiError(data, 'ops.interest.updateFailed', response.status);
@@ -683,7 +694,9 @@
     elements.interestList.setAttribute('aria-busy', 'false');
   }
 
-  async function loadInterests({ append = false, filters = interestFilterSnapshot() } = {}) {
+  /* outcome: the result of the write that asked for this reload. It stays on the band's line in place of "Loading…" and the
+     count, and a reload that fails adds its reason after it rather than replacing it. */
+  async function loadInterests({ append = false, filters = interestFilterSnapshot(), outcome = '' } = {}) {
     const snapshot = { ...filters };
     const snapshotKey = filterKey(snapshot);
     if (append && (!state.interestCursor || state.interestFilterKey !== snapshotKey)) return false;
@@ -701,7 +714,7 @@
     const params = new URLSearchParams({ limit: '24' });
     if (snapshot.status) params.set('status', snapshot.status);
     if (cursor) params.set('cursor', cursor);
-    say(elements.interestStatus, 'ops.interest.loading');
+    say(elements.interestStatus, outcome || 'ops.interest.loading');
     elements.interestList.setAttribute('aria-busy', 'true');
     try {
       const { response, data } = await request(`/api/admin/interests?${params}`, { signal: controller.signal });
@@ -713,6 +726,7 @@
       state.interestCursor = data.nextCursor || null;
       elements.interestMore.hidden = !state.interestCursor;
       renderInterestList();
+      if (outcome) return true;
       if (state.interests.length) say(elements.interestStatus, state.interests.length === 1 ? 'ops.interest.countOne' : 'ops.interest.count', { n: state.interests.length });
       else say(elements.interestStatus, snapshot.status ? 'ops.interest.empty' : 'ops.interest.none');
       return true;
@@ -724,7 +738,8 @@
         elements.interestMore.hidden = true;
         renderInterestList();
       } else elements.interestList.setAttribute('aria-busy', 'false');
-      report(elements.interestStatus, error, 'ops.interest.unavailable');
+      if (outcome) sayAfter(elements.interestStatus, outcome, error, 'ops.interest.unavailable');
+      else report(elements.interestStatus, error, 'ops.interest.unavailable');
       throw error;
     } finally {
       if (sequence === state.interestRequest && state.interestFilterKey === snapshotKey) {
@@ -798,12 +813,12 @@
         // Someone else changed it first, so nothing was saved: the reloaded list shows the status they set.
         // A failed list refresh reports itself; it must not read as a failed update.
         if (response.status === 409) {
-          if (await loadNodeRequests().catch(() => false)) say(elements.nodeStatus, 'ops.nodes.changed');
+          await reloadNodeRequests('ops.nodes.changed');
           return;
         }
         if (!response.ok) throw apiError(data, 'ops.nodes.updateFailed', response.status);
         if (data.request) Object.assign(nodeRequest, data.request);
-        if (await loadNodeRequests().catch(() => false)) say(elements.nodeStatus, 'ops.nodes.updated');
+        await reloadNodeRequests('ops.nodes.updated');
       } catch (error) {
         report(elements.nodeStatus, error, 'ops.nodes.notUpdated');
       } finally {
@@ -818,7 +833,7 @@
         // A request that is already gone answers 204 as well.
         const { response, data } = await request(nodeRequestPath(nodeRequest), { method: 'DELETE' });
         if (!response.ok) throw apiError(data, 'ops.nodes.deleteFailed', response.status);
-        if (await loadNodeRequests().catch(() => false)) say(elements.nodeStatus, 'ops.nodes.deleted');
+        await reloadNodeRequests('ops.nodes.deleted');
       } catch (error) {
         report(elements.nodeStatus, error, 'ops.nodes.notDeleted');
       } finally {
@@ -849,8 +864,8 @@
     elements.nodeList.setAttribute('aria-busy', 'false');
   }
 
-  // The interest queue's loader: the server answers 400 to an empty parameter, so only the ones with a value are sent.
-  async function loadNodeRequests({ append = false, filters = nodeFilterSnapshot() } = {}) {
+  // The interest queue's loader, outcome included: the server answers 400 to an empty parameter, so only the ones with a value are sent.
+  async function loadNodeRequests({ append = false, filters = nodeFilterSnapshot(), outcome = '' } = {}) {
     const snapshot = { ...filters };
     const snapshotKey = filterKey(snapshot);
     if (append && (!state.nodeCursor || state.nodeFilterKey !== snapshotKey)) return false;
@@ -869,7 +884,7 @@
     if (snapshot.status) params.set('status', snapshot.status);
     if (snapshot.kind) params.set('kind', snapshot.kind);
     if (cursor) params.set('cursor', cursor);
-    say(elements.nodeStatus, 'ops.nodes.loading');
+    say(elements.nodeStatus, outcome || 'ops.nodes.loading');
     elements.nodeList.setAttribute('aria-busy', 'true');
     try {
       const { response, data } = await request(`/api/admin/node-requests?${params}`, { signal: controller.signal });
@@ -881,6 +896,7 @@
       state.nodeCursor = data.nextCursor || null;
       elements.nodeMore.hidden = !state.nodeCursor;
       renderNodeRequestList();
+      if (outcome) return true;
       if (state.nodeRequests.length) say(elements.nodeStatus, state.nodeRequests.length === 1 ? 'ops.nodes.countOne' : 'ops.nodes.count', { n: state.nodeRequests.length });
       else say(elements.nodeStatus, snapshot.status || snapshot.kind ? 'ops.nodes.empty' : 'ops.nodes.none');
       return true;
@@ -892,7 +908,8 @@
         elements.nodeMore.hidden = true;
         renderNodeRequestList();
       } else elements.nodeList.setAttribute('aria-busy', 'false');
-      report(elements.nodeStatus, error, 'ops.nodes.unavailable');
+      if (outcome) sayAfter(elements.nodeStatus, outcome, error, 'ops.nodes.unavailable');
+      else report(elements.nodeStatus, error, 'ops.nodes.unavailable');
       throw error;
     } finally {
       if (sequence === state.nodeLoad && state.nodeFilterKey === snapshotKey) {
@@ -901,6 +918,9 @@
       }
     }
   }
+  /* After a write the list is read again behind the write's own result (refused, updated, deleted). The result is said at once and
+     kept, so it shows even when a second write's reload overtakes this one, and a reload that fails adds its reason after it. */
+  const reloadNodeRequests = (outcome) => loadNodeRequests({ outcome }).catch(() => false);
 
   /* ---------------- NODAL news ----------------
      A new post carries a client id, so a retried POST after a lost response
@@ -1443,7 +1463,7 @@
   }
 
   I18N?.onChange(() => {
-    for (const [node, [key, vars]] of messages) node.textContent = t(key, vars);
+    for (const [node, render] of messages) node.textContent = render();
     updateTabRow();
     renderRecordState();
     renderCatalogList();

@@ -60,6 +60,7 @@ function dom() {
   return { FakeNode, document, root };
 }
 
+const descendants = (node) => (node?.children || []).flatMap((child) => (child && typeof child === 'object' ? [child, ...descendants(child)] : []));
 const flush = async () => { for (let i = 0; i < 12; i += 1) await new Promise((resolve) => setImmediate(resolve)); };
 // A 204 has no body, so its json() fails as a real Response's does.
 const response = (payload, status = 200) => ({
@@ -67,6 +68,8 @@ const response = (payload, status = 200) => ({
   status,
   async json() { if (status === 204) throw new SyntaxError('Unexpected end of JSON input'); return payload; },
 });
+
+const deferred = () => { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; };
 
 function deskI18n(lang) {
   const document = { body: { dataset: {} }, documentElement: { dataset: {} }, querySelectorAll: () => [] };
@@ -326,4 +329,87 @@ test('M144: a new record whose save got no answer reloads the catalog list befor
   await d.node('adminSaveDraft').listeners.get('click')();
   assert.equal(reads(), first + 1);
   assert.equal(d.requests.filter((r) => r.method === 'POST').length, 2);
+});
+
+test('M64: an interest refused for a stale version says so once the queue has reloaded, and still says so when the reload fails', async () => {
+  let current = interest('i1');
+  let queue = () => response({ interests: [current], nextCursor: null });
+  const d = desk({ routes: { interests: (call) => {
+    if (call.method !== 'PATCH') return queue(call);
+    current = { ...current, status: 'closed', version: current.version + 1 };
+    return response({ error: 'interest changed; reload before saving', interest: current }, 409);
+  } } });
+  await flush();
+  const status = () => d.node('adminInterestStatus').textContent;
+  const update = async (value) => {
+    const card = d.node('adminInterestList').children[0];
+    descendants(card).find((n) => n.tagName === 'select').value = value;
+    await descendants(card).find((n) => n.tagName === 'button').listeners.get('click')();
+  };
+  await update('contacted');
+  assert.equal(status(), d.i18n.t('ops.interest.changed'), 'the refusal is what the line says, not the count');
+  assert.equal(descendants(d.node('adminInterestList')).find((n) => n.tagName === 'select').children.find((o) => o.selected).value, 'closed', 'the queue shows their status');
+
+  queue = () => response({}, 503);
+  await update('contacted');
+  assert.equal(status(), `${d.i18n.t('ops.interest.changed')} ${d.i18n.t('ops.interest.failed', { status: 503 })}`);
+  d.i18n.apply('es');
+  assert.equal(status(), `${d.i18n.t('ops.interest.changed')} ${d.i18n.t('ops.interest.failed', { status: 503 })}`, 'both parts follow a language switch');
+  assert.match(status(), /\(503\)\.$/);
+});
+
+test('M149: an organization request write keeps its own result on the band while the list reloads, and when the reload fails', async () => {
+  let current = nodeView('n1', { version: 3 });
+  let listing = () => response({ requests: [current], nextCursor: null });
+  let write = () => response({ error: 'unexpected' }, 500);
+  const d = desk({ routes: { nodes: (call) => (call.method === 'GET' ? listing(call) : write(call)) } });
+  await flush();
+  const t = (key, vars) => d.i18n.t(key, vars);
+  const status = () => d.node('adminNodeStatus').textContent;
+  const control = (tag, label) => descendants(d.node('adminNodeList')).find((n) => n.tagName === tag && (!label || n.textContent === label));
+  const relist = async () => { listing = () => response({ requests: [current], nextCursor: null }); await d.node('adminNodeFilter').listeners.get('change')(); await flush(); };
+  const down = () => response({}, 503);
+  const failed = () => t('ops.nodes.failed', { status: 503 });
+
+  // Refused, and the list cannot be read again: the line still says nothing was saved.
+  write = () => {
+    current = { ...current, status: 'closed', version: current.version + 1 };
+    return response({ error: 'node request changed; reload before saving', code: 'version_conflict', request: current }, 409);
+  };
+  listing = down;
+  control('select').value = 'contacted';
+  await control('button', 'Update').listeners.get('click')();
+  assert.equal(status(), `${t('ops.nodes.changed')} ${failed()}`);
+  assert.equal(d.node('adminNodeList').children.length, 0, 'the list it could not read is emptied, as before');
+  d.i18n.apply('pt');
+  assert.equal(status(), `${t('ops.nodes.changed')} ${failed()}`, 'both parts follow a language switch');
+  d.i18n.apply('en');
+
+  // Updated, then the reload fails: the update is not lost from the line.
+  await relist();
+  write = (call) => { current = { ...current, status: call.body.status, version: current.version + 1 }; return response({ request: current }); };
+  listing = down;
+  control('select').value = 'contacted';
+  await control('button', 'Update').listeners.get('click')();
+  assert.equal(status(), `${t('ops.nodes.updated')} ${failed()}`);
+
+  // Deleted, then the reload fails.
+  await relist();
+  write = () => response(null, 204);
+  listing = down;
+  await control('button', 'Delete request').listeners.get('click')();
+  assert.equal(status(), `${t('ops.nodes.deleted')} ${failed()}`);
+
+  // While the list reloads, the line already says what the write did, and keeps saying it.
+  await relist();
+  const held = deferred();
+  write = (call) => { current = { ...current, status: call.body.status, version: current.version + 1 }; return response({ request: current }); };
+  listing = () => held.promise;
+  control('select').value = 'new';
+  const pending = control('button', 'Update').listeners.get('click')();
+  await flush();
+  assert.equal(status(), t('ops.nodes.updated'), 'said at once, not "Loading…"');
+  held.resolve(response({ requests: [current], nextCursor: null }));
+  await pending;
+  assert.equal(status(), t('ops.nodes.updated'), 'and not replaced by the count once the list is back');
 });
