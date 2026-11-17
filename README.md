@@ -273,7 +273,7 @@ content to satisfy this release gate.
 
 ## Production
 
-Vercel serves generated JavaScript, CSS, and optimized images from `public/` before routing HTML pages and API requests through `api/index.js`. The adapter forwards those requests to the existing Node app, preserving protected-route redirects, API auth checks, security headers, and explicit static-file allowlisting.
+Vercel serves the generated JavaScript, CSS, fonts, optimized images and four pages (opportunities, privacy, terminos-fundadores and fundadores) from `public/` before routing every other page and the API requests through `api/index.js`. The adapter forwards those requests to the existing Node app, preserving protected-route redirects, API auth checks, security headers, and explicit static-file allowlisting.
 
 Build gate:
 
