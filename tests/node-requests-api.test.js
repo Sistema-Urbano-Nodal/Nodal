@@ -289,6 +289,18 @@ test('a request that could not be stored gives its email unit back',async t=>{
  assert.equal(db.prepare('SELECT count(*) AS n FROM node_requests').get().n,1);
 });
 
+test('the whole server gives the email unit back when a request cannot be stored',async t=>{
+ t.mock.method(console,'warn',()=>{});
+ let refusals=3;
+ const {post,rows}=await setup(t,{store:db=>{const real=createNodeRequestStore({db});return {...real,insert:async record=>{if(refusals>0){refusals--;throw Object.assign(Error('node request save unavailable'),{status:502});}return real.insert(record);}};}});
+ const email='ana@colectivo.example';
+ for(let n=0;n<3;n++)assert.deepEqual(await post(valid({email})),{status:503,body:{error:'service unavailable'}},`attempt ${n+1}`);
+ // server.js wires emailRelease to the per-email limiter under the same hashed key, so the outage spent none of the three.
+ for(let n=0;n<3;n++)assert.equal((await post(valid({email:'  ANA@Colectivo.example '}))).status,202,`stored ${n+1}`);
+ assert.equal((await post(valid({email}))).status,429,'the three stored requests still use the day\'s budget');
+ assert.equal(rows().length,3);
+});
+
 test('refuses a cross-origin post',async t=>{
  const notice=notifier(),{call,json,post,rows}=await setup(t,{notice});
  assert.deepEqual(await post(valid(),{origin:'https://elsewhere.test'}),{status:403,body:{error:'cross-origin request rejected'}});

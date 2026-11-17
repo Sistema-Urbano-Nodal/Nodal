@@ -1373,14 +1373,17 @@ export function createApp({
   const nodeRequestLimit={...NODE_REQUEST_RATE_LIMITS,...nodeRequestLimits};
   const nodeRequestIpLimiter=createWindowRateLimiter({windowMs:60*60*1000,limit:nodeRequestLimit.perAddress});
   const nodeRequestEmailLimiter=createWindowRateLimiter({windowMs:24*60*60*1000,limit:nodeRequestLimit.perEmail});
+  const nodeRequestEmailKey=email=>`node-request-email:${createHash('sha256').update(email).digest('hex')}`;
   const nodeRequestWriteLimiter=createWindowRateLimiter({windowMs:60000,limit:30});
   const nodeRequestApi=nodeRequestStore?createNodeRequestApi({store:nodeRequestStore,notify:nodeRequestNotice,sameOrigin,send,now,
     ipAllowed:(req,res)=>throttle(nodeRequestIpLimiter,res,req,null,'node-request'),
     emailAllowed:(email,res)=>{
-      const rate=nodeRequestEmailLimiter.take(`node-request-email:${createHash('sha256').update(email).digest('hex')}`);
+      const rate=nodeRequestEmailLimiter.take(nodeRequestEmailKey(email));
       if(rate.ok)return true;
       send(res,429,{error:'too many requests'},{'Retry-After':String(rate.retryAfter)});return false;
     },
+    // A request the store could not keep gives its unit back (taken first, so parallel requests cannot all slip past).
+    emailRelease:email=>nodeRequestEmailLimiter.release(nodeRequestEmailKey(email)),
     adminRateLimit:(req,res,user)=>throttle(nodeRequestWriteLimiter,res,req,user,'node-request-write'),
   }):null;
   const visitLimit={...VISIT_RATE_LIMITS,...visitLimits};
