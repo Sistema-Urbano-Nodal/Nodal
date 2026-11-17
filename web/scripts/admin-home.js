@@ -1,9 +1,10 @@
-/* The staff overview renders the server's indicator catalogue in EN, ES and PT.
-   Language and family changes reuse the current response. Charts use a common
-   scale within each series, and older readings retain their original definitions. */
+/* Language and topic changes reuse the current metrics response. Paired monthly
+   series share one scale. Saved readings keep their original definitions. */
 (() => {
   const el = {
     title: document.getElementById('homeTitle'),
+    main: document.getElementById('homeMain'),
+    views: document.getElementById('homeViews'),
     reports: document.getElementById('homeReports'),
     reportsLabel: document.getElementById('homeReportsLabel'),
     periodTitle: document.getElementById('homePeriodTitle'),
@@ -33,6 +34,9 @@
   const LANGS = ['en', 'es', 'pt'];
   const CHROME = {
     title: ['Network overview', 'Resumen de la red', 'Visão geral da rede'],
+    overview: ['Overview', 'Resumen', 'Visão geral'],
+    indicators: ['Indicators', 'Indicadores', 'Indicadores'],
+    history: ['Monthly history', 'Historial mensual', 'Histórico mensal'],
     exploreFamily: ['Explore {family}', 'Explorar {family}', 'Explorar {family}'],
     export: ['Export report', 'Exportar reporte', 'Exportar relatório'],
     periods: ['Reporting periods', 'Períodos del reporte', 'Períodos do relatório'],
@@ -55,41 +59,32 @@
     in30: ['in 30 days', 'en 30 días', 'em 30 dias'],
     in7: ['in 7 days', 'en 7 días', 'em 7 dias'],
     kindsNoneWeek: ['0 in 7 days for every kind', '0 en 7 días en todos los tipos', '0 em 7 dias em todos os tipos'],
-    noNew: ['{n} days without new accounts (last: {day})', '{n} días sin cuentas nuevas (última: {day})', '{n} dias sem contas novas (última: {day})'],
-    noNewOne: ['{n} day without new accounts (last: {day})', '{n} día sin cuentas nuevas (última: {day})', '{n} dia sem contas novas (última: {day})'],
+    lastSignup: ['Latest sign-up', 'Último registro', 'Último cadastro'],
+    inactive: ['Tracking inactive', 'Seguimiento inactivo', 'Coleta inativa'],
     route: ['Member participation', 'Participación de los miembros', 'Participação dos membros'],
-    routeNote: [
-      'Each bar counts members at that stage. The groups can overlap.',
-      'Cada barra cuenta a los miembros de esa etapa. Los grupos pueden superponerse.',
-      'Cada barra conta os membros daquela etapa. Uma pessoa pode estar em mais de um grupo.',
-    ],
-    pending: ['Needs attention', 'Por atender', 'Para atender'],
+    pending: ['Needs attention', 'Por atender', 'Pendências'],
     nothingPending: ['Nothing waiting', 'Nada por atender', 'Nada para atender'],
     team: ['includes {n} from the team', 'incluye {n} del equipo', 'inclui {n} da equipe'],
     of: ['{a} of {b}', '{a} de {b}', '{a} de {b}'],
     oneCourse: ['One course: {name}', 'Un curso: {name}', 'Um curso: {name}'],
     perMonth: ['{name} by month', '{name}, por mes', '{name}, por mês'],
+    monthlyTrend: ['Monthly trend', 'Evolución mensual', 'Evolução mensal'],
+    monthMissing: ['No data for this month', 'Sin datos para este mes', 'Sem dados para este mês'],
     inMonth: ['in {month}', 'en {month}', 'em {month}'],
-    explore: ['Indicators', 'Indicadores', 'Indicadores'],
-    howCounted: ['How it is counted', 'Cómo se cuenta', 'Como se conta'],
-    hideHow: ['Hide', 'Ocultar', 'Ocultar'],
-    source: ['Source', 'Fuente', 'Fonte'],
-    limits: ['Limits', 'Límites', 'Limites'],
+    explore: ['Topics', 'Temas', 'Temas'],
+    total: ['Total', 'Total', 'Total'],
+    d30: ['30 days', '30 días', '30 dias'],
+    d7: ['7 days', '7 días', '7 dias'],
+    notApplicable: ['Not applicable', 'No aplica', 'Não se aplica'],
+    status: ['Status', 'Estado', 'Situação'],
     tracking: ['Monthly readings', 'Lecturas mensuales', 'Leituras mensais'],
-    trackingIntro: ['Each month\'s latest saved reading, to compare months.', 'La última lectura guardada de cada mes, para comparar los meses.', 'A última leitura salva de cada mês, para comparar os meses.'],
     monthsTable: ['Months table', 'Tabla por mes', 'Tabela por mês'],
-    seeReading: ['See the {month} reading', 'Ver la lectura de {month}', 'Ver a leitura de {month}'],
     indicator: ['Indicator', 'Indicador', 'Indicador'],
     readOn: ['read on day {day}', 'leído el {day}', 'lido no dia {day}'],
     olderDefs: ['read with earlier definitions', 'leído con definiciones anteriores', 'lido com definições anteriores'],
     notReadThen: ['—: not read that month', '—: no se leía ese mes', '—: não era lido nesse mês'],
-    readingsSince: ['Readings since {month}.', 'Lecturas desde {month}.', 'Leituras desde {month}.'],
     noReadings: ['No reading has been saved yet.', 'Aún no hay lecturas guardadas.', 'Ainda não há leituras salvas.'],
-    notSaved: [
-      'Today\'s reading has not been saved yet. Missing: {part}. It will be saved when this page is opened with all the data.',
-      'La lectura de hoy aún no se guardó. Falta: {part}. Se guardará al abrir esta página con todos los datos.',
-      'A leitura de hoje ainda não foi salva. Falta: {part}. Será salva ao abrir esta página com todos os dados.',
-    ],
+    notSaved: ['Today’s record is missing data from {part}.', 'Faltan datos de {part} para el registro de hoy.', 'Faltam dados de {part} para o registro de hoje.'],
     failed: ['The metrics could not be loaded.', 'No se pudieron cargar los indicadores.', 'Não foi possível carregar os indicadores.'],
     retry: ['Try again', 'Reintentar', 'Tentar de novo'],
     expired: ['Your session ended. Sign in again.', 'Tu sesión terminó. Inicia sesión de nuevo.', 'Sua sessão terminou. Entre de novo.'],
@@ -109,7 +104,6 @@
   const FIELDS = ['total', 'd30', 'd7'];
   const IN = { d30: 'in30', d7: 'in7' };
   const WINDOWED = /^(.+)\.(d30|d7)$/;
-  const SVG = 'http://www.w3.org/2000/svg';
 
   const lang = () => (LANGS.includes(document.documentElement.lang) ? document.documentElement.lang : 'en');
   const say = (row, vars = {}) => CHROME[row][LANGS.indexOf(lang())].replace(/\{(\w+)\}/g, (match, name) => (name in vars ? String(vars[name]) : match));
@@ -161,12 +155,8 @@
   let accessGeneration = 0;
   // The status the page had before a download failed (null: no download has failed since); a download that works puts it back.
   let beforeDownload = null;
-  // The families whose definitions are open, kept across a re-render; each family's section with its switch.
-  const openFamilies = new Set();
   let switches = [];
   let selectedFamily = null;
-  let readingOpen = false;
-  let openBeforePrint = null;
 
   const words = () => answer.texts[lang()] ?? answer.texts.en;
   const indicators = () => new Map(answer.families.flatMap((family) => family.indicators).map((ind) => [ind.key, ind]));
@@ -177,12 +167,7 @@
   // Visit figures while the counter is younger than the window they are printed under.
   const visitFamily = (key) => answer.families.some((family) => family.key === 'visits' && family.indicators.some((ind) => ind.key === key));
   const youngCounter = (field) => typeof answer.visitsSince === 'string' && own(answer.windows, field) && answer.visitsSince > answer.windows[field].from;
-  /* The catalogue's lists the page is laid out by, as the answer brings them (server/metrics-catalog.js). route: the
-     members' path, one stop per [key, field] in order, 'apart' marking a stop that is not one more step after the one
-     before it (the segment into it is dotted). seriesIndicator: the indicator each month series splits by month (its
-     chart stands in that indicator's family; a series of one month is said on its row). pairs: [part, whole], two totals
-     printed as one row "9 de 17". An answer without one is laid out without it: no path (the lead figures stand in a
-     row), every month series in Seguimiento, each figure on its own row. */
+  // Older responses can omit the participation measures, series-to-indicator map or part/whole pairs.
   const routeStops = () => (Array.isArray(answer.route) ? answer.route.filter(Array.isArray) : []);
   const seriesIndicator = () => (answer.seriesIndicator && typeof answer.seriesIndicator === 'object' && !Array.isArray(answer.seriesIndicator) ? answer.seriesIndicator : {});
   const ofPairs = () => (Array.isArray(answer.pairs) ? answer.pairs.filter(Array.isArray) : []);
@@ -190,6 +175,7 @@
   // The words for a state; visits not yet counted name their first day, or say none is counted yet.
   function reason(state) {
     const states = words().states;
+    if (state === 'not_activated') return say('inactive');
     if (state === 'not_yet_counted') return answer.visitsSince ? states.not_yet_counted.replace('{day}', fullDay(answer.visitsSince)) : states.no_visits_yet;
     return own(states, state) ? states[state] : states.unavailable;
   }
@@ -212,24 +198,16 @@
     return own(words().indicators, key) || !windowedKey ? nameOf(key) : withField(windowedKey[1], windowedKey[2]);
   }
 
-  // The days since the latest new account, when there has been none today: "23 días sin cuentas nuevas (última: 24 oct)",
-  // the count of days set as a figure so it reads at a glance.
-  function noNewLine(className) {
-    const latest = answer.families.flatMap((family) => family.indicators).find((ind) => isNum(ind.daysSince));
-    if (!latest || latest.state || !(latest.daysSince > 0) || !latest.last) return null;
-    const line = make('span', className);
-    line.append(...sayNodes(latest.daysSince === 1 ? 'noNewOne' : 'noNew', { n: figure(latest.daysSince), day: shortDay(latest.last) }));
-    return line;
-  }
-
   function paintStatus() {
     el.status.textContent = statusRow ? say(statusRow) : '';
   }
 
   function paintChrome() {
-    const title = say('title');
+    const view = el.main.dataset.view || 'overview';
+    const title = say(view === 'overview' ? 'title' : view);
     el.title.textContent = title;
     document.title = `${title} · NODAL`;
+    for (const link of el.views.querySelectorAll('[data-view]')) link.textContent = say(link.dataset.view);
     const skip = document.querySelector('.admin-skip');
     if (skip) skip.textContent = say('skip');
     for (const [node, row] of [[el.reportsLabel, 'export'], [el.periodTitle, 'periods'], [el.csvLabel, 'csvLabel'], [el.csv, 'csvIndicators'], [el.monthsCsv, 'monthsCsv'], [el.readingsCsv, 'readingsCsv'], [el.compare, 'compare'], [el.print, 'print'], [el.refresh, 'refresh'], [el.retry, 'retry'], [el.printHead, 'printHead'], [el.signIn, 'signIn']]) {
@@ -239,6 +217,45 @@
     for (const [node, row] of [[el.csv, 'csvIndicatorsFull'], [el.monthsCsv, 'csvMonthsFull'], [el.readingsCsv, 'csvReadingsFull']]) node?.setAttribute('aria-label', say(row));
     paintStatus();
   }
+
+  // Use real fragments for section links so the browser can restore a topic on Back or reload.
+  function showView(hash) {
+    const topicLink = hash.startsWith('#home-b-');
+    let family = topicLink && switches.find(({ section }) => `#${section.id}` === hash);
+    if (topicLink && !family) {
+      family = switches[0];
+      window.history.replaceState(null, '', family ? `#${family.section.id}` : '#homeBlocks');
+    }
+    const view = topicLink || hash === '#homeBlocks' ? 'indicators' : hash === '#homeTracking' ? 'history' : 'overview';
+    el.main.dataset.view = view;
+    if (family) selectFamily(family.section.dataset.family);
+    for (const link of el.views.querySelectorAll('[data-view]')) {
+      if (link.dataset.view === view) link.setAttribute('aria-current', 'location');
+      else link.removeAttribute('aria-current');
+    }
+    paintChrome();
+    layout();
+  }
+
+  function navigate(hash) {
+    if (location.hash !== hash) window.history.pushState(null, '', hash);
+    showView(hash);
+  }
+
+  function rememberFamily(key) {
+    const hash = `#home-b-${key}`;
+    if (el.main.dataset.view === 'indicators' && location.hash !== hash) window.history.replaceState(null, '', hash);
+  }
+
+  for (const link of [...el.views.querySelectorAll('[data-view]'), el.compare]) {
+    link.addEventListener('click', (event) => {
+      if (event?.metaKey || event?.ctrlKey || event?.shiftKey || event?.altKey) return;
+      event?.preventDefault();
+      navigate(link.getAttribute('href'));
+      if (link === el.compare) el.views.querySelector('[data-view="history"]').focus();
+    });
+  }
+  window.addEventListener('hashchange', () => { if (answer) showView(location.hash); });
 
   function closeReports(restoreFocus) {
     if (!el.reports.open) return;
@@ -266,18 +283,22 @@
       entry.append(make('dt', '', say(label)), make('dd', '', range(answer.windows[field])));
       periods.append(entry);
     }
-    const noNew = noNewLine('home-silence');
+    const latest = answer.families.flatMap((family) => family.indicators).find((ind) => !ind.state && isNum(ind.daysSince) && ind.last);
+    if (latest) {
+      const entry = make('div');
+      entry.append(make('dt', '', say('lastSignup')), make('dd', '', fullDay(latest.last)));
+      periods.append(entry);
+    }
     el.windows.replaceChildren(periods);
-    if (noNew) el.windows.append(noNew);
     const missing = failedParts();
     el.partial.textContent = missing.length ? say('partial', { parts: missing.join(', ') }) : '';
     el.partial.hidden = !missing.length;
   }
 
   // One lead line: figure, name with its window, and the reason when the figure could not be computed.
-  function leadLine(map, key, field, className, family) {
+  function leadLine(map, key, field, family) {
     const ind = map.get(key) ?? { state: 'unavailable' };
-    const row = make(family ? 'button' : 'p', `home-fig ${className}`);
+    const row = make(family ? 'button' : 'p', 'home-fig home-lead-main');
     if (family) {
       row.type = 'button';
       row.title = say('exploreFamily', { family: familyName(family.key) });
@@ -285,9 +306,8 @@
       row.addEventListener('click', () => {
         const entry = switches.find(({ section }) => section.dataset.family === family.key);
         if (!entry) return;
-        entry.tab.click();
+        navigate(`#${entry.section.id}`);
         entry.tab.focus();
-        entry.tab.scrollIntoView({ block: 'center' });
       });
     }
     row.dataset.key = key;
@@ -299,23 +319,6 @@
     else if (visitFamily(key) && youngCounter(field)) body.append(make('span', 'home-fig-more home-reason', reason('not_yet_counted')));
     row.append(' ', body);
     return row;
-  }
-
-  // A stop's node: a ring drawn in SVG (filled for a window stop by the stylesheet).
-  function stopNode() {
-    const svg = document.createElementNS(SVG, 'svg');
-    svg.setAttribute('class', 'home-stop-node');
-    svg.setAttribute('viewBox', '0 0 18 18');
-    svg.setAttribute('width', '18');
-    svg.setAttribute('height', '18');
-    svg.setAttribute('aria-hidden', 'true');
-    svg.setAttribute('focusable', 'false');
-    const ring = document.createElementNS(SVG, 'circle');
-    ring.setAttribute('cx', '9');
-    ring.setAttribute('cy', '9');
-    ring.setAttribute('r', '7.5');
-    svg.append(ring);
-    return svg;
   }
 
   function renderTop() {
@@ -332,49 +335,31 @@
     title.id = 'homeRouteTitle';
     const stops = make('ol', 'home-stops');
     stops.setAttribute('aria-labelledby', title.id);
-    route.forEach(([key, field], i) => {
+    route.forEach(([key, field]) => {
       const ind = map.get(key) ?? { state: 'unavailable' };
       const value = valueAt([key, field]);
       const stop = make('li', 'home-stop');
       stop.dataset.key = key;
       if (field !== 'total') stop.classList.add('is-window');
-      // The segment into a stop that is not one more step (a consent, a window) is dotted.
-      const next = route[i + 1];
-      if (next && next[2] === 'apart') stop.classList.add('to-apart');
       const column = make('span', 'home-stop-fig');
       const bar = hide(make('span', 'home-stop-bar'));
       if (isNum(value) && scale > 0) bar.style.setProperty('--f', (value / scale).toFixed(4));
       column.append(figure(value, 'home-stop-n'), bar);
       // A stop that could not be computed says why where its column would stand.
       if (ind.state) column.append(make('span', 'home-stop-why home-reason', reason(ind.state)));
-      stop.append(column, stopNode(), make('span', 'home-stop-name', withField(key, field)));
+      stop.append(make('span', 'home-stop-name', withField(key, field)), column);
       stops.append(stop);
     });
-    // The caption says what the path is not; the dotted segments are said in the answer's own words (they change with
-    // its route), after a sample of the line. Without those words there is no key.
-    const note = make('p', 'home-route-note', say('routeNote'));
-    const apart = typeof words().routeApart === 'string' ? words().routeApart.trim() : '';
-    if (apart && route.some((stop, i) => i > 0 && stop[2] === 'apart')) {
-      // The sample and the sentence's first word never part at a line end.
-      const cut = apart.indexOf(' ');
-      const lead = make('span', 'home-key-lead');
-      lead.append(hide(make('span', 'home-key-dash')), cut < 0 ? apart : apart.slice(0, cut));
-      const key = make('span', 'home-route-key');
-      key.append(lead);
-      if (cut >= 0) key.append(apart.slice(cut));
-      note.append(' ', key);
-    }
-    el.route.replaceChildren(title, stops, note);
+    el.route.replaceChildren(title, stops);
     // Older catalogues can omit the path.
     el.route.hidden = route.length === 0;
     el.top.classList.toggle('no-route', route.length === 0);
 
-    const headlines = lead.map(({ key, field, second }) => {
+    const headlines = lead.map(({ key, field }) => {
       const group = make('div', 'home-lead-item');
       group.dataset.key = key;
       const family = answer.families.find((group) => group.indicators.includes(map.get(key)));
-      group.append(leadLine(map, key, field, 'home-lead-main', family));
-      for (const [k, f] of Array.isArray(second) ? second : []) group.append(leadLine(map, k, f, 'home-lead-second'));
+      group.append(leadLine(map, key, field, family));
       return group;
     });
     el.lead.replaceChildren(...headlines);
@@ -425,78 +410,112 @@
     return String(item.key);
   }
 
-  // An indicator's definition, source and limits, under its own row: shown while its family is explained, always in print.
-  function definition(key, named) {
-    const text = words().indicators[key];
-    const box = make('div', 'home-def');
-    box.dataset.def = key;
-    if (!text) return box;
-    const first = make('p', 'home-def-text');
-    if (named) first.append(make('strong', 'home-def-name', `${text.name}. `));
-    first.append(text.definition);
-    box.append(first, make('p', 'home-def-meta', `${say('source')}: ${text.source}`), make('p', 'home-def-meta', `${say('limits')}: ${text.caveat}`));
-    return box;
+  const supportsField = (ind, field) => own(ind, field) || (Array.isArray(ind.fields) && ind.fields.includes(field));
+
+  function metricCell(ind, field, whole) {
+    const cell = make('td');
+    cell.dataset.field = field;
+    if (!supportsField(ind, field)) {
+      cell.className = 'home-not-applicable';
+      cell.append(make('span', 'admin-sr', say('notApplicable')));
+    } else if (ind.state || !isNum(ind[field])) {
+      cell.className = 'home-unavailable';
+      cell.title = reason(ind.state ?? 'unavailable');
+      cell.append(figure(undefined));
+    } else if (whole && field === 'total') {
+      cell.append(...sayNodes('of', { a: figure(ind.total), b: figure(whole.total) }));
+    } else {
+      cell.append(figure(ind[field]));
+    }
+    return cell;
   }
 
-  // A figure row: the widest figure the indicator has (total, else 30 days, else 7 days), its name with the window in
-  // words, the other windows on a second line, then its definition. Nothing is printed for a window it does not have.
-  function figureRow(ind, quiet) {
-    const row = make('li', 'home-fig');
+  function metricRow(ind, whole, fields, quiet) {
+    const row = make('tr', whole ? 'home-pair' : '');
     row.dataset.key = ind.key;
-    const body = make('div', 'home-fig-body');
-    if (ind.state) {
-      row.append(figure(undefined));
-      body.append(make('span', 'home-fig-name', nameOf(ind.key)));
-      if (!quiet) body.append(make('span', 'home-fig-more home-reason', reason(ind.state)));
+    if (whole) row.dataset.of = whole.key;
+    const label = make('th', '', nameOf(ind.key));
+    label.setAttribute('scope', 'row');
+    row.append(label);
+    if (ind.state && !quiet) label.append(make('small', 'home-metric-note', reason(ind.state)));
+    if (isNum(ind.team) && ind.team > 0) label.append(make('small', 'home-metric-note', say('team', { n: number(ind.team) })));
+    const series = seriesOf(ind.key);
+    if (!ind.state && series && !series.values.state && series.months.length === 1) {
+      const [month] = series.months;
+      const note = make('small', 'home-metric-note');
+      note.append(figure(series.values[month]), ' ', say('inMonth', { month: monthYear(month) }));
+      label.append(note);
+    }
+    if (ind.state && !Array.isArray(ind.fields)) {
+      const cell = make('td', 'home-unavailable');
+      cell.setAttribute('colspan', String(fields.length || 1));
+      cell.title = reason(ind.state);
+      cell.append(figure(undefined));
+      row.append(cell);
     } else {
-      const main = FIELDS.find((f) => isNum(ind[f]));
-      row.append(figure(ind[main]));
-      const name = make('span', 'home-fig-name', withField(ind.key, main));
-      // The team's own rows inside a figure that is not filtered (the festival's registrations).
-      if (isNum(ind.team) && ind.team > 0) name.append(' ', make('span', 'home-reason', `(${say('team', { n: number(ind.team) })})`));
-      body.append(name);
-      const parts = FIELDS.slice(FIELDS.indexOf(main) + 1).filter((f) => isNum(ind[f])).map((f) => windowed(ind[f], f));
-      const series = seriesOf(ind.key);
-      if (series && !series.values.state && series.months.length === 1) {
-        const [month] = series.months;
-        const span = make('span', 'home-win');
-        span.append(figure(series.values[month]), ` ${say('inMonth', { month: monthYear(month) })}`);
-        parts.push(span);
-      }
-      if (parts.length) {
-        const more = make('span', 'home-fig-more');
-        parts.forEach((part, i) => { if (i) more.append(', '); more.append(part); });
-        body.append(more);
+      row.append(...fields.map((field) => metricCell(ind, field, whole)));
+    }
+    return row;
+  }
+
+  function metricTable(family, title, once) {
+    // Older responses omitted field information for a failed indicator. Its status spans the value columns.
+    const unknownFields = (ind) => ind.state && !Array.isArray(ind.fields);
+    const scalars = family.indicators.filter((ind) => unknownFields(ind) || FIELDS.some((field) => supportsField(ind, field)));
+    if (!scalars.length) return null;
+    const fields = FIELDS.filter((field) => scalars.some((ind) => supportsField(ind, field)));
+    const table = make('table', 'home-metrics');
+    table.setAttribute('aria-labelledby', title.id);
+    const header = make('tr');
+    for (const label of ['indicator', ...(fields.length ? fields : ['status'])]) {
+      const column = make('th', '', say(label));
+      column.setAttribute('scope', 'col');
+      header.append(column);
+    }
+    const head = make('thead');
+    head.append(header);
+    const body = make('tbody');
+
+    // Preserve the catalogue's true part/whole counts in a single Total cell.
+    const paired = new Map();
+    const byKey = new Map(scalars.map((ind) => [ind.key, ind]));
+    for (const [part, whole] of ofPairs()) {
+      const a = byKey.get(part);
+      const b = byKey.get(whole);
+      if (a && b && !a.state && !b.state && isNum(a.total) && isNum(b.total)) {
+        paired.set(part, [a, b]);
+        paired.set(whole, [a, b]);
       }
     }
-    body.append(definition(ind.key));
-    row.append(body);
-    return row;
-  }
-
-  // Two figures where one truly contains the other: "9 de 17  Encuesta final: respondieron", both definitions under it.
-  function pairRow(part, whole) {
-    const row = make('li', 'home-fig home-pair');
-    row.dataset.key = part.key;
-    row.dataset.of = whole.key;
-    const figures = make('span', 'home-of');
-    figures.append(...sayNodes('of', { a: figure(part.total), b: figure(whole.total) }).map((bit) => (typeof bit === 'string' ? make('span', 'home-of-word', bit) : bit)));
-    const body = make('div', 'home-fig-body');
-    body.append(make('span', 'home-fig-name', nameOf(part.key)), definition(part.key, true), definition(whole.key, true));
-    row.append(figures, body);
-    return row;
+    const done = new Set();
+    for (const candidate of scalars) {
+      if (done.has(candidate.key)) continue;
+      const [ind, whole] = paired.get(candidate.key) ?? [candidate];
+      if (whole) done.add(ind.key).add(whole.key);
+      body.append(metricRow(ind, whole, fields, once(ind)));
+    }
+    table.append(head, body);
+    const wrap = make('div', 'home-metric-wrap');
+    wrap.append(table);
+    return wrap;
   }
 
   // A list as ranked rows: figure, label, and a thin bar on the list's own scale (its largest item). A list that also
   // counts the last 7 days (activity by kind) says that figure after each label, or once under its title when it is 0
   // for every row.
-  function rankList(ind, withDefinition) {
+  function rankList(ind, quiet) {
     const wrap = make('div', 'home-list');
     wrap.dataset.list = ind.key;
     const title = make('h4', 'home-sub', D30_LISTS.has(ind.key) ? withField(ind.key, 'd30') : nameOf(ind.key));
     title.id = `home-l-${ind.key.replace(/\W/g, '-')}`;
     wrap.append(title);
-    if (withDefinition) wrap.append(definition(ind.key));
+    if (ind.state) {
+      const status = make('p', 'home-note');
+      status.append(figure(undefined));
+      if (!quiet) status.append(' ', reason(ind.state));
+      wrap.append(status);
+      return wrap;
+    }
     // The Founders and payment page views, outside the Visitas block, carry the counter's first day themselves.
     if (ind.key === 'memberships.views' && youngCounter('d30')) wrap.append(make('p', 'home-note', reason('not_yet_counted')));
     // An empty list is a zero, never a bare name.
@@ -545,9 +564,16 @@
   /* The month charts of a family: every series of two months or more whose indicator stands in it. A series that could
      not be read says why where its chart would stand, unless the block already said that reason once. */
   function familyCharts(family, said) {
-    return family.indicators.flatMap((ind) => {
-      const series = seriesOf(ind.key);
+    const entries = family.indicators.map((ind) => ({ ind, series: seriesOf(ind.key) }));
+    // These two comparisons have a common scale: account events, or web traffic counts.
+    // Historical/unmapped series still use independent charts.
+    const names = { signups: ['accounts', 'entered'], visits: ['views', 'arrivals'] }[family.key];
+    const pair = names?.map((name) => entries.find(({ series }) => series?.name === name)?.series);
+    const compare = pair?.every((series) => series && !series.values.state && series.months.length)
+      && new Set(pair.flatMap((series) => series.months)).size > 1;
+    return entries.flatMap(({ ind, series }) => {
       if (!series) return [];
+      if (compare && pair.includes(series)) return series === pair[0] ? [chart(series, 'h4', pair[1])] : [];
       const { values, months } = series;
       if (!values.state && months.length > 1) return [chart(series)];
       if (!values.state && months.length === 1) return ind.state ? [chart(series)] : [];
@@ -568,34 +594,58 @@
     };
   }
 
-  function chart(series, heading = 'h4') {
-    const { name, label, values } = series;
-    const { shown: months, crosses, widest } = drawn(series);
+  function chart(series, heading = 'h4', partner = null) {
+    const entries = partner ? [series, partner] : [series];
+    const months = [...new Set(entries.flatMap((entry) => entry.months))].sort().slice(-MAX_MONTHS);
+    const counts = entries.flatMap(({ values }) => months.map((month) => values[month])).filter(isNum);
+    const max = Math.max(0, ...counts);
+    const widest = Math.max(1, ...counts.map((value) => number(value).length));
+    const crosses = months.length > 1 && months[0].slice(0, 4) !== months.at(-1).slice(0, 4);
     const wrap = make('div', 'home-chart');
-    wrap.dataset.series = name;
-    const title = make(heading, 'home-sub', say('perMonth', { name: label }));
-    title.id = `home-s-${name}`;
-    const max = months.reduce((most, month) => Math.max(most, isNum(values[month]) ? values[month] : 0), 0);
+    wrap.dataset.series = entries.map((entry) => entry.name).join('-');
+    const title = make(heading, 'home-sub', partner ? say('monthlyTrend') : say('perMonth', { name: series.label }));
+    title.id = `home-s-${wrap.dataset.series}`;
+    wrap.append(title);
+    if (partner) {
+      wrap.classList.add('home-comparison');
+      const legend = make('ul', 'home-series-key');
+      for (const entry of entries) legend.append(make('li', '', entry.label));
+      wrap.append(legend);
+    }
     const list = make('ol', 'home-months');
     list.setAttribute('aria-labelledby', title.id);
     list.style.setProperty('--n', String(months.length));
     list.style.setProperty('--mw', String(widest));
     // A series inside one year reads its year from the date at the top; one that crosses a year names each year once.
     if (crosses) list.classList.add('has-years');
+    let missing = false;
     months.forEach((month, i) => {
       const item = make('li', 'home-month');
+      item.dataset.month = month;
       const when = make('span', 'home-month-label', monthShort(month));
-      if (crosses && (i === 0 || month.endsWith('-01'))) when.append(' ', make('span', 'home-month-year', yearOf(month)));
-      const bar = hide(make('span', 'home-month-bar'));
-      if (max > 0 && isNum(values[month])) bar.style.setProperty('--f', (values[month] / max).toFixed(4));
-      item.append(when, figure(values[month]), bar);
+      if ((crosses || partner) && (i === 0 || month.slice(0, 4) !== months[i - 1].slice(0, 4))) when.append(' ', make('span', 'home-month-year', yearOf(month)));
+      item.append(when);
+      for (const entry of entries) {
+        const value = entry.values[month];
+        const bar = hide(make('span', 'home-month-bar'));
+        if (max > 0 && isNum(value)) bar.style.setProperty('--f', (value / max).toFixed(4));
+        const point = partner ? make('span', 'home-month-point') : item;
+        if (partner) {
+          point.dataset.seriesKey = entry.name;
+          point.append(make('span', 'admin-sr', entry.label + ' '));
+          item.append(point);
+        }
+        point.append(figure(value), bar);
+        if (!isNum(value)) missing = true;
+      }
       list.append(item);
     });
     // Wider than its column (a long series on a phone), the months scroll in their own box, opened on the latest.
     const box = make('div', 'home-months-box');
     box.dataset.title = title.id;
     box.append(list);
-    wrap.append(title, box);
+    wrap.append(box);
+    if (missing) wrap.append(make('p', 'home-note', '— ' + say('monthMissing')));
     return wrap;
   }
 
@@ -619,18 +669,6 @@
     return wrap;
   }
 
-  // "How it is counted" open or closed for one family: every definition under its own row, and the switch says what it
-  // will do. `remember` is false while printing opens them all.
-  function explain(section, toggle, open, remember = true) {
-    section.classList.toggle('is-explained', open);
-    if (remember) {
-      if (open) openFamilies.add(section.dataset.family);
-      else openFamilies.delete(section.dataset.family);
-    }
-    toggle.setAttribute('aria-expanded', String(open));
-    toggle.replaceChildren(say(open ? 'hideHow' : 'howCounted'), make('span', 'admin-sr', ` (${familyName(section.dataset.family)})`));
-  }
-
   function block(family, tab) {
     const section = make('section', 'home-block');
     section.id = `home-b-${family.key}`;
@@ -641,11 +679,7 @@
     const head = make('div', 'home-block-head');
     const title = make('h3', 'home-block-title', familyName(family.key));
     title.id = `home-h-${family.key}`;
-    const toggle = make('button', 'admin-textbutton home-how');
-    toggle.type = 'button';
-    toggle.setAttribute('aria-controls', section.id);
-    toggle.addEventListener('click', () => explain(section, toggle, !section.classList.contains('is-explained')));
-    head.append(title, toggle);
+    head.append(title);
     if (own(SEE, family.key)) {
       const [href, row] = SEE[family.key];
       const link = make('a', 'home-see', say(row));
@@ -664,43 +698,17 @@
     const oneCourse = courses.size === 1 && own(answer.courseNames, course) ? say('oneCourse', { name: answer.courseNames[course] }) : null;
     for (const note of [...notes, ...(oneCourse ? [oneCourse] : [])]) section.append(make('p', 'home-note', note));
 
-    const byKey = new Map(family.indicators.map((ind) => [ind.key, ind]));
-    // A pair the catalogue names as truly nested is one row, when both of its figures are there.
-    const pairOf = new Map();
-    for (const [part, whole] of ofPairs()) {
-      const a = byKey.get(part);
-      const b = byKey.get(whole);
-      if (a && b && !a.state && !b.state && isNum(a.total) && isNum(b.total)) { pairOf.set(part, [a, b]); pairOf.set(whole, [a, b]); }
-    }
-    const isList = (ind) => !ind.state && Array.isArray(ind.items) && !FIELDS.some((f) => isNum(ind[f]));
-    const rows = [];
-    const done = new Set();
+    const table = metricTable(family, title, once);
+    if (table) section.append(table);
     for (const ind of family.indicators) {
-      if (done.has(ind.key) || !(ind.state || FIELDS.some((f) => isNum(ind[f])))) continue;
-      if (pairOf.has(ind.key)) {
-        const [a, b] = pairOf.get(ind.key);
-        done.add(a.key).add(b.key);
-        rows.push(pairRow(a, b));
-        continue;
-      }
-      rows.push(figureRow(ind, once(ind)));
-    }
-    if (rows.length) {
-      const list = make('ul', 'home-figs');
-      list.setAttribute('aria-labelledby', title.id);
-      list.append(...rows);
-      section.append(list);
-    }
-    // Lists: a course list only when there is more than one course (one course repeats the total).
-    for (const ind of family.indicators) {
-      if (ind.state || !Array.isArray(ind.items)) continue;
-      if (!isList(ind) && ind.items.length < 2) continue;
-      section.append(rankList(ind, isList(ind)));
+      if (!supportsField(ind, 'items')) continue;
+      // Course lists break a scalar into courses; a single course is already identified above the table.
+      if (FIELDS.some((field) => supportsField(ind, field)) && (ind.state || ind.items.length < 2)) continue;
+      section.append(rankList(ind, once(ind)));
     }
     const charts = familyCharts(family, notes);
     if (charts.length) section.append(chartRow(charts, family.indicators.map((ind) => seriesOf(ind.key)).filter((series) => series && !series.values.state)));
-    switches.push({ section, tab, toggle });
-    explain(section, toggle, openFamilies.has(family.key));
+    switches.push({ section, tab });
     return section;
   }
 
@@ -713,6 +721,12 @@
       tab.setAttribute('aria-selected', String(selected));
     }
   }
+
+  const familyRail = window.matchMedia?.('(min-width: 901px)');
+  const familyOrientation = () => familyRail?.matches ? 'vertical' : 'horizontal';
+  familyRail?.addEventListener('change', () => {
+    el.blocks.querySelector('.home-family-tabs')?.setAttribute('aria-orientation', familyOrientation());
+  });
 
   function renderBlocks() {
     const keepTabFocus = switches.some(({ tab }) => tab === document.activeElement);
@@ -727,6 +741,7 @@
     title.id = 'homeExplorerTitle';
     const tabs = make('div', 'home-family-tabs');
     tabs.setAttribute('role', 'tablist');
+    tabs.setAttribute('aria-orientation', familyOrientation());
     tabs.setAttribute('aria-labelledby', title.id);
     const panels = make('div', 'home-family-panels');
     const families = answer.families;
@@ -739,15 +754,19 @@
       const panel = block(family, tab);
       tab.setAttribute('aria-controls', panel.id);
       tab.addEventListener('click', () => {
-        if (selectedFamily === family.key) return;
-        selectFamily(family.key);
-        placeCharts(panel);
+        if (selectedFamily !== family.key) {
+          selectFamily(family.key);
+          placeCharts(panel);
+        }
+        rememberFamily(family.key);
       });
       tab.addEventListener('keydown', (event) => {
         if (event.altKey || event.ctrlKey || event.metaKey) return;
         let next;
         switch (event.key) {
+          case 'ArrowUp':
           case 'ArrowLeft': next = (index + families.length - 1) % families.length; break;
+          case 'ArrowDown':
           case 'ArrowRight': next = (index + 1) % families.length; break;
           case 'Home': next = 0; break;
           case 'End': next = families.length - 1; break;
@@ -852,8 +871,7 @@
     return answer.families.find((family) => family.indicators.some((ind) => ind.key === base))?.key ?? base.split('.')[0];
   }
 
-  /* Two or more readings: the page's one table, a column per month, the tracked rows grouped by family. The names and
-     the family labels stay at the left edge while the months scroll under them on a narrow screen. */
+  // Each month has one column. Family and indicator labels stay visible while scrolling horizontally.
   function trackingTable(months, tracked) {
     const headRow = make('tr');
     const corner = make('th', 'home-corner');
@@ -922,46 +940,19 @@
     const title = make('h2', 'home-block-title', say('tracking'));
     title.id = 'homeTrackingTitle';
     const head = make('div', 'home-tracking-head');
-    head.append(title, make('p', 'home-note', say('trackingIntro')));
-    if (months.length > 1) head.append(make('p', 'home-note', say('readingsSince', { month: monthYear(months[0].month) })));
+    head.append(title);
     if (!readings.today) {
       const failed = failedParts();
       if (failed.length) head.append(make('p', 'home-note', say('notSaved', { part: failed.join(', ') })));
       else if (!months.length) head.append(make('p', 'home-note', say('noReadings')));
     }
     const parts = [head];
-    const table = months.length > 1 && tracked.length > 0;
-    if (months.length === 1 && tracked.length) {
-      // One reading: it is today's figures again, so it waits behind one click (print opens it).
-      const [reading] = months;
-      const box = make('details', 'home-reading');
-      box.open = readingOpen;
-      box.addEventListener('toggle', () => { readingOpen = box.open; });
-      box.append(make('summary', '', say('seeReading', { month: monthYear(reading.month) })));
-      const list = make('ul', 'home-figs home-reading-list');
-      list.setAttribute('aria-label', monthYear(reading.month));
-      for (const key of tracked) {
-        const row = make('li', 'home-fig');
-        row.dataset.key = key;
-        // A reading saved before a key existed shows a dash, never 0.
-        const has = own(reading.figures, key) && isNum(reading.figures[key]);
-        const body = make('span', 'home-fig-body');
-        body.append(make('span', 'home-fig-name', trackedName(key)));
-        row.append(figure(has ? reading.figures[key] : undefined), body);
-        list.append(row);
-      }
-      const when = make('p', 'home-note');
-      when.append(readOnLabel(reading));
-      box.append(when, list);
-      parts.push(box);
-    } else if (table) {
-      parts.push(...trackingTable(months, tracked));
-    }
+    if (months.length && tracked.length) parts.push(...trackingTable(months, tracked));
     parts.push(...strayCharts());
     el.tracking.replaceChildren(...parts);
     if (el.readingsCsv) el.readingsCsv.hidden = months.length === 0;
     // Offer the month comparison once the table has at least two readings.
-    if (el.compare) el.compare.hidden = !table;
+    if (el.compare) el.compare.hidden = months.length < 2 || !tracked.length;
     layout();
   }
 
@@ -984,11 +975,12 @@
   }
 
   function render() {
-    paintChrome();
     renderTop();
     renderHead();
     renderBlocks();
     renderTracking();
+    el.views.hidden = false;
+    showView(location.hash);
   }
 
   const usable = (body) => body && typeof body === 'object' && Array.isArray(body.families) && body.texts?.en && typeof body.asOf === 'string'
@@ -1014,20 +1006,20 @@
   function loseAccess(status) {
     const focused = document.activeElement;
     const moveFocus = focused && (focused === el.refresh || focused === el.retry
-      || [el.reports, el.top, el.blocks, el.tracking].some((area) => area?.contains(focused)));
+      || [el.reports, el.views, el.top, el.blocks, el.tracking].some((area) => area?.contains(focused)));
     accessGeneration += 1;
     answer = null;
     confirmedReading = null;
     readingSentFor = null;
     beforeDownload = null;
-    readingOpen = false;
-    openBeforePrint = null;
-    openFamilies.clear();
     selectedFamily = null;
     switches = [];
     loading = false;
     busy(false);
     el.top.hidden = true;
+    el.views.hidden = true;
+    delete el.main.dataset.view;
+    paintChrome();
     el.pending.hidden = true;
     el.partial.textContent = '';
     el.partial.hidden = true;
@@ -1163,25 +1155,6 @@
   el.readingsCsv?.addEventListener('click', () => download(el.readingsCsv, 'readings'));
   el.monthsCsv?.addEventListener('click', () => download(el.monthsCsv, 'months'));
   el.print.addEventListener('click', () => { if (answer) window.print(); });
-  // Print opens every definition and the folded reading (a stylesheet cannot open a closed <details> in every
-  // browser), then puts each back as it was.
-  window.addEventListener('beforeprint', () => {
-    if (openBeforePrint) return;
-    const boxes = [...el.tracking.querySelectorAll('details')];
-    openBeforePrint = boxes.map((box) => [box, box.open]);
-    for (const box of boxes) box.open = true;
-    for (const { section, toggle } of switches) {
-      section.hidden = false;
-      explain(section, toggle, true, false);
-    }
-  });
-  window.addEventListener('afterprint', () => {
-    if (openBeforePrint) for (const [box, wasOpen] of openBeforePrint) box.open = wasOpen;
-    openBeforePrint = null;
-    selectFamily(selectedFamily);
-    for (const { section, toggle } of switches) explain(section, toggle, openFamilies.has(section.dataset.family), false);
-  });
-
   paintChrome();
   load(false);
   document.addEventListener('DOMContentLoaded', () => window.nodalI18n?.onChange(() => {

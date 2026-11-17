@@ -188,9 +188,9 @@ export async function computeAnswer(deps,at){
  const read=readers({accounts:value('accounts'),members:value('members'),festival:value('festival'),courses:value('courses'),visits:states.visits==='ok'?visits:null,day});
  const families=FAMILIES.map(key=>({key,indicators:INDICATORS.filter(ind=>ind.family===key).map(ind=>{
   const base={key:ind.key,...(ind.vocabulary?{vocabulary:ind.vocabulary}:{})};
-  if(states[ind.part]!=='ok')return {...base,state:states[ind.part]};
+  if(states[ind.part]!=='ok')return {...base,state:states[ind.part],fields:ind.fields};
   const got=derived(ind.part,()=>read[ind.key](),null);
-  return got?{...base,...got}:{...base,state:'unavailable'};
+  return got?{...base,...got}:{...base,state:'unavailable',fields:ind.fields};
  })}));
  const members=value('members'),accounts=value('accounts');
  const series=(rows,i)=>Array.isArray(rows)?sumSeries(pairs(rows,i),day):null;

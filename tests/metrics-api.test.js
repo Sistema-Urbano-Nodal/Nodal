@@ -432,7 +432,12 @@ test('each state: members not activated',async t=>{
   const {status,body}=await get();
   assert.equal(status,200);
   assert.deepEqual(body.notActivated,['members'],each);assert.deepEqual(body.unavailable,[]);
-  for(const key of byPart('members')){const ind=indicator(body,key);assert.equal(ind.state,'not_activated',key);assert.equal('total' in ind,false);}
+  for(const {key,fields} of INDICATORS.filter(ind=>ind.part==='members')){
+   const ind=indicator(body,key);
+   assert.equal(ind.state,'not_activated',key);
+   assert.deepEqual(ind.fields,fields,key);
+   for(const field of fields)assert.equal(field in ind,false,key);
+  }
   assert.equal(body.pending.interests,null);assert.equal(body.pending.orgRequests,null);
   assert.equal(typeof indicator(body,'signups.accounts').total,'number','the other blocks stay filled');
   assert.equal(typeof indicator(body,'festival.registrations').total,'number');
@@ -561,7 +566,7 @@ test('an indicator whose own source is missing does not blank its part',async t=
  });
  const {body}=await get();
  const missing=['courses.surveyTotal','courses.surveyAnswered','courses.certificates','festival.attendedPeople','festival.qrPeople'];
- for(const key of missing){const ind=indicator(body,key);assert.equal(ind.state,'unavailable',key);assert.equal('total' in ind,false,key);}
+ for(const key of missing){const ind=indicator(body,key);assert.equal(ind.state,'unavailable',key);assert.deepEqual(ind.fields,['total'],key);assert.equal('total' in ind,false,key);}
  assert.equal(typeof indicator(body,'courses.enrolled').total,'number');
  assert.equal(typeof indicator(body,'festival.registrations').total,'number');
  assert.deepEqual(body.unavailable,[]);assert.deepEqual(body.notActivated,[]);

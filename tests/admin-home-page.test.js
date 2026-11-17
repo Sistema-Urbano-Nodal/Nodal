@@ -8,8 +8,6 @@ import { createDatabase } from '../server/db.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const page = (name) => readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8');
-const IDS = ['homeMain', 'homeTitle', 'homeAsOf', 'homeRefresh', 'homeWindows', 'homeStatus', 'homeRetry', 'homeSignIn', 'homeCsv', 'homePrint', 'homeLead', 'homePending', 'homeBlocks', 'homeTracking', 'homeReadingsCsv', 'homeMonthsCsv', 'homePrintHead',
-  'homeTop', 'homeRoute', 'homeCsvLabel', 'homeCompare'];
 
 test('the page is the desk\'s frame with the home\'s assets', () => {
   const html = page('admin-home.html');
@@ -28,7 +26,7 @@ test('the page is the desk\'s frame with the home\'s assets', () => {
   assert.doesNotMatch(html, /i18n-dashboard/);
   assert.doesNotMatch(html, /data-i18n="(?:ops|d|p|y)\./);
   assert.ok(head.includes('<meta name="robots" content="noindex, nofollow" />'));
-  for (const id of IDS) assert.equal((html.match(new RegExp(`\\bid="${id}"`, 'g')) || []).length, 1, id);
+  assert.match(html, /<a class="admin-skip" href="#homeMain">Skip to content<\/a>/);
   assert.match(html, /id="homeStatus" role="status"/);
   // One live region (the status line), and no accessible name the script cannot translate.
   assert.equal((html.slice(html.indexOf('<main')).match(/aria-live=/g) || []).length, 1);
@@ -36,22 +34,32 @@ test('the page is the desk\'s frame with the home\'s assets', () => {
   // The home's words are its script's own rows: no dictionary key in its markup.
   assert.doesNotMatch(html.slice(html.indexOf('<main')), /data-i18n/);
   assert.match(html, /id="homeRetry"[^>]*\bhidden\b/);
-  assert.match(html, /id="homeSignIn"[^>]*\bhidden\b/);
-  // Hidden until the script has something to put in them: the top, the queues, the readings download, the month jump.
-  for (const id of ['homeTop', 'homePending', 'homeReadingsCsv', 'homeCompare']) assert.match(html, new RegExp(`id="${id}"[^>]*\\bhidden\\b`), id);
+  assert.match(html, /id="homeSignIn"[^>]*href="login\.html\?next=%2Fadmin-home\.html"[^>]*\bhidden\b/);
+  // Report and navigation controls become available when the page has data.
+  for (const id of ['homeViews', 'homeReports', 'homeTop', 'homePending', 'homeReadingsCsv']) assert.match(html, new RegExp(`id="${id}"[^>]*\\bhidden\\b`), id);
   // Every id the script reads stands in the markup once.
   const script = readFileSync(path.join(ROOT, 'web', 'scripts', 'admin-home.js'), 'utf8');
   const read = [...script.matchAll(/getElementById\('([^']+)'\)/g)].map((m) => m[1]);
-  assert.ok(read.length >= 20, read.join());
   for (const id of read) assert.equal((html.match(new RegExp(`\\bid="${id}"`, 'g')) || []).length, 1, id);
-  // Export actions share a native disclosure. The overview keeps a stable reading order across refreshes.
-  const order = (ids) => ids.map((id) => html.indexOf(`id="${id}"`));
-  const tools = order(['homeRefresh', 'homeReportsLabel', 'homePrint', 'homeCsvLabel', 'homeCsv', 'homeMonthsCsv', 'homeReadingsCsv', 'homeCompare']);
-  assert.deepEqual(tools, [...tools].sort((a, b) => a - b));
-  assert.match(html, /<div class="home-csv" role="group" aria-labelledby="homeCsvLabel">/);
-  const sheet = order(['homeStatus', 'homeRetry', 'homeTop', 'homeLead', 'homePending', 'homeWindows', 'homeRoute', 'homeBlocks', 'homeTracking']);
-  assert.deepEqual(sheet, [...sheet].sort((a, b) => a - b));
-  assert.match(html, /<a class="home-compare" id="homeCompare" href="#homeTracking" hidden>/);
+  const views = html.match(/<nav\b[^>]*id="homeViews"[^>]*>[\s\S]*?<\/nav>/)[0];
+  assert.match(views, /aria-labelledby="homeTitle"/);
+  const links = [...views.matchAll(/<a\b([^>]+)>([^<]+)<\/a>/g)];
+  assert.deepEqual(links.map(([, attrs, label]) => [attrs.match(/href="#([^"]+)"/)[1], label]), [
+    ['homeTop', 'Overview'], ['homeBlocks', 'Indicators'], ['homeTracking', 'Monthly history'],
+  ]);
+  assert.match(links[0][1], /aria-current="location"/);
+  assert.equal((views.match(/aria-current=/g) || []).length, 1);
+  for (const [, attrs] of links) {
+    const id = attrs.match(/href="#([^"]+)"/)[1];
+    assert.equal((html.match(new RegExp(`\\bid="${id}"`, 'g')) || []).length, 1, id);
+  }
+  const periods = html.match(/<section\b[^>]*aria-labelledby="homePeriodTitle"[^>]*>[\s\S]*?<\/section>/)[0];
+  assert.match(periods, /id="homeWindows"/);
+  assert.match(periods, /<a\b[^>]*id="homeCompare"[^>]*href="#homeTracking"[^>]*\bhidden\b/);
+  const reports = html.match(/<details\b[^>]*id="homeReports"[^>]*>[\s\S]*?<\/details>/)[0];
+  assert.match(reports, /<summary id="homeReportsLabel">Export report<\/summary>/);
+  assert.match(reports, /role="group" aria-labelledby="homeCsvLabel"/);
+  for (const id of ['homePrint', 'homeCsv', 'homeMonthsCsv', 'homeReadingsCsv']) assert.ok(reports.includes(`id="${id}"`), id);
   // Nothing the pages' Content-Security-Policy refuses: no inline script, no style element or attribute.
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/);
   assert.doesNotMatch(html, /<style\b|\sstyle=/);

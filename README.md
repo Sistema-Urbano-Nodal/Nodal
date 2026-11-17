@@ -138,10 +138,12 @@ news editor (`/fiiu-admin.html#content`) and to courses (`/teaching.html`).
 Administrators reach it from "Metrics and tools" (Indicadores y gestión), the
 first link in the console's rail, under Team, which only they see; it opens
 the admin home (`/admin`, `/admin-home.html`),
-whose menu leads to the desk. Selecting a headline figure opens its indicator
-family. Staff can explore all seven families, read their definitions, and open
-the queues awaiting review. Export report offers CSV downloads and a printable
-report covering every family. Monthly readings use each month’s latest saved totals.
+whose menu leads to the desk. The overview shows headline figures and links to
+requests awaiting review. Indicators shows one of seven topics at a time, with
+separate columns for totals and the last 30 and 7 days where those counts apply.
+Monthly history compares the latest saved reading in each month. The printable
+report covers all seven topics. The indicators CSV includes definitions, sources
+and measurement limits.
 The page and every `/api/admin/*` request independently require a server-owned `admin` role; there is no separate publisher role.
 Catalog records are archived rather than deleted.
 

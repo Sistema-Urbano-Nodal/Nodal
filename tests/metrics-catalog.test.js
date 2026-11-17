@@ -31,11 +31,12 @@ test('the names the sheet and the spec fix', () => {
   assert.deepEqual(Object.values(es.families), ['Visitas', 'Registros', 'Perfiles', 'Actividad', 'Membresías', 'Festival', 'Cursos']);
   assert.equal(es.indicators['profiles.basic'].name, 'Perfil básico completo');
   assert.equal(es.indicators['profiles.saved'].name, 'Perfil guardado');
-  assert.equal(es.indicators['memberships.acceptances'].name, 'Aceptaciones antes de pagar (veces)');
+  assert.equal(es.indicators['memberships.acceptances'].name, 'Aceptaciones de términos antes del pago');
   assert.match(es.indicators['profiles.saved'].caveat, /Nunca una autoevaluación/i);
   assert.equal(es.lists.reserved._other, 'otros (menos de 3)');
   assert.notEqual(es.lists.profileTypes.other, es.lists.reserved._other);
-  assert.match(es.lists.kinds.profile + ' ' + es.indicators['activity.kinds'].definition, /guardó su perfil o marcó avisos como leídos/);
+  assert.equal(es.lists.kinds.profile, 'Perfil y avisos');
+  assert.match(es.indicators['activity.kinds'].definition, /guardó su perfil o marcó avisos como leídos/);
   // The page shows each kind's 7 days beside its 30, as the CSV does.
   assert.match(es.indicators['activity.kinds'].definition, /la página y el CSV muestran los 30 y los 7 días/);
   assert.deepEqual(es.states, { not_activated: 'Aún no está activado en la base de datos', unavailable: 'No disponible en este momento', not_yet_counted: 'Se cuenta desde el {day}', no_visits_yet: 'Aún no hay visitas contadas' });
@@ -93,11 +94,15 @@ test('the vocabularies match their owners', () => {
   for (const i of INDICATORS.filter(i => i.vocabulary)) assert.ok(TEXTS.es.lists[i.vocabulary], i.key);
 });
 
-test('the seven course totals carry the teaching workspace\'s own labels', () => {
+test('course labels distinguish enrolments from members and submissions from assignments', () => {
   const pilot = readFileSync(new URL('../web/scripts/pilot-i18n.js', import.meta.url), 'utf8');
-  for (const [key, row] of [['enrolled', 'participants'], ['intakeCompleted', 'intakeCompleted'], ['moduleOpens', 'moduleOpens'], ['contentOpens', 'contentOpens'], ['recordingOpens', 'recordingOpens'], ['assignments', 'assignments'], ['comments', 'comments']]) {
+  const names = key => ['en', 'es', 'pt'].map(lang => TEXTS[lang].indicators[`courses.${key}`].name);
+  assert.deepEqual(names('enrolled'), ['Course enrolments', 'Inscripciones a cursos', 'Inscrições em cursos']);
+  assert.deepEqual(names('learners'), ['Members enrolled in courses', 'Miembros inscritos en cursos', 'Membros inscritos em cursos']);
+  assert.deepEqual(names('assignments'), ['Assignment submissions', 'Entregas de actividades', 'Entregas de atividades']);
+  for (const [key, row] of [['moduleOpens', 'moduleOpens'], ['contentOpens', 'contentOpens'], ['recordingOpens', 'recordingOpens'], ['comments', 'comments']]) {
     const [en, es, pt] = JSON.parse(pilot.match(new RegExp(`\\b${row}:(\\[[^\\]]*\\])`))[1].replaceAll("'", '"'));
-    assert.deepEqual(['en', 'es', 'pt'].map(l => TEXTS[l].indicators[`courses.${key}`].name), [en, es, pt], key);
+    assert.deepEqual(names(key), [en, es, pt], key);
   }
 });
 

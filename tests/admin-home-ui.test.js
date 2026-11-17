@@ -163,21 +163,19 @@ function parseBody(html, create) {
   return body;
 }
 
-/* The text a node holds, its strings included, as a reader meets it. closed() leaves the definitions out, as the screen
-   shows a family until its "Cómo se cuenta" is pressed. */
-function textOf(node, defs) {
+// The text a node holds, including strings appended alongside its child elements.
+function rendered(node) {
   const parts = [];
   const walk = (at) => {
     if (typeof at === 'string') { parts.push(at); return; }
-    if (!at || (!defs && classesOf(at).includes('home-def'))) return;
+    if (!at) return;
     parts.push(at.textContent || '');
     for (const child of at.children) walk(child);
   };
   walk(node);
   return parts.join(' ').replace(/\s+/g, ' ').replace(/ ([,)])/g, '$1').trim();
 }
-const rendered = (node) => textOf(node, true);
-const closed = (node) => textOf(node, false);
+const closed = rendered;
 // The text exactly as a browser joins it, nothing added between nodes: a space a sentence needs must be in its strings.
 const flat = (node) => (typeof node === 'string' ? node : (node.textContent || '') + node.children.map(flat).join(''));
 const byKey = (node, key) => descendants(node).find((child) => child.dataset.key === key);
@@ -257,7 +255,7 @@ const indicator = (answer, key) => answer.families.flatMap((f) => f.indicators).
    download(url) answer fetch; each defaults to the fixture, {saved: false} and a 500. measure(node, what)
    supplies layout values used by charts and tables. resized(width) simulates a width change; fonts.resolve()
    says the fonts have loaded. */
-function home({ lang = 'es', answer = fixture(), get, post, download, measure = () => 0 } = {}) {
+function home({ lang = 'es', hash = '', answer = fixture(), get, post, download, matchMedia, measure = () => 0 } = {}) {
   const created = [];
   const node = (tag) => new FakeNode(tag, measure);
   const body = parseBody(read('web', 'pages', 'admin-home.html'), node);
@@ -287,10 +285,31 @@ function home({ lang = 'es', answer = fixture(), get, post, download, measure = 
   };
   const printed = [];
   const windowListeners = new Map();
+  const navigation = [hash];
+  let position = 0;
+  function traverse(offset) {
+    const index = position + offset;
+    if (index < 0 || index >= navigation.length) return;
+    position = index;
+    context.location.hash = navigation[position];
+    windowListeners.get('hashchange')?.();
+  }
   const context = {
+    matchMedia,
     document, fetch, console, setTimeout, clearTimeout, URLSearchParams,
     URL: { createObjectURL: () => 'blob:test', revokeObjectURL() {} },
-    location: { search: '' },
+    location: { search: '', hash },
+    history: {
+      pushState(state, title, next) {
+        navigation.splice(position + 1);
+        navigation.push(next);
+        position += 1;
+        context.location.hash = next;
+      },
+      replaceState(state, title, next) { navigation[position] = next; context.location.hash = next; },
+      back: () => traverse(-1),
+      forward: () => traverse(1),
+    },
     nodalLocale: { read: () => lang, save() {}, chosen: () => false },
     addEventListener: (name, handler) => windowListeners.set(name, handler),
     print: () => printed.push(true),
@@ -320,10 +339,6 @@ function home({ lang = 'es', answer = fixture(), get, post, download, measure = 
 
 const IN30 = { es: 'en 30 días', en: 'in 30 days', pt: 'em 30 dias' };
 const IN7 = { es: 'en 7 días', en: 'in 7 days', pt: 'em 7 dias' };
-const HOW = { es: 'Cómo se cuenta', en: 'How it is counted', pt: 'Como se conta' };
-const SOURCE = { es: 'Fuente', en: 'Source', pt: 'Fonte' };
-const LIMITS = { es: 'Límites', en: 'Limits', pt: 'Limites' };
-const ROUTE_NOTE = 'Cada barra cuenta a los miembros de esa etapa. Los grupos pueden superponerse.';
 
 test('the chrome is painted from the page language at evaluation', () => {
   const page = home({ get: () => new Promise(() => {}) });
@@ -356,7 +371,7 @@ test('the chrome is painted from the page language at evaluation', () => {
 });
 
 for (const lang of ['es', 'en', 'pt']) {
-  test(`renders the members' path, the other lead figures and every family in the page language (${lang})`, async () => {
+  test(`renders participation, headline metrics and topic tables in the page language (${lang})`, async () => {
     const answer = fixture();
     const page = home({ lang, answer });
     await flush();
@@ -371,19 +386,19 @@ for (const lang of ['es', 'en', 'pt']) {
     }
     const lead = page.id('homeLead');
     assert.deepEqual(lead.elements.map((item) => item.dataset.key), answer.lead.map((item) => item.key));
-    for (const { key, field, second } of answer.lead) {
-      const lines = byKey(lead, key).elements.map((line) => closed(line));
-      const expected = [[key, field], ...second];
-      assert.equal(lines.length, expected.length, key);
-      expected.forEach(([k, f], i) => assert.ok(lines[i].startsWith(`${indicator(answer, k)[f]} ${name(k, f)}`), `${key}: ${lines[i]}`));
+    for (const { key, field } of answer.lead) {
+      const [line] = byKey(lead, key).elements;
+      assert.equal(byKey(lead, key).elements.length, 1, key);
+      assert.equal(select(line, '.home-num')[0].textContent, String(indicator(answer, key)[field]));
+      assert.equal(select(line, '.home-fig-name')[0].textContent, name(key, field));
     }
     const headline = byKey(lead, 'profiles.basic').querySelector('button');
     headline.click();
     assert.equal(page.tab('profiles')['aria-selected'], 'true');
     assert.equal(page.document.activeElement, page.tab('profiles'));
-    assert.equal(page.tab('profiles').scrollOptions.block, 'center');
-    // Every family in catalogue order, each with a toggle that names it and every
-    // definition once, under its own row or list, with its source and its limits.
+    assert.equal(page.id('homeMain').dataset.view, 'indicators');
+    assert.equal(page.context.location.hash, '#home-b-profiles');
+    // Each family's scalar table uses the localised column names and real row and column headers.
     const sections = page.sections();
     assert.deepEqual(sections.map((section) => section.dataset.family), FAMILIES);
     assert.ok(sections.every((section) => section.parent.classList.contains('home-family-panels')));
@@ -392,25 +407,16 @@ for (const lang of ['es', 'en', 'pt']) {
       const title = select(section, 'h3.home-block-title')[0];
       assert.equal(title.textContent, words.families[family]);
       assert.equal(section['aria-labelledby'], page.tab(family).id);
-      const toggle = select(section, 'button.home-how')[0];
-      assert.equal(rendered(toggle), `${HOW[lang]} (${words.families[family]})`);
-      assert.equal(toggle['aria-expanded'], 'false');
-      assert.equal(toggle['aria-controls'], section.id);
-      assert.equal(select(section, `ul.home-figs[aria-labelledby=${title.id}]`).length, 1, `${family} figures`);
-      const defs = select(section, '.home-def');
-      assert.deepEqual(defs.map((def) => def.dataset.def).sort(), INDICATORS.filter((ind) => ind.family === family).map((ind) => ind.key).sort(), family);
-      for (const def of defs) {
-        const { definition, source, caveat } = words.indicators[def.dataset.def];
-        for (const part of [definition, `${SOURCE[lang]}: ${source}`, `${LIMITS[lang]}: ${caveat}`]) assert.ok(rendered(def).includes(part), `${def.dataset.def}: ${part}`);
-      }
+      const table = select(section, 'table.home-metrics')[0];
+      assert.equal(table['aria-labelledby'], title.id);
+      assert.ok(select(table, 'thead th').every((th) => th.scope === 'col'));
+      assert.ok(select(table, 'tbody th').every((th) => th.scope === 'row'));
+      assert.equal(select(table, 'thead th')[0].textContent, lang === 'en' ? 'Indicator' : 'Indicador');
     }
     if (lang === 'es') {
       assert.equal(page.id('homeAsOf').textContent, 'Datos al 14 nov 2026, 08:36 (hora de Lima)');
       // Reporting periods are named alongside their date ranges.
-      assert.deepEqual(select(page.id('homeWindows'), 'dl div').map(rendered), ['Últimos 30 días 16 oct–14 nov', 'Últimos 7 días 8–14 nov']);
-      const silence = select(page.id('homeWindows'), '.home-silence')[0];
-      assert.equal(rendered(silence), '19 días sin cuentas nuevas (última: 26 oct)');
-      assert.equal(select(silence, '.home-num')[0].textContent, '19', 'the count of days is a figure');
+      assert.deepEqual(select(page.id('homeWindows'), 'dl div').map(rendered), ['Últimos 30 días 16 oct–14 nov', 'Últimos 7 días 8–14 nov', 'Último registro 26 oct 2026']);
       const pending = page.id('homePending');
       assert.equal(pending.hidden, false);
       assert.equal(select(pending, 'h2')[0].textContent, 'Por atender');
@@ -438,11 +444,11 @@ test('a zero is 0 and a failure is a dash with its reason', async () => {
   assert.equal(zero.textContent, '0', 'the zero is printed');
   assert.match(zero.className, /\bis-zero\b/);
   const bio = byKey(blocks, 'profiles.bio');
-  assert.equal(closed(bio), '— Con biografía No disponible en este momento');
-  assert.equal(select(bio, '.home-fig-more')[0].textContent, 'No disponible en este momento');
+  assert.equal(closed(bio), `${TEXTS.es.indicators['profiles.bio'].name} No disponible en este momento —`);
+  assert.equal(select(bio, '.home-metric-note')[0].textContent, 'No disponible en este momento');
   assert.doesNotMatch(closed(bio), /\d/);
-  assert.equal(count(closed(page.section('festival')), 'Aún no está activado en la base de datos'), 1);
-  assert.equal(closed(byKey(blocks, 'festival.hours')), '— Horas de asistencia');
+  assert.equal(count(closed(page.section('festival')), 'Seguimiento inactivo'), 1);
+  assert.equal(closed(byKey(blocks, 'festival.hours')), `${TEXTS.es.indicators['festival.hours'].name} —`);
 
   for (const [since, heading] of [[null, 'Aún no hay visitas contadas'], ['2026-11-17', 'Se cuenta desde el 17 nov 2026']]) {
     const quiet = fixture();
@@ -472,12 +478,12 @@ test('the lead, the route and the tracking rows come from the answer', async () 
   await flush();
   // The headline band follows the server's selection and ordering.
   assert.deepEqual(page.id('homeLead').elements.map((g) => g.dataset.key), ['memberships.founders', 'activity.members', 'profiles.basic']);
-  const reading = select(page.id('homeTracking'), 'details.home-reading')[0];
-  assert.deepEqual(select(reading, 'li.home-fig[data-key]').map((row) => [row.dataset.key, closed(row)]), [['courses.enrolled', '21 Participantes'], ['signups.accounts', '— Cuentas']]);
-  // A key the reading lacks is a dash, never 0.
-  assert.equal(closed(byKey(reading, 'signups.accounts')), '— Cuentas');
-  assert.equal(select(byKey(reading, 'signups.accounts'), '.home-dash').length, 1);
-  assert.equal(select(page.id('homeTracking'), 'tr[data-key]').length, 0, 'one reading is a list, not a table');
+  const rows = select(page.id('homeTracking'), 'tr[data-key]');
+  assert.deepEqual(rows.map((row) => [row.dataset.key, rendered(row)]), [
+    ['courses.enrolled', 'Inscripciones a cursos 21'], ['signups.accounts', 'Cuentas —'],
+  ]);
+  assert.equal(select(rows[1], '.home-dash').length, 1);
+  assert.equal(select(page.id('homeTracking'), 'th[data-month]').length, 1);
 
   const empty = fixture();
   empty.lead = [];
@@ -503,14 +509,12 @@ test('a visit figure younger than its window says since when it is counted', asy
   answer.lead = [{ key: 'visits.arrivals', field: 'd30', second: [['visits.views', 'd7']] }, ...answer.lead.slice(1)];
   const page = home({ answer });
   await flush();
-  const [main, second] = byKey(page.id('homeLead'), 'visits.arrivals').elements;
-  assert.equal(closed(main), '52 Llegadas en 30 días Se cuenta desde el 1 nov 2026');
-  assert.equal(closed(second), '1 Páginas vistas en 7 días', 'the 7 days are all counted');
+  const [main] = byKey(page.id('homeLead'), 'visits.arrivals').elements;
+  assert.equal(closed(main), '52 Entradas al sitio en 30 días Se cuenta desde el 1 nov 2026');
   assert.doesNotMatch(rendered(page.id('homeRoute')), /Se cuenta desde/, 'only visit figures');
   const views = byList(page.id('homeBlocks'), 'memberships.views');
-  const [title, def, note] = views.elements;
-  assert.equal(title.textContent, 'Vistas de Fundadores y de la página de pago en 30 días');
-  assert.ok(def.classList.contains('home-def'), 'the note follows the list\'s definition');
+  const [title, note] = views.elements;
+  assert.equal(title.textContent, 'Vistas de las páginas de membresía en 30 días');
   assert.deepEqual([note.className, note.textContent], ['home-note', 'Se cuenta desde el 1 nov 2026']);
   // The Visitas block says it once, under its head.
   assert.equal(count(closed(page.section('visits')), 'Se cuenta desde el 1 nov 2026'), 1);
@@ -519,7 +523,7 @@ test('a visit figure younger than its window says since when it is counted', asy
   old.visitsSince = '2026-10-16';
   const whole = home({ answer: old });
   await flush();
-  assert.equal(closed(byKey(whole.id('homeLead'), 'visits.arrivals').elements[0]), '52 Llegadas en 30 días');
+  assert.equal(closed(byKey(whole.id('homeLead'), 'visits.arrivals').elements[0]), '52 Entradas al sitio en 30 días');
   assert.doesNotMatch(closed(byList(whole.id('homeBlocks'), 'memberships.views')), /Se cuenta desde/);
   const en = home({ lang: 'en', answer: fixture() });
   await flush();
@@ -544,21 +548,21 @@ test('the festival registrations say how many are the team\'s', async () => {
   const page = home({ answer });
   await flush();
   const total = indicator(answer, 'festival.registrations').total;
-  assert.equal(closed(byKey(page.id('homeBlocks'), 'festival.registrations')), `${total} Inscripciones (incluye 2 del equipo)`);
-  assert.equal(flat(select(byKey(page.id('homeBlocks'), 'festival.registrations'), '.home-fig-name')[0]), 'Inscripciones (incluye 2 del equipo)');
+  assert.equal(closed(byKey(page.id('homeBlocks'), 'festival.registrations')), `${TEXTS.es.indicators['festival.registrations'].name} incluye 2 del equipo ${total}`);
+  assert.equal(closed(select(byKey(page.id('homeBlocks'), 'festival.registrations'), '.home-metric-note')[0]), 'incluye 2 del equipo');
   page.ready();
   page.apply('en');
   await flush();
-  assert.ok(closed(byKey(page.id('homeBlocks'), 'festival.registrations')).includes('(includes 2 from the team)'));
+  assert.ok(closed(byKey(page.id('homeBlocks'), 'festival.registrations')).includes('includes 2 from the team'));
   page.apply('pt');
   await flush();
-  assert.ok(closed(byKey(page.id('homeBlocks'), 'festival.registrations')).includes('(inclui 2 da equipe)'));
+  assert.ok(closed(byKey(page.id('homeBlocks'), 'festival.registrations')).includes('inclui 2 da equipe'));
   for (const team of [0, undefined]) {
     const none = fixture();
     indicator(none, 'festival.registrations').team = team;
     const bare = home({ answer: none });
     await flush();
-    assert.equal(closed(byKey(bare.id('homeBlocks'), 'festival.registrations')), `${total} Inscripciones`);
+    assert.equal(closed(byKey(bare.id('homeBlocks'), 'festival.registrations')), `${TEXTS.es.indicators['festival.registrations'].name} ${total}`);
   }
 });
 
@@ -569,11 +573,11 @@ test('a list names its window, ranks its rows on its own scale, and an empty lis
   const page = home({ answer });
   await flush();
   const blocks = page.id('homeBlocks');
-  assert.equal(closed(byList(blocks, 'visits.sources')), 'De dónde llegan en 30 días 0');
+  assert.equal(closed(byList(blocks, 'visits.sources')), 'Origen de las visitas en 30 días 0');
   assert.equal(select(byList(blocks, 'visits.sources'), 'p.home-fig .home-num')[0].textContent, '0');
   assert.equal(closed(byList(blocks, 'visits.topPages')), 'Páginas más vistas en 30 días 40 Inicio 12 FIIU Fest');
-  assert.match(closed(byList(blocks, 'activity.kinds')), /^Actividad por tipo en 30 días 4 perfil/);
-  assert.match(closed(byList(blocks, 'festival.countries')), /^País \(respuesta de inscripción\) 335 Perú/, 'a total list has no window');
+  assert.match(closed(byList(blocks, 'activity.kinds')), /^Miembros activos por área en 30 días 4 Perfil/);
+  assert.ok(closed(byList(blocks, 'festival.countries')).startsWith(`${TEXTS.es.indicators['festival.countries'].name} 335 Perú`), 'a total list has no window');
   // A row: the figure, the label, a bar on the list's own scale (its largest row); figure and label are real text.
   const list = select(byList(blocks, 'visits.topPages'), 'ol.home-rank')[0];
   assert.equal(list['aria-labelledby'], select(byList(blocks, 'visits.topPages'), 'h4')[0].id);
@@ -581,22 +585,19 @@ test('a list names its window, ranks its rows on its own scale, and an empty lis
   assert.deepEqual(first.elements.map((n) => [n.className, n.textContent]), [['home-num', '40'], ['home-rank-label', 'Inicio'], ['home-rank-bar', '']]);
   assert.equal(first.elements[2]['aria-hidden'], 'true');
   assert.deepEqual([first, second].map((row) => row.elements[2].style['--f']), ['1.0000', '0.3000']);
-  assert.ok(rendered(page.id('homeWindows')).includes('1 día sin cuentas nuevas (última: 26 oct)'), rendered(page.id('homeWindows')));
-  for (const section of page.sections()) assert.equal(select(section, 'ul.home-figs')[0]['aria-labelledby'], select(section, 'h3.home-block-title')[0].id, section.dataset.family);
-  const views = select(byKey(blocks, 'visits.views'), '.home-def')[0];
-  assert.ok(rendered(views).includes('Límites: No dice cuántas personas fueron.'), rendered(views));
-  assert.doesNotMatch(rendered(blocks), /No dice: No dice/);
 });
 
-test('a day with a new account says no days without one', async () => {
+test('the latest sign-up is a calendar date even when it was today', async () => {
   const answer = fixture();
   indicator(answer, 'signups.new').daysSince = 0;
   indicator(answer, 'signups.new').last = '2026-11-14';
   const page = home({ answer });
   await flush();
-  assert.equal(select(page.id('homeWindows'), '.home-silence').length, 0);
-  assert.doesNotMatch(rendered(page.id('homeRoute')), /sin cuentas nuevas/);
-  assert.deepEqual(select(page.id('homeWindows'), 'dl div').map(rendered), ['Últimos 30 días 16 oct–14 nov', 'Últimos 7 días 8–14 nov']);
+  assert.deepEqual(select(page.id('homeWindows'), 'dl div').map(rendered), ['Últimos 30 días 16 oct–14 nov', 'Últimos 7 días 8–14 nov', 'Último registro 14 nov 2026']);
+  delete indicator(answer, 'signups.new').last;
+  const withoutDate = home({ answer });
+  await flush();
+  assert.ok(!rendered(withoutDate.id('homeWindows')).includes('Último registro'));
 });
 
 test('lists are labelled after the fact', async () => {
@@ -611,7 +612,7 @@ test('lists are labelled after the fact', async () => {
   assert.ok(closed(byList(blocks, 'visits.sources')).includes('20 directo'));
   // The kinds count the 7 days too: said after each label, in real text.
   const kinds = byList(blocks, 'activity.kinds');
-  assert.equal(closed(kinds), 'Actividad por tipo en 30 días 4 perfil (guardó su perfil o marcó avisos como leídos), 1 en 7 días 2 red, 0 en 7 días');
+  assert.equal(closed(kinds), 'Miembros activos por área en 30 días 4 Perfil y avisos, 1 en 7 días 2 Red, 0 en 7 días');
   const [comma, more] = select(kinds, '.home-rank-label')[0].children;
   assert.deepEqual([comma, more.className], [', ', 'home-rank-more']);
 });
@@ -646,7 +647,7 @@ test('a language change re-renders without a request', async () => {
   assert.equal(page.id('homeTitle').textContent, 'Visão geral da rede');
   assert.ok(rendered(page.id('homeRoute')).includes(TEXTS.pt.indicators['signups.accounts'].name));
   assert.deepEqual(figures(), before);
-  assert.ok(page.sections().every((section) => rendered(select(section, 'button.home-how')[0]).startsWith('Como se conta')));
+  assert.ok(page.sections().every((section) => rendered(select(section, 'thead th')[0]) === 'Indicador'));
   assert.equal(page.id('homeCsvLabel').textContent, 'Baixar CSV:');
   assert.equal(page.calls.length, 2);
   assert.equal(page.gets().length, 1);
@@ -666,7 +667,7 @@ test('a language change during the first load neither repeats the request nor th
   assert.equal(page.gets().length, 1);
   assert.equal(page.posts().length, 1);
   assert.equal(page.id('homeBlocks').replaced, 1);
-  assert.ok(rendered(page.id('homeBlocks')).includes('Como se conta'));
+  assert.equal(rendered(select(page.section('signups'), 'thead th').at(-1)), '7 dias');
   assert.equal(page.id('homeTitle').textContent, 'Visão geral da rede');
 });
 
@@ -677,7 +678,7 @@ test('the reading is sent only when today has none and the answer is complete', 
   await flush();
   assert.equal(done.posts().length, 0);
 
-  const notSaved = (part) => `La lectura de hoy aún no se guardó. Falta: ${part}. Se guardará al abrir esta página con todos los datos.`;
+  const notSaved = (part) => `Faltan datos de ${part} para el registro de hoy.`;
   for (const [change, part] of [
     [(a) => { a.unavailable = [{ part: 'courses', reason: 'timeout' }]; }, 'cursos'],
     [(a) => { a.notActivated = ['members']; }, 'datos de miembros'],
@@ -736,18 +737,13 @@ test('a saved reading appears in Seguimiento at once', async () => {
   const page = home({ answer, post: () => Promise.resolve(response({ saved: true, day: saved.day, reading: saved })) });
   await flush();
   const tracking = page.id('homeTracking');
-  // One reading is today's figures again: folded behind one click, with its month, the day it was read and a row per
-  // tracked key.
-  assert.equal(select(tracking, 'th[data-month]').length, 0);
-  const reading = select(tracking, 'details.home-reading')[0];
-  assert.equal(reading.open, false);
-  assert.equal(select(reading, 'summary')[0].textContent, 'Ver la lectura de nov 2026');
-  const read = rendered(select(reading, '.home-read')[0]);
-  assert.ok(read.includes('nov 2026') && read.includes('leído el 14'), read);
-  assert.deepEqual(select(reading, 'li.home-fig[data-key]').map((r) => r.dataset.key), TRACKED);
-  assert.equal(closed(byKey(reading, 'signups.accounts')), '77 Cuentas');
-  assert.equal(closed(byKey(reading, 'activity.members.d30')), '25 Miembros con actividad en 30 días');
-  assert.equal(closed(byKey(reading, 'activity.members.d7')), '3 Miembros con actividad en 7 días');
+  const [head] = select(tracking, 'th[data-month]');
+  assert.deepEqual([head.dataset.month, rendered(head)], ['2026-11', 'nov 2026 leído el 14']);
+  const rows = select(tracking, 'tr[data-key]');
+  assert.deepEqual(rows.map((row) => row.dataset.key), TRACKED);
+  assert.equal(rendered(byKey(tracking, 'signups.accounts')), 'Cuentas 77');
+  assert.equal(rendered(byKey(tracking, 'activity.members.d30')), 'Miembros activos en 30 días 25');
+  assert.equal(rendered(byKey(tracking, 'activity.members.d7')), 'Miembros activos en 7 días 3');
   assert.equal(page.calls.length, 2);
   assert.equal(page.id('homeReadingsCsv').hidden, false);
   assert.equal(page.id('homeCompare').hidden, true, 'one month has nothing to compare');
@@ -771,7 +767,7 @@ test('a saved reading appears in Seguimiento at once', async () => {
     assert.ok(text.includes('Aún no hay lecturas guardadas.'), text);
     assert.equal(other.id('homeReadingsCsv').hidden, true);
     // The month series stand in their families, not here.
-    assert.ok(closed(other.section('signups')).includes('Cuentas nuevas, por mes jul 9'));
+    assert.ok(bySeries(other.section('signups'), 'accounts-entered'));
     assert.equal(select(other.id('homeTracking'), '.home-chart').length, 0);
   }
 
@@ -782,8 +778,8 @@ test('a saved reading appears in Seguimiento at once', async () => {
   await flush();
   const text = rendered(replaced.id('homeTracking'));
   assert.ok(text.includes('leído el 14') && !text.includes('leído el 3'), text);
-  assert.equal(select(replaced.id('homeTracking'), 'details.home-reading').length, 1);
-  assert.equal(select(replaced.id('homeTracking'), 'th[data-month]').length, 0);
+  assert.equal(select(replaced.id('homeTracking'), 'th[data-month]').length, 1);
+  assert.equal(rendered(byKey(replaced.id('homeTracking'), 'signups.accounts')), 'Cuentas 77');
 });
 
 test('two readings or more make the month table, grouped by family; the month series stand in their families', async () => {
@@ -809,7 +805,6 @@ test('two readings or more make the month table, grouped by family; the month se
   assert.ok(!rendered(heads[1]).includes('leído con definiciones anteriores'));
   assert.equal(select(tracking, 'h2')[0].id, 'homeTrackingTitle');
   assert.equal(tracking['aria-labelledby'], 'homeTrackingTitle');
-  assert.equal(closed(select(tracking, '.home-tracking-head .home-note')[0]), 'La última lectura guardada de cada mes, para comparar los meses.');
   const corner = select(tracking, 'th.home-corner')[0];
   assert.deepEqual([corner.scope, closed(corner)], ['col', 'Indicador']);
   // One group per family with a row-group head, the rows in TRACKED order.
@@ -821,7 +816,6 @@ test('two readings or more make the month table, grouped by family; the month se
   assert.deepEqual(select(byKey(tracking, 'signups.confirmed'), 'td').map((cell) => closed(cell)), ['—', '110']);
   assert.deepEqual(select(byKey(tracking, 'profiles.city'), 'td').map((cell) => closed(cell)), ['0', '—']);
   assert.ok(rendered(tracking).includes('—: no se leía ese mes'));
-  assert.ok(rendered(tracking).includes('Lecturas desde nov 2026.'));
   assert.ok(!rendered(tracking).includes('undefined'));
   // The table scrolls inside the Seguimiento region, named apart from it, as a group (not a second region). The name is
   // the group's alone: the table inside repeats neither it nor the region's.
@@ -830,9 +824,10 @@ test('two readings or more make the month table, grouped by family; the month se
   const table = select(scroller, 'table')[0];
   assert.deepEqual([table['aria-labelledby'], table['aria-label'], select(table, 'caption').length], [undefined, undefined, 0]);
   // Two months or more: a chart in the indicator's family; one month: said on its row; in a state: its reason.
-  const accounts = bySeries(page.section('signups'), 'accounts');
-  assert.equal(closed(accounts), 'Cuentas nuevas, por mes jul 9 ago 0 sept 43 oct 473 nov 0');
-  assert.deepEqual(select(accounts, '.home-month-bar').map((bar) => bar.style['--f']), ['0.0190', '0.0000', '0.0909', '1.0000', '0.0000']);
+  const accounts = bySeries(page.section('signups'), 'accounts-entered');
+  assert.equal(select(accounts, '.home-series-key li').length, 2);
+  assert.deepEqual(select(accounts, '[data-series-key=accounts] .home-month-bar').map((bar) => bar.style['--f']), ['0.0190', '0.0000', '0.0909', '1.0000', '0.0000']);
+  assert.equal(select(accounts, '[data-month=2026-10] [data-series-key=entered] .home-month-bar')[0].style['--f'], (438 / 473).toFixed(4));
   // Each chart is a list named by its title, its bars hidden from a screen reader; the stylesheet gets its months. A
   // chart that fits its column is no group: its name is said once, by its list.
   for (const chart of select(page.section('signups'), '.home-chart')) {
@@ -847,7 +842,8 @@ test('two readings or more make the month table, grouped by family; the month se
   assert.ok(registrations.classList.contains('is-missing'));
   assert.equal(closed(registrations), 'Inscripciones al festival, por mes — No disponible en este momento');
   assert.equal(flat(select(registrations, '.home-chart-why')[0]), '— No disponible en este momento');
-  assert.equal(closed(select(byKey(page.section('visits'), 'visits.views'), '.home-fig-more')[0]), '1 en 7 días, 40 en nov 2026');
+  assert.equal(closed(select(byKey(page.section('visits'), 'visits.views'), '.home-metric-note')[0]), '40 en nov 2026');
+  assert.equal(closed(select(byKey(page.section('visits'), 'visits.views'), 'td[data-field=d7]')[0]), '1');
   assert.equal(select(tracking, '.home-chart').length, 0, 'no series is left over for Seguimiento');
   assert.equal(page.posts().length, 0);
 });
@@ -911,8 +907,23 @@ test('a month table wider than the screen opens on its latest whole months', asy
   assert.equal(scroller.style['--tail'], '80px');
 });
 
+test('paired monthly counts align sparse months and keep a missing value distinct from zero', async () => {
+  const answer = fixture();
+  answer.months.series.accounts = { '2026-12': 8, '2027-02': 0 };
+  answer.months.series.entered = { '2027-01': 4, '2027-02': 2 };
+  const page = home({ answer, lang: 'pt' });
+  await flush();
+  const chart = bySeries(page.section('signups'), 'accounts-entered');
+  assert.deepEqual(select(chart, '.home-month').map((item) => item.dataset.month), ['2026-12', '2027-01', '2027-02']);
+  assert.deepEqual(select(chart, '.home-month-year').map(closed), ['2026', '2027']);
+  assert.deepEqual(select(chart, '[data-series-key=accounts] .home-num').map(closed), ['8', '—', '0']);
+  assert.deepEqual(select(chart, '[data-series-key=entered] .home-month-bar').map((bar) => bar.style['--f']), [undefined, '0.5000', '0.2500']);
+  assert.ok(closed(chart).includes('Sem dados para este mês'));
+});
+
 test('a month series that crosses a year names each year once', async () => {
   const answer = fixture();
+  answer.months.series.entered = { state: 'unavailable' };
   answer.months.series.accounts = { '2026-11': 1, '2026-12': 2, '2027-01': 3 };
   const page = home({ answer });
   await flush();
@@ -921,13 +932,13 @@ test('a month series that crosses a year names each year once', async () => {
   assert.deepEqual(select(chart, '.home-month-year').map((year) => year.textContent), ['2026', '2027']);
   assert.deepEqual(select(chart, 'li.home-month').map((month) => select(month, '.home-month-year').length), [1, 0, 1]);
   assert.equal(closed(chart), 'Cuentas nuevas, por mes nov 2026 1 dic 2 ene 2027 3');
-  // The row of charts makes room for a year; a series inside one year names none.
+  // The available series still stands on its own when its counterpart cannot be read.
   assert.ok(select(page.section('signups'), '.home-charts')[0].classList.contains('has-years'));
   const entered = bySeries(page.section('signups'), 'entered');
-  assert.equal(select(entered, 'ol.home-months')[0].classList.contains('has-years'), false);
-  assert.equal(select(entered, '.home-month-year').length, 0);
+  assert.ok(entered.classList.contains('is-missing'));
   // Only the months drawn count: thirteen months from dec 2026 draw the twelve of 2027, which cross no year.
   const later = fixture();
+  delete later.months.series.entered;
   later.months.series.accounts = Object.fromEntries(['2026-12', ...Array.from({ length: 12 }, (_, i) => `2027-${String(i + 1).padStart(2, '0')}`)].map((month, i) => [month, i + 1]));
   const year = home({ answer: later });
   await flush();
@@ -945,6 +956,7 @@ test('a month chart draws the latest twelve months, as wide as their widest figu
   assert.deepEqual([months[0], months[12]], ['2026-07', '2027-07']);
   const answer = fixture();
   answer.months.series.accounts = Object.fromEntries(months.map((month, i) => [month, i === 0 ? 12000 : 1000 + i]));
+  delete answer.months.series.entered;
   let column = 358;
   // The accounts chart's box: twelve 50px months (600px) in a 358px column, until the column changes. A month's
   // offsetLeft is read from the box.
@@ -974,9 +986,9 @@ test('a month chart draws the latest twelve months, as wide as their widest figu
   assert.equal(list.parent, box);
   assert.deepEqual([box.tabindex, box.role, box['aria-labelledby'], box.scrollLeft, box.style['--tail']], ['0', 'group', 'home-s-accounts', 250, '8px']);
   assert.equal(list['aria-labelledby'], undefined);
-  const entered = select(bySeries(page.section('signups'), 'entered'), '.home-months-box')[0];
-  assert.deepEqual([entered.tabindex, entered.role], [undefined, undefined], 'a chart that fits is no stop for the keyboard');
-  assert.equal(select(entered, 'ol.home-months')[0]['aria-labelledby'], 'home-s-entered');
+  const small = select(bySeries(page.section('festival'), 'registrations'), '.home-months-box')[0];
+  assert.deepEqual([small.tabindex, small.role], [undefined, undefined], 'a chart that fits is no stop for the keyboard');
+  assert.equal(select(small, 'ol.home-months')[0]['aria-labelledby'], 'home-s-registrations');
   // Placed again once the fonts have loaded: by their measures it now fits, so it is no stop, and its list names it.
   column = 640;
   page.fonts.resolve();
@@ -994,104 +1006,42 @@ test('a month chart draws the latest twelve months, as wide as their widest figu
   assert.equal(select(en.section('signups'), '.home-charts')[0].style['--mw'], '5');
 });
 
-test('the route draws every stop on one scale and dots the segment into a stop that is not one more step', async () => {
-  const page = home();
-  await flush();
-  const stops = page.stops();
-  const list = select(page.id('homeRoute'), 'ol.home-stops')[0];
-  assert.equal(list['aria-labelledby'], 'homeRouteTitle');
-  assert.equal(select(page.id('homeRoute'), 'h2')[0].id, 'homeRouteTitle');
-  // One scale: each column is its stop's own count over the largest stop (115, the directory), never a share of the
-  // stop before.
-  assert.deepEqual(stops.map((stop) => select(stop, '.home-stop-bar')[0].style['--f']), ['0.9130', '0.9217', '0.9391', '0.9565', '0.9913', '1.0000', '0.5826']);
-  assert.ok(stops.every((stop) => select(stop, '.home-stop-bar')[0]['aria-hidden'] === 'true'));
-  // The stop before each 'apart' stop dots its segment; the 30-day stop is the window.
-  assert.deepEqual(stops.map((stop) => stop.classList.contains('to-apart')), [false, false, false, false, true, true, false]);
-  assert.deepEqual(stops.map((stop) => stop.classList.contains('is-window')), [false, false, false, false, false, false, true]);
-  // Each node is an SVG ring that a screen reader skips, its class set as an SVG element takes one.
-  const nodes = stops.map((stop) => select(stop, 'svg')[0]);
-  assert.ok(nodes.every((svg) => svg.namespaceURI === SVG && svg.getAttribute('class') === 'home-stop-node' && svg.getAttribute('aria-hidden') === 'true'), 'svg nodes');
-  assert.ok(nodes.every((svg) => svg.elements.length === 1 && svg.elements[0].tagName === 'circle'));
-  // The caption says what the path is not; the key, a sample of the dotted line and the answer's own sentence for it.
-  const note = select(page.id('homeRoute'), 'p.home-route-note')[0];
-  assert.equal(rendered(note), `${ROUTE_NOTE} ${TEXTS.es.routeApart}`);
-  assert.equal(flat(note), `${ROUTE_NOTE} ${TEXTS.es.routeApart}`);
-  const key = select(note, '.home-route-key')[0];
-  assert.equal(select(key, '.home-key-dash')[0]['aria-hidden'], 'true');
-  assert.equal(flat(key), TEXTS.es.routeApart);
-  // The sample and the sentence's first word never part at a line end: they stand together in one unbroken span.
-  const lead = select(key, '.home-key-lead')[0];
-  assert.equal(lead.parent, key);
-  assert.equal(lead.elements[0].className, 'home-key-dash');
-  assert.equal(flat(lead), TEXTS.es.routeApart.split(' ')[0]);
-
-  const said = fixture();
-  said.texts.es.routeApart = 'Otra frase del servidor.';
-  const other = home({ answer: said });
-  await flush();
-  assert.equal(flat(select(other.id('homeRoute'), '.home-route-key')[0]), 'Otra frase del servidor.');
-  assert.equal(flat(select(other.id('homeRoute'), '.home-key-lead')[0]), 'Otra');
-  const word = fixture();
-  word.texts.es.routeApart = ' Punteado ';
-  const single = home({ answer: word });
-  await flush();
-  assert.equal(flat(select(single.id('homeRoute'), '.home-route-key')[0]), 'Punteado');
-  // Without the answer's sentence there is no key; the segments stay dotted.
-  for (const missing of [undefined, '', '   ']) {
-    const answer = fixture();
-    if (missing === undefined) delete answer.texts.es.routeApart;
-    else answer.texts.es.routeApart = missing;
-    const bare = home({ answer });
-    await flush();
-    assert.equal(rendered(select(bare.id('homeRoute'), 'p.home-route-note')[0]), ROUTE_NOTE);
-    assert.equal(select(bare.id('homeRoute'), '.home-route-key').length, 0);
-    assert.deepEqual(bare.stops().map((stop) => stop.classList.contains('to-apart')), [false, false, false, false, true, true, false]);
-  }
-  // A path of its own: the stop before its 'apart' stop dots the segment; a path with none has no dotted segment and no key.
-  const short = fixture();
-  short.route = [['signups.accounts', 'total'], ['profiles.directory', 'total', 'apart'], ['profiles.basic', 'total']];
-  const three = home({ answer: short });
-  await flush();
-  assert.deepEqual(three.stops().map((stop) => [stop.dataset.key, stop.classList.contains('to-apart')]), [['signups.accounts', true], ['profiles.directory', false], ['profiles.basic', false]]);
-  const straight = fixture();
-  straight.route = [['signups.accounts', 'total'], ['signups.confirmed', 'total']];
-  const two = home({ answer: straight });
-  await flush();
-  assert.ok(two.stops().every((stop) => !stop.classList.contains('to-apart')));
-  assert.equal(select(two.id('homeRoute'), '.home-route-key').length, 0);
-  // The headline selection is independent of the chart's stages.
-  assert.deepEqual(two.id('homeLead').elements.map((item) => item.dataset.key), LEAD.map(([key]) => key));
-  // Large counts are formatted in the active language.
-  const big = fixture();
-  indicator(big, 'signups.accounts').total = 12345;
-  const large = home({ answer: big });
-  await flush();
-  assert.equal(select(large.stops()[0], '.home-stop-n')[0].textContent, '12.345');
-});
-
-test('a stop that could not be counted says why where its column would stand, and only once', async () => {
+test('the participation bars compare independent counts on one scale, including zero and unknown stages', async () => {
   const answer = fixture();
-  for (const key of ['signups.accounts', 'signups.new']) {
-    const ind = indicator(answer, key);
-    for (const f of ['total', 'd30', 'd7', 'last', 'daysSince']) delete ind[f];
-    ind.state = 'unavailable';
-  }
+  indicator(answer, 'signups.accounts').total = 12345;
+  indicator(answer, 'signups.confirmed').total = 0;
+  delete indicator(answer, 'profiles.basic').total;
+  indicator(answer, 'profiles.basic').state = 'unavailable';
   const page = home({ answer });
   await flush();
-  const [accounts] = page.stops();
-  assert.equal(select(accounts, '.home-stop-n')[0].textContent, '—');
-  assert.equal(select(accounts, '.home-stop-why')[0].textContent, 'No disponible en este momento');
-  assert.equal(select(accounts, '.home-stop-bar')[0].style['--f'], undefined);
-  assert.equal(closed(byKey(page.id('homeLead'), 'signups.new')), '— Cuentas nuevas en 7 días No disponible en este momento');
-  assert.equal(select(page.stops()[5], '.home-stop-bar')[0].style['--f'], '1.0000', 'the scale is the largest stop counted');
+  const section = page.id('homeRoute');
+  assert.deepEqual(section.elements.map((node) => node.tagName), ['h2', 'ol']);
+  assert.equal(section.elements[1]['aria-labelledby'], section.elements[0].id);
+  const stops = page.stops();
+  for (const [i, [key, field]] of ROUTE.entries()) {
+    const stage = stops[i];
+    const metric = indicator(answer, key);
+    assert.equal(stage.dataset.key, key);
+    assert.equal(stage.classList.contains('is-window'), field !== 'total');
+    assert.deepEqual(stage.elements.map((child) => child.className), ['home-stop-name', 'home-stop-fig']);
+    const bar = select(stage, '.home-stop-bar')[0];
+    assert.equal(bar['aria-hidden'], 'true');
+    assert.equal(bar.style['--f'], metric.state ? undefined : (metric[field] / 12345).toFixed(4));
+  }
+  assert.equal(rendered(select(stops[0], '.home-stop-n')[0]), '12.345');
+  assert.equal(rendered(select(stops[1], '.home-stop-n')[0]), '0');
+  assert.equal(rendered(select(stops[3], '.home-stop-n')[0]), '—');
+  assert.equal(rendered(select(stops[3], '.home-stop-why')[0]), TEXTS.es.states.unavailable);
+  assert.equal(select(section, 'svg').length, 0);
+  assert.equal(select(section, '.home-route-note').length, 0);
+  assert.ok(stops.every((stage) => !stage.classList.contains('to-apart')));
 
-  const other = fixture();
-  const ind = indicator(other, 'signups.new');
-  for (const f of ['d30', 'd7', 'last', 'daysSince']) delete ind[f];
-  ind.state = 'not_activated';
-  const second = home({ answer: other });
+  const reordered = fixture();
+  reordered.route = [['profiles.directory', 'total'], ['signups.accounts', 'total']];
+  const shorter = home({ answer: reordered });
   await flush();
-  assert.equal(closed(byKey(second.id('homeLead'), 'signups.new')), '— Cuentas nuevas en 7 días Aún no está activado en la base de datos');
+  assert.deepEqual(shorter.stops().map((stage) => stage.dataset.key), ['profiles.directory', 'signups.accounts']);
+  assert.deepEqual(shorter.id('homeLead').elements.map((item) => item.dataset.key), LEAD.map(([key]) => key));
 });
 
 test('an answer without a path keeps every lead figure in a row beside the queues', async () => {
@@ -1107,8 +1057,8 @@ test('an answer without a path keeps every lead figure in a row beside the queue
     const lead = page.id('homeLead');
     assert.equal(lead.hidden, false);
     assert.deepEqual(lead.elements.map((item) => item.dataset.key), answer.lead.map((entry) => entry.key));
-    assert.deepEqual(byKey(lead, 'signups.accounts').elements.map((line) => closed(line)), ['105 Cuentas', '7 Cuentas nuevas en 7 días', '106 Con correo confirmado']);
-    assert.equal(rendered(page.id('homeWindows').querySelector('.home-silence')), '19 días sin cuentas nuevas (última: 26 oct)');
+    assert.deepEqual(byKey(lead, 'signups.accounts').elements.map((line) => closed(line)), ['105 Cuentas']);
+    assert.equal(rendered(select(page.id('homeWindows'), 'dl div').at(-1)), 'Último registro 26 oct 2026');
     assert.equal(page.id('homeStatus').textContent, '');
     assert.equal(page.sections().length, FAMILIES.length);
   }
@@ -1139,7 +1089,7 @@ test('an answer that does not say which indicator each month series splits keeps
     assert.equal(closed(bySeries(tracking, 'registrations')), 'Inscripciones al festival, por mes — No disponible en este momento');
     assert.equal(closed(bySeries(tracking, 'views')), 'Páginas vistas, por mes nov 40');
     // No row says a month it was not given.
-    assert.equal(closed(select(byKey(page.section('visits'), 'visits.views'), '.home-fig-more')[0]), '1 en 7 días');
+    assert.equal(select(byKey(page.section('visits'), 'visits.views'), '.home-metric-note').length, 0);
   }
 });
 
@@ -1150,28 +1100,27 @@ test('the survey pair is one row while both totals are there, and two rows other
   const page = home({ answer });
   await flush();
   const courses = page.section('courses');
-  const pair = select(courses, 'li.home-pair')[0];
+  const pair = select(courses, 'tr.home-pair')[0];
   assert.deepEqual([pair.dataset.key, pair.dataset.of], ['courses.surveyAnswered', 'courses.surveyTotal']);
-  assert.equal(closed(pair), '9 de 17 Encuesta final: respondieron');
-  // Both definitions under it, each named.
-  assert.deepEqual(select(pair, '.home-def').map((def) => def.dataset.def), ['courses.surveyAnswered', 'courses.surveyTotal']);
-  assert.deepEqual(select(pair, '.home-def-name').map((strong) => strong.textContent), ['Encuesta final: respondieron. ', 'Encuesta final: personas. ']);
+  assert.equal(closed(pair), `${TEXTS.es.indicators['courses.surveyAnswered'].name} 9 de 17`);
   assert.equal(byKey(courses, 'courses.surveyTotal'), undefined, 'the whole is not a row of its own');
-  const rows = select(courses, 'ul.home-figs')[0].elements.map((row) => row.dataset.key);
+  const rows = select(courses, 'tbody tr').map((row) => row.dataset.key);
   assert.equal(rows.indexOf('courses.surveyAnswered'), rows.indexOf('courses.comments') + 1, 'it stands where the whole stands');
 
+  const totalName = TEXTS.es.indicators['courses.surveyTotal'].name;
+  const answeredName = TEXTS.es.indicators['courses.surveyAnswered'].name;
   for (const [change, total, answered] of [
-    [(a) => { delete a.pairs; }, '17 Encuesta final: personas', '9 Encuesta final: respondieron'],
-    [(a) => { a.pairs = 'courses'; }, '17 Encuesta final: personas', '9 Encuesta final: respondieron'],
-    [(a) => { const ind = indicator(a, 'courses.surveyTotal'); delete ind.total; ind.state = 'unavailable'; }, '— Encuesta final: personas No disponible en este momento', '9 Encuesta final: respondieron'],
-    [(a) => { const ind = indicator(a, 'courses.surveyAnswered'); delete ind.total; ind.state = 'unavailable'; }, '17 Encuesta final: personas', '— Encuesta final: respondieron No disponible en este momento'],
+    [(a) => { delete a.pairs; }, `${totalName} 17`, `${answeredName} 9`],
+    [(a) => { a.pairs = 'courses'; }, `${totalName} 17`, `${answeredName} 9`],
+    [(a) => { const ind = indicator(a, 'courses.surveyTotal'); delete ind.total; ind.state = 'unavailable'; }, `${totalName} No disponible en este momento —`, `${answeredName} 9`],
+    [(a) => { const ind = indicator(a, 'courses.surveyAnswered'); delete ind.total; ind.state = 'unavailable'; }, `${totalName} 17`, `${answeredName} No disponible en este momento —`],
   ]) {
     const apart = structuredClone(answer);
     change(apart);
     const two = home({ answer: apart });
     await flush();
     const block = two.section('courses');
-    assert.equal(select(block, 'li.home-pair').length, 0);
+    assert.equal(select(block, 'tr.home-pair').length, 0);
     assert.deepEqual([closed(byKey(block, 'courses.surveyTotal')), closed(byKey(block, 'courses.surveyAnswered'))], [total, answered]);
   }
 });
@@ -1182,10 +1131,10 @@ test('activity by kind says a week with nothing in any kind once, and the 7 days
   const page = home({ answer: quiet });
   await flush();
   const kinds = () => byList(page.id('homeBlocks'), 'activity.kinds');
-  // One muted line under the title (after its definition), before the rows; no row repeats "0 en 7 días".
-  assert.deepEqual(kinds().elements.map((n) => [n.tagName, n.className]), [['h4', 'home-sub'], ['div', 'home-def'], ['p', 'home-note home-none-week'], ['ol', 'home-rank']]);
+  // One muted line under the title, before the rows; no row repeats "0 en 7 días".
+  assert.deepEqual(kinds().elements.map((n) => [n.tagName, n.className]), [['h4', 'home-sub'], ['p', 'home-note home-none-week'], ['ol', 'home-rank']]);
   assert.equal(select(kinds(), '.home-rank-more').length, 0);
-  assert.equal(closed(kinds()), 'Actividad por tipo en 30 días 0 en 7 días en todos los tipos 119 perfil (guardó su perfil o marcó avisos como leídos) 9 red 0 oportunidades');
+  assert.equal(closed(kinds()), 'Miembros activos por área en 30 días 0 en 7 días en todos los tipos 119 Perfil y avisos 9 Red 0 Oportunidades');
   page.ready();
   for (const [lang, line] of [['en', '0 in 7 days for every kind'], ['pt', '0 em 7 dias em todos os tipos']]) {
     page.apply(lang);
@@ -1199,7 +1148,7 @@ test('activity by kind says a week with nothing in any kind once, and the 7 days
   await flush();
   const list = byList(week.id('homeBlocks'), 'activity.kinds');
   assert.equal(select(list, '.home-none-week').length, 0);
-  assert.equal(closed(list), 'Actividad por tipo en 30 días 119 perfil (guardó su perfil o marcó avisos como leídos), 0 en 7 días 9 red, 2 en 7 días 0 oportunidades, 0 en 7 días');
+  assert.equal(closed(list), 'Miembros activos por área en 30 días 119 Perfil y avisos, 0 en 7 días 9 Red, 2 en 7 días 0 Oportunidades, 0 en 7 días');
   // A row without its 7 days: the others still say theirs, and there is no line.
   const partial = fixture();
   indicator(partial, 'activity.kinds').items = [{ key: 'profile', n: 119, d7: 0 }, { key: 'network', n: 9 }];
@@ -1207,7 +1156,7 @@ test('activity by kind says a week with nothing in any kind once, and the 7 days
   await flush();
   const rows = byList(some.id('homeBlocks'), 'activity.kinds');
   assert.equal(select(rows, '.home-none-week').length, 0);
-  assert.equal(closed(rows), 'Actividad por tipo en 30 días 119 perfil (guardó su perfil o marcó avisos como leídos), 0 en 7 días 9 red');
+  assert.equal(closed(rows), 'Miembros activos por área en 30 días 119 Perfil y avisos, 0 en 7 días 9 Red');
   // A list that never counts the 7 days says nothing of them.
   assert.equal(select(byList(some.id('homeBlocks'), 'visits.topPages'), '.home-none-week').length, 0);
 });
@@ -1227,7 +1176,7 @@ test('queues keep a stable place, link to their workspaces and distinguish unava
   assert.equal(pending['aria-labelledby'], 'homePendingTitle');
   assert.equal(select(pending, 'ul.home-queues')[0]['aria-labelledby'], select(pending, 'h2')[0].id);
   assert.deepEqual(select(pending, 'li').map((li) => [li.className, closed(li), select(li, 'a')[0].href]), [
-    ['', '0 Solicitudes de interés', 'admin.html#interests'],
+    ['', '0 Consultas sobre el catálogo', 'admin.html#interests'],
     ['', '0 Solicitudes de organizaciones', 'admin.html#nodes'],
     ['', '0 Postulaciones al laboratorio', 'fiiu-admin.html#pending-lab'],
   ]);
@@ -1251,7 +1200,7 @@ test('queues keep a stable place, link to their workspaces and distinguish unava
   await flush();
   assert.equal(select(one.id('homePending'), 'h2')[0].textContent, 'Por atender');
   assert.deepEqual(select(one.id('homePending'), 'a').map((a) => [a.href, closed(a)]), [
-    ['admin.html#interests', '1 Solicitudes de interés'],
+    ['admin.html#interests', '1 Consultas sobre el catálogo'],
     ['admin.html#nodes', '— Solicitudes de organizaciones No disponible en este momento'],
     ['fiiu-admin.html#pending-lab', '— Postulaciones al laboratorio No disponible en este momento'],
   ]);
@@ -1291,29 +1240,49 @@ test('queues keep a stable place, link to their workspaces and distinguish unava
   assert.equal(none.id('homeTop').classList.contains('is-waiting'), false);
 });
 
-test('"Cómo se cuenta" opens a family\'s definitions under their rows, and they stay open across a re-render', async () => {
-  const page = home();
+test('the scalar table distinguishes unsupported windows, missing values and real zeroes', async () => {
+  const answer = fixture();
+  const team = indicator(answer, 'signups.team');
+  team.total = 0;
+  const failed = indicator(answer, 'signups.entered');
+  for (const field of ['total', 'd30', 'd7']) delete failed[field];
+  failed.fields = ['total', 'd30', 'd7'];
+  failed.state = 'unavailable';
+  const unavailableList = indicator(answer, 'visits.sources');
+  delete unavailableList.items;
+  unavailableList.fields = ['items'];
+  unavailableList.state = 'unavailable';
+
+  const page = home({ answer });
   await flush();
-  const visits = page.section('visits');
-  const toggle = select(visits, 'button.home-how')[0];
-  assert.equal(visits.classList.contains('is-explained'), false);
-  toggle.click();
-  assert.ok(visits.classList.contains('is-explained'));
-  assert.equal(toggle['aria-expanded'], 'true');
-  assert.equal(rendered(toggle), 'Ocultar (Visitas)');
-  assert.equal(select(toggle, '.admin-sr')[0].textContent, ' (Visitas)');
-  assert.equal(select(byKey(visits, 'visits.views'), '.home-def').length, 1, 'each definition sits in the row it explains');
-  page.ready();
-  page.apply('en');
+  assert.deepEqual(select(page.section('signups'), 'thead th').map(rendered), ['Indicador', 'Total', '30 días', '7 días']);
+  assert.deepEqual(select(page.section('visits'), 'thead th').map(rendered), ['Indicador', '30 días', '7 días']);
+  assert.deepEqual(select(page.section('profiles'), 'thead th').map(rendered), ['Indicador', 'Total']);
+  const zero = byKey(page.section('signups'), team.key);
+  assert.deepEqual(select(zero, 'td').map(rendered), ['0', 'No aplica', 'No aplica']);
+  assert.deepEqual(select(zero, 'td.home-not-applicable .admin-sr').map(rendered), ['No aplica', 'No aplica']);
+  const missing = byKey(page.section('signups'), failed.key);
+  assert.deepEqual(select(missing, 'td.home-unavailable').map(rendered), ['—', '—', '—']);
+  assert.ok(rendered(missing).includes(TEXTS.es.states.unavailable));
+  assert.equal(byKey(page.section('visits'), unavailableList.key), undefined);
+  assert.ok(rendered(byList(page.section('visits'), unavailableList.key)).includes(TEXTS.es.states.unavailable));
+  for (const section of page.sections()) {
+    assert.equal(select(section, '.home-def').length, 0);
+    assert.equal(select(section, 'button.home-how').length, 0);
+  }
+});
+
+test('family tabs reflect a change between the desktop rail and mobile list', async () => {
+  let notify;
+  const rail = { matches: true, addEventListener(name, callback) { if (name === 'change') notify = callback; } };
+  const page = home({ matchMedia: (query) => query === '(min-width: 901px)' ? rail : { matches: false, addEventListener() {} } });
   await flush();
-  const again = page.section('visits');
-  assert.notEqual(again, visits, 'the family was drawn again');
-  assert.ok(again.classList.contains('is-explained'));
-  assert.equal(rendered(select(again, 'button.home-how')[0]), 'Hide (Visits)');
-  assert.ok(page.sections().filter((section) => section !== again).every((section) => !section.classList.contains('is-explained')));
-  select(again, 'button.home-how')[0].click();
-  assert.equal(again.classList.contains('is-explained'), false);
-  assert.equal(rendered(select(again, 'button.home-how')[0]), 'How it is counted (Visits)');
+  const list = page.tabs()[0].parent;
+  assert.equal(list['aria-orientation'], 'vertical');
+  rail.matches = false;
+  notify();
+  assert.equal(list['aria-orientation'], 'horizontal');
+  assert.equal(page.tabs()[0]['aria-selected'], 'true');
 });
 
 test('the family tabs disclose one labelled panel, support keyboard navigation and preserve selection on refresh', async () => {
@@ -1326,7 +1295,8 @@ test('the family tabs disclose one labelled panel, support keyboard navigation a
   assert.equal(list.role, 'tablist');
   const heading = page.id('homeBlocks').querySelector('h2');
   assert.equal(list['aria-labelledby'], heading.id);
-  assert.equal(heading.textContent, 'Indicadores');
+  assert.equal(heading.textContent, 'Temas');
+  assert.equal(list['aria-orientation'], 'horizontal');
 
   function check(family) {
     assert.deepEqual(page.sections().filter((panel) => !panel.hidden).map((panel) => panel.dataset.family), [family]);
@@ -1356,6 +1326,10 @@ test('the family tabs disclose one labelled panel, support keyboard navigation a
   check('courses');
   assert.equal(page.document.activeElement, page.tab('courses'));
   press('ArrowRight');
+  check('visits');
+  press('ArrowUp');
+  check('courses');
+  press('ArrowDown');
   check('visits');
   press('ArrowLeft');
   check('courses');
@@ -1473,7 +1447,7 @@ test('a concurrent refresh honours the confirmed reading even if its GET started
   await flush();
   refresh.resolve(response(answer));
   await flush();
-  assert.equal(closed(byKey(page.id('homeTracking'), 'signups.accounts')), '62 Cuentas');
+  assert.equal(closed(byKey(page.id('homeTracking'), 'signups.accounts')), 'Cuentas 62');
   assert.equal(page.posts().length, 1);
 });
 
@@ -1623,58 +1597,70 @@ test('the CSV is fetched as a blob and failures are said on the page', async () 
   assert.equal(readings.calls.find((c) => c.url.startsWith('/api/admin/metrics/export')).url, '/api/admin/metrics/export?table=readings&lang=es');
 });
 
-test('printing opens every definition and the folded reading, then puts each back as it was', async () => {
-  const answer = fixture();
-  answer.readings = { today: true, months: [{ month: '2026-11', day: '2026-11-14', defs: DEFS, figures: { 'signups.accounts': 105 } }] };
-  const page = home({ answer });
+test('section URLs restore the monthly history, active topic and overview across back, forward, refresh and reload', async () => {
+  const page = home();
   await flush();
-  const sections = page.sections();
-  const toggles = sections.map((section) => select(section, 'button.home-how')[0]);
-  page.tab(sections[2].dataset.family).click();
-  toggles[2].click();
-  const reading = select(page.id('homeTracking'), 'details.home-reading')[0];
-  assert.equal(reading.open, false);
-  page.fire('beforeprint');
-  assert.ok(sections.every((section) => !section.hidden));
-  assert.ok(sections.every((section) => section.classList.contains('is-explained')));
-  assert.ok(toggles.every((toggle) => toggle['aria-expanded'] === 'true'));
-  assert.equal(reading.open, true);
-  page.fire('afterprint');
-  assert.deepEqual(sections.filter((section) => !section.hidden), [sections[2]]);
-  assert.deepEqual(sections.map((section) => section.classList.contains('is-explained')), sections.map((_, i) => i === 2));
-  assert.deepEqual(toggles.map((toggle) => toggle['aria-expanded']), toggles.map((_, i) => String(i === 2)));
-  assert.equal(reading.open, false);
-  // Printing changed nothing the reader had opened: the next render opens the same family.
-  page.ready();
-  page.apply('pt');
+  const nav = page.id('homeViews');
+  const link = (view) => select(nav, `a[data-view=${view}]`)[0];
+  function current(view, hash, title) {
+    assert.equal(page.id('homeMain').dataset.view, view);
+    assert.equal(page.id('homeTitle').textContent, title);
+    assert.equal(page.document.title, `${title} · NODAL`);
+    assert.equal(page.context.location.hash, hash);
+    assert.deepEqual(select(nav, 'a[aria-current=location]').map((a) => a.dataset.view), [view]);
+  }
+  current('overview', '', 'Resumen de la red');
+  link('indicators').click();
+  current('indicators', '#homeBlocks', 'Indicadores');
+  page.tab('festival').click();
+  current('indicators', '#home-b-festival', 'Indicadores');
+  link('history').click();
+  current('history', '#homeTracking', 'Historial mensual');
+  page.context.history.back();
+  current('indicators', '#home-b-festival', 'Indicadores');
+  assert.equal(page.tab('festival')['aria-selected'], 'true');
+  page.id('homeRefresh').click();
   await flush();
-  assert.deepEqual(page.sections().map((section) => section.classList.contains('is-explained')), sections.map((_, i) => i === 2));
-  page.id('homePrint').click();
-  assert.equal(page.printed.length, 1);
+  current('indicators', '#home-b-festival', 'Indicadores');
+  page.context.history.forward();
+  current('history', '#homeTracking', 'Historial mensual');
+  link('overview').click();
+  current('overview', '#homeTop', 'Resumen de la red');
+  assert.equal(page.gets().length, 2);
+  const direct = home({ hash: '#home-b-courses', lang: 'pt' });
+  await flush();
+  assert.equal(direct.id('homeMain').dataset.view, 'indicators');
+  assert.equal(direct.tab('courses')['aria-selected'], 'true');
+  assert.equal(direct.document.title, 'Indicadores · NODAL');
+
+  const obsolete = home({ hash: '#home-b-retired' });
+  await flush();
+  assert.equal(obsolete.id('homeMain').dataset.view, 'indicators');
+  assert.equal(obsolete.context.location.hash, `#home-b-${FAMILIES[0]}`);
+  assert.equal(obsolete.tab(FAMILIES[0])['aria-selected'], 'true');
+  const noTopics = fixture();
+  noTopics.families = [];
+  const empty = home({ hash: '#home-b-retired', answer: noTopics });
+  await flush();
+  assert.equal(empty.context.location.hash, '#homeBlocks');
+  assert.equal(empty.id('homeMain').dataset.view, 'indicators');
+  assert.deepEqual(empty.tabs(), []);
 });
 
-test('the folded reading the reader opened stays open across a re-render', async () => {
+test('the printable report contains the complete scalar and monthly tables without changing screen navigation', async () => {
   const answer = fixture();
-  answer.readings = { today: true, months: [{ month: '2026-11', day: '2026-11-14', defs: DEFS, figures: { 'signups.accounts': 105 } }] };
-  const page = home({ answer });
+  answer.readings = { today: true, months: [{ month: '2026-11', day: answer.limaDay, defs: DEFS, figures: { 'signups.accounts': 105 } }] };
+  const page = home({ answer, hash: '#home-b-profiles' });
   await flush();
-  const reading = select(page.id('homeTracking'), 'details.home-reading')[0];
-  assert.equal(reading.open, false);
-  reading.open = true;
-  reading.listeners.get('toggle')();
-  page.ready();
-  page.apply('pt');
-  await flush();
-  const again = select(page.id('homeTracking'), 'details.home-reading')[0];
-  assert.notEqual(again, reading, 'the reading was drawn again');
-  assert.equal(again.open, true);
-  assert.equal(select(again, 'summary')[0].textContent, 'Ver a leitura de nov. de 2026');
-  // Folded again by the reader, it stays folded.
-  again.open = false;
-  again.listeners.get('toggle')();
-  page.apply('en');
-  await flush();
-  assert.equal(select(page.id('homeTracking'), 'details.home-reading')[0].open, false);
+  const sections = page.sections();
+  assert.deepEqual(sections.filter((section) => !section.hidden).map((section) => section.dataset.family), ['profiles']);
+  assert.ok(sections.every((section) => select(section, 'table.home-metrics').length === 1));
+  assert.equal(select(page.id('homeTracking'), 'table.home-tracking-table').length, 1);
+  assert.equal(select(page.id('homeBlocks'), '.home-def').length, 0);
+  page.id('homePrint').click();
+  assert.equal(page.printed.length, 1);
+  assert.equal(page.tab('profiles')['aria-selected'], 'true');
+  assert.equal(page.context.location.hash, '#home-b-profiles');
 });
 
 test('the dashboard uses safe DOM construction and supports a printable report', () => {
@@ -1685,6 +1671,6 @@ test('the dashboard uses safe DOM construction and supports a printable report',
   assert.match(css, /font-variant-numeric:\s*tabular-nums/);
   const print = css.slice(css.indexOf('@media print'));
   assert.match(print, /@media print/);
-  assert.match(print, /\.home-def\s*\{[^}]*display:\s*block/);
+  assert.match(print, /\.home-block\[hidden\]\s*\{[^}]*display:\s*block\s*!important/);
   assert.match(print, /\.home-scroll/);
 });

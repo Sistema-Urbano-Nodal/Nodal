@@ -333,7 +333,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     'payments.html': { 'i18n-dashboard.js': '20261117a', 'i18n.js': '20261116a', 'payments.js': '20261116a', ...pilot , ...visit },
     'profile.html': { 'i18n-dashboard.js': '20261117a', 'i18n.js': '20261116a', 'profile.js': '20261116a', 'styles.css': '37', ...pilot , ...visit },
     'admin.html': { 'admin-nav.js': '20261116a', 'admin-nav.css': '20261114a', 'i18n-dashboard.js': '20261117a', 'styles.css': '37', 'admin.css': '20261109a', 'admin.js': '20261116a', 'i18n.js': '20261116a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20261116a', 'script.js': '18' , ...visit },
-    'admin-home.html': { 'admin-home.css': '20261117b', 'admin-home.js': '20261117b', 'styles.css': '37', 'admin.css': '20261109a', 'admin-nav.js': '20261116a', 'admin-nav.css': '20261114a', 'i18n.js': '20261116a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20261116a', 'script.js': '18', ...visit },
+    'admin-home.html': { 'admin-home.css': '20261117c', 'admin-home.js': '20261117c', 'styles.css': '37', 'admin.css': '20261109a', 'admin-nav.js': '20261116a', 'admin-nav.css': '20261114a', 'i18n.js': '20261116a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20261116a', 'script.js': '18', ...visit },
     'course.html': { 'buc.js': '20261116a', 'i18n.js': '20261116a', 'courses.js': '20261116a', ...pilot , ...visit },
     'courses.html': { 'buc.js': '20261116a', 'i18n.js': '20261116a', 'courses.js': '20261116a', ...pilot , ...visit },
     'teaching.html': { 'admin-nav.js': '20261116a', 'admin-nav.css': '20261114a', 'i18n.js': '20261116a', 'teaching.js': '20261116a', ...pilot , ...visit },

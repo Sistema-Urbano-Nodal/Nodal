@@ -104,9 +104,9 @@ const X = {
     ['Páginas vistas', 'Vezes que uma página pública ou de membro foi aberta, somadas por dia de Lima (7 e 30 dias). Cada recarga conta.', 'Contador de visitas (visit_counts)', 'Não diz quantas pessoas vieram. Bloqueadores de scripts não são contados. Os navegadores da equipe onde uma tela de administração foi aberta ficam de fora, mas depois de entrar as visitas da equipe contam até que uma dessas telas seja aberta. Não é protegido contra um programa que infle o contador de propósito.'],
   ],
   'visits.arrivals': [
-    ['Llegadas', 'Vistas cuyo origen está vacío o es otro sitio: alguien que llega desde fuera (7 y 30 días).', 'Contador de visitas (visit_counts)', 'No dice personas: quien llega dos días cuenta dos llegadas.'],
-    ['Arrivals', 'Views whose referrer is empty or another site: someone coming in from outside (7 and 30 days).', 'Visit counter (visit_counts)', 'It does not say people: someone who arrives on two days counts two arrivals.'],
-    ['Chegadas', 'Visualizações cuja origem está vazia ou é outro site: alguém que chega de fora (7 e 30 dias).', 'Contador de visitas (visit_counts)', 'Não diz pessoas: quem chega em dois dias conta duas chegadas.'],
+    ['Entradas al sitio', 'Vistas cuyo origen está vacío o es otro sitio: alguien que llega desde fuera (7 y 30 días).', 'Contador de visitas (visit_counts)', 'No dice personas: quien llega dos días cuenta dos llegadas.'],
+    ['Site entrances', 'Views whose referrer is empty or another site: someone coming in from outside (7 and 30 days).', 'Visit counter (visit_counts)', 'It does not say people: someone who arrives on two days counts two arrivals.'],
+    ['Entradas no site', 'Visualizações cuja origem está vazia ou é outro site: alguém que chega de fora (7 e 30 dias).', 'Contador de visitas (visit_counts)', 'Não diz pessoas: quem chega em dois dias conta duas chegadas.'],
   ],
   'visits.topPages': [
     ['Páginas más vistas', 'Las diez páginas con más vistas en 30 días.', 'Contador de visitas (visit_counts)', 'No dice si se leyeron.'],
@@ -114,9 +114,9 @@ const X = {
     ['Páginas mais vistas', 'As dez páginas com mais visualizações em 30 dias.', 'Contador de visitas (visit_counts)', 'Não diz se foram lidas.'],
   ],
   'visits.sources': [
-    ['De dónde llegan', 'Las llegadas de 30 días agrupadas en once orígenes.', 'Contador de visitas (visit_counts.source)', 'No dice el sitio exacto. WhatsApp y el correo aparecen como "directo" salvo que el enlace lleve ?via= al final.'],
-    ['Where they come from', 'Arrivals in 30 days grouped into eleven sources.', 'Visit counter (visit_counts.source)', 'It does not say the exact site. WhatsApp and email read "direct" unless the link ends with ?via=.'],
-    ['De onde chegam', 'As chegadas de 30 dias agrupadas em onze origens.', 'Contador de visitas (visit_counts.source)', 'Não diz o site exato. WhatsApp e o e-mail aparecem como "direto" a menos que o link termine com ?via=.'],
+    ['Origen de las visitas', 'Las llegadas de 30 días agrupadas en once orígenes.', 'Contador de visitas (visit_counts.source)', 'No dice el sitio exacto. WhatsApp y el correo aparecen como "directo" salvo que el enlace lleve ?via= al final.'],
+    ['Traffic sources', 'Arrivals in 30 days grouped into eleven sources.', 'Visit counter (visit_counts.source)', 'It does not say the exact site. WhatsApp and email read "direct" unless the link ends with ?via=.'],
+    ['Origem das visitas', 'As chegadas de 30 dias agrupadas em onze origens.', 'Contador de visitas (visit_counts.source)', 'Não diz o site exato. WhatsApp e o e-mail aparecem como "direto" a menos que o link termine com ?via=.'],
   ],
   'signups.accounts': [
     ['Cuentas', 'Filas de auth.users: todas las cuentas creadas, incluidas las del equipo y cualquier cuenta no activa.', 'Cuentas (metrics_account_days)', 'No dice cuántas personas entraron. Si alguien borra su cuenta, el total baja.'],
@@ -124,9 +124,9 @@ const X = {
     ['Contas', 'Linhas de auth.users: todas as contas criadas, incluídas as da equipe e qualquer conta não ativa.', 'Contas (metrics_account_days)', 'Não diz quantas pessoas entraram. Se alguém apaga a conta, o total baixa.'],
   ],
   'signups.confirmed': [
-    ['Con correo confirmado', 'Cuentas con email_confirmed_at no vacío.', 'Cuentas (auth.users)', 'No dice si usaron la cuenta. En la copia local es igual a Cuentas.'],
-    ['With confirmed email', 'Accounts with email_confirmed_at not empty.', 'Accounts (auth.users)', 'It does not say whether they used the account. In the local copy it equals Accounts.'],
-    ['Com e-mail confirmado', 'Contas com email_confirmed_at não vazio.', 'Contas (auth.users)', 'Não diz se usaram a conta. Na cópia local é igual a Contas.'],
+    ['Cuentas con correo confirmado', 'Cuentas con email_confirmed_at no vacío.', 'Cuentas (auth.users)', 'No dice si usaron la cuenta. En la copia local es igual a Cuentas.'],
+    ['Accounts with verified email', 'Accounts with email_confirmed_at not empty.', 'Accounts (auth.users)', 'It does not say whether they used the account. In the local copy it equals Accounts.'],
+    ['Contas com e-mail confirmado', 'Contas com email_confirmed_at não vazio.', 'Contas (auth.users)', 'Não diz se usaram a conta. Na cópia local é igual a Contas.'],
   ],
   'signups.new': [
     ['Cuentas nuevas', 'Cuentas creadas en los últimos 7 y 30 días de Lima, y por mes; fecha de la última cuenta y días desde entonces.', 'Cuentas (auth.users.created_at)', 'No dice por qué se unieron.'],
@@ -134,9 +134,9 @@ const X = {
     ['Contas novas', 'Contas criadas nos últimos 7 e 30 dias de Lima, e por mês; data da última conta e dias desde então.', 'Contas (auth.users.created_at)', 'Não diz por que entraram.'],
   ],
   'signups.entered': [
-    ['Entraron al menos una vez', 'Filas de profiles, que se escriben en la primera sesión; nuevas por created_at en 7 y 30 días.', 'Perfiles (profiles)', 'No dice si volvieron. En la copia local es igual a Cuentas.'],
-    ['Came in at least once', 'Rows of profiles, written at the first session; new by created_at in 7 and 30 days.', 'Profiles (profiles)', 'It does not say whether they came back. In the local copy it equals Accounts.'],
-    ['Entraram ao menos uma vez', 'Linhas de profiles, escritas na primeira sessão; novas por created_at em 7 e 30 dias.', 'Perfis (profiles)', 'Não diz se voltaram. Na cópia local é igual a Contas.'],
+    ['Primeros accesos', 'Filas de profiles, que se escriben en la primera sesión; nuevas por created_at en 7 y 30 días.', 'Perfiles (profiles)', 'No dice si volvieron. En la copia local es igual a Cuentas.'],
+    ['First sign-ins', 'Rows of profiles, written at the first session; new by created_at in 7 and 30 days.', 'Profiles (profiles)', 'It does not say whether they came back. In the local copy it equals Accounts.'],
+    ['Primeiros acessos', 'Linhas de profiles, escritas na primeira sessão; novas por created_at em 7 e 30 dias.', 'Perfis (profiles)', 'Não diz se voltaram. Na cópia local é igual a Contas.'],
   ],
   'signups.team': [
     ['Cuentas del equipo', 'Cuentas con profiles.app_role = admin. Están incluidas en Cuentas y en varias cifras con el equipo.', 'Perfiles (profiles / users.role)', 'Solo cuenta quien tiene el rol de administración hoy.'],
@@ -164,9 +164,9 @@ const X = {
     ['Com biografia', 'Biografia não vazia no perfil ou, na falta, na resposta da parte C da integração.', 'Perfis e respostas de integração', 'Não diz quão completa é. É o estado de hoje.'],
   ],
   'profiles.assessed': [
-    ['Autoevaluación hecha', 'Respuestas de incorporación marcadas como evaluadas.', 'Respuestas de incorporación (raw_answers.assessed / users.assessed)', 'Se marca con la primera respuesta: no dice si la terminaron ni cuándo.'],
-    ['Self-assessment done', 'Onboarding answers marked as assessed.', 'Onboarding answers (raw_answers.assessed / users.assessed)', 'It is set on the first answer: it does not say whether they finished or when.'],
-    ['Autoavaliação feita', 'Respostas de integração marcadas como avaliadas.', 'Respostas de integração (raw_answers.assessed / users.assessed)', 'É marcada com a primeira resposta: não diz se terminaram nem quando.'],
+    ['Autoevaluaciones completadas', 'Respuestas de incorporación marcadas como evaluadas.', 'Respuestas de incorporación (raw_answers.assessed / users.assessed)', 'Se marca con la primera respuesta: no dice si la terminaron ni cuándo.'],
+    ['Completed self-assessments', 'Onboarding answers marked as assessed.', 'Onboarding answers (raw_answers.assessed / users.assessed)', 'It is set on the first answer: it does not say whether they finished or when.'],
+    ['Autoavaliações concluídas', 'Respostas de integração marcadas como avaliadas.', 'Respostas de integração (raw_answers.assessed / users.assessed)', 'É marcada com a primeira resposta: não diz se terminaram nem quando.'],
   ],
   'profiles.directory': [
     ['Visibles en el directorio', 'Cuenta activa y consentimiento para aparecer en el directorio.', 'Preferencias del perfil (profile_preferences)', 'No dice que alguien lo haya consultado. Es el estado de hoy.'],
@@ -179,44 +179,44 @@ const X = {
     ['Perfil salvo', 'Linhas de onboarding_responses: pessoas que salvaram algo em seu painel alguma vez.', 'Respostas de integração (onboarding_responses)', 'Basta salvar qualquer formulário do painel, mesmo marcar avisos como lidos. Nunca uma autoavaliação. Só em produção: a cópia local dá 0.'],
   ],
   'activity.members': [
-    ['Miembros con actividad', 'Personas distintas, sin el equipo, con al menos una fila hecha por ellas en la ventana (7 y 30 días): guardar su perfil o marcar avisos como leídos, seguir o descartar, pedir información de una oportunidad, inscribirse o registrar asistencia en el festival, escribir, dar me gusta o valorar, abrir o publicar en un curso, enviar la encuesta final u opinión, aceptar los términos de la membresía.', 'Días de actividad de miembros (metrics_member_days)', 'No dice quién visitó sin hacer nada: leer no deja rastro. Cuenta de menos: quitar un me gusta, cancelar una inscripción o borrar la cuenta deja de contar.'],
-    ['Members with activity', 'Distinct people, the team left out, with at least one row they made in the window (7 and 30 days): saving their profile or marking notices as read, following or skipping, asking about an opportunity, registering or checking in at the festival, writing, liking or rating, opening or posting in a course, sending the final survey or feedback, accepting the membership terms.', 'Member activity days (metrics_member_days)', 'It does not say who visited without doing anything: reading leaves no trace. It undercounts: removing a like, cancelling a registration or deleting an account stops counting.'],
-    ['Membros com atividade', 'Pessoas distintas, sem a equipe, com ao menos uma linha feita por elas na janela (7 e 30 dias): salvar o perfil ou marcar avisos como lidos, seguir ou descartar, pedir informação de uma oportunidade, inscrever-se ou registrar presença no festival, escrever, curtir ou avaliar, abrir ou publicar em um curso, enviar a pesquisa final ou opinião, aceitar os termos da adesão.', 'Dias de atividade de membros (metrics_member_days)', 'Não diz quem visitou sem fazer nada: ler não deixa rastro. Conta a menos: tirar uma curtida, cancelar uma inscrição ou apagar a conta deixa de contar.'],
+    ['Miembros activos', 'Personas distintas, sin el equipo, con al menos una fila hecha por ellas en la ventana (7 y 30 días): guardar su perfil o marcar avisos como leídos, seguir o descartar, pedir información de una oportunidad, inscribirse o registrar asistencia en el festival, escribir, dar me gusta o valorar, abrir o publicar en un curso, enviar la encuesta final u opinión, aceptar los términos de la membresía.', 'Días de actividad de miembros (metrics_member_days)', 'No dice quién visitó sin hacer nada: leer no deja rastro. Cuenta de menos: quitar un me gusta, cancelar una inscripción o borrar la cuenta deja de contar.'],
+    ['Active members', 'Distinct people, the team left out, with at least one row they made in the window (7 and 30 days): saving their profile or marking notices as read, following or skipping, asking about an opportunity, registering or checking in at the festival, writing, liking or rating, opening or posting in a course, sending the final survey or feedback, accepting the membership terms.', 'Member activity days (metrics_member_days)', 'It does not say who visited without doing anything: reading leaves no trace. It undercounts: removing a like, cancelling a registration or deleting an account stops counting.'],
+    ['Membros ativos', 'Pessoas distintas, sem a equipe, com ao menos uma linha feita por elas na janela (7 e 30 dias): salvar o perfil ou marcar avisos como lidos, seguir ou descartar, pedir informação de uma oportunidade, inscrever-se ou registrar presença no festival, escrever, curtir ou avaliar, abrir ou publicar em um curso, enviar a pesquisa final ou opinião, aceitar os termos da adesão.', 'Dias de atividade de membros (metrics_member_days)', 'Não diz quem visitou sem fazer nada: ler não deixa rastro. Conta a menos: tirar uma curtida, cancelar uma inscrição ou apagar a conta deixa de contar.'],
   ],
   'activity.kinds': [
-    ['Actividad por tipo', 'El mismo número repartido en perfil, red, oportunidades, festival, cursos y membresía; la página y el CSV muestran los 30 y los 7 días. En perfil entra quien guardó su perfil o marcó avisos como leídos: no se pueden separar.', 'Días de actividad de miembros (metrics_member_days)', 'Los tipos se solapan: una persona puede estar en varios, así que no suman el total.'],
-    ['Activity by kind', 'The same figure split into profile, network, opportunities, festival, courses and membership; the page and the CSV show the 30 and the 7 days. Profile holds whoever saved their profile or marked notices as read: the two cannot be told apart.', 'Member activity days (metrics_member_days)', 'The kinds overlap: one person can be in several, so they do not add up to the total.'],
-    ['Atividade por tipo', 'O mesmo número repartido em perfil, rede, oportunidades, festival, cursos e adesão; a página e o CSV mostram os 30 e os 7 dias. Em perfil entra quem salvou o perfil ou marcou avisos como lidos: não é possível separar.', 'Dias de atividade de membros (metrics_member_days)', 'Os tipos se sobrepõem: uma pessoa pode estar em vários, então não somam o total.'],
+    ['Miembros activos por área', 'El mismo número repartido en perfil, red, oportunidades, festival, cursos y membresía; la página y el CSV muestran los 30 y los 7 días. En perfil entra quien guardó su perfil o marcó avisos como leídos: no se pueden separar.', 'Días de actividad de miembros (metrics_member_days)', 'Los tipos se solapan: una persona puede estar en varios, así que no suman el total.'],
+    ['Active members by area', 'The same figure split into profile, network, opportunities, festival, courses and membership; the page and the CSV show the 30 and the 7 days. Profile holds whoever saved their profile or marked notices as read: the two cannot be told apart.', 'Member activity days (metrics_member_days)', 'The kinds overlap: one person can be in several, so they do not add up to the total.'],
+    ['Membros ativos por área', 'O mesmo número repartido em perfil, rede, oportunidades, festival, cursos e adesão; a página e o CSV mostram os 30 e os 7 dias. Em perfil entra quem salvou o perfil ou marcou avisos como lidos: não é possível separar.', 'Dias de atividade de membros (metrics_member_days)', 'Os tipos se sobrepõem: uma pessoa pode estar em vários, então não somam o total.'],
   ],
   'activity.follows': [
-    ['Conexiones (seguir)', 'Filas de member_follows, con las cuentas del equipo incluidas; nuevas en 7 y 30 días.', 'Seguimientos (member_follows / follows)', 'Incluye al equipo. No dice si la conexión se usó.'],
-    ['Connections (follow)', 'Rows of member_follows, the team\'s accounts included; new in 7 and 30 days.', 'Follows (member_follows / follows)', 'The team is included. It does not say whether the connection was used.'],
-    ['Conexões (seguir)', 'Linhas de member_follows, com as contas da equipe incluídas; novas em 7 e 30 dias.', 'Seguimentos (member_follows / follows)', 'Inclui a equipe. Não diz se a conexão foi usada.'],
+    ['Seguimientos en la red', 'Filas de member_follows, con las cuentas del equipo incluidas; nuevas en 7 y 30 días.', 'Seguimientos (member_follows / follows)', 'Incluye al equipo. No dice si la conexión se usó.'],
+    ['Network follows', 'Rows of member_follows, the team\'s accounts included; new in 7 and 30 days.', 'Follows (member_follows / follows)', 'The team is included. It does not say whether the connection was used.'],
+    ['Conexões entre perfis', 'Linhas de member_follows, com as contas da equipe incluídas; novas em 7 e 30 dias.', 'Seguimentos (member_follows / follows)', 'Inclui a equipe. Não diz se a conexão foi usada.'],
   ],
   'activity.interests': [
-    ['Solicitudes de interés', 'Filas de catalog_interests no retiradas, con el equipo incluido; nuevas en 7 y 30 días.', 'Intereses del catálogo (catalog_interests)', 'Incluye al equipo. No dice qué pasó después.'],
-    ['Interest requests', 'Rows of catalog_interests not withdrawn, the team included; new in 7 and 30 days.', 'Catalog interests (catalog_interests)', 'The team is included. It does not say what happened next.'],
-    ['Solicitações de interesse', 'Linhas de catalog_interests não retiradas, com a equipe incluída; novas em 7 e 30 dias.', 'Interesses do catálogo (catalog_interests)', 'Inclui a equipe. Não diz o que aconteceu depois.'],
+    ['Consultas sobre el catálogo', 'Filas de catalog_interests no retiradas, con el equipo incluido; nuevas en 7 y 30 días.', 'Intereses del catálogo (catalog_interests)', 'Incluye al equipo. No dice qué pasó después.'],
+    ['Catalogue enquiries', 'Rows of catalog_interests not withdrawn, the team included; new in 7 and 30 days.', 'Catalog interests (catalog_interests)', 'The team is included. It does not say what happened next.'],
+    ['Consultas sobre o catálogo', 'Linhas de catalog_interests não retiradas, com a equipe incluída; novas em 7 e 30 dias.', 'Interesses do catálogo (catalog_interests)', 'Inclui a equipe. Não diz o que aconteceu depois.'],
   ],
   'memberships.founders': [
-    ['Fundadores (insignias)', 'Perfiles con founder_since no vacío; nuevos por esa fecha.', 'Perfiles (profiles.founder_since / users)', 'No es un registro de pagos: el equipo entrega la insignia a mano tras comprobar Mercado Pago.'],
-    ['Founders (badges)', 'Profiles with founder_since not empty; new by that date.', 'Profiles (profiles.founder_since / users)', 'It is not a payment record: the team gives the badge by hand after checking Mercado Pago.'],
-    ['Fundadores (insígnias)', 'Perfis com founder_since não vazio; novos por essa data.', 'Perfis (profiles.founder_since / users)', 'Não é um registro de pagamentos: a equipe entrega a insígnia à mão após conferir o Mercado Pago.'],
+    ['Miembros con insignia de fundador', 'Perfiles con founder_since no vacío; nuevos por esa fecha.', 'Perfiles (profiles.founder_since / users)', 'No es un registro de pagos: el equipo entrega la insignia a mano tras comprobar Mercado Pago.'],
+    ['Founder badge holders', 'Profiles with founder_since not empty; new by that date.', 'Profiles (profiles.founder_since / users)', 'It is not a payment record: the team gives the badge by hand after checking Mercado Pago.'],
+    ['Membros com insígnia de fundador', 'Perfis com founder_since não vazio; novos por essa data.', 'Perfis (profiles.founder_since / users)', 'Não é um registro de pagamentos: a equipe entrega a insígnia à mão após conferir o Mercado Pago.'],
   ],
   'memberships.acceptances': [
-    ['Aceptaciones antes de pagar (veces)', 'Filas de membership_acceptances por accepted_at: quien empieza el pago dos veces son dos filas.', 'Aceptaciones de la membresía (membership_acceptances)', 'No es un pago ni una membresía.'],
-    ['Acceptances before paying (times)', 'Rows of membership_acceptances by accepted_at: one person who starts the payment twice is two rows.', 'Membership acceptances (membership_acceptances)', 'It is not a payment or a membership.'],
-    ['Aceitações antes de pagar (vezes)', 'Linhas de membership_acceptances por accepted_at: quem começa o pagamento duas vezes são duas linhas.', 'Aceitações da adesão (membership_acceptances)', 'Não é um pagamento nem uma adesão.'],
+    ['Aceptaciones de términos antes del pago', 'Filas de membership_acceptances por accepted_at: quien empieza el pago dos veces son dos filas.', 'Aceptaciones de la membresía (membership_acceptances)', 'No es un pago ni una membresía.'],
+    ['Terms accepted before checkout', 'Rows of membership_acceptances by accepted_at: one person who starts the payment twice is two rows.', 'Membership acceptances (membership_acceptances)', 'It is not a payment or a membership.'],
+    ['Aceites dos termos antes do pagamento', 'Linhas de membership_acceptances por accepted_at: quem começa o pagamento duas vezes são duas linhas.', 'Aceitações da adesão (membership_acceptances)', 'Não é um pagamento nem uma adesão.'],
   ],
   'memberships.acceptors': [
-    ['Personas que aceptaron', 'Cuentas distintas que aceptaron los términos, más las aceptaciones cuya cuenta ya no existe.', 'Aceptaciones de la membresía (membership_acceptances)', 'No es un pago ni una membresía.'],
-    ['People who accepted', 'Distinct accounts that accepted the terms, plus acceptances whose account is gone.', 'Membership acceptances (membership_acceptances)', 'It is not a payment or a membership.'],
-    ['Pessoas que aceitaram', 'Contas distintas que aceitaram os termos, mais as aceitações cuja conta já não existe.', 'Aceitações da adesão (membership_acceptances)', 'Não é um pagamento nem uma adesão.'],
+    ['Personas que aceptaron los términos', 'Cuentas distintas que aceptaron los términos, más las aceptaciones cuya cuenta ya no existe.', 'Aceptaciones de la membresía (membership_acceptances)', 'No es un pago ni una membresía.'],
+    ['People who accepted the terms', 'Distinct accounts that accepted the terms, plus acceptances whose account is gone.', 'Membership acceptances (membership_acceptances)', 'It is not a payment or a membership.'],
+    ['Pessoas que aceitaram os termos', 'Contas distintas que aceitaram os termos, mais as aceitações cuja conta já não existe.', 'Aceitações da adesão (membership_acceptances)', 'Não é um pagamento nem uma adesão.'],
   ],
   'memberships.unbadged': [
-    ['Aceptaciones sin insignia (personas)', 'Cuentas distintas que aceptaron y no tienen founder_since, más las aceptaciones cuya cuenta ya no existe.', 'Aceptaciones y perfiles', 'No dice si pagaron: falta comprobar su pago o no pagaron.'],
-    ['Acceptances without a badge (people)', 'Distinct accounts that accepted and have no founder_since, plus acceptances whose account is gone.', 'Acceptances and profiles', 'It does not say whether they paid: either the payment is still to be checked or they did not pay.'],
-    ['Aceitações sem insígnia (pessoas)', 'Contas distintas que aceitaram e não têm founder_since, mais as aceitações cuja conta já não existe.', 'Aceitações e perfis', 'Não diz se pagaram: falta conferir o pagamento ou não pagaram.'],
+    ['Aceptaron los términos y no tienen insignia', 'Cuentas distintas que aceptaron y no tienen founder_since, más las aceptaciones cuya cuenta ya no existe.', 'Aceptaciones y perfiles', 'No dice si pagaron: falta comprobar su pago o no pagaron.'],
+    ['Accepted terms without a Founder badge', 'Distinct accounts that accepted and have no founder_since, plus acceptances whose account is gone.', 'Acceptances and profiles', 'It does not say whether they paid: either the payment is still to be checked or they did not pay.'],
+    ['Aceitaram os termos e não têm insígnia', 'Contas distintas que aceitaram e não têm founder_since, mais as aceitações cuja conta já não existe.', 'Aceitações e perfis', 'Não diz se pagaram: falta conferir o pagamento ou não pagaram.'],
   ],
   'memberships.orgRequests': [
     ['Solicitudes de organizaciones', 'Filas de node_requests (Nodo y patrocinio) en un solo total. Las nuevas alimentan "Por atender".', 'Solicitudes de organizaciones (node_requests)', 'Sin desglose por tipo ni estado. Las cerradas se borran a los 12 meses.'],
@@ -224,9 +224,9 @@ const X = {
     ['Solicitações de organizações', 'Linhas de node_requests (Nodo e patrocínio) em um só total. As novas alimentam "Para atender".', 'Solicitações de organizações (node_requests)', 'Sem divisão por tipo nem estado. As fechadas são apagadas após 12 meses.'],
   ],
   'memberships.views': [
-    ['Vistas de Fundadores y de la página de pago', 'Vistas de /fundadores.html y /payments.html en 30 días, para ver el camino completo junto a las aceptaciones y las insignias.', 'Contador de visitas (visit_counts)', 'No dice personas.'],
-    ['Views of Founders and the payment page', 'Views of /fundadores.html and /payments.html in 30 days, to see the whole path beside acceptances and badges.', 'Visit counter (visit_counts)', 'It does not say people.'],
-    ['Visualizações de Fundadores e da página de pagamento', 'Visualizações de /fundadores.html e /payments.html em 30 dias, para ver o caminho completo junto às aceitações e às insígnias.', 'Contador de visitas (visit_counts)', 'Não diz pessoas.'],
+    ['Vistas de las páginas de membresía', 'Vistas de /fundadores.html y /payments.html en 30 días, para ver el camino completo junto a las aceptaciones y las insignias.', 'Contador de visitas (visit_counts)', 'No dice personas.'],
+    ['Membership page views', 'Views of /fundadores.html and /payments.html in 30 days, to see the whole path beside acceptances and badges.', 'Visit counter (visit_counts)', 'It does not say people.'],
+    ['Visualizações das páginas de adesão', 'Visualizações de /fundadores.html e /payments.html em 30 dias, para ver o caminho completo junto às aceitações e às insígnias.', 'Contador de visitas (visit_counts)', 'Não diz pessoas.'],
   ],
   'festival.registrations': [
     ['Inscripciones', 'Las inscripciones del FIIU Fest 2026, las mismas que muestra el panel del festival. Incluye las del equipo, sin filtrar.', 'Resumen del festival (festivalSummary)', 'No dice asistencia.'],
@@ -239,24 +239,24 @@ const X = {
     ['Inscrições em blocos', 'Soma das inscrições de cada bloco: marcas de conferências, candidaturas ao laboratório e a festa. Os interesses externos ficam à parte.', 'Resumo do festival (festivalSummary)', 'Não diz pessoas: uma pessoa conta uma vez por cada bloco que escolheu.'],
   ],
   'festival.attendances': [
-    ['Asistencias registradas', 'Suma de las asistencias de cada bloque.', 'Resumen del festival (festivalSummary)', 'No dice la asistencia real: el registro en puerta fue parcial.'],
-    ['Attendances recorded', 'Sum of each block\'s attendance.', 'Festival summary (festivalSummary)', 'It does not say real attendance: door check-in was partial.'],
-    ['Presenças registradas', 'Soma das presenças de cada bloco.', 'Resumo do festival (festivalSummary)', 'Não diz a presença real: o registro na porta foi parcial.'],
+    ['Registros de asistencia por bloque', 'Suma de las asistencias de cada bloque.', 'Resumen del festival (festivalSummary)', 'No dice la asistencia real: el registro en puerta fue parcial.'],
+    ['Session check-ins', 'Sum of each block\'s attendance.', 'Festival summary (festivalSummary)', 'It does not say real attendance: door check-in was partial.'],
+    ['Registros de presença nas sessões', 'Soma das presenças de cada bloco.', 'Resumo do festival (festivalSummary)', 'Não diz a presença real: o registro na porta foi parcial.'],
   ],
   'festival.attendedPeople': [
     ['Personas con asistencia registrada', 'Personas distintas con al menos una asistencia registrada.', 'Resumen del festival (festivalSummary)', 'No dice la asistencia real: el registro en puerta fue parcial.'],
-    ['People with attendance recorded', 'Distinct people with at least one attendance recorded.', 'Festival summary (festivalSummary)', 'It does not say real attendance: door check-in was partial.'],
+    ['People checked in', 'Distinct people with at least one attendance recorded.', 'Festival summary (festivalSummary)', 'It does not say real attendance: door check-in was partial.'],
     ['Pessoas com presença registrada', 'Pessoas distintas com ao menos uma presença registrada.', 'Resumo do festival (festivalSummary)', 'Não diz a presença real: o registro na porta foi parcial.'],
   ],
   'festival.qrPeople': [
-    ['Con código QR propio', 'De ellas, las que registraron su asistencia con su propio código QR.', 'Resumen del festival (festivalSummary)', 'No dice la asistencia real.'],
-    ['With their own QR code', 'Of them, those who checked in with their own QR code.', 'Festival summary (festivalSummary)', 'It does not say real attendance.'],
-    ['Com código QR próprio', 'Entre elas, as que registraram a presença com seu próprio código QR.', 'Resumo do festival (festivalSummary)', 'Não diz a presença real.'],
+    ['Personas registradas con su propio QR', 'De ellas, las que registraron su asistencia con su propio código QR.', 'Resumen del festival (festivalSummary)', 'No dice la asistencia real.'],
+    ['People checked in with their own QR code', 'Of them, those who checked in with their own QR code.', 'Festival summary (festivalSummary)', 'It does not say real attendance.'],
+    ['Pessoas que registraram presença com o próprio QR', 'Entre elas, as que registraram a presença com seu próprio código QR.', 'Resumo do festival (festivalSummary)', 'Não diz a presença real.'],
   ],
   'festival.hours': [
-    ['Horas de asistencia', 'En los bloques con registro de asistencia, las asistencias por la duración de cada bloque, sumadas y redondeadas una vez a horas enteras. El panel del festival muestra las mismas horas bloque por bloque.', 'Resumen del festival (server/fiiu-summary.js)', 'No dice el tiempo realmente pasado.'],
-    ['Attendance hours', 'Over the blocks that take a check-in, attendances times each block\'s length, added up and rounded once to whole hours. The festival panel shows the same hours block by block.', 'Festival summary (server/fiiu-summary.js)', 'It does not say the time really spent.'],
-    ['Horas de presença', 'Nos blocos com registro de presença, as presenças vezes a duração de cada bloco, somadas e arredondadas uma vez para horas inteiras. O painel do festival mostra as mesmas horas bloco a bloco.', 'Resumo do festival (server/fiiu-summary.js)', 'Não diz o tempo realmente gasto.'],
+    ['Horas estimadas de asistencia', 'En los bloques con registro de asistencia, las asistencias por la duración de cada bloque, sumadas y redondeadas una vez a horas enteras. El panel del festival muestra las mismas horas bloque por bloque.', 'Resumen del festival (server/fiiu-summary.js)', 'No dice el tiempo realmente pasado.'],
+    ['Estimated attendance hours', 'Over the blocks that take a check-in, attendances times each block\'s length, added up and rounded once to whole hours. The festival panel shows the same hours block by block.', 'Festival summary (server/fiiu-summary.js)', 'It does not say the time really spent.'],
+    ['Horas estimadas de presença', 'Nos blocos com registro de presença, as presenças vezes a duração de cada bloco, somadas e arredondadas uma vez para horas inteiras. O painel do festival mostra as mesmas horas bloco a bloco.', 'Resumo do festival (server/fiiu-summary.js)', 'Não diz o tempo realmente gasto.'],
   ],
   'festival.labApplications': [
     ['Postulaciones al laboratorio', 'Postulaciones al laboratorio en un solo total (pendientes, aceptadas y no aceptadas). Las pendientes alimentan "Por atender".', 'Resumen del festival (server/fiiu-summary.js)', 'El detalle de aceptadas y no aceptadas queda en el panel del festival.'],
@@ -269,59 +269,59 @@ const X = {
     ['Tipo de perfil', 'Inscrições pelo tipo de perfil que cada pessoa escolheu. Um grupo com menos de 3 pessoas e a resposta vazia com menos de 3 se juntam em "outros (menos de 3)".', 'Resumo do festival (festivalSummary)', 'Com "outros (menos de 3)" não se sabe que valores esconde.'],
   ],
   'festival.countries': [
-    ['País (respuesta de inscripción)', 'La respuesta de país al inscribirse, sin espacios, con mayúsculas y tildes unificadas; cada grupo lleva la grafía más frecuente. Las respuestas vacías (registro en puerta) se muestran como "sin respuesta" y solo se juntan en "otros (menos de 3)" cuando son menos de 3. Las de más de 40 caracteres o con símbolos raros y los grupos de menos de 3 personas siempre se juntan ahí.', 'Inscripciones al festival (fiiu_registrations.answers.country)', 'Texto libre: "Lima" queda como "Lima", no se convierte en Perú. No dice el país de quienes no se inscribieron al festival.'],
-    ['Country (registration answer)', 'The country answer given at registration, trimmed, with case and accents folded; each group carries its most frequent spelling. Empty answers (door walk-ins) are shown as "no answer" and join "others (fewer than 3)" only when there are fewer than 3. Answers longer than 40 characters or with odd symbols, and groups of fewer than 3 people, always join it.', 'Festival registrations (fiiu_registrations.answers.country)', 'Free text: "Lima" stays "Lima", it is not turned into Peru. It does not say the country of members who did not register for the festival.'],
-    ['País (resposta da inscrição)', 'A resposta de país na inscrição, sem espaços, com maiúsculas e acentos unificados; cada grupo leva a grafia mais frequente. As respostas vazias (registro na porta) aparecem como "sem resposta" e só se juntam em "outros (menos de 3)" quando são menos de 3. As de mais de 40 caracteres ou com símbolos estranhos e os grupos com menos de 3 pessoas sempre se juntam ali.', 'Inscrições no festival (fiiu_registrations.answers.country)', 'Texto livre: "Lima" fica "Lima", não vira Peru. Não diz o país de quem não se inscreveu no festival.'],
+    ['País declarado en la inscripción', 'La respuesta de país al inscribirse, sin espacios, con mayúsculas y tildes unificadas; cada grupo lleva la grafía más frecuente. Las respuestas vacías (registro en puerta) se muestran como "sin respuesta" y solo se juntan en "otros (menos de 3)" cuando son menos de 3. Las de más de 40 caracteres o con símbolos raros y los grupos de menos de 3 personas siempre se juntan ahí.', 'Inscripciones al festival (fiiu_registrations.answers.country)', 'Texto libre: "Lima" queda como "Lima", no se convierte en Perú. No dice el país de quienes no se inscribieron al festival.'],
+    ['Country reported at registration', 'The country answer given at registration, trimmed, with case and accents folded; each group carries its most frequent spelling. Empty answers (door walk-ins) are shown as "no answer" and join "others (fewer than 3)" only when there are fewer than 3. Answers longer than 40 characters or with odd symbols, and groups of fewer than 3 people, always join it.', 'Festival registrations (fiiu_registrations.answers.country)', 'Free text: "Lima" stays "Lima", it is not turned into Peru. It does not say the country of members who did not register for the festival.'],
+    ['País informado na inscrição', 'A resposta de país na inscrição, sem espaços, com maiúsculas e acentos unificados; cada grupo leva a grafia mais frequente. As respostas vazias (registro na porta) aparecem como "sem resposta" e só se juntam em "outros (menos de 3)" quando são menos de 3. As de mais de 40 caracteres ou com símbolos estranhos e os grupos com menos de 3 pessoas sempre se juntam ali.', 'Inscrições no festival (fiiu_registrations.answers.country)', 'Texto livre: "Lima" fica "Lima", não vira Peru. Não diz o país de quem não se inscreveu no festival.'],
   ],
   'courses.surveyTotal': [
-    ['Encuesta final: personas', 'Personas del grupo de septiembre, sin el equipo, a quienes se pide la encuesta final, como las cuenta el espacio docente.', 'Encuesta final (finalSurveyCounts)', 'No cuenta a quien se sumó desde octubre, así que puede ser menor que las personas inscritas.'],
-    ['Final survey: people', 'People of the September group, the team left out, asked for the final survey, as the teaching workspace counts them.', 'Final survey (finalSurveyCounts)', 'It leaves out people who joined from October, so it can be below the enrolled people.'],
-    ['Pesquisa final: pessoas', 'Pessoas do grupo de setembro, sem a equipe, a quem se pede a pesquisa final, como o espaço docente as conta.', 'Pesquisa final (finalSurveyCounts)', 'Não conta quem entrou desde outubro, então pode ser menor que as pessoas inscritas.'],
+    ['Grupo de septiembre elegible para la encuesta', 'Personas del grupo de septiembre, sin el equipo, a quienes se pide la encuesta final, como las cuenta el espacio docente.', 'Encuesta final (finalSurveyCounts)', 'No cuenta a quien se sumó desde octubre, así que puede ser menor que las personas inscritas.'],
+    ['September cohort eligible for the survey', 'People of the September group, the team left out, asked for the final survey, as the teaching workspace counts them.', 'Final survey (finalSurveyCounts)', 'It leaves out people who joined from October, so it can be below the enrolled people.'],
+    ['Turma de setembro elegível para a pesquisa', 'Pessoas do grupo de setembro, sem a equipe, a quem se pede a pesquisa final, como o espaço docente as conta.', 'Pesquisa final (finalSurveyCounts)', 'Não conta quem entrou desde outubro, então pode ser menor que as pessoas inscritas.'],
   ],
   'courses.surveyAnswered': [
-    ['Encuesta final: respondieron', 'Personas del grupo de septiembre, sin el equipo, que enviaron la encuesta final.', 'Encuesta final (finalSurveyCounts)', 'No dice qué respondieron.'],
-    ['Final survey: answered', 'People of the September group, the team left out, who sent the final survey.', 'Final survey (finalSurveyCounts)', 'It does not say what they answered.'],
-    ['Pesquisa final: responderam', 'Pessoas do grupo de setembro, sem a equipe, que enviaram a pesquisa final.', 'Pesquisa final (finalSurveyCounts)', 'Não diz o que responderam.'],
+    ['Respuestas del grupo de septiembre a la encuesta', 'Personas del grupo de septiembre, sin el equipo, que enviaron la encuesta final.', 'Encuesta final (finalSurveyCounts)', 'No dice qué respondieron.'],
+    ['September cohort survey responses', 'People of the September group, the team left out, who sent the final survey.', 'Final survey (finalSurveyCounts)', 'It does not say what they answered.'],
+    ['Respostas da turma de setembro à pesquisa', 'Pessoas do grupo de setembro, sem a equipe, que enviaram a pesquisa final.', 'Pesquisa final (finalSurveyCounts)', 'Não diz o que responderam.'],
   ],
   'courses.certificates': [
-    ['Certificados subidos', 'Certificados subidos al curso, como los cuenta el espacio docente.', 'Encuesta final (finalSurveyCounts)', 'No dice descargas.'],
-    ['Certificates uploaded', 'Certificates uploaded to the course, as the teaching workspace counts them.', 'Final survey (finalSurveyCounts)', 'It does not say downloads.'],
-    ['Certificados enviados', 'Certificados enviados ao curso, como o espaço docente os conta.', 'Pesquisa final (finalSurveyCounts)', 'Não diz downloads.'],
+    ['Certificados disponibles para el grupo de septiembre', 'Certificados subidos al curso, como los cuenta el espacio docente.', 'Encuesta final (finalSurveyCounts)', 'No dice descargas.'],
+    ['Certificates ready for the September cohort', 'Certificates uploaded to the course, as the teaching workspace counts them.', 'Final survey (finalSurveyCounts)', 'It does not say downloads.'],
+    ['Certificados disponíveis para a turma de setembro', 'Certificados enviados ao curso, como o espaço docente os conta.', 'Pesquisa final (finalSurveyCounts)', 'Não diz downloads.'],
   ],
   'courses.learners': [
-    ['Personas inscritas, sin el equipo', 'Cuentas distintas, sin el equipo, con una inscripción en algún curso.', 'Inscripciones a cursos (course_enrollments)', 'No dice participación.'],
-    ['Enrolled people, without the team', 'Distinct accounts, the team left out, enrolled in some course.', 'Course enrolments (course_enrollments)', 'It does not say participation.'],
-    ['Pessoas inscritas, sem a equipe', 'Contas distintas, sem a equipe, com uma inscrição em algum curso.', 'Inscrições em cursos (course_enrollments)', 'Não diz participação.'],
+    ['Miembros inscritos en cursos', 'Cuentas distintas, sin el equipo, con una inscripción en algún curso.', 'Inscripciones a cursos (course_enrollments)', 'No dice participación.'],
+    ['Members enrolled in courses', 'Distinct accounts, the team left out, enrolled in some course.', 'Course enrolments (course_enrollments)', 'It does not say participation.'],
+    ['Membros inscritos em cursos', 'Contas distintas, sem a equipe, com uma inscrição em algum curso.', 'Inscrições em cursos (course_enrollments)', 'Não diz participação.'],
   ],
   'courses.openers': [
-    ['Abrieron contenido', 'Cuentas distintas, sin el equipo, con al menos una apertura de sesión o material.', 'Accesos a cursos (course_events)', 'No dice si lo leyeron o lo vieron completo.'],
-    ['Opened content', 'Distinct accounts, the team left out, with at least one session or material opened.', 'Course accesses (course_events)', 'It does not say whether they read or watched it all.'],
-    ['Abriram conteúdo', 'Contas distintas, sem a equipe, com ao menos uma abertura de sessão ou material.', 'Acessos a cursos (course_events)', 'Não diz se leram ou assistiram por completo.'],
+    ['Miembros que accedieron al contenido', 'Cuentas distintas, sin el equipo, con al menos una apertura de sesión o material.', 'Accesos a cursos (course_events)', 'No dice si lo leyeron o lo vieron completo.'],
+    ['Members who opened course content', 'Distinct accounts, the team left out, with at least one session or material opened.', 'Course accesses (course_events)', 'It does not say whether they read or watched it all.'],
+    ['Membros que acessaram o conteúdo', 'Contas distintas, sem a equipe, com ao menos uma abertura de sessão ou material.', 'Acessos a cursos (course_events)', 'Não diz se leram ou assistiram por completo.'],
   ],
 };
 
-// The seven totals of the teaching workspace, under its own names (web/scripts/pilot-i18n.js), with the team and per course.
+// These seven totals use the teaching workspace counts, including staff, summed across courses.
 const COURSE_TOTALS = {
-  enrolled: [['Participants', 'Participantes', 'Participantes'], 'inscriptions', 'inscripciones', 'inscrições'],
-  intakeCompleted: [['Intakes completed', 'Formularios completos', 'Formulários completos'], 'completed intake forms', 'formularios de ingreso completos', 'formulários de ingresso completos'],
+  enrolled: [['Course enrolments', 'Inscripciones a cursos', 'Inscrições em cursos'], 'course enrolments', 'inscripciones', 'inscrições'],
+  intakeCompleted: [['Completed intake forms', 'Formularios de ingreso completados', 'Formulários de ingresso preenchidos'], 'completed intake forms', 'formularios de ingreso completos', 'formulários de ingresso completos'],
   moduleOpens: [['Module accesses', 'Accesos a módulos', 'Acessos a módulos'], 'times a session was opened', 'veces que se abrió una sesión', 'vezes que uma sessão foi aberta'],
   contentOpens: [['Material accesses', 'Accesos a materiales', 'Acessos a materiais'], 'times a material was opened', 'veces que se abrió un material', 'vezes que um material foi aberto'],
   recordingOpens: [['Recording accesses', 'Accesos a grabaciones', 'Acessos a gravações'], 'times a recording was opened', 'veces que se abrió una grabación', 'vezes que uma gravação foi aberta'],
-  assignments: [['Assignments', 'Actividades', 'Atividades'], 'submissions posted in the course', 'entregas publicadas en el curso', 'entregas publicadas no curso'],
+  assignments: [['Assignment submissions', 'Entregas de actividades', 'Entregas de atividades'], 'submissions posted in the course', 'entregas publicadas en el curso', 'entregas publicadas no curso'],
   comments: [['Comments', 'Comentarios', 'Comentários'], 'comments on posts of the course', 'comentarios en las publicaciones del curso', 'comentários nas publicações do curso'],
 };
 for (const [id, [[en, es, pt], dEn, dEs, dPt]] of Object.entries(COURSE_TOTALS)) {
   X[`courses.${id}`] = [
-    [es, `Con el equipo, como en el espacio docente: ${dEs}. Un total y su reparto por curso. Un acceso es una fila por persona, elemento y hora.`, 'Resumen del curso (courseSummary)', 'Incluye las cuentas del equipo. No dice estudio ni lectura. "Actividades" son entregas publicadas en el curso, no la familia Actividad.'],
-    [en, `With the team, as in the teaching workspace: ${dEn}. One total and its split by course. An access is one row per person, item and hour.`, 'Course summary (courseSummary)', 'The team\'s accounts are included. It does not say study or reading. "Assignments" are submissions posted in the course, not the Activity family.'],
-    [pt, `Com a equipe, como no espaço docente: ${dPt}. Um total e sua divisão por curso. Um acesso é uma linha por pessoa, item e hora.`, 'Resumo do curso (courseSummary)', 'Inclui as contas da equipe. Não diz estudo nem leitura. "Atividades" são entregas publicadas no curso, não a família Atividade.'],
+    [es, `Con el equipo, como en el espacio docente: ${dEs}. Un total y su reparto por curso. Un acceso es una fila por persona, elemento y hora.`, 'Resumen del curso (courseSummary)', 'Incluye las cuentas del equipo. No dice estudio ni lectura.'],
+    [en, `With the team, as in the teaching workspace: ${dEn}. One total and its split by course. An access is one row per person, item and hour.`, 'Course summary (courseSummary)', 'The team\'s accounts are included. It does not say study or reading.'],
+    [pt, `Com a equipe, como no espaço docente: ${dPt}. Um total e sua divisão por curso. Um acesso é uma linha por pessoa, item e hora.`, 'Resumo do curso (courseSummary)', 'Inclui as contas da equipe. Não diz estudo nem leitura.'],
   ];
 }
 
 const FAMILY_LABELS = {
   es: ['Visitas', 'Registros', 'Perfiles', 'Actividad', 'Membresías', 'Festival', 'Cursos'],
   en: ['Visits', 'Sign-ups', 'Profiles', 'Activity', 'Memberships', 'Festival', 'Courses'],
-  pt: ['Visitas', 'Registros', 'Perfis', 'Atividade', 'Adesões', 'Festival', 'Cursos'],
+  pt: ['Visitas', 'Cadastros', 'Perfis', 'Atividade', 'Adesões', 'Festival', 'Cursos'],
 };
 
 const PAGE_LABELS = {
@@ -337,9 +337,9 @@ const SOURCE_LABELS = {
   qr: ['código QR', 'QR code', 'código QR'], sistemaurbano: ['Sistema Urbano', 'Sistema Urbano', 'Sistema Urbano'], other: ['otros', 'other', 'outros'],
 };
 const KIND_LABELS = {
-  profile: ['perfil (guardó su perfil o marcó avisos como leídos)', 'profile (saved their profile or marked notices as read)', 'perfil (salvou o perfil ou marcou avisos como lidos)'],
-  network: ['red', 'network', 'rede'], opportunities: ['oportunidades', 'opportunities', 'oportunidades'], festival: ['festival', 'festival', 'festival'],
-  courses: ['cursos', 'courses', 'cursos'], membership: ['membresía', 'membership', 'adesão'],
+  profile: ['Perfil y avisos', 'Profile and notifications', 'Perfil e avisos'],
+  network: ['Red', 'Network', 'Rede'], opportunities: ['Oportunidades', 'Opportunities', 'Oportunidades'],
+  festival: ['Festival', 'Festival', 'Festival'], courses: ['Cursos', 'Courses', 'Cursos'], membership: ['Membresía', 'Membership', 'Adesão'],
 };
 const PROFILE_TYPE_LABELS = {
   student: ['estudiante', 'student', 'estudante'], academic: ['academia', 'academia', 'academia'], researcher: ['investigación', 'research', 'pesquisa'],
@@ -363,24 +363,24 @@ const PART_KEYS = ['accounts', 'members', 'festival', 'courses', 'visits', 'read
 const CSV = {
   es: {
     indicators: ['clave', 'estado', 'familia', 'indicador', 'total', '30 días', '7 días', 'definición', 'fuente', 'lo que no dice', 'leído (hora de Lima)'],
-    months: ['mes (Lima)', 'cuentas nuevas', 'entraron por primera vez', 'inscripciones al festival', 'páginas vistas', 'llegadas'],
+    months: ['mes (Lima)', 'cuentas nuevas', 'primeros accesos', 'inscripciones al festival', 'páginas vistas', 'entradas al sitio'],
     readings: ['día (Lima)', 'leído (hora de Lima)', 'defs'],
   },
   en: {
     indicators: ['key', 'state', 'family', 'indicator', 'total', '30 days', '7 days', 'definition', 'source', 'what it does not say', 'read at (Lima time)'],
-    months: ['month (Lima)', 'new accounts', 'first entries', 'festival registrations', 'page views', 'arrivals'],
+    months: ['month (Lima)', 'new accounts', 'first sign-ins', 'festival registrations', 'page views', 'site entrances'],
     readings: ['day (Lima)', 'read at (Lima time)', 'defs'],
   },
   pt: {
     indicators: ['chave', 'estado', 'família', 'indicador', 'total', '30 dias', '7 dias', 'definição', 'fonte', 'o que não diz', 'lido (hora de Lima)'],
-    months: ['mês (Lima)', 'contas novas', 'primeiras entradas', 'inscrições no festival', 'páginas vistas', 'chegadas'],
+    months: ['mês (Lima)', 'contas novas', 'primeiros acessos', 'inscrições no festival', 'páginas vistas', 'entradas no site'],
     readings: ['dia (Lima)', 'lido (hora de Lima)', 'defs'],
   },
 };
 const SERIES = {
-  es: ['Cuentas nuevas', 'Entraron por primera vez', 'Inscripciones al festival', 'Páginas vistas', 'Llegadas'],
-  en: ['New accounts', 'First entries', 'Festival registrations', 'Page views', 'Arrivals'],
-  pt: ['Contas novas', 'Primeiras entradas', 'Inscrições no festival', 'Páginas vistas', 'Chegadas'],
+  es: ['Cuentas nuevas', 'Primeros accesos', 'Inscripciones al festival', 'Páginas vistas', 'Entradas al sitio'],
+  en: ['New accounts', 'First sign-ins', 'Festival registrations', 'Page views', 'Site entrances'],
+  pt: ['Contas novas', 'Primeiros acessos', 'Inscrições no festival', 'Páginas vistas', 'Entradas no site'],
 };
 // Why ROUTE's dotted segments are not one more step: it names its two 'apart' stops (the directory, the 30-day window).
 const ROUTE_APART = {
