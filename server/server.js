@@ -6,6 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+// Writes of the test-only store mode (createApp's `store` option); the deployed app writes through the repository.
 import { addFollow, recordInteraction } from './store.js';
 import { recommend } from './engine.js';
 import { createCache, MemoryCache } from './cache.js';
@@ -969,7 +970,7 @@ async function adminInterestProjection(repository, interest) {
 
 function resolveUserId(param, sessionUser, useDb) {
   if (param === 'me') return sessionUser?.id ?? null;
-  if (!useDb) return param;
+  if (!useDb) return param;   // the test-only store mode has no sessions
   return sessionUser?.id === param ? param : null;
 }
 
@@ -1056,6 +1057,10 @@ export function staticSourcePath(pathname) {
 }
 
 export function createApp({
+  /* A test-only fixture: an in-memory demo graph (server/store.js createStore) in place of a database. Nothing deployed
+     passes it (api/index.js and npm start build the repository from the environment), and an app built with it has no
+     sessions, page gates or admin checks, so a test of it says nothing about production. Every `!useDb` branch below
+     serves only this mode. */
   store,
   db,
   cache = new MemoryCache(),
@@ -2115,6 +2120,7 @@ export function createApp({
           });
           return;
         }
+        // The test-only store mode lists its demo graph.
         send(res, 200, { users: [...store.users.values()].map(({ id, name, role, city, interests }) => ({ id, name, role, city, interests })) });
         return;
       }
@@ -2363,6 +2369,7 @@ export function createApp({
           await cache.set(key, payload, REC_TTL_MS);
           return { payload, hit: false };
         };
+        // build(null) reads the demo graph of the test-only store mode.
         const result = useDb ? await networkSnapshots.run(build) : await build(null);
         if (!result) { send(res, 404, { error: 'unknown user' }); return; }
         send(res, 200, result.payload, { 'X-Cache': result.hit ? 'HIT' : 'MISS', 'Content-Type': 'application/json; charset=utf-8' });
@@ -2396,7 +2403,7 @@ export function createApp({
           send(res, 400, { error: 'invalid targetId' }); return;
         }
 
-        if (action === 'follow') {
+        if (action === 'follow') {   // the `else` writes are the test-only store mode's
           if (useDb) await repository.addFollow(userId, targetId);
           else addFollow(store, userId, targetId);
         } else {
@@ -2438,7 +2445,7 @@ export function createApp({
         const session = await createCheckoutSession({
           cycle: body.cycle,
           origin,
-          user: useDb ? repository.toApiUser(sessionUser) : { id: 'local', email: '' },
+          user: useDb ? repository.toApiUser(sessionUser) : { id: 'local', email: '' },   // 'local': the test-only store mode
         }, payments.config, payments.fetchImpl);
         send(res, 200, session);
         return;

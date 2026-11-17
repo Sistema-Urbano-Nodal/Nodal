@@ -1304,9 +1304,13 @@ test('static serving: pages resolve, traversal does not', async (t) => {
   const image = await fetch(`${base}/assets/nodal-wordmark.webp`);
   assert.equal(image.status, 200);
   assert.equal(image.headers.get('content-type'), 'image/webp');
-  assert.equal((await fetch(`${base}/payments.html`)).status, 200);
   assert.equal((await fetch(`${base}/..%2f..%2fetc%2fpasswd`)).status, 404);
   assert.equal((await fetch(`${base}/package.json/../server/server.js`)).status, 404);
+  // A private page sends a signed-out visitor to sign-in. The store mode above is a test-only fixture with no page
+  // gates, so this is asked of the database mode the deployed app runs.
+  const payments = await fetch(`${await bootDb(t)}/payments.html`, { redirect: 'manual' });
+  assert.equal(payments.status, 302);
+  assert.equal(payments.headers.get('location'), `/login.html?next=${encodeURIComponent('/payments.html')}`);
 });
 
 test('static source map preserves public URLs without exposing source directories', () => {

@@ -57,6 +57,9 @@ export function seedData() {
   return { users, follows, interactions };
 }
 
+/* A fixture: the engine tests build their graphs with it, and createApp's test-only `store` mode serves one (nothing
+   deployed passes a store). The deployed app loads its graph from the database (db.js, supabase.js); seedData also
+   seeds a local database (scripts/seed-dev.js). */
 export function createStore(seed = seedData()) {
   const store = {
     users: new Map(seed.users.map((u) => [u.id, u])),
@@ -106,6 +109,7 @@ export function decayedTypeCount(store, a, b, type, now = Date.now()) {
   return total;
 }
 
+// For the fixtures above; the deployed app follows through its repository (db.js addFollowDb, supabase.js addFollow).
 export function addFollow(store, from, to) {
   const set = store.follows.get(from);
   if (!set) throw new Error(`unknown user: ${from}`);
