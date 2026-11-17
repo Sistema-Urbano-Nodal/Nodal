@@ -13,7 +13,7 @@ import {createMetricsStore} from '../server/metrics-repository.js';
 import {computeAnswer} from '../server/metrics-api.js';
 import {createVisitStore} from '../server/visits-repository.js';
 import {FINAL_SURVEY} from '../server/course-final-survey.js';
-import {DEFS,FAMILIES,INDICATORS,LEAD,LEAD_SECOND,TRACKED,TEXTS,MONTH_SERIES} from '../server/metrics-catalog.js';
+import {DEFS,FAMILIES,INDICATORS,LEAD,LEAD_SECOND,TRACKED,TEXTS,MONTH_SERIES,ROUTE,SERIES_INDICATOR,PAIRS} from '../server/metrics-catalog.js';
 import {windowsFor,figuresOf} from '../server/metrics-domain.js';
 import {loadSqlite,freezeUserClock,expectedMemberDays,sqliteProfile} from './fixtures/metrics-fixture.js';
 
@@ -107,6 +107,11 @@ test('answers the whole shape in three languages',async t=>{
  assert.deepEqual(body.lead[1],{key:'signups.accounts',field:'total',second:[['signups.new','d7'],['signups.confirmed','total']]});
  assert.deepEqual(body.tracked,TRACKED);
  assert.equal(body.tracked.length,22);
+ // The lists the home is laid out by, as keys: the members' path, the indicator of each month series, the nested pairs.
+ assert.deepEqual(body.route,ROUTE);
+ assert.deepEqual(body.seriesIndicator,SERIES_INDICATOR);
+ assert.deepEqual(body.pairs,PAIRS);
+ for(const lang of ['es','en','pt'])assert.match(body.texts[lang].routeApart,/\S/,lang);
  // The page looks item labels up by vocabulary: one list indicator of each.
  for(const [key,vocabulary] of [['visits.topPages','pages'],['visits.sources','sources'],['activity.kinds','kinds'],['festival.profileTypes','profileTypes']]){
   assert.equal(indicator(body,key).vocabulary,vocabulary,key);
@@ -127,6 +132,14 @@ test('the memoised data holds no display word',async t=>{
   if('text' in item)assert.equal(typeof item.text,'string');
  }
  assert.ok(indicator(body,'festival.countries').items.some(item=>'text' in item),'a typed country travels as {text, n}');
+});
+
+// The catalogue's texts and lists are attached by the GET after the memo: the computed answer (what the memo, the export
+// and the POST share) holds none of them.
+test('the catalogue travels beside the computed answer, never inside it',async()=>{
+ const answer=await computeAnswer({deadlineMs:1000},Date.parse(START));
+ assert.deepEqual(answer.unavailable.map(u=>u.part),['accounts','members','festival','courses','visits','readings']);
+ for(const key of ['texts','lead','tracked','route','seriesIndicator','pairs'])assert.ok(!(key in answer),key);
 });
 
 /* Every indicator on the fixture's rows (tests/fixtures/metrics-fixture.js), worked by hand: the eight fixture accounts

@@ -81,6 +81,21 @@ export const TRACKED = Object.freeze([
 
 export const MONTH_SERIES = Object.freeze(['accounts', 'entered', 'registrations', 'views', 'arrivals']);
 
+/* The lists the home is laid out by, as keys, sent in the answer so the page holds no copy of them; frozen inside and
+   out. ROUTE: the members' path drawn under the title, one stop per [key, field] in this order. 'apart' marks a stop
+   that is not one more step after the one before it (the directory is by consent; the last stop is a 30-day window):
+   the segment into it is dotted, and texts[lang].routeApart says why. That sentence names these two stops, so it
+   changes with them. SERIES_INDICATOR: the indicator each month series splits by month (keys in MONTH_SERIES order);
+   its chart stands in that indicator's family. PAIRS: [part, whole], two totals of one family where the part is truly
+   inside the whole, printed as one row ("9 de 17"). */
+const frozenRows = rows => Object.freeze(rows.map(row => Object.freeze(row)));
+export const ROUTE = frozenRows([
+  ['signups.accounts', 'total'], ['signups.confirmed', 'total'], ['signups.entered', 'total'], ['profiles.basic', 'total'],
+  ['profiles.assessed', 'total'], ['profiles.directory', 'total', 'apart'], ['activity.members', 'd30', 'apart'],
+]);
+export const SERIES_INDICATOR = Object.freeze({ accounts: 'signups.new', entered: 'signups.entered', registrations: 'festival.registrations', views: 'visits.views', arrivals: 'visits.arrivals' });
+export const PAIRS = frozenRows([['courses.surveyAnswered', 'courses.surveyTotal']]);
+
 // Texts per indicator: [name, definition, source, caveat], in es, en, pt.
 const X = {
   'visits.views': [
@@ -169,9 +184,9 @@ const X = {
     ['Membros com atividade', 'Pessoas distintas, sem a equipe, com ao menos uma linha feita por elas na janela (7 e 30 dias): salvar o perfil ou marcar avisos como lidos, seguir ou descartar, pedir informação de uma oportunidade, inscrever-se ou registrar presença no festival, escrever, curtir ou avaliar, abrir ou publicar em um curso, enviar a pesquisa final ou opinião, aceitar os termos da adesão.', 'Dias de atividade de membros (metrics_member_days)', 'Não diz quem visitou sem fazer nada: ler não deixa rastro. Conta a menos: tirar uma curtida, cancelar uma inscrição ou apagar a conta deixa de contar.'],
   ],
   'activity.kinds': [
-    ['Actividad por tipo', 'El mismo número repartido en perfil, red, oportunidades, festival, cursos y membresía; la página muestra los 30 días y el CSV también los 7. En perfil entra quien guardó su perfil o marcó avisos como leídos: no se pueden separar.', 'Días de actividad de miembros (metrics_member_days)', 'Los tipos se solapan: una persona puede estar en varios, así que no suman el total.'],
-    ['Activity by kind', 'The same figure split into profile, network, opportunities, festival, courses and membership; the page shows the 30 days and the CSV the 7 days too. Profile holds whoever saved their profile or marked notices as read: the two cannot be told apart.', 'Member activity days (metrics_member_days)', 'The kinds overlap: one person can be in several, so they do not add up to the total.'],
-    ['Atividade por tipo', 'O mesmo número repartido em perfil, rede, oportunidades, festival, cursos e adesão; a página mostra os 30 dias e o CSV também os 7. Em perfil entra quem salvou o perfil ou marcou avisos como lidos: não é possível separar.', 'Dias de atividade de membros (metrics_member_days)', 'Os tipos se sobrepõem: uma pessoa pode estar em vários, então não somam o total.'],
+    ['Actividad por tipo', 'El mismo número repartido en perfil, red, oportunidades, festival, cursos y membresía; la página y el CSV muestran los 30 y los 7 días. En perfil entra quien guardó su perfil o marcó avisos como leídos: no se pueden separar.', 'Días de actividad de miembros (metrics_member_days)', 'Los tipos se solapan: una persona puede estar en varios, así que no suman el total.'],
+    ['Activity by kind', 'The same figure split into profile, network, opportunities, festival, courses and membership; the page and the CSV show the 30 and the 7 days. Profile holds whoever saved their profile or marked notices as read: the two cannot be told apart.', 'Member activity days (metrics_member_days)', 'The kinds overlap: one person can be in several, so they do not add up to the total.'],
+    ['Atividade por tipo', 'O mesmo número repartido em perfil, rede, oportunidades, festival, cursos e adesão; a página e o CSV mostram os 30 e os 7 dias. Em perfil entra quem salvou o perfil ou marcou avisos como lidos: não é possível separar.', 'Dias de atividade de membros (metrics_member_days)', 'Os tipos se sobrepõem: uma pessoa pode estar em vários, então não somam o total.'],
   ],
   'activity.follows': [
     ['Conexiones (seguir)', 'Filas de member_follows, con las cuentas del equipo incluidas; nuevas en 7 y 30 días.', 'Seguimientos (member_follows / follows)', 'Incluye al equipo. No dice si la conexión se usó.'],
@@ -367,6 +382,12 @@ const SERIES = {
   en: ['New accounts', 'First entries', 'Festival registrations', 'Page views', 'Arrivals'],
   pt: ['Contas novas', 'Primeiras entradas', 'Inscrições no festival', 'Páginas vistas', 'Chegadas'],
 };
+// Why ROUTE's dotted segments are not one more step: it names its two 'apart' stops (the directory, the 30-day window).
+const ROUTE_APART = {
+  es: 'Tramo punteado: no es un paso más. El directorio es por consentimiento; la actividad se cuenta en 30 días.',
+  en: 'Dotted segment: not one more step. The directory is by consent; activity is counted over 30 days.',
+  pt: 'Trecho pontilhado: não é mais um passo. O diretório é por consentimento; a atividade é contada em 30 dias.',
+};
 
 const pageKeys = [...new Set(Object.values(VISIT_PAGES))];
 const pick = (map, keys, i) => Object.fromEntries(keys.map(k => [k, map[k][i]]));
@@ -389,6 +410,7 @@ function build(lang, i) {
     states: { ...STATES[lang] },
     csv: CSV[lang],
     series: Object.fromEntries(MONTH_SERIES.map((k, n) => [k, SERIES[lang][n]])),
+    routeApart: ROUTE_APART[lang],
   };
 }
 
