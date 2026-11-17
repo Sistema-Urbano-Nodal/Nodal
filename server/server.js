@@ -2405,7 +2405,8 @@ export function createApp({
           send(res, 400, { error: 'invalid targetId' }); return;
         }
 
-        if (action === 'follow') {   // the `else` writes are the test-only store mode's
+        // Each inner `else` writes the demo graph of the test-only store mode.
+        if (action === 'follow') {
           if (useDb) await repository.addFollow(userId, targetId);
           else addFollow(store, userId, targetId);
         } else {
