@@ -131,8 +131,9 @@ function responseError(status, payload, fallback) {
 /* No answer (the 15 s timeout, a dropped connection) or an answer that is not JSON: the provider is unavailable for
    now, never refusing. 503 tells the routes to say "try again shortly" (with Retry-After) instead of a 500; every
    check that treats a missing status, a 5xx or a 429 as an outage treats this one the same. `upstream` names the
-   failure for the log line (TimeoutError, TypeError, SyntaxError). */
-function unavailableError(cause) {
+   failure for the log line (TimeoutError, TypeError, SyntaxError). The course store's counts, which call the
+   provider directly, fail the same way (server/courses-repository.js). */
+export function unavailableError(cause) {
   const upstream = cause?.name || 'Error';
   return Object.assign(new Error(`Supabase unavailable: ${upstream}`), { status: 503, expose: false, code: '', upstream, cause });
 }
