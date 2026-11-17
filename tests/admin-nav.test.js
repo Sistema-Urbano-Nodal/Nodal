@@ -283,7 +283,7 @@ test('each staff page loads admin-nav.js deferred before the dictionaries and ad
   for (const name of Object.keys(STAFF_PAGES)) {
     const html = page(name);
     const head = html.slice(0, html.indexOf('</head>'));
-    assert.match(head, /<script defer src="admin-nav\.js\?v=20261114a"><\/script>/, name);
+    assert.match(head, /<script defer src="admin-nav\.js\?v=20261116a"><\/script>/, name);
     const scripts = [...head.matchAll(/<script\b[^>]*\bsrc="([^"?]+)/g)].map((m) => m[1]);
     const next = name === 'admin.html' ? 'i18n-dashboard.js' : name === 'admin-home.html' ? 'admin-home.js' : 'i18n.js';
     assert.equal(scripts[scripts.indexOf('admin-nav.js') + 1], next, `${name}: directly before ${next}`);
