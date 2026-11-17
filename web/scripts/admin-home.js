@@ -843,16 +843,20 @@
 
   /* A month chart wider than its column scrolls: then it is reachable and named for the keyboard, and opens on its
      latest whole months, with room after the last month (--tail) when the scroll cannot reach that far, as the month
-     table does. One that fits is no stop for the keyboard. */
+     table does. One that fits is no stop for the keyboard. The chart's name is said once: by the box while it is the
+     stop, by its list otherwise. */
   function placeMonths(box) {
+    const list = box.querySelector('.home-months');
     box.style.removeProperty('--tail');
     if (box.scrollWidth <= box.clientWidth) {
       for (const name of ['tabindex', 'role', 'aria-labelledby']) box.removeAttribute(name);
+      list?.setAttribute('aria-labelledby', box.dataset.title);
       return;
     }
     box.setAttribute('tabindex', '0');
     box.setAttribute('role', 'group');
     box.setAttribute('aria-labelledby', box.dataset.title);
+    list?.removeAttribute('aria-labelledby');
     const months = [...box.querySelectorAll('.home-month')];
     const first = months.find((month) => box.scrollWidth - month.offsetLeft <= box.clientWidth) ?? months[months.length - 1];
     const reach = box.scrollWidth - box.clientWidth;
@@ -903,7 +907,7 @@
 
   /* Two or more readings: the page's one table, a column per month, the tracked rows grouped by family. The names and
      the family labels stay at the left edge while the months scroll under them on a narrow screen. */
-  function trackingTable(months, tracked, titleId) {
+  function trackingTable(months, tracked) {
     const headRow = make('tr');
     const corner = make('th', 'home-corner');
     corner.setAttribute('scope', 'col');
@@ -919,7 +923,6 @@
     const thead = make('thead');
     thead.append(headRow);
     const table = make('table', 'home-table home-tracking-table');
-    table.setAttribute('aria-labelledby', titleId);
     table.append(thead);
     const groups = new Map();
     for (const key of tracked) {
@@ -957,6 +960,7 @@
     }
     const scroller = make('div', 'home-scroll');
     // A wide table scrolls sideways: reachable and named for the keyboard, inside the Seguimiento region (no second one).
+    // The name is the scroller's alone: the table inside repeats neither it nor the region's.
     scroller.setAttribute('tabindex', '0');
     scroller.setAttribute('role', 'group');
     scroller.setAttribute('aria-label', say('monthsTable'));
@@ -1004,7 +1008,7 @@
       box.append(when, list);
       parts.push(box);
     } else if (table) {
-      parts.push(...trackingTable(months, tracked, title.id));
+      parts.push(...trackingTable(months, tracked));
     }
     parts.push(...strayCharts());
     el.tracking.replaceChildren(...parts);

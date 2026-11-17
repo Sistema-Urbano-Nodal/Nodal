@@ -235,7 +235,8 @@
   .home-col { gap: var(--f-sp-5); }
   .home-top { row-gap: var(--f-sp-3); }
   .home-rank { grid-template-columns: minmax(3.4rem, max-content) minmax(0, 1fr) minmax(2.5rem, 27%); }
-  .home-queue { min-height: 44px; align-items: center; }
+  /* a queue's lines keep the figure on its name's first line, the whole centred in its 44px target */
+  .home-queue { min-height: 44px; align-content: center; }
   .home-reading > summary { min-height: 44px; padding: 11px 0; }
   .home-reading-list { columns: auto; }
   .home-figs { row-gap: 2px; margin-top: var(--f-sp-2); }
@@ -254,7 +255,7 @@
 /* a touch screen of any width (a phone held sideways, a tablet) gets the phone's 44px targets, not its layout */
 @media (pointer: coarse) {
   #homeMain .admin-textbutton, .home-see, .home-actions a, .home-compare { display: inline-flex; align-items: center; min-height: 44px; }
-  .home-queue { min-height: 44px; align-items: center; }
+  .home-queue { min-height: 44px; align-content: center; }
   .home-reading > summary { min-height: 44px; padding: 11px 0; }
   .home-block-head { row-gap: 12px; }
   .home-block-head .home-how, .home-block-head .home-see { margin-block: -6px; }

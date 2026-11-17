@@ -36,6 +36,8 @@ test('the names the sheet and the spec fix', () => {
   assert.equal(es.lists.reserved._other, 'otros (menos de 3)');
   assert.notEqual(es.lists.profileTypes.other, es.lists.reserved._other);
   assert.match(es.lists.kinds.profile + ' ' + es.indicators['activity.kinds'].definition, /guardó su perfil o marcó avisos como leídos/);
+  // The page shows each kind's 7 days beside its 30, as the CSV does.
+  assert.match(es.indicators['activity.kinds'].definition, /la página y el CSV muestran los 30 y los 7 días/);
   assert.deepEqual(es.states, { not_activated: 'Aún no está activado en la base de datos', unavailable: 'No disponible en este momento', not_yet_counted: 'Se cuenta desde el {day}', no_visits_yet: 'Aún no hay visitas contadas' });
   assert.deepEqual(es.parts, { accounts: 'cuentas', members: 'datos de miembros', festival: 'festival', courses: 'cursos', visits: 'visitas', readings: 'lecturas guardadas' });
   assert.equal(TEXTS.en.states.no_visits_yet, 'No visits counted yet');

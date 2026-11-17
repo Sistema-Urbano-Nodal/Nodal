@@ -817,8 +817,9 @@ test('two readings or more make the month table, grouped by family; the month se
   assert.ok(rendered(heads[1]).includes('dic 2026') && rendered(heads[1]).includes('leído el 2'));
   assert.ok(rendered(heads[0]).includes('leído con definiciones anteriores'));
   assert.ok(!rendered(heads[1]).includes('leído con definiciones anteriores'));
-  assert.equal(select(tracking, 'table')[0]['aria-labelledby'], 'homeTrackingTitle');
   assert.equal(select(tracking, 'h2')[0].id, 'homeTrackingTitle');
+  assert.equal(tracking['aria-labelledby'], 'homeTrackingTitle');
+  assert.equal(closed(select(tracking, '.home-tracking-head .home-note')[0]), 'La última lectura guardada de cada mes, para comparar los meses.');
   const corner = select(tracking, 'th.home-corner')[0];
   assert.deepEqual([corner.scope, closed(corner)], ['col', 'Indicador']);
   // One group per family with a row-group head, the rows in TRACKED order.
@@ -832,16 +833,22 @@ test('two readings or more make the month table, grouped by family; the month se
   assert.ok(rendered(tracking).includes('—: no se leía ese mes'));
   assert.ok(rendered(tracking).includes('Lecturas desde nov 2026.'));
   assert.ok(!rendered(tracking).includes('undefined'));
-  // The table scrolls inside the Seguimiento region, named apart from it, as a group (not a second region).
+  // The table scrolls inside the Seguimiento region, named apart from it, as a group (not a second region). The name is
+  // the group's alone: the table inside repeats neither it nor the region's.
   const scroller = select(tracking, '.home-scroll')[0];
   assert.deepEqual([scroller.tabindex, scroller.role, scroller['aria-label']], ['0', 'group', 'Tabla por mes']);
+  const table = select(scroller, 'table')[0];
+  assert.deepEqual([table['aria-labelledby'], table['aria-label'], select(table, 'caption').length], [undefined, undefined, 0]);
   // Two months or more: a chart in the indicator's family; one month: said on its row; in a state: its reason.
   const accounts = bySeries(page.section('signups'), 'accounts');
   assert.equal(closed(accounts), 'Cuentas nuevas, por mes jul 9 ago 0 sept 43 oct 473 nov 0');
   assert.deepEqual(select(accounts, '.home-month-bar').map((bar) => bar.style['--f']), ['0.0190', '0.0000', '0.0909', '1.0000', '0.0000']);
-  // Each chart is a list named by its title, its bars hidden from a screen reader; the stylesheet gets its months.
+  // Each chart is a list named by its title, its bars hidden from a screen reader; the stylesheet gets its months. A
+  // chart that fits its column is no group: its name is said once, by its list.
   for (const chart of select(page.section('signups'), '.home-chart')) {
     assert.equal(select(chart, 'ol.home-months')[0]['aria-labelledby'], select(chart, 'h3')[0].id, chart.dataset.series);
+    const box = select(chart, '.home-months-box')[0];
+    assert.deepEqual([box.role, box['aria-labelledby']], [undefined, undefined], chart.dataset.series);
     assert.ok(select(chart, '.home-month-bar').every((bar) => bar['aria-hidden'] === 'true'), chart.dataset.series);
   }
   assert.equal(select(accounts, 'ol.home-months')[0].style['--n'], '5');
@@ -900,11 +907,18 @@ test('a month table wider than the screen opens on its latest whole months', asy
   const scroller = select(phone.id('homeTracking'), '.home-scroll')[0];
   assert.equal(scroller.scrollLeft, 560);
   assert.equal(scroller.style['--tail'], '80px');
-  // A new width places it again, from no room: now three months fit whole.
+  // Placed before the fonts loaded, it is placed again once they have, from no room: by their measures three months
+  // now fit whole.
   clientWidth = 580;
-  phone.resized(900);
+  phone.fonts.resolve();
+  await flush();
   assert.equal(scroller.scrollLeft, 420);
   assert.equal(scroller.style['--tail'], undefined);
+  // A new width places it again too: two months fit whole, with the 80px after the last one.
+  clientWidth = 520;
+  phone.resized(900);
+  assert.equal(scroller.scrollLeft, 560);
+  assert.equal(scroller.style['--tail'], '80px');
 });
 
 test('a month series that crosses a year names each year once', async () => {
@@ -922,6 +936,17 @@ test('a month series that crosses a year names each year once', async () => {
   const entered = bySeries(page.section('signups'), 'entered');
   assert.equal(select(entered, 'ol.home-months')[0].classList.contains('has-years'), false);
   assert.equal(select(entered, '.home-month-year').length, 0);
+  // Only the months drawn count: thirteen months from dec 2026 draw the twelve of 2027, which cross no year.
+  const later = fixture();
+  later.months.series.accounts = Object.fromEntries(['2026-12', ...Array.from({ length: 12 }, (_, i) => `2027-${String(i + 1).padStart(2, '0')}`)].map((month, i) => [month, i + 1]));
+  const year = home({ answer: later });
+  await flush();
+  const drawn = bySeries(year.section('signups'), 'accounts');
+  assert.equal(select(drawn, 'li.home-month').length, 12);
+  assert.ok(closed(drawn).startsWith('Cuentas nuevas, por mes ene 2 feb 3'), closed(drawn));
+  assert.equal(select(drawn, 'ol.home-months')[0].classList.contains('has-years'), false);
+  assert.equal(select(drawn, '.home-month-year').length, 0);
+  assert.equal(select(year.section('signups'), '.home-charts')[0].classList.contains('has-years'), false);
 });
 
 test('a month chart draws the latest twelve months, as wide as their widest figure, and scrolls when wider than its column', async () => {
@@ -930,12 +955,12 @@ test('a month chart draws the latest twelve months, as wide as their widest figu
   assert.deepEqual([months[0], months[12]], ['2026-07', '2027-07']);
   const answer = fixture();
   answer.months.series.accounts = Object.fromEntries(months.map((month, i) => [month, i === 0 ? 12000 : 1000 + i]));
-  let wide = false;
-  // The accounts chart's box: twelve 50px months (600px) in a 358px column, until the column is wide enough. A month's
+  let column = 358;
+  // The accounts chart's box: twelve 50px months (600px) in a 358px column, until the column changes. A month's
   // offsetLeft is read from the box.
   const accountsBox = (node) => { let at = node; while (at && !at.dataset.title) at = at.parent; return at?.dataset.title === 'home-s-accounts'; };
   const measure = (node, what) => {
-    if (node.dataset.title === 'home-s-accounts') return { scrollWidth: 600, clientWidth: wide ? 640 : 358 }[what] ?? 0;
+    if (node.dataset.title === 'home-s-accounts') return { scrollWidth: 600, clientWidth: column }[what] ?? 0;
     if (what === 'offsetLeft' && node.classList.contains('home-month') && accountsBox(node)) return 50 * node.parent.elements.indexOf(node);
     return 0;
   };
@@ -953,16 +978,24 @@ test('a month chart draws the latest twelve months, as wide as their widest figu
   assert.deepEqual([row.style['--months'], row.style['--mw'], row.classList.contains('has-years')], ['12', '4', true]);
   // Wider than its column: a named group the keyboard reaches, opened on its latest whole months. The last seven fit
   // (350px from the sixth month's start): the scroll reaches only 242px, so the box gets 8px after the last month and
-  // no sliver of the month before shows at its left edge.
+  // no sliver of the month before shows at its left edge. The box says the chart's name; its list does not say it again.
   const box = select(chart, '.home-months-box')[0];
   assert.equal(list.parent, box);
   assert.deepEqual([box.tabindex, box.role, box['aria-labelledby'], box.scrollLeft, box.style['--tail']], ['0', 'group', 'home-s-accounts', 250, '8px']);
+  assert.equal(list['aria-labelledby'], undefined);
   const entered = select(bySeries(page.section('signups'), 'entered'), '.home-months-box')[0];
   assert.deepEqual([entered.tabindex, entered.role], [undefined, undefined], 'a chart that fits is no stop for the keyboard');
-  // At a width where it fits it is no stop either.
-  wide = true;
-  page.resized(1400);
-  assert.deepEqual([box.tabindex, box.role, box['aria-labelledby'], box.style['--tail']], [undefined, undefined, undefined, undefined]);
+  assert.equal(select(entered, 'ol.home-months')[0]['aria-labelledby'], 'home-s-entered');
+  // Placed again once the fonts have loaded: by their measures it now fits, so it is no stop, and its list names it.
+  column = 640;
+  page.fonts.resolve();
+  await flush();
+  assert.deepEqual([box.tabindex, box.role, box['aria-labelledby'], box.style['--tail'], list['aria-labelledby']], [undefined, undefined, undefined, undefined, 'home-s-accounts']);
+  // A new width places it again too: the last eight months fit whole from 200px, which the scroll reaches, so it needs
+  // no room after them, and the box takes the name back from its list.
+  column = 400;
+  page.resized(1000);
+  assert.deepEqual([box.tabindex, box.role, box['aria-labelledby'], box.scrollLeft, box.style['--tail'], list['aria-labelledby']], ['0', 'group', 'home-s-accounts', 200, undefined, undefined]);
   // In English the same figures are five characters ("1,012").
   const en = home({ lang: 'en', answer: structuredClone(answer) });
   await flush();
@@ -1778,7 +1811,10 @@ test('source rules', () => {
     assert.ok(has('.home-block-head', /row-gap:\s*12px/), `${media}: wrapped head targets touch, never overlap`);
     assert.ok(has('.home-block-head .home-see', /margin-block:\s*-6px/), media);
     assert.ok(!touch.some(([selectors, body]) => selectors.includes('.home-block-head .home-see') && /margin(?:-left|-inline-start)?\s*:/.test(body)), `${media}: "Ver en" keeps its margin-left: auto`);
+    assert.ok(has('.home-queue', /align-content:\s*center/), `${media}: a queue's lines are centred in its target`);
   }
+  // A queue that wraps keeps its figure on its name's first line: no rule centres the figure between the lines.
+  assert.ok(!rules(css).some(([selectors, body]) => selectors.some((selector) => /\.home-queue$/.test(selector)) && /align-items:\s*center/.test(body)));
   // A lead item's lines stand at its top, never spread over a stretched row.
   assert.ok(rules(css).some(([selectors, body]) => selectors.includes('.home-lead-item') && /align-content:\s*start/.test(body)));
   // A month column is never narrower than its widest figure (--mw) or a month's name, and a year's label is two whole
