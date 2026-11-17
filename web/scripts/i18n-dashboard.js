@@ -234,6 +234,10 @@ window.NODAL_I18N_DASH = {
     'd.uc.deleteReconciling': 'One of your course uploads is still being processed. Ask the teaching team to check it, then try again.',
     'd.pc.errPortfolio': 'Portfolio link must start with http:// or https://',
     'd.pc.errLinkedin': 'LinkedIn link must look like https://www.linkedin.com/in/your-name',
+    // The availability options, as dashboard.html writes them: the profile page has no options to read them from.
+    'd.pc.avail2': '2 h / month',
+    'd.pc.avail4': '4 h / month',
+    'd.pc.avail8': '8+ h / month',
 
     'd.tl.today': 'Today',
     'd.tl.next': 'Next',

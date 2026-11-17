@@ -129,3 +129,21 @@ test('a member without the Founder badge, or a profile that is not found, shows 
  const missing=page({other:'hidden-id'});await flush();assert.equal(missing.ids.pfFounder.hidden,true);
  assert.doesNotMatch(missing.body.textContent,/Founder/);
 });
+
+// Availability is stored as the console's English option value (code overview M45): the profile shows the three options in
+// the page language, on your own card and on another member's, and anything else as it was written.
+test('availability reads in the page language on your own card and on another member’s, and anything else as written',async()=>{
+ const availability=h=>all(h.body).filter(n=>n.tagName==='p'&&/^(Disponibilidad|Disponibilidade|Availability): /.test(n.textContent)).map(n=>n.textContent);
+ const me={...ana,partC:{consent:true,availability:'4 h / month'}};
+ const own=page({me});await flush();
+ assert.deepEqual(availability(own),['Disponibilidad: 4 h / mes']);
+ own.setLang('pt');assert.deepEqual(availability(own),['Disponibilidade: 4 h / mês']);
+ own.setLang('en');assert.deepEqual(availability(own),['Availability: 4 h / month']);
+ const other=page({me:{...me,partC:{consent:true,availability:'8+ h / month'}},other:'ana-id'});await flush();
+ assert.deepEqual(availability(other),['Disponibilidad: 8+ h / mes']);
+ other.setLang('en');assert.deepEqual(availability(other),['Availability: 8+ h / month']);
+ const written=page({me:{...me,partC:{consent:true,availability:'Fines de semana'}}});await flush();
+ assert.deepEqual(availability(written),['Disponibilidad: Fines de semana']);
+ const none=page({me:{...me,partC:{consent:true,availability:''}}});await flush();
+ assert.deepEqual(availability(none),['Disponibilidad: Aún sin declarar']);
+});
