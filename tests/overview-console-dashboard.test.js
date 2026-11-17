@@ -141,8 +141,10 @@ function makeDocument(html) {
 
 const DEFAULTS = { assessed: false, topics: [], skills: [], partC: {}, indicators: { leadership: 'No', transmission: 'No' }, requests: {}, mentorApplied: false, notifRead: false };
 /* me: the member the server holds. me: null makes /api/auth/me fail (503). The server answers PATCH /api/me with its copy
-   of the member, and refuses the whole patch with 409 location_conflict when the city it guards is no longer the stored one. */
-function consoleFor(me, { lang = 'en' } = {}) {
+   of the member, and refuses the whole patch with 409 location_conflict when the city it guards is no longer the stored one.
+   respond(request, reply) answers any other request first (return nothing to leave it to the server above). Timers fire
+   at once, so the search's debounce needs no waiting out. */
+function consoleFor(me, { lang = 'en', respond = () => undefined } = {}) {
   const doc = makeDocument(read('web', 'pages', 'dashboard.html'));
   const stored = me && JSON.parse(JSON.stringify({ ...DEFAULTS, ...me }));
   const requests = [], windowListeners = {}, located = [];
@@ -151,6 +153,8 @@ function consoleFor(me, { lang = 'en' } = {}) {
     const method = options.method || 'GET';
     const body = options.body ? JSON.parse(options.body) : undefined;
     requests.push({ url, method, body });
+    const answer = respond({ url, method, body }, reply);
+    if (answer) return answer;
     if (url === '/api/auth/me') return stored ? reply(200, { user: stored }) : reply(503, { error: 'unavailable' });
     if (url === '/api/me' && method === 'PATCH') {
       const { expectedCity, ...fields } = body;
@@ -179,7 +183,7 @@ function consoleFor(me, { lang = 'en' } = {}) {
     getComputedStyle: () => ({ getPropertyValue: () => '' }),
     IntersectionObserver: Observer, MutationObserver: Observer,
     requestAnimationFrame: () => 0, cancelAnimationFrame() {},
-    setTimeout, clearTimeout,
+    setTimeout: (fn, ms, ...args) => setImmediate(fn, ...args), clearTimeout: (handle) => handle && clearImmediate(handle), AbortController,
   });
   for (const name of ['i18n-dashboard', 'i18n', 'dashboard']) vm.runInContext(read('web', 'scripts', `${name}.js`), context, { filename: `${name}.js` });
   const byId = (id) => doc.getElementById(id);
@@ -334,4 +338,55 @@ test('the city notice and its Close read in Spanish and Portuguese', async () =>
   c.i18n.apply('pt', { persist: false });
   assert.equal(c.text('saveClose'), 'Fechar');
   assert.equal(c.i18n.t('d.save.cityKept', { city: 'Cusco' }), 'Sua cidade agora é Cusco: ela foi alterada em outra aba ou em outro dispositivo. Suas outras alterações foram salvas.');
+});
+
+/* ---------------- M43: a People search that fails is not "No matches" ---------------- */
+
+const searchFor = async (c, text) => { c.byId('searchInput').value = text; c.byId('searchInput').fire('input'); await flush(); };
+const scopeChip = (c, scope) => c.byId('searchChips').querySelector(`[data-scope="${scope}"]`);
+const lookAgain = async (c) => { scopeChip(c, 'Projects').click(); await flush(); scopeChip(c, 'People').click(); await flush(); };
+const directorySearches = (c) => c.requests.filter((r) => r.url === '/api/users/search').length;
+
+test('a People search that fails says the directory cannot be searched, and the next look asks again', async () => {
+  let directory = 'down';
+  const c = consoleFor(ana, { respond: ({ url }, reply) => {
+    if (url === '/api/users/search') return directory === 'down' ? reply(503, { error: 'unavailable' }) : reply(200, { users: [] });
+    if (url.startsWith('/api/catalog')) return reply(200, { items: [] });
+    return undefined;
+  } });
+  await flush();
+  await searchFor(c, 'Rosa');
+  assert.equal(c.text('searchPop'), 'The member directory cannot be searched right now. Try again.');
+  await lookAgain(c);
+  assert.equal(directorySearches(c), 2, 'the failure was not kept as the answer for “Rosa”');
+  assert.equal(c.text('searchPop'), 'The member directory cannot be searched right now. Try again.');
+  directory = 'up';
+  await lookAgain(c);
+  assert.equal(directorySearches(c), 3);
+  assert.match(c.text('searchPop'), /^No matches for “Rosa” in People\./, 'a real empty answer still reads No matches');
+  await lookAgain(c);
+  assert.equal(directorySearches(c), 3, 'and is kept for the same words');
+});
+
+test('the directory’s 40-a-minute limit and a dropped connection read the same; static hosting (404, 405) still reads No matches', async () => {
+  for (const [answer, expected] of [
+    [(reply) => reply(429, { error: 'too many searches' }), /^The member directory cannot be searched right now\. Try again\.$/],
+    [() => Promise.reject(new TypeError('Failed to fetch')), /^The member directory cannot be searched right now\. Try again\.$/],
+    [(reply) => reply(404, { error: 'not found' }), /^No matches for “Rosa” in People\./],
+    [(reply) => reply(405, {}), /^No matches for “Rosa” in People\./],
+  ]) {
+    const c = consoleFor(ana, { respond: ({ url }, reply) => (url === '/api/users/search' ? answer(reply) : undefined) });
+    await flush();
+    await searchFor(c, 'Rosa');
+    assert.match(c.text('searchPop'), expected, String(answer));
+  }
+});
+
+test('the directory failure line reads in Spanish and Portuguese', async () => {
+  const c = consoleFor(ana, { lang: 'es', respond: ({ url }, reply) => (url === '/api/users/search' ? reply(503, {}) : undefined) });
+  await flush();
+  await searchFor(c, 'Rosa');
+  assert.equal(c.text('searchPop'), 'No se puede buscar en el directorio de miembros ahora. Inténtalo de nuevo.');
+  c.i18n.apply('pt', { persist: false });
+  assert.equal(c.i18n.t('d.search.directoryUnavailable'), 'Não é possível buscar no diretório de membros agora. Tente novamente.');
 });

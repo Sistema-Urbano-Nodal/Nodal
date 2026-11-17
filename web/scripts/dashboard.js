@@ -1444,9 +1444,16 @@
         if (err.name === 'AbortError' || sequence !== peopleSequence
           || activeScope() !== 'People'
           || searchInput.value.trim().toLowerCase() !== normalizedQuery) return;
-        peopleQuery = normalizedQuery;
-        peopleHits = [];
-        paint([]);                       // static hosting has no directory
+        if (err.status === 404 || err.status === 405) {
+          // static hosting has no directory: nobody can be found, which is the answer
+          peopleQuery = normalizedQuery;
+          peopleHits = [];
+          paint([]);
+          return;
+        }
+        // An outage, the 40-searches-a-minute limit or a dropped connection is not "no matches": it says so and keeps
+        // nothing, so the next look at these words asks again.
+        paint([], 'people-error');
       } finally {
         if (peopleAbort === controller) peopleAbort = null;
       }
@@ -1499,8 +1506,9 @@
       searchPop.hidden = false;
       return;
     }
-    if (mode === 'catalog-error') {
-      searchPop.replaceChildren(el('p', 'search-empty', t('d.search.catalogUnavailable')));
+    if (mode === 'catalog-error' || mode === 'people-error') {
+      const key = mode === 'catalog-error' ? 'd.search.catalogUnavailable' : 'd.search.directoryUnavailable';
+      searchPop.replaceChildren(el('p', 'search-empty', t(key)));
       searchPop.hidden = false;
       return;
     }

@@ -272,6 +272,7 @@ window.NODAL_I18N_DASH = {
     'd.search.noMatch': 'No matches for “{q}” in {scope}.',
     'd.search.catalogSearching': 'Searching the published catalog…',
     'd.search.catalogUnavailable': 'Published catalog results are unavailable right now. Try again.',
+    'd.search.directoryUnavailable': 'The member directory cannot be searched right now. Try again.',
     'd.search.catalogEmpty': 'No published {scope} match “{q}”.',
     'd.topic.mobility': 'Mobility',
     'd.topic.publicSpace': 'Public space',
@@ -1091,6 +1092,7 @@ window.NODAL_I18N_DASH = {
 
     'd.search.catalogSearching': 'Buscando en el catálogo publicado…',
     'd.search.catalogUnavailable': 'Los resultados del catálogo no están disponibles ahora. Inténtalo de nuevo.',
+    'd.search.directoryUnavailable': 'No se puede buscar en el directorio de miembros ahora. Inténtalo de nuevo.',
     'd.search.catalogEmpty': 'No hay {scope} publicados que coincidan con “{q}”.',
     'd.search.in': 'Ámbito',
     'd.pc.refsPlaceholder': 'Nombre + correo · Nombre + correo',
@@ -1974,6 +1976,7 @@ window.NODAL_I18N_DASH = {
 
     'd.search.catalogSearching': 'Buscando no catálogo publicado…',
     'd.search.catalogUnavailable': 'Os resultados do catálogo estão indisponíveis agora. Tente novamente.',
+    'd.search.directoryUnavailable': 'Não é possível buscar no diretório de membros agora. Tente novamente.',
     'd.search.catalogEmpty': 'Nenhum {scope} publicado corresponde a “{q}”.',
     'd.search.in': 'Escopo',
     'd.pc.refsPlaceholder': 'Nome + e-mail · Nome + e-mail',

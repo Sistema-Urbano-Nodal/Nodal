@@ -30,7 +30,8 @@ const CONSOLE=readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.met
 // On 16 Nov 2026 the code overview's console fixes changed console copy, so the two nonhome hashes were redone. Only these
 // keys moved, pinned by tests/overview-console-dashboard.test.js unless named otherwise: d.spine.profileTodo (the route's
 // first stop before Part A is done), d.save.cityKept and d.save.close (a city changed in another tab or on another device),
-// and d.uc.deleteReconciling (a deletion refused for a course upload, pinned by tests/dashboard-account-errors.test.js).
+// d.uc.deleteReconciling (a deletion refused for a course upload, pinned by tests/dashboard-account-errors.test.js) and
+// d.search.directoryUnavailable (a People search that failed).
 const HOME_KEYS=[
   "about.eyebrow",
   "about.lead1",
@@ -267,8 +268,8 @@ const SNAPSHOTS={
     "pt": "b9a077e4b2055212490393a2498292f0d20156b6f1d4e34f8d7b063179e71d3b"
   },
   "nonhome": {
-    "es": "f1f88a7afd190885fb0530394448e421fce56d2650d6b8fab2224fe142b2724c",
-    "pt": "36623bbc7312e46a19c4f7cee7e92009de370c93458d76ba38e2a393c32dc156"
+    "es": "de3e79fa1c948a742dda6a7ad12d83c8a3bef5b45dad07fdf897b8bb1740d60b",
+    "pt": "a756cae4f4774cf76769c826e5bbd4fb13281ebb04106546c5f13fcd06d820e9"
   }
 };
 
