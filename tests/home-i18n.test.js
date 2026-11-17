@@ -32,7 +32,8 @@ const CONSOLE=readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.met
 // first stop before Part A is done), d.save.cityKept and d.save.close (a city changed in another tab or on another device),
 // d.uc.deleteReconciling (a deletion refused for a course upload, pinned by tests/dashboard-account-errors.test.js),
 // d.search.directoryUnavailable (a People search that failed), d.eyebrow.assessmentOne (one topic, in the singular) and
-// d.search.catalogEmpty (reworded so it reads right around any scope's name).
+// d.search.catalogEmpty (reworded so it reads right around any scope's name), and p.signalsSelf (which signals other members
+// see on your profile, pinned by tests/profile-ui.test.js).
 const HOME_KEYS=[
   "about.eyebrow",
   "about.lead1",
@@ -269,8 +270,8 @@ const SNAPSHOTS={
     "pt": "b9a077e4b2055212490393a2498292f0d20156b6f1d4e34f8d7b063179e71d3b"
   },
   "nonhome": {
-    "es": "9ec489e28bf52b1c5eb7ad9f1b47b3f2a6e141a61ed7cd62e556c125268770cf",
-    "pt": "c805ced2296f12f682f957228a048d8bdfc6ff5d08dfc78f6015fe97cdc6b30d"
+    "es": "dcc50e4aeb15b65da736dd6aa0962b63b68aa07b05aa0b9daaa040bfe4f88140",
+    "pt": "75e6e4cf3850202770a38faedfba6d2f6dca957be84b08b59deed4a888705b2d"
   }
 };
 
