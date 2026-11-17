@@ -28,8 +28,9 @@ const CONSOLE=readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.met
 // On 24 Oct 2026 the deletion prompt (d.uc.deletePrompt) added that a FIIU registration, attendance and certificate hours
 // go with the account, so the two nonhome hashes were redone; only that key moved, and the same test pins it.
 // On 16 Nov 2026 the code overview's console fixes changed console copy, so the two nonhome hashes were redone. Only these
-// keys moved, all pinned by tests/overview-console-dashboard.test.js: d.spine.profileTodo (the route's first stop before
-// Part A is done) and d.save.cityKept and d.save.close (a city changed in another tab or on another device).
+// keys moved, pinned by tests/overview-console-dashboard.test.js unless named otherwise: d.spine.profileTodo (the route's
+// first stop before Part A is done), d.save.cityKept and d.save.close (a city changed in another tab or on another device),
+// and d.uc.deleteReconciling (a deletion refused for a course upload, pinned by tests/dashboard-account-errors.test.js).
 const HOME_KEYS=[
   "about.eyebrow",
   "about.lead1",
@@ -266,8 +267,8 @@ const SNAPSHOTS={
     "pt": "b9a077e4b2055212490393a2498292f0d20156b6f1d4e34f8d7b063179e71d3b"
   },
   "nonhome": {
-    "es": "afe6087ce418dc1f9439354aea85fa4c81218870e39db6d879f9797c8d6f5408",
-    "pt": "7b19db6f0ae3a2f4c8af337d3129331f8769b0445dc5b8688201c779c8912c1e"
+    "es": "f1f88a7afd190885fb0530394448e421fce56d2650d6b8fab2224fe142b2724c",
+    "pt": "36623bbc7312e46a19c4f7cee7e92009de370c93458d76ba38e2a393c32dc156"
   }
 };
 

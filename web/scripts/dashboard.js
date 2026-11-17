@@ -1302,6 +1302,8 @@
           ['confirm_email_mismatch', 'd.uc.deleteEmailMismatch'],
           ['upload_in_progress', 'd.uc.deleteUploading'],
           ['certificate_upload_in_progress', 'd.uc.deleteCertificateUploading'],
+          // a pending course upload waits for the teaching team, so trying again alone never helps
+          ['upload_awaiting_reconciliation', 'd.uc.deleteReconciling'],
         ]);
         uc.error.textContent = t(refusals.get(err?.code) || 'd.uc.deleteFail');
         uc.error.hidden = false;

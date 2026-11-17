@@ -231,6 +231,7 @@ window.NODAL_I18N_DASH = {
     'd.uc.deleteEmailMismatch': 'The email you typed does not match your account email. Nothing was deleted.',
     'd.uc.deleteUploading': 'One of your files is still uploading. Try again in a few minutes.',
     'd.uc.deleteCertificateUploading': 'A course certificate is being uploaded for this account. Try again in a few minutes.',
+    'd.uc.deleteReconciling': 'One of your course uploads is still being processed. Ask the teaching team to check it, then try again.',
     'd.pc.errPortfolio': 'Portfolio link must start with http:// or https://',
     'd.pc.errLinkedin': 'LinkedIn link must look like https://www.linkedin.com/in/your-name',
 
@@ -1037,6 +1038,7 @@ window.NODAL_I18N_DASH = {
     'd.uc.deleteEmailMismatch': 'El correo que escribiste no coincide con el de tu cuenta. No se eliminó nada.',
     'd.uc.deleteUploading': 'Uno de tus archivos aún se está subiendo. Inténtalo de nuevo en unos minutos.',
     'd.uc.deleteCertificateUploading': 'Se está subiendo un certificado del curso para esta cuenta. Inténtalo de nuevo en unos minutos.',
+    'd.uc.deleteReconciling': 'Uno de tus archivos de curso aún se está procesando. Pide al equipo docente que lo revise y luego inténtalo de nuevo.',
 
     'd.pc.kicker': 'Onboarding · Parte C · Profundidad',
     'd.pc.title': 'Completa tu perfil',
@@ -1919,6 +1921,7 @@ window.NODAL_I18N_DASH = {
     'd.uc.deleteEmailMismatch': 'O e-mail digitado não corresponde ao e-mail da sua conta. Nada foi excluído.',
     'd.uc.deleteUploading': 'Um dos seus arquivos ainda está sendo enviado. Tente novamente em alguns minutos.',
     'd.uc.deleteCertificateUploading': 'Um certificado do curso está sendo enviado para esta conta. Tente novamente em alguns minutos.',
+    'd.uc.deleteReconciling': 'Um dos seus envios de curso ainda está sendo processado. Peça à equipe docente que o verifique e depois tente novamente.',
 
     'd.pc.kicker': 'Onboarding · Parte C · Profundidade',
     'd.pc.title': 'Complete seu perfil',
