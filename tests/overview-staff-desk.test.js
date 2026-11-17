@@ -481,3 +481,8 @@ test('M69: the news fields and Topics are named by their label text alone; the l
     assert.match(html, new RegExp(`<span id="${label}" data-i18n="[^"]+">${text}</span>`), control);
   }
 });
+
+test('M67: the Organizations band names both kinds of request in its own loading line', () => {
+  // The band lists Nodo and sponsorship requests (6e2bf37); its runtime lines are ops.nodes.loading, failed and unavailable.
+  assert.match(adminPage(), /<p class="admin-live" id="adminNodeStatus" role="status" aria-live="polite" tabindex="-1">Loading organization requests…<\/p>/);
+});
