@@ -27,6 +27,7 @@ class Node {
  reportValidity(){this.reported=true;return this.checkValidity();}
 }
 const descendants=node=>(node.children||[]).flatMap(n=>typeof n==='object'?[n,...descendants(n)]:[]);
+const content=n=>[n.textContent,...(n.children||[]).map(content)].join(' ');
 const flush=async()=>{for(let i=0;i<15;i++)await new Promise(r=>setImmediate(r));};
 // respond(path, options) answers each request: {status, data} or the data alone.
 function harness(respond,{search=''}={}){
@@ -85,5 +86,23 @@ test('M59: a course that cannot be read on opening keeps its error on the status
  // No course yet: the New course form opens with nothing on the line.
  const empty=harness(routes(path=>path==='/api/admin/courses'?{courses:[]}:undefined));await flush();
  assert.equal(empty.status(),'');assert.ok(descendants(empty.body).some(n=>n.tagName==='form'));
+});
+
+test('M62: a created course whose list cannot be read again still reads as saved, joins the list and opens on Course setup',async()=>{
+ const created={id:'c9',title:'Curso nuevo',description:'',status:'draft',version:1,enrollmentOpen:true,translations:{}};let listReads=0;
+ const h=harness(routes((path,opts)=>{
+  if(path==='/api/admin/courses'&&opts?.method==='POST')return{status:201,data:{course:created}};
+  if(path==='/api/admin/courses'){listReads++;return listReads===1?{courses:[]}:{status:503,data:{error:'unavailable'}};}
+  if(path==='/api/courses/c9')return{course:created,modules:[]};
+  return undefined;
+ }));await flush();
+ const form=descendants(h.body).find(n=>n.tagName==='form'),title=byName(form,'title');
+ title.value='Curso nuevo';form.listeners.input({target:title});
+ await form.listeners.submit({preventDefault(){}});await flush();
+ assert.equal(h.requests.filter(r=>r.method==='POST').length,1);assert.equal(listReads,2,'the list was asked for again');
+ assert.deepEqual(descendants(h.ctx.document.getElementById('staffCourses')).filter(n=>n.tagName==='button').map(n=>n.dataset.course),['c9'],'the new course is on the list');
+ assert.equal(h.ctx.document.getElementById('staff-pane-courseSetup')?.hidden,false,'and open on Course setup');
+ assert.doesNotMatch(content(h.body),/Could not complete this request/);
+ assert.equal(h.ctx.window.nodalUnsaved(),false,'nothing left unsaved');
 });
 

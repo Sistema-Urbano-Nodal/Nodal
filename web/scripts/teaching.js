@@ -521,7 +521,9 @@ async function start(){status(msg,t('loading'));
     const create=button('newCourse',()=>{
       if(!leave())return;selectionVersion++;selectedId=null;workspace.replaceChildren();status(msg,'');const section=el('section','pilot-setup');
       try{history.replaceState(null,'',location.pathname);}catch{/* The view works without it. */}
-      section.append(tr('h2','newCourse'),makeEditor(null,false,null,async c=>{await refreshList();await showCourse(c.id,'courseSetup');}));workspace.append(section);
+      // The course is created once the POST answers: a list that cannot be read again right after must not read as a failed save
+      // (staff would create it twice), so the list shows the course as the server returned it, and the course opens.
+      section.append(tr('h2','newCourse'),makeEditor(null,false,null,async c=>{try{await refreshList();}catch{courses=[...courses.filter(x=>x.id!==c.id),c];await refreshList(false);}await showCourse(c.id,'courseSetup');}));workspace.append(section);
     },true);
     nav.append(tr('h2','courses'),list,button('allFeedback',()=>{if(leave())allFeedback();},true),create);layout.append(nav,workspace);root.append(hero,layout);
     await refreshList(false);
