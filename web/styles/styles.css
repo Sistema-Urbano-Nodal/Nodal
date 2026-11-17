@@ -15,7 +15,6 @@
   /* liquid glass */
   --glass-header: rgba(173,222,168,.6); /* light green glass header    */
   --glass-white:  rgba(255,255,255,.55);
-  --glass-line:   rgba(255,255,255,.16);
 
   /* neutrals */
   --plaster:     var(--beige);
