@@ -478,7 +478,11 @@
     // the canvas is focusable, and an empty globe has nothing to step through
     if (!PLACES.length) return;
     ev.preventDefault();
-    state.picked = (state.picked + (ev.key === 'ArrowRight' ? 1 : -1) + PLACES.length) % PLACES.length;
+    const step = ev.key === 'ArrowRight' ? 1 : -1;
+    // with nothing picked (-1) ArrowLeft starts from the last city, as ArrowRight starts from the first
+    state.picked = state.picked < 0
+      ? (step > 0 ? 0 : PLACES.length - 1)
+      : (state.picked + step + PLACES.length) % PLACES.length;
     const p = PLACES[state.picked];
     state.yaw = Math.atan2(p.v[2], p.v[0]) - Math.PI / 2;   // centre = yaw + 90°
     showPlace(p);
@@ -528,10 +532,9 @@
     PLACES = FULL.places
       .map((L, original) => {
         const people = (L.people || []).filter(keepPerson);
-        // a place that nobody had joined yet simply was not there then
-        const members = sinceCut
-          ? people.length + Math.max(0, (L.members - (L.people || []).length)) * 0
-          : L.members;
+        // a place that nobody had joined yet simply was not there then. Only the people listed by name carry a
+        // join date, so a cut in time counts them alone: an unnamed member has no date to place them by.
+        const members = sinceCut ? people.length : L.members;
         return { L, original, people, members };
       })
       .filter((row) => (sinceCut ? row.people.length > 0 : row.members > 0))
@@ -678,10 +681,17 @@
     renderTimeline();
     sayWhereYouStand(data.you);
 
+    /* The roster follows the whole answer, not the view: a cut in time (the scrub, or a Play sweep) shows fewer
+       people, and a roster cut down to them would announce everyone after the cut once the scrub is back at today.
+       Only someone the view shows is announced; someone new outside the cut is simply on the map at today. */
     const arrivals = [];
-    PLACES.forEach((place) => {
-      const added = newcomers(normalise(place.name), place.people || []);
-      if (started) added.forEach((person) => arrivals.push({ person, place }));
+    FULL.places.forEach((L) => {
+      const added = newcomers(normalise(L.city), L.people || []);
+      if (!started) return;
+      const place = PLACES.find((p) => p.name === L.city);
+      added.forEach((person) => {
+        if (place?.people.some((m) => m.id === person.id)) arrivals.push({ person, place });
+      });
     });
     started = true;
 
@@ -739,9 +749,14 @@
       const b = document.createElement('button');
       b.type = 'button';
       b.className = `globe-chip${state.topic === name ? ' is-on' : ''}`;
+      b.setAttribute('aria-pressed', String(state.topic === name));   // the filter that is on, said as well as coloured
       b.textContent = count === null ? label : `${label} · ${count}`;
       b.addEventListener('click', () => {
         state.topic = state.topic === name ? '' : name;
+        /* The next answer lists another set of people: it rebuilds the roster without announcing anyone, or
+           everyone outside the old filter would arrive in the feed although nobody joined. */
+        roster.clear();
+        started = false;
         topicsDrawn = '';
         refreshPlaces();
       });
@@ -830,6 +845,11 @@
     showCount();
     showPlace(state.picked >= 0 ? PLACES[state.picked] : null);
     sayWhereYouStand(lastYou);
+    /* The chips and the time label are written in the language too, and an unchanged directory answers 304, so
+       they are redrawn here: whichever chips are on show, a lone "All topics" included, and none where the bar
+       is empty (no topics, or signed out). */
+    if (topicBar?.children.length) { topicsDrawn = null; renderTopics(FULL.topics); }
+    renderTimeline();
   });
   resize();
   syncAnimation();

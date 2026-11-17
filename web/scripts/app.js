@@ -144,7 +144,8 @@
     t.setAttribute('class', 'glabel');
     t.setAttribute('data-i18n', `graph.n.${n.id}.t`);
     t.textContent = labelOf(n.id);
-    // no aria-label: role=button names itself from the (i18n-translated) text child
+    // the visible label; the node's accessible name is its aria-label above, which i18n.js keeps translated
+    // through data-i18n-aria-label
     g.append(ring, c, t);
     svg.appendChild(g);
     return { g, c, ring, t };
@@ -236,8 +237,9 @@
     el.g.addEventListener('pointerdown', (e) => {
       if (dragging) return;   // one drag at a time — a second finger must not steal the slot
       e.preventDefault();
-      // rect cached for the drag's lifetime: no layout read per move
-      dragging = { i, moved: 0, px: e.clientX, py: e.clientY, rect: svg.getBoundingClientRect() };
+      // rect cached for the drag's lifetime: no layout read per move. The pointer id ties the drag to its own
+      // finger: another finger moving or lifting must not take it over or end it.
+      dragging = { i, pointerId: e.pointerId, moved: 0, px: e.clientX, py: e.clientY, rect: svg.getBoundingClientRect() };
       N[i].fixed = true;
       el.g.classList.add('is-drag');
       try { el.g.setPointerCapture(e.pointerId); } catch { /* pointer already inactive (Safari) */ }
@@ -245,7 +247,7 @@
       wake();
     });
     el.g.addEventListener('pointermove', (e) => {
-      if (!dragging || dragging.i !== i) return;
+      if (!dragging || dragging.i !== i || e.pointerId !== dragging.pointerId) return;
       dragging.moved += Math.hypot(e.clientX - dragging.px, e.clientY - dragging.py);
       dragging.px = e.clientX; dragging.py = e.clientY;
       const r = dragging.rect;
@@ -254,7 +256,7 @@
       if (reduced) renderFrame(); else wake();
     });
     const release = (e) => {
-      if (!dragging || dragging.i !== i) return;
+      if (!dragging || dragging.i !== i || e.pointerId !== dragging.pointerId) return;
       const tap = dragging.moved < 6;
       dragging = null;
       N[i].fixed = false;
@@ -278,8 +280,8 @@
   });
   // safety net: if pointer capture failed (Safari) and the release landed off
   // the node, never leave a node frozen with a stuck drag
-  document.addEventListener('pointerup', () => {
-    if (!dragging) return;
+  document.addEventListener('pointerup', (e) => {
+    if (!dragging || e.pointerId !== dragging.pointerId) return;
     const stuck = dragging;
     dragging = null;
     N[stuck.i].fixed = false;
@@ -394,9 +396,13 @@
     const btns = labels.map((lab, k) => {
       const b = el('button', 'gc-tab' + (k === cardTab ? ' is-on' : ''), lab);
       b.type = 'button';
+      b.setAttribute('aria-pressed', String(k === cardTab));   // the pane on show, said as well as coloured
       b.addEventListener('click', () => {
         cardTab = k;
-        btns.forEach((bb, kk) => bb.classList.toggle('is-on', kk === k));
+        btns.forEach((bb, kk) => {
+          bb.classList.toggle('is-on', kk === k);
+          bb.setAttribute('aria-pressed', String(kk === k));
+        });
         panes.forEach((p, kk) => { p.hidden = kk !== k; });
       });
       return b;

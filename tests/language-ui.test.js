@@ -75,25 +75,18 @@ test('reselecting the current locale leaves stateful labels alone and scoped ref
  assert.equal(notifications,0);assert.equal(button.textContent,'Entrando…');h.storage.set('nodal.lang','es');h.api.apply('pt');assert.equal(h.storage.get('nodal.lang'),'pt');assert.equal(notifications,0);
  const link=node('join','nav.panel','My console');h.body.append(link);h.api.refresh(link);assert.equal(link.textContent,'Meu painel');assert.equal(notifications,0);assert.equal(button.textContent,'Entrando…');
 });
-test('account navigation settles before a slow session response and stays stable across language changes',async()=>{
- const nav=node('navbar'),toggle=node('navToggle'),link=node('join','nav.join','Join NODAL');nav.className='navbar';link.tagName='a';nav.append(link);
- const query=nav.querySelector.bind(nav);nav.querySelector=selector=>selector==='[data-i18n="nav.join"]'?link:query(selector);
- let finishSession;
- const h=harness({nodes:[nav,toggle],saved:'pt',respond:()=>new Promise(resolve=>{finishSession=resolve;})});
- let calls=0;h.api.onChange(()=>calls++);h.run('nav');
- assert.equal(link.textContent,'Meu painel');assert.equal(link.href,'/dashboard.html');assert.equal(calls,0);
- finishSession?.({authenticated:true});await flush();assert.equal(link.textContent,'Meu painel');
- h.api.apply('es');assert.equal(link.textContent,'Mi panel');
- h.api.apply('en');assert.equal(link.textContent,'My console');
- h.api.apply('pt');assert.equal(link.textContent,'Meu painel');
+// M103: nav.js no longer rewrites an old "Join NODAL" link (nav.join); every header ships "My console" (nav.panel).
+test('account navigation is markup: nav.js asks for no session and leaves the link to i18n.js, in either load order',async()=>{
+ const header=()=>{const nav=node('navbar'),toggle=node('navToggle'),link=node('join','nav.panel','My console');nav.className='navbar';link.tagName='a';link.href='dashboard.html';nav.append(link);return{nav,toggle,link};};
+ const first=header(),h=harness({nodes:[first.nav,first.toggle],saved:'pt'});
+ let calls=0;h.api.onChange(()=>calls++);h.run('nav');await flush();
+ assert.equal(first.link.textContent,'Meu painel');assert.equal(first.link.href,'dashboard.html');assert.equal(calls,0);
+ h.api.apply('es');assert.equal(first.link.textContent,'Mi panel');
+ h.api.apply('en');assert.equal(first.link.textContent,'My console');
  assert.deepEqual(h.requests,[]);
-});
-test('account navigation works without a session request when navigation loads before translations',()=>{
- const nav=node('navbar'),toggle=node('navToggle'),link=node('join','nav.join','Join NODAL');nav.className='navbar';link.tagName='a';nav.append(link);
- const query=nav.querySelector.bind(nav);nav.querySelector=selector=>selector==='[data-i18n="nav.join"]'?link:query(selector);
- const h=harness({nodes:[nav,toggle],saved:'pt',initializeI18n:false});
- h.run('nav');assert.equal(link.textContent,'My console');assert.equal(link.href,'/dashboard.html');
- h.run('i18n');assert.equal(link.textContent,'Meu painel');assert.deepEqual(h.requests,[]);
+ const early=header(),before=harness({nodes:[early.nav,early.toggle],saved:'pt',initializeI18n:false});
+ before.run('nav');assert.equal(early.link.textContent,'My console');assert.equal(early.link.href,'dashboard.html');
+ before.run('i18n');assert.equal(early.link.textContent,'Meu painel');assert.deepEqual(before.requests,[]);
 });
 test('one failing locale subscriber cannot prevent other views updating',async()=>{
  const h=harness();let translated=false;h.api.onChange(()=>{throw new Error('broken view');});h.api.onChange(()=>Promise.reject(new Error('async broken view')));h.api.onChange(()=>{translated=true;});

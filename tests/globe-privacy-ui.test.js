@@ -11,6 +11,7 @@ class Element {
   replaceChildren(...nodes) { this.children.forEach(node=>{node.parent=null;});this.children=[];this.append(...nodes); }
   remove() { if(this.parent)this.parent.children=this.parent.children.filter(node=>node!==this); }
   get lastElementChild() { return this.children.at(-1); }
+  setAttribute(name,value) { this[name]=String(value); }
   removeAttribute(name) { if(name==='hidden')this.hidden=false;else delete this[name]; }
   addEventListener(type,listener) { this.listeners[type]=listener; }
   dispatchEvent(event) { return this.listeners[event.type]?.(event); }
@@ -104,7 +105,9 @@ test('topic changes invalidate an in-flight snapshot and immediately fetch the s
   assert.doesNotMatch(content(h.ids.globeFeed)+content(h.ids.globePeople)+content(h.ids.globeCity),/Stale/);
   fresh.resolve(reply(snapshot([city('Current city',[member('current','Current name')])])));await flush();
   assert.doesNotMatch(content(h.ids.globeFeed)+content(h.ids.globePeople)+content(h.ids.globeCity),/Stale/);
-  assert.match(content(h.ids.globePeople),/Current name/);
+  // A filtered answer announces nobody and does not spin the globe (M142): the fresh city is there to pick.
+  assert.equal(h.ids.globeFeed.children.length,0);h.key();
+  assert.equal(h.ids.globeCity.textContent,'Current city');assert.match(content(h.ids.globePeople),/Current name/);
 });
 
 

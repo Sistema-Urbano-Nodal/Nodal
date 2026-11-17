@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import {readFileSync} from 'node:fs';
+import {readFileSync,readdirSync} from 'node:fs';
 
 const source=readFileSync(new URL('../web/scripts/nav.js',import.meta.url),'utf8');
 const read=name=>readFileSync(new URL('../web/'+name,import.meta.url),'utf8');
 // The shared header: nav.js on a navbar with its two menu groups, the language buttons and the toggle.
-// on: the language i18n.js has marked .is-on; ariaKey: the toggle's data-i18n-aria-label (payments.html has none).
-function harness({on='es',ariaKey='nav.menuLabel',ids={}}={}){
+// on: the language i18n.js has marked .is-on; the toggle carries its data-i18n-aria-label, as every header does.
+function harness({on='es',ids={}}={}){
   const classes=new Set(),listeners={},attributes={},observers=[],refreshed=[];let focused=false,darkSelector='';
   const link={addEventListener:(name,fn)=>{listeners['link:'+name]=fn;}};
   const group=id=>({id,className:''});
@@ -24,7 +24,7 @@ function harness({on='es',ariaKey='nav.menuLabel',ids={}}={}){
     querySelectorAll:selector=>selector==='a'?[link]:selector==='.lang-btn'?langs:[],
     addEventListener:(name,fn)=>{listeners['nav:'+name]=fn;},
   };
-  const toggle={dataset:ariaKey?{i18nAriaLabel:ariaKey}:{},setAttribute:(name,value)=>{attributes[name]=value;},addEventListener:(name,fn)=>{listeners['toggle:'+name]=fn;},focus:()=>{focused=true;}};
+  const toggle={dataset:{i18nAriaLabel:'nav.menuLabel'},setAttribute:(name,value)=>{attributes[name]=value;},addEventListener:(name,fn)=>{listeners['toggle:'+name]=fn;},focus:()=>{focused=true;}};
   const document={querySelector:()=>nav,getElementById:()=>toggle,querySelectorAll:selector=>{if(selector==='.lang-btn')return langs;darkSelector=selector;return [];}};
   vm.runInNewContext(source,{document,window:{nodalI18n:{refresh:node=>refreshed.push(node)}},MutationObserver:class{constructor(fn){observers.push(fn);}observe(){}}});
   const pick=lang=>{const button=langs.find(b=>b.dataset.lang===lang);langs.forEach(b=>b.classList.toggle('is-on',b===button));button.listeners.click?.();};
@@ -73,18 +73,27 @@ test('the toggle names the menu groups it opens and closes',()=>{
   assert.equal(named.attributes['aria-controls'],'siteNav accountNav','existing ids are kept');
 });
 
-test('a toggle without a translated name gets one (payments.html), and the login and profile toggles carry it in markup',()=>{
-  const bare=harness({ariaKey:''});
-  assert.equal(bare.toggle.dataset.i18nAriaLabel,'nav.menuLabel');assert.deepEqual(bare.refreshed,[bare.toggle]);
-  const marked=harness();assert.deepEqual(marked.refreshed,[],'a marked toggle is left to i18n.js');
-  for(const page of ['login.html','profile.html'])assert.match(read('pages/'+page),/<button type="button" class="nav-toggle" id="navToggle" aria-label="Menu" data-i18n-aria-label="nav\.menuLabel">/,page);
+// M103: nav.js no longer names a toggle itself (payments.html shipped one without a translated name until 12 Oct).
+test('every page header names its menu toggle in markup, and nav.js leaves the name to i18n.js',()=>{
+  assert.deepEqual(harness().refreshed,[],'nav.js translates nothing itself');
+  const headers=readdirSync(new URL('../web/pages/',import.meta.url)).filter(page=>page.endsWith('.html')&&read('pages/'+page).includes('id="navToggle"'));
+  for(const page of ['login.html','profile.html','payments.html'])assert.ok(headers.includes(page),page+' has the shared header');
+  // the toggle's own tag, whatever order its attributes come in
+  for(const page of headers){
+    const tag=read('pages/'+page).match(/<button\b[^>]*\sid="navToggle"[^>]*>/)?.[0]??'';
+    assert.match(tag,/\sdata-i18n-aria-label="nav\.menuLabel"[\s>]/,page);
+    assert.match(tag,/\saria-label="Menu"[\s>]/,page+' names the toggle before i18n.js runs');
+  }
 });
 
 // Finding 39: the white wordmark disappeared over the white "How it works" section.
-test('the wordmark turns white only over dark sections, and the white platform section is not one',()=>{
+// M94: it also went white (about 1.8:1) over the bright green FIIU and closing bands, which carry ink text.
+test('the wordmark turns white only over dark sections, and the white platform and green bands are not ones',()=>{
   const selector=harness().darkSelector();
   assert.match(selector,/\.problem/);assert.doesNotMatch(selector,/\.platform\b/);
   assert.match(read('styles/styles.css'),/\.platform\s*\{\s*background:\s*#fff/,'the platform section is white');
+  assert.doesNotMatch(selector,/\.cta-band\b/);
+  assert.match(read('styles/styles.css'),/\.cta-band\s*\{\s*background:\s*var\(--green-bright\);\s*color:\s*var\(--ink\)/,'the band is light, with ink text');
 });
 
 /* ---------------- shared header CSS (findings 36, 39, 52) ---------------- */
