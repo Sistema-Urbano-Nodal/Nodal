@@ -1709,9 +1709,11 @@
     try {
       const data = await api('/api/auth/me');
       U = normalizeApiUser(data.user);
-      // The publishing desk link is for staff; the server still gates admin.html itself.
+      // The staff group (Team label and the admin home link) is for admins; the server still gates the admin pages.
       const publish = byId('publishLink');
+      const staffLabel = byId('staffLabel');
       if (publish) publish.hidden = data.user?.permission !== 'admin';
+      if (publish && staffLabel) staffLabel.hidden = publish.hidden;
       confirmedCity = U.city;
       state.notifRead = U.notifRead;
       window.nodalLocationCheck?.setUser(data.user);

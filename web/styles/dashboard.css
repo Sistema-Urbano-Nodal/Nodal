@@ -116,7 +116,10 @@ select:focus-visible, textarea:focus-visible {
   border-top: 1px solid var(--rule-ink);
   margin-top: 14px;
 }
-.side-nav > .side-label:first-child { border-top: 0; margin-top: 0; padding-top: 4px; }
+/* The first group's label sits flush with the wordmark. For a member the staff group is hidden, so General (after the
+   hidden link) is the first group they see. */
+.side-nav > .side-label:first-child,
+.side-nav > .side-link[hidden] + .side-label { border-top: 0; margin-top: 0; padding-top: 4px; }
 .side-nav { display: flex; flex-direction: column; gap: 6px; padding: 0 12px; }
 /* same glass buttons as the site header, tuned for a dark pane */
 /* labels wrap instead of being cut — a longer translation must never be
@@ -149,6 +152,12 @@ select:focus-visible, textarea:focus-visible {
   box-shadow: 0 4px 14px rgba(89, 188, 83, .35);
 }
 .side-link.is-active:hover { background: #63c95c; border-color: #63c95c; }
+/* The staff group's way into the admin home (admins only): beige, so it reads as apart from the member links and from
+   the bright-green "you are here" link. */
+.side-link.side-link-staff {
+  background: var(--beige); border-color: var(--beige); color: var(--forest); font-weight: 600;
+}
+.side-link.side-link-staff:hover { background: var(--pastel); border-color: var(--pastel); color: var(--forest); }
 /* press glint: a light burst at the pointer, same gesture as the site header */
 .side-link.glint::after, .side-out.glint::after {
   content: ""; position: absolute; left: var(--gx, 50%); top: var(--gy, 50%);
@@ -998,6 +1007,7 @@ select:focus-visible, textarea:focus-visible {
   }
   .side-nav::-webkit-scrollbar { display: none; }
   .side .side-link:focus-visible { outline-offset: -3px; outline-color: #fff; } /* inside: the scroller clips an outer ring */
+  .side .side-link.side-link-staff:focus-visible { outline-color: var(--forest); } /* white would vanish on beige */
   .side-link.is-active { box-shadow: none; } /* the scroller would cut its glow off at the bottom */
   .side-out { order: 3; }
   .side-privacy { order: 4; }
@@ -1052,7 +1062,7 @@ select:focus-visible, textarea:focus-visible {
    sets display, so [hidden] needs restating. The news block borrows the
    festival widget's ruled rows from fiiu.css; only the pinned label and the
    link to the full list are set here. */
-.side-link[hidden], .ctx-block[hidden] { display: none; }
+.side-link[hidden], .side-label[hidden], .ctx-block[hidden] { display: none; }
 #nodalNews .f-news-pinned { color: var(--forest); font-weight: 650; }
 #nodalNews .f-news-item:first-child { padding-top: 0; }
 #nodalNews .nodal-news-all { display: inline-block; margin-top: var(--f-sp-1, 4px); }

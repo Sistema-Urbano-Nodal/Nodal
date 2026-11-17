@@ -29,9 +29,11 @@ async function consoleFor(me, nodes = {}) {
   const end = source.indexOf('  init();', start);
   assert.ok(start > 0 && end > start, 'dashboard init must stay discoverable');
   const link = { id: 'publishLink', hidden: true };
+  const label = { id: 'staffLabel', hidden: true };
+  const staff = { publishLink: link, staffLabel: label };
   const context = {
     api: async (url) => { assert.equal(url, '/api/auth/me'); return me(); },
-    byId: (id) => (id === 'publishLink' ? link : nodes[id] ?? null),
+    byId: (id) => staff[id] ?? nodes[id] ?? null,
     t: (key) => `t:${key}`,
     normalizeApiUser: (user) => ({ city: 'Lima', role: 'Planner', topics: ['mobility'], notifRead: false, ...user }),
     applyAll() {},
@@ -43,6 +45,8 @@ async function consoleFor(me, nodes = {}) {
   const partA = source.match(/^ {2}const partADone = .*$/m)[0];
   vm.runInNewContext(`let U, confirmedCity;\n${partA}\n${source.slice(start, end)}\nglobalThis.done = init();`, context, { filename: 'dashboard-init.js' });
   await context.done;
+  // Both halves of the staff group move together; a test that reads `.hidden` reads the link.
+  assert.equal(label.hidden, link.hidden, 'the Team label shows exactly when the link does');
   return link;
 }
 
@@ -103,7 +107,7 @@ function liveConsole({ lang = 'es', replies }) {
 }
 const member = { user: { id: 'member', fullName: 'Ana Quispe', title: 'Member', city: 'Lima', topics: [{ name: 'Mobility', level: 1 }], partC: {} } };
 
-test('the console shows the Publishing link to admins only', async () => {
+test('the console shows the staff group (Team label and admin link) to admins only', async () => {
   assert.equal((await consoleFor(async () => ({ user: { id: 'a', permission: 'admin' } }))).hidden, false);
   assert.equal((await consoleFor(async () => ({ user: { id: 'm', permission: 'member' } }))).hidden, true);
   assert.equal((await consoleFor(async () => ({ user: { id: 'x' } }))).hidden, true, 'a user without a permission is a member');
@@ -111,19 +115,45 @@ test('the console shows the Publishing link to admins only', async () => {
   assert.equal((await consoleFor(async () => { throw new Error('api 500'); })).hidden, true, 'a failed session read keeps the link hidden');
 });
 
-test('the Publishing link sits in the Tools rail, hidden until dashboard.js reveals it', () => {
+test('the staff group opens the rail, hidden until dashboard.js reveals it', () => {
   const html = read('web', 'pages', 'dashboard.html');
-  const tools = html.slice(html.indexOf('data-i18n="d.nav.tools"'), html.indexOf('</nav>', html.indexOf('data-i18n="d.nav.tools"')));
-  assert.match(tools, /<a class="side-link" href="admin-home\.html" id="publishLink" hidden>\s*<svg viewBox="0 0 24 24" aria-hidden="true">[\s\S]*?<\/svg>\s*<span data-i18n="d\.nav\.publish">Admin<\/span><\/a>/);
-  // .side-link sets display:flex, which would override the hidden attribute without this rule.
-  assert.match(read('web', 'styles', 'dashboard.css'), /\.side-link\[hidden\][^{]*\{\s*display:\s*none;?\s*\}/);
-  assert.match(read('web', 'scripts', 'dashboard.js'), /publish\.hidden = data\.user\?\.permission !== 'admin'/);
+  const nav = html.slice(html.indexOf('<nav class="side-nav"'), html.indexOf('</nav>', html.indexOf('<nav class="side-nav"')));
+  // First in the rail (and so the first chip of the phone's sideways row), the label before the link, then General.
+  assert.match(nav, /^<nav class="side-nav"[^>]*>\s*<p class="side-label" id="staffLabel" data-i18n="d\.nav\.team" hidden>Team<\/p>\s*<a class="side-link side-link-staff" href="admin-home\.html" id="publishLink" hidden>\s*<svg viewBox="0 0 24 24" aria-hidden="true">([\s\S]*?)<\/svg>\s*<span data-i18n="d\.nav\.publish">Metrics and tools<\/span><\/a>\s*<p class="side-label" data-i18n="d\.nav\.general">/);
+  assert.equal(html.match(/href="admin-home\.html"/g).length, 1, 'one way in: the old link under Tools is gone');
+  const icon = nav.match(/id="publishLink" hidden>\s*<svg[^>]*>([\s\S]*?)<\/svg>/)[1];
+  assert.doesNotMatch(icon, /M4 20V10M12 20V4M20 20v-7/, 'the bar icon belongs to Community paths');
+  const css = read('web', 'styles', 'dashboard.css');
+  // .side-link sets display:flex, which would override the hidden attribute without this rule; the label gets one too.
+  assert.match(css, /\.side-link\[hidden\][^{]*\{\s*display:\s*none;?\s*\}/);
+  assert.match(css, /\.side-label\[hidden\][^{]*\{\s*display:\s*none;?\s*\}/);
+  // A member's rail starts at General: it keeps the first group's spacing when the staff group is hidden.
+  assert.match(css, /\.side-nav > \.side-label:first-child,\s*\.side-nav > \.side-link\[hidden\] \+ \.side-label\s*\{\s*border-top: 0; margin-top: 0; padding-top: 4px;\s*\}/);
+  const staff = css.match(/\.side-link\.side-link-staff\s*\{([^}]*)\}/);
+  assert.ok(staff, 'the staff link has its own look');
+  assert.match(staff[1], /background:\s*var\(--beige\)/);
+  assert.match(staff[1], /border-color:\s*var\(--beige\)/);
+  assert.match(staff[1], /color:\s*var\(--forest\)/);
+  assert.match(css, /\.side-link\.side-link-staff:hover\s*\{[^}]*background:\s*var\(--pastel\)[^}]*color:\s*var\(--forest\)/);
+  // The phone row draws rail focus rings white, which would vanish on beige.
+  const phoneStart = css.indexOf('The rail: the wordmark'), phoneEnd = css.indexOf('/* A narrow window with a mouse');
+  assert.ok(phoneStart > 0 && phoneEnd > phoneStart, "the phone rail block must stay discoverable");
+  const phone = css.slice(phoneStart, phoneEnd);
+  assert.match(phone, /\.side \.side-link\.side-link-staff:focus-visible\s*\{\s*outline-color:\s*var\(--forest\);?\s*\}/);
+  const js = read('web', 'scripts', 'dashboard.js');
+  assert.match(js, /publish\.hidden = data\.user\?\.permission !== 'admin'/);
+  assert.match(js, /staffLabel\.hidden = publish\.hidden/);
 });
 
-test('the Publishing link and the news heading read in Spanish and Portuguese', () => {
-  const expected = { en: ['Admin', 'NODAL news'], es: ['Administración', 'Noticias NODAL'], pt: ['Administração', 'Notícias NODAL'] };
-  for (const [lang, [link, news]] of Object.entries(expected)) {
+test('the staff group, its link and the news heading read in each language', () => {
+  const expected = {
+    en: ['Team', 'Metrics and tools', 'NODAL news'],
+    es: ['Equipo', 'Indicadores y gestión', 'Noticias NODAL'],
+    pt: ['Equipe', 'Indicadores e gestão', 'Notícias NODAL'],
+  };
+  for (const [lang, [team, link, news]] of Object.entries(expected)) {
     const i18n = loadI18n(lang);
+    assert.equal(i18n.t('d.nav.team'), team, lang);
     assert.equal(i18n.t('d.nav.publish'), link, lang);
     assert.equal(i18n.t('news.title'), news, lang);
   }

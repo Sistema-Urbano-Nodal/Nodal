@@ -307,13 +307,13 @@ for(const lang of ['es','pt']){
       // Later additions have their own translation coverage; preserve the original copy baseline.
       // The publishing desk (ops.*), NODAL news (news.*) and the console's desk link are covered by catalog-ui and news-ui;
       // the account-deletion refusal (October 3 review) by review-fix-5-integration;
-      // the console's loading/failure lines and accessible names (d.aria.*) by dashboard-publishing,
+      // the console's loading/failure lines, accessible names (d.aria.*) and staff group label (d.nav.team) by dashboard-publishing,
       // the catalog's nothing-published state by catalog-ui, and the console's Show more / Show less (d.news.*) and FIIU badges
       // (d.badge.fiiu.*) by dashboard-console-ui, the console's readings from BUC under Community paths (d.buc.*) by buc-ui, and the
       // console's two-character name refusal (d.uc.errNameShort) just below and by dashboard-console-ui, and the Founder Membership 2027
       // (y.fund.* on the payments page, mem.fund.* on the landing card) by payments-links-ui, landing-membership and the plan copy
       // test at the end of this file. The Supporter courses lines (mem.p7, y.p6) and the Mercado Pago links page (y.mp.*) they replaced are gone.
-      const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','d.uc.deleteSubscription','d.greet.hello','d.greet.loading','d.load.failed','catalog.emptyNothingPublished','catalog.nextFiiu','catalog.nextCourses','d.uc.errNameShort','page.community.title','page.knowledge.title','page.resources.title'].includes(key)||/^(?:ops|news|d\.aria|d\.news|d\.badge\.fiiu|d\.buc|y\.fund|mem\.fund)\./.test(key);
+      const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','d.nav.team','d.uc.deleteSubscription','d.greet.hello','d.greet.loading','d.load.failed','catalog.emptyNothingPublished','catalog.nextFiiu','catalog.nextCourses','d.uc.errNameShort','page.community.title','page.knowledge.title','page.resources.title'].includes(key)||/^(?:ops|news|d\.aria|d\.news|d\.badge\.fiiu|d\.buc|y\.fund|mem\.fund)\./.test(key);
       const actual=Object.entries(dictionaries[lang]).filter(([key])=>!later(key)).sort(([a],[b])=>a.localeCompare(b,'en'));
       assert.equal(hash(actual),SNAPSHOTS.nonhome[lang],String(page));
       assert.equal(api.t('nav.privacy'),lang==='es'?'Política de privacidad':'Política de privacidade');
