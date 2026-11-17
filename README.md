@@ -259,7 +259,7 @@ stored first and then emailed to the two team members (`server/node-requests-ema
 The admin home reads three protected routes (administrators only, never cached, no GET changes state):
 
 - `GET /api/admin/metrics` answers the indicators in six parts that can each fail alone; `?fresh=1` recomputes instead of using the 5-minute memo (6 a minute per account; 60 a minute otherwise).
-- `GET /api/admin/metrics/export` answers the same figures as CSV.
+- `GET /api/admin/metrics/export?table=indicators|months|readings&lang=es|en|pt` answers one CSV, with exactly one `table` and one `lang` (else 400): `indicators` and `months` are the same figures as the route above, by indicator or by month; `readings` is the saved daily readings.
 - `POST /api/admin/metrics/readings` saves one reading of the totals for the current Lima day, at most once a day, and never one with anything unavailable (6 a minute per account).
 
 Visits are counted by a first-party script, without cookies:
