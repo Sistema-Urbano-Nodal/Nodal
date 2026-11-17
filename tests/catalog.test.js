@@ -412,7 +412,7 @@ test('SQLite export includes interests while account deletion cascades interests
   assert.equal(await repo.getCatalogItem(item.id, { id: admin.id, permission: 'admin' }).then((row) => row.id), item.id);
 });
 
-test('SQLite lists a date-only end date until midnight in Lima and refuses it after', async (t) => {
+test('SQLite lists a date-only end date until midnight in Lima and leaves it out of the open list from then on', async (t) => {
   const { repo, admin } = sqliteCatalogRepo(t);
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-20T12:00:00-05:00') });
   const item = await repo.createCatalogItem(completeCatalogInput({ kind: 'project', subtype: null, deadlineAt: null, endDate: '2026-11-30', actionMode: 'none', actionUrl: '' }), admin.id);
