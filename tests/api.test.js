@@ -706,6 +706,8 @@ test('city search proxies global city provider for authenticated profile autocom
   const citySearch = createCitySearch({
     baseUrl: 'https://city-provider.example/search',
     minIntervalMs: 0,
+    // Its own settings, not the process's: the Vercel build runs this with the deployment's CITY_SEARCH_* values.
+    env: {},
     fetchImpl: async (url, opts) => {
       captured = { url, opts };
       return {
@@ -739,7 +741,7 @@ test('city search proxies global city provider for authenticated profile autocom
   assert.equal(body.cities[0].countryCode, 'BR');
   assert.equal(captured.url.searchParams.get('namePrefix'), 'mococa');
   assert.equal(captured.url.searchParams.get('types'), 'CITY');
-  assert.match(captured.opts.headers['User-Agent'], /NODAL city search/);
+  assert.equal(captured.opts.headers['User-Agent'], 'NODAL city search/1.0');
 });
 
 test('static server does not expose deploy metadata or internal docs', async (t) => {
