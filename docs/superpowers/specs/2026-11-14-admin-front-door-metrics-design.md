@@ -364,8 +364,8 @@ Cuentas nuevas, por mes           Membresías  Cómo se cuenta               21 
   barras: jul 9 · ago 0 · sept 43 ·   0  Fundadores (insignias) …         9 de 17  Encuesta final: respondieron
           oct 473 · nov 0                                                  17  Certificados subidos …
                                   Seguimiento
-                                  Una lectura guardada por mes, para
-                                  comparar los meses.
+                                  La última lectura guardada de cada mes,
+                                  para comparar los meses.
                                   ▸ Ver la lectura de nov 2026
 ```
 
@@ -374,12 +374,16 @@ with a ringed node per stop, each stop's count standing on a pastel column, ever
 says these are counts per stage, never conversion rates. The segment into a stop marked `'apart'` is dotted and
 `texts[lang].routeApart` says why, after a sample of the line; the 30-day stop's node is the page's only `--green`.
 The lead figures that are not stops stand beside it (`#homeLead`), with the queues ("Por atender"): every queue
-is a link, also at 0, and one with something in it is said in `--alert` and comes first. Below, the seven families
+is a link, also at 0, and one with something in it is said in `--alert` and comes first; a queue that could not be
+read is a dash with its reason (then the heading never says that nothing waits), one whose part is not activated is
+not drawn. Below, the seven families
 stand in explicit columns that keep the catalogue's order: the script only chooses where each column ends and
 remembers that cut in the viewer's `localStorage`. Each area is built the same way: the figure first,
 right-aligned in Montserrat `tabular-nums`, then its name with its window in words ("58 en 30 días"); ranked lists
 with thin pastel bars (activity by kind adds each kind's 7 days, or says once that the week had none); each month
-series as small bars in the family of the indicator it splits (`seriesIndicator`); a `pairs` entry as one row
+series as small bars in the family of the indicator it splits (`seriesIndicator`), its latest twelve months (the
+CSV keeps them all), no month's column narrower than its widest figure, a chart wider than its column scrolling in
+its own box opened on the latest month; a `pairs` entry as one row
 ("9 de 17"). "Cómo se cuenta" opens each definition, source and limit under its own row. "Seguimiento" is a
 folded list with one reading and, with two or more, the page's one table: a column per month, the rows grouped by
 family. No cards, shadows or rounded corners, no thick left bars and no rule between rows: a line only for the
