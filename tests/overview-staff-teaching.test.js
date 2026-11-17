@@ -106,3 +106,15 @@ test('M62: a created course whose list cannot be read again still reads as saved
  assert.equal(h.ctx.window.nodalUnsaved(),false,'nothing left unsaved');
 });
 
+test('M65: a participant list cut at 500 says so and points to the CSV; a whole list, or one where only feedback passed 500, does not',async()=>{
+ const people=n=>Array.from({length:n},(_,i)=>({userId:'u'+i,name:'Person '+i,email:'p'+i+'@example.test',enrolledAt:'2026-09-01T00:00:00Z',intake:null}));
+ const english='Preview is limited to 500 records. Export CSV for the complete data.',spanish='La vista se limita a 500 registros. Exporta CSV para obtener todos los datos.';
+ for(const [data,shown,label] of [[report({summary:{enrolled:501},participants:people(500),truncated:true}),true,'cut at 500'],[report({summary:{enrolled:3},participants:people(3)}),false,'whole'],[report({summary:{enrolled:3},participants:people(3),truncated:true}),false,'only feedback passed 500']]){
+  const h=harness(routes(path=>path.endsWith('/report')?data:undefined),{search:'?course=c1&tab=participants'});await flush();
+  const pane=()=>h.ctx.document.getElementById('staff-pane-participants');
+  assert.equal(content(pane()).includes(english),shown,label);
+  if(!shown)continue;
+  assert.ok(descendants(pane()).some(n=>n.href==='/api/admin/courses/c1/export?type=participants'),'the CSV with every participant is in the same pane');
+  h.lang('es');assert.ok(content(pane()).includes(spanish));
+ }
+});

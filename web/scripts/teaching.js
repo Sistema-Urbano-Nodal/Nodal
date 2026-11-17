@@ -268,6 +268,8 @@ function participantView(data,id,version,notice,onRefresh,closed=false,supporter
     row.append(intake);table.append(row);
   }
   wrap.append(table);section.append(data.participants.length?wrap:tr('p','noParticipants','pilot-empty'));
+  // The report lists at most 500 enrolments, oldest first, while the summary counts them all: a cut list says so and points to the CSV.
+  if(data.participants.length<data.summary?.enrolled)section.append(tr('p','limitNote','pilot-data-note'));
   const footer=el('div','pilot-section-footer');footer.append(csvLink(id,'intake','downloadIntake'),tr('p','intakePrivateStaff','pilot-data-note'));section.append(footer);return section;
 }
 
