@@ -31,7 +31,8 @@ const CONSOLE=readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.met
 // keys moved, pinned by tests/overview-console-dashboard.test.js unless named otherwise: d.spine.profileTodo (the route's
 // first stop before Part A is done), d.save.cityKept and d.save.close (a city changed in another tab or on another device),
 // d.uc.deleteReconciling (a deletion refused for a course upload, pinned by tests/dashboard-account-errors.test.js),
-// d.search.directoryUnavailable (a People search that failed) and d.eyebrow.assessmentOne (one topic, in the singular).
+// d.search.directoryUnavailable (a People search that failed), d.eyebrow.assessmentOne (one topic, in the singular) and
+// d.search.catalogEmpty (reworded so it reads right around any scope's name).
 const HOME_KEYS=[
   "about.eyebrow",
   "about.lead1",
@@ -268,8 +269,8 @@ const SNAPSHOTS={
     "pt": "b9a077e4b2055212490393a2498292f0d20156b6f1d4e34f8d7b063179e71d3b"
   },
   "nonhome": {
-    "es": "20bc4011e427bf25f8e45b34bbeefcdabaf5f3a33ff328ec81136330d4449dc4",
-    "pt": "ae6a556e4d6944fc49696d1794cbc584faa78e2e5543b535949f76fe21e6b3ce"
+    "es": "9ec489e28bf52b1c5eb7ad9f1b47b3f2a6e141a61ed7cd62e556c125268770cf",
+    "pt": "c805ced2296f12f682f957228a048d8bdfc6ff5d08dfc78f6015fe97cdc6b30d"
   }
 };
 

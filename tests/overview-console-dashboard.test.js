@@ -427,3 +427,24 @@ test('the self-assessment’s eyebrow counts one topic in the singular, in every
     assert.equal(two.text('assessEyebrow'), plural, lang);
   }
 });
+
+/* ---------------- M48: the catalog's empty line around a scope's name ---------------- */
+
+test('an empty catalog search reads correctly in Spanish and Portuguese, whatever the scope’s gender and number', async () => {
+  const c = consoleFor(ana, { lang: 'es', respond: ({ url }, reply) => (url.startsWith('/api/catalog') ? reply(200, { items: [] }) : undefined) });
+  await flush();
+  const expected = {
+    es: { Projects: 'Proyectos', Knowledge: 'Conocimiento', Opportunities: 'Oportunidades' },
+    pt: { Projects: 'Projetos', Knowledge: 'Conhecimento', Opportunities: 'Oportunidades' },
+  };
+  for (const lang of ['es', 'pt']) {
+    c.i18n.apply(lang, { persist: false });
+    for (const [scope, label] of Object.entries(expected[lang])) {
+      scopeChip(c, scope).click();
+      await searchFor(c, 'beca');
+      assert.equal(c.text('searchPop'), lang === 'es'
+        ? `Sin resultados publicados para “beca” en ${label}.`
+        : `Nenhum resultado publicado para “beca” em ${label}.`, `${lang} ${scope}`);
+    }
+  }
+});
