@@ -291,7 +291,7 @@ test('M66: a Load more that fails is reported on its band and settles, never lef
   assert.equal(d.node('adminNodeList').children.length, 1);
 });
 
-test('M144: a new record whose save got no answer reloads the catalog list before Publish comes back; refusals and edits do not', async () => {
+test('M144: a new record whose save got no answer, or a 5xx, reloads the catalog list before Publish comes back; refusals and edits do not', async () => {
   let stored = [];
   let post = () => response({ error: 'unexpected' }, 500);
   let patch = () => response({ error: 'unexpected' }, 500);
@@ -318,17 +318,34 @@ test('M144: a new record whose save got no answer reloads the catalog list befor
   assert.equal(d.node('adminPublish').disabled, false);
   assert.equal(d.node('adminTitleEn').value, 'Open call for street labs', 'the editor keeps the text');
 
+  // A 504 from the edge, or a 500 from a server whose insert committed before its reply was lost, may sit on a stored row too.
+  for (const [status, body, line] of [[504, {}, 'Save failed (504).'], [500, { error: 'unexpected' }, 'unexpected']]) {
+    const before = reads();
+    post = (call) => {
+      stored = [...stored, { ...record(`landed-${status}`, 'Open call for street labs'), ...call.body, id: `landed-${status}` }];
+      return response(body, status);
+    };
+    await d.node('adminPublish').listeners.get('click')();
+    assert.equal(reads(), before + 1, `a ${status} reads the list again`);
+    assert.ok(catalogRow(d, `landed-${status}`), `the copy behind the ${status} is on the list`);
+    assert.equal(d.node('adminEditorStatus').textContent, line, 'the failure is still what the editor says');
+  }
+
   // A refusal stored nothing: no reload.
+  const settled = reads();
   post = () => response({ error: 'organization is required to publish', field: 'organization' }, 400);
   await d.node('adminPublish').listeners.get('click')();
-  assert.equal(reads(), first + 1);
+  assert.equal(reads(), settled);
   assert.equal(d.node('adminEditorStatus').textContent, 'organization is required to publish');
   // An edit whose answer is lost is caught by its version on the next save: no reload either.
   catalogRow(d, 'landed').listeners.get('click')();
   patch = () => Promise.reject(new TypeError('Failed to fetch'));
   await d.node('adminSaveDraft').listeners.get('click')();
-  assert.equal(reads(), first + 1);
-  assert.equal(d.requests.filter((r) => r.method === 'POST').length, 2);
+  assert.equal(reads(), settled);
+  patch = () => response({}, 504);
+  await d.node('adminSaveDraft').listeners.get('click')();
+  assert.equal(reads(), settled, 'nor when an edit meets a 504');
+  assert.equal(d.requests.filter((r) => r.method === 'POST').length, 4);
 });
 
 test('M64: an interest refused for a stale version says so once the queue has reloaded, and still says so when the reload fails', async () => {
