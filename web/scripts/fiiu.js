@@ -226,9 +226,9 @@
   liveHad=has;
  }
  // A notice is a string key, or {key, email} for "We emailed a summary to <address>.": the sentence follows the language, the address stays as it is.
- // An email that failed or may not arrive is a warning, not the green confirmation.
+ // An email that failed or may not arrive is a warning, not the green confirmation, and so are kept answers the saved registration moved past.
  function showNotice(value){
-  panelNotice.className='f-status f-notice '+(['emailNotSent','emailDelayed'].includes(value)?'is-warning':'is-ok');
+  panelNotice.className='f-status f-notice '+(['emailNotSent','emailDelayed','draftBehind'].includes(value)?'is-warning':'is-ok');
   panelNotice.replaceChildren();status(panelNotice,value?.email?'':value);if(!value?.email)return;
   delete panelNotice.dataset.fiiuText;panelNotice.append(tr('span',value.key),el('span','f-notice-email',' '+value.email+'.'));
  }
@@ -420,14 +420,19 @@
   edited=touched;formDirty=()=>dirty&&!busy;panelIdle=()=>Boolean(existing)&&form.hidden&&!dirty&&!busy&&!conflictBox.children.length;
   // The first form drawn after the page loads takes the tab's draft, once. Its answers are set, then the dependent fields follow, and an #add- block ticks on top.
   // An edit opens the form on it; a new registration can drop it. Either way the panel says the answers were kept and are not saved yet.
+  // A draft typed against another saved version is kept as well: a check-in at a block's door registers the person or adds the block, an organiser's tick
+  // adds one, another device saves or cancels. As Use the current version does after a conflict, the form stays as typed and its next save goes on the
+  // saved registration (or registers again), which the end of the form shows so the person can compare before replacing it.
   if(!draftChecked){
    draftChecked=true;const draft=readDraft();
-   if(draft&&(draft.userId!==expectedUserId||draft.version!==currentVersion||!draft.values||typeof draft.values!=='object'))dropDraft();
+   if(draft&&(draft.userId!==expectedUserId||!draft.values||typeof draft.values!=='object'))dropDraft();
    else if(draft){
     for(const control of form.querySelectorAll('input,select,textarea')){const value=draft.values[control.name];if(value===undefined||control.readOnly||control.name==='nationalId')continue;if(control.type==='checkbox')control.checked=Array.isArray(value)&&value.includes(control.value);else if(typeof value==='string')control.value=value;}
-    syncLab();syncOther();syncForm(true);dirty=true;showNotice('draftRestored');
+    const behind=draft.version!==currentVersion;
+    syncLab();syncOther();syncForm(true);dirty=true;showNotice(behind&&existing?'draftBehind':'draftRestored');
     if(existing)openForm();
     else form.prepend(button('discardDraft',()=>{if(busy||!window.confirm(t('discardRegistrationEdit')))return;dropDraft();renderRegistration();panelHeading.focus();},'f-button secondary f-small f-back'));
+    if(behind){keepDraft();status(message,existing?'latestReplace':'latestCreate');if(existing)conflictBox.replaceChildren(savedSummary(existing,{prefix:'f-itc-'}));}
    }
   }
   // Form-level listeners only: controls keep their single change listener each.

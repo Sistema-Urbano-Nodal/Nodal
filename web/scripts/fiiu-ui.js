@@ -59,6 +59,7 @@
   registrationLoading:['Loading your registration…','Cargando tu inscripción…','Carregando sua inscrição…'],
   // A registration draft kept in the tab, so a reload or a discarded tab keeps the answers (fiiu.js).
   draftRestored:['We kept your unsaved answers. Save to confirm them.','Recuperamos tus respuestas sin guardar. Guarda para confirmarlas.','Recuperamos suas respostas não salvas. Salve para confirmá-las.'],
+  draftBehind:['We kept your unsaved answers, but your registration has changed since then. Review the saved version at the end of the form before replacing it.','Recuperamos tus respuestas sin guardar, pero tu inscripción cambió desde entonces. Revisa la versión guardada al final del formulario antes de reemplazarla.','Recuperamos suas respostas não salvas, mas sua inscrição mudou desde então. Revise a versão salva no final do formulário antes de substituí-la.'],
   discardDraft:['Discard unsaved answers','Descartar respuestas sin guardar','Descartar respostas não salvas'],discardRegistrationEdit:['Discard your unsaved registration changes?','¿Descartar los cambios sin guardar de tu inscripción?','Descartar as alterações não salvas da sua inscrição?'],
   // Registration closed: cancelling cannot be undone, and changes go through the organisers.
   cancelClosed:['Registration is closed, so you will not be able to register again.','La inscripción está cerrada: no podrás volver a inscribirte.','As inscrições estão encerradas: você não poderá se inscrever de novo.'],

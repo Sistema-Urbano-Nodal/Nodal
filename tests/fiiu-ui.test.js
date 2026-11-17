@@ -844,9 +844,33 @@ test('Back to my registration asks before dropping unsaved edits, and an edit re
  assert.equal(box(again.form(),'activities','day2-am').checked,true,'a block added from the programme comes back too');assert.equal(key(cardOf(again,'Cuidar y transformar la ciudad'),'choiceAdded').dataset.fiiuText,'choiceAdded');
  assert.ok(key(again.root.querySelector('.f-registration'),'draftRestored'));
  again.ctx.window.confirm=()=>true;await key(again.form(),'backToSaved').listeners.click();assert.equal(again.form().hidden,true);assert.equal(storage.data.size,0,'discarding drops the draft');
- // A draft made against an older saved version (an edit from another device since) is stale and dropped.
+ // A draft made against an older saved version (an edit from another device since) is kept too, and now edits the saved version (next test).
  const typed=await harness({registration:saved,context});await key(typed.root,'edit').listeners.click();typeInto(typed.form(),'city','Callao');
- const newer=await harness({registration:{...saved,version:2},context});assert.equal(newer.form().hidden,true);assert.equal(field(newer.form(),'city').value,'Lima');assert.equal(storage.data.size,0);
+ const newer=await harness({registration:{...saved,version:2},context});assert.equal(newer.form().hidden,false);assert.equal(field(newer.form(),'city').value,'Callao');
+ assert.ok(key(newer.root.querySelector('.f-registration'),'draftBehind'));assert.equal(JSON.parse(storage.getItem('fiiu.draft')).version,2);
+});
+
+test('a draft typed against another saved version is kept: after a check-in at the door registered the person, or after a cancellation',async()=>{
+ const storage=tabStorage(),context={sessionStorage:storage};
+ const first=await harness({context});typeInto(first.form(),'firstName','Carla');tick(first.form(),'activities','day2-am');
+ // Meanwhile, in another tab, a check-in at the morning block's door registered the person with that block only (version 1).
+ const walkIn={...saved,answers:{firstName:'Ana',lastName:'Test',country:'',city:'Lima',activities:['day1-am'],externalActivities:[],accessibility:[],applyLab:false,walkIn:true}};
+ const h=await harness({registration:walkIn,context,write:request=>({registration:{...walkIn,version:2,answers:request.body}})}),form=h.form(),panel=h.root.querySelector('.f-registration');
+ assert.equal(form.hidden,false,'the form opens on the kept answers');assert.equal(field(form,'firstName').value,'Carla');
+ assert.equal(box(form,'activities','day2-am').checked,true);assert.equal(box(form,'activities','day1-am').checked,false,'the form stays as typed');
+ const notice=key(panel,'draftBehind');assert.ok(notice,'the panel says the registration changed since');assert.match(notice.className,/\bis-warning\b/);assert.equal(key(panel,'draftRestored'),undefined);
+ for(const lang of ['es','pt','en']){h.lang(lang);assert.match(content(notice),{en:/^We kept your unsaved answers, but your registration has changed since then\./,es:/^Recuperamos tus respuestas sin guardar, pero tu inscripción cambió desde entonces\./,pt:/^Recuperamos suas respostas não salvas, mas sua inscrição mudou desde então\./}[lang]);}
+ // The end of the form says what saving does and shows the registration as saved now, with the block added at the door.
+ const compare=form.querySelector('.f-conflict').querySelector('.f-saved');assert.ok(key(form,'latestReplace'));assert.ok(compare);assert.match(content(compare),/El poder de lo local/);
+ assert.equal(JSON.parse(storage.getItem('fiiu.draft')).version,1,'the kept draft now edits the saved version');assert.equal(leave(h),true,'the kept answers are still unsaved');
+ h.fill();await h.submit();const put=h.requests.filter(request=>request.method==='PUT').at(-1).body;
+ assert.deepEqual([put.version,put.registrationId],[1,saved.id],'saving goes on top of the registration made at the door');assert.equal(storage.data.size,0);
+ // An edit whose registration was cancelled since registers again, as Use the current version does after a conflict.
+ const edit=await harness({registration:saved,context});await key(edit.root,'edit').listeners.click();typeInto(edit.form(),'city','Callao');
+ const gone=await harness({registration:null,context,write:request=>({registration:{...saved,id:'00000000-0000-4000-8000-000000000004',answers:request.body}})});
+ assert.equal(field(gone.form(),'city').value,'Callao');assert.ok(key(gone.form(),'latestCreate'));assert.ok(key(gone.form(),'discardDraft'));assert.equal(gone.form().querySelector('.f-saved'),null);
+ assert.ok(key(gone.root.querySelector('.f-registration'),'draftRestored'));
+ gone.fill();await gone.submit();const again=gone.requests.filter(request=>request.method==='PUT').at(-1).body;assert.deepEqual([again.version,again.registrationId],[0,null]);
 });
 
 test('with registration closed, cancelling warns there is no way back, the summary points to the organisers, and the interests hint drops the save step',async()=>{
