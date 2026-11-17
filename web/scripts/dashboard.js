@@ -986,7 +986,7 @@
         btn.setAttribute('aria-pressed', String(on));
       });
     });
-    setText('assessEyebrow', t('d.eyebrow.assessment', { n: U.topics.length }));
+    setText('assessEyebrow', t(U.topics.length === 1 ? 'd.eyebrow.assessmentOne' : 'd.eyebrow.assessment', { n: U.topics.length }));
   }
 
   document.querySelectorAll('.seg[data-ind]').forEach((seg) => {

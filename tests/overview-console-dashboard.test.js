@@ -413,3 +413,17 @@ test('People results translate the server’s Member placeholder, in the languag
   assert.equal(directorySearches(c), 1, 'the answer is kept');
   assert.deepEqual(shown()[0], ['Rosa Huamán', 'Membro da comunidade · Lima'], 'and drawn in the new language');
 });
+
+/* ---------------- M47: one topic is singular ---------------- */
+
+test('the self-assessment’s eyebrow counts one topic in the singular, in every language', async () => {
+  const one = { ...ana, topics: [ana.topics[0]] };
+  for (const [lang, single, plural] of [['en', 'Self-assessment · 1 topic', 'Self-assessment · 2 topics'], ['es', 'Autoevaluación · 1 tema', 'Autoevaluación · 2 temas'], ['pt', 'Autoavaliação · 1 tema', 'Autoavaliação · 2 temas']]) {
+    const c = consoleFor(one, { lang });
+    await flush();
+    assert.equal(c.text('assessEyebrow'), single, lang);
+    const two = consoleFor(ana, { lang });
+    await flush();
+    assert.equal(two.text('assessEyebrow'), plural, lang);
+  }
+});

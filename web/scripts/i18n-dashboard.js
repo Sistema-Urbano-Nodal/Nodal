@@ -57,6 +57,7 @@ window.NODAL_I18N_DASH = {
     'd.eyebrow.paths': 'Paths · {n} open',
     'd.eyebrow.recognition': 'Recognition · {n} of {total}',
     'd.eyebrow.assessment': 'Self-assessment · {n} topics',
+    'd.eyebrow.assessmentOne': 'Self-assessment · 1 topic',
 
     'd.activity.actions': 'Actions this quarter',
     'd.activity.resources': 'Resources shared',
@@ -840,6 +841,7 @@ window.NODAL_I18N_DASH = {
     'd.eyebrow.paths': 'Rutas · {n} abiertas',
     'd.eyebrow.recognition': 'Reconocimiento · {n} de {total}',
     'd.eyebrow.assessment': 'Autoevaluación · {n} temas',
+    'd.eyebrow.assessmentOne': 'Autoevaluación · 1 tema',
 
     'd.activity.actions': 'Acciones este trimestre',
     'd.activity.resources': 'Recursos compartidos',
@@ -1724,6 +1726,7 @@ window.NODAL_I18N_DASH = {
     'd.eyebrow.paths': 'Trilhas · {n} abertas',
     'd.eyebrow.recognition': 'Reconhecimento · {n} de {total}',
     'd.eyebrow.assessment': 'Autoavaliação · {n} temas',
+    'd.eyebrow.assessmentOne': 'Autoavaliação · 1 tema',
 
     'd.activity.actions': 'Ações neste trimestre',
     'd.activity.resources': 'Recursos compartilhados',
