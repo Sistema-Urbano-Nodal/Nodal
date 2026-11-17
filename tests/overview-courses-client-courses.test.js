@@ -35,6 +35,7 @@ const detach = (node) => { if (node.parent) node.parent.children = node.parent.c
 const content = (n) => [n.textContent, ...(n.children || []).map(content)].join(' ');
 const flush = async () => { for (let i = 0; i < 15; i += 1) await new Promise((r) => setImmediate(r)); };
 const findKey = (node, key) => descendants(node).find((n) => n.dataset.pilotText === key);
+const inputNamed = (node, name) => descendants(node).find((n) => n.name === name);
 
 function harness(respond, { page = 'courses', search = '' } = {}) {
   const body = new Node('body'); body.dataset.page = page;
@@ -108,4 +109,35 @@ test('a feedback form without a star says so in the interface language instead o
   if (form.noValidate || !unanswered) await form.listeners.submit({ preventDefault() {}, stopPropagation() {} });
   assert.match(content(box), /Escolha uma avaliação de 1 a 5\./);
   assert.equal(h.requests.length, 0);
+});
+
+test('an attachment the server refuses for what it holds names the formats the course takes', async () => {
+  let refusal = 'file content does not match its type';
+  const h = harness(enrolledCourse((path, opts) => (opts?.method === 'POST' ? { post: { id: 'saved' } } : { posts: [], nextCursor: null, revision: 'r1' })),
+    { page: 'course', search: '?id=c1' });
+  const respond = h.ctx.fetch;
+  h.ctx.fetch = async (path, opts) => (path.endsWith('/attachments') ? (h.requests.push({ path, method: opts?.method }), { ok: false, status: 400, json: async () => ({ error: refusal }) }) : respond(path, opts));
+  h.ctx.AbortSignal = { timeout: (ms) => ({ timeout: ms }) };
+  h.ctx.FileReader = class { readAsDataURL() { this.result = 'data:text/plain;base64,aW5mb3JtZQ=='; this.onload(); } };
+  h.run('courses'); await flush();
+  h.lang('es');
+  const form = descendants(h.body).find((n) => n.tagName === 'form' && inputNamed(n, 'body'));
+  // A text file saved in Windows-1252: the browser types it as text/plain, so the page's own check lets it through.
+  const files = inputNamed(form, 'files');
+  files.files = [{ name: 'informe.txt', type: 'text/plain', size: 2048, lastModified: 1 }];
+  files.listeners.change();
+  inputNamed(form, 'body').value = 'Mi informe';
+  await form.listeners.submit({ preventDefault() {} }); await flush();
+  assert.match(content(form), /Un archivo está en un formato que el curso no acepta\. Usa PDF, JPG, PNG, WebP o texto guardado en UTF-8\./);
+  assert.doesNotMatch(content(form), /Revisa los campos/);
+  assert.equal(h.requests.some((r) => r.method === 'POST' && r.path.endsWith('/posts')), false);
+  h.lang('pt');
+  assert.match(content(form), /Um arquivo está em um formato que o curso não aceita\. Use PDF, JPG, PNG, WebP ou texto salvo em UTF-8\./);
+
+  // The type the server refuses before reading the file says the same; any other refused field keeps the general line.
+  const { api } = h.ctx.window.nodalPilot;
+  refusal = 'unsupported file type: use JPG, PNG, WebP, PDF or text';
+  assert.equal((await api('/api/courses/c1/modules/m1/attachments', {}).catch((error) => error)).translationKey, 'fileType');
+  refusal = 'filename is required';
+  assert.equal((await api('/api/courses/c1/modules/m1/attachments', {}).catch((error) => error)).translationKey, 'invalidInput');
 });

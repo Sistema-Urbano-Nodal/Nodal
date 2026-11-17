@@ -181,6 +181,8 @@ const rows = {
  participantCourseUnavailable:['Publish this course before adding participants.','Publica este curso antes de agregar participantes.','Publique este curso antes de adicionar participantes.'],
 
  fileStillLinked:['Remove this material and save the module before deleting the file.','Quita este material y guarda el módulo antes de borrar el archivo.','Remova este material e salve o módulo antes de excluir o arquivo.'],
+ // A file the server refused for what it holds (pilot.js requestError); fileError is about how many and how large.
+ fileType:['A file is in a format the course does not accept. Use PDF, JPG, PNG, WebP or text saved as UTF-8.','Un archivo está en un formato que el curso no acepta. Usa PDF, JPG, PNG, WebP o texto guardado en UTF-8.','Um arquivo está em um formato que o curso não aceita. Use PDF, JPG, PNG, WebP ou texto salvo em UTF-8.'],
  filePending:['This upload is still being processed. Ask the teaching team to check it before deleting.','Este archivo aún se está procesando. Pide al equipo docente que lo revise antes de borrarlo.','Este envio ainda está sendo processado. Peça à equipe docente que o verifique antes de excluir.'],
  courseCommunity:["Course community", "Comunidad del curso", "Comunidade do curso"],
  generalDiscussion:["General discussion", "Conversación general", "Discussão geral"],
