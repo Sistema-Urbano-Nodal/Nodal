@@ -519,14 +519,15 @@ async function start(){status(msg,t('loading'));
     const hero=el('header','pilot-hero pilot-teaching-hero');hero.append(tr('h1','teaching'),tr('p','teachingIntro'));
     const layout=el('div','pilot-staff-layout'),nav=el('aside','pilot-staff-nav'),list=el('div','pilot-staff-list');list.id='staffCourses';workspace=el('div','pilot-staff-work');
     const create=button('newCourse',()=>{
-      if(!leave())return;selectionVersion++;selectedId=null;workspace.replaceChildren();const section=el('section','pilot-setup');
+      if(!leave())return;selectionVersion++;selectedId=null;workspace.replaceChildren();status(msg,'');const section=el('section','pilot-setup');
       try{history.replaceState(null,'',location.pathname);}catch{/* The view works without it. */}
       section.append(tr('h2','newCourse'),makeEditor(null,false,null,async c=>{await refreshList();await showCourse(c.id,'courseSetup');}));workspace.append(section);
     },true);
     nav.append(tr('h2','courses'),list,button('allFeedback',()=>{if(leave())allFeedback();},true),create);layout.append(nav,workspace);root.append(hero,layout);
     await refreshList(false);
     const q=new URLSearchParams(location.search),wanted=courses.find(c=>c.id===q.get('course'))?.id||courses[0]?.id;
-    if(wanted)await showCourse(wanted,q.get('tab')||undefined);else create.click();status(msg,'');
+    // showCourse clears the line once the course is drawn, and leaves its error there when it cannot be; New course clears it itself.
+    if(wanted)await showCourse(wanted,q.get('tab')||undefined);else create.click();
   }catch(err){status(msg,err);}
 }
 start();

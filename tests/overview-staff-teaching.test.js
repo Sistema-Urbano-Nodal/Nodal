@@ -53,6 +53,7 @@ const routes=(over=()=>undefined)=>async(path,opts)=>{
  return{course,modules:[]};
 };
 const byName=(node,name)=>descendants(node).find(n=>n.name===name);
+const findKey=(node,key)=>descendants(node).find(n=>n.dataset.pilotText===key);
 
 test('M61/M141: the workspace tells the staff bar about unsaved editors, and once signed out its leave prompt asks nothing more',async()=>{
  const h=harness(routes(),{search:'?course=c1&tab=courseSetup'});await flush();
@@ -65,3 +66,24 @@ test('M61/M141: the workspace tells the staff bar about unsaved editors, and onc
  h.ctx.window.nodalSignedOut=true;
  assert.equal(h.leaveAsks(),false,'signed out from the staff bar: the session is closed, so the page does not ask a second time');
 });
+
+test('M59: a course that cannot be read on opening keeps its error on the status line, and New course clears the line itself',async()=>{
+ const h=harness(routes(path=>path.endsWith('/report')?{status:503,data:{error:'unavailable'}}:undefined),{search:'?course=c1&tab=participants'});await flush();
+ assert.equal(h.status(),'Could not complete this request.','the reason stays next to the empty workspace');
+ assert.equal(h.ctx.document.getElementById('staff-pane-participants'),undefined);
+ findKey(h.body,'newCourse').click();
+ assert.equal(h.status(),'','New course replaces the workspace and clears the line');
+ // Pressed while the first course is still loading: nothing stays on "Loading…".
+ let release;const slow=harness(routes(path=>path.endsWith('/report')?new Promise(resolve=>{release=resolve;}):undefined));await flush();
+ assert.equal(slow.status(),'Loading…');
+ findKey(slow.body,'newCourse').click();
+ assert.equal(slow.status(),'');
+ release(report());await flush();
+ assert.equal(slow.status(),'');
+ assert.ok(descendants(slow.body).some(n=>n.tagName==='form'),'the late course does not replace the New course form');
+ assert.equal(slow.ctx.document.getElementById('staff-pane-responses'),undefined);
+ // No course yet: the New course form opens with nothing on the line.
+ const empty=harness(routes(path=>path==='/api/admin/courses'?{courses:[]}:undefined));await flush();
+ assert.equal(empty.status(),'');assert.ok(descendants(empty.body).some(n=>n.tagName==='form'));
+});
+
