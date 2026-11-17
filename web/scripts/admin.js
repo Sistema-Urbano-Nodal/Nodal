@@ -87,7 +87,6 @@
     newsDraft: byId('adminNewsDraft'),
     newsDelete: byId('adminNewsDelete'),
     newsStatus: byId('adminNewsStatus'),
-    signOut: byId('adminSignOut'),
     tabNews: byId('adminTabNews'),
     tabCatalog: byId('adminTabCatalog'),
     tabInterests: byId('adminTabInterests'),
@@ -1410,21 +1409,6 @@
     news.conflict = null;
     elements.newsConflict.hidden = true;
     return saveNews(news.pending);
-  });
-
-  elements.signOut.addEventListener('click', async () => {
-    elements.signOut.disabled = true;
-    say(elements.editorStatus, 'ops.signingOut');
-    try {
-      const response = await fetch('/api/auth/logout', {
-        method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' },
-      });
-      if (!response.ok) throw apiError({}, 'ops.signOutFailed', response.status);
-      location.assign('/login.html');
-    } catch (error) {
-      elements.signOut.disabled = false;
-      report(elements.editorStatus, error, 'ops.signOutUnavailable');
-    }
   });
 
   /* The tab row scrolls sideways when its labels do not fit (phones; tablets in Spanish or Portuguese).
