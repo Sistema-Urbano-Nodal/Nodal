@@ -44,20 +44,27 @@ unused variables, duplicate keys, and unreachable code, runs the tests, then
 rebuilds the static output. `npm run lint` runs just the source checks; CI runs
 the full build plus the dependency audit.
 
-CI also starts a disposable PostgreSQL 15 service with five empty UTF-8 databases,
-so the interaction-retention, course-upload-quota, FIIU, NODAL news and visit-count integration
+CI also starts a disposable PostgreSQL 15 service with eight empty UTF-8 databases,
+so the interaction-retention, course-upload-quota, FIIU, NODAL news, visit-count,
+Founder Membership acceptance, festival conversation and account-erasure integration
 tests run on every pull request and CI push. These tests exercise migrations, database
 permissions, and concurrent writes using independent PostgreSQL sessions.
 The shared test roles are created before the suite to avoid racing during setup.
+A second CI job runs the same build without PostgreSQL and with stand-ins for Vercel
+Production's variables (placeholder values on `.invalid` hosts, no secrets), so a test
+that only passes while those variables are unset fails in CI instead of in the deploy.
 
 Local and Vercel builds still work without PostgreSQL. To include the integrations
 locally, provide `NODAL_INTERACTION_TEST_DATABASE_URL`,
 `NODAL_COURSE_QUOTA_TEST_DATABASE_URL`, `NODAL_FIIU_TEST_DATABASE_URL`,
-`NODAL_NEWS_TEST_DATABASE_URL` and `NODAL_METRICS_TEST_DATABASE_URL`, pointing
-respectively to **empty disposable local databases** named
-`nodal_interaction_test_<suffix>`, `nodal_course_quota_test_<suffix>`,
-`nodal_fiiu_test_<suffix>`, `nodal_news_test_<suffix>` and
-`nodal_metrics_test_<suffix>` on 127.0.0.1, localhost or [::1], then run
+`NODAL_NEWS_TEST_DATABASE_URL`, `NODAL_METRICS_TEST_DATABASE_URL`,
+`NODAL_MEMBERSHIP_TEST_DATABASE_URL`, `NODAL_FIIU_TALK_TEST_DATABASE_URL` and
+`NODAL_ERASURE_TEST_DATABASE_URL`, pointing respectively to **empty disposable
+local databases** named `nodal_interaction_test_<suffix>`,
+`nodal_course_quota_test_<suffix>`, `nodal_fiiu_test_<suffix>`,
+`nodal_news_test_<suffix>`, `nodal_metrics_test_<suffix>`,
+`nodal_membership_test_<suffix>`, `nodal_fiiu_test_talk_<suffix>` and
+`nodal_erasure_test_<suffix>` on 127.0.0.1, localhost or [::1], then run
 `npm run build`. The tests install fixtures and require fresh databases for each
 run; never use production data. Each variable is optional; a suite without its
 database is skipped. The `psql` client must be available, and the databases must
@@ -101,7 +108,7 @@ Production schema migrations live in:
 supabase/migrations/
 ```
 
-Apply them in order with the Supabase CLI. They create the app tables, enable RLS, and install the forward security hardening for existing projects.
+They create the app tables, enable RLS, and install the forward security hardening for existing projects. **Never run `supabase db push` against production**: its migration history records the schema under other versions, and forcing it re-runs applied files. In production, apply only the new files, one at a time and in timestamp order, with `npx --no-install supabase db query --linked -f supabase/migrations/<file>.sql`, then the project owner records them with `npx supabase migration repair --status applied <version>` (see "SQL Migration Steps" in [DEPLOYMENT.md](DEPLOYMENT.md)). `db push` is only for a fresh preview project whose history matches these files from the start.
 
 ## Run Locally
 
@@ -230,9 +237,10 @@ Titles are limited to 120 characters, summaries to 320, bodies to 5,000, CTA
 labels to 60, source labels to 120, and interest messages to 1,000. Dates accept
 only YYYY-MM-DD or RFC 3339 datetimes with a known explicit timezone (`Z` or a
 numeric offset other than `-00:00`). Date-only end
-dates remain open through 23:59:59.999 UTC; every stored date is canonical UTC.
-When dates coexist, deadline must be on or before start and end, and start must
-be on or before end.
+dates are stored as 23:59:59.999 UTC and stay open until the end of that day in
+Lima (UTC-05:00); every stored date is canonical UTC. When dates coexist,
+deadline must be on or before start and end, and start must be on or before end;
+a date-only end date counts as the end of its day in Lima.
 
 A transition from draft or archived to published refreshes the publication timestamp and publisher. Editing an already-published record preserves both values. Archiving keeps the record and its interest history; there is no catalog hard delete.
 
@@ -259,7 +267,7 @@ stored first and then emailed to the two team members (`server/node-requests-ema
 The admin home reads three protected routes (administrators only, never cached, no GET changes state):
 
 - `GET /api/admin/metrics` answers the indicators in six parts that can each fail alone; `?fresh=1` recomputes instead of using the 5-minute memo (6 a minute per account; 60 a minute otherwise).
-- `GET /api/admin/metrics/export` answers the same figures as CSV.
+- `GET /api/admin/metrics/export?table=indicators|months|readings&lang=es|en|pt` answers one CSV, with exactly one `table` and one `lang` (else 400): `indicators` and `months` are the same figures as the route above, by indicator or by month; `readings` is the saved daily readings.
 - `POST /api/admin/metrics/readings` saves one reading of the totals for the current Lima day, at most once a day, and never one with anything unavailable (6 a minute per account).
 
 Visits are counted by a first-party script, without cookies:
@@ -273,7 +281,7 @@ content to satisfy this release gate.
 
 ## Production
 
-Vercel serves generated JavaScript, CSS, and optimized images from `public/` before routing HTML pages and API requests through `api/index.js`. The adapter forwards those requests to the existing Node app, preserving protected-route redirects, API auth checks, security headers, and explicit static-file allowlisting.
+Vercel serves the generated JavaScript, CSS, fonts, optimized images and four pages (opportunities, privacy, terminos-fundadores and fundadores) from `public/` before routing every other page and the API requests through `api/index.js`. The adapter forwards those requests to the existing Node app, preserving protected-route redirects, API auth checks, security headers, and explicit static-file allowlisting.
 
 Build gate:
 

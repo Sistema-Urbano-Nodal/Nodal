@@ -50,15 +50,20 @@
     window.location.assign(loginHref(itemId));
   }
 
-  function dateText(value, { civil = false } = {}) {
+  /* A calendar day (a date, or a day stored as a UTC boundary) reads the same everywhere. An instant set on the desk
+     (a deadline, a start) reads in Lima, the business clock, so no visitor sees another day; with time, as in the
+     detail, it also gives the hour and its offset. */
+  function dateText(value, { civil = false, time = false } = {}) {
     if (!value) return t('catalog.noDeadline');
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return t('catalog.noDeadline');
     const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
     const utcCivilBoundary = /^\d{4}-\d{2}-\d{2}T(?:00:00:00(?:\.000)?|23:59:59\.999)Z$/.test(value);
-    return new Intl.DateTimeFormat(I18N?.lang || 'en', {
-      dateStyle: 'medium', ...(civil || dateOnly || utcCivilBoundary ? { timeZone: 'UTC' } : {}),
-    }).format(date);
+    const lang = I18N?.lang || 'en';
+    if (civil || dateOnly || utcCivilBoundary) return new Intl.DateTimeFormat(lang, { dateStyle: 'medium', timeZone: 'UTC' }).format(date);
+    return new Intl.DateTimeFormat(lang, time
+      ? { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/Lima', timeZoneName: 'short' }
+      : { dateStyle: 'medium', timeZone: 'America/Lima' }).format(date);
   }
 
   function addMeta(container, label, value) {
@@ -91,12 +96,6 @@
     return anchor;
   }
 
-  function detailPermalink(item, className = 'dispatch-details') {
-    const link = create('a', className, t('catalog.viewDetails'));
-    link.href = `opportunities.html?${new URLSearchParams({ id: item.id })}`;
-    return link;
-  }
-
   function renderDispatch(item, onSelect) {
     const row = create('article', `dispatch-row${item.isClosed ? ' is-closed' : ''}`);
     const rail = create('div', 'dispatch-rail');
@@ -106,12 +105,10 @@
     const main = create('div', 'dispatch-main');
     const kind = create('p', 'dispatch-kind', t(kindKey(item.kind)));
     const title = create('h3', 'dispatch-title');
-    if (onSelect) {
-      const button = create('button', 'dispatch-title-button', item.title);
-      button.type = 'button';
-      button.addEventListener('click', () => onSelect(item.id, button));
-      title.append(button);
-    } else title.textContent = item.title;
+    const button = create('button', 'dispatch-title-button', item.title);
+    button.type = 'button';
+    button.addEventListener('click', () => onSelect(item.id, button));
+    title.append(button);
     main.append(kind, title, create('p', 'dispatch-summary', item.summary || ''));
     const meta = create('div', 'dispatch-meta');
     addMeta(meta, t('catalog.organization'), item.organization);
@@ -123,75 +120,12 @@
       create('span', 'source-date', dateText(item.sourceVerifiedAt, { civil: true })));
     const action = item.actionMode === 'external' ? officialAnchor(item, true) : null;
     if (action && !item.isClosed) source.append(action);
-    if (onSelect) {
-      const details = create('button', 'dispatch-details', t('catalog.viewDetails'));
-      details.type = 'button';
-      details.addEventListener('click', () => onSelect(item.id, details));
-      source.append(details);
-    } else source.append(detailPermalink(item));
+    const details = create('button', 'dispatch-details', t('catalog.viewDetails'));
+    details.type = 'button';
+    details.addEventListener('click', () => onSelect(item.id, details));
+    source.append(details);
     row.append(rail, main, source);
     return row;
-  }
-
-  function renderCase(item, onSelect) {
-    const article = create('article', 'case-record');
-    article.append(create('p', 'dispatch-kind', t(kindKey(item.kind))), create('h3', '', item.title),
-      create('p', '', item.summary || ''));
-    const meta = create('div', 'dispatch-meta');
-    addMeta(meta, t('catalog.organization'), item.organization);
-    addMeta(meta, t('catalog.location'), item.location);
-    article.append(meta, sourceAnchor(item));
-    if (onSelect) {
-      const button = create('button', 'catalog-text-button', t('catalog.viewDetails'));
-      button.type = 'button';
-      button.addEventListener('click', () => onSelect(item.id, button));
-      article.append(button);
-    } else {
-      article.append(detailPermalink(item, 'catalog-text-link'));
-    }
-    return article;
-  }
-
-  let landingController;
-  let landingRequest = 0;
-  async function loadLandingRegion({ container, status, params, emptyKey, controller, requestId, cases = false }) {
-    if (!container || !status) return;
-    const isCurrent = () => landingRequest === requestId && landingController === controller;
-    status.textContent = t(cases ? 'catalog.loadingCases' : 'catalog.loading');
-    container.setAttribute('aria-busy', 'true');
-    try {
-      const response = await jsonRequest(`/api/catalog?${params}`,
-        { signal: controller.signal });
-      if (!response.ok) throw new Error('catalog read failed');
-      const payload = await response.json();
-      if (!isCurrent()) return;
-      clear(container);
-      payload.items.forEach((item) => container.append(cases ? renderCase(item) : renderDispatch(item)));
-      status.textContent = payload.items.length ? '' : t(emptyKey);
-    } catch (error) {
-      if (error.name !== 'AbortError' && isCurrent()) {
-        clear(container);
-        status.textContent = t(cases ? 'catalog.casesError' : 'catalog.error');
-      }
-    } finally {
-      if (isCurrent()) container.setAttribute('aria-busy', 'false');
-    }
-  }
-
-  async function loadLanding() {
-    const open = byId('landingOpenWork');
-    const cases = byId('landingCases');
-    if (!open && !cases) return;
-    landingController?.abort();
-    const controller = new AbortController();
-    const requestId = ++landingRequest;
-    landingController = controller;
-    const lang = encodeURIComponent(I18N?.lang || 'en');
-    await Promise.all([
-      loadLandingRegion({ container: open, status: byId('landingOpenWorkStatus'), params: `lang=${lang}&kind=opportunity%2Cproject%2Clearning_circle%2Cresource&featured=true&state=open&limit=4`, emptyKey: 'catalog.empty', controller, requestId }),
-      loadLandingRegion({ container: cases, status: byId('landingCasesStatus'), params: `lang=${lang}&kind=case_study&state=all&limit=3`, emptyKey: 'catalog.casesEmpty', controller, requestId, cases: true }),
-    ]);
-    if (landingController === controller) landingController = null;
   }
 
   let authenticated = false;
@@ -210,14 +144,6 @@
     if (requestId !== authRequest) return authenticated;
     authenticated = nextAuthenticated;
     authResolved = true;
-    const primary = byId('heroPrimary');
-    const secondary = byId('heroSecondary');
-    if (primary && secondary && authenticated) {
-      primary.href = 'opportunities.html?view=interests';
-      primary.textContent = t('catalog.myInterests');
-      secondary.href = 'opportunities.html';
-      secondary.textContent = t('hero.browse');
-    }
     const toggle = byId('catalogMyInterestsToggle');
     if (toggle) toggle.hidden = !authenticated;
     if (page.detailItem) renderInterestControls(page.detailItem);
@@ -305,7 +231,6 @@
       page.nextCursor = payload.nextCursor;
       page.more.hidden = !page.nextCursor;
       const count = page.results.children.length;
-      // kind and state come from hub links; with no search of its own, adjusting filters cannot help
       // A kind or state arriving from a hub link is not the visitor's own filter; one they changed here is.
       const searched = page.userFiltered || ['q', 'topic', 'location'].some((name) => params.has(name));
       page.status.textContent = count ? t('catalog.resultsReady', { n: count }) : searched ? t('catalog.empty') : t('catalog.emptyNothingPublished');
@@ -331,8 +256,8 @@
     addMeta(box, t('catalog.organization'), item.organization);
     addMeta(box, t('catalog.location'), item.location);
     if (item.subtype) addMeta(box, t('catalog.subtype'), t(`catalog.subtype.${item.subtype}`));
-    if (item.startsAt) addMeta(box, t('catalog.startsAt'), dateText(item.startsAt));
-    if (item.deadlineAt) addMeta(box, t('catalog.deadline'), dateText(item.deadlineAt));
+    if (item.startsAt) addMeta(box, t('catalog.startsAt'), dateText(item.startsAt, { time: true }));
+    if (item.deadlineAt) addMeta(box, t('catalog.deadline'), dateText(item.deadlineAt, { time: true }));
     if (item.endDate) addMeta(box, t('catalog.endDate'), dateText(item.endDate));
     if (item.sourceVerifiedAt) addMeta(box, t('catalog.sourceVerified'), dateText(item.sourceVerifiedAt, { civil: true }));
     if (item.topics?.length) addMeta(box, t('catalog.topics'), item.topics.join(' · '));
@@ -373,6 +298,8 @@
   }
 
   function renderDetail(item) {
+    // A message is for one listing: a different listing starts empty, the same one read again keeps what was written.
+    const sameListing = byId('catalogInterestForm').dataset.itemId === item.id;
     page.detailItem = item;
     byId('catalogDetailKind').textContent = t(kindKey(item.kind));
     byId('detailTitle').textContent = item.title;
@@ -389,12 +316,13 @@
     }
     const official = item.actionMode === 'external' && !item.isClosed ? officialAnchor(item) : null;
     if (official) actions.append(official);
-    renderInterestControls(item, { resetMessage: true });
+    renderInterestControls(item, { resetMessage: !sameListing });
     page.detail.hidden = false;
     page.detailStatus.textContent = '';
   }
 
-  async function selectDetail(id, trigger = null) {
+  // quiet: the listing on screen is read again (in another language) where it is, neither hidden nor scrolled to.
+  async function selectDetail(id, trigger = null, { quiet = false } = {}) {
     if (!page.detail || !page.detailStatus) return;
     page.detailVersion++;
     page.detailTrigger = trigger;
@@ -404,7 +332,7 @@
     page.detailController?.abort();
     const controller = new AbortController();
     page.detailController = controller;
-    page.detail.hidden = true;
+    if (!quiet) page.detail.hidden = true;
     page.detailStatus.textContent = t('catalog.detailLoading');
     try {
       const response = await jsonRequest(`/api/catalog/${encodeURIComponent(id)}?lang=${encodeURIComponent(I18N?.lang || 'en')}`, { signal: controller.signal });
@@ -415,10 +343,14 @@
       if (trigger && (!document.activeElement || document.activeElement === trigger)) {
         byId('detailTitle').focus({ preventScroll: true });
       }
-      page.detail.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+      if (!quiet) page.detail.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     } catch (error) {
       const isCurrent = page.detailController === controller && page.selectedId === id;
-      if (error.name !== 'AbortError' && isCurrent) page.detailStatus.textContent = t('catalog.detailUnavailable');
+      // A quiet read that fails takes the listing off screen too: the old language's text stays out of view.
+      if (error.name !== 'AbortError' && isCurrent) {
+        page.detail.hidden = true;
+        page.detailStatus.textContent = t('catalog.detailUnavailable');
+      }
     } finally {
       if (page.detailController === controller) page.detailController = null;
     }
@@ -486,7 +418,8 @@
     return updateInterest(itemId, { method: 'DELETE' });
   }
 
-  async function loadMyInterests() {
+  // reveal: the member pressed My interests, whose section sits below the results, so the page goes there.
+  async function loadMyInterests({ reveal = false } = {}) {
     const section = byId('catalogMyInterests');
     const status = byId('catalogMyInterestsStatus');
     const list = byId('catalogMyInterestsList');
@@ -498,6 +431,10 @@
     section.hidden = false;
     status.textContent = t('catalog.loadingInterests');
     clear(list);
+    if (reveal) {
+      byId('myInterestsTitle')?.focus({ preventScroll: true });
+      section.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    }
     try {
       const interests = [];
       const cursors = new Set();
@@ -582,7 +519,12 @@
     readBrowserQuery();
     page.form.addEventListener('submit', (event) => { event.preventDefault(); page.userFiltered = true; runFilters(); });
     page.form.addEventListener('input', debounceFilters);
-    page.form.addEventListener('change', debounceFilters);
+    // A typed field has already searched on 'input'. Its 'change' comes again when it loses focus, which is the first
+    // click on a result or on Load more, and searching again then closed that listing or refused that page.
+    page.form.addEventListener('change', (event) => {
+      if (['text', 'search'].includes(event.target?.type)) return;
+      debounceFilters();
+    });
     page.more.addEventListener('click', () => loadResults({ append: true }));
     byId('catalogDetailClose').addEventListener('click', () => closeDetail({ restoreFocus: true }));
     page.detail.addEventListener('keydown', (event) => {
@@ -593,7 +535,7 @@
     });
     byId('catalogInterestForm').addEventListener('submit', submitInterest);
     byId('catalogWithdrawInterest').addEventListener('click', withdrawInterest);
-    byId('catalogMyInterestsToggle').addEventListener('click', loadMyInterests);
+    byId('catalogMyInterestsToggle').addEventListener('click', () => loadMyInterests({ reveal: true }));
     byId('catalogMyInterestsClose').addEventListener('click', () => {
       page.interestsController?.abort();
       page.interestsController = null;
@@ -605,12 +547,12 @@
   }
 
   function refetchForLanguage() {
-    const requests = [loadAuthState(), loadLanding()];
+    const requests = [loadAuthState()];
     if (page.form) {
       page.nextCursor = null;
       if (page.more) page.more.hidden = true;
       requests.push(loadResults());
-      if (page.selectedId) requests.push(selectDetail(page.selectedId));
+      if (page.selectedId) requests.push(selectDetail(page.selectedId, null, { quiet: !page.detail.hidden }));
       if (!byId('catalogMyInterests').hidden) requests.push(loadMyInterests());
     }
     return Promise.all(requests);
@@ -618,6 +560,5 @@
 
   window.nodalI18n.onChange(refetchForLanguage);
   loadAuthState();
-  loadLanding();
   initCatalogPage();
 })();

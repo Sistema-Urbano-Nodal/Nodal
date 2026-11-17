@@ -15,7 +15,6 @@
   /* liquid glass */
   --glass-header: rgba(173,222,168,.6); /* light green glass header    */
   --glass-white:  rgba(255,255,255,.55);
-  --glass-line:   rgba(255,255,255,.16);
 
   /* neutrals */
   --plaster:     var(--beige);
@@ -78,7 +77,8 @@ h1, h2, h3 {
 .btn:hover { transform: translate(-2px,-2px); }
 .btn:active { transform: translate(1px,1px); transition-duration: .08s; }
 .btn:disabled, .btn[disabled], .btn[aria-disabled="true"] { opacity: .45; pointer-events: none; transform: none; }
-/* .btn sets display, which would otherwise override the hidden attribute (the landing Supporter button ships hidden). */
+/* .btn sets display, which would otherwise override the hidden attribute (the Founders page's join links,
+   data-fund-join on fundadores.html, ship hidden until fundadores.js shows them). */
 .btn[hidden] { display: none; }
 .btn-primary { background: var(--green-bright); color: #fff; box-shadow: 4px 4px 0 var(--ink); }
 .btn-primary:hover { background: var(--green-hover); box-shadow: 6px 6px 0 var(--ink); }
@@ -280,21 +280,12 @@ h1, h2, h3 {
   .hero-net .hn-halo { animation: none; }
 }
 
-/* coordinate captions */
-.hero-coord {
-  position: absolute; z-index: 4; font-family: var(--font-mono);
-  font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--concrete);
-  pointer-events: none;
-}
-.hero-coord--tr { top: 28px; right: clamp(20px, 5vw, 56px); }
-.hero-coord--bl { bottom: 28px; left: clamp(24px, 5vw, 70px); }
-
 .hero-content { position: relative; z-index: 2; max-width: 900px;
   padding: clamp(44px, 8vh, 92px) clamp(24px, 5vw, 70px) clamp(40px, 7vh, 80px); }
 
 .hero-kicker {
   font-family: var(--font-mono); font-size: 13px; letter-spacing: .14em; text-transform: uppercase;
-  color: var(--concrete); margin-bottom: 24px; display: inline-flex; align-items: center; gap: .8em;
+  color: var(--ink-2); margin-bottom: 24px; display: inline-flex; align-items: center; gap: .8em;
   opacity: 0; transform: translateY(12px); animation: rise .7s cubic-bezier(.2,.8,.2,1) .05s forwards;
 }
 .hero-kicker::before { content: ""; width: 28px; height: 1px; background: var(--green-bright); }
@@ -328,10 +319,10 @@ h1, h2, h3 {
   box-decoration-break: clone;
 }
 .hero-cta { margin-top: 30px; display: flex; gap: 14px; flex-wrap: wrap; opacity: 1; transform: none; }
-.headline.in ~ .hero-sub { animation: rise .7s cubic-bezier(.2,.8,.2,1) .9s forwards; }
-.headline.in ~ .hero-cta { animation: rise .7s cubic-bezier(.2,.8,.2,1) 1.05s forwards; }
 
+/* the headline lines rise in once script.js adds .in; with scripts off nothing adds it, so they rest in place */
 .headline > span { opacity: 0; transform: translateY(18px); }
+@media (scripting: none) { .headline > span { opacity: 1; transform: none; } }
 .headline.in .word-building { animation: rise .7s cubic-bezier(.2,.8,.2,1) .1s forwards; }
 .headline.in .word-infra    { animation: rise .7s cubic-bezier(.2,.8,.2,1) .25s forwards; }
 .headline.in .word-collab   { animation: rise .7s cubic-bezier(.2,.8,.2,1) .4s forwards; }
@@ -429,11 +420,9 @@ h1, h2, h3 {
 .graph-panel::before, .graph-panel::after { content: ""; position: absolute; width: 18px; height: 18px; border: 2px solid var(--green-bright); }
 .graph-panel::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
 .graph-panel::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
-.graph-axis { position: absolute; top: 14px; left: 18px; z-index: 2; font-family: var(--font-mono);
-  text-transform: uppercase; letter-spacing: .16em; font-size: 11px; font-weight: 600; color: var(--concrete); }
 #graph { width: 100%; height: auto; display: block; }
 .graph-hint { font-family: var(--font-mono); text-transform: uppercase; letter-spacing: .14em; font-weight: 600;
-  font-size: 11px; color: var(--concrete); margin-top: 14px; text-align: right; }
+  font-size: 11px; color: var(--muted); margin-top: 14px; text-align: right; }
 .gnode { cursor: grab; outline: none; transition: opacity .25s ease; touch-action: none; }
 .gnode.is-drag { cursor: grabbing; }
 .gnode circle { transform-box: fill-box; transform-origin: center; }
@@ -550,12 +539,6 @@ h1, h2, h3 {
   border: 1px solid var(--hairline); border-radius: var(--r-card); overflow: hidden;
   box-shadow: 8px 10px 0 rgba(61,92,56,.08);
   transition: transform .35s ease, opacity .35s ease; }
-/* member-file strip — the card is a numbered node record, not a tinder clone */
-.match-file { display: flex; justify-content: space-between; align-items: center; gap: 12px;
-  padding: 10px 16px; border-bottom: 1px solid var(--hairline);
-  font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: .14em;
-  text-transform: uppercase; color: var(--concrete); }
-.match-file span:first-child { color: var(--green-deep); }
 /* dot-grid avatar placeholder */
 .match-avatar, .leader-photo {
   display: grid; place-items: center;
@@ -586,19 +569,6 @@ h1, h2, h3 {
 .m-like { background: var(--green-bright); color: #fff; }
 .leader-initial { font-family: var(--font-display); font-weight: 800; font-size: 54px; line-height: 1; color: var(--green-pastel); }
 
-/* quote band */
-.quote { background: var(--green-deep); }
-.quote::before { content: ""; position: absolute; inset: 0; pointer-events: none;
-  background: radial-gradient(46% 64% at 12% 18%, rgba(173,222,168,.16), transparent 70%); }
-.quote blockquote { font-family: var(--font-display); font-style: italic; font-weight: 600;
-  font-size: clamp(26px, 3.6vw, 48px); line-height: 1.22; letter-spacing: -.015em;
-  color: #fff; max-width: 920px; }
-.quote .q-hl { color: var(--green-pastel); }
-.quote figcaption { margin-top: 26px; font-family: var(--font-mono); font-size: 12px;
-  font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: rgba(255,255,255,.55);
-  display: inline-flex; align-items: center; gap: .9em; }
-.quote figcaption::before { content: ""; width: 34px; height: 1px; background: var(--green-bright); }
-
 /* knowledge & resources */
 .resources { background: var(--plaster-2); }
 .res-grid { margin-top: 48px; display: grid; grid-template-columns: repeat(3,1fr); gap: 36px 30px; }
@@ -627,12 +597,9 @@ h1, h2, h3 {
   padding: 7px 14px; border: 2px solid var(--green-bright); border-radius: 5px;
   letter-spacing: .08em; transform: rotate(2deg); box-shadow: 2px 2px 0 rgba(37,52,31,.45); }
 .plan header h3 { font-size: 24px; } .plan .price { font-size: 16px; opacity: .8; margin-top: 4px; margin-bottom: 22px; }
-/* the Founder Membership card: its "offer closed" note, right under the line on what it supports,
-   and the link to the commercial terms, which stays in every state */
+/* the Founder Membership card: the note app.js writes from the billing state (sign-ups open soon, or the offer
+   has ended), right under the line on what it supports */
 .plan .plan-note { margin: -18px 0 22px; font-size: 14.5px; opacity: .8; }
-.plan-terms { display: block; width: fit-content; margin-top: 16px; font-size: 14px; font-weight: 600; color: var(--green-deep);
-  text-decoration: underline; text-underline-offset: 3px; }
-.plan-terms:hover { text-decoration-thickness: 2px; }
 .plan li strong { font-weight: 700; }
 .plan ul { list-style: none; display: grid; gap: 12px; margin-bottom: 28px; }
 .plan li { position: relative; padding-left: 26px; line-height: 1.45; font-size: 15.5px; }
@@ -822,7 +789,7 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .btn:focus-visible
 @media (max-width: 820px) {
   .hero-map { right: -38vw; z-index: 1; }
   .hero-map > .map-outline { opacity: .22; }
-  .hero-net, .hero-coord { display: none; }
+  .hero-net { display: none; }
   .cards-3, .stats, .steps, .traction, .plans, .res-grid { grid-template-columns: 1fr; }
   .steps::before { display: none; }
   .step { padding-top: 0; }
@@ -1053,7 +1020,7 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .btn:focus-visible
 .pf-hero-card { display: flex; align-items: center; gap: clamp(22px, 3vw, 36px); flex-wrap: wrap;
   background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-card);
   padding: clamp(24px, 3vw, 36px); box-shadow: 8px 10px 0 rgba(61,92,56,.06); }
-/* coordinate caption in the plate corner — same signage as the landing hero */
+/* coordinate caption in the plate corner */
 .pf-coord { position: absolute; top: 14px; right: 18px; font-family: var(--font-mono);
   font-size: 10.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
   color: var(--concrete); pointer-events: none; }

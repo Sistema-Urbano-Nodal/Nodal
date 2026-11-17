@@ -66,9 +66,14 @@ test('organiser pages send guests to sign-in and show members an organisers-only
   assert.doesNotMatch(html,/fiiu-admin\.js|fiiu-qr\.js|\/api\/admin|example\.test/,page);
  }
  const head=await call('/fiiu-qr.html',{method:'HEAD'});assert.equal(head.status,403);assert.equal(await head.text(),'');
- // Non-page methods and the other staff pages keep the JSON refusal.
- const post=await call('/fiiu-admin.html',{method:'POST',body:{}});assert.equal(post.status,403);assert.deepEqual(await post.json(),{error:'administrator access required'});
- for(const page of ['/admin.html','/teaching.html']){const r=await call(page);assert.equal(r.status,403,page);assert.deepEqual(await r.json(),{error:'administrator access required'});}
+ // The other staff pages (the desk, teaching, the admin home behind /admin) show members the same page, never their own.
+ for(const page of ['/admin.html','/teaching.html','/admin-home.html']){
+  const member=await call(page);assert.equal(member.status,403,page);assert.match(member.headers.get('content-type'),/^text\/html/,page);
+  const html=await member.text();assert.match(html,/data-fiiu-text="organisersOnly"/,page);
+  assert.doesNotMatch(html,/admin\.js|admin-home\.js|admin-nav\.js|teaching\.js|\/api\/admin|example\.test/,page);
+ }
+ // Non-page methods keep the JSON refusal.
+ for(const page of ['/fiiu-admin.html','/admin-home.html']){const post=await call(page,{method:'POST',body:{}});assert.equal(post.status,403,page);assert.deepEqual(await post.json(),{error:'administrator access required'},page);}
  for(const [page,script] of [['/fiiu-qr.html?a=day1-am','fiiu-qr.js'],['/fiiu-admin.html','fiiu-admin.js']]){
   const admin=await call(page,{actor:'admin'});assert.equal(admin.status,200,page);assert.match(await admin.text(),new RegExp(`src="${script.replace('.','\\.')}\\?v=`));
  }
@@ -115,7 +120,9 @@ test('a browser asking for a page that does not exist gets a page with a way on,
   assert.equal(response.status,404,path);assert.match(response.headers.get('content-type'),/^text\/html/);assert.equal(response.headers.get('cache-control'),'no-store');
   assert.match(response.headers.get('content-security-policy'),/script-src 'self'/);assert.equal(response.headers.get('x-content-type-options'),'nosniff');
   assert.match(page,/^<!DOCTYPE html>/);assert.match(page,/<html lang="es"/);assert.match(page,/<meta name="viewport"/);assert.match(page,/<h1>No encontramos esta página<\/h1>/);
-  assert.match(page,/<a class="f-button" href="\/fiiu-checkin\.html">Ir al registro de asistencia<\/a>/);assert.match(page,/<a class="f-button secondary" href="\/fiiu\.html">Ir a la página del FIIU<\/a>/);
+  // The way on is the home page and the console, never the festival, which is over.
+  assert.match(page,/<a class="f-button" href="\/">Ir a la página de inicio<\/a>/);assert.match(page,/<a class="f-button secondary" href="\/dashboard\.html">Ir a Mi panel<\/a>/);
+  assert.doesNotMatch(page,/href="\/fiiu(?:-checkin)?\.html"/,path);
   assert.doesNotMatch(page,/<script|style=|nothing|chekin|checkins/,'no script, no inline style, and the address is never echoed');
  }
  // A language picked on the site wins, then the browser's, then Spanish; an automatic English save does not count as a choice.
@@ -126,9 +133,9 @@ test('a browser asking for a page that does not exist gets a page with a way on,
  assert.equal(await lang({'Accept-Language':'fr-FR,en;q=0.8'}),'en');
  assert.equal(await lang({'Accept-Language':'fr-FR'}),'es');assert.equal(await lang({}),'es');
  const english=await(await call('/missing',{actor:'guest',headers:{...browser,'Accept-Language':'en'}})).text();
- assert.match(english,/<title>NODAL · Page not found<\/title>/);assert.match(english,/>Go to session check-in</);assert.match(english,/>Go to the FIIU page</);
+ assert.match(english,/<title>NODAL · Page not found<\/title>/);assert.match(english,/>Go to the home page</);assert.match(english,/>Go to my console</);
  const portuguese=await(await call('/missing',{actor:'guest',headers:{...browser,'Accept-Language':'pt'}})).text();
- assert.match(portuguese,/<h1>Não encontramos esta página<\/h1>/);assert.match(portuguese,/>Ir para o registro de presença</);
+ assert.match(portuguese,/<h1>Não encontramos esta página<\/h1>/);assert.match(portuguese,/>Ir para a página inicial</);assert.match(portuguese,/>Ir para o painel</);
  // A HEAD for a page gets the status alone.
  const head=await call('/missing',{actor:'guest',method:'HEAD',headers:browser});assert.equal(head.status,404);assert.match(head.headers.get('content-type'),/^text\/html/);assert.equal(await head.text(),'');
  // Scripts, styles, images and API calls are not pages: they keep the JSON answer.
@@ -228,8 +235,8 @@ test('published news and safe external links are managed by staff; drafts stay p
  assert.equal((await(await call('/api/fiiu',{actor:'guest'})).json()).content.length,0);
  assert.equal((await call(`/api/admin/fiiu/content/${content.id}`,{actor:'admin',method:'PATCH',body:{...draft,version:1,status:'published'}})).status,200);
  assert.equal((await(await call('/api/fiiu',{actor:'guest'})).json()).content[0].title,'Programme update');
- assert.equal((await call('/api/admin/fiiu/config',{actor:'admin',method:'PUT',body:{version:0,registrationOpen:true,workshopsUrl:'javascript:alert(1)'}})).status,400);
- assert.equal((await call('/api/admin/fiiu/config',{actor:'admin',method:'PUT',body:{version:0,registrationOpen:false,workshopsUrl:'https://example.test/workshops'}})).status,200);
+ assert.equal((await call('/api/admin/fiiu/config',{actor:'admin',method:'PUT',body:{version:0,registrationOpen:true,programUrl:'javascript:alert(1)'}})).status,400);
+ assert.equal((await call('/api/admin/fiiu/config',{actor:'admin',method:'PUT',body:{version:0,registrationOpen:false,programUrl:'https://example.test/programme'}})).status,200);
  assert.equal((await call('/api/fiiu/registration',{method:'PUT',body:{version:0,...answers}})).status,403);
 });
 
@@ -472,6 +479,18 @@ test('a draft published later is listed and dated from its first publication, wh
  for(const [status,version] of [['archived',1],['published',2]])assert.equal((await write('PATCH',`/api/admin/fiiu/content/${legacy.id}`,{...base,title:'Legacy',status,version})).createdAt,legacy.createdAt);
  assert.deepEqual(await feed(),['A edited','B','Legacy']);
  assert.equal((await call(`/api/admin/fiiu/content/${a.id}`,{actor:'admin',method:'PATCH',body:{...base,title:'Stale',status:'draft',version:1}})).status,409);
+});
+
+test('editing a publication that does not exist, or that belongs to another event, is unavailable (404), not a conflict',async t=>{
+ const {call,db}=await setup(t);const store=createFiiuStore({db});
+ const body={title:'Ghost',body:'',kind:'news',url:'',activityId:'',status:'draft',version:1};
+ const missing=await call(`/api/admin/fiiu/content/${randomUUID()}`,{actor:'admin',method:'PATCH',body});
+ assert.equal(missing.status,404);assert.equal((await missing.json()).error,'content unavailable');
+ const foreign=await store.insert('content',{id:randomUUID(),eventId:'another-event',data:{title:'Elsewhere',body:'',kind:'news',url:'',activityId:''},status:'draft',version:1,createdAt:'2026-09-28T12:00:00.000Z',updatedAt:'2026-09-28T12:00:00.000Z'});
+ assert.equal((await call(`/api/admin/fiiu/content/${foreign.id}`,{actor:'admin',method:'PATCH',body})).status,404);
+ assert.deepEqual({...db.prepare('SELECT event_id,status,version FROM fiiu_content WHERE id=?').get(foreign.id)},{event_id:'another-event',status:'draft',version:1},'another event keeps its row');
+ // A publication that fails validation is still refused as such first.
+ assert.equal((await call(`/api/admin/fiiu/content/${randomUUID()}`,{actor:'admin',method:'PATCH',body:{...body,title:''}})).status,400);
 });
 
 test('a publication retried with its editor id is stored once and the retry returns the saved row',async t=>{
@@ -1056,9 +1075,11 @@ test('end to end: a mail server that takes every message but answers too late st
 });
 
 test('the summary button is for organisers only, same-origin, validated, and answers 503 while email is off',async t=>{
- const off=await mailSetup(t,{confirmation:null});
+ // One clock reading for the server and the expectation, so a run across 00:00 UTC cannot expect the next day's reset.
+ const NOW=Date.now();
+ const off=await mailSetup(t,{confirmation:null,app:{fiiuBackfill:{now:()=>NOW}}});
  const [id]=await earlier(off.db,off.store,[{email:'early@fiiu-inbox.dev'}]);
- assert.deepEqual(await(await off.call('/api/admin/fiiu/confirmations',{actor:'admin'})).json(),{configured:false,counts:{none:1,pending:0,sent:0,failed:0,uncertain:0,skipped:0},dailyCap:150,sentToday:0,resetsAt:new Date(Math.floor(Date.now()/864e5)*864e5+864e5).toISOString()});
+ assert.deepEqual(await(await off.call('/api/admin/fiiu/confirmations',{actor:'admin'})).json(),{configured:false,counts:{none:1,pending:0,sent:0,failed:0,uncertain:0,skipped:0},dailyCap:150,sentToday:0,resetsAt:new Date(Math.floor(NOW/864e5)*864e5+864e5).toISOString()});
  const refused=await off.call('/api/admin/fiiu/confirmations',{actor:'admin',method:'POST',body:{}});
  assert.equal(refused.status,503);assert.deepEqual(await refused.json(),{error:'email is not configured',code:'email_not_configured'});assert.equal(statusOf(off.db,id),'none');
  const {db,store,call,outbox}=await mailSetup(t);const [waiting]=await earlier(db,store,[{email:'early@fiiu-inbox.dev'}]);
@@ -1227,14 +1248,18 @@ test('the closing party never takes a check-in: not by QR, not by staff, not on 
  assert.deepEqual((await(await call('/api/fiiu/registration')).json()).attendance,[]);
 });
 
-test('the settings no longer carry a party link: a stored one is dropped and a sent one is not saved',async t=>{
+// The party now registers through NODAL, and each workshop and route carries its own form, so none of their old links is a setting any more.
+const RETIRED_LINKS=['partyUrl','workshopsUrl','routesUrl'];
+test('the settings no longer carry a party, workshop or route link: a stored one is dropped and a sent one is not saved',async t=>{
  const {call,db}=await setup(t);
- await createFiiuStore({db}).insert('config',{id:'fiiu-2026',data:{registrationOpen:true,programUrl:'https://canva.link/x',workshopsUrl:'',routesUrl:'',partyUrl:'https://example.org/party'},version:1});
- assert.equal(Object.hasOwn((await(await call('/api/fiiu',{actor:'guest'})).json()).config,'partyUrl'),false);
- const admin=(await(await call('/api/admin/fiiu/config',{actor:'admin'})).json()).config;assert.equal(Object.hasOwn(admin,'partyUrl'),false);assert.equal(admin.programUrl,'https://canva.link/x');
- const saved=await call('/api/admin/fiiu/config',{actor:'admin',method:'PUT',body:{...admin,partyUrl:'https://example.org/party2'}});assert.equal(saved.status,200);
- assert.equal(Object.hasOwn((await saved.json()).config,'partyUrl'),false);
- assert.equal(Object.hasOwn(JSON.parse(db.prepare("SELECT data FROM fiiu_config").get().data),'partyUrl'),false);
+ await createFiiuStore({db}).insert('config',{id:'fiiu-2026',data:{registrationOpen:true,programUrl:'https://canva.link/x',workshopsUrl:'https://example.org/workshops',routesUrl:'https://example.org/routes',partyUrl:'https://example.org/party'},version:1});
+ const shown=(await(await call('/api/fiiu',{actor:'guest'})).json()).config;for(const name of RETIRED_LINKS)assert.equal(Object.hasOwn(shown,name),false,name);
+ const admin=(await(await call('/api/admin/fiiu/config',{actor:'admin'})).json()).config;for(const name of RETIRED_LINKS)assert.equal(Object.hasOwn(admin,name),false,name);assert.equal(admin.programUrl,'https://canva.link/x');
+ // A value the old checks refused is ignored too, since nothing reads it.
+ const saved=await call('/api/admin/fiiu/config',{actor:'admin',method:'PUT',body:{...admin,partyUrl:'https://example.org/party2',workshopsUrl:'javascript:alert(1)',routesUrl:'https://example.org/routes2'}});assert.equal(saved.status,200);
+ const answer=(await saved.json()).config,stored=JSON.parse(db.prepare("SELECT data FROM fiiu_config").get().data);
+ for(const name of RETIRED_LINKS){assert.equal(Object.hasOwn(answer,name),false,name);assert.equal(Object.hasOwn(stored,name),false,name);}
+ assert.deepEqual(stored,{registrationOpen:true,programUrl:'https://canva.link/x'});
 });
 
 test('the personal export lists the festival notices sent to the person, and deleting accounts removes them and keeps programme edits without the editor',async t=>{

@@ -97,12 +97,14 @@ function later() {
   return { promise, resolve, reject };
 }
 
-async function mount({ lang = 'en', hash = '', fetchImpl = async () => answer(202, { ok: true }), dialogs = true, restored = null } = {}) {
+async function mount({ lang = 'en', hash = '', fetchImpl = async () => answer(202, { ok: true }), dialogs = true, restored = null, frozen = false } = {}) {
   const document = { activeElement: null, createElement: (tag) => new Element(document, tag), getElementById: (id) => byId.get(id) ?? null };
   const nodes = [...elements(document, CARD), ...elements(document, DIALOG)];
   const byId = new Map(nodes.filter((node) => node.id).map((node) => [node.id, node]));
   // Form state a browser restored before the script ran (Firefox does on a soft reload): a radio already checked.
   if (restored) byId.get(RADIOS[restored]).checked = true;
+  // Firefox restores a control's disabled state too: Send and both radios as a reload in the middle of a send left them.
+  if (frozen) for (const id of ['nodeRequestSend', ...Object.values(RADIOS)]) byId.get(id).disabled = true;
   const form = byId.get('nodeRequestForm');
   // As a browser resets a form: text back to empty, radios back to unchecked (none has a checked attribute), selects to their first option.
   if (form) form.reset = () => { for (const node of nodes) { if (['input', 'textarea', 'select'].includes(node.tagName)) node.value = ''; if (node.attributes.type === 'radio') node.checked = false; } };
@@ -133,8 +135,9 @@ async function mount({ lang = 'en', hash = '', fetchImpl = async () => answer(20
     dialog: $('nodeRequest'), form, error: $('nodeRequestError'), send: $('nodeRequestSend'), thanks: $('nodeRequestThanks'),
     labelled: (key) => nodes.find((node) => node.dataset.i18n === key),
     chosen: () => Object.keys(RADIOS).find((kind) => $(RADIOS[kind]).checked) ?? null,
-    // Checking one radio unchecks the other of its group, as a browser does, and the change reaches the script.
-    choose(kind) { for (const [name, id] of Object.entries(RADIOS)) $(id).checked = name === kind; if (kind) $(RADIOS[kind]).dispatch('change'); },
+    // Checking one radio unchecks the other of its group, as a browser does, and the change reaches the script; a
+    // disabled radio takes no click.
+    choose(kind) { if (kind && $(RADIOS[kind]).disabled) return; for (const [name, id] of Object.entries(RADIOS)) $(id).checked = name === kind; if (kind) $(RADIOS[kind]).dispatch('change'); },
     type(values) { for (const [field, value] of Object.entries(values)) { if (field === 'kind') this.choose(value); else $(FIELDS[field]).value = value; } },
     // What a visitor sees: the kind, the shared fields and, on a sponsorship, the sponsor fields.
     typed() { const kind = this.chosen(); return Object.fromEntries([['kind', kind], ...Object.entries(FIELDS).filter(([field]) => kind === 'sponsorship' || !['community', 'memberships'].includes(field)).map(([field, id]) => [field, $(id).value])]); },
@@ -185,6 +188,10 @@ test('the landing page has a third card that links to #nodos and a dialog with e
   assert.match(read('web', 'styles', 'node-request.css'), /\.nr-trap \{[^}]*position: absolute;[^}]*left: -10000px;/, 'and people never see');
   const error = element(DIALOG, 'nodeRequestError');
   assert.deepEqual([error.tag, error.role, 'hidden' in error], ['p', 'alert', true]);
+  // The kind's line sits right under its question, where the focus goes, outside the radio group; the others sit by Send.
+  const kindError = element(DIALOG, 'nodeRequestKindError');
+  assert.deepEqual([kindError.tag, kindError.role, kindError.class, 'hidden' in kindError], ['p', 'alert', 'nr-error', true]);
+  assert.match(DIALOG, /<\/fieldset>\s*<p class="nr-error" id="nodeRequestKindError" role="alert" hidden><\/p>\s*<label for="nodeRequestName">/);
   assert.equal(element(DIALOG, 'nodeRequestSend').type, 'submit');
   const close = element(DIALOG, 'nodeRequestClose');
   assert.deepEqual([close.tag, close.type, close['data-i18n-aria-label']], ['button', 'button', 'mem.org.close']);
@@ -197,7 +204,7 @@ test('the landing page has a third card that links to #nodos and a dialog with e
   assert.match(DIALOG, /<a href="privacy\.html"[^>]*data-i18n="nav\.privacy">Privacy policy<\/a>/, 'the privacy line links the policy');
   // The page loads the window's style after the site's and its script after the dictionaries.
   assert.ok(HTML.indexOf('href="styles.css?v=') < HTML.indexOf('href="node-request.css?v=20261109a"'));
-  assert.ok(HTML.indexOf('src="i18n.js?v=') < HTML.indexOf('<script defer src="node-request.js?v=20261109a"></script>'));
+  assert.ok(HTML.indexOf('src="i18n.js?v=') < HTML.indexOf('<script defer src="node-request.js?v=20261116a"></script>'));
 });
 
 test('the card and the window say the team’s words in Spanish, and English and Portuguese in the same register', () => {
@@ -293,6 +300,7 @@ test('the window asks for the kind first, with the sponsor fields hidden until s
   assert.ok(!DIALOG.includes('nr-kicker'), 'no kicker');
   const group = element(DIALOG, 'nodeRequestKind');
   assert.equal(group.tag, 'fieldset');
+  assert.equal(group.role, 'radiogroup', 'a radio group, where screen readers expose aria-invalid');
   const fieldset = between(DIALOG, '<fieldset', '</fieldset>');
   assert.match(fieldset, /<legend[^>]*data-i18n="mem\.org\.kind">What are you interested in\?<\/legend>/);
   assert.ok(DIALOG.indexOf('id="nodeRequestKind"') < DIALOG.indexOf('id="nodeRequestName"'), 'before the name');
@@ -362,6 +370,11 @@ test('shows the sponsor fields for a choice the browser restored before the scri
   const nodo = await mount({ restored: 'node' });
   assert.equal(nodo.$('nodeRequestSponsor').hidden, true);
   assert.deepEqual([nodo.$('nodeRequestMessageLabel').hidden, nodo.$('nodeRequestTopicLabel').hidden], [false, true]);
+  // A page reloaded in the middle of a send starts with Send and the radios free, whatever Firefox restored.
+  const reloaded = await mount({ restored: 'sponsorship', frozen: true });
+  assert.deepEqual(['nodeRequestSend', ...Object.values(RADIOS)].map((id) => reloaded.$(id).disabled), [false, false, false]);
+  reloaded.choose('node');
+  assert.equal(reloaded.chosen(), 'node');
 });
 
 test('asks for a choice before sending', async () => {
@@ -372,24 +385,41 @@ test('asks for a choice before sending', async () => {
   const event = await page.submit();
   assert.equal(event.defaultPrevented, true);
   assert.equal(page.requests.length, 0, 'nothing is sent without a kind');
-  assert.equal(page.error.hidden, false);
-  assert.equal(page.error.textContent, 'Elige si quieren activar un Nodo o patrocinar membresías.');
+  const line = page.$('nodeRequestKindError');
+  assert.equal(line.hidden, false);
+  assert.equal(line.textContent, 'Elige si quieren activar un Nodo o patrocinar membresías.');
+  assert.deepEqual([page.error.hidden, page.error.textContent], [true, ''], 'the reason sits under the question, not by Send');
   assert.equal(page.$('nodeRequestKind').getAttribute('aria-invalid'), 'true');
-  assert.equal(page.$('nodeRequestKind').getAttribute('aria-describedby'), 'nodeRequestError');
+  assert.equal(page.$('nodeRequestKind').getAttribute('aria-describedby'), 'nodeRequestKindError');
   assert.equal(page.document.activeElement, page.$(RADIOS.node), 'focus goes to the first radio');
   assert.equal(page.send.disabled, false);
   assert.deepEqual(page.typed(), { ...FILLED, kind: null }, 'nothing typed is lost');
   page.i18n.apply('pt');
-  assert.equal(page.error.textContent, 'Escolha se querem ativar um Nó ou patrocinar membresias.');
+  assert.equal(line.textContent, 'Escolha se querem ativar um Nó ou patrocinar membresias.');
   page.i18n.apply('en');
-  assert.equal(page.error.textContent, 'Choose whether you want to activate a Node or sponsor memberships.');
+  assert.equal(line.textContent, 'Choose whether you want to activate a Node or sponsor memberships.');
   // Choosing and sending clears the mark.
   page.choose('node');
   await page.submit();
   assert.equal(page.requests.length, 1);
   assert.equal(page.$('nodeRequestKind').getAttribute('aria-invalid'), null);
   assert.equal(page.$('nodeRequestKind').getAttribute('aria-describedby'), null);
+  assert.deepEqual([line.hidden, line.textContent], [true, '']);
   assert.equal(page.thanks.hidden, false);
+
+  // A kind the server refuses is said under the question too; the next line about a field is said by Send alone.
+  const answers = [answer(400, { field: 'kind' }), answer(400, { field: 'name' })];
+  const refused = await mount({ fetchImpl: async () => answers.shift() });
+  refused.open();
+  refused.type(FILLED);
+  await refused.submit();
+  const kindLine = refused.$('nodeRequestKindError');
+  assert.deepEqual([kindLine.hidden, kindLine.textContent, refused.error.hidden], [false, 'Choose whether you want to activate a Node or sponsor memberships.', true]);
+  assert.equal(refused.document.activeElement, refused.$(RADIOS.node));
+  await refused.submit();
+  assert.deepEqual([kindLine.hidden, kindLine.textContent], [true, '']);
+  assert.deepEqual([refused.error.hidden, refused.error.textContent], [false, 'Write your full name, up to 120 characters.']);
+  assert.equal(refused.$('nodeRequestName').getAttribute('aria-describedby'), 'nodeRequestError');
 });
 
 test('sends a sponsorship with its community and range', async () => {
@@ -425,6 +455,91 @@ test('switching to Nodo sends no sponsor fields, and switching back keeps what w
   other.choose('sponsorship');
   assert.equal(other.$('nodeRequestSponsor').hidden, false);
   assert.deepEqual(other.typed(), SPONSOR, 'the sponsor fields come back as typed');
+});
+
+test('switching to Nodo drops the line about a sponsor field it hides, and choosing a kind drops the line asking for one', async () => {
+  for (const [field, text] of [['community', 'Write the community you would like to support, up to 200 characters.'], ['memberships', 'Choose roughly how many memberships.']]) {
+    const page = await mount({ fetchImpl: async () => answer(400, { field }) });
+    page.open();
+    page.type(SPONSOR);
+    await page.submit();
+    const marks = () => ['aria-invalid', 'aria-describedby'].map((name) => page.$(FIELDS[field]).getAttribute(name));
+    assert.deepEqual([page.error.hidden, page.error.textContent, ...marks()], [false, text, 'true', 'nodeRequestError'], field);
+    page.choose('sponsorship');
+    assert.deepEqual([page.error.hidden, ...marks()], [false, 'true', 'nodeRequestError'], `${field}: still on screen, so its line stays`);
+    page.choose('node');
+    assert.equal(page.$('nodeRequestSponsor').hidden, true);
+    assert.deepEqual([page.error.hidden, page.error.textContent, ...marks()], [true, '', null, null], `${field}: no line about a field out of sight`);
+    page.choose('sponsorship');
+    assert.deepEqual([page.error.hidden, ...marks()], [true, null, null], `${field}: back on screen, it waits for the next answer`);
+    assert.deepEqual(page.typed(), SPONSOR, `${field}: nothing typed is lost`);
+  }
+  // A line about a field still on screen stays.
+  const named = await mount({ fetchImpl: async () => answer(400, { field: 'name' }) });
+  named.open();
+  named.type(SPONSOR);
+  await named.submit();
+  named.choose('node');
+  assert.deepEqual([named.error.hidden, named.error.textContent, named.$(FIELDS.name).getAttribute('aria-invalid')], [false, 'Write your full name, up to 120 characters.', 'true']);
+  // A link to #nodos chooses Nodo as the radio does.
+  const linked = await mount({ fetchImpl: async () => answer(400, { field: 'community' }) });
+  linked.open();
+  linked.type(SPONSOR);
+  await linked.submit();
+  linked.dialog.escape();
+  linked.hashchange('#nodos');
+  assert.deepEqual([linked.dialog.open, linked.chosen(), linked.error.hidden, linked.$(FIELDS.community).getAttribute('aria-invalid')], [true, 'node', true, null]);
+  // The line asking for a kind goes once one is chosen; choosing sends nothing.
+  const unasked = await mount();
+  unasked.open();
+  unasked.type({ ...FILLED, kind: null });
+  await unasked.submit();
+  const line = unasked.$('nodeRequestKindError');
+  const group = () => ['aria-invalid', 'aria-describedby'].map((name) => unasked.$('nodeRequestKind').getAttribute(name));
+  assert.deepEqual([line.hidden, ...group()], [false, 'true', 'nodeRequestKindError']);
+  unasked.choose('sponsorship');
+  assert.deepEqual([line.hidden, line.textContent, ...group()], [true, '', null, null]);
+  assert.equal(unasked.requests.length, 0);
+});
+
+test('a request on its way keeps its kind until the answer, so a line about a sponsor field lands on a field on screen', async () => {
+  const lines = { community: 'Write the community you would like to support, up to 200 characters.', memberships: 'Choose roughly how many memberships.' };
+  for (const [field, text] of Object.entries(lines)) {
+    const reply = later();
+    const page = await mount({ fetchImpl: () => reply.promise });
+    page.open();
+    page.type({ ...SPONSOR, [field]: '' });
+    await page.submit();
+    const radios = () => Object.values(RADIOS).map((id) => page.$(id).disabled);
+    assert.deepEqual([page.send.disabled, ...radios()], [true, true, true], `${field}: the radios wait with Send`);
+    page.choose('node');
+    assert.deepEqual([page.chosen(), page.$('nodeRequestSponsor').hidden], ['sponsorship', false], `${field}: no switch while sending`);
+    reply.resolve(answer(400, { field }));
+    await settle();
+    assert.deepEqual([page.send.disabled, ...radios()], [false, false, false], `${field}: free once answered`);
+    assert.deepEqual([page.error.hidden, page.error.textContent, page.$(FIELDS[field]).getAttribute('aria-invalid')], [false, text, 'true'], field);
+    assert.equal(page.document.activeElement, page.$(FIELDS[field]), `${field}: the focus lands on a field the visitor sees`);
+    // Answered, the switch works again and drops the line about the field it hides.
+    page.choose('node');
+    assert.deepEqual([page.chosen(), page.error.hidden, page.$(FIELDS[field]).getAttribute('aria-invalid')], ['node', true, null], field);
+  }
+  // Closed mid-send and opened again from /#nodos: the window shows the request still on its way, with its kind.
+  const reply = later();
+  const linked = await mount({ fetchImpl: () => reply.promise });
+  linked.open();
+  linked.type({ ...SPONSOR, community: '' });
+  await linked.submit();
+  linked.dialog.escape();
+  linked.hashchange('#nodos');
+  assert.deepEqual([linked.dialog.open, linked.chosen(), linked.$('nodeRequestSponsor').hidden], [true, 'sponsorship', false]);
+  reply.resolve(answer(400, { field: 'community' }));
+  await settle();
+  assert.deepEqual([linked.error.hidden, linked.error.textContent, linked.$(FIELDS.community).getAttribute('aria-invalid')], [false, lines.community, 'true']);
+  assert.equal(linked.document.activeElement, linked.$(FIELDS.community));
+  // Answered, a link chooses its kind again.
+  linked.dialog.escape();
+  linked.hashchange('#nodos');
+  assert.deepEqual([linked.chosen(), linked.error.hidden], ['node', true]);
 });
 
 test('swaps the message label with the choice', async () => {
@@ -647,6 +762,55 @@ test('shows the team addresses on 429 and when the API is unreachable', async ()
   spanish.choose('node');
   await spanish.submit();
   assert.equal(spanish.error.textContent, 'Demasiados intentos. Intenta de nuevo más tarde o escríbenos a fmuro@sistemaurbano.org o malegre@sistemaurbano.org.');
+});
+
+// As a browser does: disabling the focused Send drops the focus to the page's body.
+function dropsFocus(page) {
+  const body = page.document.createElement('body');
+  page.document.body = body;
+  let disabled = false;
+  Object.defineProperty(page.send, 'disabled', { get: () => disabled, set(value) { disabled = value; if (value && page.document.activeElement === page.send) page.document.activeElement = body; } });
+}
+
+test('gives the focus back to Send after an answer with no field to point at', async () => {
+  for (const [name, fetchImpl] of [
+    ['unavailable', async () => answer(503, { error: 'service unavailable' })],
+    ['too many', async () => answer(429, { error: 'too many requests' })],
+    ['offline', async () => { throw new TypeError('Failed to fetch'); }],
+  ]) {
+    const page = await mount({ fetchImpl });
+    dropsFocus(page);
+    page.open();
+    page.type(FILLED);
+    page.send.focus();
+    await page.submit();
+    assert.equal(page.error.hidden, false, name);
+    assert.equal(page.document.activeElement, page.send, `${name}: the next Tab starts from Send again`);
+  }
+  // Closed while sending: the focus stays on Contáctanos, where closing put it.
+  const late = later();
+  const closed = await mount({ fetchImpl: () => late.promise });
+  dropsFocus(closed);
+  closed.open();
+  closed.type(FILLED);
+  closed.send.focus();
+  await closed.submit();
+  closed.dialog.escape();
+  late.resolve(answer(503));
+  await settle();
+  assert.equal(closed.document.activeElement, closed.$('nodeRequestOpen'));
+  // Moved on while waiting: the focus stays where the visitor put it.
+  const slow = later();
+  const moved = await mount({ fetchImpl: () => slow.promise });
+  dropsFocus(moved);
+  moved.open();
+  moved.type(FILLED);
+  moved.send.focus();
+  await moved.submit();
+  moved.$('nodeRequestMessage').focus();
+  slow.resolve(answer(503));
+  await settle();
+  assert.equal(moved.document.activeElement, moved.$('nodeRequestMessage'));
 });
 
 test('gives up after 25 seconds as when the API is unreachable, and frees the button', async () => {

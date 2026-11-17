@@ -777,9 +777,9 @@ test('the registrations CSV downloads through fetch, and a failed export is repo
  assert.equal(signals.at(-1),undefined);assert.deepEqual(events.at(-1),['download','blob:nodal/export','fiiu-2026-registrations.csv',true],'Safari before 16, without AbortSignal.timeout, still downloads');
 });
 
-test('settings edit only the programme link the public page shows, send the other saved links back unchanged and never send a party link',async()=>{
+test('settings edit only the programme link the public page shows and never send a party link',async()=>{
  // An older saved record may still hold a party link; the party now registers through NODAL, so it is not shown and not sent back.
- const saved={...DEFAULT_CONFIG,version:4,workshopsUrl:'https://example.test/workshops',routesUrl:'https://example.test/routes',partyUrl:'https://example.test/old-party'};
+ const saved={...DEFAULT_CONFIG,version:4,partyUrl:'https://example.test/old-party'};
  const h=await harness(({method,body})=>method==='GET'?{content:[],nextCursor:null}:{config:{...body,version:body.version+1}},{configRead:()=>({config:copy(saved)})});
  const form=h.root.querySelector('.f-admin-settings').querySelector('form');
  assert.deepEqual(form.querySelectorAll('input').filter(input=>input.type==='url').map(input=>input.name),['programUrl']);assert.equal(key(form,'partyUrl'),undefined);
@@ -789,7 +789,6 @@ test('settings edit only the programme link the public page shows, send the othe
  const body=h.requests.find(request=>request.method==='PUT').body;
  assert.equal('partyUrl' in body,false);assert.equal(body.programUrl,'https://example.test/programme');assert.equal(body.version,4);
  const open=field(form,'registrationOpen');h.ctx.window.confirm=()=>true;open.checked=false;await open.listeners.change();assert.equal('partyUrl' in h.requests.filter(request=>request.method==='PUT').at(-1).body,false,'nor does the switch');
- assert.equal(body.workshopsUrl,saved.workshopsUrl);assert.equal(body.routesUrl,saved.routesUrl);
 });
 
 test('a finished totals refresh returns focus to Refresh only when focus was lost, not after the organiser moved on',async()=>{

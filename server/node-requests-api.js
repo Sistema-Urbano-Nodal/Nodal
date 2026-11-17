@@ -25,15 +25,18 @@ const retentionCutoff=ms=>{const day=new Date(ms);day.setUTCMonth(day.getUTCMont
 export const nodeRequestAdminView=({id,kind,name,organization,email,phone,community,memberships,message,language,status,emailStatus,createdAt,updatedAt,version})=>({id,kind,name,organization,email,phone,community,memberships,message,language,status,emailStatus,createdAt,updatedAt,version});
 
 // C0 and C1 controls and the bidi embeddings, overrides and isolates: PostgreSQL refuses a NUL (a 503 for a typo) and
-// the others turn the desk's and the team email's text around. Only the message keeps its line breaks and tabs.
+// the others turn the desk's and the team email's text around. Only the message keeps its line breaks and tabs; text()
+// has already turned a one-line field's tabs into spaces.
 const UNSAFE=/[\p{Cc}\u202A-\u202E\u2066-\u2069]/u,UNSAFE_IN_LINES=/(?![\n\r\t])[\p{Cc}\u202A-\u202E\u2066-\u2069]/u;
 // Strings are trimmed (and lower-cased when asked) before the length check; a missing or blank required field is
-// "required", the rest name what is wrong.
+// "required", the rest name what is wrong. A tab in a one-line field (two spreadsheet cells pasted together) is a
+// space: it cannot be seen, so a refusal could not say what to change.
 function text(input,field,{required=true,lower=false}={}){
  const value=input[field];
  if(value==null){if(required)invalid(field,`${field} is required`);return '';}
  if(typeof value!=='string')invalid(field,`${field} must be text`);
- const clean=lower?value.trim().toLowerCase():value.trim();
+ const line=field==='message'?value:value.replaceAll('\t',' ');
+ const clean=lower?line.trim().toLowerCase():line.trim();
  if(required&&!clean)invalid(field,`${field} is required`);
  if((field==='message'?UNSAFE_IN_LINES:UNSAFE).test(clean))invalid(field,`${field} has a control or text-direction character`);
  if(clean.length>NODE_REQUEST_LIMITS[field])invalid(field,`${field} is too long`);
@@ -69,12 +72,14 @@ const reason=err=>Number.isInteger(err?.status)?` (status ${err.status})`:'';
 
 // Public:  POST /api/node-requests {kind?,name,organization,email,phone?,community?,memberships?,message,language?,website?}
 //          → 202 {ok:true} (also for a filled honeypot) | 400 {error,field} | 403 | 429 | 503 {error:'service unavailable'}
-//          (nothing stored or sent); community and memberships are required for kind 'sponsorship', dropped otherwise
+//          (nothing stored or sent, and the address's unit given back); community and memberships are required for kind
+//          'sponsorship', dropped otherwise
 // Admin:   GET|HEAD /api/admin/node-requests?status=&kind=&limit=&cursor= → 200 {requests:[nodeRequestAdminView], nextCursor|null}
 //          PATCH /api/admin/node-requests/:id {status,version} → 200 {request} | 409 {error,code:'version_conflict',request} | 404
 //          DELETE /api/admin/node-requests/:id → 204 (also when it was already gone)
 // ipAllowed(req,res), emailAllowed(email,res) and adminRateLimit(req,res,user) answer the 429 themselves when they refuse.
-export function createNodeRequestApi({store,notify,sameOrigin,send,now=()=>Date.now(),ipAllowed=()=>true,emailAllowed=()=>true,adminRateLimit=()=>true,log=message=>console.warn(message)}){
+// emailRelease(email) gives back the unit emailAllowed took, for a request that could not be stored.
+export function createNodeRequestApi({store,notify,sameOrigin,send,now=()=>Date.now(),ipAllowed=()=>true,emailAllowed=()=>true,emailRelease=()=>{},adminRateLimit=()=>true,log=message=>console.warn(message)}){
  const body=req=>bodyJson(req,16384);
  // Closed requests leave 12 calendar months after their last change. Best effort: a failure never fails the request.
  const purge=async()=>{try{await store.purgeClosedBefore(retentionCutoff(now()));}catch(err){log(`Node request purge failed${reason(err)}`);}};
@@ -96,7 +101,8 @@ export function createNodeRequestApi({store,notify,sameOrigin,send,now=()=>Date.
   const at=new Date(now()).toISOString();
   let request;
   try{request=await store.insert({id:randomUUID(),...fields,status:'new',emailStatus:null,createdAt:at,updatedAt:at,updatedBy:null,version:1});}
-  catch(err){log(`Node request not stored${reason(err)}`);send(res,503,{error:'service unavailable'});return;}
+  // Taken before the insert, so parallel requests cannot all slip past the budget; a request that was not stored gives it back.
+  catch(err){log(`Node request not stored${reason(err)}`);emailRelease(fields.email);send(res,503,{error:'service unavailable'});return;}
   // Awaited: Vercel gives no work time after the response. The visitor's request is stored whatever happens next.
   const outcome=await emailOutcome(request);
   try{await store.setEmailStatus(request.id,outcome);}catch(err){log(`Node request ${request.id}: the email status '${outcome}' could not be saved${reason(err)}`);}

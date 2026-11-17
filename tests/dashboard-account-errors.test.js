@@ -52,6 +52,9 @@ test('A3: a refused deletion is shown by its code in the member’s language, ne
       ['A course certificate is being uploaded for this account. Try again in a few minutes.', 'Se está subiendo un certificado del curso para esta cuenta. Inténtalo de nuevo en unos minutos.', 'Um certificado do curso está sendo enviado para esta conta. Tente novamente em alguns minutos.']],
     [{ status: 409, body: { error: 'Cancel your NODAL membership before deleting your account.', code: 'subscription_active' } },
       LANGS.map(lang => dictionaries[lang]['d.uc.deleteSubscription'])],
+    // A pending course upload stays until the teaching team reconciles it, so trying again alone never helps (code overview M41).
+    [{ status: 409, body: { error: 'An upload is awaiting reconciliation. Contact the teaching team before retrying account deletion.', code: 'upload_awaiting_reconciliation' } },
+      ['One of your course uploads is still being processed. Ask the teaching team to check it, then try again.', 'Uno de tus archivos de curso aún se está procesando. Pide al equipo docente que lo revise y luego inténtalo de nuevo.', 'Um dos seus envios de curso ainda está sendo processado. Peça à equipe docente que o verifique e depois tente novamente.']],
     // No code, an unknown code, an inherited name, a gateway page, a dropped connection: the plain failure line.
     ...[
       { status: 400, body: { error: 'account deletion requires email confirmation' } },
@@ -84,7 +87,7 @@ test('A3: a failed export says so in the member’s language, never with the ser
 });
 
 test('A3: every new refusal is translated in the three languages', () => {
-  for (const key of ['d.uc.deleteEmailMismatch', 'd.uc.deleteUploading', 'd.uc.deleteCertificateUploading']) {
+  for (const key of ['d.uc.deleteEmailMismatch', 'd.uc.deleteUploading', 'd.uc.deleteCertificateUploading', 'd.uc.deleteReconciling']) {
     for (const lang of LANGS) assert.equal(typeof dictionaries[lang][key], 'string', `${lang}: ${key}`);
     assert.equal(new Set(LANGS.map(lang => dictionaries[lang][key])).size, 3, key);
   }

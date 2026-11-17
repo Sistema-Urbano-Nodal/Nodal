@@ -25,8 +25,8 @@ const noThumbnail=()=>failCode('thumbnail unavailable',404,'thumbnail_unavailabl
 const errorText=error=>error instanceof Error?error.message:String(error??'unknown error');
 // CSV times are Lima wall-clock time (UTC-05:00 all year), as in the registration export.
 const limaTime=value=>{const t=Date.parse(value??'');return Number.isFinite(t)?new Date(t-5*3600000).toISOString().slice(0,16).replace('T',' '):'';};
-// The encoder returns {size, modules} (row-major 0/1) or already-packed {size, bits}, as on the check-in screen.
-const qrView=qr=>typeof qr?.bits==='string'?{size:qr.size,bits:qr.bits}:{size:qr.size,bits:packBits(qr)};
+// The encoder returns {size, modules} (row-major 0/1), sent as base64 bits as on the check-in screen (fiiu-api.js).
+const qrView=qr=>({size:qr.size,bits:packBits(qr)});
 const body=req=>bodyJson(req,24576);
 // A 3 MB file is ~4 MiB of base64; the 100 KB thumbnail and the JSON around them fit in the extra 160 KiB.
 const uploadBody=req=>bodyJson(req,4*1024*1024+160*1024);
@@ -113,29 +113,38 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
  const originFor=req=>(typeof publicOrigin==='function'?publicOrigin(req):publicOrigin)||fail('public base URL is not configured',503);
  /* Registered means a fiiu_registrations row. A full room polls together, so a positive answer is kept for 60 seconds
     (cancelling ends access within that window); a refusal is never kept, so registering takes effect at once. Organisers
-    pass without one; their registration is read only to name their messages. */
- const memo=new Map();
+    pass without one; their registration is read only to name their messages. One person's concurrent requests (two tabs,
+    several questions) share the read in flight, refusal or not, and nothing is kept once it has answered no. */
+ const memo=new Map(),reading=new Map();
  async function registrationOf(userId){
   const t=clock(),hit=memo.get(userId);
   if(hit&&t-hit.at<MEMO_MS)return hit.registration;
   memo.delete(userId);
-  const registration=await store.findRegistration(EVENT_ID,userId);
-  if(registration){memo.set(userId,{at:t,registration});if(memo.size>MEMO_MAX)memo.delete(memo.keys().next().value);}
-  return registration;
+  if(!reading.has(userId)){
+   const read=store.findRegistration(EVENT_ID,userId).then(registration=>{
+    if(registration){memo.set(userId,{at:t,registration});if(memo.size>MEMO_MAX)memo.delete(memo.keys().next().value);}
+    return registration;
+   }).finally(()=>{if(reading.get(userId)===read)reading.delete(userId);});
+   reading.set(userId,read);
+  }
+  return reading.get(userId);
  }
  async function access(user,{names=false}={}){
   const organiser=user.permission==='admin',registration=organiser&&!names?null:await registrationOf(user.id);
   if(!organiser&&!registration)failCode('festival registration required',403,'not_registered');
   return {organiser,registration};
  }
- /* One read per second per instance backs the CDN up if it misses, and concurrent requests share the read in flight.
-    A write through this instance drops it, so the writer's own next poll sees the change. */
+ /* One read per second per instance backs the CDN up if it misses, and concurrent requests share the read in flight
+    however long it runs: the second counts from its answer (at stays null until then), so a slow database never gets
+    the same read stacked on one still running. A failed read is not kept. A write through this instance drops the
+    entry, running or not, so the writer's own next poll sees the change. */
  let pulseMemo=null;
+ const fresh=(entry,t,ttl)=>Boolean(entry)&&(entry.at===null||t-entry.at<ttl);
  function pulse(){
   const t=clock();
-  if(pulseMemo&&t-pulseMemo.at<PULSE_MS)return pulseMemo.promise;
-  const entry={at:t,promise:store.pulse(EVENT_ID).then(rows=>({questions:rows.map(q=>[q.id,q.activityId,Number(q.revision),q.status])}))};
-  pulseMemo=entry;entry.promise.catch(()=>{if(pulseMemo===entry)pulseMemo=null;});
+  if(fresh(pulseMemo,t,PULSE_MS))return pulseMemo.promise;
+  const entry={at:null,promise:store.pulse(EVENT_ID).then(rows=>({questions:rows.map(q=>[q.id,q.activityId,Number(q.revision),q.status])}))};
+  pulseMemo=entry;entry.promise.then(()=>{entry.at=clock();},()=>{if(pulseMemo===entry)pulseMemo=null;});
   return entry.promise;
  }
  // Hidden questions are prepared drafts: organisers preview them, everyone else gets the same answer as for no question.
@@ -163,17 +172,18 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
  }
  const viewOf=async(message,user,organiser)=>(await views([message],{viewer:user.id,organiser})).list[0];
  /* The pulse moves for a whole room at once, so its phones ask for the same changes within a second or two. The part
-    of a since answer they share (the question, the changed rows and their files) is read once per instance for 1.5 s
-    per question, revision and audience, and concurrent requests share the read in flight; each viewer's answer is then
-    built from it in memory (whose message it is, an author's own hidden one), which is why it carries no likes of the
-    viewer's. A write through this instance drops the entries, so its author's next poll reads past it. Being up to
-    1.5 s behind is safe: the answer's revision is that of its rows, so a later pulse asks again from there. */
+    of a since answer they share (the question, the changed rows and their files) is read once per instance per
+    question, revision and audience: concurrent requests share the read in flight, as for the pulse, and its answer is
+    kept 1.5 s. Each viewer's answer is then built from it in memory (whose message it is, an author's own hidden one),
+    which is why it carries no likes of the viewer's. A write through this instance drops the entries, so its author's
+    next poll reads past it. Being 1.5 s behind is safe: the answer's revision is that of its rows, so a later pulse
+    asks again from there. */
  const changesMemo=new Map();
  function changesSince(id,from,organiser){
   const key=`${id}:${from}:${organiser?'organiser':'participant'}`,t=clock(),hit=changesMemo.get(key);
-  if(hit&&t-hit.at<CHANGES_MS)return hit.promise;
+  if(fresh(hit,t,CHANGES_MS))return hit.promise;
   changesMemo.delete(key);
-  const entry={at:t,promise:(async()=>{
+  const entry={at:null,promise:(async()=>{
    const q=await questionFor(id,organiser),revision=Number(q.revision);
    // A revision from the future (another database, a reset) or more changes than one answer holds: reload.
    if(from>revision)return {q,reset:true,revision};
@@ -187,9 +197,9 @@ export function createTalkApi({store,sameOrigin,send,rateLimit=()=>true,download
    return {q:shown,rows,files,revision:top};
   })()};
   changesMemo.set(key,entry);
-  // Oldest first: expired entries, then any over the cap.
-  for(const [k,old] of changesMemo){if(t-old.at<CHANGES_MS&&changesMemo.size<=CHANGES_MAX)break;changesMemo.delete(k);}
-  entry.promise.catch(()=>{if(changesMemo.get(key)===entry)changesMemo.delete(key);});
+  // Oldest first: expired entries, then any over the cap. A read still running has not expired.
+  for(const [k,old] of changesMemo){if(fresh(old,t,CHANGES_MS)&&changesMemo.size<=CHANGES_MAX)break;changesMemo.delete(k);}
+  entry.promise.then(()=>{entry.at=clock();},()=>{if(changesMemo.get(key)===entry)changesMemo.delete(key);});
   return entry.promise;
  }
  /* A withdrawn message takes its files with it: ready → deleting, the objects, then the row (which also returns them to

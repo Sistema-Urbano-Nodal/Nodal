@@ -188,7 +188,7 @@ const clusterOf = (tag) => INTEREST_CLUSTERS[tag] ?? null;
 
 /* IDF over the member base: a rare shared interest says more about two people
    than one everybody lists. Returns a lookup usable as the `idf` argument of
-   interestSimilarity. */
+   canonicalSimilarity, the score engine.js ranks with. */
 export function buildInterestIdf(users) {
   const df = new Map();
   let n = 0;
@@ -237,10 +237,6 @@ export function canonicalSimilarity(A, B, idf = () => 1) {
     }
   }
   return (shared + related) / union;
-}
-
-export function interestSimilarity(a, b, idf = () => 1) {
-  return canonicalSimilarity(canonicalInterestSet(a), canonicalInterestSet(b), idf);
 }
 
 /* shared interests for the "why this match" line — returned in the viewer's

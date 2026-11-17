@@ -1,10 +1,11 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { parseCookies, sessionCookie, validateEmail, validatePassword } from './auth.js';
-import { defaultProfilePreferences } from './domain.js';
+import { defaultProfilePreferences, PROFILE_NAME_MAX } from './domain.js';
 import { recordInteraction } from './store.js';
 import {
   decodeCatalogCursor,
   decodeCatalogInterestCursor,
+  earliestOpenEndDate,
   encodeCatalogCursor,
   encodeCatalogInterestCursor,
   isCatalogItemClosed,
@@ -105,11 +106,6 @@ export function resolveSupabaseEnv(env = process.env, { requireServer = false } 
   return { url, publishableKey, serverKey };
 }
 
-export function publicSupabaseConfig(env = process.env) {
-  const { url, publishableKey } = resolveSupabaseEnv(env, { requireServer: false });
-  return { url, publishableKey };
-}
-
 function encodeQuery(query = {}) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
@@ -135,8 +131,9 @@ function responseError(status, payload, fallback) {
 /* No answer (the 15 s timeout, a dropped connection) or an answer that is not JSON: the provider is unavailable for
    now, never refusing. 503 tells the routes to say "try again shortly" (with Retry-After) instead of a 500; every
    check that treats a missing status, a 5xx or a 429 as an outage treats this one the same. `upstream` names the
-   failure for the log line (TimeoutError, TypeError, SyntaxError). */
-function unavailableError(cause) {
+   failure for the log line (TimeoutError, TypeError, SyntaxError). The course store's counts, which call the
+   provider directly, fail the same way (server/courses-repository.js). */
+export function unavailableError(cause) {
   const upstream = cause?.name || 'Error';
   return Object.assign(new Error(`Supabase unavailable: ${upstream}`), { status: 503, expose: false, code: '', upstream, cause });
 }
@@ -152,13 +149,13 @@ async function sessionProfile(read) {
   try { return await read(); } catch (err) { throw sessionUnavailable(err); }
 }
 
-function createRestClient({ url, key, fetchImpl = fetch, authToken = key }) {
+function createRestClient({ url, key, fetchImpl = fetch }) {
   async function request(path, {
     method = 'GET',
     query,
     body,
     headers = {},
-    auth = authToken,
+    auth = key,
     includeRange = false,
     signal,
   } = {}) {
@@ -207,17 +204,8 @@ export function createSupabaseClients({ env = process.env, fetchImpl = fetch } =
   const resolved = resolveSupabaseEnv(env, { requireServer: true });
   return {
     env: resolved,
-    publicConfig: { url: resolved.url, publishableKey: resolved.publishableKey },
     browser: createRestClient({ url: resolved.url, key: resolved.publishableKey, fetchImpl }),
     admin: createRestClient({ url: resolved.url, key: resolved.serverKey, fetchImpl }),
-    user(accessToken) {
-      return createRestClient({
-        url: resolved.url,
-        key: resolved.publishableKey,
-        authToken: accessToken,
-        fetchImpl,
-      });
-    },
   };
 }
 
@@ -276,7 +264,7 @@ function membershipAcceptanceFromSupabase(row) {
 }
 
 function profileName(profile = {}) {
-  return cleanString(profile.full_name || profile.preferred_name || profile.email?.split('@')[0] || 'Member', 120);
+  return cleanString(profile.full_name || profile.preferred_name || profile.email?.split('@')[0] || 'Member', PROFILE_NAME_MAX);
 }
 
 // The Founder badge's columns and the admin desk's view of them (/api/admin/membership/founders).
@@ -482,12 +470,15 @@ function compareInterestTuples(left, right, direction) {
 const CATALOG_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /* The open-state check of isCatalogItemClosed, as a PostgREST filter: a deadline
-   decides; without one, end_date does. end_date is a date column compared by UTC
-   day, so the day an item ends is still read here and dropped by the exact check
-   in matchesCatalogList. Expired items no longer reach the server at all. */
+   decides; without one, end_date does. end_date is a timestamptz, and a date-only
+   end date (stored as the end of its UTC day) stays open until the end of that
+   day in Lima, so its bound sits Lima's five hours back (earliestOpenEndDate).
+   An exact end date that passed within those hours is still read here and
+   dropped by the exact check in matchesCatalogList; anything older never
+   reaches the server. */
 function catalogOpenFilter(now) {
   const instant = now.toISOString();
-  return `(deadline_at.gte.${instant},and(deadline_at.is.null,end_date.is.null),and(deadline_at.is.null,end_date.gte.${instant.slice(0, 10)}))`;
+  return `(deadline_at.gte.${instant},and(deadline_at.is.null,end_date.is.null),and(deadline_at.is.null,end_date.gte.${earliestOpenEndDate(now)}))`;
 }
 
 /* Rows strictly after a decoded cursor in the listing order (featured.desc,
@@ -651,6 +642,8 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
   }
 
   async function readOwnedCatalogInterest(itemId, userId) {
+    // catalog_interests.item_id is a uuid: a guessed id has no interest, without a provider call PostgREST would refuse (22P02).
+    if (typeof itemId !== 'string' || !CATALOG_UUID.test(itemId)) return null;
     return catalogInterestFromSupabase(await first(admin.rest('catalog_interests', {
       query: { item_id: `eq.${itemId}`, user_id: `eq.${userId}`, select: '*' },
     })));
@@ -668,7 +661,10 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     if (cursor) {
       const [updatedAt, id] = cursor;
       const comparison = direction === 'desc' ? 'lt' : 'gt';
-      restQuery.or = `(updated_at.${comparison}.${updatedAt},and(updated_at.eq.${updatedAt},id.gt.${id}))`;
+      // As in catalogAfterCursor: an id that is not a uuid cannot come from this server, so it widens the filter
+      // rather than send Postgres a value it rejects, and the exact comparison below decides.
+      const idAfter = CATALOG_UUID.test(id) ? `id.gt.${id}` : 'id.not.is.null';
+      restQuery.or = `(updated_at.${comparison}.${updatedAt},and(updated_at.eq.${updatedAt},${idAfter}))`;
     }
     const rows = await admin.rest('catalog_interests', { query: restQuery });
     const matching = rows.map(catalogInterestFromSupabase)
@@ -733,7 +729,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     if (!userId) throw Object.assign(new Error('Supabase auth did not return a user'), { status: 502 });
     const metadata = authUser.user_metadata || {};
     const email = cleanString(authUser.email, 320);
-    const fullName = cleanString(fallbackName || metadata.full_name || metadata.name || email.split('@')[0] || 'Member', 120);
+    const fullName = cleanString(fallbackName || metadata.full_name || metadata.name || email.split('@')[0] || 'Member', PROFILE_NAME_MAX);
     await Promise.all([
       admin.rest('profiles', {
         method: 'POST',
@@ -771,7 +767,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     if (!current) throw Object.assign(new Error('profile not found'), { status: 404 });
     const partC = 'partC' in patch ? normalizePartC(patch.partC, current.partC) : current.partC;
     const title = 'title' in patch ? cleanString(patch.title, 80) : current.title;
-    const fullName = 'fullName' in patch ? cleanString(patch.fullName, 120) : current.fullName;
+    const fullName = 'fullName' in patch ? cleanString(patch.fullName, PROFILE_NAME_MAX) : current.fullName;
     const city = 'city' in patch ? cleanString(patch.city, 120) : current.city;
     const topics = 'topics' in patch ? cleanTopics(patch.topics, current.topics) : current.topics;
     const indicators = 'indicators' in patch ? cleanIndicators(patch.indicators) : current.indicators;
@@ -870,7 +866,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       const name = typeof fullName === 'string' ? fullName.trim() : '';
       const failure = (code = 'invitation_invalid', status = 400) => ({ status, code, cookies: clearSessionCookies(env) });
       if (typeof tokenHash !== 'string' || !/^[A-Za-z0-9_-]{32,512}$/.test(tokenHash)
-        || !validatePassword(password) || name.length < 2 || name.length > 120 || /[\u0000-\u001f\u007f]/.test(name)
+        || !validatePassword(password) || name.length < 2 || name.length > PROFILE_NAME_MAX || /[\u0000-\u001f\u007f]/.test(name)
         || typeof authorize !== 'function' || typeof enroll !== 'function') return { status: 400, code: 'invitation_invalid', cookies: [] };
       let session;
       try {
@@ -1079,10 +1075,10 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       }
       const user = await ensureProfile(authUser, fullName);
       return {
-        status: session?.access_token ? 201 : 202,
+        status: 201,
         user,
         cookies: sessionCookies(session, env),
-        requiresEmailConfirmation: !session?.access_token,
+        requiresEmailConfirmation: false,
       };
     },
     /* Answers in the same shape the sqlite backend does. Letting a rejected
@@ -1505,6 +1501,8 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       return readOwnedCatalogInterest(itemId, userId);
     },
     async getCatalogInterestById(id) {
+      // catalog_interests.id is a uuid, as in readOwnedCatalogInterest.
+      if (typeof id !== 'string' || !CATALOG_UUID.test(id)) return null;
       return catalogInterestFromSupabase(await first(admin.rest('catalog_interests', {
         query: { id: `eq.${id}`, select: '*' },
       })));

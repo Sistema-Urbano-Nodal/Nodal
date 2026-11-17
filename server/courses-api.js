@@ -63,6 +63,10 @@ export async function bodyJson(req, limit = 64 * 1024) {
   try { const body=JSON.parse(Buffer.concat(chunks).toString('utf8'));if(!body || typeof body!=='object' || Array.isArray(body))fail('JSON object required');return body; }
   catch(err) { if(err.status)throw err;fail('invalid JSON'); }
 }
+/* A module carries its text in the base language and in up to three translations (title 180, description 6000,
+   objectives 6000 and instructions 10000 characters each) plus twelve materials: about 123,000 characters at the
+   limits, some 220 KB in accented text, past the 64 KiB default. Module saves read up to 256 KiB. */
+const MODULE_BODY_MAX = 256 * 1024;
 function respond(res,status,body,headers={}) {
   res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers});
   res.end(typeof body==='string'||Buffer.isBuffer(body)?body:JSON.stringify(body));
@@ -171,12 +175,15 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
   /* After a post is withdrawn (by its author or by staff), its author's files go with it, as the delete confirmation
      promises: unless another live post of theirs still shows a file, the file is marked 'deleting', removed from
      Storage and then from the table, which also returns it to the author's upload allowance. A Storage failure leaves
-     the row 'deleting' (never downloadable, and erased with the account) for scripts/reconcile-course-uploads.js;
-     the withdrawal itself has already succeeded, so it is reported, not undone. */
+     the row 'deleting' (never downloadable, and erased with the account) for scripts/reconcile-course-uploads.js, and a
+     failed read of the author's live posts leaves every file as it is for the same script; the withdrawal itself has
+     already succeeded, so either failure is reported, not undone. */
   async function releasePostFiles(post) {
     const ids=[...new Set((post.attachmentIds??[]).map(id=>id.toLowerCase()))];
     if(!ids.length||!post.userId)return;
-    const live=await all('posts',{moduleId:post.moduleId,userId:post.userId,deletedAt:null});
+    let live;
+    try { live=await all('posts',{moduleId:post.moduleId,userId:post.userId,deletedAt:null}); }
+    catch(error) { log('course attachment cleanup failed:',ids.join(','),errorText(error));return; }
     for(const id of ids) {
       if(live.some(other=>other.id!==post.id&&(other.attachmentIds??[]).some(reference=>sameIdentifier(reference,id))))continue;
       try {
@@ -188,6 +195,8 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
     }
   }
   const membersForRows=rows=>membersOf(store,rows);
+  // The screens list the newest 500 responses, still in date order, so a new rating always shows; only the CSV exports read every row.
+  const newestFeedback=async filters=>(await store.find('feedback',filters,{limit:500,desc:true})).reverse();
   async function feedbackForStaff(rows,members=undefined) {
     members??=await membersForRows(rows);
     return rows.map(row=>({...row,name:members.get(row.userId)?.name??'',email:members.get(row.userId)?.email??''}));
@@ -200,7 +209,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
     const needsParticipants=!exportType||['participants','intake'].includes(exportType);
     const needsFeedback=!exportType||exportType==='feedback';
     const [enrollments,intakes,events,posts,feedback,counts,invitations]=await Promise.all([
-      needsParticipants?all('enrollments',{courseId},max):[],needsParticipants?all('intakes',{courseId}):[],exportType==='activity'?all('events',{courseId}):[],exportType==='activity'?all('posts',{courseId}):[],needsFeedback?all('feedback',{courseId},max):[],
+      needsParticipants?all('enrollments',{courseId},max):[],needsParticipants?all('intakes',{courseId}):[],exportType==='activity'?all('events',{courseId}):[],exportType==='activity'?all('posts',{courseId}):[],needsFeedback?(exportType?all('feedback',{courseId}):newestFeedback({courseId})):[],
       exportType?null:Promise.all([courseSummary(store,courseId),store.count('feedback',{courseId})]),
       exportType?[]:all('invitations',{courseId,acceptedAt:null},500),
     ]);
@@ -264,7 +273,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
     }
     if(path.startsWith('/api/admin/feedback')&&req.method==='GET') {
       const exporting=path==='/api/admin/feedback/export';
-      const feedback=await feedbackForStaff(await all('feedback',{},exporting?Infinity:500));
+      const feedback=await feedbackForStaff(exporting?await all('feedback'):await newestFeedback({}));
       if(path==='/api/admin/feedback/export')sendCsv(res,'nodal-feedback',feedbackCsv(feedback));
       else if(path==='/api/admin/feedback')send(res,200,{feedback,truncated:(await store.count('feedback'))>500});
       else send(res,404,{error:'not found'});
@@ -399,7 +408,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
     }
     if(adminPath&&suffix==='/modules'&&req.method==='POST') {
       const count=await store.find('modules',{courseId,kind:'session'},{limit:100});if(count.length>=100)fail('course module limit reached');
-      const input=normalizeModule(await bodyJson(req));if(input.kind!=='session')fail('general discussion is created automatically');
+      const input=normalizeModule(await bodyJson(req,MODULE_BODY_MAX));if(input.kind!=='session')fail('general discussion is created automatically');
       const record={id:newId(),courseId,...input,version:1,createdAt:now(),updatedAt:now()};await validateMaterials(input.resources,record);
       const module=await store.insert('modules',record);
       send(res,201,{module});return true;
@@ -449,7 +458,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
       const operation=moduleMatch[2]||'';
       if(!operation&&req.method==='GET'){send(res,200,{module});return true;}
       if(adminPath&&!operation&&req.method==='PATCH') {
-        const input=await bodyJson(req);if(!Number.isInteger(input.version)||input.version<1)fail('version is required');
+        const input=await bodyJson(req,MODULE_BODY_MAX);if(!Number.isInteger(input.version)||input.version<1)fail('version is required');
         const normalized=normalizeModule(input,module);await validateMaterials(normalized.resources,module);
         const updated=await store.update('modules',{id:module.id,courseId,version:input.version},{...normalized,version:input.version+1,updatedAt:now()});
         if(!updated)fail('module changed; reload before saving',409);

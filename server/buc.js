@@ -273,7 +273,8 @@ export function createBucFeed({url,fetchImpl=globalThis.fetch,clock=Date.now,log
   }
   return {
     enabled:Boolean(address),
-    // Every valid publication, in feed order, or null (off, or no good read yet).
+    // Every valid publication, in feed order, or null (off, or no good read yet). The server asks recommend(); the tests
+    // read the whole list here.
     items:()=>current().then(found=>found?.items??null),
     /* Up to `limit` publications in the asked categories (all when none). words (phrases, or one phrase as a string;
        folded and matched whole at word starts, as BUC's search matches its q) keep only the publications whose title or
@@ -291,7 +292,7 @@ export function createBucFeed({url,fetchImpl=globalThis.fetch,clock=Date.now,log
       scored.sort((a,b)=>b.score-a.score||b.rank-a.rank||(b.record.item.year??-1)-(a.record.item.year??-1)||b.record.updated-a.record.updated||a.index-b.index);
       return scored.slice(0,Number.isInteger(limit)&&limit>0?limit:4).map(entry=>entry.record.item);
     },
-    // Resolves once no read is running (scripts and tests).
+    // Resolves once no read is running (tests).
     whenIdle:()=>inflight?inflight.then(()=>{}):Promise.resolve(),
   };
 }

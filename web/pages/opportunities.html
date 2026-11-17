@@ -13,22 +13,22 @@
   <script src="locale.js?v=20261009a"></script>
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="fonts.css?v=20260911b" />
-  <link rel="stylesheet" href="styles.css?v=36" />
-  <link rel="stylesheet" href="catalog.css?v=7" />
-  <link rel="stylesheet" href="courses.css?v=20261023a" />
+  <link rel="stylesheet" href="styles.css?v=37" />
+  <link rel="stylesheet" href="catalog.css?v=8" />
+  <link rel="stylesheet" href="courses.css?v=20261116a" />
 
-  <script defer src="nav.js?v=20261013b"></script>
-  <script defer src="i18n.js?v=20261109a"></script>
-  <script defer src="pilot-i18n.js?v=20261029a"></script>
-  <script defer src="pilot.js?v=20261023a"></script>
-  <script defer src="catalog.js?v=7"></script>
+  <script defer src="nav.js?v=20261116a"></script>
+  <script defer src="i18n.js?v=20261116a"></script>
+  <script defer src="pilot-i18n.js?v=20261116a"></script>
+  <script defer src="pilot.js?v=20261116a"></script>
+  <script defer src="catalog.js?v=8"></script>
   <script defer src="visit.js?v=20261114b"></script>
 </head>
 <body class="catalog-page">
   <header class="navbar" id="top">
     <a class="brand" href="index.html" id="brand" title="NODAL"><svg class="brand-mark" viewBox="0 0 120 130" aria-hidden="true"><g fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><line x1="30" y1="18" x2="40" y2="72" /><line x1="66" y1="28" x2="40" y2="72" /><line x1="66" y1="28" x2="92" y2="60" /><line x1="92" y1="60" x2="74" y2="94" /><line x1="40" y1="72" x2="74" y2="94" /><line x1="74" y1="94" x2="44" y2="116" /></g><g fill="#fff"><circle cx="30" cy="18" r="6.5" /><circle cx="66" cy="28" r="7.5" /><circle cx="92" cy="60" r="5.5" /><circle cx="40" cy="72" r="12" /><circle cx="74" cy="94" r="10" /><circle cx="44" cy="116" r="6" /></g></svg><img class="brand-wordmark" src="assets/nodal-wordmark.webp" width="360" height="143" alt="NODAL · Nodos Urbanos de América Latina" /></a>
     <nav class="nav-main" aria-label="Main navigation" data-i18n-aria-label="nav.mainLabel"><a href="index.html#membership" data-i18n="nav.program">Programme</a><a href="community.html" data-i18n="nav.community">Community</a><a href="resources.html" data-i18n="nav.resources">Resources</a><a href="knowledge.html" data-i18n="nav.learn">Knowledge</a></nav>
-    <nav class="nav-account" aria-label="Account and language" data-i18n-aria-label="nav.accountLabel"><div class="lang-switch" role="group" aria-label="Language" data-i18n-aria-label="nav.languageLabel"><button type="button" class="lang-btn" data-lang="en" aria-label="English">EN</button><button type="button" class="lang-btn" data-lang="es" aria-label="Español">ES</button><button type="button" class="lang-btn" data-lang="pt" aria-label="Português">PT</button></div><a class="btn btn-pill btn-nav" href="dashboard.html" data-i18n="nav.panel">My console</a></nav>
+    <nav class="nav-account" aria-label="Account and language" data-i18n-aria-label="nav.accountLabel"><div class="lang-switch" role="group" aria-label="Language" data-i18n-aria-label="nav.languageLabel"><button type="button" class="lang-btn" data-lang="en" aria-label="EN, English">EN</button><button type="button" class="lang-btn" data-lang="es" aria-label="ES, Español">ES</button><button type="button" class="lang-btn" data-lang="pt" aria-label="PT, Português">PT</button></div><a class="btn btn-pill btn-nav" href="dashboard.html" data-i18n="nav.panel">My console</a></nav>
     <button type="button" class="nav-toggle" id="navToggle" aria-label="Menu" data-i18n-aria-label="nav.menuLabel"><span></span><span></span><span></span></button>
   </header>
   <div class="pilot-notice" data-pilot-banner hidden><strong data-pilot-text="prototype">Course pilot · Prototype</strong><span data-pilot-text="notice">We are testing this learning space together. Share feedback as you go.</span></div>
@@ -52,7 +52,7 @@
       <aside class="catalog-detail-pane" aria-labelledby="detailTitle"><p class="catalog-live-status" id="catalogDetailStatus" role="status" aria-live="polite" data-i18n="catalog.selectDetail">Choose a listing to read its verified details.</p><article id="catalogDetail" hidden><button class="catalog-detail-close" id="catalogDetailClose" type="button" data-i18n="catalog.closeDetail">Close details</button><p class="catalog-detail-kind" id="catalogDetailKind"></p><h2 id="detailTitle" tabindex="-1"></h2><p class="catalog-detail-summary" id="catalogDetailSummary"></p><div class="catalog-detail-meta" id="catalogDetailMeta"></div><div class="catalog-detail-body" id="catalogDetailBody"></div><div class="catalog-detail-actions" id="catalogDetailActions"></div><p class="interest-disclosure" id="catalogInterestDisclosure" data-i18n="catalog.interestDisclosure">If you express interest, NODAL staff receive your account name, email and this message so they can contact you outside the platform.</p><a class="btn btn-primary catalog-interest-sign-in" id="catalogInterestSignIn" href="login.html?next=/opportunities.html" hidden data-i18n="catalog.signInToExpressInterest">Sign in to express interest</a><form id="catalogInterestForm" hidden><div id="catalogInterestCompose"><label for="catalogInterestMessage" data-i18n="catalog.interestMessageLabel">Message to NODAL staff</label><textarea id="catalogInterestMessage" maxlength="1000" rows="5" required data-i18n-placeholder="catalog.interestMessagePlaceholder" placeholder="Describe how you could contribute or what you want to learn."></textarea><button class="btn btn-primary" id="catalogInterestSubmit" type="submit" data-i18n="catalog.expressInterest">Express interest</button></div><div class="catalog-interest-buttons"><button class="catalog-text-button" id="catalogWithdrawInterest" type="button" hidden data-i18n="catalog.withdraw">Withdraw interest</button></div><p id="catalogInterestStatus" role="status" aria-live="polite"></p></form></article></aside>
     </div>
 
-    <section class="my-interests" id="catalogMyInterests" hidden aria-labelledby="myInterestsTitle"><div class="catalog-results-head"><div><p class="eyebrow" data-i18n="catalog.memberEyebrow">Member workspace</p><h2 id="myInterestsTitle" data-i18n="catalog.myInterests">My interests</h2></div><button class="catalog-text-button" id="catalogMyInterestsClose" type="button" data-i18n="catalog.backResults">Back to all results</button></div><p id="catalogMyInterestsStatus" class="catalog-live-status" role="status" aria-live="polite"></p><div id="catalogMyInterestsList" class="interest-list"></div></section>
+    <section class="my-interests" id="catalogMyInterests" hidden aria-labelledby="myInterestsTitle"><div class="catalog-results-head"><div><p class="eyebrow" data-i18n="catalog.memberEyebrow">Member workspace</p><h2 id="myInterestsTitle" tabindex="-1" data-i18n="catalog.myInterests">My interests</h2></div><button class="catalog-text-button" id="catalogMyInterestsClose" type="button" data-i18n="catalog.backResults">Back to all results</button></div><p id="catalogMyInterestsStatus" class="catalog-live-status" role="status" aria-live="polite"></p><div id="catalogMyInterestsList" class="interest-list"></div></section>
   </main>
 
   <footer class="footer"><div class="footer-bottom"><div class="wrap"><a class="footer-old" href="index.html" data-i18n="catalog.backHome">Back to NODAL</a></div></div></footer>

@@ -9,10 +9,11 @@ export function createHandler({ boot, reporter }) {
   function app() {
     if (!appPromise) {
       appPromise = boot();
-      /* A rejected promise stays rejected. Without this, one transient failure
-         here — a cache that was not reachable at the moment this instance woke
-         up — would fail every later request on the instance with the same error,
-         long after the cause had cleared. */
+      /* A rejected promise stays rejected; without this, every later request on
+         the instance would get the same error. Boot fails only on settings:
+         validateRuntimeConfig, a malformed REDIS_URL (or a plaintext one in
+         production), an invalid CITY_SEARCH_URL. An unreachable Redis never fails
+         it (createCache falls back to memory). The retry costs nothing. */
       appPromise.catch(() => { appPromise = undefined; });
     }
     return appPromise;
@@ -22,7 +23,7 @@ export function createHandler({ boot, reporter }) {
     try {
       server = await app();
     } catch (err) {
-      // An instance that cannot start (a bad setting, an unreachable cache) is the worst outage: report why, then answer.
+      // An instance that cannot start (a bad setting; see above) is the worst outage: report why, then answer.
       console.error('instance could not start:', err instanceof Error ? err.message : String(err));
       await reporter.report(err, { method: req.method, route: routeOf(req.url), status: 500 });
       if (!res.headersSent) { res.statusCode = 500; res.setHeader('Content-Type', 'application/json; charset=utf-8'); res.setHeader('Cache-Control', 'no-store'); }

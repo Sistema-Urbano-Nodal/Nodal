@@ -167,7 +167,11 @@ Afterwards:
   should stay downloadable.
 - If an upload or a deletion of a certificate failed with a Storage error, run
   `npm run uploads:reconcile` (dry run; see its `certificates` part), then
-  `npm run uploads:reconcile -- --apply`.
+  `npm run uploads:reconcile -- --apply`. Run it with `DATA_BACKEND=supabase`,
+  `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and
+  `SUPABASE_SECRET_KEY` loaded, as for `setup:course-pilot`: its report starts
+  with the backend it read (`backend` plus `host` or `database`), and it warns on
+  stderr when it read a local SQLite file instead of production.
 - Retention of the responses (including started-only rows) is not decided yet;
   record the decision with the other course categories in `docs/privacy/`.
 
@@ -526,7 +530,7 @@ version.
   Only the options with a link are listed, and never the links themselves: a
   member gets a link only from `POST /api/membership/acceptances`, after their
   acceptances are recorded.
-- `soon` (`checkout: false`, `Soon`): an option or the contact is missing, or
+- `soon` (`checkout: false`, no options): an option or the contact is missing, or
   the terms have not taken effect yet. The course pilot keeps redirecting
   `/payments.html` to the courses page.
 - `ended` (`checkout: false`): from 1 Jan 2027 00:00 Lima, whatever is set. The
@@ -574,10 +578,14 @@ nothing outside ESLint. Remove it when you upgrade ESLint to a release whose
 and `npm audit --audit-level=low`.
 
 The server refuses to boot on Vercel Production (`VERCEL_ENV=production`) unless
-`TRUST_PROXY=true` and `PUBLIC_BASE_URL` (or `NEXT_PUBLIC_APP_URL`) is an
-explicit `https` origin without credentials; `VERCEL_URL` does not count there.
-Anywhere, `TRUST_PROXY` must be `true`, `false` or unset: any other spelling
-would key every per-client limit on the platform's own address.
+`PUBLIC_BASE_URL` (or `NEXT_PUBLIC_APP_URL`) is an explicit `https` origin
+without credentials; `VERCEL_URL` does not count there. `TRUST_PROXY` never
+stops a Vercel boot: there the proxy's address headers are trusted unless it is
+`false`, so `TRUST_PROXY=true` above is harmless but optional. Never set it to
+`false` on Vercel: the instance still boots, with one warning in the log, but
+every visitor then shares one rate-limit bucket. Off Vercel, `TRUST_PROXY` must
+be `true`, `false` or unset (any other spelling stops the boot), and only `true`
+trusts the headers.
 
 Optional limits (defaults shown; each is per server instance):
 
@@ -590,6 +598,10 @@ SESSION_REFRESH_FAILURE_LIMIT=30 # session refreshes Supabase rejects, per clien
 NETWORK_GEOCODE_BUDGET_MS=2000   # time one globe poll may wait on the city geocoder
 ```
 
+Raising one of these in Vercel's environment cannot fail the build: `npm test`
+loads `tests/setup/clear-limits.js`, which clears every limit the server reads, so
+the tests always run against the defaults.
+
 Only wrong passwords count against the sign-in limits; a successful sign-in
 clears that requester's count. Sign-ups stop at `SIGNUP_EMAIL_HOURLY_LIMIT` an
 hour with 429 "Confirmation email is temporarily unavailable", which keeps the
@@ -600,7 +612,7 @@ emails are limited to 3 per address and requester and 10 per address from
 everyone per 15 minutes; over that the request answers 429 `recovery_rate`
 ("Too many attempts") instead of a silent "sent".
 
-Set the Supabase URL and publishable key for both Production and Preview when preview deployments need working authentication. Scope the server credential only to trusted preview branches. Set `PUBLIC_BASE_URL` or `NEXT_PUBLIC_APP_URL` explicitly for each environment: password recovery and invitations require that configured origin and do not fall back to `VERCEL_URL`. Add each intended callback URL to Supabase's redirect allowlist.
+A Vercel deployment boots only with all three Supabase variables (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SECRET_KEY`), Preview as much as Production: its data backend is Supabase (`DATA_BACKEND=supabase` above, and the default on Vercel). Scope `SUPABASE_SECRET_KEY` to trusted preview branches only: previews share the production database, and the key bypasses RLS. A Preview of any other branch is therefore not a working site: the CDN still serves the four static pages (opportunities, privacy, terminos-fundadores and fundadores) and the assets, but every other address, `/` and `/api/health` included, answers 500 `{"error":"internal error"}`, and the function log says `instance could not start: SUPABASE_SECRET_KEY is required for Supabase`. That is expected for a branch without the key, not a regression; do not widen the key to every Preview to make it boot. Set `PUBLIC_BASE_URL` or `NEXT_PUBLIC_APP_URL` explicitly for each environment: password recovery and invitations require that configured origin and do not fall back to `VERCEL_URL`. Add each intended callback URL to Supabase's redirect allowlist.
 
 Optional, for festival check-in (see "FIIU check-in on the day" below):
 
@@ -707,7 +719,7 @@ npm start
     terms. With no `MERCADOPAGO_LINK_*`, or without
     `MEMBERSHIP_CONTACT_EMAIL`,
     `/api/billing/config` returns `"state": "soon"`, `"checkout": false` and
-    `Soon`, the card says "Las inscripciones abren pronto", the join page has
+    no options, the card says "Las inscripciones abren pronto", the join page has
     no button and says the same, and in the pilot `/payments.html` redirects
     to `/courses.html`. With a link and the contact set, from 21 Oct 2026
     (Lima) it returns `"state": "open"`, `"checkout": true` and S/ 499 (no link
@@ -716,9 +728,10 @@ npm start
     it stays `"soon"`. From 1 Jan 2027 (Lima) it returns `"state": "ended"`,
     the card says "Oferta cerrada" ("Offer closed"), and the join page has no
     button and says the offer closed on 31 December 2026.
-14. Confirm `/api/news` returns 200, and that `/fiiu-qr.html` and
-    `/fiiu-admin.html` show "Organisers only" (status 403) to a member account
-    and the real pages to an administrator.
+14. Confirm `/api/news` returns 200, and that `/fiiu-qr.html`,
+    `/fiiu-admin.html`, `/admin.html`, `/teaching.html` and `/admin-home.html`
+    show "Organisers only" (status 403) to a member account and the real pages
+    to an administrator.
 
 ## FIIU check-in on the day
 
@@ -1011,8 +1024,9 @@ the session, sets no cookie and is cached by the CDN for 5 minutes
   directory, profile saves, data export and Stripe checkout. Limits are keyed by
   account when there is one, by address otherwise.
 - Rate limits are keyed on `X-Real-IP`, or the rightmost `X-Forwarded-For` hop -
-  never the leftmost, which the caller controls. `TRUST_PROXY=true` is required
-  behind Vercel for this to read the real address.
+  never the leftmost, which the caller controls. On Vercel these headers are
+  trusted unless `TRUST_PROXY=false`, which makes every visitor share one
+  bucket; behind any other proxy only `TRUST_PROXY=true` reads the real address.
 - **Serverless caveat:** rate-limit buckets live in the function instance's
   memory, so limits apply per warm instance rather than globally. `REDIS_URL`
   shares recommendation/city cache values only; it does not share request

@@ -597,6 +597,21 @@ test('the door confirmation opens the privacy policy in a new tab, names a slow 
  assert.deepEqual(h.requests.filter(request=>request.path==='/api/fiiu/checkin').at(-1).body,{code:'K7M4PX',join:true,language:'en'});
 });
 
+test('on slow Wi-Fi a refusal keeps naming the account when the programme lands after the slow account lookup, and before it',async()=>{
+ const lookup={registration:null,attendance:[],hours:{minutes:0,hours:0,untimed:[]},user:{id:'u4',email:'late@example.test'},serverTime:'2026-10-21T14:12:00.000Z'};
+ const refusals=[[{status:404,data:{error:'registration unavailable',code:'not_registered',activityId:'day1-am',registration:'general',registrationOpen:true,walkIn:true}},'joinAtDoorTitle'],[{status:404,data:{code:'not_registered',activityId:'day1-am',registrationOpen:true}},'notRegistered']];
+ for(const lookupFirst of [true,false])for(const [answer,titleKey] of refusals){
+  const label=`${titleKey}, ${lookupFirst?'lookup':'programme'} first`;let answerLookup,answerProgramme;
+  const h=await createFiiuHarness(request=>request.path==='/api/fiiu?kind=news'?new Promise(resolve=>{answerProgramme=()=>resolve(publicData());}):request.path==='/api/fiiu/registration'?new Promise(resolve=>{answerLookup=()=>resolve(lookup);}):request.path==='/api/fiiu/checkin'?answer:assert.fail(request.path),{page:'fiiu-checkin',search:`?a=day1-am&c=${CODE}`,context:{Date:frozen('2026-10-21T09:12:00-05:00'),setTimeout:fn=>fn()}});
+  // Drawn after the brief hold, before either answered: no account yet, and no programme to name the block.
+  assert.equal(title(h).dataset.fiiuText,titleKey,label);assert.equal(result(h).querySelector('.f-checkin-facts'),null,label);assert.equal(result(h).querySelector('.f-checkin-activity'),null,label);
+  for(const answerNext of lookupFirst?[answerLookup,answerProgramme]:[answerProgramme,answerLookup]){answerNext();await flush();}
+  // Either way the block ends up named from the programme, with the account once, on the screen meant to stop a second registration.
+  assert.equal(title(h).dataset.fiiuText,titleKey,label);assert.match(content(result(h).querySelector('.f-checkin-activity')),/El poder de lo local/,label);
+  const facts=result(h).querySelectorAll('.f-checkin-facts');assert.equal(facts.length,1,label);assert.match(content(facts[0]),/late@example\.test/,label);
+ }
+});
+
 /* After the festival (it ended on Sun 25 Oct, Lima) there is no desk and no screen to scan: every result that sent people to the desk names the organisers'
    address instead (the event's own, as the page receives it), so someone who attended a block without checking in can still claim it. On 24 October,
    while the routes still run, the desk stays. */

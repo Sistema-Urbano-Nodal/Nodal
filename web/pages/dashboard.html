@@ -12,18 +12,18 @@
   <script src="locale.js?v=20261009a"></script>
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="fonts.css?v=20260911b" />
-  <link rel="stylesheet" href="dashboard.css?v=41" />
-  <link rel="stylesheet" href="courses.css?v=20261023a" />
+  <link rel="stylesheet" href="dashboard.css?v=42" />
+  <link rel="stylesheet" href="courses.css?v=20261116a" />
 
-  <script defer src="i18n-dashboard.js?v=20261115a"></script>
-  <script defer src="i18n.js?v=20261109a"></script>
-  <script defer src="location-i18n.js?v=20260918b"></script>
-  <script defer src="location-check.js?v=20260908b"></script>
-  <script defer src="pilot-i18n.js?v=20261029a"></script>
-  <script defer src="pilot.js?v=20261023a"></script>
-  <script defer src="buc.js?v=20261016c"></script>
-  <script defer src="dashboard.js?v=20261029a"></script>
-<link rel="stylesheet" href="fiiu.css?v=20261022a"><script defer src="fiiu-ui.js?v=20261029a"></script><script defer src="fiiu-live.js?v=20261020a"></script><script defer src="fiiu-hubs.js?v=20261029a"></script><script defer src="news-feed.js?v=20261001b"></script>
+  <script defer src="i18n-dashboard.js?v=20261116a"></script>
+  <script defer src="i18n.js?v=20261116a"></script>
+  <script defer src="location-i18n.js?v=20261116a"></script>
+  <script defer src="location-check.js?v=20261116a"></script>
+  <script defer src="pilot-i18n.js?v=20261116a"></script>
+  <script defer src="pilot.js?v=20261116a"></script>
+  <script defer src="buc.js?v=20261116a"></script>
+  <script defer src="dashboard.js?v=20261116a"></script>
+<link rel="stylesheet" href="fiiu.css?v=20261116a"><script defer src="fiiu-ui.js?v=20261116a"></script><script defer src="fiiu-live.js?v=20261116a"></script><script defer src="fiiu-hubs.js?v=20261116a"></script><script defer src="news-feed.js?v=20261001b"></script>
   <script defer src="visit.js?v=20261114b"></script>
 </head>
 <body class="dash-page">
@@ -77,9 +77,9 @@
 
     <div class="side-foot">
       <div class="lang-set" role="group" aria-label="Language" data-i18n-aria-label="nav.languageLabel">
-        <button type="button" class="lang-btn is-on" data-lang="en" aria-label="English">EN</button>
-        <button type="button" class="lang-btn" data-lang="es" aria-label="Español">ES</button>
-        <button type="button" class="lang-btn" data-lang="pt" aria-label="Português">PT</button>
+        <button type="button" class="lang-btn is-on" data-lang="en" aria-label="EN, English">EN</button>
+        <button type="button" class="lang-btn" data-lang="es" aria-label="ES, Español">ES</button>
+        <button type="button" class="lang-btn" data-lang="pt" aria-label="PT, Português">PT</button>
       </div>
       <a class="side-out" href="login.html" id="logoutBtn">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20H9M15 8l4 4-4 4M19 12H9"/></svg>
@@ -98,10 +98,10 @@
         <input type="search" id="searchInput" data-i18n-placeholder="d.search.placeholder" placeholder="Search the community…" aria-label="Search the community" data-i18n-aria-label="d.aria.search" autocomplete="off" />
         <span class="search-in" data-i18n="d.search.in">Scope</span>
         <div class="search-chips" id="searchChips">
-          <button type="button" class="chip is-on" data-scope="People" data-i18n="d.search.people">People</button>
-          <button type="button" class="chip" data-scope="Projects" data-i18n="d.search.projects">Projects</button>
-          <button type="button" class="chip" data-scope="Knowledge" data-i18n="d.search.knowledge">Knowledge</button>
-          <button type="button" class="chip" data-scope="Opportunities" data-i18n="d.search.opportunities">Opportunities</button>
+          <button type="button" class="chip is-on" data-scope="People" aria-pressed="true" data-i18n="d.search.people">People</button>
+          <button type="button" class="chip" data-scope="Projects" aria-pressed="false" data-i18n="d.search.projects">Projects</button>
+          <button type="button" class="chip" data-scope="Knowledge" aria-pressed="false" data-i18n="d.search.knowledge">Knowledge</button>
+          <button type="button" class="chip" data-scope="Opportunities" aria-pressed="false" data-i18n="d.search.opportunities">Opportunities</button>
         </div>
         <div class="search-pop" id="searchPop" hidden></div>
       </div>
@@ -271,28 +271,28 @@
       <div class="paths">
         <ul class="pathlist" id="pathList">
           <li>
-            <button type="button" class="path-row is-on" data-branch="knowledge">
+            <button type="button" class="path-row is-on" data-branch="knowledge" aria-pressed="true">
               <span class="path-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2.5 8 12 13l9.5-5z"/><path d="M6 10.5V16c0 1.7 2.7 3 6 3s6-1.3 6-3v-5.5"/></svg></span>
               <span class="path-meta"><strong data-i18n="d.path.knowledge">Knowledge</strong><em>—</em></span>
               <span class="path-state st-next">—</span>
             </button>
           </li>
           <li>
-            <button type="button" class="path-row" data-branch="project">
+            <button type="button" class="path-row" data-branch="project" aria-pressed="false">
               <span class="path-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="18" height="13"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg></span>
               <span class="path-meta"><strong data-i18n="d.path.practice">Practice</strong><em>—</em></span>
               <span class="path-state st-next">—</span>
             </button>
           </li>
           <li>
-            <button type="button" class="path-row" data-branch="territory">
+            <button type="button" class="path-row" data-branch="territory" aria-pressed="false">
               <span class="path-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-5.4-6.5-10A6.5 6.5 0 0 1 12 4.5 6.5 6.5 0 0 1 18.5 11c0 4.6-6.5 10-6.5 10z"/><circle cx="12" cy="11" r="2.3"/></svg></span>
               <span class="path-meta"><strong data-i18n="d.path.territory">Territory</strong><em>—</em></span>
               <span class="path-state st-next">—</span>
             </button>
           </li>
           <li>
-            <button type="button" class="path-row" data-branch="community">
+            <button type="button" class="path-row" data-branch="community" aria-pressed="false">
               <span class="path-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19c.8-2.6 2.7-4 5-4s4.2 1.4 5 4M11 19c.8-2.6 2.7-4 5-4s4.2 1.4 5 4"/></svg></span>
               <span class="path-meta"><strong data-i18n="d.path.community">Community</strong><em>—</em></span>
               <span class="path-state st-next">—</span>
@@ -389,7 +389,7 @@
             <text id="ringText" x="42" y="48" text-anchor="middle" font-size="19" font-weight="800" fill="#25341f">0%</text>
           </svg>
           <ul class="parts">
-            <li class="done" data-i18n="d.ctx.partA">Part A · Core</li>
+            <li id="partAStatus" data-i18n="d.ctx.partA">Part A · Core</li>
             <li id="partBStatus">Part B · Self-assessment</li>
             <li id="partCStatus">Part C · Depth</li>
           </ul>
@@ -412,6 +412,7 @@
 <div class="save-alert" id="saveAlert" role="status" hidden>
   <p id="saveAlertText">Your last change could not be saved.</p>
   <button type="button" class="btn-green" id="saveRetry">Try again</button>
+  <button type="button" class="btn-green" id="saveClose" data-i18n="d.save.close" hidden>Close</button>
 </div>
 
 <!-- ===================== profile dialog ===================== -->

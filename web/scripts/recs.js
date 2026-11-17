@@ -49,7 +49,9 @@
     messageMode = '';
     els.initial.textContent = p.name.charAt(0).toUpperCase();
     els.name.textContent = p.name;
-    els.role.textContent = `${p.role} · ${p.city}`;
+    /* 'Member' is the server's placeholder for a member without a title, and this page has no translation for it, so it is
+       left out, as an empty city is, and no ' · ' is left hanging. */
+    els.role.textContent = [p.role === 'Member' ? '' : p.role, p.city].filter(Boolean).join(' · ');
     els.tags.replaceChildren(...p.interests.slice(0, 3).map((i) => {
       const span = document.createElement('span');
       span.textContent = cap(i);

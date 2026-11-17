@@ -3,14 +3,16 @@ import assert from 'node:assert/strict';
 import {
   createSupabaseRepository,
   createSupabaseClients,
-  publicSupabaseConfig,
   resolveSupabaseEnv,
 } from '../server/supabase.js';
 import { decodeCatalogCursor, decodeCatalogInterestCursor, localizeCatalogItem } from '../server/catalog.js';
+import { PROFILE_NAME_MAX } from '../server/domain.js';
 
 const TEST_USER_ID = '00000000-0000-0000-0000-000000000001';
 // catalog_items.id is a uuid: getCatalogItem answers any other id as missing without a provider call.
 const CATALOG_ITEM_ID = '00000000-0000-4000-8000-0000000c0001';
+// catalog_interests.id is a uuid as well: any other interest id, or cursor id, is answered without asking PostgREST.
+const INTEREST_ID = '00000000-0000-4000-8000-0000000c1001';
 
 const testEnv = () => ({
   NEXT_PUBLIC_SUPABASE_URL: 'https://project.supabase.co',
@@ -151,19 +153,23 @@ test('Supabase env accepts publishable key and keeps the secret server-only', ()
     SUPABASE_SECRET_KEY: 'test-server-key',
   };
 
-  assert.deepEqual(publicSupabaseConfig(env), {
+  // The public settings resolve on their own: without requireServer no server key is needed, and none is invented.
+  assert.deepEqual(resolveSupabaseEnv({
+    NEXT_PUBLIC_SUPABASE_URL: env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+  }, { requireServer: false }), {
     url: 'https://project.supabase.co',
     publishableKey: 'test-public-key',
+    serverKey: '',
   });
 
   const resolved = resolveSupabaseEnv(env, { requireServer: true });
   assert.equal(resolved.url, 'https://project.supabase.co');
   assert.equal(resolved.publishableKey, 'test-public-key');
   assert.equal(resolved.serverKey, 'test-server-key');
-  assert.equal(JSON.stringify(publicSupabaseConfig(env)).includes('test-server-key'), false);
 });
 
-test('Supabase env supports legacy anon/service_role names without browser exposure', () => {
+test('Supabase env supports the legacy anon and service_role names, with or without requireServer', () => {
   const env = {
     NEXT_PUBLIC_SUPABASE_URL: 'https://legacy.supabase.co',
     NEXT_PUBLIC_SUPABASE_ANON_KEY: 'legacy-anon-jwt',
@@ -173,9 +179,10 @@ test('Supabase env supports legacy anon/service_role names without browser expos
   const resolved = resolveSupabaseEnv(env, { requireServer: true });
   assert.equal(resolved.publishableKey, 'legacy-anon-jwt');
   assert.equal(resolved.serverKey, 'legacy-service-role-jwt');
-  assert.deepEqual(publicSupabaseConfig(env), {
+  assert.deepEqual(resolveSupabaseEnv(env, { requireServer: false }), {
     url: 'https://legacy.supabase.co',
     publishableKey: 'legacy-anon-jwt',
+    serverKey: 'legacy-service-role-jwt',
   });
 });
 
@@ -312,10 +319,10 @@ test('signup asks for a PKCE confirmation link and keeps no verifier, on every r
 });
 
 test('Supabase env rejects secret-looking keys in public config', () => {
-  assert.throws(() => publicSupabaseConfig({
+  assert.throws(() => resolveSupabaseEnv({
     NEXT_PUBLIC_SUPABASE_URL: 'https://project.supabase.co',
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ['sb', 'secret', 'wrongplace'].join('_'),
-  }), /public Supabase key must not be a secret key/);
+  }, { requireServer: false }), /public Supabase key must not be a secret key/);
 });
 
 test('Supabase session reads an existing profile without initialization writes', async () => {
@@ -451,6 +458,15 @@ test('Supabase profile updates preserve validation markers and enforce mentor el
     endorsedAt: 0,
   }]);
   assert.equal(updated.mentorApplied, false);
+});
+
+// The SQLite twin keeps the same PROFILE_NAME_MAX (tests/overview-data-courses-profile-name.test.js).
+test('Supabase keeps a full name of up to PROFILE_NAME_MAX characters, the cap the SQLite twin applies too', async () => {
+  const state = profileState();
+  const repo = createSupabaseRepository({ env: testEnv(), fetchImpl: statefulFetch(state, []) });
+  const updated = await repo.updateUserProfile(TEST_USER_ID, { fullName: 'x'.repeat(PROFILE_NAME_MAX + 1) });
+  assert.equal(state.profile.full_name, 'x'.repeat(PROFILE_NAME_MAX));
+  assert.equal(updated.fullName, 'x'.repeat(PROFILE_NAME_MAX));
 });
 
 test('Supabase session resolution refreshes an expired access token', async () => {
@@ -1215,7 +1231,7 @@ test('Supabase interest continuations use one bounded keyset read instead of off
     source_verified_at: '2030-01-01T00:00:00.000Z', action_mode: 'none', action_url: '', featured: false, version: 1,
     published_at: '2030-01-01T00:00:00.000Z', updated_at: '2030-01-01T00:00:00.000Z',
   };
-  const cursorId = 'interest-cursor';
+  const cursorId = INTEREST_ID;
   const scenarios = [
     {
       name: 'member descending', direction: 'desc', comparison: 'lt', cursorTime: '2030-05-02T00:00:00.123456Z',
@@ -1317,7 +1333,7 @@ test('Supabase admin interest update distinguishes a missing ID from a stale ver
   // Treating both empty conditional patches as conflicts gives missing records the wrong HTTP status.
   for (const scenario of [
     { name: 'missing', current: [], version: 1, expectMissing: true },
-    { name: 'stale', current: [{ id: 'interest-1', item_id: 'catalog-1', user_id: TEST_USER_ID, message: 'Message', status: 'new', version: 2, created_at: '2030-05-01T00:00:00.000Z', updated_at: '2030-05-01T00:00:00.000Z' }], version: 1, expectMissing: false },
+    { name: 'stale', current: [{ id: INTEREST_ID, item_id: CATALOG_ITEM_ID, user_id: TEST_USER_ID, message: 'Message', status: 'new', version: 2, created_at: '2030-05-01T00:00:00.000Z', updated_at: '2030-05-01T00:00:00.000Z' }], version: 1, expectMissing: false },
   ]) {
     let patched = false;
     const repo = createSupabaseRepository({
@@ -1330,9 +1346,9 @@ test('Supabase admin interest update distinguishes a missing ID from a stale ver
       },
     });
     if (scenario.expectMissing) {
-      assert.equal(await repo.updateCatalogInterest('interest-1', { status: 'contacted' }, scenario.version, TEST_USER_ID), null);
+      assert.equal(await repo.updateCatalogInterest(INTEREST_ID, { status: 'contacted' }, scenario.version, TEST_USER_ID), null);
     } else {
-      await assert.rejects(repo.updateCatalogInterest('interest-1', { status: 'contacted' }, scenario.version, TEST_USER_ID), (err) => err.code === 'CATALOG_VERSION_CONFLICT');
+      await assert.rejects(repo.updateCatalogInterest(INTEREST_ID, { status: 'contacted' }, scenario.version, TEST_USER_ID), (err) => err.code === 'CATALOG_VERSION_CONFLICT');
     }
     assert.equal(patched, false, scenario.name);
   }

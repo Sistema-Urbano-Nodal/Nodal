@@ -424,7 +424,8 @@ test('Cancel and Escape on the profile dialog both count as closing the prompt',
   const source = dashboardJs();
   assert.match(source, /byId\('ucCancel'\)\?\.addEventListener\('click', \(\) => \{ declinePrompt\(\); userDialog\.close\(\); \}\);/);
   assert.match(source, /userDialog\.addEventListener\('cancel', declinePrompt\);/);
-  assert.match(source, /if \(\(!U\.city \|\| !U\.role \|\| U\.topics\.length === 0\) && !promptDeclined\(\)\) openUserDialog\(\);/);
+  // Part A (a city and a topic) is what the prompt asks for; tests/overview-console-dashboard.test.js runs it.
+  assert.match(source, /if \(!partADone\(\) && !promptDeclined\(\)\) openUserDialog\(\);/);
 });
 
 // dashboard-publishing.test.js runs placeFestival(); here, the spacing it gets in its place.
@@ -507,7 +508,7 @@ test('on phones the globe and its 195 KB coastline load only as the network band
   g.near(false);
   assert.deepEqual(g.appended, []);
   g.near(true);
-  assert.deepEqual(g.appended.map((s) => s.src), ['coastline.js?v=3', 'globe-geo.js?v=1', 'globe.js?v=31']);
+  assert.deepEqual(g.appended.map((s) => s.src), ['coastline.js?v=3', 'globe-geo.js?v=1', 'globe.js?v=32']);
   assert.ok(g.appended.every((s) => s.tagName === 'script' && s.async === false), 'inserted scripts run in order, coastline first');
   assert.equal(g.disconnected(), true);
   g.near(true);

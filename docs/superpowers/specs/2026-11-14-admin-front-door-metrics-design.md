@@ -299,8 +299,8 @@ Mesa de publicación
   reset) because teaching loads no `styles.css`. Not sticky, so the offsets at `web/styles/admin.css:24` and
   `web/styles/fiiu.css:74` hold. It wraps on phones and never folds. The current link is marked by weight and a
   thin underline.
-- **Desk sign-out.** `#adminSignOut` (`web/pages/admin.html:50`) stays in `.admin-head-side` with the `hidden`
-  attribute: `admin.js:90` and the guard at `:107` need the element, and the bar now offers sign-out.
+- **Desk sign-out.** The bar's Sign out is the only one: the desk's hidden `#adminSignOut` and its handler were
+  removed on 16 Nov 2026 (89c3d66), and the bar asks first while a tool has unsaved work (bd389d5).
 - **Desk draft prompt (M11).** One listener in `admin.js`, after `newsDirty` (`:917`) and before `bootstrap()`:
   `window.addEventListener?.('beforeunload', …)`, asking when `newsDirty()` is true. The optional call is needed:
   the desk test contexts have no `window.addEventListener` (`tests/catalog-ui.test.js:184-199`). The file must
@@ -318,7 +318,7 @@ preload, `fonts.css`, `styles.css`, `admin.css`, `admin-home.css`, `admin-nav.cs
 `admin-home.js` paints and subscribes the way `admin-nav.js` does.
 Registered in `PRIVATE_PAGES` (`server/server.js:67`), `STATIC_PAGES` (`:68`), the admin-only array (`:1475`),
 `SERVER_PAGES` (`scripts/build-static.js:12`) and the no-store/noindex rule (`vercel.json:69`). Signed out: 302 to
-sign-in. A member: the desk's JSON 403.
+sign-in. A member: the organisers-only page (403) for GET/HEAD; other methods get the JSON 403.
 
 **Addresses.** `ADMIN_ALIASES = new Set(['/admin'])` beside `CHECKIN_ALIASES` (`server/server.js:73`) and one line
 beside `:1490`: GET or HEAD of `/admin`, `/admin/` or `/ADMIN` answers 302 to `/admin-home.html`. The console's

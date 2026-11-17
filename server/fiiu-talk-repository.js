@@ -15,7 +15,7 @@ const RATING_COUNTS="TEXT CHECK((kind='chat' AND rating_counts IS NULL) OR (kind
    counters stay right on every write path, the account-deletion cascade included. recursive_triggers is off, and the
    update triggers watch named columns, never seq or revision, so their own writes cannot fire them again. As on profiles in Postgres, deleting an
    account blanks its messages first, so a deletion path that skips the application's scrub still leaves no text. */
-export const FIIU_TALK_SQLITE_SCHEMA=`
+const FIIU_TALK_SQLITE_SCHEMA=`
 CREATE TABLE IF NOT EXISTS fiiu_questions (id TEXT PRIMARY KEY,event_id TEXT NOT NULL,activity_id TEXT NOT NULL,talk TEXT,body TEXT NOT NULL,
  status TEXT NOT NULL CHECK(status IN ('open','closed','hidden')),revision INTEGER NOT NULL DEFAULT 0,message_count INTEGER NOT NULL DEFAULT 0,
  created_by TEXT REFERENCES users(id) ON DELETE SET NULL,version INTEGER NOT NULL CHECK(version>0),created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
@@ -57,7 +57,7 @@ CREATE TRIGGER IF NOT EXISTS fiiu_messages_account_erasure BEFORE DELETE ON user
    the Postgres trigger does: a change is one total down then another up, each a revision. The JSON path is 0-based,
    so score n is element n-1. */
 const total=(score,step)=>`UPDATE fiiu_questions SET rating_counts=json_set(rating_counts,'$['||(${score}-1)||']',${step==='+'?`json_extract(rating_counts,'$['||(${score}-1)||']')+1`:`max(0,json_extract(rating_counts,'$['||(${score}-1)||']')-1)`}),revision=revision+1`;
-export const FIIU_TALK_RATINGS_SQLITE_SCHEMA=`
+const FIIU_TALK_RATINGS_SQLITE_SCHEMA=`
 CREATE TRIGGER IF NOT EXISTS fiiu_question_kind_lock BEFORE UPDATE OF kind ON fiiu_questions WHEN NEW.kind IS NOT OLD.kind BEGIN SELECT RAISE(ABORT,'question type cannot change'); END;
 CREATE TABLE IF NOT EXISTS fiiu_ratings (question_id TEXT NOT NULL REFERENCES fiiu_questions(id) ON DELETE CASCADE,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
  score INTEGER NOT NULL CHECK(score BETWEEN 1 AND 10),created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(question_id,user_id));

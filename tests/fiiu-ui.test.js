@@ -438,6 +438,23 @@ test('the dashboard widget and the community card follow the registration settin
  const offline=await hubHarness('community',()=>({status:503,data:{error:'unavailable'}}));assert.equal(key(offline.hub,'register').href,'fiiu.html','without the settings the card keeps Register');
 });
 
+test('the resources hub card says what it leads to instead of repeating the page heading, in every language',async()=>{
+ const {hub}=await hubHarness('resources',path=>widgetFeed(path)),heading=hub.querySelector('h1'),card=hub.querySelector('.f-hub-card');
+ assert.equal(heading.dataset.fiiuText,'resourcesTitle');assert.equal(key(card,'resources').tagName,'h2');
+ assert.deepEqual(card.querySelectorAll('p').map(node=>node.dataset.fiiuText),['resourcesHint']);
+ assert.deepEqual(card.querySelectorAll('a').map(a=>a.href),['opportunities.html?kind=opportunity','opportunities.html?kind=resource,case_study']);
+ const context={window:{nodalI18n:{lang:'en',onChange(){}}},document:{documentElement:{lang:'en'},querySelectorAll:()=>[]},Intl,Date,Error};
+ vm.runInNewContext(readFileSync(new URL('../web/scripts/fiiu-ui.js',import.meta.url),'utf8'),context);const {rows}=context.window.Fiiu;
+ assert.equal(rows.resourcesHint.length,3);rows.resourcesHint.forEach((text,i)=>{assert.ok(text.trim());assert.notEqual(text,rows.resourcesTitle[i]);});
+});
+
+test('the English festival strings spell organiser the British way, as the page names the organiser dashboard',()=>{
+ const context={window:{nodalI18n:{lang:'en',onChange(){}}},document:{documentElement:{lang:'en'},querySelectorAll:()=>[]},Intl,Date,Error};
+ vm.runInNewContext(readFileSync(new URL('../web/scripts/fiiu-ui.js',import.meta.url),'utf8'),context);const {rows}=context.window.Fiiu;
+ assert.deepEqual(Object.entries(rows).filter(([,[english]])=>/\borganiz/i.test(english)).map(([name])=>name),[]);
+ assert.match(rows.editorConflict[0],/^Another organiser changed this information\./);
+});
+
 test('badge hints say badges come from the session QR code or the team, in every language',()=>{
  const context={window:{nodalI18n:{lang:'en',onChange(){}}},document:{documentElement:{lang:'en'},querySelectorAll:()=>[]},Intl,Date,Error};
  vm.runInNewContext(readFileSync(new URL('../web/scripts/fiiu-ui.js',import.meta.url),'utf8'),context);const {rows}=context.window.Fiiu;
@@ -827,9 +844,40 @@ test('Back to my registration asks before dropping unsaved edits, and an edit re
  assert.equal(box(again.form(),'activities','day2-am').checked,true,'a block added from the programme comes back too');assert.equal(key(cardOf(again,'Cuidar y transformar la ciudad'),'choiceAdded').dataset.fiiuText,'choiceAdded');
  assert.ok(key(again.root.querySelector('.f-registration'),'draftRestored'));
  again.ctx.window.confirm=()=>true;await key(again.form(),'backToSaved').listeners.click();assert.equal(again.form().hidden,true);assert.equal(storage.data.size,0,'discarding drops the draft');
- // A draft made against an older saved version (an edit from another device since) is stale and dropped.
+ // A draft made against an older saved version (an edit from another device since) is kept too, and now edits the saved version (next test).
  const typed=await harness({registration:saved,context});await key(typed.root,'edit').listeners.click();typeInto(typed.form(),'city','Callao');
- const newer=await harness({registration:{...saved,version:2},context});assert.equal(newer.form().hidden,true);assert.equal(field(newer.form(),'city').value,'Lima');assert.equal(storage.data.size,0);
+ const newer=await harness({registration:{...saved,version:2},context});assert.equal(newer.form().hidden,false);assert.equal(field(newer.form(),'city').value,'Callao');
+ assert.ok(key(newer.root.querySelector('.f-registration'),'draftBehind'));
+ assert.equal(JSON.parse(storage.getItem('fiiu.draft')).version,1,'the draft keeps its own version until an edit');
+ typeInto(newer.form(),'city','Callao Norte');assert.equal(JSON.parse(storage.getItem('fiiu.draft')).version,2,'the first edit moves it onto the saved version');
+});
+
+test('a draft typed against another saved version is kept: after a check-in at the door registered the person, or after a cancellation',async()=>{
+ const storage=tabStorage(),context={sessionStorage:storage};
+ const first=await harness({context});typeInto(first.form(),'firstName','Carla');tick(first.form(),'activities','day2-am');
+ // Meanwhile, in another tab, a check-in at the morning block's door registered the person with that block only (version 1).
+ const walkIn={...saved,answers:{firstName:'Ana',lastName:'Test',country:'',city:'Lima',activities:['day1-am'],externalActivities:[],accessibility:[],applyLab:false,walkIn:true}};
+ const h=await harness({registration:walkIn,context,write:request=>({registration:{...walkIn,version:2,answers:request.body}})}),form=h.form(),panel=h.root.querySelector('.f-registration');
+ assert.equal(form.hidden,false,'the form opens on the kept answers');assert.equal(field(form,'firstName').value,'Carla');
+ assert.equal(box(form,'activities','day2-am').checked,true);assert.equal(box(form,'activities','day1-am').checked,false,'the form stays as typed');
+ const notice=key(panel,'draftBehind');assert.ok(notice,'the panel says the registration changed since');assert.match(notice.className,/\bis-warning\b/);assert.equal(key(panel,'draftRestored'),undefined);
+ for(const lang of ['es','pt','en']){h.lang(lang);assert.match(content(notice),{en:/^We kept your unsaved answers, but your registration has changed since then\./,es:/^Recuperamos tus respuestas sin guardar, pero tu inscripción cambió desde entonces\./,pt:/^Recuperamos suas respostas não salvas, mas sua inscrição mudou desde então\./}[lang]);}
+ // The end of the form says what saving does and shows the registration as saved now, with the block added at the door.
+ const compare=form.querySelector('.f-conflict').querySelector('.f-saved');assert.ok(key(form,'latestReplace'));assert.ok(compare);assert.match(content(compare),/El poder de lo local/);
+ assert.equal(JSON.parse(storage.getItem('fiiu.draft')).version,0,'the draft keeps its own version until an edit');assert.equal(leave(h),true,'the kept answers are still unsaved');
+ // A phone that discards the tab before any edit brings back the same warning and the registration to compare, not a plain "answers kept".
+ const reload=await harness({registration:walkIn,context}),reloadForm=reload.form(),reloadPanel=reload.root.querySelector('.f-registration');
+ assert.ok(key(reloadPanel,'draftBehind'));assert.equal(key(reloadPanel,'draftRestored'),undefined);assert.ok(key(reloadForm,'latestReplace'));
+ assert.match(content(reloadForm.querySelector('.f-conflict').querySelector('.f-saved')),/El poder de lo local/);assert.equal(box(reloadForm,'activities','day1-am').checked,false);
+ typeInto(reloadForm,'lastName','Ruiz');assert.equal(JSON.parse(storage.getItem('fiiu.draft')).version,1,'the first edit moves the draft onto the saved version');
+ h.fill();await h.submit();const put=h.requests.filter(request=>request.method==='PUT').at(-1).body;
+ assert.deepEqual([put.version,put.registrationId],[1,saved.id],'saving goes on top of the registration made at the door');assert.equal(storage.data.size,0);
+ // An edit whose registration was cancelled since registers again, as Use the current version does after a conflict.
+ const edit=await harness({registration:saved,context});await key(edit.root,'edit').listeners.click();typeInto(edit.form(),'city','Callao');
+ const gone=await harness({registration:null,context,write:request=>({registration:{...saved,id:'00000000-0000-4000-8000-000000000004',answers:request.body}})});
+ assert.equal(field(gone.form(),'city').value,'Callao');assert.ok(key(gone.form(),'latestCreate'));assert.ok(key(gone.form(),'discardDraft'));assert.equal(gone.form().querySelector('.f-saved'),null);
+ assert.ok(key(gone.root.querySelector('.f-registration'),'draftRestored'));
+ gone.fill();await gone.submit();const again=gone.requests.filter(request=>request.method==='PUT').at(-1).body;assert.deepEqual([again.version,again.registrationId],[0,null]);
 });
 
 test('with registration closed, cancelling warns there is no way back, the summary points to the organisers, and the interests hint drops the save step',async()=>{
@@ -1187,6 +1235,19 @@ test('after the festival fiiu.html speaks of it in the past, drops the activity 
  // A guest is told the festival ended, not that registration is closed for now.
  const guest=await harness({read:()=>({status:401,data:{error:'sign in required'}}),publicRead:()=>closedFeed,context:after});
  assert.ok(key(guest.root.querySelector('.f-registration'),'closedOver'));assert.equal(key(guest.root,'closed'),undefined);assert.ok(key(guest.root.querySelector('.f-hero'),'introPast'));
+});
+
+test('after the festival fiiu.html no longer says the programme may change or that admission depends on venue capacity, and still says times are Lima’s',async()=>{
+ const h=await harness({registration:saved,publicRead:()=>closedFeed,context:{Date:movableClock(AFTER).Date}}),head=h.root.querySelector('.f-programme').querySelector('.f-section-head');
+ assert.ok(key(head,'programmeHintOver'));assert.equal(key(h.root,'programmeHint'),undefined);
+ assert.ok(h.root.querySelector('.f-saved'),'the saved registration is still shown');assert.equal(key(h.root,'savedHint'),undefined);
+ for(const lang of ['en','es','pt']){
+  h.lang(lang);assert.equal(content(key(head,'programmeHintOver')).trim(),{en:'Times are in Lima.',es:'Horarios de Lima.',pt:'Horários de Lima.'}[lang]);
+  assert.doesNotMatch(content(h.root),/may change|capacity|sujeto a cambios|aforo|pode mudar|capacidade/i,lang);
+ }
+ // While the festival runs, both still say so.
+ const during=await harness({registration:saved,publicRead:()=>closedFeed,context:{Date:movableClock(ROUTES_DAY).Date}});
+ assert.ok(key(during.root.querySelector('.f-programme'),'programmeHint'));assert.ok(key(during.root.querySelector('.f-saved'),'savedHint'));assert.equal(key(during.root,'programmeHintOver'),undefined);
 });
 
 test('on 24 October, while the routes still run, only the activities whose day has passed lose their forms and the festival copy stays as it was',async()=>{

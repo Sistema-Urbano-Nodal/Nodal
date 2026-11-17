@@ -14,9 +14,9 @@ const now=()=>new Date().toISOString();
 const attendanceView=({activityId,createdAt,method})=>({activityId,createdAt,method});
 // CSV check-in times are Lima wall-clock time (UTC-05:00 all year), e.g. '2026-10-21 09:12'.
 const limaTime=value=>{const t=Date.parse(value??'');return Number.isFinite(t)?new Date(t-5*3600000).toISOString().slice(0,16).replace('T',' '):'';};
-// The injected encoder returns {size, modules} (row-major 0/1) or already-packed {size, bits}; the browser receives
-// base64 bits, row-major, most significant bit first.
-const qrView=qr=>typeof qr?.bits==='string'?{size:qr.size,bits:qr.bits}:{size:qr.size,bits:packBits(qr)};
+// The injected encoder (server/qr.js encodeQr) returns {size, modules} (row-major 0/1); the browser receives base64 bits,
+// row-major, most significant bit first. Any other answer throws here, and qrOf leaves the screen its address and code.
+const qrView=qr=>({size:qr.size,bits:packBits(qr)});
 // Bind an open browser form to the account that loaded it. Ownership is still
 // derived from the session; older clients can omit this additional guard.
 function sameAccount(input,user){if(input.expectedUserId!==undefined&&input.expectedUserId!==user.id)fail('account changed; reload before continuing',409);}
@@ -35,7 +35,7 @@ export async function exportFiiuData(store,userId){
 // A block's built-in values, which "Restore original" brings back.
 const originalOf=({title,date,time,venue,description='',sessions,registration,formUrl})=>({title,date,time,venue,description,sessions,...(registration==='external'?{formUrl}:{})});
 // The summary email's language: the page's own (sent with the registration), else the site language cookie, else Spanish.
-export function registrationLanguage(input,req){
+function registrationLanguage(input,req){
  if(EMAIL_LANGUAGES.includes(input?.language))return input.language;
  const cookie=parseCookies(req?.headers?.cookie??'').get('nodal.lang');
  return EMAIL_LANGUAGES.includes(cookie)?cookie:'es';
@@ -147,7 +147,10 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
   if(!rateLimit(req,res,user,path))return true;
   if(path==='/api/fiiu'){
    const [settings,page,{event}]=await Promise.all([config(),publications(url,true),live()]);
-   // The same answer for everyone and no cookies: the CDN serves repeat reads (a door rush on one venue address), at most ~15 s old.
+   // The same answer for everyone and no cookies: the CDN serves repeat reads (a door rush on one venue address). A copy is
+   // fresh for 15 s, but after a quiet spell the next reader may get one up to ~75 s old while the CDN refreshes it in the
+   // background (stale-while-revalidate). A registration save reads the switch again, so a stale copy saying registration is
+   // open never lets anyone register after it closed.
    send(res,200,{event,config:settings,...page},{'Cache-Control':'public, max-age=0, s-maxage=15, stale-while-revalidate=60'});return true;
   }
   if(path==='/api/fiiu/registration'){
@@ -397,7 +400,9 @@ export function createFiiuApi({store,sameOrigin,send,rateLimit=()=>true,checkin=
   match=path.match(/^\/api\/admin\/fiiu\/content\/([^/]+)$/);
   if(match&&req.method==='PATCH'){
    const input=await body(req),expected=version(input.version),id=identifier(match[1]),next=normalizeContent(input),current=await one('content',{id,eventId:EVENT_ID});
-   if(current?.version!==expected)fail('content changed; reload before saving',409);
+   // No publication under that id here (none stored, or another event's) is unavailable, not a change to reload for.
+   if(!current)fail('content unavailable',404);
+   if(current.version!==expected)fail('content changed; reload before saving',409);
    // Feeds are ordered and dated by createdAt, so a publication's first move to 'published' restamps it: a draft written
    // earlier then appears, and is dated, where it went public. data.publishedAt remembers that moment across later edits,
    // archiving and republishing (rows published before the marker existed keep their createdAt). No schema change needed.

@@ -6,13 +6,15 @@ import {
   canonicalSimilarity,
   canonicalInterestSet,
   CLUSTER_CREDIT,
-  interestSimilarity,
   PEER_AFFINITY,
   professionScore,
   professionsOf,
   rolesComplement,
   sharedInterestLabels,
 } from '../server/taxonomy.js';
+
+// Two interest lists scored the way engine.js scores members: canonical sets, then canonicalSimilarity.
+const similarity = (a, b) => canonicalSimilarity(canonicalInterestSet(a), canonicalInterestSet(b));
 
 test('professionsOf reads titles in Portuguese, Spanish and English', () => {
   assert.ok(professionsOf('Engenheira Civil').has('engineering'));
@@ -64,10 +66,10 @@ test('a title that claims every discipline claims none', () => {
 
 test('prototype keys typed as interests score nothing and pollute nothing', () => {
   for (const key of ['__proto__', 'constructor', 'toString']) {
-    assert.equal(interestSimilarity([key], ['transport']), 0);
-    assert.equal(interestSimilarity([key], ['data']), 0);
+    assert.equal(similarity([key], ['transport']), 0);
+    assert.equal(similarity([key], ['data']), 0);
   }
-  assert.equal(interestSimilarity(['__proto__'], ['constructor']), 0);
+  assert.equal(similarity(['__proto__'], ['constructor']), 0);
   assert.equal(Object.keys(Object.prototype).length, 0);
 });
 
@@ -81,15 +83,15 @@ test('canonicalInterest collapses synonyms across languages', () => {
   assert.equal(canonicalInterest('Astronomia Urbana'), 'astronomia urbana');
 });
 
-test('interestSimilarity treats cross-language synonyms as exact matches', () => {
-  assert.equal(interestSimilarity(['transporte'], ['transport']), 1);
-  assert.equal(interestSimilarity(['Habitação', 'Pesquisa'], ['vivienda', 'research']), 1);
+test('interest similarity treats cross-language synonyms as exact matches', () => {
+  assert.equal(similarity(['transporte'], ['transport']), 1);
+  assert.equal(similarity(['Habitação', 'Pesquisa'], ['vivienda', 'research']), 1);
 });
 
 test('related interests earn partial credit through clusters', () => {
-  const related = interestSimilarity(['civic tech'], ['data']);       // both technology
-  const exact = interestSimilarity(['data'], ['data']);
-  const unrelated = interestSimilarity(['data'], ['culture']);
+  const related = similarity(['civic tech'], ['data']);       // both technology
+  const exact = similarity(['data'], ['data']);
+  const unrelated = similarity(['data'], ['culture']);
   assert.ok(related > 0, 'same-cluster interests should score above zero');
   assert.ok(related < exact, 'related credit stays below an exact match');
   assert.equal(related, CLUSTER_CREDIT / 2);

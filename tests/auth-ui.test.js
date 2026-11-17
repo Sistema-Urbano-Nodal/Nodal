@@ -6,7 +6,7 @@ const source=readFileSync(new URL('../web/scripts/auth.js',import.meta.url),'utf
 function harness(reply=async()=>({ok:true,status:200,data:{user:{id:'u1'}}}),search='',storage=null,hash='',now=null){
  const nodes={},listeners=[],requests=[];let assigned='',timeout;
  for(const id of ['loginForm','signupForm','loginError','signupError','loginEmail','loginPassword','signupName','signupEmail','signupPassword','signupLink'])nodes[id]={id,value:'',textContent:'',hidden:true,listeners:{},dataset:{},classes:new Set(),classList:{toggle(k,on){on?nodes[id].classes.add(k):nodes[id].classes.delete(k);}},setAttribute(k,v){this[k]=v;},removeAttribute(k){delete this[k];},addEventListener(k,f){this.listeners[k]=f;},focus(){this.focused=true;},select(){this.selected=true;}};
- for(const id of ['loginForm','signupForm']){nodes[id].button={disabled:true,textContent:'',dataset:{},setAttribute(k,v){this[k]=v;},focus(){this.focused=true;}};nodes[id].querySelector=()=>nodes[id].button;}
+ for(const id of ['loginForm','signupForm']){nodes[id].button={disabled:true,textContent:'',dataset:{},setAttribute(k,v){this[k]=v;},removeAttribute(k){delete this[k];},focus(){this.focused=true;}};nodes[id].querySelector=()=>nodes[id].button;}
  nodes.authGrid={setAttribute(k,v){this[k]=v;}};
  const context={document:{getElementById:id=>nodes[id],querySelector:selector=>selector==='.auth-grid'?nodes.authGrid:null,body:{}},URL,URLSearchParams,Error,window:{nodalI18n:{lang:'en',onChange:f=>listeners.push(f)}},location:{origin:'https://nodal.test',pathname:'/login.html',search,hash,assign:path=>assigned=path},history:{calls:[],replaceState(state,title,url){this.calls.push(url);}},...(storage?{localStorage:storage}:{}),...(now?{Date:{now}}:{}),AbortSignal:{timeout:ms=>{timeout=ms;return{timeout:ms};}},fetch:async(path,options)=>{requests.push({path,options,body:JSON.parse(options.body)});const result=await reply(path,options);return{ok:result.ok,status:result.status,json:async()=>{if(result.jsonError)throw result.jsonError;return result.data;}};}};
  vm.createContext(context);vm.runInContext(source,context);
@@ -210,6 +210,23 @@ test('after a refused sign-in, focus returns to the password to retype or to the
  // A field the server refuses at signup gets the focus and the error state.
  const signup=harness(async()=>({ok:false,status:400,data:{error:'valid email is required'}}));signup.valid();signup.context.document.activeElement=signup.context.document.body;
  await signup.submit('signupForm');assert.equal(signup.nodes.signupEmail.focused,true);assert.equal(signup.nodes.signupEmail['aria-invalid'],'true');assert.equal(signup.nodes.signupForm.button.focused,undefined);
+});
+/* The status line is hidden while a request is sent and shown again with the answer, and a live region that reappears
+   may not be announced. An answer about one field is read with that field, which focus goes to and which the line
+   describes; any other answer (the confirmation email, a limit, a lost connection) is read with the button focus returns
+   to, which the line describes until the next try. */
+test('an answer about no one field is read with the button focus returns to',async()=>{
+ const h=harness(async()=>({ok:true,status:202,data:{requiresEmailConfirmation:true}}));h.valid();h.context.document.activeElement=h.context.document.body;
+ await h.submit('signupForm');const button=h.nodes.signupForm.button;
+ assert.match(h.nodes.signupError.textContent,/Check your email and confirm your account/);assert.equal(button.focused,true);assert.equal(button['aria-describedby'],'signupError');
+ // The next try starts without it; a field the form refuses is read with that field instead.
+ h.nodes.signupEmail.value='invalid';await h.submit('signupForm');assert.equal(button['aria-describedby'],undefined);assert.equal(h.nodes.signupEmail['aria-invalid'],'true');
+ for(const reply of [async()=>({ok:false,status:429,data:{error:'too many authentication attempts'}}),async()=>{throw new TypeError('Failed to fetch');},async()=>({ok:false,status:503,data:{}})]){
+  const login=harness(reply);login.valid();login.context.document.activeElement=login.context.document.body;await login.submit('loginForm');
+  assert.equal(login.nodes.loginForm.button['aria-describedby'],'loginError');assert.equal(login.nodes.loginForm.button.focused,true);
+ }
+ const wrong=harness(async()=>({ok:false,status:401,data:{error:'invalid email or password'}}));wrong.valid();await wrong.submit('loginForm');
+ assert.equal(wrong.nodes.loginForm.button['aria-describedby'],undefined,'a wrong password is read with the password field');assert.equal(wrong.nodes.loginPassword.focused,true);
 });
 test('the region around the sign-in forms is named in the page language',()=>{
  const h=harness();assert.equal(h.nodes.authGrid['aria-label'],'Sign-in forms');

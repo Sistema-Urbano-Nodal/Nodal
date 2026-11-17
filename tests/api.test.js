@@ -8,6 +8,7 @@ import { createHmac } from 'node:crypto';
 import path from 'node:path';
 import {
   createApp as createProductionApp, createCitySearch, graphFingerprint, staticSourcePath, validateRuntimeConfig, publicBillingConfig,
+  createWindowRateLimiter,
 } from '../server/server.js';
 import { createStore } from '../server/store.js';
 import { createDatabase, createUser } from '../server/db.js';
@@ -626,28 +627,29 @@ test('billing config offers the Founder Membership options whose Mercado Pago li
     const res = await fetch(`${base}/api/billing/config`);
     assert.equal(res.status, 200);
     const config = await res.json();
+    // Only what the pages read: no provider name and no single "annual" price beside the options' own amounts.
     assert.deepEqual({ ...config, offer: config.offer.version }, {
-      checkout: true, provider: 'mercadopago', state: 'open', offer: 'FUNDADORES-2027-v1',
-      annual: { amount: 'S/ 499', per: '' },
+      checkout: true, state: 'open', offer: 'FUNDADORES-2027-v1',
       options: [{ id: 'once', amount: 'S/ 499' }, { id: 'installments', amount: 'S/ 550', each: 'S/ 275', count: 2, monthsApart: 2 }],
       contact: { email: 'membresias@nodal.example', complaintsUrl: 'https://reclamos.example/nodal' },
     }, `pilot ${pilotMode}`);
   }
-  // Either option alone is offered by itself; the year's price falls back to the two payments' total when nothing is paid at once.
-  assert.deepEqual(publicBillingConfig({ MERCADOPAGO_LINK_INSTALLMENTS: TWICE, ...MEMBERSHIP_CONTACT }, OFFER_OPEN_AT).annual, { amount: 'S/ 550', per: '' });
+  // Either option alone is offered by itself.
+  assert.deepEqual(publicBillingConfig({ MERCADOPAGO_LINK_INSTALLMENTS: TWICE, ...MEMBERSHIP_CONTACT }, OFFER_OPEN_AT).options.map((o) => o.id), ['installments']);
   assert.deepEqual(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: 'https://mpago.la/2Xh3k', ...MEMBERSHIP_CONTACT }, OFFER_OPEN_AT).options.map((o) => o.id), ['once']);
 });
 
-test('only an https Mercado Pago link is offered; anything else keeps the membership at "Soon"', () => {
-  const soon = (config) => [config.checkout, config.provider, config.state, config.annual, config.options];
-  const closed = [false, null, 'soon', { amount: 'Soon', per: '' }, []];
+test('only an https Mercado Pago link is offered; anything else keeps the membership "soon"', () => {
+  const soon = (config) => [config.checkout, config.state, config.options];
+  const closed = [false, 'soon', []];
+  assert.deepEqual(Object.keys(publicBillingConfig({}, OFFER_OPEN_AT)).sort(), ['checkout', 'contact', 'offer', 'options', 'state'], 'no "Soon" price slot');
   assert.deepEqual(soon(publicBillingConfig({}, OFFER_OPEN_AT)), closed, 'nothing configured');
   for (const link of ['http://link.mercadopago.com.pe/nodal', 'https://evil.example/pay', 'https://mercadopago.com.pe.evil.example/pay', 'https://user:pass@link.mercadopago.com.pe/nodal',
     'javascript:alert(1)', 'not a url', 'https://www.mercadopago.com.ar/subscriptions/checkout?preapproval_plan_id=1', '   ']) {
     assert.deepEqual(soon(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: link, ...MEMBERSHIP_CONTACT }, OFFER_OPEN_AT)), closed, link);
   }
   assert.deepEqual(soon(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: ONCE }, OFFER_OPEN_AT)), closed, 'a link without the contact');
-  // A production deployment without links is fine: the page simply says "Soon".
+  // A production deployment without links is fine: the membership simply stays "soon".
   assert.deepEqual(soon(publicBillingConfig({ NODE_ENV: 'production', PAYMENTS_MODE: 'live' }, OFFER_OPEN_AT)), closed);
   assert.doesNotThrow(() => validateRuntimeConfig({ NODE_ENV: 'production', DATABASE_PATH: '/tmp/nodal-test.sqlite', PUBLIC_BASE_URL: 'https://nodal.example', COOKIE_SECURE: 'true', MERCADOPAGO_LINK_ANNUAL: 'https://evil.example/pay' }));
 });
@@ -705,14 +707,14 @@ test('city search proxies global city provider for authenticated profile autocom
   const citySearch = createCitySearch({
     baseUrl: 'https://city-provider.example/search',
     minIntervalMs: 0,
+    // Its own settings, not the process's: the Vercel build runs this with the deployment's CITY_SEARCH_* values.
+    env: {},
     fetchImpl: async (url, opts) => {
       captured = { url, opts };
       return {
         ok: true,
         json: async () => ([
           {
-            lat: '-21.4647310',
-            lon: '-47.0024050',
             name: 'Mococa',
             city: 'Mococa',
             region: 'São Paulo',
@@ -720,7 +722,6 @@ test('city search proxies global city provider for authenticated profile autocom
             countryCode: 'BR',
             latitude: -21.4647310,
             longitude: -47.0024050,
-            address: { municipality: 'Mococa', state: 'São Paulo', country: 'Brasil', country_code: 'br' },
           },
         ]),
       };
@@ -741,7 +742,7 @@ test('city search proxies global city provider for authenticated profile autocom
   assert.equal(body.cities[0].countryCode, 'BR');
   assert.equal(captured.url.searchParams.get('namePrefix'), 'mococa');
   assert.equal(captured.url.searchParams.get('types'), 'CITY');
-  assert.match(captured.opts.headers['User-Agent'], /NODAL city search/);
+  assert.equal(captured.opts.headers['User-Agent'], 'NODAL city search/1.0');
 });
 
 test('static server does not expose deploy metadata or internal docs', async (t) => {
@@ -1306,9 +1307,13 @@ test('static serving: pages resolve, traversal does not', async (t) => {
   const image = await fetch(`${base}/assets/nodal-wordmark.webp`);
   assert.equal(image.status, 200);
   assert.equal(image.headers.get('content-type'), 'image/webp');
-  assert.equal((await fetch(`${base}/payments.html`)).status, 200);
   assert.equal((await fetch(`${base}/..%2f..%2fetc%2fpasswd`)).status, 404);
   assert.equal((await fetch(`${base}/package.json/../server/server.js`)).status, 404);
+  // A private page sends a signed-out visitor to sign-in. The store mode above is a test-only fixture with no page
+  // gates, so this is asked of the database mode the deployed app runs.
+  const payments = await fetch(`${await bootDb(t)}/payments.html`, { redirect: 'manual' });
+  assert.equal(payments.status, 302);
+  assert.equal(payments.headers.get('location'), `/login.html?next=${encodeURIComponent('/payments.html')}`);
 });
 
 test('static source map preserves public URLs without exposing source directories', () => {
@@ -1568,16 +1573,14 @@ test('a rate limit follows the account, not a header the caller controls', async
   assert.ok(refused > 0, 'rotating X-Forwarded-For must not reset the login limit');
 });
 
-test('rate limiter buckets do not grow without bound', async (t) => {
-  const base = await bootDb(t);
-  // unique keys, far more than any real client count, then check memory settles
-  for (let i = 0; i < 200; i += 1) {
-    const res = await fetch(`${base}/api/health`, { headers: { 'X-Forwarded-For': `198.51.100.${i % 256}` } });
-    await res.arrayBuffer();
-  }
-  const res = await fetch(`${base}/api/health`);
-  assert.equal(res.status, 200);
-  await res.arrayBuffer();
+test('rate limiter buckets do not grow without bound', () => {
+  const limiter = createWindowRateLimiter({ windowMs: 1000, limit: 1 });
+  // Rotated addresses or emails each open a bucket: far more keys than any real client count.
+  for (let i = 0; i < 1000; i += 1) limiter.take(`198.51.100.${i}`, 0);
+  assert.equal(limiter.size, 1000);
+  // A take made after their window has passed drops every expired bucket, so memory settles.
+  assert.equal(limiter.take('203.0.113.7', 1001).ok, true);
+  assert.equal(limiter.size, 1);
 });
 
 test('a cross-origin write is refused even with a valid session', async (t) => {
@@ -1693,6 +1696,53 @@ test('the globe draws real relationships, filters by topic, and honours a member
   // and every place carries when its first member joined, for the timeline
   assert.ok(all.body.places.every((p) => typeof p.since === 'string'));
   assert.ok(all.body.topics.some((x) => x.name === 'Mobility' && x.members === 2));
+});
+
+/* you.onMap drives the console's "We could not place <city> on the map" note, which asks the member to retype the city.
+   A topic filter leaves out every city where nobody holds the topic; that must not read as a city the map cannot place. */
+test('a topic nobody in your city holds does not say your city is off the map', async (t) => {
+  const citySearch = {
+    async search(query) {
+      // The provider places neither Trujillo nor Atlantis: their profile saves remember a miss and keep no pin.
+      const known = { lima: [-12.04, -77.03], arequipa: [-16.4, -71.54] };
+      const hit = known[String(query).toLowerCase()];
+      return { cities: hit ? [{ label: String(query), lat: hit[0], lon: hit[1] }] : [] };
+    },
+  };
+  const { db, base } = await bootDbHandle(t, { citySearch });
+  const member = async (who, city, topic) => {
+    const m = await consentingMember(base, { name: who, email: `${who.toLowerCase()}@example.test`, city });
+    await patchJson(base, '/api/me', {
+      topics: [{ name: topic, level: 3 }], assessed: true,
+      partC: { bio: '', linkedin: '', portfolio: '', references: '', availability: '', consent: true },
+    }, { Cookie: m.cookie });
+    return m;
+  };
+  const rosa = await member('Rosa', 'Trujillo', 'Housing');
+  const pedro = await member('Pedro', 'Trujillo', 'Housing');
+  await member('Ana', 'Lima', 'Mobility');
+  const nadia = await member('Nadia', 'Atlantis', 'Housing');
+  const lucia = await member('Lucia', 'Arequipa', 'Housing');
+  /* Rosa's pin was saved earlier, on another instance or over a month ago, so this instance's cache only remembers the
+     provider's miss. Pedro has no pin. Under a topic, only Rosa's saved pin places Trujillo. */
+  db.prepare('UPDATE users SET city_lat = -8.11, city_lon = -79.03 WHERE id = ?').run(rosa.id);
+  // Nobody in Arequipa kept a pin: the whole map places it through the provider's remembered point.
+  db.prepare('UPDATE users SET city_lat = NULL, city_lon = NULL WHERE id = ?').run(lucia.id);
+  const you = async (who, query = '') => (await getJson(base, `/api/network/places${query}`, who.cookie)).body.you;
+
+  for (const who of [rosa, pedro]) {
+    assert.equal((await you(who)).onMap, true);
+    const filtered = await getJson(base, '/api/network/places?topic=Mobility', who.cookie);
+    assert.deepEqual(filtered.body.places.map((p) => p.city), ['Lima'], 'the filter still narrows the map');
+    assert.deepEqual(filtered.body.you, { listed: true, hasCity: true, onMap: true, city: 'Trujillo' });
+    assert.deepEqual(Object.keys(filtered.body).sort(), ['links', 'members', 'places', 'topics', 'you'], 'nothing else is sent');
+  }
+  assert.equal((await you(lucia)).onMap, true);
+  assert.equal((await you(lucia, '?topic=Mobility')).onMap, true, 'a city the provider places, left out by the topic');
+  // A city nobody can place is still reported, with or without a topic.
+  assert.equal((await you(nadia)).onMap, false);
+  assert.equal((await you(nadia, '?topic=Mobility')).onMap, false);
+  assert.equal((await you(nadia, '?topic=Housing')).onMap, false);
 });
 
 
@@ -1841,9 +1891,7 @@ test('the globe ETag changes when the network does', async (t) => {
 
   await consentingMember(base, { name: 'Second Member', email: 'second@example.test', city: 'Bogota' });
 
-  // NETWORK_TTL_MS caches the roll-up briefly; wait it out so this tests the
-  // validator and not the cache
-  await new Promise((resolve) => setTimeout(resolve, 1700));
+  // At once: the snapshots are keyed by the database revision, which the sign-up moved.
   const after = (await fetch(`${base}/api/network/places`, { headers: { Cookie: first.cookie } })).headers.get('etag');
   assert.notEqual(after, before, 'a new city must invalidate the validator');
 });

@@ -730,6 +730,32 @@ test('a failed part is written in words',async t=>{
  assert.equal(cellsOf(lineOf((await download(later.call,'/api/admin/metrics/export?table=indicators&lang=en')).lines,'visits.views'))[5],'Counted since Nov 17, 2026');
 });
 
+test('a visit figure counted for part of its window says from which day, and stays a number',async t=>{
+ const visits=days=>({visitStore:()=>({kind:'sqlite',count:async()=>{},totals:async()=>({v:1,days,pages:{'index.html':6,'fundadores.html':2},sources:{search:2,direct:1}})})});
+ const caveat=(lines,key)=>cellsOf(lineOf(lines,key))[9];
+ // Counted since 12 Nov: inside both windows of 14 Nov (30 days from 16 Oct, 7 days from 8 Nov).
+ const young=await setup(t,visits([['2026-11-12',3,1],['2026-11-14',5,2]]));
+ const es=(await download(young.call,'/api/admin/metrics/export?table=indicators&lang=es')).lines;
+ for(const key of byPart('visits')){
+  assert.equal(cellsOf(lineOf(es,key))[1],'ok',key);
+  assert.equal(caveat(es,key),`${TEXTS.es.indicators[key].caveat} Se cuenta desde el 12 nov 2026.`,key);
+ }
+ assert.deepEqual(cellsOf(lineOf(es,'visits.views')).slice(4,7),['','8','8'],'the figures stay numbers, for a spreadsheet');
+ assert.deepEqual(cellsOf(lineOf(es,'visits.arrivals')).slice(4,7),['','3','3']);
+ assert.deepEqual(cellsOf(lineOf(es,'memberships.views#fundadores.html')).slice(4,7),['','2','']);
+ assert.equal(caveat(es,'signups.accounts'),TEXTS.es.indicators['signups.accounts'].caveat,'another part keeps its own words');
+ const en=(await download(young.call,'/api/admin/metrics/export?table=indicators&lang=en')).lines;
+ assert.equal(caveat(en,'visits.views'),`${TEXTS.en.indicators['visits.views'].caveat} Counted since Nov 12, 2026.`);
+ // Inside the 30 days only: the 7 days are whole, the 30 are not.
+ const month=await setup(t,visits([['2026-10-20',3,1]]));
+ const partial=(await download(month.call,'/api/admin/metrics/export?table=indicators&lang=es')).lines;
+ assert.equal(caveat(partial,'visits.views'),`${TEXTS.es.indicators['visits.views'].caveat} Se cuenta desde el 20 oct 2026.`);
+ // Counted from the first of the 30 days: every window is whole, and the caveat is the catalogue's own.
+ const whole=await setup(t,visits([['2026-10-16',3,1]]));
+ const full=(await download(whole.call,'/api/admin/metrics/export?table=indicators&lang=es')).lines;
+ for(const key of byPart('visits'))assert.equal(caveat(full,key),TEXTS.es.indicators[key].caveat,key);
+});
+
 test('the formula guard holds',async t=>{
  const {call,own}=await setup(t);
  await own.course.insert('courses',{id:'c-formula',title:'=HYPERLINK("x")',status:'published',createdAt:START,updatedAt:START});

@@ -14,7 +14,8 @@
  const message=el('p','f-status');message.setAttribute('role','status');message.setAttribute('aria-live','polite');message.tabIndex=-1;
  const panelNotice=el('p','f-status f-notice is-ok');panelNotice.setAttribute('role','status');panelNotice.setAttribute('aria-live','polite');
  // The registration form's draft lives in the tab (sessionStorage), with its account and the saved version it edits: a reload, a Back or a tab the phone
- // discarded brings it back once, and another account or a version saved elsewhere since makes it stale. The ID number is never stored.
+ // discarded brings it back once. Another account makes it stale; a draft typed against a version saved elsewhere since is kept, with a warning and the
+ // saved registration to compare (the first form draw below). The ID number is never stored.
  // formDirty: unsaved answers on screen; edited: what a programme shortcut or an #add- calls after ticking a box, as typing does.
  // panelIdle: nothing in the panel is being edited or saved, so redrawing it loses nothing.
  const DRAFT='fiiu.draft';let formDirty=()=>false,edited=null,draftChecked=false,panelIdle=()=>false;
@@ -157,7 +158,8 @@
  function renderProgramme(){
   const event=festival.event,registration=me.registration,mine=new Set(registration?.answers.activities||[]),interests=new Set(registration?.answers.externalActivities||[]),labStatus=registration?.labStatus||'none';
   const head=el('div','f-section-head'),nav=el('nav','f-day-nav'),navLabel=tr('span','dayNav','f-sr-only'),chips=el('ol','f-day-chips'),sections=[];
-  head.append(tr('h2','programmeTitle'),tr('p','programmeHint','f-muted'));
+  // After the festival nothing in it can change and no venue admits anyone any more: only the time zone is left to say.
+  head.append(tr('h2','programmeTitle'),tr('p',festivalOver(event)?'programmeHintOver':'programmeHint','f-muted'));
   // The festival-wide General conversation leads the programme while it has an open question.
   withGeneral(link=>{const line=el('p','f-programme-general');line.append(link);head.append(line);});
   navLabel.id='f-day-nav-label';nav.setAttribute('aria-labelledby',navLabel.id);nav.append(navLabel,chips);chips.addEventListener('focusin',event=>{const chip=event?.target?.closest?.('a');if(chip)revealInRow(chips,chip);});
@@ -206,7 +208,8 @@
    // After the festival no form is left to complete, so the interests stand as a list.
    list.append(...unknownInterests.map(unknownRow));box.append(tr('h4','externalActivities'));if(!festivalOver(event))box.append(tr('p',festival.config.registrationOpen?'externalInterestHint':'externalInterestClosedHint','f-muted'));box.append(list);
   }
-  box.append(tr('p','savedHint','f-muted'));
+  // Venue capacity no longer decides any admission after the festival, so the reminder goes with it.
+  if(!festivalOver(event))box.append(tr('p','savedHint','f-muted'));
   // Badges, then the hours they add up to for the certificate. After the festival, the way to claim a block attended without checking in, even with some
   // attendance: another block may be missing.
   if(withBadges){if(me.attendance.length||limaDate()>=event.startsOn){const badgeBox=el('div','f-badges'),hours=hoursLine(me.attendance,event),missed=festivalOver(event)&&contactLine('missedAttendance',event.contact);badges(badgeBox,me.attendance,event,{heading:'h4'});if(hours)badgeBox.append(hours);if(missed)badgeBox.append(missed);box.append(badgeBox);}else box.append(tr('p','badgesHint','f-muted'));}
@@ -224,9 +227,9 @@
   liveHad=has;
  }
  // A notice is a string key, or {key, email} for "We emailed a summary to <address>.": the sentence follows the language, the address stays as it is.
- // An email that failed or may not arrive is a warning, not the green confirmation.
+ // An email that failed or may not arrive is a warning, not the green confirmation, and so are kept answers the saved registration moved past.
  function showNotice(value){
-  panelNotice.className='f-status f-notice '+(['emailNotSent','emailDelayed'].includes(value)?'is-warning':'is-ok');
+  panelNotice.className='f-status f-notice '+(['emailNotSent','emailDelayed','draftBehind'].includes(value)?'is-warning':'is-ok');
   panelNotice.replaceChildren();status(panelNotice,value?.email?'':value);if(!value?.email)return;
   delete panelNotice.dataset.fiiuText;panelNotice.append(tr('span',value.key),el('span','f-notice-email',' '+value.email+'.'));
  }
@@ -418,14 +421,20 @@
   edited=touched;formDirty=()=>dirty&&!busy;panelIdle=()=>Boolean(existing)&&form.hidden&&!dirty&&!busy&&!conflictBox.children.length;
   // The first form drawn after the page loads takes the tab's draft, once. Its answers are set, then the dependent fields follow, and an #add- block ticks on top.
   // An edit opens the form on it; a new registration can drop it. Either way the panel says the answers were kept and are not saved yet.
+  // A draft typed against another saved version is kept as well: a check-in at a block's door registers the person or adds the block, an organiser's tick
+  // adds one, another device saves or cancels. As Use the current version does after a conflict, the form stays as typed and its next save goes on the
+  // saved registration (or registers again), which the end of the form shows so the person can compare before replacing it. The stored draft keeps its own
+  // version until the first edit (touched), so a reload before any edit warns and compares again.
   if(!draftChecked){
    draftChecked=true;const draft=readDraft();
-   if(draft&&(draft.userId!==expectedUserId||draft.version!==currentVersion||!draft.values||typeof draft.values!=='object'))dropDraft();
+   if(draft&&(draft.userId!==expectedUserId||!draft.values||typeof draft.values!=='object'))dropDraft();
    else if(draft){
     for(const control of form.querySelectorAll('input,select,textarea')){const value=draft.values[control.name];if(value===undefined||control.readOnly||control.name==='nationalId')continue;if(control.type==='checkbox')control.checked=Array.isArray(value)&&value.includes(control.value);else if(typeof value==='string')control.value=value;}
-    syncLab();syncOther();syncForm(true);dirty=true;showNotice('draftRestored');
+    const behind=draft.version!==currentVersion;
+    syncLab();syncOther();syncForm(true);dirty=true;showNotice(behind&&existing?'draftBehind':'draftRestored');
     if(existing)openForm();
     else form.prepend(button('discardDraft',()=>{if(busy||!window.confirm(t('discardRegistrationEdit')))return;dropDraft();renderRegistration();panelHeading.focus();},'f-button secondary f-small f-back'));
+    if(behind){status(message,existing?'latestReplace':'latestCreate');if(existing)conflictBox.replaceChildren(savedSummary(existing,{prefix:'f-itc-'}));}
    }
   }
   // Form-level listeners only: controls keep their single change listener each.

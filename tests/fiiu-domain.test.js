@@ -1,27 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {FIIU_EVENT,CHECKIN_ACTIVITIES,activityMinutes,checkinWindow,canAttend,attendanceHours,isCheckinActivity,normalizeRegistration,REGISTERED_KINDS,canonicalTime,normalizeProgrammeEdit} from '../server/fiiu-domain.js';
+import {FIIU_EVENT,activityMinutes,checkinWindow,canAttend,attendanceHours,isCheckinActivity,normalizeRegistration,REGISTERED_KINDS,canonicalTime,normalizeProgrammeEdit} from '../server/fiiu-domain.js';
 import {normalizeQuestion,TALK_LIMITS} from '../server/fiiu-talk-domain.js';
 
 const find=id=>FIIU_EVENT.activities.find(a=>a.id===id);
+// The built-in blocks that take a check-in; the server works from the programme as organisers edited it (fiiu-api.js live()).
+const checkinBlocks=FIIU_EVENT.activities.filter(isCheckinActivity);
 
 test('activity durations are parsed from the programme time with an en dash or a hyphen',()=>{
  for(const [time,minutes] of [['09:00–13:00',240],['19:00–21:00',120],['09:00-13:00',240],[' 9:30 – 11:00 ',90],['',null],[undefined,null],['13:00–09:00',null],['09:00',null],['tbc',null],['09:00–25:00',null]])
   assert.equal(activityMinutes({time}),minutes,String(time));
  assert.equal(activityMinutes(null),null);
  assert.deepEqual(['day1-am','day1-pm','day2-am','day2-pm','day3-am'].map(id=>activityMinutes(find(id))),[240,120,240,120,240]);
- assert.equal(CHECKIN_ACTIVITIES.reduce((sum,a)=>sum+(a.minutes??0),0),960,'the conference adds up to 16 hours');
+ assert.equal(checkinBlocks.reduce((sum,a)=>sum+(a.minutes??0),0),960,'the conference adds up to 16 hours');
 });
 
 test('check-in has no opening time and closes in Lima time 30 minutes after a block, or at the end of its Lima day when untimed',()=>{
  assert.deepEqual(checkinWindow(find('day1-am')),{closesAt:'2026-10-21T18:30:00.000Z'});
  assert.deepEqual(checkinWindow(find('day1-pm')),{closesAt:'2026-10-22T02:30:00.000Z'});
  assert.deepEqual(checkinWindow(find('day0-lab')),{closesAt:'2026-10-21T05:00:00.000Z'});
- for(const activity of CHECKIN_ACTIVITIES)assert.equal(Object.hasOwn(activity.checkin,'opensAt'),false,activity.id);
+ for(const activity of checkinBlocks)assert.equal(Object.hasOwn(activity.checkin,'opensAt'),false,activity.id);
 });
 
 test('only NODAL blocks take a check-in and carry their window; workshops, routes and legacy activities do not',()=>{
- assert.deepEqual(CHECKIN_ACTIVITIES.map(a=>a.id),['day0-lab','day1-am','day1-pm','day2-am','day2-pm','day3-am']);
+ assert.deepEqual(checkinBlocks.map(a=>a.id),['day0-lab','day1-am','day1-pm','day2-am','day2-pm','day3-am']);
  for(const activity of FIIU_EVENT.activities){
   if(isCheckinActivity(activity))assert.deepEqual(activity.checkin,checkinWindow(activity),activity.id);
   else assert.deepEqual([activity.checkin,activity.minutes],[null,null],activity.id);
@@ -57,7 +59,7 @@ test('the closing party is a register-only block: never checked in, never counte
  assert.deepEqual({date:party.date,registration:party.registration,time:party.time,period:party.period},{date:'2026-10-24',registration:'social',time:'17:00',period:'party'});
  assert.equal(party.title,'¡Fiesta de cierre y Chelas Urbanas!');assert.match(party.venue,/La Vermut Bar, Av\. Francisco Bolognesi 235, Barranco 15063/);
  assert.deepEqual(party.sessions,[['17:00–19:00','Chelas Urbanas'],['19:00 en adelante','Fiesta de cierre']]);
- assert.equal(isCheckinActivity(party),false);assert.equal(CHECKIN_ACTIVITIES.some(a=>a.id==='closing-party'),false);
+ assert.equal(isCheckinActivity(party),false);assert.equal(checkinBlocks.some(a=>a.id==='closing-party'),false);
  assert.deepEqual([party.checkin,party.minutes],[null,null]);
  assert.equal(canAttend({answers:{activities:['closing-party']}},party),false,'staff can never confirm attendance at the party, even for someone who added it');
  assert.deepEqual(attendanceHours([{activityId:'closing-party'}]),{minutes:0,hours:0,untimed:[]});

@@ -129,3 +129,35 @@ test('a member without the Founder badge, or a profile that is not found, shows 
  const missing=page({other:'hidden-id'});await flush();assert.equal(missing.ids.pfFounder.hidden,true);
  assert.doesNotMatch(missing.body.textContent,/Founder/);
 });
+
+// Availability is stored as the console's English option value (code overview M45): the profile shows the three options in
+// the page language, on your own card and on another member's, and anything else as it was written.
+test('availability reads in the page language on your own card and on another member’s, and anything else as written',async()=>{
+ const availability=h=>all(h.body).filter(n=>n.tagName==='p'&&/^(Disponibilidad|Disponibilidade|Availability): /.test(n.textContent)).map(n=>n.textContent);
+ const me={...ana,partC:{consent:true,availability:'4 h / month'}};
+ const own=page({me});await flush();
+ assert.deepEqual(availability(own),['Disponibilidad: 4 h / mes']);
+ own.setLang('pt');assert.deepEqual(availability(own),['Disponibilidade: 4 h / mês']);
+ own.setLang('en');assert.deepEqual(availability(own),['Availability: 4 h / month']);
+ const other=page({me:{...me,partC:{consent:true,availability:'8+ h / month'}},other:'ana-id'});await flush();
+ assert.deepEqual(availability(other),['Disponibilidad: 8+ h / mes']);
+ other.setLang('en');assert.deepEqual(availability(other),['Availability: 8+ h / month']);
+ const written=page({me:{...me,partC:{consent:true,availability:'Fines de semana'}}});await flush();
+ assert.deepEqual(availability(written),['Disponibilidad: Fines de semana']);
+ const none=page({me:{...me,partC:{consent:true,availability:''}}});await flush();
+ assert.deepEqual(availability(none),['Disponibilidad: Aún sin declarar']);
+});
+
+// Your own card used to say members see all your signals; another member's card shows only city, availability and LinkedIn
+// (GET /api/users/:id blanks references and portfolio), and only while you are in the directory (code overview M54).
+test('your own card says which signals members see, the three another member’s card shows, in every language',async()=>{
+ const me={...ana,partC:{consent:true,availability:'4 h / month',references:'Two referees',portfolio:'https://example.test/work',linkedin:'https://www.linkedin.com/in/ana'}};
+ const signals=h=>all(h.body).filter(n=>n.tagName==='p'&&/^[^:]+: /.test(n.textContent)&&n.children[0]?.tagName==='strong').map(n=>n.children[0].textContent.replace(/: $/,''));
+ const note=h=>all(h.body).filter(n=>n.className==='pf-quote'&&n.id!=='pfQuote').map(n=>n.textContent);
+ const other=page({me,other:'ana-id'});await flush();
+ other.setLang('en');assert.deepEqual(signals(other),['City','Availability','LinkedIn'],'what another member sees');
+ const own=page({me});await flush();
+ assert.deepEqual(note(own),['Estas señales ayudan a que la comunidad conecte con cuidado. Mientras estés en el directorio, los miembros ven tu ciudad, tu disponibilidad y tu LinkedIn; tus referencias y tu portafolio no se les muestran.']);
+ own.setLang('pt');assert.deepEqual(note(own),['Estes sinais ajudam a comunidade a conectar com cuidado. Enquanto você estiver no diretório, os membros veem sua cidade, sua disponibilidade e seu LinkedIn; suas referências e seu portfólio não são mostrados a eles.']);
+ own.setLang('en');assert.deepEqual(note(own),['These signals help the community connect with care. While you are in the directory, members see your city, availability and LinkedIn; your references and portfolio are not shown to them.']);
+});

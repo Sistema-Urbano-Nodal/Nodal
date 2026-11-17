@@ -39,7 +39,9 @@ async function consoleFor(me, nodes = {}) {
     state: {},
     window: {},
   };
-  vm.runInNewContext(`let U, confirmedCity;\n${source.slice(start, end)}\nglobalThis.done = init();`, context, { filename: 'dashboard-init.js' });
+  // init() asks partADone() whether to prompt for the profile; that line is cut from the same file.
+  const partA = source.match(/^ {2}const partADone = .*$/m)[0];
+  vm.runInNewContext(`let U, confirmedCity;\n${partA}\n${source.slice(start, end)}\nglobalThis.done = init();`, context, { filename: 'dashboard-init.js' });
   await context.done;
   return link;
 }

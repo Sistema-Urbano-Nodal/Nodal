@@ -7,7 +7,7 @@ import {talkActivity} from './fiiu-talk-domain.js';
    flight), so a full room polling every 30 s costs the stores a few reads a minute rather than one set per phone.
    Counts only: no person's id, registration, attendance or name, except a message author's display name ("María G."),
    which registered people already see in the chats. */
-export const LIVE_TTL_MS=15000;
+const LIVE_TTL_MS=15000;
 // Lima keeps UTC-05:00 all year (fiiu-domain.js), so a fixed offset gives its date and wall-clock minutes.
 const LIMA_MS=5*3600000;
 const limaDay=t=>new Date(t-LIMA_MS).toISOString().slice(0,10);

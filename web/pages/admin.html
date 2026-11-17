@@ -12,16 +12,16 @@
   <script src="locale.js?v=20261009a"></script>
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="fonts.css?v=20260911b" />
-  <link rel="stylesheet" href="styles.css?v=36" />
+  <link rel="stylesheet" href="styles.css?v=37" />
   <link rel="stylesheet" href="admin.css?v=20261109a" />
   <link rel="stylesheet" href="admin-nav.css?v=20261114a" />
 
-  <script defer src="nav.js?v=20261013b"></script>
+  <script defer src="nav.js?v=20261116a"></script>
   <script defer src="script.js?v=18"></script>
-  <script defer src="admin-nav.js?v=20261114a"></script>
-  <script defer src="i18n-dashboard.js?v=20261115a"></script>
-  <script defer src="i18n.js?v=20261109a"></script>
-  <script defer src="admin.js?v=20261114a"></script>
+  <script defer src="admin-nav.js?v=20261116a"></script>
+  <script defer src="i18n-dashboard.js?v=20261116a"></script>
+  <script defer src="i18n.js?v=20261116a"></script>
+  <script defer src="admin.js?v=20261116a"></script>
   <script defer src="visit.js?v=20261114b" data-staff></script>
 </head>
 <body class="admin-page" data-page="admin">
@@ -35,7 +35,7 @@
 
     <nav class="nav-main" aria-label="Main navigation" data-i18n-aria-label="nav.mainLabel"><a href="index.html#membership" data-i18n="nav.program">Programme</a><a href="community.html" data-i18n="nav.community">Community</a><a href="resources.html" data-i18n="nav.resources">Resources</a><a href="knowledge.html" data-i18n="nav.learn">Knowledge</a></nav>
 
-    <nav class="nav-account" aria-label="Account and language" data-i18n-aria-label="nav.accountLabel"><div class="lang-switch" role="group" aria-label="Language" data-i18n-aria-label="nav.languageLabel"><button type="button" class="lang-btn" data-lang="en" aria-label="English">EN</button><button type="button" class="lang-btn" data-lang="es" aria-label="Español">ES</button><button type="button" class="lang-btn" data-lang="pt" aria-label="Português">PT</button></div><a class="btn btn-pill btn-nav" href="dashboard.html" data-i18n="nav.panel">My console</a></nav>
+    <nav class="nav-account" aria-label="Account and language" data-i18n-aria-label="nav.accountLabel"><div class="lang-switch" role="group" aria-label="Language" data-i18n-aria-label="nav.languageLabel"><button type="button" class="lang-btn" data-lang="en" aria-label="EN, English">EN</button><button type="button" class="lang-btn" data-lang="es" aria-label="ES, Español">ES</button><button type="button" class="lang-btn" data-lang="pt" aria-label="PT, Português">PT</button></div><a class="btn btn-pill btn-nav" href="dashboard.html" data-i18n="nav.panel">My console</a></nav>
 
     <button type="button" class="nav-toggle" id="navToggle" aria-label="Menu" data-i18n-aria-label="nav.menuLabel">
       <span></span><span></span><span></span>
@@ -51,7 +51,6 @@
       </div>
       <div class="admin-head-side">
         <a href="opportunities.html" data-i18n="ops.nav.catalog">View public catalog</a>
-        <button class="admin-textbutton" id="adminSignOut" type="button" data-i18n="ops.signOut" hidden>Sign out</button>
       </div>
     </header>
 
@@ -88,10 +87,10 @@
             <h3 id="adminNewsEditorTitle">New post</h3>
             <span class="admin-state" id="adminNewsState">Draft</span>
           </div>
-          <label><span data-i18n="ops.news.fieldTitle">Title</span><input id="adminNewsTitle" maxlength="160" autocomplete="off" aria-describedby="adminNewsTitleError" /><span class="admin-field-error" id="adminNewsTitleError" role="alert" hidden></span></label>
-          <label><span class="admin-label-row"><span data-i18n="ops.news.fieldBody">Text</span><span class="admin-count" id="adminNewsBodyCount">0 / 2000</span></span><textarea id="adminNewsBody" maxlength="2000" rows="6" aria-describedby="adminNewsBodyError"></textarea><span class="admin-field-error" id="adminNewsBodyError" role="alert" hidden></span></label>
+          <label><span id="adminNewsTitleLabel" data-i18n="ops.news.fieldTitle">Title</span><input id="adminNewsTitle" maxlength="160" autocomplete="off" aria-labelledby="adminNewsTitleLabel" aria-describedby="adminNewsTitleError" /><span class="admin-field-error" id="adminNewsTitleError" role="alert" hidden></span></label>
+          <label><span class="admin-label-row"><span id="adminNewsBodyLabel" data-i18n="ops.news.fieldBody">Text</span><span class="admin-count" id="adminNewsBodyCount">0 / 2000</span></span><textarea id="adminNewsBody" maxlength="2000" rows="6" aria-labelledby="adminNewsBodyLabel" aria-describedby="adminNewsBodyError adminNewsBodyCount"></textarea><span class="admin-field-error" id="adminNewsBodyError" role="alert" hidden></span></label>
           <div class="admin-news-row">
-            <label><span data-i18n="ops.news.fieldUrl">Link, optional</span><input id="adminNewsUrl" type="url" inputmode="url" maxlength="500" placeholder="https://…" autocomplete="off" aria-describedby="adminNewsUrlError" /><span class="admin-field-error" id="adminNewsUrlError" role="alert" hidden></span></label>
+            <label><span id="adminNewsUrlLabel" data-i18n="ops.news.fieldUrl">Link, optional</span><input id="adminNewsUrl" type="url" inputmode="url" maxlength="500" placeholder="https://…" autocomplete="off" aria-labelledby="adminNewsUrlLabel" aria-describedby="adminNewsUrlError" /><span class="admin-field-error" id="adminNewsUrlError" role="alert" hidden></span></label>
             <label class="admin-check"><input id="adminNewsPinned" type="checkbox" /><span data-i18n="ops.news.fieldPinned">Pin to the top</span></label>
           </div>
           <div class="admin-conflict" id="adminNewsConflict" hidden role="alert">
@@ -172,7 +171,7 @@
               <div class="admin-grid admin-grid-3">
                 <label><span data-i18n="ops.field.organization">Organization</span><input id="adminOrganization" maxlength="180" /></label>
                 <label><span data-i18n="ops.field.location">Location</span><input id="adminLocation" maxlength="180" /></label>
-                <label><span data-i18n="ops.field.topics">Topics</span><input id="adminTopics" maxlength="487" aria-describedby="adminTopicsError" placeholder="Up to 8, separated by commas" data-i18n-placeholder="ops.field.topicsHint" /><span class="admin-field-error" id="adminTopicsError" role="alert" hidden></span></label>
+                <label><span id="adminTopicsLabel" data-i18n="ops.field.topics">Topics</span><input id="adminTopics" maxlength="487" aria-labelledby="adminTopicsLabel" aria-describedby="adminTopicsError" placeholder="Up to 8, separated by commas" data-i18n-placeholder="ops.field.topicsHint" /><span class="admin-field-error" id="adminTopicsError" role="alert" hidden></span></label>
                 <label><span data-i18n="ops.field.startsAt">Starts at</span><input id="adminStartsAt" type="datetime-local" /></label>
                 <label><span data-i18n="ops.field.deadlineAt">Deadline</span><input id="adminDeadlineAt" type="datetime-local" /></label>
                 <label><span data-i18n="ops.field.endDate">End date</span><input id="adminEndDate" type="date" /></label>
@@ -204,7 +203,7 @@
               <button class="admin-button admin-button-accent" id="adminPublish" type="button" data-i18n="ops.editor.publish">Publish</button>
               <button class="admin-button" id="adminSaveDraft" type="button" data-i18n="ops.editor.saveDraft">Save as draft</button>
               <button class="admin-textbutton" id="adminPreview" type="button" data-i18n="ops.editor.preview">Preview plain text</button>
-              <button class="admin-textbutton" id="adminSaveFeature" type="button" hidden data-i18n="ops.editor.saveFeature">Save feature setting</button>
+              <button class="admin-textbutton" id="adminSaveFeature" type="button" hidden data-i18n="ops.editor.saveFeature">Save without changing status</button>
               <button class="admin-textbutton admin-textbutton-warning" id="adminArchive" type="button" hidden data-i18n="ops.editor.archive">Archive</button>
             </div>
             <p class="admin-live" id="adminEditorStatus" role="status" aria-live="polite"></p>
@@ -240,7 +239,7 @@
         <label class="admin-inline-filter"><span data-i18n="ops.nodes.show">Show</span><select id="adminNodeFilter"><option value="" data-i18n="ops.filter.allStatuses">All statuses</option><option value="new" data-i18n="ops.nodes.new">New</option><option value="contacted" data-i18n="ops.nodes.contacted">Contacted</option><option value="closed" data-i18n="ops.nodes.closed">Closed</option></select></label>
         <label class="admin-inline-filter"><span data-i18n="ops.nodes.kindShow">Type</span><select id="adminNodeKind"><option value="" data-i18n="ops.nodes.allKinds">All types</option><option value="node" data-i18n="ops.nodes.kind.node">Node</option><option value="sponsorship" data-i18n="ops.nodes.kind.sponsorship">Sponsorship</option></select></label>
       </div>
-      <p class="admin-live" id="adminNodeStatus" role="status" aria-live="polite">Loading node requests…</p>
+      <p class="admin-live" id="adminNodeStatus" role="status" aria-live="polite" tabindex="-1">Loading organization requests…</p>
       <div class="admin-node-list" id="adminNodeList" aria-busy="true"></div>
       <button class="admin-button admin-more" id="adminNodeMore" type="button" hidden data-i18n="ops.nodes.more">Load more requests</button>
     </section>
