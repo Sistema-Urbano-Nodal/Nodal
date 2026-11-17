@@ -465,3 +465,19 @@ test('M153: after Update or Delete, focus returns to the same request in the red
   await pending;
   assert.equal(d.document.activeElement, d.node('adminNodeFilter'));
 });
+
+test('M69: the news fields and Topics are named by their label text alone; the live count and the errors only describe them', () => {
+  const html = adminPage();
+  for (const [control, label, text, described] of [
+    ['adminNewsTitle', 'adminNewsTitleLabel', 'Title', 'adminNewsTitleError'],
+    ['adminNewsBody', 'adminNewsBodyLabel', 'Text', 'adminNewsBodyError adminNewsBodyCount'],
+    ['adminNewsUrl', 'adminNewsUrlLabel', 'Link, optional', 'adminNewsUrlError'],
+    ['adminTopics', 'adminTopicsLabel', 'Topics', 'adminTopicsError'],
+  ]) {
+    const tag = html.match(new RegExp(`<(?:input|textarea) id="${control}"[^>]*>`))?.[0] || '';
+    assert.match(tag, new RegExp(`aria-labelledby="${label}"`), `${control} takes its name from its label text`);
+    assert.match(tag, new RegExp(`aria-describedby="${described}"`), `${control} keeps its description`);
+    // The named span holds the label text only: the count and the error sit beside it, outside the name.
+    assert.match(html, new RegExp(`<span id="${label}" data-i18n="[^"]+">${text}</span>`), control);
+  }
+});

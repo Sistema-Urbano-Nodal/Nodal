@@ -87,10 +87,10 @@
             <h3 id="adminNewsEditorTitle">New post</h3>
             <span class="admin-state" id="adminNewsState">Draft</span>
           </div>
-          <label><span data-i18n="ops.news.fieldTitle">Title</span><input id="adminNewsTitle" maxlength="160" autocomplete="off" aria-describedby="adminNewsTitleError" /><span class="admin-field-error" id="adminNewsTitleError" role="alert" hidden></span></label>
-          <label><span class="admin-label-row"><span data-i18n="ops.news.fieldBody">Text</span><span class="admin-count" id="adminNewsBodyCount">0 / 2000</span></span><textarea id="adminNewsBody" maxlength="2000" rows="6" aria-describedby="adminNewsBodyError"></textarea><span class="admin-field-error" id="adminNewsBodyError" role="alert" hidden></span></label>
+          <label><span id="adminNewsTitleLabel" data-i18n="ops.news.fieldTitle">Title</span><input id="adminNewsTitle" maxlength="160" autocomplete="off" aria-labelledby="adminNewsTitleLabel" aria-describedby="adminNewsTitleError" /><span class="admin-field-error" id="adminNewsTitleError" role="alert" hidden></span></label>
+          <label><span class="admin-label-row"><span id="adminNewsBodyLabel" data-i18n="ops.news.fieldBody">Text</span><span class="admin-count" id="adminNewsBodyCount">0 / 2000</span></span><textarea id="adminNewsBody" maxlength="2000" rows="6" aria-labelledby="adminNewsBodyLabel" aria-describedby="adminNewsBodyError adminNewsBodyCount"></textarea><span class="admin-field-error" id="adminNewsBodyError" role="alert" hidden></span></label>
           <div class="admin-news-row">
-            <label><span data-i18n="ops.news.fieldUrl">Link, optional</span><input id="adminNewsUrl" type="url" inputmode="url" maxlength="500" placeholder="https://…" autocomplete="off" aria-describedby="adminNewsUrlError" /><span class="admin-field-error" id="adminNewsUrlError" role="alert" hidden></span></label>
+            <label><span id="adminNewsUrlLabel" data-i18n="ops.news.fieldUrl">Link, optional</span><input id="adminNewsUrl" type="url" inputmode="url" maxlength="500" placeholder="https://…" autocomplete="off" aria-labelledby="adminNewsUrlLabel" aria-describedby="adminNewsUrlError" /><span class="admin-field-error" id="adminNewsUrlError" role="alert" hidden></span></label>
             <label class="admin-check"><input id="adminNewsPinned" type="checkbox" /><span data-i18n="ops.news.fieldPinned">Pin to the top</span></label>
           </div>
           <div class="admin-conflict" id="adminNewsConflict" hidden role="alert">
@@ -171,7 +171,7 @@
               <div class="admin-grid admin-grid-3">
                 <label><span data-i18n="ops.field.organization">Organization</span><input id="adminOrganization" maxlength="180" /></label>
                 <label><span data-i18n="ops.field.location">Location</span><input id="adminLocation" maxlength="180" /></label>
-                <label><span data-i18n="ops.field.topics">Topics</span><input id="adminTopics" maxlength="487" aria-describedby="adminTopicsError" placeholder="Up to 8, separated by commas" data-i18n-placeholder="ops.field.topicsHint" /><span class="admin-field-error" id="adminTopicsError" role="alert" hidden></span></label>
+                <label><span id="adminTopicsLabel" data-i18n="ops.field.topics">Topics</span><input id="adminTopics" maxlength="487" aria-labelledby="adminTopicsLabel" aria-describedby="adminTopicsError" placeholder="Up to 8, separated by commas" data-i18n-placeholder="ops.field.topicsHint" /><span class="admin-field-error" id="adminTopicsError" role="alert" hidden></span></label>
                 <label><span data-i18n="ops.field.startsAt">Starts at</span><input id="adminStartsAt" type="datetime-local" /></label>
                 <label><span data-i18n="ops.field.deadlineAt">Deadline</span><input id="adminDeadlineAt" type="datetime-local" /></label>
                 <label><span data-i18n="ops.field.endDate">End date</span><input id="adminEndDate" type="date" /></label>
