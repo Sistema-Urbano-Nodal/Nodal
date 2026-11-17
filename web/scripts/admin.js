@@ -925,8 +925,11 @@
     };
   }
   const newsDirty = () => JSON.stringify(readNews()) !== news.snapshot;
+  // The staff bar (admin-nav.js) asks before it signs out while a post or a catalog record has unsaved edits. Once it has
+  // signed out the session is closed, so nothing could be saved: leaving then asks nothing more.
+  window.nodalUnsaved = () => newsDirty() || catalogDirty();
   window.addEventListener?.('beforeunload', (event) => {
-    if (!newsDirty()) return;
+    if (!newsDirty() || window.nodalSignedOut) return;
     event.preventDefault();
     event.returnValue = '';
   });

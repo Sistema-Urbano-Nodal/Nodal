@@ -200,3 +200,66 @@ test('M60: a saved record is clean, a failed save stays unsaved, and reloading t
   catalogRow(d, 'r1').listeners.get('click')();
   assert.equal(d.confirms.length, 1, 'and leaves a clean editor');
 });
+
+// The staff bar, run in the desk's own window as the page runs it: admin-nav.js finds the bar by [data-staff-nav].
+function staffBar(d, { logout = async () => ({ ok: true, status: 200 }) } = {}) {
+  const signOut = Object.assign(new d.FakeNode('button'), { dataset: { staff: 'signOut' } });
+  const line = Object.assign(new d.FakeNode('span'), { dataset: { staffStatus: '' } });
+  const nav = d.root(new d.FakeNode('nav'));
+  nav.append(signOut, line);
+  nav.querySelectorAll = (selector) => (selector === '[data-staff]' ? [signOut] : []);
+  nav.querySelector = (selector) => (selector === '[data-staff-status]' ? line : null);
+  Object.assign(d.document, { documentElement: { lang: 'en' }, addEventListener() {}, querySelector: (selector) => (selector === '[data-staff-nav]' ? nav : null) });
+  const page = d.context.fetch;
+  const calls = [];
+  d.context.fetch = (url, options) => {
+    if (url !== '/api/auth/logout') return page(url, options);
+    calls.push(url);
+    return logout();
+  };
+  d.context.localStorage = { removeItem() {} };
+  vm.runInNewContext(read('web', 'scripts', 'admin-nav.js'), d.context, { filename: 'admin-nav.js' });
+  return { press: () => signOut.listeners.get('click')(), calls, line };
+}
+
+test('M61/M141: the desk tells the staff bar about an unsaved post or catalog record; its own leave prompt still covers news only', async () => {
+  const d = desk({ routes: { catalog: () => response({ items: [record('r1', 'First')], nextCursor: null }) } });
+  await flush();
+  assert.equal(d.context.nodalUnsaved(), false, 'a desk just opened has nothing unsaved');
+  d.node('adminNewsBody').value = 'Texto a medias';
+  assert.equal(d.context.nodalUnsaved(), true);
+  assert.equal(d.leaveAsks(), true);
+  d.node('adminNewsBody').value = '';
+  assert.equal(d.context.nodalUnsaved(), false);
+  catalogRow(d, 'r1').listeners.get('click')();
+  assert.equal(d.context.nodalUnsaved(), false, 'an opened record is no edit');
+  d.node('adminLocation').value = 'Cusco';
+  assert.equal(d.context.nodalUnsaved(), true, 'an edited record counts for the bar');
+  assert.equal(d.leaveAsks(), false, 'M11: the leave prompt itself stays on the news editor');
+});
+
+test('M61/M141: Sign out with an unsaved post asks before the session closes, and the sign-in page then opens without a second question', async () => {
+  let answer = false;
+  const d = desk({ confirm: () => answer });
+  await flush();
+  const bar = staffBar(d);
+  d.node('adminNewsTitle').value = 'Convocatoria abierta';
+  await bar.press();
+  assert.deepEqual(d.confirms, ['Sign out and discard your unsaved changes?']);
+  assert.deepEqual(bar.calls, [], 'Cancel: the session stays open, so Publish still works');
+  assert.equal(d.context.location.assigned, '');
+  assert.equal(d.leaveAsks(), true, 'and the desk still guards the post');
+  answer = true;
+  await bar.press();
+  assert.equal(d.confirms.length, 2);
+  assert.deepEqual(bar.calls, ['/api/auth/logout']);
+  assert.equal(d.context.location.assigned, '/login.html');
+  assert.equal(d.leaveAsks(), false, 'the browser is not made to ask again once the session is gone');
+
+  const clean = desk({ confirm: () => false });
+  await flush();
+  const quiet = staffBar(clean);
+  await quiet.press();
+  assert.deepEqual(clean.confirms, [], 'nothing unsaved: no question');
+  assert.equal(clean.context.location.assigned, '/login.html');
+});

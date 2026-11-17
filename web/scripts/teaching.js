@@ -6,7 +6,9 @@ let courses=[],selectedId=null,workspace,selectionVersion=0;
 // Course and session editors with unsaved changes: switching course, opening All feedback or New course asks first.
 const dirty=new Set();
 const leave=()=>{if(dirty.size&&!confirm(t('discardEdits')))return false;dirty.clear();return true;};
-window.addEventListener?.('beforeunload',e=>{if(dirty.size){e.preventDefault();e.returnValue='';}});
+// The staff bar (admin-nav.js) asks before it signs out while an editor has unsaved changes; once signed out, nothing could be saved, so leaving asks nothing more.
+window.nodalUnsaved=()=>dirty.size>0;
+window.addEventListener?.('beforeunload',e=>{if(dirty.size&&!window.nodalSignedOut){e.preventDefault();e.returnValue='';}});
 const endpoint=id=>'/api/admin/courses'+(id?'/'+id:'');
 // Publication status plus a closed-enrollment marker, re-read on language change.
 const courseState=(c,cls)=>dynamic(cls?'span':'small',()=>t(c.status)+(c.enrollmentOpen===false?' · '+t('closed'):''),cls);
