@@ -1,7 +1,7 @@
 /* Member-console strings in English, Spanish and Portuguese: the console (d.*), profiles (p.*), membership and
    billing (y.*) and the publishing desk (ops.*). Only the pages that show them (dashboard, profile, payments, admin)
    load this file, deferred and before i18n.js, which merges it into its dictionaries. Every other page, the festival
-   among them, skips these ~107 KB. A page that uses one of these keys must load this file, and no key may also be in
+   among them, skips these ~154 KB. A page that uses one of these keys must load this file, and no key may also be in
    i18n.js (tests/i18n-split.test.js). Placeholders interpolate as {name}. */
 window.NODAL_I18N_DASH = {
   en: {
@@ -118,7 +118,7 @@ window.NODAL_I18N_DASH = {
     'd.path.stepLeft': '1 step left',
     'd.path.stepsLeft': '{n} steps left',
     'd.path.completeFirst': 'Complete Part C first',
-    // Readings from BUC, the Biblioteca Urbana Colaborativa, in the Learning band (dashboard.js, buc.js).
+    // Readings from BUC, the Biblioteca Urbana Colaborativa, under the console's Community paths (dashboard.js, buc.js).
     'd.buc.title': 'Readings from BUC',
     'd.buc.sub': 'Open publications on your topics from the Biblioteca Urbana Colaborativa, Sistema Urbano’s library. They open on BUC.',
     'd.buc.subNoTopics': 'Choose your topics and readings on them will appear here. Meanwhile, browse the library.',

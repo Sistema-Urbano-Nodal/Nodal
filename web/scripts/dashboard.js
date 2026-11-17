@@ -655,7 +655,7 @@
   }
 
   /* ================= BUC readings ================= */
-  /* "Lecturas de la BUC" in the Learning band: readings from BUC, Sistema Urbano's open library, for the member's topics
+  /* "Lecturas de la BUC" under Community paths (#growth): readings from BUC, Sistema Urbano's open library, for the member's topics
      (three at most, the highest rated first), drawn by buc.js from NODAL's /api/readings. The topics reach BUC only in
      the links the member follows. Before any topic is chosen there is one way into BUC instead, and nothing is read.
      The console redraws often; buc.js keeps a block whose query has not changed. Without buc.js, or when the read

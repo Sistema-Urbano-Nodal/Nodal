@@ -31,8 +31,8 @@ const CONSOLE=readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.met
 // keys moved, pinned by tests/overview-console-dashboard.test.js unless named otherwise: d.spine.profileTodo (the route's
 // first stop before Part A is done), d.save.cityKept and d.save.close (a city changed in another tab or on another device),
 // d.uc.deleteReconciling (a deletion refused for a course upload, pinned by tests/dashboard-account-errors.test.js),
-// d.search.directoryUnavailable (a People search that failed), d.eyebrow.assessmentOne (one topic, in the singular) and
-// d.search.catalogEmpty (reworded so it reads right around any scope's name), and p.signalsSelf (which signals other members
+// d.search.directoryUnavailable (a People search that failed), d.eyebrow.assessmentOne (one topic, in the singular),
+// d.search.catalogEmpty (reworded so it reads right around any scope's name) and p.signalsSelf (which signals other members
 // see on your profile, pinned by tests/profile-ui.test.js). Keys nothing used left both dictionaries the same day: the
 // retired Supporting membership page and checkout lines (y.* other than y.free, y.freeName, y.f1-f4, y.faq and y.fund.*,
 // which payments.html uses), the old globe panel's d.globe.title/sub/hint/working/roles, d.search.regional and the
@@ -302,10 +302,10 @@ for(const lang of ['es','pt']){
       const{api,dictionaries}=load(page,[],{withConsole:true});api.apply(lang);
       // Later additions have their own translation coverage; preserve the original copy baseline.
       // The publishing desk (ops.*), NODAL news (news.*) and the console's desk link are covered by catalog-ui and news-ui;
-      // the membership and account-deletion refusals (October 3 review) by review-fix-5-integration;
+      // the account-deletion refusal (October 3 review) by review-fix-5-integration;
       // the console's loading/failure lines and accessible names (d.aria.*) by dashboard-publishing,
       // the catalog's nothing-published state by catalog-ui, and the console's Show more / Show less (d.news.*) and FIIU badges
-      // (d.badge.fiiu.*) by dashboard-console-ui, the Learning band's readings from BUC (d.buc.*) by buc-ui, and the
+      // (d.badge.fiiu.*) by dashboard-console-ui, the console's readings from BUC under Community paths (d.buc.*) by buc-ui, and the
       // console's two-character name refusal (d.uc.errNameShort) just below and by dashboard-console-ui, and the Founder Membership 2027
       // (y.fund.* on the payments page, mem.fund.* on the landing card) by payments-links-ui, landing-membership and the plan copy
       // test at the end of this file. The Supporter courses lines (mem.p7, y.p6) and the Mercado Pago links page (y.mp.*) they replaced are gone.
