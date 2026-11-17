@@ -15,7 +15,7 @@
   /* ================= persisted state ================= */
   const DEFAULT_PART_C = { bio: '', linkedin: '', portfolio: '', references: '', availability: '', consent: false };
   const DEFAULT_INDICATORS = { leadership: 'No', transmission: 'No' };
-  const state = { user: null, notifRead: false };
+  const state = { notifRead: false };
   let confirmedCity = '';
 
   async function api(path, options = {}) {
@@ -35,7 +35,6 @@
   function normalizeApiUser(user) {
     const partC = { ...DEFAULT_PART_C, ...(user.partC || {}) };
     return {
-      kind: 'member',
       id: user.id,
       name: user.fullName || user.name || '',
       role: user.title || user.role || 'Member',
@@ -87,31 +86,17 @@
   ]);
   const TAXONOMY = [...TOPIC_KEYS.keys()];
   const topicLabel = (name) => (TOPIC_KEYS.has(name) ? t(`d.topic.${TOPIC_KEYS.get(name)}`) : name);
-  const blankPartC = () => ({ bio: '', linkedin: '', portfolio: '', references: '', availability: '', consent: false });
   const makeTopic = (name, level = 1) => ({ name, level, validatedAt: 0, endorsedAt: 0 });
   const cleanCity = (value) => String(value || '').trim().replace(/\s+/g, ' ').slice(0, 120);
   const cleanRole = (value) => String(value || '').trim().replace(/\s+/g, ' ').slice(0, 80);
-
-  function newUser(name, city, role, topicNames) {
-    return {
-      kind: 'member',
-      name, role, city,
-      assessed: false,
-      topics: topicNames.map((n) => makeTopic(n)),
-      skills: [],
-      indicators: { leadership: 'No', transmission: 'No' },
-      partC: blankPartC(),
-      requests: {}, mentorApplied: false,
-    };
-  }
 
   let U = null;
   const maxLevel = () => Math.max(0, ...U.topics.map((x) => x.level));
   const cityLabel = () => U.city || t('d.sheet.cityPending');
 
-  function setUser(user, persist = true) {
+  function setUser(user) {
     U = user;
-    if (persist) { state.user = user; touchUser(); }
+    touchUser();
     applyAll();
   }
   /* Profile saves are serialized so each city edit uses the last confirmed
@@ -145,7 +130,6 @@
     U.city = detail.city;
     const cityInput = document.getElementById('ucCity');
     if (cityInput?.value === previousCity) cityInput.value = detail.city;
-    state.user = U;
     applyAll();
     window.dispatchEvent(new CustomEvent('nodal:profile-location-changed', { detail: { userId: U.id } }));
   });
@@ -196,7 +180,6 @@
       }
       if (seq !== saveSeq) return;
       U = normalizeApiUser(data.user);
-      state.user = U;
       state.notifRead = U.notifRead;
       if (U.assessed && partCCount() === partCTotal && window.nodalPilot && !document.getElementById('profileFeedback')) {
         const feedback = window.nodalPilot.feedback('profile');
@@ -228,7 +211,6 @@
     box.hidden = false;
   }
   function touchUser() {
-    if (state.user) state.user = U;
     saveProfile().then(() => reportSave(true)).catch(() => reportSave(false));
   }
 
@@ -622,7 +604,6 @@
 
   function renderPaths() {
     const defs = branchDefs();
-    let open = 0;
     document.querySelectorAll('#pathList .path-row').forEach((row) => {
       const def = defs[row.dataset.branch];
       if (!def) return;
@@ -639,12 +620,11 @@
               : t('d.path.stepsLeft', { n: remaining });
           cls = remaining === 0 ? 'st-ready' : 'st-next';
         }
-        if (cls === 'st-ready') open += 1;
         pill.textContent = label;
         pill.className = `path-state ${cls}`;
       }
     });
-    setText('pathsEyebrow', t('d.eyebrow.paths', { n: Object.keys(defs).length, ready: open }));
+    setText('pathsEyebrow', t('d.eyebrow.paths', { n: Object.keys(defs).length }));
     showBranch(currentBranch);
   }
 
@@ -1236,7 +1216,7 @@
       if (uc.dataControls) uc.dataControls.hidden = false;
       uc.name.value = U.name;
       uc.city.value = U.city;
-      uc.role.value = U.kind === 'member' && U.role !== 'Member' ? U.role : '';
+      uc.role.value = U.role !== 'Member' ? U.role : '';
       setCityOptions(U.city ? [{ name: U.city, label: U.city }] : []);
       const current = new Set(U.topics.map((x) => x.name));
       uc.topics.querySelectorAll('input').forEach((i) => { i.checked = current.has(i.value); });
@@ -1269,17 +1249,13 @@
         uc.error.hidden = false;
         return;
       }
-      if (U.kind === 'member') {
-        // edit in place — keep levels and validation for topics that stay
-        U.name = name;
-        U.city = city;
-        U.role = role;
-        const byName = new Map(U.topics.map((x) => [x.name, x]));
-        U.topics = topics.map((n) => byName.get(n) ?? makeTopic(n));
-        setUser(U);
-      } else {
-        setUser(newUser(name, city, role, topics));
-      }
+      // edit in place — keep levels and validation for topics that stay
+      U.name = name;
+      U.city = city;
+      U.role = role;
+      const byName = new Map(U.topics.map((x) => [x.name, x]));
+      U.topics = topics.map((n) => byName.get(n) ?? makeTopic(n));
+      setUser(U);
     });
 
     uc.exportData?.addEventListener('click', async () => {
@@ -1728,7 +1704,6 @@
       const publish = byId('publishLink');
       if (publish) publish.hidden = data.user?.permission !== 'admin';
       confirmedCity = U.city;
-      state.user = U;
       state.notifRead = U.notifRead;
       window.nodalLocationCheck?.setUser(data.user);
       const retry = byId('loadRetry');
