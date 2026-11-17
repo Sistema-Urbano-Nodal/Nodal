@@ -266,10 +266,12 @@ function canonicalPathname(pathname) {
   }
 }
 
-function createWindowRateLimiter({ windowMs, limit }) {
+export function createWindowRateLimiter({ windowMs, limit }) {
   const buckets = new Map();
   let sweptAt = 0;
   return {
+    // How many buckets are held, so a test can see the sweep below keep the map bounded.
+    get size() { return buckets.size; },
     take(key, now = Date.now()) {
       // buckets are only ever added, so an attacker rotating keys would grow
       // this map without bound; drop the expired ones as we go

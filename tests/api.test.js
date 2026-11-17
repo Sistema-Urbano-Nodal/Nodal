@@ -8,6 +8,7 @@ import { createHmac } from 'node:crypto';
 import path from 'node:path';
 import {
   createApp as createProductionApp, createCitySearch, graphFingerprint, staticSourcePath, validateRuntimeConfig, publicBillingConfig,
+  createWindowRateLimiter,
 } from '../server/server.js';
 import { createStore } from '../server/store.js';
 import { createDatabase, createUser } from '../server/db.js';
@@ -1572,16 +1573,14 @@ test('a rate limit follows the account, not a header the caller controls', async
   assert.ok(refused > 0, 'rotating X-Forwarded-For must not reset the login limit');
 });
 
-test('rate limiter buckets do not grow without bound', async (t) => {
-  const base = await bootDb(t);
-  // unique keys, far more than any real client count, then check memory settles
-  for (let i = 0; i < 200; i += 1) {
-    const res = await fetch(`${base}/api/health`, { headers: { 'X-Forwarded-For': `198.51.100.${i % 256}` } });
-    await res.arrayBuffer();
-  }
-  const res = await fetch(`${base}/api/health`);
-  assert.equal(res.status, 200);
-  await res.arrayBuffer();
+test('rate limiter buckets do not grow without bound', () => {
+  const limiter = createWindowRateLimiter({ windowMs: 1000, limit: 1 });
+  // Rotated addresses or emails each open a bucket: far more keys than any real client count.
+  for (let i = 0; i < 1000; i += 1) limiter.take(`198.51.100.${i}`, 0);
+  assert.equal(limiter.size, 1000);
+  // A take made after their window has passed drops every expired bucket, so memory settles.
+  assert.equal(limiter.take('203.0.113.7', 1001).ok, true);
+  assert.equal(limiter.size, 1);
 });
 
 test('a cross-origin write is refused even with a valid session', async (t) => {
