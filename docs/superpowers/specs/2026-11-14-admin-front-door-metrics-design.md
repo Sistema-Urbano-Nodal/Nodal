@@ -324,7 +324,9 @@ sign-in. A member: the organisers-only page (403) for GET/HEAD; other methods ge
 beside `:1490`: GET or HEAD of `/admin`, `/admin/` or `/ADMIN` answers 302 to `/admin-home.html`. The console's
 side link (`web/pages/dashboard.html:72-74`) keeps `id="publishLink"` and key `d.nav.publish`; its `href` becomes
 `admin-home.html` and its values (`web/scripts/i18n-dashboard.js:733`, `:1612`, `:2491`) become Administración /
-Admin / Administração. `/admin.html`, `#nodes` and `#founders` keep working.
+Admin / Administração. `/admin.html`, `#nodes` and `#founders` keep working. Since 17 November 2026 that link opens the rail under
+a Team group and reads Indicadores y gestión / Metrics and tools / Indicadores e gestão
+(`docs/superpowers/specs/2026-11-17-admin-rail-link-design.md`).
 
 **Sketch**, in Spanish, with the figures of 14 November 2026 (`n` = filled by the baseline file before the sheet
 goes out; visit figures exist from R1), as the home was redesigned on 16 November: one sheet read in three passes

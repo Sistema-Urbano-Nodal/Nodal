@@ -135,8 +135,9 @@ Core flows:
 NODAL news; opportunities, projects, learning circles, resources and case
 studies; and the member interest review queue. It also links to the festival
 news editor (`/fiiu-admin.html#content`) and to courses (`/teaching.html`).
-Administrators reach it from the "Admin" link in the console's Tools rail,
-which only they see; it opens the admin home (`/admin`, `/admin-home.html`),
+Administrators reach it from "Metrics and tools" (Indicadores y gestión), the
+first link in the console's rail, under Team, which only they see; it opens
+the admin home (`/admin`, `/admin-home.html`),
 whose menu leads to the desk. The home shows the indicators with their
 definitions, can export them as CSV or print them, and saves at most one
 reading of the totals per Lima day. The page and every `/api/admin/*` request independently
