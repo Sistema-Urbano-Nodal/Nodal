@@ -200,6 +200,37 @@ test('a language switch reads the open listing again where it is and keeps the m
   assert.equal(detail.scrolls, 2);
 });
 
+test('a language switch that cannot read the open listing again takes it off screen and keeps the message', async () => {
+  let offline = false;
+  const h = catalogPage({
+    search: '?id=a',
+    detail: (id, language) => {
+      if (offline) { offline = false; throw new Error('network down'); }
+      return catalogItem(id, { title: `${language}: Title ${id}` });
+    },
+  });
+  await flush();
+  const detail = h.ids.get('catalogDetail');
+  const message = h.ids.get('catalogInterestMessage');
+  assert.equal(h.ids.get('detailTitle').textContent, 'en: Title a');
+  message.value = 'I can map the bus stops near my school.';
+
+  offline = true;
+  h.i18n.lang = 'es';
+  await h.i18n.change('es');
+  await flush();
+  assert.equal(h.ids.get('catalogDetailStatus').textContent, 'catalog.detailUnavailable');
+  assert.equal(detail.hidden, true, 'the English listing does not stay under "This listing is unavailable"');
+
+  // Opened again once the network is back, the same listing still holds what was written.
+  await h.titleButton('Title a').dispatch('click');
+  await flush();
+  assert.equal(detail.hidden, false);
+  assert.equal(h.ids.get('detailTitle').textContent, 'es: Title a');
+  assert.equal(h.ids.get('catalogInterestForm').hidden, false);
+  assert.equal(message.value, 'I can map the bus stops near my school.');
+});
+
 test('a deadline set on the desk reads as its Lima day for every visitor, and the detail gives its Lima time', async () => {
   // A visitor in São Paulo (UTC−3): a date formatted without a zone falls on their own calendar day.
   const saoPaulo = {

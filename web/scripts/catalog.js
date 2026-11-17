@@ -346,7 +346,11 @@
       if (!quiet) page.detail.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     } catch (error) {
       const isCurrent = page.detailController === controller && page.selectedId === id;
-      if (error.name !== 'AbortError' && isCurrent) page.detailStatus.textContent = t('catalog.detailUnavailable');
+      // A quiet read that fails takes the listing off screen too: the old language's text stays out of view.
+      if (error.name !== 'AbortError' && isCurrent) {
+        page.detail.hidden = true;
+        page.detailStatus.textContent = t('catalog.detailUnavailable');
+      }
     } finally {
       if (page.detailController === controller) page.detailController = null;
     }
