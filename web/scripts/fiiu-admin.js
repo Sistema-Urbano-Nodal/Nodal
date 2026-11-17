@@ -493,7 +493,7 @@
   }
   form.addEventListener('submit',async event=>{
    event.preventDefault();if(busy||pending)return;
-   // Saved settings the form does not show (the older workshop and route links) go back unchanged, and so does the saved availability.
+   // The form sends its link with the saved availability (the switch saves that on its own) and the saved version.
    const payload={...savedSettings(),...Object.fromEntries(new FormData(form)),registrationOpen:config.registrationOpen,version:config.version},unlock=lockForm(form);busy=true;
    // The server saves each link as its URL parser writes it (https://Example.org becomes https://example.org/), so the fields take the saved
    // values back: what shows is what is saved, and leaving afterwards does not ask about changes that are already saved.
@@ -851,7 +851,7 @@
  const currentEditor=()=>editors.get(editorHost.querySelector('form'));
  function showEditor(form,focus){editorHost.replaceChildren(form);if(focus)form.querySelector('input')?.focus();}
  function newEditor(focus=false){const draft=setAside;setAside=null;showEditor(publicationEditor(draft||{}),focus);}
- function editPublication(record){const current=currentEditor();if(current?.isNew)setAside=current.draft();else if(current?.dirty()&&!window.confirm(t(strings.discardEdit?'discardEdit':'cancelEdit')))return;showEditor(publicationEditor(record),true);}
+ function editPublication(record){const current=currentEditor();if(current?.isNew)setAside=current.draft();else if(current?.dirty()&&!window.confirm(t('discardEdit')))return;showEditor(publicationEditor(record),true);}
  function upsertPublication(content){publications=publications.some(p=>p.id===content.id)?publications.map(p=>p.id===content.id?content:p):[content,...publications];renderContent();}
  // A save updates the list in place, keeping every loaded page. The editor that saved gives way to the set-aside draft or a blank form; a draft set aside while it was being saved does not come back.
  function savedPublication(form,content,draftId){if(editorHost.querySelector('form')===form)newEditor();else if(draftId&&setAside?.draftId===draftId)setAside=null;upsertPublication(content);}
