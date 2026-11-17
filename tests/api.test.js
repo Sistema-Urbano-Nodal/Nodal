@@ -1888,9 +1888,7 @@ test('the globe ETag changes when the network does', async (t) => {
 
   await consentingMember(base, { name: 'Second Member', email: 'second@example.test', city: 'Bogota' });
 
-  // NETWORK_TTL_MS caches the roll-up briefly; wait it out so this tests the
-  // validator and not the cache
-  await new Promise((resolve) => setTimeout(resolve, 1700));
+  // At once: the snapshots are keyed by the database revision, which the sign-up moved.
   const after = (await fetch(`${base}/api/network/places`, { headers: { Cookie: first.cookie } })).headers.get('etag');
   assert.notEqual(after, before, 'a new city must invalidate the validator');
 });
