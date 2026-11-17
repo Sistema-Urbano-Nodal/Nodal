@@ -77,7 +77,6 @@ const enrolledCourse = (posts) => (path, opts) => {
   return { ok: true };
 };
 
-
 test('an empty conversation that keeps failing to load offers one Try again, however often it is refreshed', async () => {
   let offline = true;
   const h = harness(enrolledCourse(() => (offline ? { status: 503, data: { error: 'Discussion unavailable' } } : { posts: [], nextCursor: null, revision: 'r1' })),
@@ -140,4 +139,26 @@ test('an attachment the server refuses for what it holds names the formats the c
   assert.equal((await api('/api/courses/c1/modules/m1/attachments', {}).catch((error) => error)).translationKey, 'fileType');
   refusal = 'filename is required';
   assert.equal((await api('/api/courses/c1/modules/m1/attachments', {}).catch((error) => error)).translationKey, 'invalidInput');
+});
+
+test('a course link cut short says the course is not available and leads back to Courses instead of a Retry that cannot work', async () => {
+  // A link pasted from a chat with a trailing period: the server refuses any id that is not a whole UUID.
+  const mangled = '6f1c2a4e-8d3b-4c5a-9e7f-9333e8d283ca.';
+  const h = harness((path) => (path.startsWith('/api/courses/') ? { status: 400, data: { error: 'invalid identifier' } } : { ok: true }),
+    { page: 'course', search: `?id=${encodeURIComponent(mangled)}` });
+  h.run('courses'); await flush();
+  assert.equal(h.ids.pilotStatus.textContent, 'This content is no longer available.');
+  assert.equal(findKey(h.ids.pilotRoot, 'retry'), undefined);
+  const back = findKey(h.ids.pilotRoot, 'courses');
+  assert.equal(back?.tagName, 'a');
+  assert.equal(back.href, 'courses.html');
+  h.lang('es');
+  assert.equal(h.ids.pilotStatus.textContent, 'Este contenido ya no está disponible.');
+  assert.equal(back.textContent, 'Cursos');
+
+  // A course that answers but fails for another reason still offers Retry.
+  const busy = harness((path) => (path.startsWith('/api/courses/') ? { status: 503, data: { error: 'unavailable' } } : { ok: true }), { page: 'course', search: '?id=c1' });
+  busy.run('courses'); await flush();
+  assert.ok(findKey(busy.ids.pilotRoot, 'retry'));
+  assert.equal(findKey(busy.ids.pilotRoot, 'courses'), undefined);
 });

@@ -38,6 +38,8 @@ function requestError(data,statusCode){
   if(/post identifier is already used/.test(detail))return translatedError('alreadySubmitted',statusCode);
   // A file that is not what its type says (a phone photo renamed to .jpg, text not saved as UTF-8) passes the page's own check.
   if(/file content does not match its type|unsupported file type/.test(detail))return translatedError('fileType',statusCode);
+  // An id cut short or with a stray character (a link pasted from a chat) points at nothing.
+  if(/^invalid identifier$/.test(detail))return translatedError('notAvailable',statusCode);
   const field=detail.match(/^(fullName|profession|city|motivation|experience|expectations|caseStudy|digitalFamiliarity|title|description|objectives|instructions|post) (is required|is too long)/);
   if(field)return translatedError(field[2]==='is required'?'requiredField':'longField',statusCode,field[1]==='post'?'body':field[1]);
   return translatedError(({400:'invalidInput',403:'accessDenied',404:'notAvailable',409:'conflict',413:'fileError',415:'fileError',429:'tooManyRequests'})[statusCode]||'error',statusCode);
