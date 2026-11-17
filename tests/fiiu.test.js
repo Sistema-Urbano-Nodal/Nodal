@@ -66,9 +66,14 @@ test('organiser pages send guests to sign-in and show members an organisers-only
   assert.doesNotMatch(html,/fiiu-admin\.js|fiiu-qr\.js|\/api\/admin|example\.test/,page);
  }
  const head=await call('/fiiu-qr.html',{method:'HEAD'});assert.equal(head.status,403);assert.equal(await head.text(),'');
- // Non-page methods and the other staff pages keep the JSON refusal.
- const post=await call('/fiiu-admin.html',{method:'POST',body:{}});assert.equal(post.status,403);assert.deepEqual(await post.json(),{error:'administrator access required'});
- for(const page of ['/admin.html','/teaching.html']){const r=await call(page);assert.equal(r.status,403,page);assert.deepEqual(await r.json(),{error:'administrator access required'});}
+ // The other staff pages (the desk, teaching, the admin home behind /admin) show members the same page, never their own.
+ for(const page of ['/admin.html','/teaching.html','/admin-home.html']){
+  const member=await call(page);assert.equal(member.status,403,page);assert.match(member.headers.get('content-type'),/^text\/html/,page);
+  const html=await member.text();assert.match(html,/data-fiiu-text="organisersOnly"/,page);
+  assert.doesNotMatch(html,/admin\.js|admin-home\.js|admin-nav\.js|teaching\.js|\/api\/admin|example\.test/,page);
+ }
+ // Non-page methods keep the JSON refusal.
+ for(const page of ['/fiiu-admin.html','/admin-home.html']){const post=await call(page,{method:'POST',body:{}});assert.equal(post.status,403,page);assert.deepEqual(await post.json(),{error:'administrator access required'},page);}
  for(const [page,script] of [['/fiiu-qr.html?a=day1-am','fiiu-qr.js'],['/fiiu-admin.html','fiiu-admin.js']]){
   const admin=await call(page,{actor:'admin'});assert.equal(admin.status,200,page);assert.match(await admin.text(),new RegExp(`src="${script.replace('.','\\.')}\\?v=`));
  }
@@ -115,7 +120,9 @@ test('a browser asking for a page that does not exist gets a page with a way on,
   assert.equal(response.status,404,path);assert.match(response.headers.get('content-type'),/^text\/html/);assert.equal(response.headers.get('cache-control'),'no-store');
   assert.match(response.headers.get('content-security-policy'),/script-src 'self'/);assert.equal(response.headers.get('x-content-type-options'),'nosniff');
   assert.match(page,/^<!DOCTYPE html>/);assert.match(page,/<html lang="es"/);assert.match(page,/<meta name="viewport"/);assert.match(page,/<h1>No encontramos esta página<\/h1>/);
-  assert.match(page,/<a class="f-button" href="\/fiiu-checkin\.html">Ir al registro de asistencia<\/a>/);assert.match(page,/<a class="f-button secondary" href="\/fiiu\.html">Ir a la página del FIIU<\/a>/);
+  // The way on is the home page and the console, never the festival, which is over.
+  assert.match(page,/<a class="f-button" href="\/">Ir a la página de inicio<\/a>/);assert.match(page,/<a class="f-button secondary" href="\/dashboard\.html">Ir a Mi panel<\/a>/);
+  assert.doesNotMatch(page,/href="\/fiiu(?:-checkin)?\.html"/,path);
   assert.doesNotMatch(page,/<script|style=|nothing|chekin|checkins/,'no script, no inline style, and the address is never echoed');
  }
  // A language picked on the site wins, then the browser's, then Spanish; an automatic English save does not count as a choice.
@@ -126,9 +133,9 @@ test('a browser asking for a page that does not exist gets a page with a way on,
  assert.equal(await lang({'Accept-Language':'fr-FR,en;q=0.8'}),'en');
  assert.equal(await lang({'Accept-Language':'fr-FR'}),'es');assert.equal(await lang({}),'es');
  const english=await(await call('/missing',{actor:'guest',headers:{...browser,'Accept-Language':'en'}})).text();
- assert.match(english,/<title>NODAL · Page not found<\/title>/);assert.match(english,/>Go to session check-in</);assert.match(english,/>Go to the FIIU page</);
+ assert.match(english,/<title>NODAL · Page not found<\/title>/);assert.match(english,/>Go to the home page</);assert.match(english,/>Go to my console</);
  const portuguese=await(await call('/missing',{actor:'guest',headers:{...browser,'Accept-Language':'pt'}})).text();
- assert.match(portuguese,/<h1>Não encontramos esta página<\/h1>/);assert.match(portuguese,/>Ir para o registro de presença</);
+ assert.match(portuguese,/<h1>Não encontramos esta página<\/h1>/);assert.match(portuguese,/>Ir para a página inicial</);assert.match(portuguese,/>Ir para o painel</);
  // A HEAD for a page gets the status alone.
  const head=await call('/missing',{actor:'guest',method:'HEAD',headers:browser});assert.equal(head.status,404);assert.match(head.headers.get('content-type'),/^text\/html/);assert.equal(await head.text(),'');
  // Scripts, styles, images and API calls are not pages: they keep the JSON answer.

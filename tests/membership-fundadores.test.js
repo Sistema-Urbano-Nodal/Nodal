@@ -29,7 +29,7 @@ const OFFER = {
 const OPTION_ONCE = { id: 'once', amount: 'S/ 499' };
 const OPTION_TWICE = { id: 'installments', amount: 'S/ 550', each: 'S/ 275', count: 2, monthsApart: 2 };
 const CONTACT_VIEW = { email: 'membresias@nodal.example', complaintsUrl: 'https://reclamos.example/nodal' };
-const closed = (state, contact = null) => ({ checkout: false, provider: null, state, offer: OFFER, annual: { amount: 'Soon', per: '' }, options: [], contact });
+const closed = (state, contact = null) => ({ checkout: false, state, offer: OFFER, options: [], contact });
 
 async function boot(t, { billingEnv = OPEN, now = () => BEFORE, pilotMode = false, ...options } = {}) {
   const db = createDatabase({ filename: ':memory:' });
@@ -63,7 +63,7 @@ test('the offer in code is the terms version FUNDADORES-2027-v1, frozen', () => 
 });
 
 test('billing config is open, with the offer and both options but never a link, only before endsAt with both links and the contact set', async (t) => {
-  const open = { checkout: true, provider: 'mercadopago', state: 'open', offer: OFFER, annual: { amount: 'S/ 499', per: '' }, options: [OPTION_ONCE, OPTION_TWICE], contact: CONTACT_VIEW };
+  const open = { checkout: true, state: 'open', offer: OFFER, options: [OPTION_ONCE, OPTION_TWICE], contact: CONTACT_VIEW };
   assert.deepEqual(publicBillingConfig(OPEN, BEFORE), open);
   assert.deepEqual(publicBillingConfig(OPEN, ENDS - 1), open, 'the last millisecond of 31 Dec 2026 in Lima');
   for (const pilotMode of [true, false]) {
@@ -74,10 +74,10 @@ test('billing config is open, with the offer and both options but never a link, 
     assert.deepEqual(JSON.parse(text), open, `pilot ${pilotMode}`);
     assert.doesNotMatch(text, /mercadopago\.com\.pe|preapproval_plan_id|"url"/, 'the links come only from an acceptance');
   }
-  // Either option alone is offered by itself; the year's price is the single payment's, or the installments' total.
+  // Either option alone is offered by itself, with its own amounts.
   assert.deepEqual(publicBillingConfig({ MERCADOPAGO_LINK_ANNUAL: ONCE, ...CONTACT }, BEFORE).options, [OPTION_ONCE]);
   const twice = publicBillingConfig({ MERCADOPAGO_LINK_INSTALLMENTS: TWICE, ...CONTACT }, BEFORE);
-  assert.deepEqual([twice.state, twice.options, twice.annual], ['open', [OPTION_TWICE], { amount: 'S/ 550', per: '' }]);
+  assert.deepEqual([twice.state, twice.options], ['open', [OPTION_TWICE]]);
   // The amounts come from the terms version: the old price labels change nothing.
   assert.deepEqual(publicBillingConfig({ ...OPEN, SUBSCRIPTION_PRICE_ANNUAL_LABEL: 'S/ 240', SUBSCRIPTION_PRICE_INSTALLMENTS_LABEL: '2 × S/ 120', SUBSCRIPTION_ANNUAL_PERIOD: '/ year' }, BEFORE), open);
 });

@@ -17,7 +17,7 @@ test('200 concurrent viewers share one revision-checked directory and graph snap
   assert.equal(typeof network.createNetworkSnapshots, 'function');
   const f = fixture();
   const snapshots = network.createNetworkSnapshots(f.repo);
-  const values = await Promise.all(Array.from({length:200}, () => snapshots.read({ graph: true })));
+  const values = await Promise.all(Array.from({length:200}, () => snapshots.run(snapshot => snapshot)));
   assert.deepEqual(f.counts(), [1,1]);
   assert.ok(values.every(v => v === values[0]));
 });
@@ -31,20 +31,20 @@ test('a revision change makes withdrawn data unreachable immediately and stale i
   const g = fixture();
   const original = g.repo.loadGraphStore;
   g.repo.loadGraphStore = async (...args) => { const value = await original(...args); g.revoke(); g.repo.loadGraphStore = original; return value; };
-  assert.deepEqual((await network.createNetworkSnapshots(g.repo).read({ graph: true })).rows.map(u => u.id), ['a']);
+  assert.deepEqual((await network.createNetworkSnapshots(g.repo).run(snapshot => snapshot)).rows.map(u => u.id), ['a']);
 });
 
 test('a revision that moves during every read serves the newest rows instead of failing the network for everyone', async () => {
   const f = fixture();
   const snapshots = network.createNetworkSnapshots(f.repo);
-  assert.equal((await snapshots.read({ graph: true })).rows.length, 2);
+  assert.equal((await snapshots.run(snapshot => snapshot)).rows.length, 2);
   f.revoke();
   // One member keeps writing (PATCH /api/me, skips, follows): a revision bump lands during every directory read.
   const list = f.repo.listDirectoryUsers;
   f.repo.listDirectoryUsers = async () => { const rows = [...await list()]; f.bump(); return rows; };
   assert.deepEqual((await snapshots.read()).rows.map(u => u.id), ['a'], 'directory and search answer, never with the member withdrawn before the request');
   assert.deepEqual(await snapshots.run(snapshot => [...snapshot.graph.users.keys()]), ['a'], 'globe and recommendations answer from the same rows');
-  assert.deepEqual([...(await snapshots.read({ graph: true })).graph.users.keys()], ['a']);
+  assert.deepEqual([...(await snapshots.run(snapshot => snapshot)).graph.users.keys()], ['a']);
   assert.deepEqual(f.counts(), [10, 3], 'each request reads the directory at most three times and the graph once');
   f.repo.listDirectoryUsers = list;
   await snapshots.read(); await snapshots.read();
@@ -247,7 +247,7 @@ test('warm graph responses use only initial and final authoritative revision rea
   const original=f.repo.getNetworkRevision;
   f.repo.getNetworkRevision=async()=>{checks++;return original();};
   const snapshots=network.createNetworkSnapshots(f.repo);
-  await snapshots.read({graph:true});checks=0;
+  await snapshots.run(snapshot=>snapshot);checks=0;
   assert.equal((await snapshots.run(snapshot=>snapshot.rows)).length,2);
   assert.equal(checks,2,'an already-built graph needs no extra intermediate revision roundtrip');
   const result=await snapshots.run(async snapshot=>{

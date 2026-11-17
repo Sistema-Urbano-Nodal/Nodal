@@ -101,7 +101,7 @@ Production schema migrations live in:
 supabase/migrations/
 ```
 
-Apply them in order with the Supabase CLI. They create the app tables, enable RLS, and install the forward security hardening for existing projects.
+They create the app tables, enable RLS, and install the forward security hardening for existing projects. **Never run `supabase db push` against production**: its migration history records the schema under other versions, and forcing it re-runs applied files. In production, apply only the new files, one at a time and in timestamp order, with `npx --no-install supabase db query --linked -f supabase/migrations/<file>.sql`, then the project owner records them with `npx supabase migration repair --status applied <version>` (see "SQL Migration Steps" in [DEPLOYMENT.md](DEPLOYMENT.md)). `db push` is only for a fresh preview project whose history matches these files from the start.
 
 ## Run Locally
 
@@ -259,7 +259,7 @@ stored first and then emailed to the two team members (`server/node-requests-ema
 The admin home reads three protected routes (administrators only, never cached, no GET changes state):
 
 - `GET /api/admin/metrics` answers the indicators in six parts that can each fail alone; `?fresh=1` recomputes instead of using the 5-minute memo (6 a minute per account; 60 a minute otherwise).
-- `GET /api/admin/metrics/export` answers the same figures as CSV.
+- `GET /api/admin/metrics/export?table=indicators|months|readings&lang=es|en|pt` answers one CSV, with exactly one `table` and one `lang` (else 400): `indicators` and `months` are the same figures as the route above, by indicator or by month; `readings` is the saved daily readings.
 - `POST /api/admin/metrics/readings` saves one reading of the totals for the current Lima day, at most once a day, and never one with anything unavailable (6 a minute per account).
 
 Visits are counted by a first-party script, without cookies:
@@ -273,7 +273,7 @@ content to satisfy this release gate.
 
 ## Production
 
-Vercel serves generated JavaScript, CSS, and optimized images from `public/` before routing HTML pages and API requests through `api/index.js`. The adapter forwards those requests to the existing Node app, preserving protected-route redirects, API auth checks, security headers, and explicit static-file allowlisting.
+Vercel serves the generated JavaScript, CSS, fonts, optimized images and four pages (opportunities, privacy, terminos-fundadores and fundadores) from `public/` before routing every other page and the API requests through `api/index.js`. The adapter forwards those requests to the existing Node app, preserving protected-route redirects, API auth checks, security headers, and explicit static-file allowlisting.
 
 Build gate:
 

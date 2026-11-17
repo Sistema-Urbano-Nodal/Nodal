@@ -29,9 +29,6 @@ export class MemoryCache {
       this.store.delete(this.store.keys().next().value);
     }
   }
-  async del(...keys) {
-    for (const key of keys) this.store.delete(key);
-  }
 }
 
 export class RedisCache {
@@ -150,7 +147,6 @@ export class RedisCache {
 
   async get(key) { return this.#cmd('GET', key); }
   async set(key, value, ttlMs) { await this.#cmd('SET', key, value, 'PX', String(ttlMs)); }
-  async del(...keys) { if (keys.length) await this.#cmd('DEL', ...keys); }
 }
 
 function isLoopback(hostname) {

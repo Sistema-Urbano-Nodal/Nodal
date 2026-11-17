@@ -72,18 +72,9 @@ export function createNetworkSnapshots(repository, { ttlMs = 10 * 60_000, refres
     }
     snapshot.graph = await work;
   }
-  async function read({ graph = false } = {}) {
-    for (let attempt = 1; ; attempt++) {
-      const snapshot = await readDirectory();
-      if (!graph) return snapshot;
-      await loadGraph(snapshot);
-      // A lazily loaded graph may span database writes after directory reading; the last attempt is served as read.
-      if (await revision() === snapshot.revision || attempt === 3 || snapshot.settled === false) return snapshot;
-      cached = null;
-    }
-  }
   return {
-    read,
+    // The directory alone (member search and listing); a consumer of the graph uses run().
+    read: readDirectory,
     /* Graph consumers also cover geocoding/cache awaits after acquisition. */
     async run(build) {
       for (let attempt = 1; ; attempt++) {

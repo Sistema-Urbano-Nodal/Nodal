@@ -6,12 +6,12 @@ How NODAL is built, where it runs, how it protects accounts and data, and what i
 
 | Part | Service | Region |
 |---|---|---|
-| Scripts, styles, fonts, images, and the privacy and opportunities pages | Vercel CDN | edge locations worldwide, so visitors in Lima, Santiago and São Paulo load them from nearby |
+| Scripts, styles, fonts, images, and four pages: opportunities, privacy, terminos-fundadores and fundadores | Vercel CDN | edge locations worldwide, so visitors in Lima, Santiago and São Paulo load them from nearby |
 | Server: every `/api/*` request and every other page, public or private, built on each visit | Vercel Functions, Node 22 | `pdx1`, Portland, Oregon |
 | Database, sign-in and file storage | Supabase: Postgres, Auth and Storage | `us-west-2`, Oregon |
 
 - **The server and database are close together.** They sit in the same region, so each database call the server makes takes a few milliseconds.
-- **Visitors in Lima wait about 150 ms per page view and per data request.** That's the round trip to Oregon; only the scripts, styles, fonts and the two CDN pages come from nearby.
+- **Visitors in Lima wait about 150 ms per page view and per data request.** That's the round trip to Oregon; only the scripts, styles, fonts and the four CDN pages come from nearby.
 - **Moving closer to Latin America would mean São Paulo.** That needs a new Supabase project and a data migration, so it's only worth doing if that latency becomes a real problem.
 - **One database.** It is a single Postgres primary with no read replica, and Supabase handles backups according to the project's plan (check it in the Supabase dashboard). At NODAL's size a replica wouldn't help.
 
@@ -66,7 +66,7 @@ Every page and answer the server builds is served with:
 - **The standard protective headers:** Strict-Transport-Security, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, a `Permissions-Policy` that turns off the camera, microphone and payment APIs, and same-origin `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy`.
 - **No caching of personal answers:** `Cache-Control: no-store` on pages and API answers. A few public reads are cached briefly at the CDN: the festival programme (15 s), its conversation pulse (2 s), the BUC readings (5 min) and the public catalog (1 min).
 
-The privacy and opportunities pages and the static files come straight from the CDN with the headers in `vercel.json`: `nosniff`, a same-origin resource policy, and `frame-ancestors 'none'`.
+The four CDN pages (opportunities, privacy, terminos-fundadores and fundadores) and the static files come straight from the CDN with the headers in `vercel.json`: `nosniff`, a same-origin resource policy, and `frame-ancestors 'none'`. In production the server never sees those requests (only `npm start` serves them locally), so a header or redirect for them belongs in `vercel.json` or `scripts/build-static.js`, not in `server/server.js`.
 
 Payments don't need any change to these rules. The Supporting membership is paid through Mercado Pago links ([supporter-payments.md](supporter-payments.md)), which open Mercado Pago's own page, and the policy restricts what NODAL's pages load, not where their links lead. Only embedding a third-party form or script would need its domain added, and only that one domain.
 

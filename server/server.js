@@ -6,6 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+// Writes of the test-only store mode (createApp's `store` option); the deployed app writes through the repository.
 import { addFollow, recordInteraction } from './store.js';
 import { recommend } from './engine.js';
 import { createCache, MemoryCache } from './cache.js';
@@ -71,7 +72,6 @@ const MAX_BODY = 32 * 1024;
 const PRIVATE_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html', '/dashboard.html', '/profile.html', '/payments.html', '/admin.html', '/courses.html', '/course.html', '/teaching.html', '/admin-home.html']);
 const STATIC_PAGES = new Set(['fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'privacy.html', 'terminos-fundadores.html', 'fundadores.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html', 'admin-home.html']);
 const STATIC_SCRIPTS = new Set(['fiiu-ui.js', 'fiiu-live.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js', 'news-feed.js', 'buc.js', 'admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'i18n-dashboard.js', 'locale.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'hero-network.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js', 'privacy.js', 'membership-terms.js', 'fundadores.js', 'node-request.js', 'visit.js', 'admin-nav.js', 'admin-home.js']);
-const ORGANISER_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html']);
 /* /admin is the short address of the administrators' front door, the metrics home. */
 const ADMIN_ALIASES = new Set(['/admin']);
 /* The check-in screen shows <host>/checkin for phones that cannot scan. Typed by hand it may come in any case, without
@@ -92,8 +92,12 @@ const AUTH_RATE_LIMIT = envInt('AUTH_RATE_LIMIT', 10);
 // bounding aggregate signup/login work independently (1–10,000 per window).
 const AUTH_IP_RATE_LIMIT = Math.min(10000, Math.max(1, Math.floor(envInt('AUTH_IP_RATE_LIMIT', 800))));
 /* Failed sign-ins are counted per account and requester (AUTH_RATE_LIMIT), so
-   somebody else's wrong guesses never lock the owner out, and per account across
-   every requester against distributed guessing. Successes count for neither. */
+   wrong guesses from one other address never lock the owner out, and per account
+   across every requester (this limit) against distributed guessing. That shared
+   count is checked before the password, so wrong guesses spread over several
+   addresses can still close the account's sign-in to everyone, its owner
+   included, for the rest of the 5-minute window (per server instance).
+   Successes count for neither. */
 const AUTH_ACCOUNT_RATE_LIMIT = envInt('AUTH_ACCOUNT_RATE_LIMIT', 5 * AUTH_RATE_LIMIT);
 /* Every anonymous sign-up can make the auth provider send an email, and that
    quota (300 an hour on the Supabase project, over the same Gmail account as
@@ -184,7 +188,6 @@ const CITY_SEARCH_MIN_INTERVAL_MS = envInt('CITY_SEARCH_MIN_INTERVAL_MS', 1000);
 const CITY_SEARCH_BASE_URL = process.env.CITY_SEARCH_URL || 'https://geodb-free-service.wirefreethought.com/v1/geo/cities';
 const CITY_SEARCH_ATTRIBUTION = 'GeoDB Cities';
 const STATIC_CACHE_CONTROL = 'public, max-age=3600, stale-while-revalidate=86400';
-const CITY_ADDRESS_KEYS = ['city', 'town', 'village', 'municipality', 'hamlet', 'county', 'city_district'];
 const BASE_CSP = [
   "default-src 'self'",
   "script-src 'self'",
@@ -198,16 +201,13 @@ const BASE_CSP = [
   "frame-ancestors 'none'",
 ];
 
+// The types of the files the STATIC_* allowlists serve; a new kind of file needs its entry here too.
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.webp': 'image/webp',
-  '.jpg': 'image/jpeg',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
   '.txt': 'text/plain; charset=utf-8',
   '.woff2': 'font/woff2',
 };
@@ -266,10 +266,12 @@ function canonicalPathname(pathname) {
   }
 }
 
-function createWindowRateLimiter({ windowMs, limit }) {
+export function createWindowRateLimiter({ windowMs, limit }) {
   const buckets = new Map();
   let sweptAt = 0;
   return {
+    // How many buckets are held, so a test can see the sweep below keep the map bounded.
+    get size() { return buckets.size; },
     take(key, now = Date.now()) {
       // buckets are only ever added, so an attacker rotating keys would grow
       // this map without bound; drop the expired ones as we go
@@ -371,11 +373,6 @@ function publicBaseUrl(env = process.env) {
   }
 }
 
-/* Shown wherever a price would go while nothing can be paid: a price next to a
-   membership nobody can buy reads as an offer. annual.per stays '' (the offer has
-   no period to show) for pages written for the earlier shape. */
-const PRICE_UNANNOUNCED = 'Soon';
-
 /* The Founder Membership 2027 (server/membership-offer.js) is sold through links Mariana
    creates in her own Mercado Pago (a payment link for S/ 499, and a plan of two
    charges); NODAL only sends members there and the team adds each payer. A link
@@ -455,12 +452,11 @@ function membershipState(env, at) {
   return { state, contact, options: state === 'open' ? options : [] };
 }
 
+// The pages read state, checkout, offer, options (with their amounts) and contact; nothing else is sent.
 export function publicBillingConfig(env = process.env, at = Date.now()) {
   const { state, contact, options } = membershipState(env, at);
-  if (state !== 'open') return { checkout: false, provider: null, state, offer: OFFER_VIEW, annual: { amount: PRICE_UNANNOUNCED, per: '' }, options: [], contact };
-  // The year's price is the single payment's; with only the two payments offered, their total stands for it.
-  const views = options.map(({ id }) => OPTION_VIEWS[id]);
-  return { checkout: true, provider: 'mercadopago', state, offer: OFFER_VIEW, annual: { amount: (views.find((view) => view.id === 'once') ?? views[0]).amount, per: '' }, options: views, contact };
+  if (state !== 'open') return { checkout: false, state, offer: OFFER_VIEW, options: [], contact };
+  return { checkout: true, state, offer: OFFER_VIEW, options: options.map(({ id }) => OPTION_VIEWS[id]), contact };
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -470,51 +466,26 @@ function cleanCityQuery(value) {
   return String(value || '').trim().replace(/\s+/g, ' ').slice(0, CITY_SEARCH_MAX_QUERY);
 }
 
-function cityNameFromAddress(address = {}, fallback = '') {
-  for (const key of CITY_ADDRESS_KEYS) {
-    const value = String(address[key] || '').trim();
-    if (value) return value;
-  }
-  return String(fallback || '').trim();
-}
-
 const cityCoordinate = (value, bound) => value !== null && value !== undefined && value !== ''
   && Number.isFinite(Number(value)) && Math.abs(Number(value)) <= bound ? Number(value) : null;
 
+// One GeoDB city row (createCitySearch asks GeoDB only); a row without a name is dropped.
 function cityResultFromPlace(place) {
-  if (place?.city || (place?.name && place?.countryCode)) {
-    const name = String(place.city || place.name || '').trim();
-    if (!name) return null;
-    const region = String(place.region || '').trim();
-    const country = String(place.country || '').trim();
-    const label = [...new Set([name, region, country].filter(Boolean))].join(', ');
-    return {
-      name,
-      label: label || name,
-      region,
-      country,
-      countryCode: String(place.countryCode || '').toUpperCase(),
-      lat: cityCoordinate(place.latitude, 90),
-      lon: cityCoordinate(place.longitude, 180),
-      source: 'geodb',
-    };
-  }
-
-  const address = place?.address || {};
-  const name = cityNameFromAddress(address, place?.name);
+  if (!place?.city && !(place?.name && place?.countryCode)) return null;
+  const name = String(place.city || place.name || '').trim();
   if (!name) return null;
-  const region = String(address.state || address.region || address.county || '').trim();
-  const country = String(address.country || '').trim();
+  const region = String(place.region || '').trim();
+  const country = String(place.country || '').trim();
   const label = [...new Set([name, region, country].filter(Boolean))].join(', ');
   return {
     name,
     label: label || name,
     region,
     country,
-    countryCode: String(address.country_code || '').toUpperCase(),
-    lat: cityCoordinate(place.lat, 90),
-    lon: cityCoordinate(place.lon, 180),
-    source: 'openstreetmap',
+    countryCode: String(place.countryCode || '').toUpperCase(),
+    lat: cityCoordinate(place.latitude, 90),
+    lon: cityCoordinate(place.longitude, 180),
+    source: 'geodb',
   };
 }
 
@@ -1001,21 +972,22 @@ async function adminInterestProjection(repository, interest) {
 
 function resolveUserId(param, sessionUser, useDb) {
   if (param === 'me') return sessionUser?.id ?? null;
-  if (!useDb) return param;
+  if (!useDb) return param;   // the test-only store mode has no sessions
   return sessionUser?.id === param ? param : null;
 }
 
 /* A browser asking for a page that does not exist (an address typed by hand, an
-   old link) gets a small page with a way on instead of raw JSON; scripts, styles,
+   old link) gets a small page with a way on (the home page, and the console, which
+   asks a signed-out visitor to sign in first) instead of raw JSON; scripts, styles,
    images and other clients keep the JSON answer. The page has no script and never
    echoes the address. Its language follows the site's: a language picked on the
    site (an unmarked 'en' is the old automatic save), else the browser's, else
    Spanish. Its stylesheets carry no ?v= key, so right after a deploy they may be
    an hour old: harmless on a page this small. */
 const NOT_FOUND_TEXT = {
-  es: ['Página no encontrada', 'No encontramos esta página', 'Puede que la dirección tenga un error o que la página ya no exista.', 'Ir al registro de asistencia', 'Ir a la página del FIIU'],
-  en: ['Page not found', 'We could not find this page', 'The address may have a typo, or the page may no longer exist.', 'Go to session check-in', 'Go to the FIIU page'],
-  pt: ['Página não encontrada', 'Não encontramos esta página', 'O endereço pode ter um erro, ou a página pode não existir mais.', 'Ir para o registro de presença', 'Ir para a página do FIIU'],
+  es: ['Página no encontrada', 'No encontramos esta página', 'Puede que la dirección tenga un error o que la página ya no exista.', 'Ir a la página de inicio', 'Ir a Mi panel'],
+  en: ['Page not found', 'We could not find this page', 'The address may have a typo, or the page may no longer exist.', 'Go to the home page', 'Go to my console'],
+  pt: ['Página não encontrada', 'Não encontramos esta página', 'O endereço pode ter um erro, ou a página pode não existir mais.', 'Ir para a página inicial', 'Ir para o painel'],
 };
 function notFoundLanguage(req) {
   const cookies = parseCookies(req.headers.cookie), saved = cookies.get('nodal.lang');
@@ -1024,12 +996,12 @@ function notFoundLanguage(req) {
 }
 function notFound(req, res) {
   if (!/\btext\/html\b/.test(req.headers.accept || '')) { send(res, 404, { error: 'not found' }); return; }
-  const lang = notFoundLanguage(req), [title, heading, hint, checkin, festival] = NOT_FOUND_TEXT[lang];
+  const lang = notFoundLanguage(req), [title, heading, hint, home, panel] = NOT_FOUND_TEXT[lang];
   res.writeHead(404, { ...htmlSecurityHeaders(), 'Content-Type': MIME['.html'], 'Cache-Control': 'no-store' });
   res.end(req.method === 'HEAD' ? undefined : `<!DOCTYPE html>
 <html lang="${lang}" translate="no"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>NODAL · ${title}</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cline x1='20' y1='22' x2='44' y2='42' stroke='%2359bc53' stroke-width='5'/%3E%3Ccircle cx='20' cy='22' r='11' fill='%233d5c38'/%3E%3Ccircle cx='44' cy='42' r='8' fill='%2359bc53'/%3E%3C/svg%3E"><link rel="stylesheet" href="/fonts.css"><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/fiiu.css"></head>
-<body class="f-page"><main class="f-shell"><section class="f-locked"><h1>${heading}</h1><p>${hint}</p><div class="f-actions"><a class="f-button" href="/fiiu-checkin.html">${checkin}</a><a class="f-button secondary" href="/fiiu.html">${festival}</a></div></section></main></body></html>
+<body class="f-page"><main class="f-shell"><section class="f-locked"><h1>${heading}</h1><p>${hint}</p><div class="f-actions"><a class="f-button" href="/">${home}</a><a class="f-button secondary" href="/dashboard.html">${panel}</a></div></section></main></body></html>
 `);
 }
 
@@ -1087,6 +1059,10 @@ export function staticSourcePath(pathname) {
 }
 
 export function createApp({
+  /* A test-only fixture: an in-memory demo graph (server/store.js createStore) in place of a database. Nothing deployed
+     passes it (api/index.js and npm start build the repository from the environment), and an app built with it has no
+     sessions, page gates or admin checks, so a test of it says nothing about production. Every `!useDb` branch below
+     serves only this mode. */
   store,
   db,
   cache = new MemoryCache(),
@@ -1291,13 +1267,12 @@ export function createApp({
   const membershipAcceptanceLimiter = createWindowRateLimiter({ windowMs: 60 * 60 * 1000, limit: 10 });
   const locationLimiter = createWindowRateLimiter({windowMs:60000,limit:6});
   const costlyLimiter = createWindowRateLimiter({ windowMs: COSTLY_RATE_WINDOW_MS, limit: COSTLY_RATE_LIMIT });
-  /* Keyed by session when there is one, by address otherwise, so a limit
-     follows the account rather than a shared office IP. */
   /* City names change hands rarely and cities never move, so a resolved point
      is cached for a month. Returns null when the provider cannot place it —
      the member is told, rather than being dropped somewhere wrong. */
+  const placeKey = (city) => `place:v1:${String(city).trim().toLowerCase()}`;
   async function resolveCity(city, acceptLanguage) {
-    const key = `place:v1:${String(city).trim().toLowerCase()}`;
+    const key = placeKey(city);
     const remembered = await cache.get(key);
     /* A miss is remembered too, for a shorter time. Otherwise every rebuild of the
        globe's places asked a failing (or rate-limited) provider about the same
@@ -1315,7 +1290,16 @@ export function createApp({
     } catch { /* an unavailable cache only costs a later lookup */ }
     return point;
   }
+  // Whether resolveCity remembers a point for the city, from the cache alone: never a request to the provider.
+  async function cityPlaced(city) {
+    try {
+      const remembered = await cache.get(placeKey(city));
+      return Boolean(remembered && remembered !== 'null' && JSON.parse(remembered));
+    } catch { return false; }
+  }
 
+  /* Keyed by session when there is one, by address otherwise, so a limit
+     follows the account rather than a shared office IP. */
   const throttle = (limiter, res2, req2, user, scope) => {
     const rate = limiter.take(`${scope}:${user?.id || clientIp(req2)}`);
     if (rate.ok) return true;
@@ -1506,8 +1490,9 @@ export function createApp({
           return;
         }
         if (useDb && ['/admin.html','/teaching.html','/fiiu-admin.html','/fiiu-qr.html','/admin-home.html'].includes(canonical) && (sessionUser?.permission || sessionUser?.role) !== 'admin') {
-          // A member who follows an organiser link gets a page that explains it, carrying no organiser data or script.
-          if (ORGANISER_PAGES.has(canonical) && ['GET','HEAD'].includes(req.method)) { await serveStatic(req, res, '/organisers-only.html', pilotMode, { status: 403 }); return; }
+          /* A member who follows a staff link (an organiser page, the desk, teaching, or the admin home that /admin opens)
+             gets a page that explains it, carrying no staff data or script, instead of raw JSON. */
+          if (['GET','HEAD'].includes(req.method)) { await serveStatic(req, res, '/organisers-only.html', pilotMode, { status: 403 }); return; }
           send(res, 403, { error: 'administrator access required' });
           return;
         }
@@ -2137,6 +2122,7 @@ export function createApp({
           });
           return;
         }
+        // The test-only store mode lists its demo graph.
         send(res, 200, { users: [...store.users.values()].map(({ id, name, role, city, interests }) => ({ id, name, role, city, interests })) });
         return;
       }
@@ -2164,15 +2150,18 @@ export function createApp({
               const groups = new Map();
               const cityOf = new Map();
               const topics = new Map();
+              // Cities where a listed member saved a point: the unfiltered map places them without the geocoder.
+              const located = new Set();
               for (const row of rows) {
                 const user = repository.toApiUser(row);
                 (user.topics || []).forEach((entry) => {
                   const name = String(entry?.name || entry || '').trim();
                   if (name) topics.set(name, (topics.get(name) || 0) + 1);
                 });
+                const city = String(user.city || '').trim();
+                if (city && user.location) located.add(city.toLowerCase());
                 // the filter narrows who is counted, never who exists
                 if (topic && !(user.topics || []).some((entry) => String(entry?.name || entry || '').trim().toLowerCase() === topic.toLowerCase())) continue;
-                const city = String(user.city || '').trim();
                 if (!city) continue;
                 const key = city.toLowerCase();
                 if (!groups.has(key)) groups.set(key, { city, point: user.location || null, members: [] });
@@ -2263,18 +2252,26 @@ export function createApp({
                 places,
                 links,
                 topics: [...topics].sort((x, y) => y[1] - x[1]).map(([name, n]) => ({ name, members: n })),
+                located,
               };
             })();
             variants.set(variant, work);
             work.catch(() => { if (variants.get(variant) === work) variants.delete(variant); });
           }
-          const shared = await work;
+          const { located, ...shared } = await work;
           const viewerRow = snapshot.rows.find(row => row.id === sessionUser.id);
           const viewer = viewerRow ? repository.toApiUser(viewerRow) : null;
           const city = String(viewer?.city || '').trim();
+          const cityKey = city.toLowerCase();
+          /* onMap answers for the whole map, whatever the topic: the console asks a member it is false for to retype the
+             city. A topic leaves out every city where nobody holds it, so the city also counts when the unfiltered map
+             places it without a new lookup: a listed member there saved a point, or the provider's point is remembered. */
+          const onMap = Boolean(viewer) && city !== '' && (located.has(cityKey)
+            || shared.places.some(p => p.city.toLowerCase() === cityKey)
+            || (topic !== '' && await cityPlaced(city)));
           return JSON.stringify({ ...shared, you: {
             listed: Boolean(viewer), hasCity: city !== '',
-            onMap: Boolean(viewer) && city !== '' && shared.places.some(p => p.city.toLowerCase() === city.toLowerCase()),
+            onMap,
             city,
           } });
         });
@@ -2374,6 +2371,7 @@ export function createApp({
           await cache.set(key, payload, REC_TTL_MS);
           return { payload, hit: false };
         };
+        // build(null) reads the demo graph of the test-only store mode.
         const result = useDb ? await networkSnapshots.run(build) : await build(null);
         if (!result) { send(res, 404, { error: 'unknown user' }); return; }
         send(res, 200, result.payload, { 'X-Cache': result.hit ? 'HIT' : 'MISS', 'Content-Type': 'application/json; charset=utf-8' });
@@ -2407,6 +2405,7 @@ export function createApp({
           send(res, 400, { error: 'invalid targetId' }); return;
         }
 
+        // Each inner `else` writes the demo graph of the test-only store mode.
         if (action === 'follow') {
           if (useDb) await repository.addFollow(userId, targetId);
           else addFollow(store, userId, targetId);
@@ -2449,7 +2448,7 @@ export function createApp({
         const session = await createCheckoutSession({
           cycle: body.cycle,
           origin,
-          user: useDb ? repository.toApiUser(sessionUser) : { id: 'local', email: '' },
+          user: useDb ? repository.toApiUser(sessionUser) : { id: 'local', email: '' },   // 'local': the test-only store mode
         }, payments.config, payments.fetchImpl);
         send(res, 200, session);
         return;

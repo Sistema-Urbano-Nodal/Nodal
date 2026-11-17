@@ -24,15 +24,15 @@ function networkFixture() {
 test('performance-1: an unchanged revision keeps the directory and graph across globe polls',async()=>{
  const f=networkFixture();let clock=0;
  const snapshots=createNetworkSnapshots(f.repo,{now:()=>clock});
- const first=await snapshots.read({graph:true});
+ const first=await snapshots.run(snapshot=>snapshot);
  // The globe polls every 15 s plus jitter, so every poll lands after the old 15 s TTL.
  for(const at of [16_000,33_000,50_000,5*60_000]){clock=at;await snapshots.run(async snapshot=>snapshot.graph);}
  assert.deepEqual(f.counts(),[1,1],'no table is read again while the revision stands');
  // Derived per-snapshot work (the places payload, which drains the geocoding backlog) still renews.
- clock=5*60_000+16_000;const renewed=await snapshots.read({graph:true});
+ clock=5*60_000+16_000;const renewed=await snapshots.run(snapshot=>snapshot);
  assert.notEqual(renewed,first);assert.equal(renewed.rows,first.rows);assert.equal(renewed.graph,first.graph);
  // A write anywhere in the network is visible on the next request.
- f.bump();const changed=await snapshots.read({graph:true});
+ f.bump();const changed=await snapshots.run(snapshot=>snapshot);
  assert.notEqual(changed.rows,first.rows);assert.deepEqual(f.counts(),[2,2]);
  // A long backstop still rereads data the revision says is unchanged.
  clock+=10*60_000;await snapshots.read();assert.deepEqual(f.counts(),[3,2]);
