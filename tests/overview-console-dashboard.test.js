@@ -278,3 +278,60 @@ test('a complete profile keeps Part A done and its 30%', async () => {
   assert.equal(c.text('ringText'), '30%');
   assert.equal(c.byId('partAStatus').classList.contains('done'), true);
 });
+
+/* ---------------- M40: a city changed in another tab or on another device ---------------- */
+
+// The member edits their city in the profile dialog of a console that read Lima, after another tab or device stored Cusco.
+async function editCityAfterAMoveElsewhere(c) {
+  await flush();
+  c.stored.city = 'Cusco';
+  c.byId('userBtn').click();
+  c.byId('ucCity').value = 'Arequipa';
+  c.byId('ucRole').value = 'Urban planner';
+  c.byId('userForm').fire('submit');
+  await flush();
+}
+
+test('a city refused because it changed elsewhere gives way to the stored one, the other changes are saved, and later saves go through', async () => {
+  const c = consoleFor(ana);
+  await editCityAfterAMoveElsewhere(c);
+  const [refused, resent] = c.patches();
+  assert.deepEqual([refused.city, refused.expectedCity, refused.title], ['Arequipa', 'Lima', 'Urban planner']);
+  assert.equal('city' in resent, false, 'the other changes go once more, without a city');
+  assert.equal(resent.title, 'Urban planner');
+  assert.deepEqual(c.requests.map((r) => `${r.method} ${r.url}`), ['GET /api/auth/me', 'PATCH /api/me', 'GET /api/auth/me', 'PATCH /api/me'],
+    'the stored city is read again once, after the refusal');
+  assert.deepEqual([c.stored.city, c.stored.title], ['Cusco', 'Urban planner']);
+  assert.equal(c.text('sheetCity'), 'Cusco');
+  assert.equal(c.byId('ucCity').value, 'Cusco', 'the profile editor no longer holds the refused city');
+  assert.equal(c.located.at(-1).city, 'Cusco', 'the location check is told the stored city');
+  assert.equal(c.byId('saveAlert').hidden, false);
+  assert.equal(c.text('saveAlertText'), 'Your city is now Cusco: it was changed in another tab or on another device. Your other changes are saved.');
+  assert.equal(c.byId('saveRetry').hidden, true, 'nothing is left to try again');
+  assert.equal(c.byId('saveClose').hidden, false);
+  assert.equal(c.text('saveClose'), 'Close');
+
+  // Every later save used to carry the same stale guard and be refused; now a level reaches the server.
+  c.byId('assessTopics').querySelectorAll('.seg')[0].querySelectorAll('button')[2].click();
+  await flush();
+  assert.equal(c.patches().length, 3);
+  assert.equal('city' in c.patches()[2], false);
+  assert.equal(c.stored.topics[0].level, 3, 'Mobility is Proficient on the server');
+  assert.equal(c.byId('saveAlert').hidden, false, 'a later save leaves the notice up');
+  c.byId('saveClose').click();
+  assert.equal(c.byId('saveAlert').hidden, true);
+  c.byId('assessTopics').querySelectorAll('.seg')[1].querySelectorAll('button')[1].click();
+  await flush();
+  assert.equal(c.stored.topics[1].level, 2);
+  assert.equal(c.byId('saveAlert').hidden, true, 'once closed, the notice does not come back');
+});
+
+test('the city notice and its Close read in Spanish and Portuguese', async () => {
+  const c = consoleFor(ana, { lang: 'es' });
+  await editCityAfterAMoveElsewhere(c);
+  assert.equal(c.text('saveAlertText'), 'Tu ciudad ahora es Cusco: se cambió en otra pestaña o en otro dispositivo. Tus otros cambios se guardaron.');
+  assert.equal(c.text('saveClose'), 'Cerrar');
+  c.i18n.apply('pt', { persist: false });
+  assert.equal(c.text('saveClose'), 'Fechar');
+  assert.equal(c.i18n.t('d.save.cityKept', { city: 'Cusco' }), 'Sua cidade agora é Cusco: ela foi alterada em outra aba ou em outro dispositivo. Suas outras alterações foram salvas.');
+});

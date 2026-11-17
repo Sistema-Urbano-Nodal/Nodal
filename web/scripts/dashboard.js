@@ -149,6 +149,24 @@
     applyAll();
     window.dispatchEvent(new CustomEvent('nodal:profile-location-changed', { detail: { userId: U.id } }));
   });
+  /* The stored city changed in another tab or on another device after this tab read it, so the server refused the city
+     this tab sent, and the rest of the patch with it (409 location_conflict). Every later save would carry the same stale
+     guard and be refused too. The console takes the stored city instead (in the profile editor too, unless something
+     else has been typed there since), says so in the save box, and sends the other changes once more, without a city. */
+  let keptCity = null;
+  async function keepStoredCity(refusedCity) {
+    const { user } = await api('/api/auth/me');
+    const city = user?.city || '';
+    confirmedCity = city;
+    if (U.city === refusedCity) U.city = city;
+    const cityInput = document.getElementById('ucCity');
+    if (cityInput?.value === refusedCity) cityInput.value = city;
+    window.nodalLocationCheck?.setUser(user);
+    keptCity = city;
+    applyAll();
+    window.dispatchEvent(new CustomEvent('nodal:profile-location-changed', { detail: { userId: U.id } }));
+    return api('/api/me', { method: 'PATCH', body: JSON.stringify(serializeUser(U)) });
+  }
   async function saveProfile() {
     if (!U) return;
     const seq = saveSeq + 1;
@@ -164,7 +182,10 @@
       // inadvertently move the map back to the old city.
       if (locationSave) await locationSave;
       const submittedCity = U.city;
-      const data = await api('/api/me', { method: 'PATCH', body: JSON.stringify(serializeUser(U)) });
+      const data = await api('/api/me', { method: 'PATCH', body: JSON.stringify(serializeUser(U)) }).catch((error) => {
+        if (error?.status === 409 && error.message === 'location_conflict') return keepStoredCity(submittedCity);
+        throw error;
+      });
       const previousCity = confirmedCity;
       confirmedCity = data.user.city || '';
       if (U.city === submittedCity) U.city = confirmedCity;
@@ -189,13 +210,21 @@
     }
   }
   /* A failed PATCH used to be swallowed: the change stayed on screen and never
-     reached the server, which reads exactly like success. Now it says so. */
+     reached the server, which reads exactly like success. Now it says so. A city
+     kept from another tab or device is said in the same box, with Close instead of
+     Try again, and stays until the member closes it: a later save does not hide it. */
   function reportSave(ok, retrying) {
     const box = document.getElementById('saveAlert');
     if (!box) return;
-    if (ok) { box.hidden = true; return; }
-    setText('saveAlertText', t(retrying ? 'd.save.stillFailing' : 'd.save.failed'));
+    const notice = ok && keptCity !== null;
+    if (ok && !notice) { box.hidden = true; return; }
+    setText('saveAlertText', notice ? t('d.save.cityKept', { city: keptCity || t('d.sheet.cityPending') })
+      : t(retrying ? 'd.save.stillFailing' : 'd.save.failed'));
     setText('saveRetry', t('d.save.retry'));
+    const retry = document.getElementById('saveRetry');
+    const close = document.getElementById('saveClose');
+    if (retry) retry.hidden = notice;
+    if (close) close.hidden = !notice;
     box.hidden = false;
   }
   function touchUser() {
@@ -1629,6 +1658,11 @@
       .then(() => { reportSave(true); applyAll(); })
       .catch(() => reportSave(false, true))
       .finally(() => { saveRetry.disabled = false; });
+  });
+  byId('saveClose')?.addEventListener('click', () => {
+    keptCity = null;
+    const box = byId('saveAlert');
+    if (box) box.hidden = true;
   });
 
   document.querySelectorAll('.side-link, .side-out').forEach((btn) => {

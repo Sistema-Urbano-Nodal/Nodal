@@ -852,7 +852,9 @@ select:focus-visible, textarea:focus-visible {
 }
 .save-alert[hidden] { display: none; }
 .save-alert p { font-size: 12.5px; line-height: 1.45; }
-.save-alert button { flex-shrink: 0; padding: 8px 13px; font-size: 12px; }
+.save-alert button { flex-shrink: 0; min-height: 44px; padding: 8px 13px; font-size: 12px; }
+/* Try again after a failure, Close after a city kept from elsewhere; .btn-green sets display */
+.save-alert button[hidden] { display: none; }
 
 /* ============================ dialogs ============================ */
 .partc {
