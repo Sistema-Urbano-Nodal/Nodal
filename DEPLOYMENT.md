@@ -598,6 +598,10 @@ SESSION_REFRESH_FAILURE_LIMIT=30 # session refreshes Supabase rejects, per clien
 NETWORK_GEOCODE_BUDGET_MS=2000   # time one globe poll may wait on the city geocoder
 ```
 
+Raising one of these in Vercel's environment cannot fail the build: `npm test`
+loads `tests/setup/clear-limits.js`, which clears every limit the server reads, so
+the tests always run against the defaults.
+
 Only wrong passwords count against the sign-in limits; a successful sign-in
 clears that requester's count. Sign-ups stop at `SIGNUP_EMAIL_HOURLY_LIMIT` an
 hour with 429 "Confirmation email is temporarily unavailable", which keeps the
