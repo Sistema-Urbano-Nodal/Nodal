@@ -424,7 +424,8 @@ function createConversation(moduleId,sequence,kind){
   // On the perk course the September posts stay with the September group (server/course-perks.js), and everyone reading is told so.
   const shared=snapshot.perkCourse?[tr('p','sharedSince','pilot-data-note')]:[];
   heading.append(refresh);section.append(heading,tr('p',kind==='assignment'?'assignmentHelp':'discussionHelp','pilot-data-note'),...shared,composer,updates,posts,more);
-  let cursor=null,loading=false,refreshPending=false,pendingNotice='',loaded=false,active=false,disposed=false,baseline=null,timer=null,pollController=null,pollErrors=0,hasUpdates=false;
+  // retry: the one Try again an empty conversation shows after a failed load, however many refreshes fail.
+  let cursor=null,loading=false,refreshPending=false,pendingNotice='',loaded=false,active=false,disposed=false,baseline=null,timer=null,pollController=null,pollErrors=0,hasUpdates=false,retry=null;
   const known=new Set();
   const alive=()=>!disposed&&sequence===loadSequence;
   const visible=()=>!navigationPending&&pageActive&&active&&document.visibilityState!=='hidden'&&alive();
@@ -484,7 +485,7 @@ function createConversation(moduleId,sequence,kind){
       posts.querySelector('.pilot-empty')?.remove();
       if(!known.size)posts.append(tr('p',kind==='assignment'?'noAssignments':'noPosts','pilot-empty'));
       cursor=result.nextCursor;more.hidden=!cursor;loaded=true;
-    }catch(err){if(!alive())return;status(msg,err);if(!known.size){const retry=button('retry',()=>{retry.remove();return loadPosts(true);},true);posts.append(retry);}}
+    }catch(err){if(!alive())return;status(msg,err);if(!known.size){retry?.remove();retry=button('retry',()=>{retry.remove();return loadPosts(true);},true);posts.append(retry);}}
     finally{loading=false;more.disabled=false;refresh.disabled=false;if(refreshPending&&alive()){const queued=pendingNotice;refreshPending=false;pendingNotice='';await loadPosts(true,queued);}schedule();}
   }
   function visibilityChanged(){if(!visible())cancelPoll();else schedule();}
