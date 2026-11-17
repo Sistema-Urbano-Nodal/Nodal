@@ -847,7 +847,9 @@ test('Back to my registration asks before dropping unsaved edits, and an edit re
  // A draft made against an older saved version (an edit from another device since) is kept too, and now edits the saved version (next test).
  const typed=await harness({registration:saved,context});await key(typed.root,'edit').listeners.click();typeInto(typed.form(),'city','Callao');
  const newer=await harness({registration:{...saved,version:2},context});assert.equal(newer.form().hidden,false);assert.equal(field(newer.form(),'city').value,'Callao');
- assert.ok(key(newer.root.querySelector('.f-registration'),'draftBehind'));assert.equal(JSON.parse(storage.getItem('fiiu.draft')).version,2);
+ assert.ok(key(newer.root.querySelector('.f-registration'),'draftBehind'));
+ assert.equal(JSON.parse(storage.getItem('fiiu.draft')).version,1,'the draft keeps its own version until an edit');
+ typeInto(newer.form(),'city','Callao Norte');assert.equal(JSON.parse(storage.getItem('fiiu.draft')).version,2,'the first edit moves it onto the saved version');
 });
 
 test('a draft typed against another saved version is kept: after a check-in at the door registered the person, or after a cancellation',async()=>{
@@ -862,7 +864,12 @@ test('a draft typed against another saved version is kept: after a check-in at t
  for(const lang of ['es','pt','en']){h.lang(lang);assert.match(content(notice),{en:/^We kept your unsaved answers, but your registration has changed since then\./,es:/^Recuperamos tus respuestas sin guardar, pero tu inscripción cambió desde entonces\./,pt:/^Recuperamos suas respostas não salvas, mas sua inscrição mudou desde então\./}[lang]);}
  // The end of the form says what saving does and shows the registration as saved now, with the block added at the door.
  const compare=form.querySelector('.f-conflict').querySelector('.f-saved');assert.ok(key(form,'latestReplace'));assert.ok(compare);assert.match(content(compare),/El poder de lo local/);
- assert.equal(JSON.parse(storage.getItem('fiiu.draft')).version,1,'the kept draft now edits the saved version');assert.equal(leave(h),true,'the kept answers are still unsaved');
+ assert.equal(JSON.parse(storage.getItem('fiiu.draft')).version,0,'the draft keeps its own version until an edit');assert.equal(leave(h),true,'the kept answers are still unsaved');
+ // A phone that discards the tab before any edit brings back the same warning and the registration to compare, not a plain "answers kept".
+ const reload=await harness({registration:walkIn,context}),reloadForm=reload.form(),reloadPanel=reload.root.querySelector('.f-registration');
+ assert.ok(key(reloadPanel,'draftBehind'));assert.equal(key(reloadPanel,'draftRestored'),undefined);assert.ok(key(reloadForm,'latestReplace'));
+ assert.match(content(reloadForm.querySelector('.f-conflict').querySelector('.f-saved')),/El poder de lo local/);assert.equal(box(reloadForm,'activities','day1-am').checked,false);
+ typeInto(reloadForm,'lastName','Ruiz');assert.equal(JSON.parse(storage.getItem('fiiu.draft')).version,1,'the first edit moves the draft onto the saved version');
  h.fill();await h.submit();const put=h.requests.filter(request=>request.method==='PUT').at(-1).body;
  assert.deepEqual([put.version,put.registrationId],[1,saved.id],'saving goes on top of the registration made at the door');assert.equal(storage.data.size,0);
  // An edit whose registration was cancelled since registers again, as Use the current version does after a conflict.

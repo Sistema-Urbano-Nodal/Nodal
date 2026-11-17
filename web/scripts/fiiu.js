@@ -14,7 +14,8 @@
  const message=el('p','f-status');message.setAttribute('role','status');message.setAttribute('aria-live','polite');message.tabIndex=-1;
  const panelNotice=el('p','f-status f-notice is-ok');panelNotice.setAttribute('role','status');panelNotice.setAttribute('aria-live','polite');
  // The registration form's draft lives in the tab (sessionStorage), with its account and the saved version it edits: a reload, a Back or a tab the phone
- // discarded brings it back once, and another account or a version saved elsewhere since makes it stale. The ID number is never stored.
+ // discarded brings it back once. Another account makes it stale; a draft typed against a version saved elsewhere since is kept, with a warning and the
+ // saved registration to compare (the first form draw below). The ID number is never stored.
  // formDirty: unsaved answers on screen; edited: what a programme shortcut or an #add- calls after ticking a box, as typing does.
  // panelIdle: nothing in the panel is being edited or saved, so redrawing it loses nothing.
  const DRAFT='fiiu.draft';let formDirty=()=>false,edited=null,draftChecked=false,panelIdle=()=>false;
@@ -422,7 +423,8 @@
   // An edit opens the form on it; a new registration can drop it. Either way the panel says the answers were kept and are not saved yet.
   // A draft typed against another saved version is kept as well: a check-in at a block's door registers the person or adds the block, an organiser's tick
   // adds one, another device saves or cancels. As Use the current version does after a conflict, the form stays as typed and its next save goes on the
-  // saved registration (or registers again), which the end of the form shows so the person can compare before replacing it.
+  // saved registration (or registers again), which the end of the form shows so the person can compare before replacing it. The stored draft keeps its own
+  // version until the first edit (touched), so a reload before any edit warns and compares again.
   if(!draftChecked){
    draftChecked=true;const draft=readDraft();
    if(draft&&(draft.userId!==expectedUserId||!draft.values||typeof draft.values!=='object'))dropDraft();
@@ -432,7 +434,7 @@
     syncLab();syncOther();syncForm(true);dirty=true;showNotice(behind&&existing?'draftBehind':'draftRestored');
     if(existing)openForm();
     else form.prepend(button('discardDraft',()=>{if(busy||!window.confirm(t('discardRegistrationEdit')))return;dropDraft();renderRegistration();panelHeading.focus();},'f-button secondary f-small f-back'));
-    if(behind){keepDraft();status(message,existing?'latestReplace':'latestCreate');if(existing)conflictBox.replaceChildren(savedSummary(existing,{prefix:'f-itc-'}));}
+    if(behind){status(message,existing?'latestReplace':'latestCreate');if(existing)conflictBox.replaceChildren(savedSummary(existing,{prefix:'f-itc-'}));}
    }
   }
   // Form-level listeners only: controls keep their single change listener each.
