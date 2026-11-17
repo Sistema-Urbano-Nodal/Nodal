@@ -330,6 +330,20 @@ test('a city refused because it changed elsewhere gives way to the stored one, t
   assert.equal(c.byId('saveAlert').hidden, true, 'once closed, the notice does not come back');
 });
 
+test('when the session now belongs to another account, nothing of it is taken and the refused save fails as before', async () => {
+  let reads = 0;
+  const c = consoleFor(ana, { respond: ({ url }, reply) => {
+    if (url === '/api/auth/me' && (reads += 1) > 1) return reply(200, { user: { ...ana, id: 'other-id', city: 'Quito' } });
+    return undefined;
+  } });
+  await editCityAfterAMoveElsewhere(c);
+  assert.equal(c.patches().length, 1, 'nothing is sent again');
+  assert.equal(c.text('sheetCity'), 'Arequipa', 'the other account’s city is not taken');
+  assert.equal(c.located.some((user) => user.id === 'other-id'), false);
+  assert.equal(c.text('saveAlertText'), 'Your last change did not reach the server. It is still only on this screen.');
+  assert.deepEqual([c.byId('saveRetry').hidden, c.byId('saveClose').hidden], [false, true]);
+});
+
 test('the city notice and its Close read in Spanish and Portuguese', async () => {
   const c = consoleFor(ana, { lang: 'es' });
   await editCityAfterAMoveElsewhere(c);

@@ -136,11 +136,13 @@
   /* The stored city changed in another tab or on another device after this tab read it, so the server refused the city
      this tab sent, and the rest of the patch with it (409 location_conflict). Every later save would carry the same stale
      guard and be refused too. The console takes the stored city instead (in the profile editor too, unless something
-     else has been typed there since), says so in the save box, and sends the other changes once more, without a city. */
+     else has been typed there since), says so in the save box, and sends the other changes once more, without a city.
+     If the session now belongs to another account, nothing of it is taken: the save fails as it would have. */
   let keptCity = null;
-  async function keepStoredCity(refusedCity) {
+  async function keepStoredCity(refusedCity, refusal) {
     const { user } = await api('/api/auth/me');
-    const city = user?.city || '';
+    if (!user || user.id !== U.id) throw refusal;
+    const city = user.city || '';
     confirmedCity = city;
     if (U.city === refusedCity) U.city = city;
     const cityInput = document.getElementById('ucCity');
@@ -167,7 +169,7 @@
       if (locationSave) await locationSave;
       const submittedCity = U.city;
       const data = await api('/api/me', { method: 'PATCH', body: JSON.stringify(serializeUser(U)) }).catch((error) => {
-        if (error?.status === 409 && error.message === 'location_conflict') return keepStoredCity(submittedCity);
+        if (error?.status === 409 && error.message === 'location_conflict') return keepStoredCity(submittedCity, error);
         throw error;
       });
       const previousCity = confirmedCity;
