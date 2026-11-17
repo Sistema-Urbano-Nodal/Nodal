@@ -344,6 +344,83 @@ test('when the session now belongs to another account, nothing of it is taken an
   assert.deepEqual([c.byId('saveRetry').hidden, c.byId('saveClose').hidden], [false, true]);
 });
 
+// The member saves another city from the profile dialog while the notice is still up.
+async function saveCityAgain(c, city) {
+  c.byId('userBtn').click();
+  c.byId('ucCity').value = city;
+  c.byId('userForm').fire('submit');
+  await flush();
+}
+
+test('the city notice goes once a later save stores another city, and stays while the stored city is still the one it names', async () => {
+  const c = consoleFor(ana);
+  await editCityAfterAMoveElsewhere(c);
+  assert.equal(c.byId('saveAlert').hidden, false);
+  await saveCityAgain(c, 'Cusco');
+  assert.equal(c.byId('saveAlert').hidden, false, 'saving the city it names leaves the notice true, so it stays');
+  await saveCityAgain(c, 'Trujillo');
+  assert.deepEqual([c.patches().at(-1).city, c.patches().at(-1).expectedCity], ['Trujillo', 'Cusco']);
+  assert.equal(c.stored.city, 'Trujillo');
+  assert.equal(c.byId('saveAlert').hidden, true, 'the box no longer says the city is Cusco');
+  c.byId('assessTopics').querySelectorAll('.seg')[0].querySelectorAll('button')[2].click();
+  await flush();
+  assert.equal(c.byId('saveAlert').hidden, true, 'and it does not come back with the next save');
+});
+
+test('a newer city typed while the refused one is read again is the one saved, and no notice names the city it replaced', async () => {
+  let reads = 0;
+  const c = consoleFor(ana, { respond: ({ url }) => {
+    // The member saves Trujillo from the dialog while the console reads the stored city again after the refusal.
+    if (url === '/api/auth/me' && (reads += 1) === 2) {
+      c.byId('ucCity').value = 'Trujillo';
+      c.byId('userForm').fire('submit');
+    }
+    return undefined;
+  } });
+  await editCityAfterAMoveElsewhere(c);
+  await flush();
+  const [refused, resent] = c.patches();
+  assert.equal(refused.city, 'Arequipa');
+  assert.deepEqual([resent.city, resent.expectedCity], ['Trujillo', 'Cusco'], 'the newer city goes out, guarded by the stored one');
+  assert.equal(c.stored.city, 'Trujillo');
+  assert.equal(c.text('sheetCity'), 'Trujillo');
+  assert.equal(c.byId('saveAlert').hidden, true, 'nothing says the city is now Cusco');
+});
+
+test('the location check storing another city takes the city notice down, but leaves a failed save on screen', async () => {
+  const c = consoleFor(ana);
+  await editCityAfterAMoveElsewhere(c);
+  // What location-check.js does once the server has stored the city it found.
+  const locate = (console, city) => {
+    console.stored.city = city;
+    console.window.dispatchEvent({ type: 'nodal:location-updated', detail: { userId: 'ana-id', city } });
+  };
+  const located = (city) => locate(c, city);
+  located('Cusco');
+  assert.equal(c.byId('saveAlert').hidden, false, 'the stored city is still the one the notice names');
+  located('Puno');
+  assert.equal(c.byId('saveAlert').hidden, true);
+  c.byId('assessTopics').querySelectorAll('.seg')[0].querySelectorAll('button')[2].click();
+  await flush();
+  assert.equal(c.byId('saveAlert').hidden, true, 'the next save does not bring the Cusco notice back');
+
+  // A failed save is not the notice: a city stored by the location check does not hide it.
+  const failing = consoleFor(ana, { respond: ({ url, method }, reply) => {
+    if (url === '/api/me' && method === 'PATCH' && failing.patches().length === 3) return reply(503, { error: 'unavailable' });
+    return undefined;
+  } });
+  await editCityAfterAMoveElsewhere(failing);
+  failing.byId('assessTopics').querySelectorAll('.seg')[0].querySelectorAll('button')[2].click();
+  await flush();
+  assert.equal(failing.text('saveAlertText'), 'Your last change did not reach the server. It is still only on this screen.');
+  locate(failing, 'Puno');
+  assert.equal(failing.byId('saveAlert').hidden, false, 'the failure stays, with Try again');
+  assert.equal(failing.byId('saveRetry').hidden, false);
+  failing.byId('saveRetry').click();
+  await flush();
+  assert.equal(failing.byId('saveAlert').hidden, true, 'once the retry goes through, no Cusco notice comes back');
+});
+
 test('the city notice and its Close read in Spanish and Portuguese', async () => {
   const c = consoleFor(ana, { lang: 'es' });
   await editCityAfterAMoveElsewhere(c);

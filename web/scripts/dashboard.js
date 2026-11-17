@@ -130,6 +130,7 @@
     U.city = detail.city;
     const cityInput = document.getElementById('ucCity');
     if (cityInput?.value === previousCity) cityInput.value = detail.city;
+    if (keptCity !== null && detail.city !== keptCity) dropCityNotice();
     applyAll();
     window.dispatchEvent(new CustomEvent('nodal:profile-location-changed', { detail: { userId: U.id } }));
   });
@@ -137,8 +138,16 @@
      this tab sent, and the rest of the patch with it (409 location_conflict). Every later save would carry the same stale
      guard and be refused too. The console takes the stored city instead (in the profile editor too, unless something
      else has been typed there since), says so in the save box, and sends the other changes once more, without a city.
-     If the session now belongs to another account, nothing of it is taken: the save fails as it would have. */
+     If the session now belongs to another account, nothing of it is taken: the save fails as it would have.
+     The notice names keptCity only while that is the stored city: a save or the location check storing another one
+     drops it, and a newer city typed meanwhile (sent in the second patch) never raises it. */
   let keptCity = null;
+  function dropCityNotice() {
+    keptCity = null;
+    // Hide the box only while it shows the notice: a failed save stays up with its Try again.
+    const box = document.getElementById('saveAlert');
+    if (box && document.getElementById('saveClose')?.hidden === false) box.hidden = true;
+  }
   async function keepStoredCity(refusedCity, refusal) {
     const { user } = await api('/api/auth/me');
     if (!user || user.id !== U.id) throw refusal;
@@ -148,7 +157,7 @@
     const cityInput = document.getElementById('ucCity');
     if (cityInput?.value === refusedCity) cityInput.value = city;
     window.nodalLocationCheck?.setUser(user);
-    keptCity = city;
+    if (U.city === city) keptCity = city;
     applyAll();
     window.dispatchEvent(new CustomEvent('nodal:profile-location-changed', { detail: { userId: U.id } }));
     return api('/api/me', { method: 'PATCH', body: JSON.stringify(serializeUser(U)) });
@@ -174,6 +183,7 @@
       });
       const previousCity = confirmedCity;
       confirmedCity = data.user.city || '';
+      if (keptCity !== null && confirmedCity !== keptCity) keptCity = null;
       if (U.city === submittedCity) U.city = confirmedCity;
       window.nodalLocationCheck?.setUser(data.user);
       if (previousCity !== confirmedCity) {
@@ -197,7 +207,8 @@
   /* A failed PATCH used to be swallowed: the change stayed on screen and never
      reached the server, which reads exactly like success. Now it says so. A city
      kept from another tab or device is said in the same box, with Close instead of
-     Try again, and stays until the member closes it: a later save does not hide it. */
+     Try again, and stays until the member closes it or another city is stored: a later
+     save of anything else does not hide it. */
   function reportSave(ok, retrying) {
     const box = document.getElementById('saveAlert');
     if (!box) return;
@@ -1668,11 +1679,7 @@
       .catch(() => reportSave(false, true))
       .finally(() => { saveRetry.disabled = false; });
   });
-  byId('saveClose')?.addEventListener('click', () => {
-    keptCity = null;
-    const box = byId('saveAlert');
-    if (box) box.hidden = true;
-  });
+  byId('saveClose')?.addEventListener('click', dropCityNotice);
 
   document.querySelectorAll('.side-link, .side-out').forEach((btn) => {
     btn.addEventListener('pointerdown', (e) => {
