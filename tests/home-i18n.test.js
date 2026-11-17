@@ -33,7 +33,10 @@ const CONSOLE=readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.met
 // d.uc.deleteReconciling (a deletion refused for a course upload, pinned by tests/dashboard-account-errors.test.js),
 // d.search.directoryUnavailable (a People search that failed), d.eyebrow.assessmentOne (one topic, in the singular) and
 // d.search.catalogEmpty (reworded so it reads right around any scope's name), and p.signalsSelf (which signals other members
-// see on your profile, pinned by tests/profile-ui.test.js).
+// see on your profile, pinned by tests/profile-ui.test.js). Keys nothing used left both dictionaries the same day: the
+// retired Supporting membership page and checkout lines (y.* other than y.free, y.freeName, y.f1-f4, y.faq and y.fund.*,
+// which payments.html uses), the old globe panel's d.globe.title/sub/hint/working/roles, d.search.regional and the
+// d.badge.sharer/connector/consistent.scope lines the .req lines replaced.
 const HOME_KEYS=[
   "about.eyebrow",
   "about.lead1",
@@ -270,8 +273,8 @@ const SNAPSHOTS={
     "pt": "b9a077e4b2055212490393a2498292f0d20156b6f1d4e34f8d7b063179e71d3b"
   },
   "nonhome": {
-    "es": "dcc50e4aeb15b65da736dd6aa0962b63b68aa07b05aa0b9daaa040bfe4f88140",
-    "pt": "75e6e4cf3850202770a38faedfba6d2f6dca957be84b08b59deed4a888705b2d"
+    "es": "c078d5db1188923e7431625bdb144185cf47ca9f9a5760c8bce06bb57edc804f",
+    "pt": "3365ec50ba307a773ad4bbecece67b1161c6753f65b87a3cdf1845f585e25071"
   }
 };
 
@@ -306,7 +309,7 @@ for(const lang of ['es','pt']){
       // console's two-character name refusal (d.uc.errNameShort) just below and by dashboard-console-ui, and the Founder Membership 2027
       // (y.fund.* on the payments page, mem.fund.* on the landing card) by payments-links-ui, landing-membership and the plan copy
       // test at the end of this file. The Supporter courses lines (mem.p7, y.p6) and the Mercado Pago links page (y.mp.*) they replaced are gone.
-      const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','y.alreadyMember','d.uc.deleteSubscription','d.greet.hello','d.greet.loading','d.load.failed','catalog.emptyNothingPublished','catalog.nextFiiu','catalog.nextCourses','d.uc.errNameShort','page.community.title','page.knowledge.title','page.resources.title'].includes(key)||/^(?:ops|news|d\.aria|d\.news|d\.badge\.fiiu|d\.buc|y\.fund|mem\.fund)\./.test(key);
+      const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','d.uc.deleteSubscription','d.greet.hello','d.greet.loading','d.load.failed','catalog.emptyNothingPublished','catalog.nextFiiu','catalog.nextCourses','d.uc.errNameShort','page.community.title','page.knowledge.title','page.resources.title'].includes(key)||/^(?:ops|news|d\.aria|d\.news|d\.badge\.fiiu|d\.buc|y\.fund|mem\.fund)\./.test(key);
       const actual=Object.entries(dictionaries[lang]).filter(([key])=>!later(key)).sort(([a],[b])=>a.localeCompare(b,'en'));
       assert.equal(hash(actual),SNAPSHOTS.nonhome[lang],String(page));
       assert.equal(api.t('nav.privacy'),lang==='es'?'Política de privacidad':'Política de privacidade');
