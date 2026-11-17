@@ -105,9 +105,9 @@ ${sections.map(([,n,title,body])=>`<section id="${lang}-${n}"><h2>${n}. ${escape
     <a class="policy-brand" href="index.html" aria-label="NODAL"><img src="assets/nodal-wordmark.webp" width="360" height="143" alt="NODAL"></a>
     <a class="policy-home" href="index.html">${localized('home')}</a>
     <div class="policy-languages" role="group" aria-label="Language" data-policy-label="language">
-      <button type="button" data-lang="en" aria-label="English" aria-pressed="true">EN</button>
-      <button type="button" data-lang="es" aria-label="Español" aria-pressed="false">ES</button>
-      <button type="button" data-lang="pt" aria-label="Português" aria-pressed="false">PT</button>
+      <button type="button" data-lang="en" aria-label="EN, English" aria-pressed="true">EN</button>
+      <button type="button" data-lang="es" aria-label="ES, Español" aria-pressed="false">ES</button>
+      <button type="button" data-lang="pt" aria-label="PT, Português" aria-pressed="false">PT</button>
     </div>
   </header>
   <main class="policy-main" id="policy">${versions.join('\n')}</main>
