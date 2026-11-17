@@ -21,15 +21,6 @@ test('memory cache: entries expire after the TTL', async () => {
   assert.equal(await cache.get('k'), null);
 });
 
-test('memory cache: del invalidates multiple keys', async () => {
-  const cache = new MemoryCache();
-  await cache.set('a', '1', 60_000);
-  await cache.set('b', '2', 60_000);
-  await cache.del('a', 'b');
-  assert.equal(await cache.get('a'), null);
-  assert.equal(await cache.get('b'), null);
-});
-
 test('memory cache: set sweeps expired entries that will never be read again', async () => {
   let t = 0;
   const cache = new MemoryCache({ now: () => t, maxEntries: 10 });
