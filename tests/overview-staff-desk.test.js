@@ -364,14 +364,18 @@ test('M64: an interest refused for a stale version says so once the queue has re
     await descendants(card).find((n) => n.tagName === 'button').listeners.get('click')();
   };
   await update('contacted');
-  assert.equal(status(), d.i18n.t('ops.interest.changed'), 'the refusal is what the line says, not the count');
+  // The line stays once the reload is done, so it says what happened, not that a reload is running.
+  assert.equal(status(), 'Someone else changed this interest first, so nothing was saved.', 'the refusal is what the line says, not the count');
   assert.equal(descendants(d.node('adminInterestList')).find((n) => n.tagName === 'select').children.find((o) => o.selected).value, 'closed', 'the queue shows their status');
 
+  // The reload fails and empties the queue: the line adds why, and claims nothing about a queue it could not show.
   queue = () => response({}, 503);
   await update('contacted');
-  assert.equal(status(), `${d.i18n.t('ops.interest.changed')} ${d.i18n.t('ops.interest.failed', { status: 503 })}`);
+  assert.equal(status(), 'Someone else changed this interest first, so nothing was saved. Member interests are unavailable (503).');
   d.i18n.apply('es');
-  assert.equal(status(), `${d.i18n.t('ops.interest.changed')} ${d.i18n.t('ops.interest.failed', { status: 503 })}`, 'both parts follow a language switch');
+  assert.equal(status(), `Otra persona cambió esta solicitud antes, así que no se guardó nada. ${d.i18n.t('ops.interest.failed', { status: 503 })}`, 'both parts follow a language switch');
+  d.i18n.apply('pt');
+  assert.equal(status(), `Outra pessoa mudou este pedido antes, então nada foi salvo. ${d.i18n.t('ops.interest.failed', { status: 503 })}`);
   assert.match(status(), /\(503\)\.$/);
 });
 
@@ -507,14 +511,33 @@ test('M69: the news fields and Topics are named by their label text alone; the l
   }
 });
 
-test('M67: the Organizations band names both kinds of request in its own loading line', () => {
-  // The band lists Nodo and sponsorship requests (6e2bf37); its runtime lines are ops.nodes.loading, failed and unavailable.
+test('M67: the Organizations band names both kinds of request in its loading and failure lines, in every language', async () => {
+  // The band lists Nodo and sponsorship requests (6e2bf37). The page's own line is replaced at once by ops.nodes.loading, so the
+  // dictionary is what the screen shows; the markup is only the line before the script runs.
   assert.match(adminPage(), /<p class="admin-live" id="adminNodeStatus" role="status" aria-live="polite" tabindex="-1">Loading organization requests…<\/p>/);
+  for (const [lang, loading, failed, unavailable] of [
+    ['en', 'Loading organization requests…', 'Organization requests are unavailable (503).', 'Organization requests are unavailable.'],
+    ['es', 'Cargando solicitudes de organizaciones…', 'Las solicitudes de organizaciones no están disponibles (503).', 'Las solicitudes de organizaciones no están disponibles.'],
+    ['pt', 'Carregando solicitações de organizações…', 'As solicitações de organizações não estão disponíveis (503).', 'As solicitações de organizações não estão disponíveis.'],
+  ]) {
+    const held = deferred();
+    const d = desk({ lang, routes: { nodes: () => held.promise } });
+    await flush();
+    assert.equal(d.node('adminNodeStatus').textContent, loading, `${lang}: while the band loads`);
+    held.resolve(response({}, 503));
+    await flush();
+    assert.equal(d.node('adminNodeStatus').textContent, failed, `${lang}: when it cannot`);
+    assert.equal(d.i18n.t('ops.nodes.unavailable'), unavailable, lang);
+  }
 });
 
 test('M63: the button that saves an open record with its current status says so, not that it saves the feature setting alone', async () => {
   // It sends every field of the editor (saveCatalog with the record's own status), so a published record's unfinished edits go live with it.
+  // i18n.js writes ops.editor.saveFeature over the markup's text, so the label on screen is the dictionary's in each language.
   assert.match(adminPage(), /<button class="admin-textbutton" id="adminSaveFeature" type="button" hidden data-i18n="ops\.editor\.saveFeature">Save without changing status<\/button>/);
+  for (const [lang, label] of [['en', 'Save without changing status'], ['es', 'Guardar sin cambiar el estado'], ['pt', 'Salvar sem mudar o status']]) {
+    assert.equal(deskI18n(lang).t('ops.editor.saveFeature'), label, lang);
+  }
   const sent = [];
   const live = record('r1', 'First', { status: 'published', version: 4 });
   const d = desk({ routes: { catalog: (call) => {
