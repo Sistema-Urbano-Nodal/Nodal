@@ -484,3 +484,20 @@ test('when the console could not load, the path rows, the path button, the indic
   assert.deepEqual(pressed(), before.answers, 'no answer is shown as given');
   assert.deepEqual(c.patches(), [], 'and nothing is sent');
 });
+
+/* ---------------- M52: focus stays on the level just picked ---------------- */
+
+test('picking a self-assessment level keeps the keyboard on that level of that topic, drawn again, without scrolling', async () => {
+  const c = consoleFor(ana);
+  await flush();
+  const levels = (i) => c.byId('assessTopics').querySelectorAll('.seg')[i].querySelectorAll('button');
+  const picked = levels(1)[2];                       // Housing → Proficient
+  picked.focus();
+  picked.click();
+  const focused = c.doc.activeElement;
+  assert.notEqual(focused, picked, 'the rows were drawn again');
+  assert.equal(focused, levels(1)[2], 'focus is on the new Proficient button of Housing');
+  assert.equal(focused.getAttribute('aria-pressed'), 'true');
+  assert.equal(focused.focusOptions?.preventScroll, true, 'the page does not jump');
+  assert.deepEqual([focused.dataset.topic, focused.dataset.level], ['Housing', '3']);
+});

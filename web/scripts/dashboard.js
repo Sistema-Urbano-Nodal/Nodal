@@ -956,6 +956,8 @@
         const level = i + 1;
         const btn = el('button', level === topic.level ? 'is-on' : null, t(levelKey));
         btn.type = 'button';
+        btn.dataset.topic = topic.name;
+        btn.dataset.level = String(level);
         btn.setAttribute('aria-pressed', String(level === topic.level));
         if (level === 4 && topic.validatedAt < 4) {
           btn.disabled = true;
@@ -967,6 +969,9 @@
           if (current) current.level = level;
           markAssessed();
           renderAssessment();
+          // The rows are drawn again, so the button that had focus is gone: focus goes to its new copy, without scrolling.
+          [...host.querySelectorAll('button')].find((b) => b.dataset.topic === topic.name && b.dataset.level === String(level))
+            ?.focus({ preventScroll: true });
           renderTrust();
           evaluateTrack();
           renderCompleteness();
