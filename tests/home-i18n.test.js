@@ -39,7 +39,8 @@ const CONSOLE=readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.met
 // d.badge.sharer/connector/consistent.scope lines the .req lines replaced.
 // On 16 Nov 2026 the sign-up hint (a.hint) gained the upper limit sign-up already enforced (8–72), in the invitation page's
 // words; only that key moved, and tests/overview-forms-signup-hint.test.js pins it. The two nonhome hashes were redone once
-// for both changes when they were merged.
+// for both changes when they were merged, and again that day when the homepage catalog's last keys (hero.browse,
+// catalog.loadingCases, catalog.casesEmpty, catalog.casesError) left with the loader that read them.
 const HOME_KEYS=[
   "about.eyebrow",
   "about.lead1",
@@ -276,8 +277,8 @@ const SNAPSHOTS={
     "pt": "b9a077e4b2055212490393a2498292f0d20156b6f1d4e34f8d7b063179e71d3b"
   },
   "nonhome": {
-    "es": "3e52253218a19a55ce0eebc57b3c37203a9e8ec46498c7bfbcfea3e650c46e86",
-    "pt": "cf2875ee0e112c4c7dc1d2cbdf3e940cc44de48ac9bca28b08d7f278a6a4d38c"
+    "es": "96cc68a47b3deb626b6e70799d79372cb86788a73fa8132b1f11a0d6422ee247",
+    "pt": "554b543728647a9e358b32874ce1fe1453c16fad3a9deb68eadd338035cadfd0"
   }
 };
 
