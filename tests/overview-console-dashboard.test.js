@@ -465,3 +465,22 @@ test('skills are listed as they were written, with no level, dots or stage, and 
   await flush();
   assert.doesNotMatch(none.text('trustList'), /Skills/, 'no skills, no group');
 });
+
+/* ---------------- M51: a console that failed to load ---------------- */
+
+test('when the console could not load, the path rows, the path button, the indicator answers and Mark all as read do nothing', async () => {
+  const c = consoleFor(null);
+  await flush();
+  assert.equal(c.text('greetSub'), 'We could not load your console. Check your connection and try again.');
+  const rows = c.byId('pathList').querySelectorAll('.path-row');
+  const answers = c.doc.querySelectorAll('.seg[data-ind] button');
+  const pressed = () => answers.map((button) => [button.className, button.getAttribute('aria-pressed')]);
+  const before = { rows: rows.map((row) => row.className), answers: pressed() };
+  for (const control of [rows[1], c.byId('pdCta'), answers[1], c.byId('notifClear')]) {
+    assert.doesNotThrow(() => control.click(), control.id || control.className);
+  }
+  await flush();
+  assert.deepEqual(rows.map((row) => row.className), before.rows, 'no path is shown as picked');
+  assert.deepEqual(pressed(), before.answers, 'no answer is shown as given');
+  assert.deepEqual(c.patches(), [], 'and nothing is sent');
+});

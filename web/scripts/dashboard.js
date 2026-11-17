@@ -648,15 +648,19 @@
     showBranch(currentBranch);
   }
 
+  /* These controls are in the page before the member is loaded, and stay there if loading fails: until a member is in
+     hand they do nothing, rather than show a choice that is never stored. */
   const pathList = byId('pathList');
   if (pathList && pd.criteria && pd.cta) {
     pathList.querySelectorAll('.path-row').forEach((row) => {
       row.addEventListener('click', () => {
+        if (!U) return;
         pathList.querySelectorAll('.path-row').forEach((r) => r.classList.toggle('is-on', r === row));
         showBranch(row.dataset.branch);
       });
     });
     pd.cta.addEventListener('click', () => {
+      if (!U) return;
       if (currentBranch === 'project' && !partCDone()) { openPartC(); return; }
       if (currentBranch === 'community') { goTo('badges'); return; }
       U.requests[currentBranch] = true;
@@ -993,6 +997,7 @@
   document.querySelectorAll('.seg[data-ind]').forEach((seg) => {
     seg.querySelectorAll('button').forEach((btn) => {
       btn.addEventListener('click', () => {
+        if (!U) return;   // before the member is loaded, or when loading failed
         seg.querySelectorAll('button').forEach((b) => {
           b.classList.toggle('is-on', b === btn);
           b.setAttribute('aria-pressed', String(b === btn));
@@ -1601,6 +1606,7 @@
       notifBtn.setAttribute('aria-expanded', String(!notifPop.hidden));
     });
     notifClear?.addEventListener('click', () => {
+      if (!U) return;   // before the member is loaded, or when loading failed
       state.notifRead = true;
       touchUser();
       renderNotifs();
