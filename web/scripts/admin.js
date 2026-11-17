@@ -795,6 +795,7 @@
       select.append(option);
     }
     field.append(select);
+    nodeSelects.set(nodeRequest.id, select);
     const save = create('button', 'admin-button', t('ops.nodes.update'));
     save.type = 'button';
     const remove = create('button', 'admin-textbutton admin-textbutton-warning', t('ops.nodes.delete'));
@@ -803,7 +804,15 @@
     remove.setAttribute('aria-label', t('ops.nodes.deleteNamed', { organization }));
     // One write per request at a time: no delete while its status is being saved, and the other way round.
     const setBusy = (value) => { save.disabled = value; remove.disabled = value; };
+    /* A write that reaches the server redraws the list, which takes the pressed button off the page. Focus then goes to this
+       request's status in the new list, or to the band's line once the request is gone (deleted, or no longer in the filter).
+       A write refused before any redraw gives focus back to the pressed button, as restoreFocus does everywhere. */
+    const done = (trigger) => {
+      setBusy(false);
+      restoreFocus(trigger, nodeSelects.get(nodeRequest.id) || elements.nodeStatus);
+    };
     save.addEventListener('click', async () => {
+      const trigger = document.activeElement;
       setBusy(true);
       say(elements.nodeStatus, 'ops.nodes.updating');
       try {
@@ -822,10 +831,11 @@
       } catch (error) {
         report(elements.nodeStatus, error, 'ops.nodes.notUpdated');
       } finally {
-        setBusy(false);
+        done(trigger);
       }
     });
     remove.addEventListener('click', async () => {
+      const trigger = document.activeElement;
       if (!window.confirm(t('ops.nodes.confirmDelete', { organization }))) return;
       setBusy(true);
       say(elements.nodeStatus, 'ops.nodes.deleting');
@@ -837,7 +847,7 @@
       } catch (error) {
         report(elements.nodeStatus, error, 'ops.nodes.notDeleted');
       } finally {
-        setBusy(false);
+        done(trigger);
       }
     });
     controls.append(field, save, remove);
@@ -845,7 +855,10 @@
     return article;
   }
 
+  // Each drawn request's status select, by request id, so focus can find the request again in a redrawn list.
+  let nodeSelects = new Map();
   function renderNodeRequestList() {
+    nodeSelects = new Map();
     elements.nodeList.replaceChildren(...state.nodeRequests.map(renderNodeRequest));
     elements.nodeList.setAttribute('aria-busy', 'false');
   }

@@ -445,7 +445,8 @@ test('marks the Organizations tab while its band is on screen', async () => {
   assert.ok(at('id="adminTabInterests"') < at('id="adminTabNodes"') && at('id="adminTabNodes"') < at('id="adminTabFounders"'), 'the tab sits between Interest requests and Founder Membership');
   assert.match(html, /<section class="admin-band" id="nodes" aria-labelledby="nodesTitle">/);
   assert.ok(at('id="interests"') < at('id="nodes"') && at('id="nodes"') < at('id="founders"'), 'Founder Membership stays the last band');
-  assert.match(html, /<p class="admin-live" id="adminNodeStatus" role="status" aria-live="polite">[^<]*<\/p>/);
+  // tabindex="-1": focus lands on the line once a deleted request's row is gone (tests/overview-staff-desk.test.js, M153).
+  assert.match(html, /<p class="admin-live" id="adminNodeStatus" role="status" aria-live="polite" tabindex="-1">[^<]*<\/p>/);
   assert.doesNotMatch(html, /id="adminNodeStatus"[^>]*data-i18n=/, 'the status line is runtime text');
   assert.match(html, /<div class="admin-node-list" id="adminNodeList" aria-busy="true"><\/div>/);
   assert.deepEqual(['en', 'es', 'pt'].map((lang) => deskI18n(lang).t('ops.index.nodes')), ['Organizations', 'Organizaciones', 'Organizações']);

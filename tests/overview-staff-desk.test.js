@@ -413,3 +413,55 @@ test('M149: an organization request write keeps its own result on the band while
   await pending;
   assert.equal(status(), t('ops.nodes.updated'), 'and not replaced by the count once the list is back');
 });
+
+test('M153: after Update or Delete, focus returns to the same request in the redrawn list, or to the band’s line once it is gone', async () => {
+  let current = [nodeView('n1'), nodeView('n2')];
+  let write = () => response({ error: 'unexpected' }, 500);
+  const d = desk({ routes: { nodes: (call) => (call.method === 'GET' ? response({ requests: current, nextCursor: null }) : write(call)) } });
+  await flush();
+  const rowOf = (id) => d.node('adminNodeList').children.find((article) => descendants(article).some((n) => n.tagName === 'h3' && n.textContent === `Colectivo ${id}`));
+  const part = (id, tag, label) => descendants(rowOf(id)).find((n) => n.tagName === tag && (!label || n.textContent === label));
+  const saved = (call) => {
+    current = current.map((entry) => (call.url.endsWith(`/${entry.id}`) ? { ...entry, status: call.body.status, version: entry.version + 1 } : entry));
+    return response({ request: current.find((entry) => call.url.endsWith(`/${entry.id}`)) });
+  };
+
+  // From the keyboard: the redraw takes the pressed button away, and focus goes to that request's status in the new list.
+  write = saved;
+  const update = part('n1', 'button', 'Update');
+  update.focus();
+  part('n1', 'select').value = 'contacted';
+  await update.listeners.get('click')();
+  assert.notEqual(part('n1', 'button', 'Update'), update, 'the row was drawn again');
+  assert.equal(d.document.activeElement, part('n1', 'select'));
+  assert.equal(d.document.activeElement.children.find((option) => option.selected).value, 'contacted', 'showing the status just saved');
+
+  // Deleted: the row is gone, so focus goes to the band's line, which says what happened.
+  write = () => { current = current.filter((entry) => entry.id !== 'n2'); return response(null, 204); };
+  part('n2', 'button', 'Delete request').focus();
+  await part('n2', 'button', 'Delete request').listeners.get('click')();
+  assert.equal(rowOf('n2'), undefined);
+  assert.equal(d.document.activeElement, d.node('adminNodeStatus'));
+  assert.equal(d.node('adminNodeStatus').textContent, 'Request deleted.');
+
+  // Refused before any redraw: focus goes back to the button pressed.
+  write = () => response({ error: 'status must be new, contacted or closed', field: 'status' }, 400);
+  const refused = part('n1', 'button', 'Update');
+  refused.focus();
+  await refused.listeners.get('click')();
+  assert.equal(d.document.activeElement, refused);
+
+  // A click that never focused the button (Safari) moves nothing, and neither does focus the person has moved meanwhile.
+  write = saved;
+  d.document.body.focus();
+  await part('n1', 'button', 'Update').listeners.get('click')();
+  assert.equal(d.document.activeElement, d.document.body);
+  const held = deferred();
+  write = (call) => held.promise.then(() => saved(call));
+  part('n1', 'button', 'Update').focus();
+  const pending = part('n1', 'button', 'Update').listeners.get('click')();
+  d.node('adminNodeFilter').focus();
+  held.resolve();
+  await pending;
+  assert.equal(d.document.activeElement, d.node('adminNodeFilter'));
+});

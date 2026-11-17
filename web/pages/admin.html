@@ -239,7 +239,7 @@
         <label class="admin-inline-filter"><span data-i18n="ops.nodes.show">Show</span><select id="adminNodeFilter"><option value="" data-i18n="ops.filter.allStatuses">All statuses</option><option value="new" data-i18n="ops.nodes.new">New</option><option value="contacted" data-i18n="ops.nodes.contacted">Contacted</option><option value="closed" data-i18n="ops.nodes.closed">Closed</option></select></label>
         <label class="admin-inline-filter"><span data-i18n="ops.nodes.kindShow">Type</span><select id="adminNodeKind"><option value="" data-i18n="ops.nodes.allKinds">All types</option><option value="node" data-i18n="ops.nodes.kind.node">Node</option><option value="sponsorship" data-i18n="ops.nodes.kind.sponsorship">Sponsorship</option></select></label>
       </div>
-      <p class="admin-live" id="adminNodeStatus" role="status" aria-live="polite">Loading node requests…</p>
+      <p class="admin-live" id="adminNodeStatus" role="status" aria-live="polite" tabindex="-1">Loading node requests…</p>
       <div class="admin-node-list" id="adminNodeList" aria-busy="true"></div>
       <button class="admin-button admin-more" id="adminNodeMore" type="button" hidden data-i18n="ops.nodes.more">Load more requests</button>
     </section>
