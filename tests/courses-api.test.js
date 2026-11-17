@@ -121,6 +121,24 @@ test('version conflicts, forged events and invalid feedback fail without writes'
  assert.equal((await call(`/api/courses/${course.id}/modules/${module.id}/posts?cursor=invalid`)).status,400);
 });
 
+/* The teaching page lets every module field reach its limit in the base text and in all three translations, with
+   twelve materials: in accented text (two bytes each) that is past the 64 KiB other course requests are held to. */
+test('a module with every field at its limit in the base text, all three translations and twelve materials saves',async t=>{
+ const {call,course}=await setup(t);
+ const copy={title:'á'.repeat(180),description:'é'.repeat(6000),objectives:'í'.repeat(6000),instructions:'ó'.repeat(10000)};
+ const resources=Array.from({length:12},(_,i)=>({title:'ú'.repeat(180),url:`https://example.test/${'r'.repeat(1970)}${i}`,kind:'reading',translations:{en:{title:'ñ'.repeat(180)},es:{title:'ñ'.repeat(180)},pt:{title:'ã'.repeat(180)}}}));
+ const body={...copy,status:'published',translations:{en:copy,es:copy,pt:copy},resources};
+ assert.ok(Buffer.byteLength(JSON.stringify(body))>64*1024);
+ const created=await call(`/api/admin/courses/${course.id}/modules`,{actor:'staff',method:'POST',body});
+ assert.equal(created.status,201);
+ const {module}=await created.json();
+ assert.equal(module.translations.pt.instructions,copy.instructions);assert.equal(module.resources.length,12);
+ const edited=await call(`/api/admin/courses/${course.id}/modules/${module.id}`,{actor:'staff',method:'PATCH',body:{...body,version:module.version,title:'é'.repeat(180)}});
+ assert.equal(edited.status,200);assert.equal((await edited.json()).module.version,2);
+ // A body no module could fill is still refused before it is read whole.
+ assert.equal((await call(`/api/admin/courses/${course.id}/modules`,{actor:'staff',method:'POST',body:{title:'Padded',padding:'x'.repeat(300*1024)}})).status,413);
+});
+
 test('uncertain upload response retains cleanup metadata and cannot be published or erased prematurely',async t=>{
  const {call,course,module,enter,store,users}=await setup(t);await enter();
  const put=store.putFile;

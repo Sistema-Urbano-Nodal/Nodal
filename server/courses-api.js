@@ -63,6 +63,10 @@ export async function bodyJson(req, limit = 64 * 1024) {
   try { const body=JSON.parse(Buffer.concat(chunks).toString('utf8'));if(!body || typeof body!=='object' || Array.isArray(body))fail('JSON object required');return body; }
   catch(err) { if(err.status)throw err;fail('invalid JSON'); }
 }
+/* A module carries its text in the base language and in up to three translations (title 180, description 6000,
+   objectives 6000 and instructions 10000 characters each) plus twelve materials: about 123,000 characters at the
+   limits, some 220 KB in accented text, past the 64 KiB default. Module saves read up to 256 KiB. */
+const MODULE_BODY_MAX = 256 * 1024;
 function respond(res,status,body,headers={}) {
   res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers});
   res.end(typeof body==='string'||Buffer.isBuffer(body)?body:JSON.stringify(body));
@@ -404,7 +408,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
     }
     if(adminPath&&suffix==='/modules'&&req.method==='POST') {
       const count=await store.find('modules',{courseId,kind:'session'},{limit:100});if(count.length>=100)fail('course module limit reached');
-      const input=normalizeModule(await bodyJson(req));if(input.kind!=='session')fail('general discussion is created automatically');
+      const input=normalizeModule(await bodyJson(req,MODULE_BODY_MAX));if(input.kind!=='session')fail('general discussion is created automatically');
       const record={id:newId(),courseId,...input,version:1,createdAt:now(),updatedAt:now()};await validateMaterials(input.resources,record);
       const module=await store.insert('modules',record);
       send(res,201,{module});return true;
@@ -454,7 +458,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
       const operation=moduleMatch[2]||'';
       if(!operation&&req.method==='GET'){send(res,200,{module});return true;}
       if(adminPath&&!operation&&req.method==='PATCH') {
-        const input=await bodyJson(req);if(!Number.isInteger(input.version)||input.version<1)fail('version is required');
+        const input=await bodyJson(req,MODULE_BODY_MAX);if(!Number.isInteger(input.version)||input.version<1)fail('version is required');
         const normalized=normalizeModule(input,module);await validateMaterials(normalized.resources,module);
         const updated=await store.update('modules',{id:module.id,courseId,version:input.version},{...normalized,version:input.version+1,updatedAt:now()});
         if(!updated)fail('module changed; reload before saving',409);
