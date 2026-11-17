@@ -24,7 +24,7 @@ export const readProgramme=async store=>mergeProgramme(await readRows(store));
 
 /* The merged programme for one server instance: read at most once every ttlMs, with concurrent requests sharing the
    read; an edit saved through this instance calls clear(), so it shows here at once and on other instances within ttlMs
-   (plus the CDN's 15 s on GET /api/fiiu). A failed read serves the last programme and is tried again on the next
+   (plus the CDN on GET /api/fiiu: fresh for 15 s, a stale copy up to ~75 s after a quiet spell). A failed read serves the last programme and is tried again on the next
    request; the first read has nothing to fall back on, so it fails. */
 export function createProgramme({store,ttlMs=30000,now=()=>Date.now()}){
  let memo=null,last=null;

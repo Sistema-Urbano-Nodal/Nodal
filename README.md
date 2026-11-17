@@ -230,9 +230,10 @@ Titles are limited to 120 characters, summaries to 320, bodies to 5,000, CTA
 labels to 60, source labels to 120, and interest messages to 1,000. Dates accept
 only YYYY-MM-DD or RFC 3339 datetimes with a known explicit timezone (`Z` or a
 numeric offset other than `-00:00`). Date-only end
-dates remain open through 23:59:59.999 UTC; every stored date is canonical UTC.
-When dates coexist, deadline must be on or before start and end, and start must
-be on or before end.
+dates are stored as 23:59:59.999 UTC and stay open until the end of that day in
+Lima (UTC-05:00); every stored date is canonical UTC. When dates coexist,
+deadline must be on or before start and end, and start must be on or before end;
+a date-only end date counts as the end of its day in Lima.
 
 A transition from draft or archived to published refreshes the publication timestamp and publisher. Editing an already-published record preserves both values. Archiving keeps the record and its interest history; there is no catalog hard delete.
 

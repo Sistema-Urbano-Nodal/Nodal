@@ -55,7 +55,7 @@ Supabase Auth applies its own limits on sign-ins and token renewals (raised to 6
 
 Other protections:
 - **CSRF:** every request that changes something must come from NODAL's own pages.
-- **Request size:** most request bodies are capped at 32 KB, course requests at 64 KB, organisation requests at 16 KB, visit counts at 1 KB, and uploads have their own size and type checks.
+- **Request size:** most request bodies are capped at 32 KB, course requests at 64 KB (module saves at 256 KB, because a module carries its text in the base language, up to three translations and twelve materials), organisation requests at 16 KB, visit counts at 1 KB, and uploads have their own size and type checks.
 - **Known gap:** the counters are kept in each server instance's memory. Under heavy traffic Vercel runs several instances, so the limits are per instance, not global. Redis (`REDIS_URL`) is used only for caching today; making the limits global would need the limiter to keep its counters there too.
 
 ## Browser security
@@ -64,7 +64,7 @@ Every page and answer the server builds is served with:
 
 - **A strict Content Security Policy:** scripts, styles, fonts and connections from NODAL itself only; `object-src 'none'`; `frame-ancestors 'none'`.
 - **The standard protective headers:** Strict-Transport-Security, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, a `Permissions-Policy` that turns off the camera, microphone and payment APIs, and same-origin `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy`.
-- **No caching of personal answers:** `Cache-Control: no-store` on pages and API answers. A few public reads are cached briefly at the CDN: the festival programme (15 s), its conversation pulse (2 s), the BUC readings (5 min) and the public catalog (1 min).
+- **No caching of personal answers:** `Cache-Control: no-store` on pages and API answers. A few public reads are cached briefly at the CDN: the festival programme (fresh for 15 s; after a quiet spell a stale copy up to ~75 s old, refreshed in the background), its conversation pulse (2 s), the BUC readings (5 min) and the public catalog (1 min).
 
 The four CDN pages (opportunities, privacy, terminos-fundadores and fundadores) and the static files come straight from the CDN with the headers in `vercel.json`: `nosniff`, a same-origin resource policy, and `frame-ancestors 'none'`. In production the server never sees those requests (only `npm start` serves them locally), so a header or redirect for them belongs in `vercel.json` or `scripts/build-static.js`, not in `server/server.js`.
 
