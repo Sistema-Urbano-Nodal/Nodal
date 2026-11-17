@@ -59,6 +59,14 @@
   let busy = false;
   let shown = null; // null, 'kind', a FIELDS key, 'tooMany', 'unreachable' or 'unavailable'
   let unseen = false; // a thank-you that came while the window was closed
+  // Send and the kind's radios wait for the answer: a radio switched meanwhile would hide the field a 400 names. Firefox
+  // restores a control's disabled state on a soft reload, so a page reloaded mid-send starts unlocked.
+  function lock(on) {
+    busy = on;
+    send.disabled = on;
+    for (const radio of RADIOS.values()) if (radio) radio.disabled = on;
+  }
+  lock(false);
 
   // The kind chosen, or null; choosing shows or hides the sponsor fields and swaps the message's label.
   const chosen = () => [...RADIOS].find(([, radio]) => radio.checked)?.[0] ?? null;
@@ -112,8 +120,9 @@
     // A request already thanked for: opened again, it is a new form, unless the visitor closed the window while it
     // was sending and has not seen the thanks yet.
     if (!thanks.hidden && !unseen) { thanks.hidden = true; form.hidden = false; }
-    // A link's kind wins over an unsent one; the card chooses nothing, so an unsent choice stays.
-    if (kind) choose(kind);
+    // A link's kind wins over an unsent one; the card chooses nothing, so an unsent choice stays. A request on its way
+    // keeps its kind until the answer, so a line about a sponsor field never lands on a field the switch hid.
+    if (kind && !busy) choose(kind);
     if (!dialog.open) dialog.showModal();
     if (unseen) { unseen = false; done.focus(); return; }
     // The first question still open, or the first field once it is answered.
@@ -146,8 +155,7 @@
     clearMarks();
     // The first question unanswered: nothing is sent (the server would take a missing kind as a Nodo request).
     if (!kind) { shown = 'kind'; render(); mark('kind'); return; }
-    busy = true;
-    send.disabled = true;
+    lock(true);
     shown = null;
     render();
     const fields = [...FIELDS].filter(([field]) => kind === 'sponsorship' || !SPONSOR_FIELDS.includes(field));
@@ -161,8 +169,7 @@
     } catch { /* offline or aborted: the error line gives the team's addresses */ }
     clearTimeout(timer);
     const result = response?.status === 202 ? 'thanked' : await outcome(response);
-    busy = false;
-    send.disabled = false;
+    lock(false);
     if (result === 'thanked') {
       form.reset();
       showKind();

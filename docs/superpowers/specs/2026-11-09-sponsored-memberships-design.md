@@ -119,7 +119,9 @@ Choosing or switching changes the fields below, without clearing what was typed:
 | Message label | ¿Qué te interesa? (Cuéntanos brevemente) | same | ¿Qué tema o desafío urbano les interesa? (Cuéntanos brevemente) |
 
 Reopening: after a thank-you, the next opening is a fresh form with no choice (unless it opens from one of the two
-links). A window closed before sending keeps its choice and what was typed, as today.
+links). A window closed before sending keeps its choice and what was typed, as today. While a request is on its
+way, the two choices are disabled with Send, and a link opened meanwhile shows that request with its own choice: a
+400 about a sponsor field then always marks a field on screen.
 
 The sponsor fields, placed after the phone and before the message:
 

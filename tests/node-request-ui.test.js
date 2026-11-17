@@ -97,12 +97,14 @@ function later() {
   return { promise, resolve, reject };
 }
 
-async function mount({ lang = 'en', hash = '', fetchImpl = async () => answer(202, { ok: true }), dialogs = true, restored = null } = {}) {
+async function mount({ lang = 'en', hash = '', fetchImpl = async () => answer(202, { ok: true }), dialogs = true, restored = null, frozen = false } = {}) {
   const document = { activeElement: null, createElement: (tag) => new Element(document, tag), getElementById: (id) => byId.get(id) ?? null };
   const nodes = [...elements(document, CARD), ...elements(document, DIALOG)];
   const byId = new Map(nodes.filter((node) => node.id).map((node) => [node.id, node]));
   // Form state a browser restored before the script ran (Firefox does on a soft reload): a radio already checked.
   if (restored) byId.get(RADIOS[restored]).checked = true;
+  // Firefox restores a control's disabled state too: Send and both radios as a reload in the middle of a send left them.
+  if (frozen) for (const id of ['nodeRequestSend', ...Object.values(RADIOS)]) byId.get(id).disabled = true;
   const form = byId.get('nodeRequestForm');
   // As a browser resets a form: text back to empty, radios back to unchecked (none has a checked attribute), selects to their first option.
   if (form) form.reset = () => { for (const node of nodes) { if (['input', 'textarea', 'select'].includes(node.tagName)) node.value = ''; if (node.attributes.type === 'radio') node.checked = false; } };
@@ -133,8 +135,9 @@ async function mount({ lang = 'en', hash = '', fetchImpl = async () => answer(20
     dialog: $('nodeRequest'), form, error: $('nodeRequestError'), send: $('nodeRequestSend'), thanks: $('nodeRequestThanks'),
     labelled: (key) => nodes.find((node) => node.dataset.i18n === key),
     chosen: () => Object.keys(RADIOS).find((kind) => $(RADIOS[kind]).checked) ?? null,
-    // Checking one radio unchecks the other of its group, as a browser does, and the change reaches the script.
-    choose(kind) { for (const [name, id] of Object.entries(RADIOS)) $(id).checked = name === kind; if (kind) $(RADIOS[kind]).dispatch('change'); },
+    // Checking one radio unchecks the other of its group, as a browser does, and the change reaches the script; a
+    // disabled radio takes no click.
+    choose(kind) { if (kind && $(RADIOS[kind]).disabled) return; for (const [name, id] of Object.entries(RADIOS)) $(id).checked = name === kind; if (kind) $(RADIOS[kind]).dispatch('change'); },
     type(values) { for (const [field, value] of Object.entries(values)) { if (field === 'kind') this.choose(value); else $(FIELDS[field]).value = value; } },
     // What a visitor sees: the kind, the shared fields and, on a sponsorship, the sponsor fields.
     typed() { const kind = this.chosen(); return Object.fromEntries([['kind', kind], ...Object.entries(FIELDS).filter(([field]) => kind === 'sponsorship' || !['community', 'memberships'].includes(field)).map(([field, id]) => [field, $(id).value])]); },
@@ -367,6 +370,11 @@ test('shows the sponsor fields for a choice the browser restored before the scri
   const nodo = await mount({ restored: 'node' });
   assert.equal(nodo.$('nodeRequestSponsor').hidden, true);
   assert.deepEqual([nodo.$('nodeRequestMessageLabel').hidden, nodo.$('nodeRequestTopicLabel').hidden], [false, true]);
+  // A page reloaded in the middle of a send starts with Send and the radios free, whatever Firefox restored.
+  const reloaded = await mount({ restored: 'sponsorship', frozen: true });
+  assert.deepEqual(['nodeRequestSend', ...Object.values(RADIOS)].map((id) => reloaded.$(id).disabled), [false, false, false]);
+  reloaded.choose('node');
+  assert.equal(reloaded.chosen(), 'node');
 });
 
 test('asks for a choice before sending', async () => {
@@ -492,6 +500,46 @@ test('switching to Nodo drops the line about a sponsor field it hides, and choos
   unasked.choose('sponsorship');
   assert.deepEqual([line.hidden, line.textContent, ...group()], [true, '', null, null]);
   assert.equal(unasked.requests.length, 0);
+});
+
+test('a request on its way keeps its kind until the answer, so a line about a sponsor field lands on a field on screen', async () => {
+  const lines = { community: 'Write the community you would like to support, up to 200 characters.', memberships: 'Choose roughly how many memberships.' };
+  for (const [field, text] of Object.entries(lines)) {
+    const reply = later();
+    const page = await mount({ fetchImpl: () => reply.promise });
+    page.open();
+    page.type({ ...SPONSOR, [field]: '' });
+    await page.submit();
+    const radios = () => Object.values(RADIOS).map((id) => page.$(id).disabled);
+    assert.deepEqual([page.send.disabled, ...radios()], [true, true, true], `${field}: the radios wait with Send`);
+    page.choose('node');
+    assert.deepEqual([page.chosen(), page.$('nodeRequestSponsor').hidden], ['sponsorship', false], `${field}: no switch while sending`);
+    reply.resolve(answer(400, { field }));
+    await settle();
+    assert.deepEqual([page.send.disabled, ...radios()], [false, false, false], `${field}: free once answered`);
+    assert.deepEqual([page.error.hidden, page.error.textContent, page.$(FIELDS[field]).getAttribute('aria-invalid')], [false, text, 'true'], field);
+    assert.equal(page.document.activeElement, page.$(FIELDS[field]), `${field}: the focus lands on a field the visitor sees`);
+    // Answered, the switch works again and drops the line about the field it hides.
+    page.choose('node');
+    assert.deepEqual([page.chosen(), page.error.hidden, page.$(FIELDS[field]).getAttribute('aria-invalid')], ['node', true, null], field);
+  }
+  // Closed mid-send and opened again from /#nodos: the window shows the request still on its way, with its kind.
+  const reply = later();
+  const linked = await mount({ fetchImpl: () => reply.promise });
+  linked.open();
+  linked.type({ ...SPONSOR, community: '' });
+  await linked.submit();
+  linked.dialog.escape();
+  linked.hashchange('#nodos');
+  assert.deepEqual([linked.dialog.open, linked.chosen(), linked.$('nodeRequestSponsor').hidden], [true, 'sponsorship', false]);
+  reply.resolve(answer(400, { field: 'community' }));
+  await settle();
+  assert.deepEqual([linked.error.hidden, linked.error.textContent, linked.$(FIELDS.community).getAttribute('aria-invalid')], [false, lines.community, 'true']);
+  assert.equal(linked.document.activeElement, linked.$(FIELDS.community));
+  // Answered, a link chooses its kind again.
+  linked.dialog.escape();
+  linked.hashchange('#nodos');
+  assert.deepEqual([linked.chosen(), linked.error.hidden], ['node', true]);
 });
 
 test('swaps the message label with the choice', async () => {
