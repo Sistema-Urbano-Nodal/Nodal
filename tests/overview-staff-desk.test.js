@@ -486,3 +486,23 @@ test('M67: the Organizations band names both kinds of request in its own loading
   // The band lists Nodo and sponsorship requests (6e2bf37); its runtime lines are ops.nodes.loading, failed and unavailable.
   assert.match(adminPage(), /<p class="admin-live" id="adminNodeStatus" role="status" aria-live="polite" tabindex="-1">Loading organization requests…<\/p>/);
 });
+
+test('M63: the button that saves an open record with its current status says so, not that it saves the feature setting alone', async () => {
+  // It sends every field of the editor (saveCatalog with the record's own status), so a published record's unfinished edits go live with it.
+  assert.match(adminPage(), /<button class="admin-textbutton" id="adminSaveFeature" type="button" hidden data-i18n="ops\.editor\.saveFeature">Save without changing status<\/button>/);
+  const sent = [];
+  const live = record('r1', 'First', { status: 'published', version: 4 });
+  const d = desk({ routes: { catalog: (call) => {
+    if (call.method === 'PATCH') { sent.push(call.body); return response({ item: { ...live, ...call.body, id: 'r1', version: 5 } }); }
+    return response({ items: [live], nextCursor: null });
+  } } });
+  await flush();
+  catalogRow(d, 'r1').listeners.get('click')();
+  d.node('adminSummaryEs').value = 'Resumen nuevo';
+  d.node('adminFeatured').checked = true;
+  await d.node('adminSaveFeature').listeners.get('click')();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].status, 'published', 'the status stays');
+  assert.equal(sent[0].featured, true);
+  assert.equal(sent[0].translations.es.summary, 'Resumen nuevo', 'and every other field is saved with it');
+});
