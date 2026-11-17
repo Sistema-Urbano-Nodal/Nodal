@@ -1434,7 +1434,8 @@
           || searchInput.value.trim().toLowerCase() !== normalizedQuery) return;
         const hits = (Array.isArray(data.users) ? data.users : []).map((u) => ({
           label: u.name,
-          meta: [u.role, u.city].filter(Boolean).join(' · '),
+          // 'Member' is the server's no-title sentinel. Read when drawn, so a kept answer follows a language switch.
+          get meta() { return [u.role === 'Member' ? t('d.role.member') : u.role, u.city].filter(Boolean).join(' · '); },
           href: `profile.html?id=${encodeURIComponent(u.id)}`,
         }));
         peopleHits = hits;

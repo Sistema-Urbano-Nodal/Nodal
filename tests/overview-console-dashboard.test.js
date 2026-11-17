@@ -390,3 +390,26 @@ test('the directory failure line reads in Spanish and Portuguese', async () => {
   c.i18n.apply('pt', { persist: false });
   assert.equal(c.i18n.t('d.search.directoryUnavailable'), 'Não é possível buscar no diretório de membros agora. Tente novamente.');
 });
+
+/* ---------------- M44: the server's 'Member' placeholder in People results ---------------- */
+
+test('People results translate the server’s Member placeholder, in the language on screen when they are shown', async () => {
+  const users = [
+    { id: 'u1', name: 'Rosa Huamán', role: 'Member', city: 'Lima' },
+    { id: 'u2', name: 'Luis Rojas', role: 'Arquitecto', city: '' },
+    { id: 'u3', name: 'Ana Quispe', role: 'Member', city: '' },
+  ];
+  const c = consoleFor(ana, { lang: 'es', respond: ({ url }, reply) => {
+    if (url === '/api/users/search') return reply(200, { users });
+    if (url.startsWith('/api/catalog')) return reply(200, { items: [] });
+    return undefined;
+  } });
+  await flush();
+  const shown = () => c.byId('searchPop').querySelectorAll('.search-hit').map((hit) => [hit.querySelector('strong').textContent, hit.querySelector('span').textContent]);
+  await searchFor(c, 'lima');
+  assert.deepEqual(shown(), [['Rosa Huamán', 'Miembro de la comunidad · Lima'], ['Luis Rojas', 'Arquitecto'], ['Ana Quispe', 'Miembro de la comunidad']]);
+  c.i18n.apply('pt', { persist: false });
+  await lookAgain(c);
+  assert.equal(directorySearches(c), 1, 'the answer is kept');
+  assert.deepEqual(shown()[0], ['Rosa Huamán', 'Membro da comunidade · Lima'], 'and drawn in the new language');
+});
