@@ -115,7 +115,7 @@ const PAPER='#F2ECEC',INK='#1d271b',COPY='#2f3a2b',MUTED='#586253',FOREST='#3D5C
 /* The lockup PNGs in web/assets/email/, published by scripts/build-static.js with a cross-origin resource policy so mail
    clients may load them. Every email already sent points at these paths: never change their bytes; a new version of
    the logo needs a new file name. */
-export const EMAIL_LOCKUP={light:'/assets/email/nodal-lockup.png',dark:'/assets/email/nodal-lockup-dark.png',width:168,height:64};
+const EMAIL_LOCKUP={light:'/assets/email/nodal-lockup.png',dark:'/assets/email/nodal-lockup-dark.png',width:168,height:64};
 const festivalDate=(value,lang,options)=>new Intl.DateTimeFormat(LOCALES[lang],{...options,timeZone:FIIU_EVENT.timeZone}).format(new Date(`${value}T12:00:00-05:00`));
 
 /* The letter's parts in one language, shared by the registration summary and the one-off notices (partyEmail).

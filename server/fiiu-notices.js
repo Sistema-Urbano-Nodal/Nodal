@@ -15,7 +15,7 @@ import {sendingDay,sentSince,settledSentAt,overCap,twice,BATCH_SIZE,DAILY_CAP} f
    none. "Retry failed" claims 'failed' rows back with a compare-and-set; 'uncertain' is never resent. Every send counts
    toward the daily cap the summary emails use, checked again once each person is claimed (see DAILY_CAP). */
 export const PARTY_NOTICE={kind:'closing-party',activityId:'closing-party'};
-export const NOTICE_STATUSES=['pending','sent','failed','uncertain','skipped'];
+const NOTICE_STATUSES=['pending','sent','failed','uncertain','skipped'];
 const OUTCOMES=['sent','failed','uncertain','skipped'];
 const planned=(registration,activityId)=>Array.isArray(registration.answers?.activities)&&registration.answers.activities.includes(activityId);
 

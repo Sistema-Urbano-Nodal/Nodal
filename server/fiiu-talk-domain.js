@@ -8,9 +8,9 @@ export const TALK_LIMITS={question:500,talk:180,message:1000,files:3,fileBytes:3
 export const TALK_FILE_TYPES=['image/jpeg','image/png','image/webp','application/pdf'];
 /* A browser draws an image at width × height × 4 bytes whatever the file weighs. The page redraws photos at 1600 px with
    a 480 px preview, and sends one it cannot redraw as it is: a 12 MP phone photo fits, a 48 KB PNG of 20000 px does not. */
-export const TALK_IMAGE_LIMITS={side:8192,pixels:4096*4096,thumbSide:640};
+const TALK_IMAGE_LIMITS={side:8192,pixels:4096*4096,thumbSide:640};
 // A question is a conversation or a 1–10 rating (with the chat below it); the type is chosen when it is created.
-export const QUESTION_KINDS=['chat','rating'];
+const QUESTION_KINDS=['chat','rating'];
 /* The festival-wide space beside the blocks: a pseudo-block that is neither in the programme nor in a registration,
    so it has no date, time, venue or talks, and the same people take part as on a block. */
 export const GENERAL_SPACE=Object.freeze({id:'general',period:'general',title:'FIIU General',date:null,time:'',venue:'',sessions:Object.freeze([]),registration:'general-space'});
@@ -36,7 +36,7 @@ function shortName(name){
 }
 /* The pixel size an image decodes to, from its header: the PNG IHDR, the WebP VP8X canvas or VP8L/VP8 frame, the first
    JPEG frame (SOF0-15 but DHT C4, JPG C8 and DAC CC), reached segment by segment as a decoder does. null without one. */
-export function imageSize(bytes,mime){
+function imageSize(bytes,mime){
  const size=(width,height)=>width>=1&&height>=1?{width,height}:null;
  if(mime==='image/png')return bytes.length>=24&&bytes.toString('ascii',12,16)==='IHDR'?size(bytes.readUInt32BE(16),bytes.readUInt32BE(20)):null;
  if(mime==='image/webp'){

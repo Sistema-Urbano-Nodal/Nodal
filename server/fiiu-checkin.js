@@ -7,11 +7,12 @@ import {resolveSupabaseEnv} from './supabase.js';
    the screen goes stale quickly. The 22-character code (about 132 bits) rides in the QR link; the 6-character code
    (30 unambiguous symbols, about 7×10^8 values) is for phones that will not scan, and the per-account limiter
    makes guessing it impractical. */
-export const SLOT_MS=60000,ACCEPTED_SLOTS=5,CODE_LENGTH=22,SHORT_CODE_LENGTH=6;
+const SLOT_MS=60000,ACCEPTED_SLOTS=5;
+export const CODE_LENGTH=22,SHORT_CODE_LENGTH=6;
 export const SHORT_CODE_ALPHABET='23456789ABCDEFGHJKLMNPQRTUVWXY';
 const LONG_LABEL='nodal-fiiu-checkin:v1',SHORT_LABEL='nodal-fiiu-checkin-short:v1';
 // Typed codes may carry spaces or a dash between the two groups of three, and lower case.
-export const normalizeShortCode=value=>String(value??'').replace(/[\s-]/g,'').toUpperCase();
+const normalizeShortCode=value=>String(value??'').replace(/[\s-]/g,'').toUpperCase();
 const same=(a,b)=>{const x=Buffer.from(a),y=Buffer.from(b);return x.length===y.length&&timingSafeEqual(x,y);};
 export function createCheckinCodes({secret=randomBytes(32),now=Date.now}={}){
  if(!secret||secret.length<32)throw Error('check-in secret must be at least 32 bytes');

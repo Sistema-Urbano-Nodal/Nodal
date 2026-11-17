@@ -13,7 +13,7 @@ import {readProgramme} from './fiiu-programme.js';
    the provider cannot have the message, so retrying it is safe; 'uncertain' (and a 'pending' that never reported back)
    is never retried. The email goes out in the language stored with the registration, else Spanish; reserved test
    addresses end as 'skipped'. */
-export const CONFIRMATION_STATUSES=['none','pending','sent','failed','uncertain','skipped'];
+const CONFIRMATION_STATUSES=['none','pending','sent','failed','uncertain','skipped'];
 const OUTCOMES=['sent','failed','uncertain','skipped'];
 // One dashboard request sends at most BATCH_SIZE emails, concurrently, each under the mailer's 8-second cap, so a
 // request ends well inside the hosting's function time limit; the page asks for the next batch.
@@ -32,9 +32,9 @@ export const BATCH_SIZE=4;
    takes its email out of the count (its row is deleted). */
 export const DAILY_CAP=150;
 // The states whose confirmation_sent_at marks a send that may have reached the provider.
-export const ATTEMPTED=['sent','uncertain','pending'];
+const ATTEMPTED=['sent','uncertain','pending'];
 
-export const maskEmail=email=>{const [name,domain]=String(email).split('@');return `${name.slice(0,1)}***@${domain??''}`;};
+const maskEmail=email=>{const [name,domain]=String(email).split('@');return `${name.slice(0,1)}***@${domain??''}`;};
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 // A write that must land (an outcome, or a claim put back): a row left 'pending' is never sent again automatically.
 export const twice=async write=>{try{await write();}catch{await pause(250);await write();}};
@@ -49,7 +49,7 @@ export async function overCap(store,cap,putBack){
 }
 
 // The live festival settings the email links to (programme URL and the like).
-export async function festivalConfig(store){
+async function festivalConfig(store){
  const row=(await store.find('config',{id:EVENT_ID},{limit:1}))[0];
  return configView(row?.data);
 }
