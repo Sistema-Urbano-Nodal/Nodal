@@ -169,7 +169,7 @@ test('Supabase env accepts publishable key and keeps the secret server-only', ()
   assert.equal(resolved.serverKey, 'test-server-key');
 });
 
-test('Supabase env supports legacy anon/service_role names without browser exposure', () => {
+test('Supabase env supports the legacy anon and service_role names, with or without requireServer', () => {
   const env = {
     NEXT_PUBLIC_SUPABASE_URL: 'https://legacy.supabase.co',
     NEXT_PUBLIC_SUPABASE_ANON_KEY: 'legacy-anon-jwt',
