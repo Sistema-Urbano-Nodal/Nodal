@@ -138,10 +138,11 @@ news editor (`/fiiu-admin.html#content`) and to courses (`/teaching.html`).
 Administrators reach it from "Metrics and tools" (Indicadores y gestión), the
 first link in the console's rail, under Team, which only they see; it opens
 the admin home (`/admin`, `/admin-home.html`),
-whose menu leads to the desk. The home shows the indicators with their
-definitions, can export them as CSV or print them, and saves at most one
-reading of the totals per Lima day. The page and every `/api/admin/*` request independently
-require a server-owned `admin` role; there is no separate publisher role.
+whose menu leads to the desk. Selecting a headline figure opens its indicator
+family. Staff can explore all seven families, read their definitions, and open
+the queues awaiting review. Export report offers CSV downloads and a printable
+report covering every family. Monthly readings use each month’s latest saved totals.
+The page and every `/api/admin/*` request independently require a server-owned `admin` role; there is no separate publisher role.
 Catalog records are archived rather than deleted.
 
 The four staff pages (`/admin-home.html`, `/admin.html`, `/fiiu-admin.html`,
@@ -269,7 +270,7 @@ The admin home reads three protected routes (administrators only, never cached, 
 
 - `GET /api/admin/metrics` answers the indicators in six parts that can each fail alone; `?fresh=1` recomputes instead of using the 5-minute memo (6 a minute per account; 60 a minute otherwise).
 - `GET /api/admin/metrics/export?table=indicators|months|readings&lang=es|en|pt` answers one CSV, with exactly one `table` and one `lang` (else 400): `indicators` and `months` are the same figures as the route above, by indicator or by month; `readings` is the saved daily readings.
-- `POST /api/admin/metrics/readings` saves one reading of the totals for the current Lima day, at most once a day, and never one with anything unavailable (6 a minute per account).
+- `POST /api/admin/metrics/readings` saves one reading of the totals for the current Lima day, at most once a day, and never one with anything unavailable (6 a minute per account). The overview adds `?include=reading` to display the figures actually saved for that day, including a reading another administrator saved first.
 
 Visits are counted by a first-party script, without cookies:
 

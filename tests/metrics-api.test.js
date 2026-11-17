@@ -394,6 +394,20 @@ test('memoises for five minutes and shares one computation',async t=>{
  await get('/api/admin/metrics?fresh=1');assert.equal(state.calls,4,'fresh=1 skips the memo');
 });
 
+test('overlapping manual refreshes share fresh figures',async t=>{
+ const pair=together();
+ const {get,clock}=await setup(t,{metricsStore:pair.store,metricsOptions:pair.options});
+ const initial=await get();
+ clock.at+=1000;
+ pair.arm();
+ const [first,second]=await Promise.all([get('/api/admin/metrics?fresh=1'),get('/api/admin/metrics?fresh=1')]);
+ assert.equal(first.status,200);
+ assert.equal(second.status,200);
+ assert.notEqual(first.body.asOf,initial.body.asOf);
+ assert.deepEqual(first.body,second.body);
+ assert.equal(pair.state.calls,2,'one initial computation and one manual refresh');
+});
+
 test('limits',async t=>{
  const {call}=await setup(t);
  for(let i=0;i<60;i++)assert.equal((await call('/api/admin/metrics')).status,200,`GET ${i+1}`);
@@ -936,6 +950,10 @@ test('the reading uses the memo or the shared computation',async t=>{
  await get();assert.equal(first.state.calls,1);
  assert.deepEqual(await (await call('/api/admin/metrics/readings',{method:'POST'})).json(),{saved:true,day:'2026-11-14'});
  assert.equal(first.state.calls,1,'the POST read the memo');
+ const latest=await get();
+ assert.equal(latest.body.readings.today,true);
+ assert.equal(latest.body.readings.months[0].day,'2026-11-14');
+ assert.equal(first.state.calls,1,'publishing the saved reading keeps the computed figures');
  const pair=together();
  const other=await setup(t,{metricsStore:pair.store,metricsOptions:pair.options});
  pair.arm(); // the computation ends only once the POST and the GET are both in
@@ -943,6 +961,89 @@ test('the reading uses the memo or the shared computation',async t=>{
  assert.deepEqual(post,{saved:true,day:'2026-11-14'});
  assert.equal(read.status,200);
  assert.equal(pair.state.calls,1,'one computation for both');
+});
+
+test('a first reading saved by another instance appears on the next ordinary read',async t=>{
+ const {call,get,own}=await setup(t);
+ assert.equal((await get()).body.readings.today,false);
+ const figures={'signups.accounts':123};
+ await own.metrics.saveReading('2026-11-14',START,figures,1);
+ const post=await call('/api/admin/metrics/readings',{method:'POST'});
+ assert.deepEqual(await post.json(),{saved:false,day:'2026-11-14'});
+ const {body}=await get();
+ assert.equal(body.readings.today,true);
+ assert.deepEqual(body.readings.months[0].figures,figures);
+});
+
+test('the dashboard receives the committed figures for new and existing readings',async t=>{
+ const path='/api/admin/metrics/readings?include=reading';
+ const {call,own}=await setup(t,{fixture:true});
+ const created=await (await call(path,{method:'POST'})).json();
+ const [row]=await own.metrics.readings();
+ const reading={month:'2026-11',day:row.day,defs:row.defs,figures:row.figures};
+ assert.deepEqual(created,{saved:true,day:row.day,reading});
+ assert.deepEqual(await (await call(path,{method:'POST'})).json(),{saved:false,day:row.day,reading});
+
+ const pair=together();
+ const other=await setup(t,{metricsStore:pair.store,metricsOptions:pair.options});
+ await other.get();
+ const winner={...reading,defs:2,figures:{'signups.accounts':123}};
+ await other.own.metrics.saveReading(winner.day,START,winner.figures,winner.defs);
+ assert.deepEqual(await (await other.call(path,{method:'POST'})).json(),{saved:false,day:winner.day,reading:winner});
+ assert.deepEqual((await other.get()).body.readings,{today:true,months:[winner]});
+ assert.equal(pair.state.calls,1,'learning the winner only reads its day');
+});
+
+test('a pending refresh includes a concurrent save, also across Lima month-end',async t=>{
+ for(const [next,sameDay] of [['2026-11-01T04:59:30Z',true],['2026-11-01T05:00:30Z',false]]){
+  const writing=deferred(),finishWrite=deferred(),snapshot=deferred(),finishRefresh=deferred();
+  let pauseRead=false,calls=0;
+  const {get,call,clock,db}=await setup(t,{start:'2026-11-01T04:59:00Z',metricsStore:({metrics})=>wrap(metrics,{
+   memberDays:async(day,options,real)=>{calls++;return real(day,options);},
+   saveReading:async(day,at,figures,defs,real)=>{
+    writing.resolve();await finishWrite.promise;return real(day,at,figures,defs);
+   },
+   readings:async(options,real)=>{
+    const rows=await real(options);
+    if(pauseRead){snapshot.resolve();await finishRefresh.promise;}
+    return rows;
+   },
+  })});
+  await get();
+  const post=call('/api/admin/metrics/readings?include=reading',{method:'POST'});
+  await writing.promise;
+  clock.at=Date.parse(next);
+  createUser(db,{fullName:'New account',email:'new@example.test',passwordHash:'unused',role:'member'});
+  pauseRead=true;
+  const refresh=get('/api/admin/metrics?fresh=1');
+  await snapshot.promise; // the refresh has read the table before the insert commits
+  finishWrite.resolve();
+  const {reading}=await (await post).json();
+  finishRefresh.resolve();
+  const {body}=await refresh;
+  assert.equal(body.limaDay,sameDay?'2026-10-31':'2026-11-01');
+  assert.equal(indicator(body,'signups.accounts').total,3);
+  assert.equal(reading.figures['signups.accounts'],2);
+  assert.deepEqual(body.readings,{today:sameDay,months:[reading]});
+  assert.deepEqual((await get()).body.readings,body.readings);
+  assert.equal(calls,2,'the new metrics snapshot survives the older save');
+ }
+});
+
+test('a failed conflict lookup leaves the daily reading unknown until a later read',async t=>{
+ const {call,get,own}=await setup(t,{metricsStore:({metrics})=>wrap(metrics,{
+  readings:async(options,real)=>{
+   if(options.day)throw Object.assign(new Error('lookup deadline'),{name:'TimeoutError'});
+   return real(options);
+  },
+ })});
+ await get();
+ await own.metrics.saveReading('2026-11-14',START,{'signups.accounts':123},1);
+ const reply=await call('/api/admin/metrics/readings?include=reading',{method:'POST'});
+ assert.deepEqual(await reply.json(),{saved:false,day:'2026-11-14'});
+ const {body}=await get();
+ assert.equal(body.readings.today,true);
+ assert.deepEqual(body.readings.months[0].figures,{'signups.accounts':123});
 });
 
 test('never saves one day\'s figures under the next day',async t=>{

@@ -119,6 +119,18 @@ function monthsOf(series,state){
  return series?{...series.months}:{state:'unavailable'};
 }
 
+const monthReading=({day,defs,figures})=>({month:day.slice(0,7),day,defs,figures});
+
+function readingHistory(rows,day){
+ const latest=new Map();
+ for(const row of rows){
+  const month=row.day.slice(0,7);
+  if(!latest.has(month)||latest.get(month).day<row.day)latest.set(month,row);
+ }
+ const months=[...latest.keys()].sort().map(month=>monthReading(latest.get(month)));
+ return {today:rows.some(row=>row.day===day),months};
+}
+
 /* One computation of the whole answer (without the catalogue's texts and lists): what the memo, the export and the POST
    share. deps: {store, visitStore, fiiuStore, fiiuProgramme, courseStore, deadlineMs, onFailure(part, outcome)}. */
 export async function computeAnswer(deps,at){
@@ -145,7 +157,10 @@ export async function computeAnswer(deps,at){
    if(!visitStore)throw offStore('visits');
    return shaped('visits',await visitStore.totals(windows.d30.from,day,{signal}));
   },
-  readings:signal=>{if(!store)throw offStore('readings');return store.readings({signal});},
+  readings:async signal=>{
+   if(!store)throw offStore('readings');
+   return readingHistory(await store.readings({signal}),day);
+  },
  };
  const results=await Promise.all(READING_PARTS.map(name=>runPart(name,parts[name],deadlineMs)));
  const byName=Object.fromEntries(results.map(r=>[r.name,r]));
@@ -190,12 +205,7 @@ export async function computeAnswer(deps,at){
   registrations:derived('members',()=>monthsOf(members&&series(members.days?.registrations,1),states.members),{state:'unavailable'}),
   views,arrivals,
  }};
- let readings;
- if(states.readings==='ok'){
-  const list=Array.isArray(byName.readings.value)?byName.readings.value:[],latest=new Map();
-  for(const r of list)latest.set(String(r.day).slice(0,7),r); // oldest first: the last one of a month wins
-  readings={today:list.some(r=>r.day===day),months:[...latest].sort(([a],[b])=>a<b?-1:1).map(([month,r])=>({month,day:r.day,defs:r.defs,figures:r.figures}))};
- }else readings={today:false,months:[],state:states.readings};
+ const readings=value('readings')??{today:false,months:[],state:states.readings};
  const summary=value('festival')?.summary;
  const pending={
   interests:isNum(members?.now?.interestsNew)?members.now.interestsNew:null,
@@ -311,14 +321,23 @@ export function createMetricsApi({store,visitStore,fiiuStore,fiiuProgramme,cours
  // A promise memo (as server/fiiu-programme.js): concurrent requests share one computation; its lifetime is chosen when
  // it settles, and it never serves another Lima day's figures.
  let memo=null;
- function current({fresh=false}={}){
+ async function current({fresh=false}={}){
   const t=now(),day=limaDay(t);
-  if(!fresh&&memo&&memo.day===day&&t<memo.until)return memo.promise;
-  const entry={day,until:Infinity,promise:null};
-  entry.promise=computeAnswer(deps,t).then(answer=>{entry.until=t+(answerComplete(answer)?memoMs:partialMemoMs);return answer;},
-   error=>{if(memo===entry)memo=null;throw error;});
-  memo=entry;
-  return entry.promise;
+  let entry=memo;
+  if(entry?.day!==day||(entry.until!==null&&(fresh||t>=entry.until))){
+   entry={day,until:null,written:new Map(),promise:null};
+   entry.promise=computeAnswer(deps,t).then(answer=>{entry.until=t+(answerComplete(answer)?memoMs:partialMemoMs);return answer;},
+    error=>{if(memo===entry)memo=null;throw error;});
+   memo=entry;
+  }
+  const answer=await entry.promise;
+  // A save started before this snapshot can commit after it reads history, including across Lima midnight.
+  if(entry.written.size&&!answer.readings.state){
+   const readings=readingHistory([...answer.readings.months,...entry.written.values()],day);
+   readings.today ||= answer.readings.today;
+   return {...answer,readings};
+  }
+  return answer;
  }
  const unavailableAnswer=(res,error)=>{onFailure('answer',{error,report:'always'});send(res,503,{error:'metrics unavailable'});};
 
@@ -346,20 +365,35 @@ export function createMetricsApi({store,visitStore,fiiuStore,fiiuProgramme,cours
 
  /* POST readings: today's reading from the memo or the shared computation, never from the body (which is not read). The
     day is the answer's own limaDay, and the memo never serves another Lima day, so one day's figures are never saved
-    under the next. Only a complete answer is saved, first write wins; after a save the memo is dropped. */
- async function saveReading(req,res,user){
+    under the next. The first write wins. The dashboard can request its persisted figures with ?include=reading. */
+ async function saveReading(req,res,user,includeReading){
   req.resume();
   if(!sameOrigin(req)){send(res,403,{error:'cross-origin request rejected'});return;}
   if(!rateLimit(req,res,user,'read')||!rateLimit(req,res,user,'heavy'))return;
   let answer;
   try{answer=await current();}catch(error){unavailableAnswer(res,error);return;}
   const day=answer.limaDay;
-  if(!answerComplete(answer)||answer.readings.today){send(res,200,{saved:false,day});return;}
-  let saved;
-  try{saved=await store.saveReading(day,answer.asOf,figuresOf(answer.families.flatMap(f=>f.indicators)),answer.defs);}
-  catch(error){onFailure('readings',{error,report:classify(error,false).report});send(res,503,{error:'metrics unavailable'});return;}
-  if(saved)memo=null;
-  send(res,200,{saved:!!saved,day});
+  let saved=false,reading=answer.readings.months.find(row=>row.day===day);
+  const shouldSave=answerComplete(answer)&&!answer.readings.today;
+  if(shouldSave){
+   const figures=figuresOf(answer.families.flatMap(f=>f.indicators));
+   try{saved=await store.saveReading(day,answer.asOf,figures,answer.defs);}
+   catch(error){onFailure('readings',{error,report:classify(error,false).report});send(res,503,{error:'metrics unavailable'});return;}
+   if(saved)reading=monthReading({day,defs:answer.defs,figures});
+  }
+  // A different instance may have won with earlier figures. Only fetch that day's row when requested.
+  if(includeReading&&!reading&&(shouldSave||answer.readings.today)){
+   try{
+    const rows=await store.readings({day,signal:AbortSignal.timeout(deadlineMs)});
+    const winner=rows.find(row=>row.day===day);
+    if(winner)reading=monthReading(winner);
+   }catch(error){onFailure('readings',{error,report:classify(error,false).report});}
+  }
+  if(shouldSave&&memo&&day<=memo.day){
+   if(reading)memo.written.set(day,reading);
+   else if(!memo.written.has(day))memo=null; // re-read a different instance's winner on the next request
+  }
+  send(res,200,{saved,day,...(includeReading&&reading?{reading}:{})});
  }
  return async({req,res,url,user})=>{
   const path=url.pathname;
@@ -368,7 +402,7 @@ export function createMetricsApi({store,visitStore,fiiuStore,fiiuProgramme,cours
   if(user.permission!=='admin'){send(res,403,{error:'administrator access required'});return true;}
   if(path==='/api/admin/metrics/readings'){
    if(req.method!=='POST'){send(res,405,{error:'method not allowed'},{Allow:'POST'});return true;}
-   await saveReading(req,res,user);return true;
+   await saveReading(req,res,user,url.searchParams.get('include')==='reading');return true;
   }
   if(path!=='/api/admin/metrics'&&path!=='/api/admin/metrics/export'){send(res,404,{error:'not found'});return true;}
   if(!['GET','HEAD'].includes(req.method)){send(res,405,{error:'method not allowed'},{Allow:'GET, HEAD'});return true;}

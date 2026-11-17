@@ -77,9 +77,9 @@ test('the route, the month series and the pairs as the design fixed them', () =>
   assert.deepEqual(SERIES_INDICATOR, { accounts: 'signups.new', entered: 'signups.entered', registrations: 'festival.registrations', views: 'visits.views', arrivals: 'visits.arrivals' });
   assert.deepEqual(PAIRS, [['courses.surveyAnswered', 'courses.surveyTotal']]);
   // The sentence names the two dotted stops (the directory, the 30-day window): it changes with them.
-  assert.equal(TEXTS.en.routeApart, 'Dotted segment: not one more step. The directory is by consent; activity is counted over 30 days.');
-  assert.equal(TEXTS.es.routeApart, 'Tramo punteado: no es un paso más. El directorio es por consentimiento; la actividad se cuenta en 30 días.');
-  assert.equal(TEXTS.pt.routeApart, 'Trecho pontilhado: não é mais um passo. O diretório é por consentimento; a atividade é contada em 30 dias.');
+  assert.equal(TEXTS.en.routeApart, 'Dotted links mark directory opt-ins and activity in the last 30 days.');
+  assert.equal(TEXTS.es.routeApart, 'Los tramos punteados señalan la visibilidad voluntaria en el directorio y la actividad de los últimos 30 días.');
+  assert.equal(TEXTS.pt.routeApart, 'Os trechos pontilhados indicam a participação voluntária no diretório e a atividade nos últimos 30 dias.');
 });
 
 test('the vocabularies match their owners', () => {

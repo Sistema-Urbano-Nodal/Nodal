@@ -1444,6 +1444,15 @@ test('a status change made here while the same question is being edited does not
 const leavePrompt=h=>{let prevented=false;for(const listener of h.windowListeners.beforeunload)listener({preventDefault(){prevented=true;}});return prevented;};
 const at=hash=>({location:{hash,search:'',pathname:'/fiiu-admin.html',assign(){},reload(){}}});
 
+test('the lab queue link opens the pending applications filter',async()=>{
+ const participants=[{...participant('participant-b','Bruno'),labStatus:'accepted'},participant('participant-a','Ana')];
+ const h=await harness(()=>({content:[],nextCursor:null}),{participants,context:at('#pending-lab')});
+ await flush();
+ assert.deepEqual(participantNames(h),['Ana Test']);
+ assert.equal(key(h.root,'filterLabPending')['aria-pressed'],'true');
+ assert.equal(key(h.root,'filterLabPending').focused,true);
+});
+
 test('opening the dashboard at a section link scrolls there once, after the sections above it have filled in, and never yanks an organiser who already moved',async()=>{
  const scrolls=[],original=Node.prototype.scrollIntoView;
  Node.prototype.scrollIntoView=function(options){scrolls.push({id:this.id,options:{...options}});};

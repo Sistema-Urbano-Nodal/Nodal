@@ -1115,13 +1115,23 @@
  // the questions, the summary emails and the other participant pages push it down by thousands of pixels. One instant jump (html scrolls smoothly,
  // which would aim at the old place); someone who already scrolled, tapped or typed is left where they are, and later refreshes never scroll.
  const sectionHosts=()=>({overview:summaryHost,checkin:checkinHost,participants:participantsHost,settings:settingsHost,programme:programmeHost,content:contentHost,conversations:conversationsHost});
- const sectionId=location.hash.slice(1),wantsSection=SECTIONS.some(([id])=>id===sectionId);let movedOn=false;
+ const opensLabQueue=location.hash==='#pending-lab';
+ const sectionId=opensLabQueue?'participants':location.hash.slice(1),wantsSection=SECTIONS.some(([id])=>id===sectionId);
+ if(opensLabQueue)participantFilter='labPending';
+ let movedOn=false;
  if(wantsSection){
   // The browser's own restoration would put a reload back where it was in a far shorter page; the section is the place to be.
   if(globalThis.history)history.scrollRestoration='manual';
   for(const type of ['wheel','touchstart','pointerdown','keydown'])window.addEventListener?.(type,()=>{movedOn=true;},{once:true,passive:true});
  }
- function reachSection(filled){if(wantsSection)Promise.allSettled(filled).then(()=>{if(!movedOn&&!locked)sectionHosts()[sectionId]?.scrollIntoView({block:'start',behavior:'instant'});});}
+ function reachSection(filled){
+  if(!wantsSection)return;
+  Promise.allSettled(filled).then(()=>{
+   if(movedOn||locked)return;
+   sectionHosts()[sectionId]?.scrollIntoView({block:'start',behavior:'instant'});
+   if(opensLabQueue)filterButtons.get('labPending')?.focus({preventScroll:true});
+  });
+ }
  async function load(){
   status(message,'loading');const summaryRequest=api('/api/admin/fiiu/summary').then(data=>({data}),error=>({error})),questionsRequest=readQuestions().then(list=>({list}),error=>({error})),programmeRequest=readProgramme().then(list=>({list}),error=>({error}));try{const [settingsData,posts,participantData]=await Promise.all([api('/api/admin/fiiu/config'),api('/api/admin/fiiu/content'),api('/api/admin/fiiu/registrations')]);festival={event:settingsData.event};config=settingsData.config;publications=posts.content;contentCursor=posts.nextCursor;setRecords(participantData.registrations);cursor=participantData.nextCursor;
    const grid=el('div','f-admin-columns');grid.append(listHost,detailHost);detailHost.replaceChildren(tr('p','selectParticipant','f-muted f-detail-empty'));const heading=tr('h2','participants');heading.id='f-h-participants';participantsHost.id='participants';participantsHost.replaceChildren(heading,filters(),grid);

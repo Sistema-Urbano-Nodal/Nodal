@@ -126,21 +126,27 @@ export function createMetricsStore({db,env=process.env,clients,fetchImpl=fetch}=
    return rows.length>0;
   },
   // Oldest first. The Data API cuts a table read at the project's row cap with no error, so it pages by day until an
-  // empty page (as server/fiiu-repository.js scans).
-  async readings({signal}={}){
-   if(db)return db.prepare('SELECT day,taken_at,defs,figures FROM metrics_readings ORDER BY day').all().map(r=>{
-    // A cell that is not a JSON object fails the read as the Data API would, never as a bare SyntaxError.
-    let figures;
-    try{figures=JSON.parse(r.figures);}catch{figures=null;}
-    if(figures===null||typeof figures!=='object'||Array.isArray(figures))unavailable('readings');
-    return {day:r.day,takenAt:r.taken_at,defs:r.defs,figures};
-   });
+  // empty page (as server/fiiu-repository.js scans). A request for a particular day needs only its primary-key lookup.
+  async readings({signal,day}={}){
+   if(day!==undefined&&(typeof day!=='string'||!DAY.test(day)))fail('invalid metrics day');
+   if(db){
+    const select='SELECT day,taken_at,defs,figures FROM metrics_readings';
+    const rows=day?db.prepare(`${select} WHERE day=?`).all(day):db.prepare(`${select} ORDER BY day`).all();
+    return rows.map(r=>{
+     // A cell that is not a JSON object fails the read as the Data API would, never as a bare SyntaxError.
+     let figures;
+     try{figures=JSON.parse(r.figures);}catch{figures=null;}
+     if(figures===null||typeof figures!=='object'||Array.isArray(figures))unavailable('readings');
+     return {day:r.day,takenAt:r.taken_at,defs:r.defs,figures};
+    });
+   }
    const out=[];
    for(let cursor=null;;){
-    const page=await supa.admin.rest('metrics_readings',{query:{select:'day,taken_at,defs,figures',order:'day.asc',limit:PAGE,...(cursor?{day:`gt.${cursor}`}:{})},signal});
+    const filter=day?{day:`eq.${day}`}:cursor?{day:`gt.${cursor}`}:{};
+    const page=await supa.admin.rest('metrics_readings',{query:{select:'day,taken_at,defs,figures',order:'day.asc',limit:day?1:PAGE,...filter},signal});
     if(!Array.isArray(page))unavailable('readings');
-    if(!page.length)return out;
     for(const r of page)out.push({day:r.day,takenAt:r.taken_at,defs:r.defs,figures:r.figures});
+    if(day||!page.length)return out;
     cursor=page.at(-1).day;
    }
   },

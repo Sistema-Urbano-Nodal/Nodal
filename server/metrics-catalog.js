@@ -384,9 +384,9 @@ const SERIES = {
 };
 // Why ROUTE's dotted segments are not one more step: it names its two 'apart' stops (the directory, the 30-day window).
 const ROUTE_APART = {
-  es: 'Tramo punteado: no es un paso más. El directorio es por consentimiento; la actividad se cuenta en 30 días.',
-  en: 'Dotted segment: not one more step. The directory is by consent; activity is counted over 30 days.',
-  pt: 'Trecho pontilhado: não é mais um passo. O diretório é por consentimento; a atividade é contada em 30 dias.',
+  es: 'Los tramos punteados señalan la visibilidad voluntaria en el directorio y la actividad de los últimos 30 días.',
+  en: 'Dotted links mark directory opt-ins and activity in the last 30 days.',
+  pt: 'Os trechos pontilhados indicam a participação voluntária no diretório e a atividade nos últimos 30 dias.',
 };
 
 const pageKeys = [...new Set(Object.values(VISIT_PAGES))];

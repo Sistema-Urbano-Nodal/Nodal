@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="referrer" content="no-referrer" />
   <meta name="robots" content="noindex, nofollow" />
-  <title>NODAL · Metrics</title>
+  <title>Network overview · NODAL</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cline x1='20' y1='22' x2='44' y2='42' stroke='%2359bc53' stroke-width='5'/%3E%3Ccircle cx='20' cy='22' r='11' fill='%233d5c38'/%3E%3Ccircle cx='44' cy='42' r='8' fill='%2359bc53'/%3E%3C/svg%3E" />
 
   <link rel="stylesheet" href="locale.css?v=20260929a" />
@@ -14,13 +14,13 @@
   <link rel="stylesheet" href="fonts.css?v=20260911b" />
   <link rel="stylesheet" href="styles.css?v=37" />
   <link rel="stylesheet" href="admin.css?v=20261109a" />
-  <link rel="stylesheet" href="admin-home.css?v=20261116a" />
+  <link rel="stylesheet" href="admin-home.css?v=20261117b" />
   <link rel="stylesheet" href="admin-nav.css?v=20261114a" />
 
   <script defer src="nav.js?v=20261116a"></script>
   <script defer src="script.js?v=18"></script>
   <script defer src="admin-nav.js?v=20261116a"></script>
-  <script defer src="admin-home.js?v=20261116a"></script>
+  <script defer src="admin-home.js?v=20261117b"></script>
   <script defer src="i18n.js?v=20261116a"></script>
   <script defer src="visit.js?v=20261114b" data-staff></script>
 </head>
@@ -44,36 +44,46 @@
 
   <nav class="staff-nav" data-staff-nav aria-label="Administration"><a href="admin-home.html" data-staff="home" aria-current="page">Metrics</a><a href="admin.html" data-staff="desk">Publishing</a><a href="fiiu-admin.html" data-staff="festival">Festival</a><a href="teaching.html" data-staff="courses">Courses</a><button type="button" data-staff="signOut">Sign out</button><span role="status" aria-live="polite" data-staff-status></span></nav>
   <main class="admin-shell" id="homeMain">
-    <header class="admin-head home-head">
-      <div class="admin-head-title">
+    <header class="home-head">
+      <div>
         <p class="home-print-head" id="homePrintHead"></p>
-        <h1 id="homeTitle">Metrics</h1>
-        <p class="home-asof"><span id="homeAsOf"></span><span id="homeWindows"></span></p>
+        <h1 id="homeTitle">Network overview</h1>
+        <p class="home-asof" id="homeAsOf"></p>
       </div>
-      <div class="admin-head-side home-tools">
-        <button class="admin-textbutton" id="homeRefresh" type="button">Refresh</button>
-        <button class="admin-textbutton" id="homePrint" type="button">Print or save as PDF</button>
-        <span class="home-csv" role="group" aria-labelledby="homeCsvLabel">
-          <span class="home-csv-label" id="homeCsvLabel">Download CSV:</span>
-          <span class="home-csv-buttons">
-            <button class="admin-textbutton" id="homeCsv" type="button">Indicators</button>
-            <button class="admin-textbutton" id="homeMonthsCsv" type="button">By month</button>
-            <button class="admin-textbutton" id="homeReadingsCsv" type="button" hidden>Readings</button>
-          </span>
-        </span>
-        <a class="home-compare" id="homeCompare" href="#homeTracking" hidden>Compare months</a>
+      <div class="home-tools">
+        <button class="home-refresh" id="homeRefresh" type="button">Refresh</button>
+        <details class="home-reports" id="homeReports" hidden>
+          <summary id="homeReportsLabel">Export report</summary>
+          <div class="home-report-options">
+            <button id="homePrint" type="button">Print or save as PDF</button>
+            <div class="home-csv" role="group" aria-labelledby="homeCsvLabel">
+              <span class="home-csv-label" id="homeCsvLabel">Download CSV:</span>
+              <button id="homeCsv" type="button">Indicators</button>
+              <button id="homeMonthsCsv" type="button">By month</button>
+              <button id="homeReadingsCsv" type="button" hidden>Readings</button>
+            </div>
+          </div>
+        </details>
       </div>
     </header>
 
-    <p class="admin-live" id="homeStatus" role="status" aria-live="polite">Loading…</p>
+    <p class="admin-live" id="homeStatus" role="status" aria-live="polite" tabindex="-1">Loading…</p>
     <p class="home-actions">
       <button class="admin-textbutton" id="homeRetry" type="button" hidden>Try again</button>
       <a id="homeSignIn" href="login.html?next=%2Fadmin-home.html" hidden>Sign in</a>
     </p>
     <div class="home-top" id="homeTop" hidden>
-      <section class="home-route" id="homeRoute" aria-labelledby="homeRouteTitle"></section>
+      <p class="home-partial" id="homePartial" hidden></p>
       <div class="home-lead" id="homeLead"></div>
-      <section class="home-pending" id="homePending" aria-labelledby="homePendingTitle" hidden></section>
+      <div class="home-side">
+        <section class="home-pending" id="homePending" aria-labelledby="homePendingTitle" hidden></section>
+        <section class="home-periods" aria-labelledby="homePeriodTitle">
+          <h2 id="homePeriodTitle">Reporting periods</h2>
+          <div id="homeWindows"></div>
+          <a class="home-compare" id="homeCompare" href="#homeTracking" hidden>Compare months</a>
+        </section>
+      </div>
+      <section class="home-route" id="homeRoute" aria-labelledby="homeRouteTitle"></section>
     </div>
     <div class="home-blocks" id="homeBlocks"></div>
     <section class="home-tracking" id="homeTracking" aria-labelledby="homeTrackingTitle"></section>

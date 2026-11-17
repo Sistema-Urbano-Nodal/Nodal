@@ -44,12 +44,12 @@ test('the page is the desk\'s frame with the home\'s assets', () => {
   const read = [...script.matchAll(/getElementById\('([^']+)'\)/g)].map((m) => m[1]);
   assert.ok(read.length >= 20, read.join());
   for (const id of read) assert.equal((html.match(new RegExp(`\\bid="${id}"`, 'g')) || []).length, 1, id);
-  // The tools in the order a phone stacks them, the downloads named by their visible label; the top in reading order.
+  // Export actions share a native disclosure. The overview keeps a stable reading order across refreshes.
   const order = (ids) => ids.map((id) => html.indexOf(`id="${id}"`));
-  const tools = order(['homeRefresh', 'homePrint', 'homeCsvLabel', 'homeCsv', 'homeMonthsCsv', 'homeReadingsCsv', 'homeCompare']);
+  const tools = order(['homeRefresh', 'homeReportsLabel', 'homePrint', 'homeCsvLabel', 'homeCsv', 'homeMonthsCsv', 'homeReadingsCsv', 'homeCompare']);
   assert.deepEqual(tools, [...tools].sort((a, b) => a - b));
-  assert.match(html, /<span class="home-csv" role="group" aria-labelledby="homeCsvLabel">/);
-  const sheet = order(['homeStatus', 'homeRetry', 'homeTop', 'homeRoute', 'homeLead', 'homePending', 'homeBlocks', 'homeTracking']);
+  assert.match(html, /<div class="home-csv" role="group" aria-labelledby="homeCsvLabel">/);
+  const sheet = order(['homeStatus', 'homeRetry', 'homeTop', 'homeLead', 'homePending', 'homeWindows', 'homeRoute', 'homeBlocks', 'homeTracking']);
   assert.deepEqual(sheet, [...sheet].sort((a, b) => a - b));
   assert.match(html, /<a class="home-compare" id="homeCompare" href="#homeTracking" hidden>/);
   // Nothing the pages' Content-Security-Policy refuses: no inline script, no style element or attribute.

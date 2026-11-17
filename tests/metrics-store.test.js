@@ -106,10 +106,14 @@ test('the first reading of a day wins',async t=>{
  assert.equal(await local.saveReading('2026-11-14',at,{a:1},1),true);
  assert.equal(await local.saveReading('2026-11-14','2026-11-14T20:00:00.000Z',{a:2},1),false);
  assert.deepEqual(await local.readings(),[{day:'2026-11-14',takenAt:at,defs:1,figures:{a:1}}]);
+ assert.deepEqual(await local.readings({day:'2026-11-13'}),[]);
+ assert.deepEqual(await local.readings({day:'2026-11-14'}),await local.readings());
  // Supabase: the insert ignores a duplicate and answers the stored rows; [] means another write won.
  const stored=new Map();
  const {calls,fetchImpl}=recorder((url,init)=>{
   if(init.method==='POST'){const [row]=JSON.parse(init.body);if(stored.has(row.day))return json(201,[]);stored.set(row.day,row);return json(201,[row]);}
+  const day=url.searchParams.get('day');
+  if(day?.startsWith('eq.'))return json(200,[...stored.values()].filter(row=>row.day===day.slice(3)));
   return json(200,url.searchParams.has('day')?[]:[...stored.values()]);
  });
  const remote=createMetricsStore({env:ENV,fetchImpl});
@@ -123,6 +127,12 @@ test('the first reading of a day wins',async t=>{
  }
  assert.deepEqual(JSON.parse(posts[0].body),[{day:'2026-11-14',taken_at:at,defs:1,figures:{a:1}}]);
  assert.deepEqual(await remote.readings(),[{day:'2026-11-14',takenAt:at,defs:1,figures:{a:1}}]);
+ const before=calls.length;
+ const signal=new AbortController().signal;
+ assert.deepEqual(await remote.readings({day:'2026-11-14',signal}),[{day:'2026-11-14',takenAt:at,defs:1,figures:{a:1}}]);
+ assert.equal(calls.length,before+1);
+ assert.equal(calls.at(-1).url.searchParams.get('limit'),'1');
+ assert.equal(calls.at(-1).signal,signal);
 });
 
 test('reads every reading past the row cap',async()=>{
